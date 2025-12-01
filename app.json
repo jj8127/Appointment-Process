@@ -1,15 +1,19 @@
 {
   "expo": {
-    "name": "fc-onboarding-app",
-    "slug": "fc-onboarding-app",
+    "name": "한화 FC 패스",
+    "slug": "hanwha-fc-pass",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
-    "scheme": "fconboardingapp",
+    "scheme": "hanwhafcpass",
     "userInterfaceStyle": "automatic",
     "newArchEnabled": true,
     "ios": {
-      "supportsTablet": true
+      "supportsTablet": true,
+      "bundleIdentifier": "com.jj8127.fconboardingapp",
+      "infoPlist": {
+        "ITSAppUsesNonExemptEncryption": false
+      }
     },
     "android": {
       "adaptiveIcon": {
@@ -19,7 +23,8 @@
         "monochromeImage": "./assets/images/android-icon-monochrome.png"
       },
       "edgeToEdgeEnabled": true,
-      "predictiveBackGestureEnabled": false
+      "predictiveBackGestureEnabled": false,
+      "package": "com.jj8127.fconboardingapp"
     },
     "web": {
       "output": "static",
@@ -27,6 +32,22 @@
     },
     "plugins": [
       "expo-router",
+      [
+        "expo-build-properties",
+        {
+          "android": {
+            "kotlinVersion": "2.2.20",
+            "kotlinJvmTarget": "17"
+          }
+        }
+      ],
+      [
+        "expo-notifications",
+        {
+          "icon": "./assets/images/icon.png",
+          "color": "#f36f21"
+        }
+      ],
       [
         "expo-splash-screen",
         {
@@ -38,11 +59,18 @@
             "backgroundColor": "#000000"
           }
         }
-      ]
+      ],
+      "expo-secure-store"
     ],
     "experiments": {
       "typedRoutes": true,
       "reactCompiler": true
+    },
+    "extra": {
+      "router": {},
+      "eas": {
+        "projectId": "6e9a1f11-8b60-46f9-8af2-168188dbf3db"
+      }
     }
   }
 }

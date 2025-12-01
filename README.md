@@ -1,50 +1,46 @@
-# Welcome to your Expo app 👋
+FC Onboarding App (Expo + Supabase)
+===================================
 
-This is an [Expo](https://expo.dev) project created with [`create-expo-app`](https://www.npmjs.com/package/create-expo-app).
+FC 인적사항 등록, 경력조회/임시사번, 수당동의, 서류 업로드, 총무 대시보드 관리를 위한 크로스플랫폼 앱입니다.
 
-## Get started
+환경 변수
+--------
 
-1. Install dependencies
+루트에 `.env`를 만들고 아래 값을 넣어주세요. `EXPO_PUBLIC_` 접두사는 앱 런타임에서 그대로 노출되므로 저장소에는 커밋하지 마세요.
 
-   ```bash
-   npm install
-   ```
-
-2. Start the app
-
-   ```bash
-   npx expo start
-   ```
-
-In the output, you'll find options to open the app in a
-
-- [development build](https://docs.expo.dev/develop/development-builds/introduction/)
-- [Android emulator](https://docs.expo.dev/workflow/android-studio-emulator/)
-- [iOS simulator](https://docs.expo.dev/workflow/ios-simulator/)
-- [Expo Go](https://expo.dev/go), a limited sandbox for trying out app development with Expo
-
-You can start developing by editing the files inside the **app** directory. This project uses [file-based routing](https://docs.expo.dev/router/introduction).
-
-## Get a fresh project
-
-When you're ready, run:
-
-```bash
-npm run reset-project
+```
+EXPO_PUBLIC_SUPABASE_URL=your-supabase-url
+EXPO_PUBLIC_SUPABASE_ANON_KEY=your-supabase-anon-key
 ```
 
-This command will move the starter code to the **app-example** directory and create a blank **app** directory where you can start developing.
+개발 서버 실행
+-------------
 
-## Learn more
+```
+npm install
+npm start
+```
 
-To learn more about developing your project with Expo, look at the following resources:
+Expo CLI가 QR 코드와 에뮬레이터/시뮬레이터 실행 옵션을 제공합니다.
 
-- [Expo documentation](https://docs.expo.dev/): Learn fundamentals, or go into advanced topics with our [guides](https://docs.expo.dev/guides).
-- [Learn Expo tutorial](https://docs.expo.dev/tutorial/introduction/): Follow a step-by-step tutorial where you'll create a project that runs on Android, iOS, and the web.
+주요 경로
+--------
 
-## Join the community
+- 홈/허브: `app/index.tsx`
+- 로그인(매직링크): `app/auth.tsx`
+- FC 등록: `app/fc/new.tsx`
+- 수당동의 입력: `app/consent.tsx`
+- 서류 업로드: `app/docs-upload.tsx`
+- 총무 대시보드: `app/dashboard.tsx`
 
-Join our community of developers creating universal apps.
+Supabase 스키마 적용
+-------------------
 
-- [Expo on GitHub](https://github.com/expo/expo): View our open source platform and contribute.
-- [Discord community](https://chat.expo.dev): Chat with Expo users and ask questions.
+`supabase/schema.sql`을 Supabase SQL Editor 또는 supabase CLI로 실행해 테이블/시퀀스/RLS/스토리지 버킷(`fc-documents`)을 생성하세요. `generate_temp_id()` RPC가 임시사번을 발급하며, 스토리지 정책은 `authenticated` 사용자만 업로드/조회 가능하도록 설정되어 있습니다.
+
+다음 작업 아이디어
+-----------------
+
+- 업로드 화면에서 업로드 파일 검증(용량/확장자) 및 재업로드 요청
+- 대시보드 목록을 Supabase 쿼리 + React Query로 교체
+- 상태 전이/검수/최종 URL 발송 로직을 서버와 연결
