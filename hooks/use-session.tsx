@@ -6,8 +6,8 @@ type Role = 'admin' | 'fc' | null;
 
 type SessionState = {
   role: Role;
-  residentId: string;
-  residentMask: string;
+  residentId: string; // now stores phone number digits
+  residentMask: string; // formatted phone number
   displayName: string;
 };
 
@@ -22,8 +22,9 @@ const SessionContext = createContext<SessionContextValue | undefined>(undefined)
 const computeMask = (raw: string) => {
   const digits = raw.replace(/[^0-9]/g, '');
   if (!digits) return '';
-  if (digits.length >= 6) return `${digits.slice(0, 6)}-******`;
-  return digits;
+  if (digits.length <= 3) return digits;
+  if (digits.length <= 7) return `${digits.slice(0, 3)}-${digits.slice(3)}`;
+  return `${digits.slice(0, 3)}-${digits.slice(3, 7)}-${digits.slice(7)}`;
 };
 
 const initialState: SessionState = { role: null, residentId: '', residentMask: '', displayName: '' };

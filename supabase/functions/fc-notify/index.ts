@@ -19,7 +19,7 @@ type Payload =
   | { type: 'admin_update'; fc_id: string; message?: string }; // 관리자 → FC
 
 type TokenRow = { expo_push_token: string; resident_id: string | null; display_name: string | null };
-type FcRow = { id: string; name: string | null; resident_id_masked: string | null };
+type FcRow = { id: string; name: string | null; resident_id_masked: string | null; phone: string | null };
 
 const EXPO_PUSH_URL = 'https://exp.host/--/api/v2/push/send';
 
@@ -106,7 +106,7 @@ serve(async (req: Request) => {
   // FC 정보 조회
   const { data: fc, error: fcError } = await supabase
     .from('fc_profiles')
-    .select('id,name,resident_id_masked')
+    .select('id,name,resident_id_masked,phone')
     .eq('id', body.fc_id)
     .maybeSingle();
   if (fcError || !fc) {
@@ -116,7 +116,7 @@ serve(async (req: Request) => {
 
   // 대상/토큰 결정
   const targetRole: 'admin' | 'fc' = body.type === 'admin_update' ? 'fc' : 'admin';
-  const targetResidentId = targetRole === 'fc' ? fcRow.resident_id_masked : null; // 개인 대상 알림
+  const targetResidentId = targetRole === 'fc' ? fcRow.phone ?? fcRow.resident_id_masked : null; // 개인 대상 알림
 
   let tokens: TokenRow[] = [];
   if (body.type === 'fc_update') {
@@ -153,7 +153,7 @@ serve(async (req: Request) => {
     to: t.expo_push_token,
     title,
     body: message,
-    data: { fc_id: fcRow.id, resident_id: fcRow.resident_id_masked, name: fcRow.name, url: '/notifications' },
+    data: { fc_id: fcRow.id, resident_id: fcRow.phone ?? fcRow.resident_id_masked, name: fcRow.name, url: '/notifications' },
   }));
 
   const resp = await fetch(EXPO_PUSH_URL, {

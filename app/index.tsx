@@ -26,7 +26,7 @@ const CARD_SHADOW = {
 };
 
 const quickLinksAdmin = [
-  { href: '/admin-register', title: '신규 FC 등록', description: '프로필 생성 · 발급' },
+  { href: '/exam-register', title: '시험 등록', description: '응시일정 · 마감 · 지역 관리' },
   { href: '/dashboard?mode=temp', title: '임시/대기 관리', description: '임시번호 발급 · 현황 조회' },
   { href: '/dashboard?mode=docs', title: '문서 검토', description: '업로드 · 승인 처리' },
   { href: '/admin-notice', title: '공지 업로드', description: '새 공지 작성 · 등록' },
@@ -49,7 +49,7 @@ const steps = [
 const fetchCounts = async (role: 'admin' | 'fc' | null, residentId: string) => {
   let query = supabase.from('fc_profiles').select('status');
   if (role === 'fc' && residentId) {
-    query = query.eq('resident_id_masked', residentId);
+    query = query.eq('phone', residentId);
   }
   const { data, error } = await query;
   if (error) throw error;
@@ -88,7 +88,7 @@ const fetchFcStatus = async (residentId: string) => {
   const { data, error } = await supabase
     .from('fc_profiles')
     .select('name,status,temp_id,allowance_date,fc_documents(doc_type,storage_path)')
-    .eq('resident_id_masked', residentId)
+    .eq('phone', residentId)
     .maybeSingle();
   if (error) throw error;
   return data ?? { name: '', status: 'draft', temp_id: null, allowance_date: null, fc_documents: [] };
@@ -162,10 +162,10 @@ export default function Home() {
     const subject = encodeURIComponent('개인정보 삭제 요청');
     const body = encodeURIComponent(
       [
-        '앱에 등록된 개인정보 삭제를 요청합니다.',
-        `이름(선택): ${displayName || ''}`,
-        `주민번호(마스킹): ${residentMask || ''}`,
-        '연락처: ',
+        '수탁 법인에 저장된 개인정보 삭제를 요청합니다.',
+        `이름(성함): ${displayName || ''}` ,
+        `휴대폰번호: ${residentMask || ''}` ,
+        '생년월일: ',
         '',
         '요청 사유:',
       ].join('\n'),
@@ -173,7 +173,7 @@ export default function Home() {
     const url = `mailto:${PRIVACY_EMAIL}?subject=${subject}&body=${body}`;
 
     Linking.openURL(url).catch(() => {
-      Alert.alert('요청 방법', `삭제 요청을 이메일(${PRIVACY_EMAIL})로 보내주세요.`);
+      Alert.alert('요청 실패', `이메일(${PRIVACY_EMAIL})로 직접 요청해주세요.`);
     });
   };
 
@@ -223,7 +223,7 @@ export default function Home() {
           <View style={{ flex: 1, gap: 6 }}>
             <Text style={styles.ctaLabel}>FC 지원</Text>
             <Text style={styles.ctaTitle}>서류 현황 보기</Text>
-            <Text style={styles.ctaSub}>업로드/승인 진행도를 한 번에 확인하세요.</Text>
+            <Text style={styles.ctaSub}>진행상황을 한 번에 확인하세요.</Text>
           </View>
           <View style={styles.ctaPill}>
             <Text style={styles.ctaPillText}>바로 이동</Text>

@@ -41,17 +41,17 @@ const statusLabels: Record<FcProfile['status'], string> = {
 };
 
 const docOptions: RequiredDocType[] = [
-  '생명보험 합격증',
-  '제3보험 합격증',
-  '손해보험 합격증',
-  '생명보험 합격증(신규)',
-  '제3보험 합격증(신규)',
-  '손해보험 합격증(신규)',
-  '생명보험 합격증(경력)',
-  '제3보험 합격증(경력)',
-  '손해보험 합격증(경력)',
-  '이클린',
-  '경력 증명서',
+  '주민등록증 사본',
+  '통장 사본',
+  '최근3개월 급여명세서',
+  '주민등록증 이미지(앞)',
+  '통장 이미지(앞)',
+  '최근3개월 이미지(앞)',
+  '주민등록증 이미지(뒤)',
+  '통장 이미지(뒤)',
+  '최근3개월 이미지(뒤)',
+  '신체검사서',
+  '개인정보동의서',
 ];
 
 type FcRow = {
@@ -66,6 +66,7 @@ type FcRow = {
   career_type: string | null;
   email: string | null;
   address: string | null;
+  address_detail: string | null;
   fc_documents?: { doc_type: string; storage_path: string | null; file_name: string | null; status: string | null }[];
 };
 
@@ -78,12 +79,12 @@ const fetchFcs = async (
   let query = supabase
     .from('fc_profiles')
     .select(
-      'id,name,affiliation,phone,temp_id,status,allowance_date,resident_id_masked,career_type,email,address,fc_documents(doc_type,storage_path,file_name,status)',
+      'id,name,affiliation,phone,temp_id,status,allowance_date,resident_id_masked,career_type,email,address,address_detail,fc_documents(doc_type,storage_path,file_name,status)',
     )
     .order('created_at', { ascending: false });
 
   if (role === 'fc' && residentId) {
-    query = query.eq('resident_id_masked', residentId);
+    query = query.eq('phone', residentId);
   }
   if (status !== 'all') {
     query = query.eq('status', status);
@@ -332,9 +333,12 @@ export default function DashboardScreen() {
                       <Text style={styles.meta}>임시번호: {tempDisplay}</Text>
                       <Text style={styles.meta}>경력 구분: {careerDisplay}</Text>
                       <Text style={styles.meta}>수당 날짜: {fc.allowance_date ?? '-'}</Text>
-                      <Text style={styles.meta}>주민번호(마스킹): {fc.resident_id_masked ?? '-'}</Text>
+                      <Text style={styles.meta}>휴대폰: {fc.phone ?? '-'}</Text>
                       <Text style={styles.meta}>이메일: {fc.email ?? '-'}</Text>
-                      <Text style={styles.meta}>주소: {fc.address ?? '-'}</Text>
+                      <Text style={styles.meta}>
+                        주소: {fc.address ?? '-'}
+                        {fc.address_detail ? ` ${fc.address_detail}` : ''}
+                      </Text>
                     </View>
                   ) : null}
 
@@ -342,6 +346,19 @@ export default function DashboardScreen() {
                     <>
                       {showTempSection ? (
                         <View style={{ gap: 8, marginTop: 8 }}>
+                          <View style={styles.careerRow}>
+                            {(['신입', '경력'] as ('신입' | '경력')[]).map((c) => {
+                              const active = (careerInputs[fc.id] ?? fc.career_type ?? '신입') === c;
+                              return (
+                                <Pressable
+                                  key={c}
+                                  style={[styles.careerPill, active && styles.careerPillActive]}
+                                  onPress={() => setCareerInputs((prev) => ({ ...prev, [fc.id]: c }))}>
+                                  <Text style={[styles.careerText, active && styles.careerTextActive]}>{c}</Text>
+                                </Pressable>
+                              );
+                            })}
+                          </View>
                           <View style={styles.tempRow}>
                             <TextInput
                               style={styles.input}
@@ -362,19 +379,6 @@ export default function DashboardScreen() {
                               disabled={updateTemp.isPending}
                               color={ORANGE}
                             />
-                          </View>
-                          <View style={styles.careerRow}>
-                            {(['신입', '경력'] as ('신입' | '경력')[]).map((c) => {
-                              const active = (careerInputs[fc.id] ?? fc.career_type ?? '신입') === c;
-                              return (
-                                <Pressable
-                                  key={c}
-                                  style={[styles.careerPill, active && styles.careerPillActive]}
-                                  onPress={() => setCareerInputs((prev) => ({ ...prev, [fc.id]: c }))}>
-                                  <Text style={[styles.careerText, active && styles.careerTextActive]}>{c}</Text>
-                                </Pressable>
-                              );
-                            })}
                           </View>
                         </View>
                       ) : null}

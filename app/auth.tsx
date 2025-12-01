@@ -1,16 +1,5 @@
 import { useEffect, useState } from 'react';
-import {
-  Alert,
-  Button,
-  Image,
-  KeyboardAvoidingView,
-  Platform,
-  ScrollView,
-  StyleSheet,
-  Text,
-  TextInput,
-  View,
-} from 'react-native';
+import { Alert, Button, Image, StyleSheet, Text, TextInput, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { router } from 'expo-router';
 
@@ -18,6 +7,7 @@ import { useKeyboardPadding } from '@/hooks/use-keyboard-padding';
 import { useSession } from '@/hooks/use-session';
 import { supabase } from '@/lib/supabase';
 import Logo from '../logo.png';
+import { KeyboardAwareWrapper } from '@/components/KeyboardAwareWrapper';
 
 const ORANGE = '#f36f21';
 const ORANGE_LIGHT = '#f7b182';
@@ -25,7 +15,7 @@ const CHARCOAL = '#111827';
 
 export default function AuthScreen() {
   const { loginAs, role, residentId, hydrated } = useSession();
-  const [residentInput, setResidentInput] = useState('');
+  const [phoneInput, setPhoneInput] = useState('');
   const keyboardPadding = useKeyboardPadding();
 
   useEffect(() => {
@@ -36,9 +26,9 @@ export default function AuthScreen() {
   }, [hydrated, residentId, role]);
 
   const handleLogin = async () => {
-    const code = residentInput.trim();
+    const code = phoneInput.trim();
     if (!code) {
-      Alert.alert('입력 필요', '주민번호 또는 관리자 코드를 입력해주세요.');
+      Alert.alert('입력 필요', '휴대폰 번호를 입력해주세요.');
       return;
     }
 
@@ -49,12 +39,11 @@ export default function AuthScreen() {
     }
 
     const digits = code.replace(/[^0-9]/g, '');
-    const masked = digits.length >= 6 ? `${digits.slice(0, 6)}-${digits.slice(6)}` : digits;
 
     const { data, error } = await supabase
       .from('fc_profiles')
-      .select('resident_id_masked,name')
-      .in('resident_id_masked', [masked, digits])
+      .select('id,phone,name')
+      .eq('phone', digits)
       .maybeSingle();
 
     if (error) {
@@ -62,41 +51,55 @@ export default function AuthScreen() {
       return;
     }
     if (!data) {
-      Alert.alert('FC 정보가 없습니다.', '관리자에게 문의해주세요.');
+      const { data: inserted, error: insertErr } = await supabase
+        .from('fc_profiles')
+        .insert({
+          phone: digits,
+          name: '',
+          affiliation: '',
+          recommender: '',
+          email: '',
+          address: '',
+          status: 'draft',
+        })
+        .select('phone,name')
+        .single();
+      if (insertErr) {
+        Alert.alert('로그인 실패', insertErr.message ?? '가입 중 오류가 발생했습니다.');
+        return;
+      }
+      loginAs('fc', inserted?.phone ?? digits, inserted?.name ?? '');
+      router.replace('/');
       return;
     }
 
-    loginAs('fc', data.resident_id_masked ?? masked, data.name ?? '');
+    loginAs('fc', data.phone ?? digits, data.name ?? '');
     router.replace('/');
   };
 
   return (
     <SafeAreaView style={styles.safe}>
-      <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} style={{ flex: 1 }}>
-        <ScrollView
-          contentContainerStyle={[styles.container, { paddingBottom: keyboardPadding + 100 }]}
-          keyboardShouldPersistTaps="handled">
-          <View style={styles.hero}>
-            <Image source={Logo} style={styles.logo} resizeMode="contain" />
-            <Text style={styles.brand}>한화 FC 패스</Text>
-          </View>
+      <KeyboardAwareWrapper contentContainerStyle={[styles.container, { paddingBottom: keyboardPadding + 100 }]}>
+        <View style={styles.hero}>
+          <Image source={Logo} style={styles.logo} resizeMode="contain" />
+          <Text style={styles.brand}>한화 FC 온보딩</Text>
+        </View>
           <Text style={styles.title}>로그인</Text>
-          <Text style={styles.description}>관리자는 코드, FC는 주민번호로 로그인하세요.</Text>
+          <Text style={styles.description}>관리자는 코드, FC는 휴대폰 번호로 로그인하세요.</Text>
           <View style={styles.card}>
-            <Text style={styles.label}>주민번호 또는 코드</Text>
+            <Text style={styles.label}>휴대폰 번호</Text>
             <TextInput
               style={styles.input}
-              placeholder="예) 9010101234567"
+              placeholder="예) 01012345678"
               placeholderTextColor="#9CA3AF"
-              value={residentInput}
-              onChangeText={setResidentInput}
+              value={phoneInput}
+              onChangeText={setPhoneInput}
               autoCapitalize="none"
               keyboardType="number-pad"
             />
-            <Button title="로그인하기" onPress={handleLogin} color={ORANGE} />
+            <Button title="로그인" onPress={handleLogin} color={ORANGE} />
           </View>
-        </ScrollView>
-      </KeyboardAvoidingView>
+      </KeyboardAwareWrapper>
     </SafeAreaView>
   );
 }

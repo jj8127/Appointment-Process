@@ -45,11 +45,11 @@ export default function AllowanceConsentScreen() {
   useEffect(() => {
     const loadTemp = async () => {
       if (!residentId) return;
-      const { data, error } = await supabase
-        .from('fc_profiles')
-        .select('temp_id,allowance_date')
-        .eq('resident_id_masked', residentId)
-        .maybeSingle();
+        const { data, error } = await supabase
+          .from('fc_profiles')
+          .select('temp_id,allowance_date')
+          .eq('phone', residentId)
+          .maybeSingle();
       if (!error && data?.temp_id) setTempId(data.temp_id);
       if (!error && data?.allowance_date) setSelectedDate(new Date(data.allowance_date));
     };

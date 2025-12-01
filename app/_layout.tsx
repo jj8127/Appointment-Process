@@ -48,9 +48,7 @@ export default function RootLayout() {
       }
     })();
     return () => {
-      if (Notifications && sub) {
-        Notifications.removeNotificationSubscription(sub);
-      }
+      if (sub?.remove) sub.remove();
     };
   }, []);
 
@@ -64,12 +62,13 @@ export default function RootLayout() {
             <Stack.Screen name="fc/new" options={{ title: '기본 정보' }} />
             <Stack.Screen name="consent" options={{ title: '동의서 입력' }} />
             <Stack.Screen name="docs-upload" options={{ title: '서류 업로드' }} />
-            <Stack.Screen name="dashboard" options={{ title: '총무 대시보드' }} />
-            <Stack.Screen name="admin-register" options={{ title: '신규 FC 등록' }} />
+            <Stack.Screen name="dashboard" options={{ title: '전체 현황' }} />
             <Stack.Screen name="notifications" options={{ title: '알림' }} />
             <Stack.Screen name="notice" options={{ title: '공지사항' }} />
             <Stack.Screen name="admin-notice" options={{ title: '공지 등록' }} />
+            <Stack.Screen name="exam-register" options={{ title: '시험 등록' }} />
           </Stack>
+
           <StatusBar style={isDark ? 'light' : 'dark'} />
         </ThemeProvider>
       </SessionProvider>

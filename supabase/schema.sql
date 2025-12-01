@@ -13,6 +13,7 @@ create table if not exists public.fc_profiles (
   recommender text,
   email text,
   address text,
+  address_detail text,
   career_type text check (career_type in ('신입', '경력')),
   allowance_date date,
   status text not null default 'draft',
@@ -22,6 +23,7 @@ create table if not exists public.fc_profiles (
 
 -- 주민번호 마스킹 기준 upsert를 위해 유니크 인덱스 추가
 create unique index if not exists idx_fc_profiles_resident_id_masked on public.fc_profiles (resident_id_masked);
+create unique index if not exists idx_fc_profiles_phone on public.fc_profiles (phone);
 
 -- 알림용 디바이스 토큰 저장 테이블
 create table if not exists public.device_tokens (
@@ -52,6 +54,26 @@ create table if not exists public.notices (
   body text not null,
   category text,
   created_at timestamptz not null default now()
+);
+
+create table if not exists public.exam_rounds (
+  id uuid primary key default gen_random_uuid(),
+  exam_date date not null,
+  registration_deadline date not null,
+  round_label text,
+  notes text,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
+create table if not exists public.exam_locations (
+  id uuid primary key default gen_random_uuid(),
+  round_id uuid not null references public.exam_rounds (id) on delete cascade,
+  location_name text not null,
+  sort_order integer not null default 0,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+  unique (round_id, location_name)
 );
 
 create table if not exists public.fc_documents (
@@ -100,10 +122,22 @@ create trigger trg_fc_documents_updated_at
 before update on public.fc_documents
 for each row execute function public.set_updated_at();
 
+drop trigger if exists trg_exam_rounds_updated_at on public.exam_rounds;
+create trigger trg_exam_rounds_updated_at
+before update on public.exam_rounds
+for each row execute function public.set_updated_at();
+
+drop trigger if exists trg_exam_locations_updated_at on public.exam_locations;
+create trigger trg_exam_locations_updated_at
+before update on public.exam_locations
+for each row execute function public.set_updated_at();
+
 alter table public.fc_profiles enable row level security;
 alter table public.fc_documents enable row level security;
 alter table public.notifications enable row level security;
 alter table public.notices enable row level security;
+alter table public.exam_rounds enable row level security;
+alter table public.exam_locations enable row level security;
 
 -- RLS: 인증/비인증(anon) 모두 허용하는 공개 정책 (필요 시 auth.uid() 기반으로 강화)
 drop policy if exists "fc_profiles select" on public.fc_profiles;
@@ -167,6 +201,56 @@ create policy "notices insert"
   on public.notices
   for insert
   with check (auth.role() in ('authenticated','anon'));
+
+drop policy if exists "exam_rounds select" on public.exam_rounds;
+create policy "exam_rounds select"
+  on public.exam_rounds
+  for select
+  using (auth.role() in ('authenticated','anon'));
+
+drop policy if exists "exam_rounds insert" on public.exam_rounds;
+create policy "exam_rounds insert"
+  on public.exam_rounds
+  for insert
+  with check (auth.role() in ('authenticated','anon'));
+
+drop policy if exists "exam_rounds update" on public.exam_rounds;
+create policy "exam_rounds update"
+  on public.exam_rounds
+  for update
+  using (auth.role() in ('authenticated','anon'))
+  with check (auth.role() in ('authenticated','anon'));
+
+drop policy if exists "exam_rounds delete" on public.exam_rounds;
+create policy "exam_rounds delete"
+  on public.exam_rounds
+  for delete
+  using (auth.role() in ('authenticated','anon'));
+
+drop policy if exists "exam_locations select" on public.exam_locations;
+create policy "exam_locations select"
+  on public.exam_locations
+  for select
+  using (auth.role() in ('authenticated','anon'));
+
+drop policy if exists "exam_locations insert" on public.exam_locations;
+create policy "exam_locations insert"
+  on public.exam_locations
+  for insert
+  with check (auth.role() in ('authenticated','anon'));
+
+drop policy if exists "exam_locations update" on public.exam_locations;
+create policy "exam_locations update"
+  on public.exam_locations
+  for update
+  using (auth.role() in ('authenticated','anon'))
+  with check (auth.role() in ('authenticated','anon'));
+
+drop policy if exists "exam_locations delete" on public.exam_locations;
+create policy "exam_locations delete"
+  on public.exam_locations
+  for delete
+  using (auth.role() in ('authenticated','anon'));
 
 -- 스토리지 버킷
 insert into storage.buckets (id, name, public) values ('fc-documents', 'fc-documents', false)

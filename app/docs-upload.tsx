@@ -56,7 +56,7 @@ export default function DocsUploadScreen() {
     const { data: profile, error } = await supabase
       .from('fc_profiles')
       .select('id, temp_id, name')
-      .eq('resident_id_masked', residentId)
+      .eq('phone', residentId)
       .maybeSingle();
     if (error || !profile) {
       setFc(null);

@@ -20,8 +20,8 @@ export type DocumentType =
   | '주민등록증 이미지(뒤)'
   | '통장 이미지(뒤)'
   | '최근3개월 이미지(뒤)'
-  | '신원보증서'
-  | '경력증명서';
+  | '신체검사서'
+  | '개인정보동의서';
 
 export type RequiredDocType = DocumentType;
 
@@ -29,7 +29,6 @@ export type FcProfile = {
   id: string;
   name: string;
   affiliation: string;
-  residentIdMasked: string;
   phone: string;
   recommender?: string;
   email?: string;

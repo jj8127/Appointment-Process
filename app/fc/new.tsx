@@ -4,6 +4,7 @@ import { Controller, type Control, useForm } from 'react-hook-form';
 import {
   Alert,
   KeyboardAvoidingView,
+  Modal,
   Platform,
   ScrollView,
   StyleSheet,
@@ -15,6 +16,7 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { z } from 'zod';
 import { router } from 'expo-router';
+import Postcode from '@actbase/react-daum-postcode';
 
 import { RefreshButton } from '@/components/RefreshButton';
 import { useKeyboardPadding } from '@/hooks/use-keyboard-padding';
@@ -32,47 +34,49 @@ const PLACEHOLDER = '#9ca3af';
 const schema = z.object({
   affiliation: z.string().min(1, '소속을 선택해주세요.'),
   name: z.string().min(1, '이름을 입력해주세요.'),
-  residentId: z.string().min(6, '주민번호를 입력해주세요.'),
-  phone: z.string().min(8, '휴대폰번호를 입력해주세요.'),
+  phone: z.string().min(8, '휴대폰 번호를 입력해주세요.'),
   recommender: z.string().optional(),
-  email: z.string().email('올바른 이메일을 입력해주세요.').optional(),
+  email: z.string().email('유효한 이메일을 입력해주세요.').optional(),
   address: z.string().optional(),
+  addressDetail: z.string().optional(),
 });
 
 type FormValues = z.infer<typeof schema>;
 
 const AFFILIATION_OPTIONS = [
-  '1본부 [본부장: 서선미]',
-  '2본부 [본부장: 박성훈]',
-  '3본부 [본부장: 현경숙]',
-  '4본부 [본부장: 최철준]',
-  '5본부 [본부장: 박선희]',
-  '6본부 [본부장: 김태희]',
-  '7본부 [본부장: 정승철]',
-  '8본부 [본부장: 김주용]',
-  '9본부 - 직할 3',
+  '1지점 [본부장: 서선미]',
+  '2지점 [본부장: 박성훈]',
+  '3지점 [본부장: 현경숙]',
+  '4지점 [본부장: 최철준]',
+  '5지점 [본부장: 박선희]',
+  '6지점 [본부장: 김태희]',
+  '7지점 [본부장: 김동훈]',
+  '8지점 [본부장: 정승철]',
 ];
 
 export default function FcNewScreen() {
   const [submitting, setSubmitting] = useState(false);
-  const { residentId, loginAs } = useSession();
+  const { residentId: phoneFromSession, loginAs } = useSession();
   const keyboardPadding = useKeyboardPadding();
   const [existingTempId, setExistingTempId] = useState<string | null>(null);
   const [selectedAffiliation, setSelectedAffiliation] = useState('');
+  const [showAddressSearch, setShowAddressSearch] = useState(false);
 
-  const { control, handleSubmit, setValue, formState } = useForm<FormValues>({
+  const { control, handleSubmit, setValue, formState, watch } = useForm<FormValues>({
     resolver: zodResolver(schema),
-    defaultValues: { affiliation: '', name: '', residentId: '', phone: '' },
+    defaultValues: { affiliation: '', name: '', phone: phoneFromSession, address: '', addressDetail: '' },
     mode: 'onBlur',
   });
+  const addressValue = watch('address');
+  const addressDetailValue = watch('addressDetail');
 
-  const loadExisting = async (id?: string) => {
-    const key = id ?? residentId;
+  const loadExisting = async (phone?: string) => {
+    const key = phone ?? phoneFromSession;
     if (!key) return;
     const { data, error } = await supabase
       .from('fc_profiles')
-      .select('affiliation,name,phone,recommender,email,address,career_type,temp_id,resident_id_masked')
-      .eq('resident_id_masked', key)
+      .select('affiliation,name,phone,recommender,email,address,address_detail,career_type,temp_id')
+      .eq('phone', key)
       .maybeSingle();
     if (error) {
       console.warn('FC load failed', error.message);
@@ -82,39 +86,60 @@ export default function FcNewScreen() {
       setValue('affiliation', data.affiliation ?? '');
       setSelectedAffiliation(data.affiliation ?? '');
       setValue('name', data.name ?? '');
-      setValue('phone', data.phone ?? '');
+      setValue('phone', data.phone ?? key);
       setValue('recommender', data.recommender ?? '');
       setValue('email', data.email ?? '');
       setValue('address', data.address ?? '');
+      setValue('addressDetail', data.address_detail ?? '');
       setExistingTempId(data.temp_id);
-      setValue('residentId', data.resident_id_masked ?? '');
+    } else {
+      setValue('phone', key);
     }
   };
 
   useEffect(() => {
     loadExisting();
-  }, [residentId]);
+  }, [phoneFromSession]);
 
   const onSubmit = async (values: FormValues) => {
     setSubmitting(true);
 
-    const payload = {
+    const phoneDigits = values.phone.replace(/[^0-9]/g, '');
+    const basePayload = {
       name: values.name,
       affiliation: values.affiliation,
-      resident_id_masked: values.residentId,
-      phone: values.phone,
+      phone: phoneDigits,
       recommender: values.recommender,
       email: values.email,
-      address: values.address,
-      career_type: '신입' as CareerType,
+      address: (values.address ?? '').trim(),
+      address_detail: (values.addressDetail ?? '').trim(),
+      career_type: '경력' as CareerType,
       status: 'draft',
     };
 
-    const { data, error } = await supabase
+    // phone 컬럼이 고유 제약이 없을 때도 동작하도록, 선 조회 후 update/insert 분기
+    const { data: existing } = await supabase
       .from('fc_profiles')
-      .upsert(payload, { onConflict: 'resident_id_masked' })
       .select('id')
-      .single();
+      .eq('phone', phoneDigits)
+      .maybeSingle();
+
+    let data: { id: string } | null = null;
+    let error: any = null;
+
+    if (existing?.id) {
+      const { error: updateErr } = await supabase.from('fc_profiles').update(basePayload).eq('id', existing.id);
+      error = updateErr;
+      data = existing as { id: string };
+    } else {
+      const { data: insertData, error: insertErr } = await supabase
+        .from('fc_profiles')
+        .insert(basePayload)
+        .select('id')
+        .single();
+      data = insertData as any;
+      error = insertErr;
+    }
 
     setSubmitting(false);
 
@@ -128,12 +153,12 @@ export default function FcNewScreen() {
         body: {
           type: 'fc_update',
           fc_id: data.id,
-          message: `${values.name}님의 기본정보가 저장/업데이트되었습니다.`,
+          message: `${values.name}님의 기본정보가 생성/업데이트되었습니다.`,
         },
       });
     }
 
-    loginAs('fc', values.residentId, values.name);
+    loginAs('fc', phoneDigits, values.name);
     Alert.alert('저장 완료', '정보가 저장되었습니다. FC 홈 화면으로 이동합니다.', [
       { text: '확인', onPress: () => router.replace('/') },
     ]);
@@ -148,9 +173,9 @@ export default function FcNewScreen() {
           <RefreshButton />
 
           <View style={styles.hero}>
-            <Text style={styles.heroEyebrow}>진행 확인</Text>
+            <Text style={styles.heroEyebrow}>정보 확인</Text>
             <Text style={styles.title}>기본 정보를 입력해주세요</Text>
-            <Text style={styles.caption}>입력 후 다음 단계로 이동합니다. 이미 입력한 정보는 불러와집니다.</Text>
+            <Text style={styles.caption}>입력 후 다음 단계로 이동합니다. 이미 입력한 정보는 불러옵니다.</Text>
             {existingTempId ? <Text style={styles.temp}>임시번호 {existingTempId}</Text> : null}
           </View>
 
@@ -177,22 +202,55 @@ export default function FcNewScreen() {
             ) : null}
 
             <FormField control={control} label="이름" placeholder="홍길동" name="name" errors={formState.errors} />
-            <FormField control={control} label="주민등록번호" placeholder="901010-1234567" name="residentId" errors={formState.errors} />
           </View>
 
           <View style={styles.sectionCard}>
             <Text style={styles.sectionTitle}>연락처 및 주소</Text>
-            <FormField control={control} label="휴대폰번호" placeholder="010-1234-5678" name="phone" errors={formState.errors} />
-            <FormField control={control} label="추천인" placeholder="동료FC" name="recommender" errors={formState.errors} />
-            <FormField control={control} label="이메일" placeholder="name@company.com" name="email" errors={formState.errors} />
             <FormField
               control={control}
-              label="주소"
-              placeholder="거주지 또는 주소"
-              name="address"
+              label="휴대폰 번호"
+              placeholder="010-1234-5678"
+              name="phone"
               errors={formState.errors}
-              multiline
             />
+            <FormField control={control} label="추천인" placeholder="추천인 성명" name="recommender" errors={formState.errors} />
+            <FormField control={control} label="이메일" placeholder="name@company.com" name="email" errors={formState.errors} />
+            <View style={styles.field}>
+              <View style={styles.fieldLabelRow}>
+                <Text style={styles.label}>주소</Text>
+                {formState.errors.address?.message ? <Text style={styles.error}>{formState.errors.address?.message}</Text> : null}
+              </View>
+              <View style={{ gap: 8 }}>
+                <Pressable style={styles.searchButton} onPress={() => setShowAddressSearch(true)}><Text style={styles.searchButtonText}>주소 검색 (다음)</Text></Pressable>
+                <Controller
+                  control={control}
+                  name="address"
+                  render={({ field: { onChange, value } }) => (
+                    <TextInput
+                      style={[styles.input, styles.inputMultiline]}
+                      placeholder="거주지 또는 주소"
+                      placeholderTextColor={PLACEHOLDER}
+                      value={value}
+                      onChangeText={onChange}
+                      multiline
+                    />
+                  )}
+                />
+                <Controller
+                  control={control}
+                  name="addressDetail"
+                  render={({ field: { onChange, value } }) => (
+                    <TextInput
+                      style={styles.input}
+                      placeholder="상세 주소"
+                      placeholderTextColor={PLACEHOLDER}
+                      value={value}
+                      onChangeText={onChange}
+                    />
+                  )}
+                />
+              </View>
+            </View>
           </View>
 
           <Pressable
@@ -203,6 +261,25 @@ export default function FcNewScreen() {
           </Pressable>
         </ScrollView>
       </KeyboardAvoidingView>
+      <Modal visible={showAddressSearch} animationType="slide">
+        <SafeAreaView style={{ flex: 1, backgroundColor: '#fff' }}>
+          <View style={{ flexDirection: 'row', justifyContent: 'space-between', padding: 12, borderBottomWidth: 1, borderColor: BORDER }}>
+            <Text style={{ fontWeight: '800', color: CHARCOAL }}>주소 검색</Text>
+            <Pressable onPress={() => setShowAddressSearch(false)}><Text style={{ color: ORANGE, fontWeight: '700' }}>닫기</Text></Pressable>
+          </View>
+          <Postcode
+            style={{ flex: 1 }}
+            jsOptions={{ animation: true }}
+            onSelected={(data: any) => {
+              const base = data.address || '';
+              const extra = data.buildingName ? ` (${data.buildingName})` : '';
+              const full = `${data.zonecode ? `[${data.zonecode}] ` : ''}${base}${extra}`;
+              setValue('address', full, { shouldValidate: true });
+              setShowAddressSearch(false);
+            }}
+          />
+        </SafeAreaView>
+      </Modal>
     </SafeAreaView>
   );
 }
@@ -289,6 +366,16 @@ const styles = StyleSheet.create({
     backgroundColor: '#fff',
   },
   inputMultiline: { height: 90, textAlignVertical: 'top' },
+  searchButton: {
+    paddingVertical: 10,
+    paddingHorizontal: 12,
+    borderWidth: 1,
+    borderColor: ORANGE_LIGHT,
+    borderRadius: 10,
+    backgroundColor: '#fff7f0',
+    alignItems: 'center',
+  },
+  searchButtonText: { color: ORANGE, fontWeight: '700' },
   primaryButton: {
     marginTop: 8,
     backgroundColor: ORANGE,
