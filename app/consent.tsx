@@ -68,7 +68,7 @@ export default function AllowanceConsentScreen() {
       .from('fc_profiles')
       .update({ allowance_date: ymd, status: 'allowance-consented' })
       .eq('temp_id', tempId)
-      .select('id')
+      .select('id,name')
       .single();
     setLoading(false);
 
@@ -80,6 +80,12 @@ export default function AllowanceConsentScreen() {
       Alert.alert('임시사번 없음', '해당 임시사번을 찾을 수 없습니다.');
       return;
     }
+    supabase.functions
+      .invoke('fc-notify', {
+        body: { type: 'fc_update', fc_id: data.id, message: `${data.name || 'FC'}���� ���絿������ �Է��߽��ϴ�.` },
+      })
+      .catch(() => {});
+
     Alert.alert('저장 완료', '수당동의일이 저장되었습니다.');
   };
 

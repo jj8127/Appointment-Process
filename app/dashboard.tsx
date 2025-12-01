@@ -292,6 +292,7 @@ export default function DashboardScreen() {
               const isExpanded = expanded[fc.id];
               const careerDisplay = careerInputs[fc.id] ?? fc.career_type ?? '-';
               const tempDisplay = tempInputs[fc.id] ?? fc.temp_id ?? '-';
+              const allowanceDisplay = fc.allowance_date ?? '없음';
 
               return (
                 <View key={fc.id} style={styles.card}>
@@ -317,6 +318,7 @@ export default function DashboardScreen() {
                     {fc.affiliation} · {fc.phone}
                   </Text>
                   <Text style={styles.meta}>서류 현황: {submitted.length}/{selectedDocs.length}</Text>
+                  <Text style={styles.meta}>수당 동의 날짜: {allowanceDisplay}</Text>
                   {missing.length ? <Text style={styles.meta}>부족한 서류: {missing.join(', ')}</Text> : null}
 
                   <Pressable
