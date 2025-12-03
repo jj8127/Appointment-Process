@@ -60,17 +60,7 @@ const AFFILIATION_OPTIONS = [
 const EMAIL_DOMAINS = [
   'naver.com',
   'hanmail.net',
-  'hotmail.com',
-  'nate.com',
-  'yahoo.co.kr',
-  'empas.com',
-  'dreamwiz.com',
-  'freechal.com',
-  'lycos.co.kr',
-  'korea.com',
   'gmail.com',
-  'hanmir.com',
-  'paran.com',
   '직접입력',
 ];
 

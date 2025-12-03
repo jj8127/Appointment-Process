@@ -8,8 +8,13 @@ import {
   StyleSheet,
   Text,
   View,
+  ActivityIndicator,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { Feather } from '@expo/vector-icons';
+import { LinearGradient } from 'expo-linear-gradient';
+import { MotiView, AnimatePresence } from 'moti';
+import * as Haptics from 'expo-haptics';
 
 import { RefreshButton } from '@/components/RefreshButton';
 import { useSession } from '@/hooks/use-session';
@@ -17,15 +22,22 @@ import { supabase } from '@/lib/supabase';
 import { ExamRoundWithLocations, formatDate } from '@/types/exam';
 import { KeyboardAwareWrapper } from '@/components/KeyboardAwareWrapper';
 
-const ORANGE = '#f36f21';
-const ORANGE_LIGHT = '#f7b182';
+const HANWHA_ORANGE = '#f36f21';
+const HANWHA_LIGHT = '#f7b182';
 const CHARCOAL = '#111827';
 const MUTED = '#6b7280';
 const BORDER = '#e5e7eb';
-const SOFT_BG = '#fff7f0';
+const SOFT_BG = '#F9FAFB';
+const ORANGE_FAINT = '#fff1e6';
+const CARD_SHADOW = {
+  shadowColor: '#000',
+  shadowOpacity: 0.05,
+  shadowRadius: 8,
+  shadowOffset: { width: 0, height: 2 },
+  elevation: 2,
+};
 const EXPO_PUSH_URL = 'https://exp.host/--/api/v2/push/send';
 
-// 시험 회차 + 지역 목록 조회 (손해보험용)
 const fetchRounds = async (): Promise<ExamRoundWithLocations[]> => {
   const { data, error } = await supabase
     .from('exam_rounds')
@@ -48,14 +60,13 @@ const fetchRounds = async (): Promise<ExamRoundWithLocations[]> => {
       )
     `,
     )
-    // 손해보험 시험만
     .eq('exam_type', 'nonlife')
     .order('exam_date', { ascending: true })
     .order('registration_deadline', { ascending: true })
     .order('sort_order', { foreignTable: 'exam_locations', ascending: true });
 
   if (error) {
-    console.log('fetchRounds(nonlife) error', error);
+    console.log('fetchRounds error', error);
     throw error;
   }
 
@@ -84,54 +95,6 @@ const toDate = (value?: string | null) => {
   return d;
 };
 
-/** 둥근 공통 버튼 */
-type RoundedButtonProps = {
-  label: string;
-  onPress: () => void;
-  variant?: 'primary' | 'secondary' | 'danger';
-  disabled?: boolean;
-  fullWidth?: boolean;
-};
-
-function RoundedButton({
-  label,
-  onPress,
-  variant = 'primary',
-  disabled,
-  fullWidth = true,
-}: RoundedButtonProps) {
-  const variantStyle =
-    variant === 'primary'
-      ? styles.btnPrimary
-      : variant === 'secondary'
-      ? styles.btnSecondary
-      : styles.btnDanger;
-
-  const textStyle =
-    variant === 'secondary'
-      ? styles.btnTextSecondary
-      : variant === 'danger'
-      ? styles.btnTextDanger
-      : styles.btnTextPrimary;
-
-  return (
-    <Pressable
-      onPress={onPress}
-      disabled={disabled}
-      style={({ pressed }) => [
-        styles.btnBase,
-        variantStyle,
-        fullWidth && styles.btnFullWidth,
-        disabled && styles.btnDisabled,
-        pressed && !disabled && styles.btnPressed,
-      ]}
-    >
-      <Text style={textStyle}>{label}</Text>
-    </Pressable>
-  );
-}
-
-/** 내 최근 신청 내역 타입 (조인 결과 포함) */
 type MyExamApply = {
   id: string;
   round_id: string;
@@ -156,7 +119,6 @@ export default function ExamApplyScreen() {
   const [selectedLocationId, setSelectedLocationId] = useState<string | null>(null);
   const [wantsThird, setWantsThird] = useState(false);
 
-  /** ① FC가 아닌 사용자는 접근 제한 */
   useEffect(() => {
     if (!hydrated) return;
     if (!role) {
@@ -169,22 +131,19 @@ export default function ExamApplyScreen() {
     }
   }, [role, hydrated]);
 
-  /** ② 시험 회차/지역 불러오기 */
   const {
     data: rounds,
     isLoading,
     isFetching,
     refetch,
   } = useQuery({
-    queryKey: ['exam-rounds-for-apply','nonlife'],
+    queryKey: ['exam-rounds-for-apply', 'nonlife'],
     queryFn: fetchRounds,
     enabled: role === 'fc',
   });
 
-  /** 전체 등록된 시험 일정 (필터 없이) */
   const allRounds = useMemo(() => rounds ?? [], [rounds]);
 
-  /** 회차가 마감되었는지 여부 */
   const isRoundClosed = (round: ExamRoundWithLocations) => {
     const deadline = toDate(round.registration_deadline);
     if (!deadline) return false;
@@ -202,7 +161,6 @@ export default function ExamApplyScreen() {
     [selectedRound],
   );
 
-  /** ③ 내 최근 시험 신청 내역 (가장 최근 1건) */
   const { data: myLastApply } = useQuery<MyExamApply | null>({
     queryKey: ['my-exam-apply', residentId],
     enabled: role === 'fc' && !!residentId,
@@ -221,24 +179,14 @@ export default function ExamApplyScreen() {
         return null;
       }
       if (error) throw error;
-      return data as MyExamApply | null;
+      const normalize = (obj: any) => (Array.isArray(obj) ? obj[0] : obj);
+      return {
+        ...data,
+        exam_rounds: normalize(data?.exam_rounds),
+        exam_locations: normalize(data?.exam_locations),
+      } as MyExamApply | null;
     },
   });
-
-  /** exam_rounds / exam_locations가 배열이든 객체든 안전하게 한 개만 꺼내는 헬퍼 */
-  const lastApplyRound =
-    myLastApply && myLastApply.exam_rounds
-      ? Array.isArray(myLastApply.exam_rounds)
-        ? myLastApply.exam_rounds[0]
-        : myLastApply.exam_rounds
-      : null;
-
-  const lastApplyLocation =
-    myLastApply && myLastApply.exam_locations
-      ? Array.isArray(myLastApply.exam_locations)
-        ? myLastApply.exam_locations[0]
-        : myLastApply.exam_locations
-      : null;
 
   useEffect(() => {
     if (myLastApply?.is_third_exam != null) {
@@ -246,8 +194,7 @@ export default function ExamApplyScreen() {
     }
   }, [myLastApply]);
 
-  /** ④ 시험 신청 Mutation (INSERT → exam_registrations) */
-    const applyMutation = useMutation({
+  const applyMutation = useMutation({
     mutationFn: async () => {
       if (!residentId) {
         throw new Error('본인 식별 정보가 없습니다. 다시 로그인한 뒤 이용해주세요.');
@@ -265,7 +212,6 @@ export default function ExamApplyScreen() {
         throw new Error('마감된 일정입니다. 다른 시험 일정을 선택해주세요.');
       }
 
-      // ⭐ 이미 신청 내역이 있으면 UPDATE, 없으면 INSERT
       if (myLastApply) {
         const { error } = await supabase
           .from('exam_registrations')
@@ -294,7 +240,9 @@ export default function ExamApplyScreen() {
 
       const locName =
         round.locations?.find((l) => l.id === selectedLocationId)?.location_name ?? '';
-      const examTitle = `${formatDate(round.exam_date)}${round.round_label ? ` (${round.round_label})` : ''}`;
+      const examTitle = `${formatDate(round.exam_date)}${
+        round.round_label ? ` (${round.round_label})` : ''
+      }`;
       const actor = displayName?.trim() || residentId;
       const title = `${actor}이/가 ${examTitle}을 신청하였습니다.`;
       const body = locName ? `${actor}이/가 ${examTitle} (${locName})을 신청하였습니다.` : title;
@@ -307,7 +255,6 @@ export default function ExamApplyScreen() {
         resident_id: residentId,
       });
 
-      // 관리자 푸시 전송
       try {
         const { data: tokens } = await supabase
           .from('device_tokens')
@@ -333,13 +280,12 @@ export default function ExamApplyScreen() {
     },
     onSuccess: () => {
       Alert.alert('신청 완료', '시험 신청이 정상적으로 등록되었습니다.');
-      router.replace('/');
+      router.replace('/'); // 홈으로 이동
     },
     onError: (err: any) => {
       Alert.alert('신청 실패', err?.message ?? '시험 신청 중 오류가 발생했습니다.');
     },
   });
-
 
   const cancelMutation = useMutation({
     mutationFn: async () => {
@@ -356,38 +302,33 @@ export default function ExamApplyScreen() {
     },
     onSuccess: () => {
       Alert.alert('취소 완료', '시험 신청이 취소되었습니다.');
-      router.replace('/');
+      router.replace('/'); // 취소 후에도 홈으로 이동
     },
     onError: (err: any) => {
       Alert.alert('취소 실패', err?.message ?? '시험 신청 취소 중 오류가 발생했습니다.');
     },
   });
 
-  const handleApply = () => {
-    applyMutation.mutate();
-  };
-
-  const handleCancel = () => {
-    if (!myLastApply) {
-      Alert.alert('취소 불가', '취소할 시험 신청 내역이 없습니다.');
+  const handleRoundSelect = (round: ExamRoundWithLocations) => {
+    if (isRoundClosed(round)) {
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
       return;
     }
+    Haptics.selectionAsync();
+    setSelectedRoundId(round.id);
+    setSelectedLocationId(null);
+  };
 
-    Alert.alert('신청 취소', '현재 신청한 시험을 취소하시겠습니까?', [
-      { text: '아니요', style: 'cancel' },
-      {
-        text: '예',
-        style: 'destructive',
-        onPress: () => cancelMutation.mutate(),
-      },
-    ]);
+  const handleLocationSelect = (id: string) => {
+    Haptics.selectionAsync();
+    setSelectedLocationId(id);
   };
 
   if (!hydrated) {
     return (
       <SafeAreaView style={styles.safe}>
         <View style={styles.center}>
-          <Text style={styles.caption}>정보를 불러오는 중입니다...</Text>
+          <ActivityIndicator color={HANWHA_ORANGE} />
         </View>
       </SafeAreaView>
     );
@@ -397,189 +338,244 @@ export default function ExamApplyScreen() {
     <SafeAreaView style={styles.safe}>
       <KeyboardAwareWrapper>
         <ScrollView contentContainerStyle={styles.container}>
-          {/* 상단 헤더 */}
-          <View style={styles.headerRow}>
+          <View style={styles.header}>
+            <View>
+              <Text style={styles.headerTitle}>손해보험 시험 신청</Text>
+              <Text style={styles.headerSub}>시험 일정과 응시 지역을 선택해주세요.</Text>
+            </View>
             <RefreshButton
               onPress={() => {
                 refetch();
               }}
             />
-            <Text style={styles.headerTitle}>손해보험 시험 신청</Text>
-          </View>
-          <Text style={styles.caption}>
-            총무가 등록한 시험 일정에서 응시 일자와 지역을 선택해 신청할 수 있습니다.
-            마감된 일정은 회색으로 표시되며 신청할 수 없습니다.
-          </Text>
-
-          {/* 내 최근 신청 내역 */}
-          <View style={styles.card}>
-            <Text style={styles.sectionTitle}>내 신청 내역</Text>
-            {!myLastApply ? (
-              <Text style={styles.caption}>아직 신청한 시험이 없습니다.</Text>
-            ) : (
-              <View style={styles.summaryBox}>
-                <Text style={styles.summaryText}>
-                  최근 신청일:{' '}
-                  {myLastApply.created_at
-                    ? new Date(myLastApply.created_at).toLocaleString('ko-KR')
-                    : '-'}
-                </Text>
-                <Text style={styles.summaryText}>
-                  시험 일자:{' '}
-                  {lastApplyRound?.exam_date
-                    ? formatDate(lastApplyRound.exam_date)
-                    : '-'}
-                  {lastApplyRound?.round_label
-                    ? ` (${lastApplyRound.round_label})`
-                    : ''}
-                </Text>
-                <Text style={styles.summaryText}>
-                  응시 지역: {lastApplyLocation?.location_name ?? '-'}
-                </Text>
-                <Text style={styles.summaryText}>상태: {myLastApply.status ?? '-'}</Text>
-                <Text style={styles.summaryText}>제3보험 응시: {myLastApply.is_third_exam ? '예' : '아니오'}</Text>
-              </View>
-            )}
           </View>
 
-          {/* 1단계: 시험 일정 선택 */}
-          <View style={styles.card}>
-            <Text style={styles.sectionTitle}>1단계: 시험 일정 선택</Text>
-            {isLoading || isFetching ? (
-              <Text style={styles.caption}>시험 일정을 불러오는 중입니다...</Text>
-            ) : !allRounds.length ? (
-              <Text style={styles.caption}>
-                등록된 시험 일정이 없습니다. 총무에게 문의해주세요.
-              </Text>
-            ) : (
-              allRounds.map((round) => {
-                const isActive = round.id === selectedRoundId;
-                const closed = isRoundClosed(round);
-                return (
-                  <Pressable
-                    key={round.id}
-                    onPress={() => {
-                      if (closed) {
-                        Alert.alert(
-                          '마감된 일정',
-                          '신청 마감이 지난 일정입니다. 다른 시험 일정을 선택해주세요.',
-                        );
-                        return;
-                      }
-                      setSelectedRoundId(round.id);
-                      setSelectedLocationId(null);
-                    }}
-                    style={[
-                      styles.roundItem,
-                      isActive && !closed && styles.roundItemActive,
-                      closed && styles.roundItemClosed,
-                    ]}
-                  >
-                    <View style={{ flex: 1 }}>
-                      <Text style={styles.roundTitle}>
-                        {formatDate(round.exam_date)}{' '}
-                        {round.round_label ? `(${round.round_label})` : ''}
-                      </Text>
-                      <Text style={styles.roundMeta}>
-                        신청 마감: {formatDate(round.registration_deadline)}
-                        {closed ? ' (마감됨)' : ''}
-                      </Text>
-                      {round.notes ? (
-                        <Text style={styles.roundNote}>{round.notes}</Text>
-                      ) : null}
-                      <Text style={styles.roundMeta}>
-                        응시 가능 지역 {round.locations?.length ?? 0}개
-                      </Text>
-                    </View>
-                  </Pressable>
-                );
-              })
-            )}
-          </View>
-
-          {/* 2단계: 응시 지역 선택 */}
-          <View style={styles.card}>
-            <Text style={styles.sectionTitle}>2단계: 응시 지역 선택</Text>
-            {!selectedRound ? (
-              <Text style={styles.caption}>
-                먼저 상단에서 시험 일정을 선택하면, 해당 일정의 응시 지역 목록이 표시됩니다.
-              </Text>
-            ) : isSelectedRoundClosed ? (
-              <Text style={styles.caption}>
-                선택한 시험 일정은 신청 마감된 상태입니다. 다른 시험 일정을 선택해주세요.
-              </Text>
-            ) : !selectedRound.locations?.length ? (
-              <Text style={styles.caption}>
-                선택한 시험 일정에 등록된 응시 지역이 없습니다. 관리자에게 문의해주세요.
-              </Text>
-            ) : (
-              selectedRound.locations.map((loc) => {
-                const isActive = loc.id === selectedLocationId;
-                return (
-                  <Pressable
-                    key={loc.id}
-                    onPress={() => setSelectedLocationId(loc.id)}
-                    style={[
-                      styles.locationItem,
-                      isActive && styles.locationItemActive,
-                    ]}
-                  >
-                    <Text style={styles.locationName}>{loc.location_name}</Text>
-                    <Text style={styles.locationMeta}>정렬: {loc.sort_order}</Text>
-                  </Pressable>
-                );
-              })
-            )}
-          </View>
-
-          {/* 3단계: 최종 신청 버튼 */}
-          <View style={styles.card}>
-            <Text style={styles.sectionTitle}>3단계: 신청 완료하기</Text>
-            <Text style={styles.caption}>
-              시험 일정과 응시 지역을 모두 선택한 후 아래 버튼을 눌러 신청을 완료하세요.
-            </Text>
-            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
-              <Pressable
-                style={[styles.toggleBox, wantsThird ? styles.toggleOn : styles.toggleOff]}
-                onPress={() => setWantsThird((v) => !v)}
-              >
-                <Text style={wantsThird ? styles.toggleTextOn : styles.toggleTextOff}>{wantsThird ? '예' : '아니오'}</Text>
-              </Pressable>
-              <Text style={styles.caption}>제3보험도 같이 응시</Text>
+          <MotiView
+            from={{ opacity: 0, translateY: -10 }}
+            animate={{ opacity: 1, translateY: 0 }}
+            style={styles.statusCard}
+          >
+            <View style={styles.statusHeader}>
+              <Feather name="info" size={16} color={HANWHA_ORANGE} />
+              <Text style={styles.statusTitle}>내 신청 내역</Text>
             </View>
-            {isSelectedRoundClosed && selectedRound && (
-              <Text style={styles.warningText}>
-                선택한 시험 일정은 이미 신청 마감되었습니다. 다른 일정을 선택해야 신청할 수
-                있습니다.
-              </Text>
+            {!myLastApply ? (
+              <Text style={styles.emptyText}>아직 신청한 시험이 없습니다.</Text>
+            ) : (
+              <View style={styles.statusContent}>
+                <View style={styles.statusRow}>
+                  <Text style={styles.statusLabel}>시험일자</Text>
+                  <Text style={styles.statusValue}>
+                    {myLastApply.exam_rounds?.exam_date
+                      ? formatDate(myLastApply.exam_rounds.exam_date)
+                      : '-'}
+                  </Text>
+                </View>
+                <View style={styles.statusRow}>
+                  <Text style={styles.statusLabel}>응시지역</Text>
+                  <Text style={styles.statusValue}>
+                    {myLastApply.exam_locations?.location_name ?? '-'}
+                  </Text>
+                </View>
+                <View style={styles.statusRow}>
+                  <Text style={styles.statusLabel}>제3보험</Text>
+                  <Text style={styles.statusValue}>{myLastApply.is_third_exam ? '신청함' : '미신청'}</Text>
+                </View>
+                <View style={styles.statusDivider} />
+                <View style={styles.statusRow}>
+                  <Text style={styles.statusLabel}>상태</Text>
+                  <View style={styles.statusBadge}>
+                    <Text style={styles.statusBadgeText}>
+                      {myLastApply.status === 'applied' ? '접수완료' : myLastApply.status}
+                    </Text>
+                  </View>
+                </View>
+              </View>
             )}
+          </MotiView>
 
-            {/* ✅ 이미 신청 내역이 있으면 '시험 신청 수정하기' 로 표시 */}
-            <RoundedButton
-              label={myLastApply ? '시험 신청 수정하기' : '시험 신청하기'}
-              onPress={handleApply}
-              variant="primary"
-              disabled={
-                applyMutation.isPending ||
-                cancelMutation.isPending ||
-                !selectedRoundId ||
-                !selectedLocationId ||
-                isSelectedRoundClosed
-              }
-            />
-
-            {/* ✅ 신청 내역이 있을 때만 취소 버튼 노출 */}
-            {myLastApply && (
-              <View style={{ marginTop: 8 }}>
-                <RoundedButton
-                  label="시험 신청 취소"
-                  onPress={handleCancel}
-                  variant="danger"
-                  disabled={cancelMutation.isPending}
-                />
+          <View style={styles.section}>
+            <Text style={styles.sectionHeader}>📅 시험 일정 선택</Text>
+            {isLoading || isFetching ? (
+              <ActivityIndicator color={HANWHA_ORANGE} style={{ marginTop: 20 }} />
+            ) : (
+              <View style={styles.listContainer}>
+                {allRounds.map((round, idx) => {
+                  const isActive = round.id === selectedRoundId;
+                  const closed = isRoundClosed(round);
+                  return (
+                    <MotiView
+                      key={round.id}
+                      from={{ opacity: 0, scale: 0.95 }}
+                      animate={{ opacity: 1, scale: 1 }}
+                      transition={{ delay: idx * 50 }}
+                    >
+                      <Pressable
+                        onPress={() => handleRoundSelect(round)}
+                        style={[
+                          styles.selectionCard,
+                          isActive && styles.selectionCardActive,
+                          closed && styles.selectionCardDisabled,
+                        ]}
+                      >
+                        <View style={styles.selectionInfo}>
+                          <Text
+                            style={[
+                              styles.selectionTitle,
+                              isActive && styles.textActive,
+                              closed && styles.textDisabled,
+                            ]}
+                          >
+                            {formatDate(round.exam_date)}
+                            {round.round_label ? ` (${round.round_label})` : ''}
+                          </Text>
+                          <Text style={styles.selectionSub}>
+                            마감: {formatDate(round.registration_deadline)}
+                          </Text>
+                          {round.notes ? (
+                            <Text style={styles.selectionNote}>{round.notes}</Text>
+                          ) : null}
+                        </View>
+                        {closed ? (
+                          <Feather name="lock" size={20} color={MUTED} />
+                        ) : isActive ? (
+                          <View style={styles.checkCircle}>
+                            <Feather name="check" size={14} color="#fff" />
+                          </View>
+                        ) : (
+                          <View style={styles.radioCircle} />
+                        )}
+                      </Pressable>
+                    </MotiView>
+                  );
+                })}
               </View>
             )}
           </View>
+
+          <View style={styles.section}>
+            <Text style={styles.sectionHeader}>📍 응시 지역 선택</Text>
+            <AnimatePresence>
+              {!selectedRound ? (
+                <MotiView from={{ opacity: 0 }} animate={{ opacity: 1 }} style={styles.placeholderBox}>
+                  <Text style={styles.placeholderText}>위에서 시험 일정을 먼저 선택해주세요.</Text>
+                </MotiView>
+              ) : isSelectedRoundClosed ? (
+                <View style={styles.placeholderBox}>
+                  <Text style={[styles.placeholderText, { color: '#ef4444' }]}>마감된 일정입니다.</Text>
+                </View>
+              ) : (
+                <View style={styles.gridContainer}>
+                  {selectedRound.locations?.map((loc, idx) => {
+                    const isActive = loc.id === selectedLocationId;
+                    return (
+                      <MotiView
+                        key={loc.id}
+                        from={{ opacity: 0, translateY: 10 }}
+                        animate={{ opacity: 1, translateY: 0 }}
+                        transition={{ delay: idx * 30 }}
+                        style={{ width: '48%' }}
+                      >
+                        <Pressable
+                          onPress={() => handleLocationSelect(loc.id)}
+                          style={[
+                            styles.locationCard,
+                            isActive && styles.locationCardActive,
+                          ]}
+                        >
+                          <Text style={[styles.locationText, isActive && styles.locationTextActive]}>
+                            {loc.location_name}
+                          </Text>
+                          {isActive ? (
+                            <Feather
+                              name="check-circle"
+                              size={16}
+                              color={HANWHA_ORANGE}
+                              style={{ marginTop: 4 }}
+                            />
+                          ) : null}
+                        </Pressable>
+                      </MotiView>
+                    );
+                  })}
+                  {!selectedRound.locations?.length && (
+                    <Text style={styles.emptyText}>등록된 지역이 없습니다.</Text>
+                  )}
+                </View>
+              )}
+            </AnimatePresence>
+          </View>
+
+          <View style={styles.section}>
+            <Text style={styles.sectionHeader}>✅ 최종 확인</Text>
+
+            <Pressable
+              style={[styles.toggleCard, wantsThird && styles.toggleCardActive]}
+              onPress={() => {
+                Haptics.selectionAsync();
+                setWantsThird((v) => !v);
+              }}
+            >
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
+                <Feather
+                  name={wantsThird ? 'check-square' : 'square'}
+                  size={24}
+                  color={wantsThird ? HANWHA_ORANGE : MUTED}
+                />
+                <View>
+                  <Text style={styles.toggleTitle}>제3보험 동시 응시</Text>
+                  <Text style={styles.toggleDesc}>제3보험 자격 시험도 함께 신청합니다.</Text>
+                </View>
+              </View>
+            </Pressable>
+
+            <View style={styles.actionButtons}>
+              <Pressable
+                onPress={() => applyMutation.mutate()}
+                disabled={
+                  applyMutation.isPending ||
+                  !selectedRoundId ||
+                  !selectedLocationId ||
+                  isSelectedRoundClosed
+                }
+                style={({ pressed }) => [styles.submitBtnWrapper, pressed && styles.pressedScale]}
+              >
+                <LinearGradient
+                  colors={
+                    !selectedRoundId || !selectedLocationId
+                      ? ['#d1d5db', '#9ca3af']
+                      : [HANWHA_ORANGE, '#fb923c']
+                  }
+                  start={{ x: 0, y: 0 }}
+                  end={{ x: 1, y: 0 }}
+                  style={styles.submitBtn}
+                >
+                  <Text style={styles.submitBtnText}>
+                    {myLastApply ? '신청 내역 수정하기' : '시험 신청하기'}
+                  </Text>
+                  {applyMutation.isPending && <ActivityIndicator color="#fff" style={{ marginLeft: 8 }} />}
+                </LinearGradient>
+              </Pressable>
+
+              {myLastApply && (
+                <Pressable
+                  onPress={() => {
+                    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
+                    Alert.alert('신청 취소', '정말 취소하시겠습니까?', [
+                      { text: '아니요', style: 'cancel' },
+                      { text: '예', style: 'destructive', onPress: () => cancelMutation.mutate() },
+                    ]);
+                  }}
+                  disabled={cancelMutation.isPending}
+                  style={({ pressed }) => [styles.cancelBtn, pressed && styles.pressedOpacity]}
+                >
+                  <Text style={styles.cancelBtnText}>신청 취소하기</Text>
+                </Pressable>
+              )}
+            </View>
+          </View>
+
+          <View style={{ height: 40 }} />
         </ScrollView>
       </KeyboardAwareWrapper>
     </SafeAreaView>
@@ -588,143 +584,90 @@ export default function ExamApplyScreen() {
 
 const styles = StyleSheet.create({
   safe: { flex: 1, backgroundColor: SOFT_BG },
-  container: { padding: 20, gap: 12 },
-
-  center: {
-    flex: 1,
+  container: { padding: 20 },
+  center: { flex: 1, alignItems: 'center', justifyContent: 'center' },
+  header: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 24 },
+  headerTitle: { fontSize: 24, fontWeight: '800', color: CHARCOAL, marginBottom: 4 },
+  headerSub: { fontSize: 14, color: MUTED },
+  statusCard: {
+    backgroundColor: '#fff',
+    borderRadius: 16,
+    padding: 16,
+    marginBottom: 24,
+    ...CARD_SHADOW,
+    borderLeftWidth: 4,
+    borderLeftColor: HANWHA_ORANGE,
+  },
+  statusHeader: { flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 12 },
+  statusTitle: { fontSize: 14, fontWeight: '700', color: CHARCOAL },
+  statusContent: { gap: 8 },
+  statusRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
+  statusLabel: { fontSize: 13, color: MUTED },
+  statusValue: { fontSize: 14, fontWeight: '600', color: CHARCOAL },
+  statusDivider: { height: 1, backgroundColor: '#f3f4f6', marginVertical: 4 },
+  statusBadge: { backgroundColor: ORANGE_FAINT, paddingHorizontal: 8, paddingVertical: 2, borderRadius: 4 },
+  statusBadgeText: { fontSize: 12, fontWeight: '700', color: HANWHA_ORANGE },
+  section: { marginBottom: 32 },
+  sectionHeader: { fontSize: 17, fontWeight: '800', color: CHARCOAL, marginBottom: 12 },
+  listContainer: { gap: 10 },
+  selectionCard: {
+    backgroundColor: '#fff',
+    borderRadius: 14,
+    padding: 16,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    borderWidth: 1,
+    borderColor: 'transparent',
+    ...CARD_SHADOW,
+  },
+  selectionCardActive: { borderColor: HANWHA_ORANGE, backgroundColor: '#fffbf7' },
+  selectionCardDisabled: { backgroundColor: '#f3f4f6', opacity: 0.7 },
+  selectionInfo: { flex: 1 },
+  selectionTitle: { fontSize: 16, fontWeight: '700', color: CHARCOAL, marginBottom: 2 },
+  selectionSub: { fontSize: 12, color: MUTED },
+  selectionNote: { fontSize: 12, color: HANWHA_ORANGE, marginTop: 2 },
+  textActive: { color: HANWHA_ORANGE },
+  textDisabled: { color: '#9ca3af' },
+  radioCircle: { width: 20, height: 20, borderRadius: 10, borderWidth: 2, borderColor: '#d1d5db' },
+  checkCircle: { width: 20, height: 20, borderRadius: 10, backgroundColor: HANWHA_ORANGE, alignItems: 'center', justifyContent: 'center' },
+  placeholderBox: { padding: 20, alignItems: 'center', backgroundColor: 'rgba(0,0,0,0.02)', borderRadius: 12 },
+  placeholderText: { color: MUTED, fontSize: 13 },
+  gridContainer: { flexDirection: 'row', flexWrap: 'wrap', gap: 10 },
+  locationCard: {
+    backgroundColor: '#fff',
+    borderRadius: 12,
+    paddingVertical: 14,
+    paddingHorizontal: 10,
     alignItems: 'center',
     justifyContent: 'center',
+    borderWidth: 1,
+    borderColor: BORDER,
+    minHeight: 60,
   },
-
-  headerRow: { flexDirection: 'row', alignItems: 'center', gap: 12 },
-  headerTitle: { fontSize: 22, fontWeight: '800', color: CHARCOAL },
-  caption: { color: MUTED },
-
-  card: {
-    backgroundColor: 'white',
+  locationCardActive: { borderColor: HANWHA_ORANGE, backgroundColor: ORANGE_FAINT },
+  locationText: { fontWeight: '600', color: CHARCOAL, textAlign: 'center', fontSize: 13 },
+  locationTextActive: { color: HANWHA_ORANGE, fontWeight: '800' },
+  toggleCard: {
+    backgroundColor: '#fff',
     padding: 16,
     borderRadius: 14,
-    gap: 10,
     borderWidth: 1,
     borderColor: BORDER,
-    shadowColor: '#000',
-    shadowOpacity: 0.05,
-    shadowOffset: { width: 0, height: 2 },
-    shadowRadius: 6,
-    elevation: 2,
-  },
-
-  sectionTitle: { fontSize: 16, fontWeight: '800', color: CHARCOAL, marginBottom: 4 },
-
-  summaryBox: {
-    padding: 10,
-    borderRadius: 10,
-    borderWidth: 1,
-    borderColor: BORDER,
-    backgroundColor: '#f9fafb',
-    gap: 4,
-  },
-  summaryText: {
-    color: CHARCOAL,
-  },
-
-  roundItem: {
+    marginBottom: 20,
     flexDirection: 'row',
-    gap: 12,
-    padding: 12,
-    borderWidth: 1,
-    borderColor: BORDER,
-    borderRadius: 10,
-    backgroundColor: '#fff',
     alignItems: 'center',
   },
-  roundItemActive: { borderColor: ORANGE, backgroundColor: '#fff7ed' },
-  roundItemClosed: {
-    backgroundColor: '#f9fafb',
-    borderColor: BORDER,
-    opacity: 0.5,
-  },
-  roundTitle: { fontWeight: '700', color: CHARCOAL },
-  roundMeta: { color: MUTED, marginTop: 2 },
-  roundNote: { color: CHARCOAL, marginTop: 4 },
-
-  locationItem: {
-    padding: 10,
-    borderRadius: 10,
-    borderWidth: 1,
-    borderColor: BORDER,
-    marginBottom: 6,
-    backgroundColor: '#fff',
-  },
-  locationItemActive: {
-    borderColor: ORANGE,
-    backgroundColor: '#fffbeb',
-  },
-  locationName: {
-    fontWeight: '700',
-    color: CHARCOAL,
-  },
-  locationMeta: {
-    color: MUTED,
-    marginTop: 2,
-  },
-
-  /** 둥근 버튼 스타일 */
-  btnBase: {
-    paddingVertical: 10,
-    paddingHorizontal: 12,
-    borderRadius: 999,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  btnFullWidth: {
-    width: '100%',
-  },
-  btnPrimary: {
-    backgroundColor: ORANGE,
-  },
-  btnSecondary: {
-    backgroundColor: ORANGE_LIGHT,
-  },
-  btnDanger: {
-    backgroundColor: '#fee2e2',
-    borderWidth: 1,
-    borderColor: '#ef4444',
-  },
-  btnDisabled: {
-    opacity: 0.5,
-  },
-  btnPressed: {
-    transform: [{ scale: 0.98 }],
-  },
-  btnTextPrimary: {
-    color: '#ffffff',
-    fontWeight: '800',
-    fontSize: 15,
-  },
-  btnTextSecondary: {
-    color: '#7c2d12',
-    fontWeight: '800',
-    fontSize: 15,
-  },
-  btnTextDanger: {
-    color: '#b91c1c',
-    fontWeight: '800',
-    fontSize: 14,
-  },
-
-  warningText: {
-    color: '#b91c1c',
-    marginBottom: 6,
-  },
-  toggleBox: {
-    paddingVertical: 8,
-    paddingHorizontal: 14,
-    borderRadius: 10,
-    borderWidth: 1,
-  },
-  toggleOn: { backgroundColor: ORANGE_LIGHT, borderColor: ORANGE },
-  toggleOff: { backgroundColor: '#fff', borderColor: BORDER },
-  toggleTextOn: { color: '#fff', fontWeight: '800' },
-  toggleTextOff: { color: CHARCOAL, fontWeight: '800' },
+  toggleCardActive: { borderColor: HANWHA_ORANGE, backgroundColor: ORANGE_FAINT },
+  toggleTitle: { fontSize: 15, fontWeight: '700', color: CHARCOAL },
+  toggleDesc: { fontSize: 12, color: MUTED, marginTop: 2 },
+  actionButtons: { gap: 12 },
+  submitBtnWrapper: { borderRadius: 14, overflow: 'hidden', ...CARD_SHADOW },
+  submitBtn: { paddingVertical: 16, alignItems: 'center', justifyContent: 'center', flexDirection: 'row' },
+  submitBtnText: { color: '#fff', fontSize: 16, fontWeight: '800' },
+  cancelBtn: { paddingVertical: 14, alignItems: 'center' },
+  cancelBtnText: { color: '#ef4444', fontSize: 14, fontWeight: '600', textDecorationLine: 'underline' },
+  emptyText: { color: MUTED, fontSize: 13, textAlign: 'center', marginTop: 10 },
+  pressedScale: { transform: [{ scale: 0.98 }] },
+  pressedOpacity: { opacity: 0.7 },
 });
