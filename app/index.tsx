@@ -65,24 +65,26 @@ const steps = [
 ];
 
 const fetchCounts = async (role: 'admin' | 'fc' | null, residentId: string) => {
-  let query = supabase.from('fc_profiles').select('status');
-  if (role === 'fc' && residentId) {
-    query = query.eq('phone', residentId);
+  // 관리자만 전체 현황을 조회
+  if (role !== 'admin') {
+    return { total: 0, stepCounts: [0, 0, 0, 0, 0] };
   }
-  const { data, error } = await query;
+
+  const { data, error } = await supabase
+    .from('fc_profiles')
+    .select('status,temp_id,allowance_date,fc_documents(storage_path)');
   if (error) throw error;
-  const counts = data.reduce(
-    (acc: Record<string, number>, row) => {
-      acc[row.status] = (acc[row.status] ?? 0) + 1;
-      return acc;
-    },
-    {},
-  );
+
+  const stepCounts = [0, 0, 0, 0, 0];
+  data?.forEach((row: any) => {
+    const step = calcStep(row);
+    const idx = Math.max(1, Math.min(5, step)) - 1;
+    stepCounts[idx] += 1;
+  });
+
   return {
-    total: data.length,
-    docsPending: counts['docs-pending'] ?? 0,
-    docsRejected: counts['docs-rejected'] ?? 0,
-    finalSent: counts['final-link-sent'] ?? 0,
+    total: data?.length ?? 0,
+    stepCounts,
   };
 };
 
@@ -119,9 +121,15 @@ function calcStep(myFc: any) {
   const uploaded = docs.filter((d: any) => d.storage_path && d.storage_path !== 'deleted').length;
 
   let step = 1;
-  if (myFc.temp_id) step = 2;
-  if (totalDocs > 0 && uploaded === totalDocs) step = 3;
-  if (myFc.status === 'docs-approved') step = 4;
+  if (myFc.temp_id) step = 2; // 기본 정보/임시번호 확보
+
+  // 수당 동의 완료 시 3단계로 진입 (allowance_date 혹은 상태 기반)
+  if (myFc.allowance_date || myFc.status === 'allowance-consented') step = 3;
+
+  // 서류가 모두 업로드된 경우 승인 대기 단계
+  if (totalDocs > 0 && uploaded === totalDocs) step = 4;
+
+  // 최종 단계
   if (myFc.status === 'final-link-sent') step = 5;
   return step;
 }
@@ -248,7 +256,7 @@ export default function Home() {
         </MotiView>
 
         <MotiView from={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} transition={{ type: 'spring', delay: 100 }}>
-          <Pressable onPress={() => handlePressLink('/dashboard?mode=docs')}>
+          <Pressable onPress={() => handlePressLink('/fc/new')}>
             <LinearGradient
               colors={['#f36f21', '#fabc3c']}
               start={{ x: 0, y: 0 }}
@@ -259,8 +267,8 @@ export default function Home() {
                 <View style={styles.ctaBadge}>
                   <Text style={styles.ctaBadgeText}>FC 지원</Text>
                 </View>
-                <Text style={styles.ctaTitle}>서류 현황 확인하기</Text>
-                <Text style={styles.ctaSub}>진행상황을 한 번에 확인하세요.</Text>
+                <Text style={styles.ctaTitle}>인적사항 등록하기</Text>
+                <Text style={styles.ctaSub}>기본 정보를 먼저 등록하세요.</Text>
               </View>
               <View style={styles.ctaIconCircle}>
                 <Feather name="arrow-right" size={24} color={HANWHA_ORANGE} />
@@ -281,21 +289,21 @@ export default function Home() {
                 <Text style={styles.sectionTitle}>현황 요약</Text>
                 {isLoading && <ActivityIndicator color={HANWHA_LIGHT} />}
               </View>
-              <View style={styles.metricsGrid}>
-                {!isLoading && counts ? (
-                  <>
-                    <MetricCard label="전체 FC" value={`${counts.total}명`} />
-                    <MetricCard label="문서 대기" value={`${counts.docsPending}건`} />
-                    <MetricCard label="반려" value={`${counts.docsRejected}건`} />
-                    <MetricCard label="최종 안내" value={`${counts.finalSent}건`} />
-                  </>
-                ) : null}
-              </View>
-            </View>
-          ) : (
-            <View style={styles.progressCard}>
-              <View style={styles.cardHeader}>
-                <Text style={styles.sectionTitle}>내 진행 상황</Text>
+                  <View style={styles.metricsGrid}>
+                    {!isLoading && counts ? (
+                      <>
+                        <MetricCard label="1단계 인적사항" value={`${counts.stepCounts?.[0] ?? 0}명`} />
+                        <MetricCard label="2단계 수당동의" value={`${counts.stepCounts?.[1] ?? 0}명`} />
+                        <MetricCard label="3단계 문서제출" value={`${counts.stepCounts?.[2] ?? 0}명`} />
+                        <MetricCard label="4단계 승인대기" value={`${counts.stepCounts?.[3] ?? 0}명`} />
+                      </>
+                    ) : null}
+                  </View>
+                </View>
+              ) : (
+                <View style={styles.progressCard}>
+                  <View style={styles.cardHeader}>
+                    <Text style={styles.sectionTitle}>내 진행 상황</Text>
                 <Text style={styles.progressMeta}>Step {currentStep}/5</Text>
               </View>
               {statusLoading ? (
@@ -304,12 +312,16 @@ export default function Home() {
                 <ProgressBar step={currentStep} />
               )}
               <View style={styles.glanceRow}>
-                <View style={[styles.glancePill, styles.glancePrimary]}>
+                <Pressable
+                  style={[styles.glancePill, styles.glancePrimary]}
+                  onPress={() => handlePressLink(stepToLink(activeStep.key))}
+                  disabled={!stepToLink(activeStep.key)}
+                >
                   <Text style={styles.glanceLabel}>다음 단계</Text>
                   <Text style={styles.glanceValue} numberOfLines={1}>
                     {activeStep.fullLabel}
                   </Text>
-                </View>
+                </Pressable>
                 <View style={[styles.glancePill, styles.glanceGhost]}>
                   <Text style={styles.glanceLabel}>문서 업로드</Text>
                   <Text style={styles.glanceValue}>
@@ -389,6 +401,21 @@ const ProgressBar = ({ step }: { step: number }) => {
       })}
     </View>
   );
+};
+
+const stepToLink = (key: string) => {
+  switch (key) {
+    case 'info':
+      return '/fc/new';
+    case 'consent':
+      return '/consent';
+    case 'docs':
+      return '/docs-upload';
+    case 'pending':
+      return '/docs-upload';
+    default:
+      return '';
+  }
 };
 
 const MetricCard = ({ label, value }: { label: string; value: string }) => (

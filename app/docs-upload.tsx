@@ -1,8 +1,19 @@
 import * as DocumentPicker from 'expo-document-picker';
 import * as FileSystem from 'expo-file-system/legacy';
 import { useEffect, useMemo, useState } from 'react';
-import { Alert, KeyboardAvoidingView, Platform, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import {
+  ActivityIndicator,
+  Alert,
+  KeyboardAvoidingView,
+  Platform,
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  Text,
+  View,
+} from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { Feather } from '@expo/vector-icons';
 
 import { RefreshButton } from '@/components/RefreshButton';
 import { useSession } from '@/hooks/use-session';
@@ -14,17 +25,15 @@ type FcLite = { id: string; temp_id: string | null; name: string };
 type DocItem = RequiredDoc & { storagePath?: string; originalName?: string };
 
 const BUCKET = 'fc-documents';
-const ORANGE = '#f36f21';
-const ORANGE_MUTED = '#f7b182';
-const GRAY = '#9ca3af';
-const SLATE = '#0f172a';
+const HANWHA_ORANGE = '#f36f21';
+const CHARCOAL = '#111827';
 const MUTED = '#6b7280';
-const ORANGE_PRIMARY = '#f36f21';
-const ORANGE_FAINT = '#fff1e6';
+const BORDER = '#E5E7EB';
+const BACKGROUND = '#ffffff';
+const INPUT_BG = '#F9FAFB';
 
 const randomKey = () => Math.random().toString(36).slice(2, 10) + Date.now().toString(36);
 
-// base64 -> Uint8Array
 function base64ToUint8Array(base64: string) {
   const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/=';
   let str = base64.replace(/=+$/, '');
@@ -50,6 +59,8 @@ export default function DocsUploadScreen() {
     () => ({ uploaded: docs.filter((d) => d.uploadedUrl).length, total: docs.length }),
     [docs],
   );
+
+  const progressPercent = docCount.total > 0 ? (docCount.uploaded / docCount.total) * 100 : 0;
 
   const loadForMe = async () => {
     if (!residentId) return;
@@ -97,29 +108,20 @@ export default function DocsUploadScreen() {
   }, [residentId]);
 
   const handlePick = async (type: RequiredDoc['type']) => {
-    if (!fc) {
-      Alert.alert('프로필 확인', '내 정보가 불러와지지 않았습니다.');
-      return;
-    }
-
+    if (!fc) return;
     const result = await DocumentPicker.getDocumentAsync({
       type: 'application/pdf',
       copyToCacheDirectory: true,
     });
     if (result.canceled) return;
-
     const asset = result.assets?.[0];
-    if (!asset?.uri) {
-      Alert.alert('파일 오류', '파일 경로를 찾을 수 없습니다.');
-      return;
-    }
+    if (!asset?.uri) return;
 
     setUploadingType(type as string);
     try {
       const fileBase64 = await FileSystem.readAsStringAsync(asset.uri, { encoding: 'base64' });
       const byteArray = base64ToUint8Array(fileBase64);
-
-      const objectPath = `${fc.id}/${randomKey()}.pdf`; // UUID 형태 경로
+      const objectPath = `${fc.id}/${randomKey()}.pdf`;
 
       const { error: uploadError } = await supabase.storage
         .from(BUCKET)
@@ -141,14 +143,8 @@ export default function DocsUploadScreen() {
       if (dbError) throw dbError;
 
       await supabase.from('fc_profiles').update({ status: 'docs-pending' }).eq('id', fc.id);
-
-      // 알림: FC 업로드 -> 관리자
       await supabase.functions.invoke('fc-notify', {
-        body: {
-          type: 'fc_update',
-          fc_id: fc.id,
-          message: `${fc.name ?? ''}님의 ${asset.name ?? '문서'}가 업로드되었습니다.`,
-        },
+        body: { type: 'fc_update', fc_id: fc.id, message: `${fc.name}님의 ${asset.name}가 업로드되었습니다.` },
       });
 
       setDocs((prev) =>
@@ -158,17 +154,15 @@ export default function DocsUploadScreen() {
                 ...doc,
                 uploadedUrl: publicUrl,
                 status: 'pending',
-                reviewerNote: undefined,
                 storagePath: objectPath,
                 originalName: asset.name ?? 'document.pdf',
               }
             : doc,
         ),
       );
-
-      Alert.alert('업로드 완료', `${type} 업로드: ${asset.name ?? 'document.pdf'}`);
+      Alert.alert('업로드 완료', '파일이 정상적으로 등록되었습니다.');
     } catch (err: any) {
-      Alert.alert('업로드 실패', err?.message ?? '업로드 중 오류가 발생했습니다.');
+      Alert.alert('오류', err?.message ?? '업로드 실패');
     } finally {
       setUploadingType(null);
     }
@@ -189,90 +183,103 @@ export default function DocsUploadScreen() {
 
       setDocs((prev) =>
         prev.map((doc) =>
-          doc.type === type
-            ? {
-                ...doc,
-                uploadedUrl: undefined,
-                storagePath: undefined,
-                status: 'pending',
-                reviewerNote: undefined,
-                originalName: undefined,
-              }
-            : doc,
+          doc.type === type ? { ...doc, uploadedUrl: undefined, storagePath: undefined, originalName: undefined } : doc,
         ),
       );
-      Alert.alert('삭제 완료', '파일이 삭제되었습니다.');
     } catch (err: any) {
-      Alert.alert('삭제 실패', err?.message ?? '삭제 중 오류가 발생했습니다.');
+      Alert.alert('오류', err?.message ?? '삭제 실패');
     }
   };
 
   return (
-  <SafeAreaView style={styles.safe}>
-      <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} style={{ flex: 1 }}>
-        <ScrollView
-          contentContainerStyle={[styles.container, { paddingBottom: keyboardPadding + 96 }]}
-          keyboardShouldPersistTaps="handled">
-          <RefreshButton />
-          <Text style={styles.title}>필요 서류를 제출해 주세요</Text>
-          <Text style={styles.caption}>
-            요청된 서류를 확인하고 PDF를 업로드하세요. (완료 {docCount.uploaded}/{docCount.total}개)
-          </Text>
-          {fc?.temp_id ? <Text style={styles.temp}>임시번호 {fc.temp_id}</Text> : null}
-          <View style={styles.summary}>
-            <Text style={styles.summaryTitle}>제출 진행률</Text>
-            <Text style={styles.summaryValue}>
-              {docCount.uploaded} / {docCount.total} 완료
-            </Text>
+    <SafeAreaView style={styles.safe}>
+      <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={{ flex: 1 }}>
+        <View style={styles.headerContainer}>
+          <View style={styles.headerRow}>
+            <View>
+              <Text style={styles.headerTitle}>필수 서류 제출</Text>
+              <Text style={styles.headerSub}>
+                {docCount.total}건 중 <Text style={{ color: HANWHA_ORANGE, fontWeight: '700' }}>{docCount.uploaded}건</Text> 완료
+              </Text>
+            </View>
+            <RefreshButton onPress={loadForMe} />
           </View>
 
-          <View style={styles.cardList}>
+          <View style={styles.progressTrack}>
+            <View style={[styles.progressBar, { width: `${progressPercent}%` }]} />
+          </View>
+        </View>
+
+        <ScrollView contentContainerStyle={[styles.scrollContent, { paddingBottom: keyboardPadding + 40 }]}>
+          {fc?.temp_id && (
+            <View style={styles.noticeBox}>
+              <Feather name="info" size={14} color={CHARCOAL} style={{ marginTop: 2 }} />
+              <Text style={styles.noticeText}>
+                발급된 임시번호 <Text style={{ fontWeight: '700' }}>{fc.temp_id}</Text>를 서류에 기재해주세요.
+              </Text>
+            </View>
+          )}
+
+          <View style={styles.list}>
             {docs.map((doc) => {
               const isUploaded = !!doc.uploadedUrl;
               const isUploading = uploadingType === doc.type;
+
               return (
-                <View key={doc.type} style={[styles.card, isUploaded ? styles.cardOn : null]}>
-                  <View style={styles.row}>
-                    <View>
-                      <Text style={styles.docTitle}>{doc.type}</Text>
-                      <Text style={styles.docHint}>
-                        {isUploaded
-                          ? doc.originalName
-                            ? `파일: ${doc.originalName}`
-                            : '업로드가 완료되었습니다.'
-                          : 'PDF 파일을 업로드해 주세요.'}
-                      </Text>
+                <View key={doc.type} style={[styles.item, isUploaded && styles.itemDone]}>
+                  <View style={styles.itemContent}>
+                    <View style={styles.itemHeader}>
+                      <Text style={[styles.itemTitle, isUploaded && styles.textDone]}>{doc.type}</Text>
+                      {isUploaded ? (
+                        <View style={styles.badgeDone}>
+                          <Feather name="check" size={10} color="#059669" />
+                          <Text style={styles.badgeTextDone}>완료</Text>
+                        </View>
+                      ) : (
+                        <View style={styles.badgePending}>
+                          <Text style={styles.badgeTextPending}>미제출</Text>
+                        </View>
+                      )}
                     </View>
-                    <Text style={[styles.badge, isUploaded ? styles.badgeDone : styles.badgePending]}>
-                      {isUploaded ? '완료' : '대기'}
+
+                    <Text style={styles.fileName} numberOfLines={1}>
+                      {isUploaded ? (doc.originalName ?? '파일 업로드됨') : 'PDF 파일을 업로드해주세요'}
                     </Text>
                   </View>
+
                   <View style={styles.actions}>
                     <Pressable
+                      style={[styles.btn, isUploaded ? styles.btnOutline : styles.btnSolid]}
                       onPress={() => handlePick(doc.type)}
                       disabled={isUploading}
-                      style={[
-                        styles.actionPrimary,
-                        isUploaded ? styles.actionPrimaryGhost : null,
-                        isUploading ? styles.disabled : null,
-                      ]}>
-                      <Text style={isUploaded ? styles.actionPrimaryGhostText : styles.actionPrimaryText}>
-                        {isUploaded ? '다시 선택' : 'PDF 선택'}
-                      </Text>
+                    >
+                      {isUploading ? (
+                        <ActivityIndicator size="small" color={isUploaded ? CHARCOAL : '#fff'} />
+                      ) : (
+                        <Text style={isUploaded ? styles.btnTextOutline : styles.btnTextSolid}>
+                          {isUploaded ? '재업로드' : '파일 선택'}
+                        </Text>
+                      )}
                     </Pressable>
-                    {isUploaded ? (
+
+                    {isUploaded && (
                       <Pressable
+                        style={styles.iconBtn}
                         onPress={() => handleDelete(doc.type, doc.storagePath)}
                         disabled={isUploading}
-                        style={[styles.actionSecondary, isUploading ? styles.disabled : null]}>
-                        <Text style={styles.actionSecondaryText}>삭제</Text>
+                      >
+                        <Feather name="trash-2" size={18} color="#EF4444" />
                       </Pressable>
-                    ) : null}
+                    )}
                   </View>
                 </View>
               );
             })}
-            {!docs.length ? <Text style={styles.empty}>요청된 문서가 없습니다. 새로고침 해주세요.</Text> : null}
+            {!docs.length && (
+              <View style={styles.emptyState}>
+                <Text style={styles.emptyText}>요청된 서류가 없습니다.</Text>
+              </View>
+            )}
           </View>
         </ScrollView>
       </KeyboardAvoidingView>
@@ -281,75 +288,104 @@ export default function DocsUploadScreen() {
 }
 
 const styles = StyleSheet.create({
-  safe: { flex: 1, backgroundColor: '#fff9f3' },
-  container: { padding: 20, gap: 14 },
-  title: { fontSize: 24, fontWeight: '800', color: SLATE, marginTop: 4 },
-  caption: { color: MUTED, marginBottom: 6, lineHeight: 20 },
-  summary: {
+  safe: { flex: 1, backgroundColor: BACKGROUND },
+
+  headerContainer: {
+    paddingHorizontal: 24,
+    paddingTop: 16,
+    paddingBottom: 16,
+    borderBottomWidth: 1,
+    borderBottomColor: '#F3F4F6',
     backgroundColor: '#fff',
-    borderRadius: 14,
-    borderWidth: 1,
-    borderColor: '#e5e7eb',
-    padding: 14,
+  },
+  headerRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    shadowColor: '#000',
-    shadowOpacity: 0.04,
-    shadowRadius: 8,
-    shadowOffset: { width: 0, height: 2 },
-    elevation: 2,
+    marginBottom: 16,
   },
-  summaryTitle: { color: MUTED, fontWeight: '700' },
-  summaryValue: { color: SLATE, fontWeight: '800' },
-  cardList: { gap: 12, marginTop: 4 },
-  card: {
-    backgroundColor: '#fff',
-    padding: 16,
-    borderRadius: 16,
-    borderWidth: 1,
-    borderColor: '#e5e7eb',
-    gap: 10,
-    shadowColor: '#000',
-    shadowOpacity: 0.05,
-    shadowRadius: 8,
-    shadowOffset: { width: 0, height: 2 },
-    elevation: 2,
-  },
-  cardOn: { borderColor: ORANGE_PRIMARY, backgroundColor: ORANGE_FAINT },
-  row: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
-  docTitle: { fontWeight: '800', color: SLATE, fontSize: 16 },
-  docHint: { color: MUTED, marginTop: 4 },
-  badge: {
-    paddingHorizontal: 10,
-    paddingVertical: 6,
-    borderRadius: 999,
-    fontSize: 12,
+  headerTitle: { fontSize: 22, fontWeight: '800', color: CHARCOAL },
+  headerSub: { fontSize: 14, color: MUTED, marginTop: 4 },
+
+  progressTrack: {
+    height: 4,
+    backgroundColor: '#F3F4F6',
+    borderRadius: 2,
     overflow: 'hidden',
   },
-  badgePending: { backgroundColor: '#fff7ed', color: '#b45309' },
-  badgeDone: { backgroundColor: '#dcfce7', color: '#166534' },
-  actions: { flexDirection: 'row', gap: 10, marginTop: 4 },
-  actionPrimary: {
-    flex: 1,
-    backgroundColor: ORANGE_PRIMARY,
-    paddingVertical: 12,
+  progressBar: {
+    height: '100%',
+    backgroundColor: HANWHA_ORANGE,
+    borderRadius: 2,
+  },
+
+  scrollContent: { padding: 24 },
+
+  noticeBox: {
+    flexDirection: 'row',
+    backgroundColor: INPUT_BG,
+    padding: 12,
+    borderRadius: 8,
+    marginBottom: 24,
+    borderWidth: 1,
+    borderColor: BORDER,
+    gap: 8,
+  },
+  noticeText: { fontSize: 13, color: CHARCOAL, flex: 1, lineHeight: 18 },
+
+  list: { gap: 16 },
+  item: {
+    borderWidth: 1,
+    borderColor: BORDER,
     borderRadius: 12,
+    padding: 16,
+    backgroundColor: '#fff',
+    gap: 16,
+  },
+  itemDone: {
+    backgroundColor: '#F0FDF4',
+    borderColor: '#BBF7D0',
+  },
+  itemContent: { gap: 4 },
+  itemHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
     alignItems: 'center',
   },
-  actionPrimaryText: { color: '#fff', fontWeight: '800' },
-  actionPrimaryGhost: { backgroundColor: '#fff', borderWidth: 1, borderColor: ORANGE_PRIMARY },
-  actionPrimaryGhostText: { color: ORANGE_PRIMARY, fontWeight: '800' },
-  actionSecondary: {
-    paddingVertical: 12,
-    paddingHorizontal: 16,
-    borderRadius: 12,
-    borderWidth: 1,
-    borderColor: '#ef4444',
-    backgroundColor: '#fff',
+  itemTitle: { fontSize: 16, fontWeight: '700', color: CHARCOAL },
+  textDone: { color: '#065F46' },
+
+  badgePending: { backgroundColor: '#F3F4F6', paddingHorizontal: 6, paddingVertical: 2, borderRadius: 4 },
+  badgeTextPending: { fontSize: 11, color: MUTED, fontWeight: '600' },
+
+  badgeDone: { flexDirection: 'row', alignItems: 'center', gap: 3, backgroundColor: '#DCFCE7', paddingHorizontal: 6, paddingVertical: 2, borderRadius: 4 },
+  badgeTextDone: { fontSize: 11, color: '#166534', fontWeight: '600' },
+
+  fileName: { fontSize: 13, color: MUTED },
+
+  actions: { flexDirection: 'row', gap: 8 },
+  btn: {
+    flex: 1,
+    height: 42,
+    borderRadius: 8,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
-  actionSecondaryText: { color: '#b91c1c', fontWeight: '700' },
-  disabled: { opacity: 0.6 },
-  temp: { color: SLATE, fontWeight: '700' },
-  empty: { color: '#94a3b8', textAlign: 'center', marginTop: 20 },
+  btnSolid: { backgroundColor: CHARCOAL },
+  btnOutline: { backgroundColor: '#fff', borderWidth: 1, borderColor: BORDER },
+  btnTextSolid: { color: '#fff', fontSize: 14, fontWeight: '700' },
+  btnTextOutline: { color: CHARCOAL, fontSize: 14, fontWeight: '700' },
+
+  iconBtn: {
+    width: 42,
+    height: 42,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: '#FEE2E2',
+    backgroundColor: '#FEF2F2',
+  },
+  emptyState: { padding: 20, alignItems: 'center' },
+  emptyText: { color: MUTED, fontSize: 14 },
 });

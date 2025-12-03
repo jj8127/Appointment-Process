@@ -6,28 +6,34 @@ import { useEffect, useMemo, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
-  Button,
-  KeyboardAvoidingView,
+  LayoutAnimation,
   Platform,
   Pressable,
   ScrollView,
   StyleSheet,
   Text,
   TextInput,
+  UIManager,
   View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { Feather, Ionicons } from '@expo/vector-icons';
 
 import { useKeyboardPadding } from '@/hooks/use-keyboard-padding';
 import { useSession } from '@/hooks/use-session';
 import { supabase } from '@/lib/supabase';
 import { FcProfile, RequiredDocType } from '@/types/fc';
+import { KeyboardAwareWrapper } from '@/components/KeyboardAwareWrapper';
+
+if (Platform.OS === 'android' && UIManager.setLayoutAnimationEnabledExperimental) {
+  UIManager.setLayoutAnimationEnabledExperimental(true);
+}
 
 const BUCKET = 'fc-documents';
 const ORANGE = '#f36f21';
-const ORANGE_LIGHT = '#f7b182';
 const CHARCOAL = '#111827';
-const YELLOW = '#fde68a';
+const MUTED = '#6b7280';
+const BORDER = '#E5E7EB';
 
 const statusLabels: Record<FcProfile['status'], string> = {
   draft: '작성 중',
@@ -41,17 +47,17 @@ const statusLabels: Record<FcProfile['status'], string> = {
 };
 
 const docOptions: RequiredDocType[] = [
-  '주민등록증 사본',
-  '통장 사본',
-  '최근3개월 급여명세서',
-  '주민등록증 이미지(앞)',
-  '통장 이미지(앞)',
-  '최근3개월 이미지(앞)',
-  '주민등록증 이미지(뒤)',
-  '통장 이미지(뒤)',
-  '최근3개월 이미지(뒤)',
-  '신체검사서',
-  '개인정보동의서',
+  '생명보험 합격증',
+  '제3보험 합격증',
+  '손해보험 합격증',
+  '생명보험 수료증(신입)',
+  '제3보험 수료증(신입)',
+  '손해보험 수료증(신입)',
+  '생명보험 수료증(경력)',
+  '제3보험 수료증(경력)',
+  '손해보험 수료증(경력)',
+  '이클린',
+  '경력증명서',
 ];
 
 type FcRow = {
@@ -134,9 +140,10 @@ export default function DashboardScreen() {
   }, [data]);
 
   const updateTemp = useMutation({
-    mutationFn: async ({ id, tempId, career }: { id: string; tempId?: string; career: '신입' | '경력' }) => {
-      const payload: any = { career_type: career };
-      if (tempId) {
+    mutationFn: async ({ id, tempId, career }: { id: string; tempId?: string; career?: '신입' | '경력' }) => {
+      const payload: any = {};
+      if (career) payload.career_type = career;
+      if (tempId !== undefined) {
         payload.temp_id = tempId;
         payload.status = 'temp-id-issued';
       }
@@ -146,10 +153,8 @@ export default function DashboardScreen() {
         body: { type: 'admin_update', fc_id: id, message: '임시번호/경력 정보가 업데이트되었습니다.' },
       });
     },
-    onSuccess: (_, vars) => {
+    onSuccess: () => {
       Alert.alert('저장 완료', '임시번호/경력 정보가 저장되었습니다.');
-      setTempInputs((prev) => ({ ...prev, [vars.id]: vars.tempId ?? prev[vars.id] ?? '' }));
-      setCareerInputs((prev) => ({ ...prev, [vars.id]: vars.career }));
       refetch();
     },
     onError: (err: any) => Alert.alert('저장 실패', err.message ?? '저장 중 문제가 발생했습니다.'),
@@ -159,7 +164,6 @@ export default function DashboardScreen() {
     mutationFn: async ({ id, types }: { id: string; types: RequiredDocType[] }) => {
       const uniqueTypes = Array.from(new Set(types));
 
-      // 현재 저장된 서류 목록 조회
       const { data: existingDocs, error: fetchErr } = await supabase
         .from('fc_documents')
         .select('doc_type,storage_path,file_name,status')
@@ -233,365 +237,458 @@ export default function DashboardScreen() {
       Alert.alert('열기 실패', '저장된 파일이 없습니다.');
       return;
     }
-    const { data, error } = await supabase.storage.from(BUCKET).createSignedUrl(path, 300);
-    if (error || !data?.signedUrl) {
-      Alert.alert('열기 실패', error?.message ?? 'URL 생성 실패: 버킷 fc-documents 설정을 확인해주세요.');
+    const { data: signed, error } = await supabase.storage.from(BUCKET).createSignedUrl(path, 300);
+    if (error || !signed?.signedUrl) {
+      Alert.alert('열기 실패', error?.message ?? 'URL 생성 실패: 버킷 설정을 확인해주세요.');
       return;
     }
-    await WebBrowser.openBrowserAsync(data.signedUrl);
+    await WebBrowser.openBrowserAsync(signed.signedUrl);
   };
 
   const showTempSection = mode !== 'docs';
   const showDocsSection = mode !== 'temp';
 
+  const toggleExpand = (id: string) => {
+    LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
+    setExpanded((prev) => ({ ...prev, [id]: !prev[id] }));
+  };
+
   return (
     <SafeAreaView style={styles.safe}>
-      <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} style={{ flex: 1 }}>
-        <ScrollView
-          contentContainerStyle={[styles.container, { paddingBottom: keyboardPadding + 180 }]}
-          keyboardShouldPersistTaps="handled">
-          <RefreshButton />
-          <View style={styles.headerRow}>
-            <View style={{ flex: 1 }}>
-              <Text style={styles.title}>총무 대시보드</Text>
-              <Text style={styles.caption}>
-                {role === 'admin'
-                  ? 'FC 목록을 확인하고 임시번호·서류 요청·업로드 현황을 관리하세요.'
-                  : '본인 현황과 제출 서류 상태를 확인할 수 있습니다.'}
-              </Text>
-            </View>
+      <KeyboardAwareWrapper>
+        <View style={styles.headerContainer}>
+          <View style={styles.headerTop}>
+            <Text style={styles.headerTitle}>현황 대시보드</Text>
+            <RefreshButton onPress={() => refetch()} />
           </View>
+          <Text style={styles.headerSub}>
+            {role === 'admin' ? '전체 FC 진행 현황 및 서류 관리' : '나의 진행 현황 확인'}
+          </Text>
 
-          <View style={styles.filters}>
+          <View style={styles.searchBox}>
+            <Ionicons name="search" size={18} color="#9CA3AF" />
             <TextInput
-              style={styles.search}
-              placeholder="이름/소속/번호/임시번호 검색"
+              style={styles.searchInput}
+              placeholder="이름, 연락처 검색"
               placeholderTextColor="#9CA3AF"
               value={keyword}
               onChangeText={setKeyword}
             />
-            <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.statusRow}>
-              {(['all', ...Object.keys(statusLabels)] as (FcProfile['status'] | 'all')[]).map((status) => (
-                <Text
-                  key={status}
-                  style={[styles.pill, statusFilter === status && styles.pillSelected]}
-                  onPress={() => setStatusFilter(status)}>
-                  {status === 'all' ? '전체' : statusLabels[status as FcProfile['status']]}
-                </Text>
-              ))}
-            </ScrollView>
           </View>
 
-          {isLoading && <ActivityIndicator color={ORANGE} />}
-          {isError && <Text style={{ color: '#dc2626' }}>데이터를 불러오지 못했습니다.</Text>}
-
-          <View style={styles.list}>
-            {rows.map((fc) => {
-              const selectedDocs = Array.from(docSelections[fc.id] ?? new Set<RequiredDocType>());
-              const submitted = (fc.fc_documents ?? []).filter((d) => d.storage_path && d.storage_path !== 'deleted');
-              const missing = selectedDocs.filter((d) => !submitted.find((s) => s.doc_type === d));
-              const isExpanded = expanded[fc.id];
-              const careerDisplay = careerInputs[fc.id] ?? fc.career_type ?? '-';
-              const tempDisplay = tempInputs[fc.id] ?? fc.temp_id ?? '-';
-              const allowanceDisplay = fc.allowance_date ?? '없음';
-
+          <ScrollView
+            horizontal
+            showsHorizontalScrollIndicator={false}
+            contentContainerStyle={styles.filterContainer}
+          >
+            {(['all', ...Object.keys(statusLabels)] as const).map((st) => {
+              const active = statusFilter === st;
               return (
-                <View key={fc.id} style={styles.card}>
-                  <View style={styles.row}>
-                    <Text style={styles.name}>{fc.name}</Text>
-                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-                      {role === 'admin' ? (
+                <Pressable
+                  key={st}
+                  style={[styles.filterTab, active && styles.filterTabActive]}
+                  onPress={() => setStatusFilter(st as any)}
+                >
+                  <Text style={[styles.filterText, active && styles.filterTextActive]}>
+                    {st === 'all' ? '전체' : statusLabels[st]}
+                  </Text>
+                </Pressable>
+              );
+            })}
+          </ScrollView>
+        </View>
+
+        <ScrollView contentContainerStyle={[styles.listContent, { paddingBottom: keyboardPadding + 40 }]}>
+          {isLoading && <ActivityIndicator color={ORANGE} style={{ marginVertical: 20 }} />}
+          {isError && <Text style={{ color: '#dc2626', marginBottom: 8 }}>데이터를 불러오지 못했습니다.</Text>}
+          {!isLoading && rows.length === 0 && (
+            <View style={styles.emptyState}>
+              <Text style={styles.emptyText}>조회된 내용이 없습니다.</Text>
+            </View>
+          )}
+
+          {rows.map((fc, idx) => {
+            const isExpanded = expanded[fc.id];
+            const selectedDocs = Array.from(docSelections[fc.id] ?? new Set<RequiredDocType>());
+            const submitted = (fc.fc_documents ?? []).filter((d) => d.storage_path && d.storage_path !== 'deleted');
+            const missing = selectedDocs.filter((d) => !submitted.find((s) => s.doc_type === d));
+            const careerDisplay = careerInputs[fc.id] ?? fc.career_type ?? '-';
+            const tempDisplay = tempInputs[fc.id] ?? fc.temp_id ?? '-';
+            const allowanceDisplay = fc.allowance_date ?? '없음';
+
+            return (
+              <View key={fc.id} style={styles.listItem}>
+                <Pressable onPress={() => toggleExpand(fc.id)} style={styles.listHeader}>
+                  <View style={styles.listInfo}>
+                    <View style={styles.nameRow}>
+                      <Text style={styles.nameText}>{fc.name || '-'}</Text>
+                      <Text style={styles.affText}>{fc.affiliation || '-'}</Text>
+                    </View>
+                    <Text style={styles.subText}>
+                      {fc.phone} · {statusLabels[fc.status] ?? fc.status}
+                    </Text>
+                  </View>
+                  <Feather name={isExpanded ? 'chevron-up' : 'chevron-down'} size={20} color="#9CA3AF" />
+                </Pressable>
+
+                {isExpanded && (
+                  <View style={styles.listBody}>
+                    <View style={styles.divider} />
+
+                    <DetailRow label="임시번호" value={tempDisplay} />
+                    <DetailRow label="수당동의" value={allowanceDisplay} />
+                    <DetailRow label="경력구분" value={careerDisplay} />
+                    <DetailRow label="이메일" value={fc.email ?? '-'} />
+                    <DetailRow label="주소" value={`${fc.address ?? '-'} ${fc.address_detail ?? ''}`} />
+
+                    {showTempSection && role === 'admin' && (
+                      <View style={styles.adminSection}>
+                        <Text style={styles.adminLabel}>관리자 수정</Text>
+                        <View style={styles.inputGroup}>
+                          <TextInput
+                            style={styles.adminInput}
+                            placeholder="임시번호 입력"
+                            placeholderTextColor="#9CA3AF"
+                            value={tempInputs[fc.id] ?? fc.temp_id ?? ''}
+                            onChangeText={(t) => setTempInputs((p) => ({ ...p, [fc.id]: t }))}
+                          />
+                          <Pressable
+                            style={styles.saveButton}
+                            onPress={() =>
+                              updateTemp.mutate({
+                                id: fc.id,
+                                tempId: tempInputs[fc.id] ?? fc.temp_id ?? '',
+                                career: careerInputs[fc.id] ?? '신입',
+                              })
+                            }
+                          >
+                            <Text style={styles.saveButtonText}>저장</Text>
+                          </Pressable>
+                        </View>
+                      </View>
+                    )}
+
+                    {showDocsSection && role === 'admin' && (
+                      <View style={{ marginTop: 12, gap: 10 }}>
+                        <Text style={styles.adminLabel}>필수 서류 선택</Text>
+                        <View style={styles.docPills}>
+                          {docOptions.map((doc) => {
+                            const set = docSelections[fc.id] ?? new Set<RequiredDocType>();
+                            const active = set.has(doc);
+                            const submittedDoc = submitted.find((s) => s.doc_type === doc);
+                            return (
+                              <Pressable
+                                key={doc}
+                                style={[
+                                  styles.docPill,
+                                  active && styles.docPillSelected,
+                                  submittedDoc && styles.docPillSubmitted,
+                                ]}
+                                onPress={() => toggleDocSelection(fc.id, doc)}
+                              >
+                                <Text
+                                  style={[
+                                    styles.docPillText,
+                                    active && styles.docPillTextSelected,
+                                    submittedDoc && styles.docPillTextSubmitted,
+                                  ]}
+                                >
+                                  {doc}
+                                </Text>
+                              </Pressable>
+                            );
+                          })}
+                        </View>
                         <Pressable
-                          style={styles.trashButton}
+                          style={[styles.saveButton, { alignSelf: 'flex-start' }]}
+                          onPress={() =>
+                            updateDocs.mutate({
+                              id: fc.id,
+                              types: Array.from(docSelections[fc.id] ?? new Set()),
+                            })
+                          }
+                        >
+                          <Text style={styles.saveButtonText}>서류 요청 저장</Text>
+                        </Pressable>
+
+                        <View style={styles.submittedBox}>
+                          <Text style={styles.submittedTitle}>제출된 서류</Text>
+                          {submitted.length ? (
+                            submitted.map((doc) => (
+                              <View key={doc.doc_type} style={styles.submittedRow}>
+                                <Text style={styles.submittedText}>
+                                  {doc.doc_type} · {doc.file_name ?? '-'}
+                                </Text>
+                                {doc.storage_path ? (
+                                  <Pressable style={styles.openButton} onPress={() => openFile(doc.storage_path ?? undefined)}>
+                                    <Text style={styles.openButtonText}>열기</Text>
+                                  </Pressable>
+                                ) : null}
+                              </View>
+                            ))
+                          ) : (
+                            <Text style={styles.emptyText}>제출된 서류가 없습니다.</Text>
+                          )}
+                        </View>
+
+                        <Pressable
+                          style={styles.deleteButton}
                           onPress={() =>
                             Alert.alert('삭제 확인', '이 FC 기록을 삭제할까요?', [
                               { text: '취소', style: 'cancel' },
                               { text: '삭제', style: 'destructive', onPress: () => deleteFc.mutate(fc.id) },
                             ])
-                          }>
-                          <Text style={styles.trashText}>×</Text>
+                          }
+                        >
+                          <Feather name="trash-2" size={14} color="#b91c1c" />
+                          <Text style={styles.deleteText}>FC 정보 삭제</Text>
                         </Pressable>
-                      ) : null}
-                      <Text style={styles.badge}>{statusLabels[fc.status]}</Text>
-                    </View>
+                      </View>
+                    )}
                   </View>
-                  <Text style={styles.meta}>
-                    {fc.affiliation} · {fc.phone}
-                  </Text>
-                  <Text style={styles.meta}>서류 현황: {submitted.length}/{selectedDocs.length}</Text>
-                  <Text style={styles.meta}>수당 동의 날짜: {allowanceDisplay}</Text>
-                  {missing.length ? <Text style={styles.meta}>부족한 서류: {missing.join(', ')}</Text> : null}
-
-                  <Pressable
-                    style={styles.detailButton}
-                    onPress={() => setExpanded((prev) => ({ ...prev, [fc.id]: !prev[fc.id] }))}>
-                    <Text style={styles.detailButtonText}>{isExpanded ? '접기' : '상세 보기'}</Text>
-                  </Pressable>
-
-                  {isExpanded ? (
-                    <View style={styles.detailBox}>
-                      <Text style={styles.meta}>임시번호: {tempDisplay}</Text>
-                      <Text style={styles.meta}>경력 구분: {careerDisplay}</Text>
-                      <Text style={styles.meta}>수당 날짜: {fc.allowance_date ?? '-'}</Text>
-                      <Text style={styles.meta}>휴대폰: {fc.phone ?? '-'}</Text>
-                      <Text style={styles.meta}>이메일: {fc.email ?? '-'}</Text>
-                      <Text style={styles.meta}>
-                        주소: {fc.address ?? '-'}
-                        {fc.address_detail ? ` ${fc.address_detail}` : ''}
-                      </Text>
-                    </View>
-                  ) : null}
-
-                  {role === 'admin' ? (
-                    <>
-                      {showTempSection ? (
-                        <View style={{ gap: 8, marginTop: 8 }}>
-                          <View style={styles.careerRow}>
-                            {(['신입', '경력'] as ('신입' | '경력')[]).map((c) => {
-                              const active = (careerInputs[fc.id] ?? fc.career_type ?? '신입') === c;
-                              return (
-                                <Pressable
-                                  key={c}
-                                  style={[styles.careerPill, active && styles.careerPillActive]}
-                                  onPress={() => setCareerInputs((prev) => ({ ...prev, [fc.id]: c }))}>
-                                  <Text style={[styles.careerText, active && styles.careerTextActive]}>{c}</Text>
-                                </Pressable>
-                              );
-                            })}
-                          </View>
-                          <View style={styles.tempRow}>
-                            <TextInput
-                              style={styles.input}
-                              placeholder="임시번호 입력"
-                              placeholderTextColor="#9CA3AF"
-                              value={tempInputs[fc.id] ?? fc.temp_id ?? ''}
-                              onChangeText={(txt) => setTempInputs((prev) => ({ ...prev, [fc.id]: txt }))}
-                            />
-                            <Button
-                              title="임시번호/경력 저장"
-                              onPress={() =>
-                                updateTemp.mutate({
-                                  id: fc.id,
-                                  tempId: tempInputs[fc.id] ?? fc.temp_id ?? '',
-                                  career: careerInputs[fc.id] ?? '신입',
-                                })
-                              }
-                              disabled={updateTemp.isPending}
-                              color={ORANGE}
-                            />
-                          </View>
-                        </View>
-                      ) : null}
-
-                      {showDocsSection ? (
-                        <>
-                          <View style={styles.docsHeader}>
-                            <Text style={styles.docsTitle}>필수 서류 선택</Text>
-                            <View style={styles.legendRow}>
-                              <View style={[styles.legendDot, { backgroundColor: ORANGE }]} />
-                              <Text style={styles.legendText}>요청됨</Text>
-                              <View style={[styles.legendDot, { backgroundColor: YELLOW, borderColor: '#f59e0b', borderWidth: 1 }]} />
-                              <Text style={styles.legendText}>제출 완료</Text>
-                            </View>
-                          </View>
-                          <View style={styles.docPills}>
-                            {docOptions.map((doc) => {
-                              const set = docSelections[fc.id] ?? new Set<RequiredDocType>();
-                              const active = set.has(doc);
-                              const submittedDoc = submitted.find((s) => s.doc_type === doc);
-                              return (
-                                <Pressable
-                                  key={doc}
-                                  style={[
-                                    styles.docPill,
-                                    active && styles.docPillSelected,
-                                    submittedDoc && styles.docPillSubmitted,
-                                  ]}
-                                  onPress={() => toggleDocSelection(fc.id, doc)}>
-                                  <Text
-                                    style={[
-                                      styles.docPillText,
-                                      active && styles.docPillTextSelected,
-                                      submittedDoc && styles.docPillTextSubmitted,
-                                    ]}>
-                                    {doc}
-                                  </Text>
-                                </Pressable>
-                              );
-                            })}
-                          </View>
-                          <Button
-                            title="서류 요청 저장"
-                            onPress={() =>
-                              updateDocs.mutate({ id: fc.id, types: Array.from(docSelections[fc.id] ?? new Set()) })
-                            }
-                            disabled={updateDocs.isPending}
-                            color={ORANGE}
-                          />
-
-                          <View style={styles.submittedBox}>
-                            <Text style={styles.submittedTitle}>제출된 서류</Text>
-                            {submitted.length ? (
-                              submitted.map((doc) => (
-                                <View key={doc.doc_type} style={styles.submittedRow}>
-                                  <Text style={styles.submittedText}>
-                                    {doc.doc_type} · {doc.file_name ?? '-'}
-                                  </Text>
-                                  {doc.storage_path ? (
-                                    <Button title="열기" onPress={() => openFile(doc.storage_path ?? undefined)} color={ORANGE} />
-                                  ) : null}
-                                </View>
-                              ))
-                            ) : (
-                              <Text style={styles.meta}>제출된 서류가 없습니다.</Text>
-                            )}
-                          </View>
-                        </>
-                      ) : null}
-                    </>
-                  ) : null}
-                </View>
-              );
-            })}
-            {!isLoading && !rows.length ? <Text style={styles.empty}>표시할 데이터가 없습니다.</Text> : null}
-          </View>
+                )}
+              </View>
+            );
+          })}
         </ScrollView>
-      </KeyboardAvoidingView>
+      </KeyboardAwareWrapper>
     </SafeAreaView>
   );
 }
 
+const DetailRow = ({ label, value }: { label: string; value: string }) => (
+  <View style={styles.detailRow}>
+    <Text style={styles.detailLabel}>{label}</Text>
+    <Text style={styles.detailValue}>{value}</Text>
+  </View>
+);
+
 const styles = StyleSheet.create({
-  safe: { flex: 1, backgroundColor: '#fff7f0' },
-  container: { padding: 20, paddingBottom: 96, gap: 12 },
-  headerRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', gap: 12 },
-  title: { fontSize: 22, fontWeight: '800', color: CHARCOAL },
-  caption: { color: '#4b5563', marginTop: 4 },
-  filters: { gap: 10 },
-  search: {
-    borderWidth: 1,
-    borderColor: '#e2e8f0',
-    borderRadius: 10,
-    padding: 10,
-    backgroundColor: 'white',
+  safe: { flex: 1, backgroundColor: '#fff' },
+  headerContainer: {
+    paddingHorizontal: 20,
+    paddingTop: 16,
+    paddingBottom: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: '#F3F4F6',
   },
-  statusRow: { marginTop: 6 },
-  pill: {
-    borderWidth: 1,
-    borderColor: '#cbd5e1',
+  headerTop: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
+  headerTitle: {
+    fontSize: 20,
+    fontWeight: '700',
+    color: CHARCOAL,
+  },
+  headerSub: {
+    fontSize: 13,
+    color: MUTED,
+    marginTop: 4,
+    marginBottom: 16,
+  },
+  searchBox: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#F9FAFB',
+    borderRadius: 8,
     paddingHorizontal: 12,
-    paddingVertical: 8,
-    borderRadius: 999,
+    height: 40,
+    marginBottom: 12,
+    borderWidth: 1,
+    borderColor: '#E5E7EB',
+    gap: 8,
+  },
+  searchInput: {
+    flex: 1,
+    fontSize: 14,
+    color: CHARCOAL,
+  },
+  filterContainer: {
+    gap: 8,
+    paddingBottom: 8,
+  },
+  filterTab: {
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 20,
+    backgroundColor: '#F3F4F6',
+    borderWidth: 1,
+    borderColor: '#E5E7EB',
+    marginRight: 8,
+  },
+  filterTabActive: {
+    backgroundColor: CHARCOAL,
+    borderColor: CHARCOAL,
+  },
+  filterText: {
+    fontSize: 13,
+    color: MUTED,
+  },
+  filterTextActive: {
+    color: '#fff',
+    fontWeight: '600',
+  },
+  listContent: {
+    padding: 20,
+    gap: 12,
+  },
+  listItem: {
+    backgroundColor: '#fff',
+    borderWidth: 1,
+    borderColor: BORDER,
+    borderRadius: 8,
+    overflow: 'hidden',
+  },
+  listHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    padding: 16,
+  },
+  listInfo: { flex: 1 },
+  nameRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 4,
+    flexWrap: 'wrap',
+  },
+  nameText: {
+    fontSize: 16,
+    fontWeight: '700',
     color: CHARCOAL,
     marginRight: 8,
   },
-  pillSelected: { backgroundColor: ORANGE, color: 'white', borderColor: ORANGE },
-  list: { gap: 10 },
-  card: {
-    backgroundColor: 'white',
-    padding: 14,
-    borderRadius: 12,
-    borderWidth: 1,
-    borderColor: ORANGE_LIGHT,
-    gap: 8,
-    marginBottom: 10,
-    shadowColor: '#000',
-    shadowOpacity: 0.05,
-    shadowOffset: { width: 0, height: 2 },
-    shadowRadius: 6,
-    elevation: 2,
+  affText: {
+    fontSize: 13,
+    color: MUTED,
   },
-  row: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
-  name: { fontWeight: '800', fontSize: 16, color: CHARCOAL },
-  badge: {
-    backgroundColor: '#e5e7eb',
-    color: CHARCOAL,
-    paddingHorizontal: 10,
-    paddingVertical: 6,
-    borderRadius: 999,
-    fontSize: 12,
+  subText: {
+    fontSize: 13,
+    color: MUTED,
   },
-  meta: { color: '#475569' },
-  tempRow: { flexDirection: 'row', gap: 8, alignItems: 'center' },
-  input: {
-    flex: 1,
-    borderWidth: 1,
-    borderColor: '#e2e8f0',
-    borderRadius: 10,
-    padding: 10,
-    backgroundColor: 'white',
-  },
-  careerRow: { flexDirection: 'row', gap: 8 },
-  careerPill: {
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-    borderRadius: 999,
-    borderWidth: 1,
-    borderColor: '#cbd5e1',
-    backgroundColor: '#fff',
-  },
-  careerPillActive: { backgroundColor: ORANGE, borderColor: ORANGE },
-  careerText: { color: CHARCOAL },
-  careerTextActive: { color: 'white', fontWeight: '700' },
-  detailButton: {
-    alignSelf: 'flex-start',
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-    borderRadius: 10,
-    backgroundColor: ORANGE_LIGHT,
-  },
-  detailButtonText: { color: CHARCOAL, fontWeight: '700' },
-  detailBox: {
-    marginTop: 8,
-    padding: 10,
-    borderRadius: 10,
-    backgroundColor: '#f8fafc',
-    borderWidth: 1,
-    borderColor: '#e2e8f0',
+  listBody: {
+    paddingHorizontal: 16,
+    paddingBottom: 16,
     gap: 4,
   },
-  docsHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
-  legendRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
-  legendDot: { width: 12, height: 12, borderRadius: 6 },
-  legendText: { color: '#475569', fontSize: 12 },
-  docs: { gap: 8, marginTop: 10 },
-  docsTitle: { fontWeight: '700', color: CHARCOAL },
-  docPills: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginTop: 6 },
+  divider: {
+    height: 1,
+    backgroundColor: '#F3F4F6',
+    marginBottom: 12,
+  },
+  detailRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    marginBottom: 6,
+  },
+  detailLabel: {
+    fontSize: 13,
+    color: MUTED,
+  },
+  detailValue: {
+    fontSize: 13,
+    color: CHARCOAL,
+    fontWeight: '500',
+  },
+  adminSection: {
+    marginTop: 12,
+    paddingTop: 10,
+    borderTopWidth: 1,
+    borderTopColor: '#F3F4F6',
+    gap: 10,
+  },
+  adminLabel: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: CHARCOAL,
+  },
+  inputGroup: {
+    flexDirection: 'row',
+    gap: 8,
+    alignItems: 'center',
+  },
+  adminInput: {
+    flex: 1,
+    height: 40,
+    borderWidth: 1,
+    borderColor: '#E5E7EB',
+    borderRadius: 8,
+    paddingHorizontal: 10,
+    fontSize: 13,
+    backgroundColor: '#fff',
+  },
+  saveButton: {
+    backgroundColor: CHARCOAL,
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    borderRadius: 8,
+  },
+  saveButtonText: {
+    color: '#fff',
+    fontSize: 12,
+    fontWeight: '700',
+  },
+  docPills: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+  },
   docPill: {
     borderWidth: 1,
-    borderColor: '#cbd5e1',
+    borderColor: BORDER,
     paddingHorizontal: 10,
     paddingVertical: 8,
     borderRadius: 8,
-    backgroundColor: 'white',
-  },
-  docPillSelected: { backgroundColor: ORANGE, borderColor: ORANGE },
-  docPillSubmitted: { backgroundColor: YELLOW, borderColor: '#f59e0b' },
-  docPillText: { color: CHARCOAL },
-  docPillTextSelected: { color: 'white' },
-  docPillTextSubmitted: { color: CHARCOAL, fontWeight: '700' },
-  submittedBox: {
-    marginTop: 10,
-    padding: 10,
-    borderWidth: 1,
-    borderColor: ORANGE_LIGHT,
-    borderRadius: 10,
-    gap: 6,
     backgroundColor: '#fff',
   },
-  submittedTitle: { fontWeight: '700', color: CHARCOAL },
+  docPillSelected: { backgroundColor: '#fff7ed', borderColor: ORANGE },
+  docPillSubmitted: { backgroundColor: '#e0f2fe', borderColor: '#38bdf8' },
+  docPillText: { color: CHARCOAL, fontSize: 12 },
+  docPillTextSelected: { color: ORANGE, fontWeight: '700' },
+  docPillTextSubmitted: { color: '#0ea5e9', fontWeight: '700' },
+  submittedBox: {
+    marginTop: 8,
+    padding: 10,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: '#E5E7EB',
+    backgroundColor: '#F9FAFB',
+    gap: 6,
+  },
+  submittedTitle: { fontSize: 13, fontWeight: '700', color: CHARCOAL },
   submittedRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', gap: 8 },
-  submittedText: { color: CHARCOAL, flex: 1 },
-  empty: { color: '#94a3b8', textAlign: 'center', marginTop: 20 },
-  trashButton: {
-    width: 32,
-    height: 32,
-    borderRadius: 16,
-    backgroundColor: '#fee2e2',
+  submittedText: { color: CHARCOAL, flex: 1, fontSize: 12 },
+  openButton: {
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 6,
+    borderWidth: 1,
+    borderColor: BORDER,
+    backgroundColor: '#fff',
+  },
+  openButtonText: { color: CHARCOAL, fontSize: 12, fontWeight: '700' },
+  deleteButton: {
+    marginTop: 8,
+    flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'center',
+    gap: 6,
+    alignSelf: 'flex-start',
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+    borderRadius: 8,
     borderWidth: 1,
     borderColor: '#fecdd3',
+    backgroundColor: '#fee2e2',
   },
-  trashText: { fontSize: 16, color: '#b91c1c' },
+  deleteText: { color: '#b91c1c', fontSize: 12, fontWeight: '700' },
+  emptyState: {
+    alignItems: 'center',
+    paddingVertical: 40,
+  },
+  emptyText: {
+    color: MUTED,
+    fontSize: 14,
+  },
 });

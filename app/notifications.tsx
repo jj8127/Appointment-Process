@@ -1,6 +1,18 @@
 import { useCallback, useEffect, useState } from 'react';
-import { ActivityIndicator, FlatList, StyleSheet, Text, View, KeyboardAvoidingView, Platform, Alert, Pressable } from 'react-native';
+import {
+  ActivityIndicator,
+  FlatList,
+  StyleSheet,
+  Text,
+  View,
+  RefreshControl,
+  Alert,
+  Pressable,
+} from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { Feather } from '@expo/vector-icons';
+import { MotiView } from 'moti';
+
 import { RefreshButton } from '@/components/RefreshButton';
 import { useSession } from '@/hooks/use-session';
 import { supabase } from '@/lib/supabase';
@@ -14,15 +26,17 @@ type Notice = {
   source: 'notification' | 'notice';
 };
 
-const ORANGE = '#f36f21';
-const GRAY = '#6b7280';
-const BORDER = '#e5e7eb';
+const HANWHA_ORANGE = '#f36f21';
+const CHARCOAL = '#111827';
+const MUTED = '#6b7280';
+const BORDER = '#E5E7EB';
+const BACKGROUND = '#ffffff';
 
 export default function NotificationsScreen() {
   const { role, residentId, hydrated } = useSession();
   const [notices, setNotices] = useState<Notice[]>([]);
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  const [refreshing, setRefreshing] = useState(false);
 
   const fetchPushNotifications = useCallback(async (): Promise<Notice[]> => {
     if (!role) return [];
@@ -42,16 +56,13 @@ export default function NotificationsScreen() {
       ({ data, error } = await baseQuery.eq('recipient_role', 'admin'));
     }
 
-    if (error) {
-      if ((error as any)?.code === '42P01') return [];
-      throw error;
-    }
+    if (error && (error as any)?.code !== '42P01') throw error;
 
     return (data ?? []).map((item: any) => ({
       id: `notification:${item.id}`,
       title: item.title,
       body: item.body,
-      category: item.category ?? '앱 알림',
+      category: item.category ?? '알림',
       created_at: item.created_at,
       source: 'notification',
     }));
@@ -61,18 +72,16 @@ export default function NotificationsScreen() {
     const { data, error } = await supabase
       .from('notices')
       .select('id,title,body,category,created_at')
-      .order('created_at', { ascending: false });
+      .order('created_at', { ascending: false })
+      .limit(20);
 
-    if (error) {
-      if ((error as any)?.code === '42P01') return [];
-      throw error;
-    }
+    if (error && (error as any)?.code !== '42P01') throw error;
 
     return (data ?? []).map((item: any) => ({
       id: `notice:${item.id}`,
       title: item.title,
       body: item.body,
-      category: item.category ?? '공지사항',
+      category: item.category ?? '공지',
       created_at: item.created_at,
       source: 'notice',
     }));
@@ -80,8 +89,6 @@ export default function NotificationsScreen() {
 
   const load = useCallback(async () => {
     if (!hydrated) return;
-    setLoading(true);
-    setError(null);
     try {
       const [pushRows, noticeRows] = await Promise.all([fetchPushNotifications(), fetchNotices()]);
       const merged = [...pushRows, ...noticeRows].sort((a, b) => {
@@ -91,9 +98,10 @@ export default function NotificationsScreen() {
       });
       setNotices(merged);
     } catch (err: any) {
-      setError(err?.message ?? '로딩에 실패했습니다.');
+      console.warn(err);
     } finally {
       setLoading(false);
+      setRefreshing(false);
     }
   }, [fetchNotices, fetchPushNotifications, hydrated]);
 
@@ -101,81 +109,119 @@ export default function NotificationsScreen() {
     load();
   }, [load]);
 
+  const handleRefresh = () => {
+    setRefreshing(true);
+    load();
+  };
+
+  const renderItem = ({ item, index }: { item: Notice; index: number }) => {
+    const isNotice = item.source === 'notice';
+    const iconName = isNotice ? 'mic' : 'bell';
+    const iconColor = isNotice ? HANWHA_ORANGE : '#3B82F6';
+    const bgIcon = isNotice ? '#FFF7ED' : '#EFF6FF';
+
+    return (
+      <MotiView
+        from={{ opacity: 0, translateY: 10 }}
+        animate={{ opacity: 1, translateY: 0 }}
+        transition={{ delay: index * 50 }}
+      >
+        <Pressable
+          style={styles.itemContainer}
+          onPress={() => Alert.alert(item.title, item.body, [{ text: '확인' }])}
+          android_ripple={{ color: '#F3F4F6' }}
+        >
+          <View style={[styles.iconBox, { backgroundColor: bgIcon }]}>
+            <Feather name={iconName} size={20} color={iconColor} />
+          </View>
+          <View style={styles.contentBox}>
+            <View style={styles.titleRow}>
+              <Text style={styles.category}>{item.category}</Text>
+              <Text style={styles.date}>{item.created_at ? new Date(item.created_at).toLocaleDateString() : ''}</Text>
+            </View>
+            <Text style={styles.title} numberOfLines={1}>
+              {item.title}
+            </Text>
+            <Text style={styles.body} numberOfLines={2}>
+              {item.body}
+            </Text>
+          </View>
+        </Pressable>
+      </MotiView>
+    );
+  };
+
   return (
     <SafeAreaView style={styles.safe}>
-      <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} style={{ flex: 1 }}>
-        <View style={styles.container}>
-          <View style={styles.header}>
-            <Text style={styles.title}>알림</Text>
-            <RefreshButton onPress={load} />
-          </View>
-          {loading ? (
-            <ActivityIndicator color={ORANGE} />
-          ) : error ? (
-            <Text style={styles.error}>{error}</Text>
-          ) : (
-            <FlatList
-              data={notices}
-              keyExtractor={(item) => item.id}
-              ItemSeparatorComponent={() => <View style={styles.separator} />}
-              renderItem={({ item }) => (
-                <Pressable
-                  style={styles.card}
-                  onPress={() => Alert.alert(item.title, item.body, [{ text: '닫기' }])}
-                  android_ripple={{ color: '#f3f4f6' }}>
-                  <View style={styles.badge}>
-                    <Text style={styles.badgeText}>{item.category || '공지사항'}</Text>
-                  </View>
-                  <Text style={styles.cardTitle}>{item.title}</Text>
-                  <Text style={styles.cardBody} numberOfLines={2}>
-                    {item.body}
-                  </Text>
-                  {item.created_at ? (
-                    <Text style={styles.cardDate}>{new Date(item.created_at).toLocaleDateString()}</Text>
-                  ) : null}
-                </Pressable>
-              )}
-              ListEmptyComponent={<Text style={styles.empty}>알림이 없습니다.</Text>}
-            />
-          )}
+      <View style={styles.header}>
+        <Text style={styles.headerTitle}>알림 센터</Text>
+        <RefreshButton onPress={load} />
+      </View>
+
+      {loading && !refreshing ? (
+        <View style={styles.center}>
+          <ActivityIndicator color={HANWHA_ORANGE} />
         </View>
-      </KeyboardAvoidingView>
+      ) : (
+        <FlatList
+          data={notices}
+          keyExtractor={(item) => item.id}
+          renderItem={renderItem}
+          contentContainerStyle={styles.listContent}
+          refreshControl={<RefreshControl refreshing={refreshing} onRefresh={handleRefresh} />}
+          ListEmptyComponent={
+            <View style={styles.emptyState}>
+              <Feather name="bell-off" size={48} color="#E5E7EB" />
+              <Text style={styles.emptyText}>새로운 알림이 없습니다.</Text>
+            </View>
+          }
+        />
+      )}
     </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
-  safe: { flex: 1, backgroundColor: '#fff7f0' },
-  container: { flex: 1, padding: 20, gap: 12 },
-  header: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
-  title: { fontSize: 20, fontWeight: '800', color: '#111827' },
-  error: { color: '#dc2626' },
-  separator: { height: 12 },
-  card: {
+  safe: { flex: 1, backgroundColor: BACKGROUND },
+  header: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingHorizontal: 24,
+    paddingVertical: 16,
+    borderBottomWidth: 1,
+    borderBottomColor: '#F3F4F6',
+  },
+  headerTitle: { fontSize: 22, fontWeight: '800', color: CHARCOAL },
+
+  center: { flex: 1, justifyContent: 'center', alignItems: 'center' },
+  listContent: { padding: 20, paddingBottom: 40 },
+
+  itemContainer: {
+    flexDirection: 'row',
     backgroundColor: '#fff',
+    borderRadius: 16,
     padding: 16,
-    borderRadius: 14,
+    marginBottom: 12,
     borderWidth: 1,
     borderColor: BORDER,
-    gap: 6,
-    shadowColor: '#000',
-    shadowOpacity: 0.04,
-    shadowRadius: 6,
-    shadowOffset: { width: 0, height: 2 },
-    elevation: 2,
+    alignItems: 'flex-start',
   },
-  badge: {
-    alignSelf: 'flex-start',
-    backgroundColor: '#fff1e6',
-    paddingHorizontal: 10,
-    paddingVertical: 6,
-    borderRadius: 999,
-    borderWidth: 1,
-    borderColor: '#fed7aa',
+  iconBox: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginRight: 14,
   },
-  badgeText: { color: ORANGE, fontWeight: '700', fontSize: 12 },
-  cardTitle: { color: '#111827', fontWeight: '800', fontSize: 16 },
-  cardBody: { color: GRAY, lineHeight: 20 },
-  cardDate: { color: GRAY, fontSize: 12 },
-  empty: { color: GRAY, textAlign: 'center', marginTop: 20 },
+  contentBox: { flex: 1, gap: 4 },
+  titleRow: { flexDirection: 'row', justifyContent: 'space-between', marginBottom: 2 },
+  category: { fontSize: 12, fontWeight: '700', color: HANWHA_ORANGE },
+  date: { fontSize: 12, color: '#9CA3AF' },
+  title: { fontSize: 16, fontWeight: '700', color: CHARCOAL },
+  body: { fontSize: 14, color: MUTED, lineHeight: 20 },
+
+  emptyState: { alignItems: 'center', marginTop: 60, gap: 12 },
+  emptyText: { fontSize: 15, color: MUTED },
 });

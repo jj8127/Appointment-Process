@@ -9,18 +9,22 @@ import {
   Text,
   TextInput,
   View,
+  ActivityIndicator,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { Feather } from '@expo/vector-icons';
 
 import { RefreshButton } from '@/components/RefreshButton';
 import { useKeyboardPadding } from '@/hooks/use-keyboard-padding';
 import { useSession } from '@/hooks/use-session';
 import { supabase } from '@/lib/supabase';
+import { KeyboardAwareWrapper } from '@/components/KeyboardAwareWrapper';
 
 const ORANGE = '#f36f21';
-const BORDER = '#e5e7eb';
-const TEXT_MUTED = '#6b7280';
 const CHARCOAL = '#111827';
+const MUTED = '#6b7280';
+const BORDER = '#e5e7eb';
+const INPUT_BG = '#F9FAFB';
 
 export default function AdminNoticeScreen() {
   const { role } = useSession();
@@ -47,11 +51,11 @@ export default function AdminNoticeScreen() {
         category: category.trim() || '공지사항',
       });
       if (error) throw error;
-      Alert.alert('등록 완료', '공지사항이 등록되었습니다.');
+      Alert.alert('등록 완료', '공지사항이 성공적으로 등록되었습니다.');
       setTitle('');
       setBody('');
     } catch (err: any) {
-      Alert.alert('등록 실패', err?.message ?? '등록 중 오류가 발생했습니다.');
+      Alert.alert('등록 실패', err?.message ?? '오류가 발생했습니다.');
     } finally {
       setLoading(false);
     }
@@ -59,76 +63,119 @@ export default function AdminNoticeScreen() {
 
   return (
     <SafeAreaView style={styles.safe}>
-      <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} style={{ flex: 1 }}>
-        <ScrollView
-          contentContainerStyle={[styles.container, { paddingBottom: keyboardPadding + 140 }]}
-          keyboardShouldPersistTaps="handled">
+      <KeyboardAwareWrapper contentContainerStyle={[styles.container, { paddingBottom: keyboardPadding + 40 }]}>
+        <View style={styles.header}>
+          <View>
+            <Text style={styles.title}>공지사항 등록</Text>
+            <Text style={styles.subtitle}>앱 사용자 전체에게 발송될 공지 내용을 입력해주세요.</Text>
+          </View>
           <RefreshButton />
-          <Text style={styles.title}>공지 등록</Text>
-          <Text style={styles.caption}>총무/관리자가 알림으로 배포할 공지를 작성하세요.</Text>
+        </View>
 
+        <View style={styles.form}>
           <View style={styles.field}>
             <Text style={styles.label}>카테고리</Text>
             <TextInput
-              placeholder="예: 공지사항, 리포트"
               style={styles.input}
+              placeholder="예: 공지사항, 긴급, 이벤트"
+              placeholderTextColor="#9CA3AF"
               value={category}
               onChangeText={setCategory}
-              autoCapitalize="none"
             />
           </View>
 
           <View style={styles.field}>
             <Text style={styles.label}>제목</Text>
             <TextInput
-              placeholder="제목을 입력하세요"
               style={styles.input}
+              placeholder="제목을 입력하세요"
+              placeholderTextColor="#9CA3AF"
               value={title}
               onChangeText={setTitle}
-              autoCapitalize="none"
             />
           </View>
 
           <View style={styles.field}>
             <Text style={styles.label}>내용</Text>
             <TextInput
-              placeholder="내용을 입력하세요"
-              style={[styles.input, { height: 160, textAlignVertical: 'top' }]}
+              style={[styles.input, styles.textArea]}
+              placeholder="내용을 상세히 입력하세요"
+              placeholderTextColor="#9CA3AF"
               value={body}
               onChangeText={setBody}
               multiline
+              textAlignVertical="top"
             />
           </View>
+        </View>
 
-          <Pressable style={styles.button} disabled={loading} onPress={submit}>
-            <Text style={styles.buttonText}>{loading ? '등록 중...' : '공지 등록하기'}</Text>
-          </Pressable>
-        </ScrollView>
-      </KeyboardAvoidingView>
+        <Pressable
+          style={({ pressed }) => [
+            styles.submitButton,
+            pressed && styles.buttonPressed,
+            loading && styles.buttonDisabled,
+          ]}
+          onPress={submit}
+          disabled={loading}
+        >
+          {loading ? (
+            <ActivityIndicator color="#fff" />
+          ) : (
+            <>
+              <Text style={styles.submitButtonText}>등록하기</Text>
+              <Feather name="send" size={18} color="#fff" />
+            </>
+          )}
+        </Pressable>
+      </KeyboardAwareWrapper>
     </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
-  safe: { flex: 1, backgroundColor: '#fff7f0' },
-  container: { padding: 20, gap: 16 },
-  title: { fontSize: 22, fontWeight: '800', color: CHARCOAL },
-  caption: { color: TEXT_MUTED },
-  field: { gap: 6 },
-  label: { fontWeight: '700', color: CHARCOAL },
+  safe: { flex: 1, backgroundColor: '#fff' },
+  container: { padding: 24 },
+
+  header: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 12,
+  },
+  title: { fontSize: 24, fontWeight: '800', color: CHARCOAL },
+  subtitle: { fontSize: 14, color: MUTED, marginTop: 4 },
+
+  form: { gap: 20, marginTop: 16 },
+  field: { gap: 8 },
+  label: { fontSize: 14, fontWeight: '700', color: CHARCOAL },
   input: {
+    backgroundColor: INPUT_BG,
     borderWidth: 1,
     borderColor: BORDER,
     borderRadius: 12,
-    padding: 12,
-    backgroundColor: '#fff',
-  },
-  button: {
-    marginTop: 8,
-    backgroundColor: ORANGE,
+    paddingHorizontal: 16,
     paddingVertical: 14,
-    borderRadius: 12,
-    alignItems: 'center',
+    fontSize: 16,
+    color: CHARCOAL,
   },
-  buttonText: { color: '#fff', fontWeight: '800' },
+  textArea: { minHeight: 200 },
+
+  submitButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    backgroundColor: ORANGE,
+    borderRadius: 12,
+    paddingVertical: 16,
+    marginTop: 32,
+    shadowColor: ORANGE,
+    shadowOpacity: 0.2,
+    shadowRadius: 8,
+    shadowOffset: { width: 0, height: 4 },
+    elevation: 4,
+  },
+  buttonPressed: { opacity: 0.9, transform: [{ scale: 0.99 }] },
+  buttonDisabled: { backgroundColor: '#fed7aa', shadowOpacity: 0 },
+  submitButtonText: { fontSize: 16, fontWeight: '700', color: '#fff' },
 });
