@@ -49,7 +49,7 @@ const fetchRounds = async (): Promise<ExamRoundWithLocations[]> => {
     .select(
       'id,exam_date,registration_deadline,round_label,notes,created_at,updated_at,exam_locations(id,round_id,location_name,sort_order,created_at,updated_at)',
     )
-    .eq('exam_type', 'life')
+    .eq('exam_type', 'nonlife')
     .order('exam_date', { ascending: true })
     .order('registration_deadline', { ascending: true })
     .order('sort_order', { foreignTable: 'exam_locations', ascending: true });
@@ -142,7 +142,7 @@ export default function ExamRegisterScreen() {
     isFetching,
     refetch,
   } = useQuery({
-    queryKey: ['exam-rounds-life'],
+    queryKey: ['exam-rounds-nonlife'],
     queryFn: fetchRounds,
   });
 
@@ -161,7 +161,7 @@ export default function ExamRegisterScreen() {
   const saveRound = useMutation({
     mutationFn: async (mode: 'create' | 'update') => {
       const payload = {
-        exam_type: 'life' as const,
+        exam_type: 'nonlife' as const,
         exam_date: toYmd(examDate),
         registration_deadline: toYmd(deadlineDate),
         round_label: roundForm.roundLabel.trim() || null,
@@ -324,7 +324,7 @@ export default function ExamRegisterScreen() {
         <View style={styles.container}>
           <View style={styles.headerRow}>
             <RefreshButton onPress={() => {refetch()}} />
-            <Text style={styles.headerTitle}>생명보험 시험 일정 관리</Text>
+            <Text style={styles.headerTitle}>손해보험 시험 일정 관리</Text>
           </View>
           <Text style={styles.caption}>
             시험 일자와 신청 마감일, 차수/메모, 비고를 입력해 등록한 뒤 응시 지역을 추가로
@@ -568,179 +568,182 @@ export default function ExamRegisterScreen() {
 }
 
 const styles = StyleSheet.create({
-  safe: {
-    flex: 1,
-    backgroundColor: SOFT_BG,
-  },
-  container: {
-    padding: 20,
-    gap: 12,
-  },
-  headerRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 12,
-  },
-  headerTitle: {
-    fontSize: 22,
-    fontWeight: '800',
-    color: CHARCOAL,
-  },
-  caption: {
-    color: MUTED,
-  },
-  card: {
-    backgroundColor: 'white',
-    padding: 16,
-    borderRadius: 14,
-    borderWidth: 1,
-    borderColor: BORDER,
-    gap: 10,
-    shadowColor: '#000',
-    shadowOpacity: 0.05,
-    shadowOffset: { width: 0, height: 2 },
-    shadowRadius: 6,
-    elevation: 2,
-  },
-  sectionTitle: {
-    fontSize: 16,
-    fontWeight: '800',
-    color: CHARCOAL,
-    marginBottom: 4,
-  },
-  label: {
-    marginTop: 8,
-    marginBottom: 4,
-    fontWeight: '600',
-    color: CHARCOAL,
-  },
-  input: {
-    borderWidth: 1,
-    borderColor: BORDER,
-    borderRadius: 10,
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-    backgroundColor: '#f9fafb',
-  },
-  dateBox: {
-    borderWidth: 1,
-    borderColor: BORDER,
-    borderRadius: 10,
-    paddingHorizontal: 12,
-    paddingVertical: 12,
-    backgroundColor: '#f9fafb',
-  },
-  dateText: {
-    fontWeight: '600',
-    color: CHARCOAL,
-  },
-  row: {
-    flexDirection: 'row',
-    marginTop: 12,
-    alignItems: 'center',
-  },
-  roundItem: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    padding: 12,
-    borderWidth: 1,
-    borderColor: BORDER,
-    borderRadius: 12,
-    backgroundColor: '#fff',
-    marginBottom: 8,
-  },
-  roundItemActive: {
-    borderColor: ORANGE,
-    backgroundColor: '#fff7ed',
-  },
-  roundTitle: {
-    fontWeight: '700',
-    color: CHARCOAL,
-  },
-  roundMeta: {
-    color: MUTED,
-    marginTop: 2,
-  },
-  deleteBadge: {
-    marginLeft: 12,
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    borderRadius: 999,
-    borderWidth: 1,
-    borderColor: '#fecaca',
-    backgroundColor: '#fee2e2',
-  },
-  deleteText: {
-    color: '#b91c1c',
-    fontWeight: '700',
-  },
-  roundSummary: {
-    fontWeight: '700',
-    color: CHARCOAL,
-    marginBottom: 8,
-  },
-  locationRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingVertical: 6,
-  },
-  locationName: {
-    flex: 1,
-    color: CHARCOAL,
-  },
-  locationDelete: {
-    paddingHorizontal: 10,
-    paddingVertical: 4,
-    borderRadius: 999,
-    borderWidth: 1,
-    borderColor: '#fecaca',
-    backgroundColor: '#fee2e2',
-  },
-  locationDeleteText: {
-    color: '#b91c1c',
-    fontSize: 12,
-    fontWeight: '600',
-  },
-  btnBase: {
-    paddingVertical: 10,
-    paddingHorizontal: 12,
-    borderRadius: 999,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  btnFullWidth: {
-    width: '100%',
-  },
-  btnPrimary: {
-    backgroundColor: ORANGE,
-  },
-  btnSecondary: {
-    backgroundColor: ORANGE_LIGHT,
-  },
-  btnDanger: {
-    backgroundColor: '#fee2e2',
-    borderWidth: 1,
-    borderColor: '#ef4444',
-  },
-  btnDisabled: {
-    opacity: 0.5,
-  },
-  btnPressed: {
-    transform: [{ scale: 0.98 }],
-  },
-  btnTextPrimary: {
-    color: '#ffffff',
-    fontWeight: '800',
-    fontSize: 15,
-  },
-  btnTextSecondary: {
-    color: '#7c2d12',
-    fontWeight: '800',
-    fontSize: 15,
-  },
-  btnTextDanger: {
-    color: '#b91c1c',
-    fontWeight: '800',
-    fontSize: 14,
-  },
+safe: {
+    flex: 1,
+    backgroundColor: SOFT_BG,
+  },
+  container: {
+    padding: 20,
+    gap: 12,
+  },
+  headerRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+  },
+  headerTitle: {
+    fontSize: 22,
+    fontWeight: '800',
+    color: CHARCOAL,
+  },
+  caption: {
+    color: MUTED,
+  },
+  card: {
+    backgroundColor: 'white',
+    padding: 16,
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: BORDER,
+    gap: 10,
+    shadowColor: '#000',
+    shadowOpacity: 0.05,
+    shadowOffset: { width: 0, height: 2 },
+    shadowRadius: 6,
+    elevation: 2,
+  },
+  sectionTitle: {
+    fontSize: 16,
+    fontWeight: '800',
+    color: CHARCOAL,
+    marginBottom: 4,
+  },
+  label: {
+    marginTop: 8,
+    marginBottom: 4,
+    fontWeight: '600',
+    color: CHARCOAL,
+  },
+  input: {
+    borderWidth: 1,
+    borderColor: BORDER,
+    borderRadius: 10,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    backgroundColor: '#f9fafb',
+  },
+  dateBox: {
+    borderWidth: 1,
+    borderColor: BORDER,
+    borderRadius: 10,
+    paddingHorizontal: 12,
+    paddingVertical: 12,
+    backgroundColor: '#f9fafb',
+  },
+  dateText: {
+    fontWeight: '600',
+    color: CHARCOAL,
+  },
+  row: {
+    flexDirection: 'row',
+    marginTop: 12,
+    alignItems: 'center',
+  },
+  roundItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    padding: 12,
+    borderWidth: 1,
+    borderColor: BORDER,
+    borderRadius: 12,
+    backgroundColor: '#fff',
+    marginBottom: 8,
+  },
+  roundItemActive: {
+    borderColor: ORANGE,
+    backgroundColor: '#fff7ed',
+  },
+  roundTitle: {
+    fontWeight: '700',
+    color: CHARCOAL,
+  },
+  roundMeta: {
+    color: MUTED,
+    marginTop: 2,
+  },
+  deleteBadge: {
+    marginLeft: 12,
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 999,
+    borderWidth: 1,
+    borderColor: '#fecaca',
+    backgroundColor: '#fee2e2',
+  },
+  deleteText: {
+    color: '#b91c1c',
+    fontWeight: '700',
+  },
+  roundSummary: {
+    fontWeight: '700',
+    color: CHARCOAL,
+    marginBottom: 8,
+  },
+  locationRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 6,
+  },
+  locationName: {
+    flex: 1,
+    color: CHARCOAL,
+  },
+  locationDelete: {
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 999,
+    borderWidth: 1,
+    borderColor: '#fecaca',
+    backgroundColor: '#fee2e2',
+  },
+  locationDeleteText: {
+    color: '#b91c1c',
+    fontSize: 12,
+    fontWeight: '600',
+  },
+  btnBase: {
+    paddingVertical: 10,
+    paddingHorizontal: 12,
+    borderRadius: 999,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  btnFullWidth: {
+    width: '100%',
+  },
+  btnPrimary: {
+    backgroundColor: ORANGE,
+  },
+  btnSecondary: {
+    backgroundColor: ORANGE_LIGHT,
+  },
+  btnDanger: {
+    backgroundColor: '#fee2e2',
+    borderWidth: 1,
+    borderColor: '#ef4444',
+  },
+  btnDisabled: {
+    opacity: 0.5,
+  },
+  btnPressed: {
+    transform: [{ scale: 0.98 }],
+  },
+  btnTextPrimary: {
+    color: '#ffffff',
+    fontWeight: '800',
+    fontSize: 15,
+  },
+  btnTextSecondary: {
+    color: '#7c2d12',
+    fontWeight: '800',
+    fontSize: 15,
+  },
+  btnTextDanger: {
+    color: '#b91c1c',
+    fontWeight: '800',
+    fontSize: 14,
+  },
+
+
+
 });

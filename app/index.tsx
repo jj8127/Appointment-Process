@@ -26,7 +26,10 @@ const CARD_SHADOW = {
 };
 
 const quickLinksAdmin = [
-  { href: '/exam-register', title: '시험 등록', description: '응시일정 · 마감 · 지역 관리' },
+  { href: '/exam-register', title: '생명보험 시험 등록', description: '응시일정 · 마감 · 지역 관리' },
+  { href: '/exam-register2', title: '손해보험 시험 등록', description: '응시일정 · 마감 · 지역 관리' },
+  { href: '/exam-manage', title: '생명보험 신청자 관리', description: '소속 · 응시정보 · 접수 여부' },
+  { href: '/exam-manage2', title: '손해보험 신청자 관리', description: '소속 · 응시정보 · 접수 여부' },
   { href: '/dashboard?mode=temp', title: '임시/대기 관리', description: '임시번호 발급 · 현황 조회' },
   { href: '/dashboard?mode=docs', title: '문서 검토', description: '업로드 · 승인 처리' },
   { href: '/admin-notice', title: '공지 업로드', description: '새 공지 작성 · 등록' },
@@ -34,6 +37,8 @@ const quickLinksAdmin = [
 
 const quickLinksFc = [
   { href: '/fc/new', title: '기본 정보', description: '인적사항 · 연락처 입력' },
+  { href: '/exam-apply', title: '생명보험 시험 신청', description: '생명보험 시험 신청' },
+  { href: '/exam-apply2', title: '손해보험 시험 신청', description: '손해보험 시험 신청' },
   { href: '/consent', title: '수당 동의', description: '개인정보 · 약관 동의' },
   { href: '/docs-upload', title: '서류 업로드', description: 'PDF 제출 · 확인' },
 ];

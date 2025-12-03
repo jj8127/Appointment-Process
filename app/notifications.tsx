@@ -27,18 +27,20 @@ export default function NotificationsScreen() {
   const fetchPushNotifications = useCallback(async (): Promise<Notice[]> => {
     if (!role) return [];
 
-    const query = supabase
+    const baseQuery = supabase
       .from('notifications')
       .select('id,title,body,category,created_at,resident_id,recipient_role')
       .order('created_at', { ascending: false });
 
-    // recipient_role과 resident_id를 함께 묶어서 필터 (or가 eq를 무시하지 않도록 and 그룹으로 처리)
-    const { data, error } =
-      role === 'fc'
-        ? await query.or(
-            `and(recipient_role.eq.fc,resident_id.eq.${residentId}),and(recipient_role.eq.fc,resident_id.is.null)`,
-          )
-        : await query.eq('recipient_role', 'admin');
+    let data;
+    let error;
+
+    if (role === 'fc') {
+      const residentFilter = residentId ? [residentId, null] : [null];
+      ({ data, error } = await baseQuery.eq('recipient_role', 'fc').in('resident_id', residentFilter));
+    } else {
+      ({ data, error } = await baseQuery.eq('recipient_role', 'admin'));
+    }
 
     if (error) {
       if ((error as any)?.code === '42P01') return [];

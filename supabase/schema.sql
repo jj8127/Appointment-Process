@@ -8,6 +8,7 @@ create table if not exists public.fc_profiles (
   temp_id text unique,
   name text not null,
   affiliation text not null,
+  resident_number text,
   resident_id_masked text,
   phone text not null,
   recommender text,
@@ -283,3 +284,137 @@ create policy "fc_profiles delete"
   on public.fc_profiles
   for delete
   using (auth.role() in ('authenticated','anon'));
+
+alter table public.fc_profiles
+  add column if not exists address_detail text;
+
+alter table public.fc_profiles
+  add column if not exists resident_number text;
+
+
+select id, exam_date, registration_deadline, round_label, created_at
+from public.exam_rounds
+order by created_at;
+
+-- ============================
+-- 시험 신청 테이블
+-- ============================
+
+create table if not exists public.exam_registrations (
+  id uuid primary key default gen_random_uuid(),
+
+  -- FC 식별용
+  -- resident_id: 세션에서 사용하는 고유 식별자(현재는 전화번호/주민번호 마스킹 등 텍스트)
+  resident_id text not null,
+
+  -- 선택: fc_profiles와 연결 (있으면 join해서 더 많은 정보 조회 가능)
+  fc_id uuid references public.fc_profiles (id) on delete set null,
+
+  -- 시험 회차 / 응시 지역
+  round_id uuid not null references public.exam_rounds (id) on delete cascade,
+  location_id uuid not null references public.exam_locations (id) on delete cascade,
+
+  -- 신청 상태
+  status text not null default 'applied'
+    check (
+      status in (
+        'applied',          -- FC가 신청 완료
+        'cancelled_by_fc',  -- FC가 직접 취소
+        'cancelled_by_admin', -- 관리자 취소
+        'confirmed',        -- 시험 응시 확정(예: 수험표 발급 등)
+        'completed',        -- 시험 완료
+        'no_show'           -- 미응시
+      )
+    ),
+
+  -- 메모 필드(선택)
+  memo text,        -- FC가 남긴 요청사항 등
+  admin_memo text,  -- 관리자가 남기는 내부 메모
+
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
+-- 한 사람(resident_id)은 한 회차(round_id)에 한 번만 신청 가능하도록 제약
+create unique index if not exists idx_exam_registrations_round_resident
+  on public.exam_registrations (round_id, resident_id);
+
+-- 조회 최적화용 인덱스
+create index if not exists idx_exam_registrations_resident
+  on public.exam_registrations (resident_id);
+
+create index if not exists idx_exam_registrations_round
+  on public.exam_registrations (round_id);
+
+create index if not exists idx_exam_registrations_location
+  on public.exam_registrations (location_id);
+
+create index if not exists idx_exam_registrations_fc_id
+  on public.exam_registrations (fc_id);
+
+-- updated_at 자동 갱신 트리거 (기존 public.set_updated_at() 재사용)
+drop trigger if exists trg_exam_registrations_updated_at on public.exam_registrations;
+create trigger trg_exam_registrations_updated_at
+before update on public.exam_registrations
+for each row execute function public.set_updated_at();
+
+
+-- ============================
+-- exam_registrations RLS
+-- ============================
+
+alter table public.exam_registrations enable row level security;
+
+drop policy if exists "exam_registrations select" on public.exam_registrations;
+create policy "exam_registrations select"
+  on public.exam_registrations
+  for select
+  using (auth.role() in ('authenticated','anon'));
+
+drop policy if exists "exam_registrations insert" on public.exam_registrations;
+create policy "exam_registrations insert"
+  on public.exam_registrations
+  for insert
+  with check (auth.role() in ('authenticated','anon'));
+
+drop policy if exists "exam_registrations update" on public.exam_registrations;
+create policy "exam_registrations update"
+  on public.exam_registrations
+  for update
+  using (auth.role() in ('authenticated','anon'))
+  with check (auth.role() in ('authenticated','anon'));
+
+drop policy if exists "exam_registrations delete" on public.exam_registrations;
+create policy "exam_registrations delete"
+  on public.exam_registrations
+  for delete
+  using (auth.role() in ('authenticated','anon'));
+
+-- 1) exam_type 컬럼 추가 (life / nonlife)
+alter table public.exam_rounds
+  add column if not exists exam_type text
+  check (exam_type in ('life', 'nonlife'))
+  default 'life';
+
+-- 2) NOT NULL 보장 (기존 row는 default 'life'가 들어감)
+alter table public.exam_rounds
+  alter column exam_type set not null;
+
+-- 3) 조회용 인덱스
+create index if not exists idx_exam_rounds_exam_type_exam_date
+  on public.exam_rounds (exam_type, exam_date);
+
+-- 손해보험 회차에 대해 exam_type 수동 정리
+update public.exam_rounds
+set exam_type = 'nonlife'
+where round_label like '%손해보험%';
+
+alter table public.exam_registrations
+  add column if not exists is_confirmed boolean default false;
+
+alter table public.exam_registrations
+  add column if not exists is_confirmed boolean default false;
+
+-- 제3보험 응시 여부
+alter table public.exam_registrations
+  add column if not exists is_third_exam boolean default false;

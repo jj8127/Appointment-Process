@@ -1,22 +1,23 @@
+import Postcode from '@actbase/react-daum-postcode';
 import { zodResolver } from '@hookform/resolvers/zod';
+import { router } from 'expo-router';
 import { useEffect, useState } from 'react';
-import { Controller, type Control, useForm } from 'react-hook-form';
+import { Controller, useForm, type Control } from 'react-hook-form';
 import {
   Alert,
   KeyboardAvoidingView,
   Modal,
   Platform,
+  Pressable,
   ScrollView,
   StyleSheet,
   Text,
   TextInput,
   View,
-  Pressable,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { z } from 'zod';
-import { router } from 'expo-router';
-import Postcode from '@actbase/react-daum-postcode';
+import { Picker } from '@react-native-picker/picker';
 
 import { RefreshButton } from '@/components/RefreshButton';
 import { useKeyboardPadding } from '@/hooks/use-keyboard-padding';
@@ -35,6 +36,8 @@ const schema = z.object({
   affiliation: z.string().min(1, '소속을 선택해주세요.'),
   name: z.string().min(1, '이름을 입력해주세요.'),
   phone: z.string().min(8, '휴대폰 번호를 입력해주세요.'),
+  residentFront: z.string().regex(/^[0-9]{6}$/, '앞 6자리를 숫자로 입력해주세요.'),
+  residentBack: z.string().regex(/^[0-9]{7}$/, '뒷 7자리를 숫자로 입력해주세요.'),
   recommender: z.string().optional(),
   email: z.string().email('유효한 이메일을 입력해주세요.').optional(),
   address: z.string().optional(),
@@ -54,6 +57,23 @@ const AFFILIATION_OPTIONS = [
   '8지점 [본부장: 정승철]',
 ];
 
+const EMAIL_DOMAINS = [
+  'naver.com',
+  'hanmail.net',
+  'hotmail.com',
+  'nate.com',
+  'yahoo.co.kr',
+  'empas.com',
+  'dreamwiz.com',
+  'freechal.com',
+  'lycos.co.kr',
+  'korea.com',
+  'gmail.com',
+  'hanmir.com',
+  'paran.com',
+  '직접입력',
+];
+
 export default function FcNewScreen() {
   const [submitting, setSubmitting] = useState(false);
   const { residentId: phoneFromSession, loginAs } = useSession();
@@ -61,21 +81,40 @@ export default function FcNewScreen() {
   const [existingTempId, setExistingTempId] = useState<string | null>(null);
   const [selectedAffiliation, setSelectedAffiliation] = useState('');
   const [showAddressSearch, setShowAddressSearch] = useState(false);
+  const [emailLocal, setEmailLocal] = useState('');
+  const [emailDomain, setEmailDomain] = useState('');
+  const [customDomain, setCustomDomain] = useState('');
 
   const { control, handleSubmit, setValue, formState, watch } = useForm<FormValues>({
     resolver: zodResolver(schema),
-    defaultValues: { affiliation: '', name: '', phone: phoneFromSession, address: '', addressDetail: '' },
+    defaultValues: {
+      affiliation: '',
+      name: '',
+      phone: phoneFromSession,
+      residentFront: '',
+      residentBack: '',
+      address: '',
+      addressDetail: '',
+    },
     mode: 'onBlur',
   });
   const addressValue = watch('address');
   const addressDetailValue = watch('addressDetail');
+
+  const updateEmailValue = (local: string, domain: string, custom: string) => {
+    const domainToUse = domain === '직접입력' ? custom : domain;
+    const emailValue = local && domainToUse ? `${local}@${domainToUse}` : '';
+    setValue('email', emailValue, { shouldValidate: true });
+  };
 
   const loadExisting = async (phone?: string) => {
     const key = phone ?? phoneFromSession;
     if (!key) return;
     const { data, error } = await supabase
       .from('fc_profiles')
-      .select('affiliation,name,phone,recommender,email,address,address_detail,career_type,temp_id')
+      .select(
+        'affiliation,name,phone,recommender,email,address,address_detail,career_type,temp_id,resident_number',
+      )
       .eq('phone', key)
       .maybeSingle();
     if (error) {
@@ -91,7 +130,18 @@ export default function FcNewScreen() {
       setValue('email', data.email ?? '');
       setValue('address', data.address ?? '');
       setValue('addressDetail', data.address_detail ?? '');
+      if (data.email && data.email.includes('@')) {
+        const [local, domainPart] = data.email.split('@');
+        setEmailLocal(local ?? '');
+        setEmailDomain(domainPart ?? '');
+        setCustomDomain(domainPart ?? '');
+      }
       setExistingTempId(data.temp_id);
+      if (data.resident_number) {
+        const digits = String(data.resident_number).replace(/[^0-9]/g, '');
+        setValue('residentFront', digits.slice(0, 6));
+        setValue('residentBack', digits.slice(6, 13));
+      }
     } else {
       setValue('phone', key);
     }
@@ -101,14 +151,25 @@ export default function FcNewScreen() {
     loadExisting();
   }, [phoneFromSession]);
 
+  useEffect(() => {
+    updateEmailValue(emailLocal, emailDomain, customDomain);
+  }, [emailLocal, emailDomain, customDomain]);
+
   const onSubmit = async (values: FormValues) => {
     setSubmitting(true);
 
     const phoneDigits = values.phone.replace(/[^0-9]/g, '');
+    const residentFront = values.residentFront.replace(/[^0-9]/g, '').slice(0, 6);
+    const residentBack = values.residentBack.replace(/[^0-9]/g, '').slice(0, 7);
+    const residentNumber = `${residentFront}${residentBack}`;
+    const residentMasked = `${residentFront}-${residentBack}`;
+
     const basePayload = {
       name: values.name,
       affiliation: values.affiliation,
       phone: phoneDigits,
+      resident_number: residentNumber,
+      resident_id_masked: residentMasked,
       recommender: values.recommender,
       email: values.email,
       address: (values.address ?? '').trim(),
@@ -117,7 +178,6 @@ export default function FcNewScreen() {
       status: 'draft',
     };
 
-    // phone 컬럼이 고유 제약이 없을 때도 동작하도록, 선 조회 후 update/insert 분기
     const { data: existing } = await supabase
       .from('fc_profiles')
       .select('id')
@@ -159,7 +219,7 @@ export default function FcNewScreen() {
     }
 
     loginAs('fc', phoneDigits, values.name);
-    Alert.alert('저장 완료', '정보가 저장되었습니다. FC 홈 화면으로 이동합니다.', [
+    Alert.alert('저장 완료', '기본정보가 저장되었습니다. FC 홈 화면으로 이동합니다.', [
       { text: '확인', onPress: () => router.replace('/') },
     ]);
   };
@@ -175,7 +235,7 @@ export default function FcNewScreen() {
           <View style={styles.hero}>
             <Text style={styles.heroEyebrow}>정보 확인</Text>
             <Text style={styles.title}>기본 정보를 입력해주세요</Text>
-            <Text style={styles.caption}>입력 후 다음 단계로 이동합니다. 이미 입력한 정보는 불러옵니다.</Text>
+            <Text style={styles.caption}>입력 후 저장 버튼을 누르면 다음 단계로 이동합니다. 이미 입력된 정보는 불러옵니다.</Text>
             {existingTempId ? <Text style={styles.temp}>임시번호 {existingTempId}</Text> : null}
           </View>
 
@@ -213,22 +273,111 @@ export default function FcNewScreen() {
               name="phone"
               errors={formState.errors}
             />
-            <FormField control={control} label="추천인" placeholder="추천인 성명" name="recommender" errors={formState.errors} />
-            <FormField control={control} label="이메일" placeholder="name@company.com" name="email" errors={formState.errors} />
+            <View style={styles.field}>
+              <View style={styles.fieldLabelRow}>
+                <Text style={styles.label}>주민등록번호</Text>
+                {formState.errors.residentFront?.message || formState.errors.residentBack?.message ? (
+                  <Text style={styles.error}>
+                    {formState.errors.residentFront?.message || formState.errors.residentBack?.message}
+                  </Text>
+                ) : null}
+              </View>
+              <View style={styles.residentRow}>
+                <Controller
+                  control={control}
+                  name="residentFront"
+                  render={({ field: { onChange, value } }) => (
+                    <TextInput
+                      style={[styles.input, styles.residentInput]}
+                      placeholder="앞 6자리"
+                      placeholderTextColor={PLACEHOLDER}
+                      value={value}
+                      onChangeText={(txt) => onChange(txt.replace(/[^0-9]/g, '').slice(0, 6))}
+                      keyboardType="number-pad"
+                      maxLength={6}
+                    />
+                  )}
+                />
+                <Text style={styles.residentHyphen}>-</Text>
+                <Controller
+                  control={control}
+                  name="residentBack"
+                  render={({ field: { onChange, value } }) => (
+                    <TextInput
+                      style={[styles.input, styles.residentInput]}
+                      placeholder="뒷 7자리"
+                      placeholderTextColor={PLACEHOLDER}
+                      value={value}
+                      onChangeText={(txt) => onChange(txt.replace(/[^0-9]/g, '').slice(0, 7))}
+                      keyboardType="number-pad"
+                      maxLength={7}
+                    />
+                  )}
+                />
+              </View>
+            </View>
+            <FormField control={control} label="추천인" placeholder="추천인 이름" name="recommender" errors={formState.errors} />
+            <View style={styles.field}>
+              <View style={styles.fieldLabelRow}>
+                <Text style={styles.label}>이메일</Text>
+                {formState.errors.email?.message ? <Text style={styles.error}>{formState.errors.email?.message}</Text> : null}
+              </View>
+              <View style={styles.emailRow}>
+                <TextInput
+                  style={[styles.input, styles.emailLocal]}
+                  placeholder="이메일 아이디"
+                  placeholderTextColor={PLACEHOLDER}
+                  value={emailLocal}
+                  onChangeText={(txt) => setEmailLocal(txt.trim())}
+                  autoCapitalize="none"
+                  keyboardType="email-address"
+                />
+                <Text style={styles.emailAt}>@</Text>
+                <View style={styles.emailDomainBox}>
+                  <Picker
+                    selectedValue={emailDomain || undefined}
+                    onValueChange={(value) => {
+                      setEmailDomain(value);
+                      if (value !== '직접입력') {
+                        setCustomDomain('');
+                      }
+                    }}
+                    dropdownIconColor={CHARCOAL}
+                    style={styles.emailPicker}
+                  >
+                    <Picker.Item label="도메인 선택" value="" color={TEXT_MUTED} />
+                    {EMAIL_DOMAINS.map((d) => (
+                      <Picker.Item key={d} label={d} value={d} />
+                    ))}
+                  </Picker>
+                  {emailDomain === '직접입력' ? (
+                    <TextInput
+                      style={[styles.input, styles.customDomainInput]}
+                      placeholder="직접 입력"
+                      placeholderTextColor={PLACEHOLDER}
+                      value={customDomain}
+                      onChangeText={(txt) => setCustomDomain(txt.trim())}
+                      autoCapitalize="none"
+                      keyboardType="email-address"
+                    />
+                  ) : null}
+                </View>
+              </View>
+            </View>
             <View style={styles.field}>
               <View style={styles.fieldLabelRow}>
                 <Text style={styles.label}>주소</Text>
                 {formState.errors.address?.message ? <Text style={styles.error}>{formState.errors.address?.message}</Text> : null}
               </View>
               <View style={{ gap: 8 }}>
-                <Pressable style={styles.searchButton} onPress={() => setShowAddressSearch(true)}><Text style={styles.searchButtonText}>주소 검색 (다음)</Text></Pressable>
+                <Pressable style={styles.searchButton} onPress={() => setShowAddressSearch(true)}><Text style={styles.searchButtonText}>주소 검색 (선택)</Text></Pressable>
                 <Controller
                   control={control}
                   name="address"
                   render={({ field: { onChange, value } }) => (
                     <TextInput
                       style={[styles.input, styles.inputMultiline]}
-                      placeholder="거주지 또는 주소"
+                      placeholder="도로명 또는 지번 주소"
                       placeholderTextColor={PLACEHOLDER}
                       value={value}
                       onChangeText={onChange}
@@ -276,6 +425,10 @@ export default function FcNewScreen() {
               const full = `${data.zonecode ? `[${data.zonecode}] ` : ''}${base}${extra}`;
               setValue('address', full, { shouldValidate: true });
               setShowAddressSearch(false);
+            }}
+            onError={(error: any) => {
+              console.log('Postcode error', error);
+              Alert.alert('주소 검색 실패', '주소 검색 중 오류가 발생했습니다. 다시 시도해주세요.');
             }}
           />
         </SafeAreaView>
@@ -365,6 +518,9 @@ const styles = StyleSheet.create({
     padding: 12,
     backgroundColor: '#fff',
   },
+  residentRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  residentHyphen: { fontWeight: '800', color: CHARCOAL },
+  residentInput: { flex: 1 },
   inputMultiline: { height: 90, textAlignVertical: 'top' },
   searchButton: {
     paddingVertical: 10,
@@ -390,4 +546,35 @@ const styles = StyleSheet.create({
   },
   primaryButtonDisabled: { opacity: 0.7 },
   primaryButtonText: { color: '#fff', fontWeight: '800', fontSize: 16 },
+  emailRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  emailLocal: {
+    flex: 1.1,
+  },
+  emailAt: {
+    fontWeight: '800',
+    color: CHARCOAL,
+  },
+  emailDomainBox: {
+    flex: 1,
+    borderWidth: 1,
+    borderColor: BORDER,
+    borderRadius: 10,
+    overflow: 'hidden',
+  },
+  emailPicker: {
+    height: 48,
+    color: CHARCOAL,
+  },
+  customDomainInput: {
+    marginTop: 4,
+    borderWidth: 1,
+    borderColor: BORDER,
+    borderRadius: 8,
+    padding: 8,
+    backgroundColor: '#fff',
+  },
 });

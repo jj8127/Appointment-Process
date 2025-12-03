@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "172139316344",
+    "project_id": "appointmentprocess-90a2e",
+    "storage_bucket": "appointmentprocess-90a2e.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:172139316344:android:fc1dbc82a7b95be65a998d",
+        "android_client_info": {
+          "package_name": "com.jj8127.fconboardingapp"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyC4qIfW-KA7Q_dL2n8wJ8gS_-BSU-Xhyjg"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

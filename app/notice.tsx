@@ -37,7 +37,7 @@ export default function NoticeScreen() {
       <ScrollView contentContainerStyle={styles.container}>
         <View style={styles.header}>
           <Text style={styles.title}>공지사항</Text>
-          <RefreshButton onRefresh={refetch} />
+          <RefreshButton onPress={() => void refetch()} />
         </View>
 
         {isLoading ? <ActivityIndicator color={ORANGE} /> : null}

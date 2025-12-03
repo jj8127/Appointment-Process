@@ -82,7 +82,7 @@ export default function AuthScreen() {
       <KeyboardAwareWrapper contentContainerStyle={[styles.container, { paddingBottom: keyboardPadding + 100 }]}>
         <View style={styles.hero}>
           <Image source={Logo} style={styles.logo} resizeMode="contain" />
-          <Text style={styles.brand}>한화 FC 온보딩</Text>
+          <Text style={styles.brand}>한화 FC 패스</Text>
         </View>
           <Text style={styles.title}>로그인</Text>
           <Text style={styles.description}>관리자는 코드, FC는 휴대폰 번호로 로그인하세요.</Text>
