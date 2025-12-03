@@ -1,6 +1,6 @@
 import { useMutation, useQuery } from '@tanstack/react-query';
 import { router } from 'expo-router';
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   Alert,
   Pressable,
@@ -9,6 +9,7 @@ import {
   Text,
   View,
   ActivityIndicator,
+  RefreshControl,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Feather } from '@expo/vector-icons';
@@ -37,6 +38,32 @@ const CARD_SHADOW = {
   elevation: 2,
 };
 const EXPO_PUSH_URL = 'https://exp.host/--/api/v2/push/send';
+
+async function notifyAdmin(title: string, body: string, residentId: string | null) {
+  await supabase.from('notifications').insert({
+    title,
+    body,
+    category: 'exam_apply',
+    recipient_role: 'admin',
+    resident_id: residentId,
+  });
+
+  const { data: tokens } = await supabase.from('device_tokens').select('expo_push_token').eq('role', 'admin');
+  const payload =
+    tokens?.map((t: any) => ({
+      to: t.expo_push_token,
+      title,
+      body,
+      data: { type: 'exam_apply', resident_id: residentId },
+    })) ?? [];
+  if (payload.length) {
+    await fetch(EXPO_PUSH_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+  }
+}
 
 const fetchRounds = async (): Promise<ExamRoundWithLocations[]> => {
   const { data, error } = await supabase
@@ -194,6 +221,19 @@ export default function ExamApplyScreen() {
     }
   }, [myLastApply]);
 
+  const hasHistory = !!myLastApply?.id;
+  const [refreshing, setRefreshing] = useState(false);
+
+  const onRefresh = useCallback(async () => {
+    setRefreshing(true);
+    try {
+      await refetch();
+      // myLastApply는 react-query가 residentId를 key로 사용하므로 별도 refetch 없어도 최신 상태로 유지
+    } finally {
+      setRefreshing(false);
+    }
+  }, [refetch]);
+
   const applyMutation = useMutation({
     mutationFn: async () => {
       if (!residentId) {
@@ -203,7 +243,15 @@ export default function ExamApplyScreen() {
         throw new Error('시험 일정과 응시 지역을 모두 선택해주세요.');
       }
 
-      const round = allRounds?.find((r) => r.id === selectedRoundId);
+      // runtime validation: 방어적으로 undefined/string "undefined"가 넘어가지 않도록 보정
+      const roundId = selectedRoundId === 'undefined' ? null : selectedRoundId;
+      const locationId = selectedLocationId === 'undefined' ? null : selectedLocationId;
+
+      if (!roundId || !locationId) {
+        throw new Error('시험 일정과 응시 지역을 다시 선택해주세요.');
+      }
+
+      const round = allRounds?.find((r) => r.id === roundId);
       if (!round) {
         throw new Error('선택한 시험 일정 정보를 다시 확인해주세요.');
       }
@@ -212,12 +260,12 @@ export default function ExamApplyScreen() {
         throw new Error('마감된 일정입니다. 다른 시험 일정을 선택해주세요.');
       }
 
-      if (myLastApply) {
+      if (hasHistory && myLastApply?.id) {
         const { error } = await supabase
           .from('exam_registrations')
           .update({
-            round_id: selectedRoundId,
-            location_id: selectedLocationId,
+            round_id: roundId,
+            location_id: locationId,
             status: 'applied',
             is_confirmed: false,
             is_third_exam: wantsThird,
@@ -228,8 +276,8 @@ export default function ExamApplyScreen() {
       } else {
         const { error } = await supabase.from('exam_registrations').insert({
           resident_id: residentId,
-          round_id: selectedRoundId,
-          location_id: selectedLocationId,
+          round_id: roundId,
+          location_id: locationId,
           status: 'applied',
           is_confirmed: false,
           is_third_exam: wantsThird,
@@ -247,37 +295,7 @@ export default function ExamApplyScreen() {
       const title = `${actor}이/가 ${examTitle}을 신청하였습니다.`;
       const body = locName ? `${actor}이/가 ${examTitle} (${locName})을 신청하였습니다.` : title;
 
-      await supabase.from('notifications').insert({
-        title,
-        body,
-        category: 'exam_apply',
-        recipient_role: 'admin',
-        resident_id: residentId,
-      });
-
-      // 관리자 푸시 전송 (존재하는 토큰에 한해 전송 시도)
-      try {
-        const { data: tokens } = await supabase
-          .from('device_tokens')
-          .select('expo_push_token')
-          .eq('role', 'admin');
-        const payload =
-          tokens?.map((t: any) => ({
-            to: t.expo_push_token,
-            title,
-            body,
-            data: { type: 'exam_apply', resident_id: residentId },
-          })) ?? [];
-        if (payload.length > 0) {
-          await fetch(EXPO_PUSH_URL, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(payload),
-          });
-        }
-      } catch (pushErr) {
-        console.warn('admin push failed', pushErr);
-      }
+      await notifyAdmin(title, body, residentId);
     },
     onSuccess: () => {
       Alert.alert('신청 완료', '시험 신청이 정상적으로 등록되었습니다.');
@@ -290,7 +308,7 @@ export default function ExamApplyScreen() {
 
   const cancelMutation = useMutation({
     mutationFn: async () => {
-      if (!myLastApply) {
+      if (!hasHistory || !myLastApply?.id) {
         throw new Error('취소할 신청 내역이 없습니다.');
       }
 
@@ -338,7 +356,12 @@ export default function ExamApplyScreen() {
   return (
     <SafeAreaView style={styles.safe}>
       <KeyboardAwareWrapper>
-        <ScrollView contentContainerStyle={styles.container}>
+        <ScrollView
+          contentContainerStyle={styles.container}
+          refreshControl={
+            <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
+          }
+        >
           {/* Header */}
           <View style={styles.header}>
             <View>
@@ -557,13 +580,13 @@ export default function ExamApplyScreen() {
                   style={styles.submitBtn}
                 >
                   <Text style={styles.submitBtnText}>
-                    {myLastApply ? '신청 내역 수정하기' : '시험 신청하기'}
+                    {hasHistory ? '신청 내역 수정하기' : '시험 신청하기'}
                   </Text>
                   {applyMutation.isPending && <ActivityIndicator color="#fff" style={{ marginLeft: 8 }} />}
                 </LinearGradient>
               </Pressable>
 
-              {myLastApply && (
+              {hasHistory && (
                 <Pressable
                   onPress={() => {
                     Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);

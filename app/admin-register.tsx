@@ -1,6 +1,6 @@
 import { useMutation, useQuery } from '@tanstack/react-query';
-import { useEffect, useState } from 'react';
-import { Alert, Button, StyleSheet, Text, TextInput, View } from 'react-native';
+import { useCallback, useEffect, useState } from 'react';
+import { Alert, Button, RefreshControl, StyleSheet, Text, TextInput, View, ScrollView } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { router } from 'expo-router';
 
@@ -22,6 +22,7 @@ export default function AdminRegisterScreen() {
   const [name, setName] = useState('');
   const [resident, setResident] = useState('');
   const keyboardPadding = useKeyboardPadding();
+  const [refreshing, setRefreshing] = useState(false);
 
   useEffect(() => {
     if (role !== 'admin') {
@@ -73,9 +74,25 @@ export default function AdminRegisterScreen() {
 
   const handleCreate = () => createMutation.mutate();
 
+  // Pull to refresh handler: react-query refetch 호출
+  const onRefresh = useCallback(async () => {
+    setRefreshing(true);
+    try {
+      await refetch();
+    } finally {
+      setRefreshing(false);
+    }
+  }, [refetch]);
+
   return (
     <SafeAreaView style={styles.safe}>
       <KeyboardAwareWrapper contentContainerStyle={[styles.container, { paddingBottom: keyboardPadding + 120 }]}>
+        <ScrollView
+          contentContainerStyle={{ gap: 12 }}
+          refreshControl={
+            <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
+          }
+        >
           <RefreshButton />
           <Text style={styles.title}>신규 FC 등록</Text>
           <Text style={styles.caption}>위촉을 진행할 FC의 주민번호와 성명을 입력하세요.</Text>
@@ -121,6 +138,7 @@ export default function AdminRegisterScreen() {
               ))
             )}
           </View>
+        </ScrollView>
       </KeyboardAwareWrapper>
     </SafeAreaView>
   );

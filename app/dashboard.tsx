@@ -2,13 +2,14 @@ import * as WebBrowser from 'expo-web-browser';
 import { RefreshButton } from '@/components/RefreshButton';
 import { useLocalSearchParams } from 'expo-router';
 import { useMutation, useQuery } from '@tanstack/react-query';
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
   LayoutAnimation,
   Platform,
   Pressable,
+  RefreshControl,
   ScrollView,
   StyleSheet,
   Text,
@@ -29,6 +30,7 @@ if (Platform.OS === 'android' && UIManager.setLayoutAnimationEnabledExperimental
   UIManager.setLayoutAnimationEnabledExperimental(true);
 }
 
+const EXPO_PUSH_URL = 'https://exp.host/--/api/v2/push/send';
 const BUCKET = 'fc-documents';
 const ORANGE = '#f36f21';
 const CHARCOAL = '#111827';
@@ -76,6 +78,43 @@ type FcRow = {
   fc_documents?: { doc_type: string; storage_path: string | null; file_name: string | null; status: string | null }[];
 };
 
+async function sendNotificationAndPush(
+  role: 'admin' | 'fc',
+  residentId: string | null,
+  title: string,
+  body: string,
+) {
+  await supabase.from('notifications').insert({
+    title,
+    body,
+    category: 'app_event',
+    recipient_role: role,
+    resident_id: residentId,
+  });
+
+  const baseQuery = supabase.from('device_tokens').select('expo_push_token');
+  const { data: tokens } =
+    role === 'fc' && residentId
+      ? await baseQuery.eq('role', 'fc').eq('resident_id', residentId)
+      : await baseQuery.eq('role', 'admin');
+
+  const payload =
+    tokens?.map((t: any) => ({
+      to: t.expo_push_token,
+      title,
+      body,
+      data: { type: 'app_event', resident_id: residentId },
+    })) ?? [];
+
+  if (payload.length) {
+    await fetch(EXPO_PUSH_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+  }
+}
+
 const fetchFcs = async (
   role: 'admin' | 'fc' | null,
   residentId: string,
@@ -115,6 +154,7 @@ export default function DashboardScreen() {
   const [careerInputs, setCareerInputs] = useState<Record<string, '신입' | '경력'>>({});
   const [docSelections, setDocSelections] = useState<Record<string, Set<RequiredDocType>>>({});
   const [expanded, setExpanded] = useState<Record<string, boolean>>({});
+  const [refreshing, setRefreshing] = useState(false);
   const keyboardPadding = useKeyboardPadding();
 
   const { data, isLoading, isError, refetch } = useQuery({
@@ -139,19 +179,42 @@ export default function DashboardScreen() {
     setCareerInputs((prev) => ({ ...careerPrefill, ...prev }));
   }, [data]);
 
+  const onRefresh = useCallback(async () => {
+    setRefreshing(true);
+    await refetch();
+    setRefreshing(false);
+  }, [refetch]);
+
   const updateTemp = useMutation({
-    mutationFn: async ({ id, tempId, career }: { id: string; tempId?: string; career?: '신입' | '경력' }) => {
+    mutationFn: async ({
+      id,
+      tempId,
+      prevTemp,
+      career,
+      phone,
+    }: { id: string; tempId?: string; prevTemp?: string; career?: '신입' | '경력'; phone?: string }) => {
       const payload: any = {};
       if (career) payload.career_type = career;
-      if (tempId !== undefined) {
-        payload.temp_id = tempId;
-        payload.status = 'temp-id-issued';
+      const tempIdTrim = tempId?.trim();
+      const prevTrim = prevTemp?.trim();
+      if (tempIdTrim) {
+        // 같은 값이면 굳이 업데이트하지 않음 (중복/에러 방지)
+        if (tempIdTrim !== prevTrim) {
+          payload.temp_id = tempIdTrim;
+          payload.status = 'temp-id-issued';
+        }
       }
       const { error } = await supabase.from('fc_profiles').update(payload).eq('id', id);
-      if (error) throw error;
-      await supabase.functions.invoke('fc-notify', {
-        body: { type: 'admin_update', fc_id: id, message: '임시번호/경력 정보가 업데이트되었습니다.' },
-      });
+      if (error) {
+        if ((error as any).code === '23505') {
+          throw new Error('이미 사용 중인 임시사번입니다. 다른 번호를 입력하세요.');
+        }
+        throw error;
+      }
+      // 알림: 해당 FC에게 임시번호 발급/수정 안내
+      if (phone && tempIdTrim && tempIdTrim !== prevTrim) {
+        await sendNotificationAndPush('fc', phone, '임시번호가 수정 되었습니다.', `임시사번: ${tempIdTrim}`);
+      }
     },
     onSuccess: () => {
       Alert.alert('저장 완료', '임시번호/경력 정보가 저장되었습니다.');
@@ -161,7 +224,7 @@ export default function DashboardScreen() {
   });
 
   const updateDocs = useMutation({
-    mutationFn: async ({ id, types }: { id: string; types: RequiredDocType[] }) => {
+    mutationFn: async ({ id, types, phone }: { id: string; types: RequiredDocType[]; phone?: string }) => {
       const uniqueTypes = Array.from(new Set(types));
 
       const { data: existingDocs, error: fetchErr } = await supabase
@@ -197,9 +260,14 @@ export default function DashboardScreen() {
       }
 
       await supabase.from('fc_profiles').update({ status: 'docs-requested' }).eq('id', id);
-      await supabase.functions.invoke('fc-notify', {
-        body: { type: 'admin_update', fc_id: id, message: '필수 서류 요청이 등록되었습니다.' },
-      });
+      if (phone) {
+        await sendNotificationAndPush(
+          'fc',
+          phone,
+          '서류 요청 안내',
+          '필수 서류 요청이 등록되었습니다. 앱에서 확인해 주세요.',
+        );
+      }
     },
     onSuccess: () => {
       Alert.alert('요청 완료', '필수 서류 요청을 저장했습니다.');
@@ -298,7 +366,10 @@ export default function DashboardScreen() {
           </ScrollView>
         </View>
 
-        <ScrollView contentContainerStyle={[styles.listContent, { paddingBottom: keyboardPadding + 40 }]}>
+        <ScrollView
+          contentContainerStyle={[styles.listContent, { paddingBottom: keyboardPadding + 40 }]}
+          refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}
+        >
           {isLoading && <ActivityIndicator color={ORANGE} style={{ marginVertical: 20 }} />}
           {isError && <Text style={{ color: '#dc2626', marginBottom: 8 }}>데이터를 불러오지 못했습니다.</Text>}
           {!isLoading && rows.length === 0 && (
@@ -358,7 +429,9 @@ export default function DashboardScreen() {
                               updateTemp.mutate({
                                 id: fc.id,
                                 tempId: tempInputs[fc.id] ?? fc.temp_id ?? '',
+                                prevTemp: fc.temp_id ?? '',
                                 career: careerInputs[fc.id] ?? '신입',
+                                phone: fc.phone,
                               })
                             }
                           >
@@ -401,13 +474,14 @@ export default function DashboardScreen() {
                         </View>
                         <Pressable
                           style={[styles.saveButton, { alignSelf: 'flex-start' }]}
-                          onPress={() =>
-                            updateDocs.mutate({
-                              id: fc.id,
-                              types: Array.from(docSelections[fc.id] ?? new Set()),
-                            })
-                          }
-                        >
+                            onPress={() =>
+                              updateDocs.mutate({
+                                id: fc.id,
+                                types: Array.from(docSelections[fc.id] ?? new Set()),
+                                phone: fc.phone,
+                              })
+                            }
+                          >
                           <Text style={styles.saveButtonText}>서류 요청 저장</Text>
                         </Pressable>
 

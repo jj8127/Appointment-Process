@@ -1,10 +1,11 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { router } from 'expo-router';
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
   Pressable,
+  RefreshControl,
   ScrollView,
   StyleSheet,
   Text,
@@ -164,12 +165,19 @@ export default function ExamManageNonlifeScreen() {
   const queryClient = useQueryClient();
   const [searchText, setSearchText] = useState('');
   const [filterStatus, setFilterStatus] = useState<'all' | 'confirmed' | 'pending'>('all');
+  const [refreshing, setRefreshing] = useState(false);
 
   const { data: applicants, isLoading, isError, error, refetch } = useQuery<ApplicantRow[]>({
     queryKey: ['exam-applicants', EXAM_TYPE],
     queryFn: () => fetchApplicantsNonlife(),
     enabled: role === 'admin',
   });
+
+  const onRefresh = useCallback(async () => {
+    setRefreshing(true);
+    await refetch();
+    setRefreshing(false);
+  }, [refetch]);
 
   const filteredApplicants = useMemo(() => {
     if (!applicants) return [];
@@ -260,7 +268,10 @@ export default function ExamManageNonlifeScreen() {
 
   return (
     <SafeAreaView style={styles.safe}>
-      <ScrollView contentContainerStyle={styles.container}>
+      <ScrollView
+        contentContainerStyle={styles.container}
+        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}
+      >
         <View style={styles.header}>
           <View style={styles.headerTop}>
             <Text style={styles.headerTitle}>손해보험 신청자</Text>

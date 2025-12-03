@@ -1,6 +1,6 @@
 import { useQuery } from '@tanstack/react-query';
 import { router } from 'expo-router';
-import { useEffect } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
@@ -9,6 +9,7 @@ import {
   ScrollView,
   StyleSheet,
   Text,
+  RefreshControl,
   View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -147,19 +148,32 @@ const getLinkIcon = (href: string) => {
 export default function Home() {
   const { role, residentId, residentMask, displayName, logout, hydrated } = useSession();
 
-  const { data: counts, isLoading } = useQuery({
+  const [refreshing, setRefreshing] = useState(false);
+
+  const {
+    data: counts,
+    isLoading,
+    refetch: refetchCounts,
+  } = useQuery({
     queryKey: ['fc-counts', role, residentId],
     queryFn: () => fetchCounts(role, residentId),
     enabled: !!role,
   });
 
-  const { data: myFc, isLoading: statusLoading } = useQuery({
+  const {
+    data: myFc,
+    isLoading: statusLoading,
+    refetch: refetchMyFc,
+  } = useQuery({
     queryKey: ['my-fc-status', residentId],
     queryFn: () => (residentId ? fetchFcStatus(residentId) : Promise.resolve(null)),
     enabled: role === 'fc' && !!residentId,
   });
 
-  const { data: latestNotice } = useQuery({
+  const {
+    data: latestNotice,
+    refetch: refetchLatestNotice,
+  } = useQuery({
     queryKey: ['latest-notice'],
     queryFn: fetchLatestNotice,
   });
@@ -183,6 +197,19 @@ export default function Home() {
     logout();
     router.replace('/auth');
   };
+
+  const onRefresh = useCallback(async () => {
+    setRefreshing(true);
+    try {
+      await Promise.all([
+        refetchCounts?.(),
+        refetchMyFc?.(),
+        refetchLatestNotice?.(),
+      ]);
+    } finally {
+      setRefreshing(false);
+    }
+  }, [refetchCounts, refetchLatestNotice, refetchMyFc]);
 
   const handlePressLink = (href: string) => {
     Haptics.selectionAsync();
@@ -220,7 +247,12 @@ export default function Home() {
 
   return (
     <SafeAreaView style={styles.safe}>
-      <ScrollView contentContainerStyle={styles.container}>
+      <ScrollView
+        contentContainerStyle={styles.container}
+        refreshControl={
+          <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
+        }
+      >
         <View style={styles.topBar}>
           <View style={styles.topActions}>
             <Pressable style={styles.logoutButton} onPress={handleLogout}>
@@ -236,7 +268,7 @@ export default function Home() {
                 style={({ pressed }) => [styles.deleteButton, pressed && styles.pressedOpacity]}
                 onPress={handleDeleteRequest}>
                 <Feather name="trash-2" size={14} color={HANWHA_ORANGE} />
-                <Text style={styles.deleteButtonText}>삭제 요청</Text>
+                {/*<Text style={styles.deleteButtonText}>삭제 요청</Text>*/}
               </Pressable>
             ) : null}
             <RefreshButton />
@@ -500,7 +532,7 @@ const styles = StyleSheet.create({
     shadowColor: HANWHA_ORANGE,
     shadowOpacity: 0.25,
     shadowRadius: 12,
-    minHeight: 120,
+    minHeight: 100,
   },
   ctaContent: { flex: 1, gap: 6, zIndex: 1 },
   ctaBadge: {

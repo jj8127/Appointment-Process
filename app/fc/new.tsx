@@ -1,7 +1,7 @@
 import Postcode from '@actbase/react-daum-postcode';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { router } from 'expo-router';
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { Controller, useForm, type Control } from 'react-hook-form';
 import {
   Alert,
@@ -13,6 +13,7 @@ import {
   StyleSheet,
   Text,
   TextInput,
+  RefreshControl,
   View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -31,6 +32,7 @@ const CHARCOAL = '#111827';
 const TEXT_MUTED = '#6b7280';
 const BORDER = '#e5e7eb';
 const PLACEHOLDER = '#9ca3af';
+const EXPO_PUSH_URL = 'https://exp.host/--/api/v2/push/send';
 
 const schema = z.object({
   affiliation: z.string().min(1, '소속을 선택해주세요.'),
@@ -64,6 +66,43 @@ const EMAIL_DOMAINS = [
   '직접입력',
 ];
 
+async function sendNotificationAndPush(
+  role: 'admin' | 'fc',
+  residentId: string | null,
+  title: string,
+  body: string,
+) {
+  await supabase.from('notifications').insert({
+    title,
+    body,
+    category: 'app_event',
+    recipient_role: role,
+    resident_id: residentId,
+  });
+
+  const baseQuery = supabase.from('device_tokens').select('expo_push_token');
+  const { data: tokens } =
+    role === 'fc' && residentId
+      ? await baseQuery.eq('role', 'fc').eq('resident_id', residentId)
+      : await baseQuery.eq('role', 'admin');
+
+  const payload =
+    tokens?.map((t: any) => ({
+      to: t.expo_push_token,
+      title,
+      body,
+      data: { type: 'app_event', resident_id: residentId },
+    })) ?? [];
+
+  if (payload.length) {
+    await fetch(EXPO_PUSH_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+  }
+}
+
 export default function FcNewScreen() {
   const [submitting, setSubmitting] = useState(false);
   const { residentId: phoneFromSession, loginAs } = useSession();
@@ -74,6 +113,7 @@ export default function FcNewScreen() {
   const [emailLocal, setEmailLocal] = useState('');
   const [emailDomain, setEmailDomain] = useState('');
   const [customDomain, setCustomDomain] = useState('');
+  const [refreshing, setRefreshing] = useState(false);
 
   const { control, handleSubmit, setValue, formState, watch } = useForm<FormValues>({
     resolver: zodResolver(schema),
@@ -199,13 +239,12 @@ export default function FcNewScreen() {
     }
 
     if (data?.id) {
-      await supabase.functions.invoke('fc-notify', {
-        body: {
-          type: 'fc_update',
-          fc_id: data.id,
-          message: `${values.name}님의 기본정보가 생성/업데이트되었습니다.`,
-        },
-      });
+      await sendNotificationAndPush(
+        'admin',
+        phoneDigits,
+        `${values.name}이/가 기본정보를 등록했습니다.`,
+        `${values.name}님이 기본정보를 생성/수정했습니다.`,
+      );
     }
 
     loginAs('fc', phoneDigits, values.name);
@@ -214,12 +253,25 @@ export default function FcNewScreen() {
     ]);
   };
 
+  // Pull-to-refresh: 기존 loadExisting을 재호출
+  const onRefresh = useCallback(async () => {
+    setRefreshing(true);
+    try {
+      await loadExisting();
+    } finally {
+      setRefreshing(false);
+    }
+  }, []);
+
   return (
     <SafeAreaView style={styles.safe}>
       <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} style={{ flex: 1 }}>
         <ScrollView
           contentContainerStyle={[styles.container, { paddingBottom: keyboardPadding + 140 }]}
-          keyboardShouldPersistTaps="handled">
+          keyboardShouldPersistTaps="handled"
+          refreshControl={
+            <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
+          }>
           <RefreshButton />
 
           <View style={styles.hero}>

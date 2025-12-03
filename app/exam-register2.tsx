@@ -1,10 +1,12 @@
 import { useMutation, useQuery } from '@tanstack/react-query';
 import { router } from 'expo-router';
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   Alert,
   Platform,
   Pressable,
+  RefreshControl,
+  ScrollView,
   StyleSheet,
   Text,
   TextInput,
@@ -128,6 +130,7 @@ export default function ExamRegisterScreen() {
   const [selectedRoundId, setSelectedRoundId] = useState<string | null>(null);
   const [locationInput, setLocationInput] = useState('');
   const [locationOrder, setLocationOrder] = useState('0');
+  const [refreshing, setRefreshing] = useState(false);
 
   useEffect(() => {
     if (role !== 'admin') {
@@ -145,6 +148,15 @@ export default function ExamRegisterScreen() {
     queryKey: ['exam-rounds-nonlife'],
     queryFn: fetchRounds,
   });
+
+  const onRefresh = useCallback(async () => {
+    setRefreshing(true);
+    try {
+      await refetch();
+    } finally {
+      setRefreshing(false);
+    }
+  }, [refetch]);
 
   const sortedRounds = useMemo(
     () =>
@@ -321,7 +333,10 @@ export default function ExamRegisterScreen() {
   return (
     <SafeAreaView style={styles.safe}>
       <KeyboardAwareWrapper>
-        <View style={styles.container}>
+        <ScrollView
+          contentContainerStyle={styles.container}
+          refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}
+        >
           <View style={styles.headerRow}>
             <RefreshButton onPress={() => {refetch()}} />
             <Text style={styles.headerTitle}>손해보험 시험 일정 관리</Text>
@@ -561,7 +576,7 @@ export default function ExamRegisterScreen() {
               </>
             )}
           </View>
-        </View>
+        </ScrollView>
       </KeyboardAwareWrapper>
     </SafeAreaView>
   );

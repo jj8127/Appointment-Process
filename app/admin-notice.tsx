@@ -25,6 +25,7 @@ const CHARCOAL = '#111827';
 const MUTED = '#6b7280';
 const BORDER = '#e5e7eb';
 const INPUT_BG = '#F9FAFB';
+const EXPO_PUSH_URL = 'https://exp.host/--/api/v2/push/send';
 
 export default function AdminNoticeScreen() {
   const { role } = useSession();
@@ -33,6 +34,44 @@ export default function AdminNoticeScreen() {
   const [body, setBody] = useState('');
   const [category, setCategory] = useState('공지사항');
   const [loading, setLoading] = useState(false);
+
+  // 공지 등록 후 모든 FC에게 알림 + 푸시 전송
+  const notifyAllFcs = async (titleText: string, bodyText: string, categoryText?: string) => {
+    try {
+      // notifications 테이블에 기록
+      await supabase.from('notifications').insert({
+        title: titleText,
+        body: bodyText,
+        category: categoryText || '공지',
+        recipient_role: 'fc',
+        resident_id: null,
+      });
+
+      // 모든 FC 토큰 조회
+      const { data: tokens } = await supabase
+        .from('device_tokens')
+        .select('expo_push_token')
+        .eq('role', 'fc');
+
+      const payload =
+        tokens?.map((t: any) => ({
+          to: t.expo_push_token,
+          title: `공지: ${titleText}`,
+          body: bodyText,
+          data: { type: 'notice' },
+        })) ?? [];
+
+      if (payload.length > 0) {
+        await fetch(EXPO_PUSH_URL, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload),
+        });
+      }
+    } catch (pushErr) {
+      console.warn('notifyAllFcs push error', pushErr);
+    }
+  };
 
   const submit = async () => {
     if (role !== 'admin') {
@@ -51,6 +90,7 @@ export default function AdminNoticeScreen() {
         category: category.trim() || '공지사항',
       });
       if (error) throw error;
+      await notifyAllFcs(title.trim(), body.trim(), category.trim());
       Alert.alert('등록 완료', '공지사항이 성공적으로 등록되었습니다.');
       setTitle('');
       setBody('');

@@ -1,10 +1,12 @@
 import { useMutation, useQuery } from '@tanstack/react-query';
 import { router } from 'expo-router';
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   Alert,
   Platform,
   Pressable,
+  RefreshControl,
+  ScrollView,
   StyleSheet,
   Text,
   TextInput,
@@ -26,6 +28,32 @@ const MUTED = '#6b7280';
 const BORDER = '#e5e7eb';
 const SOFT_BG = '#fff7f0';
 const EXPO_PUSH_URL = 'https://exp.host/--/api/v2/push/send';
+
+async function notifyAllFcs(title: string, body: string) {
+  await supabase.from('notifications').insert({
+    title,
+    body,
+    category: 'exam_round',
+    recipient_role: 'fc',
+    resident_id: null,
+  });
+
+  const { data: tokens } = await supabase.from('device_tokens').select('expo_push_token').eq('role', 'fc');
+  const payload =
+    tokens?.map((t: any) => ({
+      to: t.expo_push_token,
+      title,
+      body,
+      data: { type: 'exam_round' },
+    })) ?? [];
+  if (payload.length) {
+    await fetch(EXPO_PUSH_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+  }
+}
 
 const weekdays = ['일', '월', '화', '수', '목', '금', '토'];
 const formatKoreanDate = (d: Date) =>
@@ -128,6 +156,7 @@ export default function ExamRegisterScreen() {
   const [selectedRoundId, setSelectedRoundId] = useState<string | null>(null);
   const [locationInput, setLocationInput] = useState('');
   const [locationOrder, setLocationOrder] = useState('0');
+  const [refreshing, setRefreshing] = useState(false);
 
   useEffect(() => {
     if (role !== 'admin') {
@@ -145,6 +174,15 @@ export default function ExamRegisterScreen() {
     queryKey: ['exam-rounds-life'],
     queryFn: fetchRounds,
   });
+
+  const onRefresh = useCallback(async () => {
+    setRefreshing(true);
+    try {
+      await refetch();
+    } finally {
+      setRefreshing(false);
+    }
+  }, [refetch]);
 
   const sortedRounds = useMemo(
     () =>
@@ -195,40 +233,12 @@ export default function ExamRegisterScreen() {
         setSelectedRoundId(res.id);
       }
 
-      if (mode === 'create') {
-        const examTitle = `${formatDate(toYmd(examDate) || '')}${roundForm.roundLabel ? ` (${roundForm.roundLabel})` : ''}`;
-        await supabase.from('notifications').insert({
-          title: `${examTitle} 일정이 등록되었습니다.`,
-          body: '응시를 희망하는 경우 신청해주세요.',
-          category: 'exam_round',
-          recipient_role: 'fc',
-          resident_id: null,
-        });
-
-        // FC 전체 푸시 전송
-        try {
-          const { data: tokens } = await supabase
-            .from('device_tokens')
-            .select('expo_push_token')
-            .eq('role', 'fc');
-          const payload =
-            tokens?.map((t: any) => ({
-              to: t.expo_push_token,
-              title: `${examTitle} 일정이 등록되었습니다.`,
-              body: '응시를 희망하는 경우 신청해주세요.',
-              data: { type: 'exam_round' },
-            })) ?? [];
-          if (payload.length > 0) {
-            await fetch(EXPO_PUSH_URL, {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify(payload),
-            });
-          }
-        } catch (pushErr) {
-          console.warn('fc push failed', pushErr);
-        }
-      }
+      const examTitle = `${formatDate(toYmd(examDate) || '')}${roundForm.roundLabel ? ` (${roundForm.roundLabel})` : ''}`;
+      const actionLabel = mode === 'create' ? '등록' : '수정';
+      await notifyAllFcs(
+        `${examTitle} 일정이 ${actionLabel}되었습니다.`,
+        '응시를 희망하는 경우 신청해주세요.',
+      );
     },
     onError: (err: any) =>
       Alert.alert('저장 실패', err?.message ?? '저장 중 오류가 발생했습니다.'),
@@ -321,7 +331,10 @@ export default function ExamRegisterScreen() {
   return (
     <SafeAreaView style={styles.safe}>
       <KeyboardAwareWrapper>
-        <View style={styles.container}>
+        <ScrollView
+          contentContainerStyle={styles.container}
+          refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}
+        >
           <View style={styles.headerRow}>
             <RefreshButton onPress={() => {refetch()}} />
             <Text style={styles.headerTitle}>생명보험 시험 일정 관리</Text>
@@ -434,49 +447,7 @@ export default function ExamRegisterScreen() {
             </View>
           </View>
 
-          {/* 2단계: 등록된 시험 일정 목록 */}
-          <View style={styles.card}>
-            <Text style={styles.sectionTitle}>등록된 시험 일정</Text>
-            {isLoading || isFetching ? (
-              <Text style={styles.caption}>등록된 시험 일정을 불러오는 중입니다...</Text>
-            ) : !sortedRounds.length ? (
-              <Text style={styles.caption}>
-                아직 등록된 시험 일정이 없습니다. 상단에서 일정을 먼저 등록하세요.
-              </Text>
-            ) : (
-              sortedRounds.map((round) => (
-                <Pressable
-                  key={round.id}
-                  onPress={() => handleSelectRound(round)}
-                  style={[
-                    styles.roundItem,
-                    selectedRoundId === round.id && styles.roundItemActive,
-                  ]}
-                >
-                  <View style={{ flex: 1 }}>
-                    <Text style={styles.roundTitle}>
-                      {formatDate(round.exam_date)}{' '}
-                      {round.round_label ? `(${round.round_label})` : ''}
-                    </Text>
-                    <Text style={styles.roundMeta}>
-                      마감: {formatDate(round.registration_deadline)}
-                    </Text>
-                    <Text style={styles.roundMeta}>
-                      지역 {round.locations?.length ?? 0}개 등록됨
-                    </Text>
-                  </View>
-                  <Pressable
-                    onPress={() => handleDeleteRound(round.id)}
-                    style={styles.deleteBadge}
-                  >
-                    <Text style={styles.deleteText}>삭제</Text>
-                  </Pressable>
-                </Pressable>
-              ))
-            )}
-          </View>
-
-          {/* 3단계: 선택된 시험 일정의 응시 지역 */}
+          {/* 2단계: 선택된 시험 일정의 응시 지역 */}
           <View style={styles.card}>
             <Text style={styles.sectionTitle}>2단계: 응시 지역 관리</Text>
             {!selectedRound ? (
@@ -561,7 +532,49 @@ export default function ExamRegisterScreen() {
               </>
             )}
           </View>
-        </View>
+          {/* 3단계: 등록된 시험 일정 목록 */}
+          <View style={styles.card}>
+            <Text style={styles.sectionTitle}>등록된 시험 일정</Text>
+            {isLoading || isFetching ? (
+              <Text style={styles.caption}>등록된 시험 일정을 불러오는 중입니다...</Text>
+            ) : !sortedRounds.length ? (
+              <Text style={styles.caption}>
+                아직 등록된 시험 일정이 없습니다. 상단에서 일정을 먼저 등록하세요.
+              </Text>
+            ) : (
+              sortedRounds.map((round) => (
+                <Pressable
+                  key={round.id}
+                  onPress={() => handleSelectRound(round)}
+                  style={[
+                    styles.roundItem,
+                    selectedRoundId === round.id && styles.roundItemActive,
+                  ]}
+                >
+                  <View style={{ flex: 1 }}>
+                    <Text style={styles.roundTitle}>
+                      {formatDate(round.exam_date)}{' '}
+                      {round.round_label ? `(${round.round_label})` : ''}
+                    </Text>
+                    <Text style={styles.roundMeta}>
+                      마감: {formatDate(round.registration_deadline)}
+                    </Text>
+                    <Text style={styles.roundMeta}>
+                      지역 {round.locations?.length ?? 0}개 등록됨
+                    </Text>
+                  </View>
+                  <Pressable
+                    onPress={() => handleDeleteRound(round.id)}
+                    style={styles.deleteBadge}
+                  >
+                    <Text style={styles.deleteText}>삭제</Text>
+                  </Pressable>
+                </Pressable>
+              ))
+            )}
+          </View>
+
+        </ScrollView>
       </KeyboardAwareWrapper>
     </SafeAreaView>
   );

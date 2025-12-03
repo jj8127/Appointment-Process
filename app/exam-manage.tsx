@@ -1,10 +1,11 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { router } from 'expo-router';
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
   Pressable,
+  RefreshControl,
   ScrollView,
   StyleSheet,
   Text,
@@ -212,6 +213,16 @@ export default function ExamManageLifeScreen() {
     toggleMutation.mutate({ registrationId: applicant.latestRegistrationId, value: !applicant.isConfirmed });
   };
 
+  const [refreshing, setRefreshing] = useState(false);
+  const onRefresh = useCallback(async () => {
+    setRefreshing(true);
+    try {
+      await refetch();
+    } finally {
+      setRefreshing(false);
+    }
+  }, [refetch]);
+
   const renderCard = (a: ApplicantRow) => {
     return (
       <View key={a.residentId} style={styles.card}>
@@ -260,7 +271,10 @@ export default function ExamManageLifeScreen() {
 
   return (
     <SafeAreaView style={styles.safe}>
-      <ScrollView contentContainerStyle={styles.container}>
+      <ScrollView
+        contentContainerStyle={styles.container}
+        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}
+      >
         <View style={styles.header}>
           <View style={styles.headerTop}>
             <Text style={styles.headerTitle}>생명보험 신청자</Text>

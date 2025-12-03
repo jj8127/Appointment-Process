@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   Alert,
   KeyboardAvoidingView,
@@ -13,6 +13,7 @@ import {
   Dimensions,
   FlatList,
   Linking,
+  RefreshControl,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import DateTimePicker from '@react-native-community/datetimepicker';
@@ -60,6 +61,7 @@ export default function AllowanceConsentScreen() {
   const [showPicker, setShowPicker] = useState(Platform.OS === 'ios');
   const [currentIndex, setCurrentIndex] = useState(0);
   const [imageRatio, setImageRatio] = useState(16 / 9);
+  const [refreshing, setRefreshing] = useState(false);
 
   useEffect(() => {
     const load = async () => {
@@ -119,10 +121,31 @@ export default function AllowanceConsentScreen() {
   const cardWidth = width - 48;
   const cardHeight = cardWidth * imageRatio * 0.8;
 
+  const onRefresh = useCallback(async () => {
+    setRefreshing(true);
+    try {
+      if (!residentId) return;
+      const { data } = await supabase
+        .from('fc_profiles')
+        .select('temp_id, allowance_date')
+        .eq('phone', residentId)
+        .maybeSingle();
+      if (data?.temp_id) setTempId(data.temp_id);
+      if (data?.allowance_date) setSelectedDate(new Date(data.allowance_date));
+    } finally {
+      setRefreshing(false);
+    }
+  }, [residentId]);
+
   return (
     <SafeAreaView style={styles.safe}>
       <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={{ flex: 1 }}>
-        <ScrollView contentContainerStyle={[styles.container, { paddingBottom: keyboardPadding + 40 }]}>
+        <ScrollView
+          contentContainerStyle={[styles.container, { paddingBottom: keyboardPadding + 40 }]}
+          refreshControl={
+            <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
+          }
+        >
           <View style={styles.headerRow}>
             <View>
               <Text style={styles.pageTitle}>수당 동의 가이드</Text>

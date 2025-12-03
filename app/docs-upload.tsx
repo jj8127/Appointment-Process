@@ -1,6 +1,6 @@
 import * as DocumentPicker from 'expo-document-picker';
 import * as FileSystem from 'expo-file-system/legacy';
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
@@ -11,6 +11,7 @@ import {
   StyleSheet,
   Text,
   View,
+  RefreshControl,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Feather } from '@expo/vector-icons';
@@ -25,6 +26,7 @@ type FcLite = { id: string; temp_id: string | null; name: string };
 type DocItem = RequiredDoc & { storagePath?: string; originalName?: string };
 
 const BUCKET = 'fc-documents';
+const EXPO_PUSH_URL = 'https://exp.host/--/api/v2/push/send';
 const HANWHA_ORANGE = '#f36f21';
 const CHARCOAL = '#111827';
 const MUTED = '#6b7280';
@@ -48,12 +50,49 @@ function base64ToUint8Array(base64: string) {
   return new Uint8Array(output);
 }
 
+async function sendNotificationAndPush(
+  role: 'admin' | 'fc',
+  residentId: string | null,
+  title: string,
+  body: string,
+) {
+  await supabase.from('notifications').insert({
+    title,
+    body,
+    category: 'app_event',
+    recipient_role: role,
+    resident_id: residentId,
+  });
+
+  const { data: tokens } =
+    role === 'admin'
+      ? await supabase.from('device_tokens').select('expo_push_token').eq('role', 'admin')
+      : await supabase.from('device_tokens').select('expo_push_token').eq('role', 'fc').eq('resident_id', residentId ?? '');
+
+  const payload =
+    tokens?.map((t: any) => ({
+      to: t.expo_push_token,
+      title,
+      body,
+      data: { type: 'app_event', resident_id: residentId },
+    })) ?? [];
+
+  if (payload.length) {
+    await fetch(EXPO_PUSH_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+  }
+}
+
 export default function DocsUploadScreen() {
   const { residentId } = useSession();
   const [fc, setFc] = useState<FcLite | null>(null);
   const [docs, setDocs] = useState<DocItem[]>([]);
   const [uploadingType, setUploadingType] = useState<string | null>(null);
   const keyboardPadding = useKeyboardPadding();
+  const [refreshing, setRefreshing] = useState(false);
 
   const docCount = useMemo(
     () => ({ uploaded: docs.filter((d) => d.uploadedUrl).length, total: docs.length }),
@@ -107,6 +146,15 @@ export default function DocsUploadScreen() {
     loadForMe();
   }, [residentId]);
 
+  const onRefresh = useCallback(async () => {
+    setRefreshing(true);
+    try {
+      await loadForMe();
+    } finally {
+      setRefreshing(false);
+    }
+  }, []);
+
   const handlePick = async (type: RequiredDoc['type']) => {
     if (!fc) return;
     const result = await DocumentPicker.getDocumentAsync({
@@ -143,23 +191,37 @@ export default function DocsUploadScreen() {
       if (dbError) throw dbError;
 
       await supabase.from('fc_profiles').update({ status: 'docs-pending' }).eq('id', fc.id);
-      await supabase.functions.invoke('fc-notify', {
-        body: { type: 'fc_update', fc_id: fc.id, message: `${fc.name}님의 ${asset.name}가 업로드되었습니다.` },
-      });
-
-      setDocs((prev) =>
-        prev.map((doc) =>
-          doc.type === type
-            ? {
-                ...doc,
-                uploadedUrl: publicUrl,
-                status: 'pending',
-                storagePath: objectPath,
-                originalName: asset.name ?? 'document.pdf',
-              }
-            : doc,
-        ),
+      const updatedDocs = docs.map((doc) =>
+        doc.type === type
+          ? {
+              ...doc,
+              uploadedUrl: publicUrl,
+              status: 'pending',
+              storagePath: objectPath,
+              originalName: asset.name ?? 'document.pdf',
+            }
+          : doc,
       );
+      setDocs(updatedDocs);
+
+      const nameLabel = fc.name || 'FC';
+      await sendNotificationAndPush(
+        'admin',
+        residentId ?? null,
+        `${nameLabel}이/가 ${type}을 제출했습니다.`,
+        `${nameLabel}님이 ${type}을 업로드했습니다.`,
+      );
+
+      const uploadedCount = updatedDocs.filter((d) => d.uploadedUrl).length;
+      if (uploadedCount === updatedDocs.length && updatedDocs.length > 0) {
+        await sendNotificationAndPush(
+          'admin',
+          residentId ?? null,
+          `${nameLabel}이/가 모든 서류를 제출했습니다.`,
+          `${nameLabel}님이 모든 필수 서류를 업로드했습니다.`,
+        );
+      }
+
       Alert.alert('업로드 완료', '파일이 정상적으로 등록되었습니다.');
     } catch (err: any) {
       Alert.alert('오류', err?.message ?? '업로드 실패');
@@ -210,7 +272,12 @@ export default function DocsUploadScreen() {
           </View>
         </View>
 
-        <ScrollView contentContainerStyle={[styles.scrollContent, { paddingBottom: keyboardPadding + 40 }]}>
+        <ScrollView
+          contentContainerStyle={[styles.scrollContent, { paddingBottom: keyboardPadding + 40 }]}
+          refreshControl={
+            <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
+          }
+        >
           {fc?.temp_id && (
             <View style={styles.noticeBox}>
               <Feather name="info" size={14} color={CHARCOAL} style={{ marginTop: 2 }} />

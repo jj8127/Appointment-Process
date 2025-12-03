@@ -49,7 +49,8 @@ export default function AuthScreen() {
 
     try {
       if (code === '1111') {
-        loginAs('admin', '');
+        // 식별자가 없으면 푸시 토큰 등록이 스킵되므로 명시적으로 저장
+        loginAs('admin', 'admin', '총무');
         router.replace('/');
         return;
       }

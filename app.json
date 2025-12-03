@@ -1,7 +1,7 @@
 {
   "expo": {
     "name": "한화 FC 패스",
-    "slug": "hanwha-fc-pass",
+    "slug": "fc-onboarding-app",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",

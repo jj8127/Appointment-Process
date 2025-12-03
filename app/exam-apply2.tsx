@@ -1,6 +1,6 @@
 import { useMutation, useQuery } from '@tanstack/react-query';
 import { router } from 'expo-router';
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   Alert,
   Pressable,
@@ -9,6 +9,7 @@ import {
   Text,
   View,
   ActivityIndicator,
+  RefreshControl,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Feather } from '@expo/vector-icons';
@@ -37,6 +38,32 @@ const CARD_SHADOW = {
   elevation: 2,
 };
 const EXPO_PUSH_URL = 'https://exp.host/--/api/v2/push/send';
+
+async function notifyAdmin(title: string, body: string, residentId: string | null) {
+  await supabase.from('notifications').insert({
+    title,
+    body,
+    category: 'exam_apply',
+    recipient_role: 'admin',
+    resident_id: residentId,
+  });
+
+  const { data: tokens } = await supabase.from('device_tokens').select('expo_push_token').eq('role', 'admin');
+  const payload =
+    tokens?.map((t: any) => ({
+      to: t.expo_push_token,
+      title,
+      body,
+      data: { type: 'exam_apply', resident_id: residentId },
+    })) ?? [];
+  if (payload.length) {
+    await fetch(EXPO_PUSH_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+  }
+}
 
 const fetchRounds = async (): Promise<ExamRoundWithLocations[]> => {
   const { data, error } = await supabase
@@ -118,6 +145,7 @@ export default function ExamApplyScreen() {
   const [selectedRoundId, setSelectedRoundId] = useState<string | null>(null);
   const [selectedLocationId, setSelectedLocationId] = useState<string | null>(null);
   const [wantsThird, setWantsThird] = useState(false);
+  const [refreshing, setRefreshing] = useState(false);
 
   useEffect(() => {
     if (!hydrated) return;
@@ -194,6 +222,18 @@ export default function ExamApplyScreen() {
     }
   }, [myLastApply]);
 
+  const onRefresh = useCallback(async () => {
+    setRefreshing(true);
+    try {
+      await Promise.all([
+        refetch(),
+        // myLastApply는 react-query가 자동 refetch; 필요시 invalidateQueries 사용
+      ]);
+    } finally {
+      setRefreshing(false);
+    }
+  }, [refetch]);
+
   const applyMutation = useMutation({
     mutationFn: async () => {
       if (!residentId) {
@@ -247,36 +287,7 @@ export default function ExamApplyScreen() {
       const title = `${actor}이/가 ${examTitle}을 신청하였습니다.`;
       const body = locName ? `${actor}이/가 ${examTitle} (${locName})을 신청하였습니다.` : title;
 
-      await supabase.from('notifications').insert({
-        title,
-        body,
-        category: 'exam_apply',
-        recipient_role: 'admin',
-        resident_id: residentId,
-      });
-
-      try {
-        const { data: tokens } = await supabase
-          .from('device_tokens')
-          .select('expo_push_token')
-          .eq('role', 'admin');
-        const payload =
-          tokens?.map((t: any) => ({
-            to: t.expo_push_token,
-            title,
-            body,
-            data: { type: 'exam_apply', resident_id: residentId },
-          })) ?? [];
-        if (payload.length > 0) {
-          await fetch(EXPO_PUSH_URL, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(payload),
-          });
-        }
-      } catch (pushErr) {
-        console.warn('admin push failed', pushErr);
-      }
+      await notifyAdmin(title, body, residentId);
     },
     onSuccess: () => {
       Alert.alert('신청 완료', '시험 신청이 정상적으로 등록되었습니다.');
@@ -337,7 +348,12 @@ export default function ExamApplyScreen() {
   return (
     <SafeAreaView style={styles.safe}>
       <KeyboardAwareWrapper>
-        <ScrollView contentContainerStyle={styles.container}>
+        <ScrollView
+          contentContainerStyle={styles.container}
+          refreshControl={
+            <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
+          }
+        >
           <View style={styles.header}>
             <View>
               <Text style={styles.headerTitle}>손해보험 시험 신청</Text>
