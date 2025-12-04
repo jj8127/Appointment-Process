@@ -204,7 +204,7 @@ export default function AdminAppointmentScreen() {
           <Text style={styles.title}>위촉 URL 관리</Text>
           <Text style={styles.subtitle}>서류 제출이 끝난 FC에게 위촉 링크를 발송하세요.</Text>
         </View>
-        <RefreshButton onPress={refetch} />
+        <RefreshButton onPress={() => {refetch()}} />
       </View>
 
       {isLoading && !data ? (
