@@ -14,7 +14,6 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { KeyboardAwareWrapper } from '@/components/KeyboardAwareWrapper';
-import { useKeyboardPadding } from '@/hooks/use-keyboard-padding';
 import { useSession } from '@/hooks/use-session';
 import { supabase } from '@/lib/supabase';
 import Logo from '../logo.png';
@@ -30,17 +29,25 @@ const ADMIN_PHONE_NUMBERS = (process.env.EXPO_PUBLIC_ADMIN_PHONES ?? '')
   .filter(Boolean);
 
 export default function AuthScreen() {
-  const { loginAs, role, residentId, hydrated } = useSession();
+  const { loginAs, role, residentId, hydrated, displayName } = useSession();
   const [phoneInput, setPhoneInput] = useState('');
   const [loading, setLoading] = useState(false);
-  const keyboardPadding = useKeyboardPadding();
 
   useEffect(() => {
     if (!hydrated) return;
-    if (role && (role === 'admin' || residentId)) {
+    if (role === 'admin') {
       router.replace('/');
+      return;
     }
-  }, [hydrated, residentId, role]);
+    if (role === 'fc' && residentId) {
+      // 기본 정보가 없으면 인적사항 입력 페이지로 유도
+      if (!displayName?.trim()) {
+        router.replace('/fc/new');
+      } else {
+        router.replace('/');
+      }
+    }
+  }, [hydrated, residentId, role, displayName]);
 
   const handleLogin = async () => {
     const code = phoneInput.trim();
@@ -93,10 +100,17 @@ export default function AuthScreen() {
           .single();
         if (insertErr) throw insertErr;
         loginAs('fc', inserted?.phone ?? digits, inserted?.name ?? '');
+        router.replace('/fc/new');
+        return;
       } else {
         loginAs('fc', data.phone ?? digits, data.name ?? '');
+        if (!data.name || data.name.trim() === '') {
+          router.replace('/fc/new');
+        } else {
+          router.replace('/');
+        }
+        return;
       }
-      router.replace('/');
     } catch (err: any) {
       Alert.alert('로그인 실패', '오류가 발생했습니다. 다시 시도해주세요.');
     } finally {
@@ -106,7 +120,9 @@ export default function AuthScreen() {
 
   return (
     <SafeAreaView style={styles.safe}>
-      <KeyboardAwareWrapper contentContainerStyle={[styles.container, { paddingBottom: keyboardPadding + 20 }]}>
+      <KeyboardAwareWrapper
+        contentContainerStyle={[styles.container, { paddingBottom: 20 }]}
+        extraScrollHeight={140}>
         <View style={styles.logoContainer}>
           <Image source={Logo} style={styles.logo} resizeMode="contain" />
         </View>

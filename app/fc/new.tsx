@@ -1,27 +1,25 @@
 import Postcode from '@actbase/react-daum-postcode';
 import { zodResolver } from '@hookform/resolvers/zod';
+import { Picker } from '@react-native-picker/picker';
 import { router } from 'expo-router';
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { Controller, useForm, type Control } from 'react-hook-form';
 import {
   Alert,
-  KeyboardAvoidingView,
   Modal,
-  Platform,
   Pressable,
-  ScrollView,
+  RefreshControl,
+  ReturnKeyTypeOptions,
   StyleSheet,
   Text,
   TextInput,
-  RefreshControl,
   View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { z } from 'zod';
-import { Picker } from '@react-native-picker/picker';
 
+import { KeyboardAwareWrapper } from '@/components/KeyboardAwareWrapper';
 import { RefreshButton } from '@/components/RefreshButton';
-import { useKeyboardPadding } from '@/hooks/use-keyboard-padding';
 import { useSession } from '@/hooks/use-session';
 import { supabase } from '@/lib/supabase';
 import { CareerType } from '@/types/fc';
@@ -61,8 +59,10 @@ const AFFILIATION_OPTIONS = [
 
 const EMAIL_DOMAINS = [
   'naver.com',
-  'hanmail.net',
   'gmail.com',
+  'daum.net',
+  'hanmail.net',
+  'nate.com',
   '직접입력',
 ];
 
@@ -106,7 +106,6 @@ async function sendNotificationAndPush(
 export default function FcNewScreen() {
   const [submitting, setSubmitting] = useState(false);
   const { residentId: phoneFromSession, loginAs } = useSession();
-  const keyboardPadding = useKeyboardPadding();
   const [existingTempId, setExistingTempId] = useState<string | null>(null);
   const [selectedAffiliation, setSelectedAffiliation] = useState('');
   const [showAddressSearch, setShowAddressSearch] = useState(false);
@@ -114,6 +113,14 @@ export default function FcNewScreen() {
   const [emailDomain, setEmailDomain] = useState('');
   const [customDomain, setCustomDomain] = useState('');
   const [refreshing, setRefreshing] = useState(false);
+
+  const phoneRef = useRef<TextInput>(null);
+  const residentFrontRef = useRef<TextInput>(null);
+  const residentBackRef = useRef<TextInput>(null);
+  const recommenderRef = useRef<TextInput>(null);
+  const emailLocalRef = useRef<TextInput>(null);
+  const customDomainRef = useRef<TextInput>(null);
+  const addressDetailRef = useRef<TextInput>(null);
 
   const { control, handleSubmit, setValue, formState, watch } = useForm<FormValues>({
     resolver: zodResolver(schema),
@@ -265,13 +272,10 @@ export default function FcNewScreen() {
 
   return (
     <SafeAreaView style={styles.safe}>
-      <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} style={{ flex: 1 }}>
-        <ScrollView
-          contentContainerStyle={[styles.container, { paddingBottom: keyboardPadding + 140 }]}
-          keyboardShouldPersistTaps="handled"
-          refreshControl={
-            <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
-          }>
+      <KeyboardAwareWrapper
+        contentContainerStyle={[styles.container, { paddingBottom: 120 }]}
+        extraScrollHeight={140}
+        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}>
           <RefreshButton />
 
           <View style={styles.hero}>
@@ -303,7 +307,16 @@ export default function FcNewScreen() {
               <Text style={styles.error}>{formState.errors.affiliation?.message}</Text>
             ) : null}
 
-            <FormField control={control} label="이름" placeholder="홍길동" name="name" errors={formState.errors} />
+            <FormField
+              control={control}
+              label="이름"
+              placeholder="홍길동"
+              name="name"
+              errors={formState.errors}
+              returnKeyType="next"
+              onSubmitEditing={() => phoneRef.current?.focus()}
+              blurOnSubmit={false}
+            />
           </View>
 
           <View style={styles.sectionCard}>
@@ -314,6 +327,10 @@ export default function FcNewScreen() {
               placeholder="010-1234-5678"
               name="phone"
               errors={formState.errors}
+              inputRef={phoneRef}
+              returnKeyType="next"
+              onSubmitEditing={() => residentFrontRef.current?.focus()}
+              blurOnSubmit={false}
             />
             <View style={styles.field}>
               <View style={styles.fieldLabelRow}>
@@ -330,13 +347,21 @@ export default function FcNewScreen() {
                   name="residentFront"
                   render={({ field: { onChange, value } }) => (
                     <TextInput
+                      ref={residentFrontRef}
                       style={[styles.input, styles.residentInput]}
                       placeholder="앞 6자리"
                       placeholderTextColor={PLACEHOLDER}
                       value={value}
-                      onChangeText={(txt) => onChange(txt.replace(/[^0-9]/g, '').slice(0, 6))}
+                      onChangeText={(txt) => {
+                        const cleaned = txt.replace(/[^0-9]/g, '').slice(0, 6);
+                        onChange(cleaned);
+                        if (cleaned.length === 6) residentBackRef.current?.focus();
+                      }}
                       keyboardType="number-pad"
                       maxLength={6}
+                      returnKeyType="next"
+                      onSubmitEditing={() => residentBackRef.current?.focus()}
+                      blurOnSubmit={false}
                     />
                   )}
                 />
@@ -346,19 +371,37 @@ export default function FcNewScreen() {
                   name="residentBack"
                   render={({ field: { onChange, value } }) => (
                     <TextInput
+                      ref={residentBackRef}
                       style={[styles.input, styles.residentInput]}
                       placeholder="뒷 7자리"
                       placeholderTextColor={PLACEHOLDER}
                       value={value}
-                      onChangeText={(txt) => onChange(txt.replace(/[^0-9]/g, '').slice(0, 7))}
+                      onChangeText={(txt) => {
+                        const cleaned = txt.replace(/[^0-9]/g, '').slice(0, 7);
+                        onChange(cleaned);
+                        if (cleaned.length === 7) recommenderRef.current?.focus();
+                      }}
                       keyboardType="number-pad"
                       maxLength={7}
+                      returnKeyType="next"
+                      onSubmitEditing={() => recommenderRef.current?.focus()}
+                      blurOnSubmit={false}
                     />
                   )}
                 />
               </View>
             </View>
-            <FormField control={control} label="추천인" placeholder="추천인 이름" name="recommender" errors={formState.errors} />
+            <FormField
+              control={control}
+              label="추천인"
+              placeholder="추천인 이름"
+              name="recommender"
+              errors={formState.errors}
+              inputRef={recommenderRef}
+              returnKeyType="next"
+              onSubmitEditing={() => emailLocalRef.current?.focus()}
+              blurOnSubmit={false}
+            />
             <View style={styles.field}>
               <View style={styles.fieldLabelRow}>
                 <Text style={styles.label}>이메일</Text>
@@ -366,6 +409,7 @@ export default function FcNewScreen() {
               </View>
               <View style={styles.emailRow}>
                 <TextInput
+                  ref={emailLocalRef}
                   style={[styles.input, styles.emailLocal]}
                   placeholder="이메일 아이디"
                   placeholderTextColor={PLACEHOLDER}
@@ -373,27 +417,35 @@ export default function FcNewScreen() {
                   onChangeText={(txt) => setEmailLocal(txt.trim())}
                   autoCapitalize="none"
                   keyboardType="email-address"
+                  returnKeyType="done"
                 />
                 <Text style={styles.emailAt}>@</Text>
-                <View style={styles.emailDomainBox}>
-                  <Picker
-                    selectedValue={emailDomain || undefined}
-                    onValueChange={(value) => {
-                      setEmailDomain(value);
-                      if (value !== '직접입력') {
-                        setCustomDomain('');
-                      }
-                    }}
-                    dropdownIconColor={CHARCOAL}
-                    style={styles.emailPicker}
-                  >
-                    <Picker.Item label="도메인 선택" value="" color={TEXT_MUTED} />
-                    {EMAIL_DOMAINS.map((d) => (
-                      <Picker.Item key={d} label={d} value={d} />
-                    ))}
-                  </Picker>
+
+                {/* 오른쪽 영역 */}
+                <View style={{ flex: 1 }}>
+                  {/* Picker만 감싸는 박스 */}
+                  <View style={styles.emailDomainBox}>
+                    <Picker
+                      selectedValue={emailDomain || undefined}
+                      onValueChange={(value) => {
+                        setEmailDomain(value);
+                        if (value !== '직접입력') setCustomDomain('');
+                      }}
+                      dropdownIconColor={CHARCOAL}
+                      style={styles.emailPicker}
+                      itemStyle={{ fontSize: 14, color: CHARCOAL, height: 40 }}
+                    >
+                      <Picker.Item label="도메인 선택" value="" color={TEXT_MUTED} style={{ fontSize: 14 }} />
+                      {EMAIL_DOMAINS.map((d) => (
+                        <Picker.Item key={d} label={d} value={d} style={{ fontSize: 14 }} />
+                      ))}
+                    </Picker>
+                  </View>
+
+                  {/* 직접 입력창을 박스 밖으로 */}
                   {emailDomain === '직접입력' ? (
                     <TextInput
+                      ref={customDomainRef}
                       style={[styles.input, styles.customDomainInput]}
                       placeholder="직접 입력"
                       placeholderTextColor={PLACEHOLDER}
@@ -401,10 +453,14 @@ export default function FcNewScreen() {
                       onChangeText={(txt) => setCustomDomain(txt.trim())}
                       autoCapitalize="none"
                       keyboardType="email-address"
+                      returnKeyType="next"
+                      onSubmitEditing={() => addressDetailRef.current?.focus()}
+                      blurOnSubmit={false}
                     />
                   ) : null}
                 </View>
               </View>
+
             </View>
             <View style={styles.field}>
               <View style={styles.fieldLabelRow}>
@@ -432,11 +488,14 @@ export default function FcNewScreen() {
                   name="addressDetail"
                   render={({ field: { onChange, value } }) => (
                     <TextInput
+                      ref={addressDetailRef}
                       style={styles.input}
                       placeholder="상세 주소"
                       placeholderTextColor={PLACEHOLDER}
                       value={value}
                       onChangeText={onChange}
+                      returnKeyType="done"
+                      onSubmitEditing={handleSubmit(onSubmit)}
                     />
                   )}
                 />
@@ -450,8 +509,7 @@ export default function FcNewScreen() {
             disabled={submitting}>
             <Text style={styles.primaryButtonText}>{submitting ? '저장 중...' : '저장하기'}</Text>
           </Pressable>
-        </ScrollView>
-      </KeyboardAvoidingView>
+      </KeyboardAwareWrapper>
       <Modal visible={showAddressSearch} animationType="slide">
         <SafeAreaView style={{ flex: 1, backgroundColor: '#fff' }}>
           <View style={{ flexDirection: 'row', justifyContent: 'space-between', padding: 12, borderBottomWidth: 1, borderColor: BORDER }}>
@@ -486,9 +544,24 @@ type FormFieldProps = {
   name: keyof FormValues;
   errors: Record<string, { message?: string }>;
   multiline?: boolean;
+  inputRef?: React.Ref<TextInput>;
+  returnKeyType?: ReturnKeyTypeOptions;
+  onSubmitEditing?: () => void;
+  blurOnSubmit?: boolean;
 };
 
-const FormField = ({ control, label, placeholder, name, errors, multiline }: FormFieldProps) => (
+const FormField = ({
+  control,
+  label,
+  placeholder,
+  name,
+  errors,
+  multiline,
+  inputRef,
+  returnKeyType,
+  onSubmitEditing,
+  blurOnSubmit,
+}: FormFieldProps) => (
   <View style={styles.field}>
     <View style={styles.fieldLabelRow}>
       <Text style={styles.label}>{label}</Text>
@@ -499,12 +572,16 @@ const FormField = ({ control, label, placeholder, name, errors, multiline }: For
       name={name as any}
       render={({ field: { onChange, value } }) => (
         <TextInput
+          ref={inputRef}
           style={[styles.input, multiline && styles.inputMultiline]}
           placeholder={placeholder}
           placeholderTextColor={PLACEHOLDER}
           value={value}
           onChangeText={onChange}
           multiline={multiline}
+          returnKeyType={returnKeyType}
+          onSubmitEditing={onSubmitEditing}
+          blurOnSubmit={blurOnSubmit}
         />
       )}
     />
@@ -590,7 +667,7 @@ const styles = StyleSheet.create({
   primaryButtonText: { color: '#fff', fontWeight: '800', fontSize: 16 },
   emailRow: {
     flexDirection: 'row',
-    alignItems: 'center',
+    alignItems: 'flex-start',
     gap: 8,
   },
   emailLocal: {
@@ -604,12 +681,16 @@ const styles = StyleSheet.create({
     flex: 1,
     borderWidth: 1,
     borderColor: BORDER,
-    borderRadius: 10,
+    borderRadius: 8,
     overflow: 'hidden',
+    justifyContent: 'center',
+    height: 50,
+    backgroundColor: '#fff',
   },
   emailPicker: {
-    height: 48,
     color: CHARCOAL,
+    marginLeft: -8,
+    marginRight: -8,
   },
   customDomainInput: {
     marginTop: 4,
@@ -618,5 +699,7 @@ const styles = StyleSheet.create({
     borderRadius: 8,
     padding: 8,
     backgroundColor: '#fff',
+    fontSize: 12,
+    height: 40,
   },
 });

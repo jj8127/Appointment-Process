@@ -1,0 +1,51 @@
+                  placeholderTextColor={PLACEHOLDER}
+                  value={emailLocal}
+                  onChangeText={(txt) => setEmailLocal(txt.trim())}
+                  autoCapitalize="none"
+                  keyboardType="email-address"
+                  returnKeyType="done"
+                />
+                <Text style={styles.emailAt}>@</Text>
+                <View style={styles.emailDomainBox}>
+                  <Picker
+                    selectedValue={emailDomain || undefined}
+                    onValueChange={(value) => {
+                      setEmailDomain(value);
+                      if (value !== '직접?�력') {
+                        setCustomDomain('');
+                      }
+                    }}
+                    dropdownIconColor={CHARCOAL}
+                    style={styles.emailPicker}
+                    itemStyle={{ fontSize: 14, color: CHARCOAL, height: 40 }}
+                  >
+                    <Picker.Item label=" ?�택" value="" color={TEXT_MUTED} style={{ fontSize: 14 }} />
+                    {EMAIL_DOMAINS.map((d) => (
+                  <Picker.Item key={d} label={d} value={d} style={{ fontSize: 14 }} />
+                    ))}
+                  </Picker>
+                  {emailDomain === '직접?�력' ? (
+                    <TextInput
+                      style={[styles.input, styles.customDomainInput]}
+                      placeholder="직접 ?�력"
+                      placeholderTextColor={PLACEHOLDER}
+                      value={customDomain}
+                      onChangeText={(txt) => setCustomDomain(txt.trim())}
+                      autoCapitalize="none"
+                      keyboardType="email-address"
+                      returnKeyType="next"
+                      onSubmitEditing={() => addressDetailRef.current?.focus()}
+                      blurOnSubmit={false}
+                    />
+                  ) : null}
+                </View>
+              </View>
+            </View>
+            <View style={styles.field}>
+              <View style={styles.fieldLabelRow}>
+                <Text style={styles.label}>주소</Text>
+                {formState.errors.address?.message ? <Text style={styles.error}>{formState.errors.address?.message}</Text> : null}
+              </View>
+              <View style={{ gap: 8 }}>
+                <Pressable style={styles.searchButton} onPress={() => setShowAddressSearch(true)}><Text style={styles.searchButtonText}>주소 검??(?�택)</Text></Pressable>
+                <Controller

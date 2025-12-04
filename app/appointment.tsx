@@ -12,8 +12,11 @@ import {
   StyleSheet,
   Text,
   View,
+  Image,
+  FlatList,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { Dimensions } from 'react-native';
 
 import { RefreshButton } from '@/components/RefreshButton';
 import { useKeyboardPadding } from '@/hooks/use-keyboard-padding';
@@ -25,6 +28,7 @@ const CHARCOAL = '#111827';
 const MUTED = '#6b7280';
 const BORDER = '#E5E7EB';
 const INPUT_BG = '#F9FAFB';
+const { width } = Dimensions.get('window');
 
 const weekdays = ['일', '월', '화', '수', '목', '금', '토'];
 const formatKoreanDate = (d: Date) =>
@@ -32,6 +36,33 @@ const formatKoreanDate = (d: Date) =>
 
 const toYMD = (d: Date) =>
   `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+
+const APPOINTMENT_IMAGES = [
+  require('../appointment_img/그림2.jpg'),
+  require('../appointment_img/그림3.jpg'),
+  require('../appointment_img/그림4.jpg'),
+  require('../appointment_img/그림5.jpg'),
+  require('../appointment_img/그림6.jpg'),
+  require('../appointment_img/그림7.jpg'),
+  require('../appointment_img/그림8.jpg'),
+  require('../appointment_img/그림9.jpg'),
+  require('../appointment_img/그림10.jpg'),
+  require('../appointment_img/그림11.jpg'),
+  require('../appointment_img/그림12.jpg'),
+  require('../appointment_img/그림13.jpg'),
+  require('../appointment_img/그림14.jpg'),
+  require('../appointment_img/그림15.jpg'),
+  require('../appointment_img/그림16.jpg'),
+  require('../appointment_img/그림17.jpg'),
+  require('../appointment_img/그림18.jpg'),
+  require('../appointment_img/그림19.jpg'),
+  require('../appointment_img/그림20.jpg'),
+  require('../appointment_img/그림21.jpg'),
+  require('../appointment_img/그림22.jpg'),
+  require('../appointment_img/그림23.jpg'),
+  require('../appointment_img/그림24.jpg'),
+  require('../appointment_img/그림25.jpg'),
+];
 
 export default function AppointmentScreen() {
   const { role, residentId } = useSession();
@@ -42,6 +73,8 @@ export default function AppointmentScreen() {
   const [saving, setSaving] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
   const [showPicker, setShowPicker] = useState(Platform.OS === 'ios');
+  const [currentIndex, setCurrentIndex] = useState(0);
+  const [imageRatio, setImageRatio] = useState(16 / 9);
 
   const load = useCallback(async () => {
     if (!residentId) return;
@@ -66,7 +99,16 @@ export default function AppointmentScreen() {
     load();
   }, [load]);
 
+  useEffect(() => {
+    if (APPOINTMENT_IMAGES[0]) {
+      const { width: iw, height: ih } = Image.resolveAssetSource(APPOINTMENT_IMAGES[0]);
+      if (iw && ih) setImageRatio(ih / iw);
+    }
+  }, []);
+
   const formattedDate = useMemo(() => formatKoreanDate(selectedDate), [selectedDate]);
+  // 카드 영역(좌우 패딩 제외) 기준 너비/높이 계산 (좌우 패딩 24*2)
+  const frameWidth = width - 128;
 
   const handleOpenUrl = () => {
     if (!appointmentUrl) {
@@ -129,18 +171,18 @@ export default function AppointmentScreen() {
 
   return (
     <SafeAreaView style={styles.safe}>
-      <View style={styles.header}>
-        <View>
-          <Text style={styles.title}>모바일 위촉 진행</Text>
-          <Text style={styles.subtitle}>총무가 발송한 URL로 접속 후 완료일을 입력해주세요.</Text>
-        </View>
-        <RefreshButton onPress={load} />
-      </View>
-
       <ScrollView
         contentContainerStyle={[styles.container, { paddingBottom: keyboardPadding + 40 }]}
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}
       >
+        <View style={styles.header}>
+          <View>
+            <Text style={styles.title}>모바일 위촉 진행</Text>
+            <Text style={styles.subtitle}>총무가 발송한 URL로 접속 후 완료일을 입력해주세요.</Text>
+          </View>
+          <RefreshButton onPress={load} />
+        </View>
+
         {loading ? (
           <ActivityIndicator color={HANWHA_ORANGE} style={{ marginTop: 40 }} />
         ) : (
@@ -158,6 +200,41 @@ export default function AppointmentScreen() {
                 </Text>
                 <Feather name="external-link" size={18} color="#fff" />
               </Pressable>
+            </View>
+
+            <View style={styles.card}>
+              <Text style={styles.sectionTitle}>위촉 진행 가이드</Text>
+              <Text style={styles.sectionDesc}>아래 화면을 따라 위촉 절차를 완료해주세요.</Text>
+              <FlatList
+                data={APPOINTMENT_IMAGES}
+                keyExtractor={(_, i) => String(i)}
+                horizontal
+                pagingEnabled
+                showsHorizontalScrollIndicator={false}
+                snapToInterval={frameWidth}
+                decelerationRate="fast"
+                onMomentumScrollEnd={(e) => {
+                  const idx = Math.round(e.nativeEvent.contentOffset.x / frameWidth);
+                  setCurrentIndex(idx);
+                }}
+                renderItem={({ item }) => {
+                  // 이미지가 실제로 차지할 너비(좌우 패딩 24*2를 뺀 값)
+                  const imageInnerWidth = frameWidth - 48;
+                  const frameHeight = imageRatio ? imageInnerWidth * imageRatio : imageInnerWidth;
+                  return (
+                    <View style={{ width: frameWidth, alignItems: 'center' }}>
+                      <View style={[styles.imageFrame, { width: frameWidth, height: frameHeight }]}>
+                        <Image source={item} style={styles.guideImage} resizeMode="contain" />
+                      </View>
+                    </View>
+                  );
+                }}
+              />
+              <View style={styles.pagination}>
+                {APPOINTMENT_IMAGES.map((_, i) => (
+                  <View key={i} style={[styles.dot, currentIndex === i && styles.dotActive]} />
+                ))}
+              </View>
             </View>
 
             <View style={styles.card}>
@@ -215,8 +292,6 @@ const styles = StyleSheet.create({
   safe: { flex: 1, backgroundColor: '#fff' },
   header: {
     paddingHorizontal: 24,
-    paddingTop: 16,
-    paddingBottom: 16,
     borderBottomWidth: 1,
     borderBottomColor: '#F3F4F6',
     flexDirection: 'row',
@@ -277,4 +352,23 @@ const styles = StyleSheet.create({
   submitButtonText: { color: '#fff', fontSize: 16, fontWeight: '700' },
   buttonDisabled: { opacity: 0.5 },
   infoText: { color: MUTED, fontSize: 14 },
+  imageFrame: {
+    borderWidth: 1,
+    borderColor: BORDER,
+    borderRadius: 12,
+    overflow: 'hidden',
+    backgroundColor: '#F3F4F6',
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingHorizontal: 24,
+  },
+  guideImage: { width: '100%', height: '100%' },
+  pagination: { flexDirection: 'row', justifyContent: 'center', gap: 6 },
+  dot: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    backgroundColor: '#e5e7eb',
+  },
+  dotActive: { backgroundColor: HANWHA_ORANGE },
 });

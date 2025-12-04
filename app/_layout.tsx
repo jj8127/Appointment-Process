@@ -68,7 +68,10 @@ export default function RootLayout() {
             <Stack.Screen name="notifications" options={{ title: '알림' }} />
             <Stack.Screen name="notice" options={{ title: '공지사항' }} />
             <Stack.Screen name="admin-notice" options={{ title: '공지 등록' }} />
-            <Stack.Screen name="exam-register" options={{ title: '시험 등록' }} />
+            <Stack.Screen name="exam-register" options={{ title: '생명 시험 등록' }} />
+            <Stack.Screen name="exam-register2" options={{ title: '손해 시험 등록' }} />
+            <Stack.Screen name="exam-manage" options={{ title: '생명 신청자 관리' }} />
+            <Stack.Screen name="exam-manage2" options={{ title: '손해 신청자 관리' }} />
           </Stack>
 
           <StatusBar style={isDark ? 'light' : 'dark'} />
