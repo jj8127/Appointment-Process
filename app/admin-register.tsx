@@ -85,7 +85,7 @@ export default function AdminRegisterScreen() {
   }, [refetch]);
 
   return (
-    <SafeAreaView style={styles.safe}>
+        <SafeAreaView style={styles.safe} edges={['left', 'right', 'bottom']}>
       <KeyboardAwareWrapper contentContainerStyle={[styles.container, { paddingBottom: keyboardPadding + 120 }]}>
         <ScrollView
           contentContainerStyle={{ gap: 12 }}

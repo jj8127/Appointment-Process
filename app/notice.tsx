@@ -1,16 +1,16 @@
+import { Feather } from '@expo/vector-icons';
 import { useQuery } from '@tanstack/react-query';
+import { MotiView } from 'moti';
 import { useMemo, useState } from 'react';
 import {
   ActivityIndicator,
+  RefreshControl,
   ScrollView,
   StyleSheet,
   Text,
   View,
-  RefreshControl,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { Feather } from '@expo/vector-icons';
-import { MotiView } from 'moti';
 
 import { RefreshButton } from '@/components/RefreshButton';
 import { supabase } from '@/lib/supabase';
@@ -49,7 +49,7 @@ export default function NoticeScreen() {
   };
 
   return (
-    <SafeAreaView style={styles.safe}>
+    <SafeAreaView style={styles.safe} edges={['left', 'right', 'bottom']}>
       <View style={styles.header}>
         <Text style={styles.title}>공지사항</Text>
         <RefreshButton onPress={onRefresh} />

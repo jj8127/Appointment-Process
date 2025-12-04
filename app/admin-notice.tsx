@@ -102,7 +102,7 @@ export default function AdminNoticeScreen() {
   };
 
   return (
-    <SafeAreaView style={styles.safe}>
+        <SafeAreaView style={styles.safe} edges={['left', 'right', 'bottom']}>
       <KeyboardAwareWrapper contentContainerStyle={[styles.container, { paddingBottom: keyboardPadding + 40 }]}>
         <View style={styles.header}>
           <View>

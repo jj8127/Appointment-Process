@@ -271,7 +271,7 @@ export default function FcNewScreen() {
   }, []);
 
   return (
-    <SafeAreaView style={styles.safe}>
+    <SafeAreaView style={styles.safe} edges={['left', 'right', 'bottom']}>
       <KeyboardAwareWrapper
         contentContainerStyle={[styles.container, { paddingBottom: 120 }]}
         extraScrollHeight={140}

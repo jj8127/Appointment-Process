@@ -1,26 +1,26 @@
+import { Feather } from '@expo/vector-icons';
 import * as DocumentPicker from 'expo-document-picker';
 import * as FileSystem from 'expo-file-system/legacy';
+import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
   KeyboardAvoidingView,
+  Linking,
   Platform,
   Pressable,
-  Linking,
+  RefreshControl,
   ScrollView,
   StyleSheet,
   Text,
   View,
-  RefreshControl,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { Feather } from '@expo/vector-icons';
-import { useLocalSearchParams, useRouter } from 'expo-router';
 
 import { RefreshButton } from '@/components/RefreshButton';
-import { useSession } from '@/hooks/use-session';
 import { useKeyboardPadding } from '@/hooks/use-keyboard-padding';
+import { useSession } from '@/hooks/use-session';
 import { supabase } from '@/lib/supabase';
 import { RequiredDoc } from '@/types/fc';
 
@@ -297,7 +297,7 @@ export default function DocsUploadScreen() {
   };
 
   return (
-    <SafeAreaView style={styles.safe}>
+    <SafeAreaView style={styles.safe} edges={['left', 'right', 'bottom']}>
       <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={{ flex: 1 }}>
         <View style={styles.headerContainer}>
           <View style={styles.headerRow}>

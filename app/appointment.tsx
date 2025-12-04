@@ -161,7 +161,7 @@ export default function AppointmentScreen() {
 
   if (role !== 'fc') {
     return (
-      <SafeAreaView style={styles.safe}>
+          <SafeAreaView style={styles.safe} edges={['left', 'right', 'bottom']}>
         <View style={[styles.container, { alignItems: 'center', justifyContent: 'center' }]}>
           <Text style={styles.infoText}>FC 계정으로 로그인하면 이용할 수 있습니다.</Text>
         </View>
@@ -170,9 +170,10 @@ export default function AppointmentScreen() {
   }
 
   return (
-    <SafeAreaView style={styles.safe}>
+    <SafeAreaView style={styles.safe} edges={['left', 'right', 'bottom']}>
       <ScrollView
         contentContainerStyle={[styles.container, { paddingBottom: keyboardPadding + 40 }]}
+        contentInsetAdjustmentBehavior="never"
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}
       >
         <View style={styles.header}>
@@ -301,7 +302,7 @@ const styles = StyleSheet.create({
   },
   title: { fontSize: 22, fontWeight: '800', color: CHARCOAL },
   subtitle: { fontSize: 14, color: MUTED, marginTop: 4 },
-  container: { padding: 24, gap: 20 },
+  container: { paddingHorizontal: 24, paddingTop: 0, paddingBottom: 24, gap: 20 },
   card: {
     backgroundColor: '#fff',
     borderRadius: 16,

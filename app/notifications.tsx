@@ -1,17 +1,17 @@
+import { Feather } from '@expo/vector-icons';
+import { MotiView } from 'moti';
 import { useCallback, useEffect, useState } from 'react';
 import {
   ActivityIndicator,
+  Alert,
   FlatList,
+  Pressable,
+  RefreshControl,
   StyleSheet,
   Text,
   View,
-  RefreshControl,
-  Alert,
-  Pressable,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { Feather } from '@expo/vector-icons';
-import { MotiView } from 'moti';
 
 import { RefreshButton } from '@/components/RefreshButton';
 import { useSession } from '@/hooks/use-session';
@@ -152,7 +152,7 @@ export default function NotificationsScreen() {
   };
 
   return (
-    <SafeAreaView style={styles.safe}>
+    <SafeAreaView style={styles.safe} edges={['left', 'right', 'bottom']}>
       <View style={styles.header}>
         <Text style={styles.headerTitle}>알림 센터</Text>
         <RefreshButton onPress={load} />

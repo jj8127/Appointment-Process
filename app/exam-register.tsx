@@ -1,25 +1,25 @@
+import DateTimePicker from '@react-native-community/datetimepicker';
 import { useMutation, useQuery } from '@tanstack/react-query';
 import { router } from 'expo-router';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
-  Alert,
-  Platform,
-  Pressable,
-  RefreshControl,
-  ScrollView,
-  StyleSheet,
-  Text,
-  TextInput,
-  View,
+    Alert,
+    Platform,
+    Pressable,
+    RefreshControl,
+    ScrollView,
+    StyleSheet,
+    Text,
+    TextInput,
+    View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import DateTimePicker from '@react-native-community/datetimepicker';
 
+import { KeyboardAwareWrapper } from '@/components/KeyboardAwareWrapper';
 import { RefreshButton } from '@/components/RefreshButton';
 import { useSession } from '@/hooks/use-session';
 import { supabase } from '@/lib/supabase';
 import { ExamRoundWithLocations, formatDate } from '@/types/exam';
-import { KeyboardAwareWrapper } from '@/components/KeyboardAwareWrapper';
 
 const ORANGE = '#f36f21';
 const ORANGE_LIGHT = '#f7b182';
@@ -329,7 +329,7 @@ export default function ExamRegisterScreen() {
   );
 
   return (
-    <SafeAreaView style={styles.safe}>
+    <SafeAreaView style={styles.safe} edges={['left', 'right', 'bottom']}>
       <KeyboardAwareWrapper>
         <ScrollView
           contentContainerStyle={styles.container}

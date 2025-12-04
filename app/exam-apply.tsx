@@ -1,27 +1,27 @@
+import { Feather } from '@expo/vector-icons';
 import { useMutation, useQuery } from '@tanstack/react-query';
+import * as Haptics from 'expo-haptics';
+import { LinearGradient } from 'expo-linear-gradient';
 import { router } from 'expo-router';
+import { AnimatePresence, MotiView } from 'moti';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
+  ActivityIndicator,
   Alert,
   Pressable,
+  RefreshControl,
   ScrollView,
   StyleSheet,
   Text,
   View,
-  ActivityIndicator,
-  RefreshControl,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { Feather } from '@expo/vector-icons';
-import { LinearGradient } from 'expo-linear-gradient';
-import { MotiView, AnimatePresence } from 'moti';
-import * as Haptics from 'expo-haptics';
 
+import { KeyboardAwareWrapper } from '@/components/KeyboardAwareWrapper';
 import { RefreshButton } from '@/components/RefreshButton';
 import { useSession } from '@/hooks/use-session';
 import { supabase } from '@/lib/supabase';
 import { ExamRoundWithLocations, formatDate } from '@/types/exam';
-import { KeyboardAwareWrapper } from '@/components/KeyboardAwareWrapper';
 
 const HANWHA_ORANGE = '#f36f21';
 const HANWHA_LIGHT = '#f7b182';
@@ -343,7 +343,7 @@ export default function ExamApplyScreen() {
 
   if (!hydrated) {
     return (
-      <SafeAreaView style={styles.safe}>
+      <SafeAreaView style={styles.safe} edges={['left', 'right', 'bottom']}>
         <View style={styles.center}>
           <ActivityIndicator color={HANWHA_ORANGE} />
         </View>
@@ -352,7 +352,7 @@ export default function ExamApplyScreen() {
   }
 
   return (
-    <SafeAreaView style={styles.safe}>
+    <SafeAreaView style={styles.safe} edges={['left', 'right', 'bottom']}>
       <KeyboardAwareWrapper>
         <ScrollView
           contentContainerStyle={styles.container}

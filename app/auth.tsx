@@ -119,7 +119,7 @@ export default function AuthScreen() {
   };
 
   return (
-    <SafeAreaView style={styles.safe}>
+    <SafeAreaView style={styles.safe} edges={['left', 'right', 'bottom']}>
       <KeyboardAwareWrapper
         contentContainerStyle={[styles.container, { paddingBottom: 20 }]}
         extraScrollHeight={140}>

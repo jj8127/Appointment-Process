@@ -189,7 +189,7 @@ export default function AdminAppointmentScreen() {
 
   if (role !== 'admin') {
     return (
-      <SafeAreaView style={styles.safe}>
+          <SafeAreaView style={styles.safe} edges={['left', 'right', 'bottom']}>
         <View style={[styles.loadingBox, { justifyContent: 'center' }]}>
           <Text style={styles.infoText}>총무 계정만 접근할 수 있습니다.</Text>
         </View>
@@ -198,7 +198,7 @@ export default function AdminAppointmentScreen() {
   }
 
   return (
-    <SafeAreaView style={styles.safe}>
+    <SafeAreaView style={styles.safe} edges={['left', 'right', 'bottom']}>
       <View style={styles.header}>
         <View style={{ flex: 1 }}>
           <Text style={styles.title}>위촉 URL 관리</Text>
