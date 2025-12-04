@@ -71,6 +71,13 @@ type ApplicantRow = {
   latestRegistrationId: string;
 };
 
+function formatResidentNumber(num: string | null) {
+  if (!num) return '-';
+  const clean = num.replace(/[^0-9]/g, '');
+  if (clean.length === 13) return `${clean.slice(0, 6)}-${clean.slice(6)}`;
+  return num;
+}
+
 function normalizeSingle<T>(value: T | T[] | null | undefined): T | null {
   if (!value) return null;
   return Array.isArray(value) ? value[0] : value;
@@ -122,11 +129,11 @@ async function fetchApplicantsNonlife(): Promise<ApplicantRow[]> {
 
   const residentIds = Array.from(new Set(rows.map((r) => r.resident_id).filter((v): v is string => !!v)));
 
-  let profileMap: Record<string, FcProfile> = {};
+  let profileMap: Record<string, FcProfile & { affiliation?: string | null }> = {};
   if (residentIds.length > 0) {
     const { data: profiles, error: pError } = await supabase
       .from('fc_profiles')
-      .select('id, name, resident_number, address, phone')
+      .select('id, name, resident_number, address, phone, affiliation')
       .in('phone', residentIds);
     if (pError) throw pError;
     profileMap = Object.fromEntries((profiles ?? []).map((p: any) => [p.phone as string, p as FcProfile]));
@@ -136,11 +143,12 @@ async function fetchApplicantsNonlife(): Promise<ApplicantRow[]> {
   for (const reg of rows) {
     const key = reg.resident_id;
     const profile = profileMap[key];
+    if (!profile) continue;
     const examInfo = buildExamInfo(reg);
     if (!grouped[key]) {
       grouped[key] = {
         residentId: key,
-        headQuarter: '-',
+        headQuarter: profile?.affiliation ?? '-',
         name: profile?.name ?? '-',
         residentNumber: profile?.resident_number ?? '-',
         address: profile?.address ?? '-',
@@ -225,7 +233,9 @@ export default function ExamManageNonlifeScreen() {
       <View key={a.residentId} style={styles.card}>
         <View style={styles.cardHeader}>
           <View>
-            <Text style={styles.nameText}>{a.name}</Text>
+            <Text style={styles.nameText}>
+              {a.name} <Text style={styles.hqText}>| {a.headQuarter}</Text>
+            </Text>
             <Text style={styles.phoneText}>{a.phone}</Text>
           </View>
           <Pressable
@@ -247,7 +257,7 @@ export default function ExamManageNonlifeScreen() {
         <View style={styles.divider} />
 
         <View style={styles.infoGrid}>
-          <InfoLabelValue label="주민번호" value={a.residentNumber} />
+          <InfoLabelValue label="주민번호" value={formatResidentNumber(a.residentNumber)} />
           <InfoLabelValue label="제3보험" value={a.thirdExam ? '응시' : '-'} />
           <InfoLabelValue label="주소" value={a.address} fullWidth />
         </View>
@@ -275,7 +285,7 @@ export default function ExamManageNonlifeScreen() {
         <View style={styles.header}>
           <View style={styles.headerTop}>
             <Text style={styles.headerTitle}>손해보험 신청자</Text>
-            <RefreshButton onPress={() => refetch()} />
+            <RefreshButton onPress={() => {refetch()}} />
           </View>
 
           <View style={styles.searchBox}>
@@ -297,7 +307,7 @@ export default function ExamManageNonlifeScreen() {
                 onPress={() => setFilterStatus(st)}
               >
                 <Text style={[styles.filterText, filterStatus === st && styles.filterTextActive]}>
-                  {st === 'all' ? '전체' : st === 'pending' ? '미확정' : '확정'}
+                  {st === 'all' ? '전체' : st === 'pending' ? '미접수' : '접수'}
                 </Text>
               </Pressable>
             ))}
@@ -377,6 +387,7 @@ const styles = StyleSheet.create({
   },
   cardHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 10 },
   nameText: { fontSize: 18, fontWeight: '700', color: CHARCOAL },
+  hqText: { fontSize: 14, color: MUTED, fontWeight: '400' },
   phoneText: { fontSize: 13, color: MUTED, marginTop: 2 },
 
   statusButton: {

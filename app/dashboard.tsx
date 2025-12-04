@@ -116,17 +116,6 @@ const docOptions: RequiredDocType[] = [
 ];
 const ALL_DOC_OPTIONS: RequiredDocType[] = Array.from(
   new Set<RequiredDocType>([
-    '주민등록증 사본',
-    '통장 사본',
-    '최근3개월 급여명세서',
-    '신체검사서',
-    '개인정보동의서',
-    '주민등록증 이미지(앞)',
-    '주민등록증 이미지(뒤)',
-    '통장 이미지(앞)',
-    '통장 이미지(뒤)',
-    '최근3개월 이미지(앞)',
-    '최근3개월 이미지(뒤)',
     ...docOptions,
   ]),
 );
@@ -733,11 +722,14 @@ export default function DashboardScreen() {
 
   return (
     <SafeAreaView style={styles.safe}>
-      <KeyboardAwareWrapper>
+      <KeyboardAwareWrapper
+        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}
+        contentContainerStyle={{ paddingBottom: keyboardPadding + 40 }}
+      >
         <View style={styles.headerContainer}>
           <View style={styles.headerTop}>
             <Text style={styles.headerTitle}>현황 대시보드</Text>
-            <RefreshButton onPress={() => refetch()} />
+            <RefreshButton onPress={() => { refetch(); }} />
           </View>
           <Text style={styles.headerSub}>
             {role === 'admin' ? '전체 FC 진행 현황 및 서류 관리' : '나의 진행 현황 확인'}
@@ -824,10 +816,7 @@ export default function DashboardScreen() {
           )}
         </View>
 
-        <ScrollView
-          contentContainerStyle={[styles.listContent, { paddingBottom: keyboardPadding + 40 }]}
-          refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}
-        >
+        <View style={styles.listContent}>
           {isLoading && <ActivityIndicator color={ORANGE} style={{ marginVertical: 20 }} />}
           {isError && <Text style={{ color: '#dc2626', marginBottom: 8 }}>데이터를 불러오지 못했습니다.</Text>}
           {!isLoading && rows.length === 0 && (
@@ -985,7 +974,7 @@ export default function DashboardScreen() {
               </View>
             );
           })}
-        </ScrollView>
+        </View>
       </KeyboardAwareWrapper>
     </SafeAreaView>
   );
@@ -1122,10 +1111,6 @@ const styles = StyleSheet.create({
     fontSize: 13,
     color: MUTED,
   },
-  subText: {
-    fontSize: 13,
-    color: MUTED,
-  },
   listBody: {
     paddingHorizontal: 16,
     paddingBottom: 16,
@@ -1218,6 +1203,16 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   adminInput: {
+    flex: 1,
+    height: 40,
+    borderWidth: 1,
+    borderColor: '#E5E7EB',
+    borderRadius: 8,
+    paddingHorizontal: 10,
+    fontSize: 13,
+    backgroundColor: '#fff',
+  },
+  miniInput: {
     flex: 1,
     height: 40,
     borderWidth: 1,

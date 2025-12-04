@@ -54,7 +54,7 @@ async function notifyAdmin(title: string, body: string, residentId: string | nul
       to: t.expo_push_token,
       title,
       body,
-      data: { type: 'exam_apply', resident_id: residentId },
+      data: { type: 'exam_apply', resident_id: residentId, url: '/exam-manage' },
     })) ?? [];
   if (payload.length) {
     await fetch(EXPO_PUSH_URL, {
@@ -129,15 +129,14 @@ type MyExamApply = {
   status: string;
   is_third_exam?: boolean | null;
   created_at: string;
-  exam_rounds?:
-    | { exam_date: string; round_label: string | null }[]
-    | { exam_date: string; round_label: string | null }
-    | null;
-  exam_locations?:
-    | { location_name: string }[]
-    | { location_name: string }
-    | null;
+  exam_rounds?: { exam_date: string; round_label: string | null } | null;
+  exam_locations?: { location_name: string } | null;
 };
+
+function normalizeSingle<T>(value: T | T[] | null | undefined): T | null {
+  if (!value) return null;
+  return Array.isArray(value) ? value[0] : value;
+}
 
 export default function ExamApplyScreen() {
   const { role, residentId, displayName, hydrated } = useSession();
@@ -206,11 +205,10 @@ export default function ExamApplyScreen() {
         return null;
       }
       if (error) throw error;
-      const normalize = (obj: any) => (Array.isArray(obj) ? obj[0] : obj);
       return {
         ...data,
-        exam_rounds: normalize(data?.exam_rounds),
-        exam_locations: normalize(data?.exam_locations),
+        exam_rounds: normalizeSingle(data?.exam_rounds as any),
+        exam_locations: normalizeSingle(data?.exam_locations as any),
       } as MyExamApply | null;
     },
   });

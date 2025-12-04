@@ -58,12 +58,12 @@ const quickLinksAdmin: QuickLink[] = [
   { href: '/dashboard', stepKey: 'step2', title: '수당 동의 안내', description: '기본 정보 저장 완료 FC' },
   { href: '/dashboard', stepKey: 'step3', title: '서류 안내/검토', description: '제출해야 할 서류 관리' },
   { href: '/dashboard', stepKey: 'step4', title: '위촉 진행', description: '위촉 URL 발송 및 확인' },
+  { href: '/admin-appointment', title: '위촉 URL 발송', description: 'FC별 위촉 링크 관리' },
   { href: '/dashboard', stepKey: 'step5', title: '완료 관리', description: '위촉 완료 현황' },
   { href: '/exam-register', title: '생명보험 시험', description: '응시일정 · 마감 관리' },
   { href: '/exam-register2', title: '손해보험 시험', description: '응시일정 · 마감 관리' },
   { href: '/exam-manage', title: '생명 신청자', description: '신청 현황 조회' },
   { href: '/exam-manage2', title: '손해 신청자', description: '신청 현황 조회' },
-  { href: '/admin-appointment', title: '위촉 URL 발송', description: 'FC별 위촉 링크 관리' },
   { href: '/admin-notice', title: '공지 등록', description: '새소식 작성' },
 ];
 
@@ -185,13 +185,25 @@ const getStepKey = (profile: any): StepKey => {
 };
 
 const getLinkIcon = (href: string) => {
-  if (href.includes('register') || href.includes('apply')) return 'edit-3';
-  if (href.includes('manage')) return 'users';
-  if (href.includes('docs')) return 'file-text';
-  if (href.includes('notice')) return 'mic';
-  if (href.includes('consent')) return 'check-circle';
-  if (href.includes('temp')) return 'clock';
-  if (href.includes('appointment')) return 'link';
+  // 관리자 메뉴
+  if (href.includes('status=step1')) return 'user-plus'; // 인적사항 관리
+  if (href.includes('status=step2')) return 'check-square'; // 수당 동의 안내
+  if (href.includes('status=step3')) return 'file-text'; // 서류 안내/검토
+  if (href.includes('status=step4')) return 'link'; // 위촉 진행
+  if (href.includes('status=step5')) return 'award'; // 완료 관리
+
+  if (href.includes('exam-register')) return 'calendar'; // 시험 일정 등록
+  if (href.includes('exam-manage')) return 'users'; // 신청자 관리
+  if (href.includes('admin-appointment')) return 'send'; // URL 발송
+  if (href.includes('admin-notice')) return 'bell'; // 공지 등록
+
+  // FC 메뉴
+  if (href.includes('fc/new')) return 'user'; // 기본 정보
+  if (href.includes('exam-apply')) return 'edit-3'; // 시험 신청
+  if (href.includes('consent')) return 'check-circle'; // 수당 동의
+  if (href.includes('docs-upload')) return 'upload-cloud'; // 서류 업로드
+  if (href.includes('appointment')) return 'smartphone'; // 모바일 위촉
+
   return 'chevron-right';
 };
 

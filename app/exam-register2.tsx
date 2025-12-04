@@ -228,7 +228,7 @@ export default function ExamRegisterScreen() {
               to: t.expo_push_token,
               title: `${examTitle} 일정이 등록되었습니다.`,
               body: '응시를 희망하는 경우 신청해주세요.',
-              data: { type: 'exam_round' },
+              data: { type: 'exam_round', url: '/exam-apply2' },
             })) ?? [];
           if (payload.length > 0) {
             await fetch(EXPO_PUSH_URL, {

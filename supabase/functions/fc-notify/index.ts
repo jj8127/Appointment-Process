@@ -25,6 +25,21 @@ const EXPO_PUSH_URL = 'https://exp.host/--/api/v2/push/send';
 
 const sanitize = (v?: string | null) => (v ?? '').replace(/[^0-9]/g, '');
 
+function getTargetUrl(role: 'admin' | 'fc', payload: Payload, message: string, fcId: string): string {
+  const msg = message.toLowerCase();
+
+  if (role === 'fc') {
+    if (msg.includes('임시번호') || msg.includes('경력')) return '/consent'; // F2
+    if (msg.includes('서류 요청')) return '/docs-upload'; // F3
+    if (msg.includes('위촉 url') || msg.includes('위촉url') || msg.includes('위촉')) return '/appointment'; // F4
+    return '/notifications';
+  }
+
+  if (msg.includes('수당동의')) return `/docs-upload?userId=${fcId}`; // A3
+  if (msg.includes('업로드') || msg.includes('제출') || msg.includes('서류')) return `/docs-upload?userId=${fcId}`; // A4
+  return '/notifications';
+}
+
 function getEnv(name: string): string | undefined {
   const g: any = globalThis as any;
   if (g?.Deno?.env?.get) return g.Deno.env.get(name);
@@ -98,6 +113,7 @@ serve(async (req: Request) => {
   let body: Payload;
   try {
     body = await req.json();
+    console.log('[fc-notify] payload', body);
   } catch {
     return new Response('Invalid JSON', { status: 400 });
   }
@@ -119,17 +135,8 @@ serve(async (req: Request) => {
 
   // 대상/토큰 결정
   const targetRole: 'admin' | 'fc' = body.type === 'admin_update' ? 'fc' : 'admin';
-  const targetResidentId = targetRole === 'fc' ? fcRow.phone ?? fcRow.resident_id_masked : null; // 개인 대상 알림
-  const candidateIds =
-    targetRole === 'fc'
-      ? Array.from(
-          new Set(
-            [fcRow.phone, fcRow.resident_id_masked, sanitize(fcRow.phone), sanitize(fcRow.resident_id_masked)].filter(
-              (v) => !!v,
-            ) as string[],
-          ),
-        )
-      : [];
+  const targetResidentId = targetRole === 'fc' ? sanitize(fcRow.phone) : null;
+  console.log('[fc-notify] targetRole', targetRole, 'targetResidentId', targetResidentId, 'phoneRaw', fcRow.phone);
 
   let tokens: TokenRow[] = [];
   if (body.type === 'fc_update') {
@@ -142,19 +149,20 @@ serve(async (req: Request) => {
     tokens = data ?? [];
   } else {
     // 관리자가 FC 업데이트 -> 해당 FC (resident_id 매칭)
-    const query = supabase
+    if (!targetResidentId) return new Response('FC phone number not found', { status: 400 });
+    const { data, error } = await supabase
       .from('device_tokens')
       .select('expo_push_token,resident_id,display_name')
-      .eq('role', 'fc');
-
-    const { data, error } =
-      candidateIds.length > 0 ? await query.in('resident_id', candidateIds) : await query.eq('resident_id', targetResidentId);
+      .eq('role', 'fc')
+      .eq('resident_id', targetResidentId);
     if (error) return new Response(error.message, { status: 500 });
     tokens = data ?? [];
   }
+  console.log('[fc-notify] tokens found', tokens.length, tokens);
 
   const title = buildTitle(fcRow.name, body, body.message);
   const message = body.message ?? title;
+  const targetUrl = getTargetUrl(targetRole, body, message, fcRow.id);
 
   // DB 기록
   await logNotification({ fc: fcRow, title, message, payloadType: body.type, targetRole, targetResidentId });
@@ -168,7 +176,12 @@ serve(async (req: Request) => {
     to: t.expo_push_token,
     title,
     body: message,
-    data: { fc_id: fcRow.id, resident_id: fcRow.phone ?? fcRow.resident_id_masked, name: fcRow.name, url: '/notifications' },
+    data: {
+      fc_id: fcRow.id,
+      resident_id: fcRow.phone ?? fcRow.resident_id_masked,
+      name: fcRow.name,
+      url: targetUrl,
+    },
   }));
 
   const resp = await fetch(EXPO_PUSH_URL, {
@@ -178,8 +191,9 @@ serve(async (req: Request) => {
   });
 
   const result = await resp.json();
+  console.log('[fc-notify] push response', result);
 
-  return new Response(JSON.stringify({ ok: true, sent: tokens.length, logged: true, result }), {
+  return new Response(JSON.stringify({ ok: true, sent: tokens.length, logged: true, result, targetResidentId }), {
     status: 200,
     headers: { 'Content-Type': 'application/json' },
   });

@@ -54,7 +54,7 @@ async function notifyAdmin(title: string, body: string, residentId: string | nul
       to: t.expo_push_token,
       title,
       body,
-      data: { type: 'exam_apply', resident_id: residentId },
+      data: { type: 'exam_apply', resident_id: residentId, url: '/exam-manage2' },
     })) ?? [];
   if (payload.length) {
     await fetch(EXPO_PUSH_URL, {
