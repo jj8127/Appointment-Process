@@ -15,6 +15,7 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Feather } from '@expo/vector-icons';
+import { useLocalSearchParams, useRouter } from 'expo-router';
 
 import { RefreshButton } from '@/components/RefreshButton';
 import { useSession } from '@/hooks/use-session';
@@ -22,7 +23,7 @@ import { useKeyboardPadding } from '@/hooks/use-keyboard-padding';
 import { supabase } from '@/lib/supabase';
 import { RequiredDoc } from '@/types/fc';
 
-type FcLite = { id: string; temp_id: string | null; name: string };
+type FcLite = { id: string; temp_id: string | null; name: string; status: string };
 type DocItem = RequiredDoc & { storagePath?: string; originalName?: string };
 
 const BUCKET = 'fc-documents';
@@ -87,10 +88,14 @@ async function sendNotificationAndPush(
 }
 
 export default function DocsUploadScreen() {
-  const { residentId } = useSession();
+  const { residentId, role } = useSession();
+  const router = useRouter();
+  const { userId } = useLocalSearchParams<{ userId?: string }>();
+  const isAdmin = role === 'admin';
   const [fc, setFc] = useState<FcLite | null>(null);
   const [docs, setDocs] = useState<DocItem[]>([]);
   const [uploadingType, setUploadingType] = useState<string | null>(null);
+  const [approving, setApproving] = useState(false);
   const keyboardPadding = useKeyboardPadding();
   const [refreshing, setRefreshing] = useState(false);
 
@@ -101,59 +106,78 @@ export default function DocsUploadScreen() {
 
   const progressPercent = docCount.total > 0 ? (docCount.uploaded / docCount.total) * 100 : 0;
 
-  const loadForMe = async () => {
-    if (!residentId) return;
-    const { data: profile, error } = await supabase
-      .from('fc_profiles')
-      .select('id, temp_id, name')
-      .eq('phone', residentId)
-      .maybeSingle();
-    if (error || !profile) {
-      setFc(null);
-      setDocs([]);
-      return;
+  const loadData = useCallback(async () => {
+    try {
+      let targetId: string | null = null;
+      if (isAdmin && userId) {
+        targetId = userId;
+      } else if (residentId) {
+        const { data: profileId, error: idErr } = await supabase
+          .from('fc_profiles')
+          .select('id')
+          .eq('phone', residentId)
+          .maybeSingle();
+        if (idErr) throw idErr;
+        targetId = profileId?.id ?? null;
+      }
+      if (!targetId) {
+        setFc(null);
+        setDocs([]);
+        return;
+      }
+
+      const { data: profile, error } = await supabase
+        .from('fc_profiles')
+        .select('id, temp_id, name, status')
+        .eq('id', targetId)
+        .maybeSingle();
+      if (error) throw error;
+      if (!profile) {
+        setFc(null);
+        setDocs([]);
+        return;
+      }
+
+      const { data: requirements, error: reqErr } = await supabase
+        .from('fc_documents')
+        .select('doc_type, storage_path, status, reviewer_note, file_name')
+        .eq('fc_id', targetId);
+      if (reqErr) throw reqErr;
+
+      const reqDocs: DocItem[] = (requirements ?? []).map((r) => {
+        const hasFile = r.storage_path && r.storage_path !== 'deleted';
+        return {
+          type: r.doc_type as any,
+          required: true,
+          uploadedUrl: hasFile
+            ? supabase.storage.from(BUCKET).getPublicUrl(r.storage_path).data.publicUrl
+            : undefined,
+          status: hasFile ? (r.status as any) ?? 'pending' : 'pending',
+          reviewerNote: r.reviewer_note ?? undefined,
+          storagePath: hasFile ? r.storage_path ?? undefined : undefined,
+          originalName: hasFile ? r.file_name ?? undefined : undefined,
+        };
+      });
+
+      setFc(profile as FcLite);
+      setDocs(reqDocs);
+    } catch (err: any) {
+      Alert.alert('조회 오류', err?.message ?? '정보를 불러오지 못했습니다.');
     }
-
-    const { data: requirements, error: reqErr } = await supabase
-      .from('fc_documents')
-      .select('doc_type, storage_path, status, reviewer_note, file_name')
-      .eq('fc_id', profile.id);
-    if (reqErr) {
-      Alert.alert('조회 오류', reqErr.message);
-      return;
-    }
-
-    const reqDocs: DocItem[] = (requirements ?? []).map((r) => {
-      const hasFile = r.storage_path && r.storage_path !== 'deleted';
-      return {
-        type: r.doc_type as any,
-        required: true,
-        uploadedUrl: hasFile
-          ? supabase.storage.from(BUCKET).getPublicUrl(r.storage_path).data.publicUrl
-          : undefined,
-        status: hasFile ? (r.status as any) ?? 'pending' : 'pending',
-        reviewerNote: r.reviewer_note ?? undefined,
-        storagePath: hasFile ? r.storage_path ?? undefined : undefined,
-        originalName: hasFile ? r.file_name ?? undefined : undefined,
-      };
-    });
-
-    setFc(profile as FcLite);
-    setDocs(reqDocs);
-  };
+  }, [isAdmin, residentId, userId]);
 
   useEffect(() => {
-    loadForMe();
-  }, [residentId]);
+    loadData();
+  }, [loadData]);
 
   const onRefresh = useCallback(async () => {
     setRefreshing(true);
     try {
-      await loadForMe();
+      await loadData();
     } finally {
       setRefreshing(false);
     }
-  }, []);
+  }, [loadData]);
 
   const handlePick = async (type: RequiredDoc['type']) => {
     if (!fc) return;
@@ -253,19 +277,66 @@ export default function DocsUploadScreen() {
     }
   };
 
+  const handleApprove = async (isApprove: boolean) => {
+    if (!fc) return;
+    setApproving(true);
+    try {
+      const newStatus = isApprove ? 'docs-approved' : 'docs-rejected';
+      const { error } = await supabase.from('fc_profiles').update({ status: newStatus }).eq('id', fc.id);
+      if (error) throw error;
+      setFc((prev) => (prev ? { ...prev, status: newStatus } : prev));
+      Alert.alert('완료', isApprove ? '서류 검토가 완료되었습니다.' : '서류가 반려되었습니다.', [
+        { text: '확인', onPress: () => router.back() },
+      ]);
+    } catch (err: any) {
+      Alert.alert('오류', err?.message ?? '상태 업데이트 실패');
+    } finally {
+      setApproving(false);
+    }
+  };
+
   return (
     <SafeAreaView style={styles.safe}>
       <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={{ flex: 1 }}>
         <View style={styles.headerContainer}>
           <View style={styles.headerRow}>
             <View>
-              <Text style={styles.headerTitle}>필수 서류 제출</Text>
+              <Text style={styles.headerTitle}>
+                {isAdmin ? `${fc?.name ? `${fc.name}님의 서류` : '서류 검토'}` : '필수 서류 제출'}
+              </Text>
               <Text style={styles.headerSub}>
-                {docCount.total}건 중 <Text style={{ color: HANWHA_ORANGE, fontWeight: '700' }}>{docCount.uploaded}건</Text> 완료
+                {docCount.total}건 중{' '}
+                <Text style={{ color: HANWHA_ORANGE, fontWeight: '700' }}>{docCount.uploaded}건</Text> 완료
               </Text>
             </View>
-            <RefreshButton onPress={loadForMe} />
+            <RefreshButton onPress={loadData} />
           </View>
+
+          {isAdmin && (
+            <View style={styles.adminActionBox}>
+              <Text style={styles.adminLabel}>관리자 검토</Text>
+              <View style={styles.adminActionRow}>
+                <Pressable
+                  style={[styles.adminBtn, styles.rejectBtn]}
+                  onPress={() => handleApprove(false)}
+                  disabled={approving}
+                >
+                  <Text style={styles.rejectText}>반려</Text>
+                </Pressable>
+                <Pressable
+                  style={[styles.adminBtn, styles.approveBtn]}
+                  onPress={() => handleApprove(true)}
+                  disabled={approving}
+                >
+                  {approving ? (
+                    <ActivityIndicator color="#fff" />
+                  ) : (
+                    <Text style={styles.approveText}>검토 완료 (승인)</Text>
+                  )}
+                </Pressable>
+              </View>
+            </View>
+          )}
 
           <View style={styles.progressTrack}>
             <View style={[styles.progressBar, { width: `${progressPercent}%` }]} />
@@ -385,6 +456,29 @@ const styles = StyleSheet.create({
     backgroundColor: HANWHA_ORANGE,
     borderRadius: 2,
   },
+  adminActionBox: {
+    marginTop: 12,
+    marginBottom: 12,
+    padding: 16,
+    borderRadius: 12,
+    backgroundColor: '#fff7ed',
+    borderWidth: 1,
+    borderColor: '#fed7aa',
+    gap: 12,
+  },
+  adminLabel: { fontSize: 14, fontWeight: '700', color: '#9a3412' },
+  adminActionRow: { flexDirection: 'row', gap: 10 },
+  adminBtn: {
+    flex: 1,
+    height: 48,
+    borderRadius: 10,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  approveBtn: { backgroundColor: HANWHA_ORANGE },
+  approveText: { color: '#fff', fontWeight: '700', fontSize: 15 },
+  rejectBtn: { backgroundColor: '#fff', borderWidth: 1, borderColor: '#ef4444' },
+  rejectText: { color: '#ef4444', fontWeight: '700', fontSize: 15 },
 
   scrollContent: { padding: 24 },
 

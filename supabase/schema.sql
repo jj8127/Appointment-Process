@@ -17,6 +17,8 @@ create table if not exists public.fc_profiles (
   address_detail text,
   career_type text check (career_type in ('신입', '경력')),
   allowance_date date,
+  appointment_url text,
+  appointment_date date,
   status text not null default 'draft',
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
@@ -290,6 +292,12 @@ alter table public.fc_profiles
 
 alter table public.fc_profiles
   add column if not exists resident_number text;
+
+alter table public.fc_profiles
+  add column if not exists appointment_url text;
+
+alter table public.fc_profiles
+  add column if not exists appointment_date date;
 
 
 select id, exam_date, registration_deadline, round_label, created_at

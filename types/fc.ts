@@ -6,8 +6,10 @@ export type FcStatus =
   | 'allowance-consented'
   | 'docs-requested'
   | 'docs-pending'
+  | 'docs-submitted'
   | 'docs-rejected'
   | 'docs-approved'
+  | 'appointment-completed'
   | 'final-link-sent';
 
 export type DocumentType =
@@ -41,14 +43,24 @@ export type FcProfile = {
   name: string;
   affiliation: string;
   phone: string;
-  recommender?: string;
-  email?: string;
-  address?: string;
-  careerType: CareerType;
-  tempId?: string;
-  allowanceDate?: string;
+  recommender?: string | null;
+  email?: string | null;
+  address?: string | null;
+  address_detail?: string | null;
+  resident_id_masked?: string | null;
+  career_type?: CareerType;
+  temp_id?: string | null;
+  allowance_date?: string | null;
+  appointment_url?: string | null;
+  appointment_date?: string | null;
   status: FcStatus;
-  createdAt: string;
+  created_at: string;
+  fc_documents?: {
+    doc_type: string;
+    storage_path: string | null;
+    file_name?: string | null;
+    status?: string | null;
+  }[];
 };
 
 export type RequiredDoc = {

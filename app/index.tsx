@@ -30,6 +30,18 @@ const BORDER = '#e5e7eb';
 const SOFT_BG = '#F9FAFB';
 const ORANGE_FAINT = '#fff1e6';
 const PRIVACY_EMAIL = process.env.EXPO_PUBLIC_PRIVACY_EMAIL ?? 'privacy@example.com';
+const STEP_KEYS = ['step1', 'step2', 'step3', 'step4', 'step5'] as const;
+type StepKey = (typeof STEP_KEYS)[number];
+type StepCounts = Record<StepKey, number>;
+type CountsResult = { total: number; steps: StepCounts };
+const EMPTY_STEP_COUNTS: StepCounts = { step1: 0, step2: 0, step3: 0, step4: 0, step5: 0 };
+const STEP_LABELS: Record<StepKey, string> = {
+  step1: '1단계 인적사항',
+  step2: '2단계 수당동의',
+  step3: '3단계 문서제출',
+  step4: '4단계 위촉 진행',
+  step5: '5단계 완료',
+};
 
 const CARD_SHADOW = {
   shadowColor: '#000',
@@ -39,55 +51,68 @@ const CARD_SHADOW = {
   elevation: 3,
 };
 
-const quickLinksAdmin = [
+type QuickLink = { href: string; title: string; description: string; stepKey?: StepKey };
+
+const quickLinksAdmin: QuickLink[] = [
+  { href: '/dashboard', stepKey: 'step1', title: '인적사항 관리', description: '기본정보 미완료 FC' },
+  { href: '/dashboard', stepKey: 'step2', title: '수당 동의 안내', description: '기본 정보 저장 완료 FC' },
+  { href: '/dashboard', stepKey: 'step3', title: '서류 안내/검토', description: '제출해야 할 서류 관리' },
+  { href: '/dashboard', stepKey: 'step4', title: '위촉 진행', description: '위촉 URL 발송 및 확인' },
+  { href: '/dashboard', stepKey: 'step5', title: '완료 관리', description: '위촉 완료 현황' },
   { href: '/exam-register', title: '생명보험 시험', description: '응시일정 · 마감 관리' },
   { href: '/exam-register2', title: '손해보험 시험', description: '응시일정 · 마감 관리' },
   { href: '/exam-manage', title: '생명 신청자', description: '신청 현황 조회' },
   { href: '/exam-manage2', title: '손해 신청자', description: '신청 현황 조회' },
-  { href: '/dashboard?mode=temp', title: '임시/대기', description: '가번호 발급 관리' },
-  { href: '/dashboard?mode=docs', title: '문서 검토', description: '승인 및 반려' },
+  { href: '/admin-appointment', title: '위촉 URL 발송', description: 'FC별 위촉 링크 관리' },
   { href: '/admin-notice', title: '공지 등록', description: '새소식 작성' },
 ];
 
-const quickLinksFc = [
+const quickLinksFc: QuickLink[] = [
   { href: '/fc/new', title: '기본 정보', description: '인적사항 수정' },
   { href: '/exam-apply', title: '생명 시험 신청', description: '시험 접수하기' },
   { href: '/exam-apply2', title: '손해 시험 신청', description: '시험 접수하기' },
   { href: '/consent', title: '수당 동의', description: '약관 동의 관리' },
   { href: '/docs-upload', title: '서류 업로드', description: '필수 서류 제출' },
+  { href: '/appointment', title: '모바일 위촉', description: '위촉 URL 접속 및 완료' },
 ];
 
 const steps = [
   { key: 'info', label: '인적사항', fullLabel: '인적사항 등록' },
   { key: 'consent', label: '수당동의', fullLabel: '수당 동의' },
   { key: 'docs', label: '문서제출', fullLabel: '문서 제출' },
-  { key: 'pending', label: '승인대기', fullLabel: '승인 대기' },
+  { key: 'url', label: '위촉URL', fullLabel: '위촉 URL 진행' },
   { key: 'final', label: '완료', fullLabel: '최종 완료' },
 ];
 
-const fetchCounts = async (role: 'admin' | 'fc' | null, residentId: string) => {
-  // 관리자만 전체 현황을 조회
+const fetchCounts = async (role: 'admin' | 'fc' | null, residentId: string): Promise<CountsResult> => {
   if (role !== 'admin') {
-    return { total: 0, stepCounts: [0, 0, 0, 0, 0] };
+    return { total: 0, steps: { ...EMPTY_STEP_COUNTS } };
   }
 
   const { data, error } = await supabase
     .from('fc_profiles')
-    .select('status,temp_id,allowance_date,fc_documents(storage_path)');
+    .select('name,affiliation,resident_id_masked,email,address,allowance_date,appointment_date,status,fc_documents(doc_type,storage_path)');
   if (error) throw error;
 
-  const stepCounts = [0, 0, 0, 0, 0];
-  data?.forEach((row: any) => {
-    const step = calcStep(row);
-    const idx = Math.max(1, Math.min(5, step)) - 1;
-    stepCounts[idx] += 1;
+  const steps: StepCounts = { ...EMPTY_STEP_COUNTS };
+  (data ?? []).forEach((profile: any) => {
+    const key = getStepKey(profile);
+    steps[key] += 1;
   });
 
   return {
     total: data?.length ?? 0,
-    stepCounts,
+    steps,
   };
 };
+
+const ADMIN_METRIC_CONFIG: { label: string; key: StepKey }[] = [
+  { label: '1단계 인적사항', key: 'step1' },
+  { label: '2단계 수당동의', key: 'step2' },
+  { label: '3단계 문서제출', key: 'step3' },
+  { label: '4단계 심사/위촉', key: 'step4' },
+  { label: '5단계 완료', key: 'step5' },
+];
 
 const fetchLatestNotice = async () => {
   try {
@@ -108,32 +133,56 @@ const fetchLatestNotice = async () => {
 const fetchFcStatus = async (residentId: string) => {
   const { data, error } = await supabase
     .from('fc_profiles')
-    .select('name,status,temp_id,allowance_date,fc_documents(doc_type,storage_path)')
+    .select('name,affiliation,status,temp_id,allowance_date,appointment_url,appointment_date,resident_id_masked,email,address,fc_documents(doc_type,storage_path)')
     .eq('phone', residentId)
     .maybeSingle();
   if (error) throw error;
-  return data ?? { name: '', status: 'draft', temp_id: null, allowance_date: null, fc_documents: [] };
+  return data ?? {
+    name: '',
+    affiliation: '',
+    status: 'draft',
+    temp_id: null,
+    allowance_date: null,
+    appointment_url: null,
+    appointment_date: null,
+    resident_id_masked: null,
+    email: null,
+    address: null,
+    fc_documents: [],
+  };
 };
 
 function calcStep(myFc: any) {
   if (!myFc) return 1;
+
+  const hasBasicInfo =
+    Boolean(myFc.name && myFc.affiliation && myFc.resident_id_masked) &&
+    Boolean(myFc.email || myFc.address);
+  if (!hasBasicInfo) return 1;
+
+  const hasAllowance = Boolean(myFc.allowance_date);
+  if (!hasAllowance) return 2;
+
   const docs = myFc.fc_documents ?? [];
   const totalDocs = docs.length;
   const uploaded = docs.filter((d: any) => d.storage_path && d.storage_path !== 'deleted').length;
+  const docsComplete = totalDocs > 0 && uploaded === totalDocs;
+  if (!docsComplete) return 3;
 
-  let step = 1;
-  if (myFc.temp_id) step = 2; // 기본 정보/임시번호 확보
+  const approvedStatuses = ['docs-approved', 'appointment-completed', 'final-link-sent'];
+  const isApproved = approvedStatuses.includes(myFc.status);
+  if (!isApproved) return 3;
 
-  // 수당 동의 완료 시 3단계로 진입 (allowance_date 혹은 상태 기반)
-  if (myFc.allowance_date || myFc.status === 'allowance-consented') step = 3;
+  const appointmentDone = Boolean(myFc.appointment_date) || myFc.status === 'final-link-sent';
+  if (!appointmentDone) return 4;
 
-  // 서류가 모두 업로드된 경우 승인 대기 단계
-  if (totalDocs > 0 && uploaded === totalDocs) step = 4;
-
-  // 최종 단계
-  if (myFc.status === 'final-link-sent') step = 5;
-  return step;
+  return 5;
 }
+
+const getStepKey = (profile: any): StepKey => {
+  const step = Math.max(1, Math.min(5, calcStep(profile)));
+  return `step${step}` as StepKey;
+};
 
 const getLinkIcon = (href: string) => {
   if (href.includes('register') || href.includes('apply')) return 'edit-3';
@@ -142,6 +191,7 @@ const getLinkIcon = (href: string) => {
   if (href.includes('notice')) return 'mic';
   if (href.includes('consent')) return 'check-circle';
   if (href.includes('temp')) return 'clock';
+  if (href.includes('appointment')) return 'link';
   return 'chevron-right';
 };
 
@@ -211,8 +261,12 @@ export default function Home() {
     }
   }, [refetchCounts, refetchLatestNotice, refetchMyFc]);
 
-  const handlePressLink = (href: string) => {
+  const handlePressLink = (href: string, stepKey?: StepKey) => {
     Haptics.selectionAsync();
+    if (stepKey) {
+      router.push(`/dashboard?status=${stepKey}` as any);
+      return;
+    }
     router.push(href as any);
   };
 
@@ -233,6 +287,11 @@ export default function Home() {
     Linking.openURL(url).catch(() => {
       Alert.alert('요청 실패', `이메일(${PRIVACY_EMAIL})로 직접 요청해주세요.`);
     });
+  };
+
+  const handleStatClick = (stepKey: StepKey) => {
+    Haptics.selectionAsync();
+    router.push(`/dashboard?status=${stepKey}` as any);
   };
 
   if (!hydrated) {
@@ -288,26 +347,55 @@ export default function Home() {
         </MotiView>
 
         <MotiView from={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} transition={{ type: 'spring', delay: 100 }}>
-          <Pressable onPress={() => handlePressLink('/fc/new')}>
-            <LinearGradient
-              colors={['#f36f21', '#fabc3c']}
-              start={{ x: 0, y: 0 }}
-              end={{ x: 1, y: 1 }}
-              style={styles.ctaCard}
-            >
-              <View style={styles.ctaContent}>
-                <View style={styles.ctaBadge}>
-                  <Text style={styles.ctaBadgeText}>FC 지원</Text>
+          {role === 'admin' ? (
+            <Pressable onPress={() => handlePressLink('/dashboard', 'step4')}>
+              <LinearGradient
+                colors={['#f36f21', '#fabc3c']}
+                start={{ x: 0, y: 0 }}
+                end={{ x: 1, y: 1 }}
+                style={styles.ctaCard}
+              >
+                <View style={styles.ctaContent}>
+                  <View style={[styles.ctaBadge, { backgroundColor: 'rgba(255,255,255,0.15)' }]}>
+                    <Text style={styles.ctaBadgeText}>관리자 할 일</Text>
+                  </View>
+                  <Text style={styles.ctaTitle}>
+                    {isLoading ? '현황 조회 중...' : `서류 대기 ${counts?.steps?.step4 ?? 0}건`}
+                  </Text>
+                  <Text style={styles.ctaSub}>승인을 기다리는 FC 서류를 검토해주세요.</Text>
                 </View>
-                <Text style={styles.ctaTitle}>인적사항 등록하기</Text>
-                <Text style={styles.ctaSub}>기본 정보를 먼저 등록하세요.</Text>
-              </View>
-              <View style={styles.ctaIconCircle}>
-                <Feather name="arrow-right" size={24} color={HANWHA_ORANGE} />
-              </View>
-              <View style={styles.ctaDecoCircle} />
-            </LinearGradient>
-          </Pressable>
+                <View style={[styles.ctaIconCircle, { backgroundColor: 'rgba(255,255,255,0.1)' }]}>
+                  <Feather name="file-text" size={24} color="#fff" />
+                </View>
+                <View style={styles.ctaDecoCircle} />
+              </LinearGradient>
+            </Pressable>
+          ) : (
+            <Pressable onPress={() => handlePressLink(myFc?.name ? '/dashboard' : '/fc/new')}>
+              <LinearGradient
+                colors={['#f36f21', '#fabc3c']}
+                start={{ x: 0, y: 0 }}
+                end={{ x: 1, y: 1 }}
+                style={styles.ctaCard}
+              >
+                <View style={styles.ctaContent}>
+                  <View style={styles.ctaBadge}>
+                    <Text style={styles.ctaBadgeText}>FC 지원</Text>
+                  </View>
+                  <Text style={styles.ctaTitle}>
+                    {myFc?.name ? '내 현황 확인하기' : '인적사항 등록하기'}
+                  </Text>
+                  <Text style={styles.ctaSub}>
+                    {myFc?.name ? '제출한 서류와 진행 단계를 확인하세요.' : '기본 정보를 먼저 등록해주세요.'}
+                  </Text>
+                </View>
+                <View style={styles.ctaIconCircle}>
+                  <Feather name="arrow-right" size={24} color={HANWHA_ORANGE} />
+                </View>
+                <View style={styles.ctaDecoCircle} />
+              </LinearGradient>
+            </Pressable>
+          )}
         </MotiView>
 
         <MotiView
@@ -324,10 +412,14 @@ export default function Home() {
                   <View style={styles.metricsGrid}>
                     {!isLoading && counts ? (
                       <>
-                        <MetricCard label="1단계 인적사항" value={`${counts.stepCounts?.[0] ?? 0}명`} />
-                        <MetricCard label="2단계 수당동의" value={`${counts.stepCounts?.[1] ?? 0}명`} />
-                        <MetricCard label="3단계 문서제출" value={`${counts.stepCounts?.[2] ?? 0}명`} />
-                        <MetricCard label="4단계 승인대기" value={`${counts.stepCounts?.[3] ?? 0}명`} />
+                        {ADMIN_METRIC_CONFIG.map((metric) => (
+                          <MetricCard
+                            key={metric.label}
+                            label={metric.label}
+                            value={`${counts?.steps?.[metric.key] ?? 0}명`}
+                            onPress={() => handleStatClick(metric.key)}
+                          />
+                        ))}
                       </>
                     ) : null}
                   </View>
@@ -371,7 +463,7 @@ export default function Home() {
         <View style={styles.actionGrid}>
           {quickLinks.map((item, index) => (
             <MotiView
-              key={item.href}
+              key={`${item.href}-${item.stepKey ?? 'default'}`}
               from={{ opacity: 0, translateY: 20 }}
               animate={{ opacity: 1, translateY: 0 }}
               transition={{ type: 'spring', delay: 300 + index * 50 }}
@@ -379,9 +471,13 @@ export default function Home() {
             >
               <Pressable
                 style={({ pressed }) => [styles.actionCardGrid, pressed && styles.pressedScale]}
-                onPress={() => handlePressLink(item.href as any)}>
+                onPress={() => handlePressLink(item.href as any, item.stepKey)}>
                 <View style={styles.iconCircle}>
-                  <Feather name={getLinkIcon(item.href)} size={22} color={HANWHA_ORANGE} />
+                  <Feather
+                    name={getLinkIcon(item.stepKey ? `${item.href}?status=${item.stepKey}` : item.href)}
+                    size={22}
+                    color={HANWHA_ORANGE}
+                  />
                 </View>
                 <Text style={styles.actionTitleGrid} numberOfLines={1}>{item.title}</Text>
                 <Text style={styles.actionDescGrid} numberOfLines={2}>{item.description}</Text>
@@ -443,18 +539,24 @@ const stepToLink = (key: string) => {
       return '/consent';
     case 'docs':
       return '/docs-upload';
-    case 'pending':
-      return '/docs-upload';
+    case 'url':
+      return '/appointment';
     default:
       return '';
   }
 };
 
-const MetricCard = ({ label, value }: { label: string; value: string }) => (
-  <View style={styles.metricCard}>
+const MetricCard = ({ label, value, onPress }: { label: string; value: string; onPress?: () => void }) => (
+  <Pressable
+    style={({ pressed }) => [styles.metricCard, pressed && styles.pressedOpacity]}
+    onPress={onPress}
+  >
     <Text style={styles.metricLabel}>{label}</Text>
     <Text style={styles.metricValue}>{value}</Text>
-  </View>
+    <View style={styles.metricIcon}>
+      <Feather name="arrow-up-right" size={16} color="#cbd5e1" />
+    </View>
+  </Pressable>
 );
 
 const styles = StyleSheet.create({
@@ -593,7 +695,9 @@ const styles = StyleSheet.create({
     padding: 16,
     borderRadius: 16,
     width: '48%',
+    position: 'relative',
   },
+  metricIcon: { position: 'absolute', right: 12, top: 12 },
   metricLabel: { color: TEXT_MUTED, fontSize: 12, marginBottom: 4 },
   metricValue: { color: CHARCOAL, fontSize: 18, fontWeight: '800' },
 

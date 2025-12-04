@@ -24,6 +24,10 @@ const CHARCOAL = '#111827';
 const GRAY_TEXT = '#4B5563';
 const BORDER = '#E5E7EB';
 const INPUT_BG = '#F9FAFB';
+const ADMIN_PHONE_NUMBERS = (process.env.EXPO_PUBLIC_ADMIN_PHONES ?? '')
+  .split(',')
+  .map((phone) => phone.replace(/[^0-9]/g, ''))
+  .filter(Boolean);
 
 export default function AuthScreen() {
   const { loginAs, role, residentId, hydrated } = useSession();
@@ -56,6 +60,15 @@ export default function AuthScreen() {
       }
 
       const digits = code.replace(/[^0-9]/g, '');
+      if (digits.length !== 11) {
+        Alert.alert('알림', '휴대폰 번호는 숫자 11자리로 입력해주세요.');
+        return;
+      }
+      if (ADMIN_PHONE_NUMBERS.includes(digits)) {
+        loginAs('admin', digits, '총무');
+        router.replace('/');
+        return;
+      }
       const { data, error } = await supabase
         .from('fc_profiles')
         .select('id,phone,name')

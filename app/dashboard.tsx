@@ -7,6 +7,7 @@ import {
   ActivityIndicator,
   Alert,
   LayoutAnimation,
+  Linking,
   Platform,
   Pressable,
   RefreshControl,
@@ -37,15 +38,67 @@ const CHARCOAL = '#111827';
 const MUTED = '#6b7280';
 const BORDER = '#E5E7EB';
 
-const statusLabels: Record<FcProfile['status'], string> = {
-  draft: '작성 중',
-  'temp-id-issued': '임시번호 입력',
+const STATUS_LABELS: Record<FcProfile['status'], string> = {
+  draft: '임시사번 미발급',
+  'temp-id-issued': '임시번호 발급 완료',
   'allowance-consented': '수당동의 완료',
   'docs-requested': '서류 요청',
   'docs-pending': '서류 대기',
+  'docs-submitted': '서류 제출됨',
   'docs-rejected': '반려',
-  'docs-approved': '검토 완료',
-  'final-link-sent': '최종 URL 발송',
+  'docs-approved': '위촉 URL 진행',
+  'appointment-completed': '위촉 완료',
+  'final-link-sent': '최종 완료',
+};
+
+const STEP_KEYS = ['step1', 'step2', 'step3', 'step4', 'step5'] as const;
+type StepKey = (typeof STEP_KEYS)[number];
+const STEP_LABELS: Record<StepKey, string> = {
+  step1: '1단계 인적사항',
+  step2: '2단계 수당동의',
+  step3: '3단계 문서제출',
+  step4: '4단계 위촉 진행',
+  step5: '5단계 완료',
+};
+
+const FILTER_OPTIONS = [
+  { key: 'all', label: '전체', predicate: (_: FcRowWithStep) => true },
+  ...STEP_KEYS.map((key) => ({
+    key,
+    label: STEP_LABELS[key],
+    predicate: (fc: FcRowWithStep) => fc.stepKey === key,
+  })),
+] as const;
+type FilterKey = (typeof FILTER_OPTIONS)[number]['key'];
+
+const calcStep = (profile: FcRow) => {
+  const hasBasicInfo =
+    Boolean(profile.name && profile.affiliation && profile.resident_id_masked) &&
+    Boolean(profile.email || profile.address);
+  if (!hasBasicInfo) return 1;
+
+  const hasAllowance = Boolean(profile.allowance_date);
+  if (!hasAllowance) return 2;
+
+  const docs = profile.fc_documents ?? [];
+  const totalDocs = docs.length;
+  const uploaded = docs.filter((d) => d.storage_path && d.storage_path !== 'deleted').length;
+  const docsComplete = totalDocs > 0 && uploaded === totalDocs;
+  if (!docsComplete) return 3;
+
+  const approvedStatuses: FcProfile['status'][] = ['docs-approved', 'appointment-completed', 'final-link-sent'];
+  const isApproved = approvedStatuses.includes(profile.status);
+  if (!isApproved) return 3;
+
+  const appointmentDone = Boolean(profile.appointment_date) || profile.status === 'final-link-sent';
+  if (!appointmentDone) return 4;
+
+  return 5;
+};
+
+const getStepKey = (profile: FcRow): StepKey => {
+  const step = Math.max(1, Math.min(5, calcStep(profile)));
+  return `step${step}` as StepKey;
 };
 
 const docOptions: RequiredDocType[] = [
@@ -70,6 +123,8 @@ type FcRow = {
   temp_id: string | null;
   status: FcProfile['status'];
   allowance_date: string | null;
+  appointment_url: string | null;
+  appointment_date: string | null;
   resident_id_masked: string | null;
   career_type: string | null;
   email: string | null;
@@ -77,6 +132,7 @@ type FcRow = {
   address_detail: string | null;
   fc_documents?: { doc_type: string; storage_path: string | null; file_name: string | null; status: string | null }[];
 };
+type FcRowWithStep = FcRow & { stepKey: StepKey };
 
 async function sendNotificationAndPush(
   role: 'admin' | 'fc',
@@ -118,21 +174,17 @@ async function sendNotificationAndPush(
 const fetchFcs = async (
   role: 'admin' | 'fc' | null,
   residentId: string,
-  status: FcProfile['status'] | 'all',
   keyword: string,
 ) => {
   let query = supabase
     .from('fc_profiles')
     .select(
-      'id,name,affiliation,phone,temp_id,status,allowance_date,resident_id_masked,career_type,email,address,address_detail,fc_documents(doc_type,storage_path,file_name,status)',
+      'id,name,affiliation,phone,temp_id,status,allowance_date,appointment_url,appointment_date,resident_id_masked,career_type,email,address,address_detail,fc_documents(doc_type,storage_path,file_name,status)',
     )
     .order('created_at', { ascending: false });
 
   if (role === 'fc' && residentId) {
     query = query.eq('phone', residentId);
-  }
-  if (status !== 'all') {
-    query = query.eq('status', status);
   }
   if (keyword) {
     query = query.or(
@@ -147,8 +199,9 @@ const fetchFcs = async (
 
 export default function DashboardScreen() {
   const { role, residentId } = useSession();
-  const { mode } = useLocalSearchParams<{ mode?: string }>();
-  const [statusFilter, setStatusFilter] = useState<FcProfile['status'] | 'all'>('all');
+  const { mode, status } = useLocalSearchParams<{ mode?: string; status?: string }>();
+  const [statusFilter, setStatusFilter] = useState<FilterKey>('all');
+  const [subFilter, setSubFilter] = useState<'all' | 'no-id' | 'has-id' | 'not-requested' | 'requested'>('all');
   const [keyword, setKeyword] = useState('');
   const [tempInputs, setTempInputs] = useState<Record<string, string>>({});
   const [careerInputs, setCareerInputs] = useState<Record<string, '신입' | '경력'>>({});
@@ -157,11 +210,25 @@ export default function DashboardScreen() {
   const [refreshing, setRefreshing] = useState(false);
   const keyboardPadding = useKeyboardPadding();
 
+  const [reminderLoading, setReminderLoading] = useState<string | null>(null);
+
   const { data, isLoading, isError, refetch } = useQuery({
-    queryKey: ['dashboard', role, residentId, statusFilter, keyword],
-    queryFn: () => fetchFcs(role, residentId, statusFilter, keyword),
+    queryKey: ['dashboard', role, residentId, keyword],
+    queryFn: () => fetchFcs(role, residentId, keyword),
     enabled: !!role,
   });
+
+  useEffect(() => {
+    if (!status) return;
+    const found = FILTER_OPTIONS.find((option) => option.key === status);
+    if (found) {
+      setStatusFilter(found.key);
+    }
+  }, [status]);
+
+  useEffect(() => {
+    setSubFilter('all');
+  }, [statusFilter]);
 
   useEffect(() => {
     if (!data) return;
@@ -289,6 +356,18 @@ export default function DashboardScreen() {
     onError: (err: any) => Alert.alert('삭제 실패', err.message ?? '삭제 중 문제가 발생했습니다.'),
   });
 
+  const updateStatus = useMutation({
+    mutationFn: async ({ id, nextStatus }: { id: string; nextStatus: FcProfile['status'] }) => {
+      const { error } = await supabase.from('fc_profiles').update({ status: nextStatus }).eq('id', id);
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      Alert.alert('처리 완료', '상태가 업데이트되었습니다.');
+      refetch();
+    },
+    onError: (err: any) => Alert.alert('처리 실패', err.message ?? '상태 업데이트 중 문제가 발생했습니다.'),
+  });
+
   const toggleDocSelection = (fcId: string, doc: RequiredDocType) => {
     setDocSelections((prev) => {
       const set = new Set(prev[fcId] ?? []);
@@ -298,7 +377,35 @@ export default function DashboardScreen() {
     });
   };
 
-  const rows = useMemo(() => data ?? [], [data]);
+  const processedRows = useMemo<FcRowWithStep[]>(() => {
+    return (data ?? []).map((fc) => ({
+      ...fc,
+      stepKey: getStepKey(fc),
+    }));
+  }, [data]);
+
+  const rows = useMemo<FcRowWithStep[]>(() => {
+    const mainFilter = FILTER_OPTIONS.find((option) => option.key === statusFilter);
+    let filtered = processedRows;
+    if (mainFilter) {
+      filtered = filtered.filter(mainFilter.predicate);
+    }
+    if (statusFilter === 'step2') {
+      if (subFilter === 'no-id') {
+        filtered = filtered.filter((fc) => !fc.temp_id);
+      } else if (subFilter === 'has-id') {
+        filtered = filtered.filter((fc) => !!fc.temp_id);
+      }
+    }
+    if (statusFilter === 'step3') {
+      if (subFilter === 'not-requested') {
+        filtered = filtered.filter((fc) => fc.status === 'allowance-consented');
+      } else if (subFilter === 'requested') {
+        filtered = filtered.filter((fc) => fc.status === 'docs-requested');
+      }
+    }
+    return filtered;
+  }, [processedRows, statusFilter, subFilter]);
 
   const openFile = async (path?: string) => {
     if (!path) {
@@ -319,6 +426,134 @@ export default function DashboardScreen() {
   const toggleExpand = (id: string) => {
     LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
     setExpanded((prev) => ({ ...prev, [id]: !prev[id] }));
+  };
+
+  const handleSendReminder = async (fc: FcRow) => {
+    try {
+      setReminderLoading(fc.id);
+      await sendNotificationAndPush(
+        'fc',
+        fc.phone,
+        '등록 안내',
+        '수당동의를 완료해주세요.',
+      );
+      Alert.alert('알림 전송', '진행을 재촉하는 알림을 발송했습니다.');
+    } catch (err: any) {
+      Alert.alert('전송 실패', err?.message ?? '알림 전송 중 문제가 발생했습니다.');
+    } finally {
+      setReminderLoading(null);
+    }
+  };
+
+  const handleDocReview = (fc: FcRow) => {
+    const submitted = fc.fc_documents ?? [];
+    const firstDoc = submitted.find((doc) => doc.storage_path && doc.storage_path !== 'deleted');
+    if (!firstDoc) {
+      Alert.alert('서류 없음', '제출된 서류가 없어 열 수 없습니다.');
+      return;
+    }
+    openFile(firstDoc.storage_path ?? undefined);
+  };
+
+  const handleOpenAppointmentUrl = (fc: FcRow) => {
+    if (!fc.appointment_url) {
+      Alert.alert('URL 없음', '위촉 URL이 등록되지 않았습니다. URL을 먼저 입력해주세요.');
+      return;
+    }
+    Linking.openURL(fc.appointment_url).catch(() =>
+      Alert.alert('열기 실패', '위촉 URL을 열 수 없습니다. 주소를 다시 확인해주세요.'),
+    );
+  };
+
+  const confirmStatusChange = (fc: FcRow, nextStatus: FcProfile['status'], message: string) => {
+    Alert.alert('상태 변경', message, [
+      { text: '취소', style: 'cancel' },
+      {
+        text: '변경',
+        style: 'default',
+        onPress: () => updateStatus.mutate({ id: fc.id, nextStatus }),
+      },
+    ]);
+  };
+
+  const renderAdminActions = (fc: FcRow) => {
+    if (role !== 'admin') return null;
+    const actionBlocks: React.ReactNode[] = [];
+
+    if (fc.status === 'draft' || fc.status === 'temp-id-issued') {
+      actionBlocks.push(
+        <View key="draft-actions" style={styles.actionRow}>
+          <Pressable
+            style={styles.actionButtonSecondary}
+            onPress={() => Linking.openURL(`tel:${fc.phone}`)}
+          >
+            <Feather name="phone-call" size={16} color={CHARCOAL} />
+            <Text style={styles.actionButtonTextSecondary}>전화로 안내하기</Text>
+          </Pressable>
+          <Pressable
+            style={styles.actionButtonPrimary}
+            onPress={() => handleSendReminder(fc)}
+            disabled={reminderLoading === fc.id}
+          >
+            <Feather name="send" size={16} color="#fff" />
+            <Text style={styles.actionButtonText}>알림 전송</Text>
+          </Pressable>
+        </View>,
+      );
+    }
+
+    if (fc.status === 'docs-pending') {
+      actionBlocks.push(
+        <View key="docs-actions" style={styles.actionColumn}>
+          <Pressable style={styles.actionButtonPrimary} onPress={() => handleDocReview(fc)}>
+            <Feather name="file-text" size={16} color="#fff" />
+            <Text style={styles.actionButtonText}>서류 검토하기</Text>
+          </Pressable>
+          <Pressable
+            style={styles.actionButtonSecondary}
+            onPress={() => confirmStatusChange(fc, 'docs-approved', '문서 검토를 완료 처리할까요?')}
+            disabled={updateStatus.isPending}
+          >
+            <Feather name="check-circle" size={16} color={CHARCOAL} />
+            <Text style={styles.actionButtonTextSecondary}>검토 완료 처리</Text>
+          </Pressable>
+        </View>,
+      );
+    }
+
+    if (fc.status === 'docs-approved') {
+      actionBlocks.push(
+        <View key="final-actions" style={styles.actionColumn}>
+          <Pressable
+            style={[
+              styles.actionButtonSecondary,
+              !fc.appointment_url && styles.actionButtonDisabled,
+            ]}
+            onPress={() => handleOpenAppointmentUrl(fc)}
+            disabled={!fc.appointment_url}
+          >
+            <Feather name="external-link" size={16} color={CHARCOAL} />
+            <Text style={styles.actionButtonTextSecondary}>위촉 URL 열기</Text>
+          </Pressable>
+          <Pressable
+            style={styles.actionButtonPrimary}
+            onPress={() => confirmStatusChange(fc, 'final-link-sent', '위촉 완료 상태로 변경할까요?')}
+            disabled={updateStatus.isPending}
+          >
+            <Feather name="check-square" size={16} color="#fff" />
+            <Text style={styles.actionButtonText}>위촉 완료 처리</Text>
+          </Pressable>
+        </View>,
+      );
+    }
+
+    if (!actionBlocks.length) return null;
+    return (
+      <View style={styles.actionArea}>
+        <Text style={styles.adminLabel}>관리자 액션</Text>
+        {actionBlocks}
+      </View>
+    );
   };
 
   return (
@@ -349,21 +584,69 @@ export default function DashboardScreen() {
             showsHorizontalScrollIndicator={false}
             contentContainerStyle={styles.filterContainer}
           >
-            {(['all', ...Object.keys(statusLabels)] as const).map((st) => {
-              const active = statusFilter === st;
+            {FILTER_OPTIONS.map((option) => {
+              const active = statusFilter === option.key;
               return (
                 <Pressable
-                  key={st}
+                  key={option.key}
                   style={[styles.filterTab, active && styles.filterTabActive]}
-                  onPress={() => setStatusFilter(st as any)}
+                  onPress={() => setStatusFilter(option.key)}
                 >
                   <Text style={[styles.filterText, active && styles.filterTextActive]}>
-                    {st === 'all' ? '전체' : statusLabels[st]}
+                    {option.label}
                   </Text>
                 </Pressable>
               );
             })}
           </ScrollView>
+
+          {statusFilter === 'step2' && (
+            <View style={styles.subFilterContainer}>
+              <Pressable
+                style={[styles.subChip, subFilter === 'all' && styles.subChipActive]}
+                onPress={() => setSubFilter('all')}
+              >
+                <Text style={[styles.subText, subFilter === 'all' && styles.subTextActive]}>전체</Text>
+              </Pressable>
+              <View style={styles.subDivider} />
+              <Pressable
+                style={[styles.subChip, subFilter === 'no-id' && styles.subChipActive]}
+                onPress={() => setSubFilter('no-id')}
+              >
+                <Text style={[styles.subText, subFilter === 'no-id' && styles.subTextActive]}>임시번호 미발급</Text>
+              </Pressable>
+              <Pressable
+                style={[styles.subChip, subFilter === 'has-id' && styles.subChipActive]}
+                onPress={() => setSubFilter('has-id')}
+              >
+                <Text style={[styles.subText, subFilter === 'has-id' && styles.subTextActive]}>발급 완료</Text>
+              </Pressable>
+            </View>
+          )}
+
+          {statusFilter === 'step3' && (
+            <View style={styles.subFilterContainer}>
+              <Pressable
+                style={[styles.subChip, subFilter === 'all' && styles.subChipActive]}
+                onPress={() => setSubFilter('all')}
+              >
+                <Text style={[styles.subText, subFilter === 'all' && styles.subTextActive]}>전체</Text>
+              </Pressable>
+              <View style={styles.subDivider} />
+              <Pressable
+                style={[styles.subChip, subFilter === 'not-requested' && styles.subChipActive]}
+                onPress={() => setSubFilter('not-requested')}
+              >
+                <Text style={[styles.subText, subFilter === 'not-requested' && styles.subTextActive]}>서류 미요청</Text>
+              </Pressable>
+              <Pressable
+                style={[styles.subChip, subFilter === 'requested' && styles.subChipActive]}
+                onPress={() => setSubFilter('requested')}
+              >
+                <Text style={[styles.subText, subFilter === 'requested' && styles.subTextActive]}>요청 완료</Text>
+              </Pressable>
+            </View>
+          )}
         </View>
 
         <ScrollView
@@ -382,7 +665,6 @@ export default function DashboardScreen() {
             const isExpanded = expanded[fc.id];
             const selectedDocs = Array.from(docSelections[fc.id] ?? new Set<RequiredDocType>());
             const submitted = (fc.fc_documents ?? []).filter((d) => d.storage_path && d.storage_path !== 'deleted');
-            const missing = selectedDocs.filter((d) => !submitted.find((s) => s.doc_type === d));
             const careerDisplay = careerInputs[fc.id] ?? fc.career_type ?? '-';
             const tempDisplay = tempInputs[fc.id] ?? fc.temp_id ?? '-';
             const allowanceDisplay = fc.allowance_date ?? '없음';
@@ -396,7 +678,7 @@ export default function DashboardScreen() {
                       <Text style={styles.affText}>{fc.affiliation || '-'}</Text>
                     </View>
                     <Text style={styles.subText}>
-                      {fc.phone} · {statusLabels[fc.status] ?? fc.status}
+                      {fc.phone} · {STATUS_LABELS[fc.status] ?? fc.status}
                     </Text>
                   </View>
                   <Feather name={isExpanded ? 'chevron-up' : 'chevron-down'} size={20} color="#9CA3AF" />
@@ -408,9 +690,13 @@ export default function DashboardScreen() {
 
                     <DetailRow label="임시번호" value={tempDisplay} />
                     <DetailRow label="수당동의" value={allowanceDisplay} />
+                    <DetailRow label="위촉 URL" value={fc.appointment_url ?? '발송 대기'} />
+                    <DetailRow label="위촉 완료일" value={fc.appointment_date ?? '미입력'} />
                     <DetailRow label="경력구분" value={careerDisplay} />
                     <DetailRow label="이메일" value={fc.email ?? '-'} />
                     <DetailRow label="주소" value={`${fc.address ?? '-'} ${fc.address_detail ?? ''}`} />
+
+                    {renderAdminActions(fc)}
 
                     {showTempSection && role === 'admin' && (
                       <View style={styles.adminSection}>
@@ -418,7 +704,7 @@ export default function DashboardScreen() {
                         <View style={styles.inputGroup}>
                           <TextInput
                             style={styles.adminInput}
-                            placeholder="임시번호 입력"
+                            placeholder="임시번호 발급 완료"
                             placeholderTextColor="#9CA3AF"
                             value={tempInputs[fc.id] ?? fc.temp_id ?? ''}
                             onChangeText={(t) => setTempInputs((p) => ({ ...p, [fc.id]: t }))}
@@ -604,6 +890,29 @@ const styles = StyleSheet.create({
     color: '#fff',
     fontWeight: '600',
   },
+  subFilterContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    marginTop: 8,
+    paddingVertical: 6,
+    paddingHorizontal: 12,
+    backgroundColor: '#F3F4F6',
+    borderRadius: 12,
+  },
+  subChip: {
+    paddingVertical: 6,
+    paddingHorizontal: 12,
+    borderRadius: 20,
+  },
+  subChipActive: {
+    backgroundColor: '#fff',
+    borderWidth: 1,
+    borderColor: '#E5E7EB',
+  },
+  subText: { fontSize: 12, color: MUTED, fontWeight: '500' },
+  subTextActive: { color: CHARCOAL, fontWeight: '700' },
+  subDivider: { width: 1, height: 14, backgroundColor: '#CBD5F5' },
   listContent: {
     padding: 20,
     gap: 12,
@@ -677,6 +986,56 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontWeight: '700',
     color: CHARCOAL,
+  },
+  actionArea: {
+    marginTop: 12,
+    paddingTop: 10,
+    borderTopWidth: 1,
+    borderTopColor: '#F3F4F6',
+    gap: 10,
+  },
+  actionRow: {
+    flexDirection: 'row',
+    gap: 8,
+  },
+  actionColumn: {
+    flexDirection: 'column',
+    gap: 8,
+  },
+  actionButtonPrimary: {
+    flex: 1,
+    backgroundColor: ORANGE,
+    paddingVertical: 12,
+    borderRadius: 8,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+  },
+  actionButtonSecondary: {
+    flex: 1,
+    backgroundColor: '#fff',
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+    paddingVertical: 12,
+    borderRadius: 8,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+  },
+  actionButtonText: {
+    color: '#fff',
+    fontWeight: '700',
+    fontSize: 14,
+  },
+  actionButtonTextSecondary: {
+    color: CHARCOAL,
+    fontWeight: '600',
+    fontSize: 14,
+  },
+  actionButtonDisabled: {
+    opacity: 0.5,
   },
   inputGroup: {
     flexDirection: 'row',
