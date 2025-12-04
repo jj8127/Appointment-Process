@@ -234,6 +234,16 @@ export default function Home() {
   const uploadedDocs =
     myFc?.fc_documents?.filter((d: any) => d.storage_path && d.storage_path !== 'deleted').length ?? 0;
   const totalDocs = myFc?.fc_documents?.length ?? 0;
+  const isAllSubmitted = totalDocs > 0 && uploadedDocs >= totalDocs;
+  const isApproved =
+    myFc?.status === 'docs-approved' ||
+    myFc?.status === 'appointment-completed' ||
+    myFc?.status === 'final-link-sent';
+
+  let docsStatusText = `${uploadedDocs}/${totalDocs || 1} 완료`;
+  if (isAllSubmitted) {
+    docsStatusText = isApproved ? '모든 문서 제출 완료 [검토 완료]' : '모든 문서 제출 완료 [검토 중]';
+  }
 
   useEffect(() => {
     if (!hydrated) return;
@@ -448,8 +458,8 @@ export default function Home() {
                 </Pressable>
                 <View style={[styles.glancePill, styles.glanceGhost]}>
                   <Text style={styles.glanceLabel}>문서 업로드</Text>
-                  <Text style={styles.glanceValue}>
-                    {uploadedDocs}/{totalDocs || 1} 완료
+                  <Text style={[styles.glanceValue, isAllSubmitted && { fontSize: 13 }]}>
+                    {docsStatusText}
                   </Text>
                 </View>
               </View>

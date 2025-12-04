@@ -114,6 +114,22 @@ const docOptions: RequiredDocType[] = [
   '이클린',
   '경력증명서',
 ];
+const ALL_DOC_OPTIONS: RequiredDocType[] = Array.from(
+  new Set<RequiredDocType>([
+    '주민등록증 사본',
+    '통장 사본',
+    '최근3개월 급여명세서',
+    '신체검사서',
+    '개인정보동의서',
+    '주민등록증 이미지(앞)',
+    '주민등록증 이미지(뒤)',
+    '통장 이미지(앞)',
+    '통장 이미지(뒤)',
+    '최근3개월 이미지(앞)',
+    '최근3개월 이미지(뒤)',
+    ...docOptions,
+  ]),
+);
 
 type FcRow = {
   id: string;
@@ -205,6 +221,8 @@ export default function DashboardScreen() {
   const [keyword, setKeyword] = useState('');
   const [tempInputs, setTempInputs] = useState<Record<string, string>>({});
   const [careerInputs, setCareerInputs] = useState<Record<string, '신입' | '경력'>>({});
+  const [editMode, setEditMode] = useState<Record<string, boolean>>({});
+  const [urlInputs, setUrlInputs] = useState<Record<string, string>>({});
   const [docSelections, setDocSelections] = useState<Record<string, Set<RequiredDocType>>>({});
   const [expanded, setExpanded] = useState<Record<string, boolean>>({});
   const [refreshing, setRefreshing] = useState(false);
@@ -235,15 +253,18 @@ export default function DashboardScreen() {
     const next: Record<string, Set<RequiredDocType>> = {};
     const tempPrefill: Record<string, string> = {};
     const careerPrefill: Record<string, '신입' | '경력'> = {};
+    const urlPrefill: Record<string, string> = {};
     data.forEach((fc) => {
       const docs = fc.fc_documents?.map((d) => d.doc_type as RequiredDocType) ?? [];
       next[fc.id] = new Set(docs);
       if (fc.temp_id) tempPrefill[fc.id] = fc.temp_id;
       if (fc.career_type === '경력' || fc.career_type === '신입') careerPrefill[fc.id] = fc.career_type as any;
+      if (fc.appointment_url) urlPrefill[fc.id] = fc.appointment_url;
     });
     setDocSelections(next);
     setTempInputs((prev) => ({ ...tempPrefill, ...prev }));
     setCareerInputs((prev) => ({ ...careerPrefill, ...prev }));
+    setUrlInputs((prev) => ({ ...urlPrefill, ...prev }));
   }, [data]);
 
   const onRefresh = useCallback(async () => {
@@ -288,6 +309,30 @@ export default function DashboardScreen() {
       refetch();
     },
     onError: (err: any) => Alert.alert('저장 실패', err.message ?? '저장 중 문제가 발생했습니다.'),
+  });
+
+  const saveUrl = useMutation({
+    mutationFn: async ({ id, url }: { id: string; url: string }) => {
+      const trimmed = (url ?? '').trim();
+      if (!trimmed) throw new Error('URL을 입력해주세요.');
+
+      const { error } = await supabase.from('fc_profiles').update({ appointment_url: trimmed }).eq('id', id);
+      if (error) throw error;
+
+      const { error: notifyError } = await supabase.functions.invoke('fc-notify', {
+        body: {
+          type: 'admin_update',
+          fc_id: id,
+          message: '위촉 URL이 등록되었습니다. 위촉을 진행해주세요.',
+        },
+      });
+      if (notifyError) throw notifyError;
+    },
+    onSuccess: () => {
+      Alert.alert('발송 완료', 'URL이 저장되고 알림이 발송되었습니다.');
+      refetch();
+    },
+    onError: (err: any) => Alert.alert('오류', err?.message ?? 'URL 발송 중 문제가 발생했습니다.'),
   });
 
   const updateDocs = useMutation({
@@ -341,6 +386,53 @@ export default function DashboardScreen() {
       refetch();
     },
     onError: (err: any) => Alert.alert('요청 실패', err.message ?? '요청 처리 중 문제가 발생했습니다.'),
+  });
+
+  const updateDocReqs = useMutation({
+    mutationFn: async ({ id, types }: { id: string; types: RequiredDocType[] }) => {
+      const uniqueTypes = Array.from(new Set(types));
+
+      const { data: currentDocs, error: fetchErr } = await supabase
+        .from('fc_documents')
+        .select('doc_type,storage_path')
+        .eq('fc_id', id);
+      if (fetchErr) throw fetchErr;
+
+      const currentTypes = currentDocs?.map((d) => d.doc_type as RequiredDocType) ?? [];
+      const selectedSet = new Set(uniqueTypes);
+
+      const toDelete =
+        currentDocs?.filter(
+          (d) => !selectedSet.has(d.doc_type as RequiredDocType) && (!d.storage_path || d.storage_path === 'deleted'),
+        ) ?? [];
+      const toAdd = uniqueTypes.filter((t) => !currentTypes.includes(t));
+
+      if (toDelete.length) {
+        const { error: delErr } = await supabase
+          .from('fc_documents')
+          .delete()
+          .eq('fc_id', id)
+          .in('doc_type', toDelete.map((d) => d.doc_type));
+        if (delErr) throw delErr;
+      }
+
+      if (toAdd.length) {
+        const rows = toAdd.map((t) => ({
+          fc_id: id,
+          doc_type: t,
+          status: 'pending',
+          file_name: '',
+          storage_path: '',
+        }));
+        const { error: insertErr } = await supabase.from('fc_documents').insert(rows);
+        if (insertErr) throw insertErr;
+      }
+    },
+    onSuccess: () => {
+      Alert.alert('저장 완료', '필수 서류 목록이 수정되었습니다.');
+      refetch();
+    },
+    onError: (err: any) => Alert.alert('오류', err.message ?? '서류 목록 수정 중 문제가 발생했습니다.'),
   });
 
   const deleteFc = useMutation({
@@ -428,6 +520,11 @@ export default function DashboardScreen() {
     setExpanded((prev) => ({ ...prev, [id]: !prev[id] }));
   };
 
+  const toggleEditMode = (id: string) => {
+    LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
+    setEditMode((prev) => ({ ...prev, [id]: !prev[id] }));
+  };
+
   const handleSendReminder = async (fc: FcRow) => {
     try {
       setReminderLoading(fc.id);
@@ -455,16 +552,6 @@ export default function DashboardScreen() {
     openFile(firstDoc.storage_path ?? undefined);
   };
 
-  const handleOpenAppointmentUrl = (fc: FcRow) => {
-    if (!fc.appointment_url) {
-      Alert.alert('URL 없음', '위촉 URL이 등록되지 않았습니다. URL을 먼저 입력해주세요.');
-      return;
-    }
-    Linking.openURL(fc.appointment_url).catch(() =>
-      Alert.alert('열기 실패', '위촉 URL을 열 수 없습니다. 주소를 다시 확인해주세요.'),
-    );
-  };
-
   const confirmStatusChange = (fc: FcRow, nextStatus: FcProfile['status'], message: string) => {
     Alert.alert('상태 변경', message, [
       { text: '취소', style: 'cancel' },
@@ -478,80 +565,168 @@ export default function DashboardScreen() {
 
   const renderAdminActions = (fc: FcRow) => {
     if (role !== 'admin') return null;
+    const isEditing = !!editMode[fc.id];
     const actionBlocks: React.ReactNode[] = [];
 
-    if (fc.status === 'draft' || fc.status === 'temp-id-issued') {
-      actionBlocks.push(
-        <View key="draft-actions" style={styles.actionRow}>
-          <Pressable
-            style={styles.actionButtonSecondary}
-            onPress={() => Linking.openURL(`tel:${fc.phone}`)}
-          >
-            <Feather name="phone-call" size={16} color={CHARCOAL} />
-            <Text style={styles.actionButtonTextSecondary}>전화로 안내하기</Text>
-          </Pressable>
-          <Pressable
-            style={styles.actionButtonPrimary}
-            onPress={() => handleSendReminder(fc)}
-            disabled={reminderLoading === fc.id}
-          >
-            <Feather name="send" size={16} color="#fff" />
-            <Text style={styles.actionButtonText}>알림 전송</Text>
-          </Pressable>
-        </View>,
-      );
+    if (!isEditing) {
+      if (fc.status === 'draft' || fc.status === 'temp-id-issued') {
+        actionBlocks.push(
+          <View key="draft-actions" style={styles.actionRow}>
+            <Pressable
+              style={styles.actionButtonSecondary}
+              onPress={() => Linking.openURL(`tel:${fc.phone}`)}
+            >
+              <Feather name="phone-call" size={16} color={CHARCOAL} />
+              <Text style={styles.actionButtonTextSecondary}>전화로 안내하기</Text>
+            </Pressable>
+            <Pressable
+              style={styles.actionButtonPrimary}
+              onPress={() => handleSendReminder(fc)}
+              disabled={reminderLoading === fc.id}
+            >
+              <Feather name="send" size={16} color="#fff" />
+              <Text style={styles.actionButtonText}>알림 전송</Text>
+            </Pressable>
+          </View>,
+        );
+      }
+
+      if (fc.status === 'docs-pending') {
+        actionBlocks.push(
+          <View key="docs-actions" style={styles.actionColumn}>
+            <Pressable style={styles.actionButtonPrimary} onPress={() => handleDocReview(fc)}>
+              <Feather name="file-text" size={16} color="#fff" />
+              <Text style={styles.actionButtonText}>서류 검토하기</Text>
+            </Pressable>
+            <Pressable
+              style={styles.actionButtonSecondary}
+              onPress={() => confirmStatusChange(fc, 'docs-approved', '문서 검토를 완료 처리할까요?')}
+              disabled={updateStatus.isPending}
+            >
+              <Feather name="check-circle" size={16} color={CHARCOAL} />
+              <Text style={styles.actionButtonTextSecondary}>검토 완료 처리</Text>
+            </Pressable>
+          </View>,
+        );
+      }
+
+      if (fc.status === 'docs-approved' || fc.status === 'docs-submitted') {
+        const currentUrl = urlInputs[fc.id] ?? fc.appointment_url ?? '';
+        actionBlocks.push(
+          <View key="final-actions" style={[styles.actionColumn, { gap: 10 }]}>
+            <View style={styles.urlInputGroup}>
+              <Text style={styles.urlLabel}>위촉 URL 입력</Text>
+              <View style={styles.urlRow}>
+                <TextInput
+                  style={styles.urlInput}
+                  placeholder="https://..."
+                  placeholderTextColor="#9CA3AF"
+                  autoCapitalize="none"
+                  value={currentUrl}
+                  onChangeText={(t) => setUrlInputs((prev) => ({ ...prev, [fc.id]: t }))}
+                />
+                <Pressable
+                  style={[styles.urlSendButton, saveUrl.isPending && styles.actionButtonDisabled]}
+                  onPress={() => saveUrl.mutate({ id: fc.id, url: currentUrl })}
+                  disabled={saveUrl.isPending}
+                >
+                  {saveUrl.isPending ? (
+                    <ActivityIndicator color="#fff" size="small" />
+                  ) : (
+                    <Text style={styles.urlSendButtonText}>전송</Text>
+                  )}
+                </Pressable>
+              </View>
+            </View>
+            <Pressable
+              style={styles.actionButtonPrimary}
+              onPress={() => confirmStatusChange(fc, 'final-link-sent', '위촉 완료 상태로 변경할까요?')}
+              disabled={updateStatus.isPending}
+            >
+              <Feather name="check-square" size={16} color="#fff" />
+              <Text style={styles.actionButtonText}>위촉 완료 처리</Text>
+            </Pressable>
+          </View>,
+        );
+      }
     }
 
-    if (fc.status === 'docs-pending') {
-      actionBlocks.push(
-        <View key="docs-actions" style={styles.actionColumn}>
-          <Pressable style={styles.actionButtonPrimary} onPress={() => handleDocReview(fc)}>
-            <Feather name="file-text" size={16} color="#fff" />
-            <Text style={styles.actionButtonText}>서류 검토하기</Text>
-          </Pressable>
-          <Pressable
-            style={styles.actionButtonSecondary}
-            onPress={() => confirmStatusChange(fc, 'docs-approved', '문서 검토를 완료 처리할까요?')}
-            disabled={updateStatus.isPending}
-          >
-            <Feather name="check-circle" size={16} color={CHARCOAL} />
-            <Text style={styles.actionButtonTextSecondary}>검토 완료 처리</Text>
-          </Pressable>
-        </View>,
-      );
-    }
-
-    if (fc.status === 'docs-approved') {
-      actionBlocks.push(
-        <View key="final-actions" style={styles.actionColumn}>
-          <Pressable
-            style={[
-              styles.actionButtonSecondary,
-              !fc.appointment_url && styles.actionButtonDisabled,
-            ]}
-            onPress={() => handleOpenAppointmentUrl(fc)}
-            disabled={!fc.appointment_url}
-          >
-            <Feather name="external-link" size={16} color={CHARCOAL} />
-            <Text style={styles.actionButtonTextSecondary}>위촉 URL 열기</Text>
-          </Pressable>
-          <Pressable
-            style={styles.actionButtonPrimary}
-            onPress={() => confirmStatusChange(fc, 'final-link-sent', '위촉 완료 상태로 변경할까요?')}
-            disabled={updateStatus.isPending}
-          >
-            <Feather name="check-square" size={16} color="#fff" />
-            <Text style={styles.actionButtonText}>위촉 완료 처리</Text>
-          </Pressable>
-        </View>,
-      );
-    }
-
-    if (!actionBlocks.length) return null;
     return (
       <View style={styles.actionArea}>
-        <Text style={styles.adminLabel}>관리자 액션</Text>
-        {actionBlocks}
+        <View style={[styles.actionRow, { justifyContent: 'space-between', alignItems: 'center' }]}>
+          <Text style={styles.adminLabel}>관리자 액션</Text>
+          <Pressable style={styles.toggleEditButton} onPress={() => toggleEditMode(fc.id)}>
+            <Text style={styles.toggleEditText}>
+              {isEditing ? '수정 완료 (닫기)' : '정보 수정 및 서류 재설정'}
+            </Text>
+            <Feather name={isEditing ? 'chevron-up' : 'settings'} size={14} color={MUTED} />
+          </Pressable>
+        </View>
+
+        {isEditing ? (
+          <View style={styles.editPanel}>
+            <View style={styles.editRow}>
+              <Text style={styles.editLabel}>임시번호</Text>
+              <View style={{ flex: 1, flexDirection: 'row', gap: 8 }}>
+                <TextInput
+                  style={styles.miniInput}
+                  value={tempInputs[fc.id] ?? fc.temp_id ?? ''}
+                  onChangeText={(t) => setTempInputs((p) => ({ ...p, [fc.id]: t }))}
+                  placeholder="T-12345"
+                />
+                <Pressable
+                  style={styles.saveBtn}
+                  onPress={() =>
+                    updateTemp.mutate({
+                      id: fc.id,
+                      tempId: tempInputs[fc.id] ?? fc.temp_id ?? '',
+                      prevTemp: fc.temp_id ?? '',
+                      career: careerInputs[fc.id] ?? '신입',
+                      phone: fc.phone,
+                    })
+                  }
+                >
+                  <Text style={styles.saveBtnText}>변경</Text>
+                </Pressable>
+              </View>
+            </View>
+
+            <View style={styles.editRowVertical}>
+              <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: 8, alignItems: 'center' }}>
+                <Text style={styles.editLabel}>필수 서류</Text>
+                <Pressable
+                  onPress={() =>
+                    updateDocReqs.mutate({
+                      id: fc.id,
+                      types: Array.from(docSelections[fc.id] ?? new Set<RequiredDocType>()),
+                    })
+                  }
+                  disabled={updateDocReqs.isPending}
+                >
+                  <Text style={{ color: ORANGE, fontWeight: '700', fontSize: 13 }}>
+                    {updateDocReqs.isPending ? '저장중...' : '적용 저장'}
+                  </Text>
+                </Pressable>
+              </View>
+              <View style={styles.docChips}>
+                {ALL_DOC_OPTIONS.map((doc) => {
+                  const isSelected = docSelections[fc.id]?.has(doc);
+                  return (
+                    <Pressable
+                      key={doc}
+                      style={[styles.docChip, isSelected && styles.docChipSelected]}
+                      onPress={() => toggleDocSelection(fc.id, doc)}
+                    >
+                      <Text style={[styles.docChipText, isSelected && { color: '#fff' }]}>{doc}</Text>
+                    </Pressable>
+                  );
+                })}
+              </View>
+            </View>
+          </View>
+        ) : (
+          actionBlocks
+        )}
       </View>
     );
   };
@@ -1063,6 +1238,28 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontWeight: '700',
   },
+  urlInputGroup: { gap: 6 },
+  urlLabel: { fontSize: 12, fontWeight: '700', color: CHARCOAL },
+  urlRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  urlInput: {
+    flex: 1,
+    height: 40,
+    borderWidth: 1,
+    borderColor: '#E5E7EB',
+    borderRadius: 8,
+    paddingHorizontal: 10,
+    fontSize: 13,
+    backgroundColor: '#fff',
+  },
+  urlSendButton: {
+    backgroundColor: ORANGE,
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    borderRadius: 8,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  urlSendButtonText: { color: '#fff', fontWeight: '700', fontSize: 13 },
   docPills: {
     flexDirection: 'row',
     flexWrap: 'wrap',
@@ -1124,4 +1321,35 @@ const styles = StyleSheet.create({
     color: MUTED,
     fontSize: 14,
   },
+  editPanel: {
+    marginTop: 12,
+    paddingTop: 12,
+    borderTopWidth: 1,
+    borderTopColor: '#F3F4F6',
+    gap: 14,
+  },
+  editRow: { flexDirection: 'row', alignItems: 'center', gap: 12 },
+  editRowVertical: { gap: 6 },
+  editLabel: { width: 70, fontSize: 13, fontWeight: '600', color: MUTED },
+  saveBtn: {
+    backgroundColor: CHARCOAL,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    justifyContent: 'center',
+    borderRadius: 8,
+  },
+  saveBtnText: { color: '#fff', fontSize: 12, fontWeight: '700' },
+  toggleEditButton: { flexDirection: 'row', alignItems: 'center', gap: 6, paddingVertical: 6 },
+  toggleEditText: { fontSize: 13, color: MUTED, fontWeight: '600' },
+  docChips: { flexDirection: 'row', flexWrap: 'wrap', gap: 6 },
+  docChip: {
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: '#E5E7EB',
+    backgroundColor: '#fff',
+  },
+  docChipSelected: { backgroundColor: ORANGE, borderColor: ORANGE },
+  docChipText: { fontSize: 12, color: CHARCOAL },
 });

@@ -7,6 +7,7 @@ import {
   KeyboardAvoidingView,
   Platform,
   Pressable,
+  Linking,
   ScrollView,
   StyleSheet,
   Text,
@@ -365,27 +366,41 @@ export default function DocsUploadScreen() {
 
               return (
                 <View key={doc.type} style={[styles.item, isUploaded && styles.itemDone]}>
-                  <View style={styles.itemContent}>
-                    <View style={styles.itemHeader}>
+                  <View style={styles.itemHeader}>
+                    <View style={{ flex: 1 }}>
                       <Text style={[styles.itemTitle, isUploaded && styles.textDone]}>{doc.type}</Text>
-                      {isUploaded ? (
-                        <View style={styles.badgeDone}>
-                          <Feather name="check" size={10} color="#059669" />
-                          <Text style={styles.badgeTextDone}>완료</Text>
-                        </View>
-                      ) : (
-                        <View style={styles.badgePending}>
-                          <Text style={styles.badgeTextPending}>미제출</Text>
-                        </View>
-                      )}
+                      <Text
+                        style={[styles.fileName, isUploaded && { color: CHARCOAL, fontWeight: '600' }]}
+                        numberOfLines={1}
+                      >
+                        {isUploaded ? doc.originalName ?? '파일 있음' : 'PDF 파일을 업로드해주세요'}
+                      </Text>
                     </View>
-
-                    <Text style={styles.fileName} numberOfLines={1}>
-                      {isUploaded ? (doc.originalName ?? '파일 업로드됨') : 'PDF 파일을 업로드해주세요'}
-                    </Text>
+                    {isUploaded && (
+                      <Pressable
+                        style={styles.openFileButton}
+                        onPress={() => {
+                          if (doc.uploadedUrl) Linking.openURL(doc.uploadedUrl);
+                        }}
+                      >
+                        <Feather name="external-link" size={16} color="#fff" />
+                        <Text style={styles.openFileText}>열기</Text>
+                      </Pressable>
+                    )}
                   </View>
 
                   <View style={styles.actions}>
+                    {isUploaded ? (
+                      <View style={styles.badgeDone}>
+                        <Feather name="check" size={10} color="#059669" />
+                        <Text style={styles.badgeTextDone}>제출됨</Text>
+                      </View>
+                    ) : (
+                      <View style={styles.badgePending}>
+                        <Text style={styles.badgeTextPending}>미제출</Text>
+                      </View>
+                    )}
+
                     <Pressable
                       style={[styles.btn, isUploaded ? styles.btnOutline : styles.btnSolid]}
                       onPress={() => handlePick(doc.type)}
@@ -549,4 +564,14 @@ const styles = StyleSheet.create({
   },
   emptyState: { padding: 20, alignItems: 'center' },
   emptyText: { color: MUTED, fontSize: 14 },
+  openFileButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: CHARCOAL,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 8,
+    gap: 6,
+  },
+  openFileText: { color: '#fff', fontWeight: '700', fontSize: 13 },
 });
