@@ -1,0 +1,42 @@
+
+> web@0.1.0 lint
+> eslint
+
+
+E:\fc-onboarding-app\web\postcss.config.mjs
+  1:1  warning  Assign object to a variable before exporting as module default  import/no-anonymous-default-export
+
+E:\fc-onboarding-app\web\src\app\dashboard\page.tsx
+  18:13  warning  'role' is assigned a value but never used  @typescript-eslint/no-unused-vars
+
+E:\fc-onboarding-app\web\src\app\onboarding\layout.tsx
+  10:11  warning  'router' is assigned a value but never used                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              @typescript-eslint/no-unused-vars
+  14:42  error    Error: Calling setState synchronously within an effect can trigger cascading renders
+
+Effects are intended to synchronize state between React and external systems such as manually updating the DOM, state management libraries, or other platform APIs. In general, the body of an effect should do one or both of the following:
+* Update external systems with the latest state from React.
+* Subscribe for updates from some external system, calling setState in a callback function when external state changes.
+
+Calling setState synchronously within an effect body causes cascading renders that can hurt performance, and is not recommended. (https://react.dev/learn/you-might-not-need-an-effect).
+
+E:\fc-onboarding-app\web\src\app\onboarding\layout.tsx:14:42
+  12 |
+  13 |     useEffect(() => {
+> 14 |         if (pathname.includes('/step1')) setActive(0);
+     |                                          ^^^^^^^^^ Avoid calling setState() directly within an effect
+  15 |         else if (pathname.includes('/step2')) setActive(1);
+  16 |         else if (pathname.includes('/step3')) setActive(2);
+  17 |         else if (pathname.includes('/step4')) setActive(3);  react-hooks/set-state-in-effect
+
+E:\fc-onboarding-app\web\src\app\onboarding\step1\page.tsx
+  56:8   warning  React Hook useEffect has a missing dependency: 'form'. Either include it or remove the dependency array  react-hooks/exhaustive-deps
+  85:18  warning  'err' is defined but never used                                                                          @typescript-eslint/no-unused-vars
+
+E:\fc-onboarding-app\web\src\app\onboarding\step2\page.tsx
+  74:18  warning  'err' is defined but never used  @typescript-eslint/no-unused-vars
+
+E:\fc-onboarding-app\web\src\app\onboarding\step4\page.tsx
+  64:18  warning  'err' is defined but never used  @typescript-eslint/no-unused-vars
+
+??8 problems (1 error, 7 warnings)
+

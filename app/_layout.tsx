@@ -6,11 +6,15 @@ import * as NavigationBar from 'expo-navigation-bar';
 import { useEffect } from 'react';
 import 'react-native-reanimated';
 import { Platform } from 'react-native';
+import { enableScreens } from 'react-native-screens';
 
 import { useColorScheme } from '@/hooks/use-color-scheme';
 import { SessionProvider } from '@/hooks/use-session';
 
 const queryClient = new QueryClient();
+
+// Disable native screen optimization to avoid Android drawing-order crash
+enableScreens(false);
 
 export default function RootLayout() {
   const colorScheme = useColorScheme();
@@ -57,7 +61,7 @@ export default function RootLayout() {
       <SessionProvider>
         <ThemeProvider value={colorScheme === 'dark' ? DarkTheme : DefaultTheme}>
           <Stack initialRouteName="auth">
-            <Stack.Screen name="index" options={{ headerShown: true, title: '홈' }} />
+            <Stack.Screen name="index" options={{headerTitle: ()=>null,  headerBackVisible: false}} />
             <Stack.Screen name="auth" options={{ title: '로그인' }} />
             <Stack.Screen name="fc/new" options={{ title: '기본 정보' }} />
             <Stack.Screen name="consent" options={{ title: '동의서 입력' }} />

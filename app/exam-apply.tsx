@@ -131,6 +131,7 @@ type MyExamApply = {
   created_at: string;
   exam_rounds?: { exam_date: string; round_label: string | null } | null;
   exam_locations?: { location_name: string } | null;
+  is_confirmed?: boolean | null;
 };
 
 function normalizeSingle<T>(value: T | T[] | null | undefined): T | null {
@@ -194,7 +195,7 @@ export default function ExamApplyScreen() {
       const { data, error } = await supabase
         .from('exam_registrations')
         .select(
-          'id, round_id, location_id, status, is_third_exam, created_at, exam_rounds(exam_date, round_label), exam_locations(location_name)',
+          'id, round_id, location_id, status, is_confirmed, is_third_exam, created_at, exam_rounds(exam_date, round_label), exam_locations(location_name)',
         )
         .eq('resident_id', residentId)
         .order('created_at', { ascending: false })
@@ -205,6 +206,12 @@ export default function ExamApplyScreen() {
         return null;
       }
       if (error) throw error;
+
+      // Requirement 1: If exam round is deleted (null), treat as no application
+      if (!data?.exam_rounds) {
+        return null;
+      }
+
       return {
         ...data,
         exam_rounds: normalizeSingle(data?.exam_rounds as any),
@@ -213,10 +220,16 @@ export default function ExamApplyScreen() {
     },
   });
 
+  const isConfirmed = !!myLastApply?.is_confirmed;
+  const statusLabel = isConfirmed ? '접수 완료' : '미접수';
+  const lockMessage = '시험 접수가 완료되어 시험 일정을 수정할 수 없습니다.';
+
   useEffect(() => {
     if (myLastApply?.is_third_exam != null) {
       setWantsThird(!!myLastApply.is_third_exam);
     }
+    if (myLastApply?.round_id) setSelectedRoundId(myLastApply.round_id);
+    if (myLastApply?.location_id) setSelectedLocationId(myLastApply.location_id);
   }, [myLastApply]);
 
   const hasHistory = !!myLastApply?.id;
@@ -239,6 +252,10 @@ export default function ExamApplyScreen() {
       }
       if (!selectedRoundId || !selectedLocationId) {
         throw new Error('시험 일정과 응시 지역을 모두 선택해주세요.');
+      }
+
+      if (isConfirmed) {
+        throw new Error(lockMessage);
       }
 
       // runtime validation: 방어적으로 undefined/string "undefined"가 넘어가지 않도록 보정
@@ -286,9 +303,8 @@ export default function ExamApplyScreen() {
 
       const locName =
         round.locations?.find((l) => l.id === selectedLocationId)?.location_name ?? '';
-      const examTitle = `${formatDate(round.exam_date)}${
-        round.round_label ? ` (${round.round_label})` : ''
-      }`;
+      const examTitle = `${formatDate(round.exam_date)}${round.round_label ? ` (${round.round_label})` : ''
+        }`;
       const actor = displayName?.trim() || residentId;
       const title = `${actor}이/가 ${examTitle}을 신청하였습니다.`;
       const body = locName ? `${actor}이/가 ${examTitle} (${locName})을 신청하였습니다.` : title;
@@ -310,6 +326,10 @@ export default function ExamApplyScreen() {
         throw new Error('취소할 신청 내역이 없습니다.');
       }
 
+      if (isConfirmed) {
+        throw new Error(lockMessage);
+      }
+
       const { error } = await supabase
         .from('exam_registrations')
         .delete()
@@ -327,6 +347,10 @@ export default function ExamApplyScreen() {
   });
 
   const handleRoundSelect = (round: ExamRoundWithLocations) => {
+    if (isConfirmed) {
+      Alert.alert('수정 불가', lockMessage);
+      return;
+    }
     if (isRoundClosed(round)) {
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
       return;
@@ -337,6 +361,10 @@ export default function ExamApplyScreen() {
   };
 
   const handleLocationSelect = (id: string) => {
+    if (isConfirmed) {
+      Alert.alert('수정 불가', lockMessage);
+      return;
+    }
     Haptics.selectionAsync();
     setSelectedLocationId(id);
   };
@@ -408,9 +436,19 @@ export default function ExamApplyScreen() {
                 <View style={styles.statusDivider} />
                 <View style={styles.statusRow}>
                   <Text style={styles.statusLabel}>상태</Text>
-                  <View style={styles.statusBadge}>
-                    <Text style={styles.statusBadgeText}>
-                      {myLastApply.status === 'applied' ? '접수완료' : myLastApply.status}
+                  <View
+                    style={[
+                      styles.statusBadge,
+                      isConfirmed ? styles.badgeConfirmed : styles.badgePending,
+                    ]}
+                  >
+                    <Text
+                      style={[
+                        styles.statusBadgeText,
+                        isConfirmed ? styles.textConfirmed : styles.textPending,
+                      ]}
+                    >
+                      {statusLabel}
                     </Text>
                   </View>
                 </View>
@@ -539,8 +577,12 @@ export default function ExamApplyScreen() {
             <Pressable
               style={[styles.toggleCard, wantsThird && styles.toggleCardActive]}
               onPress={() => {
-                Haptics.selectionAsync();
-                setWantsThird((v) => !v);
+                if (isConfirmed) {
+                  Alert.alert('수정 불가', lockMessage);
+                } else {
+                  Haptics.selectionAsync();
+                  setWantsThird((v) => !v);
+                }
               }}
             >
               <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
@@ -558,12 +600,19 @@ export default function ExamApplyScreen() {
 
             <View style={styles.actionButtons}>
               <Pressable
-                onPress={() => applyMutation.mutate()}
+                onPress={() => {
+                  if (isConfirmed) {
+                    Alert.alert('알림', lockMessage);
+                    return;
+                  }
+                  applyMutation.mutate();
+                }}
                 disabled={
                   applyMutation.isPending ||
                   !selectedRoundId ||
                   !selectedLocationId ||
-                  isSelectedRoundClosed
+                  isSelectedRoundClosed ||
+                  isConfirmed
                 }
                 style={({ pressed }) => [styles.submitBtnWrapper, pressed && styles.pressedScale]}
               >
@@ -587,13 +636,17 @@ export default function ExamApplyScreen() {
               {hasHistory && (
                 <Pressable
                   onPress={() => {
+                    if (isConfirmed) {
+                      Alert.alert('알림', lockMessage);
+                      return;
+                    }
                     Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
                     Alert.alert('신청 취소', '정말 취소하시겠습니까?', [
                       { text: '아니요', style: 'cancel' },
                       { text: '예', style: 'destructive', onPress: () => cancelMutation.mutate() },
                     ]);
                   }}
-                  disabled={cancelMutation.isPending}
+                  disabled={cancelMutation.isPending || isConfirmed}
                   style={({ pressed }) => [styles.cancelBtn, pressed && styles.pressedOpacity]}
                 >
                   <Text style={styles.cancelBtnText}>신청 취소하기</Text>
@@ -633,8 +686,12 @@ const styles = StyleSheet.create({
   statusLabel: { fontSize: 13, color: MUTED },
   statusValue: { fontSize: 14, fontWeight: '600', color: CHARCOAL },
   statusDivider: { height: 1, backgroundColor: '#f3f4f6', marginVertical: 4 },
-  statusBadge: { backgroundColor: ORANGE_FAINT, paddingHorizontal: 8, paddingVertical: 2, borderRadius: 4 },
-  statusBadgeText: { fontSize: 12, fontWeight: '700', color: HANWHA_ORANGE },
+  statusBadge: { paddingHorizontal: 8, paddingVertical: 2, borderRadius: 4, borderWidth: 1 },
+  statusBadgeText: { fontSize: 12, fontWeight: '700' },
+  badgeConfirmed: { backgroundColor: '#ECFDF5', borderColor: '#A7F3D0' },
+  badgePending: { backgroundColor: '#FFF7ED', borderColor: '#FED7AA' },
+  textConfirmed: { color: '#059669' },
+  textPending: { color: '#b45309' },
 
   section: { marginBottom: 32 },
   sectionHeader: { fontSize: 17, fontWeight: '800', color: CHARCOAL, marginBottom: 12 },
