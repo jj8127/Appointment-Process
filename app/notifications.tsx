@@ -1,6 +1,6 @@
 import { Feather } from '@expo/vector-icons';
 import { MotiView } from 'moti';
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
@@ -37,6 +37,8 @@ export default function NotificationsScreen() {
   const [notices, setNotices] = useState<Notice[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [selectionMode, setSelectionMode] = useState(false);
 
   const fetchPushNotifications = useCallback(async (): Promise<Notice[]> => {
     if (!role) return [];
@@ -114,11 +116,92 @@ export default function NotificationsScreen() {
     load();
   };
 
+  const toggleSelection = (id: string) => {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      if (next.size === 0) setSelectionMode(false);
+      return next;
+    });
+  };
+
+  const handleLongPress = (id: string) => {
+    setSelectionMode(true);
+    toggleSelection(id);
+  };
+
+  const handlePressItem = (item: Notice) => {
+    if (selectionMode) {
+      toggleSelection(item.id);
+      return;
+    }
+    Alert.alert(item.title, item.body, [{ text: '확인' }]);
+  };
+
+  const selectedCounts = useMemo(() => {
+    let notif = 0;
+    let notice = 0;
+    selectedIds.forEach((sid) => {
+      if (sid.startsWith('notification:')) notif += 1;
+      else if (sid.startsWith('notice:')) notice += 1;
+    });
+    return { notif, notice };
+  }, [selectedIds]);
+
+  const cancelSelection = () => {
+    setSelectionMode(false);
+    setSelectedIds(new Set());
+  };
+
+  const handleDeleteSelected = () => {
+    if (!selectedIds.size) return;
+    Alert.alert('알림 삭제', `선택한 ${selectedIds.size}개를 삭제할까요?`, [
+      { text: '취소', style: 'cancel' },
+      {
+        text: '삭제',
+        style: 'destructive',
+        onPress: async () => {
+          try {
+            const notifIds = Array.from(selectedIds)
+              .filter((id) => id.startsWith('notification:'))
+              .map((id) => id.replace('notification:', ''));
+            const noticeIds = Array.from(selectedIds)
+              .filter((id) => id.startsWith('notice:'))
+              .map((id) => id.replace('notice:', ''));
+
+            if (notifIds.length) {
+              const { error } = await supabase.from('notifications').delete().in('id', notifIds);
+              if (error) throw error;
+            }
+            if (noticeIds.length) {
+              const { error } = await supabase.from('notices').delete().in('id', noticeIds);
+              if (error) throw error;
+            }
+            setSelectedIds(new Set());
+            setSelectionMode(false);
+            load();
+            Alert.alert('삭제 완료', '선택한 항목을 삭제했습니다.');
+          } catch (err: any) {
+            Alert.alert('오류', err?.message ?? '삭제 중 문제가 발생했습니다.');
+          }
+        },
+      },
+    ]);
+  };
+
+  const handleSelectAll = () => {
+    if (!notices.length) return;
+    setSelectionMode(true);
+    setSelectedIds(new Set(notices.map((n) => n.id)));
+  };
+
   const renderItem = ({ item, index }: { item: Notice; index: number }) => {
     const isNotice = item.source === 'notice';
     const iconName = isNotice ? 'mic' : 'bell';
     const iconColor = isNotice ? HANWHA_ORANGE : '#3B82F6';
     const bgIcon = isNotice ? '#FFF7ED' : '#EFF6FF';
+    const isSelected = selectedIds.has(item.id);
 
     return (
       <MotiView
@@ -127,8 +210,9 @@ export default function NotificationsScreen() {
         transition={{ delay: index * 50 }}
       >
         <Pressable
-          style={styles.itemContainer}
-          onPress={() => Alert.alert(item.title, item.body, [{ text: '확인' }])}
+          style={[styles.itemContainer, isSelected && styles.itemSelected]}
+          onPress={() => handlePressItem(item)}
+          onLongPress={() => handleLongPress(item.id)}
           android_ripple={{ color: '#F3F4F6' }}
         >
           <View style={[styles.iconBox, { backgroundColor: bgIcon }]}>
@@ -146,6 +230,13 @@ export default function NotificationsScreen() {
               {item.body}
             </Text>
           </View>
+          {selectionMode && (
+            <Feather
+              name={isSelected ? 'check-circle' : 'circle'}
+              size={20}
+              color={isSelected ? HANWHA_ORANGE : '#D1D5DB'}
+            />
+          )}
         </Pressable>
       </MotiView>
     );
@@ -154,8 +245,27 @@ export default function NotificationsScreen() {
   return (
     <SafeAreaView style={styles.safe} edges={['left', 'right', 'bottom']}>
       <View style={styles.header}>
-        <Text style={styles.headerTitle}>알림 센터</Text>
-        <RefreshButton onPress={load} />
+        {selectionMode ? (
+          <View style={styles.selectionHeader}>
+            <Pressable onPress={cancelSelection}>
+              <Text style={styles.cancelText}>취소</Text>
+            </Pressable>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
+              <Pressable onPress={handleSelectAll} disabled={!notices.length}>
+                <Text style={[styles.selectAllText, !notices.length && { opacity: 0.4 }]}>모두 선택</Text>
+              </Pressable>
+              <Text style={styles.selectionTitle}>{selectedIds.size}개 선택됨</Text>
+              <Pressable onPress={handleDeleteSelected} disabled={!selectedIds.size}>
+                <Text style={[styles.deleteText, !selectedIds.size && { opacity: 0.5 }]}>삭제</Text>
+              </Pressable>
+            </View>
+          </View>
+        ) : (
+          <>
+            <Text style={styles.headerTitle}>알림 센터</Text>
+            <RefreshButton onPress={load} />
+          </>
+        )}
       </View>
 
       {loading && !refreshing ? (
@@ -207,6 +317,10 @@ const styles = StyleSheet.create({
     borderColor: BORDER,
     alignItems: 'flex-start',
   },
+  itemSelected: {
+    borderColor: HANWHA_ORANGE,
+    backgroundColor: '#FFF7ED',
+  },
   iconBox: {
     width: 40,
     height: 40,
@@ -224,4 +338,14 @@ const styles = StyleSheet.create({
 
   emptyState: { alignItems: 'center', marginTop: 60, gap: 12 },
   emptyText: { fontSize: 15, color: MUTED },
+  selectionHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    flex: 1,
+  },
+  cancelText: { fontSize: 14, color: MUTED, fontWeight: '600' },
+  selectionTitle: { fontSize: 16, fontWeight: '700', color: CHARCOAL },
+  deleteText: { fontSize: 14, color: '#EF4444', fontWeight: '700' },
+  selectAllText: { fontSize: 14, color: HANWHA_ORANGE, fontWeight: '700' },
 });

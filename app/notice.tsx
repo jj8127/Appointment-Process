@@ -1,9 +1,10 @@
 import { Feather } from '@expo/vector-icons';
-import { useQuery } from '@tanstack/react-query';
+import { useMutation, useQuery } from '@tanstack/react-query';
 import { MotiView } from 'moti';
 import { useMemo, useState } from 'react';
 import {
   ActivityIndicator,
+  Alert,
   RefreshControl,
   ScrollView,
   StyleSheet,
@@ -13,6 +14,7 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { RefreshButton } from '@/components/RefreshButton';
+import { useSession } from '@/hooks/use-session';
 import { supabase } from '@/lib/supabase';
 
 const CHARCOAL = '#111827';
@@ -34,6 +36,7 @@ const fetchNotices = async (): Promise<Notice[]> => {
 };
 
 export default function NoticeScreen() {
+  const { role } = useSession();
   const { data, isLoading, isError, refetch } = useQuery({
     queryKey: ['notices', 'list'],
     queryFn: fetchNotices,
@@ -42,10 +45,29 @@ export default function NoticeScreen() {
   const [refreshing, setRefreshing] = useState(false);
   const notices = useMemo(() => data ?? [], [data]);
 
+  const deleteMutation = useMutation({
+    mutationFn: async (id: string) => {
+      const { error } = await supabase.from('notices').delete().eq('id', id);
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      Alert.alert('삭제 완료', '공지사항이 삭제되었습니다.');
+      refetch();
+    },
+    onError: (err: any) => Alert.alert('오류', err?.message ?? '삭제 중 문제가 발생했습니다.'),
+  });
+
   const onRefresh = async () => {
     setRefreshing(true);
     await refetch();
     setRefreshing(false);
+  };
+
+  const handleDelete = (id: string) => {
+    Alert.alert('공지 삭제', '이 공지사항을 삭제할까요?', [
+      { text: '취소', style: 'cancel' },
+      { text: '삭제', style: 'destructive', onPress: () => deleteMutation.mutate(id) },
+    ]);
   };
 
   return (
@@ -87,7 +109,12 @@ export default function NoticeScreen() {
                 <View style={styles.badge}>
                   <Text style={styles.badgeText}>{n.category || '공지'}</Text>
                 </View>
-                <Text style={styles.date}>{new Date(n.created_at).toLocaleDateString()}</Text>
+                <View style={styles.headerActions}>
+                  <Text style={styles.date}>{new Date(n.created_at).toLocaleDateString()}</Text>
+                  {role === 'admin' && (
+                    <Feather name="trash-2" size={18} color="#9CA3AF" onPress={() => handleDelete(n.id)} />
+                  )}
+                </View>
               </View>
               <Text style={styles.noticeTitle}>{n.title}</Text>
               <View style={styles.divider} />
@@ -133,6 +160,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     marginBottom: 12,
   },
+  headerActions: { flexDirection: 'row', alignItems: 'center', gap: 10 },
   badge: {
     backgroundColor: '#FFF7ED',
     paddingHorizontal: 10,

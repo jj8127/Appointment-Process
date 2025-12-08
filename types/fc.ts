@@ -13,18 +13,8 @@ export type FcStatus =
   | 'appointment-completed'
   | 'final-link-sent';
 
-export type DocumentType =
-  | '생명보험 합격증'
-  | '제3보험 합격증'
-  | '손해보험 합격증'
-  | '생명보험 수료증(신입)'
-  | '제3보험 수료증(신입)'
-  | '손해보험 수료증(신입)'
-  | '생명보험 수료증(경력)'
-  | '제3보험 수료증(경력)'
-  | '손해보험 수료증(경력)'
-  | '이클린'
-  | '경력증명서';
+// 기본 제공 문자열 외에도 커스텀 서류명이 들어올 수 있으므로 string 으로 확장
+export type DocumentType = string;
 
 export type RequiredDocType = DocumentType;
 
@@ -43,6 +33,10 @@ export type FcProfile = {
   allowance_date?: string | null;
   appointment_url?: string | null;
   appointment_date?: string | null;
+  appointment_schedule_life?: string | null;
+  appointment_schedule_nonlife?: string | null;
+  appointment_date_life?: string | null;
+  appointment_date_nonlife?: string | null;
   status: FcStatus;
   created_at: string;
   fc_documents?: {

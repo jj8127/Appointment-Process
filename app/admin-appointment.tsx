@@ -1,10 +1,8 @@
-import { Feather } from '@expo/vector-icons';
 import { useMutation, useQuery } from '@tanstack/react-query';
 import { useMemo, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
-  Linking,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -30,8 +28,10 @@ type AppointmentRow = {
   phone: string;
   affiliation: string | null;
   allowance_date: string | null;
-  appointment_url: string | null;
-  appointment_date: string | null;
+  appointment_schedule_life: string | null;
+  appointment_schedule_nonlife: string | null;
+  appointment_date_life: string | null;
+  appointment_date_nonlife: string | null;
   fc_documents?: { doc_type: string; storage_path: string | null; status: string | null }[];
 };
 
@@ -73,7 +73,7 @@ const fetchTargets = async () => {
   const { data, error } = await supabase
     .from('fc_profiles')
     .select(
-      'id,name,phone,affiliation,allowance_date,appointment_url,appointment_date,fc_documents(doc_type,storage_path,status)',
+      'id,name,phone,affiliation,allowance_date,appointment_schedule_life,appointment_schedule_nonlife,appointment_date_life,appointment_date_nonlife,fc_documents(doc_type,storage_path,status)',
     )
     .order('name', { ascending: true });
   if (error) throw error;
@@ -82,7 +82,7 @@ const fetchTargets = async () => {
 
 export default function AdminAppointmentScreen() {
   const { role } = useSession();
-  const [urlInputs, setUrlInputs] = useState<Record<string, string>>({});
+  const [scheduleInputs, setScheduleInputs] = useState<Record<string, { life?: string; nonlife?: string }>>({});
 
   const { data, isLoading, refetch, isRefetching } = useQuery({
     queryKey: ['admin-appointment-targets'],
@@ -100,37 +100,54 @@ export default function AdminAppointmentScreen() {
     });
   }, [data]);
 
-  const saveUrl = useMutation({
-    mutationFn: async ({ id, url, phone }: { id: string; url: string; phone: string }) => {
-      const trimmed = url.trim();
+  const saveSchedule = useMutation({
+    mutationFn: async ({
+      id,
+      life,
+      nonlife,
+      phone,
+    }: { id: string; life: string; nonlife: string; phone: string }) => {
       const { error } = await supabase
         .from('fc_profiles')
-        .update({ appointment_url: trimmed, status: 'docs-approved' })
+        .update({
+          appointment_schedule_life: life || null,
+          appointment_schedule_nonlife: nonlife || null,
+          status: 'docs-approved',
+        })
         .eq('id', id);
       if (error) throw error;
-      await sendNotificationToFc(phone, '위촉 URL이 등록되었습니다. 모바일 위촉 메뉴에서 진행해주세요.');
+      if (life || nonlife) {
+        await sendNotificationToFc(
+          phone,
+          `위촉 일정이 업데이트되었습니다. 생명 ${life || '-'}월 / 손해 ${nonlife || '-'}월 진행 예정입니다.`,
+        );
+      }
     },
     onSuccess: () => {
-      Alert.alert('발송 완료', '위촉 URL을 저장하고 알림을 보냈습니다.');
+      Alert.alert('저장 완료', '위촉 일정을 저장했습니다.');
       refetch();
     },
-    onError: (err: any) => Alert.alert('오류', err.message ?? 'URL 저장 중 문제가 발생했습니다.'),
+    onError: (err: any) => Alert.alert('오류', err.message ?? '저장 중 문제가 발생했습니다.'),
   });
 
-  const handleOpenUrl = (url: string | null) => {
-    if (!url) {
-      Alert.alert('URL 없음', '먼저 URL을 입력하고 저장해주세요.');
-      return;
-    }
-    Linking.openURL(url).catch(() => Alert.alert('열기 실패', 'URL을 열 수 없습니다.'));
+  const handleInputChange = (id: string, key: 'life' | 'nonlife', value: string) => {
+    setScheduleInputs((prev) => ({
+      ...prev,
+      [id]: {
+        ...prev[id],
+        [key]: value,
+      },
+    }));
   };
 
   const renderCard = (fc: AppointmentRow) => {
     const docs = fc.fc_documents ?? [];
     const total = docs.length;
     const uploaded = docs.filter((d) => d.storage_path && d.storage_path !== 'deleted').length;
-    const value = urlInputs[fc.id] ?? fc.appointment_url ?? '';
-    const completed = !!fc.appointment_date;
+    const valueLife = scheduleInputs[fc.id]?.life ?? fc.appointment_schedule_life ?? '';
+    const valueNonLife = scheduleInputs[fc.id]?.nonlife ?? fc.appointment_schedule_nonlife ?? '';
+    const completedLife = !!fc.appointment_date_life;
+    const completedNonLife = !!fc.appointment_date_nonlife;
 
     return (
       <View key={fc.id} style={styles.card}>
@@ -141,9 +158,9 @@ export default function AdminAppointmentScreen() {
               {fc.phone} · {fc.affiliation || '소속 미정'}
             </Text>
           </View>
-          <View style={[styles.badge, completed ? styles.badgeDone : styles.badgePending]}>
-            <Text style={completed ? styles.badgeDoneText : styles.badgePendingText}>
-              {completed ? `완료 ${fc.appointment_date}` : '진행 중'}
+          <View style={[styles.badge, completedLife && completedNonLife ? styles.badgeDone : styles.badgePending]}>
+            <Text style={completedLife && completedNonLife ? styles.badgeDoneText : styles.badgePendingText}>
+              {completedLife && completedNonLife ? '생명/손해 완료' : '진행 중'}
             </Text>
           </View>
         </View>
@@ -151,38 +168,48 @@ export default function AdminAppointmentScreen() {
         <Text style={styles.helperText}>제출 문서 {uploaded}/{total}</Text>
 
         <View style={styles.inputRow}>
+          <View style={[styles.badgeSmall, styles.badgeLife]}>
+            <Text style={[styles.badgeSmallText, { color: ORANGE }]}>생명</Text>
+          </View>
           <TextInput
             style={styles.input}
-            placeholder="https://..."
+            placeholder="예) 3"
             placeholderTextColor={MUTED}
-            value={value}
-            onChangeText={(text) => setUrlInputs((prev) => ({ ...prev, [fc.id]: text }))}
-            autoCapitalize="none"
-            autoCorrect={false}
+            keyboardType="numeric"
+            value={valueLife}
+            onChangeText={(text) => handleInputChange(fc.id, 'life', text)}
           />
-          <Pressable
-            style={[styles.iconButton, (!value || saveUrl.isPending) && styles.iconButtonDisabled]}
-            onPress={() => saveUrl.mutate({ id: fc.id, url: value, phone: fc.phone })}
-            disabled={!value || saveUrl.isPending}
-          >
-            {saveUrl.isPending ? (
-              <ActivityIndicator color="#fff" size="small" />
-            ) : (
-              <Feather name="send" size={16} color="#fff" />
-            )}
-          </Pressable>
+          <Text style={styles.suffix}>월</Text>
+          {completedLife && <Text style={styles.doneText}>완료일 {fc.appointment_date_life}</Text>}
         </View>
 
-        <View style={styles.actions}>
-          <Pressable
-            style={[styles.secondaryButton, !fc.appointment_url && styles.secondaryButtonDisabled]}
-            onPress={() => handleOpenUrl(fc.appointment_url)}
-            disabled={!fc.appointment_url}
-          >
-            <Feather name="external-link" size={16} color={CHARCOAL} />
-            <Text style={styles.secondaryText}>현재 URL 열기</Text>
-          </Pressable>
+        <View style={styles.inputRow}>
+          <View style={[styles.badgeSmall, styles.badgeNonLife]}>
+            <Text style={[styles.badgeSmallText, { color: '#2563eb' }]}>손해</Text>
+          </View>
+          <TextInput
+            style={styles.input}
+            placeholder="예) 4"
+            placeholderTextColor={MUTED}
+            keyboardType="numeric"
+            value={valueNonLife}
+            onChangeText={(text) => handleInputChange(fc.id, 'nonlife', text)}
+          />
+          <Text style={styles.suffix}>월</Text>
+          {completedNonLife && <Text style={styles.doneText}>완료일 {fc.appointment_date_nonlife}</Text>}
         </View>
+
+        <Pressable
+          style={[styles.saveButton, saveSchedule.isPending && styles.saveButtonDisabled]}
+          onPress={() => saveSchedule.mutate({ id: fc.id, life: valueLife, nonlife: valueNonLife, phone: fc.phone })}
+          disabled={saveSchedule.isPending}
+        >
+          {saveSchedule.isPending ? (
+            <ActivityIndicator color="#fff" size="small" />
+          ) : (
+            <Text style={styles.saveButtonText}>일정 저장 및 알림</Text>
+          )}
+        </Pressable>
       </View>
     );
   };
@@ -201,8 +228,8 @@ export default function AdminAppointmentScreen() {
     <SafeAreaView style={styles.safe} edges={['left', 'right', 'bottom']}>
       <View style={styles.header}>
         <View style={{ flex: 1 }}>
-          <Text style={styles.title}>위촉 URL 관리</Text>
-          <Text style={styles.subtitle}>서류 제출이 끝난 FC에게 위촉 링크를 발송하세요.</Text>
+          <Text style={styles.title}>위촉 일정 관리</Text>
+          <Text style={styles.subtitle}>FC별 생명/손해 위촉 진행 월을 설정하세요.</Text>
         </View>
         <RefreshButton onPress={() => {refetch()}} />
       </View>
@@ -215,7 +242,7 @@ export default function AdminAppointmentScreen() {
         <ScrollView contentContainerStyle={styles.list}>
           {isRefetching && <ActivityIndicator color={ORANGE} style={{ marginBottom: 12 }} />}
           {readyList.length === 0 ? (
-            <Text style={styles.infoText}>위촉 URL을 보낼 대상이 없습니다.</Text>
+            <Text style={styles.infoText}>대상자가 없습니다.</Text>
           ) : (
             readyList.map(renderCard)
           )}
@@ -273,7 +300,11 @@ const styles = StyleSheet.create({
   badgePendingText: { color: ORANGE, fontWeight: '700', fontSize: 12 },
   badgeDone: { backgroundColor: '#DCFCE7' },
   badgeDoneText: { color: '#15803d', fontWeight: '700', fontSize: 12 },
-  inputRow: { flexDirection: 'row', gap: 8 },
+  inputRow: { flexDirection: 'row', gap: 8, alignItems: 'center' },
+  badgeSmall: { paddingHorizontal: 8, paddingVertical: 4, borderRadius: 8 },
+  badgeSmallText: { fontSize: 12, fontWeight: '700' },
+  badgeLife: { backgroundColor: '#fff7ed' },
+  badgeNonLife: { backgroundColor: '#eff6ff' },
   input: {
     flex: 1,
     height: 44,
@@ -284,29 +315,17 @@ const styles = StyleSheet.create({
     backgroundColor: '#F9FAFB',
     color: CHARCOAL,
   },
-  iconButton: {
-    width: 44,
-    height: 44,
-    borderRadius: 10,
+  suffix: { fontSize: 14, color: CHARCOAL },
+  doneText: { fontSize: 12, color: '#15803d', fontWeight: '600' },
+  saveButton: {
+    marginTop: 6,
     backgroundColor: ORANGE,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  iconButtonDisabled: { opacity: 0.5 },
-  actions: { flexDirection: 'row', gap: 8 },
-  secondaryButton: {
-    flex: 1,
-    borderWidth: 1,
-    borderColor: BORDER,
     borderRadius: 10,
-    paddingVertical: 10,
+    paddingVertical: 12,
     alignItems: 'center',
     justifyContent: 'center',
-    flexDirection: 'row',
-    gap: 6,
-    backgroundColor: '#F9FAFB',
   },
-  secondaryButtonDisabled: { opacity: 0.5 },
-  secondaryText: { color: CHARCOAL, fontWeight: '600' },
+  saveButtonDisabled: { opacity: 0.6 },
+  saveButtonText: { color: '#fff', fontWeight: '700' },
   infoText: { textAlign: 'center', color: MUTED },
 });

@@ -1,7 +1,7 @@
 import { RefreshButton } from '@/components/RefreshButton';
 import { Feather, Ionicons } from '@expo/vector-icons';
 import { useMutation, useQuery } from '@tanstack/react-query';
-import { useLocalSearchParams } from 'expo-router';
+import { useLocalSearchParams, useRouter } from 'expo-router';
 import * as WebBrowser from 'expo-web-browser';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
@@ -25,7 +25,7 @@ import { KeyboardAwareWrapper } from '@/components/KeyboardAwareWrapper';
 import { useKeyboardPadding } from '@/hooks/use-keyboard-padding';
 import { useSession } from '@/hooks/use-session';
 import { supabase } from '@/lib/supabase';
-import { FcProfile, RequiredDocType } from '@/types/fc';
+import { FcProfile } from '@/types/fc';
 
 if (Platform.OS === 'android' && UIManager.setLayoutAnimationEnabledExperimental) {
   UIManager.setLayoutAnimationEnabledExperimental(true);
@@ -91,7 +91,8 @@ const calcStep = (profile: FcRow) => {
   const isApproved = approvedStatuses.includes(profile.status);
   if (!isApproved) return 3;
 
-  const appointmentDone = Boolean(profile.appointment_date) || profile.status === 'final-link-sent';
+  const appointmentDone =
+    Boolean(profile.appointment_date_life) && Boolean(profile.appointment_date_nonlife);
   if (!appointmentDone) return 4;
 
   return 5;
@@ -102,7 +103,7 @@ const getStepKey = (profile: FcRow): StepKey => {
   return `step${step}` as StepKey;
 };
 
-const docOptions: RequiredDocType[] = [
+const docOptions: string[] = [
   '생명보험 합격증',
   '제3보험 합격증',
   '손해보험 합격증',
@@ -115,8 +116,8 @@ const docOptions: RequiredDocType[] = [
   '이클린',
   '경력증명서',
 ];
-const ALL_DOC_OPTIONS: RequiredDocType[] = Array.from(
-  new Set<RequiredDocType>([
+const ALL_DOC_OPTIONS: string[] = Array.from(
+  new Set<string>([
     ...docOptions,
   ]),
 );
@@ -136,6 +137,10 @@ type FcRow = {
   email: string | null;
   address: string | null;
   address_detail: string | null;
+  appointment_schedule_life: string | null;
+  appointment_schedule_nonlife: string | null;
+  appointment_date_life: string | null;
+  appointment_date_nonlife: string | null;
   fc_documents?: { doc_type: string; storage_path: string | null; file_name: string | null; status: string | null }[];
 };
 type FcRowWithStep = FcRow & { stepKey: StepKey };
@@ -185,7 +190,7 @@ const fetchFcs = async (
   let query = supabase
     .from('fc_profiles')
     .select(
-      'id,name,affiliation,phone,temp_id,status,allowance_date,appointment_url,appointment_date,resident_id_masked,career_type,email,address,address_detail,fc_documents(doc_type,storage_path,file_name,status)',
+      'id,name,affiliation,phone,temp_id,status,allowance_date,appointment_url,appointment_date,appointment_schedule_life,appointment_schedule_nonlife,appointment_date_life,appointment_date_nonlife,resident_id_masked,career_type,email,address,address_detail,fc_documents(doc_type,storage_path,file_name,status)',
     )
     .order('created_at', { ascending: false });
 
@@ -205,6 +210,7 @@ const fetchFcs = async (
 
 export default function DashboardScreen() {
   const { role, residentId } = useSession();
+  const router = useRouter();
   const { mode, status } = useLocalSearchParams<{ mode?: string; status?: string }>();
   const [statusFilter, setStatusFilter] = useState<FilterKey>('all');
   const [subFilter, setSubFilter] = useState<'all' | 'no-id' | 'has-id' | 'not-requested' | 'requested'>('all');
@@ -212,8 +218,8 @@ export default function DashboardScreen() {
   const [tempInputs, setTempInputs] = useState<Record<string, string>>({});
   const [careerInputs, setCareerInputs] = useState<Record<string, '신입' | '경력'>>({});
   const [editMode, setEditMode] = useState<Record<string, boolean>>({});
-  const [urlInputs, setUrlInputs] = useState<Record<string, string>>({});
-  const [docSelections, setDocSelections] = useState<Record<string, Set<RequiredDocType>>>({});
+  const [docSelections, setDocSelections] = useState<Record<string, Set<string>>>({});
+  const [customDocInputs, setCustomDocInputs] = useState<Record<string, string>>({});
   const [expanded, setExpanded] = useState<Record<string, boolean>>({});
   const [refreshing, setRefreshing] = useState(false);
   const keyboardPadding = useKeyboardPadding();
@@ -257,21 +263,18 @@ export default function DashboardScreen() {
 
   useEffect(() => {
     if (!data) return;
-    const next: Record<string, Set<RequiredDocType>> = {};
+    const next: Record<string, Set<string>> = {};
     const tempPrefill: Record<string, string> = {};
     const careerPrefill: Record<string, '신입' | '경력'> = {};
-    const urlPrefill: Record<string, string> = {};
     data.forEach((fc) => {
-      const docs = fc.fc_documents?.map((d) => d.doc_type as RequiredDocType) ?? [];
+      const docs = fc.fc_documents?.map((d) => d.doc_type) ?? [];
       next[fc.id] = new Set(docs);
       if (fc.temp_id) tempPrefill[fc.id] = fc.temp_id;
       if (fc.career_type === '경력' || fc.career_type === '신입') careerPrefill[fc.id] = fc.career_type as any;
-      if (fc.appointment_url) urlPrefill[fc.id] = fc.appointment_url;
     });
     setDocSelections(next);
     setTempInputs((prev) => ({ ...tempPrefill, ...prev }));
     setCareerInputs((prev) => ({ ...careerPrefill, ...prev }));
-    setUrlInputs((prev) => ({ ...urlPrefill, ...prev }));
   }, [data]);
 
   const onRefresh = useCallback(async () => {
@@ -318,32 +321,8 @@ export default function DashboardScreen() {
     onError: (err: any) => Alert.alert('저장 실패', err.message ?? '저장 중 문제가 발생했습니다.'),
   });
 
-  const saveUrl = useMutation({
-    mutationFn: async ({ id, url }: { id: string; url: string }) => {
-      const trimmed = (url ?? '').trim();
-      if (!trimmed) throw new Error('URL을 입력해주세요.');
-
-      const { error } = await supabase.from('fc_profiles').update({ appointment_url: trimmed }).eq('id', id);
-      if (error) throw error;
-
-      const { error: notifyError } = await supabase.functions.invoke('fc-notify', {
-        body: {
-          type: 'admin_update',
-          fc_id: id,
-          message: '위촉 URL이 등록되었습니다. 위촉을 진행해주세요.',
-        },
-      });
-      if (notifyError) throw notifyError;
-    },
-    onSuccess: () => {
-      Alert.alert('발송 완료', 'URL이 저장되고 알림이 발송되었습니다.');
-      refetch();
-    },
-    onError: (err: any) => Alert.alert('오류', err?.message ?? 'URL 발송 중 문제가 발생했습니다.'),
-  });
-
   const updateDocs = useMutation({
-    mutationFn: async ({ id, types, phone }: { id: string; types: RequiredDocType[]; phone?: string }) => {
+    mutationFn: async ({ id, types, phone }: { id: string; types: string[]; phone?: string }) => {
       const uniqueTypes = Array.from(new Set(types));
 
       const { data: existingDocs, error: fetchErr } = await supabase
@@ -353,7 +332,7 @@ export default function DashboardScreen() {
       if (fetchErr) throw fetchErr;
 
       const existing = existingDocs ?? [];
-      const existingTypes = existing.map((d) => d.doc_type as RequiredDocType);
+      const existingTypes = existing.map((d) => d.doc_type);
       const toInsert = uniqueTypes.filter((t) => !existingTypes.includes(t));
       const toDelete = existingTypes.filter((t) => !uniqueTypes.includes(t));
 
@@ -396,7 +375,7 @@ export default function DashboardScreen() {
   });
 
   const updateDocReqs = useMutation({
-    mutationFn: async ({ id, types }: { id: string; types: RequiredDocType[] }) => {
+    mutationFn: async ({ id, types }: { id: string; types: string[] }) => {
       const uniqueTypes = Array.from(new Set(types));
 
       const { data: currentDocs, error: fetchErr } = await supabase
@@ -405,12 +384,12 @@ export default function DashboardScreen() {
         .eq('fc_id', id);
       if (fetchErr) throw fetchErr;
 
-      const currentTypes = currentDocs?.map((d) => d.doc_type as RequiredDocType) ?? [];
+      const currentTypes = currentDocs?.map((d) => d.doc_type) ?? [];
       const selectedSet = new Set(uniqueTypes);
 
       const toDelete =
         currentDocs?.filter(
-          (d) => !selectedSet.has(d.doc_type as RequiredDocType) && (!d.storage_path || d.storage_path === 'deleted'),
+          (d) => !selectedSet.has(d.doc_type) && (!d.storage_path || d.storage_path === 'deleted'),
         ) ?? [];
       const toAdd = uniqueTypes.filter((t) => !currentTypes.includes(t));
 
@@ -467,13 +446,51 @@ export default function DashboardScreen() {
     onError: (err: any) => Alert.alert('처리 실패', err.message ?? '상태 업데이트 중 문제가 발생했습니다.'),
   });
 
-  const toggleDocSelection = (fcId: string, doc: RequiredDocType) => {
+  const updateAppointmentDate = useMutation({
+    mutationFn: async ({
+      id,
+      type,
+      date,
+      isReject = false,
+      phone,
+    }: {
+      id: string;
+      type: 'life' | 'nonlife';
+      date: string | null;
+      isReject?: boolean;
+      phone: string;
+    }) => {
+      const field = type === 'life' ? 'appointment_date_life' : 'appointment_date_nonlife';
+      const { error } = await supabase.from('fc_profiles').update({ [field]: date }).eq('id', id);
+      if (error) throw error;
+
+      if (isReject) {
+        const title = type === 'life' ? '생명보험 위촉 반려' : '손해보험 위촉 반려';
+        await sendNotificationAndPush('fc', phone, title, '입력하신 위촉 완료일이 반려되었습니다. 다시 입력해주세요.');
+      }
+    },
+    onSuccess: (_, vars) => {
+      const label = vars.type === 'life' ? '생명' : '손해';
+      Alert.alert('처리 완료', `${label} 위촉 정보가 ${vars.isReject ? '반려' : '저장'}되었습니다.`);
+      refetch();
+    },
+    onError: (err: any) => Alert.alert('오류', err?.message ?? '위촉 정보 처리 중 문제가 발생했습니다.'),
+  });
+
+  const toggleDocSelection = (fcId: string, doc: string) => {
     setDocSelections((prev) => {
       const set = new Set(prev[fcId] ?? []);
       if (set.has(doc)) set.delete(doc);
       else set.add(doc);
       return { ...prev, [fcId]: set };
     });
+  };
+
+  const addCustomDoc = (fcId: string) => {
+    const text = customDocInputs[fcId]?.trim();
+    if (!text) return;
+    toggleDocSelection(fcId, text);
+    setCustomDocInputs((prev) => ({ ...prev, [fcId]: '' }));
   };
 
   const processedRows = useMemo<FcRowWithStep[]>(() => {
@@ -633,42 +650,136 @@ export default function DashboardScreen() {
         );
       }
 
-      if (fc.status === 'docs-approved' || fc.status === 'docs-submitted') {
-        const currentUrl = urlInputs[fc.id] ?? fc.appointment_url ?? '';
+      if (fc.status === 'docs-approved' || fc.status === 'docs-submitted' || fc.status === 'final-link-sent') {
+        const lifeVal = fc.appointment_schedule_life ?? '';
+        const nonlifeVal = fc.appointment_schedule_nonlife ?? '';
         actionBlocks.push(
-          <View key="final-actions" style={[styles.actionColumn, { gap: 10 }]}>
-            <View style={styles.urlInputGroup}>
-              <Text style={styles.urlLabel}>위촉 URL 입력</Text>
-              <View style={styles.urlRow}>
-                <TextInput
-                  style={styles.urlInput}
-                  placeholder="https://..."
-                  placeholderTextColor="#9CA3AF"
-                  autoCapitalize="none"
-                  value={currentUrl}
-                  onChangeText={(t) => setUrlInputs((prev) => ({ ...prev, [fc.id]: t }))}
-                />
+          <View key="final-actions" style={[styles.actionColumn, { gap: 12, marginTop: 4 }]}>
+            <Text style={styles.adminLabel}>위촉 진행 관리</Text>
+
+            <View style={styles.scheduleRow}>
+              <View style={styles.scheduleInfo}>
+                <View style={[styles.badge, { backgroundColor: '#fff7ed' }]}>
+                  <Text style={{ color: ORANGE, fontWeight: '700', fontSize: 11 }}>생명</Text>
+                </View>
+                <Text style={styles.scheduleText}>
+                  {lifeVal ? `${lifeVal}월 진행` : '일정 미정'}
+                  {fc.appointment_date_life ? ` (${fc.appointment_date_life})` : ''}
+                </Text>
+              </View>
+              <View style={styles.scheduleButtons}>
                 <Pressable
-                  style={[styles.urlSendButton, saveUrl.isPending && styles.actionButtonDisabled]}
-                  onPress={() => saveUrl.mutate({ id: fc.id, url: currentUrl })}
-                  disabled={saveUrl.isPending}
+                  style={[styles.confirmBtn, (!fc.appointment_date_life || updateAppointmentDate.isPending) && styles.actionButtonDisabled]}
+                  onPress={() => {
+                    const targetDate = fc.appointment_date_life;
+                    if (!targetDate) return;
+                    Alert.alert('완료 저장', '생명보험 위촉을 완료(승인) 처리할까요?', [
+                      { text: '취소', style: 'cancel' },
+                      {
+                        text: '확인',
+                        onPress: () =>
+                          updateAppointmentDate.mutate({
+                            id: fc.id,
+                            type: 'life',
+                            date: targetDate,
+                            phone: fc.phone,
+                          }),
+                      },
+                    ]);
+                  }}
+                  disabled={updateAppointmentDate.isPending || !fc.appointment_date_life}
                 >
-                  {saveUrl.isPending ? (
-                    <ActivityIndicator color="#fff" size="small" />
-                  ) : (
-                    <Text style={styles.urlSendButtonText}>전송</Text>
-                  )}
+                  <Text style={styles.confirmBtnText}>완료 저장</Text>
+                </Pressable>
+                <Pressable
+                  style={[styles.rejectBtn, (!fc.appointment_date_life || updateAppointmentDate.isPending) && styles.actionButtonDisabled]}
+                  onPress={() =>
+                    fc.appointment_date_life
+                      ? Alert.alert('위촉 반려', '생명보험 위촉 날짜를 초기화할까요?', [
+                          { text: '취소', style: 'cancel' },
+                          {
+                            text: '반려',
+                            style: 'destructive',
+                            onPress: () =>
+                              updateAppointmentDate.mutate({
+                                id: fc.id,
+                                type: 'life',
+                                date: null,
+                                isReject: true,
+                                phone: fc.phone,
+                              }),
+                          },
+                        ])
+                      : undefined
+                  }
+                  disabled={updateAppointmentDate.isPending || !fc.appointment_date_life}
+                >
+                  <Text style={styles.rejectBtnText}>반려</Text>
                 </Pressable>
               </View>
             </View>
-            <Pressable
-              style={styles.actionButtonPrimary}
-              onPress={() => confirmStatusChange(fc, 'final-link-sent', '위촉 완료 상태로 변경할까요?')}
-              disabled={updateStatus.isPending}
-            >
-              <Feather name="check-square" size={16} color="#fff" />
-              <Text style={styles.actionButtonText}>위촉 완료 처리</Text>
-            </Pressable>
+
+            <View style={styles.scheduleRow}>
+              <View style={styles.scheduleInfo}>
+                <View style={[styles.badge, { backgroundColor: '#eff6ff' }]}>
+                  <Text style={{ color: '#2563eb', fontWeight: '700', fontSize: 11 }}>손해</Text>
+                </View>
+                <Text style={styles.scheduleText}>
+                  {nonlifeVal ? `${nonlifeVal}월 진행` : '일정 미정'}
+                  {fc.appointment_date_nonlife ? ` (${fc.appointment_date_nonlife})` : ''}
+                </Text>
+              </View>
+              <View style={styles.scheduleButtons}>
+                <Pressable
+                  style={[styles.confirmBtn, (!fc.appointment_date_nonlife || updateAppointmentDate.isPending) && styles.actionButtonDisabled]}
+                  onPress={() => {
+                    const targetDate = fc.appointment_date_nonlife;
+                    if (!targetDate) return;
+                    Alert.alert('완료 저장', '손해보험 위촉을 완료(승인) 처리할까요?', [
+                      { text: '취소', style: 'cancel' },
+                      {
+                        text: '확인',
+                        onPress: () =>
+                          updateAppointmentDate.mutate({
+                            id: fc.id,
+                            type: 'nonlife',
+                            date: targetDate,
+                            phone: fc.phone,
+                          }),
+                      },
+                    ]);
+                  }}
+                  disabled={updateAppointmentDate.isPending || !fc.appointment_date_nonlife}
+                >
+                  <Text style={styles.confirmBtnText}>완료 저장</Text>
+                </Pressable>
+                <Pressable
+                  style={[styles.rejectBtn, (!fc.appointment_date_nonlife || updateAppointmentDate.isPending) && styles.actionButtonDisabled]}
+                  onPress={() =>
+                    fc.appointment_date_nonlife
+                      ? Alert.alert('위촉 반려', '손해보험 위촉 날짜를 초기화할까요?', [
+                          { text: '취소', style: 'cancel' },
+                          {
+                            text: '반려',
+                            style: 'destructive',
+                            onPress: () =>
+                              updateAppointmentDate.mutate({
+                                id: fc.id,
+                                type: 'nonlife',
+                                date: null,
+                                isReject: true,
+                                phone: fc.phone,
+                              }),
+                          },
+                        ])
+                      : undefined
+                  }
+                  disabled={updateAppointmentDate.isPending || !fc.appointment_date_nonlife}
+                >
+                  <Text style={styles.rejectBtnText}>반려</Text>
+                </Pressable>
+              </View>
+            </View>
           </View>,
         );
       }
@@ -721,7 +832,7 @@ export default function DashboardScreen() {
                   onPress={() =>
                     updateDocReqs.mutate({
                       id: fc.id,
-                      types: Array.from(docSelections[fc.id] ?? new Set<RequiredDocType>()),
+                      types: Array.from(docSelections[fc.id] ?? new Set<string>()),
                     })
                   }
                   disabled={updateDocReqs.isPending}
@@ -744,6 +855,30 @@ export default function DashboardScreen() {
                     </Pressable>
                   );
                 })}
+                {Array.from(docSelections[fc.id] ?? []).filter((d) => !ALL_DOC_OPTIONS.includes(d)).map((doc) => (
+                  <Pressable
+                    key={doc}
+                    style={[styles.docChip, styles.docChipSelected]}
+                    onPress={() => toggleDocSelection(fc.id, doc)}
+                  >
+                    <Text style={[styles.docChipText, { color: '#fff' }]}>{doc}</Text>
+                  </Pressable>
+                ))}
+              </View>
+
+              <View style={{ flexDirection: 'row', gap: 6, marginTop: 4 }}>
+                <TextInput
+                  style={[styles.miniInput, { height: 36 }]}
+                  placeholder="기타 서류 입력"
+                  value={customDocInputs[fc.id] || ''}
+                  onChangeText={(text) => setCustomDocInputs((prev) => ({ ...prev, [fc.id]: text }))}
+                />
+                <Pressable
+                  style={[styles.saveBtn, { backgroundColor: '#4b5563' }]}
+                  onPress={() => addCustomDoc(fc.id)}
+                >
+                  <Text style={styles.saveBtnText}>추가</Text>
+                </Pressable>
               </View>
             </View>
           </View>
@@ -861,7 +996,6 @@ export default function DashboardScreen() {
 
           {rows.map((fc, idx) => {
             const isExpanded = expanded[fc.id];
-            const selectedDocs = Array.from(docSelections[fc.id] ?? new Set<RequiredDocType>());
             const submitted = (fc.fc_documents ?? []).filter((d) => d.storage_path && d.storage_path !== 'deleted');
             const careerDisplay = careerInputs[fc.id] ?? fc.career_type ?? '-';
             const tempDisplay = tempInputs[fc.id] ?? fc.temp_id ?? '-';
@@ -879,7 +1013,22 @@ export default function DashboardScreen() {
                       {fc.phone} · {STATUS_LABELS[fc.status] ?? fc.status}
                     </Text>
                   </View>
-                  <Feather name={isExpanded ? 'chevron-up' : 'chevron-down'} size={20} color="#9CA3AF" />
+                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                    {role === 'admin' && (
+                      <Pressable
+                        style={styles.messageBtn}
+                        onPress={() =>
+                          router.push({
+                            pathname: '/chat',
+                            params: { targetId: fc.phone, targetName: fc.name || fc.phone },
+                          })
+                        }
+                      >
+                        <Feather name="message-circle" size={18} color={CHARCOAL} />
+                      </Pressable>
+                    )}
+                    <Feather name={isExpanded ? 'chevron-up' : 'chevron-down'} size={20} color="#9CA3AF" />
+                  </View>
                 </Pressable>
 
                 {isExpanded && (
@@ -888,8 +1037,18 @@ export default function DashboardScreen() {
 
                     <DetailRow label="임시번호" value={tempDisplay} />
                     <DetailRow label="수당동의" value={allowanceDisplay} />
-                    <DetailRow label="위촉 URL" value={fc.appointment_url ?? '발송 대기'} />
-                    <DetailRow label="위촉 완료일" value={fc.appointment_date ?? '미입력'} />
+                    <DetailRow
+                      label="생명 위촉"
+                      value={`${fc.appointment_schedule_life ?? '미정'}월 / 완료 ${
+                        fc.appointment_date_life ?? '미입력'
+                      }`}
+                    />
+                    <DetailRow
+                      label="손해 위촉"
+                      value={`${fc.appointment_schedule_nonlife ?? '미정'}월 / 완료 ${
+                        fc.appointment_date_nonlife ?? '미입력'
+                      }`}
+                    />
                     <DetailRow label="경력구분" value={careerDisplay} />
                     <DetailRow label="이메일" value={fc.email ?? '-'} />
                     <DetailRow label="주소" value={`${fc.address ?? '-'} ${fc.address_detail ?? ''}`} />
@@ -930,7 +1089,7 @@ export default function DashboardScreen() {
                         <Text style={styles.adminLabel}>필수 서류 선택</Text>
                         <View style={styles.docPills}>
                           {docOptions.map((doc) => {
-                            const set = docSelections[fc.id] ?? new Set<RequiredDocType>();
+                            const set = docSelections[fc.id] ?? new Set<string>();
                             const active = set.has(doc);
                             const submittedDoc = submitted.find((s) => s.doc_type === doc);
                             return (
@@ -955,13 +1114,57 @@ export default function DashboardScreen() {
                               </Pressable>
                             );
                           })}
+                          
+                          {Array.from(docSelections[fc.id] ?? [])
+                            .filter(d => !docOptions.includes(d))
+                            .map(doc => {
+                              const submittedDoc = submitted.find((s) => s.doc_type === doc);
+                              return (
+                                <Pressable
+                                  key={doc}
+                                  style={[
+                                    styles.docPill,
+                                    styles.docPillSelected,
+                                    submittedDoc && styles.docPillSubmitted
+                                  ]}
+                                  onPress={() => toggleDocSelection(fc.id, doc)}
+                                >
+                                  <Text
+                                    style={[
+                                      styles.docPillText,
+                                      styles.docPillTextSelected,
+                                      submittedDoc && styles.docPillTextSubmitted
+                                    ]}
+                                  >
+                                    {doc}
+                                  </Text>
+                                </Pressable>
+                              );
+                            })
+                          }
                         </View>
+
+                        <View style={{ flexDirection: 'row', gap: 6, alignItems: 'center' }}>
+                          <TextInput
+                            style={[styles.adminInput, { flex: 1, height: 36 }]}
+                            placeholder="기타 서류 입력"
+                            value={customDocInputs[fc.id] || ''}
+                            onChangeText={(text) => setCustomDocInputs((prev) => ({ ...prev, [fc.id]: text }))}
+                          />
+                          <Pressable
+                            style={[styles.saveButton, { backgroundColor: '#4b5563', paddingVertical: 8 }]}
+                            onPress={() => addCustomDoc(fc.id)}
+                          >
+                            <Text style={styles.saveButtonText}>추가</Text>
+                          </Pressable>
+                        </View>
+
                         <Pressable
-                          style={[styles.saveButton, { alignSelf: 'flex-start' }]}
+                          style={[styles.saveButton, { alignSelf: 'flex-start', marginTop: 4 }]}
                             onPress={() =>
                               updateDocs.mutate({
                                 id: fc.id,
-                                types: Array.from(docSelections[fc.id] ?? new Set()),
+                                types: Array.from(docSelections[fc.id] ?? new Set<string>()),
                                 phone: fc.phone,
                               })
                             }
@@ -1128,6 +1331,16 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     padding: 16,
   },
+  messageBtn: {
+    width: 34,
+    height: 34,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: '#E5E7EB',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#fff',
+  },
   listInfo: { flex: 1 },
   nameRow: {
     flexDirection: 'row',
@@ -1267,28 +1480,6 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontWeight: '700',
   },
-  urlInputGroup: { gap: 6 },
-  urlLabel: { fontSize: 12, fontWeight: '700', color: CHARCOAL },
-  urlRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
-  urlInput: {
-    flex: 1,
-    height: 40,
-    borderWidth: 1,
-    borderColor: '#E5E7EB',
-    borderRadius: 8,
-    paddingHorizontal: 10,
-    fontSize: 13,
-    backgroundColor: '#fff',
-  },
-  urlSendButton: {
-    backgroundColor: ORANGE,
-    paddingHorizontal: 14,
-    paddingVertical: 10,
-    borderRadius: 8,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  urlSendButtonText: { color: '#fff', fontWeight: '700', fontSize: 13 },
   docPills: {
     flexDirection: 'row',
     flexWrap: 'wrap',
@@ -1381,4 +1572,34 @@ const styles = StyleSheet.create({
   },
   docChipSelected: { backgroundColor: ORANGE, borderColor: ORANGE },
   docChipText: { fontSize: 12, color: CHARCOAL },
+  scheduleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    backgroundColor: '#F9FAFB',
+    padding: 10,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: '#E5E7EB',
+  },
+  badge: { paddingHorizontal: 6, paddingVertical: 2, borderRadius: 4 },
+  scheduleInfo: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  scheduleText: { fontSize: 13, color: CHARCOAL },
+  scheduleButtons: { flexDirection: 'row', gap: 6 },
+  confirmBtn: {
+    backgroundColor: CHARCOAL,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 6,
+  },
+  confirmBtnText: { color: '#fff', fontSize: 11, fontWeight: '600' },
+  rejectBtn: {
+    backgroundColor: '#fff',
+    borderWidth: 1,
+    borderColor: '#fecdd3',
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 6,
+  },
+  rejectBtnText: { color: '#b91c1c', fontSize: 11, fontWeight: '600' },
 });

@@ -16,7 +16,7 @@ import {
   Text,
   View,
 } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { RefreshButton } from '@/components/RefreshButton';
 import { useSession } from '@/hooks/use-session';
@@ -58,6 +58,7 @@ const quickLinksAdmin: QuickLink[] = [
   { href: '/dashboard', stepKey: 'step2', title: '수당 동의 안내', description: '기본 정보 저장 완료 FC' },
   { href: '/dashboard', stepKey: 'step3', title: '서류 안내/검토', description: '제출해야 할 서류 관리' },
   { href: '/dashboard', stepKey: 'step4', title: '위촉 진행', description: '위촉 URL 발송 및 확인' },
+  { href: '/admin-messenger', title: '메신저', description: 'FC 1:1 대화 관리' },
   { href: '/admin-appointment', title: '위촉 URL 발송', description: 'FC별 위촉 링크 관리' },
   { href: '/dashboard', stepKey: 'step5', title: '완료 관리', description: '위촉 완료 현황' },
   { href: '/exam-register', title: '생명보험 시험', description: '응시일정 · 마감 관리' },
@@ -73,6 +74,7 @@ const quickLinksFc: QuickLink[] = [
   { href: '/exam-apply2', title: '손해 시험 신청', description: '시험 접수하기' },
   { href: '/consent', title: '수당 동의', description: '약관 동의 관리' },
   { href: '/docs-upload', title: '서류 업로드', description: '필수 서류 제출' },
+  { href: '/chat', title: '1:1 문의', description: '총무팀과 대화하기' },
   { href: '/appointment', title: '모바일 위촉', description: '위촉 URL 접속 및 완료' },
 ];
 
@@ -133,7 +135,9 @@ const fetchLatestNotice = async () => {
 const fetchFcStatus = async (residentId: string) => {
   const { data, error } = await supabase
     .from('fc_profiles')
-    .select('name,affiliation,status,temp_id,allowance_date,appointment_url,appointment_date,resident_id_masked,email,address,fc_documents(doc_type,storage_path)')
+    .select(
+      'name,affiliation,status,temp_id,allowance_date,appointment_url,appointment_date,appointment_schedule_life,appointment_schedule_nonlife,appointment_date_life,appointment_date_nonlife,resident_id_masked,email,address,fc_documents(doc_type,storage_path)',
+    )
     .eq('phone', residentId)
     .maybeSingle();
   if (error) throw error;
@@ -145,6 +149,10 @@ const fetchFcStatus = async (residentId: string) => {
     allowance_date: null,
     appointment_url: null,
     appointment_date: null,
+    appointment_schedule_life: null,
+    appointment_schedule_nonlife: null,
+    appointment_date_life: null,
+    appointment_date_nonlife: null,
     resident_id_masked: null,
     email: null,
     address: null,
@@ -173,7 +181,9 @@ function calcStep(myFc: any) {
   const isApproved = approvedStatuses.includes(myFc.status);
   if (!isApproved) return 3;
 
-  const appointmentDone = Boolean(myFc.appointment_date) || myFc.status === 'final-link-sent';
+  const appointmentDone =
+    (Boolean(myFc.appointment_date_life) && Boolean(myFc.appointment_date_nonlife)) ||
+    myFc.status === 'final-link-sent';
   if (!appointmentDone) return 4;
 
   return 5;
@@ -203,12 +213,15 @@ const getLinkIcon = (href: string) => {
   if (href.includes('consent')) return 'check-circle'; // 수당 동의
   if (href.includes('docs-upload')) return 'upload-cloud'; // 서류 업로드
   if (href.includes('appointment')) return 'smartphone'; // 모바일 위촉
+  if (href.includes('admin-messenger')) return 'message-circle'; // 메신저
+  if (href.includes('chat')) return 'message-circle'; // 1:1 문의
 
   return 'chevron-right';
 };
 
 export default function Home() {
   const { role, residentId, residentMask, displayName, logout, hydrated } = useSession();
+  const insets = useSafeAreaInsets();
 
   const [refreshing, setRefreshing] = useState(false);
 
@@ -279,6 +292,15 @@ export default function Home() {
   if (isAllSubmitted) {
     docsStatusText = isApproved ? '모든 문서 제출 완료 [검토 완료]' : '모든 문서 제출 완료 [검토 중]';
   }
+
+  const getAppointmentStatus = (date: string | null | undefined, schedule: string | null | undefined) => {
+    if (date) return { label: '완료', color: '#15803d', bg: '#DCFCE7' };
+    if (schedule) return { label: `${schedule}월 진행중`, color: '#f36f21', bg: '#FFF7ED' };
+    return { label: '진행중', color: '#2563eb', bg: '#EFF6FF' };
+  };
+
+  const lifeStatus = getAppointmentStatus(myFc?.appointment_date_life, myFc?.appointment_schedule_life);
+  const nonLifeStatus = getAppointmentStatus(myFc?.appointment_date_nonlife, myFc?.appointment_schedule_nonlife);
 
   useEffect(() => {
     if (!hydrated) return;
@@ -352,7 +374,7 @@ export default function Home() {
   return (
     <SafeAreaView style={styles.safe} edges={['left', 'right', 'bottom']}>
       <ScrollView
-        contentContainerStyle={styles.container}
+        contentContainerStyle={[styles.container, { paddingBottom: 96 + (insets.bottom || 0) }]}
         refreshControl={
           <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
         }
@@ -378,6 +400,14 @@ export default function Home() {
             <RefreshButton />
           </View>
         </View>
+
+        {role === 'fc' && (
+          <View style={{ marginBottom: 12, paddingHorizontal: 4, alignItems: 'center' }}>
+            <Text style={{ fontSize: 24, fontWeight: '800', color: CHARCOAL, textAlign: 'center' }}>
+              {(myFc?.name || displayName || 'FC')}님 환영합니다.
+            </Text>
+          </View>
+        )}
 
         <MotiView from={{ opacity: 0, translateY: -10 }} animate={{ opacity: 1, translateY: 0 }} transition={{ type: 'timing', duration: 500 }}>
           <Pressable
@@ -478,7 +508,24 @@ export default function Home() {
               {statusLoading ? (
                 <ActivityIndicator color={HANWHA_LIGHT} style={{ marginVertical: 20 }} />
               ) : (
-                <ProgressBar step={currentStep} />
+                <>
+                  <ProgressBar step={currentStep} />
+                  <View style={styles.statusRow}>
+                    <View style={styles.statusItem}>
+                      <Text style={styles.statusLabel}>생명 위촉</Text>
+                      <View style={[styles.statusBadge, { backgroundColor: lifeStatus.bg }]}>
+                        <Text style={[styles.statusText, { color: lifeStatus.color }]}>{lifeStatus.label}</Text>
+                      </View>
+                    </View>
+                    <View style={styles.statusDivider} />
+                    <View style={styles.statusItem}>
+                      <Text style={styles.statusLabel}>손해 위촉</Text>
+                      <View style={[styles.statusBadge, { backgroundColor: nonLifeStatus.bg }]}>
+                        <Text style={[styles.statusText, { color: nonLifeStatus.color }]}>{nonLifeStatus.label}</Text>
+                      </View>
+                    </View>
+                  </View>
+                </>
               )}
               <View style={styles.glanceRow}>
                 <Pressable
@@ -841,4 +888,20 @@ const styles = StyleSheet.create({
     zIndex: 0,
   },
   stepConnectorDone: { backgroundColor: '#fed7aa' },
+
+  statusRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    backgroundColor: '#F9FAFB',
+    paddingVertical: 12,
+    paddingHorizontal: 16,
+    borderRadius: 12,
+    marginVertical: 4,
+  },
+  statusItem: { flex: 1, alignItems: 'center', gap: 6 },
+  statusDivider: { width: 1, height: 24, backgroundColor: '#E5E7EB' },
+  statusLabel: { fontSize: 12, fontWeight: '600', color: '#6B7280' },
+  statusBadge: { paddingHorizontal: 8, paddingVertical: 4, borderRadius: 6 },
+  statusText: { fontSize: 12, fontWeight: '700' },
 });

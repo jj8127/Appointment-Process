@@ -148,7 +148,7 @@ export default function DocsUploadScreen() {
       const reqDocs: DocItem[] = (requirements ?? []).map((r) => {
         const hasFile = r.storage_path && r.storage_path !== 'deleted';
         return {
-          type: r.doc_type as any,
+          type: r.doc_type,
           required: true,
           uploadedUrl: hasFile
             ? supabase.storage.from(BUCKET).getPublicUrl(r.storage_path).data.publicUrl
@@ -208,7 +208,7 @@ export default function DocsUploadScreen() {
     };
   }, [fc?.id, loadData]);
 
-  const handlePick = async (type: RequiredDoc['type']) => {
+  const handlePick = async (type: string) => {
     if (!fc) return;
     const result = await DocumentPicker.getDocumentAsync({
       type: 'application/pdf',
@@ -283,7 +283,7 @@ export default function DocsUploadScreen() {
     }
   };
 
-  const handleDelete = async (type: RequiredDoc['type'], storagePath?: string) => {
+  const handleDelete = async (type: string, storagePath?: string) => {
     if (!fc) return;
     try {
       if (storagePath) {
@@ -378,15 +378,6 @@ export default function DocsUploadScreen() {
             <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
           }
         >
-          {fc?.temp_id && (
-            <View style={styles.noticeBox}>
-              <Feather name="info" size={14} color={CHARCOAL} style={{ marginTop: 2 }} />
-              <Text style={styles.noticeText}>
-                발급된 임시번호 <Text style={{ fontWeight: '700' }}>{fc.temp_id}</Text>를 서류에 기재해주세요.
-              </Text>
-            </View>
-          )}
-
           <View style={styles.list}>
             {docs.map((doc) => {
               const isUploaded = !!doc.uploadedUrl;
