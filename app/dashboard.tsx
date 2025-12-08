@@ -41,6 +41,7 @@ const BORDER = '#E5E7EB';
 const STATUS_LABELS: Record<FcProfile['status'], string> = {
   draft: '임시사번 미발급',
   'temp-id-issued': '임시번호 발급 완료',
+  'allowance-pending': '수당동의 검토 중',
   'allowance-consented': '수당동의 완료',
   'docs-requested': '서류 요청',
   'docs-pending': '서류 대기',
@@ -77,7 +78,7 @@ const calcStep = (profile: FcRow) => {
     Boolean(profile.email || profile.address);
   if (!hasBasicInfo) return 1;
 
-  const hasAllowance = Boolean(profile.allowance_date);
+  const hasAllowance = Boolean(profile.allowance_date) && profile.status !== 'allowance-pending';
   if (!hasAllowance) return 2;
 
   const docs = profile.fc_documents ?? [];
@@ -225,6 +226,23 @@ export default function DashboardScreen() {
     enabled: !!role,
   });
 
+  // Realtime: FC 프로필 / 서류 변경 시 대시보드 갱신
+  useEffect(() => {
+    const profileChannel = supabase
+      .channel('dashboard-profiles')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'fc_profiles' }, () => refetch())
+      .subscribe();
+    const docChannel = supabase
+      .channel('dashboard-documents')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'fc_documents' }, () => refetch())
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(profileChannel);
+      supabase.removeChannel(docChannel);
+    };
+  }, [refetch]);
+
   useEffect(() => {
     if (!status) return;
     const found = FILTER_OPTIONS.find((option) => option.key === status);
@@ -290,7 +308,7 @@ export default function DashboardScreen() {
       }
       // 알림: 해당 FC에게 임시번호 발급/수정 안내
       if (phone && tempIdTrim && tempIdTrim !== prevTrim) {
-        await sendNotificationAndPush('fc', phone, '임시번호가 수정 되었습니다.', `임시사번: ${tempIdTrim}`);
+        await sendNotificationAndPush('fc', phone, '임시번호가 발급 되었습니다.', `임시사번: ${tempIdTrim}`);
       }
     },
     onSuccess: () => {
@@ -478,13 +496,13 @@ export default function DashboardScreen() {
         filtered = filtered.filter((fc) => !!fc.temp_id);
       }
     }
-    if (statusFilter === 'step3') {
-      if (subFilter === 'not-requested') {
-        filtered = filtered.filter((fc) => fc.status === 'allowance-consented');
-      } else if (subFilter === 'requested') {
-        filtered = filtered.filter((fc) => fc.status === 'docs-requested');
-      }
+  if (statusFilter === 'step3') {
+    if (subFilter === 'not-requested') {
+      filtered = filtered.filter((fc) => fc.status === 'allowance-consented');
+    } else if (subFilter === 'requested') {
+      filtered = filtered.filter((fc) => fc.status === 'docs-requested');
     }
+  }
     return filtered;
   }, [processedRows, statusFilter, subFilter]);
 
@@ -575,6 +593,22 @@ export default function DashboardScreen() {
             >
               <Feather name="send" size={16} color="#fff" />
               <Text style={styles.actionButtonText}>알림 전송</Text>
+            </Pressable>
+          </View>,
+        );
+      }
+
+      if (fc.status === 'allowance-pending') {
+        actionBlocks.push(
+          <View key="allowance-actions" style={styles.actionColumn}>
+            <Text style={styles.adminLabel}>수당동의 검토</Text>
+            <Pressable
+              style={styles.actionButtonPrimary}
+              onPress={() => confirmStatusChange(fc, 'allowance-consented', '수당 동의 검토를 완료 처리할까요?')}
+              disabled={updateStatus.isPending}
+            >
+              <Feather name="check-circle" size={16} color="#fff" />
+              <Text style={styles.actionButtonText}>검토 완료 처리</Text>
             </Pressable>
           </View>,
         );

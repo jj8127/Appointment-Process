@@ -160,7 +160,7 @@ function calcStep(myFc: any) {
     Boolean(myFc.email || myFc.address);
   if (!hasBasicInfo) return 1;
 
-  const hasAllowance = Boolean(myFc.allowance_date);
+  const hasAllowance = Boolean(myFc.allowance_date) && myFc.status !== 'allowance-pending';
   if (!hasAllowance) return 2;
 
   const docs = myFc.fc_documents ?? [];
@@ -211,6 +211,29 @@ export default function Home() {
   const { role, residentId, residentMask, displayName, logout, hydrated } = useSession();
 
   const [refreshing, setRefreshing] = useState(false);
+
+  // 테스트용: Supabase 연결 확인 (컴포넌트 내부에서 실행)
+  useEffect(() => {
+    let active = true;
+    (async () => {
+      try {
+        const { count, error } = await supabase
+          .from('device_tokens')
+          .select('count', { count: 'exact', head: true });
+        if (!active) return;
+        if (error) {
+          console.log('[supabase ping] 연결 실패', error.message ?? error);
+        } else {
+          console.log('[supabase ping] 연결 성공, device_tokens count:', count);
+        }
+      } catch (err: any) {
+        if (active) console.log('[supabase ping] 예외', err?.message ?? err);
+      }
+    })();
+    return () => {
+      active = false;
+    };
+  }, []);
 
   const {
     data: counts,

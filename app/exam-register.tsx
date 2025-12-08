@@ -25,8 +25,9 @@ const ORANGE = '#f36f21';
 const ORANGE_LIGHT = '#f7b182';
 const CHARCOAL = '#111827';
 const MUTED = '#6b7280';
-const BORDER = '#e5e7eb';
-const SOFT_BG = '#fff7f0';
+const BORDER = '#E5E7EB';
+const BACKGROUND = '#F3F4F6';
+const INPUT_BG = '#F9FAFB';
 const EXPO_PUSH_URL = 'https://exp.host/--/api/v2/push/send';
 
 async function notifyAllFcs(title: string, body: string) {
@@ -174,6 +175,23 @@ export default function ExamRegisterScreen() {
     queryKey: ['exam-rounds-life'],
     queryFn: fetchRounds,
   });
+
+  // Realtime: exam_rounds / exam_locations 변경 시 즉시 갱신
+  useEffect(() => {
+    const roundChannel = supabase
+      .channel('exam-register-life-rounds')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'exam_rounds' }, () => refetch())
+      .subscribe();
+    const locationChannel = supabase
+      .channel('exam-register-life-locations')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'exam_locations' }, () => refetch())
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(roundChannel);
+      supabase.removeChannel(locationChannel);
+    };
+  }, [refetch]);
 
   const onRefresh = useCallback(async () => {
     setRefreshing(true);
@@ -583,11 +601,11 @@ export default function ExamRegisterScreen() {
 const styles = StyleSheet.create({
   safe: {
     flex: 1,
-    backgroundColor: SOFT_BG,
+    backgroundColor: BACKGROUND,
   },
   container: {
-    padding: 20,
-    gap: 12,
+    padding: 16,
+    gap: 16,
   },
   headerRow: {
     flexDirection: 'row',
@@ -603,17 +621,17 @@ const styles = StyleSheet.create({
     color: MUTED,
   },
   card: {
-    backgroundColor: 'white',
+    backgroundColor: '#fff',
     padding: 16,
-    borderRadius: 14,
+    borderRadius: 12,
     borderWidth: 1,
     borderColor: BORDER,
-    gap: 10,
+    gap: 12,
     shadowColor: '#000',
     shadowOpacity: 0.05,
-    shadowOffset: { width: 0, height: 2 },
-    shadowRadius: 6,
-    elevation: 2,
+    shadowOffset: { width: 0, height: 1 },
+    shadowRadius: 4,
+    elevation: 3,
   },
   sectionTitle: {
     fontSize: 16,
@@ -623,25 +641,28 @@ const styles = StyleSheet.create({
   },
   label: {
     marginTop: 8,
-    marginBottom: 4,
+    marginBottom: 6,
     fontWeight: '600',
-    color: CHARCOAL,
+    color: '#374151',
+    fontSize: 14,
   },
   input: {
     borderWidth: 1,
-    borderColor: BORDER,
-    borderRadius: 10,
+    borderColor: '#D1D5DB',
+    borderRadius: 8,
     paddingHorizontal: 12,
-    paddingVertical: 8,
-    backgroundColor: '#f9fafb',
+    paddingVertical: 12,
+    backgroundColor: INPUT_BG,
+    fontSize: 15,
+    color: CHARCOAL,
   },
   dateBox: {
     borderWidth: 1,
-    borderColor: BORDER,
-    borderRadius: 10,
+    borderColor: '#D1D5DB',
+    borderRadius: 8,
     paddingHorizontal: 12,
     paddingVertical: 12,
-    backgroundColor: '#f9fafb',
+    backgroundColor: INPUT_BG,
   },
   dateText: {
     fontWeight: '600',
@@ -655,12 +676,12 @@ const styles = StyleSheet.create({
   roundItem: {
     flexDirection: 'row',
     alignItems: 'center',
-    padding: 12,
+    padding: 14,
     borderWidth: 1,
     borderColor: BORDER,
     borderRadius: 12,
     backgroundColor: '#fff',
-    marginBottom: 8,
+    marginBottom: 12,
   },
   roundItemActive: {
     borderColor: ORANGE,
@@ -678,14 +699,15 @@ const styles = StyleSheet.create({
     marginLeft: 12,
     paddingHorizontal: 12,
     paddingVertical: 6,
-    borderRadius: 999,
+    borderRadius: 6,
     borderWidth: 1,
-    borderColor: '#fecaca',
-    backgroundColor: '#fee2e2',
+    borderColor: '#fecdd3',
+    backgroundColor: '#FEF2F2',
   },
   deleteText: {
     color: '#b91c1c',
     fontWeight: '700',
+    fontSize: 13,
   },
   roundSummary: {
     fontWeight: '700',
@@ -695,29 +717,30 @@ const styles = StyleSheet.create({
   locationRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingVertical: 6,
+    paddingVertical: 8,
   },
   locationName: {
     flex: 1,
     color: CHARCOAL,
+    fontSize: 14,
   },
   locationDelete: {
     paddingHorizontal: 10,
-    paddingVertical: 4,
-    borderRadius: 999,
+    paddingVertical: 6,
+    borderRadius: 6,
     borderWidth: 1,
-    borderColor: '#fecaca',
-    backgroundColor: '#fee2e2',
+    borderColor: '#fecdd3',
+    backgroundColor: '#FEF2F2',
   },
   locationDeleteText: {
     color: '#b91c1c',
     fontSize: 12,
-    fontWeight: '600',
+    fontWeight: '700',
   },
   btnBase: {
-    paddingVertical: 10,
-    paddingHorizontal: 12,
-    borderRadius: 999,
+    paddingVertical: 12,
+    paddingHorizontal: 14,
+    borderRadius: 8,
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -747,7 +770,7 @@ const styles = StyleSheet.create({
     fontSize: 15,
   },
   btnTextSecondary: {
-    color: '#7c2d12',
+    color: '#ffffff',
     fontWeight: '800',
     fontSize: 15,
   },

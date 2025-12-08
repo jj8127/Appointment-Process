@@ -25,8 +25,9 @@ const ORANGE = '#f36f21';
 const ORANGE_LIGHT = '#f7b182';
 const CHARCOAL = '#111827';
 const MUTED = '#6b7280';
-const BORDER = '#e5e7eb';
-const SOFT_BG = '#fff7f0';
+const BORDER = '#E5E7EB';
+const BACKGROUND = '#F3F4F6';
+const INPUT_BG = '#F9FAFB';
 const EXPO_PUSH_URL = 'https://exp.host/--/api/v2/push/send';
 
 const weekdays = ['일', '월', '화', '수', '목', '금', '토'];
@@ -148,6 +149,23 @@ export default function ExamRegisterScreen() {
     queryKey: ['exam-rounds-nonlife'],
     queryFn: fetchRounds,
   });
+
+  // Realtime: exam_rounds / exam_locations 변경 시 즉시 갱신
+  useEffect(() => {
+    const roundChannel = supabase
+      .channel('exam-register-nonlife-rounds')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'exam_rounds' }, () => refetch())
+      .subscribe();
+    const locationChannel = supabase
+      .channel('exam-register-nonlife-locations')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'exam_locations' }, () => refetch())
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(roundChannel);
+      supabase.removeChannel(locationChannel);
+    };
+  }, [refetch]);
 
   const onRefresh = useCallback(async () => {
     setRefreshing(true);
@@ -583,182 +601,184 @@ export default function ExamRegisterScreen() {
 }
 
 const styles = StyleSheet.create({
-safe: {
-    flex: 1,
-    backgroundColor: SOFT_BG,
-  },
-  container: {
-    padding: 20,
-    gap: 12,
-  },
-  headerRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 12,
-  },
-  headerTitle: {
-    fontSize: 22,
-    fontWeight: '800',
-    color: CHARCOAL,
-  },
-  caption: {
-    color: MUTED,
-  },
-  card: {
-    backgroundColor: 'white',
-    padding: 16,
-    borderRadius: 14,
-    borderWidth: 1,
-    borderColor: BORDER,
-    gap: 10,
-    shadowColor: '#000',
-    shadowOpacity: 0.05,
-    shadowOffset: { width: 0, height: 2 },
-    shadowRadius: 6,
-    elevation: 2,
-  },
-  sectionTitle: {
-    fontSize: 16,
-    fontWeight: '800',
-    color: CHARCOAL,
-    marginBottom: 4,
-  },
-  label: {
-    marginTop: 8,
-    marginBottom: 4,
-    fontWeight: '600',
-    color: CHARCOAL,
-  },
-  input: {
-    borderWidth: 1,
-    borderColor: BORDER,
-    borderRadius: 10,
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-    backgroundColor: '#f9fafb',
-  },
-  dateBox: {
-    borderWidth: 1,
-    borderColor: BORDER,
-    borderRadius: 10,
-    paddingHorizontal: 12,
-    paddingVertical: 12,
-    backgroundColor: '#f9fafb',
-  },
-  dateText: {
-    fontWeight: '600',
-    color: CHARCOAL,
-  },
-  row: {
-    flexDirection: 'row',
-    marginTop: 12,
-    alignItems: 'center',
-  },
-  roundItem: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    padding: 12,
-    borderWidth: 1,
-    borderColor: BORDER,
-    borderRadius: 12,
-    backgroundColor: '#fff',
-    marginBottom: 8,
-  },
-  roundItemActive: {
-    borderColor: ORANGE,
-    backgroundColor: '#fff7ed',
-  },
-  roundTitle: {
-    fontWeight: '700',
-    color: CHARCOAL,
-  },
-  roundMeta: {
-    color: MUTED,
-    marginTop: 2,
-  },
-  deleteBadge: {
-    marginLeft: 12,
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    borderRadius: 999,
-    borderWidth: 1,
-    borderColor: '#fecaca',
-    backgroundColor: '#fee2e2',
-  },
-  deleteText: {
-    color: '#b91c1c',
-    fontWeight: '700',
-  },
-  roundSummary: {
-    fontWeight: '700',
-    color: CHARCOAL,
-    marginBottom: 8,
-  },
-  locationRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingVertical: 6,
-  },
-  locationName: {
-    flex: 1,
-    color: CHARCOAL,
-  },
-  locationDelete: {
-    paddingHorizontal: 10,
-    paddingVertical: 4,
-    borderRadius: 999,
-    borderWidth: 1,
-    borderColor: '#fecaca',
-    backgroundColor: '#fee2e2',
-  },
-  locationDeleteText: {
-    color: '#b91c1c',
-    fontSize: 12,
-    fontWeight: '600',
-  },
-  btnBase: {
-    paddingVertical: 10,
-    paddingHorizontal: 12,
-    borderRadius: 999,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  btnFullWidth: {
-    width: '100%',
-  },
-  btnPrimary: {
-    backgroundColor: ORANGE,
-  },
-  btnSecondary: {
-    backgroundColor: ORANGE_LIGHT,
-  },
-  btnDanger: {
-    backgroundColor: '#fee2e2',
-    borderWidth: 1,
-    borderColor: '#ef4444',
-  },
-  btnDisabled: {
-    opacity: 0.5,
-  },
-  btnPressed: {
-    transform: [{ scale: 0.98 }],
-  },
-  btnTextPrimary: {
-    color: '#ffffff',
-    fontWeight: '800',
-    fontSize: 15,
-  },
-  btnTextSecondary: {
-    color: '#7c2d12',
-    fontWeight: '800',
-    fontSize: 15,
-  },
-  btnTextDanger: {
-    color: '#b91c1c',
-    fontWeight: '800',
-    fontSize: 14,
-  },
-
-
-
+  safe: {
+    flex: 1,
+    backgroundColor: BACKGROUND,
+  },
+  container: {
+    padding: 16,
+    gap: 16,
+  },
+  headerRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+  },
+  headerTitle: {
+    fontSize: 22,
+    fontWeight: '800',
+    color: CHARCOAL,
+  },
+  caption: {
+    color: MUTED,
+  },
+  card: {
+    backgroundColor: '#fff',
+    padding: 16,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: BORDER,
+    gap: 12,
+    shadowColor: '#000',
+    shadowOpacity: 0.05,
+    shadowOffset: { width: 0, height: 1 },
+    shadowRadius: 4,
+    elevation: 3,
+  },
+  sectionTitle: {
+    fontSize: 16,
+    fontWeight: '800',
+    color: CHARCOAL,
+    marginBottom: 4,
+  },
+  label: {
+    marginTop: 8,
+    marginBottom: 6,
+    fontWeight: '600',
+    color: '#374151',
+    fontSize: 14,
+  },
+  input: {
+    borderWidth: 1,
+    borderColor: '#D1D5DB',
+    borderRadius: 8,
+    paddingHorizontal: 12,
+    paddingVertical: 12,
+    backgroundColor: INPUT_BG,
+    fontSize: 15,
+    color: CHARCOAL,
+  },
+  dateBox: {
+    borderWidth: 1,
+    borderColor: '#D1D5DB',
+    borderRadius: 8,
+    paddingHorizontal: 12,
+    paddingVertical: 12,
+    backgroundColor: INPUT_BG,
+  },
+  dateText: {
+    fontWeight: '600',
+    color: CHARCOAL,
+  },
+  row: {
+    flexDirection: 'row',
+    marginTop: 12,
+    alignItems: 'center',
+  },
+  roundItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    padding: 14,
+    borderWidth: 1,
+    borderColor: BORDER,
+    borderRadius: 12,
+    backgroundColor: '#fff',
+    marginBottom: 12,
+  },
+  roundItemActive: {
+    borderColor: ORANGE,
+    backgroundColor: '#fff7ed',
+  },
+  roundTitle: {
+    fontWeight: '700',
+    color: CHARCOAL,
+  },
+  roundMeta: {
+    color: MUTED,
+    marginTop: 2,
+  },
+  deleteBadge: {
+    marginLeft: 12,
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 6,
+    borderWidth: 1,
+    borderColor: '#fecdd3',
+    backgroundColor: '#FEF2F2',
+  },
+  deleteText: {
+    color: '#b91c1c',
+    fontWeight: '700',
+    fontSize: 13,
+  },
+  roundSummary: {
+    fontWeight: '700',
+    color: CHARCOAL,
+    marginBottom: 8,
+  },
+  locationRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 8,
+  },
+  locationName: {
+    flex: 1,
+    color: CHARCOAL,
+    fontSize: 14,
+  },
+  locationDelete: {
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 6,
+    borderWidth: 1,
+    borderColor: '#fecdd3',
+    backgroundColor: '#FEF2F2',
+  },
+  locationDeleteText: {
+    color: '#b91c1c',
+    fontSize: 12,
+    fontWeight: '700',
+  },
+  btnBase: {
+    paddingVertical: 12,
+    paddingHorizontal: 14,
+    borderRadius: 8,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  btnFullWidth: {
+    width: '100%',
+  },
+  btnPrimary: {
+    backgroundColor: CHARCOAL,
+  },
+  btnSecondary: {
+    backgroundColor: ORANGE,
+  },
+  btnDanger: {
+    backgroundColor: '#fee2e2',
+    borderWidth: 1,
+    borderColor: '#ef4444',
+  },
+  btnDisabled: {
+    opacity: 0.5,
+  },
+  btnPressed: {
+    transform: [{ scale: 0.98 }],
+  },
+  btnTextPrimary: {
+    color: '#ffffff',
+    fontWeight: '800',
+    fontSize: 15,
+  },
+  btnTextSecondary: {
+    color: '#ffffff',
+    fontWeight: '800',
+    fontSize: 15,
+  },
+  btnTextDanger: {
+    color: '#b91c1c',
+    fontWeight: '800',
+    fontSize: 14,
+  },
 });

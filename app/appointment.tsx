@@ -207,13 +207,20 @@ export default function AppointmentScreen() {
               <Text style={styles.sectionTitle}>위촉 진행 가이드</Text>
               <Text style={styles.sectionDesc}>아래 화면을 따라 위촉 절차를 완료해주세요.</Text>
               <FlatList
-                data={APPOINTMENT_IMAGES}
-                keyExtractor={(_, i) => String(i)}
-                horizontal
-                pagingEnabled
-                showsHorizontalScrollIndicator={false}
-                snapToInterval={frameWidth}
-                decelerationRate="fast"
+              data={APPOINTMENT_IMAGES}
+              keyExtractor={(_, i) => String(i)}
+              horizontal
+              showsHorizontalScrollIndicator={false}
+              pagingEnabled={false}
+              decelerationRate="fast"
+              snapToInterval={frameWidth}
+              snapToAlignment="center"
+              disableIntervalMomentum
+              getItemLayout={(_, index) => ({
+                length: frameWidth,
+                offset: frameWidth * index,
+                index,
+              })}
                 onMomentumScrollEnd={(e) => {
                   const idx = Math.round(e.nativeEvent.contentOffset.x / frameWidth);
                   setCurrentIndex(idx);

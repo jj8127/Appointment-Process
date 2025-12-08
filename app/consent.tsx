@@ -1,6 +1,6 @@
 import { Feather } from '@expo/vector-icons';
 import DateTimePicker from '@react-native-community/datetimepicker';
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Alert,
   Dimensions,
@@ -62,6 +62,7 @@ export default function AllowanceConsentScreen() {
   const [currentIndex, setCurrentIndex] = useState(0);
   const [imageRatio, setImageRatio] = useState(16 / 9);
   const [refreshing, setRefreshing] = useState(false);
+  const sliderRef = useRef<FlatList>(null);
 
   useEffect(() => {
     const load = async () => {
@@ -94,7 +95,7 @@ export default function AllowanceConsentScreen() {
     setLoading(true);
     const { error, data } = await supabase
       .from('fc_profiles')
-      .update({ allowance_date: ymd, status: 'allowance-consented' })
+      .update({ allowance_date: ymd, status: 'allowance-pending' })
       .eq('temp_id', tempId)
       .select('id,name')
       .single();
@@ -111,7 +112,7 @@ export default function AllowanceConsentScreen() {
       })
       .catch(() => {});
 
-    Alert.alert('저장 완료', '수당 동의 정보가 저장되었습니다.');
+    Alert.alert('저장 완료', '수당 동의일이 제출되었습니다. 총무 검토 후 다음 단계로 진행됩니다.');
   };
 
   const openAllowanceSite = () => {
@@ -120,6 +121,7 @@ export default function AllowanceConsentScreen() {
 
   const cardWidth = width - 48;
   const cardHeight = cardWidth * imageRatio * 0.8;
+  const maxIndex = AGREEMENT_IMAGES.length - 1;
 
   const onRefresh = useCallback(async () => {
     setRefreshing(true);
@@ -161,14 +163,27 @@ export default function AllowanceConsentScreen() {
 
           <View style={styles.sliderContainer}>
             <FlatList
+              ref={sliderRef}
               data={AGREEMENT_IMAGES}
               keyExtractor={(_, i) => String(i)}
               horizontal
-              pagingEnabled
               showsHorizontalScrollIndicator={false}
+              pagingEnabled={false}
+              decelerationRate="fast"
+              snapToInterval={width}
+              snapToAlignment="center"
+              disableIntervalMomentum
+              getItemLayout={(_, index) => ({
+                length: width,
+                offset: width * index,
+                index,
+              })}
               onMomentumScrollEnd={(e) => {
                 const idx = Math.round(e.nativeEvent.contentOffset.x / width);
-                setCurrentIndex(idx);
+                const nextIndex = Math.max(0, Math.min(maxIndex, idx));
+                if (nextIndex !== currentIndex) {
+                  setCurrentIndex(nextIndex);
+                }
               }}
               renderItem={({ item }) => (
                 <View style={{ width, alignItems: 'center', paddingHorizontal: 24 }}>

@@ -180,6 +180,34 @@ export default function DocsUploadScreen() {
     }
   }, [loadData]);
 
+  // Realtime: 현재 FC의 서류/프로필 변경 시 새로고침
+  useEffect(() => {
+    if (!fc?.id) return;
+
+    const docChannel = supabase
+      .channel(`docs-upload-${fc.id}`)
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'fc_documents', filter: `fc_id=eq.${fc.id}` },
+        () => loadData(),
+      )
+      .subscribe();
+
+    const profileChannel = supabase
+      .channel(`docs-upload-profile-${fc.id}`)
+      .on(
+        'postgres_changes',
+        { event: 'UPDATE', schema: 'public', table: 'fc_profiles', filter: `id=eq.${fc.id}` },
+        () => loadData(),
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(docChannel);
+      supabase.removeChannel(profileChannel);
+    };
+  }, [fc?.id, loadData]);
+
   const handlePick = async (type: RequiredDoc['type']) => {
     if (!fc) return;
     const result = await DocumentPicker.getDocumentAsync({

@@ -65,6 +65,37 @@ async function notifyAdmin(title: string, body: string, residentId: string | nul
   }
 }
 
+async function notifyFcSelf(title: string, body: string, residentId: string) {
+  await supabase.from('notifications').insert({
+    title,
+    body,
+    category: 'exam_apply',
+    recipient_role: 'fc',
+    resident_id: residentId,
+  });
+
+  const { data: tokens } = await supabase
+    .from('device_tokens')
+    .select('expo_push_token')
+    .eq('role', 'fc')
+    .eq('resident_id', residentId);
+
+  const payload =
+    tokens?.map((t: any) => ({
+      to: t.expo_push_token,
+      title,
+      body,
+      data: { type: 'exam_apply', resident_id: residentId, url: '/exam-apply' },
+    })) ?? [];
+  if (payload.length) {
+    await fetch(EXPO_PUSH_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+  }
+}
+
 const fetchRounds = async (): Promise<ExamRoundWithLocations[]> => {
   const { data, error } = await supabase
     .from('exam_rounds')
@@ -169,6 +200,21 @@ export default function ExamApplyScreen() {
     enabled: role === 'fc',
   });
 
+  // FC 프로필 상태 조회 (수당 동의 검토 완료 여부)
+  const { data: myProfile, isLoading: profileLoading } = useQuery({
+    queryKey: ['my-profile-status', residentId],
+    enabled: role === 'fc' && !!residentId,
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from('fc_profiles')
+        .select('status,allowance_date')
+        .eq('phone', residentId)
+        .maybeSingle();
+      if (error) throw error;
+      return data;
+    },
+  });
+
   const allRounds = useMemo(() => rounds ?? [], [rounds]);
 
   const isRoundClosed = (round: ExamRoundWithLocations) => {
@@ -188,7 +234,7 @@ export default function ExamApplyScreen() {
     [selectedRound],
   );
 
-  const { data: myLastApply } = useQuery<MyExamApply | null>({
+  const { data: myLastApply, refetch: refetchMyApply } = useQuery<MyExamApply | null>({
     queryKey: ['my-exam-apply', residentId],
     enabled: role === 'fc' && !!residentId,
     queryFn: async (): Promise<MyExamApply | null> => {
@@ -223,6 +269,23 @@ export default function ExamApplyScreen() {
   const isConfirmed = !!myLastApply?.is_confirmed;
   const statusLabel = isConfirmed ? '접수 완료' : '미접수';
   const lockMessage = '시험 접수가 완료되어 시험 일정을 수정할 수 없습니다.';
+  const isAllowanceApproved = myProfile?.status === 'allowance-consented';
+
+  // Realtime: 내 시험 접수 상태 변경 시 갱신
+  useEffect(() => {
+    if (!residentId) return;
+    const regChannel = supabase
+      .channel(`exam-apply-life-${residentId}`)
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'exam_registrations', filter: `resident_id=eq.${residentId}` },
+        () => refetchMyApply(),
+      )
+      .subscribe();
+    return () => {
+      supabase.removeChannel(regChannel);
+    };
+  }, [residentId, refetchMyApply]);
 
   useEffect(() => {
     if (myLastApply?.is_third_exam != null) {
@@ -310,6 +373,7 @@ export default function ExamApplyScreen() {
       const body = locName ? `${actor}이/가 ${examTitle} (${locName})을 신청하였습니다.` : title;
 
       await notifyAdmin(title, body, residentId);
+      await notifyFcSelf('시험 신청이 접수되었습니다.', `${examTitle}${locName ? ` (${locName})` : ''} 접수가 완료되었습니다.`, residentId);
     },
     onSuccess: () => {
       Alert.alert('신청 완료', '시험 신청이 정상적으로 등록되었습니다.');
@@ -657,6 +721,16 @@ export default function ExamApplyScreen() {
 
           <View style={{ height: 40 }} />
         </ScrollView>
+
+        {!profileLoading && role === 'fc' && !isAllowanceApproved && (
+          <Pressable
+            style={styles.blockOverlay}
+            onPress={() => Alert.alert('알림', '수당 동의 검토 후 이용할 수 있습니다.')}
+          >
+            <Text style={styles.blockText}>수당 동의 검토 중입니다.</Text>
+            <Text style={styles.blockSubText}>총무 검토 완료 후 시험 신청이 가능합니다.</Text>
+          </Pressable>
+        )}
       </KeyboardAwareWrapper>
     </SafeAreaView>
   );
@@ -762,4 +836,17 @@ const styles = StyleSheet.create({
   emptyText: { color: MUTED, fontSize: 13, textAlign: 'center', marginTop: 10 },
   pressedScale: { transform: [{ scale: 0.98 }] },
   pressedOpacity: { opacity: 0.7 },
+  blockOverlay: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    backgroundColor: 'rgba(255,255,255,0.7)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 24,
+  },
+  blockText: { color: CHARCOAL, fontSize: 27, fontWeight: '800', marginBottom: 6 },
+  blockSubText: { color: MUTED, fontSize: 16, textAlign: 'center' },
 });

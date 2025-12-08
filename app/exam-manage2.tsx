@@ -23,8 +23,12 @@ const ORANGE = '#f36f21';
 const CHARCOAL = '#111827';
 const MUTED = '#6b7280';
 const BORDER = '#e5e7eb';
-const BACKGROUND = '#ffffff';
+const BACKGROUND = '#F3F4F6';
 const INPUT_BG = '#F9FAFB';
+const BADGE_CONFIRMED_BG = '#ECFDF5';
+const BADGE_CONFIRMED_TEXT = '#059669';
+const BADGE_PENDING_BG = '#FFF7ED';
+const BADGE_PENDING_TEXT = '#b45309';
 
 // 손해보험 전용
 const EXAM_TYPE: 'nonlife' = 'nonlife';
@@ -181,6 +185,17 @@ export default function ExamManageNonlifeScreen() {
     enabled: role === 'admin',
   });
 
+  // Realtime: 시험 접수 변경 시 관리자 화면 갱신
+  useEffect(() => {
+    const regChannel = supabase
+      .channel('exam-manage-nonlife-registrations')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'exam_registrations' }, () => refetch())
+      .subscribe();
+    return () => {
+      supabase.removeChannel(regChannel);
+    };
+  }, [refetch]);
+
   const onRefresh = useCallback(async () => {
     setRefreshing(true);
     await refetch();
@@ -229,6 +244,8 @@ export default function ExamManageNonlifeScreen() {
   };
 
   const renderCard = (a: ApplicantRow) => {
+    const statusText = a.isConfirmed ? '접수 완료' : '미접수';
+    const statusColor = a.isConfirmed ? BADGE_CONFIRMED_TEXT : BADGE_PENDING_TEXT;
     return (
       <View key={a.residentId} style={styles.card}>
         <View style={styles.cardHeader}>
@@ -242,15 +259,15 @@ export default function ExamManageNonlifeScreen() {
             onPress={() => handleToggle(a)}
             disabled={toggleMutation.isPending}
             style={[
-              styles.statusButton,
-              a.isConfirmed ? styles.statusButtonConfirmed : styles.statusButtonPending,
+              styles.statusBadge,
+              a.isConfirmed ? styles.badgeConfirmed : styles.badgePending,
               toggleMutation.isPending && { opacity: 0.6 },
             ]}
           >
-            <Text style={[styles.statusButtonText, a.isConfirmed ? { color: '#059669' } : { color: '#b45309' }]}>
-              {a.isConfirmed ? '접수 완료' : '미접수'}
+            <Text style={[styles.statusBadgeText, a.isConfirmed ? styles.textConfirmed : styles.textPending]}>
+              {statusText}
             </Text>
-            <Feather name={a.isConfirmed ? 'check' : 'x'} size={14} color={a.isConfirmed ? '#059669' : '#b45309'} />
+            <Feather name={a.isConfirmed ? 'check' : 'x'} size={14} color={statusColor} />
           </Pressable>
         </View>
 
@@ -337,7 +354,7 @@ const InfoLabelValue = ({ label, value, fullWidth }: { label: string; value: str
 
 const styles = StyleSheet.create({
   safe: { flex: 1, backgroundColor: BACKGROUND },
-  container: { padding: 20, gap: 12 },
+  container: { padding: 16, gap: 12 },
 
   header: {
     paddingHorizontal: 0,
@@ -378,19 +395,24 @@ const styles = StyleSheet.create({
 
   card: {
     backgroundColor: '#fff',
-    borderRadius: 16,
+    borderRadius: 12,
     padding: 16,
     marginTop: 8,
     borderWidth: 1,
     borderColor: BORDER,
     gap: 6,
+    shadowColor: '#000',
+    shadowOpacity: 0.05,
+    shadowRadius: 2,
+    shadowOffset: { width: 0, height: 1 },
+    elevation: 2,
   },
   cardHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 10 },
   nameText: { fontSize: 18, fontWeight: '700', color: CHARCOAL },
   hqText: { fontSize: 14, color: MUTED, fontWeight: '400' },
   phoneText: { fontSize: 13, color: MUTED, marginTop: 2 },
 
-  statusButton: {
+  statusBadge: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 4,
@@ -399,9 +421,11 @@ const styles = StyleSheet.create({
     borderRadius: 8,
     borderWidth: 1,
   },
-  statusButtonPending: { backgroundColor: '#FFF7ED', borderColor: '#FED7AA' },
-  statusButtonConfirmed: { backgroundColor: '#ECFDF5', borderColor: '#A7F3D0' },
-  statusButtonText: { fontSize: 12, fontWeight: '700' },
+  badgePending: { backgroundColor: BADGE_PENDING_BG, borderColor: '#FED7AA' },
+  badgeConfirmed: { backgroundColor: BADGE_CONFIRMED_BG, borderColor: '#A7F3D0' },
+  statusBadgeText: { fontSize: 12, fontWeight: '700' },
+  textConfirmed: { color: BADGE_CONFIRMED_TEXT },
+  textPending: { color: BADGE_PENDING_TEXT },
 
   divider: { height: 1, backgroundColor: '#F3F4F6', marginBottom: 10 },
 

@@ -3,6 +3,7 @@ export type CareerType = '신입' | '경력';
 export type FcStatus =
   | 'draft'
   | 'temp-id-issued'
+  | 'allowance-pending'
   | 'allowance-consented'
   | 'docs-requested'
   | 'docs-pending'
