@@ -12,6 +12,7 @@ import {
   TextInput,
   View,
 } from 'react-native';
+import { StatusBar } from 'expo-status-bar';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { useSession } from '@/hooks/use-session';
@@ -22,6 +23,9 @@ const CHARCOAL = '#111827';
 const MUTED = '#6b7280';
 const SOFT_BG = '#F9FAFB';
 const BORDER = '#E5E7EB';
+
+// Hide the native stack header for this screen
+export const options = { headerShown: false };
 
 type Message = {
   id: string;
@@ -110,9 +114,10 @@ export default function ChatScreen() {
     };
   }, []);
 
-  const sendMessage = async () => {
-    if (!text.trim() || !myId || !otherId) return;
-    const content = text.trim();
+  const sendMessage = async (textOverride?: string) => {
+    const contentToSend = textOverride ?? text;
+    if (!contentToSend.trim() || !myId || !otherId) return;
+    const content = contentToSend.trim();
     setText('');
 
     const { error } = await supabase.from('messages').insert({
@@ -121,10 +126,13 @@ export default function ChatScreen() {
       content,
     });
 
+    console.log('[chat] message insert payload', { sender_id: myId, receiver_id: otherId, content });
     if (error) {
       console.warn('sendMessage error', error.message);
       return;
     }
+
+    console.log('[chat] message insert success');
 
     // 수신자에게 알림 기록 추가 (푸시 트리거용)
     const isReceiverAdmin = otherId === 'admin';
@@ -145,16 +153,23 @@ export default function ChatScreen() {
           console.warn('notify send error', notifyError.message);
           return;
         }
+        console.log('[chat] notifications insert success', {
+          recipientRole,
+          residentIdForPush,
+          content,
+        });
         // 푸시 알림 트리거 (edge function 활용)
         try {
-          await supabase.functions.invoke('fc-notify', {
-            body: {
-              type: 'message',
-              target_role: recipientRole,
-              target_id: residentIdForPush,
-              message: content,
-            },
-          });
+          const pushPayload = {
+            type: 'message',
+            target_role: recipientRole,
+            target_id: residentIdForPush,
+            message: content,
+            sender_id: myId,
+          };
+          console.log('[chat] push invoke payload', pushPayload);
+          const resp = await supabase.functions.invoke('fc-notify', { body: pushPayload });
+          console.log('[chat] push invoke response', resp);
         } catch (fnErr: any) {
           console.warn('push send error', fnErr?.message ?? fnErr);
         }
@@ -191,7 +206,8 @@ export default function ChatScreen() {
   };
 
   return (
-    <View style={[styles.container, { paddingTop: insets.top }]}>
+    <View style={styles.container}>
+      <StatusBar style="dark" backgroundColor="#fff" />
       <View style={styles.header}>
         <Pressable onPress={() => router.back()} style={styles.backBtn} hitSlop={10}>
           <Feather name="chevron-left" size={28} color={CHARCOAL} />
@@ -227,10 +243,17 @@ export default function ChatScreen() {
             <TextInput
               style={styles.input}
               value={text}
-              onChangeText={setText}
+              onChangeText={(val) => {
+                if (val.endsWith('\n')) {
+                  sendMessage(val);
+                } else {
+                  setText(val);
+                }
+              }}
               placeholder="메시지를 입력하세요"
               placeholderTextColor={MUTED}
               multiline
+              blurOnSubmit={false}
             />
             <Pressable
               onPress={sendMessage}

@@ -58,7 +58,6 @@ const quickLinksAdmin: QuickLink[] = [
   { href: '/dashboard', stepKey: 'step2', title: '수당 동의 안내', description: '기본 정보 저장 완료 FC' },
   { href: '/dashboard', stepKey: 'step3', title: '서류 안내/검토', description: '제출해야 할 서류 관리' },
   { href: '/dashboard', stepKey: 'step4', title: '위촉 진행', description: '위촉 URL 발송 및 확인' },
-  { href: '/admin-messenger', title: '메신저', description: 'FC 1:1 대화 관리' },
   { href: '/admin-appointment', title: '위촉 URL 발송', description: 'FC별 위촉 링크 관리' },
   { href: '/dashboard', stepKey: 'step5', title: '완료 관리', description: '위촉 완료 현황' },
   { href: '/exam-register', title: '생명보험 시험', description: '응시일정 · 마감 관리' },
@@ -66,6 +65,7 @@ const quickLinksAdmin: QuickLink[] = [
   { href: '/exam-manage', title: '생명 신청자', description: '신청 현황 조회' },
   { href: '/exam-manage2', title: '손해 신청자', description: '신청 현황 조회' },
   { href: '/admin-notice', title: '공지 등록', description: '새소식 작성' },
+  { href: '/admin-messenger', title: '메신저', description: 'FC 1:1 대화 관리' },
 ];
 
 const quickLinksFc: QuickLink[] = [
@@ -74,8 +74,8 @@ const quickLinksFc: QuickLink[] = [
   { href: '/exam-apply2', title: '손해 시험 신청', description: '시험 접수하기' },
   { href: '/consent', title: '수당 동의', description: '약관 동의 관리' },
   { href: '/docs-upload', title: '서류 업로드', description: '필수 서류 제출' },
-  { href: '/chat', title: '1:1 문의', description: '총무팀과 대화하기' },
   { href: '/appointment', title: '모바일 위촉', description: '위촉 URL 접속 및 완료' },
+  { href: '/chat', title: '1:1 문의', description: '총무팀과 대화하기' },
 ];
 
 const steps = [
