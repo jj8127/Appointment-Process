@@ -175,6 +175,7 @@ export default function ExamApplyScreen() {
 
   const [selectedRoundId, setSelectedRoundId] = useState<string | null>(null);
   const [selectedLocationId, setSelectedLocationId] = useState<string | null>(null);
+  const [wantsLife, setWantsLife] = useState(true);
   const [wantsThird, setWantsThird] = useState(false);
 
   useEffect(() => {
@@ -269,7 +270,8 @@ export default function ExamApplyScreen() {
   const isConfirmed = !!myLastApply?.is_confirmed;
   const statusLabel = isConfirmed ? '접수 완료' : '미접수';
   const lockMessage = '시험 접수가 완료되어 시험 일정을 수정할 수 없습니다.';
-  const isAllowanceApproved = myProfile?.status === 'allowance-consented';
+  // allowance_date가 있고 status가 pending이 아니면 신청 가능
+  const isAllowanceApproved = Boolean(myProfile?.allowance_date) && myProfile?.status !== 'allowance-pending';
 
   // Realtime: 내 시험 접수 상태 변경 시 갱신
   useEffect(() => {
@@ -455,7 +457,7 @@ export default function ExamApplyScreen() {
           {/* Header */}
           <View style={styles.header}>
             <View>
-              <Text style={styles.headerTitle}>생명보험 시험 신청</Text>
+              <Text style={styles.headerTitle}>생명보험/제3보험 시험 신청</Text>
               <Text style={styles.headerSub}>시험 일정과 응시 지역을 선택해주세요.</Text>
             </View>
             <RefreshButton
@@ -636,37 +638,67 @@ export default function ExamApplyScreen() {
 
           {/* Step 3: Final */}
           <View style={styles.section}>
-            <Text style={styles.sectionHeader}>✅ 최종 확인</Text>
+            <Text style={styles.sectionHeader}>✅ 응시 과목</Text>
 
-            <Pressable
-              style={[styles.toggleCard, wantsThird && styles.toggleCardActive]}
-              onPress={() => {
-                if (isConfirmed) {
-                  Alert.alert('수정 불가', lockMessage);
-                } else {
-                  Haptics.selectionAsync();
-                  setWantsThird((v) => !v);
-                }
-              }}
-            >
-              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
-                <Feather
-                  name={wantsThird ? 'check-square' : 'square'}
-                  size={24}
-                  color={wantsThird ? HANWHA_ORANGE : MUTED}
-                />
-                <View>
-                  <Text style={styles.toggleTitle}>제3보험 동시 응시</Text>
-                  <Text style={styles.toggleDesc}>제3보험 자격 시험도 함께 신청합니다.</Text>
+            <View style={{ gap: 10 }}>
+              <Pressable
+                style={[styles.toggleCard, wantsLife && styles.toggleCardActive]}
+                onPress={() => {
+                  if (isConfirmed) {
+                    Alert.alert('수정 불가', lockMessage);
+                  } else {
+                    Haptics.selectionAsync();
+                    setWantsLife((v) => !v);
+                  }
+                }}
+              >
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
+                  <Feather
+                    name={wantsLife ? 'check-square' : 'square'}
+                    size={24}
+                    color={wantsLife ? HANWHA_ORANGE : MUTED}
+                  />
+                  <View>
+                    <Text style={styles.toggleTitle}>생명보험</Text>
+                    <Text style={styles.toggleDesc}>생명보험 자격 시험을 신청합니다.</Text>
+                  </View>
                 </View>
-              </View>
-            </Pressable>
+              </Pressable>
+
+              <Pressable
+                style={[styles.toggleCard, wantsThird && styles.toggleCardActive]}
+                onPress={() => {
+                  if (isConfirmed) {
+                    Alert.alert('수정 불가', lockMessage);
+                  } else {
+                    Haptics.selectionAsync();
+                    setWantsThird((v) => !v);
+                  }
+                }}
+              >
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
+                  <Feather
+                    name={wantsThird ? 'check-square' : 'square'}
+                    size={24}
+                    color={wantsThird ? HANWHA_ORANGE : MUTED}
+                  />
+                  <View>
+                    <Text style={styles.toggleTitle}>제3보험</Text>
+                    <Text style={styles.toggleDesc}>제3보험 자격 시험도 함께 신청합니다.</Text>
+                  </View>
+                </View>
+              </Pressable>
+            </View>
 
             <View style={styles.actionButtons}>
               <Pressable
                 onPress={() => {
                   if (isConfirmed) {
                     Alert.alert('알림', lockMessage);
+                    return;
+                  }
+                  if (!wantsLife && !wantsThird) {
+                    Alert.alert('알림', '응시할 과목을 한 개 이상 선택해주세요.');
                     return;
                   }
                   applyMutation.mutate();

@@ -13,7 +13,7 @@ import {
 } from '@mantine/core';
 import { notifications } from '@mantine/notifications';
 import { useRouter } from 'next/navigation';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 
 const ADMIN_PHONE_NUMBERS = (process.env.NEXT_PUBLIC_ADMIN_PHONES ?? '')
     .split(',')
@@ -21,10 +21,26 @@ const ADMIN_PHONE_NUMBERS = (process.env.NEXT_PUBLIC_ADMIN_PHONES ?? '')
     .filter(Boolean);
 
 export default function AuthPage() {
-    const { loginAs } = useSession();
+    const { loginAs, role, residentId, hydrated, displayName } = useSession();
     const [phoneInput, setPhoneInput] = useState('');
     const [loading, setLoading] = useState(false);
     const router = useRouter();
+
+    // 이미 로그인된 세션이 있다면 모바일과 동일하게 즉시 리다이렉트
+    useEffect(() => {
+        if (!hydrated) return;
+        if (role === 'admin') {
+            router.replace('/');
+            return;
+        }
+        if (role === 'fc' && residentId) {
+            if (!displayName?.trim()) {
+                router.replace('/fc/new');
+            } else {
+                router.replace('/');
+            }
+        }
+    }, [hydrated, role, residentId, displayName, router]);
 
     const handleLogin = async () => {
         const code = phoneInput.trim();

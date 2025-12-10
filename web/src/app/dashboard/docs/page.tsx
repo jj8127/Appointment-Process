@@ -1,0 +1,473 @@
+'use client';
+
+import {
+    Badge,
+    Box,
+    Button,
+    Container,
+    Group,
+    Image,
+    LoadingOverlay,
+    Modal,
+    Paper,
+    ScrollArea,
+    Stack,
+    Table,
+    Tabs,
+    Text,
+    Textarea,
+    ThemeIcon,
+    Title
+} from '@mantine/core';
+import { useDisclosure } from '@mantine/hooks';
+import { notifications } from '@mantine/notifications';
+import {
+    IconCheck,
+    IconDownload,
+    IconEye,
+    IconFileText,
+    IconList,
+    IconRefresh,
+    IconX
+} from '@tabler/icons-react';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import dayjs from 'dayjs';
+import { useMemo, useState } from 'react';
+
+import { supabase } from '@/lib/supabase';
+
+// App Design Tokens
+const HANWHA_ORANGE = '#f36f21';
+const CHARCOAL = '#111827';
+const MUTED = '#6b7280';
+const BACKGROUND_LIGHT = '#F9FAFB';
+
+// Status Badge Helper
+const getStatusColor = (status: string) => {
+    switch (status) {
+        case 'approved':
+            return 'green';
+        case 'rejected':
+            return 'red';
+        case 'submitted':
+        case 'pending':
+            return 'blue';
+        default:
+            return 'gray';
+    }
+};
+
+const STATUS_MAP: Record<string, string> = {
+    pending: '요청중',
+    submitted: '제출됨',
+    approved: '승인됨',
+    rejected: '반려됨',
+    deleted: '삭제됨',
+};
+
+export default function DocumentsPage() {
+    const queryClient = useQueryClient();
+    const [activeTab, setActiveTab] = useState<string | null>('pending');
+
+    // Preview Modal State
+    const [previewOpened, { open: openPreview, close: closePreview }] = useDisclosure(false);
+    const [selectedDoc, setSelectedDoc] = useState<any>(null);
+    const [signedUrl, setSignedUrl] = useState<string | null>(null);
+
+    // Reject Modal State
+    const [rejectOpened, { open: openReject, close: closeReject }] = useDisclosure(false);
+    const [rejectReason, setRejectReason] = useState('');
+    const [targetDocForReject, setTargetDocForReject] = useState<any>(null);
+
+    // Data Fetching
+    const { data: documents, isLoading } = useQuery({
+        queryKey: ['documents-list'],
+        queryFn: async () => {
+            const { data, error } = await supabase
+                .from('fc_documents')
+                .select('*, fc_profiles (name, phone, affiliation)')
+                .order('created_at', { ascending: false });
+
+            if (error) throw error;
+            return data;
+        },
+    });
+
+    // Filter Logic
+    const filteredDocs = useMemo(() => {
+        if (!documents) return [];
+        let docs = documents;
+
+        if (activeTab === 'pending') {
+            docs = docs.filter((d: any) => ['pending', 'submitted'].includes(d.status));
+        } else if (activeTab === 'approved') {
+            docs = docs.filter((d: any) => d.status === 'approved');
+        } else if (activeTab === 'rejected') {
+            docs = docs.filter((d: any) => d.status === 'rejected');
+        }
+        return docs;
+    }, [documents, activeTab]);
+
+    // Mutations
+    const updateStatusMutation = useMutation({
+        mutationFn: async ({ doc, status, reason }: { doc: any; status: string; reason?: string }) => {
+            const { error } = await supabase
+                .from('fc_documents')
+                .update({ status })
+                .eq('id', doc.id);
+
+            if (error) throw error;
+
+            let title = '서류 결과 안내';
+            let body = `제출하신 [${doc.doc_type}] 서류가 처리되었습니다.`;
+
+            if (status === 'approved') {
+                title = '서류 승인 완료';
+                body = `제출하신 [${doc.doc_type}] 서류가 승인되었습니다.`;
+            } else if (status === 'rejected') {
+                title = '서류 반려 안내';
+                body = `제출하신 [${doc.doc_type}] 서류가 반려되었습니다.\n사유: ${reason}`;
+            }
+
+            if (doc.fc_profiles?.phone) {
+                await supabase.from('notifications').insert({
+                    title,
+                    body,
+                    recipient_role: 'fc',
+                    resident_id: doc.fc_profiles.phone,
+                    category: '서류',
+                });
+            }
+        },
+        onSuccess: () => {
+            notifications.show({
+                title: '처리 완료',
+                message: '상태가 변경되었습니다.',
+                color: 'green',
+            });
+            queryClient.invalidateQueries({ queryKey: ['documents-list'] });
+            closeReject();
+            closePreview();
+        },
+        onError: (err: any) => {
+            notifications.show({
+                title: '처리 실패',
+                message: err.message,
+                color: 'red',
+            });
+        },
+    });
+
+    // Handlers
+    const handlePreview = async (doc: any) => {
+        setSelectedDoc(doc);
+        setSignedUrl(null);
+        openPreview();
+
+        if (doc.storage_path) {
+            const { data, error } = await supabase.storage
+                .from('fc-documents')
+                .createSignedUrl(doc.storage_path, 3600);
+            if (data?.signedUrl) {
+                setSignedUrl(data.signedUrl);
+            } else {
+                console.error('Signed URL Error:', error);
+            }
+        }
+    };
+
+    const handleApprove = (doc: any) => {
+        if (confirm(`'${doc.doc_type}' 문서를 승인하시겠습니까?`)) {
+            updateStatusMutation.mutate({ doc, status: 'approved' });
+        }
+    };
+
+    const handleRejectInit = (doc: any) => {
+        setTargetDocForReject(doc);
+        setRejectReason('');
+        openReject();
+    };
+
+    const handleRejectConfirm = () => {
+        if (!targetDocForReject) return;
+        if (!rejectReason.trim()) {
+            notifications.show({ title: '사유 입력', message: '반려 사유를 입력해주세요.', color: 'red' });
+            return;
+        }
+        updateStatusMutation.mutate({
+            doc: targetDocForReject,
+            status: 'rejected',
+            reason: rejectReason,
+        });
+    };
+
+    const rows = filteredDocs.map((doc: any) => (
+        <Table.Tr key={doc.id} style={{ transition: 'background-color 0.2s' }}>
+            <Table.Td>
+                <Text size="sm" c="dimmed">{dayjs(doc.created_at).format('YYYY-MM-DD HH:mm')}</Text>
+            </Table.Td>
+            <Table.Td>
+                <Group gap="xs">
+                    <ThemeIcon variant="light" color="gray" size="md" radius="xl">
+                        <IconFileText size={14} />
+                    </ThemeIcon>
+                    <div>
+                        <Text size="sm" fw={600} c={CHARCOAL}>
+                            {doc.fc_profiles?.name || '알수없음'}
+                        </Text>
+                        <Text size="xs" c="dimmed">
+                            {doc.fc_profiles?.phone} · {doc.fc_profiles?.affiliation || '소속없음'}
+                        </Text>
+                    </div>
+                </Group>
+            </Table.Td>
+            <Table.Td>
+                <Badge variant="outline" color="gray" size="sm" radius="sm" style={{ textTransform: 'none' }}>
+                    {doc.doc_type}
+                </Badge>
+            </Table.Td>
+            <Table.Td>
+                <Text
+                    size="sm"
+                    c={HANWHA_ORANGE}
+                    style={{ cursor: 'pointer', fontWeight: 500 }}
+                    onClick={() => handlePreview(doc)}
+                >
+                    {doc.file_name || '파일 확인'}
+                </Text>
+            </Table.Td>
+            <Table.Td>
+                <Badge color={getStatusColor(doc.status)} variant="light" size="sm" radius="sm">
+                    {STATUS_MAP[doc.status] || doc.status}
+                </Badge>
+            </Table.Td>
+            <Table.Td>
+                <Group gap={6}>
+                    {['submitted', 'pending'].includes(doc.status) ? (
+                        <>
+                            <Button
+                                size="compact-xs"
+                                color="green"
+                                radius="md"
+                                leftSection={<IconCheck size={12} />}
+                                onClick={() => handleApprove(doc)}
+                            >
+                                승인
+                            </Button>
+                            <Button
+                                size="compact-xs"
+                                color="red"
+                                variant="light"
+                                radius="md"
+                                leftSection={<IconX size={12} />}
+                                onClick={() => handleRejectInit(doc)}
+                            >
+                                반려
+                            </Button>
+                        </>
+                    ) : (
+                        <Button
+                            size="compact-xs"
+                            variant="subtle"
+                            color="gray"
+                            onClick={() => handlePreview(doc)}
+                            leftSection={<IconEye size={12} />}
+                        >
+                            확인
+                        </Button>
+                    )}
+                </Group>
+            </Table.Td>
+        </Table.Tr>
+    ));
+
+    const isImage = (path: string) => {
+        if (!path) return false;
+        const lower = path.toLowerCase();
+        return lower.endsWith('.jpg') || lower.endsWith('.jpeg') || lower.endsWith('.png') || lower.endsWith('.webp');
+    };
+
+    return (
+        <Container size="xl" py="xl" style={{ backgroundColor: '#fff', minHeight: '100vh' }}>
+            <Group justify="space-between" mb="lg" align="flex-end">
+                <div>
+                    <Title order={2} c={CHARCOAL}>서류 통합 관리</Title>
+                    <Text c={MUTED} size="sm" mt={4}>제출된 서류를 검토하고 빠른 승인 처리를 진행하세요.</Text>
+                </div>
+                <Button variant="light" color="gray" leftSection={<IconRefresh size={16} />} onClick={() => queryClient.invalidateQueries({ queryKey: ['documents-list'] })}>
+                    새로고침
+                </Button>
+            </Group>
+
+            <Tabs
+                value={activeTab}
+                onChange={setActiveTab}
+                mb="xl"
+                color="orange"
+                variant="pills"
+                radius="xl"
+            >
+                <Tabs.List bg={BACKGROUND_LIGHT} p={4} style={{ borderRadius: 24, border: '1px solid #e9ecef', display: 'inline-flex' }}>
+                    <Tabs.Tab value="pending" fw={600} px="lg" py="xs" style={{ borderRadius: 20 }}>
+                        미처리 <Badge size="xs" circle ml={6} color="orange">{documents?.filter((d: any) => ['pending', 'submitted'].includes(d.status)).length || 0}</Badge>
+                    </Tabs.Tab>
+                    <Tabs.Tab value="approved" fw={600} px="lg" py="xs" style={{ borderRadius: 20 }}>승인됨</Tabs.Tab>
+                    <Tabs.Tab value="rejected" fw={600} px="lg" py="xs" style={{ borderRadius: 20 }}>반려됨</Tabs.Tab>
+                    <Tabs.Tab value="all" fw={600} px="lg" py="xs" style={{ borderRadius: 20 }}>전체 목록</Tabs.Tab>
+                </Tabs.List>
+            </Tabs>
+
+            <Paper shadow="sm" radius="lg" withBorder overflow="hidden" pos="relative" bg="white">
+                <LoadingOverlay visible={isLoading} overlayProps={{ blur: 2 }} zIndex={10} loaderProps={{ color: 'orange' }} />
+                <ScrollArea h="calc(100vh - 280px)" type="auto">
+                    <Table verticalSpacing="md" highlightOnHover stickyHeader>
+                        <Table.Thead bg={BACKGROUND_LIGHT}>
+                            <Table.Tr>
+                                <Table.Th fw={600} c={CHARCOAL}>제출일시</Table.Th>
+                                <Table.Th fw={600} c={CHARCOAL}>제출자 정보</Table.Th>
+                                <Table.Th fw={600} c={CHARCOAL}>문서 구분</Table.Th>
+                                <Table.Th fw={600} c={CHARCOAL}>첨부파일</Table.Th>
+                                <Table.Th fw={600} c={CHARCOAL}>상태</Table.Th>
+                                <Table.Th fw={600} c={CHARCOAL}>심사/관리</Table.Th>
+                            </Table.Tr>
+                        </Table.Thead>
+                        <Table.Tbody>
+                            {rows.length > 0 ? (
+                                rows
+                            ) : (
+                                <Table.Tr>
+                                    <Table.Td colSpan={6} align="center" py={80}>
+                                        <Stack align="center" gap="xs">
+                                            <ThemeIcon size={60} radius="xl" color="gray.2" variant="light">
+                                                <IconList size={30} color={MUTED} />
+                                            </ThemeIcon>
+                                            <Text c="dimmed" fw={500}>해당 조건의 서류가 존재하지 않습니다.</Text>
+                                        </Stack>
+                                    </Table.Td>
+                                </Table.Tr>
+                            )}
+                        </Table.Tbody>
+                    </Table>
+                </ScrollArea>
+            </Paper>
+
+            {/* Preview Modal */}
+            <Modal
+                opened={previewOpened}
+                onClose={closePreview}
+                title={<Text fw={700} size="lg">{selectedDoc?.doc_type} 검토</Text>}
+                size="xl"
+                radius="md"
+                padding="xl"
+                centered
+            >
+                {selectedDoc && (
+                    <Stack gap="lg">
+                        <Group justify="space-between" align="center">
+                            <div>
+                                <Text fw={700} c={CHARCOAL} size="lg">{selectedDoc.fc_profiles?.name}님 제출</Text>
+                                <Text size="xs" c="dimmed">제출일: {dayjs(selectedDoc.created_at).format('YYYY-MM-DD HH:mm:ss')}</Text>
+                            </div>
+                            <Badge size="lg" color={getStatusColor(selectedDoc.status)} variant="filled">
+                                {STATUS_MAP[selectedDoc.status] || selectedDoc.status}
+                            </Badge>
+                        </Group>
+
+                        <Box
+                            style={{
+                                width: '100%',
+                                minHeight: 500,
+                                display: 'flex',
+                                justifyContent: 'center',
+                                alignItems: 'center',
+                                backgroundColor: '#f1f3f5',
+                                borderRadius: 12,
+                                border: '1px solid #dee2e6',
+                                overflow: 'hidden'
+                            }}
+                        >
+                            {signedUrl ? (
+                                isImage(selectedDoc.storage_path) ? (
+                                    <Image src={signedUrl} alt="Document Preview" fit="contain" mah={600} w="auto" />
+                                ) : (
+                                    <Stack align="center" gap="md">
+                                        <ThemeIcon size={80} radius="xl" color="blue" variant="light">
+                                            <IconFileText size={40} />
+                                        </ThemeIcon>
+                                        <Text fw={600} c={CHARCOAL}>미리보기를 지원하지 않는 형식입니다.</Text>
+                                        <Text size="sm" c="dimmed">아래 버튼을 눌러 파일을 직접 확인하세요.</Text>
+                                        <Button
+                                            component="a"
+                                            href={signedUrl}
+                                            target="_blank"
+                                            download={selectedDoc.file_name}
+                                            leftSection={<IconDownload size={18} />}
+                                            variant="filled"
+                                            color="blue"
+                                        >
+                                            파일 열기 / 다운로드
+                                        </Button>
+                                    </Stack>
+                                )
+                            ) : (
+                                <LoadingOverlay visible={true} />
+                            )}
+                        </Box>
+
+                        {['pending', 'submitted'].includes(selectedDoc.status) && (
+                            <Group grow mt="xs">
+                                <Button
+                                    color="green"
+                                    size="md"
+                                    radius="md"
+                                    leftSection={<IconCheck size={20} />}
+                                    onClick={() => handleApprove(selectedDoc)}
+                                >
+                                    승인 확정
+                                </Button>
+                                <Button
+                                    color="red"
+                                    variant="light"
+                                    size="md"
+                                    radius="md"
+                                    leftSection={<IconX size={20} />}
+                                    onClick={() => { closePreview(); handleRejectInit(selectedDoc); }}
+                                >
+                                    반려 하기
+                                </Button>
+                            </Group>
+                        )}
+                    </Stack>
+                )}
+            </Modal>
+
+            {/* Reject Reason Modal */}
+            <Modal
+                opened={rejectOpened}
+                onClose={closeReject}
+                title={<Text fw={700}>반려 사유 입력</Text>}
+                size="sm"
+                centered
+                radius="md"
+            >
+                <Stack>
+                    <Text size="sm" c={MUTED}>
+                        FC에게 전달될 구체적인 반려 사유를 입력해주세요. <br />푸시 알림으로 전송됩니다.
+                    </Text>
+                    <Textarea
+                        placeholder="예: 글씨를 알아볼 수 없습니다. 밝은 곳에서 다시 촬영하여 제출해주세요."
+                        minRows={5}
+                        radius="md"
+                        value={rejectReason}
+                        onChange={(e) => setRejectReason(e.currentTarget.value)}
+                    />
+                    <Group justify="flex-end" mt="sm">
+                        <Button variant="default" onClick={closeReject}>취소</Button>
+                        <Button color="red" onClick={handleRejectConfirm} loading={updateStatusMutation.isPending}>반려 처리</Button>
+                    </Group>
+                </Stack>
+            </Modal>
+
+        </Container>
+    );
+}

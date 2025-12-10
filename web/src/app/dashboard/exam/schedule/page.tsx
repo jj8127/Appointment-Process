@@ -1,0 +1,433 @@
+'use client';
+
+import {
+    ActionIcon,
+    Badge,
+    Box,
+    Button,
+    Container,
+    Group,
+    LoadingOverlay,
+    Modal,
+    Paper,
+    ScrollArea,
+    Stack,
+    Table,
+    TagsInput,
+    Text,
+    TextInput,
+    Title
+} from '@mantine/core';
+import { DateInput } from '@mantine/dates';
+import { useForm, zodResolver } from '@mantine/form';
+import { useDisclosure } from '@mantine/hooks';
+import { notifications } from '@mantine/notifications';
+import {
+    IconCalendar,
+    IconEdit,
+    IconTrash,
+    IconPlus
+} from '@tabler/icons-react';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import dayjs from 'dayjs';
+import { useState } from 'react';
+import { z } from 'zod';
+
+import { supabase } from '@/lib/supabase';
+
+// --- Constants ---
+const HANWHA_ORANGE = '#f36f21';
+const CHARCOAL = '#111827';
+const MUTED = '#6b7280';
+
+// --- Types ---
+type ExamRound = {
+    id: string;
+    exam_date: string;
+    registration_deadline: string;
+    round_label: string;
+    notes?: string;
+    locations: { id: string; location_name: string }[];
+};
+
+// --- Schema ---
+const roundSchema = z.object({
+    exam_date: z.date({ required_error: '시험일을 선택해주세요' }),
+    registration_deadline: z.date({ required_error: '마감일을 선택해주세요' }),
+    round_label: z.string().min(1, '회차명을 입력해주세요'),
+    notes: z.string().optional(),
+    locations: z.array(z.string()).min(1, '최소 1개의 장소를 등록해주세요'),
+});
+
+type RoundFormValues = z.infer<typeof roundSchema>;
+
+export default function ExamSchedulePage() {
+    const queryClient = useQueryClient();
+    const [opened, { open, close }] = useDisclosure(false);
+    const [editingId, setEditingId] = useState<string | null>(null);
+    const [deleteTarget, setDeleteTarget] = useState<{ id: string; label: string } | null>(null);
+    const [deleteOpened, { open: openDelete, close: closeDelete }] = useDisclosure(false);
+
+    // --- Form ---
+    const form = useForm<RoundFormValues>({
+        resolver: zodResolver(roundSchema),
+        initialValues: {
+            exam_date: new Date(),
+            registration_deadline: new Date(),
+            round_label: '',
+            notes: '',
+            locations: ['서울', '부산', '대전', '광주', '대구'], // Defaults
+        },
+    });
+
+    // --- Fetch Data ---
+    const { data: rounds, isLoading } = useQuery({
+        queryKey: ['exam-rounds'],
+        queryFn: async () => {
+            // Fetch rounds
+            const { data: roundsData, error: roundError } = await supabase
+                .from('exam_rounds')
+                .select(`
+          *,
+          exam_locations ( id, location_name )
+        `)
+                .order('exam_date', { ascending: false });
+
+            if (roundError) throw roundError;
+
+            // Transform to cleaner type
+            return (roundsData || []).map((r: any) => ({
+                ...r,
+                locations: r.exam_locations || [],
+            })) as ExamRound[];
+        },
+    });
+
+    // --- Mutations ---
+    const saveMutation = useMutation({
+        mutationFn: async (values: RoundFormValues) => {
+            const { exam_date, registration_deadline, round_label, notes, locations } = values;
+
+            const payload = {
+                exam_date: dayjs(exam_date).format('YYYY-MM-DD'),
+                registration_deadline: dayjs(registration_deadline).format('YYYY-MM-DD'),
+                round_label,
+                notes,
+            };
+
+            let roundId = editingId;
+
+            if (!roundId) {
+                // Insert Round
+                const { data, error } = await supabase
+                    .from('exam_rounds')
+                    .insert(payload)
+                    .select()
+                    .single();
+                if (error) throw error;
+                roundId = data.id;
+            } else {
+                // Update Round
+                const { error } = await supabase
+                    .from('exam_rounds')
+                    .update(payload)
+                    .eq('id', roundId);
+                if (error) throw error;
+            }
+
+            if (!roundId) throw new Error('Round ID missing');
+
+            // Manage Locations
+            // Strategy: 
+            // 1. Fetch existing locations for this round
+            // 2. Determine which to add (new tags)
+            // 3. For editing, we DO NOT delete existing locations to prevent FK errors with applications.
+            //    We only ADD new ones. If user removed a tag, we try to delete, but ignore FK error or checking it?
+            //    Simplest safe MVP: Only Insert new ones. Users cannot delete locations yet via this UI if it risks data integrity.
+            //    Or: Try to delete locations NOT in the new list. If creation fails, so be it.
+
+            const { data: existingLocs } = await supabase
+                .from('exam_locations')
+                .select('location_name, id')
+                .eq('round_id', roundId);
+
+            const existingNames = new Set(existingLocs?.map(l => l.location_name) || []);
+            const newNames = values.locations;
+
+            // To Add
+            const toAdd = newNames.filter(n => !existingNames.has(n));
+
+            if (toAdd.length > 0) {
+                const { error: insertErr } = await supabase.from('exam_locations').insert(
+                    toAdd.map((name, idx) => ({
+                        round_id: roundId,
+                        location_name: name,
+                        sort_order: idx // Simple order
+                    }))
+                );
+                if (insertErr) throw insertErr;
+            }
+
+            // To Delete (Only if user removed from tags)
+            // Warning: This will fail if applications exist. We wrap in try/catch or just let it fail silently/show warning.
+            const toRemove = existingLocs?.filter(l => !newNames.includes(l.location_name)) || [];
+            if (toRemove.length > 0) {
+                const { error: delError } = await supabase
+                    .from('exam_locations')
+                    .delete()
+                    .in('id', toRemove.map(l => l.id));
+
+                if (delError) {
+                    console.warn('Failed to delete some locations due to existing applications', delError);
+                    // Optional: Notify user
+                    if (delError.code === '23503') { // ForeignKeyViolation
+                        // We suppress this specific error for UX or show a warning toast?
+                        // Let's suppress and just log.
+                    } else {
+                        throw delError;
+                    }
+                }
+            }
+        },
+        onSuccess: () => {
+            notifications.show({
+                title: editingId ? '수정 완료' : '등록 완료',
+                message: `시험 일정이 ${editingId ? '수정' : '등록'}되었습니다.`,
+                color: 'green',
+            });
+            queryClient.invalidateQueries({ queryKey: ['exam-rounds'] });
+            handleClose();
+        },
+        onError: (err: any) => {
+            notifications.show({
+                title: '저장 실패',
+                message: err.message,
+                color: 'red',
+            });
+        },
+    });
+
+    const deleteMutation = useMutation({
+        mutationFn: async (roundId: string) => {
+            // 먼저 장소 삭제 후 회차 삭제 (FK 충돌 방지)
+            const { error: locErr } = await supabase.from('exam_locations').delete().eq('round_id', roundId);
+            if (locErr) {
+                // Foreign key 오류일 때는 안내 메시지를 보여주도록 상위에서 처리
+                throw locErr;
+            }
+            const { error: roundErr } = await supabase.from('exam_rounds').delete().eq('id', roundId);
+            if (roundErr) throw roundErr;
+        },
+        onSuccess: () => {
+            notifications.show({
+                title: '삭제 완료',
+                message: '시험 일정이 삭제되었습니다.',
+                color: 'green',
+            });
+            queryClient.invalidateQueries({ queryKey: ['exam-rounds'] });
+            setDeleteTarget(null);
+            closeDelete();
+        },
+        onError: (err: any) => {
+            const message =
+                err?.code === '23503'
+                    ? '이미 신청자가 있어 삭제할 수 없습니다.'
+                    : err?.message || '삭제 중 오류가 발생했습니다.';
+            notifications.show({
+                title: '삭제 실패',
+                message,
+                color: 'red',
+            });
+        },
+    });
+
+    // --- Handlers ---
+    const handleOpenCreate = () => {
+        setEditingId(null);
+        form.reset();
+        open();
+    };
+
+    const handleOpenEdit = (round: ExamRound) => {
+        setEditingId(round.id);
+        form.setValues({
+            exam_date: new Date(round.exam_date),
+            registration_deadline: new Date(round.registration_deadline),
+            round_label: round.round_label,
+            notes: round.notes || '',
+            locations: round.locations.map(l => l.location_name),
+        });
+        open();
+    };
+
+    const handleClose = () => {
+        close();
+        form.reset();
+        setEditingId(null);
+    };
+
+    const handleSubmit = (values: RoundFormValues) => {
+        saveMutation.mutate(values);
+    };
+
+    const handleOpenDelete = (round: ExamRound) => {
+        setDeleteTarget({ id: round.id, label: round.round_label });
+        openDelete();
+    };
+
+    const handleConfirmDelete = () => {
+        if (!deleteTarget) return;
+        deleteMutation.mutate(deleteTarget.id);
+    };
+
+    // --- Render ---
+    const rows = rounds?.map((round) => (
+        <Table.Tr key={round.id}>
+            <Table.Td>
+                <Text fw={600} size="sm">{dayjs(round.exam_date).format('YYYY-MM-DD')}</Text>
+            </Table.Td>
+            <Table.Td>
+                <Text fw={600} size="sm">{round.round_label}</Text>
+            </Table.Td>
+            <Table.Td>
+                <Text size="sm" c={dayjs(round.registration_deadline).isBefore(dayjs()) ? 'red' : CHARCOAL}>
+                    {dayjs(round.registration_deadline).format('YYYY-MM-DD')} {dayjs(round.registration_deadline).isBefore(dayjs()) && '(마감)'}
+                </Text>
+            </Table.Td>
+            <Table.Td>
+                <Group gap={4}>
+                    {round.locations.map((loc) => (
+                        <Badge key={loc.id} variant="light" color="gray" size="sm">
+                            {loc.location_name}
+                        </Badge>
+                    ))}
+                </Group>
+            </Table.Td>
+            <Table.Td>
+                <Group gap={6}>
+                    <ActionIcon variant="light" color="orange" onClick={() => handleOpenEdit(round)} aria-label="일정 수정">
+                        <IconEdit size={16} />
+                    </ActionIcon>
+                    <ActionIcon variant="light" color="red" onClick={() => handleOpenDelete(round)} aria-label="일정 삭제">
+                        <IconTrash size={16} />
+                    </ActionIcon>
+                </Group>
+            </Table.Td>
+        </Table.Tr>
+    ));
+
+    return (
+        <Container size="xl" py="xl">
+            <Group justify="space-between" mb="lg">
+                <div>
+                    <Title order={2} c={CHARCOAL}>시험 일정 관리</Title>
+                    <Text c={MUTED} size="sm">자격 시험 일정과 접수 가능한 장소를 관리합니다.</Text>
+                </div>
+                <Button leftSection={<IconPlus size={16} />} color="orange" onClick={handleOpenCreate}>
+                    일정 등록
+                </Button>
+            </Group>
+
+            <Paper shadow="sm" radius="lg" withBorder overflow="hidden">
+                <ScrollArea>
+                    <Table verticalSpacing="md" highlightOnHover>
+                        <Table.Thead bg="#F9FAFB">
+                            <Table.Tr>
+                                <Table.Th>시험일</Table.Th>
+                                <Table.Th>회차명</Table.Th>
+                                <Table.Th>접수 마감일</Table.Th>
+                                <Table.Th>고사장(장소)</Table.Th>
+                                <Table.Th>관리</Table.Th>
+                            </Table.Tr>
+                        </Table.Thead>
+                        <Table.Tbody>
+                            {isLoading ? (
+                                <Table.Tr><Table.Td colSpan={5} align="center" py={40}><LoadingOverlay visible /></Table.Td></Table.Tr>
+                            ) : rows && rows.length > 0 ? (
+                                rows
+                            ) : (
+                                <Table.Tr><Table.Td colSpan={5} align="center" py={60} c="dimmed">등록된 일정이 없습니다.</Table.Td></Table.Tr>
+                            )}
+                        </Table.Tbody>
+                    </Table>
+                </ScrollArea>
+            </Paper>
+
+            {/* Modal */}
+            <Modal
+                opened={opened}
+                onClose={handleClose}
+                title={<Text fw={700} size="lg">{editingId ? '일정 수정' : '새 일정 등록'}</Text>}
+                size="md"
+                centered
+            >
+                <form onSubmit={form.onSubmit(handleSubmit)}>
+                    <Stack gap="md">
+                        <DateInput
+                            label="시험일"
+                            placeholder="시험 날짜 선택"
+                            leftSection={<IconCalendar size={16} />}
+                            {...form.getInputProps('exam_date')}
+                            locale="ko"
+                            valueFormat="YYYY년 MM월 DD일"
+                        />
+                        <DateInput
+                            label="접수 마감일"
+                            placeholder="마감 날짜 선택"
+                            leftSection={<IconCalendar size={16} />}
+                            {...form.getInputProps('registration_deadline')}
+                            locale="ko"
+                            valueFormat="YYYY년 MM월 DD일"
+                        />
+                        <TextInput
+                            label="회차명/구분"
+                            placeholder="예: 312회차 생명보험 자격시험"
+                            {...form.getInputProps('round_label')}
+                        />
+
+                        <Box>
+                            <Text size="sm" fw={500} mb={4}>고사장(장소) 관리</Text>
+                            <TagsInput
+                                placeholder="Enter로 장소 추가 (예: 서울, 부산)"
+                                {...form.getInputProps('locations')}
+                                data={['서울', '부산', '대구', '인천', '광주', '대전', '울산', '제주']}
+                                clearable
+                            />
+                            <Text size="xs" c="dimmed" mt={4}>
+                                * 이미 신청자가 있는 장소는 삭제되지 않을 수 있습니다.
+                            </Text>
+                        </Box>
+
+                        <TextInput
+                            label="비고 (선택)"
+                            placeholder="메모 사항"
+                            {...form.getInputProps('notes')}
+                        />
+
+                        <Group justify="flex-end" mt="md">
+                            <Button variant="default" onClick={handleClose}>취소</Button>
+                            <Button type="submit" color="orange" loading={saveMutation.isPending}>
+                                {editingId ? '수정 저장' : '등록 하기'}
+                            </Button>
+                        </Group>
+                    </Stack>
+                </form>
+            </Modal>
+
+            {/* Delete Confirm */}
+            <Modal opened={deleteOpened} onClose={closeDelete} title="일정 삭제" centered>
+                <Stack gap="md">
+                    <Text size="sm" c="dimmed">
+                        {deleteTarget ? `'${deleteTarget.label}' 일정을 삭제하시겠습니까? 관련 신청자가 있는 경우 삭제가 불가합니다.` : '일정을 삭제하시겠습니까?'}
+                    </Text>
+                    <Group justify="flex-end">
+                        <Button variant="default" onClick={closeDelete}>취소</Button>
+                        <Button color="red" onClick={handleConfirmDelete} loading={deleteMutation.isPending}>
+                            삭제
+                        </Button>
+                    </Group>
+                </Stack>
+            </Modal>
+        </Container>
+    );
+}

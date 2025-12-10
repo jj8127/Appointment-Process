@@ -220,6 +220,7 @@ export default function DashboardScreen() {
   const [editMode, setEditMode] = useState<Record<string, boolean>>({});
   const [docSelections, setDocSelections] = useState<Record<string, Set<string>>>({});
   const [customDocInputs, setCustomDocInputs] = useState<Record<string, string>>({});
+  const [scheduleInputs, setScheduleInputs] = useState<Record<string, { life?: string; nonlife?: string }>>({});
   const [expanded, setExpanded] = useState<Record<string, boolean>>({});
   const [refreshing, setRefreshing] = useState(false);
   const keyboardPadding = useKeyboardPadding();
@@ -266,15 +267,21 @@ export default function DashboardScreen() {
     const next: Record<string, Set<string>> = {};
     const tempPrefill: Record<string, string> = {};
     const careerPrefill: Record<string, '신입' | '경력'> = {};
+    const schedulePrefill: Record<string, { life?: string; nonlife?: string }> = {};
     data.forEach((fc) => {
       const docs = fc.fc_documents?.map((d) => d.doc_type) ?? [];
       next[fc.id] = new Set(docs);
       if (fc.temp_id) tempPrefill[fc.id] = fc.temp_id;
       if (fc.career_type === '경력' || fc.career_type === '신입') careerPrefill[fc.id] = fc.career_type as any;
+      schedulePrefill[fc.id] = {
+        life: fc.appointment_schedule_life ?? '',
+        nonlife: fc.appointment_schedule_nonlife ?? '',
+      };
     });
     setDocSelections(next);
     setTempInputs((prev) => ({ ...tempPrefill, ...prev }));
     setCareerInputs((prev) => ({ ...careerPrefill, ...prev }));
+    setScheduleInputs((prev) => ({ ...schedulePrefill, ...prev }));
   }, [data]);
 
   const onRefresh = useCallback(async () => {
@@ -375,7 +382,7 @@ export default function DashboardScreen() {
   });
 
   const updateDocReqs = useMutation({
-    mutationFn: async ({ id, types }: { id: string; types: string[] }) => {
+    mutationFn: async ({ id, types, phone }: { id: string; types: string[]; phone?: string }) => {
       const uniqueTypes = Array.from(new Set(types));
 
       const { data: currentDocs, error: fetchErr } = await supabase
@@ -392,6 +399,7 @@ export default function DashboardScreen() {
           (d) => !selectedSet.has(d.doc_type) && (!d.storage_path || d.storage_path === 'deleted'),
         ) ?? [];
       const toAdd = uniqueTypes.filter((t) => !currentTypes.includes(t));
+      const hasChanges = toDelete.length > 0 || toAdd.length > 0;
 
       if (toDelete.length) {
         const { error: delErr } = await supabase
@@ -412,6 +420,18 @@ export default function DashboardScreen() {
         }));
         const { error: insertErr } = await supabase.from('fc_documents').insert(rows);
         if (insertErr) throw insertErr;
+      }
+
+      if (hasChanges) {
+        await supabase.from('fc_profiles').update({ status: 'docs-requested' }).eq('id', id);
+        if (phone) {
+          await sendNotificationAndPush(
+            'fc',
+            phone,
+            '서류 요청 안내',
+            '필수 서류 요청이 수정되었습니다. 새로운 서류를 제출해주세요.',
+          );
+        }
       }
     },
     onSuccess: () => {
@@ -475,6 +495,29 @@ export default function DashboardScreen() {
       refetch();
     },
     onError: (err: any) => Alert.alert('오류', err?.message ?? '위촉 정보 처리 중 문제가 발생했습니다.'),
+  });
+
+  const updateAppointmentSchedule = useMutation({
+    mutationFn: async ({
+      id,
+      life,
+      nonlife,
+    }: {
+      id: string;
+      life?: string | null;
+      nonlife?: string | null;
+    }) => {
+      const payload: any = {};
+      if (life !== undefined) payload.appointment_schedule_life = life || null;
+      if (nonlife !== undefined) payload.appointment_schedule_nonlife = nonlife || null;
+      const { error } = await supabase.from('fc_profiles').update(payload).eq('id', id);
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      Alert.alert('저장 완료', '위촉 예정 월을 저장했습니다.');
+      refetch();
+    },
+    onError: (err: any) => Alert.alert('저장 실패', err?.message ?? '위촉 예정 월 저장 중 오류가 발생했습니다.'),
   });
 
   const toggleDocSelection = (fcId: string, doc: string) => {
@@ -653,9 +696,56 @@ export default function DashboardScreen() {
       if (fc.status === 'docs-approved' || fc.status === 'docs-submitted' || fc.status === 'final-link-sent') {
         const lifeVal = fc.appointment_schedule_life ?? '';
         const nonlifeVal = fc.appointment_schedule_nonlife ?? '';
+        const scheduleInput = scheduleInputs[fc.id] ?? { life: lifeVal, nonlife: nonlifeVal };
         actionBlocks.push(
           <View key="final-actions" style={[styles.actionColumn, { gap: 12, marginTop: 4 }]}>
             <Text style={styles.adminLabel}>위촉 진행 관리</Text>
+
+            <View style={styles.scheduleEditRow}>
+              <View style={styles.scheduleInputGroup}>
+                <Text style={styles.scheduleInputLabel}>생명 위촉 예정 월</Text>
+                <TextInput
+                  style={styles.scheduleInput}
+                  keyboardType="number-pad"
+                  placeholder="예: 6"
+                  value={scheduleInput.life ?? ''}
+                  onChangeText={(t) =>
+                    setScheduleInputs((prev) => ({
+                      ...prev,
+                      [fc.id]: { ...(prev[fc.id] ?? {}), life: t },
+                    }))
+                  }
+                />
+              </View>
+              <View style={styles.scheduleInputGroup}>
+                <Text style={styles.scheduleInputLabel}>손해 위촉 예정 월</Text>
+                <TextInput
+                  style={styles.scheduleInput}
+                  keyboardType="number-pad"
+                  placeholder="예: 9"
+                  value={scheduleInput.nonlife ?? ''}
+                  onChangeText={(t) =>
+                    setScheduleInputs((prev) => ({
+                      ...prev,
+                      [fc.id]: { ...(prev[fc.id] ?? {}), nonlife: t },
+                    }))
+                  }
+                />
+              </View>
+              <Pressable
+                style={[styles.saveBtn, updateAppointmentSchedule.isPending && styles.actionButtonDisabled]}
+                disabled={updateAppointmentSchedule.isPending}
+                onPress={() =>
+                  updateAppointmentSchedule.mutate({
+                    id: fc.id,
+                    life: (scheduleInputs[fc.id]?.life ?? '').trim() || null,
+                    nonlife: (scheduleInputs[fc.id]?.nonlife ?? '').trim() || null,
+                  })
+                }
+              >
+                <Text style={styles.saveBtnText}>예정 월 저장</Text>
+              </Pressable>
+            </View>
 
             <View style={styles.scheduleRow}>
               <View style={styles.scheduleInfo}>
@@ -833,6 +923,7 @@ export default function DashboardScreen() {
                     updateDocReqs.mutate({
                       id: fc.id,
                       types: Array.from(docSelections[fc.id] ?? new Set<string>()),
+                      phone: fc.phone,
                     })
                   }
                   disabled={updateDocReqs.isPending}
@@ -1572,6 +1663,23 @@ const styles = StyleSheet.create({
   },
   docChipSelected: { backgroundColor: ORANGE, borderColor: ORANGE },
   docChipText: { fontSize: 12, color: CHARCOAL },
+  scheduleEditRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 10,
+    alignItems: 'flex-end',
+  },
+  scheduleInputGroup: { flex: 1, minWidth: 150, gap: 6 },
+  scheduleInputLabel: { fontSize: 12, color: MUTED },
+  scheduleInput: {
+    borderWidth: 1,
+    borderColor: BORDER,
+    borderRadius: 8,
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+    color: CHARCOAL,
+    backgroundColor: '#fff',
+  },
   scheduleRow: {
     flexDirection: 'row',
     alignItems: 'center',

@@ -2,13 +2,14 @@ import { Feather } from '@expo/vector-icons';
 import { useQuery } from '@tanstack/react-query';
 import * as Haptics from 'expo-haptics';
 import { LinearGradient } from 'expo-linear-gradient';
-import { router } from 'expo-router';
+import { router, useFocusEffect } from 'expo-router';
 import { MotiView } from 'moti';
 import { useCallback, useEffect, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
   Linking,
+  Platform,
   Pressable,
   RefreshControl,
   ScrollView,
@@ -17,6 +18,8 @@ import {
   View,
 } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
+import * as Notifications from 'expo-notifications';
+import Constants from 'expo-constants';
 
 import { RefreshButton } from '@/components/RefreshButton';
 import { useSession } from '@/hooks/use-session';
@@ -57,10 +60,9 @@ const quickLinksAdmin: QuickLink[] = [
   { href: '/dashboard', stepKey: 'step1', title: '인적사항 관리', description: '기본정보 미완료 FC' },
   { href: '/dashboard', stepKey: 'step2', title: '수당 동의 안내', description: '기본 정보 저장 완료 FC' },
   { href: '/dashboard', stepKey: 'step3', title: '서류 안내/검토', description: '제출해야 할 서류 관리' },
-  { href: '/dashboard', stepKey: 'step4', title: '위촉 진행', description: '위촉 URL 발송 및 확인' },
-  { href: '/admin-appointment', title: '위촉 URL 발송', description: 'FC별 위촉 링크 관리' },
+  { href: '/dashboard', stepKey: 'step4', title: '위촉 진행', description: '위촉 확인' },
   { href: '/dashboard', stepKey: 'step5', title: '완료 관리', description: '위촉 완료 현황' },
-  { href: '/exam-register', title: '생명보험 시험', description: '응시일정 · 마감 관리' },
+  { href: '/exam-register', title: '생명보험/제3보험 시험', description: '응시일정 · 마감 관리' },
   { href: '/exam-register2', title: '손해보험 시험', description: '응시일정 · 마감 관리' },
   { href: '/exam-manage', title: '생명 신청자', description: '신청 현황 조회' },
   { href: '/exam-manage2', title: '손해 신청자', description: '신청 현황 조회' },
@@ -132,11 +134,45 @@ const fetchLatestNotice = async () => {
   }
 };
 
+const fetchLatestAdminMessage = async (residentId: string) => {
+  if (!residentId) {
+    console.log('[Home] residentId 없음');
+    return null;
+  }
+  try {
+    const { data: authRes } = await supabase.auth.getUser();
+    console.log('[Home] latest admin msg start', { supabaseUserId: authRes?.user?.id, residentId });
+
+    const { data, error } = await supabase
+      .from('messages') // 테이블명이 다르면 여기 수정 필요
+      .select('*') // 컬럼 구조 확인용
+      .eq('receiver_id', residentId) // 내가 받은 메시지
+      .neq('sender_id', residentId) // 내가 보낸 것은 제외
+      .order('created_at', { ascending: false })
+      .limit(1);
+
+    if (error) {
+      console.error('[Home] latest admin msg error', error);
+      return null;
+    }
+
+    console.log('[Home] latest admin msg data', data);
+    const msg = data?.[0];
+    if (!msg) return null;
+    const content =
+      (msg as any).content || (msg as any).text || (msg as any).message || (msg as any).body || '';
+    return { ...msg, content };
+  } catch (err) {
+    console.log('[Home] latest admin msg exception', err);
+    return null;
+  }
+};
+
 const fetchFcStatus = async (residentId: string) => {
   const { data, error } = await supabase
     .from('fc_profiles')
     .select(
-      'name,affiliation,status,temp_id,allowance_date,appointment_url,appointment_date,appointment_schedule_life,appointment_schedule_nonlife,appointment_date_life,appointment_date_nonlife,resident_id_masked,email,address,fc_documents(doc_type,storage_path)',
+      'id,name,affiliation,status,temp_id,allowance_date,appointment_url,appointment_date,appointment_schedule_life,appointment_schedule_nonlife,appointment_date_life,appointment_date_nonlife,resident_id_masked,email,address,fc_documents(doc_type,storage_path)',
     )
     .eq('phone', residentId)
     .maybeSingle();
@@ -277,6 +313,16 @@ export default function Home() {
   });
 
   const quickLinks = role === 'admin' ? quickLinksAdmin : quickLinksFc;
+  const {
+    data: latestAdminMsg,
+    isLoading: latestAdminMsgLoading,
+    refetch: refetchLatestAdminMsg,
+  } = useQuery({
+    queryKey: ['latest-admin-msg', residentId],
+    queryFn: () => fetchLatestAdminMessage(residentId),
+    enabled: role === 'fc' && !!residentId,
+  });
+
   const currentStep = myFc ? calcStep(myFc) : 1;
   const activeStep = steps[Math.min(steps.length - 1, Math.max(0, currentStep - 1))];
   const uploadedDocs =
@@ -294,9 +340,9 @@ export default function Home() {
   }
 
   const getAppointmentStatus = (date: string | null | undefined, schedule: string | null | undefined) => {
-    if (date) return { label: '완료', color: '#15803d', bg: '#DCFCE7' };
-    if (schedule) return { label: `${schedule}월 진행중`, color: '#f36f21', bg: '#FFF7ED' };
-    return { label: '진행중', color: '#2563eb', bg: '#EFF6FF' };
+    if (date) return { label: '완료', color: '#ffffff', bg: '#16a34a' }; // 진한 녹색 배경으로 완료 강조
+    if (schedule) return { label: `${schedule}월 진행중`, color: '#fcfcfcff', bg: '#f97316' }; // 주황 배경으로 일정 진행중 구분
+    return { label: '진행중', color: '#ffffff', bg: '#2563eb' }; // 파란 배경으로 기본 진행중 표시
   };
 
   const lifeStatus = getAppointmentStatus(myFc?.appointment_date_life, myFc?.appointment_schedule_life);
@@ -308,6 +354,61 @@ export default function Home() {
       router.replace('/auth');
     }
   }, [hydrated, role]);
+
+  // 기본 인적사항 미입력 FC는 항상 인적사항 입력 화면으로 이동
+  useEffect(() => {
+    if (!hydrated || role !== 'fc') return;
+    if (!myFc) return;
+    const hasBasicInfo =
+      Boolean(myFc.name?.trim() && myFc.affiliation?.trim() && myFc.resident_id_masked) &&
+      Boolean(myFc.email || myFc.address);
+    if (!hasBasicInfo) {
+      router.replace('/fc/new');
+    }
+  }, [hydrated, role, myFc]);
+
+  // FC 푸시 토큰 등록 (배너 알림 수신용)
+  useEffect(() => {
+    let active = true;
+    (async () => {
+      if (role !== 'fc' || !residentId) return;
+      try {
+        const { status } = await Notifications.requestPermissionsAsync();
+        if (status !== 'granted') {
+          console.log('[push] permission denied');
+          return;
+        }
+        if (Platform.OS === 'android') {
+          await Notifications.setNotificationChannelAsync('default', {
+            name: 'default',
+            importance: Notifications.AndroidImportance.MAX,
+          });
+        }
+
+        const { data: token } = await Notifications.getExpoPushTokenAsync({
+          projectId: Constants.expoConfig?.extra?.eas?.projectId,
+        });
+        if (!active || !token) return;
+
+        const { error } = await supabase
+          .from('device_tokens')
+          .upsert(
+            { resident_id: residentId, role: 'fc', expo_push_token: token },
+            { onConflict: 'resident_id' },
+          );
+        if (error) {
+          console.log('[push] upsert error', error.message ?? error);
+        } else {
+          console.log('[push] fc token saved', { residentId });
+        }
+      } catch (e: any) {
+        console.log('[push] exception', e?.message ?? e);
+      }
+    })();
+    return () => {
+      active = false;
+    };
+  }, [role, residentId]);
 
   const handleLogout = () => {
     Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
@@ -322,11 +423,12 @@ export default function Home() {
         refetchCounts?.(),
         refetchMyFc?.(),
         refetchLatestNotice?.(),
+        refetchLatestAdminMsg?.(),
       ]);
     } finally {
       setRefreshing(false);
     }
-  }, [refetchCounts, refetchLatestNotice, refetchMyFc]);
+  }, [refetchCounts, refetchLatestNotice, refetchLatestAdminMsg, refetchMyFc]);
 
   const handlePressLink = (href: string, stepKey?: StepKey) => {
     Haptics.selectionAsync();
@@ -361,6 +463,72 @@ export default function Home() {
     router.push(`/dashboard?status=${stepKey}` as any);
   };
 
+  // 채팅에서 돌아올 때 최신 메시지 갱신
+  useFocusEffect(
+    useCallback(() => {
+      if (role === 'fc' && residentId) {
+        refetchLatestAdminMsg?.();
+      }
+    }, [refetchLatestAdminMsg, residentId, role]),
+  );
+
+  // 실시간: 새 메시지 도착 시 미리보기 즉시 갱신
+  useEffect(() => {
+    if (role !== 'fc' || !residentId) return;
+    const channel = supabase
+      .channel(`home-messages-${residentId}`)
+      .on(
+        'postgres_changes',
+        { event: 'INSERT', schema: 'public', table: 'messages', filter: `receiver_id=eq.${residentId}` },
+        (payload) => {
+          const newMsg: any = payload.new;
+          const content = newMsg?.content || newMsg?.text || newMsg?.message || newMsg?.body;
+          if (content) {
+            refetchLatestAdminMsg?.();
+          }
+        },
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [refetchLatestAdminMsg, residentId, role]);
+
+  // 실시간: 내 프로필 변경 시 진행도 갱신
+  useEffect(() => {
+    if (role !== 'fc' || !residentId) return;
+    const profileChannel = supabase
+      .channel(`home-profile-${residentId}`)
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'fc_profiles', filter: `phone=eq.${residentId}` },
+        () => refetchMyFc?.(),
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(profileChannel);
+    };
+  }, [role, residentId, refetchMyFc]);
+
+  // 실시간: 내 서류 상태 변경 시 진행도 갱신
+  useEffect(() => {
+    if (role !== 'fc' || !myFc?.id) return;
+    const docChannel = supabase
+      .channel(`home-docs-${myFc.id}`)
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'fc_documents', filter: `fc_id=eq.${myFc.id}` },
+        () => refetchMyFc?.(),
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(docChannel);
+    };
+  }, [role, myFc?.id, refetchMyFc]);
+
   if (!hydrated) {
     return (
       <SafeAreaView style={styles.safe} edges={['left', 'right', 'bottom']}>
@@ -376,9 +544,9 @@ export default function Home() {
       <ScrollView
         contentContainerStyle={[styles.container, { paddingBottom: 96 + (insets.bottom || 0) }]}
         refreshControl={
-          <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
-        }
-      >
+      <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
+    }
+  >
         <View style={styles.topBar}>
           <View style={styles.topActions}>
             <Pressable style={styles.logoutButton} onPress={handleLogout}>
@@ -446,7 +614,7 @@ export default function Home() {
               </LinearGradient>
             </Pressable>
           ) : (
-            <Pressable onPress={() => handlePressLink(myFc?.name ? '/dashboard' : '/fc/new')}>
+            <Pressable onPress={() => handlePressLink('/chat')}>
               <LinearGradient
                 colors={['#f36f21', '#fabc3c']}
                 start={{ x: 0, y: 0 }}
@@ -455,17 +623,19 @@ export default function Home() {
               >
                 <View style={styles.ctaContent}>
                   <View style={styles.ctaBadge}>
-                    <Text style={styles.ctaBadgeText}>FC 지원</Text>
+                    <Text style={styles.ctaBadgeText}>1:1 문의</Text>
                   </View>
-                  <Text style={styles.ctaTitle}>
-                    {myFc?.name ? '내 현황 확인하기' : '인적사항 등록하기'}
-                  </Text>
-                  <Text style={styles.ctaSub}>
-                    {myFc?.name ? '제출한 서류와 진행 단계를 확인하세요.' : '기본 정보를 먼저 등록해주세요.'}
+                  <Text style={styles.ctaTitle}>총무팀과 대화하기</Text>
+                  <Text style={styles.ctaSub} numberOfLines={2}>
+                    {latestAdminMsgLoading
+                      ? '메시지 불러오는 중...'
+                      : latestAdminMsg?.content
+                        ? latestAdminMsg.content
+                        : '최근 총무팀 메시지를 확인하세요.'}
                   </Text>
                 </View>
                 <View style={styles.ctaIconCircle}>
-                  <Feather name="arrow-right" size={24} color={HANWHA_ORANGE} />
+                  <Feather name="message-circle" size={24} color={HANWHA_ORANGE} />
                 </View>
                 <View style={styles.ctaDecoCircle} />
               </LinearGradient>
@@ -509,7 +679,6 @@ export default function Home() {
                 <ActivityIndicator color={HANWHA_LIGHT} style={{ marginVertical: 20 }} />
               ) : (
                 <>
-                  <ProgressBar step={currentStep} />
                   <View style={styles.statusRow}>
                     <View style={styles.statusItem}>
                       <Text style={styles.statusLabel}>생명 위촉</Text>
@@ -525,6 +694,7 @@ export default function Home() {
                       </View>
                     </View>
                   </View>
+                  <ProgressBar step={currentStep} />
                 </>
               )}
               <View style={styles.glanceRow}>

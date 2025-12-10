@@ -19,6 +19,9 @@ type SessionContextValue = SessionState & {
 };
 
 const SessionContext = createContext<SessionContextValue | undefined>(undefined);
+const COOKIE_ROLE = 'session_role';
+const COOKIE_RESIDENT = 'session_resident';
+const COOKIE_DISPLAY = 'session_display';
 
 const computeMask = (raw: string) => {
     const digits = raw.replace(/[^0-9]/g, '');
@@ -30,6 +33,7 @@ const computeMask = (raw: string) => {
 
 const initialState: SessionState = { role: null, residentId: '', residentMask: '', displayName: '' };
 const STORAGE_KEY = 'fc-onboarding/session';
+const COOKIE_MAX_AGE = 60 * 60 * 24 * 30; // 30일
 
 export function SessionProvider({ children }: { children: ReactNode }) {
     const [state, setState] = useState<SessionState>(initialState);
@@ -87,10 +91,17 @@ export function SessionProvider({ children }: { children: ReactNode }) {
             hydrated,
             loginAs: (role, residentId, displayName = '') => {
                 setState({ role, residentId, residentMask: computeMask(residentId), displayName });
+                // middleware에서 인증 상태를 판별할 수 있도록 쿠키에 최소 정보 저장
+                document.cookie = `${COOKIE_ROLE}=${encodeURIComponent(role ?? '')}; path=/; max-age=${COOKIE_MAX_AGE}`;
+                document.cookie = `${COOKIE_RESIDENT}=${encodeURIComponent(residentId ?? '')}; path=/; max-age=${COOKIE_MAX_AGE}`;
+                document.cookie = `${COOKIE_DISPLAY}=${encodeURIComponent(displayName ?? '')}; path=/; max-age=${COOKIE_MAX_AGE}`;
             },
             logout: () => {
                 setState(initialState);
                 localStorage.removeItem(STORAGE_KEY);
+                document.cookie = `${COOKIE_ROLE}=; path=/; max-age=0`;
+                document.cookie = `${COOKIE_RESIDENT}=; path=/; max-age=0`;
+                document.cookie = `${COOKIE_DISPLAY}=; path=/; max-age=0`;
                 router.replace('/auth');
             },
         }),

@@ -73,9 +73,30 @@ function buildTitle(fcName: string | null, payload: Payload, message?: string) {
   return `${name} 업데이트`;
 }
 
+const corsHeaders = {
+  'Access-Control-Allow-Origin': '*',
+  'Access-Control-Allow-Headers': '*',
+  'Access-Control-Allow-Methods': 'POST, OPTIONS',
+};
+
+function ok(body: Record<string, unknown>, status = 200) {
+  return new Response(JSON.stringify(body), {
+    status,
+    headers: { 'Content-Type': 'application/json', ...corsHeaders },
+  });
+}
+
+function err(message: string, status = 400) {
+  return new Response(message, { status, headers: corsHeaders });
+}
+
 serve(async (req: Request) => {
+  // Preflight
+  if (req.method === 'OPTIONS') {
+    return new Response('ok', { headers: corsHeaders });
+  }
   if (req.method !== 'POST') {
-    return new Response('Method not allowed', { status: 405 });
+    return err('Method not allowed', 405);
   }
 
   let body: Payload;
@@ -83,7 +104,7 @@ serve(async (req: Request) => {
     body = await req.json();
     console.log('[fc-notify] payload', body);
   } catch {
-    return new Response('Invalid JSON', { status: 400 });
+    return err('Invalid JSON', 400);
   }
 
   // 메시지 알림 처리
@@ -109,7 +130,7 @@ serve(async (req: Request) => {
     }
 
     if (!tokens.length) {
-      return new Response(JSON.stringify({ ok: true, sent: 0, msg: 'No tokens found' }), { status: 200 });
+      return ok({ ok: true, sent: 0, msg: 'No tokens found' });
     }
 
     let url = '/chat';
@@ -134,15 +155,12 @@ serve(async (req: Request) => {
     });
     const result = await resp.json();
 
-    return new Response(JSON.stringify({ ok: true, sent: tokens.length, result }), {
-      status: 200,
-      headers: { 'Content-Type': 'application/json' },
-    });
+    return ok({ ok: true, sent: tokens.length, result });
   }
 
   // 기존 fc/admin 업데이트/삭제 로직
   if (!(body as any).fc_id) {
-    return new Response('fc_id required', { status: 400 });
+    return err('fc_id required', 400);
   }
 
   const fc_id = (body as any).fc_id;
@@ -154,7 +172,7 @@ serve(async (req: Request) => {
     .maybeSingle();
 
   if (fcError || !fc) {
-    return new Response('fc not found', { status: 404 });
+    return err('fc not found', 404);
   }
   const fcRow = fc as FcRow;
 
@@ -169,7 +187,7 @@ serve(async (req: Request) => {
       .eq('role', 'admin');
     if (!error && data) tokens = data;
   } else {
-    if (!targetResidentId) return new Response('FC phone number not found', { status: 400 });
+    if (!targetResidentId) return err('FC phone number not found', 400);
     const { data, error } = await supabase
       .from('device_tokens')
       .select('expo_push_token,resident_id,display_name')
@@ -193,7 +211,7 @@ serve(async (req: Request) => {
   if (logError) console.error('notifications insert failed', logError.message);
 
   if (!tokens.length) {
-    return new Response(JSON.stringify({ ok: true, sent: 0, logged: true }), { status: 200 });
+    return ok({ ok: true, sent: 0, logged: true });
   }
 
   const payload = tokens.map((t) => ({
@@ -216,8 +234,5 @@ serve(async (req: Request) => {
 
   const result = await resp.json();
 
-  return new Response(JSON.stringify({ ok: true, sent: tokens.length, logged: true, result }), {
-    status: 200,
-    headers: { 'Content-Type': 'application/json' },
-  });
+  return ok({ ok: true, sent: tokens.length, logged: true, result });
 });

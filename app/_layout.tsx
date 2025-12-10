@@ -77,7 +77,6 @@ export default function RootLayout() {
                 <Stack.Screen name="docs-upload" options={{ title: '서류 업로드' }} />
                 <Stack.Screen name="dashboard" options={{ title: '전체 현황' }} />
                 <Stack.Screen name="appointment" options={{ title: '모바일 위촉' }} />
-                <Stack.Screen name="admin-appointment" options={{ title: '위촉 URL 관리' }} />
                 <Stack.Screen name="notifications" options={{ title: '알림' }} />
                 <Stack.Screen name="notice" options={{ title: '공지사항' }} />
                 <Stack.Screen name="admin-notice" options={{ title: '공지 등록' }} />

@@ -179,15 +179,15 @@ const styles = StyleSheet.create({
   flexGrow: 1,
   paddingHorizontal: 24,
   // justifyContent: 'center',  <-- 이 줄을 삭제하거나 주석 처리하세요.
-  paddingTop: 140, // <-- 원하는 만큼 숫자(픽셀)를 조절하세요 (예: 60, 80, 100...)
+  paddingTop: 80, // 여백 축소
   },
   logoContainer: {
     alignItems: 'center',
-    marginBottom: 40,
+    marginBottom: 1,
   },
   logo: {
-    width: 160,
-    height: 60, // 로고 비율에 맞춰 조정 필요
+    width: 220,
+    height: 220, // 로고를 더 크게 노출
   },
   formSection: {
     gap: 24,

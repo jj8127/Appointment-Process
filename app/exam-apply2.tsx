@@ -266,7 +266,8 @@ export default function ExamApplyScreen() {
   const isConfirmed = !!myLastApply?.is_confirmed;
   const statusLabel = isConfirmed ? '접수 완료' : '미접수';
   const lockMessage = '시험 접수가 완료되어 시험 일정을 수정할 수 없습니다.';
-  const isAllowanceApproved = myProfile?.status === 'allowance-consented';
+  // allowance_date가 있고 status가 pending이 아니면 신청 가능
+  const isAllowanceApproved = Boolean(myProfile?.allowance_date) && myProfile?.status !== 'allowance-pending';
 
   // Realtime: 내 시험 접수 상태 변경 시 갱신
   useEffect(() => {
