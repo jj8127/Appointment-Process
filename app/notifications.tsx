@@ -136,6 +136,19 @@ export default function NotificationsScreen() {
       toggleSelection(item.id);
       return;
     }
+
+    // 서류 검토 완료 알림이면 위촉 페이지로 이동
+    const lowerTitle = item.title?.toLowerCase?.() ?? '';
+    const lowerBody = item.body?.toLowerCase?.() ?? '';
+    const isDocsApproved =
+      lowerTitle.includes('서류') && lowerTitle.includes('완료') ||
+      lowerBody.includes('서류') && lowerBody.includes('완료');
+
+    if (item.source === 'notification' && isDocsApproved) {
+      router.replace('/appointment');
+      return;
+    }
+
     Alert.alert(item.title, item.body, [{ text: '확인' }]);
   };
 

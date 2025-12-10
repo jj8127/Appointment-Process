@@ -1,9 +1,12 @@
-import DateTimePicker from '@react-native-community/datetimepicker';
 import { Feather } from '@expo/vector-icons';
+import DateTimePicker from '@react-native-community/datetimepicker';
 import { useCallback, useEffect, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
+  Dimensions,
+  FlatList,
+  Image,
   Platform,
   Pressable,
   RefreshControl,
@@ -11,11 +14,8 @@ import {
   StyleSheet,
   Text,
   View,
-  Image,
-  FlatList,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { Dimensions } from 'react-native';
 
 import { RefreshButton } from '@/components/RefreshButton';
 import { useKeyboardPadding } from '@/hooks/use-keyboard-padding';
@@ -73,6 +73,8 @@ export default function AppointmentScreen() {
   const [loading, setLoading] = useState(false);
   const [savingLife, setSavingLife] = useState(false);
   const [savingNonLife, setSavingNonLife] = useState(false);
+  const [savedLife, setSavedLife] = useState(false);
+  const [savedNonLife, setSavedNonLife] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
   const [showPickerLife, setShowPickerLife] = useState(Platform.OS === 'ios');
   const [showPickerNonLife, setShowPickerNonLife] = useState(Platform.OS === 'ios');
@@ -96,8 +98,10 @@ export default function AppointmentScreen() {
     }
     setScheduleLife(data?.appointment_schedule_life ?? null);
     setScheduleNonLife(data?.appointment_schedule_nonlife ?? null);
-    if (data?.appointment_date_life) setDateLife(new Date(data.appointment_date_life));
-    if (data?.appointment_date_nonlife) setDateNonLife(new Date(data.appointment_date_nonlife));
+    setDateLife(data?.appointment_date_life ? new Date(data.appointment_date_life) : null);
+    setDateNonLife(data?.appointment_date_nonlife ? new Date(data.appointment_date_nonlife) : null);
+    setSavedLife(Boolean(data?.appointment_date_life));
+    setSavedNonLife(Boolean(data?.appointment_date_nonlife));
   }, [residentId]);
 
   useEffect(() => {
@@ -120,12 +124,13 @@ export default function AppointmentScreen() {
       return;
     }
     const setSaving = type === 'life' ? setSavingLife : setSavingNonLife;
+    const setSaved = type === 'life' ? setSavedLife : setSavedNonLife;
     setSaving(true);
+    setSaved(false);
     const ymd = toYMD(targetDate);
-    const payload =
-      type === 'life'
-        ? { appointment_date_life: ymd, status: 'final-link-sent' }
-        : { appointment_date_nonlife: ymd, status: 'final-link-sent' };
+    // FC는 날짜를 입력하지만 최종 승인은 총무가 진행: 상태만 업데이트하고 날짜는 알림으로 전달
+    // appointment_date_life/nonlife 컬럼은 총무 승인 시에만 기록됨
+    const payload = { status: 'appointment-completed' };
 
     const { data, error } = await supabase
       .from('fc_profiles')
@@ -145,12 +150,18 @@ export default function AppointmentScreen() {
         body: {
           type: 'fc_update',
           fc_id: data.id,
-          message: `${data.name}님이 ${type === 'life' ? '생명보험' : '손해보험'} 위촉을 완료했습니다.`,
+          message: `${data.name}님이 ${type === 'life' ? '생명보험' : '손해보험'} 위촉 완료를 보고했습니다. (입력일: ${ymd})`,
         },
       })
-      .catch(() => {});
+      .catch(() => { });
 
-    Alert.alert('저장 완료', `${type === 'life' ? '생명보험' : '손해보험'} 위촉 완료일이 저장되었습니다.`);
+    Alert.alert(
+      '제출 완료',
+      `${type === 'life' ? '생명보험' : '손해보험'} 위촉 완료일이 저장되었습니다.\n총무 승인 후 최종 반영됩니다.`,
+    );
+    // 최신 상태 반영
+    await load();
+    setSaved(true);
   };
 
   const onRefresh = useCallback(async () => {
@@ -246,7 +257,9 @@ export default function AppointmentScreen() {
                   onPress={() => submitDate('life')}
                   disabled={!dateLife || savingLife}
                 >
-                  <Text style={styles.submitButtonText}>{savingLife ? '저장 중...' : '완료 저장하기'}</Text>
+                  <Text style={styles.submitButtonText}>
+                    {savingLife ? '저장 중...' : savedLife ? '저장됨' : '완료 저장하기'}
+                  </Text>
                 </Pressable>
               </View>
             )}
@@ -299,7 +312,9 @@ export default function AppointmentScreen() {
                   onPress={() => submitDate('nonlife')}
                   disabled={!dateNonLife || savingNonLife}
                 >
-                  <Text style={styles.submitButtonText}>{savingNonLife ? '저장 중...' : '완료 저장하기'}</Text>
+                  <Text style={styles.submitButtonText}>
+                    {savingNonLife ? '저장 중...' : savedNonLife ? '저장됨' : '완료 저장하기'}
+                  </Text>
                 </Pressable>
               </View>
             )}

@@ -4,6 +4,7 @@ import { Stack, router } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import * as NavigationBar from 'expo-navigation-bar';
 import { useEffect } from 'react';
+import * as Notifications from 'expo-notifications';
 import 'react-native-reanimated';
 import { Platform } from 'react-native';
 import { enableScreens } from 'react-native-screens';
@@ -16,6 +17,17 @@ const queryClient = new QueryClient();
 
 // Disable native screen optimization to avoid Android drawing-order crash
 enableScreens(false);
+
+// Notification handler (banner/list 지원)
+Notifications.setNotificationHandler({
+  handleNotification: async () => ({
+    shouldShowAlert: true,
+    shouldPlaySound: false,
+    shouldSetBadge: false,
+    shouldShowBanner: true,
+    shouldShowList: true,
+  }),
+});
 
 export default function RootLayout() {
   const colorScheme = useColorScheme();

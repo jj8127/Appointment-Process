@@ -71,7 +71,7 @@ const quickLinksAdmin: QuickLink[] = [
 
 const quickLinksFc: QuickLink[] = [
   { href: '/fc/new', title: '기본 정보', description: '인적사항 수정' },
-  { href: '/exam-apply', title: '생명 시험 신청', description: '시험 접수하기' },
+  { href: '/exam-apply', title: '생명/제3 시험 신청', description: '시험 접수하기' },
   { href: '/exam-apply2', title: '손해 시험 신청', description: '시험 접수하기' },
   { href: '/consent', title: '수당 동의', description: '약관 동의 관리' },
   { href: '/docs-upload', title: '서류 업로드', description: '필수 서류 제출' },
@@ -170,7 +170,7 @@ const fetchFcStatus = async (residentId: string) => {
   const { data, error } = await supabase
     .from('fc_profiles')
     .select(
-      'id,name,affiliation,status,temp_id,allowance_date,appointment_url,appointment_date,appointment_schedule_life,appointment_schedule_nonlife,appointment_date_life,appointment_date_nonlife,resident_id_masked,email,address,fc_documents(doc_type,storage_path)',
+      'id,name,affiliation,status,temp_id,allowance_date,appointment_url,appointment_date,appointment_schedule_life,appointment_schedule_nonlife,appointment_date_life,appointment_date_nonlife,resident_id_masked,email,address,fc_documents(doc_type,storage_path,status)',
     )
     .eq('phone', residentId)
     .maybeSingle();
@@ -202,24 +202,35 @@ function calcStep(myFc: any) {
     Boolean(myFc.email || myFc.address);
   if (!hasBasicInfo) return 1;
 
-  const hasAllowance = Boolean(myFc.allowance_date) && myFc.status !== 'allowance-pending';
-  if (!hasAllowance) return 2;
+  // [1단계 우선] 수당 동의 완료 여부
+  const allowancePassedStatuses: string[] = [
+    'allowance-consented',
+    'docs-requested',
+    'docs-pending',
+    'docs-submitted',
+    'docs-rejected',
+    'docs-approved',
+    'appointment-completed',
+    'final-link-sent',
+  ];
+  if (!allowancePassedStatuses.includes(myFc.status)) {
+    return 2; // 수당 동의 단계에서 대기
+  }
 
+  // [2단계 우선] 서류 승인 여부
   const docs = myFc.fc_documents ?? [];
-  const totalDocs = docs.length;
-  const uploaded = docs.filter((d: any) => d.storage_path && d.storage_path !== 'deleted').length;
-  const docsComplete = totalDocs > 0 && uploaded === totalDocs;
-  if (!docsComplete) return 3;
+  const validDocs = docs.filter((d: any) => d.storage_path && d.storage_path !== 'deleted');
+  const hasPendingDocs = validDocs.length === 0 || validDocs.some((d: any) => d.status !== 'approved');
+  if (hasPendingDocs) {
+    return 3; // 서류 단계에서 대기
+  }
 
-  const approvedStatuses = ['docs-approved', 'appointment-completed', 'final-link-sent'];
-  const isApproved = approvedStatuses.includes(myFc.status);
-  if (!isApproved) return 3;
+  // [3단계 우선] 위촉 최종 완료 여부
+  if (myFc.status !== 'final-link-sent') {
+    return 4; // 위촉 진행 단계에서 대기 (총무 승인 필요)
+  }
 
-  const appointmentDone =
-    (Boolean(myFc.appointment_date_life) && Boolean(myFc.appointment_date_nonlife)) ||
-    myFc.status === 'final-link-sent';
-  if (!appointmentDone) return 4;
-
+  // 모두 통과
   return 5;
 }
 
@@ -337,14 +348,25 @@ export default function Home() {
     docsStatusText = isApproved ? '모든 문서 제출 완료 [검토 완료]' : '모든 문서 제출 완료 [검토 중]';
   }
 
-  const getAppointmentStatus = (date: string | null | undefined, schedule: string | null | undefined) => {
-    if (date) return { label: '완료', color: '#ffffff', bg: '#16a34a' }; // 진한 녹색 배경으로 완료 강조
-    if (schedule) return { label: `${schedule}월 진행중`, color: '#fcfcfcff', bg: '#f97316' }; // 주황 배경으로 일정 진행중 구분
-    return { label: '진행중', color: '#ffffff', bg: '#2563eb' }; // 파란 배경으로 기본 진행중 표시
-  };
+const getAppointmentStatus = (
+  date: string | null | undefined,
+  schedule: string | null | undefined,
+  isFinal: boolean,
+) => {
+  // 완료 표시는 최종 상태일 때만, 그렇지 않으면 "입력됨(승인대기)"로 표시
+  if (isFinal && date) return { label: '완료', color: '#ffffff', bg: '#16a34a' };
+  if (date) return { label: '입력됨(승인대기)', color: '#ffffff', bg: '#f97316' };
+  if (schedule) return { label: `${schedule}월 진행중`, color: '#fcfcfcff', bg: '#f97316' };
+  return { label: '진행중', color: '#ffffff', bg: '#2563eb' };
+};
 
-  const lifeStatus = getAppointmentStatus(myFc?.appointment_date_life, myFc?.appointment_schedule_life);
-  const nonLifeStatus = getAppointmentStatus(myFc?.appointment_date_nonlife, myFc?.appointment_schedule_nonlife);
+  const isFinal = myFc?.status === 'final-link-sent';
+  const lifeStatus = getAppointmentStatus(myFc?.appointment_date_life, myFc?.appointment_schedule_life, isFinal);
+  const nonLifeStatus = getAppointmentStatus(
+    myFc?.appointment_date_nonlife,
+    myFc?.appointment_schedule_nonlife,
+    isFinal,
+  );
 
   useEffect(() => {
     if (!hydrated) return;
@@ -356,14 +378,25 @@ export default function Home() {
   // 기본 인적사항 미입력 FC는 항상 인적사항 입력 화면으로 이동
   useEffect(() => {
     if (!hydrated || role !== 'fc') return;
+    if (statusLoading) return;
     if (!myFc) return;
-    const hasBasicInfo =
-      Boolean(myFc.name?.trim() && myFc.affiliation?.trim() && myFc.resident_id_masked) &&
-      Boolean(myFc.email || myFc.address);
-    if (!hasBasicInfo) {
-      router.replace('/fc/new');
-    }
-  }, [hydrated, role, myFc]);
+
+    const hasBasics = (fc: any) =>
+      Boolean(fc?.name?.trim() && fc?.affiliation?.trim() && fc?.resident_id_masked) &&
+      Boolean(fc?.email || fc?.address);
+
+    if (hasBasics(myFc)) return;
+    if (myFc.status !== 'draft') return;
+
+    // 저장 직후 캐시 불일치로 재입력 화면이 반복되는 문제 방지: 한 번 더 최신 프로필 확인 후 이동
+    (async () => {
+      const refreshed = await refetchMyFc?.();
+      const fresh = refreshed?.data ?? myFc;
+      if (!hasBasics(fresh)) {
+        router.replace('/fc/new');
+      }
+    })();
+  }, [hydrated, role, myFc, statusLoading, refetchMyFc, router]);
 
   // FC 푸시 토큰 등록 (배너 알림 수신용)
   useEffect(() => {
@@ -388,6 +421,8 @@ export default function Home() {
         });
         if (!active || !token) return;
 
+        // 디바이스 중복 방지: 기존 토큰 제거 후 upsert
+        await supabase.from('device_tokens').delete().eq('expo_push_token', token);
         const { error } = await supabase
           .from('device_tokens')
           .upsert(
@@ -397,7 +432,7 @@ export default function Home() {
         if (error) {
           console.log('[push] upsert error', error.message ?? error);
         } else {
-          console.log('[push] fc token saved', { residentId });
+          console.log('[push] fc token saved', { residentId, token });
         }
       } catch (e: any) {
         console.log('[push] exception', e?.message ?? e);

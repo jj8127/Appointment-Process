@@ -29,7 +29,12 @@ import { useSession } from '@/hooks/use-session';
 import { supabase } from '@/lib/supabase';
 import { FcProfile } from '@/types/fc';
 
-if (Platform.OS === 'android' && UIManager.setLayoutAnimationEnabledExperimental) {
+const ALLOW_LAYOUT_ANIM = Platform.OS !== 'android';
+
+// Debug: disable Android LayoutAnimation to avoid native addViewAt crashes on logout
+if (Platform.OS === 'android') {
+  console.log('[dashboard] LayoutAnimation disabled on Android to prevent addViewAt crash');
+} else if (UIManager.setLayoutAnimationEnabledExperimental) {
   UIManager.setLayoutAnimationEnabledExperimental(true);
 }
 
@@ -103,23 +108,35 @@ const calcStep = (profile: FcRow) => {
     Boolean(profile.email || profile.address);
   if (!hasBasicInfo) return 1;
 
-  const hasAllowance = Boolean(profile.allowance_date) && profile.status !== 'allowance-pending';
-  if (!hasAllowance) return 2;
+  // [1단계 우선] 수당 동의 완료 여부
+  const allowancePassedStatuses: FcProfile['status'][] = [
+    'allowance-consented',
+    'docs-requested',
+    'docs-pending',
+    'docs-submitted',
+    'docs-rejected',
+    'docs-approved',
+    'appointment-completed',
+    'final-link-sent',
+  ];
+  if (!allowancePassedStatuses.includes(profile.status)) {
+    return 2; // 수당동의 단계
+  }
 
+  // [2단계 우선] 서류 승인 여부
   const docs = profile.fc_documents ?? [];
-  const totalDocs = docs.length;
-  const uploaded = docs.filter((d) => d.storage_path && d.storage_path !== 'deleted').length;
-  const docsComplete = totalDocs > 0 && uploaded === totalDocs;
-  if (!docsComplete) return 3;
+  const validDocs = docs.filter((d) => d.storage_path && d.storage_path !== 'deleted');
+  const hasPendingDocs = validDocs.length === 0 || validDocs.some((d) => d.status !== 'approved');
+  if (hasPendingDocs) {
+    return 3; // 서류 단계
+  }
 
-  const approvedStatuses: FcProfile['status'][] = ['docs-approved', 'appointment-completed', 'final-link-sent'];
-  const isApproved = approvedStatuses.includes(profile.status);
-  if (!isApproved) return 3;
+  // [3단계 우선] 위촉 최종 완료 여부
+  if (profile.status !== 'final-link-sent') {
+    return 4; // 위촉 진행 단계 (총무 승인 필요)
+  }
 
-  const appointmentDone =
-    Boolean(profile.appointment_date_life) && Boolean(profile.appointment_date_nonlife);
-  if (!appointmentDone) return 4;
-
+  // 완료
   return 5;
 };
 
@@ -175,6 +192,7 @@ async function sendNotificationAndPush(
   residentId: string | null,
   title: string,
   body: string,
+  url?: string,
 ) {
   await supabase.from('notifications').insert({
     title,
@@ -195,7 +213,7 @@ async function sendNotificationAndPush(
       to: t.expo_push_token,
       title,
       body,
-      data: { type: 'app_event', resident_id: residentId },
+      data: { type: 'app_event', resident_id: residentId, url },
     })) ?? [];
 
   if (payload.length) {
@@ -348,7 +366,7 @@ export default function DashboardScreen() {
       }
       // 알림: 해당 FC에게 임시번호 발급/수정 안내
       if (phone && tempIdTrim && tempIdTrim !== prevTrim) {
-        await sendNotificationAndPush('fc', phone, '임시번호가 발급 되었습니다.', `임시사번: ${tempIdTrim}`);
+        await sendNotificationAndPush('fc', phone, '임시번호가 발급 되었습니다.', `임시사번: ${tempIdTrim}`, '/consent');
       }
     },
     onSuccess: () => {
@@ -401,6 +419,7 @@ export default function DashboardScreen() {
           phone,
           '서류 요청 안내',
           '필수 서류 요청이 등록되었습니다. 앱에서 확인해 주세요.',
+          '/docs-upload',
         );
       }
     },
@@ -460,6 +479,7 @@ export default function DashboardScreen() {
             phone,
             '서류 요청 안내',
             '필수 서류 요청이 수정되었습니다. 새로운 서류를 제출해주세요.',
+            '/docs-upload',
           );
         }
       }
@@ -511,12 +531,22 @@ export default function DashboardScreen() {
       phone: string;
     }) => {
       const field = type === 'life' ? 'appointment_date_life' : 'appointment_date_nonlife';
-      const { error } = await supabase.from('fc_profiles').update({ [field]: date }).eq('id', id);
+      const { data, error } = await supabase
+        .from('fc_profiles')
+        .update({ [field]: date })
+        .eq('id', id)
+        .select('appointment_date_life, appointment_date_nonlife')
+        .single();
       if (error) throw error;
+
+      const bothSet = Boolean(data?.appointment_date_life) && Boolean(data?.appointment_date_nonlife);
+      const nextStatus = date === null ? 'docs-approved' : bothSet ? 'final-link-sent' : 'appointment-completed';
+      const { error: statusErr } = await supabase.from('fc_profiles').update({ status: nextStatus }).eq('id', id);
+      if (statusErr) throw statusErr;
 
       if (isReject) {
         const title = type === 'life' ? '생명보험 위촉 반려' : '손해보험 위촉 반려';
-        await sendNotificationAndPush('fc', phone, title, '입력하신 위촉 완료일이 반려되었습니다. 다시 입력해주세요.');
+        await sendNotificationAndPush('fc', phone, title, '입력하신 위촉 완료일이 반려되었습니다. 위촉을 다시 진행해주세요.');
       }
     },
     onSuccess: (_, vars) => {
@@ -537,13 +567,23 @@ export default function DashboardScreen() {
       life?: string | null;
       nonlife?: string | null;
     }) => {
+      console.log('[appointment-schedule] mutate', { id, life, nonlife });
       const payload: any = {};
       if (life !== undefined) payload.appointment_schedule_life = life || null;
       if (nonlife !== undefined) payload.appointment_schedule_nonlife = nonlife || null;
       const { error } = await supabase.from('fc_profiles').update(payload).eq('id', id);
       if (error) throw error;
     },
-    onError: (err: any) => Alert.alert('저장 실패', err?.message ?? '위촉 예정 월 저장 중 오류가 발생했습니다.'),
+    onSuccess: (_, vars) => {
+      console.log('[appointment-schedule] success', vars);
+      Alert.alert('저장 완료', '위촉 예정월이 저장되었습니다.');
+      // 최신 데이터 반영
+      refetch();
+    },
+    onError: (err: any) => {
+      console.log('[appointment-schedule] error', err?.message ?? err);
+      Alert.alert('저장 실패', err?.message ?? '위촉 예정 월 저장 중 오류가 발생했습니다.');
+    },
   });
 
   const updateDocStatus = useMutation({
@@ -655,12 +695,20 @@ export default function DashboardScreen() {
   const showDocsSection = mode !== 'temp';
 
   const toggleExpand = (id: string) => {
-    LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
+    if (ALLOW_LAYOUT_ANIM) {
+      LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
+    } else {
+      console.log('[dashboard] skip LayoutAnimation (Android)');
+    }
     setExpanded((prev) => ({ ...prev, [id]: !prev[id] }));
   };
 
   const toggleEditMode = (id: string) => {
-    LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
+    if (ALLOW_LAYOUT_ANIM) {
+      LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
+    } else {
+      console.log('[dashboard] skip LayoutAnimation (Android)');
+    }
     setEditMode((prev) => ({ ...prev, [id]: !prev[id] }));
   };
 
@@ -701,7 +749,6 @@ export default function DashboardScreen() {
       },
     ]);
   };
-
   const renderAdminActions = (fc: FcRow) => {
     if (role !== 'admin') return null;
     const isEditing = !!editMode[fc.id];
@@ -730,78 +777,237 @@ export default function DashboardScreen() {
         );
       }
 
-      if (fc.status === 'allowance-pending' || fc.status === 'allowance-consented') {
+      // 1단계: 임시사번 발급 (Always visible or at least from draft)
+      // Statuses: draft, temp-id-issued, allowance-pending, ...
+      // User wants history visible. Let's show it always for Admin.
+      // 1단계: 기본 정보 및 수당동의 (Step 1 Merged)
+      // Statuses: draft, temp-id-issued, allowance-pending, ...
+      if (true) {
+        const currentCareer = careerInputs[fc.id] ?? fc.career_type ?? '신입';
+        const currentTemp = tempInputs[fc.id] ?? fc.temp_id ?? '';
+        const hasSavedTemp = currentTemp.trim().length > 0;
+
         actionBlocks.push(
-          <View key="allowance-actions" style={styles.actionColumn}>
-            <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
-              <Text style={styles.adminLabel}>수당동의 검토</Text>
+          <View key="step1-merged" style={styles.cardSection}>
+            <Text style={styles.cardTitle}>1단계: 정보 등록 및 수당동의</Text>
+
+            {/* Interim ID Section */}
+            <View style={{ marginBottom: 16 }}>
+              <View style={{ flexDirection: 'row', gap: 8, marginBottom: 8 }}>
+                {(['신입', '경력'] as const).map((type) => {
+                  const isSelected = currentCareer === type;
+                  return (
+                    <Pressable
+                      key={type}
+                      style={[
+                        styles.filterTab,
+                        isSelected && styles.filterTabActive,
+                        { flex: 1, alignItems: 'center', justifyContent: 'center' }
+                      ]}
+                      onPress={() => setCareerInputs((prev) => ({ ...prev, [fc.id]: type }))}
+                    >
+                      <Text style={[styles.filterText, isSelected && styles.filterTextActive]}>
+                        {type}
+                      </Text>
+                    </Pressable>
+                  );
+                })}
+              </View>
+
+              <View style={{ flexDirection: 'row', gap: 8 }}>
+                <TextInput
+                  style={[styles.scheduleInput, { flex: 1 }]}
+                  value={currentTemp}
+                  placeholder="임시사번 입력 (예: T-12345)"
+                  onChangeText={(t) => setTempInputs((prev) => ({ ...prev, [fc.id]: t }))}
+                />
+                <Pressable
+                  style={[
+                    styles.saveBtn,
+                    { paddingHorizontal: 20 },
+                    updateTemp.isPending && styles.actionButtonDisabled
+                  ]}
+                  onPress={() =>
+                    updateTemp.mutate({
+                      id: fc.id,
+                      tempId: currentTemp,
+                      prevTemp: fc.temp_id ?? '',
+                      career: currentCareer,
+                      phone: fc.phone,
+                    })
+                  }
+                  disabled={updateTemp.isPending}
+                >
+                  <Text style={styles.saveBtnText}>
+                    {updateTemp.isPending ? '저장중...' : hasSavedTemp && currentTemp === fc.temp_id ? '수정' : '저장'}
+                  </Text>
+                </Pressable>
+              </View>
+            </View>
+
+            <View style={{ height: 1, backgroundColor: '#F3F4F6', marginBottom: 16 }} />
+
+            {/* Allowance Consent Section */}
+            <View style={styles.cardHeaderRow}>
+              <Text style={{ fontSize: 13, fontWeight: '600', color: CHARCOAL }}>수당동의 여부</Text>
               <MobileStatusToggle
-                value={fc.status === 'allowance-consented' || ['docs-requested', 'docs-pending', 'docs-submitted', 'docs-approved', 'appointment-completed', 'final-link-sent'].includes(fc.status) ? 'approved' : 'pending'}
+                value={
+                  fc.status === 'allowance-consented' ||
+                    ['docs-requested', 'docs-pending', 'docs-submitted', 'docs-approved', 'appointment-completed', 'final-link-sent'].includes(fc.status)
+                    ? 'approved'
+                    : 'pending'
+                }
                 onChange={(val) => {
                   if (val === 'approved') {
                     confirmStatusChange(fc, 'allowance-consented', '수당 동의 검토를 완료 처리할까요?');
+                    return;
+                  }
+                  if (fc.status === 'allowance-consented' && val !== 'approved') {
+                    Alert.alert('승인 해제', '이미 승인된 수당동의입니다. 미승인으로 변경할까요?', [
+                      { text: '취소', style: 'cancel' },
+                      {
+                        text: '변경',
+                        style: 'destructive',
+                        onPress: () => confirmStatusChange(fc, 'allowance-pending', '수당동의 상태를 미승인으로 되돌립니다. 진행할까요?'),
+                      },
+                    ]);
+                    return;
                   }
                 }}
                 labelPending="미승인"
                 labelApproved="승인"
-                readOnly={fc.status !== 'allowance-pending'}
+                readOnly={false}
               />
             </View>
-          </View>,
+          </View>
         );
       }
 
-      // Docs Review Section - List submitted files with toggles
-      if (['docs-pending', 'docs-submitted', 'docs-approved', 'appointment-completed', 'final-link-sent'].includes(fc.status)) {
-        const submittedDocs = (fc.fc_documents ?? []).filter((d) => d.storage_path && d.storage_path !== 'deleted');
-        if (submittedDocs.length > 0) {
-          actionBlocks.push(
-            <View key="docs-actions" style={styles.actionColumn}>
-              <Text style={styles.adminLabel}>제출된 서류 검토</Text>
-              {submittedDocs.map(doc => (
-                <View key={doc.doc_type} style={styles.submittedRow}>
-                  <View style={{ flex: 1 }}>
-                    <Text style={styles.submittedText} numberOfLines={1}>{doc.doc_type}</Text>
-                    {doc.storage_path && (
-                      <Pressable onPress={() => openFile(doc.storage_path ?? undefined)}>
-                        <Text style={{ color: '#2563eb', fontSize: 12, marginTop: 2 }}>파일 열기</Text>
-                      </Pressable>
-                    )}
+      // 2단계: 제출된 서류 검토 (Show if status >= allowance-consented) -> Auto-show trigger
+      if (['allowance-consented', 'docs-requested', 'docs-pending', 'docs-submitted', 'docs-rejected', 'docs-approved', 'appointment-completed', 'final-link-sent'].includes(fc.status)) {
+        const submittedDocs = (fc.fc_documents ?? [])
+          .filter((d) => d.storage_path && d.storage_path !== 'deleted')
+          .sort((a, b) => (a.doc_type || '').localeCompare(b.doc_type || ''));
+
+        actionBlocks.push(
+          <View key="docs-actions" style={styles.cardSection}>
+            <Text style={styles.cardTitle}>2단계: 제출된 서류 검토</Text>
+
+            {/* Document Request UI */}
+            <View style={{ marginBottom: 16 }}>
+              <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: 8, alignItems: 'center' }}>
+                <Text style={{ fontSize: 13, fontWeight: '600', color: CHARCOAL }}>필수 서류 요청</Text>
+                <Pressable
+                  onPress={() =>
+                    updateDocReqs.mutate({
+                      id: fc.id,
+                      types: Array.from(docSelections[fc.id] ?? new Set<string>()),
+                      phone: fc.phone,
+                    })
+                  }
+                  disabled={updateDocReqs.isPending}
+                >
+                  <Text style={{ color: ORANGE, fontWeight: '700', fontSize: 12 }}>
+                    {updateDocReqs.isPending ? '저장중...' : '요청 저장'}
+                  </Text>
+                </Pressable>
+              </View>
+
+              <View style={styles.docChips}>
+                {ALL_DOC_OPTIONS.map((doc) => {
+                  const isSelected = docSelections[fc.id]?.has(doc);
+                  return (
+                    <Pressable
+                      key={doc}
+                      style={[styles.docChip, isSelected && styles.docChipSelected]}
+                      onPress={() => toggleDocSelection(fc.id, doc)}
+                    >
+                      <Text style={[styles.docChipText, isSelected && { color: '#fff' }]}>{doc}</Text>
+                    </Pressable>
+                  );
+                })}
+                {Array.from(docSelections[fc.id] ?? []).filter((d) => !ALL_DOC_OPTIONS.includes(d)).map((doc) => (
+                  <Pressable
+                    key={doc}
+                    style={[styles.docChip, styles.docChipSelected]}
+                    onPress={() => toggleDocSelection(fc.id, doc)}
+                  >
+                    <Text style={[styles.docChipText, { color: '#fff' }]}>{doc}</Text>
+                  </Pressable>
+                ))}
+              </View>
+
+              <View style={{ flexDirection: 'row', gap: 6, marginTop: 8 }}>
+                <TextInput
+                  style={[styles.miniInput, { flex: 1, backgroundColor: '#fff' }]}
+                  placeholder="기타 서류 입력"
+                  value={customDocInputs[fc.id] || ''}
+                  onChangeText={(text) => setCustomDocInputs((prev) => ({ ...prev, [fc.id]: text }))}
+                />
+                <Pressable
+                  style={[styles.saveBtn, { backgroundColor: '#4b5563' }]}
+                  onPress={() => addCustomDoc(fc.id)}
+                >
+                  <Text style={styles.saveBtnText}>추가</Text>
+                </Pressable>
+              </View>
+            </View>
+
+            <View style={{ height: 1, backgroundColor: '#F3F4F6', marginBottom: 12 }} />
+            <Text style={{ fontSize: 13, fontWeight: '600', color: CHARCOAL, marginBottom: 8 }}>제출된 서류 목록</Text>
+            {submittedDocs.length > 0 ? (
+              submittedDocs.map((doc) => {
+                const docType = doc.doc_type;
+                return (
+                  <View key={docType} style={styles.submittedRow}>
+                    <View style={{ flex: 1 }}>
+                      <Text style={styles.submittedText} numberOfLines={1}>{docType}</Text>
+                      {doc.storage_path && (
+                        <Pressable onPress={() => openFile(doc.storage_path ?? undefined)}>
+                          <Text style={{ color: '#2563eb', fontSize: 12, marginTop: 2 }}>파일 열기</Text>
+                        </Pressable>
+                      )}
+                    </View>
+                    <MobileStatusToggle
+                      value={doc.status === 'approved' ? 'approved' : 'pending'}
+                      onChange={(val) => {
+                        if (doc.status === 'approved' && val !== 'approved') {
+                          Alert.alert('승인 해제', '이미 승인된 서류입니다. 미승인으로 변경할까요?', [
+                            { text: '취소', style: 'cancel' },
+                            {
+                              text: '변경',
+                              style: 'destructive',
+                              onPress: () =>
+                                updateDocStatus.mutate({ fcId: fc.id, docType, status: val, phone: fc.phone }),
+                            },
+                          ]);
+                          return;
+                        }
+                        updateDocStatus.mutate({ fcId: fc.id, docType, status: val, phone: fc.phone });
+                      }}
+                      labelPending="미승인"
+                      labelApproved="승인"
+                      readOnly={false}
+                    />
                   </View>
-                  <MobileStatusToggle
-                    value={doc.status === 'approved' ? 'approved' : 'pending'}
-                    onChange={(val) => {
-                      updateDocStatus.mutate({ fcId: fc.id, docType: doc.doc_type, status: val, phone: fc.phone });
-                    }}
-                    labelPending="미승인"
-                    labelApproved="승인"
-                    readOnly={doc.status === 'approved'}
-                  />
-                </View>
-              ))}
-              {fc.status === 'docs-approved' && (
-                <View style={{ marginTop: 8 }}>
-                  <Text style={{ color: '#16a34a', fontSize: 13, fontWeight: '600' }}>✅ 모든 서류 승인됨 (자동 진행)</Text>
-                </View>
-              )}
-            </View>
-          );
-        } else {
-          actionBlocks.push(
-            <View key="docs-empty" style={styles.actionColumn}>
-              <Text style={[styles.adminLabel, { color: MUTED }]} >제출된 서류가 없습니다.</Text>
-            </View>
-          );
-        }
+                );
+              })) : (
+              <Text style={[styles.emptyText, { marginVertical: 8 }]}>제출된 서류가 없습니다.</Text>
+            )}
+          </View>
+        );
       }
 
-      if (fc.status === 'docs-approved' || fc.status === 'docs-submitted' || fc.status === 'final-link-sent' || fc.status === 'appointment-completed') {
+      // 3단계: 위촉 진행 관리
+      if (fc.status === 'docs-approved' || fc.status === 'final-link-sent' || fc.status === 'appointment-completed') {
         const lifeVal = fc.appointment_schedule_life ?? '';
         const nonlifeVal = fc.appointment_schedule_nonlife ?? '';
+        const lifeApproved = Boolean(fc.appointment_date_life);
+        const nonlifeApproved = Boolean(fc.appointment_date_nonlife);
         const scheduleInput = scheduleInputs[fc.id] ?? { life: lifeVal, nonlife: nonlifeVal };
         actionBlocks.push(
-          <View key="final-actions" style={[styles.actionColumn, { gap: 12, marginTop: 4 }]}>
-            <Text style={styles.adminLabel}>위촉 진행 관리</Text>
+          <View key="final-actions" style={styles.cardSection}>
+            <Text style={styles.cardTitle}>3단계: 위촉 진행 관리</Text>
             {/* Schedule Input Helper (Existing) */}
             <View style={styles.scheduleEditRow}>
               {/* ... Keep existing schedule input logic ... */}
@@ -810,7 +1016,7 @@ export default function DashboardScreen() {
                 <TextInput
                   style={styles.scheduleInput}
                   keyboardType="number-pad"
-                  placeholder="6"
+                  placeholder="ex. 6"
                   value={scheduleInput.life ?? ''}
                   onChangeText={(t) =>
                     setScheduleInputs((prev) => ({
@@ -825,7 +1031,7 @@ export default function DashboardScreen() {
                 <TextInput
                   style={styles.scheduleInput}
                   keyboardType="number-pad"
-                  placeholder="9"
+                  placeholder="ex. 9"
                   value={scheduleInput.nonlife ?? ''}
                   onChangeText={(t) =>
                     setScheduleInputs((prev) => ({
@@ -838,13 +1044,24 @@ export default function DashboardScreen() {
               <Pressable
                 style={[styles.saveBtn, updateAppointmentSchedule.isPending && styles.actionButtonDisabled]}
                 disabled={updateAppointmentSchedule.isPending}
-                onPress={() =>
+                onPress={() => {
+                  const lifeVal = (scheduleInput.life ?? '').trim();
+                  const nonlifeVal = (scheduleInput.nonlife ?? '').trim();
+                  if (!lifeVal && !nonlifeVal) {
+                    Alert.alert('입력 확인', '예정월을 하나 이상 입력해주세요.');
+                    return;
+                  }
+                  console.log('[appointment-schedule] press', {
+                    id: fc.id,
+                    life: lifeVal,
+                    nonlife: nonlifeVal,
+                  });
                   updateAppointmentSchedule.mutate({
                     id: fc.id,
-                    life: (scheduleInputs[fc.id]?.life ?? '').trim() || null,
-                    nonlife: (scheduleInputs[fc.id]?.nonlife ?? '').trim() || null,
-                  })
-                }
+                    life: lifeVal || null,
+                    nonlife: nonlifeVal || null,
+                  });
+                }}
               >
                 <Text style={styles.saveBtnText}>저장</Text>
               </Pressable>
@@ -861,31 +1078,71 @@ export default function DashboardScreen() {
                 </Text>
               </View>
               <MobileStatusToggle
-                value={fc.appointment_date_life ? 'approved' : 'pending'}
+                value={lifeApproved ? 'approved' : 'pending'}
                 onChange={(val) => {
+                  const fallbackDate = () => {
+                    if (fc.appointment_date_life) return fc.appointment_date_life;
+                    if (lifeVal) {
+                      const mm = lifeVal.padStart(2, '0');
+                      const yyyy = String(new Date().getFullYear());
+                      return `${yyyy}-${mm}-01`;
+                    }
+                    return new Date().toISOString().split('T')[0];
+                  };
+
                   if (val === 'approved') {
-                    // Prompt for Date
-                    Alert.prompt('위촉 확정일 입력', 'YYYY-MM-DD 형식으로 입력해주세요', [
-                      { text: '취소', style: 'cancel' },
-                      {
-                        text: '확인', onPress: (date) => {
-                          if (date) updateAppointmentDate.mutate({ id: fc.id, type: 'life', date, phone: fc.phone });
-                        }
-                      }
-                    ], 'plain-text', new Date().toISOString().split('T')[0]);
-                  } else {
-                    // Reject
-                    if (fc.appointment_date_life) {
-                      Alert.alert('반려 확인', '위촉 확정을 취소(반려)하시겠습니까?', [
+                    if (!lifeVal) {
+                      Alert.alert('확인', '위촉 예정월(생명)이 입력되지 않았습니다.\n예정월을 먼저 저장해주세요.');
+                      return;
+                    }
+                    if (Platform.OS === 'ios') {
+                      Alert.prompt(
+                        '위촉 확정일 입력',
+                        'YYYY-MM-DD 형식으로 입력해주세요',
+                        [
+                          { text: '취소', style: 'cancel' },
+                          {
+                            text: '확인',
+                            onPress: (date?: string) => {
+                              if (date) updateAppointmentDate.mutate({ id: fc.id, type: 'life', date, phone: fc.phone });
+                            },
+                          },
+                        ],
+                        'plain-text',
+                        fallbackDate(),
+                      );
+                    } else {
+                      const date = fallbackDate();
+                      Alert.alert('위촉 확정', `${date}로 저장할까요?`, [
                         { text: '취소', style: 'cancel' },
-                        { text: '반려', style: 'destructive', onPress: () => updateAppointmentDate.mutate({ id: fc.id, type: 'life', date: null, isReject: true, phone: fc.phone }) }
+                        {
+                          text: '저장',
+                          onPress: () => updateAppointmentDate.mutate({ id: fc.id, type: 'life', date, phone: fc.phone }),
+                        },
                       ]);
                     }
+                  } else {
+                    // Reject: 승인 해제 시 항상 날짜를 초기화
+                    Alert.alert('반려 확인', '위촉 확정을 취소(반려)하고 날짜를 초기화할까요?', [
+                      { text: '취소', style: 'cancel' },
+                      {
+                        text: '반려',
+                        style: 'destructive',
+                        onPress: () =>
+                          updateAppointmentDate.mutate({
+                            id: fc.id,
+                            type: 'life',
+                            date: null,
+                            isReject: true,
+                            phone: fc.phone,
+                          }),
+                      },
+                    ]);
                   }
                 }}
                 labelPending="미승인"
                 labelApproved="승인"
-                readOnly={!!fc.appointment_date_life} // Lock if approved? User said so. but typically we need to unlock if mistake. But strict mode requested.
+                readOnly={false}
               />
             </View>
 
@@ -900,31 +1157,71 @@ export default function DashboardScreen() {
                 </Text>
               </View>
               <MobileStatusToggle
-                value={fc.appointment_date_nonlife ? 'approved' : 'pending'}
+                value={nonlifeApproved ? 'approved' : 'pending'}
                 onChange={(val) => {
+                  const fallbackDate = () => {
+                    if (fc.appointment_date_nonlife) return fc.appointment_date_nonlife;
+                    if (nonlifeVal) {
+                      const mm = nonlifeVal.padStart(2, '0');
+                      const yyyy = String(new Date().getFullYear());
+                      return `${yyyy}-${mm}-01`;
+                    }
+                    return new Date().toISOString().split('T')[0];
+                  };
+
                   if (val === 'approved') {
-                    // Prompt for Date
-                    Alert.prompt('위촉 확정일 입력', 'YYYY-MM-DD 형식으로 입력해주세요', [
-                      { text: '취소', style: 'cancel' },
-                      {
-                        text: '확인', onPress: (date) => {
-                          if (date) updateAppointmentDate.mutate({ id: fc.id, type: 'nonlife', date, phone: fc.phone });
-                        }
-                      }
-                    ], 'plain-text', new Date().toISOString().split('T')[0]);
-                  } else {
-                    // Reject
-                    if (fc.appointment_date_nonlife) {
-                      Alert.alert('반려 확인', '위촉 확정을 취소(반려)하시겠습니까?', [
+                    if (!nonlifeVal) {
+                      Alert.alert('확인', '위촉 예정월(손해)이 입력되지 않았습니다.\n예정월을 먼저 저장해주세요.');
+                      return;
+                    }
+                    if (Platform.OS === 'ios') {
+                      Alert.prompt(
+                        '위촉 확정일 입력',
+                        'YYYY-MM-DD 형식으로 입력해주세요',
+                        [
+                          { text: '취소', style: 'cancel' },
+                          {
+                            text: '확인',
+                            onPress: (date?: string) => {
+                              if (date) updateAppointmentDate.mutate({ id: fc.id, type: 'nonlife', date, phone: fc.phone });
+                            },
+                          },
+                        ],
+                        'plain-text',
+                        fallbackDate(),
+                      );
+                    } else {
+                      const date = fallbackDate();
+                      Alert.alert('위촉 확정', `${date}로 저장할까요?`, [
                         { text: '취소', style: 'cancel' },
-                        { text: '반려', style: 'destructive', onPress: () => updateAppointmentDate.mutate({ id: fc.id, type: 'nonlife', date: null, isReject: true, phone: fc.phone }) }
+                        {
+                          text: '저장',
+                          onPress: () => updateAppointmentDate.mutate({ id: fc.id, type: 'nonlife', date, phone: fc.phone }),
+                        },
                       ]);
                     }
+                  } else {
+                    // Reject: 승인 해제 시 항상 날짜를 초기화
+                    Alert.alert('반려 확인', '위촉 확정을 취소(반려)하고 날짜를 초기화할까요?', [
+                      { text: '취소', style: 'cancel' },
+                      {
+                        text: '반려',
+                        style: 'destructive',
+                        onPress: () =>
+                          updateAppointmentDate.mutate({
+                            id: fc.id,
+                            type: 'nonlife',
+                            date: null,
+                            isReject: true,
+                            phone: fc.phone,
+                          }),
+                      },
+                    ]);
                   }
                 }}
                 labelPending="미승인"
                 labelApproved="승인"
-                readOnly={!!fc.appointment_date_nonlife}
+                readOnly={false}
               />
             </View>
           </View>,
@@ -934,18 +1231,20 @@ export default function DashboardScreen() {
 
     return (
       <View style={styles.actionArea}>
-        <View style={[styles.actionRow, { justifyContent: 'space-between', alignItems: 'center' }]}>
-          <Text style={styles.adminLabel}>관리자 액션</Text>
+        <View style={styles.cardHeaderRow}>
+          <Text style={styles.cardTitle}>관리자 액션</Text>
           <Pressable style={styles.toggleEditButton} onPress={() => toggleEditMode(fc.id)}>
             <Text style={styles.toggleEditText}>
-              {isEditing ? '수정 완료 (닫기)' : '정보 수정 및 서류 재설정'}
+              {isEditing ? '닫기' : '정보 수정 및 서류 재설정'}
             </Text>
             <Feather name={isEditing ? 'chevron-up' : 'settings'} size={14} color={MUTED} />
           </Pressable>
         </View>
 
-        {isEditing ? (
-          <View style={styles.editPanel}>
+        {!isEditing && actionBlocks}
+
+        {isEditing && (
+          <View style={styles.cardSection}>
             <View style={styles.editRow}>
               <Text style={styles.editLabel}>임시번호</Text>
               <View style={{ flex: 1, flexDirection: 'row', gap: 8 }}>
@@ -1038,8 +1337,6 @@ export default function DashboardScreen() {
               </View>
             </View>
           </View>
-        ) : (
-          actionBlocks
         )}
       </View>
     );
@@ -1048,7 +1345,7 @@ export default function DashboardScreen() {
   if (!hydrated || !role) {
     return (
       <SafeAreaView style={styles.safe} edges={['left', 'right', 'bottom']}>
-        <View style={[styles.container, { alignItems: 'center', justifyContent: 'center', flex: 1 }]}>
+        <View style={[{ alignItems: 'center', justifyContent: 'center', flex: 1 }]}>
           <ActivityIndicator color={ORANGE} />
         </View>
       </SafeAreaView>
@@ -1199,190 +1496,26 @@ export default function DashboardScreen() {
 
                 {isExpanded && (
                   <View style={styles.listBody}>
-                    <View style={styles.divider} />
-
-                    <DetailRow label="임시번호" value={tempDisplay} />
-                    <DetailRow label="수당동의" value={allowanceDisplay} />
-                    <DetailRow
-                      label="생명 위촉"
-                      value={`${fc.appointment_schedule_life ?? '미정'}월 / 완료 ${fc.appointment_date_life ?? '미입력'
-                        }`}
-                    />
-                    <DetailRow
-                      label="손해 위촉"
-                      value={`${fc.appointment_schedule_nonlife ?? '미정'}월 / 완료 ${fc.appointment_date_nonlife ?? '미입력'
-                        }`}
-                    />
-                    <DetailRow label="경력구분" value={careerDisplay} />
-                    <DetailRow label="이메일" value={fc.email ?? '-'} />
-                    <DetailRow label="주소" value={`${fc.address ?? '-'} ${fc.address_detail ?? ''}`} />
+                    <View style={styles.cardSection}>
+                      <Text style={styles.cardTitle}>기본 정보</Text>
+                      <DetailRow label="임시번호" value={tempDisplay} />
+                      <DetailRow label="수당동의" value={allowanceDisplay} />
+                      <DetailRow
+                        label="생명 위촉"
+                        value={`${fc.appointment_schedule_life ?? '미정'}월 / 완료 ${fc.appointment_date_life ?? '미입력'
+                          }`}
+                      />
+                      <DetailRow
+                        label="손해 위촉"
+                        value={`${fc.appointment_schedule_nonlife ?? '미정'}월 / 완료 ${fc.appointment_date_nonlife ?? '미입력'
+                          }`}
+                      />
+                      <DetailRow label="경력구분" value={careerDisplay} />
+                      <DetailRow label="이메일" value={fc.email ?? '-'} />
+                      <DetailRow label="주소" value={`${fc.address ?? '-'} ${fc.address_detail ?? ''}`} />
+                    </View>
 
                     {renderAdminActions(fc)}
-
-                      {showTempSection && role === 'admin' &&
-                        (() => {
-                          const currentTemp = tempInputs[fc.id] ?? fc.temp_id ?? '';
-                          const hasExistingTemp = Boolean(fc.temp_id);
-                          const hasTypedTemp = (tempInputs[fc.id] ?? '').trim().length > 0;
-                          const saveLabel = updateTemp.isPending
-                            ? '저장중...'
-                            : hasExistingTemp || hasTypedTemp
-                              ? '수정'
-                              : '저장';
-
-                          return (
-                            <View style={styles.adminSection}>
-                              <Text style={styles.adminLabel}>관리자 수정</Text>
-                              <View style={styles.inputGroup}>
-                                <TextInput
-                                  style={styles.adminInput}
-                                  placeholder="임시번호 발급 완료"
-                                  placeholderTextColor="#9CA3AF"
-                                  value={currentTemp}
-                                  onChangeText={(t) => setTempInputs((p) => ({ ...p, [fc.id]: t }))}
-                                />
-                                <Pressable
-                                  style={[styles.saveButton, updateTemp.isPending && styles.saveButtonDisabled]}
-                                  onPress={() =>
-                                    updateTemp.mutate({
-                                      id: fc.id,
-                                      tempId: currentTemp,
-                                      prevTemp: fc.temp_id ?? '',
-                                      career: careerInputs[fc.id] ?? '신입',
-                                      phone: fc.phone,
-                                    })
-                                  }
-                                  disabled={updateTemp.isPending}
-                                >
-                                  <Text style={styles.saveButtonText}>{saveLabel}</Text>
-                                </Pressable>
-                              </View>
-                            </View>
-                          );
-                        })()}
-
-                    {showDocsSection && role === 'admin' && (
-                      <View style={{ marginTop: 12, gap: 10 }}>
-                        <Text style={styles.adminLabel}>필수 서류 선택</Text>
-                        <View style={styles.docPills}>
-                          {docOptions.map((doc) => {
-                            const set = docSelections[fc.id] ?? new Set<string>();
-                            const active = set.has(doc);
-                            const submittedDoc = submitted.find((s) => s.doc_type === doc);
-                            return (
-                              <Pressable
-                                key={doc}
-                                style={[
-                                  styles.docPill,
-                                  active && styles.docPillSelected,
-                                  submittedDoc && styles.docPillSubmitted,
-                                ]}
-                                onPress={() => toggleDocSelection(fc.id, doc)}
-                              >
-                                <Text
-                                  style={[
-                                    styles.docPillText,
-                                    active && styles.docPillTextSelected,
-                                    submittedDoc && styles.docPillTextSubmitted,
-                                  ]}
-                                >
-                                  {doc}
-                                </Text>
-                              </Pressable>
-                            );
-                          })}
-
-                          {Array.from(docSelections[fc.id] ?? [])
-                            .filter(d => !docOptions.includes(d))
-                            .map(doc => {
-                              const submittedDoc = submitted.find((s) => s.doc_type === doc);
-                              return (
-                                <Pressable
-                                  key={doc}
-                                  style={[
-                                    styles.docPill,
-                                    styles.docPillSelected,
-                                    submittedDoc && styles.docPillSubmitted
-                                  ]}
-                                  onPress={() => toggleDocSelection(fc.id, doc)}
-                                >
-                                  <Text
-                                    style={[
-                                      styles.docPillText,
-                                      styles.docPillTextSelected,
-                                      submittedDoc && styles.docPillTextSubmitted
-                                    ]}
-                                  >
-                                    {doc}
-                                  </Text>
-                                </Pressable>
-                              );
-                            })
-                          }
-                        </View>
-
-                        <View style={{ flexDirection: 'row', gap: 6, alignItems: 'center' }}>
-                          <TextInput
-                            style={[styles.adminInput, { flex: 1, height: 36 }]}
-                            placeholder="기타 서류 입력"
-                            value={customDocInputs[fc.id] || ''}
-                            onChangeText={(text) => setCustomDocInputs((prev) => ({ ...prev, [fc.id]: text }))}
-                          />
-                          <Pressable
-                            style={[styles.saveButton, { backgroundColor: '#4b5563', paddingVertical: 8 }]}
-                            onPress={() => addCustomDoc(fc.id)}
-                          >
-                            <Text style={styles.saveButtonText}>추가</Text>
-                          </Pressable>
-                        </View>
-
-                        <Pressable
-                          style={[styles.saveButton, { alignSelf: 'flex-start', marginTop: 4 }]}
-                          onPress={() =>
-                            updateDocs.mutate({
-                              id: fc.id,
-                              types: Array.from(docSelections[fc.id] ?? new Set<string>()),
-                              phone: fc.phone,
-                            })
-                          }
-                        >
-                          <Text style={styles.saveButtonText}>서류 요청 저장</Text>
-                        </Pressable>
-
-                        <View style={styles.submittedBox}>
-                          <Text style={styles.submittedTitle}>제출된 서류</Text>
-                          {submitted.length ? (
-                            submitted.map((doc) => (
-                              <View key={doc.doc_type} style={styles.submittedRow}>
-                                <Text style={styles.submittedText}>
-                                  {doc.doc_type} · {doc.file_name ?? '-'}
-                                </Text>
-                                {doc.storage_path ? (
-                                  <Pressable style={styles.openButton} onPress={() => openFile(doc.storage_path ?? undefined)}>
-                                    <Text style={styles.openButtonText}>열기</Text>
-                                  </Pressable>
-                                ) : null}
-                              </View>
-                            ))
-                          ) : (
-                            <Text style={styles.emptyText}>제출된 서류가 없습니다.</Text>
-                          )}
-                        </View>
-
-                        <Pressable
-                          style={styles.deleteButton}
-                          onPress={() =>
-                            Alert.alert('삭제 확인', '이 FC 기록을 삭제할까요?', [
-                              { text: '취소', style: 'cancel' },
-                              { text: '삭제', style: 'destructive', onPress: () => deleteFc.mutate(fc.id) },
-                            ])
-                          }
-                        >
-                          <Feather name="trash-2" size={14} color="#b91c1c" />
-                          <Text style={styles.deleteText}>FC 정보 삭제</Text>
-                        </Pressable>
-                      </View>
-                    )}
                   </View>
                 )}
               </View>
@@ -1532,32 +1665,60 @@ const styles = StyleSheet.create({
     marginRight: 8,
   },
   affText: {
-    fontSize: 13,
-    color: MUTED,
+    borderBottomWidth: 1,
+    borderBottomColor: '#F3F4F6',
   },
   listBody: {
-    paddingHorizontal: 16,
-    paddingBottom: 16,
-    gap: 4,
+    padding: 16,
+    backgroundColor: '#F9FAFB',
+    borderBottomLeftRadius: 12,
+    borderBottomRightRadius: 12,
+  },
+  cardSection: {
+    backgroundColor: '#fff',
+    borderRadius: 12,
+    padding: 16,
+    marginBottom: 12,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.05,
+    shadowRadius: 2,
+    elevation: 2,
+    borderWidth: 1,
+    borderColor: '#E5E7EB',
+  },
+  cardTitle: {
+    fontSize: 14,
+    fontWeight: '700',
+    color: CHARCOAL,
+    marginBottom: 12,
+  },
+  cardHeaderRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 12,
   },
   divider: {
     height: 1,
-    backgroundColor: '#F3F4F6',
-    marginBottom: 12,
+    backgroundColor: '#E5E7EB',
+    marginVertical: 12,
   },
   detailRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
-    marginBottom: 6,
+    marginBottom: 8,
   },
   detailLabel: {
     fontSize: 13,
     color: MUTED,
+    width: 80,
   },
   detailValue: {
     fontSize: 13,
     color: CHARCOAL,
-    fontWeight: '500',
+    flex: 1,
+    textAlign: 'right',
   },
   adminSection: {
     marginTop: 12,
@@ -1567,12 +1728,11 @@ const styles = StyleSheet.create({
     gap: 10,
   },
   adminLabel: {
-    fontSize: 12,
-    fontWeight: '700',
-    color: CHARCOAL,
+    // Migrated to cardTitle
+    fontSize: 14, fontWeight: '700', color: CHARCOAL, marginBottom: 8
   },
   actionArea: {
-    marginTop: 12,
+    marginTop: 0,
     paddingTop: 10,
     borderTopWidth: 1,
     borderTopColor: '#F3F4F6',
@@ -1652,6 +1812,7 @@ const styles = StyleSheet.create({
     paddingVertical: 10,
     borderRadius: 8,
   },
+  saveButtonDisabled: { opacity: 0.6 },
   saveButtonText: {
     color: '#fff',
     fontSize: 12,
@@ -1685,7 +1846,7 @@ const styles = StyleSheet.create({
     gap: 6,
   },
   submittedTitle: { fontSize: 13, fontWeight: '700', color: CHARCOAL },
-  submittedRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', gap: 8 },
+  submittedRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', gap: 8, marginBottom: 12 },
   submittedText: { color: CHARCOAL, flex: 1, fontSize: 12 },
   openButton: {
     paddingHorizontal: 10,
@@ -1754,6 +1915,7 @@ const styles = StyleSheet.create({
     flexWrap: 'wrap',
     gap: 10,
     alignItems: 'flex-end',
+    marginBottom: 12,
   },
   scheduleInputGroup: { flex: 1, minWidth: 150, gap: 6 },
   scheduleInputLabel: { fontSize: 12, color: MUTED },
@@ -1775,6 +1937,7 @@ const styles = StyleSheet.create({
     borderRadius: 8,
     borderWidth: 1,
     borderColor: '#E5E7EB',
+    marginBottom: 12,
   },
   badge: { paddingHorizontal: 6, paddingVertical: 2, borderRadius: 4 },
   scheduleInfo: { flexDirection: 'row', alignItems: 'center', gap: 8 },
@@ -1797,3 +1960,4 @@ const styles = StyleSheet.create({
   },
   rejectBtnText: { color: '#b91c1c', fontSize: 11, fontWeight: '600' },
 });
+

@@ -57,6 +57,7 @@ async function sendNotificationAndPush(
   residentId: string | null,
   title: string,
   body: string,
+  url?: string,
 ) {
   await supabase.from('notifications').insert({
     title,
@@ -76,7 +77,7 @@ async function sendNotificationAndPush(
       to: t.expo_push_token,
       title,
       body,
-      data: { type: 'app_event', resident_id: residentId },
+      data: { type: 'app_event', resident_id: residentId, url },
     })) ?? [];
 
   if (payload.length) {
@@ -146,14 +147,14 @@ export default function DocsUploadScreen() {
       if (reqErr) throw reqErr;
 
       const reqDocs: DocItem[] = (requirements ?? []).map((r) => {
-        const hasFile = r.storage_path && r.storage_path !== 'deleted';
-        return {
-          type: r.doc_type,
-          required: true,
-          uploadedUrl: hasFile
-            ? supabase.storage.from(BUCKET).getPublicUrl(r.storage_path).data.publicUrl
-            : undefined,
-          status: hasFile ? (r.status as any) ?? 'pending' : 'pending',
+            const hasFile = r.storage_path && r.storage_path !== 'deleted';
+            return {
+              type: r.doc_type,
+              required: true,
+              uploadedUrl: hasFile
+                ? supabase.storage.from(BUCKET).getPublicUrl(r.storage_path).data.publicUrl
+                : undefined,
+              status: hasFile ? (r.status as any) ?? 'pending' : 'pending',
           reviewerNote: r.reviewer_note ?? undefined,
           storagePath: hasFile ? r.storage_path ?? undefined : undefined,
           originalName: hasFile ? r.file_name ?? undefined : undefined,
@@ -210,6 +211,11 @@ export default function DocsUploadScreen() {
 
   const handlePick = async (type: string) => {
     if (!fc) return;
+    const targetDoc = docs.find((d) => d.type === type);
+    if (targetDoc?.status === 'approved') {
+      Alert.alert('수정 불가', '이 서류는 승인되어 수정할 수 없습니다.');
+      return;
+    }
     const result = await DocumentPicker.getDocumentAsync({
       type: 'application/pdf',
       copyToCacheDirectory: true,
@@ -285,6 +291,11 @@ export default function DocsUploadScreen() {
 
   const handleDelete = async (type: string, storagePath?: string) => {
     if (!fc) return;
+    const targetDoc = docs.find((d) => d.type === type);
+    if (targetDoc?.status === 'approved') {
+      Alert.alert('삭제 불가', '승인된 서류는 삭제할 수 없습니다.');
+      return;
+    }
     try {
       if (storagePath) {
         await supabase.storage.from(BUCKET).remove([storagePath]);
@@ -373,15 +384,14 @@ export default function DocsUploadScreen() {
         </View>
 
         <ScrollView
-          contentContainerStyle={[styles.scrollContent, { paddingBottom: keyboardPadding + 40 }]}
-          refreshControl={
-            <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
-          }
+          contentContainerStyle={[styles.scrollContent, { paddingBottom: keyboardPadding + 100 }]}
+          refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}
         >
           <View style={styles.list}>
             {docs.map((doc) => {
               const isUploaded = !!doc.uploadedUrl;
               const isUploading = uploadingType === doc.type;
+              const isLocked = doc.status === 'approved';
 
               return (
                 <View key={doc.type} style={[styles.item, isUploaded && styles.itemDone]}>
@@ -410,9 +420,11 @@ export default function DocsUploadScreen() {
 
                   <View style={styles.actions}>
                     {isUploaded ? (
-                      <View style={styles.badgeDone}>
-                        <Feather name="check" size={10} color="#059669" />
-                        <Text style={styles.badgeTextDone}>제출됨</Text>
+                      <View style={[styles.badgeDone, isLocked && { backgroundColor: '#DBEAFE' }]}>
+                        <Feather name="check" size={10} color={isLocked ? '#1D4ED8' : '#059669'} />
+                        <Text style={[styles.badgeTextDone, isLocked && { color: '#1D4ED8' }]}>
+                          {isLocked ? '승인됨' : '제출됨'}
+                        </Text>
                       </View>
                     ) : (
                       <View style={styles.badgePending}>
@@ -421,15 +433,19 @@ export default function DocsUploadScreen() {
                     )}
 
                     <Pressable
-                      style={[styles.btn, isUploaded ? styles.btnOutline : styles.btnSolid]}
+                      style={[
+                        styles.btn,
+                        isUploaded ? styles.btnOutline : styles.btnSolid,
+                        isLocked && styles.btnDisabled,
+                      ]}
                       onPress={() => handlePick(doc.type)}
-                      disabled={isUploading}
+                      disabled={isUploading || isLocked}
                     >
                       {isUploading ? (
                         <ActivityIndicator size="small" color={isUploaded ? CHARCOAL : '#fff'} />
                       ) : (
                         <Text style={isUploaded ? styles.btnTextOutline : styles.btnTextSolid}>
-                          {isUploaded ? '재업로드' : '파일 선택'}
+                          {isLocked ? '승인 완료' : isUploaded ? '재업로드' : '파일 선택'}
                         </Text>
                       )}
                     </Pressable>
@@ -438,7 +454,7 @@ export default function DocsUploadScreen() {
                       <Pressable
                         style={styles.iconBtn}
                         onPress={() => handleDelete(doc.type, doc.storagePath)}
-                        disabled={isUploading}
+                        disabled={isUploading || isLocked}
                       >
                         <Feather name="trash-2" size={18} color="#EF4444" />
                       </Pressable>
@@ -453,6 +469,12 @@ export default function DocsUploadScreen() {
               </View>
             )}
           </View>
+          <Pressable
+            style={styles.homeButton}
+            onPress={() => router.replace('/')}
+          >
+            <Text style={styles.homeButtonText}>홈으로 가기</Text>
+          </Pressable>
         </ScrollView>
       </KeyboardAvoidingView>
     </SafeAreaView>
@@ -570,6 +592,7 @@ const styles = StyleSheet.create({
   btnOutline: { backgroundColor: '#fff', borderWidth: 1, borderColor: BORDER },
   btnTextSolid: { color: '#fff', fontSize: 14, fontWeight: '700' },
   btnTextOutline: { color: CHARCOAL, fontSize: 14, fontWeight: '700' },
+  btnDisabled: { opacity: 0.6 },
 
   iconBtn: {
     width: 42,
@@ -593,4 +616,14 @@ const styles = StyleSheet.create({
     gap: 6,
   },
   openFileText: { color: '#fff', fontWeight: '700', fontSize: 13 },
+  homeButton: {
+    marginHorizontal: 16,
+    marginTop: 12,
+    marginBottom: 24,
+    backgroundColor: CHARCOAL,
+    paddingVertical: 14,
+    borderRadius: 12,
+    alignItems: 'center',
+  },
+  homeButtonText: { color: '#fff', fontWeight: '800', fontSize: 16 },
 });

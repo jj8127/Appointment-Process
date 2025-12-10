@@ -58,6 +58,8 @@ export default function AllowanceConsentScreen() {
   const [tempId, setTempId] = useState('');
   const [selectedDate, setSelectedDate] = useState(new Date());
   const [loading, setLoading] = useState(false);
+  const [status, setStatus] = useState<string | null>(null);
+  const [careerType, setCareerType] = useState<string | null>(null);
   const keyboardPadding = useKeyboardPadding();
   const [showPicker, setShowPicker] = useState(Platform.OS === 'ios');
   const [currentIndex, setCurrentIndex] = useState(0);
@@ -70,11 +72,14 @@ export default function AllowanceConsentScreen() {
       if (!residentId) return;
       const { data } = await supabase
         .from('fc_profiles')
-        .select('temp_id, allowance_date')
+        .select('temp_id, allowance_date, status, career_type')
         .eq('phone', residentId)
         .maybeSingle();
+
       if (data?.temp_id) setTempId(data.temp_id);
       if (data?.allowance_date) setSelectedDate(new Date(data.allowance_date));
+      if (data?.status) setStatus(data.status);
+      if (data?.career_type) setCareerType(data.career_type);
     };
     load();
   }, [residentId]);
@@ -87,8 +92,17 @@ export default function AllowanceConsentScreen() {
   }, []);
 
   const ymd = useMemo(() => toYMD(selectedDate), [selectedDate]);
+  const isLocked =
+    status !== null &&
+    status !== 'draft' &&
+    status !== 'temp-id-issued' &&
+    status !== 'allowance-pending';
 
   const submit = async () => {
+    if (isLocked) {
+      Alert.alert('알림', '총무가 이미 승인 완료했습니다. 다시 제출할 수 없습니다.');
+      return;
+    }
     if (!tempId || !selectedDate) {
       Alert.alert('알림', '임시사번과 날짜를 모두 입력해주세요.');
       return;
@@ -113,6 +127,7 @@ export default function AllowanceConsentScreen() {
       })
       .catch(() => { });
 
+    setStatus('allowance-pending');
     Alert.alert('저장 완료', '수당 동의일이 제출되었습니다. 총무 검토 후 다음 단계로 진행됩니다.');
     router.replace('/');
   };
@@ -131,11 +146,14 @@ export default function AllowanceConsentScreen() {
       if (!residentId) return;
       const { data } = await supabase
         .from('fc_profiles')
-        .select('temp_id, allowance_date')
+        .select('temp_id, allowance_date, status, career_type')
         .eq('phone', residentId)
         .maybeSingle();
+
       if (data?.temp_id) setTempId(data.temp_id);
       if (data?.allowance_date) setSelectedDate(new Date(data.allowance_date));
+      if (data?.status) setStatus(data.status);
+      if (data?.career_type) setCareerType(data.career_type);
     } finally {
       setRefreshing(false);
     }
@@ -206,13 +224,34 @@ export default function AllowanceConsentScreen() {
 
           <View style={styles.formSection}>
             <Text style={styles.sectionTitle}>동의 정보 입력</Text>
-            <Text style={styles.sectionDesc}>동의 완료 후 임시사번과 날짜를 입력해주세요.</Text>
+            <Text style={styles.sectionDesc}>
+              동의 완료 후 날짜를 입력해주세요. 총무 승인 후에는 수정할 수 없습니다.
+            </Text>
+            {isLocked ? (
+              <View style={styles.lockBanner}>
+                <Text style={styles.lockText}>총무 승인 완료 상태입니다. 수정이 제한됩니다.</Text>
+              </View>
+            ) : null}
+
+            {careerType && (
+              <View style={styles.careerCard}>
+                <View style={styles.careerBadge}>
+                  <Text style={styles.careerBadgeLabel}>지원 유형</Text>
+                </View>
+                <Text style={styles.careerMainText}>{careerType}</Text>
+                <Text style={styles.careerSubText}>
+                  {careerType === '신입'
+                    ? '신입 유형으로 등록되었습니다.'
+                    : '경력 유형으로 등록되었습니다.'}
+                </Text>
+              </View>
+            )}
 
             <View style={styles.inputGroup}>
               <Text style={styles.label}>임시사번</Text>
               <TextInput
                 style={styles.input}
-                placeholder="예: T-12345"
+                placeholder="총무가 임시사번을 발급하는 중입니다."
                 placeholderTextColor="#9CA3AF"
                 value={tempId}
                 onChangeText={setTempId}
@@ -251,9 +290,9 @@ export default function AllowanceConsentScreen() {
             <Pressable
               style={({ pressed }) => [styles.submitButton, pressed && styles.buttonPressed, loading && styles.buttonDisabled]}
               onPress={submit}
-              disabled={loading}
+              disabled={loading || isLocked}
             >
-              <Text style={styles.submitButtonText}>{loading ? '저장 중...' : '저장하기'}</Text>
+              <Text style={styles.submitButtonText}>{loading ? '저장 중...' : isLocked ? '승인 완료' : '저장하기'}</Text>
             </Pressable>
           </View>
         </ScrollView>
@@ -308,6 +347,51 @@ const styles = StyleSheet.create({
   divider: { height: 8, backgroundColor: '#F9FAFB', marginBottom: 24 },
 
   formSection: { paddingHorizontal: 24 },
+  lockBanner: {
+    backgroundColor: '#eff6ff',
+    padding: 12,
+    borderRadius: 8,
+    marginBottom: 20,
+    borderWidth: 1,
+    borderColor: '#bfdbfe',
+  },
+  lockText: {
+    fontSize: 14,
+    color: '#1d4ed8',
+    fontWeight: '600',
+    textAlign: 'center',
+  },
+  careerCard: {
+    backgroundColor: '#FFF0E6', // Light Orange bg
+    borderRadius: 12,
+    padding: 16,
+    marginBottom: 24,
+    borderWidth: 1,
+    borderColor: '#ffcca8',
+    alignItems: 'center',
+  },
+  careerBadge: {
+    backgroundColor: HANWHA_ORANGE,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 99,
+    marginBottom: 8,
+  },
+  careerBadgeLabel: {
+    color: '#fff',
+    fontSize: 12,
+    fontWeight: '700',
+  },
+  careerMainText: {
+    fontSize: 24,
+    fontWeight: '800',
+    color: HANWHA_ORANGE,
+    marginBottom: 4,
+  },
+  careerSubText: {
+    fontSize: 14,
+    color: '#9a3412', // Darker orange text
+  },
   sectionTitle: { fontSize: 18, fontWeight: '800', color: CHARCOAL, marginBottom: 4 },
   sectionDesc: { fontSize: 14, color: MUTED, marginBottom: 20 },
 
