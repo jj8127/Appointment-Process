@@ -1,5 +1,6 @@
 import { Feather } from '@expo/vector-icons';
 import DateTimePicker from '@react-native-community/datetimepicker';
+import { router } from 'expo-router';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Alert,
@@ -110,9 +111,10 @@ export default function AllowanceConsentScreen() {
       .invoke('fc-notify', {
         body: { type: 'fc_update', fc_id: data.id, message: `${data.name}님이 수당동의일을 입력했습니다.` },
       })
-      .catch(() => {});
+      .catch(() => { });
 
     Alert.alert('저장 완료', '수당 동의일이 제출되었습니다. 총무 검토 후 다음 단계로 진행됩니다.');
+    router.replace('/');
   };
 
   const openAllowanceSite = () => {

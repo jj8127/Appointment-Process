@@ -20,11 +20,12 @@ import {
 } from '@mantine/core';
 import { DateInput } from '@mantine/dates';
 import { notifications } from '@mantine/notifications';
-import { IconDeviceFloppy, IconRefresh, IconUser, IconX } from '@tabler/icons-react';
+import { IconDeviceFloppy, IconRefresh, IconUser } from '@tabler/icons-react';
 import { useQuery } from '@tanstack/react-query';
 import dayjs from 'dayjs';
 import { useState, useTransition } from 'react';
 
+import { StatusToggle } from '@/components/StatusToggle';
 import { supabase } from '@/lib/supabase';
 import { updateAppointmentAction } from './actions';
 
@@ -137,8 +138,11 @@ export default function AppointmentPage() {
     const dbDate = fc[`appointment_date_${category}`];
 
     // Determine values for inputs
-    const scheduleValue = input[scheduleKey as keyof typeof input] !== undefined ? input[scheduleKey as keyof typeof input] : (dbSchedule ? Number(dbSchedule) : '');
-    const dateValue = input[dateKey as keyof typeof input] !== undefined ? input[dateKey as keyof typeof input] : (dbDate ? new Date(dbDate) : null);
+    const scheduleValue = (input[scheduleKey as keyof typeof input] ?? (dbSchedule ? Number(dbSchedule) : '')) as string | number | undefined;
+
+    const dateValueRaw = input[dateKey as keyof typeof input];
+    const dateValue = dateValueRaw instanceof Date ? dateValueRaw
+      : (dateValueRaw ? new Date(dateValueRaw as any) : (dbDate ? new Date(dbDate) : null));
 
     const isConfirmed = !!dbDate;
 
@@ -154,12 +158,16 @@ export default function AppointmentPage() {
             w={70}
             value={scheduleValue}
             onChange={(v) => handleInputChange(fc.id, scheduleKey, typeof v === 'number' ? v : undefined)}
+            readOnly={isConfirmed}
+            disabled={isConfirmed}
           />
-          <Tooltip label="예정월만 저장">
-            <ActionIcon variant="light" color="blue" size="md" mb={2} onClick={() => executeAction(fc, 'schedule', category)}>
-              <IconDeviceFloppy size={16} />
-            </ActionIcon>
-          </Tooltip>
+          {!isConfirmed && (
+            <Tooltip label="예정월만 저장">
+              <ActionIcon variant="light" color="blue" size="md" mb={2} onClick={() => executeAction(fc, 'schedule', category)}>
+                <IconDeviceFloppy size={16} />
+              </ActionIcon>
+            </Tooltip>
+          )}
         </Group>
 
         <Group align="flex-end" gap="xs">
@@ -171,29 +179,36 @@ export default function AppointmentPage() {
             w={110}
             value={dateValue}
             onChange={(v) => handleInputChange(fc.id, dateKey, v)}
-            clearable
+            clearable={!isConfirmed}
+            readOnly={isConfirmed}
+            disabled={isConfirmed}
           />
         </Group>
 
         <Group gap={4} mt={4}>
-          <Button
-            size="compact-xs"
-            color={isConfirmed ? 'green' : 'indigo'}
-            variant={isConfirmed ? 'outline' : 'filled'}
-            onClick={() => executeAction(fc, 'confirm', category)}
-          >
-            {isConfirmed ? '수정 승인' : '위촉 승인'}
-          </Button>
-          <Tooltip label="반려 (확정 취소)">
-            <ActionIcon
-              variant="subtle"
-              color="red"
-              size="sm"
-              onClick={() => executeAction(fc, 'reject', category)}
-            >
-              <IconX size={14} />
-            </ActionIcon>
-          </Tooltip>
+          <StatusToggle
+            value={isConfirmed ? 'approved' : 'pending'}
+            onChange={(val) => {
+              if (val === 'approved') {
+                executeAction(fc, 'confirm', category);
+              } else {
+                // If we want to allow reverting (Reject), we can do it.
+                // But user said "Modify Impossible if approved".
+                // If I enable reverting, I break the "Modify Impossible" rule?
+                // "승인으로 되어있으면 수정이 불가능하게 바꿔" -> "Change to be unmodifiable if approved".
+                // This implies once Approved, it stays Approved/Locked.
+                // But if I made a mistake? Standard admin standard usually allows revert.
+                // However, following strict instruction: "Lock if approved".
+                // So I will make checking 'pending' do nothing if it is already approved?
+                // Wait, StatusToggle readOnly prop handles the "Lock" visual.
+                // So I won't even receive onChange if readOnly is true.
+                // So I just need to set readOnly={isConfirmed}.
+              }
+            }}
+            labelPending="미위촉"
+            labelApproved="위촉 완료"
+            readOnly={isConfirmed}
+          />
         </Group>
       </Stack>
     );
@@ -231,7 +246,7 @@ export default function AppointmentPage() {
           </Group>
         </Group>
 
-        <Paper p="md" radius="lg" withBorder shadow="sm" bg="white" overflow="hidden">
+        <Paper p="md" radius="lg" withBorder shadow="sm" bg="white" style={{ overflow: 'hidden' }}>
           <LoadingOverlay visible={isLoading} overlayProps={{ blur: 1 }} />
           <ScrollArea h="calc(100vh - 250px)" type="auto">
             <Table stickyHeader verticalSpacing="md" highlightOnHover>

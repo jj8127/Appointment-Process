@@ -3,8 +3,7 @@
 import { createServerClient, type CookieOptions } from '@supabase/ssr';
 import { revalidatePath } from 'next/cache';
 import { cookies } from 'next/headers';
-
-const EXPO_PUSH_URL = 'https://exp.host/--/api/v2/push/send';
+import { sendPushNotification } from '../../actions';
 
 type UpdateAppointmentState = {
     success: boolean;
@@ -87,48 +86,14 @@ export async function updateAppointmentAction(
     if (notifError) console.error('Notification insert failed:', notifError);
 
     // 4. Send Push Notification
-    // 모바일 앱은 resident_id(전화번호) 기준으로 토큰을 저장하므로 동일 키로 조회해야 한다.
-    const { data: tokens, error: tokenQueryError } = await supabase
-        .from('device_tokens')
-        .select('expo_push_token')
-        .eq('resident_id', phone);
-
-    console.log('[push][appointment] token query', {
-        fcId,
-        phone,
-        tokenQueryError: tokenQueryError?.message,
-        tokenCount: tokens?.length,
-        tokens,
+    const { success, error: pushError } = await sendPushNotification(phone, {
+        title: notifTitle,
+        body: notifBody,
+        data: { url: '/appointment' },
     });
 
-    if (tokens && tokens.length > 0) {
-        // Deduplicate tokens
-        const uniqueTokens = Array.from(new Set(tokens.map(t => t.expo_push_token)));
-
-        const pushPayload = uniqueTokens.map((token) => ({
-            to: token,
-            title: notifTitle,
-            body: notifBody,
-            data: { type: 'appointment' },
-        }));
-
-        try {
-            const resp = await fetch(EXPO_PUSH_URL, {
-                method: 'POST',
-                headers: { 'Accept': 'application/json', 'Content-Type': 'application/json' },
-                body: JSON.stringify(pushPayload),
-            });
-            const text = await resp.text();
-            console.log('[push][appointment] fetch response', {
-                status: resp.status,
-                ok: resp.ok,
-                body: text,
-            });
-        } catch (e) {
-            console.error('[push][appointment] fetch error', e);
-        }
-    } else {
-        console.warn('[push][appointment] no tokens found', { fcId, phone });
+    if (!success) {
+        console.error('[push][appointment] failed:', pushError);
     }
 
     revalidatePath('/dashboard/appointment');

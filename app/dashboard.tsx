@@ -1,6 +1,8 @@
+import { MobileStatusToggle } from '@/components/MobileStatusToggle';
 import { RefreshButton } from '@/components/RefreshButton';
 import { Feather, Ionicons } from '@expo/vector-icons';
 import { useMutation, useQuery } from '@tanstack/react-query';
+import * as Haptics from 'expo-haptics';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import * as WebBrowser from 'expo-web-browser';
 import { useCallback, useEffect, useMemo, useState } from 'react';
@@ -232,7 +234,7 @@ const fetchFcs = async (
 };
 
 export default function DashboardScreen() {
-  const { role, residentId } = useSession();
+  const { role, residentId, logout, hydrated } = useSession();
   const router = useRouter();
   const { mode, status } = useLocalSearchParams<{ mode?: string; status?: string }>();
   const [statusFilter, setStatusFilter] = useState<FilterKey>('all');
@@ -280,6 +282,10 @@ export default function DashboardScreen() {
     if (found) {
       setStatusFilter(found.key);
     }
+    const handleLogout = () => {
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      logout();
+    };
   }, [status]);
 
   useEffect(() => {
@@ -537,11 +543,53 @@ export default function DashboardScreen() {
       const { error } = await supabase.from('fc_profiles').update(payload).eq('id', id);
       if (error) throw error;
     },
+    onError: (err: any) => Alert.alert('저장 실패', err?.message ?? '위촉 예정 월 저장 중 오류가 발생했습니다.'),
+  });
+
+  const updateDocStatus = useMutation({
+    mutationFn: async ({
+      fcId,
+      docType,
+      status,
+      phone,
+    }: {
+      fcId: string;
+      docType: string;
+      status: 'approved' | 'rejected' | 'pending';
+      phone: string;
+    }) => {
+      // Update individual doc status
+      const { error } = await supabase
+        .from('fc_documents')
+        .update({ status })
+        .eq('fc_id', fcId)
+        .eq('doc_type', docType);
+      if (error) throw error;
+
+      // Check for auto-advance if approved
+      if (status === 'approved') {
+        const { data: allDocs } = await supabase
+          .from('fc_documents')
+          .select('status, storage_path')
+          .eq('fc_id', fcId);
+
+        const validDocs = (allDocs ?? []).filter((d) => d.storage_path && d.storage_path !== 'deleted');
+        // If all valid docs are approved, advance status
+        if (validDocs.length > 0 && validDocs.every((d) => d.status === 'approved')) {
+          await supabase.from('fc_profiles').update({ status: 'docs-approved' }).eq('id', fcId);
+          await sendNotificationAndPush(
+            'fc',
+            phone,
+            '서류 검토 완료',
+            '모든 서류가 승인되었습니다. 위촉 계약 단계로 진행해주세요.',
+          );
+        }
+      }
+    },
     onSuccess: () => {
-      Alert.alert('저장 완료', '위촉 예정 월을 저장했습니다.');
       refetch();
     },
-    onError: (err: any) => Alert.alert('저장 실패', err?.message ?? '위촉 예정 월 저장 중 오류가 발생했습니다.'),
+    onError: (err: any) => Alert.alert('오류', '문서 상태 업데이트 실패'),
   });
 
   const toggleDocSelection = (fcId: string, doc: string) => {
@@ -682,56 +730,87 @@ export default function DashboardScreen() {
         );
       }
 
-      if (fc.status === 'allowance-pending') {
+      if (fc.status === 'allowance-pending' || fc.status === 'allowance-consented') {
         actionBlocks.push(
           <View key="allowance-actions" style={styles.actionColumn}>
-            <Text style={styles.adminLabel}>수당동의 검토</Text>
-            <Pressable
-              style={styles.actionButtonPrimary}
-              onPress={() => confirmStatusChange(fc, 'allowance-consented', '수당 동의 검토를 완료 처리할까요?')}
-              disabled={updateStatus.isPending}
-            >
-              <Feather name="check-circle" size={16} color="#fff" />
-              <Text style={styles.actionButtonText}>검토 완료 처리</Text>
-            </Pressable>
+            <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+              <Text style={styles.adminLabel}>수당동의 검토</Text>
+              <MobileStatusToggle
+                value={fc.status === 'allowance-consented' || ['docs-requested', 'docs-pending', 'docs-submitted', 'docs-approved', 'appointment-completed', 'final-link-sent'].includes(fc.status) ? 'approved' : 'pending'}
+                onChange={(val) => {
+                  if (val === 'approved') {
+                    confirmStatusChange(fc, 'allowance-consented', '수당 동의 검토를 완료 처리할까요?');
+                  }
+                }}
+                labelPending="미승인"
+                labelApproved="승인"
+                readOnly={fc.status !== 'allowance-pending'}
+              />
+            </View>
           </View>,
         );
       }
 
-      if (fc.status === 'docs-pending') {
-        actionBlocks.push(
-          <View key="docs-actions" style={styles.actionColumn}>
-            <Pressable style={styles.actionButtonPrimary} onPress={() => handleDocReview(fc)}>
-              <Feather name="file-text" size={16} color="#fff" />
-              <Text style={styles.actionButtonText}>서류 검토하기</Text>
-            </Pressable>
-            <Pressable
-              style={styles.actionButtonSecondary}
-              onPress={() => confirmStatusChange(fc, 'docs-approved', '문서 검토를 완료 처리할까요?')}
-              disabled={updateStatus.isPending}
-            >
-              <Feather name="check-circle" size={16} color={CHARCOAL} />
-              <Text style={styles.actionButtonTextSecondary}>검토 완료 처리</Text>
-            </Pressable>
-          </View>,
-        );
+      // Docs Review Section - List submitted files with toggles
+      if (['docs-pending', 'docs-submitted', 'docs-approved', 'appointment-completed', 'final-link-sent'].includes(fc.status)) {
+        const submittedDocs = (fc.fc_documents ?? []).filter((d) => d.storage_path && d.storage_path !== 'deleted');
+        if (submittedDocs.length > 0) {
+          actionBlocks.push(
+            <View key="docs-actions" style={styles.actionColumn}>
+              <Text style={styles.adminLabel}>제출된 서류 검토</Text>
+              {submittedDocs.map(doc => (
+                <View key={doc.doc_type} style={styles.submittedRow}>
+                  <View style={{ flex: 1 }}>
+                    <Text style={styles.submittedText} numberOfLines={1}>{doc.doc_type}</Text>
+                    {doc.storage_path && (
+                      <Pressable onPress={() => openFile(doc.storage_path ?? undefined)}>
+                        <Text style={{ color: '#2563eb', fontSize: 12, marginTop: 2 }}>파일 열기</Text>
+                      </Pressable>
+                    )}
+                  </View>
+                  <MobileStatusToggle
+                    value={doc.status === 'approved' ? 'approved' : 'pending'}
+                    onChange={(val) => {
+                      updateDocStatus.mutate({ fcId: fc.id, docType: doc.doc_type, status: val, phone: fc.phone });
+                    }}
+                    labelPending="미승인"
+                    labelApproved="승인"
+                    readOnly={doc.status === 'approved'}
+                  />
+                </View>
+              ))}
+              {fc.status === 'docs-approved' && (
+                <View style={{ marginTop: 8 }}>
+                  <Text style={{ color: '#16a34a', fontSize: 13, fontWeight: '600' }}>✅ 모든 서류 승인됨 (자동 진행)</Text>
+                </View>
+              )}
+            </View>
+          );
+        } else {
+          actionBlocks.push(
+            <View key="docs-empty" style={styles.actionColumn}>
+              <Text style={[styles.adminLabel, { color: MUTED }]} >제출된 서류가 없습니다.</Text>
+            </View>
+          );
+        }
       }
 
-      if (fc.status === 'docs-approved' || fc.status === 'docs-submitted' || fc.status === 'final-link-sent') {
+      if (fc.status === 'docs-approved' || fc.status === 'docs-submitted' || fc.status === 'final-link-sent' || fc.status === 'appointment-completed') {
         const lifeVal = fc.appointment_schedule_life ?? '';
         const nonlifeVal = fc.appointment_schedule_nonlife ?? '';
         const scheduleInput = scheduleInputs[fc.id] ?? { life: lifeVal, nonlife: nonlifeVal };
         actionBlocks.push(
           <View key="final-actions" style={[styles.actionColumn, { gap: 12, marginTop: 4 }]}>
             <Text style={styles.adminLabel}>위촉 진행 관리</Text>
-
+            {/* Schedule Input Helper (Existing) */}
             <View style={styles.scheduleEditRow}>
+              {/* ... Keep existing schedule input logic ... */}
               <View style={styles.scheduleInputGroup}>
-                <Text style={styles.scheduleInputLabel}>생명 위촉 예정 월</Text>
+                <Text style={styles.scheduleInputLabel}>생명 예정월</Text>
                 <TextInput
                   style={styles.scheduleInput}
                   keyboardType="number-pad"
-                  placeholder="예: 6"
+                  placeholder="6"
                   value={scheduleInput.life ?? ''}
                   onChangeText={(t) =>
                     setScheduleInputs((prev) => ({
@@ -742,11 +821,11 @@ export default function DashboardScreen() {
                 />
               </View>
               <View style={styles.scheduleInputGroup}>
-                <Text style={styles.scheduleInputLabel}>손해 위촉 예정 월</Text>
+                <Text style={styles.scheduleInputLabel}>손해 예정월</Text>
                 <TextInput
                   style={styles.scheduleInput}
                   keyboardType="number-pad"
-                  placeholder="예: 9"
+                  placeholder="9"
                   value={scheduleInput.nonlife ?? ''}
                   onChangeText={(t) =>
                     setScheduleInputs((prev) => ({
@@ -767,132 +846,86 @@ export default function DashboardScreen() {
                   })
                 }
               >
-                <Text style={styles.saveBtnText}>예정 월 저장</Text>
+                <Text style={styles.saveBtnText}>저장</Text>
               </Pressable>
             </View>
 
+            {/* Life Appointment Toggle */}
             <View style={styles.scheduleRow}>
               <View style={styles.scheduleInfo}>
                 <View style={[styles.badge, { backgroundColor: '#fff7ed' }]}>
                   <Text style={{ color: ORANGE, fontWeight: '700', fontSize: 11 }}>생명</Text>
                 </View>
                 <Text style={styles.scheduleText}>
-                  {lifeVal ? `${lifeVal}월 진행` : '일정 미정'}
-                  {fc.appointment_date_life ? ` (${fc.appointment_date_life})` : ''}
+                  {fc.appointment_date_life ? `확정: ${fc.appointment_date_life}` : (lifeVal ? `${lifeVal}월 예정` : '-')}
                 </Text>
               </View>
-              <View style={styles.scheduleButtons}>
-                <Pressable
-                  style={[styles.confirmBtn, (!fc.appointment_date_life || updateAppointmentDate.isPending) && styles.actionButtonDisabled]}
-                  onPress={() => {
-                    const targetDate = fc.appointment_date_life;
-                    if (!targetDate) return;
-                    Alert.alert('완료 저장', '생명보험 위촉을 완료(승인) 처리할까요?', [
+              <MobileStatusToggle
+                value={fc.appointment_date_life ? 'approved' : 'pending'}
+                onChange={(val) => {
+                  if (val === 'approved') {
+                    // Prompt for Date
+                    Alert.prompt('위촉 확정일 입력', 'YYYY-MM-DD 형식으로 입력해주세요', [
                       { text: '취소', style: 'cancel' },
                       {
-                        text: '확인',
-                        onPress: () =>
-                          updateAppointmentDate.mutate({
-                            id: fc.id,
-                            type: 'life',
-                            date: targetDate,
-                            phone: fc.phone,
-                          }),
-                      },
-                    ]);
-                  }}
-                  disabled={updateAppointmentDate.isPending || !fc.appointment_date_life}
-                >
-                  <Text style={styles.confirmBtnText}>완료 저장</Text>
-                </Pressable>
-                <Pressable
-                  style={[styles.rejectBtn, (!fc.appointment_date_life || updateAppointmentDate.isPending) && styles.actionButtonDisabled]}
-                  onPress={() =>
-                    fc.appointment_date_life
-                      ? Alert.alert('위촉 반려', '생명보험 위촉 날짜를 초기화할까요?', [
+                        text: '확인', onPress: (date) => {
+                          if (date) updateAppointmentDate.mutate({ id: fc.id, type: 'life', date, phone: fc.phone });
+                        }
+                      }
+                    ], 'plain-text', new Date().toISOString().split('T')[0]);
+                  } else {
+                    // Reject
+                    if (fc.appointment_date_life) {
+                      Alert.alert('반려 확인', '위촉 확정을 취소(반려)하시겠습니까?', [
                         { text: '취소', style: 'cancel' },
-                        {
-                          text: '반려',
-                          style: 'destructive',
-                          onPress: () =>
-                            updateAppointmentDate.mutate({
-                              id: fc.id,
-                              type: 'life',
-                              date: null,
-                              isReject: true,
-                              phone: fc.phone,
-                            }),
-                        },
-                      ])
-                      : undefined
+                        { text: '반려', style: 'destructive', onPress: () => updateAppointmentDate.mutate({ id: fc.id, type: 'life', date: null, isReject: true, phone: fc.phone }) }
+                      ]);
+                    }
                   }
-                  disabled={updateAppointmentDate.isPending || !fc.appointment_date_life}
-                >
-                  <Text style={styles.rejectBtnText}>반려</Text>
-                </Pressable>
-              </View>
+                }}
+                labelPending="미승인"
+                labelApproved="승인"
+                readOnly={!!fc.appointment_date_life} // Lock if approved? User said so. but typically we need to unlock if mistake. But strict mode requested.
+              />
             </View>
 
+            {/* NonLife Appointment Toggle */}
             <View style={styles.scheduleRow}>
               <View style={styles.scheduleInfo}>
                 <View style={[styles.badge, { backgroundColor: '#eff6ff' }]}>
                   <Text style={{ color: '#2563eb', fontWeight: '700', fontSize: 11 }}>손해</Text>
                 </View>
                 <Text style={styles.scheduleText}>
-                  {nonlifeVal ? `${nonlifeVal}월 진행` : '일정 미정'}
-                  {fc.appointment_date_nonlife ? ` (${fc.appointment_date_nonlife})` : ''}
+                  {fc.appointment_date_nonlife ? `확정: ${fc.appointment_date_nonlife}` : (nonlifeVal ? `${nonlifeVal}월 예정` : '-')}
                 </Text>
               </View>
-              <View style={styles.scheduleButtons}>
-                <Pressable
-                  style={[styles.confirmBtn, (!fc.appointment_date_nonlife || updateAppointmentDate.isPending) && styles.actionButtonDisabled]}
-                  onPress={() => {
-                    const targetDate = fc.appointment_date_nonlife;
-                    if (!targetDate) return;
-                    Alert.alert('완료 저장', '손해보험 위촉을 완료(승인) 처리할까요?', [
+              <MobileStatusToggle
+                value={fc.appointment_date_nonlife ? 'approved' : 'pending'}
+                onChange={(val) => {
+                  if (val === 'approved') {
+                    // Prompt for Date
+                    Alert.prompt('위촉 확정일 입력', 'YYYY-MM-DD 형식으로 입력해주세요', [
                       { text: '취소', style: 'cancel' },
                       {
-                        text: '확인',
-                        onPress: () =>
-                          updateAppointmentDate.mutate({
-                            id: fc.id,
-                            type: 'nonlife',
-                            date: targetDate,
-                            phone: fc.phone,
-                          }),
-                      },
-                    ]);
-                  }}
-                  disabled={updateAppointmentDate.isPending || !fc.appointment_date_nonlife}
-                >
-                  <Text style={styles.confirmBtnText}>완료 저장</Text>
-                </Pressable>
-                <Pressable
-                  style={[styles.rejectBtn, (!fc.appointment_date_nonlife || updateAppointmentDate.isPending) && styles.actionButtonDisabled]}
-                  onPress={() =>
-                    fc.appointment_date_nonlife
-                      ? Alert.alert('위촉 반려', '손해보험 위촉 날짜를 초기화할까요?', [
+                        text: '확인', onPress: (date) => {
+                          if (date) updateAppointmentDate.mutate({ id: fc.id, type: 'nonlife', date, phone: fc.phone });
+                        }
+                      }
+                    ], 'plain-text', new Date().toISOString().split('T')[0]);
+                  } else {
+                    // Reject
+                    if (fc.appointment_date_nonlife) {
+                      Alert.alert('반려 확인', '위촉 확정을 취소(반려)하시겠습니까?', [
                         { text: '취소', style: 'cancel' },
-                        {
-                          text: '반려',
-                          style: 'destructive',
-                          onPress: () =>
-                            updateAppointmentDate.mutate({
-                              id: fc.id,
-                              type: 'nonlife',
-                              date: null,
-                              isReject: true,
-                              phone: fc.phone,
-                            }),
-                        },
-                      ])
-                      : undefined
+                        { text: '반려', style: 'destructive', onPress: () => updateAppointmentDate.mutate({ id: fc.id, type: 'nonlife', date: null, isReject: true, phone: fc.phone }) }
+                      ]);
+                    }
                   }
-                  disabled={updateAppointmentDate.isPending || !fc.appointment_date_nonlife}
-                >
-                  <Text style={styles.rejectBtnText}>반려</Text>
-                </Pressable>
-              </View>
+                }}
+                labelPending="미승인"
+                labelApproved="승인"
+                readOnly={!!fc.appointment_date_nonlife}
+              />
             </View>
           </View>,
         );
@@ -922,20 +955,28 @@ export default function DashboardScreen() {
                   onChangeText={(t) => setTempInputs((p) => ({ ...p, [fc.id]: t }))}
                   placeholder="T-12345"
                 />
-                <Pressable
-                  style={styles.saveBtn}
-                  onPress={() =>
-                    updateTemp.mutate({
-                      id: fc.id,
-                      tempId: tempInputs[fc.id] ?? fc.temp_id ?? '',
-                      prevTemp: fc.temp_id ?? '',
-                      career: careerInputs[fc.id] ?? '신입',
-                      phone: fc.phone,
-                    })
-                  }
-                >
-                  <Text style={styles.saveBtnText}>변경</Text>
-                </Pressable>
+                {(() => {
+                  const currentTemp = tempInputs[fc.id] ?? fc.temp_id ?? '';
+                  const hasSavedTemp = currentTemp.trim().length > 0;
+                  const buttonLabel = updateTemp.isPending ? '저장중...' : hasSavedTemp ? '수정' : '저장';
+                  return (
+                    <Pressable
+                      style={[styles.saveBtn, updateTemp.isPending && styles.actionButtonDisabled]}
+                      onPress={() =>
+                        updateTemp.mutate({
+                          id: fc.id,
+                          tempId: currentTemp,
+                          prevTemp: fc.temp_id ?? '',
+                          career: careerInputs[fc.id] ?? '신입',
+                          phone: fc.phone,
+                        })
+                      }
+                      disabled={updateTemp.isPending}
+                    >
+                      <Text style={styles.saveBtnText}>{buttonLabel}</Text>
+                    </Pressable>
+                  );
+                })()}
               </View>
             </View>
 
@@ -1003,6 +1044,16 @@ export default function DashboardScreen() {
       </View>
     );
   };
+
+  if (!hydrated || !role) {
+    return (
+      <SafeAreaView style={styles.safe} edges={['left', 'right', 'bottom']}>
+        <View style={[styles.container, { alignItems: 'center', justifyContent: 'center', flex: 1 }]}>
+          <ActivityIndicator color={ORANGE} />
+        </View>
+      </SafeAreaView>
+    );
+  }
 
   return (
     <SafeAreaView style={styles.safe} edges={['left', 'right', 'bottom']}>
@@ -1168,34 +1219,47 @@ export default function DashboardScreen() {
 
                     {renderAdminActions(fc)}
 
-                    {showTempSection && role === 'admin' && (
-                      <View style={styles.adminSection}>
-                        <Text style={styles.adminLabel}>관리자 수정</Text>
-                        <View style={styles.inputGroup}>
-                          <TextInput
-                            style={styles.adminInput}
-                            placeholder="임시번호 발급 완료"
-                            placeholderTextColor="#9CA3AF"
-                            value={tempInputs[fc.id] ?? fc.temp_id ?? ''}
-                            onChangeText={(t) => setTempInputs((p) => ({ ...p, [fc.id]: t }))}
-                          />
-                          <Pressable
-                            style={styles.saveButton}
-                            onPress={() =>
-                              updateTemp.mutate({
-                                id: fc.id,
-                                tempId: tempInputs[fc.id] ?? fc.temp_id ?? '',
-                                prevTemp: fc.temp_id ?? '',
-                                career: careerInputs[fc.id] ?? '신입',
-                                phone: fc.phone,
-                              })
-                            }
-                          >
-                            <Text style={styles.saveButtonText}>저장</Text>
-                          </Pressable>
-                        </View>
-                      </View>
-                    )}
+                      {showTempSection && role === 'admin' &&
+                        (() => {
+                          const currentTemp = tempInputs[fc.id] ?? fc.temp_id ?? '';
+                          const hasExistingTemp = Boolean(fc.temp_id);
+                          const hasTypedTemp = (tempInputs[fc.id] ?? '').trim().length > 0;
+                          const saveLabel = updateTemp.isPending
+                            ? '저장중...'
+                            : hasExistingTemp || hasTypedTemp
+                              ? '수정'
+                              : '저장';
+
+                          return (
+                            <View style={styles.adminSection}>
+                              <Text style={styles.adminLabel}>관리자 수정</Text>
+                              <View style={styles.inputGroup}>
+                                <TextInput
+                                  style={styles.adminInput}
+                                  placeholder="임시번호 발급 완료"
+                                  placeholderTextColor="#9CA3AF"
+                                  value={currentTemp}
+                                  onChangeText={(t) => setTempInputs((p) => ({ ...p, [fc.id]: t }))}
+                                />
+                                <Pressable
+                                  style={[styles.saveButton, updateTemp.isPending && styles.saveButtonDisabled]}
+                                  onPress={() =>
+                                    updateTemp.mutate({
+                                      id: fc.id,
+                                      tempId: currentTemp,
+                                      prevTemp: fc.temp_id ?? '',
+                                      career: careerInputs[fc.id] ?? '신입',
+                                      phone: fc.phone,
+                                    })
+                                  }
+                                  disabled={updateTemp.isPending}
+                                >
+                                  <Text style={styles.saveButtonText}>{saveLabel}</Text>
+                                </Pressable>
+                              </View>
+                            </View>
+                          );
+                        })()}
 
                     {showDocsSection && role === 'admin' && (
                       <View style={{ marginTop: 12, gap: 10 }}>

@@ -697,21 +697,36 @@ export default function Home() {
               )}
               <View style={styles.glanceRow}>
                 <Pressable
-                  style={[styles.glancePill, styles.glancePrimary]}
                   onPress={() => handlePressLink(stepToLink(activeStep.key))}
                   disabled={!stepToLink(activeStep.key)}
+                  style={({ pressed }) => [{ flex: 1 }, pressed && styles.pressedScale]}
                 >
-                  <Text style={styles.glanceLabel}>다음 단계</Text>
-                  <Text style={styles.glanceValue} numberOfLines={1}>
-                    {activeStep.fullLabel}
-                  </Text>
+                  <LinearGradient
+                    colors={['#f36f21', '#fabc3c']}
+                    start={{ x: 0, y: 0 }}
+                    end={{ x: 1, y: 1 }}
+                    style={styles.premiumStepCard}
+                  >
+                    <View style={styles.premiumStepContent}>
+                      <View style={styles.premiumStepHeader}>
+                        <View style={styles.premiumStepBadge}>
+                          <Text style={styles.premiumStepBadgeText}>다음 단계</Text>
+                        </View>
+                        <View style={styles.premiumStepIcon}>
+                          <Feather name="arrow-right" size={20} color="#fff" />
+                        </View>
+                      </View>
+                      <Text style={styles.premiumStepTitle} numberOfLines={1}>
+                        {activeStep.fullLabel}
+                      </Text>
+                      <Text style={styles.premiumStepSub}>
+                        터치하여 바로 진행하세요
+                      </Text>
+                    </View>
+                    <View style={styles.premiumStepDeco1} />
+                    <View style={styles.premiumStepDeco2} />
+                  </LinearGradient>
                 </Pressable>
-                <View style={[styles.glancePill, styles.glanceGhost]}>
-                  <Text style={styles.glanceLabel}>문서 업로드</Text>
-                  <Text style={[styles.glanceValue, isAllSubmitted && { fontSize: 13 }]}>
-                    {docsStatusText}
-                  </Text>
-                </View>
               </View>
             </View>
           )}
@@ -1076,4 +1091,76 @@ const styles = StyleSheet.create({
   stepNumberActive: { color: HANWHA_ORANGE },
   stepLabel: { fontSize: 12, color: '#9CA3AF' }, // 11 -> 12
   stepLabelActive: { color: CHARCOAL, fontWeight: '700' },
+  premiumStepCard: {
+    borderRadius: 20,
+    padding: 20,
+    overflow: 'hidden',
+    position: 'relative',
+    height: 120, // Taller for impact
+    justifyContent: 'center',
+    shadowColor: '#f36f21',
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.25,
+    shadowRadius: 12,
+    elevation: 8,
+  },
+  premiumStepContent: {
+    zIndex: 10,
+    position: 'relative',
+  },
+  premiumStepHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'flex-start',
+    marginBottom: 8,
+  },
+  premiumStepBadge: {
+    backgroundColor: 'rgba(255,255,255,0.2)',
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    borderRadius: 12,
+  },
+  premiumStepBadgeText: {
+    color: '#fff',
+    fontSize: 12,
+    fontWeight: '700',
+  },
+  premiumStepIcon: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    backgroundColor: 'rgba(255,255,255,0.2)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  premiumStepTitle: {
+    fontSize: 24,
+    fontWeight: '800',
+    color: '#fff',
+    marginBottom: 4,
+    letterSpacing: -0.5,
+  },
+  premiumStepSub: {
+    fontSize: 14,
+    color: 'rgba(255,255,255,0.9)',
+    fontWeight: '500',
+  },
+  premiumStepDeco1: {
+    position: 'absolute',
+    top: -20,
+    right: -20,
+    width: 100,
+    height: 100,
+    borderRadius: 50,
+    backgroundColor: 'rgba(255,255,255,0.1)',
+  },
+  premiumStepDeco2: {
+    position: 'absolute',
+    bottom: -30,
+    left: -10,
+    width: 80,
+    height: 80,
+    borderRadius: 40,
+    backgroundColor: 'rgba(255,255,255,0.1)',
+  },
 });

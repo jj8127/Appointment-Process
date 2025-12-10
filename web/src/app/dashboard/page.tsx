@@ -45,10 +45,12 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import dayjs from 'dayjs';
 import { useMemo, useState, useTransition } from 'react';
 
+import { StatusToggle } from '@/components/StatusToggle';
 import { ADMIN_STEP_LABELS, calcStep, DOC_OPTIONS, getAdminStep, STATUS_LABELS } from '@/lib/shared';
 import { supabase } from '@/lib/supabase';
 import { notifications } from '@mantine/notifications';
 import { useRouter } from 'next/navigation';
+import { sendPushNotification } from '../actions';
 import { updateAppointmentAction } from './appointment/actions';
 
 export default function DashboardPage() {
@@ -129,12 +131,15 @@ export default function DashboardPage() {
       const { error } = await supabase.from('fc_profiles').update(payload).eq('id', selectedFc.id);
       if (error) throw error;
       if (payload.temp_id) {
+        const title = '임시번호 발급';
+        const body = `임시사번: ${payload.temp_id} 이 발급되었습니다.`;
         await supabase.from('notifications').insert({
-          title: '임시번호 발급',
-          body: `임시사번: ${payload.temp_id} 이 발급되었습니다.`,
+          title,
+          body,
           recipient_role: 'fc',
           resident_id: selectedFc.phone,
         });
+        await sendPushNotification(selectedFc.phone, { title, body, data: { url: '/consent' } });
       }
     },
     onSuccess: () => {
@@ -190,6 +195,17 @@ export default function DashboardPage() {
         if (insertError) console.error('Insert Error:', JSON.stringify(insertError, null, 2));
       }
       await supabase.from('fc_profiles').update({ status: 'docs-requested' }).eq('id', selectedFc.id);
+
+      // Notification logic
+      const title = '필수 서류 등록 알림';
+      const body = '관리자가 필수 서류 목록을 갱신하였습니다. 확인 후 제출해주세요.';
+      await supabase.from('notifications').insert({
+        title,
+        body,
+        recipient_role: 'fc',
+        resident_id: selectedFc.phone,
+      });
+      await sendPushNotification(selectedFc.phone, { title, body, data: { url: '/docs-upload' } });
     },
     onSuccess: () => {
       notifications.show({ title: '요청 완료', message: '서류 목록이 갱신되었습니다.', color: 'blue' });
@@ -203,14 +219,23 @@ export default function DashboardPage() {
       if (!selectedFc) return;
       await supabase.from('fc_profiles').update({ status }).eq('id', selectedFc.id);
       if (msg) {
+        const finalTitle = title || '상태 업데이트';
         await supabase
           .from('notifications')
           .insert({
-            title: title || '상태 업데이트',
+            title: finalTitle,
             body: msg,
             recipient_role: 'fc',
             resident_id: selectedFc.phone,
           });
+
+        // Determine URL based on status
+        let url = '/notifications'; // Default
+        if (status === 'allowance-consented') url = '/docs-upload'; // Next step
+        else if (status === 'docs-approved') url = '/appointment'; // Next step
+        else if (status === 'temp-id-issued') url = '/consent'; // Logic (Next step)
+
+        await sendPushNotification(selectedFc.phone, { title: finalTitle, body: msg, data: { url } });
       }
     },
     onSuccess: () => {
@@ -473,7 +498,7 @@ export default function DashboardPage() {
         <SimpleGrid cols={{ base: 1, sm: 3 }} spacing="md">
           <Card padding="lg" radius="md" withBorder shadow="sm" bg="white">
             <Group justify="space-between" mb="xs">
-              <Text c="dimmed" tt="uppercase" fw={700} size="xs" ls={0.5}>총 인원</Text>
+              <Text c="dimmed" tt="uppercase" fw={700} size="xs" style={{ letterSpacing: '0.5px' }}>총 인원</Text>
               <ThemeIcon variant="light" color="blue" radius="md" size="lg">
                 <IconUser size={22} stroke={1.5} />
               </ThemeIcon>
@@ -489,7 +514,7 @@ export default function DashboardPage() {
 
           <Card padding="lg" radius="md" withBorder shadow="sm" bg="white">
             <Group justify="space-between" mb="xs">
-              <Text c="dimmed" tt="uppercase" fw={700} size="xs" ls={0.5}>수당동의 대기</Text>
+              <Text c="dimmed" tt="uppercase" fw={700} size="xs" style={{ letterSpacing: '0.5px' }}>수당동의 대기</Text>
               <ThemeIcon variant="light" color="orange" radius="md" size="lg">
                 <IconCheck size={22} stroke={1.5} />
               </ThemeIcon>
@@ -505,7 +530,7 @@ export default function DashboardPage() {
 
           <Card padding="lg" radius="md" withBorder shadow="sm" bg="white">
             <Group justify="space-between" mb="xs">
-              <Text c="dimmed" tt="uppercase" fw={700} size="xs" ls={0.5}>서류검토 대기</Text>
+              <Text c="dimmed" tt="uppercase" fw={700} size="xs" style={{ letterSpacing: '0.5px' }}>서류검토 대기</Text>
               <ThemeIcon variant="light" color="indigo" radius="md" size="lg">
                 <IconFileText size={22} stroke={1.5} />
               </ThemeIcon>
@@ -797,22 +822,31 @@ export default function DashboardPage() {
                     현재 상태: {STATUS_LABELS[selectedFc.status] || selectedFc.status}
                   </Alert>
 
-                  {selectedFc.status === 'allowance-pending' && (
-                    <Button
-                      color="indigo"
-                      fullWidth
-                      leftSection={<IconCheck size={16} />}
-                      onClick={() =>
+                  <Text fw={600} size="sm" mb="xs">수당 동의 검토</Text>
+                  <StatusToggle
+                    value={selectedFc.status === 'allowance-consented' || selectedFc.status === 'docs-pending' || selectedFc.status === 'docs-submitted' || selectedFc.status === 'docs-approved' ? 'approved' : 'pending'}
+                    onChange={(val) => {
+                      if (val === 'approved') {
                         updateStatusMutation.mutate({
                           status: 'allowance-consented',
                           title: '수당동의 승인',
                           msg: '수당 동의가 승인되었습니다. 서류 제출 단계로 진행해주세요.',
-                        })
+                        });
+                      } else {
+                        // Revert logic if needed, but user asked to lock it? 
+                        // "모든 승인 절차에 대해서 승인으로 되어있으면 수정이 불가능하게 바꿔"
+                        // So if it IS approved, we shouldn't even be able to click this?
+                        // But how do we approve it first? 
+                        // It starts as pending. We click Approved. It becomes Approved. THEN it locks?
+                        // That means no undo. 
+                        // That seems risky but requested. "승인으로 되어있으면 수정이 불가능하게 바꿔".
+                        // Okay, I will respect that. 
                       }
-                    >
-                      수당 동의 검토 완료 (승인)
-                    </Button>
-                  )}
+                    }}
+                    labelPending="미승인"
+                    labelApproved="승인 완료"
+                    readOnly={selectedFc.status === 'allowance-consented' || ['docs-pending', 'docs-submitted', 'docs-approved', 'allowance-consented'].includes(selectedFc.status)}
+                  />
 
                   {(selectedFc.status === 'docs-pending' || selectedFc.status === 'docs-submitted') && (
                     <Button

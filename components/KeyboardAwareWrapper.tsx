@@ -1,6 +1,16 @@
-import { ReactElement, ReactNode } from 'react';
+import { createContext, ReactElement, ReactNode, useContext, useRef } from 'react';
 import { RefreshControlProps, ViewStyle } from 'react-native';
 import { KeyboardAwareScrollView } from 'react-native-keyboard-aware-scroll-view';
+
+type KeyboardAwareContextType = {
+  scrollToInput: (reactNode: any) => void;
+};
+
+const KeyboardAwareContext = createContext<KeyboardAwareContextType>({
+  scrollToInput: () => { },
+});
+
+export const useKeyboardAware = () => useContext(KeyboardAwareContext);
 
 type Props = {
   children: ReactNode;
@@ -17,27 +27,37 @@ export function KeyboardAwareWrapper({
   extraScrollHeight = 24,
   refreshControl,
 }: Props) {
+  const scrollViewRef = useRef<KeyboardAwareScrollView>(null);
+
+  const scrollToInput = (reactNode: any) => {
+    if (scrollViewRef.current && reactNode) {
+      scrollViewRef.current.scrollToFocusedInput(reactNode);
+    }
+  };
+
   return (
-    <KeyboardAwareScrollView
-      enableOnAndroid
-      enableAutomaticScroll
-      nestedScrollEnabled
-      keyboardDismissMode="interactive" // 입력창을 잡고 드래그해도 스크롤 우선, 필요 시 자연스럽게 닫힘
-      keyboardOpeningTime={0}
-      extraScrollHeight={extraScrollHeight}
-      keyboardShouldPersistTaps="handled" // 터치 시 스크롤/탭 모두 처리
-      scrollEnabled
-      scrollEventThrottle={16}
-      showsVerticalScrollIndicator={false}
-      contentContainerStyle={[{ flexGrow: 1 }, contentContainerStyle]}
-      style={style}
-      refreshControl={refreshControl}
-      onScrollBeginDrag={() => {
-        // 스크롤 제스처가 발생하는지 확인용 (필요 시 콘솔에서 확인)
-        // console.log('[KeyboardAwareWrapper] scroll begin');
-      }}
-    >
-      {children}
-    </KeyboardAwareScrollView>
+    <KeyboardAwareContext.Provider value={{ scrollToInput }}>
+      <KeyboardAwareScrollView
+        ref={scrollViewRef}
+        enableOnAndroid
+        enableAutomaticScroll
+        keyboardDismissMode="interactive" // 드래그 시 키보드가 사라지지 않고 스크롤 우선
+        keyboardOpeningTime={0}
+        extraScrollHeight={extraScrollHeight}
+        keyboardShouldPersistTaps="handled"
+        removeClippedSubviews={false} // Android getChildDrawingOrder 보호
+        scrollEnabled
+        scrollEventThrottle={16}
+        showsVerticalScrollIndicator={false}
+        contentContainerStyle={[{ flexGrow: 1 }, contentContainerStyle]}
+        style={[{ flex: 1 }, style]}
+        onScrollBeginDrag={() => {
+          // console.log('[KeyboardAwareWrapper] scroll begin');
+        }}
+        refreshControl={refreshControl}
+      >
+        {children}
+      </KeyboardAwareScrollView>
+    </KeyboardAwareContext.Provider>
   );
 }

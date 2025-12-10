@@ -12,12 +12,13 @@ import {
   StyleSheet,
   Text,
   TextInput,
-  View
+  View,
+  findNodeHandle,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { z } from 'zod';
 
-import { KeyboardAwareWrapper } from '@/components/KeyboardAwareWrapper';
+import { KeyboardAwareWrapper, useKeyboardAware } from '@/components/KeyboardAwareWrapper';
 import { RefreshButton } from '@/components/RefreshButton';
 import { useSession } from '@/hooks/use-session';
 import { supabase } from '@/lib/supabase';
@@ -37,10 +38,10 @@ const schema = z.object({
   phone: z.string().min(8, '휴대폰 번호를 입력해주세요.'),
   residentFront: z.string().regex(/^[0-9]{6}$/, '앞 6자리를 숫자로 입력해주세요.'),
   residentBack: z.string().regex(/^[0-9]{7}$/, '뒷 7자리를 숫자로 입력해주세요.'),
-  recommender: z.string().optional(),
-  email: z.string().email('유효한 이메일을 입력해주세요.').optional(),
-  address: z.string().optional(),
-  addressDetail: z.string().optional(),
+  recommender: z.string().min(1, '추천인을 입력해주세요.'),
+  email: z.string().email('유효한 이메일을 입력해주세요.'),
+  address: z.string().min(1, '주소를 입력해주세요.'),
+  addressDetail: z.string().min(1, '상세주소를 입력해주세요.'),
 });
 
 type FormValues = z.infer<typeof schema>;
@@ -256,22 +257,36 @@ export default function FcNewScreen() {
     }
 
     loginAs('fc', phoneDigits, values.name);
-    Alert.alert('저장 완료', '기본정보가 저장되었습니다. FC 홈 화면으로 이동합니다.', [
-      { text: '확인', onPress: () => router.replace('/') },
-    ]);
+    Alert.alert('저장 완료', '기본정보가 저장되었습니다. FC 홈 화면으로 이동합니다.');
+    router.replace('/');
   };
 
   const onError = (errors: any) => {
     const missing = Object.keys(errors);
     if (missing.length > 0) {
+      const LABELS: Record<string, string> = {
+        affiliation: '소속',
+        name: '이름',
+        phone: '휴대폰 번호',
+        residentFront: '주민번호 앞자리',
+        residentBack: '주민번호 뒷자리',
+        recommender: '추천인',
+        email: '이메일',
+        address: '주소',
+        addressDetail: '상세주소',
+      };
+
+      const missingFields = missing
+        .map((key) => LABELS[key])
+        .filter(Boolean)
+        .join(', ');
+
       const first = missing[0];
-      Alert.alert('입력 확인', '입력하지 않은 정보가 있습니다. 확인해주세요.');
+      Alert.alert('입력 확인', `다음 정보를 입력해주세요:\n${missingFields}`);
 
       // Focus the first error field
       if (first === 'affiliation') {
-        // Affiliation is at the top, scroll to top? 
-        // Or if we had a ref for the scroll view... but focus() mostly works for inputs.
-        // Since affiliation is buttons, we can't focus it. But usually it's at top.
+        // Affiliation is at the top
       } else if (first === 'name') {
         nameRef.current?.focus();
       } else if (first === 'phone') {
@@ -284,6 +299,10 @@ export default function FcNewScreen() {
         emailLocalRef.current?.focus();
       } else if (first === 'address') {
         addressRef.current?.focus();
+      } else if (first === 'addressDetail') {
+        addressDetailRef.current?.focus();
+      } else if (first === 'recommender') {
+        recommenderRef.current?.focus();
       }
     }
   };
@@ -417,7 +436,6 @@ export default function FcNewScreen() {
                     returnKeyType="next"
                     onSubmitEditing={() => recommenderRef.current?.focus()}
                     blurOnSubmit={false}
-                    scrollEnabled={false} // Added
                   />
                 )}
               />
@@ -545,7 +563,9 @@ export default function FcNewScreen() {
           style={[styles.primaryButton, submitting && styles.primaryButtonDisabled]}
           onPress={handleSubmit(onSubmit, onError)}
           disabled={submitting}>
-          <Text style={styles.primaryButtonText}>{submitting ? '저장 중...' : '저장하기'}</Text>
+          <Text style={styles.primaryButtonText}>
+            {submitting ? '저장 중...' : existingTempId ? '수정하기' : '저장하기'}
+          </Text>
         </Pressable>
       </KeyboardAwareWrapper>
       <Modal visible={showAddressSearch} animationType="slide">
@@ -601,33 +621,45 @@ const FormField = ({
   onSubmitEditing,
   blurOnSubmit,
   scrollEnabled, // Added
-}: FormFieldProps) => (
-  <View style={styles.field}>
-    <View style={styles.fieldLabelRow}>
-      <Text style={styles.label}>{label}</Text>
-      {errors[name]?.message ? <Text style={styles.error}>{errors[name]?.message}</Text> : null}
+}: FormFieldProps) => {
+  const { scrollToInput } = useKeyboardAware();
+
+  return (
+    <View style={styles.field}>
+      <View style={styles.fieldLabelRow}>
+        <Text style={styles.label}>{label}</Text>
+        {errors[name]?.message ? <Text style={styles.error}>{errors[name]?.message}</Text> : null}
+      </View>
+      <Controller
+        control={control}
+        name={name as any}
+        render={({ field: { onChange, value } }) => (
+          <TextInput
+            scrollEnabled={scrollEnabled ?? false}
+            ref={inputRef}
+            style={[styles.input, multiline && styles.inputMultiline]}
+            placeholder={placeholder}
+            placeholderTextColor={PLACEHOLDER}
+            value={value}
+            onChangeText={onChange}
+            multiline={multiline}
+            returnKeyType={returnKeyType}
+            onSubmitEditing={onSubmitEditing}
+            blurOnSubmit={blurOnSubmit}
+            onFocus={(e) => {
+              scrollToInput(findNodeHandle(e.target as any));
+            }}
+            onContentSizeChange={(e) => {
+              if (multiline) {
+                scrollToInput(findNodeHandle(e.target as any));
+              }
+            }}
+          />
+        )}
+      />
     </View>
-    <Controller
-      control={control}
-      name={name as any}
-      render={({ field: { onChange, value } }) => (
-        <TextInput
-          ref={inputRef}
-          style={[styles.input, multiline && styles.inputMultiline]}
-          placeholder={placeholder}
-          placeholderTextColor={PLACEHOLDER}
-          value={value}
-          onChangeText={onChange}
-          multiline={multiline}
-          scrollEnabled={scrollEnabled} // Passed
-          returnKeyType={returnKeyType}
-          onSubmitEditing={onSubmitEditing}
-          blurOnSubmit={blurOnSubmit}
-        />
-      )}
-    />
-  </View>
-);
+  );
+};
 
 const styles = StyleSheet.create({
   safe: { flex: 1, backgroundColor: '#ffffff' },
@@ -675,15 +707,19 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: BORDER,
     borderRadius: 10,
-    padding: 14, // 12 -> 14
+    paddingHorizontal: 14,
+    paddingVertical: 10,
     backgroundColor: '#fff',
     fontSize: 16, // added explicit 16
     color: CHARCOAL,
+    height: 52, // Fixed height to prevent internal scrolling
+    lineHeight: 20,
+    textAlignVertical: 'center',
   },
   residentRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
   residentHyphen: { fontWeight: '800', color: CHARCOAL, fontSize: 16 },
   residentInput: { flex: 1 },
-  inputMultiline: { height: 100, textAlignVertical: 'top' }, // 90 -> 100
+  inputMultiline: { minHeight: 100, height: undefined, textAlignVertical: 'top' }, // 90 -> 100
   searchButton: {
     paddingVertical: 12, // 10 -> 12
     paddingHorizontal: 14, // 12 -> 14

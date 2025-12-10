@@ -34,7 +34,9 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import dayjs from 'dayjs';
 import { useMemo, useState } from 'react';
 
+import { StatusToggle } from '@/components/StatusToggle';
 import { supabase } from '@/lib/supabase';
+import { sendPushNotification } from '../../actions';
 
 // App Design Tokens
 const HANWHA_ORANGE = '#f36f21';
@@ -108,6 +110,40 @@ export default function DocumentsPage() {
         return docs;
     }, [documents, activeTab]);
 
+    // --- Auto Advance Logic ---
+    const checkAutoAdvance = async (fcId: number, phone: string) => {
+        // Check if there are any documents for this FC that are NOT approved (and not deleted)
+        const { data: pendingDocs, error } = await supabase
+            .from('fc_documents')
+            .select('id')
+            .eq('fc_id', fcId)
+            .in('status', ['pending', 'submitted', 'rejected']);
+
+        if (error) {
+            console.error('AutoAdvance Check Error:', error);
+            return;
+        }
+
+        if (pendingDocs.length === 0) {
+            // All cleared! Update FC Status
+            const { error: updateError } = await supabase
+                .from('fc_profiles')
+                .update({ status: 'docs-approved' }) // or 'docs-completed'? Dashboard uses 'docs-approved' button to transition.
+                .eq('id', fcId);
+
+            if (!updateError) {
+                notifications.show({ title: '자동 승인', message: '모든 서류가 승인되어 다음 단계로 넘어갑니다.', color: 'blue' });
+                // Send Push
+                const title = '서류 검토 완료';
+                const body = '모든 서류가 승인되었습니다. 위촉 계약 단계로 진행해주세요.';
+                await supabase.from('notifications').insert({
+                    title, body, recipient_role: 'fc', resident_id: phone
+                });
+                await sendPushNotification(phone, { title, body, data: { url: '/appointment' } });
+            }
+        }
+    };
+
     // Mutations
     const updateStatusMutation = useMutation({
         mutationFn: async ({ doc, status, reason }: { doc: any; status: string; reason?: string }) => {
@@ -137,9 +173,12 @@ export default function DocumentsPage() {
                     resident_id: doc.fc_profiles.phone,
                     category: '서류',
                 });
+                await sendPushNotification(doc.fc_profiles.phone, { title, body, data: { url: '/docs-upload' } });
             }
+            // Return doc for context
+            return doc;
         },
-        onSuccess: () => {
+        onSuccess: (updatedDoc) => {
             notifications.show({
                 title: '처리 완료',
                 message: '상태가 변경되었습니다.',
@@ -148,6 +187,11 @@ export default function DocumentsPage() {
             queryClient.invalidateQueries({ queryKey: ['documents-list'] });
             closeReject();
             closePreview();
+
+            // Trigger Auto Advance Check
+            if (updatedDoc?.fc_id && updatedDoc.fc_profiles?.phone) {
+                checkAutoAdvance(updatedDoc.fc_id, updatedDoc.fc_profiles.phone);
+            }
         },
         onError: (err: any) => {
             notifications.show({
@@ -243,39 +287,38 @@ export default function DocumentsPage() {
             </Table.Td>
             <Table.Td>
                 <Group gap={6}>
-                    {['submitted', 'pending'].includes(doc.status) ? (
-                        <>
-                            <Button
-                                size="compact-xs"
-                                color="green"
-                                radius="md"
-                                leftSection={<IconCheck size={12} />}
-                                onClick={() => handleApprove(doc)}
-                            >
-                                승인
-                            </Button>
-                            <Button
-                                size="compact-xs"
-                                color="red"
-                                variant="light"
-                                radius="md"
-                                leftSection={<IconX size={12} />}
-                                onClick={() => handleRejectInit(doc)}
-                            >
-                                반려
-                            </Button>
-                        </>
-                    ) : (
-                        <Button
-                            size="compact-xs"
-                            variant="subtle"
-                            color="gray"
-                            onClick={() => handlePreview(doc)}
-                            leftSection={<IconEye size={12} />}
-                        >
-                            확인
-                        </Button>
-                    )}
+                    <Button
+                        size="compact-xs"
+                        variant="subtle"
+                        color="gray"
+                        onClick={() => handlePreview(doc)}
+                        leftSection={<IconEye size={12} />}
+                    >
+                        열기
+                    </Button>
+                    <StatusToggle
+                        value={doc.status === 'approved' ? 'approved' : 'pending'}
+                        onChange={(val) => {
+                            if (val === 'approved') {
+                                handleApprove(doc);
+                            } else {
+                                handleRejectInit(doc); // Revert to meaningful state? Or just init reject?
+                                // Toggle 'Pending' usually implies Reject or Reset.
+                                // User flow: Click 'Approved' -> Approved.
+                                // Click 'Pending' (from Approved) -> Maybe Reset to pending?
+                                // BUT logic says "If approved, modify impossible".
+                                // So this onChange shouldn't even trigger if readOnly.
+                                // But if it's NOT readOnly (e.g. pending/rejected), we can toggle.
+                                // If I click 'Pending' while it is 'In Progress'?
+                                // Actually 'Reject' needs a reason.
+                                // So clicking 'Pending' side might trigger Reject Modal?
+                                // Let's assume clicking 'Pending' triggers Reject flow.
+                            }
+                        }}
+                        labelPending="미승인"
+                        labelApproved="승인"
+                        readOnly={doc.status === 'approved'}
+                    />
                 </Group>
             </Table.Td>
         </Table.Tr>
@@ -317,7 +360,7 @@ export default function DocumentsPage() {
                 </Tabs.List>
             </Tabs>
 
-            <Paper shadow="sm" radius="lg" withBorder overflow="hidden" pos="relative" bg="white">
+            <Paper shadow="sm" radius="lg" withBorder style={{ overflow: 'hidden' }} pos="relative" bg="white">
                 <LoadingOverlay visible={isLoading} overlayProps={{ blur: 2 }} zIndex={10} loaderProps={{ color: 'orange' }} />
                 <ScrollArea h="calc(100vh - 280px)" type="auto">
                     <Table verticalSpacing="md" highlightOnHover stickyHeader>
