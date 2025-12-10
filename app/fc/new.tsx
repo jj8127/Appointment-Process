@@ -8,12 +8,11 @@ import {
   Alert,
   Modal,
   Pressable,
-  RefreshControl,
   ReturnKeyTypeOptions,
   StyleSheet,
   Text,
   TextInput,
-  View,
+  View
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { z } from 'zod';
@@ -47,14 +46,14 @@ const schema = z.object({
 type FormValues = z.infer<typeof schema>;
 
 const AFFILIATION_OPTIONS = [
-  '1지점 [본부장: 서선미]',
-  '2지점 [본부장: 박성훈]',
-  '3지점 [본부장: 현경숙]',
-  '4지점 [본부장: 최철준]',
-  '5지점 [본부장: 박선희]',
-  '6지점 [본부장: 김태희]',
-  '7지점 [본부장: 김동훈]',
-  '8지점 [본부장: 정승철]',
+  '1본부 [본부장: 서선미]',
+  '2본부 [본부장: 박성훈]',
+  '3본부 [본부장: 현경숙]',
+  '4본부 [본부장: 최철준]',
+  '5본부 [본부장: 박선희]',
+  '6본부 [본부장: 김태희]',
+  '7본부 [본부장: 김동훈]',
+  '8본부 [본부장: 정승철]',
 ];
 
 const EMAIL_DOMAINS = [
@@ -121,6 +120,8 @@ export default function FcNewScreen() {
   const emailLocalRef = useRef<TextInput>(null);
   const customDomainRef = useRef<TextInput>(null);
   const addressDetailRef = useRef<TextInput>(null);
+  const nameRef = useRef<TextInput>(null); // Added
+  const addressRef = useRef<TextInput>(null); // Added
 
   const { control, handleSubmit, setValue, formState, watch } = useForm<FormValues>({
     resolver: zodResolver(schema),
@@ -260,6 +261,33 @@ export default function FcNewScreen() {
     ]);
   };
 
+  const onError = (errors: any) => {
+    const missing = Object.keys(errors);
+    if (missing.length > 0) {
+      const first = missing[0];
+      Alert.alert('입력 확인', '입력하지 않은 정보가 있습니다. 확인해주세요.');
+
+      // Focus the first error field
+      if (first === 'affiliation') {
+        // Affiliation is at the top, scroll to top? 
+        // Or if we had a ref for the scroll view... but focus() mostly works for inputs.
+        // Since affiliation is buttons, we can't focus it. But usually it's at top.
+      } else if (first === 'name') {
+        nameRef.current?.focus();
+      } else if (first === 'phone') {
+        phoneRef.current?.focus();
+      } else if (first === 'residentFront') {
+        residentFrontRef.current?.focus();
+      } else if (first === 'residentBack') {
+        residentBackRef.current?.focus();
+      } else if (first === 'email') {
+        emailLocalRef.current?.focus();
+      } else if (first === 'address') {
+        addressRef.current?.focus();
+      }
+    }
+  };
+
   // Pull-to-refresh: 기존 loadExisting을 재호출
   const onRefresh = useCallback(async () => {
     setRefreshing(true);
@@ -274,9 +302,8 @@ export default function FcNewScreen() {
     <SafeAreaView style={styles.safe} edges={['left', 'right', 'bottom']}>
       <KeyboardAwareWrapper
         contentContainerStyle={[styles.container, { paddingBottom: 120 }]}
-        extraScrollHeight={140}
-        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}>
-        <RefreshButton />
+        extraScrollHeight={140}>
+        <RefreshButton onPress={onRefresh} />
 
         <View style={styles.hero}>
           <Text style={styles.heroEyebrow}>정보 확인</Text>
@@ -312,10 +339,12 @@ export default function FcNewScreen() {
             label="이름"
             placeholder="홍길동"
             name="name"
+            inputRef={nameRef} // Passed ref
             errors={formState.errors}
             returnKeyType="next"
             onSubmitEditing={() => phoneRef.current?.focus()}
             blurOnSubmit={false}
+            scrollEnabled={false} // Added
           />
         </View>
 
@@ -331,6 +360,7 @@ export default function FcNewScreen() {
             returnKeyType="next"
             onSubmitEditing={() => residentFrontRef.current?.focus()}
             blurOnSubmit={false}
+            scrollEnabled={false} // Added
           />
           <View style={styles.field}>
             <View style={styles.fieldLabelRow}>
@@ -362,6 +392,7 @@ export default function FcNewScreen() {
                     returnKeyType="next"
                     onSubmitEditing={() => residentBackRef.current?.focus()}
                     blurOnSubmit={false}
+                    scrollEnabled={false} // Added
                   />
                 )}
               />
@@ -386,6 +417,7 @@ export default function FcNewScreen() {
                     returnKeyType="next"
                     onSubmitEditing={() => recommenderRef.current?.focus()}
                     blurOnSubmit={false}
+                    scrollEnabled={false} // Added
                   />
                 )}
               />
@@ -401,6 +433,7 @@ export default function FcNewScreen() {
             returnKeyType="next"
             onSubmitEditing={() => emailLocalRef.current?.focus()}
             blurOnSubmit={false}
+            scrollEnabled={false} // Added
           />
           <View style={styles.field}>
             <View style={styles.fieldLabelRow}>
@@ -418,6 +451,7 @@ export default function FcNewScreen() {
                 autoCapitalize="none"
                 keyboardType="email-address"
                 returnKeyType="done"
+                scrollEnabled={false} // Added
               />
               <Text style={styles.emailAt}>@</Text>
 
@@ -456,6 +490,7 @@ export default function FcNewScreen() {
                     returnKeyType="next"
                     onSubmitEditing={() => addressDetailRef.current?.focus()}
                     blurOnSubmit={false}
+                    scrollEnabled={false} // Added
                   />
                 ) : null}
               </View>
@@ -474,12 +509,14 @@ export default function FcNewScreen() {
                 name="address"
                 render={({ field: { onChange, value } }) => (
                   <TextInput
+                    ref={addressRef} // Passed ref
                     style={[styles.input, styles.inputMultiline]}
                     placeholder="도로명 또는 지번 주소"
                     placeholderTextColor={PLACEHOLDER}
                     value={value}
                     onChangeText={onChange}
                     multiline
+                    scrollEnabled={false} // Allow parent scroll
                   />
                 )}
               />
@@ -495,7 +532,8 @@ export default function FcNewScreen() {
                     value={value}
                     onChangeText={onChange}
                     returnKeyType="done"
-                    onSubmitEditing={handleSubmit(onSubmit)}
+                    onSubmitEditing={handleSubmit(onSubmit, onError)}
+                    scrollEnabled={false} // Added
                   />
                 )}
               />
@@ -505,7 +543,7 @@ export default function FcNewScreen() {
 
         <Pressable
           style={[styles.primaryButton, submitting && styles.primaryButtonDisabled]}
-          onPress={handleSubmit(onSubmit)}
+          onPress={handleSubmit(onSubmit, onError)}
           disabled={submitting}>
           <Text style={styles.primaryButtonText}>{submitting ? '저장 중...' : '저장하기'}</Text>
         </Pressable>
@@ -548,6 +586,7 @@ type FormFieldProps = {
   returnKeyType?: ReturnKeyTypeOptions;
   onSubmitEditing?: () => void;
   blurOnSubmit?: boolean;
+  scrollEnabled?: boolean; // Added
 };
 
 const FormField = ({
@@ -561,6 +600,7 @@ const FormField = ({
   returnKeyType,
   onSubmitEditing,
   blurOnSubmit,
+  scrollEnabled, // Added
 }: FormFieldProps) => (
   <View style={styles.field}>
     <View style={styles.fieldLabelRow}>
@@ -579,6 +619,7 @@ const FormField = ({
           value={value}
           onChangeText={onChange}
           multiline={multiline}
+          scrollEnabled={scrollEnabled} // Passed
           returnKeyType={returnKeyType}
           onSubmitEditing={onSubmitEditing}
           blurOnSubmit={blurOnSubmit}
@@ -655,6 +696,7 @@ const styles = StyleSheet.create({
   searchButtonText: { color: ORANGE, fontWeight: '700', fontSize: 16 }, // default -> 16
   primaryButton: {
     marginTop: 8,
+    marginBottom: 40,
     backgroundColor: ORANGE,
     paddingVertical: 18, // 16 -> 18
     borderRadius: 14,
