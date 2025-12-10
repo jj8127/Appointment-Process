@@ -724,8 +724,8 @@ const styles = StyleSheet.create({
   container: { padding: 20 },
   center: { flex: 1, alignItems: 'center', justifyContent: 'center' },
   header: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 24 },
-  headerTitle: { fontSize: 24, fontWeight: '800', color: CHARCOAL, marginBottom: 4 },
-  headerSub: { fontSize: 14, color: MUTED },
+  headerTitle: { fontSize: 28, fontWeight: '800', color: CHARCOAL, marginBottom: 4 }, // 24 -> 28
+  headerSub: { fontSize: 16, color: MUTED }, // 14 -> 16
   statusCard: {
     backgroundColor: '#fff',
     borderRadius: 16,
@@ -736,25 +736,25 @@ const styles = StyleSheet.create({
     borderLeftColor: HANWHA_ORANGE,
   },
   statusHeader: { flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 12 },
-  statusTitle: { fontSize: 14, fontWeight: '700', color: CHARCOAL },
+  statusTitle: { fontSize: 16, fontWeight: '700', color: CHARCOAL }, // 14 -> 16
   statusContent: { gap: 8 },
   statusRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
-  statusLabel: { fontSize: 13, color: MUTED },
-  statusValue: { fontSize: 14, fontWeight: '600', color: CHARCOAL },
+  statusLabel: { fontSize: 15, color: MUTED }, // 13 -> 15
+  statusValue: { fontSize: 16, fontWeight: '600', color: CHARCOAL }, // 14 -> 16
   statusDivider: { height: 1, backgroundColor: '#f3f4f6', marginVertical: 4 },
   statusBadge: { paddingHorizontal: 8, paddingVertical: 2, borderRadius: 4, borderWidth: 1 },
-  statusBadgeText: { fontSize: 12, fontWeight: '700' },
+  statusBadgeText: { fontSize: 13, fontWeight: '700' }, // 12 -> 13
   badgeConfirmed: { backgroundColor: '#ECFDF5', borderColor: '#A7F3D0' },
   badgePending: { backgroundColor: '#FFF7ED', borderColor: '#FED7AA' },
   textConfirmed: { color: '#059669' },
   textPending: { color: '#b45309' },
   section: { marginBottom: 32 },
-  sectionHeader: { fontSize: 17, fontWeight: '800', color: CHARCOAL, marginBottom: 12 },
+  sectionHeader: { fontSize: 20, fontWeight: '800', color: CHARCOAL, marginBottom: 12 }, // 17 -> 20
   listContainer: { gap: 10 },
   selectionCard: {
     backgroundColor: '#fff',
     borderRadius: 14,
-    padding: 16,
+    padding: 18, // 16 -> 18
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
@@ -765,33 +765,33 @@ const styles = StyleSheet.create({
   selectionCardActive: { borderColor: HANWHA_ORANGE, backgroundColor: '#fffbf7' },
   selectionCardDisabled: { backgroundColor: '#f3f4f6', opacity: 0.7 },
   selectionInfo: { flex: 1 },
-  selectionTitle: { fontSize: 16, fontWeight: '700', color: CHARCOAL, marginBottom: 2 },
-  selectionSub: { fontSize: 12, color: MUTED },
-  selectionNote: { fontSize: 12, color: HANWHA_ORANGE, marginTop: 2 },
+  selectionTitle: { fontSize: 18, fontWeight: '700', color: CHARCOAL, marginBottom: 4 }, // 16 -> 18
+  selectionSub: { fontSize: 14, color: MUTED }, // 12 -> 14
+  selectionNote: { fontSize: 14, color: HANWHA_ORANGE, marginTop: 4 }, // 12 -> 14
   textActive: { color: HANWHA_ORANGE },
   textDisabled: { color: '#9ca3af' },
-  radioCircle: { width: 20, height: 20, borderRadius: 10, borderWidth: 2, borderColor: '#d1d5db' },
-  checkCircle: { width: 20, height: 20, borderRadius: 10, backgroundColor: HANWHA_ORANGE, alignItems: 'center', justifyContent: 'center' },
+  radioCircle: { width: 24, height: 24, borderRadius: 12, borderWidth: 2, borderColor: '#d1d5db' }, // 20 -> 24
+  checkCircle: { width: 24, height: 24, borderRadius: 12, backgroundColor: HANWHA_ORANGE, alignItems: 'center', justifyContent: 'center' }, // 20 -> 24
   placeholderBox: { padding: 20, alignItems: 'center', backgroundColor: 'rgba(0,0,0,0.02)', borderRadius: 12 },
-  placeholderText: { color: MUTED, fontSize: 13 },
+  placeholderText: { color: MUTED, fontSize: 15 }, // 13 -> 15
   gridContainer: { flexDirection: 'row', flexWrap: 'wrap', gap: 10 },
   locationCard: {
     backgroundColor: '#fff',
     borderRadius: 12,
-    paddingVertical: 14,
+    paddingVertical: 16, // 14 -> 16
     paddingHorizontal: 10,
     alignItems: 'center',
     justifyContent: 'center',
     borderWidth: 1,
     borderColor: BORDER,
-    minHeight: 60,
+    minHeight: 64, // 60 -> 64
   },
   locationCardActive: { borderColor: HANWHA_ORANGE, backgroundColor: ORANGE_FAINT },
-  locationText: { fontWeight: '600', color: CHARCOAL, textAlign: 'center', fontSize: 13 },
+  locationText: { fontWeight: '600', color: CHARCOAL, textAlign: 'center', fontSize: 15 }, // 13 -> 15
   locationTextActive: { color: HANWHA_ORANGE, fontWeight: '800' },
   toggleCard: {
     backgroundColor: '#fff',
-    padding: 16,
+    padding: 18, // 16 -> 18
     borderRadius: 14,
     borderWidth: 1,
     borderColor: BORDER,
@@ -800,15 +800,15 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   toggleCardActive: { borderColor: HANWHA_ORANGE, backgroundColor: ORANGE_FAINT },
-  toggleTitle: { fontSize: 15, fontWeight: '700', color: CHARCOAL },
-  toggleDesc: { fontSize: 12, color: MUTED, marginTop: 2 },
+  toggleTitle: { fontSize: 17, fontWeight: '700', color: CHARCOAL }, // 15 -> 17
+  toggleDesc: { fontSize: 14, color: MUTED, marginTop: 4 }, // 12 -> 14
   actionButtons: { gap: 12 },
   submitBtnWrapper: { borderRadius: 14, overflow: 'hidden', ...CARD_SHADOW },
-  submitBtn: { paddingVertical: 16, alignItems: 'center', justifyContent: 'center', flexDirection: 'row' },
-  submitBtnText: { color: '#fff', fontSize: 16, fontWeight: '800' },
+  submitBtn: { paddingVertical: 18, alignItems: 'center', justifyContent: 'center', flexDirection: 'row' }, // 16 -> 18
+  submitBtnText: { color: '#fff', fontSize: 18, fontWeight: '800' }, // 16 -> 18
   cancelBtn: { paddingVertical: 14, alignItems: 'center' },
-  cancelBtnText: { color: '#ef4444', fontSize: 14, fontWeight: '600', textDecorationLine: 'underline' },
-  emptyText: { color: MUTED, fontSize: 13, textAlign: 'center', marginTop: 10 },
+  cancelBtnText: { color: '#ef4444', fontSize: 16, fontWeight: '600', textDecorationLine: 'underline' }, // 14 -> 16
+  emptyText: { color: MUTED, fontSize: 15, textAlign: 'center', marginTop: 10 }, // 13 -> 15
   pressedScale: { transform: [{ scale: 0.98 }] },
   pressedOpacity: { opacity: 0.7 },
   blockOverlay: {

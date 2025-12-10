@@ -16,6 +16,7 @@ import {
   NumberInput,
   Paper,
   ScrollArea,
+  SimpleGrid,
   Stack,
   Table,
   Tabs,
@@ -44,7 +45,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import dayjs from 'dayjs';
 import { useMemo, useState, useTransition } from 'react';
 
-import { DOC_OPTIONS, STATUS_LABELS, STEP_LABELS, calcStep } from '@/lib/shared';
+import { ADMIN_STEP_LABELS, calcStep, DOC_OPTIONS, getAdminStep, STATUS_LABELS } from '@/lib/shared';
 import { supabase } from '@/lib/supabase';
 import { notifications } from '@mantine/notifications';
 import { useRouter } from 'next/navigation';
@@ -90,10 +91,20 @@ export default function DashboardPage() {
 
   const filteredData = useMemo(() => {
     if (!fcs) return [];
-    let result = fcs.map((fc: any) => ({ ...fc, step: calcStep(fc) }));
+    let result = fcs.map((fc: any) => {
+      const rawStep = calcStep(fc);
+      // Map raw 1-5 to Admin 1-4
+      // Raw 1 (Info), 2 (Allowance) -> Admin 1 (Allowance)
+      // Raw 3 (Docs) -> Admin 2
+      // Raw 4 (Appt) -> Admin 3
+      // Raw 5 (Done) -> Admin 4
+      const adminStep = rawStep <= 2 ? 1 : rawStep - 1;
+      return { ...fc, step: rawStep, adminStep };
+    });
+
     if (activeTab && activeTab !== 'all') {
       const stepNum = Number(activeTab.replace('step', ''));
-      result = result.filter((fc) => fc.step === stepNum);
+      result = result.filter((fc) => fc.adminStep === stepNum);
     }
     if (keyword.trim()) {
       const q = keyword.trim().toLowerCase();
@@ -380,7 +391,7 @@ export default function DashboardPage() {
   };
 
   /* Table Rows */
-  const rows = filteredData.map((fc) => (
+  const rows = filteredData.map((fc: any) => (
     <Table.Tr
       key={fc.id}
       style={{ cursor: 'pointer' }}
@@ -409,8 +420,9 @@ export default function DashboardPage() {
         </Badge>
       </Table.Td>
       <Table.Td>
+        {/* Updated Badge to use getAdminStep */}
         <Badge variant="dot" size="md" color={fc.step === 5 ? 'green' : 'orange'} radius="xl">
-          Step {fc.step}
+          {getAdminStep(fc)}
         </Badge>
       </Table.Td>
       <Table.Td>
@@ -458,41 +470,81 @@ export default function DashboardPage() {
         </Group>
 
         {/* Metrics Cards */}
-        <Group grow>
-          <Paper p="md" radius="md" withBorder shadow="sm" bg="white">
-            <Group justify="space-between">
-              <div>
-                <Text size="xs" c="dimmed" fw={700} tt="uppercase">총 인원</Text>
-                <Text fw={700} size="xl" mt={4}>{metrics.total}명</Text>
-              </div>
-              <ThemeIcon size="lg" radius="md" variant="light" color="blue">
-                <IconUser size={20} />
+        <SimpleGrid cols={{ base: 1, sm: 3 }} spacing="md">
+          <Card padding="lg" radius="md" withBorder shadow="sm" bg="white">
+            <Group justify="space-between" mb="xs">
+              <Text c="dimmed" tt="uppercase" fw={700} size="xs" ls={0.5}>총 인원</Text>
+              <ThemeIcon variant="light" color="blue" radius="md" size="lg">
+                <IconUser size={22} stroke={1.5} />
               </ThemeIcon>
             </Group>
-          </Paper>
-          <Paper p="md" radius="md" withBorder shadow="sm" bg="white">
-            <Group justify="space-between">
-              <div>
-                <Text size="xs" c="dimmed" fw={700} tt="uppercase">수당동의 대기</Text>
-                <Text fw={700} size="xl" mt={4}>{metrics.pendingAllowance}건</Text>
-              </div>
-              <ThemeIcon size="lg" radius="md" variant="light" color="orange">
-                <IconCheck size={20} />
+            <Group align="flex-end" gap="xs">
+              <Text fw={800} size="2.5rem" lh={1}>{metrics.total}</Text>
+              <Text c="dimmed" size="sm" mb={6}>명</Text>
+            </Group>
+            <Text c="green" size="xs" fw={700} mt="md">
+              활성 FC 현황
+            </Text>
+          </Card>
+
+          <Card padding="lg" radius="md" withBorder shadow="sm" bg="white">
+            <Group justify="space-between" mb="xs">
+              <Text c="dimmed" tt="uppercase" fw={700} size="xs" ls={0.5}>수당동의 대기</Text>
+              <ThemeIcon variant="light" color="orange" radius="md" size="lg">
+                <IconCheck size={22} stroke={1.5} />
               </ThemeIcon>
             </Group>
-          </Paper>
-          <Paper p="md" radius="md" withBorder shadow="sm" bg="white">
-            <Group justify="space-between">
-              <div>
-                <Text size="xs" c="dimmed" fw={700} tt="uppercase">서류검토 대기</Text>
-                <Text fw={700} size="xl" mt={4}>{metrics.pendingDocs}건</Text>
-              </div>
-              <ThemeIcon size="lg" radius="md" variant="light" color="indigo">
-                <IconFileText size={20} />
+            <Group align="flex-end" gap="xs">
+              <Text fw={800} size="2.5rem" lh={1}>{metrics.pendingAllowance}</Text>
+              <Text c="dimmed" size="sm" mb={6}>건</Text>
+            </Group>
+            <Text c="orange" size="xs" fw={700} mt="md">
+              승인 필요
+            </Text>
+          </Card>
+
+          <Card padding="lg" radius="md" withBorder shadow="sm" bg="white">
+            <Group justify="space-between" mb="xs">
+              <Text c="dimmed" tt="uppercase" fw={700} size="xs" ls={0.5}>서류검토 대기</Text>
+              <ThemeIcon variant="light" color="indigo" radius="md" size="lg">
+                <IconFileText size={22} stroke={1.5} />
               </ThemeIcon>
             </Group>
-          </Paper>
-        </Group>
+            <Group align="flex-end" gap="xs">
+              <Text fw={800} size="2.5rem" lh={1}>{metrics.pendingDocs}</Text>
+              <Text c="dimmed" size="sm" mb={6}>건</Text>
+            </Group>
+            <Text c="indigo" size="xs" fw={700} mt="md">
+              검토 필요
+            </Text>
+          </Card>
+        </SimpleGrid>
+
+        {/* Quick Actions */}
+        <Paper p="md" radius="md" withBorder bg="gray.0">
+          <Group justify="space-between">
+            <Group>
+              <ThemeIcon variant="white" size="lg" radius="md" color="dark">
+                <IconSend size={20} />
+              </ThemeIcon>
+              <div>
+                <Text size="sm" fw={700}>빠른 작업</Text>
+                <Text size="xs" c="dimmed">자주 사용하는 기능을 바로 실행하세요.</Text>
+              </div>
+            </Group>
+            <Group gap="xs">
+              <Button variant="white" color="dark" size="xs" leftSection={<IconUser size={14} />} onClick={() => router.push('/dashboard/exam/applicants')}>
+                시험 신청자 관리
+              </Button>
+              <Button variant="white" color="dark" size="xs" leftSection={<IconCalendar size={14} />} onClick={() => router.push('/dashboard/exam/schedule')}>
+                시험 일정 등록
+              </Button>
+              <Button variant="filled" color="dark" size="xs" leftSection={<IconSend size={14} />} onClick={() => router.push('/dashboard/notifications/create')}>
+                새 공지 작성
+              </Button>
+            </Group>
+          </Group>
+        </Paper>
 
         {/* Main Content Area */}
         <Paper shadow="sm" radius="lg" withBorder p="md" bg="white">
@@ -506,7 +558,8 @@ export default function DashboardPage() {
             >
               <Tabs.List bg="gray.1" p={4} style={{ borderRadius: 24 }}>
                 <Tabs.Tab value="all" fw={600} px={16}>전체</Tabs.Tab>
-                {Object.entries(STEP_LABELS).map(([key, label]) => (
+                {/* Updated to use ADMIN_STEP_LABELS */}
+                {Object.entries(ADMIN_STEP_LABELS).map(([key, label]) => (
                   <Tabs.Tab key={key} value={key} fw={600} px={16}>{label}</Tabs.Tab>
                 ))}
               </Tabs.List>
@@ -800,10 +853,12 @@ export default function DashboardPage() {
                       color="red"
                       leftSection={<IconTrash size={16} />}
                       onClick={() => {
-                        if (confirm('삭제하시겠습니까?')) deleteFcMutation.mutate();
+                        if (confirm('정말로 FC를 삭제하시겠습니까? 관련 서류도 모두 삭제됩니다.')) {
+                          deleteFcMutation.mutate();
+                        }
                       }}
                     >
-                      삭제
+                      FC 삭제
                     </Button>
                   </Group>
                 </Stack>

@@ -22,6 +22,13 @@ export const STEP_LABELS: Record<string, string> = {
   step5: '5단계 완료',
 };
 
+export const ADMIN_STEP_LABELS: Record<string, string> = {
+  step1: '1단계 수당동의',
+  step2: '2단계 문서제출',
+  step3: '3단계 위촉 진행',
+  step4: '4단계 완료',
+};
+
 export const DOC_OPTIONS: string[] = [
   '생명보험 합격증',
   '제3보험 합격증',
@@ -60,4 +67,13 @@ export const calcStep = (profile: FcProfile) => {
   if (!appointmentDone) return 4;
 
   return 5;
+};
+
+export const getAdminStep = (profile: FcProfile) => {
+  const rawStep = calcStep(profile);
+  // FC Step 1 (Info) and Step 2 (Allowance) -> Admin Step 1 (Allowance)
+  if (rawStep <= 2) return '1단계 수당동의';
+  if (rawStep === 3) return '2단계 문서제출';
+  if (rawStep === 4) return '3단계 위촉 진행';
+  return '4단계 완료';
 };

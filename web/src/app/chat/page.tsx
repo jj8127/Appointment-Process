@@ -163,30 +163,32 @@ export default function ChatPage() {
       const residentIdForPush = isReceiverAdmin ? null : otherId;
       const notiBody = content;
 
-      await supabase
-        .from('notifications')
-        .insert({
-          title: '새 메시지',
-          body: notiBody,
-          category: 'message',
-          recipient_role: recipientRole,
-          resident_id: residentIdForPush,
-        })
-        .then(async () => {
-          try {
-            await supabase.functions.invoke('fc-notify', {
-              body: {
-                type: 'message',
-                target_role: recipientRole,
-                target_id: residentIdForPush,
-                message: notiBody,
-                sender_id: myId,
-              },
-            });
-          } catch (err) {
-            console.warn('[notify] failed', err);
-          }
+      const { error: notifErr } = await supabase.from('notifications').insert({
+        title: '새 메시지',
+        body: notiBody,
+        category: 'message',
+        recipient_role: recipientRole,
+        resident_id: residentIdForPush,
+      });
+      if (notifErr) console.warn('[notify] insert failed', notifErr.message);
+
+      try {
+        const resp = await fetch('/api/fc-notify', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            type: 'message',
+            target_role: recipientRole,
+            target_id: residentIdForPush,
+            message: notiBody,
+            sender_id: myId,
+          }),
         });
+        const data = await resp.json().catch(() => null);
+        console.log('[notify] fc-notify proxy response', { status: resp.status, ok: resp.ok, data });
+      } catch (err) {
+        console.warn('[notify] fc-notify proxy error', err);
+      }
     } catch (err: any) {
       notifications.show({ title: '전송 실패', message: err.message ?? '메시지 전송 중 오류', color: 'red' });
     } finally {

@@ -3,23 +3,24 @@
 import {
   ActionIcon,
   Badge,
-  Box,
   Button,
   Container,
   Group,
   LoadingOverlay,
   NumberInput,
   Paper,
+  ScrollArea,
+  Select,
   Stack,
   Table,
   Text,
   ThemeIcon,
   Title,
-  Tooltip,
+  Tooltip
 } from '@mantine/core';
 import { DateInput } from '@mantine/dates';
 import { notifications } from '@mantine/notifications';
-import { IconCalendar, IconDeviceFloppy, IconUser, IconX } from '@tabler/icons-react';
+import { IconDeviceFloppy, IconRefresh, IconUser, IconX } from '@tabler/icons-react';
 import { useQuery } from '@tanstack/react-query';
 import dayjs from 'dayjs';
 import { useState, useTransition } from 'react';
@@ -27,8 +28,13 @@ import { useState, useTransition } from 'react';
 import { supabase } from '@/lib/supabase';
 import { updateAppointmentAction } from './actions';
 
+const CHARCOAL = '#111827';
+const MUTED = '#6b7280';
+
 export default function AppointmentPage() {
   const [isPending, startTransition] = useTransition();
+  const [filterYear, setFilterYear] = useState<string | null>('2025');
+  const [filterMonth, setFilterMonth] = useState<string | null>('all');
 
   // Local state for inputs
   // lifeSchedule: number (month), lifeDate: Date | null
@@ -195,78 +201,123 @@ export default function AppointmentPage() {
 
   return (
     <Container size="xl" py="xl">
-      <Paper p="lg" radius="md" withBorder>
-        <Group mb="lg" justify="space-between">
+      <Stack gap="lg">
+        <Group justify="space-between" align="flex-end">
+          <div>
+            <Title order={2} c={CHARCOAL}>위촉 심사 및 확정</Title>
+            <Text c={MUTED} size="sm" mt={4}>수당 동의가 완료된 FC의 위촉 일정을 관리하고 최종 승인합니다.</Text>
+          </div>
           <Group>
-            <ThemeIcon size="lg" radius="md" color="orange" variant="light">
-              <IconCalendar size={20} />
-            </ThemeIcon>
-            <div>
-              <Title order={3}>위촉 심사 및 확정</Title>
-              <Text size="sm" c="dimmed">수당 동의가 완료된 FC의 위촉 일정을 관리하고 최종 승인합니다.</Text>
-            </div>
+            <Select
+              value={filterYear}
+              onChange={setFilterYear}
+              data={['2025', '2024']}
+              w={100}
+              allowDeselect={false}
+            />
+            <Select
+              value={filterMonth}
+              onChange={setFilterMonth}
+              data={[
+                { value: 'all', label: '전체 월' },
+                ...Array.from({ length: 12 }, (_, i) => ({ value: String(i + 1), label: `${i + 1}월` }))
+              ]}
+              w={120}
+              allowDeselect={false}
+            />
+            <Button variant="outline" color="gray" leftSection={<IconRefresh size={16} />} onClick={() => refetch()}>
+              새로고침
+            </Button>
           </Group>
-          <Button variant="outline" color="gray" size="xs" onClick={() => refetch()}>
-            새로고침
-          </Button>
         </Group>
 
-        <Box pos="relative">
-          <LoadingOverlay visible={isLoading} />
-          <Table stickyHeader verticalSpacing="sm">
-            <Table.Thead bg="gray.0">
-              <Table.Tr>
-                <Table.Th w={200}>FC 정보</Table.Th>
-                <Table.Th w={250}>생명보험 위촉 (Life)</Table.Th>
-                <Table.Th w={250}>손해보험 위촉 (Non-Life)</Table.Th>
-                <Table.Th w={100}>상태</Table.Th>
-              </Table.Tr>
-            </Table.Thead>
-            <Table.Tbody>
-              {fcs?.map((fc: any) => {
-                const status = getOverallStatus(fc);
-                return (
-                  <Table.Tr key={fc.id}>
-                    <Table.Td>
-                      <Group gap="sm">
-                        <ThemeIcon variant="light" color="gray" size="md" radius="xl">
-                          <IconUser size={16} />
-                        </ThemeIcon>
-                        <div>
-                          <Text size="sm" fw={600} c="dark.5">
-                            {fc.name}
-                          </Text>
-                          <Text size="xs" c="dimmed">
-                            {fc.phone}<br />{fc.affiliation || '-'}
-                          </Text>
-                        </div>
-                      </Group>
-                    </Table.Td>
-                    <Table.Td>
-                      {renderInsuranceSection(fc, 'life')}
-                    </Table.Td>
-                    <Table.Td>
-                      {renderInsuranceSection(fc, 'nonlife')}
-                    </Table.Td>
-                    <Table.Td>
-                      <Badge color={status.color} variant="light">
-                        {status.label}
-                      </Badge>
+        <Paper p="md" radius="lg" withBorder shadow="sm" bg="white" overflow="hidden">
+          <LoadingOverlay visible={isLoading} overlayProps={{ blur: 1 }} />
+          <ScrollArea h="calc(100vh - 250px)" type="auto">
+            <Table stickyHeader verticalSpacing="md" highlightOnHover>
+              <Table.Thead bg="#F9FAFB">
+                <Table.Tr>
+                  <Table.Th w={220}>FC 정보</Table.Th>
+                  <Table.Th w={260}>생명보험 위촉 (Life)</Table.Th>
+                  <Table.Th w={260}>손해보험 위촉 (Non-Life)</Table.Th>
+                  <Table.Th w={100}>상태</Table.Th>
+                </Table.Tr>
+              </Table.Thead>
+              <Table.Tbody>
+                {fcs?.filter((fc: any) => {
+                  // Filter by Year (created_at)
+                  if (filterYear && !dayjs(fc.created_at).isSame(dayjs(`${filterYear}-01-01`), 'year')) return false;
+
+                  // Filter by Month (appointment_schedule)
+                  if (filterMonth && filterMonth !== 'all') {
+                    const m = Number(filterMonth);
+                    const life = Number(fc.appointment_schedule_life);
+                    const nonlife = Number(fc.appointment_schedule_nonlife);
+                    // Show if either schedule matches the selected month
+                    if (life !== m && nonlife !== m) return false;
+                  }
+                  return true;
+                }).map((fc: any) => {
+                  const status = getOverallStatus(fc);
+                  return (
+                    <Table.Tr key={fc.id}>
+                      <Table.Td>
+                        <Group gap="sm">
+                          <ThemeIcon variant="light" color="gray" size="md" radius="xl">
+                            <IconUser size={16} />
+                          </ThemeIcon>
+                          <div>
+                            <Text size="sm" fw={600} c="dark.5">
+                              {fc.name}
+                            </Text>
+                            <Text size="xs" c="dimmed">
+                              {fc.phone}<br />{fc.affiliation || '-'}
+                            </Text>
+                          </div>
+                        </Group>
+                      </Table.Td>
+                      <Table.Td>
+                        {renderInsuranceSection(fc, 'life')}
+                      </Table.Td>
+                      <Table.Td>
+                        {renderInsuranceSection(fc, 'nonlife')}
+                      </Table.Td>
+                      <Table.Td>
+                        <Badge color={status.color} variant="light">
+                          {status.label}
+                        </Badge>
+                      </Table.Td>
+                    </Table.Tr>
+                  );
+                })}
+                {fcs && fcs.length > 0 && fcs.filter((fc: any) => {
+                  if (filterYear && !dayjs(fc.created_at).isSame(dayjs(`${filterYear}-01-01`), 'year')) return false;
+                  if (filterMonth && filterMonth !== 'all') {
+                    const m = Number(filterMonth);
+                    const life = Number(fc.appointment_schedule_life);
+                    const nonlife = Number(fc.appointment_schedule_nonlife);
+                    if (life !== m && nonlife !== m) return false;
+                  }
+                  return true;
+                }).length === 0 && (
+                    <Table.Tr>
+                      <Table.Td colSpan={4} align="center" py={40} c="dimmed">
+                        조건에 맞는 FC가 없습니다.
+                      </Table.Td>
+                    </Table.Tr>
+                  )}
+                {!fcs?.length && (
+                  <Table.Tr>
+                    <Table.Td colSpan={4} align="center" py={40} c="dimmed">
+                      심사 대상 FC가 없습니다.
                     </Table.Td>
                   </Table.Tr>
-                );
-              })}
-              {!fcs?.length && (
-                <Table.Tr>
-                  <Table.Td colSpan={4} align="center" py={40} c="dimmed">
-                    심사 대상 FC가 없습니다.
-                  </Table.Td>
-                </Table.Tr>
-              )}
-            </Table.Tbody>
-          </Table>
-        </Box>
-      </Paper>
+                )}
+              </Table.Tbody>
+            </Table>
+          </ScrollArea>
+        </Paper>
+      </Stack>
     </Container>
   );
 }

@@ -8,6 +8,7 @@ import {
     Group,
     LoadingOverlay,
     Paper,
+    ScrollArea,
     Table,
     Text,
     TextInput,
@@ -157,30 +158,32 @@ export default function NotificationsPage() {
                 </Group>
             </Paper>
 
-            <Paper shadow="sm" radius="md" withBorder overflow="hidden" pos="relative">
+            <Paper shadow="sm" radius="md" withBorder pos="relative">
                 <LoadingOverlay visible={isLoading} overlayProps={{ blur: 2 }} />
-                <Table verticalSpacing="sm" highlightOnHover>
-                    <Table.Thead bg="gray.0">
-                        <Table.Tr>
-                            <Table.Th>작성일</Table.Th>
-                            <Table.Th>분류</Table.Th>
-                            <Table.Th>제목</Table.Th>
-                            <Table.Th>내용</Table.Th>
-                            <Table.Th style={{ textAlign: 'right' }}>관리</Table.Th>
-                        </Table.Tr>
-                    </Table.Thead>
-                    <Table.Tbody>
-                        {rows.length > 0 ? (
-                            rows
-                        ) : (
+                <ScrollArea>
+                    <Table verticalSpacing="sm" highlightOnHover>
+                        <Table.Thead bg="gray.0">
                             <Table.Tr>
-                                <Table.Td colSpan={5} align="center" py={40}>
-                                    <Text c="dimmed">등록된 공지사항이 없습니다.</Text>
-                                </Table.Td>
+                                <Table.Th>작성일</Table.Th>
+                                <Table.Th>분류</Table.Th>
+                                <Table.Th>제목</Table.Th>
+                                <Table.Th>내용</Table.Th>
+                                <Table.Th style={{ textAlign: 'right' }}>관리</Table.Th>
                             </Table.Tr>
-                        )}
-                    </Table.Tbody>
-                </Table>
+                        </Table.Thead>
+                        <Table.Tbody>
+                            {rows.length > 0 ? (
+                                rows
+                            ) : (
+                                <Table.Tr>
+                                    <Table.Td colSpan={5} align="center" py={40}>
+                                        <Text c="dimmed">등록된 공지사항이 없습니다.</Text>
+                                    </Table.Td>
+                                </Table.Tr>
+                            )}
+                        </Table.Tbody>
+                    </Table>
+                </ScrollArea>
             </Paper>
         </Container>
     );

@@ -62,15 +62,38 @@ const STEP_LABELS: Record<StepKey, string> = {
   step5: '5단계 완료',
 };
 
-const FILTER_OPTIONS = [
-  { key: 'all', label: '전체', predicate: (_: FcRowWithStep) => true },
-  ...STEP_KEYS.map((key) => ({
-    key,
-    label: STEP_LABELS[key],
-    predicate: (fc: FcRowWithStep) => fc.stepKey === key,
-  })),
-] as const;
-type FilterKey = (typeof FILTER_OPTIONS)[number]['key'];
+const ADMIN_STEP_LABELS: Record<string, string> = {
+  step2: '1단계 수당동의',
+  step3: '2단계 문서제출',
+  step4: '3단계 위촉 진행',
+  step5: '4단계 완료',
+};
+
+type FilterOption = { key: FilterKey; label: string; predicate: (fc: FcRowWithStep) => boolean };
+
+const createFilterOptions = (role: string | null): FilterOption[] => {
+  if (role === 'admin') {
+    const adminKeys = ['step2', 'step3', 'step4', 'step5'] as const;
+    return [
+      { key: 'all', label: '전체', predicate: (_: FcRowWithStep) => true },
+      ...adminKeys.map((key) => ({
+        key,
+        label: ADMIN_STEP_LABELS[key],
+        predicate: (fc: FcRowWithStep) => fc.stepKey === key,
+      })),
+    ];
+  }
+  return [
+    { key: 'all', label: '전체', predicate: (_: FcRowWithStep) => true },
+    ...STEP_KEYS.map((key) => ({
+      key,
+      label: STEP_LABELS[key],
+      predicate: (fc: FcRowWithStep) => fc.stepKey === key,
+    })),
+  ];
+};
+
+type FilterKey = 'all' | StepKey;
 
 const calcStep = (profile: FcRow) => {
   const hasBasicInfo =
@@ -224,6 +247,7 @@ export default function DashboardScreen() {
   const [expanded, setExpanded] = useState<Record<string, boolean>>({});
   const [refreshing, setRefreshing] = useState(false);
   const keyboardPadding = useKeyboardPadding();
+  const filterOptions = useMemo(() => createFilterOptions(role), [role]);
 
   const [reminderLoading, setReminderLoading] = useState<string | null>(null);
 
@@ -252,7 +276,7 @@ export default function DashboardScreen() {
 
   useEffect(() => {
     if (!status) return;
-    const found = FILTER_OPTIONS.find((option) => option.key === status);
+    const found = filterOptions.find((option) => option.key === status);
     if (found) {
       setStatusFilter(found.key);
     }
@@ -544,7 +568,7 @@ export default function DashboardScreen() {
   }, [data]);
 
   const rows = useMemo<FcRowWithStep[]>(() => {
-    const mainFilter = FILTER_OPTIONS.find((option) => option.key === statusFilter);
+    const mainFilter = filterOptions.find((option) => option.key === statusFilter);
     let filtered = processedRows;
     if (mainFilter) {
       filtered = filtered.filter(mainFilter.predicate);
@@ -556,15 +580,15 @@ export default function DashboardScreen() {
         filtered = filtered.filter((fc) => !!fc.temp_id);
       }
     }
-  if (statusFilter === 'step3') {
-    if (subFilter === 'not-requested') {
-      filtered = filtered.filter((fc) => fc.status === 'allowance-consented');
-    } else if (subFilter === 'requested') {
-      filtered = filtered.filter((fc) => fc.status === 'docs-requested');
+    if (statusFilter === 'step3') {
+      if (subFilter === 'not-requested') {
+        filtered = filtered.filter((fc) => fc.status === 'allowance-consented');
+      } else if (subFilter === 'requested') {
+        filtered = filtered.filter((fc) => fc.status === 'docs-requested');
+      }
     }
-  }
     return filtered;
-  }, [processedRows, statusFilter, subFilter]);
+  }, [processedRows, statusFilter, subFilter, filterOptions]);
 
   const openFile = async (path?: string) => {
     if (!path) {
@@ -786,20 +810,20 @@ export default function DashboardScreen() {
                   onPress={() =>
                     fc.appointment_date_life
                       ? Alert.alert('위촉 반려', '생명보험 위촉 날짜를 초기화할까요?', [
-                          { text: '취소', style: 'cancel' },
-                          {
-                            text: '반려',
-                            style: 'destructive',
-                            onPress: () =>
-                              updateAppointmentDate.mutate({
-                                id: fc.id,
-                                type: 'life',
-                                date: null,
-                                isReject: true,
-                                phone: fc.phone,
-                              }),
-                          },
-                        ])
+                        { text: '취소', style: 'cancel' },
+                        {
+                          text: '반려',
+                          style: 'destructive',
+                          onPress: () =>
+                            updateAppointmentDate.mutate({
+                              id: fc.id,
+                              type: 'life',
+                              date: null,
+                              isReject: true,
+                              phone: fc.phone,
+                            }),
+                        },
+                      ])
                       : undefined
                   }
                   disabled={updateAppointmentDate.isPending || !fc.appointment_date_life}
@@ -848,20 +872,20 @@ export default function DashboardScreen() {
                   onPress={() =>
                     fc.appointment_date_nonlife
                       ? Alert.alert('위촉 반려', '손해보험 위촉 날짜를 초기화할까요?', [
-                          { text: '취소', style: 'cancel' },
-                          {
-                            text: '반려',
-                            style: 'destructive',
-                            onPress: () =>
-                              updateAppointmentDate.mutate({
-                                id: fc.id,
-                                type: 'nonlife',
-                                date: null,
-                                isReject: true,
-                                phone: fc.phone,
-                              }),
-                          },
-                        ])
+                        { text: '취소', style: 'cancel' },
+                        {
+                          text: '반려',
+                          style: 'destructive',
+                          onPress: () =>
+                            updateAppointmentDate.mutate({
+                              id: fc.id,
+                              type: 'nonlife',
+                              date: null,
+                              isReject: true,
+                              phone: fc.phone,
+                            }),
+                        },
+                      ])
                       : undefined
                   }
                   disabled={updateAppointmentDate.isPending || !fc.appointment_date_nonlife}
@@ -1011,7 +1035,7 @@ export default function DashboardScreen() {
             showsHorizontalScrollIndicator={false}
             contentContainerStyle={styles.filterContainer}
           >
-            {FILTER_OPTIONS.map((option) => {
+            {filterOptions.map((option) => {
               const active = statusFilter === option.key;
               return (
                 <Pressable
@@ -1130,15 +1154,13 @@ export default function DashboardScreen() {
                     <DetailRow label="수당동의" value={allowanceDisplay} />
                     <DetailRow
                       label="생명 위촉"
-                      value={`${fc.appointment_schedule_life ?? '미정'}월 / 완료 ${
-                        fc.appointment_date_life ?? '미입력'
-                      }`}
+                      value={`${fc.appointment_schedule_life ?? '미정'}월 / 완료 ${fc.appointment_date_life ?? '미입력'
+                        }`}
                     />
                     <DetailRow
                       label="손해 위촉"
-                      value={`${fc.appointment_schedule_nonlife ?? '미정'}월 / 완료 ${
-                        fc.appointment_date_nonlife ?? '미입력'
-                      }`}
+                      value={`${fc.appointment_schedule_nonlife ?? '미정'}월 / 완료 ${fc.appointment_date_nonlife ?? '미입력'
+                        }`}
                     />
                     <DetailRow label="경력구분" value={careerDisplay} />
                     <DetailRow label="이메일" value={fc.email ?? '-'} />
@@ -1205,7 +1227,7 @@ export default function DashboardScreen() {
                               </Pressable>
                             );
                           })}
-                          
+
                           {Array.from(docSelections[fc.id] ?? [])
                             .filter(d => !docOptions.includes(d))
                             .map(doc => {
@@ -1252,14 +1274,14 @@ export default function DashboardScreen() {
 
                         <Pressable
                           style={[styles.saveButton, { alignSelf: 'flex-start', marginTop: 4 }]}
-                            onPress={() =>
-                              updateDocs.mutate({
-                                id: fc.id,
-                                types: Array.from(docSelections[fc.id] ?? new Set<string>()),
-                                phone: fc.phone,
-                              })
-                            }
-                          >
+                          onPress={() =>
+                            updateDocs.mutate({
+                              id: fc.id,
+                              types: Array.from(docSelections[fc.id] ?? new Set<string>()),
+                              phone: fc.phone,
+                            })
+                          }
+                        >
                           <Text style={styles.saveButtonText}>서류 요청 저장</Text>
                         </Pressable>
 

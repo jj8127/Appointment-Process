@@ -11,6 +11,7 @@ import {
     Modal,
     Paper,
     ScrollArea,
+    SegmentedControl,
     Stack,
     Table,
     TagsInput,
@@ -25,8 +26,8 @@ import { notifications } from '@mantine/notifications';
 import {
     IconCalendar,
     IconEdit,
-    IconTrash,
-    IconPlus
+    IconPlus,
+    IconTrash
 } from '@tabler/icons-react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import dayjs from 'dayjs';
@@ -46,15 +47,17 @@ type ExamRound = {
     exam_date: string;
     registration_deadline: string;
     round_label: string;
+    exam_type?: 'life' | 'nonlife' | string;
     notes?: string;
     locations: { id: string; location_name: string }[];
 };
 
 // --- Schema ---
 const roundSchema = z.object({
-    exam_date: z.date({ required_error: '시험일을 선택해주세요' }),
-    registration_deadline: z.date({ required_error: '마감일을 선택해주세요' }),
+    exam_date: z.date(),
+    registration_deadline: z.date(),
     round_label: z.string().min(1, '회차명을 입력해주세요'),
+    exam_type: z.enum(['life', 'nonlife']),
     notes: z.string().optional(),
     locations: z.array(z.string()).min(1, '최소 1개의 장소를 등록해주세요'),
 });
@@ -67,6 +70,7 @@ export default function ExamSchedulePage() {
     const [editingId, setEditingId] = useState<string | null>(null);
     const [deleteTarget, setDeleteTarget] = useState<{ id: string; label: string } | null>(null);
     const [deleteOpened, { open: openDelete, close: closeDelete }] = useDisclosure(false);
+    const [viewMode, setViewMode] = useState<'list' | 'calendar'>('list');
 
     // --- Form ---
     const form = useForm<RoundFormValues>({
@@ -75,6 +79,7 @@ export default function ExamSchedulePage() {
             exam_date: new Date(),
             registration_deadline: new Date(),
             round_label: '',
+            exam_type: 'life',
             notes: '',
             locations: ['서울', '부산', '대전', '광주', '대구'], // Defaults
         },
@@ -112,6 +117,7 @@ export default function ExamSchedulePage() {
                 exam_date: dayjs(exam_date).format('YYYY-MM-DD'),
                 registration_deadline: dayjs(registration_deadline).format('YYYY-MM-DD'),
                 round_label,
+                exam_type: values.exam_type,
                 notes,
             };
 
@@ -254,6 +260,7 @@ export default function ExamSchedulePage() {
             exam_date: new Date(round.exam_date),
             registration_deadline: new Date(round.registration_deadline),
             round_label: round.round_label,
+            exam_type: (round.exam_type as 'life' | 'nonlife') ?? 'life',
             notes: round.notes || '',
             locations: round.locations.map(l => l.location_name),
         });
@@ -323,35 +330,106 @@ export default function ExamSchedulePage() {
                     <Title order={2} c={CHARCOAL}>시험 일정 관리</Title>
                     <Text c={MUTED} size="sm">자격 시험 일정과 접수 가능한 장소를 관리합니다.</Text>
                 </div>
-                <Button leftSection={<IconPlus size={16} />} color="orange" onClick={handleOpenCreate}>
-                    일정 등록
-                </Button>
+                <Group>
+                    <SegmentedControl
+                        value={viewMode}
+                        onChange={(v) => setViewMode(v as 'list' | 'calendar')}
+                        data={[
+                            { label: '리스트', value: 'list' },
+                            { label: '캘린더', value: 'calendar' }
+                        ]}
+                    />
+                    <Button leftSection={<IconPlus size={16} />} color="orange" onClick={handleOpenCreate}>
+                        일정 등록
+                    </Button>
+                </Group>
             </Group>
 
-            <Paper shadow="sm" radius="lg" withBorder overflow="hidden">
-                <ScrollArea>
-                    <Table verticalSpacing="md" highlightOnHover>
-                        <Table.Thead bg="#F9FAFB">
-                            <Table.Tr>
-                                <Table.Th>시험일</Table.Th>
-                                <Table.Th>회차명</Table.Th>
-                                <Table.Th>접수 마감일</Table.Th>
-                                <Table.Th>고사장(장소)</Table.Th>
-                                <Table.Th>관리</Table.Th>
-                            </Table.Tr>
-                        </Table.Thead>
-                        <Table.Tbody>
-                            {isLoading ? (
-                                <Table.Tr><Table.Td colSpan={5} align="center" py={40}><LoadingOverlay visible /></Table.Td></Table.Tr>
-                            ) : rows && rows.length > 0 ? (
-                                rows
-                            ) : (
-                                <Table.Tr><Table.Td colSpan={5} align="center" py={60} c="dimmed">등록된 일정이 없습니다.</Table.Td></Table.Tr>
-                            )}
-                        </Table.Tbody>
-                    </Table>
-                </ScrollArea>
-            </Paper>
+            {viewMode === 'list' ? (
+                <Paper shadow="sm" radius="lg" withBorder overflow="hidden">
+                    <ScrollArea>
+                        <Table verticalSpacing="md" highlightOnHover>
+                            <Table.Thead bg="#F9FAFB">
+                                <Table.Tr>
+                                    <Table.Th>시험일</Table.Th>
+                                    <Table.Th>회차명</Table.Th>
+                                    <Table.Th>접수 마감일</Table.Th>
+                                    <Table.Th>고사장(장소)</Table.Th>
+                                    <Table.Th>관리</Table.Th>
+                                </Table.Tr>
+                            </Table.Thead>
+                            <Table.Tbody>
+                                {isLoading ? (
+                                    <Table.Tr><Table.Td colSpan={5} align="center" py={40}><LoadingOverlay visible /></Table.Td></Table.Tr>
+                                ) : rows && rows.length > 0 ? (
+                                    rows
+                                ) : (
+                                    <Table.Tr><Table.Td colSpan={5} align="center" py={60} c="dimmed">등록된 일정이 없습니다.</Table.Td></Table.Tr>
+                                )}
+                            </Table.Tbody>
+                        </Table>
+                    </ScrollArea>
+                </Paper>
+            ) : (
+                <Paper shadow="sm" radius="lg" withBorder p="lg">
+                    <Group align="flex-start" justify="center">
+                        <Calendar
+                            static
+                            size="xl"
+                            styles={{
+                                day: { borderRadius: 8, height: 56 },
+                                cell: { padding: 4 }
+                            }}
+                            renderDay={(date) => {
+                                const dayStr = dayjs(date).format('YYYY-MM-DD');
+                                const round = rounds?.find(r => r.exam_date === dayStr);
+                                const isToday = dayjs(date).isSame(dayjs(), 'day');
+
+                                return (
+                                    <div style={{ position: 'relative', height: '100%', width: '100%', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center' }}>
+                                        <span style={{
+                                            fontWeight: isToday ? 700 : 400,
+                                            color: isToday ? HANWHA_ORANGE : undefined,
+                                            marginBottom: 2
+                                        }}>
+                                            {date.getDate()}
+                                        </span>
+                                        {round && (
+                                            <Box
+                                                bg={round.exam_type === 'life' ? 'orange.1' : 'blue.1'}
+                                                w={6} h={6}
+                                                style={{ borderRadius: 3 }}
+                                            />
+                                        )}
+                                    </div>
+                                );
+                            }}
+                        />
+                        <Stack gap="xs" maw={300} ml="xl">
+                            <Text fw={700} size="sm" mb="xs">일정 범례</Text>
+                            <Group gap="xs">
+                                <Box w={12} h={12} bg="orange.1" style={{ borderRadius: 6 }} />
+                                <Text size="xs">생명보험 시험</Text>
+                            </Group>
+                            <Group gap="xs">
+                                <Box w={12} h={12} bg="blue.1" style={{ borderRadius: 6 }} />
+                                <Text size="xs">손해보험 시험</Text>
+                            </Group>
+
+                            {rounds?.filter(r => dayjs(r.exam_date).isAfter(dayjs())).slice(0, 3).map(r => (
+                                <Paper key={r.id} withBorder p="xs" radius="md">
+                                    <Text size="xs" fw={700}>{r.round_label}</Text>
+                                    <Text size="xs" c="dimmed">{dayjs(r.exam_date).format('MM.DD')} ({r.exam_type === 'life' ? '생명' : '손해'})</Text>
+                                </Paper>
+                            ))}
+
+                            <Button variant="light" size="xs" mt="xl" fullWidth onClick={() => setViewMode('list')}>
+                                전체 일정 관리
+                            </Button>
+                        </Stack>
+                    </Group>
+                </Paper>
+            )}
 
             {/* Modal */}
             <Modal
@@ -378,6 +456,15 @@ export default function ExamSchedulePage() {
                             {...form.getInputProps('registration_deadline')}
                             locale="ko"
                             valueFormat="YYYY년 MM월 DD일"
+                        />
+                        <SegmentedControl
+                            fullWidth
+                            radius="md"
+                            data={[
+                                { value: 'life', label: '생명 / 제3보험' },
+                                { value: 'nonlife', label: '손해보험' },
+                            ]}
+                            {...form.getInputProps('exam_type')}
                         />
                         <TextInput
                             label="회차명/구분"

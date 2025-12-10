@@ -1,5 +1,6 @@
 'use client';
 
+import { getAdminStep } from '@/lib/shared';
 import { supabase } from '@/lib/supabase';
 import {
     ActionIcon,
@@ -56,10 +57,13 @@ type FcProfileDetail = {
     address: string | null;
     email: string | null;
     affiliation: string | null;
-    step: string;
+    step?: string; // Optional since it's not in DB
     status: string;
     career_type: string | null; // 신입/경력
-    appointment_date: string | null; // 위촉 예정일
+    appointment_date_life: string | null; // 위촉 예정일 (Life)
+    appointment_date_nonlife: string | null; // 위촉 예정일 (NonLife)
+    allowance_date: string | null;
+    fc_documents?: any[];
     admin_memo: string | null;
 };
 
@@ -69,6 +73,7 @@ type FcDocument = {
     file_name: string;
     status: string;
     created_at: string;
+    storage_path: string;
 };
 
 export default function FcProfilePage({ params }: { params: Promise<{ id: string }> }) {
@@ -86,7 +91,7 @@ export default function FcProfilePage({ params }: { params: Promise<{ id: string
         queryFn: async () => {
             const { data, error } = await supabase
                 .from('fc_profiles')
-                .select('*')
+                .select('*, fc_documents(*)')
                 .eq('id', fcId)
                 .single();
             if (error) throw error;
@@ -180,12 +185,15 @@ export default function FcProfilePage({ params }: { params: Promise<{ id: string
         return `${prefix.substring(0, 2)}.${prefix.substring(2, 4)}.${prefix.substring(4, 6)}`;
     };
 
-    const getStepColor = (step: string) => {
-        return ['위촉완료', 'step5'].includes(step) ? 'green' : 'blue';
+    const getStepColor = (stepLabel: string) => {
+        if (stepLabel.includes('완료') || stepLabel.includes('4단계')) return 'green';
+        return 'blue';
     };
 
     if (isProfileLoading) return <LoadingOverlay visible />;
     if (!profile) return <Container py="xl"><Text>FC 정보를 찾을 수 없습니다.</Text></Container>;
+
+    const adminStepLabel = getAdminStep(profile);
 
     return (
         <Box bg={BACKGROUND} style={{ minHeight: '100vh' }}>
@@ -225,7 +233,7 @@ export default function FcProfilePage({ params }: { params: Promise<{ id: string
 
                         <Stack gap={0} ml="auto" align="flex-end">
                             <Text size="xs" c="dimmed" fw={700} tt="uppercase">Current Step</Text>
-                            <Text size="xl" fw={800} c={getStepColor(profile.step)}>{profile.step || '시작 전'}</Text>
+                            <Text size="xl" fw={800} c={getStepColor(adminStepLabel)}>{adminStepLabel}</Text>
                         </Stack>
                     </Group>
                 </Container>

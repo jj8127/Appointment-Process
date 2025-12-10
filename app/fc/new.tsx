@@ -276,239 +276,239 @@ export default function FcNewScreen() {
         contentContainerStyle={[styles.container, { paddingBottom: 120 }]}
         extraScrollHeight={140}
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}>
-          <RefreshButton />
+        <RefreshButton />
 
-          <View style={styles.hero}>
-            <Text style={styles.heroEyebrow}>정보 확인</Text>
-            <Text style={styles.title}>기본 정보를 입력해주세요</Text>
-            <Text style={styles.caption}>입력 후 저장 버튼을 누르면 다음 단계로 이동합니다. 이미 입력된 정보는 불러옵니다.</Text>
-            {existingTempId ? <Text style={styles.temp}>임시번호 {existingTempId}</Text> : null}
+        <View style={styles.hero}>
+          <Text style={styles.heroEyebrow}>정보 확인</Text>
+          <Text style={styles.title}>기본 정보를 입력해주세요</Text>
+          <Text style={styles.caption}>입력 후 저장 버튼을 누르면 다음 단계로 이동합니다. 이미 입력된 정보는 불러옵니다.</Text>
+          {existingTempId ? <Text style={styles.temp}>임시번호 {existingTempId}</Text> : null}
+        </View>
+
+        <View style={styles.sectionCard}>
+          <Text style={styles.sectionTitle}>기본 정보</Text>
+          <View style={styles.affiliationBox}>
+            {AFFILIATION_OPTIONS.map((opt) => {
+              const active = selectedAffiliation === opt;
+              return (
+                <Pressable
+                  key={opt}
+                  style={[styles.affiliationItem, active && styles.affiliationActive]}
+                  onPress={() => {
+                    setSelectedAffiliation(opt);
+                    setValue('affiliation', opt, { shouldValidate: true });
+                  }}>
+                  <Text style={[styles.affiliationText, active && styles.affiliationTextActive]}>{opt}</Text>
+                </Pressable>
+              );
+            })}
           </View>
+          {formState.errors.affiliation?.message ? (
+            <Text style={styles.error}>{formState.errors.affiliation?.message}</Text>
+          ) : null}
 
-          <View style={styles.sectionCard}>
-            <Text style={styles.sectionTitle}>기본 정보</Text>
-            <View style={styles.affiliationBox}>
-              {AFFILIATION_OPTIONS.map((opt) => {
-                const active = selectedAffiliation === opt;
-                return (
-                  <Pressable
-                    key={opt}
-                    style={[styles.affiliationItem, active && styles.affiliationActive]}
-                    onPress={() => {
-                      setSelectedAffiliation(opt);
-                      setValue('affiliation', opt, { shouldValidate: true });
-                    }}>
-                    <Text style={[styles.affiliationText, active && styles.affiliationTextActive]}>{opt}</Text>
-                  </Pressable>
-                );
-              })}
+          <FormField
+            control={control}
+            label="이름"
+            placeholder="홍길동"
+            name="name"
+            errors={formState.errors}
+            returnKeyType="next"
+            onSubmitEditing={() => phoneRef.current?.focus()}
+            blurOnSubmit={false}
+          />
+        </View>
+
+        <View style={styles.sectionCard}>
+          <Text style={styles.sectionTitle}>연락처 및 주소</Text>
+          <FormField
+            control={control}
+            label="휴대폰 번호"
+            placeholder="010-1234-5678"
+            name="phone"
+            errors={formState.errors}
+            inputRef={phoneRef}
+            returnKeyType="next"
+            onSubmitEditing={() => residentFrontRef.current?.focus()}
+            blurOnSubmit={false}
+          />
+          <View style={styles.field}>
+            <View style={styles.fieldLabelRow}>
+              <Text style={styles.label}>주민등록번호</Text>
+              {formState.errors.residentFront?.message || formState.errors.residentBack?.message ? (
+                <Text style={styles.error}>
+                  {formState.errors.residentFront?.message || formState.errors.residentBack?.message}
+                </Text>
+              ) : null}
             </View>
-            {formState.errors.affiliation?.message ? (
-              <Text style={styles.error}>{formState.errors.affiliation?.message}</Text>
-            ) : null}
-
-            <FormField
-              control={control}
-              label="이름"
-              placeholder="홍길동"
-              name="name"
-              errors={formState.errors}
-              returnKeyType="next"
-              onSubmitEditing={() => phoneRef.current?.focus()}
-              blurOnSubmit={false}
-            />
+            <View style={styles.residentRow}>
+              <Controller
+                control={control}
+                name="residentFront"
+                render={({ field: { onChange, value } }) => (
+                  <TextInput
+                    ref={residentFrontRef}
+                    style={[styles.input, styles.residentInput]}
+                    placeholder="앞 6자리"
+                    placeholderTextColor={PLACEHOLDER}
+                    value={value}
+                    onChangeText={(txt) => {
+                      const cleaned = txt.replace(/[^0-9]/g, '').slice(0, 6);
+                      onChange(cleaned);
+                      if (cleaned.length === 6) residentBackRef.current?.focus();
+                    }}
+                    keyboardType="number-pad"
+                    maxLength={6}
+                    returnKeyType="next"
+                    onSubmitEditing={() => residentBackRef.current?.focus()}
+                    blurOnSubmit={false}
+                  />
+                )}
+              />
+              <Text style={styles.residentHyphen}>-</Text>
+              <Controller
+                control={control}
+                name="residentBack"
+                render={({ field: { onChange, value } }) => (
+                  <TextInput
+                    ref={residentBackRef}
+                    style={[styles.input, styles.residentInput]}
+                    placeholder="뒷 7자리"
+                    placeholderTextColor={PLACEHOLDER}
+                    value={value}
+                    onChangeText={(txt) => {
+                      const cleaned = txt.replace(/[^0-9]/g, '').slice(0, 7);
+                      onChange(cleaned);
+                      if (cleaned.length === 7) recommenderRef.current?.focus();
+                    }}
+                    keyboardType="number-pad"
+                    maxLength={7}
+                    returnKeyType="next"
+                    onSubmitEditing={() => recommenderRef.current?.focus()}
+                    blurOnSubmit={false}
+                  />
+                )}
+              />
+            </View>
           </View>
+          <FormField
+            control={control}
+            label="추천인"
+            placeholder="추천인 이름"
+            name="recommender"
+            errors={formState.errors}
+            inputRef={recommenderRef}
+            returnKeyType="next"
+            onSubmitEditing={() => emailLocalRef.current?.focus()}
+            blurOnSubmit={false}
+          />
+          <View style={styles.field}>
+            <View style={styles.fieldLabelRow}>
+              <Text style={styles.label}>이메일</Text>
+              {formState.errors.email?.message ? <Text style={styles.error}>{formState.errors.email?.message}</Text> : null}
+            </View>
+            <View style={styles.emailRow}>
+              <TextInput
+                ref={emailLocalRef}
+                style={[styles.input, styles.emailLocal]}
+                placeholder="이메일 아이디"
+                placeholderTextColor={PLACEHOLDER}
+                value={emailLocal}
+                onChangeText={(txt) => setEmailLocal(txt.trim())}
+                autoCapitalize="none"
+                keyboardType="email-address"
+                returnKeyType="done"
+              />
+              <Text style={styles.emailAt}>@</Text>
 
-          <View style={styles.sectionCard}>
-            <Text style={styles.sectionTitle}>연락처 및 주소</Text>
-            <FormField
-              control={control}
-              label="휴대폰 번호"
-              placeholder="010-1234-5678"
-              name="phone"
-              errors={formState.errors}
-              inputRef={phoneRef}
-              returnKeyType="next"
-              onSubmitEditing={() => residentFrontRef.current?.focus()}
-              blurOnSubmit={false}
-            />
-            <View style={styles.field}>
-              <View style={styles.fieldLabelRow}>
-                <Text style={styles.label}>주민등록번호</Text>
-                {formState.errors.residentFront?.message || formState.errors.residentBack?.message ? (
-                  <Text style={styles.error}>
-                    {formState.errors.residentFront?.message || formState.errors.residentBack?.message}
-                  </Text>
+              {/* 오른쪽 영역 */}
+              <View style={{ flex: 1 }}>
+                {/* Picker만 감싸는 박스 */}
+                <View style={styles.emailDomainBox}>
+                  <Picker
+                    selectedValue={emailDomain || undefined}
+                    onValueChange={(value) => {
+                      setEmailDomain(value);
+                      if (value !== '직접입력') setCustomDomain('');
+                    }}
+                    dropdownIconColor={CHARCOAL}
+                    style={styles.emailPicker}
+                    itemStyle={{ fontSize: 14, color: CHARCOAL, height: 40 }}
+                  >
+                    <Picker.Item label="도메인 선택" value="" color={TEXT_MUTED} style={{ fontSize: 14 }} />
+                    {EMAIL_DOMAINS.map((d) => (
+                      <Picker.Item key={d} label={d} value={d} style={{ fontSize: 14 }} />
+                    ))}
+                  </Picker>
+                </View>
+
+                {/* 직접 입력창을 박스 밖으로 */}
+                {emailDomain === '직접입력' ? (
+                  <TextInput
+                    ref={customDomainRef}
+                    style={[styles.input, styles.customDomainInput]}
+                    placeholder="직접 입력"
+                    placeholderTextColor={PLACEHOLDER}
+                    value={customDomain}
+                    onChangeText={(txt) => setCustomDomain(txt.trim())}
+                    autoCapitalize="none"
+                    keyboardType="email-address"
+                    returnKeyType="next"
+                    onSubmitEditing={() => addressDetailRef.current?.focus()}
+                    blurOnSubmit={false}
+                  />
                 ) : null}
               </View>
-              <View style={styles.residentRow}>
-                <Controller
-                  control={control}
-                  name="residentFront"
-                  render={({ field: { onChange, value } }) => (
-                    <TextInput
-                      ref={residentFrontRef}
-                      style={[styles.input, styles.residentInput]}
-                      placeholder="앞 6자리"
-                      placeholderTextColor={PLACEHOLDER}
-                      value={value}
-                      onChangeText={(txt) => {
-                        const cleaned = txt.replace(/[^0-9]/g, '').slice(0, 6);
-                        onChange(cleaned);
-                        if (cleaned.length === 6) residentBackRef.current?.focus();
-                      }}
-                      keyboardType="number-pad"
-                      maxLength={6}
-                      returnKeyType="next"
-                      onSubmitEditing={() => residentBackRef.current?.focus()}
-                      blurOnSubmit={false}
-                    />
-                  )}
-                />
-                <Text style={styles.residentHyphen}>-</Text>
-                <Controller
-                  control={control}
-                  name="residentBack"
-                  render={({ field: { onChange, value } }) => (
-                    <TextInput
-                      ref={residentBackRef}
-                      style={[styles.input, styles.residentInput]}
-                      placeholder="뒷 7자리"
-                      placeholderTextColor={PLACEHOLDER}
-                      value={value}
-                      onChangeText={(txt) => {
-                        const cleaned = txt.replace(/[^0-9]/g, '').slice(0, 7);
-                        onChange(cleaned);
-                        if (cleaned.length === 7) recommenderRef.current?.focus();
-                      }}
-                      keyboardType="number-pad"
-                      maxLength={7}
-                      returnKeyType="next"
-                      onSubmitEditing={() => recommenderRef.current?.focus()}
-                      blurOnSubmit={false}
-                    />
-                  )}
-                />
-              </View>
             </View>
-            <FormField
-              control={control}
-              label="추천인"
-              placeholder="추천인 이름"
-              name="recommender"
-              errors={formState.errors}
-              inputRef={recommenderRef}
-              returnKeyType="next"
-              onSubmitEditing={() => emailLocalRef.current?.focus()}
-              blurOnSubmit={false}
-            />
-            <View style={styles.field}>
-              <View style={styles.fieldLabelRow}>
-                <Text style={styles.label}>이메일</Text>
-                {formState.errors.email?.message ? <Text style={styles.error}>{formState.errors.email?.message}</Text> : null}
-              </View>
-              <View style={styles.emailRow}>
-                <TextInput
-                  ref={emailLocalRef}
-                  style={[styles.input, styles.emailLocal]}
-                  placeholder="이메일 아이디"
-                  placeholderTextColor={PLACEHOLDER}
-                  value={emailLocal}
-                  onChangeText={(txt) => setEmailLocal(txt.trim())}
-                  autoCapitalize="none"
-                  keyboardType="email-address"
-                  returnKeyType="done"
-                />
-                <Text style={styles.emailAt}>@</Text>
 
-                {/* 오른쪽 영역 */}
-                <View style={{ flex: 1 }}>
-                  {/* Picker만 감싸는 박스 */}
-                  <View style={styles.emailDomainBox}>
-                    <Picker
-                      selectedValue={emailDomain || undefined}
-                      onValueChange={(value) => {
-                        setEmailDomain(value);
-                        if (value !== '직접입력') setCustomDomain('');
-                      }}
-                      dropdownIconColor={CHARCOAL}
-                      style={styles.emailPicker}
-                      itemStyle={{ fontSize: 14, color: CHARCOAL, height: 40 }}
-                    >
-                      <Picker.Item label="도메인 선택" value="" color={TEXT_MUTED} style={{ fontSize: 14 }} />
-                      {EMAIL_DOMAINS.map((d) => (
-                        <Picker.Item key={d} label={d} value={d} style={{ fontSize: 14 }} />
-                      ))}
-                    </Picker>
-                  </View>
-
-                  {/* 직접 입력창을 박스 밖으로 */}
-                  {emailDomain === '직접입력' ? (
-                    <TextInput
-                      ref={customDomainRef}
-                      style={[styles.input, styles.customDomainInput]}
-                      placeholder="직접 입력"
-                      placeholderTextColor={PLACEHOLDER}
-                      value={customDomain}
-                      onChangeText={(txt) => setCustomDomain(txt.trim())}
-                      autoCapitalize="none"
-                      keyboardType="email-address"
-                      returnKeyType="next"
-                      onSubmitEditing={() => addressDetailRef.current?.focus()}
-                      blurOnSubmit={false}
-                    />
-                  ) : null}
-                </View>
-              </View>
-
+          </View>
+          <View style={styles.field}>
+            <View style={styles.fieldLabelRow}>
+              <Text style={styles.label}>주소</Text>
+              {formState.errors.address?.message ? <Text style={styles.error}>{formState.errors.address?.message}</Text> : null}
             </View>
-            <View style={styles.field}>
-              <View style={styles.fieldLabelRow}>
-                <Text style={styles.label}>주소</Text>
-                {formState.errors.address?.message ? <Text style={styles.error}>{formState.errors.address?.message}</Text> : null}
-              </View>
-              <View style={{ gap: 8 }}>
-                <Pressable style={styles.searchButton} onPress={() => setShowAddressSearch(true)}><Text style={styles.searchButtonText}>주소 검색 (선택)</Text></Pressable>
-                <Controller
-                  control={control}
-                  name="address"
-                  render={({ field: { onChange, value } }) => (
-                    <TextInput
-                      style={[styles.input, styles.inputMultiline]}
-                      placeholder="도로명 또는 지번 주소"
-                      placeholderTextColor={PLACEHOLDER}
-                      value={value}
-                      onChangeText={onChange}
-                      multiline
-                    />
-                  )}
-                />
-                <Controller
-                  control={control}
-                  name="addressDetail"
-                  render={({ field: { onChange, value } }) => (
-                    <TextInput
-                      ref={addressDetailRef}
-                      style={styles.input}
-                      placeholder="상세 주소"
-                      placeholderTextColor={PLACEHOLDER}
-                      value={value}
-                      onChangeText={onChange}
-                      returnKeyType="done"
-                      onSubmitEditing={handleSubmit(onSubmit)}
-                    />
-                  )}
-                />
-              </View>
+            <View style={{ gap: 8 }}>
+              <Pressable style={styles.searchButton} onPress={() => setShowAddressSearch(true)}><Text style={styles.searchButtonText}>주소 검색 (선택)</Text></Pressable>
+              <Controller
+                control={control}
+                name="address"
+                render={({ field: { onChange, value } }) => (
+                  <TextInput
+                    style={[styles.input, styles.inputMultiline]}
+                    placeholder="도로명 또는 지번 주소"
+                    placeholderTextColor={PLACEHOLDER}
+                    value={value}
+                    onChangeText={onChange}
+                    multiline
+                  />
+                )}
+              />
+              <Controller
+                control={control}
+                name="addressDetail"
+                render={({ field: { onChange, value } }) => (
+                  <TextInput
+                    ref={addressDetailRef}
+                    style={styles.input}
+                    placeholder="상세 주소"
+                    placeholderTextColor={PLACEHOLDER}
+                    value={value}
+                    onChangeText={onChange}
+                    returnKeyType="done"
+                    onSubmitEditing={handleSubmit(onSubmit)}
+                  />
+                )}
+              />
             </View>
           </View>
+        </View>
 
-          <Pressable
-            style={[styles.primaryButton, submitting && styles.primaryButtonDisabled]}
-            onPress={handleSubmit(onSubmit)}
-            disabled={submitting}>
-            <Text style={styles.primaryButtonText}>{submitting ? '저장 중...' : '저장하기'}</Text>
-          </Pressable>
+        <Pressable
+          style={[styles.primaryButton, submitting && styles.primaryButtonDisabled]}
+          onPress={handleSubmit(onSubmit)}
+          disabled={submitting}>
+          <Text style={styles.primaryButtonText}>{submitting ? '저장 중...' : '저장하기'}</Text>
+        </Pressable>
       </KeyboardAwareWrapper>
       <Modal visible={showAddressSearch} animationType="slide">
         <SafeAreaView style={{ flex: 1, backgroundColor: '#fff' }}>
@@ -592,10 +592,10 @@ const styles = StyleSheet.create({
   safe: { flex: 1, backgroundColor: '#ffffff' },
   container: { padding: 20, gap: 18 },
   hero: { gap: 8, paddingVertical: 8 },
-  heroEyebrow: { color: ORANGE, fontWeight: '700', fontSize: 13 },
-  title: { fontSize: 24, fontWeight: '800', color: CHARCOAL, lineHeight: 30 },
-  caption: { color: TEXT_MUTED, lineHeight: 20 },
-  temp: { color: CHARCOAL, fontWeight: '700', marginTop: 4 },
+  heroEyebrow: { color: ORANGE, fontWeight: '700', fontSize: 15 }, // 13 -> 15
+  title: { fontSize: 28, fontWeight: '800', color: CHARCOAL, lineHeight: 34 }, // 24 -> 28
+  caption: { color: TEXT_MUTED, lineHeight: 22, fontSize: 16 }, // default -> 16
+  temp: { color: CHARCOAL, fontWeight: '700', marginTop: 4, fontSize: 16 }, // default -> 16
   sectionCard: {
     backgroundColor: '#fff',
     padding: 16,
@@ -609,7 +609,7 @@ const styles = StyleSheet.create({
     shadowOffset: { width: 0, height: 2 },
     elevation: 2,
   },
-  sectionTitle: { fontWeight: '800', fontSize: 16, color: CHARCOAL },
+  sectionTitle: { fontWeight: '800', fontSize: 20, color: CHARCOAL }, // 16 -> 20
   affiliationBox: {
     flexDirection: 'row',
     flexWrap: 'wrap',
@@ -619,42 +619,44 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: BORDER,
     borderRadius: 12,
-    paddingVertical: 8,
-    paddingHorizontal: 12,
+    paddingVertical: 10, // 8 -> 10
+    paddingHorizontal: 14, // 12 -> 14
     backgroundColor: '#fff',
   },
   affiliationActive: { borderColor: ORANGE, backgroundColor: '#fff1e6' },
-  affiliationText: { color: CHARCOAL },
+  affiliationText: { color: CHARCOAL, fontSize: 16 }, // default -> 16
   affiliationTextActive: { color: ORANGE, fontWeight: '700' },
   field: { gap: 6 },
   fieldLabelRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
-  label: { fontWeight: '700', color: CHARCOAL },
-  error: { color: '#dc2626', fontSize: 12 },
+  label: { fontWeight: '700', color: CHARCOAL, fontSize: 16 }, // default -> 16
+  error: { color: '#dc2626', fontSize: 14 }, // 12 -> 14
   input: {
     borderWidth: 1,
     borderColor: BORDER,
     borderRadius: 10,
-    padding: 12,
+    padding: 14, // 12 -> 14
     backgroundColor: '#fff',
+    fontSize: 16, // added explicit 16
+    color: CHARCOAL,
   },
   residentRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
-  residentHyphen: { fontWeight: '800', color: CHARCOAL },
+  residentHyphen: { fontWeight: '800', color: CHARCOAL, fontSize: 16 },
   residentInput: { flex: 1 },
-  inputMultiline: { height: 90, textAlignVertical: 'top' },
+  inputMultiline: { height: 100, textAlignVertical: 'top' }, // 90 -> 100
   searchButton: {
-    paddingVertical: 10,
-    paddingHorizontal: 12,
+    paddingVertical: 12, // 10 -> 12
+    paddingHorizontal: 14, // 12 -> 14
     borderWidth: 1,
     borderColor: ORANGE_LIGHT,
     borderRadius: 10,
     backgroundColor: '#fff7f0',
     alignItems: 'center',
   },
-  searchButtonText: { color: ORANGE, fontWeight: '700' },
+  searchButtonText: { color: ORANGE, fontWeight: '700', fontSize: 16 }, // default -> 16
   primaryButton: {
     marginTop: 8,
     backgroundColor: ORANGE,
-    paddingVertical: 16,
+    paddingVertical: 18, // 16 -> 18
     borderRadius: 14,
     alignItems: 'center',
     shadowColor: '#000',
@@ -664,7 +666,7 @@ const styles = StyleSheet.create({
     elevation: 3,
   },
   primaryButtonDisabled: { opacity: 0.7 },
-  primaryButtonText: { color: '#fff', fontWeight: '800', fontSize: 16 },
+  primaryButtonText: { color: '#fff', fontWeight: '800', fontSize: 18 }, // 16 -> 18
   emailRow: {
     flexDirection: 'row',
     alignItems: 'flex-start',
@@ -676,6 +678,8 @@ const styles = StyleSheet.create({
   emailAt: {
     fontWeight: '800',
     color: CHARCOAL,
+    fontSize: 16,
+    marginTop: 12,
   },
   emailDomainBox: {
     flex: 1,
@@ -684,7 +688,7 @@ const styles = StyleSheet.create({
     borderRadius: 8,
     overflow: 'hidden',
     justifyContent: 'center',
-    height: 50,
+    height: 54, // 50 -> 54
     backgroundColor: '#fff',
   },
   emailPicker: {
@@ -699,7 +703,7 @@ const styles = StyleSheet.create({
     borderRadius: 8,
     padding: 8,
     backgroundColor: '#fff',
-    fontSize: 12,
-    height: 40,
+    fontSize: 14, // 12 -> 14
+    height: 44, // 40 -> 44
   },
 });

@@ -4,189 +4,334 @@ import {
     ActionIcon,
     Badge,
     Button,
+    Checkbox,
     Container,
+    Divider,
     Group,
-    LoadingOverlay,
-    Menu,
+    Loader,
     Paper,
+    Popover,
     ScrollArea,
-    Select,
+    SegmentedControl,
+    Stack,
     Table,
     Text,
-    Title
+    TextInput,
+    Title,
+    Tooltip,
+    UnstyledButton
 } from '@mantine/core';
 import { notifications } from '@mantine/notifications';
-import {
-    IconCheck,
-    IconDotsVertical,
-    IconDownload,
-    IconFilter,
-    IconX
-} from '@tabler/icons-react';
+import { IconChevronDown, IconDownload, IconRefresh, IconSearch, IconX } from '@tabler/icons-react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import dayjs from 'dayjs';
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 
 import { supabase } from '@/lib/supabase';
 
 // --- Constants ---
-const HANWHA_ORANGE = '#f36f21';
+const HANWHA_ORANGE = '#F37321';
 const CHARCOAL = '#111827';
 const MUTED = '#6b7280';
 
 // --- Types ---
 type Applicant = {
-    id: string; // application id
+    id: string; // registration id
     status: string;
     created_at: string;
-    fc_id: string;
+    resident_id: string;
+    name: string;
+    phone: string;
+    affiliation: string;
+    address: string;
     location_name: string;
     round_label: string;
     exam_date: string;
-    fc: {
-        name: string;
-        phone: string;
-        affiliation: string;
-        resident_number?: string;
-    };
+    is_confirmed: boolean;
+    is_third_exam?: boolean;
 };
 
-const STATUS_MAP: Record<string, { label: string; color: string }> = {
-    applied: { label: '신청됨', color: 'blue' },
-    passed: { label: '합격', color: 'green' },
-    failed: { label: '불합격', color: 'red' },
-    cancelled: { label: '취소', color: 'gray' },
+// Filter state type: key is column key, value is array of selected strings
+type FilterState = Record<string, string[]>;
+
+interface ExcelColumnFilterProps {
+    title: string;
+    field: keyof Applicant | 'round_info' | 'subject_display'; // Expanded fields
+    options: string[];
+    selected: string[];
+    onApply: (selected: string[]) => void;
+}
+
+const ExcelColumnFilter = ({ title, options, selected, onApply }: ExcelColumnFilterProps) => {
+    const [opened, setOpened] = useState(false);
+    const [search, setSearch] = useState('');
+    const [tempSelected, setTempSelected] = useState<string[]>(selected);
+
+    // Sync temp state when opening
+    useEffect(() => {
+        if (opened) {
+            setTempSelected(selected);
+            setSearch('');
+        }
+    }, [opened, selected]);
+
+    const filteredOptions = options.filter(opt =>
+        opt.toLowerCase().includes(search.toLowerCase())
+    );
+
+    const handleSelectAll = (checked: boolean) => {
+        if (checked) {
+            // Select all CURRENTLY FILTERED options
+            const newSelected = new Set([...tempSelected, ...filteredOptions]);
+            setTempSelected(Array.from(newSelected));
+        } else {
+            // Deselect all CURRENTLY FILTERED options
+            const newSelected = tempSelected.filter(s => !filteredOptions.includes(s));
+            setTempSelected(newSelected);
+        }
+    };
+
+    const isAllSelected = filteredOptions.length > 0 && filteredOptions.every(opt => tempSelected.includes(opt));
+    const isIndeterminate = filteredOptions.some(opt => tempSelected.includes(opt)) && !isAllSelected;
+
+    return (
+        <Popover opened={opened} onChange={setOpened} width={280} position="bottom-start" withArrow shadow="md">
+            <Popover.Target>
+                <UnstyledButton onClick={() => setOpened((o) => !o)} style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                    <Text fw={700} size="sm" c={selected.length > 0 ? 'orange' : 'dimmed'}>
+                        {title}
+                    </Text>
+                    <IconChevronDown size={14} color={selected.length > 0 ? HANWHA_ORANGE : '#868e96'} />
+                </UnstyledButton>
+            </Popover.Target>
+            <Popover.Dropdown p="xs">
+                <Stack gap="xs">
+                    <TextInput
+                        placeholder="검색..."
+                        size="xs"
+                        leftSection={<IconSearch size={12} />}
+                        value={search}
+                        onChange={(e) => setSearch(e.currentTarget.value)}
+                        rightSection={
+                            search ? <IconX size={12} onClick={() => setSearch('')} style={{ cursor: 'pointer' }} /> : null
+                        }
+                    />
+                    <Divider />
+                    <ScrollArea h={200} type="auto" offsetScrollbars>
+                        <Stack gap={6}>
+                            <Checkbox
+                                label="(모두 선택)"
+                                size="xs"
+                                checked={isAllSelected}
+                                indeterminate={isIndeterminate}
+                                onChange={(e) => handleSelectAll(e.currentTarget.checked)}
+                                styles={{ input: { cursor: 'pointer' }, label: { cursor: 'pointer', fontWeight: 600 } }}
+                            />
+                            {filteredOptions.length === 0 ? (
+                                <Text size="xs" c="dimmed" ta="center" py="xs">검색 결과가 없습니다.</Text>
+                            ) : (
+                                filteredOptions.map(opt => (
+                                    <Checkbox
+                                        key={opt}
+                                        label={opt}
+                                        value={opt}
+                                        size="xs"
+                                        checked={tempSelected.includes(opt)}
+                                        onChange={(e) => {
+                                            if (e.currentTarget.checked) {
+                                                setTempSelected([...tempSelected, opt]);
+                                            } else {
+                                                setTempSelected(tempSelected.filter(s => s !== opt));
+                                            }
+                                        }}
+                                        styles={{ input: { cursor: 'pointer' }, label: { cursor: 'pointer' } }}
+                                    />
+                                ))
+                            )}
+                        </Stack>
+                    </ScrollArea>
+                    <Divider />
+                    <Group justify="flex-end" gap="xs">
+                        <Button variant="light" color="gray" size="xs" onClick={() => setOpened(false)}>취소</Button>
+                        <Button variant="filled" color="orange" size="xs" onClick={() => {
+                            onApply(tempSelected);
+                            setOpened(false);
+                        }}>확인</Button>
+                    </Group>
+                </Stack>
+            </Popover.Dropdown>
+        </Popover>
+    );
 };
 
 export default function ExamApplicantsPage() {
     const queryClient = useQueryClient();
-    const [selectedRoundId, setSelectedRoundId] = useState<string | null>(null);
-    const [defaultRoundId, setDefaultRoundId] = useState<string | null>(null);
+    const [filters, setFilters] = useState<FilterState>({});
 
-    // --- Fetch Rounds (For Filter) ---
-    const { data: rounds } = useQuery({
-        queryKey: ['exam-rounds-select'],
+    // --- Fetch All Recent Applicants ---
+    const { data: applicants, isLoading, refetch } = useQuery({
+        queryKey: ['exam-applicants-all-recent'],
         queryFn: async () => {
+            // limit 1000 for performance
             const { data, error } = await supabase
-                .from('exam_rounds')
-                .select('id, round_label, exam_date')
-                .order('exam_date', { ascending: false });
-            if (error) throw error;
-            return data;
-        },
-    });
-
-    const roundOptions = useMemo(() => {
-        return rounds?.map((r) => ({
-            value: r.id,
-            label: `${dayjs(r.exam_date).format('YYYY-MM-DD')} (${r.round_label})`,
-        })) || [];
-    }, [rounds]);
-
-    // Set default round once (avoids render-time setState → 불필요한 추가 렌더/지연 방지)
-    if (!defaultRoundId && roundOptions.length > 0) {
-        setDefaultRoundId(roundOptions[0].value);
-    }
-
-    const effectiveRoundId = selectedRoundId ?? defaultRoundId;
-
-    // --- Fetch Applicants ---
-    const { data: applicants, isLoading } = useQuery({
-        queryKey: ['exam-applicants', effectiveRoundId],
-        queryFn: async () => {
-            if (!effectiveRoundId) return [];
-
-            const { data, error } = await supabase
-                .from('exam_applications')
+                .from('exam_registrations')
                 .select(`
-          id, status, created_at,
-          fc_profiles!inner ( name, phone, affiliation, resident_number ),
+          id, status, created_at, resident_id, is_confirmed, is_third_exam,
           exam_locations ( location_name ),
           exam_rounds ( round_label, exam_date )
         `)
-                .eq('round_id', effectiveRoundId)
                 .order('created_at', { ascending: false })
-                .limit(200); // 안전 상한선으로 불필요한 대량 fetch 방지
+                .limit(1000);
 
             if (error) throw error;
 
-            return data.map((d: any) => ({
+            const base = (data ?? []).map((d: any) => ({
                 id: d.id,
                 status: d.status,
                 created_at: d.created_at,
-                fc: {
-                    name: d.fc_profiles?.name || '-',
-                    phone: d.fc_profiles?.phone || '-',
-                    affiliation: d.fc_profiles?.affiliation || '-',
-                    resident_number: d.fc_profiles?.resident_number,
-                },
+                resident_id: d.resident_id,
+                is_confirmed: d.is_confirmed,
+                is_third_exam: d.is_third_exam,
                 location_name: d.exam_locations?.location_name || '미정',
                 round_label: d.exam_rounds?.round_label || '-',
                 exam_date: d.exam_rounds?.exam_date,
             })) as Applicant[];
-        },
-        enabled: !!selectedRoundId,
-    });
 
-    // --- Mutations ---
-    const updateStatusMutation = useMutation({
-        mutationFn: async ({ id, status, fcPhone, examLabel }: { id: string; status: string; fcPhone: string; examLabel: string }) => {
-            const { error } = await supabase
-                .from('exam_applications')
-                .update({ status })
-                .eq('id', id);
+            const phones = Array.from(new Set(base.map((b) => b.resident_id).filter(Boolean)));
+            if (phones.length === 0) return base;
 
-            if (error) throw error;
+            const { data: profiles } = await supabase
+                .from('fc_profiles')
+                .select('phone,name,affiliation,address')
+                .in('phone', phones);
+            const pmap = new Map((profiles ?? []).map((p: any) => [p.phone, p]));
 
-            // Notification
-            const title = status === 'passed' ? '시험 합격 안내' : '시험 결과 안내';
-            const body = status === 'passed'
-                ? `축하합니다! 신청하신 [${examLabel}]에 합격하셨습니다.`
-                : `신청하신 [${examLabel}] 결과가 '불합격'으로 처리되었습니다.`;
-
-            await supabase.from('notifications').insert({
-                title,
-                body,
-                recipient_role: 'fc',
-                resident_id: fcPhone,
-                category: 'exam' // Assuming 'exam' category exists or is plain string
+            return base.map((b) => {
+                const p = pmap.get(b.resident_id);
+                return {
+                    ...b,
+                    name: p?.name ?? '이름없음',
+                    phone: p?.phone ?? b.resident_id,
+                    affiliation: p?.affiliation ?? '-',
+                    address: p?.address ?? '-',
+                };
             });
-        },
-        onSuccess: () => {
-            notifications.show({ title: '처리 완료', message: '상태가 변경되었습니다.', color: 'green' });
-            queryClient.invalidateQueries({ queryKey: ['exam-applicants'] });
-        },
-        onError: (err: any) => {
-            notifications.show({ title: '오류', message: err.message, color: 'red' });
         }
     });
 
-    // --- Excel/CSV Download ---
+    // --- Derived Data Helper ---
+    // Calculate display values for filtering and rendering
+    const getRowValue = (item: Applicant, field: string) => {
+        if (field === 'round_info') return `${dayjs(item.exam_date).format('YYYY-MM-DD')} (${item.round_label})`;
+        if (field === 'is_confirmed') return item.is_confirmed ? '접수 완료' : '미접수';
+        if (field === 'subject_display') {
+            const label = item.round_label || '';
+            const isNonLife = label.includes('손해');
+            const isLife = label.includes('생명');
+
+            const subjects = [];
+            if (isNonLife) subjects.push('손해보험');
+            else if (isLife) subjects.push('생명보험');
+            else subjects.push('기타'); // Default fallback
+
+            if (item.is_third_exam) {
+                subjects.push('제3보험');
+            }
+
+            // Note: If distinct 'Life' flag existed, we'd use it. For now, infer Life/Non-Life base + Third.
+            return subjects.join(', ');
+        }
+        // @ts-ignore
+        return String(item[field] || '');
+    };
+
+    const filterOptions = useMemo(() => {
+        if (!applicants) return {};
+        const fields = ['round_info', 'name', 'phone', 'affiliation', 'address', 'location_name', 'is_confirmed', 'subject_display'];
+        const options: Record<string, string[]> = {};
+
+        fields.forEach(field => {
+            const unique = Array.from(new Set(applicants.map(a => getRowValue(a, field)))).filter(Boolean).sort();
+            options[field] = unique;
+        });
+        return options;
+    }, [applicants]);
+
+    // --- Filter Logic ---
+    const filteredRows = useMemo(() => {
+        if (!applicants) return [];
+        return applicants.filter(item => {
+            return Object.entries(filters).every(([field, selectedValues]) => {
+                if (!selectedValues || selectedValues.length === 0) return true;
+                const val = getRowValue(item, field);
+                return selectedValues.includes(val);
+            });
+        });
+    }, [applicants, filters]);
+
+    // --- Stats ---
+    const stats = useMemo(() => {
+        const total = filteredRows.length;
+        const confirmed = filteredRows.filter(a => a.is_confirmed).length;
+        const pending = total - confirmed;
+        return { total, confirmed, pending };
+    }, [filteredRows]);
+
+    // --- Mutations ---
+    const updateStatusMutation = useMutation({
+        mutationFn: async ({ id, isConfirmed }: { id: string; isConfirmed: boolean }) => {
+            const nextStatus = isConfirmed ? 'applied' : 'pending';
+            const { error } = await supabase
+                .from('exam_registrations')
+                .update({ is_confirmed: isConfirmed, status: nextStatus })
+                .eq('id', id);
+            if (error) throw error;
+            return { id, isConfirmed };
+        },
+        onSuccess: ({ id, isConfirmed }) => {
+            queryClient.setQueryData(['exam-applicants-all-recent'], (old: any) => {
+                if (!Array.isArray(old)) return old;
+                return old.map((item) => (item.id === id ? { ...item, is_confirmed: isConfirmed } : item));
+            });
+            notifications.show({
+                title: '상태 변경 완료',
+                message: isConfirmed ? '접수 완료 상태로 변경되었습니다.' : '미접수 상태로 변경되었습니다.',
+                color: 'green',
+                icon: <IconRefresh size={16} />,
+            });
+        },
+        onError: (err: any) => {
+            notifications.show({ title: '오류', message: err.message, color: 'red' });
+        },
+    });
+
+    // --- CSV Download ---
     const handleDownloadCsv = () => {
-        if (!applicants || applicants.length === 0) {
+        if (filteredRows.length === 0) {
             notifications.show({ title: '알림', message: '다운로드할 데이터가 없습니다.', color: 'blue' });
             return;
         }
 
-        const headers = ['이름', '연락처', '소속', '주민번호', '시험일', '회차명', '고사장', '상태', '신청일'];
-        const rows = applicants.map(a => [
-            a.fc.name,
-            a.fc.phone,
-            a.fc.affiliation,
-            a.fc.resident_number || '', // Sensitive data, maybe mask? Prompt implies just "Manage". Keeping raw for admin is usually required.
-            dayjs(a.exam_date).format('YYYY-MM-DD'),
-            a.round_label,
+        const headers = ['시험 구분', '이름', '연락처', '소속', '주소', '주민번호', '시험 응시 과목', '고사장', '상태', '신청일'];
+        const pRows = filteredRows.map(a => [
+            getRowValue(a, 'round_info'),
+            a.name,
+            a.phone,
+            a.affiliation,
+            a.address,
+            a.resident_id,
+            getRowValue(a, 'subject_display'), // New Subject Column
             a.location_name,
-            STATUS_MAP[a.status]?.label || a.status,
+            a.is_confirmed ? '접수 완료' : '미접수',
             dayjs(a.created_at).format('YYYY-MM-DD HH:mm')
         ]);
 
         const csvContent = [
             headers.join(','),
-            ...rows.map(r => r.map(c => `"${String(c).replace(/"/g, '""')}"`).join(','))
+            ...pRows.map(r => r.map(c => `"${String(c).replace(/"/g, '""')}"`).join(','))
         ].join('\n');
 
-        const blob = new Blob(['\uFEFF' + csvContent], { type: 'text/csv;charset=utf-8;' }); // BOM for Excel
+        const blob = new Blob(['\uFEFF' + csvContent], { type: 'text/csv;charset=utf-8;' });
         const url = URL.createObjectURL(blob);
         const link = document.createElement('a');
         link.href = url;
@@ -195,118 +340,149 @@ export default function ExamApplicantsPage() {
         URL.revokeObjectURL(url);
     };
 
-    const rows = applicants?.map((item) => (
-        <Table.Tr key={item.id}>
-            <Table.Td>
-                <Group gap="sm">
-                    <Text fw={600} size="sm">{item.fc.name}</Text>
-                </Group>
-            </Table.Td>
-            <Table.Td>
-                <Text size="sm">{item.fc.phone}</Text>
-            </Table.Td>
-            <Table.Td>
-                <Text size="sm" c="dimmed">{item.fc.affiliation}</Text>
-            </Table.Td>
-            <Table.Td>
-                <Badge variant="outline" color="gray">{item.location_name}</Badge>
-            </Table.Td>
-            <Table.Td>
-                <Badge color={STATUS_MAP[item.status]?.color || 'gray'} variant="light">
-                    {STATUS_MAP[item.status]?.label || item.status}
-                </Badge>
-            </Table.Td>
-            <Table.Td>
-                <Menu shadow="md" width={120} position="bottom-end">
-                    <Menu.Target>
-                        <ActionIcon variant="subtle" color="gray">
-                            <IconDotsVertical size={16} />
-                        </ActionIcon>
-                    </Menu.Target>
-
-                    <Menu.Dropdown>
-                        <Menu.Label>상태 변경</Menu.Label>
-                        <Menu.Item
-                            leftSection={<IconCheck size={14} />}
-                            color="green"
-                            onClick={() => updateStatusMutation.mutate({
-                                id: item.id,
-                                status: 'passed',
-                                fcPhone: item.fc.phone,
-                                examLabel: item.round_label
-                            })}
-                        >
-                            합격 처리
-                        </Menu.Item>
-                        <Menu.Item
-                            leftSection={<IconX size={14} />}
-                            color="red"
-                            onClick={() => updateStatusMutation.mutate({
-                                id: item.id,
-                                status: 'failed',
-                                fcPhone: item.fc.phone,
-                                examLabel: item.round_label
-                            })}
-                        >
-                            불합격 처리
-                        </Menu.Item>
-                    </Menu.Dropdown>
-                </Menu>
-            </Table.Td>
-        </Table.Tr>
-    ));
+    const renderHeader = (title: string, field: string) => (
+        <Table.Th>
+            <ExcelColumnFilter
+                title={title}
+                field={field as any}
+                options={filterOptions[field] || []}
+                selected={filters[field] || []}
+                onApply={(val) => setFilters(prev => ({ ...prev, [field]: val }))}
+            />
+        </Table.Th>
+    );
 
     return (
         <Container size="xl" py="xl">
-            <Group justify="space-between" mb="lg">
-                <div>
-                    <Title order={2} c={CHARCOAL}>신청자 관리</Title>
-                    <Text c={MUTED} size="sm">시험별 신청자 목록을 확인하고 합격 여부를 관리합니다.</Text>
-                </div>
-                <Button leftSection={<IconDownload size={16} />} variant="light" color="green" onClick={handleDownloadCsv}>
-                    엑셀(CSV) 다운로드
-                </Button>
-            </Group>
+            <Stack gap="xl">
+                {/* Header */}
+                <Group justify="space-between" align="center">
+                    <div>
+                        <Title order={2} c={CHARCOAL}>신청자 관리</Title>
+                        <Text c={MUTED} size="sm">최근 신청자 목록 및 응시 과목을 확인합니다.</Text>
+                    </div>
+                    <Group gap="xs">
+                        <Button
+                            leftSection={<IconDownload size={16} />}
+                            variant="filled"
+                            color="green"
+                            onClick={handleDownloadCsv}
+                            radius="md"
+                        >
+                            엑셀 다운로드
+                        </Button>
+                        <Tooltip label="데이터 새로고침">
+                            <ActionIcon variant="light" color="gray" size="lg" onClick={() => refetch()} loading={isLoading}>
+                                <IconRefresh size={20} />
+                            </ActionIcon>
+                        </Tooltip>
+                    </Group>
+                </Group>
 
-            <Group mb="md">
-                <Select
-                    placeholder="시험 회차 선택"
-                    data={roundOptions}
-                    value={selectedRoundId ?? defaultRoundId}
-                    onChange={setSelectedRoundId}
-                    leftSection={<IconFilter size={16} />}
-                    w={300}
-                    allowDeselect={false}
-                />
-            </Group>
+                {/* Stats */}
+                <Group grow>
+                    <Paper p="md" radius="md" withBorder shadow="sm">
+                        <Text size="xs" c="dimmed" fw={700} tt="uppercase">총 신청자 (현재 필터)</Text>
+                        <Text fw={700} size="xl" mt="xs">{stats.total}명</Text>
+                    </Paper>
+                    <Paper p="md" radius="md" withBorder shadow="sm" style={{ borderLeft: `4px solid ${HANWHA_ORANGE}` }}>
+                        <Text size="xs" c="orange" fw={700} tt="uppercase">접수 완료</Text>
+                        <Text fw={700} size="xl" mt="xs" c="orange">{stats.confirmed}명</Text>
+                    </Paper>
+                    <Paper p="md" radius="md" withBorder shadow="sm">
+                        <Text size="xs" c="dimmed" fw={700} tt="uppercase">미접수</Text>
+                        <Text fw={700} size="xl" mt="xs">{stats.pending}명</Text>
+                    </Paper>
+                </Group>
 
-            <Paper shadow="sm" radius="lg" withBorder overflow="hidden">
-                <ScrollArea>
-                    <Table verticalSpacing="md" highlightOnHover>
-                        <Table.Thead bg="#F9FAFB">
-                            <Table.Tr>
-                                <Table.Th>이름</Table.Th>
-                                <Table.Th>연락처</Table.Th>
-                                <Table.Th>소속</Table.Th>
-                                <Table.Th>지원 장소</Table.Th>
-                                <Table.Th>상태</Table.Th>
-                                <Table.Th>관리</Table.Th>
-                            </Table.Tr>
-                        </Table.Thead>
-                        <Table.Tbody>
-                            {isLoading ? (
-                                <Table.Tr><Table.Td colSpan={6} align="center" py={40}><LoadingOverlay visible /></Table.Td></Table.Tr>
-                            ) : rows && rows.length > 0 ? (
-                                rows
-                            ) : (
-                                <Table.Tr><Table.Td colSpan={6} align="center" py={60} c="dimmed">
-                                    {selectedRoundId ? '신청자가 없습니다.' : '시험 회차를 선택해주세요.'}
-                                </Table.Td></Table.Tr>
-                            )}
-                        </Table.Tbody>
-                    </Table>
-                </ScrollArea>
-            </Paper>
+                {/* Table */}
+                <Paper shadow="sm" radius="md" withBorder p="0" bg="white" style={{ overflow: 'hidden' }}>
+                    <ScrollArea h={650} type="auto">
+                        <Table highlightOnHover verticalSpacing="sm" horizontalSpacing="md" striped withColumnBorders stickyHeader>
+                            <Table.Thead bg="gray.0">
+                                <Table.Tr>
+                                    <Table.Th style={{ minWidth: 140 }}>
+                                        <ExcelColumnFilter
+                                            title="시험 구분"
+                                            field="round_info"
+                                            options={filterOptions['round_info'] || []}
+                                            selected={filters['round_info'] || []}
+                                            onApply={(val) => setFilters(prev => ({ ...prev, 'round_info': val }))}
+                                        />
+                                    </Table.Th>
+                                    {renderHeader('시험 응시 과목', 'subject_display')}
+                                    {renderHeader('소속', 'affiliation')}
+                                    {renderHeader('이름', 'name')}
+                                    {renderHeader('주민등록번호', 'resident_id')}
+                                    {renderHeader('주소', 'address')}
+                                    {renderHeader('전화번호', 'phone')}
+                                    {renderHeader('고사장', 'location_name')}
+                                    {renderHeader('상태', 'is_confirmed')}
+                                </Table.Tr>
+                            </Table.Thead>
+                            <Table.Tbody>
+                                {isLoading ? (
+                                    <Table.Tr><Table.Td colSpan={9} align="center" py={80}><Loader color="orange" type="dots" /></Table.Td></Table.Tr>
+                                ) : filteredRows.length > 0 ? (
+                                    filteredRows.map((item) => (
+                                        <Table.Tr key={item.id}>
+                                            <Table.Td>
+                                                <Stack gap={0}>
+                                                    <Text size="xs" c="dimmed">{dayjs(item.exam_date).format('YYYY-MM-DD')}</Text>
+                                                    <Text size="sm" fw={500} style={{ whiteSpace: 'normal', lineHeight: 1.3 }}>
+                                                        {item.round_label}
+                                                    </Text>
+                                                </Stack>
+                                            </Table.Td>
+                                            <Table.Td>
+                                                <Badge variant="light" color="blue" radius="sm">
+                                                    {getRowValue(item, 'subject_display')}
+                                                </Badge>
+                                            </Table.Td>
+                                            <Table.Td><Text size="sm">{item.affiliation}</Text></Table.Td>
+                                            <Table.Td><Text fw={600} size="sm">{item.name}</Text></Table.Td>
+                                            <Table.Td><Text size="sm" c="dimmed">{item.resident_id}</Text></Table.Td>
+                                            <Table.Td style={{ maxWidth: 200 }}>
+                                                <Tooltip label={item.address} disabled={!item.address || item.address === '-'}>
+                                                    <Text size="sm" truncate>{item.address}</Text>
+                                                </Tooltip>
+                                            </Table.Td>
+                                            <Table.Td><Text size="sm">{item.phone}</Text></Table.Td>
+                                            <Table.Td><Text size="sm">{item.location_name}</Text></Table.Td>
+                                            <Table.Td>
+                                                <SegmentedControl
+                                                    size="xs"
+                                                    radius="xl"
+                                                    data={[
+                                                        { label: '미접수', value: 'false' },
+                                                        { label: '접수 완료', value: 'true' },
+                                                    ]}
+                                                    value={String(item.is_confirmed)}
+                                                    onChange={(v) => updateStatusMutation.mutate({ id: item.id, isConfirmed: v === 'true' })}
+                                                    color={item.is_confirmed ? 'orange' : 'gray'}
+                                                    styles={{
+                                                        root: { backgroundColor: item.is_confirmed ? '#fff4e6' : '#f1f3f5' },
+                                                        indicator: { backgroundColor: item.is_confirmed ? HANWHA_ORANGE : '#adb5bd' },
+                                                        label: { fontWeight: 600 }
+                                                    }}
+                                                    disabled={updateStatusMutation.isPending && updateStatusMutation.variables?.id === item.id}
+                                                />
+                                            </Table.Td>
+                                        </Table.Tr>
+                                    ))
+                                ) : (
+                                    <Table.Tr><Table.Td colSpan={9} align="center" py={80} c="dimmed">
+                                        <Stack align="center" gap="xs">
+                                            <IconSearch size={40} color="#dee2e6" />
+                                            <Text>데이터가 없습니다.</Text>
+                                        </Stack>
+                                    </Table.Td></Table.Tr>
+                                )}
+                            </Table.Tbody>
+                        </Table>
+                    </ScrollArea>
+                </Paper>
+            </Stack>
         </Container>
     );
 }

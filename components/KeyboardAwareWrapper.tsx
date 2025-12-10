@@ -1,5 +1,5 @@
-import { ReactNode, ReactElement } from 'react';
-import { Keyboard, TouchableWithoutFeedback, ViewStyle, RefreshControlProps } from 'react-native';
+import { ReactElement, ReactNode } from 'react';
+import { Keyboard, RefreshControlProps, TouchableWithoutFeedback, ViewStyle } from 'react-native';
 import { KeyboardAwareScrollView } from 'react-native-keyboard-aware-scroll-view';
 
 type Props = {
@@ -21,7 +21,8 @@ export function KeyboardAwareWrapper({
     <TouchableWithoutFeedback onPress={Keyboard.dismiss} accessible={false}>
       <KeyboardAwareScrollView
         enableOnAndroid
-        keyboardOpeningTime={0}
+        enableAutomaticScroll
+        enableResetScrollToCoords={false}
         extraScrollHeight={extraScrollHeight}
         keyboardShouldPersistTaps="handled"
         contentContainerStyle={contentContainerStyle}

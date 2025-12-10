@@ -1,7 +1,9 @@
 import { Feather } from '@expo/vector-icons';
 import { useQuery } from '@tanstack/react-query';
+import Constants from 'expo-constants';
 import * as Haptics from 'expo-haptics';
 import { LinearGradient } from 'expo-linear-gradient';
+import * as Notifications from 'expo-notifications';
 import { router, useFocusEffect } from 'expo-router';
 import { MotiView } from 'moti';
 import { useCallback, useEffect, useState } from 'react';
@@ -18,8 +20,6 @@ import {
   View,
 } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
-import * as Notifications from 'expo-notifications';
-import Constants from 'expo-constants';
 
 import { RefreshButton } from '@/components/RefreshButton';
 import { useSession } from '@/hooks/use-session';
@@ -57,7 +57,6 @@ const CARD_SHADOW = {
 type QuickLink = { href: string; title: string; description: string; stepKey?: StepKey };
 
 const quickLinksAdmin: QuickLink[] = [
-  { href: '/dashboard', stepKey: 'step1', title: '인적사항 관리', description: '기본정보 미완료 FC' },
   { href: '/dashboard', stepKey: 'step2', title: '수당 동의 안내', description: '기본 정보 저장 완료 FC' },
   { href: '/dashboard', stepKey: 'step3', title: '서류 안내/검토', description: '제출해야 할 서류 관리' },
   { href: '/dashboard', stepKey: 'step4', title: '위촉 진행', description: '위촉 확인' },
@@ -111,11 +110,10 @@ const fetchCounts = async (role: 'admin' | 'fc' | null, residentId: string): Pro
 };
 
 const ADMIN_METRIC_CONFIG: { label: string; key: StepKey }[] = [
-  { label: '1단계 인적사항', key: 'step1' },
-  { label: '2단계 수당동의', key: 'step2' },
-  { label: '3단계 문서제출', key: 'step3' },
-  { label: '4단계 심사/위촉', key: 'step4' },
-  { label: '5단계 완료', key: 'step5' },
+  { label: '1단계 수당동의', key: 'step2' },
+  { label: '2단계 문서제출', key: 'step3' },
+  { label: '3단계 위촉진행', key: 'step4' },
+  { label: '4단계 완료', key: 'step5' },
 ];
 
 const fetchLatestNotice = async () => {
@@ -544,9 +542,9 @@ export default function Home() {
       <ScrollView
         contentContainerStyle={[styles.container, { paddingBottom: 96 + (insets.bottom || 0) }]}
         refreshControl={
-      <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
-    }
-  >
+          <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
+        }
+      >
         <View style={styles.topBar}>
           <View style={styles.topActions}>
             <Pressable style={styles.logoutButton} onPress={handleLogout}>
@@ -654,25 +652,25 @@ export default function Home() {
                 <Text style={styles.sectionTitle}>현황 요약</Text>
                 {isLoading && <ActivityIndicator color={HANWHA_LIGHT} />}
               </View>
-                  <View style={styles.metricsGrid}>
-                    {!isLoading && counts ? (
-                      <>
-                        {ADMIN_METRIC_CONFIG.map((metric) => (
-                          <MetricCard
-                            key={metric.label}
-                            label={metric.label}
-                            value={`${counts?.steps?.[metric.key] ?? 0}명`}
-                            onPress={() => handleStatClick(metric.key)}
-                          />
-                        ))}
-                      </>
-                    ) : null}
-                  </View>
-                </View>
-              ) : (
-                <View style={styles.progressCard}>
-                  <View style={styles.cardHeader}>
-                    <Text style={styles.sectionTitle}>내 진행 상황</Text>
+              <View style={styles.metricsGrid}>
+                {!isLoading && counts ? (
+                  <>
+                    {ADMIN_METRIC_CONFIG.map((metric) => (
+                      <MetricCard
+                        key={metric.label}
+                        label={metric.label}
+                        value={`${counts?.steps?.[metric.key] ?? 0}명`}
+                        onPress={() => handleStatClick(metric.key)}
+                      />
+                    ))}
+                  </>
+                ) : null}
+              </View>
+            </View>
+          ) : (
+            <View style={styles.progressCard}>
+              <View style={styles.cardHeader}>
+                <Text style={styles.sectionTitle}>내 진행 상황</Text>
                 <Text style={styles.progressMeta}>Step {currentStep}/5</Text>
               </View>
               {statusLoading ? (
@@ -803,275 +801,279 @@ const stepToLink = (key: string) => {
       return '/docs-upload';
     case 'url':
       return '/appointment';
+    case 'final':
+      return '';
     default:
       return '';
   }
 };
 
-const MetricCard = ({ label, value, onPress }: { label: string; value: string; onPress?: () => void }) => (
-  <Pressable
-    style={({ pressed }) => [styles.metricCard, pressed && styles.pressedOpacity]}
-    onPress={onPress}
-  >
-    <Text style={styles.metricLabel}>{label}</Text>
-    <Text style={styles.metricValue}>{value}</Text>
-    <View style={styles.metricIcon}>
-      <Feather name="arrow-up-right" size={16} color="#cbd5e1" />
-    </View>
-  </Pressable>
-);
+const MetricCard = ({ label, value, onPress }: { label: string; value: string; onPress: () => void }) => {
+  return (
+    <Pressable style={styles.metricItem} onPress={onPress}>
+      <Text style={styles.metricValue}>{value}</Text>
+      <Text style={styles.metricLabel}>{label}</Text>
+    </Pressable>
+  );
+};
 
 const styles = StyleSheet.create({
-  safe: { flex: 1, backgroundColor: SOFT_BG },
+  safe: { flex: 1, backgroundColor: '#fff' },
   container: {
-    paddingHorizontal: 20,
-    paddingTop: 16,
-    paddingBottom: 96,
-    gap: 16,
+    paddingBottom: 20,
+    backgroundColor: '#fff',
   },
   topBar: {
+    paddingHorizontal: 20,
+    paddingVertical: 12,
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    marginBottom: 4,
+    marginBottom: 8,
   },
-  topActions: { flexDirection: 'row', alignItems: 'center', gap: 8 },
-  rightActions: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  topActions: { flexDirection: 'row', alignItems: 'center', gap: 12 },
   logoutButton: {
-    paddingHorizontal: 14,
-    paddingVertical: 8,
-    borderRadius: 12,
-    backgroundColor: '#fff',
-    borderWidth: 1,
-    borderColor: BORDER,
+    backgroundColor: '#F3F4F6',
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 20,
   },
-  logoutText: { color: CHARCOAL, fontWeight: '600', fontSize: 13 },
+  logoutText: { fontSize: 14, color: TEXT_MUTED, fontWeight: '600' },
   bellButton: {
     width: 36,
     height: 36,
     borderRadius: 18,
+    backgroundColor: '#fff',
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: '#fff',
     borderWidth: 1,
-    borderColor: BORDER,
+    borderColor: '#E5E7EB',
   },
-  deleteButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 4,
-    paddingHorizontal: 10,
-    paddingVertical: 8,
-    borderRadius: 12,
-    borderWidth: 1,
-    borderColor: BORDER,
-    backgroundColor: '#fff',
-  },
-  deleteButtonText: { color: HANWHA_ORANGE, fontWeight: '600', fontSize: 12 },
-  pressedOpacity: { opacity: 0.7 },
-  pressedScale: { transform: [{ scale: 0.96 }] },
-
+  rightActions: { flexDirection: 'row', alignItems: 'center', gap: 12 },
+  deleteButton: { flexDirection: 'row', alignItems: 'center', gap: 4 },
+  deleteButtonText: { fontSize: 13, color: HANWHA_ORANGE, fontWeight: '600' },
   notice: {
+    marginHorizontal: 20,
+    marginBottom: 20,
+    padding: 16, // Increased padding
+    backgroundColor: ORANGE_FAINT,
+    borderRadius: 12,
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 10,
-    backgroundColor: '#fff',
-    padding: 14,
-    borderRadius: 16,
-    borderWidth: 1,
-    borderColor: 'rgba(0,0,0,0.03)',
-    ...CARD_SHADOW,
+    gap: 8,
   },
-  noticeDot: { width: 8, height: 8, borderRadius: 4, backgroundColor: HANWHA_ORANGE },
-  noticeText: { color: CHARCOAL, fontWeight: '600', fontSize: 14, flex: 1 },
-
+  noticeDot: {
+    width: 6,
+    height: 6,
+    borderRadius: 3,
+    backgroundColor: HANWHA_ORANGE,
+  },
+  noticeText: {
+    flex: 1,
+    fontSize: 16, // 13 -> 16
+    color: CHARCOAL,
+    fontWeight: '500',
+  },
+  pressedOpacity: { opacity: 0.7 },
+  pressedScale: { transform: [{ scale: 0.98 }] },
+  // CTA
   ctaCard: {
-    borderRadius: 22,
+    marginHorizontal: 20,
+    borderRadius: 24,
     padding: 24,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
+    marginBottom: 24,
+    position: 'relative',
     overflow: 'hidden',
-    ...CARD_SHADOW,
-    shadowColor: HANWHA_ORANGE,
-    shadowOpacity: 0.25,
-    shadowRadius: 12,
-    minHeight: 100,
   },
-  ctaContent: { flex: 1, gap: 6, zIndex: 1 },
+  ctaContent: { zIndex: 1 },
   ctaBadge: {
-    backgroundColor: 'rgba(255,255,255,0.25)',
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-    borderRadius: 8,
     alignSelf: 'flex-start',
+    backgroundColor: 'rgba(255,255,255,0.2)',
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 12,
+    marginBottom: 12,
   },
-  ctaBadgeText: { color: '#fff', fontWeight: '700', fontSize: 11 },
-  ctaTitle: { color: '#fff', fontWeight: '800', fontSize: 20 },
-  ctaSub: { color: '#fff5eb', fontSize: 13 },
+  ctaBadgeText: { color: '#fff', fontWeight: '700', fontSize: 13 }, // 11 -> 13
+  ctaTitle: {
+    fontSize: 26, // 22 -> 26
+    fontWeight: '800',
+    color: '#fff',
+    marginBottom: 6,
+  },
+  ctaSub: {
+    fontSize: 16, // 14 -> 16
+    color: 'rgba(255,255,255,0.9)',
+    lineHeight: 22,
+  },
   ctaIconCircle: {
+    position: 'absolute',
+    right: 20,
+    top: 24,
     width: 48,
     height: 48,
     borderRadius: 24,
     backgroundColor: '#fff',
     alignItems: 'center',
     justifyContent: 'center',
-    zIndex: 1,
+    ...CARD_SHADOW,
   },
   ctaDecoCircle: {
     position: 'absolute',
-    right: -30,
-    top: -30,
+    right: -40,
+    bottom: -40,
     width: 140,
     height: 140,
     borderRadius: 70,
-    backgroundColor: 'rgba(255,255,255,0.15)',
-    zIndex: 0,
+    backgroundColor: 'rgba(255,255,255,0.1)',
   },
-
+  // Metrics
   metricsCard: {
-    backgroundColor: '#fff',
-    borderRadius: 20,
-    padding: 20,
-    ...CARD_SHADOW,
-  },
-  progressCard: {
-    backgroundColor: '#fff',
-    borderRadius: 20,
-    padding: 20,
-    gap: 16,
-    ...CARD_SHADOW,
+    marginHorizontal: 20,
+    marginBottom: 24,
   },
   cardHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    marginBottom: 10,
+    marginBottom: 12,
   },
-  sectionTitle: { fontWeight: '800', fontSize: 17, color: CHARCOAL },
-  progressMeta: { color: TEXT_MUTED, fontWeight: '600', fontSize: 13 },
-
-  metricsGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 10 },
-  metricCard: {
-    backgroundColor: '#f8fafc',
-    padding: 16,
-    borderRadius: 16,
-    width: '48%',
-    position: 'relative',
+  sectionTitle: {
+    fontSize: 20, // 18 -> 20
+    fontWeight: '700',
+    color: CHARCOAL,
   },
-  metricIcon: { position: 'absolute', right: 12, top: 12 },
-  metricLabel: { color: TEXT_MUTED, fontSize: 12, marginBottom: 4 },
-  metricValue: { color: CHARCOAL, fontSize: 18, fontWeight: '800' },
-
-  glanceRow: { flexDirection: 'row', gap: 10 },
-  glancePill: {
-    flex: 1,
-    padding: 16,
-    borderRadius: 16,
-    backgroundColor: '#fff',
-    borderWidth: 1,
-    borderColor: '#f1f5f9',
-  },
-  glancePrimary: { backgroundColor: ORANGE_FAINT, borderColor: 'transparent' },
-  glanceGhost: { backgroundColor: '#f8fafc' },
-  glanceLabel: { color: HANWHA_ORANGE, fontWeight: '700', fontSize: 11, marginBottom: 4 },
-  glanceValue: { color: CHARCOAL, fontWeight: '700', fontSize: 14 },
-
-  linksSection: { marginTop: 8, marginBottom: 4 },
-  actionGrid: {
+  metricsGrid: {
     flexDirection: 'row',
     flexWrap: 'wrap',
-    gap: 12,
+    gap: 10,
+  },
+  metricItem: {
+    width: '48%',
+    backgroundColor: '#fff',
+    borderRadius: 16,
+    padding: 16,
+    borderWidth: 1,
+    borderColor: BORDER,
+    ...CARD_SHADOW,
+    alignItems: 'center',
+  },
+  metricValue: {
+    fontSize: 24, // 20 -> 24
+    fontWeight: '800',
+    color: HANWHA_ORANGE,
+    marginBottom: 4,
+  },
+  metricLabel: {
+    fontSize: 15, // 13 -> 15
+    color: TEXT_MUTED,
+    fontWeight: '500',
+  },
+  // Progress
+  progressCard: {
+    marginHorizontal: 20,
+    marginBottom: 24,
+    padding: 20,
+    backgroundColor: '#fff',
+    borderRadius: 20,
+    borderWidth: 1,
+    borderColor: BORDER,
+    ...CARD_SHADOW,
+  },
+  progressMeta: { fontSize: 15, fontWeight: '700', color: HANWHA_ORANGE }, // 13 -> 15
+  statusRow: { flexDirection: 'row', marginBottom: 20, alignItems: 'center' },
+  statusItem: { flex: 1, alignItems: 'center' },
+  statusLabel: { fontSize: 14, color: TEXT_MUTED, marginBottom: 6 }, // 12 -> 14
+  statusBadge: { paddingHorizontal: 8, paddingVertical: 4, borderRadius: 6 },
+  statusText: { fontSize: 13, fontWeight: '700' }, // 11 -> 13
+  statusDivider: { width: 1, height: 24, backgroundColor: BORDER, marginHorizontal: 12 },
+  glanceRow: {
+    flexDirection: 'row',
+    gap: 10,
+    marginTop: 20,
+    paddingTop: 16,
+    borderTopWidth: 1,
+    borderTopColor: '#F3F4F6',
+  },
+  glancePill: {
+    flex: 1,
+    borderRadius: 12,
+    padding: 12,
+  },
+  glancePrimary: { backgroundColor: ORANGE_FAINT },
+  glanceGhost: { backgroundColor: '#F9FAFB' },
+  glanceLabel: { fontSize: 13, color: TEXT_MUTED, marginBottom: 4 }, // 11 -> 13
+  glanceValue: { fontSize: 16, fontWeight: '700', color: CHARCOAL }, // 14 -> 16
+  // Links
+  linksSection: {
+    marginHorizontal: 20,
+    marginBottom: 12,
+  },
+  actionGrid: {
+    marginHorizontal: 20,
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    justifyContent: 'space-between',
   },
   actionCardGrid: {
     backgroundColor: '#fff',
-    borderRadius: 18,
+    borderRadius: 16,
     padding: 16,
-    width: '100%',
-    minHeight: 110,
-    justifyContent: 'space-between',
+    marginBottom: 14,
+    borderWidth: 1,
+    borderColor: BORDER,
     ...CARD_SHADOW,
-    shadowOpacity: 0.03,
+    minHeight: 120, // Increased height to accommodate larger text
   },
   iconCircle: {
     width: 40,
     height: 40,
     borderRadius: 20,
-    backgroundColor: '#fff',
-    borderWidth: 1,
-    borderColor: '#feeadd',
+    backgroundColor: ORANGE_FAINT,
     alignItems: 'center',
     justifyContent: 'center',
-    marginBottom: 10,
+    marginBottom: 12,
   },
-  actionTitleGrid: { color: CHARCOAL, fontSize: 15, fontWeight: '700', marginBottom: 2 },
-  actionDescGrid: { color: TEXT_MUTED, fontSize: 12, lineHeight: 16 },
-
-  stepContainer: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'flex-start',
-    paddingHorizontal: 0,
-    marginVertical: 10,
+  actionTitleGrid: {
+    fontSize: 17, // 15 -> 17
+    fontWeight: '700',
+    color: CHARCOAL,
+    marginBottom: 4,
   },
-  stepWrapper: {
-    alignItems: 'center',
-    width: 58,
-    position: 'relative',
-    zIndex: 1,
+  actionDescGrid: {
+    fontSize: 14, // 12 -> 14
+    color: TEXT_MUTED,
+    lineHeight: 18,
   },
-  stepCircle: {
-    width: 28,
-    height: 28,
-    borderRadius: 14,
-    backgroundColor: '#f1f5f9',
-    borderWidth: 2,
-    borderColor: '#f1f5f9',
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginBottom: 6,
-    zIndex: 2,
-  },
-  stepCircleActive: {
-    backgroundColor: '#fff',
-    borderColor: HANWHA_ORANGE,
-    transform: [{ scale: 1.1 }],
-  },
-  stepCircleDone: { backgroundColor: HANWHA_ORANGE, borderColor: HANWHA_ORANGE },
-  stepNumber: { fontSize: 11, color: '#94a3b8', fontWeight: '800' },
-  stepNumberActive: { color: HANWHA_ORANGE },
-  stepLabel: {
-    fontSize: 11,
-    color: '#94a3b8',
-    fontWeight: '600',
-    textAlign: 'center',
-    letterSpacing: -0.5,
-  },
-  stepLabelActive: { color: CHARCOAL, fontWeight: '800' },
+  // Step
+  stepContainer: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
+  stepWrapper: { flex: 1, alignItems: 'center', position: 'relative' },
   stepConnector: {
     position: 'absolute',
-    top: 13,
+    top: 12,
     left: '50%',
     width: '100%',
     height: 2,
-    backgroundColor: '#f1f5f9',
-    zIndex: 0,
+    backgroundColor: '#E5E7EB',
+    zIndex: -1,
   },
-  stepConnectorDone: { backgroundColor: '#fed7aa' },
-
-  statusRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    backgroundColor: '#F9FAFB',
-    paddingVertical: 12,
-    paddingHorizontal: 16,
+  stepConnectorDone: { backgroundColor: HANWHA_ORANGE },
+  stepCircle: {
+    width: 24,
+    height: 24,
     borderRadius: 12,
-    marginVertical: 4,
+    backgroundColor: '#fff',
+    borderWidth: 2,
+    borderColor: '#D1D5DB',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 6,
+    zIndex: 1,
   },
-  statusItem: { flex: 1, alignItems: 'center', gap: 6 },
-  statusDivider: { width: 1, height: 24, backgroundColor: '#E5E7EB' },
-  statusLabel: { fontSize: 12, fontWeight: '600', color: '#6B7280' },
-  statusBadge: { paddingHorizontal: 8, paddingVertical: 4, borderRadius: 6 },
-  statusText: { fontSize: 12, fontWeight: '700' },
+  stepCircleActive: { borderColor: HANWHA_ORANGE, backgroundColor: '#fff' },
+  stepCircleDone: { backgroundColor: HANWHA_ORANGE, borderColor: HANWHA_ORANGE },
+  stepNumber: { fontSize: 12, color: '#6B7280', fontWeight: '700' }, // 11 -> 12
+  stepNumberActive: { color: HANWHA_ORANGE },
+  stepLabel: { fontSize: 12, color: '#9CA3AF' }, // 11 -> 12
+  stepLabelActive: { color: CHARCOAL, fontWeight: '700' },
 });
