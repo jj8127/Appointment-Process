@@ -15,4 +15,3 @@ Next.js 15, Supabase, Mantine UI 전문가
 <내용>
 
 Sequential Thinking을 사용해서 놓치는 부분 없이 만들어
-

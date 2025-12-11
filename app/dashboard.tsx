@@ -898,6 +898,7 @@ export default function DashboardScreen() {
               <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: 8, alignItems: 'center' }}>
                 <Text style={{ fontSize: 13, fontWeight: '600', color: CHARCOAL }}>필수 서류 요청</Text>
                 <Pressable
+                  style={[styles.docSaveButton, updateDocReqs.isPending && styles.actionButtonDisabled]}
                   onPress={() =>
                     updateDocReqs.mutate({
                       id: fc.id,
@@ -907,7 +908,7 @@ export default function DashboardScreen() {
                   }
                   disabled={updateDocReqs.isPending}
                 >
-                  <Text style={{ color: ORANGE, fontWeight: '700', fontSize: 12 }}>
+                  <Text style={styles.docSaveButtonText}>
                     {updateDocReqs.isPending ? '저장중...' : '요청 저장'}
                   </Text>
                 </Pressable>
@@ -1910,6 +1911,18 @@ const styles = StyleSheet.create({
   },
   docChipSelected: { backgroundColor: ORANGE, borderColor: ORANGE },
   docChipText: { fontSize: 12, color: CHARCOAL },
+  docSaveButton: {
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+    borderRadius: 10,
+    backgroundColor: ORANGE,
+    borderWidth: 1,
+    borderColor: ORANGE,
+    minWidth: 96,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  docSaveButtonText: { color: '#fff', fontSize: 13, fontWeight: '800' },
   scheduleEditRow: {
     flexDirection: 'row',
     flexWrap: 'wrap',

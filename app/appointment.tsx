@@ -1,5 +1,5 @@
 import { Feather } from '@expo/vector-icons';
-import DateTimePicker from '@react-native-community/datetimepicker';
+import DateTimePicker, { DateTimePickerEvent } from '@react-native-community/datetimepicker';
 import { useCallback, useEffect, useState } from 'react';
 import {
   ActivityIndicator,
@@ -116,6 +116,15 @@ export default function AppointmentScreen() {
   }, []);
   const frameWidth = width - 128;
 
+  const handleDateChange = (type: 'life' | 'nonlife', event: DateTimePickerEvent, selectedDate?: Date) => {
+    // Android는 모달을 닫아주지 않으면 다음 터치가 막히는 경우가 있어 즉시 닫는다.
+    if (Platform.OS === 'android') {
+      type === 'life' ? setShowPickerLife(false) : setShowPickerNonLife(false);
+    }
+    if (event.type !== 'set' || !selectedDate) return;
+    (type === 'life' ? setDateLife : setDateNonLife)(selectedDate);
+  };
+
   const submitDate = async (type: 'life' | 'nonlife') => {
     if (!residentId) return;
     const targetDate = type === 'life' ? dateLife : dateNonLife;
@@ -128,40 +137,47 @@ export default function AppointmentScreen() {
     setSaving(true);
     setSaved(false);
     const ymd = toYMD(targetDate);
-    // FC는 날짜를 입력하지만 최종 승인은 총무가 진행: 상태만 업데이트하고 날짜는 알림으로 전달
-    // appointment_date_life/nonlife 컬럼은 총무 승인 시에만 기록됨
-    const payload = { status: 'appointment-completed' };
+    const dateField = type === 'life' ? 'appointment_date_life' : 'appointment_date_nonlife';
+    const payload: Record<string, any> = { [dateField]: ymd };
 
-    const { data, error } = await supabase
-      .from('fc_profiles')
-      .update(payload)
-      .eq('phone', residentId)
-      .select('id,name')
-      .maybeSingle();
-    setSaving(false);
+    try {
+      const { data, error } = await supabase
+        .from('fc_profiles')
+        .update(payload)
+        .eq('phone', residentId)
+        .select('id,name,appointment_date_life,appointment_date_nonlife')
+        .maybeSingle();
 
-    if (error || !data) {
-      Alert.alert('저장 실패', error?.message ?? '정보를 저장하지 못했습니다.');
-      return;
+      if (error || !data) {
+        throw error ?? new Error('정보를 저장하지 못했습니다.');
+      }
+
+      // 서버 값을 기준으로 다시 세팅해 저장 여부가 화면에 유지되도록 한다.
+      if (data.appointment_date_life) setDateLife(new Date(data.appointment_date_life));
+      if (data.appointment_date_nonlife) setDateNonLife(new Date(data.appointment_date_nonlife));
+
+      supabase.functions
+        .invoke('fc-notify', {
+          body: {
+            type: 'fc_update',
+            fc_id: data.id,
+            message: `${data.name}님이 ${type === 'life' ? '생명보험' : '손해보험'} 위촉 완료를 보고했습니다. (입력일: ${ymd})`,
+          },
+        })
+        .catch(() => { });
+
+      Alert.alert(
+        '제출 완료',
+        `${type === 'life' ? '생명보험' : '손해보험'} 위촉 완료일이 저장되었습니다.\n총무 승인 후 최종 반영됩니다.`,
+      );
+      // 최신 상태 반영
+      await load();
+      setSaved(true);
+    } catch (err: any) {
+      Alert.alert('저장 실패', err?.message ?? '정보를 저장하지 못했습니다.');
+    } finally {
+      setSaving(false);
     }
-
-    supabase.functions
-      .invoke('fc-notify', {
-        body: {
-          type: 'fc_update',
-          fc_id: data.id,
-          message: `${data.name}님이 ${type === 'life' ? '생명보험' : '손해보험'} 위촉 완료를 보고했습니다. (입력일: ${ymd})`,
-        },
-      })
-      .catch(() => { });
-
-    Alert.alert(
-      '제출 완료',
-      `${type === 'life' ? '생명보험' : '손해보험'} 위촉 완료일이 저장되었습니다.\n총무 승인 후 최종 반영됩니다.`,
-    );
-    // 최신 상태 반영
-    await load();
-    setSaved(true);
   };
 
   const onRefresh = useCallback(async () => {
@@ -175,7 +191,7 @@ export default function AppointmentScreen() {
 
   if (role !== 'fc') {
     return (
-      <SafeAreaView style={styles.safe} edges={['left', 'right', 'bottom']}>
+      <SafeAreaView style={styles.safe} edges={['top', 'left', 'right', 'bottom']}>
         <View style={[styles.container, { alignItems: 'center', justifyContent: 'center' }]}>
           <Text style={styles.infoText}>FC 계정으로 로그인하면 이용할 수 있습니다.</Text>
         </View>
@@ -184,7 +200,7 @@ export default function AppointmentScreen() {
   }
 
   return (
-    <SafeAreaView style={styles.safe} edges={['left', 'right', 'bottom']}>
+    <SafeAreaView style={styles.safe} edges={['top', 'left', 'right', 'bottom']}>
       <ScrollView
         contentContainerStyle={[styles.container, { paddingBottom: keyboardPadding + 40 }]}
         contentInsetAdjustmentBehavior="never"
@@ -229,7 +245,7 @@ export default function AppointmentScreen() {
                       mode="date"
                       display="default"
                       locale="ko-KR"
-                      onChange={(_, d) => d && setDateLife(d)}
+                      onChange={(event, d) => handleDateChange('life', event, d ?? undefined)}
                       style={{ alignSelf: 'flex-start' }}
                     />
                   ) : (
@@ -244,10 +260,7 @@ export default function AppointmentScreen() {
                     <DateTimePicker
                       value={dateLife ?? new Date()}
                       mode="date"
-                      onChange={(_, d) => {
-                        setShowPickerLife(false);
-                        if (d) setDateLife(d);
-                      }}
+                      onChange={(event, d) => handleDateChange('life', event, d ?? undefined)}
                     />
                   )}
                 </View>
@@ -284,7 +297,7 @@ export default function AppointmentScreen() {
                       mode='date'
                       display='default'
                       locale='ko-KR'
-                      onChange={(_, d) => d && setDateNonLife(d)}
+                      onChange={(event, d) => handleDateChange('nonlife', event, d ?? undefined)}
                       style={{ alignSelf: 'flex-start' }}
                     />
                   ) : (
@@ -299,10 +312,7 @@ export default function AppointmentScreen() {
                     <DateTimePicker
                       value={dateNonLife ?? new Date()}
                       mode="date"
-                      onChange={(_, d) => {
-                        setShowPickerNonLife(false);
-                        if (d) setDateNonLife(d);
-                      }}
+                      onChange={(event, d) => handleDateChange('nonlife', event, d ?? undefined)}
                     />
                   )}
                 </View>
