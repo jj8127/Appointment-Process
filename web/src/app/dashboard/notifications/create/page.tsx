@@ -37,7 +37,7 @@ export default function CreateNoticePage() {
             title: '',
             body: '',
         },
-        validate: zodResolver(schema),
+        validate: zodResolver(schema as any),
     });
 
     const handleSubmit = async (values: typeof form.values) => {

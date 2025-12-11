@@ -19,7 +19,7 @@ import {
     TextInput,
     Title
 } from '@mantine/core';
-import { DateInput } from '@mantine/dates';
+import { Calendar, DateInput } from '@mantine/dates';
 import { useForm, zodResolver } from '@mantine/form';
 import { useDisclosure } from '@mantine/hooks';
 import { notifications } from '@mantine/notifications';
@@ -74,7 +74,8 @@ export default function ExamSchedulePage() {
 
     // --- Form ---
     const form = useForm<RoundFormValues>({
-        resolver: zodResolver(roundSchema),
+        // Mantine zodResolver typing is loose; cast to satisfy schema constraint
+        validate: zodResolver(roundSchema as any),
         initialValues: {
             exam_date: new Date(),
             registration_deadline: new Date(),
@@ -241,13 +242,6 @@ export default function ExamSchedulePage() {
         },
     });
 
-    // ...
-
-    const handleConfirmDelete = () => {
-        if (!deleteTarget) return;
-        deleteMutation.mutate(deleteTarget.id);
-    };
-
     // --- Handlers ---
     const handleOpenCreate = () => {
         setEditingId(null);
@@ -347,7 +341,7 @@ export default function ExamSchedulePage() {
             </Group>
 
             {viewMode === 'list' ? (
-                <Paper shadow="sm" radius="lg" withBorder overflow="hidden">
+                <Paper shadow="sm" radius="lg" withBorder style={{ overflow: 'hidden' }}>
                     <ScrollArea>
                         <Table verticalSpacing="md" highlightOnHover>
                             <Table.Thead bg="#F9FAFB">
@@ -379,7 +373,6 @@ export default function ExamSchedulePage() {
                             size="xl"
                             styles={{
                                 day: { borderRadius: 8, height: 56 },
-                                cell: { padding: 4 }
                             }}
                             renderDay={(date) => {
                                 const dayStr = dayjs(date).format('YYYY-MM-DD');
@@ -393,7 +386,7 @@ export default function ExamSchedulePage() {
                                             color: isToday ? HANWHA_ORANGE : undefined,
                                             marginBottom: 2
                                         }}>
-                                            {date.getDate()}
+                                            {dayjs(date).date()}
                                         </span>
                                         {round && (
                                             <Box

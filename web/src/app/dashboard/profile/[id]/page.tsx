@@ -193,7 +193,7 @@ export default function FcProfilePage({ params }: { params: Promise<{ id: string
     if (isProfileLoading) return <LoadingOverlay visible />;
     if (!profile) return <Container py="xl"><Text>FC 정보를 찾을 수 없습니다.</Text></Container>;
 
-    const adminStepLabel = getAdminStep(profile);
+    const adminStepLabel = getAdminStep(profile as any);
 
     return (
         <Box bg={BACKGROUND} style={{ minHeight: '100vh' }}>

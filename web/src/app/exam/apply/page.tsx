@@ -109,7 +109,7 @@ export default function AdminExamManagePage() {
         .order('created_at', { ascending: false });
 
       if (error) throw error;
-      setRows((data ?? []) as Row[]);
+      setRows((data ?? []) as unknown as Row[]);
     } catch (e) {
       const err = e as Error;
       notifications.show({ title: '조회 실패', message: err.message, color: 'red' });

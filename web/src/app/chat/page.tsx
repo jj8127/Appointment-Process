@@ -21,7 +21,7 @@ import { IconArrowLeft, IconSend, IconUser } from '@tabler/icons-react';
 import dayjs from 'dayjs';
 import { useRouter, useSearchParams } from 'next/navigation';
 import type React from 'react';
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { Suspense, useEffect, useMemo, useRef, useState } from 'react';
 
 type Message = {
   id: string;
@@ -38,7 +38,7 @@ type Message = {
 const HANWHA_ORANGE = '#f36f21';
 const CHARCOAL = '#111827';
 
-export default function ChatPage() {
+function ChatContent() {
   const { role, residentId, hydrated } = useSession();
   const params = useSearchParams();
   const router = useRouter();
@@ -355,5 +355,13 @@ export default function ChatPage() {
         </Box>
       </Paper>
     </Container>
+  );
+}
+
+export default function ChatPage() {
+  return (
+    <Suspense fallback={<Container py="xl"><Loader /></Container>}>
+      <ChatContent />
+    </Suspense>
   );
 }
