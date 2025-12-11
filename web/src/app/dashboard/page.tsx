@@ -52,6 +52,7 @@ import { notifications } from '@mantine/notifications';
 import { useRouter } from 'next/navigation';
 import { sendPushNotification } from '../actions';
 import { updateAppointmentAction } from './appointment/actions';
+import { updateDocStatusAction } from './docs/actions';
 
 export default function DashboardPage() {
   const router = useRouter();
@@ -732,17 +733,89 @@ export default function DashboardPage() {
                               style={{ borderRadius: 8, border: '1px solid #e9ecef' }}
                             >
                               <Group gap="sm">
-                                <ThemeIcon size="lg" color="blue" variant="light" radius="md">
-                                  <IconFileText size={20} />
+                                <ThemeIcon
+                                  size="lg"
+                                  color={d.status === 'approved' ? 'green' : d.status === 'rejected' ? 'red' : 'blue'}
+                                  variant="light"
+                                  radius="md"
+                                >
+                                  {d.status === 'approved' ? <IconCheck size={20} /> : d.status === 'rejected' ? <IconX size={20} /> : <IconFileText size={20} />}
                                 </ThemeIcon>
                                 <div>
-                                  <Text size="sm" fw={500}>{d.doc_type}</Text>
+                                  <Text size="sm" fw={500} td={d.status === 'rejected' ? 'line-through' : undefined} c={d.status === 'rejected' ? 'dimmed' : undefined}>
+                                    {d.doc_type}
+                                  </Text>
                                   {d.file_name && <Text size="xs" c="dimmed">{d.file_name}</Text>}
+                                  <Badge size="xs" variant={d.status === 'pending' ? 'outline' : 'light'} color={d.status === 'approved' ? 'green' : d.status === 'rejected' ? 'red' : 'gray'}>
+                                    {d.status === 'approved' ? '승인됨' : d.status === 'rejected' ? '반려됨' : '심사 대기'}
+                                  </Badge>
                                 </div>
                               </Group>
-                              <Button variant="default" size="xs" onClick={() => handleOpenDoc(d.storage_path)}>
-                                열기
-                              </Button>
+                              <Group gap={4}>
+                                <Button variant="default" size="xs" onClick={() => handleOpenDoc(d.storage_path)}>
+                                  열기
+                                </Button>
+                                <Divider orientation="vertical" />
+                                <ActionIcon.Group>
+                                  <Tooltip label="반려">
+                                    <ActionIcon
+                                      variant="light"
+                                      color="red"
+                                      size="lg"
+                                      disabled={d.status === 'rejected'}
+                                      onClick={async () => {
+                                        if (!confirm('문서를 반려하시겠습니까?')) return;
+                                        const res = await updateDocStatusAction({ success: false }, {
+                                          fcId: selectedFc.id,
+                                          phone: selectedFc.phone,
+                                          docType: d.doc_type,
+                                          status: 'rejected'
+                                        });
+                                        if (res.success) {
+                                          notifications.show({ title: '반려', message: '문서가 반려되었습니다.', color: 'red' });
+                                          queryClient.invalidateQueries({ queryKey: ['dashboard-list'] });
+                                          // Note: We need to see if selectedFc updates automatically or needs help
+                                          // Since selectedFc is state, and invalidateQueries fetches list.
+                                          // The list items update, but selectedFc state does not unless we update it.
+                                          // For now, let's close and reopen or just accept it might be stale until reopen.
+                                          // Ideally close();
+                                          close();
+                                        } else {
+                                          notifications.show({ title: '오류', message: res.error, color: 'red' });
+                                        }
+                                      }}
+                                    >
+                                      <IconX size={16} />
+                                    </ActionIcon>
+                                  </Tooltip>
+                                  <Tooltip label="승인">
+                                    <ActionIcon
+                                      variant="light"
+                                      color="green"
+                                      size="lg"
+                                      disabled={d.status === 'approved'}
+                                      onClick={async () => {
+                                        if (!confirm('문서를 승인하시겠습니까?')) return;
+                                        const res = await updateDocStatusAction({ success: false }, {
+                                          fcId: selectedFc.id,
+                                          phone: selectedFc.phone,
+                                          docType: d.doc_type,
+                                          status: 'approved'
+                                        });
+                                        if (res.success) {
+                                          notifications.show({ title: '승인', message: res.message, color: 'green' });
+                                          queryClient.invalidateQueries({ queryKey: ['dashboard-list'] });
+                                          close();
+                                        } else {
+                                          notifications.show({ title: '오류', message: res.error, color: 'red' });
+                                        }
+                                      }}
+                                    >
+                                      <IconCheck size={16} />
+                                    </ActionIcon>
+                                  </Tooltip>
+                                </ActionIcon.Group>
+                              </Group>
                             </Group>
                           ))}
                       </Stack>

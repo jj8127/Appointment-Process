@@ -15,15 +15,15 @@ import {
   Select,
   Title,
 } from '@mantine/core';
-import { DateInput } from '@mantine/dates';
+import { DateInput, type DateValue } from '@mantine/dates';
 import { notifications } from '@mantine/notifications';
 import dayjs from 'dayjs';
 import { useRouter } from 'next/navigation';
 import { useEffect, useState } from 'react';
 
 type FormState = {
-  exam_date: Date | null;
-  registration_deadline: Date | null;
+  exam_date: DateValue;
+  registration_deadline: DateValue;
   round_label: string;
   notes: string;
   exam_type: 'life' | 'nonlife' | null;

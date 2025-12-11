@@ -139,7 +139,12 @@ export default function AuthPage() {
                         label="휴대폰 번호 / 관리자 코드"
                         placeholder="숫자만 입력"
                         value={phoneInput}
-                        onChange={(event) => setPhoneInput(event.currentTarget.value)}
+                        type="tel"
+                        inputMode="numeric"
+                        pattern="[0-9]*"
+                        maxLength={11}
+                        autoComplete="tel"
+                        onChange={(event) => setPhoneInput(event.currentTarget.value.replace(/[^0-9]/g, ''))}
                         onKeyDown={(e) => {
                             if (e.key === 'Enter') handleLogin();
                         }}

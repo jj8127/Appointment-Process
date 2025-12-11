@@ -67,13 +67,60 @@ export async function updateAppointmentAction(
     }
 
     // 2. Perform DB Update
-    const { error: updateError } = await supabase
+    const { data: updatedProfile, error: updateError } = await supabase
         .from('fc_profiles')
         .update(updatePayload)
-        .eq('id', fcId);
+        .eq('id', fcId)
+        .select()
+        .single();
 
     if (updateError) {
         return { success: false, error: `업데이트 실패: ${updateError.message}` };
+    }
+
+    // 2.1 Update Status based on Mobile Logic
+    // Mobile Logic:
+    // const bothSet = Boolean(data?.appointment_date_life) && Boolean(data?.appointment_date_nonlife);
+    // const nextStatus = date === null ? 'docs-approved' : bothSet ? 'final-link-sent' : 'appointment-completed';
+
+    // We need to determine the 'nextStatus' based on the UPDATED profile data.
+    // 'value' is the input. IF type is 'reject', value is effectively null logic (cleared).
+    // IF type is 'confirm', value is set.
+
+    // Mobile logic uses the *input* date to decide if it's a rejection (reset to docs-approved)
+    // OR looks at the state.
+    // Let's replicate strict logic:
+    // If we JUST cleared a date (type === reject), we go back to 'docs-approved'.
+    // If we JUST set a date (type === confirm), we check if BOTH are set.
+
+    if (type === 'confirm' || type === 'reject') {
+        let nextStatus = '';
+        if (type === 'reject') {
+            // If rejecting, Mobile logic suggests reverting to docs-approved.
+            // "date === null ? 'docs-approved'"
+            nextStatus = 'docs-approved';
+        } else {
+            // Confirming
+            const lifeSet = !!updatedProfile.appointment_date_life;
+            const nonlifeSet = !!updatedProfile.appointment_date_nonlife;
+            if (lifeSet && nonlifeSet) {
+                nextStatus = 'final-link-sent';
+            } else {
+                nextStatus = 'appointment-completed';
+            }
+        }
+
+        if (nextStatus) {
+            const { error: statusError } = await supabase
+                .from('fc_profiles')
+                .update({ status: nextStatus })
+                .eq('id', fcId);
+
+            if (statusError) {
+                console.error('Status update failed:', statusError);
+                // Non-fatal, but good to log
+            }
+        }
     }
 
     // 3. Insert Notification History
