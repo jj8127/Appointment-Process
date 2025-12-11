@@ -21,7 +21,7 @@ export async function updateAppointmentAction(
         phone: string;
         type: AppointmentActionType;
         category: AppointmentCategory;
-        value: string | null; // Month (1-12) or Date (YYYY-MM-DD)
+        value: string | null; // 자유 입력 일정 메모 또는 Date(YYYY-MM-DD)
     }
 ): Promise<UpdateAppointmentState> {
     const { fcId, phone, type, category, value } = payload;
@@ -50,10 +50,10 @@ export async function updateAppointmentAction(
 
     // 1. Determine Update Logic & Notification
     if (type === 'schedule') {
-        // Schedule Update (Month)
+        // Schedule Update (Free text)
         updatePayload[`appointment_schedule_${category}`] = value;
         notifTitle = '위촉 예정월 안내';
-        notifBody = `${categoryLabel} 위촉 예정월이 ${value}월로 업데이트되었습니다.`;
+        notifBody = `${categoryLabel} 위촉 예정 정보가 ${value ?? '미입력'}로 업데이트되었습니다.`;
     } else if (type === 'confirm') {
         // Confirm (Date)
         updatePayload[`appointment_date_${category}`] = value;

@@ -7,13 +7,13 @@ import {
   Container,
   Group,
   LoadingOverlay,
-  NumberInput,
   Paper,
   ScrollArea,
   Select,
   Stack,
   Table,
   Text,
+  TextInput,
   ThemeIcon,
   Title,
   Tooltip
@@ -38,11 +38,11 @@ export default function AppointmentPage() {
   const [filterMonth, setFilterMonth] = useState<string | null>('all');
 
   // Local state for inputs
-  // lifeSchedule: number (month), lifeDate: Date | null
+  // lifeSchedule: string, lifeDate: Date | null
   const [inputs, setInputs] = useState<Record<number, {
-    lifeSchedule?: number;
+    lifeSchedule?: string;
     lifeDate?: Date | null;
-    nonLifeSchedule?: number;
+    nonLifeSchedule?: string;
     nonLifeDate?: Date | null;
   }>>({});
 
@@ -80,7 +80,7 @@ export default function AppointmentPage() {
       // Use input value if present, else existing DB value
       const scheduleVal = input[scheduleKey as keyof typeof input] ?? fc[`appointment_schedule_${category}`];
       if (!scheduleVal) {
-        notifications.show({ title: '입력 필요', message: '예정월을 입력해주세요.', color: 'yellow' });
+        notifications.show({ title: '입력 필요', message: '예정 정보를 입력해주세요.', color: 'yellow' });
         return;
       }
       value = String(scheduleVal);
@@ -138,7 +138,7 @@ export default function AppointmentPage() {
     const dbDate = fc[`appointment_date_${category}`];
 
     // Determine values for inputs
-    const scheduleValue = (input[scheduleKey as keyof typeof input] ?? (dbSchedule ? Number(dbSchedule) : '')) as string | number | undefined;
+    const scheduleValue = (input[scheduleKey as keyof typeof input] ?? (dbSchedule ?? '')) as string | undefined;
 
     const dateValueRaw = input[dateKey as keyof typeof input];
     const dateValue = dateValueRaw instanceof Date ? dateValueRaw
@@ -149,20 +149,18 @@ export default function AppointmentPage() {
     return (
       <Stack gap="xs">
         <Group align="flex-end" gap="xs">
-          <NumberInput
-            label="예정월(Plan)"
-            placeholder="월"
-            min={1}
-            max={12}
+          <TextInput
+            label="예정 메모"
+            placeholder="예: 6월 / 7월 예정 / 주소 메모"
             size="xs"
-            w={70}
+            w={160}
             value={scheduleValue}
-            onChange={(v) => handleInputChange(fc.id, scheduleKey, typeof v === 'number' ? v : undefined)}
+            onChange={(v) => handleInputChange(fc.id, scheduleKey, v.currentTarget.value)}
             readOnly={isConfirmed}
             disabled={isConfirmed}
           />
           {!isConfirmed && (
-            <Tooltip label="예정월만 저장">
+            <Tooltip label="예정 메모 저장">
               <ActionIcon variant="light" color="blue" size="md" mb={2} onClick={() => executeAction(fc, 'schedule', category)}>
                 <IconDeviceFloppy size={16} />
               </ActionIcon>

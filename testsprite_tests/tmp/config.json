@@ -1,0 +1,19 @@
+{
+  "status": "commited",
+  "type": "frontend",
+  "scope": "codebase",
+  "localEndpoint": "http://localhost:8081/",
+  "executionArgs": {
+    "projectName": "fc-onboarding-app",
+    "projectPath": "e:\\fc-onboarding-app",
+    "testIds": [],
+    "additionalInstruction": "",
+    "envs": {
+      "API_URL": null,
+      "API_KEY": "sk-user-s_CXMuiGUgECyUArXdN3KL-vtEZkUmKGBG671gsdQIBk9CeTGykNwuQUGc4JVglh6JcW70pga9CKrB_8zMThQAO6UKwR1DMcXwMXo8DE1CiANatXeYsM4ztWcXwmLrpENCk",
+      "TUNNEL_PROXY": null,
+      "TESTSPRITE_URL": null,
+      "TS_API_ENDPOINT": null
+    }
+  }
+}

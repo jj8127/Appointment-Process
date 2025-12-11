@@ -183,6 +183,8 @@ type FcRow = {
   appointment_schedule_nonlife: string | null;
   appointment_date_life: string | null;
   appointment_date_nonlife: string | null;
+  appointment_date_life_sub?: string | null;
+  appointment_date_nonlife_sub?: string | null;
   fc_documents?: { doc_type: string; storage_path: string | null; file_name: string | null; status: string | null }[];
 };
 type FcRowWithStep = FcRow & { stepKey: StepKey };
@@ -233,7 +235,7 @@ const fetchFcs = async (
   let query = supabase
     .from('fc_profiles')
     .select(
-      'id,name,affiliation,phone,temp_id,status,allowance_date,appointment_url,appointment_date,appointment_schedule_life,appointment_schedule_nonlife,appointment_date_life,appointment_date_nonlife,resident_id_masked,career_type,email,address,address_detail,fc_documents(doc_type,storage_path,file_name,status)',
+      'id,name,affiliation,phone,temp_id,status,allowance_date,appointment_url,appointment_date,appointment_schedule_life,appointment_schedule_nonlife,appointment_date_life,appointment_date_nonlife,appointment_date_life_sub,appointment_date_nonlife_sub,resident_id_masked,career_type,email,address,address_detail,fc_documents(doc_type,storage_path,file_name,status)',
     )
     .order('created_at', { ascending: false });
 
@@ -1016,8 +1018,7 @@ export default function DashboardScreen() {
                 <Text style={styles.scheduleInputLabel}>생명 예정월</Text>
                 <TextInput
                   style={styles.scheduleInput}
-                  keyboardType="number-pad"
-                  placeholder="ex. 6"
+                  placeholder="예: 6월 / 7월 예정 / 주소 메모"
                   value={scheduleInput.life ?? ''}
                   onChangeText={(t) =>
                     setScheduleInputs((prev) => ({
@@ -1031,8 +1032,7 @@ export default function DashboardScreen() {
                 <Text style={styles.scheduleInputLabel}>손해 예정월</Text>
                 <TextInput
                   style={styles.scheduleInput}
-                  keyboardType="number-pad"
-                  placeholder="ex. 9"
+                  placeholder="예: 9월 / 10월 예정 / 주소 메모"
                   value={scheduleInput.nonlife ?? ''}
                   onChangeText={(t) =>
                     setScheduleInputs((prev) => ({
@@ -1075,21 +1075,19 @@ export default function DashboardScreen() {
                   <Text style={{ color: ORANGE, fontWeight: '700', fontSize: 11 }}>생명</Text>
                 </View>
                 <Text style={styles.scheduleText}>
-                  {fc.appointment_date_life ? `확정: ${fc.appointment_date_life}` : (lifeVal ? `${lifeVal}월 예정` : '-')}
+                  {fc.appointment_date_life
+                    ? `확정: ${fc.appointment_date_life}`
+                    : fc.appointment_date_life_sub
+                      ? `제출: ${fc.appointment_date_life_sub} (승인 대기)`
+                      : lifeVal
+                        ? `예정: ${lifeVal}`
+                        : '-'}
                 </Text>
               </View>
               <MobileStatusToggle
                 value={lifeApproved ? 'approved' : 'pending'}
                 onChange={(val) => {
-                  const fallbackDate = () => {
-                    if (fc.appointment_date_life) return fc.appointment_date_life;
-                    if (lifeVal) {
-                      const mm = lifeVal.padStart(2, '0');
-                      const yyyy = String(new Date().getFullYear());
-                      return `${yyyy}-${mm}-01`;
-                    }
-                    return new Date().toISOString().split('T')[0];
-                  };
+                  const fallbackDate = () => fc.appointment_date_life || new Date().toISOString().split('T')[0];
 
                   if (val === 'approved') {
                     if (!lifeVal) {
@@ -1154,21 +1152,19 @@ export default function DashboardScreen() {
                   <Text style={{ color: '#2563eb', fontWeight: '700', fontSize: 11 }}>손해</Text>
                 </View>
                 <Text style={styles.scheduleText}>
-                  {fc.appointment_date_nonlife ? `확정: ${fc.appointment_date_nonlife}` : (nonlifeVal ? `${nonlifeVal}월 예정` : '-')}
+                  {fc.appointment_date_nonlife
+                    ? `확정: ${fc.appointment_date_nonlife}`
+                    : fc.appointment_date_nonlife_sub
+                      ? `제출: ${fc.appointment_date_nonlife_sub} (승인 대기)`
+                      : nonlifeVal
+                        ? `예정: ${nonlifeVal}`
+                        : '-'}
                 </Text>
               </View>
               <MobileStatusToggle
                 value={nonlifeApproved ? 'approved' : 'pending'}
                 onChange={(val) => {
-                  const fallbackDate = () => {
-                    if (fc.appointment_date_nonlife) return fc.appointment_date_nonlife;
-                    if (nonlifeVal) {
-                      const mm = nonlifeVal.padStart(2, '0');
-                      const yyyy = String(new Date().getFullYear());
-                      return `${yyyy}-${mm}-01`;
-                    }
-                    return new Date().toISOString().split('T')[0];
-                  };
+                  const fallbackDate = () => fc.appointment_date_nonlife || new Date().toISOString().split('T')[0];
 
                   if (val === 'approved') {
                     if (!nonlifeVal) {
@@ -1503,13 +1499,19 @@ export default function DashboardScreen() {
                       <DetailRow label="수당동의" value={allowanceDisplay} />
                       <DetailRow
                         label="생명 위촉"
-                        value={`${fc.appointment_schedule_life ?? '미정'}월 / 완료 ${fc.appointment_date_life ?? '미입력'
-                          }`}
+                        value={`${fc.appointment_schedule_life ?? '미정'}월 / 완료 ${fc.appointment_date_life ?? '미입력'}`}
                       />
                       <DetailRow
                         label="손해 위촉"
-                        value={`${fc.appointment_schedule_nonlife ?? '미정'}월 / 완료 ${fc.appointment_date_nonlife ?? '미입력'
-                          }`}
+                        value={`${fc.appointment_schedule_nonlife ?? '미정'}월 / 완료 ${fc.appointment_date_nonlife ?? '미입력'}`}
+                      />
+                      <DetailRow
+                        label="생명 제출"
+                        value={fc.appointment_date_life_sub ?? '미입력'}
+                      />
+                      <DetailRow
+                        label="손해 제출"
+                        value={fc.appointment_date_nonlife_sub ?? '미입력'}
                       />
                       <DetailRow label="경력구분" value={careerDisplay} />
                       <DetailRow label="이메일" value={fc.email ?? '-'} />
@@ -1973,4 +1975,3 @@ const styles = StyleSheet.create({
   },
   rejectBtnText: { color: '#b91c1c', fontSize: 11, fontWeight: '600' },
 });
-

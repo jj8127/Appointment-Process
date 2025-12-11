@@ -66,15 +66,26 @@ const APPOINTMENT_IMAGES = [
 export default function AppointmentScreen() {
   const { role, residentId } = useSession();
   const keyboardPadding = useKeyboardPadding();
+
+  // 예정 월
   const [scheduleLife, setScheduleLife] = useState<string | null>(null);
   const [scheduleNonLife, setScheduleNonLife] = useState<string | null>(null);
-  const [dateLife, setDateLife] = useState<Date | null>(null);
-  const [dateNonLife, setDateNonLife] = useState<Date | null>(null);
+
+  // 관리자 승인 날짜
+  const [approvedLife, setApprovedLife] = useState<Date | null>(null);
+  const [approvedNonLife, setApprovedNonLife] = useState<Date | null>(null);
+
+  // FC 제출 날짜
+  const [submittedLife, setSubmittedLife] = useState<Date | null>(null);
+  const [submittedNonLife, setSubmittedNonLife] = useState<Date | null>(null);
+
+  // 화면 입력 값
+  const [displayLife, setDisplayLife] = useState<Date | null>(null);
+  const [displayNonLife, setDisplayNonLife] = useState<Date | null>(null);
+
   const [loading, setLoading] = useState(false);
   const [savingLife, setSavingLife] = useState(false);
   const [savingNonLife, setSavingNonLife] = useState(false);
-  const [savedLife, setSavedLife] = useState(false);
-  const [savedNonLife, setSavedNonLife] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
   const [showPickerLife, setShowPickerLife] = useState(Platform.OS === 'ios');
   const [showPickerNonLife, setShowPickerNonLife] = useState(Platform.OS === 'ios');
@@ -87,7 +98,7 @@ export default function AppointmentScreen() {
     const { data, error } = await supabase
       .from('fc_profiles')
       .select(
-        'appointment_schedule_life,appointment_schedule_nonlife,appointment_date_life,appointment_date_nonlife',
+        'appointment_schedule_life,appointment_schedule_nonlife,appointment_date_life,appointment_date_nonlife,appointment_date_life_sub,appointment_date_nonlife_sub',
       )
       .eq('phone', residentId)
       .maybeSingle();
@@ -96,12 +107,23 @@ export default function AppointmentScreen() {
       Alert.alert('불러오기 실패', error.message ?? '정보를 불러오지 못했습니다.');
       return;
     }
+
     setScheduleLife(data?.appointment_schedule_life ?? null);
     setScheduleNonLife(data?.appointment_schedule_nonlife ?? null);
-    setDateLife(data?.appointment_date_life ? new Date(data.appointment_date_life) : null);
-    setDateNonLife(data?.appointment_date_nonlife ? new Date(data.appointment_date_nonlife) : null);
-    setSavedLife(Boolean(data?.appointment_date_life));
-    setSavedNonLife(Boolean(data?.appointment_date_nonlife));
+
+    const appLife = data?.appointment_date_life ? new Date(data.appointment_date_life) : null;
+    const appNonLife = data?.appointment_date_nonlife ? new Date(data.appointment_date_nonlife) : null;
+    const subLife = data?.appointment_date_life_sub ? new Date(data.appointment_date_life_sub) : null;
+    const subNonLife = data?.appointment_date_nonlife_sub ? new Date(data.appointment_date_nonlife_sub) : null;
+
+    setApprovedLife(appLife);
+    setApprovedNonLife(appNonLife);
+    setSubmittedLife(subLife);
+    setSubmittedNonLife(subNonLife);
+
+    // 표시값: 승인>제출>없음
+    setDisplayLife(appLife || subLife || null);
+    setDisplayNonLife(appNonLife || subNonLife || null);
   }, [residentId]);
 
   useEffect(() => {
@@ -110,51 +132,44 @@ export default function AppointmentScreen() {
 
   useEffect(() => {
     if (APPOINTMENT_IMAGES[0]) {
-      const { width: iw, height: ih } = Image.resolveAssetSource(APPOINTMENT_IMAGES[0]);
-      if (iw && ih) setImageRatio(ih / iw);
+      const src = Image.resolveAssetSource(APPOINTMENT_IMAGES[0]);
+      if (src?.width && src?.height) setImageRatio(src.height / src.width);
     }
   }, []);
-  const frameWidth = width - 128;
+
+  const frameWidth = width - 80;
 
   const handleDateChange = (type: 'life' | 'nonlife', event: DateTimePickerEvent, selectedDate?: Date) => {
-    // Android는 모달을 닫아주지 않으면 다음 터치가 막히는 경우가 있어 즉시 닫는다.
     if (Platform.OS === 'android') {
       type === 'life' ? setShowPickerLife(false) : setShowPickerNonLife(false);
     }
     if (event.type !== 'set' || !selectedDate) return;
-    (type === 'life' ? setDateLife : setDateNonLife)(selectedDate);
+    (type === 'life' ? setDisplayLife : setDisplayNonLife)(selectedDate);
   };
 
   const submitDate = async (type: 'life' | 'nonlife') => {
     if (!residentId) return;
-    const targetDate = type === 'life' ? dateLife : dateNonLife;
+    const targetDate = type === 'life' ? displayLife : displayNonLife;
     if (!targetDate) {
       Alert.alert('날짜 선택', '완료일을 선택해주세요.');
       return;
     }
     const setSaving = type === 'life' ? setSavingLife : setSavingNonLife;
-    const setSaved = type === 'life' ? setSavedLife : setSavedNonLife;
     setSaving(true);
-    setSaved(false);
     const ymd = toYMD(targetDate);
-    const dateField = type === 'life' ? 'appointment_date_life' : 'appointment_date_nonlife';
-    const payload: Record<string, any> = { [dateField]: ymd };
+    const dateField = type === 'life' ? 'appointment_date_life_sub' : 'appointment_date_nonlife_sub';
 
     try {
       const { data, error } = await supabase
         .from('fc_profiles')
-        .update(payload)
+        .update({ [dateField]: ymd })
         .eq('phone', residentId)
-        .select('id,name,appointment_date_life,appointment_date_nonlife')
+        .select('id,name')
         .maybeSingle();
 
       if (error || !data) {
         throw error ?? new Error('정보를 저장하지 못했습니다.');
       }
-
-      // 서버 값을 기준으로 다시 세팅해 저장 여부가 화면에 유지되도록 한다.
-      if (data.appointment_date_life) setDateLife(new Date(data.appointment_date_life));
-      if (data.appointment_date_nonlife) setDateNonLife(new Date(data.appointment_date_nonlife));
 
       supabase.functions
         .invoke('fc-notify', {
@@ -164,15 +179,13 @@ export default function AppointmentScreen() {
             message: `${data.name}님이 ${type === 'life' ? '생명보험' : '손해보험'} 위촉 완료를 보고했습니다. (입력일: ${ymd})`,
           },
         })
-        .catch(() => { });
+        .catch(() => {});
 
       Alert.alert(
         '제출 완료',
-        `${type === 'life' ? '생명보험' : '손해보험'} 위촉 완료일이 저장되었습니다.\n총무 승인 후 최종 반영됩니다.`,
+        `${type === 'life' ? '생명보험' : '손해보험'} 위촉 완료일이 제출되었습니다.\n총무 승인 후 최종 반영됩니다.`,
       );
-      // 최신 상태 반영
       await load();
-      setSaved(true);
     } catch (err: any) {
       Alert.alert('저장 실패', err?.message ?? '정보를 저장하지 못했습니다.');
     } finally {
@@ -192,12 +205,88 @@ export default function AppointmentScreen() {
   if (role !== 'fc') {
     return (
       <SafeAreaView style={styles.safe} edges={['top', 'left', 'right', 'bottom']}>
-        <View style={[styles.container, { alignItems: 'center', justifyContent: 'center' }]}>
+        <View style={[styles.container, { alignItems: 'center', justifyContent: 'center', flex: 1 }]}>
           <Text style={styles.infoText}>FC 계정으로 로그인하면 이용할 수 있습니다.</Text>
         </View>
       </SafeAreaView>
     );
   }
+
+  const renderCard = (type: 'life' | 'nonlife', scheduleMonth: string) => {
+    const isLife = type === 'life';
+    const approvedDate = isLife ? approvedLife : approvedNonLife;
+    const submittedDate = isLife ? submittedLife : submittedNonLife;
+    const displayDate = isLife ? displayLife : displayNonLife;
+    const saving = isLife ? savingLife : savingNonLife;
+    const showPicker = isLife ? showPickerLife : showPickerNonLife;
+    const setShowPicker = isLife ? setShowPickerLife : setShowPickerNonLife;
+
+    const isApproved = !!approvedDate;
+    const isPending = !isApproved && !!submittedDate;
+    const isLocked = isApproved || isPending;
+
+    return (
+      <View style={styles.card}>
+        <View style={styles.badgeRow}>
+          <View style={[styles.badge, isLife ? styles.badgeLife : styles.badgeNonLife]}>
+            <Text style={[styles.badgeText, isLife ? styles.badgeTextLife : styles.badgeTextNonLife]}>
+              {isLife ? '생명보험' : '손해보험'}
+            </Text>
+          </View>
+          <Text style={styles.sectionTitle}>{scheduleMonth}월 위촉 진행</Text>
+        </View>
+        <Text style={styles.sectionDesc}>
+          {isApproved
+            ? '위촉이 최종 승인되었습니다.'
+            : isPending
+            ? '위촉 완료일을 제출했습니다. 총무 승인을 기다려주세요.'
+            : `현재 ${scheduleMonth}월 위촉이 진행 중입니다. 완료되면 날짜를 입력하세요.`}
+        </Text>
+
+        <View style={styles.inputGroup}>
+          <Text style={styles.label}>완료 날짜</Text>
+          {Platform.OS === 'ios' ? (
+            <DateTimePicker
+              value={displayDate ?? new Date()}
+              mode="date"
+              display="default"
+              locale="ko-KR"
+              onChange={(e, d) => !isLocked && handleDateChange(type, e, d)}
+              style={{ alignSelf: 'flex-start', opacity: isLocked ? 0.6 : 1 }}
+              disabled={isLocked}
+            />
+          ) : (
+            <Pressable
+              style={[styles.dateInput, isLocked && styles.disabledInput]}
+              onPress={() => !isLocked && setShowPicker(true)}
+            >
+              <Text style={[styles.dateText, !displayDate && styles.placeholderText]}>
+                {displayDate ? formatKoreanDate(displayDate) : '날짜를 선택하세요'}
+              </Text>
+              <Feather name="calendar" size={18} color={MUTED} />
+            </Pressable>
+          )}
+          {showPicker && Platform.OS === 'android' && (
+            <DateTimePicker
+              value={displayDate ?? new Date()}
+              mode="date"
+              onChange={(e, d) => handleDateChange(type, e, d)}
+            />
+          )}
+        </View>
+
+        <Pressable
+          style={[styles.submitButton, (isLocked || !displayDate || saving) && styles.buttonDisabled]}
+          onPress={() => submitDate(type)}
+          disabled={isLocked || !displayDate || saving}
+        >
+          <Text style={styles.submitButtonText}>
+            {saving ? '저장 중...' : isApproved ? '승인 완료' : isPending ? '승인 대기 중' : '완료 보고하기'}
+          </Text>
+        </Pressable>
+      </View>
+    );
+  };
 
   return (
     <SafeAreaView style={styles.safe} edges={['top', 'left', 'right', 'bottom']}>
@@ -225,109 +314,8 @@ export default function AppointmentScreen() {
               </View>
             )}
 
-            {scheduleLife && (
-              <View style={styles.card}>
-                <View style={styles.badgeRow}>
-                  <View style={[styles.badge, styles.badgeLife]}>
-                    <Text style={[styles.badgeText, styles.badgeTextLife]}>생명보험</Text>
-                  </View>
-                  <Text style={styles.sectionTitle}>{scheduleLife}월 위촉 진행</Text>
-                </View>
-                <Text style={styles.sectionDesc}>
-                  현재 {scheduleLife}월 생명보험 위촉이 진행 중입니다. 완료되면 완료일을 입력해주세요.
-                </Text>
-
-                <View style={styles.inputGroup}>
-                  <Text style={styles.label}>완료 날짜</Text>
-                  {Platform.OS === 'ios' ? (
-                    <DateTimePicker
-                      value={dateLife ?? new Date()}
-                      mode="date"
-                      display="default"
-                      locale="ko-KR"
-                      onChange={(event, d) => handleDateChange('life', event, d ?? undefined)}
-                      style={{ alignSelf: 'flex-start' }}
-                    />
-                  ) : (
-                    <Pressable style={styles.dateInput} onPress={() => setShowPickerLife(true)}>
-                      <Text style={styles.dateText}>
-                        {dateLife ? formatKoreanDate(dateLife) : '날짜를 선택하세요'}
-                      </Text>
-                      <Feather name="calendar" size={18} color={MUTED} />
-                    </Pressable>
-                  )}
-                  {showPickerLife && Platform.OS === 'android' && (
-                    <DateTimePicker
-                      value={dateLife ?? new Date()}
-                      mode="date"
-                      onChange={(event, d) => handleDateChange('life', event, d ?? undefined)}
-                    />
-                  )}
-                </View>
-
-                <Pressable
-                  style={[styles.submitButton, (!dateLife || savingLife) && styles.buttonDisabled]}
-                  onPress={() => submitDate('life')}
-                  disabled={!dateLife || savingLife}
-                >
-                  <Text style={styles.submitButtonText}>
-                    {savingLife ? '저장 중...' : savedLife ? '저장됨' : '완료 저장하기'}
-                  </Text>
-                </Pressable>
-              </View>
-            )}
-
-            {scheduleNonLife && (
-              <View style={styles.card}>
-                <View style={styles.badgeRow}>
-                  <View style={[styles.badge, styles.badgeNonLife]}>
-                    <Text style={[styles.badgeText, styles.badgeTextNonLife]}>손해보험</Text>
-                  </View>
-                  <Text style={styles.sectionTitle}>{scheduleNonLife}월 위촉 진행</Text>
-                </View>
-                <Text style={styles.sectionDesc}>
-                  현재 {scheduleNonLife}월 손해보험 위촉이 진행 중입니다. 완료되면 완료일을 입력해주세요.
-                </Text>
-
-                <View style={styles.inputGroup}>
-                  <Text style={styles.label}>완료 날짜</Text>
-                  {Platform.OS === 'ios' ? (
-                    <DateTimePicker
-                      value={dateNonLife ?? new Date()}
-                      mode='date'
-                      display='default'
-                      locale='ko-KR'
-                      onChange={(event, d) => handleDateChange('nonlife', event, d ?? undefined)}
-                      style={{ alignSelf: 'flex-start' }}
-                    />
-                  ) : (
-                    <Pressable style={styles.dateInput} onPress={() => setShowPickerNonLife(true)}>
-                      <Text style={styles.dateText}>
-                        {dateNonLife ? formatKoreanDate(dateNonLife) : '날짜를 선택하세요'}
-                      </Text>
-                      <Feather name="calendar" size={18} color={MUTED} />
-                    </Pressable>
-                  )}
-                  {showPickerNonLife && Platform.OS === 'android' && (
-                    <DateTimePicker
-                      value={dateNonLife ?? new Date()}
-                      mode="date"
-                      onChange={(event, d) => handleDateChange('nonlife', event, d ?? undefined)}
-                    />
-                  )}
-                </View>
-
-                <Pressable
-                  style={[styles.submitButton, (!dateNonLife || savingNonLife) && styles.buttonDisabled]}
-                  onPress={() => submitDate('nonlife')}
-                  disabled={!dateNonLife || savingNonLife}
-                >
-                  <Text style={styles.submitButtonText}>
-                    {savingNonLife ? '저장 중...' : savedNonLife ? '저장됨' : '완료 저장하기'}
-                  </Text>
-                </Pressable>
-              </View>
-            )}
+            {scheduleLife && renderCard('life', scheduleLife)}
+            {scheduleNonLife && renderCard('nonlife', scheduleNonLife)}
 
             {(scheduleLife || scheduleNonLife) && (
               <View style={styles.card}>
@@ -357,7 +345,7 @@ export default function AppointmentScreen() {
                     const frameHeight = imageRatio ? imageInnerWidth * imageRatio : imageInnerWidth;
                     return (
                       <View style={{ width: frameWidth, alignItems: 'center' }}>
-                        <View style={[styles.imageFrame, { width: frameWidth, height: frameHeight }]}>
+                        <View style={[styles.imageFrame, { width: imageInnerWidth, height: frameHeight }]}>
                           <Image source={item} style={styles.guideImage} resizeMode="contain" />
                         </View>
                       </View>
@@ -382,17 +370,19 @@ const styles = StyleSheet.create({
   safe: { flex: 1, backgroundColor: '#fff' },
   header: {
     paddingHorizontal: 24,
+    paddingTop: 12,
+    paddingBottom: 20,
     borderBottomWidth: 1,
     borderBottomColor: '#F3F4F6',
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'flex-start',
-    gap: 12,
   },
   title: { fontSize: 22, fontWeight: '800', color: CHARCOAL },
-  subtitle: { fontSize: 14, color: MUTED, marginTop: 4 },
-  container: { paddingHorizontal: 24, paddingTop: 0, paddingBottom: 24, gap: 20 },
+  subtitle: { fontSize: 14, color: MUTED, marginTop: 4, width: '90%' },
+  container: { paddingHorizontal: 0, paddingTop: 24, paddingBottom: 24, gap: 20 },
   card: {
+    marginHorizontal: 24,
     backgroundColor: '#fff',
     borderRadius: 16,
     borderWidth: 1,
@@ -406,7 +396,7 @@ const styles = StyleSheet.create({
     elevation: 2,
   },
   sectionTitle: { fontSize: 18, fontWeight: '800', color: CHARCOAL },
-  sectionDesc: { fontSize: 14, color: MUTED },
+  sectionDesc: { fontSize: 14, color: MUTED, lineHeight: 20 },
   badgeRow: { flexDirection: 'row', alignItems: 'center', gap: 10 },
   badge: { paddingHorizontal: 8, paddingVertical: 4, borderRadius: 8 },
   badgeLife: { backgroundColor: '#fff7ed' },
@@ -414,7 +404,7 @@ const styles = StyleSheet.create({
   badgeText: { fontSize: 12, fontWeight: '700' },
   badgeTextLife: { color: HANWHA_ORANGE },
   badgeTextNonLife: { color: '#2563eb' },
-  inputGroup: { gap: 8 },
+  inputGroup: { gap: 8, marginTop: 4 },
   label: { fontSize: 14, fontWeight: '600', color: CHARCOAL },
   dateInput: {
     height: 48,
@@ -427,7 +417,9 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'space-between',
   },
+  disabledInput: { backgroundColor: '#F3F4F6', opacity: 0.7 },
   dateText: { fontSize: 16, color: CHARCOAL },
+  placeholderText: { color: '#9CA3AF' },
   submitButton: {
     height: 52,
     backgroundColor: CHARCOAL,
@@ -437,7 +429,7 @@ const styles = StyleSheet.create({
     marginTop: 8,
   },
   submitButtonText: { color: '#fff', fontSize: 16, fontWeight: '700' },
-  buttonDisabled: { opacity: 0.5 },
+  buttonDisabled: { opacity: 0.5, backgroundColor: '#9CA3AF' },
   infoText: { color: MUTED, fontSize: 14 },
   imageFrame: {
     borderWidth: 1,
@@ -447,15 +439,14 @@ const styles = StyleSheet.create({
     backgroundColor: '#F3F4F6',
     justifyContent: 'center',
     alignItems: 'center',
-    paddingHorizontal: 24,
   },
   guideImage: { width: '100%', height: '100%' },
-  pagination: { flexDirection: 'row', justifyContent: 'center', gap: 6 },
+  pagination: { flexDirection: 'row', justifyContent: 'center', gap: 6, flexWrap: 'wrap', marginTop: 10 },
   dot: {
-    width: 8,
-    height: 8,
-    borderRadius: 4,
+    width: 6,
+    height: 6,
+    borderRadius: 3,
     backgroundColor: '#e5e7eb',
   },
-  dotActive: { backgroundColor: HANWHA_ORANGE },
+  dotActive: { backgroundColor: HANWHA_ORANGE, width: 20 },
 });

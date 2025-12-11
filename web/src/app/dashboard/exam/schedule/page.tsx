@@ -215,19 +215,17 @@ export default function ExamSchedulePage() {
 
     const deleteMutation = useMutation({
         mutationFn: async (roundId: string) => {
-            // 먼저 장소 삭제 후 회차 삭제 (FK 충돌 방지)
-            const { error: locErr } = await supabase.from('exam_locations').delete().eq('round_id', roundId);
-            if (locErr) {
-                // Foreign key 오류일 때는 안내 메시지를 보여주도록 상위에서 처리
-                throw locErr;
+            // Use Server Action for Safe Cascading Delete
+            const { deleteExamRoundAction } = await import('./actions');
+            const result = await deleteExamRoundAction({ success: false }, { roundId });
+            if (!result.success) {
+                throw new Error(result.error || '삭제 실패');
             }
-            const { error: roundErr } = await supabase.from('exam_rounds').delete().eq('id', roundId);
-            if (roundErr) throw roundErr;
         },
         onSuccess: () => {
             notifications.show({
                 title: '삭제 완료',
-                message: '시험 일정이 삭제되었습니다.',
+                message: '시험 일정과 모든 신청 내역이 삭제되었습니다.',
                 color: 'green',
             });
             queryClient.invalidateQueries({ queryKey: ['exam-rounds'] });
@@ -235,17 +233,20 @@ export default function ExamSchedulePage() {
             closeDelete();
         },
         onError: (err: any) => {
-            const message =
-                err?.code === '23503'
-                    ? '이미 신청자가 있어 삭제할 수 없습니다.'
-                    : err?.message || '삭제 중 오류가 발생했습니다.';
             notifications.show({
                 title: '삭제 실패',
-                message,
+                message: err.message || '오류가 발생했습니다.',
                 color: 'red',
             });
         },
     });
+
+    // ...
+
+    const handleConfirmDelete = () => {
+        if (!deleteTarget) return;
+        deleteMutation.mutate(deleteTarget.id);
+    };
 
     // --- Handlers ---
     const handleOpenCreate = () => {
@@ -505,7 +506,7 @@ export default function ExamSchedulePage() {
             <Modal opened={deleteOpened} onClose={closeDelete} title="일정 삭제" centered>
                 <Stack gap="md">
                     <Text size="sm" c="dimmed">
-                        {deleteTarget ? `'${deleteTarget.label}' 일정을 삭제하시겠습니까? 관련 신청자가 있는 경우 삭제가 불가합니다.` : '일정을 삭제하시겠습니까?'}
+                        {deleteTarget ? `'${deleteTarget.label}' 일정을 삭제하시겠습니까?\n주의: 해당 회차의 모든 FC 신청 내역이 초기화(삭제)됩니다.` : '일정을 삭제하시겠습니까?'}
                     </Text>
                     <Group justify="flex-end">
                         <Button variant="default" onClick={closeDelete}>취소</Button>
