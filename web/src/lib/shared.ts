@@ -1,4 +1,4 @@
-import { FcProfile } from '@shared/types/fc';
+import { FcProfile } from '../types/fc';
 
 export const STATUS_LABELS: Record<FcProfile['status'] | string, string> = {
   draft: '임시사번 미발급',
