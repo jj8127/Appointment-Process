@@ -2,7 +2,6 @@
 
 import {
   ActionIcon,
-  Alert,
   Avatar,
   Badge,
   Box,
@@ -13,7 +12,6 @@ import {
   Group,
   LoadingOverlay,
   Modal,
-  NumberInput,
   Paper,
   ScrollArea,
   SimpleGrid,
@@ -24,9 +22,8 @@ import {
   TextInput,
   ThemeIcon,
   Title,
-  Tooltip,
+  Tooltip
 } from '@mantine/core';
-import { DateInput } from '@mantine/dates';
 import { useDisclosure } from '@mantine/hooks';
 import {
   IconCalendar,
@@ -67,14 +64,14 @@ export default function DashboardPage() {
 
   // 수정용 상태
   const [tempIdInput, setTempIdInput] = useState('');
-  const [careerInput, setCareerInput] = useState<'신입' | '경력'>('신입');
+  const [careerInput, setCareerInput] = useState<'신입' | '경력' | null>(null);
   const [selectedDocs, setSelectedDocs] = useState<string[]>([]);
   const [customDocInput, setCustomDocInput] = useState('');
 
   // 위촉 일정 및 승인 상태
   const [appointmentInputs, setAppointmentInputs] = useState<{
-    life?: number;
-    nonlife?: number;
+    life?: string;
+    nonlife?: string;
     lifeDate?: Date | null;
     nonLifeDate?: Date | null;
   }>({});
@@ -85,9 +82,10 @@ export default function DashboardPage() {
     queryFn: async () => {
       const { data, error } = await supabase
         .from('fc_profiles')
-        .select('*, fc_documents(doc_type,storage_path,file_name,status)')
+        .select('*, appointment_date_life_sub, appointment_date_nonlife_sub, fc_documents(doc_type,storage_path,file_name,status)')
         .order('created_at', { ascending: false });
       if (error) throw error;
+      console.log('[DEBUG] Web: Fetched FC List:', JSON.stringify(data, null, 2));
       return data;
     },
   });
@@ -264,7 +262,7 @@ export default function DashboardPage() {
   const handleOpenModal = (fc: any) => {
     setSelectedFc(fc);
     setTempIdInput(fc.temp_id || '');
-    setCareerInput((fc.career_type as '신입' | '경력') || '신입');
+    setCareerInput((fc.career_type as '신입' | '경력') || null);
     const currentDocs = fc.fc_documents?.map((d: any) => d.doc_type) || [];
     console.log('Opening Modal for:', fc.name);
     console.log('Init SelectedDocs:', currentDocs);
@@ -272,10 +270,10 @@ export default function DashboardPage() {
 
     // 위촉 일정 초기화
     setAppointmentInputs({
-      life: fc.appointment_schedule_life ? Number(fc.appointment_schedule_life) : undefined,
-      nonlife: fc.appointment_schedule_nonlife ? Number(fc.appointment_schedule_nonlife) : undefined,
-      lifeDate: fc.appointment_date_life ? new Date(fc.appointment_date_life) : null,
-      nonLifeDate: fc.appointment_date_nonlife ? new Date(fc.appointment_date_nonlife) : null,
+      life: fc.appointment_schedule_life ?? '',
+      nonlife: fc.appointment_schedule_nonlife ?? '',
+      lifeDate: fc.appointment_date_life ? new Date(fc.appointment_date_life) : (fc.appointment_date_life_sub ? new Date(fc.appointment_date_life_sub) : null),
+      nonLifeDate: fc.appointment_date_nonlife ? new Date(fc.appointment_date_nonlife) : (fc.appointment_date_nonlife_sub ? new Date(fc.appointment_date_nonlife_sub) : null),
     });
 
     setCustomDocInput('');
@@ -293,6 +291,50 @@ export default function DashboardPage() {
     window.open(data.signedUrl, '_blank');
   };
 
+  const handleDeleteDocFile = async (doc: any) => {
+    if (!selectedFc) return;
+    if (doc?.status === 'approved') {
+      notifications.show({ title: '삭제 불가', message: '승인된 서류는 삭제할 수 없습니다.', color: 'yellow' });
+      return;
+    }
+    if (!confirm(`'${doc?.doc_type}' 파일을 삭제할까요? 서류 상태가 초기화됩니다.`)) return;
+
+    try {
+      if (doc?.storage_path) {
+        const { error: storageErr } = await supabase.storage.from('fc-documents').remove([doc.storage_path]);
+        if (storageErr) throw storageErr;
+      }
+      const { error: dbError } = await supabase
+        .from('fc_documents')
+        .update({ storage_path: 'deleted', file_name: 'deleted.pdf', status: 'pending', reviewer_note: null })
+        .eq('fc_id', selectedFc.id)
+        .eq('doc_type', doc.doc_type);
+      if (dbError) throw dbError;
+
+      setSelectedFc((prev: any) =>
+        prev
+          ? {
+            ...prev,
+            fc_documents: prev.fc_documents?.map((d: any) =>
+              d.doc_type === doc.doc_type
+                ? { ...d, storage_path: 'deleted', status: 'pending', file_name: 'deleted.pdf' }
+                : d,
+            ),
+          }
+          : prev,
+      );
+
+      notifications.show({ title: '삭제 완료', message: '파일을 삭제했습니다.', color: 'gray' });
+      queryClient.invalidateQueries({ queryKey: ['dashboard-list'] });
+    } catch (err: any) {
+      notifications.show({
+        title: '삭제 실패',
+        message: err?.message ?? '파일 삭제 중 오류가 발생했습니다.',
+        color: 'red',
+      });
+    }
+  };
+
   const handleAppointmentAction = (e: React.MouseEvent, type: 'schedule' | 'confirm' | 'reject', category: 'life' | 'nonlife') => {
     e.stopPropagation();
     let value = null;
@@ -307,8 +349,9 @@ export default function DashboardPage() {
       value = String(scheduleVal);
     } else if (type === 'confirm') {
       const dateVal = category === 'life' ? appointmentInputs.lifeDate : appointmentInputs.nonLifeDate;
+      // Admin simply confirms the existing date.
       if (!dateVal) {
-        notifications.show({ title: '입력 필요', message: '확정일(Actual Date)을 선택해주세요.', color: 'yellow' });
+        notifications.show({ title: '확인 불가', message: 'FC가 아직 확정일을 입력하지 않았습니다.', color: 'red' });
         return;
       }
       value = dayjs(dateVal).format('YYYY-MM-DD');
@@ -358,21 +401,23 @@ export default function DashboardPage() {
       <Stack gap="xs" mt="sm">
         <Text size="sm" fw={600} c="dimmed">{isLife ? '생명보험' : '손해보험'}</Text>
         <Group align="flex-end" grow>
-          <NumberInput
-            label="예정월(Plan)"
-            placeholder="월"
-            min={1}
-            max={12}
-            value={schedule !== undefined ? schedule : ''}
-            onChange={(v: number | string) => setAppointmentInputs(prev => ({ ...prev, [isLife ? 'life' : 'nonlife']: typeof v === 'number' ? v : undefined }))}
+          <TextInput
+            label="예정(Plan)"
+            placeholder="예: 12월 2차 / 1월 1차"
+            value={schedule ?? ''}
+            onChange={(e) => {
+              const val = e.currentTarget?.value || '';
+              setAppointmentInputs(prev => ({ ...prev, [isLife ? 'life' : 'nonlife']: val }));
+            }}
           />
-          <DateInput
+          <TextInput
             label="확정일(Actual)"
-            placeholder="YYYY-MM-DD"
-            valueFormat="YYYY-MM-DD"
-            value={date}
-            onChange={(v) => setAppointmentInputs(prev => ({ ...prev, [isLife ? 'lifeDate' : 'nonLifeDate']: v }))}
-            clearable
+            value={date ? dayjs(date).format('YYYY-MM-DD') : '미실시'}
+            readOnly
+            disabled
+            pointer
+            variant="filled"
+            styles={{ input: { color: date ? undefined : 'gray', cursor: 'default' } }}
           />
         </Group>
         <Group gap={8}>
@@ -384,16 +429,15 @@ export default function DashboardPage() {
           >
             일정 저장
           </Button>
-          <Button
-            variant={isConfirmed ? 'outline' : 'filled'}
-            color={isConfirmed ? 'green' : 'indigo'}
-            size="xs" flex={1}
-            leftSection={<IconCheck size={14} />}
-            loading={isAppointmentPending}
-            onClick={(e) => handleAppointmentAction(e, 'confirm', category)}
-          >
-            {isConfirmed ? '수정 승인' : '위촉 승인'}
-          </Button>
+          <StatusToggle
+            value={isConfirmed ? 'approved' : 'pending'}
+            onChange={(val) => {
+              if (val === 'approved') handleAppointmentAction({ stopPropagation: () => { } } as any, 'confirm', category);
+            }}
+            labelPending="미승인"
+            labelApproved="승인 완료"
+            readOnly={isConfirmed || isAppointmentPending}
+          />
           <Tooltip label="반려 (확정 취소)">
             <ActionIcon
               variant="light" color="red" size="input-xs"
@@ -432,14 +476,40 @@ export default function DashboardPage() {
             <Text size="sm" fw={600} c="dark.5">
               {fc.name}
             </Text>
-            <Text size="xs" c="dimmed">
-              {fc.career_type || '신입'}
-            </Text>
+            {fc.career_type ? (
+              <Text size="xs" c="dimmed">{fc.career_type}</Text>
+            ) : (
+              <Badge color="gray" size="xs" variant="outline">조회중</Badge>
+            )}
           </div>
         </Group>
       </Table.Td>
       <Table.Td>{fc.phone}</Table.Td>
       <Table.Td>{fc.affiliation || '-'}</Table.Td>
+      <Table.Td>
+        {(fc.appointment_date_life || fc.appointment_date_nonlife) ? (
+          <Stack gap={4}>
+            {fc.appointment_date_life && (
+              <Group gap={6}>
+                <Badge variant="light" color="orange" size="xs">생명</Badge>
+                <Text size="sm" fw={700} c="dark.8">
+                  {dayjs(fc.appointment_date_life).format('YYYY-MM-DD')}
+                </Text>
+              </Group>
+            )}
+            {fc.appointment_date_nonlife && (
+              <Group gap={6}>
+                <Badge variant="light" color="blue" size="xs">손해</Badge>
+                <Text size="sm" fw={700} c="dark.8">
+                  {dayjs(fc.appointment_date_nonlife).format('YYYY-MM-DD')}
+                </Text>
+              </Group>
+            )}
+          </Stack>
+        ) : (
+          <Text size="xs" c="dimmed">-</Text>
+        )}
+      </Table.Td>
       <Table.Td>
         <Badge color={getStatusColor(fc.status)} variant="light" size="sm" radius="sm">
           {STATUS_LABELS[fc.status] || fc.status}
@@ -594,7 +664,10 @@ export default function DashboardPage() {
               placeholder="이름, 연락처 검색"
               leftSection={<IconSearch size={16} stroke={1.5} />}
               value={keyword}
-              onChange={(e) => setKeyword(e.currentTarget.value)}
+              onChange={(e) => {
+                const val = e.currentTarget?.value || '';
+                setKeyword(val);
+              }}
               radius="xl"
               w={260}
             />
@@ -609,6 +682,7 @@ export default function DashboardPage() {
                     <Table.Th w={250}>FC 정보</Table.Th>
                     <Table.Th w={180}>연락처</Table.Th>
                     <Table.Th w={200}>소속</Table.Th>
+                    <Table.Th w={150}>위촉 완료일</Table.Th>
                     <Table.Th w={160}>현재 상태</Table.Th>
                     <Table.Th w={120}>진행 단계</Table.Th>
                     <Table.Th w={60} ta="center">관리</Table.Th>
@@ -657,8 +731,8 @@ export default function DashboardPage() {
                   <Text size="lg" fw={700}>
                     {selectedFc.name}
                   </Text>
-                  <Badge variant="light">
-                    {selectedFc.career_type || '신입'}
+                  <Badge variant="light" color={!selectedFc.career_type ? 'gray' : 'blue'}>
+                    {selectedFc.career_type || '조회중'}
                   </Badge>
                 </Group>
                 <Text size="sm" c="dimmed">
@@ -678,9 +752,7 @@ export default function DashboardPage() {
                 <Tabs.Tab value="appointment" leftSection={<IconCalendar size={16} />}>
                   위촉 관리
                 </Tabs.Tab>
-                <Tabs.Tab value="actions" leftSection={<IconCheck size={16} />}>
-                  승인/작업
-                </Tabs.Tab>
+
               </Tabs.List>
 
               <Tabs.Panel value="info">
@@ -689,13 +761,16 @@ export default function DashboardPage() {
                     label="임시사번"
                     placeholder="T-123456"
                     value={tempIdInput}
-                    onChange={(e) => setTempIdInput(e.currentTarget.value)}
+                    onChange={(e) => {
+                      const val = e.currentTarget?.value || '';
+                      setTempIdInput(val);
+                    }}
                   />
                   <Box>
                     <Text size="sm" fw={500} mb={6}>
-                      경력 구분
+                      경력 구분 {careerInput === null && <Text span c="red" size="xs">(선택 필요)</Text>}
                     </Text>
-                    <Chip.Group value={careerInput} onChange={(v) => setCareerInput((v as '신입' | '경력') ?? '신입')}>
+                    <Chip.Group value={careerInput || ''} onChange={(v) => setCareerInput(v as '신입' | '경력' | null)}>
                       <Group gap="xs">
                         <Chip value="신입" color="orange" variant="light">
                           신입
@@ -706,9 +781,63 @@ export default function DashboardPage() {
                       </Group>
                     </Chip.Group>
                   </Box>
+                  <Box mt="md">
+                    <Text fw={600} size="sm" mb="xs">수당 동의 검토</Text>
+                    <StatusToggle
+                      value={selectedFc.status === 'allowance-consented' || ['docs-pending', 'docs-submitted', 'docs-approved', 'appointment-completed', 'final-link-sent'].includes(selectedFc.status) ? 'approved' : 'pending'}
+                      onChange={(val) => {
+                        if (val === 'approved') {
+                          updateStatusMutation.mutate({
+                            status: 'allowance-consented',
+                            title: '수당동의 승인',
+                            msg: '수당 동의가 승인되었습니다. 서류 제출 단계로 진행해주세요.',
+                          });
+                        }
+                      }}
+                      labelPending="미승인"
+                      labelApproved="승인 완료"
+                      readOnly={selectedFc.status === 'allowance-consented' || ['docs-pending', 'docs-submitted', 'docs-approved', 'appointment-completed', 'final-link-sent'].includes(selectedFc.status)}
+                    />
+                  </Box>
+
                   <Button fullWidth mt="md" onClick={() => updateInfoMutation.mutate()} loading={updateInfoMutation.isPending} color="dark">
                     변경사항 저장
                   </Button>
+
+                  <Divider my="sm" />
+
+                  <Group grow>
+                    <Button
+                      variant="light"
+                      color="orange"
+                      leftSection={<IconSend size={16} />}
+                      onClick={async () => {
+                        await supabase
+                          .from('notifications')
+                          .insert({
+                            title: '진행 요청',
+                            body: '관리자가 진행을 요청하였습니다.',
+                            recipient_role: 'fc',
+                            resident_id: selectedFc.phone,
+                          });
+                        notifications.show({ title: '전송 완료', message: '알림을 보냈습니다.', color: 'blue' });
+                      }}
+                    >
+                      재촉 알림
+                    </Button>
+                    <Button
+                      variant="subtle"
+                      color="red"
+                      leftSection={<IconTrash size={16} />}
+                      onClick={() => {
+                        if (confirm('정말로 FC를 삭제하시겠습니까? 관련 서류도 모두 삭제됩니다.')) {
+                          deleteFcMutation.mutate();
+                        }
+                      }}
+                    >
+                      FC 삭제
+                    </Button>
+                  </Group>
                 </Stack>
               </Tabs.Panel>
 
@@ -756,45 +885,12 @@ export default function DashboardPage() {
                                   열기
                                 </Button>
                                 <Divider orientation="vertical" />
-                                <ActionIcon.Group>
-                                  <Tooltip label="반려">
-                                    <ActionIcon
-                                      variant="light"
-                                      color="red"
-                                      size="lg"
-                                      disabled={d.status === 'rejected'}
-                                      onClick={async () => {
-                                        if (!confirm('문서를 반려하시겠습니까?')) return;
-                                        const res = await updateDocStatusAction({ success: false }, {
-                                          fcId: selectedFc.id,
-                                          phone: selectedFc.phone,
-                                          docType: d.doc_type,
-                                          status: 'rejected'
-                                        });
-                                        if (res.success) {
-                                          notifications.show({ title: '반려', message: '문서가 반려되었습니다.', color: 'red' });
-                                          queryClient.invalidateQueries({ queryKey: ['dashboard-list'] });
-                                          // Note: We need to see if selectedFc updates automatically or needs help
-                                          // Since selectedFc is state, and invalidateQueries fetches list.
-                                          // The list items update, but selectedFc state does not unless we update it.
-                                          // For now, let's close and reopen or just accept it might be stale until reopen.
-                                          // Ideally close();
-                                          close();
-                                        } else {
-                                          notifications.show({ title: '오류', message: res.error, color: 'red' });
-                                        }
-                                      }}
-                                    >
-                                      <IconX size={16} />
-                                    </ActionIcon>
-                                  </Tooltip>
-                                  <Tooltip label="승인">
-                                    <ActionIcon
-                                      variant="light"
-                                      color="green"
-                                      size="lg"
-                                      disabled={d.status === 'approved'}
-                                      onClick={async () => {
+                                <Group gap={4}>
+                                  <StatusToggle
+
+                                    value={d.status === 'approved' ? 'approved' : 'pending'}
+                                    onChange={async (val) => {
+                                      if (val === 'approved') {
                                         if (!confirm('문서를 승인하시겠습니까?')) return;
                                         const res = await updateDocStatusAction({ success: false }, {
                                           fcId: selectedFc.id,
@@ -805,16 +901,27 @@ export default function DashboardPage() {
                                         if (res.success) {
                                           notifications.show({ title: '승인', message: res.message, color: 'green' });
                                           queryClient.invalidateQueries({ queryKey: ['dashboard-list'] });
-                                          close();
+                                          close(); // Close to refresh state
                                         } else {
                                           notifications.show({ title: '오류', message: res.error, color: 'red' });
                                         }
-                                      }}
+                                      }
+                                    }}
+                                    labelPending="미승인"
+                                    labelApproved="승인"
+                                    readOnly={d.status === 'approved'}
+                                  />
+                                  <Tooltip label="삭제">
+                                    <ActionIcon
+                                      variant="light"
+                                      color="red"
+                                      size="input-xs"
+                                      onClick={() => handleDeleteDocFile(d)}
                                     >
-                                      <IconCheck size={16} />
+                                      <IconTrash size={16} />
                                     </ActionIcon>
                                   </Tooltip>
-                                </ActionIcon.Group>
+                                </Group>
                               </Group>
                             </Group>
                           ))}
@@ -850,7 +957,10 @@ export default function DashboardPage() {
                       style={{ flex: 1 }}
                       size="xs"
                       value={customDocInput}
-                      onChange={(e) => setCustomDocInput(e.currentTarget.value)}
+                      onChange={(e) => {
+                        const val = e.currentTarget?.value || '';
+                        setCustomDocInput(val);
+                      }}
                     />
                     <Button
                       variant="default"
@@ -875,6 +985,19 @@ export default function DashboardPage() {
                   >
                     서류 요청 업데이트
                   </Button>
+
+                  <Divider my="md" />
+
+                  <Text fw={600} size="sm" mb="xs">서류 심사 완료</Text>
+                  <StatusToggle
+                    value={['docs-approved', 'appointment-completed', 'final-link-sent'].includes(selectedFc.status) ? 'approved' : 'pending'}
+                    onChange={(val) => {
+                      if (val === 'approved') updateStatusMutation.mutate({ status: 'docs-approved', msg: '서류 검토 완료' });
+                    }}
+                    labelPending="심사 대기"
+                    labelApproved="심사 완료"
+                    readOnly={['docs-approved', 'appointment-completed', 'final-link-sent'].includes(selectedFc.status)}
+                  />
                 </Stack>
               </Tabs.Panel>
 
@@ -889,91 +1012,11 @@ export default function DashboardPage() {
                 </Stack>
               </Tabs.Panel>
 
-              <Tabs.Panel value="actions">
-                <Stack gap="md">
-                  <Alert color="gray" radius="md" variant="light">
-                    현재 상태: {STATUS_LABELS[selectedFc.status] || selectedFc.status}
-                  </Alert>
 
-                  <Text fw={600} size="sm" mb="xs">수당 동의 검토</Text>
-                  <StatusToggle
-                    value={selectedFc.status === 'allowance-consented' || selectedFc.status === 'docs-pending' || selectedFc.status === 'docs-submitted' || selectedFc.status === 'docs-approved' ? 'approved' : 'pending'}
-                    onChange={(val) => {
-                      if (val === 'approved') {
-                        updateStatusMutation.mutate({
-                          status: 'allowance-consented',
-                          title: '수당동의 승인',
-                          msg: '수당 동의가 승인되었습니다. 서류 제출 단계로 진행해주세요.',
-                        });
-                      } else {
-                        // Revert logic if needed, but user asked to lock it? 
-                        // "모든 승인 절차에 대해서 승인으로 되어있으면 수정이 불가능하게 바꿔"
-                        // So if it IS approved, we shouldn't even be able to click this?
-                        // But how do we approve it first? 
-                        // It starts as pending. We click Approved. It becomes Approved. THEN it locks?
-                        // That means no undo. 
-                        // That seems risky but requested. "승인으로 되어있으면 수정이 불가능하게 바꿔".
-                        // Okay, I will respect that. 
-                      }
-                    }}
-                    labelPending="미승인"
-                    labelApproved="승인 완료"
-                    readOnly={selectedFc.status === 'allowance-consented' || ['docs-pending', 'docs-submitted', 'docs-approved', 'allowance-consented'].includes(selectedFc.status)}
-                  />
-
-                  {(selectedFc.status === 'docs-pending' || selectedFc.status === 'docs-submitted') && (
-                    <Button
-                      color="green"
-                      fullWidth
-                      leftSection={<IconCheck size={16} />}
-                      onClick={() =>
-                        updateStatusMutation.mutate({ status: 'docs-approved', msg: '서류 검토 완료' })
-                      }
-                    >
-                      서류 검토 완료 (위촉 진행)
-                    </Button>
-                  )}
-
-                  <Divider my="xs" />
-
-                  <Group grow mt="lg">
-                    <Button
-                      variant="light"
-                      color="orange"
-                      leftSection={<IconSend size={16} />}
-                      onClick={async () => {
-                        await supabase
-                          .from('notifications')
-                          .insert({
-                            title: '진행 요청',
-                            body: '관리자가 진행을 요청하였습니다.',
-                            recipient_role: 'fc',
-                            resident_id: selectedFc.phone,
-                          });
-                        notifications.show({ title: '전송 완료', message: '알림을 보냈습니다.', color: 'blue' });
-                      }}
-                    >
-                      재촉 알림
-                    </Button>
-                    <Button
-                      variant="subtle"
-                      color="red"
-                      leftSection={<IconTrash size={16} />}
-                      onClick={() => {
-                        if (confirm('정말로 FC를 삭제하시겠습니까? 관련 서류도 모두 삭제됩니다.')) {
-                          deleteFcMutation.mutate();
-                        }
-                      }}
-                    >
-                      FC 삭제
-                    </Button>
-                  </Group>
-                </Stack>
-              </Tabs.Panel>
             </Tabs>
           </>
         )}
       </Modal>
-    </Box>
+    </Box >
   );
 }

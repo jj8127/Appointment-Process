@@ -76,10 +76,12 @@ export default function AllowanceConsentScreen() {
         .eq('phone', residentId)
         .maybeSingle();
 
-      if (data?.temp_id) setTempId(data.temp_id);
+      console.log('[DEBUG] Mobile: Fetched FC Profile in Consent:', JSON.stringify(data, null, 2));
+
+      setTempId(data?.temp_id ?? '');
       if (data?.allowance_date) setSelectedDate(new Date(data.allowance_date));
-      if (data?.status) setStatus(data.status);
-      if (data?.career_type) setCareerType(data.career_type);
+      setStatus(data?.status ?? null);
+      setCareerType(data?.career_type ?? null);
     };
     load();
   }, [residentId]);
@@ -150,10 +152,10 @@ export default function AllowanceConsentScreen() {
         .eq('phone', residentId)
         .maybeSingle();
 
-      if (data?.temp_id) setTempId(data.temp_id);
+      setTempId(data?.temp_id ?? '');
       if (data?.allowance_date) setSelectedDate(new Date(data.allowance_date));
-      if (data?.status) setStatus(data.status);
-      if (data?.career_type) setCareerType(data.career_type);
+      setStatus(data?.status ?? null);
+      setCareerType(data?.career_type ?? null);
     } finally {
       setRefreshing(false);
     }
@@ -233,19 +235,19 @@ export default function AllowanceConsentScreen() {
               </View>
             ) : null}
 
-            {careerType && (
-              <View style={styles.careerCard}>
-                <View style={styles.careerBadge}>
-                  <Text style={styles.careerBadgeLabel}>지원 유형</Text>
-                </View>
-                <Text style={styles.careerMainText}>{careerType}</Text>
-                <Text style={styles.careerSubText}>
-                  {careerType === '신입'
-                    ? '신입 유형으로 등록되었습니다.'
-                    : '경력 유형으로 등록되었습니다.'}
-                </Text>
+            <View style={styles.careerCard}>
+              <View style={styles.careerBadge}>
+                <Text style={styles.careerBadgeLabel}>지원 유형</Text>
               </View>
-            )}
+              <Text style={styles.careerMainText}>{careerType || '조회중'}</Text>
+              <Text style={styles.careerSubText}>
+                {careerType === '신입'
+                  ? '신입 유형으로 등록되었습니다.'
+                  : careerType === '경력'
+                    ? '경력 유형으로 등록되었습니다.'
+                    : '총무가 경력 여부를 조회중입니다.'}
+              </Text>
+            </View>
 
             <View style={styles.inputGroup}>
               <Text style={styles.label}>임시사번</Text>

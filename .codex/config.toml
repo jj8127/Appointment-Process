@@ -1,0 +1,8 @@
+model = "gpt-5.1-codex-max"
+model_reasoning_effort = "medium"
+
+[mcp_servers.testsprite]
+command = "npx.cmd"
+args = ["-y", "@testsprite/testsprite-mcp@latest"]
+env = { API_KEY = "sk-user-MP3ineOpBiCzM-nkvGSSuxrDiDD8DHCOVp6aRzikD1FkpPg9-ApMYWzjkYkVztqWfvOok8S45ai-9jITEN4NXJz2W7jBfozwhUXWYLYNTqsG-Gt04iX2ONlUUu6BgGxTQ2E" }
+startup_timeout_sec = 120

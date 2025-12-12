@@ -217,7 +217,7 @@ export default function FcProfilePage({ params }: { params: Promise<{ id: string
                         <Stack gap={4}>
                             <Group gap="xs" align="center">
                                 <Title order={2} c={CHARCOAL}>{profile.name}</Title>
-                                <Badge variant="light" color="gray">{profile.career_type === 'experienced' ? '경력' : '신입'}</Badge>
+                                <Badge variant="light" color={!profile.career_type ? 'gray' : 'blue'}>{profile.career_type || '조회중'}</Badge>
                             </Group>
                             <Group gap="lg">
                                 <Group gap={4}>

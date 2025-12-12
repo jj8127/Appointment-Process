@@ -1,4 +1,4 @@
-export type CareerType = '신입' | '경력';
+export type CareerType = '신입' | '경력' | null;
 
 export type FcStatus =
   | 'draft'
@@ -37,6 +37,8 @@ export type FcProfile = {
   appointment_schedule_nonlife?: string | null;
   appointment_date_life?: string | null;
   appointment_date_nonlife?: string | null;
+  appointment_date_life_sub?: string | null;
+  appointment_date_nonlife_sub?: string | null;
   status: FcStatus;
   created_at: string;
   fc_documents?: {

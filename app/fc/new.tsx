@@ -22,7 +22,6 @@ import { KeyboardAwareWrapper, useKeyboardAware } from '@/components/KeyboardAwa
 import { RefreshButton } from '@/components/RefreshButton';
 import { useSession } from '@/hooks/use-session';
 import { supabase } from '@/lib/supabase';
-import { CareerType } from '@/types/fc';
 
 const ORANGE = '#f36f21';
 const ORANGE_LIGHT = '#f7b182';
@@ -213,9 +212,11 @@ export default function FcNewScreen() {
       email: values.email,
       address: (values.address ?? '').trim(),
       address_detail: (values.addressDetail ?? '').trim(),
-      career_type: '경력' as CareerType,
+      career_type: null,
       status: 'draft',
     };
+
+    console.log('[DEBUG] Mobile: Creating FC Profile Payload:', JSON.stringify(basePayload, null, 2)); // Debug log
 
     const { data: existing } = await supabase
       .from('fc_profiles')

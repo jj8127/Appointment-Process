@@ -1,4 +1,4 @@
-export type CareerType = '신입' | '경력';
+export type CareerType = '신입' | '경력' | null;
 
 export type FcStatus =
   | 'draft'

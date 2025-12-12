@@ -136,18 +136,27 @@ export default function AppointmentPage() {
     const dateKey = category === 'life' ? 'lifeDate' : 'nonLifeDate';
     const dbSchedule = fc[`appointment_schedule_${category}`];
     const dbDate = fc[`appointment_date_${category}`];
+    const subDate = fc[`appointment_date_${category}_sub`];
 
     // Determine values for inputs
     const scheduleValue = (input[scheduleKey as keyof typeof input] ?? (dbSchedule ?? '')) as string | undefined;
 
     const dateValueRaw = input[dateKey as keyof typeof input];
     const dateValue = dateValueRaw instanceof Date ? dateValueRaw
-      : (dateValueRaw ? new Date(dateValueRaw as any) : (dbDate ? new Date(dbDate) : null));
+      : (dateValueRaw
+        ? new Date(dateValueRaw as any)
+        : (dbDate ? new Date(dbDate) : (subDate ? new Date(subDate) : null)));
 
     const isConfirmed = !!dbDate;
+    const hasSubmitted = !!subDate && !dbDate;
 
     return (
       <Stack gap="xs">
+        {hasSubmitted && (
+          <Badge variant="light" color="orange" size="xs" w="fit-content">
+            FC 제출 {dayjs(subDate).format('YYYY-MM-DD')}
+          </Badge>
+        )}
         <Group align="flex-end" gap="xs">
           <TextInput
             label="예정 메모"
@@ -171,7 +180,7 @@ export default function AppointmentPage() {
         <Group align="flex-end" gap="xs">
           <DateInput
             label="확정일(Actual)"
-            placeholder="YYYY-MM-DD"
+            placeholder={hasSubmitted ? `제출: ${dayjs(subDate).format('YYYY-MM-DD')}` : 'YYYY-MM-DD'}
             valueFormat="YYYY-MM-DD"
             size="xs"
             w={110}
@@ -181,6 +190,11 @@ export default function AppointmentPage() {
             readOnly={isConfirmed}
             disabled={isConfirmed}
           />
+          {hasSubmitted && (
+            <Badge variant="light" color="orange" size="xs" mt={20}>
+              FC 제출 {dayjs(subDate).format('YYYY-MM-DD')}
+            </Badge>
+          )}
         </Group>
 
         <Group gap={4} mt={4}>

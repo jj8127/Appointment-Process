@@ -634,6 +634,48 @@ export default function DashboardScreen() {
     onError: (err: any) => Alert.alert('오류', '문서 상태 업데이트 실패'),
   });
 
+  const deleteDocFile = async ({
+    fcId,
+    docType,
+    storagePath,
+    status,
+  }: {
+    fcId: string;
+    docType: string;
+    storagePath?: string | null;
+    status?: string | null;
+  }) => {
+    if (status === 'approved') {
+      Alert.alert('삭제 불가', '승인된 서류는 삭제할 수 없습니다.');
+      return;
+    }
+    Alert.alert('파일 삭제', `'${docType}' 파일을 삭제할까요?`, [
+      { text: '취소', style: 'cancel' },
+      {
+        text: '삭제',
+        style: 'destructive',
+        onPress: async () => {
+          try {
+            if (storagePath) {
+              const { error: storageErr } = await supabase.storage.from(BUCKET).remove([storagePath]);
+              if (storageErr) throw storageErr;
+            }
+            const { error: dbError } = await supabase
+              .from('fc_documents')
+              .update({ storage_path: 'deleted', file_name: 'deleted.pdf', status: 'pending', reviewer_note: null })
+              .eq('fc_id', fcId)
+              .eq('doc_type', docType);
+            if (dbError) throw dbError;
+            Alert.alert('삭제 완료', '파일을 삭제했습니다.');
+            refetch();
+          } catch (err: any) {
+            Alert.alert('삭제 실패', err?.message ?? '파일 삭제 중 문제가 발생했습니다.');
+          }
+        },
+      },
+    ]);
+  };
+
   const toggleDocSelection = (fcId: string, doc: string) => {
     setDocSelections((prev) => {
       const set = new Set(prev[fcId] ?? []);
@@ -971,27 +1013,43 @@ export default function DashboardScreen() {
                         </Pressable>
                       )}
                     </View>
-                    <MobileStatusToggle
-                      value={doc.status === 'approved' ? 'approved' : 'pending'}
-                      onChange={(val) => {
-                        if (doc.status === 'approved' && val !== 'approved') {
-                          Alert.alert('승인 해제', '이미 승인된 서류입니다. 미승인으로 변경할까요?', [
-                            { text: '취소', style: 'cancel' },
-                            {
-                              text: '변경',
-                              style: 'destructive',
-                              onPress: () =>
-                                updateDocStatus.mutate({ fcId: fc.id, docType, status: val, phone: fc.phone }),
-                            },
-                          ]);
-                          return;
+                    <View style={styles.submittedActions}>
+                      <MobileStatusToggle
+                        value={doc.status === 'approved' ? 'approved' : 'pending'}
+                        onChange={(val) => {
+                          if (doc.status === 'approved' && val !== 'approved') {
+                            Alert.alert('승인 해제', '이미 승인된 서류입니다. 미승인으로 변경할까요?', [
+                              { text: '취소', style: 'cancel' },
+                              {
+                                text: '변경',
+                                style: 'destructive',
+                                onPress: () =>
+                                  updateDocStatus.mutate({ fcId: fc.id, docType, status: val, phone: fc.phone }),
+                              },
+                            ]);
+                            return;
+                          }
+                          updateDocStatus.mutate({ fcId: fc.id, docType, status: val, phone: fc.phone });
+                        }}
+                        labelPending="미승인"
+                        labelApproved="승인"
+                        readOnly={false}
+                      />
+                      <Pressable
+                        style={styles.deleteIconButton}
+                        onPress={() =>
+                          deleteDocFile({
+                            fcId: fc.id,
+                            docType,
+                            storagePath: doc.storage_path,
+                            status: doc.status,
+                          })
                         }
-                        updateDocStatus.mutate({ fcId: fc.id, docType, status: val, phone: fc.phone });
-                      }}
-                      labelPending="미승인"
-                      labelApproved="승인"
-                      readOnly={false}
-                    />
+                      >
+                        <Feather name="trash-2" size={14} color="#b91c1c" />
+                        <Text style={styles.deleteText}>삭제</Text>
+                      </Pressable>
+                    </View>
                   </View>
                 );
               })) : (
@@ -1224,6 +1282,44 @@ export default function DashboardScreen() {
           </View>,
         );
       }
+
+      actionBlocks.push(
+        <View
+          key="danger-zone"
+          style={[
+            styles.cardSection,
+            { backgroundColor: '#fff5f5', borderColor: '#fecdd3' },
+          ]}
+        >
+          <Text style={{ fontSize: 13, fontWeight: '700', color: '#b91c1c', marginBottom: 8 }}>
+            FC 정보 삭제
+          </Text>
+          <Text style={{ color: '#b91c1c', fontSize: 12, marginBottom: 10 }}>
+            프로필과 제출된 서류가 모두 삭제됩니다. 복구할 수 없습니다.
+          </Text>
+          <Pressable
+            style={styles.deleteButton}
+            onPress={() =>
+              Alert.alert(
+                '삭제 확인',
+                `${fc.name || 'FC'} 정보를 삭제할까요?\n제출된 서류도 함께 삭제됩니다.`,
+                [
+                  { text: '취소', style: 'cancel' },
+                  {
+                    text: '삭제',
+                    style: 'destructive',
+                    onPress: () => deleteFc.mutate(fc.id),
+                  },
+                ],
+              )
+            }
+            disabled={deleteFc.isPending}
+          >
+            <Feather name="trash-2" size={16} color="#b91c1c" />
+            <Text style={styles.deleteText}>{deleteFc.isPending ? '삭제중...' : 'FC 정보 삭제'}</Text>
+          </Pressable>
+        </View>,
+      );
     }
 
     return (
@@ -1851,6 +1947,7 @@ const styles = StyleSheet.create({
   submittedTitle: { fontSize: 13, fontWeight: '700', color: CHARCOAL },
   submittedRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', gap: 8, marginBottom: 12 },
   submittedText: { color: CHARCOAL, flex: 1, fontSize: 12 },
+  submittedActions: { flexDirection: 'row', alignItems: 'center', gap: 8 },
   openButton: {
     paddingHorizontal: 10,
     paddingVertical: 6,
@@ -1860,6 +1957,17 @@ const styles = StyleSheet.create({
     backgroundColor: '#fff',
   },
   openButtonText: { color: CHARCOAL, fontSize: 12, fontWeight: '700' },
+  deleteIconButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: '#fecdd3',
+    backgroundColor: '#fff5f5',
+  },
   deleteButton: {
     marginTop: 8,
     flexDirection: 'row',

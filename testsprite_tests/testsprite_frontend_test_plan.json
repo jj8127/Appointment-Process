@@ -1,0 +1,499 @@
+[
+  {
+    "id": "TC001",
+    "title": "User Authentication Success for FC",
+    "description": "Verify that a Finance Consultant (FC) can successfully authenticate using a valid resident ID and is redirected to the FC dashboard with session persistence.",
+    "category": "functional",
+    "priority": "High",
+    "steps": [
+      {
+        "type": "action",
+        "description": "Navigate to the authentication screen"
+      },
+      {
+        "type": "action",
+        "description": "Enter a valid resident ID for an FC user"
+      },
+      {
+        "type": "action",
+        "description": "Submit login credentials"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify login success and user is redirected to the FC dashboard"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify session is persisted across app restarts"
+      }
+    ]
+  },
+  {
+    "id": "TC002",
+    "title": "User Authentication Success for Admin",
+    "description": "Verify that an admin user can authenticate using a valid resident ID and is redirected to the admin dashboard with session persistence.",
+    "category": "functional",
+    "priority": "High",
+    "steps": [
+      {
+        "type": "action",
+        "description": "Navigate to the authentication screen"
+      },
+      {
+        "type": "action",
+        "description": "Enter a valid resident ID for an admin user"
+      },
+      {
+        "type": "action",
+        "description": "Submit login credentials"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify login success and user is redirected to the admin dashboard"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify session is persisted across app restarts"
+      }
+    ]
+  },
+  {
+    "id": "TC003",
+    "title": "User Authentication Failure with Invalid Resident ID",
+    "description": "Verify that authentication fails with an invalid or unregistered resident ID and an appropriate error message is shown.",
+    "category": "error handling",
+    "priority": "High",
+    "steps": [
+      {
+        "type": "action",
+        "description": "Navigate to the authentication screen"
+      },
+      {
+        "type": "action",
+        "description": "Enter an invalid or unregistered resident ID"
+      },
+      {
+        "type": "action",
+        "description": "Submit login credentials"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify login failure and appropriate error message is displayed"
+      }
+    ]
+  },
+  {
+    "id": "TC004",
+    "title": "FC Registration Form Validation Success",
+    "description": "Verify that FC registration form accepts valid personal, contact, and bank information and successfully saves data to Supabase.",
+    "category": "functional",
+    "priority": "High",
+    "steps": [
+      {
+        "type": "action",
+        "description": "Navigate to the FC registration form"
+      },
+      {
+        "type": "action",
+        "description": "Complete all required personal, contact, and bank information fields with valid data"
+      },
+      {
+        "type": "action",
+        "description": "Submit the registration form"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify form submission success and data is saved to Supabase"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify onboarding progress is updated accordingly"
+      }
+    ]
+  },
+  {
+    "id": "TC005",
+    "title": "FC Registration Form Validation for Invalid Input",
+    "description": "Verify that the registration form properly validates and shows errors for invalid or missing input data in all fields.",
+    "category": "error handling",
+    "priority": "High",
+    "steps": [
+      {
+        "type": "action",
+        "description": "Navigate to the FC registration form"
+      },
+      {
+        "type": "action",
+        "description": "Enter invalid data or leave required fields blank in personal, contact, and bank information sections"
+      },
+      {
+        "type": "action",
+        "description": "Attempt to submit the form"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify appropriate validation error messages are displayed for each invalid or missing field"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify form submission is prevented until errors are resolved"
+      }
+    ]
+  },
+  {
+    "id": "TC006",
+    "title": "Allowance Consent Multi-step Agreement Completion",
+    "description": "Verify that FCs can view the allowance consent multi-step agreement, select consent date with date picker, and submit consent successfully.",
+    "category": "functional",
+    "priority": "High",
+    "steps": [
+      {
+        "type": "action",
+        "description": "Navigate to the allowance consent screen"
+      },
+      {
+        "type": "action",
+        "description": "Review all agreement slides sequentially"
+      },
+      {
+        "type": "action",
+        "description": "Select a consent date using the date picker"
+      },
+      {
+        "type": "action",
+        "description": "Submit the consent"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify consent status is updated and timestamp is recorded correctly in FC profile"
+      }
+    ]
+  },
+  {
+    "id": "TC007",
+    "title": "Allowance Consent Handling of Missing Actions",
+    "description": "Verify that missing consent date or incomplete agreement navigation prevents submission with appropriate error messaging.",
+    "category": "error handling",
+    "priority": "Medium",
+    "steps": [
+      {
+        "type": "action",
+        "description": "Navigate to the allowance consent screen"
+      },
+      {
+        "type": "action",
+        "description": "Attempt to submit consent without selecting a date"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify submission is blocked and error message indicating missing consent date is shown"
+      },
+      {
+        "type": "action",
+        "description": "Attempt to submit consent without viewing all agreement steps/slides"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify submission is blocked and prompt to complete agreement is shown"
+      }
+    ]
+  },
+  {
+    "id": "TC008",
+    "title": "Document Upload Success with Notifications",
+    "description": "Verify FCs can select and upload required documents, files are properly saved to Supabase storage, and admins receive push notifications upon submission.",
+    "category": "functional",
+    "priority": "High",
+    "steps": [
+      {
+        "type": "action",
+        "description": "Navigate to the document upload screen"
+      },
+      {
+        "type": "action",
+        "description": "Select required document files using the document picker"
+      },
+      {
+        "type": "action",
+        "description": "Upload selected documents"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify that files are successfully uploaded and stored in Supabase"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify admins receive Expo push notifications regarding the document submission"
+      }
+    ]
+  },
+  {
+    "id": "TC009",
+    "title": "Document Upload Failure Handling",
+    "description": "Verify proper error handling and user feedback when document upload fails due to network or file format issues.",
+    "category": "error handling",
+    "priority": "Medium",
+    "steps": [
+      {
+        "type": "action",
+        "description": "Navigate to the document upload screen"
+      },
+      {
+        "type": "action",
+        "description": "Attempt to upload invalid file formats or simulate network failure during upload"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify that an error message is displayed specifying the upload failure reason"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify upload status reflects failure and user can retry the upload"
+      }
+    ]
+  },
+  {
+    "id": "TC010",
+    "title": "Exam Application Submission Success",
+    "description": "Verify FCs can apply for life and non-life exams by filling out the application forms with correct validation and submitting applications successfully.",
+    "category": "functional",
+    "priority": "High",
+    "steps": [
+      {
+        "type": "action",
+        "description": "Navigate to exam application screen for life and then non-life options"
+      },
+      {
+        "type": "action",
+        "description": "Complete all required fields accurately in the exam application form"
+      },
+      {
+        "type": "action",
+        "description": "Submit exam application"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify application is successfully saved in Supabase"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify UI reflects updated exam application status"
+      }
+    ]
+  },
+  {
+    "id": "TC011",
+    "title": "Exam Application Form Validation Errors",
+    "description": "Verify that incomplete or invalid exam application fields trigger validation errors and prevent submission.",
+    "category": "error handling",
+    "priority": "High",
+    "steps": [
+      {
+        "type": "action",
+        "description": "Navigate to exam application screen"
+      },
+      {
+        "type": "action",
+        "description": "Enter invalid or incomplete data in required fields"
+      },
+      {
+        "type": "action",
+        "description": "Attempt to submit the application"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify validation errors appear for missing or invalid fields"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify application submission is blocked until errors are fixed"
+      }
+    ]
+  },
+  {
+    "id": "TC012",
+    "title": "Admin Exam Management - Candidate Scheduling and Status Update",
+    "description": "Verify admin can view exam applicants, schedule exam dates, update candidate statuses, and changes reflect in UI and data store.",
+    "category": "functional",
+    "priority": "High",
+    "steps": [
+      {
+        "type": "action",
+        "description": "Log in as admin and navigate to exam management screens"
+      },
+      {
+        "type": "action",
+        "description": "View list of exam candidates for life and non-life exams"
+      },
+      {
+        "type": "action",
+        "description": "Schedule exam appointments for candidates"
+      },
+      {
+        "type": "action",
+        "description": "Update candidate exam statuses (e.g. approved, rejected, pending)"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify updates are saved properly in Supabase"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify UI reflects current exam scheduling and candidate status accurately"
+      }
+    ]
+  },
+  {
+    "id": "TC013",
+    "title": "1:1 Chat Messaging Between FCs and Admins",
+    "description": "Verify real-time sending and receiving of messages between FC and admin users, with thread management and push notifications working correctly.",
+    "category": "functional",
+    "priority": "High",
+    "steps": [
+      {
+        "type": "action",
+        "description": "Log in as FC user and open chat interface"
+      },
+      {
+        "type": "action",
+        "description": "Send a message to admin"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify message is delivered to admin and appears in chat thread"
+      },
+      {
+        "type": "action",
+        "description": "Log in as admin and reply to the FC"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify FC receives reply message in real-time"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify that appropriate push notifications are triggered on new messages for both roles"
+      }
+    ]
+  },
+  {
+    "id": "TC014",
+    "title": "Chat Message Failure and Retry Mechanism",
+    "description": "Verify that message sending errors due to network issues properly show failure state and allow users to retry sending messages.",
+    "category": "error handling",
+    "priority": "Medium",
+    "steps": [
+      {
+        "type": "action",
+        "description": "Simulate network failure while sending a chat message as FC or admin"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify message sending fails with visible error or retry indicator"
+      },
+      {
+        "type": "action",
+        "description": "Attempt to resend failed message"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify message is successfully sent after retry when network is restored"
+      }
+    ]
+  },
+  {
+    "id": "TC015",
+    "title": "Admin Notice Creation and Notification Management",
+    "description": "Verify admins can create new notices, publish them, manage notification lists, and that notices are stored and retrievable correctly.",
+    "category": "functional",
+    "priority": "High",
+    "steps": [
+      {
+        "type": "action",
+        "description": "Log in as admin and navigate to notice creation screen"
+      },
+      {
+        "type": "action",
+        "description": "Fill notice form with valid title, content, and optional metadata"
+      },
+      {
+        "type": "action",
+        "description": "Submit and publish the notice"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify notice is saved to Supabase and appears in notice list"
+      },
+      {
+        "type": "action",
+        "description": "Navigate to notification list and verify notice notifications display correctly"
+      }
+    ]
+  },
+  {
+    "id": "TC016",
+    "title": "Admin Registration and Appointment Tools Functionality",
+    "description": "Verify admin tools allow managing registrations and appointments with correct data saving, retrieval, and UI updates.",
+    "category": "functional",
+    "priority": "High",
+    "steps": [
+      {
+        "type": "action",
+        "description": "Log in as admin and open registration management screen"
+      },
+      {
+        "type": "action",
+        "description": "Add, edit, or delete registration entries"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify changes persist in Supabase and reflect instantly in UI"
+      },
+      {
+        "type": "action",
+        "description": "Navigate to appointment management screen"
+      },
+      {
+        "type": "action",
+        "description": "Schedule, modify, or cancel appointments"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify appointment updates persist and UI shows accurate scheduling info"
+      }
+    ]
+  },
+  {
+    "id": "TC017",
+    "title": "UI Component Rendering Consistency Across Devices",
+    "description": "Verify that all reusable, themed UI components render consistently across supported devices and screen sizes, and respond properly to keyboard and notification events.",
+    "category": "ui",
+    "priority": "Medium",
+    "steps": [
+      {
+        "type": "action",
+        "description": "Open screens using parallax scrolling, haptic tabs, status toggles, and keyboard-aware layouts on different device models and orientations"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify UI elements render correctly without layout issues or visual glitches"
+      },
+      {
+        "type": "action",
+        "description": "Trigger keyboard display and hide events and observe UI adjustments"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify keyboard-aware components adjust layout appropriately without occluding inputs"
+      },
+      {
+        "type": "action",
+        "description": "Trigger push notification prompts and observe UI response"
+      },
+      {
+        "type": "assertion",
+        "description": "Verify notification UI components render and function as expected"
+      }
+    ]
+  }
+]

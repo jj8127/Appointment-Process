@@ -30,7 +30,7 @@ export function StatusToggle({
 
     return (
         <SegmentedControl
-            value={value}
+            value={value || 'pending'} // Safety fallback
             onChange={onChange}
             readOnly={readOnly}
             radius="xl"
@@ -39,27 +39,22 @@ export function StatusToggle({
                 { label: labelPending, value: 'pending' },
                 { label: labelApproved, value: 'approved' },
             ]}
+            className="status-toggle"
             styles={{
                 root: {
-                    backgroundColor: '#f1f3f5', // gray.1
+                    backgroundColor: '#f1f3f5',
                     opacity: readOnly ? 0.6 : 1,
                 },
                 indicator: {
-                    backgroundColor: value === 'approved' ? '#fff' : '#fff', // Always white pill
+                    backgroundColor: '#fff',
                     boxShadow: '0 1px 3px rgba(0,0,0,0.1)',
                 },
                 label: {
                     fontWeight: 600,
-                    color: value === 'approved'
-                        ? '#212529' // Active Approved -> Dark
-                        : '#868e96', // Inactive -> Gray
+                    // Temporarily removed custom color logic to fix "Unsupported style property" error.
+                    // Mantine default styles will handle active/inactive states.
                 }
-                // We might need dynamic styling based on WHICH one is active to color text differently
-                // e.g. Approved -> Green text? Pending -> Red text?
-                // User image: "미접수" (Text is Red-ish/Orange), "접수 완료" (Text is Blue/Black)
-                // Let's try to infer color.
             }}
-            color={value === 'approved' ? 'green' : 'gray'} // This affects indicator color in some variants, but we overrode it.
         />
     );
 }

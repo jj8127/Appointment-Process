@@ -1,0 +1,146 @@
+{
+  "meta": {
+    "project": "FC Onboarding App",
+    "date": "2025-12-10",
+    "prepared_by": "Software Development Manager"
+  },
+  "product_overview": "The FC Onboarding App is a comprehensive React Native application designed to streamline the onboarding process of Finance Consultants (FCs) by providing authentication, registration, document management, exam application, and communication tools, all backed by Supabase and integrated with Expo features.",
+  "core_goals": [
+    "Enable secure and role-based authentication and session management for FCs and admins.",
+    "Facilitate a smooth onboarding experience via progressive dashboards, registration forms, and consent collection.",
+    "Provide mechanisms for uploading required documents and notifying administrators on submissions.",
+    "Manage candidate exam applications and allow administrators to oversee exam scheduling and status.",
+    "Support direct communication between FCs and administrators through an integrated chat system.",
+    "Allow admins to create notices and use tools to manage registrations and appointments efficiently.",
+    "Deliver a consistent and accessible user interface with reusable themed components and responsive design."
+  ],
+  "key_features": [
+    "Session & Auth module with role detection and persistent session storage.",
+    "Home dashboard displaying onboarding progress, admin metrics, notices, and push notification prompts.",
+    "FC registration flow with validated personal, contact, and bank information forms including keyboard-aware UI.",
+    "Allowance consent screen with multi-step agreement and date picker for consent submission.",
+    "Document upload feature enabling FCs to submit required files with push notifications to admins.",
+    "Exam application and administrative management screens for life and non-life exams.",
+    "1:1 chat system between FCs and admins with push notifications and thread management.",
+    "Admin tools for creating notices, managing notifications, handling registrations, and appointments.",
+    "Reusable, themed UI components such as parallax scrolling, haptic tabs, and status toggles to ensure UI consistency."
+  ],
+  "user_flow_summary": [
+    "User authentication via resident ID with redirection based on role (FC, admin, FC).",
+    "FCs complete registration forms with validation and submit personal, contact, and bank details.",
+    "FCs provide allowance consent through a guided agreement interface, including date selection and consent status update.",
+    "FCs upload required documents using the document picker and receive notifications upon successful upload.",
+    "FCs apply for exams and admins view, manage candidates, schedule exams, and update statuses.",
+    "FCs and admins communicate through an integrated chat interface supporting real-time messaging and notifications.",
+    "Admins create and publish notices, monitor notifications, and manage onboarding registrations and appointments."
+  ],
+  "validation_criteria": [
+    "Users can authenticate and sessions persist across app restarts with correct role-based routing.",
+    "FC registration forms validate input fields and correctly save data to Supabase.",
+    "Allowance consent is recorded with accurate timestamps and status reflected in FC profiles.",
+    "Documents are uploaded successfully to Supabase storage and trigger notifications to admins.",
+    "Exam application and management functionalities operate correctly with status updates reflected in the UI.",
+    "Chat messages are sent, received, and notifications are triggered reliably for both FCs and admins.",
+    "Admin notices and appointment tools function as expected with correct data storage and retrieval.",
+    "UI components render consistently across supported devices and respond correctly to keyboard and notification events."
+  ],
+  "code_summary": {
+    "tech_stack": [
+      "TypeScript",
+      "React Native (Expo Router)",
+      "Supabase",
+      "React Query, Expo Notifications, DocumentPicker, AsyncStorage"
+    ],
+    "features": [
+      {
+        "name": "Session & auth",
+        "description": "Session hook manages Supabase login, role detection, and persistent storage; auth screen signs users in by resident ID and routes admins/FCs accordingly.",
+        "files": [
+          "hooks/use-session.tsx",
+          "app/auth.tsx",
+          "lib/supabase.ts",
+          "lib/safe-storage.ts"
+        ]
+      },
+      {
+        "name": "Dashboard & onboarding progress",
+        "description": "Home dashboard surfaces FC onboarding steps, admin metrics, quick links, latest notices, and push notification prompts using Supabase data and Expo APIs.",
+        "files": [
+          "app/index.tsx",
+          "app/dashboard.tsx"
+        ]
+      },
+      {
+        "name": "FC registration form",
+        "description": "Registration flow collects FC personal/contact/bank info, validates fields, and saves to Supabase with keyboard-aware layout and status handling.",
+        "files": [
+          "app/fc/new.tsx",
+          "components/KeyboardAwareWrapper.tsx",
+          "hooks/use-keyboard-padding.ts"
+        ]
+      },
+      {
+        "name": "Allowance consent",
+        "description": "Allowance consent screen shows agreement slides, date picker, and submits consent details/status updates for the FC profile.",
+        "files": [
+          "app/consent.tsx"
+        ]
+      },
+      {
+        "name": "Document upload & notifications",
+        "description": "Lists required documents, lets FCs pick/upload files to Supabase storage, and sends Expo push notifications to admins when submissions complete.",
+        "files": [
+          "app/docs-upload.tsx",
+          "lib/docRules.ts",
+          "lib/notifications.ts",
+          "types/fc.ts"
+        ]
+      },
+      {
+        "name": "Exam applications & management",
+        "description": "Screens for FC exam applications (life/non-life) and admin management of applicants, scheduling, and status updates.",
+        "files": [
+          "app/exam-apply.tsx",
+          "app/exam-apply2.tsx",
+          "app/exam-manage.tsx",
+          "app/exam-manage2.tsx",
+          "app/exam-register.tsx",
+          "app/exam-register2.tsx",
+          "types/exam.ts"
+        ]
+      },
+      {
+        "name": "Chat and messaging",
+        "description": "1:1 chat between FCs and admins plus admin messenger management with Supabase-backed threads and push alerts.",
+        "files": [
+          "app/chat.tsx",
+          "app/admin-messenger.tsx",
+          "lib/notifications.ts"
+        ]
+      },
+      {
+        "name": "Notices & admin tools",
+        "description": "Admin notice creation, notification list, registration and appointment helpers for onboarding oversight.",
+        "files": [
+          "app/admin-notice.tsx",
+          "app/notifications.tsx",
+          "app/admin-register.tsx",
+          "app/appointment.tsx",
+          "app/notice.tsx"
+        ]
+      },
+      {
+        "name": "UI components & theming",
+        "description": "Reusable themed UI elements (text/view wrappers, parallax scroll, haptic tabs, status toggle) and shared color tokens.",
+        "files": [
+          "components/themed-view.tsx",
+          "components/themed-text.tsx",
+          "components/parallax-scroll-view.tsx",
+          "components/haptic-tab.tsx",
+          "components/MobileStatusToggle.tsx",
+          "constants/theme.ts"
+        ]
+      }
+    ]
+  }
+}

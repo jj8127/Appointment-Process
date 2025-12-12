@@ -2,18 +2,15 @@
   "status": "commited",
   "type": "frontend",
   "scope": "codebase",
-  "localEndpoint": "http://localhost:8081/",
+  "localEndpoint": "http://localhost:8081",
   "executionArgs": {
     "projectName": "fc-onboarding-app",
-    "projectPath": "e:\\fc-onboarding-app",
+    "projectPath": "E:\\fc-onboarding-app",
     "testIds": [],
     "additionalInstruction": "",
     "envs": {
-      "API_URL": null,
-      "API_KEY": "sk-user-s_CXMuiGUgECyUArXdN3KL-vtEZkUmKGBG671gsdQIBk9CeTGykNwuQUGc4JVglh6JcW70pga9CKrB_8zMThQAO6UKwR1DMcXwMXo8DE1CiANatXeYsM4ztWcXwmLrpENCk",
-      "TUNNEL_PROXY": null,
-      "TESTSPRITE_URL": null,
-      "TS_API_ENDPOINT": null
+      "API_KEY": "sk-user-MP3ineOpBiCzM-nkvGSSuxrDiDD8DHCOVp6aRzikD1FkpPg9-ApMYWzjkYkVztqWfvOok8S45ai-9jITEN4NXJz2W7jBfozwhUXWYLYNTqsG-Gt04iX2ONlUUu6BgGxTQ2E"
     }
-  }
+  },
+  "proxy": "http://e0ca9f8c-bcb7-4736-b463-9e7b356d0bf0:47QIyWLHP0ULs9W32apiY3n8E6yMksMf@tun.testsprite.com:8080"
 }
