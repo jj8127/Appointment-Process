@@ -50,7 +50,7 @@ async def run_test():
         frame = context.pages[-1]
         # Enter valid admin code for login
         elem = frame.locator('xpath=html/body/div/div/div/div/div[2]/div/div/div/div/div/div/div[2]/div[3]/input').nth(0)
-        await page.wait_for_timeout(3000); await elem.fill('123456')
+        await page.wait_for_timeout(3000); await elem.fill('1111')
         
 
         # -> Click the login button to attempt login.
@@ -71,7 +71,7 @@ async def run_test():
         frame = context.pages[-1]
         # Enter a valid numeric admin code for admin login attempt
         elem = frame.locator('xpath=html/body/div/div/div/div/div[2]/div/div/div/div/div/div/div[2]/div[3]/input').nth(0)
-        await page.wait_for_timeout(3000); await elem.fill('123456')
+        await page.wait_for_timeout(3000); await elem.fill('1111')
         
 
         frame = context.pages[-1]
@@ -84,7 +84,7 @@ async def run_test():
         frame = context.pages[-1]
         # Enter a different valid numeric admin code for login attempt
         elem = frame.locator('xpath=html/body/div/div/div/div/div[2]/div/div/div/div/div/div/div[2]/div[3]/input').nth(0)
-        await page.wait_for_timeout(3000); await elem.fill('654321')
+        await page.wait_for_timeout(3000); await elem.fill('1111')
         
 
         frame = context.pages[-1]

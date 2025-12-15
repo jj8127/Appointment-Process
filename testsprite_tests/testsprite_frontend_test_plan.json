@@ -2,104 +2,104 @@
   {
     "id": "TC01",
     "title": "FC 기본 정보 입력",
-    "description": "FC가 로그인 후 필수 인적 사항(이름/전화 11자리/주민번호 앞6+뒤7/주소)을 입력하고 저장이 유지되는지 확인한다.",
+    "description": "FC가 로그인 후 필수 인적 사항(이름/전화 11자리/주민번호 앞6+뒤7/주소)을 저장하고 재진입 시 그대로 유지되는지 검증한다.",
     "category": "functional",
     "priority": "High",
     "steps": [
       { "type": "action", "description": "FC로 로그인하고 기본 정보 입력 화면을 연다." },
-      { "type": "action", "description": "필수 필드를 올바른 형식으로 입력한다(전화 01012345678, 주민번호 9001011234567 등)." },
-      { "type": "assertion", "description": "저장 성공 메시지 또는 다음 단계로 이동을 확인한다." },
-      { "type": "action", "description": "앱을 재시작하거나 화면을 새로고침한다." },
-      { "type": "assertion", "description": "입력한 정보가 그대로 유지되는지 확인한다." }
+      { "type": "action", "description": "전화번호 01012345678, 주민번호 9001011234567 등 올바른 형식으로 모든 필수 필드를 입력해 저장한다." },
+      { "type": "assertion", "description": "저장이 완료되고 오류가 없는지 확인한다." },
+      { "type": "action", "description": "화면을 새로고침하거나 앱을 재시작한다." },
+      { "type": "assertion", "description": "입력한 정보가 유지되는지 확인한다." }
     ]
   },
   {
     "id": "TC02",
     "title": "총무 임시사번 발행 및 경력 등록",
-    "description": "총무가 FC를 선택해 임시사번을 발행하고 경력 유형(신입/경력)을 설정하면 FC 화면에 반영되는지 확인한다.",
+    "description": "관리자 코드 1111로 총무 로그인 후 FC 임시사번을 발행하고 경력 유형(신입/경력)을 설정하면 FC 화면에 반영되는지 확인한다.",
     "category": "functional",
     "priority": "High",
     "steps": [
-      { "type": "action", "description": "총무로 로그인하고 FC 목록에서 대상 FC를 선택한다(관리자 코드 1111 사용)." },
-      { "type": "action", "description": "임시사번을 생성하고 경력 유형을 저장한다." },
-      { "type": "assertion", "description": "임시사번과 경력 정보가 저장되었는지 총무 화면에서 확인한다." },
+      { "type": "action", "description": "총무(관리자 코드 1111)로 로그인해 FC 목록을 연다." },
+      { "type": "action", "description": "대상 FC에 임시사번을 생성하고 경력 유형(신입/경력)을 저장한다." },
+      { "type": "assertion", "description": "총무 화면에서 저장된 임시사번/경력 정보를 확인한다." },
       { "type": "action", "description": "FC로 다시 로그인하거나 새로고침한다." },
-      { "type": "assertion", "description": "FC 수당 동의 화면/프로필에서 임시사번이 표시되는지 확인한다." }
+      { "type": "assertion", "description": "FC 수당 동의/프로필 화면에 임시사번이 표시되는지 확인한다." }
     ]
   },
   {
     "id": "TC03",
     "title": "FC 수당 동의 및 날짜 입력",
-    "description": "임시사번을 가진 FC가 수당 동의 슬라이드를 모두 확인한 뒤 동의 날짜를 입력해 제출할 수 있는지 검증한다.",
+    "description": "임시사번을 가진 FC가 수당 동의 슬라이드를 모두 확인하고 동의 날짜를 입력해 제출할 수 있는지 검증한다.",
     "category": "functional",
     "priority": "High",
     "steps": [
-      { "type": "action", "description": "FC로 로그인하고 수당 동의 화면을 연다." },
-      { "type": "action", "description": "모든 슬라이드를 끝까지 확인하고 임시사번 및 동의 날짜를 입력한다." },
-      { "type": "action", "description": "동의 제출을 완료한다." },
-      { "type": "assertion", "description": "프로필/대시보드 상태가 동의 제출로 업데이트 되었는지 확인한다." }
+      { "type": "action", "description": "FC로 로그인해 수당 동의 화면을 연다." },
+      { "type": "action", "description": "모든 안내 슬라이드를 끝까지 확인한다." },
+      { "type": "action", "description": "임시사번과 동의 날짜를 입력해 제출한다." },
+      { "type": "assertion", "description": "동의 제출이 완료되고 상태가 업데이트되는지 확인한다." }
     ]
   },
   {
     "id": "TC04",
     "title": "총무 수당 동의 승인 및 필수 서류 목록 등록",
-    "description": "총무가 FC의 수당 동의를 승인하고 필수 서류 목록을 등록하면 FC에게 요청이 표시되는지 확인한다.",
+    "description": "총무가 수당 동의를 승인하고 필수 서류 목록을 저장하면 FC에게 서류 요청이 표시되는지 확인한다.",
     "category": "functional",
     "priority": "High",
     "steps": [
-      { "type": "action", "description": "총무로 로그인해 동의 대기 목록에서 대상 FC를 승인한다." },
-      { "type": "action", "description": "필수 서류 항목(문서 타입별)을 등록한다." },
+      { "type": "action", "description": "총무(관리자 코드 1111)로 로그인해 동의 대기 목록에서 대상 FC를 승인한다." },
+      { "type": "action", "description": "필수 서류 목록(문서 타입별)을 등록/저장한다." },
       { "type": "assertion", "description": "총무 화면에서 승인 상태와 서류 목록이 저장되었는지 확인한다." },
-      { "type": "action", "description": "FC로 새로고침한다." },
-      { "type": "assertion", "description": "FC 문서 업로드 화면에 요청된 서류 목록이 표시되는지 확인한다." }
+      { "type": "action", "description": "FC로 새로고침 또는 재로그인한다." },
+      { "type": "assertion", "description": "FC 문서 업로드 화면에서 요청된 서류 리스트가 표시되는지 확인한다." }
     ]
   },
   {
     "id": "TC05",
     "title": "FC 서류 업로드",
-    "description": "FC가 요청된 각 서류를 업로드하고 상태/진행률이 표시되는지 검증한다.",
+    "description": "총무가 등록한 필수 서류 리스트를 기반으로 FC가 서류를 업로드하고 진행률/상태가 표시되는지 검증한다.",
     "category": "functional",
     "priority": "High",
     "steps": [
-      { "type": "action", "description": "FC로 문서 업로드 화면을 연다." },
+      { "type": "action", "description": "FC로 로그인해 문서 업로드 화면을 연다(필수 서류 목록이 표시되어야 함)." },
       { "type": "action", "description": "요청된 각 서류를 업로드한다(정상 파일)." },
-      { "type": "assertion", "description": "업로드 진행률과 완료 상태가 표시되고 목록에 저장되었는지 확인한다." }
+      { "type": "assertion", "description": "업로드 진행률과 완료 상태가 표시되고 리스트에 저장되는지 확인한다." }
     ]
   },
   {
     "id": "TC06",
     "title": "총무 서류 개별 승인",
-    "description": "총무가 각 서류를 검토해 승인/반려 처리하면 FC 상태가 즉시 반영되는지 확인한다.",
+    "description": "총무가 제출된 서류를 개별로 승인/반려 처리하면 FC 상태가 즉시 반영되는지 확인한다.",
     "category": "functional",
     "priority": "High",
     "steps": [
-      { "type": "action", "description": "총무로 로그인해 제출된 서류 목록을 연다." },
+      { "type": "action", "description": "총무(관리자 코드 1111)로 로그인해 제출된 서류 목록을 연다." },
       { "type": "action", "description": "각 서류를 승인하거나 반려한다." },
-      { "type": "assertion", "description": "승인/반려 결과가 저장되고 FC 화면에 상태가 업데이트되는지 확인한다." }
+      { "type": "assertion", "description": "승인/반려 결과가 저장되고 FC 화면에서 상태가 업데이트되는지 확인한다." }
     ]
   },
   {
     "id": "TC07",
-    "title": "총무 위촉 차수 입력",
-    "description": "총무가 생명/손해 위촉 차수를 입력하면 FC에게 해당 차수가 노출되는지 확인한다.",
+    "title": "총무 위촉 차수 및 일정 설정",
+    "description": "총무가 생명/손해 위촉 차수(예: 12월 1차) 및 일정 정보를 저장하면 FC가 확인할 수 있는지 검증한다.",
     "category": "functional",
     "priority": "Medium",
     "steps": [
-      { "type": "action", "description": "총무로 로그인해 위촉 관리 화면을 연다." },
-      { "type": "action", "description": "생명/손해 위촉 차수(예: 12월 1차)를 입력/저장한다." },
-      { "type": "assertion", "description": "FC가 대시보드/위촉 화면에서 차수를 확인할 수 있는지 검증한다." }
+      { "type": "action", "description": "총무(관리자 코드 1111)로 로그인해 위촉 관리 화면을 연다." },
+      { "type": "action", "description": "생명/손해 위촉 차수 및 일정 정보를 입력/저장한다." },
+      { "type": "assertion", "description": "FC 대시보드/위촉 화면에 차수·일정 정보가 표시되는지 확인한다." }
     ]
   },
   {
     "id": "TC08",
     "title": "FC 위촉 날짜 입력",
-    "description": "FC가 위촉 날짜를 입력해 제출할 수 있는지 검증한다.",
+    "description": "총무가 차수/일정을 설정한 후 FC가 위촉 날짜를 입력·제출할 수 있는지 검증한다.",
     "category": "functional",
     "priority": "Medium",
     "steps": [
-      { "type": "action", "description": "FC로 로그인해 위촉 날짜 입력 화면을 연다." },
+      { "type": "action", "description": "FC로 로그인해 위촉 날짜 입력 화면을 연다(총무가 설정한 차수/일정이 보여야 함)." },
       { "type": "action", "description": "위촉 날짜를 입력하고 제출한다." },
-      { "type": "assertion", "description": "입력한 날짜가 저장되고 상태가 업데이트되는지 확인한다." }
+      { "type": "assertion", "description": "입력된 날짜가 저장되고 상태가 업데이트되는지 확인한다." }
     ]
   },
   {
@@ -109,7 +109,7 @@
     "category": "functional",
     "priority": "Medium",
     "steps": [
-      { "type": "action", "description": "총무로 로그인해 위촉 날짜 승인 화면을 연다." },
+      { "type": "action", "description": "총무(관리자 코드 1111)로 로그인해 위촉 날짜 승인 화면을 연다." },
       { "type": "action", "description": "FC가 입력한 위촉 날짜를 승인한다." },
       { "type": "assertion", "description": "FC 상태가 위촉 완료로 변경되고 대시보드에 반영되는지 확인한다." }
     ]
@@ -130,11 +130,11 @@
   {
     "id": "TC11",
     "title": "FC 시험 신청",
-    "description": "시험 타입/일정 입력 후 FC가 시험을 신청하고 상태가 신청 완료로 표시되는지 확인한다.",
+    "description": "수당 동의 승인된 FC가 시험을 신청하고 상태가 신청 완료로 표시되는지 확인한다.",
     "category": "functional",
     "priority": "High",
     "steps": [
-      { "type": "action", "description": "수당 동의 승인된 FC로 로그인해 시험 신청 화면을 연다." },
+      { "type": "action", "description": "승인된 FC로 로그인해 시험 신청 화면을 연다." },
       { "type": "action", "description": "시험 타입/일시/장소 등 필수 정보를 입력해 제출한다." },
       { "type": "assertion", "description": "신청 완료 상태/확인 메시지가 표시되는지 확인한다." }
     ]
@@ -142,11 +142,11 @@
   {
     "id": "TC12",
     "title": "총무 시험 등록 완료",
-    "description": "총무가 접수된 시험 신청을 확인하고 등록 완료 처리 시 FC 상태가 갱신되는지 검증한다.",
+    "description": "총무가 접수된 시험 신청을 등록 완료 처리하면 FC 상태가 갱신되는지 검증한다.",
     "category": "functional",
     "priority": "Medium",
     "steps": [
-      { "type": "action", "description": "총무로 로그인해 시험 신청 대시보드를 연다." },
+      { "type": "action", "description": "총무(관리자 코드 1111)로 로그인해 시험 신청 대시보드를 연다." },
       { "type": "action", "description": "대상 FC 신청을 등록 완료로 처리한다." },
       { "type": "assertion", "description": "FC 측에서 시험 상태가 등록 완료로 업데이트되는지 확인한다." }
     ]
