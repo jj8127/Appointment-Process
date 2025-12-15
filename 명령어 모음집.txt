@@ -1,3 +1,16 @@
 앱 빌드: eas build --platform android --profile production
 앱 실행+설치: npx expo run:android
 웹 실행:cd web & npm run dev
+
+testsprite 사용하기 위한 순서
+1. 웹 번들 생성 
+    npx expo export --platform web --output-dir dist-web
+    npx serve -l 8081 dist-web
+2. 이전 실행 락이 있다면 삭제(없으면 생략)
+    del testsprite_tests\tmp\execution.lock
+
+codex에서 사용 가능한 도구 목록 보기
+1. codex 접속
+    codex
+2. 도구 찾기
+    list_mcp_tools
