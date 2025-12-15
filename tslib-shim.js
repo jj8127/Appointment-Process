@@ -1,8 +1,10 @@
-// Shim to ensure tslib has a default export for Metro (web/native)
-const ts = require('tslib');
+// Directly require the original tslib file using a static path to satisfy Metro's static analyzer
+// This assumes tslib-shim.js is in the project root and tslib is installed in node_modules
+const tslib = require('./node_modules/tslib/tslib.js');
 
-// Provide both named helpers and a default pointing to the same object
+// Ensure we export a valid default for ESM/CommonJS interop
 module.exports = {
-  default: ts,
-  ...ts,
+  ...tslib,
+  default: tslib,
+  __esModule: true,
 };

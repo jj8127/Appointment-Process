@@ -1,85 +1,73 @@
 # TestSprite AI Testing Report (MCP)
 
----
-
-## 1. Document Metadata
+## Document Metadata
 - **Project Name:** fc-onboarding-app
 - **Date:** 2025-12-12
-- **Prepared by:** TestSprite AI (generated via MCP)
+- **Prepared by:** TestSprite AI Team
 
----
+## Requirement Validation Summary
 
-## 2. Requirement Validation Summary
+### Authentication & Session
+- **TC001 — Role-Based Login Success** (Status: Passed)  
+  Admin/FC 로그인 및 세션 흐름 통과. 시각화: https://www.testsprite.com/dashboard/mcp/tests/831122df-731f-41b9-89bb-c8311d44aeff/4c46d8dc-a727-4601-84a7-558507f48845
+- **TC002 — Role-Based Login Failure (Invalid Credentials)** (Status: Passed)  
+  잘못된 자격 증명 거부 확인. 시각화: https://www.testsprite.com/dashboard/mcp/tests/831122df-731f-41b9-89bb-c8311d44aeff/839488b5-a146-46be-b215-ea07f254fd31
+- **TC003 — Push Notification Token Registration** (Status: Passed)  
+  로그인 후 푸시 토큰 등록 흐름 통과. 시각화: https://www.testsprite.com/dashboard/mcp/tests/831122df-731f-41b9-89bb-c8311d44aeff/df49d1db-b4e6-486b-a641-d98d035135f5
+- **TC016 — Session Security and Secure Storage** (Status: Failed)  
+  로그인 입력 제한(숫자만)과 유효 자격 미제공으로 진행 불가. 시각화: https://www.testsprite.com/dashboard/mcp/tests/831122df-731f-41b9-89bb-c8311d44aeff/c2cc1ddd-170b-426a-9586-566cc188b847
 
-### Requirement: Authentication (FC/Admin)
-- **TC001 – User Authentication Success for FC:** Failed – 앱 진입 URL `http://localhost:8081/` 로딩 타임아웃(60s) 발생, 화면 진입 불가.
-- **TC002 – User Authentication Success for Admin:** Failed – 동일하게 시작 URL 로딩 타임아웃으로 화면 진입 불가.
-- **TC003 – User Authentication Failure with Invalid Resident ID:** Failed – 시작 URL 로딩 타임아웃으로 테스트 진행 불가.
+### Home Dashboard
+- **TC004 — Home Dashboard Data Display and Real-time Updates** (Status: Failed)  
+  Admin 로그인 미완료로 관리자 대시보드 검증 중단; FC 대시보드는 확인. 시각화: https://www.testsprite.com/dashboard/mcp/tests/831122df-731f-41b9-89bb-c8311d44aeff/4078ab1f-eb0d-4425-a9e0-40d0c6a51b9d
 
-### Requirement: FC Registration
-- **TC004 – FC Registration Form Validation Success:** Failed – 시작 URL 로딩 타임아웃.
-- **TC005 – FC Registration Form Validation for Invalid Input:** Failed – 시작 URL 로딩 타임아웃.
+### Allowance Consent
+- **TC005 — Allowance Consent Workflow Completion** (Status: Failed)  
+  수당 동의 페이지가 비어 있어 흐름 시작 불가. 시각화: https://www.testsprite.com/dashboard/mcp/tests/831122df-731f-41b9-89bb-c8311d44aeff/5046c3c4-1e20-450a-8d91-ee9780ae972a
+- **TC006 — Allowance Consent Workflow Error Handling** (Status: Failed)  
+  동일하게 페이지 로딩 실패로 검증 불가. 시각화: https://www.testsprite.com/dashboard/mcp/tests/831122df-731f-41b9-89bb-c8311d44aeff/9d3e9893-f6e8-4f0a-837b-4928be04d92e
 
-### Requirement: Allowance Consent
-- **TC006 – Allowance Consent Multi-step Agreement Completion:** Failed – 시작 URL 로딩 타임아웃.
-- **TC007 – Allowance Consent Handling of Missing Actions:** Failed – 시작 URL 로딩 타임아웃.
+### Document Upload
+- **TC007 — Document Upload Success with Progress Feedback** (Status: Failed)  
+  ‘수당 동의’ 클릭 후 빈 화면으로 문서 업로드 단계 진입 불가. 시각화: https://www.testsprite.com/dashboard/mcp/tests/831122df-731f-41b9-89bb-c8311d44aeff/09860992-879f-4d65-bc2e-dcac39b68544
+- **TC008 — Document Upload Failure and Retry** (Status: Failed)  
+  동일 빈 화면으로 실패/재시도 시나리오 진행 불가. 시각화: https://www.testsprite.com/dashboard/mcp/tests/831122df-731f-41b9-89bb-c8311d44aeff/233cb502-672e-41b2-ad86-fe92dce4e626
 
-### Requirement: Document Upload
-- **TC008 – Document Upload Success with Notifications:** Failed – 시작 URL 로딩 타임아웃.
-- **TC009 – Document Upload Failure Handling:** Failed – 시작 URL 로딩 타임아웃.
+### Exam Registration & Tracking
+- **TC009 — Life Exam Registration and Admin Dashboard Tracking** (Status: Failed)  
+  FC 시험 신청이 수당 동의 검토 중 상태로 비활성화되어 제출 불가. 시각화: https://www.testsprite.com/dashboard/mcp/tests/831122df-731f-41b9-89bb-c8311d44aeff/f932ca4c-c061-4755-bbb5-37a7ffa0870e
+- **TC010 — Non-Life Exam Registration and Admin Dashboard Tracking** (Status: Failed)  
+  Admin 코드 입력 검증(숫자만) 때문에 유효 코드 미입력으로 중단. 시각화: https://www.testsprite.com/dashboard/mcp/tests/831122df-731f-41b9-89bb-c8311d44aeff/f0f79869-1efe-4ad4-941d-0d2fac63a20c
+- **TC011 — Exam Registration Form Validation** (Status: Failed)  
+  로그인/접근 차단으로 시험 등록 폼 검증 진행 불가. 시각화: https://www.testsprite.com/dashboard/mcp/tests/831122df-731f-41b9-89bb-c8311d44aeff/429ca90e-7c6f-4a1b-a692-84de52aeeb17
 
-### Requirement: Exam Application & Management
-- **TC010 – Exam Application Submission Success:** Failed – 시작 URL 로딩 타임아웃.
-- **TC011 – Exam Application Form Validation Errors:** Failed – 시작 URL 로딩 타임아웃.
-- **TC012 – Admin Exam Management - Candidate Scheduling and Status Update:** Failed – 시작 URL 로딩 타임아웃.
+### Messaging & Notices
+- **TC012 — Real-time Messaging with Media Attachments** (Status: Failed)  
+  텍스트 메시지는 동작하나 첨부 아이콘 클릭 후 미디어 업로드 UI 미표시. 시각화: https://www.testsprite.com/dashboard/mcp/tests/831122df-731f-41b9-89bb-c8311d44aeff/abc7b133-e7c7-4eed-a95d-13f26d120860
+- **TC013 — Broadcast Notices Display and Reception** (Status: Passed)  
+  공지 수신/표시 확인. 시각화: https://www.testsprite.com/dashboard/mcp/tests/831122df-731f-41b9-89bb-c8311d44aeff/2bd39024-2377-490e-92e0-855be3845d01
 
-### Requirement: Chat & Messaging
-- **TC013 – 1:1 Chat Messaging Between FCs and Admins:** Failed – 시작 URL 로딩 타임아웃.
-- **TC014 – Chat Message Failure and Retry Mechanism:** Failed – 시작 URL 로딩 타임아웃.
+### Profile & Appointment
+- **TC014 — FC Profile Editing Persistence** (Status: Failed)  
+  프로필 수정 후 앱 재시작 시 변경사항이 저장되지 않음; Supabase 409, /logout 404 에러 관찰. 시각화: https://www.testsprite.com/dashboard/mcp/tests/831122df-731f-41b9-89bb-c8311d44aeff/5267cec3-d2c2-49cf-9048-b0bb1b07814c
+- **TC015 — Appointment Scheduling and URL Handling** (Status: Failed)  
+  Admin 코드 입력 검증에 막혀 위촉 일정 관리 흐름 진행 불가. 시각화: https://www.testsprite.com/dashboard/mcp/tests/831122df-731f-41b9-89bb-c8311d44aeff/c41a48c1-f477-4bc0-952d-9657d9f4cc30
 
-### Requirement: Admin Notices & Appointments
-- **TC015 – Admin Notice Creation and Notification Management:** Failed – 시작 URL 로딩 타임아웃.
-- **TC016 – Admin Registration and Appointment Tools Functionality:** Failed – 시작 URL 로딩 타임아웃.
+## Coverage & Matching Metrics
 
-### Requirement: UI Rendering & Responsiveness
-- **TC017 – UI Component Rendering Consistency Across Devices:** Failed – 시작 URL 로딩 타임아웃.
+| Requirement                     | Total Tests | ✅ Passed | ❌ Failed |
+|---------------------------------|-------------|-----------|-----------|
+| Authentication & Session        | 4           | 3         | 1         |
+| Home Dashboard                  | 1           | 0         | 1         |
+| Allowance Consent               | 2           | 0         | 2         |
+| Document Upload                 | 2           | 0         | 2         |
+| Exam Registration & Tracking    | 3           | 0         | 3         |
+| Messaging & Notices             | 2           | 1         | 1         |
+| Profile & Appointment           | 2           | 0         | 2         |
+| **Total**                       | **16**      | **4**     | **12**    |
 
----
-
-## 3. Coverage & Matching Metrics
-- **Passed:** 0 / 17
-- **Failed:** 17 / 17
-- **Pass Rate:** 0.00%
-
-| Requirement                           | Total Tests | Passed | Failed |
-|---------------------------------------|------------:|-------:|-------:|
-| Authentication                        | 3           | 0      | 3      |
-| FC Registration                       | 2           | 0      | 2      |
-| Allowance Consent                     | 2           | 0      | 2      |
-| Document Upload                       | 2           | 0      | 2      |
-| Exam Application & Management         | 3           | 0      | 3      |
-| Chat & Messaging                      | 2           | 0      | 2      |
-| Admin Notices & Appointments          | 2           | 0      | 2      |
-| UI Rendering & Responsiveness         | 1           | 0      | 1      |
-
----
-
-## 4. Key Gaps / Risks
-- 모든 테스트가 시작 URL(`http://localhost:8081/`) 로딩 단계에서 60초 타임아웃으로 실패했으며, 이후 시나리오가 실행되지 않음.
-- 원인 가능성: (1) Expo dev 서버가 HTTP로 접근 가능한 상태가 아니거나 번들 빌드가 지연/중단됨, (2) 웹 엔드포인트가 없거나 Expo Router 웹 번들이 실패, (3) 터널/프록시 설정 문제로 외부에서 로컬 8081 접근 불가.
-- 테스트 커버리지 측면에서 UI·기능 전반이 검증되지 않아 품질 신뢰도가 확보되지 않음.
-
----
-
-## 5. Recommendations / Next Actions
-1) **웹 번들/엔드포인트 확인:** `npm run web` 또는 현재 실행 중인 `npm run start -- --port 8081`가 실제로 http://localhost:8081 에서 로드 가능한지 브라우저로 직접 확인. 필요시 `expo start --web --port 8081`처럼 웹 모드 강제.
-2) **빌드 로그 점검:** dev 서버 콘솔에서 번들 실패/에러가 있는지 확인하고 해결(예: 환경변수, Supabase 키, 경로 오류 등).
-3) **터널 재검증:** 로컬에서 브라우저로 8081 접속이 정상이라면, Testsprite 터널 재시도(현재는 성공적으로 생성됨). 여전히 타임아웃 시, 터널 측에서 웹 응답이 보이지 않는지 지원팀에 로그 제공.
-4) **실패 테스트 재시도:** 위 조치 후 `generateCodeAndExecute`를 다시 실행해 전체 17개 케이스를 재검증.
-
----
-
-## 6. Attachments / References
-- 원시 리포트: `testsprite_tests/tmp/raw_report.md`
-- 상세 결과 JSON: `testsprite_tests/tmp/test_results.json`
-- 테스트 플랜: `testsprite_tests/testsprite_frontend_test_plan.json`
+## Key Gaps / Risks
+- Admin 코드 입력 시 일부 시나리오(특히 TC010, TC015, TC016)에서 여전히 잘못된 값으로 시도되어 관리자 기능 검증이 차단됨. 테스트 입력을 모두 `1111`로 맞추거나 UI의 숫자 검증 로직을 재확인 필요.
+- 수당 동의 화면이 비어 있어(TC005/6/7/8) 이후 문서 업로드·동의 완료 흐름이 막힘. 정적 번들에서도 재현되므로 라우팅/렌더링 예외를 확인해야 함.
+- 시험 신청/프로필 저장에서 상태 차단 또는 저장 실패(409)로 인해 폼 검증/진행이 불가(TC009/11/14/15). 백엔드 상태 제약(allowance review), API 실패(409), /logout 404 등도 함께 조사 필요.
+- 메신저 미디어 첨부 UI가 열리지 않아(TC012) 첨부 기능 검증 불가. UI 열기 이벤트/퍼미션/웹 대상 구현 확인 필요.

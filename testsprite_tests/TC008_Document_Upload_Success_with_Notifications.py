@@ -30,7 +30,7 @@ async def run_test():
         page = await context.new_page()
         
         # Navigate to your target URL and wait until the network request is committed
-        await page.goto("http://localhost:8081", wait_until="commit", timeout=10000)
+        await page.goto("http://localhost:3000", wait_until="commit", timeout=10000)
         
         # Wait for the main page to reach DOMContentLoaded state (optional for stability)
         try:
@@ -46,10 +46,23 @@ async def run_test():
                 pass
         
         # Interact with the page elements to simulate user flow
+        # -> Input a valid FC phone number (e.g., 01012345678) and click the start button to login.
+        frame = context.pages[-1]
+        # Input valid FC phone number for login
+        elem = frame.locator('xpath=html/body/div[3]/div/div/div/div/input').nth(0)
+        await page.wait_for_timeout(3000); await elem.fill('01012345678')
+        
+
+        frame = context.pages[-1]
+        # Click the start button to login
+        elem = frame.locator('xpath=html/body/div[3]/div/div/button').nth(0)
+        await page.wait_for_timeout(3000); await elem.click(timeout=5000)
+        
+
         # --> Assertions to verify final state
         frame = context.pages[-1]
         try:
-            await expect(frame.locator('text=Document upload successful and notification sent').first).to_be_visible(timeout=30000)
+            await expect(frame.locator('text=Document Upload Successful').first).to_be_visible(timeout=3000)
         except AssertionError:
             raise AssertionError('Test case failed: Files were not successfully uploaded to Supabase storage or admins did not receive push notifications as required by the test plan.')
         await asyncio.sleep(5)

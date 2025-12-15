@@ -56,7 +56,8 @@ const AGREEMENT_IMAGES = [
 export default function AllowanceConsentScreen() {
   const { residentId } = useSession();
   const [tempId, setTempId] = useState('');
-  const [selectedDate, setSelectedDate] = useState(new Date());
+  // TC007: Initialize validation state
+  const [selectedDate, setSelectedDate] = useState<Date | null>(null);
   const [loading, setLoading] = useState(false);
   const [status, setStatus] = useState<string | null>(null);
   const [careerType, setCareerType] = useState<string | null>(null);
@@ -66,6 +67,8 @@ export default function AllowanceConsentScreen() {
   const [imageRatio, setImageRatio] = useState(16 / 9);
   const [refreshing, setRefreshing] = useState(false);
   const sliderRef = useRef<FlatList>(null);
+
+  const maxIndex = AGREEMENT_IMAGES.length - 1;
 
   useEffect(() => {
     const load = async () => {
@@ -93,7 +96,7 @@ export default function AllowanceConsentScreen() {
     }
   }, []);
 
-  const ymd = useMemo(() => toYMD(selectedDate), [selectedDate]);
+  const ymd = useMemo(() => (selectedDate ? toYMD(selectedDate) : null), [selectedDate]);
   const isLocked =
     status !== null &&
     status !== 'draft' &&
@@ -105,10 +108,23 @@ export default function AllowanceConsentScreen() {
       Alert.alert('알림', '총무가 이미 승인 완료했습니다. 다시 제출할 수 없습니다.');
       return;
     }
-    if (!tempId || !selectedDate) {
-      Alert.alert('알림', '임시사번과 날짜를 모두 입력해주세요.');
+
+    // TC007: Check if all slides are viewed
+    if (currentIndex < maxIndex) {
+      Alert.alert('확인 필요', '모든 안내 사항을 끝까지 확인해주세요.');
       return;
     }
+
+    if (!tempId) {
+      Alert.alert('알림', '임시사번을 입력해주세요.');
+      return;
+    }
+
+    if (!selectedDate) {
+      Alert.alert('알림', '수당동의일을 선택해주세요.');
+      return;
+    }
+
     setLoading(true);
     const { error, data } = await supabase
       .from('fc_profiles')
@@ -140,7 +156,6 @@ export default function AllowanceConsentScreen() {
 
   const cardWidth = width - 48;
   const cardHeight = cardWidth * imageRatio * 0.8;
-  const maxIndex = AGREEMENT_IMAGES.length - 1;
 
   const onRefresh = useCallback(async () => {
     setRefreshing(true);
@@ -264,7 +279,7 @@ export default function AllowanceConsentScreen() {
               <Text style={styles.label}>수당동의일</Text>
               {Platform.OS === 'ios' ? (
                 <DateTimePicker
-                  value={selectedDate}
+                  value={selectedDate ?? new Date()}
                   mode="date"
                   display="default"
                   locale="ko-KR"
@@ -273,13 +288,15 @@ export default function AllowanceConsentScreen() {
                 />
               ) : (
                 <Pressable style={styles.dateInput} onPress={() => setShowPicker(true)}>
-                  <Text style={styles.dateText}>{formatKoreanDate(selectedDate)}</Text>
+                  <Text style={[styles.dateText, !selectedDate && { color: '#9CA3AF' }]}>
+                    {selectedDate ? formatKoreanDate(selectedDate) : '날짜를 선택하세요'}
+                  </Text>
                   <Feather name="calendar" size={18} color={MUTED} />
                 </Pressable>
               )}
               {showPicker && Platform.OS === 'android' && (
                 <DateTimePicker
-                  value={selectedDate}
+                  value={selectedDate ?? new Date()}
                   mode="date"
                   onChange={(_, d) => {
                     setShowPicker(false);

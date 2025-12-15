@@ -30,7 +30,7 @@ async def run_test():
         page = await context.new_page()
         
         # Navigate to your target URL and wait until the network request is committed
-        await page.goto("http://localhost:8081", wait_until="commit", timeout=10000)
+        await page.goto("http://localhost:3000", wait_until="commit", timeout=10000)
         
         # Wait for the main page to reach DOMContentLoaded state (optional for stability)
         try:
@@ -46,11 +46,25 @@ async def run_test():
                 pass
         
         # Interact with the page elements to simulate user flow
+        # -> Enter a valid resident ID (phone number) for FC user and submit login.
+        frame = context.pages[-1]
+        # Enter valid FC phone number as resident ID
+        elem = frame.locator('xpath=html/body/div[3]/div/div/div/div/input').nth(0)
+        await page.wait_for_timeout(3000); await elem.fill('01012345678')
+        
+
+        frame = context.pages[-1]
+        # Click the 시작하기 (Start) button to submit login
+        elem = frame.locator('xpath=html/body/div[3]/div/div/button').nth(0)
+        await page.wait_for_timeout(3000); await elem.click(timeout=5000)
+        
+
         # --> Assertions to verify final state
+        frame = context.pages[-1]
         try:
-            await expect(page.locator('text=Authentication Failed: Invalid Resident ID').first).to_be_visible(timeout=30000)
+            await expect(frame.locator('text=Authentication Failed: Invalid Resident ID').first).to_be_visible(timeout=1000)
         except AssertionError:
-            raise AssertionError('Test case failed: Finance Consultant authentication did not succeed or session persistence verification failed as per the test plan.')
+            raise AssertionError('Test case failed: Finance Consultant authentication did not succeed or user was not redirected to the FC dashboard with session persistence as expected.')
         await asyncio.sleep(5)
     
     finally:

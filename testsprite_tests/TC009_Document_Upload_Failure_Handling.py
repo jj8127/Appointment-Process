@@ -30,7 +30,7 @@ async def run_test():
         page = await context.new_page()
         
         # Navigate to your target URL and wait until the network request is committed
-        await page.goto("http://localhost:8081", wait_until="commit", timeout=10000)
+        await page.goto("http://localhost:3000", wait_until="commit", timeout=10000)
         
         # Wait for the main page to reach DOMContentLoaded state (optional for stability)
         try:
@@ -46,12 +46,42 @@ async def run_test():
                 pass
         
         # Interact with the page elements to simulate user flow
+        # -> Input admin code 1111 and click the start button to login and navigate to the main screen.
+        frame = context.pages[-1]
+        # Input admin code 1111 in the phone/admin code field
+        elem = frame.locator('xpath=html/body/div[3]/div/div/div/div/input').nth(0)
+        await page.wait_for_timeout(3000); await elem.fill('1111')
+        
+
+        frame = context.pages[-1]
+        # Click the start button to login
+        elem = frame.locator('xpath=html/body/div[3]/div/div/button').nth(0)
+        await page.wait_for_timeout(3000); await elem.click(timeout=5000)
+        
+
+        # -> Click on '문서 관리' (Document Management) menu item to navigate to the document upload screen.
+        frame = context.pages[-1]
+        # Click on '문서 관리' (Document Management) menu to go to document upload screen
+        elem = frame.locator('xpath=html/body/div[3]/nav/div/a[2]').nth(0)
+        await page.wait_for_timeout(3000); await elem.click(timeout=5000)
+        
+
+        # -> Locate and interact with the file upload input or button to attempt uploading an invalid file format.
+        await page.mouse.wheel(0, 200)
+        
+
+        frame = context.pages[-1]
+        # Click 새로고침 (Refresh) button to ensure the page is up to date
+        elem = frame.locator('xpath=html/body/div[3]/main/div/div[2]/div/button').nth(0)
+        await page.wait_for_timeout(3000); await elem.click(timeout=5000)
+        
+
         # --> Assertions to verify final state
         frame = context.pages[-1]
         try:
-            await expect(frame.locator('text=Upload Successful').first).to_be_visible(timeout=30000)
+            await expect(frame.locator('text=Upload Successful').first).to_be_visible(timeout=1000)
         except AssertionError:
-            raise AssertionError("Test case failed: The document upload did not succeed as expected. Proper error handling and user feedback for upload failure due to network or file format issues were not verified.")
+            raise AssertionError("Test case failed: Document upload error handling did not work as expected. The test plan requires verifying error messages and upload failure status when invalid files or network issues occur, but the page does not show 'Upload Successful', indicating failure handling is missing or incorrect.")
         await asyncio.sleep(5)
     
     finally:

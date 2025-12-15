@@ -30,7 +30,7 @@ async def run_test():
         page = await context.new_page()
         
         # Navigate to your target URL and wait until the network request is committed
-        await page.goto("http://localhost:8081", wait_until="commit", timeout=10000)
+        await page.goto("http://localhost:3000", wait_until="commit", timeout=10000)
         
         # Wait for the main page to reach DOMContentLoaded state (optional for stability)
         try:
@@ -46,12 +46,25 @@ async def run_test():
                 pass
         
         # Interact with the page elements to simulate user flow
+        # -> Input a valid FC phone number and click the start button to login.
+        frame = context.pages[-1]
+        # Input valid FC phone number
+        elem = frame.locator('xpath=html/body/div[3]/div/div/div/div/input').nth(0)
+        await page.wait_for_timeout(3000); await elem.fill('01012345678')
+        
+
+        frame = context.pages[-1]
+        # Click the start button to proceed
+        elem = frame.locator('xpath=html/body/div[3]/div/div/button').nth(0)
+        await page.wait_for_timeout(3000); await elem.click(timeout=5000)
+        
+
         # --> Assertions to verify final state
         frame = context.pages[-1]
         try:
-            await expect(frame.locator('text=Application for Quantum Physics Exam').first).to_be_visible(timeout=30000)
+            await expect(frame.locator('text=Application Submission Confirmed').first).to_be_visible(timeout=1000)
         except AssertionError:
-            raise AssertionError('Test case failed: The exam application process did not complete successfully as the application was not saved or the UI did not update the exam application status as expected.')
+            raise AssertionError('Test case failed: The exam application could not be submitted successfully or the UI did not update to reflect the new application status as required by the test plan.')
         await asyncio.sleep(5)
     
     finally:

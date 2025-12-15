@@ -30,7 +30,7 @@ async def run_test():
         page = await context.new_page()
         
         # Navigate to your target URL and wait until the network request is committed
-        await page.goto("http://localhost:8081", wait_until="commit", timeout=10000)
+        await page.goto("http://localhost:3000", wait_until="commit", timeout=10000)
         
         # Wait for the main page to reach DOMContentLoaded state (optional for stability)
         try:
@@ -46,12 +46,67 @@ async def run_test():
                 pass
         
         # Interact with the page elements to simulate user flow
+        # -> Input admin code 1111 and click the start button to log in as admin.
+        frame = context.pages[-1]
+        # Input admin code 1111
+        elem = frame.locator('xpath=html/body/div[3]/div/div/div/div/input').nth(0)
+        await page.wait_for_timeout(3000); await elem.fill('1111')
+        
+
+        frame = context.pages[-1]
+        # Click the start button to log in as admin
+        elem = frame.locator('xpath=html/body/div[3]/div/div/button').nth(0)
+        await page.wait_for_timeout(3000); await elem.click(timeout=5000)
+        
+
+        # -> Click on '시험 신청자' (Exam Applicants) to view list of exam candidates for life and non-life exams.
+        frame = context.pages[-1]
+        # Click on '시험 신청자' (Exam Applicants) to view candidates
+        elem = frame.locator('xpath=html/body/div[3]/nav/div/a[7]').nth(0)
+        await page.wait_for_timeout(3000); await elem.click(timeout=5000)
+        
+
+        # -> Navigate to the exam scheduling screen to schedule exam appointments for candidates.
+        frame = context.pages[-1]
+        # Click on '시험 일정' (Exam Schedule) to schedule exam appointments
+        elem = frame.locator('xpath=html/body/div[3]/nav/div/a[6]').nth(0)
+        await page.wait_for_timeout(3000); await elem.click(timeout=5000)
+        
+
+        # -> Navigate back to '시험 신청자' (Exam Applicants) to schedule exam appointments for candidates.
+        frame = context.pages[-1]
+        # Click on '시험 신청자' (Exam Applicants) to view candidates for scheduling
+        elem = frame.locator('xpath=html/body/div[3]/nav/div/a[7]').nth(0)
+        await page.wait_for_timeout(3000); await elem.click(timeout=5000)
+        
+
+        # -> Select the first candidate to schedule an exam appointment.
+        frame = context.pages[-1]
+        # Click on the status label '접수 완료' (Received) of the first candidate to update or schedule exam appointment
+        elem = frame.locator('xpath=html/body/div[3]/main/div/div/div[3]/div/div/div/table/tbody/tr/td[9]/div/div[2]/label').nth(0)
+        await page.wait_for_timeout(3000); await elem.click(timeout=5000)
+        
+
+        # -> Schedule an exam appointment for the selected candidate by interacting with the scheduling UI elements.
+        frame = context.pages[-1]
+        # Click on the status label '접수 완료' of the first candidate to open scheduling or status update options
+        elem = frame.locator('xpath=html/body/div[3]/main/div/div/div[3]/div/div/div/table/tbody/tr/td[9]/div/div[2]/label').nth(0)
+        await page.wait_for_timeout(3000); await elem.click(timeout=5000)
+        
+
+        # -> Open scheduling or status update options for the selected candidate to schedule an exam appointment or update status.
+        frame = context.pages[-1]
+        # Click on the status label '접수 완료' of the first candidate to open scheduling or status update options
+        elem = frame.locator('xpath=html/body/div[3]/main/div/div/div[3]/div/div/div/table/tbody/tr/td[9]/div/div[2]/label').nth(0)
+        await page.wait_for_timeout(3000); await elem.click(timeout=5000)
+        
+
         # --> Assertions to verify final state
         frame = context.pages[-1]
         try:
-            await expect(frame.locator('text=Exam Successfully Completed').first).to_be_visible(timeout=30000)
+            await expect(frame.locator('text=Exam Success Confirmation').first).to_be_visible(timeout=1000)
         except AssertionError:
-            raise AssertionError('Test case failed: Admin exam management test did not complete successfully. The test plan requires verifying admin can view exam applicants, schedule exam dates, update candidate statuses, and confirm changes in UI and data store, but these steps were not executed or did not pass.')
+            raise AssertionError("Test case failed: Admin exam management test plan execution failed. Unable to verify exam applicants, schedule exam dates, update candidate statuses, and confirm changes in UI and data store as expected.")
         await asyncio.sleep(5)
     
     finally:

@@ -17,7 +17,7 @@ import {
   Title,
 } from '@mantine/core';
 import { notifications } from '@mantine/notifications';
-import { IconArrowLeft, IconSend, IconUser } from '@tabler/icons-react';
+import { IconAlertCircle, IconArrowLeft, IconRefresh, IconSend, IconUser } from '@tabler/icons-react';
 import dayjs from 'dayjs';
 import { useRouter, useSearchParams } from 'next/navigation';
 import type React from 'react';
@@ -33,6 +33,12 @@ type Message = {
   message_type?: 'text' | 'image' | 'file';
   file_url?: string | null;
   file_name?: string | null;
+};
+
+type ChatMessage = Message & {
+  localId?: string;
+  sendStatus?: 'sending' | 'sent' | 'failed';
+  errorMessage?: string | null;
 };
 
 const HANWHA_ORANGE = '#f36f21';
@@ -53,7 +59,7 @@ function ChatContent() {
     [role, targetNameParam, otherId],
   );
 
-  const [messages, setMessages] = useState<Message[]>([]);
+  const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [input, setInput] = useState('');
   const [loading, setLoading] = useState(false);
 
@@ -87,7 +93,7 @@ function ChatContent() {
         return;
       }
       const filtered = (data ?? []).filter((m) => !deletedIdsRef.current.has(m.id));
-      setMessages(filtered);
+      setMessages(filtered.map((m) => ({ ...m, sendStatus: 'sent' })));
       scrollToBottom();
 
       // mark read for incoming
@@ -125,13 +131,29 @@ function ChatContent() {
           if (!related) return;
 
           if (payload.eventType === 'INSERT') {
-            setMessages((prev) => (prev.some((m) => m.id === newMsg.id) ? prev : [...prev, newMsg]));
+            setMessages((prev) => {
+              const exists = prev.some((m) => m.id === newMsg.id);
+              if (exists) return prev.map((m) => (m.id === newMsg.id ? { ...newMsg, sendStatus: 'sent' } : m));
+              const pendingIdx = prev.findIndex(
+                (m) =>
+                  m.sendStatus === 'sending' &&
+                  m.sender_id === newMsg.sender_id &&
+                  m.receiver_id === newMsg.receiver_id &&
+                  m.content === newMsg.content,
+              );
+              if (pendingIdx !== -1) {
+                const next = [...prev];
+                next[pendingIdx] = { ...newMsg, sendStatus: 'sent' };
+                return next;
+              }
+              return [...prev, { ...newMsg, sendStatus: 'sent' }];
+            });
             scrollToBottom();
             if (newMsg.sender_id === otherId && !newMsg.is_read) {
               await supabase.from('messages').update({ is_read: true }).eq('id', newMsg.id);
             }
           } else if (payload.eventType === 'UPDATE') {
-            setMessages((prev) => prev.map((m) => (m.id === newMsg.id ? newMsg : m)));
+            setMessages((prev) => prev.map((m) => (m.id === newMsg.id ? { ...newMsg, sendStatus: 'sent' } : m)));
           }
         },
       )
@@ -142,21 +164,57 @@ function ChatContent() {
     };
   }, [hydrated, myId, otherId]);
 
-  const sendMessage = async () => {
-    if (!input.trim() || !myId || !otherId) return;
+  const upsertLocalMessage = (msg: ChatMessage) => {
+    setMessages((prev) => {
+      const idx = prev.findIndex((m) => m.id === msg.id || (msg.localId && m.localId === msg.localId));
+      if (idx !== -1) {
+        const next = [...prev];
+        next[idx] = { ...next[idx], ...msg };
+        return next;
+      }
+      return [...prev, msg];
+    });
+  };
+
+  const sendMessageContent = async (content: string, reuseLocalId?: string) => {
+    if (!content.trim() || !myId || !otherId) return;
+    const localId = reuseLocalId ?? `local-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
+    const now = new Date().toISOString();
+
+    upsertLocalMessage({
+      id: localId,
+      localId,
+      sender_id: myId,
+      receiver_id: otherId,
+      content,
+      created_at: now,
+      is_read: false,
+      sendStatus: 'sending',
+      errorMessage: null,
+    });
+
     setLoading(true);
-    const content = input.trim();
+
     try {
-      const { error } = await supabase.from('messages').insert({
-        sender_id: myId,
-        receiver_id: otherId,
-        content,
-        message_type: 'text',
-        is_read: false,
-      });
+      const { data: inserted, error } = await supabase
+        .from('messages')
+        .insert({
+          sender_id: myId,
+          receiver_id: otherId,
+          content,
+          message_type: 'text',
+          is_read: false,
+        })
+        .select()
+        .single();
+
       if (error) throw error;
 
-      setInput('');
+      upsertLocalMessage({
+        ...inserted,
+        sendStatus: 'sent',
+        errorMessage: null,
+      });
 
       const isReceiverAdmin = otherId === 'admin';
       const recipientRole = isReceiverAdmin ? 'admin' : 'fc';
@@ -170,7 +228,13 @@ function ChatContent() {
         recipient_role: recipientRole,
         resident_id: residentIdForPush,
       });
-      if (notifErr) console.warn('[notify] insert failed', notifErr.message);
+      if (notifErr) {
+        upsertLocalMessage({
+          ...inserted,
+          sendStatus: 'sent',
+          errorMessage: `[알림 기록 실패] ${notifErr.message}`,
+        });
+      }
 
       try {
         const resp = await fetch('/api/fc-notify', {
@@ -185,15 +249,45 @@ function ChatContent() {
           }),
         });
         const data = await resp.json().catch(() => null);
+        if (!resp.ok) {
+          upsertLocalMessage({
+            ...inserted,
+            sendStatus: 'sent',
+            errorMessage: `[알림 전송 실패] status ${resp.status} ${data?.error ?? ''}`,
+          });
+        }
         console.log('[notify] fc-notify proxy response', { status: resp.status, ok: resp.ok, data });
-      } catch (err) {
+      } catch (err: any) {
+        upsertLocalMessage({
+          ...inserted,
+          sendStatus: 'sent',
+          errorMessage: `[알림 전송 실패] ${err?.message ?? err}`,
+        });
         console.warn('[notify] fc-notify proxy error', err);
       }
     } catch (err: any) {
-      notifications.show({ title: '전송 실패', message: err.message ?? '메시지 전송 중 오류', color: 'red' });
+      upsertLocalMessage({
+        id: localId,
+        localId,
+        sender_id: myId,
+        receiver_id: otherId,
+        content,
+        created_at: now,
+        is_read: false,
+        sendStatus: 'failed',
+        errorMessage: err?.message ?? '메시지 전송 중 오류',
+      });
+      notifications.show({ title: '전송 실패', message: err?.message ?? '메시지 전송 중 오류', color: 'red' });
     } finally {
       setLoading(false);
     }
+  };
+
+  const sendMessage = async () => {
+    if (!input.trim() || !myId || !otherId) return;
+    const content = input.trim();
+    setInput('');
+    await sendMessageContent(content);
   };
 
   const onKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
@@ -259,6 +353,8 @@ function ChatContent() {
               <Stack gap="sm">
                 {messages.map((msg) => {
                   const isMe = msg.sender_id === myId;
+                  const isSending = msg.sendStatus === 'sending';
+                  const isFailed = msg.sendStatus === 'failed';
                   return (
                     <Group key={msg.id} justify={isMe ? 'flex-end' : 'flex-start'} align="flex-end" gap={8}>
                       {!isMe && (
@@ -297,6 +393,39 @@ function ChatContent() {
                           >
                             {msg.file_name || '파일 보기'}
                           </Text>
+                        )}
+                        {(isSending || isFailed || msg.errorMessage) && (
+                          <Group gap={6} mt={6} align="center">
+                            {isSending && (
+                              <Text size="xs" c={isMe ? 'white' : 'dimmed'}>
+                                전송 중...
+                              </Text>
+                            )}
+                            {isFailed && (
+                              <>
+                                <IconAlertCircle size={14} color={isMe ? '#fff5f5' : '#fa5252'} />
+                                <Text size="xs" c={isMe ? '#fff5f5' : '#fa5252'}>
+                                  전송 실패
+                                </Text>
+                              </>
+                            )}
+                            {msg.errorMessage && (
+                              <Text size="xs" c={isMe ? '#fff5f5' : 'dimmed'}>
+                                {msg.errorMessage}
+                              </Text>
+                            )}
+                            {isFailed && (
+                              <ActionIcon
+                                size="sm"
+                                variant="subtle"
+                                color={isMe ? 'gray.0' : 'red'}
+                                onClick={() => sendMessageContent(msg.content, msg.localId ?? msg.id)}
+                                aria-label="재전송"
+                              >
+                                <IconRefresh size={14} />
+                              </ActionIcon>
+                            )}
+                          </Group>
                         )}
                       </Box>
                       <Text size="xs" c="dimmed" mb={2} style={{ fontSize: 10 }}>

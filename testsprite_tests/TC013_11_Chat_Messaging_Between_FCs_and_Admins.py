@@ -30,7 +30,7 @@ async def run_test():
         page = await context.new_page()
         
         # Navigate to your target URL and wait until the network request is committed
-        await page.goto("http://localhost:8081", wait_until="commit", timeout=10000)
+        await page.goto("http://localhost:3000", wait_until="commit", timeout=10000)
         
         # Wait for the main page to reach DOMContentLoaded state (optional for stability)
         try:
@@ -46,9 +46,23 @@ async def run_test():
                 pass
         
         # Interact with the page elements to simulate user flow
+        # -> Input FC phone number and click start to log in as FC user and open chat interface
+        frame = context.pages[-1]
+        # Input FC user phone number
+        elem = frame.locator('xpath=html/body/div[3]/div/div/div/div/input').nth(0)
+        await page.wait_for_timeout(3000); await elem.fill('01012345678')
+        
+
+        frame = context.pages[-1]
+        # Click start button to log in as FC user and open chat interface
+        elem = frame.locator('xpath=html/body/div[3]/div/div/button').nth(0)
+        await page.wait_for_timeout(3000); await elem.click(timeout=5000)
+        
+
         # --> Assertions to verify final state
+        frame = context.pages[-1]
         try:
-            await expect(page.locator('text=Message delivery successful').first).to_be_visible(timeout=1000)
+            await expect(frame.locator('text=Message delivery confirmed').first).to_be_visible(timeout=1000)
         except AssertionError:
             raise AssertionError('Test case failed: Real-time sending and receiving of messages between FC and admin users did not work as expected, including thread management and push notifications.')
         await asyncio.sleep(5)

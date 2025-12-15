@@ -1125,24 +1125,9 @@ body {
             <li><span class="coverage-highlight">Key gaps / risks:</span>
             
               <ul>
-<li>모든 테스트가 시작 URL(<code>http://localhost:8081/</code>) 로딩 단계에서 60초 타임아웃으로 실패했으며, 이후 시나리오가 실행되지 않음.</li>
-<li>원인 가능성: (1) Expo dev 서버가 HTTP로 접근 가능한 상태가 아니거나 번들 빌드가 지연/중단됨, (2) 웹 엔드포인트가 없거나 Expo Router 웹 번들이 실패, (3) 터널/프록시 설정 문제로 외부에서 로컬 8081 접근 불가.</li>
-<li>테스트 커버리지 측면에서 UI·기능 전반이 검증되지 않아 품질 신뢰도가 확보되지 않음.</li>
-</ul>
-<hr>
-<h2>5. Recommendations / Next Actions</h2>
-<ol>
-<li><strong>웹 번들/엔드포인트 확인:</strong> <code>npm run web</code> 또는 현재 실행 중인 <code>npm run start -- --port 8081</code>가 실제로 http://localhost:8081 에서 로드 가능한지 브라우저로 직접 확인. 필요시 <code>expo start --web --port 8081</code>처럼 웹 모드 강제.</li>
-<li><strong>빌드 로그 점검:</strong> dev 서버 콘솔에서 번들 실패/에러가 있는지 확인하고 해결(예: 환경변수, Supabase 키, 경로 오류 등).</li>
-<li><strong>터널 재검증:</strong> 로컬에서 브라우저로 8081 접속이 정상이라면, Testsprite 터널 재시도(현재는 성공적으로 생성됨). 여전히 타임아웃 시, 터널 측에서 웹 응답이 보이지 않는지 지원팀에 로그 제공.</li>
-<li><strong>실패 테스트 재시도:</strong> 위 조치 후 <code>generateCodeAndExecute</code>를 다시 실행해 전체 17개 케이스를 재검증.</li>
-</ol>
-<hr>
-<h2>6. Attachments / References</h2>
-<ul>
-<li>원시 리포트: <code>testsprite_tests/tmp/raw_report.md</code></li>
-<li>상세 결과 JSON: <code>testsprite_tests/tmp/test_results.json</code></li>
-<li>테스트 플랜: <code>testsprite_tests/testsprite_frontend_test_plan.json</code></li>
+<li>All runs failed before exercising UI flows because the Expo entry bundle on <code>http://localhost:8081</code> returned <code>ERR_INCOMPLETE_CHUNKED_ENCODING</code> or emitted blocking warnings. The dev server may be unstable or not serving the web bundle completely through the Testsprite proxy.</li>
+<li>Expo web warnings about notifications support and deprecated <code>shadow*</code> props suggest the tests ran against the web target; ensure the app is built for web and assets are fully available when proxied.</li>
+<li>No functional coverage was achieved; address the bundle delivery issue, confirm the dev server stays reachable externally, then re-run tests.</li>
 </ul>
 
             </li>
@@ -1168,7 +1153,7 @@ body {
           <div class="table-rows">
             
             <div class="table-row">
-              <div class="table-cell"><span class="text-body">Authentication (FC/Admin)</span></div>
+              <div class="table-cell"><span class="text-body">Authentication & Session</span></div>
               <div class="table-cell"><span class="text-body">0</span></div>
               <div class="table-cell"><span class="text-body">0</span></div>
               <div class="table-cell"><span class="text-body">0</span></div>
@@ -1176,7 +1161,15 @@ body {
         
 
             <div class="table-row">
-              <div class="table-cell"><span class="text-body">FC Registration</span></div>
+              <div class="table-cell"><span class="text-body">Push Notifications</span></div>
+              <div class="table-cell"><span class="text-body">0</span></div>
+              <div class="table-cell"><span class="text-body">0</span></div>
+              <div class="table-cell"><span class="text-body">0</span></div>
+            </div>
+        
+
+            <div class="table-row">
+              <div class="table-cell"><span class="text-body">Home Dashboard</span></div>
               <div class="table-cell"><span class="text-body">0</span></div>
               <div class="table-cell"><span class="text-body">0</span></div>
               <div class="table-cell"><span class="text-body">0</span></div>
@@ -1200,7 +1193,7 @@ body {
         
 
             <div class="table-row">
-              <div class="table-cell"><span class="text-body">Exam Application & Management</span></div>
+              <div class="table-cell"><span class="text-body">Exam Registration & Tracking</span></div>
               <div class="table-cell"><span class="text-body">0</span></div>
               <div class="table-cell"><span class="text-body">0</span></div>
               <div class="table-cell"><span class="text-body">0</span></div>
@@ -1208,7 +1201,7 @@ body {
         
 
             <div class="table-row">
-              <div class="table-cell"><span class="text-body">Chat & Messaging</span></div>
+              <div class="table-cell"><span class="text-body">Messaging & Notices</span></div>
               <div class="table-cell"><span class="text-body">0</span></div>
               <div class="table-cell"><span class="text-body">0</span></div>
               <div class="table-cell"><span class="text-body">0</span></div>
@@ -1216,15 +1209,7 @@ body {
         
 
             <div class="table-row">
-              <div class="table-cell"><span class="text-body">Admin Notices & Appointments</span></div>
-              <div class="table-cell"><span class="text-body">0</span></div>
-              <div class="table-cell"><span class="text-body">0</span></div>
-              <div class="table-cell"><span class="text-body">0</span></div>
-            </div>
-        
-
-            <div class="table-row">
-              <div class="table-cell"><span class="text-body">UI Rendering & Responsiveness</span></div>
+              <div class="table-cell"><span class="text-body">Profile & Appointment</span></div>
               <div class="table-cell"><span class="text-body">0</span></div>
               <div class="table-cell"><span class="text-body">0</span></div>
               <div class="table-cell"><span class="text-body">0</span></div>
@@ -1250,7 +1235,7 @@ body {
           <div class="accordion-header" onclick="toggleAccordion(this)">
             <div class="requirement-content">
                                           <div class="requirement-title-row">
-              <h3 class="title-requirement">Authentication (FC/Admin)</h3>
+              <h3 class="title-requirement">Authentication & Session</h3>
                 <div class="requirement-status-tag status-success">
               <svg width="18" height="18" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
                 <circle cx="7.99961" cy="7.99998" r="6.4" fill="#10A363" fill-opacity="0.2"/>
@@ -1279,7 +1264,36 @@ body {
           <div class="accordion-header" onclick="toggleAccordion(this)">
             <div class="requirement-content">
                                           <div class="requirement-title-row">
-              <h3 class="title-requirement">FC Registration</h3>
+              <h3 class="title-requirement">Push Notifications</h3>
+                <div class="requirement-status-tag status-success">
+              <svg width="18" height="18" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
+                <circle cx="7.99961" cy="7.99998" r="6.4" fill="#10A363" fill-opacity="0.2"/>
+                <path d="M5.59961 8.00002L7.19961 9.60002L10.3996 6.40002" stroke="#19C379" stroke-width="1.28" stroke-linecap="round" stroke-linejoin="round"/>
+              </svg>
+              <span>0/0</span>
+            </div>
+              </div>
+              <p class="text-body-medium requirement-description">Proper error handling for API calls and invalid data scenarios.</p>
+            </div>
+            <div class="accordion-icon">
+              <svg width="16" height="16" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
+                <path d="M11.4276 6C11.9145 6 12.1687 6.61626 11.875 7.01439L11.8316 7.06689L8.40295 10.817C8.30455 10.9246 8.17364 10.9892 8.03476 10.9988C7.89589 11.0083 7.7586 10.9621 7.64865 10.8688L7.59493 10.817L4.16629 7.06689L4.11886 7.00814L4.088 6.96002L4.05714 6.90002L4.04743 6.87752L4.032 6.83564L4.01371 6.76814L4.008 6.73501L4.00229 6.69751L4 6.66189V6.58814L4.00286 6.55188L4.008 6.51438L4.01371 6.48188L4.032 6.41438L4.04743 6.37251L4.08743 6.29L4.12457 6.23375L4.16629 6.18313L4.22 6.13125L4.26401 6.0975L4.31886 6.06375L4.33944 6.05313L4.37772 6.03625L4.43944 6.01625L4.46972 6.01L4.50401 6.00375L4.53658 6.00125L11.4276 6Z" fill="var(--fg-secondary)"/>
+              </svg>
+            </div>
+          </div>
+
+            <div class="accordion-content">
+            <div class="test-wrapper">
+
+            </div>
+          </div>
+        </div>
+
+                <div class="requirement-wrapper accordion-item active">
+          <div class="accordion-header" onclick="toggleAccordion(this)">
+            <div class="requirement-content">
+                                          <div class="requirement-title-row">
+              <h3 class="title-requirement">Home Dashboard</h3>
                 <div class="requirement-status-tag status-success">
               <svg width="18" height="18" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
                 <circle cx="7.99961" cy="7.99998" r="6.4" fill="#10A363" fill-opacity="0.2"/>
@@ -1366,7 +1380,7 @@ body {
           <div class="accordion-header" onclick="toggleAccordion(this)">
             <div class="requirement-content">
                                           <div class="requirement-title-row">
-              <h3 class="title-requirement">Exam Application & Management</h3>
+              <h3 class="title-requirement">Exam Registration & Tracking</h3>
                 <div class="requirement-status-tag status-success">
               <svg width="18" height="18" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
                 <circle cx="7.99961" cy="7.99998" r="6.4" fill="#10A363" fill-opacity="0.2"/>
@@ -1395,7 +1409,7 @@ body {
           <div class="accordion-header" onclick="toggleAccordion(this)">
             <div class="requirement-content">
                                           <div class="requirement-title-row">
-              <h3 class="title-requirement">Chat & Messaging</h3>
+              <h3 class="title-requirement">Messaging & Notices</h3>
                 <div class="requirement-status-tag status-success">
               <svg width="18" height="18" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
                 <circle cx="7.99961" cy="7.99998" r="6.4" fill="#10A363" fill-opacity="0.2"/>
@@ -1424,36 +1438,7 @@ body {
           <div class="accordion-header" onclick="toggleAccordion(this)">
             <div class="requirement-content">
                                           <div class="requirement-title-row">
-              <h3 class="title-requirement">Admin Notices & Appointments</h3>
-                <div class="requirement-status-tag status-success">
-              <svg width="18" height="18" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
-                <circle cx="7.99961" cy="7.99998" r="6.4" fill="#10A363" fill-opacity="0.2"/>
-                <path d="M5.59961 8.00002L7.19961 9.60002L10.3996 6.40002" stroke="#19C379" stroke-width="1.28" stroke-linecap="round" stroke-linejoin="round"/>
-              </svg>
-              <span>0/0</span>
-            </div>
-              </div>
-              <p class="text-body-medium requirement-description">Proper error handling for API calls and invalid data scenarios.</p>
-            </div>
-            <div class="accordion-icon">
-              <svg width="16" height="16" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
-                <path d="M11.4276 6C11.9145 6 12.1687 6.61626 11.875 7.01439L11.8316 7.06689L8.40295 10.817C8.30455 10.9246 8.17364 10.9892 8.03476 10.9988C7.89589 11.0083 7.7586 10.9621 7.64865 10.8688L7.59493 10.817L4.16629 7.06689L4.11886 7.00814L4.088 6.96002L4.05714 6.90002L4.04743 6.87752L4.032 6.83564L4.01371 6.76814L4.008 6.73501L4.00229 6.69751L4 6.66189V6.58814L4.00286 6.55188L4.008 6.51438L4.01371 6.48188L4.032 6.41438L4.04743 6.37251L4.08743 6.29L4.12457 6.23375L4.16629 6.18313L4.22 6.13125L4.26401 6.0975L4.31886 6.06375L4.33944 6.05313L4.37772 6.03625L4.43944 6.01625L4.46972 6.01L4.50401 6.00375L4.53658 6.00125L11.4276 6Z" fill="var(--fg-secondary)"/>
-              </svg>
-            </div>
-          </div>
-
-            <div class="accordion-content">
-            <div class="test-wrapper">
-
-            </div>
-          </div>
-        </div>
-
-                <div class="requirement-wrapper accordion-item active">
-          <div class="accordion-header" onclick="toggleAccordion(this)">
-            <div class="requirement-content">
-                                          <div class="requirement-title-row">
-              <h3 class="title-requirement">UI Rendering & Responsiveness</h3>
+              <h3 class="title-requirement">Profile & Appointment</h3>
                 <div class="requirement-status-tag status-success">
               <svg width="18" height="18" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
                 <circle cx="7.99961" cy="7.99998" r="6.4" fill="#10A363" fill-opacity="0.2"/>

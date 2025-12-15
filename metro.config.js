@@ -5,17 +5,15 @@ const config = getDefaultConfig(__dirname);
 
 config.resolver = config.resolver || {};
 
-// Force tslib (and its internal paths) to resolve to the shim so ESM default interop works in Metro (web/native).
-config.resolver.alias = {
-  ...(config.resolver.alias || {}),
-  tslib: path.resolve(__dirname, 'tslib-shim.js'),
-  'tslib/modules/index.js': path.resolve(__dirname, 'tslib-shim.js'),
-  'tslib/tslib.js': path.resolve(__dirname, 'tslib-shim.js'),
-};
-
-config.resolver.extraNodeModules = {
-  ...(config.resolver.extraNodeModules || {}),
-  tslib: path.resolve(__dirname, 'tslib-shim.js'),
+// Use resolveRequest to intercept and redirect all tslib imports
+config.resolver.resolveRequest = (context, moduleName, platform) => {
+  if (moduleName === 'tslib' || moduleName.startsWith('tslib/')) {
+    return {
+      filePath: path.resolve(__dirname, 'tslib-shim.js'),
+      type: 'sourceFile',
+    };
+  }
+  return context.resolveRequest(context, moduleName, platform);
 };
 
 module.exports = config;

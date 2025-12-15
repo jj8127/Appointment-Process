@@ -30,7 +30,7 @@ async def run_test():
         page = await context.new_page()
         
         # Navigate to your target URL and wait until the network request is committed
-        await page.goto("http://localhost:8081", wait_until="commit", timeout=10000)
+        await page.goto("http://localhost:3000", wait_until="commit", timeout=10000)
         
         # Wait for the main page to reach DOMContentLoaded state (optional for stability)
         try:
@@ -46,11 +46,92 @@ async def run_test():
                 pass
         
         # Interact with the page elements to simulate user flow
+        # -> Input admin code 1111 and click start button to log in as admin
+        frame = context.pages[-1]
+        # Input admin code 1111 in the login field
+        elem = frame.locator('xpath=html/body/div[3]/div/div/div/div/input').nth(0)
+        await page.wait_for_timeout(3000); await elem.fill('1111')
+        
+
+        frame = context.pages[-1]
+        # Click the start button to log in
+        elem = frame.locator('xpath=html/body/div[3]/div/div/button').nth(0)
+        await page.wait_for_timeout(3000); await elem.click(timeout=5000)
+        
+
+        # -> Click the '새 공지 작성' (New Notice Creation) button to navigate to the notice creation screen
+        frame = context.pages[-1]
+        # Click the '새 공지 작성' button to create a new notice
+        elem = frame.locator('xpath=html/body/div[3]/main/div/div/div[3]/div/div[2]/button[3]').nth(0)
+        await page.wait_for_timeout(3000); await elem.click(timeout=5000)
+        
+
+        # -> Fill the notice form with category '공지사항', title 'Test Notice Title', and content 'This is a test notice content.' then submit
+        frame = context.pages[-1]
+        # Fill category field with '공지사항'
+        elem = frame.locator('xpath=html/body/div[3]/main/div/div[2]/form/div/div/div/input').nth(0)
+        await page.wait_for_timeout(3000); await elem.fill('공지사항')
+        
+
+        frame = context.pages[-1]
+        # Fill title field with 'Test Notice Title'
+        elem = frame.locator('xpath=html/body/div[3]/main/div/div[2]/form/div/div[2]/div/input').nth(0)
+        await page.wait_for_timeout(3000); await elem.fill('Test Notice Title')
+        
+
+        frame = context.pages[-1]
+        # Fill content textarea with 'This is a test notice content.'
+        elem = frame.locator('xpath=html/body/div[3]/main/div/div[2]/form/div/div[3]/div/textarea').nth(0)
+        await page.wait_for_timeout(3000); await elem.fill('This is a test notice content.')
+        
+
+        frame = context.pages[-1]
+        # Click the submit button to publish the notice
+        elem = frame.locator('xpath=html/body/div[3]/main/div/div[2]/form/div/div[4]/button').nth(0)
+        await page.wait_for_timeout(3000); await elem.click(timeout=5000)
+        
+
+        # -> Navigate to notification list management or notification settings to verify notice notifications display correctly and manage notification lists
+        frame = context.pages[-1]
+        # Click the '알림/공지' (Notification/Notice) menu to check notification list and management options
+        elem = frame.locator('xpath=html/body/div[3]/nav/div/a[4]').nth(0)
+        await page.wait_for_timeout(3000); await elem.click(timeout=5000)
+        
+
+        # -> Click on the management button for the newly created notice to verify notification list management options
+        frame = context.pages[-1]
+        # Click the management button for the notice titled 'Test Notice Title' to verify notification list management options
+        elem = frame.locator('xpath=html/body/div[3]/main/div/div[3]/div/div/div/table/tbody/tr[2]/td[5]/button').nth(0)
+        await page.wait_for_timeout(3000); await elem.click(timeout=5000)
+        
+
+        # -> Click the management button for the notice with index 13 to open notification list management options and verify functionality
+        frame = context.pages[-1]
+        # Click the management button for the notice titled 'Test Notice Title' to open notification list management options
+        elem = frame.locator('xpath=html/body/div[3]/main/div/div[3]/div/div/div/table/tbody/tr[2]/td[5]/button').nth(0)
+        await page.wait_for_timeout(3000); await elem.click(timeout=5000)
+        
+
+        # -> Click the management button for the notice with index 13 again to open notification list management options and verify functionality
+        frame = context.pages[-1]
+        # Click the management button for the notice titled 'Test Notice Title' to open notification list management options
+        elem = frame.locator('xpath=html/body/div[3]/main/div/div[3]/div/div/div/table/tbody/tr[2]/td[5]/button').nth(0)
+        await page.wait_for_timeout(3000); await elem.click(timeout=5000)
+        
+
+        # -> Click the management button with index 12 to check if it opens notification list management options or details for the notice
+        frame = context.pages[-1]
+        # Click the management button for the notice titled 'Test Notice Title' to open notification list management options
+        elem = frame.locator('xpath=html/body/div[3]/main/div/div[3]/div/div/div/table/tbody/tr/td[5]/button').nth(0)
+        await page.wait_for_timeout(3000); await elem.click(timeout=5000)
+        
+
         # --> Assertions to verify final state
+        frame = context.pages[-1]
         try:
-            await expect(page.locator('text=Notice Creation Successful').first).to_be_visible(timeout=30000)
+            await expect(frame.locator('text=Notice Creation Successful').first).to_be_visible(timeout=1000)
         except AssertionError:
-            raise AssertionError('Test case failed: Admins could not create, publish, or retrieve notices as expected according to the test plan.')
+            raise AssertionError("Test plan execution failed: Admin notice creation, publishing, notification list management, or retrieval did not complete successfully.")
         await asyncio.sleep(5)
     
     finally:

@@ -1,3 +1,5 @@
+'use server';
+
 import { NextResponse } from 'next/server';
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
@@ -6,13 +8,17 @@ const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
 export async function POST(req: Request) {
   if (!supabaseUrl || !serviceKey) {
     return NextResponse.json(
-      { error: 'SUPABASE env missing (check NEXT_PUBLIC_SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY)' },
-      { status: 500 },
+      {
+        error: 'SUPABASE env missing (check NEXT_PUBLIC_SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY)',
+      },
+      { status: 503 },
     );
   }
 
-  const body = await req.json().catch(() => null);
-  if (!body) {
+  let body: any = null;
+  try {
+    body = await req.json();
+  } catch {
     return NextResponse.json({ error: 'Invalid JSON' }, { status: 400 });
   }
 

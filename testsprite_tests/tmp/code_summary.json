@@ -3,96 +3,72 @@
     "TypeScript",
     "React Native (Expo Router)",
     "Supabase",
-    "React Query, Expo Notifications, DocumentPicker, AsyncStorage"
+    "React Query",
+    "React Hook Form",
+    "Expo Modules (Notifications, Device, File System)",
+    "Zod"
   ],
   "features": [
     {
-      "name": "Session & auth",
-      "description": "Session hook manages Supabase login, role detection, and persistent storage; auth screen signs users in by resident ID and routes admins/FCs accordingly.",
+      "name": "Session and authentication",
+      "description": "Handles role-based login for admins and FC users, persists session to secure storage, restores on launch, and registers push tokens for signed-in users.",
       "files": [
-        "hooks/use-session.tsx",
         "app/auth.tsx",
-        "lib/supabase.ts",
+        "hooks/use-session.tsx",
+        "lib/notifications.ts",
         "lib/safe-storage.ts"
       ]
     },
     {
-      "name": "Dashboard & onboarding progress",
-      "description": "Home dashboard surfaces FC onboarding steps, admin metrics, quick links, latest notices, and push notification prompts using Supabase data and Expo APIs.",
+      "name": "Home dashboard and onboarding progress",
+      "description": "Landing screen shows admin metrics or FC onboarding progress, quick links to key flows, latest notices/messages, and real-time updates via Supabase channels.",
       "files": [
-        "app/index.tsx",
-        "app/dashboard.tsx"
+        "app/index.tsx"
       ]
     },
     {
-      "name": "FC registration form",
-      "description": "Registration flow collects FC personal/contact/bank info, validates fields, and saves to Supabase with keyboard-aware layout and status handling.",
-      "files": [
-        "app/fc/new.tsx",
-        "components/KeyboardAwareWrapper.tsx",
-        "hooks/use-keyboard-padding.ts"
-      ]
-    },
-    {
-      "name": "Allowance consent",
-      "description": "Allowance consent screen shows agreement slides, date picker, and submits consent details/status updates for the FC profile.",
+      "name": "Allowance consent workflow",
+      "description": "Guides FCs through allowance agreement steps, tracks slide completion, collects temp ID and consent date, updates profile status, and notifies admins.",
       "files": [
         "app/consent.tsx"
       ]
     },
     {
-      "name": "Document upload & notifications",
-      "description": "Lists required documents, lets FCs pick/upload files to Supabase storage, and sends Expo push notifications to admins when submissions complete.",
+      "name": "Document upload and notification",
+      "description": "FCs upload required documents to Supabase storage with progress feedback; admins receive notifications and can review statuses for each document.",
       "files": [
-        "app/docs-upload.tsx",
-        "lib/docRules.ts",
-        "lib/notifications.ts",
-        "types/fc.ts"
+        "app/docs-upload.tsx"
       ]
     },
     {
-      "name": "Exam applications & management",
-      "description": "Screens for FC exam applications (life/non-life) and admin management of applicants, scheduling, and status updates.",
+      "name": "Exam registration and management",
+      "description": "Provides life/non-life exam application forms and admin registration dashboards for scheduling and tracking applicant status across both exam types.",
       "files": [
         "app/exam-apply.tsx",
         "app/exam-apply2.tsx",
-        "app/exam-manage.tsx",
-        "app/exam-manage2.tsx",
         "app/exam-register.tsx",
         "app/exam-register2.tsx",
-        "types/exam.ts"
+        "app/exam-manage.tsx",
+        "app/exam-manage2.tsx"
       ]
     },
     {
-      "name": "Chat and messaging",
-      "description": "1:1 chat between FCs and admins plus admin messenger management with Supabase-backed threads and push alerts.",
+      "name": "Messaging and notices",
+      "description": "Real-time 1:1 chat between FCs and admins with media/file attachments, plus admin notice creation and FC notice viewing for broadcast updates.",
       "files": [
         "app/chat.tsx",
         "app/admin-messenger.tsx",
-        "lib/notifications.ts"
-      ]
-    },
-    {
-      "name": "Notices & admin tools",
-      "description": "Admin notice creation, notification list, registration and appointment helpers for onboarding oversight.",
-      "files": [
         "app/admin-notice.tsx",
-        "app/notifications.tsx",
-        "app/admin-register.tsx",
-        "app/appointment.tsx",
         "app/notice.tsx"
       ]
     },
     {
-      "name": "UI components & theming",
-      "description": "Reusable themed UI elements (text/view wrappers, parallax scroll, haptic tabs, status toggle) and shared color tokens.",
+      "name": "Appointment and profile management",
+      "description": "Supports FC profile editing, appointment URL handling, and admin oversight of onboarding steps including mobile appointment scheduling.",
       "files": [
-        "components/themed-view.tsx",
-        "components/themed-text.tsx",
-        "components/parallax-scroll-view.tsx",
-        "components/haptic-tab.tsx",
-        "components/MobileStatusToggle.tsx",
-        "constants/theme.ts"
+        "app/fc/new.tsx",
+        "app/appointment.tsx",
+        "app/dashboard.tsx"
       ]
     }
   ]

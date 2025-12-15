@@ -30,7 +30,7 @@ async def run_test():
         page = await context.new_page()
         
         # Navigate to your target URL and wait until the network request is committed
-        await page.goto("http://localhost:8081", wait_until="commit", timeout=10000)
+        await page.goto("http://localhost:3000", wait_until="commit", timeout=10000)
         
         # Wait for the main page to reach DOMContentLoaded state (optional for stability)
         try:
@@ -46,11 +46,32 @@ async def run_test():
                 pass
         
         # Interact with the page elements to simulate user flow
+        # -> Enter valid admin resident ID 1111 and submit login
+        frame = context.pages[-1]
+        # Enter valid admin resident ID 1111
+        elem = frame.locator('xpath=html/body/div[3]/div/div/div/div/input').nth(0)
+        await page.wait_for_timeout(3000); await elem.fill('1111')
+        
+
+        frame = context.pages[-1]
+        # Click the 시작하기 (Start) button to submit login
+        elem = frame.locator('xpath=html/body/div[3]/div/div/button').nth(0)
+        await page.wait_for_timeout(3000); await elem.click(timeout=5000)
+        
+
+        # -> Verify session persistence by refreshing the page and checking if the user remains logged in on the admin dashboard
+        frame = context.pages[-1]
+        # Click 새로고침 (Refresh) button to refresh the dashboard and verify session persistence
+        elem = frame.locator('xpath=html/body/div[3]/main/div/div/div/button').nth(0)
+        await page.wait_for_timeout(3000); await elem.click(timeout=5000)
+        
+
         # --> Assertions to verify final state
-        try:
-            await expect(page.locator('text=Welcome to the User Home Page').first).to_be_visible(timeout=30000)
-        except AssertionError:
-            raise AssertionError('Test failed: Admin user authentication did not redirect to the admin dashboard or session persistence failed as per the test plan.')
+        frame = context.pages[-1]
+        await expect(frame.locator('text=FC 온보딩 전체 현황판').first).to_be_visible(timeout=30000)
+        await expect(frame.locator('text=새로고침').first).to_be_visible(timeout=30000)
+        await expect(frame.locator('text=4 명').first).to_be_visible(timeout=30000)
+        await expect(frame.locator('text=임시사번 미발급').first).to_be_visible(timeout=30000)
         await asyncio.sleep(5)
     
     finally:

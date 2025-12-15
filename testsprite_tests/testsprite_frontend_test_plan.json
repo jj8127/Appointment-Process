@@ -1,499 +1,154 @@
 [
   {
-    "id": "TC001",
-    "title": "User Authentication Success for FC",
-    "description": "Verify that a Finance Consultant (FC) can successfully authenticate using a valid resident ID and is redirected to the FC dashboard with session persistence.",
+    "id": "TC01",
+    "title": "FC 기본 정보 입력",
+    "description": "FC가 로그인 후 필수 인적 사항(이름/전화 11자리/주민번호 앞6+뒤7/주소)을 입력하고 저장이 유지되는지 확인한다.",
     "category": "functional",
     "priority": "High",
     "steps": [
-      {
-        "type": "action",
-        "description": "Navigate to the authentication screen"
-      },
-      {
-        "type": "action",
-        "description": "Enter a valid resident ID for an FC user"
-      },
-      {
-        "type": "action",
-        "description": "Submit login credentials"
-      },
-      {
-        "type": "assertion",
-        "description": "Verify login success and user is redirected to the FC dashboard"
-      },
-      {
-        "type": "assertion",
-        "description": "Verify session is persisted across app restarts"
-      }
+      { "type": "action", "description": "FC로 로그인하고 기본 정보 입력 화면을 연다." },
+      { "type": "action", "description": "필수 필드를 올바른 형식으로 입력한다(전화 01012345678, 주민번호 9001011234567 등)." },
+      { "type": "assertion", "description": "저장 성공 메시지 또는 다음 단계로 이동을 확인한다." },
+      { "type": "action", "description": "앱을 재시작하거나 화면을 새로고침한다." },
+      { "type": "assertion", "description": "입력한 정보가 그대로 유지되는지 확인한다." }
     ]
   },
   {
-    "id": "TC002",
-    "title": "User Authentication Success for Admin",
-    "description": "Verify that an admin user can authenticate using a valid resident ID and is redirected to the admin dashboard with session persistence.",
+    "id": "TC02",
+    "title": "총무 임시사번 발행 및 경력 등록",
+    "description": "총무가 FC를 선택해 임시사번을 발행하고 경력 유형(신입/경력)을 설정하면 FC 화면에 반영되는지 확인한다.",
     "category": "functional",
     "priority": "High",
     "steps": [
-      {
-        "type": "action",
-        "description": "Navigate to the authentication screen"
-      },
-      {
-        "type": "action",
-        "description": "Enter a valid resident ID for an admin user"
-      },
-      {
-        "type": "action",
-        "description": "Submit login credentials"
-      },
-      {
-        "type": "assertion",
-        "description": "Verify login success and user is redirected to the admin dashboard"
-      },
-      {
-        "type": "assertion",
-        "description": "Verify session is persisted across app restarts"
-      }
+      { "type": "action", "description": "총무로 로그인하고 FC 목록에서 대상 FC를 선택한다(관리자 코드 1111 사용)." },
+      { "type": "action", "description": "임시사번을 생성하고 경력 유형을 저장한다." },
+      { "type": "assertion", "description": "임시사번과 경력 정보가 저장되었는지 총무 화면에서 확인한다." },
+      { "type": "action", "description": "FC로 다시 로그인하거나 새로고침한다." },
+      { "type": "assertion", "description": "FC 수당 동의 화면/프로필에서 임시사번이 표시되는지 확인한다." }
     ]
   },
   {
-    "id": "TC003",
-    "title": "User Authentication Failure with Invalid Resident ID",
-    "description": "Verify that authentication fails with an invalid or unregistered resident ID and an appropriate error message is shown.",
-    "category": "error handling",
-    "priority": "High",
-    "steps": [
-      {
-        "type": "action",
-        "description": "Navigate to the authentication screen"
-      },
-      {
-        "type": "action",
-        "description": "Enter an invalid or unregistered resident ID"
-      },
-      {
-        "type": "action",
-        "description": "Submit login credentials"
-      },
-      {
-        "type": "assertion",
-        "description": "Verify login failure and appropriate error message is displayed"
-      }
-    ]
-  },
-  {
-    "id": "TC004",
-    "title": "FC Registration Form Validation Success",
-    "description": "Verify that FC registration form accepts valid personal, contact, and bank information and successfully saves data to Supabase.",
+    "id": "TC03",
+    "title": "FC 수당 동의 및 날짜 입력",
+    "description": "임시사번을 가진 FC가 수당 동의 슬라이드를 모두 확인한 뒤 동의 날짜를 입력해 제출할 수 있는지 검증한다.",
     "category": "functional",
     "priority": "High",
     "steps": [
-      {
-        "type": "action",
-        "description": "Navigate to the FC registration form"
-      },
-      {
-        "type": "action",
-        "description": "Complete all required personal, contact, and bank information fields with valid data"
-      },
-      {
-        "type": "action",
-        "description": "Submit the registration form"
-      },
-      {
-        "type": "assertion",
-        "description": "Verify form submission success and data is saved to Supabase"
-      },
-      {
-        "type": "assertion",
-        "description": "Verify onboarding progress is updated accordingly"
-      }
+      { "type": "action", "description": "FC로 로그인하고 수당 동의 화면을 연다." },
+      { "type": "action", "description": "모든 슬라이드를 끝까지 확인하고 임시사번 및 동의 날짜를 입력한다." },
+      { "type": "action", "description": "동의 제출을 완료한다." },
+      { "type": "assertion", "description": "프로필/대시보드 상태가 동의 제출로 업데이트 되었는지 확인한다." }
     ]
   },
   {
-    "id": "TC005",
-    "title": "FC Registration Form Validation for Invalid Input",
-    "description": "Verify that the registration form properly validates and shows errors for invalid or missing input data in all fields.",
-    "category": "error handling",
-    "priority": "High",
-    "steps": [
-      {
-        "type": "action",
-        "description": "Navigate to the FC registration form"
-      },
-      {
-        "type": "action",
-        "description": "Enter invalid data or leave required fields blank in personal, contact, and bank information sections"
-      },
-      {
-        "type": "action",
-        "description": "Attempt to submit the form"
-      },
-      {
-        "type": "assertion",
-        "description": "Verify appropriate validation error messages are displayed for each invalid or missing field"
-      },
-      {
-        "type": "assertion",
-        "description": "Verify form submission is prevented until errors are resolved"
-      }
-    ]
-  },
-  {
-    "id": "TC006",
-    "title": "Allowance Consent Multi-step Agreement Completion",
-    "description": "Verify that FCs can view the allowance consent multi-step agreement, select consent date with date picker, and submit consent successfully.",
+    "id": "TC04",
+    "title": "총무 수당 동의 승인 및 필수 서류 목록 등록",
+    "description": "총무가 FC의 수당 동의를 승인하고 필수 서류 목록을 등록하면 FC에게 요청이 표시되는지 확인한다.",
     "category": "functional",
     "priority": "High",
     "steps": [
-      {
-        "type": "action",
-        "description": "Navigate to the allowance consent screen"
-      },
-      {
-        "type": "action",
-        "description": "Review all agreement slides sequentially"
-      },
-      {
-        "type": "action",
-        "description": "Select a consent date using the date picker"
-      },
-      {
-        "type": "action",
-        "description": "Submit the consent"
-      },
-      {
-        "type": "assertion",
-        "description": "Verify consent status is updated and timestamp is recorded correctly in FC profile"
-      }
+      { "type": "action", "description": "총무로 로그인해 동의 대기 목록에서 대상 FC를 승인한다." },
+      { "type": "action", "description": "필수 서류 항목(문서 타입별)을 등록한다." },
+      { "type": "assertion", "description": "총무 화면에서 승인 상태와 서류 목록이 저장되었는지 확인한다." },
+      { "type": "action", "description": "FC로 새로고침한다." },
+      { "type": "assertion", "description": "FC 문서 업로드 화면에 요청된 서류 목록이 표시되는지 확인한다." }
     ]
   },
   {
-    "id": "TC007",
-    "title": "Allowance Consent Handling of Missing Actions",
-    "description": "Verify that missing consent date or incomplete agreement navigation prevents submission with appropriate error messaging.",
-    "category": "error handling",
+    "id": "TC05",
+    "title": "FC 서류 업로드",
+    "description": "FC가 요청된 각 서류를 업로드하고 상태/진행률이 표시되는지 검증한다.",
+    "category": "functional",
+    "priority": "High",
+    "steps": [
+      { "type": "action", "description": "FC로 문서 업로드 화면을 연다." },
+      { "type": "action", "description": "요청된 각 서류를 업로드한다(정상 파일)." },
+      { "type": "assertion", "description": "업로드 진행률과 완료 상태가 표시되고 목록에 저장되었는지 확인한다." }
+    ]
+  },
+  {
+    "id": "TC06",
+    "title": "총무 서류 개별 승인",
+    "description": "총무가 각 서류를 검토해 승인/반려 처리하면 FC 상태가 즉시 반영되는지 확인한다.",
+    "category": "functional",
+    "priority": "High",
+    "steps": [
+      { "type": "action", "description": "총무로 로그인해 제출된 서류 목록을 연다." },
+      { "type": "action", "description": "각 서류를 승인하거나 반려한다." },
+      { "type": "assertion", "description": "승인/반려 결과가 저장되고 FC 화면에 상태가 업데이트되는지 확인한다." }
+    ]
+  },
+  {
+    "id": "TC07",
+    "title": "총무 위촉 차수 입력",
+    "description": "총무가 생명/손해 위촉 차수를 입력하면 FC에게 해당 차수가 노출되는지 확인한다.",
+    "category": "functional",
     "priority": "Medium",
     "steps": [
-      {
-        "type": "action",
-        "description": "Navigate to the allowance consent screen"
-      },
-      {
-        "type": "action",
-        "description": "Attempt to submit consent without selecting a date"
-      },
-      {
-        "type": "assertion",
-        "description": "Verify submission is blocked and error message indicating missing consent date is shown"
-      },
-      {
-        "type": "action",
-        "description": "Attempt to submit consent without viewing all agreement steps/slides"
-      },
-      {
-        "type": "assertion",
-        "description": "Verify submission is blocked and prompt to complete agreement is shown"
-      }
+      { "type": "action", "description": "총무로 로그인해 위촉 관리 화면을 연다." },
+      { "type": "action", "description": "생명/손해 위촉 차수(예: 12월 1차)를 입력/저장한다." },
+      { "type": "assertion", "description": "FC가 대시보드/위촉 화면에서 차수를 확인할 수 있는지 검증한다." }
     ]
   },
   {
-    "id": "TC008",
-    "title": "Document Upload Success with Notifications",
-    "description": "Verify FCs can select and upload required documents, files are properly saved to Supabase storage, and admins receive push notifications upon submission.",
+    "id": "TC08",
+    "title": "FC 위촉 날짜 입력",
+    "description": "FC가 위촉 날짜를 입력해 제출할 수 있는지 검증한다.",
     "category": "functional",
-    "priority": "High",
-    "steps": [
-      {
-        "type": "action",
-        "description": "Navigate to the document upload screen"
-      },
-      {
-        "type": "action",
-        "description": "Select required document files using the document picker"
-      },
-      {
-        "type": "action",
-        "description": "Upload selected documents"
-      },
-      {
-        "type": "assertion",
-        "description": "Verify that files are successfully uploaded and stored in Supabase"
-      },
-      {
-        "type": "assertion",
-        "description": "Verify admins receive Expo push notifications regarding the document submission"
-      }
-    ]
-  },
-  {
-    "id": "TC009",
-    "title": "Document Upload Failure Handling",
-    "description": "Verify proper error handling and user feedback when document upload fails due to network or file format issues.",
-    "category": "error handling",
     "priority": "Medium",
     "steps": [
-      {
-        "type": "action",
-        "description": "Navigate to the document upload screen"
-      },
-      {
-        "type": "action",
-        "description": "Attempt to upload invalid file formats or simulate network failure during upload"
-      },
-      {
-        "type": "assertion",
-        "description": "Verify that an error message is displayed specifying the upload failure reason"
-      },
-      {
-        "type": "assertion",
-        "description": "Verify upload status reflects failure and user can retry the upload"
-      }
+      { "type": "action", "description": "FC로 로그인해 위촉 날짜 입력 화면을 연다." },
+      { "type": "action", "description": "위촉 날짜를 입력하고 제출한다." },
+      { "type": "assertion", "description": "입력한 날짜가 저장되고 상태가 업데이트되는지 확인한다." }
     ]
   },
   {
-    "id": "TC010",
-    "title": "Exam Application Submission Success",
-    "description": "Verify FCs can apply for life and non-life exams by filling out the application forms with correct validation and submitting applications successfully.",
+    "id": "TC09",
+    "title": "총무 위촉 날짜 승인",
+    "description": "총무가 FC가 입력한 위촉 날짜를 승인해 최종 상태를 완료로 전환할 수 있는지 확인한다.",
     "category": "functional",
-    "priority": "High",
-    "steps": [
-      {
-        "type": "action",
-        "description": "Navigate to exam application screen for life and then non-life options"
-      },
-      {
-        "type": "action",
-        "description": "Complete all required fields accurately in the exam application form"
-      },
-      {
-        "type": "action",
-        "description": "Submit exam application"
-      },
-      {
-        "type": "assertion",
-        "description": "Verify application is successfully saved in Supabase"
-      },
-      {
-        "type": "assertion",
-        "description": "Verify UI reflects updated exam application status"
-      }
-    ]
-  },
-  {
-    "id": "TC011",
-    "title": "Exam Application Form Validation Errors",
-    "description": "Verify that incomplete or invalid exam application fields trigger validation errors and prevent submission.",
-    "category": "error handling",
-    "priority": "High",
-    "steps": [
-      {
-        "type": "action",
-        "description": "Navigate to exam application screen"
-      },
-      {
-        "type": "action",
-        "description": "Enter invalid or incomplete data in required fields"
-      },
-      {
-        "type": "action",
-        "description": "Attempt to submit the application"
-      },
-      {
-        "type": "assertion",
-        "description": "Verify validation errors appear for missing or invalid fields"
-      },
-      {
-        "type": "assertion",
-        "description": "Verify application submission is blocked until errors are fixed"
-      }
-    ]
-  },
-  {
-    "id": "TC012",
-    "title": "Admin Exam Management - Candidate Scheduling and Status Update",
-    "description": "Verify admin can view exam applicants, schedule exam dates, update candidate statuses, and changes reflect in UI and data store.",
-    "category": "functional",
-    "priority": "High",
-    "steps": [
-      {
-        "type": "action",
-        "description": "Log in as admin and navigate to exam management screens"
-      },
-      {
-        "type": "action",
-        "description": "View list of exam candidates for life and non-life exams"
-      },
-      {
-        "type": "action",
-        "description": "Schedule exam appointments for candidates"
-      },
-      {
-        "type": "action",
-        "description": "Update candidate exam statuses (e.g. approved, rejected, pending)"
-      },
-      {
-        "type": "assertion",
-        "description": "Verify updates are saved properly in Supabase"
-      },
-      {
-        "type": "assertion",
-        "description": "Verify UI reflects current exam scheduling and candidate status accurately"
-      }
-    ]
-  },
-  {
-    "id": "TC013",
-    "title": "1:1 Chat Messaging Between FCs and Admins",
-    "description": "Verify real-time sending and receiving of messages between FC and admin users, with thread management and push notifications working correctly.",
-    "category": "functional",
-    "priority": "High",
-    "steps": [
-      {
-        "type": "action",
-        "description": "Log in as FC user and open chat interface"
-      },
-      {
-        "type": "action",
-        "description": "Send a message to admin"
-      },
-      {
-        "type": "assertion",
-        "description": "Verify message is delivered to admin and appears in chat thread"
-      },
-      {
-        "type": "action",
-        "description": "Log in as admin and reply to the FC"
-      },
-      {
-        "type": "assertion",
-        "description": "Verify FC receives reply message in real-time"
-      },
-      {
-        "type": "assertion",
-        "description": "Verify that appropriate push notifications are triggered on new messages for both roles"
-      }
-    ]
-  },
-  {
-    "id": "TC014",
-    "title": "Chat Message Failure and Retry Mechanism",
-    "description": "Verify that message sending errors due to network issues properly show failure state and allow users to retry sending messages.",
-    "category": "error handling",
     "priority": "Medium",
     "steps": [
-      {
-        "type": "action",
-        "description": "Simulate network failure while sending a chat message as FC or admin"
-      },
-      {
-        "type": "assertion",
-        "description": "Verify message sending fails with visible error or retry indicator"
-      },
-      {
-        "type": "action",
-        "description": "Attempt to resend failed message"
-      },
-      {
-        "type": "assertion",
-        "description": "Verify message is successfully sent after retry when network is restored"
-      }
+      { "type": "action", "description": "총무로 로그인해 위촉 날짜 승인 화면을 연다." },
+      { "type": "action", "description": "FC가 입력한 위촉 날짜를 승인한다." },
+      { "type": "assertion", "description": "FC 상태가 위촉 완료로 변경되고 대시보드에 반영되는지 확인한다." }
     ]
   },
   {
-    "id": "TC015",
-    "title": "Admin Notice Creation and Notification Management",
-    "description": "Verify admins can create new notices, publish them, manage notification lists, and that notices are stored and retrievable correctly.",
+    "id": "TC10",
+    "title": "시험 신청 접근 제약",
+    "description": "수당 동의가 총무에 의해 승인된 FC만 시험 신청 화면에 접근할 수 있는지 검증한다.",
+    "category": "access control",
+    "priority": "High",
+    "steps": [
+      { "type": "action", "description": "수당 동의 미승인 상태의 FC로 시험 신청 메뉴 진입을 시도한다." },
+      { "type": "assertion", "description": "접근이 차단되고 안내 메시지가 표시되는지 확인한다." },
+      { "type": "action", "description": "수당 동의 승인 상태의 FC로 다시 시도한다." },
+      { "type": "assertion", "description": "시험 신청 화면에 정상 접근되는지 확인한다." }
+    ]
+  },
+  {
+    "id": "TC11",
+    "title": "FC 시험 신청",
+    "description": "시험 타입/일정 입력 후 FC가 시험을 신청하고 상태가 신청 완료로 표시되는지 확인한다.",
     "category": "functional",
     "priority": "High",
     "steps": [
-      {
-        "type": "action",
-        "description": "Log in as admin and navigate to notice creation screen"
-      },
-      {
-        "type": "action",
-        "description": "Fill notice form with valid title, content, and optional metadata"
-      },
-      {
-        "type": "action",
-        "description": "Submit and publish the notice"
-      },
-      {
-        "type": "assertion",
-        "description": "Verify notice is saved to Supabase and appears in notice list"
-      },
-      {
-        "type": "action",
-        "description": "Navigate to notification list and verify notice notifications display correctly"
-      }
+      { "type": "action", "description": "수당 동의 승인된 FC로 로그인해 시험 신청 화면을 연다." },
+      { "type": "action", "description": "시험 타입/일시/장소 등 필수 정보를 입력해 제출한다." },
+      { "type": "assertion", "description": "신청 완료 상태/확인 메시지가 표시되는지 확인한다." }
     ]
   },
   {
-    "id": "TC016",
-    "title": "Admin Registration and Appointment Tools Functionality",
-    "description": "Verify admin tools allow managing registrations and appointments with correct data saving, retrieval, and UI updates.",
+    "id": "TC12",
+    "title": "총무 시험 등록 완료",
+    "description": "총무가 접수된 시험 신청을 확인하고 등록 완료 처리 시 FC 상태가 갱신되는지 검증한다.",
     "category": "functional",
-    "priority": "High",
-    "steps": [
-      {
-        "type": "action",
-        "description": "Log in as admin and open registration management screen"
-      },
-      {
-        "type": "action",
-        "description": "Add, edit, or delete registration entries"
-      },
-      {
-        "type": "assertion",
-        "description": "Verify changes persist in Supabase and reflect instantly in UI"
-      },
-      {
-        "type": "action",
-        "description": "Navigate to appointment management screen"
-      },
-      {
-        "type": "action",
-        "description": "Schedule, modify, or cancel appointments"
-      },
-      {
-        "type": "assertion",
-        "description": "Verify appointment updates persist and UI shows accurate scheduling info"
-      }
-    ]
-  },
-  {
-    "id": "TC017",
-    "title": "UI Component Rendering Consistency Across Devices",
-    "description": "Verify that all reusable, themed UI components render consistently across supported devices and screen sizes, and respond properly to keyboard and notification events.",
-    "category": "ui",
     "priority": "Medium",
     "steps": [
-      {
-        "type": "action",
-        "description": "Open screens using parallax scrolling, haptic tabs, status toggles, and keyboard-aware layouts on different device models and orientations"
-      },
-      {
-        "type": "assertion",
-        "description": "Verify UI elements render correctly without layout issues or visual glitches"
-      },
-      {
-        "type": "action",
-        "description": "Trigger keyboard display and hide events and observe UI adjustments"
-      },
-      {
-        "type": "assertion",
-        "description": "Verify keyboard-aware components adjust layout appropriately without occluding inputs"
-      },
-      {
-        "type": "action",
-        "description": "Trigger push notification prompts and observe UI response"
-      },
-      {
-        "type": "assertion",
-        "description": "Verify notification UI components render and function as expected"
-      }
+      { "type": "action", "description": "총무로 로그인해 시험 신청 대시보드를 연다." },
+      { "type": "action", "description": "대상 FC 신청을 등록 완료로 처리한다." },
+      { "type": "assertion", "description": "FC 측에서 시험 상태가 등록 완료로 업데이트되는지 확인한다." }
     ]
   }
 ]

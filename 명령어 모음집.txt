@@ -1,0 +1,3 @@
+앱 빌드: eas build --platform android --profile production
+앱 실행+설치: npx expo run:android
+웹 실행:cd web & npm run dev

@@ -3,15 +3,15 @@ import { useMutation, useQuery } from '@tanstack/react-query';
 import { router } from 'expo-router';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
-    Alert,
-    Platform,
-    Pressable,
-    RefreshControl,
-    ScrollView,
-    StyleSheet,
-    Text,
-    TextInput,
-    View,
+  Alert,
+  Platform,
+  Pressable,
+  RefreshControl,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TextInput,
+  View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
@@ -120,15 +120,15 @@ function RoundedButton({
     variant === 'primary'
       ? styles.btnPrimary
       : variant === 'secondary'
-      ? styles.btnSecondary
-      : styles.btnDanger;
+        ? styles.btnSecondary
+        : styles.btnDanger;
 
   const textStyle =
     variant === 'secondary'
       ? styles.btnTextSecondary
       : variant === 'danger'
-      ? styles.btnTextDanger
-      : styles.btnTextPrimary;
+        ? styles.btnTextDanger
+        : styles.btnTextPrimary;
 
   return (
     <Pressable
@@ -354,7 +354,7 @@ export default function ExamRegisterScreen() {
           refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}
         >
           <View style={styles.headerRow}>
-            <RefreshButton onPress={() => {refetch()}} />
+            <RefreshButton onPress={() => { refetch() }} />
             <Text style={styles.headerTitle}>생명보험 시험 일정 관리</Text>
           </View>
           <Text style={styles.caption}>
@@ -381,13 +381,14 @@ export default function ExamRegisterScreen() {
                 <Text style={styles.dateText}>{formatKoreanDate(examDate)}</Text>
               </Pressable>
             )}
-            {showExamPicker && Platform.OS === 'android' && (
+            {showExamPicker && Platform.OS !== 'ios' && (
               <DateTimePicker
                 value={examDate}
                 mode="date"
-                onChange={(_, date) => {
-                  if (date) setExamDate(date);
+                display="default"
+                onChange={(event, date) => {
                   setShowExamPicker(false);
+                  if (event.type === 'set' && date) setExamDate(date);
                 }}
               />
             )}
@@ -407,13 +408,14 @@ export default function ExamRegisterScreen() {
                 <Text style={styles.dateText}>{formatKoreanDate(deadlineDate)}</Text>
               </Pressable>
             )}
-            {showDeadlinePicker && Platform.OS === 'android' && (
+            {showDeadlinePicker && Platform.OS !== 'ios' && (
               <DateTimePicker
                 value={deadlineDate}
                 mode="date"
-                onChange={(_, date) => {
-                  if (date) setDeadlineDate(date);
+                display="default"
+                onChange={(event, date) => {
                   setShowDeadlinePicker(false);
+                  if (event.type === 'set' && date) setDeadlineDate(date);
                 }}
               />
             )}

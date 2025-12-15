@@ -30,7 +30,7 @@ async def run_test():
         page = await context.new_page()
         
         # Navigate to your target URL and wait until the network request is committed
-        await page.goto("http://localhost:8081", wait_until="commit", timeout=10000)
+        await page.goto("http://localhost:3000", wait_until="commit", timeout=10000)
         
         # Wait for the main page to reach DOMContentLoaded state (optional for stability)
         try:
@@ -46,12 +46,46 @@ async def run_test():
                 pass
         
         # Interact with the page elements to simulate user flow
+        # -> Input admin code 1111 and click start button to log in as admin
+        frame = context.pages[-1]
+        # Input admin code 1111 in the input field
+        elem = frame.locator('xpath=html/body/div[3]/div/div/div/div/input').nth(0)
+        await page.wait_for_timeout(3000); await elem.fill('1111')
+        
+
+        frame = context.pages[-1]
+        # Click the start button to log in as admin
+        elem = frame.locator('xpath=html/body/div[3]/div/div/button').nth(0)
+        await page.wait_for_timeout(3000); await elem.click(timeout=5000)
+        
+
+        # -> Click 시험 신청자 관리 (Exam Applicants Management) button to open registration management screen
+        frame = context.pages[-1]
+        # Click 시험 신청자 관리 button to open registration management screen
+        elem = frame.locator('xpath=html/body/div[3]/main/div/div/div[3]/div/div[2]/button').nth(0)
+        await page.wait_for_timeout(3000); await elem.click(timeout=5000)
+        
+
+        # -> Click on an applicant entry or add button to start editing or adding a registration entry
+        frame = context.pages[-1]
+        # Click the button next to 엑셀 다운로드 to add or edit registration entry
+        elem = frame.locator('xpath=html/body/div[3]/main/div/div/div/div[2]/button[2]').nth(0)
+        await page.wait_for_timeout(3000); await elem.click(timeout=5000)
+        
+
+        # -> Try clicking on an applicant row to check if it opens editing or detail view for registration entry modification.
+        frame = context.pages[-1]
+        # Click on the status label of the first applicant row to check for editing or detail view
+        elem = frame.locator('xpath=html/body/div[3]/main/div/div/div[3]/div/div/div/table/thead/tr/th[9]/button').nth(0)
+        await page.wait_for_timeout(3000); await elem.click(timeout=5000)
+        
+
         # --> Assertions to verify final state
         frame = context.pages[-1]
         try:
-            await expect(frame.locator('text=Admin tools successfully managed registrations and appointments').first).to_be_visible(timeout=30000)
+            await expect(frame.locator('text=Registration and Appointment Management Successful').first).to_be_visible(timeout=1000)
         except AssertionError:
-            raise AssertionError('Test case failed: Admin tools did not correctly manage registrations and appointments with proper data saving, retrieval, and UI updates as per the test plan.')
+            raise AssertionError('Test plan execution failed: Admin tools did not correctly manage registrations and appointments with proper data saving, retrieval, and UI updates.')
         await asyncio.sleep(5)
     
     finally:

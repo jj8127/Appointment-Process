@@ -30,7 +30,7 @@ async def run_test():
         page = await context.new_page()
         
         # Navigate to your target URL and wait until the network request is committed
-        await page.goto("http://localhost:8081", wait_until="commit", timeout=10000)
+        await page.goto("http://localhost:3000", wait_until="commit", timeout=10000)
         
         # Wait for the main page to reach DOMContentLoaded state (optional for stability)
         try:
@@ -46,11 +46,39 @@ async def run_test():
                 pass
         
         # Interact with the page elements to simulate user flow
+        # -> Input admin code 1111 and click start to login.
+        frame = context.pages[-1]
+        # Input admin code 1111
+        elem = frame.locator('xpath=html/body/div[3]/div/div/div/div/input').nth(0)
+        await page.wait_for_timeout(3000); await elem.fill('1111')
+        
+
+        frame = context.pages[-1]
+        # Click 시작하기 (Start) button to login
+        elem = frame.locator('xpath=html/body/div[3]/div/div/button').nth(0)
+        await page.wait_for_timeout(3000); await elem.click(timeout=5000)
+        
+
+        # -> Navigate to the exam application screen by clicking the appropriate menu or button.
+        frame = context.pages[-1]
+        # Click 시험 신청자 (Exam Applicants) menu to navigate to exam application screen
+        elem = frame.locator('xpath=html/body/div[3]/nav/div/a[7]').nth(0)
+        await page.wait_for_timeout(3000); await elem.click(timeout=5000)
+        
+
+        # -> Open the form or interface to add a new exam application to test invalid or incomplete data entry.
+        frame = context.pages[-1]
+        # Click the button to add a new exam application or open the application form
+        elem = frame.locator('xpath=html/body/div[3]/main/div/div/div/div[2]/button[2]').nth(0)
+        await page.wait_for_timeout(3000); await elem.click(timeout=5000)
+        
+
         # --> Assertions to verify final state
+        frame = context.pages[-1]
         try:
-            await expect(page.locator('text=Application Submitted Successfully').first).to_be_visible(timeout=3000)
+            await expect(frame.locator('text=Application Submitted Successfully').first).to_be_visible(timeout=3000)
         except AssertionError:
-            raise AssertionError('Test failed: Validation errors did not appear or submission was not blocked for incomplete or invalid exam application fields as required by the test plan.')
+            raise AssertionError("Test failed: Validation errors did not appear or submission was not blocked for incomplete or invalid exam application fields as required by the test plan.")
         await asyncio.sleep(5)
     
     finally:
