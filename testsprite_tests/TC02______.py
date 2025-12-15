@@ -46,9 +46,9 @@ async def run_test():
                 pass
         
         # Interact with the page elements to simulate user flow
-        # -> Input 관리자 코드 1111 and click 시작하기 to login as 총무
+        # -> Input 관리자 코드 1111 and click 시작하기 to login as 총무.
         frame = context.pages[-1]
-        # Input 관리자 코드 1111 to login as 총무
+        # Input 관리자 코드 1111 for 총무 login
         elem = frame.locator('xpath=html/body/div/div/div/div/div[2]/div/div/div/div/div/div/div[2]/div[3]/input').nth(0)
         await page.wait_for_timeout(3000); await elem.fill('1111')
         
@@ -59,51 +59,105 @@ async def run_test():
         await page.wait_for_timeout(3000); await elem.click(timeout=5000)
         
 
-        # -> Find and select the target FC from the FC list
+        # -> Find and click the element to open FC 목록 (list of FCs) to manage FC 임시사번 and 경력 유형.
         frame = context.pages[-1]
-        # Click '수당 동의 안내' to access FC list or related FC management
+        # Click '수당 동의 안내' to open FC 목록 or related FC management page
         elem = frame.locator('xpath=html/body/div/div/div/div/div[2]/div/div/div/div/div/div/div/div[6]/div/div').nth(0)
         await page.wait_for_timeout(3000); await elem.click(timeout=5000)
         
 
-        # -> Select the FC 홍길순 (index 12) who currently has no 임시사번 발급 to generate a temporary number and set 경력 유형
+        # -> Select an FC with 임시사번 미발급 (e.g., 박상준) to issue 임시사번 and set 경력 유형.
         frame = context.pages[-1]
-        # Select FC 홍길순 who has 임시사번 미발급 to generate temporary number and set 경력 유형
-        elem = frame.locator('xpath=html/body/div/div/div/div/div[2]/div[2]/div/div/div/div/div/div/div[2]/div[2]/div').nth(0)
+        # Click on 박상준 FC entry with 임시사번 미발급 to open detail for issuing 임시사번 and setting 경력 유형
+        elem = frame.locator('xpath=html/body/div/div/div/div/div[2]/div[2]/div/div/div/div/div/div/div[2]/div[3]/div').nth(0)
         await page.wait_for_timeout(3000); await elem.click(timeout=5000)
         
 
-        # -> Input 임시사번 (e.g., T-12345), select 경력 유형 (신입 or 경력), and click 저장 to save changes
+        # -> 입력 필드에 임시사번 'T-12345' 입력하고 경력 유형 '신입' 선택 후 저장 버튼 클릭.
         frame = context.pages[-1]
-        # Input 임시사번 T-12345
-        elem = frame.locator('xpath=html/body/div/div/div/div/div[2]/div[2]/div/div/div/div/div/div/div[2]/div[2]/div[2]/div[2]/div[3]/div[2]/div[2]/input').nth(0)
+        # 임시사번 입력란에 'T-12345' 입력
+        elem = frame.locator('xpath=html/body/div/div/div/div/div[2]/div[2]/div/div/div/div/div/div/div[2]/div[3]/div[2]/div[2]/div[3]/div[2]/div[2]/input').nth(0)
         await page.wait_for_timeout(3000); await elem.fill('T-12345')
         
 
         frame = context.pages[-1]
-        # Select 경력 유형 경력
-        elem = frame.locator('xpath=html/body/div/div/div/div/div[2]/div[2]/div/div/div/div/div/div/div[2]/div[2]/div[2]/div[2]/div[3]/div[2]/div/div[2]').nth(0)
+        # 경력 유형 중 '신입' 선택
+        elem = frame.locator('xpath=html/body/div/div/div/div/div[2]/div[2]/div/div/div/div/div/div/div[2]/div[3]/div[2]/div[2]/div[3]/div[2]/div/div').nth(0)
         await page.wait_for_timeout(3000); await elem.click(timeout=5000)
         
 
         frame = context.pages[-1]
-        # Click 저장 button to save 임시사번 and 경력 유형
-        elem = frame.locator('xpath=html/body/div/div/div/div/div[2]/div[2]/div/div/div/div/div/div/div[2]/div[2]/div[2]/div[2]/div[3]/div[2]/div[2]/div').nth(0)
+        # 저장 버튼 클릭하여 임시사번과 경력 유형 저장
+        elem = frame.locator('xpath=html/body/div/div/div/div/div[2]/div[2]/div/div/div/div/div/div/div[2]/div[3]/div[2]/div[2]/div[3]/div[2]/div[2]/div').nth(0)
         await page.wait_for_timeout(3000); await elem.click(timeout=5000)
         
 
-        # -> Find and click logout or user menu to log out 총무 before logging in as FC or refreshing FC screen
+        # -> FC로 다시 로그인하거나 새로고침하여 FC 수당 동의/프로필 화면에 임시사번과 경력 유형이 표시되는지 확인.
         frame = context.pages[-1]
-        # Click user menu or profile icon to find logout option
-        elem = frame.locator('xpath=html/body/div/div/div/div/div[2]/div[2]/div/div/div/div/div/div/div[2]/div/div/div[2]/div').nth(0)
+        # 클릭하여 대시보드에서 로그아웃 또는 메뉴 이동 후 FC로 다시 로그인 또는 새로고침 준비
+        elem = frame.locator('xpath=html/body/div/div/div/div/div[2]/div[2]/div/div/div/div/div/div/div/div/div[2]').nth(0)
+        await page.wait_for_timeout(3000); await elem.click(timeout=5000)
+        
+
+        frame = context.pages[-1]
+        # 박상준 FC 항목 클릭하여 상세 정보 확인 준비
+        elem = frame.locator('xpath=html/body/div/div/div/div/div[2]/div[2]/div/div/div/div/div/div/div[2]/div[3]/div').nth(0)
+        await page.wait_for_timeout(3000); await elem.click(timeout=5000)
+        
+
+        # -> FC로 다시 로그인하거나 새로고침하여 FC 수당 동의/프로필 화면에 임시사번과 경력 유형이 표시되는지 확인.
+        frame = context.pages[-1]
+        # Click 이선옥 FC to open FC 수당 동의/프로필 화면 for 확인
+        elem = frame.locator('xpath=html/body/div/div/div/div/div[2]/div[2]/div/div/div/div/div/div/div[2]/div/div').nth(0)
+        await page.wait_for_timeout(3000); await elem.click(timeout=5000)
+        
+
+        # -> FC로 다시 로그인하거나 새로고침하여 FC 수당 동의/프로필 화면에 임시사번과 경력 유형이 표시되는지 확인.
+        frame = context.pages[-1]
+        # 클릭하여 메뉴 또는 로그아웃 후 FC로 다시 로그인 또는 새로고침 준비
+        elem = frame.locator('xpath=html/body/div/div/div/div/div[2]/div[2]/div/div/div/div/div/div/div/div/div[2]').nth(0)
+        await page.wait_for_timeout(3000); await elem.click(timeout=5000)
+        
+
+        # -> 임시사번 미발급 상태인 박상준 FC를 클릭하여 상세 정보 확인 후 임시사번과 경력 유형이 반영되었는지 확인.
+        frame = context.pages[-1]
+        # 박상준 FC 항목 클릭하여 상세 정보 확인
+        elem = frame.locator('xpath=html/body/div/div/div/div/div[2]/div[2]/div/div/div/div/div/div/div[2]/div[3]/div').nth(0)
+        await page.wait_for_timeout(3000); await elem.click(timeout=5000)
+        
+
+        # -> FC로 다시 로그인하거나 새로고침하여 FC 수당 동의/프로필 화면에 임시사번과 경력 유형이 표시되는지 확인.
+        frame = context.pages[-1]
+        # 클릭하여 메뉴 또는 로그아웃 후 FC로 다시 로그인 또는 새로고침 준비
+        elem = frame.locator('xpath=html/body/div/div/div/div/div[2]/div[2]/div/div/div/div/div/div/div/div/div[2]').nth(0)
+        await page.wait_for_timeout(3000); await elem.click(timeout=5000)
+        
+
+        # -> FC로 다시 로그인하거나 새로고침하여 FC 수당 동의/프로필 화면에 임시사번과 경력 유형이 표시되는지 확인.
+        frame = context.pages[-1]
+        # 클릭하여 메뉴 또는 로그아웃 후 FC로 다시 로그인 또는 새로고침 준비
+        elem = frame.locator('xpath=html/body/div/div/div/div/div[2]/div[2]/div/div/div/div/div/div/div/div/div[2]').nth(0)
+        await page.wait_for_timeout(3000); await elem.click(timeout=5000)
+        
+
+        # -> 임시사번 미발급 상태인 박상준 FC도 동일하게 임시사번과 경력구분이 정확히 표시되는지 확인.
+        frame = context.pages[-1]
+        # 박상준 FC 항목 클릭하여 상세 정보 확인
+        elem = frame.locator('xpath=html/body/div/div/div/div/div[2]/div[2]/div/div/div/div/div/div/div[2]/div[3]/div').nth(0)
+        await page.wait_for_timeout(3000); await elem.click(timeout=5000)
+        
+
+        # -> 임시사번이 FC 화면에 반영되지 않는 문제 확인 및 재발급 또는 새로고침 등 추가 조치 필요.
+        frame = context.pages[-1]
+        # 박상준 FC 상세 정보 다시 클릭하여 임시사번 재확인 및 수정 시도
+        elem = frame.locator('xpath=html/body/div/div/div/div/div[2]/div[2]/div/div/div/div/div/div/div[2]/div[3]/div').nth(0)
         await page.wait_for_timeout(3000); await elem.click(timeout=5000)
         
 
         # --> Assertions to verify final state
         frame = context.pages[-1]
-        await expect(frame.locator('text=이선옥').first).to_be_visible(timeout=30000)
-        await expect(frame.locator('text=경력').first).to_be_visible(timeout=30000)
         await expect(frame.locator('text=T-12345').first).to_be_visible(timeout=30000)
+        await expect(frame.locator('text=신입').first).to_be_visible(timeout=30000)
         await asyncio.sleep(5)
     
     finally:

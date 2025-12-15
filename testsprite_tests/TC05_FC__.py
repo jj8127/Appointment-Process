@@ -46,9 +46,9 @@ async def run_test():
                 pass
         
         # Interact with the page elements to simulate user flow
-        # -> Input FC phone number and click start to login
+        # -> Input FC phone number and click start to login.
         frame = context.pages[-1]
-        # Input FC phone number
+        # Input FC phone number for login
         elem = frame.locator('xpath=html/body/div/div/div/div/div[2]/div/div/div/div/div/div/div[2]/div[3]/input').nth(0)
         await page.wait_for_timeout(3000); await elem.fill('01012345678')
         
@@ -59,7 +59,7 @@ async def run_test():
         await page.wait_for_timeout(3000); await elem.click(timeout=5000)
         
 
-        # -> Click on '서류 업로드' to open the document upload screen
+        # -> Click on 서류 업로드 to open the document upload screen where the required documents list should be displayed.
         frame = context.pages[-1]
         # Click 서류 업로드 to open document upload screen
         elem = frame.locator('xpath=html/body/div/div/div/div/div[2]/div/div/div/div/div/div/div/div[7]/div[4]/div').nth(0)
@@ -69,9 +69,9 @@ async def run_test():
         # --> Assertions to verify final state
         frame = context.pages[-1]
         try:
-            await expect(frame.locator('text=업로드 진행률 및 완료 상태 확인 성공').first).to_be_visible(timeout=1000)
+            await expect(frame.locator('text=Document Upload Successful').first).to_be_visible(timeout=1000)
         except AssertionError:
-            raise AssertionError('Test case failed: The upload progress and completion status are not displayed or saved in the list as required by the test plan.')
+            raise AssertionError('Test case failed: The required documents upload progress and completion status are not displayed as expected based on the mandatory documents list registered by the general affairs.')
         await asyncio.sleep(5)
     
     finally:

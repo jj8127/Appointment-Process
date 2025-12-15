@@ -1,14 +1,14 @@
 import { DarkTheme, DefaultTheme, ThemeProvider } from '@react-navigation/native';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import * as NavigationBar from 'expo-navigation-bar';
+import * as Notifications from 'expo-notifications';
 import { Stack, router } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
-import * as NavigationBar from 'expo-navigation-bar';
 import { useEffect } from 'react';
-import * as Notifications from 'expo-notifications';
-import 'react-native-reanimated';
 import { Platform } from 'react-native';
-import { enableScreens } from 'react-native-screens';
+import 'react-native-reanimated';
 import { SafeAreaProvider, SafeAreaView } from 'react-native-safe-area-context';
+import { enableScreens } from 'react-native-screens';
 
 import { useColorScheme } from '@/hooks/use-color-scheme';
 import { SessionProvider } from '@/hooks/use-session';
@@ -94,7 +94,7 @@ export default function RootLayout() {
                 <Stack.Screen name="admin-notice" options={{ title: '공지 등록' }} />
                 <Stack.Screen name="exam-register" options={{ title: '생명 시험 등록' }} />
                 <Stack.Screen name="exam-register2" options={{ title: '손해 시험 등록' }} />
-                <Stack.Screen name="exam-manage" options={{ title: '생명 신청자 관리' }} />
+                <Stack.Screen name="exam-manage" options={{ title: '생명/제3 신청자 관리' }} />
                 <Stack.Screen name="exam-manage2" options={{ title: '손해 신청자 관리' }} />
               </Stack>
 

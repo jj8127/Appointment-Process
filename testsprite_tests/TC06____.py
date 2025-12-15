@@ -46,11 +46,11 @@ async def run_test():
                 pass
         
         # Interact with the page elements to simulate user flow
-        # -> Input 총무 phone number or code and click 시작하기 to login.
+        # -> Input 관리자 코드 1111 and click 시작하기 to login as 총무.
         frame = context.pages[-1]
-        # Input 총무 phone number for login
+        # Input 관리자 코드 1111 for 총무 login
         elem = frame.locator('xpath=html/body/div/div/div/div/div[2]/div/div/div/div/div/div/div[2]/div[3]/input').nth(0)
-        await page.wait_for_timeout(3000); await elem.fill('01012345678')
+        await page.wait_for_timeout(3000); await elem.fill('1111')
         
 
         frame = context.pages[-1]
@@ -59,17 +59,44 @@ async def run_test():
         await page.wait_for_timeout(3000); await elem.click(timeout=5000)
         
 
-        # -> Find and click the element to open the submitted documents list for review.
+        # -> Click on '서류 안내/검토' (index 10) to open the submitted documents list for approval/rejection.
         frame = context.pages[-1]
-        # Click '수당 동의' to open the submitted documents list for review
-        elem = frame.locator('xpath=html/body/div/div/div/div/div[2]/div/div/div/div/div/div/div/div[7]/div[4]/div').nth(0)
+        # Click '서류 안내/검토' to open the submitted documents list
+        elem = frame.locator('xpath=html/body/div/div/div/div/div[2]/div/div/div/div/div/div/div/div[6]/div[2]/div').nth(0)
         await page.wait_for_timeout(3000); await elem.click(timeout=5000)
+        
+
+        # -> Check other tabs or filters to find submitted documents for approval/rejection.
+        frame = context.pages[-1]
+        # Click '요청 완료' tab to check for submitted documents
+        elem = frame.locator('xpath=html/body/div/div/div/div/div[2]/div[2]/div/div/div/div/div/div/div/div[5]/div[4]').nth(0)
+        await page.wait_for_timeout(3000); await elem.click(timeout=5000)
+        
+
+        # -> Try clicking other tabs such as '서류 미요청' or '전체' to locate any submitted documents for approval/rejection.
+        frame = context.pages[-1]
+        # Click '서류 미요청' tab to check for documents not requested
+        elem = frame.locator('xpath=html/body/div/div/div/div/div[2]/div[2]/div/div/div/div/div/div/div/div[5]/div[3]').nth(0)
+        await page.wait_for_timeout(3000); await elem.click(timeout=5000)
+        
+
+        frame = context.pages[-1]
+        # Click '전체' tab to check for all documents
+        elem = frame.locator('xpath=html/body/div/div/div/div/div[2]/div[2]/div/div/div/div/div/div/div/div[5]/div').nth(0)
+        await page.wait_for_timeout(3000); await elem.click(timeout=5000)
+        
+
+        # -> Try searching for documents using the search input by entering a common name or contact to locate any submitted documents.
+        frame = context.pages[-1]
+        # Input '테스트' in the 이름, 연락처 검색 field to search for submitted documents
+        elem = frame.locator('xpath=html/body/div/div/div/div/div[2]/div[2]/div/div/div/div/div/div/div/div[3]/input').nth(0)
+        await page.wait_for_timeout(3000); await elem.fill('테스트')
         
 
         # --> Assertions to verify final state
         frame = context.pages[-1]
         try:
-            await expect(frame.locator('text=승인 및 반려 상태가 즉시 반영되었습니다').first).to_be_visible(timeout=1000)
+            await expect(frame.locator('text=승인/반려 완료 상태 반영 실패').first).to_be_visible(timeout=1000)
         except AssertionError:
             raise AssertionError('Test case failed: The approval/rejection results were not saved or the FC screen did not update the status immediately as required by the test plan.')
         await asyncio.sleep(5)

@@ -46,25 +46,39 @@ async def run_test():
                 pass
         
         # Interact with the page elements to simulate user flow
-        # -> Input admin code for 총무 login and click 시작하기 button to proceed to 시험 신청 대시보드.
+        # -> Input 관리자 코드 1111 and click 시작하기 to login as 총무.
         frame = context.pages[-1]
-        # Input admin code for 총무 login
+        # Input 관리자 코드 1111 for 총무 login
         elem = frame.locator('xpath=html/body/div/div/div/div/div[2]/div/div/div/div/div/div/div[2]/div[3]/input').nth(0)
-        await page.wait_for_timeout(3000); await elem.fill('admin_code_총무')
+        await page.wait_for_timeout(3000); await elem.fill('1111')
         
 
         frame = context.pages[-1]
-        # Click 시작하기 button to login as 총무
+        # Click 시작하기 button to login
         elem = frame.locator('xpath=html/body/div/div/div/div/div[2]/div/div/div/div/div/div/div[2]/div[4]').nth(0)
+        await page.wait_for_timeout(3000); await elem.click(timeout=5000)
+        
+
+        # -> Click on the 시험 신청 대시보드 or relevant link to open the 시험 신청 dashboard.
+        frame = context.pages[-1]
+        # Click 생명보험/제3보험 시험 응시일정 · 마감 관리 to open 시험 신청 대시보드
+        elem = frame.locator('xpath=html/body/div/div/div/div/div[2]/div/div/div/div/div/div/div/div[6]/div[5]/div').nth(0)
+        await page.wait_for_timeout(3000); await elem.click(timeout=5000)
+        
+
+        # -> Navigate to the page or section where 대상 FC 신청 can be registered as 완료.
+        frame = context.pages[-1]
+        # Click the refresh icon to reload or update the 시험 신청 대시보드
+        elem = frame.locator('xpath=html/body/div/div/div/div/div[2]/div[2]/div/div/div/div/div/div/div/div/div/div').nth(0)
         await page.wait_for_timeout(3000); await elem.click(timeout=5000)
         
 
         # --> Assertions to verify final state
         frame = context.pages[-1]
         try:
-            await expect(frame.locator('text=시험 상태 등록 완료 확인 실패').first).to_be_visible(timeout=1000)
+            await expect(frame.locator('text=등록 완료 상태가 갱신되었습니다').first).to_be_visible(timeout=1000)
         except AssertionError:
-            raise AssertionError('Test case failed: The FC 상태 did not update to 등록 완료 after 총무 processed the 시험 신청 as 등록 완료.')
+            raise AssertionError('Test case failed: The FC 상태 did not update to 등록 완료 after 총무 registered the 시험 신청 as 완료.')
         await asyncio.sleep(5)
     
     finally:

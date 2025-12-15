@@ -46,29 +46,29 @@ async def run_test():
                 pass
         
         # Interact with the page elements to simulate user flow
-        # -> Input FC phone number and click the start button to login.
+        # -> Input approved FC phone number and click start to login.
         frame = context.pages[-1]
-        # Input FC phone number for login
+        # Input approved FC phone number for login
         elem = frame.locator('xpath=html/body/div/div/div/div/div[2]/div/div/div/div/div/div/div[2]/div[3]/input').nth(0)
         await page.wait_for_timeout(3000); await elem.fill('01012345678')
         
 
         frame = context.pages[-1]
-        # Click the start button to login
+        # Click 시작하기 button to login
         elem = frame.locator('xpath=html/body/div/div/div/div/div[2]/div/div/div/div/div/div/div[2]/div[4]').nth(0)
         await page.wait_for_timeout(3000); await elem.click(timeout=5000)
         
 
-        # -> Click on '생명/제3 시험 신청' to open the exam application page for life/third type exam.
+        # -> Click on '생명/제3 시험 신청' to open the 시험 신청 screen.
         frame = context.pages[-1]
-        # Click on '생명/제3 시험 신청' to open exam application page
+        # Click 생명/제3 시험 신청 to open 시험 신청 screen
         elem = frame.locator('xpath=html/body/div/div/div/div/div[2]/div/div/div/div/div/div/div/div[7]/div[2]/div').nth(0)
         await page.wait_for_timeout(3000); await elem.click(timeout=5000)
         
 
         # --> Assertions to verify final state
         frame = context.pages[-1]
-        await expect(frame.locator('text=아직 신청한 시험이 없습니다.').first).to_be_visible(timeout=30000)
+        await expect(frame.locator('text=신청 완료 상태/확인 메시지가 표시되는지 확인한다.').first).to_be_visible(timeout=30000)
         await asyncio.sleep(5)
     
     finally:

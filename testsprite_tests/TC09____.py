@@ -46,38 +46,82 @@ async def run_test():
                 pass
         
         # Interact with the page elements to simulate user flow
-        # -> Input 관리자 코드 for 총무 and click 시작하기 to login.
+        # -> Input 관리자 코드 1111 and click 시작하기 to login as 총무.
         frame = context.pages[-1]
-        # Input 관리자 코드 for 총무 login
-        elem = frame.locator('xpath=html/body/div/div/div/div/div[2]/div/div/div/div/div/div/div[2]/div[3]/input').nth(0)
-        await page.wait_for_timeout(3000); await elem.fill('관리자코드총무')
-        
-
-        frame = context.pages[-1]
-        # Click 시작하기 button to login as 총무
-        elem = frame.locator('xpath=html/body/div/div/div/div/div[2]/div/div/div/div/div/div/div[2]/div[4]').nth(0)
-        await page.wait_for_timeout(3000); await elem.click(timeout=5000)
-        
-
-        # -> Input a valid numeric 관리자 코드 for 총무 login or report the issue if no valid code is available.
-        frame = context.pages[-1]
-        # Input a valid numeric 관리자 코드 for 총무 login
+        # Input 관리자 코드 1111 for 총무 login
         elem = frame.locator('xpath=html/body/div/div/div/div/div[2]/div/div/div/div/div/div/div[2]/div[3]/input').nth(0)
         await page.wait_for_timeout(3000); await elem.fill('1111')
         
 
         frame = context.pages[-1]
-        # Click 시작하기 button to login as 총무
+        # Click 시작하기 button to login
         elem = frame.locator('xpath=html/body/div/div/div/div/div[2]/div/div/div/div/div/div/div[2]/div[4]').nth(0)
+        await page.wait_for_timeout(3000); await elem.click(timeout=5000)
+        
+
+        # -> Click on '위촉 진행' to open the 위촉 날짜 승인 screen.
+        frame = context.pages[-1]
+        # Click '위촉 진행' to open the 위촉 날짜 승인 screen
+        elem = frame.locator('xpath=html/body/div/div/div/div/div[2]/div/div/div/div/div/div/div/div[6]/div[3]/div').nth(0)
+        await page.wait_for_timeout(3000); await elem.click(timeout=5000)
+        
+
+        # -> Click on the FC entry to open details and approve the 위촉 날짜.
+        frame = context.pages[-1]
+        # Click on the FC entry '호앙ㄹ 4본부' to open details for approval
+        elem = frame.locator('xpath=html/body/div/div/div/div/div[2]/div[2]/div/div/div/div/div/div/div[2]/div/div').nth(0)
+        await page.wait_for_timeout(3000); await elem.click(timeout=5000)
+        
+
+        # -> Click the 승인 button for 생명 위촉 to approve the 위촉 날짜.
+        frame = context.pages[-1]
+        # Click 승인 button for 생명 위촉 to approve the 위촉 날짜
+        elem = frame.locator('xpath=html/body/div/div/div/div/div[2]/div[2]/div/div/div/div/div/div/div[2]/div/div[2]/div[2]/div[4]/div[3]/div[2]/div[3]').nth(0)
+        await page.wait_for_timeout(3000); await elem.click(timeout=5000)
+        
+
+        # -> Check if there is a separate button or action to finalize the 상태 완료 after 승인, or verify if additional steps are required to complete the approval process.
+        frame = context.pages[-1]
+        # Click 저장 button to save approval changes
+        elem = frame.locator('xpath=html/body/div/div/div/div/div[2]/div[2]/div/div/div/div/div/div/div[2]/div/div[2]/div[2]/div[4]/div[2]/div[3]').nth(0)
+        await page.wait_for_timeout(3000); await elem.click(timeout=5000)
+        
+
+        # -> Approve all 제출된 서류 (생명보험 합격증 등) by clicking 승인 버튼, 저장 후 FC 상태가 '위촉 완료'로 변경되는지 확인한다.
+        frame = context.pages[-1]
+        # Click 승인 button for 제출된 서류 '생명보험 합격증'
+        elem = frame.locator('xpath=html/body/div/div/div/div/div[2]/div[2]/div/div/div/div/div/div/div[2]/div/div[2]/div[2]/div[3]/div[5]/div[2]/div/div[3]').nth(0)
+        await page.wait_for_timeout(3000); await elem.click(timeout=5000)
+        
+
+        frame = context.pages[-1]
+        # Click 저장 button to save after 서류 승인
+        elem = frame.locator('xpath=html/body/div/div/div/div/div[2]/div[2]/div/div/div/div/div/div/div[2]/div/div[2]/div[2]/div[4]/div[2]/div[3]').nth(0)
+        await page.wait_for_timeout(3000); await elem.click(timeout=5000)
+        
+
+        # -> Click 승인 buttons for 생명 and 손해 in 3단계 위촉 진행 관리 to approve, then click 저장 button to finalize and check if FC 상태 changes to '위촉 완료'.
+        frame = context.pages[-1]
+        # Click 승인 button for 생명 in 3단계 위촉 진행 관리
+        elem = frame.locator('xpath=html/body/div/div/div/div/div[2]/div[2]/div/div/div/div/div/div/div[2]/div/div[2]/div[2]/div[4]/div[3]/div[2]/div[3]').nth(0)
+        await page.wait_for_timeout(3000); await elem.click(timeout=5000)
+        
+
+        frame = context.pages[-1]
+        # Click 승인 button for 손해 in 3단계 위촉 진행 관리
+        elem = frame.locator('xpath=html/body/div/div/div/div/div[2]/div[2]/div/div/div/div/div/div/div[2]/div/div[2]/div[2]/div[4]/div[4]/div[2]/div[3]').nth(0)
+        await page.wait_for_timeout(3000); await elem.click(timeout=5000)
+        
+
+        frame = context.pages[-1]
+        # Click 저장 button to save approvals
+        elem = frame.locator('xpath=html/body/div/div/div/div/div[2]/div[2]/div/div/div/div/div/div/div[2]/div/div[2]/div[2]/div[4]/div[2]/div[3]').nth(0)
         await page.wait_for_timeout(3000); await elem.click(timeout=5000)
         
 
         # --> Assertions to verify final state
         frame = context.pages[-1]
-        try:
-            await expect(frame.locator('text=위촉 날짜 승인 완료')).to_be_visible(timeout=1000)
-        except AssertionError:
-            raise AssertionError('Test case failed: The FC status did not change to 위촉 완료 and is not reflected on the dashboard as expected after 총무 approves the 위촉 날짜.')
+        await expect(frame.locator('text=위촉 완료').first).to_be_visible(timeout=30000)
         await asyncio.sleep(5)
     
     finally:

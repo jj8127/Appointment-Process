@@ -46,32 +46,53 @@ async def run_test():
                 pass
         
         # Interact with the page elements to simulate user flow
-        # -> Input FC phone number and click start to open the appointment date input screen.
+        # -> Input 관리자 코드 1111 and click 시작하기 button to login as 총무.
         frame = context.pages[-1]
-        # Input FC phone number for login
+        # Input 관리자 코드 1111 for 총무 login
         elem = frame.locator('xpath=html/body/div/div/div/div/div[2]/div/div/div/div/div/div/div[2]/div[3]/input').nth(0)
-        await page.wait_for_timeout(3000); await elem.fill('01012345678')
+        await page.wait_for_timeout(3000); await elem.fill('1111')
         
 
         frame = context.pages[-1]
-        # Click 시작하기 to login as FC and open appointment date input screen
+        # Click 시작하기 button to login
         elem = frame.locator('xpath=html/body/div/div/div/div/div[2]/div/div/div/div/div/div/div[2]/div[4]').nth(0)
         await page.wait_for_timeout(3000); await elem.click(timeout=5000)
         
 
-        # -> Click on the section or button to open the appointment date input screen where FC can enter the appointment date.
+        # -> Click on the 위촉 진행 (위촉 확인) menu to open the 위촉 관리 화면.
         frame = context.pages[-1]
-        # Click '수당 동의' section to proceed to next step where appointment date input might be available
-        elem = frame.locator('xpath=html/body/div/div/div/div/div[2]/div/div/div/div/div/div/div/div[7]/div[4]/div').nth(0)
+        # Click 위촉 진행 (위촉 확인) to open 위촉 관리 화면
+        elem = frame.locator('xpath=html/body/div/div/div/div/div[2]/div/div/div/div/div/div/div/div[6]/div[3]/div').nth(0)
+        await page.wait_for_timeout(3000); await elem.click(timeout=5000)
+        
+
+        # -> Click on the 3단계 위촉 진행 tab to input and save 생명/손해 위촉 차수 및 일정 정보.
+        frame = context.pages[-1]
+        # Click 3단계 위촉 진행 tab to input and save 위촉 차수 및 일정 정보
+        elem = frame.locator('xpath=html/body/div/div/div/div/div[2]/div[2]/div/div/div/div/div/div/div/div[4]/div/div[4]').nth(0)
+        await page.wait_for_timeout(3000); await elem.click(timeout=5000)
+        
+
+        # -> Locate and click the button or link to add or edit 생명/손해 위촉 차수 및 일정 정보 on the 3단계 위촉 진행 tab.
+        frame = context.pages[-1]
+        # Click the dropdown or expand button for the 호앙ㄹ 4본부 section to reveal more options or input fields
+        elem = frame.locator('xpath=html/body/div/div/div/div/div[2]/div[2]/div/div/div/div/div/div/div[2]/div/div').nth(0)
+        await page.wait_for_timeout(3000); await elem.click(timeout=5000)
+        
+
+        # -> Click the 저장 button to save the current 생명/손해 위촉 차수 및 일정 정보.
+        frame = context.pages[-1]
+        # Click 저장 button to save the 생명/손해 위촉 차수 및 일정 정보
+        elem = frame.locator('xpath=html/body/div/div/div/div/div[2]/div[2]/div/div/div/div/div/div/div[2]/div/div[2]/div[2]/div[4]/div[2]/div[3]').nth(0)
         await page.wait_for_timeout(3000); await elem.click(timeout=5000)
         
 
         # --> Assertions to verify final state
         frame = context.pages[-1]
         try:
-            await expect(frame.locator('text=Appointment Date Successfully Saved').first).to_be_visible(timeout=1000)
+            await expect(frame.locator('text=위촉 차수 및 일정 정보 저장 완료').first).to_be_visible(timeout=1000)
         except AssertionError:
-            raise AssertionError('Test case failed: The appointment date input and submission did not save the date or update the status as expected according to the test plan.')
+            raise AssertionError('Test case failed: The 생명/손해 위촉 차수 및 일정 정보 was not saved or not visible on the FC dashboard as expected.')
         await asyncio.sleep(5)
     
     finally:

@@ -56,17 +56,20 @@ const CARD_SHADOW = {
 
 type QuickLink = { href: string; title: string; description: string; stepKey?: StepKey };
 
-const quickLinksAdmin: QuickLink[] = [
+const quickLinksAdminOnboarding: QuickLink[] = [
   { href: '/dashboard', stepKey: 'step2', title: '수당 동의 안내', description: '기본 정보 저장 완료 FC' },
   { href: '/dashboard', stepKey: 'step3', title: '서류 안내/검토', description: '제출해야 할 서류 관리' },
   { href: '/dashboard', stepKey: 'step4', title: '위촉 진행', description: '위촉 확인' },
   { href: '/dashboard', stepKey: 'step5', title: '완료 관리', description: '위촉 완료 현황' },
-  { href: '/exam-register', title: '생명보험/제3보험 시험', description: '응시일정 · 마감 관리' },
-  { href: '/exam-register2', title: '손해보험 시험', description: '응시일정 · 마감 관리' },
-  { href: '/exam-manage', title: '생명 신청자', description: '신청 현황 조회' },
-  { href: '/exam-manage2', title: '손해 신청자', description: '신청 현황 조회' },
   { href: '/admin-notice', title: '공지 등록', description: '새소식 작성' },
   { href: '/admin-messenger', title: '메신저', description: 'FC 1:1 대화 관리' },
+];
+
+const quickLinksAdminExam: QuickLink[] = [
+  { href: '/exam-register', title: '생명보험/제3보험 시험', description: '응시일정 · 마감 관리' },
+  { href: '/exam-register2', title: '손해보험 시험', description: '응시일정 · 마감 관리' },
+  { href: '/exam-manage', title: '생명/제3 신청자', description: '신청 현황 조회' },
+  { href: '/exam-manage2', title: '손해 신청자', description: '신청 현황 조회' },
 ];
 
 const quickLinksFc: QuickLink[] = [
@@ -194,6 +197,40 @@ const fetchFcStatus = async (residentId: string) => {
   };
 };
 
+type ExamStats = {
+  lifeTotal: number;
+  lifePending: number;
+  nonlifeTotal: number;
+  nonlifePending: number;
+};
+
+const fetchExamStats = async (): Promise<ExamStats> => {
+  const countByType = async (examType: 'life' | 'nonlife') => {
+    const { count: total, error: totalErr } = await supabase
+      .from('exam_registrations')
+      .select('id, exam_rounds!inner(exam_type)', { count: 'exact', head: true })
+      .eq('exam_rounds.exam_type', examType);
+    if (totalErr) throw totalErr;
+
+    const { count: pending, error: pendingErr } = await supabase
+      .from('exam_registrations')
+      .select('id, exam_rounds!inner(exam_type)', { count: 'exact', head: true })
+      .eq('exam_rounds.exam_type', examType)
+      .or('is_confirmed.is.null,is_confirmed.eq.false');
+    if (pendingErr) throw pendingErr;
+
+    return { total: total ?? 0, pending: pending ?? 0 };
+  };
+
+  const [life, nonlife] = await Promise.all([countByType('life'), countByType('nonlife')]);
+  return {
+    lifeTotal: life.total,
+    lifePending: life.pending,
+    nonlifeTotal: nonlife.total,
+    nonlifePending: nonlife.pending,
+  };
+};
+
 function calcStep(myFc: any) {
   if (!myFc) return 1;
 
@@ -268,7 +305,19 @@ export default function Home() {
   const { role, residentId, residentMask, displayName, logout, hydrated } = useSession();
   const insets = useSafeAreaInsets();
 
+  const [adminHomeTab, setAdminHomeTab] = useState<'onboarding' | 'exam'>('onboarding');
   const [refreshing, setRefreshing] = useState(false);
+  const isAdminExam = role === 'admin' && adminHomeTab === 'exam';
+  const adminNavItems = [
+    { key: 'onboarding' as const, label: '위촉 홈', icon: 'home' as const },
+    { key: 'exam' as const, label: '시험 홈', icon: 'book-open' as const },
+  ];
+
+  useEffect(() => {
+    if (role !== 'admin') {
+      setAdminHomeTab('onboarding');
+    }
+  }, [role]);
 
   // 테스트용: Supabase 연결 확인 (컴포넌트 내부에서 실행)
   useEffect(() => {
@@ -321,7 +370,21 @@ export default function Home() {
     queryFn: fetchLatestNotice,
   });
 
-  const quickLinks = role === 'admin' ? quickLinksAdmin : quickLinksFc;
+  const quickLinks =
+    role === 'admin'
+      ? adminHomeTab === 'exam'
+        ? quickLinksAdminExam
+        : quickLinksAdminOnboarding
+      : quickLinksFc;
+  const {
+    data: examStats,
+    isLoading: examStatsLoading,
+    refetch: refetchExamStats,
+  } = useQuery({
+    queryKey: ['exam-stats'],
+    queryFn: fetchExamStats,
+    enabled: role === 'admin',
+  });
   const {
     data: latestAdminMsg,
     isLoading: latestAdminMsgLoading,
@@ -449,6 +512,12 @@ const getAppointmentStatus = (
     router.replace('/auth');
   };
 
+  const handleAdminTabChange = (tab: 'onboarding' | 'exam') => {
+    if (tab === adminHomeTab) return;
+    Haptics.selectionAsync();
+    setAdminHomeTab(tab);
+  };
+
   const onRefresh = useCallback(async () => {
     setRefreshing(true);
     try {
@@ -457,11 +526,12 @@ const getAppointmentStatus = (
         refetchMyFc?.(),
         refetchLatestNotice?.(),
         refetchLatestAdminMsg?.(),
+        refetchExamStats?.(),
       ]);
     } finally {
       setRefreshing(false);
     }
-  }, [refetchCounts, refetchLatestNotice, refetchLatestAdminMsg, refetchMyFc]);
+  }, [refetchCounts, refetchLatestNotice, refetchLatestAdminMsg, refetchMyFc, refetchExamStats]);
 
   const handlePressLink = (href: string, stepKey?: StepKey) => {
     Haptics.selectionAsync();
@@ -572,10 +642,12 @@ const getAppointmentStatus = (
     );
   }
 
+  const contentBottomPadding = (role === 'admin' ? 160 : 96) + (insets.bottom || 0);
+
   return (
     <SafeAreaView style={styles.safe} edges={['left', 'right', 'bottom']}>
       <ScrollView
-        contentContainerStyle={[styles.container, { paddingBottom: 96 + (insets.bottom || 0) }]}
+        contentContainerStyle={[styles.container, { paddingBottom: contentBottomPadding }]}
         refreshControl={
           <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
         }
@@ -602,6 +674,17 @@ const getAppointmentStatus = (
           </View>
         </View>
 
+        {role === 'admin' && (
+          <View style={styles.homeTitleWrap}>
+            <Text style={styles.homeTitle}>{adminHomeTab === 'exam' ? '시험 홈' : '위촉 홈'}</Text>
+            <Text style={styles.homeSubtitleText}>
+              {adminHomeTab === 'exam'
+                ? '시험 일정 등록과 신청자 관리 메뉴를 모았습니다.'
+                : '위촉/서류 진행 현황과 주요 업무를 확인하세요.'}
+            </Text>
+          </View>
+        )}
+
         {role === 'fc' && (
           <View style={{ marginBottom: 12, paddingHorizontal: 4, alignItems: 'center' }}>
             <Text style={{ fontSize: 24, fontWeight: '800', color: CHARCOAL, textAlign: 'center' }}>
@@ -622,59 +705,61 @@ const getAppointmentStatus = (
           </Pressable>
         </MotiView>
 
-        <MotiView from={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} transition={{ type: 'spring', delay: 100 }}>
-          {role === 'admin' ? (
-            <Pressable onPress={() => handlePressLink('/dashboard', 'step4')}>
-              <LinearGradient
-                colors={['#f36f21', '#fabc3c']}
-                start={{ x: 0, y: 0 }}
-                end={{ x: 1, y: 1 }}
-                style={styles.ctaCard}
-              >
-                <View style={styles.ctaContent}>
-                  <View style={[styles.ctaBadge, { backgroundColor: 'rgba(255,255,255,0.15)' }]}>
-                    <Text style={styles.ctaBadgeText}>관리자 할 일</Text>
+        {!(role === 'admin' && adminHomeTab === 'exam') && (
+          <MotiView from={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} transition={{ type: 'spring', delay: 100 }}>
+            {role === 'admin' ? (
+              <Pressable onPress={() => handlePressLink('/dashboard', 'step4')}>
+                <LinearGradient
+                  colors={['#f36f21', '#fabc3c']}
+                  start={{ x: 0, y: 0 }}
+                  end={{ x: 1, y: 1 }}
+                  style={styles.ctaCard}
+                >
+                  <View style={styles.ctaContent}>
+                    <View style={[styles.ctaBadge, { backgroundColor: 'rgba(255,255,255,0.15)' }]}>
+                      <Text style={styles.ctaBadgeText}>관리자 할 일</Text>
+                    </View>
+                    <Text style={styles.ctaTitle}>
+                      {isLoading ? '현황 조회 중...' : `서류 대기 ${counts?.steps?.step4 ?? 0}건`}
+                    </Text>
+                    <Text style={styles.ctaSub}>승인을 기다리는 FC 서류를 검토해주세요.</Text>
                   </View>
-                  <Text style={styles.ctaTitle}>
-                    {isLoading ? '현황 조회 중...' : `서류 대기 ${counts?.steps?.step4 ?? 0}건`}
-                  </Text>
-                  <Text style={styles.ctaSub}>승인을 기다리는 FC 서류를 검토해주세요.</Text>
-                </View>
-                <View style={[styles.ctaIconCircle, { backgroundColor: 'rgba(255,255,255,0.1)' }]}>
-                  <Feather name="file-text" size={24} color="#fff" />
-                </View>
-                <View style={styles.ctaDecoCircle} />
-              </LinearGradient>
-            </Pressable>
-          ) : (
-            <Pressable onPress={() => handlePressLink('/chat')}>
-              <LinearGradient
-                colors={['#f36f21', '#fabc3c']}
-                start={{ x: 0, y: 0 }}
-                end={{ x: 1, y: 1 }}
-                style={styles.ctaCard}
-              >
-                <View style={styles.ctaContent}>
-                  <View style={styles.ctaBadge}>
-                    <Text style={styles.ctaBadgeText}>1:1 문의</Text>
+                  <View style={[styles.ctaIconCircle, { backgroundColor: 'rgba(255,255,255,0.1)' }]}>
+                    <Feather name="file-text" size={24} color="#fff" />
                   </View>
-                  <Text style={styles.ctaTitle}>총무팀과 대화하기</Text>
-                  <Text style={styles.ctaSub} numberOfLines={2}>
-                    {latestAdminMsgLoading
-                      ? '메시지 불러오는 중...'
-                      : latestAdminMsg?.content
-                        ? latestAdminMsg.content
-                        : '최근 총무팀 메시지를 확인하세요.'}
-                  </Text>
-                </View>
-                <View style={styles.ctaIconCircle}>
-                  <Feather name="message-circle" size={24} color={HANWHA_ORANGE} />
-                </View>
-                <View style={styles.ctaDecoCircle} />
-              </LinearGradient>
-            </Pressable>
-          )}
-        </MotiView>
+                  <View style={styles.ctaDecoCircle} />
+                </LinearGradient>
+              </Pressable>
+            ) : (
+              <Pressable onPress={() => handlePressLink('/chat')}>
+                <LinearGradient
+                  colors={['#f36f21', '#fabc3c']}
+                  start={{ x: 0, y: 0 }}
+                  end={{ x: 1, y: 1 }}
+                  style={styles.ctaCard}
+                >
+                  <View style={styles.ctaContent}>
+                    <View style={styles.ctaBadge}>
+                      <Text style={styles.ctaBadgeText}>1:1 문의</Text>
+                    </View>
+                    <Text style={styles.ctaTitle}>총무팀과 대화하기</Text>
+                    <Text style={styles.ctaSub} numberOfLines={2}>
+                      {latestAdminMsgLoading
+                        ? '메시지 불러오는 중...'
+                        : latestAdminMsg?.content
+                          ? latestAdminMsg.content
+                          : '최근 총무팀 메시지를 확인하세요.'}
+                    </Text>
+                  </View>
+                  <View style={styles.ctaIconCircle}>
+                    <Feather name="message-circle" size={24} color={HANWHA_ORANGE} />
+                  </View>
+                  <View style={styles.ctaDecoCircle} />
+                </LinearGradient>
+              </Pressable>
+            )}
+          </MotiView>
+        )}
 
         <MotiView
           from={{ opacity: 0, translateY: 20 }}
@@ -682,26 +767,77 @@ const getAppointmentStatus = (
           transition={{ type: 'timing', duration: 600, delay: 200 }}
         >
           {role === 'admin' ? (
-            <View style={styles.metricsCard}>
-              <View style={styles.cardHeader}>
-                <Text style={styles.sectionTitle}>현황 요약</Text>
-                {isLoading && <ActivityIndicator color={HANWHA_LIGHT} />}
+            isAdminExam ? (
+              <View style={styles.examSummaryCard}>
+                <View style={styles.cardHeader}>
+                  <Text style={styles.sectionTitle}>시험 관리 요약</Text>
+                  <Text style={styles.sectionHint}>등록 · 신청자 메뉴만 모았습니다</Text>
+                </View>
+                <Pressable
+                  style={({ pressed }) => [styles.examStatRow, pressed && styles.pressedOpacity]}
+                  onPress={() => handlePressLink('/exam-manage')}
+                >
+                  <View style={styles.examStatTitleWrap}>
+                    <Text style={styles.examStatTitle}>생명/제3보험</Text>
+                    {examStatsLoading && <ActivityIndicator size="small" color={HANWHA_ORANGE} />}
+                  </View>
+                  <View style={styles.examStatChips}>
+                    <View style={styles.examStatChip}>
+                      <Text style={styles.examStatChipLabel}>응시자</Text>
+                      <Text style={styles.examStatChipValue}>{examStats?.lifeTotal ?? 0}명</Text>
+                    </View>
+                    <View style={[styles.examStatChip, styles.examStatChipPending]}>
+                      <Text style={styles.examStatChipLabel}>미접수</Text>
+                      <Text style={[styles.examStatChipValue, styles.examStatChipValuePending]}>
+                        {examStats?.lifePending ?? 0}명
+                      </Text>
+                    </View>
+                  </View>
+                </Pressable>
+                <Pressable
+                  style={({ pressed }) => [styles.examStatRow, pressed && styles.pressedOpacity]}
+                  onPress={() => handlePressLink('/exam-manage2')}
+                >
+                  <View style={styles.examStatTitleWrap}>
+                    <Text style={styles.examStatTitle}>손해보험</Text>
+                    {examStatsLoading && <ActivityIndicator size="small" color={HANWHA_ORANGE} />}
+                  </View>
+                  <View style={styles.examStatChips}>
+                    <View style={styles.examStatChip}>
+                      <Text style={styles.examStatChipLabel}>응시자</Text>
+                      <Text style={styles.examStatChipValue}>{examStats?.nonlifeTotal ?? 0}명</Text>
+                    </View>
+                    <View style={[styles.examStatChip, styles.examStatChipPending]}>
+                      <Text style={styles.examStatChipLabel}>미접수</Text>
+                      <Text style={[styles.examStatChipValue, styles.examStatChipValuePending]}>
+                        {examStats?.nonlifePending ?? 0}명
+                      </Text>
+                    </View>
+                  </View>
+                </Pressable>
               </View>
-              <View style={styles.metricsGrid}>
-                {!isLoading && counts ? (
-                  <>
-                    {ADMIN_METRIC_CONFIG.map((metric) => (
-                      <MetricCard
-                        key={metric.label}
-                        label={metric.label}
-                        value={`${counts?.steps?.[metric.key] ?? 0}명`}
-                        onPress={() => handleStatClick(metric.key)}
-                      />
-                    ))}
-                  </>
-                ) : null}
+            ) : (
+              <View style={styles.metricsCard}>
+                <View style={styles.cardHeader}>
+                  <Text style={styles.sectionTitle}>현황 요약</Text>
+                  {isLoading && <ActivityIndicator color={HANWHA_LIGHT} />}
+                </View>
+                <View style={styles.metricsGrid}>
+                  {!isLoading && counts ? (
+                    <>
+                      {ADMIN_METRIC_CONFIG.map((metric) => (
+                        <MetricCard
+                          key={metric.label}
+                          label={metric.label}
+                          value={`${counts?.steps?.[metric.key] ?? 0}명`}
+                          onPress={() => handleStatClick(metric.key)}
+                        />
+                      ))}
+                    </>
+                  ) : null}
+                </View>
               </View>
-            </View>
+            )
           ) : (
             <View style={styles.progressCard}>
               <View style={styles.cardHeader}>
@@ -768,7 +904,12 @@ const getAppointmentStatus = (
         </MotiView>
 
         <View style={styles.linksSection}>
-          <Text style={styles.sectionTitle}>바로가기</Text>
+          <Text style={styles.sectionTitle}>
+            {role === 'admin' && isAdminExam ? '시험 관리 바로가기' : '바로가기'}
+          </Text>
+          {role === 'admin' && isAdminExam ? (
+            <Text style={styles.sectionHint}>시험 등록/신청자 관련 메뉴를 모았습니다</Text>
+          ) : null}
         </View>
         <View style={styles.actionGrid}>
           {quickLinks.map((item, index) => (
@@ -796,6 +937,26 @@ const getAppointmentStatus = (
           ))}
         </View>
       </ScrollView>
+
+      {role === 'admin' ? (
+        <View style={[styles.bottomNav, { paddingBottom: Math.max(insets.bottom, 12) }]}>
+          {adminNavItems.map((item) => {
+            const isActive = adminHomeTab === item.key;
+            return (
+              <Pressable
+                key={item.key}
+                style={({ pressed }) => [styles.bottomNavItem, pressed && styles.pressedOpacity]}
+                onPress={() => handleAdminTabChange(item.key)}
+              >
+                <View style={[styles.bottomNavIconWrap, isActive && styles.bottomNavIconWrapActive]}>
+                  <Feather name={item.icon} size={20} color={isActive ? '#fff' : HANWHA_ORANGE} />
+                </View>
+                <Text style={[styles.bottomNavLabel, isActive && styles.bottomNavLabelActive]}>{item.label}</Text>
+              </Pressable>
+            );
+          })}
+        </View>
+      ) : null}
     </SafeAreaView>
   );
 }
@@ -900,6 +1061,9 @@ const styles = StyleSheet.create({
     borderColor: '#E5E7EB',
   },
   rightActions: { flexDirection: 'row', alignItems: 'center', gap: 12 },
+  homeTitleWrap: { marginHorizontal: 20, marginBottom: 6 },
+  homeTitle: { fontSize: 26, fontWeight: '800', color: CHARCOAL },
+  homeSubtitleText: { marginTop: 4, color: TEXT_MUTED, fontSize: 14 },
   deleteButton: { flexDirection: 'row', alignItems: 'center', gap: 4 },
   deleteButtonText: { fontSize: 13, color: HANWHA_ORANGE, fontWeight: '600' },
   notice: {
@@ -956,6 +1120,14 @@ const styles = StyleSheet.create({
     color: 'rgba(255,255,255,0.9)',
     lineHeight: 22,
   },
+  examPillRow: { flexDirection: 'row', gap: 8, marginTop: 12, flexWrap: 'wrap' },
+  examPill: {
+    backgroundColor: 'rgba(255,255,255,0.14)',
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 10,
+  },
+  examPillText: { color: '#fff', fontSize: 12, fontWeight: '700' },
   ctaIconCircle: {
     position: 'absolute',
     right: 20,
@@ -993,6 +1165,7 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     color: CHARCOAL,
   },
+  sectionHint: { fontSize: 13, color: TEXT_MUTED, marginTop: 4 },
   metricsGrid: {
     flexDirection: 'row',
     flexWrap: 'wrap',
@@ -1019,6 +1192,54 @@ const styles = StyleSheet.create({
     color: TEXT_MUTED,
     fontWeight: '500',
   },
+  examSummaryCard: {
+    marginHorizontal: 20,
+    marginBottom: 24,
+    padding: 20,
+    backgroundColor: '#fff',
+    borderRadius: 20,
+    borderWidth: 1,
+    borderColor: BORDER,
+    ...CARD_SHADOW,
+  },
+  examSummaryGrid: { gap: 12 },
+  examSummaryItem: { flexDirection: 'row', gap: 12, alignItems: 'flex-start' },
+  examSummaryIcon: {
+    width: 36,
+    height: 36,
+    borderRadius: 10,
+    backgroundColor: ORANGE_FAINT,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  examSummaryTitle: { fontSize: 16, fontWeight: '700', color: CHARCOAL },
+  examSummaryDesc: { fontSize: 14, color: TEXT_MUTED, lineHeight: 20 },
+  examStatRow: {
+    padding: 12,
+    borderWidth: 1,
+    borderColor: BORDER,
+    borderRadius: 12,
+    marginBottom: 12,
+    backgroundColor: '#fff',
+  },
+  examStatTitleWrap: { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 8 },
+  examStatTitle: { fontSize: 15, fontWeight: '800', color: CHARCOAL },
+  examStatChips: { flexDirection: 'row', gap: 10 },
+  examStatChip: {
+    flex: 1,
+    borderRadius: 10,
+    backgroundColor: '#F9FAFB',
+    padding: 10,
+    borderWidth: 1,
+    borderColor: BORDER,
+  },
+  examStatChipPending: {
+    backgroundColor: '#FFF7ED',
+    borderColor: '#FED7AA',
+  },
+  examStatChipLabel: { fontSize: 12, color: TEXT_MUTED, marginBottom: 6, fontWeight: '700' },
+  examStatChipValue: { fontSize: 18, fontWeight: '800', color: CHARCOAL },
+  examStatChipValuePending: { color: '#b45309' },
   // Progress
   progressCard: {
     marginHorizontal: 20,
@@ -1095,6 +1316,34 @@ const styles = StyleSheet.create({
     color: TEXT_MUTED,
     lineHeight: 18,
   },
+  bottomNav: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    bottom: 0,
+    flexDirection: 'row',
+    backgroundColor: '#fff',
+    paddingHorizontal: 20,
+    paddingTop: 10,
+    justifyContent: 'space-between',
+    borderTopWidth: 1,
+    borderTopColor: BORDER,
+    ...CARD_SHADOW,
+  },
+  bottomNavItem: { flex: 1, alignItems: 'center', justifyContent: 'center', gap: 6, paddingVertical: 10 },
+  bottomNavIconWrap: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    borderWidth: 1,
+    borderColor: BORDER,
+    backgroundColor: '#fff',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  bottomNavIconWrapActive: { backgroundColor: HANWHA_ORANGE, borderColor: HANWHA_ORANGE },
+  bottomNavLabel: { fontSize: 13, color: TEXT_MUTED, fontWeight: '700' },
+  bottomNavLabelActive: { color: CHARCOAL },
   // Step
   stepContainer: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
   stepWrapper: { flex: 1, alignItems: 'center', position: 'relative' },

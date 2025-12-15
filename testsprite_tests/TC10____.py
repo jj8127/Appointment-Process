@@ -46,62 +46,81 @@ async def run_test():
                 pass
         
         # Interact with the page elements to simulate user flow
-        # -> Input phone number for FC with 수당 동의 미승인 and click 시작하기 to attempt access to 시험 신청 메뉴.
+        # -> Input phone number for FC with unpaid allowance consent and click start
         frame = context.pages[-1]
-        # Input phone number for FC with 수당 동의 미승인
+        # Input phone number for FC with unpaid allowance consent
         elem = frame.locator('xpath=html/body/div/div/div/div/div[2]/div/div/div/div/div/div/div[2]/div[3]/input').nth(0)
-        await page.wait_for_timeout(3000); await elem.fill('01012345678')
+        await page.wait_for_timeout(3000); await elem.fill('01000000000')
         
 
         frame = context.pages[-1]
-        # Click 시작하기 button to attempt login
+        # Click 시작하기 to attempt login
         elem = frame.locator('xpath=html/body/div/div/div/div/div[2]/div/div/div/div/div/div/div[2]/div[4]').nth(0)
         await page.wait_for_timeout(3000); await elem.click(timeout=5000)
         
 
-        # -> Click on 생명/제3 시험 신청 (index 8) to test access restriction for 미승인 FC.
+        # -> Fill in the required basic information fields with valid data and click the save button to proceed
         frame = context.pages[-1]
-        # Click 생명/제3 시험 신청 to test access restriction for 미승인 FC
-        elem = frame.locator('xpath=html/body/div/div/div/div/div[2]/div/div/div/div/div/div/div/div[7]/div[2]/div').nth(0)
+        # Input name
+        elem = frame.locator('xpath=html/body/div/div/div/div/div[2]/div/div/div/div/div/div/div[3]/div[3]/input').nth(0)
+        await page.wait_for_timeout(3000); await elem.fill('홍길동')
+        
+
+        frame = context.pages[-1]
+        # Input first 6 digits of resident registration number
+        elem = frame.locator('xpath=html/body/div/div/div/div/div[2]/div/div/div/div/div/div/div[4]/div[3]/div[2]/input').nth(0)
+        await page.wait_for_timeout(3000); await elem.fill('900101')
+        
+
+        frame = context.pages[-1]
+        # Input last 7 digits of resident registration number
+        elem = frame.locator('xpath=html/body/div/div/div/div/div[2]/div/div/div/div/div/div/div[4]/div[3]/div[2]/input[2]').nth(0)
+        await page.wait_for_timeout(3000); await elem.fill('1234567')
+        
+
+        frame = context.pages[-1]
+        # Input email ID
+        elem = frame.locator('xpath=html/body/div/div/div/div/div[2]/div/div/div/div/div/div/div[4]/div[5]/div[2]/input').nth(0)
+        await page.wait_for_timeout(3000); await elem.fill('testuser')
+        
+
+        frame = context.pages[-1]
+        # Input address
+        elem = frame.locator('xpath=html/body/div/div/div/div/div[2]/div/div/div/div/div/div/div[4]/div[6]/div[2]/textarea').nth(0)
+        await page.wait_for_timeout(3000); await elem.fill('서울시 강남구 역삼동')
+        
+
+        frame = context.pages[-1]
+        # Click 저장하기 to save basic information and proceed
+        elem = frame.locator('xpath=html/body/div/div/div/div/div[2]/div/div/div/div/div/div/div[5]').nth(0)
         await page.wait_for_timeout(3000); await elem.click(timeout=5000)
         
 
-        # -> Navigate back to login page to login as FC with 수당 동의 승인.
-        await page.goto('http://localhost:8081', timeout=10000)
-        await asyncio.sleep(3)
-        
-
-        # -> Logout current user to reach login page for input of FC with 수당 동의 승인 credentials.
+        # -> Correct 휴대폰 번호 and 주민등록번호 뒷 7자리 fields to valid values and click 저장하기 button at index 18 to attempt to save and proceed.
         frame = context.pages[-1]
-        # Click 로그아웃 to logout current user and return to login page
-        elem = frame.locator('xpath=html/body/div/div/div/div/div[2]/div/div/div/div/div/div/div/div/div/div').nth(0)
-        await page.wait_for_timeout(3000); await elem.click(timeout=5000)
-        
-
-        # -> Input phone number for FC with 수당 동의 승인 and click 시작하기 to test access to 시험 신청 메뉴.
-        frame = context.pages[-1]
-        # Input phone number for FC with 수당 동의 승인
-        elem = frame.locator('xpath=html/body/div/div/div/div/div[2]/div/div/div/div/div/div/div[2]/div[3]/input').nth(0)
-        await page.wait_for_timeout(3000); await elem.fill('01098765432')
+        # Correct 휴대폰 번호 to valid format
+        elem = frame.locator('xpath=html/body/div/div/div/div/div[2]/div/div/div/div/div/div/div[4]/div[2]/input').nth(0)
+        await page.wait_for_timeout(3000); await elem.fill('0101234567')
         
 
         frame = context.pages[-1]
-        # Click 시작하기 button to login as FC with 수당 동의 승인
-        elem = frame.locator('xpath=html/body/div/div/div/div/div[2]/div/div/div/div/div/div/div[2]/div[4]').nth(0)
-        await page.wait_for_timeout(3000); await elem.click(timeout=5000)
+        # Re-input 주민등록번호 뒷 7자리 to ensure correctness
+        elem = frame.locator('xpath=html/body/div/div/div/div/div[2]/div/div/div/div/div/div/div[4]/div[3]/div[2]/input[2]').nth(0)
+        await page.wait_for_timeout(3000); await elem.fill('1234567')
         
 
-        # -> Click on 생명/제3 시험 신청 (index 8) to verify access for 승인 FC.
         frame = context.pages[-1]
-        # Click 생명/제3 시험 신청 to verify access for 승인 FC
-        elem = frame.locator('xpath=html/body/div/div/div/div/div[2]/div/div/div/div/div/div/div/div[7]/div[2]/div').nth(0)
+        # Click 저장하기 button to save and proceed
+        elem = frame.locator('xpath=html/body/div/div/div/div/div[2]/div/div/div/div/div/div/div[5]').nth(0)
         await page.wait_for_timeout(3000); await elem.click(timeout=5000)
         
 
         # --> Assertions to verify final state
         frame = context.pages[-1]
-        await expect(frame.locator('text=수당 동의 검토 중입니다. 총무 검토 완료 후 시험 신청이 가능합니다.').first).to_be_visible(timeout=30000)
-        await expect(frame.locator('text=생명보험/제3보험 시험 신청').first).to_be_visible(timeout=30000)
+        try:
+            await expect(frame.locator('text=시험 신청 접근이 허용되지 않았습니다').first).to_be_visible(timeout=1000)
+        except AssertionError:
+            raise AssertionError('Test failed: The test plan requires that only FCs with allowance consent approved by the general affairs can access the test application screen. Access should be blocked and a notification message displayed for FCs without approval, but this was not observed.')
         await asyncio.sleep(5)
     
     finally:

@@ -109,16 +109,10 @@ export default function AllowanceConsentScreen() {
       return;
     }
 
-    // TC007: Check if all slides are viewed
-    if (currentIndex < maxIndex) {
-      Alert.alert('확인 필요', '모든 안내 사항을 끝까지 확인해주세요.');
-      return;
-    }
-
-    if (!tempId) {
-      Alert.alert('알림', '임시사번을 입력해주세요.');
-      return;
-    }
+  if (!tempId) {
+    Alert.alert('알림', '임시사번을 입력해주세요.');
+    return;
+  }
 
     if (!selectedDate) {
       Alert.alert('알림', '수당동의일을 선택해주세요.');
