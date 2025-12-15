@@ -684,7 +684,7 @@ export default function ExamApplyScreen() {
                   />
                   <View>
                     <Text style={styles.toggleTitle}>제3보험</Text>
-                    <Text style={styles.toggleDesc}>제3보험 자격 시험도 함께 신청합니다.</Text>
+                    <Text style={styles.toggleDesc}>제3보험 자격 시험을 신청합니다.</Text>
                   </View>
                 </View>
               </Pressable>
