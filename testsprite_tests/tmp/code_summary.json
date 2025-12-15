@@ -1,74 +1,64 @@
 {
   "tech_stack": [
     "TypeScript",
-    "React Native (Expo Router)",
+    "React Native (Expo)",
     "Supabase",
+    "rn-tourguide",
+    "react-native-svg",
+    "Moti",
     "React Query",
-    "React Hook Form",
-    "Expo Modules (Notifications, Device, File System)",
-    "Zod"
+    "Expo Notifications"
   ],
   "features": [
     {
-      "name": "Session and authentication",
-      "description": "Handles role-based login for admins and FC users, persists session to secure storage, restores on launch, and registers push tokens for signed-in users.",
+      "name": "tourguide_provider_with_custom_tooltip",
+      "description": "TourGuideProvider wraps the app with Korean labels, custom tooltip component, and status-bar vertical offset controls.",
       "files": [
-        "app/auth.tsx",
-        "hooks/use-session.tsx",
-        "lib/notifications.ts",
-        "lib/safe-storage.ts"
+        "app/_layout.tsx:12-14",
+        "app/_layout.tsx:78-103",
+        "components/FcTourTooltip.tsx"
       ]
     },
     {
-      "name": "Home dashboard and onboarding progress",
-      "description": "Landing screen shows admin metrics or FC onboarding progress, quick links to key flows, latest notices/messages, and real-time updates via Supabase channels.",
+      "name": "fc_only_coachmarks_zones",
+      "description": "FC 홈에 공지/CTA/진행도/다음단계 코치마크를 배치하고 step4는 TourGuideZoneByPosition으로 좌표 측정 및 보정.",
       "files": [
-        "app/index.tsx"
+        "app/index.tsx:58-93",
+        "app/index.tsx:731-738",
+        "app/index.tsx:1540-1598"
       ]
     },
     {
-      "name": "Allowance consent workflow",
-      "description": "Guides FCs through allowance agreement steps, tracks slide completion, collects temp ID and consent date, updates profile status, and notifies admins.",
+      "name": "tour_start_and_manual_trigger",
+      "description": "FC 역할에서 hydration 후 1회 자동 시작, 도움말 버튼 클릭 시 측정 후 start를 지연 호출해 안정적으로 투어를 띄움.",
       "files": [
-        "app/consent.tsx"
+        "app/index.tsx:343-359",
+        "app/index.tsx:398-408",
+        "app/index.tsx:911-925"
       ]
     },
     {
-      "name": "Document upload and notification",
-      "description": "FCs upload required documents to Supabase storage with progress feedback; admins receive notifications and can review statuses for each document.",
+      "name": "progress_and_next_step_navigation",
+      "description": "calcStep으로 단계 계산 후 진행 카드와 다음 단계 CTA를 렌더하고, 단계에 맞는 경로로 이동하도록 링크 매핑.",
       "files": [
-        "app/docs-upload.tsx"
+        "app/index.tsx:927-950",
+        "app/index.tsx:975-988",
+        "app/index.tsx:1012-1055"
       ]
     },
     {
-      "name": "Exam registration and management",
-      "description": "Provides life/non-life exam application forms and admin registration dashboards for scheduling and tracking applicant status across both exam types.",
+      "name": "rn_tourguide_dependencies",
+      "description": "rn-tourguide와 react-native-svg 등 코치마크 렌더링 의존성을 패키지에 포함.",
       "files": [
-        "app/exam-apply.tsx",
-        "app/exam-apply2.tsx",
-        "app/exam-register.tsx",
-        "app/exam-register2.tsx",
-        "app/exam-manage.tsx",
-        "app/exam-manage2.tsx"
+        "package.json:41-66",
+        "package-lock.json:2405-2493"
       ]
     },
     {
-      "name": "Messaging and notices",
-      "description": "Real-time 1:1 chat between FCs and admins with media/file attachments, plus admin notice creation and FC notice viewing for broadcast updates.",
+      "name": "web_static_export",
+      "description": "expo export 결과물(dist-web-new)을 정적 서빙해 웹 테스트에 사용.",
       "files": [
-        "app/chat.tsx",
-        "app/admin-messenger.tsx",
-        "app/admin-notice.tsx",
-        "app/notice.tsx"
-      ]
-    },
-    {
-      "name": "Appointment and profile management",
-      "description": "Supports FC profile editing, appointment URL handling, and admin oversight of onboarding steps including mobile appointment scheduling.",
-      "files": [
-        "app/fc/new.tsx",
-        "app/appointment.tsx",
-        "app/dashboard.tsx"
+        "dist-web-new/index.html"
       ]
     }
   ]

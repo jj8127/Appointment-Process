@@ -9,7 +9,9 @@ import { Platform } from 'react-native';
 import 'react-native-reanimated';
 import { SafeAreaProvider, SafeAreaView } from 'react-native-safe-area-context';
 import { enableScreens } from 'react-native-screens';
+import { TourGuideProvider } from 'rn-tourguide';
 
+import FcTourTooltip from '@/components/FcTourTooltip';
 import { useColorScheme } from '@/hooks/use-color-scheme';
 import { SessionProvider } from '@/hooks/use-session';
 
@@ -74,32 +76,39 @@ export default function RootLayout() {
       <QueryClientProvider client={queryClient}>
         <SessionProvider>
           <ThemeProvider value={colorScheme === 'dark' ? DarkTheme : DefaultTheme}>
-            <SafeAreaView style={{ flex: 1, backgroundColor: '#fff' }} edges={['top', 'left', 'right']}>
-              <Stack
-                initialRouteName="auth"
-                screenOptions={{
-                  headerShown: false,
-                  statusBarStyle: 'dark',
-                  statusBarBackgroundColor: '#fff',
-                }}>
-                <Stack.Screen name="index" options={{headerTitle: ()=>null,  headerBackVisible: false}} />
-                <Stack.Screen name="auth" options={{ title: '로그인' }} />
-                <Stack.Screen name="fc/new" options={{ title: '기본 정보' }} />
-                <Stack.Screen name="consent" options={{ title: '동의서 입력' }} />
-                <Stack.Screen name="docs-upload" options={{ title: '서류 업로드' }} />
-                <Stack.Screen name="dashboard" options={{ title: '전체 현황' }} />
-                <Stack.Screen name="appointment" options={{ title: '모바일 위촉' }} />
-                <Stack.Screen name="notifications" options={{ title: '알림' }} />
-                <Stack.Screen name="notice" options={{ title: '공지사항' }} />
-                <Stack.Screen name="admin-notice" options={{ title: '공지 등록' }} />
-                <Stack.Screen name="exam-register" options={{ title: '생명 시험 등록' }} />
-                <Stack.Screen name="exam-register2" options={{ title: '손해 시험 등록' }} />
-                <Stack.Screen name="exam-manage" options={{ title: '생명/제3 신청자 관리' }} />
-                <Stack.Screen name="exam-manage2" options={{ title: '손해 신청자 관리' }} />
-              </Stack>
+            <TourGuideProvider
+              borderRadius={16}
+              labels={{ skip: '건너뛰기', previous: '이전', next: '다음', finish: '완료' }}
+              tooltipComponent={FcTourTooltip}
+              androidStatusBarVisible
+              verticalOffset={0}>
+              <SafeAreaView style={{ flex: 1, backgroundColor: '#fff' }} edges={['top', 'left', 'right']}>
+                <Stack
+                  initialRouteName="auth"
+                  screenOptions={{
+                    headerShown: false,
+                    statusBarStyle: 'dark',
+                    statusBarBackgroundColor: '#fff',
+                  }}>
+                  <Stack.Screen name="index" options={{ headerTitle: () => null, headerBackVisible: false }} />
+                  <Stack.Screen name="auth" options={{ title: '로그인' }} />
+                  <Stack.Screen name="fc/new" options={{ title: '기본 정보' }} />
+                  <Stack.Screen name="consent" options={{ title: '동의서 입력' }} />
+                  <Stack.Screen name="docs-upload" options={{ title: '서류 업로드' }} />
+                  <Stack.Screen name="dashboard" options={{ title: '전체 현황' }} />
+                  <Stack.Screen name="appointment" options={{ title: '모바일 위촉' }} />
+                  <Stack.Screen name="notifications" options={{ title: '알림' }} />
+                  <Stack.Screen name="notice" options={{ title: '공지사항' }} />
+                  <Stack.Screen name="admin-notice" options={{ title: '공지 등록' }} />
+                  <Stack.Screen name="exam-register" options={{ title: '생명 시험 등록' }} />
+                  <Stack.Screen name="exam-register2" options={{ title: '손해 시험 등록' }} />
+                  <Stack.Screen name="exam-manage" options={{ title: '생명/제3 신청자 관리' }} />
+                  <Stack.Screen name="exam-manage2" options={{ title: '손해 신청자 관리' }} />
+                </Stack>
 
-              <StatusBar style="dark" backgroundColor="#fff" />
-            </SafeAreaView>
+                <StatusBar style="dark" backgroundColor="#fff" />
+              </SafeAreaView>
+            </TourGuideProvider>
           </ThemeProvider>
         </SessionProvider>
       </QueryClientProvider>

@@ -6,7 +6,7 @@ import { LinearGradient } from 'expo-linear-gradient';
 import * as Notifications from 'expo-notifications';
 import { router, useFocusEffect } from 'expo-router';
 import { MotiView } from 'moti';
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
@@ -20,6 +20,7 @@ import {
   View,
 } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
+import { TourGuideZone, useTourGuideController } from 'rn-tourguide';
 
 import { RefreshButton } from '@/components/RefreshButton';
 import { useSession } from '@/hooks/use-session';
@@ -179,6 +180,7 @@ const fetchFcStatus = async (residentId: string) => {
     .maybeSingle();
   if (error) throw error;
   return data ?? {
+    id: null,
     name: '',
     affiliation: '',
     status: 'draft',
@@ -313,6 +315,41 @@ export default function Home() {
     { key: 'exam' as const, label: '시험 홈', icon: 'book-open' as const },
   ];
 
+  // FC 전용 코치마크
+  const { canStart, start, eventEmitter } = useTourGuideController();
+  const autoTourStartedRef = useRef(false);
+  const isFc = role === 'fc';
+
+
+  const startFcTour = useCallback(() => {
+    if (!isFc) return;
+    if (!canStart) return;
+
+    Haptics.selectionAsync();
+    start();
+  }, [isFc, canStart, start]);
+
+  useEffect(() => {
+    if (!hydrated) return;
+    if (!isFc) return;
+    if (!canStart) return;
+    if (autoTourStartedRef.current) return;
+
+    // Start immediately
+    autoTourStartedRef.current = true;
+    start();
+  }, [hydrated, isFc, canStart, start]);
+
+  useEffect(() => {
+    if (!isFc) {
+      autoTourStartedRef.current = false;
+    }
+  }, [isFc]);
+
+
+
+
+
   useEffect(() => {
     if (role !== 'admin') {
       setAdminHomeTab('onboarding');
@@ -411,17 +448,17 @@ export default function Home() {
     docsStatusText = isApproved ? '모든 문서 제출 완료 [검토 완료]' : '모든 문서 제출 완료 [검토 중]';
   }
 
-const getAppointmentStatus = (
-  date: string | null | undefined,
-  schedule: string | null | undefined,
-  isFinal: boolean,
-) => {
-  // 완료 표시는 최종 상태일 때만, 그렇지 않으면 "입력됨(승인대기)"로 표시
-  if (isFinal && date) return { label: '완료', color: '#ffffff', bg: '#16a34a' };
-  if (date) return { label: '입력됨(승인대기)', color: '#ffffff', bg: '#f97316' };
-  if (schedule) return { label: `${schedule}월 진행중`, color: '#fcfcfcff', bg: '#f97316' };
-  return { label: '진행중', color: '#ffffff', bg: '#2563eb' };
-};
+  const getAppointmentStatus = (
+    date: string | null | undefined,
+    schedule: string | null | undefined,
+    isFinal: boolean,
+  ) => {
+    // 완료 표시는 최종 상태일 때만, 그렇지 않으면 "입력됨(승인대기)"로 표시
+    if (isFinal && date) return { label: '완료', color: '#ffffff', bg: '#16a34a' };
+    if (date) return { label: '입력됨(승인대기)', color: '#ffffff', bg: '#f97316' };
+    if (schedule) return { label: `${schedule}월 진행중`, color: '#fcfcfcff', bg: '#f97316' };
+    return { label: '진행중', color: '#ffffff', bg: '#2563eb' };
+  };
 
   const isFinal = myFc?.status === 'final-link-sent';
   const lifeStatus = getAppointmentStatus(myFc?.appointment_date_life, myFc?.appointment_schedule_life, isFinal);
@@ -662,12 +699,11 @@ const getAppointmentStatus = (
             </Pressable>
           </View>
           <View style={styles.rightActions}>
-            {role === 'fc' ? (
+            {isFc ? (
               <Pressable
-                style={({ pressed }) => [styles.deleteButton, pressed && styles.pressedOpacity]}
-                onPress={handleDeleteRequest}>
-                <Feather name="trash-2" size={14} color={HANWHA_ORANGE} />
-                {/*<Text style={styles.deleteButtonText}>삭제 요청</Text>*/}
+                style={({ pressed }) => [styles.bellButton, pressed && styles.pressedOpacity]}
+                onPress={startFcTour}>
+                <Feather name="help-circle" size={20} color={CHARCOAL} />
               </Pressable>
             ) : null}
             <RefreshButton />
@@ -693,72 +729,133 @@ const getAppointmentStatus = (
           </View>
         )}
 
-        <MotiView from={{ opacity: 0, translateY: -10 }} animate={{ opacity: 1, translateY: 0 }} transition={{ type: 'timing', duration: 500 }}>
-          <Pressable
-            style={({ pressed }) => [styles.notice, pressed && styles.pressedOpacity]}
-            onPress={() => handlePressLink('/notice')}>
-            <View style={styles.noticeDot} />
-            <Text style={styles.noticeText} numberOfLines={1}>
-              {latestNotice?.title ? `공지: ${latestNotice.title}` : '공지: 최신 공지사항을 확인하세요'}
-            </Text>
-            <Feather name="chevron-right" size={16} color={HANWHA_ORANGE} style={{ marginLeft: 'auto' }} />
-          </Pressable>
-        </MotiView>
+        {isFc ? (
+          <View collapsable={false}>
+            <MotiView from={{ opacity: 0, translateY: -10 }} animate={{ opacity: 1, translateY: 0 }} transition={{ type: 'timing', duration: 500 }}>
+              <TourGuideZone
+                zone={1}
+                text="여기서 최신 공지를 확인해요. 눌러서 상세로 이동할 수 있어요."
+                borderRadius={12}>
+                <Pressable
+                  style={({ pressed }) => [styles.notice, pressed && styles.pressedOpacity]}
+                  onPress={() => handlePressLink('/notice')}>
+                  <View style={styles.noticeDot} />
+                  <Text style={styles.noticeText} numberOfLines={1}>
+                    {latestNotice?.title ? `공지: ${latestNotice.title}` : '공지: 최신 공지사항을 확인하세요'}
+                  </Text>
+                  <Feather name="chevron-right" size={16} color={HANWHA_ORANGE} style={{ marginLeft: 'auto' }} />
+                </Pressable>
+              </TourGuideZone>
+            </MotiView>
+          </View>
+        ) : (
+          <MotiView from={{ opacity: 0, translateY: -10 }} animate={{ opacity: 1, translateY: 0 }} transition={{ type: 'timing', duration: 500 }}>
+            <Pressable
+              style={({ pressed }) => [styles.notice, pressed && styles.pressedOpacity]}
+              onPress={() => handlePressLink('/notice')}>
+              <View style={styles.noticeDot} />
+              <Text style={styles.noticeText} numberOfLines={1}>
+                {latestNotice?.title ? `공지: ${latestNotice.title}` : '공지: 최신 공지사항을 확인하세요'}
+              </Text>
+              <Feather name="chevron-right" size={16} color={HANWHA_ORANGE} style={{ marginLeft: 'auto' }} />
+            </Pressable>
+          </MotiView>
+        )}
 
         {!(role === 'admin' && adminHomeTab === 'exam') && (
-          <MotiView from={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} transition={{ type: 'spring', delay: 100 }}>
+          <>
             {role === 'admin' ? (
-              <Pressable onPress={() => handlePressLink('/dashboard', 'step4')}>
-                <LinearGradient
-                  colors={['#f36f21', '#fabc3c']}
-                  start={{ x: 0, y: 0 }}
-                  end={{ x: 1, y: 1 }}
-                  style={styles.ctaCard}
-                >
-                  <View style={styles.ctaContent}>
-                    <View style={[styles.ctaBadge, { backgroundColor: 'rgba(255,255,255,0.15)' }]}>
-                      <Text style={styles.ctaBadgeText}>관리자 할 일</Text>
+              <MotiView from={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} transition={{ type: 'spring', delay: 100 }}>
+                <Pressable onPress={() => handlePressLink('/dashboard', 'step4')}>
+                  <LinearGradient
+                    colors={['#f36f21', '#fabc3c']}
+                    start={{ x: 0, y: 0 }}
+                    end={{ x: 1, y: 1 }}
+                    style={styles.ctaCard}
+                  >
+                    <View style={styles.ctaContent}>
+                      <View style={[styles.ctaBadge, { backgroundColor: 'rgba(255,255,255,0.15)' }]}>
+                        <Text style={styles.ctaBadgeText}>관리자 할 일</Text>
+                      </View>
+                      <Text style={styles.ctaTitle}>
+                        {isLoading ? '현황 조회 중...' : `서류 대기 ${counts?.steps?.step4 ?? 0}건`}
+                      </Text>
+                      <Text style={styles.ctaSub}>승인을 기다리는 FC 서류를 검토해주세요.</Text>
                     </View>
-                    <Text style={styles.ctaTitle}>
-                      {isLoading ? '현황 조회 중...' : `서류 대기 ${counts?.steps?.step4 ?? 0}건`}
-                    </Text>
-                    <Text style={styles.ctaSub}>승인을 기다리는 FC 서류를 검토해주세요.</Text>
-                  </View>
-                  <View style={[styles.ctaIconCircle, { backgroundColor: 'rgba(255,255,255,0.1)' }]}>
-                    <Feather name="file-text" size={24} color="#fff" />
-                  </View>
-                  <View style={styles.ctaDecoCircle} />
-                </LinearGradient>
-              </Pressable>
+                    <View style={[styles.ctaIconCircle, { backgroundColor: 'rgba(255,255,255,0.1)' }]}>
+                      <Feather name="file-text" size={24} color="#fff" />
+                    </View>
+                    <View style={styles.ctaDecoCircle} />
+                  </LinearGradient>
+                </Pressable>
+              </MotiView>
+            ) : isFc ? (
+              <TourGuideZone
+                zone={2}
+                text="총무팀과 1:1 문의를 할 수 있어요. 최근 메시지도 여기서 미리 볼 수 있어요."
+                borderRadius={24}>
+                <View collapsable={false}>
+                  <MotiView from={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} transition={{ type: 'spring', delay: 100 }}>
+                    <Pressable onPress={() => handlePressLink('/chat')}>
+                      <LinearGradient
+                        colors={['#f36f21', '#fabc3c']}
+                        start={{ x: 0, y: 0 }}
+                        end={{ x: 1, y: 1 }}
+                        style={styles.ctaCard}
+                      >
+                        <View style={styles.ctaContent}>
+                          <View style={styles.ctaBadge}>
+                            <Text style={styles.ctaBadgeText}>1:1 문의</Text>
+                          </View>
+                          <Text style={styles.ctaTitle}>총무팀과 대화하기</Text>
+                          <Text style={styles.ctaSub} numberOfLines={2}>
+                            {latestAdminMsgLoading
+                              ? '메시지 불러오는 중...'
+                              : latestAdminMsg?.content
+                                ? latestAdminMsg.content
+                                : '최근 총무팀 메시지를 확인하세요.'}
+                          </Text>
+                        </View>
+                        <View style={styles.ctaIconCircle}>
+                          <Feather name="message-circle" size={24} color={HANWHA_ORANGE} />
+                        </View>
+                        <View style={styles.ctaDecoCircle} />
+                      </LinearGradient>
+                    </Pressable>
+                  </MotiView>
+                </View>
+              </TourGuideZone>
             ) : (
-              <Pressable onPress={() => handlePressLink('/chat')}>
-                <LinearGradient
-                  colors={['#f36f21', '#fabc3c']}
-                  start={{ x: 0, y: 0 }}
-                  end={{ x: 1, y: 1 }}
-                  style={styles.ctaCard}
-                >
-                  <View style={styles.ctaContent}>
-                    <View style={styles.ctaBadge}>
-                      <Text style={styles.ctaBadgeText}>1:1 문의</Text>
+              <MotiView from={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} transition={{ type: 'spring', delay: 100 }}>
+                <Pressable onPress={() => handlePressLink('/chat')}>
+                  <LinearGradient
+                    colors={['#f36f21', '#fabc3c']}
+                    start={{ x: 0, y: 0 }}
+                    end={{ x: 1, y: 1 }}
+                    style={styles.ctaCard}
+                  >
+                    <View style={styles.ctaContent}>
+                      <View style={styles.ctaBadge}>
+                        <Text style={styles.ctaBadgeText}>1:1 문의</Text>
+                      </View>
+                      <Text style={styles.ctaTitle}>총무팀과 대화하기</Text>
+                      <Text style={styles.ctaSub} numberOfLines={2}>
+                        {latestAdminMsgLoading
+                          ? '메시지 불러오는 중...'
+                          : latestAdminMsg?.content
+                            ? latestAdminMsg.content
+                            : '최근 총무팀 메시지를 확인하세요.'}
+                      </Text>
                     </View>
-                    <Text style={styles.ctaTitle}>총무팀과 대화하기</Text>
-                    <Text style={styles.ctaSub} numberOfLines={2}>
-                      {latestAdminMsgLoading
-                        ? '메시지 불러오는 중...'
-                        : latestAdminMsg?.content
-                          ? latestAdminMsg.content
-                          : '최근 총무팀 메시지를 확인하세요.'}
-                    </Text>
-                  </View>
-                  <View style={styles.ctaIconCircle}>
-                    <Feather name="message-circle" size={24} color={HANWHA_ORANGE} />
-                  </View>
-                  <View style={styles.ctaDecoCircle} />
-                </LinearGradient>
-              </Pressable>
+                    <View style={styles.ctaIconCircle}>
+                      <Feather name="message-circle" size={24} color={HANWHA_ORANGE} />
+                    </View>
+                    <View style={styles.ctaDecoCircle} />
+                  </LinearGradient>
+                </Pressable>
+              </MotiView>
             )}
-          </MotiView>
+          </>
         )}
 
         <MotiView
@@ -838,6 +935,87 @@ const getAppointmentStatus = (
                 </View>
               </View>
             )
+          ) : isFc ? (
+            <MotiView
+              from={{ opacity: 0, translateY: 20 }}
+              animate={{ opacity: 1, translateY: 0 }}
+              transition={{ type: 'timing', duration: 600, delay: 200 }}>
+              <View style={styles.progressCard}>
+                <TourGuideZone
+                  zone={3}
+                  text="현재 위촉 진행 단계를 여기서 확인해요."
+                  borderRadius={20}>
+                  <View collapsable={false}>
+                    <View style={styles.cardHeader}>
+                      <Text style={styles.sectionTitle}>내 진행 상황</Text>
+                      <Text style={styles.progressMeta}>Step {currentStep}/5</Text>
+                    </View>
+                    {statusLoading ? (
+                      <ActivityIndicator color={HANWHA_LIGHT} style={{ marginVertical: 20 }} />
+                    ) : (
+                      <>
+                        <View style={styles.statusRow}>
+                          <View style={styles.statusItem}>
+                            <Text style={styles.statusLabel}>생명 위촉</Text>
+                            <View style={[styles.statusBadge, { backgroundColor: lifeStatus.bg }]}>
+                              <Text style={[styles.statusText, { color: lifeStatus.color }]}>{lifeStatus.label}</Text>
+                            </View>
+                          </View>
+                          <View style={styles.statusDivider} />
+                          <View style={styles.statusItem}>
+                            <Text style={styles.statusLabel}>손해 위촉</Text>
+                            <View style={[styles.statusBadge, { backgroundColor: nonLifeStatus.bg }]}>
+                              <Text style={[styles.statusText, { color: nonLifeStatus.color }]}>{nonLifeStatus.label}</Text>
+                            </View>
+                          </View>
+                        </View>
+                        <ProgressBar step={currentStep} />
+                      </>
+                    )}
+                  </View>
+                </TourGuideZone>
+
+                <View style={styles.glanceRow}>
+                  <TourGuideZone
+                    zone={4}
+                    text="지금 해야 할 ‘다음 단계’로 바로 이동할 수 있어요."
+                    borderRadius={20}
+                    style={{ flex: 1 }}>
+                    <Pressable
+                      onPress={() => handlePressLink(stepToLink(activeStep.key))}
+                      disabled={!stepToLink(activeStep.key)}
+                      style={({ pressed }) => [{ flex: 1 }, pressed && styles.pressedScale]}
+                    >
+                      <LinearGradient
+                        colors={['#f36f21', '#fabc3c']}
+                        start={{ x: 0, y: 0 }}
+                        end={{ x: 1, y: 1 }}
+                        style={styles.premiumStepCard}
+                      >
+                        <View style={styles.premiumStepContent}>
+                          <View style={styles.premiumStepHeader}>
+                            <View style={styles.premiumStepBadge}>
+                              <Text style={styles.premiumStepBadgeText}>다음 단계</Text>
+                            </View>
+                            <View style={styles.premiumStepIcon}>
+                              <Feather name="arrow-right" size={20} color="#fff" />
+                            </View>
+                          </View>
+                          <Text style={styles.premiumStepTitle} numberOfLines={1}>
+                            {activeStep.fullLabel}
+                          </Text>
+                          <Text style={styles.premiumStepSub}>
+                            터치하여 바로 진행하세요
+                          </Text>
+                        </View>
+                        <View style={styles.premiumStepDeco1} />
+                        <View style={styles.premiumStepDeco2} />
+                      </LinearGradient>
+                    </Pressable>
+                  </TourGuideZone>
+                </View>
+              </View>
+            </MotiView>
           ) : (
             <View style={styles.progressCard}>
               <View style={styles.cardHeader}>
@@ -900,7 +1078,8 @@ const getAppointmentStatus = (
                 </Pressable>
               </View>
             </View>
-          )}
+          )
+          }
         </MotiView>
 
         <View style={styles.linksSection}>
@@ -936,7 +1115,7 @@ const getAppointmentStatus = (
             </MotiView>
           ))}
         </View>
-      </ScrollView>
+      </ScrollView >
 
       {role === 'admin' ? (
         <View style={[styles.bottomNav, { paddingBottom: Math.max(insets.bottom, 12) }]}>
@@ -957,7 +1136,7 @@ const getAppointmentStatus = (
           })}
         </View>
       ) : null}
-    </SafeAreaView>
+    </SafeAreaView >
   );
 }
 

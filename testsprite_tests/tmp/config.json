@@ -1,16 +1,16 @@
 {
   "status": "commited",
   "type": "frontend",
-  "scope": "codebase",
-  "localEndpoint": "http://localhost:8081",
+  "scope": "diff",
+  "localEndpoint": "http://localhost:18649",
   "executionArgs": {
     "projectName": "fc-onboarding-app",
     "projectPath": "e:\\fc-onboarding-app",
     "testIds": [],
-    "additionalInstruction": "",
+    "additionalInstruction": "Serve the exported web build from dist-web-new2 on http://localhost:18649 and run through the coachmark flow to ensure all four steps (zones 1-4) appear in order. Start tour via the help button if needed.",
     "envs": {
-      "API_KEY": "sk-user-8GDkgZTu29XyzJhsDfYWp7Iy1N8ev-b2y8LuoPXnu4F6gMChNSZr1Z3gpsIWokED6LgLe6MmXxexV5q7ym9T0Hkd3y_Ub-egUSR1Niai79Q5R5QOHwrlRoXz8nwfdEtb70I"
+      "API_KEY": "sk-user-MP3ineOpBiCzM-nkvGSSuxrDiDD8DHCOVp6aRzikD1FkpPg9-ApMYWzjkYkVztqWfvOok8S45ai-9jITEN4NXJz2W7jBfozwhUXWYLYNTqsG-Gt04iX2ONlUUu6BgGxTQ2E"
     }
   },
-  "proxy": "http://4269a8cc-6c8d-479f-a7d1-85aa1968b48d:dtE0iK6z4WdMU281xrHKcArqyDC0DUR8@tun.testsprite.com:8080"
+  "proxy": "http://54883d4e-2503-48ce-b08b-0ee24fd548ba:l0dzxPHtjXbo5JnCOhxZ8dt8bvVaKXjg@tun.testsprite.com:8080"
 }

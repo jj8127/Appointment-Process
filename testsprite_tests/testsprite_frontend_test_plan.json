@@ -1,154 +1,244 @@
 [
   {
-    "id": "TC01",
-    "title": "FC 기본 정보 입력",
-    "description": "FC가 로그인 후 필수 인적 사항(이름/전화 11자리/주민번호 앞6+뒤7/주소)을 저장하고 재진입 시 그대로 유지되는지 검증한다.",
+    "id": "TC001",
+    "title": "Auto-Start Onboarding Tour After App Hydration",
+    "description": "Verify that the onboarding tour automatically starts once after the app hydration completes and does not restart unexpectedly.",
     "category": "functional",
     "priority": "High",
     "steps": [
-      { "type": "action", "description": "FC로 로그인하고 기본 정보 입력 화면을 연다." },
-      { "type": "action", "description": "전화번호 01012345678, 주민번호 9001011234567 등 올바른 형식으로 모든 필수 필드를 입력해 저장한다." },
-      { "type": "assertion", "description": "저장이 완료되고 오류가 없는지 확인한다." },
-      { "type": "action", "description": "화면을 새로고침하거나 앱을 재시작한다." },
-      { "type": "assertion", "description": "입력한 정보가 유지되는지 확인한다." }
+      {
+        "type": "action",
+        "description": "Launch the FC Onboarding App."
+      },
+      {
+        "type": "action",
+        "description": "Wait for the app hydration process to complete."
+      },
+      {
+        "type": "assertion",
+        "description": "Check that the onboarding tour automatically starts immediately after hydration."
+      },
+      {
+        "type": "assertion",
+        "description": "Verify the onboarding tour does not restart again without manual intervention."
+      }
     ]
   },
   {
-    "id": "TC02",
-    "title": "총무 임시사번 발행 및 경력 등록",
-    "description": "관리자 코드 1111로 총무 로그인 후 FC 임시사번을 발행하고 경력 유형(신입/경력)을 설정하면 FC 화면에 반영되는지 확인한다.",
+    "id": "TC002",
+    "title": "Manual Restart of Onboarding Tour via Coach Button",
+    "description": "Ensure that tapping the coach button manually restarts the onboarding tour and the button styling matches Hanwha brand guidelines.",
     "category": "functional",
     "priority": "High",
     "steps": [
-      { "type": "action", "description": "총무(관리자 코드 1111)로 로그인해 FC 목록을 연다." },
-      { "type": "action", "description": "대상 FC에 임시사번을 생성하고 경력 유형(신입/경력)을 저장한다." },
-      { "type": "assertion", "description": "총무 화면에서 저장된 임시사번/경력 정보를 확인한다." },
-      { "type": "action", "description": "FC로 다시 로그인하거나 새로고침한다." },
-      { "type": "assertion", "description": "FC 수당 동의/프로필 화면에 임시사번이 표시되는지 확인한다." }
+      {
+        "type": "action",
+        "description": "Launch the app and wait for the auto-start onboarding tour to complete or skip it."
+      },
+      {
+        "type": "action",
+        "description": "Locate the coach button styled per Hanwha brand colors on the home screen."
+      },
+      {
+        "type": "assertion",
+        "description": "Verify the coach button styling matches the Hanwha palette and style specifications."
+      },
+      {
+        "type": "action",
+        "description": "Tap the coach button to start the onboarding tour manually."
+      },
+      {
+        "type": "assertion",
+        "description": "Confirm the onboarding tour restarts and overlays and tooltips appear as expected."
+      }
     ]
   },
   {
-    "id": "TC03",
-    "title": "FC 수당 동의 및 날짜 입력",
-    "description": "임시사번을 가진 FC가 수당 동의 슬라이드를 모두 확인하고 동의 날짜를 입력해 제출할 수 있는지 검증한다.",
-    "category": "functional",
+    "id": "TC003",
+    "title": "Custom Coachmark Tooltip Content and Styling",
+    "description": "Validate that the custom coachmark tooltip displays accurate Korean text labels and CTA icons, and is styled with shadows and spacing for readability.",
+    "category": "ui",
     "priority": "High",
     "steps": [
-      { "type": "action", "description": "FC로 로그인해 수당 동의 화면을 연다." },
-      { "type": "action", "description": "모든 안내 슬라이드를 끝까지 확인한다." },
-      { "type": "action", "description": "임시사번과 동의 날짜를 입력해 제출한다." },
-      { "type": "assertion", "description": "동의 제출이 완료되고 상태가 업데이트되는지 확인한다." }
+      {
+        "type": "action",
+        "description": "Trigger the onboarding tour to display coachmark tooltips."
+      },
+      {
+        "type": "assertion",
+        "description": "Verify that all tooltip texts are displayed in Korean with correct grammar and wording."
+      },
+      {
+        "type": "assertion",
+        "description": "Check that each tooltip includes the specified call-to-action icons."
+      },
+      {
+        "type": "assertion",
+        "description": "Confirm that tooltip layout includes proper shadows, spacing, and matches design requirements for readability."
+      }
     ]
   },
   {
-    "id": "TC04",
-    "title": "총무 수당 동의 승인 및 필수 서류 목록 등록",
-    "description": "총무가 수당 동의를 승인하고 필수 서류 목록을 저장하면 FC에게 서류 요청이 표시되는지 확인한다.",
-    "category": "functional",
-    "priority": "High",
-    "steps": [
-      { "type": "action", "description": "총무(관리자 코드 1111)로 로그인해 동의 대기 목록에서 대상 FC를 승인한다." },
-      { "type": "action", "description": "필수 서류 목록(문서 타입별)을 등록/저장한다." },
-      { "type": "assertion", "description": "총무 화면에서 승인 상태와 서류 목록이 저장되었는지 확인한다." },
-      { "type": "action", "description": "FC로 새로고침 또는 재로그인한다." },
-      { "type": "assertion", "description": "FC 문서 업로드 화면에서 요청된 서류 리스트가 표시되는지 확인한다." }
-    ]
-  },
-  {
-    "id": "TC05",
-    "title": "FC 서류 업로드",
-    "description": "총무가 등록한 필수 서류 리스트를 기반으로 FC가 서류를 업로드하고 진행률/상태가 표시되는지 검증한다.",
-    "category": "functional",
-    "priority": "High",
-    "steps": [
-      { "type": "action", "description": "FC로 로그인해 문서 업로드 화면을 연다(필수 서류 목록이 표시되어야 함)." },
-      { "type": "action", "description": "요청된 각 서류를 업로드한다(정상 파일)." },
-      { "type": "assertion", "description": "업로드 진행률과 완료 상태가 표시되고 리스트에 저장되는지 확인한다." }
-    ]
-  },
-  {
-    "id": "TC06",
-    "title": "총무 서류 개별 승인",
-    "description": "총무가 제출된 서류를 개별로 승인/반려 처리하면 FC 상태가 즉시 반영되는지 확인한다.",
-    "category": "functional",
-    "priority": "High",
-    "steps": [
-      { "type": "action", "description": "총무(관리자 코드 1111)로 로그인해 제출된 서류 목록을 연다." },
-      { "type": "action", "description": "각 서류를 승인하거나 반려한다." },
-      { "type": "assertion", "description": "승인/반려 결과가 저장되고 FC 화면에서 상태가 업데이트되는지 확인한다." }
-    ]
-  },
-  {
-    "id": "TC07",
-    "title": "총무 위촉 차수 및 일정 설정",
-    "description": "총무가 생명/손해 위촉 차수(예: 12월 1차) 및 일정 정보를 저장하면 FC가 확인할 수 있는지 검증한다.",
+    "id": "TC004",
+    "title": "TourGuideProvider Overlay Positioning and Vertical Offset",
+    "description": "Verify that the TourGuideProvider wraps the home screen and positions overlays correctly with adjustable vertical offset applied.",
     "category": "functional",
     "priority": "Medium",
     "steps": [
-      { "type": "action", "description": "총무(관리자 코드 1111)로 로그인해 위촉 관리 화면을 연다." },
-      { "type": "action", "description": "생명/손해 위촉 차수 및 일정 정보를 입력/저장한다." },
-      { "type": "assertion", "description": "FC 대시보드/위촉 화면에 차수·일정 정보가 표시되는지 확인한다." }
+      {
+        "type": "action",
+        "description": "Launch the app and start the onboarding tour."
+      },
+      {
+        "type": "assertion",
+        "description": "Confirm that the overlays are positioned correctly on the home screen elements."
+      },
+      {
+        "type": "action",
+        "description": "Adjust the vertical offset configuration (if possible via test harness or dev mode)."
+      },
+      {
+        "type": "assertion",
+        "description": "Verify that overlays reposition accordingly respecting the vertical offset parameter."
+      }
     ]
   },
   {
-    "id": "TC08",
-    "title": "FC 위촉 날짜 입력",
-    "description": "총무가 차수/일정을 설정한 후 FC가 위촉 날짜를 입력·제출할 수 있는지 검증한다.",
-    "category": "functional",
-    "priority": "Medium",
-    "steps": [
-      { "type": "action", "description": "FC로 로그인해 위촉 날짜 입력 화면을 연다(총무가 설정한 차수/일정이 보여야 함)." },
-      { "type": "action", "description": "위촉 날짜를 입력하고 제출한다." },
-      { "type": "assertion", "description": "입력된 날짜가 저장되고 상태가 업데이트되는지 확인한다." }
-    ]
-  },
-  {
-    "id": "TC09",
-    "title": "총무 위촉 날짜 승인",
-    "description": "총무가 FC가 입력한 위촉 날짜를 승인해 최종 상태를 완료로 전환할 수 있는지 확인한다.",
-    "category": "functional",
-    "priority": "Medium",
-    "steps": [
-      { "type": "action", "description": "총무(관리자 코드 1111)로 로그인해 위촉 날짜 승인 화면을 연다." },
-      { "type": "action", "description": "FC가 입력한 위촉 날짜를 승인한다." },
-      { "type": "assertion", "description": "FC 상태가 위촉 완료로 변경되고 대시보드에 반영되는지 확인한다." }
-    ]
-  },
-  {
-    "id": "TC10",
-    "title": "시험 신청 접근 제약",
-    "description": "수당 동의가 총무에 의해 승인된 FC만 시험 신청 화면에 접근할 수 있는지 검증한다.",
-    "category": "access control",
-    "priority": "High",
-    "steps": [
-      { "type": "action", "description": "수당 동의 미승인 상태의 FC로 시험 신청 메뉴 진입을 시도한다." },
-      { "type": "assertion", "description": "접근이 차단되고 안내 메시지가 표시되는지 확인한다." },
-      { "type": "action", "description": "수당 동의 승인 상태의 FC로 다시 시도한다." },
-      { "type": "assertion", "description": "시험 신청 화면에 정상 접근되는지 확인한다." }
-    ]
-  },
-  {
-    "id": "TC11",
-    "title": "FC 시험 신청",
-    "description": "수당 동의 승인된 FC가 시험을 신청하고 상태가 신청 완료로 표시되는지 확인한다.",
+    "id": "TC005",
+    "title": "Progress Card Header and Status Highlight with TourGuideZone",
+    "description": "Check that the progress card header and status are wrapped in TourGuideZone and highlighted with rectangular overlays as per design.",
     "category": "functional",
     "priority": "High",
     "steps": [
-      { "type": "action", "description": "승인된 FC로 로그인해 시험 신청 화면을 연다." },
-      { "type": "action", "description": "시험 타입/일시/장소 등 필수 정보를 입력해 제출한다." },
-      { "type": "assertion", "description": "신청 완료 상태/확인 메시지가 표시되는지 확인한다." }
+      {
+        "type": "action",
+        "description": "Trigger the onboarding tour to display overlays."
+      },
+      {
+        "type": "assertion",
+        "description": "Verify that the progress card header and status areas are highlighted with rectangular overlays."
+      },
+      {
+        "type": "assertion",
+        "description": "Confirm that the highlighted areas correspond to the correct UI elements as specified."
+      }
     ]
   },
   {
-    "id": "TC12",
-    "title": "총무 시험 등록 완료",
-    "description": "총무가 접수된 시험 신청을 등록 완료 처리하면 FC 상태가 갱신되는지 검증한다.",
+    "id": "TC006",
+    "title": "Progress Bar Component Display and Accuracy",
+    "description": "Ensure the progress bar component correctly displays active and completed steps inside a non-collapsable container for accurate onboarding progress visualization.",
     "category": "functional",
+    "priority": "High",
+    "steps": [
+      {
+        "type": "action",
+        "description": "Start the onboarding tour."
+      },
+      {
+        "type": "assertion",
+        "description": "Check the progress bar displays the current active step correctly."
+      },
+      {
+        "type": "action",
+        "description": "Complete a few steps in the onboarding tour."
+      },
+      {
+        "type": "assertion",
+        "description": "Verify that completed steps are visually indicated as done in the progress bar."
+      },
+      {
+        "type": "assertion",
+        "description": "Confirm the progress bar container is non-collapsable and maintains consistent layout."
+      }
+    ]
+  },
+  {
+    "id": "TC007",
+    "title": "Overlay Rendering and Performance on Supported Devices",
+    "description": "Validate that overlays and tooltips render correctly on all supported devices with no layout, styling issues, or performance regressions.",
+    "category": "performance",
+    "priority": "High",
+    "steps": [
+      {
+        "type": "action",
+        "description": "Run the app with onboarding tour on multiple supported iOS and Android devices and screen sizes."
+      },
+      {
+        "type": "assertion",
+        "description": "Confirm overlays and tooltips display correctly without clipping, overlap, or misalignment."
+      },
+      {
+        "type": "assertion",
+        "description": "Verify that UI remains responsive and animations smooth during the tour."
+      }
+    ]
+  },
+  {
+    "id": "TC008",
+    "title": "Dependency Integration Validation: rn-tourguide and react-native-svg",
+    "description": "Ensure that rn-tourguide and react-native-svg dependencies are correctly integrated and do not cause app crashes or degrade performance during the onboarding tour.",
+    "category": "integration",
+    "priority": "High",
+    "steps": [
+      {
+        "type": "action",
+        "description": "Launch app and start onboarding tour dependent on rn-tourguide overlays and react-native-svg rendering."
+      },
+      {
+        "type": "assertion",
+        "description": "Observe and confirm no errors or warnings are emitted related to these dependencies."
+      },
+      {
+        "type": "assertion",
+        "description": "Verify smooth rendering of overlays and no memory leaks or performance drops occur."
+      }
+    ]
+  },
+  {
+    "id": "TC009",
+    "title": "Error Handling: Tour Start Failure",
+    "description": "Test how the app handles scenarios where the onboarding tour fails to start after hydration (e.g., due to state errors or timeout failures).",
+    "category": "error handling",
     "priority": "Medium",
     "steps": [
-      { "type": "action", "description": "총무(관리자 코드 1111)로 로그인해 시험 신청 대시보드를 연다." },
-      { "type": "action", "description": "대상 FC 신청을 등록 완료로 처리한다." },
-      { "type": "assertion", "description": "FC 측에서 시험 상태가 등록 완료로 업데이트되는지 확인한다." }
+      {
+        "type": "action",
+        "description": "Simulate failure or delay in canStart guard or timeout mechanism preventing tour start."
+      },
+      {
+        "type": "assertion",
+        "description": "Verify the app does not crash and displays fallback UI or error messages appropriately."
+      },
+      {
+        "type": "action",
+        "description": "Attempt manual restart using the coach button."
+      },
+      {
+        "type": "assertion",
+        "description": "Ensure manual restart still works and triggers the tour even after auto-start failure."
+      }
+    ]
+  },
+  {
+    "id": "TC010",
+    "title": "Localization Validation of Korean Labels in Tooltips and UI Elements",
+    "description": "Validate accuracy and completeness of Korean labels in all coachmark tooltips and highlighted UI elements during the onboarding tour.",
+    "category": "functional",
+    "priority": "High",
+    "steps": [
+      {
+        "type": "action",
+        "description": "Navigate through the entire onboarding tour."
+      },
+      {
+        "type": "assertion",
+        "description": "Confirm that all text labels in tooltips and highlighted UI components are displayed fully in Korean."
+      },
+      {
+        "type": "assertion",
+        "description": "Verify no untranslated English or garbled characters appear."
+      }
     ]
   }
 ]

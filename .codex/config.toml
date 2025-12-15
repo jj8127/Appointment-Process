@@ -12,5 +12,7 @@ args = ["-y", "@upstash/context7-mcp", "--api-key", "ctx7sk-9141fd3a-5a5a-4e31-b
 command = "npx.cmd"
 
 [mcp_servers.sequentialthinking]
-command = "npx.cmd"
+command = "npx"
 args = ["-y", "@modelcontextprotocol/server-sequential-thinking"]
+disabled = false
+autoApprove = []
