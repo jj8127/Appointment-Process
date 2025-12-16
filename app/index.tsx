@@ -29,48 +29,62 @@ import { supabase } from '@/lib/supabase';
 
 const SHORTCUT_GUIDE_STEPS: TourStep[] = [
   {
-    x: 25,
-    y: 30,
+    x: 26,
+    y: 17,
+    width: 46,
+    height: 22,
     title: '시험 신청',
     description: '생명/제3보험 및 손해보험 시험을\n여기서 간편하게 신청할 수 있습니다.',
     tooltipPosition: 'bottom',
   },
   {
     x: 75,
-    y: 30,
+    y: 17,
+    width: 46,
+    height: 22,
     title: '손해 시험 신청',
     description: '손해보험 시험 접수가 필요한 경우\n여기서 진행할 수 있습니다.',
     tooltipPosition: 'bottom',
   },
   {
-    x: 25,
-    y: 50,
+    x: 26,
+    y: 41,
+    width: 46,
+    height: 22,
     title: '기본 정보',
     description: '이름, 주소 등 나의 인적사항을\n수정하거나 확인할 수 있습니다.',
   },
   {
     x: 75,
-    y: 50,
+    y: 41,
+    width: 46,
+    height: 22,
     title: '수당 동의',
     description: '위촉 과정에 필요한 수당 지급 약관에\n동의하였는지 관리합니다.',
   },
   {
-    x: 25,
-    y: 55,
+    x: 26,
+    y: 64, // Adjusted from 55 to avoid overlap with row 2 (y=50)
+    width: 46,
+    height: 22,
     title: '서류 업로드',
     description: '합격증, 수료증 등 필수 서류를\n여기서 바로 등록하세요.',
     tooltipPosition: 'top',
   },
   {
     x: 75,
-    y: 55,
+    y: 64, // Adjusted from 55
+    width: 46,
+    height: 22,
     title: '모바일 위촉',
     description: '보험사 위촉 진행을 위한 모바일 URL에\n쉽게 접속할 수 있습니다.',
     tooltipPosition: 'top',
   },
   {
-    x: 25,
-    y: 75,
+    x: 26,
+    y: 87, // Adjusted from 75 to be Row 4
+    width: 46,
+    height: 22,
     title: '1:1 문의',
     description: '궁금한 점이 있다면 총무팀에게\n언제든지 메시지를 보내보세요.',
     tooltipPosition: 'top',
@@ -1223,7 +1237,7 @@ export default function Home() {
                                 </View>
                               </View>
                               {/* 진행 단계 (기존 Stepper) */}
-                              <View style={[styles.stepContainer, { marginTop: 16 }]}>
+                              <View style={[styles.stepContainer, { marginTop: 8 }]}>
                                 {steps.map((step, index) => {
                                   const stepNum = index + 1;
                                   const isActive = stepNum === currentStep;
@@ -1381,6 +1395,7 @@ export default function Home() {
           <View style={{ marginHorizontal: 20, marginBottom: 20 }}>
             <Pressable
               onPress={() => {
+                setShowShortcutGuide(true);
               }}
               style={({ pressed }) => [
                 styles.guidePressable,
@@ -1739,7 +1754,7 @@ const styles = StyleSheet.create({
   glanceRow: {
     flexDirection: 'row',
     gap: 10,
-    marginTop: 20,
+    marginTop: 1,
     paddingTop: 16,
     borderTopWidth: 1,
     borderTopColor: '#F3F4F6',
