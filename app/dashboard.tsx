@@ -126,7 +126,7 @@ const calcStep = (profile: FcRow) => {
   // [2단계 우선] 서류 승인 여부
   const docs = profile.fc_documents ?? [];
   const validDocs = docs.filter((d) => d.storage_path && d.storage_path !== 'deleted');
-  const hasPendingDocs = validDocs.length === 0 || validDocs.some((d) => d.status !== 'approved');
+  const hasPendingDocs = validDocs.length === 0 || validDocs.some((d: any) => d.status !== 'approved');
   if (hasPendingDocs) {
     return 3; // 서류 단계
   }
@@ -906,7 +906,7 @@ export default function DashboardScreen() {
                     confirmStatusChange(fc, 'allowance-consented', '수당 동의 검토를 완료 처리할까요?');
                     return;
                   }
-                  if (fc.status === 'allowance-consented' && val !== 'approved') {
+                  if (fc.status === 'allowance-consented') {
                     Alert.alert('승인 해제', '이미 승인된 수당동의입니다. 미승인으로 변경할까요?', [
                       { text: '취소', style: 'cancel' },
                       {

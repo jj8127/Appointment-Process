@@ -9,7 +9,7 @@ Validation: Zod + React Hook Form
 Icons: Tabler Icons React확인해서 프로젝트를 진행해
 
 # Role
-Next.js 15, Supabase, Mantine UI 전문가
+Next.js 15, Supabase, Mantine, expo, react-native UI 전문가
 
 #content
 <내용>

@@ -5,7 +5,6 @@ import * as Haptics from 'expo-haptics';
 import { LinearGradient } from 'expo-linear-gradient';
 import * as Notifications from 'expo-notifications';
 import { router, useFocusEffect } from 'expo-router';
-import { MotiView } from 'moti';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator,
@@ -25,6 +24,25 @@ import { TourGuideZone, useTourGuideController } from 'rn-tourguide';
 import { RefreshButton } from '@/components/RefreshButton';
 import { useSession } from '@/hooks/use-session';
 import { supabase } from '@/lib/supabase';
+
+// Android Crash Fix: Strips Moti props on Android to prevent Reanimated from attaching to unmounting views
+const AndroidSafeMotiView = ({ from, animate, transition, state, exit, exitTransition, delay, ...props }: any) => {
+  if (Platform.OS === 'android') {
+    return <View {...props} />;
+  }
+  return (
+    <MotiView
+      from={from}
+      animate={animate}
+      transition={transition}
+      state={state}
+      exit={exit}
+      exitTransition={exitTransition}
+      delay={delay}
+      {...props}
+    />
+  );
+};
 
 const HANWHA_ORANGE = '#f36f21';
 const HANWHA_LIGHT = '#f7b182';
@@ -308,15 +326,19 @@ const getLinkIcon = (href: string) => {
 
 export default function Home() {
   const { role, residentId, residentMask, displayName, logout, hydrated } = useSession();
+
   const insets = useSafeAreaInsets();
 
   const [adminHomeTab, setAdminHomeTab] = useState<'onboarding' | 'exam'>('onboarding');
+  const [isLoggingOut, setIsLoggingOut] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
   const isAdminExam = role === 'admin' && adminHomeTab === 'exam';
   const adminNavItems = [
     { key: 'onboarding' as const, label: '위촉 홈', icon: 'home' as const },
     { key: 'exam' as const, label: '시험 홈', icon: 'book-open' as const },
   ];
+
+
 
   const {
     data: myFc,
@@ -673,8 +695,14 @@ export default function Home() {
 
   const handleLogout = () => {
     Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-    logout();
-    router.replace('/auth');
+    if (Platform.OS === 'android') {
+      setIsLoggingOut(true);
+      setTimeout(() => {
+        logout();
+      }, 100);
+    } else {
+      logout();
+    }
   };
 
   const handleAdminTabChange = (tab: 'onboarding' | 'exam') => {
@@ -797,6 +825,15 @@ export default function Home() {
     };
   }, [role, myFc?.id, refetchMyFc]);
 
+  // Android Crash Fix: Wait for all hooks to be valid, then short-circuit layout
+  if (isLoggingOut) {
+    return (
+      <View style={{ flex: 1, backgroundColor: '#fff', alignItems: 'center', justifyContent: 'center' }}>
+        <ActivityIndicator color={HANWHA_ORANGE} />
+      </View>
+    );
+  }
+
   if (!hydrated) {
     return (
       <SafeAreaView style={styles.safe} edges={['left', 'right', 'bottom']}>
@@ -865,7 +902,7 @@ export default function Home() {
 
           {/* Senior Friendly Guide Card */}
           {role === 'fc' && (
-            <MotiView
+            <AndroidSafeMotiView
               from={{ opacity: 0, scale: 0.95 }}
               animate={{ opacity: 1, scale: 1 }}
               transition={{ type: 'spring', delay: 200 }}
@@ -886,12 +923,12 @@ export default function Home() {
                   <Feather name="chevron-right" size={16} color="#F97316" />
                 </View>
               </Pressable>
-            </MotiView>
+            </AndroidSafeMotiView>
           )}
 
           {isFc ? (
             <View collapsable={false}>
-              <MotiView from={{ opacity: 0, translateY: -10 }} animate={{ opacity: 1, translateY: 0 }} transition={{ type: 'timing', duration: 500 }}>
+              <AndroidSafeMotiView from={{ opacity: 0, translateY: -10 }} animate={{ opacity: 1, translateY: 0 }} transition={{ type: 'timing', duration: 500 }}>
                 <TourGuideZone
                   zone={1}
                   text="여기서 최신 공지를 확인해요. 눌러서 상세로 이동할 수 있어요."
@@ -906,10 +943,10 @@ export default function Home() {
                     <Feather name="chevron-right" size={16} color={HANWHA_ORANGE} style={{ marginLeft: 'auto' }} />
                   </Pressable>
                 </TourGuideZone>
-              </MotiView>
+              </AndroidSafeMotiView>
             </View>
           ) : (
-            <MotiView from={{ opacity: 0, translateY: -10 }} animate={{ opacity: 1, translateY: 0 }} transition={{ type: 'timing', duration: 500 }}>
+            <AndroidSafeMotiView from={{ opacity: 0, translateY: -10 }} animate={{ opacity: 1, translateY: 0 }} transition={{ type: 'timing', duration: 500 }}>
               <Pressable
                 style={({ pressed }) => [styles.notice, pressed && styles.pressedOpacity]}
                 onPress={() => handlePressLink('/notice')}>
@@ -919,13 +956,13 @@ export default function Home() {
                 </Text>
                 <Feather name="chevron-right" size={16} color={HANWHA_ORANGE} style={{ marginLeft: 'auto' }} />
               </Pressable>
-            </MotiView>
+            </AndroidSafeMotiView>
           )}
 
           {!(role === 'admin' && adminHomeTab === 'exam') && (
             <>
               {role === 'admin' ? (
-                <MotiView from={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} transition={{ type: 'spring', delay: 100 }}>
+                <AndroidSafeMotiView from={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} transition={{ type: 'spring', delay: 100 }}>
                   <Pressable onPress={() => handlePressLink('/dashboard', 'step4')}>
                     <LinearGradient
                       colors={['#f36f21', '#fabc3c']}
@@ -948,14 +985,14 @@ export default function Home() {
                       <View style={styles.ctaDecoCircle} />
                     </LinearGradient>
                   </Pressable>
-                </MotiView>
+                </AndroidSafeMotiView>
               ) : isFc ? (
                 <View ref={zone2Ref} collapsable={false}>
                   <TourGuideZone
                     zone={2}
                     text="총무팀과 1:1 문의를 할 수 있어요. 최근 메시지도 여기서 미리 볼 수 있어요."
                     borderRadius={24}>
-                    <MotiView from={{ opacity: 0, translateY: 10 }} animate={{ opacity: 1, translateY: 0 }} transition={{ type: 'spring', delay: 100 }}>
+                    <AndroidSafeMotiView from={{ opacity: 0, translateY: 10 }} animate={{ opacity: 1, translateY: 0 }} transition={{ type: 'spring', delay: 100 }}>
                       <Pressable onPress={() => handlePressLink('/chat')}>
                         <LinearGradient
                           colors={['#f36f21', '#fabc3c']}
@@ -982,11 +1019,11 @@ export default function Home() {
                           <View style={styles.ctaDecoCircle} />
                         </LinearGradient>
                       </Pressable>
-                    </MotiView>
+                    </AndroidSafeMotiView>
                   </TourGuideZone>
                 </View>
               ) : (
-                <MotiView from={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} transition={{ type: 'spring', delay: 100 }}>
+                <AndroidSafeMotiView from={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} transition={{ type: 'spring', delay: 100 }}>
                   <Pressable onPress={() => handlePressLink('/chat')}>
                     <LinearGradient
                       colors={['#f36f21', '#fabc3c']}
@@ -1013,12 +1050,12 @@ export default function Home() {
                       <View style={styles.ctaDecoCircle} />
                     </LinearGradient>
                   </Pressable>
-                </MotiView>
+                </AndroidSafeMotiView>
               )}
             </>
           )}
 
-          <MotiView
+          <AndroidSafeMotiView
             from={{ opacity: 0, translateY: 20 }}
             animate={{ opacity: 1, translateY: 0 }}
             transition={{ type: 'timing', duration: 600, delay: 200 }}
@@ -1248,7 +1285,7 @@ export default function Home() {
               </View>
             )
             }
-          </MotiView>
+          </AndroidSafeMotiView>
 
           <View style={styles.linksSection}>
             <Text style={styles.sectionTitle}>
@@ -1260,7 +1297,7 @@ export default function Home() {
           </View>
           <View style={styles.actionGrid}>
             {quickLinks.map((item, index) => (
-              <MotiView
+              <AndroidSafeMotiView
                 key={`${item.href}-${item.stepKey ?? 'default'}`}
                 from={{ opacity: 0, translateY: 20 }}
                 animate={{ opacity: 1, translateY: 0 }}
@@ -1280,7 +1317,7 @@ export default function Home() {
                   <Text style={styles.actionTitleGrid} numberOfLines={1}>{item.title}</Text>
                   <Text style={styles.actionDescGrid} numberOfLines={2}>{item.description}</Text>
                 </Pressable>
-              </MotiView>
+              </AndroidSafeMotiView>
             ))}
           </View>
         </View>
@@ -1319,6 +1356,11 @@ export default function Home() {
 }
 
 const ProgressBar = ({ step }: { step: number }) => {
+  return (
+    <View style={{ height: 4, backgroundColor: '#F3F4F6', borderRadius: 2, marginVertical: 12, overflow: 'hidden' }}>
+      <View style={{ width: `${(step / 5) * 100}%`, height: '100%', backgroundColor: HANWHA_ORANGE }} />
+    </View>
+  );
 };
 
 const stepToLink = (key: string) => {
