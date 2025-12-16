@@ -22,9 +22,60 @@ import {
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { TourGuideZone, useTourGuideController } from 'rn-tourguide';
 
+import { ImageTourGuide, TourStep } from '@/components/ImageTourGuide';
 import { RefreshButton } from '@/components/RefreshButton';
 import { useSession } from '@/hooks/use-session';
 import { supabase } from '@/lib/supabase';
+
+const SHORTCUT_GUIDE_STEPS: TourStep[] = [
+  {
+    x: 25,
+    y: 30,
+    title: '시험 신청',
+    description: '생명/제3보험 및 손해보험 시험을\n여기서 간편하게 신청할 수 있습니다.',
+    tooltipPosition: 'bottom',
+  },
+  {
+    x: 75,
+    y: 30,
+    title: '손해 시험 신청',
+    description: '손해보험 시험 접수가 필요한 경우\n여기서 진행할 수 있습니다.',
+    tooltipPosition: 'bottom',
+  },
+  {
+    x: 25,
+    y: 50,
+    title: '기본 정보',
+    description: '이름, 주소 등 나의 인적사항을\n수정하거나 확인할 수 있습니다.',
+  },
+  {
+    x: 75,
+    y: 50,
+    title: '수당 동의',
+    description: '위촉 과정에 필요한 수당 지급 약관에\n동의하였는지 관리합니다.',
+  },
+  {
+    x: 25,
+    y: 55,
+    title: '서류 업로드',
+    description: '합격증, 수료증 등 필수 서류를\n여기서 바로 등록하세요.',
+    tooltipPosition: 'top',
+  },
+  {
+    x: 75,
+    y: 55,
+    title: '모바일 위촉',
+    description: '보험사 위촉 진행을 위한 모바일 URL에\n쉽게 접속할 수 있습니다.',
+    tooltipPosition: 'top',
+  },
+  {
+    x: 25,
+    y: 75,
+    title: '1:1 문의',
+    description: '궁금한 점이 있다면 총무팀에게\n언제든지 메시지를 보내보세요.',
+    tooltipPosition: 'top',
+  },
+];
 
 // Android Crash Fix: Strips Moti props on Android to prevent Reanimated from attaching to unmounting views
 const AndroidSafeMotiView = ({ from, animate, transition, state, exit, exitTransition, delay, ...props }: any) => {
@@ -333,6 +384,8 @@ export default function Home() {
   const [adminHomeTab, setAdminHomeTab] = useState<'onboarding' | 'exam'>('onboarding');
   const [isLoggingOut, setIsLoggingOut] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
+  const [showShortcutGuide, setShowShortcutGuide] = useState(false);
+
   const isAdminExam = role === 'admin' && adminHomeTab === 'exam';
   const adminNavItems = [
     { key: 'onboarding' as const, label: '위촉 홈', icon: 'home' as const },
@@ -1152,28 +1205,47 @@ export default function Home() {
                           {statusLoading ? (
                             <ActivityIndicator color={HANWHA_LIGHT} style={{ marginVertical: 20 }} />
                           ) : (
-                            <View style={styles.stepContainer}>
-                              {steps.map((step, index) => {
-                                const stepNum = index + 1;
-                                const isActive = stepNum === currentStep;
-                                const isDone = stepNum < currentStep;
-                                return (
-                                  <View key={step.key} style={styles.stepWrapper}>
-                                    {index < steps.length - 1 && (
-                                      <View style={[styles.stepConnector, isDone && styles.stepConnectorDone]} />
-                                    )}
-                                    <View style={[styles.stepCircle, isActive && styles.stepCircleActive, isDone && styles.stepCircleDone]}>
-                                      {isDone ? (
-                                        <Feather name="check" size={14} color="#fff" />
-                                      ) : (
-                                        <Text style={[styles.stepNumber, isActive && styles.stepNumberActive]}>{stepNum}</Text>
-                                      )}
-                                    </View>
-                                    <Text style={[styles.stepLabel, isActive && styles.stepLabelActive]}>{step.label}</Text>
+                            <>
+                              {/* 위촉 상태 배지 행 */}
+                              <View style={styles.statusRow}>
+                                <View style={styles.statusItem}>
+                                  <Text style={styles.statusLabel}>생명 위촉</Text>
+                                  <View style={[styles.statusBadge, { backgroundColor: lifeStatus.bg }]}>
+                                    <Text style={[styles.statusText, { color: lifeStatus.color }]}>{lifeStatus.label}</Text>
                                   </View>
-                                );
-                              })}
-                            </View>
+                                </View>
+                                <View style={styles.statusDivider} />
+                                <View style={styles.statusItem}>
+                                  <Text style={styles.statusLabel}>손해 위촉</Text>
+                                  <View style={[styles.statusBadge, { backgroundColor: nonLifeStatus.bg }]}>
+                                    <Text style={[styles.statusText, { color: nonLifeStatus.color }]}>{nonLifeStatus.label}</Text>
+                                  </View>
+                                </View>
+                              </View>
+                              {/* 진행 단계 (기존 Stepper) */}
+                              <View style={[styles.stepContainer, { marginTop: 16 }]}>
+                                {steps.map((step, index) => {
+                                  const stepNum = index + 1;
+                                  const isActive = stepNum === currentStep;
+                                  const isDone = stepNum < currentStep;
+                                  return (
+                                    <View key={step.key} style={styles.stepWrapper}>
+                                      {index < steps.length - 1 && (
+                                        <View style={[styles.stepConnector, isDone && styles.stepConnectorDone]} />
+                                      )}
+                                      <View style={[styles.stepCircle, isActive && styles.stepCircleActive, isDone && styles.stepCircleDone]}>
+                                        {isDone ? (
+                                          <Feather name="check" size={14} color="#fff" />
+                                        ) : (
+                                          <Text style={[styles.stepNumber, isActive && styles.stepNumberActive]}>{stepNum}</Text>
+                                        )}
+                                      </View>
+                                      <Text style={[styles.stepLabel, isActive && styles.stepLabelActive]}>{step.label}</Text>
+                                    </View>
+                                  );
+                                })}
+                              </View>
+                            </>
                           )}
                         </View>
                       </TourGuideZone>
@@ -1304,6 +1376,34 @@ export default function Home() {
               <Text style={styles.sectionHint}>시험 등록/신청자 관련 메뉴를 모았습니다</Text>
             ) : null}
           </View>
+
+          {/* Guide Banner Button */}
+          <View style={{ marginHorizontal: 20, marginBottom: 20 }}>
+            <Pressable
+              onPress={() => {
+              }}
+              style={({ pressed }) => [
+                styles.guidePressable,
+                {
+                  backgroundColor: '#FFF7ED', // Orange-50
+                  borderRadius: 20,
+                  borderWidth: 1,
+                  borderColor: '#FFEDD5', // Orange-100
+                  width: '100%',
+                },
+                pressed && { opacity: 0.9, transform: [{ scale: 0.98 }] }
+              ]}
+            >
+              <View style={styles.guideIconCircle}>
+                <Feather name="play" size={14} color="#EA580C" style={{ marginLeft: 2 }} />
+              </View>
+              <View style={styles.guideTextContainer}>
+                <Text style={styles.guideTitle}>바로가기 사용법 설명 듣기</Text>
+                <Text style={styles.guideSubTitle}>바로가기 기능을 확인해보세요</Text>
+              </View>
+              <Feather name="chevron-right" size={20} color="#EA580C" />
+            </Pressable>
+          </View>
           <View style={styles.actionGrid}>
             {quickLinks.map((item, index) => (
               <AndroidSafeMotiView
@@ -1329,7 +1429,7 @@ export default function Home() {
               </AndroidSafeMotiView>
             ))}
           </View>
-        </View>
+        </View >
       </ScrollView >
 
       {
@@ -1353,13 +1453,21 @@ export default function Home() {
           </View>
         ) : null
       }
-      {tourBlocking && (
-        <Pressable
-          style={[StyleSheet.absoluteFillObject, { zIndex: 9999, elevation: 9999 }]}
-          onPress={() => { }}
-          onPressIn={() => { }}
-        />
-      )}
+      {
+        tourBlocking && (
+          <Pressable
+            style={[StyleSheet.absoluteFillObject, { zIndex: 9999, elevation: 9999 }]}
+            onPress={() => { }}
+            onPressIn={() => { }}
+          />
+        )
+      }
+      <ImageTourGuide
+        visible={showShortcutGuide}
+        onClose={() => setShowShortcutGuide(false)}
+        imageSource={require('@/assets/guide/shortcuts-guide.png')}
+        steps={SHORTCUT_GUIDE_STEPS}
+      />
     </SafeAreaView >
   );
 }
