@@ -5,6 +5,7 @@ import * as Haptics from 'expo-haptics';
 import { LinearGradient } from 'expo-linear-gradient';
 import * as Notifications from 'expo-notifications';
 import { router, useFocusEffect } from 'expo-router';
+import { MotiView } from 'moti';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator,
@@ -1151,24 +1152,28 @@ export default function Home() {
                           {statusLoading ? (
                             <ActivityIndicator color={HANWHA_LIGHT} style={{ marginVertical: 20 }} />
                           ) : (
-                            <>
-                              <View style={styles.statusRow}>
-                                <View style={styles.statusItem}>
-                                  <Text style={styles.statusLabel}>생명 위촉</Text>
-                                  <View style={[styles.statusBadge, { backgroundColor: lifeStatus.bg }]}>
-                                    <Text style={[styles.statusText, { color: lifeStatus.color }]}>{lifeStatus.label}</Text>
+                            <View style={styles.stepContainer}>
+                              {steps.map((step, index) => {
+                                const stepNum = index + 1;
+                                const isActive = stepNum === currentStep;
+                                const isDone = stepNum < currentStep;
+                                return (
+                                  <View key={step.key} style={styles.stepWrapper}>
+                                    {index < steps.length - 1 && (
+                                      <View style={[styles.stepConnector, isDone && styles.stepConnectorDone]} />
+                                    )}
+                                    <View style={[styles.stepCircle, isActive && styles.stepCircleActive, isDone && styles.stepCircleDone]}>
+                                      {isDone ? (
+                                        <Feather name="check" size={14} color="#fff" />
+                                      ) : (
+                                        <Text style={[styles.stepNumber, isActive && styles.stepNumberActive]}>{stepNum}</Text>
+                                      )}
+                                    </View>
+                                    <Text style={[styles.stepLabel, isActive && styles.stepLabelActive]}>{step.label}</Text>
                                   </View>
-                                </View>
-                                <View style={styles.statusDivider} />
-                                <View style={styles.statusItem}>
-                                  <Text style={styles.statusLabel}>손해 위촉</Text>
-                                  <View style={[styles.statusBadge, { backgroundColor: nonLifeStatus.bg }]}>
-                                    <Text style={[styles.statusText, { color: nonLifeStatus.color }]}>{nonLifeStatus.label}</Text>
-                                  </View>
-                                </View>
-                              </View>
-                              <ProgressBar step={currentStep} />
-                            </>
+                                );
+                              })}
+                            </View>
                           )}
                         </View>
                       </TourGuideZone>
@@ -1230,24 +1235,28 @@ export default function Home() {
                 {statusLoading ? (
                   <ActivityIndicator color={HANWHA_LIGHT} style={{ marginVertical: 20 }} />
                 ) : (
-                  <>
-                    <View style={styles.statusRow}>
-                      <View style={styles.statusItem}>
-                        <Text style={styles.statusLabel}>생명 위촉</Text>
-                        <View style={[styles.statusBadge, { backgroundColor: lifeStatus.bg }]}>
-                          <Text style={[styles.statusText, { color: lifeStatus.color }]}>{lifeStatus.label}</Text>
+                  <View style={styles.stepContainer}>
+                    {steps.map((step, index) => {
+                      const stepNum = index + 1;
+                      const isActive = stepNum === currentStep;
+                      const isDone = stepNum < currentStep;
+                      return (
+                        <View key={step.key} style={styles.stepWrapper}>
+                          {index < steps.length - 1 && (
+                            <View style={[styles.stepConnector, isDone && styles.stepConnectorDone]} />
+                          )}
+                          <View style={[styles.stepCircle, isActive && styles.stepCircleActive, isDone && styles.stepCircleDone]}>
+                            {isDone ? (
+                              <Feather name="check" size={14} color="#fff" />
+                            ) : (
+                              <Text style={[styles.stepNumber, isActive && styles.stepNumberActive]}>{stepNum}</Text>
+                            )}
+                          </View>
+                          <Text style={[styles.stepLabel, isActive && styles.stepLabelActive]}>{step.label}</Text>
                         </View>
-                      </View>
-                      <View style={styles.statusDivider} />
-                      <View style={styles.statusItem}>
-                        <Text style={styles.statusLabel}>손해 위촉</Text>
-                        <View style={[styles.statusBadge, { backgroundColor: nonLifeStatus.bg }]}>
-                          <Text style={[styles.statusText, { color: nonLifeStatus.color }]}>{nonLifeStatus.label}</Text>
-                        </View>
-                      </View>
-                    </View>
-                    <ProgressBar step={currentStep} />
-                  </>
+                      );
+                    })}
+                  </View>
                 )}
                 <View style={styles.glanceRow}>
                   <Pressable
