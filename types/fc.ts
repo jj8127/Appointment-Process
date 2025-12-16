@@ -38,6 +38,7 @@ export type FcProfile = {
   appointment_date_life?: string | null;
   appointment_date_nonlife?: string | null;
   status: FcStatus;
+  is_tour_seen?: boolean;
   created_at: string;
   fc_documents?: {
     doc_type: string;

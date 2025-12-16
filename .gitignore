@@ -51,3 +51,5 @@ app-example
 appointmentprocess-90a2e-firebase-adminsdk-fbsvc-2c333083b0.json
 
 .testsprite_tests
+.vercel
+.env*.local

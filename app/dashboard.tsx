@@ -1076,7 +1076,7 @@ export default function DashboardScreen() {
                 <Text style={styles.scheduleInputLabel}>생명 예정월</Text>
                 <TextInput
                   style={styles.scheduleInput}
-                  placeholder="예: 6월 / 7월 예정 / 주소 메모"
+                  placeholder="예:12월 1차 / 1월 3차"
                   value={scheduleInput.life ?? ''}
                   onChangeText={(t) =>
                     setScheduleInputs((prev) => ({
@@ -1090,7 +1090,7 @@ export default function DashboardScreen() {
                 <Text style={styles.scheduleInputLabel}>손해 예정월</Text>
                 <TextInput
                   style={styles.scheduleInput}
-                  placeholder="예: 9월 / 10월 예정 / 주소 메모"
+                  placeholder="예: 12월 1차 / 1월 3차"
                   value={scheduleInput.nonlife ?? ''}
                   onChangeText={(t) =>
                     setScheduleInputs((prev) => ({

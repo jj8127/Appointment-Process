@@ -1,4 +1,4 @@
-앱 빌드: eas build --platform android --profile production
+앱 빌드: [시작 전에 버전 업데이트 필수]eas build --platform android --profile production
 앱 실행+설치: npx expo run:android
 웹 실행:cd web & npm run dev
 
@@ -19,8 +19,10 @@ vercel에 등록하기
 1. 배포하고자 하는 루트 디렉토리로 이동
 2. vercel과 연동
     vercel link
-3. 배포
-    vercel --prod
+3. 웹 빌드 생성
+    npx expo export -p web
+4. 배포
+    vercel deploy dist --prod
 
 앱 release version으로 실행하기
     npx expo run:android --variant release

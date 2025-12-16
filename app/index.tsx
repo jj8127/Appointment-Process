@@ -1,5 +1,4 @@
 import { Feather } from '@expo/vector-icons';
-import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useQuery } from '@tanstack/react-query';
 import Constants from 'expo-constants';
 import * as Haptics from 'expo-haptics';
@@ -75,9 +74,9 @@ const quickLinksAdminExam: QuickLink[] = [
 ];
 
 const quickLinksFc: QuickLink[] = [
-  { href: '/fc/new', title: '기본 정보', description: '인적사항 수정' },
   { href: '/exam-apply', title: '생명/제3 시험 신청', description: '시험 접수하기' },
   { href: '/exam-apply2', title: '손해 시험 신청', description: '시험 접수하기' },
+  { href: '/fc/new', title: '기본 정보', description: '인적사항 수정' },
   { href: '/consent', title: '수당 동의', description: '약관 동의 관리' },
   { href: '/docs-upload', title: '서류 업로드', description: '필수 서류 제출' },
   { href: '/appointment', title: '모바일 위촉', description: '위촉 URL 접속 및 완료' },
@@ -175,7 +174,7 @@ const fetchFcStatus = async (residentId: string) => {
   const { data, error } = await supabase
     .from('fc_profiles')
     .select(
-      'id,name,affiliation,status,temp_id,allowance_date,appointment_url,appointment_date,appointment_schedule_life,appointment_schedule_nonlife,appointment_date_life,appointment_date_nonlife,resident_id_masked,email,address,fc_documents(doc_type,storage_path,status)',
+      'id,name,affiliation,status,temp_id,allowance_date,appointment_url,appointment_date,appointment_schedule_life,appointment_schedule_nonlife,appointment_date_life,appointment_date_nonlife,appointment_date_life_sub,appointment_date_nonlife_sub,resident_id_masked,email,address,is_tour_seen,fc_documents(doc_type,storage_path,status)',
     )
     .eq('phone', residentId)
     .maybeSingle();
@@ -193,9 +192,12 @@ const fetchFcStatus = async (residentId: string) => {
     appointment_schedule_nonlife: null,
     appointment_date_life: null,
     appointment_date_nonlife: null,
+    appointment_date_life_sub: null,
+    appointment_date_nonlife_sub: null,
     resident_id_masked: null,
     email: null,
     address: null,
+    is_tour_seen: false,
     fc_documents: [],
   };
 };
@@ -316,6 +318,16 @@ export default function Home() {
     { key: 'exam' as const, label: '시험 홈', icon: 'book-open' as const },
   ];
 
+  const {
+    data: myFc,
+    isLoading: statusLoading,
+    refetch: refetchMyFc,
+  } = useQuery({
+    queryKey: ['my-fc-status', residentId],
+    queryFn: () => (residentId ? fetchFcStatus(residentId) : Promise.resolve(null)),
+    enabled: role === 'fc' && !!residentId,
+  });
+
   // FC 전용 코치마크
   const { canStart, start, eventEmitter } = useTourGuideController();
   const autoTourStartedRef = useRef(false);
@@ -411,36 +423,7 @@ export default function Home() {
     start();
   }, [isFc, canStart, start]);
 
-  useEffect(() => {
-    if (!hydrated) return;
-    if (!isFc) return;
-    if (!canStart) return;
-    if (!residentId) return;
-    if (autoTourStartedRef.current) return;
 
-    // Start after entry animation (1000ms delay for safety)
-    autoTourStartedRef.current = true;
-    setTimeout(async () => {
-      try {
-        const key = `tour_seen_${residentId}`;
-        const hasSeen = await AsyncStorage.getItem(key);
-        if (!hasSeen) {
-          start();
-          await AsyncStorage.setItem(key, 'true');
-        }
-      } catch (e) {
-        console.log('[tour] check error', e);
-        // If error, play safe and don't force start, or force start?
-        // Let's safe fail and strictly rely on manual if async storage fails
-      }
-    }, 1000);
-  }, [hydrated, isFc, canStart, start, residentId]);
-
-  useEffect(() => {
-    if (!isFc) {
-      autoTourStartedRef.current = false;
-    }
-  }, [isFc]);
 
 
 
@@ -485,15 +468,7 @@ export default function Home() {
     enabled: !!role,
   });
 
-  const {
-    data: myFc,
-    isLoading: statusLoading,
-    refetch: refetchMyFc,
-  } = useQuery({
-    queryKey: ['my-fc-status', residentId],
-    queryFn: () => (residentId ? fetchFcStatus(residentId) : Promise.resolve(null)),
-    enabled: role === 'fc' && !!residentId,
-  });
+
 
   const {
     data: latestNotice,
@@ -530,10 +505,67 @@ export default function Home() {
 
   const currentStep = myFc ? calcStep(myFc) : 1;
   const activeStep = steps[Math.min(steps.length - 1, Math.max(0, currentStep - 1))];
+
   const uploadedDocs =
     myFc?.fc_documents?.filter((d: any) => d.storage_path && d.storage_path !== 'deleted').length ?? 0;
   const totalDocs = myFc?.fc_documents?.length ?? 0;
   const isAllSubmitted = totalDocs > 0 && uploadedDocs >= totalDocs;
+
+  const isConsentStep = activeStep.key === 'consent';
+  const isDocsStep = activeStep.key === 'docs';
+  const isUrlStep = activeStep.key === 'url';
+
+  const hasTempId = !!myFc?.temp_id;
+  const hasAllowanceDate = !!myFc?.allowance_date;
+  const hasUnapprovedDocs = myFc?.fc_documents?.some((d: any) => d.status !== 'approved');
+
+  const schedLife = myFc?.appointment_schedule_life;
+  const schedNon = myFc?.appointment_schedule_nonlife;
+  // 기존 approved 날짜 or 제출한 날짜 있으면 입력 완료로 간주
+  const dateLife = myFc?.appointment_date_life || myFc?.appointment_date_life_sub;
+  const dateNon = myFc?.appointment_date_nonlife || myFc?.appointment_date_nonlife_sub;
+
+  const hasAnySchedule = !!schedLife || !!schedNon;
+  const isMissingDates = (!!schedLife && !dateLife) || (!!schedNon && !dateNon);
+
+  let nextStepSubText = '터치하여 바로 진행하세요';
+  let isNextStepDisabled = !stepToLink(activeStep.key);
+
+  if (isConsentStep) {
+    if (hasAllowanceDate) {
+      nextStepSubText = '총무가 검토 중입니다. 기다려주세요.';
+      isNextStepDisabled = true;
+    } else if (!hasTempId) {
+      nextStepSubText = '총무가 임시사번을 발급중입니다. 기다려주세요.';
+      isNextStepDisabled = true;
+    } else {
+      nextStepSubText = '터치하여 바로 진행하세요';
+    }
+  } else if (isDocsStep) {
+    if (totalDocs === 0) {
+      nextStepSubText = '총무가 필요한 서류들을 검토 중입니다.';
+      isNextStepDisabled = true;
+    } else if (!isAllSubmitted) {
+      nextStepSubText = '모든 문서를 제출하세요.';
+      isNextStepDisabled = false;
+    } else if (hasUnapprovedDocs) {
+      nextStepSubText = '서류를 검토중입니다.';
+      isNextStepDisabled = true;
+    }
+  } else if (isUrlStep) {
+    if (!hasAnySchedule) {
+      nextStepSubText = '위촉 차수를 입력중입니다. 기다려주세요.';
+      isNextStepDisabled = true;
+    } else if (isMissingDates) {
+      nextStepSubText = '터치하여 위촉을 진행해 주세요';
+      isNextStepDisabled = false;
+    } else {
+      nextStepSubText = '위촉 완료 여부를 검토중입니다.';
+      isNextStepDisabled = true;
+    }
+  } else if (activeStep.key === 'final') {
+    nextStepSubText = '모든 위촉 과정이 끝났습니다.';
+  }
   const isApproved =
     myFc?.status === 'docs-approved' ||
     myFc?.status === 'appointment-completed' ||
@@ -849,7 +881,7 @@ export default function Home() {
                   </View>
                   <View style={styles.guideTextContainer}>
                     <Text style={styles.guideTitle}>앱 사용법 설명 듣기</Text>
-                    <Text style={styles.guideSubTitle}>화면의 기능을 다시 확인해보세요</Text>
+                    <Text style={styles.guideSubTitle}>화면의 기능을 확인해보세요</Text>
                   </View>
                   <Feather name="chevron-right" size={16} color="#F97316" />
                 </View>
@@ -1118,7 +1150,7 @@ export default function Home() {
                         style={{ flex: 1 }}>
                         <Pressable
                           onPress={() => handlePressLink(stepToLink(activeStep.key))}
-                          disabled={!stepToLink(activeStep.key)}
+                          disabled={isNextStepDisabled}
                           style={({ pressed }) => [{ flex: 1 }, pressed && styles.pressedScale]}
                         >
                           <LinearGradient
@@ -1140,7 +1172,7 @@ export default function Home() {
                                 {activeStep.fullLabel}
                               </Text>
                               <Text style={styles.premiumStepSub}>
-                                터치하여 바로 진행하세요
+                                {nextStepSubText}
                               </Text>
                             </View>
                             <View style={styles.premiumStepDeco1} />
@@ -1183,7 +1215,7 @@ export default function Home() {
                 <View style={styles.glanceRow}>
                   <Pressable
                     onPress={() => handlePressLink(stepToLink(activeStep.key))}
-                    disabled={!stepToLink(activeStep.key)}
+                    disabled={isNextStepDisabled}
                     style={({ pressed }) => [{ flex: 1 }, pressed && styles.pressedScale]}
                   >
                     <LinearGradient
@@ -1205,7 +1237,7 @@ export default function Home() {
                           {activeStep.fullLabel}
                         </Text>
                         <Text style={styles.premiumStepSub}>
-                          터치하여 바로 진행하세요
+                          {nextStepSubText}
                         </Text>
                       </View>
                       <View style={styles.premiumStepDeco1} />
@@ -1287,44 +1319,6 @@ export default function Home() {
 }
 
 const ProgressBar = ({ step }: { step: number }) => {
-  return (
-    <View style={styles.stepContainer}>
-      {steps.map((s, idx) => {
-        const position = idx + 1;
-        const isActive = position === step;
-        const isDone = position < step;
-
-        return (
-          <View key={s.key} style={styles.stepWrapper}>
-            {idx < steps.length - 1 && (
-              <View style={[styles.stepConnector, isDone && styles.stepConnectorDone]} />
-            )}
-
-            <View
-              style={[
-                styles.stepCircle,
-                isActive && styles.stepCircleActive,
-                isDone && styles.stepCircleDone,
-              ]}>
-              {isDone ? (
-                <Feather name="check" size={12} color="#fff" />
-              ) : (
-                <Text style={[styles.stepNumber, isActive && styles.stepNumberActive]}>
-                  {position}
-                </Text>
-              )}
-            </View>
-            <Text
-              style={[styles.stepLabel, isActive && styles.stepLabelActive]}
-              numberOfLines={1}
-              adjustsFontSizeToFit>
-              {s.label}
-            </Text>
-          </View>
-        );
-      })}
-    </View>
-  );
 };
 
 const stepToLink = (key: string) => {
