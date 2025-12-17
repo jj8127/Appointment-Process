@@ -4,7 +4,7 @@ import Constants from 'expo-constants';
 import * as Haptics from 'expo-haptics';
 import { LinearGradient } from 'expo-linear-gradient';
 import * as Notifications from 'expo-notifications';
-import { router, useFocusEffect } from 'expo-router';
+import { Stack, router, useFocusEffect } from 'expo-router';
 import { MotiView } from 'moti';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import {
@@ -994,11 +994,11 @@ export default function Home() {
           )}
 
           {role === 'fc' && (
-            <View style={{ marginBottom: 12, paddingHorizontal: 4, alignItems: 'center' }}>
-              <Text style={{ fontSize: 24, fontWeight: '800', color: CHARCOAL, textAlign: 'center' }}>
-                {(myFc?.name || displayName || 'FC')}님 환영합니다.
-              </Text>
-            </View>
+            <Stack.Screen
+              options={{
+                title: `${(myFc?.name || displayName || 'FC')}님 환영합니다`
+              }}
+            />
           )}
 
 

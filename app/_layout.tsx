@@ -95,7 +95,7 @@ export default function RootLayout() {
                   statusBarStyle: 'dark',
                   statusBarBackgroundColor: '#fff',
                 }}>
-                <Stack.Screen name="index" options={{ headerShown: false }} />
+                <Stack.Screen name="index" options={{ ...baseHeader, title: '홈' }} />
                 <Stack.Screen name="auth" options={{ headerShown: false }} />
                 <Stack.Screen name="fc/new" options={{ ...baseHeader, title: '기본 정보' }} />
                 <Stack.Screen name="consent" options={{ ...baseHeader, title: '수당 지급 동의서' }} />
