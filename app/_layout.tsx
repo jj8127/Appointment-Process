@@ -7,10 +7,11 @@ import { StatusBar } from 'expo-status-bar';
 import { useEffect } from 'react';
 import { Platform } from 'react-native';
 import 'react-native-reanimated';
-import { SafeAreaProvider, SafeAreaView } from 'react-native-safe-area-context';
+import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { enableScreens } from 'react-native-screens';
 import { TourGuideProvider } from 'rn-tourguide';
 
+import CompactHeader from '@/components/CompactHeader';
 import FcTourTooltip from '@/components/FcTourTooltip';
 import { useColorScheme } from '@/hooks/use-color-scheme';
 import { SessionProvider } from '@/hooks/use-session';
@@ -19,6 +20,11 @@ const queryClient = new QueryClient();
 
 // Disable native screen optimization to avoid Android drawing-order crash
 enableScreens(false);
+
+const baseHeader = {
+  headerShown: true,
+  header: (props: any) => <CompactHeader {...props} />,
+} as const;
 
 // Notification handler (banner/list 지원)
 Notifications.setNotificationHandler({
@@ -82,32 +88,34 @@ export default function RootLayout() {
               tooltipComponent={FcTourTooltip}
               androidStatusBarVisible
               verticalOffset={0}>
-              <SafeAreaView style={{ flex: 1, backgroundColor: '#fff' }} edges={['top', 'left', 'right']}>
-                <Stack
-                  initialRouteName="auth"
-                  screenOptions={{
-                    headerShown: false,
-                    statusBarStyle: 'dark',
-                    statusBarBackgroundColor: '#fff',
-                  }}>
-                  <Stack.Screen name="index" options={{ headerTitle: () => null, headerBackVisible: false }} />
-                  <Stack.Screen name="auth" options={{ title: '로그인' }} />
-                  <Stack.Screen name="fc/new" options={{ title: '기본 정보' }} />
-                  <Stack.Screen name="consent" options={{ title: '동의서 입력' }} />
-                  <Stack.Screen name="docs-upload" options={{ title: '서류 업로드' }} />
-                  <Stack.Screen name="dashboard" options={{ title: '전체 현황' }} />
-                  <Stack.Screen name="appointment" options={{ title: '모바일 위촉' }} />
-                  <Stack.Screen name="notifications" options={{ title: '알림' }} />
-                  <Stack.Screen name="notice" options={{ title: '공지사항' }} />
-                  <Stack.Screen name="admin-notice" options={{ title: '공지 등록' }} />
-                  <Stack.Screen name="exam-register" options={{ title: '생명 시험 등록' }} />
-                  <Stack.Screen name="exam-register2" options={{ title: '손해 시험 등록' }} />
-                  <Stack.Screen name="exam-manage" options={{ title: '생명/제3 신청자 관리' }} />
-                  <Stack.Screen name="exam-manage2" options={{ title: '손해 신청자 관리' }} />
-                </Stack>
+              <Stack
+                initialRouteName="auth"
+                screenOptions={{
+                  headerShown: false,
+                  statusBarStyle: 'dark',
+                  statusBarBackgroundColor: '#fff',
+                }}>
+                <Stack.Screen name="index" options={{ headerShown: false }} />
+                <Stack.Screen name="auth" options={{ headerShown: false }} />
+                <Stack.Screen name="fc/new" options={{ ...baseHeader, title: '기본 정보' }} />
+                <Stack.Screen name="consent" options={{ ...baseHeader, title: '수당 지급 동의서' }} />
+                <Stack.Screen name="docs-upload" options={{ ...baseHeader, title: '필수 서류 업로드' }} />
+                <Stack.Screen name="exam-apply" options={{ ...baseHeader, title: '생명/제3보험 시험 신청' }} />
+                <Stack.Screen name="exam-apply2" options={{ ...baseHeader, title: '손해보험 시험 신청' }} />
+                <Stack.Screen name="chat" options={{ ...baseHeader, title: '1:1 문의' }} />
 
-                <StatusBar style="dark" backgroundColor="#fff" />
-              </SafeAreaView>
+                <Stack.Screen name="dashboard" options={{ ...baseHeader, title: '전체 현황' }} />
+                <Stack.Screen name="appointment" options={{ ...baseHeader, title: '모바일 위촉' }} />
+                <Stack.Screen name="notifications" options={{ ...baseHeader, title: '알림' }} />
+                <Stack.Screen name="notice" options={{ ...baseHeader, title: '공지사항' }} />
+                <Stack.Screen name="admin-notice" options={{ ...baseHeader, title: '공지 등록' }} />
+                <Stack.Screen name="exam-register" options={{ ...baseHeader, title: '생명 시험 등록' }} />
+                <Stack.Screen name="exam-register2" options={{ ...baseHeader, title: '손해 시험 등록' }} />
+                <Stack.Screen name="exam-manage" options={{ ...baseHeader, title: '생명/제3 신청자 관리' }} />
+                <Stack.Screen name="exam-manage2" options={{ ...baseHeader, title: '손해 신청자 관리' }} />
+              </Stack>
+
+              <StatusBar style="dark" backgroundColor="#fff" />
             </TourGuideProvider>
           </ThemeProvider>
         </SessionProvider>
