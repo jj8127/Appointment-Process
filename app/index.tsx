@@ -1001,31 +1001,7 @@ export default function Home() {
             </View>
           )}
 
-          {/* Senior Friendly Guide Card */}
-          {role === 'fc' && (
-            <AndroidSafeMotiView
-              from={{ opacity: 0, scale: 0.95 }}
-              animate={{ opacity: 1, scale: 1 }}
-              transition={{ type: 'spring', delay: 200 }}
-              style={{ marginBottom: 5 }}
-            >
-              <Pressable
-                style={({ pressed }) => [styles.guideCard, pressed && { opacity: 0.9, transform: [{ scale: 0.98 }] }]}
-                onPress={startFcTour}
-              >
-                <View style={styles.guidePressable}>
-                  <View style={styles.guideIconCircle}>
-                    <Feather name="play" size={16} color="#EA580C" style={{ marginLeft: 2 }} />
-                  </View>
-                  <View style={styles.guideTextContainer}>
-                    <Text style={styles.guideTitle}>앱 사용법 설명 듣기</Text>
-                    <Text style={styles.guideSubTitle}>화면의 기능을 확인해보세요</Text>
-                  </View>
-                  <Feather name="chevron-right" size={16} color="#F97316" />
-                </View>
-              </Pressable>
-            </AndroidSafeMotiView>
-          )}
+
 
           {isFc ? (
             <View collapsable={false}>
@@ -1056,6 +1032,60 @@ export default function Home() {
                   {latestNotice?.title ? `공지: ${latestNotice.title}` : '공지: 최신 공지사항을 확인하세요'}
                 </Text>
                 <Feather name="chevron-right" size={16} color={HANWHA_ORANGE} style={{ marginLeft: 'auto' }} />
+              </Pressable>
+            </AndroidSafeMotiView>
+          )}
+
+          {/* Guide Card (Modern) - Moved below Notice */}
+          {role === 'fc' && (
+            <AndroidSafeMotiView
+              from={{ opacity: 0, scale: 0.98 }}
+              animate={{ opacity: 1, scale: 1 }}
+              transition={{ type: 'spring', delay: 180 }}
+              style={{ marginBottom: 10 }}
+            >
+              <Pressable
+                onPress={startFcTour}
+                accessibilityRole="button"
+                accessibilityLabel="앱 사용 가이드 시작"
+                style={({ pressed }) => [
+                  styles.guideCardNew,
+                  pressed && styles.guideCardNewPressed,
+                ]}
+              >
+                {/* Left icon */}
+                <View style={styles.guideIconWrapNew}>
+                  <LinearGradient
+                    colors={['#fff7ed', '#ffffff']}
+                    start={{ x: 0, y: 0 }}
+                    end={{ x: 1, y: 1 }}
+                    style={styles.guideIconGradientNew}
+                  >
+                    <Feather name="play" size={16} color={HANWHA_ORANGE} style={{ marginLeft: 1 }} />
+                  </LinearGradient>
+                </View>
+
+                {/* Text */}
+                <View style={styles.guideTextWrapNew}>
+                  <View style={styles.guideBadgeRowNew}>
+                    <View style={styles.guideBadgeNew}>
+                      <Text style={styles.guideBadgeTextNew}>GUIDE</Text>
+                    </View>
+                    <Text style={styles.guideBadgeHintNew}>처음 오셨나요?</Text>
+                  </View>
+
+                  <Text style={styles.guideTitleNew} numberOfLines={1}>
+                    앱 사용법 안내 시작하기
+                  </Text>
+                </View>
+
+                {/* CTA */}
+                <View style={styles.guideCtaNew}>
+                  <View style={styles.guideCtaChipNew}>
+                    <Text style={styles.guideCtaTextNew}>시작</Text>
+                    <Feather name="chevron-right" size={16} color="#fff" />
+                  </View>
+                </View>
               </Pressable>
             </AndroidSafeMotiView>
           )}
@@ -1424,35 +1454,58 @@ export default function Home() {
             ) : null}
           </View>
 
-          {/* Guide Banner Button */}
+          {/* Guide Banner Button (Modern) */}
           {role === 'fc' && (
-            <View style={{ marginHorizontal: 20, marginBottom: 20 }}>
+            <AndroidSafeMotiView
+              from={{ opacity: 0, scale: 0.98 }}
+              animate={{ opacity: 1, scale: 1 }}
+              transition={{ type: 'spring', delay: 180 }}
+              style={{ marginBottom: 20 }}
+            >
               <Pressable
-                onPress={() => {
-                  setShowShortcutGuide(true);
-                }}
+                onPress={() => setShowShortcutGuide(true)}
+                accessibilityRole="button"
+                accessibilityLabel="바로가기 사용법 설명 듣기"
                 style={({ pressed }) => [
-                  styles.guidePressable,
-                  {
-                    backgroundColor: '#FFF7ED', // Orange-50
-                    borderRadius: 20,
-                    borderWidth: 1,
-                    borderColor: '#FFEDD5', // Orange-100
-                    width: '100%',
-                  },
-                  pressed && { opacity: 0.9, transform: [{ scale: 0.98 }] }
+                  styles.guideCardNew,
+                  pressed && styles.guideCardNewPressed,
                 ]}
               >
-                <View style={styles.guideIconCircle}>
-                  <Feather name="play" size={14} color="#EA580C" style={{ marginLeft: 2 }} />
+                {/* Left icon */}
+                <View style={styles.guideIconWrapNew}>
+                  <LinearGradient
+                    colors={['#fff7ed', '#ffffff']}
+                    start={{ x: 0, y: 0 }}
+                    end={{ x: 1, y: 1 }}
+                    style={styles.guideIconGradientNew}
+                  >
+                    <Feather name="play" size={16} color={HANWHA_ORANGE} style={{ marginLeft: 1 }} />
+                  </LinearGradient>
                 </View>
-                <View style={styles.guideTextContainer}>
-                  <Text style={styles.guideTitle}>바로가기 사용법 설명 듣기</Text>
-                  <Text style={styles.guideSubTitle}>바로가기 기능을 확인해보세요</Text>
+
+                {/* Text */}
+                <View style={styles.guideTextWrapNew}>
+                  <View style={styles.guideBadgeRowNew}>
+                    <View style={styles.guideBadgeNew}>
+                      <Text style={styles.guideBadgeTextNew}>SHORTCUT</Text>
+                    </View>
+                    <Text style={styles.guideBadgeHintNew}>기능이 궁금한가요?</Text>
+                  </View>
+
+                  <Text style={styles.guideTitleNew} numberOfLines={1}>
+                    바로가기 사용법 설명 듣기
+                  </Text>
                 </View>
-                <Feather name="chevron-right" size={20} color="#EA580C" />
+
+                {/* CTA */}
+                <View style={styles.guideCtaNew}>
+                  <View style={styles.guideCtaChipNew}>
+                    <Text style={styles.guideCtaTextNew}>시작</Text>
+                    <Feather name="chevron-right" size={16} color="#fff" />
+                  </View>
+                </View>
               </Pressable>
-            </View>
+            </AndroidSafeMotiView>
           )}
           <View style={styles.actionGrid}>
             {quickLinks.map((item, index) => (
@@ -2024,5 +2077,118 @@ const styles = StyleSheet.create({
     color: '#C2410C', // Orange-700
     fontWeight: '500',
     lineHeight: 16,
+  },
+
+  guideCardNew: {
+    marginHorizontal: 20,
+    borderRadius: 18,
+    paddingVertical: 14,
+    paddingHorizontal: 14,
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#fff',
+    borderWidth: 1,
+    borderColor: '#F1F5F9', // Slate-100 느낌
+    shadowColor: '#000',
+    shadowOpacity: 0.06,
+    shadowRadius: 16,
+    shadowOffset: { width: 0, height: 8 },
+    elevation: 4,
+  },
+
+  guideCardNewPressed: {
+    transform: [{ scale: 0.985 }],
+    opacity: 0.95,
+  },
+
+  guideIconWrapNew: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    marginRight: 12,
+  },
+
+  guideIconGradientNew: {
+    flex: 1,
+    borderRadius: 22,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 1,
+    borderColor: '#FFEDD5', // Orange-100
+  },
+
+  guideTextWrapNew: {
+    flex: 1,
+    paddingRight: 10,
+  },
+
+  guideBadgeRowNew: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    marginBottom: 6,
+  },
+
+  guideBadgeNew: {
+    backgroundColor: ORANGE_FAINT,
+    borderWidth: 1,
+    borderColor: '#FFEDD5',
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 999,
+  },
+
+  guideBadgeTextNew: {
+    color: '#9A3412', // Orange-900
+    fontSize: 11,
+    fontWeight: '800',
+    letterSpacing: 0.6,
+  },
+
+  guideBadgeHintNew: {
+    color: '#6B7280',
+    fontSize: 12,
+    fontWeight: '600',
+  },
+
+  guideTitleNew: {
+    fontSize: 16,
+    fontWeight: '800',
+    color: CHARCOAL,
+    letterSpacing: -0.2,
+    marginBottom: 2,
+  },
+
+  guideSubTitleNew: {
+    fontSize: 13,
+    color: '#6B7280',
+    lineHeight: 18,
+    fontWeight: '500',
+  },
+
+  guideCtaNew: {
+    justifyContent: 'center',
+    alignItems: 'flex-end',
+  },
+
+  guideCtaChipNew: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 999,
+    backgroundColor: HANWHA_ORANGE,
+    shadowColor: '#f36f21',
+    shadowOpacity: 0.18,
+    shadowRadius: 10,
+    shadowOffset: { width: 0, height: 6 },
+    elevation: 3,
+  },
+
+  guideCtaTextNew: {
+    color: '#fff',
+    fontSize: 13,
+    fontWeight: '800',
   },
 });
