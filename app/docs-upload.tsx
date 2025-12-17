@@ -42,7 +42,7 @@ function base64ToUint8Array(base64: string) {
   const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/=';
   let str = base64.replace(/=+$/, '');
   const output: number[] = [];
-  for (let bc = 0, bs = 0, idx = 0; idx < str.length; ) {
+  for (let bc = 0, bs = 0, idx = 0; idx < str.length;) {
     const ch = str.charAt(idx++);
     const buffer = chars.indexOf(ch);
     if (buffer === -1) continue;
@@ -147,14 +147,14 @@ export default function DocsUploadScreen() {
       if (reqErr) throw reqErr;
 
       const reqDocs: DocItem[] = (requirements ?? []).map((r) => {
-            const hasFile = r.storage_path && r.storage_path !== 'deleted';
-            return {
-              type: r.doc_type,
-              required: true,
-              uploadedUrl: hasFile
-                ? supabase.storage.from(BUCKET).getPublicUrl(r.storage_path).data.publicUrl
-                : undefined,
-              status: hasFile ? (r.status as any) ?? 'pending' : 'pending',
+        const hasFile = r.storage_path && r.storage_path !== 'deleted';
+        return {
+          type: r.doc_type,
+          required: true,
+          uploadedUrl: hasFile
+            ? supabase.storage.from(BUCKET).getPublicUrl(r.storage_path).data.publicUrl
+            : undefined,
+          status: hasFile ? (r.status as any) ?? 'pending' : 'pending',
           reviewerNote: r.reviewer_note ?? undefined,
           storagePath: hasFile ? r.storage_path ?? undefined : undefined,
           originalName: hasFile ? r.file_name ?? undefined : undefined,
@@ -253,12 +253,12 @@ export default function DocsUploadScreen() {
       const updatedDocs = docs.map((doc) =>
         doc.type === type
           ? {
-              ...doc,
-              uploadedUrl: publicUrl,
-              status: 'pending',
-              storagePath: objectPath,
-              originalName: asset.name ?? 'document.pdf',
-            }
+            ...doc,
+            uploadedUrl: publicUrl,
+            status: 'pending',
+            storagePath: objectPath,
+            originalName: asset.name ?? 'document.pdf',
+          }
           : doc,
       );
       setDocs(updatedDocs);
@@ -346,10 +346,13 @@ export default function DocsUploadScreen() {
               </Text>
               <Text style={styles.headerSub}>
                 {docCount.total}건 중{' '}
-                <Text style={{ color: HANWHA_ORANGE, fontWeight: '700' }}>{docCount.uploaded}건</Text> 완료
+                <Text style={{ color: HANWHA_ORANGE, fontWeight: '700' }}>{docCount.uploaded}건</Text> 완료 ·{' '}
+                <Text style={{ color: CHARCOAL, fontWeight: '800' }}>{Math.round(progressPercent)}%</Text>
               </Text>
             </View>
-            <RefreshButton onPress={loadData} />
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
+              <RefreshButton onPress={loadData} />
+            </View>
           </View>
 
           {isAdmin && (
@@ -378,8 +381,15 @@ export default function DocsUploadScreen() {
             </View>
           )}
 
-          <View style={styles.progressTrack}>
-            <View style={[styles.progressBar, { width: `${progressPercent}%` }]} />
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
+            <View style={[styles.progressTrack, { flex: 1 }]}>
+              <View style={[styles.progressBar, { width: `${progressPercent}%` }]} />
+            </View>
+            <Text style={styles.headerCountRight}>
+              <Text style={{ color: HANWHA_ORANGE, fontWeight: '800' }}>{docCount.uploaded}</Text>
+              <Text style={{ color: '#E5E7EB' }}>/</Text>
+              <Text style={{ color: MUTED }}>{docCount.total}</Text>
+            </Text>
           </View>
         </View>
 
@@ -394,65 +404,81 @@ export default function DocsUploadScreen() {
               const isLocked = doc.status === 'approved';
 
               return (
-                <View key={doc.type} style={[styles.item, isUploaded && styles.itemDone]}>
-                  <View style={styles.itemHeader}>
-                    <View style={{ flex: 1 }}>
-                      <Text style={[styles.itemTitle, isUploaded && styles.textDone]}>{doc.type}</Text>
-                      <Text
-                        style={[styles.fileName, isUploaded && { color: CHARCOAL, fontWeight: '600' }]}
-                        numberOfLines={1}
-                      >
-                        {isUploaded ? doc.originalName ?? '파일 있음' : 'PDF 파일을 업로드해주세요'}
-                      </Text>
+                <View key={doc.type} style={styles.card}>
+                  <View style={styles.cardTopRow}>
+                    {/* left icon */}
+                    <View style={styles.cardIcon}>
+                      <Feather name="file-text" size={18} color={HANWHA_ORANGE} />
                     </View>
-                    {isUploaded && (
-                      <Pressable
-                        style={styles.openFileButton}
-                        onPress={() => {
-                          if (doc.uploadedUrl) Linking.openURL(doc.uploadedUrl);
-                        }}
-                      >
-                        <Feather name="external-link" size={16} color="#fff" />
-                        <Text style={styles.openFileText}>열기</Text>
-                      </Pressable>
-                    )}
+
+                    {/* title + filename */}
+                    <View style={{ flex: 1, minWidth: 0 }}>
+                      <View style={styles.cardTitleRow}>
+                        <Text style={styles.cardTitle} numberOfLines={1}>{doc.type}</Text>
+
+                        {/* status chip */}
+                        {isUploaded ? (
+                          <View style={[styles.chip, isLocked ? styles.chipApproved : styles.chipSubmitted]}>
+                            <Feather name="check" size={12} color={isLocked ? '#1D4ED8' : '#059669'} />
+                            <Text style={[styles.chipText, { color: isLocked ? '#1D4ED8' : '#059669' }]}>
+                              {isLocked ? '승인됨' : '제출됨'}
+                            </Text>
+                          </View>
+                        ) : (
+                          <View style={[styles.chip, styles.chipPending]}>
+                            <Text style={[styles.chipText, { color: MUTED }]}>미제출</Text>
+                          </View>
+                        )}
+                      </View>
+
+                      <Text style={styles.cardFileName} numberOfLines={1}>
+                        {isUploaded ? (doc.originalName ?? '파일 있음') : 'PDF 파일을 업로드해주세요'}
+                      </Text>
+
+                      {!!doc.reviewerNote && (
+                        <Text style={styles.cardNote} numberOfLines={2}>
+                          {doc.reviewerNote}
+                        </Text>
+                      )}
+                    </View>
                   </View>
 
-                  <View style={styles.actions}>
-                    {isUploaded ? (
-                      <View style={[styles.badgeDone, isLocked && { backgroundColor: '#DBEAFE' }]}>
-                        <Feather name="check" size={10} color={isLocked ? '#1D4ED8' : '#059669'} />
-                        <Text style={[styles.badgeTextDone, isLocked && { color: '#1D4ED8' }]}>
-                          {isLocked ? '승인됨' : '제출됨'}
-                        </Text>
-                      </View>
-                    ) : (
-                      <View style={styles.badgePending}>
-                        <Text style={styles.badgeTextPending}>미제출</Text>
-                      </View>
+                  {/* action bar */}
+                  <View style={styles.cardActions}>
+                    {isUploaded && (
+                      <Pressable
+                        style={({ pressed }) => [styles.btnGhost, pressed && styles.pressed]}
+                        onPress={() => doc.uploadedUrl && Linking.openURL(doc.uploadedUrl)}
+                      >
+                        <Feather name="external-link" size={16} color={CHARCOAL} />
+                        <Text style={styles.btnGhostText}>열기</Text>
+                      </Pressable>
                     )}
 
                     <Pressable
-                      style={[
-                        styles.btn,
-                        isUploaded ? styles.btnOutline : styles.btnSolid,
-                        isLocked && styles.btnDisabled,
+                      style={({ pressed }) => [
+                        styles.btnPrimary,
+                        (isUploading || isLocked) && styles.btnDisabled,
+                        pressed && !isLocked && !isUploading && styles.pressed,
                       ]}
                       onPress={() => handlePick(doc.type)}
                       disabled={isUploading || isLocked}
                     >
                       {isUploading ? (
-                        <ActivityIndicator size="small" color={isUploaded ? CHARCOAL : '#fff'} />
+                        <ActivityIndicator size="small" color="#fff" />
                       ) : (
-                        <Text style={isUploaded ? styles.btnTextOutline : styles.btnTextSolid}>
-                          {isLocked ? '승인 완료' : isUploaded ? '재업로드' : '파일 선택'}
-                        </Text>
+                        <>
+                          <Feather name="upload" size={16} color="#fff" />
+                          <Text style={styles.btnPrimaryText}>
+                            {isLocked ? '승인 완료' : isUploaded ? '재업로드' : '파일 선택'}
+                          </Text>
+                        </>
                       )}
                     </Pressable>
 
                     {isUploaded && (
                       <Pressable
-                        style={styles.iconBtn}
+                        style={({ pressed }) => [styles.iconDanger, pressed && styles.pressed]}
                         onPress={() => handleDelete(doc.type, doc.storagePath)}
                         disabled={isUploading || isLocked}
                       >
@@ -499,18 +525,19 @@ const styles = StyleSheet.create({
     marginBottom: 16,
   },
   headerTitle: { fontSize: 22, fontWeight: '800', color: CHARCOAL },
-  headerSub: { fontSize: 14, color: MUTED, marginTop: 4 },
+  headerSub: { fontSize: 13, color: MUTED, marginTop: 4 },
+  headerCountRight: { fontSize: 20, fontWeight: '700', color: MUTED },
 
   progressTrack: {
-    height: 4,
+    height: 10,
     backgroundColor: '#F3F4F6',
-    borderRadius: 2,
+    borderRadius: 5,
     overflow: 'hidden',
   },
   progressBar: {
     height: '100%',
     backgroundColor: HANWHA_ORANGE,
-    borderRadius: 2,
+    borderRadius: 5,
   },
   adminActionBox: {
     marginTop: 12,
@@ -551,71 +578,10 @@ const styles = StyleSheet.create({
   noticeText: { fontSize: 13, color: CHARCOAL, flex: 1, lineHeight: 18 },
 
   list: { gap: 16 },
-  item: {
-    borderWidth: 1,
-    borderColor: BORDER,
-    borderRadius: 12,
-    padding: 16,
-    backgroundColor: '#fff',
-    gap: 16,
-  },
-  itemDone: {
-    backgroundColor: '#F0FDF4',
-    borderColor: '#BBF7D0',
-  },
-  itemContent: { gap: 4 },
-  itemHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-  },
-  itemTitle: { fontSize: 16, fontWeight: '700', color: CHARCOAL },
-  textDone: { color: '#065F46' },
 
-  badgePending: { backgroundColor: '#F3F4F6', paddingHorizontal: 6, paddingVertical: 2, borderRadius: 4 },
-  badgeTextPending: { fontSize: 11, color: MUTED, fontWeight: '600' },
-
-  badgeDone: { flexDirection: 'row', alignItems: 'center', gap: 3, backgroundColor: '#DCFCE7', paddingHorizontal: 6, paddingVertical: 2, borderRadius: 4 },
-  badgeTextDone: { fontSize: 11, color: '#166534', fontWeight: '600' },
-
-  fileName: { fontSize: 13, color: MUTED },
-
-  actions: { flexDirection: 'row', gap: 8 },
-  btn: {
-    flex: 1,
-    height: 42,
-    borderRadius: 8,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  btnSolid: { backgroundColor: CHARCOAL },
-  btnOutline: { backgroundColor: '#fff', borderWidth: 1, borderColor: BORDER },
-  btnTextSolid: { color: '#fff', fontSize: 14, fontWeight: '700' },
-  btnTextOutline: { color: CHARCOAL, fontSize: 14, fontWeight: '700' },
-  btnDisabled: { opacity: 0.6 },
-
-  iconBtn: {
-    width: 42,
-    height: 42,
-    alignItems: 'center',
-    justifyContent: 'center',
-    borderRadius: 8,
-    borderWidth: 1,
-    borderColor: '#FEE2E2',
-    backgroundColor: '#FEF2F2',
-  },
   emptyState: { padding: 20, alignItems: 'center' },
   emptyText: { color: MUTED, fontSize: 14 },
-  openFileButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: CHARCOAL,
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-    borderRadius: 8,
-    gap: 6,
-  },
-  openFileText: { color: '#fff', fontWeight: '700', fontSize: 13 },
+
   homeButton: {
     marginHorizontal: 16,
     marginTop: 12,
@@ -626,4 +592,149 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   homeButtonText: { color: '#fff', fontWeight: '800', fontSize: 16 },
+
+  btnDisabled: { opacity: 0.55 },
+
+  // Modern Card Styles
+  card: {
+    borderWidth: 1,
+    borderColor: '#EEF2F7',
+    backgroundColor: '#fff',
+    borderRadius: 16,
+    padding: 14,
+    gap: 12,
+    shadowColor: '#000',
+    shadowOpacity: 0.04,
+    shadowRadius: 14,
+    shadowOffset: { width: 0, height: 8 },
+    elevation: 2,
+  },
+
+  cardTopRow: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: 12,
+  },
+
+  cardIcon: {
+    width: 40,
+    height: 40,
+    borderRadius: 12,
+    backgroundColor: '#FFF7ED',
+    borderWidth: 1,
+    borderColor: '#FFEDD5',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+
+  cardTitleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 10,
+  },
+
+  cardTitle: {
+    flex: 1,
+    fontSize: 16,
+    fontWeight: '800',
+    color: CHARCOAL,
+    letterSpacing: -0.2,
+  },
+
+  cardFileName: {
+    marginTop: 4,
+    fontSize: 13,
+    color: MUTED,
+    fontWeight: '600',
+  },
+
+  cardNote: {
+    marginTop: 8,
+    fontSize: 12,
+    color: '#6B7280',
+    lineHeight: 16,
+    paddingLeft: 10,
+    borderLeftWidth: 2,
+    borderLeftColor: '#E5E7EB',
+  },
+
+  chip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 999,
+    borderWidth: 1,
+  },
+
+  chipPending: { backgroundColor: '#F9FAFB', borderColor: '#E5E7EB' },
+  chipSubmitted: { backgroundColor: '#ECFDF5', borderColor: '#A7F3D0' },
+  chipApproved: { backgroundColor: '#EFF6FF', borderColor: '#BFDBFE' },
+
+  chipText: {
+    fontSize: 12,
+    fontWeight: '800',
+  },
+
+  cardActions: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+  },
+
+  btnPrimary: {
+    flex: 1,
+    height: 44,
+    borderRadius: 12,
+    backgroundColor: HANWHA_ORANGE,
+    alignItems: 'center',
+    justifyContent: 'center',
+    flexDirection: 'row',
+    gap: 8,
+    shadowColor: '#f36f21',
+    shadowOpacity: 0.18,
+    shadowRadius: 12,
+    shadowOffset: { width: 0, height: 8 },
+    elevation: 3,
+  },
+
+  btnPrimaryText: {
+    color: '#fff',
+    fontSize: 14,
+    fontWeight: '900',
+  },
+
+  btnGhost: {
+    height: 44,
+    paddingHorizontal: 12,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: '#E5E7EB',
+    backgroundColor: '#fff',
+    alignItems: 'center',
+    justifyContent: 'center',
+    flexDirection: 'row',
+    gap: 8,
+  },
+
+  btnGhostText: {
+    fontSize: 13,
+    fontWeight: '800',
+    color: CHARCOAL,
+  },
+
+  iconDanger: {
+    width: 44,
+    height: 44,
+    borderRadius: 12,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 1,
+    borderColor: '#FEE2E2',
+    backgroundColor: '#FEF2F2',
+  },
+
+  pressed: { transform: [{ scale: 0.985 }], opacity: 0.95 },
 });
