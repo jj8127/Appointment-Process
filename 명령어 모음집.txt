@@ -26,3 +26,6 @@ vercel에 등록하기
 
 앱 release version으로 실행하기
     npx expo run:android --variant release
+
+expo mcp server로 앱 실행하기 [앱이 설치 되어 있다는 전제 하에]
+    .\start-mcp.ps1

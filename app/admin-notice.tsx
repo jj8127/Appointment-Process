@@ -1,7 +1,11 @@
+import { Feather } from '@expo/vector-icons';
+import * as DocumentPicker from 'expo-document-picker';
+import * as ImagePicker from 'expo-image-picker';
 import { useState } from 'react';
 import {
+  ActivityIndicator,
   Alert,
-  KeyboardAvoidingView,
+  Image,
   Platform,
   Pressable,
   ScrollView,
@@ -9,16 +13,14 @@ import {
   Text,
   TextInput,
   View,
-  ActivityIndicator,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { Feather } from '@expo/vector-icons';
 
+import { KeyboardAwareWrapper } from '@/components/KeyboardAwareWrapper';
 import { RefreshButton } from '@/components/RefreshButton';
 import { useKeyboardPadding } from '@/hooks/use-keyboard-padding';
 import { useSession } from '@/hooks/use-session';
 import { supabase } from '@/lib/supabase';
-import { KeyboardAwareWrapper } from '@/components/KeyboardAwareWrapper';
 
 const ORANGE = '#f36f21';
 const CHARCOAL = '#111827';
@@ -27,6 +29,13 @@ const BORDER = '#e5e7eb';
 const INPUT_BG = '#F9FAFB';
 const EXPO_PUSH_URL = 'https://exp.host/--/api/v2/push/send';
 
+type AttachedFile = {
+  uri: string;
+  name: string;
+  type: string;
+  size?: number;
+};
+
 export default function AdminNoticeScreen() {
   const { role } = useSession();
   const keyboardPadding = useKeyboardPadding();
@@ -34,6 +43,96 @@ export default function AdminNoticeScreen() {
   const [body, setBody] = useState('');
   const [category, setCategory] = useState('공지사항');
   const [loading, setLoading] = useState(false);
+  const [images, setImages] = useState<AttachedFile[]>([]);
+  const [files, setFiles] = useState<AttachedFile[]>([]);
+
+  const pickImage = async () => {
+    try {
+      const result = await ImagePicker.launchImageLibraryAsync({
+        mediaTypes: ['images'],
+        allowsMultipleSelection: true,
+        quality: 0.8,
+      });
+
+      if (!result.canceled) {
+        setImages((prev) => [
+          ...prev,
+          ...result.assets.map((asset) => ({
+            uri: asset.uri,
+            name: asset.fileName ?? `image_${Date.now()}.jpg`,
+            type: 'image/jpeg', // Default or extract from uri
+          })),
+        ]);
+      }
+    } catch (e) {
+      Alert.alert('오류', '이미지를 불러오는데 실패했습니다.');
+    }
+  };
+
+  const pickFile = async () => {
+    try {
+      const result = await DocumentPicker.getDocumentAsync({
+        type: '*/*',
+        copyToCacheDirectory: true,
+        multiple: true,
+      });
+
+      if (!result.canceled) {
+        setFiles((prev) => [
+          ...prev,
+          ...result.assets.map((asset) => ({
+            uri: asset.uri,
+            name: asset.name,
+            type: asset.mimeType ?? 'application/octet-stream',
+            size: asset.size,
+          })),
+        ]);
+      }
+    } catch (e) {
+      Alert.alert('오류', '파일을 불러오는데 실패했습니다.');
+    }
+  };
+
+  const uploadToSupabase = async (file: AttachedFile, folder: 'images' | 'files') => {
+    try {
+      const ext = file.name.split('.').pop();
+      const fileName = `${folder}/${Date.now()}_${Math.random().toString(36).slice(2)}.${ext}`;
+
+      let fileBody: any;
+
+      if (Platform.OS === 'web') {
+        const response = await fetch(file.uri);
+        fileBody = await response.blob();
+      } else {
+        // Native: fetch also works for local file URIs in React Native
+        // Use arrayBuffer() instead of blob() for better compatibility with Supabase/RN networking
+        const response = await fetch(file.uri);
+        fileBody = await response.arrayBuffer();
+      }
+
+      const { data, error } = await supabase.storage
+        .from('notice-attachments')
+        .upload(fileName, fileBody, {
+          contentType: file.type,
+          upsert: false,
+        });
+
+      if (error) throw error;
+
+      const { data: publicUrlData } = supabase.storage
+        .from('notice-attachments')
+        .getPublicUrl(fileName);
+
+      return {
+        name: file.name,
+        url: publicUrlData.publicUrl,
+        type: file.type,
+      };
+    } catch (err: any) {
+      console.error('Upload failed', err);
+      throw new Error(`${file.name} 업로드 실패: ${err.message}`);
+    }
+  };
 
   // 공지 등록 후 모든 FC에게 알림 + 푸시 전송
   const notifyAllFcs = async (titleText: string, bodyText: string, categoryText?: string) => {
@@ -84,16 +183,36 @@ export default function AdminNoticeScreen() {
     }
     setLoading(true);
     try {
+      // 1. Upload Images
+      const uploadedImages = await Promise.all(
+        images.map((img) => uploadToSupabase(img, 'images'))
+      );
+
+      // 2. Upload Files
+      const uploadedFiles = await Promise.all(
+        files.map((file) => uploadToSupabase(file, 'files'))
+      );
+
+      const imageUrls = uploadedImages.map((img) => img.url); // Store array of strings for simplicity if schema is text[] or jsonb specific
+      // Or if schema is jsonb array of objects, verify implementation_plan.
+      // Plan said: images (JSONB array of strings), files (JSONB array of objects)
+
       const { error } = await supabase.from('notices').insert({
         title: title.trim(),
         body: body.trim(),
         category: category.trim() || '공지사항',
+        images: imageUrls,
+        files: uploadedFiles,
       });
       if (error) throw error;
+
       await notifyAllFcs(title.trim(), body.trim(), category.trim());
       Alert.alert('등록 완료', '공지사항이 성공적으로 등록되었습니다.');
       setTitle('');
       setBody('');
+      setCategory('공지사항');
+      setImages([]);
+      setFiles([]);
     } catch (err: any) {
       Alert.alert('등록 실패', err?.message ?? '오류가 발생했습니다.');
     } finally {
@@ -101,8 +220,16 @@ export default function AdminNoticeScreen() {
     }
   };
 
+  const removeImage = (index: number) => {
+    setImages((prev) => prev.filter((_, i) => i !== index));
+  };
+
+  const removeFile = (index: number) => {
+    setFiles((prev) => prev.filter((_, i) => i !== index));
+  };
+
   return (
-        <SafeAreaView style={styles.safe} edges={['left', 'right', 'bottom']}>
+    <SafeAreaView style={styles.safe} edges={['left', 'right', 'bottom']}>
       <KeyboardAwareWrapper contentContainerStyle={[styles.container, { paddingBottom: keyboardPadding + 40 }]}>
         <View style={styles.header}>
           <View>
@@ -146,6 +273,47 @@ export default function AdminNoticeScreen() {
               multiline
               textAlignVertical="top"
             />
+          </View>
+
+          {/* Attachments Section */}
+          <View style={styles.field}>
+            <Text style={styles.label}>첨부파일</Text>
+
+            <View style={{ flexDirection: 'row', gap: 10, marginBottom: 10 }}>
+              <Pressable style={styles.attachButton} onPress={pickImage}>
+                <Feather name="image" size={20} color={CHARCOAL} />
+                <Text style={styles.attachButtonText}>사진 추가</Text>
+              </Pressable>
+              <Pressable style={styles.attachButton} onPress={pickFile}>
+                <Feather name="paperclip" size={20} color={CHARCOAL} />
+                <Text style={styles.attachButtonText}>파일 추가</Text>
+              </Pressable>
+            </View>
+
+            {/* Image Previews */}
+            {images.length > 0 && (
+              <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginBottom: 10 }}>
+                {images.map((img, idx) => (
+                  <View key={idx} style={styles.imagePreview}>
+                    <Image source={{ uri: img.uri }} style={styles.previewThumb} />
+                    <Pressable style={styles.removeBtn} onPress={() => removeImage(idx)}>
+                      <Feather name="x" size={12} color="#fff" />
+                    </Pressable>
+                  </View>
+                ))}
+              </ScrollView>
+            )}
+
+            {/* File Previews */}
+            {files.map((f, idx) => (
+              <View key={idx} style={styles.fileRow}>
+                <Feather name="file-text" size={16} color={MUTED} />
+                <Text style={styles.fileName} numberOfLines={1}>{f.name}</Text>
+                <Pressable onPress={() => removeFile(idx)} style={{ padding: 4 }}>
+                  <Feather name="x" size={16} color={MUTED} />
+                </Pressable>
+              </View>
+            ))}
           </View>
         </View>
 
@@ -198,7 +366,63 @@ const styles = StyleSheet.create({
     fontSize: 16,
     color: CHARCOAL,
   },
-  textArea: { minHeight: 200 },
+  textArea: { minHeight: 150 },
+
+  attachButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    paddingVertical: 10,
+    paddingHorizontal: 16,
+    backgroundColor: '#F3F4F6',
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: BORDER,
+  },
+  attachButtonText: { fontSize: 14, fontWeight: '600', color: CHARCOAL },
+
+  imagePreview: {
+    width: 80,
+    height: 80,
+    borderRadius: 8,
+    marginRight: 8,
+    overflow: 'hidden',
+    position: 'relative',
+    borderWidth: 1,
+    borderColor: BORDER,
+  },
+  previewThumb: {
+    width: '100%',
+    height: '100%',
+    resizeMode: 'cover',
+  },
+  removeBtn: {
+    position: 'absolute',
+    top: 4,
+    right: 4,
+    backgroundColor: 'rgba(0,0,0,0.5)',
+    borderRadius: 10,
+    width: 20,
+    height: 20,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  fileRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    padding: 12,
+    backgroundColor: '#F9FAFB',
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: BORDER,
+    marginBottom: 6,
+  },
+  fileName: {
+    flex: 1,
+    fontSize: 14,
+    color: CHARCOAL,
+  },
 
   submitButton: {
     flexDirection: 'row',

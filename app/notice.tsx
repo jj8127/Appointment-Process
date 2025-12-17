@@ -5,6 +5,9 @@ import { useMemo, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
+  Image,
+  Linking,
+  Pressable,
   RefreshControl,
   ScrollView,
   StyleSheet,
@@ -23,12 +26,26 @@ const HANWHA_ORANGE = '#f36f21';
 const MUTED = '#6b7280';
 const BACKGROUND = '#ffffff';
 
-type Notice = { id: string; title: string; body: string; category: string | null; created_at: string };
+type AttachedFile = {
+  name: string;
+  url: string;
+  type: string;
+};
+
+type Notice = {
+  id: string;
+  title: string;
+  body: string;
+  category: string | null;
+  created_at: string;
+  images: string[] | null;
+  files: AttachedFile[] | null;
+};
 
 const fetchNotices = async (): Promise<Notice[]> => {
   const { data, error } = await supabase
     .from('notices')
-    .select('id,title,body,category,created_at')
+    .select('id,title,body,category,created_at,images,files')
     .order('created_at', { ascending: false })
     .limit(20);
   if (error) throw error;
@@ -68,6 +85,19 @@ export default function NoticeScreen() {
       { text: '취소', style: 'cancel' },
       { text: '삭제', style: 'destructive', onPress: () => deleteMutation.mutate(id) },
     ]);
+  };
+
+  const handleOpenLink = async (url: string) => {
+    try {
+      const supported = await Linking.canOpenURL(url);
+      if (supported) {
+        await Linking.openURL(url);
+      } else {
+        Alert.alert('오류', '이 파일을 열 수 없습니다.');
+      }
+    } catch (error) {
+      Alert.alert('오류', '파일 링크를 여는 중 문제가 발생했습니다.');
+    }
   };
 
   return (
@@ -119,6 +149,30 @@ export default function NoticeScreen() {
               <Text style={styles.noticeTitle}>{n.title}</Text>
               <View style={styles.divider} />
               <Text style={styles.body}>{n.body}</Text>
+
+              {/* Images Carousel */}
+              {n.images && n.images.length > 0 && (
+                <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.imageScroll}>
+                  {n.images.map((imgUrl, i) => (
+                    <Pressable key={i} onPress={() => handleOpenLink(imgUrl)}>
+                      <Image source={{ uri: imgUrl }} style={styles.noticeImage} />
+                    </Pressable>
+                  ))}
+                </ScrollView>
+              )}
+
+              {/* Files List */}
+              {n.files && n.files.length > 0 && (
+                <View style={styles.fileList}>
+                  {n.files.map((file, i) => (
+                    <Pressable key={i} style={styles.fileItem} onPress={() => handleOpenLink(file.url)}>
+                      <Feather name="paperclip" size={14} color={MUTED} />
+                      <Text style={styles.fileName} numberOfLines={1}>{file.name}</Text>
+                      <Feather name="download-cloud" size={14} color={HANWHA_ORANGE} />
+                    </Pressable>
+                  ))}
+                </View>
+              )}
             </View>
           </MotiView>
         ))}
@@ -173,6 +227,29 @@ const styles = StyleSheet.create({
   noticeTitle: { fontSize: 18, fontWeight: '800', color: CHARCOAL, lineHeight: 26 },
   divider: { height: 1, backgroundColor: '#F3F4F6', marginVertical: 16 },
   body: { color: '#374151', lineHeight: 24, fontSize: 15 },
+
+  imageScroll: { marginTop: 16 },
+  noticeImage: {
+    width: 200,
+    height: 150,
+    borderRadius: 8,
+    marginRight: 10,
+    resizeMode: 'cover',
+    backgroundColor: '#F3F4F6',
+  },
+
+  fileList: { marginTop: 16, gap: 8 },
+  fileItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    padding: 10,
+    backgroundColor: '#F9FAFB',
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: '#E5E7EB',
+  },
+  fileName: { flex: 1, fontSize: 14, color: '#374151' },
 
   emptyBox: { alignItems: 'center', marginTop: 60, gap: 10 },
   emptyText: { color: MUTED, fontSize: 15 },

@@ -19,6 +19,7 @@ import {
   Text,
   View
 } from 'react-native';
+import Animated, { useAnimatedScrollHandler, useAnimatedStyle, useSharedValue, withTiming } from 'react-native-reanimated';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { TourGuideZone, useTourGuideController } from 'rn-tourguide';
 
@@ -390,10 +391,40 @@ const getLinkIcon = (href: string) => {
   return 'chevron-right';
 };
 
+import { useInAppUpdate } from '@/hooks/useInAppUpdate';
+
 export default function Home() {
+  useInAppUpdate(); // Check for Android updates on mount
   const { role, residentId, residentMask, displayName, logout, hydrated } = useSession();
 
   const insets = useSafeAreaInsets();
+
+  const lastScrollY = useSharedValue(0);
+  const bottomNavTranslateY = useSharedValue(0);
+
+  const scrollHandler = useAnimatedScrollHandler({
+    onScroll: (event) => {
+      const currentY = event.contentOffset.y;
+      const dy = currentY - lastScrollY.value;
+
+      if (currentY < 0) {
+        bottomNavTranslateY.value = withTiming(0);
+      } else if (currentY > 0) {
+        if (dy > 10) {
+          bottomNavTranslateY.value = withTiming(200, { duration: 300 });
+        } else if (dy < -10) {
+          bottomNavTranslateY.value = withTiming(0, { duration: 300 });
+        }
+      }
+      lastScrollY.value = currentY;
+    },
+  });
+
+  const bottomNavAnimatedStyle = useAnimatedStyle(() => {
+    return {
+      transform: [{ translateY: bottomNavTranslateY.value }],
+    };
+  });
 
   const [adminHomeTab, setAdminHomeTab] = useState<'onboarding' | 'exam'>('onboarding');
   const [isLoggingOut, setIsLoggingOut] = useState(false);
@@ -916,12 +947,14 @@ export default function Home() {
 
   return (
     <SafeAreaView style={styles.safe} edges={['left', 'right', 'bottom']}>
-      <ScrollView
+      <Animated.ScrollView
         ref={scrollViewRef}
         refreshControl={
           <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
         }
         scrollEnabled={!tourBlocking}
+        onScroll={scrollHandler}
+        scrollEventThrottle={16}
       >
         <View
           ref={contentRef}
@@ -1392,33 +1425,35 @@ export default function Home() {
           </View>
 
           {/* Guide Banner Button */}
-          <View style={{ marginHorizontal: 20, marginBottom: 20 }}>
-            <Pressable
-              onPress={() => {
-                setShowShortcutGuide(true);
-              }}
-              style={({ pressed }) => [
-                styles.guidePressable,
-                {
-                  backgroundColor: '#FFF7ED', // Orange-50
-                  borderRadius: 20,
-                  borderWidth: 1,
-                  borderColor: '#FFEDD5', // Orange-100
-                  width: '100%',
-                },
-                pressed && { opacity: 0.9, transform: [{ scale: 0.98 }] }
-              ]}
-            >
-              <View style={styles.guideIconCircle}>
-                <Feather name="play" size={14} color="#EA580C" style={{ marginLeft: 2 }} />
-              </View>
-              <View style={styles.guideTextContainer}>
-                <Text style={styles.guideTitle}>바로가기 사용법 설명 듣기</Text>
-                <Text style={styles.guideSubTitle}>바로가기 기능을 확인해보세요</Text>
-              </View>
-              <Feather name="chevron-right" size={20} color="#EA580C" />
-            </Pressable>
-          </View>
+          {role === 'fc' && (
+            <View style={{ marginHorizontal: 20, marginBottom: 20 }}>
+              <Pressable
+                onPress={() => {
+                  setShowShortcutGuide(true);
+                }}
+                style={({ pressed }) => [
+                  styles.guidePressable,
+                  {
+                    backgroundColor: '#FFF7ED', // Orange-50
+                    borderRadius: 20,
+                    borderWidth: 1,
+                    borderColor: '#FFEDD5', // Orange-100
+                    width: '100%',
+                  },
+                  pressed && { opacity: 0.9, transform: [{ scale: 0.98 }] }
+                ]}
+              >
+                <View style={styles.guideIconCircle}>
+                  <Feather name="play" size={14} color="#EA580C" style={{ marginLeft: 2 }} />
+                </View>
+                <View style={styles.guideTextContainer}>
+                  <Text style={styles.guideTitle}>바로가기 사용법 설명 듣기</Text>
+                  <Text style={styles.guideSubTitle}>바로가기 기능을 확인해보세요</Text>
+                </View>
+                <Feather name="chevron-right" size={20} color="#EA580C" />
+              </Pressable>
+            </View>
+          )}
           <View style={styles.actionGrid}>
             {quickLinks.map((item, index) => (
               <AndroidSafeMotiView
@@ -1445,11 +1480,11 @@ export default function Home() {
             ))}
           </View>
         </View >
-      </ScrollView >
+      </Animated.ScrollView >
 
       {
         role === 'admin' ? (
-          <View style={[styles.bottomNav, { paddingBottom: Math.max(insets.bottom, 12) }]}>
+          <Animated.View style={[styles.bottomNav, { paddingBottom: Math.max(insets.bottom, 12) }, bottomNavAnimatedStyle]}>
             {adminNavItems.map((item) => {
               const isActive = adminHomeTab === item.key;
               return (
@@ -1465,7 +1500,7 @@ export default function Home() {
                 </Pressable>
               );
             })}
-          </View>
+          </Animated.View>
         ) : null
       }
       {
@@ -1477,12 +1512,14 @@ export default function Home() {
           />
         )
       }
-      <ImageTourGuide
-        visible={showShortcutGuide}
-        onClose={() => setShowShortcutGuide(false)}
-        imageSource={require('@/assets/guide/shortcuts-guide.png')}
-        steps={SHORTCUT_GUIDE_STEPS}
-      />
+      {role === 'fc' && (
+        <ImageTourGuide
+          visible={showShortcutGuide}
+          onClose={() => setShowShortcutGuide(false)}
+          imageSource={require('@/assets/guide/shortcuts-guide.png')}
+          steps={SHORTCUT_GUIDE_STEPS}
+        />
+      )}
     </SafeAreaView >
   );
 }
@@ -1817,16 +1854,16 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     backgroundColor: '#fff',
     paddingHorizontal: 20,
-    paddingTop: 10,
+    paddingTop: 0,
     justifyContent: 'space-between',
     borderTopWidth: 1,
     borderTopColor: BORDER,
     ...CARD_SHADOW,
   },
-  bottomNavItem: { flex: 1, alignItems: 'center', justifyContent: 'center', gap: 6, paddingVertical: 10 },
+  bottomNavItem: { flex: 1, alignItems: 'center', justifyContent: 'center', gap: 6, paddingVertical: 3 },
   bottomNavIconWrap: {
-    width: 44,
-    height: 44,
+    width: 30,
+    height: 30,
     borderRadius: 22,
     borderWidth: 1,
     borderColor: BORDER,
