@@ -109,7 +109,7 @@ export default function AdminRegisterScreen() {
             />
             <Text style={styles.label}>주민번호(숫자만)</Text>
             <TextInput
-              placeholder="숫자만 입력하세요"
+              placeholder="휴대폰 번호 (- 없이 숫자만 입력)"
               placeholderTextColor="#9CA3AF"
               value={resident}
               onChangeText={setResident}

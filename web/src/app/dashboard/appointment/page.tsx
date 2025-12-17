@@ -4,10 +4,13 @@ import {
   ActionIcon,
   Badge,
   Button,
+  Checkbox,
   Container,
+  Divider,
   Group,
   LoadingOverlay,
   Paper,
+  Popover,
   ScrollArea,
   Select,
   Stack,
@@ -16,14 +19,15 @@ import {
   TextInput,
   ThemeIcon,
   Title,
-  Tooltip
+  Tooltip,
+  UnstyledButton
 } from '@mantine/core';
 import { DateInput } from '@mantine/dates';
 import { notifications } from '@mantine/notifications';
-import { IconDeviceFloppy, IconRefresh, IconUser } from '@tabler/icons-react';
+import { IconChevronDown, IconDeviceFloppy, IconRefresh, IconSearch, IconUser, IconX } from '@tabler/icons-react';
 import { useQuery } from '@tanstack/react-query';
 import dayjs from 'dayjs';
-import { useState, useTransition } from 'react';
+import { useEffect, useMemo, useState, useTransition } from 'react';
 
 import { StatusToggle } from '@/components/StatusToggle';
 import { supabase } from '@/lib/supabase';
@@ -31,14 +35,127 @@ import { updateAppointmentAction } from './actions';
 
 const CHARCOAL = '#111827';
 const MUTED = '#6b7280';
+const HANWHA_ORANGE = '#F37321';
+
+// --- Filter Types & Components ---
+type FilterState = Record<string, string[]>;
+
+interface ExcelColumnFilterProps {
+  title: string;
+  field: string;
+  options: string[];
+  selected: string[];
+  onApply: (selected: string[]) => void;
+}
+
+const ExcelColumnFilter = ({ title, options, selected, onApply }: ExcelColumnFilterProps) => {
+  const [opened, setOpened] = useState(false);
+  const [search, setSearch] = useState('');
+  const [tempSelected, setTempSelected] = useState<string[]>(selected);
+
+  useEffect(() => {
+    if (opened) {
+      setTempSelected(selected);
+      setSearch('');
+    }
+  }, [opened, selected]);
+
+  const filteredOptions = options.filter(opt =>
+    opt.toLowerCase().includes(search.toLowerCase())
+  );
+
+  const handleSelectAll = (checked: boolean) => {
+    if (checked) {
+      const newSelected = new Set([...tempSelected, ...filteredOptions]);
+      setTempSelected(Array.from(newSelected));
+    } else {
+      const newSelected = tempSelected.filter(s => !filteredOptions.includes(s));
+      setTempSelected(newSelected);
+    }
+  };
+
+  const isAllSelected = filteredOptions.length > 0 && filteredOptions.every(opt => tempSelected.includes(opt));
+  const isIndeterminate = filteredOptions.some(opt => tempSelected.includes(opt)) && !isAllSelected;
+
+  return (
+    <Popover opened={opened} onChange={setOpened} width={280} position="bottom-start" withArrow shadow="md">
+      <Popover.Target>
+        <UnstyledButton onClick={() => setOpened((o) => !o)} style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+          <Text fw={700} size="sm" c={selected.length > 0 ? 'orange' : 'dimmed'}>
+            {title}
+          </Text>
+          <IconChevronDown size={14} color={selected.length > 0 ? HANWHA_ORANGE : '#868e96'} />
+        </UnstyledButton>
+      </Popover.Target>
+      <Popover.Dropdown p="xs">
+        <Stack gap="xs">
+          <TextInput
+            placeholder="검색..."
+            size="xs"
+            leftSection={<IconSearch size={12} />}
+            value={search}
+            onChange={(e) => setSearch(e.currentTarget.value)}
+            rightSection={
+              search ? <IconX size={12} onClick={() => setSearch('')} style={{ cursor: 'pointer' }} /> : null
+            }
+          />
+          <Divider />
+          <ScrollArea h={200} type="auto" offsetScrollbars>
+            <Stack gap={6}>
+              <Checkbox
+                label="(모두 선택)"
+                size="xs"
+                checked={isAllSelected}
+                indeterminate={isIndeterminate}
+                onChange={(e) => handleSelectAll(e.currentTarget.checked)}
+                styles={{ input: { cursor: 'pointer' }, label: { cursor: 'pointer', fontWeight: 600 } }}
+              />
+              {filteredOptions.length === 0 ? (
+                <Text size="xs" c="dimmed" ta="center" py="xs">검색 결과가 없습니다.</Text>
+              ) : (
+                filteredOptions.map(opt => (
+                  <Checkbox
+                    key={opt}
+                    label={opt}
+                    value={opt}
+                    size="xs"
+                    checked={tempSelected.includes(opt)}
+                    onChange={(e) => {
+                      if (e.currentTarget.checked) {
+                        setTempSelected([...tempSelected, opt]);
+                      } else {
+                        setTempSelected(tempSelected.filter(s => s !== opt));
+                      }
+                    }}
+                    styles={{ input: { cursor: 'pointer' }, label: { cursor: 'pointer' } }}
+                  />
+                ))
+              )}
+            </Stack>
+          </ScrollArea>
+          <Divider />
+          <Group justify="flex-end" gap="xs">
+            <Button variant="light" color="gray" size="xs" onClick={() => setOpened(false)}>취소</Button>
+            <Button variant="filled" color="orange" size="xs" onClick={() => {
+              onApply(tempSelected);
+              setOpened(false);
+            }}>확인</Button>
+          </Group>
+        </Stack>
+      </Popover.Dropdown>
+    </Popover>
+  );
+};
 
 export default function AppointmentPage() {
   const [isPending, startTransition] = useTransition();
   const [filterYear, setFilterYear] = useState<string | null>('2025');
-  const [filterMonth, setFilterMonth] = useState<string | null>('all');
+
+
+  // Header Filtering State
+  const [filters, setFilters] = useState<FilterState>({});
 
   // Local state for inputs
-  // lifeSchedule: string, lifeDate: Date | null
   const [inputs, setInputs] = useState<Record<number, {
     lifeSchedule?: string;
     lifeDate?: Date | null;
@@ -49,7 +166,6 @@ export default function AppointmentPage() {
   const { data: fcs, isLoading, refetch } = useQuery({
     queryKey: ['appointment-fcs'],
     queryFn: async () => {
-      // Fetch FCs who have consented to allowance (allowance_date is not null)
       const { data, error } = await supabase
         .from('fc_profiles')
         .select('*, fc_documents(*)')
@@ -60,6 +176,66 @@ export default function AppointmentPage() {
       return data;
     },
   });
+
+  const getOverallStatus = (fc: any) => {
+    const life = !!fc.appointment_date_life;
+    const nonlife = !!fc.appointment_date_nonlife;
+    if (life && nonlife) return { label: '위촉 완료', color: 'green' };
+    if (life || nonlife) return { label: '부분 완료', color: 'orange' };
+    return { label: '진행 중', color: 'blue' };
+  };
+
+  // --- Derived Data for Filtering ---
+  // 1. Apply Year/Month Filter first (processedFcs)
+  const processedFcs = useMemo(() => {
+    if (!fcs) return [];
+    return fcs.filter((fc: any) => {
+      if (filterYear && !dayjs(fc.created_at).isSame(dayjs(`${filterYear}-01-01`), 'year')) return false;
+      return true;
+    });
+  }, [fcs, filterYear]);
+
+  // 2. Helper to get values for filtering
+  const getRowValue = (fc: any, field: string) => {
+    if (field === 'name') return fc.name || '';
+    if (field === 'affiliation') return fc.affiliation || '-';
+    if (field === 'status') return getOverallStatus(fc).label;
+    if (field === 'phone') return fc.phone || '';
+    if (field === 'life') {
+      // Return schedule text or confirmed date string for filtering
+      if (fc.appointment_date_life) return dayjs(fc.appointment_date_life).format('YYYY-MM-DD');
+      return fc.appointment_schedule_life || '';
+    }
+    if (field === 'nonlife') {
+      if (fc.appointment_date_nonlife) return dayjs(fc.appointment_date_nonlife).format('YYYY-MM-DD');
+      return fc.appointment_schedule_nonlife || '';
+    }
+    return '';
+  };
+
+  // 3. Generate Filter Options based on processedFcs
+  const filterOptions = useMemo(() => {
+    const fields = ['name', 'affiliation', 'status', 'life', 'nonlife']; // Fields we want to filter by
+    const options: Record<string, string[]> = {};
+
+    fields.forEach(field => {
+      const unique = Array.from(new Set(processedFcs.map(fc => getRowValue(fc, field)))).filter(Boolean).sort();
+      options[field] = unique;
+    });
+    return options;
+  }, [processedFcs]);
+
+  // 4. Final Filtered Rows based on Header Filters
+  const filteredRows = useMemo(() => {
+    return processedFcs.filter(fc => {
+      return Object.entries(filters).every(([field, selectedValues]) => {
+        if (!selectedValues || selectedValues.length === 0) return true;
+        const val = getRowValue(fc, field);
+        return selectedValues.includes(val);
+      });
+    });
+  }, [processedFcs, filters]);
+
 
   const handleInputChange = (fcId: number, field: string, value: any) => {
     setInputs((prev) => ({
@@ -77,7 +253,6 @@ export default function AppointmentPage() {
     let value = null;
     if (type === 'schedule') {
       const scheduleKey = category === 'life' ? 'lifeSchedule' : 'nonLifeSchedule';
-      // Use input value if present, else existing DB value
       const scheduleVal = input[scheduleKey as keyof typeof input] ?? fc[`appointment_schedule_${category}`];
       if (!scheduleVal) {
         notifications.show({ title: '입력 필요', message: '예정 정보를 입력해주세요.', color: 'yellow' });
@@ -86,9 +261,6 @@ export default function AppointmentPage() {
       value = String(scheduleVal);
     } else if (type === 'confirm') {
       const dateKey = category === 'life' ? 'lifeDate' : 'nonLifeDate';
-      // Prioritize input date, fall back to DB date only if needed (usually input is required for confirmation if not already set)
-      // Actually DB might have string 'YYYY-MM-DD', DateInput works with Date object.
-      // If confirming, we expect a VALID date.
       const dateVal = input[dateKey as keyof typeof input] ?? (fc[`appointment_date_${category}`] ? new Date(fc[`appointment_date_${category}`]) : null);
 
       if (!dateVal) {
@@ -97,7 +269,6 @@ export default function AppointmentPage() {
       }
       value = dayjs(dateVal).format('YYYY-MM-DD');
     }
-    // Reject: value is null (default)
 
     if (confirm(`${type === 'confirm' ? '승인' : type === 'reject' ? '반려' : '저장'} 하시겠습니까?`)) {
       startTransition(async () => {
@@ -122,14 +293,6 @@ export default function AppointmentPage() {
     }
   };
 
-  const getOverallStatus = (fc: any) => {
-    const life = !!fc.appointment_date_life;
-    const nonlife = !!fc.appointment_date_nonlife;
-    if (life && nonlife) return { label: '위촉 완료', color: 'green' };
-    if (life || nonlife) return { label: '부분 완료', color: 'orange' };
-    return { label: '진행 중', color: 'blue' };
-  };
-
   const renderInsuranceSection = (fc: any, category: 'life' | 'nonlife') => {
     const input = inputs[fc.id] || {};
     const scheduleKey = category === 'life' ? 'lifeSchedule' : 'nonLifeSchedule';
@@ -138,7 +301,6 @@ export default function AppointmentPage() {
     const dbDate = fc[`appointment_date_${category}`];
     const subDate = fc[`appointment_date_${category}_sub`];
 
-    // Determine values for inputs
     const scheduleValue = (input[scheduleKey as keyof typeof input] ?? (dbSchedule ?? '')) as string | undefined;
 
     const dateValueRaw = input[dateKey as keyof typeof input];
@@ -203,18 +365,6 @@ export default function AppointmentPage() {
             onChange={(val) => {
               if (val === 'approved') {
                 executeAction(fc, 'confirm', category);
-              } else {
-                // If we want to allow reverting (Reject), we can do it.
-                // But user said "Modify Impossible if approved".
-                // If I enable reverting, I break the "Modify Impossible" rule?
-                // "승인으로 되어있으면 수정이 불가능하게 바꿔" -> "Change to be unmodifiable if approved".
-                // This implies once Approved, it stays Approved/Locked.
-                // But if I made a mistake? Standard admin standard usually allows revert.
-                // However, following strict instruction: "Lock if approved".
-                // So I will make checking 'pending' do nothing if it is already approved?
-                // Wait, StatusToggle readOnly prop handles the "Lock" visual.
-                // So I won't even receive onChange if readOnly is true.
-                // So I just need to set readOnly={isConfirmed}.
               }
             }}
             labelPending="미위촉"
@@ -225,6 +375,18 @@ export default function AppointmentPage() {
       </Stack>
     );
   };
+
+  const renderHeader = (title: string, field: string) => (
+    <Table.Th w={field === 'name' ? 220 : 100}>
+      <ExcelColumnFilter
+        title={title}
+        field={field}
+        options={filterOptions[field] || []}
+        selected={filters[field] || []}
+        onApply={(val) => setFilters(prev => ({ ...prev, [field]: val }))}
+      />
+    </Table.Th>
+  );
 
   return (
     <Container size="xl" py="xl">
@@ -242,16 +404,6 @@ export default function AppointmentPage() {
               w={100}
               allowDeselect={false}
             />
-            <Select
-              value={filterMonth}
-              onChange={setFilterMonth}
-              data={[
-                { value: 'all', label: '전체 월' },
-                ...Array.from({ length: 12 }, (_, i) => ({ value: String(i + 1), label: `${i + 1}월` }))
-              ]}
-              w={120}
-              allowDeselect={false}
-            />
             <Button variant="outline" color="gray" leftSection={<IconRefresh size={16} />} onClick={() => refetch()}>
               새로고침
             </Button>
@@ -264,79 +416,52 @@ export default function AppointmentPage() {
             <Table stickyHeader verticalSpacing="md" highlightOnHover>
               <Table.Thead bg="#F9FAFB">
                 <Table.Tr>
-                  <Table.Th w={220}>FC 정보</Table.Th>
-                  <Table.Th w={260}>생명보험 위촉 (Life)</Table.Th>
-                  <Table.Th w={260}>손해보험 위촉 (Non-Life)</Table.Th>
-                  <Table.Th w={100}>상태</Table.Th>
+                  {renderHeader('FC 정보 (이름)', 'name')}
+                  {/* {renderHeader('소속', 'affiliation')} */}
+                  {renderHeader('생명보험 위촉 (Life)', 'life')}
+                  {renderHeader('손해보험 위촉 (Non-Life)', 'nonlife')}
+                  {renderHeader('상태', 'status')}
                 </Table.Tr>
               </Table.Thead>
               <Table.Tbody>
-                {fcs?.filter((fc: any) => {
-                  // Filter by Year (created_at)
-                  if (filterYear && !dayjs(fc.created_at).isSame(dayjs(`${filterYear}-01-01`), 'year')) return false;
-
-                  // Filter by Month (appointment_schedule)
-                  if (filterMonth && filterMonth !== 'all') {
-                    const m = Number(filterMonth);
-                    const life = Number(fc.appointment_schedule_life);
-                    const nonlife = Number(fc.appointment_schedule_nonlife);
-                    // Show if either schedule matches the selected month
-                    if (life !== m && nonlife !== m) return false;
-                  }
-                  return true;
-                }).map((fc: any) => {
-                  const status = getOverallStatus(fc);
-                  return (
-                    <Table.Tr key={fc.id}>
-                      <Table.Td>
-                        <Group gap="sm">
-                          <ThemeIcon variant="light" color="gray" size="md" radius="xl">
-                            <IconUser size={16} />
-                          </ThemeIcon>
-                          <div>
-                            <Text size="sm" fw={600} c="dark.5">
-                              {fc.name}
-                            </Text>
-                            <Text size="xs" c="dimmed">
-                              {fc.phone}<br />{fc.affiliation || '-'}
-                            </Text>
-                          </div>
-                        </Group>
-                      </Table.Td>
-                      <Table.Td>
-                        {renderInsuranceSection(fc, 'life')}
-                      </Table.Td>
-                      <Table.Td>
-                        {renderInsuranceSection(fc, 'nonlife')}
-                      </Table.Td>
-                      <Table.Td>
-                        <Badge color={status.color} variant="light">
-                          {status.label}
-                        </Badge>
-                      </Table.Td>
-                    </Table.Tr>
-                  );
-                })}
-                {fcs && fcs.length > 0 && fcs.filter((fc: any) => {
-                  if (filterYear && !dayjs(fc.created_at).isSame(dayjs(`${filterYear}-01-01`), 'year')) return false;
-                  if (filterMonth && filterMonth !== 'all') {
-                    const m = Number(filterMonth);
-                    const life = Number(fc.appointment_schedule_life);
-                    const nonlife = Number(fc.appointment_schedule_nonlife);
-                    if (life !== m && nonlife !== m) return false;
-                  }
-                  return true;
-                }).length === 0 && (
-                    <Table.Tr>
-                      <Table.Td colSpan={4} align="center" py={40} c="dimmed">
-                        조건에 맞는 FC가 없습니다.
-                      </Table.Td>
-                    </Table.Tr>
-                  )}
-                {!fcs?.length && (
+                {filteredRows.length > 0 ? (
+                  filteredRows.map((fc: any) => {
+                    const status = getOverallStatus(fc);
+                    return (
+                      <Table.Tr key={fc.id}>
+                        <Table.Td>
+                          <Group gap="sm">
+                            <ThemeIcon variant="light" color="gray" size="md" radius="xl">
+                              <IconUser size={16} />
+                            </ThemeIcon>
+                            <div>
+                              <Text size="sm" fw={600} c="dark.5">
+                                {fc.name}
+                              </Text>
+                              <Text size="xs" c="dimmed">
+                                {fc.phone}<br />{fc.affiliation || '-'}
+                              </Text>
+                            </div>
+                          </Group>
+                        </Table.Td>
+                        <Table.Td>
+                          {renderInsuranceSection(fc, 'life')}
+                        </Table.Td>
+                        <Table.Td>
+                          {renderInsuranceSection(fc, 'nonlife')}
+                        </Table.Td>
+                        <Table.Td>
+                          <Badge color={status.color} variant="light">
+                            {status.label}
+                          </Badge>
+                        </Table.Td>
+                      </Table.Tr>
+                    );
+                  })
+                ) : (
                   <Table.Tr>
                     <Table.Td colSpan={4} align="center" py={40} c="dimmed">
-                      심사 대상 FC가 없습니다.
+                      {isLoading ? '로딩 중...' : '조건에 맞는 FC가 없습니다.'}
                     </Table.Td>
                   </Table.Tr>
                 )}
@@ -348,3 +473,4 @@ export default function AppointmentPage() {
     </Container>
   );
 }
+

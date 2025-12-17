@@ -137,7 +137,7 @@ export default function AuthScreen() {
             <Text style={styles.label}>휴대폰 번호 / 관리자 코드</Text>
             <TextInput
               style={styles.input}
-              placeholder="숫자만 입력"
+              placeholder="휴대폰 번호 (- 없이 숫자만 입력)"
               placeholderTextColor="#9CA3AF"
               value={phoneInput}
               onChangeText={setPhoneInput}

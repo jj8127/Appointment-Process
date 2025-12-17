@@ -2,7 +2,7 @@
 
 import { createServerClient, type CookieOptions } from '@supabase/ssr';
 import { revalidatePath } from 'next/cache';
-import { cookies } from 'next/headers'; // Import cookies
+import { cookies } from 'next/headers';
 import { z } from 'zod';
 
 const EXPO_PUSH_URL = 'https://exp.host/--/api/v2/push/send';
@@ -11,6 +11,13 @@ const NoticeSchema = z.object({
     category: z.string().min(1, '카테고리를 입력해주세요'),
     title: z.string().min(1, '제목을 입력해주세요'),
     body: z.string().min(1, '내용을 입력해주세요'),
+    images: z.array(z.string()).optional(),
+    files: z.array(z.object({
+        name: z.string(),
+        size: z.number(),
+        type: z.string(),
+        url: z.string()
+    })).optional(),
 });
 
 export type CreateNoticeState = {
@@ -20,6 +27,8 @@ export type CreateNoticeState = {
         category?: string[];
         title?: string[];
         body?: string[];
+        images?: string[];
+        files?: string[];
     };
 };
 
@@ -27,10 +36,15 @@ export async function createNoticeAction(
     prevState: CreateNoticeState,
     formData: FormData
 ): Promise<CreateNoticeState> {
+    const imagesRaw = formData.get('images');
+    const filesRaw = formData.get('files');
+
     const validatedFields = NoticeSchema.safeParse({
         category: formData.get('category'),
         title: formData.get('title'),
         body: formData.get('body'),
+        images: imagesRaw ? JSON.parse(imagesRaw as string) : [],
+        files: filesRaw ? JSON.parse(filesRaw as string) : [],
     });
 
     if (!validatedFields.success) {
@@ -41,9 +55,8 @@ export async function createNoticeAction(
         };
     }
 
-    const { category, title, body } = validatedFields.data;
+    const { category, title, body, images, files } = validatedFields.data;
 
-    // Next.js 15 requires awaiting cookies()
     const cookieStore = await cookies();
 
     const supabase = createServerClient(
@@ -58,18 +71,12 @@ export async function createNoticeAction(
                     try {
                         cookieStore.set({ name, value, ...options });
                     } catch (error) {
-                        // The `set` method was called from a Server Component.
-                        // This can be ignored if you have middleware refreshing
-                        // user sessions.
                     }
                 },
                 remove(name: string, options: CookieOptions) {
                     try {
                         cookieStore.set({ name, value: '', ...options });
                     } catch (error) {
-                        // The `remove` method was called from a Server Component.
-                        // This can be ignored if you have middleware refreshing
-                        // user sessions.
                     }
                 },
             },
@@ -81,6 +88,8 @@ export async function createNoticeAction(
         title,
         body,
         category,
+        images: images || [],
+        files: files || [],
     });
 
     if (noticeError) {
@@ -100,8 +109,6 @@ export async function createNoticeAction(
     });
 
     if (notifError) {
-        // Note: Notice was created but notification history failed. 
-        // In a real txn we'd rollback, but with Supabase API we continue or log error.
         console.error('Notification history insert failed:', notifError);
     }
 
@@ -120,7 +127,7 @@ export async function createNoticeAction(
         tokens,
     });
 
-    // 4. Send Push (Fire and forget, or wait)
+    // 4. Send Push
     if (tokens && tokens.length > 0) {
         const payload = tokens.map((t: { expo_push_token: string }) => ({
             to: t.expo_push_token,
@@ -129,31 +136,28 @@ export async function createNoticeAction(
             data: { type: 'notice' },
         }));
 
-        // Split into chunks of 100 if necessary (Expo limit), but for now simple fetch
-            // Expo allows batched requests.
-            try {
-                // Simple chunking logic if array is large
-                const chunkSize = 100;
-                for (let i = 0; i < payload.length; i += chunkSize) {
-                    const chunk = payload.slice(i, i + chunkSize);
-                    const resp = await fetch(EXPO_PUSH_URL, {
-                        method: 'POST',
-                        headers: {
-                            'Accept': 'application/json',
-                            'Content-Type': 'application/json',
-                        },
-                        body: JSON.stringify(chunk),
-                    });
-                    const text = await resp.text();
-                    console.log('[push][notice] fetch response', {
-                        status: resp.status,
-                        ok: resp.ok,
-                        body: text,
-                    });
-                }
-            } catch (pushErr) {
-                console.error('[push][notice] push send error:', pushErr);
+        try {
+            const chunkSize = 100;
+            for (let i = 0; i < payload.length; i += chunkSize) {
+                const chunk = payload.slice(i, i + chunkSize);
+                const resp = await fetch(EXPO_PUSH_URL, {
+                    method: 'POST',
+                    headers: {
+                        'Accept': 'application/json',
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify(chunk),
+                });
+                const text = await resp.text();
+                console.log('[push][notice] fetch response', {
+                    status: resp.status,
+                    ok: resp.ok,
+                    body: text,
+                });
             }
+        } catch (pushErr) {
+            console.error('[push][notice] push send error:', pushErr);
+        }
     } else {
         console.warn('[push][notice] no tokens found');
     }

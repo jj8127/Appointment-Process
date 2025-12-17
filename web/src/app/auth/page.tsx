@@ -137,7 +137,7 @@ export default function AuthPage() {
                 <Stack>
                     <TextInput
                         label="휴대폰 번호 / 관리자 코드"
-                        placeholder="숫자만 입력"
+                        placeholder="휴대폰 번호 (- 없이 숫자만 입력)"
                         value={phoneInput}
                         type="tel"
                         inputMode="numeric"
