@@ -1,9 +1,14 @@
 import { Feather, Ionicons } from '@expo/vector-icons';
+import * as DocumentPicker from 'expo-document-picker';
+import { Image } from 'expo-image';
+import * as ImagePicker from 'expo-image-picker';
 import { useLocalSearchParams, useRouter } from 'expo-router';
-import { useEffect, useRef, useState, useCallback } from 'react';
+import { StatusBar } from 'expo-status-bar';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
+  Dimensions,
   FlatList,
   Keyboard,
   KeyboardAvoidingView,
@@ -16,11 +21,6 @@ import {
   TouchableOpacity,
   View,
 } from 'react-native';
-import { Image } from 'expo-image';
-import * as DocumentPicker from 'expo-document-picker';
-import * as ImagePicker from 'expo-image-picker';
-import { StatusBar } from 'expo-status-bar';
-import { Dimensions } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { useSession } from '@/hooks/use-session';
@@ -432,11 +432,7 @@ export default function ChatScreen() {
     <View style={styles.container}>
       <StatusBar style="dark" backgroundColor="#fff" />
       <View style={styles.header}>
-        <Pressable onPress={() => router.back()} style={styles.backBtn} hitSlop={10}>
-          <Feather name="chevron-left" size={28} color={CHARCOAL} />
-        </Pressable>
         <Text style={styles.headerTitle}>{headerTitle}</Text>
-        <View style={{ width: 28 }} />
       </View>
 
       <KeyboardAvoidingView
@@ -504,7 +500,7 @@ const styles = StyleSheet.create({
     height: 56,
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'space-between',
+    justifyContent: 'center',
     paddingHorizontal: 16,
     backgroundColor: '#fff',
     borderBottomWidth: 1,

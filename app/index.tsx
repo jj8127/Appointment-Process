@@ -1619,7 +1619,7 @@ const styles = StyleSheet.create({
   },
   topBar: {
     paddingHorizontal: 20,
-    paddingVertical: 12,
+    paddingVertical: 6,
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',

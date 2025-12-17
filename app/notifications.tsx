@@ -233,7 +233,7 @@ export default function NotificationsScreen() {
           </View>
           <View style={styles.contentBox}>
             <View style={styles.titleRow}>
-              <Text style={styles.category}>{item.category}</Text>
+              <Text style={styles.category}>{item.category === 'app_event' ? '앱 알림' : item.category}</Text>
               <Text style={styles.date}>{item.created_at ? new Date(item.created_at).toLocaleDateString() : ''}</Text>
             </View>
             <Text style={styles.title} numberOfLines={1}>
