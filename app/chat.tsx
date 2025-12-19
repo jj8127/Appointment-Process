@@ -374,7 +374,7 @@ export default function ChatScreen() {
         style={[
           styles.msgText,
           isMe ? styles.msgTextMe : styles.msgTextOther,
-          { textAlign: isMe ? 'right' : 'left', width: '100%' },
+          { textAlign: 'left', width: '100%' },
         ]}>
         {item.content}
       </Text>
@@ -391,7 +391,7 @@ export default function ChatScreen() {
           </View>
         )}
 
-        <View style={[styles.msgContainer, { alignItems: isMe ? 'flex-end' : 'flex-start' }]}>
+        <View style={[styles.msgContainer, { alignItems: 'flex-start' }]}>
           {!isMe && <Text style={styles.senderName}>{headerTitle}</Text>}
 
           <Pressable
@@ -419,7 +419,7 @@ export default function ChatScreen() {
           <Text
             style={[
               styles.timeText,
-              { textAlign: isMe ? 'right' : 'left', alignSelf: isMe ? 'flex-end' : 'flex-start' },
+              { textAlign: 'left', alignSelf: 'flex-start' },
             ]}>
             {formatTime(item.created_at)}
           </Text>
@@ -511,7 +511,7 @@ const styles = StyleSheet.create({
   list: { flex: 1 },
   listContent: { paddingVertical: 20, paddingHorizontal: 16, gap: 16 },
   msgRow: { flexDirection: 'row', marginBottom: 12, width: '100%' },
-  msgRowMe: { justifyContent: 'flex-end' },
+  msgRowMe: { justifyContent: 'flex-start' },
   msgRowOther: { justifyContent: 'flex-start' },
   avatar: {
     width: 36,
@@ -527,7 +527,7 @@ const styles = StyleSheet.create({
   senderName: { fontSize: 12, color: MUTED, marginLeft: 2, marginBottom: 4 },
   msgContainer: { flex: 1, minWidth: 0 },
   bubbleWrapper: { maxWidth: SCREEN_WIDTH * 0.82, width: 'auto' },
-  bubbleWrapperMe: { alignSelf: 'flex-end' },
+  bubbleWrapperMe: { alignSelf: 'flex-start' },
   bubbleWrapperOther: { alignSelf: 'flex-start' },
   bubble: {
     paddingHorizontal: 14,

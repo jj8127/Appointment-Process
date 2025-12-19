@@ -55,3 +55,6 @@ appointmentprocess-90a2e-firebase-adminsdk-fbsvc-2c333083b0.json
 .env*.local
 
 .txt
+
+.vercel
+.env*.local

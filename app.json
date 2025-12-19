@@ -2,7 +2,7 @@
   "expo": {
     "name": "가람 in",
     "slug": "fc-onboarding-app",
-    "version": "1.0.10",
+    "version": "1.0.11",
     "orientation": "portrait",
     "icon": "./assets/images/logo.png",
     "scheme": "hanwhafcpass",
@@ -12,7 +12,8 @@
       "supportsTablet": true,
       "bundleIdentifier": "com.jj8127.fconboardingapp",
       "infoPlist": {
-        "ITSAppUsesNonExemptEncryption": false
+        "ITSAppUsesNonExemptEncryption": false,
+        "UIViewControllerBasedStatusBarAppearance": false
       }
     },
     "android": {

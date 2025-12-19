@@ -92,8 +92,6 @@ export default function RootLayout() {
                 initialRouteName="auth"
                 screenOptions={{
                   headerShown: false,
-                  statusBarStyle: 'dark',
-                  statusBarBackgroundColor: '#fff',
                 }}>
                 <Stack.Screen name="index" options={{ ...baseHeader, title: '홈' }} />
                 <Stack.Screen name="auth" options={{ headerShown: false }} />

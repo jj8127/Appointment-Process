@@ -37,30 +37,30 @@ const toYMD = (d: Date) =>
   `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 
 const APPOINTMENT_IMAGES = [
-  require('../appointment_img/그림2.jpg'),
-  require('../appointment_img/그림3.jpg'),
-  require('../appointment_img/그림4.jpg'),
-  require('../appointment_img/그림5.jpg'),
-  require('../appointment_img/그림6.jpg'),
-  require('../appointment_img/그림7.jpg'),
-  require('../appointment_img/그림8.jpg'),
-  require('../appointment_img/그림9.jpg'),
-  require('../appointment_img/그림10.jpg'),
-  require('../appointment_img/그림11.jpg'),
-  require('../appointment_img/그림12.jpg'),
-  require('../appointment_img/그림13.jpg'),
-  require('../appointment_img/그림14.jpg'),
-  require('../appointment_img/그림15.jpg'),
-  require('../appointment_img/그림16.jpg'),
-  require('../appointment_img/그림17.jpg'),
-  require('../appointment_img/그림18.jpg'),
-  require('../appointment_img/그림19.jpg'),
-  require('../appointment_img/그림20.jpg'),
-  require('../appointment_img/그림21.jpg'),
-  require('../appointment_img/그림22.jpg'),
-  require('../appointment_img/그림23.jpg'),
-  require('../appointment_img/그림24.jpg'),
-  require('../appointment_img/그림25.jpg'),
+  require('../appointment_img/img2.jpg'),
+  require('../appointment_img/img3.jpg'),
+  require('../appointment_img/img4.jpg'),
+  require('../appointment_img/img5.jpg'),
+  require('../appointment_img/img6.jpg'),
+  require('../appointment_img/img7.jpg'),
+  require('../appointment_img/img8.jpg'),
+  require('../appointment_img/img9.jpg'),
+  require('../appointment_img/img10.jpg'),
+  require('../appointment_img/img11.jpg'),
+  require('../appointment_img/img12.jpg'),
+  require('../appointment_img/img13.jpg'),
+  require('../appointment_img/img14.jpg'),
+  require('../appointment_img/img15.jpg'),
+  require('../appointment_img/img16.jpg'),
+  require('../appointment_img/img17.jpg'),
+  require('../appointment_img/img18.jpg'),
+  require('../appointment_img/img19.jpg'),
+  require('../appointment_img/img20.jpg'),
+  require('../appointment_img/img21.jpg'),
+  require('../appointment_img/img22.jpg'),
+  require('../appointment_img/img23.jpg'),
+  require('../appointment_img/img24.jpg'),
+  require('../appointment_img/img25.jpg'),
 ];
 
 export default function AppointmentScreen() {
@@ -179,7 +179,7 @@ export default function AppointmentScreen() {
             message: `${data.name}님이 ${type === 'life' ? '생명보험' : '손해보험'} 위촉 완료를 보고했습니다. (입력일: ${ymd})`,
           },
         })
-        .catch(() => {});
+        .catch(() => { });
 
       Alert.alert(
         '제출 완료',
@@ -239,8 +239,8 @@ export default function AppointmentScreen() {
           {isApproved
             ? '위촉이 최종 승인되었습니다.'
             : isPending
-            ? '위촉 완료일을 제출했습니다. 총무 승인을 기다려주세요.'
-            : `현재 ${scheduleMonth}월 위촉이 진행 중입니다. 완료되면 날짜를 입력하세요.`}
+              ? '위촉 완료일을 제출했습니다. 총무 승인을 기다려주세요.'
+              : `현재 ${scheduleMonth}월 위촉이 진행 중입니다. 완료되면 날짜를 입력하세요.`}
         </Text>
 
         <View style={styles.inputGroup}>

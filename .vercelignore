@@ -1,0 +1,10 @@
+node_modules
+.git
+.next
+dist
+dist-web
+dist-web-new
+dist-web-new2
+android
+ios
+.expo
