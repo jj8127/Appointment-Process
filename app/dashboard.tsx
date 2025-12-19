@@ -9,8 +9,11 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
+  KeyboardAvoidingView,
   LayoutAnimation,
   Linking,
+  Modal,
+  Platform,
   Pressable,
   RefreshControl,
   ScrollView,
@@ -1488,43 +1491,48 @@ export default function DashboardScreen() {
           animationType="fade"
           onRequestClose={() => setDeleteModalVisible(false)}
         >
-          <Pressable style={styles.modalOverlay} onPress={() => setDeleteModalVisible(false)}>
-            <Pressable style={styles.modalContent} onPress={(e) => e.stopPropagation()}>
-              <Text style={styles.modalTitle}>FC 정보 삭제</Text>
-              <Text style={styles.modalText}>
-                <Text style={{ fontWeight: '700' }}>{deleteTargetName}</Text> 님의 정보를 정말 삭제하시겠습니까?{'\n'}
-                프로필과 제출된 서류가 모두 삭제되며 복구할 수 없습니다.
-              </Text>
+          <KeyboardAvoidingView
+            behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+            style={{ flex: 1 }}
+          >
+            <Pressable style={styles.modalOverlay} onPress={() => setDeleteModalVisible(false)}>
+              <Pressable style={styles.modalContent} onPress={(e) => e.stopPropagation()}>
+                <Text style={styles.modalTitle}>FC 정보 삭제</Text>
+                <Text style={styles.modalText}>
+                  <Text style={{ fontWeight: '700' }}>{deleteTargetName}</Text> 님의 정보를 정말 삭제하시겠습니까?{'\n'}
+                  프로필과 제출된 서류가 모두 삭제되며 복구할 수 없습니다.
+                </Text>
 
-              <Text style={styles.modalLabel}>총무 코드 입력</Text>
-              <TextInput
-                style={styles.modalInput}
-                value={deleteCode}
-                onChangeText={setDeleteCode}
-                placeholder="1111"
-                placeholderTextColor="#9CA3AF"
-                keyboardType="number-pad"
-                secureTextEntry
-                textAlign="center"
-                autoFocus
-              />
+                <Text style={styles.modalLabel}>총무 코드 입력</Text>
+                <TextInput
+                  style={styles.modalInput}
+                  value={deleteCode}
+                  onChangeText={setDeleteCode}
+                  placeholder="1111"
+                  placeholderTextColor="#9CA3AF"
+                  keyboardType="number-pad"
+                  secureTextEntry
+                  textAlign="center"
+                  autoFocus
+                />
 
-              <View style={styles.modalButtons}>
-                <Pressable
-                  style={[styles.modalBtn, styles.modalBtnCancel]}
-                  onPress={() => setDeleteModalVisible(false)}
-                >
-                  <Text style={styles.modalBtnTextCancel}>취소</Text>
-                </Pressable>
-                <Pressable
-                  style={[styles.modalBtn, styles.modalBtnDelete]}
-                  onPress={confirmDeleteWithCode}
-                >
-                  <Text style={styles.modalBtnTextDelete}>삭제</Text>
-                </Pressable>
-              </View>
+                <View style={styles.modalButtons}>
+                  <Pressable
+                    style={[styles.modalBtn, styles.modalBtnCancel]}
+                    onPress={() => setDeleteModalVisible(false)}
+                  >
+                    <Text style={styles.modalBtnTextCancel}>취소</Text>
+                  </Pressable>
+                  <Pressable
+                    style={[styles.modalBtn, styles.modalBtnDelete]}
+                    onPress={confirmDeleteWithCode}
+                  >
+                    <Text style={styles.modalBtnTextDelete}>삭제</Text>
+                  </Pressable>
+                </View>
+              </Pressable>
             </Pressable>
-          </Pressable>
+          </KeyboardAvoidingView>
         </Modal>
 
         <View style={styles.headerContainer}>
@@ -2131,6 +2139,8 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
+    flexWrap: 'wrap',
+    rowGap: 8,
     backgroundColor: '#F9FAFB',
     padding: 10,
     borderRadius: 8,
