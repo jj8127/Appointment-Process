@@ -260,6 +260,7 @@ export default function DashboardScreen() {
   const router = useRouter();
   const { mode, status } = useLocalSearchParams<{ mode?: string; status?: string }>();
   const [statusFilter, setStatusFilter] = useState<FilterKey>('all');
+  const [affiliationFilter, setAffiliationFilter] = useState<string>('전체'); // New: Affiliation Filter
   const [subFilter, setSubFilter] = useState<'all' | 'no-id' | 'has-id' | 'not-requested' | 'requested'>('all');
   const [keyword, setKeyword] = useState('');
   const [tempInputs, setTempInputs] = useState<Record<string, string>>({});
@@ -286,6 +287,13 @@ export default function DashboardScreen() {
     queryFn: () => fetchFcs(role, residentId, keyword),
     enabled: !!role,
   });
+
+  // Compute unique affiliations (After data is declared)
+  const affiliationOptions = useMemo(() => {
+    if (!data) return ['전체'];
+    const affiliations = new Set(data.filter((d) => d.affiliation).map((d) => d.affiliation));
+    return ['전체', ...Array.from(affiliations).sort()];
+  }, [data]);
 
   // Realtime: FC 프로필 / 서류 변경 시 대시보드 갱신
   useEffect(() => {
@@ -732,6 +740,10 @@ export default function DashboardScreen() {
     if (mainFilter) {
       filtered = filtered.filter(mainFilter.predicate);
     }
+    // Affiliation Filter Logic
+    if (affiliationFilter !== '전체') {
+      filtered = filtered.filter((fc) => fc.affiliation === affiliationFilter);
+    }
     if (statusFilter === 'step2') {
       if (subFilter === 'no-id') {
         filtered = filtered.filter((fc) => !fc.temp_id);
@@ -747,7 +759,7 @@ export default function DashboardScreen() {
       }
     }
     return filtered;
-  }, [processedRows, statusFilter, subFilter, filterOptions]);
+  }, [processedRows, statusFilter, subFilter, filterOptions, affiliationFilter]);
 
   const openFile = async (path?: string) => {
     if (!path) {
@@ -1483,7 +1495,7 @@ export default function DashboardScreen() {
     <SafeAreaView style={styles.safe} edges={['left', 'right', 'bottom']}>
       <KeyboardAwareWrapper
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}
-        contentContainerStyle={{ paddingBottom: keyboardPadding + 40 }}
+        contentContainerStyle={{ paddingBottom: (deleteModalVisible ? 0 : keyboardPadding) + 40 }}
       >
         <Modal
           visible={deleteModalVisible}
@@ -1554,6 +1566,28 @@ export default function DashboardScreen() {
               onChangeText={setKeyword}
             />
           </View>
+
+          {/* New: Affiliation Filter */}
+          <ScrollView
+            horizontal
+            showsHorizontalScrollIndicator={false}
+            contentContainerStyle={[styles.filterContainer, { marginBottom: 8 }]}
+          >
+            {affiliationOptions.map((opt) => {
+              const active = affiliationFilter === opt;
+              return (
+                <Pressable
+                  key={opt}
+                  style={[styles.filterTab, active && styles.filterTabActive]}
+                  onPress={() => setAffiliationFilter(opt)}
+                >
+                  <Text style={[styles.filterText, active && styles.filterTextActive]}>
+                    {opt}
+                  </Text>
+                </Pressable>
+              );
+            })}
+          </ScrollView>
 
           <ScrollView
             horizontal
@@ -1773,8 +1807,8 @@ const styles = StyleSheet.create({
     marginRight: 8,
   },
   filterTabActive: {
-    backgroundColor: CHARCOAL,
-    borderColor: CHARCOAL,
+    backgroundColor: ORANGE,
+    borderColor: ORANGE,
   },
   filterText: {
     fontSize: 13,
