@@ -55,7 +55,8 @@ export default function AuthScreen() {
   }, [hydrated, residentId, role, displayName]);
 
   const handleLogin = async () => {
-    const code = phoneInput.trim();
+    // Remove all whitespace for robust handling (e.g. '1111 ', ' 1111', '1 1 1 1')
+    const code = phoneInput.replace(/\s/g, '');
     if (!code) {
       Alert.alert('알림', '휴대폰 번호를 입력해주세요.');
       return;

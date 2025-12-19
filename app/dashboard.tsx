@@ -11,7 +11,6 @@ import {
   Alert,
   LayoutAnimation,
   Linking,
-  Platform,
   Pressable,
   RefreshControl,
   ScrollView,
@@ -19,7 +18,7 @@ import {
   Text,
   TextInput,
   UIManager,
-  View,
+  View
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
@@ -268,6 +267,12 @@ export default function DashboardScreen() {
   const [scheduleInputs, setScheduleInputs] = useState<Record<string, { life?: string; nonlife?: string }>>({});
   const [expanded, setExpanded] = useState<Record<string, boolean>>({});
   const [refreshing, setRefreshing] = useState(false);
+
+  // Delete Modal State
+  const [deleteModalVisible, setDeleteModalVisible] = useState(false);
+  const [deleteTargetId, setDeleteTargetId] = useState<string | null>(null);
+  const [deleteTargetName, setDeleteTargetName] = useState<string | null>(null);
+  const [deleteCode, setDeleteCode] = useState('');
   const keyboardPadding = useKeyboardPadding();
   const filterOptions = useMemo(() => createFilterOptions(role), [role]);
 
@@ -802,6 +807,26 @@ export default function DashboardScreen() {
     openFile(firstDoc.storage_path ?? undefined);
   };
 
+  const handleDeleteRequest = (fc: FcRow) => {
+    setDeleteTargetId(fc.id);
+    setDeleteTargetName(fc.name || 'FC');
+    setDeleteCode('');
+    setDeleteModalVisible(true);
+  };
+
+  const confirmDeleteWithCode = () => {
+    // Robust check: remove all whitespace
+    const code = deleteCode.replace(/\s/g, '');
+    if (code === '1111') {
+      if (deleteTargetId) {
+        deleteFc.mutate(deleteTargetId);
+      }
+      setDeleteModalVisible(false);
+    } else {
+      Alert.alert('인증 실패', '총무 코드가 올바르지 않습니다.');
+    }
+  };
+
   const confirmStatusChange = (fc: FcRow, nextStatus: FcProfile['status'], message: string) => {
     Alert.alert('상태 변경', message, [
       { text: '취소', style: 'cancel' },
@@ -1318,20 +1343,7 @@ export default function DashboardScreen() {
           </Text>
           <Pressable
             style={styles.deleteButton}
-            onPress={() =>
-              Alert.alert(
-                '삭제 확인',
-                `${fc.name || 'FC'} 정보를 삭제할까요?\n제출된 서류도 함께 삭제됩니다.`,
-                [
-                  { text: '취소', style: 'cancel' },
-                  {
-                    text: '삭제',
-                    style: 'destructive',
-                    onPress: () => deleteFc.mutate(fc.id),
-                  },
-                ],
-              )
-            }
+            onPress={() => handleDeleteRequest(fc)}
             disabled={deleteFc.isPending}
           >
             <Feather name="trash-2" size={16} color="#b91c1c" />
@@ -1470,6 +1482,51 @@ export default function DashboardScreen() {
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}
         contentContainerStyle={{ paddingBottom: keyboardPadding + 40 }}
       >
+        <Modal
+          visible={deleteModalVisible}
+          transparent
+          animationType="fade"
+          onRequestClose={() => setDeleteModalVisible(false)}
+        >
+          <Pressable style={styles.modalOverlay} onPress={() => setDeleteModalVisible(false)}>
+            <Pressable style={styles.modalContent} onPress={(e) => e.stopPropagation()}>
+              <Text style={styles.modalTitle}>FC 정보 삭제</Text>
+              <Text style={styles.modalText}>
+                <Text style={{ fontWeight: '700' }}>{deleteTargetName}</Text> 님의 정보를 정말 삭제하시겠습니까?{'\n'}
+                프로필과 제출된 서류가 모두 삭제되며 복구할 수 없습니다.
+              </Text>
+
+              <Text style={styles.modalLabel}>총무 코드 입력</Text>
+              <TextInput
+                style={styles.modalInput}
+                value={deleteCode}
+                onChangeText={setDeleteCode}
+                placeholder="1111"
+                placeholderTextColor="#9CA3AF"
+                keyboardType="number-pad"
+                secureTextEntry
+                textAlign="center"
+                autoFocus
+              />
+
+              <View style={styles.modalButtons}>
+                <Pressable
+                  style={[styles.modalBtn, styles.modalBtnCancel]}
+                  onPress={() => setDeleteModalVisible(false)}
+                >
+                  <Text style={styles.modalBtnTextCancel}>취소</Text>
+                </Pressable>
+                <Pressable
+                  style={[styles.modalBtn, styles.modalBtnDelete]}
+                  onPress={confirmDeleteWithCode}
+                >
+                  <Text style={styles.modalBtnTextDelete}>삭제</Text>
+                </Pressable>
+              </View>
+            </Pressable>
+          </Pressable>
+        </Modal>
+
         <View style={styles.headerContainer}>
           <View style={styles.headerTop}>
             <Text style={styles.headerTitle}>현황 대시보드</Text>
@@ -2101,4 +2158,50 @@ const styles = StyleSheet.create({
     borderRadius: 6,
   },
   rejectBtnText: { color: '#b91c1c', fontSize: 11, fontWeight: '600' },
+  // Modal Styles
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.5)',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  modalContent: {
+    width: '85%',
+    maxWidth: 340,
+    backgroundColor: '#fff',
+    borderRadius: 20,
+    padding: 24,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.1,
+    shadowRadius: 10,
+    elevation: 5,
+  },
+  modalTitle: { fontSize: 18, fontWeight: '700', color: CHARCOAL, marginBottom: 12, textAlign: 'center' },
+  modalText: { fontSize: 14, color: '#4b5563', textAlign: 'center', lineHeight: 22, marginBottom: 20 },
+  modalLabel: { fontSize: 13, fontWeight: '600', color: CHARCOAL, marginBottom: 8 },
+  modalInput: {
+    borderWidth: 1,
+    borderColor: BORDER,
+    borderRadius: 12,
+    height: 50,
+    fontSize: 20,
+    paddingHorizontal: 16,
+    letterSpacing: 4,
+    marginBottom: 24,
+    backgroundColor: '#F9FAFB',
+    color: CHARCOAL,
+  },
+  modalButtons: { flexDirection: 'row', gap: 12 },
+  modalBtn: {
+    flex: 1,
+    height: 48,
+    borderRadius: 12,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  modalBtnCancel: { backgroundColor: '#F3F4F6' },
+  modalBtnDelete: { backgroundColor: '#ef4444' },
+  modalBtnTextCancel: { fontSize: 15, fontWeight: '600', color: '#4b5563' },
+  modalBtnTextDelete: { fontSize: 15, fontWeight: '600', color: '#fff' },
 });
