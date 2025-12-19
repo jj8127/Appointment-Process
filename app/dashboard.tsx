@@ -495,6 +495,25 @@ export default function DashboardScreen() {
 
   const deleteFc = useMutation({
     mutationFn: async (id: string) => {
+      // 1. Get all document paths first
+      const { data: docs } = await supabase.from('fc_documents').select('storage_path').eq('fc_id', id);
+
+      const pathsToDelete = (docs ?? [])
+        .map((d) => d.storage_path)
+        .filter((p) => p && p !== 'deleted');
+
+      // 2. Delete files from storage
+      if (pathsToDelete.length > 0) {
+        console.log('[deleteFc] removing files from storage:', pathsToDelete);
+        const { error: storageError } = await supabase.storage.from(BUCKET).remove(pathsToDelete as string[]);
+        if (storageError) {
+          console.error('[deleteFc] storage remove error', storageError);
+          // We proceed to delete DB records even if storage cleanup fails,
+          // but we log the error.
+        }
+      }
+
+      // 3. Delete DB records
       await supabase.from('fc_documents').delete().eq('fc_id', id);
       const { error } = await supabase.from('fc_profiles').delete().eq('id', id);
       if (error) throw error;
