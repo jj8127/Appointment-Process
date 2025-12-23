@@ -6,6 +6,8 @@ interface StatusToggleProps {
     labelPending?: string;
     labelApproved?: string;
     readOnly?: boolean;
+    showNeutralForPending?: boolean;
+    allowPendingPress?: boolean;
 }
 
 export function StatusToggle({
@@ -14,8 +16,18 @@ export function StatusToggle({
     labelPending = '미승인',
     labelApproved = '승인',
     readOnly = false,
+    showNeutralForPending = false,
+    allowPendingPress = false,
 }: StatusToggleProps) {
     const theme = useMantineTheme();
+    const isNeutral = showNeutralForPending && value === 'pending';
+
+    const handlePendingClick = () => {
+        if (readOnly) return;
+        if (allowPendingPress) {
+            onChange('pending');
+        }
+    };
 
     // Map value to simple checked state for styling logic if needed, 
     // but SegmentedControl handles selection well.
@@ -36,7 +48,14 @@ export function StatusToggle({
             radius="xl"
             size="xs"
             data={[
-                { label: labelPending, value: 'pending' },
+                {
+                    label: (
+                        <span role="button" onClick={handlePendingClick}>
+                            {labelPending}
+                        </span>
+                    ),
+                    value: 'pending',
+                },
                 { label: labelApproved, value: 'approved' },
             ]}
             className="status-toggle"
@@ -49,10 +68,12 @@ export function StatusToggle({
                     backgroundColor: '#fff',
                     boxShadow: '0 1px 3px rgba(0,0,0,0.1)',
                     transition: 'transform 180ms ease, width 180ms ease, background-color 180ms ease, box-shadow 180ms ease',
+                    opacity: isNeutral ? 0 : 1,
                 },
                 label: {
                     fontWeight: 600,
                     transition: 'color 180ms ease, transform 180ms ease',
+                    color: isNeutral ? theme.colors.gray[6] : undefined,
                 },
                 control: {
                     transition: 'color 180ms ease',

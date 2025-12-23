@@ -18,9 +18,10 @@ export async function updateDocStatusAction(
         phone: string;
         docType: string;
         status: 'approved' | 'rejected' | 'pending';
+        reason?: string | null;
     }
 ): Promise<UpdateDocStatusState> {
-    const { fcId, phone, docType, status } = payload;
+    const { fcId, phone, docType, status, reason } = payload;
     const cookieStore = await cookies();
 
     const supabase = createServerClient(
@@ -40,9 +41,14 @@ export async function updateDocStatusAction(
     );
 
     // 1. Update individual document status
+    const reviewerNote =
+        status === 'rejected' ? (reason ?? '').trim() || null : status === 'approved' ? null : undefined;
     const { error: updateError } = await supabase
         .from('fc_documents')
-        .update({ status })
+        .update({
+            status,
+            ...(reviewerNote !== undefined ? { reviewer_note: reviewerNote } : {}),
+        })
         .eq('fc_id', fcId)
         .eq('doc_type', docType);
 
@@ -62,9 +68,13 @@ export async function updateDocStatusAction(
         if (fetchError) {
             console.error('Error fetching docs for auto-advance check:', fetchError);
         } else {
-            const validDocs = (allDocs ?? []).filter((d) => d.storage_path && d.storage_path !== 'deleted');
-            // If all valid docs are approved, advance status
-            if (validDocs.length > 0 && validDocs.every((d) => d.status === 'approved')) {
+            const docs = allDocs ?? [];
+            const allSubmitted =
+                docs.length > 0 &&
+                docs.every((d) => d.storage_path && d.storage_path !== 'deleted');
+            const allApproved = allSubmitted && docs.every((d) => d.status === 'approved');
+            // If all requested docs are submitted and approved, advance status
+            if (allApproved) {
                 // Update Profile Status
                 const { error: profileError } = await supabase
                     .from('fc_profiles')
@@ -93,6 +103,21 @@ export async function updateDocStatusAction(
                 }
             }
         }
+    } else if (status === 'rejected') {
+        await supabase
+            .from('fc_profiles')
+            .update({ status: 'docs-pending' })
+            .eq('id', fcId);
+
+        const title = '서류 반려 안내';
+        const body = `서류가 반려되었습니다.\n사유: ${(reason ?? '').trim() || '사유 없음'}`;
+        await supabase.from('notifications').insert({
+            title,
+            body,
+            recipient_role: 'fc',
+            resident_id: phone,
+        });
+        await sendPushNotification(phone, { title, body, data: { url: '/docs-upload' } });
     }
 
     revalidatePath('/dashboard');

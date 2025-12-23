@@ -9,6 +9,7 @@ import {
   Divider,
   Group,
   LoadingOverlay,
+  Modal,
   Paper,
   Popover,
   ScrollArea,
@@ -16,6 +17,7 @@ import {
   Stack,
   Table,
   Text,
+  Textarea,
   TextInput,
   ThemeIcon,
   Title,
@@ -150,6 +152,10 @@ const ExcelColumnFilter = ({ title, options, selected, onApply }: ExcelColumnFil
 export default function AppointmentPage() {
   const [isPending, startTransition] = useTransition();
   const [filterYear, setFilterYear] = useState<string | null>('2025');
+  const [rejectModalOpen, setRejectModalOpen] = useState(false);
+  const [rejectReason, setRejectReason] = useState('');
+  const [rejectTarget, setRejectTarget] = useState<{ fc: any; category: 'life' | 'nonlife' } | null>(null);
+  const [rejectSubmitting, setRejectSubmitting] = useState(false);
 
 
   // Header Filtering State
@@ -247,6 +253,46 @@ export default function AppointmentPage() {
     }));
   };
 
+  const openRejectModal = (fc: any, category: 'life' | 'nonlife') => {
+    setRejectReason('');
+    setRejectTarget({ fc, category });
+    setRejectModalOpen(true);
+  };
+
+  const handleRejectSubmit = () => {
+    if (!rejectTarget) return;
+    const reason = rejectReason.trim();
+    if (!reason) {
+      notifications.show({ title: '사유 입력', message: '반려 사유를 입력해주세요.', color: 'red' });
+      return;
+    }
+    setRejectSubmitting(true);
+    startTransition(async () => {
+      const result = await updateAppointmentAction(
+        { success: false },
+        {
+          fcId: rejectTarget.fc.id,
+          phone: rejectTarget.fc.phone,
+          type: 'reject',
+          category: rejectTarget.category,
+          value: null,
+          reason,
+        }
+      );
+
+      if (result.success) {
+        notifications.show({ title: '성공', message: result.message, color: 'green' });
+        setRejectModalOpen(false);
+        setRejectTarget(null);
+        setRejectReason('');
+        refetch();
+      } else {
+        notifications.show({ title: '실패', message: result.error, color: 'red' });
+      }
+      setRejectSubmitting(false);
+    });
+  };
+
   const executeAction = (fc: any, type: 'schedule' | 'confirm' | 'reject', category: 'life' | 'nonlife') => {
     const input = inputs[fc.id] || {};
 
@@ -268,6 +314,9 @@ export default function AppointmentPage() {
         return;
       }
       value = dayjs(dateVal).format('YYYY-MM-DD');
+    } else if (type === 'reject') {
+      openRejectModal(fc, category);
+      return;
     }
 
     if (confirm(`${type === 'confirm' ? '승인' : type === 'reject' ? '반려' : '저장'} 하시겠습니까?`)) {
@@ -367,8 +416,9 @@ export default function AppointmentPage() {
                 executeAction(fc, 'confirm', category);
               }
             }}
-            labelPending="미위촉"
+            labelPending="미승인"
             labelApproved="위촉 완료"
+            showNeutralForPending
             readOnly={isConfirmed}
           />
         </Group>
@@ -391,6 +441,34 @@ export default function AppointmentPage() {
   return (
     <Container size="xl" py="xl">
       <Stack gap="lg">
+        <Modal
+          opened={rejectModalOpen}
+          onClose={() => setRejectModalOpen(false)}
+          centered
+          title="반려 사유 입력"
+        >
+          <Stack gap="sm">
+            <Text size="sm" c="dimmed">
+              FC에게 전달될 반려 사유를 입력해주세요.
+            </Text>
+            <Textarea
+              label="반려 사유"
+              placeholder="예: 제출된 위촉 완료일이 확인되지 않아 재입력이 필요합니다."
+              value={rejectReason}
+              onChange={(e) => setRejectReason(e.currentTarget.value)}
+              minRows={4}
+              autosize
+            />
+            <Group justify="flex-end" mt="sm">
+              <Button variant="default" onClick={() => setRejectModalOpen(false)}>
+                취소
+              </Button>
+              <Button color="red" onClick={handleRejectSubmit} loading={rejectSubmitting}>
+                반려 처리
+              </Button>
+            </Group>
+          </Stack>
+        </Modal>
         <Group justify="space-between" align="flex-end">
           <div>
             <Title order={2} c={CHARCOAL}>위촉 심사 및 확정</Title>
@@ -473,4 +551,3 @@ export default function AppointmentPage() {
     </Container>
   );
 }
-

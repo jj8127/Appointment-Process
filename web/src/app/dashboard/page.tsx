@@ -20,6 +20,7 @@ import {
   Tabs,
   Text,
   TextInput,
+  Textarea,
   ThemeIcon,
   Title,
   Tooltip
@@ -43,7 +44,15 @@ import dayjs from 'dayjs';
 import { useMemo, useState, useTransition } from 'react';
 
 import { StatusToggle } from '@/components/StatusToggle';
-import { ADMIN_STEP_LABELS, calcStep, DOC_OPTIONS, getAdminStep, STATUS_LABELS } from '@/lib/shared';
+import {
+  ADMIN_STEP_LABELS,
+  calcStep,
+  DOC_OPTIONS,
+  getAdminStep,
+  getAppointmentProgress,
+  getDocProgress,
+  getSummaryStatus
+} from '@/lib/shared';
 import { supabase } from '@/lib/supabase';
 import { notifications } from '@mantine/notifications';
 import { useRouter } from 'next/navigation';
@@ -76,9 +85,116 @@ export default function DashboardPage() {
     nonLifeDate?: Date | null;
   }>({});
   const [isAppointmentPending, startAppointmentTransition] = useTransition();
+  const [rejectOpened, { open: openReject, close: closeReject }] = useDisclosure(false);
+  const [rejectReason, setRejectReason] = useState('');
+  const [rejectTarget, setRejectTarget] = useState<
+    | { kind: 'allowance' }
+    | { kind: 'appointment'; category: 'life' | 'nonlife' }
+    | { kind: 'doc'; doc: any }
+    | null
+  >(null);
+  const [rejectSubmitting, setRejectSubmitting] = useState(false);
 
   const updateSelectedFc = (updates: Partial<any>) => {
     setSelectedFc((prev: any) => (prev ? { ...prev, ...updates } : prev));
+  };
+
+  const openRejectModal = (target: { kind: 'allowance' } | { kind: 'appointment'; category: 'life' | 'nonlife' } | { kind: 'doc'; doc: any }) => {
+    setRejectReason('');
+    setRejectTarget(target);
+    openReject();
+  };
+
+  const handleRejectSubmit = async () => {
+    if (!selectedFc || !rejectTarget) return;
+    const reason = rejectReason.trim();
+    if (!reason) {
+      notifications.show({ title: '사유 입력', message: '반려 사유를 입력해주세요.', color: 'red' });
+      return;
+    }
+    setRejectSubmitting(true);
+    try {
+      if (rejectTarget.kind === 'allowance') {
+        const { error } = await supabase
+          .from('fc_profiles')
+          .update({
+            status: 'allowance-pending',
+            allowance_date: null,
+            allowance_reject_reason: reason,
+          })
+          .eq('id', selectedFc.id);
+        if (error) throw error;
+        await supabase.from('notifications').insert({
+          title: '수당동의 반려',
+          body: `수당 동의가 반려되었습니다.\n사유: ${reason}`,
+          recipient_role: 'fc',
+          resident_id: selectedFc.phone,
+        });
+        await sendPushNotification(selectedFc.phone, {
+          title: '수당동의 반려',
+          body: `수당 동의가 반려되었습니다.\n사유: ${reason}`,
+          data: { url: '/consent' },
+        });
+        updateSelectedFc({ status: 'allowance-pending', allowance_date: null, allowance_reject_reason: reason });
+        notifications.show({ title: '처리 완료', message: '수당 동의를 반려했습니다.', color: 'green' });
+        queryClient.invalidateQueries({ queryKey: ['dashboard-list'] });
+      }
+
+      if (rejectTarget.kind === 'appointment') {
+        const { category } = rejectTarget;
+        const result = await updateAppointmentAction(
+          { success: false },
+          {
+            fcId: selectedFc.id,
+            phone: selectedFc.phone,
+            type: 'reject',
+            category,
+            value: null,
+            reason,
+          },
+        );
+        if (!result.success) throw new Error(result.error || '처리 실패');
+        const isLife = category === 'life';
+        const dateKey = isLife ? 'lifeDate' : 'nonLifeDate';
+        setAppointmentInputs((prev) => ({ ...prev, [dateKey]: null }));
+        updateSelectedFc({
+          [isLife ? 'appointment_date_life' : 'appointment_date_nonlife']: null,
+          [isLife ? 'appointment_date_life_sub' : 'appointment_date_nonlife_sub']: null,
+          [isLife ? 'appointment_reject_reason_life' : 'appointment_reject_reason_nonlife']: reason,
+          status: 'docs-approved',
+        });
+        notifications.show({ title: '처리 완료', message: '위촉 정보를 반려했습니다.', color: 'green' });
+        queryClient.invalidateQueries({ queryKey: ['dashboard-list'] });
+      }
+
+      if (rejectTarget.kind === 'doc') {
+        const doc = rejectTarget.doc;
+        const res = await updateDocStatusAction({ success: false }, {
+          fcId: selectedFc.id,
+          phone: selectedFc.phone,
+          docType: doc.doc_type,
+          status: 'rejected',
+          reason,
+        });
+        if (!res.success) throw new Error(res.error || '문서 반려 실패');
+        const nextDocs = (selectedFc.fc_documents || []).map((d: any) =>
+          d.doc_type === doc.doc_type ? { ...d, status: 'rejected', reviewer_note: reason } : d,
+        );
+        let nextProfileStatus = selectedFc.status;
+        if (!['appointment-completed', 'final-link-sent'].includes(selectedFc.status)) {
+          nextProfileStatus = 'docs-pending';
+        }
+        updateSelectedFc({ fc_documents: nextDocs, status: nextProfileStatus });
+        notifications.show({ title: '반려 완료', message: '서류가 반려되었습니다.', color: 'green' });
+        queryClient.invalidateQueries({ queryKey: ['dashboard-list'] });
+      }
+
+      closeReject();
+    } catch (err: any) {
+      notifications.show({ title: '오류', message: err?.message ?? '반려 처리 실패', color: 'red' });
+    } finally {
+      setRejectSubmitting(false);
+    }
   };
 
   const { data: fcs, isLoading } = useQuery({
@@ -86,7 +202,7 @@ export default function DashboardPage() {
     queryFn: async () => {
       const { data, error } = await supabase
         .from('fc_profiles')
-        .select('*, appointment_date_life_sub, appointment_date_nonlife_sub, fc_documents(doc_type,storage_path,file_name,status)')
+        .select('*, appointment_date_life_sub, appointment_date_nonlife_sub, fc_documents(doc_type,storage_path,file_name,status,reviewer_note)')
         .order('created_at', { ascending: false });
       if (error) throw error;
       console.log('[DEBUG] Web: Fetched FC List:', JSON.stringify(data, null, 2));
@@ -175,6 +291,12 @@ export default function DashboardPage() {
 
       const currentTypes = currentDocs.map((d: any) => d.doc_type);
 
+      if (nextTypes.length === 0) {
+        await supabase.from('fc_documents').delete().eq('fc_id', selectedFc.id);
+        await supabase.from('fc_profiles').update({ status: 'allowance-consented' }).eq('id', selectedFc.id);
+        return;
+      }
+
       const toAdd = nextTypes.filter((type) => !currentTypes.includes(type));
       const toDelete = currentDocs
         .filter((d: any) => !nextTypes.includes(d.doc_type) && (!d.storage_path || d.storage_path === 'deleted'))
@@ -219,9 +341,19 @@ export default function DashboardPage() {
   });
 
   const updateStatusMutation = useMutation({
-    mutationFn: async ({ status, title, msg }: { status: string; title?: string; msg: string }) => {
+    mutationFn: async ({
+      status,
+      title,
+      msg,
+      extra,
+    }: {
+      status: string;
+      title?: string;
+      msg: string;
+      extra?: Record<string, any>;
+    }) => {
       if (!selectedFc) return;
-      await supabase.from('fc_profiles').update({ status }).eq('id', selectedFc.id);
+      await supabase.from('fc_profiles').update({ status, ...(extra ?? {}) }).eq('id', selectedFc.id);
       if (msg) {
         const finalTitle = title || '상태 업데이트';
         await supabase
@@ -244,7 +376,7 @@ export default function DashboardPage() {
     },
     onSuccess: (_data, variables) => {
       if (variables?.status) {
-        updateSelectedFc({ status: variables.status });
+        updateSelectedFc({ status: variables.status, ...(variables.extra ?? {}) });
       }
       notifications.show({ title: '처리 완료', message: '상태가 변경되었습니다.', color: 'green' });
       queryClient.invalidateQueries({ queryKey: ['dashboard-list'] });
@@ -342,7 +474,7 @@ export default function DashboardPage() {
     }
   };
 
-  const handleAppointmentAction = (e: React.MouseEvent, type: 'schedule' | 'confirm' | 'reject', category: 'life' | 'nonlife') => {
+  const handleAppointmentAction = (e: React.MouseEvent, type: 'schedule' | 'confirm', category: 'life' | 'nonlife') => {
     e.stopPropagation();
     const isLife = category === 'life';
     let value = null;
@@ -369,7 +501,7 @@ export default function DashboardPage() {
       value = dayjs(dateVal).format('YYYY-MM-DD');
     }
 
-    if (confirm(`${type === 'confirm' ? '승인' : type === 'reject' ? '반려' : '저장'} 하시겠습니까?`)) {
+    if (confirm(`${type === 'confirm' ? '승인' : '저장'} 하시겠습니까?`)) {
       startAppointmentTransition(async () => {
         const result = await updateAppointmentAction(
           { success: false },
@@ -400,14 +532,6 @@ export default function DashboardPage() {
             const nextStatus = nextLife && nextNonlife ? 'final-link-sent' : 'appointment-completed';
             updateSelectedFc({ status: nextStatus });
           }
-          if (type === 'reject') {
-            const dateKey = isLife ? 'lifeDate' : 'nonLifeDate';
-            setAppointmentInputs((prev) => ({ ...prev, [dateKey]: null }));
-            updateSelectedFc({
-              [isLife ? 'appointment_date_life' : 'appointment_date_nonlife']: null,
-              status: 'docs-approved',
-            });
-          }
         } else {
           notifications.show({ title: '오류', message: result.error, color: 'red' });
         }
@@ -436,13 +560,31 @@ export default function DashboardPage() {
               setAppointmentInputs(prev => ({ ...prev, [isLife ? 'life' : 'nonlife']: val }));
             }}
           />
+          {isLife && !!selectedFc.appointment_reject_reason_life && (
+            <Badge variant="light" color="red" size="xs">
+              생명 반려
+            </Badge>
+          )}
+          {!isLife && !!selectedFc.appointment_reject_reason_nonlife && (
+            <Badge variant="light" color="red" size="xs">
+              손해 반려
+            </Badge>
+          )}
           <TextInput
             label={
               <Group gap={6}>
                 <Text size="sm">확정일(Actual)</Text>
-                {isSubmitted && (
+                {isConfirmed ? (
+                  <Badge variant="light" color="green" size="xs">
+                    승인 완료
+                  </Badge>
+                ) : isSubmitted ? (
                   <Badge variant="light" color="orange" size="xs">
                     FC 제출
+                  </Badge>
+                ) : (
+                  <Badge variant="light" color="gray" size="xs">
+                    미입력
                   </Badge>
                 )}
               </Group>
@@ -482,18 +624,19 @@ export default function DashboardPage() {
               if (val === 'approved') {
                 handleAppointmentAction({ stopPropagation: () => { } } as any, 'confirm', category);
               } else if (isConfirmed) {
-                handleAppointmentAction({ stopPropagation: () => { } } as any, 'reject', category);
+                openRejectModal({ kind: 'appointment', category });
               }
             }}
             labelPending="미승인"
             labelApproved="승인 완료"
+            showNeutralForPending
             readOnly={isAppointmentPending}
           />
           <Tooltip label="반려 (확정 취소)">
             <ActionIcon
               variant="light" color="red" size="input-xs"
               loading={isAppointmentPending}
-              onClick={(e) => handleAppointmentAction(e, 'reject', category)}
+              onClick={() => openRejectModal({ kind: 'appointment', category })}
             >
               <IconX size={16} />
             </ActionIcon>
@@ -501,14 +644,6 @@ export default function DashboardPage() {
         </Group>
       </Stack>
     );
-  };
-
-  const getStatusColor = (status: string) => {
-    if (['appointment-completed', 'final-link-sent', 'allowance-consented', 'docs-approved'].includes(status))
-      return 'green';
-    if (['docs-rejected'].includes(status)) return 'red';
-    if (['docs-submitted', 'temp-id-issued'].includes(status)) return 'blue';
-    return 'gray';
   };
 
   /* Table Rows */
@@ -562,14 +697,103 @@ export default function DashboardPage() {
         )}
       </Table.Td>
       <Table.Td>
-        <Badge color={getStatusColor(fc.status)} variant="light" size="sm" radius="sm">
-          {STATUS_LABELS[fc.status] || fc.status}
-        </Badge>
+        <Stack gap={6}>
+          {(() => {
+            const summary = getSummaryStatus(fc);
+            if (!summary.label || summary.label === '서류 제출 대기' || summary.label === '서류 반려') {
+              return null;
+            }
+            return (
+              <Badge color={summary.color} variant="light" size="md" radius="sm">
+                {summary.label}
+              </Badge>
+            );
+          })()}
+          <Group gap={6} wrap="wrap">
+            {fc.step >= 3 &&
+              (() => {
+                const doc = getDocProgress(fc);
+                const docs = fc.fc_documents ?? [];
+                const totalDocs = docs.length;
+                const submittedDocs = docs.filter((d: any) => d.storage_path && d.storage_path !== 'deleted').length;
+                const approvedDocs = docs.filter((d: any) => d.status === 'approved').length;
+                const pendingDocs = docs.filter((d: any) => d.status !== 'approved' && d.status !== 'rejected').length;
+                const rejectedDocs = docs.filter((d: any) => d.status === 'rejected').length;
+                const isAllDocsApproved = doc.key === 'approved';
+                return (
+                  <>
+                    {totalDocs > 0 && !isAllDocsApproved && (
+                      <Group
+                        gap={6}
+                        style={{
+                          border: '1px solid #E5E7EB',
+                          borderRadius: 12,
+                          padding: 8,
+                          display: 'grid',
+                          gridTemplateColumns: 'repeat(2, minmax(0, 1fr))',
+                          rowGap: 6,
+                          columnGap: 6,
+                          backgroundColor: '#fff',
+                        }}
+                      >
+                        <Badge color="orange" variant="light" size="md" radius="sm">
+                          제출 {submittedDocs}/{totalDocs}
+                        </Badge>
+                        <Badge color="green" variant="light" size="md" radius="sm">
+                          승인 {approvedDocs}/{totalDocs}
+                        </Badge>
+                        <Badge color="red" variant="light" size="md" radius="sm">
+                          반려 {rejectedDocs}/{totalDocs}
+                        </Badge>
+                        <Badge color="yellow" variant="light" size="md" radius="sm">
+                          검토 중 {pendingDocs}/{totalDocs}
+                        </Badge>
+                      </Group>
+                    )}
+                  </>
+                );
+              })()}
+            {(fc.step >= 4 || getAppointmentProgress(fc, 'life').key === 'approved') &&
+              (() => {
+                const life = getAppointmentProgress(fc, 'life');
+                if (life.key === 'not-set') return null;
+                if (fc.step < 4 && life.key !== 'approved') return null;
+                return (
+                <Badge color={life.color} variant="light" size="md" radius="sm">
+                  생명 {life.label}
+                </Badge>
+                );
+              })()}
+            {(fc.step >= 4 || getAppointmentProgress(fc, 'nonlife').key === 'approved') &&
+              (() => {
+                const nonlife = getAppointmentProgress(fc, 'nonlife');
+                if (nonlife.key === 'not-set') return null;
+                if (fc.step < 4 && nonlife.key !== 'approved') return null;
+                return (
+                <Badge color={nonlife.color} variant="light" size="md" radius="sm">
+                  손해 {nonlife.label}
+                </Badge>
+              );
+            })()}
+          </Group>
+        </Stack>
       </Table.Td>
       <Table.Td>
         {/* Updated Badge to use getAdminStep */}
-        <Badge variant="dot" size="md" color={fc.step === 5 ? 'green' : 'orange'} radius="xl">
-          {getAdminStep(fc)}
+        <Badge
+          variant="dot"
+          size="md"
+          color={fc.step === 5 ? 'green' : 'orange'}
+          radius="xl"
+          style={{ paddingTop: 6, paddingBottom: 6, height: 'auto', alignItems: 'center' }}
+        >
+          <Text
+            size="xs"
+            fw={700}
+            style={{ whiteSpace: 'pre-line', lineHeight: 1.25, textAlign: 'center' }}
+          >
+            {getAdminStep(fc).replace(' ', '\n')}
+          </Text>
         </Badge>
       </Table.Td>
       <Table.Td>
@@ -730,11 +954,11 @@ export default function DashboardPage() {
               <Table verticalSpacing="sm" highlightOnHover striped withTableBorder>
                 <Table.Thead bg="gray.0" style={{ position: 'sticky', top: 0, zIndex: 1 }}>
                   <Table.Tr>
-                    <Table.Th w={250}>FC 정보</Table.Th>
-                    <Table.Th w={180}>연락처</Table.Th>
-                    <Table.Th w={200}>소속</Table.Th>
+                    <Table.Th w={120}>FC 정보</Table.Th>
+                    <Table.Th w={100}>연락처</Table.Th>
+                    <Table.Th w={140}>소속</Table.Th>
                     <Table.Th w={150}>위촉 완료일</Table.Th>
-                    <Table.Th w={160}>현재 상태</Table.Th>
+                    <Table.Th w={200}>현재 상태</Table.Th>
                     <Table.Th w={120}>진행 단계</Table.Th>
                     <Table.Th w={60} ta="center">관리</Table.Th>
                   </Table.Tr>
@@ -795,7 +1019,7 @@ export default function DashboardPage() {
             <Tabs value={modalTab} onChange={setModalTab} color="orange" variant="outline" radius="md">
               <Tabs.List grow mb="lg">
                 <Tabs.Tab value="info" leftSection={<IconEdit size={16} />}>
-                  기본 정보
+                  수당 동의
                 </Tabs.Tab>
                 <Tabs.Tab value="docs" leftSection={<IconFileText size={16} />}>
                   서류 관리
@@ -835,12 +1059,40 @@ export default function DashboardPage() {
                   <Box mt="md">
                     <Group justify="space-between" mb="xs">
                       <Text fw={600} size="sm">수당 동의 검토</Text>
-                      {selectedFc.allowance_date && (
-                        <Badge variant="light" color="gray" size="sm">
-                          동의일: {dayjs(selectedFc.allowance_date).format('YYYY-MM-DD')}
-                        </Badge>
-                      )}
+                      <Badge
+                        variant="light"
+                        color={selectedFc.allowance_date ? 'green' : 'gray'}
+                        size="sm"
+                      >
+                        {selectedFc.allowance_date ? '입력됨' : '미입력'}
+                      </Badge>
                     </Group>
+                    <TextInput
+                      label="동의일(Actual)"
+                      value={
+                        selectedFc.allowance_date
+                          ? dayjs(selectedFc.allowance_date).format('YYYY-MM-DD')
+                          : '미실시'
+                      }
+                      readOnly
+                      disabled
+                      variant="filled"
+                      radius="md"
+                      size="md"
+                      styles={{
+                        label: { fontWeight: 600, color: '#111827' },
+                        input: {
+                          backgroundColor: '#F9FAFB',
+                          color: '#111827',
+                          borderColor: '#E5E7EB',
+                          fontWeight: 600,
+                        },
+                      }}
+                    />
+                    <Divider my="sm" />
+                    <Text size="xs" fw={600} c="dimmed" mb={6}>
+                      수당 동의 상태
+                    </Text>
                     <StatusToggle
                       value={selectedFc.status === 'allowance-consented' || ['docs-pending', 'docs-submitted', 'docs-approved', 'appointment-completed', 'final-link-sent'].includes(selectedFc.status) ? 'approved' : 'pending'}
                       onChange={(val) => {
@@ -849,18 +1101,17 @@ export default function DashboardPage() {
                             status: 'allowance-consented',
                             title: '수당동의 승인',
                             msg: '수당 동의가 승인되었습니다. 서류 제출 단계로 진행해주세요.',
+                            extra: { allowance_reject_reason: null },
                           });
                           return;
                         }
-                        if (!confirm('승인을 취소하시겠습니까?')) return;
-                        updateStatusMutation.mutate({
-                          status: 'allowance-pending',
-                          msg: '',
-                        });
+                        openRejectModal({ kind: 'allowance' });
                       }}
                       labelPending="미승인"
                       labelApproved="승인 완료"
-                      readOnly={['docs-pending', 'docs-submitted', 'docs-approved', 'appointment-completed', 'final-link-sent'].includes(selectedFc.status)}
+                      showNeutralForPending
+                      allowPendingPress
+                      readOnly={false}
                     />
                   </Box>
 
@@ -951,31 +1202,40 @@ export default function DashboardPage() {
                                 <Divider orientation="vertical" />
                                 <Group gap={4}>
                                   <StatusToggle
-
                                     value={d.status === 'approved' ? 'approved' : 'pending'}
                                     onChange={async (val) => {
-                                      const nextStatus = val === 'approved' ? 'approved' : 'pending';
+                                      const nextStatus = val === 'approved' ? 'approved' : 'rejected';
+                                      if (val !== 'approved') {
+                                        if (d.status === 'rejected') return;
+                                        openRejectModal({ kind: 'doc', doc: d });
+                                        return;
+                                      }
                                       if (nextStatus === d.status) return;
                                       if (nextStatus === 'approved') {
                                         if (!confirm('문서를 승인하시겠습니까?')) return;
-                                      } else {
-                                        if (!confirm('승인을 취소하시겠습니까?')) return;
                                       }
                                       const res = await updateDocStatusAction({ success: false }, {
                                         fcId: selectedFc.id,
                                         phone: selectedFc.phone,
                                         docType: d.doc_type,
                                         status: nextStatus,
+                                        reason: null,
                                       });
                                       if (res.success) {
                                         notifications.show({ title: nextStatus === 'approved' ? '승인' : '취소', message: res.message, color: 'green' });
                                         const nextDocs = (selectedFc.fc_documents || []).map((doc: any) =>
-                                          doc.doc_type === d.doc_type ? { ...doc, status: nextStatus } : doc
+                                          doc.doc_type === d.doc_type ? { ...doc, status: nextStatus, reviewer_note: null } : doc
                                         );
-                                        const validDocs = nextDocs.filter((doc: any) => doc.storage_path && doc.storage_path !== 'deleted');
+                                        const allSubmitted =
+                                          nextDocs.length > 0 &&
+                                          nextDocs.every(
+                                            (doc: any) => doc.storage_path && doc.storage_path !== 'deleted',
+                                          );
+                                        const allApproved =
+                                          allSubmitted && nextDocs.every((doc: any) => doc.status === 'approved');
                                         let nextProfileStatus = selectedFc.status;
                                         if (!['appointment-completed', 'final-link-sent'].includes(selectedFc.status)) {
-                                          if (validDocs.length > 0 && validDocs.every((doc: any) => doc.status === 'approved')) {
+                                          if (allApproved) {
                                             nextProfileStatus = 'docs-approved';
                                           } else if (selectedFc.status === 'docs-approved') {
                                             nextProfileStatus = 'docs-pending';
@@ -989,6 +1249,8 @@ export default function DashboardPage() {
                                     }}
                                     labelPending="미승인"
                                     labelApproved="승인"
+                                    showNeutralForPending
+                                    allowPendingPress
                                     readOnly={false}
                                   />
                                   <Tooltip label="삭제">
@@ -1017,18 +1279,43 @@ export default function DashboardPage() {
                     <Text fw={600} size="sm" mb="xs">
                       필수 서류 요청 목록
                     </Text>
+                    {(() => {
+                      const submittedDocTypes = new Set(
+                        (selectedFc.fc_documents ?? [])
+                          .filter((d: any) => d.storage_path && d.storage_path !== 'deleted')
+                          .map((d: any) => d.doc_type),
+                      );
+                      return (
                     <Chip.Group multiple value={selectedDocs} onChange={(val) => {
                       console.log('Chip Change:', val);
                       setSelectedDocs(val);
                     }}>
                       <Group gap={6}>
-                        {Array.from(new Set([...DOC_OPTIONS, ...selectedDocs])).map((doc) => (
-                          <Chip key={doc} value={doc} variant="outline" size="xs" radius="sm">
-                            {doc}
-                          </Chip>
-                        ))}
+                        {Array.from(new Set([...DOC_OPTIONS, ...selectedDocs])).map((doc) => {
+                          const isRequested = selectedDocs.includes(doc);
+                          const isSubmitted = submittedDocTypes.has(doc);
+                          const borderColor = isSubmitted ? '#2563eb' : isRequested ? '#f97316' : '#e5e7eb';
+                          const textColor = isSubmitted ? '#2563eb' : isRequested ? '#f97316' : '#9CA3AF';
+                          return (
+                            <Chip
+                              key={doc}
+                              value={doc}
+                              variant="outline"
+                              size="xs"
+                              radius="sm"
+                              color={isSubmitted ? 'blue' : isRequested ? 'orange' : 'gray'}
+                              styles={{
+                                label: { borderColor, color: textColor },
+                              }}
+                            >
+                              {doc}
+                            </Chip>
+                          );
+                        })}
                       </Group>
                     </Chip.Group>
+                      );
+                    })()}
                   </Box>
 
                   <Group align="flex-end" gap={6}>
@@ -1086,6 +1373,7 @@ export default function DashboardPage() {
                     }}
                     labelPending="심사 대기"
                     labelApproved="심사 완료"
+                    showNeutralForPending
                     readOnly={['appointment-completed', 'final-link-sent'].includes(selectedFc.status)}
                   />
                 </Stack>
@@ -1106,6 +1394,44 @@ export default function DashboardPage() {
             </Tabs>
           </>
         )}
+      </Modal>
+      <Modal
+        opened={rejectOpened}
+        onClose={closeReject}
+        title={
+          <Text fw={700}>
+            {rejectTarget?.kind === 'allowance'
+              ? '수당동의 반려 사유'
+              : rejectTarget?.kind === 'appointment'
+                ? '위촉 반려 사유'
+                : '서류 반려 사유'}
+          </Text>
+        }
+        size="md"
+        padding="lg"
+        radius="md"
+        centered
+        overlayProps={{ blur: 2 }}
+      >
+        <Stack gap="md">
+          <Text size="sm" c="dimmed">
+            FC에게 전달될 반려 사유를 입력해주세요. 입력된 사유는 알림과 화면에 표시됩니다.
+          </Text>
+          <Textarea
+            placeholder="예: 서류 식별이 어려워 재제출이 필요합니다."
+            minRows={3}
+            value={rejectReason}
+            onChange={(e) => setRejectReason(e.currentTarget.value)}
+          />
+          <Group justify="flex-end">
+            <Button variant="default" onClick={closeReject} disabled={rejectSubmitting}>
+              취소
+            </Button>
+            <Button color="red" onClick={handleRejectSubmit} loading={rejectSubmitting}>
+              반려 처리
+            </Button>
+          </Group>
+        </Stack>
       </Modal>
     </Box >
   );

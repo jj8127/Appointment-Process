@@ -147,9 +147,14 @@ export default function DocumentsPage() {
     // Mutations
     const updateStatusMutation = useMutation({
         mutationFn: async ({ doc, status, reason }: { doc: any; status: string; reason?: string }) => {
+            const reviewerNote =
+                status === 'rejected' ? (reason ?? '').trim() || null : status === 'approved' ? null : undefined;
             const { error } = await supabase
                 .from('fc_documents')
-                .update({ status })
+                .update({
+                    status,
+                    ...(reviewerNote !== undefined ? { reviewer_note: reviewerNote } : {}),
+                })
                 .eq('id', doc.id);
 
             if (error) throw error;
@@ -165,6 +170,9 @@ export default function DocumentsPage() {
                 body = `제출하신 [${doc.doc_type}] 서류가 반려되었습니다.\n사유: ${reason}`;
             }
 
+            if (status === 'rejected' && doc.fc_id) {
+                await supabase.from('fc_profiles').update({ status: 'docs-pending' }).eq('id', doc.fc_id);
+            }
             if (doc.fc_profiles?.phone) {
                 await supabase.from('notifications').insert({
                     title,
@@ -317,6 +325,8 @@ export default function DocumentsPage() {
                         }}
                         labelPending="미승인"
                         labelApproved="승인"
+                        showNeutralForPending
+                        allowPendingPress
                         readOnly={doc.status === 'approved'}
                     />
                 </Group>

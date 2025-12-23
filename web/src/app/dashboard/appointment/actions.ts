@@ -17,14 +17,15 @@ type AppointmentCategory = 'life' | 'nonlife';
 export async function updateAppointmentAction(
     prevState: UpdateAppointmentState,
     payload: {
-        fcId: number;
+        fcId: string;
         phone: string;
         type: AppointmentActionType;
         category: AppointmentCategory;
         value: string | null; // 자유 입력 일정 메모 또는 Date(YYYY-MM-DD)
+        reason?: string | null;
     }
 ): Promise<UpdateAppointmentState> {
-    const { fcId, phone, type, category, value } = payload;
+    const { fcId, phone, type, category, value, reason } = payload;
     const cookieStore = await cookies();
 
     const supabase = createServerClient(
@@ -57,13 +58,16 @@ export async function updateAppointmentAction(
     } else if (type === 'confirm') {
         // Confirm (Date)
         updatePayload[`appointment_date_${category}`] = value;
+        updatePayload[`appointment_reject_reason_${category}`] = null;
         notifTitle = '위촉 최종 승인';
         notifBody = `축하합니다! ${categoryLabel} 위촉이 최종 승인되었습니다. (확정일: ${value})`;
     } else if (type === 'reject') {
         // Reject (Clear Date)
         updatePayload[`appointment_date_${category}`] = null;
+        updatePayload[`appointment_date_${category}_sub`] = null;
+        updatePayload[`appointment_reject_reason_${category}`] = (reason ?? '').trim() || null;
         notifTitle = '위촉 정보 반려';
-        notifBody = `${categoryLabel} 위촉 정보가 반려되었습니다. 관리자에게 문의하세요.`;
+        notifBody = `${categoryLabel} 위촉 정보가 반려되었습니다.\n사유: ${(reason ?? '').trim() || '사유 없음'}`;
     }
 
     // 2. Perform DB Update

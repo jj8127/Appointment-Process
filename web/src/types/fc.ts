@@ -31,6 +31,7 @@ export type FcProfile = {
   career_type?: CareerType;
   temp_id?: string | null;
   allowance_date?: string | null;
+  allowance_reject_reason?: string | null;
   appointment_url?: string | null;
   appointment_date?: string | null;
   appointment_schedule_life?: string | null;
@@ -39,6 +40,8 @@ export type FcProfile = {
   appointment_date_nonlife?: string | null;
   appointment_date_life_sub?: string | null;
   appointment_date_nonlife_sub?: string | null;
+  appointment_reject_reason_life?: string | null;
+  appointment_reject_reason_nonlife?: string | null;
   status: FcStatus;
   created_at: string;
   fc_documents?: {
@@ -46,6 +49,7 @@ export type FcProfile = {
     storage_path: string | null;
     file_name?: string | null;
     status?: string | null;
+    reviewer_note?: string | null;
   }[];
 };
 
