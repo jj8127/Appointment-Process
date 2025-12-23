@@ -1,12 +1,23 @@
 import { Feather } from '@expo/vector-icons';
 import { usePathname, router } from 'expo-router';
 import { useRef } from 'react';
-import { Animated, Easing, Pressable, StyleSheet } from 'react-native';
+import { Animated, Easing, Platform, Pressable, StyleSheet } from 'react-native';
 
 const BORDER = '#e5e7eb';
 const CHARCOAL = '#111827';
 
 type Props = { onPress?: () => void | Promise<void> };
+
+const BUTTON_SHADOW =
+  Platform.OS === 'web'
+    ? { boxShadow: '0 2px 6px rgba(0,0,0,0.12)' }
+    : {
+        shadowColor: '#000',
+        shadowOpacity: 0.06,
+        shadowOffset: { width: 0, height: 2 },
+        shadowRadius: 6,
+        elevation: 3,
+      };
 
 export function RefreshButton({ onPress }: Props) {
   const pathname = usePathname();
@@ -56,10 +67,6 @@ const styles = StyleSheet.create({
     borderColor: BORDER,
     alignItems: 'center',
     justifyContent: 'center',
-    shadowColor: '#000',
-    shadowOpacity: 0.06,
-    shadowOffset: { width: 0, height: 2 },
-    shadowRadius: 6,
-    elevation: 3,
+    ...BUTTON_SHADOW,
   },
 });

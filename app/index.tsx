@@ -397,9 +397,10 @@ function calcStep(myFc: any) {
 
   // [2단계 우선] 서류 승인 여부
   const docs = myFc.fc_documents ?? [];
-  const validDocs = docs.filter((d: any) => d.storage_path && d.storage_path !== 'deleted');
-  const hasPendingDocs = validDocs.length === 0 || validDocs.some((d: any) => d.status !== 'approved');
-  if (hasPendingDocs) {
+  const allSubmitted =
+    docs.length > 0 && docs.every((d: any) => d.storage_path && d.storage_path !== 'deleted');
+  const allApproved = allSubmitted && docs.every((d: any) => d.status === 'approved');
+  if (!allApproved) {
     return 3; // 서류 단계에서 대기
   }
 

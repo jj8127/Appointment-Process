@@ -61,6 +61,7 @@ export default function AllowanceConsentScreen() {
   const [selectedDate, setSelectedDate] = useState<Date>(new Date());
   const [loading, setLoading] = useState(false);
   const [careerType, setCareerType] = useState<string | null>(null);
+  const [rejectReason, setRejectReason] = useState<string | null>(null);
   const keyboardPadding = useKeyboardPadding();
   const [showPicker, setShowPicker] = useState(Platform.OS === 'ios');
   const [currentIndex, setCurrentIndex] = useState(0);
@@ -75,7 +76,7 @@ export default function AllowanceConsentScreen() {
       if (!residentId) return;
       const { data } = await supabase
         .from('fc_profiles')
-        .select('temp_id, allowance_date, career_type')
+        .select('temp_id, allowance_date, career_type, allowance_reject_reason')
         .eq('phone', residentId)
         .maybeSingle();
 
@@ -84,6 +85,7 @@ export default function AllowanceConsentScreen() {
       setTempId(data?.temp_id ?? '');
       if (data?.allowance_date) setSelectedDate(new Date(data.allowance_date));
       setCareerType(data?.career_type ?? null);
+      setRejectReason(data?.allowance_reject_reason ?? null);
     };
     load();
   }, [residentId]);
@@ -104,7 +106,7 @@ export default function AllowanceConsentScreen() {
     setLoading(true);
     const { error, data } = await supabase
       .from('fc_profiles')
-      .update({ allowance_date: ymd, status: 'allowance-pending' })
+      .update({ allowance_date: ymd, status: 'allowance-pending', allowance_reject_reason: null })
       .eq('phone', residentId ?? '')
       .select('id,name')
       .single();
@@ -139,13 +141,14 @@ export default function AllowanceConsentScreen() {
       if (!residentId) return;
       const { data } = await supabase
         .from('fc_profiles')
-        .select('temp_id, allowance_date, career_type')
+        .select('temp_id, allowance_date, career_type, allowance_reject_reason')
         .eq('phone', residentId)
         .maybeSingle();
 
       setTempId(data?.temp_id ?? '');
       if (data?.allowance_date) setSelectedDate(new Date(data.allowance_date));
       setCareerType(data?.career_type ?? null);
+      setRejectReason(data?.allowance_reject_reason ?? null);
     } finally {
       setRefreshing(false);
     }
@@ -220,6 +223,12 @@ export default function AllowanceConsentScreen() {
             <Text style={styles.sectionDesc}>
               동의 완료 후 날짜를 입력해주세요. 총무 승인 후에는 수정할 수 없습니다.
             </Text>
+            {!!rejectReason && (
+              <View style={styles.rejectBox}>
+                <Text style={styles.rejectTitle}>반려 사유</Text>
+                <Text style={styles.rejectText}>{rejectReason}</Text>
+              </View>
+            )}
 
             <View style={styles.careerCard}>
               <View style={styles.careerBadge}>
@@ -369,6 +378,25 @@ const styles = StyleSheet.create({
   },
   sectionTitle: { fontSize: 18, fontWeight: '800', color: CHARCOAL, marginBottom: 4 },
   sectionDesc: { fontSize: 14, color: MUTED, marginBottom: 20 },
+  rejectBox: {
+    backgroundColor: '#FEF2F2',
+    borderColor: '#FECACA',
+    borderWidth: 1,
+    padding: 12,
+    borderRadius: 12,
+    marginBottom: 16,
+  },
+  rejectTitle: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: '#B91C1C',
+    marginBottom: 6,
+  },
+  rejectText: {
+    fontSize: 12,
+    color: '#7F1D1D',
+    lineHeight: 18,
+  },
 
   inputGroup: { marginBottom: 16 },
   label: { fontSize: 14, fontWeight: '600', color: CHARCOAL, marginBottom: 8 },

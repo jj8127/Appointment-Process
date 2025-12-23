@@ -43,6 +43,7 @@ if (Platform.OS === 'android') {
 const EXPO_PUSH_URL = 'https://exp.host/--/api/v2/push/send';
 const BUCKET = 'fc-documents';
 const ORANGE = '#f36f21';
+const BLUE = '#2563eb';
 const CHARCOAL = '#111827';
 const MUTED = '#6b7280';
 const BORDER = '#E5E7EB';
@@ -460,6 +461,13 @@ export default function DashboardScreen() {
 
       const currentTypes = currentDocs?.map((d) => d.doc_type) ?? [];
       const selectedSet = new Set(uniqueTypes);
+
+      if (uniqueTypes.length === 0) {
+        const { error: delAllErr } = await supabase.from('fc_documents').delete().eq('fc_id', id);
+        if (delAllErr) throw delAllErr;
+        await supabase.from('fc_profiles').update({ status: 'allowance-consented' }).eq('id', id);
+        return;
+      }
 
       const toDelete =
         currentDocs?.filter(
@@ -965,20 +973,14 @@ export default function DashboardScreen() {
                     confirmStatusChange(fc, 'allowance-consented', '수당 동의 검토를 완료 처리할까요?');
                     return;
                   }
-                  if (fc.status === 'allowance-consented') {
-                    Alert.alert('승인 해제', '이미 승인된 수당동의입니다. 미승인으로 변경할까요?', [
-                      { text: '취소', style: 'cancel' },
-                      {
-                        text: '변경',
-                        style: 'destructive',
-                        onPress: () => confirmStatusChange(fc, 'allowance-pending', '수당동의 상태를 미승인으로 되돌립니다. 진행할까요?'),
-                      },
-                    ]);
-                    return;
+                  if (fc.status !== 'allowance-pending') {
+                    openRejectModal({ kind: 'allowance', fc });
                   }
                 }}
                 labelPending="미승인"
                 labelApproved="승인"
+                showNeutralForPending
+                allowPendingPress
                 readOnly={false}
               />
             </View>
@@ -991,6 +993,7 @@ export default function DashboardScreen() {
         const submittedDocs = (fc.fc_documents ?? [])
           .filter((d) => d.storage_path && d.storage_path !== 'deleted')
           .sort((a, b) => (a.doc_type || '').localeCompare(b.doc_type || ''));
+        const submittedDocTypes = new Set(submittedDocs.map((d) => d.doc_type));
 
         actionBlocks.push(
           <View key="docs-actions" style={styles.cardSection}>
@@ -1020,25 +1023,39 @@ export default function DashboardScreen() {
               <View style={styles.docChips}>
                 {ALL_DOC_OPTIONS.map((doc) => {
                   const isSelected = docSelections[fc.id]?.has(doc);
+                  const isSubmitted = submittedDocTypes.has(doc);
+                  const textColor = isSubmitted ? BLUE : isSelected ? ORANGE : CHARCOAL;
                   return (
                     <Pressable
                       key={doc}
-                      style={[styles.docChip, isSelected && styles.docChipSelected]}
+                      style={[
+                        styles.docChip,
+                        isSelected && styles.docChipRequested,
+                        isSubmitted && styles.docChipSubmitted,
+                      ]}
                       onPress={() => toggleDocSelection(fc.id, doc)}
                     >
-                      <Text style={[styles.docChipText, isSelected && { color: '#fff' }]}>{doc}</Text>
+                      <Text style={[styles.docChipText, { color: textColor }]}>{doc}</Text>
                     </Pressable>
                   );
                 })}
-                {Array.from(docSelections[fc.id] ?? []).filter((d) => !ALL_DOC_OPTIONS.includes(d)).map((doc) => (
-                  <Pressable
-                    key={doc}
-                    style={[styles.docChip, styles.docChipSelected]}
-                    onPress={() => toggleDocSelection(fc.id, doc)}
-                  >
-                    <Text style={[styles.docChipText, { color: '#fff' }]}>{doc}</Text>
-                  </Pressable>
-                ))}
+                {Array.from(docSelections[fc.id] ?? []).filter((d) => !ALL_DOC_OPTIONS.includes(d)).map((doc) => {
+                  const isSubmitted = submittedDocTypes.has(doc);
+                  const textColor = isSubmitted ? BLUE : ORANGE;
+                  return (
+                    <Pressable
+                      key={doc}
+                      style={[
+                        styles.docChip,
+                        styles.docChipRequested,
+                        isSubmitted && styles.docChipSubmitted,
+                      ]}
+                      onPress={() => toggleDocSelection(fc.id, doc)}
+                    >
+                      <Text style={[styles.docChipText, { color: textColor }]}>{doc}</Text>
+                    </Pressable>
+                  );
+                })}
               </View>
 
               <View style={{ flexDirection: 'row', gap: 6, marginTop: 8 }}>
@@ -1092,6 +1109,8 @@ export default function DashboardScreen() {
                         }}
                         labelPending="미승인"
                         labelApproved="승인"
+                        showNeutralForPending
+                        allowPendingPress
                         readOnly={false}
                       />
                       <Pressable
@@ -1258,6 +1277,8 @@ export default function DashboardScreen() {
                 }}
                 labelPending="미승인"
                 labelApproved="승인"
+                showNeutralForPending
+                allowPendingPress
                 readOnly={false}
               />
             </View>
@@ -1335,6 +1356,8 @@ export default function DashboardScreen() {
                 }}
                 labelPending="미승인"
                 labelApproved="승인"
+                showNeutralForPending
+                allowPendingPress
                 readOnly={false}
               />
             </View>
@@ -1382,7 +1405,7 @@ export default function DashboardScreen() {
 
         {!isEditing && actionBlocks}
 
-        {isEditing && (
+          {isEditing && (
           <View style={styles.cardSection}>
             <View style={styles.editRow}>
               <Text style={styles.editLabel}>임시번호</Text>
@@ -1436,29 +1459,52 @@ export default function DashboardScreen() {
                   </Text>
                 </Pressable>
               </View>
+              {(() => {
+                const submittedDocTypes = new Set(
+                  (fc.fc_documents ?? [])
+                    .filter((d) => d.storage_path && d.storage_path !== 'deleted')
+                    .map((d) => d.doc_type),
+                );
+                return (
               <View style={styles.docChips}>
                 {ALL_DOC_OPTIONS.map((doc) => {
                   const isSelected = docSelections[fc.id]?.has(doc);
+                  const isSubmitted = submittedDocTypes.has(doc);
+                  const textColor = isSubmitted ? BLUE : isSelected ? ORANGE : CHARCOAL;
                   return (
                     <Pressable
                       key={doc}
-                      style={[styles.docChip, isSelected && styles.docChipSelected]}
+                      style={[
+                        styles.docChip,
+                        isSelected && styles.docChipRequested,
+                        isSubmitted && styles.docChipSubmitted,
+                      ]}
                       onPress={() => toggleDocSelection(fc.id, doc)}
                     >
-                      <Text style={[styles.docChipText, isSelected && { color: '#fff' }]}>{doc}</Text>
+                      <Text style={[styles.docChipText, { color: textColor }]}>{doc}</Text>
                     </Pressable>
                   );
                 })}
-                {Array.from(docSelections[fc.id] ?? []).filter((d) => !ALL_DOC_OPTIONS.includes(d)).map((doc) => (
-                  <Pressable
-                    key={doc}
-                    style={[styles.docChip, styles.docChipSelected]}
-                    onPress={() => toggleDocSelection(fc.id, doc)}
-                  >
-                    <Text style={[styles.docChipText, { color: '#fff' }]}>{doc}</Text>
-                  </Pressable>
-                ))}
+                {Array.from(docSelections[fc.id] ?? []).filter((d) => !ALL_DOC_OPTIONS.includes(d)).map((doc) => {
+                  const isSubmitted = submittedDocTypes.has(doc);
+                  const textColor = isSubmitted ? BLUE : ORANGE;
+                  return (
+                    <Pressable
+                      key={doc}
+                      style={[
+                        styles.docChip,
+                        styles.docChipRequested,
+                        isSubmitted && styles.docChipSubmitted,
+                      ]}
+                      onPress={() => toggleDocSelection(fc.id, doc)}
+                    >
+                      <Text style={[styles.docChipText, { color: textColor }]}>{doc}</Text>
+                    </Pressable>
+                  );
+                })}
               </View>
+                );
+              })()}
 
               <View style={{ flexDirection: 'row', gap: 6, marginTop: 4 }}>
                 <TextInput
@@ -2137,7 +2183,8 @@ const styles = StyleSheet.create({
     borderColor: '#E5E7EB',
     backgroundColor: '#fff',
   },
-  docChipSelected: { backgroundColor: ORANGE, borderColor: ORANGE },
+  docChipRequested: { borderColor: ORANGE },
+  docChipSubmitted: { borderColor: BLUE },
   docChipText: { fontSize: 12, color: CHARCOAL },
   docSaveButton: {
     paddingHorizontal: 14,

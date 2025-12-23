@@ -82,6 +82,8 @@ export default function AppointmentScreen() {
   // FC 제출 날짜
   const [submittedLife, setSubmittedLife] = useState<Date | null>(null);
   const [submittedNonLife, setSubmittedNonLife] = useState<Date | null>(null);
+  const [rejectReasonLife, setRejectReasonLife] = useState<string | null>(null);
+  const [rejectReasonNonLife, setRejectReasonNonLife] = useState<string | null>(null);
 
   // 화면 입력 값
   const [displayLife, setDisplayLife] = useState<Date | null>(null);
@@ -102,7 +104,7 @@ export default function AppointmentScreen() {
     const { data, error } = await supabase
       .from('fc_profiles')
       .select(
-        'appointment_schedule_life,appointment_schedule_nonlife,appointment_date_life,appointment_date_nonlife,appointment_date_life_sub,appointment_date_nonlife_sub',
+        'appointment_schedule_life,appointment_schedule_nonlife,appointment_date_life,appointment_date_nonlife,appointment_date_life_sub,appointment_date_nonlife_sub,appointment_reject_reason_life,appointment_reject_reason_nonlife',
       )
       .eq('phone', residentId)
       .maybeSingle();
@@ -124,6 +126,8 @@ export default function AppointmentScreen() {
     setApprovedNonLife(appNonLife);
     setSubmittedLife(subLife);
     setSubmittedNonLife(subNonLife);
+    setRejectReasonLife(data?.appointment_reject_reason_life ?? null);
+    setRejectReasonNonLife(data?.appointment_reject_reason_nonlife ?? null);
 
     // 표시값: 승인>제출>없음
     setDisplayLife(appLife || subLife || null);
@@ -169,7 +173,10 @@ export default function AppointmentScreen() {
     try {
       const { data, error } = await supabase
         .from('fc_profiles')
-        .update({ [dateField]: ymd })
+        .update({
+          [dateField]: ymd,
+          [type === 'life' ? 'appointment_reject_reason_life' : 'appointment_reject_reason_nonlife']: null,
+        })
         .eq('phone', residentId)
         .select('id,name')
         .maybeSingle();
@@ -224,6 +231,7 @@ export default function AppointmentScreen() {
     const approvedDate = isLife ? approvedLife : approvedNonLife;
     const submittedDate = isLife ? submittedLife : submittedNonLife;
     const displayDate = isLife ? displayLife : displayNonLife;
+    const rejectReason = isLife ? rejectReasonLife : rejectReasonNonLife;
     const saving = isLife ? savingLife : savingNonLife;
     const showPicker = isLife ? showPickerLife : showPickerNonLife;
     const setShowPicker = isLife ? setShowPickerLife : setShowPickerNonLife;
@@ -249,6 +257,12 @@ export default function AppointmentScreen() {
               ? '위촉 완료일을 제출했습니다. 총무 승인을 기다려주세요.'
               : `현재 ${scheduleMonth}월 위촉이 진행 중입니다. 완료되면 날짜를 입력하세요.`}
         </Text>
+        {!!rejectReason && (
+          <View style={styles.rejectBox}>
+            <Text style={styles.rejectTitle}>반려 사유</Text>
+            <Text style={styles.rejectText}>{rejectReason}</Text>
+          </View>
+        )}
 
         <View style={styles.inputGroup}>
           <Text style={styles.label}>완료 날짜</Text>
@@ -436,6 +450,25 @@ const styles = StyleSheet.create({
   },
   sectionTitle: { fontSize: 18, fontWeight: '800', color: CHARCOAL },
   sectionDesc: { fontSize: 14, color: MUTED, lineHeight: 20 },
+  rejectBox: {
+    backgroundColor: '#FEF2F2',
+    borderColor: '#FECACA',
+    borderWidth: 1,
+    padding: 12,
+    borderRadius: 12,
+    marginBottom: 12,
+  },
+  rejectTitle: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: '#B91C1C',
+    marginBottom: 6,
+  },
+  rejectText: {
+    fontSize: 12,
+    color: '#7F1D1D',
+    lineHeight: 18,
+  },
   badgeRow: { flexDirection: 'row', alignItems: 'center', gap: 10 },
   badge: { paddingHorizontal: 8, paddingVertical: 4, borderRadius: 8 },
   badgeLife: { backgroundColor: '#fff7ed' },

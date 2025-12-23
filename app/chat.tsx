@@ -61,6 +61,7 @@ export default function ChatScreen() {
   const [messages, setMessages] = useState<Message[]>([]);
   const [text, setText] = useState('');
   const [uploading, setUploading] = useState(false);
+  const pickingRef = useRef(false);
   const isUploadCancelled = useRef(false);
   const flatListRef = useRef<FlatList>(null);
   const deletedIdsRef = useRef<Set<string>>(new Set());
@@ -270,6 +271,8 @@ export default function ChatScreen() {
   };
 
   const pickDocument = async () => {
+    if (pickingRef.current) return;
+    pickingRef.current = true;
     try {
       const result = await DocumentPicker.getDocumentAsync({
         type: '*/*',
@@ -289,6 +292,8 @@ export default function ChatScreen() {
       }
     } catch (e) {
       console.log(e);
+    } finally {
+      pickingRef.current = false;
     }
   };
 

@@ -7,15 +7,18 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 export default function CompactHeader({ navigation, route, options, back }: any) {
     const title = getHeaderTitle(options, route.name);
     const insets = useSafeAreaInsets();
+    const leftElement = options.headerLeft
+        ? options.headerLeft({ canGoBack: !!back })
+        : back ? (
+            <Pressable onPress={navigation.goBack} style={styles.backButton}>
+                <Feather name="arrow-left" size={24} color="#000" />
+            </Pressable>
+        ) : null;
 
     return (
         <View style={[styles.container, { height: 48 + insets.top, paddingTop: insets.top }]}>
             <View style={styles.leftContainer}>
-                {back ? (
-                    <Pressable onPress={navigation.goBack} style={styles.backButton}>
-                        <Feather name="arrow-left" size={24} color="#000" />
-                    </Pressable>
-                ) : null}
+                {leftElement}
             </View>
 
             <View style={styles.titleContainer}>
@@ -23,7 +26,7 @@ export default function CompactHeader({ navigation, route, options, back }: any)
             </View>
 
             <View style={styles.rightContainer}>
-                {/* Placeholder for future right header actions */}
+                {options.headerRight ? options.headerRight() : null}
             </View>
         </View>
     );
@@ -44,7 +47,9 @@ const styles = StyleSheet.create({
         justifyContent: 'center',
     },
     rightContainer: {
-        width: 40,
+        minWidth: 40,
+        alignItems: 'flex-end',
+        justifyContent: 'center',
     },
     backButton: {
         padding: 4,

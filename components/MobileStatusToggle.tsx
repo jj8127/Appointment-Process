@@ -17,6 +17,8 @@ interface MobileStatusToggleProps {
     labelPending?: string;
     labelApproved?: string;
     readOnly?: boolean;
+    showNeutralForPending?: boolean;
+    allowPendingPress?: boolean;
 }
 
 export function MobileStatusToggle({
@@ -25,6 +27,8 @@ export function MobileStatusToggle({
     labelPending = '미승인',
     labelApproved = '승인',
     readOnly = false,
+    showNeutralForPending = false,
+    allowPendingPress = false,
 }: MobileStatusToggleProps) {
     const anim = useRef(new Animated.Value(value === 'approved' ? 1 : 0)).current;
 
@@ -38,7 +42,7 @@ export function MobileStatusToggle({
 
     const handlePress = (target: 'pending' | 'approved') => {
         if (readOnly) return;
-        if (value !== target) {
+        if (value !== target || (allowPendingPress && target === 'pending')) {
             onChange(target);
         }
     };
@@ -46,6 +50,11 @@ export function MobileStatusToggle({
     const translateX = anim.interpolate({
         inputRange: [0, 1],
         outputRange: [2, 70], // 0+2 padding, 140/2 + 2 padding = 72? No, width is 140. inner width 136. half 68. 2 -> 2+68=70.
+    });
+
+    const activePillOpacity = anim.interpolate({
+        inputRange: [0, 1],
+        outputRange: [showNeutralForPending ? 0 : 1, 1],
     });
 
     const textColorPending = anim.interpolate({
@@ -65,6 +74,7 @@ export function MobileStatusToggle({
                     styles.activePill,
                     {
                         transform: [{ translateX }],
+                        opacity: activePillOpacity,
                     },
                 ]}
             />

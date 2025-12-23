@@ -18,6 +18,7 @@ type Props = {
   style?: ViewStyle;
   extraScrollHeight?: number;
   refreshControl?: ReactElement<RefreshControlProps>;
+  keyboardShouldPersistTaps?: 'always' | 'handled' | 'never';
 };
 
 export function KeyboardAwareWrapper({
@@ -26,6 +27,7 @@ export function KeyboardAwareWrapper({
   style,
   extraScrollHeight = 24,
   refreshControl,
+  keyboardShouldPersistTaps = 'handled',
 }: Props) {
   const scrollViewRef = useRef<KeyboardAwareScrollView>(null);
 
@@ -44,7 +46,7 @@ export function KeyboardAwareWrapper({
         keyboardDismissMode="interactive" // 드래그 시 키보드가 사라지지 않고 스크롤 우선
         keyboardOpeningTime={0}
         extraScrollHeight={extraScrollHeight}
-        keyboardShouldPersistTaps="handled"
+        keyboardShouldPersistTaps={keyboardShouldPersistTaps}
         removeClippedSubviews={false} // Android getChildDrawingOrder 보호
         scrollEnabled
         scrollEventThrottle={16}

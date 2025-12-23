@@ -2,7 +2,7 @@ import { Feather } from '@expo/vector-icons';
 import * as DocumentPicker from 'expo-document-picker';
 import * as FileSystem from 'expo-file-system/legacy';
 import { useLocalSearchParams, useRouter } from 'expo-router';
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
@@ -100,11 +100,13 @@ export default function DocsUploadScreen() {
   const [docs, setDocs] = useState<DocItem[]>([]);
   const [uploadingType, setUploadingType] = useState<string | null>(null);
   const [approving, setApproving] = useState(false);
+  const pickingRef = useRef(false);
+  const storageDebuggedRef = useRef(false);
   const keyboardPadding = useKeyboardPadding();
   const [refreshing, setRefreshing] = useState(false);
 
   const docCount = useMemo(
-    () => ({ uploaded: docs.filter((d) => d.uploadedUrl).length, total: docs.length }),
+    () => ({ uploaded: docs.filter((d) => d.storagePath).length, total: docs.length }),
     [docs],
   );
 
@@ -153,15 +155,20 @@ export default function DocsUploadScreen() {
         return {
           type: r.doc_type,
           required: true,
-          uploadedUrl: hasFile
-            ? supabase.storage.from(BUCKET).getPublicUrl(r.storage_path).data.publicUrl
-            : undefined,
+          uploadedUrl: undefined,
           status: hasFile ? (r.status as any) ?? 'pending' : 'pending',
           reviewerNote: r.reviewer_note ?? undefined,
           storagePath: hasFile ? r.storage_path ?? undefined : undefined,
           originalName: hasFile ? r.file_name ?? undefined : undefined,
         };
       });
+
+      const statusRank = (doc: DocItem) => {
+        if (!doc.storagePath) return 0; // 미제출
+        if (doc.status === 'approved') return 2; // 승인됨
+        return 1; // 미승인 (제출됨)
+      };
+      reqDocs.sort((a, b) => statusRank(a) - statusRank(b));
 
       setFc(profile as FcLite);
       setDocs(reqDocs);
@@ -173,6 +180,33 @@ export default function DocsUploadScreen() {
   useEffect(() => {
     loadData();
   }, [loadData]);
+
+  useEffect(() => {
+    if (storageDebuggedRef.current) return;
+    storageDebuggedRef.current = true;
+    (async () => {
+      try {
+        console.log('[supabase env]', { url: process.env.EXPO_PUBLIC_SUPABASE_URL });
+        const { data, error } = await supabase.storage.listBuckets();
+        if (error) {
+          console.warn('[storage] listBuckets error', error.message);
+          return;
+        }
+        const names = (data ?? []).map((b: any) => b.name);
+        console.log('[storage] buckets', names);
+        const { data: listData, error: listError } = await supabase.storage
+          .from(BUCKET)
+          .list('', { limit: 1 });
+        if (listError) {
+          console.warn('[storage] list bucket error', listError.message);
+        } else {
+          console.log('[storage] list bucket ok', { bucket: BUCKET, count: listData?.length ?? 0 });
+        }
+      } catch (err: any) {
+        console.warn('[storage] listBuckets exception', err?.message ?? err);
+      }
+    })();
+  }, []);
 
   const onRefresh = useCallback(async () => {
     setRefreshing(true);
@@ -213,38 +247,74 @@ export default function DocsUploadScreen() {
 
   const handlePick = async (type: string) => {
     if (!fc) return;
+    if (pickingRef.current) return;
     const targetDoc = docs.find((d) => d.type === type);
     if (targetDoc?.status === 'approved') {
       Alert.alert('수정 불가', '이 서류는 승인되어 수정할 수 없습니다.');
       return;
     }
-    const result = await DocumentPicker.getDocumentAsync({
-      type: 'application/pdf',
-      copyToCacheDirectory: true,
-    });
+    pickingRef.current = true;
+    let result: DocumentPicker.DocumentPickerResult;
+    try {
+      result = await DocumentPicker.getDocumentAsync({
+        type: 'application/pdf',
+        copyToCacheDirectory: true,
+      });
+    } catch (err: any) {
+      Alert.alert('오류', err?.message ?? '파일 선택 중 오류가 발생했습니다.');
+      return;
+    } finally {
+      pickingRef.current = false;
+    }
+
     if (result.canceled) return;
     const asset = result.assets?.[0];
     if (!asset?.uri) return;
 
     setUploadingType(type as string);
     try {
-      let byteArray: Uint8Array;
+      console.log('[upload] start', {
+        docType: type,
+        uri: asset.uri,
+        name: asset.name,
+        size: asset.size,
+        mimeType: asset.mimeType,
+      });
+      const objectPath = `${fc.id}/${randomKey()}.pdf`;
+      const contentType = asset.mimeType ?? 'application/pdf';
       if (Platform.OS === 'web') {
         const response = await fetch(asset.uri);
         const blob = await response.blob();
-        byteArray = new Uint8Array(await blob.arrayBuffer());
+        const byteArray = new Uint8Array(await blob.arrayBuffer());
+        const { error: uploadError } = await supabase.storage
+          .from(BUCKET)
+          .upload(objectPath, byteArray, { contentType, upsert: true });
+        if (uploadError) {
+          console.warn('[upload] storage upload error', uploadError.message);
+          throw uploadError;
+        }
       } else {
-        const fileBase64 = await FileSystem.readAsStringAsync(asset.uri, { encoding: 'base64' });
-        byteArray = base64ToUint8Array(fileBase64);
+        const { data, error } = await supabase.storage.from(BUCKET).createSignedUploadUrl(objectPath);
+        if (error || !data?.signedUrl) {
+          console.warn('[upload] createSignedUploadUrl error', error?.message ?? 'unknown');
+          throw error ?? new Error('Signed upload URL 생성 실패');
+        }
+        const uploadResult = await FileSystem.uploadAsync(data.signedUrl, asset.uri, {
+          httpMethod: 'PUT',
+          uploadType: FileSystem.FileSystemUploadType.BINARY_CONTENT,
+          headers: { 'Content-Type': contentType },
+        });
+        if (uploadResult.status < 200 || uploadResult.status >= 300) {
+          console.warn('[upload] signed upload failed', uploadResult.status);
+          throw new Error(`업로드 실패 (status ${uploadResult.status})`);
+        }
       }
-      const objectPath = `${fc.id}/${randomKey()}.pdf`;
 
-      const { error: uploadError } = await supabase.storage
-        .from(BUCKET)
-        .upload(objectPath, byteArray, { contentType: 'application/pdf', upsert: true });
-      if (uploadError) throw uploadError;
-
-      const publicUrl = supabase.storage.from(BUCKET).getPublicUrl(objectPath).data.publicUrl;
+      const signedResult = await supabase.storage.from(BUCKET).createSignedUrl(objectPath, 300);
+      if (signedResult.error) {
+        console.warn('[storage] createSignedUrl failed', signedResult.error.message);
+      }
+      const publicUrl = signedResult.data?.signedUrl ?? '';
 
       const { error: dbError } = await supabase.from('fc_documents').upsert(
         {
@@ -253,17 +323,20 @@ export default function DocsUploadScreen() {
           storage_path: objectPath,
           file_name: asset.name ?? 'document.pdf',
           status: 'pending',
+          reviewer_note: null,
         },
         { onConflict: 'fc_id,doc_type' },
       );
-      if (dbError) throw dbError;
+      if (dbError) {
+        console.warn('[upload] db upsert error', dbError.message);
+        throw dbError;
+      }
 
       await supabase.from('fc_profiles').update({ status: 'docs-pending' }).eq('id', fc.id);
       const updatedDocs = docs.map((doc) =>
         doc.type === type
           ? {
             ...doc,
-            uploadedUrl: publicUrl,
             status: 'pending',
             storagePath: objectPath,
             originalName: asset.name ?? 'document.pdf',
@@ -280,7 +353,7 @@ export default function DocsUploadScreen() {
         `${nameLabel}님이 ${type}을 업로드했습니다.`,
       );
 
-      const uploadedCount = updatedDocs.filter((d) => d.uploadedUrl).length;
+      const uploadedCount = updatedDocs.filter((d) => d.storagePath).length;
       if (uploadedCount === updatedDocs.length && updatedDocs.length > 0) {
         await sendNotificationAndPush(
           'admin',
@@ -290,8 +363,10 @@ export default function DocsUploadScreen() {
         );
       }
 
+      console.log('[upload] success', { objectPath });
       Alert.alert('업로드 완료', '파일이 정상적으로 등록되었습니다.');
     } catch (err: any) {
+      console.warn('[upload] failed', { bucket: BUCKET, error: err?.message ?? err });
       Alert.alert('오류', err?.message ?? '업로드 실패');
     } finally {
       setUploadingType(null);
@@ -408,9 +483,10 @@ export default function DocsUploadScreen() {
         >
           <View style={styles.list}>
             {docs.map((doc) => {
-              const isUploaded = !!doc.uploadedUrl;
+              const isUploaded = !!doc.storagePath;
               const isUploading = uploadingType === doc.type;
               const isLocked = doc.status === 'approved';
+              const isRejected = doc.status === 'rejected';
 
               return (
                 <View key={doc.type} style={styles.card}>
@@ -427,10 +503,24 @@ export default function DocsUploadScreen() {
 
                         {/* status chip */}
                         {isUploaded ? (
-                          <View style={[styles.chip, isLocked ? styles.chipApproved : styles.chipSubmitted]}>
-                            <Feather name="check" size={12} color={isLocked ? '#1D4ED8' : '#059669'} />
-                            <Text style={[styles.chipText, { color: isLocked ? '#1D4ED8' : '#059669' }]}>
-                              {isLocked ? '승인됨' : '제출됨'}
+                          <View
+                            style={[
+                              styles.chip,
+                              isLocked ? styles.chipApproved : isRejected ? styles.chipRejected : styles.chipSubmitted,
+                            ]}
+                          >
+                            <Feather
+                              name={isRejected ? 'alert-triangle' : 'check'}
+                              size={12}
+                              color={isLocked ? '#1D4ED8' : isRejected ? '#B91C1C' : '#059669'}
+                            />
+                            <Text
+                              style={[
+                                styles.chipText,
+                                { color: isLocked ? '#1D4ED8' : isRejected ? '#B91C1C' : '#059669' },
+                              ]}
+                            >
+                              {isLocked ? '승인됨' : isRejected ? '재제출 요청' : '제출됨'}
                             </Text>
                           </View>
                         ) : (
@@ -457,7 +547,24 @@ export default function DocsUploadScreen() {
                     {isUploaded && (
                       <Pressable
                         style={({ pressed }) => [styles.btnGhost, pressed && styles.pressed]}
-                        onPress={() => doc.uploadedUrl && Linking.openURL(doc.uploadedUrl)}
+                        onPress={() => {
+                          if (!doc.storagePath) return;
+                          console.log('[storage] open file', {
+                            bucket: BUCKET,
+                            storagePath: doc.storagePath,
+                            uploadedUrl: doc.uploadedUrl,
+                          });
+                          (async () => {
+                            const { data: signed, error } = await supabase.storage
+                              .from(BUCKET)
+                              .createSignedUrl(doc.storagePath!, 300);
+                            if (error || !signed?.signedUrl) {
+                              Alert.alert('파일 열기 실패', error?.message ?? '링크 생성에 실패했습니다.');
+                              return;
+                            }
+                            Linking.openURL(signed.signedUrl);
+                          })();
+                        }}
                       >
                         <Feather name="external-link" size={16} color={CHARCOAL} />
                         <Text style={styles.btnGhostText}>열기</Text>
@@ -681,6 +788,7 @@ const styles = StyleSheet.create({
   chipPending: { backgroundColor: '#F9FAFB', borderColor: '#E5E7EB' },
   chipSubmitted: { backgroundColor: '#ECFDF5', borderColor: '#A7F3D0' },
   chipApproved: { backgroundColor: '#EFF6FF', borderColor: '#BFDBFE' },
+  chipRejected: { backgroundColor: '#FEF2F2', borderColor: '#FECACA' },
 
   chipText: {
     fontSize: 12,

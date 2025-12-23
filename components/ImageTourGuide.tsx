@@ -6,9 +6,11 @@ import {
     ImageSourcePropType,
     LayoutChangeEvent,
     Modal,
+    Platform,
     Pressable,
     StyleSheet,
     Text,
+    useWindowDimensions,
     View,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -34,6 +36,9 @@ type Size = { w: number; h: number };
 type Rect = { x: number; y: number; w: number; h: number };
 
 const clamp = (v: number, min: number, max: number) => Math.max(min, Math.min(max, v));
+
+const POINTER_NONE_STYLE = Platform.OS === 'web' ? { pointerEvents: 'none' } : null;
+const POINTER_NONE_PROP = Platform.OS === 'web' ? undefined : 'none';
 
 const ORANGE_PREMIUM = {
     dim: 0.60,
@@ -63,9 +68,13 @@ export const ImageTourGuide = ({
     const [pulseKey, setPulseKey] = useState(0);
 
     // 레이아웃 측정(이미지 contain 보정용)
+    const { width: windowWidth } = useWindowDimensions();
     const [wrapperSize, setWrapperSize] = useState<Size>({ w: 0, h: 0 });
     const [imgSize, setImgSize] = useState<Size>({ w: 0, h: 0 });
     const [tooltipSize, setTooltipSize] = useState<Size>({ w: 320, h: 160 });
+
+    const maxContainerWidth = 600; // 넓은 화면 제한
+    const containerWidth = Math.min(windowWidth, maxContainerWidth);
 
     const closeRequestedRef = useRef(false);
 
@@ -84,10 +93,13 @@ export const ImageTourGuide = ({
 
     // 이미지 원본 사이즈 확보 (require/uri 모두 대응)
     useEffect(() => {
-        const resolved = Image.resolveAssetSource(imageSource as any);
-        if (resolved?.width && resolved?.height) {
-            setImgSize({ w: resolved.width, h: resolved.height });
-            return;
+        // Web safety check: Image.resolveAssetSource might be missing
+        if (typeof Image.resolveAssetSource === 'function') {
+            const resolved = Image.resolveAssetSource(imageSource as any);
+            if (resolved?.width && resolved?.height) {
+                setImgSize({ w: resolved.width, h: resolved.height });
+                return;
+            }
         }
 
         // uri인 경우
@@ -231,7 +243,7 @@ export const ImageTourGuide = ({
                         </Pressable>
                     </View>
 
-                    <View style={styles.imageWrapper} onLayout={onWrapperLayout}>
+                    <View style={[styles.imageWrapper, { width: containerWidth, alignSelf: 'center' }]} onLayout={onWrapperLayout}>
                         <Image source={imageSource} style={styles.image} resizeMode="contain" />
 
                         {/* ===== Spotlight Dim (구멍) ===== */}
@@ -241,15 +253,23 @@ export const ImageTourGuide = ({
                                 <MotiView
                                     animate={{ left: 0, top: 0, width: wrapperSize.w, height: Math.max(0, highlightRect.y) }}
                                     transition={ORANGE_PREMIUM.move}
-                                    style={[styles.dimLayer, { backgroundColor: `rgba(0,0,0,${ORANGE_PREMIUM.dim})` }]}
-                                    pointerEvents="none"
+                                    style={[
+                                        styles.dimLayer,
+                                        { backgroundColor: `rgba(0,0,0,${ORANGE_PREMIUM.dim})` },
+                                        POINTER_NONE_STYLE,
+                                    ]}
+                                    pointerEvents={POINTER_NONE_PROP}
                                 />
                                 {/* left */}
                                 <MotiView
                                     animate={{ left: 0, top: highlightRect.y, width: Math.max(0, highlightRect.x), height: highlightRect.h }}
                                     transition={ORANGE_PREMIUM.move}
-                                    style={[styles.dimLayer, { backgroundColor: `rgba(0,0,0,${ORANGE_PREMIUM.dim})` }]}
-                                    pointerEvents="none"
+                                    style={[
+                                        styles.dimLayer,
+                                        { backgroundColor: `rgba(0,0,0,${ORANGE_PREMIUM.dim})` },
+                                        POINTER_NONE_STYLE,
+                                    ]}
+                                    pointerEvents={POINTER_NONE_PROP}
                                 />
                                 {/* right */}
                                 <MotiView
@@ -260,8 +280,12 @@ export const ImageTourGuide = ({
                                         height: highlightRect.h,
                                     }}
                                     transition={ORANGE_PREMIUM.move}
-                                    style={[styles.dimLayer, { backgroundColor: `rgba(0,0,0,${ORANGE_PREMIUM.dim})` }]}
-                                    pointerEvents="none"
+                                    style={[
+                                        styles.dimLayer,
+                                        { backgroundColor: `rgba(0,0,0,${ORANGE_PREMIUM.dim})` },
+                                        POINTER_NONE_STYLE,
+                                    ]}
+                                    pointerEvents={POINTER_NONE_PROP}
                                 />
                                 {/* bottom */}
                                 <MotiView
@@ -272,8 +296,12 @@ export const ImageTourGuide = ({
                                         height: Math.max(0, wrapperSize.h - (highlightRect.y + highlightRect.h)),
                                     }}
                                     transition={ORANGE_PREMIUM.move}
-                                    style={[styles.dimLayer, { backgroundColor: `rgba(0,0,0,${ORANGE_PREMIUM.dim})` }]}
-                                    pointerEvents="none"
+                                    style={[
+                                        styles.dimLayer,
+                                        { backgroundColor: `rgba(0,0,0,${ORANGE_PREMIUM.dim})` },
+                                        POINTER_NONE_STYLE,
+                                    ]}
+                                    pointerEvents={POINTER_NONE_PROP}
                                 />
                             </>
                         )}
@@ -291,16 +319,16 @@ export const ImageTourGuide = ({
                                     height: highlightRect.h,
                                 }}
                                 transition={ORANGE_PREMIUM.move}
-                                style={styles.highlightBox}
-                                pointerEvents="none"
+                                style={[styles.highlightBox, POINTER_NONE_STYLE]}
+                                pointerEvents={POINTER_NONE_PROP}
                             >
                                 {/* 은은한 글로우 펄스 */}
                                 <MotiView
                                     from={{ opacity: 0.26 }}
                                     animate={{ opacity: 0.08 }}
                                     transition={{ type: 'timing', duration: ORANGE_PREMIUM.pulseDuration, loop: true }}
-                                    style={StyleSheet.absoluteFillObject}
-                                    pointerEvents="none"
+                                    style={[StyleSheet.absoluteFillObject, POINTER_NONE_STYLE]}
+                                    pointerEvents={POINTER_NONE_PROP}
                                 />
                                 {/* 이동/등장 시 1회성 스냅 줌 */}
                                 <MotiView
@@ -308,8 +336,8 @@ export const ImageTourGuide = ({
                                     from={{ scale: 0.985, opacity: 0.0 }}
                                     animate={{ scale: 1.0, opacity: 1.0 }}
                                     transition={{ type: 'timing', duration: 140 }}
-                                    style={StyleSheet.absoluteFillObject}
-                                    pointerEvents="none"
+                                    style={[StyleSheet.absoluteFillObject, POINTER_NONE_STYLE]}
+                                    pointerEvents={POINTER_NONE_PROP}
                                 />
                             </MotiView>
                         )}

@@ -7,6 +7,7 @@ let handlerSet = false;
 
 export async function registerPushToken(role: 'admin' | 'fc', residentId: string, displayName: string) {
   try {
+    if (Platform.OS === 'web') return;
     console.log('registerPushToken start', role, residentId);
     // Expo Go cannot issue push tokens; use an EAS build
     if (Constants.appOwnership === 'expo') {

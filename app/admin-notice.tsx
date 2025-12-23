@@ -1,7 +1,7 @@
 import { Feather } from '@expo/vector-icons';
 import * as DocumentPicker from 'expo-document-picker';
 import * as ImagePicker from 'expo-image-picker';
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
@@ -45,6 +45,7 @@ export default function AdminNoticeScreen() {
   const [loading, setLoading] = useState(false);
   const [images, setImages] = useState<AttachedFile[]>([]);
   const [files, setFiles] = useState<AttachedFile[]>([]);
+  const pickingRef = useRef(false);
 
   const pickImage = async () => {
     try {
@@ -70,6 +71,8 @@ export default function AdminNoticeScreen() {
   };
 
   const pickFile = async () => {
+    if (pickingRef.current) return;
+    pickingRef.current = true;
     try {
       const result = await DocumentPicker.getDocumentAsync({
         type: '*/*',
@@ -90,6 +93,8 @@ export default function AdminNoticeScreen() {
       }
     } catch (e) {
       Alert.alert('오류', '파일을 불러오는데 실패했습니다.');
+    } finally {
+      pickingRef.current = false;
     }
   };
 
