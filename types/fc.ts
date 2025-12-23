@@ -31,12 +31,15 @@ export type FcProfile = {
   career_type?: CareerType;
   temp_id?: string | null;
   allowance_date?: string | null;
+  allowance_reject_reason?: string | null;
   appointment_url?: string | null;
   appointment_date?: string | null;
   appointment_schedule_life?: string | null;
   appointment_schedule_nonlife?: string | null;
   appointment_date_life?: string | null;
   appointment_date_nonlife?: string | null;
+  appointment_reject_reason_life?: string | null;
+  appointment_reject_reason_nonlife?: string | null;
   status: FcStatus;
   is_tour_seen?: boolean;
   created_at: string;
@@ -45,6 +48,7 @@ export type FcProfile = {
     storage_path: string | null;
     file_name?: string | null;
     status?: string | null;
+    reviewer_note?: string | null;
   }[];
 };
 

@@ -334,6 +334,15 @@ alter table public.fc_profiles
   add column if not exists address_detail text;
 
 alter table public.fc_profiles
+  add column if not exists allowance_reject_reason text;
+
+alter table public.fc_profiles
+  add column if not exists appointment_reject_reason_life text;
+
+alter table public.fc_profiles
+  add column if not exists appointment_reject_reason_nonlife text;
+
+alter table public.fc_profiles
   drop column if exists resident_number;
 
 alter table public.fc_profiles
