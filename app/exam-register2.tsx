@@ -3,15 +3,15 @@ import { useMutation, useQuery } from '@tanstack/react-query';
 import { router } from 'expo-router';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
-    Alert,
-    Platform,
-    Pressable,
-    RefreshControl,
-    ScrollView,
-    StyleSheet,
-    Text,
-    TextInput,
-    View,
+  Alert,
+  Platform,
+  Pressable,
+  RefreshControl,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TextInput,
+  View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
@@ -94,15 +94,15 @@ function RoundedButton({
     variant === 'primary'
       ? styles.btnPrimary
       : variant === 'secondary'
-      ? styles.btnSecondary
-      : styles.btnDanger;
+        ? styles.btnSecondary
+        : styles.btnDanger;
 
   const textStyle =
     variant === 'secondary'
       ? styles.btnTextSecondary
       : variant === 'danger'
-      ? styles.btnTextDanger
-      : styles.btnTextPrimary;
+        ? styles.btnTextDanger
+        : styles.btnTextPrimary;
 
   return (
     <Pressable
@@ -356,7 +356,7 @@ export default function ExamRegisterScreen() {
           refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}
         >
           <View style={styles.headerRow}>
-            <RefreshButton onPress={() => {refetch()}} />
+            <RefreshButton onPress={() => { refetch() }} />
             <Text style={styles.headerTitle}>손해보험 시험 일정 관리</Text>
           </View>
           <Text style={styles.caption}>
@@ -369,7 +369,7 @@ export default function ExamRegisterScreen() {
             <Text style={styles.sectionTitle}>1단계: 시험 일정 입력</Text>
 
             <Text style={styles.label}>시험 일자</Text>
-            {Platform.OS === 'ios' ? (
+            {Platform.OS === 'ios' || Platform.OS === 'web' ? (
               <DateTimePicker
                 value={examDate}
                 mode="date"
@@ -395,7 +395,7 @@ export default function ExamRegisterScreen() {
             )}
 
             <Text style={styles.label}>신청 마감일</Text>
-            {Platform.OS === 'ios' ? (
+            {Platform.OS === 'ios' || Platform.OS === 'web' ? (
               <DateTimePicker
                 value={deadlineDate}
                 mode="date"

@@ -21,6 +21,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { RefreshButton } from '@/components/RefreshButton';
 import { useKeyboardPadding } from '@/hooks/use-keyboard-padding';
 import { useSession } from '@/hooks/use-session';
+import { useIdentityGate } from '@/hooks/use-identity-gate';
 import { supabase } from '@/lib/supabase';
 import { RequiredDoc } from '@/types/fc';
 
@@ -91,6 +92,7 @@ async function sendNotificationAndPush(
 
 export default function DocsUploadScreen() {
   const { residentId, role } = useSession();
+  useIdentityGate({ nextPath: '/docs-upload' });
   const router = useRouter();
   const { userId } = useLocalSearchParams<{ userId?: string }>();
   const isAdmin = role === 'admin';
@@ -226,8 +228,15 @@ export default function DocsUploadScreen() {
 
     setUploadingType(type as string);
     try {
-      const fileBase64 = await FileSystem.readAsStringAsync(asset.uri, { encoding: 'base64' });
-      const byteArray = base64ToUint8Array(fileBase64);
+      let byteArray: Uint8Array;
+      if (Platform.OS === 'web') {
+        const response = await fetch(asset.uri);
+        const blob = await response.blob();
+        byteArray = new Uint8Array(await blob.arrayBuffer());
+      } else {
+        const fileBase64 = await FileSystem.readAsStringAsync(asset.uri, { encoding: 'base64' });
+        byteArray = base64ToUint8Array(fileBase64);
+      }
       const objectPath = `${fc.id}/${randomKey()}.pdf`;
 
       const { error: uploadError } = await supabase.storage

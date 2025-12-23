@@ -367,7 +367,7 @@ export default function ExamRegisterScreen() {
             <Text style={styles.sectionTitle}>1단계: 시험 일정 입력</Text>
 
             <Text style={styles.label}>시험 일자</Text>
-            {Platform.OS === 'ios' ? (
+            {Platform.OS === 'ios' || Platform.OS === 'web' ? (
               <DateTimePicker
                 value={examDate}
                 mode="date"
@@ -394,7 +394,7 @@ export default function ExamRegisterScreen() {
             )}
 
             <Text style={styles.label}>신청 마감일</Text>
-            {Platform.OS === 'ios' ? (
+            {Platform.OS === 'ios' || Platform.OS === 'web' ? (
               <DateTimePicker
                 value={deadlineDate}
                 mode="date"

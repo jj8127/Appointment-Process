@@ -1,4 +1,5 @@
 import { Feather } from '@expo/vector-icons';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useQuery } from '@tanstack/react-query';
 import Constants from 'expo-constants';
 import * as Haptics from 'expo-haptics';
@@ -10,7 +11,6 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
-  Linking,
   Platform,
   Pressable,
   RefreshControl,
@@ -26,6 +26,7 @@ import { TourGuideZone, useTourGuideController } from 'rn-tourguide';
 import { ImageTourGuide, TourStep } from '@/components/ImageTourGuide';
 import { RefreshButton } from '@/components/RefreshButton';
 import { useSession } from '@/hooks/use-session';
+import { useIdentityStatus } from '@/hooks/use-identity-status';
 import { supabase } from '@/lib/supabase';
 
 const SHORTCUT_GUIDE_STEPS: TourStep[] = [
@@ -110,6 +111,10 @@ const AndroidSafeMotiView = ({ from, animate, transition, state, exit, exitTrans
     />
   );
 };
+// ... rest of imports/constants ...
+
+
+
 
 const HANWHA_ORANGE = '#f36f21';
 const HANWHA_LIGHT = '#f7b182';
@@ -118,7 +123,6 @@ const TEXT_MUTED = '#6b7280';
 const BORDER = '#e5e7eb';
 const SOFT_BG = '#F9FAFB';
 const ORANGE_FAINT = '#fff1e6';
-const PRIVACY_EMAIL = process.env.EXPO_PUBLIC_PRIVACY_EMAIL ?? 'privacy@example.com';
 const STEP_KEYS = ['step1', 'step2', 'step3', 'step4', 'step5'] as const;
 type StepKey = (typeof STEP_KEYS)[number];
 type StepCounts = Record<StepKey, number>;
@@ -255,11 +259,57 @@ const fetchLatestAdminMessage = async (residentId: string) => {
   }
 };
 
+const fetchUnreadMessageCount = async (residentId: string) => {
+  if (!residentId) return 0;
+  const { data: authRes } = await supabase.auth.getUser();
+  const { count, error } = await supabase
+    .from('messages')
+    .select('id', { count: 'exact', head: true })
+    .eq('receiver_id', residentId)
+    .eq('is_read', false);
+  if (error) {
+    console.log('[Home] unread msg error', error);
+    return 0;
+  }
+  return count ?? 0;
+};
+
+const fetchUnreadNotificationCount = async (role: 'admin' | 'fc' | null, residentId: string | null) => {
+  try {
+    const lastCheck = await AsyncStorage.getItem('lastNotificationCheckTime');
+    const lastCheckDate = lastCheck ? new Date(lastCheck) : new Date(0);
+
+    let query = supabase
+      .from('notifications')
+      .select('id', { count: 'exact', head: true })
+      .gt('created_at', lastCheckDate.toISOString());
+
+    if (role === 'fc') {
+      if (residentId) {
+        query = query.eq('recipient_role', 'fc').or(`resident_id.eq.${residentId},resident_id.is.null`);
+      } else {
+        query = query.eq('recipient_role', 'fc').is('resident_id', null);
+      }
+    } else if (role === 'admin') {
+      query = query.eq('recipient_role', 'admin');
+    } else {
+      return 0;
+    }
+
+    const { count, error } = await query;
+    if (error) throw error;
+    return count ?? 0;
+  } catch (e) {
+    console.log('[Home] unread notif error', e);
+    return 0;
+  }
+};
+
 const fetchFcStatus = async (residentId: string) => {
   const { data, error } = await supabase
     .from('fc_profiles')
-    .select(
-      'id,name,affiliation,status,temp_id,allowance_date,appointment_url,appointment_date,appointment_schedule_life,appointment_schedule_nonlife,appointment_date_life,appointment_date_nonlife,appointment_date_life_sub,appointment_date_nonlife_sub,resident_id_masked,email,address,is_tour_seen,fc_documents(doc_type,storage_path,status)',
+      .select(
+        'id,name,affiliation,phone,status,temp_id,allowance_date,appointment_url,appointment_date,appointment_schedule_life,appointment_schedule_nonlife,appointment_date_life,appointment_date_nonlife,appointment_date_life_sub,appointment_date_nonlife_sub,resident_id_masked,email,address,is_tour_seen,fc_documents(doc_type,storage_path,status)',
     )
     .eq('phone', residentId)
     .maybeSingle();
@@ -280,6 +330,7 @@ const fetchFcStatus = async (residentId: string) => {
     appointment_date_life_sub: null,
     appointment_date_nonlife_sub: null,
     resident_id_masked: null,
+    phone: null,
     email: null,
     address: null,
     is_tour_seen: false,
@@ -396,6 +447,7 @@ import { useInAppUpdate } from '@/hooks/useInAppUpdate';
 export default function Home() {
   useInAppUpdate(); // Check for Android updates on mount
   const { role, residentId, residentMask, displayName, logout, hydrated } = useSession();
+  const { data: identityStatus, isLoading: identityLoading } = useIdentityStatus();
 
   const insets = useSafeAreaInsets();
 
@@ -455,6 +507,15 @@ export default function Home() {
   const isFc = role === 'fc';
 
   const [tourBlocking, setTourBlocking] = useState(false);
+
+  useEffect(() => {
+    if (!hydrated) return;
+    if (role !== 'fc') return;
+    if (identityLoading) return;
+    if (identityStatus && !identityStatus.identityCompleted) {
+      router.replace('/home-lite');
+    }
+  }, [hydrated, identityLoading, identityStatus, role]);
 
   useEffect(() => {
     if (!eventEmitter) return;
@@ -646,6 +707,32 @@ export default function Home() {
   const dateLife = myFc?.appointment_date_life || myFc?.appointment_date_life_sub;
   const dateNon = myFc?.appointment_date_nonlife || myFc?.appointment_date_nonlife_sub;
 
+  // Unread Counts
+  const { data: unreadMsgCount = 0, refetch: refetchMsgCount } = useQuery({
+    queryKey: ['unread-msg-count', residentId],
+    queryFn: () => fetchUnreadMessageCount(residentId),
+    enabled: !!residentId,
+    refetchInterval: 5000,
+  });
+
+  const { data: unreadNotifCount = 0, refetch: refetchNotifCount } = useQuery({
+    queryKey: ['unread-notif-count', role, residentId],
+    queryFn: () => fetchUnreadNotificationCount(role, residentId),
+    enabled: !!role,
+    refetchInterval: 5000, // Poll every 5s for notifications
+  });
+
+  // Refresh counts on focus
+  useFocusEffect(
+    useCallback(() => {
+      refetchMsgCount();
+      refetchNotifCount();
+    }, [refetchMsgCount, refetchNotifCount])
+  );
+
+
+
+
   const hasAnySchedule = !!schedLife || !!schedNon;
   const isMissingDates = (!!schedLife && !dateLife) || (!!schedNon && !dateNon);
 
@@ -720,7 +807,7 @@ export default function Home() {
   useEffect(() => {
     if (!hydrated) return;
     if (!role) {
-      router.replace('/auth');
+      router.replace('/login');
     }
   }, [hydrated, role]);
 
@@ -731,8 +818,7 @@ export default function Home() {
     if (!myFc) return;
 
     const hasBasics = (fc: any) =>
-      Boolean(fc?.name?.trim() && fc?.affiliation?.trim() && fc?.resident_id_masked) &&
-      Boolean(fc?.email || fc?.address);
+      Boolean(fc?.name?.trim() && fc?.affiliation?.trim() && fc?.phone?.trim() && fc?.email?.trim());
 
     if (hasBasics(myFc)) return;
     if (myFc.status !== 'draft') return;
@@ -742,7 +828,7 @@ export default function Home() {
       const refreshed = await refetchMyFc?.();
       const fresh = refreshed?.data ?? myFc;
       if (!hasBasics(fresh)) {
-        router.replace('/fc/new');
+        router.replace({ pathname: '/fc/new', params: { from: 'home' } } as any);
       }
     })();
   }, [hydrated, role, myFc, statusLoading, refetchMyFc, router]);
@@ -831,26 +917,11 @@ export default function Home() {
       router.push(`/dashboard?status=${stepKey}` as any);
       return;
     }
+    if (href === '/fc/new') {
+      router.push({ pathname: '/fc/new', params: { from: 'home' } } as any);
+      return;
+    }
     router.push(href as any);
-  };
-
-  const handleDeleteRequest = () => {
-    const subject = encodeURIComponent('개인정보 삭제 요청');
-    const body = encodeURIComponent(
-      [
-        '수탁 법인에 저장된 개인정보 삭제를 요청합니다.',
-        `이름(성함): ${displayName || ''}`,
-        `휴대폰번호: ${residentMask || ''}`,
-        '생년월일: ',
-        '',
-        '요청 사유:',
-      ].join('\n'),
-    );
-    const url = `mailto:${PRIVACY_EMAIL}?subject=${subject}&body=${body}`;
-
-    Linking.openURL(url).catch(() => {
-      Alert.alert('요청 실패', `이메일(${PRIVACY_EMAIL})로 직접 요청해주세요.`);
-    });
   };
 
   const handleStatClick = (stepKey: StepKey) => {
@@ -956,6 +1027,7 @@ export default function Home() {
         onScroll={scrollHandler}
         scrollEventThrottle={16}
       >
+
         <View
           ref={contentRef}
           collapsable={false}
@@ -966,18 +1038,35 @@ export default function Home() {
               <Pressable style={styles.logoutButton} onPress={handleLogout}>
                 <Text style={styles.logoutText}>로그아웃</Text>
               </Pressable>
+              <Pressable style={styles.bellButton} onPress={() => router.push('/settings')}>
+                <Feather name="settings" size={20} color={CHARCOAL} />
+              </Pressable>
               <Pressable style={styles.bellButton} onPress={() => router.push('/notifications')}>
                 <Feather name="bell" size={20} color={CHARCOAL} />
+                {unreadNotifCount > 0 && (
+                  <View
+                    style={{
+                      position: 'absolute',
+                      top: -8,
+                      right: -8,
+                      minWidth: 24,
+                      height: 24,
+                      borderRadius: 12,
+                      backgroundColor: '#EF4444',
+                      justifyContent: 'center',
+                      alignItems: 'center',
+                      borderWidth: 1,
+                      borderColor: '#fff',
+                    }}
+                  >
+                    <Text style={{ color: '#fff', fontSize: 12, fontWeight: 'bold' }}>
+                      {unreadNotifCount > 99 ? '99+' : unreadNotifCount}
+                    </Text>
+                  </View>
+                )}
               </Pressable>
             </View>
             <View style={styles.rightActions}>
-              {isFc ? (
-                <Pressable
-                  style={({ pressed }) => [styles.bellButton, pressed && styles.pressedOpacity]}
-                  onPress={startFcTour}>
-                  <Feather name="help-circle" size={20} color={CHARCOAL} />
-                </Pressable>
-              ) : null}
               <RefreshButton />
             </View>
           </View>
@@ -993,13 +1082,20 @@ export default function Home() {
             </View>
           )}
 
-          {role === 'fc' && (
-            <Stack.Screen
-              options={{
-                title: `${(myFc?.name || displayName || 'FC')}님 환영합니다`
-              }}
-            />
-          )}
+            {role === 'fc' ? (
+              <Stack.Screen
+                options={{
+                  title: `${(myFc?.name || displayName || 'FC')}님 환영합니다`,
+                  headerLeft: () => null,
+                }}
+              />
+            ) : (
+              <Stack.Screen
+                options={{
+                  headerLeft: () => null,
+                }}
+              />
+            )}
 
 
 
@@ -1146,6 +1242,27 @@ export default function Home() {
                           </View>
                           <View style={styles.ctaIconCircle}>
                             <Feather name="message-circle" size={24} color={HANWHA_ORANGE} />
+                            {unreadMsgCount > 0 && (
+                              <View
+                                style={{
+                                  position: 'absolute',
+                                  top: -8,
+                                  right: -8,
+                                  minWidth: 24,
+                                  height: 24,
+                                  borderRadius: 12,
+                                  backgroundColor: '#EF4444',
+                                  justifyContent: 'center',
+                                  alignItems: 'center',
+                                  borderWidth: 1.5,
+                                  borderColor: '#fff',
+                                }}
+                              >
+                                <Text style={{ color: '#fff', fontSize: 12, fontWeight: 'bold' }}>
+                                  {unreadMsgCount > 99 ? '99+' : unreadMsgCount}
+                                </Text>
+                              </View>
+                            )}
                           </View>
                           <View style={styles.ctaDecoCircle} />
                         </LinearGradient>
@@ -1647,8 +1764,6 @@ const styles = StyleSheet.create({
   homeTitleWrap: { marginHorizontal: 20, marginBottom: 6 },
   homeTitle: { fontSize: 26, fontWeight: '800', color: CHARCOAL },
   homeSubtitleText: { marginTop: 4, color: TEXT_MUTED, fontSize: 14 },
-  deleteButton: { flexDirection: 'row', alignItems: 'center', gap: 4 },
-  deleteButtonText: { fontSize: 13, color: HANWHA_ORANGE, fontWeight: '600' },
   notice: {
     marginHorizontal: 20,
     marginBottom: 20,

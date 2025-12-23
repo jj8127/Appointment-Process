@@ -4,7 +4,6 @@ import { router } from 'expo-router';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Alert,
-  Dimensions,
   FlatList,
   Image,
   KeyboardAvoidingView,
@@ -16,6 +15,7 @@ import {
   StyleSheet,
   Text,
   TextInput,
+  useWindowDimensions,
   View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -23,10 +23,10 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { RefreshButton } from '@/components/RefreshButton';
 import { useKeyboardPadding } from '@/hooks/use-keyboard-padding';
 import { useSession } from '@/hooks/use-session';
+import { useIdentityGate } from '@/hooks/use-identity-gate';
 import { supabase } from '@/lib/supabase';
 
-const { width } = Dimensions.get('window');
-
+// Remove static Dimensions
 const HANWHA_ORANGE = '#f36f21';
 const CHARCOAL = '#111827';
 const MUTED = '#6b7280';
@@ -55,11 +55,11 @@ const AGREEMENT_IMAGES = [
 
 export default function AllowanceConsentScreen() {
   const { residentId } = useSession();
+  useIdentityGate({ nextPath: '/consent' });
   const [tempId, setTempId] = useState('');
   // TC007: Initialize validation state
-  const [selectedDate, setSelectedDate] = useState<Date | null>(null);
+  const [selectedDate, setSelectedDate] = useState<Date>(new Date());
   const [loading, setLoading] = useState(false);
-  const [status, setStatus] = useState<string | null>(null);
   const [careerType, setCareerType] = useState<string | null>(null);
   const keyboardPadding = useKeyboardPadding();
   const [showPicker, setShowPicker] = useState(Platform.OS === 'ios');
@@ -75,7 +75,7 @@ export default function AllowanceConsentScreen() {
       if (!residentId) return;
       const { data } = await supabase
         .from('fc_profiles')
-        .select('temp_id, allowance_date, status, career_type')
+        .select('temp_id, allowance_date, career_type')
         .eq('phone', residentId)
         .maybeSingle();
 
@@ -83,7 +83,6 @@ export default function AllowanceConsentScreen() {
 
       setTempId(data?.temp_id ?? '');
       if (data?.allowance_date) setSelectedDate(new Date(data.allowance_date));
-      setStatus(data?.status ?? null);
       setCareerType(data?.career_type ?? null);
     };
     load();
@@ -91,39 +90,22 @@ export default function AllowanceConsentScreen() {
 
   useEffect(() => {
     if (AGREEMENT_IMAGES[0]) {
-      const { width: iw, height: ih } = Image.resolveAssetSource(AGREEMENT_IMAGES[0]);
-      if (iw && ih) setImageRatio(ih / iw);
+      // Web safety check
+      if (typeof Image.resolveAssetSource === 'function') {
+        const { width: iw, height: ih } = Image.resolveAssetSource(AGREEMENT_IMAGES[0]);
+        if (iw && ih) setImageRatio(ih / iw);
+      }
     }
   }, []);
 
-  const ymd = useMemo(() => (selectedDate ? toYMD(selectedDate) : null), [selectedDate]);
-  const isLocked =
-    status !== null &&
-    status !== 'draft' &&
-    status !== 'temp-id-issued' &&
-    status !== 'allowance-pending';
+  const ymd = useMemo(() => toYMD(selectedDate), [selectedDate]);
 
   const submit = async () => {
-    if (isLocked) {
-      Alert.alert('알림', '총무가 이미 승인 완료했습니다. 다시 제출할 수 없습니다.');
-      return;
-    }
-
-  if (!tempId) {
-    Alert.alert('알림', '임시사번을 입력해주세요.');
-    return;
-  }
-
-    if (!selectedDate) {
-      Alert.alert('알림', '수당동의일을 선택해주세요.');
-      return;
-    }
-
     setLoading(true);
     const { error, data } = await supabase
       .from('fc_profiles')
       .update({ allowance_date: ymd, status: 'allowance-pending' })
-      .eq('temp_id', tempId)
+      .eq('phone', residentId ?? '')
       .select('id,name')
       .single();
     setLoading(false);
@@ -139,7 +121,6 @@ export default function AllowanceConsentScreen() {
       })
       .catch(() => { });
 
-    setStatus('allowance-pending');
     Alert.alert('저장 완료', '수당 동의일이 제출되었습니다. 총무 검토 후 다음 단계로 진행됩니다.');
     router.replace('/');
   };
@@ -148,7 +129,8 @@ export default function AllowanceConsentScreen() {
     Linking.openURL('https://www.sgic.co.kr').catch(() => Alert.alert('오류', '사이트를 열 수 없습니다.'));
   };
 
-  const cardWidth = width - 48;
+  const { width } = useWindowDimensions();
+  const cardWidth = Math.min(width - 48, 480); // Constrain max width for desktop
   const cardHeight = cardWidth * imageRatio * 0.8;
 
   const onRefresh = useCallback(async () => {
@@ -157,13 +139,12 @@ export default function AllowanceConsentScreen() {
       if (!residentId) return;
       const { data } = await supabase
         .from('fc_profiles')
-        .select('temp_id, allowance_date, status, career_type')
+        .select('temp_id, allowance_date, career_type')
         .eq('phone', residentId)
         .maybeSingle();
 
       setTempId(data?.temp_id ?? '');
       if (data?.allowance_date) setSelectedDate(new Date(data.allowance_date));
-      setStatus(data?.status ?? null);
       setCareerType(data?.career_type ?? null);
     } finally {
       setRefreshing(false);
@@ -199,7 +180,7 @@ export default function AllowanceConsentScreen() {
               keyExtractor={(_, i) => String(i)}
               horizontal
               showsHorizontalScrollIndicator={false}
-              pagingEnabled={false}
+              pagingEnabled={false} // pagingEnabled can be buggy on web with variable widths, handled by snapToInterval
               decelerationRate="fast"
               snapToInterval={width}
               snapToAlignment="center"
@@ -218,6 +199,7 @@ export default function AllowanceConsentScreen() {
               }}
               renderItem={({ item }) => (
                 <View style={{ width, alignItems: 'center', paddingHorizontal: 24 }}>
+                  {/* Container width is full screen width, padding centers the card */}
                   <View style={[styles.imageFrame, { height: cardHeight, width: cardWidth }]}>
                     <Image source={item} style={styles.guideImage} resizeMode="contain" />
                   </View>
@@ -238,11 +220,6 @@ export default function AllowanceConsentScreen() {
             <Text style={styles.sectionDesc}>
               동의 완료 후 날짜를 입력해주세요. 총무 승인 후에는 수정할 수 없습니다.
             </Text>
-            {isLocked ? (
-              <View style={styles.lockBanner}>
-                <Text style={styles.lockText}>총무 승인 완료 상태입니다. 수정이 제한됩니다.</Text>
-              </View>
-            ) : null}
 
             <View style={styles.careerCard}>
               <View style={styles.careerBadge}>
@@ -265,15 +242,16 @@ export default function AllowanceConsentScreen() {
                 placeholder="총무가 임시사번을 발급하는 중입니다."
                 placeholderTextColor="#9CA3AF"
                 value={tempId}
-                onChangeText={setTempId}
+                editable={false}
+                selectTextOnFocus={false}
               />
             </View>
 
             <View style={styles.inputGroup}>
               <Text style={styles.label}>수당동의일</Text>
-              {Platform.OS === 'ios' ? (
+              {Platform.OS === 'ios' || Platform.OS === 'web' ? (
                 <DateTimePicker
-                  value={selectedDate ?? new Date()}
+                  value={selectedDate}
                   mode="date"
                   display="default"
                   locale="ko-KR"
@@ -282,15 +260,13 @@ export default function AllowanceConsentScreen() {
                 />
               ) : (
                 <Pressable style={styles.dateInput} onPress={() => setShowPicker(true)}>
-                  <Text style={[styles.dateText, !selectedDate && { color: '#9CA3AF' }]}>
-                    {selectedDate ? formatKoreanDate(selectedDate) : '날짜를 선택하세요'}
-                  </Text>
+                  <Text style={styles.dateText}>{formatKoreanDate(selectedDate)}</Text>
                   <Feather name="calendar" size={18} color={MUTED} />
                 </Pressable>
               )}
               {showPicker && Platform.OS === 'android' && (
                 <DateTimePicker
-                  value={selectedDate ?? new Date()}
+                  value={selectedDate}
                   mode="date"
                   onChange={(_, d) => {
                     setShowPicker(false);
@@ -303,9 +279,9 @@ export default function AllowanceConsentScreen() {
             <Pressable
               style={({ pressed }) => [styles.submitButton, pressed && styles.buttonPressed, loading && styles.buttonDisabled]}
               onPress={submit}
-              disabled={loading || isLocked}
+              disabled={loading}
             >
-              <Text style={styles.submitButtonText}>{loading ? '저장 중...' : isLocked ? '승인 완료' : '저장하기'}</Text>
+              <Text style={styles.submitButtonText}>{loading ? '저장 중...' : '저장하기'}</Text>
             </Pressable>
           </View>
         </ScrollView>
@@ -360,20 +336,6 @@ const styles = StyleSheet.create({
   divider: { height: 8, backgroundColor: '#F9FAFB', marginBottom: 24 },
 
   formSection: { paddingHorizontal: 24 },
-  lockBanner: {
-    backgroundColor: '#eff6ff',
-    padding: 12,
-    borderRadius: 8,
-    marginBottom: 20,
-    borderWidth: 1,
-    borderColor: '#bfdbfe',
-  },
-  lockText: {
-    fontSize: 14,
-    color: '#1d4ed8',
-    fontWeight: '600',
-    textAlign: 'center',
-  },
   careerCard: {
     backgroundColor: '#FFF0E6', // Light Orange bg
     borderRadius: 12,

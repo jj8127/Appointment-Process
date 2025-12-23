@@ -13,13 +13,14 @@ import {
   ScrollView,
   StyleSheet,
   Text,
-  View,
+  View
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { RefreshButton } from '@/components/RefreshButton';
 import { useKeyboardPadding } from '@/hooks/use-keyboard-padding';
 import { useSession } from '@/hooks/use-session';
+import { useIdentityGate } from '@/hooks/use-identity-gate';
 import { supabase } from '@/lib/supabase';
 
 const HANWHA_ORANGE = '#f36f21';
@@ -35,6 +36,8 @@ const formatKoreanDate = (d: Date) =>
 
 const toYMD = (d: Date) =>
   `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+
+const formatShortKoreanDate = (d: Date) => d.toLocaleDateString('ko-KR');
 
 const APPOINTMENT_IMAGES = [
   require('../appointment_img/img2.jpg'),
@@ -65,6 +68,7 @@ const APPOINTMENT_IMAGES = [
 
 export default function AppointmentScreen() {
   const { role, residentId } = useSession();
+  useIdentityGate({ nextPath: '/appointment' });
   const keyboardPadding = useKeyboardPadding();
 
   // 예정 월
@@ -132,8 +136,11 @@ export default function AppointmentScreen() {
 
   useEffect(() => {
     if (APPOINTMENT_IMAGES[0]) {
-      const src = Image.resolveAssetSource(APPOINTMENT_IMAGES[0]);
-      if (src?.width && src?.height) setImageRatio(src.height / src.width);
+      // Web safety check
+      if (typeof Image.resolveAssetSource === 'function') {
+        const src = Image.resolveAssetSource(APPOINTMENT_IMAGES[0]);
+        if (src?.width && src?.height) setImageRatio(src.height / src.width);
+      }
     }
   }, []);
 
@@ -245,7 +252,39 @@ export default function AppointmentScreen() {
 
         <View style={styles.inputGroup}>
           <Text style={styles.label}>완료 날짜</Text>
-          {Platform.OS === 'ios' ? (
+          {Platform.OS === 'web' ? (
+            <View style={styles.webDateWrapper}>
+              <View style={[styles.dateInput, isLocked && styles.disabledInput]}>
+                <Text style={[styles.dateText, !displayDate && styles.placeholderText]}>
+                  {displayDate ? formatShortKoreanDate(displayDate) : '날짜를 선택하세요'}
+                </Text>
+                <Feather name="calendar" size={18} color={MUTED} />
+              </View>
+              {/* @ts-ignore */}
+              <input
+                type="date"
+                style={{
+                  position: 'absolute',
+                  top: 0,
+                  left: 0,
+                  right: 0,
+                  bottom: 0,
+                  width: '100%',
+                  height: '100%',
+                  opacity: 0,
+                  cursor: isLocked ? 'not-allowed' : 'pointer',
+                }}
+                value={displayDate ? toYMD(displayDate) : ''}
+                disabled={isLocked}
+                onChange={(e: any) => {
+                  if (!isLocked) {
+                    const val = e.target.valueAsDate;
+                    if (val) handleDateChange(type, { type: 'set' } as any, val);
+                  }
+                }}
+              />
+            </View>
+          ) : Platform.OS === 'ios' ? (
             <DateTimePicker
               value={displayDate ?? new Date()}
               mode="date"
@@ -406,6 +445,7 @@ const styles = StyleSheet.create({
   badgeTextNonLife: { color: '#2563eb' },
   inputGroup: { gap: 8, marginTop: 4 },
   label: { fontSize: 14, fontWeight: '600', color: CHARCOAL },
+  webDateWrapper: { position: 'relative', width: '100%' },
   dateInput: {
     height: 48,
     backgroundColor: INPUT_BG,

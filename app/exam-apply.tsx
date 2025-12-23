@@ -8,6 +8,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
+  Platform,
   Pressable,
   RefreshControl,
   ScrollView,
@@ -20,6 +21,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { KeyboardAwareWrapper } from '@/components/KeyboardAwareWrapper';
 import { RefreshButton } from '@/components/RefreshButton';
 import { useSession } from '@/hooks/use-session';
+import { useIdentityGate } from '@/hooks/use-identity-gate';
 import { supabase } from '@/lib/supabase';
 import { ExamRoundWithLocations, formatDate } from '@/types/exam';
 
@@ -172,6 +174,7 @@ function normalizeSingle<T>(value: T | T[] | null | undefined): T | null {
 
 export default function ExamApplyScreen() {
   const { role, residentId, displayName, hydrated } = useSession();
+  useIdentityGate({ nextPath: '/exam-apply' });
 
   const [selectedRoundId, setSelectedRoundId] = useState<string | null>(null);
   const [selectedLocationId, setSelectedLocationId] = useState<string | null>(null);
@@ -181,7 +184,7 @@ export default function ExamApplyScreen() {
   useEffect(() => {
     if (!hydrated) return;
     if (!role) {
-      router.replace('/auth');
+      router.replace('/login');
       return;
     }
     if (role !== 'fc') {
@@ -295,6 +298,11 @@ export default function ExamApplyScreen() {
     }
     if (myLastApply?.round_id) setSelectedRoundId(myLastApply.round_id);
     if (myLastApply?.location_id) setSelectedLocationId(myLastApply.location_id);
+    if (!myLastApply) {
+      setSelectedRoundId(null);
+      setSelectedLocationId(null);
+      setWantsThird(false);
+    }
   }, [myLastApply]);
 
   const hasHistory = !!myLastApply?.id;
@@ -411,6 +419,26 @@ export default function ExamApplyScreen() {
       Alert.alert('취소 실패', err?.message ?? '시험 신청 취소 중 오류가 발생했습니다.');
     },
   });
+
+  const handleCancelPress = () => {
+    if (isConfirmed) {
+      Alert.alert('알림', lockMessage);
+      return;
+    }
+    if (!myLastApply?.id) {
+      Alert.alert('알림', '취소할 신청 내역이 없습니다.');
+      return;
+    }
+    if (Platform.OS === 'web') {
+      cancelMutation.mutate();
+      return;
+    }
+    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
+    Alert.alert('신청 취소', '정말 취소하시겠습니까?', [
+      { text: '아니요', style: 'cancel' },
+      { text: '예', style: 'destructive', onPress: () => cancelMutation.mutate() },
+    ]);
+  };
 
   const handleRoundSelect = (round: ExamRoundWithLocations) => {
     if (isConfirmed) {
@@ -714,7 +742,7 @@ export default function ExamApplyScreen() {
               >
                 <LinearGradient
                   colors={
-                    !selectedRoundId || !selectedLocationId
+                    isConfirmed || !selectedRoundId || !selectedLocationId
                       ? ['#d1d5db', '#9ca3af']
                       : [HANWHA_ORANGE, '#fb923c']
                   }
@@ -723,7 +751,7 @@ export default function ExamApplyScreen() {
                   style={styles.submitBtn}
                 >
                   <Text style={styles.submitBtnText}>
-                    {hasHistory ? '신청 내역 수정하기' : '시험 신청하기'}
+                    {isConfirmed ? '시험 접수 완료' : hasHistory ? '신청 내역 수정하기' : '시험 신청하기'}
                   </Text>
                   {applyMutation.isPending && <ActivityIndicator color="#fff" style={{ marginLeft: 8 }} />}
                 </LinearGradient>
@@ -731,21 +759,11 @@ export default function ExamApplyScreen() {
 
               {hasHistory && (
                 <Pressable
-                  onPress={() => {
-                    if (isConfirmed) {
-                      Alert.alert('알림', lockMessage);
-                      return;
-                    }
-                    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
-                    Alert.alert('신청 취소', '정말 취소하시겠습니까?', [
-                      { text: '아니요', style: 'cancel' },
-                      { text: '예', style: 'destructive', onPress: () => cancelMutation.mutate() },
-                    ]);
-                  }}
-                  disabled={cancelMutation.isPending || isConfirmed}
+                  onPress={handleCancelPress}
+                  disabled={cancelMutation.isPending || isConfirmed || !myLastApply?.id}
                   style={({ pressed }) => [styles.cancelBtn, pressed && styles.pressedOpacity]}
                 >
-                  <Text style={styles.cancelBtnText}>신청 취소하기</Text>
+                  <Text style={styles.cancelBtnText}>{isConfirmed ? '신청 취소불가' : '신청 취소하기'}</Text>
                 </Pressable>
               )}
             </View>

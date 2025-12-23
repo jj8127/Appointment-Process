@@ -57,7 +57,7 @@ type ExamRegistrationRaw = {
 type FcProfile = {
   id: string;
   name: string | null;
-  resident_number: string | null;
+  resident_id_masked: string | null;
   address: string | null;
   phone: string | null;
 };
@@ -137,7 +137,7 @@ async function fetchApplicantsLife(): Promise<ApplicantRow[]> {
   if (residentIds.length > 0) {
     const { data: profiles, error: pError } = await supabase
       .from('fc_profiles')
-      .select('id, name, resident_number, address, phone, affiliation')
+      .select('id, name, resident_id_masked, address, phone, affiliation')
       .in('phone', residentIds);
     if (pError) throw pError;
     profileMap = Object.fromEntries((profiles ?? []).map((p: any) => [p.phone as string, p as FcProfile]));
@@ -154,7 +154,7 @@ async function fetchApplicantsLife(): Promise<ApplicantRow[]> {
         residentId: key,
         headQuarter: profile?.affiliation ?? '-',
         name: profile?.name ?? '-',
-        residentNumber: profile?.resident_number ?? '-',
+        residentNumber: profile?.resident_id_masked ?? '-',
         address: profile?.address ?? '-',
         phone: profile?.phone ?? key,
         exams: examInfo ? [examInfo] : [],

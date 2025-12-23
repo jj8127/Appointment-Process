@@ -4,8 +4,8 @@ import * as NavigationBar from 'expo-navigation-bar';
 import * as Notifications from 'expo-notifications';
 import { Stack, router } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
-import { useEffect } from 'react';
-import { Platform } from 'react-native';
+import { useEffect, useMemo, useState } from 'react';
+import { Platform, Pressable } from 'react-native';
 import 'react-native-reanimated';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { enableScreens } from 'react-native-screens';
@@ -27,19 +27,83 @@ const baseHeader = {
 } as const;
 
 // Notification handler (banner/list 지원)
-Notifications.setNotificationHandler({
-  handleNotification: async () => ({
-    shouldShowAlert: true,
-    shouldPlaySound: false,
-    shouldSetBadge: false,
-    shouldShowBanner: true,
-    shouldShowList: true,
-  }),
-});
+if (Platform.OS !== 'web') {
+  Notifications.setNotificationHandler({
+    handleNotification: async () => ({
+      shouldShowAlert: true,
+      shouldPlaySound: false,
+      shouldSetBadge: false,
+      shouldShowBanner: true,
+      shouldShowList: true,
+    }),
+  });
+}
+
+import {
+  AntDesign,
+  Entypo,
+  Feather,
+  FontAwesome,
+  Ionicons,
+  MaterialIcons,
+} from '@expo/vector-icons';
+import { loadAsync } from 'expo-font';
+import * as SplashScreen from 'expo-splash-screen';
+
+SplashScreen.preventAutoHideAsync();
 
 export default function RootLayout() {
+  const isWeb = Platform.OS === 'web';
+  const fontSources = useMemo(
+    () =>
+      isWeb
+        ? {
+          Feather: { uri: '/fonts/Feather.ttf' },
+          Ionicons: { uri: '/fonts/Ionicons.ttf' },
+          MaterialIcons: { uri: '/fonts/MaterialIcons.ttf' },
+          FontAwesome: { uri: '/fonts/FontAwesome.ttf' },
+          AntDesign: { uri: '/fonts/AntDesign.ttf' },
+          Entypo: { uri: '/fonts/Entypo.ttf' },
+        }
+        : {
+          ...Feather.font,
+          ...Ionicons.font,
+          ...MaterialIcons.font,
+          ...FontAwesome.font,
+          ...AntDesign.font,
+          ...Entypo.font,
+        },
+    [isWeb]
+  );
+  const [loaded, setLoaded] = useState(false);
+  const [error, setError] = useState<Error | null>(null);
+
   const colorScheme = useColorScheme();
   const isDark = colorScheme === 'dark';
+
+  useEffect(() => {
+    let isMounted = true;
+    loadAsync(fontSources)
+      .then(() => {
+        if (isMounted) setLoaded(true);
+      })
+      .catch((err) => {
+        if (isMounted) setError(err as Error);
+      });
+    return () => {
+      isMounted = false;
+    };
+  }, [fontSources]);
+
+  useEffect(() => {
+    if (error) throw error;
+  }, [error]);
+
+  useEffect(() => {
+    if (loaded || isWeb) {
+      SplashScreen.hideAsync();
+    }
+  }, [loaded, isWeb]);
 
   useEffect(() => {
     if (Platform.OS !== 'android') return;
@@ -77,6 +141,10 @@ export default function RootLayout() {
     };
   }, []);
 
+  if (!loaded) {
+    return null;
+  }
+
   return (
     <SafeAreaProvider>
       <QueryClientProvider client={queryClient}>
@@ -89,18 +157,71 @@ export default function RootLayout() {
               androidStatusBarVisible
               verticalOffset={0}>
               <Stack
-                initialRouteName="auth"
+                initialRouteName="login"
                 screenOptions={{
                   headerShown: false,
                 }}>
                 <Stack.Screen name="index" options={{ ...baseHeader, title: '홈' }} />
+                <Stack.Screen name="home-lite" options={{ ...baseHeader, title: '홈' }} />
                 <Stack.Screen name="auth" options={{ headerShown: false }} />
+                <Stack.Screen name="login" options={{ headerShown: false }} />
+                <Stack.Screen
+                  name="signup"
+                  options={{
+                    ...baseHeader,
+                    title: '회원가입',
+                    headerLeft: () => (
+                      <Pressable onPress={() => router.replace('/login')} style={{ padding: 8, marginLeft: -8 }}>
+                        <Feather name="arrow-left" size={24} color="#000" />
+                      </Pressable>
+                    ),
+                  }}
+                />
+                <Stack.Screen
+                  name="reset-password"
+                  options={{
+                    ...baseHeader,
+                    title: '비밀번호 재설정',
+                    headerLeft: () => (
+                      <Pressable onPress={() => router.replace('/login')} style={{ padding: 8, marginLeft: -8 }}>
+                        <Feather name="arrow-left" size={24} color="#000" />
+                      </Pressable>
+                    ),
+                  }}
+                />
+                <Stack.Screen
+                  name="signup-verify"
+                  options={{
+                    ...baseHeader,
+                    title: '휴대폰 인증',
+                    headerLeft: () => (
+                      <Pressable onPress={() => router.replace('/signup')} style={{ padding: 8, marginLeft: -8 }}>
+                        <Feather name="arrow-left" size={24} color="#000" />
+                      </Pressable>
+                    ),
+                  }}
+                />
+                <Stack.Screen
+                  name="signup-password"
+                  options={{
+                    ...baseHeader,
+                    title: '비밀번호 설정',
+                    headerLeft: () => (
+                      <Pressable onPress={() => router.replace('/signup-verify')} style={{ padding: 8, marginLeft: -8 }}>
+                        <Feather name="arrow-left" size={24} color="#000" />
+                      </Pressable>
+                    ),
+                  }}
+                />
+                <Stack.Screen name="apply-gate" options={{ ...baseHeader, title: '위촉 신청 안내' }} />
+                <Stack.Screen name="identity" options={{ ...baseHeader, title: '신원 확인' }} />
                 <Stack.Screen name="fc/new" options={{ ...baseHeader, title: '기본 정보' }} />
                 <Stack.Screen name="consent" options={{ ...baseHeader, title: '수당 지급 동의서' }} />
                 <Stack.Screen name="docs-upload" options={{ ...baseHeader, title: '필수 서류 업로드' }} />
                 <Stack.Screen name="exam-apply" options={{ ...baseHeader, title: '생명/제3보험 시험 신청' }} />
                 <Stack.Screen name="exam-apply2" options={{ ...baseHeader, title: '손해보험 시험 신청' }} />
                 <Stack.Screen name="chat" options={{ ...baseHeader, title: '1:1 문의' }} />
+                <Stack.Screen name="settings" options={{ ...baseHeader, title: '설정' }} />
 
                 <Stack.Screen name="dashboard" options={{ ...baseHeader, title: '전체 현황' }} />
                 <Stack.Screen name="appointment" options={{ ...baseHeader, title: '모바일 위촉' }} />
