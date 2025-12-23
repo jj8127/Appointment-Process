@@ -1,7 +1,7 @@
 'use client';
 
 import { useSession } from '@/hooks/use-session';
-import { AppShell, Burger, Group, NavLink, Text } from '@mantine/core';
+import { AppShell, Avatar, Burger, Group, Menu, NavLink, Text, UnstyledButton } from '@mantine/core';
 import { useDisclosure } from '@mantine/hooks';
 import {
   IconBell,
@@ -11,6 +11,7 @@ import {
   IconLink,
   IconLogout,
   IconMessage,
+  IconSettings,
   IconUsers
 } from '@tabler/icons-react';
 import { usePathname, useRouter } from 'next/navigation';
@@ -23,7 +24,11 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   const [opened, { toggle }] = useDisclosure();
   const router = useRouter();
   const pathname = usePathname();
-  const { role, logout, hydrated } = useSession();
+  const { role, logout, hydrated, displayName, residentMask } = useSession();
+
+  const userInitial = displayName?.trim()?.[0] ?? (role === 'admin' ? '총' : 'F');
+  const roleLabel = role === 'admin' ? '관리자' : 'FC';
+  const subLabel = role === 'admin' ? '총무 계정' : residentMask || '전화번호 미등록';
 
   const navItems: NavItem[] = useMemo(
     () => [
@@ -55,11 +60,48 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
       padding="md"
     >
       <AppShell.Header>
-        <Group h="100%" px="md">
-          <Burger opened={opened} onClick={toggle} hiddenFrom="sm" size="sm" />
-          <Text fw={800} size="lg">
-            FC 온보딩 웹
-          </Text>
+        <Group h="100%" px="md" justify="space-between" wrap="nowrap">
+          <Group wrap="nowrap">
+            <Burger opened={opened} onClick={toggle} hiddenFrom="sm" size="sm" />
+            <Text fw={800} size="lg">
+              FC 온보딩 웹
+            </Text>
+          </Group>
+
+          <Menu shadow="md" width={220} position="bottom-end">
+            <Menu.Target>
+              <UnstyledButton>
+                <Group gap="sm" wrap="nowrap">
+                  <Avatar color="orange" radius="xl" size="sm">
+                    {userInitial}
+                  </Avatar>
+                  <div>
+                    <Text size="sm" fw={600} c="dark">
+                      {displayName?.trim() || roleLabel}
+                    </Text>
+                    <Text size="xs" c="dimmed">
+                      {subLabel}
+                    </Text>
+                  </div>
+                </Group>
+              </UnstyledButton>
+            </Menu.Target>
+            <Menu.Dropdown>
+              <Menu.Item
+                leftSection={<IconSettings size={16} stroke={1.6} />}
+                onClick={() => router.push('/dashboard/settings')}
+              >
+                설정
+              </Menu.Item>
+              <Menu.Item
+                color="red"
+                leftSection={<IconLogout size={16} stroke={1.6} />}
+                onClick={logout}
+              >
+                로그아웃
+              </Menu.Item>
+            </Menu.Dropdown>
+          </Menu>
         </Group>
       </AppShell.Header>
 

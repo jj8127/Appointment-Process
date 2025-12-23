@@ -280,7 +280,7 @@ export default function ExamApplicantsPage() {
     // --- Mutations ---
     const updateStatusMutation = useMutation({
         mutationFn: async ({ id, isConfirmed }: { id: string; isConfirmed: boolean }) => {
-            const nextStatus = isConfirmed ? 'applied' : 'pending';
+            const nextStatus = isConfirmed ? 'confirmed' : 'applied';
             const { error } = await supabase
                 .from('exam_registrations')
                 .update({ is_confirmed: isConfirmed, status: nextStatus })
@@ -313,17 +313,18 @@ export default function ExamApplicantsPage() {
         }
 
         const headers = ['시험 구분', '이름', '연락처', '소속', '주소', '주민번호', '시험 응시 과목', '고사장', '상태', '신청일'];
+        const asExcelText = (value: string) => `="${String(value).replace(/"/g, '""')}"`;
         const pRows = filteredRows.map(a => [
             getRowValue(a, 'round_info'),
             a.name,
-            a.phone,
+            asExcelText(a.phone),
             a.affiliation,
             a.address,
-            a.resident_id,
+            asExcelText(a.resident_id),
             getRowValue(a, 'subject_display'), // New Subject Column
             a.location_name,
             a.is_confirmed ? '접수 완료' : '미접수',
-            dayjs(a.created_at).format('YYYY-MM-DD HH:mm')
+            asExcelText(dayjs(a.created_at).format('YYYY-MM-DD HH:mm'))
         ]);
 
         const csvContent = [

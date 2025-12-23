@@ -121,7 +121,7 @@ export default function AdminExamManagePage() {
     if (processingId === row.id || row.is_confirmed === nextConfirmed) return;
     setProcessingId(row.id);
     try {
-      const nextStatus = nextConfirmed ? 'applied' : 'pending';
+      const nextStatus = nextConfirmed ? 'confirmed' : 'applied';
       const payload = { is_confirmed: nextConfirmed, status: nextStatus };
 
       const { error } = await supabase

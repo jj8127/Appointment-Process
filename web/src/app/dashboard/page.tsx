@@ -77,6 +77,10 @@ export default function DashboardPage() {
   }>({});
   const [isAppointmentPending, startAppointmentTransition] = useTransition();
 
+  const updateSelectedFc = (updates: Partial<any>) => {
+    setSelectedFc((prev: any) => (prev ? { ...prev, ...updates } : prev));
+  };
+
   const { data: fcs, isLoading } = useQuery({
     queryKey: ['dashboard-list'],
     queryFn: async () => {
@@ -149,11 +153,12 @@ export default function DashboardPage() {
   });
 
   const updateDocsRequestMutation = useMutation({
-    mutationFn: async () => {
+    mutationFn: async ({ types }: { types: string[] }) => {
       if (!selectedFc) return;
 
+      const nextTypes = types ?? [];
       console.log('Mutation Start');
-      console.log('SelectedDocs (Intent):', selectedDocs);
+      console.log('SelectedDocs (Intent):', nextTypes);
 
       const { data: currentDocsRaw, error: fetchErr } = await supabase
         .from('fc_documents')
@@ -170,9 +175,9 @@ export default function DashboardPage() {
 
       const currentTypes = currentDocs.map((d: any) => d.doc_type);
 
-      const toAdd = selectedDocs.filter((type) => !currentTypes.includes(type));
+      const toAdd = nextTypes.filter((type) => !currentTypes.includes(type));
       const toDelete = currentDocs
-        .filter((d: any) => !selectedDocs.includes(d.doc_type) && (!d.storage_path || d.storage_path === 'deleted'))
+        .filter((d: any) => !nextTypes.includes(d.doc_type) && (!d.storage_path || d.storage_path === 'deleted'))
         .map((d: any) => d.doc_type);
 
       console.log('To Add:', toAdd);
@@ -237,10 +242,12 @@ export default function DashboardPage() {
         await sendPushNotification(selectedFc.phone, { title: finalTitle, body: msg, data: { url } });
       }
     },
-    onSuccess: () => {
+    onSuccess: (_data, variables) => {
+      if (variables?.status) {
+        updateSelectedFc({ status: variables.status });
+      }
       notifications.show({ title: '처리 완료', message: '상태가 변경되었습니다.', color: 'green' });
       queryClient.invalidateQueries({ queryKey: ['dashboard-list'] });
-      close();
     },
     onError: (err: any) => notifications.show({ title: '오류', message: err.message, color: 'red' }),
   });
@@ -337,23 +344,28 @@ export default function DashboardPage() {
 
   const handleAppointmentAction = (e: React.MouseEvent, type: 'schedule' | 'confirm' | 'reject', category: 'life' | 'nonlife') => {
     e.stopPropagation();
+    const isLife = category === 'life';
     let value = null;
+    let dateValue: Date | null = null;
+    let scheduleValue: string | null = null;
 
     if (type === 'schedule') {
-      const scheduleVal = category === 'life' ? appointmentInputs.life : appointmentInputs.nonlife;
+      const scheduleVal = isLife ? appointmentInputs.life : appointmentInputs.nonlife;
       // Fallback to DB if not in state? No, modal initializes state.
       if (!scheduleVal) {
         notifications.show({ title: '입력 필요', message: '예정월을 입력해주세요.', color: 'yellow' });
         return;
       }
-      value = String(scheduleVal);
+      scheduleValue = String(scheduleVal);
+      value = scheduleValue;
     } else if (type === 'confirm') {
-      const dateVal = category === 'life' ? appointmentInputs.lifeDate : appointmentInputs.nonLifeDate;
+      const dateVal = isLife ? appointmentInputs.lifeDate : appointmentInputs.nonLifeDate;
       // Admin simply confirms the existing date.
       if (!dateVal) {
         notifications.show({ title: '확인 불가', message: 'FC가 아직 확정일을 입력하지 않았습니다.', color: 'red' });
         return;
       }
+      dateValue = dateVal;
       value = dayjs(dateVal).format('YYYY-MM-DD');
     }
 
@@ -372,18 +384,30 @@ export default function DashboardPage() {
         if (result.success) {
           notifications.show({ title: '완료', message: result.message, color: 'green' });
           queryClient.invalidateQueries({ queryKey: ['dashboard-list'] });
-          // Note: Re-fetching will re-render rows, but modal state needs update?
-          // Modal uses `selectedFc`. If we don't update `selectedFc`, it might show stale data.
-          // However, `selectedFc` is just state.
-          // We should probably re-fetch selectedFc or close modal.
-          // For better UX, we can update the local `selectedFc` state with the new values if we key off it?
-          // Actually `selectedFc` is not automatically updated by refetch.
-          // Or better: update `selectedFc` manually with the change? Too complex.
-          // Don't close modal so user can work on the other category if needed.
-          // We need to refetch user data to update the UI (green buttons).
-          // But `selectedFc` won't update automatically.
-          // Let's rely on toast for feedback.
-          // close();
+          if (type === 'schedule' && scheduleValue) {
+            updateSelectedFc({
+              [isLife ? 'appointment_schedule_life' : 'appointment_schedule_nonlife']: scheduleValue,
+            });
+          }
+          if (type === 'confirm' && dateValue) {
+            const dateKey = isLife ? 'lifeDate' : 'nonLifeDate';
+            setAppointmentInputs((prev) => ({ ...prev, [dateKey]: dateValue }));
+            updateSelectedFc({
+              [isLife ? 'appointment_date_life' : 'appointment_date_nonlife']: value,
+            });
+            const nextLife = isLife ? value : selectedFc.appointment_date_life;
+            const nextNonlife = !isLife ? value : selectedFc.appointment_date_nonlife;
+            const nextStatus = nextLife && nextNonlife ? 'final-link-sent' : 'appointment-completed';
+            updateSelectedFc({ status: nextStatus });
+          }
+          if (type === 'reject') {
+            const dateKey = isLife ? 'lifeDate' : 'nonLifeDate';
+            setAppointmentInputs((prev) => ({ ...prev, [dateKey]: null }));
+            updateSelectedFc({
+              [isLife ? 'appointment_date_life' : 'appointment_date_nonlife']: null,
+              status: 'docs-approved',
+            });
+          }
         } else {
           notifications.show({ title: '오류', message: result.error, color: 'red' });
         }
@@ -396,6 +420,8 @@ export default function DashboardPage() {
     const schedule = isLife ? appointmentInputs.life : appointmentInputs.nonlife;
     const date = isLife ? appointmentInputs.lifeDate : appointmentInputs.nonLifeDate;
     const isConfirmed = isLife ? !!selectedFc.appointment_date_life : !!selectedFc.appointment_date_nonlife;
+    const submittedDate = isLife ? selectedFc.appointment_date_life_sub : selectedFc.appointment_date_nonlife_sub;
+    const isSubmitted = !isConfirmed && !!submittedDate;
 
     return (
       <Stack gap="xs" mt="sm">
@@ -411,15 +437,36 @@ export default function DashboardPage() {
             }}
           />
           <TextInput
-            label="확정일(Actual)"
+            label={
+              <Group gap={6}>
+                <Text size="sm">확정일(Actual)</Text>
+                {isSubmitted && (
+                  <Badge variant="light" color="orange" size="xs">
+                    FC 제출
+                  </Badge>
+                )}
+              </Group>
+            }
             value={date ? dayjs(date).format('YYYY-MM-DD') : '미실시'}
             readOnly
             disabled
             pointer
             variant="filled"
-            styles={{ input: { color: date ? undefined : 'gray', cursor: 'default' } }}
+            styles={{
+              input: {
+                color: date ? '#111827' : 'gray',
+                cursor: 'default',
+                backgroundColor: isSubmitted ? '#fff4e6' : undefined,
+                borderColor: isSubmitted ? '#ff922b' : undefined,
+              },
+            }}
           />
         </Group>
+        {isSubmitted && (
+          <Text size="xs" c="orange">
+            제출일: {dayjs(submittedDate).format('YYYY-MM-DD')}
+          </Text>
+        )}
         <Group gap={8}>
           <Button
             variant="light" color="blue" size="xs" flex={1}
@@ -432,11 +479,15 @@ export default function DashboardPage() {
           <StatusToggle
             value={isConfirmed ? 'approved' : 'pending'}
             onChange={(val) => {
-              if (val === 'approved') handleAppointmentAction({ stopPropagation: () => { } } as any, 'confirm', category);
+              if (val === 'approved') {
+                handleAppointmentAction({ stopPropagation: () => { } } as any, 'confirm', category);
+              } else if (isConfirmed) {
+                handleAppointmentAction({ stopPropagation: () => { } } as any, 'reject', category);
+              }
             }}
             labelPending="미승인"
             labelApproved="승인 완료"
-            readOnly={isConfirmed || isAppointmentPending}
+            readOnly={isAppointmentPending}
           />
           <Tooltip label="반려 (확정 취소)">
             <ActionIcon
@@ -782,7 +833,14 @@ export default function DashboardPage() {
                     </Chip.Group>
                   </Box>
                   <Box mt="md">
-                    <Text fw={600} size="sm" mb="xs">수당 동의 검토</Text>
+                    <Group justify="space-between" mb="xs">
+                      <Text fw={600} size="sm">수당 동의 검토</Text>
+                      {selectedFc.allowance_date && (
+                        <Badge variant="light" color="gray" size="sm">
+                          동의일: {dayjs(selectedFc.allowance_date).format('YYYY-MM-DD')}
+                        </Badge>
+                      )}
+                    </Group>
                     <StatusToggle
                       value={selectedFc.status === 'allowance-consented' || ['docs-pending', 'docs-submitted', 'docs-approved', 'appointment-completed', 'final-link-sent'].includes(selectedFc.status) ? 'approved' : 'pending'}
                       onChange={(val) => {
@@ -792,11 +850,17 @@ export default function DashboardPage() {
                             title: '수당동의 승인',
                             msg: '수당 동의가 승인되었습니다. 서류 제출 단계로 진행해주세요.',
                           });
+                          return;
                         }
+                        if (!confirm('승인을 취소하시겠습니까?')) return;
+                        updateStatusMutation.mutate({
+                          status: 'allowance-pending',
+                          msg: '',
+                        });
                       }}
                       labelPending="미승인"
                       labelApproved="승인 완료"
-                      readOnly={selectedFc.status === 'allowance-consented' || ['docs-pending', 'docs-submitted', 'docs-approved', 'appointment-completed', 'final-link-sent'].includes(selectedFc.status)}
+                      readOnly={['docs-pending', 'docs-submitted', 'docs-approved', 'appointment-completed', 'final-link-sent'].includes(selectedFc.status)}
                     />
                   </Box>
 
@@ -890,26 +954,42 @@ export default function DashboardPage() {
 
                                     value={d.status === 'approved' ? 'approved' : 'pending'}
                                     onChange={async (val) => {
-                                      if (val === 'approved') {
+                                      const nextStatus = val === 'approved' ? 'approved' : 'pending';
+                                      if (nextStatus === d.status) return;
+                                      if (nextStatus === 'approved') {
                                         if (!confirm('문서를 승인하시겠습니까?')) return;
-                                        const res = await updateDocStatusAction({ success: false }, {
-                                          fcId: selectedFc.id,
-                                          phone: selectedFc.phone,
-                                          docType: d.doc_type,
-                                          status: 'approved'
-                                        });
-                                        if (res.success) {
-                                          notifications.show({ title: '승인', message: res.message, color: 'green' });
-                                          queryClient.invalidateQueries({ queryKey: ['dashboard-list'] });
-                                          close(); // Close to refresh state
-                                        } else {
-                                          notifications.show({ title: '오류', message: res.error, color: 'red' });
+                                      } else {
+                                        if (!confirm('승인을 취소하시겠습니까?')) return;
+                                      }
+                                      const res = await updateDocStatusAction({ success: false }, {
+                                        fcId: selectedFc.id,
+                                        phone: selectedFc.phone,
+                                        docType: d.doc_type,
+                                        status: nextStatus,
+                                      });
+                                      if (res.success) {
+                                        notifications.show({ title: nextStatus === 'approved' ? '승인' : '취소', message: res.message, color: 'green' });
+                                        const nextDocs = (selectedFc.fc_documents || []).map((doc: any) =>
+                                          doc.doc_type === d.doc_type ? { ...doc, status: nextStatus } : doc
+                                        );
+                                        const validDocs = nextDocs.filter((doc: any) => doc.storage_path && doc.storage_path !== 'deleted');
+                                        let nextProfileStatus = selectedFc.status;
+                                        if (!['appointment-completed', 'final-link-sent'].includes(selectedFc.status)) {
+                                          if (validDocs.length > 0 && validDocs.every((doc: any) => doc.status === 'approved')) {
+                                            nextProfileStatus = 'docs-approved';
+                                          } else if (selectedFc.status === 'docs-approved') {
+                                            nextProfileStatus = 'docs-pending';
+                                          }
                                         }
+                                        updateSelectedFc({ fc_documents: nextDocs, status: nextProfileStatus });
+                                        queryClient.invalidateQueries({ queryKey: ['dashboard-list'] });
+                                      } else {
+                                        notifications.show({ title: '오류', message: res.error, color: 'red' });
                                       }
                                     }}
                                     labelPending="미승인"
                                     labelApproved="승인"
-                                    readOnly={d.status === 'approved'}
+                                    readOnly={false}
                                   />
                                   <Tooltip label="삭제">
                                     <ActionIcon
@@ -942,7 +1022,7 @@ export default function DashboardPage() {
                       setSelectedDocs(val);
                     }}>
                       <Group gap={6}>
-                        {DOC_OPTIONS.map((doc) => (
+                        {Array.from(new Set([...DOC_OPTIONS, ...selectedDocs])).map((doc) => (
                           <Chip key={doc} value={doc} variant="outline" size="xs" radius="sm">
                             {doc}
                           </Chip>
@@ -966,8 +1046,13 @@ export default function DashboardPage() {
                       variant="default"
                       size="xs"
                       onClick={() => {
-                        if (customDocInput) {
-                          setSelectedDocs((prev) => [...prev, customDocInput]);
+                        if (customDocInput.trim()) {
+                          const val = customDocInput.trim();
+                          if (!selectedDocs.includes(val)) {
+                            const nextDocs = [...selectedDocs, val];
+                            setSelectedDocs(nextDocs);
+                            updateDocsRequestMutation.mutate({ types: nextDocs });
+                          }
                           setCustomDocInput('');
                         }
                       }}
@@ -980,7 +1065,7 @@ export default function DashboardPage() {
                     fullWidth
                     color="orange"
                     mt="md"
-                    onClick={() => updateDocsRequestMutation.mutate()}
+                    onClick={() => updateDocsRequestMutation.mutate({ types: selectedDocs })}
                     loading={updateDocsRequestMutation.isPending}
                   >
                     서류 요청 업데이트
@@ -992,11 +1077,16 @@ export default function DashboardPage() {
                   <StatusToggle
                     value={['docs-approved', 'appointment-completed', 'final-link-sent'].includes(selectedFc.status) ? 'approved' : 'pending'}
                     onChange={(val) => {
-                      if (val === 'approved') updateStatusMutation.mutate({ status: 'docs-approved', msg: '서류 검토 완료' });
+                      if (val === 'approved') {
+                        updateStatusMutation.mutate({ status: 'docs-approved', msg: '서류 검토 완료' });
+                        return;
+                      }
+                      if (!confirm('심사 완료 상태를 취소하시겠습니까?')) return;
+                      updateStatusMutation.mutate({ status: 'docs-pending', msg: '' });
                     }}
                     labelPending="심사 대기"
                     labelApproved="심사 완료"
-                    readOnly={['docs-approved', 'appointment-completed', 'final-link-sent'].includes(selectedFc.status)}
+                    readOnly={['appointment-completed', 'final-link-sent'].includes(selectedFc.status)}
                   />
                 </Stack>
               </Tabs.Panel>

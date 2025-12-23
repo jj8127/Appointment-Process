@@ -48,12 +48,15 @@ export function StatusToggle({
                 indicator: {
                     backgroundColor: '#fff',
                     boxShadow: '0 1px 3px rgba(0,0,0,0.1)',
+                    transition: 'transform 180ms ease, width 180ms ease, background-color 180ms ease, box-shadow 180ms ease',
                 },
                 label: {
                     fontWeight: 600,
-                    // Temporarily removed custom color logic to fix "Unsupported style property" error.
-                    // Mantine default styles will handle active/inactive states.
-                }
+                    transition: 'color 180ms ease, transform 180ms ease',
+                },
+                control: {
+                    transition: 'color 180ms ease',
+                },
             }}
         />
     );

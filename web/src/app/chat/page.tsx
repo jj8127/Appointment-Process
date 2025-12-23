@@ -13,7 +13,7 @@ import {
   ScrollArea,
   Stack,
   Text,
-  TextInput,
+  Textarea,
   Title,
 } from '@mantine/core';
 import { notifications } from '@mantine/notifications';
@@ -460,12 +460,21 @@ function ChatContent() {
           }}
         >
           <Group align="flex-end" gap={8}>
-            <TextInput
+            <Textarea
               style={{ flex: 1 }}
               placeholder="메시지 입력"
               value={input}
               onChange={(e) => setInput(e.currentTarget.value)}
-              onKeyDown={onKeyDown}
+              onKeyDown={(e) => {
+                if (e.nativeEvent.isComposing) return;
+                if (e.key === 'Enter' && !e.shiftKey) {
+                  e.preventDefault();
+                  sendMessage();
+                }
+              }}
+              autosize
+              minRows={1}
+              maxRows={4}
               radius="xl"
               size="md"
             />
@@ -477,6 +486,7 @@ function ChatContent() {
               onClick={sendMessage}
               disabled={!input.trim() || loading || !isReady}
               loading={loading}
+              mb={4} // Align with bottom of textarea
             >
               <IconSend size={20} />
             </ActionIcon>

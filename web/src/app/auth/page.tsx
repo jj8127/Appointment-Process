@@ -15,7 +15,7 @@ import { notifications } from '@mantine/notifications';
 import { useRouter } from 'next/navigation';
 import { useEffect, useState } from 'react';
 
-const ADMIN_PHONE_NUMBERS = (process.env.NEXT_PUBLIC_ADMIN_PHONES ?? '')
+const ADMIN_PHONE_NUMBERS = (process.env.NEXT_PUBLIC_ADMIN_PHONES ?? process.env.EXPO_PUBLIC_ADMIN_PHONES ?? '')
     .split(',')
     .map((phone) => phone.replace(/[^0-9]/g, ''))
     .filter(Boolean);
@@ -23,6 +23,7 @@ const ADMIN_PHONE_NUMBERS = (process.env.NEXT_PUBLIC_ADMIN_PHONES ?? '')
 export default function AuthPage() {
     const { loginAs, role, residentId, hydrated, displayName } = useSession();
     const [phoneInput, setPhoneInput] = useState('');
+    const [passwordInput, setPasswordInput] = useState('');
     const [loading, setLoading] = useState(false);
     const router = useRouter();
 
@@ -56,12 +57,6 @@ export default function AuthPage() {
         setLoading(true);
 
         try {
-            if (code === '1111') {
-                loginAs('admin', 'admin', '총무');
-                router.replace('/');
-                return;
-            }
-
             const digits = code.replace(/[^0-9]/g, '');
             if (digits.length !== 11) {
                 notifications.show({
@@ -73,45 +68,58 @@ export default function AuthPage() {
                 return;
             }
 
+            console.log('[WebAuth] adminPhones', ADMIN_PHONE_NUMBERS);
+            console.log('[WebAuth] input digits', digits);
             if (ADMIN_PHONE_NUMBERS.includes(digits)) {
+                if (passwordInput.trim() !== 'asdf1234!') {
+                    notifications.show({
+                        title: '알림',
+                        message: '관리자 비밀번호가 올바르지 않습니다.',
+                        color: 'red',
+                    });
+                    return;
+                }
                 loginAs('admin', digits, '총무');
                 router.replace('/');
                 return;
             }
 
-            const { data, error } = await supabase
-                .from('fc_profiles')
-                .select('id,phone,name')
-                .eq('phone', digits)
-                .maybeSingle();
+            if (!passwordInput.trim()) {
+                notifications.show({
+                    title: '알림',
+                    message: '비밀번호를 입력해주세요.',
+                    color: 'red',
+                });
+                return;
+            }
 
+            const { data, error } = await supabase.functions.invoke('login-with-password', {
+                body: { phone: digits, password: passwordInput.trim() },
+            });
             if (error) throw error;
+            if (!data?.ok) {
+                if (data?.code === 'needs_password_setup' || data?.code === 'not_found') {
+                    notifications.show({
+                        title: '안내',
+                        message: '비밀번호 설정은 회원가입에서 가능합니다.',
+                        color: 'orange',
+                    });
+                    router.replace('/signup');
+                    return;
+                }
+                notifications.show({
+                    title: '로그인 실패',
+                    message: data?.message ?? '오류가 발생했습니다. 다시 시도해주세요.',
+                    color: 'red',
+                });
+                return;
+            }
 
-            if (!data) {
-                const { data: inserted, error: insertErr } = await supabase
-                    .from('fc_profiles')
-                    .insert({
-                        phone: digits,
-                        name: '',
-                        affiliation: '',
-                        recommender: '',
-                        email: '',
-                        address: '',
-                        status: 'draft',
-                    })
-                    .select('phone,name')
-                    .single();
-
-                if (insertErr) throw insertErr;
-                loginAs('fc', inserted?.phone ?? digits, inserted?.name ?? '');
+            loginAs('fc', data.residentId ?? digits, data.displayName ?? '');
+            if (!data.displayName || data.displayName.trim() === '') {
                 router.replace('/fc/new');
             } else {
-                loginAs('fc', data.phone ?? digits, data.name ?? '');
-                if (!data.name || data.name.trim() === '') {
-                    router.replace('/fc/new');
-                } else {
-                    router.replace('/');
-                }
+                router.replace('/');
             }
         } catch (err: any) {
             notifications.show({
@@ -130,13 +138,13 @@ export default function AuthPage() {
                 FC Onboarding
             </Title>
             <Text c="dimmed" size="sm" ta="center" mt={5}>
-                관리자는 코드, FC는 휴대폰 번호를 입력해주세요.
+                관리자는 지정된 번호 + 비밀번호, FC는 휴대폰 번호 + 비밀번호를 입력해주세요.
             </Text>
 
             <Paper withBorder shadow="md" p={30} mt={30} radius="md">
                 <Stack>
                     <TextInput
-                        label="휴대폰 번호 / 관리자 코드"
+                        label="휴대폰 번호"
                         placeholder="휴대폰 번호 (- 없이 숫자만 입력)"
                         value={phoneInput}
                         type="tel"
@@ -149,8 +157,21 @@ export default function AuthPage() {
                             if (e.key === 'Enter') handleLogin();
                         }}
                     />
+                    <TextInput
+                        label="비밀번호"
+                        placeholder="8자 이상, 영문+숫자+특수문자"
+                        value={passwordInput}
+                        type="password"
+                        onChange={(event) => setPasswordInput(event.currentTarget.value)}
+                        onKeyDown={(e) => {
+                            if (e.key === 'Enter') handleLogin();
+                        }}
+                    />
                     <Button fullWidth onClick={handleLogin} loading={loading} color="orange">
                         시작하기
+                    </Button>
+                    <Button variant="subtle" color="orange" onClick={() => router.push('/reset-password')}>
+                        비밀번호를 잊으셨나요?
                     </Button>
                 </Stack>
             </Paper>

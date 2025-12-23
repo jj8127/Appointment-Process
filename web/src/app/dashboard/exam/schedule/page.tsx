@@ -12,19 +12,23 @@ import {
     Paper,
     ScrollArea,
     SegmentedControl,
+    SimpleGrid,
     Stack,
     Table,
     TagsInput,
     Text,
     TextInput,
+    ThemeIcon,
     Title
 } from '@mantine/core';
 import { Calendar, DateInput } from '@mantine/dates';
-import { useForm, zodResolver } from '@mantine/form';
+import { useForm } from '@mantine/form';
 import { useDisclosure } from '@mantine/hooks';
 import { notifications } from '@mantine/notifications';
 import {
     IconCalendar,
+    IconChevronLeft,
+    IconChevronRight,
     IconEdit,
     IconPlus,
     IconTrash
@@ -64,6 +68,27 @@ const roundSchema = z.object({
 
 type RoundFormValues = z.infer<typeof roundSchema>;
 
+const validateRoundForm = (values: RoundFormValues) => {
+    const result = roundSchema.safeParse(values);
+    if (result.success) {
+        return {};
+    }
+
+    const errors: Record<string, string> = {};
+    const issues = result.error?.issues ?? (result.error as any)?.errors ?? [];
+    if (!Array.isArray(issues)) {
+        return { form: '입력값을 다시 확인해주세요.' };
+    }
+
+    issues.forEach((issue) => {
+        const key = issue.path.join('.');
+        if (!errors[key]) {
+            errors[key] = issue.message;
+        }
+    });
+    return errors;
+};
+
 export default function ExamSchedulePage() {
     const queryClient = useQueryClient();
     const [opened, { open, close }] = useDisclosure(false);
@@ -74,8 +99,7 @@ export default function ExamSchedulePage() {
 
     // --- Form ---
     const form = useForm<RoundFormValues>({
-        // Mantine zodResolver typing is loose; cast to satisfy schema constraint
-        validate: zodResolver(roundSchema as any),
+        validate: validateRoundForm,
         initialValues: {
             exam_date: new Date(),
             registration_deadline: new Date(),
@@ -292,8 +316,12 @@ export default function ExamSchedulePage() {
                 <Text fw={600} size="sm">{round.round_label}</Text>
             </Table.Td>
             <Table.Td>
-                <Text size="sm" c={dayjs(round.registration_deadline).isBefore(dayjs()) ? 'red' : CHARCOAL}>
-                    {dayjs(round.registration_deadline).format('YYYY-MM-DD')} {dayjs(round.registration_deadline).isBefore(dayjs()) && '(마감)'}
+                <Text
+                    size="sm"
+                    c={dayjs().isAfter(dayjs(round.registration_deadline).endOf('day')) ? 'red' : CHARCOAL}
+                >
+                    {dayjs(round.registration_deadline).format('YYYY-MM-DD')}{' '}
+                    {dayjs().isAfter(dayjs(round.registration_deadline).endOf('day')) && '(마감)'}
                 </Text>
             </Table.Td>
             <Table.Td>
@@ -366,62 +394,121 @@ export default function ExamSchedulePage() {
                     </ScrollArea>
                 </Paper>
             ) : (
-                <Paper shadow="sm" radius="lg" withBorder p="lg">
-                    <Group align="flex-start" justify="center">
-                        <Calendar
-                            static
-                            size="xl"
-                            styles={{
-                                day: { borderRadius: 8, height: 56 },
+                <Paper shadow="sm" radius="lg" withBorder p="xl" bg="white">
+                    <SimpleGrid cols={{ base: 1, md: 2 }} spacing="xl">
+                        <Paper
+                            withBorder
+                            radius="lg"
+                            p="lg"
+                            style={{
+                                background: 'linear-gradient(180deg, #ffffff 0%, #fff7ed 100%)',
+                                borderColor: '#f3f4f6',
                             }}
-                            renderDay={(date) => {
-                                const dayStr = dayjs(date).format('YYYY-MM-DD');
-                                const round = rounds?.find(r => r.exam_date === dayStr);
-                                const isToday = dayjs(date).isSame(dayjs(), 'day');
-
-                                return (
-                                    <div style={{ position: 'relative', height: '100%', width: '100%', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center' }}>
-                                        <span style={{
-                                            fontWeight: isToday ? 700 : 400,
-                                            color: isToday ? HANWHA_ORANGE : undefined,
-                                            marginBottom: 2
-                                        }}>
-                                            {dayjs(date).date()}
-                                        </span>
-                                        {round && (
-                                            <Box
-                                                bg={round.exam_type === 'life' ? 'orange.1' : 'blue.1'}
-                                                w={6} h={6}
-                                                style={{ borderRadius: 3 }}
-                                            />
-                                        )}
+                        >
+                            <Group justify="space-between" mb="md">
+                                <Group gap="sm">
+                                    <ThemeIcon radius="md" variant="light" color="orange">
+                                        <IconCalendar size={18} />
+                                    </ThemeIcon>
+                                    <div>
+                                        <Text fw={700} size="lg">시험 일정 캘린더</Text>
+                                        <Text size="xs" c="dimmed">월별 전체 일정을 빠르게 확인하세요.</Text>
                                     </div>
-                                );
-                            }}
-                        />
-                        <Stack gap="xs" maw={300} ml="xl">
-                            <Text fw={700} size="sm" mb="xs">일정 범례</Text>
-                            <Group gap="xs">
-                                <Box w={12} h={12} bg="orange.1" style={{ borderRadius: 6 }} />
-                                <Text size="xs">생명보험 시험</Text>
-                            </Group>
-                            <Group gap="xs">
-                                <Box w={12} h={12} bg="blue.1" style={{ borderRadius: 6 }} />
-                                <Text size="xs">손해보험 시험</Text>
+                                </Group>
+                                <Badge variant="light" color="orange" radius="xl">Calendar View</Badge>
                             </Group>
 
-                            {rounds?.filter(r => dayjs(r.exam_date).isAfter(dayjs())).slice(0, 3).map(r => (
-                                <Paper key={r.id} withBorder p="xs" radius="md">
-                                    <Text size="xs" fw={700}>{r.round_label}</Text>
-                                    <Text size="xs" c="dimmed">{dayjs(r.exam_date).format('MM.DD')} ({r.exam_type === 'life' ? '생명' : '손해'})</Text>
-                                </Paper>
-                            ))}
+                            <Calendar
+                                static
+                                size="xl"
+                                previousIcon={<IconChevronLeft size={18} />}
+                                nextIcon={<IconChevronRight size={18} />}
+                                locale="ko"
+                                monthLabelFormat="YYYY년 M월"
+                                styles={{
+                                    day: { borderRadius: 14, height: 56, fontWeight: 600 },
+                                    weekday: { color: MUTED, fontWeight: 700 },
+                                    month: { fontWeight: 800 },
+                                }}
+                                renderDay={(date) => {
+                                    const dayStr = dayjs(date).format('YYYY-MM-DD');
+                                    const round = rounds?.find(r => r.exam_date === dayStr);
+                                    const isToday = dayjs(date).isSame(dayjs(), 'day');
+                                    const dotColor = round?.exam_type === 'life' ? '#f59f00' : '#4dabf7';
 
-                            <Button variant="light" size="xs" mt="xl" fullWidth onClick={() => setViewMode('list')}>
+                                    return (
+                                        <div style={{ height: '100%', width: '100%', display: 'grid', placeItems: 'center' }}>
+                                            <span style={{
+                                                fontWeight: 700,
+                                                color: isToday ? HANWHA_ORANGE : '#111827',
+                                                width: 28,
+                                                height: 28,
+                                                display: 'grid',
+                                                placeItems: 'center',
+                                                borderRadius: 10,
+                                                background: round ? '#fff' : 'transparent',
+                                                boxShadow: round ? '0 1px 3px rgba(0,0,0,0.08)' : 'none',
+                                            }}>
+                                                {dayjs(date).date()}
+                                            </span>
+                                            {round && (
+                                                <span style={{
+                                                    marginTop: 4,
+                                                    width: 6,
+                                                    height: 6,
+                                                    borderRadius: 999,
+                                                    background: dotColor,
+                                                }} />
+                                            )}
+                                        </div>
+                                    );
+                                }}
+                            />
+                        </Paper>
+
+                        <Stack gap="lg">
+                            <Paper withBorder radius="lg" p="md" bg="#f8f9fa">
+                                <Text fw={700} size="sm" mb="sm">일정 범례</Text>
+                                <Group gap="xs" mb="xs">
+                                    <Box w={10} h={10} bg="orange.5" style={{ borderRadius: 999 }} />
+                                    <Text size="xs">생명보험 시험</Text>
+                                </Group>
+                                <Group gap="xs">
+                                    <Box w={10} h={10} bg="blue.5" style={{ borderRadius: 999 }} />
+                                    <Text size="xs">손해보험 시험</Text>
+                                </Group>
+                            </Paper>
+
+                            <Paper withBorder radius="lg" p="md">
+                                <Group justify="space-between" mb="sm">
+                                    <Text fw={700} size="sm">다가오는 시험</Text>
+                                    <Badge variant="outline" color="gray" radius="xl">
+                                        {rounds?.length ?? 0}건
+                                    </Badge>
+                                </Group>
+                                <Stack gap="xs">
+                                    {rounds?.filter(r => dayjs(r.exam_date).isAfter(dayjs())).slice(0, 4).map(r => (
+                                        <Paper key={r.id} withBorder p="sm" radius="md" bg="white">
+                                            <Text size="sm" fw={700}>{r.round_label}</Text>
+                                            <Group gap={6} mt={4}>
+                                                <Badge size="xs" color={r.exam_type === 'life' ? 'orange' : 'blue'} variant="light">
+                                                    {r.exam_type === 'life' ? '생명' : '손해'}
+                                                </Badge>
+                                                <Text size="xs" c="dimmed">{dayjs(r.exam_date).format('MM.DD')}</Text>
+                                            </Group>
+                                        </Paper>
+                                    ))}
+                                    {!rounds?.filter(r => dayjs(r.exam_date).isAfter(dayjs())).length && (
+                                        <Text size="xs" c="dimmed">예정된 일정이 없습니다.</Text>
+                                    )}
+                                </Stack>
+                            </Paper>
+
+                            <Button variant="light" size="sm" fullWidth onClick={() => setViewMode('list')}>
                                 전체 일정 관리
                             </Button>
                         </Stack>
-                    </Group>
+                    </SimpleGrid>
                 </Paper>
             )}
 
@@ -429,63 +516,163 @@ export default function ExamSchedulePage() {
             <Modal
                 opened={opened}
                 onClose={handleClose}
-                title={<Text fw={700} size="lg">{editingId ? '일정 수정' : '새 일정 등록'}</Text>}
-                size="md"
+                title={
+                    <Group gap="sm">
+                        <ThemeIcon radius="md" variant="light" color="orange">
+                            <IconCalendar size={18} />
+                        </ThemeIcon>
+                        <div>
+                            <Text fw={700} size="lg">{editingId ? '일정 수정' : '새 일정 등록'}</Text>
+                            <Text size="xs" c="dimmed">시험 일정과 접수 정보를 빠르게 정리하세요.</Text>
+                        </div>
+                    </Group>
+                }
+                size="lg"
                 centered
             >
                 <form onSubmit={form.onSubmit(handleSubmit)}>
-                    <Stack gap="md">
-                        <DateInput
-                            label="시험일"
-                            placeholder="시험 날짜 선택"
-                            leftSection={<IconCalendar size={16} />}
-                            {...form.getInputProps('exam_date')}
-                            locale="ko"
-                            valueFormat="YYYY년 MM월 DD일"
-                        />
-                        <DateInput
-                            label="접수 마감일"
-                            placeholder="마감 날짜 선택"
-                            leftSection={<IconCalendar size={16} />}
-                            {...form.getInputProps('registration_deadline')}
-                            locale="ko"
-                            valueFormat="YYYY년 MM월 DD일"
-                        />
-                        <SegmentedControl
-                            fullWidth
-                            radius="md"
-                            data={[
-                                { value: 'life', label: '생명 / 제3보험' },
-                                { value: 'nonlife', label: '손해보험' },
-                            ]}
-                            {...form.getInputProps('exam_type')}
-                        />
-                        <TextInput
-                            label="회차명/구분"
-                            placeholder="예: 312회차 생명보험 자격시험"
-                            {...form.getInputProps('round_label')}
-                        />
+                    <Stack gap="lg">
+                        <Paper withBorder radius="lg" p="md" bg="gray.0">
+                            <Text fw={700} size="sm" mb="sm">시험 일정</Text>
+                            <SimpleGrid cols={{ base: 1, sm: 2 }} spacing="md">
+                                <DateInput
+                                    label="시험일"
+                                    placeholder="시험 날짜 선택"
+                                    leftSection={<IconCalendar size={16} />}
+                                    {...form.getInputProps('exam_date')}
+                                    locale="ko"
+                                    monthLabelFormat="YYYY년 M월"
+                                    previousIcon={<IconChevronLeft size={14} />}
+                                    nextIcon={<IconChevronRight size={14} />}
+                                    valueFormat="YYYY년 MM월 DD일"
+                                    popoverProps={{ width: 320, position: 'bottom-start', shadow: 'md' }}
+                                    size="sm"
+                                    styles={{
+                                        calendarHeader: {
+                                            padding: '6px 4px',
+                                            borderBottom: '1px solid #eef1f4',
+                                            display: 'grid',
+                                            gridTemplateColumns: '28px 1fr 28px',
+                                            alignItems: 'center',
+                                        },
+                                        calendarHeaderControlIcon: { margin: '0 auto' },
+                                        calendarHeaderLevel: {
+                                            fontWeight: 700,
+                                            fontSize: 14,
+                                            textAlign: 'center',
+                                            justifySelf: 'center',
+                                        },
+                                        calendarHeaderControl: { borderRadius: 8, justifySelf: 'center' },
+                                        month: {
+                                            width: '100%',
+                                            tableLayout: 'fixed',
+                                            margin: '0 auto',
+                                        },
+                                        monthThead: { textAlign: 'center' },
+                                        monthTbody: { textAlign: 'center' },
+                                        monthRow: {
+                                            textAlign: 'center',
+                                        },
+                                        weekdaysRow: {
+                                            textAlign: 'center',
+                                        },
+                                        monthCell: { padding: 2, textAlign: 'center' },
+                                        weekday: { fontWeight: 600, color: '#6b7280', textAlign: 'center' },
+                                        day: { borderRadius: 8, height: 34, fontWeight: 600, margin: '0 auto' },
+                                    }}
+                                />
+                                <DateInput
+                                    label="접수 마감일"
+                                    placeholder="마감 날짜 선택"
+                                    leftSection={<IconCalendar size={16} />}
+                                    {...form.getInputProps('registration_deadline')}
+                                    locale="ko"
+                                    monthLabelFormat="YYYY년 M월"
+                                    previousIcon={<IconChevronLeft size={14} />}
+                                    nextIcon={<IconChevronRight size={14} />}
+                                    valueFormat="YYYY년 MM월 DD일"
+                                    popoverProps={{ width: 320, position: 'bottom-start', shadow: 'md' }}
+                                    size="sm"
+                                    styles={{
+                                        calendarHeader: {
+                                            padding: '6px 4px',
+                                            borderBottom: '1px solid #eef1f4',
+                                            display: 'grid',
+                                            gridTemplateColumns: '28px 1fr 28px',
+                                            alignItems: 'center',
+                                        },
+                                        calendarHeaderControlIcon: { margin: '0 auto' },
+                                        calendarHeaderLevel: {
+                                            fontWeight: 700,
+                                            fontSize: 14,
+                                            textAlign: 'center',
+                                            justifySelf: 'center',
+                                        },
+                                        calendarHeaderControl: { borderRadius: 8, justifySelf: 'center' },
+                                        month: {
+                                            width: '100%',
+                                            tableLayout: 'fixed',
+                                            margin: '0 auto',
+                                        },
+                                        monthThead: { textAlign: 'center' },
+                                        monthTbody: { textAlign: 'center' },
+                                        monthRow: {
+                                            textAlign: 'center',
+                                        },
+                                        weekdaysRow: {
+                                            textAlign: 'center',
+                                        },
+                                        monthCell: { padding: 2, textAlign: 'center' },
+                                        weekday: { fontWeight: 600, color: '#6b7280', textAlign: 'center' },
+                                        day: { borderRadius: 8, height: 34, fontWeight: 600, margin: '0 auto' },
+                                    }}
+                                />
+                            </SimpleGrid>
+                        </Paper>
 
-                        <Box>
-                            <Text size="sm" fw={500} mb={4}>고사장(장소) 관리</Text>
-                            <TagsInput
-                                placeholder="Enter로 장소 추가 (예: 서울, 부산)"
-                                {...form.getInputProps('locations')}
-                                data={['서울', '부산', '대구', '인천', '광주', '대전', '울산', '제주']}
-                                clearable
+                        <Paper withBorder radius="lg" p="md">
+                            <Text fw={700} size="sm" mb="sm">시험 정보</Text>
+                            <SegmentedControl
+                                fullWidth
+                                radius="md"
+                                data={[
+                                    { value: 'life', label: '생명 / 제3보험' },
+                                    { value: 'nonlife', label: '손해보험' },
+                                ]}
+                                {...form.getInputProps('exam_type')}
                             />
-                            <Text size="xs" c="dimmed" mt={4}>
-                                * 이미 신청자가 있는 장소는 삭제되지 않을 수 있습니다.
-                            </Text>
-                        </Box>
+                            <TextInput
+                                label="회차명/구분"
+                                placeholder="예: 9월 1차 생명보험"
+                                mt="md"
+                                {...form.getInputProps('round_label')}
+                            />
+                        </Paper>
 
-                        <TextInput
-                            label="비고 (선택)"
-                            placeholder="메모 사항"
-                            {...form.getInputProps('notes')}
-                        />
+                        <Paper withBorder radius="lg" p="md">
+                            <Text fw={700} size="sm" mb="sm">고사장 및 비고</Text>
+                            <Box>
+                                <Text size="sm" fw={500} mb={4}>고사장(장소) 관리</Text>
+                                <TagsInput
+                                    placeholder="Enter로 장소 추가 (예: 서울, 부산)"
+                                    {...form.getInputProps('locations')}
+                                    data={['서울', '부산', '대구', '인천', '광주', '대전', '울산', '제주']}
+                                    clearable
+                                />
+                                <Text size="xs" c="dimmed" mt={4}>
+                                    * 이미 신청자가 있는 장소는 삭제되지 않을 수 있습니다.
+                                </Text>
+                            </Box>
 
-                        <Group justify="flex-end" mt="md">
+                            <TextInput
+                                label="비고 (선택)"
+                                placeholder="메모 사항"
+                                mt="md"
+                                {...form.getInputProps('notes')}
+                            />
+                        </Paper>
+
+                        <Group justify="space-between" mt="xs">
                             <Button variant="default" onClick={handleClose}>취소</Button>
                             <Button type="submit" color="orange" loading={saveMutation.isPending}>
                                 {editingId ? '수정 저장' : '등록 하기'}
