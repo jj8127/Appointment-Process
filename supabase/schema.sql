@@ -8,8 +8,8 @@ create table if not exists public.fc_profiles (
   temp_id text unique,
   name text not null,
   affiliation text not null,
-  resident_number text,
   resident_id_masked text,
+  resident_id_hash text,
   phone text not null,
   recommender text,
   email text,
@@ -20,13 +20,44 @@ create table if not exists public.fc_profiles (
   appointment_url text,
   appointment_date date,
   status text not null default 'draft',
+  identity_completed boolean not null default false,
+  phone_verified boolean not null default false,
+  phone_verified_at timestamptz,
+  phone_verification_hash text,
+  phone_verification_expires_at timestamptz,
+  phone_verification_sent_at timestamptz,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
 );
 
 -- 주민번호 마스킹 기준 upsert를 위해 유니크 인덱스 추가
-create unique index if not exists idx_fc_profiles_resident_id_masked on public.fc_profiles (resident_id_masked);
+drop index if exists idx_fc_profiles_resident_id_masked;
+create unique index if not exists idx_fc_profiles_resident_id_hash on public.fc_profiles (resident_id_hash);
 create unique index if not exists idx_fc_profiles_phone on public.fc_profiles (phone);
+
+create table if not exists public.fc_identity_secure (
+  id uuid primary key default gen_random_uuid(),
+  fc_id uuid not null references public.fc_profiles (id) on delete cascade,
+  resident_number_encrypted text not null,
+  address_encrypted text not null,
+  address_detail_encrypted text,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+  unique (fc_id)
+);
+
+create table if not exists public.fc_credentials (
+  fc_id uuid primary key references public.fc_profiles (id) on delete cascade,
+  password_hash text not null,
+  password_salt text not null,
+  password_set_at timestamptz,
+  failed_count integer not null default 0,
+  locked_until timestamptz,
+  reset_token_hash text,
+  reset_token_expires_at timestamptz,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
 
 -- 알림용 디바이스 토큰 저장 테이블
 create table if not exists public.device_tokens (
@@ -125,6 +156,16 @@ create trigger trg_fc_documents_updated_at
 before update on public.fc_documents
 for each row execute function public.set_updated_at();
 
+drop trigger if exists trg_fc_identity_secure_updated_at on public.fc_identity_secure;
+create trigger trg_fc_identity_secure_updated_at
+before update on public.fc_identity_secure
+for each row execute function public.set_updated_at();
+
+drop trigger if exists trg_fc_credentials_updated_at on public.fc_credentials;
+create trigger trg_fc_credentials_updated_at
+before update on public.fc_credentials
+for each row execute function public.set_updated_at();
+
 drop trigger if exists trg_exam_rounds_updated_at on public.exam_rounds;
 create trigger trg_exam_rounds_updated_at
 before update on public.exam_rounds
@@ -137,6 +178,8 @@ for each row execute function public.set_updated_at();
 
 alter table public.fc_profiles enable row level security;
 alter table public.fc_documents enable row level security;
+alter table public.fc_identity_secure enable row level security;
+alter table public.fc_credentials enable row level security;
 alter table public.notifications enable row level security;
 alter table public.notices enable row level security;
 alter table public.exam_rounds enable row level security;
@@ -291,13 +334,37 @@ alter table public.fc_profiles
   add column if not exists address_detail text;
 
 alter table public.fc_profiles
-  add column if not exists resident_number text;
+  drop column if exists resident_number;
+
+alter table public.fc_profiles
+  add column if not exists resident_id_hash text;
+
+alter table public.fc_profiles
+  add column if not exists identity_completed boolean default false;
 
 alter table public.fc_profiles
   add column if not exists appointment_url text;
 
 alter table public.fc_profiles
   add column if not exists appointment_date date;
+
+alter table public.fc_profiles
+  add column if not exists carrier text;
+
+alter table public.fc_profiles
+  add column if not exists phone_verified boolean default false;
+
+alter table public.fc_profiles
+  add column if not exists phone_verified_at timestamptz;
+
+alter table public.fc_profiles
+  add column if not exists phone_verification_hash text;
+
+alter table public.fc_profiles
+  add column if not exists phone_verification_expires_at timestamptz;
+
+alter table public.fc_profiles
+  add column if not exists phone_verification_sent_at timestamptz;
 
 
 select id, exam_date, registration_deadline, round_label, created_at
