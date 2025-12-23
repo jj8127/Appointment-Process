@@ -7,6 +7,7 @@
     "reset-project": "node ./scripts/reset-project.js",
     "android": "expo run:android",
     "ios": "expo run:ios",
+    "build": "expo export --platform web",
     "web": "expo start --web",
     "lint": "expo lint"
   },
@@ -45,6 +46,7 @@
     "expo-notifications": "~0.32.13",
     "expo-router": "~6.0.15",
     "expo-secure-store": "~15.0.7",
+    "expo-server-sdk": "^4.0.0",
     "expo-splash-screen": "~31.0.11",
     "expo-status-bar": "~3.0.8",
     "expo-symbols": "~1.0.7",
