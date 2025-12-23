@@ -1,8 +1,9 @@
 import * as Haptics from 'expo-haptics';
 import { LinearGradient } from 'expo-linear-gradient';
-import { router } from 'expo-router';
+import { router, useLocalSearchParams } from 'expo-router';
+import { Feather } from '@expo/vector-icons';
 import { MotiView } from 'moti';
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
@@ -27,32 +28,39 @@ const GRAY_TEXT = '#6B7280';
 const BORDER = '#E5E7EB';
 const INPUT_BG = '#F9FAFB';
 
-const ADMIN_PHONE_NUMBERS = (process.env.EXPO_PUBLIC_ADMIN_PHONES ?? '')
-  .split(',')
-  .map((phone) => phone.replace(/[^0-9]/g, ''))
-  .filter(Boolean);
+
 
 export default function AuthScreen() {
-  const { loginAs, role, residentId, hydrated, displayName } = useSession();
+  const { skipAuto } = useLocalSearchParams<{ skipAuto?: string }>();
+  const skipAutoRedirect = skipAuto === '1';
+  const { loginAs, role, residentId, hydrated } = useSession();
   const [phoneInput, setPhoneInput] = useState('');
+  const [passwordInput, setPasswordInput] = useState('');
   const [loading, setLoading] = useState(false);
   const [isFocused, setIsFocused] = useState(false);
+  const [isPasswordFocused, setIsPasswordFocused] = useState(false);
+  const [showPassword, setShowPassword] = useState(false);
 
   useEffect(() => {
+    if (skipAutoRedirect) return;
     if (!hydrated) return;
     if (role === 'admin') {
       router.replace('/');
       return;
     }
     if (role === 'fc' && residentId) {
-      // 기본 정보가 없으면 인적사항 입력 페이지로 유도
-      if (!displayName?.trim()) {
-        router.replace('/fc/new');
-      } else {
-        router.replace('/');
-      }
+      router.replace('/home-lite');
     }
-  }, [hydrated, residentId, role, displayName]);
+  }, [hydrated, residentId, role, skipAutoRedirect]);
+
+  const adminPhones = useMemo(
+    () =>
+      (process.env.EXPO_PUBLIC_ADMIN_PHONES ?? '')
+        .split(',')
+        .map((phone) => phone.replace(/[^0-9]/g, ''))
+        .filter(Boolean),
+    [],
+  );
 
   const handleLogin = async () => {
     // Remove all whitespace for robust handling (e.g. '1111 ', ' 1111', '1 1 1 1')
@@ -65,58 +73,46 @@ export default function AuthScreen() {
     setLoading(true);
 
     try {
-      if (code === '1111') {
-        // 식별자가 없으면 푸시 토큰 등록이 스킵되므로 명시적으로 저장
-        loginAs('admin', 'admin', '총무');
-        router.replace('/');
-        return;
-      }
-
       const digits = code.replace(/[^0-9]/g, '');
       if (digits.length !== 11) {
         Alert.alert('알림', '휴대폰 번호는 숫자 11자리로 입력해주세요.');
         return;
       }
-      if (ADMIN_PHONE_NUMBERS.includes(digits)) {
+
+      console.log('[Auth] adminPhones', adminPhones);
+      console.log('[Auth] input digits', digits);
+      if (adminPhones.includes(digits)) {
+        if (passwordInput.trim() !== 'asdf1234!') {
+          Alert.alert('알림', '관리자 비밀번호가 올바르지 않습니다.');
+          return;
+        }
         loginAs('admin', digits, '총무');
         router.replace('/');
         return;
       }
-      const { data, error } = await supabase
-        .from('fc_profiles')
-        .select('id,phone,name')
-        .eq('phone', digits)
-        .maybeSingle();
 
-      if (error) throw error;
-
-      if (!data) {
-        const { data: inserted, error: insertErr } = await supabase
-          .from('fc_profiles')
-          .insert({
-            phone: digits,
-            name: '',
-            affiliation: '',
-            recommender: '',
-            email: '',
-            address: '',
-            status: 'draft',
-          })
-          .select('phone,name')
-          .single();
-        if (insertErr) throw insertErr;
-        loginAs('fc', inserted?.phone ?? digits, inserted?.name ?? '');
-        router.replace('/fc/new');
-        return;
-      } else {
-        loginAs('fc', data.phone ?? digits, data.name ?? '');
-        if (!data.name || data.name.trim() === '') {
-          router.replace('/fc/new');
-        } else {
-          router.replace('/');
-        }
+      if (!passwordInput.trim()) {
+        Alert.alert('알림', '비밀번호를 입력해주세요.');
         return;
       }
+
+      const { data, error } = await supabase.functions.invoke('login-with-password', {
+        body: { phone: digits, password: passwordInput.trim() },
+      });
+      if (error) throw error;
+      if (!data?.ok) {
+        if (data?.code === 'needs_password_setup' || data?.code === 'not_found') {
+          Alert.alert('안내', '비밀번호 설정은 회원가입에서 가능합니다.');
+          router.replace('/signup');
+          return;
+        }
+        Alert.alert('로그인 실패', data?.message ?? '오류가 발생했습니다. 다시 시도해주세요.');
+        return;
+      }
+
+      loginAs('fc', data.residentId ?? digits, data.displayName ?? '');
+      router.replace('/home-lite');
+      return;
     } catch (err: any) {
       Alert.alert('로그인 실패', '오류가 발생했습니다. 다시 시도해주세요.');
     } finally {
@@ -139,7 +135,7 @@ export default function AuthScreen() {
         <KeyboardAwareWrapper
           contentContainerStyle={styles.scrollContent}
           extraScrollHeight={140}
-
+          keyboardShouldPersistTaps="always"
         >
           <View style={styles.innerContent}>
             {/* Logo Section */}
@@ -163,12 +159,12 @@ export default function AuthScreen() {
               <View style={styles.headerSection}>
                 <Text style={styles.title}>환영합니다!</Text>
                 <Text style={styles.subtitle}>
-                  관리자는 코드, FC는 휴대폰 번호로{'\n'}로그인해주세요.
+                  관리자는 지정된 번호 + 비밀번호{'\n'}FC는 휴대폰 번호 + 비밀번호로 로그인해주세요.
                 </Text>
               </View>
 
               <View style={styles.inputContainer}>
-                <Text style={styles.label}>휴대폰 번호 / 관리자 코드</Text>
+                <Text style={styles.label}>휴대폰 번호</Text>
                 <MotiView
                   animate={{
                     borderColor: isFocused ? HANWHA_ORANGE : BORDER,
@@ -177,38 +173,86 @@ export default function AuthScreen() {
                   transition={{ type: 'timing', duration: 200 }}
                   style={styles.inputWrapper}
                 >
-                  <TextInput
-                    style={styles.input}
-                    placeholder="번호 입력 (- 없이 숫자만)"
-                    placeholderTextColor="#9CA3AF"
-                    value={phoneInput}
-                    onChangeText={(text) => setPhoneInput(text)}
-                    onFocus={() => setIsFocused(true)}
-                    onBlur={() => setIsFocused(false)}
-                    autoCapitalize="none"
-                    keyboardType="number-pad"
-                    returnKeyType="done"
-                    onSubmitEditing={handleLogin}
-                    editable={!loading}
-                  />
-                </MotiView>
-              </View>
+                    <TextInput
+                      style={styles.input}
+                      placeholder="번호 입력 (- 없이 숫자만)"
+                      placeholderTextColor="#9CA3AF"
+                      value={phoneInput}
+                      onChangeText={(text) => setPhoneInput(text)}
+                      onFocus={() => setIsFocused(true)}
+                      onBlur={() => setIsFocused(false)}
+                      autoCapitalize="none"
+                      keyboardType="number-pad"
+                      returnKeyType="done"
+                      onSubmitEditing={handleLogin}
+                      editable={!loading}
+                    />
+                  </MotiView>
+                </View>
 
-              <Pressable
-                style={({ pressed }) => [
-                  styles.button,
-                  pressed && styles.buttonPressed,
-                  loading && styles.buttonDisabled,
-                ]}
-                onPress={handleLogin}
-                disabled={loading}
-              >
-                {loading ? (
-                  <ActivityIndicator color="#fff" />
-                ) : (
-                  <Text style={styles.buttonText}>시작하기</Text>
-                )}
-              </Pressable>
+                <View style={styles.inputContainer}>
+                  <Text style={styles.label}>비밀번호</Text>
+                  <MotiView
+                    animate={{
+                      borderColor: isPasswordFocused ? HANWHA_ORANGE : BORDER,
+                      backgroundColor: isPasswordFocused ? '#FFF' : INPUT_BG,
+                    }}
+                    transition={{ type: 'timing', duration: 200 }}
+                    style={styles.inputWrapper}
+                  >
+                      <TextInput
+                        style={[styles.input, styles.inputWithIcon]}
+                        placeholder="8자 이상, 영문+숫자+특수문자"
+                        placeholderTextColor="#9CA3AF"
+                        value={passwordInput}
+                        onChangeText={setPasswordInput}
+                        onFocus={() => setIsPasswordFocused(true)}
+                        onBlur={() => setIsPasswordFocused(false)}
+                        autoCapitalize="none"
+                        secureTextEntry={!showPassword}
+                        returnKeyType="done"
+                        onSubmitEditing={handleLogin}
+                        editable={!loading}
+                      />
+                      <Pressable
+                        style={styles.eyeButton}
+                        onPress={() => setShowPassword((prev) => !prev)}
+                      >
+                        <Feather name={showPassword ? 'eye-off' : 'eye'} size={18} color={GRAY_TEXT} />
+                      </Pressable>
+                    </MotiView>
+                </View>
+
+
+                <Pressable
+                  style={({ pressed }) => [
+                    styles.button,
+                    pressed && styles.buttonPressed,
+                    loading && styles.buttonDisabled,
+                  ]}
+                  onPress={handleLogin}
+                  disabled={loading}
+                >
+                  {loading ? (
+                    <ActivityIndicator color="#fff" />
+                  ) : (
+                    <Text style={styles.buttonText}>시작하기</Text>
+                  )}
+                </Pressable>
+
+                <Pressable
+                  style={({ pressed }) => [styles.linkButton, pressed && styles.linkButtonPressed]}
+                  onPress={() => router.push('/reset-password')}
+                >
+                  <Text style={styles.linkButtonText}>비밀번호를 잊으셨나요?</Text>
+                </Pressable>
+
+                <Pressable
+                  style={({ pressed }) => [styles.linkButton, pressed && styles.linkButtonPressed]}
+                  onPress={() => router.push('/signup')}
+                >
+                  <Text style={styles.linkButtonText}>회원가입</Text>
+                </Pressable>
             </MotiView>
           </View>
         </KeyboardAwareWrapper>
@@ -307,6 +351,18 @@ const styles = StyleSheet.create({
     color: CHARCOAL,
     height: '100%',
   },
+  inputWithIcon: {
+    paddingRight: 44,
+  },
+  eyeButton: {
+    position: 'absolute',
+    right: 12,
+    top: 0,
+    bottom: 0,
+    justifyContent: 'center',
+    alignItems: 'center',
+    width: 32,
+  },
   button: {
     height: 56,
     backgroundColor: HANWHA_ORANGE,
@@ -331,5 +387,19 @@ const styles = StyleSheet.create({
     fontSize: 17,
     fontWeight: '700',
     color: '#fff',
+  },
+  linkButton: {
+    marginTop: 16,
+    alignItems: 'center',
+    paddingVertical: 12,
+  },
+  linkButtonPressed: {
+    opacity: 0.7,
+  },
+  linkButtonText: {
+    fontSize: 14,
+    color: GRAY_TEXT,
+    fontWeight: '600',
+    textDecorationLine: 'underline',
   },
 });
