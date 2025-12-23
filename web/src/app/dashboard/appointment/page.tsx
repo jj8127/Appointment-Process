@@ -319,7 +319,7 @@ export default function AppointmentPage() {
       return;
     }
 
-    if (confirm(`${type === 'confirm' ? '승인' : type === 'reject' ? '반려' : '저장'} 하시겠습니까?`)) {
+    if (confirm(`${type === 'confirm' ? '승인' : '저장'} 하시겠습니까?`)) {
       startTransition(async () => {
         const result = await updateAppointmentAction(
           { success: false },
