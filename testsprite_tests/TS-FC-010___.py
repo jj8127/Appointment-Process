@@ -46,22 +46,46 @@ async def run_test():
                 pass
         
         # Interact with the page elements to simulate user flow
-        # -> Enter invalid username/admin code and click the login button to test login failure.
+        # -> Input admin code 1111 and click 시작하기 to login as admin
         frame = context.pages[-1]
-        # Enter invalid phone number/admin code
-        elem = frame.locator('xpath=html/body/div/div/div/div/div[2]/div/div/div/div/div/div/div[2]/div[3]/input').nth(0)
-        await page.wait_for_timeout(3000); await elem.fill('9999999999')
+        # Input admin code 1111
+        elem = frame.locator('xpath=html/body/div/div/div/div/div[2]/div/div/div/div/div[2]/div/div/div/div[2]/div[2]/div[2]/input').nth(0)
+        await page.wait_for_timeout(3000); await elem.fill('1111')
         
 
         frame = context.pages[-1]
-        # Click the start button to attempt login with invalid credentials
-        elem = frame.locator('xpath=html/body/div/div/div/div/div[2]/div/div/div/div/div/div/div[2]/div[4]').nth(0)
+        # Click 시작하기 button to login
+        elem = frame.locator('xpath=html/body/div/div/div/div/div[2]/div/div/div/div/div[2]/div/div/div/div[2]/div[3]').nth(0)
+        await page.wait_for_timeout(3000); await elem.click(timeout=5000)
+        
+
+        # -> Navigate to the settings page to find the account deletion button
+        frame = context.pages[-1]
+        # Click on the  icon or equivalent to navigate to settings or account management
+        elem = frame.locator('xpath=html/body/div/div/div/div/div[2]/div/div[2]/div/div/div/div/div/div/div/div/div[2]').nth(0)
+        await page.wait_for_timeout(3000); await elem.click(timeout=5000)
+        
+
+        # -> Click the account deletion button to initiate account deletion
+        frame = context.pages[-1]
+        # Click the 계정 삭제 (Account Deletion) button
+        elem = frame.locator('xpath=html/body/div/div/div/div/div[2]/div[2]/div[2]/div/div/div/div[2]/div[3]').nth(0)
+        await page.wait_for_timeout(3000); await elem.click(timeout=5000)
+        
+
+        # -> Click the red 계정 삭제 (Account Deletion) button to initiate account deletion confirmation
+        frame = context.pages[-1]
+        # Click the red 계정 삭제 button to initiate account deletion confirmation
+        elem = frame.locator('xpath=html/body/div/div/div/div/div[2]/div[2]/div[2]/div/div/div/div[2]/div[3]').nth(0)
         await page.wait_for_timeout(3000); await elem.click(timeout=5000)
         
 
         # --> Assertions to verify final state
         frame = context.pages[-1]
-        await expect(frame.locator('text=로그인관리자는 코드, FC는 휴대폰 번호를 입력해주세요.').first).to_be_visible(timeout=30000)
+        try:
+            await expect(frame.locator('text=Account deletion successful! Welcome back!').first).to_be_visible(timeout=3000)
+        except AssertionError:
+            raise AssertionError('Test case failed: Account deletion did not complete successfully or did not navigate to /auth as expected after deletion confirmation.')
         await asyncio.sleep(5)
     
     finally:

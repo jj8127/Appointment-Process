@@ -46,25 +46,45 @@ async def run_test():
                 pass
         
         # Interact with the page elements to simulate user flow
-        # -> Input 관리자 코드 for 총무 and click 시작하기 to login.
+        # -> Input phone number/admin code and click start button to login and reach Home Lite main page.
         frame = context.pages[-1]
-        # Input 관리자 코드 for 총무 login
-        elem = frame.locator('xpath=html/body/div/div/div/div/div[2]/div/div/div/div/div/div/div[2]/div[3]/input').nth(0)
-        await page.wait_for_timeout(3000); await elem.fill('1111')
+        # Input phone number for login
+        elem = frame.locator('xpath=html/body/div/div/div/div/div[2]/div/div/div/div/div[2]/div/div/div/div[2]/div[2]/div[2]/input').nth(0)
+        await page.wait_for_timeout(3000); await elem.fill('01012345678')
         
 
         frame = context.pages[-1]
-        # Click 시작하기 button to login as 총무
-        elem = frame.locator('xpath=html/body/div/div/div/div/div[2]/div/div/div/div/div/div/div[2]/div[4]').nth(0)
+        # Click 시작하기 button to login
+        elem = frame.locator('xpath=html/body/div/div/div/div/div[2]/div/div/div/div/div[2]/div/div/div/div[2]/div[3]').nth(0)
+        await page.wait_for_timeout(3000); await elem.click(timeout=5000)
+        
+
+        # -> Click the settings icon to navigate to the settings screen (/settings).
+        frame = context.pages[-1]
+        # Click the settings icon on Home Lite main page
+        elem = frame.locator('xpath=html/body/div/div/div/div/div[2]/div/div[2]/div/div/div/div/div/div/div/div/div[2]').nth(0)
+        await page.wait_for_timeout(3000); await elem.click(timeout=5000)
+        
+
+        # -> Click the notification icon to navigate to the notifications screen (/notifications).
+        frame = context.pages[-1]
+        # Click the notification icon on the top left corner
+        elem = frame.locator('xpath=html/body/div/div/div/div/div[2]/div[2]/div/div/div/div').nth(0)
+        await page.wait_for_timeout(3000); await elem.click(timeout=5000)
+        
+
+        # -> Click the logout button to verify logout and redirection to authentication screen (/auth).
+        frame = context.pages[-1]
+        # Click the logout button on Home Lite main page
+        elem = frame.locator('xpath=html/body/div/div/div/div/div[2]/div/div[2]/div/div/div/div/div/div/div/div/div').nth(0)
         await page.wait_for_timeout(3000); await elem.click(timeout=5000)
         
 
         # --> Assertions to verify final state
         frame = context.pages[-1]
-        try:
-            await expect(frame.locator('text=위촉 차수 99월 99차').first).to_be_visible(timeout=1000)
-        except AssertionError:
-            raise AssertionError('Test case failed: The FC does not see the expected 생명/손해 위촉 차수 on the dashboard/위촉 화면 as per the test plan.')
+        await expect(frame.locator('text=설정 화면(/settings)으로 이동한다').first).to_be_visible(timeout=30000)
+        await expect(frame.locator('text=알림 화면(/notifications)으로 이동한다').first).to_be_visible(timeout=30000)
+        await expect(frame.locator('text=로그아웃되어 인증 화면(/auth)으로 이동한다').first).to_be_visible(timeout=30000)
         await asyncio.sleep(5)
     
     finally:

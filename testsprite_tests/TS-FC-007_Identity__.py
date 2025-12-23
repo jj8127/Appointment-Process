@@ -46,38 +46,54 @@ async def run_test():
                 pass
         
         # Interact with the page elements to simulate user flow
-        # -> Input invalid data or leave empty in the life exam registration form to test validation.
+        # -> Input a valid phone number or admin code and click '시작하기' (Start) button to proceed.
         frame = context.pages[-1]
-        # Leave phone number/admin code input empty to test validation on start button click.
-        elem = frame.locator('xpath=html/body/div/div/div/div/div[2]/div/div/div/div/div/div/div[2]/div[3]/input').nth(0)
-        await page.wait_for_timeout(3000); await elem.fill('')
+        # Input a valid phone number without dashes
+        elem = frame.locator('xpath=html/body/div/div/div/div/div[2]/div/div/div/div/div[2]/div/div/div/div[2]/div[2]/div[2]/input').nth(0)
+        await page.wait_for_timeout(3000); await elem.fill('01012345678')
         
 
         frame = context.pages[-1]
-        # Click 시작하기 (Start) button to attempt submission with empty input.
-        elem = frame.locator('xpath=html/body/div/div/div/div/div[2]/div/div/div/div/div/div/div[2]/div[4]').nth(0)
+        # Click the '시작하기' (Start) button to proceed
+        elem = frame.locator('xpath=html/body/div/div/div/div/div[2]/div/div/div/div/div[2]/div/div/div/div[2]/div[3]').nth(0)
         await page.wait_for_timeout(3000); await elem.click(timeout=5000)
         
 
-        # -> Input valid code to proceed to life exam registration form.
+        # -> Navigate to the identity input page to enter 주민번호 앞6/뒤7, 주소, 상세주소.
         frame = context.pages[-1]
-        # Input valid admin code to proceed.
-        elem = frame.locator('xpath=html/body/div/div/div/div/div[2]/div/div/div/div/div/div/div[2]/div[3]/input').nth(0)
-        await page.wait_for_timeout(3000); await elem.fill('1111')
+        # Click '인적사항 수정' to go to identity information input page
+        elem = frame.locator('xpath=html/body/div/div/div/div/div[2]/div/div[2]/div/div/div/div/div/div/div[8]/div[3]/div').nth(0)
+        await page.wait_for_timeout(3000); await elem.click(timeout=5000)
+        
+
+        # -> Input 주민번호 앞6/뒤7, 주소, 상세주소 and then click the '저장하기' button to save and proceed.
+        frame = context.pages[-1]
+        # Input 주민번호 앞6/뒤7 (e.g. 9001011234567)
+        elem = frame.locator('xpath=html/body/div/div/div/div/div[2]/div[2]/div[2]/div/div/div/div/div[3]/div[3]/input').nth(0)
+        await page.wait_for_timeout(3000); await elem.fill('9001011234567')
         
 
         frame = context.pages[-1]
-        # Click 시작하기 (Start) button to proceed to life exam registration form.
-        elem = frame.locator('xpath=html/body/div/div/div/div/div[2]/div/div/div/div/div/div/div[2]/div[4]').nth(0)
+        # Input 주소 (e.g. 서울특별시 강남구 역삼동)
+        elem = frame.locator('xpath=html/body/div/div/div/div/div[2]/div[2]/div[2]/div/div/div/div/div[4]/div[2]/input').nth(0)
+        await page.wait_for_timeout(3000); await elem.fill('서울특별시 강남구 역삼동')
+        
+
+        frame = context.pages[-1]
+        # Input 상세주소 (e.g. 역삼로 123)
+        elem = frame.locator('xpath=html/body/div/div/div/div/div[2]/div[2]/div[2]/div/div/div/div/div[4]/div[3]/input').nth(0)
+        await page.wait_for_timeout(3000); await elem.fill('역삼로 123')
+        
+
+        frame = context.pages[-1]
+        # Click the '저장하기' button to save the entered identity information
+        elem = frame.locator('xpath=html/body/div/div/div/div/div[2]/div[2]/div[2]/div/div/div/div/div[5]').nth(0)
         await page.wait_for_timeout(3000); await elem.click(timeout=5000)
         
 
         # --> Assertions to verify final state
         frame = context.pages[-1]
-        try:
-            await expect(frame.locator('text=Validation Successful').first).to_be_visible(timeout=3000)
-        except AssertionError:
-            raise AssertionError('Test case failed: The life and non-life exam registration forms did not enforce mandatory fields or validate input formats as expected. Validation errors were not shown, and submission was not blocked.')
+        await expect(frame.locator('text=9001011234567님 환영합니다').first).to_be_visible(timeout=30000)
         await asyncio.sleep(5)
     
     finally:

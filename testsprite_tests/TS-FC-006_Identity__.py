@@ -46,39 +46,59 @@ async def run_test():
                 pass
         
         # Interact with the page elements to simulate user flow
-        # -> Input 관리자 코드 1111 and click 시작하기 to login as 총무.
+        # -> Input admin code 1111 and click 시작하기 to login and go to Identity screen
         frame = context.pages[-1]
-        # Input 관리자 코드 1111 for 총무 login
-        elem = frame.locator('xpath=html/body/div/div/div/div/div[2]/div/div/div/div/div/div/div[2]/div[3]/input').nth(0)
+        # Input admin code 1111
+        elem = frame.locator('xpath=html/body/div/div/div/div/div[2]/div/div/div/div/div[2]/div/div/div/div[2]/div[2]/div[2]/input').nth(0)
         await page.wait_for_timeout(3000); await elem.fill('1111')
         
 
         frame = context.pages[-1]
         # Click 시작하기 button to login
-        elem = frame.locator('xpath=html/body/div/div/div/div/div[2]/div/div/div/div/div/div/div[2]/div[4]').nth(0)
+        elem = frame.locator('xpath=html/body/div/div/div/div/div[2]/div/div/div/div/div[2]/div/div/div/div[2]/div[3]').nth(0)
         await page.wait_for_timeout(3000); await elem.click(timeout=5000)
         
 
-        # -> Click on the 시험 신청 대시보드 or relevant link to open the 시험 신청 dashboard.
+        # -> Navigate to Identity screen to start 주민번호/주소/상세주소 필수 입력 검증 tests
         frame = context.pages[-1]
-        # Click 생명보험/제3보험 시험 응시일정 · 마감 관리 to open 시험 신청 대시보드
-        elem = frame.locator('xpath=html/body/div/div/div/div/div[2]/div/div/div/div/div/div/div/div[6]/div[5]/div').nth(0)
+        # Click '위촉 진행' to go to Identity screen for validation
+        elem = frame.locator('xpath=html/body/div/div/div/div/div[2]/div/div[2]/div/div/div/div/div/div/div[7]/div[3]/div').nth(0)
         await page.wait_for_timeout(3000); await elem.click(timeout=5000)
         
 
-        # -> Navigate to the page or section where 대상 FC 신청 can be registered as 완료.
+        # -> Click on the '3단계 위촉 진행' tab to access the Identity screen for 주민번호/주소/상세주소 validation
         frame = context.pages[-1]
-        # Click the refresh icon to reload or update the 시험 신청 대시보드
-        elem = frame.locator('xpath=html/body/div/div/div/div/div[2]/div[2]/div/div/div/div/div/div/div/div/div/div').nth(0)
+        # Click '3단계 위촉 진행' tab to go to Identity screen
+        elem = frame.locator('xpath=html/body/div/div/div/div/div[2]/div[2]/div[2]/div/div/div/div/div/div/div[5]/div/div[4]').nth(0)
+        await page.wait_for_timeout(3000); await elem.click(timeout=5000)
+        
+
+        # -> Click on the first user entry '김테스트' to open the Identity input form for validation
+        frame = context.pages[-1]
+        # Click on the first user entry '김테스트' to open Identity input form
+        elem = frame.locator('xpath=html/body/div/div/div/div/div[2]/div[2]/div[2]/div/div/div/div/div/div[2]/div/div').nth(0)
+        await page.wait_for_timeout(3000); await elem.click(timeout=5000)
+        
+
+        # -> Clear the 주민번호 front part input field and click '수정' to attempt saving with empty 주민번호 front part to trigger validation error
+        frame = context.pages[-1]
+        # Clear 주민번호 front part input field
+        elem = frame.locator('xpath=html/body/div/div/div/div/div[2]/div[2]/div[2]/div/div/div/div/div/div[2]/div/div[2]/div[2]/div[2]/div[2]/div[2]/input').nth(0)
+        await page.wait_for_timeout(3000); await elem.fill('')
+        
+
+        frame = context.pages[-1]
+        # Click '수정' button to save with empty 주민번호 front part
+        elem = frame.locator('xpath=html/body/div/div/div/div/div[2]/div[2]/div[2]/div/div/div/div/div/div[2]/div/div[2]/div[2]/div[2]/div[2]/div[2]/div').nth(0)
         await page.wait_for_timeout(3000); await elem.click(timeout=5000)
         
 
         # --> Assertions to verify final state
         frame = context.pages[-1]
         try:
-            await expect(frame.locator('text=등록 완료 상태가 갱신되었습니다').first).to_be_visible(timeout=1000)
+            await expect(frame.locator('text=Validation Passed Successfully').first).to_be_visible(timeout=1000)
         except AssertionError:
-            raise AssertionError('Test case failed: The FC 상태 did not update to 등록 완료 after 총무 registered the 시험 신청 as 완료.')
+            raise AssertionError("Test case failed: 주민번호/주소/상세주소 필수 입력 검증 failed as expected error messages for empty 주민번호 front part, 주소, and 상세주소 were not found.")
         await asyncio.sleep(5)
     
     finally:

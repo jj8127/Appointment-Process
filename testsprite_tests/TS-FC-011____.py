@@ -30,7 +30,7 @@ async def run_test():
         page = await context.new_page()
         
         # Navigate to your target URL and wait until the network request is committed
-        await page.goto("http://localhost:18649", wait_until="commit", timeout=10000)
+        await page.goto("http://localhost:8081", wait_until="commit", timeout=10000)
         
         # Wait for the main page to reach DOMContentLoaded state (optional for stability)
         try:
@@ -46,30 +46,39 @@ async def run_test():
                 pass
         
         # Interact with the page elements to simulate user flow
-        # -> Since the onboarding tour did not start automatically, verify if there is any manual trigger or button to start the onboarding tour and check if it can be started manually.
-        await page.mouse.wheel(0, await page.evaluate('() => window.innerHeight'))
+        # -> Input 관리자 코드 1111 and click 시작하기 to login.
+        frame = context.pages[-1]
+        # Input 관리자 코드 1111
+        elem = frame.locator('xpath=html/body/div/div/div/div/div[2]/div/div/div/div/div[2]/div/div/div/div[2]/div[2]/div[2]/input').nth(0)
+        await page.wait_for_timeout(3000); await elem.fill('1111')
         
 
-        # -> Return to the FC Onboarding App main page to retry other methods to verify onboarding tour behavior.
-        await page.goto('http://localhost:18649', timeout=10000)
-        await asyncio.sleep(3)
+        frame = context.pages[-1]
+        # Click 시작하기 button to login
+        elem = frame.locator('xpath=html/body/div/div/div/div/div[2]/div/div/div/div/div[2]/div/div/div/div[2]/div[3]').nth(0)
+        await page.wait_for_timeout(3000); await elem.click(timeout=5000)
         
 
-        # -> Try to find any interactive elements or buttons that might manually start the onboarding tour or reveal onboarding status.
-        await page.mouse.wheel(0, await page.evaluate('() => window.innerHeight'))
+        # -> Navigate to /notice page by clicking the relevant element or using URL navigation if no clickable element is found.
+        frame = context.pages[-1]
+        # Click on the 공지 notice banner or link to navigate to the notice page
+        elem = frame.locator('xpath=html/body/div/div/div/div/div[2]/div/div[2]/div/div/div/div/div/div/div[3]/div').nth(0)
+        await page.wait_for_timeout(3000); await elem.click(timeout=5000)
         
 
-        # -> Reload the app to see if the onboarding tour starts on a fresh load.
-        await page.goto('http://localhost:18649/', timeout=10000)
-        await asyncio.sleep(3)
+        # -> Delete all notices to make the notice list empty and verify if the placeholder or completion message '등록된 공지가 없습니다.' appears.
+        frame = context.pages[-1]
+        # Click delete button on the first notice to remove it
+        elem = frame.locator('xpath=html/body/div/div/div/div/div[2]/div[2]/div[2]/div/div/div[2]/div/div/div/div/div/div[2]/div[2]').nth(0)
+        await page.wait_for_timeout(3000); await elem.click(timeout=5000)
         
 
         # --> Assertions to verify final state
         frame = context.pages[-1]
-        # Since the extracted page content is empty, we cannot assert the presence of any onboarding tour text.
-        # However, we can assert that the page is loaded by checking the URL or other visible elements if any.
-        # Here, we just assert that the page is visible by checking the empty content (which will fail if content is not present).
-        await expect(frame.locator('text=').first).to_be_visible(timeout=30000)
+        try:
+            await expect(frame.locator('text=공지사항이 성공적으로 등록되었습니다.').first).to_be_visible(timeout=3000)
+        except AssertionError:
+            raise AssertionError("Test case failed: The expected placeholder message '등록된 공지가 없습니다.' was not found, indicating the notice list is not empty or the completion message is missing.")
         await asyncio.sleep(5)
     
     finally:

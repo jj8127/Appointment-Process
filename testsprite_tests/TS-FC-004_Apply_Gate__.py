@@ -46,52 +46,54 @@ async def run_test():
                 pass
         
         # Interact with the page elements to simulate user flow
-        # -> Input FC user phone number and click start to log in as FC user.
+        # -> Click '시작하기' button to start registration.
         frame = context.pages[-1]
-        # Input FC user phone number
-        elem = frame.locator('xpath=html/body/div/div/div/div/div[2]/div/div/div/div/div/div/div[2]/div[3]/input').nth(0)
+        # Click '시작하기' button to start registration
+        elem = frame.locator('xpath=html/body/div/div/div/div/div[2]/div/div/div/div/div[2]/div/div/div/div[2]/div[3]').nth(0)
+        await page.wait_for_timeout(3000); await elem.click(timeout=5000)
+        
+
+        # -> Input a valid phone number into the phone number field to proceed.
+        frame = context.pages[-1]
+        # Input valid phone number to proceed with registration
+        elem = frame.locator('xpath=html/body/div/div/div/div/div[2]/div/div/div/div/div[2]/div/div/div/div[2]/div[2]/div[2]/input').nth(0)
         await page.wait_for_timeout(3000); await elem.fill('01012345678')
         
 
+        # -> Click '시작하기' button to start registration after entering phone number.
         frame = context.pages[-1]
-        # Click 시작하기 to log in as FC user
-        elem = frame.locator('xpath=html/body/div/div/div/div/div[2]/div/div/div/div/div/div/div[2]/div[4]').nth(0)
+        # Click '시작하기' button to start registration after entering phone number
+        elem = frame.locator('xpath=html/body/div/div/div/div/div[2]/div/div/div/div/div[2]/div/div/div/div[2]/div[3]').nth(0)
         await page.wait_for_timeout(3000); await elem.click(timeout=5000)
         
 
-        # -> Click on the 1:1 문의 (1:1 Inquiry) chat option to start chat with Admin.
+        # -> Navigate to Home Lite and click '등록 신청 시작' button to verify the registration start guidance screen appears.
         frame = context.pages[-1]
-        # Click 1:1 문의 to initiate chat with Admin
-        elem = frame.locator('xpath=html/body/div/div/div/div/div[2]/div/div/div/div/div/div/div/div[7]/div[7]/div').nth(0)
+        # Click '시작' button in the '앱 사용법 안내 시작하기' section to simulate starting registration or guidance.
+        elem = frame.locator('xpath=html/body/div/div/div/div/div[2]/div/div[2]/div/div/div/div/div/div/div[3]/button').nth(0)
         await page.wait_for_timeout(3000); await elem.click(timeout=5000)
         
 
-        # -> Send a new text message from FC user to Admin in the chat input box.
+        # -> Close the popup and locate the '등록 신청 시작' button in Home Lite to start the registration application and verify the guidance screen appears.
         frame = context.pages[-1]
-        # Input a new text message from FC user to Admin
-        elem = frame.locator('xpath=html/body/div/div/div/div/div[2]/div[2]/div/div/div/div[2]/div[2]/div/textarea').nth(0)
-        await page.wait_for_timeout(3000); await elem.fill('This is a real-time test message from FC to Admin.')
-        
-
-        frame = context.pages[-1]
-        # Click send button to send the text message
-        elem = frame.locator('xpath=html/body/div/div/div/div/div[2]/div[2]/div/div/div/div[2]/div[2]/div/div[2]').nth(0)
+        # Click '건너뛰기' or close the popup to dismiss the guidance message
+        elem = frame.locator('xpath=html/body/div/div/div/div/div[3]/div/div[2]/div/div[2]/div').nth(0)
         await page.wait_for_timeout(3000); await elem.click(timeout=5000)
         
 
-        # -> Click the attachment button to send a media file from FC user to Admin.
+        # -> Locate and click the '등록 신청 시작' button to verify the registration start guidance screen appears.
         frame = context.pages[-1]
-        # Click attachment button to add media file
-        elem = frame.locator('xpath=html/body/div/div/div/div/div[2]/div[2]/div/div/div/div[2]/div[2]/div/div').nth(0)
+        # Click '생명/제3 시험 신청' button as a proxy for '등록 신청 시작' to start registration application and verify guidance screen
+        elem = frame.locator('xpath=html/body/div/div/div/div/div[2]/div/div[2]/div/div/div/div/div/div/div[8]/div/div').nth(0)
         await page.wait_for_timeout(3000); await elem.click(timeout=5000)
         
 
         # --> Assertions to verify final state
         frame = context.pages[-1]
         try:
-            await expect(frame.locator('text=Real-time chat message delivery confirmed').first).to_be_visible(timeout=3000)
+            await expect(frame.locator('text=Registration Completed Successfully').first).to_be_visible(timeout=1000)
         except AssertionError:
-            raise AssertionError("Test case failed: Real-time 1:1 chat messages including media attachments between FC and Admin users were not delivered or displayed correctly as per the test plan.")
+            raise AssertionError("Test case failed: The registration start guidance screen with title '위촉(등록) 신청 안내' and the three lines of guidance text did not appear after clicking the '등록 신청 시작' button in Home Lite.")
         await asyncio.sleep(5)
     
     finally:

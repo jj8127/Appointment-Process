@@ -1,243 +1,253 @@
 [
   {
-    "id": "TC001",
-    "title": "Auto-Start Onboarding Tour After App Hydration",
-    "description": "Verify that the onboarding tour automatically starts once after the app hydration completes and does not restart unexpectedly.",
+    "id": "TS-FC-001",
+    "title": "FC 로그인 후 Home Lite 진입",
+    "description": "신규 FC 로그인 시 주민번호/주소 입력 없이 Home Lite로 진입하는지 확인한다.",
     "category": "functional",
     "priority": "High",
     "steps": [
       {
         "type": "action",
-        "description": "Launch the FC Onboarding App."
-      },
-      {
-        "type": "action",
-        "description": "Wait for the app hydration process to complete."
+        "description": "FC 계정(신규 11자리 전화번호 예: 01012345678)으로 로그인한다"
       },
       {
         "type": "assertion",
-        "description": "Check that the onboarding tour automatically starts immediately after hydration."
-      },
-      {
-        "type": "assertion",
-        "description": "Verify the onboarding tour does not restart again without manual intervention."
+        "description": "Home Lite 화면에 '둘러보기 모드' 또는 '위촉 절차 진행을 위해 추가 정보 입력이 필요합니다(주민번호/주소).' 문구가 표시된다"
       }
     ]
   },
   {
-    "id": "TC002",
-    "title": "Manual Restart of Onboarding Tour via Coach Button",
-    "description": "Ensure that tapping the coach button manually restarts the onboarding tour and the button styling matches Hanwha brand guidelines.",
+    "id": "TS-FC-002",
+    "title": "관리자 로그인 시 기존 홈 유지",
+    "description": "관리자 로그인은 기존 홈으로 이동해야 한다.",
     "category": "functional",
     "priority": "High",
     "steps": [
       {
         "type": "action",
-        "description": "Launch the app and wait for the auto-start onboarding tour to complete or skip it."
-      },
-      {
-        "type": "action",
-        "description": "Locate the coach button styled per Hanwha brand colors on the home screen."
+        "description": "관리자 코드 1111로 로그인한다"
       },
       {
         "type": "assertion",
-        "description": "Verify the coach button styling matches the Hanwha palette and style specifications."
-      },
-      {
-        "type": "action",
-        "description": "Tap the coach button to start the onboarding tour manually."
-      },
-      {
-        "type": "assertion",
-        "description": "Confirm the onboarding tour restarts and overlays and tooltips appear as expected."
+        "description": "기존 홈(/) 화면이 표시된다"
       }
     ]
   },
   {
-    "id": "TC003",
-    "title": "Custom Coachmark Tooltip Content and Styling",
-    "description": "Validate that the custom coachmark tooltip displays accurate Korean text labels and CTA icons, and is styled with shadows and spacing for readability.",
+    "id": "TS-FC-003",
+    "title": "Home Lite 상단 액션 동작",
+    "description": "Home Lite에서 설정/알림/로그아웃 동작을 확인한다.",
+    "category": "functional",
+    "priority": "Medium",
+    "steps": [
+      {
+        "type": "action",
+        "description": "Home Lite 상단의 설정 아이콘을 탭한다"
+      },
+      {
+        "type": "assertion",
+        "description": "설정 화면(/settings)으로 이동한다"
+      },
+      {
+        "type": "action",
+        "description": "알림 아이콘을 탭한다"
+      },
+      {
+        "type": "assertion",
+        "description": "알림 화면(/notifications)으로 이동한다"
+      },
+      {
+        "type": "action",
+        "description": "로그아웃 버튼을 탭한다"
+      },
+      {
+        "type": "assertion",
+        "description": "로그아웃되어 인증 화면(/auth)으로 이동한다"
+      }
+    ]
+  },
+  {
+    "id": "TS-FC-004",
+    "title": "Apply Gate 화면 진입",
+    "description": "Home Lite에서 등록 신청 시작 시 안내 화면이 표시된다.",
+    "category": "functional",
+    "priority": "High",
+    "steps": [
+      {
+        "type": "action",
+        "description": "Home Lite에서 '등록 신청 시작' 버튼을 탭한다"
+      },
+      {
+        "type": "assertion",
+        "description": "Apply Gate에서 '위촉(등록) 신청 안내' 타이틀과 안내 문구 3줄이 표시된다"
+      }
+    ]
+  },
+  {
+    "id": "TS-FC-005",
+    "title": "Apply Gate 버튼 동작",
+    "description": "나중에/등록 신청 시작 버튼 동작을 확인한다.",
+    "category": "functional",
+    "priority": "High",
+    "steps": [
+      {
+        "type": "action",
+        "description": "Apply Gate에서 '나중에'를 탭한다"
+      },
+      {
+        "type": "assertion",
+        "description": "Home Lite(/home-lite)로 돌아간다"
+      },
+      {
+        "type": "action",
+        "description": "Apply Gate에서 '등록 신청 시작'을 탭한다"
+      },
+      {
+        "type": "assertion",
+        "description": "Identity 화면(/identity)으로 이동한다"
+      }
+    ]
+  },
+  {
+    "id": "TS-FC-006",
+    "title": "Identity 입력 유효성",
+    "description": "주민번호/주소/상세주소 필수 입력 검증을 확인한다.",
+    "category": "functional",
+    "priority": "High",
+    "steps": [
+      {
+        "type": "action",
+        "description": "Identity 화면에서 주민번호 앞/뒤 중 하나를 비워 저장을 시도한다"
+      },
+      {
+        "type": "assertion",
+        "description": "주민번호 필수 오류 메시지가 표시된다"
+      },
+      {
+        "type": "action",
+        "description": "주소를 비워 저장을 시도한다"
+      },
+      {
+        "type": "assertion",
+        "description": "주소 필수 오류 메시지가 표시된다"
+      },
+      {
+        "type": "action",
+        "description": "상세주소를 비워 저장을 시도한다"
+      },
+      {
+        "type": "assertion",
+        "description": "상세주소 필수 오류 메시지가 표시된다"
+      }
+    ]
+  },
+  {
+    "id": "TS-FC-007",
+    "title": "Identity 저장 성공",
+    "description": "유효한 신원 입력 시 저장되고 홈으로 이동한다.",
+    "category": "functional",
+    "priority": "High",
+    "steps": [
+      {
+        "type": "action",
+        "description": "주민번호 앞6/뒤7, 주소, 상세주소를 입력한다"
+      },
+      {
+        "type": "action",
+        "description": "'확인 및 저장' 버튼을 탭한다"
+      },
+      {
+        "type": "assertion",
+        "description": "저장 성공 알림이 표시되고 홈(/)으로 이동한다"
+      }
+    ]
+  },
+  {
+    "id": "TS-FC-008",
+    "title": "Identity 미완료 시 게이트 리다이렉트",
+    "description": "Identity 미완료 상태에서 위촉 단계 화면 접근 시 Apply Gate로 이동한다.",
+    "category": "functional",
+    "priority": "High",
+    "steps": [
+      {
+        "type": "action",
+        "description": "Identity 미완료 상태에서 /consent, /docs-upload, /appointment, /exam-apply, /exam-apply2로 접근한다"
+      },
+      {
+        "type": "assertion",
+        "description": "각 화면 접근 시 Apply Gate(/apply-gate)로 리다이렉트된다"
+      }
+    ]
+  },
+  {
+    "id": "TS-FC-009",
+    "title": "Identity 완료 후 위촉 단계 접근",
+    "description": "Identity 완료 후 위촉 단계 화면 접근이 가능해야 한다.",
+    "category": "functional",
+    "priority": "High",
+    "steps": [
+      {
+        "type": "action",
+        "description": "Identity 완료 상태에서 /consent, /docs-upload, /appointment, /exam-apply, /exam-apply2로 접근한다"
+      },
+      {
+        "type": "assertion",
+        "description": "각 화면이 정상적으로 표시된다"
+      }
+    ]
+  },
+  {
+    "id": "TS-FC-010",
+    "title": "설정에서 계정 삭제",
+    "description": "설정 화면에서 계정 삭제가 동작하고 로그아웃되는지 확인한다.",
+    "category": "functional",
+    "priority": "High",
+    "steps": [
+      {
+        "type": "action",
+        "description": "설정(/settings) 화면에서 계정 삭제 버튼을 탭한다"
+      },
+      {
+        "type": "action",
+        "description": "삭제 확인을 진행한다"
+      },
+      {
+        "type": "assertion",
+        "description": "삭제 완료 알림 후 /auth로 이동한다"
+      }
+    ]
+  },
+  {
+    "id": "TS-FC-011",
+    "title": "공지 없음 상태 문구",
+    "description": "공지 데이터가 없을 때 placeholder 대신 완료 문구를 표시한다.",
     "category": "ui",
-    "priority": "High",
-    "steps": [
-      {
-        "type": "action",
-        "description": "Trigger the onboarding tour to display coachmark tooltips."
-      },
-      {
-        "type": "assertion",
-        "description": "Verify that all tooltip texts are displayed in Korean with correct grammar and wording."
-      },
-      {
-        "type": "assertion",
-        "description": "Check that each tooltip includes the specified call-to-action icons."
-      },
-      {
-        "type": "assertion",
-        "description": "Confirm that tooltip layout includes proper shadows, spacing, and matches design requirements for readability."
-      }
-    ]
-  },
-  {
-    "id": "TC004",
-    "title": "TourGuideProvider Overlay Positioning and Vertical Offset",
-    "description": "Verify that the TourGuideProvider wraps the home screen and positions overlays correctly with adjustable vertical offset applied.",
-    "category": "functional",
     "priority": "Medium",
     "steps": [
       {
         "type": "action",
-        "description": "Launch the app and start the onboarding tour."
+        "description": "관리자 코드 1111로 로그인 후 /notice로 이동한다"
       },
       {
         "type": "assertion",
-        "description": "Confirm that the overlays are positioned correctly on the home screen elements."
-      },
-      {
-        "type": "action",
-        "description": "Adjust the vertical offset configuration (if possible via test harness or dev mode)."
-      },
-      {
-        "type": "assertion",
-        "description": "Verify that overlays reposition accordingly respecting the vertical offset parameter."
+        "description": "'등록된 공지가 없습니다.' 문구가 표시된다"
       }
     ]
   },
   {
-    "id": "TC005",
-    "title": "Progress Card Header and Status Highlight with TourGuideZone",
-    "description": "Check that the progress card header and status are wrapped in TourGuideZone and highlighted with rectangular overlays as per design.",
-    "category": "functional",
+    "id": "TS-FC-012",
+    "title": "주민번호 평문 미노출",
+    "description": "관리자 화면에서 주민번호 평문이 노출되지 않는지 확인한다.",
+    "category": "security",
     "priority": "High",
     "steps": [
       {
         "type": "action",
-        "description": "Trigger the onboarding tour to display overlays."
+        "description": "관리자 코드 1111로 로그인 후 시험 신청자 관리 화면으로 이동한다"
       },
       {
         "type": "assertion",
-        "description": "Verify that the progress card header and status areas are highlighted with rectangular overlays."
-      },
-      {
-        "type": "assertion",
-        "description": "Confirm that the highlighted areas correspond to the correct UI elements as specified."
-      }
-    ]
-  },
-  {
-    "id": "TC006",
-    "title": "Progress Bar Component Display and Accuracy",
-    "description": "Ensure the progress bar component correctly displays active and completed steps inside a non-collapsable container for accurate onboarding progress visualization.",
-    "category": "functional",
-    "priority": "High",
-    "steps": [
-      {
-        "type": "action",
-        "description": "Start the onboarding tour."
-      },
-      {
-        "type": "assertion",
-        "description": "Check the progress bar displays the current active step correctly."
-      },
-      {
-        "type": "action",
-        "description": "Complete a few steps in the onboarding tour."
-      },
-      {
-        "type": "assertion",
-        "description": "Verify that completed steps are visually indicated as done in the progress bar."
-      },
-      {
-        "type": "assertion",
-        "description": "Confirm the progress bar container is non-collapsable and maintains consistent layout."
-      }
-    ]
-  },
-  {
-    "id": "TC007",
-    "title": "Overlay Rendering and Performance on Supported Devices",
-    "description": "Validate that overlays and tooltips render correctly on all supported devices with no layout, styling issues, or performance regressions.",
-    "category": "performance",
-    "priority": "High",
-    "steps": [
-      {
-        "type": "action",
-        "description": "Run the app with onboarding tour on multiple supported iOS and Android devices and screen sizes."
-      },
-      {
-        "type": "assertion",
-        "description": "Confirm overlays and tooltips display correctly without clipping, overlap, or misalignment."
-      },
-      {
-        "type": "assertion",
-        "description": "Verify that UI remains responsive and animations smooth during the tour."
-      }
-    ]
-  },
-  {
-    "id": "TC008",
-    "title": "Dependency Integration Validation: rn-tourguide and react-native-svg",
-    "description": "Ensure that rn-tourguide and react-native-svg dependencies are correctly integrated and do not cause app crashes or degrade performance during the onboarding tour.",
-    "category": "integration",
-    "priority": "High",
-    "steps": [
-      {
-        "type": "action",
-        "description": "Launch app and start onboarding tour dependent on rn-tourguide overlays and react-native-svg rendering."
-      },
-      {
-        "type": "assertion",
-        "description": "Observe and confirm no errors or warnings are emitted related to these dependencies."
-      },
-      {
-        "type": "assertion",
-        "description": "Verify smooth rendering of overlays and no memory leaks or performance drops occur."
-      }
-    ]
-  },
-  {
-    "id": "TC009",
-    "title": "Error Handling: Tour Start Failure",
-    "description": "Test how the app handles scenarios where the onboarding tour fails to start after hydration (e.g., due to state errors or timeout failures).",
-    "category": "error handling",
-    "priority": "Medium",
-    "steps": [
-      {
-        "type": "action",
-        "description": "Simulate failure or delay in canStart guard or timeout mechanism preventing tour start."
-      },
-      {
-        "type": "assertion",
-        "description": "Verify the app does not crash and displays fallback UI or error messages appropriately."
-      },
-      {
-        "type": "action",
-        "description": "Attempt manual restart using the coach button."
-      },
-      {
-        "type": "assertion",
-        "description": "Ensure manual restart still works and triggers the tour even after auto-start failure."
-      }
-    ]
-  },
-  {
-    "id": "TC010",
-    "title": "Localization Validation of Korean Labels in Tooltips and UI Elements",
-    "description": "Validate accuracy and completeness of Korean labels in all coachmark tooltips and highlighted UI elements during the onboarding tour.",
-    "category": "functional",
-    "priority": "High",
-    "steps": [
-      {
-        "type": "action",
-        "description": "Navigate through the entire onboarding tour."
-      },
-      {
-        "type": "assertion",
-        "description": "Confirm that all text labels in tooltips and highlighted UI components are displayed fully in Korean."
-      },
-      {
-        "type": "assertion",
-        "description": "Verify no untranslated English or garbled characters appear."
+        "description": "주민번호는 마스킹 값(resident_id_masked)만 표시된다"
       }
     ]
   }

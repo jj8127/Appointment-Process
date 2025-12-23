@@ -30,7 +30,7 @@ async def run_test():
         page = await context.new_page()
         
         # Navigate to your target URL and wait until the network request is committed
-        await page.goto("http://localhost:3000", wait_until="commit", timeout=10000)
+        await page.goto("http://localhost:8081", wait_until="commit", timeout=10000)
         
         # Wait for the main page to reach DOMContentLoaded state (optional for stability)
         try:
@@ -46,25 +46,50 @@ async def run_test():
                 pass
         
         # Interact with the page elements to simulate user flow
-        # -> Input a valid FC phone number (e.g., 01012345678) and click the start button to login.
+        # -> Input a test phone number or admin code and click '시작하기' to proceed with login.
         frame = context.pages[-1]
-        # Input valid FC phone number for login
-        elem = frame.locator('xpath=html/body/div[3]/div/div/div/div/input').nth(0)
+        # Input test phone number without dashes
+        elem = frame.locator('xpath=html/body/div/div/div/div/div[2]/div/div/div/div/div[2]/div/div/div/div[2]/div[2]/div[2]/input').nth(0)
         await page.wait_for_timeout(3000); await elem.fill('01012345678')
         
 
         frame = context.pages[-1]
-        # Click the start button to login
-        elem = frame.locator('xpath=html/body/div[3]/div/div/button').nth(0)
+        # Click 시작하기 button to proceed after input
+        elem = frame.locator('xpath=html/body/div/div/div/div/div[2]/div/div/div/div/div[2]/div/div/div/div[2]/div[3]').nth(0)
         await page.wait_for_timeout(3000); await elem.click(timeout=5000)
+        
+
+        # -> Navigate to /consent page and verify redirection to /apply-gate.
+        await page.goto('http://localhost:8081/consent', timeout=10000)
+        await asyncio.sleep(3)
+        
+
+        # -> Navigate to /docs-upload page and verify redirection to /apply-gate.
+        await page.goto('http://localhost:8081/docs-upload', timeout=10000)
+        await asyncio.sleep(3)
+        
+
+        # -> Navigate to /appointment page and verify if redirection to /apply-gate occurs.
+        await page.goto('http://localhost:8081/appointment', timeout=10000)
+        await asyncio.sleep(3)
+        
+
+        # -> Navigate to /exam-apply page and verify if redirection to /apply-gate occurs.
+        await page.goto('http://localhost:8081/exam-apply', timeout=10000)
+        await asyncio.sleep(3)
+        
+
+        # -> Navigate to /exam-apply2 page and verify if redirection to /apply-gate occurs.
+        await page.goto('http://localhost:8081/exam-apply2', timeout=10000)
+        await asyncio.sleep(3)
         
 
         # --> Assertions to verify final state
         frame = context.pages[-1]
         try:
-            await expect(frame.locator('text=Message sent successfully after retry').first).to_be_visible(timeout=30000)
+            await expect(frame.locator('text=Identity Verification Complete').first).to_be_visible(timeout=1000)
         except AssertionError:
-            raise AssertionError('Test case failed: Message sending errors due to network issues did not show the expected failure state or retry mechanism as per the test plan.')
+            raise AssertionError('Test failed: Identity 미완료 상태에서 위촉 단계 화면 접근 시 Apply Gate로 리다이렉트되어야 하나, 해당 리다이렉션이 발생하지 않았습니다.')
         await asyncio.sleep(5)
     
     finally:

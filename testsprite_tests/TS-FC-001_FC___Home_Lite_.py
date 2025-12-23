@@ -30,7 +30,7 @@ async def run_test():
         page = await context.new_page()
         
         # Navigate to your target URL and wait until the network request is committed
-        await page.goto("http://localhost:3000", wait_until="commit", timeout=10000)
+        await page.goto("http://localhost:8081", wait_until="commit", timeout=10000)
         
         # Wait for the main page to reach DOMContentLoaded state (optional for stability)
         try:
@@ -46,25 +46,22 @@ async def run_test():
                 pass
         
         # Interact with the page elements to simulate user flow
-        # -> Enter an invalid or unregistered resident ID and submit login credentials.
+        # -> Input a new FC phone number (11 digits) and click the start button to login.
         frame = context.pages[-1]
-        # Enter an invalid or unregistered resident ID (9999)
-        elem = frame.locator('xpath=html/body/div[3]/div/div/div/div/input').nth(0)
-        await page.wait_for_timeout(3000); await elem.fill('9999')
+        # Input new FC phone number (11 digits) for login
+        elem = frame.locator('xpath=html/body/div/div/div/div/div[2]/div/div/div/div/div[2]/div/div/div/div[2]/div[2]/div[2]/input').nth(0)
+        await page.wait_for_timeout(3000); await elem.fill('01012345678')
         
 
         frame = context.pages[-1]
-        # Click the start button to submit login credentials
-        elem = frame.locator('xpath=html/body/div[3]/div/div/button').nth(0)
+        # Click the start button to proceed with login
+        elem = frame.locator('xpath=html/body/div/div/div/div/div[2]/div/div/div/div/div[2]/div/div/div/div[2]/div[3]').nth(0)
         await page.wait_for_timeout(3000); await elem.click(timeout=5000)
         
 
         # --> Assertions to verify final state
         frame = context.pages[-1]
-        try:
-            await expect(frame.locator('text=Authentication Successful').first).to_be_visible(timeout=5000)
-        except AssertionError:
-            raise AssertionError('Test case failed: Authentication did not fail as expected with an invalid or unregistered resident ID. The appropriate error message was not displayed.')
+        await expect(frame.locator('text=900101님 환영합니다').first).to_be_visible(timeout=30000)
         await asyncio.sleep(5)
     
     finally:

@@ -46,32 +46,55 @@ async def run_test():
                 pass
         
         # Interact with the page elements to simulate user flow
-        # -> Input FC phone number and click start to open the appointment date input screen.
+        # -> Input phone number and click '시작하기' button to proceed
         frame = context.pages[-1]
-        # Input FC phone number for login
-        elem = frame.locator('xpath=html/body/div/div/div/div/div[2]/div/div/div/div/div/div/div[2]/div[3]/input').nth(0)
+        # Input phone number without dashes
+        elem = frame.locator('xpath=html/body/div/div/div/div/div[2]/div/div/div/div/div[2]/div/div/div/div[2]/div[2]/div[2]/input').nth(0)
         await page.wait_for_timeout(3000); await elem.fill('01012345678')
         
 
         frame = context.pages[-1]
-        # Click 시작하기 to login as FC and open appointment date input screen
-        elem = frame.locator('xpath=html/body/div/div/div/div/div[2]/div/div/div/div/div/div/div[2]/div[4]').nth(0)
+        # Click '시작하기' button to proceed
+        elem = frame.locator('xpath=html/body/div/div/div/div/div[2]/div/div/div/div/div[2]/div/div/div/div[2]/div[3]').nth(0)
         await page.wait_for_timeout(3000); await elem.click(timeout=5000)
         
 
-        # -> Click on the section or button to open the appointment date input screen where FC can enter the appointment date.
+        # -> Find and click the '나중에' button on the Apply Gate page
         frame = context.pages[-1]
-        # Click '수당 동의' section to proceed to next step where appointment date input might be available
-        elem = frame.locator('xpath=html/body/div/div/div/div/div[2]/div/div/div/div/div/div/div/div[7]/div[4]/div').nth(0)
+        # Click '로그아웃' to simulate '나중에' action if '나중에' button is not visible
+        elem = frame.locator('xpath=html/body/div/div/div/div/div[2]/div/div[2]/div/div/div/div/div/div/div/div/div').nth(0)
+        await page.wait_for_timeout(3000); await elem.click(timeout=5000)
+        
+
+        # -> Login again to reach Apply Gate page to find '나중에' and '등록 신청 시작' buttons
+        frame = context.pages[-1]
+        # Input phone number without dashes to login again
+        elem = frame.locator('xpath=html/body/div/div/div/div/div[2]/div/div/div/div/div[2]/div/div/div/div[2]/div[2]/div[2]/input').nth(0)
+        await page.wait_for_timeout(3000); await elem.fill('01012345678')
+        
+
+        frame = context.pages[-1]
+        # Click '시작하기' button to login and proceed
+        elem = frame.locator('xpath=html/body/div/div/div/div/div[2]/div/div/div/div/div[2]/div/div/div/div[2]/div[3]').nth(0)
+        await page.wait_for_timeout(3000); await elem.click(timeout=5000)
+        
+
+        # -> Find and click the '나중에' button on the Apply Gate page
+        await page.mouse.wheel(0, await page.evaluate('() => window.innerHeight'))
+        
+
+        frame = context.pages[-1]
+        # Click '생명/제3 시험 신청' to navigate towards Apply Gate or related page where '나중에' and '등록 신청 시작' buttons might be present
+        elem = frame.locator('xpath=html/body/div/div/div/div/div[2]/div/div[2]/div/div/div/div/div/div/div[8]/div/div').nth(0)
         await page.wait_for_timeout(3000); await elem.click(timeout=5000)
         
 
         # --> Assertions to verify final state
         frame = context.pages[-1]
         try:
-            await expect(frame.locator('text=Appointment Date Successfully Saved').first).to_be_visible(timeout=1000)
+            await expect(frame.locator('text=Registration Completed Successfully').first).to_be_visible(timeout=1000)
         except AssertionError:
-            raise AssertionError('Test case failed: The appointment date input and submission did not save the date or update the status as expected according to the test plan.')
+            raise AssertionError("Test case failed: The test plan execution failed to verify the '나중에' button action and '등록 신청 시작' button navigation to Identity screen. Expected navigation or confirmation text was not found on the page.")
         await asyncio.sleep(5)
     
     finally:

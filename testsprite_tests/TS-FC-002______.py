@@ -30,7 +30,7 @@ async def run_test():
         page = await context.new_page()
         
         # Navigate to your target URL and wait until the network request is committed
-        await page.goto("http://localhost:18649", wait_until="commit", timeout=10000)
+        await page.goto("http://localhost:8081", wait_until="commit", timeout=10000)
         
         # Wait for the main page to reach DOMContentLoaded state (optional for stability)
         try:
@@ -46,15 +46,22 @@ async def run_test():
                 pass
         
         # Interact with the page elements to simulate user flow
-        # -> Check if there is any way to reveal or trigger the onboarding tour or coachmark tooltips on this empty page.
-        await page.mouse.wheel(0, 300)
+        # -> Input 관리자 코드 1111 and click 시작하기 to login as admin.
+        frame = context.pages[-1]
+        # Input 관리자 코드 1111
+        elem = frame.locator('xpath=html/body/div/div/div/div/div[2]/div/div/div/div/div[2]/div/div/div/div[2]/div[2]/div[2]/input').nth(0)
+        await page.wait_for_timeout(3000); await elem.fill('1111')
+        
+
+        frame = context.pages[-1]
+        # Click 시작하기 button to login
+        elem = frame.locator('xpath=html/body/div/div/div/div/div[2]/div/div/div/div/div[2]/div/div/div/div[2]/div[3]').nth(0)
+        await page.wait_for_timeout(3000); await elem.click(timeout=5000)
         
 
         # --> Assertions to verify final state
-        try:
-            await expect(page.locator('text=Welcome to the onboarding tour!').first).to_be_visible(timeout=1000)
-        except AssertionError:
-            raise AssertionError("Test failed: The onboarding tour coachmark tooltips did not display the expected Korean text labels, CTA icons, or styling as per the test plan.")
+        frame = context.pages[-1]
+        await expect(frame.locator('text=홈').first).to_be_visible(timeout=30000)
         await asyncio.sleep(5)
     
     finally:
