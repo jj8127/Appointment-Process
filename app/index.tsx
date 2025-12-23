@@ -7,7 +7,7 @@ import { LinearGradient } from 'expo-linear-gradient';
 import * as Notifications from 'expo-notifications';
 import { Stack, router, useFocusEffect } from 'expo-router';
 import { MotiView } from 'moti';
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { type ElementRef, useCallback, useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
@@ -537,7 +537,7 @@ export default function Home() {
   }, [eventEmitter]);
 
   // Auto-scroll refs
-  const scrollViewRef = useRef<ScrollView>(null);
+  const scrollViewRef = useRef<ElementRef<typeof Animated.ScrollView>>(null);
   const contentRef = useRef<View>(null);
   const zone2Ref = useRef<View>(null);
   const zone3Ref = useRef<View>(null);
