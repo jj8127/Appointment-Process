@@ -1,4 +1,4 @@
-앱 빌드: [시작 전에 버전 업데이트 필수]eas build --platform android --profile production
+앱 빌드: [시작 전에 버전 업데이트 필수]eas build --platform android --profile production  / eas build --platform ios --profile production
 앱 실행+설치: npx expo run:android
 웹 실행:cd web & npm run dev
 
@@ -24,8 +24,14 @@ vercel에 등록하기
 4. 배포
     vercel deploy dist --prod
 
-앱 release version으로 실행하기
-    npx expo run:android --variant release
+앱 데이터 초기화
+    adb uninstall com.jj8127.fconboardingapp
+    
+앱 icon적용 한 버전 실행하기
+    npx expo prebuild --clean && npx expo run:android
 
 expo mcp server로 앱 실행하기 [앱이 설치 되어 있다는 전제 하에]
     .\start-mcp.ps1
+
+app store connect에 가장 최근에 빌드한 앱 올리기
+    eas submit --platform ios --latest

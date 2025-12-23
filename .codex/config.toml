@@ -1,11 +1,14 @@
 model = "gpt-5.1-codex-max"
 model_reasoning_effort = "medium"
+text_verbosity = "medium"
 
 [mcp_servers.testsprite]
-command = "npx.cmd"
+command = "npx.cmd" 
 args = ["-y", "@testsprite/testsprite-mcp@latest"]
-env = { API_KEY = "sk-user-8GDkgZTu29XyzJhsDfYWp7Iy1N8ev-b2y8LuoPXnu4F6gMChNSZr1Z3gpsIWokED6LgLe6MmXxexV5q7ym9T0Hkd3y_Ub-egUSR1Niai79Q5R5QOHwrlRoXz8nwfdEtb70I" }
+env = { API_KEY = "sk-user-oonZX6vLFhdzx2ZVWwCEBuxiBoZTWhuOazSqLM88-sHZc4tKOxS5YRCVa-f6wGjCOxmD_wzZz5UUllZgHTm1pRO0jRziLUKEejqXH8DLHFGBP3JjD8n-QMdKvJVSGxYKWNg" }
 startup_timeout_sec = 120
+
+testsprite: jj81272000@gmail.com
 
 [mcp_servers.context7]
 args = ["-y", "@upstash/context7-mcp", "--api-key", "ctx7sk-9141fd3a-5a5a-4e31-b9ed-05855da8df6f"]
