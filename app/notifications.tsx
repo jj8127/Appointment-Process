@@ -1,4 +1,6 @@
 import { Feather } from '@expo/vector-icons';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import { useRouter } from 'expo-router';
 import { MotiView } from 'moti';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
@@ -33,6 +35,7 @@ const BORDER = '#E5E7EB';
 const BACKGROUND = '#ffffff';
 
 export default function NotificationsScreen() {
+  const router = useRouter();
   const { role, residentId, hydrated } = useSession();
   const [notices, setNotices] = useState<Notice[]>([]);
   const [loading, setLoading] = useState(true);
@@ -99,6 +102,7 @@ export default function NotificationsScreen() {
         return bTime - aTime;
       });
       setNotices(merged);
+      await AsyncStorage.setItem('lastNotificationCheckTime', new Date().toISOString());
     } catch (err: any) {
       console.warn(err);
     } finally {

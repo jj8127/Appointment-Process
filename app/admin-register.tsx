@@ -50,7 +50,7 @@ export default function AdminRegisterScreen() {
       if (!name.trim() || digits.length < 6) {
         throw new Error('이름과 주민번호를 확인해주세요.');
       }
-      const masked = digits.length >= 6 ? `${digits.slice(0, 6)}-${digits.slice(6)}` : digits;
+      const masked = digits.length >= 6 ? `${digits.slice(0, 6)}-${'*'.repeat(7)}` : digits;
       const { error } = await supabase.from('fc_profiles').upsert({
         name: name.trim(),
         affiliation: '',
