@@ -96,6 +96,67 @@ serve(async (req: Request) => {
     return fail('missing_password', '비밀번호를 입력해주세요.');
   }
 
+  const { data: admin, error: adminError } = await supabase
+    .from('admin_accounts')
+    .select('id,name,phone,password_hash,password_salt,failed_count,locked_until,password_set_at,active')
+    .eq('phone', phone)
+    .maybeSingle();
+
+  if (adminError) {
+    return json({ ok: false, code: 'db_error', message: adminError.message }, 500);
+  }
+
+  if (admin?.id) {
+    if (!admin.active) {
+      return fail('inactive_admin', '관리자 계정이 비활성화되었습니다.', { role: 'admin' });
+    }
+    if (!admin.password_set_at) {
+      return fail('needs_password_setup', '관리자 비밀번호가 아직 설정되지 않았습니다.', { role: 'admin' });
+    }
+
+    const now = new Date();
+    if (admin.locked_until) {
+      const lockedUntil = new Date(admin.locked_until);
+      if (lockedUntil > now) {
+        return fail('locked', '로그인 시도가 너무 많아 잠시 후 다시 시도해주세요.', {
+          lockedUntil: lockedUntil.toISOString(),
+          role: 'admin',
+        });
+      }
+    }
+
+    const hashed = await hashPassword(password, admin.password_salt);
+    if (hashed !== admin.password_hash) {
+      const nextCount = (admin.failed_count ?? 0) + 1;
+      const remaining = Math.max(0, MAX_FAILS - nextCount);
+      const shouldLock = nextCount >= MAX_FAILS;
+      const lockedUntil = shouldLock ? new Date(now.getTime() + LOCK_MINUTES * 60 * 1000) : null;
+
+      await supabase
+        .from('admin_accounts')
+        .update({
+          failed_count: shouldLock ? 0 : nextCount,
+          locked_until: lockedUntil ? lockedUntil.toISOString() : null,
+        })
+        .eq('id', admin.id);
+
+      return fail(
+        shouldLock ? 'locked' : 'invalid_password',
+        shouldLock
+          ? '로그인 시도가 너무 많아 잠시 후 다시 시도해주세요.'
+          : '비밀번호가 올바르지 않습니다.',
+        shouldLock ? { lockedUntil: lockedUntil?.toISOString(), role: 'admin' } : { remaining, role: 'admin' },
+      );
+    }
+
+    await supabase
+      .from('admin_accounts')
+      .update({ failed_count: 0, locked_until: null })
+      .eq('id', admin.id);
+
+    return json({ ok: true, role: 'admin', residentId: admin.phone, displayName: admin.name ?? '' });
+  }
+
   const { data: profile, error: profileError } = await supabase
     .from('fc_profiles')
     .select('id,name,phone')
@@ -161,5 +222,5 @@ serve(async (req: Request) => {
     .update({ failed_count: 0, locked_until: null })
     .eq('fc_id', profile.id);
 
-  return json({ ok: true, residentId: profile.phone, displayName: profile.name ?? '' });
+  return json({ ok: true, role: 'fc', residentId: profile.phone, displayName: profile.name ?? '' });
 });

@@ -15,11 +15,6 @@ import { notifications } from '@mantine/notifications';
 import { useRouter } from 'next/navigation';
 import { useEffect, useState } from 'react';
 
-const ADMIN_PHONE_NUMBERS = (process.env.NEXT_PUBLIC_ADMIN_PHONES ?? process.env.EXPO_PUBLIC_ADMIN_PHONES ?? '')
-    .split(',')
-    .map((phone) => phone.replace(/[^0-9]/g, ''))
-    .filter(Boolean);
-
 export default function AuthPage() {
     const { loginAs, role, residentId, hydrated, displayName } = useSession();
     const [phoneInput, setPhoneInput] = useState('');
@@ -68,22 +63,6 @@ export default function AuthPage() {
                 return;
             }
 
-            console.log('[WebAuth] adminPhones', ADMIN_PHONE_NUMBERS);
-            console.log('[WebAuth] input digits', digits);
-            if (ADMIN_PHONE_NUMBERS.includes(digits)) {
-                if (passwordInput.trim() !== 'asdf1234!') {
-                    notifications.show({
-                        title: '알림',
-                        message: '관리자 비밀번호가 올바르지 않습니다.',
-                        color: 'red',
-                    });
-                    return;
-                }
-                loginAs('admin', digits, '총무');
-                router.replace('/');
-                return;
-            }
-
             if (!passwordInput.trim()) {
                 notifications.show({
                     title: '알림',
@@ -98,7 +77,7 @@ export default function AuthPage() {
             });
             if (error) throw error;
             if (!data?.ok) {
-                if (data?.code === 'needs_password_setup' || data?.code === 'not_found') {
+                if ((data?.code === 'needs_password_setup' || data?.code === 'not_found') && data?.role !== 'admin') {
                     notifications.show({
                         title: '안내',
                         message: '비밀번호 설정은 회원가입에서 가능합니다.',
@@ -115,8 +94,11 @@ export default function AuthPage() {
                 return;
             }
 
-            loginAs('fc', data.residentId ?? digits, data.displayName ?? '');
-            if (!data.displayName || data.displayName.trim() === '') {
+            const nextRole = data.role === 'admin' ? 'admin' : 'fc';
+            loginAs(nextRole, data.residentId ?? digits, data.displayName ?? '');
+            if (nextRole === 'admin') {
+                router.replace('/');
+            } else if (!data.displayName || data.displayName.trim() === '') {
                 router.replace('/fc/new');
             } else {
                 router.replace('/');

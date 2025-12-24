@@ -3,7 +3,7 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { router, useLocalSearchParams } from 'expo-router';
 import { Feather } from '@expo/vector-icons';
 import { MotiView } from 'moti';
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
@@ -53,15 +53,6 @@ export default function AuthScreen() {
     }
   }, [hydrated, residentId, role, skipAutoRedirect]);
 
-  const adminPhones = useMemo(
-    () =>
-      (process.env.EXPO_PUBLIC_ADMIN_PHONES ?? '')
-        .split(',')
-        .map((phone) => phone.replace(/[^0-9]/g, ''))
-        .filter(Boolean),
-    [],
-  );
-
   const handleLogin = async () => {
     // Remove all whitespace for robust handling (e.g. '1111 ', ' 1111', '1 1 1 1')
     const code = phoneInput.replace(/\s/g, '');
@@ -79,18 +70,6 @@ export default function AuthScreen() {
         return;
       }
 
-      console.log('[Auth] adminPhones', adminPhones);
-      console.log('[Auth] input digits', digits);
-      if (adminPhones.includes(digits)) {
-        if (passwordInput.trim() !== 'asdf1234!') {
-          Alert.alert('알림', '관리자 비밀번호가 올바르지 않습니다.');
-          return;
-        }
-        loginAs('admin', digits, '총무');
-        router.replace('/');
-        return;
-      }
-
       if (!passwordInput.trim()) {
         Alert.alert('알림', '비밀번호를 입력해주세요.');
         return;
@@ -101,7 +80,7 @@ export default function AuthScreen() {
       });
       if (error) throw error;
       if (!data?.ok) {
-        if (data?.code === 'needs_password_setup' || data?.code === 'not_found') {
+        if ((data?.code === 'needs_password_setup' || data?.code === 'not_found') && data?.role !== 'admin') {
           Alert.alert('안내', '비밀번호 설정은 회원가입에서 가능합니다.');
           router.replace('/signup');
           return;
@@ -110,8 +89,9 @@ export default function AuthScreen() {
         return;
       }
 
-      loginAs('fc', data.residentId ?? digits, data.displayName ?? '');
-      router.replace('/home-lite');
+      const nextRole = data.role === 'admin' ? 'admin' : 'fc';
+      loginAs(nextRole, data.residentId ?? digits, data.displayName ?? '');
+      router.replace(nextRole === 'admin' ? '/' : '/home-lite');
       return;
     } catch (err: any) {
       Alert.alert('로그인 실패', '오류가 발생했습니다. 다시 시도해주세요.');

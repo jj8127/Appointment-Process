@@ -59,6 +59,20 @@ create table if not exists public.fc_credentials (
   updated_at timestamptz not null default now()
 );
 
+create table if not exists public.admin_accounts (
+  id uuid primary key default gen_random_uuid(),
+  name text not null,
+  phone text not null unique,
+  password_hash text not null,
+  password_salt text not null,
+  password_set_at timestamptz,
+  failed_count integer not null default 0,
+  locked_until timestamptz,
+  active boolean not null default true,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
 -- 알림용 디바이스 토큰 저장 테이블
 create table if not exists public.device_tokens (
   id uuid primary key default gen_random_uuid(),
@@ -166,6 +180,11 @@ create trigger trg_fc_credentials_updated_at
 before update on public.fc_credentials
 for each row execute function public.set_updated_at();
 
+drop trigger if exists trg_admin_accounts_updated_at on public.admin_accounts;
+create trigger trg_admin_accounts_updated_at
+before update on public.admin_accounts
+for each row execute function public.set_updated_at();
+
 drop trigger if exists trg_exam_rounds_updated_at on public.exam_rounds;
 create trigger trg_exam_rounds_updated_at
 before update on public.exam_rounds
@@ -180,6 +199,7 @@ alter table public.fc_profiles enable row level security;
 alter table public.fc_documents enable row level security;
 alter table public.fc_identity_secure enable row level security;
 alter table public.fc_credentials enable row level security;
+alter table public.admin_accounts enable row level security;
 alter table public.notifications enable row level security;
 alter table public.notices enable row level security;
 alter table public.exam_rounds enable row level security;
