@@ -26,6 +26,7 @@ const ncpServiceId = getEnv('NCP_SENS_SERVICE_ID') ?? '';
 const ncpSmsFrom = getEnv('NCP_SENS_SMS_FROM') ?? '';
 const supabase = createClient(supabaseUrl, serviceKey);
 const encoder = new TextEncoder();
+const RESET_COOLDOWN_SECONDS = 60;
 
 function json(body: Record<string, unknown>, status = 200) {
   return new Response(JSON.stringify(body), {
@@ -58,12 +59,12 @@ async function sha256Base64(value: string) {
 async function hmacSignature(message: string, secretKey: string) {
   const key = await crypto.subtle.importKey(
     'raw',
-    textEncoder.encode(secretKey),
+    encoder.encode(secretKey),
     { name: 'HMAC', hash: 'SHA-256' },
     false,
     ['sign'],
   );
-  const sig = await crypto.subtle.sign('HMAC', key, textEncoder.encode(message));
+  const sig = await crypto.subtle.sign('HMAC', key, encoder.encode(message));
   return btoa(String.fromCharCode(...new Uint8Array(sig)));
 }
 
@@ -101,6 +102,12 @@ async function sendResetSms(to: string, code: string) {
     return { ok: false, status: res.status, message: text || 'SMS 전송 실패' };
   }
   return { ok: true, status: 200 };
+}
+
+function generateResetCode() {
+  const bytes = crypto.getRandomValues(new Uint32Array(1));
+  const value = bytes[0] % 900000;
+  return String(100000 + value);
 }
 
 serve(async (req: Request) => {
@@ -145,7 +152,7 @@ serve(async (req: Request) => {
 
   const { data: creds, error: credsError } = await supabase
     .from('fc_credentials')
-    .select('password_set_at')
+    .select('password_set_at,reset_sent_at')
     .eq('fc_id', profile.id)
     .maybeSingle();
 
@@ -156,13 +163,21 @@ serve(async (req: Request) => {
     return fail('not_set', '비밀번호가 아직 설정되지 않았습니다.');
   }
 
-  const code = String(Math.floor(100000 + Math.random() * 900000));
+  if (creds.reset_sent_at) {
+    const sentAt = new Date(creds.reset_sent_at);
+    const elapsed = (Date.now() - sentAt.getTime()) / 1000;
+    if (elapsed < RESET_COOLDOWN_SECONDS) {
+      return json({ ok: false, code: 'cooldown', message: '잠시 후 다시 시도해주세요.' }, 429);
+    }
+  }
+
+  const code = generateResetCode();
   const tokenHash = await sha256Base64(code);
   const expiresAt = new Date(Date.now() + 15 * 60 * 1000).toISOString();
 
   const { error: updateError } = await supabase
     .from('fc_credentials')
-    .update({ reset_token_hash: tokenHash, reset_token_expires_at: expiresAt })
+    .update({ reset_token_hash: tokenHash, reset_token_expires_at: expiresAt, reset_sent_at: new Date().toISOString() })
     .eq('fc_id', profile.id);
 
   if (updateError) {

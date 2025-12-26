@@ -158,6 +158,7 @@ export default function ExamRegisterScreen() {
   const [locationInput, setLocationInput] = useState('');
   const [locationOrder, setLocationOrder] = useState('0');
   const [refreshing, setRefreshing] = useState(false);
+  const [notesHeight, setNotesHeight] = useState(80);
 
   useEffect(() => {
     if (role !== 'admin') {
@@ -352,6 +353,8 @@ export default function ExamRegisterScreen() {
         <ScrollView
           contentContainerStyle={styles.container}
           refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}
+          keyboardShouldPersistTaps="handled"
+          nestedScrollEnabled
         >
           <View style={styles.headerRow}>
             <RefreshButton onPress={() => { refetch() }} />
@@ -439,8 +442,13 @@ export default function ExamRegisterScreen() {
               onChangeText={(text) =>
                 setRoundForm((prev) => ({ ...prev, notes: text }))
               }
-              style={[styles.input, { height: 80 }]}
+              style={[styles.input, { height: notesHeight }]}
               multiline
+              scrollEnabled={false}
+              onContentSizeChange={(e) => {
+                const nextHeight = Math.max(80, e.nativeEvent.contentSize.height);
+                if (nextHeight !== notesHeight) setNotesHeight(nextHeight);
+              }}
             />
 
             <View style={styles.row}>

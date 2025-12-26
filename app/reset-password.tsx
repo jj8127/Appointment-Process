@@ -16,6 +16,7 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { KeyboardAwareWrapper } from '@/components/KeyboardAwareWrapper';
+import { useKeyboardPadding } from '@/hooks/use-keyboard-padding';
 import { useSession } from '@/hooks/use-session';
 import { supabase } from '@/lib/supabase';
 
@@ -34,6 +35,7 @@ export default function ResetPasswordScreen() {
   const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
   const [requested, setRequested] = useState(false);
+  const keyboardPadding = useKeyboardPadding();
 
   const handleRequest = async () => {
     Keyboard.dismiss();
@@ -132,7 +134,10 @@ export default function ResetPasswordScreen() {
         end={{ x: 1, y: 1 }}
       />
       <SafeAreaView style={styles.safe} edges={['left', 'right', 'bottom']}>
-        <KeyboardAwareWrapper contentContainerStyle={styles.scrollContent} extraScrollHeight={140}>
+        <KeyboardAwareWrapper
+          contentContainerStyle={[styles.scrollContent, { paddingBottom: Math.max(40, keyboardPadding + 40) }]}
+          extraScrollHeight={140}
+        >
           <View style={styles.innerContent}>
             <MotiView
               from={{ opacity: 0, translateY: 30, scale: 0.98 }}

@@ -277,6 +277,7 @@ export default function DashboardScreen() {
   const [deleteModalVisible, setDeleteModalVisible] = useState(false);
   const [deleteTargetId, setDeleteTargetId] = useState<string | null>(null);
   const [deleteTargetName, setDeleteTargetName] = useState<string | null>(null);
+  const [deleteTargetPhone, setDeleteTargetPhone] = useState<string | null>(null);
   const [deleteCode, setDeleteCode] = useState('');
   const keyboardPadding = useKeyboardPadding();
   const filterOptions = useMemo(() => createFilterOptions(role), [role]);
@@ -518,7 +519,18 @@ export default function DashboardScreen() {
   });
 
   const deleteFc = useMutation({
-    mutationFn: async (id: string) => {
+    mutationFn: async ({ id, phone }: { id: string; phone?: string | null }) => {
+      if (phone) {
+        const { data, error } = await supabase.functions.invoke('delete-account', {
+          body: { residentId: phone },
+        });
+        if (error) {
+          console.warn('[deleteFc] delete-account failed, fallback', error.message ?? error);
+        } else if (data?.ok) {
+          return;
+        }
+      }
+
       // 1. Get all document paths first
       const { data: docs } = await supabase.from('fc_documents').select('storage_path').eq('fc_id', id);
 
@@ -539,6 +551,13 @@ export default function DashboardScreen() {
 
       // 3. Delete DB records
       await supabase.from('fc_documents').delete().eq('fc_id', id);
+      if (phone) {
+        await supabase.from('messages').delete().or(`sender_id.eq.${phone},receiver_id.eq.${phone}`);
+        await supabase.from('exam_registrations').delete().eq('resident_id', phone);
+        await supabase.from('notifications').delete().or(`resident_id.eq.${phone},fc_id.eq.${id}`);
+        await supabase.from('device_tokens').delete().eq('resident_id', phone);
+      }
+      await supabase.from('fc_identity_secure').delete().eq('fc_id', id);
       const { error } = await supabase.from('fc_profiles').delete().eq('id', id);
       if (error) throw error;
     },
@@ -833,6 +852,7 @@ export default function DashboardScreen() {
   const handleDeleteRequest = (fc: FcRow) => {
     setDeleteTargetId(fc.id);
     setDeleteTargetName(fc.name || 'FC');
+    setDeleteTargetPhone(fc.phone || null);
     setDeleteCode('');
     setDeleteModalVisible(true);
   };
@@ -842,7 +862,7 @@ export default function DashboardScreen() {
     const code = deleteCode.replace(/\s/g, '');
     if (code === '1111') {
       if (deleteTargetId) {
-        deleteFc.mutate(deleteTargetId);
+        deleteFc.mutate({ id: deleteTargetId, phone: deleteTargetPhone });
       }
       setDeleteModalVisible(false);
     } else {

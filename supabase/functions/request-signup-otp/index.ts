@@ -27,6 +27,8 @@ const ncpSmsFrom = getEnv('NCP_SENS_SMS_FROM') ?? '';
 
 const supabase = createClient(supabaseUrl, serviceKey);
 const textEncoder = new TextEncoder();
+const OTP_TTL_MINUTES = 5;
+const OTP_COOLDOWN_SECONDS = 60;
 
 function json(body: Record<string, unknown>, status = 200) {
   return new Response(JSON.stringify(body), {
@@ -103,6 +105,12 @@ async function sendOtpSms(to: string, code: string) {
   return { ok: true, status: 200 };
 }
 
+function generateOtpCode() {
+  const bytes = crypto.getRandomValues(new Uint32Array(1));
+  const value = bytes[0] % 900000;
+  return String(100000 + value);
+}
+
 serve(async (req: Request) => {
   if (req.method === 'OPTIONS') {
     return new Response('ok', { headers: corsHeaders });
@@ -127,7 +135,7 @@ serve(async (req: Request) => {
 
   const { data: profile, error: profileError } = await supabase
     .from('fc_profiles')
-    .select('id,phone_verified,phone_verification_sent_at')
+    .select('id,phone_verified,phone_verification_sent_at,phone_verification_locked_until')
     .eq('phone', phone)
     .maybeSingle();
 
@@ -140,17 +148,26 @@ serve(async (req: Request) => {
   }
 
   const now = new Date();
+  if (profile?.phone_verification_locked_until) {
+    const lockedUntil = new Date(profile.phone_verification_locked_until);
+    if (lockedUntil > now) {
+      return json(
+        { ok: false, code: 'locked', message: '인증 시도가 너무 많아 잠시 후 다시 시도해주세요.' },
+        429,
+      );
+    }
+  }
   if (profile?.phone_verification_sent_at) {
     const sentAt = new Date(profile.phone_verification_sent_at);
     const elapsed = (now.getTime() - sentAt.getTime()) / 1000;
-    if (elapsed < 60) {
+    if (elapsed < OTP_COOLDOWN_SECONDS) {
       return json({ ok: false, code: 'cooldown', message: '잠시 후 다시 시도해주세요.' }, 429);
     }
   }
 
-  const code = String(Math.floor(100000 + Math.random() * 900000));
+  const code = generateOtpCode();
   const hash = await sha256Base64(`${code}:${phone}`);
-  const expiresAt = new Date(now.getTime() + 5 * 60 * 1000).toISOString();
+  const expiresAt = new Date(now.getTime() + OTP_TTL_MINUTES * 60 * 1000).toISOString();
 
   if (profile?.id) {
     const { error: updateError } = await supabase
@@ -159,6 +176,8 @@ serve(async (req: Request) => {
         phone_verification_hash: hash,
         phone_verification_expires_at: expiresAt,
         phone_verification_sent_at: now.toISOString(),
+        phone_verification_attempts: 0,
+        phone_verification_locked_until: null,
       })
       .eq('id', profile.id);
     if (updateError) {
@@ -178,6 +197,8 @@ serve(async (req: Request) => {
       phone_verification_hash: hash,
       phone_verification_expires_at: expiresAt,
       phone_verification_sent_at: now.toISOString(),
+      phone_verification_attempts: 0,
+      phone_verification_locked_until: null,
     });
     if (insertError) {
       return json({ ok: false, code: 'db_error', message: insertError.message }, 500);

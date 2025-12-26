@@ -23,6 +23,8 @@ const supabaseUrl = getEnv('SUPABASE_URL') ?? '';
 const serviceKey = getEnv('SUPABASE_SERVICE_ROLE_KEY') ?? '';
 const supabase = createClient(supabaseUrl, serviceKey);
 const textEncoder = new TextEncoder();
+const MAX_ATTEMPTS = 5;
+const LOCK_MINUTES = 10;
 
 function json(body: Record<string, unknown>, status = 200) {
   return new Response(JSON.stringify(body), {
@@ -77,7 +79,9 @@ serve(async (req: Request) => {
 
   const { data: profile, error: profileError } = await supabase
     .from('fc_profiles')
-    .select('id,phone_verification_hash,phone_verification_expires_at')
+    .select(
+      'id,phone_verification_hash,phone_verification_expires_at,phone_verification_attempts,phone_verification_locked_until',
+    )
     .eq('phone', phone)
     .maybeSingle();
 
@@ -90,6 +94,12 @@ serve(async (req: Request) => {
   if (!profile.phone_verification_hash || !profile.phone_verification_expires_at) {
     return fail('no_code', '인증 코드가 없습니다.');
   }
+  if (profile.phone_verification_locked_until) {
+    const lockedUntil = new Date(profile.phone_verification_locked_until);
+    if (lockedUntil > new Date()) {
+      return fail('locked', '인증 시도가 너무 많아 잠시 후 다시 시도해주세요.', 429);
+    }
+  }
   const expiresAt = new Date(profile.phone_verification_expires_at);
   if (expiresAt < new Date()) {
     return fail('expired_code', '인증 코드가 만료되었습니다.');
@@ -97,7 +107,23 @@ serve(async (req: Request) => {
 
   const expected = await sha256Base64(`${code}:${phone}`);
   if (expected !== profile.phone_verification_hash) {
-    return fail('invalid_code', '인증 코드가 올바르지 않습니다.');
+    const nextAttempts = (profile.phone_verification_attempts ?? 0) + 1;
+    const shouldLock = nextAttempts >= MAX_ATTEMPTS;
+    const lockedUntil = shouldLock ? new Date(Date.now() + LOCK_MINUTES * 60 * 1000).toISOString() : null;
+
+    await supabase
+      .from('fc_profiles')
+      .update({
+        phone_verification_attempts: shouldLock ? 0 : nextAttempts,
+        phone_verification_locked_until: lockedUntil,
+      })
+      .eq('id', profile.id);
+
+    return fail(
+      shouldLock ? 'locked' : 'invalid_code',
+      shouldLock ? '인증 시도가 너무 많아 잠시 후 다시 시도해주세요.' : '인증 코드가 올바르지 않습니다.',
+      shouldLock ? 429 : 400,
+    );
   }
 
   const { error: updateError } = await supabase
@@ -108,6 +134,8 @@ serve(async (req: Request) => {
       phone_verification_hash: null,
       phone_verification_expires_at: null,
       phone_verification_sent_at: null,
+      phone_verification_attempts: 0,
+      phone_verification_locked_until: null,
     })
     .eq('id', profile.id);
 

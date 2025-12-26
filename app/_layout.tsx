@@ -54,6 +54,7 @@ SplashScreen.preventAutoHideAsync();
 
 export default function RootLayout() {
   const isWeb = Platform.OS === 'web';
+  const enableTourGuide = Platform.OS === 'android';
   const fontSources = useMemo(
     () =>
       isWeb
@@ -150,92 +151,175 @@ export default function RootLayout() {
       <QueryClientProvider client={queryClient}>
         <SessionProvider>
           <ThemeProvider value={colorScheme === 'dark' ? DarkTheme : DefaultTheme}>
-            <TourGuideProvider
-              borderRadius={16}
-              labels={{ skip: '건너뛰기', previous: '이전', next: '다음', finish: '완료' }}
-              tooltipComponent={FcTourTooltip}
-              androidStatusBarVisible
-              verticalOffset={0}>
-              <Stack
-                initialRouteName="login"
-                screenOptions={{
-                  headerShown: false,
-                }}>
-                <Stack.Screen name="index" options={{ ...baseHeader, title: '홈' }} />
-                <Stack.Screen name="home-lite" options={{ ...baseHeader, title: '홈' }} />
-                <Stack.Screen name="auth" options={{ headerShown: false }} />
-                <Stack.Screen name="login" options={{ headerShown: false }} />
-                <Stack.Screen
-                  name="signup"
-                  options={{
-                    ...baseHeader,
-                    title: '회원가입',
-                    headerLeft: () => (
-                      <Pressable onPress={() => router.replace('/login')} style={{ padding: 8, marginLeft: -8 }}>
-                        <Feather name="arrow-left" size={24} color="#000" />
-                      </Pressable>
-                    ),
-                  }}
-                />
-                <Stack.Screen
-                  name="reset-password"
-                  options={{
-                    ...baseHeader,
-                    title: '비밀번호 재설정',
-                    headerLeft: () => (
-                      <Pressable onPress={() => router.replace('/login')} style={{ padding: 8, marginLeft: -8 }}>
-                        <Feather name="arrow-left" size={24} color="#000" />
-                      </Pressable>
-                    ),
-                  }}
-                />
-                <Stack.Screen
-                  name="signup-verify"
-                  options={{
-                    ...baseHeader,
-                    title: '휴대폰 인증',
-                    headerLeft: () => (
-                      <Pressable onPress={() => router.replace('/signup')} style={{ padding: 8, marginLeft: -8 }}>
-                        <Feather name="arrow-left" size={24} color="#000" />
-                      </Pressable>
-                    ),
-                  }}
-                />
-                <Stack.Screen
-                  name="signup-password"
-                  options={{
-                    ...baseHeader,
-                    title: '비밀번호 설정',
-                    headerLeft: () => (
-                      <Pressable onPress={() => router.replace('/signup-verify')} style={{ padding: 8, marginLeft: -8 }}>
-                        <Feather name="arrow-left" size={24} color="#000" />
-                      </Pressable>
-                    ),
-                  }}
-                />
-                <Stack.Screen name="apply-gate" options={{ ...baseHeader, title: '위촉 신청 안내' }} />
-                <Stack.Screen name="identity" options={{ ...baseHeader, title: '신원 확인' }} />
-                <Stack.Screen name="fc/new" options={{ ...baseHeader, title: '기본 정보' }} />
-                <Stack.Screen name="consent" options={{ ...baseHeader, title: '수당 지급 동의서' }} />
-                <Stack.Screen name="docs-upload" options={{ ...baseHeader, title: '필수 서류 업로드' }} />
-                <Stack.Screen name="exam-apply" options={{ ...baseHeader, title: '생명/제3보험 시험 신청' }} />
-                <Stack.Screen name="exam-apply2" options={{ ...baseHeader, title: '손해보험 시험 신청' }} />
-                <Stack.Screen name="chat" options={{ ...baseHeader, title: '1:1 문의' }} />
-                <Stack.Screen name="settings" options={{ ...baseHeader, title: '설정' }} />
+            {enableTourGuide ? (
+              <TourGuideProvider
+                borderRadius={16}
+                labels={{ skip: '건너뛰기', previous: '이전', next: '다음', finish: '완료' }}
+                tooltipComponent={FcTourTooltip}
+                androidStatusBarVisible
+                verticalOffset={0}>
+                <Stack
+                  initialRouteName="login"
+                  screenOptions={{
+                    headerShown: false,
+                  }}>
+                  <Stack.Screen name="index" options={{ ...baseHeader, title: '홈' }} />
+                  <Stack.Screen name="home-lite" options={{ ...baseHeader, title: '홈' }} />
+                  <Stack.Screen name="auth" options={{ headerShown: false }} />
+                  <Stack.Screen name="login" options={{ headerShown: false }} />
+                  <Stack.Screen
+                    name="signup"
+                    options={{
+                      ...baseHeader,
+                      title: '회원가입',
+                      headerLeft: () => (
+                        <Pressable onPress={() => router.replace('/login')} style={{ padding: 8, marginLeft: -8 }}>
+                          <Feather name="arrow-left" size={24} color="#000" />
+                        </Pressable>
+                      ),
+                    }}
+                  />
+                  <Stack.Screen
+                    name="reset-password"
+                    options={{
+                      ...baseHeader,
+                      title: '비밀번호 재설정',
+                      headerLeft: () => (
+                        <Pressable onPress={() => router.replace('/login')} style={{ padding: 8, marginLeft: -8 }}>
+                          <Feather name="arrow-left" size={24} color="#000" />
+                        </Pressable>
+                      ),
+                    }}
+                  />
+                  <Stack.Screen
+                    name="signup-verify"
+                    options={{
+                      ...baseHeader,
+                      title: '휴대폰 인증',
+                      headerLeft: () => (
+                        <Pressable onPress={() => router.replace('/signup')} style={{ padding: 8, marginLeft: -8 }}>
+                          <Feather name="arrow-left" size={24} color="#000" />
+                        </Pressable>
+                      ),
+                    }}
+                  />
+                  <Stack.Screen
+                    name="signup-password"
+                    options={{
+                      ...baseHeader,
+                      title: '비밀번호 설정',
+                      headerLeft: () => (
+                        <Pressable onPress={() => router.replace('/signup-verify')} style={{ padding: 8, marginLeft: -8 }}>
+                          <Feather name="arrow-left" size={24} color="#000" />
+                        </Pressable>
+                      ),
+                    }}
+                  />
+                  <Stack.Screen name="apply-gate" options={{ ...baseHeader, title: '위촉 신청 안내' }} />
+                  <Stack.Screen name="identity" options={{ ...baseHeader, title: '신원 확인' }} />
+                  <Stack.Screen name="fc/new" options={{ ...baseHeader, title: '기본 정보' }} />
+                  <Stack.Screen name="consent" options={{ ...baseHeader, title: '수당 지급 동의서' }} />
+                  <Stack.Screen name="docs-upload" options={{ ...baseHeader, title: '필수 서류 업로드' }} />
+                  <Stack.Screen name="exam-apply" options={{ ...baseHeader, title: '생명/제3보험 시험 신청' }} />
+                  <Stack.Screen name="exam-apply2" options={{ ...baseHeader, title: '손해보험 시험 신청' }} />
+                  <Stack.Screen name="chat" options={{ ...baseHeader, title: '1:1 문의' }} />
+                  <Stack.Screen name="settings" options={{ ...baseHeader, title: '설정' }} />
 
-                <Stack.Screen name="dashboard" options={{ ...baseHeader, title: '전체 현황' }} />
-                <Stack.Screen name="appointment" options={{ ...baseHeader, title: '모바일 위촉' }} />
-                <Stack.Screen name="notifications" options={{ ...baseHeader, title: '알림' }} />
-                <Stack.Screen name="notice" options={{ ...baseHeader, title: '공지사항' }} />
-                <Stack.Screen name="admin-notice" options={{ ...baseHeader, title: '공지 등록' }} />
-                <Stack.Screen name="exam-register" options={{ ...baseHeader, title: '생명 시험 등록' }} />
-                <Stack.Screen name="exam-register2" options={{ ...baseHeader, title: '손해 시험 등록' }} />
-                <Stack.Screen name="exam-manage" options={{ ...baseHeader, title: '생명/제3 신청자 관리' }} />
-                <Stack.Screen name="exam-manage2" options={{ ...baseHeader, title: '손해 신청자 관리' }} />
-              </Stack>
+                  <Stack.Screen name="dashboard" options={{ ...baseHeader, title: '전체 현황' }} />
+                  <Stack.Screen name="appointment" options={{ ...baseHeader, title: '모바일 위촉' }} />
+                  <Stack.Screen name="notifications" options={{ ...baseHeader, title: '알림' }} />
+                  <Stack.Screen name="notice" options={{ ...baseHeader, title: '공지사항' }} />
+                  <Stack.Screen name="admin-notice" options={{ ...baseHeader, title: '공지 등록' }} />
+                  <Stack.Screen name="exam-register" options={{ ...baseHeader, title: '생명 시험 등록' }} />
+                  <Stack.Screen name="exam-register2" options={{ ...baseHeader, title: '손해 시험 등록' }} />
+                  <Stack.Screen name="exam-manage" options={{ ...baseHeader, title: '생명/제3 신청자 관리' }} />
+                  <Stack.Screen name="exam-manage2" options={{ ...baseHeader, title: '손해 신청자 관리' }} />
+                </Stack>
 
-              <StatusBar style="dark" backgroundColor="#fff" />
-            </TourGuideProvider>
+                <StatusBar style="dark" backgroundColor="#fff" />
+              </TourGuideProvider>
+            ) : (
+              <>
+                <Stack
+                  initialRouteName="login"
+                  screenOptions={{
+                    headerShown: false,
+                  }}>
+                  <Stack.Screen name="index" options={{ ...baseHeader, title: '홈' }} />
+                  <Stack.Screen name="home-lite" options={{ ...baseHeader, title: '홈' }} />
+                  <Stack.Screen name="auth" options={{ headerShown: false }} />
+                  <Stack.Screen name="login" options={{ headerShown: false }} />
+                  <Stack.Screen
+                    name="signup"
+                    options={{
+                      ...baseHeader,
+                      title: '회원가입',
+                      headerLeft: () => (
+                        <Pressable onPress={() => router.replace('/login')} style={{ padding: 8, marginLeft: -8 }}>
+                          <Feather name="arrow-left" size={24} color="#000" />
+                        </Pressable>
+                      ),
+                    }}
+                  />
+                  <Stack.Screen
+                    name="reset-password"
+                    options={{
+                      ...baseHeader,
+                      title: '비밀번호 재설정',
+                      headerLeft: () => (
+                        <Pressable onPress={() => router.replace('/login')} style={{ padding: 8, marginLeft: -8 }}>
+                          <Feather name="arrow-left" size={24} color="#000" />
+                        </Pressable>
+                      ),
+                    }}
+                  />
+                  <Stack.Screen
+                    name="signup-verify"
+                    options={{
+                      ...baseHeader,
+                      title: '휴대폰 인증',
+                      headerLeft: () => (
+                        <Pressable onPress={() => router.replace('/signup')} style={{ padding: 8, marginLeft: -8 }}>
+                          <Feather name="arrow-left" size={24} color="#000" />
+                        </Pressable>
+                      ),
+                    }}
+                  />
+                  <Stack.Screen
+                    name="signup-password"
+                    options={{
+                      ...baseHeader,
+                      title: '비밀번호 설정',
+                      headerLeft: () => (
+                        <Pressable onPress={() => router.replace('/signup-verify')} style={{ padding: 8, marginLeft: -8 }}>
+                          <Feather name="arrow-left" size={24} color="#000" />
+                        </Pressable>
+                      ),
+                    }}
+                  />
+                  <Stack.Screen name="apply-gate" options={{ ...baseHeader, title: '위촉 신청 안내' }} />
+                  <Stack.Screen name="identity" options={{ ...baseHeader, title: '신원 확인' }} />
+                  <Stack.Screen name="fc/new" options={{ ...baseHeader, title: '기본 정보' }} />
+                  <Stack.Screen name="consent" options={{ ...baseHeader, title: '수당 지급 동의서' }} />
+                  <Stack.Screen name="docs-upload" options={{ ...baseHeader, title: '필수 서류 업로드' }} />
+                  <Stack.Screen name="exam-apply" options={{ ...baseHeader, title: '생명/제3보험 시험 신청' }} />
+                  <Stack.Screen name="exam-apply2" options={{ ...baseHeader, title: '손해보험 시험 신청' }} />
+                  <Stack.Screen name="chat" options={{ ...baseHeader, title: '1:1 문의' }} />
+                  <Stack.Screen name="settings" options={{ ...baseHeader, title: '설정' }} />
+
+                  <Stack.Screen name="dashboard" options={{ ...baseHeader, title: '전체 현황' }} />
+                  <Stack.Screen name="appointment" options={{ ...baseHeader, title: '모바일 위촉' }} />
+                  <Stack.Screen name="notifications" options={{ ...baseHeader, title: '알림' }} />
+                  <Stack.Screen name="notice" options={{ ...baseHeader, title: '공지사항' }} />
+                  <Stack.Screen name="admin-notice" options={{ ...baseHeader, title: '공지 등록' }} />
+                  <Stack.Screen name="exam-register" options={{ ...baseHeader, title: '생명 시험 등록' }} />
+                  <Stack.Screen name="exam-register2" options={{ ...baseHeader, title: '손해 시험 등록' }} />
+                  <Stack.Screen name="exam-manage" options={{ ...baseHeader, title: '생명/제3 신청자 관리' }} />
+                  <Stack.Screen name="exam-manage2" options={{ ...baseHeader, title: '손해 신청자 관리' }} />
+                </Stack>
+                <StatusBar style="dark" backgroundColor="#fff" />
+              </>
+            )}
           </ThemeProvider>
         </SessionProvider>
       </QueryClientProvider>

@@ -9,6 +9,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { z } from 'zod';
 
 import { KeyboardAwareWrapper } from '@/components/KeyboardAwareWrapper';
+import { useKeyboardPadding } from '@/hooks/use-keyboard-padding';
 import { useSession } from '@/hooks/use-session';
 import { supabase } from '@/lib/supabase';
 
@@ -44,6 +45,8 @@ export default function IdentityScreen() {
   const { role, residentId, hydrated } = useSession();
   const [submitting, setSubmitting] = useState(false);
   const [showAddressSearch, setShowAddressSearch] = useState(false);
+  const [addressHeight, setAddressHeight] = useState(90);
+  const keyboardPadding = useKeyboardPadding();
 
   const residentFrontRef = useRef<TextInput>(null);
   const residentBackRef = useRef<TextInput>(null);
@@ -124,7 +127,11 @@ export default function IdentityScreen() {
 
   return (
     <SafeAreaView style={styles.safe} edges={['left', 'right', 'bottom']}>
-      <KeyboardAwareWrapper contentContainerStyle={styles.container} extraScrollHeight={140}>
+      <KeyboardAwareWrapper
+        contentContainerStyle={[styles.container, { paddingBottom: Math.max(80, keyboardPadding + 40) }]}
+        extraScrollHeight={140}
+        keyboardShouldPersistTaps="always"
+      >
         <View style={styles.noticeBox}>
           <Text style={styles.noticeTitle}>본 단계는 위촉(등록) 신청을 위한 법정 절차 단계입니다.</Text>
           <Text style={styles.noticeText}>수집 목적: 임시사번 발급 및 등록/위촉 처리</Text>
@@ -211,7 +218,7 @@ export default function IdentityScreen() {
               name="address"
               render={({ field: { onChange, value } }) => (
                 <TextInput
-                  style={[styles.input, styles.inputMultiline]}
+                  style={[styles.input, styles.inputMultiline, { height: addressHeight }]}
                   placeholder="도로명 또는 지번 주소"
                   placeholderTextColor={PLACEHOLDER}
                   value={value}
@@ -219,6 +226,11 @@ export default function IdentityScreen() {
                   accessibilityLabel="주소"
                   onChangeText={onChange}
                   multiline
+                  scrollEnabled={false}
+                  onContentSizeChange={(e) => {
+                    const nextHeight = Math.max(90, e.nativeEvent.contentSize.height);
+                    if (nextHeight !== addressHeight) setAddressHeight(nextHeight);
+                  }}
                 />
               )}
             />

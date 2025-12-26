@@ -26,6 +26,8 @@ create table if not exists public.fc_profiles (
   phone_verification_hash text,
   phone_verification_expires_at timestamptz,
   phone_verification_sent_at timestamptz,
+  phone_verification_attempts integer not null default 0,
+  phone_verification_locked_until timestamptz,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
 );
@@ -55,6 +57,7 @@ create table if not exists public.fc_credentials (
   locked_until timestamptz,
   reset_token_hash text,
   reset_token_expires_at timestamptz,
+  reset_sent_at timestamptz,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
 );
@@ -394,6 +397,13 @@ alter table public.fc_profiles
 
 alter table public.fc_profiles
   add column if not exists phone_verification_sent_at timestamptz;
+alter table public.fc_profiles
+  add column if not exists phone_verification_attempts integer default 0;
+alter table public.fc_profiles
+  add column if not exists phone_verification_locked_until timestamptz;
+
+alter table public.fc_credentials
+  add column if not exists reset_sent_at timestamptz;
 
 
 select id, exam_date, registration_deadline, round_label, created_at

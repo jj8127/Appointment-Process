@@ -10,11 +10,9 @@ import { MotiView } from 'moti';
 import { type ElementRef, useCallback, useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator,
-  Alert,
   Platform,
   Pressable,
   RefreshControl,
-  ScrollView,
   StyleSheet,
   Text,
   View
@@ -25,6 +23,7 @@ import { TourGuideZone, useTourGuideController } from 'rn-tourguide';
 
 import { ImageTourGuide, TourStep } from '@/components/ImageTourGuide';
 import { RefreshButton } from '@/components/RefreshButton';
+import { useInAppUpdate } from '@/hooks/useInAppUpdate';
 import { useSession } from '@/hooks/use-session';
 import { useIdentityStatus } from '@/hooks/use-identity-status';
 import { supabase } from '@/lib/supabase';
@@ -121,20 +120,11 @@ const HANWHA_LIGHT = '#f7b182';
 const CHARCOAL = '#111827';
 const TEXT_MUTED = '#6b7280';
 const BORDER = '#e5e7eb';
-const SOFT_BG = '#F9FAFB';
 const ORANGE_FAINT = '#fff1e6';
-const STEP_KEYS = ['step1', 'step2', 'step3', 'step4', 'step5'] as const;
-type StepKey = (typeof STEP_KEYS)[number];
+type StepKey = 'step1' | 'step2' | 'step3' | 'step4' | 'step5';
 type StepCounts = Record<StepKey, number>;
 type CountsResult = { total: number; steps: StepCounts };
 const EMPTY_STEP_COUNTS: StepCounts = { step1: 0, step2: 0, step3: 0, step4: 0, step5: 0 };
-const STEP_LABELS: Record<StepKey, string> = {
-  step1: '1단계 인적사항',
-  step2: '2단계 수당동의',
-  step3: '3단계 문서제출',
-  step4: '4단계 위촉 진행',
-  step5: '5단계 완료',
-};
 
 const CARD_SHADOW = {
   shadowColor: '#000',
@@ -261,7 +251,6 @@ const fetchLatestAdminMessage = async (residentId: string) => {
 
 const fetchUnreadMessageCount = async (residentId: string) => {
   if (!residentId) return 0;
-  const { data: authRes } = await supabase.auth.getUser();
   const { count, error } = await supabase
     .from('messages')
     .select('id', { count: 'exact', head: true })
@@ -443,11 +432,9 @@ const getLinkIcon = (href: string) => {
   return 'chevron-right';
 };
 
-import { useInAppUpdate } from '@/hooks/useInAppUpdate';
-
 export default function Home() {
   useInAppUpdate(); // Check for Android updates on mount
-  const { role, residentId, residentMask, displayName, logout, hydrated } = useSession();
+  const { role, residentId, displayName, logout, hydrated } = useSession();
   const { data: identityStatus, isLoading: identityLoading } = useIdentityStatus();
 
   const insets = useSafeAreaInsets();
@@ -504,7 +491,6 @@ export default function Home() {
 
   // FC 전용 코치마크
   const { canStart, start, eventEmitter } = useTourGuideController();
-  const autoTourStartedRef = useRef(false);
   const isFc = role === 'fc';
 
   const [tourBlocking, setTourBlocking] = useState(false);
@@ -775,16 +761,6 @@ export default function Home() {
   } else if (activeStep.key === 'final') {
     nextStepSubText = '모든 위촉 과정이 끝났습니다.';
   }
-  const isApproved =
-    myFc?.status === 'docs-approved' ||
-    myFc?.status === 'appointment-completed' ||
-    myFc?.status === 'final-link-sent';
-
-  let docsStatusText = `${uploadedDocs}/${totalDocs || 1} 완료`;
-  if (isAllSubmitted) {
-    docsStatusText = isApproved ? '모든 문서 제출 완료 [검토 완료]' : '모든 문서 제출 완료 [검토 중]';
-  }
-
   const getAppointmentStatus = (
     date: string | null | undefined,
     schedule: string | null | undefined,
@@ -832,7 +808,7 @@ export default function Home() {
         router.replace({ pathname: '/fc/new', params: { from: 'home' } } as any);
       }
     })();
-  }, [hydrated, role, myFc, statusLoading, refetchMyFc, router]);
+  }, [hydrated, role, myFc, statusLoading, refetchMyFc]);
 
   // FC 푸시 토큰 등록 (배너 알림 수신용)
   useEffect(() => {

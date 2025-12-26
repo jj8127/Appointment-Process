@@ -18,6 +18,7 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { KeyboardAwareWrapper } from '@/components/KeyboardAwareWrapper';
+import { useKeyboardPadding } from '@/hooks/use-keyboard-padding';
 import { useSession } from '@/hooks/use-session';
 import { supabase } from '@/lib/supabase';
 import Logo from '../logo.png';
@@ -39,6 +40,7 @@ export default function LoginScreen() {
     const [isFocused, setIsFocused] = useState(false);
     const [isPasswordFocused, setIsPasswordFocused] = useState(false);
     const [showPassword, setShowPassword] = useState(false);
+    const keyboardPadding = useKeyboardPadding();
 
       useEffect(() => {
           if (skipAutoRedirect) return;
@@ -110,7 +112,7 @@ export default function LoginScreen() {
 
             <SafeAreaView style={styles.safe} edges={['left', 'right', 'bottom']}>
                 <KeyboardAwareWrapper
-                    contentContainerStyle={styles.scrollContent}
+                    contentContainerStyle={[styles.scrollContent, { paddingBottom: keyboardPadding + 40 }]}
                     extraScrollHeight={140}
                     keyboardShouldPersistTaps="always"
                 >

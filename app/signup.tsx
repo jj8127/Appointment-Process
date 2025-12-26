@@ -16,6 +16,7 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { KeyboardAwareWrapper } from '@/components/KeyboardAwareWrapper';
+import { useKeyboardPadding } from '@/hooks/use-keyboard-padding';
 import { safeStorage } from '@/lib/safe-storage';
 
 const ORANGE = '#f36f21';
@@ -57,6 +58,7 @@ export default function SignupScreen() {
   const [carrier, setCarrier] = useState('');
   const [showDomainPicker, setShowDomainPicker] = useState(false);
   const [showCarrierPicker, setShowCarrierPicker] = useState(false);
+  const keyboardPadding = useKeyboardPadding();
 
   const emailValue = useMemo(() => {
     const domainToUse = emailDomain === '직접입력' ? customDomain : emailDomain;
@@ -123,7 +125,10 @@ export default function SignupScreen() {
         start={{ x: 0, y: 0 }}
         end={{ x: 1, y: 1 }}
       />
-      <KeyboardAwareWrapper contentContainerStyle={[styles.container, { paddingBottom: 120 }]} extraScrollHeight={140}>
+      <KeyboardAwareWrapper
+        contentContainerStyle={[styles.container, { paddingBottom: Math.max(120, keyboardPadding + 40) }]}
+        extraScrollHeight={140}
+      >
         <View style={styles.hero}>
           <Text style={styles.heroEyebrow}>회원가입</Text>
           <Text style={styles.title}>기본 정보를 입력해주세요</Text>

@@ -23,8 +23,10 @@ import { z } from 'zod';
 
 import { KeyboardAwareWrapper, useKeyboardAware } from '@/components/KeyboardAwareWrapper';
 import { RefreshButton } from '@/components/RefreshButton';
+import { useKeyboardPadding } from '@/hooks/use-keyboard-padding';
 import { useSession } from '@/hooks/use-session';
 import { supabase } from '@/lib/supabase';
+import { safeStorage } from '@/lib/safe-storage';
 
 const ORANGE = '#f36f21';
 const ORANGE_LIGHT = '#f7b182';
@@ -85,6 +87,7 @@ const EMAIL_DOMAINS = [
   'nate.com',
   '직접입력',
 ];
+const SIGNUP_STORAGE_KEY = 'fc-onboarding/signup';
 
 async function sendNotificationAndPush(
   role: 'admin' | 'fc',
@@ -140,6 +143,7 @@ export default function FcNewScreen() {
   const [customDomain, setCustomDomain] = useState('');
   const [refreshing, setRefreshing] = useState(false);
   const [showDomainPicker, setShowDomainPicker] = useState(false);
+  const keyboardPadding = useKeyboardPadding();
 
   const phoneRef = useRef<TextInput>(null);
   const recommenderRef = useRef<TextInput>(null);
@@ -177,23 +181,42 @@ export default function FcNewScreen() {
       console.warn('FC load failed', error.message);
       return;
     }
-    if (data) {
-      setValue('affiliation', data.affiliation ?? '');
-      setSelectedAffiliation(data.affiliation ?? '');
-      setValue('name', data.name ?? '');
-      setValue('phone', data.phone ?? key);
-      setValue('recommender', data.recommender ?? '');
-      setValue('email', data.email ?? '');
-      if (data.email && data.email.includes('@')) {
-        const [local, domainPart] = data.email.split('@');
-        setEmailLocal(local ?? '');
-        setEmailDomain(domainPart ?? '');
-        setCustomDomain(domainPart ?? '');
+    let signupPayload: Partial<FormValues & { phone?: string }> | null = null;
+    try {
+      const raw = await safeStorage.getItem(SIGNUP_STORAGE_KEY);
+      if (raw) {
+        const parsed = JSON.parse(raw) as Partial<FormValues & { phone?: string }>;
+        const payloadPhone = (parsed.phone ?? '').replace(/[^0-9]/g, '');
+        if (payloadPhone && payloadPhone === key) {
+          signupPayload = parsed;
+        }
       }
-      setExistingTempId(data.temp_id);
-    } else {
-      setValue('phone', key);
+    } catch (err) {
+      console.warn('signup payload load failed', err);
     }
+
+    const merged = {
+      affiliation: data?.affiliation || signupPayload?.affiliation || '',
+      name: data?.name || signupPayload?.name || '',
+      phone: data?.phone || signupPayload?.phone || key,
+      recommender: data?.recommender || signupPayload?.recommender || '',
+      email: data?.email || signupPayload?.email || '',
+      temp_id: data?.temp_id ?? null,
+    };
+
+    setValue('affiliation', merged.affiliation);
+    setSelectedAffiliation(merged.affiliation);
+    setValue('name', merged.name);
+    setValue('phone', merged.phone);
+    setValue('recommender', merged.recommender);
+    setValue('email', merged.email);
+    if (merged.email && merged.email.includes('@')) {
+      const [local, domainPart] = merged.email.split('@');
+      setEmailLocal(local ?? '');
+      setEmailDomain(domainPart ?? '');
+      setCustomDomain(domainPart ?? '');
+    }
+    setExistingTempId(merged.temp_id);
   };
 
   useEffect(() => {
@@ -369,7 +392,7 @@ export default function FcNewScreen() {
         }}
       />
       <KeyboardAwareWrapper
-        contentContainerStyle={[styles.container, { paddingBottom: 120 }]}
+        contentContainerStyle={[styles.container, { paddingBottom: Math.max(120, keyboardPadding + 40) }]}
         extraScrollHeight={140}>
         <RefreshButton onPress={onRefresh} />
 
@@ -575,57 +598,63 @@ type FormFieldProps = {
   scrollEnabled?: boolean; // Added
 };
 
-const FormField = ({
-  control,
-  label,
-  placeholder,
-  name,
-  errors,
-  multiline,
-  inputRef,
-  returnKeyType,
-  onSubmitEditing,
-  blurOnSubmit,
-  scrollEnabled, // Added
-}: FormFieldProps) => {
-  const { scrollToInput } = useKeyboardAware();
+  const FormField = ({
+    control,
+    label,
+    placeholder,
+    name,
+    errors,
+    multiline,
+    inputRef,
+    returnKeyType,
+    onSubmitEditing,
+    blurOnSubmit,
+    scrollEnabled, // Added
+  }: FormFieldProps) => {
+    const { scrollToInput } = useKeyboardAware();
+    const [inputHeight, setInputHeight] = useState(multiline ? 80 : 0);
 
-  return (
-    <View style={styles.field}>
-      <View style={styles.fieldLabelRow}>
-        <Text style={styles.label}>{label}</Text>
+    return (
+      <View style={styles.field}>
+        <View style={styles.fieldLabelRow}>
+          <Text style={styles.label}>{label}</Text>
         {errors[name]?.message ? <Text style={styles.error}>{errors[name]?.message}</Text> : null}
       </View>
       <Controller
-        control={control}
-        name={name as any}
-        render={({ field: { onChange, value } }) => (
-          <TextInput
-            scrollEnabled={scrollEnabled ?? false}
-            ref={inputRef}
-            style={[styles.input, multiline && styles.inputMultiline]}
-            placeholder={placeholder}
-            placeholderTextColor={PLACEHOLDER}
-            value={value}
-            onChangeText={onChange}
-            multiline={multiline}
-            returnKeyType={returnKeyType}
-            onSubmitEditing={onSubmitEditing}
-            blurOnSubmit={blurOnSubmit}
-            onFocus={(e) => {
-              scrollToInput(findNodeHandle(e.target as any));
-            }}
-            onContentSizeChange={(e) => {
-              if (multiline) {
+          control={control}
+          name={name as any}
+          render={({ field: { onChange, value } }) => (
+            <TextInput
+              scrollEnabled={multiline ? false : (scrollEnabled ?? false)}
+              ref={inputRef}
+              style={[
+                styles.input,
+                multiline && styles.inputMultiline,
+                multiline && { height: Math.max(80, inputHeight) },
+              ]}
+              placeholder={placeholder}
+              placeholderTextColor={PLACEHOLDER}
+              value={value}
+              onChangeText={onChange}
+              multiline={multiline}
+              returnKeyType={returnKeyType}
+              onSubmitEditing={onSubmitEditing}
+              blurOnSubmit={blurOnSubmit}
+              onFocus={(e) => {
                 scrollToInput(findNodeHandle(e.target as any));
-              }
-            }}
-          />
-        )}
-      />
-    </View>
-  );
-};
+              }}
+              onContentSizeChange={(e) => {
+                if (!multiline) return;
+                const nextHeight = Math.max(80, e.nativeEvent.contentSize.height);
+                if (nextHeight !== inputHeight) setInputHeight(nextHeight);
+                scrollToInput(findNodeHandle(e.target as any));
+              }}
+            />
+          )}
+        />
+      </View>
+    );
+  };
 
 const styles = StyleSheet.create({
   safe: { flex: 1, backgroundColor: '#ffffff' },
@@ -677,6 +706,10 @@ const styles = StyleSheet.create({
     height: 52, // Fixed height to prevent internal scrolling
     lineHeight: 20,
     textAlignVertical: 'center',
+  },
+  inputMultiline: {
+    minHeight: 80,
+    textAlignVertical: 'top',
   },
   primaryButton: {
     marginTop: 8,

@@ -41,6 +41,7 @@ export default function AdminNoticeScreen() {
   const keyboardPadding = useKeyboardPadding();
   const [title, setTitle] = useState('');
   const [body, setBody] = useState('');
+  const [bodyHeight, setBodyHeight] = useState(120);
   const [category, setCategory] = useState('공지사항');
   const [loading, setLoading] = useState(false);
   const [images, setImages] = useState<AttachedFile[]>([]);
@@ -270,13 +271,18 @@ export default function AdminNoticeScreen() {
           <View style={styles.field}>
             <Text style={styles.label}>내용</Text>
             <TextInput
-              style={[styles.input, styles.textArea]}
+              style={[styles.input, styles.textArea, { height: bodyHeight }]}
               placeholder="내용을 상세히 입력하세요"
               placeholderTextColor="#9CA3AF"
               value={body}
               onChangeText={setBody}
               multiline
               textAlignVertical="top"
+              scrollEnabled={false}
+              onContentSizeChange={(e) => {
+                const nextHeight = Math.max(120, e.nativeEvent.contentSize.height);
+                if (nextHeight !== bodyHeight) setBodyHeight(nextHeight);
+              }}
             />
           </View>
 

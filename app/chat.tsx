@@ -485,6 +485,7 @@ export default function ChatScreen() {
               placeholderTextColor={MUTED}
               multiline
               textAlignVertical="center"
+              scrollEnabled={false}
             />
             <Pressable
               onPress={handleSendText}
