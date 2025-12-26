@@ -1,3 +1,4 @@
+import Postcode from '@actbase/react-daum-postcode';
 import { Feather } from '@expo/vector-icons';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { Picker } from '@react-native-picker/picker';
@@ -6,17 +7,17 @@ import { router, Stack, useFocusEffect, useLocalSearchParams } from 'expo-router
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Controller, useForm, type Control } from 'react-hook-form';
 import {
-  Alert,
-  BackHandler,
-  findNodeHandle,
-  Modal,
-  Platform,
-  Pressable,
-  ReturnKeyTypeOptions,
-  StyleSheet,
-  Text,
-  TextInput,
-  View
+    Alert,
+    BackHandler,
+    findNodeHandle,
+    Modal,
+    Platform,
+    Pressable,
+    ReturnKeyTypeOptions,
+    StyleSheet,
+    Text,
+    TextInput,
+    View
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { z } from 'zod';
@@ -25,8 +26,8 @@ import { KeyboardAwareWrapper, useKeyboardAware } from '@/components/KeyboardAwa
 import { RefreshButton } from '@/components/RefreshButton';
 import { useKeyboardPadding } from '@/hooks/use-keyboard-padding';
 import { useSession } from '@/hooks/use-session';
-import { supabase } from '@/lib/supabase';
 import { safeStorage } from '@/lib/safe-storage';
+import { supabase } from '@/lib/supabase';
 
 const ORANGE = '#f36f21';
 const ORANGE_LIGHT = '#f7b182';
@@ -58,12 +59,71 @@ const BUTTON_SHADOW =
         elevation: 3,
       };
 
+const getFunctionErrorMessage = async (err: any) => {
+  if (!err) return '신원 정보 저장에 실패했습니다.';
+  const context = err.context ?? {};
+  const response = context.response as Response | undefined;
+  if (response) {
+    try {
+      const text = await response.text();
+      if (text) return text;
+    } catch {
+      // ignore
+    }
+  }
+  const body = context.body;
+  if (typeof body === 'string' && body) return body;
+  if (body && typeof body === 'object' && 'message' in body) return String(body.message);
+  return err.message ?? '신원 정보 저장에 실패했습니다.';
+};
+
 const schema = z.object({
   affiliation: z.string().min(1, '소속을 선택해주세요.'),
   name: z.string().min(1, '이름을 입력해주세요.'),
   phone: z.string().min(8, '휴대폰 번호를 입력해주세요.'),
   recommender: z.string().min(1, '추천인을 입력해주세요.'),
   email: z.string().email('유효한 이메일을 입력해주세요.'),
+  carrier: z.string().min(1, '통신사를 선택해주세요.'),
+  address: z.string().min(1, '주소를 입력해주세요.'),
+  addressDetail: z.string().min(1, '상세주소를 입력해주세요.'),
+  residentFront: z.string().optional().or(z.literal('')),
+  residentBack: z.string().optional().or(z.literal('')),
+}).superRefine((values, ctx) => {
+  const front = (values.residentFront ?? '').trim();
+  const back = (values.residentBack ?? '').trim();
+  const hasResidentInput = front.length > 0 || back.length > 0;
+  if (!hasResidentInput) return;
+
+  if (!/^\d{6}$/.test(front)) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: '주민번호 앞 6자리를 숫자로 입력해주세요.',
+      path: ['residentFront'],
+    });
+  }
+  if (!/^\d{7}$/.test(back)) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: '주민번호 뒤 7자리를 숫자로 입력해주세요.',
+      path: ['residentBack'],
+    });
+  }
+  if (/^\d{6}$/.test(front) && /^\d{7}$/.test(back)) {
+    const weights = [2, 3, 4, 5, 6, 7, 8, 9, 2, 3, 4, 5];
+    const digits = `${front}${back}`;
+    let sum = 0;
+    for (let i = 0; i < 12; i += 1) {
+      sum += Number(digits[i]) * weights[i];
+    }
+    const check = (11 - (sum % 11)) % 10;
+    if (check !== Number(digits[12])) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: '주민등록번호를 다시 확인해주세요.',
+        path: ['residentBack'],
+      });
+    }
+  }
 });
 
 type FormValues = z.infer<typeof schema>;
@@ -87,6 +147,7 @@ const EMAIL_DOMAINS = [
   'nate.com',
   '직접입력',
 ];
+const CARRIER_OPTIONS = ['SKT', 'KT', 'LGU+', 'SKT 알뜰폰', 'KT 알뜰폰', 'LGU+ 알뜰폰'];
 const SIGNUP_STORAGE_KEY = 'fc-onboarding/signup';
 
 async function sendNotificationAndPush(
@@ -141,15 +202,25 @@ export default function FcNewScreen() {
   const [emailLocal, setEmailLocal] = useState('');
   const [emailDomain, setEmailDomain] = useState('');
   const [customDomain, setCustomDomain] = useState('');
+  const [carrier, setCarrier] = useState('');
   const [refreshing, setRefreshing] = useState(false);
   const [showDomainPicker, setShowDomainPicker] = useState(false);
+  const [showCarrierPicker, setShowCarrierPicker] = useState(false);
+  const [showAddressSearch, setShowAddressSearch] = useState(false);
   const keyboardPadding = useKeyboardPadding();
+  const [existingResidentMasked, setExistingResidentMasked] = useState<string | null>(null);
+  const [existingAddress, setExistingAddress] = useState('');
+  const [existingAddressDetail, setExistingAddressDetail] = useState('');
+  const [addressHeight, setAddressHeight] = useState(90);
 
   const phoneRef = useRef<TextInput>(null);
   const recommenderRef = useRef<TextInput>(null);
   const emailLocalRef = useRef<TextInput>(null);
   const customDomainRef = useRef<TextInput>(null);
   const nameRef = useRef<TextInput>(null); // Added
+  const residentFrontRef = useRef<TextInput>(null);
+  const residentBackRef = useRef<TextInput>(null);
+  const addressDetailRef = useRef<TextInput>(null);
 
   const { control, handleSubmit, setValue, formState } = useForm<FormValues>({
     resolver: zodResolver(schema),
@@ -159,6 +230,11 @@ export default function FcNewScreen() {
       phone: phoneFromSession ?? '',
       recommender: '',
       email: '',
+      carrier: '',
+      address: '',
+      addressDetail: '',
+      residentFront: '',
+      residentBack: '',
     },
     mode: 'onBlur',
   });
@@ -174,18 +250,18 @@ export default function FcNewScreen() {
     if (!key) return;
     const { data, error } = await supabase
       .from('fc_profiles')
-      .select('affiliation,name,phone,recommender,email,career_type,temp_id')
+      .select('affiliation,name,phone,recommender,email,career_type,temp_id,carrier,address,address_detail,resident_id_masked')
       .eq('phone', key)
       .maybeSingle();
     if (error) {
       console.warn('FC load failed', error.message);
       return;
     }
-    let signupPayload: Partial<FormValues & { phone?: string }> | null = null;
+    let signupPayload: Partial<FormValues & { phone?: string; carrier?: string }> | null = null;
     try {
       const raw = await safeStorage.getItem(SIGNUP_STORAGE_KEY);
       if (raw) {
-        const parsed = JSON.parse(raw) as Partial<FormValues & { phone?: string }>;
+        const parsed = JSON.parse(raw) as Partial<FormValues & { phone?: string; carrier?: string }>;
         const payloadPhone = (parsed.phone ?? '').replace(/[^0-9]/g, '');
         if (payloadPhone && payloadPhone === key) {
           signupPayload = parsed;
@@ -201,20 +277,41 @@ export default function FcNewScreen() {
       phone: data?.phone || signupPayload?.phone || key,
       recommender: data?.recommender || signupPayload?.recommender || '',
       email: data?.email || signupPayload?.email || '',
+      carrier: data?.carrier || signupPayload?.carrier || '',
+      address: data?.address || '',
+      addressDetail: data?.address_detail || '',
+      residentMasked: data?.resident_id_masked || null,
       temp_id: data?.temp_id ?? null,
     };
 
-    setValue('affiliation', merged.affiliation);
-    setSelectedAffiliation(merged.affiliation);
+    const matchedAffiliation =
+      merged.affiliation && !AFFILIATION_OPTIONS.includes(merged.affiliation)
+        ? AFFILIATION_OPTIONS.find((opt) => opt.startsWith(merged.affiliation)) ?? merged.affiliation
+        : merged.affiliation;
+
+    setValue('affiliation', matchedAffiliation);
+    setSelectedAffiliation(matchedAffiliation);
     setValue('name', merged.name);
     setValue('phone', merged.phone);
     setValue('recommender', merged.recommender);
     setValue('email', merged.email);
+    setValue('carrier', merged.carrier);
+    setCarrier(merged.carrier);
+    setValue('address', merged.address);
+    setValue('addressDetail', merged.addressDetail);
+    setExistingAddress(merged.address);
+    setExistingAddressDetail(merged.addressDetail);
+    setExistingResidentMasked(merged.residentMasked);
     if (merged.email && merged.email.includes('@')) {
       const [local, domainPart] = merged.email.split('@');
       setEmailLocal(local ?? '');
-      setEmailDomain(domainPart ?? '');
-      setCustomDomain(domainPart ?? '');
+      if (domainPart && EMAIL_DOMAINS.includes(domainPart)) {
+        setEmailDomain(domainPart);
+        setCustomDomain('');
+      } else {
+        setEmailDomain(domainPart ? '직접입력' : '');
+        setCustomDomain(domainPart ?? '');
+      }
     }
     setExistingTempId(merged.temp_id);
   };
@@ -237,6 +334,7 @@ export default function FcNewScreen() {
       phone: phoneDigits,
       recommender: values.recommender,
       email: values.email,
+      carrier: values.carrier,
       career_type: null,
       status: 'draft',
     };
@@ -266,6 +364,45 @@ export default function FcNewScreen() {
       error = insertErr;
     }
 
+    const front = values.residentFront?.trim() ?? '';
+    const back = values.residentBack?.trim() ?? '';
+    const addressChanged =
+      values.address.trim() !== existingAddress.trim() ||
+      values.addressDetail.trim() !== existingAddressDetail.trim();
+    const hasResidentInput = front.length > 0 || back.length > 0;
+
+    if (addressChanged || hasResidentInput) {
+      if (!front || !back) {
+        setSubmitting(false);
+        Alert.alert('입력 확인', '주소/주민번호 변경을 위해 주민번호 앞/뒤를 모두 입력해주세요.');
+        return;
+      }
+      try {
+        const { error: identityErr } = await supabase.functions.invoke('store-identity', {
+          body: {
+            residentId: phoneDigits,
+            residentFront: front,
+            residentBack: back,
+            address: values.address.trim(),
+            addressDetail: values.addressDetail.trim(),
+          },
+        });
+        if (identityErr) {
+          setSubmitting(false);
+          let message = await getFunctionErrorMessage(identityErr);
+          if (message.includes('non-2xx')) {
+            message = '서버 설정 오류 가능성이 큽니다. Edge Function(store-identity) 환경변수를 확인해주세요.';
+          }
+          Alert.alert('저장 실패', message);
+          return;
+        }
+      } catch (err: any) {
+        setSubmitting(false);
+        Alert.alert('저장 실패', err?.message ?? '신원 정보 저장에 실패했습니다.');
+        return;
+      }
+    }
+
     setSubmitting(false);
 
     if (error) {
@@ -284,7 +421,7 @@ export default function FcNewScreen() {
       void sendNotificationAndPush(
         'admin',
         phoneDigits,
-        `${values.name}이/가 기본정보를 등록했습니다.`,
+        `${values.name}님이 기본정보를 등록했습니다.`,
         `${values.name}님이 기본정보를 생성/수정했습니다.`,
       );
     }
@@ -299,6 +436,11 @@ export default function FcNewScreen() {
         phone: '휴대폰 번호',
         recommender: '추천인',
         email: '이메일',
+        carrier: '통신사',
+        address: '주소',
+        addressDetail: '상세주소',
+        residentFront: '주민번호 앞자리',
+        residentBack: '주민번호 뒷자리',
       };
 
       const missingFields = missing
@@ -320,6 +462,14 @@ export default function FcNewScreen() {
         emailLocalRef.current?.focus();
       } else if (first === 'recommender') {
         recommenderRef.current?.focus();
+      } else if (first === 'carrier') {
+        setShowCarrierPicker(true);
+      } else if (first === 'addressDetail') {
+        addressDetailRef.current?.focus();
+      } else if (first === 'residentFront') {
+        residentFrontRef.current?.focus();
+      } else if (first === 'residentBack') {
+        residentBackRef.current?.focus();
       }
     }
   };
@@ -453,6 +603,27 @@ export default function FcNewScreen() {
             blurOnSubmit={false}
             scrollEnabled={false} // Added
           />
+          <View style={styles.field}>
+            <View style={styles.fieldLabelRow}>
+              <Text style={styles.label}>통신사</Text>
+              {formState.errors.carrier?.message ? (
+                <Text style={styles.error}>{formState.errors.carrier?.message}</Text>
+              ) : null}
+            </View>
+            <View style={styles.selectBox}>
+              <TextInput
+                style={[styles.input, styles.inputWithIcon]}
+                placeholder="통신사 선택"
+                placeholderTextColor={PLACEHOLDER}
+                value={carrier}
+                editable={false}
+                pointerEvents="none"
+              />
+              <Pressable style={styles.selectOverlay} onPress={() => setShowCarrierPicker(true)}>
+                <Feather name="chevron-down" size={20} color={TEXT_MUTED} />
+              </Pressable>
+            </View>
+          </View>
           <FormField
             control={control}
             label="추천인"
@@ -545,6 +716,109 @@ export default function FcNewScreen() {
           </View>
         </View>
 
+        <View style={styles.sectionCard}>
+          <Text style={styles.sectionTitle}>신원 정보</Text>
+          {existingResidentMasked ? (
+            <Text style={styles.helperText}>현재 주민번호: {existingResidentMasked}</Text>
+          ) : (
+            <Text style={styles.helperText}>변경이 필요할 때만 주민번호를 입력해주세요.</Text>
+          )}
+
+          <View style={styles.field}>
+            <View style={styles.fieldLabelRow}>
+              <Text style={styles.label}>주민등록번호</Text>
+              {formState.errors.residentFront?.message || formState.errors.residentBack?.message ? (
+                <Text style={styles.error}>
+                  {formState.errors.residentFront?.message || formState.errors.residentBack?.message}
+                </Text>
+              ) : null}
+            </View>
+            <View style={styles.residentRow}>
+              <Controller
+                control={control}
+                name="residentFront"
+                render={({ field: { onChange, value } }) => (
+                  <TextInput
+                    ref={residentFrontRef}
+                    style={[styles.input, styles.residentInput]}
+                    placeholder="앞 6자리"
+                    placeholderTextColor={PLACEHOLDER}
+                    value={value}
+                    onChangeText={(txt) => onChange(txt.replace(/[^0-9]/g, '').slice(0, 6))}
+                    keyboardType="number-pad"
+                    maxLength={6}
+                    returnKeyType="next"
+                    onSubmitEditing={() => residentBackRef.current?.focus()}
+                  />
+                )}
+              />
+              <Text style={styles.residentHyphen}>-</Text>
+              <Controller
+                control={control}
+                name="residentBack"
+                render={({ field: { onChange, value } }) => (
+                  <TextInput
+                    ref={residentBackRef}
+                    style={[styles.input, styles.residentInput]}
+                    placeholder="뒷 7자리"
+                    placeholderTextColor={PLACEHOLDER}
+                    value={value}
+                    onChangeText={(txt) => onChange(txt.replace(/[^0-9]/g, '').slice(0, 7))}
+                    keyboardType="number-pad"
+                    maxLength={7}
+                    secureTextEntry
+                    returnKeyType="next"
+                    onSubmitEditing={() => addressDetailRef.current?.focus()}
+                  />
+                )}
+              />
+            </View>
+          </View>
+
+          <View style={styles.field}>
+            <View style={styles.fieldLabelRow}>
+              <Text style={styles.label}>주소</Text>
+              {formState.errors.address?.message ? (
+                <Text style={styles.error}>{formState.errors.address?.message}</Text>
+              ) : null}
+            </View>
+            <Pressable style={styles.searchButton} onPress={() => setShowAddressSearch(true)}>
+              <Text style={styles.searchButtonText}>주소 검색</Text>
+            </Pressable>
+            <Controller
+              control={control}
+              name="address"
+              render={({ field: { onChange, value } }) => (
+                <TextInput
+                  style={[styles.input, styles.inputMultiline, { height: Math.max(90, addressHeight) }]}
+                  placeholder="도로명 또는 지번 주소"
+                  placeholderTextColor={PLACEHOLDER}
+                  value={value}
+                  multiline
+                  scrollEnabled={false}
+                  onChangeText={onChange}
+                  onContentSizeChange={(e) => {
+                    const nextHeight = Math.max(90, e.nativeEvent.contentSize.height);
+                    if (nextHeight !== addressHeight) setAddressHeight(nextHeight);
+                  }}
+                />
+              )}
+            />
+          </View>
+          <FormField
+            control={control}
+            label="상세주소"
+            placeholder="상세주소 입력"
+            name="addressDetail"
+            errors={formState.errors}
+            inputRef={addressDetailRef}
+            returnKeyType="done"
+            onSubmitEditing={handleSubmit(onSubmit, onError)}
+            blurOnSubmit={false}
+            scrollEnabled={false}
+          />
+        </View>
+
         <Pressable
           style={[styles.primaryButton, submitting && styles.primaryButtonDisabled]}
           onPress={handleSubmit(onSubmit, onError)}
@@ -579,6 +853,55 @@ export default function FcNewScreen() {
             </Pressable>
           </Pressable>
         </Pressable>
+      </Modal>
+      <Modal visible={showCarrierPicker} transparent animationType="fade">
+        <Pressable style={styles.modalOverlay} onPress={() => setShowCarrierPicker(false)}>
+          <Pressable style={styles.modalCard} onPress={(e) => e.stopPropagation()}>
+            <Text style={styles.modalTitle}>통신사 선택</Text>
+            <View style={styles.modalOptions}>
+              {CARRIER_OPTIONS.map((option) => (
+                <Pressable
+                  key={option}
+                  style={styles.modalOption}
+                  onPress={() => {
+                    setCarrier(option);
+                    setValue('carrier', option, { shouldValidate: true });
+                    setShowCarrierPicker(false);
+                  }}
+                >
+                  <Text style={styles.modalOptionText}>{option}</Text>
+                </Pressable>
+              ))}
+            </View>
+            <Pressable style={styles.modalCancel} onPress={() => setShowCarrierPicker(false)}>
+              <Text style={styles.modalCancelText}>취소</Text>
+            </Pressable>
+          </Pressable>
+        </Pressable>
+      </Modal>
+      <Modal visible={showAddressSearch} animationType="slide">
+        <SafeAreaView style={{ flex: 1, backgroundColor: '#fff' }}>
+          <View style={styles.searchHeader}>
+            <Text style={styles.searchTitle}>주소 검색</Text>
+            <Pressable onPress={() => setShowAddressSearch(false)}>
+              <Text style={styles.searchClose}>닫기</Text>
+            </Pressable>
+          </View>
+          <Postcode
+            style={{ flex: 1 }}
+            jsOptions={{ animation: true }}
+            onSelected={(data: any) => {
+              const base = data.address || '';
+              const extra = data.buildingName ? ` (${data.buildingName})` : '';
+              const full = `${data.zonecode ? `[${data.zonecode}] ` : ''}${base}${extra}`;
+              setValue('address', full, { shouldValidate: true });
+              setShowAddressSearch(false);
+            }}
+            onError={() => {
+              Alert.alert('주소 검색 실패', '주소 검색 중 오류가 발생했습니다. 다시 시도해주세요.');
+            }}
+          />
+        </SafeAreaView>
       </Modal>
     </SafeAreaView>
   );
@@ -694,6 +1017,7 @@ const styles = StyleSheet.create({
   fieldLabelRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
   label: { fontWeight: '700', color: CHARCOAL, fontSize: 16 }, // default -> 16
   error: { color: '#dc2626', fontSize: 14 }, // 12 -> 14
+  helperText: { color: TEXT_MUTED, fontSize: 13, marginTop: 4 },
   input: {
     borderWidth: 1,
     borderColor: BORDER,
@@ -711,6 +1035,54 @@ const styles = StyleSheet.create({
     minHeight: 80,
     textAlignVertical: 'top',
   },
+  inputWithIcon: {
+    paddingRight: 44,
+  },
+  selectBox: {
+    position: 'relative',
+    justifyContent: 'center',
+  },
+  selectOverlay: {
+    position: 'absolute',
+    right: 12,
+    top: 0,
+    bottom: 0,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  residentRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  residentInput: {
+    flex: 1,
+    textAlign: 'center',
+  },
+  residentHyphen: {
+    fontWeight: '700',
+    color: CHARCOAL,
+    fontSize: 16,
+  },
+  searchButton: {
+    paddingVertical: 10,
+    paddingHorizontal: 14,
+    borderWidth: 1,
+    borderColor: '#f7b182',
+    borderRadius: 10,
+    backgroundColor: '#fff7f0',
+    alignItems: 'center',
+  },
+  searchButtonText: { color: ORANGE, fontWeight: '700' },
+  searchHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    padding: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: BORDER,
+  },
+  searchTitle: { fontWeight: '800', color: CHARCOAL },
+  searchClose: { color: ORANGE, fontWeight: '700' },
   primaryButton: {
     marginTop: 8,
     marginBottom: 40,

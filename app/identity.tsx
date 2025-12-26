@@ -31,6 +31,24 @@ const isValidResidentChecksum = (front: string, back: string) => {
   return check === Number(digits[12]);
 };
 
+const getFunctionErrorMessage = async (err: any) => {
+  if (!err) return '신원 정보 저장 중 문제가 발생했습니다.';
+  const context = err.context ?? {};
+  const response = context.response as Response | undefined;
+  if (response) {
+    try {
+      const text = await response.text();
+      if (text) return text;
+    } catch {
+      // ignore
+    }
+  }
+  const body = context.body;
+  if (typeof body === 'string' && body) return body;
+  if (body && typeof body === 'object' && 'message' in body) return String(body.message);
+  return err.message ?? '신원 정보 저장 중 문제가 발생했습니다.';
+};
+
 const schema = z.object({
   residentFront: z.string().regex(/^[0-9]{6}$/, '앞 6자리를 숫자로 입력해주세요.'),
   residentBack: z.string().regex(/^[0-9]{7}$/, '뒷 7자리를 숫자로 입력해주세요.'),
@@ -115,7 +133,13 @@ export default function IdentityScreen() {
         addressDetail,
       };
       const { error } = await supabase.functions.invoke('store-identity', { body: payload });
-      if (error) throw error;
+      if (error) {
+        let message = await getFunctionErrorMessage(error);
+        if (message.includes('non-2xx')) {
+          message = '서버 설정 오류 가능성이 큽니다. Edge Function(store-identity) 환경변수를 확인해주세요.';
+        }
+        throw new Error(message);
+      }
       Alert.alert('등록 완료', '신원 정보가 저장되었습니다.');
       router.replace((next as string) || '/');
     } catch (err: any) {

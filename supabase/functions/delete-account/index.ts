@@ -44,6 +44,13 @@ async function ignoreMissingTable<T>(result: { error: any; data?: T }) {
   return result;
 }
 
+function formatPhone(digits: string) {
+  if (!digits) return '';
+  if (digits.length <= 3) return digits;
+  if (digits.length <= 7) return `${digits.slice(0, 3)}-${digits.slice(3)}`;
+  return `${digits.slice(0, 3)}-${digits.slice(3, 7)}-${digits.slice(7)}`;
+}
+
 serve(async (req: Request) => {
   if (req.method === 'OPTIONS') {
     return new Response('ok', { headers: corsHeaders });
@@ -66,6 +73,7 @@ serve(async (req: Request) => {
   if (!residentId) {
     return err('residentId required', 400);
   }
+  const residentIdMasked = formatPhone(residentId);
 
   const { data: profile, error: profileError } = await supabase
     .from('fc_profiles')
@@ -103,7 +111,12 @@ serve(async (req: Request) => {
     await supabase.from('messages').delete().or(`sender_id.eq.${residentId},receiver_id.eq.${residentId}`),
   );
 
-  await ignoreMissingTable(await supabase.from('exam_registrations').delete().eq('resident_id', residentId));
+  await ignoreMissingTable(
+    await supabase
+      .from('exam_registrations')
+      .delete()
+      .or(`resident_id.eq.${residentId},resident_id.eq.${residentIdMasked}`),
+  );
   await ignoreMissingTable(
     await supabase.from('notifications').delete().or(`resident_id.eq.${residentId},fc_id.eq.${fcId}`),
   );
