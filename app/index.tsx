@@ -23,9 +23,9 @@ import { TourGuideZone, useTourGuideController } from 'rn-tourguide';
 
 import { ImageTourGuide, TourStep } from '@/components/ImageTourGuide';
 import { RefreshButton } from '@/components/RefreshButton';
-import { useInAppUpdate } from '@/hooks/useInAppUpdate';
-import { useSession } from '@/hooks/use-session';
 import { useIdentityStatus } from '@/hooks/use-identity-status';
+import { useSession } from '@/hooks/use-session';
+import { useInAppUpdate } from '@/hooks/useInAppUpdate';
 import { supabase } from '@/lib/supabase';
 
 const SHORTCUT_GUIDE_STEPS: TourStep[] = [
@@ -77,7 +77,7 @@ const SHORTCUT_GUIDE_STEPS: TourStep[] = [
     y: 64, // Adjusted from 55
     width: 46,
     height: 22,
-    title: '모바일 위촉',
+    title: '위촉',
     description: '보험사 위촉 진행을 위한 모바일 URL에\n쉽게 접속할 수 있습니다.',
     tooltipPosition: 'top',
   },
@@ -146,8 +146,8 @@ const quickLinksAdminOnboarding: QuickLink[] = [
 ];
 
 const quickLinksAdminExam: QuickLink[] = [
-  { href: '/exam-register', title: '생명보험/제3보험 시험', description: '응시일정 · 마감 관리' },
-  { href: '/exam-register2', title: '손해보험 시험', description: '응시일정 · 마감 관리' },
+  { href: '/exams/life', title: '생명보험/제3보험 시험', description: '응시일정 · 마감 관리' },
+  { href: '/exams/nonlife', title: '손해보험 시험', description: '응시일정 · 마감 관리' },
   { href: '/exam-manage', title: '생명/제3 신청자', description: '신청 현황 조회' },
   { href: '/exam-manage2', title: '손해 신청자', description: '신청 현황 조회' },
 ];
@@ -158,7 +158,7 @@ const quickLinksFc: QuickLink[] = [
   { href: '/fc/new', title: '기본 정보', description: '인적사항 수정' },
   { href: '/consent', title: '수당 동의', description: '약관 동의 관리' },
   { href: '/docs-upload', title: '서류 업로드', description: '필수 서류 제출' },
-  { href: '/appointment', title: '모바일 위촉', description: '위촉 URL 접속 및 완료' },
+  { href: '/appointment', title: '위촉', description: '위촉 URL 접속 및 완료' },
   { href: '/chat', title: '1:1 문의', description: '총무팀과 대화하기' },
 ];
 
@@ -177,7 +177,7 @@ const fetchCounts = async (role: 'admin' | 'fc' | null, residentId: string): Pro
 
   const { data, error } = await supabase
     .from('fc_profiles')
-    .select('name,affiliation,resident_id_masked,email,address,allowance_date,appointment_date,status,fc_documents(doc_type,storage_path)');
+    .select('name,affiliation,resident_id_masked,email,address,allowance_date,appointment_date,status,fc_documents(doc_type,storage_path,status)');
   if (error) throw error;
 
   const steps: StepCounts = { ...EMPTY_STEP_COUNTS };
@@ -336,20 +336,40 @@ type ExamStats = {
 
 const fetchExamStats = async (): Promise<ExamStats> => {
   const countByType = async (examType: 'life' | 'nonlife') => {
-    const { count: total, error: totalErr } = await supabase
+    const { data, error } = await supabase
       .from('exam_registrations')
-      .select('id, exam_rounds!inner(exam_type)', { count: 'exact', head: true })
-      .eq('exam_rounds.exam_type', examType);
-    if (totalErr) throw totalErr;
-
-    const { count: pending, error: pendingErr } = await supabase
-      .from('exam_registrations')
-      .select('id, exam_rounds!inner(exam_type)', { count: 'exact', head: true })
+      .select('resident_id, is_confirmed, created_at, exam_rounds!inner(exam_type)')
       .eq('exam_rounds.exam_type', examType)
-      .or('is_confirmed.is.null,is_confirmed.eq.false');
-    if (pendingErr) throw pendingErr;
+      .order('resident_id', { ascending: true })
+      .order('created_at', { ascending: true });
+    if (error) throw error;
 
-    return { total: total ?? 0, pending: pending ?? 0 };
+    const rows = data ?? [];
+    const residentIds = Array.from(
+      new Set(rows.map((row: any) => row.resident_id).filter((v: any): v is string => !!v)),
+    );
+    const existingResidents = new Set<string>();
+    if (residentIds.length > 0) {
+      const { data: profiles, error: profileErr } = await supabase
+        .from('fc_profiles')
+        .select('phone')
+        .in('phone', residentIds);
+      if (profileErr) throw profileErr;
+      (profiles ?? []).forEach((p: any) => {
+        if (p.phone) existingResidents.add(p.phone as string);
+      });
+    }
+
+    const latestByResident = new Map<string, boolean>();
+    rows.forEach((row: any) => {
+      const residentId = row.resident_id;
+      if (!residentId || !existingResidents.has(residentId)) return;
+      latestByResident.set(residentId, Boolean(row.is_confirmed));
+    });
+
+    const total = latestByResident.size;
+    const pending = Array.from(latestByResident.values()).filter((v) => !v).length;
+    return { total, pending };
   };
 
   const [life, nonlife] = await Promise.all([countByType('life'), countByType('nonlife')]);
@@ -415,7 +435,7 @@ const getLinkIcon = (href: string) => {
   if (href.includes('status=step4')) return 'link'; // 위촉 진행
   if (href.includes('status=step5')) return 'award'; // 완료 관리
 
-  if (href.includes('exam-register')) return 'calendar'; // 시험 일정 등록
+  if (href.includes('/exams/')) return 'calendar'; // 시험 일정 등록
   if (href.includes('exam-manage')) return 'users'; // 신청자 관리
   if (href.includes('admin-appointment')) return 'send'; // URL 발송
   if (href.includes('admin-notice')) return 'bell'; // 공지 등록
@@ -425,7 +445,7 @@ const getLinkIcon = (href: string) => {
   if (href.includes('exam-apply')) return 'edit-3'; // 시험 신청
   if (href.includes('consent')) return 'check-circle'; // 수당 동의
   if (href.includes('docs-upload')) return 'upload-cloud'; // 서류 업로드
-  if (href.includes('appointment')) return 'smartphone'; // 모바일 위촉
+  if (href.includes('appointment')) return 'smartphone'; // 위촉
   if (href.includes('admin-messenger')) return 'message-circle'; // 메신저
   if (href.includes('chat')) return 'message-circle'; // 1:1 문의
 

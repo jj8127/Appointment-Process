@@ -157,8 +157,10 @@ export default function ExamRegisterScreen() {
   const [selectedRoundId, setSelectedRoundId] = useState<string | null>(null);
   const [locationInput, setLocationInput] = useState('');
   const [locationOrder, setLocationOrder] = useState('0');
+  const [draftLocations, setDraftLocations] = useState<Array<{ id: string; name: string; order: number }>>([]);
   const [refreshing, setRefreshing] = useState(false);
   const [notesHeight, setNotesHeight] = useState(80);
+  const isEditMode = Boolean(selectedRoundId);
 
   useEffect(() => {
     if (role !== 'admin') {
@@ -231,7 +233,17 @@ export default function ExamRegisterScreen() {
           .update(payload)
           .eq('id', selectedRoundId);
         if (error) throw error;
-        return { id: selectedRoundId };
+        const targetId = selectedRoundId;
+        if (draftLocations.length > 0) {
+          const rows = draftLocations.map((loc) => ({
+            round_id: targetId,
+            location_name: loc.name,
+            sort_order: loc.order,
+          }));
+          const { error: locErr } = await supabase.from('exam_locations').insert(rows);
+          if (locErr) throw locErr;
+        }
+        return { id: targetId };
       } else {
         const { data, error } = await supabase
           .from('exam_rounds')
@@ -239,7 +251,17 @@ export default function ExamRegisterScreen() {
           .select('id')
           .single();
         if (error) throw error;
-        return { id: data.id as string };
+        const targetId = data.id as string;
+        if (draftLocations.length > 0) {
+          const rows = draftLocations.map((loc) => ({
+            round_id: targetId,
+            location_name: loc.name,
+            sort_order: loc.order,
+          }));
+          const { error: locErr } = await supabase.from('exam_locations').insert(rows);
+          if (locErr) throw locErr;
+        }
+        return { id: targetId };
       }
     },
     onSuccess: async (res, mode) => {
@@ -251,6 +273,9 @@ export default function ExamRegisterScreen() {
       if (res?.id) {
         setSelectedRoundId(res.id);
       }
+      setDraftLocations([]);
+      setLocationInput('');
+      setLocationOrder('0');
 
       const examTitle = `${formatDate(toYmd(examDate) || '')}${roundForm.roundLabel ? ` (${roundForm.roundLabel})` : ''}`;
       const actionLabel = mode === 'create' ? '등록' : '수정';
@@ -319,11 +344,7 @@ export default function ExamRegisterScreen() {
     setShowDeadlinePicker(Platform.OS === 'ios');
     setLocationInput('');
     setLocationOrder('0');
-  };
-
-  // 현재 폼 내용으로 항상 새 차수를 추가
-  const handleCreateNewRound = () => {
-    saveRound.mutate('create');
+    setDraftLocations([]);
   };
 
   const handleSelectRound = (round: ExamRoundWithLocations) => {
@@ -340,6 +361,7 @@ export default function ExamRegisterScreen() {
     setShowDeadlinePicker(Platform.OS === 'ios');
     setLocationInput('');
     setLocationOrder('0');
+    setDraftLocations([]);
   };
 
   const selectedRound = useMemo(
@@ -361,13 +383,20 @@ export default function ExamRegisterScreen() {
             <Text style={styles.headerTitle}>생명보험 시험 일정 관리</Text>
           </View>
           <Text style={styles.caption}>
-            시험 일자와 신청 마감일, 차수/메모, 비고를 입력해 등록한 뒤 응시 지역을 추가로
-            관리할 수 있습니다.
+            시험 일자, 신청 마감일, 차수/메모, 비고와 응시 지역을 한 번에 입력해 저장합니다.
           </Text>
 
-          {/* 1단계: 시험 일정 입력 */}
+          {/* 시험 일정 + 응시 지역 입력 */}
           <View style={styles.card}>
-            <Text style={styles.sectionTitle}>1단계: 시험 일정 입력</Text>
+            <View style={styles.modeBanner}>
+              <Text style={styles.modeText}>{isEditMode ? '수정 모드' : '신규 등록 모드'}</Text>
+              {isEditMode && (
+                <Pressable onPress={startNewRound} style={styles.modeAction}>
+                  <Text style={styles.modeActionText}>신규 등록으로 전환</Text>
+                </Pressable>
+              )}
+            </View>
+            <Text style={styles.sectionTitle}>시험 일정 입력</Text>
 
             <Text style={styles.label}>시험 일자</Text>
             {Platform.OS === 'ios' || Platform.OS === 'web' ? (
@@ -451,6 +480,70 @@ export default function ExamRegisterScreen() {
               }}
             />
 
+            <Text style={styles.label}>응시 지역</Text>
+            <View style={styles.row}>
+              <View style={{ flex: 2 }}>
+                <TextInput
+                  placeholder="예: 청주, 대전 등"
+                  placeholderTextColor={MUTED}
+                  value={locationInput}
+                  onChangeText={setLocationInput}
+                  style={styles.input}
+                />
+              </View>
+              <View style={{ width: 8 }} />
+              <View style={{ flex: 1 }}>
+                <TextInput
+                  placeholder="정렬순서"
+                  placeholderTextColor={MUTED}
+                  value={locationOrder}
+                  onChangeText={setLocationOrder}
+                  keyboardType="number-pad"
+                  style={styles.input}
+                />
+              </View>
+            </View>
+            <View style={{ marginTop: 8 }}>
+              <RoundedButton
+                label="지역 추가"
+                onPress={() => {
+                  const trimmed = locationInput.trim();
+                  if (!trimmed) {
+                    Alert.alert('입력 필요', '응시 지역을 입력해주세요.');
+                    return;
+                  }
+                  const order = Number(locationOrder) || 0;
+                  setDraftLocations((prev) => [
+                    ...prev,
+                    { id: `${Date.now()}-${Math.random()}`, name: trimmed, order },
+                  ]);
+                  setLocationInput('');
+                  setLocationOrder('0');
+                }}
+                variant="secondary"
+              />
+            </View>
+            {draftLocations.length > 0 && (
+              <View style={{ marginTop: 8 }}>
+                <Text style={styles.label}>추가된 지역</Text>
+                {draftLocations.map((loc) => (
+                  <View key={loc.id} style={styles.locationRow}>
+                    <Text style={styles.locationName}>
+                      {loc.name} (정렬: {loc.order})
+                    </Text>
+                    <Pressable
+                      onPress={() =>
+                        setDraftLocations((prev) => prev.filter((item) => item.id !== loc.id))
+                      }
+                      style={styles.locationDelete}
+                    >
+                      <Text style={styles.locationDeleteText}>삭제</Text>
+                    </Pressable>
+                  </View>
+                ))}
+              </View>
+            )}
+
             <View style={styles.row}>
               <View style={{ flex: 1 }}>
                 <RoundedButton
@@ -467,102 +560,23 @@ export default function ExamRegisterScreen() {
               <View style={{ width: 12 }} />
               <View style={{ flex: 1 }}>
                 <RoundedButton
-                  label="신규 차수 입력"
-                  onPress={handleCreateNewRound}
+                  label={isEditMode ? '신규 등록 모드' : '폼 초기화'}
+                  onPress={startNewRound}
                   variant="secondary"
                 />
               </View>
             </View>
           </View>
 
-          {/* 2단계: 선택된 시험 일정의 응시 지역 */}
-          <View style={styles.card}>
-            <Text style={styles.sectionTitle}>2단계: 응시 지역 관리</Text>
-            {!selectedRound ? (
-              <Text style={styles.caption}>
-                상단에서 시험 일정을 선택하면, 해당 일정의 응시 지역을 추가/삭제할 수 있습니다.
-              </Text>
-            ) : (
-              <>
-                <Text style={styles.roundSummary}>
-                  선택된 일정:{' '}
-                  {formatDate(selectedRound.exam_date)}{' '}
-                  {selectedRound.round_label ? `(${selectedRound.round_label})` : ''}
-                </Text>
-
-                <Text style={styles.label}>응시 지역 추가</Text>
-                <View style={styles.row}>
-                  <View style={{ flex: 2 }}>
-                    <TextInput
-                      placeholder="예: 청주, 대전 등"
-                      placeholderTextColor={MUTED}
-                      value={locationInput}
-                      onChangeText={setLocationInput}
-                      style={styles.input}
-                    />
-                  </View>
-                  <View style={{ width: 8 }} />
-                  <View style={{ flex: 1 }}>
-                    <TextInput
-                      placeholder="정렬순서"
-                      placeholderTextColor={MUTED}
-                      value={locationOrder}
-                      onChangeText={setLocationOrder}
-                      keyboardType="number-pad"
-                      style={styles.input}
-                    />
-                  </View>
-                </View>
-                <View style={{ marginTop: 8 }}>
-                  <RoundedButton
-                    label="지역 추가"
-                    onPress={() => addLocation.mutate()}
-                    variant="primary"
-                    disabled={addLocation.isPending}
-                  />
-                </View>
-
-                <View style={{ marginTop: 16 }}>
-                  <Text style={styles.label}>등록된 응시 지역</Text>
-                  {!selectedRound.locations?.length ? (
-                    <Text style={styles.caption}>
-                      아직 등록된 응시 지역이 없습니다. 위에서 지역을 추가해주세요.
-                    </Text>
-                  ) : (
-                    selectedRound.locations.map((loc) => (
-                      <View key={loc.id} style={styles.locationRow}>
-                        <Text style={styles.locationName}>
-                          {loc.location_name} (정렬: {loc.sort_order})
-                        </Text>
-                        <Pressable
-                          onPress={async () => {
-                            const { error } = await supabase
-                              .from('exam_locations')
-                              .delete()
-                              .eq('id', loc.id);
-                            if (error) {
-                              Alert.alert(
-                                '삭제 실패',
-                                error.message ?? '지역 삭제 중 오류가 발생했습니다.',
-                              );
-                            } else {
-                              refetch();
-                            }
-                          }}
-                          style={styles.locationDelete}
-                        >
-                          <Text style={styles.locationDeleteText}>삭제</Text>
-                        </Pressable>
-                      </View>
-                    ))
-                  )}
-                </View>
-              </>
-            )}
-          </View>
-          {/* 3단계: 등록된 시험 일정 목록 */}
+          {/* 등록된 시험 일정 목록 */}
           <View style={styles.card}>
             <Text style={styles.sectionTitle}>등록된 시험 일정</Text>
+            {selectedRound && (
+              <Text style={styles.activeNotice}>
+                현재 수정 중: {formatDate(selectedRound.exam_date)}{' '}
+                {selectedRound.round_label ? `(${selectedRound.round_label})` : ''}
+              </Text>
+            )}
             {isLoading || isFetching ? (
               <Text style={styles.caption}>등록된 시험 일정을 불러오는 중입니다...</Text>
             ) : !sortedRounds.length ? (
@@ -630,6 +644,11 @@ const styles = StyleSheet.create({
   caption: {
     color: MUTED,
   },
+  activeNotice: {
+    paddingVertical: 6,
+    color: '#9a3412',
+    fontWeight: '700',
+  },
   card: {
     backgroundColor: '#fff',
     padding: 16,
@@ -648,6 +667,32 @@ const styles = StyleSheet.create({
     fontWeight: '800',
     color: CHARCOAL,
     marginBottom: 4,
+  },
+  modeBanner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingVertical: 8,
+    paddingHorizontal: 12,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: '#E5E7EB',
+    backgroundColor: '#F9FAFB',
+  },
+  modeText: {
+    fontWeight: '800',
+    color: CHARCOAL,
+  },
+  modeAction: {
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 999,
+    backgroundColor: ORANGE_LIGHT,
+  },
+  modeActionText: {
+    color: '#1f2937',
+    fontWeight: '700',
+    fontSize: 12,
   },
   label: {
     marginTop: 8,

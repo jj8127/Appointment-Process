@@ -6,22 +6,22 @@ import { router } from 'expo-router';
 import { AnimatePresence, MotiView } from 'moti';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
-  ActivityIndicator,
-  Alert,
-  Platform,
-  Pressable,
-  RefreshControl,
-  ScrollView,
-  StyleSheet,
-  Text,
-  View,
+    ActivityIndicator,
+    Alert,
+    Platform,
+    Pressable,
+    RefreshControl,
+    ScrollView,
+    StyleSheet,
+    Text,
+    View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { KeyboardAwareWrapper } from '@/components/KeyboardAwareWrapper';
 import { RefreshButton } from '@/components/RefreshButton';
-import { useSession } from '@/hooks/use-session';
 import { useIdentityGate } from '@/hooks/use-identity-gate';
+import { useSession } from '@/hooks/use-session';
 import { supabase } from '@/lib/supabase';
 import { ExamRoundWithLocations, formatDate } from '@/types/exam';
 
@@ -366,8 +366,8 @@ export default function ExamApplyScreen() {
       const examTitle = `${formatDate(round.exam_date)}${round.round_label ? ` (${round.round_label})` : ''
         }`;
       const actor = displayName?.trim() || residentId;
-      const title = `${actor}이/가 ${examTitle}을 신청하였습니다.`;
-      const body = locName ? `${actor}이/가 ${examTitle} (${locName})을 신청하였습니다.` : title;
+      const title = `${actor}님이 ${examTitle}을 신청하였습니다.`;
+      const body = locName ? `${actor}님이 ${examTitle} (${locName})을 신청하였습니다.` : title;
 
       await notifyAdmin(title, body, residentId);
       await notifyFcSelf('시험 신청이 접수되었습니다.', `${examTitle}${locName ? ` (${locName})` : ''} 접수가 완료되었습니다.`, residentId);

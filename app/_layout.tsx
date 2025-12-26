@@ -16,6 +16,17 @@ import FcTourTooltip from '@/components/FcTourTooltip';
 import { useColorScheme } from '@/hooks/use-color-scheme';
 import { SessionProvider } from '@/hooks/use-session';
 
+import {
+  AntDesign,
+  Entypo,
+  Feather,
+  FontAwesome,
+  Ionicons,
+  MaterialIcons,
+} from '@expo/vector-icons';
+import { loadAsync } from 'expo-font';
+import * as SplashScreen from 'expo-splash-screen';
+
 const queryClient = new QueryClient();
 
 // Disable native screen optimization to avoid Android drawing-order crash
@@ -38,17 +49,6 @@ if (Platform.OS !== 'web') {
     }),
   });
 }
-
-import {
-  AntDesign,
-  Entypo,
-  Feather,
-  FontAwesome,
-  Ionicons,
-  MaterialIcons,
-} from '@expo/vector-icons';
-import { loadAsync } from 'expo-font';
-import * as SplashScreen from 'expo-splash-screen';
 
 SplashScreen.preventAutoHideAsync();
 
@@ -226,10 +226,12 @@ export default function RootLayout() {
                   <Stack.Screen name="settings" options={{ ...baseHeader, title: '설정' }} />
 
                   <Stack.Screen name="dashboard" options={{ ...baseHeader, title: '전체 현황' }} />
-                  <Stack.Screen name="appointment" options={{ ...baseHeader, title: '모바일 위촉' }} />
+                  <Stack.Screen name="appointment" options={{ ...baseHeader, title: '위촉' }} />
                   <Stack.Screen name="notifications" options={{ ...baseHeader, title: '알림' }} />
                   <Stack.Screen name="notice" options={{ ...baseHeader, title: '공지사항' }} />
                   <Stack.Screen name="admin-notice" options={{ ...baseHeader, title: '공지 등록' }} />
+                  <Stack.Screen name="exams/life" options={{ ...baseHeader, title: '생명 시험 등록' }} />
+                  <Stack.Screen name="exams/nonlife" options={{ ...baseHeader, title: '손해 시험 등록' }} />
                   <Stack.Screen name="exam-register" options={{ ...baseHeader, title: '생명 시험 등록' }} />
                   <Stack.Screen name="exam-register2" options={{ ...baseHeader, title: '손해 시험 등록' }} />
                   <Stack.Screen name="exam-manage" options={{ ...baseHeader, title: '생명/제3 신청자 관리' }} />
@@ -308,10 +310,12 @@ export default function RootLayout() {
                   <Stack.Screen name="settings" options={{ ...baseHeader, title: '설정' }} />
 
                   <Stack.Screen name="dashboard" options={{ ...baseHeader, title: '전체 현황' }} />
-                  <Stack.Screen name="appointment" options={{ ...baseHeader, title: '모바일 위촉' }} />
+                  <Stack.Screen name="appointment" options={{ ...baseHeader, title: '위촉' }} />
                   <Stack.Screen name="notifications" options={{ ...baseHeader, title: '알림' }} />
                   <Stack.Screen name="notice" options={{ ...baseHeader, title: '공지사항' }} />
                   <Stack.Screen name="admin-notice" options={{ ...baseHeader, title: '공지 등록' }} />
+                  <Stack.Screen name="exams/life" options={{ ...baseHeader, title: '생명 시험 등록' }} />
+                  <Stack.Screen name="exams/nonlife" options={{ ...baseHeader, title: '손해 시험 등록' }} />
                   <Stack.Screen name="exam-register" options={{ ...baseHeader, title: '생명 시험 등록' }} />
                   <Stack.Screen name="exam-register2" options={{ ...baseHeader, title: '손해 시험 등록' }} />
                   <Stack.Screen name="exam-manage" options={{ ...baseHeader, title: '생명/제3 신청자 관리' }} />

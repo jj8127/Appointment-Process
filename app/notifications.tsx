@@ -141,9 +141,19 @@ export default function NotificationsScreen() {
       return;
     }
 
-    // 서류 검토 완료 알림이면 위촉 페이지로 이동
+    // 위촉 완료 보고 알림이면 대시보드로 이동
     const lowerTitle = item.title?.toLowerCase?.() ?? '';
     const lowerBody = item.body?.toLowerCase?.() ?? '';
+    const isAppointmentReport =
+      (lowerTitle.includes('위촉') && lowerTitle.includes('보고')) ||
+      (lowerBody.includes('위촉') && lowerBody.includes('보고'));
+
+    if (item.source === 'notification' && isAppointmentReport) {
+      router.replace('/dashboard');
+      return;
+    }
+
+    // 서류 검토 완료 알림이면 위촉 페이지로 이동
     const isDocsApproved =
       lowerTitle.includes('서류') && lowerTitle.includes('완료') ||
       lowerBody.includes('서류') && lowerBody.includes('완료');
