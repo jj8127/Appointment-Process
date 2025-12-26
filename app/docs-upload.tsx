@@ -19,9 +19,9 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { RefreshButton } from '@/components/RefreshButton';
+import { useIdentityGate } from '@/hooks/use-identity-gate';
 import { useKeyboardPadding } from '@/hooks/use-keyboard-padding';
 import { useSession } from '@/hooks/use-session';
-import { useIdentityGate } from '@/hooks/use-identity-gate';
 import { supabase } from '@/lib/supabase';
 import { RequiredDoc } from '@/types/fc';
 
@@ -349,8 +349,9 @@ export default function DocsUploadScreen() {
       await sendNotificationAndPush(
         'admin',
         residentId ?? null,
-        `${nameLabel}이/가 ${type}을 제출했습니다.`,
+        `${nameLabel}님이 ${type}을 제출했습니다.`,
         `${nameLabel}님이 ${type}을 업로드했습니다.`,
+        '/dashboard',
       );
 
       const uploadedCount = updatedDocs.filter((d) => d.storagePath).length;
@@ -358,8 +359,9 @@ export default function DocsUploadScreen() {
         await sendNotificationAndPush(
           'admin',
           residentId ?? null,
-          `${nameLabel}이/가 모든 서류를 제출했습니다.`,
+          `${nameLabel}님이 모든 서류를 제출했습니다.`,
           `${nameLabel}님이 모든 필수 서류를 업로드했습니다.`,
+          '/dashboard',
         );
       }
 
@@ -536,7 +538,8 @@ export default function DocsUploadScreen() {
 
                       {!!doc.reviewerNote && (
                         <Text style={styles.cardNote} numberOfLines={2}>
-                          {doc.reviewerNote}
+                          <Text style={styles.cardNoteLabel}>반려 사유: </Text>
+                          <Text style={styles.cardNoteText}>{doc.reviewerNote}</Text>
                         </Text>
                       )}
                     </View>
@@ -774,6 +777,8 @@ const styles = StyleSheet.create({
     borderLeftWidth: 2,
     borderLeftColor: '#E5E7EB',
   },
+  cardNoteLabel: { color: '#B91C1C', fontWeight: '800' },
+  cardNoteText: { color: '#7F1D1D', fontWeight: '700' },
 
   chip: {
     flexDirection: 'row',
