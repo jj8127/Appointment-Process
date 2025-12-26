@@ -41,7 +41,7 @@ function getTargetUrl(role: 'admin' | 'fc', payload: Payload, message: string, f
     return '/notifications';
   }
 
-  if (msg.includes('수당동의')) return `/docs-upload?userId=${fcId}`;
+  if (msg.includes('수당동의')) return '/dashboard';
   if (msg.includes('업로드') || msg.includes('제출') || msg.includes('서류')) return `/docs-upload?userId=${fcId}`;
   return '/notifications';
 }

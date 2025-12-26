@@ -80,7 +80,7 @@ export default function AuthPage() {
                 if ((data?.code === 'needs_password_setup' || data?.code === 'not_found') && data?.role !== 'admin') {
                     notifications.show({
                         title: '안내',
-                        message: '비밀번호 설정은 회원가입에서 가능합니다.',
+                        message: '계정정보가 없습니다. 회원가입 페이지로 이동합니다..',
                         color: 'orange',
                     });
                     router.replace('/signup');

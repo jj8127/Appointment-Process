@@ -50,7 +50,7 @@ type Message = {
 
 export default function ChatScreen() {
   const router = useRouter();
-  const { role, residentId } = useSession();
+  const { role, residentId, displayName } = useSession();
   const { targetId, targetName } = useLocalSearchParams<{ targetId?: string; targetName?: string }>();
   const insets = useSafeAreaInsets();
 
@@ -65,7 +65,6 @@ export default function ChatScreen() {
   const isUploadCancelled = useRef(false);
   const flatListRef = useRef<FlatList>(null);
   const deletedIdsRef = useRef<Set<string>>(new Set());
-  const [keyboardHeight, setKeyboardHeight] = useState(0);
 
   const fetchMessages = useCallback(async () => {
     if (!myId || !otherId) return;
@@ -136,11 +135,8 @@ export default function ChatScreen() {
   }, [fetchMessages, myId, otherId]);
 
   useEffect(() => {
-    const showSub = Keyboard.addListener('keyboardDidShow', (e) => setKeyboardHeight(e.endCoordinates.height));
-    const hideSub = Keyboard.addListener('keyboardDidHide', () => setKeyboardHeight(0));
     return () => {
-      showSub.remove();
-      hideSub.remove();
+      Keyboard.dismiss();
     };
   }, []);
 
@@ -184,11 +180,13 @@ export default function ChatScreen() {
     const recipientRole = isReceiverAdmin ? 'admin' : 'fc';
     const residentIdForPush = isReceiverAdmin ? null : otherId;
     const notiBody = type === 'text' ? content : type === 'image' ? '사진을 보냈습니다.' : '파일을 보냈습니다.';
+    const senderName = role === 'admin' ? '총무팀' : displayName?.trim() || residentId || 'FC';
+    const notiTitle = `${senderName}: ${notiBody}`;
 
     supabase
       .from('notifications')
       .insert({
-        title: '새 메시지',
+        title: notiTitle,
         body: notiBody,
         category: 'message',
         recipient_role: recipientRole,
@@ -201,7 +199,7 @@ export default function ChatScreen() {
               type: 'message',
               target_role: recipientRole,
               target_id: residentIdForPush,
-              message: notiBody,
+              message: notiTitle,
               sender_id: myId,
             },
           });
@@ -443,7 +441,7 @@ export default function ChatScreen() {
       <KeyboardAvoidingView
         style={{ flex: 1 }}
         behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-        keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : 0}>
+        keyboardVerticalOffset={Platform.OS === 'ios' ? 65 : 0}>
         <FlatList
           ref={flatListRef}
           data={messages}
@@ -469,7 +467,7 @@ export default function ChatScreen() {
           style={[
             styles.inputWrapper,
             {
-              paddingBottom: keyboardHeight > 0 ? keyboardHeight + 65 : Math.max(insets.bottom, 12),
+              paddingBottom: Math.max(insets.bottom, 12),
             },
           ]}>
           <View style={styles.inputContainer}>
