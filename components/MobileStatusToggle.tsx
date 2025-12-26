@@ -19,6 +19,7 @@ interface MobileStatusToggleProps {
     readOnly?: boolean;
     showNeutralForPending?: boolean;
     allowPendingPress?: boolean;
+    neutralPending?: boolean;
 }
 
 export function MobileStatusToggle({
@@ -29,6 +30,7 @@ export function MobileStatusToggle({
     readOnly = false,
     showNeutralForPending = false,
     allowPendingPress = false,
+    neutralPending,
 }: MobileStatusToggleProps) {
     const anim = useRef(new Animated.Value(value === 'approved' ? 1 : 0)).current;
 
@@ -52,9 +54,10 @@ export function MobileStatusToggle({
         outputRange: [2, 70], // 0+2 padding, 140/2 + 2 padding = 72? No, width is 140. inner width 136. half 68. 2 -> 2+68=70.
     });
 
+    const isNeutral = value === 'pending' && (neutralPending ?? (showNeutralForPending && !allowPendingPress));
     const activePillOpacity = anim.interpolate({
         inputRange: [0, 1],
-        outputRange: [showNeutralForPending ? 0 : 1, 1],
+        outputRange: [isNeutral ? 0 : 1, 1],
     });
 
     const textColorPending = anim.interpolate({
@@ -83,16 +86,16 @@ export function MobileStatusToggle({
                 onPress={() => handlePress('pending')}
                 disabled={readOnly}
             >
-                <Animated.Text style={[styles.text, { color: textColorPending }]}>
-                    {labelPending}
-                </Animated.Text>
+            <Animated.Text style={[styles.text, { color: isNeutral ? GRAY_TEXT : textColorPending }]}>
+                {labelPending}
+            </Animated.Text>
             </Pressable>
             <Pressable
                 style={styles.segment}
                 onPress={() => handlePress('approved')}
                 disabled={readOnly}
             >
-                <Animated.Text style={[styles.text, { color: textColorApproved }]}>
+                <Animated.Text style={[styles.text, { color: isNeutral ? GRAY_TEXT : textColorApproved }]}>
                     {labelApproved}
                 </Animated.Text>
             </Pressable>

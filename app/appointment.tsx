@@ -2,25 +2,26 @@ import { Feather } from '@expo/vector-icons';
 import DateTimePicker, { DateTimePickerEvent } from '@react-native-community/datetimepicker';
 import { useCallback, useEffect, useState } from 'react';
 import {
-  ActivityIndicator,
-  Alert,
-  Dimensions,
-  FlatList,
-  Image,
-  Platform,
-  Pressable,
-  RefreshControl,
-  ScrollView,
-  StyleSheet,
-  Text,
-  View
+    ActivityIndicator,
+    Alert,
+    Dimensions,
+    FlatList,
+    Image,
+    Modal,
+    Platform,
+    Pressable,
+    RefreshControl,
+    ScrollView,
+    StyleSheet,
+    Text,
+    View
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { RefreshButton } from '@/components/RefreshButton';
+import { useIdentityGate } from '@/hooks/use-identity-gate';
 import { useKeyboardPadding } from '@/hooks/use-keyboard-padding';
 import { useSession } from '@/hooks/use-session';
-import { useIdentityGate } from '@/hooks/use-identity-gate';
 import { supabase } from '@/lib/supabase';
 
 const HANWHA_ORANGE = '#f36f21';
@@ -93,8 +94,10 @@ export default function AppointmentScreen() {
   const [savingLife, setSavingLife] = useState(false);
   const [savingNonLife, setSavingNonLife] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
-  const [showPickerLife, setShowPickerLife] = useState(Platform.OS === 'ios');
-  const [showPickerNonLife, setShowPickerNonLife] = useState(Platform.OS === 'ios');
+  const [showPickerLife, setShowPickerLife] = useState(false);
+  const [showPickerNonLife, setShowPickerNonLife] = useState(false);
+  const [tempLife, setTempLife] = useState<Date | null>(null);
+  const [tempNonLife, setTempNonLife] = useState<Date | null>(null);
   const [currentIndex, setCurrentIndex] = useState(0);
   const [imageRatio, setImageRatio] = useState(16 / 9);
 
@@ -186,13 +189,14 @@ export default function AppointmentScreen() {
       }
 
       supabase.functions
-        .invoke('fc-notify', {
-          body: {
-            type: 'fc_update',
-            fc_id: data.id,
-            message: `${data.name}님이 ${type === 'life' ? '생명보험' : '손해보험'} 위촉 완료를 보고했습니다. (입력일: ${ymd})`,
-          },
-        })
+          .invoke('fc-notify', {
+            body: {
+              type: 'fc_update',
+              fc_id: data.id,
+              message: `${data.name}님이 ${type === 'life' ? '생명보험' : '손해보험'} 위촉 완료를 보고했습니다. (입력일: ${ymd})`,
+              url: '/dashboard',
+            },
+          })
         .catch(() => { });
 
       Alert.alert(
@@ -298,20 +302,19 @@ export default function AppointmentScreen() {
                 }}
               />
             </View>
-          ) : Platform.OS === 'ios' ? (
-            <DateTimePicker
-              value={displayDate ?? new Date()}
-              mode="date"
-              display="default"
-              locale="ko-KR"
-              onChange={(e, d) => !isLocked && handleDateChange(type, e, d)}
-              style={{ alignSelf: 'flex-start', opacity: isLocked ? 0.6 : 1 }}
-              disabled={isLocked}
-            />
           ) : (
             <Pressable
               style={[styles.dateInput, isLocked && styles.disabledInput]}
-              onPress={() => !isLocked && setShowPicker(true)}
+              onPress={() => {
+                if (isLocked) return;
+                if (type === 'life') {
+                  setTempLife(displayDate ?? new Date());
+                  setShowPickerLife(true);
+                } else {
+                  setTempNonLife(displayDate ?? new Date());
+                  setShowPickerNonLife(true);
+                }
+              }}
             >
               <Text style={[styles.dateText, !displayDate && styles.placeholderText]}>
                 {displayDate ? formatKoreanDate(displayDate) : '날짜를 선택하세요'}
@@ -350,7 +353,7 @@ export default function AppointmentScreen() {
       >
         <View style={styles.header}>
           <View>
-            <Text style={styles.title}>모바일 위촉 진행</Text>
+            <Text style={styles.title}>위촉 진행</Text>
             <Text style={styles.subtitle}>총무가 배정한 월 기준으로 진행 상황을 입력해주세요.</Text>
           </View>
           <RefreshButton onPress={load} />
@@ -415,6 +418,84 @@ export default function AppointmentScreen() {
           </>
         )}
       </ScrollView>
+
+      {Platform.OS === 'ios' && showPickerLife && (
+        <Modal visible transparent animationType="fade">
+          <View style={styles.pickerOverlay}>
+            <View style={styles.pickerCard}>
+              <DateTimePicker
+                value={tempLife ?? displayLife ?? new Date()}
+                mode="date"
+                display="spinner"
+                locale="ko-KR"
+                onChange={(_, d) => {
+                  if (d) setTempLife(d);
+                }}
+              />
+              <View style={styles.pickerActions}>
+                <Pressable
+                  style={[styles.pickerBtn, styles.pickerBtnGhost]}
+                  onPress={() => {
+                    setShowPickerLife(false);
+                    setTempLife(null);
+                  }}
+                >
+                  <Text style={styles.pickerBtnGhostText}>취소</Text>
+                </Pressable>
+                <Pressable
+                  style={[styles.pickerBtn, styles.pickerBtnPrimary]}
+                  onPress={() => {
+                    if (tempLife) setDisplayLife(tempLife);
+                    setShowPickerLife(false);
+                    setTempLife(null);
+                  }}
+                >
+                  <Text style={styles.pickerBtnPrimaryText}>확인</Text>
+                </Pressable>
+              </View>
+            </View>
+          </View>
+        </Modal>
+      )}
+
+      {Platform.OS === 'ios' && showPickerNonLife && (
+        <Modal visible transparent animationType="fade">
+          <View style={styles.pickerOverlay}>
+            <View style={styles.pickerCard}>
+              <DateTimePicker
+                value={tempNonLife ?? displayNonLife ?? new Date()}
+                mode="date"
+                display="spinner"
+                locale="ko-KR"
+                onChange={(_, d) => {
+                  if (d) setTempNonLife(d);
+                }}
+              />
+              <View style={styles.pickerActions}>
+                <Pressable
+                  style={[styles.pickerBtn, styles.pickerBtnGhost]}
+                  onPress={() => {
+                    setShowPickerNonLife(false);
+                    setTempNonLife(null);
+                  }}
+                >
+                  <Text style={styles.pickerBtnGhostText}>취소</Text>
+                </Pressable>
+                <Pressable
+                  style={[styles.pickerBtn, styles.pickerBtnPrimary]}
+                  onPress={() => {
+                    if (tempNonLife) setDisplayNonLife(tempNonLife);
+                    setShowPickerNonLife(false);
+                    setTempNonLife(null);
+                  }}
+                >
+                  <Text style={styles.pickerBtnPrimaryText}>확인</Text>
+                </Pressable>
+              </View>
+            </View>
+          </View>
+        </Modal>
+      )}
     </SafeAreaView>
   );
 }
@@ -522,4 +603,42 @@ const styles = StyleSheet.create({
     backgroundColor: '#e5e7eb',
   },
   dotActive: { backgroundColor: HANWHA_ORANGE, width: 20 },
+  pickerOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.35)',
+    justifyContent: 'flex-end',
+  },
+  pickerCard: {
+    backgroundColor: '#fff',
+    paddingTop: 12,
+    paddingBottom: 20,
+    paddingHorizontal: 16,
+    borderTopLeftRadius: 16,
+    borderTopRightRadius: 16,
+  },
+  pickerActions: {
+    flexDirection: 'row',
+    justifyContent: 'flex-end',
+    gap: 12,
+    marginTop: 8,
+  },
+  pickerBtn: {
+    paddingVertical: 10,
+    paddingHorizontal: 16,
+    borderRadius: 10,
+  },
+  pickerBtnGhost: {
+    backgroundColor: '#F3F4F6',
+  },
+  pickerBtnPrimary: {
+    backgroundColor: CHARCOAL,
+  },
+  pickerBtnGhostText: {
+    color: CHARCOAL,
+    fontWeight: '700',
+  },
+  pickerBtnPrimaryText: {
+    color: '#fff',
+    fontWeight: '700',
+  },
 });

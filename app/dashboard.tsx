@@ -126,11 +126,12 @@ const calcStep = (profile: FcRow) => {
     return 2; // 수당동의 단계
   }
 
-  // [2단계 우선] 서류 승인 여부
+  // [2단계 우선] 서류 승인 여부 (요청된 모든 서류 제출 + 승인 필요)
   const docs = profile.fc_documents ?? [];
-  const validDocs = docs.filter((d) => d.storage_path && d.storage_path !== 'deleted');
-  const hasPendingDocs = validDocs.length === 0 || validDocs.some((d: any) => d.status !== 'approved');
-  if (hasPendingDocs) {
+  const allSubmitted =
+    docs.length > 0 && docs.every((d: any) => d.storage_path && d.storage_path !== 'deleted');
+  const allApproved = allSubmitted && docs.every((d: any) => d.status === 'approved');
+  if (!allApproved) {
     return 3; // 서류 단계
   }
 
@@ -188,6 +189,8 @@ type FcRow = {
   appointment_date_nonlife: string | null;
   appointment_date_life_sub?: string | null;
   appointment_date_nonlife_sub?: string | null;
+  appointment_reject_reason_life?: string | null;
+  appointment_reject_reason_nonlife?: string | null;
   fc_documents?: { doc_type: string; storage_path: string | null; file_name: string | null; status: string | null }[];
 };
 type FcRowWithStep = FcRow & { stepKey: StepKey };
@@ -238,7 +241,7 @@ const fetchFcs = async (
   let query = supabase
     .from('fc_profiles')
     .select(
-      'id,name,affiliation,phone,temp_id,status,allowance_date,appointment_url,appointment_date,appointment_schedule_life,appointment_schedule_nonlife,appointment_date_life,appointment_date_nonlife,appointment_date_life_sub,appointment_date_nonlife_sub,resident_id_masked,career_type,email,address,address_detail,fc_documents(doc_type,storage_path,file_name,status)',
+      'id,name,affiliation,phone,temp_id,status,allowance_date,appointment_url,appointment_date,appointment_schedule_life,appointment_schedule_nonlife,appointment_date_life,appointment_date_nonlife,appointment_date_life_sub,appointment_date_nonlife_sub,appointment_reject_reason_life,appointment_reject_reason_nonlife,resident_id_masked,career_type,email,address,address_detail,fc_documents(doc_type,storage_path,file_name,status)',
     )
     .order('created_at', { ascending: false });
 
@@ -279,6 +282,23 @@ export default function DashboardScreen() {
   const [deleteTargetName, setDeleteTargetName] = useState<string | null>(null);
   const [deleteTargetPhone, setDeleteTargetPhone] = useState<string | null>(null);
   const [deleteCode, setDeleteCode] = useState('');
+  const [rejectModalVisible, setRejectModalVisible] = useState(false);
+  const [rejectReason, setRejectReason] = useState('');
+  const [rejectTarget, setRejectTarget] = useState<FcRow | null>(null);
+  const [docRejectModalVisible, setDocRejectModalVisible] = useState(false);
+  const [docRejectReason, setDocRejectReason] = useState('');
+  const [docRejectTarget, setDocRejectTarget] = useState<{
+    fcId: string;
+    docType: string;
+    phone: string;
+  } | null>(null);
+  const [appointmentRejectModalVisible, setAppointmentRejectModalVisible] = useState(false);
+  const [appointmentRejectReason, setAppointmentRejectReason] = useState('');
+  const [appointmentRejectTarget, setAppointmentRejectTarget] = useState<{
+    id: string;
+    type: 'life' | 'nonlife';
+    phone: string;
+  } | null>(null);
   const keyboardPadding = useKeyboardPadding();
   const filterOptions = useMemo(() => createFilterOptions(role), [role]);
 
@@ -551,12 +571,16 @@ export default function DashboardScreen() {
 
       // 3. Delete DB records
       await supabase.from('fc_documents').delete().eq('fc_id', id);
-      if (phone) {
-        await supabase.from('messages').delete().or(`sender_id.eq.${phone},receiver_id.eq.${phone}`);
-        await supabase.from('exam_registrations').delete().eq('resident_id', phone);
-        await supabase.from('notifications').delete().or(`resident_id.eq.${phone},fc_id.eq.${id}`);
-        await supabase.from('device_tokens').delete().eq('resident_id', phone);
-      }
+        if (phone) {
+          const maskedPhone = phone.replace(/[^0-9]/g, '').replace(/^(\d{3})(\d{3,4})(\d{4})$/, '$1-$2-$3');
+          await supabase.from('messages').delete().or(`sender_id.eq.${phone},receiver_id.eq.${phone}`);
+          await supabase
+            .from('exam_registrations')
+            .delete()
+            .or(`resident_id.eq.${phone},resident_id.eq.${maskedPhone}`);
+          await supabase.from('notifications').delete().or(`resident_id.eq.${phone},fc_id.eq.${id}`);
+          await supabase.from('device_tokens').delete().eq('resident_id', phone);
+        }
       await supabase.from('fc_identity_secure').delete().eq('fc_id', id);
       const { error } = await supabase.from('fc_profiles').delete().eq('id', id);
       if (error) throw error;
@@ -569,8 +593,19 @@ export default function DashboardScreen() {
   });
 
   const updateStatus = useMutation({
-    mutationFn: async ({ id, nextStatus }: { id: string; nextStatus: FcProfile['status'] }) => {
-      const { error } = await supabase.from('fc_profiles').update({ status: nextStatus }).eq('id', id);
+    mutationFn: async ({
+      id,
+      nextStatus,
+      extra,
+    }: {
+      id: string;
+      nextStatus: FcProfile['status'];
+      extra?: Record<string, any>;
+    }) => {
+      const { error } = await supabase
+        .from('fc_profiles')
+        .update({ status: nextStatus, ...(extra ?? {}) })
+        .eq('id', id);
       if (error) throw error;
     },
     onSuccess: () => {
@@ -587,17 +622,26 @@ export default function DashboardScreen() {
       date,
       isReject = false,
       phone,
+      rejectReason,
     }: {
       id: string;
       type: 'life' | 'nonlife';
       date: string | null;
       isReject?: boolean;
       phone: string;
+      rejectReason?: string | null;
     }) => {
       const field = type === 'life' ? 'appointment_date_life' : 'appointment_date_nonlife';
+      const submittedField = type === 'life' ? 'appointment_date_life_sub' : 'appointment_date_nonlife_sub';
+      const rejectField = type === 'life' ? 'appointment_reject_reason_life' : 'appointment_reject_reason_nonlife';
+      const payload: Record<string, any> = {
+        [field]: date,
+        [rejectField]: isReject ? rejectReason ?? null : null,
+      };
+      if (isReject) payload[submittedField] = null;
       const { data, error } = await supabase
         .from('fc_profiles')
-        .update({ [field]: date })
+        .update(payload)
         .eq('id', id)
         .select('appointment_date_life, appointment_date_nonlife')
         .single();
@@ -610,7 +654,13 @@ export default function DashboardScreen() {
 
       if (isReject) {
         const title = type === 'life' ? '생명보험 위촉 반려' : '손해보험 위촉 반려';
-        await sendNotificationAndPush('fc', phone, title, '입력하신 위촉 완료일이 반려되었습니다. 위촉을 다시 진행해주세요.');
+        const body = rejectReason
+          ? `위촉 완료일이 반려되었습니다.\n사유: ${rejectReason}`
+          : '위촉 완료일이 반려되었습니다. 위촉을 다시 진행해주세요.';
+        await sendNotificationAndPush('fc', phone, title, body, '/appointment');
+      } else if (date) {
+        const title = type === 'life' ? '생명 위촉이 승인되었습니다.' : '손해 위촉이 승인되었습니다.';
+        await sendNotificationAndPush('fc', phone, title, title, '/');
       }
     },
     onSuccess: (_, vars) => {
@@ -626,10 +676,12 @@ export default function DashboardScreen() {
       id,
       life,
       nonlife,
+      phone,
     }: {
       id: string;
       life?: string | null;
       nonlife?: string | null;
+      phone?: string | null;
     }) => {
       console.log('[appointment-schedule] mutate', { id, life, nonlife });
       const payload: any = {};
@@ -638,9 +690,18 @@ export default function DashboardScreen() {
       const { error } = await supabase.from('fc_profiles').update(payload).eq('id', id);
       if (error) throw error;
     },
-    onSuccess: (_, vars) => {
+    onSuccess: async (_, vars) => {
       console.log('[appointment-schedule] success', vars);
       Alert.alert('저장 완료', '위촉 예정월이 저장되었습니다.');
+      if (vars.phone) {
+        await sendNotificationAndPush(
+          'fc',
+          vars.phone,
+          '위촉 차수 안내',
+          '총무가 위촉 차수를 입력했습니다. 위촉을 진행해주세요.',
+          '/appointment',
+        );
+      }
       // 최신 데이터 반영
       refetch();
     },
@@ -656,44 +717,73 @@ export default function DashboardScreen() {
       docType,
       status,
       phone,
+      reviewerNote,
     }: {
       fcId: string;
       docType: string;
       status: 'approved' | 'rejected' | 'pending';
       phone: string;
+      reviewerNote?: string | null;
     }) => {
       // Update individual doc status
       const { error } = await supabase
         .from('fc_documents')
-        .update({ status })
+        .update({ status, reviewer_note: reviewerNote ?? null })
         .eq('fc_id', fcId)
         .eq('doc_type', docType);
       if (error) throw error;
 
-      // Check for auto-advance if approved
-      if (status === 'approved') {
-        const { data: allDocs } = await supabase
-          .from('fc_documents')
-          .select('status, storage_path')
-          .eq('fc_id', fcId);
+        // Check for auto-advance if approved (all required docs must be submitted and approved)
+        if (status === 'approved') {
+          const { data: allDocs } = await supabase
+            .from('fc_documents')
+            .select('status, storage_path')
+            .eq('fc_id', fcId);
 
-        const validDocs = (allDocs ?? []).filter((d) => d.storage_path && d.storage_path !== 'deleted');
-        // If all valid docs are approved, advance status
-        if (validDocs.length > 0 && validDocs.every((d) => d.status === 'approved')) {
-          await supabase.from('fc_profiles').update({ status: 'docs-approved' }).eq('id', fcId);
-          await sendNotificationAndPush(
-            'fc',
-            phone,
+          const requiredDocs = (allDocs ?? []).filter((d) => d.storage_path !== 'deleted');
+          const allSubmitted = requiredDocs.length > 0 && requiredDocs.every((d) => d.storage_path);
+          const allApproved = requiredDocs.length > 0 && requiredDocs.every((d) => d.status === 'approved');
+          // All required docs must be submitted and approved
+          if (allSubmitted && allApproved) {
+            await supabase.from('fc_profiles').update({ status: 'docs-approved' }).eq('id', fcId);
+            await sendNotificationAndPush(
+              'fc',
+              phone,
             '서류 검토 완료',
             '모든 서류가 승인되었습니다. 위촉 계약 단계로 진행해주세요.',
           );
         }
       }
     },
-    onSuccess: () => {
+    onSuccess: async (_, vars) => {
+      const { status, docType, phone, reviewerNote } = vars;
+      if (status === 'approved') {
+        Alert.alert('승인 완료', `${docType} 서류가 승인되었습니다.`);
+        await sendNotificationAndPush(
+          'fc',
+          phone,
+          '서류 승인',
+          `${docType} 서류가 승인되었습니다.`,
+          '/docs-upload',
+        );
+      } else if (status === 'rejected') {
+        Alert.alert('미승인 처리', `${docType} 서류를 미승인으로 변경했습니다.`);
+        await sendNotificationAndPush(
+          'fc',
+          phone,
+          '서류 반려',
+          reviewerNote
+            ? `${docType} 서류가 미승인 처리되었습니다.\n사유: ${reviewerNote}`
+            : `${docType} 서류가 미승인 처리되었습니다. 내용을 확인해주세요.`,
+          '/docs-upload',
+        );
+      } else {
+        Alert.alert('승인 해제', `${docType} 서류의 승인이 해제되었습니다.`);
+      }
       refetch();
     },
-    onError: (err: any) => Alert.alert('오류', '문서 상태 업데이트 실패'),
+    onError: (err: any) =>
+      Alert.alert('오류', err?.message ?? '문서 상태 업데이트 실패'),
   });
 
   const deleteDocFile = async ({
@@ -870,15 +960,106 @@ export default function DashboardScreen() {
     }
   };
 
-  const confirmStatusChange = (fc: FcRow, nextStatus: FcProfile['status'], message: string) => {
+  const confirmStatusChange = (
+    fc: FcRow,
+    nextStatus: FcProfile['status'],
+    message: string,
+    extra?: Record<string, any>,
+  ) => {
     Alert.alert('상태 변경', message, [
       { text: '취소', style: 'cancel' },
       {
         text: '변경',
         style: 'default',
-        onPress: () => updateStatus.mutate({ id: fc.id, nextStatus }),
+        onPress: () => updateStatus.mutate({ id: fc.id, nextStatus, extra }),
       },
     ]);
+  };
+
+  const openDocRejectModal = (target: { fcId: string; docType: string; phone: string }) => {
+    setDocRejectTarget(target);
+    setDocRejectReason('');
+    setDocRejectModalVisible(true);
+  };
+
+  const openAppointmentRejectModal = (target: { id: string; type: 'life' | 'nonlife'; phone: string }) => {
+    setAppointmentRejectTarget(target);
+    setAppointmentRejectReason('');
+    setAppointmentRejectModalVisible(true);
+  };
+  const openRejectModal = (fc: FcRow) => {
+    setRejectTarget(fc);
+    setRejectReason('');
+    setRejectModalVisible(true);
+  };
+
+  const confirmRejectWithReason = async () => {
+    const reason = rejectReason.trim();
+    if (!rejectTarget) return;
+    if (!reason) {
+      Alert.alert('입력 필요', '반려 사유를 입력해주세요.');
+      return;
+    }
+    try {
+      await updateStatus.mutateAsync({
+        id: rejectTarget.id,
+        nextStatus: 'allowance-pending',
+        extra: { allowance_date: null, allowance_reject_reason: reason },
+      });
+      await sendNotificationAndPush(
+        'fc',
+        rejectTarget.phone,
+        '수당 동의 반려',
+        `수당 동의가 반려되었습니다.\n사유: ${reason}`,
+        '/consent',
+      );
+      setRejectModalVisible(false);
+    } catch (err: any) {
+      Alert.alert('처리 실패', err?.message ?? '반려 처리 중 문제가 발생했습니다.');
+    }
+  };
+
+  const confirmDocRejectWithReason = async () => {
+    const reason = docRejectReason.trim();
+    if (!docRejectTarget) return;
+    if (!reason) {
+      Alert.alert('입력 필요', '반려 사유를 입력해주세요.');
+      return;
+    }
+    try {
+      await updateDocStatus.mutateAsync({
+        fcId: docRejectTarget.fcId,
+        docType: docRejectTarget.docType,
+        status: 'rejected',
+        phone: docRejectTarget.phone,
+        reviewerNote: reason,
+      });
+      setDocRejectModalVisible(false);
+    } catch (err: any) {
+      Alert.alert('처리 실패', err?.message ?? '반려 처리 중 문제가 발생했습니다.');
+    }
+  };
+
+  const confirmAppointmentRejectWithReason = async () => {
+    const reason = appointmentRejectReason.trim();
+    if (!appointmentRejectTarget) return;
+    if (!reason) {
+      Alert.alert('입력 필요', '반려 사유를 입력해주세요.');
+      return;
+    }
+    try {
+      await updateAppointmentDate.mutateAsync({
+        id: appointmentRejectTarget.id,
+        type: appointmentRejectTarget.type,
+        date: null,
+        isReject: true,
+        phone: appointmentRejectTarget.phone,
+        rejectReason: reason,
+      });
+      setAppointmentRejectModalVisible(false);
+    } catch (err: any) {
+      Alert.alert('처리 실패', err?.message ?? '반려 처리 중 문제가 발생했습니다.');
+    }
   };
   const renderAdminActions = (fc: FcRow) => {
     if (role !== 'admin') return null;
@@ -974,6 +1155,17 @@ export default function DashboardScreen() {
                   </Text>
                 </Pressable>
               </View>
+
+              <View style={styles.allowanceInfoRow}>
+                <View style={[styles.allowanceBadge, fc.allowance_date ? styles.allowanceBadgeDone : styles.allowanceBadgePending]}>
+                  <Text style={[styles.allowanceBadgeText, fc.allowance_date ? styles.allowanceBadgeTextDone : styles.allowanceBadgeTextPending]}>
+                    {fc.allowance_date ? '입력됨' : '미입력'}
+                  </Text>
+                </View>
+                <Text style={styles.allowanceDateText}>
+                  {fc.allowance_date ? `수당 동의일: ${fc.allowance_date}` : '수당 동의일 입력 대기'}
+                </Text>
+              </View>
             </View>
 
             <View style={{ height: 1, backgroundColor: '#F3F4F6', marginBottom: 16 }} />
@@ -981,24 +1173,38 @@ export default function DashboardScreen() {
             {/* Allowance Consent Section */}
             <View style={styles.cardHeaderRow}>
               <Text style={{ fontSize: 13, fontWeight: '600', color: CHARCOAL }}>수당동의 여부</Text>
-              <MobileStatusToggle
-                value={
-                  fc.status === 'allowance-consented' ||
-                    ['docs-requested', 'docs-pending', 'docs-submitted', 'docs-approved', 'appointment-completed', 'final-link-sent'].includes(fc.status)
-                    ? 'approved'
-                    : 'pending'
-                }
-                onChange={(val) => {
+                <MobileStatusToggle
+                  value={
+                    fc.status === 'allowance-consented' ||
+                    ['docs-requested', 'docs-pending', 'docs-submitted', 'docs-rejected', 'docs-approved', 'appointment-completed', 'final-link-sent'].includes(fc.status)
+                      ? 'approved'
+                      : 'pending'
+                  }
+                  neutralPending={!fc.allowance_date || fc.status === 'allowance-pending'}
+                  onChange={async (val) => {
                   if (val === 'approved') {
-                    confirmStatusChange(fc, 'allowance-consented', '수당 동의 검토를 완료 처리할까요?');
+                    try {
+                      await updateStatus.mutateAsync({
+                        id: fc.id,
+                        nextStatus: 'allowance-consented',
+                        extra: { allowance_reject_reason: null },
+                      });
+                      await sendNotificationAndPush(
+                        'fc',
+                        fc.phone,
+                        '수당동의 승인',
+                        '수당 동의가 승인되었습니다. 서류 제출 단계로 진행해주세요.',
+                        '/docs-upload',
+                      );
+                    } catch (err: any) {
+                      Alert.alert('처리 실패', err?.message ?? '상태 업데이트 중 문제가 발생했습니다.');
+                    }
                     return;
                   }
-                  if (fc.status !== 'allowance-pending') {
-                    openRejectModal({ kind: 'allowance', fc });
-                  }
+                  openRejectModal(fc);
                 }}
                 labelPending="미승인"
-                labelApproved="승인"
+                labelApproved="승인 완료"
                 showNeutralForPending
                 allowPendingPress
                 readOnly={false}
@@ -1109,26 +1315,47 @@ export default function DashboardScreen() {
                         </Pressable>
                       )}
                     </View>
-                    <View style={styles.submittedActions}>
-                      <MobileStatusToggle
-                        value={doc.status === 'approved' ? 'approved' : 'pending'}
-                        onChange={(val) => {
-                          if (doc.status === 'approved' && val !== 'approved') {
-                            Alert.alert('승인 해제', '이미 승인된 서류입니다. 미승인으로 변경할까요?', [
-                              { text: '취소', style: 'cancel' },
-                              {
-                                text: '변경',
-                                style: 'destructive',
-                                onPress: () =>
-                                  updateDocStatus.mutate({ fcId: fc.id, docType, status: val, phone: fc.phone }),
-                              },
-                            ]);
-                            return;
-                          }
-                          updateDocStatus.mutate({ fcId: fc.id, docType, status: val, phone: fc.phone });
-                        }}
-                        labelPending="미승인"
-                        labelApproved="승인"
+                      <View style={styles.submittedActions}>
+                        <MobileStatusToggle
+                          value={doc.status === 'approved' ? 'approved' : 'pending'}
+                          neutralPending={doc.status === 'pending'}
+                          onChange={(val) => {
+                            if (doc.status === 'approved' && val !== 'approved') {
+                              Alert.alert('승인 해제', '이미 승인된 서류입니다. 미승인으로 변경할까요?', [
+                                { text: '취소', style: 'cancel' },
+                                  {
+                                    text: '변경',
+                                    style: 'destructive',
+                                    onPress: () =>
+                                      openDocRejectModal({ fcId: fc.id, docType, phone: fc.phone }),
+                                  },
+                                ]);
+                              return;
+                            }
+                            if (val === 'approved') {
+                              updateDocStatus.mutate({
+                                fcId: fc.id,
+                                docType,
+                                status: 'approved',
+                                phone: fc.phone,
+                                reviewerNote: null,
+                              });
+                              return;
+                            }
+                            if (doc.status === 'pending') {
+                              openDocRejectModal({ fcId: fc.id, docType, phone: fc.phone });
+                              return;
+                            }
+                            updateDocStatus.mutate({
+                              fcId: fc.id,
+                              docType,
+                              status: 'pending',
+                              phone: fc.phone,
+                              reviewerNote: null,
+                            });
+                          }}
+                          labelPending="미승인"
+                          labelApproved="승인"
                         showNeutralForPending
                         allowPendingPress
                         readOnly={false}
@@ -1171,10 +1398,11 @@ export default function DashboardScreen() {
             <View style={styles.scheduleEditRow}>
               {/* ... Keep existing schedule input logic ... */}
               <View style={styles.scheduleInputGroup}>
-                <Text style={styles.scheduleInputLabel}>생명 예정월</Text>
+                <Text style={styles.scheduleInputLabel}>생명 위촉 차수</Text>
                 <TextInput
                   style={styles.scheduleInput}
                   placeholder="예:12월 1차 / 1월 3차"
+                  placeholderTextColor="#9CA3AF"
                   value={scheduleInput.life ?? ''}
                   onChangeText={(t) =>
                     setScheduleInputs((prev) => ({
@@ -1185,10 +1413,11 @@ export default function DashboardScreen() {
                 />
               </View>
               <View style={styles.scheduleInputGroup}>
-                <Text style={styles.scheduleInputLabel}>손해 예정월</Text>
+                <Text style={styles.scheduleInputLabel}>손해 위촉 차수</Text>
                 <TextInput
                   style={styles.scheduleInput}
                   placeholder="예: 12월 1차 / 1월 3차"
+                  placeholderTextColor="#9CA3AF"
                   value={scheduleInput.nonlife ?? ''}
                   onChangeText={(t) =>
                     setScheduleInputs((prev) => ({
@@ -1217,6 +1446,7 @@ export default function DashboardScreen() {
                     id: fc.id,
                     life: lifeVal || null,
                     nonlife: nonlifeVal || null,
+                    phone: fc.phone,
                   });
                 }}
               >
@@ -1240,63 +1470,35 @@ export default function DashboardScreen() {
                         : '-'}
                 </Text>
               </View>
-              <MobileStatusToggle
-                value={lifeApproved ? 'approved' : 'pending'}
-                onChange={(val) => {
-                  const fallbackDate = () => fc.appointment_date_life || new Date().toISOString().split('T')[0];
+                <MobileStatusToggle
+                  value={lifeApproved ? 'approved' : 'pending'}
+                  neutralPending={!fc.appointment_date_life_sub && !fc.appointment_reject_reason_life}
+                  showNeutralForPending
+                  allowPendingPress
+                  onChange={(val) => {
+                    const fallbackDate = () => fc.appointment_date_life || new Date().toISOString().split('T')[0];
 
-                  if (val === 'approved') {
-                    if (!lifeVal) {
-                      Alert.alert('확인', '위촉 예정월(생명)이 입력되지 않았습니다.\n예정월을 먼저 저장해주세요.');
-                      return;
-                    }
-                    if (Platform.OS === 'ios') {
-                      Alert.prompt(
-                        '위촉 확정일 입력',
-                        'YYYY-MM-DD 형식으로 입력해주세요',
-                        [
-                          { text: '취소', style: 'cancel' },
-                          {
-                            text: '확인',
-                            onPress: (date?: string) => {
-                              if (date) updateAppointmentDate.mutate({ id: fc.id, type: 'life', date, phone: fc.phone });
-                            },
-                          },
-                        ],
-                        'plain-text',
-                        fallbackDate(),
-                      );
+                    if (val === 'approved') {
+                      if (!fc.appointment_date_life_sub) {
+                        Alert.alert('확인', 'FC가 위촉 완료일(생명)을 제출하지 않았습니다.');
+                        return;
+                      }
+                      if (!lifeVal) {
+                        Alert.alert('확인', '위촉 예정월(생명)이 입력되지 않았습니다.\n예정월을 먼저 저장해주세요.');
+                        return;
+                      }
+                      updateAppointmentDate.mutate({
+                        id: fc.id,
+                        type: 'life',
+                        date: fallbackDate(),
+                        phone: fc.phone,
+                      });
                     } else {
-                      const date = fallbackDate();
-                      Alert.alert('위촉 확정', `${date}로 저장할까요?`, [
-                        { text: '취소', style: 'cancel' },
-                        {
-                          text: '저장',
-                          onPress: () => updateAppointmentDate.mutate({ id: fc.id, type: 'life', date, phone: fc.phone }),
-                        },
-                      ]);
+                      openAppointmentRejectModal({ id: fc.id, type: 'life', phone: fc.phone });
                     }
-                  } else {
-                    // Reject: 승인 해제 시 항상 날짜를 초기화
-                    Alert.alert('반려 확인', '위촉 확정을 취소(반려)하고 날짜를 초기화할까요?', [
-                      { text: '취소', style: 'cancel' },
-                      {
-                        text: '반려',
-                        style: 'destructive',
-                        onPress: () =>
-                          updateAppointmentDate.mutate({
-                            id: fc.id,
-                            type: 'life',
-                            date: null,
-                            isReject: true,
-                            phone: fc.phone,
-                          }),
-                      },
-                    ]);
-                  }
-                }}
-                labelPending="미승인"
-                labelApproved="승인"
+                  }}
+                  labelPending="미승인"
+                  labelApproved="승인"
                 showNeutralForPending
                 allowPendingPress
                 readOnly={false}
@@ -1319,63 +1521,35 @@ export default function DashboardScreen() {
                         : '-'}
                 </Text>
               </View>
-              <MobileStatusToggle
-                value={nonlifeApproved ? 'approved' : 'pending'}
-                onChange={(val) => {
-                  const fallbackDate = () => fc.appointment_date_nonlife || new Date().toISOString().split('T')[0];
+                <MobileStatusToggle
+                  value={nonlifeApproved ? 'approved' : 'pending'}
+                  neutralPending={!fc.appointment_date_nonlife_sub && !fc.appointment_reject_reason_nonlife}
+                  showNeutralForPending
+                  allowPendingPress
+                  onChange={(val) => {
+                    const fallbackDate = () => fc.appointment_date_nonlife || new Date().toISOString().split('T')[0];
 
-                  if (val === 'approved') {
-                    if (!nonlifeVal) {
-                      Alert.alert('확인', '위촉 예정월(손해)이 입력되지 않았습니다.\n예정월을 먼저 저장해주세요.');
-                      return;
-                    }
-                    if (Platform.OS === 'ios') {
-                      Alert.prompt(
-                        '위촉 확정일 입력',
-                        'YYYY-MM-DD 형식으로 입력해주세요',
-                        [
-                          { text: '취소', style: 'cancel' },
-                          {
-                            text: '확인',
-                            onPress: (date?: string) => {
-                              if (date) updateAppointmentDate.mutate({ id: fc.id, type: 'nonlife', date, phone: fc.phone });
-                            },
-                          },
-                        ],
-                        'plain-text',
-                        fallbackDate(),
-                      );
+                    if (val === 'approved') {
+                      if (!fc.appointment_date_nonlife_sub) {
+                        Alert.alert('확인', 'FC가 위촉 완료일(손해)을 제출하지 않았습니다.');
+                        return;
+                      }
+                      if (!nonlifeVal) {
+                        Alert.alert('확인', '위촉 예정월(손해)이 입력되지 않았습니다.\n예정월을 먼저 저장해주세요.');
+                        return;
+                      }
+                      updateAppointmentDate.mutate({
+                        id: fc.id,
+                        type: 'nonlife',
+                        date: fallbackDate(),
+                        phone: fc.phone,
+                      });
                     } else {
-                      const date = fallbackDate();
-                      Alert.alert('위촉 확정', `${date}로 저장할까요?`, [
-                        { text: '취소', style: 'cancel' },
-                        {
-                          text: '저장',
-                          onPress: () => updateAppointmentDate.mutate({ id: fc.id, type: 'nonlife', date, phone: fc.phone }),
-                        },
-                      ]);
+                      openAppointmentRejectModal({ id: fc.id, type: 'nonlife', phone: fc.phone });
                     }
-                  } else {
-                    // Reject: 승인 해제 시 항상 날짜를 초기화
-                    Alert.alert('반려 확인', '위촉 확정을 취소(반려)하고 날짜를 초기화할까요?', [
-                      { text: '취소', style: 'cancel' },
-                      {
-                        text: '반려',
-                        style: 'destructive',
-                        onPress: () =>
-                          updateAppointmentDate.mutate({
-                            id: fc.id,
-                            type: 'nonlife',
-                            date: null,
-                            isReject: true,
-                            phone: fc.phone,
-                          }),
-                      },
-                    ]);
-                  }
-                }}
-                labelPending="미승인"
-                labelApproved="승인"
+                  }}
+                  labelPending="미승인"
+                  labelApproved="승인"
                 showNeutralForPending
                 allowPendingPress
                 readOnly={false}
@@ -1564,10 +1738,148 @@ export default function DashboardScreen() {
         contentContainerStyle={{ paddingBottom: (deleteModalVisible ? 0 : keyboardPadding) + 40 }}
       >
         <Modal
-          visible={deleteModalVisible}
+          visible={rejectModalVisible}
           transparent
           animationType="fade"
-          onRequestClose={() => setDeleteModalVisible(false)}
+          onRequestClose={() => setRejectModalVisible(false)}
+        >
+          <KeyboardAvoidingView
+            behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+            style={{ flex: 1 }}
+          >
+            <Pressable style={styles.modalOverlay} onPress={() => setRejectModalVisible(false)}>
+              <Pressable style={styles.modalContent} onPress={(e) => e.stopPropagation()}>
+                <Text style={styles.modalTitle}>수당 동의 반려</Text>
+                <Text style={styles.modalText}>
+                  {rejectTarget?.name || 'FC'} 님에게 전달할 반려 사유를 입력해주세요.
+                </Text>
+
+                <Text style={styles.modalLabel}>반려 사유</Text>
+                <TextInput
+                  style={[styles.modalInput, styles.rejectReasonInput]}
+                  value={rejectReason}
+                  onChangeText={setRejectReason}
+                  placeholder="예: 서명 누락, 내용 확인 필요"
+                  placeholderTextColor="#9CA3AF"
+                  multiline
+                />
+
+                <View style={styles.modalButtons}>
+                  <Pressable
+                    style={[styles.modalBtn, styles.modalBtnCancel]}
+                    onPress={() => setRejectModalVisible(false)}
+                  >
+                    <Text style={styles.modalBtnTextCancel}>취소</Text>
+                  </Pressable>
+                  <Pressable
+                    style={[styles.modalBtn, styles.modalBtnDelete]}
+                    onPress={confirmRejectWithReason}
+                  >
+                    <Text style={styles.modalBtnTextDelete}>반려</Text>
+                  </Pressable>
+                </View>
+              </Pressable>
+            </Pressable>
+          </KeyboardAvoidingView>
+          </Modal>
+
+          <Modal
+            visible={docRejectModalVisible}
+            transparent
+            animationType="fade"
+            onRequestClose={() => setDocRejectModalVisible(false)}
+          >
+            <KeyboardAvoidingView
+              behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+              style={{ flex: 1 }}
+            >
+              <Pressable style={styles.modalOverlay} onPress={() => setDocRejectModalVisible(false)}>
+                <Pressable style={styles.modalContent} onPress={(e) => e.stopPropagation()}>
+                  <Text style={styles.modalTitle}>서류 미승인 처리</Text>
+                  <Text style={styles.modalText}>
+                    {docRejectTarget?.docType ?? '서류'}에 대한 반려 사유를 입력해주세요.
+                  </Text>
+
+                  <Text style={styles.modalLabel}>반려 사유</Text>
+                  <TextInput
+                    style={[styles.modalInput, styles.rejectReasonInput]}
+                    value={docRejectReason}
+                    onChangeText={setDocRejectReason}
+                    placeholder="예: 서명 누락, 내용 확인 필요"
+                    placeholderTextColor="#9CA3AF"
+                    multiline
+                  />
+
+                  <View style={styles.modalButtons}>
+                    <Pressable
+                      style={[styles.modalBtn, styles.modalBtnCancel]}
+                      onPress={() => setDocRejectModalVisible(false)}
+                    >
+                      <Text style={styles.modalBtnTextCancel}>취소</Text>
+                    </Pressable>
+                    <Pressable
+                      style={[styles.modalBtn, styles.modalBtnDelete]}
+                      onPress={confirmDocRejectWithReason}
+                    >
+                      <Text style={styles.modalBtnTextDelete}>미승인</Text>
+                    </Pressable>
+                  </View>
+                </Pressable>
+              </Pressable>
+            </KeyboardAvoidingView>
+          </Modal>
+
+          <Modal
+            visible={appointmentRejectModalVisible}
+            transparent
+            animationType="fade"
+            onRequestClose={() => setAppointmentRejectModalVisible(false)}
+          >
+            <KeyboardAvoidingView
+              behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+              style={{ flex: 1 }}
+            >
+              <Pressable style={styles.modalOverlay} onPress={() => setAppointmentRejectModalVisible(false)}>
+                <Pressable style={styles.modalContent} onPress={(e) => e.stopPropagation()}>
+                  <Text style={styles.modalTitle}>위촉 미승인 처리</Text>
+                  <Text style={styles.modalText}>
+                    {appointmentRejectTarget?.type === 'life' ? '생명보험' : '손해보험'} 위촉 반려 사유를 입력해주세요.
+                  </Text>
+
+                  <Text style={styles.modalLabel}>반려 사유</Text>
+                  <TextInput
+                    style={[styles.modalInput, styles.rejectReasonInput]}
+                    value={appointmentRejectReason}
+                    onChangeText={setAppointmentRejectReason}
+                    placeholder="예: 서류 누락, 일정 확인 필요"
+                    placeholderTextColor="#9CA3AF"
+                    multiline
+                  />
+
+                  <View style={styles.modalButtons}>
+                    <Pressable
+                      style={[styles.modalBtn, styles.modalBtnCancel]}
+                      onPress={() => setAppointmentRejectModalVisible(false)}
+                    >
+                      <Text style={styles.modalBtnTextCancel}>취소</Text>
+                    </Pressable>
+                    <Pressable
+                      style={[styles.modalBtn, styles.modalBtnDelete]}
+                      onPress={confirmAppointmentRejectWithReason}
+                    >
+                      <Text style={styles.modalBtnTextDelete}>미승인</Text>
+                    </Pressable>
+                  </View>
+                </Pressable>
+              </Pressable>
+            </KeyboardAvoidingView>
+          </Modal>
+
+          <Modal
+            visible={deleteModalVisible}
+            transparent
+            animationType="fade"
+            onRequestClose={() => setDeleteModalVisible(false)}
         >
           <KeyboardAvoidingView
             behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
@@ -2269,6 +2581,24 @@ const styles = StyleSheet.create({
     borderRadius: 6,
   },
   rejectBtnText: { color: '#b91c1c', fontSize: 11, fontWeight: '600' },
+  allowanceInfoRow: {
+    marginTop: 10,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  allowanceBadge: {
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 999,
+    borderWidth: 1,
+  },
+  allowanceBadgeDone: { backgroundColor: '#ecfdf5', borderColor: '#a7f3d0' },
+  allowanceBadgePending: { backgroundColor: '#f3f4f6', borderColor: '#e5e7eb' },
+  allowanceBadgeText: { fontSize: 11, fontWeight: '700' },
+  allowanceBadgeTextDone: { color: '#059669' },
+  allowanceBadgeTextPending: { color: '#6b7280' },
+  allowanceDateText: { fontSize: 12, color: CHARCOAL },
   // Modal Styles
   modalOverlay: {
     flex: 1,
@@ -2302,6 +2632,16 @@ const styles = StyleSheet.create({
     marginBottom: 24,
     backgroundColor: '#F9FAFB',
     color: CHARCOAL,
+  },
+  rejectReasonInput: {
+    height: 'auto',
+    minHeight: 90,
+    fontSize: 14,
+    lineHeight: 20,
+    letterSpacing: 0,
+    paddingTop: 12,
+    paddingBottom: 12,
+    textAlignVertical: 'top',
   },
   modalButtons: { flexDirection: 'row', gap: 12 },
   modalBtn: {

@@ -8,6 +8,7 @@ import {
   Image,
   KeyboardAvoidingView,
   Linking,
+  Modal,
   Platform,
   Pressable,
   RefreshControl,
@@ -58,12 +59,13 @@ export default function AllowanceConsentScreen() {
   useIdentityGate({ nextPath: '/consent' });
   const [tempId, setTempId] = useState('');
   // TC007: Initialize validation state
-  const [selectedDate, setSelectedDate] = useState<Date>(new Date());
+  const [selectedDate, setSelectedDate] = useState<Date | null>(null);
   const [loading, setLoading] = useState(false);
   const [careerType, setCareerType] = useState<string | null>(null);
   const [rejectReason, setRejectReason] = useState<string | null>(null);
   const keyboardPadding = useKeyboardPadding();
-  const [showPicker, setShowPicker] = useState(Platform.OS === 'ios');
+  const [showPicker, setShowPicker] = useState(false);
+  const [tempDate, setTempDate] = useState<Date | null>(null);
   const [currentIndex, setCurrentIndex] = useState(0);
   const [imageRatio, setImageRatio] = useState(16 / 9);
   const [refreshing, setRefreshing] = useState(false);
@@ -83,7 +85,11 @@ export default function AllowanceConsentScreen() {
       console.log('[DEBUG] Mobile: Fetched FC Profile in Consent:', JSON.stringify(data, null, 2));
 
       setTempId(data?.temp_id ?? '');
-      if (data?.allowance_date) setSelectedDate(new Date(data.allowance_date));
+      if (data?.allowance_date) {
+        setSelectedDate(new Date(data.allowance_date));
+      } else {
+        setSelectedDate(null);
+      }
       setCareerType(data?.career_type ?? null);
       setRejectReason(data?.allowance_reject_reason ?? null);
     };
@@ -100,9 +106,13 @@ export default function AllowanceConsentScreen() {
     }
   }, []);
 
-  const ymd = useMemo(() => toYMD(selectedDate), [selectedDate]);
+  const ymd = useMemo(() => (selectedDate ? toYMD(selectedDate) : ''), [selectedDate]);
 
   const submit = async () => {
+    if (!selectedDate) {
+      Alert.alert('입력 확인', '수당 동의일을 선택해주세요.');
+      return;
+    }
     setLoading(true);
     const { error, data } = await supabase
       .from('fc_profiles')
@@ -146,7 +156,11 @@ export default function AllowanceConsentScreen() {
         .maybeSingle();
 
       setTempId(data?.temp_id ?? '');
-      if (data?.allowance_date) setSelectedDate(new Date(data.allowance_date));
+      if (data?.allowance_date) {
+        setSelectedDate(new Date(data.allowance_date));
+      } else {
+        setSelectedDate(null);
+      }
       setCareerType(data?.career_type ?? null);
       setRejectReason(data?.allowance_reject_reason ?? null);
     } finally {
@@ -258,27 +272,29 @@ export default function AllowanceConsentScreen() {
 
             <View style={styles.inputGroup}>
               <Text style={styles.label}>수당동의일</Text>
-              {Platform.OS === 'ios' || Platform.OS === 'web' ? (
+              <Pressable
+                style={styles.dateInput}
+                onPress={() => {
+                  setTempDate(selectedDate ?? new Date());
+                  setShowPicker(true);
+                }}
+              >
+                <Text style={[styles.dateText, !selectedDate && styles.dateTextPlaceholder]}>
+                  {selectedDate ? formatKoreanDate(selectedDate) : '날짜를 선택해주세요'}
+                </Text>
+                <Feather name="calendar" size={18} color={MUTED} />
+              </Pressable>
+              {showPicker && Platform.OS !== 'ios' && (
                 <DateTimePicker
-                  value={selectedDate}
+                  value={selectedDate ?? new Date()}
                   mode="date"
                   display="default"
                   locale="ko-KR"
-                  onChange={(_, d) => d && setSelectedDate(d)}
-                  style={{ alignSelf: 'flex-start' }}
-                />
-              ) : (
-                <Pressable style={styles.dateInput} onPress={() => setShowPicker(true)}>
-                  <Text style={styles.dateText}>{formatKoreanDate(selectedDate)}</Text>
-                  <Feather name="calendar" size={18} color={MUTED} />
-                </Pressable>
-              )}
-              {showPicker && Platform.OS === 'android' && (
-                <DateTimePicker
-                  value={selectedDate}
-                  mode="date"
-                  onChange={(_, d) => {
+                  onChange={(event, d) => {
                     setShowPicker(false);
+                    if (event.type === 'dismissed') {
+                      return;
+                    }
                     if (d) setSelectedDate(d);
                   }}
                 />
@@ -295,6 +311,45 @@ export default function AllowanceConsentScreen() {
           </View>
         </ScrollView>
       </KeyboardAvoidingView>
+
+      {Platform.OS === 'ios' && (
+        <Modal visible={showPicker} transparent animationType="fade">
+          <View style={styles.pickerOverlay}>
+            <View style={styles.pickerCard}>
+              <DateTimePicker
+                value={tempDate ?? selectedDate ?? new Date()}
+                mode="date"
+                display="spinner"
+                locale="ko-KR"
+                onChange={(_, d) => {
+                  if (d) setTempDate(d);
+                }}
+              />
+              <View style={styles.pickerActions}>
+                <Pressable
+                  style={[styles.pickerBtn, styles.pickerBtnGhost]}
+                  onPress={() => {
+                    setShowPicker(false);
+                    setTempDate(null);
+                  }}
+                >
+                  <Text style={styles.pickerBtnGhostText}>취소</Text>
+                </Pressable>
+                <Pressable
+                  style={[styles.pickerBtn, styles.pickerBtnPrimary]}
+                  onPress={() => {
+                    if (tempDate) setSelectedDate(tempDate);
+                    setShowPicker(false);
+                    setTempDate(null);
+                  }}
+                >
+                  <Text style={styles.pickerBtnPrimaryText}>확인</Text>
+                </Pressable>
+              </View>
+            </View>
+          </View>
+        </Modal>
+      )}
     </SafeAreaView>
   );
 }
@@ -422,6 +477,7 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
   },
   dateText: { fontSize: 16, color: CHARCOAL },
+  dateTextPlaceholder: { color: '#9CA3AF' },
 
   submitButton: {
     height: 52,
@@ -434,4 +490,42 @@ const styles = StyleSheet.create({
   buttonPressed: { opacity: 0.9 },
   buttonDisabled: { backgroundColor: MUTED },
   submitButtonText: { color: '#fff', fontSize: 16, fontWeight: '700' },
+  pickerOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.35)',
+    justifyContent: 'flex-end',
+  },
+  pickerCard: {
+    backgroundColor: '#fff',
+    paddingTop: 12,
+    paddingBottom: 20,
+    paddingHorizontal: 16,
+    borderTopLeftRadius: 16,
+    borderTopRightRadius: 16,
+  },
+  pickerActions: {
+    flexDirection: 'row',
+    justifyContent: 'flex-end',
+    gap: 12,
+    marginTop: 8,
+  },
+  pickerBtn: {
+    paddingVertical: 10,
+    paddingHorizontal: 16,
+    borderRadius: 10,
+  },
+  pickerBtnGhost: {
+    backgroundColor: '#F3F4F6',
+  },
+  pickerBtnPrimary: {
+    backgroundColor: CHARCOAL,
+  },
+  pickerBtnGhostText: {
+    color: CHARCOAL,
+    fontWeight: '700',
+  },
+  pickerBtnPrimaryText: {
+    color: '#fff',
+    fontWeight: '700',
+  },
 });
