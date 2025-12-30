@@ -224,8 +224,8 @@ export default function ExamApplyScreen() {
   const isRoundClosed = (round: ExamRoundWithLocations) => {
     const deadline = toDate(round.registration_deadline);
     if (!deadline) return false;
-    deadline.setHours(23, 59, 59, 999);
-    return deadline < new Date();
+    deadline.setHours(18, 0, 0, 0);
+    return deadline <= new Date();
   };
 
   const selectedRound = useMemo(

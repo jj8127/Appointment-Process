@@ -307,7 +307,15 @@ export default function ExamSchedulePage() {
     };
 
     // --- Render ---
-    const rows = rounds?.map((round) => (
+    const deadlineCutoff = (dateStr: string) =>
+        dayjs(dateStr).hour(18).minute(0).second(0).millisecond(0);
+
+    const rows = rounds?.map((round) => {
+        const cutoff = deadlineCutoff(round.registration_deadline);
+        const now = dayjs();
+        const isClosed = now.isAfter(cutoff) || now.isSame(cutoff);
+
+        return (
         <Table.Tr key={round.id}>
             <Table.Td>
                 <Text fw={600} size="sm">{dayjs(round.exam_date).format('YYYY-MM-DD')}</Text>
@@ -318,10 +326,10 @@ export default function ExamSchedulePage() {
             <Table.Td>
                 <Text
                     size="sm"
-                    c={dayjs().isAfter(dayjs(round.registration_deadline).endOf('day')) ? 'red' : CHARCOAL}
+                    c={isClosed ? 'red' : CHARCOAL}
                 >
                     {dayjs(round.registration_deadline).format('YYYY-MM-DD')}{' '}
-                    {dayjs().isAfter(dayjs(round.registration_deadline).endOf('day')) && '(마감)'}
+                    {isClosed && '(마감)'}
                 </Text>
             </Table.Td>
             <Table.Td>
@@ -344,7 +352,8 @@ export default function ExamSchedulePage() {
                 </Group>
             </Table.Td>
         </Table.Tr>
-    ));
+        );
+    });
 
     return (
         <Container size="xl" py="xl">
