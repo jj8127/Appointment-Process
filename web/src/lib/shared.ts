@@ -23,6 +23,7 @@ export const STEP_LABELS: Record<string, string> = {
 };
 
 export const ADMIN_STEP_LABELS: Record<string, string> = {
+  step0: '0단계 사전등록',
   step1: '1단계 수당동의',
   step2: '2단계 문서제출',
   step3: '3단계 위촉 진행',
@@ -154,6 +155,7 @@ export const calcStep = (profile: FcProfile) => {
 };
 
 export const getAdminStep = (profile: FcProfile) => {
+  if (!profile.identity_completed) return '0단계 사전등록';
   const rawStep = calcStep(profile);
   // FC Step 1 (Info) and Step 2 (Allowance) -> Admin Step 1 (Allowance)
   if (rawStep <= 2) return '1단계 수당동의';

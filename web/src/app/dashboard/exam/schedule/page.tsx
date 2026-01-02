@@ -548,7 +548,10 @@ export default function ExamSchedulePage() {
                                     label="시험일"
                                     placeholder="시험 날짜 선택"
                                     leftSection={<IconCalendar size={16} />}
-                                    {...form.getInputProps('exam_date')}
+                                    value={form.values.exam_date}
+                                    onChange={(value) => {
+                                        if (value) form.setFieldValue('exam_date', value);
+                                    }}
                                     locale="ko"
                                     monthLabelFormat="YYYY년 M월"
                                     previousIcon={<IconChevronLeft size={14} />}
@@ -594,7 +597,10 @@ export default function ExamSchedulePage() {
                                     label="접수 마감일"
                                     placeholder="마감 날짜 선택"
                                     leftSection={<IconCalendar size={16} />}
-                                    {...form.getInputProps('registration_deadline')}
+                                    value={form.values.registration_deadline}
+                                    onChange={(value) => {
+                                        if (value) form.setFieldValue('registration_deadline', value);
+                                    }}
                                     locale="ko"
                                     monthLabelFormat="YYYY년 M월"
                                     previousIcon={<IconChevronLeft size={14} />}

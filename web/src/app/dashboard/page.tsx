@@ -219,13 +219,17 @@ export default function DashboardPage() {
       // Raw 3 (Docs) -> Admin 2
       // Raw 4 (Appt) -> Admin 3
       // Raw 5 (Done) -> Admin 4
-      const adminStep = rawStep <= 2 ? 1 : rawStep - 1;
+      const adminStep = fc.identity_completed ? (rawStep <= 2 ? 1 : rawStep - 1) : 0;
       return { ...fc, step: rawStep, adminStep };
     });
 
     if (activeTab && activeTab !== 'all') {
+      if (activeTab === 'step0') {
+        result = result.filter((fc) => !fc.identity_completed);
+      } else {
       const stepNum = Number(activeTab.replace('step', ''));
       result = result.filter((fc) => fc.adminStep === stepNum);
+      }
     }
     if (keyword.trim()) {
       const q = keyword.trim().toLowerCase();
@@ -662,11 +666,20 @@ export default function DashboardPage() {
             <Text size="sm" fw={600} c="dark.5">
               {fc.name}
             </Text>
-            {fc.career_type ? (
-              <Text size="xs" c="dimmed">{fc.career_type}</Text>
-            ) : (
-              <Badge color="gray" size="xs" variant="outline">조회중</Badge>
-            )}
+            <Group gap={6} mt={4}>
+              {fc.career_type ? (
+                <Text size="xs" c="dimmed">{fc.career_type}</Text>
+              ) : (
+                <Badge color="gray" size="xs" variant="outline">조회중</Badge>
+              )}
+              <Badge
+                color={fc.identity_completed ? 'green' : 'orange'}
+                size="xs"
+                variant="light"
+              >
+                {fc.identity_completed ? '본등록' : '사전등록'}
+              </Badge>
+            </Group>
           </div>
         </Group>
       </Table.Td>

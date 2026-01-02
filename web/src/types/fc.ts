@@ -28,6 +28,7 @@ export type FcProfile = {
   address?: string | null;
   address_detail?: string | null;
   resident_id_masked?: string | null;
+  identity_completed?: boolean | null;
   career_type?: CareerType;
   temp_id?: string | null;
   allowance_date?: string | null;
