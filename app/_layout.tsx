@@ -25,6 +25,7 @@ import {
   MaterialIcons,
 } from '@expo/vector-icons';
 import { loadAsync } from 'expo-font';
+import type { FontSource } from 'expo-font';
 import * as SplashScreen from 'expo-splash-screen';
 
 const queryClient = new QueryClient();
@@ -55,27 +56,26 @@ SplashScreen.preventAutoHideAsync();
 export default function RootLayout() {
   const isWeb = Platform.OS === 'web';
   const enableTourGuide = Platform.OS === 'android';
-  const fontSources = useMemo(
-    () =>
-      isWeb
-        ? {
-          Feather: { uri: '/fonts/Feather.ttf' },
-          Ionicons: { uri: '/fonts/Ionicons.ttf' },
-          MaterialIcons: { uri: '/fonts/MaterialIcons.ttf' },
-          FontAwesome: { uri: '/fonts/FontAwesome.ttf' },
-          AntDesign: { uri: '/fonts/AntDesign.ttf' },
-          Entypo: { uri: '/fonts/Entypo.ttf' },
-        }
-        : {
-          ...Feather.font,
-          ...Ionicons.font,
-          ...MaterialIcons.font,
-          ...FontAwesome.font,
-          ...AntDesign.font,
-          ...Entypo.font,
-        },
-    [isWeb]
-  );
+  const fontSources = useMemo<Record<string, FontSource>>(() => {
+    if (isWeb) {
+      return {
+        Feather: '/fonts/Feather.ttf',
+        Ionicons: '/fonts/Ionicons.ttf',
+        MaterialIcons: '/fonts/MaterialIcons.ttf',
+        FontAwesome: '/fonts/FontAwesome.ttf',
+        AntDesign: '/fonts/AntDesign.ttf',
+        Entypo: '/fonts/Entypo.ttf',
+      };
+    }
+    return {
+      ...Feather.font,
+      ...Ionicons.font,
+      ...MaterialIcons.font,
+      ...FontAwesome.font,
+      ...AntDesign.font,
+      ...Entypo.font,
+    } as Record<string, FontSource>;
+  }, [isWeb]);
   const [loaded, setLoaded] = useState(false);
   const [error, setError] = useState<Error | null>(null);
 

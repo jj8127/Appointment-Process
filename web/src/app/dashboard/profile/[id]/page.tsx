@@ -30,8 +30,6 @@ import {
     IconCheck,
     IconDeviceFloppy,
     IconEdit,
-    IconEye,
-    IconEyeOff,
     IconFileText,
     IconMail,
     IconMapPin,
@@ -53,7 +51,7 @@ type FcProfileDetail = {
     id: string;
     name: string;
     phone: string;
-    resident_number: string | null;
+    resident_id_masked: string | null;
     address: string | null;
     email: string | null;
     affiliation: string | null;
@@ -82,7 +80,6 @@ export default function FcProfilePage({ params }: { params: Promise<{ id: string
     const { id: fcId } = use(params);
 
     const [isEditing, setIsEditing] = useState(false);
-    const [showResidentNum, setShowResidentNum] = useState(false);
     const [memo, setMemo] = useState('');
 
     // --- Fetch Data ---
@@ -123,7 +120,6 @@ export default function FcProfilePage({ params }: { params: Promise<{ id: string
         initialValues: {
             name: '',
             phone: '',
-            resident_number: '',
             address: '',
             email: '',
             affiliation: '',
@@ -137,7 +133,6 @@ export default function FcProfilePage({ params }: { params: Promise<{ id: string
             form.setValues({
                 name: profile.name || '',
                 phone: profile.phone || '',
-                resident_number: profile.resident_number || '',
                 address: profile.address || '',
                 email: profile.email || '',
                 affiliation: profile.affiliation || '',
@@ -180,8 +175,10 @@ export default function FcProfilePage({ params }: { params: Promise<{ id: string
     const handleSaveInfo = () => updateProfileMutation.mutate(form.values);
 
     const getBirthDate = (residentNum: string | null) => {
-        if (!residentNum || residentNum.length < 6) return '-';
-        const prefix = residentNum.substring(0, 6);
+        if (!residentNum) return '-';
+        const digits = residentNum.replace(/\D/g, '');
+        if (digits.length < 6) return '-';
+        const prefix = digits.substring(0, 6);
         return `${prefix.substring(0, 2)}.${prefix.substring(2, 4)}.${prefix.substring(4, 6)}`;
     };
 
@@ -278,26 +275,13 @@ export default function FcProfilePage({ params }: { params: Promise<{ id: string
                                         />
                                     </Grid.Col>
                                     <Grid.Col span={6}>
-                                        <Group justify="space-between" align="flex-end" w="100%">
-                                            <TextInput
-                                                label="주민등록번호"
-                                                w="80%"
-                                                variant={isEditing ? 'default' : 'unstyled'}
-                                                readOnly={!isEditing}
-                                                value={
-                                                    isEditing || showResidentNum
-                                                        ? form.values.resident_number
-                                                        : form.values.resident_number ? form.values.resident_number.substring(0, 8) + '******' : '-'
-                                                }
-                                                onChange={(e) => form.setFieldValue('resident_number', e.currentTarget.value)}
-                                            />
-                                            {!isEditing && (
-                                                <ActionIcon variant="subtle" color="gray" onClick={() => setShowResidentNum(!showResidentNum)} mb={4}>
-                                                    {showResidentNum ? <IconEyeOff size={16} /> : <IconEye size={16} />}
-                                                </ActionIcon>
-                                            )}
-                                        </Group>
-                                        {!isEditing && <Text size="xs" c="dimmed" mt={4}>생년월일: {getBirthDate(profile.resident_number)}</Text>}
+                                        <TextInput
+                                            label="주민등록번호"
+                                            variant="unstyled"
+                                            readOnly
+                                            value={profile.resident_id_masked || '-'}
+                                        />
+                                        <Text size="xs" c="dimmed" mt={4}>생년월일: {getBirthDate(profile.resident_id_masked)}</Text>
                                     </Grid.Col>
                                     <Grid.Col span={6}>
                                         <TextInput

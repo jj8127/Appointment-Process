@@ -20,10 +20,12 @@ function getEnv(name: string): string | undefined {
 
 const supabaseUrl = getEnv('SUPABASE_URL') ?? '';
 const serviceKey = getEnv('SUPABASE_SERVICE_ROLE_KEY') ?? '';
-const ncpAccessKey = getEnv('NCP_SENS_ACCESS_KEY') ?? '';
-const ncpSecretKey = getEnv('NCP_SENS_SECRET_KEY') ?? '';
-const ncpServiceId = getEnv('NCP_SENS_SERVICE_ID') ?? '';
-const ncpSmsFrom = getEnv('NCP_SENS_SMS_FROM') ?? '';
+const ncpAccessKey = getEnv('NCP_SENS_ACCESS_KEY') ?? getEnv('NCP_ACCESS_KEY') ?? '';
+const ncpSecretKey = getEnv('NCP_SENS_SECRET_KEY') ?? getEnv('NCP_SECRET_KEY') ?? '';
+const ncpServiceId = getEnv('NCP_SENS_SERVICE_ID') ?? getEnv('NCP_SMS_SERVICE_ID') ?? '';
+const ncpSmsFrom = getEnv('NCP_SENS_SMS_FROM') ?? getEnv('NCP_SMS_SENDER') ?? '';
+const testSmsMode = (getEnv('TEST_SMS_MODE') ?? '').toLowerCase() === 'true';
+const testSmsCode = getEnv('TEST_SMS_CODE') ?? '123456';
 
 const supabase = createClient(supabaseUrl, serviceKey);
 const textEncoder = new TextEncoder();
@@ -70,6 +72,9 @@ async function hmacSignature(message: string, secretKey: string) {
 }
 
 async function sendOtpSms(to: string, code: string) {
+  if (testSmsMode) {
+    return { ok: true, status: 200 };
+  }
   if (!ncpAccessKey || !ncpSecretKey || !ncpServiceId || !ncpSmsFrom) {
     return { ok: false, status: 500, message: 'SMS 설정이 필요합니다.' };
   }
@@ -106,6 +111,9 @@ async function sendOtpSms(to: string, code: string) {
 }
 
 function generateOtpCode() {
+  if (testSmsMode && /^\d{6}$/.test(testSmsCode)) {
+    return testSmsCode;
+  }
   const bytes = crypto.getRandomValues(new Uint32Array(1));
   const value = bytes[0] % 900000;
   return String(100000 + value);
@@ -213,5 +221,8 @@ serve(async (req: Request) => {
     );
   }
 
+  if (testSmsMode) {
+    return json({ ok: true, sent: true, test_mode: true, test_code: code });
+  }
   return json({ ok: true, sent: true });
 });

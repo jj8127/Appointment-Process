@@ -39,19 +39,12 @@ const INPUT_BG = '#F9FAFB';
 
 const randomKey = () => Math.random().toString(36).slice(2, 10) + Date.now().toString(36);
 
-function base64ToUint8Array(base64: string) {
-  const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/=';
-  let str = base64.replace(/=+$/, '');
-  const output: number[] = [];
-  for (let bc = 0, bs = 0, idx = 0; idx < str.length;) {
-    const ch = str.charAt(idx++);
-    const buffer = chars.indexOf(ch);
-    if (buffer === -1) continue;
-    bs = bc % 4 ? bs * 64 + buffer : buffer;
-    if (bc++ % 4) output.push(255 & (bs >> ((-2 * bc) & 6)));
+const normalizeDocStatus = (status: string | null | undefined): DocItem['status'] => {
+  if (status === 'approved' || status === 'rejected' || status === 'pending') {
+    return status;
   }
-  return new Uint8Array(output);
-}
+  return undefined;
+};
 
 async function sendNotificationAndPush(
   role: 'admin' | 'fc',
@@ -156,7 +149,7 @@ export default function DocsUploadScreen() {
           type: r.doc_type,
           required: true,
           uploadedUrl: undefined,
-          status: hasFile ? (r.status as any) ?? 'pending' : 'pending',
+          status: hasFile ? normalizeDocStatus(r.status) ?? 'pending' : 'pending',
           reviewerNote: r.reviewer_note ?? undefined,
           storagePath: hasFile ? r.storage_path ?? undefined : undefined,
           originalName: hasFile ? r.file_name ?? undefined : undefined,
@@ -333,14 +326,14 @@ export default function DocsUploadScreen() {
       }
 
       await supabase.from('fc_profiles').update({ status: 'docs-pending' }).eq('id', fc.id);
-      const updatedDocs = docs.map((doc) =>
+      const updatedDocs: DocItem[] = docs.map((doc) =>
         doc.type === type
           ? {
-            ...doc,
-            status: 'pending',
-            storagePath: objectPath,
-            originalName: asset.name ?? 'document.pdf',
-          }
+              ...doc,
+              status: 'pending',
+              storagePath: objectPath,
+              originalName: asset.name ?? 'document.pdf',
+            }
           : doc,
       );
       setDocs(updatedDocs);

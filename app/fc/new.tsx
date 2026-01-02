@@ -370,22 +370,34 @@ export default function FcNewScreen() {
       values.address.trim() !== existingAddress.trim() ||
       values.addressDetail.trim() !== existingAddressDetail.trim();
     const hasResidentInput = front.length > 0 || back.length > 0;
+    const needsResidentForIdentity = hasResidentInput || (!existingResidentMasked && addressChanged);
 
     if (addressChanged || hasResidentInput) {
-      if (!front || !back) {
+      if (needsResidentForIdentity && (!front || !back)) {
         setSubmitting(false);
-        Alert.alert('입력 확인', '주소/주민번호 변경을 위해 주민번호 앞/뒤를 모두 입력해주세요.');
+        Alert.alert('입력 확인', '주민번호를 처음 저장할 때는 앞/뒤를 모두 입력해주세요.');
         return;
       }
       try {
+        const identityPayload: {
+          residentId: string;
+          residentFront?: string;
+          residentBack?: string;
+          address: string;
+          addressDetail: string;
+        } = {
+          residentId: phoneDigits,
+          address: values.address.trim(),
+          addressDetail: values.addressDetail.trim(),
+        };
+
+        if (hasResidentInput) {
+          identityPayload.residentFront = front;
+          identityPayload.residentBack = back;
+        }
+
         const { error: identityErr } = await supabase.functions.invoke('store-identity', {
-          body: {
-            residentId: phoneDigits,
-            residentFront: front,
-            residentBack: back,
-            address: values.address.trim(),
-            addressDetail: values.addressDetail.trim(),
-          },
+          body: identityPayload,
         });
         if (identityErr) {
           setSubmitting(false);

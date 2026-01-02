@@ -1473,8 +1473,6 @@ export default function DashboardScreen() {
                 <MobileStatusToggle
                   value={lifeApproved ? 'approved' : 'pending'}
                   neutralPending={!fc.appointment_date_life_sub && !fc.appointment_reject_reason_life}
-                  showNeutralForPending
-                  allowPendingPress
                   onChange={(val) => {
                     const fallbackDate = () => fc.appointment_date_life || new Date().toISOString().split('T')[0];
 
@@ -1524,8 +1522,6 @@ export default function DashboardScreen() {
                 <MobileStatusToggle
                   value={nonlifeApproved ? 'approved' : 'pending'}
                   neutralPending={!fc.appointment_date_nonlife_sub && !fc.appointment_reject_reason_nonlife}
-                  showNeutralForPending
-                  allowPendingPress
                   onChange={(val) => {
                     const fallbackDate = () => fc.appointment_date_nonlife || new Date().toISOString().split('T')[0];
 

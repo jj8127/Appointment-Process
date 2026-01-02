@@ -3,8 +3,8 @@ import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.45.4';
 
 type Payload = {
   residentId: string;
-  residentFront: string;
-  residentBack: string;
+  residentFront?: string;
+  residentBack?: string;
   address: string;
   addressDetail?: string | null;
 };
@@ -112,16 +112,22 @@ serve(async (req: Request) => {
   const address = (body.address ?? '').trim();
   const addressDetail = (body.addressDetail ?? '').trim();
 
-  if (!residentId || residentFront.length !== 6 || residentBack.length !== 7 || !address) {
+  if (!residentId || !address) {
     return err('Invalid payload', 400);
   }
-  if (!isValidResidentChecksum(residentFront, residentBack)) {
-    return err('Invalid resident number', 400);
+  const hasResidentInput = residentFront.length > 0 || residentBack.length > 0;
+  if (hasResidentInput) {
+    if (residentFront.length !== 6 || residentBack.length !== 7) {
+      return err('Invalid payload', 400);
+    }
+    if (!isValidResidentChecksum(residentFront, residentBack)) {
+      return err('Invalid resident number', 400);
+    }
   }
 
   const { data: profile, error: profileError } = await supabase
     .from('fc_profiles')
-    .select('id')
+    .select('id,resident_id_masked,resident_id_hash')
     .eq('phone', residentId)
     .maybeSingle();
 
@@ -129,26 +135,74 @@ serve(async (req: Request) => {
     return err('FC profile not found', 404);
   }
 
-  const residentNumber = `${residentFront}${residentBack}`;
-  const masked = `${residentFront}-${'*'.repeat(7)}`;
-  const hash = await sha256Base64(`${residentNumber}${hashSalt}`);
-  const key = await importAesKey(identityKey);
+  if (!hasResidentInput && !profile.resident_id_masked && !profile.resident_id_hash) {
+    return err('Resident number required', 400);
+  }
 
-  const residentEncrypted = await encrypt(residentNumber, key);
+  if (!hasResidentInput) {
+    const { data: secureRow, error: secureReadError } = await supabase
+      .from('fc_identity_secure')
+      .select('fc_id')
+      .eq('fc_id', profile.id)
+      .maybeSingle();
+    if (secureReadError) {
+      return err(secureReadError.message, 500);
+    }
+    if (!secureRow?.fc_id) {
+      return err('Resident number required', 400);
+    }
+  }
+
+  const key = await importAesKey(identityKey);
   const addressEncrypted = await encrypt(address, key);
   const addressDetailEncrypted = addressDetail ? await encrypt(addressDetail, key) : null;
 
+  if (hasResidentInput) {
+    const residentNumber = `${residentFront}${residentBack}`;
+    const masked = `${residentFront}-${'*'.repeat(7)}`;
+    const hash = await sha256Base64(`${residentNumber}${hashSalt}`);
+    const residentEncrypted = await encrypt(residentNumber, key);
+
+    const { error: secureError } = await supabase
+      .from('fc_identity_secure')
+      .upsert(
+        {
+          fc_id: profile.id,
+          resident_number_encrypted: residentEncrypted,
+          address_encrypted: addressEncrypted,
+          address_detail_encrypted: addressDetailEncrypted,
+        },
+        { onConflict: 'fc_id' },
+      );
+    if (secureError) {
+      return err(secureError.message, 500);
+    }
+
+    const { error: updateError } = await supabase
+      .from('fc_profiles')
+      .update({
+        resident_id_masked: masked,
+        resident_id_hash: hash,
+        address,
+        address_detail: addressDetail || null,
+        identity_completed: true,
+      })
+      .eq('id', profile.id);
+
+    if (updateError) {
+      return err(updateError.message, 500);
+    }
+
+    return ok({ ok: true });
+  }
+
   const { error: secureError } = await supabase
     .from('fc_identity_secure')
-    .upsert(
-      {
-        fc_id: profile.id,
-        resident_number_encrypted: residentEncrypted,
-        address_encrypted: addressEncrypted,
-        address_detail_encrypted: addressDetailEncrypted,
-      },
-      { onConflict: 'fc_id' },
-    );
+    .update({
+      address_encrypted: addressEncrypted,
+      address_detail_encrypted: addressDetailEncrypted,
+    })
+    .eq('fc_id', profile.id);
   if (secureError) {
     return err(secureError.message, 500);
   }
@@ -156,8 +210,6 @@ serve(async (req: Request) => {
   const { error: updateError } = await supabase
     .from('fc_profiles')
     .update({
-      resident_id_masked: masked,
-      resident_id_hash: hash,
       address,
       address_detail: addressDetail || null,
       identity_completed: true,
