@@ -4,6 +4,7 @@ import { createServerClient, type CookieOptions } from '@supabase/ssr';
 import { revalidatePath } from 'next/cache';
 import { cookies } from 'next/headers';
 import { z } from 'zod';
+import { sendWebPush } from '@/lib/web-push';
 
 const EXPO_PUSH_URL = 'https://exp.host/--/api/v2/push/send';
 
@@ -134,6 +135,10 @@ export async function createNoticeAction(
             title: `공지: ${title}`,
             body: body,
             data: { type: 'notice' },
+            sound: 'default',
+            priority: 'high',
+            channelId: 'alerts',
+            priority: 'high',
         }));
 
         try {
@@ -160,6 +165,22 @@ export async function createNoticeAction(
         }
     } else {
         console.warn('[push][notice] no tokens found');
+    }
+
+    const { data: webSubs } = await supabase
+        .from('web_push_subscriptions')
+        .select('endpoint,p256dh,auth')
+        .eq('role', 'fc');
+
+    if (webSubs && webSubs.length > 0) {
+        const result = await sendWebPush(webSubs, {
+            title: `공지: ${title}`,
+            body,
+            data: { type: 'notice', url: '/dashboard/notifications' },
+        });
+        if (result.expired.length > 0) {
+            await supabase.from('web_push_subscriptions').delete().in('endpoint', result.expired);
+        }
     }
 
     revalidatePath('/dashboard/notifications');

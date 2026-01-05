@@ -25,7 +25,7 @@ import { useSession } from '@/hooks/use-session';
 import { supabase } from '@/lib/supabase';
 import { RequiredDoc } from '@/types/fc';
 
-type FcLite = { id: string; temp_id: string | null; name: string; status: string };
+type FcLite = { id: string; temp_id: string | null; name: string; status: string; docs_deadline_at?: string | null };
 type DocItem = RequiredDoc & { storagePath?: string; originalName?: string };
 
 const BUCKET = 'fc-documents';
@@ -72,6 +72,9 @@ async function sendNotificationAndPush(
       title,
       body,
       data: { type: 'app_event', resident_id: residentId, url },
+      sound: 'default',
+      priority: 'high',
+      channelId: 'alerts',
     })) ?? [];
 
   if (payload.length) {
@@ -125,9 +128,9 @@ export default function DocsUploadScreen() {
         return;
       }
 
-      const { data: profile, error } = await supabase
-        .from('fc_profiles')
-        .select('id, temp_id, name, status')
+        const { data: profile, error } = await supabase
+          .from('fc_profiles')
+          .select('id, temp_id, name, status, docs_deadline_at')
         .eq('id', targetId)
         .maybeSingle();
       if (error) throw error;
@@ -419,16 +422,19 @@ export default function DocsUploadScreen() {
       <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={{ flex: 1 }}>
         <View style={styles.headerContainer}>
           <View style={styles.headerRow}>
-            <View>
-              <Text style={styles.headerTitle}>
-                {isAdmin ? `${fc?.name ? `${fc.name}님의 서류` : '서류 검토'}` : '필수 서류 제출'}
-              </Text>
-              <Text style={styles.headerSub}>
-                {docCount.total}건 중{' '}
-                <Text style={{ color: HANWHA_ORANGE, fontWeight: '700' }}>{docCount.uploaded}건</Text> 완료 ·{' '}
-                <Text style={{ color: CHARCOAL, fontWeight: '800' }}>{Math.round(progressPercent)}%</Text>
-              </Text>
-            </View>
+              <View>
+                <Text style={styles.headerTitle}>
+                  {isAdmin ? `${fc?.name ? `${fc.name}님의 서류` : '서류 검토'}` : '필수 서류 제출'}
+                </Text>
+                <Text style={styles.headerSub}>
+                  {docCount.total}건 중{' '}
+                  <Text style={{ color: HANWHA_ORANGE, fontWeight: '700' }}>{docCount.uploaded}건</Text> 완료 ·{' '}
+                  <Text style={{ color: CHARCOAL, fontWeight: '800' }}>{Math.round(progressPercent)}%</Text>
+                </Text>
+                {fc?.docs_deadline_at ? (
+                  <Text style={styles.deadlineText}>서류 마감일: {fc.docs_deadline_at}</Text>
+                ) : null}
+              </View>
             <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
               <RefreshButton onPress={loadData} />
             </View>
@@ -638,6 +644,7 @@ const styles = StyleSheet.create({
   },
   headerTitle: { fontSize: 22, fontWeight: '800', color: CHARCOAL },
   headerSub: { fontSize: 13, color: MUTED, marginTop: 4 },
+  deadlineText: { fontSize: 12, color: '#B45309', marginTop: 6, fontWeight: '700' },
   headerCountRight: { fontSize: 20, fontWeight: '700', color: MUTED },
 
   progressTrack: {

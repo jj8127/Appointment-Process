@@ -2,6 +2,7 @@
 
 import { createServerClient, type CookieOptions } from '@supabase/ssr';
 import { cookies } from 'next/headers';
+import { sendWebPush } from '@/lib/web-push';
 
 const EXPO_PUSH_URL = 'https://exp.host/--/api/v2/push/send';
 
@@ -40,34 +41,46 @@ export async function sendPushNotification(
         .select('expo_push_token')
         .eq('resident_id', userId);
 
-    if (error || !tokens || tokens.length === 0) {
-        // No tokens usually means user hasn't logged in app yet.
-        return { success: false, error: 'No device tokens found' };
-    }
-
-    const uniqueTokens = Array.from(new Set(tokens.map(t => t.expo_push_token)));
-
-    // Construct Expo Messages
-    const messages = uniqueTokens.map(token => ({
-        to: token,
-        title,
-        body,
-        data,
-    }));
-
     try {
-        const resp = await fetch(EXPO_PUSH_URL, {
-            method: 'POST',
-            headers: {
-                'Accept': 'application/json',
-                'Content-Type': 'application/json',
-            },
-            body: JSON.stringify(messages),
-        });
+        if (tokens && tokens.length > 0) {
+            const uniqueTokens = Array.from(new Set(tokens.map(t => t.expo_push_token)));
 
-        if (!resp.ok) {
-            console.error('Expo Push Failed:', await resp.text());
-            return { success: false, error: 'Expo API Error' };
+            // Construct Expo Messages
+            const messages = uniqueTokens.map(token => ({
+                to: token,
+                title,
+                body,
+                data,
+                sound: 'default',
+                priority: 'high',
+                channelId: 'alerts',
+                priority: 'high',
+            }));
+
+            const resp = await fetch(EXPO_PUSH_URL, {
+                method: 'POST',
+                headers: {
+                    'Accept': 'application/json',
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify(messages),
+            });
+
+            if (!resp.ok) {
+                console.error('Expo Push Failed:', await resp.text());
+            }
+        }
+
+        const { data: subs } = await supabase
+            .from('web_push_subscriptions')
+            .select('endpoint,p256dh,auth')
+            .eq('resident_id', userId);
+
+        if (subs && subs.length > 0) {
+            const result = await sendWebPush(subs, { title, body, data });
+            if (result.expired.length > 0) {
+                await supabase.from('web_push_subscriptions').delete().in('endpoint', result.expired);
+            }
         }
 
         return { success: true };

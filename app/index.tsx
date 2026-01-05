@@ -831,6 +831,8 @@ export default function Home() {
   }, [hydrated, role, myFc, statusLoading, refetchMyFc]);
 
   // FC 푸시 토큰 등록 (배너 알림 수신용)
+  const PUSH_CHANNEL_ID = 'alerts';
+
   useEffect(() => {
     let active = true;
     (async () => {
@@ -842,15 +844,18 @@ export default function Home() {
           return;
         }
         if (Platform.OS === 'android') {
-          await Notifications.setNotificationChannelAsync('default', {
-            name: 'default',
+          await Notifications.setNotificationChannelAsync(PUSH_CHANNEL_ID, {
+            name: '중요 알림',
             importance: Notifications.AndroidImportance.MAX,
+            vibrationPattern: [0, 250, 250, 250],
+            sound: 'default',
+            lockscreenVisibility: Notifications.AndroidNotificationVisibility.PUBLIC,
           });
         }
 
-        const { data: token } = await Notifications.getExpoPushTokenAsync({
-          projectId: Constants.expoConfig?.extra?.eas?.projectId,
-        });
+          const { data: token } = await Notifications.getExpoPushTokenAsync({
+            projectId: Constants.expoConfig?.extra?.eas?.projectId,
+          });
         if (!active || !token) return;
 
         // 디바이스 중복 방지: 기존 토큰 제거 후 upsert (unique constraint 대응)

@@ -35,6 +35,8 @@ export type FcProfile = {
   allowance_reject_reason?: string | null;
   appointment_url?: string | null;
   appointment_date?: string | null;
+  docs_deadline_at?: string | null;
+  docs_deadline_last_notified_at?: string | null;
   appointment_schedule_life?: string | null;
   appointment_schedule_nonlife?: string | null;
   appointment_date_life?: string | null;

@@ -38,6 +38,8 @@ const baseHeader = {
   header: (props: any) => <CompactHeader {...props} />,
 } as const;
 
+const ALERTS_CHANNEL_ID = 'alerts';
+
 // Notification handler (banner/list 지원)
 if (Platform.OS !== 'web') {
   Notifications.setNotificationHandler({
@@ -110,6 +112,15 @@ export default function RootLayout() {
     if (Platform.OS !== 'android') return;
     (async () => {
       try {
+        await Notifications.setNotificationChannelAsync(ALERTS_CHANNEL_ID, {
+          name: '중요 알림',
+          importance: Notifications.AndroidImportance.MAX,
+          vibrationPattern: [0, 250, 250, 250],
+          sound: 'default',
+          lockscreenVisibility: Notifications.AndroidNotificationVisibility.PUBLIC,
+        });
+        const channels = await Notifications.getNotificationChannelsAsync();
+        console.log('[notifications] android channels', channels);
         await NavigationBar.setVisibilityAsync('visible');
         await NavigationBar.setStyle(isDark ? 'light' : 'dark');
       } catch (err) {

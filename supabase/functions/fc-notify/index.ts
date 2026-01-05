@@ -146,6 +146,9 @@ serve(async (req: Request) => {
       title: pushTitle,
       body: pushBody,
       data: { url },
+      sound: 'default',
+      priority: 'high',
+      channelId: 'alerts',
     }));
 
     const resp = await fetch(EXPO_PUSH_URL, {
@@ -224,6 +227,9 @@ serve(async (req: Request) => {
       name: fcRow.name,
       url: targetUrl,
     },
+    sound: 'default',
+    priority: 'high',
+    channelId: 'alerts',
   }));
 
   const resp = await fetch(EXPO_PUSH_URL, {

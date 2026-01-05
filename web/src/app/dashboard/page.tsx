@@ -25,6 +25,7 @@ import {
   Title,
   Tooltip
 } from '@mantine/core';
+import { DateInput } from '@mantine/dates';
 import { useDisclosure } from '@mantine/hooks';
 import {
   IconCalendar,
@@ -76,6 +77,7 @@ export default function DashboardPage() {
   const [careerInput, setCareerInput] = useState<'신입' | '경력' | null>(null);
   const [selectedDocs, setSelectedDocs] = useState<string[]>([]);
   const [customDocInput, setCustomDocInput] = useState('');
+  const [docsDeadlineInput, setDocsDeadlineInput] = useState<Date | null>(null);
 
   // 위촉 일정 및 승인 상태
   const [appointmentInputs, setAppointmentInputs] = useState<{
@@ -273,12 +275,14 @@ export default function DashboardPage() {
   });
 
   const updateDocsRequestMutation = useMutation({
-    mutationFn: async ({ types }: { types: string[] }) => {
+    mutationFn: async ({ types, deadline }: { types: string[]; deadline?: Date | null }) => {
       if (!selectedFc) return;
 
       const nextTypes = types ?? [];
       console.log('Mutation Start');
       console.log('SelectedDocs (Intent):', nextTypes);
+      const normalizedDeadline = deadline ? dayjs(deadline).format('YYYY-MM-DD') : null;
+      const shouldResetNotify = normalizedDeadline !== (selectedFc.docs_deadline_at ?? null);
 
       const { data: currentDocsRaw, error: fetchErr } = await supabase
         .from('fc_documents')
@@ -297,7 +301,14 @@ export default function DashboardPage() {
 
       if (nextTypes.length === 0) {
         await supabase.from('fc_documents').delete().eq('fc_id', selectedFc.id);
-        await supabase.from('fc_profiles').update({ status: 'allowance-consented' }).eq('id', selectedFc.id);
+        await supabase
+          .from('fc_profiles')
+          .update({
+            status: 'allowance-consented',
+            docs_deadline_at: null,
+            docs_deadline_last_notified_at: null,
+          })
+          .eq('id', selectedFc.id);
         return;
       }
 
@@ -324,7 +335,17 @@ export default function DashboardPage() {
         const { error: insertError } = await supabase.from('fc_documents').insert(rows);
         if (insertError) console.error('Insert Error:', JSON.stringify(insertError, null, 2));
       }
-      await supabase.from('fc_profiles').update({ status: 'docs-requested' }).eq('id', selectedFc.id);
+      const profileUpdate: Record<string, string | null> = {
+        docs_deadline_at: normalizedDeadline,
+      };
+      if (shouldResetNotify) {
+        profileUpdate.docs_deadline_last_notified_at = null;
+      }
+
+      await supabase
+        .from('fc_profiles')
+        .update({ status: 'docs-requested', ...profileUpdate })
+        .eq('id', selectedFc.id);
 
       // Notification logic
       const title = '필수 서류 등록 알림';
@@ -402,14 +423,15 @@ export default function DashboardPage() {
     onError: (err: any) => notifications.show({ title: '오류', message: err.message, color: 'red' }),
   });
 
-  const handleOpenModal = (fc: any) => {
-    setSelectedFc(fc);
-    setTempIdInput(fc.temp_id || '');
-    setCareerInput((fc.career_type as '신입' | '경력') || null);
-    const currentDocs = fc.fc_documents?.map((d: any) => d.doc_type) || [];
-    console.log('Opening Modal for:', fc.name);
-    console.log('Init SelectedDocs:', currentDocs);
-    setSelectedDocs(currentDocs);
+    const handleOpenModal = (fc: any) => {
+      setSelectedFc(fc);
+      setTempIdInput(fc.temp_id || '');
+      setCareerInput((fc.career_type as '신입' | '경력') || null);
+      const currentDocs = fc.fc_documents?.map((d: any) => d.doc_type) || [];
+      console.log('Opening Modal for:', fc.name);
+      console.log('Init SelectedDocs:', currentDocs);
+      setSelectedDocs(currentDocs);
+      setDocsDeadlineInput(fc.docs_deadline_at ? new Date(fc.docs_deadline_at) : null);
 
     // 위촉 일정 초기화
     setAppointmentInputs({
@@ -1288,11 +1310,23 @@ export default function DashboardPage() {
                     )}
                   </Card>
 
-                  <Box>
-                    <Text fw={600} size="sm" mb="xs">
-                      필수 서류 요청 목록
-                    </Text>
-                    {(() => {
+                    <Box>
+                      <Text fw={600} size="sm" mb="xs">
+                        필수 서류 요청 목록
+                      </Text>
+                      <Box mb="md">
+                        <Text size="xs" c="dimmed" fw={500} mb={6}>
+                          서류 마감일 (알림용)
+                        </Text>
+                        <DateInput
+                          value={docsDeadlineInput}
+                          onChange={setDocsDeadlineInput}
+                          placeholder="YYYY-MM-DD"
+                          valueFormat="YYYY-MM-DD"
+                          clearable
+                        />
+                      </Box>
+                      {(() => {
                       const submittedDocTypes = new Set(
                         (selectedFc.fc_documents ?? [])
                           .filter((d: any) => d.storage_path && d.storage_path !== 'deleted')
@@ -1351,7 +1385,7 @@ export default function DashboardPage() {
                           if (!selectedDocs.includes(val)) {
                             const nextDocs = [...selectedDocs, val];
                             setSelectedDocs(nextDocs);
-                            updateDocsRequestMutation.mutate({ types: nextDocs });
+                              updateDocsRequestMutation.mutate({ types: nextDocs, deadline: docsDeadlineInput });
                           }
                           setCustomDocInput('');
                         }
@@ -1365,7 +1399,7 @@ export default function DashboardPage() {
                     fullWidth
                     color="orange"
                     mt="md"
-                    onClick={() => updateDocsRequestMutation.mutate({ types: selectedDocs })}
+                    onClick={() => updateDocsRequestMutation.mutate({ types: selectedDocs, deadline: docsDeadlineInput })}
                     loading={updateDocsRequestMutation.isPending}
                   >
                     서류 요청 업데이트

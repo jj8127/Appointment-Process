@@ -47,6 +47,7 @@ const BLUE = '#2563eb';
 const CHARCOAL = '#111827';
 const MUTED = '#6b7280';
 const BORDER = '#E5E7EB';
+const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 
 const STATUS_LABELS: Record<FcProfile['status'], string> = {
   draft: '임시사번 미발급',
@@ -144,6 +145,15 @@ const calcStep = (profile: FcRow) => {
   return 5;
 };
 
+const normalizeDateInput = (value?: string | null) => {
+  const raw = (value ?? '').trim();
+  if (!raw) return null;
+  if (!DATE_RE.test(raw)) return null;
+  const date = new Date(`${raw}T00:00:00`);
+  if (Number.isNaN(date.getTime())) return null;
+  return raw;
+};
+
 const getStepKey = (profile: FcRow): StepKey => {
   const step = Math.max(1, Math.min(5, calcStep(profile)));
   return `step${step}` as StepKey;
@@ -178,6 +188,7 @@ type FcRow = {
   allowance_date: string | null;
   appointment_url: string | null;
   appointment_date: string | null;
+  docs_deadline_at?: string | null;
   resident_id_masked: string | null;
   career_type: string | null;
   email: string | null;
@@ -222,6 +233,9 @@ async function sendNotificationAndPush(
       title,
       body,
       data: { type: 'app_event', resident_id: residentId, url },
+      sound: 'default',
+      priority: 'high',
+      channelId: 'alerts',
     })) ?? [];
 
   if (payload.length) {
@@ -240,9 +254,9 @@ const fetchFcs = async (
 ) => {
   let query = supabase
     .from('fc_profiles')
-    .select(
-      'id,name,affiliation,phone,temp_id,status,allowance_date,appointment_url,appointment_date,appointment_schedule_life,appointment_schedule_nonlife,appointment_date_life,appointment_date_nonlife,appointment_date_life_sub,appointment_date_nonlife_sub,appointment_reject_reason_life,appointment_reject_reason_nonlife,resident_id_masked,career_type,email,address,address_detail,fc_documents(doc_type,storage_path,file_name,status)',
-    )
+      .select(
+        'id,name,affiliation,phone,temp_id,status,allowance_date,appointment_url,appointment_date,docs_deadline_at,appointment_schedule_life,appointment_schedule_nonlife,appointment_date_life,appointment_date_nonlife,appointment_date_life_sub,appointment_date_nonlife_sub,appointment_reject_reason_life,appointment_reject_reason_nonlife,resident_id_masked,career_type,email,address,address_detail,fc_documents(doc_type,storage_path,file_name,status)',
+      )
     .order('created_at', { ascending: false });
 
   if (role === 'fc' && residentId) {
@@ -271,6 +285,7 @@ export default function DashboardScreen() {
   const [careerInputs, setCareerInputs] = useState<Record<string, '신입' | '경력'>>({});
   const [editMode, setEditMode] = useState<Record<string, boolean>>({});
   const [docSelections, setDocSelections] = useState<Record<string, Set<string>>>({});
+  const [docDeadlineInputs, setDocDeadlineInputs] = useState<Record<string, string>>({});
   const [customDocInputs, setCustomDocInputs] = useState<Record<string, string>>({});
   const [scheduleInputs, setScheduleInputs] = useState<Record<string, { life?: string; nonlife?: string }>>({});
   const [expanded, setExpanded] = useState<Record<string, boolean>>({});
@@ -350,27 +365,30 @@ export default function DashboardScreen() {
     setSubFilter('all');
   }, [statusFilter]);
 
-  useEffect(() => {
-    if (!data) return;
-    const next: Record<string, Set<string>> = {};
-    const tempPrefill: Record<string, string> = {};
-    const careerPrefill: Record<string, '신입' | '경력'> = {};
-    const schedulePrefill: Record<string, { life?: string; nonlife?: string }> = {};
-    data.forEach((fc) => {
-      const docs = fc.fc_documents?.map((d) => d.doc_type) ?? [];
-      next[fc.id] = new Set(docs);
-      if (fc.temp_id) tempPrefill[fc.id] = fc.temp_id;
-      if (fc.career_type === '경력' || fc.career_type === '신입') careerPrefill[fc.id] = fc.career_type as any;
-      schedulePrefill[fc.id] = {
-        life: fc.appointment_schedule_life ?? '',
-        nonlife: fc.appointment_schedule_nonlife ?? '',
-      };
-    });
-    setDocSelections(next);
-    setTempInputs((prev) => ({ ...tempPrefill, ...prev }));
-    setCareerInputs((prev) => ({ ...careerPrefill, ...prev }));
-    setScheduleInputs((prev) => ({ ...schedulePrefill, ...prev }));
-  }, [data]);
+    useEffect(() => {
+      if (!data) return;
+      const next: Record<string, Set<string>> = {};
+      const tempPrefill: Record<string, string> = {};
+      const careerPrefill: Record<string, '신입' | '경력'> = {};
+      const schedulePrefill: Record<string, { life?: string; nonlife?: string }> = {};
+      const deadlinePrefill: Record<string, string> = {};
+      data.forEach((fc) => {
+        const docs = fc.fc_documents?.map((d) => d.doc_type) ?? [];
+        next[fc.id] = new Set(docs);
+        if (fc.temp_id) tempPrefill[fc.id] = fc.temp_id;
+        if (fc.career_type === '경력' || fc.career_type === '신입') careerPrefill[fc.id] = fc.career_type as any;
+        schedulePrefill[fc.id] = {
+          life: fc.appointment_schedule_life ?? '',
+          nonlife: fc.appointment_schedule_nonlife ?? '',
+        };
+        if (fc.docs_deadline_at) deadlinePrefill[fc.id] = fc.docs_deadline_at;
+      });
+      setDocSelections(next);
+      setTempInputs((prev) => ({ ...tempPrefill, ...prev }));
+      setCareerInputs((prev) => ({ ...careerPrefill, ...prev }));
+      setScheduleInputs((prev) => ({ ...schedulePrefill, ...prev }));
+      setDocDeadlineInputs((prev) => ({ ...deadlinePrefill, ...prev }));
+    }, [data]);
 
   const onRefresh = useCallback(async () => {
     setRefreshing(true);
@@ -470,25 +488,50 @@ export default function DashboardScreen() {
     onError: (err: any) => Alert.alert('요청 실패', err.message ?? '요청 처리 중 문제가 발생했습니다.'),
   });
 
-  const updateDocReqs = useMutation({
-    mutationFn: async ({ id, types, phone }: { id: string; types: string[]; phone?: string }) => {
-      const uniqueTypes = Array.from(new Set(types));
+    const updateDocReqs = useMutation({
+      mutationFn: async ({
+        id,
+        types,
+        phone,
+        deadline,
+        currentDeadline,
+      }: {
+        id: string;
+        types: string[];
+        phone?: string;
+        deadline?: string;
+        currentDeadline?: string | null;
+      }) => {
+        const uniqueTypes = Array.from(new Set(types));
+        const normalizedDeadline = normalizeDateInput(deadline);
+        const deadlineTrimmed = (deadline ?? '').trim();
+        if (deadlineTrimmed && !normalizedDeadline) {
+          throw new Error('마감일은 YYYY-MM-DD 형식으로 입력해주세요.');
+        }
+        const shouldResetNotify = normalizedDeadline !== (currentDeadline ?? null);
 
-      const { data: currentDocs, error: fetchErr } = await supabase
-        .from('fc_documents')
-        .select('doc_type,storage_path')
-        .eq('fc_id', id);
-      if (fetchErr) throw fetchErr;
+        const { data: currentDocs, error: fetchErr } = await supabase
+          .from('fc_documents')
+          .select('doc_type,storage_path')
+          .eq('fc_id', id);
+        if (fetchErr) throw fetchErr;
 
-      const currentTypes = currentDocs?.map((d) => d.doc_type) ?? [];
-      const selectedSet = new Set(uniqueTypes);
+        const currentTypes = currentDocs?.map((d) => d.doc_type) ?? [];
+        const selectedSet = new Set(uniqueTypes);
 
-      if (uniqueTypes.length === 0) {
-        const { error: delAllErr } = await supabase.from('fc_documents').delete().eq('fc_id', id);
-        if (delAllErr) throw delAllErr;
-        await supabase.from('fc_profiles').update({ status: 'allowance-consented' }).eq('id', id);
-        return;
-      }
+        if (uniqueTypes.length === 0) {
+          const { error: delAllErr } = await supabase.from('fc_documents').delete().eq('fc_id', id);
+          if (delAllErr) throw delAllErr;
+          await supabase
+            .from('fc_profiles')
+            .update({
+              status: 'allowance-consented',
+              docs_deadline_at: null,
+              docs_deadline_last_notified_at: null,
+            })
+            .eq('id', id);
+          return;
+        }
 
       const toDelete =
         currentDocs?.filter(
@@ -518,9 +561,15 @@ export default function DashboardScreen() {
         if (insertErr) throw insertErr;
       }
 
-      if (hasChanges) {
-        await supabase.from('fc_profiles').update({ status: 'docs-requested' }).eq('id', id);
-        if (phone) {
+        const profileUpdate: Record<string, string | null> = {
+          docs_deadline_at: normalizedDeadline,
+        };
+        if (shouldResetNotify) {
+          profileUpdate.docs_deadline_last_notified_at = null;
+        }
+
+        await supabase.from('fc_profiles').update({ status: 'docs-requested', ...profileUpdate }).eq('id', id);
+        if (hasChanges && phone) {
           await sendNotificationAndPush(
             'fc',
             phone,
@@ -529,8 +578,7 @@ export default function DashboardScreen() {
             '/docs-upload',
           );
         }
-      }
-    },
+      },
     onSuccess: () => {
       Alert.alert('저장 완료', '필수 서류 목록이 수정되었습니다.');
       refetch();
@@ -1227,26 +1275,39 @@ export default function DashboardScreen() {
 
             {/* Document Request UI */}
             <View style={{ marginBottom: 16 }}>
-              <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: 8, alignItems: 'center' }}>
-                <Text style={{ fontSize: 13, fontWeight: '600', color: CHARCOAL }}>필수 서류 요청</Text>
-                <Pressable
-                  style={[styles.docSaveButton, updateDocReqs.isPending && styles.actionButtonDisabled]}
-                  onPress={() =>
-                    updateDocReqs.mutate({
-                      id: fc.id,
-                      types: Array.from(docSelections[fc.id] ?? new Set<string>()),
-                      phone: fc.phone,
-                    })
-                  }
-                  disabled={updateDocReqs.isPending}
-                >
-                  <Text style={styles.docSaveButtonText}>
-                    {updateDocReqs.isPending ? '저장중...' : '요청 저장'}
-                  </Text>
-                </Pressable>
-              </View>
+                <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: 8, alignItems: 'center' }}>
+                  <Text style={{ fontSize: 13, fontWeight: '600', color: CHARCOAL }}>필수 서류 요청</Text>
+                  <Pressable
+                    style={[styles.docSaveButton, updateDocReqs.isPending && styles.actionButtonDisabled]}
+                    onPress={() =>
+                      updateDocReqs.mutate({
+                        id: fc.id,
+                        types: Array.from(docSelections[fc.id] ?? new Set<string>()),
+                        phone: fc.phone,
+                        deadline: docDeadlineInputs[fc.id],
+                        currentDeadline: fc.docs_deadline_at ?? null,
+                      })
+                    }
+                    disabled={updateDocReqs.isPending}
+                  >
+                    <Text style={styles.docSaveButtonText}>
+                      {updateDocReqs.isPending ? '저장중...' : '요청 저장'}
+                    </Text>
+                  </Pressable>
+                </View>
 
-              <View style={styles.docChips}>
+                <View style={{ flexDirection: 'row', gap: 8, alignItems: 'center', marginBottom: 8 }}>
+                  <Text style={{ fontSize: 12, color: MUTED, minWidth: 70 }}>서류 마감일</Text>
+                  <TextInput
+                    style={[styles.miniInput, { flex: 1, backgroundColor: '#fff' }]}
+                    placeholder="YYYY-MM-DD"
+                    placeholderTextColor="#9CA3AF"
+                    value={docDeadlineInputs[fc.id] ?? ''}
+                    onChangeText={(text) => setDocDeadlineInputs((prev) => ({ ...prev, [fc.id]: text }))}
+                  />
+                </View>
+
+                <View style={styles.docChips}>
                 {ALL_DOC_OPTIONS.map((doc) => {
                   const isSelected = docSelections[fc.id]?.has(doc);
                   const isSubmitted = submittedDocTypes.has(doc);
@@ -1632,24 +1693,36 @@ export default function DashboardScreen() {
             </View>
 
             <View style={styles.editRowVertical}>
-              <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: 8, alignItems: 'center' }}>
-                <Text style={styles.editLabel}>필수 서류</Text>
-                <Pressable
-                  onPress={() =>
-                    updateDocReqs.mutate({
-                      id: fc.id,
-                      types: Array.from(docSelections[fc.id] ?? new Set<string>()),
-                      phone: fc.phone,
-                    })
-                  }
-                  disabled={updateDocReqs.isPending}
-                >
-                  <Text style={{ color: ORANGE, fontWeight: '700', fontSize: 13 }}>
-                    {updateDocReqs.isPending ? '저장중...' : '적용 저장'}
-                  </Text>
-                </Pressable>
-              </View>
-              {(() => {
+                <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: 8, alignItems: 'center' }}>
+                  <Text style={styles.editLabel}>필수 서류</Text>
+                  <Pressable
+                    onPress={() =>
+                      updateDocReqs.mutate({
+                        id: fc.id,
+                        types: Array.from(docSelections[fc.id] ?? new Set<string>()),
+                        phone: fc.phone,
+                        deadline: docDeadlineInputs[fc.id],
+                        currentDeadline: fc.docs_deadline_at ?? null,
+                      })
+                    }
+                    disabled={updateDocReqs.isPending}
+                  >
+                    <Text style={{ color: ORANGE, fontWeight: '700', fontSize: 13 }}>
+                      {updateDocReqs.isPending ? '저장중...' : '적용 저장'}
+                    </Text>
+                  </Pressable>
+                </View>
+                <View style={{ flexDirection: 'row', gap: 8, alignItems: 'center', marginBottom: 8 }}>
+                  <Text style={{ fontSize: 12, color: MUTED, minWidth: 70 }}>서류 마감일</Text>
+                  <TextInput
+                    style={[styles.miniInput, { flex: 1, backgroundColor: '#fff' }]}
+                    placeholder="YYYY-MM-DD"
+                    placeholderTextColor="#9CA3AF"
+                    value={docDeadlineInputs[fc.id] ?? ''}
+                    onChangeText={(text) => setDocDeadlineInputs((prev) => ({ ...prev, [fc.id]: text }))}
+                  />
+                </View>
+                {(() => {
                 const submittedDocTypes = new Set(
                   (fc.fc_documents ?? [])
                     .filter((d) => d.storage_path && d.storage_path !== 'deleted')

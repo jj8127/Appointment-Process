@@ -158,13 +158,16 @@ export default function AdminNoticeScreen() {
         .select('expo_push_token')
         .eq('role', 'fc');
 
-      const payload =
-        tokens?.map((t: any) => ({
-          to: t.expo_push_token,
-          title: `공지: ${titleText}`,
-          body: bodyText,
-          data: { type: 'notice' },
-        })) ?? [];
+        const payload =
+          tokens?.map((t: any) => ({
+            to: t.expo_push_token,
+            title: `공지: ${titleText}`,
+            body: bodyText,
+            data: { type: 'notice' },
+            sound: 'default',
+            priority: 'high',
+            channelId: 'alerts',
+          })) ?? [];
 
       if (payload.length > 0) {
         await fetch(EXPO_PUSH_URL, {

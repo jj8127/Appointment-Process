@@ -177,6 +177,9 @@ async function sendNotificationAndPush(
         title,
         body,
         data: { type: 'app_event', resident_id: residentId },
+        sound: 'default',
+        priority: 'high',
+        channelId: 'alerts',
       })) ?? [];
 
     if (payload.length) {

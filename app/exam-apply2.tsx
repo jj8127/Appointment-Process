@@ -57,6 +57,9 @@ async function notifyAdmin(title: string, body: string, residentId: string | nul
       title,
       body,
       data: { type: 'exam_apply', resident_id: residentId, url: '/exam-manage2' },
+      sound: 'default',
+      priority: 'high',
+      channelId: 'alerts',
     })) ?? [];
   if (payload.length) {
     await fetch(EXPO_PUSH_URL, {
@@ -88,6 +91,9 @@ async function notifyFcSelf(title: string, body: string, residentId: string) {
       title,
       body,
       data: { type: 'exam_apply', resident_id: residentId, url: '/exam-apply2' },
+      sound: 'default',
+      priority: 'high',
+      channelId: 'alerts',
     })) ?? [];
   if (payload.length) {
     await fetch(EXPO_PUSH_URL, {

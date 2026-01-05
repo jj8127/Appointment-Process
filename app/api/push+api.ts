@@ -20,6 +20,8 @@ export async function POST(request: Request) {
                 title,
                 body: messageBody,
                 data,
+                channelId: 'alerts',
+                priority: 'high',
             },
         ];
 

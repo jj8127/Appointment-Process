@@ -19,6 +19,8 @@ create table if not exists public.fc_profiles (
   allowance_date date,
   appointment_url text,
   appointment_date date,
+  docs_deadline_at date,
+  docs_deadline_last_notified_at date,
   status text not null default 'draft',
   identity_completed boolean not null default false,
   phone_verified boolean not null default false,
@@ -86,6 +88,19 @@ create table if not exists public.device_tokens (
   platform text,
   updated_at timestamptz not null default now(),
   unique (expo_push_token)
+);
+
+create table if not exists public.web_push_subscriptions (
+  id uuid primary key default gen_random_uuid(),
+  resident_id text,
+  role text check (role in ('admin','fc')),
+  endpoint text not null,
+  p256dh text not null,
+  auth text not null,
+  user_agent text,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+  unique (endpoint)
 );
 
 create table if not exists public.notifications (
@@ -188,6 +203,11 @@ create trigger trg_admin_accounts_updated_at
 before update on public.admin_accounts
 for each row execute function public.set_updated_at();
 
+drop trigger if exists trg_web_push_subscriptions_updated_at on public.web_push_subscriptions;
+create trigger trg_web_push_subscriptions_updated_at
+before update on public.web_push_subscriptions
+for each row execute function public.set_updated_at();
+
 drop trigger if exists trg_exam_rounds_updated_at on public.exam_rounds;
 create trigger trg_exam_rounds_updated_at
 before update on public.exam_rounds
@@ -203,6 +223,7 @@ alter table public.fc_documents enable row level security;
 alter table public.fc_identity_secure enable row level security;
 alter table public.fc_credentials enable row level security;
 alter table public.admin_accounts enable row level security;
+alter table public.web_push_subscriptions enable row level security;
 alter table public.notifications enable row level security;
 alter table public.notices enable row level security;
 alter table public.exam_rounds enable row level security;
@@ -258,6 +279,31 @@ create policy "notifications insert"
   on public.notifications
   for insert
   with check (auth.role() in ('authenticated','anon'));
+
+drop policy if exists "web_push_subscriptions select" on public.web_push_subscriptions;
+create policy "web_push_subscriptions select"
+  on public.web_push_subscriptions
+  for select
+  using (auth.role() in ('authenticated','anon'));
+
+drop policy if exists "web_push_subscriptions insert" on public.web_push_subscriptions;
+create policy "web_push_subscriptions insert"
+  on public.web_push_subscriptions
+  for insert
+  with check (auth.role() in ('authenticated','anon'));
+
+drop policy if exists "web_push_subscriptions update" on public.web_push_subscriptions;
+create policy "web_push_subscriptions update"
+  on public.web_push_subscriptions
+  for update
+  using (auth.role() in ('authenticated','anon'))
+  with check (auth.role() in ('authenticated','anon'));
+
+drop policy if exists "web_push_subscriptions delete" on public.web_push_subscriptions;
+create policy "web_push_subscriptions delete"
+  on public.web_push_subscriptions
+  for delete
+  using (auth.role() in ('authenticated','anon'));
 
 drop policy if exists "notices select" on public.notices;
 create policy "notices select"
@@ -379,6 +425,12 @@ alter table public.fc_profiles
 
 alter table public.fc_profiles
   add column if not exists appointment_date date;
+
+alter table public.fc_profiles
+  add column if not exists docs_deadline_at date;
+
+alter table public.fc_profiles
+  add column if not exists docs_deadline_last_notified_at date;
 
 alter table public.fc_profiles
   add column if not exists carrier text;

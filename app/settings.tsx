@@ -1,7 +1,8 @@
 import { Feather } from '@expo/vector-icons';
+import * as Notifications from 'expo-notifications';
 import { router } from 'expo-router';
 import { useState } from 'react';
-import { Alert, Modal, Pressable, StyleSheet, Text, View } from 'react-native';
+import { Alert, Modal, Platform, Pressable, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { useSession } from '@/hooks/use-session';
@@ -11,11 +12,46 @@ const HANWHA_ORANGE = '#f36f21';
 const CHARCOAL = '#111827';
 const TEXT_MUTED = '#6b7280';
 const BORDER = '#e5e7eb';
+const ALERTS_CHANNEL_ID = 'alerts';
 
 export default function SettingsScreen() {
   const { role, residentId, displayName, logout } = useSession();
   const [deleting, setDeleting] = useState(false);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  const [checkingChannels, setCheckingChannels] = useState(false);
+
+  const handleCheckChannels = async () => {
+    if (Platform.OS !== 'android') {
+      Alert.alert('안내', '안드로이드에서만 확인할 수 있습니다.');
+      return;
+    }
+    setCheckingChannels(true);
+    try {
+      const channels = await Notifications.getNotificationChannelsAsync();
+      const alertsChannel = channels.find((channel) => channel.id === ALERTS_CHANNEL_ID);
+      console.log('[notifications] channels', channels);
+      if (!alertsChannel) {
+        Alert.alert('채널 없음', `"${ALERTS_CHANNEL_ID}" 채널이 아직 생성되지 않았습니다.`);
+        return;
+      }
+      Alert.alert(
+        '채널 상태',
+        [
+          `id: ${alertsChannel.id}`,
+          `name: ${alertsChannel.name ?? ''}`,
+          `importance: ${alertsChannel.importance ?? ''}`,
+          `sound: ${alertsChannel.sound ?? ''}`,
+          `vibration: ${alertsChannel.enableVibrate ? 'on' : 'off'}`,
+        ]
+          .filter(Boolean)
+          .join('\n'),
+      );
+    } catch (err: any) {
+      Alert.alert('확인 실패', err?.message ?? '채널 조회 중 오류가 발생했습니다.');
+    } finally {
+      setCheckingChannels(false);
+    }
+  };
 
   const handleDelete = () => {
     if (role !== 'fc') {
@@ -75,6 +111,20 @@ export default function SettingsScreen() {
           >
             <Feather name="trash-2" size={16} color="#fff" />
             <Text style={styles.deleteText}>{deleting ? '삭제 중...' : '계정 삭제'}</Text>
+          </Pressable>
+        </View>
+
+        <View style={styles.card}>
+          <Text style={styles.sectionTitle}>알림 채널</Text>
+          <Text style={styles.sectionText}>알림 채널(중요 알림) 상태를 확인합니다.</Text>
+          <Pressable
+            style={[styles.secondaryButton, checkingChannels && styles.secondaryButtonDisabled]}
+            onPress={handleCheckChannels}
+            disabled={checkingChannels}
+            accessibilityLabel="알림 채널 상태 확인"
+          >
+            <Feather name="bell" size={16} color={CHARCOAL} />
+            <Text style={styles.secondaryText}>{checkingChannels ? '확인 중...' : '채널 상태 확인'}</Text>
           </Pressable>
         </View>
 
@@ -140,6 +190,20 @@ const styles = StyleSheet.create({
   },
   deleteButtonDisabled: { opacity: 0.7 },
   deleteText: { color: '#fff', fontWeight: '700' },
+  secondaryButton: {
+    marginTop: 6,
+    backgroundColor: '#F9FAFB',
+    paddingVertical: 12,
+    borderRadius: 12,
+    flexDirection: 'row',
+    justifyContent: 'center',
+    alignItems: 'center',
+    gap: 8,
+    borderWidth: 1,
+    borderColor: BORDER,
+  },
+  secondaryButtonDisabled: { opacity: 0.7 },
+  secondaryText: { color: CHARCOAL, fontWeight: '700' },
   logoutButton: {
     marginTop: 8,
     paddingVertical: 12,

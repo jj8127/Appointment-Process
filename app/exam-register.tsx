@@ -46,6 +46,9 @@ async function notifyAllFcs(title: string, body: string) {
       title,
       body,
       data: { type: 'exam_round', url: '/exam-apply' },
+      sound: 'default',
+      priority: 'high',
+      channelId: 'alerts',
     })) ?? [];
   if (payload.length) {
     await fetch(EXPO_PUSH_URL, {
