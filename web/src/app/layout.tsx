@@ -8,6 +8,7 @@ import '@mantine/core/styles.css';
 import '@mantine/notifications/styles.css';
 import './globals.css';
 import { SessionProvider } from '@/hooks/use-session';
+import { WebPushRegistrar } from '@/components/WebPushRegistrar';
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   const [queryClient] = useState(() => new QueryClient());
@@ -27,7 +28,10 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         >
           <Notifications position="top-right" />
           <QueryClientProvider client={queryClient}>
-            <SessionProvider>{children}</SessionProvider>
+            <SessionProvider>
+              <WebPushRegistrar />
+              {children}
+            </SessionProvider>
           </QueryClientProvider>
         </MantineProvider>
       </body>
