@@ -30,6 +30,8 @@ import { useDisclosure } from '@mantine/hooks';
 import {
   IconCalendar,
   IconCheck,
+  IconChevronLeft,
+  IconChevronRight,
   IconDeviceFloppy,
   IconEdit,
   IconFileText,
@@ -1332,6 +1334,31 @@ export default function DashboardPage() {
                             placeholder="YYYY-MM-DD"
                             valueFormat="YYYY-MM-DD"
                             clearable
+                            size="sm"
+                            leftSection={<IconCalendar size={16} />}
+                            previousIcon={<IconChevronLeft size={16} />}
+                            nextIcon={<IconChevronRight size={16} />}
+                            popoverProps={{ withinPortal: true, shadow: 'md', position: 'bottom-start' }}
+                            styles={{
+                              calendarHeaderControl: { width: 32, height: 32 },
+                              calendarHeaderControlIcon: { width: 14, height: 14 },
+                              calendarHeaderLevel: { fontSize: 14, fontWeight: 700 },
+                              calendarHeader: { gap: 6 },
+                              weekday: {
+                                fontSize: 12,
+                                fontWeight: 700,
+                                textAlign: 'center',
+                                width: 36,
+                              },
+                              day: {
+                                width: 36,
+                                height: 36,
+                                fontSize: 13,
+                                fontWeight: 600,
+                                textAlign: 'center',
+                              },
+                              monthCell: { padding: 4 },
+                            }}
                           />
                       </Box>
                       {(() => {
