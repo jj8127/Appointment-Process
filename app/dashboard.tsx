@@ -1,6 +1,7 @@
 import { MobileStatusToggle } from '@/components/MobileStatusToggle';
 import { RefreshButton } from '@/components/RefreshButton';
 import { Feather, Ionicons } from '@expo/vector-icons';
+import DateTimePicker, { type DateTimePickerEvent } from '@react-native-community/datetimepicker';
 import { useMutation, useQuery } from '@tanstack/react-query';
 import * as Haptics from 'expo-haptics';
 import { useLocalSearchParams, useRouter } from 'expo-router';
@@ -48,6 +49,20 @@ const CHARCOAL = '#111827';
 const MUTED = '#6b7280';
 const BORDER = '#E5E7EB';
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
+const weekdays = ['일', '월', '화', '수', '목', '금', '토'];
+
+const formatKoreanDate = (d: Date) =>
+  `${d.getFullYear()}년 ${d.getMonth() + 1}월 ${d.getDate()}일 (${weekdays[d.getDay()]})`;
+
+const toYmd = (d: Date) =>
+  `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+
+const parseYmd = (value?: string | null) => {
+  if (!value) return null;
+  const date = new Date(`${value}T00:00:00`);
+  if (Number.isNaN(date.getTime())) return null;
+  return date;
+};
 
 const STATUS_LABELS: Record<FcProfile['status'], string> = {
   draft: '임시사번 미발급',
@@ -297,6 +312,8 @@ export default function DashboardScreen() {
   const [editMode, setEditMode] = useState<Record<string, boolean>>({});
   const [docSelections, setDocSelections] = useState<Record<string, Set<string>>>({});
   const [docDeadlineInputs, setDocDeadlineInputs] = useState<Record<string, string>>({});
+  const [docDeadlinePickerId, setDocDeadlinePickerId] = useState<string | null>(null);
+  const [docDeadlineTempDate, setDocDeadlineTempDate] = useState<Date | null>(null);
   const [customDocInputs, setCustomDocInputs] = useState<Record<string, string>>({});
   const [scheduleInputs, setScheduleInputs] = useState<Record<string, { life?: string; nonlife?: string }>>({});
   const [expanded, setExpanded] = useState<Record<string, boolean>>({});
@@ -1322,14 +1339,42 @@ export default function DashboardScreen() {
 
                 <View style={{ flexDirection: 'row', gap: 8, alignItems: 'center', marginBottom: 8 }}>
                   <Text style={{ fontSize: 12, color: MUTED, minWidth: 70 }}>서류 마감일</Text>
-                  <TextInput
-                    style={[styles.miniInput, { flex: 1, backgroundColor: '#fff' }]}
-                    placeholder="YYYY-MM-DD"
-                    placeholderTextColor="#9CA3AF"
-                    value={docDeadlineInputs[fc.id] ?? ''}
-                    onChangeText={(text) => setDocDeadlineInputs((prev) => ({ ...prev, [fc.id]: text }))}
-                  />
+                  <Pressable
+                    style={[styles.dateSelectButton, { flex: 1 }]}
+                    onPress={() => {
+                      const baseDate = parseYmd(docDeadlineInputs[fc.id]) ?? new Date();
+                      setDocDeadlineTempDate(baseDate);
+                      setDocDeadlinePickerId(fc.id);
+                    }}
+                  >
+                    <Text
+                      style={[
+                        styles.dateSelectText,
+                        !docDeadlineInputs[fc.id] && styles.dateSelectPlaceholder,
+                      ]}
+                    >
+                      {docDeadlineInputs[fc.id]
+                        ? formatKoreanDate(parseYmd(docDeadlineInputs[fc.id]) ?? new Date())
+                        : '날짜를 선택하세요'}
+                    </Text>
+                    <Feather name="calendar" size={16} color={MUTED} />
+                  </Pressable>
                 </View>
+                {Platform.OS !== 'ios' && docDeadlinePickerId === fc.id && (
+                  <DateTimePicker
+                    value={parseYmd(docDeadlineInputs[fc.id]) ?? new Date()}
+                    mode="date"
+                    display="default"
+                    locale="ko-KR"
+                    onChange={(event: DateTimePickerEvent, selectedDate?: Date) => {
+                      setDocDeadlinePickerId(null);
+                      if (event.type === 'dismissed') return;
+                      if (selectedDate) {
+                        setDocDeadlineInputs((prev) => ({ ...prev, [fc.id]: toYmd(selectedDate) }));
+                      }
+                    }}
+                  />
+                )}
 
                 <View style={styles.docChips}>
                 {ALL_DOC_OPTIONS.map((doc) => {
@@ -1738,14 +1783,42 @@ export default function DashboardScreen() {
                 </View>
                 <View style={{ flexDirection: 'row', gap: 8, alignItems: 'center', marginBottom: 8 }}>
                   <Text style={{ fontSize: 12, color: MUTED, minWidth: 70 }}>서류 마감일</Text>
-                  <TextInput
-                    style={[styles.miniInput, { flex: 1, backgroundColor: '#fff' }]}
-                    placeholder="YYYY-MM-DD"
-                    placeholderTextColor="#9CA3AF"
-                    value={docDeadlineInputs[fc.id] ?? ''}
-                    onChangeText={(text) => setDocDeadlineInputs((prev) => ({ ...prev, [fc.id]: text }))}
-                  />
+                  <Pressable
+                    style={[styles.dateSelectButton, { flex: 1 }]}
+                    onPress={() => {
+                      const baseDate = parseYmd(docDeadlineInputs[fc.id]) ?? new Date();
+                      setDocDeadlineTempDate(baseDate);
+                      setDocDeadlinePickerId(fc.id);
+                    }}
+                  >
+                    <Text
+                      style={[
+                        styles.dateSelectText,
+                        !docDeadlineInputs[fc.id] && styles.dateSelectPlaceholder,
+                      ]}
+                    >
+                      {docDeadlineInputs[fc.id]
+                        ? formatKoreanDate(parseYmd(docDeadlineInputs[fc.id]) ?? new Date())
+                        : '날짜를 선택하세요'}
+                    </Text>
+                    <Feather name="calendar" size={16} color={MUTED} />
+                  </Pressable>
                 </View>
+                {Platform.OS !== 'ios' && docDeadlinePickerId === fc.id && (
+                  <DateTimePicker
+                    value={parseYmd(docDeadlineInputs[fc.id]) ?? new Date()}
+                    mode="date"
+                    display="default"
+                    locale="ko-KR"
+                    onChange={(event: DateTimePickerEvent, selectedDate?: Date) => {
+                      setDocDeadlinePickerId(null);
+                      if (event.type === 'dismissed') return;
+                      if (selectedDate) {
+                        setDocDeadlineInputs((prev) => ({ ...prev, [fc.id]: toYmd(selectedDate) }));
+                      }
+                    }}
+                  />
+                )}
                 {(() => {
                 const submittedDocTypes = new Set(
                   (fc.fc_documents ?? [])
@@ -1973,7 +2046,7 @@ export default function DashboardScreen() {
             transparent
             animationType="fade"
             onRequestClose={() => setDeleteModalVisible(false)}
-        >
+          >
           <KeyboardAvoidingView
             behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
             style={{ flex: 1 }}
@@ -2015,10 +2088,61 @@ export default function DashboardScreen() {
                 </View>
               </Pressable>
             </Pressable>
-          </KeyboardAvoidingView>
-        </Modal>
+            </KeyboardAvoidingView>
+          </Modal>
 
-        <View style={styles.headerContainer}>
+          {Platform.OS === 'ios' && (
+            <Modal
+              visible={Boolean(docDeadlinePickerId)}
+              transparent
+              animationType="fade"
+              onRequestClose={() => setDocDeadlinePickerId(null)}
+            >
+              <KeyboardAvoidingView
+                behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+                style={{ flex: 1 }}
+              >
+                <Pressable style={styles.modalOverlay} onPress={() => setDocDeadlinePickerId(null)}>
+                  <Pressable style={styles.modalContent} onPress={(e) => e.stopPropagation()}>
+                    <Text style={styles.modalTitle}>서류 마감일 선택</Text>
+                    <DateTimePicker
+                      value={docDeadlineTempDate ?? new Date()}
+                      mode="date"
+                      display="spinner"
+                      locale="ko-KR"
+                      onChange={(_, d) => {
+                        if (d) setDocDeadlineTempDate(d);
+                      }}
+                    />
+                    <View style={styles.modalButtons}>
+                      <Pressable
+                        style={[styles.modalBtn, styles.modalBtnCancel]}
+                        onPress={() => setDocDeadlinePickerId(null)}
+                      >
+                        <Text style={styles.modalBtnTextCancel}>취소</Text>
+                      </Pressable>
+                      <Pressable
+                        style={[styles.modalBtn, styles.modalBtnConfirm]}
+                        onPress={() => {
+                          if (docDeadlinePickerId && docDeadlineTempDate) {
+                            setDocDeadlineInputs((prev) => ({
+                              ...prev,
+                              [docDeadlinePickerId]: toYmd(docDeadlineTempDate),
+                            }));
+                          }
+                          setDocDeadlinePickerId(null);
+                        }}
+                      >
+                        <Text style={styles.modalBtnTextConfirm}>확인</Text>
+                      </Pressable>
+                    </View>
+                  </Pressable>
+                </Pressable>
+              </KeyboardAvoidingView>
+            </Modal>
+          )}
+
+          <View style={styles.headerContainer}>
           <View style={styles.headerTop}>
             <Text style={styles.headerTitle}>현황 대시보드</Text>
             <RefreshButton onPress={() => { refetch(); }} />
@@ -2494,6 +2618,19 @@ const styles = StyleSheet.create({
     fontSize: 13,
     backgroundColor: '#fff',
   },
+  dateSelectButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    height: 40,
+    borderWidth: 1,
+    borderColor: '#E5E7EB',
+    borderRadius: 8,
+    paddingHorizontal: 10,
+    backgroundColor: '#fff',
+  },
+  dateSelectText: { fontSize: 13, color: CHARCOAL, fontWeight: '600' },
+  dateSelectPlaceholder: { color: '#9CA3AF', fontWeight: '500' },
   saveButton: {
     backgroundColor: CHARCOAL,
     paddingHorizontal: 14,
@@ -2746,6 +2883,8 @@ const styles = StyleSheet.create({
   },
   modalBtnCancel: { backgroundColor: '#F3F4F6' },
   modalBtnDelete: { backgroundColor: '#ef4444' },
+  modalBtnConfirm: { backgroundColor: ORANGE },
   modalBtnTextCancel: { fontSize: 15, fontWeight: '600', color: '#4b5563' },
   modalBtnTextDelete: { fontSize: 15, fontWeight: '600', color: '#fff' },
+  modalBtnTextConfirm: { fontSize: 15, fontWeight: '600', color: '#fff' },
 });
