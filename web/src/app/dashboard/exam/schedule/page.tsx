@@ -550,7 +550,11 @@ export default function ExamSchedulePage() {
                                     leftSection={<IconCalendar size={16} />}
                                     value={form.values.exam_date}
                                     onChange={(value) => {
-                                        if (value) form.setFieldValue('exam_date', value);
+                                        if (!value) return;
+                                        const nextValue = value instanceof Date ? value : new Date(value);
+                                        if (!Number.isNaN(nextValue.getTime())) {
+                                            form.setFieldValue('exam_date', nextValue);
+                                        }
                                     }}
                                     locale="ko"
                                     monthLabelFormat="YYYY년 M월"
@@ -599,7 +603,11 @@ export default function ExamSchedulePage() {
                                     leftSection={<IconCalendar size={16} />}
                                     value={form.values.registration_deadline}
                                     onChange={(value) => {
-                                        if (value) form.setFieldValue('registration_deadline', value);
+                                        if (!value) return;
+                                        const nextValue = value instanceof Date ? value : new Date(value);
+                                        if (!Number.isNaN(nextValue.getTime())) {
+                                            form.setFieldValue('registration_deadline', nextValue);
+                                        }
                                     }}
                                     locale="ko"
                                     monthLabelFormat="YYYY년 M월"
