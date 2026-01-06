@@ -78,6 +78,14 @@ export default function DashboardPage() {
   const [selectedDocs, setSelectedDocs] = useState<string[]>([]);
   const [customDocInput, setCustomDocInput] = useState('');
   const [docsDeadlineInput, setDocsDeadlineInput] = useState<Date | null>(null);
+  const handleDocsDeadlineChange = (value: string | null) => {
+    if (!value) {
+      setDocsDeadlineInput(null);
+      return;
+    }
+    const nextValue = new Date(value);
+    setDocsDeadlineInput(Number.isNaN(nextValue.getTime()) ? null : nextValue);
+  };
 
   // 위촉 일정 및 승인 상태
   const [appointmentInputs, setAppointmentInputs] = useState<{
@@ -1318,13 +1326,13 @@ export default function DashboardPage() {
                         <Text size="xs" c="dimmed" fw={500} mb={6}>
                           서류 마감일 (알림용)
                         </Text>
-                        <DateInput
-                          value={docsDeadlineInput}
-                          onChange={setDocsDeadlineInput}
-                          placeholder="YYYY-MM-DD"
-                          valueFormat="YYYY-MM-DD"
-                          clearable
-                        />
+                          <DateInput
+                            value={docsDeadlineInput}
+                            onChange={handleDocsDeadlineChange}
+                            placeholder="YYYY-MM-DD"
+                            valueFormat="YYYY-MM-DD"
+                            clearable
+                          />
                       </Box>
                       {(() => {
                       const submittedDocTypes = new Set(
