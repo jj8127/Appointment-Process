@@ -47,6 +47,7 @@ type Applicant = {
     location_name: string;
     round_label: string;
     exam_date: string;
+    fee_paid_date?: string | null;
     is_confirmed: boolean;
     is_third_exam?: boolean;
 };
@@ -176,7 +177,7 @@ export default function ExamApplicantsPage() {
             const { data, error } = await supabase
                 .from('exam_registrations')
                 .select(`
-          id, status, created_at, resident_id, is_confirmed, is_third_exam,
+          id, status, created_at, resident_id, is_confirmed, is_third_exam, fee_paid_date,
           exam_locations ( location_name ),
           exam_rounds ( round_label, exam_date )
         `)
@@ -195,6 +196,7 @@ export default function ExamApplicantsPage() {
                 location_name: d.exam_locations?.location_name || '미정',
                 round_label: d.exam_rounds?.round_label || '-',
                 exam_date: d.exam_rounds?.exam_date,
+                fee_paid_date: d.fee_paid_date ?? null,
             })) as Applicant[];
 
             const phones = Array.from(new Set(base.map((b) => b.resident_id).filter(Boolean)));
@@ -223,6 +225,7 @@ export default function ExamApplicantsPage() {
     // Calculate display values for filtering and rendering
     const getRowValue = (item: Applicant, field: string) => {
         if (field === 'round_info') return `${dayjs(item.exam_date).format('YYYY-MM-DD')} (${item.round_label})`;
+        if (field === 'fee_paid_date') return item.fee_paid_date ? dayjs(item.fee_paid_date).format('YYYY-MM-DD') : '-';
         if (field === 'is_confirmed') return item.is_confirmed ? '접수 완료' : '미접수';
         if (field === 'subject_display') {
             const label = item.round_label || '';
@@ -247,7 +250,7 @@ export default function ExamApplicantsPage() {
 
     const filterOptions = useMemo(() => {
         if (!applicants) return {};
-        const fields = ['round_info', 'name', 'phone', 'affiliation', 'address', 'location_name', 'is_confirmed', 'subject_display'];
+        const fields = ['round_info', 'name', 'phone', 'affiliation', 'address', 'location_name', 'fee_paid_date', 'is_confirmed', 'subject_display'];
         const options: Record<string, string[]> = {};
 
         fields.forEach(field => {
@@ -312,7 +315,7 @@ export default function ExamApplicantsPage() {
             return;
         }
 
-        const headers = ['시험 구분', '이름', '연락처', '소속', '주소', '주민번호', '시험 응시 과목', '고사장', '상태', '신청일'];
+        const headers = ['시험 구분', '이름', '연락처', '소속', '주소', '주민번호', '시험 응시 과목', '고사장', '응시료 납입일', '상태', '신청일'];
         const asExcelText = (value: string) => `="${String(value).replace(/"/g, '""')}"`;
         const pRows = filteredRows.map(a => [
             getRowValue(a, 'round_info'),
@@ -323,6 +326,7 @@ export default function ExamApplicantsPage() {
             asExcelText(a.resident_id),
             getRowValue(a, 'subject_display'), // New Subject Column
             a.location_name,
+            a.fee_paid_date ? dayjs(a.fee_paid_date).format('YYYY-MM-DD') : '-',
             a.is_confirmed ? '접수 완료' : '미접수',
             asExcelText(dayjs(a.created_at).format('YYYY-MM-DD HH:mm'))
         ]);
@@ -418,12 +422,13 @@ export default function ExamApplicantsPage() {
                                     {renderHeader('주소', 'address')}
                                     {renderHeader('전화번호', 'phone')}
                                     {renderHeader('고사장', 'location_name')}
+                                    {renderHeader('응시료 납입일', 'fee_paid_date')}
                                     {renderHeader('상태', 'is_confirmed')}
                                 </Table.Tr>
                             </Table.Thead>
                             <Table.Tbody>
                                 {isLoading ? (
-                                    <Table.Tr><Table.Td colSpan={9} align="center" py={80}><Loader color="orange" type="dots" /></Table.Td></Table.Tr>
+                                    <Table.Tr><Table.Td colSpan={10} align="center" py={80}><Loader color="orange" type="dots" /></Table.Td></Table.Tr>
                                 ) : filteredRows.length > 0 ? (
                                     filteredRows.map((item) => (
                                         <Table.Tr key={item.id}>
@@ -451,6 +456,9 @@ export default function ExamApplicantsPage() {
                                             <Table.Td><Text size="sm">{item.phone}</Text></Table.Td>
                                             <Table.Td><Text size="sm">{item.location_name}</Text></Table.Td>
                                             <Table.Td>
+                                                <Text size="sm">{item.fee_paid_date ? dayjs(item.fee_paid_date).format('YYYY-MM-DD') : '-'}</Text>
+                                            </Table.Td>
+                                            <Table.Td>
                                                 <SegmentedControl
                                                     size="xs"
                                                     radius="xl"
@@ -472,7 +480,7 @@ export default function ExamApplicantsPage() {
                                         </Table.Tr>
                                     ))
                                 ) : (
-                                    <Table.Tr><Table.Td colSpan={9} align="center" py={80} c="dimmed">
+                                    <Table.Tr><Table.Td colSpan={10} align="center" py={80} c="dimmed">
                                         <Stack align="center" gap="xs">
                                             <IconSearch size={40} color="#dee2e6" />
                                             <Text>데이터가 없습니다.</Text>

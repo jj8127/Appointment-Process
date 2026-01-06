@@ -432,7 +432,10 @@ export default function DocsUploadScreen() {
                   <Text style={{ color: CHARCOAL, fontWeight: '800' }}>{Math.round(progressPercent)}%</Text>
                 </Text>
                 {fc?.docs_deadline_at ? (
-                  <Text style={styles.deadlineText}>서류 마감일: {fc.docs_deadline_at}</Text>
+                  <View style={styles.deadlineBadge}>
+                    <Text style={styles.deadlineBadgeLabel}>마감일</Text>
+                    <Text style={styles.deadlineBadgeValue}>{fc.docs_deadline_at}</Text>
+                  </View>
                 ) : null}
               </View>
             <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
@@ -644,7 +647,21 @@ const styles = StyleSheet.create({
   },
   headerTitle: { fontSize: 22, fontWeight: '800', color: CHARCOAL },
   headerSub: { fontSize: 13, color: MUTED, marginTop: 4 },
-  deadlineText: { fontSize: 12, color: '#B45309', marginTop: 6, fontWeight: '700' },
+  deadlineBadge: {
+    marginTop: 8,
+    alignSelf: 'flex-start',
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 999,
+    borderWidth: 1,
+    borderColor: '#FDBA74',
+    backgroundColor: '#FFF7ED',
+  },
+  deadlineBadgeLabel: { fontSize: 11, fontWeight: '800', color: '#9A3412', letterSpacing: 0.2 },
+  deadlineBadgeValue: { fontSize: 13, fontWeight: '800', color: '#C2410C' },
   headerCountRight: { fontSize: 20, fontWeight: '700', color: MUTED },
 
   progressTrack: {

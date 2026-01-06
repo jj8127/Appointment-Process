@@ -1,4 +1,5 @@
 import { Feather } from '@expo/vector-icons';
+import DateTimePicker, { type DateTimePickerEvent } from '@react-native-community/datetimepicker';
 import { useMutation, useQuery } from '@tanstack/react-query';
 import * as Haptics from 'expo-haptics';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -6,15 +7,16 @@ import { router } from 'expo-router';
 import { AnimatePresence, MotiView } from 'moti';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
-    ActivityIndicator,
-    Alert,
-    Platform,
-    Pressable,
-    RefreshControl,
-    ScrollView,
-    StyleSheet,
-    Text,
-    View,
+  ActivityIndicator,
+  Alert,
+  Modal,
+  Platform,
+  Pressable,
+  RefreshControl,
+  ScrollView,
+  StyleSheet,
+  Text,
+  View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
@@ -32,6 +34,11 @@ const MUTED = '#6b7280';
 const BORDER = '#e5e7eb';
 const SOFT_BG = '#F9FAFB';
 const ORANGE_FAINT = '#fff1e6';
+const weekdays = ['일', '월', '화', '수', '목', '금', '토'];
+const formatKoreanDate = (d: Date) =>
+  `${d.getFullYear()}년 ${d.getMonth() + 1}월 ${d.getDate()}일 (${weekdays[d.getDay()]})`;
+const toYmd = (d: Date) =>
+  `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 const CARD_SHADOW = {
   shadowColor: '#000',
   shadowOpacity: 0.05,
@@ -180,6 +187,9 @@ export default function ExamApplyScreen() {
   const [selectedRoundId, setSelectedRoundId] = useState<string | null>(null);
   const [selectedLocationId, setSelectedLocationId] = useState<string | null>(null);
   const [wantsThird, setWantsThird] = useState(false);
+  const [feePaidDate, setFeePaidDate] = useState<Date | null>(null);
+  const [showFeePaidPicker, setShowFeePaidPicker] = useState(false);
+  const [tempFeePaidDate, setTempFeePaidDate] = useState<Date | null>(null);
   const [refreshing, setRefreshing] = useState(false);
 
   useEffect(() => {
@@ -305,6 +315,8 @@ export default function ExamApplyScreen() {
       setSelectedLocationId(null);
       setWantsThird(false);
     }
+    setFeePaidDate(null);
+    setTempFeePaidDate(null);
   }, [myLastApply]);
 
   const onRefresh = useCallback(async () => {
@@ -326,6 +338,9 @@ export default function ExamApplyScreen() {
       }
       if (!selectedRoundId || !selectedLocationId) {
         throw new Error('시험 일정과 응시 지역을 모두 선택해주세요.');
+      }
+      if (!feePaidDate) {
+        throw new Error('응시료 납입 일자를 입력해주세요.');
       }
 
       if (isConfirmed) {
@@ -350,6 +365,7 @@ export default function ExamApplyScreen() {
             status: 'applied',
             is_confirmed: false,
             is_third_exam: wantsThird,
+            fee_paid_date: toYmd(feePaidDate),
           })
           .eq('id', myLastApply.id);
 
@@ -362,6 +378,7 @@ export default function ExamApplyScreen() {
           status: 'applied',
           is_confirmed: false,
           is_third_exam: wantsThird,
+          fee_paid_date: toYmd(feePaidDate),
         });
 
         if (error) throw error;
@@ -514,10 +531,12 @@ export default function ExamApplyScreen() {
                     {myLastApply.exam_locations?.location_name ?? '-'}
                   </Text>
                 </View>
-                <View style={styles.statusRow}>
-                  <Text style={styles.statusLabel}>제3보험</Text>
-                  <Text style={styles.statusValue}>{myLastApply.is_third_exam ? '신청함' : '미신청'}</Text>
-                </View>
+                  <View style={styles.statusRow}>
+                    <Text style={styles.statusLabel}>신청 과목</Text>
+                    <Text style={styles.statusValue}>
+                      {myLastApply.is_third_exam ? '손해, 제3' : '손해'}
+                    </Text>
+                  </View>
                 <View style={styles.statusDivider} />
                 <View style={styles.statusRow}>
                   <Text style={styles.statusLabel}>상태</Text>
@@ -654,7 +673,7 @@ export default function ExamApplyScreen() {
           </View>
 
           <View style={styles.section}>
-            <Text style={styles.sectionHeader}>✅ 최종 확인</Text>
+            <Text style={styles.sectionHeader}>✅ 응시 과목</Text>
 
             <Pressable
               style={[styles.toggleCard, wantsThird && styles.toggleCardActive]}
@@ -680,6 +699,38 @@ export default function ExamApplyScreen() {
               </View>
             </Pressable>
 
+            <View style={styles.inputGroup}>
+              <Text style={styles.sectionHeader}>📅 응시료 납입 일자</Text>
+              <Text style={styles.inputHint}>접수비 반환을 위해 입금 날짜를 반드시 입력해주세요.</Text>
+              <Pressable
+                style={styles.dateInput}
+                onPress={() => {
+                  setTempFeePaidDate(feePaidDate ?? new Date());
+                  setShowFeePaidPicker(true);
+                }}
+              >
+                <Text style={[styles.dateInputText, !feePaidDate && styles.dateInputPlaceholder]}>
+                  {feePaidDate ? formatKoreanDate(feePaidDate) : '날짜를 선택해주세요'}
+                </Text>
+                <Feather name="calendar" size={18} color={MUTED} />
+              </Pressable>
+              {showFeePaidPicker && Platform.OS !== 'ios' && (
+                <DateTimePicker
+                  value={feePaidDate ?? new Date()}
+                  mode="date"
+                  display="default"
+                  locale="ko-KR"
+                  onChange={(event: DateTimePickerEvent, selectedDate?: Date) => {
+                    setShowFeePaidPicker(false);
+                    if (event.type === 'dismissed') {
+                      return;
+                    }
+                    if (selectedDate) setFeePaidDate(selectedDate);
+                  }}
+                />
+              )}
+            </View>
+
             <View style={styles.actionButtons}>
               <Pressable
                 onPress={() => {
@@ -693,6 +744,7 @@ export default function ExamApplyScreen() {
                   applyMutation.isPending ||
                   !selectedRoundId ||
                   !selectedLocationId ||
+                  !feePaidDate ||
                   isSelectedRoundClosed ||
                   isConfirmed
                 }
@@ -700,7 +752,7 @@ export default function ExamApplyScreen() {
               >
                 <LinearGradient
                   colors={
-                    isConfirmed || !selectedRoundId || !selectedLocationId
+                    isConfirmed || !selectedRoundId || !selectedLocationId || !feePaidDate
                       ? ['#d1d5db', '#9ca3af']
                       : [HANWHA_ORANGE, '#fb923c']
                   }
@@ -729,6 +781,45 @@ export default function ExamApplyScreen() {
 
           <View style={{ height: 40 }} />
         </ScrollView>
+
+        {Platform.OS === 'ios' && (
+          <Modal visible={showFeePaidPicker} transparent animationType="fade">
+            <View style={styles.pickerOverlay}>
+              <View style={styles.pickerCard}>
+                <DateTimePicker
+                  value={tempFeePaidDate ?? feePaidDate ?? new Date()}
+                  mode="date"
+                  display="spinner"
+                  locale="ko-KR"
+                  onChange={(_, selectedDate) => {
+                    if (selectedDate) setTempFeePaidDate(selectedDate);
+                  }}
+                />
+                <View style={styles.pickerButtons}>
+                  <Pressable
+                    style={[styles.pickerButton, styles.pickerCancel]}
+                    onPress={() => {
+                      setShowFeePaidPicker(false);
+                      setTempFeePaidDate(null);
+                    }}
+                  >
+                    <Text style={styles.pickerCancelText}>취소</Text>
+                  </Pressable>
+                  <Pressable
+                    style={[styles.pickerButton, styles.pickerConfirm]}
+                    onPress={() => {
+                      if (tempFeePaidDate) setFeePaidDate(tempFeePaidDate);
+                      setShowFeePaidPicker(false);
+                      setTempFeePaidDate(null);
+                    }}
+                  >
+                    <Text style={styles.pickerConfirmText}>확인</Text>
+                  </Pressable>
+                </View>
+              </View>
+            </View>
+          </Modal>
+        )}
 
         {!profileLoading && role === 'fc' && !isAllowanceApproved && (
           <Pressable
@@ -827,6 +918,47 @@ const styles = StyleSheet.create({
   toggleCardActive: { borderColor: HANWHA_ORANGE, backgroundColor: ORANGE_FAINT },
   toggleTitle: { fontSize: 17, fontWeight: '700', color: CHARCOAL }, // 15 -> 17
   toggleDesc: { fontSize: 14, color: MUTED, marginTop: 4 }, // 12 -> 14
+  inputGroup: { marginTop: 18, marginBottom: 6 },
+  dateInput: {
+    backgroundColor: '#fff',
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: BORDER,
+    paddingVertical: 12,
+    paddingHorizontal: 14,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  inputHint: { fontSize: 13, color: '#b45309', marginBottom: 10 },
+  dateInputText: { fontSize: 15, color: CHARCOAL, fontWeight: '600' },
+  dateInputPlaceholder: { color: MUTED, fontWeight: '500' },
+  pickerOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.4)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 24,
+  },
+  pickerCard: {
+    backgroundColor: '#fff',
+    borderRadius: 16,
+    padding: 16,
+    width: '100%',
+    maxWidth: 360,
+  },
+  pickerButtons: { flexDirection: 'row', gap: 12, marginTop: 12 },
+  pickerButton: {
+    flex: 1,
+    paddingVertical: 10,
+    alignItems: 'center',
+    borderRadius: 10,
+    borderWidth: 1,
+  },
+  pickerCancel: { borderColor: BORDER, backgroundColor: '#fff' },
+  pickerConfirm: { borderColor: HANWHA_ORANGE, backgroundColor: ORANGE_FAINT },
+  pickerCancelText: { color: MUTED, fontWeight: '600' },
+  pickerConfirmText: { color: HANWHA_ORANGE, fontWeight: '700' },
   actionButtons: { gap: 12 },
   submitBtnWrapper: { borderRadius: 14, overflow: 'hidden', ...CARD_SHADOW },
   submitBtn: { paddingVertical: 18, alignItems: 'center', justifyContent: 'center', flexDirection: 'row' }, // 16 -> 18

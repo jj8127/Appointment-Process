@@ -584,3 +584,7 @@ alter table public.exam_registrations
 -- 제3보험 응시 여부
 alter table public.exam_registrations
   add column if not exists is_third_exam boolean default false;
+
+-- 응시료 납입 일자
+alter table public.exam_registrations
+  add column if not exists fee_paid_date date;

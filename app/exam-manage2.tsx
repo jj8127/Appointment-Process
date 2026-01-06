@@ -49,6 +49,7 @@ type ExamRegistrationRaw = {
   status: string;
   is_confirmed: boolean | null;
   is_third_exam?: boolean | null;
+  fee_paid_date?: string | null;
   created_at: string;
   exam_rounds: ExamRoundRef | ExamRoundRef[] | null;
   exam_locations: ExamLocationRef | ExamLocationRef[] | null;
@@ -73,6 +74,7 @@ type ApplicantRow = {
   isConfirmed: boolean;
   thirdExam: boolean;
   latestRegistrationId: string;
+  feePaidDate?: string | null;
 };
 
 function formatResidentNumber(num: string | null) {
@@ -85,6 +87,13 @@ function formatResidentNumber(num: string | null) {
 function normalizeSingle<T>(value: T | T[] | null | undefined): T | null {
   if (!value) return null;
   return Array.isArray(value) ? value[0] : value;
+}
+
+function formatYmd(value?: string | null) {
+  if (!value) return '-';
+  const d = new Date(value);
+  if (Number.isNaN(d.getTime())) return value;
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 }
 
 function buildExamInfo(reg: ExamRegistrationRaw): string {
@@ -118,7 +127,7 @@ async function fetchApplicantsNonlife(): Promise<ApplicantRow[]> {
     .from('exam_registrations')
     .select(
       `
-      id, resident_id, status, is_confirmed, is_third_exam, created_at,
+      id, resident_id, status, is_confirmed, is_third_exam, fee_paid_date, created_at,
       exam_rounds!inner ( exam_type, exam_date, round_label ),
       exam_locations ( location_name )
     `,
@@ -161,12 +170,14 @@ async function fetchApplicantsNonlife(): Promise<ApplicantRow[]> {
         isConfirmed: !!reg.is_confirmed,
         thirdExam: !!reg.is_third_exam,
         latestRegistrationId: reg.id,
+        feePaidDate: reg.fee_paid_date ?? null,
       };
     } else {
       if (examInfo) grouped[key].exams.push(examInfo);
       grouped[key].latestRegistrationId = reg.id;
       grouped[key].isConfirmed = !!reg.is_confirmed;
       grouped[key].thirdExam = !!reg.is_third_exam;
+      grouped[key].feePaidDate = reg.fee_paid_date ?? grouped[key].feePaidDate ?? null;
     }
   }
   return Object.values(grouped);
@@ -276,6 +287,7 @@ export default function ExamManageNonlifeScreen() {
         <View style={styles.infoGrid}>
           <InfoLabelValue label="주민번호" value={formatResidentNumber(a.residentNumber)} />
           <InfoLabelValue label="제3보험" value={a.thirdExam ? '응시' : '-'} />
+          <InfoLabelValue label="응시료 납입일" value={formatYmd(a.feePaidDate)} />
           <InfoLabelValue label="주소" value={a.address} fullWidth />
         </View>
 

@@ -92,7 +92,7 @@ async def run_test():
         await expect(frame.locator('text=2025-12-20 (12월 2차 손해보험)').first).to_be_visible(timeout=30000)
         await expect(frame.locator('text=마감: 2025-12-20').first).to_be_visible(timeout=30000)
         await expect(frame.locator('text=위에서 시험 일정을 먼저 선택해주세요.').first).to_be_visible(timeout=30000)
-        await expect(frame.locator('text=최종 확인').first).to_be_visible(timeout=30000)
+        await expect(frame.locator('text=응시 과목').first).to_be_visible(timeout=30000)
         await expect(frame.locator('text=제3보험 동시 응시').first).to_be_visible(timeout=30000)
         await expect(frame.locator('text=제3보험 자격 시험도 함께 신청합니다.').first).to_be_visible(timeout=30000)
         await expect(frame.locator('text=시험 신청하기').first).to_be_visible(timeout=30000)

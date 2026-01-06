@@ -44,6 +44,7 @@ type Row = {
   resident_id: string;
   is_confirmed: boolean;
   created_at: string;
+  fee_paid_date?: string | null;
   exam_locations: { location_name: string } | null;
   fc_profiles: {
     name: string | null;
@@ -101,7 +102,7 @@ export default function AdminExamManagePage() {
       const { data, error } = await supabase
         .from('exam_registrations')
         .select(`
-          id,resident_id,is_confirmed,created_at,
+          id,resident_id,is_confirmed,created_at,fee_paid_date,
           exam_locations(location_name),
           fc_profiles(name,phone,affiliation,address) 
         `)
@@ -353,6 +354,7 @@ export default function AdminExamManagePage() {
                         <FilterHeader label="주소" field="address" />
                         <FilterHeader label="고사장" field="location" type="select" options={locationOptions} />
                         <Table.Th>신청일시</Table.Th>
+                        <Table.Th>응시료 납입일</Table.Th>
                         <FilterHeader 
                             label="상태" 
                             field="status" 
@@ -393,13 +395,13 @@ export default function AdminExamManagePage() {
                 <Table.Tbody>
                     {loading ? (
                          <Table.Tr>
-                            <Table.Td colSpan={7}>
+                            <Table.Td colSpan={8}>
                                 <Center py={50}><Loader color="orange" /></Center>
                             </Table.Td>
                         </Table.Tr>
                     ) : filteredRows.length === 0 ? (
                     <Table.Tr>
-                        <Table.Td colSpan={7} align="center" py="xl">
+                        <Table.Td colSpan={8} align="center" py="xl">
                         <Text c="dimmed">
                             {rows.length === 0 ? '신청 내역이 없습니다.' : '검색 결과가 없습니다.'}
                         </Text>
@@ -418,6 +420,7 @@ export default function AdminExamManagePage() {
                         </Table.Td>
                         <Table.Td>{r.exam_locations?.location_name ?? '-'}</Table.Td>
                         <Table.Td>{dayjs(r.created_at).format('YY.MM.DD HH:mm')}</Table.Td>
+                        <Table.Td>{r.fee_paid_date ? dayjs(r.fee_paid_date).format('YYYY-MM-DD') : '-'}</Table.Td>
                         
                         <Table.Td align="center">
                             <SegmentedControl
