@@ -319,11 +319,19 @@ export default function DashboardScreen() {
 
   const [reminderLoading, setReminderLoading] = useState<string | null>(null);
 
-  const { data, isLoading, isError, refetch } = useQuery({
-    queryKey: ['dashboard', role, residentId, keyword],
-    queryFn: () => fetchFcs(role, residentId, keyword),
-    enabled: !!role,
-  });
+    const { data, isLoading, isError, refetch } = useQuery({
+      queryKey: ['dashboard', role, residentId, keyword],
+      queryFn: () => fetchFcs(role, residentId, keyword),
+      enabled: !!role,
+      onError: (err: any) => {
+        console.error('[dashboard] fetchFcs failed', {
+          message: err?.message ?? err,
+          code: err?.code,
+          details: err?.details,
+          hint: err?.hint,
+        });
+      },
+    });
 
   // Compute unique affiliations (After data is declared)
   const affiliationOptions = useMemo(() => {

@@ -551,7 +551,8 @@ export default function ExamSchedulePage() {
                                     value={form.values.exam_date}
                                     onChange={(value) => {
                                         if (!value) return;
-                                        const nextValue = value instanceof Date ? value : new Date(value);
+                                        const nextValue =
+                                            typeof value === 'string' ? new Date(value) : (value as Date);
                                         if (!Number.isNaN(nextValue.getTime())) {
                                             form.setFieldValue('exam_date', nextValue);
                                         }
@@ -604,7 +605,8 @@ export default function ExamSchedulePage() {
                                     value={form.values.registration_deadline}
                                     onChange={(value) => {
                                         if (!value) return;
-                                        const nextValue = value instanceof Date ? value : new Date(value);
+                                        const nextValue =
+                                            typeof value === 'string' ? new Date(value) : (value as Date);
                                         if (!Number.isNaN(nextValue.getTime())) {
                                             form.setFieldValue('registration_deadline', nextValue);
                                         }
