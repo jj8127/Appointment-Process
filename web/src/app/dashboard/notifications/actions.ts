@@ -138,7 +138,6 @@ export async function createNoticeAction(
             sound: 'default',
             priority: 'high',
             channelId: 'alerts',
-            priority: 'high',
         }));
 
         try {

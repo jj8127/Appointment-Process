@@ -269,7 +269,18 @@ const fetchFcs = async (
   }
 
   const { data, error } = await query;
-  if (error) throw error;
+  if (error) {
+    console.error('[dashboard] fetchFcs query error', {
+      message: error.message,
+      code: (error as any).code,
+      details: (error as any).details,
+      hint: (error as any).hint,
+      role,
+      residentId,
+      keyword,
+    });
+    throw error;
+  }
   return data as FcRow[];
 };
 
@@ -319,19 +330,24 @@ export default function DashboardScreen() {
 
   const [reminderLoading, setReminderLoading] = useState<string | null>(null);
 
-    const { data, isLoading, isError, refetch } = useQuery({
-      queryKey: ['dashboard', role, residentId, keyword],
-      queryFn: () => fetchFcs(role, residentId, keyword),
-      enabled: !!role,
-      onError: (err: any) => {
-        console.error('[dashboard] fetchFcs failed', {
-          message: err?.message ?? err,
-          code: err?.code,
-          details: err?.details,
-          hint: err?.hint,
-        });
-      },
-    });
+  const { data, isLoading, isError, refetch } = useQuery({
+    queryKey: ['dashboard', role, residentId, keyword],
+    queryFn: () => fetchFcs(role, residentId, keyword),
+    enabled: !!role,
+    onError: (err: any) => {
+      console.error('[dashboard] fetchFcs failed', {
+        message: err?.message ?? err,
+        code: err?.code,
+        details: err?.details,
+        hint: err?.hint,
+      });
+    },
+  });
+
+  useEffect(() => {
+    if (!isError) return;
+    Alert.alert('대시보드 오류', '데이터를 불러오지 못했습니다. 로그를 확인해주세요.');
+  }, [isError]);
 
   // Compute unique affiliations (After data is declared)
   const affiliationOptions = useMemo(() => {
