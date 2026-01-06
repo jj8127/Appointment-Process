@@ -54,7 +54,6 @@ export async function sendPushNotification(
                 sound: 'default',
                 priority: 'high',
                 channelId: 'alerts',
-                priority: 'high',
             }));
 
             const resp = await fetch(EXPO_PUSH_URL, {
