@@ -223,7 +223,7 @@ export default function DashboardPage() {
         });
         if (!res.success) throw new Error(res.error || '문서 반려 실패');
         const nextDocs = (selectedFc.fc_documents || []).map((d: FCDocument) =>
-          d.doc_type === doc.doc_type ? { ...d, status: 'rejected', reviewer_note: reason } : d,
+          d.doc_type === doc.doc_type ? { ...d, status: 'rejected' as const, reviewer_note: reason } : d,
         );
         let nextProfileStatus = selectedFc.status;
         if (!['appointment-completed', 'final-link-sent'].includes(selectedFc.status)) {
@@ -385,7 +385,7 @@ export default function DashboardPage() {
         const rows = toAdd.map((type) => ({
           fc_id: selectedFc.id,
           doc_type: type,
-          status: 'pending',
+          status: 'pending' as const,
           file_name: '',
           storage_path: '',
         }));
@@ -566,7 +566,7 @@ export default function DashboardPage() {
             ...prev,
             fc_documents: prev.fc_documents?.map((d: FCDocument) =>
               d.doc_type === doc.doc_type
-                ? { ...d, storage_path: 'deleted', status: 'pending', file_name: 'deleted.pdf' }
+                ? { ...d, storage_path: 'deleted', status: 'pending' as const, file_name: 'deleted.pdf' }
                 : d,
             ),
           }
@@ -1363,7 +1363,7 @@ export default function DashboardPage() {
                                   <StatusToggle
                                     value={d.status === 'approved' ? 'approved' : 'pending'}
                                     onChange={async (val) => {
-                                      const nextStatus = val === 'approved' ? 'approved' : 'rejected';
+                                      const nextStatus = (val === 'approved' ? 'approved' : 'rejected') as 'approved' | 'rejected';
                                       if (val !== 'approved') {
                                         if (d.status === 'rejected') return;
                                         openRejectModal({ kind: 'doc', doc: d });
