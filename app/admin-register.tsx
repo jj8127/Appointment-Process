@@ -18,7 +18,7 @@ const GRAY = '#4b5563';
 type FcRow = { id: string; name: string | null; resident_id_masked: string | null };
 
 export default function AdminRegisterScreen() {
-  const { role } = useSession();
+  const { role, readOnly } = useSession();
   const [name, setName] = useState('');
   const [resident, setResident] = useState('');
   const keyboardPadding = useKeyboardPadding();
@@ -46,6 +46,9 @@ export default function AdminRegisterScreen() {
 
   const createMutation = useMutation({
     mutationFn: async () => {
+      if (readOnly) {
+        throw new Error('본부장은 조회 전용 계정입니다.');
+      }
       const digits = resident.replace(/[^0-9]/g, '');
       if (!name.trim() || digits.length < 6) {
         throw new Error('이름과 주민번호를 확인해주세요.');
@@ -117,7 +120,12 @@ export default function AdminRegisterScreen() {
               keyboardType="numeric"
               autoCapitalize="none"
             />
-            <Button title="신규 FC 등록" color={ORANGE} onPress={handleCreate} disabled={createMutation.isPending} />
+            <Button
+              title="신규 FC 등록"
+              color={ORANGE}
+              onPress={handleCreate}
+              disabled={createMutation.isPending || readOnly}
+            />
           </View>
 
           <View style={styles.card}>

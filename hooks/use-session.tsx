@@ -9,11 +9,12 @@ type SessionState = {
   residentId: string; // now stores phone number digits
   residentMask: string; // formatted phone number
   displayName: string;
+  readOnly: boolean;
 };
 
 type SessionContextValue = SessionState & {
   hydrated: boolean;
-  loginAs: (role: Role, residentId: string, displayName?: string) => void;
+  loginAs: (role: Role, residentId: string, displayName?: string, readOnly?: boolean) => void;
   logout: () => void;
 };
 
@@ -27,7 +28,7 @@ const computeMask = (raw: string) => {
   return `${digits.slice(0, 3)}-${digits.slice(3, 7)}-${digits.slice(7)}`;
 };
 
-const initialState: SessionState = { role: null, residentId: '', residentMask: '', displayName: '' };
+const initialState: SessionState = { role: null, residentId: '', residentMask: '', displayName: '', readOnly: false };
 const STORAGE_KEY = 'fc-onboarding/session';
 
 export function SessionProvider({ children }: { children: ReactNode }) {
@@ -46,6 +47,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
               residentId: parsed.residentId,
               residentMask: computeMask(parsed.residentId),
               displayName: parsed.displayName ?? '',
+              readOnly: Boolean(parsed.readOnly),
             });
           }
         }
@@ -67,6 +69,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
             role: state.role,
             residentId: state.residentId,
             displayName: state.displayName,
+            readOnly: state.readOnly,
           };
           await safeStorage.setItem(STORAGE_KEY, JSON.stringify(payload));
         } else {
@@ -83,12 +86,18 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     () => ({
       ...state,
       hydrated,
-      loginAs: (role, residentId, displayName = '') => {
-        setState({ role, residentId, residentMask: computeMask(residentId), displayName });
-      },
       logout: () => {
         setState(initialState);
         safeStorage.removeItem(STORAGE_KEY).catch((err) => console.warn('Session clear failed', err));
+      },
+      loginAs: (role, residentId, displayName = '', readOnly = false) => {
+        setState({
+          role,
+          residentId,
+          residentMask: computeMask(residentId),
+          displayName,
+          readOnly,
+        });
       },
     }),
     [hydrated, state],

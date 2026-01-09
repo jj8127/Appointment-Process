@@ -5,12 +5,6 @@ type Payload = {
   phone?: string;
 };
 
-const corsHeaders = {
-  'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Headers': '*',
-  'Access-Control-Allow-Methods': 'POST, OPTIONS',
-};
-
 function getEnv(name: string): string | undefined {
   const g: any = globalThis as any;
   if (g?.Deno?.env?.get) return g.Deno.env.get(name);
@@ -18,14 +12,34 @@ function getEnv(name: string): string | undefined {
   return undefined;
 }
 
-const supabaseUrl = getEnv('SUPABASE_URL') ?? '';
-const serviceKey = getEnv('SUPABASE_SERVICE_ROLE_KEY') ?? '';
-const ncpAccessKey = getEnv('NCP_SENS_ACCESS_KEY') ?? getEnv('NCP_ACCESS_KEY') ?? '';
-const ncpSecretKey = getEnv('NCP_SENS_SECRET_KEY') ?? getEnv('NCP_SECRET_KEY') ?? '';
-const ncpServiceId = getEnv('NCP_SENS_SERVICE_ID') ?? getEnv('NCP_SMS_SERVICE_ID') ?? '';
-const ncpSmsFrom = getEnv('NCP_SENS_SMS_FROM') ?? getEnv('NCP_SMS_SENDER') ?? '';
+// Security: Restrict CORS to specific origins
+const allowedOrigins = (getEnv('ALLOWED_ORIGINS') ?? '').split(',').map(o => o.trim()).filter(Boolean);
+const corsHeaders = {
+  'Access-Control-Allow-Origin': allowedOrigins.length > 0 ? allowedOrigins[0] : 'https://yourdomain.com',
+  'Access-Control-Allow-Headers': 'Content-Type, Authorization, x-client-info, apikey',
+  'Access-Control-Allow-Methods': 'POST, OPTIONS',
+  'Access-Control-Allow-Credentials': 'true',
+};
+
+// Security: Validate required environment variables
+const supabaseUrl = getEnv('SUPABASE_URL');
+const serviceKey = getEnv('SUPABASE_SERVICE_ROLE_KEY');
+const ncpAccessKey = getEnv('NCP_SENS_ACCESS_KEY') ?? getEnv('NCP_ACCESS_KEY');
+const ncpSecretKey = getEnv('NCP_SENS_SECRET_KEY') ?? getEnv('NCP_SECRET_KEY');
+const ncpServiceId = getEnv('NCP_SENS_SERVICE_ID') ?? getEnv('NCP_SMS_SERVICE_ID');
+const ncpSmsFrom = getEnv('NCP_SENS_SMS_FROM') ?? getEnv('NCP_SMS_SENDER');
 const testSmsMode = (getEnv('TEST_SMS_MODE') ?? '').toLowerCase() === 'true';
 const testSmsCode = getEnv('TEST_SMS_CODE') ?? '123456';
+
+if (!supabaseUrl) {
+  throw new Error('Missing required environment variable: SUPABASE_URL');
+}
+if (!serviceKey) {
+  throw new Error('Missing required environment variable: SUPABASE_SERVICE_ROLE_KEY');
+}
+if (!testSmsMode && (!ncpAccessKey || !ncpSecretKey || !ncpServiceId || !ncpSmsFrom)) {
+  throw new Error('Missing required NCP SMS credentials (NCP_SENS_ACCESS_KEY, NCP_SENS_SECRET_KEY, NCP_SENS_SERVICE_ID, NCP_SENS_SMS_FROM)');
+}
 
 const supabase = createClient(supabaseUrl, serviceKey);
 const textEncoder = new TextEncoder();
@@ -222,7 +236,10 @@ serve(async (req: Request) => {
   }
 
   if (testSmsMode) {
-    return json({ ok: true, sent: true, test_mode: true, test_code: code });
+    // Security: Never expose OTP code in response, even in test mode
+    // Log server-side only for debugging
+    console.log('[TEST MODE] OTP code for', phone, ':', code);
+    return json({ ok: true, sent: true, test_mode: true });
   }
   return json({ ok: true, sent: true });
 });

@@ -154,7 +154,13 @@ function RoundedButton({
 }
 
 export default function ExamRegisterScreen() {
-  const { role } = useSession();
+  const { role, readOnly } = useSession();
+  const canEdit = role === 'admin' && !readOnly;
+  const assertCanEdit = () => {
+    if (!canEdit) {
+      throw new Error('본부장은 조회 전용 계정입니다.');
+    }
+  };
   const [roundForm, setRoundForm] = useState<RoundForm>(emptyRoundForm);
   const [examDate, setExamDate] = useState(new Date());
   const [deadlineDate, setDeadlineDate] = useState(new Date());
@@ -225,6 +231,7 @@ export default function ExamRegisterScreen() {
 
   const saveRound = useMutation({
     mutationFn: async (mode: 'create' | 'update') => {
+      assertCanEdit();
       const payload = {
         exam_type: 'nonlife' as const,
         exam_date: toYmd(examDate),
@@ -296,6 +303,7 @@ export default function ExamRegisterScreen() {
 
   const addLocation = useMutation({
     mutationFn: async () => {
+      assertCanEdit();
       if (!selectedRoundId) throw new Error('시험 일정을 먼저 선택해주세요.');
       const trimmed = locationInput.trim();
       if (!trimmed) throw new Error('지역명을 입력해주세요.');
@@ -320,6 +328,7 @@ export default function ExamRegisterScreen() {
 
   const deleteRound = useMutation({
     mutationFn: async (id: string) => {
+      assertCanEdit();
       const { error } = await supabase.from('exam_rounds').delete().eq('id', id);
       if (error) throw error;
     },
@@ -397,7 +406,7 @@ export default function ExamRegisterScreen() {
             <View style={styles.modeBanner}>
               <Text style={styles.modeText}>{isEditMode ? '수정 모드' : '신규 등록 모드'}</Text>
               {isEditMode && (
-                <Pressable onPress={startNewRound} style={styles.modeAction}>
+                <Pressable onPress={startNewRound} style={styles.modeAction} disabled={!canEdit}>
                   <Text style={styles.modeActionText}>신규 등록으로 전환</Text>
                 </Pressable>
               )}
@@ -466,6 +475,7 @@ export default function ExamRegisterScreen() {
               onChangeText={(text) =>
                 setRoundForm((prev) => ({ ...prev, roundLabel: text }))
               }
+              editable={canEdit}
               style={styles.input}
             />
 
@@ -477,6 +487,7 @@ export default function ExamRegisterScreen() {
               onChangeText={(text) =>
                 setRoundForm((prev) => ({ ...prev, notes: text }))
               }
+              editable={canEdit}
               style={[styles.input, { height: notesHeight }]}
               multiline
               scrollEnabled={false}
@@ -494,6 +505,7 @@ export default function ExamRegisterScreen() {
                   placeholderTextColor={MUTED}
                   value={locationInput}
                   onChangeText={setLocationInput}
+                  editable={canEdit}
                   style={styles.input}
                 />
               </View>
@@ -505,6 +517,7 @@ export default function ExamRegisterScreen() {
                   value={locationOrder}
                   onChangeText={setLocationOrder}
                   keyboardType="number-pad"
+                  editable={canEdit}
                   style={styles.input}
                 />
               </View>
@@ -527,6 +540,7 @@ export default function ExamRegisterScreen() {
                   setLocationOrder('0');
                 }}
                 variant="secondary"
+                disabled={!canEdit}
               />
             </View>
             {draftLocations.length > 0 && (
@@ -542,6 +556,7 @@ export default function ExamRegisterScreen() {
                         setDraftLocations((prev) => prev.filter((item) => item.id !== loc.id))
                       }
                       style={styles.locationDelete}
+                      disabled={!canEdit}
                     >
                       <Text style={styles.locationDeleteText}>삭제</Text>
                     </Pressable>
@@ -560,7 +575,7 @@ export default function ExamRegisterScreen() {
                     saveRound.mutate(selectedRoundId ? 'update' : 'create')
                   }
                   variant="primary"
-                  disabled={saveRound.isPending}
+                  disabled={!canEdit || saveRound.isPending}
                 />
               </View>
               <View style={{ width: 12 }} />
@@ -569,6 +584,7 @@ export default function ExamRegisterScreen() {
                   label={isEditMode ? '신규 등록 모드' : '폼 초기화'}
                   onPress={startNewRound}
                   variant="secondary"
+                  disabled={!canEdit}
                 />
               </View>
             </View>
@@ -614,6 +630,7 @@ export default function ExamRegisterScreen() {
                   <Pressable
                     onPress={() => handleDeleteRound(round.id)}
                     style={styles.deleteBadge}
+                    disabled={!canEdit}
                   >
                     <Text style={styles.deleteText}>삭제</Text>
                   </Pressable>

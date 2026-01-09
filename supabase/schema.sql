@@ -78,12 +78,34 @@ create table if not exists public.admin_accounts (
   updated_at timestamptz not null default now()
 );
 
+create table if not exists public.manager_accounts (
+  id uuid primary key default gen_random_uuid(),
+  name text not null,
+  phone text not null unique,
+  password_hash text not null,
+  password_salt text not null,
+  password_set_at timestamptz,
+  failed_count integer not null default 0,
+  locked_until timestamptz,
+  active boolean not null default true,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
+create table if not exists public.profiles (
+  id uuid primary key references auth.users (id) on delete cascade,
+  role text not null check (role in ('admin', 'fc', 'manager')),
+  fc_id uuid references public.fc_profiles (id) on delete set null,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
 -- 알림용 디바이스 토큰 저장 테이블
 create table if not exists public.device_tokens (
   id uuid primary key default gen_random_uuid(),
   resident_id text not null,
   display_name text,
-  role text check (role in ('admin','fc')) not null,
+  role text check (role in ('admin','fc','manager')) not null,
   expo_push_token text not null,
   platform text,
   updated_at timestamptz not null default now(),
@@ -93,7 +115,7 @@ create table if not exists public.device_tokens (
 create table if not exists public.web_push_subscriptions (
   id uuid primary key default gen_random_uuid(),
   resident_id text,
-  role text check (role in ('admin','fc')),
+  role text check (role in ('admin','fc','manager')),
   endpoint text not null,
   p256dh text not null,
   auth text not null,
@@ -107,12 +129,27 @@ create table if not exists public.notifications (
   id uuid primary key default gen_random_uuid(),
   fc_id uuid references public.fc_profiles (id) on delete set null,
   resident_id text,
-  recipient_role text check (recipient_role in ('admin','fc')),
+  recipient_role text check (recipient_role in ('admin','fc','manager')),
   title text not null,
   body text not null,
   category text,
   created_at timestamptz not null default now()
 );
+
+alter table public.device_tokens
+  drop constraint if exists device_tokens_role_check;
+alter table public.device_tokens
+  add constraint device_tokens_role_check check (role in ('admin','fc','manager'));
+
+alter table public.web_push_subscriptions
+  drop constraint if exists web_push_subscriptions_role_check;
+alter table public.web_push_subscriptions
+  add constraint web_push_subscriptions_role_check check (role in ('admin','fc','manager'));
+
+alter table public.notifications
+  drop constraint if exists notifications_recipient_role_check;
+alter table public.notifications
+  add constraint notifications_recipient_role_check check (recipient_role in ('admin','fc','manager'));
 
 create table if not exists public.notices (
   id uuid primary key default gen_random_uuid(),
@@ -178,6 +215,24 @@ begin
 end;
 $$;
 
+create or replace function public.handle_new_auth_user() returns trigger
+language plpgsql
+security definer
+set search_path = public
+as $$
+begin
+  insert into public.profiles (id, role, fc_id)
+  values (new.id, 'fc', null)
+  on conflict (id) do nothing;
+  return new;
+end;
+$$;
+
+drop trigger if exists trg_auth_users_create_profile on auth.users;
+create trigger trg_auth_users_create_profile
+after insert on auth.users
+for each row execute function public.handle_new_auth_user();
+
 drop trigger if exists trg_fc_profiles_updated_at on public.fc_profiles;
 create trigger trg_fc_profiles_updated_at
 before update on public.fc_profiles
@@ -203,6 +258,16 @@ create trigger trg_admin_accounts_updated_at
 before update on public.admin_accounts
 for each row execute function public.set_updated_at();
 
+drop trigger if exists trg_manager_accounts_updated_at on public.manager_accounts;
+create trigger trg_manager_accounts_updated_at
+before update on public.manager_accounts
+for each row execute function public.set_updated_at();
+
+drop trigger if exists trg_profiles_updated_at on public.profiles;
+create trigger trg_profiles_updated_at
+before update on public.profiles
+for each row execute function public.set_updated_at();
+
 drop trigger if exists trg_web_push_subscriptions_updated_at on public.web_push_subscriptions;
 create trigger trg_web_push_subscriptions_updated_at
 before update on public.web_push_subscriptions
@@ -223,149 +288,311 @@ alter table public.fc_documents enable row level security;
 alter table public.fc_identity_secure enable row level security;
 alter table public.fc_credentials enable row level security;
 alter table public.admin_accounts enable row level security;
+alter table public.manager_accounts enable row level security;
+alter table public.profiles enable row level security;
 alter table public.web_push_subscriptions enable row level security;
 alter table public.notifications enable row level security;
 alter table public.notices enable row level security;
 alter table public.exam_rounds enable row level security;
 alter table public.exam_locations enable row level security;
 
--- RLS: 인증/비인증(anon) 모두 허용하는 공개 정책 (필요 시 auth.uid() 기반으로 강화)
+create or replace function public.is_admin() returns boolean
+language sql stable
+as $$
+  select exists (
+    select 1 from public.profiles p
+    where p.id = auth.uid() and p.role = 'admin'
+  );
+$$;
+
+create or replace function public.is_manager() returns boolean
+language sql stable
+as $$
+  select exists (
+    select 1 from public.profiles p
+    where p.id = auth.uid() and p.role = 'manager'
+  );
+$$;
+
+create or replace function public.is_fc() returns boolean
+language sql stable
+as $$
+  select exists (
+    select 1 from public.profiles p
+    where p.id = auth.uid() and p.role = 'fc'
+  );
+$$;
+
+create or replace function public.current_fc_id() returns uuid
+language sql stable
+as $$
+  select p.fc_id from public.profiles p where p.id = auth.uid();
+$$;
+
+drop policy if exists "profiles select" on public.profiles;
+create policy "profiles select"
+  on public.profiles
+  for select
+  using (public.is_admin() or id = auth.uid());
+
+drop policy if exists "profiles insert" on public.profiles;
+create policy "profiles insert"
+  on public.profiles
+  for insert
+  with check (public.is_admin() or id = auth.uid());
+
+drop policy if exists "profiles update" on public.profiles;
+create policy "profiles update"
+  on public.profiles
+  for update
+  using (public.is_admin() or id = auth.uid())
+  with check (public.is_admin() or id = auth.uid());
+
+drop policy if exists "profiles delete" on public.profiles;
+create policy "profiles delete"
+  on public.profiles
+  for delete
+  using (public.is_admin());
+
 drop policy if exists "fc_profiles select" on public.fc_profiles;
 create policy "fc_profiles select"
   on public.fc_profiles
   for select
-  using (auth.role() in ('authenticated','anon'));
+  using (
+    public.is_admin()
+    or public.is_manager()
+    or (public.is_fc() and id = public.current_fc_id())
+  );
 
 drop policy if exists "fc_profiles insert" on public.fc_profiles;
 create policy "fc_profiles insert"
   on public.fc_profiles
   for insert
-  with check (auth.role() in ('authenticated','anon'));
+  with check (public.is_admin() or public.is_fc());
 
 drop policy if exists "fc_profiles update" on public.fc_profiles;
 create policy "fc_profiles update"
   on public.fc_profiles
   for update
-  using (auth.role() in ('authenticated','anon'))
-  with check (auth.role() in ('authenticated','anon'));
+  using (public.is_admin() or (public.is_fc() and id = public.current_fc_id()))
+  with check (public.is_admin() or (public.is_fc() and id = public.current_fc_id()));
 
 drop policy if exists "fc_documents select" on public.fc_documents;
 create policy "fc_documents select"
   on public.fc_documents
   for select
-  using (auth.role() in ('authenticated','anon'));
+  using (
+    public.is_admin()
+    or public.is_manager()
+    or (public.is_fc() and fc_id = public.current_fc_id())
+  );
 
 drop policy if exists "fc_documents insert" on public.fc_documents;
 create policy "fc_documents insert"
   on public.fc_documents
   for insert
-  with check (auth.role() in ('authenticated','anon'));
+  with check (public.is_admin() or (public.is_fc() and fc_id = public.current_fc_id()));
 
 drop policy if exists "fc_documents update" on public.fc_documents;
 create policy "fc_documents update"
   on public.fc_documents
   for update
-  using (auth.role() in ('authenticated','anon'))
-  with check (auth.role() in ('authenticated','anon'));
+  using (public.is_admin())
+  with check (public.is_admin());
 
 drop policy if exists "notifications select" on public.notifications;
 create policy "notifications select"
   on public.notifications
   for select
-  using (auth.role() in ('authenticated','anon'));
+  using (
+    public.is_admin()
+    or public.is_manager()
+    or public.is_fc()
+  );
 
 drop policy if exists "notifications insert" on public.notifications;
 create policy "notifications insert"
   on public.notifications
   for insert
-  with check (auth.role() in ('authenticated','anon'));
+  with check (public.is_admin());
 
 drop policy if exists "web_push_subscriptions select" on public.web_push_subscriptions;
 create policy "web_push_subscriptions select"
   on public.web_push_subscriptions
   for select
-  using (auth.role() in ('authenticated','anon'));
+  using (
+    public.is_admin()
+    or public.is_manager()
+    or public.is_fc()
+  );
 
 drop policy if exists "web_push_subscriptions insert" on public.web_push_subscriptions;
 create policy "web_push_subscriptions insert"
   on public.web_push_subscriptions
   for insert
-  with check (auth.role() in ('authenticated','anon'));
+  with check (public.is_admin() or public.is_fc());
 
 drop policy if exists "web_push_subscriptions update" on public.web_push_subscriptions;
 create policy "web_push_subscriptions update"
   on public.web_push_subscriptions
   for update
-  using (auth.role() in ('authenticated','anon'))
-  with check (auth.role() in ('authenticated','anon'));
+  using (public.is_admin() or public.is_fc())
+  with check (public.is_admin() or public.is_fc());
 
 drop policy if exists "web_push_subscriptions delete" on public.web_push_subscriptions;
 create policy "web_push_subscriptions delete"
   on public.web_push_subscriptions
   for delete
-  using (auth.role() in ('authenticated','anon'));
+  using (public.is_admin() or public.is_fc());
 
 drop policy if exists "notices select" on public.notices;
 create policy "notices select"
   on public.notices
   for select
-  using (auth.role() in ('authenticated','anon'));
+  using (
+    public.is_admin()
+    or public.is_manager()
+    or public.is_fc()
+  );
 
 drop policy if exists "notices insert" on public.notices;
 create policy "notices insert"
   on public.notices
   for insert
-  with check (auth.role() in ('authenticated','anon'));
+  with check (public.is_admin());
 
 drop policy if exists "exam_rounds select" on public.exam_rounds;
 create policy "exam_rounds select"
   on public.exam_rounds
   for select
-  using (auth.role() in ('authenticated','anon'));
+  using (
+    public.is_admin()
+    or public.is_manager()
+    or public.is_fc()
+  );
 
 drop policy if exists "exam_rounds insert" on public.exam_rounds;
 create policy "exam_rounds insert"
   on public.exam_rounds
   for insert
-  with check (auth.role() in ('authenticated','anon'));
+  with check (public.is_admin());
 
 drop policy if exists "exam_rounds update" on public.exam_rounds;
 create policy "exam_rounds update"
   on public.exam_rounds
   for update
-  using (auth.role() in ('authenticated','anon'))
-  with check (auth.role() in ('authenticated','anon'));
+  using (public.is_admin())
+  with check (public.is_admin());
 
 drop policy if exists "exam_rounds delete" on public.exam_rounds;
 create policy "exam_rounds delete"
   on public.exam_rounds
   for delete
-  using (auth.role() in ('authenticated','anon'));
+  using (public.is_admin());
 
 drop policy if exists "exam_locations select" on public.exam_locations;
 create policy "exam_locations select"
   on public.exam_locations
   for select
-  using (auth.role() in ('authenticated','anon'));
+  using (
+    public.is_admin()
+    or public.is_manager()
+    or public.is_fc()
+  );
 
 drop policy if exists "exam_locations insert" on public.exam_locations;
 create policy "exam_locations insert"
   on public.exam_locations
   for insert
-  with check (auth.role() in ('authenticated','anon'));
+  with check (public.is_admin());
 
 drop policy if exists "exam_locations update" on public.exam_locations;
 create policy "exam_locations update"
   on public.exam_locations
   for update
-  using (auth.role() in ('authenticated','anon'))
-  with check (auth.role() in ('authenticated','anon'));
+  using (public.is_admin())
+  with check (public.is_admin());
 
 drop policy if exists "exam_locations delete" on public.exam_locations;
 create policy "exam_locations delete"
   on public.exam_locations
   for delete
-  using (auth.role() in ('authenticated','anon'));
+  using (public.is_admin());
+
+drop policy if exists "fc_credentials select" on public.fc_credentials;
+create policy "fc_credentials select"
+  on public.fc_credentials
+  for select
+  using (public.is_admin() or (public.is_fc() and fc_id = public.current_fc_id()));
+
+drop policy if exists "fc_credentials insert" on public.fc_credentials;
+create policy "fc_credentials insert"
+  on public.fc_credentials
+  for insert
+  with check (public.is_admin() or (public.is_fc() and fc_id = public.current_fc_id()));
+
+drop policy if exists "fc_credentials update" on public.fc_credentials;
+create policy "fc_credentials update"
+  on public.fc_credentials
+  for update
+  using (public.is_admin() or (public.is_fc() and fc_id = public.current_fc_id()))
+  with check (public.is_admin() or (public.is_fc() and fc_id = public.current_fc_id()));
+
+drop policy if exists "fc_credentials delete" on public.fc_credentials;
+create policy "fc_credentials delete"
+  on public.fc_credentials
+  for delete
+  using (public.is_admin());
+
+drop policy if exists "fc_identity_secure select" on public.fc_identity_secure;
+create policy "fc_identity_secure select"
+  on public.fc_identity_secure
+  for select
+  using (public.is_admin() or (public.is_fc() and fc_id = public.current_fc_id()));
+
+drop policy if exists "fc_identity_secure insert" on public.fc_identity_secure;
+create policy "fc_identity_secure insert"
+  on public.fc_identity_secure
+  for insert
+  with check (public.is_admin() or (public.is_fc() and fc_id = public.current_fc_id()));
+
+drop policy if exists "fc_identity_secure update" on public.fc_identity_secure;
+create policy "fc_identity_secure update"
+  on public.fc_identity_secure
+  for update
+  using (public.is_admin() or (public.is_fc() and fc_id = public.current_fc_id()))
+  with check (public.is_admin() or (public.is_fc() and fc_id = public.current_fc_id()));
+
+drop policy if exists "fc_identity_secure delete" on public.fc_identity_secure;
+create policy "fc_identity_secure delete"
+  on public.fc_identity_secure
+  for delete
+  using (public.is_admin());
+
+drop policy if exists "admin_accounts select" on public.admin_accounts;
+create policy "admin_accounts select"
+  on public.admin_accounts
+  for select
+  using (public.is_admin());
+
+drop policy if exists "admin_accounts insert" on public.admin_accounts;
+create policy "admin_accounts insert"
+  on public.admin_accounts
+  for insert
+  with check (public.is_admin());
+
+drop policy if exists "admin_accounts update" on public.admin_accounts;
+create policy "admin_accounts update"
+  on public.admin_accounts
+  for update
+  using (public.is_admin())
+  with check (public.is_admin());
+
+drop policy if exists "admin_accounts delete" on public.admin_accounts;
+create policy "admin_accounts delete"
+  on public.admin_accounts
+  for delete
+  using (public.is_admin());
 
 -- 스토리지 버킷
 insert into storage.buckets (id, name, public) values ('fc-documents', 'fc-documents', false)
@@ -375,29 +602,32 @@ on conflict (id) do nothing;
 drop policy if exists "fc-documents read" on storage.objects;
 create policy "fc-documents read"
   on storage.objects for select
-  using (bucket_id = 'fc-documents' and auth.role() in ('authenticated','anon'));
+  using (
+    bucket_id = 'fc-documents'
+    and (public.is_admin() or public.is_manager() or public.is_fc())
+  );
 
 drop policy if exists "fc-documents write" on storage.objects;
 create policy "fc-documents write"
   on storage.objects for insert
-  with check (bucket_id = 'fc-documents' and auth.role() in ('authenticated','anon'));
+  with check (bucket_id = 'fc-documents' and (public.is_admin() or public.is_fc()));
 
 drop policy if exists "fc-documents update" on storage.objects;
 create policy "fc-documents update"
   on storage.objects for update
-  using (bucket_id = 'fc-documents' and auth.role() in ('authenticated','anon'));
+  using (bucket_id = 'fc-documents' and public.is_admin());
 
 drop policy if exists "fc-documents delete" on storage.objects;
 create policy "fc-documents delete"
   on storage.objects for delete
-  using (bucket_id = 'fc-documents' and auth.role() in ('authenticated','anon'));
+  using (bucket_id = 'fc-documents' and (public.is_admin() or public.is_fc()));
 -- delete policy for fc_profiles
 
 drop policy if exists "fc_profiles delete" on public.fc_profiles;
 create policy "fc_profiles delete"
   on public.fc_profiles
   for delete
-  using (auth.role() in ('authenticated','anon'));
+  using (public.is_admin());
 
 alter table public.fc_profiles
   add column if not exists address_detail text;
@@ -535,26 +765,30 @@ drop policy if exists "exam_registrations select" on public.exam_registrations;
 create policy "exam_registrations select"
   on public.exam_registrations
   for select
-  using (auth.role() in ('authenticated','anon'));
+  using (
+    public.is_admin()
+    or public.is_manager()
+    or (public.is_fc() and fc_id = public.current_fc_id())
+  );
 
 drop policy if exists "exam_registrations insert" on public.exam_registrations;
 create policy "exam_registrations insert"
   on public.exam_registrations
   for insert
-  with check (auth.role() in ('authenticated','anon'));
+  with check (public.is_admin() or (public.is_fc() and fc_id = public.current_fc_id()));
 
 drop policy if exists "exam_registrations update" on public.exam_registrations;
 create policy "exam_registrations update"
   on public.exam_registrations
   for update
-  using (auth.role() in ('authenticated','anon'))
-  with check (auth.role() in ('authenticated','anon'));
+  using (public.is_admin() or (public.is_fc() and fc_id = public.current_fc_id()))
+  with check (public.is_admin() or (public.is_fc() and fc_id = public.current_fc_id()));
 
 drop policy if exists "exam_registrations delete" on public.exam_registrations;
 create policy "exam_registrations delete"
   on public.exam_registrations
   for delete
-  using (auth.role() in ('authenticated','anon'));
+  using (public.is_admin());
 
 -- 1) exam_type 컬럼 추가 (life / nonlife)
 alter table public.exam_rounds

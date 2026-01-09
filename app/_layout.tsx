@@ -13,6 +13,7 @@ import { TourGuideProvider } from 'rn-tourguide';
 
 import CompactHeader from '@/components/CompactHeader';
 import FcTourTooltip from '@/components/FcTourTooltip';
+import { ErrorBoundary } from '@/components/ErrorBoundary';
 import { useColorScheme } from '@/hooks/use-color-scheme';
 import { SessionProvider } from '@/hooks/use-session';
 
@@ -158,10 +159,11 @@ export default function RootLayout() {
   }
 
   return (
-    <SafeAreaProvider>
-      <QueryClientProvider client={queryClient}>
-        <SessionProvider>
-          <ThemeProvider value={colorScheme === 'dark' ? DarkTheme : DefaultTheme}>
+    <ErrorBoundary>
+      <SafeAreaProvider>
+        <QueryClientProvider client={queryClient}>
+          <SessionProvider>
+            <ThemeProvider value={colorScheme === 'dark' ? DarkTheme : DefaultTheme}>
             {enableTourGuide ? (
               <TourGuideProvider
                 borderRadius={16}
@@ -335,9 +337,10 @@ export default function RootLayout() {
                 <StatusBar style="dark" backgroundColor="#fff" />
               </>
             )}
-          </ThemeProvider>
-        </SessionProvider>
-      </QueryClientProvider>
-    </SafeAreaProvider>
+            </ThemeProvider>
+          </SessionProvider>
+        </QueryClientProvider>
+      </SafeAreaProvider>
+    </ErrorBoundary>
   );
 }

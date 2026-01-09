@@ -82,7 +82,11 @@ export default function AuthScreen() {
       });
       if (error) throw error;
       if (!data?.ok) {
-        if ((data?.code === 'needs_password_setup' || data?.code === 'not_found') && data?.role !== 'admin') {
+        if (
+          (data?.code === 'needs_password_setup' || data?.code === 'not_found')
+          && data?.role !== 'admin'
+          && data?.role !== 'manager'
+        ) {
           Alert.alert('안내', '계정정보가 없습니다. 회원가입 페이지로 이동합니다..');
           router.replace('/signup');
           return;
@@ -91,8 +95,9 @@ export default function AuthScreen() {
         return;
       }
 
-      const nextRole = data.role === 'admin' ? 'admin' : 'fc';
-      loginAs(nextRole, data.residentId ?? digits, data.displayName ?? '');
+      const readOnly = data.role === 'manager';
+      const nextRole = data.role === 'admin' || data.role === 'manager' ? 'admin' : 'fc';
+      loginAs(nextRole, data.residentId ?? digits, data.displayName ?? '', readOnly);
       router.replace(nextRole === 'admin' ? '/' : '/home-lite');
       return;
     } catch (err: any) {

@@ -6,12 +6,6 @@ type Payload = {
   password: string;
 };
 
-const corsHeaders = {
-  'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Headers': '*',
-  'Access-Control-Allow-Methods': 'POST, OPTIONS',
-};
-
 function getEnv(name: string): string | undefined {
   const g: any = globalThis as any;
   if (g?.Deno?.env?.get) return g.Deno.env.get(name);
@@ -19,8 +13,26 @@ function getEnv(name: string): string | undefined {
   return undefined;
 }
 
-const supabaseUrl = getEnv('SUPABASE_URL') ?? '';
-const serviceKey = getEnv('SUPABASE_SERVICE_ROLE_KEY') ?? '';
+// Security: Restrict CORS to specific origins
+const allowedOrigins = (getEnv('ALLOWED_ORIGINS') ?? '').split(',').map(o => o.trim()).filter(Boolean);
+const corsHeaders = {
+  'Access-Control-Allow-Origin': allowedOrigins.length > 0 ? allowedOrigins[0] : 'https://yourdomain.com',
+  'Access-Control-Allow-Headers': 'Content-Type, Authorization, x-client-info, apikey',
+  'Access-Control-Allow-Methods': 'POST, OPTIONS',
+  'Access-Control-Allow-Credentials': 'true',
+};
+
+// Security: Validate required environment variables
+const supabaseUrl = getEnv('SUPABASE_URL');
+const serviceKey = getEnv('SUPABASE_SERVICE_ROLE_KEY');
+
+if (!supabaseUrl) {
+  throw new Error('Missing required environment variable: SUPABASE_URL');
+}
+if (!serviceKey) {
+  throw new Error('Missing required environment variable: SUPABASE_SERVICE_ROLE_KEY');
+}
+
 const supabase = createClient(supabaseUrl, serviceKey);
 const encoder = new TextEncoder();
 
@@ -155,6 +167,67 @@ serve(async (req: Request) => {
       .eq('id', admin.id);
 
     return json({ ok: true, role: 'admin', residentId: admin.phone, displayName: admin.name ?? '' });
+  }
+
+  const { data: manager, error: managerError } = await supabase
+    .from('manager_accounts')
+    .select('id,name,phone,password_hash,password_salt,failed_count,locked_until,password_set_at,active')
+    .eq('phone', phone)
+    .maybeSingle();
+
+  if (managerError) {
+    return json({ ok: false, code: 'db_error', message: managerError.message }, 500);
+  }
+
+  if (manager?.id) {
+    if (!manager.active) {
+      return fail('inactive_manager', '본부장 계정이 비활성화되었습니다.', { role: 'manager' });
+    }
+    if (!manager.password_set_at) {
+      return fail('needs_password_setup', '본부장 비밀번호가 아직 설정되지 않았습니다.', { role: 'manager' });
+    }
+
+    const now = new Date();
+    if (manager.locked_until) {
+      const lockedUntil = new Date(manager.locked_until);
+      if (lockedUntil > now) {
+        return fail('locked', '로그인 시도가 너무 많아 잠시 후 다시 시도해주세요.', {
+          lockedUntil: lockedUntil.toISOString(),
+          role: 'manager',
+        });
+      }
+    }
+
+    const hashed = await hashPassword(password, manager.password_salt);
+    if (hashed !== manager.password_hash) {
+      const nextCount = (manager.failed_count ?? 0) + 1;
+      const remaining = Math.max(0, MAX_FAILS - nextCount);
+      const shouldLock = nextCount >= MAX_FAILS;
+      const lockedUntil = shouldLock ? new Date(now.getTime() + LOCK_MINUTES * 60 * 1000) : null;
+
+      await supabase
+        .from('manager_accounts')
+        .update({
+          failed_count: shouldLock ? 0 : nextCount,
+          locked_until: lockedUntil ? lockedUntil.toISOString() : null,
+        })
+        .eq('id', manager.id);
+
+      return fail(
+        shouldLock ? 'locked' : 'invalid_password',
+        shouldLock
+          ? '로그인 시도가 너무 많아 잠시 후 다시 시도해주세요.'
+          : '비밀번호가 올바르지 않습니다.',
+        shouldLock ? { lockedUntil: lockedUntil?.toISOString(), role: 'manager' } : { remaining, role: 'manager' },
+      );
+    }
+
+    await supabase
+      .from('manager_accounts')
+      .update({ failed_count: 0, locked_until: null })
+      .eq('id', manager.id);
+
+    return json({ ok: true, role: 'manager', residentId: manager.phone, displayName: manager.name ?? '' });
   }
 
   const { data: profile, error: profileError } = await supabase

@@ -184,7 +184,13 @@ async function fetchApplicantsLife(): Promise<ApplicantRow[]> {
 }
 
 export default function ExamManageLifeScreen() {
-  const { role, hydrated } = useSession();
+  const { role, hydrated, readOnly } = useSession();
+  const canEdit = role === 'admin' && !readOnly;
+  const assertCanEdit = () => {
+    if (!canEdit) {
+      throw new Error('본부장은 조회 전용 계정입니다.');
+    }
+  };
   const queryClient = useQueryClient();
   const [searchText, setSearchText] = useState('');
   const [filterStatus, setFilterStatus] = useState<'all' | 'confirmed' | 'pending'>('all');
@@ -232,6 +238,7 @@ export default function ExamManageLifeScreen() {
 
   const toggleMutation = useMutation({
     mutationFn: async (params: { registrationId: string; value: boolean }) => {
+      assertCanEdit();
       const { error } = await supabase.from('exam_registrations').update({ is_confirmed: params.value }).eq('id', params.registrationId);
       if (error) throw error;
     },
@@ -271,11 +278,11 @@ export default function ExamManageLifeScreen() {
           </View>
           <Pressable
             onPress={() => handleToggle(a)}
-            disabled={toggleMutation.isPending}
+            disabled={!canEdit || toggleMutation.isPending}
             style={[
               styles.statusBadge,
               a.isConfirmed ? styles.badgeConfirmed : styles.badgePending,
-              toggleMutation.isPending && { opacity: 0.6 },
+              (!canEdit || toggleMutation.isPending) && { opacity: 0.6 },
             ]}
           >
             <Text style={[styles.statusBadgeText, a.isConfirmed ? styles.textConfirmed : styles.textPending]}>

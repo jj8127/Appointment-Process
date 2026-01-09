@@ -40,6 +40,47 @@ import { z } from 'zod';
 
 import { supabase } from '@/lib/supabase';
 
+const EXPO_PUSH_URL = 'https://exp.host/--/api/v2/push/send';
+
+async function notifyAllFcs(title: string, body: string) {
+    const { error: insertError } = await supabase.from('notifications').insert({
+        title,
+        body,
+        category: 'exam_round',
+        recipient_role: 'fc',
+        resident_id: null,
+    });
+    if (insertError) throw insertError;
+
+    const { data: tokens, error: tokenError } = await supabase
+        .from('device_tokens')
+        .select('expo_push_token')
+        .eq('role', 'fc');
+    if (tokenError) throw tokenError;
+
+    const payload =
+        tokens?.filter((t: any) => t.expo_push_token).map((t: any) => ({
+            to: t.expo_push_token,
+            title,
+            body,
+            data: { type: 'exam_round', url: '/exam/apply' },
+            sound: 'default',
+            priority: 'high',
+            channelId: 'alerts',
+        })) ?? [];
+
+    if (!payload.length) return;
+    const resp = await fetch(EXPO_PUSH_URL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+    });
+    if (!resp.ok) {
+        const text = await resp.text();
+        throw new Error(`Expo push failed: ${resp.status} ${text}`);
+    }
+}
+
 // --- Constants ---
 const HANWHA_ORANGE = '#f36f21';
 const CHARCOAL = '#111827';
@@ -220,7 +261,7 @@ export default function ExamSchedulePage() {
                 }
             }
         },
-        onSuccess: () => {
+        onSuccess: async (_data, values) => {
             notifications.show({
                 title: editingId ? '수정 완료' : '등록 완료',
                 message: `시험 일정이 ${editingId ? '수정' : '등록'}되었습니다.`,
@@ -228,6 +269,19 @@ export default function ExamSchedulePage() {
             });
             queryClient.invalidateQueries({ queryKey: ['exam-rounds'] });
             handleClose();
+            try {
+                const dateLabel = dayjs(values.exam_date).format('YYYY-MM-DD');
+                const title = `${dateLabel}${values.round_label ? ` (${values.round_label})` : ''} 일정 ${editingId ? '수정' : '등록'}`;
+                const body = `시험 일정이 ${editingId ? '수정' : '등록'}되었습니다.`;
+                await notifyAllFcs(title, body);
+            } catch (err: any) {
+                console.error('[exam-rounds] notify failed', err?.message ?? err);
+                notifications.show({
+                    title: '알림 전송 실패',
+                    message: err?.message ?? '알림 전송 중 오류가 발생했습니다.',
+                    color: 'yellow',
+                });
+            }
         },
         onError: (err: any) => {
             notifications.show({

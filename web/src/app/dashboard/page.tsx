@@ -422,15 +422,37 @@ export default function DashboardPage() {
   const deleteFcMutation = useMutation({
     mutationFn: async () => {
       if (!selectedFc) return;
-      await supabase.from('fc_documents').delete().eq('fc_id', selectedFc.id);
-      await supabase.from('fc_profiles').delete().eq('id', selectedFc.id);
+      console.debug('[Web][deleteFc] start', { id: selectedFc.id, phone: selectedFc.phone });
+
+      const { error: docsError } = await supabase
+        .from('fc_documents')
+        .delete()
+        .eq('fc_id', selectedFc.id);
+      if (docsError) {
+        console.error('[Web][deleteFc] fc_documents delete failed', docsError);
+        throw docsError;
+      }
+
+      const { error: profileError } = await supabase
+        .from('fc_profiles')
+        .delete()
+        .eq('id', selectedFc.id);
+      if (profileError) {
+        console.error('[Web][deleteFc] fc_profiles delete failed', profileError);
+        throw profileError;
+      }
+
+      console.debug('[Web][deleteFc] done', { id: selectedFc.id });
     },
     onSuccess: () => {
       notifications.show({ title: '삭제 완료', message: 'FC 정보가 삭제되었습니다.', color: 'gray' });
       queryClient.invalidateQueries({ queryKey: ['dashboard-list'] });
       close();
     },
-    onError: (err: any) => notifications.show({ title: '오류', message: err.message, color: 'red' }),
+    onError: (err: any) => {
+      console.error('[Web][deleteFc] failed', err);
+      notifications.show({ title: '오류', message: err.message, color: 'red' });
+    },
   });
 
     const handleOpenModal = (fc: any) => {
@@ -1190,7 +1212,11 @@ export default function DashboardPage() {
                       color="red"
                       leftSection={<IconTrash size={16} />}
                       onClick={() => {
-                        if (confirm('정말로 FC를 삭제하시겠습니까? 관련 서류도 모두 삭제됩니다.')) {
+                        console.debug('[Web][deleteFc] click', { id: selectedFc?.id, phone: selectedFc?.phone });
+                        const confirmed = confirm('정말로 FC를 삭제하시겠습니까? 관련 서류도 모두 삭제됩니다.');
+                        console.debug('[Web][deleteFc] confirm', { confirmed });
+                        if (confirmed) {
+                          console.debug('[Web][deleteFc] mutate');
                           deleteFcMutation.mutate();
                         }
                       }}

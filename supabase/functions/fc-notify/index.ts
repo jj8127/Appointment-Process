@@ -27,8 +27,17 @@ function getEnv(name: string): string | undefined {
   return undefined;
 }
 
-const supabaseUrl = getEnv('SUPABASE_URL') ?? '';
-const serviceKey = getEnv('SUPABASE_SERVICE_ROLE_KEY') ?? '';
+// Security: Validate required environment variables
+const supabaseUrl = getEnv('SUPABASE_URL');
+const serviceKey = getEnv('SUPABASE_SERVICE_ROLE_KEY');
+
+if (!supabaseUrl) {
+  throw new Error('Missing required environment variable: SUPABASE_URL');
+}
+if (!serviceKey) {
+  throw new Error('Missing required environment variable: SUPABASE_SERVICE_ROLE_KEY');
+}
+
 const supabase = createClient(supabaseUrl, serviceKey);
 
 function getTargetUrl(role: 'admin' | 'fc', payload: Payload, message: string, fcId: string): string {
@@ -73,10 +82,13 @@ function buildTitle(fcName: string | null, payload: Payload, message?: string) {
   return `${name} 업데이트`;
 }
 
+// Security: Restrict CORS to specific origins
+const allowedOrigins = (getEnv('ALLOWED_ORIGINS') ?? '').split(',').map(o => o.trim()).filter(Boolean);
 const corsHeaders = {
-  'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Headers': '*',
+  'Access-Control-Allow-Origin': allowedOrigins.length > 0 ? allowedOrigins[0] : 'https://yourdomain.com',
+  'Access-Control-Allow-Headers': 'Content-Type, Authorization, x-client-info, apikey',
   'Access-Control-Allow-Methods': 'POST, OPTIONS',
+  'Access-Control-Allow-Credentials': 'true',
 };
 
 function ok(body: Record<string, unknown>, status = 200) {

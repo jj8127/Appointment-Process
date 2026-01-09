@@ -37,7 +37,7 @@ type AttachedFile = {
 };
 
 export default function AdminNoticeScreen() {
-  const { role } = useSession();
+  const { role, readOnly } = useSession();
   const keyboardPadding = useKeyboardPadding();
   const [title, setTitle] = useState('');
   const [body, setBody] = useState('');
@@ -186,6 +186,10 @@ export default function AdminNoticeScreen() {
       Alert.alert('접근 불가', '관리자만 등록할 수 있습니다.');
       return;
     }
+    if (readOnly) {
+      Alert.alert('조회 전용', '본부장은 공지를 등록할 수 없습니다.');
+      return;
+    }
     if (!title.trim() || !body.trim()) {
       Alert.alert('입력 필요', '제목과 내용을 모두 입력해주세요.');
       return;
@@ -294,11 +298,11 @@ export default function AdminNoticeScreen() {
             <Text style={styles.label}>첨부파일</Text>
 
             <View style={{ flexDirection: 'row', gap: 10, marginBottom: 10 }}>
-              <Pressable style={styles.attachButton} onPress={pickImage}>
+              <Pressable style={styles.attachButton} onPress={pickImage} disabled={readOnly}>
                 <Feather name="image" size={20} color={CHARCOAL} />
                 <Text style={styles.attachButtonText}>사진 추가</Text>
               </Pressable>
-              <Pressable style={styles.attachButton} onPress={pickFile}>
+              <Pressable style={styles.attachButton} onPress={pickFile} disabled={readOnly}>
                 <Feather name="paperclip" size={20} color={CHARCOAL} />
                 <Text style={styles.attachButtonText}>파일 추가</Text>
               </Pressable>
@@ -335,10 +339,10 @@ export default function AdminNoticeScreen() {
           style={({ pressed }) => [
             styles.submitButton,
             pressed && styles.buttonPressed,
-            loading && styles.buttonDisabled,
+            (loading || readOnly) && styles.buttonDisabled,
           ]}
           onPress={submit}
-          disabled={loading}
+          disabled={loading || readOnly}
         >
           {loading ? (
             <ActivityIndicator color="#fff" />

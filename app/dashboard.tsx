@@ -300,7 +300,7 @@ const fetchFcs = async (
 };
 
 export default function DashboardScreen() {
-  const { role, residentId, logout, hydrated } = useSession();
+  const { role, residentId, logout, hydrated, readOnly } = useSession();
   const router = useRouter();
   const { mode, status } = useLocalSearchParams<{ mode?: string; status?: string }>();
   const [statusFilter, setStatusFilter] = useState<FilterKey>('all');
@@ -346,6 +346,13 @@ export default function DashboardScreen() {
   const filterOptions = useMemo(() => createFilterOptions(role), [role]);
 
   const [reminderLoading, setReminderLoading] = useState<string | null>(null);
+
+  const canEdit = role === 'admin' && !readOnly;
+  const assertCanEdit = () => {
+    if (!canEdit) {
+      throw new Error('본부장은 조회 전용 계정입니다.');
+    }
+  };
 
   const { data, isLoading, isError, refetch } = useQuery({
     queryKey: ['dashboard', role, residentId, keyword],
@@ -445,6 +452,7 @@ export default function DashboardScreen() {
       career,
       phone,
     }: { id: string; tempId?: string; prevTemp?: string; career?: '신입' | '경력'; phone?: string }) => {
+      assertCanEdit();
       const payload: any = {};
       if (career) payload.career_type = career;
       const tempIdTrim = tempId?.trim();
@@ -477,6 +485,7 @@ export default function DashboardScreen() {
 
   const updateDocs = useMutation({
     mutationFn: async ({ id, types, phone }: { id: string; types: string[]; phone?: string }) => {
+      assertCanEdit();
       const uniqueTypes = Array.from(new Set(types));
 
       const { data: existingDocs, error: fetchErr } = await supabase
@@ -543,6 +552,7 @@ export default function DashboardScreen() {
         deadline?: string;
         currentDeadline?: string | null;
       }) => {
+        assertCanEdit();
         const uniqueTypes = Array.from(new Set(types));
         const normalizedDeadline = normalizeDateInput(deadline);
         const deadlineTrimmed = (deadline ?? '').trim();
@@ -629,6 +639,7 @@ export default function DashboardScreen() {
 
   const deleteFc = useMutation({
     mutationFn: async ({ id, phone }: { id: string; phone?: string | null }) => {
+      assertCanEdit();
       if (phone) {
         const { data, error } = await supabase.functions.invoke('delete-account', {
           body: { residentId: phone },
@@ -691,6 +702,7 @@ export default function DashboardScreen() {
       nextStatus: FcProfile['status'];
       extra?: Record<string, any>;
     }) => {
+      assertCanEdit();
       const { error } = await supabase
         .from('fc_profiles')
         .update({ status: nextStatus, ...(extra ?? {}) })
@@ -720,6 +732,7 @@ export default function DashboardScreen() {
       phone: string;
       rejectReason?: string | null;
     }) => {
+      assertCanEdit();
       const field = type === 'life' ? 'appointment_date_life' : 'appointment_date_nonlife';
       const submittedField = type === 'life' ? 'appointment_date_life_sub' : 'appointment_date_nonlife_sub';
       const rejectField = type === 'life' ? 'appointment_reject_reason_life' : 'appointment_reject_reason_nonlife';
@@ -772,6 +785,7 @@ export default function DashboardScreen() {
       nonlife?: string | null;
       phone?: string | null;
     }) => {
+      assertCanEdit();
       console.log('[appointment-schedule] mutate', { id, life, nonlife });
       const payload: any = {};
       if (life !== undefined) payload.appointment_schedule_life = life || null;
@@ -814,6 +828,7 @@ export default function DashboardScreen() {
       phone: string;
       reviewerNote?: string | null;
     }) => {
+      assertCanEdit();
       // Update individual doc status
       const { error } = await supabase
         .from('fc_documents')
@@ -886,6 +901,10 @@ export default function DashboardScreen() {
     storagePath?: string | null;
     status?: string | null;
   }) => {
+    if (!canEdit) {
+      Alert.alert('권한 없음', '본부장은 조회 전용 계정입니다.');
+      return;
+    }
     if (status === 'approved') {
       Alert.alert('삭제 불가', '승인된 서류는 삭제할 수 없습니다.');
       return;
@@ -1152,6 +1171,14 @@ export default function DashboardScreen() {
   };
   const renderAdminActions = (fc: FcRow) => {
     if (role !== 'admin') return null;
+    if (!canEdit) {
+      return (
+        <View style={styles.cardSection}>
+          <Text style={styles.cardTitle}>관리자 기능</Text>
+          <Text style={{ color: MUTED, fontSize: 13 }}>본부장은 조회 전용 계정입니다.</Text>
+        </View>
+      );
+    }
     const isEditing = !!editMode[fc.id];
     const actionBlocks: React.ReactNode[] = [];
 

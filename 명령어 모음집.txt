@@ -37,3 +37,38 @@ expo mcp server로 앱 실행하기 [앱이 설치 되어 있다는 전제 하�
 
 app store connect에 가장 최근에 빌드한 앱 올리기
     eas submit --platform ios --latest
+
+비밀번호 hash값 slat값 알아보는 명령어
+node -e "const crypto=require('crypto');const password='qwer1234!';const salt=crypto.randomBytes(16);const hash=crypto.pbkdf2Sync(password,salt,100000,32,'sha256');console.log('PASSWORD_SALT:',salt.toString('base64'));console.log('PASSWORD_HASH:',hash.toString('base64'));"
+
+본부장 계정 추가하는 쿼리
+insert into public.manager_accounts (
+  name, phone, password_hash, password_salt, password_set_at
+) values (
+  '이름', '번호', 'HASH', 'SALT', now()
+);
+
+계정 비밀번호 변경하는 쿼리
+update public.manager_accounts
+set password_hash = '해시',
+    password_salt = '솔트',
+    password_set_at = now(),
+    failed_count = 0,
+    locked_until = null
+where phone = '전화번호';
+
+FC계정 추가하는 쿼리
+with new_fc as (
+  insert into public.fc_profiles (
+    name, affiliation, phone, recommender, email
+  ) values (
+    '홍길동', '1본부', '01012345678', '추천인명', 'hong@example.com'
+  )
+  returning id
+)
+insert into public.fc_credentials (
+  fc_id, password_hash, password_salt, password_set_at
+)
+select id, 'xQQHy6CYaPEbITE0pW/OOV1nD2pj+SKD0HsV/U6i/R0=', 'KBNCCjmnwPbFakBouBWF3Q==', now()
+from new_fc;
+

@@ -1,4 +1,3 @@
-import * as Haptics from 'expo-haptics';
 import { LinearGradient } from 'expo-linear-gradient';
 import { router, useLocalSearchParams } from 'expo-router';
 import { Feather } from '@expo/vector-icons';
@@ -6,9 +5,7 @@ import { MotiView } from 'moti';
 import { useEffect, useState } from 'react';
 import {
     ActivityIndicator,
-    Alert,
     Image,
-    Keyboard,
     Pressable,
     StyleSheet,
     Text,
@@ -16,11 +13,12 @@ import {
     View
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import * as Haptics from 'expo-haptics';
 
 import { KeyboardAwareWrapper } from '@/components/KeyboardAwareWrapper';
 import { useKeyboardPadding } from '@/hooks/use-keyboard-padding';
 import { useSession } from '@/hooks/use-session';
-import { supabase } from '@/lib/supabase';
+import { useLogin } from '@/hooks/use-login';
 import Logo from '../logo.png';
 
 const HANWHA_ORANGE = '#f36f21';
@@ -33,72 +31,31 @@ const INPUT_BG = '#F9FAFB';
 export default function LoginScreen() {
     const { skipAuto } = useLocalSearchParams<{ skipAuto?: string }>();
     const skipAutoRedirect = skipAuto === '1';
-    const { loginAs, role, residentId, hydrated } = useSession();
+    const { role, residentId, hydrated } = useSession();
     const [phoneInput, setPhoneInput] = useState('');
     const [passwordInput, setPasswordInput] = useState('');
-    const [loading, setLoading] = useState(false);
     const [isFocused, setIsFocused] = useState(false);
     const [isPasswordFocused, setIsPasswordFocused] = useState(false);
     const [showPassword, setShowPassword] = useState(false);
     const keyboardPadding = useKeyboardPadding();
 
-      useEffect(() => {
-          if (skipAutoRedirect) return;
-          if (!hydrated) return;
-          if (role === 'admin') {
-              router.replace('/');
-              return;
-          }
-          if (role === 'fc' && residentId) {
-              router.replace('/home-lite');
-          }
-      }, [hydrated, residentId, role, skipAutoRedirect]);
+    // Use custom login hook
+    const { login, loading } = useLogin();
 
-    const handleLogin = async () => {
-        Keyboard.dismiss();
-        const code = phoneInput.replace(/\s/g, '');
-        if (!code) {
-            Alert.alert('알림', '휴대폰 번호를 입력해주세요.');
+    useEffect(() => {
+        if (skipAutoRedirect) return;
+        if (!hydrated) return;
+        if (role === 'admin') {
+            router.replace('/');
             return;
         }
-        Haptics.selectionAsync();
-        setLoading(true);
-
-        try {
-            const digits = code.replace(/[^0-9]/g, '');
-            if (digits.length !== 11) {
-                Alert.alert('알림', '휴대폰 번호는 숫자 11자리로 입력해주세요.');
-                return;
-            }
-
-            if (!passwordInput.trim()) {
-                Alert.alert('알림', '비밀번호를 입력해주세요.');
-                return;
-            }
-
-            const { data, error } = await supabase.functions.invoke('login-with-password', {
-                body: { phone: digits, password: passwordInput.trim() },
-            });
-            if (error) throw error;
-            if (!data?.ok) {
-                if ((data?.code === 'needs_password_setup' || data?.code === 'not_found') && data?.role !== 'admin') {
-                    Alert.alert('안내', '계정정보가 없습니다. 회원가입 페이지로 이동합니다..');
-                    router.replace('/signup');
-                    return;
-                }
-                Alert.alert('로그인 실패', data?.message ?? '오류가 발생했습니다. 다시 시도해주세요.');
-                return;
-            }
-
-            const nextRole = data.role === 'admin' ? 'admin' : 'fc';
-            loginAs(nextRole, data.residentId ?? digits, data.displayName ?? '');
-            router.replace(nextRole === 'admin' ? '/' : '/home-lite');
-            return;
-        } catch (err: any) {
-            Alert.alert('로그인 실패', '오류가 발생했습니다. 다시 시도해주세요.');
-        } finally {
-            setLoading(false);
+        if (role === 'fc' && residentId) {
+            router.replace('/home-lite');
         }
+    }, [hydrated, residentId, role, skipAutoRedirect]);
+
+    const handleLogin = () => {
+        login(phoneInput, passwordInput);
     };
 
     return (

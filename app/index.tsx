@@ -783,22 +783,24 @@ export default function Home() {
   }
   const getAppointmentStatus = (
     date: string | null | undefined,
+    submittedDate: string | null | undefined,
     schedule: string | null | undefined,
-    isFinal: boolean,
   ) => {
-    // 완료 표시는 최종 상태일 때만, 그렇지 않으면 "입력됨(승인대기)"로 표시
-    if (isFinal && date) return { label: '완료', color: '#ffffff', bg: '#16a34a' };
-    if (date) return { label: '입력됨(승인대기)', color: '#ffffff', bg: '#f97316' };
-    if (schedule) return { label: `${schedule}월 진행중`, color: '#fcfcfcff', bg: '#f97316' };
+    if (date) return { label: '완료', color: '#ffffff', bg: '#16a34a' };
+    if (submittedDate) return { label: '입력됨(승인대기)', color: '#ffffff', bg: '#f97316' };
+    if (schedule) return { label: `${schedule}진행중`, color: '#fcfcfcff', bg: '#f97316' };
     return { label: '진행중', color: '#ffffff', bg: '#2563eb' };
   };
 
-  const isFinal = myFc?.status === 'final-link-sent';
-  const lifeStatus = getAppointmentStatus(myFc?.appointment_date_life, myFc?.appointment_schedule_life, isFinal);
+  const lifeStatus = getAppointmentStatus(
+    myFc?.appointment_date_life,
+    myFc?.appointment_date_life_sub,
+    myFc?.appointment_schedule_life,
+  );
   const nonLifeStatus = getAppointmentStatus(
     myFc?.appointment_date_nonlife,
+    myFc?.appointment_date_nonlife_sub,
     myFc?.appointment_schedule_nonlife,
-    isFinal,
   );
 
   useEffect(() => {
