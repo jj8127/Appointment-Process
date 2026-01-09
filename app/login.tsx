@@ -6,6 +6,7 @@ import { useEffect, useState } from 'react';
 import {
     ActivityIndicator,
     Image,
+    Keyboard,
     Pressable,
     StyleSheet,
     Text,
