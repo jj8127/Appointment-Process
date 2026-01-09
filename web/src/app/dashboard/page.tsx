@@ -64,7 +64,7 @@ import { sendPushNotification } from '../actions';
 import { updateAppointmentAction } from './appointment/actions';
 import { updateDocStatusAction } from './docs/actions';
 import type { FCProfileWithDocuments, FCDocument } from '@/types/dashboard';
-import type { FcProfile } from '@/types/fc';
+import type { FcProfile, FcStatus } from '@/types/fc';
 
 export default function DashboardPage() {
   const router = useRouter();
@@ -429,7 +429,7 @@ export default function DashboardPage() {
       msg,
       extra,
     }: {
-      status: string;
+      status: FcStatus;
       title?: string;
       msg: string;
       extra?: Record<string, any>;
