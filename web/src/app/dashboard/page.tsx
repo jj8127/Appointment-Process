@@ -659,6 +659,8 @@ export default function DashboardPage() {
   };
 
   const renderAppointmentSection = (category: 'life' | 'nonlife') => {
+    if (!selectedFc) return null;
+
     const isLife = category === 'life';
     const schedule = isLife ? appointmentInputs.life : appointmentInputs.nonlife;
     const date = isLife ? appointmentInputs.lifeDate : appointmentInputs.nonLifeDate;
