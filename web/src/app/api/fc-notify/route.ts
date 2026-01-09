@@ -99,7 +99,7 @@ export async function POST(req: Request) {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'apikey': serviceKey,
+        'apikey': serviceKey as string,
         'Authorization': `Bearer ${serviceKey}`,
       },
       body: JSON.stringify(body),
