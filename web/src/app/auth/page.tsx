@@ -9,20 +9,31 @@ import {
     Stack,
     Text,
     TextInput,
-    Title
+    Title,
+    PasswordInput,
+    Box,
+    rem
 } from '@mantine/core';
 import { notifications } from '@mantine/notifications';
 import { useRouter } from 'next/navigation';
 import { useEffect, useState } from 'react';
+import { IconPhone, IconLock, IconArrowRight } from '@tabler/icons-react';
+
+const HANWHA_ORANGE = '#f36f21';
+const HANWHA_ORANGE_DARK = '#d65a16';
 
 export default function AuthPage() {
     const { loginAs, role, residentId, hydrated, displayName } = useSession();
     const [phoneInput, setPhoneInput] = useState('');
     const [passwordInput, setPasswordInput] = useState('');
     const [loading, setLoading] = useState(false);
+    const [mounted, setMounted] = useState(false);
     const router = useRouter();
 
-    // 이미 로그인된 세션이 있다면 모바일과 동일하게 즉시 리다이렉트
+    useEffect(() => {
+        setMounted(true);
+    }, []);
+
     useEffect(() => {
         if (!hydrated) return;
         if (role === 'admin') {
@@ -69,6 +80,7 @@ export default function AuthPage() {
                     message: '비밀번호를 입력해주세요.',
                     color: 'red',
                 });
+                setLoading(false);
                 return;
             }
 
@@ -80,7 +92,7 @@ export default function AuthPage() {
                 if ((data?.code === 'needs_password_setup' || data?.code === 'not_found') && data?.role !== 'admin') {
                     notifications.show({
                         title: '안내',
-                        message: '계정정보가 없습니다. 회원가입 페이지로 이동합니다..',
+                        message: '계정정보가 없습니다. 회원가입 페이지로 이동합니다.',
                         color: 'orange',
                     });
                     router.replace('/signup');
@@ -91,6 +103,7 @@ export default function AuthPage() {
                     message: data?.message ?? '오류가 발생했습니다. 다시 시도해주세요.',
                     color: 'red',
                 });
+                setLoading(false);
                 return;
             }
 
@@ -109,54 +122,225 @@ export default function AuthPage() {
                 message: '오류가 발생했습니다. 다시 시도해주세요.',
                 color: 'red',
             });
-        } finally {
             setLoading(false);
         }
     };
 
     return (
-        <Container size={420} my={40}>
-            <Title ta="center" fw={900}>
-                FC Onboarding
-            </Title>
-            <Text c="dimmed" size="sm" ta="center" mt={5}>
-                관리자는 지정된 번호 + 비밀번호, FC는 휴대폰 번호 + 비밀번호를 입력해주세요.
-            </Text>
+        <Box
+            style={{
+                minHeight: '100vh',
+                background: 'linear-gradient(135deg, #ffffff 0%, #fff1e6 50%, #ffe8d6 100%)',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                padding: rem(20),
+            }}
+        >
+            <Container size={440} style={{ width: '100%' }}>
+                {/* Logo/Title Section */}
+                <Box
+                    style={{
+                        textAlign: 'center',
+                        marginBottom: rem(32),
+                        opacity: mounted ? 1 : 0,
+                        transform: mounted ? 'translateY(0)' : 'translateY(-20px)',
+                        transition: 'all 0.8s cubic-bezier(0.4, 0, 0.2, 1)',
+                    }}
+                >
+                    <Title
+                        order={1}
+                        fw={900}
+                        size={rem(42)}
+                        style={{
+                            background: `linear-gradient(135deg, ${HANWHA_ORANGE} 0%, ${HANWHA_ORANGE_DARK} 100%)`,
+                            WebkitBackgroundClip: 'text',
+                            WebkitTextFillColor: 'transparent',
+                            backgroundClip: 'text',
+                            marginBottom: rem(8),
+                            letterSpacing: '-0.5px',
+                        }}
+                    >
+                        FC Onboarding
+                    </Title>
+                    <Box
+                        style={{
+                            width: rem(40),
+                            height: rem(4),
+                            background: HANWHA_ORANGE,
+                            margin: '0 auto',
+                            borderRadius: rem(2),
+                            opacity: 0.3,
+                        }}
+                    />
+                </Box>
 
-            <Paper withBorder shadow="md" p={30} mt={30} radius="md">
-                <Stack>
-                    <TextInput
-                        label="휴대폰 번호"
-                        placeholder="휴대폰 번호 (- 없이 숫자만 입력)"
-                        value={phoneInput}
-                        type="tel"
-                        inputMode="numeric"
-                        pattern="[0-9]*"
-                        maxLength={11}
-                        autoComplete="tel"
-                        onChange={(event) => setPhoneInput(event.currentTarget.value.replace(/[^0-9]/g, ''))}
-                        onKeyDown={(e) => {
-                            if (e.key === 'Enter') handleLogin();
-                        }}
-                    />
-                    <TextInput
-                        label="비밀번호"
-                        placeholder="8자 이상, 영문+숫자+특수문자"
-                        value={passwordInput}
-                        type="password"
-                        onChange={(event) => setPasswordInput(event.currentTarget.value)}
-                        onKeyDown={(e) => {
-                            if (e.key === 'Enter') handleLogin();
-                        }}
-                    />
-                    <Button fullWidth onClick={handleLogin} loading={loading} color="orange">
-                        시작하기
-                    </Button>
-                    <Button variant="subtle" color="orange" onClick={() => router.push('/reset-password')}>
-                        비밀번호를 잊으셨나요?
-                    </Button>
-                </Stack>
-            </Paper>
-        </Container>
+                {/* Login Card */}
+                <Paper
+                    shadow="xl"
+                    p={40}
+                    radius="xl"
+                    style={{
+                        background: 'rgba(255, 255, 255, 0.95)',
+                        backdropFilter: 'blur(10px)',
+                        border: `1px solid rgba(243, 111, 33, 0.1)`,
+                        opacity: mounted ? 1 : 0,
+                        transform: mounted ? 'translateY(0) scale(1)' : 'translateY(30px) scale(0.98)',
+                        transition: 'all 0.6s cubic-bezier(0.4, 0, 0.2, 1) 0.2s',
+                    }}
+                >
+                    <Stack gap="lg">
+                        {/* Header */}
+                        <Box style={{ textAlign: 'center', marginBottom: rem(8) }}>
+                            <Title order={2} fw={800} size={rem(28)} c="dark.8" mb={8}>
+                                로그인
+                            </Title>
+                            <Text c="dimmed" size="sm" style={{ lineHeight: 1.6 }}>
+                                관리자는 지정된 번호 + 비밀번호
+                                <br />
+                                FC는 휴대폰 번호 + 비밀번호를 입력해주세요.
+                            </Text>
+                        </Box>
+
+                        {/* Phone Input */}
+                        <TextInput
+                            label="휴대폰 번호"
+                            placeholder="번호 입력 (- 없이 숫자만)"
+                            leftSection={<IconPhone size={18} stroke={1.5} />}
+                            size="lg"
+                            radius="md"
+                            value={phoneInput}
+                            type="tel"
+                            inputMode="numeric"
+                            pattern="[0-9]*"
+                            maxLength={11}
+                            autoComplete="tel"
+                            onChange={(event) => setPhoneInput(event.currentTarget.value.replace(/[^0-9]/g, ''))}
+                            onKeyDown={(e) => {
+                                if (e.key === 'Enter') handleLogin();
+                            }}
+                            styles={{
+                                label: {
+                                    fontWeight: 700,
+                                    fontSize: rem(14),
+                                    color: '#1F2937',
+                                    marginBottom: rem(8),
+                                },
+                                input: {
+                                    fontSize: rem(16),
+                                    borderWidth: rem(1.5),
+                                    transition: 'all 0.2s ease',
+                                    '&:focus': {
+                                        borderColor: HANWHA_ORANGE,
+                                        boxShadow: `0 0 0 3px rgba(243, 111, 33, 0.1)`,
+                                    },
+                                },
+                            }}
+                        />
+
+                        {/* Password Input */}
+                        <PasswordInput
+                            label="비밀번호"
+                            placeholder="8자 이상, 영문+숫자+특수문자"
+                            leftSection={<IconLock size={18} stroke={1.5} />}
+                            size="lg"
+                            radius="md"
+                            value={passwordInput}
+                            onChange={(event) => setPasswordInput(event.currentTarget.value)}
+                            onKeyDown={(e) => {
+                                if (e.key === 'Enter') handleLogin();
+                            }}
+                            styles={{
+                                label: {
+                                    fontWeight: 700,
+                                    fontSize: rem(14),
+                                    color: '#1F2937',
+                                    marginBottom: rem(8),
+                                },
+                                input: {
+                                    fontSize: rem(16),
+                                    borderWidth: rem(1.5),
+                                    transition: 'all 0.2s ease',
+                                    '&:focus': {
+                                        borderColor: HANWHA_ORANGE,
+                                        boxShadow: `0 0 0 3px rgba(243, 111, 33, 0.1)`,
+                                    },
+                                },
+                            }}
+                        />
+
+                        {/* Login Button */}
+                        <Button
+                            fullWidth
+                            size="lg"
+                            radius="md"
+                            onClick={handleLogin}
+                            loading={loading}
+                            rightSection={<IconArrowRight size={20} stroke={2} />}
+                            style={{
+                                background: `linear-gradient(135deg, ${HANWHA_ORANGE} 0%, ${HANWHA_ORANGE_DARK} 100%)`,
+                                border: 'none',
+                                fontWeight: 700,
+                                fontSize: rem(17),
+                                height: rem(56),
+                                marginTop: rem(8),
+                                transition: 'all 0.2s ease',
+                                boxShadow: `0 4px 12px rgba(243, 111, 33, 0.3)`,
+                            }}
+                            styles={{
+                                root: {
+                                    '&:hover': {
+                                        transform: 'translateY(-2px)',
+                                        boxShadow: `0 6px 16px rgba(243, 111, 33, 0.4)`,
+                                    },
+                                    '&:active': {
+                                        transform: 'translateY(0)',
+                                    },
+                                },
+                            }}
+                        >
+                            로그인
+                        </Button>
+
+                        {/* Reset Password Link */}
+                        <Button
+                            variant="subtle"
+                            size="md"
+                            fullWidth
+                            onClick={() => router.push('/reset-password')}
+                            style={{
+                                color: '#6B7280',
+                                fontWeight: 600,
+                                fontSize: rem(14),
+                            }}
+                            styles={{
+                                root: {
+                                    '&:hover': {
+                                        background: 'rgba(243, 111, 33, 0.05)',
+                                        color: HANWHA_ORANGE,
+                                    },
+                                },
+                            }}
+                        >
+                            비밀번호를 잊으셨나요?
+                        </Button>
+                    </Stack>
+                </Paper>
+
+                {/* Footer */}
+                <Text
+                    size="xs"
+                    c="dimmed"
+                    ta="center"
+                    mt="xl"
+                    style={{
+                        opacity: mounted ? 0.7 : 0,
+                        transition: 'opacity 0.8s ease 0.4s',
+                    }}
+                >
+                    © 2024 FC Onboarding System. All rights reserved.
+                </Text>
+            </Container>
+        </Box>
     );
 }
