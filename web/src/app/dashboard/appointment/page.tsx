@@ -25,6 +25,7 @@ import {
   UnstyledButton
 } from '@mantine/core';
 import { DateInput } from '@mantine/dates';
+import { useDisclosure } from '@mantine/hooks';
 import { notifications } from '@mantine/notifications';
 import { IconChevronDown, IconDeviceFloppy, IconRefresh, IconSearch, IconUser, IconX } from '@tabler/icons-react';
 import { useQuery } from '@tanstack/react-query';
@@ -156,6 +157,26 @@ export default function AppointmentPage() {
   const [rejectReason, setRejectReason] = useState('');
   const [rejectTarget, setRejectTarget] = useState<{ fc: any; category: 'life' | 'nonlife' } | null>(null);
   const [rejectSubmitting, setRejectSubmitting] = useState(false);
+
+  // 확인 모달 상태
+  const [confirmOpened, { open: openConfirm, close: closeConfirm }] = useDisclosure(false);
+  const [confirmConfig, setConfirmConfig] = useState<{
+    title: string;
+    message: string;
+    onConfirm: () => void;
+  } | null>(null);
+
+  const showConfirm = (config: { title: string; message: string; onConfirm: () => void }) => {
+    setConfirmConfig(config);
+    openConfirm();
+  };
+
+  const handleConfirm = () => {
+    if (confirmConfig?.onConfirm) {
+      confirmConfig.onConfirm();
+    }
+    closeConfirm();
+  };
 
 
   // Header Filtering State
@@ -319,27 +340,31 @@ export default function AppointmentPage() {
       return;
     }
 
-    if (confirm(`${type === 'confirm' ? '승인' : '저장'} 하시겠습니까?`)) {
-      startTransition(async () => {
-        const result = await updateAppointmentAction(
-          { success: false },
-          {
-            fcId: fc.id,
-            phone: fc.phone,
-            type,
-            category,
-            value,
-          }
-        );
+    showConfirm({
+      title: type === 'confirm' ? '위촉 승인' : '위촉 예정월 저장',
+      message: `${type === 'confirm' ? '승인' : '저장'} 하시겠습니까?`,
+      onConfirm: () => {
+        startTransition(async () => {
+          const result = await updateAppointmentAction(
+            { success: false },
+            {
+              fcId: fc.id,
+              phone: fc.phone,
+              type,
+              category,
+              value,
+            }
+          );
 
-        if (result.success) {
-          notifications.show({ title: '성공', message: result.message, color: 'green' });
-          refetch();
-        } else {
-          notifications.show({ title: '실패', message: result.error, color: 'red' });
-        }
-      });
-    }
+          if (result.success) {
+            notifications.show({ title: '성공', message: result.message, color: 'green' });
+            refetch();
+          } else {
+            notifications.show({ title: '실패', message: result.error, color: 'red' });
+          }
+        });
+      },
+    });
   };
 
   const renderInsuranceSection = (fc: any, category: 'life' | 'nonlife') => {
@@ -469,6 +494,28 @@ export default function AppointmentPage() {
             </Group>
           </Stack>
         </Modal>
+
+        {/* 확인 모달 */}
+        <Modal
+          opened={confirmOpened}
+          onClose={closeConfirm}
+          title={<Text fw={700}>{confirmConfig?.title}</Text>}
+          size="sm"
+          centered
+        >
+          <Stack gap="md">
+            <Text size="sm">{confirmConfig?.message}</Text>
+            <Group justify="flex-end">
+              <Button variant="default" onClick={closeConfirm}>
+                취소
+              </Button>
+              <Button color="blue" onClick={handleConfirm}>
+                확인
+              </Button>
+            </Group>
+          </Stack>
+        </Modal>
+
         <Group justify="space-between" align="flex-end">
           <div>
             <Title order={2} c={CHARCOAL}>위촉 심사 및 확정</Title>

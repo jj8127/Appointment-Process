@@ -228,10 +228,33 @@ export default function DocumentsPage() {
         }
     };
 
-    const handleApprove = (doc: any) => {
-        if (confirm(`'${doc.doc_type}' 문서를 승인하시겠습니까?`)) {
-            updateStatusMutation.mutate({ doc, status: 'approved' });
+    const [confirmOpened, { open: openConfirm, close: closeConfirm }] = useDisclosure(false);
+    const [confirmConfig, setConfirmConfig] = useState<{
+        title: string;
+        message: string;
+        onConfirm: () => void;
+    } | null>(null);
+
+    const showConfirm = (config: { title: string; message: string; onConfirm: () => void }) => {
+        setConfirmConfig(config);
+        openConfirm();
+    };
+
+    const handleConfirm = () => {
+        if (confirmConfig?.onConfirm) {
+            confirmConfig.onConfirm();
         }
+        closeConfirm();
+    };
+
+    const handleApprove = (doc: any) => {
+        showConfirm({
+            title: '서류 승인',
+            message: `'${doc.doc_type}' 문서를 승인하시겠습니까?`,
+            onConfirm: () => {
+                updateStatusMutation.mutate({ doc, status: 'approved' });
+            },
+        });
     };
 
     const handleRejectInit = (doc: any) => {
@@ -517,6 +540,28 @@ export default function DocumentsPage() {
                     <Group justify="flex-end" mt="sm">
                         <Button variant="default" onClick={closeReject}>취소</Button>
                         <Button color="red" onClick={handleRejectConfirm} loading={updateStatusMutation.isPending}>반려 처리</Button>
+                    </Group>
+                </Stack>
+            </Modal>
+
+            {/* Confirm Modal */}
+            <Modal
+                opened={confirmOpened}
+                onClose={closeConfirm}
+                title={<Text fw={700}>{confirmConfig?.title}</Text>}
+                size="sm"
+                centered
+                radius="md"
+            >
+                <Stack gap="md">
+                    <Text size="sm">{confirmConfig?.message}</Text>
+                    <Group justify="flex-end">
+                        <Button variant="default" onClick={closeConfirm}>
+                            취소
+                        </Button>
+                        <Button color="blue" onClick={handleConfirm}>
+                            확인
+                        </Button>
                     </Group>
                 </Stack>
             </Modal>

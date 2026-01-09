@@ -12,6 +12,7 @@ import {
   Group,
   LoadingOverlay,
   Modal,
+  Pagination,
   Paper,
   ScrollArea,
   SimpleGrid,
@@ -62,16 +63,20 @@ import { useRouter } from 'next/navigation';
 import { sendPushNotification } from '../actions';
 import { updateAppointmentAction } from './appointment/actions';
 import { updateDocStatusAction } from './docs/actions';
+import type { FCProfileWithDocuments, FCDocument } from '@/types/dashboard';
+import type { FcProfile } from '@/types/fc';
 
 export default function DashboardPage() {
   const router = useRouter();
   const queryClient = useQueryClient();
   const [activeTab, setActiveTab] = useState<string | null>('all');
   const [keyword, setKeyword] = useState('');
+  const [currentPage, setCurrentPage] = useState(1);
+  const ITEMS_PER_PAGE = 20;
 
   // 모달 상태
   const [opened, { open, close }] = useDisclosure(false);
-  const [selectedFc, setSelectedFc] = useState<any>(null);
+  const [selectedFc, setSelectedFc] = useState<FCProfileWithDocuments | null>(null);
   const [modalTab, setModalTab] = useState<string | null>('info');
 
   // 수정용 상태
@@ -102,16 +107,44 @@ export default function DashboardPage() {
   const [rejectTarget, setRejectTarget] = useState<
     | { kind: 'allowance' }
     | { kind: 'appointment'; category: 'life' | 'nonlife' }
-    | { kind: 'doc'; doc: any }
+    | { kind: 'doc'; doc: FCDocument }
     | null
   >(null);
   const [rejectSubmitting, setRejectSubmitting] = useState(false);
 
-  const updateSelectedFc = (updates: Partial<any>) => {
-    setSelectedFc((prev: any) => (prev ? { ...prev, ...updates } : prev));
+  // 확인 모달 상태
+  const [confirmOpened, { open: openConfirm, close: closeConfirm }] = useDisclosure(false);
+  const [confirmConfig, setConfirmConfig] = useState<{
+    title: string;
+    message: string;
+    onConfirm: () => void;
+    confirmLabel?: string;
+    color?: string;
+  } | null>(null);
+
+  const showConfirm = (config: {
+    title: string;
+    message: string;
+    onConfirm: () => void;
+    confirmLabel?: string;
+    color?: string;
+  }) => {
+    setConfirmConfig(config);
+    openConfirm();
   };
 
-  const openRejectModal = (target: { kind: 'allowance' } | { kind: 'appointment'; category: 'life' | 'nonlife' } | { kind: 'doc'; doc: any }) => {
+  const handleConfirm = () => {
+    if (confirmConfig?.onConfirm) {
+      confirmConfig.onConfirm();
+    }
+    closeConfirm();
+  };
+
+  const updateSelectedFc = (updates: Partial<FCProfileWithDocuments>) => {
+    setSelectedFc((prev: FCProfileWithDocuments | null) => (prev ? { ...prev, ...updates } : prev));
+  };
+
+  const openRejectModal = (target: { kind: 'allowance' } | { kind: 'appointment'; category: 'life' | 'nonlife' } | { kind: 'doc'; doc: FCDocument }) => {
     setRejectReason('');
     setRejectTarget(target);
     openReject();
@@ -189,7 +222,7 @@ export default function DashboardPage() {
           reason,
         });
         if (!res.success) throw new Error(res.error || '문서 반려 실패');
-        const nextDocs = (selectedFc.fc_documents || []).map((d: any) =>
+        const nextDocs = (selectedFc.fc_documents || []).map((d: FCDocument) =>
           d.doc_type === doc.doc_type ? { ...d, status: 'rejected', reviewer_note: reason } : d,
         );
         let nextProfileStatus = selectedFc.status;
@@ -202,8 +235,9 @@ export default function DashboardPage() {
       }
 
       closeReject();
-    } catch (err: any) {
-      notifications.show({ title: '오류', message: err?.message ?? '반려 처리 실패', color: 'red' });
+    } catch (err: unknown) {
+      const error = err as Error;
+      notifications.show({ title: '오류', message: error?.message ?? '반려 처리 실패', color: 'red' });
     } finally {
       setRejectSubmitting(false);
     }
@@ -224,7 +258,7 @@ export default function DashboardPage() {
 
   const filteredData = useMemo(() => {
     if (!fcs) return [];
-    let result = fcs.map((fc: any) => {
+    let result = fcs.map((fc: FCProfileWithDocuments) => {
       const rawStep = calcStep(fc);
       // Map raw 1-5 to Admin 1-4
       // Raw 1 (Info), 2 (Allowance) -> Admin 1 (Allowance)
@@ -255,10 +289,23 @@ export default function DashboardPage() {
     return result;
   }, [fcs, activeTab, keyword]);
 
+  // 페이지네이션 처리
+  const totalPages = Math.ceil(filteredData.length / ITEMS_PER_PAGE);
+  const paginatedData = useMemo(() => {
+    const startIndex = (currentPage - 1) * ITEMS_PER_PAGE;
+    const endIndex = startIndex + ITEMS_PER_PAGE;
+    return filteredData.slice(startIndex, endIndex);
+  }, [filteredData, currentPage, ITEMS_PER_PAGE]);
+
+  // 탭이나 검색어가 변경되면 첫 페이지로 이동
+  useMemo(() => {
+    setCurrentPage(1);
+  }, [activeTab, keyword]);
+
   const updateInfoMutation = useMutation({
     mutationFn: async () => {
       if (!selectedFc) return;
-      const payload: any = { career_type: careerInput };
+      const payload: Partial<FcProfile> = { career_type: careerInput };
       if (tempIdInput && tempIdInput !== selectedFc.temp_id) {
         payload.temp_id = tempIdInput;
         payload.status = 'temp-id-issued';
@@ -281,7 +328,7 @@ export default function DashboardPage() {
       notifications.show({ title: '저장 완료', message: '기본 정보가 업데이트되었습니다.', color: 'green' });
       queryClient.invalidateQueries({ queryKey: ['dashboard-list'] });
     },
-    onError: (err: any) => notifications.show({ title: '오류', message: err.message, color: 'red' }),
+    onError: (err: Error) => notifications.show({ title: '오류', message: err.message, color: 'red' }),
   });
 
   const updateDocsRequestMutation = useMutation({
@@ -307,7 +354,7 @@ export default function DashboardPage() {
       const currentDocs = currentDocsRaw || [];
       console.log('Current DB Docs:', currentDocs);
 
-      const currentTypes = currentDocs.map((d: any) => d.doc_type);
+      const currentTypes = currentDocs.map((d: FCDocument) => d.doc_type);
 
       if (nextTypes.length === 0) {
         await supabase.from('fc_documents').delete().eq('fc_id', selectedFc.id);
@@ -324,8 +371,8 @@ export default function DashboardPage() {
 
       const toAdd = nextTypes.filter((type) => !currentTypes.includes(type));
       const toDelete = currentDocs
-        .filter((d: any) => !nextTypes.includes(d.doc_type) && (!d.storage_path || d.storage_path === 'deleted'))
-        .map((d: any) => d.doc_type);
+        .filter((d: FCDocument) => !nextTypes.includes(d.doc_type) && (!d.storage_path || d.storage_path === 'deleted'))
+        .map((d: FCDocument) => d.doc_type);
 
       console.log('To Add:', toAdd);
       console.log('To Delete:', toDelete);
@@ -372,7 +419,7 @@ export default function DashboardPage() {
       notifications.show({ title: '요청 완료', message: '서류 목록이 갱신되었습니다.', color: 'blue' });
       queryClient.invalidateQueries({ queryKey: ['dashboard-list'] });
     },
-    onError: (err: any) => notifications.show({ title: '오류', message: err.message, color: 'red' }),
+    onError: (err: Error) => notifications.show({ title: '오류', message: err.message, color: 'red' }),
   });
 
   const updateStatusMutation = useMutation({
@@ -416,7 +463,7 @@ export default function DashboardPage() {
       notifications.show({ title: '처리 완료', message: '상태가 변경되었습니다.', color: 'green' });
       queryClient.invalidateQueries({ queryKey: ['dashboard-list'] });
     },
-    onError: (err: any) => notifications.show({ title: '오류', message: err.message, color: 'red' }),
+    onError: (err: Error) => notifications.show({ title: '오류', message: err.message, color: 'red' }),
   });
 
   const deleteFcMutation = useMutation({
@@ -449,17 +496,17 @@ export default function DashboardPage() {
       queryClient.invalidateQueries({ queryKey: ['dashboard-list'] });
       close();
     },
-    onError: (err: any) => {
+    onError: (err: Error) => {
       console.error('[Web][deleteFc] failed', err);
       notifications.show({ title: '오류', message: err.message, color: 'red' });
     },
   });
 
-    const handleOpenModal = (fc: any) => {
+    const handleOpenModal = (fc: FCProfileWithDocuments) => {
       setSelectedFc(fc);
       setTempIdInput(fc.temp_id || '');
       setCareerInput((fc.career_type as '신입' | '경력') || null);
-      const currentDocs = fc.fc_documents?.map((d: any) => d.doc_type) || [];
+      const currentDocs = fc.fc_documents?.map((d: FCDocument) => d.doc_type) || [];
       console.log('Opening Modal for:', fc.name);
       console.log('Init SelectedDocs:', currentDocs);
       setSelectedDocs(currentDocs);
@@ -488,15 +535,20 @@ export default function DashboardPage() {
     window.open(data.signedUrl, '_blank');
   };
 
-  const handleDeleteDocFile = async (doc: any) => {
+  const handleDeleteDocFile = async (doc: FCDocument) => {
     if (!selectedFc) return;
     if (doc?.status === 'approved') {
       notifications.show({ title: '삭제 불가', message: '승인된 서류는 삭제할 수 없습니다.', color: 'yellow' });
       return;
     }
-    if (!confirm(`'${doc?.doc_type}' 파일을 삭제할까요? 서류 상태가 초기화됩니다.`)) return;
 
-    try {
+    showConfirm({
+      title: '서류 삭제',
+      message: `'${doc?.doc_type}' 파일을 삭제할까요? 서류 상태가 초기화됩니다.`,
+      confirmLabel: '삭제',
+      color: 'red',
+      onConfirm: async () => {
+        try {
       if (doc?.storage_path) {
         const { error: storageErr } = await supabase.storage.from('fc-documents').remove([doc.storage_path]);
         if (storageErr) throw storageErr;
@@ -508,11 +560,11 @@ export default function DashboardPage() {
         .eq('doc_type', doc.doc_type);
       if (dbError) throw dbError;
 
-      setSelectedFc((prev: any) =>
+      setSelectedFc((prev: FCProfileWithDocuments | null) =>
         prev
           ? {
             ...prev,
-            fc_documents: prev.fc_documents?.map((d: any) =>
+            fc_documents: prev.fc_documents?.map((d: FCDocument) =>
               d.doc_type === doc.doc_type
                 ? { ...d, storage_path: 'deleted', status: 'pending', file_name: 'deleted.pdf' }
                 : d,
@@ -523,13 +575,16 @@ export default function DashboardPage() {
 
       notifications.show({ title: '삭제 완료', message: '파일을 삭제했습니다.', color: 'gray' });
       queryClient.invalidateQueries({ queryKey: ['dashboard-list'] });
-    } catch (err: any) {
-      notifications.show({
-        title: '삭제 실패',
-        message: err?.message ?? '파일 삭제 중 오류가 발생했습니다.',
-        color: 'red',
-      });
-    }
+        } catch (err: unknown) {
+          const error = err as Error;
+          notifications.show({
+            title: '삭제 실패',
+            message: error?.message ?? '파일 삭제 중 오류가 발생했습니다.',
+            color: 'red',
+          });
+        }
+      },
+    });
   };
 
   const handleAppointmentAction = (e: React.MouseEvent, type: 'schedule' | 'confirm', category: 'life' | 'nonlife') => {
@@ -559,42 +614,48 @@ export default function DashboardPage() {
       value = dayjs(dateVal).format('YYYY-MM-DD');
     }
 
-    if (confirm(`${type === 'confirm' ? '승인' : '저장'} 하시겠습니까?`)) {
-      startAppointmentTransition(async () => {
-        const result = await updateAppointmentAction(
-          { success: false },
-          {
-            fcId: selectedFc.id,
-            phone: selectedFc.phone,
-            type,
-            category,
-            value,
+    showConfirm({
+      title: type === 'confirm' ? '위촉 승인' : '위촉 예정월 저장',
+      message: `${type === 'confirm' ? '승인' : '저장'} 하시겠습니까?`,
+      confirmLabel: type === 'confirm' ? '승인' : '저장',
+      color: 'blue',
+      onConfirm: () => {
+        startAppointmentTransition(async () => {
+          const result = await updateAppointmentAction(
+            { success: false },
+            {
+              fcId: selectedFc!.id,
+              phone: selectedFc!.phone,
+              type,
+              category,
+              value,
+            }
+          );
+          if (result.success) {
+            notifications.show({ title: '완료', message: result.message, color: 'green' });
+            queryClient.invalidateQueries({ queryKey: ['dashboard-list'] });
+            if (type === 'schedule' && scheduleValue) {
+              updateSelectedFc({
+                [isLife ? 'appointment_schedule_life' : 'appointment_schedule_nonlife']: scheduleValue,
+              });
+            }
+            if (type === 'confirm' && dateValue) {
+              const dateKey = isLife ? 'lifeDate' : 'nonLifeDate';
+              setAppointmentInputs((prev) => ({ ...prev, [dateKey]: dateValue }));
+              updateSelectedFc({
+                [isLife ? 'appointment_date_life' : 'appointment_date_nonlife']: value,
+              });
+              const nextLife = isLife ? value : selectedFc!.appointment_date_life;
+              const nextNonlife = !isLife ? value : selectedFc!.appointment_date_nonlife;
+              const nextStatus = nextLife && nextNonlife ? 'final-link-sent' : 'appointment-completed';
+              updateSelectedFc({ status: nextStatus });
+            }
+          } else {
+            notifications.show({ title: '오류', message: result.error, color: 'red' });
           }
-        );
-        if (result.success) {
-          notifications.show({ title: '완료', message: result.message, color: 'green' });
-          queryClient.invalidateQueries({ queryKey: ['dashboard-list'] });
-          if (type === 'schedule' && scheduleValue) {
-            updateSelectedFc({
-              [isLife ? 'appointment_schedule_life' : 'appointment_schedule_nonlife']: scheduleValue,
-            });
-          }
-          if (type === 'confirm' && dateValue) {
-            const dateKey = isLife ? 'lifeDate' : 'nonLifeDate';
-            setAppointmentInputs((prev) => ({ ...prev, [dateKey]: dateValue }));
-            updateSelectedFc({
-              [isLife ? 'appointment_date_life' : 'appointment_date_nonlife']: value,
-            });
-            const nextLife = isLife ? value : selectedFc.appointment_date_life;
-            const nextNonlife = !isLife ? value : selectedFc.appointment_date_nonlife;
-            const nextStatus = nextLife && nextNonlife ? 'final-link-sent' : 'appointment-completed';
-            updateSelectedFc({ status: nextStatus });
-          }
-        } else {
-          notifications.show({ title: '오류', message: result.error, color: 'red' });
-        }
-      });
-    }
+        });
+      },
+    });
   };
 
   const renderAppointmentSection = (category: 'life' | 'nonlife') => {
@@ -680,7 +741,7 @@ export default function DashboardPage() {
             value={isConfirmed ? 'approved' : 'pending'}
             onChange={(val) => {
               if (val === 'approved') {
-                handleAppointmentAction({ stopPropagation: () => { } } as any, 'confirm', category);
+                handleAppointmentAction({ stopPropagation: () => { } } as React.MouseEvent<HTMLButtonElement>, 'confirm', category);
               } else if (isConfirmed) {
                 openRejectModal({ kind: 'appointment', category });
               }
@@ -705,7 +766,7 @@ export default function DashboardPage() {
   };
 
   /* Table Rows */
-  const rows = filteredData.map((fc: any) => (
+  const rows = paginatedData.map((fc: FCProfileWithDocuments) => (
     <Table.Tr
       key={fc.id}
       style={{ cursor: 'pointer' }}
@@ -782,10 +843,10 @@ export default function DashboardPage() {
                 const doc = getDocProgress(fc);
                 const docs = fc.fc_documents ?? [];
                 const totalDocs = docs.length;
-                const submittedDocs = docs.filter((d: any) => d.storage_path && d.storage_path !== 'deleted').length;
-                const approvedDocs = docs.filter((d: any) => d.status === 'approved').length;
-                const pendingDocs = docs.filter((d: any) => d.status !== 'approved' && d.status !== 'rejected').length;
-                const rejectedDocs = docs.filter((d: any) => d.status === 'rejected').length;
+                const submittedDocs = docs.filter((d: FCDocument) => d.storage_path && d.storage_path !== 'deleted').length;
+                const approvedDocs = docs.filter((d: FCDocument) => d.status === 'approved').length;
+                const pendingDocs = docs.filter((d: FCDocument) => d.status !== 'approved' && d.status !== 'rejected').length;
+                const rejectedDocs = docs.filter((d: FCDocument) => d.status === 'rejected').length;
                 const isAllDocsApproved = doc.key === 'approved';
                 return (
                   <>
@@ -883,8 +944,8 @@ export default function DashboardPage() {
     if (!fcs) return { total: 0, pendingAllowance: 0, pendingDocs: 0 };
     return {
       total: fcs.length,
-      pendingAllowance: fcs.filter((fc: any) => fc.status === 'allowance-pending').length,
-      pendingDocs: fcs.filter((fc: any) => fc.status === 'docs-pending' || fc.status === 'docs-submitted').length,
+      pendingAllowance: fcs.filter((fc: FCProfileWithDocuments) => fc.status === 'allowance-pending').length,
+      pendingDocs: fcs.filter((fc: FCProfileWithDocuments) => fc.status === 'docs-pending' || fc.status === 'docs-submitted').length,
     };
   }, [fcs]);
 
@@ -1048,7 +1109,30 @@ export default function DashboardPage() {
                 </Table.Tbody>
               </Table>
             </ScrollArea>
+
+            {/* 페이지네이션 */}
+            {filteredData.length > ITEMS_PER_PAGE && (
+              <Group justify="center" mt="lg">
+                <Pagination
+                  total={totalPages}
+                  value={currentPage}
+                  onChange={setCurrentPage}
+                  size="md"
+                  radius="md"
+                  withEdges
+                />
+              </Group>
+            )}
           </Box>
+        </Paper>
+
+        {/* 요약 정보 */}
+        <Paper p="md" radius="md" withBorder>
+          <Group justify="space-between">
+            <Text size="sm" c="dimmed">
+              전체 {filteredData.length}명 중 {paginatedData.length}명 표시 (페이지 {currentPage}/{totalPages})
+            </Text>
+          </Group>
         </Paper>
       </Stack>
 
@@ -1213,12 +1297,16 @@ export default function DashboardPage() {
                       leftSection={<IconTrash size={16} />}
                       onClick={() => {
                         console.debug('[Web][deleteFc] click', { id: selectedFc?.id, phone: selectedFc?.phone });
-                        const confirmed = confirm('정말로 FC를 삭제하시겠습니까? 관련 서류도 모두 삭제됩니다.');
-                        console.debug('[Web][deleteFc] confirm', { confirmed });
-                        if (confirmed) {
-                          console.debug('[Web][deleteFc] mutate');
-                          deleteFcMutation.mutate();
-                        }
+                        showConfirm({
+                          title: 'FC 삭제',
+                          message: '정말로 FC를 삭제하시겠습니까? 관련 서류도 모두 삭제됩니다.',
+                          confirmLabel: '삭제',
+                          color: 'red',
+                          onConfirm: () => {
+                            console.debug('[Web][deleteFc] mutate');
+                            deleteFcMutation.mutate();
+                          },
+                        });
                       }}
                     >
                       FC 삭제
@@ -1232,14 +1320,14 @@ export default function DashboardPage() {
                   <Card withBorder radius="md" p="sm" bg="gray.0">
                     <Group justify="space-between" mb="xs">
                       <Text fw={600} size="sm">
-                        제출된 서류 ({selectedFc.fc_documents?.filter((d: any) => d.storage_path && d.storage_path !== 'deleted').length || 0}건)
+                        제출된 서류 ({selectedFc.fc_documents?.filter((d: FCDocument) => d.storage_path && d.storage_path !== 'deleted').length || 0}건)
                       </Text>
                     </Group>
-                    {selectedFc.fc_documents?.filter((d: any) => d.storage_path && d.storage_path !== 'deleted').length ? (
+                    {selectedFc.fc_documents?.filter((d: FCDocument) => d.storage_path && d.storage_path !== 'deleted').length ? (
                       <Stack gap={8}>
                         {selectedFc.fc_documents
-                          .filter((d: any) => d.storage_path && d.storage_path !== 'deleted')
-                          .map((d: any) => (
+                          .filter((d: FCDocument) => d.storage_path && d.storage_path !== 'deleted')
+                          .map((d: FCDocument) => (
                             <Group
                               key={d.doc_type}
                               justify="space-between"
@@ -1283,39 +1371,47 @@ export default function DashboardPage() {
                                       }
                                       if (nextStatus === d.status) return;
                                       if (nextStatus === 'approved') {
-                                        if (!confirm('문서를 승인하시겠습니까?')) return;
-                                      }
-                                      const res = await updateDocStatusAction({ success: false }, {
-                                        fcId: selectedFc.id,
-                                        phone: selectedFc.phone,
-                                        docType: d.doc_type,
-                                        status: nextStatus,
-                                        reason: null,
-                                      });
-                                      if (res.success) {
-                                        notifications.show({ title: nextStatus === 'approved' ? '승인' : '취소', message: res.message, color: 'green' });
-                                        const nextDocs = (selectedFc.fc_documents || []).map((doc: any) =>
-                                          doc.doc_type === d.doc_type ? { ...doc, status: nextStatus, reviewer_note: null } : doc
-                                        );
-                                        const allSubmitted =
-                                          nextDocs.length > 0 &&
-                                          nextDocs.every(
-                                            (doc: any) => doc.storage_path && doc.storage_path !== 'deleted',
-                                          );
-                                        const allApproved =
-                                          allSubmitted && nextDocs.every((doc: any) => doc.status === 'approved');
-                                        let nextProfileStatus = selectedFc.status;
-                                        if (!['appointment-completed', 'final-link-sent'].includes(selectedFc.status)) {
-                                          if (allApproved) {
-                                            nextProfileStatus = 'docs-approved';
-                                          } else if (selectedFc.status === 'docs-approved') {
-                                            nextProfileStatus = 'docs-pending';
-                                          }
-                                        }
-                                        updateSelectedFc({ fc_documents: nextDocs, status: nextProfileStatus });
-                                        queryClient.invalidateQueries({ queryKey: ['dashboard-list'] });
-                                      } else {
-                                        notifications.show({ title: '오류', message: res.error, color: 'red' });
+                                        showConfirm({
+                                          title: '서류 승인',
+                                          message: '문서를 승인하시겠습니까?',
+                                          confirmLabel: '승인',
+                                          color: 'blue',
+                                          onConfirm: async () => {
+                                            const res = await updateDocStatusAction({ success: false }, {
+                                              fcId: selectedFc.id,
+                                              phone: selectedFc.phone,
+                                              docType: d.doc_type,
+                                              status: nextStatus,
+                                              reason: null,
+                                            });
+                                            if (res.success) {
+                                              notifications.show({ title: '승인', message: res.message, color: 'green' });
+                                              const nextDocs = (selectedFc.fc_documents || []).map((doc: FCDocument) =>
+                                                doc.doc_type === d.doc_type ? { ...doc, status: nextStatus, reviewer_note: null } : doc
+                                              );
+                                              const allSubmitted =
+                                                nextDocs.length > 0 &&
+                                                nextDocs.every(
+                                                  (doc: FCDocument) => doc.storage_path && doc.storage_path !== 'deleted',
+                                                );
+                                              const allApproved =
+                                                allSubmitted && nextDocs.every((doc: FCDocument) => doc.status === 'approved');
+                                              let nextProfileStatus = selectedFc.status;
+                                              if (!['appointment-completed', 'final-link-sent'].includes(selectedFc.status)) {
+                                                if (allApproved) {
+                                                  nextProfileStatus = 'docs-approved';
+                                                } else if (selectedFc.status === 'docs-approved') {
+                                                  nextProfileStatus = 'docs-pending';
+                                                }
+                                              }
+                                              updateSelectedFc({ fc_documents: nextDocs, status: nextProfileStatus });
+                                              queryClient.invalidateQueries({ queryKey: ['dashboard-list'] });
+                                            } else {
+                                              notifications.show({ title: '오류', message: res.error, color: 'red' });
+                                            }
+                                          },
+                                        });
+                                        return;
                                       }
                                     }}
                                     labelPending="미승인"
@@ -1390,8 +1486,8 @@ export default function DashboardPage() {
                       {(() => {
                       const submittedDocTypes = new Set(
                         (selectedFc.fc_documents ?? [])
-                          .filter((d: any) => d.storage_path && d.storage_path !== 'deleted')
-                          .map((d: any) => d.doc_type),
+                          .filter((d: FCDocument) => d.storage_path && d.storage_path !== 'deleted')
+                          .map((d: FCDocument) => d.doc_type),
                       );
                       return (
                     <Chip.Group multiple value={selectedDocs} onChange={(val) => {
@@ -1476,8 +1572,15 @@ export default function DashboardPage() {
                         updateStatusMutation.mutate({ status: 'docs-approved', msg: '서류 검토 완료' });
                         return;
                       }
-                      if (!confirm('심사 완료 상태를 취소하시겠습니까?')) return;
-                      updateStatusMutation.mutate({ status: 'docs-pending', msg: '' });
+                      showConfirm({
+                        title: '심사 완료 취소',
+                        message: '심사 완료 상태를 취소하시겠습니까?',
+                        confirmLabel: '취소',
+                        color: 'orange',
+                        onConfirm: () => {
+                          updateStatusMutation.mutate({ status: 'docs-pending', msg: '' });
+                        },
+                      });
                     }}
                     labelPending="심사 대기"
                     labelApproved="심사 완료"
@@ -1537,6 +1640,33 @@ export default function DashboardPage() {
             </Button>
             <Button color="red" onClick={handleRejectSubmit} loading={rejectSubmitting}>
               반려 처리
+            </Button>
+          </Group>
+        </Stack>
+      </Modal>
+
+      {/* 확인 모달 */}
+      <Modal
+        opened={confirmOpened}
+        onClose={closeConfirm}
+        title={<Text fw={700}>{confirmConfig?.title}</Text>}
+        size="sm"
+        padding="lg"
+        radius="md"
+        centered
+        overlayProps={{ blur: 2 }}
+      >
+        <Stack gap="md">
+          <Text size="sm">{confirmConfig?.message}</Text>
+          <Group justify="flex-end">
+            <Button variant="default" onClick={closeConfirm}>
+              취소
+            </Button>
+            <Button
+              color={confirmConfig?.color || 'blue'}
+              onClick={handleConfirm}
+            >
+              {confirmConfig?.confirmLabel || '확인'}
             </Button>
           </Group>
         </Stack>

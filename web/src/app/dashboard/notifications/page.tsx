@@ -7,13 +7,16 @@ import {
     Container,
     Group,
     LoadingOverlay,
+    Modal,
     Paper,
     ScrollArea,
+    Stack,
     Table,
     Text,
     TextInput,
     Title
 } from '@mantine/core';
+import { useDisclosure } from '@mantine/hooks';
 import { notifications } from '@mantine/notifications';
 import { IconPlus, IconRefresh, IconSearch, IconTrash } from '@tabler/icons-react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
@@ -26,6 +29,26 @@ import { supabase } from '@/lib/supabase';
 export default function NotificationsPage() {
     const queryClient = useQueryClient();
     const [keyword, setKeyword] = useState('');
+
+    // 확인 모달 상태
+    const [confirmOpened, { open: openConfirm, close: closeConfirm }] = useDisclosure(false);
+    const [confirmConfig, setConfirmConfig] = useState<{
+        title: string;
+        message: string;
+        onConfirm: () => void;
+    } | null>(null);
+
+    const showConfirm = (config: { title: string; message: string; onConfirm: () => void }) => {
+        setConfirmConfig(config);
+        openConfirm();
+    };
+
+    const handleConfirm = () => {
+        if (confirmConfig?.onConfirm) {
+            confirmConfig.onConfirm();
+        }
+        closeConfirm();
+    };
 
     // Fetch Notices
     const { data: noticesData, isLoading } = useQuery({
@@ -64,9 +87,13 @@ export default function NotificationsPage() {
     });
 
     const handleDelete = (id: string) => {
-        if (confirm('정말 삭제하시겠습니까? (앱 알림 이력은 유지될 수 있습니다)')) {
-            deleteMutation.mutate(id);
-        }
+        showConfirm({
+            title: '공지사항 삭제',
+            message: '정말 삭제하시겠습니까? (앱 알림 이력은 유지될 수 있습니다)',
+            onConfirm: () => {
+                deleteMutation.mutate(id);
+            },
+        });
     };
 
     const filteredNotices = (noticesData || []).filter((notice: any) => {
@@ -185,6 +212,27 @@ export default function NotificationsPage() {
                     </Table>
                 </ScrollArea>
             </Paper>
+
+            {/* 확인 모달 */}
+            <Modal
+                opened={confirmOpened}
+                onClose={closeConfirm}
+                title={<Text fw={700}>{confirmConfig?.title}</Text>}
+                size="sm"
+                centered
+            >
+                <Stack gap="md">
+                    <Text size="sm">{confirmConfig?.message}</Text>
+                    <Group justify="flex-end">
+                        <Button variant="default" onClick={closeConfirm}>
+                            취소
+                        </Button>
+                        <Button color="red" onClick={handleConfirm}>
+                            삭제
+                        </Button>
+                    </Group>
+                </Stack>
+            </Modal>
         </Container>
     );
 }
