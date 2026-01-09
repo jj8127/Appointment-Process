@@ -161,18 +161,62 @@ SuperClaude는 MCP 서버 통합을 지원합니다. 현재 프로젝트에 설�
 - **위치**: 글로벌 설정 (모든 프로젝트에서 사용 가능)
 - **명령어**: `npx -y @modelcontextprotocol/server-sequential-thinking`
 - **용도**: 복잡한 문제를 단계별로 분석하고 해결
+- **특징**:
+  - 사고의 연쇄(Chain of Thought) 추론
+  - 가설 생성 및 검증
+  - 재귀적 문제 해결
+  - 브랜칭 및 수정 가능
 
 #### 2. playwright ✅
 - **기능**: 크로스 브라우저 E2E 테스트 및 자동화
 - **위치**: 현재 프로젝트 (`e:/fc-onboarding-app`)
 - **명령어**: `npx -y playwright-mcp`
 - **용도**: 브라우저 자동화, E2E 테스트 실행, 웹 페이지 스크래핑
+- **특징**:
+  - 브라우저 초기화 및 네비게이션
+  - DOM 검사 및 상호작용
+  - 스크린샷 캡처
+  - 커스텀 JavaScript 실행
+
+#### 3. filesystem ✅
+- **기능**: 프로젝트 파일시스템 접근 및 조작
+- **위치**: 현재 프로젝트 (`e:/fc-onboarding-app`)
+- **명령어**: `npx -y @modelcontextprotocol/server-filesystem e:/fc-onboarding-app`
+- **용도**: 파일 읽기/쓰기, 디렉토리 탐색, 파일 검색
+- **특징**:
+  - 안전한 파일 시스템 접근
+  - 파일 내용 읽기/수정
+  - 디렉토리 구조 탐색
+  - 파일 검색 및 필터링
+
+#### 4. github ✅
+- **기능**: GitHub 리포지토리 통합
+- **위치**: 현재 프로젝트
+- **명령어**: `npx -y @modelcontextprotocol/server-github`
+- **용도**: Issue 관리, PR 생성, 코드 리뷰, 리포지토리 정보 조회
+- **특징**:
+  - Issue 생성/조회/업데이트
+  - Pull Request 관리
+  - 브랜치 및 커밋 조회
+  - 리포지토리 메타데이터
+
+#### 5. memory ✅
+- **기능**: 세션 간 지속적인 메모리 관리
+- **위치**: 현재 프로젝트
+- **명령어**: `npx -y @modelcontextprotocol/server-memory`
+- **용도**: 대화 컨텍스트 저장, 프로젝트 정보 기억, 사용자 선호도 저장
+- **특징**:
+  - 키-값 기반 영구 저장
+  - 세션 간 정보 유지
+  - 컨텍스트 누적 관리
+  - 프로젝트별 메모리 분리
 
 ### 사용 가능한 MCP 서버 (미설치)
 
-#### context7
+#### context7 (npm 패키지 미공개)
 - **기능**: 공식 라이브러리 문서 및 코드 예제
 - **용도**: 최신 라이브러리 문서 및 API 참조
+- **상태**: 아직 npm에 공개되지 않음, 향후 사용 가능 예정
 
 #### magic (API 키 필요: TWENTYFIRST_API_KEY)
 - **기능**: 모던 UI 컴포넌트 생성 및 디자인 시스템
@@ -317,4 +361,32 @@ powershell -Command "& 'C:\Users\<username>\pipx\venvs\superclaude\Scripts\super
 
 ## 업데이트 이력
 
-- **2026-01-09**: SuperClaude 4.1.9 설치, 31개 슬래시 명령어 및 2개 MCP 서버 (sequential-thinking, playwright) 활성화
+- **2026-01-09 (오후)**: MCP 서버 확장 - filesystem, github, memory 서버 추가 (총 5개 활성화)
+- **2026-01-09 (오전)**: SuperClaude 4.1.9 설치, 31개 슬래시 명령어 및 2개 MCP 서버 (sequential-thinking, playwright) 활성화
+
+## MCP 서버 활용 예시
+
+### Sequential Thinking
+```
+복잡한 알고리즘 문제를 단계별로 분석해주세요:
+[문제 설명]
+```
+→ Sequential thinking MCP가 자동으로 활성화되어 체계적 분석 제공
+
+### Filesystem
+```
+프로젝트의 모든 TypeScript 파일에서 특정 패턴을 찾아주세요
+```
+→ Filesystem MCP가 파일 시스템을 효율적으로 탐색
+
+### GitHub
+```
+이번 주에 생성된 모든 이슈를 요약해주세요
+```
+→ GitHub MCP가 리포지토리 정보를 조회
+
+### Memory
+```
+이 프로젝트의 주요 아키텍처 결정사항을 기억해주세요
+```
+→ Memory MCP가 정보를 영구 저장하여 다음 세션에서도 활용
