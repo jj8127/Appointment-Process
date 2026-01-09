@@ -12,7 +12,8 @@ import {
     Title,
     PasswordInput,
     Box,
-    rem
+    rem,
+    Image
 } from '@mantine/core';
 import { notifications } from '@mantine/notifications';
 import { useRouter } from 'next/navigation';
@@ -138,7 +139,7 @@ export default function AuthPage() {
             }}
         >
             <Container size={440} style={{ width: '100%' }}>
-                {/* Logo/Title Section */}
+                {/* Logo Section */}
                 <Box
                     style={{
                         textAlign: 'center',
@@ -146,29 +147,26 @@ export default function AuthPage() {
                         opacity: mounted ? 1 : 0,
                         transform: mounted ? 'translateY(0)' : 'translateY(-20px)',
                         transition: 'all 0.8s cubic-bezier(0.4, 0, 0.2, 1)',
+                        display: 'flex',
+                        flexDirection: 'column',
+                        alignItems: 'center',
                     }}
                 >
-                    <Title
-                        order={1}
-                        fw={900}
-                        size={rem(42)}
+                    <Image
+                        src="/adminWebLogo.png"
+                        alt="FC Onboarding"
                         style={{
-                            background: `linear-gradient(135deg, ${HANWHA_ORANGE} 0%, ${HANWHA_ORANGE_DARK} 100%)`,
-                            WebkitBackgroundClip: 'text',
-                            WebkitTextFillColor: 'transparent',
-                            backgroundClip: 'text',
-                            marginBottom: rem(8),
-                            letterSpacing: '-0.5px',
+                            width: '280px',
+                            height: 'auto',
+                            maxWidth: '100%',
+                            marginBottom: rem(16),
                         }}
-                    >
-                        FC Onboarding
-                    </Title>
+                    />
                     <Box
                         style={{
                             width: rem(40),
                             height: rem(4),
                             background: HANWHA_ORANGE,
-                            margin: '0 auto',
                             borderRadius: rem(2),
                             opacity: 0.3,
                         }}
