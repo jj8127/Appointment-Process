@@ -840,7 +840,7 @@ export default function DashboardPage() {
             );
           })()}
           <Group gap={6} wrap="wrap">
-            {fc.step >= 3 &&
+            {(fc.step ?? 0) >= 3 &&
               (() => {
                 const doc = getDocProgress(fc);
                 const docs = fc.fc_documents ?? [];
@@ -883,22 +883,22 @@ export default function DashboardPage() {
                   </>
                 );
               })()}
-            {(fc.step >= 4 || getAppointmentProgress(fc, 'life').key === 'approved') &&
+            {((fc.step ?? 0) >= 4 || getAppointmentProgress(fc, 'life').key === 'approved') &&
               (() => {
                 const life = getAppointmentProgress(fc, 'life');
                 if (life.key === 'not-set') return null;
-                if (fc.step < 4 && life.key !== 'approved') return null;
+                if ((fc.step ?? 0) < 4 && life.key !== 'approved') return null;
                 return (
                 <Badge color={life.color} variant="light" size="md" radius="sm">
                   생명 {life.label}
                 </Badge>
                 );
               })()}
-            {(fc.step >= 4 || getAppointmentProgress(fc, 'nonlife').key === 'approved') &&
+            {((fc.step ?? 0) >= 4 || getAppointmentProgress(fc, 'nonlife').key === 'approved') &&
               (() => {
                 const nonlife = getAppointmentProgress(fc, 'nonlife');
                 if (nonlife.key === 'not-set') return null;
-                if (fc.step < 4 && nonlife.key !== 'approved') return null;
+                if ((fc.step ?? 0) < 4 && nonlife.key !== 'approved') return null;
                 return (
                 <Badge color={nonlife.color} variant="light" size="md" radius="sm">
                   손해 {nonlife.label}
@@ -913,7 +913,7 @@ export default function DashboardPage() {
         <Badge
           variant="dot"
           size="md"
-          color={fc.step === 5 ? 'green' : 'orange'}
+          color={(fc.step ?? 0) === 5 ? 'green' : 'orange'}
           radius="xl"
           style={{ paddingTop: 6, paddingBottom: 6, height: 'auto', alignItems: 'center' }}
         >
@@ -1357,7 +1357,7 @@ export default function DashboardPage() {
                                 </div>
                               </Group>
                               <Group gap={4}>
-                                <Button variant="default" size="xs" onClick={() => handleOpenDoc(d.storage_path)}>
+                                <Button variant="default" size="xs" onClick={() => handleOpenDoc(d.storage_path ?? '')}>
                                   열기
                                 </Button>
                                 <Divider orientation="vertical" />
