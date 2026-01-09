@@ -4,6 +4,7 @@ import { createServerClient, type CookieOptions } from '@supabase/ssr';
 import { revalidatePath } from 'next/cache';
 import { cookies } from 'next/headers';
 import { sendPushNotification } from '../../actions';
+import { verifyOrigin, checkRateLimit } from '@/lib/csrf';
 
 type UpdateAppointmentState = {
     success: boolean;
@@ -25,6 +26,20 @@ export async function updateAppointmentAction(
         reason?: string | null;
     }
 ): Promise<UpdateAppointmentState> {
+    // Security: Verify origin to prevent CSRF
+    const originCheck = await verifyOrigin();
+    if (!originCheck.valid) {
+        console.error('[appointment/actions] Origin verification failed:', originCheck.error);
+        return { success: false, error: 'Security check failed' };
+    }
+
+    // Security: Rate limiting (max 20 appointment updates per minute per FC)
+    const rateLimit = checkRateLimit(`appointment:${payload.fcId}`, 20, 60000);
+    if (!rateLimit.allowed) {
+        console.warn('[appointment/actions] Rate limit exceeded for FC:', payload.fcId);
+        return { success: false, error: 'Too many requests. Please try again later.' };
+    }
+
     const { fcId, phone, type, category, value, reason } = payload;
     const cookieStore = await cookies();
 
@@ -33,12 +48,22 @@ export async function updateAppointmentAction(
         process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
         {
             cookies: {
-                get(name: string) { return cookieStore.get(name)?.value; },
+                get(name: string) {
+                    return cookieStore.get(name)?.value;
+                },
                 set(name: string, value: string, options: CookieOptions) {
-                    try { cookieStore.set({ name, value, ...options }); } catch (error) { }
+                    try {
+                        cookieStore.set({ name, value, ...options });
+                    } catch (error) {
+                        console.error('[appointment/actions] Cookie set failed:', error);
+                    }
                 },
                 remove(name: string, options: CookieOptions) {
-                    try { cookieStore.set({ name, value: '', ...options }); } catch (error) { }
+                    try {
+                        cookieStore.set({ name, value: '', ...options });
+                    } catch (error) {
+                        console.error('[appointment/actions] Cookie remove failed:', error);
+                    }
                 },
             },
         }

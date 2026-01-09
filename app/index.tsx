@@ -27,6 +27,8 @@ import { useIdentityStatus } from '@/hooks/use-identity-status';
 import { useSession } from '@/hooks/use-session';
 import { useInAppUpdate } from '@/hooks/useInAppUpdate';
 import { supabase } from '@/lib/supabase';
+import type { FcProfile } from '@/types/fc';
+import type { FCDocument } from '@/types/dashboard';
 
 const SHORTCUT_GUIDE_STEPS: TourStep[] = [
   {
@@ -181,7 +183,7 @@ const fetchCounts = async (role: 'admin' | 'fc' | null, residentId: string): Pro
   if (error) throw error;
 
   const steps: StepCounts = { ...EMPTY_STEP_COUNTS };
-  (data ?? []).forEach((profile: any) => {
+  (data ?? []).forEach((profile: FcProfile) => {
     const key = getStepKey(profile);
     steps[key] += 1;
   });
@@ -209,7 +211,8 @@ const fetchLatestNotice = async () => {
       .maybeSingle();
     if (error) throw error;
     return data;
-  } catch (err: any) {
+  } catch (err: unknown) {
+      const error = err as Error;
     if (err?.code === '42P01') return null;
     throw err;
   }
@@ -407,8 +410,8 @@ function calcStep(myFc: any) {
   // [2단계 우선] 서류 승인 여부
   const docs = myFc.fc_documents ?? [];
   const allSubmitted =
-    docs.length > 0 && docs.every((d: any) => d.storage_path && d.storage_path !== 'deleted');
-  const allApproved = allSubmitted && docs.every((d: any) => d.status === 'approved');
+    docs.length > 0 && docs.every((d: FCDocument) => d.storage_path && d.storage_path !== 'deleted');
+  const allApproved = allSubmitted && docs.every((d: FCDocument) => d.status === 'approved');
   if (!allApproved) {
     return 3; // 서류 단계에서 대기
   }
@@ -422,7 +425,7 @@ function calcStep(myFc: any) {
   return 5;
 }
 
-const getStepKey = (profile: any): StepKey => {
+const getStepKey = (profile: FcProfile): StepKey => {
   const step = Math.max(1, Math.min(5, calcStep(profile)));
   return `step${step}` as StepKey;
 };
@@ -638,7 +641,8 @@ export default function Home() {
         } else {
           console.log('[supabase ping] 연결 성공, device_tokens count:', count);
         }
-      } catch (err: any) {
+      } catch (err: unknown) {
+      const error = err as Error;
         if (active) console.log('[supabase ping] 예외', err?.message ?? err);
       }
     })();
@@ -696,7 +700,7 @@ export default function Home() {
   const activeStep = steps[Math.min(steps.length - 1, Math.max(0, currentStep - 1))];
 
   const uploadedDocs =
-    myFc?.fc_documents?.filter((d: any) => d.storage_path && d.storage_path !== 'deleted').length ?? 0;
+    myFc?.fc_documents?.filter((d: FCDocument) => d.storage_path && d.storage_path !== 'deleted').length ?? 0;
   const totalDocs = myFc?.fc_documents?.length ?? 0;
   const isAllSubmitted = totalDocs > 0 && uploadedDocs >= totalDocs;
 
@@ -706,7 +710,7 @@ export default function Home() {
 
   const hasTempId = !!myFc?.temp_id;
   const hasAllowanceDate = !!myFc?.allowance_date;
-  const hasUnapprovedDocs = myFc?.fc_documents?.some((d: any) => d.status !== 'approved');
+  const hasUnapprovedDocs = myFc?.fc_documents?.some((d: FCDocument) => d.status !== 'approved');
 
   const schedLife = myFc?.appointment_schedule_life;
   const schedNon = myFc?.appointment_schedule_nonlife;
@@ -873,7 +877,8 @@ export default function Home() {
         } else {
           console.log('[push] fc token saved', { residentId, token });
         }
-      } catch (e: any) {
+      } catch (e: unknown) {
+      const error = e as Error;
         console.log('[push] exception', e?.message ?? e);
       }
     })();

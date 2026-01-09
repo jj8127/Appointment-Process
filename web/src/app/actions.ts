@@ -24,24 +24,40 @@ export async function sendPushNotification(
         process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
         {
             cookies: {
-                get(name: string) { return cookieStore.get(name)?.value; },
+                get(name: string) {
+                    return cookieStore.get(name)?.value;
+                },
                 set(name: string, value: string, options: CookieOptions) {
-                    try { cookieStore.set({ name, value, ...options }); } catch (error) { }
+                    try {
+                        cookieStore.set({ name, value, ...options });
+                    } catch (error) {
+                        console.error('[actions] Cookie set failed:', error);
+                    }
                 },
                 remove(name: string, options: CookieOptions) {
-                    try { cookieStore.set({ name, value: '', ...options }); } catch (error) { }
+                    try {
+                        cookieStore.set({ name, value: '', ...options });
+                    } catch (error) {
+                        console.error('[actions] Cookie remove failed:', error);
+                    }
                 },
             },
         }
     );
 
     // Fetch Tokens
-    const { data: tokens, error } = await supabase
+    const { data: tokens, error: tokensError } = await supabase
         .from('device_tokens')
         .select('expo_push_token')
         .eq('resident_id', userId);
 
+    if (tokensError) {
+        console.error('[actions] Error fetching device tokens:', tokensError);
+        return { success: false, error: 'Failed to fetch device tokens' };
+    }
+
     try {
+        // Send Expo push notifications
         if (tokens && tokens.length > 0) {
             const uniqueTokens = Array.from(new Set(tokens.map(t => t.expo_push_token)));
 
@@ -66,25 +82,38 @@ export async function sendPushNotification(
             });
 
             if (!resp.ok) {
-                console.error('Expo Push Failed:', await resp.text());
+                const errorText = await resp.text();
+                console.error('[actions] Expo Push Failed:', errorText);
+                return { success: false, error: `Expo push notification failed: ${errorText}` };
             }
         }
 
-        const { data: subs } = await supabase
+        // Send web push notifications
+        const { data: subs, error: subsError } = await supabase
             .from('web_push_subscriptions')
             .select('endpoint,p256dh,auth')
             .eq('resident_id', userId);
 
-        if (subs && subs.length > 0) {
+        if (subsError) {
+            console.error('[actions] Error fetching web push subscriptions:', subsError);
+        } else if (subs && subs.length > 0) {
             const result = await sendWebPush(subs, { title, body, data });
             if (result.expired.length > 0) {
-                await supabase.from('web_push_subscriptions').delete().in('endpoint', result.expired);
+                const { error: deleteError } = await supabase
+                    .from('web_push_subscriptions')
+                    .delete()
+                    .in('endpoint', result.expired);
+
+                if (deleteError) {
+                    console.error('[actions] Error deleting expired subscriptions:', deleteError);
+                }
             }
         }
 
         return { success: true };
-    } catch (err: any) {
-        console.error('Expo Push Network Error:', err);
-        return { success: false, error: err.message };
+    } catch (err: unknown) {
+        const error = err as Error;
+        console.error('[actions] Push notification error:', error);
+        return { success: false, error: error?.message ?? 'Push notification failed' };
     }
 }

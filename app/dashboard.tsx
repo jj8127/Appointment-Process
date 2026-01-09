@@ -31,6 +31,7 @@ import { useKeyboardPadding } from '@/hooks/use-keyboard-padding';
 import { useSession } from '@/hooks/use-session';
 import { supabase } from '@/lib/supabase';
 import { FcProfile } from '@/types/fc';
+import type { FCProfileWithDocuments, FCDocument } from '@/types/dashboard';
 
 const ALLOW_LAYOUT_ANIM = Platform.OS !== 'android';
 
@@ -143,10 +144,10 @@ const calcStep = (profile: FcRow) => {
   }
 
   // [2단계 우선] 서류 승인 여부 (요청된 모든 서류 제출 + 승인 필요)
-  const docs = profile.fc_documents ?? [];
+  const docs = (profile.fc_documents ?? []) as FCDocument[];
   const allSubmitted =
-    docs.length > 0 && docs.every((d: any) => d.storage_path && d.storage_path !== 'deleted');
-  const allApproved = allSubmitted && docs.every((d: any) => d.status === 'approved');
+    docs.length > 0 && docs.every((d) => d.storage_path && d.storage_path !== 'deleted');
+  const allApproved = allSubmitted && docs.every((d) => d.status === 'approved');
   if (!allApproved) {
     return 3; // 서류 단계
   }
@@ -243,7 +244,7 @@ async function sendNotificationAndPush(
       : await baseQuery.eq('role', 'admin');
 
   const payload =
-    tokens?.map((t: any) => ({
+    tokens?.map((t: { expo_push_token: string }) => ({
       to: t.expo_push_token,
       title,
       body,
@@ -287,9 +288,9 @@ const fetchFcs = async (
   if (error) {
     console.error('[dashboard] fetchFcs query error', {
       message: error.message,
-      code: (error as any).code,
-      details: (error as any).details,
-      hint: (error as any).hint,
+      code: (error as { code?: string; details?: string; hint?: string; message: string }).code,
+      details: (error as { code?: string; details?: string; hint?: string; message: string }).details,
+      hint: (error as { code?: string; details?: string; hint?: string; message: string }).hint,
       role,
       residentId,
       keyword,
@@ -358,12 +359,13 @@ export default function DashboardScreen() {
     queryKey: ['dashboard', role, residentId, keyword],
     queryFn: () => fetchFcs(role, residentId, keyword),
     enabled: !!role,
-    onError: (err: any) => {
+    onError: (err: Error) => {
+      const supabaseError = err as Error & { code?: string; details?: string; hint?: string };
       console.error('[dashboard] fetchFcs failed', {
-        message: err?.message ?? err,
-        code: err?.code,
-        details: err?.details,
-        hint: err?.hint,
+        message: supabaseError?.message ?? err,
+        code: supabaseError?.code,
+        details: supabaseError?.details,
+        hint: supabaseError?.hint,
       });
     },
   });
@@ -424,7 +426,7 @@ export default function DashboardScreen() {
         const docs = fc.fc_documents?.map((d) => d.doc_type) ?? [];
         next[fc.id] = new Set(docs);
         if (fc.temp_id) tempPrefill[fc.id] = fc.temp_id;
-        if (fc.career_type === '경력' || fc.career_type === '신입') careerPrefill[fc.id] = fc.career_type as any;
+        if (fc.career_type === '경력' || fc.career_type === '신입') careerPrefill[fc.id] = fc.career_type;
         schedulePrefill[fc.id] = {
           life: fc.appointment_schedule_life ?? '',
           nonlife: fc.appointment_schedule_nonlife ?? '',
@@ -453,7 +455,7 @@ export default function DashboardScreen() {
       phone,
     }: { id: string; tempId?: string; prevTemp?: string; career?: '신입' | '경력'; phone?: string }) => {
       assertCanEdit();
-      const payload: any = {};
+      const payload: Partial<FcProfile> = {};
       if (career) payload.career_type = career;
       const tempIdTrim = tempId?.trim();
       const prevTrim = prevTemp?.trim();
@@ -466,7 +468,7 @@ export default function DashboardScreen() {
       }
       const { error } = await supabase.from('fc_profiles').update(payload).eq('id', id);
       if (error) {
-        if ((error as any).code === '23505') {
+        if ((error as { code?: string; details?: string; hint?: string; message: string }).code === '23505') {
           throw new Error('이미 사용 중인 임시사번입니다. 다른 번호를 입력하세요.');
         }
         throw error;
@@ -480,7 +482,7 @@ export default function DashboardScreen() {
       Alert.alert('저장 완료', '임시번호/경력 정보가 저장되었습니다.');
       refetch();
     },
-    onError: (err: any) => Alert.alert('저장 실패', err.message ?? '저장 중 문제가 발생했습니다.'),
+    onError: (err: Error) => Alert.alert('저장 실패', err.message ?? '저장 중 문제가 발생했습니다.'),
   });
 
   const updateDocs = useMutation({
@@ -535,7 +537,7 @@ export default function DashboardScreen() {
       Alert.alert('요청 완료', '필수 서류 요청을 저장했습니다.');
       refetch();
     },
-    onError: (err: any) => Alert.alert('요청 실패', err.message ?? '요청 처리 중 문제가 발생했습니다.'),
+    onError: (err: Error) => Alert.alert('요청 실패', err.message ?? '요청 처리 중 문제가 발생했습니다.'),
   });
 
     const updateDocReqs = useMutation({
@@ -634,7 +636,7 @@ export default function DashboardScreen() {
       Alert.alert('저장 완료', '필수 서류 목록이 수정되었습니다.');
       refetch();
     },
-    onError: (err: any) => Alert.alert('오류', err.message ?? '서류 목록 수정 중 문제가 발생했습니다.'),
+    onError: (err: Error) => Alert.alert('오류', err.message ?? '서류 목록 수정 중 문제가 발생했습니다.'),
   });
 
   const deleteFc = useMutation({
@@ -689,7 +691,7 @@ export default function DashboardScreen() {
       Alert.alert('삭제 완료', '선택한 FC 기록이 삭제되었습니다.');
       refetch();
     },
-    onError: (err: any) => Alert.alert('삭제 실패', err.message ?? '삭제 중 문제가 발생했습니다.'),
+    onError: (err: Error) => Alert.alert('삭제 실패', err.message ?? '삭제 중 문제가 발생했습니다.'),
   });
 
   const updateStatus = useMutation({
@@ -713,7 +715,7 @@ export default function DashboardScreen() {
       Alert.alert('처리 완료', '상태가 업데이트되었습니다.');
       refetch();
     },
-    onError: (err: any) => Alert.alert('처리 실패', err.message ?? '상태 업데이트 중 문제가 발생했습니다.'),
+    onError: (err: Error) => Alert.alert('처리 실패', err.message ?? '상태 업데이트 중 문제가 발생했습니다.'),
   });
 
   const updateAppointmentDate = useMutation({
@@ -770,7 +772,7 @@ export default function DashboardScreen() {
       Alert.alert('처리 완료', `${label} 위촉 정보가 ${vars.isReject ? '반려' : '저장'}되었습니다.`);
       refetch();
     },
-    onError: (err: any) => Alert.alert('오류', err?.message ?? '위촉 정보 처리 중 문제가 발생했습니다.'),
+    onError: (err: Error) => Alert.alert('오류', error?.message ?? '위촉 정보 처리 중 문제가 발생했습니다.'),
   });
 
   const updateAppointmentSchedule = useMutation({
@@ -787,7 +789,7 @@ export default function DashboardScreen() {
     }) => {
       assertCanEdit();
       console.log('[appointment-schedule] mutate', { id, life, nonlife });
-      const payload: any = {};
+      const payload: Partial<FcProfile> = {};
       if (life !== undefined) payload.appointment_schedule_life = life || null;
       if (nonlife !== undefined) payload.appointment_schedule_nonlife = nonlife || null;
       const { error } = await supabase.from('fc_profiles').update(payload).eq('id', id);
@@ -808,9 +810,9 @@ export default function DashboardScreen() {
       // 최신 데이터 반영
       refetch();
     },
-    onError: (err: any) => {
-      console.log('[appointment-schedule] error', err?.message ?? err);
-      Alert.alert('저장 실패', err?.message ?? '위촉 예정 월 저장 중 오류가 발생했습니다.');
+    onError: (err: Error) => {
+      console.log('[appointment-schedule] error', error?.message ?? err);
+      Alert.alert('저장 실패', error?.message ?? '위촉 예정 월 저장 중 오류가 발생했습니다.');
     },
   });
 
@@ -886,8 +888,8 @@ export default function DashboardScreen() {
       }
       refetch();
     },
-    onError: (err: any) =>
-      Alert.alert('오류', err?.message ?? '문서 상태 업데이트 실패'),
+    onError: (err: Error) =>
+      Alert.alert('오류', error?.message ?? '문서 상태 업데이트 실패'),
   });
 
   const deleteDocFile = async ({
@@ -928,8 +930,9 @@ export default function DashboardScreen() {
             if (dbError) throw dbError;
             Alert.alert('삭제 완료', '파일을 삭제했습니다.');
             refetch();
-          } catch (err: any) {
-            Alert.alert('삭제 실패', err?.message ?? '파일 삭제 중 문제가 발생했습니다.');
+          } catch (err: unknown) {
+            const error = err as Error;
+            Alert.alert('삭제 실패', error?.message ?? '파일 삭제 중 문제가 발생했습니다.');
           }
         },
       },
@@ -1030,8 +1033,9 @@ export default function DashboardScreen() {
         '수당동의를 완료해주세요.',
       );
       Alert.alert('알림 전송', '진행을 재촉하는 알림을 발송했습니다.');
-    } catch (err: any) {
-      Alert.alert('전송 실패', err?.message ?? '알림 전송 중 문제가 발생했습니다.');
+    } catch (err: unknown) {
+      const error = err as Error;
+      Alert.alert('전송 실패', error?.message ?? '알림 전송 중 문제가 발생했습니다.');
     } finally {
       setReminderLoading(null);
     }
@@ -1122,8 +1126,9 @@ export default function DashboardScreen() {
         '/consent',
       );
       setRejectModalVisible(false);
-    } catch (err: any) {
-      Alert.alert('처리 실패', err?.message ?? '반려 처리 중 문제가 발생했습니다.');
+    } catch (err: unknown) {
+      const error = err as Error;
+      Alert.alert('처리 실패', error?.message ?? '반려 처리 중 문제가 발생했습니다.');
     }
   };
 
@@ -1143,8 +1148,9 @@ export default function DashboardScreen() {
         reviewerNote: reason,
       });
       setDocRejectModalVisible(false);
-    } catch (err: any) {
-      Alert.alert('처리 실패', err?.message ?? '반려 처리 중 문제가 발생했습니다.');
+    } catch (err: unknown) {
+      const error = err as Error;
+      Alert.alert('처리 실패', error?.message ?? '반려 처리 중 문제가 발생했습니다.');
     }
   };
 
@@ -1165,8 +1171,9 @@ export default function DashboardScreen() {
         rejectReason: reason,
       });
       setAppointmentRejectModalVisible(false);
-    } catch (err: any) {
-      Alert.alert('처리 실패', err?.message ?? '반려 처리 중 문제가 발생했습니다.');
+    } catch (err: unknown) {
+      const error = err as Error;
+      Alert.alert('처리 실패', error?.message ?? '반려 처리 중 문제가 발생했습니다.');
     }
   };
   const renderAdminActions = (fc: FcRow) => {
@@ -1312,8 +1319,9 @@ export default function DashboardScreen() {
                         '수당 동의가 승인되었습니다. 서류 제출 단계로 진행해주세요.',
                         '/docs-upload',
                       );
-                    } catch (err: any) {
-                      Alert.alert('처리 실패', err?.message ?? '상태 업데이트 중 문제가 발생했습니다.');
+                    } catch (err: unknown) {
+      const error = err as Error;
+                      Alert.alert('처리 실패', error?.message ?? '상태 업데이트 중 문제가 발생했습니다.');
                     }
                     return;
                   }

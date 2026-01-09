@@ -29,7 +29,19 @@ import { loadAsync } from 'expo-font';
 import type { FontSource } from 'expo-font';
 import * as SplashScreen from 'expo-splash-screen';
 
-const queryClient = new QueryClient();
+const queryClient = new QueryClient({
+  defaultOptions: {
+    queries: {
+      staleTime: 5 * 60 * 1000, // 5분 - 데이터가 신선한 것으로 간주되는 시간
+      gcTime: 10 * 60 * 1000, // 10분 (구 cacheTime) - 캐시 유지 시간
+      refetchOnWindowFocus: false, // 포커스 시 자동 리페치 비활성화
+      retry: 1, // 실패 시 1회만 재시도
+    },
+    mutations: {
+      retry: 1, // Mutation 실패 시 1회만 재시도
+    },
+  },
+});
 
 // Disable native screen optimization to avoid Android drawing-order crash
 enableScreens(false);
