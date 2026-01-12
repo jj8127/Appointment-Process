@@ -3,7 +3,8 @@
     "allow": [
       "Bash(npx:*)",
       "Bash(npm run test:*)",
-      "Bash(psql:*)"
+      "Bash(psql:*)",
+      "Bash(node:*)"
     ]
   }
 }
