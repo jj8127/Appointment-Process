@@ -4,7 +4,7 @@ import { useRouter } from 'next/navigation';
 import { createContext, ReactNode, useContext, useEffect, useMemo, useState } from 'react';
 
 import { logger } from '@/lib/logger';
-type Role = 'admin' | 'fc' | null;
+type Role = 'admin' | 'manager' | 'fc' | null;
 
 type SessionState = {
     role: Role;
@@ -17,6 +17,7 @@ type SessionContextValue = SessionState & {
     hydrated: boolean;
     loginAs: (role: Role, residentId: string, displayName?: string) => void;
     logout: () => void;
+    isReadOnly: boolean; // manager는 읽기 전용
 };
 
 const SessionContext = createContext<SessionContextValue | undefined>(undefined);
@@ -118,6 +119,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
         () => ({
             ...state,
             hydrated,
+            isReadOnly: state.role === 'manager', // manager는 읽기 전용
             loginAs: (role, residentId, displayName = '') => {
                 setState({ role, residentId, residentMask: computeMask(residentId), displayName });
                 // Security: Set cookies with Secure and SameSite flags

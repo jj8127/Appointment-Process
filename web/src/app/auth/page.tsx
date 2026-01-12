@@ -37,7 +37,7 @@ export default function AuthPage() {
 
     useEffect(() => {
         if (!hydrated) return;
-        if (role === 'admin') {
+        if (role === 'admin' || role === 'manager') {
             router.replace('/');
             return;
         }
@@ -108,9 +108,9 @@ export default function AuthPage() {
                 return;
             }
 
-            const nextRole = data.role === 'admin' ? 'admin' : 'fc';
+            const nextRole = data.role === 'admin' ? 'admin' : data.role === 'manager' ? 'manager' : 'fc';
             loginAs(nextRole, data.residentId ?? digits, data.displayName ?? '');
-            if (nextRole === 'admin') {
+            if (nextRole === 'admin' || nextRole === 'manager') {
                 router.replace('/');
             } else if (!data.displayName || data.displayName.trim() === '') {
                 router.replace('/fc/new');
