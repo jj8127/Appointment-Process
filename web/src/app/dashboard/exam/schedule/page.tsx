@@ -5,6 +5,7 @@ import {
     Badge,
     Box,
     Button,
+    Checkbox,
     Container,
     Group,
     LoadingOverlay,
@@ -180,10 +181,10 @@ export default function ExamSchedulePage() {
     // --- Mutations ---
     const saveMutation = useMutation({
         mutationFn: async (values: RoundFormValues) => {
-            const { exam_date, registration_deadline, round_label, notes, locations } = values;
+            const { exam_date, registration_deadline, round_label, notes, locations, is_date_tbd } = values;
 
             const payload = {
-                exam_date: dayjs(exam_date).format('YYYY-MM-DD'),
+                exam_date: is_date_tbd || !exam_date ? null : dayjs(exam_date).format('YYYY-MM-DD'),
                 registration_deadline: dayjs(registration_deadline).format('YYYY-MM-DD'),
                 round_label,
                 exam_type: values.exam_type,
@@ -273,7 +274,7 @@ export default function ExamSchedulePage() {
             queryClient.invalidateQueries({ queryKey: ['exam-rounds'] });
             handleClose();
             try {
-                const dateLabel = dayjs(values.exam_date).format('YYYY-MM-DD');
+                const dateLabel = values.exam_date && !values.is_date_tbd ? dayjs(values.exam_date).format('YYYY-MM-DD') : '미정';
                 const title = `${dateLabel}${values.round_label ? ` (${values.round_label})` : ''} 일정 ${editingId ? '수정' : '등록'}`;
                 const body = `시험 일정이 ${editingId ? '수정' : '등록'}되었습니다.`;
                 await notifyAllFcs(title, body);
@@ -332,13 +333,15 @@ export default function ExamSchedulePage() {
 
     const handleOpenEdit = (round: ExamRound) => {
         setEditingId(round.id);
+        const isTBD = !round.exam_date;
         form.setValues({
-            exam_date: new Date(round.exam_date),
+            exam_date: round.exam_date ? new Date(round.exam_date) : null,
             registration_deadline: new Date(round.registration_deadline),
             round_label: round.round_label,
             exam_type: (round.exam_type as 'life' | 'nonlife') ?? 'life',
             notes: round.notes || '',
             locations: round.locations.map(l => l.location_name),
+            is_date_tbd: isTBD,
         });
         open();
     };
@@ -375,7 +378,11 @@ export default function ExamSchedulePage() {
         return (
         <Table.Tr key={round.id}>
             <Table.Td>
-                <Text fw={600} size="sm">{dayjs(round.exam_date).format('YYYY-MM-DD')}</Text>
+                {round.exam_date ? (
+                    <Text fw={600} size="sm">{dayjs(round.exam_date).format('YYYY-MM-DD')}</Text>
+                ) : (
+                    <Badge color="gray" variant="light">미정</Badge>
+                )}
             </Table.Td>
             <Table.Td>
                 <Text fw={600} size="sm">{round.round_label}</Text>
@@ -498,7 +505,7 @@ export default function ExamSchedulePage() {
                                 }}
                                 renderDay={(date) => {
                                     const dayStr = dayjs(date).format('YYYY-MM-DD');
-                                    const round = rounds?.find(r => r.exam_date === dayStr);
+                                    const round = rounds?.find(r => r.exam_date && r.exam_date === dayStr);
                                     const isToday = dayjs(date).isSame(dayjs(), 'day');
                                     const dotColor = round?.exam_type === 'life' ? '#f59f00' : '#4dabf7';
 
@@ -553,18 +560,22 @@ export default function ExamSchedulePage() {
                                     </Badge>
                                 </Group>
                                 <Stack gap="xs">
-                                    {rounds?.filter(r => dayjs(r.exam_date).isAfter(dayjs())).slice(0, 4).map(r => (
+                                    {rounds?.filter(r => r.exam_date ? dayjs(r.exam_date).isAfter(dayjs()) : true).slice(0, 4).map(r => (
                                         <Paper key={r.id} withBorder p="sm" radius="md" bg="white">
                                             <Text size="sm" fw={700}>{r.round_label}</Text>
                                             <Group gap={6} mt={4}>
                                                 <Badge size="xs" color={r.exam_type === 'life' ? 'orange' : 'blue'} variant="light">
                                                     {r.exam_type === 'life' ? '생명' : '손해'}
                                                 </Badge>
-                                                <Text size="xs" c="dimmed">{dayjs(r.exam_date).format('MM.DD')}</Text>
+                                                {r.exam_date ? (
+                                                    <Text size="xs" c="dimmed">{dayjs(r.exam_date).format('MM.DD')}</Text>
+                                                ) : (
+                                                    <Badge size="xs" color="gray" variant="dot">미정</Badge>
+                                                )}
                                             </Group>
                                         </Paper>
                                     ))}
-                                    {!rounds?.filter(r => dayjs(r.exam_date).isAfter(dayjs())).length && (
+                                    {!rounds?.filter(r => r.exam_date ? dayjs(r.exam_date).isAfter(dayjs()) : true).length && (
                                         <Text size="xs" c="dimmed">예정된 일정이 없습니다.</Text>
                                     )}
                                 </Stack>
@@ -600,12 +611,27 @@ export default function ExamSchedulePage() {
                     <Stack gap="lg">
                         <Paper withBorder radius="lg" p="md" bg="gray.0">
                             <Text fw={700} size="sm" mb="sm">시험 일정</Text>
+                            <Checkbox
+                                label="시험일 미정"
+                                description="시험 날짜가 아직 확정되지 않은 경우 체크하세요"
+                                mb="md"
+                                {...form.getInputProps('is_date_tbd', { type: 'checkbox' })}
+                                onChange={(e) => {
+                                    form.setFieldValue('is_date_tbd', e.currentTarget.checked);
+                                    if (e.currentTarget.checked) {
+                                        form.setFieldValue('exam_date', null);
+                                    } else {
+                                        form.setFieldValue('exam_date', new Date());
+                                    }
+                                }}
+                            />
                             <SimpleGrid cols={{ base: 1, sm: 2 }} spacing="md">
                                 <DateInput
                                     label="시험일"
                                     placeholder="시험 날짜 선택"
                                     leftSection={<IconCalendar size={16} />}
                                     value={form.values.exam_date}
+                                    disabled={form.values.is_date_tbd}
                                     onChange={(value) => {
                                         if (!value) return;
                                         const nextValue =
