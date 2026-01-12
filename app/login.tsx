@@ -18,7 +18,7 @@ import { FormInput } from '@/components/FormInput';
 import { useKeyboardPadding } from '@/hooks/use-keyboard-padding';
 import { useSession } from '@/hooks/use-session';
 import { useLogin } from '@/hooks/use-login';
-import Logo from '@/assets/images/logo.png';
+import WebLogo from '../adminWebLogo.png';
 import { COLORS, TYPOGRAPHY, SPACING, RADIUS } from '@/lib/theme';
 
 export default function LoginScreen() {
@@ -70,7 +70,7 @@ export default function LoginScreen() {
                             transition={{ type: 'timing', duration: 800, delay: 100 }}
                             style={styles.logoContainer}
                         >
-                            <Image source={Logo} style={styles.logo} resizeMode="contain" />
+                            <Image source={WebLogo} style={styles.logo} resizeMode="contain" />
                             <View style={styles.logoDecoration} />
                         </MotiView>
 
