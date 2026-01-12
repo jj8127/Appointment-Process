@@ -3,29 +3,23 @@ import { router, useFocusEffect } from 'expo-router';
 import { MotiView } from 'moti';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
-  ActivityIndicator,
   Alert,
   BackHandler,
   Keyboard,
-  Pressable,
   StyleSheet,
   Text,
-  TextInput,
   View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
+import { Button } from '@/components/Button';
+import { FormInput } from '@/components/FormInput';
 import { KeyboardAwareWrapper } from '@/components/KeyboardAwareWrapper';
 import { useKeyboardPadding } from '@/hooks/use-keyboard-padding';
 import { safeStorage } from '@/lib/safe-storage';
 import { supabase } from '@/lib/supabase';
+import { COLORS, TYPOGRAPHY, SPACING, RADIUS } from '@/lib/theme';
 
-const HANWHA_ORANGE = '#f36f21';
-const HANWHA_ORANGE_DARK = '#d65a16';
-const CHARCOAL = '#1F2937';
-const GRAY_TEXT = '#6B7280';
-const BORDER = '#E5E7EB';
-const INPUT_BG = '#F9FAFB';
 const STORAGE_KEY = 'fc-onboarding/signup';
 
 type SignupPayload = {
@@ -182,84 +176,49 @@ export default function SignupVerifyScreen() {
                 <Text style={styles.subtitle}>문자로 받은 6자리 코드를 입력해주세요.</Text>
               </View>
 
-              <View style={styles.inputContainer}>
-                <Text style={styles.label}>휴대폰 번호</Text>
-                <MotiView
-                  animate={{
-                    borderColor: BORDER,
-                    backgroundColor: INPUT_BG,
-                  }}
-                  transition={{ type: 'timing', duration: 200 }}
-                  style={styles.inputWrapper}
-                >
-                  <TextInput
-                    style={styles.input}
-                    placeholder="숫자 11자리"
-                    placeholderTextColor="#9CA3AF"
-                    value={phone}
-                    onChangeText={setPhone}
-                    keyboardType="number-pad"
-                    editable={!loading}
-                  />
-                </MotiView>
-              </View>
+              <FormInput
+                label="휴대폰 번호"
+                placeholder="숫자 11자리"
+                value={phone}
+                onChangeText={setPhone}
+                keyboardType="number-pad"
+                editable={!loading}
+                containerStyle={styles.inputContainer}
+              />
 
-              <Pressable
-                style={({ pressed }) => [
-                  styles.subButton,
-                  pressed && styles.buttonPressed,
-                  (loading || cooldown > 0) && styles.buttonDisabled,
-                ]}
+              <Button
                 onPress={requestCode}
                 disabled={loading || cooldown > 0}
+                loading={loading}
+                variant="outline"
+                size="md"
+                fullWidth
+                style={styles.subButton}
               >
-                {loading ? (
-                  <ActivityIndicator color={HANWHA_ORANGE_DARK} />
-                ) : (
-                  <Text style={styles.subButtonText}>
-                    {cooldown > 0 ? `재전송 (${cooldown}s)` : '인증 코드 받기'}
-                  </Text>
-                )}
-              </Pressable>
+                {cooldown > 0 ? `재전송 (${cooldown}s)` : '인증 코드 받기'}
+              </Button>
               <Text style={styles.helperText}>{helperText}</Text>
 
-              <View style={styles.inputContainer}>
-                <Text style={styles.label}>인증 코드</Text>
-                <MotiView
-                  animate={{
-                    borderColor: BORDER,
-                    backgroundColor: INPUT_BG,
-                  }}
-                  transition={{ type: 'timing', duration: 200 }}
-                  style={styles.inputWrapper}
-                >
-                  <TextInput
-                    style={styles.input}
-                    placeholder="6자리 숫자"
-                    placeholderTextColor="#9CA3AF"
-                    value={code}
-                    onChangeText={setCode}
-                    keyboardType="number-pad"
-                    editable={!loading}
-                  />
-                </MotiView>
-              </View>
+              <FormInput
+                label="인증 코드"
+                placeholder="6자리 숫자"
+                value={code}
+                onChangeText={setCode}
+                keyboardType="number-pad"
+                editable={!loading}
+                containerStyle={styles.inputContainer}
+              />
 
-              <Pressable
-                style={({ pressed }) => [
-                  styles.button,
-                  pressed && styles.buttonPressed,
-                  loading && styles.buttonDisabled,
-                ]}
+              <Button
                 onPress={verifyCode}
                 disabled={loading}
+                loading={loading}
+                variant="primary"
+                size="lg"
+                fullWidth
               >
-                {loading ? (
-                  <ActivityIndicator color="#fff" />
-                ) : (
-                  <Text style={styles.buttonText}>인증 완료</Text>
-                )}
-              </Pressable>
+                인증 완료
+              </Button>
             </MotiView>
           </View>
         </KeyboardAwareWrapper>
@@ -278,8 +237,8 @@ const styles = StyleSheet.create({
   scrollContent: {
     flexGrow: 1,
     paddingTop: '12%',
-    paddingHorizontal: 20,
-    paddingBottom: 40,
+    paddingHorizontal: SPACING.lg,
+    paddingBottom: SPACING['2xl'],
   },
   innerContent: {
     width: '100%',
@@ -287,98 +246,44 @@ const styles = StyleSheet.create({
     alignSelf: 'center',
   },
   card: {
-    backgroundColor: '#fff',
-    borderRadius: 24,
-    padding: 32,
-    shadowColor: '#f36f21',
+    backgroundColor: COLORS.white,
+    borderRadius: RADIUS.xl,
+    padding: SPACING['2xl'],
+    shadowColor: COLORS.primary,
     shadowOffset: { width: 0, height: 12 },
     shadowOpacity: 0.08,
     shadowRadius: 24,
     elevation: 8,
     borderWidth: 1,
-    borderColor: 'rgba(243, 111, 33, 0.05)',
+    borderColor: COLORS.primaryPale,
   },
   headerSection: {
-    marginBottom: 24,
+    marginBottom: SPACING['2xl'],
     alignItems: 'center',
   },
   title: {
-    fontSize: 24,
-    fontWeight: '800',
-    color: CHARCOAL,
-    marginBottom: 6,
+    fontSize: TYPOGRAPHY.fontSize['2xl'],
+    fontWeight: TYPOGRAPHY.fontWeight.extrabold,
+    color: COLORS.text.primary,
+    marginBottom: SPACING.sm,
   },
   subtitle: {
-    fontSize: 14,
-    color: GRAY_TEXT,
+    fontSize: TYPOGRAPHY.fontSize.sm,
+    color: COLORS.text.secondary,
     textAlign: 'center',
-    lineHeight: 20,
+    lineHeight: TYPOGRAPHY.lineHeight.relaxed * TYPOGRAPHY.fontSize.sm,
   },
   inputContainer: {
-    gap: 8,
-    marginBottom: 16,
-  },
-  label: {
-    fontSize: 14,
-    fontWeight: '700',
-    color: CHARCOAL,
-    marginLeft: 4,
-  },
-  inputWrapper: {
-    height: 56,
-    borderWidth: 1.5,
-    borderRadius: 16,
-    overflow: 'hidden',
-    justifyContent: 'center',
-  },
-  input: {
-    flex: 1,
-    paddingHorizontal: 16,
-    fontSize: 16,
-    color: CHARCOAL,
-    height: '100%',
-  },
-  button: {
-    height: 56,
-    backgroundColor: HANWHA_ORANGE,
-    borderRadius: 16,
-    alignItems: 'center',
-    justifyContent: 'center',
-    shadowColor: HANWHA_ORANGE,
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.3,
-    shadowRadius: 8,
-    elevation: 4,
+    marginBottom: SPACING.base,
   },
   subButton: {
-    height: 48,
-    borderRadius: 14,
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: '#FCE8DB',
-  },
-  subButtonText: {
-    fontSize: 14,
-    fontWeight: '700',
-    color: HANWHA_ORANGE_DARK,
-  },
-  buttonPressed: {
-    backgroundColor: HANWHA_ORANGE_DARK,
-    transform: [{ scale: 0.98 }],
-  },
-  buttonDisabled: {
-    opacity: 0.7,
-  },
-  buttonText: {
-    fontSize: 16,
-    fontWeight: '700',
-    color: '#fff',
+    marginBottom: SPACING.xs,
   },
   helperText: {
-    fontSize: 12,
-    color: GRAY_TEXT,
-    marginTop: 8,
-    marginBottom: 12,
+    fontSize: TYPOGRAPHY.fontSize.xs,
+    color: COLORS.text.secondary,
+    marginTop: SPACING.sm,
+    marginBottom: SPACING.md,
     textAlign: 'center',
   },
 });

@@ -809,6 +809,10 @@ update public.exam_rounds
 set exam_type = 'nonlife'
 where round_label like '%손해보험%';
 
+-- 2025-01-11: exam_date를 nullable로 변경 (미정 상태 지원)
+alter table public.exam_rounds
+  alter column exam_date drop not null;
+
 alter table public.exam_registrations
   add column if not exists is_confirmed boolean default false;
 

@@ -6,6 +6,7 @@ import { cookies } from 'next/headers';
 import { sendPushNotification } from '../../actions';
 import { verifyOrigin, checkRateLimit } from '@/lib/csrf';
 
+import { logger } from '@/lib/logger';
 type UpdateDocStatusState = {
     success: boolean;
     message?: string;
@@ -25,14 +26,14 @@ export async function updateDocStatusAction(
     // Security: Verify origin to prevent CSRF
     const originCheck = await verifyOrigin();
     if (!originCheck.valid) {
-        console.error('[docs/actions] Origin verification failed:', originCheck.error);
+        logger.error('[docs/actions] Origin verification failed:', originCheck.error);
         return { success: false, error: 'Security check failed' };
     }
 
     // Security: Rate limiting (max 30 document updates per minute per FC)
     const rateLimit = checkRateLimit(`docs:${payload.fcId}`, 30, 60000);
     if (!rateLimit.allowed) {
-        console.warn('[docs/actions] Rate limit exceeded for FC:', payload.fcId);
+        logger.warn('[docs/actions] Rate limit exceeded for FC:', payload.fcId);
         return { success: false, error: 'Too many requests. Please try again later.' };
     }
 
@@ -51,14 +52,14 @@ export async function updateDocStatusAction(
                     try {
                         cookieStore.set({ name, value, ...options });
                     } catch (error) {
-                        console.error('[docs/actions] Cookie set failed:', error);
+                        logger.error('[docs/actions] Cookie set failed:', error);
                     }
                 },
                 remove(name: string, options: CookieOptions) {
                     try {
                         cookieStore.set({ name, value: '', ...options });
                     } catch (error) {
-                        console.error('[docs/actions] Cookie remove failed:', error);
+                        logger.error('[docs/actions] Cookie remove failed:', error);
                     }
                 },
             },
@@ -91,7 +92,7 @@ export async function updateDocStatusAction(
             .eq('fc_id', fcId);
 
         if (fetchError) {
-            console.error('Error fetching docs for auto-advance check:', fetchError);
+            logger.error('Error fetching docs for auto-advance check:', fetchError);
         } else {
             const docs = allDocs ?? [];
             const allSubmitted =

@@ -40,6 +40,7 @@ import { z } from 'zod';
 
 import { supabase } from '@/lib/supabase';
 
+import { logger } from '@/lib/logger';
 const EXPO_PUSH_URL = 'https://exp.host/--/api/v2/push/send';
 
 async function notifyAllFcs(title: string, body: string) {
@@ -89,7 +90,7 @@ const MUTED = '#6b7280';
 // --- Types ---
 type ExamRound = {
     id: string;
-    exam_date: string;
+    exam_date: string | null;
     registration_deadline: string;
     round_label: string;
     exam_type?: 'life' | 'nonlife' | string;
@@ -99,12 +100,13 @@ type ExamRound = {
 
 // --- Schema ---
 const roundSchema = z.object({
-    exam_date: z.date(),
+    exam_date: z.date().nullable(),
     registration_deadline: z.date(),
     round_label: z.string().min(1, '회차명을 입력해주세요'),
     exam_type: z.enum(['life', 'nonlife']),
     notes: z.string().optional(),
     locations: z.array(z.string()).min(1, '최소 1개의 장소를 등록해주세요'),
+    is_date_tbd: z.boolean().default(false), // 미정 여부
 });
 
 type RoundFormValues = z.infer<typeof roundSchema>;
@@ -148,6 +150,7 @@ export default function ExamSchedulePage() {
             exam_type: 'life',
             notes: '',
             locations: ['서울', '부산', '대전', '광주', '대구'], // Defaults
+            is_date_tbd: false,
         },
     });
 
@@ -250,7 +253,7 @@ export default function ExamSchedulePage() {
                     .in('id', toRemove.map(l => l.id));
 
                 if (delError) {
-                    console.warn('Failed to delete some locations due to existing applications', delError);
+                    logger.warn('Failed to delete some locations due to existing applications', delError);
                     // Optional: Notify user
                     if (delError.code === '23503') { // ForeignKeyViolation
                         // We suppress this specific error for UX or show a warning toast?
@@ -275,7 +278,7 @@ export default function ExamSchedulePage() {
                 const body = `시험 일정이 ${editingId ? '수정' : '등록'}되었습니다.`;
                 await notifyAllFcs(title, body);
             } catch (err: any) {
-                console.error('[exam-rounds] notify failed', err?.message ?? err);
+                logger.error('[exam-rounds] notify failed', err?.message ?? err);
                 notifications.show({
                     title: '알림 전송 실패',
                     message: err?.message ?? '알림 전송 중 오류가 발생했습니다.',

@@ -3,7 +3,6 @@ import { RefreshButton } from '@/components/RefreshButton';
 import { Feather, Ionicons } from '@expo/vector-icons';
 import DateTimePicker, { type DateTimePickerEvent } from '@react-native-community/datetimepicker';
 import { useMutation, useQuery } from '@tanstack/react-query';
-import * as Haptics from 'expo-haptics';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import * as WebBrowser from 'expo-web-browser';
 import { useCallback, useEffect, useMemo, useState } from 'react';
@@ -27,17 +26,19 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { KeyboardAwareWrapper } from '@/components/KeyboardAwareWrapper';
+import { ListSkeleton } from '@/components/LoadingSkeleton';
 import { useKeyboardPadding } from '@/hooks/use-keyboard-padding';
 import { useSession } from '@/hooks/use-session';
 import { supabase } from '@/lib/supabase';
+import { logger } from '@/lib/logger';
 import { FcProfile } from '@/types/fc';
-import type { FCProfileWithDocuments, FCDocument } from '@/types/dashboard';
+import type { FCDocument } from '@/types/dashboard';
 
 const ALLOW_LAYOUT_ANIM = Platform.OS !== 'android';
 
 // Debug: disable Android LayoutAnimation to avoid native addViewAt crashes on logout
 if (Platform.OS === 'android') {
-  console.log('[dashboard] LayoutAnimation disabled on Android to prevent addViewAt crash');
+  logger.debug('[dashboard] LayoutAnimation disabled on Android to prevent addViewAt crash');
 } else if (UIManager.setLayoutAnimationEnabledExperimental) {
   UIManager.setLayoutAnimationEnabledExperimental(true);
 }
@@ -286,7 +287,7 @@ const fetchFcs = async (
 
   const { data, error } = await query;
   if (error) {
-    console.error('[dashboard] fetchFcs query error', {
+    logger.error('[dashboard] fetchFcs query error', {
       message: error.message,
       code: (error as { code?: string; details?: string; hint?: string; message: string }).code,
       details: (error as { code?: string; details?: string; hint?: string; message: string }).details,
@@ -301,9 +302,9 @@ const fetchFcs = async (
 };
 
 export default function DashboardScreen() {
-  const { role, residentId, logout, hydrated, readOnly } = useSession();
+  const { role, residentId, hydrated, readOnly } = useSession();
   const router = useRouter();
-  const { mode, status } = useLocalSearchParams<{ mode?: string; status?: string }>();
+  const { status } = useLocalSearchParams<{ mode?: string; status?: string }>();
   const [statusFilter, setStatusFilter] = useState<FilterKey>('all');
   const [affiliationFilter, setAffiliationFilter] = useState<string>('전체'); // New: Affiliation Filter
   const [subFilter, setSubFilter] = useState<'all' | 'no-id' | 'has-id' | 'not-requested' | 'requested'>('all');
@@ -355,20 +356,24 @@ export default function DashboardScreen() {
     }
   };
 
-  const { data, isLoading, isError, refetch } = useQuery({
+  const { data, isLoading, isError, error: queryError, refetch } = useQuery({
     queryKey: ['dashboard', role, residentId, keyword],
     queryFn: () => fetchFcs(role, residentId, keyword),
     enabled: !!role,
-    onError: (err: Error) => {
-      const supabaseError = err as Error & { code?: string; details?: string; hint?: string };
-      console.error('[dashboard] fetchFcs failed', {
-        message: supabaseError?.message ?? err,
+  });
+
+  // Log query errors
+  useEffect(() => {
+    if (queryError) {
+      const supabaseError = queryError as Error & { code?: string; details?: string; hint?: string };
+      logger.error('[dashboard] fetchFcs failed', {
+        message: supabaseError?.message ?? queryError,
         code: supabaseError?.code,
         details: supabaseError?.details,
         hint: supabaseError?.hint,
       });
-    },
-  });
+    }
+  }, [queryError]);
 
   useEffect(() => {
     if (!isError) return;
@@ -405,11 +410,7 @@ export default function DashboardScreen() {
     if (found) {
       setStatusFilter(found.key);
     }
-    const handleLogout = () => {
-      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-      logout();
-    };
-  }, [status]);
+  }, [status, filterOptions]);
 
   useEffect(() => {
     setSubFilter('all');
@@ -482,10 +483,16 @@ export default function DashboardScreen() {
       Alert.alert('저장 완료', '임시번호/경력 정보가 저장되었습니다.');
       refetch();
     },
-    onError: (err: Error) => Alert.alert('저장 실패', err.message ?? '저장 중 문제가 발생했습니다.'),
+    onSettled: (_data, error) => {
+      if (error) {
+        const message = error instanceof Error ? error.message : '저장 중 문제가 발생했습니다.';
+        Alert.alert('저장 실패', message);
+      }
+    },
   });
 
-  const updateDocs = useMutation({
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  const _updateDocs = useMutation({
     mutationFn: async ({ id, types, phone }: { id: string; types: string[]; phone?: string }) => {
       assertCanEdit();
       const uniqueTypes = Array.from(new Set(types));
@@ -537,7 +544,12 @@ export default function DashboardScreen() {
       Alert.alert('요청 완료', '필수 서류 요청을 저장했습니다.');
       refetch();
     },
-    onError: (err: Error) => Alert.alert('요청 실패', err.message ?? '요청 처리 중 문제가 발생했습니다.'),
+    onSettled: (_data, error) => {
+      if (error) {
+        const message = error instanceof Error ? error.message : '요청 처리 중 문제가 발생했습니다.';
+        Alert.alert('요청 실패', message);
+      }
+    },
   });
 
     const updateDocReqs = useMutation({
@@ -636,7 +648,12 @@ export default function DashboardScreen() {
       Alert.alert('저장 완료', '필수 서류 목록이 수정되었습니다.');
       refetch();
     },
-    onError: (err: Error) => Alert.alert('오류', err.message ?? '서류 목록 수정 중 문제가 발생했습니다.'),
+    onSettled: (_data, error) => {
+      if (error) {
+        const message = error instanceof Error ? error.message : '서류 목록 수정 중 문제가 발생했습니다.';
+        Alert.alert('오류', message);
+      }
+    },
   });
 
   const deleteFc = useMutation({
@@ -647,7 +664,7 @@ export default function DashboardScreen() {
           body: { residentId: phone },
         });
         if (error) {
-          console.warn('[deleteFc] delete-account failed, fallback', error.message ?? error);
+          logger.warn('[deleteFc] delete-account failed, fallback', error.message ?? error);
         } else if (data?.ok) {
           return;
         }
@@ -662,10 +679,10 @@ export default function DashboardScreen() {
 
       // 2. Delete files from storage
       if (pathsToDelete.length > 0) {
-        console.log('[deleteFc] removing files from storage:', pathsToDelete);
+        logger.debug('[deleteFc] removing files from storage:', pathsToDelete);
         const { error: storageError } = await supabase.storage.from(BUCKET).remove(pathsToDelete as string[]);
         if (storageError) {
-          console.error('[deleteFc] storage remove error', storageError);
+          logger.error('[deleteFc] storage remove error', storageError);
           // We proceed to delete DB records even if storage cleanup fails,
           // but we log the error.
         }
@@ -691,7 +708,12 @@ export default function DashboardScreen() {
       Alert.alert('삭제 완료', '선택한 FC 기록이 삭제되었습니다.');
       refetch();
     },
-    onError: (err: Error) => Alert.alert('삭제 실패', err.message ?? '삭제 중 문제가 발생했습니다.'),
+    onSettled: (_data, error) => {
+      if (error) {
+        const message = error instanceof Error ? error.message : '삭제 중 문제가 발생했습니다.';
+        Alert.alert('삭제 실패', message);
+      }
+    },
   });
 
   const updateStatus = useMutation({
@@ -715,7 +737,12 @@ export default function DashboardScreen() {
       Alert.alert('처리 완료', '상태가 업데이트되었습니다.');
       refetch();
     },
-    onError: (err: Error) => Alert.alert('처리 실패', err.message ?? '상태 업데이트 중 문제가 발생했습니다.'),
+    onSettled: (_data, error) => {
+      if (error) {
+        const message = error instanceof Error ? error.message : '상태 업데이트 중 문제가 발생했습니다.';
+        Alert.alert('처리 실패', message);
+      }
+    },
   });
 
   const updateAppointmentDate = useMutation({
@@ -772,7 +799,12 @@ export default function DashboardScreen() {
       Alert.alert('처리 완료', `${label} 위촉 정보가 ${vars.isReject ? '반려' : '저장'}되었습니다.`);
       refetch();
     },
-    onError: (err: Error) => Alert.alert('오류', error?.message ?? '위촉 정보 처리 중 문제가 발생했습니다.'),
+    onSettled: (_data, error) => {
+      if (error) {
+        const message = error instanceof Error ? error.message : '위촉 정보 처리 중 문제가 발생했습니다.';
+        Alert.alert('오류', message);
+      }
+    },
   });
 
   const updateAppointmentSchedule = useMutation({
@@ -788,7 +820,7 @@ export default function DashboardScreen() {
       phone?: string | null;
     }) => {
       assertCanEdit();
-      console.log('[appointment-schedule] mutate', { id, life, nonlife });
+      logger.debug('[appointment-schedule] mutate', { id, life, nonlife });
       const payload: Partial<FcProfile> = {};
       if (life !== undefined) payload.appointment_schedule_life = life || null;
       if (nonlife !== undefined) payload.appointment_schedule_nonlife = nonlife || null;
@@ -796,7 +828,7 @@ export default function DashboardScreen() {
       if (error) throw error;
     },
     onSuccess: async (_, vars) => {
-      console.log('[appointment-schedule] success', vars);
+      logger.debug('[appointment-schedule] success', vars);
       Alert.alert('저장 완료', '위촉 예정월이 저장되었습니다.');
       if (vars.phone) {
         await sendNotificationAndPush(
@@ -810,9 +842,12 @@ export default function DashboardScreen() {
       // 최신 데이터 반영
       refetch();
     },
-    onError: (err: Error) => {
-      console.log('[appointment-schedule] error', error?.message ?? err);
-      Alert.alert('저장 실패', error?.message ?? '위촉 예정 월 저장 중 오류가 발생했습니다.');
+    onSettled: (_data, error) => {
+      if (error) {
+        const message = error instanceof Error ? error.message : '위촉 예정 월 저장 중 오류가 발생했습니다.';
+        logger.debug('[appointment-schedule] error', message);
+        Alert.alert('저장 실패', message);
+      }
     },
   });
 
@@ -888,8 +923,12 @@ export default function DashboardScreen() {
       }
       refetch();
     },
-    onError: (err: Error) =>
-      Alert.alert('오류', error?.message ?? '문서 상태 업데이트 실패'),
+    onSettled: (_data, error) => {
+      if (error) {
+        const message = error instanceof Error ? error.message : '문서 상태 업데이트 실패';
+        Alert.alert('오류', message);
+      }
+    },
   });
 
   const deleteDocFile = async ({
@@ -1002,14 +1041,11 @@ export default function DashboardScreen() {
     await WebBrowser.openBrowserAsync(signed.signedUrl);
   };
 
-  const showTempSection = mode !== 'docs';
-  const showDocsSection = mode !== 'temp';
-
   const toggleExpand = (id: string) => {
     if (ALLOW_LAYOUT_ANIM) {
       LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
     } else {
-      console.log('[dashboard] skip LayoutAnimation (Android)');
+      logger.debug('[dashboard] skip LayoutAnimation (Android)');
     }
     setExpanded((prev) => ({ ...prev, [id]: !prev[id] }));
   };
@@ -1018,7 +1054,7 @@ export default function DashboardScreen() {
     if (ALLOW_LAYOUT_ANIM) {
       LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
     } else {
-      console.log('[dashboard] skip LayoutAnimation (Android)');
+      logger.debug('[dashboard] skip LayoutAnimation (Android)');
     }
     setEditMode((prev) => ({ ...prev, [id]: !prev[id] }));
   };
@@ -1041,16 +1077,6 @@ export default function DashboardScreen() {
     }
   };
 
-  const handleDocReview = (fc: FcRow) => {
-    const submitted = fc.fc_documents ?? [];
-    const firstDoc = submitted.find((doc) => doc.storage_path && doc.storage_path !== 'deleted');
-    if (!firstDoc) {
-      Alert.alert('서류 없음', '제출된 서류가 없어 열 수 없습니다.');
-      return;
-    }
-    openFile(firstDoc.storage_path ?? undefined);
-  };
-
   const handleDeleteRequest = (fc: FcRow) => {
     setDeleteTargetId(fc.id);
     setDeleteTargetName(fc.name || 'FC');
@@ -1070,22 +1096,6 @@ export default function DashboardScreen() {
     } else {
       Alert.alert('인증 실패', '총무 코드가 올바르지 않습니다.');
     }
-  };
-
-  const confirmStatusChange = (
-    fc: FcRow,
-    nextStatus: FcProfile['status'],
-    message: string,
-    extra?: Record<string, any>,
-  ) => {
-    Alert.alert('상태 변경', message, [
-      { text: '취소', style: 'cancel' },
-      {
-        text: '변경',
-        style: 'default',
-        onPress: () => updateStatus.mutate({ id: fc.id, nextStatus, extra }),
-      },
-    ]);
   };
 
   const openDocRejectModal = (target: { fcId: string; docType: string; phone: string }) => {
@@ -1602,7 +1612,7 @@ export default function DashboardScreen() {
                     Alert.alert('입력 확인', '예정월을 하나 이상 입력해주세요.');
                     return;
                   }
-                  console.log('[appointment-schedule] press', {
+                  logger.debug('[appointment-schedule] press', {
                     id: fc.id,
                     life: lifeVal,
                     nonlife: nonlifeVal,
@@ -2290,7 +2300,7 @@ export default function DashboardScreen() {
         </View>
 
         <View style={styles.listContent}>
-          {isLoading && <ActivityIndicator color={ORANGE} style={{ marginVertical: 20 }} />}
+          {isLoading && <ListSkeleton count={5} itemHeight={100} />}
           {isError && <Text style={{ color: '#dc2626', marginBottom: 8 }}>데이터를 불러오지 못했습니다.</Text>}
           {!isLoading && rows.length === 0 && (
             <View style={styles.emptyState}>
@@ -2298,9 +2308,8 @@ export default function DashboardScreen() {
             </View>
           )}
 
-          {rows.map((fc, idx) => {
+          {!isLoading && rows.map((fc, idx) => {
             const isExpanded = expanded[fc.id];
-            const submitted = (fc.fc_documents ?? []).filter((d) => d.storage_path && d.storage_path !== 'deleted');
             const careerDisplay = careerInputs[fc.id] ?? fc.career_type ?? '-';
             const tempDisplay = tempInputs[fc.id] ?? fc.temp_id ?? '-';
             const allowanceDisplay = fc.allowance_date ?? '없음';

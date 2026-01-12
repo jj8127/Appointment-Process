@@ -1,16 +1,13 @@
 import { Feather } from '@expo/vector-icons';
-import { router, useLocalSearchParams } from 'expo-router';
+import { router, useLocalSearchParams, type Href } from 'expo-router';
 import { useEffect } from 'react';
-import { Pressable, StyleSheet, Text, View } from 'react-native';
+import { StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
+import { Button } from '@/components/Button';
 import { useSession } from '@/hooks/use-session';
 import { useIdentityStatus } from '@/hooks/use-identity-status';
-
-const HANWHA_ORANGE = '#f36f21';
-const CHARCOAL = '#111827';
-const TEXT_MUTED = '#6b7280';
-const BORDER = '#e5e7eb';
+import { COLORS } from '@/lib/theme';
 
 export default function ApplyGateScreen() {
   const { next } = useLocalSearchParams<{ next?: string }>();
@@ -28,7 +25,8 @@ export default function ApplyGateScreen() {
       return;
     }
     if (!isLoading && data?.identityCompleted) {
-      router.replace((next as string) || '/');
+      const nextPath = (typeof next === 'string' && next) ? (next as Href) : ('/' as Href);
+      router.replace(nextPath);
     }
   }, [data?.identityCompleted, hydrated, isLoading, next, role]);
 
@@ -37,7 +35,7 @@ export default function ApplyGateScreen() {
       <View style={styles.container}>
         <View style={styles.card}>
           <View style={styles.iconCircle}>
-            <Feather name="shield" size={20} color={HANWHA_ORANGE} />
+            <Feather name="shield" size={20} color={COLORS.primary} />
           </View>
           <Text style={styles.title}>위촉(등록) 신청 안내</Text>
           <Text style={styles.body}>지금부터는 설계사 위촉(등록) 신청 절차를 시작합니다.</Text>
@@ -46,27 +44,29 @@ export default function ApplyGateScreen() {
         </View>
 
         <View style={styles.buttonRow}>
-          <Pressable
-            style={[styles.button, styles.secondary]}
+          <Button
             onPress={() => router.replace('/home-lite')}
-            testID="apply-gate-later"
+            variant="outline"
+            size="md"
+            style={styles.button}
             accessibilityLabel="나중에"
           >
-            <Text style={styles.secondaryText}>나중에</Text>
-          </Pressable>
-          <Pressable
-            style={[styles.button, styles.primary]}
+            나중에
+          </Button>
+          <Button
             onPress={() =>
               router.push({
                 pathname: '/identity',
-                params: { next: (next as string) || '/' },
-              } as any)
+                params: { next: typeof next === 'string' && next ? next : '/' },
+              })
             }
-            testID="apply-gate-start"
+            variant="primary"
+            size="md"
+            style={styles.button}
             accessibilityLabel="등록 신청 시작"
           >
-            <Text style={styles.primaryText}>등록 신청 시작</Text>
-          </Pressable>
+            등록 신청 시작
+          </Button>
         </View>
       </View>
     </SafeAreaView>
@@ -92,19 +92,12 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     borderWidth: 1,
-    borderColor: BORDER,
+    borderColor: COLORS.border.light,
   },
-  title: { fontSize: 20, fontWeight: '800', color: CHARCOAL },
-  body: { fontSize: 14, color: TEXT_MUTED, lineHeight: 20 },
+  title: { fontSize: 20, fontWeight: '800', color: COLORS.text.primary },
+  body: { fontSize: 14, color: COLORS.text.secondary, lineHeight: 20 },
   buttonRow: { flexDirection: 'row', gap: 12 },
   button: {
     flex: 1,
-    paddingVertical: 14,
-    borderRadius: 14,
-    alignItems: 'center',
   },
-  primary: { backgroundColor: HANWHA_ORANGE },
-  secondary: { backgroundColor: '#fff', borderWidth: 1, borderColor: BORDER },
-  primaryText: { color: '#fff', fontWeight: '800' },
-  secondaryText: { color: CHARCOAL, fontWeight: '700' },
 });

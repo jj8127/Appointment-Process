@@ -23,6 +23,7 @@ import { useRouter, useSearchParams } from 'next/navigation';
 import type React from 'react';
 import { Suspense, useEffect, useMemo, useRef, useState } from 'react';
 
+import { logger } from '@/lib/logger';
 type Message = {
   id: string;
   content: string;
@@ -89,7 +90,7 @@ function ChatContent() {
         .order('created_at', { ascending: true });
 
       if (error) {
-        console.warn('[chat] fetch error', error.message);
+        logger.warn('[chat] fetch error', error.message);
         return;
       }
       const filtered = (data ?? []).filter((m) => !deletedIdsRef.current.has(m.id));
@@ -256,14 +257,14 @@ function ChatContent() {
             errorMessage: `[알림 전송 실패] status ${resp.status} ${data?.error ?? ''}`,
           });
         }
-        console.log('[notify] fc-notify proxy response', { status: resp.status, ok: resp.ok, data });
+        logger.debug('[notify] fc-notify proxy response', { status: resp.status, ok: resp.ok, data });
       } catch (err: any) {
         upsertLocalMessage({
           ...inserted,
           sendStatus: 'sent',
           errorMessage: `[알림 전송 실패] ${err?.message ?? err}`,
         });
-        console.warn('[notify] fc-notify proxy error', err);
+        logger.warn('[notify] fc-notify proxy error', err);
       }
     } catch (err: any) {
       upsertLocalMessage({

@@ -6,6 +6,7 @@ import { cookies } from 'next/headers';
 import { z } from 'zod';
 import { sendWebPush } from '@/lib/web-push';
 
+import { logger } from '@/lib/logger';
 const EXPO_PUSH_URL = 'https://exp.host/--/api/v2/push/send';
 
 const NoticeSchema = z.object({
@@ -110,7 +111,7 @@ export async function createNoticeAction(
     });
 
     if (notifError) {
-        console.error('Notification history insert failed:', notifError);
+        logger.error('Notification history insert failed:', notifError);
     }
 
     // 3. Fetch Tokens
@@ -120,9 +121,9 @@ export async function createNoticeAction(
         .eq('role', 'fc');
 
     if (tokenError) {
-        console.error('[push][notice] fetch tokens failed:', tokenError);
+        logger.error('[push][notice] fetch tokens failed:', tokenError);
     }
-    console.log('[push][notice] token query', {
+    logger.debug('[push][notice] token query', {
         tokenError: tokenError?.message,
         tokenCount: tokens?.length,
         tokens,
@@ -153,17 +154,17 @@ export async function createNoticeAction(
                     body: JSON.stringify(chunk),
                 });
                 const text = await resp.text();
-                console.log('[push][notice] fetch response', {
+                logger.debug('[push][notice] fetch response', {
                     status: resp.status,
                     ok: resp.ok,
                     body: text,
                 });
             }
         } catch (pushErr) {
-            console.error('[push][notice] push send error:', pushErr);
+            logger.error('[push][notice] push send error:', pushErr);
         }
     } else {
-        console.warn('[push][notice] no tokens found');
+        logger.warn('[push][notice] no tokens found');
     }
 
     const { data: webSubs } = await supabase

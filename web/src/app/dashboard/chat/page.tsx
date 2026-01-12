@@ -31,6 +31,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import dayjs from 'dayjs';
 import { useEffect, useRef, useState } from 'react';
 
+import { logger } from '@/lib/logger';
 // --- Constants ---
 const HANWHA_ORANGE = '#f36f21';
 const CHARCOAL = '#111827';
@@ -354,9 +355,9 @@ function ChatRoom({ fc }: { fc: ChatPreview }) {
                 category: 'message'
             });
             if (notifErr) {
-                console.warn('[chat][admin->fc] notifications insert error', notifErr.message);
+                logger.warn('[chat][admin->fc] notifications insert error', notifErr.message);
             } else {
-                console.log('[chat][admin->fc] notifications insert ok', { resident_id: fc.phone, body: notifBody });
+                logger.debug('[chat][admin->fc] notifications insert ok', { resident_id: fc.phone, body: notifBody });
             }
 
             try {
@@ -372,13 +373,13 @@ function ChatRoom({ fc }: { fc: ChatPreview }) {
                     }),
                 });
                 const data = await resp.json().catch(() => null);
-                console.log('[chat][admin->fc] fc-notify proxy response', {
+                logger.debug('[chat][admin->fc] fc-notify proxy response', {
                     status: resp.status,
                     ok: resp.ok,
                     data,
                 });
             } catch (fnErr: any) {
-                console.warn('[chat][admin->fc] fc-notify proxy error', fnErr?.message ?? fnErr);
+                logger.warn('[chat][admin->fc] fc-notify proxy error', fnErr?.message ?? fnErr);
             }
 
         } catch (err: any) {

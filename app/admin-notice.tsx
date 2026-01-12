@@ -3,7 +3,6 @@ import * as DocumentPicker from 'expo-document-picker';
 import * as ImagePicker from 'expo-image-picker';
 import { useRef, useState } from 'react';
 import {
-  ActivityIndicator,
   Alert,
   Image,
   Platform,
@@ -16,13 +15,15 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
+import { Button } from '@/components/Button';
+import { FormInput } from '@/components/FormInput';
 import { KeyboardAwareWrapper } from '@/components/KeyboardAwareWrapper';
 import { RefreshButton } from '@/components/RefreshButton';
 import { useKeyboardPadding } from '@/hooks/use-keyboard-padding';
 import { useSession } from '@/hooks/use-session';
 import { supabase } from '@/lib/supabase';
+import { logger } from '@/lib/logger';
 
-const ORANGE = '#f36f21';
 const CHARCOAL = '#111827';
 const MUTED = '#6b7280';
 const BORDER = '#e5e7eb';
@@ -66,7 +67,7 @@ export default function AdminNoticeScreen() {
           })),
         ]);
       }
-    } catch (e) {
+    } catch {
       Alert.alert('오류', '이미지를 불러오는데 실패했습니다.');
     }
   };
@@ -92,7 +93,7 @@ export default function AdminNoticeScreen() {
           })),
         ]);
       }
-    } catch (e) {
+    } catch {
       Alert.alert('오류', '파일을 불러오는데 실패했습니다.');
     } finally {
       pickingRef.current = false;
@@ -116,7 +117,7 @@ export default function AdminNoticeScreen() {
         fileBody = await response.arrayBuffer();
       }
 
-      const { data, error } = await supabase.storage
+      const { error } = await supabase.storage
         .from('notice-attachments')
         .upload(fileName, fileBody, {
           contentType: file.type,
@@ -135,7 +136,7 @@ export default function AdminNoticeScreen() {
         type: file.type,
       };
     } catch (err: any) {
-      console.error('Upload failed', err);
+      logger.error('Upload failed', { error: err });
       throw new Error(`${file.name} 업로드 실패: ${err.message}`);
     }
   };
@@ -177,7 +178,7 @@ export default function AdminNoticeScreen() {
         });
       }
     } catch (pushErr) {
-      console.warn('notifyAllFcs push error', pushErr);
+      logger.warn('notifyAllFcs push error', { error: pushErr });
     }
   };
 
@@ -253,27 +254,19 @@ export default function AdminNoticeScreen() {
         </View>
 
         <View style={styles.form}>
-          <View style={styles.field}>
-            <Text style={styles.label}>카테고리</Text>
-            <TextInput
-              style={styles.input}
-              placeholder="예: 공지사항, 긴급, 이벤트"
-              placeholderTextColor="#9CA3AF"
-              value={category}
-              onChangeText={setCategory}
-            />
-          </View>
+          <FormInput
+            label="카테고리"
+            placeholder="예: 공지사항, 긴급, 이벤트"
+            value={category}
+            onChangeText={setCategory}
+          />
 
-          <View style={styles.field}>
-            <Text style={styles.label}>제목</Text>
-            <TextInput
-              style={styles.input}
-              placeholder="제목을 입력하세요"
-              placeholderTextColor="#9CA3AF"
-              value={title}
-              onChangeText={setTitle}
-            />
-          </View>
+          <FormInput
+            label="제목"
+            placeholder="제목을 입력하세요"
+            value={title}
+            onChangeText={setTitle}
+          />
 
           <View style={styles.field}>
             <Text style={styles.label}>내용</Text>
@@ -298,14 +291,26 @@ export default function AdminNoticeScreen() {
             <Text style={styles.label}>첨부파일</Text>
 
             <View style={{ flexDirection: 'row', gap: 10, marginBottom: 10 }}>
-              <Pressable style={styles.attachButton} onPress={pickImage} disabled={readOnly}>
-                <Feather name="image" size={20} color={CHARCOAL} />
-                <Text style={styles.attachButtonText}>사진 추가</Text>
-              </Pressable>
-              <Pressable style={styles.attachButton} onPress={pickFile} disabled={readOnly}>
-                <Feather name="paperclip" size={20} color={CHARCOAL} />
-                <Text style={styles.attachButtonText}>파일 추가</Text>
-              </Pressable>
+              <Button
+                onPress={pickImage}
+                disabled={readOnly}
+                variant="outline"
+                size="md"
+                leftIcon={<Feather name="image" size={20} color={CHARCOAL} />}
+                style={{ flex: 1, backgroundColor: '#F3F4F6' }}
+              >
+                사진 추가
+              </Button>
+              <Button
+                onPress={pickFile}
+                disabled={readOnly}
+                variant="outline"
+                size="md"
+                leftIcon={<Feather name="paperclip" size={20} color={CHARCOAL} />}
+                style={{ flex: 1, backgroundColor: '#F3F4F6' }}
+              >
+                파일 추가
+              </Button>
             </View>
 
             {/* Image Previews */}
@@ -335,24 +340,18 @@ export default function AdminNoticeScreen() {
           </View>
         </View>
 
-        <Pressable
-          style={({ pressed }) => [
-            styles.submitButton,
-            pressed && styles.buttonPressed,
-            (loading || readOnly) && styles.buttonDisabled,
-          ]}
+        <Button
           onPress={submit}
           disabled={loading || readOnly}
+          loading={loading}
+          variant="primary"
+          size="lg"
+          fullWidth
+          rightIcon={!loading ? <Feather name="send" size={18} color="#fff" /> : undefined}
+          style={{ marginTop: 32 }}
         >
-          {loading ? (
-            <ActivityIndicator color="#fff" />
-          ) : (
-            <>
-              <Text style={styles.submitButtonText}>등록하기</Text>
-              <Feather name="send" size={18} color="#fff" />
-            </>
-          )}
-        </Pressable>
+          등록하기
+        </Button>
       </KeyboardAwareWrapper>
     </SafeAreaView>
   );
@@ -385,19 +384,6 @@ const styles = StyleSheet.create({
     color: CHARCOAL,
   },
   textArea: { minHeight: 150 },
-
-  attachButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-    paddingVertical: 10,
-    paddingHorizontal: 16,
-    backgroundColor: '#F3F4F6',
-    borderRadius: 8,
-    borderWidth: 1,
-    borderColor: BORDER,
-  },
-  attachButtonText: { fontSize: 14, fontWeight: '600', color: CHARCOAL },
 
   imagePreview: {
     width: 80,
@@ -441,23 +427,4 @@ const styles = StyleSheet.create({
     fontSize: 14,
     color: CHARCOAL,
   },
-
-  submitButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 8,
-    backgroundColor: ORANGE,
-    borderRadius: 12,
-    paddingVertical: 16,
-    marginTop: 32,
-    shadowColor: ORANGE,
-    shadowOpacity: 0.2,
-    shadowRadius: 8,
-    shadowOffset: { width: 0, height: 4 },
-    elevation: 4,
-  },
-  buttonPressed: { opacity: 0.9, transform: [{ scale: 0.99 }] },
-  buttonDisabled: { backgroundColor: '#fed7aa', shadowOpacity: 0 },
-  submitButtonText: { fontSize: 16, fontWeight: '700', color: '#fff' },
 });

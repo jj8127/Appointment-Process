@@ -6,7 +6,6 @@ import {
     View
 } from 'react-native';
 
-const ORANGE = '#f36f21';
 const CHARCOAL = '#111827';
 const GRAY_TEXT = '#9CA3AF';
 const GREEN = '#16a34a';
@@ -40,7 +39,7 @@ export function MobileStatusToggle({
             duration: 250,
             useNativeDriver: true,
         }).start();
-    }, [value]);
+    }, [value, anim]);
 
     const handlePress = (target: 'pending' | 'approved') => {
         if (readOnly) return;

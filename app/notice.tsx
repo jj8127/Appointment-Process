@@ -3,7 +3,6 @@ import { useMutation, useQuery } from '@tanstack/react-query';
 import { MotiView } from 'moti';
 import { useMemo, useState } from 'react';
 import {
-  ActivityIndicator,
   Alert,
   Image,
   Linking,
@@ -16,15 +15,11 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
+import { CardSkeleton } from '@/components/LoadingSkeleton';
 import { RefreshButton } from '@/components/RefreshButton';
 import { useSession } from '@/hooks/use-session';
 import { supabase } from '@/lib/supabase';
-
-const CHARCOAL = '#111827';
-const BORDER = '#E5E7EB';
-const HANWHA_ORANGE = '#f36f21';
-const MUTED = '#6b7280';
-const BACKGROUND = '#ffffff';
+import { COLORS, TYPOGRAPHY, SPACING, RADIUS } from '@/lib/theme';
 
 type AttachedFile = {
   name: string;
@@ -71,7 +66,12 @@ export default function NoticeScreen() {
       Alert.alert('삭제 완료', '공지사항이 삭제되었습니다.');
       refetch();
     },
-    onError: (err: any) => Alert.alert('오류', err?.message ?? '삭제 중 문제가 발생했습니다.'),
+    onSettled: (_data, error) => {
+      if (error) {
+        const message = error instanceof Error ? error.message : '삭제 중 문제가 발생했습니다.';
+        Alert.alert('오류', message);
+      }
+    },
   });
 
   const onRefresh = async () => {
@@ -95,7 +95,7 @@ export default function NoticeScreen() {
       } else {
         Alert.alert('오류', '이 파일을 열 수 없습니다.');
       }
-    } catch (error) {
+    } catch {
       Alert.alert('오류', '파일 링크를 여는 중 문제가 발생했습니다.');
     }
   };
@@ -111,7 +111,13 @@ export default function NoticeScreen() {
         contentContainerStyle={styles.container}
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}
       >
-        {isLoading && !refreshing && <ActivityIndicator color={HANWHA_ORANGE} style={{ marginTop: 20 }} />}
+        {isLoading && !refreshing && (
+          <>
+            <CardSkeleton showHeader lines={4} />
+            <CardSkeleton showHeader lines={3} />
+            <CardSkeleton showHeader lines={5} />
+          </>
+        )}
 
         {isError && (
           <View style={styles.emptyBox}>
@@ -166,9 +172,9 @@ export default function NoticeScreen() {
                 <View style={styles.fileList}>
                   {n.files.map((file, i) => (
                     <Pressable key={i} style={styles.fileItem} onPress={() => handleOpenLink(file.url)}>
-                      <Feather name="paperclip" size={14} color={MUTED} />
+                      <Feather name="paperclip" size={14} color={COLORS.text.secondary} />
                       <Text style={styles.fileName} numberOfLines={1}>{file.name}</Text>
-                      <Feather name="download-cloud" size={14} color={HANWHA_ORANGE} />
+                      <Feather name="download-cloud" size={14} color={COLORS.primary} />
                     </Pressable>
                   ))}
                 </View>
@@ -182,26 +188,26 @@ export default function NoticeScreen() {
 }
 
 const styles = StyleSheet.create({
-  safe: { flex: 1, backgroundColor: BACKGROUND },
+  safe: { flex: 1, backgroundColor: COLORS.white },
   header: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    paddingHorizontal: 24,
-    paddingVertical: 16,
+    paddingHorizontal: SPACING.xl,
+    paddingVertical: SPACING.base,
     borderBottomWidth: 1,
-    borderBottomColor: '#F3F4F6',
+    borderBottomColor: COLORS.gray[100],
   },
-  title: { fontSize: 22, fontWeight: '800', color: CHARCOAL },
+  title: { fontSize: TYPOGRAPHY.fontSize['2xl'], fontWeight: TYPOGRAPHY.fontWeight.extrabold, color: COLORS.text.primary },
 
-  container: { padding: 24, paddingBottom: 64, gap: 20 },
+  container: { padding: SPACING.xl, paddingBottom: 64, gap: SPACING.lg },
 
   card: {
-    backgroundColor: '#fff',
-    borderRadius: 16,
+    backgroundColor: COLORS.white,
+    borderRadius: RADIUS.lg,
     borderWidth: 1,
-    borderColor: BORDER,
-    padding: 20,
+    borderColor: COLORS.border.light,
+    padding: SPACING.lg,
     shadowColor: '#000',
     shadowOpacity: 0.03,
     shadowRadius: 8,
@@ -212,46 +218,46 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    marginBottom: 12,
+    marginBottom: SPACING.sm,
   },
-  headerActions: { flexDirection: 'row', alignItems: 'center', gap: 10 },
+  headerActions: { flexDirection: 'row', alignItems: 'center', gap: SPACING.sm },
   badge: {
-    backgroundColor: '#FFF7ED',
-    paddingHorizontal: 10,
+    backgroundColor: COLORS.warning.light,
+    paddingHorizontal: SPACING.sm,
     paddingVertical: 4,
-    borderRadius: 6,
+    borderRadius: RADIUS.sm,
   },
-  badgeText: { color: HANWHA_ORANGE, fontSize: 12, fontWeight: '700' },
-  date: { color: '#9CA3AF', fontSize: 13 },
+  badgeText: { color: COLORS.primary, fontSize: TYPOGRAPHY.fontSize['2xs'], fontWeight: TYPOGRAPHY.fontWeight.bold },
+  date: { color: COLORS.text.muted, fontSize: TYPOGRAPHY.fontSize.xs },
 
-  noticeTitle: { fontSize: 18, fontWeight: '800', color: CHARCOAL, lineHeight: 26 },
-  divider: { height: 1, backgroundColor: '#F3F4F6', marginVertical: 16 },
-  body: { color: '#374151', lineHeight: 24, fontSize: 15 },
+  noticeTitle: { fontSize: TYPOGRAPHY.fontSize.lg, fontWeight: TYPOGRAPHY.fontWeight.extrabold, color: COLORS.text.primary, lineHeight: 26 },
+  divider: { height: 1, backgroundColor: COLORS.gray[100], marginVertical: SPACING.base },
+  body: { color: COLORS.gray[700], lineHeight: 24, fontSize: TYPOGRAPHY.fontSize.base },
 
-  imageScroll: { marginTop: 16 },
+  imageScroll: { marginTop: SPACING.base },
   noticeImage: {
     width: 200,
     height: 150,
-    borderRadius: 8,
-    marginRight: 10,
+    borderRadius: RADIUS.base,
+    marginRight: SPACING.sm,
     resizeMode: 'cover',
-    backgroundColor: '#F3F4F6',
+    backgroundColor: COLORS.gray[100],
   },
 
-  fileList: { marginTop: 16, gap: 8 },
+  fileList: { marginTop: SPACING.base, gap: SPACING.sm },
   fileItem: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 8,
-    padding: 10,
-    backgroundColor: '#F9FAFB',
-    borderRadius: 8,
+    gap: SPACING.sm,
+    padding: SPACING.sm,
+    backgroundColor: COLORS.background.secondary,
+    borderRadius: RADIUS.base,
     borderWidth: 1,
-    borderColor: '#E5E7EB',
+    borderColor: COLORS.border.light,
   },
-  fileName: { flex: 1, fontSize: 14, color: '#374151' },
+  fileName: { flex: 1, fontSize: TYPOGRAPHY.fontSize.sm, color: COLORS.gray[700] },
 
-  emptyBox: { alignItems: 'center', marginTop: 60, gap: 10 },
-  emptyText: { color: MUTED, fontSize: 15 },
-  errorText: { color: '#EF4444', fontSize: 15 },
+  emptyBox: { alignItems: 'center', marginTop: 60, gap: SPACING.sm },
+  emptyText: { color: COLORS.text.secondary, fontSize: TYPOGRAPHY.fontSize.base },
+  errorText: { color: COLORS.error, fontSize: TYPOGRAPHY.fontSize.base },
 });

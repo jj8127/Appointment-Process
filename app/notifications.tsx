@@ -2,7 +2,7 @@ import { Feather } from '@expo/vector-icons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useRouter } from 'expo-router';
 import { MotiView } from 'moti';
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
@@ -18,6 +18,8 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { RefreshButton } from '@/components/RefreshButton';
 import { useSession } from '@/hooks/use-session';
 import { supabase } from '@/lib/supabase';
+import { COLORS } from '@/lib/theme';
+import { logger } from '@/lib/logger';
 
 type Notice = {
   id: string;
@@ -27,12 +29,6 @@ type Notice = {
   created_at?: string | null;
   source: 'notification' | 'notice';
 };
-
-const HANWHA_ORANGE = '#f36f21';
-const CHARCOAL = '#111827';
-const MUTED = '#6b7280';
-const BORDER = '#E5E7EB';
-const BACKGROUND = '#ffffff';
 
 export default function NotificationsScreen() {
   const router = useRouter();
@@ -104,7 +100,7 @@ export default function NotificationsScreen() {
       setNotices(merged);
       await AsyncStorage.setItem('lastNotificationCheckTime', new Date().toISOString());
     } catch (err: any) {
-      console.warn(err);
+      logger.warn('Failed to load notifications', err);
     } finally {
       setLoading(false);
       setRefreshing(false);
@@ -166,16 +162,6 @@ export default function NotificationsScreen() {
     Alert.alert(item.title, item.body, [{ text: '확인' }]);
   };
 
-  const selectedCounts = useMemo(() => {
-    let notif = 0;
-    let notice = 0;
-    selectedIds.forEach((sid) => {
-      if (sid.startsWith('notification:')) notif += 1;
-      else if (sid.startsWith('notice:')) notice += 1;
-    });
-    return { notif, notice };
-  }, [selectedIds]);
-
   const cancelSelection = () => {
     setSelectionMode(false);
     setSelectedIds(new Set());
@@ -226,7 +212,7 @@ export default function NotificationsScreen() {
   const renderItem = ({ item, index }: { item: Notice; index: number }) => {
     const isNotice = item.source === 'notice';
     const iconName = isNotice ? 'mic' : 'bell';
-    const iconColor = isNotice ? HANWHA_ORANGE : '#3B82F6';
+    const iconColor = isNotice ? COLORS.primary : '#3B82F6';
     const bgIcon = isNotice ? '#FFF7ED' : '#EFF6FF';
     const isSelected = selectedIds.has(item.id);
 
@@ -261,7 +247,7 @@ export default function NotificationsScreen() {
             <Feather
               name={isSelected ? 'check-circle' : 'circle'}
               size={20}
-              color={isSelected ? HANWHA_ORANGE : '#D1D5DB'}
+              color={isSelected ? COLORS.primary : '#D1D5DB'}
             />
           )}
         </Pressable>
@@ -297,7 +283,7 @@ export default function NotificationsScreen() {
 
       {loading && !refreshing ? (
         <View style={styles.center}>
-          <ActivityIndicator color={HANWHA_ORANGE} />
+          <ActivityIndicator color={COLORS.primary} />
         </View>
       ) : (
         <FlatList
@@ -319,7 +305,7 @@ export default function NotificationsScreen() {
 }
 
 const styles = StyleSheet.create({
-  safe: { flex: 1, backgroundColor: BACKGROUND },
+  safe: { flex: 1, backgroundColor: COLORS.white },
   header: {
     flexDirection: 'row',
     justifyContent: 'space-between',
@@ -329,7 +315,7 @@ const styles = StyleSheet.create({
     borderBottomWidth: 1,
     borderBottomColor: '#F3F4F6',
   },
-  headerTitle: { fontSize: 22, fontWeight: '800', color: CHARCOAL },
+  headerTitle: { fontSize: 22, fontWeight: '800', color: COLORS.text.primary },
 
   center: { flex: 1, justifyContent: 'center', alignItems: 'center' },
   listContent: { padding: 20, paddingBottom: 40 },
@@ -341,11 +327,11 @@ const styles = StyleSheet.create({
     padding: 16,
     marginBottom: 12,
     borderWidth: 1,
-    borderColor: BORDER,
+    borderColor: COLORS.border.light,
     alignItems: 'flex-start',
   },
   itemSelected: {
-    borderColor: HANWHA_ORANGE,
+    borderColor: COLORS.primary,
     backgroundColor: '#FFF7ED',
   },
   iconBox: {
@@ -358,21 +344,21 @@ const styles = StyleSheet.create({
   },
   contentBox: { flex: 1, gap: 4 },
   titleRow: { flexDirection: 'row', justifyContent: 'space-between', marginBottom: 2 },
-  category: { fontSize: 12, fontWeight: '700', color: HANWHA_ORANGE },
+  category: { fontSize: 12, fontWeight: '700', color: COLORS.primary },
   date: { fontSize: 12, color: '#9CA3AF' },
-  title: { fontSize: 16, fontWeight: '700', color: CHARCOAL },
-  body: { fontSize: 14, color: MUTED, lineHeight: 20 },
+  title: { fontSize: 16, fontWeight: '700', color: COLORS.text.primary },
+  body: { fontSize: 14, color: COLORS.text.secondary, lineHeight: 20 },
 
   emptyState: { alignItems: 'center', marginTop: 60, gap: 12 },
-  emptyText: { fontSize: 15, color: MUTED },
+  emptyText: { fontSize: 15, color: COLORS.text.secondary },
   selectionHeader: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
     flex: 1,
   },
-  cancelText: { fontSize: 14, color: MUTED, fontWeight: '600' },
-  selectionTitle: { fontSize: 16, fontWeight: '700', color: CHARCOAL },
+  cancelText: { fontSize: 14, color: COLORS.text.secondary, fontWeight: '600' },
+  selectionTitle: { fontSize: 16, fontWeight: '700', color: COLORS.text.primary },
   deleteText: { fontSize: 14, color: '#EF4444', fontWeight: '700' },
-  selectAllText: { fontSize: 14, color: HANWHA_ORANGE, fontWeight: '700' },
+  selectAllText: { fontSize: 14, color: COLORS.primary, fontWeight: '700' },
 });

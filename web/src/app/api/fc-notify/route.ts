@@ -2,6 +2,7 @@ import { createClient } from '@supabase/supabase-js';
 import { NextResponse } from 'next/server';
 import { sendWebPush } from '@/lib/web-push';
 
+import { logger } from '@/lib/logger';
 // Validate environment variables at module load time
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
 const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
@@ -39,7 +40,7 @@ export async function POST(req: Request) {
   try {
     body = await req.json() as NotifyRequestBody;
   } catch (parseError) {
-    console.error('[fc-notify] JSON parse error:', parseError);
+    logger.error('[fc-notify] JSON parse error:', parseError);
     return NextResponse.json({ error: 'Invalid JSON payload' }, { status: 400 });
   }
 
@@ -67,7 +68,7 @@ export async function POST(req: Request) {
       const { data: subs, error: subsError } = await query;
 
       if (subsError) {
-        console.error('[fc-notify] Error fetching subscriptions:', subsError);
+        logger.error('[fc-notify] Error fetching subscriptions:', subsError);
       } else if (subs && subs.length > 0) {
         const url =
           targetRole === 'admin'
@@ -88,7 +89,7 @@ export async function POST(req: Request) {
             .in('endpoint', result.expired);
 
           if (deleteError) {
-            console.error('[fc-notify] Error deleting expired subscriptions:', deleteError);
+            logger.error('[fc-notify] Error deleting expired subscriptions:', deleteError);
           }
         }
       }
@@ -120,7 +121,7 @@ export async function POST(req: Request) {
     );
   } catch (err: unknown) {
     const error = err as Error;
-    console.error('[api/fc-notify] proxy error:', error?.message ?? err);
+    logger.error('[api/fc-notify] proxy error:', error?.message ?? err);
 
     return NextResponse.json(
       { error: error?.message ?? 'fc-notify proxy failed' },

@@ -66,6 +66,7 @@ import { updateDocStatusAction } from './docs/actions';
 import type { FCProfileWithDocuments, FCDocument } from '@/types/dashboard';
 import type { FcProfile, FcStatus } from '@/types/fc';
 
+import { logger } from '@/lib/logger';
 export default function DashboardPage() {
   const router = useRouter();
   const queryClient = useQueryClient();
@@ -251,7 +252,7 @@ export default function DashboardPage() {
         .select('*, appointment_date_life_sub, appointment_date_nonlife_sub, fc_documents(doc_type,storage_path,file_name,status,reviewer_note)')
         .order('created_at', { ascending: false });
       if (error) throw error;
-      console.log('[DEBUG] Web: Fetched FC List:', JSON.stringify(data, null, 2));
+      logger.debug('[DEBUG] Web: Fetched FC List:', JSON.stringify(data, null, 2));
       return data;
     },
   });
@@ -336,8 +337,8 @@ export default function DashboardPage() {
       if (!selectedFc) return;
 
       const nextTypes = types ?? [];
-      console.log('Mutation Start');
-      console.log('SelectedDocs (Intent):', nextTypes);
+      logger.debug('Mutation Start');
+      logger.debug('SelectedDocs (Intent):', nextTypes);
       const normalizedDeadline = deadline ? dayjs(deadline).format('YYYY-MM-DD') : null;
       const shouldResetNotify = normalizedDeadline !== (selectedFc.docs_deadline_at ?? null);
 
@@ -347,12 +348,12 @@ export default function DashboardPage() {
         .eq('fc_id', selectedFc.id);
 
       if (fetchErr) {
-        console.error('Fetch Error:', fetchErr);
+        logger.error('Fetch Error:', fetchErr);
         throw fetchErr;
       }
 
       const currentDocs = currentDocsRaw || [];
-      console.log('Current DB Docs:', currentDocs);
+      logger.debug('Current DB Docs:', currentDocs);
 
       const currentTypes = currentDocs.map((d: FCDocument) => d.doc_type);
 
@@ -374,12 +375,12 @@ export default function DashboardPage() {
         .filter((d: FCDocument) => !nextTypes.includes(d.doc_type) && (!d.storage_path || d.storage_path === 'deleted'))
         .map((d: FCDocument) => d.doc_type);
 
-      console.log('To Add:', toAdd);
-      console.log('To Delete:', toDelete);
+      logger.debug('To Add:', toAdd);
+      logger.debug('To Delete:', toDelete);
 
       if (toDelete.length) {
         const { error: delError } = await supabase.from('fc_documents').delete().eq('fc_id', selectedFc.id).in('doc_type', toDelete);
-        if (delError) console.error('Delete Error:', delError);
+        if (delError) logger.error('Delete Error:', delError);
       }
       if (toAdd.length) {
         const rows = toAdd.map((type) => ({
@@ -390,7 +391,7 @@ export default function DashboardPage() {
           storage_path: '',
         }));
         const { error: insertError } = await supabase.from('fc_documents').insert(rows);
-        if (insertError) console.error('Insert Error:', JSON.stringify(insertError, null, 2));
+        if (insertError) logger.error('Insert Error:', JSON.stringify(insertError, null, 2));
       }
       const profileUpdate: Record<string, string | null> = {
         docs_deadline_at: normalizedDeadline,
@@ -469,14 +470,14 @@ export default function DashboardPage() {
   const deleteFcMutation = useMutation({
     mutationFn: async () => {
       if (!selectedFc) return;
-      console.debug('[Web][deleteFc] start', { id: selectedFc.id, phone: selectedFc.phone });
+      logger.debug('[Web][deleteFc] start', { id: selectedFc.id, phone: selectedFc.phone });
 
       const { error: docsError } = await supabase
         .from('fc_documents')
         .delete()
         .eq('fc_id', selectedFc.id);
       if (docsError) {
-        console.error('[Web][deleteFc] fc_documents delete failed', docsError);
+        logger.error('[Web][deleteFc] fc_documents delete failed', docsError);
         throw docsError;
       }
 
@@ -485,11 +486,11 @@ export default function DashboardPage() {
         .delete()
         .eq('id', selectedFc.id);
       if (profileError) {
-        console.error('[Web][deleteFc] fc_profiles delete failed', profileError);
+        logger.error('[Web][deleteFc] fc_profiles delete failed', profileError);
         throw profileError;
       }
 
-      console.debug('[Web][deleteFc] done', { id: selectedFc.id });
+      logger.debug('[Web][deleteFc] done', { id: selectedFc.id });
     },
     onSuccess: () => {
       notifications.show({ title: '삭제 완료', message: 'FC 정보가 삭제되었습니다.', color: 'gray' });
@@ -497,7 +498,7 @@ export default function DashboardPage() {
       close();
     },
     onError: (err: Error) => {
-      console.error('[Web][deleteFc] failed', err);
+      logger.error('[Web][deleteFc] failed', err);
       notifications.show({ title: '오류', message: err.message, color: 'red' });
     },
   });
@@ -507,8 +508,8 @@ export default function DashboardPage() {
       setTempIdInput(fc.temp_id || '');
       setCareerInput((fc.career_type as '신입' | '경력') || null);
       const currentDocs = fc.fc_documents?.map((d: FCDocument) => d.doc_type) || [];
-      console.log('Opening Modal for:', fc.name);
-      console.log('Init SelectedDocs:', currentDocs);
+      logger.debug('Opening Modal for:', fc.name);
+      logger.debug('Init SelectedDocs:', currentDocs);
       setSelectedDocs(currentDocs);
       setDocsDeadlineInput(fc.docs_deadline_at ? new Date(fc.docs_deadline_at) : null);
 
@@ -1298,14 +1299,14 @@ export default function DashboardPage() {
                       color="red"
                       leftSection={<IconTrash size={16} />}
                       onClick={() => {
-                        console.debug('[Web][deleteFc] click', { id: selectedFc?.id, phone: selectedFc?.phone });
+                        logger.debug('[Web][deleteFc] click', { id: selectedFc?.id, phone: selectedFc?.phone });
                         showConfirm({
                           title: 'FC 삭제',
                           message: '정말로 FC를 삭제하시겠습니까? 관련 서류도 모두 삭제됩니다.',
                           confirmLabel: '삭제',
                           color: 'red',
                           onConfirm: () => {
-                            console.debug('[Web][deleteFc] mutate');
+                            logger.debug('[Web][deleteFc] mutate');
                             deleteFcMutation.mutate();
                           },
                         });
@@ -1493,7 +1494,7 @@ export default function DashboardPage() {
                       );
                       return (
                     <Chip.Group multiple value={selectedDocs} onChange={(val) => {
-                      console.log('Chip Change:', val);
+                      logger.debug('Chip Change:', val);
                       setSelectedDocs(val);
                     }}>
                       <Group gap={6}>

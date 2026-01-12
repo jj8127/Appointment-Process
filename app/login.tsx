@@ -1,6 +1,5 @@
 import { LinearGradient } from 'expo-linear-gradient';
 import { router, useLocalSearchParams } from 'expo-router';
-import { Feather } from '@expo/vector-icons';
 import { MotiView } from 'moti';
 import { useEffect, useState } from 'react';
 import {
@@ -10,24 +9,17 @@ import {
     Pressable,
     StyleSheet,
     Text,
-    TextInput,
     View
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import * as Haptics from 'expo-haptics';
 
 import { KeyboardAwareWrapper } from '@/components/KeyboardAwareWrapper';
+import { FormInput } from '@/components/FormInput';
 import { useKeyboardPadding } from '@/hooks/use-keyboard-padding';
 import { useSession } from '@/hooks/use-session';
 import { useLogin } from '@/hooks/use-login';
-import Logo from '../logo.png';
-
-const HANWHA_ORANGE = '#f36f21';
-const HANWHA_ORANGE_DARK = '#d65a16';
-const CHARCOAL = '#1F2937';
-const GRAY_TEXT = '#6B7280';
-const BORDER = '#E5E7EB';
-const INPUT_BG = '#F9FAFB';
+import Logo from '@/assets/images/logo.png';
+import { COLORS, TYPOGRAPHY, SPACING, RADIUS } from '@/lib/theme';
 
 export default function LoginScreen() {
     const { skipAuto } = useLocalSearchParams<{ skipAuto?: string }>();
@@ -35,9 +27,6 @@ export default function LoginScreen() {
     const { role, residentId, hydrated } = useSession();
     const [phoneInput, setPhoneInput] = useState('');
     const [passwordInput, setPasswordInput] = useState('');
-    const [isFocused, setIsFocused] = useState(false);
-    const [isPasswordFocused, setIsPasswordFocused] = useState(false);
-    const [showPassword, setShowPassword] = useState(false);
     const keyboardPadding = useKeyboardPadding();
 
     // Use custom login hook
@@ -98,65 +87,31 @@ export default function LoginScreen() {
                             </Text>
                         </View>
 
-                        <View style={styles.inputContainer}>
-                                <Text style={styles.label}>휴대폰 번호</Text>
-                            <MotiView
-                                    animate={{
-                                        borderColor: isFocused ? HANWHA_ORANGE : BORDER,
-                                        backgroundColor: isFocused ? '#FFF' : INPUT_BG,
-                                    }}
-                                    transition={{ type: 'timing', duration: 200 }}
-                                    style={styles.inputWrapper}
-                                >
-                                    <TextInput
-                                        style={styles.input}
-                                        placeholder="번호 입력 (- 없이 숫자만)"
-                                        placeholderTextColor="#9CA3AF"
-                                        value={phoneInput}
-                                        onChangeText={(text) => setPhoneInput(text)}
-                                        onFocus={() => setIsFocused(true)}
-                                        onBlur={() => setIsFocused(false)}
-                                        autoCapitalize="none"
-                                        keyboardType="number-pad"
-                                        returnKeyType="done"
-                                        onSubmitEditing={handleLogin}
-                                        editable={!loading}
-                                    />
-                                </MotiView>
-                            </View>
+                        <FormInput
+                            label="휴대폰 번호"
+                            placeholder="번호 입력 (- 없이 숫자만)"
+                            value={phoneInput}
+                            onChangeText={setPhoneInput}
+                            autoCapitalize="none"
+                            keyboardType="number-pad"
+                            returnKeyType="next"
+                            onSubmitEditing={handleLogin}
+                            editable={!loading}
+                            containerStyle={styles.inputContainer}
+                        />
 
-                            <View style={styles.inputContainer}>
-                                <Text style={styles.label}>비밀번호</Text>
-                                <MotiView
-                                    animate={{
-                                        borderColor: isPasswordFocused ? HANWHA_ORANGE : BORDER,
-                                        backgroundColor: isPasswordFocused ? '#FFF' : INPUT_BG,
-                                    }}
-                                    transition={{ type: 'timing', duration: 200 }}
-                                    style={styles.inputWrapper}
-                                >
-                                    <TextInput
-                                        style={[styles.input, styles.inputWithIcon]}
-                                        placeholder="8자 이상, 영문+숫자+특수문자"
-                                        placeholderTextColor="#9CA3AF"
-                                        value={passwordInput}
-                                        onChangeText={setPasswordInput}
-                                        onFocus={() => setIsPasswordFocused(true)}
-                                        onBlur={() => setIsPasswordFocused(false)}
-                                        autoCapitalize="none"
-                                        secureTextEntry={!showPassword}
-                                        returnKeyType="done"
-                                        onSubmitEditing={handleLogin}
-                                        editable={!loading}
-                                    />
-                                    <Pressable
-                                        style={styles.eyeButton}
-                                        onPress={() => setShowPassword((prev) => !prev)}
-                                    >
-                                        <Feather name={showPassword ? 'eye-off' : 'eye'} size={18} color={GRAY_TEXT} />
-                                    </Pressable>
-                                </MotiView>
-                            </View>
+                        <FormInput
+                            label="비밀번호"
+                            variant="password"
+                            placeholder="8자 이상, 영문+숫자+특수문자"
+                            value={passwordInput}
+                            onChangeText={setPasswordInput}
+                            autoCapitalize="none"
+                            returnKeyType="done"
+                            onSubmitEditing={handleLogin}
+                            editable={!loading}
+                            containerStyle={styles.inputContainer}
+                        />
 
 
                             <Pressable
@@ -207,8 +162,8 @@ const styles = StyleSheet.create({
     scrollContent: {
         flexGrow: 1,
         paddingTop: 0,
-        paddingHorizontal: 20,
-        paddingBottom: 40,
+        paddingHorizontal: SPACING.lg,
+        paddingBottom: SPACING['2xl'],
     },
     innerContent: {
         width: '100%',
@@ -227,127 +182,93 @@ const styles = StyleSheet.create({
     },
     logoDecoration: {
         position: 'absolute',
-        bottom: 20,
-        width: 40,
-        height: 4,
-        backgroundColor: HANWHA_ORANGE,
-        borderRadius: 2,
+        bottom: SPACING.lg,
+        width: SPACING['2xl'],
+        height: SPACING.xs,
+        backgroundColor: COLORS.primary,
+        borderRadius: RADIUS.sm,
         opacity: 0.2,
     },
     card: {
-        backgroundColor: '#fff',
-        borderRadius: 24,
-        padding: 32,
-        shadowColor: '#f36f21',
+        backgroundColor: COLORS.white,
+        borderRadius: RADIUS.xl,
+        padding: SPACING['2xl'],
+        shadowColor: COLORS.primary,
         shadowOffset: { width: 0, height: 12 },
         shadowOpacity: 0.08,
         shadowRadius: 24,
         elevation: 8,
         borderWidth: 1,
-        borderColor: 'rgba(243, 111, 33, 0.05)',
+        borderColor: COLORS.primaryPale,
     },
     headerSection: {
-        marginBottom: 32,
+        marginBottom: SPACING['2xl'],
         alignItems: 'center',
     },
     title: {
-        fontSize: 26,
-        fontWeight: '800',
-        color: CHARCOAL,
-        marginBottom: 8,
+        fontSize: TYPOGRAPHY.fontSize['3xl'],
+        fontWeight: TYPOGRAPHY.fontWeight.extrabold,
+        color: COLORS.text.primary,
+        marginBottom: SPACING.sm,
         letterSpacing: -0.5,
     },
     subtitle: {
-        fontSize: 15,
-        color: GRAY_TEXT,
+        fontSize: TYPOGRAPHY.fontSize.base,
+        color: COLORS.text.secondary,
         textAlign: 'center',
-        lineHeight: 22,
+        lineHeight: TYPOGRAPHY.lineHeight.relaxed * TYPOGRAPHY.fontSize.base,
     },
     inputContainer: {
-        gap: 8,
-        marginBottom: 24,
-    },
-    label: {
-        fontSize: 14,
-        fontWeight: '700',
-        color: CHARCOAL,
-        marginLeft: 4,
-        marginBottom: 4,
-    },
-    inputWrapper: {
-        height: 56,
-        borderWidth: 1.5,
-        borderRadius: 16,
-        overflow: 'hidden',
-        justifyContent: 'center',
-    },
-    input: {
-        flex: 1,
-        paddingHorizontal: 16,
-        fontSize: 16,
-        color: CHARCOAL,
-        height: '100%',
-    },
-    inputWithIcon: {
-        paddingRight: 44,
-    },
-    eyeButton: {
-        position: 'absolute',
-        right: 12,
-        top: 0,
-        bottom: 0,
-        justifyContent: 'center',
-        alignItems: 'center',
-        width: 32,
+        marginBottom: SPACING.base,
     },
     button: {
         height: 56,
-        backgroundColor: HANWHA_ORANGE,
-        borderRadius: 16,
+        backgroundColor: COLORS.primary,
+        borderRadius: RADIUS.lg,
         alignItems: 'center',
         justifyContent: 'center',
-        shadowColor: HANWHA_ORANGE,
+        shadowColor: COLORS.primary,
         shadowOffset: { width: 0, height: 4 },
         shadowOpacity: 0.3,
         shadowRadius: 8,
         elevation: 4,
     },
     buttonPressed: {
-        backgroundColor: HANWHA_ORANGE_DARK,
+        backgroundColor: COLORS.primaryDark,
         transform: [{ scale: 0.98 }],
     },
     buttonDisabled: {
-        backgroundColor: '#FFD4C0',
+        backgroundColor: COLORS.primaryLight,
         shadowOpacity: 0,
     },
     buttonText: {
-        fontSize: 17,
-        fontWeight: '700',
-        color: '#fff',
+        fontSize: TYPOGRAPHY.fontSize.lg,
+        fontWeight: TYPOGRAPHY.fontWeight.bold,
+        color: COLORS.white,
     },
     backButton: {
-        marginTop: 16,
+        marginTop: SPACING.base,
         alignItems: 'center',
-        paddingVertical: 12,
+        paddingVertical: SPACING.md,
     },
     backButtonPressed: {
         opacity: 0.7,
     },
     backButtonText: {
-        fontSize: 14,
-        color: GRAY_TEXT,
-        fontWeight: '600',
+        fontSize: TYPOGRAPHY.fontSize.sm,
+        color: COLORS.text.secondary,
+        fontWeight: TYPOGRAPHY.fontWeight.semibold,
         textDecorationLine: 'underline',
     },
     linkButton: {
-        marginTop: 12,
+        marginTop: SPACING.md,
         alignItems: 'center',
-        paddingVertical: 8,
+        paddingVertical: SPACING.sm,
     },
     linkButtonText: {
-        fontSize: 14,
-        color: GRAY_TEXT,
-        fontWeight: '600',
+        fontSize: TYPOGRAPHY.fontSize.sm,
+        color: COLORS.text.secondary,
+        fontWeight: TYPOGRAPHY.fontWeight.semibold,
         textDecorationLine: 'underline',
     },
 });

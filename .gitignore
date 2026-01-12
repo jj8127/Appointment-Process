@@ -50,14 +50,8 @@ app-example
 # firebase service account (do not commit secrets)
 appointmentprocess-90a2e-firebase-adminsdk-fbsvc-2c333083b0.json
 
-# Project documentation and internal files (not essential for production)
-명령어 모음집.txt
-흐름도.txt
-AGENTS.md
-CLAUDE.md
-CODE_IMPROVEMENTS.md
-SECURITY_FIXES.md
-DEPLOYMENT.md
+# Archived documents (historical analysis, not needed in repo)
+.archive/
 
 # Test and temp files
 .testsprite_tests

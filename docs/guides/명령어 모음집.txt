@@ -1,0 +1,74 @@
+앱 빌드: [시작 전에 버전 업데이트 필수]eas build --platform android --profile production  / eas build --platform ios --profile production
+앱 실행+설치: npx expo run:android
+웹 실행:cd web & npm run dev
+
+ios에서 테스트
+    npx expo start 하고 Expo Go 모드로 전환 -> QR코드 스캔
+testsprite 사용하기 위한 순서
+1. 웹 번들 생성 
+    npx expo export --platform web --output-dir dist-web
+    npx serve -l 8081 dist-web
+2. 이전 실행 락이 있다면 삭제(없으면 생략)
+    del testsprite_tests\tmp\execution.lock
+
+codex에서 사용 가능한 도구 목록 보기
+1. codex 접속
+    codex
+2. 도구 찾기
+    list_mcp_tools
+
+vercel에 등록하기
+1. 배포하고자 하는 루트 디렉토리로 이동
+2. vercel과 연동
+    vercel link
+3. 웹 빌드 생성
+    npx expo export -p web
+4. 배포
+    vercel deploy dist --prod
+
+앱 데이터 초기화
+    adb uninstall com.jj8127.fconboardingapp
+    
+앱 icon적용 한 버전 실행하기
+    앱 삭제 후 -> npx expo prebuild --clean && npx expo run:android
+
+expo mcp server로 앱 실행하기 [앱이 설치 되어 있다는 전제 하에]
+    .\start-mcp.ps1
+
+app store connect에 가장 최근에 빌드한 앱 올리기
+    eas submit --platform ios --latest
+
+비밀번호 hash값 slat값 알아보는 명령어
+node -e "const crypto=require('crypto');const password='qwer1234!';const salt=crypto.randomBytes(16);const hash=crypto.pbkdf2Sync(password,salt,100000,32,'sha256');console.log('PASSWORD_SALT:',salt.toString('base64'));console.log('PASSWORD_HASH:',hash.toString('base64'));"
+
+본부장 계정 추가하는 쿼리
+insert into public.manager_accounts (
+  name, phone, password_hash, password_salt, password_set_at
+) values (
+  '이름', '번호', 'HASH', 'SALT', now()
+);
+
+계정 비밀번호 변경하는 쿼리
+update public.manager_accounts
+set password_hash = '해시',
+    password_salt = '솔트',
+    password_set_at = now(),
+    failed_count = 0,
+    locked_until = null
+where phone = '전화번호';
+
+FC계정 추가하는 쿼리
+with new_fc as (
+  insert into public.fc_profiles (
+    name, affiliation, phone, recommender, email
+  ) values (
+    '홍길동', '1본부', '01012345678', '추천인명', 'hong@example.com'
+  )
+  returning id
+)
+insert into public.fc_credentials (
+  fc_id, password_hash, password_salt, password_set_at
+)
+select id, 'xQQHy6CYaPEbITE0pW/OOV1nD2pj+SKD0HsV/U6i/R0=', 'KBNCCjmnwPbFakBouBWF3Q==', now()
+from new_fc;
+

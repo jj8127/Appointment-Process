@@ -7,11 +7,9 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { useSession } from '@/hooks/use-session';
 import { supabase } from '@/lib/supabase';
+import { logger } from '@/lib/logger';
+import { COLORS, TYPOGRAPHY, SPACING, RADIUS } from '@/lib/theme';
 
-const HANWHA_ORANGE = '#f36f21';
-const CHARCOAL = '#111827';
-const TEXT_MUTED = '#6b7280';
-const BORDER = '#e5e7eb';
 const ALERTS_CHANNEL_ID = 'alerts';
 
 export default function SettingsScreen() {
@@ -29,7 +27,7 @@ export default function SettingsScreen() {
     try {
       const channels = await Notifications.getNotificationChannelsAsync();
       const alertsChannel = channels.find((channel) => channel.id === ALERTS_CHANNEL_ID);
-      console.log('[notifications] channels', channels);
+      logger.debug('[notifications] channels', { channels });
       if (!alertsChannel) {
         Alert.alert('채널 없음', `"${ALERTS_CHANNEL_ID}" 채널이 아직 생성되지 않았습니다.`);
         return;
@@ -109,7 +107,7 @@ export default function SettingsScreen() {
             testID="settings-delete-account"
             accessibilityLabel="계정 삭제"
           >
-            <Feather name="trash-2" size={16} color="#fff" />
+            <Feather name="trash-2" size={16} color={COLORS.white} />
             <Text style={styles.deleteText}>{deleting ? '삭제 중...' : '계정 삭제'}</Text>
           </Pressable>
         </View>
@@ -123,7 +121,7 @@ export default function SettingsScreen() {
             disabled={checkingChannels}
             accessibilityLabel="알림 채널 상태 확인"
           >
-            <Feather name="bell" size={16} color={CHARCOAL} />
+            <Feather name="bell" size={16} color={COLORS.text.primary} />
             <Text style={styles.secondaryText}>{checkingChannels ? '확인 중...' : '채널 상태 확인'}</Text>
           </Pressable>
         </View>
@@ -162,84 +160,84 @@ export default function SettingsScreen() {
 }
 
 const styles = StyleSheet.create({
-  safe: { flex: 1, backgroundColor: '#fff' },
-  container: { padding: 20, gap: 16 },
+  safe: { flex: 1, backgroundColor: COLORS.white },
+  container: { padding: SPACING.lg, gap: SPACING.base },
   card: {
-    backgroundColor: '#fff',
-    borderRadius: 16,
+    backgroundColor: COLORS.white,
+    borderRadius: RADIUS.lg,
     borderWidth: 1,
-    borderColor: BORDER,
-    padding: 16,
-    gap: 10,
+    borderColor: COLORS.border.light,
+    padding: SPACING.base,
+    gap: SPACING.sm,
   },
-  title: { fontSize: 18, fontWeight: '800', color: CHARCOAL },
+  title: { fontSize: TYPOGRAPHY.fontSize.lg, fontWeight: TYPOGRAPHY.fontWeight.extrabold, color: COLORS.text.primary },
   row: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
-  label: { fontSize: 14, color: TEXT_MUTED },
-  value: { fontSize: 14, fontWeight: '700', color: CHARCOAL },
-  sectionTitle: { fontSize: 16, fontWeight: '800', color: CHARCOAL },
-  sectionText: { fontSize: 13, color: TEXT_MUTED },
+  label: { fontSize: TYPOGRAPHY.fontSize.sm, color: COLORS.text.secondary },
+  value: { fontSize: TYPOGRAPHY.fontSize.sm, fontWeight: TYPOGRAPHY.fontWeight.bold, color: COLORS.text.primary },
+  sectionTitle: { fontSize: TYPOGRAPHY.fontSize.md, fontWeight: TYPOGRAPHY.fontWeight.extrabold, color: COLORS.text.primary },
+  sectionText: { fontSize: TYPOGRAPHY.fontSize.xs, color: COLORS.text.secondary },
   deleteButton: {
     marginTop: 6,
-    backgroundColor: '#ef4444',
-    paddingVertical: 12,
-    borderRadius: 12,
+    backgroundColor: COLORS.error,
+    paddingVertical: SPACING.sm,
+    borderRadius: RADIUS.base,
     flexDirection: 'row',
     justifyContent: 'center',
     alignItems: 'center',
-    gap: 8,
+    gap: SPACING.sm,
   },
   deleteButtonDisabled: { opacity: 0.7 },
-  deleteText: { color: '#fff', fontWeight: '700' },
+  deleteText: { color: COLORS.white, fontWeight: TYPOGRAPHY.fontWeight.bold },
   secondaryButton: {
     marginTop: 6,
-    backgroundColor: '#F9FAFB',
-    paddingVertical: 12,
-    borderRadius: 12,
+    backgroundColor: COLORS.background.secondary,
+    paddingVertical: SPACING.sm,
+    borderRadius: RADIUS.base,
     flexDirection: 'row',
     justifyContent: 'center',
     alignItems: 'center',
-    gap: 8,
+    gap: SPACING.sm,
     borderWidth: 1,
-    borderColor: BORDER,
+    borderColor: COLORS.border.light,
   },
   secondaryButtonDisabled: { opacity: 0.7 },
-  secondaryText: { color: CHARCOAL, fontWeight: '700' },
+  secondaryText: { color: COLORS.text.primary, fontWeight: TYPOGRAPHY.fontWeight.bold },
   logoutButton: {
-    marginTop: 8,
-    paddingVertical: 12,
-    borderRadius: 12,
+    marginTop: SPACING.sm,
+    paddingVertical: SPACING.sm,
+    borderRadius: RADIUS.base,
     borderWidth: 1,
-    borderColor: BORDER,
+    borderColor: COLORS.border.light,
     alignItems: 'center',
   },
-  logoutText: { fontWeight: '700', color: TEXT_MUTED },
+  logoutText: { fontWeight: TYPOGRAPHY.fontWeight.bold, color: COLORS.text.secondary },
   modalOverlay: {
     flex: 1,
-    backgroundColor: 'rgba(0,0,0,0.4)',
+    backgroundColor: COLORS.background.overlay,
     justifyContent: 'center',
     alignItems: 'center',
-    padding: 24,
+    padding: SPACING.xl,
   },
   modalCard: {
     width: '100%',
     maxWidth: 360,
-    backgroundColor: '#fff',
-    borderRadius: 16,
-    padding: 20,
-    gap: 12,
+    backgroundColor: COLORS.white,
+    borderRadius: RADIUS.lg,
+    padding: SPACING.lg,
+    gap: SPACING.sm,
   },
-  modalTitle: { fontSize: 18, fontWeight: '800', color: CHARCOAL },
-  modalText: { fontSize: 13, color: TEXT_MUTED, lineHeight: 18 },
-  modalButtons: { flexDirection: 'row', gap: 12, marginTop: 4 },
+  modalTitle: { fontSize: TYPOGRAPHY.fontSize.lg, fontWeight: TYPOGRAPHY.fontWeight.extrabold, color: COLORS.text.primary },
+  modalText: { fontSize: TYPOGRAPHY.fontSize.xs, color: COLORS.text.secondary, lineHeight: 18 },
+  modalButtons: { flexDirection: 'row', gap: SPACING.sm, marginTop: 4 },
   modalButton: {
     flex: 1,
-    paddingVertical: 12,
-    borderRadius: 12,
+    paddingVertical: SPACING.sm,
+    borderRadius: RADIUS.base,
     alignItems: 'center',
   },
-  modalCancel: { backgroundColor: '#F3F4F6' },
-  modalDelete: { backgroundColor: '#ef4444' },
+  modalCancel: { backgroundColor: COLORS.gray[100] },
+  modalDelete: { backgroundColor: COLORS.error },
   modalDeleteDisabled: { opacity: 0.7 },
-  modalCancelText: { fontWeight: '700', color: '#4B5563' },
-  modalDeleteText: { fontWeight: '700', color: '#fff' },
+  modalCancelText: { fontWeight: TYPOGRAPHY.fontWeight.bold, color: COLORS.gray[600] },
+  modalDeleteText: { fontWeight: TYPOGRAPHY.fontWeight.bold, color: COLORS.white },
 });

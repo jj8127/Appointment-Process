@@ -22,11 +22,13 @@ import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context'
 import { TourGuideZone, useTourGuideController } from 'rn-tourguide';
 
 import { ImageTourGuide, TourStep } from '@/components/ImageTourGuide';
+import { Skeleton } from '@/components/LoadingSkeleton';
 import { RefreshButton } from '@/components/RefreshButton';
 import { useIdentityStatus } from '@/hooks/use-identity-status';
 import { useSession } from '@/hooks/use-session';
 import { useInAppUpdate } from '@/hooks/useInAppUpdate';
 import { supabase } from '@/lib/supabase';
+import { logger } from '@/lib/logger';
 import type { FcProfile } from '@/types/fc';
 import type { FCDocument } from '@/types/dashboard';
 
@@ -118,7 +120,6 @@ const AndroidSafeMotiView = ({ from, animate, transition, state, exit, exitTrans
 
 
 const HANWHA_ORANGE = '#f36f21';
-const HANWHA_LIGHT = '#f7b182';
 const CHARCOAL = '#111827';
 const TEXT_MUTED = '#6b7280';
 const BORDER = '#e5e7eb';
@@ -183,7 +184,8 @@ const fetchCounts = async (role: 'admin' | 'fc' | null, residentId: string): Pro
   if (error) throw error;
 
   const steps: StepCounts = { ...EMPTY_STEP_COUNTS };
-  (data ?? []).forEach((profile: FcProfile) => {
+  const profiles = (data ?? []) as FcProfile[];
+  profiles.forEach((profile: FcProfile) => {
     const key = getStepKey(profile);
     steps[key] += 1;
   });
@@ -212,20 +214,21 @@ const fetchLatestNotice = async () => {
     if (error) throw error;
     return data;
   } catch (err: unknown) {
-      const error = err as Error;
-    if (err?.code === '42P01') return null;
-    throw err;
+    const code = (err as { code?: string })?.code;
+    if (code === '42P01') return null;
+    if (err instanceof Error) throw err;
+    throw new Error(String(err));
   }
 };
 
 const fetchLatestAdminMessage = async (residentId: string) => {
   if (!residentId) {
-    console.log('[Home] residentId 없음');
+    logger.debug('[Home] residentId 없음');
     return null;
   }
   try {
     const { data: authRes } = await supabase.auth.getUser();
-    console.log('[Home] latest admin msg start', { supabaseUserId: authRes?.user?.id, residentId });
+    logger.debug('[Home] latest admin msg start', { supabaseUserId: authRes?.user?.id, residentId });
 
     const { data, error } = await supabase
       .from('messages') // 테이블명이 다르면 여기 수정 필요
@@ -236,18 +239,18 @@ const fetchLatestAdminMessage = async (residentId: string) => {
       .limit(1);
 
     if (error) {
-      console.error('[Home] latest admin msg error', error);
+      logger.error('[Home] latest admin msg error', error);
       return null;
     }
 
-    console.log('[Home] latest admin msg data', data);
+    logger.debug('[Home] latest admin msg data', data);
     const msg = data?.[0];
     if (!msg) return null;
     const content =
       (msg as any).content || (msg as any).text || (msg as any).message || (msg as any).body || '';
     return { ...msg, content };
   } catch (err) {
-    console.log('[Home] latest admin msg exception', err);
+    logger.debug('[Home] latest admin msg exception', err);
     return null;
   }
 };
@@ -260,7 +263,7 @@ const fetchUnreadMessageCount = async (residentId: string) => {
     .eq('receiver_id', residentId)
     .eq('is_read', false);
   if (error) {
-    console.log('[Home] unread msg error', error);
+    logger.debug('[Home] unread msg error', error);
     return 0;
   }
   return count ?? 0;
@@ -292,7 +295,7 @@ const fetchUnreadNotificationCount = async (role: 'admin' | 'fc' | null, residen
     if (error) throw error;
     return count ?? 0;
   } catch (e) {
-    console.log('[Home] unread notif error', e);
+    logger.debug('[Home] unread notif error', e);
     return 0;
   }
 };
@@ -569,14 +572,14 @@ export default function Home() {
     targetRef.measureLayout(
       contentRef.current,
       (_x, y) => {
-        console.log(`[scrollToZoneMeasured] zone: ${zone}, measured y: ${y}`);
+        logger.debug(`[scrollToZoneMeasured] zone: ${zone}, measured y: ${y}`);
         const targetY = Math.max(0, y - paddingTop);
         requestAnimationFrame(() => {
           scrollViewRef.current?.scrollTo({ y: targetY, animated: true });
         });
       },
       () => {
-        console.log('[measureLayout error]');
+        logger.debug('[measureLayout error]');
       }
     );
   }, []);
@@ -584,7 +587,7 @@ export default function Home() {
   useEffect(() => {
     const handleStepChange = (step: any) => {
       const z = step?.zone;
-      console.log('[tour stepChange]', step, 'zone:', z);
+      logger.debug('[tour stepChange]', { step, zone: z });
 
       if (role !== 'fc') return;
       if (typeof z !== 'number') return;
@@ -637,13 +640,13 @@ export default function Home() {
           .select('count', { count: 'exact', head: true });
         if (!active) return;
         if (error) {
-          console.log('[supabase ping] 연결 실패', error.message ?? error);
+          logger.debug('[supabase ping] 연결 실패', error.message ?? error);
         } else {
-          console.log('[supabase ping] 연결 성공, device_tokens count:', count);
+          logger.debug('[supabase ping] 연결 성공, device_tokens count', { count });
         }
       } catch (err: unknown) {
-      const error = err as Error;
-        if (active) console.log('[supabase ping] 예외', err?.message ?? err);
+        const error = err as { message?: string };
+        if (active) logger.debug('[supabase ping] 예외', error?.message ?? err);
       }
     })();
     return () => {
@@ -846,7 +849,7 @@ export default function Home() {
       try {
         const { status } = await Notifications.requestPermissionsAsync();
         if (status !== 'granted') {
-          console.log('[push] permission denied');
+          logger.debug('[push] permission denied');
           return;
         }
         if (Platform.OS === 'android') {
@@ -873,13 +876,13 @@ export default function Home() {
             { onConflict: 'expo_push_token' }
           );
         if (error) {
-          console.log('[push] upsert error', error.message ?? error);
+          logger.debug('[push] upsert error', error.message ?? error);
         } else {
-          console.log('[push] fc token saved', { residentId, token });
+          logger.debug('[push] fc token saved', { residentId, token });
         }
       } catch (e: unknown) {
-      const error = e as Error;
-        console.log('[push] exception', e?.message ?? e);
+        const error = e as { message?: string };
+        logger.debug('[push] exception', error?.message ?? e);
       }
     })();
     return () => {
@@ -1371,10 +1374,16 @@ export default function Home() {
                 <View style={styles.metricsCard}>
                   <View style={styles.cardHeader}>
                     <Text style={styles.sectionTitle}>현황 요약</Text>
-                    {isLoading && <ActivityIndicator color={HANWHA_LIGHT} />}
                   </View>
                   <View style={styles.metricsGrid}>
-                    {!isLoading && counts ? (
+                    {isLoading ? (
+                      <>
+                        <Skeleton width="48%" height={90} />
+                        <Skeleton width="48%" height={90} />
+                        <Skeleton width="48%" height={90} />
+                        <Skeleton width="48%" height={90} />
+                      </>
+                    ) : counts ? (
                       <>
                         {ADMIN_METRIC_CONFIG.map((metric) => (
                           <MetricCard
@@ -1406,7 +1415,13 @@ export default function Home() {
                             <Text style={styles.progressMeta}>Step {currentStep}/5</Text>
                           </View>
                           {statusLoading ? (
-                            <ActivityIndicator color={HANWHA_LIGHT} style={{ marginVertical: 20 }} />
+                            <View style={{ marginVertical: 20 }}>
+                              <Skeleton width="100%" height={60} style={{ marginBottom: 12 }} />
+                              <View style={{ flexDirection: 'row', gap: 8 }}>
+                                <Skeleton width="48%" height={80} />
+                                <Skeleton width="48%" height={80} />
+                              </View>
+                            </View>
                           ) : (
                             <>
                               {/* 위촉 상태 배지 행 */}
@@ -1508,7 +1523,13 @@ export default function Home() {
                   <Text style={styles.progressMeta}>Step {currentStep}/5</Text>
                 </View>
                 {statusLoading ? (
-                  <ActivityIndicator color={HANWHA_LIGHT} style={{ marginVertical: 20 }} />
+                  <View style={{ marginVertical: 20 }}>
+                    <Skeleton width="100%" height={60} style={{ marginBottom: 12 }} />
+                    <View style={{ flexDirection: 'row', gap: 8 }}>
+                      <Skeleton width="48%" height={80} />
+                      <Skeleton width="48%" height={80} />
+                    </View>
+                  </View>
                 ) : (
                   <View style={styles.stepContainer}>
                     {steps.map((step, index) => {
@@ -1702,14 +1723,6 @@ export default function Home() {
     </SafeAreaView >
   );
 }
-
-const ProgressBar = ({ step }: { step: number }) => {
-  return (
-    <View style={{ height: 4, backgroundColor: '#F3F4F6', borderRadius: 2, marginVertical: 12, overflow: 'hidden' }}>
-      <View style={{ width: `${(step / 5) * 100}%`, height: '100%', backgroundColor: HANWHA_ORANGE }} />
-    </View>
-  );
-};
 
 const stepToLink = (key: string) => {
   switch (key) {

@@ -6,6 +6,7 @@ import { cookies } from 'next/headers';
 import { sendPushNotification } from '../../actions';
 import { verifyOrigin, checkRateLimit } from '@/lib/csrf';
 
+import { logger } from '@/lib/logger';
 type UpdateAppointmentState = {
     success: boolean;
     message?: string;
@@ -29,14 +30,14 @@ export async function updateAppointmentAction(
     // Security: Verify origin to prevent CSRF
     const originCheck = await verifyOrigin();
     if (!originCheck.valid) {
-        console.error('[appointment/actions] Origin verification failed:', originCheck.error);
+        logger.error('[appointment/actions] Origin verification failed:', originCheck.error);
         return { success: false, error: 'Security check failed' };
     }
 
     // Security: Rate limiting (max 20 appointment updates per minute per FC)
     const rateLimit = checkRateLimit(`appointment:${payload.fcId}`, 20, 60000);
     if (!rateLimit.allowed) {
-        console.warn('[appointment/actions] Rate limit exceeded for FC:', payload.fcId);
+        logger.warn('[appointment/actions] Rate limit exceeded for FC:', payload.fcId);
         return { success: false, error: 'Too many requests. Please try again later.' };
     }
 
@@ -55,14 +56,14 @@ export async function updateAppointmentAction(
                     try {
                         cookieStore.set({ name, value, ...options });
                     } catch (error) {
-                        console.error('[appointment/actions] Cookie set failed:', error);
+                        logger.error('[appointment/actions] Cookie set failed:', error);
                     }
                 },
                 remove(name: string, options: CookieOptions) {
                     try {
                         cookieStore.set({ name, value: '', ...options });
                     } catch (error) {
-                        console.error('[appointment/actions] Cookie remove failed:', error);
+                        logger.error('[appointment/actions] Cookie remove failed:', error);
                     }
                 },
             },
@@ -146,7 +147,7 @@ export async function updateAppointmentAction(
                 .eq('id', fcId);
 
             if (statusError) {
-                console.error('Status update failed:', statusError);
+                logger.error('Status update failed:', statusError);
                 // Non-fatal, but good to log
             }
         }
@@ -159,7 +160,7 @@ export async function updateAppointmentAction(
         recipient_role: 'fc',
         resident_id: phone,
     });
-    if (notifError) console.error('Notification insert failed:', notifError);
+    if (notifError) logger.error('Notification insert failed:', notifError);
 
     // 4. Send Push Notification
     const { success, error: pushError } = await sendPushNotification(phone, {
@@ -169,7 +170,7 @@ export async function updateAppointmentAction(
     });
 
     if (!success) {
-        console.error('[push][appointment] failed:', pushError);
+        logger.error('[push][appointment] failed:', pushError);
     }
 
     revalidatePath('/dashboard/appointment');

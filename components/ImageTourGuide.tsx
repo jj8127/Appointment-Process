@@ -12,6 +12,8 @@ import {
     Text,
     useWindowDimensions,
     View,
+    type ViewStyle,
+    type ViewProps,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
@@ -37,8 +39,9 @@ type Rect = { x: number; y: number; w: number; h: number };
 
 const clamp = (v: number, min: number, max: number) => Math.max(min, Math.min(max, v));
 
-const POINTER_NONE_STYLE = Platform.OS === 'web' ? { pointerEvents: 'none' } : null;
-const POINTER_NONE_PROP = Platform.OS === 'web' ? undefined : 'none';
+const POINTER_NONE_STYLE: ViewStyle | null =
+    Platform.OS === 'web' ? { pointerEvents: 'none' as const } : null;
+const POINTER_NONE_PROP: ViewProps['pointerEvents'] = Platform.OS === 'web' ? undefined : 'none';
 
 const ORANGE_PREMIUM = {
     dim: 0.60,

@@ -30,6 +30,7 @@ import { useState, useTransition } from 'react';
 import { z } from 'zod';
 import { createNoticeAction } from '../actions';
 
+import { logger } from '@/lib/logger';
 const schema = z.object({
     category: z.string().min(1, '카테고리를 입력해주세요'),
     title: z.string().min(1, '제목을 입력해주세요'),
@@ -73,7 +74,7 @@ export default function CreateNoticePage() {
             .upload(filePath, file);
 
         if (error) {
-            console.error('Upload Error:', error);
+            logger.error('Upload Error:', error);
             throw new Error('파일 업로드 실패');
         }
 
@@ -136,7 +137,7 @@ export default function CreateNoticePage() {
                 }
             });
         } catch (error) {
-            console.error(error);
+            logger.error('File upload error', error);
             notifications.show({
                 title: '업로드 오류',
                 message: '파일 업로드 중 오류가 발생했습니다.',
@@ -312,7 +313,7 @@ export default function CreateNoticePage() {
                                 <Text size="sm" fw={600} mb="xs" c="dimmed">이미지 첨부</Text>
                                 <Dropzone
                                     onDrop={handleImageDrop}
-                                    onReject={(files) => console.log('rejected files', files)}
+                                    onReject={(files) => logger.debug('rejected files', files)}
                                     maxSize={5 * 1024 * 1024}
                                     accept={IMAGE_MIME_TYPE}
                                     maxFiles={5}
@@ -368,7 +369,7 @@ export default function CreateNoticePage() {
                                 <Text size="sm" fw={600} mb="xs" c="dimmed">파일 첨부</Text>
                                 <Dropzone
                                     onDrop={handleFileDrop}
-                                    onReject={(files) => console.log('rejected files', files)}
+                                    onReject={(files) => logger.debug('rejected files', files)}
                                     maxSize={10 * 1024 * 1024}
                                     maxFiles={5}
                                     radius="md"

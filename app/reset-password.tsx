@@ -1,49 +1,43 @@
-import { Feather } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { router } from 'expo-router';
 import { MotiView } from 'moti';
 import { useState } from 'react';
 import {
-  ActivityIndicator,
   Alert,
   Keyboard,
-  Pressable,
   StyleSheet,
   Text,
-  TextInput,
   View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
+import { Button } from '@/components/Button';
 import { KeyboardAwareWrapper } from '@/components/KeyboardAwareWrapper';
+import { FormInput } from '@/components/FormInput';
 import { useKeyboardPadding } from '@/hooks/use-keyboard-padding';
 import { useSession } from '@/hooks/use-session';
 import { supabase } from '@/lib/supabase';
-
-const HANWHA_ORANGE = '#f36f21';
-const HANWHA_ORANGE_DARK = '#d65a16';
-const CHARCOAL = '#1F2937';
-const GRAY_TEXT = '#6B7280';
-const BORDER = '#E5E7EB';
-const INPUT_BG = '#F9FAFB';
+import { logger } from '@/lib/logger';
+import { COLORS, TYPOGRAPHY, SPACING, RADIUS } from '@/lib/theme';
+import { validatePhone, validatePassword, normalizePhone } from '@/lib/validation';
 
 export default function ResetPasswordScreen() {
   const { logout } = useSession();
   const [phone, setPhone] = useState('');
   const [token, setToken] = useState('');
   const [newPassword, setNewPassword] = useState('');
-  const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
   const [requested, setRequested] = useState(false);
   const keyboardPadding = useKeyboardPadding();
 
   const handleRequest = async () => {
     Keyboard.dismiss();
-    const digits = phone.replace(/[^0-9]/g, '');
-    if (digits.length !== 11) {
-      Alert.alert('알림', '휴대폰 번호는 숫자 11자리로 입력해주세요.');
+    const phoneValidation = validatePhone(phone);
+    if (!phoneValidation.isValid) {
+      Alert.alert('알림', phoneValidation.error);
       return;
     }
+    const digits = normalizePhone(phone);
     setLoading(true);
     try {
       const { data, error } = await supabase.functions.invoke('request-password-reset', {
@@ -59,7 +53,7 @@ export default function ResetPasswordScreen() {
             // ignore
           }
         }
-        console.warn('reset request failed', detail);
+        logger.warn('reset request failed', { detail });
         throw new Error(detail || error.message);
       }
       if (!data?.ok) {
@@ -81,23 +75,22 @@ export default function ResetPasswordScreen() {
 
   const handleReset = async () => {
     Keyboard.dismiss();
-    const digits = phone.replace(/[^0-9]/g, '');
-    if (digits.length !== 11) {
-      Alert.alert('알림', '휴대폰 번호는 숫자 11자리로 입력해주세요.');
+    const phoneValidation = validatePhone(phone);
+    if (!phoneValidation.isValid) {
+      Alert.alert('알림', phoneValidation.error);
       return;
     }
     if (!token.trim()) {
-      Alert.alert('알림', '암호를 입력해주세요.');
+      Alert.alert('알림', '인증 코드를 입력해주세요.');
       return;
     }
+    const passwordValidation = validatePassword(newPassword);
+    if (!passwordValidation.isValid) {
+      Alert.alert('알림', passwordValidation.error);
+      return;
+    }
+    const digits = normalizePhone(phone);
     const trimmedNew = newPassword.trim();
-    const hasLetter = /[A-Za-z]/.test(trimmedNew);
-    const hasNumber = /[0-9]/.test(trimmedNew);
-    const hasSpecial = /[^A-Za-z0-9]/.test(trimmedNew);
-    if (trimmedNew.length < 8 || !hasLetter || !hasNumber || !hasSpecial) {
-      Alert.alert('알림', '비밀번호는 8자 이상이며 영문+숫자+특수문자를 포함해야 합니다.');
-      return;
-    }
 
     setLoading(true);
     try {
@@ -150,108 +143,58 @@ export default function ResetPasswordScreen() {
                 <Text style={styles.subtitle}>문자로 받은 6자리 코드를 입력해주세요.</Text>
               </View>
 
-              <View style={styles.inputContainer}>
-                <Text style={styles.label}>휴대폰 번호</Text>
-                <MotiView
-                  animate={{
-                    borderColor: BORDER,
-                    backgroundColor: INPUT_BG,
-                  }}
-                  transition={{ type: 'timing', duration: 200 }}
-                  style={styles.inputWrapper}
-                >
-                  <TextInput
-                    style={styles.input}
-                    placeholder="숫자 11자리"
-                    placeholderTextColor="#9CA3AF"
-                    value={phone}
-                    onChangeText={setPhone}
-                    keyboardType="number-pad"
-                    editable={!loading}
-                  />
-                </MotiView>
-              </View>
+              <FormInput
+                label="휴대폰 번호"
+                placeholder="숫자 11자리"
+                value={phone}
+                onChangeText={setPhone}
+                keyboardType="number-pad"
+                editable={!loading}
+                containerStyle={styles.inputContainer}
+              />
 
-              <Pressable
-                style={({ pressed }) => [
-                  styles.subButton,
-                  pressed && styles.buttonPressed,
-                  loading && styles.buttonDisabled,
-                ]}
+              <Button
                 onPress={handleRequest}
                 disabled={loading}
+                variant="outline"
+                size="md"
+                fullWidth
+                style={styles.subButton}
               >
-                <Text style={styles.subButtonText}>
-                  {requested ? '인증 코드 다시 받기' : '인증 코드 받기'}
-                </Text>
-              </Pressable>
+                {requested ? '인증 코드 다시 받기' : '인증 코드 받기'}
+              </Button>
 
-              <View style={styles.inputContainer}>
-                <Text style={styles.label}>인증 코드</Text>
-                <MotiView
-                  animate={{
-                    borderColor: BORDER,
-                    backgroundColor: INPUT_BG,
-                  }}
-                  transition={{ type: 'timing', duration: 200 }}
-                  style={styles.inputWrapper}
-                >
-                  <TextInput
-                    style={styles.input}
-                    placeholder="6자리 숫자 코드"
-                    placeholderTextColor="#9CA3AF"
-                    value={token}
-                    onChangeText={setToken}
-                    keyboardType="number-pad"
-                    editable={!loading}
-                  />
-                </MotiView>
-              </View>
+              <FormInput
+                label="인증 코드"
+                placeholder="6자리 숫자 코드"
+                value={token}
+                onChangeText={setToken}
+                keyboardType="number-pad"
+                editable={!loading}
+                containerStyle={styles.inputContainer}
+              />
 
-              <View style={styles.inputContainer}>
-                <Text style={styles.label}>새 비밀번호</Text>
-                <MotiView
-                  animate={{
-                    borderColor: BORDER,
-                    backgroundColor: INPUT_BG,
-                  }}
-                  transition={{ type: 'timing', duration: 200 }}
-                  style={styles.inputWrapper}
-                >
-                  <TextInput
-                    style={[styles.input, styles.inputWithIcon]}
-                    placeholder="8자 이상, 영문+숫자+특수문자"
-                    placeholderTextColor="#9CA3AF"
-                    value={newPassword}
-                    onChangeText={setNewPassword}
-                    autoCapitalize="none"
-                    secureTextEntry={!showPassword}
-                    editable={!loading}
-                  />
-                  <Pressable
-                    style={styles.eyeButton}
-                    onPress={() => setShowPassword((prev) => !prev)}
-                  >
-                    <Feather name={showPassword ? 'eye-off' : 'eye'} size={18} color={GRAY_TEXT} />
-                  </Pressable>
-                </MotiView>
-              </View>
+              <FormInput
+                label="새 비밀번호"
+                variant="password"
+                placeholder="8자 이상, 영문+숫자+특수문자"
+                value={newPassword}
+                onChangeText={setNewPassword}
+                autoCapitalize="none"
+                editable={!loading}
+                containerStyle={styles.inputContainer}
+              />
 
-              <Pressable
-                style={({ pressed }) => [
-                  styles.button,
-                  pressed && styles.buttonPressed,
-                  loading && styles.buttonDisabled,
-                ]}
+              <Button
                 onPress={handleReset}
                 disabled={loading}
+                loading={loading}
+                variant="primary"
+                size="lg"
+                fullWidth
               >
-                {loading ? (
-                  <ActivityIndicator color="#fff" />
-                ) : (
-                  <Text style={styles.buttonText}>비밀번호 변경</Text>
-                )}
-              </Pressable>
+                비밀번호 변경
+              </Button>
             </MotiView>
           </View>
         </KeyboardAwareWrapper>
@@ -270,8 +213,8 @@ const styles = StyleSheet.create({
   scrollContent: {
     flexGrow: 1,
     paddingTop: '10%',
-    paddingHorizontal: 20,
-    paddingBottom: 40,
+    paddingHorizontal: SPACING.lg,
+    paddingBottom: SPACING['2xl'],
   },
   innerContent: {
     width: '100%',
@@ -279,105 +222,37 @@ const styles = StyleSheet.create({
     alignSelf: 'center',
   },
   card: {
-    backgroundColor: '#fff',
-    borderRadius: 24,
-    padding: 32,
-    shadowColor: '#f36f21',
+    backgroundColor: COLORS.white,
+    borderRadius: RADIUS.xl,
+    padding: SPACING['2xl'],
+    shadowColor: COLORS.primary,
     shadowOffset: { width: 0, height: 12 },
     shadowOpacity: 0.08,
     shadowRadius: 24,
     elevation: 8,
     borderWidth: 1,
-    borderColor: 'rgba(243, 111, 33, 0.05)',
+    borderColor: COLORS.primaryPale,
   },
   headerSection: {
-    marginBottom: 28,
+    marginBottom: SPACING['2xl'],
     alignItems: 'center',
   },
   title: {
-    fontSize: 24,
-    fontWeight: '800',
-    color: CHARCOAL,
-    marginBottom: 8,
+    fontSize: TYPOGRAPHY.fontSize['2xl'],
+    fontWeight: TYPOGRAPHY.fontWeight.extrabold,
+    color: COLORS.text.primary,
+    marginBottom: SPACING.sm,
   },
   subtitle: {
-    fontSize: 14,
-    color: GRAY_TEXT,
+    fontSize: TYPOGRAPHY.fontSize.sm,
+    color: COLORS.text.secondary,
     textAlign: 'center',
-    lineHeight: 20,
+    lineHeight: TYPOGRAPHY.lineHeight.relaxed * TYPOGRAPHY.fontSize.sm,
   },
   inputContainer: {
-    gap: 8,
-    marginBottom: 18,
-  },
-  label: {
-    fontSize: 14,
-    fontWeight: '700',
-    color: CHARCOAL,
-    marginLeft: 4,
-  },
-  inputWrapper: {
-    height: 56,
-    borderWidth: 1.5,
-    borderRadius: 16,
-    overflow: 'hidden',
-    justifyContent: 'center',
-  },
-  input: {
-    flex: 1,
-    paddingHorizontal: 16,
-    fontSize: 16,
-    color: CHARCOAL,
-    height: '100%',
-  },
-  inputWithIcon: {
-    paddingRight: 44,
-  },
-  eyeButton: {
-    position: 'absolute',
-    right: 12,
-    top: 0,
-    bottom: 0,
-    justifyContent: 'center',
-    alignItems: 'center',
-    width: 32,
-  },
-  button: {
-    height: 56,
-    backgroundColor: HANWHA_ORANGE,
-    borderRadius: 16,
-    alignItems: 'center',
-    justifyContent: 'center',
-    shadowColor: HANWHA_ORANGE,
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.3,
-    shadowRadius: 8,
-    elevation: 4,
+    marginBottom: SPACING.base,
   },
   subButton: {
-    height: 48,
-    borderRadius: 14,
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: '#FCE8DB',
-    marginBottom: 18,
-  },
-  subButtonText: {
-    fontSize: 14,
-    fontWeight: '700',
-    color: HANWHA_ORANGE_DARK,
-  },
-  buttonPressed: {
-    backgroundColor: HANWHA_ORANGE_DARK,
-    transform: [{ scale: 0.98 }],
-  },
-  buttonDisabled: {
-    backgroundColor: '#FFD4C0',
-    shadowOpacity: 0,
-  },
-  buttonText: {
-    fontSize: 16,
-    fontWeight: '700',
-    color: '#fff',
+    marginBottom: SPACING.lg,
   },
 });

@@ -4,6 +4,7 @@ import { useEffect, useRef } from 'react';
 
 import { useSession } from '@/hooks/use-session';
 
+import { logger } from '@/lib/logger';
 type WebPushSubscription = {
   endpoint: string;
   keys?: { p256dh?: string; auth?: string };
@@ -61,7 +62,7 @@ export function WebPushRegistrar() {
 
     register()
       .catch((err) => {
-        console.warn('[web-push] register failed', err);
+        logger.warn('[web-push] register failed', err);
       })
       .finally(() => {
         registeredRef.current = true;

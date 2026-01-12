@@ -3,5 +3,7 @@
     "source.fixAll": "explicit",
     "source.organizeImports": "explicit",
     "source.sortMembers": "explicit"
-  }
+  },
+  "claude.view.height": "100%",
+  "claude.view.position": "right"
 }

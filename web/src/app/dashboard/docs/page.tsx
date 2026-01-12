@@ -38,6 +38,7 @@ import { StatusToggle } from '@/components/StatusToggle';
 import { supabase } from '@/lib/supabase';
 import { sendPushNotification } from '../../actions';
 
+import { logger } from '@/lib/logger';
 // App Design Tokens
 const HANWHA_ORANGE = '#f36f21';
 const CHARCOAL = '#111827';
@@ -120,7 +121,7 @@ export default function DocumentsPage() {
             .in('status', ['pending', 'submitted', 'rejected']);
 
         if (error) {
-            console.error('AutoAdvance Check Error:', error);
+            logger.error('AutoAdvance Check Error:', error);
             return;
         }
 
@@ -223,7 +224,7 @@ export default function DocumentsPage() {
             if (data?.signedUrl) {
                 setSignedUrl(data.signedUrl);
             } else {
-                console.error('Signed URL Error:', error);
+                logger.error('Signed URL Error:', error);
             }
         }
     };

@@ -9,17 +9,17 @@ import {
   RefreshControl,
   StyleSheet,
   Text,
-  TextInput,
   View,
 } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 
+import { FormInput } from '@/components/FormInput';
+import { RefreshButton } from '@/components/RefreshButton';
 import { supabase } from '@/lib/supabase';
 import { useSession } from '@/hooks/use-session';
 
 const CHARCOAL = '#111827';
 const MUTED = '#6b7280';
-const BORDER = '#E5E7EB';
 
 type ChatPreview = {
   fc_id: string;
@@ -159,19 +159,15 @@ export default function AdminMessengerScreen() {
     <SafeAreaView style={[styles.safe, { paddingTop: insets.top }]} edges={['left', 'right', 'bottom']}>
       <View style={styles.header}>
         <Text style={styles.title}>메신저</Text>
-        <Pressable onPress={() => refetch()}>
-          <Feather name="refresh-cw" size={20} color={CHARCOAL} />
-        </Pressable>
+        <RefreshButton onPress={() => { void refetch(); }} />
       </View>
 
-      <View style={styles.searchBox}>
-        <Feather name="search" size={16} color={MUTED} />
-        <TextInput
-          style={styles.searchInput}
+      <View style={{ paddingHorizontal: 20, marginTop: 8, marginBottom: 4 }}>
+        <FormInput
           placeholder="이름 또는 전화번호 검색"
-          placeholderTextColor={MUTED}
           value={keyword}
           onChangeText={setKeyword}
+          leftIcon={<Feather name="search" size={16} color={MUTED} />}
         />
       </View>
 
@@ -214,21 +210,6 @@ const styles = StyleSheet.create({
   },
   title: { fontSize: 22, fontWeight: '800', color: CHARCOAL },
   center: { flex: 1, justifyContent: 'center', alignItems: 'center', padding: 40 },
-  searchBox: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-    marginHorizontal: 20,
-    marginTop: 8,
-    marginBottom: 4,
-    paddingHorizontal: 12,
-    paddingVertical: 10,
-    borderRadius: 10,
-    borderWidth: 1,
-    borderColor: BORDER,
-    backgroundColor: '#F9FAFB',
-  },
-  searchInput: { flex: 1, color: CHARCOAL, fontSize: 14 },
   chatItem: {
     flexDirection: 'row',
     padding: 16,

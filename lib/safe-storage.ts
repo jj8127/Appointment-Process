@@ -1,3 +1,5 @@
+import { logger } from './logger';
+
 type StorageAdapter = {
   getItem(key: string): Promise<string | null>;
   setItem(key: string, value: string): Promise<void>;
@@ -33,7 +35,7 @@ try {
     driver = 'async-storage';
   }
 } catch (err) {
-  console.warn('[storage] AsyncStorage unavailable, falling back.', err);
+  logger.warn('[storage] AsyncStorage unavailable, falling back.', err);
 }
 
 if (driver === 'memory') {
@@ -45,7 +47,7 @@ if (driver === 'memory') {
         try {
           return await SecureStore.getItemAsync(key);
         } catch (err) {
-          console.warn('[storage] SecureStore get failed, using memory fallback.', err);
+          logger.warn('[storage] SecureStore get failed, using memory fallback.', err);
           return memoryAdapter.getItem(key);
         }
       },
@@ -53,7 +55,7 @@ if (driver === 'memory') {
         try {
           await SecureStore.setItemAsync(key, value);
         } catch (err) {
-          console.warn('[storage] SecureStore set failed, using memory fallback.', err);
+          logger.warn('[storage] SecureStore set failed, using memory fallback.', err);
           await memoryAdapter.setItem(key, value);
         }
       },
@@ -61,7 +63,7 @@ if (driver === 'memory') {
         try {
           await SecureStore.deleteItemAsync(key);
         } catch (err) {
-          console.warn('[storage] SecureStore remove failed, using memory fallback.', err);
+          logger.warn('[storage] SecureStore remove failed, using memory fallback.', err);
           await memoryAdapter.removeItem(key);
         }
       },
@@ -69,7 +71,7 @@ if (driver === 'memory') {
     adapter = secureAdapter;
     driver = 'secure-store';
   } catch (err) {
-    console.warn('[storage] SecureStore unavailable, trying file-based storage.', err);
+    logger.warn('[storage] SecureStore unavailable, trying file-based storage.', err);
   }
 }
 
@@ -77,7 +79,7 @@ if (driver === 'memory') {
   try {
     // eslint-disable-next-line @typescript-eslint/no-var-requires
     const FileSystem = require('expo-file-system') as typeof import('expo-file-system');
-    const filePath = `${FileSystem.documentDirectory ?? ''}safe-storage.json`;
+    const filePath = `${(FileSystem as { documentDirectory?: string }).documentDirectory ?? ''}safe-storage.json`;
 
     const readStore = async () => {
       try {
@@ -86,7 +88,7 @@ if (driver === 'memory') {
         const raw = await FileSystem.readAsStringAsync(filePath);
         return raw ? (JSON.parse(raw) as Record<string, string>) : {};
       } catch (err) {
-        console.warn('[storage] File read failed, using memory in the meantime.', err);
+        logger.warn('[storage] File read failed, using memory in the meantime.', err);
         return {};
       }
     };
@@ -115,7 +117,7 @@ if (driver === 'memory') {
     adapter = fileAdapter;
     driver = 'file';
   } catch (err) {
-    console.warn('[storage] FileSystem unavailable, using in-memory fallback only.', err);
+    logger.warn('[storage] FileSystem unavailable, using in-memory fallback only.', err);
   }
 }
 

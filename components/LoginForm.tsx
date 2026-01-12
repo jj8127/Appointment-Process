@@ -21,7 +21,7 @@ import { KeyboardAwareWrapper } from '@/components/KeyboardAwareWrapper';
 import { useKeyboardPadding } from '@/hooks/use-keyboard-padding';
 import { useSession } from '@/hooks/use-session';
 import { supabase } from '@/lib/supabase';
-import Logo from '../logo.png';
+import Logo from '@/assets/images/logo.png';
 
 const HANWHA_ORANGE = '#f36f21';
 const HANWHA_ORANGE_DARK = '#d65a16';

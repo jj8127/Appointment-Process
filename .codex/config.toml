@@ -8,7 +8,7 @@ args = ["-y", "@testsprite/testsprite-mcp@latest"]
 env = { API_KEY = "sk-user-oonZX6vLFhdzx2ZVWwCEBuxiBoZTWhuOazSqLM88-sHZc4tKOxS5YRCVa-f6wGjCOxmD_wzZz5UUllZgHTm1pRO0jRziLUKEejqXH8DLHFGBP3JjD8n-QMdKvJVSGxYKWNg" }
 startup_timeout_sec = 120
 
-testsprite: jj81272000@gmail.com
+testsprite= "jj81272000@gmail.com"
 
 [mcp_servers.context7]
 args = ["-y", "@upstash/context7-mcp", "--api-key", "ctx7sk-9141fd3a-5a5a-4e31-b9ed-05855da8df6f"]

@@ -195,7 +195,7 @@ export default function ExamManageLifeScreen() {
   const [searchText, setSearchText] = useState('');
   const [filterStatus, setFilterStatus] = useState<'all' | 'confirmed' | 'pending'>('all');
 
-  const { data: applicants, isLoading, isError, error, refetch } = useQuery<ApplicantRow[]>({
+  const { data: applicants, isLoading, refetch } = useQuery<ApplicantRow[]>({
     queryKey: ['exam-applicants', EXAM_TYPE],
     queryFn: () => fetchApplicantsLife(),
     enabled: role === 'admin',
@@ -245,8 +245,11 @@ export default function ExamManageLifeScreen() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['exam-applicants', EXAM_TYPE] });
     },
-    onError: (err: any) => {
-      Alert.alert('저장 실패', err?.message ?? '오류가 발생했습니다.');
+    onSettled: (_data, error) => {
+      if (error) {
+        const message = error instanceof Error ? error.message : '오류가 발생했습니다.';
+        Alert.alert('저장 실패', message);
+      }
     },
   });
 

@@ -1,19 +1,16 @@
 import { useMutation, useQuery } from '@tanstack/react-query';
 import { useCallback, useEffect, useState } from 'react';
-import { Alert, Button, RefreshControl, StyleSheet, Text, TextInput, View, ScrollView } from 'react-native';
+import { Alert, Button, RefreshControl, StyleSheet, Text, View, ScrollView } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { router } from 'expo-router';
 
+import { FormInput } from '@/components/FormInput';
+import { KeyboardAwareWrapper } from '@/components/KeyboardAwareWrapper';
 import { RefreshButton } from '@/components/RefreshButton';
 import { useKeyboardPadding } from '@/hooks/use-keyboard-padding';
 import { useSession } from '@/hooks/use-session';
 import { supabase } from '@/lib/supabase';
-import { KeyboardAwareWrapper } from '@/components/KeyboardAwareWrapper';
-
-const ORANGE = '#f36f21';
-const ORANGE_LIGHT = '#f7b182';
-const CHARCOAL = '#111827';
-const GRAY = '#4b5563';
+import { COLORS, TYPOGRAPHY, SPACING, RADIUS } from '@/lib/theme';
 
 type FcRow = { id: string; name: string | null; resident_id_masked: string | null };
 
@@ -72,7 +69,12 @@ export default function AdminRegisterScreen() {
       setResident('');
       refetch();
     },
-    onError: (err: any) => Alert.alert('등록 실패', err?.message ?? '등록 중 문제가 발생했습니다.'),
+    onSettled: (_data, error) => {
+      if (error) {
+        const message = error instanceof Error ? error.message : '등록 중 문제가 발생했습니다.';
+        Alert.alert('등록 실패', message);
+      }
+    },
   });
 
   const handleCreate = () => createMutation.mutate();
@@ -101,28 +103,26 @@ export default function AdminRegisterScreen() {
           <Text style={styles.caption}>위촉을 진행할 FC의 주민번호와 성명을 입력하세요.</Text>
 
           <View style={styles.card}>
-            <Text style={styles.label}>이름</Text>
-            <TextInput
+            <FormInput
+              label="이름"
               placeholder="예) 홍길동"
-              placeholderTextColor="#9CA3AF"
               value={name}
               onChangeText={setName}
-              style={styles.input}
               autoCapitalize="none"
+              editable={!createMutation.isPending && !readOnly}
             />
-            <Text style={styles.label}>주민번호(숫자만)</Text>
-            <TextInput
+            <FormInput
+              label="주민번호(숫자만)"
               placeholder="휴대폰 번호 (- 없이 숫자만 입력)"
-              placeholderTextColor="#9CA3AF"
               value={resident}
               onChangeText={setResident}
-              style={styles.input}
               keyboardType="numeric"
               autoCapitalize="none"
+              editable={!createMutation.isPending && !readOnly}
             />
             <Button
               title="신규 FC 등록"
-              color={ORANGE}
+              color={COLORS.primary}
               onPress={handleCreate}
               disabled={createMutation.isPending || readOnly}
             />
@@ -131,7 +131,7 @@ export default function AdminRegisterScreen() {
           <View style={styles.card}>
             <View style={styles.row}>
               <Text style={styles.label}>등록된 FC 목록</Text>
-              <Button title="새로고침" onPress={() => refetch()} color={ORANGE_LIGHT} />
+              <Button title="새로고침" onPress={() => refetch()} color={COLORS.primaryLight} />
             </View>
             {isLoading ? (
               <Text>불러오는 중...</Text>
@@ -153,41 +153,34 @@ export default function AdminRegisterScreen() {
 }
 
 const styles = StyleSheet.create({
-  safe: { flex: 1, backgroundColor: '#fff7f0' },
-  container: { padding: 20, paddingBottom: 96, gap: 12 },
-  title: { fontSize: 22, fontWeight: '800', color: CHARCOAL },
-  caption: { color: GRAY },
+  safe: { flex: 1, backgroundColor: COLORS.primaryPale },
+  container: { padding: SPACING.lg, paddingBottom: 96, gap: SPACING.md },
+  title: { fontSize: TYPOGRAPHY.fontSize.xl, fontWeight: TYPOGRAPHY.fontWeight.extrabold, color: COLORS.text.primary },
+  caption: { color: COLORS.text.secondary },
   card: {
-    backgroundColor: 'white',
-    padding: 16,
-    borderRadius: 14,
-    gap: 10,
+    backgroundColor: COLORS.white,
+    padding: SPACING.base,
+    borderRadius: RADIUS.lg,
+    gap: SPACING.sm,
     borderWidth: 1,
-    borderColor: ORANGE_LIGHT,
-    shadowColor: '#000',
+    borderColor: COLORS.primaryLight,
+    shadowColor: COLORS.black,
     shadowOpacity: 0.05,
     shadowOffset: { width: 0, height: 2 },
     shadowRadius: 6,
     elevation: 2,
   },
-  label: { fontWeight: '700', color: CHARCOAL },
-  input: {
-    borderWidth: 1,
-    borderColor: '#e2e8f0',
-    borderRadius: 10,
-    padding: 12,
-    backgroundColor: '#fff',
-  },
+  label: { fontWeight: TYPOGRAPHY.fontWeight.bold, color: COLORS.text.primary },
   row: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
   listItem: {
-    backgroundColor: 'white',
-    padding: 12,
-    borderRadius: 10,
+    backgroundColor: COLORS.white,
+    padding: SPACING.md,
+    borderRadius: RADIUS.md,
     borderWidth: 1,
-    borderColor: '#e2e8f0',
+    borderColor: COLORS.border.light,
     flexDirection: 'row',
     justifyContent: 'space-between',
   },
-  listName: { color: CHARCOAL, fontWeight: '700' },
-  listResident: { color: GRAY },
+  listName: { color: COLORS.text.primary, fontWeight: '700' },
+  listResident: { color: COLORS.text.secondary },
 });

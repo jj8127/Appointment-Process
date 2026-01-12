@@ -18,17 +18,13 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
-import { RefreshButton } from '@/components/RefreshButton';
+import { Button } from '@/components/Button';
+import { ScreenHeader } from '@/components/ScreenHeader';
 import { useIdentityGate } from '@/hooks/use-identity-gate';
 import { useKeyboardPadding } from '@/hooks/use-keyboard-padding';
 import { useSession } from '@/hooks/use-session';
 import { supabase } from '@/lib/supabase';
-
-const HANWHA_ORANGE = '#f36f21';
-const CHARCOAL = '#111827';
-const MUTED = '#6b7280';
-const BORDER = '#E5E7EB';
-const INPUT_BG = '#F9FAFB';
+import { COLORS, TYPOGRAPHY, SPACING, RADIUS, SHADOWS } from '@/lib/theme';
 const { width } = Dimensions.get('window');
 
 const weekdays = ['일', '월', '화', '수', '목', '금', '토'];
@@ -155,7 +151,11 @@ export default function AppointmentScreen() {
 
   const handleDateChange = (type: 'life' | 'nonlife', event: DateTimePickerEvent, selectedDate?: Date) => {
     if (Platform.OS === 'android') {
-      type === 'life' ? setShowPickerLife(false) : setShowPickerNonLife(false);
+      if (type === 'life') {
+        setShowPickerLife(false);
+      } else {
+        setShowPickerNonLife(false);
+      }
     }
     if (event.type !== 'set' || !selectedDate) return;
     (type === 'life' ? setDisplayLife : setDisplayNonLife)(selectedDate);
@@ -188,16 +188,16 @@ export default function AppointmentScreen() {
         throw error ?? new Error('정보를 저장하지 못했습니다.');
       }
 
-      supabase.functions
-          .invoke('fc-notify', {
-            body: {
-              type: 'fc_update',
-              fc_id: data.id,
-              message: `${data.name}님이 ${type === 'life' ? '생명보험' : '손해보험'} 위촉 완료를 보고했습니다. (입력일: ${ymd})`,
-              url: '/dashboard',
-            },
-          })
-        .catch(() => { });
+      await supabase.functions
+        .invoke('fc-notify', {
+          body: {
+            type: 'fc_update',
+            fc_id: data.id,
+            message: `${data.name}님이 ${type === 'life' ? '생명보험' : '손해보험'} 위촉 완료를 보고했습니다. (입력일: ${ymd})`,
+            url: '/dashboard',
+          },
+        })
+        .catch(() => undefined);
 
       Alert.alert(
         '제출 완료',
@@ -238,7 +238,6 @@ export default function AppointmentScreen() {
     const rejectReason = isLife ? rejectReasonLife : rejectReasonNonLife;
     const saving = isLife ? savingLife : savingNonLife;
     const showPicker = isLife ? showPickerLife : showPickerNonLife;
-    const setShowPicker = isLife ? setShowPickerLife : setShowPickerNonLife;
 
     const isApproved = !!approvedDate;
     const isPending = !isApproved && !!submittedDate;
@@ -276,7 +275,7 @@ export default function AppointmentScreen() {
                 <Text style={[styles.dateText, !displayDate && styles.placeholderText]}>
                   {displayDate ? formatShortKoreanDate(displayDate) : '날짜를 선택하세요'}
                 </Text>
-                <Feather name="calendar" size={18} color={MUTED} />
+                <Feather name="calendar" size={18} color={COLORS.text.secondary} />
               </View>
               {/* @ts-ignore */}
               <input
@@ -319,7 +318,7 @@ export default function AppointmentScreen() {
               <Text style={[styles.dateText, !displayDate && styles.placeholderText]}>
                 {displayDate ? formatKoreanDate(displayDate) : '날짜를 선택하세요'}
               </Text>
-              <Feather name="calendar" size={18} color={MUTED} />
+              <Feather name="calendar" size={18} color={COLORS.text.secondary} />
             </Pressable>
           )}
           {showPicker && Platform.OS === 'android' && (
@@ -331,15 +330,17 @@ export default function AppointmentScreen() {
           )}
         </View>
 
-        <Pressable
-          style={[styles.submitButton, (isLocked || !displayDate || saving) && styles.buttonDisabled]}
+        <Button
           onPress={() => submitDate(type)}
           disabled={isLocked || !displayDate || saving}
+          loading={saving}
+          variant="primary"
+          size="lg"
+          fullWidth
+          style={{ marginTop: 8 }}
         >
-          <Text style={styles.submitButtonText}>
-            {saving ? '저장 중...' : isApproved ? '승인 완료' : isPending ? '승인 대기 중' : '완료 보고하기'}
-          </Text>
-        </Pressable>
+          {isApproved ? '승인 완료' : isPending ? '승인 대기 중' : '완료 보고하기'}
+        </Button>
       </View>
     );
   };
@@ -351,16 +352,15 @@ export default function AppointmentScreen() {
         contentInsetAdjustmentBehavior="never"
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}
       >
-        <View style={styles.header}>
-          <View>
-            <Text style={styles.title}>위촉 진행</Text>
-            <Text style={styles.subtitle}>총무가 배정한 월 기준으로 진행 상황을 입력해주세요.</Text>
-          </View>
-          <RefreshButton onPress={load} />
-        </View>
+        <ScreenHeader
+          title="위촉 진행"
+          subtitle="총무가 배정한 월 기준으로 진행 상황을 입력해주세요."
+          showRefresh
+          onRefresh={load}
+        />
 
         {loading ? (
-          <ActivityIndicator color={HANWHA_ORANGE} style={{ marginTop: 40 }} />
+          <ActivityIndicator color={COLORS.primary} style={{ marginTop: 40 }} />
         ) : (
           <>
             {!scheduleLife && !scheduleNonLife && (
@@ -501,144 +501,166 @@ export default function AppointmentScreen() {
 }
 
 const styles = StyleSheet.create({
-  safe: { flex: 1, backgroundColor: '#fff' },
-  header: {
-    paddingHorizontal: 24,
-    paddingTop: 12,
-    paddingBottom: 20,
-    borderBottomWidth: 1,
-    borderBottomColor: '#F3F4F6',
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'flex-start',
+  safe: { flex: 1, backgroundColor: COLORS.white },
+  container: {
+    paddingHorizontal: SPACING.lg,
+    paddingTop: 0,
+    paddingBottom: SPACING.xl,
+    gap: SPACING.lg
   },
-  title: { fontSize: 22, fontWeight: '800', color: CHARCOAL },
-  subtitle: { fontSize: 14, color: MUTED, marginTop: 4, width: '90%' },
-  container: { paddingHorizontal: 0, paddingTop: 24, paddingBottom: 24, gap: 20 },
   card: {
-    marginHorizontal: 24,
-    backgroundColor: '#fff',
-    borderRadius: 16,
+    backgroundColor: COLORS.white,
+    borderRadius: RADIUS.lg,
     borderWidth: 1,
-    borderColor: BORDER,
-    padding: 20,
-    gap: 16,
-    shadowColor: '#000',
-    shadowOpacity: 0.04,
-    shadowRadius: 8,
-    shadowOffset: { width: 0, height: 2 },
-    elevation: 2,
+    borderColor: COLORS.border.light,
+    padding: SPACING.lg,
+    gap: SPACING.base,
+    ...SHADOWS.base,
   },
-  sectionTitle: { fontSize: 18, fontWeight: '800', color: CHARCOAL },
-  sectionDesc: { fontSize: 14, color: MUTED, lineHeight: 20 },
+  sectionTitle: {
+    fontSize: TYPOGRAPHY.fontSize.lg,
+    fontWeight: TYPOGRAPHY.fontWeight.extrabold,
+    color: COLORS.text.primary
+  },
+  sectionDesc: {
+    fontSize: TYPOGRAPHY.fontSize.sm + 1,
+    color: COLORS.text.muted,
+    lineHeight: 20
+  },
   rejectBox: {
-    backgroundColor: '#FEF2F2',
+    backgroundColor: COLORS.errorLight,
     borderColor: '#FECACA',
     borderWidth: 1,
-    padding: 12,
-    borderRadius: 12,
-    marginBottom: 12,
+    padding: SPACING.md,
+    borderRadius: RADIUS.md,
+    marginBottom: SPACING.md,
   },
   rejectTitle: {
-    fontSize: 12,
-    fontWeight: '700',
+    fontSize: TYPOGRAPHY.fontSize.xs + 1,
+    fontWeight: TYPOGRAPHY.fontWeight.bold,
     color: '#B91C1C',
-    marginBottom: 6,
+    marginBottom: SPACING.xs + 2,
   },
   rejectText: {
-    fontSize: 12,
+    fontSize: TYPOGRAPHY.fontSize.xs + 1,
     color: '#7F1D1D',
     lineHeight: 18,
   },
-  badgeRow: { flexDirection: 'row', alignItems: 'center', gap: 10 },
-  badge: { paddingHorizontal: 8, paddingVertical: 4, borderRadius: 8 },
+  badgeRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: SPACING.sm + 2
+  },
+  badge: {
+    paddingHorizontal: SPACING.sm,
+    paddingVertical: SPACING.xs,
+    borderRadius: RADIUS.base
+  },
   badgeLife: { backgroundColor: '#fff7ed' },
   badgeNonLife: { backgroundColor: '#eff6ff' },
-  badgeText: { fontSize: 12, fontWeight: '700' },
-  badgeTextLife: { color: HANWHA_ORANGE },
+  badgeText: {
+    fontSize: TYPOGRAPHY.fontSize.xs + 1,
+    fontWeight: TYPOGRAPHY.fontWeight.bold
+  },
+  badgeTextLife: { color: COLORS.primary },
   badgeTextNonLife: { color: '#2563eb' },
-  inputGroup: { gap: 8, marginTop: 4 },
-  label: { fontSize: 14, fontWeight: '600', color: CHARCOAL },
+  inputGroup: {
+    gap: SPACING.sm,
+    marginTop: SPACING.xs
+  },
+  label: {
+    fontSize: TYPOGRAPHY.fontSize.sm + 1,
+    fontWeight: TYPOGRAPHY.fontWeight.semibold,
+    color: COLORS.text.primary
+  },
   webDateWrapper: { position: 'relative', width: '100%' },
   dateInput: {
     height: 48,
-    backgroundColor: INPUT_BG,
+    backgroundColor: COLORS.background.secondary,
     borderWidth: 1,
-    borderColor: BORDER,
-    borderRadius: 8,
-    paddingHorizontal: 14,
+    borderColor: COLORS.border.light,
+    borderRadius: RADIUS.base,
+    paddingHorizontal: SPACING.sm + 6,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
   },
-  disabledInput: { backgroundColor: '#F3F4F6', opacity: 0.7 },
-  dateText: { fontSize: 16, color: CHARCOAL },
-  placeholderText: { color: '#9CA3AF' },
-  submitButton: {
-    height: 52,
-    backgroundColor: CHARCOAL,
-    borderRadius: 10,
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginTop: 8,
+  disabledInput: {
+    backgroundColor: COLORS.gray[100],
+    opacity: 0.7
   },
-  submitButtonText: { color: '#fff', fontSize: 16, fontWeight: '700' },
-  buttonDisabled: { opacity: 0.5, backgroundColor: '#9CA3AF' },
-  infoText: { color: MUTED, fontSize: 14 },
+  dateText: {
+    fontSize: TYPOGRAPHY.fontSize.md,
+    color: COLORS.text.primary
+  },
+  placeholderText: { color: COLORS.text.disabled },
+  infoText: {
+    color: COLORS.text.muted,
+    fontSize: TYPOGRAPHY.fontSize.sm + 1
+  },
   imageFrame: {
     borderWidth: 1,
-    borderColor: BORDER,
-    borderRadius: 12,
+    borderColor: COLORS.border.light,
+    borderRadius: RADIUS.md,
     overflow: 'hidden',
-    backgroundColor: '#F3F4F6',
+    backgroundColor: COLORS.gray[100],
     justifyContent: 'center',
     alignItems: 'center',
   },
   guideImage: { width: '100%', height: '100%' },
-  pagination: { flexDirection: 'row', justifyContent: 'center', gap: 6, flexWrap: 'wrap', marginTop: 10 },
+  pagination: {
+    flexDirection: 'row',
+    justifyContent: 'center',
+    gap: SPACING.xs + 2,
+    flexWrap: 'wrap',
+    marginTop: SPACING.sm + 2
+  },
   dot: {
     width: 6,
     height: 6,
     borderRadius: 3,
-    backgroundColor: '#e5e7eb',
+    backgroundColor: COLORS.gray[300],
   },
-  dotActive: { backgroundColor: HANWHA_ORANGE, width: 20 },
+  dotActive: {
+    backgroundColor: COLORS.primary,
+    width: 20
+  },
   pickerOverlay: {
     flex: 1,
-    backgroundColor: 'rgba(0,0,0,0.35)',
+    backgroundColor: COLORS.background.overlay,
     justifyContent: 'flex-end',
   },
   pickerCard: {
-    backgroundColor: '#fff',
-    paddingTop: 12,
-    paddingBottom: 20,
-    paddingHorizontal: 16,
-    borderTopLeftRadius: 16,
-    borderTopRightRadius: 16,
+    backgroundColor: COLORS.white,
+    paddingTop: SPACING.md,
+    paddingBottom: SPACING.lg,
+    paddingHorizontal: SPACING.base,
+    borderTopLeftRadius: RADIUS.lg,
+    borderTopRightRadius: RADIUS.lg,
   },
   pickerActions: {
     flexDirection: 'row',
     justifyContent: 'flex-end',
-    gap: 12,
-    marginTop: 8,
+    gap: SPACING.md,
+    marginTop: SPACING.sm,
   },
   pickerBtn: {
-    paddingVertical: 10,
-    paddingHorizontal: 16,
-    borderRadius: 10,
+    paddingVertical: SPACING.sm + 2,
+    paddingHorizontal: SPACING.base,
+    borderRadius: RADIUS.base + 2,
   },
   pickerBtnGhost: {
-    backgroundColor: '#F3F4F6',
+    backgroundColor: COLORS.gray[100],
   },
   pickerBtnPrimary: {
-    backgroundColor: CHARCOAL,
+    backgroundColor: COLORS.gray[700],
   },
   pickerBtnGhostText: {
-    color: CHARCOAL,
-    fontWeight: '700',
+    color: COLORS.text.primary,
+    fontWeight: TYPOGRAPHY.fontWeight.bold,
   },
   pickerBtnPrimaryText: {
-    color: '#fff',
-    fontWeight: '700',
+    color: COLORS.white,
+    fontWeight: TYPOGRAPHY.fontWeight.bold,
   },
 });

@@ -1,0 +1,61 @@
+# FC Onboarding App - AI Coding Rules (Cursor/Claude)
+# 이 파일은 AI가 코드를 작성할 때 반드시 따라야 하는 핵심 규칙입니다.
+
+## 우선순위 (Source of Truth)
+1. 기존 코드/테스트 (실행되는 코드가 진실)
+2. contracts/ (스키마, 타입, API 계약)
+3. adr/ (아키텍처 결정 기록)
+4. AI.md (상세 규칙)
+5. 사용자의 추가 요청
+
+## 절대 금지 (NEVER)
+- 기존 폴더 구조나 파일 네이밍을 ADR 없이 변경하지 않음
+- 주민번호(resident_id)를 평문으로 저장하거나 로그에 출력하지 않음
+- Supabase Auth 대신 커스텀 인증 시스템 사용 중 - 변경 금지
+- React Query를 다른 상태관리 라이브러리로 교체 제안 금지
+- 기존 컴포넌트(Button, FormInput, LoadingSkeleton 등)를 중복 생성하지 않음
+
+## 네이밍 규칙 (Naming Conventions)
+- DB 컬럼: snake_case (예: temp_id, created_at)
+- TypeScript: camelCase (예: tempId, createdAt)
+- DB↔TS 매핑: types/*.ts 파일에서만 수행
+- 컴포넌트 파일: PascalCase.tsx
+- 훅 파일: use-kebab-case.ts
+- 유틸 파일: kebab-case.ts
+
+## 스타일 규칙 (Styling)
+- 테마 토큰만 사용: COLORS, TYPOGRAPHY, SPACING, RADIUS from '@/lib/theme'
+- 하드코딩된 색상(#ff6600 등) 사용 금지 - COLORS.primary 등 사용
+- 새 색상이 필요하면 theme.ts에 추가 후 사용
+
+## 컴포넌트 규칙 (Components)
+- 버튼: components/Button.tsx 사용 (Pressable 직접 사용 금지)
+- 입력 필드: components/FormInput.tsx 사용
+- 로딩 상태: components/LoadingSkeleton.tsx 사용
+- 기존 컴포넌트 확장 시 props 추가, 새 컴포넌트 생성 자제
+
+## 데이터 페칭 (Data Fetching)
+- 서버 상태: TanStack React Query 사용 (useQuery, useMutation)
+- UI에서 직접 fetch() 호출 금지
+- 쿼리 키: ['entity', 'action', ...params] 형태로 일관성 유지
+- 에러 처리: 모든 mutation에 onError 핸들러 포함
+
+## 인증 규칙 (Authentication)
+- SessionProvider 컨텍스트 사용 (hooks/use-session.tsx)
+- 세션: { role, residentId (phone), displayName } 구조
+- 로그인/로그아웃은 Edge Function 통해서만 수행
+
+## 플랫폼별 코드 (Platform-Specific)
+- Android: *.android.ts
+- iOS: *.ios.ts
+- Web: *.web.ts
+- 기본값: *.ts (fallback)
+
+## 출력 형식 (Output Format)
+작업 순서: 계획(plan) → 변경(diff) → 검증(validation checklist)
+
+## 구조 변경 시 필수 절차
+DB/API/아키텍처 변경이 필요하면:
+1. 변경 제안서 작성 (근거 + 영향 + 대안)
+2. ADR 초안 제시
+3. 승인 후 구현

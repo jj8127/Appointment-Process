@@ -15,25 +15,20 @@ import {
   ScrollView,
   StyleSheet,
   Text,
-  TextInput,
   useWindowDimensions,
   View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
-import { RefreshButton } from '@/components/RefreshButton';
+import { Button } from '@/components/Button';
+import { FormInput } from '@/components/FormInput';
+import { ScreenHeader } from '@/components/ScreenHeader';
 import { useKeyboardPadding } from '@/hooks/use-keyboard-padding';
 import { useSession } from '@/hooks/use-session';
 import { useIdentityGate } from '@/hooks/use-identity-gate';
 import { supabase } from '@/lib/supabase';
-
-// Remove static Dimensions
-const HANWHA_ORANGE = '#f36f21';
-const CHARCOAL = '#111827';
-const MUTED = '#6b7280';
-const BORDER = '#E5E7EB';
-const BACKGROUND = '#ffffff';
-const INPUT_BG = '#F9FAFB';
+import { logger } from '@/lib/logger';
+import { COLORS, TYPOGRAPHY, SPACING, RADIUS } from '@/lib/theme';
 
 const weekdays = ['일', '월', '화', '수', '목', '금', '토'];
 const formatKoreanDate = (d: Date) =>
@@ -82,7 +77,7 @@ export default function AllowanceConsentScreen() {
         .eq('phone', residentId)
         .maybeSingle();
 
-      console.log('[DEBUG] Mobile: Fetched FC Profile in Consent:', JSON.stringify(data, null, 2));
+      logger.debug('[DEBUG] Mobile: Fetched FC Profile in Consent:', { data: JSON.stringify(data, null, 2) });
 
       setTempId(data?.temp_id ?? '');
       if (data?.allowance_date) {
@@ -177,18 +172,24 @@ export default function AllowanceConsentScreen() {
             <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
           }
         >
-          <View style={styles.headerRow}>
-            <View>
-              <Text style={styles.pageTitle}>수당 동의 가이드</Text>
-              <Text style={styles.pageSub}>서울보증보험 사이트에서 진행해주세요.</Text>
-            </View>
-            <RefreshButton />
-          </View>
+          <ScreenHeader
+            title="수당 동의 가이드"
+            subtitle="서울보증보험 사이트에서 진행해주세요."
+            showRefresh
+            onRefresh={onRefresh}
+          />
 
-          <Pressable style={styles.linkButton} onPress={openAllowanceSite}>
-            <Text style={styles.linkButtonText}>서울보증보험 바로가기</Text>
-            <Feather name="external-link" size={16} color={HANWHA_ORANGE} />
-          </Pressable>
+          <View style={{ paddingHorizontal: SPACING.xl, marginBottom: SPACING.xl }}>
+            <Button
+              onPress={openAllowanceSite}
+              variant="outline"
+              size="md"
+              fullWidth
+              rightIcon={<Feather name="external-link" size={16} color={COLORS.primary} />}
+            >
+              서울보증보험 바로가기
+            </Button>
+          </View>
 
           <View style={styles.sliderContainer}>
             <FlatList
@@ -258,17 +259,14 @@ export default function AllowanceConsentScreen() {
               </Text>
             </View>
 
-            <View style={styles.inputGroup}>
-              <Text style={styles.label}>임시사번</Text>
-              <TextInput
-                style={styles.input}
-                placeholder="총무가 임시사번을 발급하는 중입니다."
-                placeholderTextColor="#9CA3AF"
-                value={tempId}
-                editable={false}
-                selectTextOnFocus={false}
-              />
-            </View>
+            <FormInput
+              label="임시사번"
+              placeholder="총무가 임시사번을 발급하는 중입니다."
+              value={tempId}
+              editable={false}
+              selectTextOnFocus={false}
+              containerStyle={styles.inputGroup}
+            />
 
             <View style={styles.inputGroup}>
               <Text style={styles.label}>수당동의일</Text>
@@ -282,7 +280,7 @@ export default function AllowanceConsentScreen() {
                 <Text style={[styles.dateText, !selectedDate && styles.dateTextPlaceholder]}>
                   {selectedDate ? formatKoreanDate(selectedDate) : '날짜를 선택해주세요'}
                 </Text>
-                <Feather name="calendar" size={18} color={MUTED} />
+                <Feather name="calendar" size={18} color={COLORS.text.secondary} />
               </Pressable>
               {showPicker && Platform.OS !== 'ios' && (
                 <DateTimePicker
@@ -301,13 +299,17 @@ export default function AllowanceConsentScreen() {
               )}
             </View>
 
-            <Pressable
-              style={({ pressed }) => [styles.submitButton, pressed && styles.buttonPressed, loading && styles.buttonDisabled]}
+            <Button
               onPress={submit}
               disabled={loading}
+              loading={loading}
+              variant="primary"
+              size="lg"
+              fullWidth
+              style={{ marginTop: 8 }}
             >
-              <Text style={styles.submitButtonText}>{loading ? '저장 중...' : '저장하기'}</Text>
-            </Pressable>
+              저장하기
+            </Button>
           </View>
         </ScrollView>
       </KeyboardAvoidingView>
@@ -326,25 +328,27 @@ export default function AllowanceConsentScreen() {
                 }}
               />
               <View style={styles.pickerActions}>
-                <Pressable
-                  style={[styles.pickerBtn, styles.pickerBtnGhost]}
+                <Button
+                  variant="ghost"
+                  size="md"
                   onPress={() => {
                     setShowPicker(false);
                     setTempDate(null);
                   }}
                 >
-                  <Text style={styles.pickerBtnGhostText}>취소</Text>
-                </Pressable>
-                <Pressable
-                  style={[styles.pickerBtn, styles.pickerBtnPrimary]}
+                  취소
+                </Button>
+                <Button
+                  variant="primary"
+                  size="md"
                   onPress={() => {
                     if (tempDate) setSelectedDate(tempDate);
                     setShowPicker(false);
                     setTempDate(null);
                   }}
                 >
-                  <Text style={styles.pickerBtnPrimaryText}>확인</Text>
-                </Pressable>
+                  확인
+                </Button>
               </View>
             </View>
           </View>
@@ -355,177 +359,147 @@ export default function AllowanceConsentScreen() {
 }
 
 const styles = StyleSheet.create({
-  safe: { flex: 1, backgroundColor: BACKGROUND },
-  container: { paddingBottom: 40 },
+  safe: { flex: 1, backgroundColor: COLORS.white },
+  container: { paddingBottom: SPACING['2xl'] + 8 },
 
-  headerRow: {
-    paddingHorizontal: 24,
-    paddingTop: 20,
-    paddingBottom: 16,
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'flex-start',
-  },
-  pageTitle: { fontSize: 22, fontWeight: '800', color: CHARCOAL },
-  pageSub: { fontSize: 14, color: MUTED, marginTop: 4 },
-
-  linkButton: {
-    marginHorizontal: 24,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 8,
-    paddingVertical: 12,
-    borderWidth: 1,
-    borderColor: HANWHA_ORANGE,
-    borderRadius: 8,
-    backgroundColor: '#fff7ed',
-    marginBottom: 24,
-  },
-  linkButtonText: { color: HANWHA_ORANGE, fontWeight: '700', fontSize: 14 },
-
-  sliderContainer: { marginBottom: 24 },
+  sliderContainer: { marginBottom: SPACING.xl },
   imageFrame: {
-    backgroundColor: '#F3F4F6',
-    borderRadius: 12,
+    backgroundColor: COLORS.gray[100],
+    borderRadius: RADIUS.md,
     overflow: 'hidden',
     borderWidth: 1,
-    borderColor: BORDER,
+    borderColor: COLORS.border.light,
   },
   guideImage: { width: '100%', height: '100%' },
-  pagination: { flexDirection: 'row', justifyContent: 'center', marginTop: 12, gap: 6 },
-  dot: { width: 6, height: 6, borderRadius: 3, backgroundColor: '#E5E7EB' },
-  dotActive: { backgroundColor: HANWHA_ORANGE, width: 18 },
+  pagination: {
+    flexDirection: 'row',
+    justifyContent: 'center',
+    marginTop: SPACING.md,
+    gap: SPACING.xs + 2
+  },
+  dot: {
+    width: 6,
+    height: 6,
+    borderRadius: 3,
+    backgroundColor: COLORS.gray[300]
+  },
+  dotActive: {
+    backgroundColor: COLORS.primary,
+    width: 18
+  },
 
-  divider: { height: 8, backgroundColor: '#F9FAFB', marginBottom: 24 },
+  divider: {
+    height: SPACING.sm,
+    backgroundColor: COLORS.background.secondary,
+    marginBottom: SPACING.xl
+  },
 
-  formSection: { paddingHorizontal: 24 },
+  formSection: { paddingHorizontal: SPACING.xl },
   careerCard: {
-    backgroundColor: '#FFF0E6', // Light Orange bg
-    borderRadius: 12,
-    padding: 16,
-    marginBottom: 24,
+    backgroundColor: '#FFF0E6',
+    borderRadius: RADIUS.md,
+    padding: SPACING.base,
+    marginBottom: SPACING.xl,
     borderWidth: 1,
     borderColor: '#ffcca8',
     alignItems: 'center',
   },
   careerBadge: {
-    backgroundColor: HANWHA_ORANGE,
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-    borderRadius: 99,
-    marginBottom: 8,
+    backgroundColor: COLORS.primary,
+    paddingHorizontal: SPACING.sm,
+    paddingVertical: SPACING.xs,
+    borderRadius: RADIUS.full,
+    marginBottom: SPACING.sm,
   },
   careerBadgeLabel: {
-    color: '#fff',
-    fontSize: 12,
-    fontWeight: '700',
+    color: COLORS.white,
+    fontSize: TYPOGRAPHY.fontSize.xs + 1,
+    fontWeight: TYPOGRAPHY.fontWeight.bold,
   },
   careerMainText: {
-    fontSize: 24,
-    fontWeight: '800',
-    color: HANWHA_ORANGE,
-    marginBottom: 4,
+    fontSize: TYPOGRAPHY.fontSize['2xl'],
+    fontWeight: TYPOGRAPHY.fontWeight.extrabold,
+    color: COLORS.primary,
+    marginBottom: SPACING.xs,
   },
   careerSubText: {
-    fontSize: 14,
-    color: '#9a3412', // Darker orange text
+    fontSize: TYPOGRAPHY.fontSize.sm + 1,
+    color: '#9a3412',
   },
-  sectionTitle: { fontSize: 18, fontWeight: '800', color: CHARCOAL, marginBottom: 4 },
-  sectionDesc: { fontSize: 14, color: MUTED, marginBottom: 20 },
+  sectionTitle: {
+    fontSize: TYPOGRAPHY.fontSize.lg,
+    fontWeight: TYPOGRAPHY.fontWeight.extrabold,
+    color: COLORS.text.primary,
+    marginBottom: SPACING.xs
+  },
+  sectionDesc: {
+    fontSize: TYPOGRAPHY.fontSize.sm + 1,
+    color: COLORS.text.muted,
+    marginBottom: SPACING.lg
+  },
   rejectBox: {
-    backgroundColor: '#FEF2F2',
+    backgroundColor: COLORS.errorLight,
     borderColor: '#FECACA',
     borderWidth: 1,
-    padding: 12,
-    borderRadius: 12,
-    marginBottom: 16,
+    padding: SPACING.md,
+    borderRadius: RADIUS.md,
+    marginBottom: SPACING.base,
   },
   rejectTitle: {
-    fontSize: 12,
-    fontWeight: '700',
+    fontSize: TYPOGRAPHY.fontSize.xs + 1,
+    fontWeight: TYPOGRAPHY.fontWeight.bold,
     color: '#B91C1C',
-    marginBottom: 6,
+    marginBottom: SPACING.xs + 2,
   },
   rejectText: {
-    fontSize: 12,
+    fontSize: TYPOGRAPHY.fontSize.xs + 1,
     color: '#7F1D1D',
     lineHeight: 18,
   },
 
-  inputGroup: { marginBottom: 16 },
-  label: { fontSize: 14, fontWeight: '600', color: CHARCOAL, marginBottom: 8 },
-  input: {
-    height: 48,
-    backgroundColor: INPUT_BG,
-    borderWidth: 1,
-    borderColor: BORDER,
-    borderRadius: 8,
-    paddingHorizontal: 14,
-    fontSize: 16,
-    color: CHARCOAL,
+  inputGroup: { marginBottom: SPACING.base },
+  label: {
+    fontSize: TYPOGRAPHY.fontSize.sm + 1,
+    fontWeight: TYPOGRAPHY.fontWeight.semibold,
+    color: COLORS.text.primary,
+    marginBottom: SPACING.sm
   },
   dateInput: {
     height: 48,
-    backgroundColor: INPUT_BG,
+    backgroundColor: COLORS.background.secondary,
     borderWidth: 1,
-    borderColor: BORDER,
-    borderRadius: 8,
-    paddingHorizontal: 14,
+    borderColor: COLORS.border.light,
+    borderRadius: RADIUS.base,
+    paddingHorizontal: SPACING.sm + 6,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
   },
-  dateText: { fontSize: 16, color: CHARCOAL },
-  dateTextPlaceholder: { color: '#9CA3AF' },
-
-  submitButton: {
-    height: 52,
-    backgroundColor: CHARCOAL,
-    borderRadius: 8,
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginTop: 16,
+  dateText: {
+    fontSize: TYPOGRAPHY.fontSize.md,
+    color: COLORS.text.primary
   },
+  dateTextPlaceholder: { color: COLORS.text.disabled },
+
   buttonPressed: { opacity: 0.9 },
-  buttonDisabled: { backgroundColor: MUTED },
-  submitButtonText: { color: '#fff', fontSize: 16, fontWeight: '700' },
+  buttonDisabled: { backgroundColor: COLORS.text.muted },
   pickerOverlay: {
     flex: 1,
-    backgroundColor: 'rgba(0,0,0,0.35)',
+    backgroundColor: COLORS.background.overlay,
     justifyContent: 'flex-end',
   },
   pickerCard: {
-    backgroundColor: '#fff',
-    paddingTop: 12,
-    paddingBottom: 20,
-    paddingHorizontal: 16,
-    borderTopLeftRadius: 16,
-    borderTopRightRadius: 16,
+    backgroundColor: COLORS.white,
+    paddingTop: SPACING.md,
+    paddingBottom: SPACING.lg,
+    paddingHorizontal: SPACING.base,
+    borderTopLeftRadius: RADIUS.lg,
+    borderTopRightRadius: RADIUS.lg,
   },
   pickerActions: {
     flexDirection: 'row',
     justifyContent: 'flex-end',
-    gap: 12,
-    marginTop: 8,
-  },
-  pickerBtn: {
-    paddingVertical: 10,
-    paddingHorizontal: 16,
-    borderRadius: 10,
-  },
-  pickerBtnGhost: {
-    backgroundColor: '#F3F4F6',
-  },
-  pickerBtnPrimary: {
-    backgroundColor: CHARCOAL,
-  },
-  pickerBtnGhostText: {
-    color: CHARCOAL,
-    fontWeight: '700',
-  },
-  pickerBtnPrimaryText: {
-    color: '#fff',
-    fontWeight: '700',
+    gap: SPACING.md,
+    marginTop: SPACING.sm,
   },
 });

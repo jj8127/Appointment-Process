@@ -4,6 +4,7 @@ import { createServerClient, type CookieOptions } from '@supabase/ssr';
 import { cookies } from 'next/headers';
 import { sendWebPush } from '@/lib/web-push';
 
+import { logger } from '@/lib/logger';
 const EXPO_PUSH_URL = 'https://exp.host/--/api/v2/push/send';
 
 type PushDate = {
@@ -31,14 +32,14 @@ export async function sendPushNotification(
                     try {
                         cookieStore.set({ name, value, ...options });
                     } catch (error) {
-                        console.error('[actions] Cookie set failed:', error);
+                        logger.error('[actions] Cookie set failed:', error);
                     }
                 },
                 remove(name: string, options: CookieOptions) {
                     try {
                         cookieStore.set({ name, value: '', ...options });
                     } catch (error) {
-                        console.error('[actions] Cookie remove failed:', error);
+                        logger.error('[actions] Cookie remove failed:', error);
                     }
                 },
             },
@@ -52,7 +53,7 @@ export async function sendPushNotification(
         .eq('resident_id', userId);
 
     if (tokensError) {
-        console.error('[actions] Error fetching device tokens:', tokensError);
+        logger.error('[actions] Error fetching device tokens:', tokensError);
         return { success: false, error: 'Failed to fetch device tokens' };
     }
 
@@ -83,7 +84,7 @@ export async function sendPushNotification(
 
             if (!resp.ok) {
                 const errorText = await resp.text();
-                console.error('[actions] Expo Push Failed:', errorText);
+                logger.error('[actions] Expo Push Failed:', errorText);
                 return { success: false, error: `Expo push notification failed: ${errorText}` };
             }
         }
@@ -95,7 +96,7 @@ export async function sendPushNotification(
             .eq('resident_id', userId);
 
         if (subsError) {
-            console.error('[actions] Error fetching web push subscriptions:', subsError);
+            logger.error('[actions] Error fetching web push subscriptions:', subsError);
         } else if (subs && subs.length > 0) {
             const result = await sendWebPush(subs, { title, body, data });
             if (result.expired.length > 0) {
@@ -105,7 +106,7 @@ export async function sendPushNotification(
                     .in('endpoint', result.expired);
 
                 if (deleteError) {
-                    console.error('[actions] Error deleting expired subscriptions:', deleteError);
+                    logger.error('[actions] Error deleting expired subscriptions:', deleteError);
                 }
             }
         }
@@ -113,7 +114,7 @@ export async function sendPushNotification(
         return { success: true };
     } catch (err: unknown) {
         const error = err as Error;
-        console.error('[actions] Push notification error:', error);
+        logger.error('[actions] Push notification error:', error);
         return { success: false, error: error?.message ?? 'Push notification failed' };
     }
 }

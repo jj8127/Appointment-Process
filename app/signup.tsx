@@ -1,7 +1,6 @@
 import { Feather } from '@expo/vector-icons';
 import { router, useFocusEffect } from 'expo-router';
 import { LinearGradient } from 'expo-linear-gradient';
-import { MotiView } from 'moti';
 import { useCallback, useMemo, useState } from 'react';
 import {
   Alert,
@@ -18,12 +17,9 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { KeyboardAwareWrapper } from '@/components/KeyboardAwareWrapper';
 import { useKeyboardPadding } from '@/hooks/use-keyboard-padding';
 import { safeStorage } from '@/lib/safe-storage';
+import { COLORS, TYPOGRAPHY, SPACING, RADIUS } from '@/lib/theme';
+import { validatePhone, validateEmail, validateRequired, normalizePhone } from '@/lib/validation';
 
-const ORANGE = '#f36f21';
-const CHARCOAL = '#111827';
-const TEXT_MUTED = '#6b7280';
-const BORDER = '#e5e7eb';
-const PLACEHOLDER = '#9ca3af';
 const STORAGE_KEY = 'fc-onboarding/signup';
 
 const AFFILIATION_OPTIONS = [
@@ -66,27 +62,37 @@ export default function SignupScreen() {
   }, [emailLocal, emailDomain, customDomain]);
 
   const handleNext = async () => {
-    const digits = phone.replace(/[^0-9]/g, '');
-    if (!selectedAffiliation) {
-      Alert.alert('입력 확인', '소속을 선택해주세요.');
+    const affiliationValidation = validateRequired(selectedAffiliation, '소속');
+    if (!affiliationValidation.isValid) {
+      Alert.alert('입력 확인', affiliationValidation.error);
       return;
     }
-    if (!name.trim()) {
-      Alert.alert('입력 확인', '이름을 입력해주세요.');
+
+    const nameValidation = validateRequired(name, '이름');
+    if (!nameValidation.isValid) {
+      Alert.alert('입력 확인', nameValidation.error);
       return;
     }
-    if (digits.length !== 11) {
-      Alert.alert('입력 확인', '휴대폰 번호는 숫자 11자리로 입력해주세요.');
+
+    const phoneValidation = validatePhone(phone);
+    if (!phoneValidation.isValid) {
+      Alert.alert('입력 확인', phoneValidation.error);
       return;
     }
-    if (!emailValue || !emailValue.includes('@')) {
-      Alert.alert('입력 확인', '이메일을 입력해주세요.');
+
+    const emailValidation = validateEmail(emailValue);
+    if (!emailValidation.isValid) {
+      Alert.alert('입력 확인', emailValidation.error);
       return;
     }
-    if (!carrier.trim()) {
-      Alert.alert('입력 확인', '통신사를 입력해주세요.');
+
+    const carrierValidation = validateRequired(carrier, '통신사');
+    if (!carrierValidation.isValid) {
+      Alert.alert('입력 확인', carrierValidation.error);
       return;
     }
+
+    const digits = normalizePhone(phone);
 
     await safeStorage.setItem(
       STORAGE_KEY,
@@ -157,7 +163,7 @@ export default function SignupScreen() {
             <TextInput
               style={styles.input}
               placeholder="홍길동"
-              placeholderTextColor={PLACEHOLDER}
+              placeholderTextColor={COLORS.text.muted}
               value={name}
               onChangeText={setName}
               returnKeyType="next"
@@ -173,7 +179,7 @@ export default function SignupScreen() {
             <TextInput
               style={styles.input}
               placeholder="번호 입력 (- 없이 숫자만)"
-              placeholderTextColor={PLACEHOLDER}
+              placeholderTextColor={COLORS.text.muted}
               value={phone}
               onChangeText={setPhone}
               keyboardType="number-pad"
@@ -187,13 +193,13 @@ export default function SignupScreen() {
               <TextInput
                 style={[styles.input, styles.inputWithIcon]}
                 placeholder="통신사 선택"
-                placeholderTextColor={PLACEHOLDER}
+                placeholderTextColor={COLORS.text.muted}
                 value={carrier}
                 editable={false}
                 pointerEvents="none"
               />
               <Pressable style={styles.selectOverlay} onPress={() => setShowCarrierPicker(true)}>
-                <Feather name="chevron-down" size={20} color={TEXT_MUTED} />
+                <Feather name="chevron-down" size={20} color={COLORS.text.secondary} />
               </Pressable>
             </View>
           </View>
@@ -203,7 +209,7 @@ export default function SignupScreen() {
             <TextInput
               style={styles.input}
               placeholder="추천인 이름 (선택)"
-              placeholderTextColor={PLACEHOLDER}
+              placeholderTextColor={COLORS.text.muted}
               value={recommender}
               onChangeText={setRecommender}
               scrollEnabled={false}
@@ -216,7 +222,7 @@ export default function SignupScreen() {
               <TextInput
                 style={[styles.input, styles.emailLocal]}
                 placeholder="이메일 아이디"
-                placeholderTextColor={PLACEHOLDER}
+                placeholderTextColor={COLORS.text.muted}
                 value={emailLocal}
                 onChangeText={(txt) => setEmailLocal(txt.trim())}
                 autoCapitalize="none"
@@ -229,13 +235,13 @@ export default function SignupScreen() {
                   <TextInput
                     style={[styles.input, styles.inputWithIcon]}
                     placeholder="도메인 선택"
-                    placeholderTextColor={PLACEHOLDER}
+                    placeholderTextColor={COLORS.text.muted}
                     value={emailDomain}
                     editable={false}
                     pointerEvents="none"
                   />
                   <Pressable style={styles.selectOverlay} onPress={() => setShowDomainPicker(true)}>
-                    <Feather name="chevron-down" size={20} color={TEXT_MUTED} />
+                    <Feather name="chevron-down" size={20} color={COLORS.text.secondary} />
                   </Pressable>
                 </View>
 
@@ -243,7 +249,7 @@ export default function SignupScreen() {
                   <TextInput
                     style={[styles.input, styles.customDomainInput]}
                     placeholder="직접 입력"
-                    placeholderTextColor={PLACEHOLDER}
+                    placeholderTextColor={COLORS.text.muted}
                     value={customDomain}
                     onChangeText={(txt) => setCustomDomain(txt.trim())}
                     autoCapitalize="none"
@@ -320,48 +326,48 @@ export default function SignupScreen() {
 }
 
 const styles = StyleSheet.create({
-  safe: { flex: 1, backgroundColor: '#ffffff' },
-  container: { padding: 20, gap: 18 },
-  hero: { gap: 8, paddingVertical: 8 },
-  heroEyebrow: { color: ORANGE, fontWeight: '700', fontSize: 15 },
-  title: { fontSize: 28, fontWeight: '800', color: CHARCOAL, lineHeight: 34 },
-  caption: { color: TEXT_MUTED, lineHeight: 22, fontSize: 16 },
+  safe: { flex: 1, backgroundColor: COLORS.white },
+  container: { padding: SPACING.lg, gap: SPACING.lg },
+  hero: { gap: SPACING.sm, paddingVertical: SPACING.sm },
+  heroEyebrow: { color: COLORS.primary, fontWeight: TYPOGRAPHY.fontWeight.bold, fontSize: TYPOGRAPHY.fontSize.base },
+  title: { fontSize: TYPOGRAPHY.fontSize['3xl'], fontWeight: TYPOGRAPHY.fontWeight.extrabold, color: COLORS.text.primary, lineHeight: 34 },
+  caption: { color: COLORS.text.secondary, lineHeight: TYPOGRAPHY.lineHeight.relaxed * TYPOGRAPHY.fontSize.md, fontSize: TYPOGRAPHY.fontSize.md },
   sectionCard: {
-    backgroundColor: '#fff',
-    padding: 16,
-    borderRadius: 16,
+    backgroundColor: COLORS.white,
+    padding: SPACING.base,
+    borderRadius: RADIUS.lg,
     borderWidth: 1,
-    borderColor: BORDER,
-    gap: 12,
+    borderColor: COLORS.border.light,
+    gap: SPACING.md,
   },
-  sectionTitle: { fontWeight: '800', fontSize: 20, color: CHARCOAL },
+  sectionTitle: { fontWeight: TYPOGRAPHY.fontWeight.extrabold, fontSize: TYPOGRAPHY.fontSize.xl, color: COLORS.text.primary },
   affiliationBox: {
     flexDirection: 'row',
     flexWrap: 'wrap',
-    gap: 8,
+    gap: SPACING.sm,
   },
   affiliationItem: {
     borderWidth: 1,
-    borderColor: BORDER,
-    borderRadius: 12,
+    borderColor: COLORS.border.light,
+    borderRadius: RADIUS.md,
     paddingVertical: 10,
     paddingHorizontal: 14,
-    backgroundColor: '#fff',
+    backgroundColor: COLORS.white,
   },
-  affiliationActive: { borderColor: ORANGE, backgroundColor: '#fff1e6' },
-  affiliationText: { color: CHARCOAL, fontSize: 16 },
-  affiliationTextActive: { color: ORANGE, fontWeight: '700' },
+  affiliationActive: { borderColor: COLORS.primary, backgroundColor: COLORS.primaryPale },
+  affiliationText: { color: COLORS.text.primary, fontSize: TYPOGRAPHY.fontSize.md },
+  affiliationTextActive: { color: COLORS.primary, fontWeight: TYPOGRAPHY.fontWeight.bold },
   field: { gap: 6 },
-  label: { fontWeight: '700', color: CHARCOAL, fontSize: 16 },
+  label: { fontWeight: TYPOGRAPHY.fontWeight.bold, color: COLORS.text.primary, fontSize: TYPOGRAPHY.fontSize.md },
   input: {
     borderWidth: 1,
-    borderColor: BORDER,
-    borderRadius: 10,
+    borderColor: COLORS.border.light,
+    borderRadius: RADIUS.base,
     paddingHorizontal: 14,
     paddingVertical: 10,
-    backgroundColor: '#fff',
-    fontSize: 16,
-    color: CHARCOAL,
+    backgroundColor: COLORS.white,
+    fontSize: TYPOGRAPHY.fontSize.md,
+    color: COLORS.text.primary,
     height: 52,
     lineHeight: 20,
     textAlignVertical: 'center',
@@ -371,119 +377,119 @@ const styles = StyleSheet.create({
   },
   selectBox: {
     borderWidth: 1,
-    borderColor: BORDER,
-    borderRadius: 10,
+    borderColor: COLORS.border.light,
+    borderRadius: RADIUS.base,
     overflow: 'hidden',
     justifyContent: 'center',
     height: 52,
-    backgroundColor: '#fff',
+    backgroundColor: COLORS.white,
   },
   selectPicker: {
-    color: CHARCOAL,
+    color: COLORS.text.primary,
     marginLeft: -10,
     marginRight: -10,
-    paddingLeft: 12,
-    fontSize: 16,
+    paddingLeft: SPACING.md,
+    fontSize: TYPOGRAPHY.fontSize.md,
   },
   primaryButton: {
-    marginTop: 8,
-    marginBottom: 24,
-    backgroundColor: ORANGE,
-    paddingVertical: 18,
-    borderRadius: 14,
+    marginTop: SPACING.sm,
+    marginBottom: SPACING.xl,
+    backgroundColor: COLORS.primary,
+    paddingVertical: SPACING.lg,
+    borderRadius: RADIUS.md,
     alignItems: 'center',
   },
-  primaryButtonText: { color: '#fff', fontWeight: '800', fontSize: 18 },
+  primaryButtonText: { color: COLORS.white, fontWeight: TYPOGRAPHY.fontWeight.extrabold, fontSize: TYPOGRAPHY.fontSize.lg },
   linkButton: {
     alignItems: 'center',
-    paddingVertical: 8,
+    paddingVertical: SPACING.sm,
   },
   linkButtonText: {
-    fontSize: 13,
-    color: TEXT_MUTED,
-    fontWeight: '600',
+    fontSize: TYPOGRAPHY.fontSize.sm,
+    color: COLORS.text.secondary,
+    fontWeight: TYPOGRAPHY.fontWeight.semibold,
     textDecorationLine: 'underline',
   },
   emailRow: {
     flexDirection: 'row',
     alignItems: 'flex-start',
-    gap: 8,
+    gap: SPACING.sm,
   },
   emailLocal: {
     flex: 0.9,
     minWidth: 0,
   },
   emailAt: {
-    fontWeight: '800',
-    color: CHARCOAL,
-    fontSize: 16,
-    marginTop: 12,
+    fontWeight: TYPOGRAPHY.fontWeight.extrabold,
+    color: COLORS.text.primary,
+    fontSize: TYPOGRAPHY.fontSize.md,
+    marginTop: SPACING.md,
   },
   emailDomainBox: {
     flex: 1.1,
     borderWidth: 1,
-    borderColor: BORDER,
-    borderRadius: 8,
+    borderColor: COLORS.border.light,
+    borderRadius: RADIUS.base,
     overflow: 'hidden',
     justifyContent: 'center',
     height: 54,
-    backgroundColor: '#fff',
+    backgroundColor: COLORS.white,
   },
   selectOverlay: {
     position: 'absolute',
-    right: 12,
+    right: SPACING.md,
     top: 0,
     bottom: 0,
     justifyContent: 'center',
     alignItems: 'center',
-    width: 40,
+    width: SPACING['2xl'],
   },
   emailPicker: {
-    color: CHARCOAL,
+    color: COLORS.text.primary,
     marginLeft: -10,
     marginRight: -10,
-    paddingLeft: 12,
-    fontSize: 16,
+    paddingLeft: SPACING.md,
+    fontSize: TYPOGRAPHY.fontSize.md,
   },
   customDomainInput: {
-    marginTop: 4,
+    marginTop: SPACING.xs,
     borderWidth: 1,
-    borderColor: BORDER,
-    borderRadius: 8,
-    padding: 8,
-    backgroundColor: '#fff',
-    fontSize: 16,
+    borderColor: COLORS.border.light,
+    borderRadius: RADIUS.base,
+    padding: SPACING.sm,
+    backgroundColor: COLORS.white,
+    fontSize: TYPOGRAPHY.fontSize.md,
     height: 44,
   },
   modalOverlay: {
     flex: 1,
-    backgroundColor: 'rgba(0,0,0,0.35)',
+    backgroundColor: COLORS.background.overlay,
     justifyContent: 'center',
     alignItems: 'center',
-    padding: 20,
+    padding: SPACING.lg,
   },
   modalCard: {
     width: '100%',
     maxWidth: 360,
-    backgroundColor: '#fff',
-    borderRadius: 16,
-    padding: 16,
+    backgroundColor: COLORS.white,
+    borderRadius: RADIUS.lg,
+    padding: SPACING.base,
   },
-  modalTitle: { fontSize: 16, fontWeight: '800', color: CHARCOAL, marginBottom: 12 },
-  modalOptions: { gap: 8 },
+  modalTitle: { fontSize: TYPOGRAPHY.fontSize.md, fontWeight: TYPOGRAPHY.fontWeight.extrabold, color: COLORS.text.primary, marginBottom: SPACING.md },
+  modalOptions: { gap: SPACING.sm },
   modalOption: {
     paddingVertical: 10,
-    paddingHorizontal: 8,
-    borderRadius: 10,
-    backgroundColor: '#F9FAFB',
+    paddingHorizontal: SPACING.sm,
+    borderRadius: RADIUS.base,
+    backgroundColor: COLORS.background.secondary,
   },
-  modalOptionText: { fontSize: 14, fontWeight: '600', color: CHARCOAL },
+  modalOptionText: { fontSize: TYPOGRAPHY.fontSize.sm, fontWeight: TYPOGRAPHY.fontWeight.semibold, color: COLORS.text.primary },
   modalCancel: {
-    marginTop: 12,
+    marginTop: SPACING.md,
     paddingVertical: 10,
     alignItems: 'center',
-    borderRadius: 10,
-    backgroundColor: '#F3F4F6',
+    borderRadius: RADIUS.base,
+    backgroundColor: COLORS.gray[100],
   },
-  modalCancelText: { fontSize: 14, fontWeight: '700', color: '#4B5563' },
+  modalCancelText: { fontSize: TYPOGRAPHY.fontSize.sm, fontWeight: TYPOGRAPHY.fontWeight.bold, color: COLORS.gray[600] },
 });

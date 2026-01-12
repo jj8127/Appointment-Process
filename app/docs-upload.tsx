@@ -18,24 +18,21 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
+import { Button } from '@/components/Button';
 import { RefreshButton } from '@/components/RefreshButton';
 import { useIdentityGate } from '@/hooks/use-identity-gate';
 import { useKeyboardPadding } from '@/hooks/use-keyboard-padding';
 import { useSession } from '@/hooks/use-session';
 import { supabase } from '@/lib/supabase';
+import { logger } from '@/lib/logger';
 import { RequiredDoc } from '@/types/fc';
+import { COLORS } from '@/lib/theme';
 
 type FcLite = { id: string; temp_id: string | null; name: string; status: string; docs_deadline_at?: string | null };
 type DocItem = RequiredDoc & { storagePath?: string; originalName?: string };
 
 const BUCKET = 'fc-documents';
 const EXPO_PUSH_URL = 'https://exp.host/--/api/v2/push/send';
-const HANWHA_ORANGE = '#f36f21';
-const CHARCOAL = '#111827';
-const MUTED = '#6b7280';
-const BORDER = '#E5E7EB';
-const BACKGROUND = '#ffffff';
-const INPUT_BG = '#F9FAFB';
 
 const randomKey = () => Math.random().toString(36).slice(2, 10) + Date.now().toString(36);
 
@@ -182,24 +179,24 @@ export default function DocsUploadScreen() {
     storageDebuggedRef.current = true;
     (async () => {
       try {
-        console.log('[supabase env]', { url: process.env.EXPO_PUBLIC_SUPABASE_URL });
+        logger.debug('[supabase env]', { url: process.env.EXPO_PUBLIC_SUPABASE_URL });
         const { data, error } = await supabase.storage.listBuckets();
         if (error) {
-          console.warn('[storage] listBuckets error', error.message);
+          logger.warn('[storage] listBuckets error', { error: error.message });
           return;
         }
         const names = (data ?? []).map((b: any) => b.name);
-        console.log('[storage] buckets', names);
+        logger.debug('[storage] buckets', { names });
         const { data: listData, error: listError } = await supabase.storage
           .from(BUCKET)
           .list('', { limit: 1 });
         if (listError) {
-          console.warn('[storage] list bucket error', listError.message);
+          logger.warn('[storage] list bucket error', { error: listError.message });
         } else {
-          console.log('[storage] list bucket ok', { bucket: BUCKET, count: listData?.length ?? 0 });
+          logger.debug('[storage] list bucket ok', { bucket: BUCKET, count: listData?.length ?? 0 });
         }
       } catch (err: any) {
-        console.warn('[storage] listBuckets exception', err?.message ?? err);
+        logger.warn('[storage] listBuckets exception', { error: err?.message ?? err });
       }
     })();
   }, []);
@@ -269,7 +266,7 @@ export default function DocsUploadScreen() {
 
     setUploadingType(type as string);
     try {
-      console.log('[upload] start', {
+      logger.debug('[upload] start', {
         docType: type,
         uri: asset.uri,
         name: asset.name,
@@ -286,13 +283,13 @@ export default function DocsUploadScreen() {
           .from(BUCKET)
           .upload(objectPath, byteArray, { contentType, upsert: true });
         if (uploadError) {
-          console.warn('[upload] storage upload error', uploadError.message);
+          logger.warn('[upload] storage upload error', { error: uploadError.message });
           throw uploadError;
         }
       } else {
         const { data, error } = await supabase.storage.from(BUCKET).createSignedUploadUrl(objectPath);
         if (error || !data?.signedUrl) {
-          console.warn('[upload] createSignedUploadUrl error', error?.message ?? 'unknown');
+          logger.warn('[upload] createSignedUploadUrl error', { error: error?.message ?? 'unknown' });
           throw error ?? new Error('Signed upload URL 생성 실패');
         }
         const uploadResult = await FileSystem.uploadAsync(data.signedUrl, asset.uri, {
@@ -301,16 +298,15 @@ export default function DocsUploadScreen() {
           headers: { 'Content-Type': contentType },
         });
         if (uploadResult.status < 200 || uploadResult.status >= 300) {
-          console.warn('[upload] signed upload failed', uploadResult.status);
+          logger.warn('[upload] signed upload failed', { status: uploadResult.status });
           throw new Error(`업로드 실패 (status ${uploadResult.status})`);
         }
       }
 
       const signedResult = await supabase.storage.from(BUCKET).createSignedUrl(objectPath, 300);
       if (signedResult.error) {
-        console.warn('[storage] createSignedUrl failed', signedResult.error.message);
+        logger.warn('[storage] createSignedUrl failed', { error: signedResult.error.message });
       }
-      const publicUrl = signedResult.data?.signedUrl ?? '';
 
       const { error: dbError } = await supabase.from('fc_documents').upsert(
         {
@@ -324,7 +320,7 @@ export default function DocsUploadScreen() {
         { onConflict: 'fc_id,doc_type' },
       );
       if (dbError) {
-        console.warn('[upload] db upsert error', dbError.message);
+        logger.warn('[upload] db upsert error', { error: dbError.message });
         throw dbError;
       }
 
@@ -361,10 +357,10 @@ export default function DocsUploadScreen() {
         );
       }
 
-      console.log('[upload] success', { objectPath });
+      logger.debug('[upload] success', { objectPath });
       Alert.alert('업로드 완료', '파일이 정상적으로 등록되었습니다.');
     } catch (err: any) {
-      console.warn('[upload] failed', { bucket: BUCKET, error: err?.message ?? err });
+      logger.warn('[upload] failed', { bucket: BUCKET, error: err?.message ?? err });
       Alert.alert('오류', err?.message ?? '업로드 실패');
     } finally {
       setUploadingType(null);
@@ -428,8 +424,8 @@ export default function DocsUploadScreen() {
                 </Text>
                 <Text style={styles.headerSub}>
                   {docCount.total}건 중{' '}
-                  <Text style={{ color: HANWHA_ORANGE, fontWeight: '700' }}>{docCount.uploaded}건</Text> 완료 ·{' '}
-                  <Text style={{ color: CHARCOAL, fontWeight: '800' }}>{Math.round(progressPercent)}%</Text>
+                  <Text style={{ color: COLORS.primary, fontWeight: '700' }}>{docCount.uploaded}건</Text> 완료 ·{' '}
+                  <Text style={{ color: COLORS.text.primary, fontWeight: '800' }}>{Math.round(progressPercent)}%</Text>
                 </Text>
                 {fc?.docs_deadline_at ? (
                   <View style={styles.deadlineBadge}>
@@ -447,24 +443,25 @@ export default function DocsUploadScreen() {
             <View style={styles.adminActionBox}>
               <Text style={styles.adminLabel}>관리자 검토</Text>
               <View style={styles.adminActionRow}>
-                <Pressable
-                  style={[styles.adminBtn, styles.rejectBtn]}
+                <Button
                   onPress={() => handleApprove(false)}
                   disabled={approving}
+                  variant="outline"
+                  size="lg"
+                  style={{ flex: 1, borderColor: '#ef4444', backgroundColor: '#fff' }}
                 >
-                  <Text style={styles.rejectText}>반려</Text>
-                </Pressable>
-                <Pressable
-                  style={[styles.adminBtn, styles.approveBtn]}
+                  반려
+                </Button>
+                <Button
                   onPress={() => handleApprove(true)}
                   disabled={approving}
+                  loading={approving}
+                  variant="primary"
+                  size="lg"
+                  style={{ flex: 1 }}
                 >
-                  {approving ? (
-                    <ActivityIndicator color="#fff" />
-                  ) : (
-                    <Text style={styles.approveText}>검토 완료 (승인)</Text>
-                  )}
-                </Pressable>
+                  검토 완료 (승인)
+                </Button>
               </View>
             </View>
           )}
@@ -474,9 +471,9 @@ export default function DocsUploadScreen() {
               <View style={[styles.progressBar, { width: `${progressPercent}%` }]} />
             </View>
             <Text style={styles.headerCountRight}>
-              <Text style={{ color: HANWHA_ORANGE, fontWeight: '800' }}>{docCount.uploaded}</Text>
+              <Text style={{ color: COLORS.primary, fontWeight: '800' }}>{docCount.uploaded}</Text>
               <Text style={{ color: '#E5E7EB' }}>/</Text>
-              <Text style={{ color: MUTED }}>{docCount.total}</Text>
+              <Text style={{ color: COLORS.text.secondary }}>{docCount.total}</Text>
             </Text>
           </View>
         </View>
@@ -497,7 +494,7 @@ export default function DocsUploadScreen() {
                   <View style={styles.cardTopRow}>
                     {/* left icon */}
                     <View style={styles.cardIcon}>
-                      <Feather name="file-text" size={18} color={HANWHA_ORANGE} />
+                      <Feather name="file-text" size={18} color={COLORS.primary} />
                     </View>
 
                     {/* title + filename */}
@@ -529,7 +526,7 @@ export default function DocsUploadScreen() {
                           </View>
                         ) : (
                           <View style={[styles.chip, styles.chipPending]}>
-                            <Text style={[styles.chipText, { color: MUTED }]}>미제출</Text>
+                            <Text style={[styles.chipText, { color: COLORS.text.secondary }]}>미제출</Text>
                           </View>
                         )}
                       </View>
@@ -554,7 +551,7 @@ export default function DocsUploadScreen() {
                         style={({ pressed }) => [styles.btnGhost, pressed && styles.pressed]}
                         onPress={() => {
                           if (!doc.storagePath) return;
-                          console.log('[storage] open file', {
+                          logger.debug('[storage] open file', {
                             bucket: BUCKET,
                             storagePath: doc.storagePath,
                             uploadedUrl: doc.uploadedUrl,
@@ -571,7 +568,7 @@ export default function DocsUploadScreen() {
                           })();
                         }}
                       >
-                        <Feather name="external-link" size={16} color={CHARCOAL} />
+                        <Feather name="external-link" size={16} color={COLORS.text.primary} />
                         <Text style={styles.btnGhostText}>열기</Text>
                       </Pressable>
                     )}
@@ -616,12 +613,15 @@ export default function DocsUploadScreen() {
               </View>
             )}
           </View>
-          <Pressable
-            style={styles.homeButton}
+          <Button
             onPress={() => router.replace('/')}
+            variant="primary"
+            size="lg"
+            fullWidth
+            style={{ marginTop: 12, marginBottom: 24 }}
           >
-            <Text style={styles.homeButtonText}>홈으로 가기</Text>
-          </Pressable>
+            홈으로 가기
+          </Button>
         </ScrollView>
       </KeyboardAvoidingView>
     </SafeAreaView>
@@ -629,7 +629,7 @@ export default function DocsUploadScreen() {
 }
 
 const styles = StyleSheet.create({
-  safe: { flex: 1, backgroundColor: BACKGROUND },
+  safe: { flex: 1, backgroundColor: COLORS.white },
 
   headerContainer: {
     paddingHorizontal: 24,
@@ -645,8 +645,8 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     marginBottom: 16,
   },
-  headerTitle: { fontSize: 22, fontWeight: '800', color: CHARCOAL },
-  headerSub: { fontSize: 13, color: MUTED, marginTop: 4 },
+  headerTitle: { fontSize: 22, fontWeight: '800', color: COLORS.text.primary },
+  headerSub: { fontSize: 13, color: COLORS.text.secondary, marginTop: 4 },
   deadlineBadge: {
     marginTop: 8,
     alignSelf: 'flex-start',
@@ -662,7 +662,7 @@ const styles = StyleSheet.create({
   },
   deadlineBadgeLabel: { fontSize: 11, fontWeight: '800', color: '#9A3412', letterSpacing: 0.2 },
   deadlineBadgeValue: { fontSize: 13, fontWeight: '800', color: '#C2410C' },
-  headerCountRight: { fontSize: 20, fontWeight: '700', color: MUTED },
+  headerCountRight: { fontSize: 20, fontWeight: '700', color: COLORS.text.secondary },
 
   progressTrack: {
     height: 10,
@@ -672,7 +672,7 @@ const styles = StyleSheet.create({
   },
   progressBar: {
     height: '100%',
-    backgroundColor: HANWHA_ORANGE,
+    backgroundColor: COLORS.primary,
     borderRadius: 5,
   },
   adminActionBox: {
@@ -687,47 +687,25 @@ const styles = StyleSheet.create({
   },
   adminLabel: { fontSize: 14, fontWeight: '700', color: '#9a3412' },
   adminActionRow: { flexDirection: 'row', gap: 10 },
-  adminBtn: {
-    flex: 1,
-    height: 48,
-    borderRadius: 10,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  approveBtn: { backgroundColor: HANWHA_ORANGE },
-  approveText: { color: '#fff', fontWeight: '700', fontSize: 15 },
-  rejectBtn: { backgroundColor: '#fff', borderWidth: 1, borderColor: '#ef4444' },
-  rejectText: { color: '#ef4444', fontWeight: '700', fontSize: 15 },
 
   scrollContent: { padding: 24 },
 
   noticeBox: {
     flexDirection: 'row',
-    backgroundColor: INPUT_BG,
+    backgroundColor: COLORS.background.secondary,
     padding: 12,
     borderRadius: 8,
     marginBottom: 24,
     borderWidth: 1,
-    borderColor: BORDER,
+    borderColor: COLORS.border.light,
     gap: 8,
   },
-  noticeText: { fontSize: 13, color: CHARCOAL, flex: 1, lineHeight: 18 },
+  noticeText: { fontSize: 13, color: COLORS.text.primary, flex: 1, lineHeight: 18 },
 
   list: { gap: 16 },
 
   emptyState: { padding: 20, alignItems: 'center' },
-  emptyText: { color: MUTED, fontSize: 14 },
-
-  homeButton: {
-    marginHorizontal: 16,
-    marginTop: 12,
-    marginBottom: 24,
-    backgroundColor: CHARCOAL,
-    paddingVertical: 14,
-    borderRadius: 12,
-    alignItems: 'center',
-  },
-  homeButtonText: { color: '#fff', fontWeight: '800', fontSize: 16 },
+  emptyText: { color: COLORS.text.secondary, fontSize: 14 },
 
   btnDisabled: { opacity: 0.55 },
 
@@ -774,14 +752,14 @@ const styles = StyleSheet.create({
     flex: 1,
     fontSize: 16,
     fontWeight: '800',
-    color: CHARCOAL,
+    color: COLORS.text.primary,
     letterSpacing: -0.2,
   },
 
   cardFileName: {
     marginTop: 4,
     fontSize: 13,
-    color: MUTED,
+    color: COLORS.text.secondary,
     fontWeight: '600',
   },
 
@@ -827,7 +805,7 @@ const styles = StyleSheet.create({
     flex: 1,
     height: 44,
     borderRadius: 12,
-    backgroundColor: HANWHA_ORANGE,
+    backgroundColor: COLORS.primary,
     alignItems: 'center',
     justifyContent: 'center',
     flexDirection: 'row',
@@ -861,7 +839,7 @@ const styles = StyleSheet.create({
   btnGhostText: {
     fontSize: 13,
     fontWeight: '800',
-    color: CHARCOAL,
+    color: COLORS.text.primary,
   },
 
   iconDanger: {

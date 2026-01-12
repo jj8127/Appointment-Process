@@ -1,6 +1,8 @@
 import Constants from 'expo-constants';
 import { useEffect } from 'react';
 
+import { logger } from '@/lib/logger';
+
 export const useInAppUpdate = () => {
   useEffect(() => {
     if (Constants.executionEnvironment === 'storeClient') return;
@@ -24,7 +26,7 @@ export const useInAppUpdate = () => {
       } catch (error) {
         // In development or if app is not in Play Store, this might fail.
         // We catch it silently to avoid crashing the app.
-        console.log('[InAppUpdate] Check failed (This is expected in Dev/Simulator):', error);
+        logger.debug('[InAppUpdate] Check failed (This is expected in Dev/Simulator)', error);
       }
     };
 

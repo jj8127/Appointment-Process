@@ -1,4 +1,5 @@
 import { createContext, ReactNode, useContext, useEffect, useMemo, useState } from 'react';
+import { logger } from '@/lib/logger';
 import { registerPushToken } from '@/lib/notifications';
 import { safeStorage } from '@/lib/safe-storage';
 
@@ -52,7 +53,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
           }
         }
       } catch (err) {
-        console.warn('Session restore failed', err);
+        logger.warn('Session restore failed', err);
       } finally {
         setHydrated(true);
       }
@@ -76,7 +77,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
           await safeStorage.removeItem(STORAGE_KEY);
         }
       } catch (err) {
-        console.warn('Session persist failed', err);
+        logger.warn('Session persist failed', err);
       }
     };
     persist();
@@ -88,7 +89,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
       hydrated,
       logout: () => {
         setState(initialState);
-        safeStorage.removeItem(STORAGE_KEY).catch((err) => console.warn('Session clear failed', err));
+        safeStorage.removeItem(STORAGE_KEY).catch((err) => logger.warn('Session clear failed', err));
       },
       loginAs: (role, residentId, displayName = '', readOnly = false) => {
         setState({

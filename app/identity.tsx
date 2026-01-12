@@ -1,23 +1,19 @@
 import Postcode from '@actbase/react-daum-postcode';
-import { Feather } from '@expo/vector-icons';
 import { zodResolver } from '@hookform/resolvers/zod';
+import { useQueryClient } from '@tanstack/react-query';
 import { router, useLocalSearchParams } from 'expo-router';
 import { useEffect, useRef, useState } from 'react';
 import { Controller, useForm } from 'react-hook-form';
-import { Alert, Modal, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
+import { Alert, Modal, StyleSheet, Text, TextInput, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { z } from 'zod';
 
+import { Button } from '@/components/Button';
 import { KeyboardAwareWrapper } from '@/components/KeyboardAwareWrapper';
 import { useKeyboardPadding } from '@/hooks/use-keyboard-padding';
 import { useSession } from '@/hooks/use-session';
 import { supabase } from '@/lib/supabase';
-
-const HANWHA_ORANGE = '#f36f21';
-const CHARCOAL = '#111827';
-const TEXT_MUTED = '#6b7280';
-const BORDER = '#e5e7eb';
-const PLACEHOLDER = '#9ca3af';
+import { COLORS, TYPOGRAPHY, SPACING, RADIUS, SHADOWS } from '@/lib/theme';
 
 const isValidResidentChecksum = (front: string, back: string) => {
   const digits = `${front}${back}`;
@@ -61,6 +57,7 @@ type FormValues = z.infer<typeof schema>;
 export default function IdentityScreen() {
   const { next } = useLocalSearchParams<{ next?: string }>();
   const { role, residentId, hydrated } = useSession();
+  const queryClient = useQueryClient();
   const [submitting, setSubmitting] = useState(false);
   const [showAddressSearch, setShowAddressSearch] = useState(false);
   const [addressHeight, setAddressHeight] = useState(90);
@@ -140,8 +137,16 @@ export default function IdentityScreen() {
         }
         throw new Error(message);
       }
+
+      // Invalidate identity status cache to trigger real-time update
+      await queryClient.invalidateQueries({ queryKey: ['identity-status', residentId] });
+
       Alert.alert('등록 완료', '신원 정보가 저장되었습니다.');
-      router.replace((next as string) || '/');
+      if (next) {
+        router.replace(next as any);
+      } else {
+        router.replace('/');
+      }
     } catch (err: any) {
       Alert.alert('저장 실패', err?.message ?? '신원 정보 저장 중 문제가 발생했습니다.');
     } finally {
@@ -182,7 +187,7 @@ export default function IdentityScreen() {
                     ref={residentFrontRef}
                     style={[styles.input, styles.residentInput]}
                     placeholder="앞 6자리"
-                    placeholderTextColor={PLACEHOLDER}
+                    placeholderTextColor={COLORS.text.muted}
                     value={value}
                     testID="identity-resident-front"
                     accessibilityLabel="주민등록번호 앞 6자리"
@@ -206,7 +211,7 @@ export default function IdentityScreen() {
                     ref={residentBackRef}
                     style={[styles.input, styles.residentInput]}
                     placeholder="뒷 7자리"
-                    placeholderTextColor={PLACEHOLDER}
+                    placeholderTextColor={COLORS.text.muted}
                     value={value}
                     testID="identity-resident-back"
                     accessibilityLabel="주민등록번호 뒤 7자리"
@@ -229,14 +234,15 @@ export default function IdentityScreen() {
               <Text style={styles.label}>주소</Text>
               {formState.errors.address?.message ? <Text style={styles.error}>{formState.errors.address?.message}</Text> : null}
             </View>
-            <Pressable
-              style={styles.searchButton}
+            <Button
               onPress={() => setShowAddressSearch(true)}
-              testID="identity-address-search"
-              accessibilityLabel="주소 검색"
+              variant="outline"
+              size="md"
+              fullWidth
+              style={{ backgroundColor: '#fff7f0', borderColor: COLORS.primaryLight }}
             >
-              <Text style={styles.searchButtonText}>주소 검색</Text>
-            </Pressable>
+              주소 검색
+            </Button>
             <Controller
               control={control}
               name="address"
@@ -244,7 +250,7 @@ export default function IdentityScreen() {
                 <TextInput
                   style={[styles.input, styles.inputMultiline, { height: addressHeight }]}
                   placeholder="도로명 또는 지번 주소"
-                  placeholderTextColor={PLACEHOLDER}
+                  placeholderTextColor={COLORS.text.muted}
                   value={value}
                   testID="identity-address"
                   accessibilityLabel="주소"
@@ -275,7 +281,7 @@ export default function IdentityScreen() {
                   ref={addressDetailRef}
                   style={styles.input}
                   placeholder="상세 주소"
-                  placeholderTextColor={PLACEHOLDER}
+                  placeholderTextColor={COLORS.text.muted}
                   value={value}
                   testID="identity-address-detail"
                   accessibilityLabel="상세주소"
@@ -286,22 +292,30 @@ export default function IdentityScreen() {
           </View>
         </View>
 
-        <Pressable
-          style={[styles.primaryButton, submitting && styles.primaryButtonDisabled]}
+        <Button
           onPress={handleSubmit(onSubmit)}
           disabled={submitting}
+          loading={submitting}
+          variant="primary"
+          size="lg"
+          fullWidth
+          style={{ marginTop: 8, marginBottom: 40 }}
         >
-          <Text style={styles.primaryButtonText}>{submitting ? '저장 중...' : '확인 및 저장'}</Text>
-        </Pressable>
+          확인 및 저장
+        </Button>
       </KeyboardAwareWrapper>
 
       <Modal visible={showAddressSearch} animationType="slide">
         <SafeAreaView style={{ flex: 1, backgroundColor: '#fff' }}>
           <View style={styles.searchHeader}>
             <Text style={styles.searchTitle}>주소 검색</Text>
-            <Pressable onPress={() => setShowAddressSearch(false)}>
-              <Text style={styles.searchClose}>닫기</Text>
-            </Pressable>
+            <Button
+              onPress={() => setShowAddressSearch(false)}
+              variant="ghost"
+              size="sm"
+            >
+              닫기
+            </Button>
           </View>
           <Postcode
             style={{ flex: 1 }}
@@ -334,60 +348,74 @@ const styles = StyleSheet.create({
     borderColor: '#fed7aa',
     gap: 6,
   },
-  noticeTitle: { fontSize: 15, fontWeight: '800', color: CHARCOAL },
-  noticeText: { fontSize: 13, color: TEXT_MUTED },
-  sectionCard: {
-    backgroundColor: '#fff',
-    padding: 16,
-    borderRadius: 16,
-    borderWidth: 1,
-    borderColor: BORDER,
-    gap: 12,
+  noticeTitle: {
+    fontSize: TYPOGRAPHY.fontSize.base,
+    fontWeight: TYPOGRAPHY.fontWeight.extrabold,
+    color: COLORS.text.primary
   },
-  sectionTitle: { fontWeight: '800', fontSize: 18, color: CHARCOAL },
-  field: { gap: 6 },
-  fieldLabelRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
-  label: { fontWeight: '700', color: CHARCOAL, fontSize: 14 },
-  error: { color: '#dc2626', fontSize: 12 },
+  noticeText: {
+    fontSize: TYPOGRAPHY.fontSize.xs + 2,
+    color: COLORS.text.muted
+  },
+  sectionCard: {
+    backgroundColor: COLORS.white,
+    padding: SPACING.base,
+    borderRadius: RADIUS.lg,
+    borderWidth: 1,
+    borderColor: COLORS.border.light,
+    gap: SPACING.md,
+    ...SHADOWS.base,
+  },
+  sectionTitle: {
+    fontWeight: TYPOGRAPHY.fontWeight.extrabold,
+    fontSize: TYPOGRAPHY.fontSize.lg,
+    color: COLORS.text.primary
+  },
+  field: { gap: SPACING.xs + 2 },
+  fieldLabelRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center'
+  },
+  label: {
+    fontWeight: TYPOGRAPHY.fontWeight.bold,
+    color: COLORS.text.primary,
+    fontSize: TYPOGRAPHY.fontSize.sm + 1
+  },
+  error: {
+    color: COLORS.error,
+    fontSize: TYPOGRAPHY.fontSize.xs + 1
+  },
   input: {
     borderWidth: 1,
-    borderColor: BORDER,
-    borderRadius: 10,
-    paddingHorizontal: 14,
-    paddingVertical: 10,
-    backgroundColor: '#fff',
-    fontSize: 15,
-    color: CHARCOAL,
+    borderColor: COLORS.border.light,
+    borderRadius: RADIUS.base + 2,
+    paddingHorizontal: SPACING.sm + 6,
+    paddingVertical: SPACING.sm + 2,
+    backgroundColor: COLORS.white,
+    fontSize: TYPOGRAPHY.fontSize.base,
+    color: COLORS.text.primary,
   },
-  residentRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
-  residentHyphen: { fontWeight: '800', color: CHARCOAL },
+  residentRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: SPACING.sm
+  },
+  residentHyphen: {
+    fontWeight: TYPOGRAPHY.fontWeight.extrabold,
+    color: COLORS.text.primary
+  },
   residentInput: { flex: 1, minWidth: 0 },
   inputMultiline: { minHeight: 90, textAlignVertical: 'top' },
-  searchButton: {
-    paddingVertical: 10,
-    paddingHorizontal: 14,
-    borderWidth: 1,
-    borderColor: '#f7b182',
-    borderRadius: 10,
-    backgroundColor: '#fff7f0',
-    alignItems: 'center',
-  },
-  searchButtonText: { color: HANWHA_ORANGE, fontWeight: '700' },
-  primaryButton: {
-    backgroundColor: HANWHA_ORANGE,
-    paddingVertical: 16,
-    borderRadius: 14,
-    alignItems: 'center',
-  },
-  primaryButtonDisabled: { opacity: 0.7 },
-  primaryButtonText: { color: '#fff', fontWeight: '800', fontSize: 16 },
   searchHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',
-    padding: 12,
+    padding: SPACING.md,
     borderBottomWidth: 1,
-    borderBottomColor: BORDER,
+    borderBottomColor: COLORS.border.light,
   },
-  searchTitle: { fontWeight: '800', color: CHARCOAL },
-  searchClose: { color: HANWHA_ORANGE, fontWeight: '700' },
+  searchTitle: {
+    fontWeight: TYPOGRAPHY.fontWeight.extrabold,
+    color: COLORS.text.primary
+  },
 });

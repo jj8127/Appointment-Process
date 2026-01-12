@@ -2,6 +2,8 @@ import React, { Component, ReactNode } from 'react';
 import { View, Text, StyleSheet, Pressable, ScrollView } from 'react-native';
 import { Feather } from '@expo/vector-icons';
 
+import { logger } from '@/lib/logger';
+
 type Props = {
   children: ReactNode;
   fallback?: (error: Error, resetError: () => void) => ReactNode;
@@ -25,7 +27,7 @@ export class ErrorBoundary extends Component<Props, State> {
 
   componentDidCatch(error: Error, errorInfo: React.ErrorInfo) {
     // Log error to monitoring service (e.g., Sentry)
-    console.error('ErrorBoundary caught:', error, errorInfo);
+    logger.error('ErrorBoundary caught', { error, errorInfo });
 
     if (this.props.onError) {
       this.props.onError(error, errorInfo);

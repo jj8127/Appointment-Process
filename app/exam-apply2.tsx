@@ -25,10 +25,10 @@ import { RefreshButton } from '@/components/RefreshButton';
 import { useIdentityGate } from '@/hooks/use-identity-gate';
 import { useSession } from '@/hooks/use-session';
 import { supabase } from '@/lib/supabase';
+import { logger } from '@/lib/logger';
 import { ExamRoundWithLocations, formatDate } from '@/types/exam';
 
 const HANWHA_ORANGE = '#f36f21';
-const HANWHA_LIGHT = '#f7b182';
 const CHARCOAL = '#111827';
 const MUTED = '#6b7280';
 const BORDER = '#e5e7eb';
@@ -139,7 +139,7 @@ const fetchRounds = async (): Promise<ExamRoundWithLocations[]> => {
     .order('sort_order', { foreignTable: 'exam_locations', ascending: true });
 
   if (error) {
-    console.log('fetchRounds error', error);
+    logger.debug('fetchRounds error', { error });
     throw error;
   }
 
@@ -399,8 +399,11 @@ export default function ExamApplyScreen() {
       Alert.alert('신청 완료', '시험 신청이 정상적으로 등록되었습니다.');
       router.replace('/'); // 홈으로 이동
     },
-    onError: (err: any) => {
-      Alert.alert('신청 실패', err?.message ?? '시험 신청 중 오류가 발생했습니다.');
+    onSettled: (_data, error) => {
+      if (error) {
+        const message = error instanceof Error ? error.message : '시험 신청 중 오류가 발생했습니다.';
+        Alert.alert('신청 실패', message);
+      }
     },
   });
 
@@ -425,8 +428,11 @@ export default function ExamApplyScreen() {
       Alert.alert('취소 완료', '시험 신청이 취소되었습니다.');
       router.replace('/'); // 취소 후에도 홈으로 이동
     },
-    onError: (err: any) => {
-      Alert.alert('취소 실패', err?.message ?? '시험 신청 취소 중 오류가 발생했습니다.');
+    onSettled: (_data, error) => {
+      if (error) {
+        const message = error instanceof Error ? error.message : '시험 신청 취소 중 오류가 발생했습니다.';
+        Alert.alert('취소 실패', message);
+      }
     },
   });
 

@@ -4,6 +4,7 @@ import * as Haptics from 'expo-haptics';
 import { router } from 'expo-router';
 import { useSession } from '@/hooks/use-session';
 import { supabase } from '@/lib/supabase';
+import { validatePhone, validateRequired, normalizePhone } from '@/lib/validation';
 
 type LoginResponse = {
   ok: boolean;
@@ -26,23 +27,20 @@ export function useLogin(options?: UseLoginOptions) {
   const login = async (phoneInput: string, passwordInput: string) => {
     Keyboard.dismiss();
 
-    // Validation
-    const code = phoneInput.replace(/\s/g, '');
-    if (!code) {
-      Alert.alert('알림', '휴대폰 번호를 입력해주세요.');
+    // Validation using centralized validation library
+    const phoneValidation = validatePhone(phoneInput);
+    if (!phoneValidation.isValid) {
+      Alert.alert('알림', phoneValidation.error);
       return;
     }
 
-    const digits = code.replace(/[^0-9]/g, '');
-    if (digits.length !== 11) {
-      Alert.alert('알림', '휴대폰 번호는 숫자 11자리로 입력해주세요.');
+    const passwordValidation = validateRequired(passwordInput, '비밀번호');
+    if (!passwordValidation.isValid) {
+      Alert.alert('알림', passwordValidation.error);
       return;
     }
 
-    if (!passwordInput.trim()) {
-      Alert.alert('알림', '비밀번호를 입력해주세요.');
-      return;
-    }
+    const digits = normalizePhone(phoneInput);
 
     Haptics.selectionAsync();
     setLoading(true);

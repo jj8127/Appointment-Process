@@ -1,7 +1,9 @@
 import { Feather } from '@expo/vector-icons';
-import { usePathname, router } from 'expo-router';
+import { usePathname, router, type Href } from 'expo-router';
 import { useRef } from 'react';
 import { Animated, Easing, Platform, Pressable, StyleSheet } from 'react-native';
+
+import { logger } from '@/lib/logger';
 
 const BORDER = '#e5e7eb';
 const CHARCOAL = '#111827';
@@ -40,10 +42,11 @@ export function RefreshButton({ onPress }: Props) {
         if (onPress) {
           await onPress();
         } else {
-          router.replace(pathname || '/');
+          const target = (pathname || '/') as Href;
+          router.replace(target);
         }
       } catch (err) {
-        console.warn('RefreshButton onPress failed', err);
+        logger.warn('RefreshButton onPress failed', err);
       }
     });
   };

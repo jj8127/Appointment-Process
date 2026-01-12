@@ -2,7 +2,7 @@ import { Feather, Ionicons } from '@expo/vector-icons';
 import * as DocumentPicker from 'expo-document-picker';
 import { Image } from 'expo-image';
 import * as ImagePicker from 'expo-image-picker';
-import { useLocalSearchParams, useRouter } from 'expo-router';
+import { useLocalSearchParams } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import {
@@ -25,12 +25,12 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { useSession } from '@/hooks/use-session';
 import { supabase } from '@/lib/supabase';
+import { logger } from '@/lib/logger';
 
 const HANWHA_ORANGE = '#f36f21';
 const CHARCOAL = '#111827';
 const MUTED = '#6b7280';
 const SOFT_BG = '#F9FAFB';
-const BORDER = '#E5E7EB';
 const SCREEN_WIDTH = Dimensions.get('window').width;
 
 export const options = { headerShown: false };
@@ -49,7 +49,6 @@ type Message = {
 };
 
 export default function ChatScreen() {
-  const router = useRouter();
   const { role, residentId, displayName } = useSession();
   const { targetId, targetName } = useLocalSearchParams<{ targetId?: string; targetName?: string }>();
   const insets = useSafeAreaInsets();
@@ -74,7 +73,7 @@ export default function ChatScreen() {
       .or(`and(sender_id.eq.${myId},receiver_id.eq.${otherId}),and(sender_id.eq.${otherId},receiver_id.eq.${myId})`)
       .order('created_at', { ascending: false });
     if (error) {
-      console.log('[messages] fetch error', error.message);
+      logger.debug('[messages] fetch error', { error: error.message });
       return;
     }
     const filtered = (data ?? []).filter((m) => !deletedIdsRef.current.has(m.id));
@@ -145,10 +144,10 @@ export default function ChatScreen() {
     (async () => {
       const { data, error } = await supabase.auth.getSession();
       if (error) {
-        console.log('[session] error', error.message);
+        logger.debug('[session] error', { error: error.message });
         return;
       }
-      console.log('[session] userId', data?.session?.user?.id);
+      logger.debug('[session] userId', { userId: data?.session?.user?.id });
     })();
   }, []);
 
@@ -171,7 +170,7 @@ export default function ChatScreen() {
     });
 
     if (error) {
-      console.warn('sendMessage error', error.message);
+      logger.warn('sendMessage error', { error: error.message });
       Alert.alert('전송 실패', '메시지를 보내지 못했습니다.');
       return;
     }
@@ -204,7 +203,7 @@ export default function ChatScreen() {
             },
           });
         } catch (e) {
-          console.warn(e);
+          logger.warn('Error in message handling', { error: e });
         }
       });
   };
@@ -230,7 +229,7 @@ export default function ChatScreen() {
         type: fileType,
       } as any);
 
-      const { data, error } = await supabase.storage.from('chat-uploads').upload(fileName, formData, {
+      const { error } = await supabase.storage.from('chat-uploads').upload(fileName, formData, {
         contentType: fileType,
       });
       if (isUploadCancelled.current) return null;
@@ -240,7 +239,7 @@ export default function ChatScreen() {
       return urlData.publicUrl;
     } catch (e) {
       if (isUploadCancelled.current) return null;
-      console.error(e);
+      logger.error('File upload error', { error: e });
       Alert.alert('업로드 실패', '파일 업로드 중 오류가 발생했습니다.');
       return null;
     } finally {
@@ -289,7 +288,7 @@ export default function ChatScreen() {
         }
       }
     } catch (e) {
-      console.log(e);
+      logger.debug('Image picker error', { error: e });
     } finally {
       pickingRef.current = false;
     }
@@ -318,7 +317,7 @@ export default function ChatScreen() {
         onPress: async () => {
           try {
             const { data: authRes } = await supabase.auth.getUser();
-            console.log('[delete] request', {
+            logger.debug('[delete] request', {
               authUserId: authRes?.user?.id,
               myId,
               msgId: message.id,
@@ -326,15 +325,15 @@ export default function ChatScreen() {
             });
             const { error } = await supabase.from('messages').delete().eq('id', message.id);
             if (error) {
-              console.log('[delete] supabase error', error);
+              logger.debug('[delete] supabase error', { error });
               Alert.alert('삭제 실패', error.message ?? '메시지를 삭제하지 못했습니다.');
             } else {
-              console.log('[delete] success', message.id);
+              logger.debug('[delete] success', { messageId: message.id });
               deletedIdsRef.current.add(message.id);
               setMessages((prev) => prev.filter((m) => m.id !== message.id));
             }
           } catch (err: any) {
-            console.log('[delete] exception', err?.message ?? err);
+            logger.debug('[delete] exception', { error: err?.message ?? err });
             Alert.alert('삭제 실패', '예외가 발생했습니다.');
           }
         },

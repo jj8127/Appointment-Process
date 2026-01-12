@@ -6,12 +6,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { useSession } from '@/hooks/use-session';
 import { useIdentityStatus } from '@/hooks/use-identity-status';
-
-const HANWHA_ORANGE = '#f36f21';
-const CHARCOAL = '#111827';
-const TEXT_MUTED = '#6b7280';
-const BORDER = '#e5e7eb';
-const ORANGE_FAINT = '#fff1e6';
+import { COLORS, TYPOGRAPHY, SPACING, RADIUS } from '@/lib/theme';
 
 type LockedItem = {
   label: string;
@@ -51,10 +46,10 @@ export default function HomeLiteScreen() {
         <Text style={styles.topTitle}>FC 홈</Text>
         <View style={styles.topActions}>
           <Pressable style={styles.iconButton} onPress={() => router.push('/settings')}>
-            <Feather name="settings" size={18} color={CHARCOAL} />
+            <Feather name="settings" size={18} color={COLORS.text.primary} />
           </Pressable>
           <Pressable style={styles.iconButton} onPress={() => router.push('/notifications')}>
-            <Feather name="bell" size={18} color={CHARCOAL} />
+            <Feather name="bell" size={18} color={COLORS.text.primary} />
           </Pressable>
           <Pressable style={styles.logoutButton} onPress={logout}>
             <Text style={styles.logoutText}>로그아웃</Text>
@@ -86,14 +81,14 @@ export default function HomeLiteScreen() {
           <View style={styles.linkGrid}>
             <Pressable style={styles.linkCard} onPress={() => router.push('/chat')}>
               <View style={styles.linkIcon}>
-                <Feather name="message-circle" size={18} color={HANWHA_ORANGE} />
+                <Feather name="message-circle" size={18} color={COLORS.primary} />
               </View>
               <Text style={styles.linkTitle}>1:1 문의</Text>
               <Text style={styles.linkText}>총무팀에게 문의하세요.</Text>
             </Pressable>
             <Pressable style={styles.linkCard} onPress={() => router.push('/notice')}>
               <View style={styles.linkIcon}>
-                <Feather name="clipboard" size={18} color={HANWHA_ORANGE} />
+                <Feather name="clipboard" size={18} color={COLORS.primary} />
               </View>
               <Text style={styles.linkTitle}>공지/안내</Text>
               <Text style={styles.linkText}>공지와 안내를 확인하세요.</Text>
@@ -104,7 +99,7 @@ export default function HomeLiteScreen() {
         <View style={styles.section}>
           <Text style={styles.sectionTitle}>위촉 절차</Text>
           <View style={styles.lockedNotice}>
-            <Feather name="lock" size={16} color={HANWHA_ORANGE} />
+            <Feather name="lock" size={16} color={COLORS.primary} />
             <Text style={styles.lockedNoticeText}>
               위촉 절차는 신원 정보 입력 이후에 사용할 수 있습니다.
             </Text>
@@ -127,98 +122,98 @@ export default function HomeLiteScreen() {
 }
 
 const styles = StyleSheet.create({
-  safe: { flex: 1, backgroundColor: '#fff' },
+  safe: { flex: 1, backgroundColor: COLORS.white },
   topBar: {
-    paddingHorizontal: 20,
-    paddingVertical: 8,
+    paddingHorizontal: SPACING.lg,
+    paddingVertical: SPACING.sm,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
     borderBottomWidth: 1,
-    borderBottomColor: '#F3F4F6',
+    borderBottomColor: COLORS.gray[100],
   },
-  topTitle: { fontSize: 20, fontWeight: '800', color: CHARCOAL },
-  topActions: { flexDirection: 'row', alignItems: 'center', gap: 10 },
+  topTitle: { fontSize: TYPOGRAPHY.fontSize.xl, fontWeight: TYPOGRAPHY.fontWeight.extrabold, color: COLORS.text.primary },
+  topActions: { flexDirection: 'row', alignItems: 'center', gap: SPACING.sm },
   iconButton: {
     width: 34,
     height: 34,
     borderRadius: 17,
     borderWidth: 1,
-    borderColor: BORDER,
+    borderColor: COLORS.border.light,
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: '#fff',
+    backgroundColor: COLORS.white,
   },
   logoutButton: {
-    backgroundColor: '#F3F4F6',
-    paddingHorizontal: 12,
+    backgroundColor: COLORS.gray[100],
+    paddingHorizontal: SPACING.sm,
     paddingVertical: 6,
-    borderRadius: 14,
+    borderRadius: RADIUS.md,
   },
-  logoutText: { fontSize: 13, fontWeight: '700', color: TEXT_MUTED },
-  container: { padding: 20, gap: 20, paddingBottom: 40 },
+  logoutText: { fontSize: TYPOGRAPHY.fontSize.xs, fontWeight: TYPOGRAPHY.fontWeight.bold, color: COLORS.text.secondary },
+  container: { padding: SPACING.lg, gap: SPACING.lg, paddingBottom: SPACING['2xl'] },
   heroCard: {
-    backgroundColor: ORANGE_FAINT,
-    borderRadius: 20,
-    padding: 20,
-    gap: 10,
+    backgroundColor: COLORS.primaryPale,
+    borderRadius: RADIUS.lg,
+    padding: SPACING.lg,
+    gap: SPACING.sm,
   },
-  heroEyebrow: { color: HANWHA_ORANGE, fontWeight: '700', fontSize: 13 },
-  heroTitle: { fontSize: 22, fontWeight: '800', color: CHARCOAL },
-  heroText: { fontSize: 15, color: TEXT_MUTED, lineHeight: 22 },
+  heroEyebrow: { color: COLORS.primary, fontWeight: TYPOGRAPHY.fontWeight.bold, fontSize: TYPOGRAPHY.fontSize.xs },
+  heroTitle: { fontSize: TYPOGRAPHY.fontSize['2xl'], fontWeight: TYPOGRAPHY.fontWeight.extrabold, color: COLORS.text.primary },
+  heroText: { fontSize: TYPOGRAPHY.fontSize.base, color: COLORS.text.secondary, lineHeight: TYPOGRAPHY.lineHeight.relaxed * TYPOGRAPHY.fontSize.base },
   primaryButton: {
-    backgroundColor: HANWHA_ORANGE,
-    paddingVertical: 12,
-    borderRadius: 14,
+    backgroundColor: COLORS.primary,
+    paddingVertical: SPACING.sm,
+    borderRadius: RADIUS.md,
     alignItems: 'center',
     marginTop: 6,
   },
-  primaryButtonText: { color: '#fff', fontWeight: '800', fontSize: 16 },
-  section: { gap: 12 },
-  sectionTitle: { fontSize: 17, fontWeight: '800', color: CHARCOAL },
-  linkGrid: { flexDirection: 'row', gap: 12 },
+  primaryButtonText: { color: COLORS.white, fontWeight: TYPOGRAPHY.fontWeight.extrabold, fontSize: TYPOGRAPHY.fontSize.lg },
+  section: { gap: SPACING.sm },
+  sectionTitle: { fontSize: TYPOGRAPHY.fontSize.lg, fontWeight: TYPOGRAPHY.fontWeight.extrabold, color: COLORS.text.primary },
+  linkGrid: { flexDirection: 'row', gap: SPACING.sm },
   linkCard: {
     flex: 1,
-    borderRadius: 16,
+    borderRadius: RADIUS.lg,
     borderWidth: 1,
-    borderColor: BORDER,
-    padding: 16,
-    backgroundColor: '#fff',
-    gap: 8,
+    borderColor: COLORS.border.light,
+    padding: SPACING.base,
+    backgroundColor: COLORS.white,
+    gap: SPACING.sm,
   },
   linkIcon: {
     width: 34,
     height: 34,
     borderRadius: 17,
-    backgroundColor: ORANGE_FAINT,
+    backgroundColor: COLORS.primaryPale,
     alignItems: 'center',
     justifyContent: 'center',
   },
-  linkTitle: { fontWeight: '700', fontSize: 15, color: CHARCOAL },
-  linkText: { fontSize: 13, color: TEXT_MUTED },
+  linkTitle: { fontWeight: TYPOGRAPHY.fontWeight.bold, fontSize: TYPOGRAPHY.fontSize.base, color: COLORS.text.primary },
+  linkText: { fontSize: TYPOGRAPHY.fontSize.xs, color: COLORS.text.secondary },
   lockedNotice: {
     flexDirection: 'row',
-    gap: 8,
+    gap: SPACING.sm,
     alignItems: 'center',
-    backgroundColor: '#FFF7ED',
-    padding: 12,
-    borderRadius: 12,
+    backgroundColor: COLORS.warning.light,
+    padding: SPACING.sm,
+    borderRadius: RADIUS.base,
     borderWidth: 1,
-    borderColor: '#FED7AA',
+    borderColor: COLORS.warning.border,
   },
-  lockedNoticeText: { flex: 1, fontSize: 13, color: '#9A3412', fontWeight: '600' },
-  lockedList: { gap: 10 },
+  lockedNoticeText: { flex: 1, fontSize: TYPOGRAPHY.fontSize.xs, color: COLORS.warning.dark, fontWeight: TYPOGRAPHY.fontWeight.semibold },
+  lockedList: { gap: SPACING.sm },
   lockedItem: {
     borderWidth: 1,
-    borderColor: BORDER,
-    borderRadius: 14,
-    padding: 14,
-    backgroundColor: '#fff',
+    borderColor: COLORS.border.light,
+    borderRadius: RADIUS.md,
+    padding: SPACING.md,
+    backgroundColor: COLORS.white,
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
   },
-  lockedLeft: { flexDirection: 'row', alignItems: 'center', gap: 8 },
-  lockedLabel: { fontSize: 15, fontWeight: '700', color: CHARCOAL },
-  lockedHint: { fontSize: 12, color: TEXT_MUTED },
+  lockedLeft: { flexDirection: 'row', alignItems: 'center', gap: SPACING.sm },
+  lockedLabel: { fontSize: TYPOGRAPHY.fontSize.base, fontWeight: TYPOGRAPHY.fontWeight.bold, color: COLORS.text.primary },
+  lockedHint: { fontSize: TYPOGRAPHY.fontSize['2xs'], color: COLORS.text.secondary },
 });

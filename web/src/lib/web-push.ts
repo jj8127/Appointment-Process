@@ -1,5 +1,6 @@
 import webpush from 'web-push';
 
+import { logger } from '@/lib/logger';
 type WebPushConfig = {
   publicKey: string;
   privateKey: string;
@@ -76,7 +77,7 @@ export async function sendWebPush(
       if (err?.statusCode === 404 || err?.statusCode === 410) {
         expired.push(sub.endpoint);
       }
-      console.warn('[web-push] send failed', err?.statusCode ?? err);
+      logger.warn('[web-push] send failed', err?.statusCode ?? err);
     }
   }
 

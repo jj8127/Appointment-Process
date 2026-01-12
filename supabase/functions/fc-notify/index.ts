@@ -223,7 +223,7 @@ serve(async (req: Request) => {
     resident_id: targetResidentId,
     recipient_role: targetRole,
   });
-  if (logError) console.error('notifications insert failed', logError.message);
+  if (logError) console.warn('notifications insert failed', logError.message);
 
   if (!tokens.length) {
     return ok({ ok: true, sent: 0, logged: true });

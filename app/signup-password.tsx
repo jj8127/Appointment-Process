@@ -3,29 +3,25 @@ import { router, useFocusEffect } from 'expo-router';
 import { MotiView } from 'moti';
 import { useCallback, useEffect, useState } from 'react';
 import {
-  ActivityIndicator,
   Alert,
   BackHandler,
   Keyboard,
-  Pressable,
   StyleSheet,
   Text,
-  TextInput,
   View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
+import { Button } from '@/components/Button';
+import { FormInput } from '@/components/FormInput';
 import { KeyboardAwareWrapper } from '@/components/KeyboardAwareWrapper';
 import { useKeyboardPadding } from '@/hooks/use-keyboard-padding';
 import { safeStorage } from '@/lib/safe-storage';
 import { supabase } from '@/lib/supabase';
+import { logger } from '@/lib/logger';
+import { COLORS, TYPOGRAPHY, SPACING, RADIUS } from '@/lib/theme';
+import { validatePassword } from '@/lib/validation';
 
-const HANWHA_ORANGE = '#f36f21';
-const HANWHA_ORANGE_DARK = '#d65a16';
-const CHARCOAL = '#1F2937';
-const GRAY_TEXT = '#6B7280';
-const BORDER = '#E5E7EB';
-const INPUT_BG = '#F9FAFB';
 const STORAGE_KEY = 'fc-onboarding/signup';
 
 type SignupPayload = {
@@ -43,7 +39,6 @@ export default function SignupPasswordScreen() {
   const [password, setPassword] = useState('');
   const [confirm, setConfirm] = useState('');
   const [loading, setLoading] = useState(false);
-  const [focusedField, setFocusedField] = useState<string | null>(null);
   const keyboardPadding = useKeyboardPadding();
 
   useEffect(() => {
@@ -88,26 +83,20 @@ export default function SignupPasswordScreen() {
     }, [handleBack]),
   );
 
-  const inputStyle = (field: string) => [
-    styles.inputWrapper,
-    {
-      borderColor: focusedField === field ? HANWHA_ORANGE : BORDER,
-      backgroundColor: focusedField === field ? '#FFF' : INPUT_BG,
-    },
-  ];
-
   const handleComplete = async () => {
     Keyboard.dismiss();
     if (!payload) return;
+
     const trimmedPassword = password.trim();
     const trimmedConfirm = confirm.trim();
-    const hasLetter = /[A-Za-z]/.test(trimmedPassword);
-    const hasNumber = /[0-9]/.test(trimmedPassword);
-    const hasSpecial = /[^A-Za-z0-9]/.test(trimmedPassword);
-    if (trimmedPassword.length < 8 || !hasLetter || !hasNumber || !hasSpecial) {
-      Alert.alert('알림', '비밀번호는 8자 이상이며 영문+숫자+특수문자를 포함해야 합니다.');
+
+    // Use validation library
+    const passwordValidation = validatePassword(trimmedPassword);
+    if (!passwordValidation.isValid) {
+      Alert.alert('알림', passwordValidation.error);
       return;
     }
+
     if (trimmedPassword !== trimmedConfirm) {
       Alert.alert('알림', '비밀번호가 일치하지 않습니다.');
       return;
@@ -188,7 +177,7 @@ export default function SignupPasswordScreen() {
       Alert.alert('완료', '회원가입이 완료되었습니다. 로그인해주세요.');
       router.replace('/login');
     } catch (err: any) {
-      console.warn('signup failed', err);
+      logger.warn('signup failed', { error: err });
       const message =
         err?.message ||
         err?.details ||
@@ -226,55 +215,39 @@ export default function SignupPasswordScreen() {
                 <Text style={styles.subtitle}>가입용 비밀번호를 설정해주세요.</Text>
               </View>
 
-              <View style={styles.inputContainer}>
-                <Text style={styles.label}>비밀번호</Text>
-                <View style={inputStyle('password')}>
-                <TextInput
-                    style={styles.input}
-                    placeholder="8자 이상, 영문+숫자+특수문자"
-                    placeholderTextColor="#9CA3AF"
-                    value={password}
-                    onChangeText={setPassword}
-                    onFocus={() => setFocusedField('password')}
-                    onBlur={() => setFocusedField(null)}
-                    autoCapitalize="none"
-                    secureTextEntry
-                  />
-                </View>
-              </View>
+              <FormInput
+                label="비밀번호"
+                variant="password"
+                placeholder="8자 이상, 영문+숫자+특수문자"
+                value={password}
+                onChangeText={setPassword}
+                autoCapitalize="none"
+                editable={!loading}
+                containerStyle={styles.inputContainer}
+              />
 
-              <View style={styles.inputContainer}>
-                <Text style={styles.label}>비밀번호 확인</Text>
-                <View style={inputStyle('confirm')}>
-                <TextInput
-                    style={styles.input}
-                    placeholder="비밀번호 다시 입력 (조건 동일)"
-                    placeholderTextColor="#9CA3AF"
-                    value={confirm}
-                    onChangeText={setConfirm}
-                    onFocus={() => setFocusedField('confirm')}
-                    onBlur={() => setFocusedField(null)}
-                    autoCapitalize="none"
-                    secureTextEntry
-                  />
-                </View>
-              </View>
+              <FormInput
+                label="비밀번호 확인"
+                variant="password"
+                placeholder="비밀번호 다시 입력"
+                value={confirm}
+                onChangeText={setConfirm}
+                autoCapitalize="none"
+                editable={!loading}
+                containerStyle={styles.inputContainer}
+              />
 
-              <Pressable
-                style={({ pressed }) => [
-                  styles.button,
-                  pressed && styles.buttonPressed,
-                  loading && styles.buttonDisabled,
-                ]}
+              <Button
                 onPress={handleComplete}
                 disabled={loading}
+                loading={loading}
+                variant="primary"
+                size="lg"
+                fullWidth
+                style={styles.button}
               >
-                {loading ? (
-                  <ActivityIndicator color="#fff" />
-                ) : (
-                  <Text style={styles.buttonText}>회원가입 완료</Text>
-                )}
-              </Pressable>
+                회원가입 완료
+              </Button>
             </MotiView>
           </View>
         </KeyboardAwareWrapper>
@@ -293,8 +266,8 @@ const styles = StyleSheet.create({
   scrollContent: {
     flexGrow: 1,
     paddingTop: '18%',
-    paddingHorizontal: 20,
-    paddingBottom: 40,
+    paddingHorizontal: SPACING.lg,
+    paddingBottom: SPACING['2xl'],
   },
   innerContent: {
     width: '100%',
@@ -302,77 +275,35 @@ const styles = StyleSheet.create({
     alignSelf: 'center',
   },
   card: {
-    backgroundColor: '#fff',
-    borderRadius: 24,
-    padding: 28,
-    shadowColor: '#f36f21',
+    backgroundColor: COLORS.white,
+    borderRadius: RADIUS.xl,
+    padding: SPACING['2xl'],
+    shadowColor: COLORS.primary,
     shadowOffset: { width: 0, height: 12 },
     shadowOpacity: 0.08,
     shadowRadius: 24,
     elevation: 8,
     borderWidth: 1,
-    borderColor: 'rgba(243, 111, 33, 0.05)',
+    borderColor: COLORS.primaryPale,
   },
   headerSection: {
-    marginBottom: 24,
+    marginBottom: SPACING['2xl'],
     alignItems: 'center',
   },
   title: {
-    fontSize: 24,
-    fontWeight: '800',
-    color: CHARCOAL,
-    marginBottom: 6,
+    fontSize: TYPOGRAPHY.fontSize['2xl'],
+    fontWeight: TYPOGRAPHY.fontWeight.extrabold,
+    color: COLORS.text.primary,
+    marginBottom: SPACING.sm,
   },
   subtitle: {
-    fontSize: 14,
-    color: GRAY_TEXT,
+    fontSize: TYPOGRAPHY.fontSize.sm,
+    color: COLORS.text.secondary,
   },
   inputContainer: {
-    gap: 8,
-    marginBottom: 16,
-  },
-  label: {
-    fontSize: 13,
-    fontWeight: '700',
-    color: CHARCOAL,
-    marginLeft: 4,
-  },
-  inputWrapper: {
-    height: 52,
-    borderWidth: 1.5,
-    borderRadius: 14,
-    justifyContent: 'center',
-  },
-  input: {
-    flex: 1,
-    paddingHorizontal: 16,
-    fontSize: 15,
-    color: CHARCOAL,
+    marginBottom: SPACING.base,
   },
   button: {
-    height: 54,
-    backgroundColor: HANWHA_ORANGE,
-    borderRadius: 16,
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginTop: 8,
-    shadowColor: HANWHA_ORANGE,
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.3,
-    shadowRadius: 8,
-    elevation: 4,
-  },
-  buttonPressed: {
-    backgroundColor: HANWHA_ORANGE_DARK,
-    transform: [{ scale: 0.98 }],
-  },
-  buttonDisabled: {
-    backgroundColor: '#FFD4C0',
-    shadowOpacity: 0,
-  },
-  buttonText: {
-    fontSize: 15,
-    fontWeight: '700',
-    color: '#fff',
+    marginTop: SPACING.sm,
   },
 });

@@ -3,6 +3,7 @@
 import { useRouter } from 'next/navigation';
 import { createContext, ReactNode, useContext, useEffect, useMemo, useState } from 'react';
 
+import { logger } from '@/lib/logger';
 type Role = 'admin' | 'fc' | null;
 
 type SessionState = {
@@ -82,7 +83,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
                     }
                 }
             } catch (err) {
-                console.warn('Session restore failed', err);
+                logger.warn('Session restore failed', err);
             } finally {
                 setHydrated(true);
             }
@@ -107,7 +108,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
                     localStorage.removeItem(STORAGE_KEY);
                 }
             } catch (err) {
-                console.warn('Session persist failed', err);
+                logger.warn('Session persist failed', err);
             }
         };
         persist();

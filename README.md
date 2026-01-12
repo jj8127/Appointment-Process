@@ -38,9 +38,23 @@ Supabase 스키마 적용
 
 `supabase/schema.sql`을 Supabase SQL Editor 또는 supabase CLI로 실행해 테이블/시퀀스/RLS/스토리지 버킷(`fc-documents`)을 생성하세요. `generate_temp_id()` RPC가 임시사번을 발급하며, 스토리지 정책은 `authenticated` 사용자만 업로드/조회 가능하도록 설정되어 있습니다.
 
-다음 작업 아이디어
------------------
+문서 구조
+---------
 
-- 업로드 화면에서 업로드 파일 검증(용량/확장자) 및 재업로드 요청
-- 대시보드 목록을 Supabase 쿼리 + React Query로 교체
-- 상태 전이/검수/최종 URL 발송 로직을 서버와 연결
+### AI/개발자 가이드 (루트)
+- `.cursorrules` - AI 핵심 규칙
+- `AI.md` - AI 상세 개발 가이드
+- `context.md` - 현재 세션 상태
+- `HANDOVER.md` - AI 핸드오버 프로토콜
+- `CLAUDE.md` - Claude Code용 가이드
+
+### 아키텍처 문서
+- `adr/` - 아키텍처 결정 기록 (Architecture Decision Records)
+- `contracts/` - API/DB/컴포넌트 계약 문서
+
+### 참조 문서
+- `docs/deployment/` - 배포 가이드
+- `docs/guides/` - 한글 사용 가이드
+- `docs/superclaude/` - SuperClaude 관련
+
+자세한 내용은 `CLAUDE.md` 또는 `AI.md`를 참조하세요.

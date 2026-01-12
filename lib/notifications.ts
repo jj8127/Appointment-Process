@@ -1,6 +1,7 @@
 import Constants from 'expo-constants';
 import { Platform } from 'react-native';
 
+import { logger } from './logger';
 import { supabase } from './supabase';
 
 let handlerSet = false;
@@ -8,10 +9,10 @@ let handlerSet = false;
 export async function registerPushToken(role: 'admin' | 'fc', residentId: string, displayName: string) {
   try {
     if (Platform.OS === 'web') return;
-    console.log('registerPushToken start', role, residentId);
+    logger.debug('registerPushToken start', { role, residentId });
     // Expo Go cannot issue push tokens; use an EAS build
     if (Constants.appOwnership === 'expo') {
-      console.warn('[push] Expo Go cannot issue push tokens. Please use an EAS build.');
+      logger.warn('[push] Expo Go cannot issue push tokens. Please use an EAS build.');
       return;
     }
 
@@ -24,6 +25,8 @@ export async function registerPushToken(role: 'admin' | 'fc', residentId: string
           shouldShowAlert: true,
           shouldPlaySound: true,
           shouldSetBadge: false,
+          shouldShowBanner: true,
+          shouldShowList: true,
         }),
       });
       handlerSet = true;
@@ -42,22 +45,22 @@ export async function registerPushToken(role: 'admin' | 'fc', residentId: string
     if (!Device.isDevice) return;
 
     const { status: existingStatus } = await Notifications.getPermissionsAsync();
-    console.log('push permission existingStatus', existingStatus);
+    logger.debug('push permission existingStatus', existingStatus);
     let finalStatus = existingStatus;
     if (existingStatus !== 'granted') {
       const { status } = await Notifications.requestPermissionsAsync();
-      console.log('push permission requested status', status);
+      logger.debug('push permission requested status', status);
       finalStatus = status;
     }
     if (finalStatus !== 'granted') {
-      console.log('push permission not granted, skip token register');
+      logger.debug('push permission not granted, skip token register');
       return;
     }
 
     const projectId = Constants.expoConfig?.extra?.eas?.projectId ?? Constants.expoConfig?.extra?.projectId;
     const token = await Notifications.getExpoPushTokenAsync({ projectId });
     const expoToken = token.data;
-    console.log('getExpoPushTokenAsync token', { projectId, expoToken });
+    logger.debug('getExpoPushTokenAsync token', { projectId, expoToken });
 
     const { error: upsertError } = await supabase.from('device_tokens').upsert(
       {
@@ -70,8 +73,8 @@ export async function registerPushToken(role: 'admin' | 'fc', residentId: string
       },
       { onConflict: 'expo_push_token' },
     );
-    console.log('upsert resp', upsertError);
+    logger.debug('upsert resp', upsertError);
   } catch (err) {
-    console.warn('registerPushToken failed', err);
+    logger.warn('registerPushToken failed', err);
   }
 }

@@ -169,7 +169,7 @@ export default function ExamRegisterScreen() {
   const [selectedRoundId, setSelectedRoundId] = useState<string | null>(null);
   const [locationInput, setLocationInput] = useState('');
   const [locationOrder, setLocationOrder] = useState('0');
-  const [draftLocations, setDraftLocations] = useState<Array<{ id: string; name: string; order: number }>>([]);
+  const [draftLocations, setDraftLocations] = useState<{ id: string; name: string; order: number }[]>([]);
   const [refreshing, setRefreshing] = useState(false);
   const [notesHeight, setNotesHeight] = useState(80);
   const isEditMode = Boolean(selectedRoundId);
@@ -297,11 +297,16 @@ export default function ExamRegisterScreen() {
         '응시를 희망하는 경우 신청해주세요.',
       );
     },
-    onError: (err: any) =>
-      Alert.alert('저장 실패', err?.message ?? '저장 중 오류가 발생했습니다.'),
+    onSettled: (_data, error) => {
+      if (error) {
+        const message = error instanceof Error ? error.message : '저장 중 오류가 발생했습니다.';
+        Alert.alert('저장 실패', message);
+      }
+    },
   });
 
-  const addLocation = useMutation({
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  const _addLocation = useMutation({
     mutationFn: async () => {
       assertCanEdit();
       if (!selectedRoundId) throw new Error('시험 일정을 먼저 선택해주세요.');
@@ -322,8 +327,12 @@ export default function ExamRegisterScreen() {
       setLocationOrder('0');
       refetch();
     },
-    onError: (err: any) =>
-      Alert.alert('지역 추가 실패', err?.message ?? '지역 추가 중 오류가 발생했습니다.'),
+    onSettled: (_data, error) => {
+      if (error) {
+        const message = error instanceof Error ? error.message : '지역 추가 중 오류가 발생했습니다.';
+        Alert.alert('지역 추가 실패', message);
+      }
+    },
   });
 
   const deleteRound = useMutation({
@@ -335,8 +344,12 @@ export default function ExamRegisterScreen() {
     onSuccess: () => {
       refetch();
     },
-    onError: (err: any) =>
-      Alert.alert('삭제 실패', err?.message ?? '지역 삭제 중 오류가 발생했습니다.'),
+    onSettled: (_data, error) => {
+      if (error) {
+        const message = error instanceof Error ? error.message : '지역 삭제 중 오류가 발생했습니다.';
+        Alert.alert('삭제 실패', message);
+      }
+    },
   });
 
   const handleDeleteRound = (id: string) => {

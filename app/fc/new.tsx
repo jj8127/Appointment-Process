@@ -22,42 +22,19 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { z } from 'zod';
 
+import { Button } from '@/components/Button';
 import { KeyboardAwareWrapper, useKeyboardAware } from '@/components/KeyboardAwareWrapper';
-import { RefreshButton } from '@/components/RefreshButton';
+import { ScreenHeader } from '@/components/ScreenHeader';
 import { useKeyboardPadding } from '@/hooks/use-keyboard-padding';
 import { useSession } from '@/hooks/use-session';
 import { safeStorage } from '@/lib/safe-storage';
 import { supabase } from '@/lib/supabase';
+import { COLORS, TYPOGRAPHY, SPACING, RADIUS, SHADOWS } from '@/lib/theme';
+import { logger } from '@/lib/logger';
 
-const ORANGE = '#f36f21';
-const ORANGE_LIGHT = '#f7b182';
 const CHARCOAL = '#111827';
 const TEXT_MUTED = '#6b7280';
-const BORDER = '#e5e7eb';
-
 const PLACEHOLDER = '#9ca3af';
-
-const CARD_SHADOW =
-  Platform.OS === 'web'
-    ? { boxShadow: '0 2px 6px rgba(0,0,0,0.06)' }
-    : {
-        shadowColor: '#000',
-        shadowOpacity: 0.03,
-        shadowRadius: 6,
-        shadowOffset: { width: 0, height: 2 },
-        elevation: 2,
-      };
-
-const BUTTON_SHADOW =
-  Platform.OS === 'web'
-    ? { boxShadow: '0 3px 8px rgba(0,0,0,0.18)' }
-    : {
-        shadowColor: '#000',
-        shadowOpacity: 0.08,
-        shadowOffset: { width: 0, height: 3 },
-        shadowRadius: 8,
-        elevation: 3,
-      };
 
 const getFunctionErrorMessage = async (err: any) => {
   if (!err) return '신원 정보 저장에 실패했습니다.';
@@ -190,7 +167,7 @@ async function sendNotificationAndPush(
       }).catch(() => {});
     }
   } catch (err) {
-    console.warn('sendNotificationAndPush failed', err);
+    logger.warn('sendNotificationAndPush failed', err);
   }
 }
 
@@ -206,7 +183,6 @@ export default function FcNewScreen() {
   const [emailDomain, setEmailDomain] = useState('');
   const [customDomain, setCustomDomain] = useState('');
   const [carrier, setCarrier] = useState('');
-  const [refreshing, setRefreshing] = useState(false);
   const [showDomainPicker, setShowDomainPicker] = useState(false);
   const [showCarrierPicker, setShowCarrierPicker] = useState(false);
   const [showAddressSearch, setShowAddressSearch] = useState(false);
@@ -242,13 +218,13 @@ export default function FcNewScreen() {
     mode: 'onBlur',
   });
 
-  const updateEmailValue = (local: string, domain: string, custom: string) => {
+  const updateEmailValue = useCallback((local: string, domain: string, custom: string) => {
     const domainToUse = domain === '직접입력' ? custom : domain;
     const emailValue = local && domainToUse ? `${local}@${domainToUse}` : '';
     setValue('email', emailValue, { shouldValidate: true });
-  };
+  }, [setValue]);
 
-  const loadExisting = async (phone?: string) => {
+  const loadExisting = useCallback(async (phone?: string) => {
     const key = phone ?? phoneFromSession;
     if (!key) return;
     const { data, error } = await supabase
@@ -257,7 +233,7 @@ export default function FcNewScreen() {
       .eq('phone', key)
       .maybeSingle();
     if (error) {
-      console.warn('FC load failed', error.message);
+      logger.warn('FC load failed', error.message);
       return;
     }
     let signupPayload: Partial<FormValues & { phone?: string; carrier?: string }> | null = null;
@@ -271,7 +247,7 @@ export default function FcNewScreen() {
         }
       }
     } catch (err) {
-      console.warn('signup payload load failed', err);
+      logger.warn('signup payload load failed', err);
     }
 
     const merged = {
@@ -317,15 +293,15 @@ export default function FcNewScreen() {
       }
     }
     setExistingTempId(merged.temp_id);
-  };
+  }, [phoneFromSession, setValue]);
 
   useEffect(() => {
     loadExisting();
-  }, [phoneFromSession]);
+  }, [phoneFromSession, loadExisting]);
 
   useEffect(() => {
     updateEmailValue(emailLocal, emailDomain, customDomain);
-  }, [emailLocal, emailDomain, customDomain]);
+  }, [emailLocal, emailDomain, customDomain, updateEmailValue]);
 
   const onSubmit = async (values: FormValues) => {
     setSubmitting(true);
@@ -342,7 +318,7 @@ export default function FcNewScreen() {
       status: 'draft',
     };
 
-    console.log('[DEBUG] Mobile: Creating FC Profile Payload:', JSON.stringify(basePayload, null, 2)); // Debug log
+    logger.debug('[DEBUG] Mobile: Creating FC Profile Payload', { basePayload });
 
     const { data: existing } = await supabase
       .from('fc_profiles')
@@ -531,13 +507,8 @@ export default function FcNewScreen() {
 
   // Pull-to-refresh: 기존 loadExisting을 재호출
   const onRefresh = useCallback(async () => {
-    setRefreshing(true);
-    try {
-      await loadExisting();
-    } finally {
-      setRefreshing(false);
-    }
-  }, []);
+    await loadExisting();
+  }, [loadExisting]);
 
   return (
     <SafeAreaView style={styles.safe} edges={['left', 'right', 'bottom']}>
@@ -559,14 +530,13 @@ export default function FcNewScreen() {
       <KeyboardAwareWrapper
         contentContainerStyle={[styles.container, { paddingBottom: Math.max(120, keyboardPadding + 40) }]}
         extraScrollHeight={140}>
-        <RefreshButton onPress={onRefresh} />
-
-        <View style={styles.hero}>
-          <Text style={styles.heroEyebrow}>정보 확인</Text>
-          <Text style={styles.title}>기본 정보를 입력해주세요</Text>
-          <Text style={styles.caption}>입력 후 저장 버튼을 누르면 다음 단계로 이동합니다. 이미 입력된 정보는 불러옵니다.</Text>
-          {existingTempId ? <Text style={styles.temp}>임시번호 {existingTempId}</Text> : null}
-        </View>
+        <ScreenHeader
+          title="기본 정보"
+          subtitle="입력 후 저장하면 다음 단계로 이동합니다."
+          badge={existingTempId ? `임시번호 ${existingTempId}` : undefined}
+          showRefresh
+          onRefresh={onRefresh}
+        />
 
         <View style={styles.sectionCard}>
           <Text style={styles.sectionTitle}>기본 정보</Text>
@@ -764,6 +734,7 @@ export default function FcNewScreen() {
                     maxLength={6}
                     returnKeyType="next"
                     onSubmitEditing={() => residentBackRef.current?.focus()}
+                    scrollEnabled={false}
                   />
                 )}
               />
@@ -784,6 +755,7 @@ export default function FcNewScreen() {
                     secureTextEntry
                     returnKeyType="next"
                     onSubmitEditing={() => addressDetailRef.current?.focus()}
+                    scrollEnabled={false}
                   />
                 )}
               />
@@ -834,14 +806,17 @@ export default function FcNewScreen() {
           />
         </View>
 
-        <Pressable
-          style={[styles.primaryButton, submitting && styles.primaryButtonDisabled]}
+        <Button
           onPress={handleSubmit(onSubmit, onError)}
-          disabled={submitting}>
-          <Text style={styles.primaryButtonText}>
-            {submitting ? '저장 중...' : existingTempId ? '수정하기' : '저장하기'}
-          </Text>
-        </Pressable>
+          disabled={submitting}
+          loading={submitting}
+          variant="primary"
+          size="lg"
+          fullWidth
+          style={{ marginTop: 8, marginBottom: 40 }}
+        >
+          {existingTempId ? '수정하기' : '저장하기'}
+        </Button>
       </KeyboardAwareWrapper>
 
       <Modal visible={showDomainPicker} transparent animationType="fade">
@@ -995,54 +970,77 @@ type FormFieldProps = {
   };
 
 const styles = StyleSheet.create({
-  safe: { flex: 1, backgroundColor: '#ffffff' },
-  container: { padding: 20, gap: 18 },
-  hero: { gap: 8, paddingVertical: 8 },
-  heroEyebrow: { color: ORANGE, fontWeight: '700', fontSize: 15 }, // 13 -> 15
-  title: { fontSize: 28, fontWeight: '800', color: CHARCOAL, lineHeight: 34 }, // 24 -> 28
-  caption: { color: TEXT_MUTED, lineHeight: 22, fontSize: 16 }, // default -> 16
-  temp: { color: CHARCOAL, fontWeight: '700', marginTop: 4, fontSize: 16 }, // default -> 16
+  safe: { flex: 1, backgroundColor: COLORS.white },
+  container: { padding: SPACING.lg, gap: SPACING.lg - 2 },
   sectionCard: {
-    backgroundColor: '#fff',
-    padding: 16,
-    borderRadius: 16,
+    backgroundColor: COLORS.white,
+    padding: SPACING.base,
+    borderRadius: RADIUS.lg,
     borderWidth: 1,
-    borderColor: BORDER,
-    gap: 12,
-    ...CARD_SHADOW,
+    borderColor: COLORS.border.light,
+    gap: SPACING.md,
+    ...SHADOWS.base,
   },
-  sectionTitle: { fontWeight: '800', fontSize: 20, color: CHARCOAL }, // 16 -> 20
+  sectionTitle: {
+    fontWeight: TYPOGRAPHY.fontWeight.extrabold,
+    fontSize: TYPOGRAPHY.fontSize.xl,
+    color: COLORS.text.primary
+  },
   affiliationBox: {
     flexDirection: 'row',
     flexWrap: 'wrap',
-    gap: 8,
+    gap: SPACING.sm,
   },
   affiliationItem: {
     borderWidth: 1,
-    borderColor: BORDER,
-    borderRadius: 12,
-    paddingVertical: 10, // 8 -> 10
-    paddingHorizontal: 14, // 12 -> 14
-    backgroundColor: '#fff',
+    borderColor: COLORS.border.light,
+    borderRadius: RADIUS.md,
+    paddingVertical: SPACING.sm + 2,
+    paddingHorizontal: SPACING.sm + 6,
+    backgroundColor: COLORS.white,
   },
-  affiliationActive: { borderColor: ORANGE, backgroundColor: '#fff1e6' },
-  affiliationText: { color: CHARCOAL, fontSize: 16 }, // default -> 16
-  affiliationTextActive: { color: ORANGE, fontWeight: '700' },
-  field: { gap: 6 },
-  fieldLabelRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
-  label: { fontWeight: '700', color: CHARCOAL, fontSize: 16 }, // default -> 16
-  error: { color: '#dc2626', fontSize: 14 }, // 12 -> 14
-  helperText: { color: TEXT_MUTED, fontSize: 13, marginTop: 4 },
+  affiliationActive: {
+    borderColor: COLORS.primary,
+    backgroundColor: COLORS.primaryPale
+  },
+  affiliationText: {
+    color: COLORS.text.primary,
+    fontSize: TYPOGRAPHY.fontSize.md
+  },
+  affiliationTextActive: {
+    color: COLORS.primary,
+    fontWeight: TYPOGRAPHY.fontWeight.bold
+  },
+  field: { gap: SPACING.xs + 2 },
+  fieldLabelRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center'
+  },
+  label: {
+    fontWeight: TYPOGRAPHY.fontWeight.bold,
+    color: COLORS.text.primary,
+    fontSize: TYPOGRAPHY.fontSize.md
+  },
+  error: {
+    color: COLORS.error,
+    fontSize: TYPOGRAPHY.fontSize.sm + 1
+  },
+  helperText: {
+    color: COLORS.text.muted,
+    fontSize: TYPOGRAPHY.fontSize.xs + 2,
+    marginTop: SPACING.xs
+  },
   input: {
     borderWidth: 1,
-    borderColor: BORDER,
-    borderRadius: 10,
-    paddingHorizontal: 14,
-    paddingVertical: 10,
-    backgroundColor: '#fff',
-    fontSize: 16, // added explicit 16
-    color: CHARCOAL,
-    height: 52, // Fixed height to prevent internal scrolling
+    borderColor: COLORS.border.light,
+    borderRadius: RADIUS.base + 2,
+    paddingHorizontal: SPACING.sm + 6,
+    paddingVertical: SPACING.sm + 2,
+    backgroundColor: COLORS.white,
+    fontSize: TYPOGRAPHY.fontSize.md,
+    color: COLORS.text.primary,
+    height: 52,
     lineHeight: 20,
     textAlignVertical: 'center',
   },
@@ -1059,7 +1057,7 @@ const styles = StyleSheet.create({
   },
   selectOverlay: {
     position: 'absolute',
-    right: 12,
+    right: SPACING.md,
     top: 0,
     bottom: 0,
     justifyContent: 'center',
@@ -1068,132 +1066,143 @@ const styles = StyleSheet.create({
   residentRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 8,
+    gap: SPACING.sm,
   },
   residentInput: {
     flex: 1,
     textAlign: 'center',
   },
   residentHyphen: {
-    fontWeight: '700',
-    color: CHARCOAL,
-    fontSize: 16,
+    fontWeight: TYPOGRAPHY.fontWeight.bold,
+    color: COLORS.text.primary,
+    fontSize: TYPOGRAPHY.fontSize.md,
   },
   searchButton: {
-    paddingVertical: 10,
-    paddingHorizontal: 14,
+    paddingVertical: SPACING.sm + 2,
+    paddingHorizontal: SPACING.sm + 6,
     borderWidth: 1,
-    borderColor: '#f7b182',
-    borderRadius: 10,
+    borderColor: COLORS.primaryLight,
+    borderRadius: RADIUS.base + 2,
     backgroundColor: '#fff7f0',
     alignItems: 'center',
   },
-  searchButtonText: { color: ORANGE, fontWeight: '700' },
+  searchButtonText: {
+    color: COLORS.primary,
+    fontWeight: TYPOGRAPHY.fontWeight.bold
+  },
   searchHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',
-    padding: 12,
+    padding: SPACING.md,
     borderBottomWidth: 1,
-    borderBottomColor: BORDER,
+    borderBottomColor: COLORS.border.light,
   },
-  searchTitle: { fontWeight: '800', color: CHARCOAL },
-  searchClose: { color: ORANGE, fontWeight: '700' },
-  primaryButton: {
-    marginTop: 8,
-    marginBottom: 40,
-    backgroundColor: ORANGE,
-    paddingVertical: 18, // 16 -> 18
-    borderRadius: 14,
-    alignItems: 'center',
-    ...BUTTON_SHADOW,
+  searchTitle: {
+    fontWeight: TYPOGRAPHY.fontWeight.extrabold,
+    color: COLORS.text.primary
   },
-  primaryButtonDisabled: { opacity: 0.7 },
-  primaryButtonText: { color: '#fff', fontWeight: '800', fontSize: 18 }, // 16 -> 18
+  searchClose: {
+    color: COLORS.primary,
+    fontWeight: TYPOGRAPHY.fontWeight.bold
+  },
   emailRow: {
     flexDirection: 'row',
     alignItems: 'flex-start',
-    gap: 8,
+    gap: SPACING.sm,
   },
   emailLocal: {
     flex: 1.1,
     minWidth: 0,
   },
   emailAt: {
-    fontWeight: '800',
-    color: CHARCOAL,
-    fontSize: 16,
-    marginTop: 12,
+    fontWeight: TYPOGRAPHY.fontWeight.extrabold,
+    color: COLORS.text.primary,
+    fontSize: TYPOGRAPHY.fontSize.md,
+    marginTop: SPACING.md,
   },
   emailDomainBox: {
     flex: 1,
     borderWidth: 1,
-    borderColor: BORDER,
-    borderRadius: 8,
+    borderColor: COLORS.border.light,
+    borderRadius: RADIUS.base,
     overflow: 'hidden',
     justifyContent: 'center',
-    height: 54, // 50 -> 54
-    backgroundColor: '#fff',
+    height: 54,
+    backgroundColor: COLORS.white,
   },
   emailDomainSelect: {
     flex: 1,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    paddingHorizontal: 12,
+    paddingHorizontal: SPACING.md,
   },
   emailDomainSelectText: {
-    color: CHARCOAL,
-    fontSize: 14,
-    fontWeight: '600',
+    color: COLORS.text.primary,
+    fontSize: TYPOGRAPHY.fontSize.sm + 1,
+    fontWeight: TYPOGRAPHY.fontWeight.semibold,
   },
   emailDomainSelectPlaceholder: {
-    color: TEXT_MUTED,
-    fontWeight: '500',
+    color: COLORS.text.muted,
+    fontWeight: TYPOGRAPHY.fontWeight.medium,
   },
   emailPicker: {
-    color: CHARCOAL,
-    marginLeft: -8,
-    marginRight: -8,
+    color: COLORS.text.primary,
+    marginLeft: -SPACING.sm,
+    marginRight: -SPACING.sm,
   },
   customDomainInput: {
-    marginTop: 4,
+    marginTop: SPACING.xs,
     borderWidth: 1,
-    borderColor: BORDER,
-    borderRadius: 8,
-    padding: 8,
-    backgroundColor: '#fff',
-    fontSize: 14, // 12 -> 14
-    height: 44, // 40 -> 44
+    borderColor: COLORS.border.light,
+    borderRadius: RADIUS.base,
+    padding: SPACING.sm,
+    backgroundColor: COLORS.white,
+    fontSize: TYPOGRAPHY.fontSize.sm + 1,
+    height: 44,
   },
   modalOverlay: {
     flex: 1,
-    backgroundColor: 'rgba(0,0,0,0.35)',
+    backgroundColor: COLORS.background.overlay,
     justifyContent: 'center',
     alignItems: 'center',
-    padding: 20,
+    padding: SPACING.lg,
   },
   modalCard: {
     width: '100%',
     maxWidth: 360,
-    backgroundColor: '#fff',
-    borderRadius: 16,
-    padding: 16,
+    backgroundColor: COLORS.white,
+    borderRadius: RADIUS.lg,
+    padding: SPACING.base,
   },
-  modalTitle: { fontSize: 16, fontWeight: '800', color: CHARCOAL, marginBottom: 12 },
-  modalOptions: { gap: 8 },
+  modalTitle: {
+    fontSize: TYPOGRAPHY.fontSize.md,
+    fontWeight: TYPOGRAPHY.fontWeight.extrabold,
+    color: COLORS.text.primary,
+    marginBottom: SPACING.md
+  },
+  modalOptions: { gap: SPACING.sm },
   modalOption: {
-    paddingVertical: 10,
-    paddingHorizontal: 8,
-    borderRadius: 10,
-    backgroundColor: '#F9FAFB',
+    paddingVertical: SPACING.sm + 2,
+    paddingHorizontal: SPACING.sm,
+    borderRadius: RADIUS.base + 2,
+    backgroundColor: COLORS.gray[50],
   },
-  modalOptionText: { fontSize: 14, fontWeight: '600', color: CHARCOAL },
+  modalOptionText: {
+    fontSize: TYPOGRAPHY.fontSize.sm + 1,
+    fontWeight: TYPOGRAPHY.fontWeight.semibold,
+    color: COLORS.text.primary
+  },
   modalCancel: {
-    marginTop: 12,
-    paddingVertical: 10,
+    marginTop: SPACING.md,
+    paddingVertical: SPACING.sm + 2,
     alignItems: 'center',
-    borderRadius: 10,
-    backgroundColor: '#F3F4F6',
+    borderRadius: RADIUS.base + 2,
+    backgroundColor: COLORS.gray[100],
   },
-  modalCancelText: { fontSize: 14, fontWeight: '700', color: '#4B5563' },
+  modalCancelText: {
+    fontSize: TYPOGRAPHY.fontSize.sm + 1,
+    fontWeight: TYPOGRAPHY.fontWeight.bold,
+    color: COLORS.gray[600]
+  },
 });

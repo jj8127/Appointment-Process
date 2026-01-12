@@ -7,6 +7,7 @@ import { notifications } from '@mantine/notifications';
 import { useRouter } from 'next/navigation';
 import { useState } from 'react';
 
+import { logger } from '@/lib/logger';
 export default function ResetPasswordPage() {
   const { logout } = useSession();
   const router = useRouter();
@@ -37,7 +38,7 @@ export default function ResetPasswordPage() {
             // ignore
           }
         }
-        console.warn('reset request failed', detail);
+        logger.warn('reset request failed', detail);
         throw new Error(detail || error.message);
       }
       if (!data?.ok) {

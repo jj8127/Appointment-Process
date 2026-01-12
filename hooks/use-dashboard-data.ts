@@ -1,4 +1,5 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { logger } from '@/lib/logger';
 import { supabase } from '@/lib/supabase';
 import { FcProfile } from '@/types/fc';
 
@@ -20,7 +21,7 @@ export const fetchFcs = async (
   let query = supabase
     .from('fc_profiles')
     .select(
-      'id,name,affiliation,phone,temp_id,status,allowance_date,appointment_url,appointment_date,docs_deadline_at,appointment_schedule_life,appointment_schedule_nonlife,appointment_date_life,appointment_date_nonlife,appointment_date_life_sub,appointment_date_nonlife_sub,appointment_reject_reason_life,appointment_reject_reason_nonlife,resident_id_masked,career_type,email,address,address_detail,fc_documents(doc_type,storage_path,file_name,status,reviewer_note)',
+      'id,name,affiliation,phone,temp_id,status,allowance_date,appointment_url,appointment_date,docs_deadline_at,appointment_schedule_life,appointment_schedule_nonlife,appointment_date_life,appointment_date_nonlife,appointment_date_life_sub,appointment_date_nonlife_sub,appointment_reject_reason_life,appointment_reject_reason_nonlife,resident_id_masked,career_type,email,address,address_detail,fc_documents(doc_type,storage_path,file_name,status,reviewer_note),created_at',
     )
     .order('created_at', { ascending: false });
 
@@ -35,7 +36,7 @@ export const fetchFcs = async (
 
   const { data, error } = await query;
   if (error) {
-    console.error('[useDashboardData] fetchFcs query error', {
+    logger.error('[useDashboardData] fetchFcs query error', {
       message: error.message,
       code: (error as any).code,
       details: (error as any).details,

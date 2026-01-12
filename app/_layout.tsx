@@ -16,6 +16,7 @@ import FcTourTooltip from '@/components/FcTourTooltip';
 import { ErrorBoundary } from '@/components/ErrorBoundary';
 import { useColorScheme } from '@/hooks/use-color-scheme';
 import { SessionProvider } from '@/hooks/use-session';
+import { logger } from '@/lib/logger';
 
 import {
   AntDesign,
@@ -133,11 +134,11 @@ export default function RootLayout() {
           lockscreenVisibility: Notifications.AndroidNotificationVisibility.PUBLIC,
         });
         const channels = await Notifications.getNotificationChannelsAsync();
-        console.log('[notifications] android channels', channels);
+        logger.debug('[notifications] android channels', { channels });
         await NavigationBar.setVisibilityAsync('visible');
         await NavigationBar.setStyle(isDark ? 'light' : 'dark');
       } catch (err) {
-        console.warn('NavigationBar apply failed', err);
+        logger.warn('NavigationBar apply failed', err);
       }
     })();
   }, [isDark]);
@@ -158,7 +159,7 @@ export default function RootLayout() {
           }
         });
       } catch (err) {
-        console.warn('push navigation listener failed', err);
+        logger.warn('push navigation listener failed', err);
       }
     })();
     return () => {
