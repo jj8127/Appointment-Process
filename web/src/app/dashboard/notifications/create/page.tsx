@@ -2,6 +2,7 @@
 
 import {
     ActionIcon,
+    Alert,
     Box,
     Button,
     Container,
@@ -22,13 +23,14 @@ import { Dropzone, FileWithPath, IMAGE_MIME_TYPE } from '@mantine/dropzone';
 import { useForm, zodResolver } from '@mantine/form';
 import { notifications } from '@mantine/notifications';
 import { createBrowserClient } from '@supabase/ssr';
-import { IconArrowLeft, IconCheck, IconFile, IconPhoto, IconSend, IconUpload, IconX } from '@tabler/icons-react';
+import { IconArrowLeft, IconCheck, IconFile, IconInfoCircle, IconPhoto, IconSend, IconUpload, IconX } from '@tabler/icons-react';
 import { AnimatePresence, motion } from 'framer-motion';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useState, useTransition } from 'react';
 import { z } from 'zod';
 import { createNoticeAction } from '../actions';
+import { useSession } from '@/hooks/use-session';
 
 import { logger } from '@/lib/logger';
 const schema = z.object({
@@ -46,6 +48,7 @@ const glassStyle = {
 
 export default function CreateNoticePage() {
     const router = useRouter();
+    const { isReadOnly } = useSession();
     const [isPending, startTransition] = useTransition();
     const [images, setImages] = useState<FileWithPath[]>([]);
     const [files, setFiles] = useState<FileWithPath[]>([]);
@@ -271,6 +274,18 @@ export default function CreateNoticePage() {
                     </Text>
                 </Stack>
 
+                {isReadOnly && (
+                    <Alert
+                        icon={<IconInfoCircle size={20} />}
+                        title="읽기 전용 모드"
+                        color="yellow"
+                        variant="light"
+                        mb="lg"
+                    >
+                        본부장 계정은 조회만 가능합니다. 수정 권한이 필요한 경우 관리자에게 문의하세요.
+                    </Alert>
+                )}
+
                 <Paper
                     radius="lg"
                     p={rem(40)}
@@ -286,6 +301,7 @@ export default function CreateNoticePage() {
                                 placeholder="예: 공지사항, 긴급, 이벤트"
                                 size="md"
                                 required
+                                disabled={isReadOnly}
                                 classNames={{ input: 'glass-input' }}
                                 {...form.getInputProps('category')}
                             />
@@ -295,6 +311,7 @@ export default function CreateNoticePage() {
                                 placeholder="제목을 입력하세요"
                                 size="md"
                                 required
+                                disabled={isReadOnly}
                                 {...form.getInputProps('title')}
                             />
 
@@ -305,6 +322,7 @@ export default function CreateNoticePage() {
                                 autosize
                                 size="md"
                                 required
+                                disabled={isReadOnly}
                                 {...form.getInputProps('body')}
                             />
 
@@ -318,6 +336,7 @@ export default function CreateNoticePage() {
                                     accept={IMAGE_MIME_TYPE}
                                     maxFiles={5}
                                     radius="md"
+                                    disabled={isReadOnly}
                                     style={{
                                         border: '2px dashed var(--mantine-color-gray-3)',
                                         backgroundColor: 'rgba(255,255,255,0.5)',
@@ -373,6 +392,7 @@ export default function CreateNoticePage() {
                                     maxSize={10 * 1024 * 1024}
                                     maxFiles={5}
                                     radius="md"
+                                    disabled={isReadOnly}
                                     style={{
                                         border: '2px dashed var(--mantine-color-gray-3)',
                                         backgroundColor: 'rgba(255,255,255,0.5)',
@@ -421,14 +441,16 @@ export default function CreateNoticePage() {
                             <Group justify="flex-end" mt="xl">
                                 <Button
                                     type="submit"
-                                    variant="gradient"
-                                    gradient={{ from: 'orange', to: 'red' }}
+                                    variant={isReadOnly ? "default" : "gradient"}
+                                    gradient={isReadOnly ? undefined : { from: 'orange', to: 'red' }}
+                                    color={isReadOnly ? "gray" : undefined}
                                     size="lg"
                                     radius="md"
                                     leftSection={<IconSend size={20} />}
                                     loading={isPending}
+                                    disabled={isReadOnly}
                                     style={{
-                                        boxShadow: '0 4px 14px 0 rgba(232, 89, 12, 0.39)'
+                                        boxShadow: isReadOnly ? 'none' : '0 4px 14px 0 rgba(232, 89, 12, 0.39)'
                                     }}
                                 >
                                     전송하기

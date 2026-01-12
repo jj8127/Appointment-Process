@@ -1,6 +1,7 @@
 앱 빌드: [시작 전에 버전 업데이트 필수]eas build --platform android --profile production  / eas build --platform ios --profile production
 앱 실행+설치: npx expo run:android
 웹 실행:cd web & npm run dev
+아이폰 빌드 제출: eas submit -p ios --latest
 
 ios에서 테스트
     npx expo start 하고 Expo Go 모드로 전환 -> QR코드 스캔

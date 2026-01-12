@@ -8,6 +8,7 @@ interface StatusToggleProps {
     readOnly?: boolean;
     showNeutralForPending?: boolean;
     allowPendingPress?: boolean;
+    isManagerMode?: boolean; // 본부장 모드 (색상 차별화용)
 }
 
 export function StatusToggle({
@@ -18,6 +19,7 @@ export function StatusToggle({
     readOnly = false,
     showNeutralForPending = false,
     allowPendingPress = false,
+    isManagerMode = false,
 }: StatusToggleProps) {
     const theme = useMantineTheme();
     const isNeutral = showNeutralForPending && value === 'pending';
@@ -61,19 +63,20 @@ export function StatusToggle({
             className="status-toggle"
             styles={{
                 root: {
-                    backgroundColor: '#f1f3f5',
+                    backgroundColor: isManagerMode ? '#e9ecef' : '#f1f3f5',
                     opacity: readOnly ? 0.6 : 1,
+                    border: isManagerMode ? '1px solid #dee2e6' : undefined,
                 },
                 indicator: {
-                    backgroundColor: '#fff',
-                    boxShadow: '0 1px 3px rgba(0,0,0,0.1)',
+                    backgroundColor: isManagerMode ? '#e9ecef' : '#fff',
+                    boxShadow: isManagerMode ? '0 1px 2px rgba(0,0,0,0.05)' : '0 1px 3px rgba(0,0,0,0.1)',
                     transition: 'transform 180ms ease, width 180ms ease, background-color 180ms ease, box-shadow 180ms ease',
                     opacity: isNeutral ? 0 : 1,
                 },
                 label: {
                     fontWeight: 600,
                     transition: 'color 180ms ease, transform 180ms ease',
-                    color: isNeutral ? theme.colors.gray[6] : undefined,
+                    color: isManagerMode ? theme.colors.gray[6] : (isNeutral ? theme.colors.gray[6] : undefined),
                 },
                 control: {
                     transition: 'color 180ms ease',

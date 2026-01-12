@@ -132,6 +132,21 @@ cd web && npm run lint # Web
 2. **Login**: `login-with-password` Edge Function (phone + password → JWT)
 3. **Password Reset**: `request-password-reset` → `reset-password` Edge Functions
 
+### SMS Integration (NCP SENS)
+- **Provider**: Naver Cloud Platform Simple & Easy Notification Service
+- **Environment Variables**:
+  - `NCP_SERVICE_ID`: Service ID from NCP console
+  - `NCP_ACCESS_KEY`: API access key
+  - `NCP_SECRET_KEY`: API secret key
+  - `NCP_SMS_FROM`: Sender phone number
+  - `TEST_SMS_MODE`: `true` for test mode, `false` for production
+  - `TEST_SMS_CODE`: Fixed OTP code for test mode (e.g., "123456")
+- **Test Mode**: Returns mock success without actual SMS sending
+- **Production Mode**: Sends actual SMS via NCP SENS API
+- **Usage**: Signup OTP (5 min validity), Password reset (15 min validity)
+- **Testing**: `node test-sms.js <phone-number>`
+- **Documentation**: See `docs/guides/SMS_TESTING.md`
+
 ### Apply Schema
 ```bash
 # Run in Supabase SQL Editor or CLI
@@ -142,11 +157,13 @@ psql -U postgres -f supabase/schema.sql
 ```
 
 ### Utility Queries
-See `명령어 모음집.txt` for:
+See `docs/guides/COMMANDS.md` (or `명령어 모음집.txt` for Korean version) for:
 - Generating password hashes: `node -e "const crypto=require('crypto')..."`
 - Adding manager accounts
 - Resetting passwords
 - Adding FC accounts with credentials
+- Testing SMS OTP system
+- Deployment commands
 
 ## Key Workflows
 
@@ -167,6 +184,27 @@ See `명령어 모음집.txt` for:
 2. Dashboard at `web/src/app/dashboard/page.tsx`
 3. Manage FCs: Assign temp IDs, approve dates/documents, track workflow status
 4. Handle 1:1 messages and post notices
+
+### Manager (본부장) Permissions
+**Role**: Read-only access for branch managers to monitor FC onboarding progress
+
+**UI Behavior**:
+- All action buttons display in **gray** (disabled state)
+- Status toggles display in gray with reduced opacity
+- Input fields disabled on forms
+- Alert banner: "읽기 전용 모드 - 본부장 계정은 조회만 가능합니다"
+
+**Affected Pages**:
+- `web/src/app/dashboard/page.tsx` - Main dashboard (14 buttons gray)
+- `web/src/app/dashboard/exam/schedule/page.tsx` - Exam schedule management
+- `web/src/app/dashboard/exam/applicants/page.tsx` - Exam applicant management
+- `web/src/app/dashboard/notifications/create/page.tsx` - Notice creation
+- `web/src/app/dashboard/chat/page.tsx` - Messaging
+
+**Implementation**:
+- `useSession()` hook provides `isReadOnly` boolean (true for managers)
+- `<StatusToggle isManagerMode={isReadOnly} />` - gray styling
+- Buttons: `color={isReadOnly ? "gray" : "originalColor"} disabled={isReadOnly}`
 
 ## Critical Security Rules
 

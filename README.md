@@ -55,6 +55,23 @@ Supabase 스키마 적용
 ### 참조 문서
 - `docs/deployment/` - 배포 가이드
 - `docs/guides/` - 한글 사용 가이드
+  - `COMMANDS.md` - 명령어 모음집 (마크다운)
+  - `SMS_TESTING.md` - SMS OTP 테스트 가이드
+  - `명령어 모음집.txt` - 명령어 모음집 (한글 원본)
 - `docs/superclaude/` - SuperClaude 관련
+
+최신 업데이트
+-----------
+
+**2025-01-12**:
+- ✅ SMS 인증 시스템 프로덕션 모드 활성화 (NCP SENS)
+- ✅ 본부장(Manager) 권한 UI 개선 (색상 차별화)
+- ✅ 명령어 모음집 마크다운 변환 (`docs/guides/COMMANDS.md`)
+
+**2025-01-11**:
+- ✅ TypeScript 타입 안정성 (0 에러)
+- ✅ 테스트 인프라 구축 (Jest + 53개 테스트)
+- ✅ DX 개선 (Logger + Git Hooks)
+- ✅ console.log → logger 전환 완료 (약 150개)
 
 자세한 내용은 `CLAUDE.md` 또는 `AI.md`를 참조하세요.

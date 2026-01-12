@@ -411,10 +411,10 @@ export default function ExamSchedulePage() {
             </Table.Td>
             <Table.Td>
                 <Group gap={6}>
-                    <ActionIcon variant="light" color="orange" disabled={isReadOnly} onClick={() => handleOpenEdit(round)} aria-label="일정 수정">
+                    <ActionIcon variant="light" color={isReadOnly ? "gray" : "orange"} disabled={isReadOnly} onClick={() => handleOpenEdit(round)} aria-label="일정 수정">
                         <IconEdit size={16} />
                     </ActionIcon>
-                    <ActionIcon variant="light" color="red" disabled={isReadOnly} onClick={() => handleOpenDelete(round)} aria-label="일정 삭제">
+                    <ActionIcon variant="light" color={isReadOnly ? "gray" : "red"} disabled={isReadOnly} onClick={() => handleOpenDelete(round)} aria-label="일정 삭제">
                         <IconTrash size={16} />
                     </ActionIcon>
                 </Group>
@@ -439,7 +439,7 @@ export default function ExamSchedulePage() {
                             { label: '캘린더', value: 'calendar' }
                         ]}
                     />
-                    <Button leftSection={<IconPlus size={16} />} color="orange" disabled={isReadOnly} onClick={handleOpenCreate}>
+                    <Button leftSection={<IconPlus size={16} />} color={isReadOnly ? "gray" : "orange"} disabled={isReadOnly} onClick={handleOpenCreate}>
                         일정 등록
                     </Button>
                 </Group>

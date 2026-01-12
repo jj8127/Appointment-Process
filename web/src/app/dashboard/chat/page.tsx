@@ -30,6 +30,7 @@ import {
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import dayjs from 'dayjs';
 import { useEffect, useRef, useState } from 'react';
+import { useSession } from '@/hooks/use-session';
 
 import { logger } from '@/lib/logger';
 // --- Constants ---
@@ -63,6 +64,7 @@ type Message = {
 // --- Page Component ---
 export default function ChatPage() {
     const queryClient = useQueryClient();
+    const { isReadOnly } = useSession();
     const [selectedFc, setSelectedFc] = useState<ChatPreview | null>(null);
     const [keyword, setKeyword] = useState('');
 
@@ -458,7 +460,7 @@ function ChatRoom({ fc }: { fc: ChatPreview }) {
             <Box p="md" bg="white" style={{ borderTop: '1px solid #e9ecef' }}>
                 <Group align="flex-end" gap={8}>
                     <Textarea
-                        placeholder="메시지를 입력하세요 (Enter로 전송)"
+                        placeholder={isReadOnly ? "본부장 계정은 메시지를 보낼 수 없습니다" : "메시지를 입력하세요 (Enter로 전송)"}
                         autosize
                         minRows={1}
                         maxRows={4}
@@ -467,15 +469,16 @@ function ChatRoom({ fc }: { fc: ChatPreview }) {
                         onChange={(e) => setInputText(e.currentTarget.value)}
                         onKeyDown={handleKeyDown}
                         radius="md"
+                        disabled={isReadOnly}
                     />
                     <ActionIcon
                         size="lg"
-                        color="orange"
+                        color={isReadOnly ? "gray" : "orange"}
                         variant="filled"
                         radius="xl"
                         onClick={handleSendMessage}
                         loading={isSending}
-                        disabled={!inputText.trim()}
+                        disabled={isReadOnly || !inputText.trim()}
                     >
                         <IconSend size={18} />
                     </ActionIcon>

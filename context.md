@@ -8,13 +8,34 @@
 ## Current Goal (현재 목표)
 - 모든 핵심 Phase 완료 ✅
 - 로깅 전환 완료 ✅
+- SMS 인증 시스템 프로덕션 모드 설정 완료 ✅
+- 본부장 권한 UI 개선 완료 (색상 차별화) ✅
 - 추가 개선 항목 대기 중 (필요 시 진행)
 
 ---
 
 ## Done (완료된 작업)
 
-### 현재 세션 (2025-01-11)
+### 현재 세션 (2025-01-12)
+**Phase 5: SMS 인증 시스템 및 권한 관리 개선 (완료)**
+- [x] 명령어 모음집 마크다운 변환 (`docs/guides/COMMANDS.md`)
+- [x] NCP SENS SMS 프로덕션 모드 설정
+  - Test mode 비활성화 (`TEST_SMS_MODE=false`)
+  - 실제 SMS 발송 테스트 성공 (01051078127)
+  - SMS 테스트 가이드 작성 (`docs/guides/SMS_TESTING.md`)
+- [x] 비밀번호 재설정 로직 검토 완료
+  - FC 계정: 완전 구현 확인 (request-password-reset, reset-password)
+  - Admin/Manager 계정: 비밀번호 재설정 기능 없음 확인
+- [x] 본부장(Manager) 권한 UI 개선 - 색상 차별화 방식
+  - StatusToggle 컴포넌트: `isManagerMode` prop 추가
+  - 대시보드: 모든 액션 버튼 회색조 변경 (14개 버튼)
+  - 시험 일정 관리: 일정 등록/수정/삭제 버튼 회색조
+  - 시험 신청자 관리: useSession 추가
+  - 공지사항 작성: 모든 입력 필드 및 버튼 비활성화
+  - 채팅: 메시지 입력창 및 전송 버튼 비활성화
+  - 읽기 전용 Alert 추가 (모든 관리 페이지)
+
+### 이전 세션 (2025-01-11)
 **Phase 2: TypeScript 타입 안정성 (완료)**
 - [x] React Query v5 마이그레이션: `onError` → `onSettled`
 - [x] 네비게이션/스타일 타입 오류 해결
@@ -76,14 +97,28 @@
 - logger.ts: 100% 커버리지 (8 테스트) ✅
 - 추가 테스트 필요: components, hooks (선택적)
 
+### SMS 인증 시스템
+- ✅ NCP SENS 프로덕션 모드 활성화 완료
+- ✅ 실제 SMS 발송 테스트 성공
+- 비용 모니터링 필요 (NCP 콘솔에서 확인)
+
+### 권한 관리
+- ✅ 본부장(Manager) 계정 UI 색상 차별화 완료
+- ⚠️ Admin/Manager 계정 비밀번호 재설정 기능 없음
+  - 현재: `request-password-reset`가 FC 계정만 처리
+  - 필요 시: Admin/Manager용 별도 구현 필요
+
 ### 추가 개선 가능 항목 (선택적)
 - ✅ console.log → logger 전환 완료
+- ✅ 본부장 권한 UI 개선 완료
+- Admin/Manager 비밀번호 재설정 기능 구현 (필요 시)
 - 추가 컴포넌트 테스트 (Button, FormInput, LoadingSkeleton)
 - E2E 테스트 (Testsprite)
 
 ### 주의 사항
 - Android LayoutAnimation 비활성화됨 (dashboard.tsx에서 crash 방지)
 - enableScreens(false) 설정됨 (_layout.tsx)
+- SMS 테스트 모드: `TEST_SMS_MODE=false` (프로덕션)
 
 ---
 
@@ -94,19 +129,25 @@
 - ✅ Phase 2: TypeScript 타입 안정성
 - ✅ Phase 3: 테스트 인프라
 - ✅ Phase 4: DX 개선 (Logger + Git Hooks)
+- ✅ Phase 5: SMS 인증 시스템 및 권한 관리 개선
 
 ### 선택적 추가 개선
-1. **추가 테스트 작성 (필요 시)**
+1. **Admin/Manager 비밀번호 재설정 기능 (필요 시)**
+   - request-password-reset 함수 확장
+   - reset-password 함수 확장
+   - 웹 UI 구현
+
+2. **추가 테스트 작성 (필요 시)**
    - components/ 테스트 (Button, FormInput, LoadingSkeleton)
    - hooks/ 테스트 (use-session, use-identity-gate)
    - React Native Testing Library 활용
 
-2. **성능 최적화 (필요 시)**
+3. **성능 최적화 (필요 시)**
    - React.memo 적용
    - useMemo/useCallback 최적화
    - 이미지 최적화
 
-3. **문서화 (필요 시)**
+4. **문서화 (필요 시)**
    - API 문서 자동 생성
    - Storybook 도입 검토
 
@@ -121,15 +162,31 @@
 - components/Button.tsx - 버튼 컴포넌트 (5 variants, 3 sizes)
 - components/FormInput.tsx - 입력 필드 컴포넌트 (3 variants)
 - components/LoadingSkeleton.tsx - 스켈레톤 컴포넌트
+- web/src/components/StatusToggle.tsx - 상태 토글 (본부장 모드 지원)
 
 ### 테스트
 - lib/__tests__/validation.test.ts - validation.ts 테스트 (45개)
 - lib/__tests__/logger.test.ts - logger.ts 테스트 (8개)
 - jest.config.js - Jest 설정 (ts-jest preset)
+- test-sms.js - SMS OTP 테스트 스크립트
 
 ### 개발 도구
 - .husky/pre-commit - Git pre-commit hook (lint-staged)
 - package.json - lint-staged 설정
+
+### 인증 & 보안
+- supabase/functions/request-signup-otp/ - 회원가입 OTP 발송 (NCP SENS)
+- supabase/functions/request-password-reset/ - 비밀번호 재설정 코드 발송
+- supabase/functions/reset-password/ - 비밀번호 재설정 처리
+- supabase/functions/login-with-password/ - 로그인 (FC/Admin/Manager)
+
+### Phase 5 완료 파일 (권한 관리 UI)
+- web/src/app/dashboard/page.tsx - 대시보드 (14개 버튼 색상 차별화)
+- web/src/app/dashboard/exam/schedule/page.tsx - 시험 일정 관리
+- web/src/app/dashboard/exam/applicants/page.tsx - 시험 신청자 관리
+- web/src/app/dashboard/notifications/create/page.tsx - 공지사항 작성
+- web/src/app/dashboard/chat/page.tsx - 채팅
+- web/src/components/StatusToggle.tsx - 상태 토글 컴포넌트
 
 ### Phase 1 완료 파일 (컴포넌트 통일)
 - app/consent.tsx - 수당 동의 (Button 3개)
@@ -157,6 +214,9 @@ npx tsc --noEmit
 # 개발 서버 실행
 npm start
 
+# SMS OTP 테스트
+node test-sms.js 01012345678
+
 # 주요 화면 테스트
 # 1. 로그인 → 회원가입 플로우
 # 2. 신원 확인 (identity.tsx) - Button 확인
@@ -164,6 +224,13 @@ npm start
 # 4. 서류 업로드 (docs-upload.tsx) - 관리자 검토 버튼
 # 5. 공지사항 등록 (admin-notice.tsx) - FormInput, 첨부파일 버튼
 # 6. 메신저 (admin-messenger.tsx) - 검색 FormInput
+
+# 본부장 권한 테스트 (웹)
+# 1. 본부장 계정으로 로그인
+# 2. 대시보드 - 모든 버튼이 회색으로 표시, 클릭 불가 확인
+# 3. 시험 일정 관리 - 일정 등록/수정/삭제 버튼 회색 확인
+# 4. 공지사항 작성 - 입력 필드 비활성화 확인
+# 5. 채팅 - 메시지 전송 불가 확인
 ```
 
 ---
@@ -233,6 +300,9 @@ npm start
 ### Reference Docs
 - `docs/deployment/` - Deployment guides
 - `docs/guides/` - Korean guides
+  - `COMMANDS.md` - 명령어 모음집 (마크다운 버전)
+  - `SMS_TESTING.md` - SMS OTP 테스트 가이드
+  - `명령어 모음집.txt` - 원본 명령어 모음집 (한글)
 - `docs/superclaude/` - SuperClaude related
 
 ---
@@ -243,8 +313,15 @@ npm start
 - **Button 컴포넌트**: 11개 버튼 적용 완료
 - **FormInput 컴포넌트**: 6개 입력 필드 적용 완료
 - **LoadingSkeleton**: 3개 화면 적용 완료
+- **StatusToggle**: 본부장 모드 지원 추가
 - **Theme 토큰**: 16개 화면 마이그레이션 완료
 - **코드 제거**: 약 300줄 중복 스타일 제거
+
+### Manager Permission UI (본부장 권한 UI)
+- **대시보드**: 14개 버튼 색상 차별화
+- **StatusToggle**: 5개 토글 회색조 변경
+- **관리 페이지**: 5개 페이지 읽기 전용 모드 적용
+- **Alert 추가**: 모든 관리 페이지에 읽기 전용 안내
 
 ### Code Quality (현재 상태)
 - **TypeScript**: 0 에러 (App ✅ + Functions ✅ + Web ✅)
@@ -252,15 +329,20 @@ npm start
 - **Tests**: 53개 테스트, 2개 파일 100% 커버리지
 - **Git Hooks**: pre-commit (lint-staged) 활성화 ✅
 - **Logging**: 구조화된 logger 전환 완료 (약 150개 console 문)
+- **SMS**: NCP SENS 프로덕션 모드 활성화 ✅
 
 ---
 
 ## Last Updated
-- **Date**: 2025-01-11
+- **Date**: 2025-01-12
 - **By**: AI Assistant
-- **Session**: Phase 2-4 완료 + 로깅 전환 완료
-- **Status**: 프로젝트 품질 기반 구축 완료, 로깅 시스템 통합 완료
-- **Next**: 선택적 개선 항목 (추가 테스트, 성능 최적화 등)
+- **Session**: Phase 5 완료 (SMS 인증 + 본부장 권한 UI)
+- **Status**:
+  - 프로젝트 품질 기반 구축 완료
+  - 로깅 시스템 통합 완료
+  - SMS 프로덕션 모드 활성화
+  - 본부장 권한 UI 색상 차별화 완료
+- **Next**: 선택적 개선 항목 (Admin/Manager 비밀번호 재설정, 추가 테스트 등)
 
 
 

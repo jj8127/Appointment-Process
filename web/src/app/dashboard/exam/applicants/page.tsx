@@ -26,6 +26,7 @@ import { IconChevronDown, IconDownload, IconRefresh, IconSearch, IconX } from '@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import dayjs from 'dayjs';
 import { useEffect, useMemo, useState } from 'react';
+import { useSession } from '@/hooks/use-session';
 
 import { supabase } from '@/lib/supabase';
 
@@ -167,6 +168,7 @@ const ExcelColumnFilter = ({ title, options, selected, onApply }: ExcelColumnFil
 
 export default function ExamApplicantsPage() {
     const queryClient = useQueryClient();
+    const { isReadOnly } = useSession();
     const [filters, setFilters] = useState<FilterState>({});
 
     // --- Fetch All Recent Applicants ---

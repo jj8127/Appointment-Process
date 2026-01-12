@@ -737,7 +737,7 @@ export default function DashboardPage() {
         )}
         <Group gap={8}>
           <Button
-            variant="light" color="blue" size="xs" flex={1}
+            variant="light" color={isReadOnly ? "gray" : "blue"} size="xs" flex={1}
             leftSection={<IconDeviceFloppy size={14} />}
             loading={isAppointmentPending}
             disabled={isReadOnly}
@@ -758,10 +758,11 @@ export default function DashboardPage() {
             labelApproved="승인 완료"
             showNeutralForPending
             readOnly={isReadOnly || isAppointmentPending}
+            isManagerMode={isReadOnly}
           />
           <Tooltip label="반려 (확정 취소)">
             <ActionIcon
-              variant="light" color="red" size="input-xs"
+              variant="light" color={isReadOnly ? "gray" : "red"} size="input-xs"
               loading={isAppointmentPending}
               disabled={isReadOnly}
               onClick={() => openRejectModal({ kind: 'appointment', category })}
@@ -1053,13 +1054,13 @@ export default function DashboardPage() {
               </div>
             </Group>
             <Group gap="xs">
-              <Button variant="white" color="dark" size="xs" leftSection={<IconUser size={14} />} onClick={() => router.push('/dashboard/exam/applicants')} disabled={isReadOnly}>
+              <Button variant="white" color={isReadOnly ? "gray" : "dark"} size="xs" leftSection={<IconUser size={14} />} onClick={() => router.push('/dashboard/exam/applicants')} disabled={isReadOnly}>
                 시험 신청자 관리
               </Button>
-              <Button variant="white" color="dark" size="xs" leftSection={<IconCalendar size={14} />} onClick={() => router.push('/dashboard/exam/schedule')} disabled={isReadOnly}>
+              <Button variant="white" color={isReadOnly ? "gray" : "dark"} size="xs" leftSection={<IconCalendar size={14} />} onClick={() => router.push('/dashboard/exam/schedule')} disabled={isReadOnly}>
                 시험 일정 등록
               </Button>
-              <Button variant="filled" color="dark" size="xs" leftSection={<IconSend size={14} />} onClick={() => router.push('/dashboard/notifications/create')} disabled={isReadOnly}>
+              <Button variant="filled" color={isReadOnly ? "gray" : "dark"} size="xs" leftSection={<IconSend size={14} />} onClick={() => router.push('/dashboard/notifications/create')} disabled={isReadOnly}>
                 새 공지 작성
               </Button>
             </Group>
@@ -1284,10 +1285,11 @@ export default function DashboardPage() {
                       showNeutralForPending
                       allowPendingPress
                       readOnly={isReadOnly}
+                      isManagerMode={isReadOnly}
                     />
                   </Box>
 
-                  <Button fullWidth mt="md" onClick={() => updateInfoMutation.mutate()} loading={updateInfoMutation.isPending} disabled={isReadOnly} color="dark">
+                  <Button fullWidth mt="md" onClick={() => updateInfoMutation.mutate()} loading={updateInfoMutation.isPending} disabled={isReadOnly} color={isReadOnly ? "gray" : "dark"}>
                     변경사항 저장
                   </Button>
 
@@ -1296,7 +1298,7 @@ export default function DashboardPage() {
                   <Group grow>
                     <Button
                       variant="light"
-                      color="orange"
+                      color={isReadOnly ? "gray" : "orange"}
                       leftSection={<IconSend size={16} />}
                       disabled={isReadOnly}
                       onClick={async () => {
@@ -1315,7 +1317,7 @@ export default function DashboardPage() {
                     </Button>
                     <Button
                       variant="subtle"
-                      color="red"
+                      color={isReadOnly ? "gray" : "red"}
                       leftSection={<IconTrash size={16} />}
                       disabled={isReadOnly}
                       onClick={() => {
@@ -1442,11 +1444,12 @@ export default function DashboardPage() {
                                     showNeutralForPending
                                     allowPendingPress
                                     readOnly={isReadOnly}
+                                    isManagerMode={isReadOnly}
                                   />
                                   <Tooltip label="삭제">
                                     <ActionIcon
                                       variant="light"
-                                      color="red"
+                                      color={isReadOnly ? "gray" : "red"}
                                       size="input-xs"
                                       disabled={isReadOnly}
                                       onClick={() => handleDeleteDocFile(d)}
@@ -1579,7 +1582,7 @@ export default function DashboardPage() {
 
                   <Button
                     fullWidth
-                    color="orange"
+                    color={isReadOnly ? "gray" : "orange"}
                     mt="md"
                     disabled={isReadOnly}
                     onClick={() => updateDocsRequestMutation.mutate({ types: selectedDocs, deadline: docsDeadlineInput })}
@@ -1612,6 +1615,7 @@ export default function DashboardPage() {
                     labelApproved="심사 완료"
                     showNeutralForPending
                     readOnly={isReadOnly || ['appointment-completed', 'final-link-sent'].includes(selectedFc.status)}
+                    isManagerMode={isReadOnly}
                   />
                 </Stack>
               </Tabs.Panel>
