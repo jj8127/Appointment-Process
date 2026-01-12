@@ -23,11 +23,15 @@ class Logger {
   private isDevelopment: boolean;
 
   constructor() {
+    const globalDevFlag =
+      typeof globalThis !== 'undefined' && typeof (globalThis as Record<string, unknown>).__DEV__ !== 'undefined'
+        ? Boolean((globalThis as Record<string, unknown>).__DEV__)
+        : false;
     // Check if running in development mode
     // In React Native/Expo: __DEV__ is available
     // In test environment: NODE_ENV is 'test'
     this.isDevelopment =
-      (typeof __DEV__ !== 'undefined' && __DEV__) ||
+      globalDevFlag ||
       process.env.NODE_ENV === 'development' ||
       process.env.NODE_ENV === 'test';
   }
