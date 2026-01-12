@@ -27,7 +27,7 @@ export function KeyboardAwareWrapper({
   style,
   extraScrollHeight = 24,
   refreshControl,
-  keyboardShouldPersistTaps = 'handled',
+  keyboardShouldPersistTaps = 'always',
 }: Props) {
   const scrollViewRef = useRef<KeyboardAwareScrollView>(null);
 
@@ -43,7 +43,7 @@ export function KeyboardAwareWrapper({
         ref={scrollViewRef}
         enableOnAndroid
         enableAutomaticScroll
-        keyboardDismissMode="interactive" // 드래그 시 키보드가 사라지지 않고 스크롤 우선
+        keyboardDismissMode="on-drag" // 드래그 시 키보드 사라지고 스크롤 우선
         keyboardOpeningTime={0}
         extraScrollHeight={extraScrollHeight}
         keyboardShouldPersistTaps={keyboardShouldPersistTaps}

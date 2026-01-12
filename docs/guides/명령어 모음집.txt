@@ -50,6 +50,11 @@ node -e "const crypto=require('crypto');const password='qwer1234!';const salt=cr
 3) 필요 시 잠금 해제/초기화
    update public.manager_accounts set failed_count=0, locked_until=null where phone='01012341234';
 
+본부장(매니저) 계정 조회 쿼리
+select id, name, phone, active, failed_count, locked_until, password_set_at
+from public.manager_accounts
+order by created_at desc;
+
 계정 비밀번호 변경하는 쿼리
 update public.manager_accounts
 set password_hash = '해시',
