@@ -41,12 +41,14 @@ app store connect에 가장 최근에 빌드한 앱 올리기
 비밀번호 hash값 slat값 알아보는 명령어
 node -e "const crypto=require('crypto');const password='qwer1234!';const salt=crypto.randomBytes(16);const hash=crypto.pbkdf2Sync(password,salt,100000,32,'sha256');console.log('PASSWORD_SALT:',salt.toString('base64'));console.log('PASSWORD_HASH:',hash.toString('base64'));"
 
-본부장 계정 추가하는 쿼리
-insert into public.manager_accounts (
-  name, phone, password_hash, password_salt, password_set_at
-) values (
-  '이름', '번호', 'HASH', 'SALT', now()
-);
+본부장(매니저) 읽기 전용 계정 추가
+1) 로컬에서 해시/솔트 생성 (비번=새비번으로 변경)
+   node -e "const crypto=require('crypto');const password='새비번';const salt=crypto.randomBytes(16);const hash=crypto.pbkdf2Sync(password,salt,100000,32,'sha256');console.log('phone=01012341234');console.log('password_salt(base64)=',salt.toString('base64'));console.log('password_hash(base64)=',hash.toString('base64'));"
+2) Supabase SQL Editor에서 계정 생성
+   insert into public.manager_accounts (name, phone, password_hash, password_salt, password_set_at, active)
+   values ('홍길동 본부장', '01012341234', '<hash>', '<salt>', now(), true);
+3) 필요 시 잠금 해제/초기화
+   update public.manager_accounts set failed_count=0, locked_until=null where phone='01012341234';
 
 계정 비밀번호 변경하는 쿼리
 update public.manager_accounts

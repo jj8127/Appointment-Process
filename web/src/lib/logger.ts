@@ -1,11 +1,9 @@
 /**
- * Logger utility for FC Onboarding App
+ * Logger utility for FC Onboarding App (web)
  *
  * Provides structured logging with different log levels and environment-aware behavior.
  * In production, only errors and warnings are logged. In development, all logs are shown.
  */
-
-import Constants from 'expo-constants';
 
 export enum LogLevel {
   DEBUG = 'DEBUG',

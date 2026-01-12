@@ -2,6 +2,7 @@
 
 import {
   ActionIcon,
+  Alert,
   Avatar,
   Badge,
   Box,
@@ -36,6 +37,7 @@ import {
   IconDeviceFloppy,
   IconEdit,
   IconFileText,
+  IconInfoCircle,
   IconRefresh,
   IconSearch,
   IconSend,
@@ -45,9 +47,9 @@ import {
 } from '@tabler/icons-react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import dayjs from 'dayjs';
-import { useMemo, useState, useTransition } from 'react';
+import { useEffect, useMemo, useState, useTransition } from 'react';
 
-import { StatusToggle } from '@/components/StatusToggle';
+import { StatusToggle } from '../../components/StatusToggle';
 import {
   ADMIN_STEP_LABELS,
   calcStep,
@@ -56,8 +58,8 @@ import {
   getAppointmentProgress,
   getDocProgress,
   getSummaryStatus
-} from '@/lib/shared';
-import { supabase } from '@/lib/supabase';
+} from '../../lib/shared';
+import { supabase } from '../../lib/supabase';
 import { notifications } from '@mantine/notifications';
 import { useRouter } from 'next/navigation';
 import { sendPushNotification } from '../actions';
@@ -65,11 +67,13 @@ import { updateAppointmentAction } from './appointment/actions';
 import { updateDocStatusAction } from './docs/actions';
 import type { FCProfileWithDocuments, FCDocument } from '@/types/dashboard';
 import type { FcProfile, FcStatus } from '@/types/fc';
+import { useSession } from '@/hooks/use-session';
 
-import { logger } from '@/lib/logger';
+import { logger } from '../../lib/logger';
 export default function DashboardPage() {
   const router = useRouter();
   const queryClient = useQueryClient();
+  const { isReadOnly } = useSession();
   const [activeTab, setActiveTab] = useState<string | null>('all');
   const [keyword, setKeyword] = useState('');
   const [currentPage, setCurrentPage] = useState(1);
@@ -299,7 +303,7 @@ export default function DashboardPage() {
   }, [filteredData, currentPage, ITEMS_PER_PAGE]);
 
   // 탭이나 검색어가 변경되면 첫 페이지로 이동
-  useMemo(() => {
+  useEffect(() => {
     setCurrentPage(1);
   }, [activeTab, keyword]);
 
@@ -736,6 +740,7 @@ export default function DashboardPage() {
             variant="light" color="blue" size="xs" flex={1}
             leftSection={<IconDeviceFloppy size={14} />}
             loading={isAppointmentPending}
+            disabled={isReadOnly}
             onClick={(e) => handleAppointmentAction(e, 'schedule', category)}
           >
             일정 저장
@@ -752,12 +757,13 @@ export default function DashboardPage() {
             labelPending="미승인"
             labelApproved="승인 완료"
             showNeutralForPending
-            readOnly={isAppointmentPending}
+            readOnly={isReadOnly || isAppointmentPending}
           />
           <Tooltip label="반려 (확정 취소)">
             <ActionIcon
               variant="light" color="red" size="input-xs"
               loading={isAppointmentPending}
+              disabled={isReadOnly}
               onClick={() => openRejectModal({ kind: 'appointment', category })}
             >
               <IconX size={16} />
@@ -971,6 +977,18 @@ export default function DashboardPage() {
           </Button>
         </Group>
 
+        {/* Read-only Mode Alert */}
+        {isReadOnly && (
+          <Alert
+            icon={<IconInfoCircle size={20} />}
+            title="읽기 전용 모드"
+            color="yellow"
+            variant="light"
+          >
+            본부장 계정은 조회만 가능합니다. 수정 권한이 필요한 경우 관리자에게 문의하세요.
+          </Alert>
+        )}
+
         {/* Metrics Cards */}
         <SimpleGrid cols={{ base: 1, sm: 3 }} spacing="md">
           <Card padding="lg" radius="md" withBorder shadow="sm" bg="white">
@@ -1035,13 +1053,13 @@ export default function DashboardPage() {
               </div>
             </Group>
             <Group gap="xs">
-              <Button variant="white" color="dark" size="xs" leftSection={<IconUser size={14} />} onClick={() => router.push('/dashboard/exam/applicants')}>
+              <Button variant="white" color="dark" size="xs" leftSection={<IconUser size={14} />} onClick={() => router.push('/dashboard/exam/applicants')} disabled={isReadOnly}>
                 시험 신청자 관리
               </Button>
-              <Button variant="white" color="dark" size="xs" leftSection={<IconCalendar size={14} />} onClick={() => router.push('/dashboard/exam/schedule')}>
+              <Button variant="white" color="dark" size="xs" leftSection={<IconCalendar size={14} />} onClick={() => router.push('/dashboard/exam/schedule')} disabled={isReadOnly}>
                 시험 일정 등록
               </Button>
-              <Button variant="filled" color="dark" size="xs" leftSection={<IconSend size={14} />} onClick={() => router.push('/dashboard/notifications/create')}>
+              <Button variant="filled" color="dark" size="xs" leftSection={<IconSend size={14} />} onClick={() => router.push('/dashboard/notifications/create')} disabled={isReadOnly}>
                 새 공지 작성
               </Button>
             </Group>
@@ -1265,11 +1283,11 @@ export default function DashboardPage() {
                       labelApproved="승인 완료"
                       showNeutralForPending
                       allowPendingPress
-                      readOnly={false}
+                      readOnly={isReadOnly}
                     />
                   </Box>
 
-                  <Button fullWidth mt="md" onClick={() => updateInfoMutation.mutate()} loading={updateInfoMutation.isPending} color="dark">
+                  <Button fullWidth mt="md" onClick={() => updateInfoMutation.mutate()} loading={updateInfoMutation.isPending} disabled={isReadOnly} color="dark">
                     변경사항 저장
                   </Button>
 
@@ -1280,6 +1298,7 @@ export default function DashboardPage() {
                       variant="light"
                       color="orange"
                       leftSection={<IconSend size={16} />}
+                      disabled={isReadOnly}
                       onClick={async () => {
                         await supabase
                           .from('notifications')
@@ -1298,6 +1317,7 @@ export default function DashboardPage() {
                       variant="subtle"
                       color="red"
                       leftSection={<IconTrash size={16} />}
+                      disabled={isReadOnly}
                       onClick={() => {
                         logger.debug('[Web][deleteFc] click', { id: selectedFc?.id, phone: selectedFc?.phone });
                         showConfirm({
@@ -1421,13 +1441,14 @@ export default function DashboardPage() {
                                     labelApproved="승인"
                                     showNeutralForPending
                                     allowPendingPress
-                                    readOnly={false}
+                                    readOnly={isReadOnly}
                                   />
                                   <Tooltip label="삭제">
                                     <ActionIcon
                                       variant="light"
                                       color="red"
                                       size="input-xs"
+                                      disabled={isReadOnly}
                                       onClick={() => handleDeleteDocFile(d)}
                                     >
                                       <IconTrash size={16} />
@@ -1539,6 +1560,7 @@ export default function DashboardPage() {
                     <Button
                       variant="default"
                       size="xs"
+                      disabled={isReadOnly}
                       onClick={() => {
                         if (customDocInput.trim()) {
                           const val = customDocInput.trim();
@@ -1559,6 +1581,7 @@ export default function DashboardPage() {
                     fullWidth
                     color="orange"
                     mt="md"
+                    disabled={isReadOnly}
                     onClick={() => updateDocsRequestMutation.mutate({ types: selectedDocs, deadline: docsDeadlineInput })}
                     loading={updateDocsRequestMutation.isPending}
                   >
@@ -1588,7 +1611,7 @@ export default function DashboardPage() {
                     labelPending="심사 대기"
                     labelApproved="심사 완료"
                     showNeutralForPending
-                    readOnly={['appointment-completed', 'final-link-sent'].includes(selectedFc.status)}
+                    readOnly={isReadOnly || ['appointment-completed', 'final-link-sent'].includes(selectedFc.status)}
                   />
                 </Stack>
               </Tabs.Panel>

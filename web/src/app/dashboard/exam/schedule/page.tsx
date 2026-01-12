@@ -2,6 +2,7 @@
 
 import {
     ActionIcon,
+    Alert,
     Badge,
     Box,
     Button,
@@ -31,6 +32,7 @@ import {
     IconChevronLeft,
     IconChevronRight,
     IconEdit,
+    IconInfoCircle,
     IconPlus,
     IconTrash
 } from '@tabler/icons-react';
@@ -40,6 +42,7 @@ import { useState } from 'react';
 import { z } from 'zod';
 
 import { supabase } from '@/lib/supabase';
+import { useSession } from '@/hooks/use-session';
 
 import { logger } from '@/lib/logger';
 const EXPO_PUSH_URL = 'https://exp.host/--/api/v2/push/send';
@@ -135,6 +138,7 @@ const validateRoundForm = (values: RoundFormValues) => {
 
 export default function ExamSchedulePage() {
     const queryClient = useQueryClient();
+    const { isReadOnly } = useSession();
     const [opened, { open, close }] = useDisclosure(false);
     const [editingId, setEditingId] = useState<string | null>(null);
     const [deleteTarget, setDeleteTarget] = useState<{ id: string; label: string } | null>(null);
@@ -181,7 +185,7 @@ export default function ExamSchedulePage() {
     // --- Mutations ---
     const saveMutation = useMutation({
         mutationFn: async (values: RoundFormValues) => {
-            const { exam_date, registration_deadline, round_label, notes, locations, is_date_tbd } = values;
+            const { exam_date, registration_deadline, round_label, notes, is_date_tbd } = values;
 
             const payload = {
                 exam_date: is_date_tbd || !exam_date ? null : dayjs(exam_date).format('YYYY-MM-DD'),
@@ -407,10 +411,10 @@ export default function ExamSchedulePage() {
             </Table.Td>
             <Table.Td>
                 <Group gap={6}>
-                    <ActionIcon variant="light" color="orange" onClick={() => handleOpenEdit(round)} aria-label="일정 수정">
+                    <ActionIcon variant="light" color="orange" disabled={isReadOnly} onClick={() => handleOpenEdit(round)} aria-label="일정 수정">
                         <IconEdit size={16} />
                     </ActionIcon>
-                    <ActionIcon variant="light" color="red" onClick={() => handleOpenDelete(round)} aria-label="일정 삭제">
+                    <ActionIcon variant="light" color="red" disabled={isReadOnly} onClick={() => handleOpenDelete(round)} aria-label="일정 삭제">
                         <IconTrash size={16} />
                     </ActionIcon>
                 </Group>
@@ -435,11 +439,23 @@ export default function ExamSchedulePage() {
                             { label: '캘린더', value: 'calendar' }
                         ]}
                     />
-                    <Button leftSection={<IconPlus size={16} />} color="orange" onClick={handleOpenCreate}>
+                    <Button leftSection={<IconPlus size={16} />} color="orange" disabled={isReadOnly} onClick={handleOpenCreate}>
                         일정 등록
                     </Button>
                 </Group>
             </Group>
+
+            {isReadOnly && (
+                <Alert
+                    icon={<IconInfoCircle size={20} />}
+                    title="읽기 전용 모드"
+                    color="yellow"
+                    variant="light"
+                    mb="lg"
+                >
+                    본부장 계정은 조회만 가능합니다. 수정 권한이 필요한 경우 관리자에게 문의하세요.
+                </Alert>
+            )}
 
             {viewMode === 'list' ? (
                 <Paper shadow="sm" radius="lg" withBorder style={{ overflow: 'hidden' }}>
