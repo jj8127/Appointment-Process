@@ -30,11 +30,28 @@ import { notifications } from '@mantine/notifications';
 import { IconChevronDown, IconDeviceFloppy, IconRefresh, IconSearch, IconUser, IconX } from '@tabler/icons-react';
 import { useQuery } from '@tanstack/react-query';
 import dayjs from 'dayjs';
-import { useEffect, useMemo, useState, useTransition } from 'react';
+import { useCallback, useMemo, useState, useTransition } from 'react';
 
 import { StatusToggle } from '@/components/StatusToggle';
 import { supabase } from '@/lib/supabase';
 import { updateAppointmentAction } from './actions';
+
+// FC Profile 타입 정의
+interface FcProfile {
+  id: number;
+  name?: string;
+  phone?: string;
+  affiliation?: string;
+  created_at?: string;
+  allowance_date?: string;
+  appointment_date_life?: string;
+  appointment_date_nonlife?: string;
+  appointment_date_life_sub?: string;
+  appointment_date_nonlife_sub?: string;
+  appointment_schedule_life?: string;
+  appointment_schedule_nonlife?: string;
+  fc_documents?: unknown[];
+}
 
 const CHARCOAL = '#111827';
 const MUTED = '#6b7280';
@@ -56,12 +73,14 @@ const ExcelColumnFilter = ({ title, options, selected, onApply }: ExcelColumnFil
   const [search, setSearch] = useState('');
   const [tempSelected, setTempSelected] = useState<string[]>(selected);
 
-  useEffect(() => {
-    if (opened) {
+  // Popover 열릴 때 상태 초기화 (opened 변경 시 핸들러에서 처리)
+  const handleOpenChange = (isOpen: boolean) => {
+    setOpened(isOpen);
+    if (isOpen) {
       setTempSelected(selected);
       setSearch('');
     }
-  }, [opened, selected]);
+  };
 
   const filteredOptions = options.filter(opt =>
     opt.toLowerCase().includes(search.toLowerCase())
@@ -81,9 +100,9 @@ const ExcelColumnFilter = ({ title, options, selected, onApply }: ExcelColumnFil
   const isIndeterminate = filteredOptions.some(opt => tempSelected.includes(opt)) && !isAllSelected;
 
   return (
-    <Popover opened={opened} onChange={setOpened} width={280} position="bottom-start" withArrow shadow="md">
+    <Popover opened={opened} onChange={handleOpenChange} width={280} position="bottom-start" withArrow shadow="md">
       <Popover.Target>
-        <UnstyledButton onClick={() => setOpened((o) => !o)} style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+        <UnstyledButton onClick={() => handleOpenChange(!opened)} style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
           <Text fw={700} size="sm" c={selected.length > 0 ? 'orange' : 'dimmed'}>
             {title}
           </Text>
@@ -138,10 +157,10 @@ const ExcelColumnFilter = ({ title, options, selected, onApply }: ExcelColumnFil
           </ScrollArea>
           <Divider />
           <Group justify="flex-end" gap="xs">
-            <Button variant="light" color="gray" size="xs" onClick={() => setOpened(false)}>취소</Button>
+            <Button variant="light" color="gray" size="xs" onClick={() => handleOpenChange(false)}>취소</Button>
             <Button variant="filled" color="orange" size="xs" onClick={() => {
               onApply(tempSelected);
-              setOpened(false);
+              handleOpenChange(false);
             }}>확인</Button>
           </Group>
         </Stack>
@@ -151,11 +170,11 @@ const ExcelColumnFilter = ({ title, options, selected, onApply }: ExcelColumnFil
 };
 
 export default function AppointmentPage() {
-  const [isPending, startTransition] = useTransition();
+  const [, startTransition] = useTransition();
   const [filterYear, setFilterYear] = useState<string | null>('2025');
   const [rejectModalOpen, setRejectModalOpen] = useState(false);
   const [rejectReason, setRejectReason] = useState('');
-  const [rejectTarget, setRejectTarget] = useState<{ fc: any; category: 'life' | 'nonlife' } | null>(null);
+  const [rejectTarget, setRejectTarget] = useState<{ fc: FcProfile; category: 'life' | 'nonlife' } | null>(null);
   const [rejectSubmitting, setRejectSubmitting] = useState(false);
 
   // 확인 모달 상태
@@ -204,26 +223,26 @@ export default function AppointmentPage() {
     },
   });
 
-  const getOverallStatus = (fc: any) => {
+  const getOverallStatus = useCallback((fc: FcProfile) => {
     const life = !!fc.appointment_date_life;
     const nonlife = !!fc.appointment_date_nonlife;
     if (life && nonlife) return { label: '위촉 완료', color: 'green' };
     if (life || nonlife) return { label: '부분 완료', color: 'orange' };
     return { label: '진행 중', color: 'blue' };
-  };
+  }, []);
 
   // --- Derived Data for Filtering ---
   // 1. Apply Year/Month Filter first (processedFcs)
   const processedFcs = useMemo(() => {
-    if (!fcs) return [];
-    return fcs.filter((fc: any) => {
+    if (!fcs) return [] as FcProfile[];
+    return fcs.filter((fc: FcProfile) => {
       if (filterYear && !dayjs(fc.created_at).isSame(dayjs(`${filterYear}-01-01`), 'year')) return false;
       return true;
     });
   }, [fcs, filterYear]);
 
   // 2. Helper to get values for filtering
-  const getRowValue = (fc: any, field: string) => {
+  const getRowValue = useCallback((fc: FcProfile, field: string) => {
     if (field === 'name') return fc.name || '';
     if (field === 'affiliation') return fc.affiliation || '-';
     if (field === 'status') return getOverallStatus(fc).label;
@@ -238,7 +257,7 @@ export default function AppointmentPage() {
       return fc.appointment_schedule_nonlife || '';
     }
     return '';
-  };
+  }, [getOverallStatus]);
 
   // 3. Generate Filter Options based on processedFcs
   const filterOptions = useMemo(() => {
@@ -247,10 +266,10 @@ export default function AppointmentPage() {
 
     fields.forEach(field => {
       const unique = Array.from(new Set(processedFcs.map(fc => getRowValue(fc, field)))).filter(Boolean).sort();
-      options[field] = unique;
+      options[field] = unique as string[];
     });
     return options;
-  }, [processedFcs]);
+  }, [processedFcs, getRowValue]);
 
   // 4. Final Filtered Rows based on Header Filters
   const filteredRows = useMemo(() => {
@@ -261,10 +280,10 @@ export default function AppointmentPage() {
         return selectedValues.includes(val);
       });
     });
-  }, [processedFcs, filters]);
+  }, [processedFcs, filters, getRowValue]);
 
 
-  const handleInputChange = (fcId: number, field: string, value: any) => {
+  const handleInputChange = (fcId: number, field: string, value: string | Date | null) => {
     setInputs((prev) => ({
       ...prev,
       [fcId]: {
@@ -274,7 +293,7 @@ export default function AppointmentPage() {
     }));
   };
 
-  const openRejectModal = (fc: any, category: 'life' | 'nonlife') => {
+  const openRejectModal = (fc: FcProfile, category: 'life' | 'nonlife') => {
     setRejectReason('');
     setRejectTarget({ fc, category });
     setRejectModalOpen(true);
@@ -292,8 +311,8 @@ export default function AppointmentPage() {
       const result = await updateAppointmentAction(
         { success: false },
         {
-          fcId: rejectTarget.fc.id,
-          phone: rejectTarget.fc.phone,
+          fcId: String(rejectTarget.fc.id),
+          phone: rejectTarget.fc.phone ?? '',
           type: 'reject',
           category: rejectTarget.category,
           value: null,
@@ -314,13 +333,14 @@ export default function AppointmentPage() {
     });
   };
 
-  const executeAction = (fc: any, type: 'schedule' | 'confirm' | 'reject', category: 'life' | 'nonlife') => {
+  const executeAction = (fc: FcProfile, type: 'schedule' | 'confirm' | 'reject', category: 'life' | 'nonlife') => {
     const input = inputs[fc.id] || {};
 
-    let value = null;
+    let value: string | null = null;
     if (type === 'schedule') {
       const scheduleKey = category === 'life' ? 'lifeSchedule' : 'nonLifeSchedule';
-      const scheduleVal = input[scheduleKey as keyof typeof input] ?? fc[`appointment_schedule_${category}`];
+      const dbScheduleKey = category === 'life' ? 'appointment_schedule_life' : 'appointment_schedule_nonlife';
+      const scheduleVal = input[scheduleKey as keyof typeof input] ?? fc[dbScheduleKey];
       if (!scheduleVal) {
         notifications.show({ title: '입력 필요', message: '예정 정보를 입력해주세요.', color: 'yellow' });
         return;
@@ -328,7 +348,9 @@ export default function AppointmentPage() {
       value = String(scheduleVal);
     } else if (type === 'confirm') {
       const dateKey = category === 'life' ? 'lifeDate' : 'nonLifeDate';
-      const dateVal = input[dateKey as keyof typeof input] ?? (fc[`appointment_date_${category}`] ? new Date(fc[`appointment_date_${category}`]) : null);
+      const dbDateKey = category === 'life' ? 'appointment_date_life' : 'appointment_date_nonlife';
+      const dbDateValue = fc[dbDateKey];
+      const dateVal = input[dateKey as keyof typeof input] ?? (dbDateValue ? new Date(dbDateValue) : null);
 
       if (!dateVal) {
         notifications.show({ title: '입력 필요', message: '확정일(Start Date)을 선택해주세요.', color: 'orange' });
@@ -348,8 +370,8 @@ export default function AppointmentPage() {
           const result = await updateAppointmentAction(
             { success: false },
             {
-              fcId: fc.id,
-              phone: fc.phone,
+              fcId: String(fc.id),
+              phone: fc.phone ?? '',
               type,
               category,
               value,
@@ -367,20 +389,23 @@ export default function AppointmentPage() {
     });
   };
 
-  const renderInsuranceSection = (fc: any, category: 'life' | 'nonlife') => {
+  const renderInsuranceSection = (fc: FcProfile, category: 'life' | 'nonlife') => {
     const input = inputs[fc.id] || {};
     const scheduleKey = category === 'life' ? 'lifeSchedule' : 'nonLifeSchedule';
     const dateKey = category === 'life' ? 'lifeDate' : 'nonLifeDate';
-    const dbSchedule = fc[`appointment_schedule_${category}`];
-    const dbDate = fc[`appointment_date_${category}`];
-    const subDate = fc[`appointment_date_${category}_sub`];
+    const dbScheduleKey = category === 'life' ? 'appointment_schedule_life' : 'appointment_schedule_nonlife';
+    const dbDateKey = category === 'life' ? 'appointment_date_life' : 'appointment_date_nonlife';
+    const subDateKey = category === 'life' ? 'appointment_date_life_sub' : 'appointment_date_nonlife_sub';
+    const dbSchedule = fc[dbScheduleKey];
+    const dbDate = fc[dbDateKey];
+    const subDate = fc[subDateKey];
 
     const scheduleValue = (input[scheduleKey as keyof typeof input] ?? (dbSchedule ?? '')) as string | undefined;
 
     const dateValueRaw = input[dateKey as keyof typeof input];
     const dateValue = dateValueRaw instanceof Date ? dateValueRaw
       : (dateValueRaw
-        ? new Date(dateValueRaw as any)
+        ? new Date(dateValueRaw as string)
         : (dbDate ? new Date(dbDate) : (subDate ? new Date(subDate) : null)));
 
     const isConfirmed = !!dbDate;
@@ -550,7 +575,7 @@ export default function AppointmentPage() {
               </Table.Thead>
               <Table.Tbody>
                 {filteredRows.length > 0 ? (
-                  filteredRows.map((fc: any) => {
+                  filteredRows.map((fc: FcProfile) => {
                     const status = getOverallStatus(fc);
                     return (
                       <Table.Tr key={fc.id}>

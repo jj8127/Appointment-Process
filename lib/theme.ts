@@ -169,15 +169,60 @@ export const TOUCH_TARGET = {
 // Animation
 export const ANIMATION = {
   duration: {
+    instant: 100,
     fast: 150,
     base: 200,
     slow: 300,
+    slower: 400,
   },
   easing: {
     ease: 'ease',
     easeIn: 'ease-in',
     easeOut: 'ease-out',
     easeInOut: 'ease-in-out',
+  },
+  // Spring configs for react-native-reanimated
+  spring: {
+    gentle: { damping: 20, stiffness: 120, mass: 1 },
+    bouncy: { damping: 12, stiffness: 180, mass: 0.8 },
+    snappy: { damping: 24, stiffness: 300, mass: 1 },
+  },
+} as const;
+
+// Alert/Modal Variants
+export const ALERT_VARIANTS = {
+  info: {
+    icon: 'info',
+    iconColor: COLORS.info,
+    iconBg: COLORS.infoLight,
+  },
+  success: {
+    icon: 'check-circle',
+    iconColor: COLORS.success,
+    iconBg: COLORS.successLight,
+  },
+  warning: {
+    icon: 'alert-triangle',
+    iconColor: COLORS.warning.main,
+    iconBg: COLORS.warning.light,
+  },
+  error: {
+    icon: 'x-circle',
+    iconColor: COLORS.error,
+    iconBg: COLORS.errorLight,
+  },
+} as const;
+
+// Toast configuration
+export const TOAST = {
+  duration: {
+    short: 2000,
+    medium: 3500,
+    long: 5000,
+  },
+  position: {
+    top: 60,
+    bottom: 100,
   },
 } as const;
 

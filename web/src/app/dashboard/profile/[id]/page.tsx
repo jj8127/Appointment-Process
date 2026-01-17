@@ -61,7 +61,7 @@ type FcProfileDetail = {
     appointment_date_life: string | null; // 위촉 예정일 (Life)
     appointment_date_nonlife: string | null; // 위촉 예정일 (NonLife)
     allowance_date: string | null;
-    fc_documents?: any[];
+    fc_documents?: FcDocument[];
     admin_memo: string | null;
 };
 
@@ -128,6 +128,7 @@ export default function FcProfilePage({ params }: { params: Promise<{ id: string
     });
 
     // Sync Form with Data
+    // eslint-disable-next-line react-hooks/set-state-in-effect, react-hooks/exhaustive-deps
     useEffect(() => {
         if (profile) {
             form.setValues({
@@ -156,7 +157,7 @@ export default function FcProfilePage({ params }: { params: Promise<{ id: string
             setIsEditing(false);
             queryClient.invalidateQueries({ queryKey: ['fc-profile', fcId] });
         },
-        onError: (err: any) => notifications.show({ title: '저장 실패', message: err.message, color: 'red' }),
+        onError: (err: Error) => notifications.show({ title: '저장 실패', message: err.message, color: 'red' }),
     });
 
     const saveMemoMutation = useMutation({
@@ -168,7 +169,7 @@ export default function FcProfilePage({ params }: { params: Promise<{ id: string
             if (error) throw error;
         },
         onSuccess: () => notifications.show({ title: '메모 저장', message: '관리자 메모가 저장되었습니다.', color: 'green' }),
-        onError: (err: any) => notifications.show({ title: '오류', message: err.message, color: 'red' }),
+        onError: (err: Error) => notifications.show({ title: '오류', message: err.message, color: 'red' }),
     });
 
     // --- Helpers ---
@@ -190,7 +191,7 @@ export default function FcProfilePage({ params }: { params: Promise<{ id: string
     if (isProfileLoading) return <LoadingOverlay visible />;
     if (!profile) return <Container py="xl"><Text>FC 정보를 찾을 수 없습니다.</Text></Container>;
 
-    const adminStepLabel = getAdminStep(profile as any);
+    const adminStepLabel = getAdminStep(profile as FcProfileDetail);
 
     return (
         <Box bg={BACKGROUND} style={{ minHeight: '100vh' }}>

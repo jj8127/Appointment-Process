@@ -1,7 +1,6 @@
 import Postcode from '@actbase/react-daum-postcode';
 import { Feather } from '@expo/vector-icons';
 import { zodResolver } from '@hookform/resolvers/zod';
-import { Picker } from '@react-native-picker/picker';
 import { useQueryClient } from '@tanstack/react-query';
 import { router, Stack, useFocusEffect, useLocalSearchParams } from 'expo-router';
 import { useCallback, useEffect, useRef, useState } from 'react';
@@ -11,7 +10,6 @@ import {
     BackHandler,
     findNodeHandle,
     Modal,
-    Platform,
     Pressable,
     ReturnKeyTypeOptions,
     StyleSheet,
@@ -595,7 +593,7 @@ export default function FcNewScreen() {
                 <Text style={styles.error}>{formState.errors.carrier?.message}</Text>
               ) : null}
             </View>
-            <View style={styles.selectBox}>
+            <Pressable style={styles.selectBox} onPress={() => setShowCarrierPicker(true)}>
               <TextInput
                 style={[styles.input, styles.inputWithIcon]}
                 placeholder="통신사 선택"
@@ -604,10 +602,10 @@ export default function FcNewScreen() {
                 editable={false}
                 pointerEvents="none"
               />
-              <Pressable style={styles.selectOverlay} onPress={() => setShowCarrierPicker(true)}>
+              <View style={styles.selectOverlay}>
                 <Feather name="chevron-down" size={20} color={TEXT_MUTED} />
-              </Pressable>
-            </View>
+              </View>
+            </Pressable>
           </View>
           <FormField
             control={control}
@@ -643,40 +641,21 @@ export default function FcNewScreen() {
 
               {/* 오른쪽 영역 */}
               <View style={{ flex: 1 }}>
-                {/* Picker만 감싸는 박스 */}
                 <View style={styles.emailDomainBox}>
-                  {Platform.OS === 'ios' ? (
-                    <Pressable
-                      style={styles.emailDomainSelect}
-                      onPress={() => setShowDomainPicker(true)}
+                  <Pressable
+                    style={styles.emailDomainSelect}
+                    onPress={() => setShowDomainPicker(true)}
+                  >
+                    <Text
+                      style={[
+                        styles.emailDomainSelectText,
+                        !emailDomain && styles.emailDomainSelectPlaceholder,
+                      ]}
                     >
-                      <Text
-                        style={[
-                          styles.emailDomainSelectText,
-                          !emailDomain && styles.emailDomainSelectPlaceholder,
-                        ]}
-                      >
-                        {emailDomain || '도메인 선택'}
-                      </Text>
-                      <Feather name="chevron-down" size={16} color={TEXT_MUTED} />
-                    </Pressable>
-                  ) : (
-                    <Picker
-                      selectedValue={emailDomain || undefined}
-                      onValueChange={(value) => {
-                        setEmailDomain(value);
-                        if (value !== '직접입력') setCustomDomain('');
-                      }}
-                      dropdownIconColor={CHARCOAL}
-                      style={styles.emailPicker}
-                      itemStyle={{ fontSize: 14, color: CHARCOAL, height: 40 }}
-                    >
-                      <Picker.Item label="도메인 선택" value="" color={TEXT_MUTED} style={{ fontSize: 14 }} />
-                      {EMAIL_DOMAINS.map((d) => (
-                        <Picker.Item key={d} label={d} value={d} style={{ fontSize: 14 }} />
-                      ))}
-                    </Picker>
-                  )}
+                      {emailDomain || '도메인 선택'}
+                    </Text>
+                    <Feather name="chevron-down" size={16} color={TEXT_MUTED} />
+                  </Pressable>
                 </View>
 
                 {/* 직접 입력창을 박스 밖으로 */}

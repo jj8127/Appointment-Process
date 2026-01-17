@@ -144,6 +144,7 @@ const quickLinksAdminOnboarding: QuickLink[] = [
   { href: '/dashboard', stepKey: 'step3', title: '서류 안내/검토', description: '제출해야 할 서류 관리' },
   { href: '/dashboard', stepKey: 'step4', title: '위촉 진행', description: '위촉 확인' },
   { href: '/dashboard', stepKey: 'step5', title: '완료 관리', description: '위촉 완료 현황' },
+  { href: '/admin-board', title: '게시판 작성', description: '정보 게시판 글쓰기' },
   { href: '/admin-notice', title: '공지 등록', description: '새소식 작성' },
   { href: '/admin-messenger', title: '메신저', description: 'FC 1:1 대화 관리' },
 ];
@@ -444,6 +445,7 @@ const getLinkIcon = (href: string) => {
   if (href.includes('/exams/')) return 'calendar'; // 시험 일정 등록
   if (href.includes('exam-manage')) return 'users'; // 신청자 관리
   if (href.includes('admin-appointment')) return 'send'; // URL 발송
+  if (href.includes('admin-board')) return 'edit'; // 게시판 작성
   if (href.includes('admin-notice')) return 'bell'; // 공지 등록
 
   // FC 메뉴
@@ -1700,6 +1702,56 @@ export default function Home() {
                 </Pressable>
               );
             })}
+            <Pressable
+              style={({ pressed }) => [styles.bottomNavItem, pressed && styles.pressedOpacity]}
+              onPress={() => router.push('/admin-board-manage')}
+            >
+              <View style={styles.bottomNavIconWrap}>
+                <Feather name="clipboard" size={20} color={HANWHA_ORANGE} />
+              </View>
+              <Text style={styles.bottomNavLabel}>게시판</Text>
+            </Pressable>
+          </Animated.View>
+        ) : role === 'fc' ? (
+          <Animated.View style={[styles.bottomNav, { paddingBottom: Math.max(insets.bottom, 12) }, bottomNavAnimatedStyle]}>
+            <Pressable
+              style={({ pressed }) => [styles.bottomNavItem, pressed && styles.pressedOpacity]}
+            >
+              <View style={[styles.bottomNavIconWrap, styles.bottomNavIconWrapActive]}>
+                <Feather name="home" size={20} color="#fff" />
+              </View>
+              <Text style={[styles.bottomNavLabel, styles.bottomNavLabelActive]}>홈</Text>
+            </Pressable>
+
+            <Pressable
+              style={({ pressed }) => [styles.bottomNavItem, pressed && styles.pressedOpacity]}
+              onPress={() => router.push('/board')}
+            >
+              <View style={styles.bottomNavIconWrap}>
+                <Feather name="clipboard" size={20} color={HANWHA_ORANGE} />
+              </View>
+              <Text style={styles.bottomNavLabel}>게시판</Text>
+            </Pressable>
+
+            <Pressable
+              style={({ pressed }) => [styles.bottomNavItem, pressed && styles.pressedOpacity]}
+              onPress={() => router.push('/notice')}
+            >
+              <View style={styles.bottomNavIconWrap}>
+                <Feather name="bell" size={20} color={HANWHA_ORANGE} />
+              </View>
+              <Text style={styles.bottomNavLabel}>공지</Text>
+            </Pressable>
+
+            <Pressable
+              style={({ pressed }) => [styles.bottomNavItem, pressed && styles.pressedOpacity]}
+              onPress={() => router.push('/settings')}
+            >
+              <View style={styles.bottomNavIconWrap}>
+                <Feather name="settings" size={20} color={HANWHA_ORANGE} />
+              </View>
+              <Text style={styles.bottomNavLabel}>설정</Text>
+            </Pressable>
           </Animated.View>
         ) : null
       }

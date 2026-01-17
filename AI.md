@@ -95,13 +95,17 @@ safe-storage.ts, validation.ts
 ### 3.2 테마 시스템
 ```typescript
 // 반드시 테마 토큰 사용
-import { COLORS, TYPOGRAPHY, SPACING, RADIUS } from '@/lib/theme';
+import { COLORS, TYPOGRAPHY, SPACING, RADIUS, ANIMATION, ALERT_VARIANTS, TOAST } from '@/lib/theme';
 
 // Good
 backgroundColor: COLORS.primary
 fontSize: TYPOGRAPHY.fontSize.lg
 padding: SPACING.md
 borderRadius: RADIUS.lg
+
+// 애니메이션 (Reanimated)
+import { withSpring } from 'react-native-reanimated';
+scale.value = withSpring(1, ANIMATION.spring.bouncy);
 
 // Bad - 하드코딩 금지
 backgroundColor: '#f36f21'
@@ -125,9 +129,23 @@ import { FormInput } from '@/components/FormInput';
   onChangeText={setName}
 />
 
-// 로딩 상태 - LoadingSkeleton 사용
-import { CardSkeleton, ListSkeleton } from '@/components/LoadingSkeleton';
-{isLoading && <CardSkeleton lines={3} />}
+// 로딩 상태 - LoadingSkeleton 사용 (Shimmer 효과 포함)
+import { CardSkeleton, BoardSkeleton, TextSkeleton } from '@/components/LoadingSkeleton';
+{isLoading && <BoardSkeleton count={3} />}
+
+// 빈 상태 - EmptyState 사용
+import { EmptyPostsState, ErrorState } from '@/components/EmptyState';
+{posts.length === 0 && <EmptyPostsState />}
+{error && <ErrorState message={error.message} onRetry={refetch} />}
+
+// 토스트 알림 - useToast 사용
+import { useToast } from '@/components/Toast';
+const { showToast } = useToast();
+showToast({ message: '저장되었습니다', variant: 'success' });
+
+// 게시판 카드 - BoardCard 사용
+import { BoardCard } from '@/components/BoardCard';
+<BoardCard post={post} onPress={handlePress} index={idx} />
 ```
 
 ### 3.4 데이터 페칭 패턴
@@ -163,10 +181,20 @@ try {
     return;
   }
   // 성공 처리
-} catch (err: any) {
-  Alert.alert('오류', err?.message ?? '처리 중 문제가 발생했습니다.');
+} catch (err: unknown) {
+  const message = err instanceof Error ? err.message : '처리 중 문제가 발생했습니다.';
+  Alert.alert('오류', message);
 }
 ```
+
+### 3.6 웹(Next.js) 규칙
+- CORS: Edge Functions에서 동적 Origin 허용 (localhost, vercel.app)
+- API 클라이언트 분리: `web/src/lib/*.ts`에 분리 (예: `web/src/lib/board-api.ts`)
+- React Query 키 일관성 유지 (['entity', 'action', params])
+
+### 3.7 ESLint 준수 사항
+- 미사용 변수/임포트 제거 (또는 _ prefix)
+- exhaustive-deps 경고 해결 (의존성 누락 시 추가)
 
 ---
 
@@ -214,9 +242,13 @@ try {
 ### 6.1 현재 사용 가능한 컴포넌트
 | 컴포넌트 | 파일 | 용도 |
 |---------|------|------|
-| Button | components/Button.tsx | 모든 버튼 |
-| FormInput | components/FormInput.tsx | 텍스트 입력 필드 |
-| LoadingSkeleton | components/LoadingSkeleton.tsx | 로딩 상태 표시 |
+| Button | components/Button.tsx | 모든 버튼 (5 variants, 3 sizes) |
+| FormInput | components/FormInput.tsx | 텍스트 입력 필드 (3 variants) |
+| LoadingSkeleton | components/LoadingSkeleton.tsx | 로딩 상태 (Shimmer, Board/Card/List/Text) |
+| AppAlertProvider | components/AppAlertProvider.tsx | 앱 전역 알림 모달 (4 variants) |
+| Toast | components/Toast.tsx | 토스트 알림 (스와이프 dismiss) |
+| BoardCard | components/BoardCard.tsx | 게시판 카드 (프레스 애니메이션) |
+| EmptyState | components/EmptyState.tsx | 빈 상태 UI (5개 프리셋) |
 | ScreenHeader | components/ScreenHeader.tsx | 화면 헤더 |
 | KeyboardAwareWrapper | components/KeyboardAwareWrapper.tsx | 키보드 대응 |
 | RefreshButton | components/RefreshButton.tsx | 새로고침 버튼 |
@@ -290,6 +322,62 @@ await supabase.auth.signIn(...)
 await supabase.functions.invoke('login-with-password', {
   body: { phone, password }
 })
+```
+
+### 8.5 TypeScript any 타입 금지
+```typescript
+// Bad - any 사용
+const handleError = (err: any) => console.log(err.message);
+const data: any = response.data;
+
+// Good - 명시적 타입
+interface ApiError { message: string; code?: string; }
+const handleError = (err: unknown) => {
+  if (err instanceof Error) console.log(err.message);
+};
+const data: FcProfile = response.data;
+```
+
+### 8.6 React Hook 선언 위치 (TDZ 방지)
+```typescript
+// Bad - useEffect 후에 useQuery 선언 → TDZ 에러 발생
+useEffect(() => {
+  if (data) setSelected(data);
+}, [data]);
+
+const { data } = useQuery({ ... }); // 에러!
+
+// Good - 훅은 항상 컴포넌트 최상단에
+const { data } = useQuery({ ... });
+const [selected, setSelected] = useState(null);
+
+useEffect(() => {
+  if (data) setSelected(data);
+}, [data]);
+```
+
+### 8.7 useState setter in useEffect
+```typescript
+// Bad - useEffect에서 직접 setState 호출 (ESLint 경고)
+useEffect(() => {
+  setOpened(true);
+  setSearch('');
+}, [isOpen]);
+
+// Good - 이벤트 핸들러로 분리
+const handleOpenChange = (isOpen: boolean) => {
+  setOpened(isOpen);
+  if (isOpen) setSearch('');
+};
+```
+
+### 8.8 useMemo 의존성
+```typescript
+// Bad - 객체/배열 직접 의존
+const items = useMemo(() => data?.items ?? [], [data]); // 매번 재계산
+
+// Good - 세부 프로퍼티 의존
+const items = useMemo(() => data?.items ?? [], [data?.items]);
 ```
 
 ---

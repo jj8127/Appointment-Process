@@ -37,6 +37,8 @@ const supabase = createClient(supabaseUrl, serviceKey);
 const textEncoder = new TextEncoder();
 const MAX_ATTEMPTS = 5;
 const LOCK_MINUTES = 10;
+const SMS_BYPASS_ENABLED = (getEnv('SMS_BYPASS_ENABLED') ?? 'true').toLowerCase() === 'true';
+const SMS_BYPASS_CODE = (getEnv('SMS_BYPASS_CODE') ?? getEnv('TEST_SMS_CODE') ?? '123456').trim();
 
 function json(body: Record<string, unknown>, status = 200) {
   return new Response(JSON.stringify(body), {
@@ -102,6 +104,26 @@ serve(async (req: Request) => {
   }
   if (!profile?.id) {
     return fail('not_found', '등록된 계정을 찾을 수 없습니다.');
+  }
+  if (SMS_BYPASS_ENABLED && code === SMS_BYPASS_CODE) {
+    const { error: bypassError } = await supabase
+      .from('fc_profiles')
+      .update({
+        phone_verified: true,
+        phone_verified_at: new Date().toISOString(),
+        phone_verification_hash: null,
+        phone_verification_expires_at: null,
+        phone_verification_sent_at: null,
+        phone_verification_attempts: 0,
+        phone_verification_locked_until: null,
+      })
+      .eq('id', profile.id);
+
+    if (bypassError) {
+      return json({ ok: false, code: 'db_error', message: bypassError.message }, 500);
+    }
+
+    return json({ ok: true });
   }
   if (!profile.phone_verification_hash || !profile.phone_verification_expires_at) {
     return fail('no_code', '인증 코드가 없습니다.');

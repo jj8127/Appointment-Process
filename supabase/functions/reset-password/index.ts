@@ -38,6 +38,8 @@ if (!serviceKey) {
 
 const supabase = createClient(supabaseUrl, serviceKey);
 const encoder = new TextEncoder();
+const SMS_BYPASS_ENABLED = (getEnv('SMS_BYPASS_ENABLED') ?? 'true').toLowerCase() === 'true';
+const SMS_BYPASS_CODE = (getEnv('SMS_BYPASS_CODE') ?? getEnv('TEST_SMS_CODE') ?? '123456').trim();
 
 function json(body: Record<string, unknown>, status = 200) {
   return new Response(JSON.stringify(body), {
@@ -152,18 +154,23 @@ serve(async (req: Request) => {
   if (credsError) {
     return json({ ok: false, code: 'db_error', message: credsError.message }, 500);
   }
+  const bypassToken = SMS_BYPASS_ENABLED && token === SMS_BYPASS_CODE;
   if (!creds?.reset_token_hash || !creds.reset_token_expires_at) {
-    return fail('invalid_token', '인증 코드가 유효하지 않습니다.');
+    if (!bypassToken) {
+      return fail('invalid_token', '인증 코드가 유효하지 않습니다.');
+    }
   }
 
-  const expiresAt = new Date(creds.reset_token_expires_at);
-  if (expiresAt < new Date()) {
-    return fail('expired_token', '인증 코드가 만료되었습니다.');
-  }
+  if (!bypassToken) {
+    const expiresAt = new Date(creds.reset_token_expires_at);
+    if (expiresAt < new Date()) {
+      return fail('expired_token', '인증 코드가 만료되었습니다.');
+    }
 
-  const tokenHash = await sha256Base64(token);
-  if (tokenHash !== creds.reset_token_hash) {
-    return fail('invalid_token', '인증 코드가 유효하지 않습니다.');
+    const tokenHash = await sha256Base64(token);
+    if (tokenHash !== creds.reset_token_hash) {
+      return fail('invalid_token', '인증 코드가 유효하지 않습니다.');
+    }
   }
 
   const saltBytes = crypto.getRandomValues(new Uint8Array(16));

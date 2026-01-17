@@ -57,6 +57,10 @@ NCP_SENS_SMS_FROM=<your-phone-number>
 TEST_SMS_MODE=true
 TEST_SMS_CODE=123456
 
+# 선택: App Review 인증 우회 (리뷰용)
+SMS_BYPASS_ENABLED=true
+SMS_BYPASS_CODE=123456
+
 # 선택: CORS 설정
 ALLOWED_ORIGINS=http://localhost:8081,https://yourdomain.com
 ```
@@ -146,6 +150,18 @@ curl -X POST https://your-project.supabase.co/functions/v1/verify-signup-otp \
     "phone": "01012345678",
     "code": "123456"
   }'
+```
+
+---
+
+## App Review 인증 우회
+
+- `verify-signup-otp`, `reset-password`에서 `SMS_BYPASS_CODE`가 입력되면 OTP 검증 없이 통과합니다.
+- App Store 심사 후 반드시 `SMS_BYPASS_ENABLED=false`로 비활성화하세요.
+
+```bash
+SMS_BYPASS_ENABLED=true
+SMS_BYPASS_CODE=123456
 ```
 
 ---
@@ -382,5 +398,5 @@ ALLOWED_ORIGINS=http://localhost:8081,https://yourdomain.com
 
 ---
 
-**Last Updated**: 2026-01-12
+**Last Updated**: 2026-01-15
 **Maintainer**: Development Team

@@ -4,7 +4,6 @@ import { useSession } from '@/hooks/use-session';
 import { supabase } from '@/lib/supabase';
 import {
   ActionIcon,
-  Box,
   Button,
   Center,
   Container,
@@ -21,7 +20,6 @@ import {
   TextInput,
   Title,
   Tooltip,
-  rem,
 } from '@mantine/core';
 import { notifications } from '@mantine/notifications';
 import {
@@ -121,6 +119,7 @@ export default function AdminExamManagePage() {
 
   useEffect(() => {
     if (hydrated && params.id) fetchData();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [hydrated, params.id]);
 
   // 상태 변경 함수 (SegmentedControl)

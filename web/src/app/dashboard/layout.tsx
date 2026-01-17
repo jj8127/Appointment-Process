@@ -11,6 +11,7 @@ import {
   IconLink,
   IconLogout,
   IconMessage,
+  IconNews,
   IconSettings,
   IconUsers
 } from '@tabler/icons-react';
@@ -36,6 +37,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
       { label: '문서 관리', icon: IconFileText, href: '/dashboard/docs' },
       { label: '위촉 진행', icon: IconLink, href: '/dashboard/appointment' },
       { label: '알림/공지', icon: IconBell, href: '/dashboard/notifications' },
+      { label: '게시판', icon: IconNews, href: '/dashboard/board' },
       { label: '메신저 (채팅)', icon: IconMessage, href: '/dashboard/chat' },
       { label: '시험 일정', icon: IconCalendarEvent, href: '/dashboard/exam/schedule' },
       { label: '시험 신청자', icon: IconUsers, href: '/dashboard/exam/applicants' },

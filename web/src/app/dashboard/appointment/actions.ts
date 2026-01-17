@@ -71,7 +71,7 @@ export async function updateAppointmentAction(
     );
 
     const categoryLabel = category === 'life' ? '생명보험' : '손해보험';
-    let updatePayload: any = {};
+    const updatePayload: Record<string, string | null> = {};
     let notifTitle = '';
     let notifBody = '';
 

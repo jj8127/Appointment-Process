@@ -10,11 +10,86 @@
 - 로깅 전환 완료 ✅
 - SMS 인증 시스템 프로덕션 모드 설정 완료 ✅
 - 본부장 권한 UI 개선 완료 (색상 차별화) ✅
+- 모바일 게시판 UI/관리자 게시판 UI (UI only) 구현 ✅
+- 게시판 백엔드 설계/Edge Functions 초안 완료 ✅
 - 추가 개선 항목 대기 중 (필요 시 진행)
 
 ---
 
 ## Done (완료된 작업)
+
+### 현재 세션 (2026-01-16)
+**UI 디자인 업그레이드**
+- [x] lib/theme.ts 확장: ANIMATION.spring, ALERT_VARIANTS, TOAST 설정 추가
+- [x] AppAlertProvider 개선: 브랜드 컬러 적용, 아이콘 다양화(info/success/warning/error), Reanimated 애니메이션
+- [x] Toast 컴포넌트 신규 생성: 스와이프 dismiss, 프로그레스 바, 4가지 variant
+- [x] BoardCard 컴포넌트 생성: 호버/프레스 애니메이션, Moti 진입 애니메이션, 고정글 표시
+- [x] EmptyState 컴포넌트 생성: 범용 빈 상태 UI + 프리셋(게시글/댓글/알림/검색/에러)
+- [x] LoadingSkeleton 개선: Shimmer 그라데이션 효과, BoardSkeleton/TextSkeleton 추가
+- [x] _layout.tsx에 ToastProvider 추가
+
+**Phase 8 확장: 게시판 UI 표시 정리**
+- [x] 관리자 게시판 댓글 수정 표시를 날짜 + '수정됨'으로 변경 (사용자 게시판과 일치)
+- [x] 게시글 상세 '반응 남기기' 버튼을 아이콘 전용으로 변경 (앱/관리자)
+- [x] 웹 관리자 게시판 빌드 오류 해결: `web/src/lib/board-api.ts` 추가
+- [x] 웹 게시판 런타임 에러(TDZ) 해결: categories useQuery를 useEffect보다 상단으로 이동
+- [x] 웹 게시판 런타임 에러(TDZ) 해결: editDetailData useQuery를 useEffect보다 상단으로 이동
+- [x] 게시판 Edge Functions CORS 동적 허용(Origin 기반) 적용: `_shared/board.ts` + board-* 함수 전반 수정
+- [x] 웹 게시판 기능 확장: 이미지 미리보기, 댓글/답글(깊이 2), 댓글 좋아요, 댓글 수정/삭제, 반응 버튼 아이콘화
+- [x] 반응 선택 상태 표시 + 변경/취소 가능하도록 처리 (앱/관리자/웹)
+- [x] 규칙 문서 업데이트: `.cursorrules`, `AI.md`
+
+### 현재 세션 (2026-01-15)
+**Phase 8 확장: 게시판 UX 개선 + 앱 공통 모달**
+- [x] 댓글 스레드 UI 개선 (앱/관리자)
+  - 답글/답글의 답글 들여쓰기 + 깊이별 카드 스타일 구분
+  - 답글 접기/펼치기 토글 (기본 접힘)
+- [x] 댓글 답글 깊이 2 허용 로직 추가 (Edge Function 업데이트 필요)
+- [x] 관리자 게시판 이미지 미리보기 크기 사용자와 동일화
+- [x] 글쓰기 FAB가 하단 네비 숨김/표시와 함께 이동
+- [x] 관리자 글쓰기 기존 첨부파일 삭제 기능 추가 (서버 삭제 포함)
+  - 새 Edge Function `board-attachment-delete` 추가/배포
+  - `lib/board-api.ts`에 `deleteBoardAttachments` 추가
+- [x] 앱 전체 Alert → 커스텀 모달 통일 (`components/AppAlertProvider.tsx`)
+- [x] 회원가입/기본정보: 통신사/이메일 선택 박스 전체 터치로 열기
+- [x] 기본정보 이메일 도메인 모달을 통신사 모달과 동일 스타일로 통일
+- [x] 관리자 글쓰기 화면: 안내 박스/미리보기 UI 제거
+
+### 현재 세션 (2026-01-13)
+**Phase 6: 게시판 UI (모바일/관리자/웹) - UI 단계**
+- [x] 모바일 게시판 UI 추가 (`app/board.tsx`)
+  - 게시글 목록/검색, 반응 버튼, 첨부 미리보기
+  - 게시글 상세 모달: 드래그 닫기/애니메이션, 댓글 입력 하단 고정
+  - 스크롤 시 하단 네비 숨김/복귀
+- [x] 관리자 게시판 관리 UI 추가 (`app/admin-board-manage.tsx`)
+  - 사용자 화면과 동일한 카드/상세 UI
+  - 글쓰기 FAB (스크롤 시 축소/확장 애니메이션)
+  - 수정/삭제 액션 시트, 읽기 전용 모드 대응
+- [x] 관리자 게시글 작성 UI 추가 (`app/admin-board.tsx`) - 폼 + 첨부/삭제
+- [x] 하단 탭에 게시판 진입 추가 (`app/index.tsx`)
+- [x] GestureHandlerRootView 적용 (`app/_layout.tsx`)
+- [x] 웹 관리자 게시판 UI 추가 (`web/src/app/dashboard/board/page.tsx`)
+
+**Phase 7: 게시판 백엔드 설계 (초안)**
+- [x] 게시판 요구사항 정리 문서 작성 (`docs/guides/BOARD_REQUIREMENTS.md`)
+- [x] 게시판 API 계약 추가 (`contracts/api-contracts.md`)
+- [x] 스키마/뷰/RLS/스토리지 초안 추가 (`supabase/schema.sql`)
+  - 게시판 테이블 6개 + 집계 뷰 2개(+with_stats 뷰)
+  - 서비스 롤 전용 RLS 적용
+  - 스토리지 버킷 `board-attachments` 추가
+- [x] 게시판 Edge Functions 초안 추가 (`supabase/functions/board-*`)
+  - 공통 유틸: `_shared/board.ts`
+- [x] 게시판 Edge Functions 배포 완료 (Supabase Functions)
+
+**Phase 8: 게시판 데이터 연동 (앱)**
+- [x] 모바일 게시판 API 연동 (`app/board.tsx`)
+- [x] 관리자 게시판 관리 API 연동 (`app/admin-board-manage.tsx`)
+- [x] 관리자 글쓰기 API 연동 + 카테고리 선택 UI (`app/admin-board.tsx`)
+- [x] board-list/board-detail 응답에 `isMine` 추가 및 재배포
+- [x] 관리자 글쓰기 첨부 업로드 연동 (`app/admin-board.tsx`)
+- [x] 관리자 게시글 수정 UI 연결 (`app/admin-board.tsx`, `app/admin-board-manage.tsx`)
+- [x] 웹 관리자 게시판 데이터 연동 (`web/src/app/dashboard/board/page.tsx`)
+- [x] 웹 게시판 글쓰기 첨부 업로드 UI + 업로드 연동 (`web/src/app/dashboard/board/page.tsx`)
 
 ### 현재 세션 (2025-01-12)
 **Phase 5: SMS 인증 시스템 및 권한 관리 개선 (완료)**
@@ -101,6 +176,7 @@
 - ✅ NCP SENS 프로덕션 모드 활성화 완료
 - ✅ 실제 SMS 발송 테스트 성공
 - 비용 모니터링 필요 (NCP 콘솔에서 확인)
+- App Review 대응: `verify-signup-otp`/`reset-password`에 `SMS_BYPASS_CODE=123456` 우회 로직 추가 (리뷰 후 비활성화 권장)
 
 ### 권한 관리
 - ✅ 본부장(Manager) 계정 UI 색상 차별화 완료
@@ -108,9 +184,26 @@
   - 현재: `request-password-reset`가 FC 계정만 처리
   - 필요 시: Admin/Manager용 별도 구현 필요
 
+### 게시판 (완료)
+- Edge Functions 배포 완료 (board-* 17개 함수)
+- 스키마 반영 완료 (supabase/schema.sql 적용)
+- 앱 연동 완료: 목록/상세/댓글/반응/댓글 좋아요
+- 첨부파일 업로드/다운로드 API 연결 완료 (글쓰기/상세)
+- 댓글 답글 깊이 2 허용 로직 적용됨 (board-comment-create 배포 완료)
+- 기존 첨부 삭제 API 추가됨 (`board-attachment-delete` 배포 완료)
+- 웹 관리자 게시판 데이터 연동 완료
+
+### 코드 품질 개선 (2026-01-16)
+- [x] Web ESLint 에러 대폭 감소 (any 타입 → 명시적 타입)
+- [x] App ESLint 경고 해결 (미사용 변수/import 제거)
+- [x] board-attachment-delete 에러 처리 추가
+- [x] ADR 0003 문서 최신화 (Phase 3-8 완료)
+
+### Open Issues (미해결)
+- 웹 ESLint: 일부 경고 남음 (setState in effect, exhaustive-deps)
+- 웹 게시판 첨부 삭제 UI: 기존 첨부파일 삭제 버튼 미구현
+
 ### 추가 개선 가능 항목 (선택적)
-- ✅ console.log → logger 전환 완료
-- ✅ 본부장 권한 UI 개선 완료
 - Admin/Manager 비밀번호 재설정 기능 구현 (필요 시)
 - 추가 컴포넌트 테스트 (Button, FormInput, LoadingSkeleton)
 - E2E 테스트 (Testsprite)
@@ -127,9 +220,12 @@
 ### 완료 단계 ✅
 - ✅ Phase 1: 컴포넌트 통일
 - ✅ Phase 2: TypeScript 타입 안정성
-- ✅ Phase 3: 테스트 인프라
+- ✅ Phase 3: 테스트 인프라 (Jest + 53개 테스트)
 - ✅ Phase 4: DX 개선 (Logger + Git Hooks)
 - ✅ Phase 5: SMS 인증 시스템 및 권한 관리 개선
+- ✅ Phase 6: 게시판 UI (모바일/관리자/웹)
+- ✅ Phase 7: 게시판 백엔드 (스키마/Edge Functions 17개)
+- ✅ Phase 8: 게시판 데이터 연동 (앱/웹)
 
 ### 선택적 추가 개선
 1. **Admin/Manager 비밀번호 재설정 기능 (필요 시)**
@@ -142,12 +238,12 @@
    - hooks/ 테스트 (use-session, use-identity-gate)
    - React Native Testing Library 활용
 
-3. **성능 최적화 (필요 시)**
+4. **성능 최적화 (필요 시)**
    - React.memo 적용
    - useMemo/useCallback 최적화
    - 이미지 최적화
 
-4. **문서화 (필요 시)**
+5. **문서화 (필요 시)**
    - API 문서 자동 생성
    - Storybook 도입 검토
 
@@ -156,12 +252,16 @@
 ## Key Files (핵심 파일)
 
 ### 재사용 컴포넌트 & 유틸리티
-- lib/theme.ts - 테마 토큰 (COLORS, TYPOGRAPHY, SPACING, RADIUS)
+- lib/theme.ts - 테마 토큰 (COLORS, TYPOGRAPHY, SPACING, RADIUS, ANIMATION, ALERT_VARIANTS, TOAST)
 - lib/validation.ts - 유효성 검사 함수 (100% 테스트 커버리지)
 - lib/logger.ts - 로깅 유틸리티 (환경별 로그 레벨)
 - components/Button.tsx - 버튼 컴포넌트 (5 variants, 3 sizes)
 - components/FormInput.tsx - 입력 필드 컴포넌트 (3 variants)
-- components/LoadingSkeleton.tsx - 스켈레톤 컴포넌트
+- components/LoadingSkeleton.tsx - 스켈레톤 컴포넌트 (Shimmer 효과, Board/Text 스켈레톤)
+- components/AppAlertProvider.tsx - 앱 전역 알림 모달 (4 variants, Reanimated)
+- components/Toast.tsx - 토스트 알림 (스와이프 dismiss, 프로그레스 바)
+- components/BoardCard.tsx - 게시판 카드 (프레스 애니메이션, 고정글)
+- components/EmptyState.tsx - 빈 상태 UI (5개 프리셋)
 - web/src/components/StatusToggle.tsx - 상태 토글 (본부장 모드 지원)
 
 ### 테스트
@@ -179,6 +279,23 @@
 - supabase/functions/request-password-reset/ - 비밀번호 재설정 코드 발송
 - supabase/functions/reset-password/ - 비밀번호 재설정 처리
 - supabase/functions/login-with-password/ - 로그인 (FC/Admin/Manager)
+
+### 게시판 UI (모바일/관리자/웹)
+- app/board.tsx - FC 게시판 (목록/검색/상세 모달, 제스처/애니메이션)
+- app/admin-board-manage.tsx - 관리자 게시판 관리 (수정/삭제 UI, FAB)
+- app/admin-board.tsx - 관리자 게시글 작성 (폼 + 첨부/삭제)
+- app/index.tsx - 하단 탭 게시판 진입
+- app/_layout.tsx - GestureHandlerRootView 적용
+- components/AppAlertProvider.tsx - 전역 Alert 커스텀 모달
+- web/src/app/dashboard/board/page.tsx - 웹 관리자 게시판 UI
+
+### 게시판 백엔드 (Edge Functions + Schema)
+- supabase/schema.sql - 게시판 테이블/뷰/RLS/스토리지
+- supabase/functions/_shared/board.ts - 게시판 공통 유틸
+- supabase/functions/board-* - 게시판 Edge Functions (목록/상세/CRUD/반응/댓글/첨부)
+- supabase/functions/board-attachment-delete - 첨부 삭제 (신규)
+- contracts/api-contracts.md - 게시판 API 계약
+- docs/guides/BOARD_REQUIREMENTS.md - 게시판 요구사항 문서
 
 ### Phase 5 완료 파일 (권한 관리 UI)
 - web/src/app/dashboard/page.tsx - 대시보드 (14개 버튼 색상 차별화)
@@ -231,6 +348,27 @@ node test-sms.js 01012345678
 # 3. 시험 일정 관리 - 일정 등록/수정/삭제 버튼 회색 확인
 # 4. 공지사항 작성 - 입력 필드 비활성화 확인
 # 5. 채팅 - 메시지 전송 불가 확인
+
+# 게시판 UI 테스트 (모바일)
+# 1. FC 계정 로그인 → 하단 탭 '게시판' 진입
+# 2. 게시글 상세 오픈 → 드래그로 닫기 애니메이션 확인
+# 3. 첨부/반응/댓글 UI 확인, 댓글 입력 하단 고정 확인
+
+# 게시판 관리 UI 테스트 (관리자)
+# 1. 관리자 계정 로그인 → 하단 탭 '게시판' 진입
+# 2. 글쓰기 FAB 스크롤 시 축소/확장 확인
+# 3. 상세 화면 더보기(⋮) → 수정/삭제 시트 표시 확인
+# 4. 글쓰기 화면에서 기존 첨부 삭제 동작 확인
+# 5. 댓글 답글 접기/펼치기, 답글 깊이 2 위치 확인
+
+# 게시판 UI 테스트 (웹)
+# 1. 관리자/본부장 계정 로그인 → /dashboard/board
+# 2. 본부장 계정은 읽기 전용 알림 표시, 작성 버튼 숨김 확인
+
+# 게시판 백엔드 테스트 (배포 후)
+# 1. Supabase 스키마 반영 (schema.sql 적용)
+# 2. board-* Edge Functions 배포
+# 3. board-list/board-detail 호출 응답 확인
 ```
 
 ---
@@ -323,6 +461,16 @@ node test-sms.js 01012345678
 - **관리 페이지**: 5개 페이지 읽기 전용 모드 적용
 - **Alert 추가**: 모든 관리 페이지에 읽기 전용 안내
 
+### Board UI (게시판 UI)
+- **모바일**: 게시판 목록/상세/제스처/첨부 UI 구현
+- **관리자**: 게시판 관리/글쓰기 UI (FAB + 액션 시트, 첨부 삭제)
+- **웹**: 관리자 게시판 페이지 UI 추가
+
+### Board Backend (게시판 백엔드)
+- **Schema**: 게시판 테이블/뷰/RLS/스토리지 초안 추가
+- **Edge Functions**: board-* 17개 함수 (첨부 삭제 추가)
+- **Contracts**: API 계약/요구사항 문서 업데이트
+
 ### Code Quality (현재 상태)
 - **TypeScript**: 0 에러 (App ✅ + Functions ✅ + Web ✅)
 - **ESLint**: 0 경고/에러 ✅
@@ -334,20 +482,11 @@ node test-sms.js 01012345678
 ---
 
 ## Last Updated
-- **Date**: 2025-01-12
+- **Date**: 2026-01-16
 - **By**: AI Assistant
-- **Session**: Phase 5 완료 (SMS 인증 + 본부장 권한 UI)
+- **Session**: UI 디자인 업그레이드
 - **Status**:
-  - 프로젝트 품질 기반 구축 완료
-  - 로깅 시스템 통합 완료
-  - SMS 프로덕션 모드 활성화
-  - 본부장 권한 UI 색상 차별화 완료
-- **Next**: 선택적 개선 항목 (Admin/Manager 비밀번호 재설정, 추가 테스트 등)
-
-
-
-
-
-
-
-
+  - 신규 컴포넌트: Toast, BoardCard, EmptyState
+  - 개선: AppAlertProvider(애니메이션+variants), LoadingSkeleton(Shimmer)
+  - Theme 확장: ANIMATION.spring, ALERT_VARIANTS, TOAST
+  - **Next**: 새 컴포넌트 실제 화면에 적용

@@ -24,15 +24,26 @@
 - 유틸 파일: kebab-case.ts
 
 ## 스타일 규칙 (Styling)
-- 테마 토큰만 사용: COLORS, TYPOGRAPHY, SPACING, RADIUS from '@/lib/theme'
+- 테마 토큰만 사용: COLORS, TYPOGRAPHY, SPACING, RADIUS, ANIMATION from '@/lib/theme'
 - 하드코딩된 색상(#ff6600 등) 사용 금지 - COLORS.primary 등 사용
 - 새 색상이 필요하면 theme.ts에 추가 후 사용
+- 애니메이션: ANIMATION.spring 설정 사용 (Reanimated withSpring)
 
 ## 컴포넌트 규칙 (Components)
 - 버튼: components/Button.tsx 사용 (Pressable 직접 사용 금지)
 - 입력 필드: components/FormInput.tsx 사용
-- 로딩 상태: components/LoadingSkeleton.tsx 사용
+- 로딩 상태: components/LoadingSkeleton.tsx 사용 (Skeleton, CardSkeleton, BoardSkeleton 등)
+- 빈 상태: components/EmptyState.tsx 사용 (EmptyPostsState, ErrorState 등 프리셋)
+- 알림 모달: components/AppAlertProvider.tsx (Alert.alert 자동 연동)
+- 토스트: components/Toast.tsx의 useToast() hook 사용
+- 게시판 카드: components/BoardCard.tsx 사용
 - 기존 컴포넌트 확장 시 props 추가, 새 컴포넌트 생성 자제
+
+## 컴포넌트 목록 (신규)
+- EmptyState
+- Toast
+- BoardCard
+- AppAlertProvider
 
 ## 데이터 페칭 (Data Fetching)
 - 서버 상태: TanStack React Query 사용 (useQuery, useMutation)
@@ -59,3 +70,20 @@ DB/API/아키텍처 변경이 필요하면:
 1. 변경 제안서 작성 (근거 + 영향 + 대안)
 2. ADR 초안 제시
 3. 승인 후 구현
+
+## TypeScript/React 규칙 (Codex 필수)
+- `any` 타입 사용 금지 → 명시적 타입 정의 (interface, type alias)
+- catch 블록: `catch (err: unknown)` 또는 `catch` 사용 (`err: any` 금지)
+- useQuery/useMemo 등 훅은 컴포넌트 최상단에 선언 (TDZ 에러 방지)
+- useState setter를 useEffect 안에서 직접 호출하지 않음 → 이벤트 핸들러로 분리
+- useMemo 의존성 배열에 객체/배열 직접 넣지 않음 → 세부 프로퍼티나 별도 변수로
+
+## 웹(Next.js) 규칙
+- CORS: Edge Functions에서 동적 Origin 허용 (localhost, vercel.app)
+- API 클라이언트: lib/board-api.ts 등 별도 파일로 분리 (web/src/lib/ 아래)
+- React Query: 쿼리 키 일관성 유지 (['entity', 'action', params])
+
+## ESLint 준수 사항
+- 미사용 변수/import 제거 (또는 _ prefix)
+- exhaustive-deps 경고 해결 (의존성 누락 시 추가)
+- React Hook 규칙 준수 (조건문 안에서 훅 호출 금지)

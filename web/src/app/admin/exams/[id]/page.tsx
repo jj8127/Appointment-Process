@@ -90,7 +90,15 @@ export default function AdminExamManagePage() {
 
       if (error) throw error;
 
-      const formattedRows: Row[] = (data ?? []).map((row: any) => ({
+      type RawRow = {
+        id: string;
+        resident_id: string;
+        is_confirmed: boolean;
+        created_at: string;
+        exam_locations: { location_name: string } | { location_name: string }[] | null;
+        fc_profiles: { name?: string; phone?: string; affiliation?: string; address?: string } | { name?: string; phone?: string; affiliation?: string; address?: string }[] | null;
+      };
+      const formattedRows: Row[] = (data ?? []).map((row: RawRow) => ({
         id: row.id,
         resident_id: row.resident_id,
         is_confirmed: row.is_confirmed,
@@ -114,6 +122,7 @@ export default function AdminExamManagePage() {
 
   useEffect(() => {
     if (hydrated && params.id) fetchData();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [hydrated, params.id]);
 
   const updateStatus = async (row: Row, newValue: 'confirmed' | 'pending') => {
@@ -363,7 +372,7 @@ export default function AdminExamManagePage() {
                                   { label: '미접수', value: 'pending' },
                                 ]}
                                 value={filters.status ?? ''}
-                                onChange={(val) => setFilters((prev) => ({ ...prev, status: (val as any) || null }))}
+                                onChange={(val) => setFilters((prev) => ({ ...prev, status: (val as 'confirmed' | 'pending' | null) || null }))}
                                 clearable
                               />
                             </Popover.Dropdown>

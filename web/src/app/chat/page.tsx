@@ -118,7 +118,7 @@ function ChatContent() {
         { event: '*', schema: 'public', table: 'messages' },
         async (payload) => {
           if (payload.eventType === 'DELETE') {
-            const deletedId = (payload as any).old?.id;
+            const deletedId = (payload.old as { id?: string } | undefined)?.id;
             if (deletedId) {
               deletedIdsRef.current.add(deletedId);
               setMessages((prev) => prev.filter((m) => m.id !== deletedId));
@@ -258,15 +258,17 @@ function ChatContent() {
           });
         }
         logger.debug('[notify] fc-notify proxy response', { status: resp.status, ok: resp.ok, data });
-      } catch (err: any) {
+      } catch (err: unknown) {
+        const error = err as Error;
         upsertLocalMessage({
           ...inserted,
           sendStatus: 'sent',
-          errorMessage: `[알림 전송 실패] ${err?.message ?? err}`,
+          errorMessage: `[알림 전송 실패] ${error?.message ?? String(err)}`,
         });
         logger.warn('[notify] fc-notify proxy error', err);
       }
-    } catch (err: any) {
+    } catch (err: unknown) {
+      const error = err as Error;
       upsertLocalMessage({
         id: localId,
         localId,
@@ -276,9 +278,9 @@ function ChatContent() {
         created_at: now,
         is_read: false,
         sendStatus: 'failed',
-        errorMessage: err?.message ?? '메시지 전송 중 오류',
+        errorMessage: error?.message ?? '메시지 전송 중 오류',
       });
-      notifications.show({ title: '전송 실패', message: err?.message ?? '메시지 전송 중 오류', color: 'red' });
+      notifications.show({ title: '전송 실패', message: error?.message ?? '메시지 전송 중 오류', color: 'red' });
     } finally {
       setLoading(false);
     }
@@ -289,13 +291,6 @@ function ChatContent() {
     const content = input.trim();
     setInput('');
     await sendMessageContent(content);
-  };
-
-  const onKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
-    if (e.key === 'Enter' && !e.shiftKey) {
-      e.preventDefault();
-      sendMessage();
-    }
   };
 
   const isReady = hydrated && myId && otherId;

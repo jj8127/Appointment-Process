@@ -437,7 +437,7 @@ export default function DashboardPage() {
       status: FcStatus;
       title?: string;
       msg: string;
-      extra?: Record<string, any>;
+      extra?: Record<string, string | null | boolean | number>;
     }) => {
       if (!selectedFc) return;
       await supabase.from('fc_profiles').update({ status, ...(extra ?? {}) }).eq('id', selectedFc.id);

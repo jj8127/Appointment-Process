@@ -189,7 +189,7 @@ export default function SignupScreen() {
 
           <View style={styles.field}>
             <Text style={styles.label}>통신사</Text>
-            <View style={styles.selectBox}>
+            <Pressable style={styles.selectBox} onPress={() => setShowCarrierPicker(true)}>
               <TextInput
                 style={[styles.input, styles.inputWithIcon]}
                 placeholder="통신사 선택"
@@ -198,10 +198,10 @@ export default function SignupScreen() {
                 editable={false}
                 pointerEvents="none"
               />
-              <Pressable style={styles.selectOverlay} onPress={() => setShowCarrierPicker(true)}>
+              <View style={styles.selectOverlay}>
                 <Feather name="chevron-down" size={20} color={COLORS.text.secondary} />
-              </Pressable>
-            </View>
+              </View>
+            </Pressable>
           </View>
 
           <View style={styles.field}>
@@ -231,7 +231,7 @@ export default function SignupScreen() {
               />
               <Text style={styles.emailAt}>@</Text>
               <View style={{ flex: 1 }}>
-                <View style={styles.emailDomainBox}>
+                <Pressable style={styles.emailDomainBox} onPress={() => setShowDomainPicker(true)}>
                   <TextInput
                     style={[styles.input, styles.inputWithIcon]}
                     placeholder="도메인 선택"
@@ -240,10 +240,10 @@ export default function SignupScreen() {
                     editable={false}
                     pointerEvents="none"
                   />
-                  <Pressable style={styles.selectOverlay} onPress={() => setShowDomainPicker(true)}>
+                  <View style={styles.selectOverlay}>
                     <Feather name="chevron-down" size={20} color={COLORS.text.secondary} />
-                  </Pressable>
-                </View>
+                  </View>
+                </Pressable>
 
                 {emailDomain === '직접입력' ? (
                   <TextInput

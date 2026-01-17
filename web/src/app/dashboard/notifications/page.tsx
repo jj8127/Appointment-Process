@@ -77,7 +77,7 @@ export default function NotificationsPage() {
             });
             queryClient.invalidateQueries({ queryKey: ['notices'] });
         },
-        onError: (err: any) => {
+        onError: (err: Error) => {
             notifications.show({
                 title: '삭제 실패',
                 message: err.message,
@@ -96,7 +96,18 @@ export default function NotificationsPage() {
         });
     };
 
-    const filteredNotices = (noticesData || []).filter((notice: any) => {
+    type NoticeItem = {
+        id: string;
+        title?: string;
+        body?: string;
+        category?: string;
+        created_at?: string;
+        is_push_sent?: boolean;
+        image_url?: string;
+        attachment_url?: string;
+    };
+
+    const filteredNotices = (noticesData || []).filter((notice: NoticeItem) => {
         if (!keyword.trim()) return true;
         const q = keyword.toLowerCase();
         return (
@@ -106,7 +117,7 @@ export default function NotificationsPage() {
         );
     });
 
-    const rows = filteredNotices.map((notice: any) => (
+    const rows = filteredNotices.map((notice: NoticeItem) => (
         <Table.Tr key={notice.id}>
             <Table.Td style={{ width: 120 }}>
                 <Text size="sm" c="dimmed">

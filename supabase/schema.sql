@@ -826,3 +826,250 @@ alter table public.exam_registrations
 -- 응시료 납입 일자
 alter table public.exam_registrations
   add column if not exists fee_paid_date date;
+
+-- ============================
+-- 게시판 (Board) 테이블
+-- ============================
+
+create table if not exists public.board_categories (
+  id uuid primary key default gen_random_uuid(),
+  name text not null unique,
+  slug text not null unique,
+  sort_order int not null default 0,
+  is_active boolean not null default true,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
+create table if not exists public.board_posts (
+  id uuid primary key default gen_random_uuid(),
+  category_id uuid not null references public.board_categories(id),
+  title text not null,
+  content text not null,
+  author_role text not null check (author_role in ('admin','manager')),
+  author_resident_id text not null,
+  author_name text not null,
+  is_pinned boolean not null default false,
+  pinned_at timestamptz,
+  pinned_by_resident_id text,
+  edited_at timestamptz,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
+create table if not exists public.board_attachments (
+  id uuid primary key default gen_random_uuid(),
+  post_id uuid not null references public.board_posts(id) on delete cascade,
+  file_type text not null check (file_type in ('image','file')),
+  file_name text not null,
+  file_size bigint not null,
+  mime_type text,
+  storage_path text not null unique,
+  created_by_resident_id text not null,
+  created_at timestamptz not null default now()
+);
+
+create table if not exists public.board_post_reactions (
+  id uuid primary key default gen_random_uuid(),
+  post_id uuid not null references public.board_posts(id) on delete cascade,
+  resident_id text not null,
+  role text not null check (role in ('admin','manager','fc')),
+  reaction_type text not null check (reaction_type in ('like','heart','check','smile')),
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+  unique (post_id, resident_id)
+);
+
+create table if not exists public.board_comments (
+  id uuid primary key default gen_random_uuid(),
+  post_id uuid not null references public.board_posts(id) on delete cascade,
+  parent_id uuid references public.board_comments(id) on delete cascade,
+  content text not null,
+  author_role text not null check (author_role in ('admin','manager','fc')),
+  author_resident_id text not null,
+  author_name text not null,
+  edited_at timestamptz,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
+create table if not exists public.board_comment_likes (
+  id uuid primary key default gen_random_uuid(),
+  comment_id uuid not null references public.board_comments(id) on delete cascade,
+  resident_id text not null,
+  role text not null check (role in ('admin','manager','fc')),
+  created_at timestamptz not null default now(),
+  unique (comment_id, resident_id)
+);
+
+create index if not exists idx_board_posts_category_created
+  on public.board_posts (category_id, created_at desc);
+
+create index if not exists idx_board_posts_pinned
+  on public.board_posts (is_pinned, pinned_at desc);
+
+create index if not exists idx_board_attachments_post
+  on public.board_attachments (post_id);
+
+create index if not exists idx_board_post_reactions_post
+  on public.board_post_reactions (post_id);
+
+create index if not exists idx_board_comments_post_parent
+  on public.board_comments (post_id, parent_id, created_at);
+
+create index if not exists idx_board_comment_likes_comment
+  on public.board_comment_likes (comment_id);
+
+-- 검색용 tsvector (제목/본문/작성자)
+alter table public.board_posts
+  add column if not exists search_vector tsvector
+  generated always as (
+    to_tsvector('simple', coalesce(title,'') || ' ' || coalesce(content,'') || ' ' || coalesce(author_name,''))
+  ) stored;
+
+create index if not exists idx_board_posts_search
+  on public.board_posts using gin(search_vector);
+
+-- updated_at 트리거
+drop trigger if exists trg_board_categories_updated_at on public.board_categories;
+create trigger trg_board_categories_updated_at
+before update on public.board_categories
+for each row execute function public.set_updated_at();
+
+drop trigger if exists trg_board_posts_updated_at on public.board_posts;
+create trigger trg_board_posts_updated_at
+before update on public.board_posts
+for each row execute function public.set_updated_at();
+
+drop trigger if exists trg_board_post_reactions_updated_at on public.board_post_reactions;
+create trigger trg_board_post_reactions_updated_at
+before update on public.board_post_reactions
+for each row execute function public.set_updated_at();
+
+drop trigger if exists trg_board_comments_updated_at on public.board_comments;
+create trigger trg_board_comments_updated_at
+before update on public.board_comments
+for each row execute function public.set_updated_at();
+
+-- 게시판 기본 카테고리 시드
+insert into public.board_categories (name, slug, sort_order)
+values
+  ('공지','notice',1),
+  ('교육','education',2),
+  ('일반','general',3),
+  ('서류','documents',4)
+on conflict (slug) do nothing;
+
+-- RLS 활성화 (서비스 롤 전용 접근)
+alter table public.board_categories enable row level security;
+alter table public.board_posts enable row level security;
+alter table public.board_attachments enable row level security;
+alter table public.board_post_reactions enable row level security;
+alter table public.board_comments enable row level security;
+alter table public.board_comment_likes enable row level security;
+
+drop policy if exists "board_categories service_role" on public.board_categories;
+create policy "board_categories service_role"
+  on public.board_categories
+  for all
+  using (auth.role() = 'service_role')
+  with check (auth.role() = 'service_role');
+
+drop policy if exists "board_posts service_role" on public.board_posts;
+create policy "board_posts service_role"
+  on public.board_posts
+  for all
+  using (auth.role() = 'service_role')
+  with check (auth.role() = 'service_role');
+
+drop policy if exists "board_attachments service_role" on public.board_attachments;
+create policy "board_attachments service_role"
+  on public.board_attachments
+  for all
+  using (auth.role() = 'service_role')
+  with check (auth.role() = 'service_role');
+
+drop policy if exists "board_post_reactions service_role" on public.board_post_reactions;
+create policy "board_post_reactions service_role"
+  on public.board_post_reactions
+  for all
+  using (auth.role() = 'service_role')
+  with check (auth.role() = 'service_role');
+
+drop policy if exists "board_comments service_role" on public.board_comments;
+create policy "board_comments service_role"
+  on public.board_comments
+  for all
+  using (auth.role() = 'service_role')
+  with check (auth.role() = 'service_role');
+
+drop policy if exists "board_comment_likes service_role" on public.board_comment_likes;
+create policy "board_comment_likes service_role"
+  on public.board_comment_likes
+  for all
+  using (auth.role() = 'service_role')
+  with check (auth.role() = 'service_role');
+
+-- 집계 뷰 (SQL View)
+create or replace view public.board_post_stats as
+select
+  p.id as post_id,
+  count(distinct c.id) as comment_count,
+  count(distinct r.id) as reaction_count,
+  count(distinct a.id) as attachment_count
+from public.board_posts p
+left join public.board_comments c on c.post_id = p.id
+left join public.board_post_reactions r on r.post_id = p.id
+left join public.board_attachments a on a.post_id = p.id
+group by p.id;
+
+create or replace view public.board_comment_stats as
+select
+  c.id as comment_id,
+  count(distinct l.id) as like_count,
+  count(distinct r.id) as reply_count
+from public.board_comments c
+left join public.board_comment_likes l on l.comment_id = c.id
+left join public.board_comments r on r.parent_id = c.id
+group by c.id;
+
+create or replace view public.board_posts_with_stats as
+select
+  p.*,
+  coalesce(s.comment_count, 0) as comment_count,
+  coalesce(s.reaction_count, 0) as reaction_count,
+  coalesce(s.attachment_count, 0) as attachment_count
+from public.board_posts p
+left join public.board_post_stats s on s.post_id = p.id;
+
+create or replace view public.board_comments_with_stats as
+select
+  c.*,
+  coalesce(s.like_count, 0) as like_count,
+  coalesce(s.reply_count, 0) as reply_count
+from public.board_comments c
+left join public.board_comment_stats s on s.comment_id = c.id;
+
+-- 스토리지 버킷 (게시판 첨부)
+insert into storage.buckets (id, name, public) values ('board-attachments', 'board-attachments', false)
+on conflict (id) do nothing;
+
+drop policy if exists "board-attachments read" on storage.objects;
+create policy "board-attachments read"
+  on storage.objects for select
+  using (bucket_id = 'board-attachments' and auth.role() = 'service_role');
+
+drop policy if exists "board-attachments write" on storage.objects;
+create policy "board-attachments write"
+  on storage.objects for insert
+  with check (bucket_id = 'board-attachments' and auth.role() = 'service_role');
+
+drop policy if exists "board-attachments update" on storage.objects;
+create policy "board-attachments update"
+  on storage.objects for update
+  using (bucket_id = 'board-attachments' and auth.role() = 'service_role');
+
+drop policy if exists "board-attachments delete" on storage.objects;
+create policy "board-attachments delete"
+  on storage.objects for delete
+  using (bucket_id = 'board-attachments' and auth.role() = 'service_role');

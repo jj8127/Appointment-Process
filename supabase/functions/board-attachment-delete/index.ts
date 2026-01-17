@@ -1,0 +1,95 @@
+import { serve } from 'https://deno.land/std@0.224.0/http/server.ts';
+import { buildCorsHeaders, json, parseJson, requireActor, requireRole, supabase } from '../_shared/board.ts';
+
+type Payload = {
+  actor?: {
+    role: 'admin' | 'manager' | 'fc';
+    residentId: string;
+    displayName?: string;
+  };
+  postId?: string;
+  attachmentIds?: string[];
+};
+
+serve(async (req: Request) => {
+  const origin = req.headers.get('origin') ?? undefined;
+  const corsHeaders = buildCorsHeaders(origin);
+  if (req.method === 'OPTIONS') {
+    return new Response('ok', { headers: corsHeaders });
+  }
+  if (req.method !== 'POST') {
+    return json({ ok: false, code: 'method_not_allowed', message: 'Method not allowed' }, 405, origin);
+  }
+
+  const body = await parseJson<Payload>(req);
+  if (!body) return json({ ok: false, code: 'invalid_json', message: 'Invalid JSON' }, 400, origin);
+
+  const actorCheck = await requireActor(body, origin);
+  if (!actorCheck.ok) return actorCheck.response;
+  const forbidden = requireRole(actorCheck.actor, ['admin', 'manager'], origin);
+  if (forbidden) return forbidden;
+
+  const postId = body.postId;
+  const attachmentIds = body.attachmentIds ?? [];
+  if (!postId || attachmentIds.length === 0) {
+    return json({ ok: false, code: 'invalid_payload', message: 'postId and attachmentIds required' }, 400, origin);
+  }
+
+  const { data: post, error: postError } = await supabase
+    .from('board_posts')
+    .select('id,author_role,author_resident_id')
+    .eq('id', postId)
+    .maybeSingle();
+
+  if (postError) {
+    return json({ ok: false, code: 'db_error', message: postError.message }, 500, origin);
+  }
+  if (!post) {
+    return json({ ok: false, code: 'not_found', message: 'post not found' }, 404, origin);
+  }
+
+  if (
+    actorCheck.actor.role === 'manager'
+    && (post.author_role !== 'manager' || post.author_resident_id !== actorCheck.actor.residentId)
+  ) {
+    return json({ ok: false, code: 'forbidden', message: 'cannot edit this post' }, 403, origin);
+  }
+
+  const { data: attachments, error: attachmentError } = await supabase
+    .from('board_attachments')
+    .select('id,storage_path')
+    .eq('post_id', postId)
+    .in('id', attachmentIds);
+
+  if (attachmentError) {
+    return json({ ok: false, code: 'db_error', message: attachmentError.message }, 500, origin);
+  }
+  if (!attachments || attachments.length === 0) {
+    return json({ ok: false, code: 'not_found', message: 'attachment not found' }, 404, origin);
+  }
+  if (attachments.length !== attachmentIds.length) {
+    return json({ ok: false, code: 'invalid_attachment', message: 'attachment not found' }, 400, origin);
+  }
+
+  const storagePaths = attachments.map((item) => item.storage_path).filter(Boolean);
+  if (storagePaths.length > 0) {
+    const { error: storageError } = await supabase.storage.from('board-attachments').remove(storagePaths);
+    if (storageError) {
+      console.error('[board-attachment-delete] storage delete error:', storageError.message);
+      // Continue with DB deletion even if storage fails - prevents orphan records
+      // Admin can manually clean storage later if needed
+    }
+  }
+
+  const { error: deleteError } = await supabase
+    .from('board_attachments')
+    .delete()
+    .eq('post_id', postId)
+    .in('id', attachmentIds);
+
+  if (deleteError) {
+    return json({ ok: false, code: 'db_error', message: deleteError.message }, 500, origin);
+  }
+
+  return json({ ok: true }, 200, origin);
+});

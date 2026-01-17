@@ -69,7 +69,8 @@ export default function CreateNoticePage() {
 
     const uploadToSupabase = async (file: File) => {
         const fileExt = file.name.split('.').pop();
-        const fileName = `${Date.now()}_${Math.random().toString(36).substring(7)}.${fileExt}`;
+        const randomSuffix = Math.random().toString(36).substring(7);
+        const fileName = `${Date.now()}_${randomSuffix}.${fileExt}`;
         const filePath = `${fileName}`;
 
         const { error } = await supabase.storage
@@ -181,6 +182,7 @@ export default function CreateNoticePage() {
                 <div style={{ position: 'relative' }}>
                     <Image
                         src={imageUrl}
+                        alt={`첨부 이미지 ${index + 1}`}
                         onLoad={() => URL.revokeObjectURL(imageUrl)}
                         radius="md"
                         h={100}

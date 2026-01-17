@@ -30,7 +30,7 @@ export default function ResetPasswordPage() {
       });
       if (error) {
         let detail = error.message;
-        const context = (error as any)?.context as Response | undefined;
+        const context = (error as { context?: Response })?.context;
         if (context?.text) {
           try {
             detail = await context.text();
@@ -47,8 +47,9 @@ export default function ResetPasswordPage() {
       }
       setRequested(true);
       notifications.show({ title: '안내', message: '인증 코드가 문자로 발송되었습니다.', color: 'green' });
-    } catch (err: any) {
-      const message = err?.message || '비밀번호 재설정 요청에 실패했습니다.';
+    } catch (err: unknown) {
+      const error = err as Error;
+      const message = error?.message || '비밀번호 재설정 요청에 실패했습니다.';
       notifications.show({ title: '오류', message, color: 'red' });
     } finally {
       setLoading(false);

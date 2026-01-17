@@ -136,10 +136,11 @@ export default function SettingsPage() {
       setOpened(false);
       logout();
       router.replace('/auth');
-    } catch (err: any) {
+    } catch (err: unknown) {
+      const error = err as Error;
       notifications.show({
         title: '계정 삭제 실패',
-        message: err?.message ?? '계정 삭제 중 오류가 발생했습니다.',
+        message: error?.message ?? '계정 삭제 중 오류가 발생했습니다.',
         color: 'red',
       });
     } finally {

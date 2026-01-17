@@ -117,7 +117,7 @@ export default function AuthPage() {
             } else {
                 router.replace('/');
             }
-        } catch (err: any) {
+        } catch {
             notifications.show({
                 title: '로그인 실패',
                 message: '오류가 발생했습니다. 다시 시도해주세요.',

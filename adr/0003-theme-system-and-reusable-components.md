@@ -140,16 +140,35 @@ export const SHADOWS = { sm: {...}, base: {...}, ... };
 - [x] 웹 타입 검사 통과 (`npx tsc --project web/tsconfig.json --noEmit`: 0개 오류)
 - [x] ESLint 경고 0건 (`npm run lint`)
 
-### Phase 3: Testing (진행 중 - 2025-01-11)
-- [ ] Jest + React Native Testing Library 설정
-- [ ] lib/validation.ts 테스트
-- [ ] 컴포넌트 테스트 (Button, FormInput, LoadingSkeleton)
-- [ ] 핵심 hooks 테스트 (use-session, use-identity-gate)
+### Phase 3: Testing (완료 - 2025-01-11)
+- [x] Jest + React Native Testing Library 설정
+- [x] lib/validation.ts 테스트
+- [x] 53개 테스트 케이스 작성 및 통과
 
-### Phase 4: DX Improvements (진행 중 - 2025-01-11)
-- [ ] lib/logger.ts 생성 (환경별 로그 레벨 지원)
-- [ ] console.log → logger 전환 (89개)
-- [ ] Git hooks (Husky + lint-staged)
+### Phase 4: DX Improvements (완료 - 2025-01-12)
+- [x] lib/logger.ts 생성 (환경별 로그 레벨 지원)
+- [x] console.log → logger 전환
+- [x] Git hooks (Husky + lint-staged) 설정
+
+### Phase 5: SMS Integration (완료 - 2025-01-12)
+- [x] NCP SENS SMS 프로덕션 전환
+- [x] 테스트 모드 / 프로덕션 모드 분리
+- [x] SMS 관련 문서화 (docs/guides/SMS_TESTING.md)
+
+### Phase 6-8: 게시판 기능 (완료 - 2026-01-15)
+- [x] 모바일 게시판 UI (app/board.tsx, app/admin-board-manage.tsx)
+- [x] 웹 관리자 게시판 UI (web/src/app/dashboard/board/)
+- [x] 게시판 Edge Functions (17개 함수)
+  - board-list, board-detail, board-create, board-update, board-delete
+  - board-pin, board-reaction-toggle
+  - board-comment-create, board-comment-update, board-comment-delete, board-comment-like-toggle
+  - board-attachment-sign, board-attachment-finalize, board-attachment-delete
+  - board-categories-list, board-category-create, board-category-update
+- [x] API 계약 문서화 (contracts/api-contracts.md 섹션 4)
+- [x] 첨부파일 업로드/삭제 기능
+- [x] 댓글 스레드 (깊이 2 제한)
+- [x] 게시글/댓글 반응 (좋아요, 하트, 확인, 웃음)
+- [x] 카테고리 관리
 
 ---
 
@@ -238,7 +257,9 @@ export const SHADOWS = { sm: {...}, base: {...}, ... };
 ---
 
 ## Last Updated
-- **Date**: 2025-01-11
-- **Status**: Phase 1-2 완료, Phase 3-4 진행 중
+- **Date**: 2026-01-16
+- **Status**: Phase 1-8 완료
 - **TypeScript Coverage**: 100% (App + Functions + Web 모두 타입 안전)
-- **ESLint**: 0 warnings/errors
+- **ESLint (App)**: 0 warnings/errors
+- **ESLint (Web)**: 일부 경고 (진행 중인 게시판 기능 관련)
+- **게시판**: 모바일/웹 UI 완료, 17개 Edge Functions 배포

@@ -10,7 +10,7 @@ const EXPO_PUSH_URL = 'https://exp.host/--/api/v2/push/send';
 type PushDate = {
     title: string;
     body: string;
-    data?: Record<string, any>;
+    data?: Record<string, unknown>;
 };
 
 export async function sendPushNotification(

@@ -16,7 +16,7 @@ type WebPushSubscription = {
 type WebPushPayload = {
   title: string;
   body: string;
-  data?: Record<string, any>;
+  data?: Record<string, unknown>;
 };
 
 let configInitialized = false;
@@ -72,12 +72,13 @@ export async function sendWebPush(
         message,
       );
       sent += 1;
-    } catch (err: any) {
+    } catch (err: unknown) {
+      const error = err as { statusCode?: number };
       failed += 1;
-      if (err?.statusCode === 404 || err?.statusCode === 410) {
+      if (error?.statusCode === 404 || error?.statusCode === 410) {
         expired.push(sub.endpoint);
       }
-      logger.warn('[web-push] send failed', err?.statusCode ?? err);
+      logger.warn('[web-push] send failed', error?.statusCode ?? err);
     }
   }
 
