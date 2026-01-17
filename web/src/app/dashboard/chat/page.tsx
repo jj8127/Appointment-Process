@@ -256,6 +256,7 @@ export default function ChatPage() {
 
 // --- Chat Room Component ---
 function ChatRoom({ fc }: { fc: ChatPreview }) {
+    const { isReadOnly } = useSession();
     const [messages, setMessages] = useState<Message[]>([]);
     const [inputText, setInputText] = useState('');
     const viewport = useRef<HTMLDivElement>(null);

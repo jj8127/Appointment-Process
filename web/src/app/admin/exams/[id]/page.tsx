@@ -90,15 +90,26 @@ export default function AdminExamManagePage() {
 
       if (error) throw error;
 
+      type RawFcProfile = { name?: string; phone?: string; affiliation?: string; address?: string };
       type RawRow = {
         id: string;
         resident_id: string;
         is_confirmed: boolean;
         created_at: string;
         exam_locations: { location_name: string } | { location_name: string }[] | null;
-        fc_profiles: { name?: string; phone?: string; affiliation?: string; address?: string } | { name?: string; phone?: string; affiliation?: string; address?: string }[] | null;
+        fc_profiles: RawFcProfile | RawFcProfile[] | null;
       };
-      const formattedRows: Row[] = (data ?? []).map((row: RawRow) => ({
+      const normalizeFcProfile = (raw: RawFcProfile | RawFcProfile[] | null): Row['fc_profiles'] => {
+        const profile = Array.isArray(raw) ? raw[0] : raw;
+        if (!profile) return null;
+        return {
+          name: profile.name ?? null,
+          phone: profile.phone ?? null,
+          affiliation: profile.affiliation ?? null,
+          address: profile.address ?? null,
+        };
+      };
+      const formattedRows: Row[] = ((data ?? []) as RawRow[]).map((row) => ({
         id: row.id,
         resident_id: row.resident_id,
         is_confirmed: row.is_confirmed,
@@ -106,9 +117,7 @@ export default function AdminExamManagePage() {
         exam_locations: Array.isArray(row.exam_locations)
           ? row.exam_locations[0] ?? null
           : row.exam_locations,
-        fc_profiles: Array.isArray(row.fc_profiles)
-          ? row.fc_profiles[0] ?? null
-          : row.fc_profiles
+        fc_profiles: normalizeFcProfile(row.fc_profiles),
       }));
 
       setRows(formattedRows);

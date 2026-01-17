@@ -1,6 +1,7 @@
 'use client';
 
 import { getAdminStep } from '@/lib/shared';
+import type { FcProfile, FcStatus } from '@/types/fc';
 import { supabase } from '@/lib/supabase';
 import {
     ActionIcon,
@@ -56,10 +57,17 @@ type FcProfileDetail = {
     email: string | null;
     affiliation: string | null;
     step?: string; // Optional since it's not in DB
-    status: string;
+    status: FcStatus;
     career_type: string | null; // 신입/경력
+    temp_id?: string | null;
+    identity_completed?: boolean | null;
+    created_at: string;
+    appointment_schedule_life?: string | null;
+    appointment_schedule_nonlife?: string | null;
     appointment_date_life: string | null; // 위촉 예정일 (Life)
     appointment_date_nonlife: string | null; // 위촉 예정일 (NonLife)
+    appointment_date_life_sub?: string | null;
+    appointment_date_nonlife_sub?: string | null;
     allowance_date: string | null;
     fc_documents?: FcDocument[];
     admin_memo: string | null;
@@ -191,7 +199,7 @@ export default function FcProfilePage({ params }: { params: Promise<{ id: string
     if (isProfileLoading) return <LoadingOverlay visible />;
     if (!profile) return <Container py="xl"><Text>FC 정보를 찾을 수 없습니다.</Text></Container>;
 
-    const adminStepLabel = getAdminStep(profile as FcProfileDetail);
+    const adminStepLabel = getAdminStep(profile as unknown as FcProfile);
 
     return (
         <Box bg={BACKGROUND} style={{ minHeight: '100vh' }}>
@@ -203,7 +211,7 @@ export default function FcProfilePage({ params }: { params: Promise<{ id: string
                             목록으로 돌아가기
                         </Button>
                         <Badge size="lg" variant="gradient" gradient={{ from: 'orange', to: 'red' }}>
-                            {profile.status === 'active' ? '활동중' : profile.status}
+                            {profile.status === 'final-link-sent' ? '활동중' : profile.status}
                         </Badge>
                     </Group>
 
