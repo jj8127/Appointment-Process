@@ -12,6 +12,7 @@ import {
   Linking,
   Pressable,
   RefreshControl,
+  ScrollView,
   StyleSheet,
   Text,
   TextInput,
@@ -38,11 +39,14 @@ import { useKeyboardPadding } from '@/hooks/use-keyboard-padding';
 import { useSession } from '@/hooks/use-session';
 import { ANIMATION } from '@/lib/theme';
 import {
+  BoardCategory,
   BoardDetail,
   BoardListItem,
+  BoardListParams,
   buildBoardActor,
   createBoardComment,
   deleteBoardComment,
+  fetchBoardCategories,
   fetchBoardDetail,
   fetchBoardList,
   formatFileSize,
@@ -175,6 +179,10 @@ export default function BoardScreen() {
   const [selectedPost, setSelectedPost] = useState<BoardPost | null>(null);
   const [commentText, setCommentText] = useState('');
   const [searchQuery, setSearchQuery] = useState('');
+  const [searchInput, setSearchInput] = useState('');
+  const [selectedCategoryId, setSelectedCategoryId] = useState<string | null>(null);
+  const [sortOption, setSortOption] = useState<BoardListParams['sort']>('created');
+  const [showSortMenu, setShowSortMenu] = useState(false);
   const [editingCommentId, setEditingCommentId] = useState<string | null>(null);
   const [editingCommentText, setEditingCommentText] = useState('');
   const [collapsedThreadIds, setCollapsedThreadIds] = useState<string[]>([]);
@@ -183,6 +191,14 @@ export default function BoardScreen() {
     authorName: string;
     parentId: string;
   } | null>(null);
+
+  // 정렬 옵션 레이블
+  const sortLabels: Record<NonNullable<BoardListParams['sort']>, string> = {
+    created: '최신순',
+    latest: '업데이트순',
+    comments: '댓글많은순',
+    reactions: '반응많은순',
+  };
 
   // Scroll animation for bottom nav
   const lastScrollY = useSharedValue(0);
@@ -220,14 +236,16 @@ export default function BoardScreen() {
     [animateCloseModal, modalTranslateY],
   );
 
+  // 모달 열기/닫기 애니메이션 - selectedPost.id만 추적하여 반응 업데이트 시 재실행 방지
+  const selectedPostId = selectedPost?.id ?? null;
   useEffect(() => {
-    if (!selectedPost) {
+    if (!selectedPostId) {
       modalTranslateY.value = 0;
       return;
     }
     modalTranslateY.value = screenHeight;
     modalTranslateY.value = withTiming(0, { duration: 380, easing: Easing.out(Easing.cubic) });
-  }, [modalTranslateY, screenHeight, selectedPost]);
+  }, [modalTranslateY, screenHeight, selectedPostId]);
 
   const scrollHandler = useAnimatedScrollHandler({
     onScroll: (event) => {
@@ -255,16 +273,29 @@ export default function BoardScreen() {
   }));
 
   // Queries
-  const { data: listData, isLoading, isError, refetch } = useQuery({
-    queryKey: ['board-posts', actor?.role, actor?.residentId],
+  const { data: categories } = useQuery({
+    queryKey: ['board-categories'],
     queryFn: () => {
-      if (!actor) return Promise.resolve({ items: [], nextCursor: null });
-      return fetchBoardList(actor, { limit: 20 });
+      if (!actor) return Promise.resolve([]);
+      return fetchBoardCategories(actor);
     },
     enabled: !!actor,
   });
 
-  const selectedPostId = selectedPost?.id ?? null;
+  const { data: listData, isLoading, isError, refetch } = useQuery({
+    queryKey: ['board-posts', actor?.role, actor?.residentId, selectedCategoryId, sortOption, searchQuery],
+    queryFn: () => {
+      if (!actor) return Promise.resolve({ items: [], nextCursor: null });
+      return fetchBoardList(actor, {
+        limit: 20,
+        categoryId: selectedCategoryId ?? undefined,
+        sort: sortOption,
+        search: searchQuery || undefined,
+      });
+    },
+    enabled: !!actor,
+  });
+
   const { data: detailData } = useQuery({
     queryKey: ['board-detail', selectedPostId],
     queryFn: () => {
@@ -426,9 +457,9 @@ export default function BoardScreen() {
 
   // Add comment mutation
   const addCommentMutation = useMutation({
-    mutationFn: async ({ postId, content }: { postId: string; content: string }) => {
+    mutationFn: async ({ postId, content, parentId }: { postId: string; content: string; parentId?: string }) => {
       if (!actor) throw new Error('로그인이 필요합니다.');
-      return createBoardComment(actor, { postId, content });
+      return createBoardComment(actor, { postId, content, parentId });
     },
     onSuccess: () => {
       setCommentText('');
@@ -716,12 +747,8 @@ export default function BoardScreen() {
     }
   }, [collapsedThreadIds.length, selectedPost, threadedComments]);
 
-  const filteredPosts = useMemo(() => {
-    if (!posts) return [];
-    if (!searchQuery.trim()) return posts;
-    const q = searchQuery.toLowerCase();
-    return posts.filter((p) => p.title.toLowerCase().includes(q) || p.contentPreview.toLowerCase().includes(q));
-  }, [posts, searchQuery]);
+  // 서버에서 필터링/정렬된 게시글 사용
+  const filteredPosts = posts;
 
   const getAttachmentSummary = (attachments: BoardPost['attachments']) => {
     if (!attachments || attachments.length === 0) return null;
@@ -781,10 +808,75 @@ export default function BoardScreen() {
             style={styles.searchInput}
             placeholder="게시글 검색..."
             placeholderTextColor={TEXT_MUTED}
-            value={searchQuery}
-            onChangeText={setSearchQuery}
+            value={searchInput}
+            onChangeText={setSearchInput}
+            onSubmitEditing={() => setSearchQuery(searchInput)}
+            returnKeyType="search"
           />
+          {searchInput.length > 0 && (
+            <Pressable
+              onPress={() => {
+                setSearchInput('');
+                setSearchQuery('');
+              }}
+              style={styles.searchClear}
+            >
+              <Feather name="x" size={16} color={TEXT_MUTED} />
+            </Pressable>
+          )}
         </View>
+
+        {/* 카테고리 필터 & 정렬 */}
+        <View style={[styles.filterRow, selectedPost && styles.searchContainerHidden]} pointerEvents={selectedPost ? 'none' : 'auto'}>
+          <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.categoryChips}>
+            <Pressable
+              style={[styles.categoryChip, !selectedCategoryId && styles.categoryChipActive]}
+              onPress={() => setSelectedCategoryId(null)}
+            >
+              <Text style={[styles.categoryChipText, !selectedCategoryId && styles.categoryChipTextActive]}>전체</Text>
+            </Pressable>
+            {(categories ?? []).map((cat) => (
+              <Pressable
+                key={cat.id}
+                style={[styles.categoryChip, selectedCategoryId === cat.id && styles.categoryChipActive]}
+                onPress={() => setSelectedCategoryId(cat.id)}
+              >
+                <Text style={[styles.categoryChipText, selectedCategoryId === cat.id && styles.categoryChipTextActive]}>
+                  {cat.name}
+                </Text>
+              </Pressable>
+            ))}
+          </ScrollView>
+          <Pressable
+            style={styles.sortButton}
+            onPress={() => setShowSortMenu(!showSortMenu)}
+          >
+            <Feather name="sliders" size={16} color={CHARCOAL} />
+            <Text style={styles.sortButtonText}>{sortLabels[sortOption ?? 'created']}</Text>
+            <Feather name="chevron-down" size={14} color={TEXT_MUTED} />
+          </Pressable>
+        </View>
+
+        {/* 정렬 메뉴 */}
+        {showSortMenu && (
+          <View style={styles.sortMenu}>
+            {(Object.entries(sortLabels) as [NonNullable<BoardListParams['sort']>, string][]).map(([key, label]) => (
+              <Pressable
+                key={key}
+                style={[styles.sortMenuItem, sortOption === key && styles.sortMenuItemActive]}
+                onPress={() => {
+                  setSortOption(key);
+                  setShowSortMenu(false);
+                }}
+              >
+                <Text style={[styles.sortMenuItemText, sortOption === key && styles.sortMenuItemTextActive]}>
+                  {label}
+                </Text>
+                {sortOption === key && <Feather name="check" size={16} color={HANWHA_ORANGE} />}
+              </Pressable>
+            ))}
+          </View>
+        )}
 
         <View style={styles.container}>
           {isLoading && !refreshing && (
@@ -820,6 +912,14 @@ export default function BoardScreen() {
                 style={({ pressed }) => [styles.card, pressed && { opacity: 0.7 }]}
                 onPress={() => setSelectedPost(post)}
               >
+                {/* 고정 게시글 배지 */}
+                {post.isPinned && (
+                  <View style={styles.pinnedBadge}>
+                    <Feather name="bookmark" size={12} color="#fff" />
+                    <Text style={styles.pinnedBadgeText}>고정</Text>
+                  </View>
+                )}
+
                 {/* 게시글 헤더 */}
                 <View style={styles.cardHeader}>
                   <View style={styles.authorBadge}>
@@ -842,6 +942,7 @@ export default function BoardScreen() {
 
                 {/* 게시글 내용 */}
                 <Text style={styles.postTitle} numberOfLines={1}>
+                  {post.isPinned && <Feather name="bookmark" size={14} color={HANWHA_ORANGE} />}{' '}
                   {post.title}
                 </Text>
                 <Text style={styles.postContent} numberOfLines={2}>
@@ -1127,7 +1228,7 @@ const styles = StyleSheet.create({
     flex: 1,
     height: 44,
     paddingLeft: 40,
-    paddingRight: 16,
+    paddingRight: 40,
     backgroundColor: '#F9FAFB',
     borderRadius: 12,
     borderWidth: 1,
@@ -1135,7 +1236,109 @@ const styles = StyleSheet.create({
     fontSize: 15,
     color: CHARCOAL,
   },
+  searchClear: {
+    position: 'absolute',
+    right: 36,
+    padding: 4,
+  },
+  filterRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+    backgroundColor: '#fff',
+    borderBottomWidth: 1,
+    borderBottomColor: '#f5f5f5',
+    gap: 8,
+  },
+  categoryChips: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    paddingRight: 8,
+  },
+  categoryChip: {
+    paddingHorizontal: 14,
+    paddingVertical: 6,
+    borderRadius: 16,
+    backgroundColor: '#f3f4f6',
+    borderWidth: 1,
+    borderColor: '#e5e7eb',
+  },
+  categoryChipActive: {
+    backgroundColor: HANWHA_ORANGE,
+    borderColor: HANWHA_ORANGE,
+  },
+  categoryChipText: {
+    fontSize: 13,
+    fontWeight: '500',
+    color: TEXT_MUTED,
+  },
+  categoryChipTextActive: {
+    color: '#fff',
+  },
+  sortButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 8,
+    backgroundColor: '#f9fafb',
+    borderWidth: 1,
+    borderColor: BORDER,
+  },
+  sortButtonText: {
+    fontSize: 13,
+    fontWeight: '500',
+    color: CHARCOAL,
+  },
+  sortMenu: {
+    marginHorizontal: 16,
+    marginBottom: 8,
+    backgroundColor: '#fff',
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: BORDER,
+    ...CARD_SHADOW,
+  },
+  sortMenuItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: '#f5f5f5',
+  },
+  sortMenuItemActive: {
+    backgroundColor: '#fef3eb',
+  },
+  sortMenuItemText: {
+    fontSize: 14,
+    color: CHARCOAL,
+  },
+  sortMenuItemTextActive: {
+    color: HANWHA_ORANGE,
+    fontWeight: '600',
+  },
   container: { padding: 24, gap: 16, paddingTop: 16 },
+  pinnedBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    alignSelf: 'flex-start',
+    gap: 4,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 6,
+    backgroundColor: HANWHA_ORANGE,
+    marginBottom: 10,
+  },
+  pinnedBadgeText: {
+    fontSize: 11,
+    fontWeight: '600',
+    color: '#fff',
+  },
   card: {
     backgroundColor: '#fff',
     borderRadius: 16,

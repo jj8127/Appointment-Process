@@ -373,10 +373,37 @@ See `AGENTS.md` Test Plan section for comprehensive test coverage including:
 
 Test accounts and data setup documented in test plan.
 
+## Claude Code Skills & Subagents
+
+이 프로젝트는 Claude Code의 Skills와 Subagents를 활용합니다. 자세한 내용은 `.claude/AGENTS_AND_SKILLS.md` 참조.
+
+### 사용 가능한 Skills (자동 활성화)
+| Skill | 트리거 |
+|-------|--------|
+| `supabase-edge-function` | Edge Function 관련 작업 |
+| `expo-component` | React Native 컴포넌트 작업 |
+| `fc-workflow` | FC 상태/워크플로우 질문 |
+| `rls-policy` | RLS/보안 정책 작업 |
+
+### 사용 가능한 Subagents (작업 위임)
+| Agent | 용도 | 모델 |
+|-------|------|------|
+| `edge-function-tester` | Edge Function 테스트 | Haiku |
+| `db-schema-reader` | DB 스키마 분석 | Haiku |
+| `mobile-debugger` | 모바일 앱 디버깅 | Sonnet |
+| `vercel-deployer` | Vercel 배포 | Haiku |
+| `code-reviewer` | 코드 리뷰 | Sonnet |
+
+### 자율적 활용 원칙
+1. **Skills**: 요청이 description과 매칭되면 자동 적용
+2. **Subagents**: 독립적 작업, 대량 출력, 병렬 처리 시 위임
+3. **새로 생성**: 반복 패턴 발견 시 새 Skill/Agent 생성 권장
+
 ## Additional Resources
 
 - `README.md`: Quick start guide
 - `DEPLOYMENT.md`: Deployment procedures for mobile + web
 - `AGENTS.md`: Detailed project context, flows, and test plan
+- `.claude/AGENTS_AND_SKILLS.md`: Skills & Subagents 활용 가이드
 - `명령어 모음집.txt`: Korean command reference with utility scripts
 - `흐름도.txt`: Korean workflow diagrams
