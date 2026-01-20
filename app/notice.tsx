@@ -13,10 +13,13 @@ import {
   Text,
   View,
 } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import Animated from 'react-native-reanimated';
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 
+import { BottomNavigation } from '@/components/BottomNavigation';
 import { CardSkeleton } from '@/components/LoadingSkeleton';
 import { RefreshButton } from '@/components/RefreshButton';
+import { useBottomNavAnimation } from '@/hooks/use-bottom-nav-animation';
 import { useSession } from '@/hooks/use-session';
 import { supabase } from '@/lib/supabase';
 import { COLORS, TYPOGRAPHY, SPACING, RADIUS } from '@/lib/theme';
@@ -49,6 +52,9 @@ const fetchNotices = async (): Promise<Notice[]> => {
 
 export default function NoticeScreen() {
   const { role } = useSession();
+  const insets = useSafeAreaInsets();
+  const { scrollHandler, animatedStyle } = useBottomNavAnimation();
+
   const { data, isLoading, isError, refetch } = useQuery({
     queryKey: ['notices', 'list'],
     queryFn: fetchNotices,
@@ -107,9 +113,11 @@ export default function NoticeScreen() {
         <RefreshButton onPress={onRefresh} />
       </View>
 
-      <ScrollView
-        contentContainerStyle={styles.container}
+      <Animated.ScrollView
+        contentContainerStyle={[styles.container, { paddingBottom: 100 + insets.bottom }]}
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}
+        onScroll={scrollHandler}
+        scrollEventThrottle={16}
       >
         {isLoading && !refreshing && (
           <>
@@ -182,7 +190,14 @@ export default function NoticeScreen() {
             </View>
           </MotiView>
         ))}
-      </ScrollView>
+      </Animated.ScrollView>
+
+      <BottomNavigation
+        preset={role === 'admin' ? 'admin-onboarding' : 'fc'}
+        activeKey="notice"
+        animatedStyle={animatedStyle}
+        bottomInset={insets.bottom}
+      />
     </SafeAreaView>
   );
 }
@@ -200,7 +215,7 @@ const styles = StyleSheet.create({
   },
   title: { fontSize: TYPOGRAPHY.fontSize['2xl'], fontWeight: TYPOGRAPHY.fontWeight.extrabold, color: COLORS.text.primary },
 
-  container: { padding: SPACING.xl, paddingBottom: 64, gap: SPACING.lg },
+  container: { padding: SPACING.xl, gap: SPACING.lg },
 
   card: {
     backgroundColor: COLORS.white,

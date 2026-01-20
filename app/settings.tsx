@@ -1,55 +1,23 @@
 import { Feather } from '@expo/vector-icons';
-import * as Notifications from 'expo-notifications';
 import { router } from 'expo-router';
 import { useState } from 'react';
-import { Alert, Modal, Platform, Pressable, StyleSheet, Text, View } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { Alert, Modal, Pressable, StyleSheet, Text, View } from 'react-native';
+import Animated from 'react-native-reanimated';
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 
+import { BottomNavigation } from '@/components/BottomNavigation';
+import { useBottomNavAnimation } from '@/hooks/use-bottom-nav-animation';
 import { useSession } from '@/hooks/use-session';
 import { supabase } from '@/lib/supabase';
-import { logger } from '@/lib/logger';
 import { COLORS, TYPOGRAPHY, SPACING, RADIUS } from '@/lib/theme';
-
-const ALERTS_CHANNEL_ID = 'alerts';
 
 export default function SettingsScreen() {
   const { role, residentId, displayName, logout } = useSession();
+  const insets = useSafeAreaInsets();
+  const { scrollHandler, animatedStyle } = useBottomNavAnimation();
+
   const [deleting, setDeleting] = useState(false);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
-  const [checkingChannels, setCheckingChannels] = useState(false);
-
-  const handleCheckChannels = async () => {
-    if (Platform.OS !== 'android') {
-      Alert.alert('안내', '안드로이드에서만 확인할 수 있습니다.');
-      return;
-    }
-    setCheckingChannels(true);
-    try {
-      const channels = await Notifications.getNotificationChannelsAsync();
-      const alertsChannel = channels.find((channel) => channel.id === ALERTS_CHANNEL_ID);
-      logger.debug('[notifications] channels', { channels });
-      if (!alertsChannel) {
-        Alert.alert('채널 없음', `"${ALERTS_CHANNEL_ID}" 채널이 아직 생성되지 않았습니다.`);
-        return;
-      }
-      Alert.alert(
-        '채널 상태',
-        [
-          `id: ${alertsChannel.id}`,
-          `name: ${alertsChannel.name ?? ''}`,
-          `importance: ${alertsChannel.importance ?? ''}`,
-          `sound: ${alertsChannel.sound ?? ''}`,
-          `vibration: ${alertsChannel.enableVibrate ? 'on' : 'off'}`,
-        ]
-          .filter(Boolean)
-          .join('\n'),
-      );
-    } catch (err: any) {
-      Alert.alert('확인 실패', err?.message ?? '채널 조회 중 오류가 발생했습니다.');
-    } finally {
-      setCheckingChannels(false);
-    }
-  };
 
   const handleDelete = () => {
     if (role !== 'fc') {
@@ -84,7 +52,11 @@ export default function SettingsScreen() {
 
   return (
     <SafeAreaView style={styles.safe} edges={['left', 'right', 'bottom']}>
-      <View style={styles.container}>
+      <Animated.ScrollView
+        contentContainerStyle={[styles.container, { paddingBottom: 100 + insets.bottom }]}
+        onScroll={scrollHandler}
+        scrollEventThrottle={16}
+      >
         <View style={styles.card}>
           <Text style={styles.title}>계정</Text>
           <View style={styles.row}>
@@ -112,24 +84,17 @@ export default function SettingsScreen() {
           </Pressable>
         </View>
 
-        <View style={styles.card}>
-          <Text style={styles.sectionTitle}>알림 채널</Text>
-          <Text style={styles.sectionText}>알림 채널(중요 알림) 상태를 확인합니다.</Text>
-          <Pressable
-            style={[styles.secondaryButton, checkingChannels && styles.secondaryButtonDisabled]}
-            onPress={handleCheckChannels}
-            disabled={checkingChannels}
-            accessibilityLabel="알림 채널 상태 확인"
-          >
-            <Feather name="bell" size={16} color={COLORS.text.primary} />
-            <Text style={styles.secondaryText}>{checkingChannels ? '확인 중...' : '채널 상태 확인'}</Text>
-          </Pressable>
-        </View>
-
         <Pressable style={styles.logoutButton} onPress={logout}>
           <Text style={styles.logoutText}>로그아웃</Text>
         </Pressable>
-      </View>
+      </Animated.ScrollView>
+
+      <BottomNavigation
+        preset={role === 'admin' ? 'admin-onboarding' : 'fc'}
+        activeKey="settings"
+        animatedStyle={animatedStyle}
+        bottomInset={insets.bottom}
+      />
 
       <Modal visible={showDeleteConfirm} transparent animationType="fade">
         <View style={styles.modalOverlay}>
@@ -188,20 +153,6 @@ const styles = StyleSheet.create({
   },
   deleteButtonDisabled: { opacity: 0.7 },
   deleteText: { color: COLORS.white, fontWeight: TYPOGRAPHY.fontWeight.bold },
-  secondaryButton: {
-    marginTop: 6,
-    backgroundColor: COLORS.background.secondary,
-    paddingVertical: SPACING.sm,
-    borderRadius: RADIUS.base,
-    flexDirection: 'row',
-    justifyContent: 'center',
-    alignItems: 'center',
-    gap: SPACING.sm,
-    borderWidth: 1,
-    borderColor: COLORS.border.light,
-  },
-  secondaryButtonDisabled: { opacity: 0.7 },
-  secondaryText: { color: COLORS.text.primary, fontWeight: TYPOGRAPHY.fontWeight.bold },
   logoutButton: {
     marginTop: SPACING.sm,
     paddingVertical: SPACING.sm,

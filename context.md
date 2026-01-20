@@ -18,6 +18,10 @@
 
 ## Done (완료된 작업)
 
+### 현재 세션 (2026-01-20)
+**설정 화면 정리**
+- [x] 앱 설정의 디버깅용 “알림 채널” 섹션 제거 (채널 상태 확인 UI/로직 삭제)
+
 ### 현재 세션 (2026-01-16)
 **UI 디자인 업그레이드**
 - [x] lib/theme.ts 확장: ANIMATION.spring, ALERT_VARIANTS, TOAST 설정 추가
@@ -482,11 +486,8 @@ node test-sms.js 01012345678
 ---
 
 ## Last Updated
-- **Date**: 2026-01-16
+- **Date**: 2026-01-20
 - **By**: AI Assistant
-- **Session**: UI 디자인 업그레이드
+- **Session**: 설정 화면 정리
 - **Status**:
-  - 신규 컴포넌트: Toast, BoardCard, EmptyState
-  - 개선: AppAlertProvider(애니메이션+variants), LoadingSkeleton(Shimmer)
-  - Theme 확장: ANIMATION.spring, ALERT_VARIANTS, TOAST
-  - **Next**: 새 컴포넌트 실제 화면에 적용
+  - 디버깅용 “알림 채널” 섹션 제거 완료
