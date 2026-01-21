@@ -999,7 +999,7 @@ export default function BoardScreen() {
           bottomNavAnimatedStyle,
         ]}
       >
-        <Pressable style={styles.bottomNavItem} onPress={() => router.back()}>
+        <Pressable style={styles.bottomNavItem} onPress={() => router.push('/')}>
           <View style={styles.bottomNavIconWrap}>
             <Feather name="home" size={20} color={HANWHA_ORANGE} />
           </View>
