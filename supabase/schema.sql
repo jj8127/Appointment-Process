@@ -197,6 +197,7 @@ create sequence if not exists public.temp_id_seq start 10000;
 create or replace function public.generate_temp_id() returns text
 language plpgsql
 security definer
+set search_path = public
 as $$
 declare
   next_num bigint;
@@ -208,6 +209,7 @@ $$;
 
 create or replace function public.set_updated_at() returns trigger
 language plpgsql
+set search_path = public
 as $$
 begin
   new.updated_at = now();
@@ -298,6 +300,7 @@ alter table public.exam_locations enable row level security;
 
 create or replace function public.is_admin() returns boolean
 language sql stable
+set search_path = public
 as $$
   select exists (
     select 1 from public.profiles p
@@ -307,6 +310,7 @@ $$;
 
 create or replace function public.is_manager() returns boolean
 language sql stable
+set search_path = public
 as $$
   select exists (
     select 1 from public.profiles p
@@ -316,6 +320,7 @@ $$;
 
 create or replace function public.is_fc() returns boolean
 language sql stable
+set search_path = public
 as $$
   select exists (
     select 1 from public.profiles p
@@ -325,6 +330,7 @@ $$;
 
 create or replace function public.current_fc_id() returns uuid
 language sql stable
+set search_path = public
 as $$
   select p.fc_id from public.profiles p where p.id = auth.uid();
 $$;
@@ -393,6 +399,12 @@ create policy "fc_documents insert"
   for insert
   with check (public.is_admin() or (public.is_fc() and fc_id = public.current_fc_id()));
 
+drop policy if exists "fc_documents anon insert" on public.fc_documents;
+create policy "fc_documents anon insert"
+  on public.fc_documents
+  for insert
+  with check (auth.role() = 'anon');
+
 drop policy if exists "fc_documents update" on public.fc_documents;
 create policy "fc_documents update"
   on public.fc_documents
@@ -415,6 +427,31 @@ create policy "notifications insert"
   on public.notifications
   for insert
   with check (public.is_admin());
+
+drop policy if exists "device_tokens select policy" on public.device_tokens;
+create policy "device_tokens select policy"
+  on public.device_tokens
+  for select
+  using (auth.role() in ('anon', 'authenticated'));
+
+drop policy if exists "device_tokens insert policy" on public.device_tokens;
+create policy "device_tokens insert policy"
+  on public.device_tokens
+  for insert
+  with check (auth.role() in ('anon', 'authenticated'));
+
+drop policy if exists "device_tokens update policy" on public.device_tokens;
+create policy "device_tokens update policy"
+  on public.device_tokens
+  for update
+  using (auth.role() in ('anon', 'authenticated'))
+  with check (auth.role() in ('anon', 'authenticated'));
+
+drop policy if exists "device_tokens delete policy" on public.device_tokens;
+create policy "device_tokens delete policy"
+  on public.device_tokens
+  for delete
+  using (auth.role() in ('anon', 'authenticated'));
 
 drop policy if exists "web_push_subscriptions select" on public.web_push_subscriptions;
 create policy "web_push_subscriptions select"
@@ -477,6 +514,12 @@ create policy "exam_rounds insert"
   for insert
   with check (public.is_admin());
 
+drop policy if exists "exam_rounds anon insert" on public.exam_rounds;
+create policy "exam_rounds anon insert"
+  on public.exam_rounds
+  for insert
+  with check (auth.role() = 'anon');
+
 drop policy if exists "exam_rounds update" on public.exam_rounds;
 create policy "exam_rounds update"
   on public.exam_rounds
@@ -505,6 +548,12 @@ create policy "exam_locations insert"
   on public.exam_locations
   for insert
   with check (public.is_admin());
+
+drop policy if exists "exam_locations anon insert" on public.exam_locations;
+create policy "exam_locations anon insert"
+  on public.exam_locations
+  for insert
+  with check (auth.role() = 'anon');
 
 drop policy if exists "exam_locations update" on public.exam_locations;
 create policy "exam_locations update"
@@ -1011,7 +1060,8 @@ create policy "board_comment_likes service_role"
   with check (auth.role() = 'service_role');
 
 -- 집계 뷰 (SQL View)
-create or replace view public.board_post_stats as
+create or replace view public.board_post_stats
+with (security_invoker = true) as
 select
   p.id as post_id,
   count(distinct c.id) as comment_count,
@@ -1023,7 +1073,8 @@ left join public.board_post_reactions r on r.post_id = p.id
 left join public.board_attachments a on a.post_id = p.id
 group by p.id;
 
-create or replace view public.board_comment_stats as
+create or replace view public.board_comment_stats
+with (security_invoker = true) as
 select
   c.id as comment_id,
   count(distinct l.id) as like_count,
@@ -1033,7 +1084,8 @@ left join public.board_comment_likes l on l.comment_id = c.id
 left join public.board_comments r on r.parent_id = c.id
 group by c.id;
 
-create or replace view public.board_posts_with_stats as
+create or replace view public.board_posts_with_stats
+with (security_invoker = true) as
 select
   p.*,
   coalesce(s.comment_count, 0) as comment_count,
@@ -1042,7 +1094,8 @@ select
 from public.board_posts p
 left join public.board_post_stats s on s.post_id = p.id;
 
-create or replace view public.board_comments_with_stats as
+create or replace view public.board_comments_with_stats
+with (security_invoker = true) as
 select
   c.*,
   coalesce(s.like_count, 0) as like_count,
