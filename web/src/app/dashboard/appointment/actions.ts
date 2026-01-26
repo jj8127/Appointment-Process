@@ -1,10 +1,9 @@
 'use server';
 
-import { createServerClient, type CookieOptions } from '@supabase/ssr';
 import { revalidatePath } from 'next/cache';
-import { cookies } from 'next/headers';
 import { sendPushNotification } from '../../actions';
 import { verifyOrigin, checkRateLimit } from '@/lib/csrf';
+import { adminSupabase } from '@/lib/admin-supabase';
 
 import { logger } from '@/lib/logger';
 type UpdateAppointmentState = {
@@ -42,33 +41,6 @@ export async function updateAppointmentAction(
     }
 
     const { fcId, phone, type, category, value, reason } = payload;
-    const cookieStore = await cookies();
-
-    const supabase = createServerClient(
-        process.env.NEXT_PUBLIC_SUPABASE_URL!,
-        process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
-        {
-            cookies: {
-                get(name: string) {
-                    return cookieStore.get(name)?.value;
-                },
-                set(name: string, value: string, options: CookieOptions) {
-                    try {
-                        cookieStore.set({ name, value, ...options });
-                    } catch (error) {
-                        logger.error('[appointment/actions] Cookie set failed:', error);
-                    }
-                },
-                remove(name: string, options: CookieOptions) {
-                    try {
-                        cookieStore.set({ name, value: '', ...options });
-                    } catch (error) {
-                        logger.error('[appointment/actions] Cookie remove failed:', error);
-                    }
-                },
-            },
-        }
-    );
 
     const categoryLabel = category === 'life' ? '생명보험' : '손해보험';
     const updatePayload: Record<string, string | null> = {};
@@ -97,7 +69,7 @@ export async function updateAppointmentAction(
     }
 
     // 2. Perform DB Update
-    const { data: updatedProfile, error: updateError } = await supabase
+    const { data: updatedProfile, error: updateError } = await adminSupabase
         .from('fc_profiles')
         .update(updatePayload)
         .eq('id', fcId)
@@ -141,7 +113,7 @@ export async function updateAppointmentAction(
         }
 
         if (nextStatus) {
-            const { error: statusError } = await supabase
+            const { error: statusError } = await adminSupabase
                 .from('fc_profiles')
                 .update({ status: nextStatus })
                 .eq('id', fcId);
@@ -154,7 +126,7 @@ export async function updateAppointmentAction(
     }
 
     // 3. Insert Notification History
-    const { error: notifError } = await supabase.from('notifications').insert({
+    const { error: notifError } = await adminSupabase.from('notifications').insert({
         title: notifTitle,
         body: notifBody,
         recipient_role: 'fc',

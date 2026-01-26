@@ -70,11 +70,12 @@ export default function AllowanceConsentScreen() {
 
   useEffect(() => {
     const load = async () => {
-      if (!residentId) return;
+      const phone = (residentId ?? '').replace(/[^0-9]/g, '');
+      if (!phone) return;
       const { data } = await supabase
         .from('fc_profiles')
         .select('temp_id, allowance_date, career_type, allowance_reject_reason')
-        .eq('phone', residentId)
+        .eq('phone', phone)
         .maybeSingle();
 
       logger.debug('[DEBUG] Mobile: Fetched FC Profile in Consent:', { data: JSON.stringify(data, null, 2) });
@@ -108,28 +109,44 @@ export default function AllowanceConsentScreen() {
       Alert.alert('입력 확인', '수당 동의일을 선택해주세요.');
       return;
     }
-    setLoading(true);
-    const { error, data } = await supabase
-      .from('fc_profiles')
-      .update({ allowance_date: ymd, status: 'allowance-pending', allowance_reject_reason: null })
-      .eq('phone', residentId ?? '')
-      .select('id,name')
-      .single();
-    setLoading(false);
-
-    if (error || !data) {
-      Alert.alert('저장 실패', error?.message ?? '정보를 저장하지 못했습니다.');
+    const phone = (residentId ?? '').replace(/[^0-9]/g, '');
+    if (!phone) {
+      Alert.alert('로그인 정보 없음', '로그인 정보를 확인할 수 없습니다. 다시 로그인해주세요.');
       return;
     }
+    setLoading(true);
 
-    supabase.functions
-      .invoke('fc-notify', {
-        body: { type: 'fc_update', fc_id: data.id, message: `${data.name}님이 수당동의일을 입력했습니다.` },
-      })
-      .catch(() => { });
+    try {
+      const { data, error } = await supabase.functions.invoke('fc-consent', {
+        body: { phone, allowance_date: ymd },
+      });
+      if (error) {
+        logger.error('[consent] fc-consent invoke failed', error);
+        throw new Error('정보를 저장하지 못했습니다.');
+      }
 
-    Alert.alert('저장 완료', '수당 동의일이 제출되었습니다. 총무 검토 후 다음 단계로 진행됩니다.');
-    router.replace('/');
+      if (!data?.ok || !data?.profile?.id) {
+        logger.error('[consent] fc-consent response invalid', data);
+        throw new Error('정보를 저장하지 못했습니다.');
+      }
+
+      supabase.functions
+        .invoke('fc-notify', {
+          body: {
+            type: 'fc_update',
+            fc_id: data.profile.id,
+            message: `${data.profile.name ?? ''}님이 수당동의일을 입력했습니다.`,
+          },
+        })
+        .catch(() => { });
+
+      Alert.alert('저장 완료', '수당 동의일이 제출되었습니다. 총무 검토 후 다음 단계로 진행됩니다.');
+      router.replace('/');
+    } catch (err: any) {
+      Alert.alert('저장 실패', err?.message ?? '정보를 저장하지 못했습니다.');
+    } finally {
+      setLoading(false);
+    }
   };
 
   const openAllowanceSite = () => {
@@ -143,11 +160,12 @@ export default function AllowanceConsentScreen() {
   const onRefresh = useCallback(async () => {
     setRefreshing(true);
     try {
-      if (!residentId) return;
+      const phone = (residentId ?? '').replace(/[^0-9]/g, '');
+      if (!phone) return;
       const { data } = await supabase
         .from('fc_profiles')
         .select('temp_id, allowance_date, career_type, allowance_reject_reason')
-        .eq('phone', residentId)
+        .eq('phone', phone)
         .maybeSingle();
 
       setTempId(data?.temp_id ?? '');
@@ -177,6 +195,7 @@ export default function AllowanceConsentScreen() {
             subtitle="서울보증보험 사이트에서 진행해주세요."
             showRefresh
             onRefresh={onRefresh}
+            style={styles.header}
           />
 
           <View style={{ paddingHorizontal: SPACING.xl, marginBottom: SPACING.xl }}>
@@ -361,6 +380,7 @@ export default function AllowanceConsentScreen() {
 const styles = StyleSheet.create({
   safe: { flex: 1, backgroundColor: COLORS.white },
   container: { paddingBottom: SPACING['2xl'] + 8 },
+  header: { paddingHorizontal: SPACING.xl },
 
   sliderContainer: { marginBottom: SPACING.xl },
   imageFrame: {

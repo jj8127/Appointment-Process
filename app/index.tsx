@@ -397,17 +397,9 @@ function calcStep(myFc: any) {
   if (!hasBasicInfo) return 1;
 
   // [1단계 우선] 수당 동의 완료 여부
-  const allowancePassedStatuses: string[] = [
-    'allowance-consented',
-    'docs-requested',
-    'docs-pending',
-    'docs-submitted',
-    'docs-rejected',
-    'docs-approved',
-    'appointment-completed',
-    'final-link-sent',
-  ];
-  if (!allowancePassedStatuses.includes(myFc.status)) {
+  // 관리자 승인 이후에는 status가 allowance-pending이 아니므로 문서 단계로 진행
+  const isAllowanceApproved = Boolean(myFc.allowance_date) && myFc.status !== 'allowance-pending';
+  if (!isAllowanceApproved) {
     return 2; // 수당 동의 단계에서 대기
   }
 
@@ -616,7 +608,6 @@ export default function Home() {
     if (!canStart) return;
 
     Haptics.selectionAsync();
-    setTourBlocking(true); // 먼저 막고
     start();
   }, [isFc, canStart, start]);
 
@@ -758,34 +749,26 @@ export default function Home() {
   if (isConsentStep) {
     if (hasAllowanceDate) {
       nextStepSubText = '총무가 검토 중입니다. 기다려주세요.';
-      isNextStepDisabled = true;
     } else if (!hasTempId) {
       nextStepSubText = '총무가 임시사번을 발급중입니다. 기다려주세요.';
-      isNextStepDisabled = true;
     } else {
       nextStepSubText = '터치하여 바로 진행하세요';
     }
   } else if (isDocsStep) {
     if (totalDocs === 0) {
       nextStepSubText = '총무가 필요한 서류들을 검토 중입니다.';
-      isNextStepDisabled = true;
     } else if (!isAllSubmitted) {
       nextStepSubText = '모든 문서를 제출하세요.';
-      isNextStepDisabled = false;
     } else if (hasUnapprovedDocs) {
       nextStepSubText = '서류를 검토중입니다.';
-      isNextStepDisabled = true;
     }
   } else if (isUrlStep) {
     if (!hasAnySchedule) {
       nextStepSubText = '위촉 차수를 입력중입니다. 기다려주세요.';
-      isNextStepDisabled = true;
     } else if (isMissingDates) {
       nextStepSubText = '터치하여 위촉을 진행해 주세요';
-      isNextStepDisabled = false;
     } else {
       nextStepSubText = '위촉 완료 여부를 검토중입니다.';
-      isNextStepDisabled = true;
     }
   } else if (activeStep.key === 'final') {
     nextStepSubText = '모든 위촉 과정이 끝났습니다.';

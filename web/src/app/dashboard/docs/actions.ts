@@ -1,10 +1,9 @@
 'use server';
 
-import { createServerClient, type CookieOptions } from '@supabase/ssr';
 import { revalidatePath } from 'next/cache';
-import { cookies } from 'next/headers';
 import { sendPushNotification } from '../../actions';
 import { verifyOrigin, checkRateLimit } from '@/lib/csrf';
+import { adminSupabase } from '@/lib/admin-supabase';
 
 import { logger } from '@/lib/logger';
 type UpdateDocStatusState = {
@@ -38,38 +37,11 @@ export async function updateDocStatusAction(
     }
 
     const { fcId, phone, docType, status, reason } = payload;
-    const cookieStore = await cookies();
-
-    const supabase = createServerClient(
-        process.env.NEXT_PUBLIC_SUPABASE_URL!,
-        process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
-        {
-            cookies: {
-                get(name: string) {
-                    return cookieStore.get(name)?.value;
-                },
-                set(name: string, value: string, options: CookieOptions) {
-                    try {
-                        cookieStore.set({ name, value, ...options });
-                    } catch (error) {
-                        logger.error('[docs/actions] Cookie set failed:', error);
-                    }
-                },
-                remove(name: string, options: CookieOptions) {
-                    try {
-                        cookieStore.set({ name, value: '', ...options });
-                    } catch (error) {
-                        logger.error('[docs/actions] Cookie remove failed:', error);
-                    }
-                },
-            },
-        }
-    );
 
     // 1. Update individual document status
     const reviewerNote =
         status === 'rejected' ? (reason ?? '').trim() || null : status === 'approved' ? null : undefined;
-    const { error: updateError } = await supabase
+    const { error: updateError } = await adminSupabase
         .from('fc_documents')
         .update({
             status,
@@ -86,7 +58,7 @@ export async function updateDocStatusAction(
 
     // 2. Check for Auto-Advance logic if Approved
     if (status === 'approved') {
-        const { data: allDocs, error: fetchError } = await supabase
+        const { data: allDocs, error: fetchError } = await adminSupabase
             .from('fc_documents')
             .select('status, storage_path')
             .eq('fc_id', fcId);
@@ -102,7 +74,7 @@ export async function updateDocStatusAction(
             // If all requested docs are submitted and approved, advance status
             if (allApproved) {
                 // Update Profile Status
-                const { error: profileError } = await supabase
+                const { error: profileError } = await adminSupabase
                     .from('fc_profiles')
                     .update({ status: 'docs-approved' })
                     .eq('id', fcId);
@@ -114,7 +86,7 @@ export async function updateDocStatusAction(
                     const title = '서류 검토 완료';
                     const body = '모든 서류가 승인되었습니다. 위촉 계약 단계로 진행해주세요.';
 
-                    await supabase.from('notifications').insert({
+                    await adminSupabase.from('notifications').insert({
                         title,
                         body,
                         recipient_role: 'fc',
@@ -130,14 +102,14 @@ export async function updateDocStatusAction(
             }
         }
     } else if (status === 'rejected') {
-        await supabase
+        await adminSupabase
             .from('fc_profiles')
             .update({ status: 'docs-pending' })
             .eq('id', fcId);
 
         const title = '서류 반려 안내';
         const body = `서류가 반려되었습니다.\n사유: ${(reason ?? '').trim() || '사유 없음'}`;
-        await supabase.from('notifications').insert({
+        await adminSupabase.from('notifications').insert({
             title,
             body,
             recipient_role: 'fc',

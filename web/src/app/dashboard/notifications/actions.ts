@@ -1,10 +1,9 @@
 'use server';
 
-import { createServerClient, type CookieOptions } from '@supabase/ssr';
 import { revalidatePath } from 'next/cache';
-import { cookies } from 'next/headers';
 import { z } from 'zod';
 import { sendWebPush } from '@/lib/web-push';
+import { adminSupabase } from '@/lib/admin-supabase';
 
 import { logger } from '@/lib/logger';
 const EXPO_PUSH_URL = 'https://exp.host/--/api/v2/push/send';
@@ -59,34 +58,8 @@ export async function createNoticeAction(
 
     const { category, title, body, images, files } = validatedFields.data;
 
-    const cookieStore = await cookies();
-
-    const supabase = createServerClient(
-        process.env.NEXT_PUBLIC_SUPABASE_URL!,
-        process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
-        {
-            cookies: {
-                get(name: string) {
-                    return cookieStore.get(name)?.value;
-                },
-                set(name: string, value: string, options: CookieOptions) {
-                    try {
-                        cookieStore.set({ name, value, ...options });
-                    } catch (error) {
-                    }
-                },
-                remove(name: string, options: CookieOptions) {
-                    try {
-                        cookieStore.set({ name, value: '', ...options });
-                    } catch (error) {
-                    }
-                },
-            },
-        }
-    );
-
     // 1. Insert Notice
-    const { error: noticeError } = await supabase.from('notices').insert({
+    const { error: noticeError } = await adminSupabase.from('notices').insert({
         title,
         body,
         category,
@@ -102,7 +75,7 @@ export async function createNoticeAction(
     }
 
     // 2. Insert Notification History
-    const { error: notifError } = await supabase.from('notifications').insert({
+    const { error: notifError } = await adminSupabase.from('notifications').insert({
         title,
         body,
         category,
@@ -115,7 +88,7 @@ export async function createNoticeAction(
     }
 
     // 3. Fetch Tokens
-    const { data: tokens, error: tokenError } = await supabase
+    const { data: tokens, error: tokenError } = await adminSupabase
         .from('device_tokens')
         .select('expo_push_token')
         .eq('role', 'fc');
@@ -167,7 +140,7 @@ export async function createNoticeAction(
         logger.warn('[push][notice] no tokens found');
     }
 
-    const { data: webSubs } = await supabase
+    const { data: webSubs } = await adminSupabase
         .from('web_push_subscriptions')
         .select('endpoint,p256dh,auth')
         .eq('role', 'fc');
@@ -179,7 +152,7 @@ export async function createNoticeAction(
             data: { type: 'notice', url: '/dashboard/notifications' },
         });
         if (result.expired.length > 0) {
-            await supabase.from('web_push_subscriptions').delete().in('endpoint', result.expired);
+            await adminSupabase.from('web_push_subscriptions').delete().in('endpoint', result.expired);
         }
     }
 

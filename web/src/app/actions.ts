@@ -1,10 +1,8 @@
 'use server';
-
-import { createServerClient, type CookieOptions } from '@supabase/ssr';
-import { cookies } from 'next/headers';
 import { sendWebPush } from '@/lib/web-push';
 
 import { logger } from '@/lib/logger';
+import { adminSupabase } from '@/lib/admin-supabase';
 const EXPO_PUSH_URL = 'https://exp.host/--/api/v2/push/send';
 
 type PushDate = {
@@ -19,35 +17,8 @@ export async function sendPushNotification(
 ) {
     if (!userId) return { success: false, error: 'No user ID provided' };
 
-    const cookieStore = await cookies();
-    const supabase = createServerClient(
-        process.env.NEXT_PUBLIC_SUPABASE_URL!,
-        process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
-        {
-            cookies: {
-                get(name: string) {
-                    return cookieStore.get(name)?.value;
-                },
-                set(name: string, value: string, options: CookieOptions) {
-                    try {
-                        cookieStore.set({ name, value, ...options });
-                    } catch (error) {
-                        logger.error('[actions] Cookie set failed:', error);
-                    }
-                },
-                remove(name: string, options: CookieOptions) {
-                    try {
-                        cookieStore.set({ name, value: '', ...options });
-                    } catch (error) {
-                        logger.error('[actions] Cookie remove failed:', error);
-                    }
-                },
-            },
-        }
-    );
-
     // Fetch Tokens
-    const { data: tokens, error: tokensError } = await supabase
+    const { data: tokens, error: tokensError } = await adminSupabase
         .from('device_tokens')
         .select('expo_push_token')
         .eq('resident_id', userId);
@@ -90,7 +61,7 @@ export async function sendPushNotification(
         }
 
         // Send web push notifications
-        const { data: subs, error: subsError } = await supabase
+        const { data: subs, error: subsError } = await adminSupabase
             .from('web_push_subscriptions')
             .select('endpoint,p256dh,auth')
             .eq('resident_id', userId);
@@ -100,7 +71,7 @@ export async function sendPushNotification(
         } else if (subs && subs.length > 0) {
             const result = await sendWebPush(subs, { title, body, data });
             if (result.expired.length > 0) {
-                const { error: deleteError } = await supabase
+                const { error: deleteError } = await adminSupabase
                     .from('web_push_subscriptions')
                     .delete()
                     .in('endpoint', result.expired);

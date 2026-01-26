@@ -21,8 +21,8 @@ import {
   Table,
   Tabs,
   Text,
-  TextInput,
   Textarea,
+  TextInput,
   ThemeIcon,
   Title,
   Tooltip
@@ -49,6 +49,11 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import dayjs from 'dayjs';
 import { useEffect, useMemo, useState, useTransition } from 'react';
 
+import { useSession } from '@/hooks/use-session';
+import type { FCDocument, FCProfileWithDocuments } from '@/types/dashboard';
+import type { FcProfile, FcStatus } from '@/types/fc';
+import { notifications } from '@mantine/notifications';
+import { useRouter } from 'next/navigation';
 import { StatusToggle } from '../../components/StatusToggle';
 import {
   ADMIN_STEP_LABELS,
@@ -60,14 +65,9 @@ import {
   getSummaryStatus
 } from '../../lib/shared';
 import { supabase } from '../../lib/supabase';
-import { notifications } from '@mantine/notifications';
-import { useRouter } from 'next/navigation';
 import { sendPushNotification } from '../actions';
 import { updateAppointmentAction } from './appointment/actions';
 import { updateDocStatusAction } from './docs/actions';
-import type { FCProfileWithDocuments, FCDocument } from '@/types/dashboard';
-import type { FcProfile, FcStatus } from '@/types/fc';
-import { useSession } from '@/hooks/use-session';
 
 import { logger } from '../../lib/logger';
 export default function DashboardPage() {
@@ -251,10 +251,9 @@ export default function DashboardPage() {
   const { data: fcs, isLoading } = useQuery({
     queryKey: ['dashboard-list'],
     queryFn: async () => {
-      const { data, error } = await supabase
-        .from('fc_profiles')
-        .select('*, appointment_date_life_sub, appointment_date_nonlife_sub, fc_documents(doc_type,storage_path,file_name,status,reviewer_note)')
-        .order('created_at', { ascending: false });
+      const resp = await fetch('/api/admin/list');
+      if (!resp.ok) throw new Error('데이터 로딩 실패');
+      const { data, error } = { data: await resp.json(), error: null };
       if (error) throw error;
       logger.debug('[DEBUG] Web: Fetched FC List:', JSON.stringify(data, null, 2));
       return data;
@@ -278,8 +277,8 @@ export default function DashboardPage() {
       if (activeTab === 'step0') {
         result = result.filter((fc) => !fc.identity_completed);
       } else {
-      const stepNum = Number(activeTab.replace('step', ''));
-      result = result.filter((fc) => fc.adminStep === stepNum);
+        const stepNum = Number(activeTab.replace('step', ''));
+        result = result.filter((fc) => fc.adminStep === stepNum);
       }
     }
     if (keyword.trim()) {
@@ -315,18 +314,21 @@ export default function DashboardPage() {
         payload.temp_id = tempIdInput;
         payload.status = 'temp-id-issued';
       }
-      const { error } = await supabase.from('fc_profiles').update(payload).eq('id', selectedFc.id);
-      if (error) throw error;
-      if (payload.temp_id) {
-        const title = '임시번호 발급';
-        const body = `임시사번: ${payload.temp_id} 이 발급되었습니다.`;
-        await supabase.from('notifications').insert({
-          title,
-          body,
-          recipient_role: 'fc',
-          resident_id: selectedFc.phone,
-        });
-        await sendPushNotification(selectedFc.phone, { title, body, data: { url: '/consent' } });
+      const resp = await fetch('/api/admin/fc', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          action: 'updateProfile',
+          payload: { fcId: selectedFc.id, data: payload, phone: selectedFc.phone },
+        }),
+      });
+      const data = await resp.json().catch(() => null);
+      if (!resp.ok) {
+        const message =
+          data && typeof data === 'object' && 'error' in data
+            ? String((data as { error?: string }).error || '')
+            : '';
+        throw new Error(message || '업데이트 실패');
       }
     },
     onSuccess: () => {
@@ -344,81 +346,29 @@ export default function DashboardPage() {
       logger.debug('Mutation Start');
       logger.debug('SelectedDocs (Intent):', nextTypes);
       const normalizedDeadline = deadline ? dayjs(deadline).format('YYYY-MM-DD') : null;
-      const shouldResetNotify = normalizedDeadline !== (selectedFc.docs_deadline_at ?? null);
 
-      const { data: currentDocsRaw, error: fetchErr } = await supabase
-        .from('fc_documents')
-        .select('doc_type, storage_path')
-        .eq('fc_id', selectedFc.id);
-
-      if (fetchErr) {
-        logger.error('Fetch Error:', fetchErr);
-        throw fetchErr;
-      }
-
-      const currentDocs = currentDocsRaw || [];
-      logger.debug('Current DB Docs:', currentDocs);
-
-      const currentTypes = currentDocs.map((d: FCDocument) => d.doc_type);
-
-      if (nextTypes.length === 0) {
-        await supabase.from('fc_documents').delete().eq('fc_id', selectedFc.id);
-        await supabase
-          .from('fc_profiles')
-          .update({
-            status: 'allowance-consented',
-            docs_deadline_at: null,
-            docs_deadline_last_notified_at: null,
-          })
-          .eq('id', selectedFc.id);
-        return;
-      }
-
-      const toAdd = nextTypes.filter((type) => !currentTypes.includes(type));
-      const toDelete = currentDocs
-        .filter((d: FCDocument) => !nextTypes.includes(d.doc_type) && (!d.storage_path || d.storage_path === 'deleted'))
-        .map((d: FCDocument) => d.doc_type);
-
-      logger.debug('To Add:', toAdd);
-      logger.debug('To Delete:', toDelete);
-
-      if (toDelete.length) {
-        const { error: delError } = await supabase.from('fc_documents').delete().eq('fc_id', selectedFc.id).in('doc_type', toDelete);
-        if (delError) logger.error('Delete Error:', delError);
-      }
-      if (toAdd.length) {
-        const rows = toAdd.map((type) => ({
-          fc_id: selectedFc.id,
-          doc_type: type,
-          status: 'pending' as const,
-          file_name: '',
-          storage_path: '',
-        }));
-        const { error: insertError } = await supabase.from('fc_documents').insert(rows);
-        if (insertError) logger.error('Insert Error:', JSON.stringify(insertError, null, 2));
-      }
-      const profileUpdate: Record<string, string | null> = {
-        docs_deadline_at: normalizedDeadline,
-      };
-      if (shouldResetNotify) {
-        profileUpdate.docs_deadline_last_notified_at = null;
-      }
-
-      await supabase
-        .from('fc_profiles')
-        .update({ status: 'docs-requested', ...profileUpdate })
-        .eq('id', selectedFc.id);
-
-      // Notification logic
-      const title = '필수 서류 등록 알림';
-      const body = '관리자가 필수 서류 목록을 갱신하였습니다. 확인 후 제출해주세요.';
-      await supabase.from('notifications').insert({
-        title,
-        body,
-        recipient_role: 'fc',
-        resident_id: selectedFc.phone,
+      const resp = await fetch('/api/admin/fc', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          action: 'updateDocsRequest',
+          payload: {
+            fcId: selectedFc.id,
+            types: nextTypes,
+            deadline: normalizedDeadline,
+            currentDeadline: selectedFc.docs_deadline_at ?? null,
+            phone: selectedFc.phone,
+          },
+        }),
       });
-      await sendPushNotification(selectedFc.phone, { title, body, data: { url: '/docs-upload' } });
+      const data = await resp.json().catch(() => null);
+      if (!resp.ok) {
+        const message =
+          data && typeof data === 'object' && 'error' in data
+            ? String((data as { error?: string }).error || '')
+            : '';
+        throw new Error(message || '업데이트 실패');
+      }
     },
     onSuccess: () => {
       notifications.show({ title: '요청 완료', message: '서류 목록이 갱신되었습니다.', color: 'blue' });
@@ -440,25 +390,28 @@ export default function DashboardPage() {
       extra?: Record<string, string | null | boolean | number>;
     }) => {
       if (!selectedFc) return;
-      await supabase.from('fc_profiles').update({ status, ...(extra ?? {}) }).eq('id', selectedFc.id);
-      if (msg) {
-        const finalTitle = title || '상태 업데이트';
-        await supabase
-          .from('notifications')
-          .insert({
-            title: finalTitle,
-            body: msg,
-            recipient_role: 'fc',
-            resident_id: selectedFc.phone,
-          });
-
-        // Determine URL based on status
-        let url = '/notifications'; // Default
-        if (status === 'allowance-consented') url = '/docs-upload'; // Next step
-        else if (status === 'docs-approved') url = '/appointment'; // Next step
-        else if (status === 'temp-id-issued') url = '/consent'; // Logic (Next step)
-
-        await sendPushNotification(selectedFc.phone, { title: finalTitle, body: msg, data: { url } });
+      const resp = await fetch('/api/admin/fc', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          action: 'updateStatus',
+          payload: {
+            fcId: selectedFc.id,
+            status,
+            title,
+            msg,
+            extra,
+            phone: selectedFc.phone,
+          },
+        }),
+      });
+      const data = await resp.json().catch(() => null);
+      if (!resp.ok) {
+        const message =
+          data && typeof data === 'object' && 'error' in data
+            ? String((data as { error?: string }).error || '')
+            : '';
+        throw new Error(message || '상태 업데이트 실패');
       }
     },
     onSuccess: (_data, variables) => {
@@ -507,15 +460,15 @@ export default function DashboardPage() {
     },
   });
 
-    const handleOpenModal = (fc: FCProfileWithDocuments) => {
-      setSelectedFc(fc);
-      setTempIdInput(fc.temp_id || '');
-      setCareerInput((fc.career_type as '신입' | '경력') || null);
-      const currentDocs = fc.fc_documents?.map((d: FCDocument) => d.doc_type) || [];
-      logger.debug('Opening Modal for:', fc.name);
-      logger.debug('Init SelectedDocs:', currentDocs);
-      setSelectedDocs(currentDocs);
-      setDocsDeadlineInput(fc.docs_deadline_at ? new Date(fc.docs_deadline_at) : null);
+  const handleOpenModal = (fc: FCProfileWithDocuments) => {
+    setSelectedFc(fc);
+    setTempIdInput(fc.temp_id || '');
+    setCareerInput((fc.career_type as '신입' | '경력') || null);
+    const currentDocs = fc.fc_documents?.map((d: FCDocument) => d.doc_type) || [];
+    logger.debug('Opening Modal for:', fc.name);
+    logger.debug('Init SelectedDocs:', currentDocs);
+    setSelectedDocs(currentDocs);
+    setDocsDeadlineInput(fc.docs_deadline_at ? new Date(fc.docs_deadline_at) : null);
 
     // 위촉 일정 초기화
     setAppointmentInputs({
@@ -532,8 +485,13 @@ export default function DashboardPage() {
 
   const handleOpenDoc = async (path: string) => {
     if (!path) return;
-    const { data, error } = await supabase.storage.from('fc-documents').createSignedUrl(path, 60);
-    if (error || !data?.signedUrl) {
+    const resp = await fetch('/api/admin/fc', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: 'signDoc', payload: { path } }),
+    });
+    const data = await resp.json().catch(() => null);
+    if (!resp.ok || !data?.signedUrl) {
       notifications.show({ title: '실패', message: '파일을 찾을 수 없습니다.', color: 'red' });
       return;
     }
@@ -554,32 +512,42 @@ export default function DashboardPage() {
       color: 'red',
       onConfirm: async () => {
         try {
-      if (doc?.storage_path) {
-        const { error: storageErr } = await supabase.storage.from('fc-documents').remove([doc.storage_path]);
-        if (storageErr) throw storageErr;
-      }
-      const { error: dbError } = await supabase
-        .from('fc_documents')
-        .update({ storage_path: 'deleted', file_name: 'deleted.pdf', status: 'pending', reviewer_note: null })
-        .eq('fc_id', selectedFc.id)
-        .eq('doc_type', doc.doc_type);
-      if (dbError) throw dbError;
-
-      setSelectedFc((prev: FCProfileWithDocuments | null) =>
-        prev
-          ? {
-            ...prev,
-            fc_documents: prev.fc_documents?.map((d: FCDocument) =>
-              d.doc_type === doc.doc_type
-                ? { ...d, storage_path: 'deleted', status: 'pending' as const, file_name: 'deleted.pdf' }
-                : d,
-            ),
+          const resp = await fetch('/api/admin/fc', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              action: 'deleteDocFile',
+              payload: {
+                fcId: selectedFc.id,
+                docType: doc.doc_type,
+                storagePath: doc.storage_path,
+              },
+            }),
+          });
+          const data = await resp.json().catch(() => null);
+          if (!resp.ok) {
+            const message =
+              data && typeof data === 'object' && 'error' in data
+                ? String((data as { error?: string }).error || '')
+                : '';
+            throw new Error(message || '파일 삭제 중 오류가 발생했습니다.');
           }
-          : prev,
-      );
 
-      notifications.show({ title: '삭제 완료', message: '파일을 삭제했습니다.', color: 'gray' });
-      queryClient.invalidateQueries({ queryKey: ['dashboard-list'] });
+          setSelectedFc((prev: FCProfileWithDocuments | null) =>
+            prev
+              ? {
+                ...prev,
+                fc_documents: prev.fc_documents?.map((d: FCDocument) =>
+                  d.doc_type === doc.doc_type
+                    ? { ...d, storage_path: 'deleted', status: 'pending' as const, file_name: 'deleted.pdf' }
+                    : d,
+                ),
+              }
+              : prev,
+          );
+
+          notifications.show({ title: '삭제 완료', message: '파일을 삭제했습니다.', color: 'gray' });
+          queryClient.invalidateQueries({ queryKey: ['dashboard-list'] });
         } catch (err: unknown) {
           const error = err as Error;
           notifications.show({
@@ -897,9 +865,9 @@ export default function DashboardPage() {
                 if (life.key === 'not-set') return null;
                 if ((fc.step ?? 0) < 4 && life.key !== 'approved') return null;
                 return (
-                <Badge color={life.color} variant="light" size="md" radius="sm">
-                  생명 {life.label}
-                </Badge>
+                  <Badge color={life.color} variant="light" size="md" radius="sm">
+                    생명 {life.label}
+                  </Badge>
                 );
               })()}
             {((fc.step ?? 0) >= 4 || getAppointmentProgress(fc, 'nonlife').key === 'approved') &&
@@ -908,11 +876,11 @@ export default function DashboardPage() {
                 if (nonlife.key === 'not-set') return null;
                 if ((fc.step ?? 0) < 4 && nonlife.key !== 'approved') return null;
                 return (
-                <Badge color={nonlife.color} variant="light" size="md" radius="sm">
-                  손해 {nonlife.label}
-                </Badge>
-              );
-            })()}
+                  <Badge color={nonlife.color} variant="light" size="md" radius="sm">
+                    손해 {nonlife.label}
+                  </Badge>
+                );
+              })()}
           </Group>
         </Stack>
       </Table.Td>
@@ -1469,82 +1437,82 @@ export default function DashboardPage() {
                     )}
                   </Card>
 
-                    <Box>
-                      <Text fw={600} size="sm" mb="xs">
-                        필수 서류 요청 목록
+                  <Box>
+                    <Text fw={600} size="sm" mb="xs">
+                      필수 서류 요청 목록
+                    </Text>
+                    <Box mb="md">
+                      <Text size="xs" c="dimmed" fw={500} mb={6}>
+                        서류 마감일 (알림용)
                       </Text>
-                      <Box mb="md">
-                        <Text size="xs" c="dimmed" fw={500} mb={6}>
-                          서류 마감일 (알림용)
-                        </Text>
-                          <DateInput
-                            value={docsDeadlineInput}
-                            onChange={handleDocsDeadlineChange}
-                            placeholder="YYYY-MM-DD"
-                            valueFormat="YYYY-MM-DD"
-                            clearable
-                            size="sm"
-                            leftSection={<IconCalendar size={16} />}
-                            previousIcon={<IconChevronLeft size={16} />}
-                            nextIcon={<IconChevronRight size={16} />}
-                            popoverProps={{ withinPortal: true, shadow: 'md', position: 'bottom-start' }}
-                            styles={{
-                              calendarHeaderControl: { width: 32, height: 32 },
-                              calendarHeaderControlIcon: { width: 14, height: 14 },
-                              calendarHeaderLevel: { fontSize: 14, fontWeight: 700 },
-                              calendarHeader: { gap: 6 },
-                              weekday: {
-                                fontSize: 12,
-                                fontWeight: 700,
-                                textAlign: 'center',
-                                width: 36,
-                              },
-                              day: {
-                                width: 36,
-                                height: 36,
-                                fontSize: 13,
-                                fontWeight: 600,
-                                textAlign: 'center',
-                              },
-                              monthCell: { padding: 4 },
-                            }}
-                          />
-                      </Box>
-                      {(() => {
+                      <DateInput
+                        value={docsDeadlineInput}
+                        onChange={handleDocsDeadlineChange}
+                        placeholder="YYYY-MM-DD"
+                        valueFormat="YYYY-MM-DD"
+                        clearable
+                        size="sm"
+                        leftSection={<IconCalendar size={16} />}
+                        previousIcon={<IconChevronLeft size={16} />}
+                        nextIcon={<IconChevronRight size={16} />}
+                        popoverProps={{ withinPortal: true, shadow: 'md', position: 'bottom-start' }}
+                        styles={{
+                          calendarHeaderControl: { width: 32, height: 32 },
+                          calendarHeaderControlIcon: { width: 14, height: 14 },
+                          calendarHeaderLevel: { fontSize: 14, fontWeight: 700 },
+                          calendarHeader: { gap: 6 },
+                          weekday: {
+                            fontSize: 12,
+                            fontWeight: 700,
+                            textAlign: 'center',
+                            width: 36,
+                          },
+                          day: {
+                            width: 36,
+                            height: 36,
+                            fontSize: 13,
+                            fontWeight: 600,
+                            textAlign: 'center',
+                          },
+                          monthCell: { padding: 4 },
+                        }}
+                      />
+                    </Box>
+                    {(() => {
                       const submittedDocTypes = new Set(
                         (selectedFc.fc_documents ?? [])
                           .filter((d: FCDocument) => d.storage_path && d.storage_path !== 'deleted')
                           .map((d: FCDocument) => d.doc_type),
                       );
                       return (
-                    <Chip.Group multiple value={selectedDocs} onChange={(val) => {
-                      logger.debug('Chip Change:', val);
-                      setSelectedDocs(val);
-                    }}>
-                      <Group gap={6}>
-                        {Array.from(new Set([...DOC_OPTIONS, ...selectedDocs])).map((doc) => {
-                          const isRequested = selectedDocs.includes(doc);
-                          const isSubmitted = submittedDocTypes.has(doc);
-                          const borderColor = isSubmitted ? '#2563eb' : isRequested ? '#f97316' : '#e5e7eb';
-                          const textColor = isSubmitted ? '#2563eb' : isRequested ? '#f97316' : '#9CA3AF';
-                          return (
-                            <Chip
-                              key={doc}
-                              value={doc}
-                              variant="outline"
-                              size="xs"
-                              radius="sm"
-                              color={isSubmitted ? 'blue' : isRequested ? 'orange' : 'gray'}
-                              styles={{
-                                label: { borderColor, color: textColor },
-                              }}
-                            >
-                              {doc}
-                            </Chip>
-                          );
-                        })}
-                      </Group>
-                    </Chip.Group>
+                        <Chip.Group multiple value={selectedDocs} onChange={(val) => {
+                          logger.debug('Chip Change:', val);
+                          setSelectedDocs(val);
+                        }}>
+                          <Group gap={6}>
+                            {Array.from(new Set([...DOC_OPTIONS, ...selectedDocs])).map((doc) => {
+                              const isRequested = selectedDocs.includes(doc);
+                              const isSubmitted = submittedDocTypes.has(doc);
+                              const borderColor = isSubmitted ? '#2563eb' : isRequested ? '#f97316' : '#e5e7eb';
+                              const textColor = isSubmitted ? '#2563eb' : isRequested ? '#f97316' : '#9CA3AF';
+                              return (
+                                <Chip
+                                  key={doc}
+                                  value={doc}
+                                  variant="outline"
+                                  size="xs"
+                                  radius="sm"
+                                  color={isSubmitted ? 'blue' : isRequested ? 'orange' : 'gray'}
+                                  styles={{
+                                    label: { borderColor, color: textColor },
+                                  }}
+                                >
+                                  {doc}
+                                </Chip>
+                              );
+                            })}
+                          </Group>
+                        </Chip.Group>
                       );
                     })()}
                   </Box>
@@ -1570,7 +1538,7 @@ export default function DashboardPage() {
                           if (!selectedDocs.includes(val)) {
                             const nextDocs = [...selectedDocs, val];
                             setSelectedDocs(nextDocs);
-                              updateDocsRequestMutation.mutate({ types: nextDocs, deadline: docsDeadlineInput });
+                            updateDocsRequestMutation.mutate({ types: nextDocs, deadline: docsDeadlineInput });
                           }
                           setCustomDocInput('');
                         }
