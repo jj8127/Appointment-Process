@@ -475,23 +475,23 @@ export default function DashboardPage() {
     mutationFn: async () => {
       if (!selectedFc) return;
       logger.debug('[Web][deleteFc] start', { id: selectedFc.id, phone: selectedFc.phone });
+      const resp = await fetch('/api/fc-delete', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ fcId: selectedFc.id }),
+      });
 
-      const { error: docsError } = await supabase
-        .from('fc_documents')
-        .delete()
-        .eq('fc_id', selectedFc.id);
-      if (docsError) {
-        logger.error('[Web][deleteFc] fc_documents delete failed', docsError);
-        throw docsError;
+      const data = await resp.json().catch(() => null);
+      if (!resp.ok) {
+        const message =
+          data && typeof data === 'object' && 'error' in data
+            ? String((data as { error?: string }).error || '')
+            : '';
+        throw new Error(message || '삭제 실패');
       }
 
-      const { error: profileError } = await supabase
-        .from('fc_profiles')
-        .delete()
-        .eq('id', selectedFc.id);
-      if (profileError) {
-        logger.error('[Web][deleteFc] fc_profiles delete failed', profileError);
-        throw profileError;
+      if (data && typeof data === 'object' && 'deleted' in data && !data.deleted) {
+        logger.warn('[Web][deleteFc] not found', { id: selectedFc.id });
       }
 
       logger.debug('[Web][deleteFc] done', { id: selectedFc.id });

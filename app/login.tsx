@@ -18,7 +18,7 @@ import { FormInput } from '@/components/FormInput';
 import { useKeyboardPadding } from '@/hooks/use-keyboard-padding';
 import { useSession } from '@/hooks/use-session';
 import { useLogin } from '@/hooks/use-login';
-import WebLogo from '../adminWebLogo.png';
+import WebLogo from '../assets/images/login.png';
 import { COLORS, TYPOGRAPHY, SPACING, RADIUS } from '@/lib/theme';
 
 export default function LoginScreen() {
