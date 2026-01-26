@@ -1,6 +1,6 @@
 import { createClient } from '@supabase/supabase-js';
-import { NextResponse } from 'next/server';
 import { cookies } from 'next/headers';
+import { NextResponse } from 'next/server';
 
 import { checkRateLimit, validateSession } from '@/lib/csrf';
 import { logger } from '@/lib/logger';
@@ -29,7 +29,7 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: 'Invalid JSON payload' }, { status: 400 });
   }
 
-  const cookieStore = cookies();
+  const cookieStore = await cookies();
   const session = {
     role: cookieStore.get('session_role')?.value ?? null,
     residentId: cookieStore.get('session_resident')?.value ?? '',
