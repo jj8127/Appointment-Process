@@ -57,6 +57,20 @@ export default function ResetPasswordScreen() {
         throw new Error(detail || error.message);
       }
       if (!data?.ok) {
+        if (data?.code === 'not_found') {
+          Alert.alert(
+            '회원가입 필요',
+            '회원가입이 되어 있지 않은 번호입니다.\n회원가입 페이지로 이동하시겠습니까?',
+            [
+              { text: '취소', style: 'cancel' },
+              {
+                text: '회원가입',
+                onPress: () => router.replace('/auth'),
+              },
+            ]
+          );
+          return;
+        }
         Alert.alert('알림', data?.message ?? '요청에 실패했습니다.');
         return;
       }

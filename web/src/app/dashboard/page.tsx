@@ -275,16 +275,16 @@ export default function DashboardPage() {
 
     if (activeTab && activeTab !== 'all') {
       if (activeTab === 'step0') {
-        result = result.filter((fc) => !fc.identity_completed);
+        result = result.filter((fc: FCProfileWithDocuments & { adminStep: number }) => !fc.identity_completed);
       } else {
         const stepNum = Number(activeTab.replace('step', ''));
-        result = result.filter((fc) => fc.adminStep === stepNum);
+        result = result.filter((fc: FCProfileWithDocuments & { adminStep: number }) => fc.adminStep === stepNum);
       }
     }
     if (keyword.trim()) {
       const q = keyword.trim().toLowerCase();
       result = result.filter(
-        (fc) =>
+        (fc: FCProfileWithDocuments & { adminStep: number }) =>
           fc.name?.toLowerCase().includes(q) ||
           fc.phone?.includes(q) ||
           fc.affiliation?.toLowerCase().includes(q),
@@ -435,6 +435,8 @@ export default function DashboardPage() {
       });
 
       const data = await resp.json().catch(() => null);
+      logger.debug('[Web][deleteFc] response', { id: selectedFc.id, status: resp.status, data });
+
       if (!resp.ok) {
         const message =
           data && typeof data === 'object' && 'error' in data
@@ -443,13 +445,25 @@ export default function DashboardPage() {
         throw new Error(message || '삭제 실패');
       }
 
-      if (data && typeof data === 'object' && 'deleted' in data && !data.deleted) {
-        logger.warn('[Web][deleteFc] not found', { id: selectedFc.id });
+      // API 응답 검증
+      if (!data || typeof data !== 'object') {
+        logger.error('[Web][deleteFc] invalid response', { id: selectedFc.id, data });
+        throw new Error('서버 응답이 올바르지 않습니다.');
       }
 
-      logger.debug('[Web][deleteFc] done', { id: selectedFc.id });
+      // deleted 플래그 확인
+      if ('deleted' in data && !data.deleted) {
+        logger.warn('[Web][deleteFc] delete returned false', { id: selectedFc.id, data });
+        throw new Error(
+          typeof data.message === 'string' ? data.message : 'FC 정보를 삭제할 수 없습니다.'
+        );
+      }
+
+      logger.info('[Web][deleteFc] success', { id: selectedFc.id, deletedCount: data.deletedCount });
+      return data;
     },
-    onSuccess: () => {
+    onSuccess: (data) => {
+      logger.debug('[Web][deleteFc] onSuccess', { data });
       notifications.show({ title: '삭제 완료', message: 'FC 정보가 삭제되었습니다.', color: 'gray' });
       queryClient.invalidateQueries({ queryKey: ['dashboard-list'] });
       close();
@@ -459,6 +473,7 @@ export default function DashboardPage() {
       notifications.show({ title: '오류', message: err.message, color: 'red' });
     },
   });
+
 
   const handleOpenModal = (fc: FCProfileWithDocuments) => {
     setSelectedFc(fc);

@@ -60,13 +60,16 @@ export function useLogin(options?: UseLoginOptions) {
       }
 
       if (!data?.ok) {
-        // Account not found - redirect to signup for FC
-        if (
-          (data?.code === 'needs_password_setup' || data?.code === 'not_found')
-          && data?.role !== 'admin'
-          && data?.role !== 'manager'
-        ) {
-          Alert.alert('안내', '계정정보가 없습니다. 회원가입 페이지로 이동합니다.');
+        if (data?.code === 'not_found') {
+          Alert.alert('안내', '회원가입이 되어 있지 않은 번호입니다. 회원가입 후 로그인해주세요.');
+          if (data?.role !== 'admin' && data?.role !== 'manager') {
+            router.replace('/signup');
+          }
+          return;
+        }
+
+        if (data?.code === 'needs_password_setup' && data?.role !== 'admin' && data?.role !== 'manager') {
+          Alert.alert('안내', '비밀번호 설정이 필요합니다. 회원가입을 완료해주세요.');
           router.replace('/signup');
           return;
         }

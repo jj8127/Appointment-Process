@@ -24,10 +24,12 @@ const corsHeaders = {
 // Security: Validate required environment variables
 const supabaseUrl = getEnv('SUPABASE_URL');
 const serviceKey = getEnv('SUPABASE_SERVICE_ROLE_KEY');
-const ncpAccessKey = getEnv('NCP_SENS_ACCESS_KEY');
-const ncpSecretKey = getEnv('NCP_SENS_SECRET_KEY');
-const ncpServiceId = getEnv('NCP_SENS_SERVICE_ID');
-const ncpSmsFrom = getEnv('NCP_SENS_SMS_FROM');
+const ncpAccessKey = getEnv('NCP_SENS_ACCESS_KEY') ?? getEnv('NCP_ACCESS_KEY');
+const ncpSecretKey = getEnv('NCP_SENS_SECRET_KEY') ?? getEnv('NCP_SECRET_KEY');
+const ncpServiceId = getEnv('NCP_SENS_SERVICE_ID') ?? getEnv('NCP_SMS_SERVICE_ID');
+const ncpSmsFrom = getEnv('NCP_SENS_SMS_FROM') ?? getEnv('NCP_SMS_SENDER');
+const testSmsMode = (getEnv('TEST_SMS_MODE') ?? '').toLowerCase() === 'true';
+const testSmsCode = getEnv('TEST_SMS_CODE') ?? '123456';
 
 if (!supabaseUrl) {
   throw new Error('Missing required environment variable: SUPABASE_URL');
@@ -35,8 +37,8 @@ if (!supabaseUrl) {
 if (!serviceKey) {
   throw new Error('Missing required environment variable: SUPABASE_SERVICE_ROLE_KEY');
 }
-if (!ncpAccessKey || !ncpSecretKey || !ncpServiceId || !ncpSmsFrom) {
-  throw new Error('Missing required NCP SMS credentials');
+if (!testSmsMode && (!ncpAccessKey || !ncpSecretKey || !ncpServiceId || !ncpSmsFrom)) {
+  throw new Error('Missing required NCP SMS credentials (NCP_SENS_ACCESS_KEY, NCP_SENS_SECRET_KEY, NCP_SENS_SERVICE_ID, NCP_SENS_SMS_FROM)');
 }
 
 const supabase = createClient(supabaseUrl, serviceKey);
@@ -84,6 +86,9 @@ async function hmacSignature(message: string, secretKey: string) {
 }
 
 async function sendResetSms(to: string, code: string) {
+  if (testSmsMode) {
+    return { ok: true, status: 200 };
+  }
   if (!ncpAccessKey || !ncpSecretKey || !ncpServiceId || !ncpSmsFrom) {
     return { ok: false, status: 500, message: 'SMS 설정이 필요합니다.' };
   }
@@ -120,6 +125,9 @@ async function sendResetSms(to: string, code: string) {
 }
 
 function generateResetCode() {
+  if (testSmsMode && /^\d{6}$/.test(testSmsCode)) {
+    return testSmsCode;
+  }
   const bytes = crypto.getRandomValues(new Uint32Array(1));
   const value = bytes[0] % 900000;
   return String(100000 + value);
@@ -162,7 +170,7 @@ serve(async (req: Request) => {
   }
 
   if (!profile?.id) {
-    return json({ ok: true, sent: true });
+    return fail('not_found', '회원가입된 계정을 찾을 수 없습니다.');
   }
 
   const { data: creds, error: credsError } = await supabase
