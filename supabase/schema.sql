@@ -23,6 +23,7 @@ create table if not exists public.fc_profiles (
   docs_deadline_last_notified_at date,
   status text not null default 'draft',
   identity_completed boolean not null default false,
+  signup_completed boolean not null default false,
   phone_verified boolean not null default false,
   phone_verified_at timestamptz,
   phone_verification_hash text,

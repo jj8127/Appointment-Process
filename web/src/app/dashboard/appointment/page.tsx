@@ -215,6 +215,7 @@ export default function AppointmentPage() {
       const { data, error } = await supabase
         .from('fc_profiles')
         .select('*, fc_documents(*)')
+        .eq('signup_completed', true)
         .not('allowance_date', 'is', null)
         .order('created_at', { ascending: false });
 

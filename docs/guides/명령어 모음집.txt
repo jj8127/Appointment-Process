@@ -28,7 +28,7 @@ vercel에 등록하기
     vercel deploy dist --prod
 
 앱 데이터 초기화
-    adb uninstall com.jj8127.fconboardingapp
+    adb uninstall com.jj8127.Garam_in
     
 앱 icon적용 한 버전 실행하기
     앱 삭제 후 -> npx expo prebuild --clean && npx expo run:android

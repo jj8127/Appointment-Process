@@ -40,7 +40,7 @@ npx expo start
 #### Clean Build with Custom Icon
 ```bash
 # 1. 기존 앱 삭제
-adb uninstall com.jj8127.fconboardingapp
+adb uninstall com.jj8127.Garam_in
 
 # 2. Clean build 및 실행
 npx expo prebuild --clean && npx expo run:android
@@ -240,7 +240,7 @@ WHERE phone = '<전화번호>';
 
 ### Clear App Data
 ```bash
-adb uninstall com.jj8127.fconboardingapp
+adb uninstall com.jj8127.Garam_in
 ```
 
 ### Unlock Locked Account
@@ -308,7 +308,7 @@ node -e "const crypto=require('crypto');const password='새비번';const salt=cr
 | Build iOS | `eas build --platform ios --profile production` |
 | Deploy to Vercel | `vercel deploy --prod` |
 | Submit to App Store | `eas submit --platform ios --latest` |
-| Clear App Data | `adb uninstall com.jj8127.fconboardingapp` |
+| Clear App Data | `adb uninstall com.jj8127.Garam_in` |
 | Generate Password Hash | `node -e "const crypto=require('crypto')..."` |
 
 ---

@@ -1,8 +1,8 @@
 'use server';
 import { sendWebPush } from '@/lib/web-push';
 
-import { logger } from '@/lib/logger';
 import { adminSupabase } from '@/lib/admin-supabase';
+import { logger } from '@/lib/logger';
 const EXPO_PUSH_URL = 'https://exp.host/--/api/v2/push/send';
 
 type PushDate = {
@@ -15,13 +15,36 @@ export async function sendPushNotification(
     userId: string,
     { title, body, data }: PushDate
 ) {
-    if (!userId) return { success: false, error: 'No user ID provided' };
+    logger.debug('[sendPushNotification] start', { userId, title, body });
+
+    if (!userId) {
+        logger.warn('[sendPushNotification] No userId provided');
+        return { success: false, error: 'No user ID provided' };
+    }
+
+    // Insert into notifications table (using adminSupabase to bypass RLS)
+    const { error: notifError } = await adminSupabase.from('notifications').insert({
+        title,
+        body,
+        recipient_role: 'fc',
+        resident_id: userId,
+    });
+    if (notifError) {
+        logger.warn('[sendPushNotification] notifications insert failed:', notifError);
+    }
 
     // Fetch Tokens
     const { data: tokens, error: tokensError } = await adminSupabase
         .from('device_tokens')
         .select('expo_push_token')
         .eq('resident_id', userId);
+
+    logger.debug('[sendPushNotification] tokens query result', {
+        userId,
+        tokenCount: tokens?.length ?? 0,
+        tokens: tokens?.map(t => t.expo_push_token),
+        error: tokensError
+    });
 
     if (tokensError) {
         logger.error('[actions] Error fetching device tokens:', tokensError);
@@ -44,6 +67,8 @@ export async function sendPushNotification(
                 channelId: 'alerts',
             }));
 
+            logger.debug('[sendPushNotification] sending to Expo', { messageCount: messages.length });
+
             const resp = await fetch(EXPO_PUSH_URL, {
                 method: 'POST',
                 headers: {
@@ -53,10 +78,16 @@ export async function sendPushNotification(
                 body: JSON.stringify(messages),
             });
 
+            const respBody = await resp.text();
+            logger.debug('[sendPushNotification] Expo response', {
+                status: resp.status,
+                ok: resp.ok,
+                body: respBody
+            });
+
             if (!resp.ok) {
-                const errorText = await resp.text();
-                logger.error('[actions] Expo Push Failed:', errorText);
-                return { success: false, error: `Expo push notification failed: ${errorText}` };
+                logger.error('[actions] Expo Push Failed:', respBody);
+                return { success: false, error: `Expo push notification failed: ${respBody}` };
             }
         }
 

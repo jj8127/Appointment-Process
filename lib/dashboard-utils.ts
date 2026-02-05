@@ -44,7 +44,7 @@ export const STEP_KEYS = ['step1', 'step2', 'step3', 'step4', 'step5'] as const;
 export type StepKey = (typeof STEP_KEYS)[number];
 
 export const STEP_LABELS: Record<StepKey, string> = {
-  step1: '1단계 인적사항',
+  step1: '1단계 회원가입',
   step2: '2단계 수당동의',
   step3: '3단계 문서제출',
   step4: '4단계 위촉 진행',

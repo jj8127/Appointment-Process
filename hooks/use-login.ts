@@ -68,8 +68,8 @@ export function useLogin(options?: UseLoginOptions) {
           return;
         }
 
-        if (data?.code === 'needs_password_setup' && data?.role !== 'admin' && data?.role !== 'manager') {
-          Alert.alert('안내', '비밀번호 설정이 필요합니다. 회원가입을 완료해주세요.');
+        if ((data?.code === 'needs_password_setup' || data?.code === 'not_completed') && data?.role !== 'admin' && data?.role !== 'manager') {
+          Alert.alert('안내', '회원가입이 완료되지 않았습니다. 회원가입을 완료해주세요.');
           router.replace('/signup');
           return;
         }

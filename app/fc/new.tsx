@@ -6,16 +6,16 @@ import { router, Stack, useFocusEffect, useLocalSearchParams } from 'expo-router
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Controller, useForm, type Control } from 'react-hook-form';
 import {
-    Alert,
-    BackHandler,
-    findNodeHandle,
-    Modal,
-    Pressable,
-    ReturnKeyTypeOptions,
-    StyleSheet,
-    Text,
-    TextInput,
-    View
+  Alert,
+  BackHandler,
+  findNodeHandle,
+  Modal,
+  Pressable,
+  ReturnKeyTypeOptions,
+  StyleSheet,
+  Text,
+  TextInput,
+  View
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { z } from 'zod';
@@ -25,10 +25,11 @@ import { KeyboardAwareWrapper, useKeyboardAware } from '@/components/KeyboardAwa
 import { ScreenHeader } from '@/components/ScreenHeader';
 import { useKeyboardPadding } from '@/hooks/use-keyboard-padding';
 import { useSession } from '@/hooks/use-session';
+import { logger } from '@/lib/logger';
 import { safeStorage } from '@/lib/safe-storage';
 import { supabase } from '@/lib/supabase';
-import { COLORS, TYPOGRAPHY, SPACING, RADIUS, SHADOWS } from '@/lib/theme';
-import { logger } from '@/lib/logger';
+import { COLORS, RADIUS, SHADOWS, SPACING, TYPOGRAPHY } from '@/lib/theme';
+import { formatPhone, normalizePhone } from '@/lib/validation';
 
 const CHARCOAL = '#111827';
 const TEXT_MUTED = '#6b7280';
@@ -125,6 +126,8 @@ const EMAIL_DOMAINS = [
 const CARRIER_OPTIONS = ['SKT', 'KT', 'LGU+', 'SKT 알뜰폰', 'KT 알뜰폰', 'LGU+ 알뜰폰'];
 const SIGNUP_STORAGE_KEY = 'fc-onboarding/signup';
 
+const EXPO_PUSH_URL = 'https://exp.host/--/api/v2/push/send';
+
 async function sendNotificationAndPush(
   role: 'admin' | 'fc',
   residentId: string | null,
@@ -158,11 +161,11 @@ async function sendNotificationAndPush(
       })) ?? [];
 
     if (payload.length) {
-      fetch('/api/push', {
+      await fetch(EXPO_PUSH_URL, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload[0]), // Send single payload or adjust API to handle array
-      }).catch(() => {});
+        body: JSON.stringify(payload),
+      });
     }
   } catch (err) {
     logger.warn('sendNotificationAndPush failed', err);
@@ -174,7 +177,7 @@ export default function FcNewScreen() {
   const fromParam = Array.isArray(from) ? from[0] : from;
   const queryClient = useQueryClient();
   const [submitting, setSubmitting] = useState(false);
-  const { residentId: phoneFromSession, loginAs, displayName } = useSession();
+  const { residentId: phoneFromSession, loginAs, displayName, role } = useSession();
   const [existingTempId, setExistingTempId] = useState<string | null>(null);
   const [selectedAffiliation, setSelectedAffiliation] = useState('');
   const [emailLocal, setEmailLocal] = useState('');
@@ -199,7 +202,7 @@ export default function FcNewScreen() {
   const residentBackRef = useRef<TextInput>(null);
   const addressDetailRef = useRef<TextInput>(null);
 
-  const { control, handleSubmit, setValue, formState } = useForm<FormValues>({
+  const { control, handleSubmit, setValue, reset, formState } = useForm<FormValues>({
     resolver: zodResolver(schema),
     defaultValues: {
       affiliation: '',
@@ -224,22 +227,33 @@ export default function FcNewScreen() {
 
   const loadExisting = useCallback(async (phone?: string) => {
     const key = phone ?? phoneFromSession;
-    if (!key) return;
-    const { data, error } = await supabase
-      .from('fc_profiles')
-      .select('affiliation,name,phone,recommender,email,career_type,temp_id,carrier,address,address_detail,resident_id_masked')
-      .eq('phone', key)
-      .maybeSingle();
+    const normalizedKey = normalizePhone(key ?? '');
+    logger.debug('[fc/new] loadExisting start', { phone, phoneFromSession, key });
+    if (!normalizedKey) {
+      logger.debug('[fc/new] loadExisting: no key, returning early');
+      return;
+    }
+    const phoneCandidates = Array.from(
+      new Set([normalizedKey, formatPhone(normalizedKey)].filter(Boolean)),
+    );
+    const query = phoneCandidates.length > 1
+      ? supabase.from('fc_profiles').select('affiliation,name,phone,recommender,email,career_type,temp_id,carrier,address,address_detail,resident_id_masked').in('phone', phoneCandidates)
+      : supabase.from('fc_profiles').select('affiliation,name,phone,recommender,email,career_type,temp_id,carrier,address,address_detail,resident_id_masked').eq('phone', phoneCandidates[0]);
+    const { data, error } = await query.maybeSingle();
     if (error) {
       logger.warn('FC load failed', error.message);
       return;
     }
+    logger.debug('[fc/new] loadExisting: DB data', { data });
+
     let signupPayload: Partial<FormValues & { phone?: string; carrier?: string }> | null = null;
     try {
       const raw = await safeStorage.getItem(SIGNUP_STORAGE_KEY);
+      logger.debug('[fc/new] loadExisting: signup raw', { raw });
       if (raw) {
         const parsed = JSON.parse(raw) as Partial<FormValues & { phone?: string; carrier?: string }>;
         const payloadPhone = (parsed.phone ?? '').replace(/[^0-9]/g, '');
+        logger.debug('[fc/new] loadExisting: parsed signup', { parsed, payloadPhone, key, matches: payloadPhone === key });
         if (payloadPhone && payloadPhone === key) {
           signupPayload = parsed;
         }
@@ -251,7 +265,7 @@ export default function FcNewScreen() {
     const merged = {
       affiliation: data?.affiliation || signupPayload?.affiliation || '',
       name: data?.name || signupPayload?.name || '',
-      phone: data?.phone || signupPayload?.phone || key,
+      phone: data?.phone || signupPayload?.phone || normalizedKey,
       recommender: data?.recommender || signupPayload?.recommender || '',
       email: data?.email || signupPayload?.email || '',
       carrier: data?.carrier || signupPayload?.carrier || '',
@@ -266,16 +280,20 @@ export default function FcNewScreen() {
         ? AFFILIATION_OPTIONS.find((opt) => opt.startsWith(merged.affiliation)) ?? merged.affiliation
         : merged.affiliation;
 
-    setValue('affiliation', matchedAffiliation);
+    reset({
+      affiliation: matchedAffiliation,
+      name: merged.name,
+      phone: merged.phone,
+      recommender: merged.recommender,
+      email: merged.email,
+      carrier: merged.carrier,
+      address: merged.address,
+      addressDetail: merged.addressDetail,
+      residentFront: '',
+      residentBack: '',
+    });
     setSelectedAffiliation(matchedAffiliation);
-    setValue('name', merged.name);
-    setValue('phone', merged.phone);
-    setValue('recommender', merged.recommender);
-    setValue('email', merged.email);
-    setValue('carrier', merged.carrier);
     setCarrier(merged.carrier);
-    setValue('address', merged.address);
-    setValue('addressDetail', merged.addressDetail);
     setExistingAddress(merged.address);
     setExistingAddressDetail(merged.addressDetail);
     setExistingResidentMasked(merged.residentMasked);
@@ -464,33 +482,32 @@ export default function FcNewScreen() {
   };
 
   const handleBack = useCallback(() => {
-    const needsLogin = !displayName?.trim();
+    logger.debug('[fc/new] handleBack called', { displayName, fromParam, role });
+
+    // 로그인하지 않은 상태 (role 없음)
+    const needsLogin = !role;
     if (needsLogin) {
-      if (fromParam === 'login') {
-        router.replace({ pathname: '/login', params: { skipAuto: '1' } } as any);
-      } else {
-        router.replace({ pathname: '/login', params: { skipAuto: '1' } } as any);
-      }
+      logger.debug('[fc/new] Not logged in (no role), going to login');
+      router.replace({ pathname: '/login', params: { skipAuto: '1' } } as any);
       return;
     }
+
+    // 로그인한 상태: from 파라미터에 따라 이동
     if (fromParam === 'home') {
+      logger.debug('[fc/new] fromParam is home, going to /');
       router.replace('/');
       return;
     }
-    if (fromParam === 'auth') {
-      router.replace({ pathname: '/login', params: { skipAuto: '1' } } as any);
+    if (fromParam === 'auth' || fromParam === 'login') {
+      logger.debug('[fc/new] fromParam is auth/login, going to /');
+      router.replace('/');
       return;
     }
-    if (fromParam === 'login') {
-      router.replace({ pathname: '/login', params: { skipAuto: '1' } } as any);
-      return;
-    }
-    if (router.canGoBack()) {
-      router.back();
-      return;
-    }
-    router.replace({ pathname: '/login', params: { skipAuto: '1' } } as any);
-  }, [displayName, fromParam]);
+
+    // fromParam이 없거나 다른 값일 때는 home으로 이동 (로그인 상태이므로)
+    logger.debug('[fc/new] Default case, going to /', { fromParam });
+    router.replace('/');
+  }, [displayName, fromParam, role]);
 
   useFocusEffect(
     useCallback(() => {
@@ -890,63 +907,63 @@ type FormFieldProps = {
   scrollEnabled?: boolean; // Added
 };
 
-  const FormField = ({
-    control,
-    label,
-    placeholder,
-    name,
-    errors,
-    multiline,
-    inputRef,
-    returnKeyType,
-    onSubmitEditing,
-    blurOnSubmit,
-    scrollEnabled, // Added
-  }: FormFieldProps) => {
-    const { scrollToInput } = useKeyboardAware();
-    const [inputHeight, setInputHeight] = useState(multiline ? 80 : 0);
+const FormField = ({
+  control,
+  label,
+  placeholder,
+  name,
+  errors,
+  multiline,
+  inputRef,
+  returnKeyType,
+  onSubmitEditing,
+  blurOnSubmit,
+  scrollEnabled, // Added
+}: FormFieldProps) => {
+  const { scrollToInput } = useKeyboardAware();
+  const [inputHeight, setInputHeight] = useState(multiline ? 80 : 0);
 
-    return (
-      <View style={styles.field}>
-        <View style={styles.fieldLabelRow}>
-          <Text style={styles.label}>{label}</Text>
+  return (
+    <View style={styles.field}>
+      <View style={styles.fieldLabelRow}>
+        <Text style={styles.label}>{label}</Text>
         {errors[name]?.message ? <Text style={styles.error}>{errors[name]?.message}</Text> : null}
       </View>
       <Controller
-          control={control}
-          name={name as any}
-          render={({ field: { onChange, value } }) => (
-            <TextInput
-              scrollEnabled={multiline ? false : (scrollEnabled ?? false)}
-              ref={inputRef}
-              style={[
-                styles.input,
-                multiline && styles.inputMultiline,
-                multiline && { height: Math.max(80, inputHeight) },
-              ]}
-              placeholder={placeholder}
-              placeholderTextColor={PLACEHOLDER}
-              value={value}
-              onChangeText={onChange}
-              multiline={multiline}
-              returnKeyType={returnKeyType}
-              onSubmitEditing={onSubmitEditing}
-              blurOnSubmit={blurOnSubmit}
-              onFocus={(e) => {
-                scrollToInput(findNodeHandle(e.target as any));
-              }}
-              onContentSizeChange={(e) => {
-                if (!multiline) return;
-                const nextHeight = Math.max(80, e.nativeEvent.contentSize.height);
-                if (nextHeight !== inputHeight) setInputHeight(nextHeight);
-                scrollToInput(findNodeHandle(e.target as any));
-              }}
-            />
-          )}
-        />
-      </View>
-    );
-  };
+        control={control}
+        name={name as any}
+        render={({ field: { onChange, value } }) => (
+          <TextInput
+            scrollEnabled={multiline ? false : (scrollEnabled ?? false)}
+            ref={inputRef}
+            style={[
+              styles.input,
+              multiline && styles.inputMultiline,
+              multiline && { height: Math.max(80, inputHeight) },
+            ]}
+            placeholder={placeholder}
+            placeholderTextColor={PLACEHOLDER}
+            value={value}
+            onChangeText={onChange}
+            multiline={multiline}
+            returnKeyType={returnKeyType}
+            onSubmitEditing={onSubmitEditing}
+            blurOnSubmit={blurOnSubmit}
+            onFocus={(e) => {
+              scrollToInput(findNodeHandle(e.target as any));
+            }}
+            onContentSizeChange={(e) => {
+              if (!multiline) return;
+              const nextHeight = Math.max(80, e.nativeEvent.contentSize.height);
+              if (nextHeight !== inputHeight) setInputHeight(nextHeight);
+              scrollToInput(findNodeHandle(e.target as any));
+            }}
+          />
+        )}
+      />
+    </View>
+  );
+};
 
 const styles = StyleSheet.create({
   safe: { flex: 1, backgroundColor: COLORS.white },

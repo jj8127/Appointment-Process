@@ -4,11 +4,11 @@
     <metrics statements="442" coveredstatements="76" conditionals="255" coveredconditionals="48" methods="89" coveredmethods="9" elements="786" coveredelements="133" complexity="0" loc="442" ncloc="442" packages="2" files="19" classes="19"/>
     <package name="hooks">
       <metrics statements="185" coveredstatements="0" conditionals="114" coveredconditionals="0" methods="44" coveredmethods="0"/>
-      <file name="use-color-scheme.ts" path="E:\fc-onboarding-app\hooks\use-color-scheme.ts">
+      <file name="use-color-scheme.ts" path="E:\hanhwa\fc-onboarding-app\hooks\use-color-scheme.ts">
         <metrics statements="1" coveredstatements="0" conditionals="0" coveredconditionals="0" methods="1" coveredmethods="0"/>
         <line num="1" count="0" type="stmt"/>
       </file>
-      <file name="use-color-scheme.web.ts" path="E:\fc-onboarding-app\hooks\use-color-scheme.web.ts">
+      <file name="use-color-scheme.web.ts" path="E:\hanhwa\fc-onboarding-app\hooks\use-color-scheme.web.ts">
         <metrics statements="10" coveredstatements="0" conditionals="2" coveredconditionals="0" methods="2" coveredmethods="0"/>
         <line num="1" count="0" type="stmt"/>
         <line num="2" count="0" type="stmt"/>
@@ -21,7 +21,7 @@
         <line num="17" count="0" type="stmt"/>
         <line num="20" count="0" type="stmt"/>
       </file>
-      <file name="use-dashboard-data.ts" path="E:\fc-onboarding-app\hooks\use-dashboard-data.ts">
+      <file name="use-dashboard-data.ts" path="E:\hanhwa\fc-onboarding-app\hooks\use-dashboard-data.ts">
         <metrics statements="53" coveredstatements="0" conditionals="23" coveredconditionals="0" methods="21" coveredmethods="0"/>
         <line num="1" count="0" type="stmt"/>
         <line num="2" count="0" type="stmt"/>
@@ -77,7 +77,7 @@
         <line num="175" count="0" type="cond" truecount="0" falsecount="2"/>
         <line num="178" count="0" type="stmt"/>
       </file>
-      <file name="use-identity-gate.ts" path="E:\fc-onboarding-app\hooks\use-identity-gate.ts">
+      <file name="use-identity-gate.ts" path="E:\hanhwa\fc-onboarding-app\hooks\use-identity-gate.ts">
         <metrics statements="19" coveredstatements="0" conditionals="18" coveredconditionals="0" methods="2" coveredmethods="0"/>
         <line num="1" count="0" type="stmt"/>
         <line num="2" count="0" type="stmt"/>
@@ -99,7 +99,7 @@
         <line num="26" count="0" type="stmt"/>
         <line num="33" count="0" type="stmt"/>
       </file>
-      <file name="use-identity-status.ts" path="E:\fc-onboarding-app\hooks\use-identity-status.ts">
+      <file name="use-identity-status.ts" path="E:\hanhwa\fc-onboarding-app\hooks\use-identity-status.ts">
         <metrics statements="15" coveredstatements="0" conditionals="19" coveredconditionals="0" methods="4" coveredmethods="0"/>
         <line num="1" count="0" type="stmt"/>
         <line num="2" count="0" type="stmt"/>
@@ -117,7 +117,7 @@
         <line num="39" count="0" type="stmt"/>
         <line num="41" count="0" type="cond" truecount="0" falsecount="2"/>
       </file>
-      <file name="use-keyboard-padding.ts" path="E:\fc-onboarding-app\hooks\use-keyboard-padding.ts">
+      <file name="use-keyboard-padding.ts" path="E:\hanhwa\fc-onboarding-app\hooks\use-keyboard-padding.ts">
         <metrics statements="13" coveredstatements="0" conditionals="4" coveredconditionals="0" methods="5" coveredmethods="0"/>
         <line num="1" count="0" type="stmt"/>
         <line num="2" count="0" type="stmt"/>
@@ -133,7 +133,7 @@
         <line num="21" count="0" type="stmt"/>
         <line num="25" count="0" type="stmt"/>
       </file>
-      <file name="use-login.ts" path="E:\fc-onboarding-app\hooks\use-login.ts">
+      <file name="use-login.ts" path="E:\hanhwa\fc-onboarding-app\hooks\use-login.ts">
         <metrics statements="50" coveredstatements="0" conditionals="40" coveredconditionals="0" methods="2" coveredmethods="0"/>
         <line num="1" count="0" type="stmt"/>
         <line num="2" count="0" type="stmt"/>
@@ -186,7 +186,7 @@
         <line num="97" count="0" type="stmt"/>
         <line num="101" count="0" type="stmt"/>
       </file>
-      <file name="use-theme-color.ts" path="E:\fc-onboarding-app\hooks\use-theme-color.ts">
+      <file name="use-theme-color.ts" path="E:\hanhwa\fc-onboarding-app\hooks\use-theme-color.ts">
         <metrics statements="8" coveredstatements="0" conditionals="4" coveredconditionals="0" methods="1" coveredmethods="0"/>
         <line num="6" count="0" type="stmt"/>
         <line num="7" count="0" type="stmt"/>
@@ -197,7 +197,7 @@
         <line num="17" count="0" type="stmt"/>
         <line num="19" count="0" type="stmt"/>
       </file>
-      <file name="useInAppUpdate.android.ts" path="E:\fc-onboarding-app\hooks\useInAppUpdate.android.ts">
+      <file name="useInAppUpdate.android.ts" path="E:\hanhwa\fc-onboarding-app\hooks\useInAppUpdate.android.ts">
         <metrics statements="14" coveredstatements="0" conditionals="4" coveredconditionals="0" methods="4" coveredmethods="0"/>
         <line num="1" count="0" type="stmt"/>
         <line num="2" count="0" type="stmt"/>
@@ -214,18 +214,18 @@
         <line num="27" count="0" type="stmt"/>
         <line num="31" count="0" type="stmt"/>
       </file>
-      <file name="useInAppUpdate.ts" path="E:\fc-onboarding-app\hooks\useInAppUpdate.ts">
+      <file name="useInAppUpdate.ts" path="E:\hanhwa\fc-onboarding-app\hooks\useInAppUpdate.ts">
         <metrics statements="1" coveredstatements="0" conditionals="0" coveredconditionals="0" methods="1" coveredmethods="0"/>
         <line num="1" count="0" type="stmt"/>
       </file>
-      <file name="useInAppUpdate.web.ts" path="E:\fc-onboarding-app\hooks\useInAppUpdate.web.ts">
+      <file name="useInAppUpdate.web.ts" path="E:\hanhwa\fc-onboarding-app\hooks\useInAppUpdate.web.ts">
         <metrics statements="1" coveredstatements="0" conditionals="0" coveredconditionals="0" methods="1" coveredmethods="0"/>
         <line num="1" count="0" type="stmt"/>
       </file>
     </package>
     <package name="lib">
       <metrics statements="257" coveredstatements="76" conditionals="141" coveredconditionals="48" methods="45" coveredmethods="9"/>
-      <file name="dashboard-utils.ts" path="E:\fc-onboarding-app\lib\dashboard-utils.ts">
+      <file name="dashboard-utils.ts" path="E:\hanhwa\fc-onboarding-app\lib\dashboard-utils.ts">
         <metrics statements="51" coveredstatements="0" conditionals="37" coveredconditionals="0" methods="15" coveredmethods="0"/>
         <line num="4" count="0" type="stmt"/>
         <line num="6" count="0" type="stmt"/>
@@ -279,7 +279,7 @@
         <line num="165" count="0" type="stmt"/>
         <line num="168" count="0" type="stmt"/>
       </file>
-      <file name="docRules.ts" path="E:\fc-onboarding-app\lib\docRules.ts">
+      <file name="docRules.ts" path="E:\hanhwa\fc-onboarding-app\lib\docRules.ts">
         <metrics statements="7" coveredstatements="0" conditionals="4" coveredconditionals="0" methods="3" coveredmethods="0"/>
         <line num="3" count="0" type="stmt"/>
         <line num="13" count="0" type="stmt"/>
@@ -289,7 +289,7 @@
         <line num="21" count="0" type="stmt"/>
         <line num="22" count="0" type="stmt"/>
       </file>
-      <file name="notifications.ts" path="E:\fc-onboarding-app\lib\notifications.ts">
+      <file name="notifications.ts" path="E:\hanhwa\fc-onboarding-app\lib\notifications.ts">
         <metrics statements="37" coveredstatements="0" conditionals="16" coveredconditionals="0" methods="4" coveredmethods="0"/>
         <line num="1" count="0" type="stmt"/>
         <line num="2" count="0" type="stmt"/>
@@ -329,7 +329,7 @@
         <line num="75" count="0" type="stmt"/>
         <line num="77" count="0" type="stmt"/>
       </file>
-      <file name="safe-storage.ts" path="E:\fc-onboarding-app\lib\safe-storage.ts">
+      <file name="safe-storage.ts" path="E:\hanhwa\fc-onboarding-app\lib\safe-storage.ts">
         <metrics statements="60" coveredstatements="0" conditionals="16" coveredconditionals="0" methods="11" coveredmethods="0"/>
         <line num="9" count="0" type="stmt"/>
         <line num="11" count="0" type="stmt"/>
@@ -392,7 +392,7 @@
         <line num="122" count="0" type="stmt"/>
         <line num="123" count="0" type="stmt"/>
       </file>
-      <file name="safe-storage.web.ts" path="E:\fc-onboarding-app\lib\safe-storage.web.ts">
+      <file name="safe-storage.web.ts" path="E:\hanhwa\fc-onboarding-app\lib\safe-storage.web.ts">
         <metrics statements="10" coveredstatements="0" conditionals="12" coveredconditionals="0" methods="3" coveredmethods="0"/>
         <line num="7" count="0" type="stmt"/>
         <line num="9" count="0" type="cond" truecount="0" falsecount="4"/>
@@ -405,7 +405,7 @@
         <line num="26" count="0" type="stmt"/>
         <line num="27" count="0" type="stmt"/>
       </file>
-      <file name="supabase.ts" path="E:\fc-onboarding-app\lib\supabase.ts">
+      <file name="supabase.ts" path="E:\hanhwa\fc-onboarding-app\lib\supabase.ts">
         <metrics statements="8" coveredstatements="0" conditionals="8" coveredconditionals="0" methods="0" coveredmethods="0"/>
         <line num="1" count="0" type="stmt"/>
         <line num="3" count="0" type="stmt"/>
@@ -416,7 +416,7 @@
         <line num="10" count="0" type="stmt"/>
         <line num="13" count="0" type="cond" truecount="0" falsecount="4"/>
       </file>
-      <file name="theme.ts" path="E:\fc-onboarding-app\lib\theme.ts">
+      <file name="theme.ts" path="E:\hanhwa\fc-onboarding-app\lib\theme.ts">
         <metrics statements="8" coveredstatements="0" conditionals="0" coveredconditionals="0" methods="0" coveredmethods="0"/>
         <line num="7" count="0" type="stmt"/>
         <line num="71" count="0" type="stmt"/>
@@ -427,7 +427,7 @@
         <line num="170" count="0" type="stmt"/>
         <line num="186" count="0" type="stmt"/>
       </file>
-      <file name="validation.ts" path="E:\fc-onboarding-app\lib\validation.ts">
+      <file name="validation.ts" path="E:\hanhwa\fc-onboarding-app\lib\validation.ts">
         <metrics statements="76" coveredstatements="76" conditionals="48" coveredconditionals="48" methods="9" coveredmethods="9"/>
         <line num="17" count="1" type="stmt"/>
         <line num="18" count="11" type="stmt"/>

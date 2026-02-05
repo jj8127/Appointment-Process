@@ -34,11 +34,20 @@ export async function registerPushToken(role: 'admin' | 'fc', residentId: string
 
     // Android 헤드업 알림을 위해 채널 중요도를 MAX로 설정
     if (Platform.OS === 'android') {
+      // 기본 채널
       await Notifications.setNotificationChannelAsync('default', {
         name: 'default',
         importance: Notifications.AndroidImportance.MAX,
         vibrationPattern: [0, 250, 250, 250],
         lightColor: '#FF231F7C',
+      });
+      // fc-notify에서 사용하는 alerts 채널
+      await Notifications.setNotificationChannelAsync('alerts', {
+        name: 'Alerts',
+        importance: Notifications.AndroidImportance.MAX,
+        vibrationPattern: [0, 250, 250, 250],
+        lightColor: '#FF231F7C',
+        sound: 'default',
       });
     }
 

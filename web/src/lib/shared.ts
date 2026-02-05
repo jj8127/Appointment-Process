@@ -15,7 +15,7 @@ export const STATUS_LABELS: Record<FcProfile['status'] | string, string> = {
 };
 
 export const STEP_LABELS: Record<string, string> = {
-  step1: '1단계 인적사항',
+  step1: '1단계 회원가입',
   step2: '2단계 수당동의',
   step3: '3단계 문서제출',
   step4: '4단계 위촉 진행',
@@ -126,11 +126,6 @@ export const getSummaryStatus = (profile: FcProfile) => {
 };
 
 export const calcStep = (profile: FcProfile) => {
-  const hasBasicInfo =
-    Boolean(profile.name && profile.affiliation && profile.resident_id_masked) &&
-    Boolean(profile.email || profile.address);
-  if (!hasBasicInfo) return 1;
-
   const allowancePassedStatuses: FcProfile['status'][] = [
     'allowance-consented',
     'docs-requested',
@@ -141,7 +136,22 @@ export const calcStep = (profile: FcProfile) => {
     'appointment-completed',
     'final-link-sent',
   ];
-  if (!allowancePassedStatuses.includes(profile.status)) return 2;
+
+  /*
+   * Fix: Prioritize status check over hasBasicInfo.
+   * If status indicates we are already past allowance consent,
+   * we shouldn't fallback to step 1 even if name/affiliation is missing.
+   */
+  if (allowancePassedStatuses.includes(profile.status)) {
+    // Proceed to Docs/Appointment check
+  } else {
+    // Not passed allowance yet. Check if basic info is done.
+    const hasBasicInfo =
+      Boolean(profile.name && profile.affiliation && profile.resident_id_masked) &&
+      Boolean(profile.email || profile.address);
+    if (!hasBasicInfo) return 1;
+    return 2;
+  }
 
   const docs = profile.fc_documents ?? [];
   const allSubmitted =

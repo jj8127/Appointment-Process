@@ -2,7 +2,7 @@
   "expo": {
     "name": "가람 in",
     "slug": "fc-onboarding-app",
-    "version": "1.4.0",
+    "version": "1.4.2",
     "orientation": "portrait",
     "icon": "./assets/images/logo.png",
     "scheme": "hanwhafcpass",
@@ -10,7 +10,7 @@
     "newArchEnabled": true,
     "ios": {
       "supportsTablet": true,
-      "bundleIdentifier": "com.jj8127.fconboardingapp",
+      "bundleIdentifier": "com.jj8127.Garam_in",
       "icon": "./assets/images/logo_ios.png",
       "infoPlist": {
         "ITSAppUsesNonExemptEncryption": false,
@@ -27,7 +27,7 @@
       },
       "edgeToEdgeEnabled": true,
       "predictiveBackGestureEnabled": false,
-      "package": "com.jj8127.fconboardingapp"
+      "package": "com.jj8127.Garam_in"
     },
     "web": {
       "output": "static",

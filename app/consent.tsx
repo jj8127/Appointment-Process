@@ -23,12 +23,12 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { Button } from '@/components/Button';
 import { FormInput } from '@/components/FormInput';
 import { ScreenHeader } from '@/components/ScreenHeader';
+import { useIdentityGate } from '@/hooks/use-identity-gate';
 import { useKeyboardPadding } from '@/hooks/use-keyboard-padding';
 import { useSession } from '@/hooks/use-session';
-import { useIdentityGate } from '@/hooks/use-identity-gate';
-import { supabase } from '@/lib/supabase';
 import { logger } from '@/lib/logger';
-import { COLORS, TYPOGRAPHY, SPACING, RADIUS } from '@/lib/theme';
+import { supabase } from '@/lib/supabase';
+import { COLORS, RADIUS, SPACING, TYPOGRAPHY } from '@/lib/theme';
 
 const weekdays = ['일', '월', '화', '수', '목', '금', '토'];
 const formatKoreanDate = (d: Date) =>
@@ -58,6 +58,7 @@ export default function AllowanceConsentScreen() {
   const [loading, setLoading] = useState(false);
   const [careerType, setCareerType] = useState<string | null>(null);
   const [rejectReason, setRejectReason] = useState<string | null>(null);
+  const [isApproved, setIsApproved] = useState(false);
   const keyboardPadding = useKeyboardPadding();
   const [showPicker, setShowPicker] = useState(false);
   const [tempDate, setTempDate] = useState<Date | null>(null);
@@ -74,11 +75,15 @@ export default function AllowanceConsentScreen() {
       if (!phone) return;
       const { data } = await supabase
         .from('fc_profiles')
-        .select('temp_id, allowance_date, career_type, allowance_reject_reason')
+        .select('temp_id, allowance_date, career_type, allowance_reject_reason, status')
         .eq('phone', phone)
         .maybeSingle();
 
-      logger.debug('[DEBUG] Mobile: Fetched FC Profile in Consent:', { data: JSON.stringify(data, null, 2) });
+      logger.debug('[DEBUG] Mobile: Fetched FC Profile in Consent:', {
+        status: data?.status,
+        rejectReason: data?.allowance_reject_reason,
+        data: JSON.stringify(data, null, 2)
+      });
 
       setTempId(data?.temp_id ?? '');
       if (data?.allowance_date) {
@@ -88,6 +93,13 @@ export default function AllowanceConsentScreen() {
       }
       setCareerType(data?.career_type ?? null);
       setRejectReason(data?.allowance_reject_reason ?? null);
+
+      // Fix: Check status to block edits
+      if (data?.status && ['allowance-consented', 'docs-requested', 'docs-pending', 'docs-submitted', 'docs-approved', 'appointment-completed', 'final-link-sent'].includes(data.status)) {
+        setIsApproved(true);
+      } else {
+        setIsApproved(false);
+      }
     };
     load();
   }, [residentId]);
@@ -164,7 +176,7 @@ export default function AllowanceConsentScreen() {
       if (!phone) return;
       const { data } = await supabase
         .from('fc_profiles')
-        .select('temp_id, allowance_date, career_type, allowance_reject_reason')
+        .select('temp_id, allowance_date, career_type, allowance_reject_reason, status')
         .eq('phone', phone)
         .maybeSingle();
 
@@ -176,18 +188,30 @@ export default function AllowanceConsentScreen() {
       }
       setCareerType(data?.career_type ?? null);
       setRejectReason(data?.allowance_reject_reason ?? null);
+
+      if (data?.status && ['allowance-consented', 'docs-requested', 'docs-pending', 'docs-submitted', 'docs-approved', 'appointment-completed', 'final-link-sent'].includes(data.status)) {
+        setIsApproved(true);
+      } else {
+        setIsApproved(false);
+      }
+
+    } catch (e) {
+      // ignore
     } finally {
       setRefreshing(false);
     }
   }, [residentId]);
 
   return (
-    <SafeAreaView style={styles.safe} edges={['left', 'right', 'bottom']}>
-      <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={{ flex: 1 }}>
+    <SafeAreaView style={styles.safe}>
+      <KeyboardAvoidingView
+        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+        style={{ flex: 1 }}
+      >
         <ScrollView
           contentContainerStyle={[styles.container, { paddingBottom: keyboardPadding + 40 }]}
           refreshControl={
-            <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
+            < RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
           }
         >
           <ScreenHeader
@@ -290,8 +314,10 @@ export default function AllowanceConsentScreen() {
             <View style={styles.inputGroup}>
               <Text style={styles.label}>수당동의일</Text>
               <Pressable
-                style={styles.dateInput}
+                style={[styles.dateInput, isApproved && styles.buttonDisabled]}
+                disabled={isApproved}
                 onPress={() => {
+                  if (isApproved) return;
                   setTempDate(selectedDate ?? new Date());
                   setShowPicker(true);
                 }}
@@ -318,62 +344,71 @@ export default function AllowanceConsentScreen() {
               )}
             </View>
 
-            <Button
-              onPress={submit}
-              disabled={loading}
-              loading={loading}
-              variant="primary"
-              size="lg"
-              fullWidth
-              style={{ marginTop: 8 }}
-            >
-              저장하기
-            </Button>
+            {isApproved ? (
+              <View style={{ marginTop: 8, padding: 16, backgroundColor: '#ECFDF5', borderRadius: 8, borderWidth: 1, borderColor: '#10B981', alignItems: 'center' }}>
+                <Text style={{ color: '#047857', fontWeight: 'bold', fontSize: 16 }}>총무 승인 완료</Text>
+                <Text style={{ color: '#059669', fontSize: 14, marginTop: 4 }}>수정이 불가능합니다.</Text>
+              </View>
+            ) : (
+              <Button
+                onPress={submit}
+                disabled={loading}
+                loading={loading}
+                variant="primary"
+                size="lg"
+                fullWidth
+                style={{ marginTop: 8 }}
+              >
+                저장하기
+              </Button>
+            )}
           </View>
-        </ScrollView>
-      </KeyboardAvoidingView>
+        </ScrollView >
+      </KeyboardAvoidingView >
 
-      {Platform.OS === 'ios' && (
-        <Modal visible={showPicker} transparent animationType="fade">
-          <View style={styles.pickerOverlay}>
-            <View style={styles.pickerCard}>
-              <DateTimePicker
-                value={tempDate ?? selectedDate ?? new Date()}
-                mode="date"
-                display="spinner"
-                locale="ko-KR"
-                onChange={(_, d) => {
-                  if (d) setTempDate(d);
-                }}
-              />
-              <View style={styles.pickerActions}>
-                <Button
-                  variant="ghost"
-                  size="md"
-                  onPress={() => {
-                    setShowPicker(false);
-                    setTempDate(null);
+      {
+        Platform.OS === 'ios' && (
+          <Modal visible={showPicker} transparent animationType="fade">
+            <View style={styles.pickerOverlay}>
+              <View style={styles.pickerCard}>
+                <DateTimePicker
+                  value={tempDate ?? selectedDate ?? new Date()}
+                  mode="date"
+                  display="spinner"
+                  locale="ko-KR"
+                  onChange={(_, d) => {
+                    if (d) setTempDate(d);
                   }}
-                >
-                  취소
-                </Button>
-                <Button
-                  variant="primary"
-                  size="md"
-                  onPress={() => {
-                    if (tempDate) setSelectedDate(tempDate);
-                    setShowPicker(false);
-                    setTempDate(null);
-                  }}
-                >
-                  확인
-                </Button>
+                />
+                <View style={styles.pickerActions}>
+                  <Button
+                    variant="ghost"
+                    size="md"
+                    onPress={() => {
+                      setShowPicker(false);
+                      setTempDate(null);
+                    }}
+                  >
+                    취소
+                  </Button>
+                  <Button
+                    variant="primary"
+                    size="md"
+                    onPress={() => {
+                      if (tempDate) setSelectedDate(tempDate);
+                      setShowPicker(false);
+                      setTempDate(null);
+                    }}
+                  >
+                    확인
+                  </Button>
+                </View>
               </View>
             </View>
-          </View>
-        </Modal>
-      )}
-    </SafeAreaView>
+          </Modal>
+        )
+      }
+    </SafeAreaView >
   );
 }
 
@@ -458,7 +493,7 @@ const styles = StyleSheet.create({
     marginBottom: SPACING.lg
   },
   rejectBox: {
-    backgroundColor: COLORS.errorLight,
+    backgroundColor: '#FEF2F2', // Red-50
     borderColor: '#FECACA',
     borderWidth: 1,
     padding: SPACING.md,
@@ -466,15 +501,15 @@ const styles = StyleSheet.create({
     marginBottom: SPACING.base,
   },
   rejectTitle: {
-    fontSize: TYPOGRAPHY.fontSize.xs + 1,
+    fontSize: 15,
     fontWeight: TYPOGRAPHY.fontWeight.bold,
-    color: '#B91C1C',
+    color: '#B91C1C', // Red-700
     marginBottom: SPACING.xs + 2,
   },
   rejectText: {
-    fontSize: TYPOGRAPHY.fontSize.xs + 1,
-    color: '#7F1D1D',
-    lineHeight: 18,
+    fontSize: 20,
+    color: '#7F1D1D', // Red-900
+    lineHeight: 32,
   },
 
   inputGroup: { marginBottom: SPACING.base },

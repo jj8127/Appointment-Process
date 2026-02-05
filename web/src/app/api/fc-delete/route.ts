@@ -75,7 +75,94 @@ export async function POST(req: Request) {
 
   logger.info('[api/fc-delete] Profile found', { fcId, name: profile.name, phone: profile.phone });
 
-  // 2. 연관 데이터 확인 (삭제 전 상태 로깅)
+  const residentId = profile.phone;
+  if (!residentId) {
+    logger.warn('[api/fc-delete] Profile has no phone (residentId), skipping related data deletion', { fcId });
+  } else {
+    logger.info('[api/fc-delete] Deleting related data for residentId', { fcId, residentId });
+
+    // A. Exam Registrations 삭제
+    const { error: examError } = await adminClient
+      .from('exam_registrations')
+      .delete()
+      .eq('resident_id', residentId);
+    if (examError) logger.error('[api/fc-delete] Exam delete failed', examError);
+
+    // B. Notifications 삭제
+    const { error: notiError } = await adminClient
+      .from('notifications')
+      .delete()
+      .eq('resident_id', residentId);
+    if (notiError) logger.error('[api/fc-delete] Notification delete failed', notiError);
+
+    // C. Board Data 삭제
+    // C-1. Reactions
+    await adminClient.from('board_post_reactions').delete().eq('resident_id', residentId);
+
+    // C-2. Comments
+    await adminClient.from('board_comments').delete().eq('author_resident_id', residentId);
+
+    // C-3. Posts & Attachments
+    const { data: residentPosts } = await adminClient
+      .from('board_posts')
+      .select('id')
+      .eq('author_resident_id', residentId);
+
+    if (residentPosts && residentPosts.length > 0) {
+      const postIds = residentPosts.map(p => p.id);
+
+      // Attachments storage cleanup
+      const { data: attachments } = await adminClient
+        .from('board_attachments')
+        .select('storage_path')
+        .in('post_id', postIds);
+
+      const attachmentPaths = (attachments || [])
+        .map(a => a.storage_path)
+        .filter((p): p is string => !!p);
+
+      if (attachmentPaths.length > 0) {
+        await adminClient.storage.from('board-attachments').remove(attachmentPaths);
+      }
+
+      // Delete posts (Cascade should handle attachments/comments/reactions linked to these posts, but we delete posts explicitly)
+      await adminClient.from('board_posts').delete().in('id', postIds);
+    }
+
+    // D. Chat Data 삭제
+    // D-1. Chat Files (Sent by FC)
+    // Find messages with files sent by this FC
+    const { data: fileMessages } = await adminClient
+      .from('messages')
+      .select('file_url')
+      .eq('sender_id', residentId)
+      .in('message_type', ['image', 'file']);
+
+    const chatFilePaths = (fileMessages || [])
+      .map(m => {
+        if (!m.file_url) return null;
+        // Public URL: .../chat-uploads/chat/xyz.jpg
+        // We need to extract 'chat/xyz.jpg'
+        const parts = m.file_url.split('/chat-uploads/');
+        return parts.length > 1 ? parts[1] : null;
+      })
+      .filter((p): p is string => !!p);
+
+    if (chatFilePaths.length > 0) {
+      logger.info('[api/fc-delete] Removing chat files', { count: chatFilePaths.length });
+      await adminClient.storage.from('chat-uploads').remove(chatFilePaths);
+    }
+
+    // D-2. Messages (Sent by or Received by FC)
+    const { error: chatError } = await adminClient
+      .from('messages')
+      .delete()
+      .or(`sender_id.eq.${residentId},receiver_id.eq.${residentId}`);
+
+    if (chatError) logger.error('[api/fc-delete] Chat delete failed', chatError);
+  }
+
+  // 2. 연관 데이터 확인 (삭제 전 상태 로깅) - Existing Logic
   const { data: docs, error: docsError } = await adminClient
     .from('fc_documents')
     .select('id, storage_path, doc_type')

@@ -64,7 +64,6 @@ import {
   getDocProgress,
   getSummaryStatus
 } from '../../lib/shared';
-import { supabase } from '../../lib/supabase';
 import { sendPushNotification } from '../actions';
 import { updateAppointmentAction } from './appointment/actions';
 import { updateDocStatusAction } from './docs/actions';
@@ -165,29 +164,21 @@ export default function DashboardPage() {
     setRejectSubmitting(true);
     try {
       if (rejectTarget.kind === 'allowance') {
-        const { error } = await supabase
-          .from('fc_profiles')
-          .update({
-            status: 'allowance-pending',
+        await updateStatusMutation.mutateAsync({
+          status: 'allowance-pending',
+          title: '수당동의 반려',
+          msg: `수당 동의가 반려되었습니다.\n사유: ${reason}`,
+          extra: {
             allowance_date: null,
             allowance_reject_reason: reason,
-          })
-          .eq('id', selectedFc.id);
-        if (error) throw error;
-        await supabase.from('notifications').insert({
-          title: '수당동의 반려',
-          body: `수당 동의가 반려되었습니다.\n사유: ${reason}`,
-          recipient_role: 'fc',
-          resident_id: selectedFc.phone,
+          },
         });
-        await sendPushNotification(selectedFc.phone, {
-          title: '수당동의 반려',
-          body: `수당 동의가 반려되었습니다.\n사유: ${reason}`,
-          data: { url: '/consent' },
+        // Local update to reflect changes immediately in the UI (optional if invalidateQueries is fast enough)
+        updateSelectedFc({
+          status: 'allowance-pending',
+          allowance_date: null,
+          allowance_reject_reason: reason
         });
-        updateSelectedFc({ status: 'allowance-pending', allowance_date: null, allowance_reject_reason: reason });
-        notifications.show({ title: '처리 완료', message: '수당 동의를 반려했습니다.', color: 'green' });
-        queryClient.invalidateQueries({ queryKey: ['dashboard-list'] });
       }
 
       if (rejectTarget.kind === 'appointment') {
@@ -312,7 +303,10 @@ export default function DashboardPage() {
       const payload: Partial<FcProfile> = { career_type: careerInput };
       if (tempIdInput && tempIdInput !== selectedFc.temp_id) {
         payload.temp_id = tempIdInput;
-        payload.status = 'temp-id-issued';
+        // Fix: Do not reset status if already advanced
+        if (selectedFc.status === 'draft') {
+          payload.status = 'temp-id-issued';
+        }
       }
       const resp = await fetch('/api/admin/fc', {
         method: 'POST',
@@ -1250,9 +1244,18 @@ export default function DashboardPage() {
                       수당 동의 상태
                     </Text>
                     <StatusToggle
-                      value={selectedFc.status === 'allowance-consented' || ['docs-pending', 'docs-submitted', 'docs-approved', 'appointment-completed', 'final-link-sent'].includes(selectedFc.status) ? 'approved' : 'pending'}
+                      value={selectedFc.status === 'allowance-consented' || ['docs-requested', 'docs-pending', 'docs-submitted', 'docs-rejected', 'docs-approved', 'appointment-completed', 'final-link-sent'].includes(selectedFc.status) ? 'approved' : 'pending'}
                       onChange={(val) => {
                         if (val === 'approved') {
+                          // FC가 수당동의 날짜를 입력하지 않았으면 승인 불가
+                          if (!selectedFc.allowance_date) {
+                            notifications.show({
+                              title: '승인 불가',
+                              message: 'FC가 수당 동의를 완료하지 않았습니다. 동의일(Actual)이 입력된 후에 승인할 수 있습니다.',
+                              color: 'red',
+                            });
+                            return;
+                          }
                           updateStatusMutation.mutate({
                             status: 'allowance-consented',
                             title: '수당동의 승인',
@@ -1272,8 +1275,9 @@ export default function DashboardPage() {
                     />
                   </Box>
 
-                  <Button fullWidth mt="md" onClick={() => updateInfoMutation.mutate()} loading={updateInfoMutation.isPending} disabled={isReadOnly} color={isReadOnly ? "gray" : "dark"}>
+                  <Button fullWidth mt="md" onClick={() => updateInfoMutation.mutate()} loading={updateInfoMutation.isPending} disabled={isReadOnly || (selectedFc.status !== 'draft' && selectedFc.status !== 'temp-id-issued' && selectedFc.status !== 'allowance-pending')} color={isReadOnly ? "gray" : "dark"}>
                     변경사항 저장
+                    {(selectedFc.status !== 'draft' && selectedFc.status !== 'temp-id-issued' && selectedFc.status !== 'allowance-pending') && ' (수정 불가)'}
                   </Button>
 
                   <Divider my="sm" />
@@ -1285,14 +1289,12 @@ export default function DashboardPage() {
                       leftSection={<IconSend size={16} />}
                       disabled={isReadOnly}
                       onClick={async () => {
-                        await supabase
-                          .from('notifications')
-                          .insert({
-                            title: '진행 요청',
-                            body: '관리자가 진행을 요청하였습니다.',
-                            recipient_role: 'fc',
-                            resident_id: selectedFc.phone,
-                          });
+                        // sendPushNotification handles both DB insert and push notification
+                        await sendPushNotification(selectedFc.phone, {
+                          title: '진행 요청',
+                          body: '관리자가 진행을 요청하였습니다.',
+                          data: { url: '/' },
+                        });
                         notifications.show({ title: '전송 완료', message: '알림을 보냈습니다.', color: 'blue' });
                       }}
                     >
@@ -1328,122 +1330,156 @@ export default function DashboardPage() {
                   <Card withBorder radius="md" p="sm" bg="gray.0">
                     <Group justify="space-between" mb="xs">
                       <Text fw={600} size="sm">
-                        제출된 서류 ({selectedFc.fc_documents?.filter((d: FCDocument) => d.storage_path && d.storage_path !== 'deleted').length || 0}건)
+                        제출된 서류 ({selectedFc.fc_documents?.filter((d: FCDocument) => d.storage_path !== 'deleted').length || 0}건)
                       </Text>
                     </Group>
-                    {selectedFc.fc_documents?.filter((d: FCDocument) => d.storage_path && d.storage_path !== 'deleted').length ? (
+                    {selectedFc.fc_documents?.filter((d: FCDocument) => d.storage_path !== 'deleted').length ? (
                       <Stack gap={8}>
-                        {selectedFc.fc_documents
-                          .filter((d: FCDocument) => d.storage_path && d.storage_path !== 'deleted')
-                          .map((d: FCDocument) => (
-                            <Group
-                              key={d.doc_type}
-                              justify="space-between"
-                              p="sm"
-                              bg="white"
-                              style={{ borderRadius: 8, border: '1px solid #e9ecef' }}
+                        {selectedFc.fc_documents?.filter((d: FCDocument) => d.storage_path !== 'deleted').map((d: FCDocument, idx: number) => {
+                          const isSubmitted = d.storage_path && d.storage_path.length > 0;
+                          return (
+                            <Card
+                              key={idx}
+                              radius="md"
+                              withBorder
+                              shadow="sm"
+                              p={0}
+                              style={{
+                                overflow: 'hidden',
+                                borderColor: isSubmitted ? '#339af0' : '#fd7e14',
+                                borderWidth: 1,
+                              }}
                             >
-                              <Group gap="sm">
-                                <ThemeIcon
-                                  size="lg"
-                                  color={d.status === 'approved' ? 'green' : d.status === 'rejected' ? 'red' : 'blue'}
-                                  variant="light"
-                                  radius="md"
-                                >
-                                  {d.status === 'approved' ? <IconCheck size={20} /> : d.status === 'rejected' ? <IconX size={20} /> : <IconFileText size={20} />}
-                                </ThemeIcon>
-                                <div>
-                                  <Text size="sm" fw={500} td={d.status === 'rejected' ? 'line-through' : undefined} c={d.status === 'rejected' ? 'dimmed' : undefined}>
-                                    {d.doc_type}
-                                  </Text>
-                                  {d.file_name && <Text size="xs" c="dimmed">{d.file_name}</Text>}
-                                  <Badge size="xs" variant={d.status === 'pending' ? 'outline' : 'light'} color={d.status === 'approved' ? 'green' : d.status === 'rejected' ? 'red' : 'gray'}>
-                                    {d.status === 'approved' ? '승인됨' : d.status === 'rejected' ? '반려됨' : '심사 대기'}
-                                  </Badge>
-                                </div>
-                              </Group>
-                              <Group gap={4}>
-                                <Button variant="default" size="xs" onClick={() => handleOpenDoc(d.storage_path ?? '')}>
-                                  열기
-                                </Button>
-                                <Divider orientation="vertical" />
-                                <Group gap={4}>
-                                  <StatusToggle
-                                    value={d.status === 'approved' ? 'approved' : 'pending'}
-                                    onChange={async (val) => {
-                                      const nextStatus = (val === 'approved' ? 'approved' : 'rejected') as 'approved' | 'rejected';
-                                      if (val !== 'approved') {
-                                        if (d.status === 'rejected') return;
-                                        openRejectModal({ kind: 'doc', doc: d });
-                                        return;
-                                      }
-                                      if (nextStatus === d.status) return;
-                                      if (nextStatus === 'approved') {
-                                        showConfirm({
-                                          title: '서류 승인',
-                                          message: '문서를 승인하시겠습니까?',
-                                          confirmLabel: '승인',
-                                          color: 'blue',
-                                          onConfirm: async () => {
-                                            const res = await updateDocStatusAction({ success: false }, {
-                                              fcId: selectedFc.id,
-                                              phone: selectedFc.phone,
-                                              docType: d.doc_type,
-                                              status: nextStatus,
-                                              reason: null,
-                                            });
-                                            if (res.success) {
-                                              notifications.show({ title: '승인', message: res.message, color: 'green' });
-                                              const nextDocs = (selectedFc.fc_documents || []).map((doc: FCDocument) =>
-                                                doc.doc_type === d.doc_type ? { ...doc, status: nextStatus, reviewer_note: null } : doc
-                                              );
-                                              const allSubmitted =
-                                                nextDocs.length > 0 &&
-                                                nextDocs.every(
-                                                  (doc: FCDocument) => doc.storage_path && doc.storage_path !== 'deleted',
-                                                );
-                                              const allApproved =
-                                                allSubmitted && nextDocs.every((doc: FCDocument) => doc.status === 'approved');
-                                              let nextProfileStatus = selectedFc.status;
-                                              if (!['appointment-completed', 'final-link-sent'].includes(selectedFc.status)) {
-                                                if (allApproved) {
-                                                  nextProfileStatus = 'docs-approved';
-                                                } else if (selectedFc.status === 'docs-approved') {
-                                                  nextProfileStatus = 'docs-pending';
-                                                }
-                                              }
-                                              updateSelectedFc({ fc_documents: nextDocs, status: nextProfileStatus });
-                                              queryClient.invalidateQueries({ queryKey: ['dashboard-list'] });
-                                            } else {
-                                              notifications.show({ title: '오류', message: res.error, color: 'red' });
-                                            }
-                                          },
-                                        });
-                                        return;
-                                      }
-                                    }}
-                                    labelPending="미승인"
-                                    labelApproved="승인"
-                                    showNeutralForPending
-                                    allowPendingPress
-                                    readOnly={isReadOnly}
-                                    isManagerMode={isReadOnly}
-                                  />
-                                  <Tooltip label="삭제">
-                                    <ActionIcon
-                                      variant="light"
-                                      color={isReadOnly ? "gray" : "red"}
-                                      size="input-xs"
-                                      disabled={isReadOnly}
-                                      onClick={() => handleDeleteDocFile(d)}
+                              <Group
+                                justify="space-between"
+                                p="sm"
+                                bg="white"
+                              >
+                                <Group gap="sm">
+                                  <ThemeIcon
+                                    variant="light"
+                                    size="lg"
+                                    color={d.status === 'approved' ? 'teal' : d.status === 'rejected' ? 'red' : 'gray'}
+                                  >
+                                    {d.status === 'approved' ? (
+                                      <IconCheck size={20} />
+                                    ) : d.status === 'rejected' ? (
+                                      <IconX size={20} />
+                                    ) : (
+                                      <IconFileText size={20} />
+                                    )}
+                                  </ThemeIcon>
+                                  <div>
+                                    <Text size="sm" fw={700}>
+                                      {d.doc_type}
+                                    </Text>
+                                    <Text size="xs" c="dimmed">
+                                      {d.file_name || '미제출'}
+                                    </Text>
+                                    <Badge
+                                      size="sm"
+                                      variant="dot"
+                                      color={d.status === 'approved' ? 'teal' : d.status === 'rejected' ? 'red' : 'gray'}
+                                      mt={4}
                                     >
-                                      <IconTrash size={16} />
-                                    </ActionIcon>
-                                  </Tooltip>
+                                      {d.status === 'approved'
+                                        ? '승인됨'
+                                        : d.status === 'rejected'
+                                          ? '반려됨'
+                                          : '검토 대기'}
+                                    </Badge>
+                                  </div>
+                                </Group>
+                                <Group gap={4}>
+                                  {isSubmitted && (
+                                    <Button
+                                      variant="default"
+                                      size="xs"
+                                      onClick={() => handleOpenDoc(d.storage_path ?? '')}
+                                    >
+                                      열기
+                                    </Button>
+                                  )}
+                                  <Divider orientation="vertical" />
+                                  <Group gap={4}>
+                                    <StatusToggle
+                                      value={d.status === 'approved' ? 'approved' : 'pending'}
+                                      onChange={async (val) => {
+                                        const nextStatus = (val === 'approved' ? 'approved' : 'rejected') as 'approved' | 'rejected';
+                                        if (val !== 'approved') {
+                                          if (d.status === 'rejected') return;
+                                          openRejectModal({ kind: 'doc', doc: d });
+                                          return;
+                                        }
+                                        if (nextStatus === d.status) return;
+                                        if (nextStatus === 'approved') {
+                                          showConfirm({
+                                            title: '서류 승인',
+                                            message: '문서를 승인하시겠습니까?',
+                                            confirmLabel: '승인',
+                                            color: 'blue',
+                                            onConfirm: async () => {
+                                              const res = await updateDocStatusAction({ success: false }, {
+                                                fcId: selectedFc.id,
+                                                phone: selectedFc.phone,
+                                                docType: d.doc_type,
+                                                status: nextStatus,
+                                                reason: null,
+                                              });
+                                              if (res.success) {
+                                                notifications.show({ title: '승인', message: res.message, color: 'green' });
+                                                const nextDocs = (selectedFc.fc_documents || []).map((doc: FCDocument) =>
+                                                  doc.doc_type === d.doc_type ? { ...doc, status: nextStatus, reviewer_note: null } : doc
+                                                );
+                                                const allSubmitted =
+                                                  nextDocs.length > 0 &&
+                                                  nextDocs.every(
+                                                    (doc: FCDocument) => doc.storage_path && doc.storage_path !== 'deleted',
+                                                  );
+                                                const allApproved =
+                                                  allSubmitted && nextDocs.every((doc: FCDocument) => doc.status === 'approved');
+                                                let nextProfileStatus = selectedFc.status;
+                                                if (!['appointment-completed', 'final-link-sent'].includes(selectedFc.status)) {
+                                                  if (allApproved) {
+                                                    nextProfileStatus = 'docs-approved';
+                                                  } else if (selectedFc.status === 'docs-approved') {
+                                                    nextProfileStatus = 'docs-pending';
+                                                  }
+                                                }
+                                                updateSelectedFc({ fc_documents: nextDocs, status: nextProfileStatus });
+                                                queryClient.invalidateQueries({ queryKey: ['dashboard-list'] });
+                                              } else {
+                                                notifications.show({ title: '오류', message: res.error, color: 'red' });
+                                              }
+                                            },
+                                          });
+                                          return;
+                                        }
+                                      }}
+                                      labelPending="미승인"
+                                      labelApproved="승인"
+                                      showNeutralForPending
+                                      allowPendingPress
+                                      readOnly={isReadOnly}
+                                      isManagerMode={isReadOnly}
+                                    />
+                                    <Tooltip label="삭제">
+                                      <ActionIcon
+                                        variant="light"
+                                        color={isReadOnly ? "gray" : "red"}
+                                        size="input-xs"
+                                        disabled={isReadOnly}
+                                        onClick={() => handleDeleteDocFile(d)}
+                                      >
+                                        <IconTrash size={16} />
+                                      </ActionIcon>
+                                    </Tooltip>
+                                  </Group>
                                 </Group>
                               </Group>
-                            </Group>
-                          ))}
+                            </Card>
+                          )
+                        })}
                       </Stack>
                     ) : (
                       <Text size="xs" c="dimmed" ta="center" py="md">

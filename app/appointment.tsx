@@ -2,19 +2,19 @@ import { Feather } from '@expo/vector-icons';
 import DateTimePicker, { DateTimePickerEvent } from '@react-native-community/datetimepicker';
 import { useCallback, useEffect, useState } from 'react';
 import {
-    ActivityIndicator,
-    Alert,
-    Dimensions,
-    FlatList,
-    Image,
-    Modal,
-    Platform,
-    Pressable,
-    RefreshControl,
-    ScrollView,
-    StyleSheet,
-    Text,
-    View
+  ActivityIndicator,
+  Alert,
+  Dimensions,
+  FlatList,
+  Image,
+  Modal,
+  Platform,
+  Pressable,
+  RefreshControl,
+  ScrollView,
+  StyleSheet,
+  Text,
+  View
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
@@ -24,7 +24,7 @@ import { useIdentityGate } from '@/hooks/use-identity-gate';
 import { useKeyboardPadding } from '@/hooks/use-keyboard-padding';
 import { useSession } from '@/hooks/use-session';
 import { supabase } from '@/lib/supabase';
-import { COLORS, TYPOGRAPHY, SPACING, RADIUS, SHADOWS } from '@/lib/theme';
+import { COLORS, RADIUS, SHADOWS, SPACING, TYPOGRAPHY } from '@/lib/theme';
 const { width } = Dimensions.get('window');
 
 const weekdays = ['일', '월', '화', '수', '목', '금', '토'];
@@ -99,13 +99,15 @@ export default function AppointmentScreen() {
 
   const load = useCallback(async () => {
     if (!residentId) return;
+    const cleanPhone = residentId.replace(/[^0-9]/g, '');
+    if (!cleanPhone) return;
     setLoading(true);
     const { data, error } = await supabase
       .from('fc_profiles')
       .select(
         'appointment_schedule_life,appointment_schedule_nonlife,appointment_date_life,appointment_date_nonlife,appointment_date_life_sub,appointment_date_nonlife_sub,appointment_reject_reason_life,appointment_reject_reason_nonlife',
       )
-      .eq('phone', residentId)
+      .eq('phone', cleanPhone)
       .maybeSingle();
     setLoading(false);
     if (error) {
@@ -172,28 +174,44 @@ export default function AppointmentScreen() {
     setSaving(true);
     const ymd = toYMD(targetDate);
     const dateField = type === 'life' ? 'appointment_date_life_sub' : 'appointment_date_nonlife_sub';
+    const cleanPhone = residentId.replace(/[^0-9]/g, '');
+    if (!cleanPhone) {
+      Alert.alert('로그인 정보 없음', '로그인 정보를 확인할 수 없습니다. 다시 로그인해주세요.');
+      setSaving(false);
+      return;
+    }
 
     try {
-      const { data, error } = await supabase
-        .from('fc_profiles')
-        .update({
-          [dateField]: ymd,
-          [type === 'life' ? 'appointment_reject_reason_life' : 'appointment_reject_reason_nonlife']: null,
-        })
-        .eq('phone', residentId)
-        .select('id,name')
-        .maybeSingle();
+      const { data, error } = await supabase.functions.invoke<{
+        ok: boolean;
+        data?: { id?: string; name?: string };
+        error?: string;
+      }>('fc-submit-appointment', {
+        body: {
+          phone: cleanPhone,
+          date_field: dateField,
+          date_value: ymd,
+          type,
+        },
+      });
 
-      if (error || !data) {
-        throw error ?? new Error('정보를 저장하지 못했습니다.');
+      if (error) {
+        const message = error instanceof Error ? error.message : '정보를 저장하지 못했습니다.';
+        throw new Error(message);
+      }
+      if (!data?.ok) {
+        throw new Error(data?.error ?? '정보를 저장하지 못했습니다.');
+      }
+      if (!data?.data?.id) {
+        throw new Error('업데이트된 데이터가 없습니다. (전화번호 불일치 가능성)');
       }
 
       await supabase.functions
         .invoke('fc-notify', {
           body: {
             type: 'fc_update',
-            fc_id: data.id,
-            message: `${data.name}님이 ${type === 'life' ? '생명보험' : '손해보험'} 위촉 완료를 보고했습니다. (입력일: ${ymd})`,
+            fc_id: data.data.id,
+            message: `${data.data.name ?? ''}님이 ${type === 'life' ? '생명보험' : '손해보험'} 위촉 완료를 보고했습니다. (입력일: ${ymd})`,
             url: '/dashboard',
           },
         })

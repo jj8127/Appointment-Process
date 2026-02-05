@@ -232,7 +232,7 @@ serve(async (req: Request) => {
 
   const { data: profile, error: profileError } = await supabase
     .from('fc_profiles')
-    .select('id,name,phone')
+    .select('id,name,phone,signup_completed')
     .eq('phone', phone)
     .maybeSingle();
 
@@ -241,6 +241,9 @@ serve(async (req: Request) => {
   }
   if (!profile?.id) {
     return fail('not_found', '등록된 계정을 찾을 수 없습니다.');
+  }
+  if (!profile.signup_completed) {
+    return fail('not_completed', '회원가입이 완료되지 않았습니다. 회원가입을 완료해주세요.');
   }
 
   const { data: creds, error: credsError } = await supabase

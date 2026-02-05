@@ -27,10 +27,10 @@ import { RefreshButton } from '@/components/RefreshButton';
 import { useIdentityStatus } from '@/hooks/use-identity-status';
 import { useSession } from '@/hooks/use-session';
 import { useInAppUpdate } from '@/hooks/useInAppUpdate';
-import { supabase } from '@/lib/supabase';
 import { logger } from '@/lib/logger';
-import type { FcProfile } from '@/types/fc';
+import { supabase } from '@/lib/supabase';
 import type { FCDocument } from '@/types/dashboard';
+import type { FcProfile } from '@/types/fc';
 
 const SHORTCUT_GUIDE_STEPS: TourStep[] = [
   {
@@ -57,7 +57,7 @@ const SHORTCUT_GUIDE_STEPS: TourStep[] = [
     width: 46,
     height: 22,
     title: '기본 정보',
-    description: '이름, 주소 등 나의 인적사항을\n수정하거나 확인할 수 있습니다.',
+    description: '이름, 소속, 이메일 등\n인적사항을 관리할 수 있습니다.',
   },
   {
     x: 75,
@@ -167,7 +167,7 @@ const quickLinksFc: QuickLink[] = [
 ];
 
 const steps = [
-  { key: 'info', label: '인적사항', fullLabel: '인적사항 등록' },
+  { key: 'info', label: '회원가입', fullLabel: '회원가입' },
   { key: 'consent', label: '수당동의', fullLabel: '수당 동의' },
   { key: 'docs', label: '문서제출', fullLabel: '문서 제출' },
   { key: 'url', label: '위촉URL', fullLabel: '위촉 URL 진행' },
@@ -304,8 +304,8 @@ const fetchUnreadNotificationCount = async (role: 'admin' | 'fc' | null, residen
 const fetchFcStatus = async (residentId: string) => {
   const { data, error } = await supabase
     .from('fc_profiles')
-      .select(
-        'id,name,affiliation,phone,status,temp_id,allowance_date,appointment_url,appointment_date,appointment_schedule_life,appointment_schedule_nonlife,appointment_date_life,appointment_date_nonlife,appointment_date_life_sub,appointment_date_nonlife_sub,resident_id_masked,email,address,is_tour_seen,fc_documents(doc_type,storage_path,status)',
+    .select(
+      'id,name,affiliation,phone,status,temp_id,allowance_date,appointment_url,appointment_date,appointment_schedule_life,appointment_schedule_nonlife,appointment_date_life,appointment_date_nonlife,appointment_date_life_sub,appointment_date_nonlife_sub,resident_id_masked,email,address,is_tour_seen,signup_completed,fc_documents(doc_type,storage_path,status)',
     )
     .eq('phone', residentId)
     .maybeSingle();
@@ -391,10 +391,15 @@ const fetchExamStats = async (): Promise<ExamStats> => {
 function calcStep(myFc: any) {
   if (!myFc) return 1;
 
-  const hasBasicInfo =
-    Boolean(myFc.name && myFc.affiliation && myFc.resident_id_masked) &&
-    Boolean(myFc.email || myFc.address);
-  if (!hasBasicInfo) return 1;
+  // full home에 도달했다는 것은 identity가 완료되었다는 것
+  // 신원확인 완료(주민번호 또는 주소 입력) 시 1단계 완료로 간주
+  const hasIdentity = Boolean(myFc.resident_id_masked || myFc.address);
+  logger.debug('[calcStep] Checking identity', {
+    resident_id_masked: myFc.resident_id_masked,
+    address: myFc.address,
+    hasIdentity
+  });
+  if (!hasIdentity) return 1;
 
   // [1단계 우선] 수당 동의 완료 여부
   // 관리자 승인 이후에는 status가 allowance-pending이 아니므로 문서 단계로 진행
@@ -428,7 +433,7 @@ const getStepKey = (profile: FcProfile): StepKey => {
 
 const getLinkIcon = (href: string) => {
   // 관리자 메뉴
-  if (href.includes('status=step1')) return 'user-plus'; // 인적사항 관리
+  if (href.includes('status=step1')) return 'user-plus'; // 회원가입 관리
   if (href.includes('status=step2')) return 'check-square'; // 수당 동의 안내
   if (href.includes('status=step3')) return 'file-text'; // 서류 안내/검토
   if (href.includes('status=step4')) return 'link'; // 위촉 진행
@@ -802,27 +807,8 @@ export default function Home() {
     }
   }, [hydrated, role]);
 
-  // 기본 인적사항 미입력 FC는 항상 인적사항 입력 화면으로 이동
-  useEffect(() => {
-    if (!hydrated || role !== 'fc') return;
-    if (statusLoading) return;
-    if (!myFc) return;
-
-    const hasBasics = (fc: any) =>
-      Boolean(fc?.name?.trim() && fc?.affiliation?.trim() && fc?.phone?.trim() && fc?.email?.trim());
-
-    if (hasBasics(myFc)) return;
-    if (myFc.status !== 'draft') return;
-
-    // 저장 직후 캐시 불일치로 재입력 화면이 반복되는 문제 방지: 한 번 더 최신 프로필 확인 후 이동
-    (async () => {
-      const refreshed = await refetchMyFc?.();
-      const fresh = refreshed?.data ?? myFc;
-      if (!hasBasics(fresh)) {
-        router.replace({ pathname: '/fc/new', params: { from: 'home' } } as any);
-      }
-    })();
-  }, [hydrated, role, myFc, statusLoading, refetchMyFc]);
+  // 기본정보는 회원가입 시 이미 저장되므로 강제 리다이렉트 제거
+  // 사용자가 홈 화면의 "기본 정보" 버튼을 눌러 자발적으로 편집 가능
 
   // FC 푸시 토큰 등록 (배너 알림 수신용)
   const PUSH_CHANNEL_ID = 'alerts';
@@ -847,9 +833,9 @@ export default function Home() {
           });
         }
 
-          const { data: token } = await Notifications.getExpoPushTokenAsync({
-            projectId: Constants.expoConfig?.extra?.eas?.projectId,
-          });
+        const { data: token } = await Notifications.getExpoPushTokenAsync({
+          projectId: Constants.expoConfig?.extra?.eas?.projectId,
+        });
         if (!active || !token) return;
 
         // 디바이스 중복 방지: 기존 토큰 제거 후 upsert (unique constraint 대응)
@@ -1079,20 +1065,20 @@ export default function Home() {
             </View>
           )}
 
-            {role === 'fc' ? (
-              <Stack.Screen
-                options={{
-                  title: `${(myFc?.name || displayName || 'FC')}님 환영합니다`,
-                  headerLeft: () => null,
-                }}
-              />
-            ) : (
-              <Stack.Screen
-                options={{
-                  headerLeft: () => null,
-                }}
-              />
-            )}
+          {role === 'fc' ? (
+            <Stack.Screen
+              options={{
+                title: `${(myFc?.name || displayName || 'FC')}님 환영합니다`,
+                headerLeft: () => null,
+              }}
+            />
+          ) : (
+            <Stack.Screen
+              options={{
+                headerLeft: () => null,
+              }}
+            />
+          )}
 
 
 

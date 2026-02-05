@@ -31,6 +31,7 @@ export async function GET() {
         const { data, error } = await adminSupabase
             .from('fc_profiles')
             .select('*, appointment_date_life_sub, appointment_date_nonlife_sub, fc_documents(doc_type,storage_path,file_name,status,reviewer_note)')
+            .eq('signup_completed', true)
             .order('created_at', { ascending: false });
 
         if (error) throw error;

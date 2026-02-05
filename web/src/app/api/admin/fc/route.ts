@@ -165,8 +165,15 @@ export async function POST(req: Request) {
       const currentTypes = currentDocs.map((d) => d.doc_type);
 
       if (nextTypes.length === 0) {
-        await adminSupabase.from('fc_documents').delete().eq('fc_id', fcId);
-        await adminSupabase
+        logger.info('[api/admin/fc] Deleting all documents', { fcId });
+        const { error: deleteAllError, count: deleteAllCount } = await adminSupabase
+          .from('fc_documents')
+          .delete({ count: 'exact' })
+          .eq('fc_id', fcId);
+        if (deleteAllError) throw deleteAllError;
+        logger.info('[api/admin/fc] Deleted all documents', { fcId, count: deleteAllCount });
+
+        const { error: profileUpdateError } = await adminSupabase
           .from('fc_profiles')
           .update({
             status: 'allowance-consented',
@@ -174,6 +181,8 @@ export async function POST(req: Request) {
             docs_deadline_last_notified_at: null,
           })
           .eq('id', fcId);
+        if (profileUpdateError) throw profileUpdateError;
+
         return NextResponse.json({ ok: true });
       }
 
@@ -183,11 +192,14 @@ export async function POST(req: Request) {
         .map((d) => d.doc_type);
 
       if (toDelete.length) {
-        await adminSupabase
+        logger.info('[api/admin/fc] Deleting documents', { fcId, types: toDelete });
+        const { error: deleteError, count: deleteCount } = await adminSupabase
           .from('fc_documents')
-          .delete()
+          .delete({ count: 'exact' })
           .eq('fc_id', fcId)
           .in('doc_type', toDelete);
+        if (deleteError) throw deleteError;
+        logger.info('[api/admin/fc] Deleted documents', { fcId, count: deleteCount, expected: toDelete.length });
       }
       if (toAdd.length) {
         const rows = toAdd.map((type) => ({

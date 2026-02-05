@@ -1,10 +1,11 @@
 import { Feather } from '@expo/vector-icons';
 import { router, useFocusEffect } from 'expo-router';
 import { LinearGradient } from 'expo-linear-gradient';
-import { useCallback, useMemo, useState } from 'react';
+import { useCallback, useMemo, useRef, useState } from 'react';
 import {
   Alert,
   BackHandler,
+  findNodeHandle,
   Modal,
   Pressable,
   StyleSheet,
@@ -12,9 +13,10 @@ import {
   TextInput,
   View,
 } from 'react-native';
+import type { TextInput as TextInputType } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
-import { KeyboardAwareWrapper } from '@/components/KeyboardAwareWrapper';
+import { KeyboardAwareWrapper, useKeyboardAware } from '@/components/KeyboardAwareWrapper';
 import { useKeyboardPadding } from '@/hooks/use-keyboard-padding';
 import { safeStorage } from '@/lib/safe-storage';
 import { COLORS, TYPOGRAPHY, SPACING, RADIUS } from '@/lib/theme';
@@ -55,6 +57,22 @@ export default function SignupScreen() {
   const [showDomainPicker, setShowDomainPicker] = useState(false);
   const [showCarrierPicker, setShowCarrierPicker] = useState(false);
   const keyboardPadding = useKeyboardPadding();
+
+  // Refs for keyboard navigation
+  const nameRef = useRef<TextInputType>(null);
+  const phoneRef = useRef<TextInputType>(null);
+  const recommenderRef = useRef<TextInputType>(null);
+  const emailLocalRef = useRef<TextInputType>(null);
+  const customDomainRef = useRef<TextInputType>(null);
+
+  const { scrollToInput } = useKeyboardAware();
+
+  const handleFocus = (ref: React.RefObject<TextInputType | null>) => {
+    const node = findNodeHandle(ref.current);
+    if (node) {
+      scrollToInput(node);
+    }
+  };
 
   const emailValue = useMemo(() => {
     const domainToUse = emailDomain === '직접입력' ? customDomain : emailDomain;
@@ -161,12 +179,16 @@ export default function SignupScreen() {
           <View style={styles.field}>
             <Text style={styles.label}>이름</Text>
             <TextInput
+              ref={nameRef}
               style={styles.input}
               placeholder="홍길동"
               placeholderTextColor={COLORS.text.muted}
               value={name}
               onChangeText={setName}
               returnKeyType="next"
+              onFocus={() => handleFocus(nameRef)}
+              onSubmitEditing={() => phoneRef.current?.focus()}
+              blurOnSubmit={false}
               scrollEnabled={false}
             />
           </View>
@@ -177,12 +199,19 @@ export default function SignupScreen() {
           <View style={styles.field}>
             <Text style={styles.label}>휴대폰 번호</Text>
             <TextInput
+              ref={phoneRef}
               style={styles.input}
               placeholder="번호 입력 (- 없이 숫자만)"
               placeholderTextColor={COLORS.text.muted}
               value={phone}
               onChangeText={setPhone}
-              keyboardType="number-pad"
+              keyboardType="phone-pad"
+              returnKeyType="next"
+              onFocus={() => handleFocus(phoneRef)}
+              onSubmitEditing={() => {
+                setShowCarrierPicker(true);
+              }}
+              blurOnSubmit={false}
               scrollEnabled={false}
             />
           </View>
@@ -207,11 +236,16 @@ export default function SignupScreen() {
           <View style={styles.field}>
             <Text style={styles.label}>추천인</Text>
             <TextInput
+              ref={recommenderRef}
               style={styles.input}
               placeholder="추천인 이름 (선택)"
               placeholderTextColor={COLORS.text.muted}
               value={recommender}
               onChangeText={setRecommender}
+              returnKeyType="next"
+              onFocus={() => handleFocus(recommenderRef)}
+              onSubmitEditing={() => emailLocalRef.current?.focus()}
+              blurOnSubmit={false}
               scrollEnabled={false}
             />
           </View>
@@ -220,6 +254,7 @@ export default function SignupScreen() {
             <Text style={styles.label}>이메일</Text>
             <View style={styles.emailRow}>
               <TextInput
+                ref={emailLocalRef}
                 style={[styles.input, styles.emailLocal]}
                 placeholder="이메일 아이디"
                 placeholderTextColor={COLORS.text.muted}
@@ -227,6 +262,16 @@ export default function SignupScreen() {
                 onChangeText={(txt) => setEmailLocal(txt.trim())}
                 autoCapitalize="none"
                 keyboardType="email-address"
+                returnKeyType="next"
+                onFocus={() => handleFocus(emailLocalRef)}
+                onSubmitEditing={() => {
+                  if (emailDomain === '직접입력') {
+                    customDomainRef.current?.focus();
+                  } else {
+                    setShowDomainPicker(true);
+                  }
+                }}
+                blurOnSubmit={false}
                 scrollEnabled={false}
               />
               <Text style={styles.emailAt}>@</Text>
@@ -247,6 +292,7 @@ export default function SignupScreen() {
 
                 {emailDomain === '직접입력' ? (
                   <TextInput
+                    ref={customDomainRef}
                     style={[styles.input, styles.customDomainInput]}
                     placeholder="직접 입력"
                     placeholderTextColor={COLORS.text.muted}
@@ -254,6 +300,9 @@ export default function SignupScreen() {
                     onChangeText={(txt) => setCustomDomain(txt.trim())}
                     autoCapitalize="none"
                     keyboardType="email-address"
+                    returnKeyType="done"
+                    onFocus={() => handleFocus(customDomainRef)}
+                    onSubmitEditing={handleNext}
                     scrollEnabled={false}
                   />
                 ) : null}
@@ -285,6 +334,9 @@ export default function SignupScreen() {
                     setEmailDomain(domain);
                     if (domain !== '직접입력') setCustomDomain('');
                     setShowDomainPicker(false);
+                    if (domain === '직접입력') {
+                      setTimeout(() => customDomainRef.current?.focus(), 100);
+                    }
                   }}
                 >
                   <Text style={styles.modalOptionText}>{domain}</Text>
@@ -309,6 +361,7 @@ export default function SignupScreen() {
                   onPress={() => {
                     setCarrier(value);
                     setShowCarrierPicker(false);
+                    setTimeout(() => recommenderRef.current?.focus(), 100);
                   }}
                 >
                   <Text style={styles.modalOptionText}>{value}</Text>

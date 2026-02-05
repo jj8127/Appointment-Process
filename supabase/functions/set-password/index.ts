@@ -183,5 +183,15 @@ serve(async (req: Request) => {
     return json({ ok: false, code: 'db_error', message: upsertError.message }, 500);
   }
 
+  // Mark signup as completed
+  const { error: profileUpdateError } = await supabase
+    .from('fc_profiles')
+    .update({ signup_completed: true })
+    .eq('id', fcId);
+
+  if (profileUpdateError) {
+    return json({ ok: false, code: 'db_error', message: profileUpdateError.message }, 500);
+  }
+
   return json({ ok: true, residentId: phone, displayName });
 });

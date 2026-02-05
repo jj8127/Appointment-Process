@@ -43,6 +43,10 @@ export default function ResetPasswordScreen() {
       const { data, error } = await supabase.functions.invoke('request-password-reset', {
         body: { phone: digits },
       });
+
+      // 디버깅: 응답 로깅
+      logger.info('reset-password response', { data, error, hasError: !!error, dataOk: data?.ok });
+
       if (error) {
         let detail = error.message;
         const context = (error as any)?.context as Response | undefined;
@@ -65,7 +69,21 @@ export default function ResetPasswordScreen() {
               { text: '취소', style: 'cancel' },
               {
                 text: '회원가입',
-                onPress: () => router.replace('/auth'),
+                onPress: () => router.replace('/signup'),
+              },
+            ]
+          );
+          return;
+        }
+        if (data?.code === 'not_set' || data?.code === 'not_completed') {
+          Alert.alert(
+            '회원가입 미완료',
+            '회원가입이 완료되지 않았습니다.\n회원가입 페이지로 이동하시겠습니까?',
+            [
+              { text: '취소', style: 'cancel' },
+              {
+                text: '회원가입',
+                onPress: () => router.replace('/signup'),
               },
             ]
           );

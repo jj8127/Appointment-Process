@@ -62,7 +62,7 @@ npx expo start  # Switch to Expo Go mode
 npx expo prebuild --clean && npx expo run:android
 
 # Clear app data
-adb uninstall com.jj8127.fconboardingapp
+adb uninstall com.jj8127.Garam_in
 ```
 
 ### Admin Web

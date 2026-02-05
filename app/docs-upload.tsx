@@ -23,10 +23,10 @@ import { RefreshButton } from '@/components/RefreshButton';
 import { useIdentityGate } from '@/hooks/use-identity-gate';
 import { useKeyboardPadding } from '@/hooks/use-keyboard-padding';
 import { useSession } from '@/hooks/use-session';
-import { supabase } from '@/lib/supabase';
 import { logger } from '@/lib/logger';
-import { RequiredDoc } from '@/types/fc';
+import { supabase } from '@/lib/supabase';
 import { COLORS } from '@/lib/theme';
+import { RequiredDoc } from '@/types/fc';
 
 type FcLite = { id: string; temp_id: string | null; name: string; status: string; docs_deadline_at?: string | null };
 type DocItem = RequiredDoc & { storagePath?: string; originalName?: string };
@@ -125,9 +125,9 @@ export default function DocsUploadScreen() {
         return;
       }
 
-        const { data: profile, error } = await supabase
-          .from('fc_profiles')
-          .select('id, temp_id, name, status, docs_deadline_at')
+      const { data: profile, error } = await supabase
+        .from('fc_profiles')
+        .select('id, temp_id, name, status, docs_deadline_at')
         .eq('id', targetId)
         .maybeSingle();
       if (error) throw error;
@@ -328,11 +328,11 @@ export default function DocsUploadScreen() {
       const updatedDocs: DocItem[] = docs.map((doc) =>
         doc.type === type
           ? {
-              ...doc,
-              status: 'pending',
-              storagePath: objectPath,
-              originalName: asset.name ?? 'document.pdf',
-            }
+            ...doc,
+            status: 'pending',
+            storagePath: objectPath,
+            originalName: asset.name ?? 'document.pdf',
+          }
           : doc,
       );
       setDocs(updatedDocs);
@@ -418,22 +418,22 @@ export default function DocsUploadScreen() {
       <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={{ flex: 1 }}>
         <View style={styles.headerContainer}>
           <View style={styles.headerRow}>
-              <View>
-                <Text style={styles.headerTitle}>
-                  {isAdmin ? `${fc?.name ? `${fc.name}님의 서류` : '서류 검토'}` : '필수 서류 제출'}
-                </Text>
-                <Text style={styles.headerSub}>
-                  {docCount.total}건 중{' '}
-                  <Text style={{ color: COLORS.primary, fontWeight: '700' }}>{docCount.uploaded}건</Text> 완료 ·{' '}
-                  <Text style={{ color: COLORS.text.primary, fontWeight: '800' }}>{Math.round(progressPercent)}%</Text>
-                </Text>
-                {fc?.docs_deadline_at ? (
-                  <View style={styles.deadlineBadge}>
-                    <Text style={styles.deadlineBadgeLabel}>마감일</Text>
-                    <Text style={styles.deadlineBadgeValue}>{fc.docs_deadline_at}</Text>
-                  </View>
-                ) : null}
-              </View>
+            <View>
+              <Text style={styles.headerTitle}>
+                {isAdmin ? `${fc?.name ? `${fc.name}님의 서류` : '서류 검토'}` : '필수 서류 제출'}
+              </Text>
+              <Text style={styles.headerSub}>
+                {docCount.total}건 중{' '}
+                <Text style={{ color: COLORS.primary, fontWeight: '700' }}>{docCount.uploaded}건</Text> 완료 ·{' '}
+                <Text style={{ color: COLORS.text.primary, fontWeight: '800' }}>{Math.round(progressPercent)}%</Text>
+              </Text>
+              {fc?.docs_deadline_at ? (
+                <View style={styles.deadlineBadge}>
+                  <Text style={styles.deadlineBadgeLabel}>마감일</Text>
+                  <Text style={styles.deadlineBadgeValue}>{fc.docs_deadline_at}</Text>
+                </View>
+              ) : null}
+            </View>
             <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
               <RefreshButton onPress={loadData} />
             </View>
@@ -575,7 +575,7 @@ export default function DocsUploadScreen() {
 
                     <Pressable
                       style={({ pressed }) => [
-                        styles.btnPrimary,
+                        styles.btnSecondary,
                         (isUploading || isLocked) && styles.btnDisabled,
                         pressed && !isLocked && !isUploading && styles.pressed,
                       ]}
@@ -583,11 +583,11 @@ export default function DocsUploadScreen() {
                       disabled={isUploading || isLocked}
                     >
                       {isUploading ? (
-                        <ActivityIndicator size="small" color="#fff" />
+                        <ActivityIndicator size="small" color={COLORS.primary} />
                       ) : (
                         <>
-                          <Feather name="upload" size={16} color="#fff" />
-                          <Text style={styles.btnPrimaryText}>
+                          <Feather name="upload" size={16} color={COLORS.primary} />
+                          <Text style={styles.btnSecondaryText}>
                             {isLocked ? '승인 완료' : isUploaded ? '재업로드' : '파일 선택'}
                           </Text>
                         </>
@@ -854,4 +854,22 @@ const styles = StyleSheet.create({
   },
 
   pressed: { transform: [{ scale: 0.985 }], opacity: 0.95 },
+
+  btnSecondary: {
+    flex: 1,
+    height: 44,
+    borderRadius: 12,
+    backgroundColor: '#fff',
+    borderWidth: 1,
+    borderColor: COLORS.primary,
+    alignItems: 'center',
+    justifyContent: 'center',
+    flexDirection: 'row',
+    gap: 8,
+  },
+  btnSecondaryText: {
+    color: COLORS.primary,
+    fontSize: 14,
+    fontWeight: '900',
+  },
 });

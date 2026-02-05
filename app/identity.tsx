@@ -13,7 +13,7 @@ import { KeyboardAwareWrapper } from '@/components/KeyboardAwareWrapper';
 import { useKeyboardPadding } from '@/hooks/use-keyboard-padding';
 import { useSession } from '@/hooks/use-session';
 import { supabase } from '@/lib/supabase';
-import { COLORS, TYPOGRAPHY, SPACING, RADIUS, SHADOWS } from '@/lib/theme';
+import { COLORS, RADIUS, SHADOWS, SPACING, TYPOGRAPHY } from '@/lib/theme';
 
 const isValidResidentChecksum = (front: string, back: string) => {
   const digits = `${front}${back}`;
@@ -140,6 +140,9 @@ export default function IdentityScreen() {
 
       // Invalidate identity status cache to trigger real-time update
       await queryClient.invalidateQueries({ queryKey: ['identity-status', residentId] });
+
+      // 캐시 업데이트 후 라우팅 (즉시 라우팅하면 index.tsx가 다시 home-lite로 리디렉션함)
+      await queryClient.refetchQueries({ queryKey: ['identity-status', residentId] });
 
       Alert.alert('등록 완료', '신원 정보가 저장되었습니다.');
       if (next) {

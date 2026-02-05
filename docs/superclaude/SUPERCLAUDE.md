@@ -169,7 +169,7 @@ SuperClaude는 MCP 서버 통합을 지원합니다. 현재 프로젝트에 설�
 
 #### 2. playwright ✅
 - **기능**: 크로스 브라우저 E2E 테스트 및 자동화
-- **위치**: 현재 프로젝트 (`e:/fc-onboarding-app`)
+- **위치**: 현재 프로젝트 (`e:/hanhwa/fc-onboarding-app`)
 - **명령어**: `npx -y playwright-mcp`
 - **용도**: 브라우저 자동화, E2E 테스트 실행, 웹 페이지 스크래핑
 - **특징**:
@@ -180,8 +180,8 @@ SuperClaude는 MCP 서버 통합을 지원합니다. 현재 프로젝트에 설�
 
 #### 3. filesystem ✅
 - **기능**: 프로젝트 파일시스템 접근 및 조작
-- **위치**: 현재 프로젝트 (`e:/fc-onboarding-app`)
-- **명령어**: `npx -y @modelcontextprotocol/server-filesystem e:/fc-onboarding-app`
+- **위치**: 현재 프로젝트 (`e:/hanhwa/fc-onboarding-app`)
+- **명령어**: `npx -y @modelcontextprotocol/server-filesystem e:/hanhwa/fc-onboarding-app`
 - **용도**: 파일 읽기/쓰기, 디렉토리 탐색, 파일 검색
 - **특징**:
   - 안전한 파일 시스템 접근

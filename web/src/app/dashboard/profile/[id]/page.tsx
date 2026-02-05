@@ -253,7 +253,7 @@ export default function FcProfilePage({ params }: { params: Promise<{ id: string
                     <Grid.Col span={{ base: 12, md: 7 }}>
                         <Card shadow="sm" radius="md" withBorder>
                             <Group justify="space-between" mb="md">
-                                <Title order={4} c={CHARCOAL}>상세 인적사항</Title>
+                                <Title order={4} c={CHARCOAL}>상세 회원가입</Title>
                                 {isEditing ? (
                                     <Group gap="xs">
                                         <Button variant="default" size="xs" onClick={() => setIsEditing(false)}>취소</Button>

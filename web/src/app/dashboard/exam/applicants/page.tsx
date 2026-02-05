@@ -207,6 +207,7 @@ export default function ExamApplicantsPage() {
             const { data: profiles } = await supabase
                 .from('fc_profiles')
                 .select('phone,name,affiliation,address')
+                .eq('signup_completed', true)
                 .in('phone', phones);
             const pmap = new Map((profiles ?? []).map((p: any) => [p.phone, p]));
 

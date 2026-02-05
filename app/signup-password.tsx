@@ -16,10 +16,10 @@ import { Button } from '@/components/Button';
 import { FormInput } from '@/components/FormInput';
 import { KeyboardAwareWrapper } from '@/components/KeyboardAwareWrapper';
 import { useKeyboardPadding } from '@/hooks/use-keyboard-padding';
+import { logger } from '@/lib/logger';
 import { safeStorage } from '@/lib/safe-storage';
 import { supabase } from '@/lib/supabase';
-import { logger } from '@/lib/logger';
-import { COLORS, TYPOGRAPHY, SPACING, RADIUS } from '@/lib/theme';
+import { COLORS, RADIUS, SPACING, TYPOGRAPHY } from '@/lib/theme';
 import { validatePassword } from '@/lib/validation';
 
 const STORAGE_KEY = 'fc-onboarding/signup';
@@ -116,6 +116,7 @@ export default function SignupPasswordScreen() {
       }
 
       if (existing?.id) {
+        logger.debug('[signup] Updating existing profile', { id: existing.id, payload });
         const { error: updateError } = await supabase
           .from('fc_profiles')
           .update({
@@ -127,10 +128,13 @@ export default function SignupPasswordScreen() {
           })
           .eq('id', existing.id);
         if (updateError) {
+          logger.error('[signup] Profile update failed', updateError);
           Alert.alert('오류', '회원 정보 저장에 실패했습니다.');
           return;
         }
+        logger.debug('[signup] Profile updated successfully');
       } else {
+        logger.debug('[signup] Inserting new profile', { payload });
         const { error: insertError } = await supabase.from('fc_profiles').insert({
           phone: payload.phone,
           name: payload.name,
@@ -143,9 +147,11 @@ export default function SignupPasswordScreen() {
           carrier: payload.carrier,
         });
         if (insertError) {
+          logger.error('[signup] Profile insert failed', insertError);
           Alert.alert('오류', '회원 정보 저장에 실패했습니다.');
           return;
         }
+        logger.debug('[signup] Profile inserted successfully');
       }
 
       const { data, error } = await supabase.functions.invoke('set-password', {

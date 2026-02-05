@@ -49,6 +49,8 @@ app-example
 
 # firebase service account (do not commit secrets)
 appointmentprocess-90a2e-firebase-adminsdk-fbsvc-2c333083b0.json
+credentials.json
+credentials/
 
 # Archived documents (historical analysis, not needed in repo)
 .archive/

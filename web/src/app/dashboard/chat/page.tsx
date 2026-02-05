@@ -72,10 +72,11 @@ export default function ChatPage() {
     const { data: chatList, isLoading: isListLoading, refetch: refetchList } = useQuery({
         queryKey: ['admin-chat-list'],
         queryFn: async () => {
-            // 1. Fetch all FCs
+            // 1. Fetch all FCs (only completed signups)
             const { data: fcs, error: fcError } = await supabase
                 .from('fc_profiles')
                 .select('id,name,phone')
+                .eq('signup_completed', true)
                 .order('name');
             if (fcError) throw fcError;
 

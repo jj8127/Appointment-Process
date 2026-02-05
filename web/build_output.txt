@@ -3,11 +3,11 @@
 > next build
 
  ??Warning: Next.js inferred your workspace root, but it may not be correct.
- We detected multiple lockfiles and selected the directory of E:\fc-onboarding-app\package-lock.json as the root directory.
+ We detected multiple lockfiles and selected the directory of E:\hanhwa\fc-onboarding-app\package-lock.json as the root directory.
  To silence this warning, set `turbopack.root` in your Next.js config, or consider removing one of the lockfiles if it's not needed.
    See https://nextjs.org/docs/app/api-reference/config/next-config-js/turbopack#root-directory for more information.
  Detected additional lockfiles: 
-   * E:\fc-onboarding-app\web\package-lock.json
+   * E:\hanhwa\fc-onboarding-app\web\package-lock.json
 
    ??Next.js 16.0.7 (Turbopack)
    - Environments: .env.local
@@ -19,8 +19,8 @@
    Generating static pages using 21 workers (0/11) ...
 Error occurred prerendering page "/dashboard". Read more: https://nextjs.org/docs/messages/prerender-error
 Error: useSession must be used within SessionProvider
-    at d (E:\fc-onboarding-app\web\.next\server\chunks\ssr\web_e09a9056._.js:1:2258)
-    at O (E:\fc-onboarding-app\web\.next\server\chunks\ssr\web_e09a9056._.js:1:16597) {
+    at d (E:\hanhwa\fc-onboarding-app\web\.next\server\chunks\ssr\web_e09a9056._.js:1:2258)
+    at O (E:\hanhwa\fc-onboarding-app\web\.next\server\chunks\ssr\web_e09a9056._.js:1:16597) {
   digest: '612996884'
 }
 Export encountered an error on /dashboard/page: /dashboard, exiting the build.
