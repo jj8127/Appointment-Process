@@ -32,7 +32,6 @@ type FcLite = { id: string; temp_id: string | null; name: string; status: string
 type DocItem = RequiredDoc & { storagePath?: string; originalName?: string };
 
 const BUCKET = 'fc-documents';
-const EXPO_PUSH_URL = 'https://exp.host/--/api/v2/push/send';
 
 const randomKey = () => Math.random().toString(36).slice(2, 10) + Date.now().toString(36);
 
@@ -50,36 +49,22 @@ async function sendNotificationAndPush(
   body: string,
   url?: string,
 ) {
-  await supabase.from('notifications').insert({
-    title,
-    body,
-    category: 'app_event',
-    recipient_role: role,
-    resident_id: residentId,
-  });
-
-  const { data: tokens } =
-    role === 'admin'
-      ? await supabase.from('device_tokens').select('expo_push_token').eq('role', 'admin')
-      : await supabase.from('device_tokens').select('expo_push_token').eq('role', 'fc').eq('resident_id', residentId ?? '');
-
-  const payload =
-    tokens?.map((t: any) => ({
-      to: t.expo_push_token,
+  const { error, data } = await supabase.functions.invoke('fc-notify', {
+    body: {
+      type: 'notify',
+      target_role: role,
+      target_id: residentId,
       title,
       body,
-      data: { type: 'app_event', resident_id: residentId, url },
-      sound: 'default',
-      priority: 'high',
-      channelId: 'alerts',
-    })) ?? [];
-
-  if (payload.length) {
-    await fetch(EXPO_PUSH_URL, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(payload),
-    });
+      category: 'app_event',
+      url,
+    },
+  });
+  if (error) {
+    throw error;
+  }
+  if (!data?.ok) {
+    throw new Error(data?.message ?? '알림 전송 실패');
   }
 }
 

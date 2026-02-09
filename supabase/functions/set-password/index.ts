@@ -5,6 +5,12 @@ type Payload = {
   phone: string;
   password: string;
   confirm?: string;
+  // Profile data from signup flow
+  name?: string;
+  affiliation?: string;
+  recommender?: string;
+  email?: string;
+  carrier?: string;
 };
 
 function getEnv(name: string): string | undefined {
@@ -113,6 +119,13 @@ serve(async (req: Request) => {
     return json({ ok: false, code: 'db_error', message: profileError.message }, 500);
   }
 
+  // Profile data from signup form
+  const profileName = (body.name ?? '').trim();
+  const profileAffiliation = (body.affiliation ?? '').trim();
+  const profileRecommender = (body.recommender ?? '').trim();
+  const profileEmail = (body.email ?? '').trim();
+  const profileCarrier = (body.carrier ?? '').trim();
+
   let fcId = profile?.id as string | undefined;
   let displayName = profile?.name ?? '';
 
@@ -121,13 +134,14 @@ serve(async (req: Request) => {
       .from('fc_profiles')
       .insert({
         phone,
-        name: '',
-        affiliation: '',
-        recommender: '',
-        email: '',
+        name: profileName,
+        affiliation: profileAffiliation,
+        recommender: profileRecommender,
+        email: profileEmail,
         address: '',
         status: 'draft',
         identity_completed: false,
+        carrier: profileCarrier,
       })
       .select('id,name')
       .maybeSingle();
@@ -140,6 +154,19 @@ serve(async (req: Request) => {
     }
     fcId = inserted.id as string;
     displayName = inserted.name ?? '';
+  } else if (profileName) {
+    // Update profile with signup form data (in case profile was created by OTP with empty fields)
+    const updatePayload: Record<string, string> = {};
+    if (profileName) updatePayload.name = profileName;
+    if (profileAffiliation) updatePayload.affiliation = profileAffiliation;
+    if (profileRecommender) updatePayload.recommender = profileRecommender;
+    if (profileEmail) updatePayload.email = profileEmail;
+    if (profileCarrier) updatePayload.carrier = profileCarrier;
+
+    if (Object.keys(updatePayload).length > 0) {
+      await supabase.from('fc_profiles').update(updatePayload).eq('id', fcId);
+      displayName = profileName || displayName;
+    }
   }
   if (profile?.phone_verified === false) {
     return fail('phone_not_verified', '휴대폰 인증이 필요합니다.');

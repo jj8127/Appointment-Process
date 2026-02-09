@@ -6,11 +6,46 @@ type Payload =
   | { type: 'fc_delete'; fc_id: string; message?: string }
   | { type: 'admin_update'; fc_id: string; message?: string }
   | {
+      type: 'inbox_list';
+      role: 'admin' | 'fc';
+      resident_id?: string | null;
+      limit?: number;
+    }
+  | {
+      type: 'inbox_unread_count';
+      role: 'admin' | 'fc';
+      resident_id?: string | null;
+      since?: string | null;
+    }
+  | {
+      type: 'inbox_delete';
+      role: 'admin' | 'fc';
+      resident_id?: string | null;
+      notification_ids?: string[];
+      notice_ids?: string[];
+    }
+  | { type: 'latest_notice' }
+  | {
+      type: 'notify';
+      target_role: 'admin' | 'fc';
+      target_id: string | null;
+      title: string;
+      body: string;
+      category?: string;
+      url?: string;
+      fc_id?: string | null;
+    }
+  | {
       type: 'message';
       target_role: 'admin' | 'fc';
       target_id: string | null;
       message: string;
       sender_id: string;
+      title?: string;
+      body?: string;
+      category?: string;
+      url?: string;
+      fc_id?: string | null;
     };
 
 type TokenRow = { expo_push_token: string; resident_id: string | null; display_name: string | null };
@@ -119,9 +154,161 @@ serve(async (req: Request) => {
     return err('Invalid JSON', 400);
   }
 
-  // 메시지 알림 처리
-  if (body.type === 'message') {
-    const { target_role, target_id, message, sender_id } = body;
+  // 알림센터 목록 조회 (RLS 우회)
+  if (body.type === 'inbox_list') {
+    const role = body.role;
+    const residentId = sanitize(body.resident_id);
+    const limit = Math.max(1, Math.min(Number(body.limit ?? 80) || 80, 200));
+
+    let notifQuery = supabase
+      .from('notifications')
+      .select('id,title,body,category,created_at,resident_id,recipient_role')
+      .order('created_at', { ascending: false })
+      .limit(limit);
+
+    if (role === 'fc') {
+      if (residentId) {
+        notifQuery = notifQuery.eq('recipient_role', 'fc').or(`resident_id.eq.${residentId},resident_id.is.null`);
+      } else {
+        notifQuery = notifQuery.eq('recipient_role', 'fc').is('resident_id', null);
+      }
+    } else {
+      notifQuery = notifQuery.eq('recipient_role', 'admin');
+    }
+
+    const { data: notifications, error: notifErr } = await notifQuery;
+    if (notifErr) return err(notifErr.message, 500);
+
+    const { data: notices, error: noticeErr } = await supabase
+      .from('notices')
+      .select('id,title,body,category,created_at')
+      .order('created_at', { ascending: false })
+      .limit(20);
+    if (noticeErr) return err(noticeErr.message, 500);
+
+    return ok({
+      ok: true,
+      notifications: notifications ?? [],
+      notices: notices ?? [],
+    });
+  }
+
+  // 홈 벨 아이콘 unread 개수 조회 (RLS 우회)
+  if (body.type === 'inbox_unread_count') {
+    const role = body.role;
+    const residentId = sanitize(body.resident_id);
+
+    const sinceDate = body.since ? new Date(body.since) : new Date(0);
+    const sinceIso = Number.isNaN(sinceDate.getTime()) ? new Date(0).toISOString() : sinceDate.toISOString();
+
+    let countQuery = supabase
+      .from('notifications')
+      .select('id', { count: 'exact', head: true })
+      .gt('created_at', sinceIso);
+
+    if (role === 'fc') {
+      if (residentId) {
+        countQuery = countQuery.eq('recipient_role', 'fc').or(`resident_id.eq.${residentId},resident_id.is.null`);
+      } else {
+        countQuery = countQuery.eq('recipient_role', 'fc').is('resident_id', null);
+      }
+    } else {
+      countQuery = countQuery.eq('recipient_role', 'admin');
+    }
+
+    const { count, error: countErr } = await countQuery;
+    if (countErr) return err(countErr.message, 500);
+
+    return ok({ ok: true, count: count ?? 0 });
+  }
+
+  // 알림센터 선택 항목 삭제 (RLS 우회)
+  if (body.type === 'inbox_delete') {
+    const role = body.role;
+    const residentId = sanitize(body.resident_id);
+    const notificationIds = Array.isArray(body.notification_ids)
+      ? body.notification_ids.filter((id) => typeof id === 'string' && id.trim().length > 0)
+      : [];
+    const noticeIds = Array.isArray(body.notice_ids)
+      ? body.notice_ids.filter((id) => typeof id === 'string' && id.trim().length > 0)
+      : [];
+
+    let deletedNotifications = 0;
+    let deletedNotices = 0;
+
+    if (notificationIds.length > 0) {
+      let deleteQuery = supabase
+        .from('notifications')
+        .delete({ count: 'exact' })
+        .in('id', notificationIds);
+
+      if (role === 'fc') {
+        if (residentId) {
+          deleteQuery = deleteQuery.eq('recipient_role', 'fc').or(`resident_id.eq.${residentId},resident_id.is.null`);
+        } else {
+          deleteQuery = deleteQuery.eq('recipient_role', 'fc').is('resident_id', null);
+        }
+      } else {
+        deleteQuery = deleteQuery.eq('recipient_role', 'admin');
+      }
+
+      const { count, error: notifDeleteErr } = await deleteQuery;
+      if (notifDeleteErr) return err(notifDeleteErr.message, 500);
+      deletedNotifications = count ?? 0;
+    }
+
+    // notices는 전체 공지이므로 admin 계정에서만 서버 삭제 허용
+    if (noticeIds.length > 0 && role === 'admin') {
+      const { count, error: noticeDeleteErr } = await supabase
+        .from('notices')
+        .delete({ count: 'exact' })
+        .in('id', noticeIds);
+      if (noticeDeleteErr) return err(noticeDeleteErr.message, 500);
+      deletedNotices = count ?? 0;
+    }
+
+    return ok({
+      ok: true,
+      deleted_notifications: deletedNotifications,
+      deleted_notices: deletedNotices,
+    });
+  }
+
+  // 홈 상단 최신 공지 조회 (RLS 우회)
+  if (body.type === 'latest_notice') {
+    const { data, error: latestErr } = await supabase
+      .from('notices')
+      .select('title,body,category,created_at')
+      .order('created_at', { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    if (latestErr) return err(latestErr.message, 500);
+    return ok({ ok: true, notice: data ?? null });
+  }
+
+  // 직접 알림 처리 (notify/message)
+  if (body.type === 'notify' || body.type === 'message') {
+    const target_role = body.target_role;
+    const target_id = body.target_id;
+
+    const title =
+      body.type === 'notify'
+        ? body.title
+        : body.title ?? '새 메시지';
+    const message =
+      body.type === 'notify'
+        ? body.body
+        : body.body ?? body.message ?? '새로운 메시지가 도착했습니다.';
+    const category =
+      body.type === 'notify'
+        ? body.category ?? 'app_event'
+        : body.category ?? 'message';
+
+    let url = body.type === 'notify' ? body.url ?? '/notifications' : body.url ?? '/chat';
+    if (body.type === 'message' && target_role === 'admin' && !body.url) {
+      url = `/chat?targetId=${body.sender_id}&targetName=FC`;
+    }
+
     let tokens: TokenRow[] = [];
 
     if (target_role === 'admin') {
@@ -138,26 +325,40 @@ serve(async (req: Request) => {
           .eq('role', 'fc')
           .eq('resident_id', target_id);
         if (!error && data) tokens = data;
+      } else {
+        const { data, error } = await supabase
+          .from('device_tokens')
+          .select('expo_push_token,resident_id,display_name')
+          .eq('role', 'fc');
+        if (!error && data) tokens = data;
       }
     }
 
+    const { error: logError } = await supabase.from('notifications').insert({
+      title,
+      body: message,
+      category,
+      recipient_role: target_role,
+      resident_id: target_id,
+      fc_id: body.fc_id ?? null,
+    });
+    if (logError) {
+      console.warn('notifications insert failed', logError.message);
+    }
+
     if (!tokens.length) {
-      return ok({ ok: true, sent: 0, msg: 'No tokens found' });
+      return ok({ ok: true, sent: 0, logged: !logError, msg: 'No tokens found' });
     }
-
-    let url = '/chat';
-    if (target_role === 'admin') {
-      url = `/chat?targetId=${sender_id}&targetName=FC`;
-    }
-
-    const pushTitle = '새 메시지';
-    const pushBody = message || '새로운 메시지가 도착했습니다.';
 
     const pushPayload = tokens.map((t) => ({
       to: t.expo_push_token,
-      title: pushTitle,
-      body: pushBody,
-      data: { url },
+      title,
+      body: message,
+      data: {
+        url,
+        type: category,
+        resident_id: target_id,
+      },
       sound: 'default',
       priority: 'high',
       channelId: 'alerts',
@@ -170,7 +371,7 @@ serve(async (req: Request) => {
     });
     const result = await resp.json();
 
-    return ok({ ok: true, sent: tokens.length, result });
+    return ok({ ok: true, sent: tokens.length, logged: !logError, result });
   }
 
   // 기존 fc/admin 업데이트/삭제 로직

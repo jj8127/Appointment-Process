@@ -28,7 +28,6 @@ const CHARCOAL = '#111827';
 const MUTED = '#6b7280';
 const BORDER = '#e5e7eb';
 const INPUT_BG = '#F9FAFB';
-const EXPO_PUSH_URL = 'https://exp.host/--/api/v2/push/send';
 
 type AttachedFile = {
   uri: string;
@@ -144,38 +143,20 @@ export default function AdminNoticeScreen() {
   // 공지 등록 후 모든 FC에게 알림 + 푸시 전송
   const notifyAllFcs = async (titleText: string, bodyText: string, categoryText?: string) => {
     try {
-      // notifications 테이블에 기록
-      await supabase.from('notifications').insert({
-        title: titleText,
-        body: bodyText,
-        category: categoryText || '공지',
-        recipient_role: 'fc',
-        resident_id: null,
+      const { data, error } = await supabase.functions.invoke('fc-notify', {
+        body: {
+          type: 'notify',
+          target_role: 'fc',
+          target_id: null,
+          title: `공지: ${titleText}`,
+          body: bodyText,
+          category: categoryText || '공지',
+          url: '/notice',
+        },
       });
-
-      // 모든 FC 토큰 조회
-      const { data: tokens } = await supabase
-        .from('device_tokens')
-        .select('expo_push_token')
-        .eq('role', 'fc');
-
-        const payload =
-          tokens?.map((t: any) => ({
-            to: t.expo_push_token,
-            title: `공지: ${titleText}`,
-            body: bodyText,
-            data: { type: 'notice' },
-            sound: 'default',
-            priority: 'high',
-            channelId: 'alerts',
-          })) ?? [];
-
-      if (payload.length > 0) {
-        await fetch(EXPO_PUSH_URL, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(payload),
-        });
+      if (error) throw error;
+      if (!data?.ok) {
+        throw new Error(data?.message ?? '공지 알림 전송 실패');
       }
     } catch (pushErr) {
       logger.warn('notifyAllFcs push error', { error: pushErr });

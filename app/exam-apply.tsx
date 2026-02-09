@@ -46,68 +46,40 @@ const CARD_SHADOW = {
   shadowOffset: { width: 0, height: 2 },
   elevation: 2,
 };
-const EXPO_PUSH_URL = 'https://exp.host/--/api/v2/push/send';
 
 async function notifyAdmin(title: string, body: string, residentId: string | null) {
-  await supabase.from('notifications').insert({
-    title,
-    body,
-    category: 'exam_apply',
-    recipient_role: 'admin',
-    resident_id: residentId,
-  });
-
-  const { data: tokens } = await supabase.from('device_tokens').select('expo_push_token').eq('role', 'admin');
-  const payload =
-    tokens?.map((t: any) => ({
-      to: t.expo_push_token,
+  const { data, error } = await supabase.functions.invoke('fc-notify', {
+    body: {
+      type: 'notify',
+      target_role: 'admin',
+      target_id: residentId,
       title,
       body,
-      data: { type: 'exam_apply', resident_id: residentId, url: '/exam-manage' },
-      sound: 'default',
-      priority: 'high',
-      channelId: 'alerts',
-    })) ?? [];
-  if (payload.length) {
-    await fetch(EXPO_PUSH_URL, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(payload),
-    });
+      category: 'exam_apply',
+      url: '/exam-manage',
+    },
+  });
+  if (error) throw error;
+  if (!data?.ok) {
+    throw new Error(data?.message ?? '알림 전송 실패');
   }
 }
 
 async function notifyFcSelf(title: string, body: string, residentId: string) {
-  await supabase.from('notifications').insert({
-    title,
-    body,
-    category: 'exam_apply',
-    recipient_role: 'fc',
-    resident_id: residentId,
-  });
-
-  const { data: tokens } = await supabase
-    .from('device_tokens')
-    .select('expo_push_token')
-    .eq('role', 'fc')
-    .eq('resident_id', residentId);
-
-  const payload =
-    tokens?.map((t: any) => ({
-      to: t.expo_push_token,
+  const { data, error } = await supabase.functions.invoke('fc-notify', {
+    body: {
+      type: 'notify',
+      target_role: 'fc',
+      target_id: residentId,
       title,
       body,
-      data: { type: 'exam_apply', resident_id: residentId, url: '/exam-apply' },
-      sound: 'default',
-      priority: 'high',
-      channelId: 'alerts',
-    })) ?? [];
-  if (payload.length) {
-    await fetch(EXPO_PUSH_URL, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(payload),
-    });
+      category: 'exam_apply',
+      url: '/exam-apply',
+    },
+  });
+  if (error) throw error;
+  if (!data?.ok) {
+    throw new Error(data?.message ?? '알림 전송 실패');
   }
 }
 

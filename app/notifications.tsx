@@ -30,6 +30,8 @@ type Notice = {
   source: 'notification' | 'notice';
 };
 
+const HIDDEN_NOTICE_KEY_PREFIX = 'hiddenNoticeIds';
+
 export default function NotificationsScreen() {
   const router = useRouter();
   const { role, residentId, hydrated } = useSession();
@@ -38,28 +40,52 @@ export default function NotificationsScreen() {
   const [refreshing, setRefreshing] = useState(false);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [selectionMode, setSelectionMode] = useState(false);
+  const hiddenNoticeStorageKey = role === 'fc' ? `${HIDDEN_NOTICE_KEY_PREFIX}:${residentId || 'fc'}` : null;
 
-  const fetchPushNotifications = useCallback(async (): Promise<Notice[]> => {
-    if (!role) return [];
+  const loadHiddenNoticeIds = useCallback(async (): Promise<Set<string>> => {
+    if (!hiddenNoticeStorageKey) return new Set();
+    try {
+      const raw = await AsyncStorage.getItem(hiddenNoticeStorageKey);
+      if (!raw) return new Set();
+      const parsed = JSON.parse(raw);
+      if (!Array.isArray(parsed)) return new Set();
+      return new Set(parsed.filter((id): id is string => typeof id === 'string' && id.length > 0));
+    } catch (err) {
+      logger.warn('Failed to load hidden notice ids', err);
+      return new Set();
+    }
+  }, [hiddenNoticeStorageKey]);
 
-    const baseQuery = supabase
-      .from('notifications')
-      .select('id,title,body,category,created_at,resident_id,recipient_role')
-      .order('created_at', { ascending: false });
+  const saveHiddenNoticeIds = useCallback(
+    async (ids: Set<string>) => {
+      if (!hiddenNoticeStorageKey) return;
+      try {
+        await AsyncStorage.setItem(hiddenNoticeStorageKey, JSON.stringify(Array.from(ids)));
+      } catch (err) {
+        logger.warn('Failed to save hidden notice ids', err);
+      }
+    },
+    [hiddenNoticeStorageKey],
+  );
 
-    let data;
-    let error;
+  const fetchInbox = useCallback(async (): Promise<{ pushRows: Notice[]; noticeRows: Notice[] }> => {
+    if (!role) return { pushRows: [], noticeRows: [] };
 
-    if (role === 'fc') {
-      const residentFilter = residentId ? [residentId, null] : [null];
-      ({ data, error } = await baseQuery.eq('recipient_role', 'fc').in('resident_id', residentFilter));
-    } else {
-      ({ data, error } = await baseQuery.eq('recipient_role', 'admin'));
+    const { data, error } = await supabase.functions.invoke('fc-notify', {
+      body: {
+        type: 'inbox_list',
+        role,
+        resident_id: role === 'fc' ? (residentId ?? null) : null,
+        limit: 100,
+      },
+    });
+
+    if (error) throw error;
+    if (!data?.ok) {
+      throw new Error(data?.message ?? '알림을 불러오지 못했습니다.');
     }
 
-    if (error && (error as any)?.code !== '42P01') throw error;
-
-    return (data ?? []).map((item: any) => ({
+    const pushRows: Notice[] = (data.notifications ?? []).map((item: any) => ({
       id: `notification:${item.id}`,
       title: item.title,
       body: item.body,
@@ -67,18 +93,8 @@ export default function NotificationsScreen() {
       created_at: item.created_at,
       source: 'notification',
     }));
-  }, [residentId, role]);
 
-  const fetchNotices = useCallback(async (): Promise<Notice[]> => {
-    const { data, error } = await supabase
-      .from('notices')
-      .select('id,title,body,category,created_at')
-      .order('created_at', { ascending: false })
-      .limit(20);
-
-    if (error && (error as any)?.code !== '42P01') throw error;
-
-    return (data ?? []).map((item: any) => ({
+    const noticeRows: Notice[] = (data.notices ?? []).map((item: any) => ({
       id: `notice:${item.id}`,
       title: item.title,
       body: item.body,
@@ -86,13 +102,22 @@ export default function NotificationsScreen() {
       created_at: item.created_at,
       source: 'notice',
     }));
-  }, []);
+
+    return { pushRows, noticeRows };
+  }, [residentId, role]);
 
   const load = useCallback(async () => {
     if (!hydrated) return;
     try {
-      const [pushRows, noticeRows] = await Promise.all([fetchPushNotifications(), fetchNotices()]);
-      const merged = [...pushRows, ...noticeRows].sort((a, b) => {
+      const { pushRows, noticeRows } = await fetchInbox();
+      const hiddenNoticeIds = await loadHiddenNoticeIds();
+      const merged = [...pushRows, ...noticeRows]
+        .filter((item) => {
+          if (item.source !== 'notice') return true;
+          const rawNoticeId = item.id.replace('notice:', '');
+          return !hiddenNoticeIds.has(rawNoticeId);
+        })
+        .sort((a, b) => {
         const aTime = a.created_at ? new Date(a.created_at).getTime() : 0;
         const bTime = b.created_at ? new Date(b.created_at).getTime() : 0;
         return bTime - aTime;
@@ -105,7 +130,7 @@ export default function NotificationsScreen() {
       setLoading(false);
       setRefreshing(false);
     }
-  }, [fetchNotices, fetchPushNotifications, hydrated]);
+  }, [fetchInbox, hydrated, loadHiddenNoticeIds]);
 
   useEffect(() => {
     load();
@@ -176,6 +201,10 @@ export default function NotificationsScreen() {
         style: 'destructive',
         onPress: async () => {
           try {
+            if (!role) {
+              throw new Error('로그인 정보를 확인할 수 없습니다.');
+            }
+
             const notifIds = Array.from(selectedIds)
               .filter((id) => id.startsWith('notification:'))
               .map((id) => id.replace('notification:', ''));
@@ -183,18 +212,37 @@ export default function NotificationsScreen() {
               .filter((id) => id.startsWith('notice:'))
               .map((id) => id.replace('notice:', ''));
 
-            if (notifIds.length) {
-              const { error } = await supabase.from('notifications').delete().in('id', notifIds);
+            if (notifIds.length || noticeIds.length) {
+              const { data, error } = await supabase.functions.invoke('fc-notify', {
+                body: {
+                  type: 'inbox_delete',
+                  role,
+                  resident_id: role === 'fc' ? (residentId ?? null) : null,
+                  notification_ids: notifIds,
+                  notice_ids: role === 'admin' ? noticeIds : [],
+                },
+              });
               if (error) throw error;
+              if (!data?.ok) {
+                throw new Error(data?.message ?? '삭제 중 문제가 발생했습니다.');
+              }
             }
-            if (noticeIds.length) {
-              const { error } = await supabase.from('notices').delete().in('id', noticeIds);
-              if (error) throw error;
+
+            if (role === 'fc' && noticeIds.length > 0) {
+              const hidden = await loadHiddenNoticeIds();
+              noticeIds.forEach((id) => hidden.add(id));
+              await saveHiddenNoticeIds(hidden);
             }
+
             setSelectedIds(new Set());
             setSelectionMode(false);
-            load();
-            Alert.alert('삭제 완료', '선택한 항목을 삭제했습니다.');
+            await load();
+
+            if (role === 'fc' && noticeIds.length > 0 && !notifIds.length) {
+              Alert.alert('삭제 완료', '선택한 공지는 알림센터에서 숨김 처리되었습니다.');
+            } else {
+              Alert.alert('삭제 완료', '선택한 항목을 삭제했습니다.');
+            }
           } catch (err: any) {
             Alert.alert('오류', err?.message ?? '삭제 중 문제가 발생했습니다.');
           }

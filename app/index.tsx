@@ -206,19 +206,17 @@ const ADMIN_METRIC_CONFIG: { label: string; key: StepKey }[] = [
 
 const fetchLatestNotice = async () => {
   try {
-    const { data, error } = await supabase
-      .from('notices')
-      .select('title,body,category,created_at')
-      .order('created_at', { ascending: false })
-      .limit(1)
-      .maybeSingle();
+    const { data, error } = await supabase.functions.invoke('fc-notify', {
+      body: { type: 'latest_notice' },
+    });
     if (error) throw error;
-    return data;
+    if (!data?.ok) {
+      throw new Error(data?.message ?? '최신 공지를 불러오지 못했습니다.');
+    }
+    return data.notice ?? null;
   } catch (err: unknown) {
-    const code = (err as { code?: string })?.code;
-    if (code === '42P01') return null;
-    if (err instanceof Error) throw err;
-    throw new Error(String(err));
+    logger.debug('[Home] latest notice error', err);
+    return null;
   }
 };
 
@@ -272,29 +270,21 @@ const fetchUnreadMessageCount = async (residentId: string) => {
 
 const fetchUnreadNotificationCount = async (role: 'admin' | 'fc' | null, residentId: string | null) => {
   try {
+    if (!role) return 0;
     const lastCheck = await AsyncStorage.getItem('lastNotificationCheckTime');
     const lastCheckDate = lastCheck ? new Date(lastCheck) : new Date(0);
 
-    let query = supabase
-      .from('notifications')
-      .select('id', { count: 'exact', head: true })
-      .gt('created_at', lastCheckDate.toISOString());
-
-    if (role === 'fc') {
-      if (residentId) {
-        query = query.eq('recipient_role', 'fc').or(`resident_id.eq.${residentId},resident_id.is.null`);
-      } else {
-        query = query.eq('recipient_role', 'fc').is('resident_id', null);
-      }
-    } else if (role === 'admin') {
-      query = query.eq('recipient_role', 'admin');
-    } else {
-      return 0;
-    }
-
-    const { count, error } = await query;
+    const { data, error } = await supabase.functions.invoke('fc-notify', {
+      body: {
+        type: 'inbox_unread_count',
+        role,
+        resident_id: role === 'fc' ? (residentId ?? null) : null,
+        since: lastCheckDate.toISOString(),
+      },
+    });
     if (error) throw error;
-    return count ?? 0;
+    if (!data?.ok) throw new Error(data?.message ?? '알림 개수 조회 실패');
+    return Number(data.count ?? 0);
   } catch (e) {
     logger.debug('[Home] unread notif error', e);
     return 0;
@@ -699,6 +689,9 @@ export default function Home() {
 
   const currentStep = myFc ? calcStep(myFc) : 1;
   const activeStep = steps[Math.min(steps.length - 1, Math.max(0, currentStep - 1))];
+  const profileName = typeof myFc?.name === 'string' ? myFc.name.trim() : '';
+  const sessionName = displayName?.trim() ?? '';
+  const fcWelcomeName = profileName || sessionName || 'FC';
 
   const uploadedDocs =
     myFc?.fc_documents?.filter((d: FCDocument) => d.storage_path && d.storage_path !== 'deleted').length ?? 0;
@@ -1068,7 +1061,7 @@ export default function Home() {
           {role === 'fc' ? (
             <Stack.Screen
               options={{
-                title: `${(myFc?.name || displayName || 'FC')}님 환영합니다`,
+                title: `${fcWelcomeName}님 환영합니다`,
                 headerLeft: () => null,
               }}
             />

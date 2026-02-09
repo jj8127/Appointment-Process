@@ -171,6 +171,11 @@ const normalizeDateInput = (value?: string | null) => {
   return raw;
 };
 
+const normalizeCustomDocInput = (value: string) => {
+  const cleaned = value.replace(/\u200B/g, '').trimStart();
+  return cleaned.trim().length === 0 ? '' : cleaned;
+};
+
 const getStepKey = (profile: FcRow): StepKey => {
   const step = Math.max(1, Math.min(5, calcStep(profile)));
   return `step${step}` as StepKey;
@@ -223,21 +228,42 @@ type FcRow = {
 };
 type FcRowWithStep = FcRow & { stepKey: StepKey };
 
+async function adminAction(
+  adminPhone: string,
+  action: string,
+  payload: Record<string, any>,
+): Promise<{ ok: boolean; [key: string]: any }> {
+  const { data, error } = await supabase.functions.invoke('admin-action', {
+    body: { adminPhone, action, payload },
+  });
+  if (error) {
+    const msg = error instanceof Error ? error.message : 'Edge Function 호출 실패';
+    throw new Error(msg);
+  }
+  if (!data?.ok) {
+    throw new Error(data?.message ?? '처리 중 오류가 발생했습니다.');
+  }
+  return data;
+}
+
 async function sendNotificationAndPush(
+  adminPhone: string,
   role: 'admin' | 'fc',
   residentId: string | null,
   title: string,
   body: string,
   url?: string,
 ) {
-  await supabase.from('notifications').insert({
+  // Insert notification via Edge Function (bypasses RLS)
+  await adminAction(adminPhone, 'sendNotification', {
+    phone: residentId,
     title,
     body,
-    category: 'app_event',
-    recipient_role: role,
-    resident_id: residentId,
-  });
+    role,
+    url,
+  }).catch(() => { /* ignore notification failures */ });
 
+  // Send push directly (device_tokens has anon-friendly policies)
   const baseQuery = supabase.from('device_tokens').select('expo_push_token');
   const { data: tokens } =
     role === 'fc' && residentId
@@ -456,27 +482,19 @@ export default function DashboardScreen() {
       phone,
     }: { id: string; tempId?: string; prevTemp?: string; career?: '신입' | '경력'; phone?: string }) => {
       assertCanEdit();
-      const payload: Partial<FcProfile> = {};
-      if (career) payload.career_type = career;
+      const data: Record<string, any> = {};
+      if (career) data.career_type = career;
       const tempIdTrim = tempId?.trim();
       const prevTrim = prevTemp?.trim();
       if (tempIdTrim) {
-        // 같은 값이면 굳이 업데이트하지 않음 (중복/에러 방지)
         if (tempIdTrim !== prevTrim) {
-          payload.temp_id = tempIdTrim;
-          payload.status = 'temp-id-issued';
+          data.temp_id = tempIdTrim;
+          data.status = 'temp-id-issued';
         }
       }
-      const { error } = await supabase.from('fc_profiles').update(payload).eq('id', id);
-      if (error) {
-        if ((error as { code?: string; details?: string; hint?: string; message: string }).code === '23505') {
-          throw new Error('이미 사용 중인 임시사번입니다. 다른 번호를 입력하세요.');
-        }
-        throw error;
-      }
-      // 알림: 해당 FC에게 임시번호 발급/수정 안내
+      await adminAction(residentId, 'updateProfile', { fcId: id, data });
       if (phone && tempIdTrim && tempIdTrim !== prevTrim) {
-        await sendNotificationAndPush('fc', phone, '임시번호가 발급 되었습니다.', `임시사번: ${tempIdTrim}`, '/consent');
+        await sendNotificationAndPush(residentId, 'fc', phone, '임시번호가 발급 되었습니다.', `임시사번: ${tempIdTrim}`, '/consent');
       }
     },
     onSuccess: () => {
@@ -496,42 +514,16 @@ export default function DashboardScreen() {
     mutationFn: async ({ id, types, phone }: { id: string; types: string[]; phone?: string }) => {
       assertCanEdit();
       const uniqueTypes = Array.from(new Set(types));
-
-      const { data: existingDocs, error: fetchErr } = await supabase
-        .from('fc_documents')
-        .select('doc_type,storage_path,file_name,status')
-        .eq('fc_id', id);
-      if (fetchErr) throw fetchErr;
-
-      const existing = existingDocs ?? [];
-      const existingTypes = existing.map((d) => d.doc_type);
-      const toInsert = uniqueTypes.filter((t) => !existingTypes.includes(t));
-      const toDelete = existingTypes.filter((t) => !uniqueTypes.includes(t));
-
-      if (toDelete.length) {
-        const { error: delErr } = await supabase
-          .from('fc_documents')
-          .delete()
-          .eq('fc_id', id)
-          .in('doc_type', toDelete);
-        if (delErr) throw delErr;
-      }
-
-      if (toInsert.length) {
-        const rows = toInsert.map((t) => ({
-          fc_id: id,
-          doc_type: t,
-          status: 'pending',
-          file_name: '',
-          storage_path: '',
-        }));
-        const { error: insertErr } = await supabase.from('fc_documents').insert(rows);
-        if (insertErr) throw insertErr;
-      }
-
-      await supabase.from('fc_profiles').update({ status: 'docs-requested' }).eq('id', id);
+      const currentDeadline = (data ?? []).find((fc) => fc.id === id)?.docs_deadline_at ?? null;
+      await adminAction(residentId, 'updateDocReqs', {
+        fcId: id,
+        types: uniqueTypes,
+        deadline: currentDeadline,
+        currentDeadline,
+      });
       if (phone) {
         await sendNotificationAndPush(
+          residentId,
           'fc',
           phone,
           '서류 요청 안내',
@@ -573,69 +565,17 @@ export default function DashboardScreen() {
         if (deadlineTrimmed && !normalizedDeadline) {
           throw new Error('마감일은 YYYY-MM-DD 형식으로 입력해주세요.');
         }
-        const shouldResetNotify = normalizedDeadline !== (currentDeadline ?? null);
 
-        const { data: currentDocs, error: fetchErr } = await supabase
-          .from('fc_documents')
-          .select('doc_type,storage_path')
-          .eq('fc_id', id);
-        if (fetchErr) throw fetchErr;
+        await adminAction(residentId, 'updateDocReqs', {
+          fcId: id,
+          types: uniqueTypes,
+          deadline: normalizedDeadline,
+          currentDeadline,
+        });
 
-        const currentTypes = currentDocs?.map((d) => d.doc_type) ?? [];
-        const selectedSet = new Set(uniqueTypes);
-
-        if (uniqueTypes.length === 0) {
-          const { error: delAllErr } = await supabase.from('fc_documents').delete().eq('fc_id', id);
-          if (delAllErr) throw delAllErr;
-          await supabase
-            .from('fc_profiles')
-            .update({
-              status: 'allowance-consented',
-              docs_deadline_at: null,
-              docs_deadline_last_notified_at: null,
-            })
-            .eq('id', id);
-          return;
-        }
-
-      const toDelete =
-        currentDocs?.filter(
-          (d) => !selectedSet.has(d.doc_type) && (!d.storage_path || d.storage_path === 'deleted'),
-        ) ?? [];
-      const toAdd = uniqueTypes.filter((t) => !currentTypes.includes(t));
-      const hasChanges = toDelete.length > 0 || toAdd.length > 0;
-
-      if (toDelete.length) {
-        const { error: delErr } = await supabase
-          .from('fc_documents')
-          .delete()
-          .eq('fc_id', id)
-          .in('doc_type', toDelete.map((d) => d.doc_type));
-        if (delErr) throw delErr;
-      }
-
-      if (toAdd.length) {
-        const rows = toAdd.map((t) => ({
-          fc_id: id,
-          doc_type: t,
-          status: 'pending',
-          file_name: '',
-          storage_path: '',
-        }));
-        const { error: insertErr } = await supabase.from('fc_documents').insert(rows);
-        if (insertErr) throw insertErr;
-      }
-
-        const profileUpdate: Record<string, string | null> = {
-          docs_deadline_at: normalizedDeadline,
-        };
-        if (shouldResetNotify) {
-          profileUpdate.docs_deadline_last_notified_at = null;
-        }
-
-        await supabase.from('fc_profiles').update({ status: 'docs-requested', ...profileUpdate }).eq('id', id);
-        if (hasChanges && phone) {
+        if (phone) {
           await sendNotificationAndPush(
+            residentId,
             'fc',
             phone,
             '서류 요청 안내',
@@ -664,45 +604,13 @@ export default function DashboardScreen() {
           body: { residentId: phone },
         });
         if (error) {
-          logger.warn('[deleteFc] delete-account failed, fallback', error.message ?? error);
+          logger.warn('[deleteFc] delete-account failed, fallback to admin-action', error.message ?? error);
         } else if (data?.ok) {
           return;
         }
       }
-
-      // 1. Get all document paths first
-      const { data: docs } = await supabase.from('fc_documents').select('storage_path').eq('fc_id', id);
-
-      const pathsToDelete = (docs ?? [])
-        .map((d) => d.storage_path)
-        .filter((p) => p && p !== 'deleted');
-
-      // 2. Delete files from storage
-      if (pathsToDelete.length > 0) {
-        logger.debug('[deleteFc] removing files from storage:', pathsToDelete);
-        const { error: storageError } = await supabase.storage.from(BUCKET).remove(pathsToDelete as string[]);
-        if (storageError) {
-          logger.error('[deleteFc] storage remove error', storageError);
-          // We proceed to delete DB records even if storage cleanup fails,
-          // but we log the error.
-        }
-      }
-
-      // 3. Delete DB records
-      await supabase.from('fc_documents').delete().eq('fc_id', id);
-        if (phone) {
-          const maskedPhone = phone.replace(/[^0-9]/g, '').replace(/^(\d{3})(\d{3,4})(\d{4})$/, '$1-$2-$3');
-          await supabase.from('messages').delete().or(`sender_id.eq.${phone},receiver_id.eq.${phone}`);
-          await supabase
-            .from('exam_registrations')
-            .delete()
-            .or(`resident_id.eq.${phone},resident_id.eq.${maskedPhone}`);
-          await supabase.from('notifications').delete().or(`resident_id.eq.${phone},fc_id.eq.${id}`);
-          await supabase.from('device_tokens').delete().eq('resident_id', phone);
-        }
-      await supabase.from('fc_identity_secure').delete().eq('fc_id', id);
-      const { error } = await supabase.from('fc_profiles').delete().eq('id', id);
-      if (error) throw error;
+      // Fallback: use admin-action Edge Function (bypasses RLS)
+      await adminAction(residentId, 'deleteFc', { fcId: id, phone });
     },
     onSuccess: () => {
       Alert.alert('삭제 완료', '선택한 FC 기록이 삭제되었습니다.');
@@ -727,11 +635,7 @@ export default function DashboardScreen() {
       extra?: Record<string, any>;
     }) => {
       assertCanEdit();
-      const { error } = await supabase
-        .from('fc_profiles')
-        .update({ status: nextStatus, ...(extra ?? {}) })
-        .eq('id', id);
-      if (error) throw error;
+      await adminAction(residentId, 'updateStatus', { fcId: id, status: nextStatus, extra });
     },
     onSuccess: () => {
       Alert.alert('처리 완료', '상태가 업데이트되었습니다.');
@@ -762,36 +666,19 @@ export default function DashboardScreen() {
       rejectReason?: string | null;
     }) => {
       assertCanEdit();
-      const field = type === 'life' ? 'appointment_date_life' : 'appointment_date_nonlife';
-      const submittedField = type === 'life' ? 'appointment_date_life_sub' : 'appointment_date_nonlife_sub';
-      const rejectField = type === 'life' ? 'appointment_reject_reason_life' : 'appointment_reject_reason_nonlife';
-      const payload: Record<string, any> = {
-        [field]: date,
-        [rejectField]: isReject ? rejectReason ?? null : null,
-      };
-      if (isReject) payload[submittedField] = null;
-      const { data, error } = await supabase
-        .from('fc_profiles')
-        .update(payload)
-        .eq('id', id)
-        .select('appointment_date_life, appointment_date_nonlife')
-        .single();
-      if (error) throw error;
-
-      const bothSet = Boolean(data?.appointment_date_life) && Boolean(data?.appointment_date_nonlife);
-      const nextStatus = date === null ? 'docs-approved' : bothSet ? 'final-link-sent' : 'appointment-completed';
-      const { error: statusErr } = await supabase.from('fc_profiles').update({ status: nextStatus }).eq('id', id);
-      if (statusErr) throw statusErr;
+      await adminAction(residentId, 'updateAppointmentDate', {
+        fcId: id, type, date, isReject, rejectReason,
+      });
 
       if (isReject) {
         const title = type === 'life' ? '생명보험 위촉 반려' : '손해보험 위촉 반려';
         const body = rejectReason
           ? `위촉 완료일이 반려되었습니다.\n사유: ${rejectReason}`
           : '위촉 완료일이 반려되었습니다. 위촉을 다시 진행해주세요.';
-        await sendNotificationAndPush('fc', phone, title, body, '/appointment');
+        await sendNotificationAndPush(residentId, 'fc', phone, title, body, '/appointment');
       } else if (date) {
         const title = type === 'life' ? '생명 위촉이 승인되었습니다.' : '손해 위촉이 승인되었습니다.';
-        await sendNotificationAndPush('fc', phone, title, title, '/');
+        await sendNotificationAndPush(residentId, 'fc', phone, title, title, '/');
       }
     },
     onSuccess: (_, vars) => {
@@ -821,17 +708,14 @@ export default function DashboardScreen() {
     }) => {
       assertCanEdit();
       logger.debug('[appointment-schedule] mutate', { id, life, nonlife });
-      const payload: Partial<FcProfile> = {};
-      if (life !== undefined) payload.appointment_schedule_life = life || null;
-      if (nonlife !== undefined) payload.appointment_schedule_nonlife = nonlife || null;
-      const { error } = await supabase.from('fc_profiles').update(payload).eq('id', id);
-      if (error) throw error;
+      await adminAction(residentId, 'updateAppointmentSchedule', { fcId: id, life, nonlife });
     },
     onSuccess: async (_, vars) => {
       logger.debug('[appointment-schedule] success', vars);
       Alert.alert('저장 완료', '위촉 예정월이 저장되었습니다.');
       if (vars.phone) {
         await sendNotificationAndPush(
+          residentId,
           'fc',
           vars.phone,
           '위촉 차수 안내',
@@ -866,34 +750,17 @@ export default function DashboardScreen() {
       reviewerNote?: string | null;
     }) => {
       assertCanEdit();
-      // Update individual doc status
-      const { error } = await supabase
-        .from('fc_documents')
-        .update({ status, reviewer_note: reviewerNote ?? null })
-        .eq('fc_id', fcId)
-        .eq('doc_type', docType);
-      if (error) throw error;
-
-        // Check for auto-advance if approved (all required docs must be submitted and approved)
-        if (status === 'approved') {
-          const { data: allDocs } = await supabase
-            .from('fc_documents')
-            .select('status, storage_path')
-            .eq('fc_id', fcId);
-
-          const requiredDocs = (allDocs ?? []).filter((d) => d.storage_path !== 'deleted');
-          const allSubmitted = requiredDocs.length > 0 && requiredDocs.every((d) => d.storage_path);
-          const allApproved = requiredDocs.length > 0 && requiredDocs.every((d) => d.status === 'approved');
-          // All required docs must be submitted and approved
-          if (allSubmitted && allApproved) {
-            await supabase.from('fc_profiles').update({ status: 'docs-approved' }).eq('id', fcId);
-            await sendNotificationAndPush(
-              'fc',
-              phone,
-            '서류 검토 완료',
-            '모든 서류가 승인되었습니다. 위촉 계약 단계로 진행해주세요.',
-          );
-        }
+      const result = await adminAction(residentId, 'updateDocStatus', {
+        fcId, docType, status, reviewerNote,
+      });
+      if (result.allApproved) {
+        await sendNotificationAndPush(
+          residentId,
+          'fc',
+          phone,
+          '서류 검토 완료',
+          '모든 서류가 승인되었습니다. 위촉 계약 단계로 진행해주세요.',
+        );
       }
     },
     onSuccess: async (_, vars) => {
@@ -901,6 +768,7 @@ export default function DashboardScreen() {
       if (status === 'approved') {
         Alert.alert('승인 완료', `${docType} 서류가 승인되었습니다.`);
         await sendNotificationAndPush(
+          residentId,
           'fc',
           phone,
           '서류 승인',
@@ -910,6 +778,7 @@ export default function DashboardScreen() {
       } else if (status === 'rejected') {
         Alert.alert('미승인 처리', `${docType} 서류를 미승인으로 변경했습니다.`);
         await sendNotificationAndPush(
+          residentId,
           'fc',
           phone,
           '서류 반려',
@@ -957,16 +826,7 @@ export default function DashboardScreen() {
         style: 'destructive',
         onPress: async () => {
           try {
-            if (storagePath) {
-              const { error: storageErr } = await supabase.storage.from(BUCKET).remove([storagePath]);
-              if (storageErr) throw storageErr;
-            }
-            const { error: dbError } = await supabase
-              .from('fc_documents')
-              .update({ storage_path: 'deleted', file_name: 'deleted.pdf', status: 'pending', reviewer_note: null })
-              .eq('fc_id', fcId)
-              .eq('doc_type', docType);
-            if (dbError) throw dbError;
+            await adminAction(residentId, 'deleteDocFile', { fcId, docType, storagePath });
             Alert.alert('삭제 완료', '파일을 삭제했습니다.');
             refetch();
           } catch (err: unknown) {
@@ -1063,6 +923,7 @@ export default function DashboardScreen() {
     try {
       setReminderLoading(fc.id);
       await sendNotificationAndPush(
+        residentId,
         'fc',
         fc.phone,
         '등록 안내',
@@ -1129,6 +990,7 @@ export default function DashboardScreen() {
         extra: { allowance_date: null, allowance_reject_reason: reason },
       });
       await sendNotificationAndPush(
+        residentId,
         'fc',
         rejectTarget.phone,
         '수당 동의 반려',
@@ -1264,6 +1126,7 @@ export default function DashboardScreen() {
                   style={[styles.scheduleInput, { flex: 1 }]}
                   value={currentTemp}
                   placeholder="임시사번 입력 (예: T-12345)"
+                  placeholderTextColor="#9CA3AF"
                   onChangeText={(t) => setTempInputs((prev) => ({ ...prev, [fc.id]: t }))}
                 />
                 <Pressable
@@ -1323,6 +1186,7 @@ export default function DashboardScreen() {
                         extra: { allowance_reject_reason: null },
                       });
                       await sendNotificationAndPush(
+                        residentId,
                         'fc',
                         fc.phone,
                         '수당동의 승인',
@@ -1463,8 +1327,11 @@ export default function DashboardScreen() {
                 <TextInput
                   style={[styles.miniInput, { flex: 1, backgroundColor: '#fff' }]}
                   placeholder="기타 서류 입력"
+                  placeholderTextColor="#6B7280"
                   value={customDocInputs[fc.id] || ''}
-                  onChangeText={(text) => setCustomDocInputs((prev) => ({ ...prev, [fc.id]: text }))}
+                  onChangeText={(text) =>
+                    setCustomDocInputs((prev) => ({ ...prev, [fc.id]: normalizeCustomDocInput(text) }))
+                  }
                 />
                 <Pressable
                   style={[styles.saveBtn, { backgroundColor: '#4b5563' }]}
@@ -1780,6 +1647,7 @@ export default function DashboardScreen() {
                   value={tempInputs[fc.id] ?? fc.temp_id ?? ''}
                   onChangeText={(t) => setTempInputs((p) => ({ ...p, [fc.id]: t }))}
                   placeholder="T-12345"
+                  placeholderTextColor={MUTED}
                 />
                 {(() => {
                   const currentTemp = tempInputs[fc.id] ?? fc.temp_id ?? '';
@@ -1915,8 +1783,11 @@ export default function DashboardScreen() {
                 <TextInput
                   style={[styles.miniInput, { height: 36 }]}
                   placeholder="기타 서류 입력"
+                  placeholderTextColor="#6B7280"
                   value={customDocInputs[fc.id] || ''}
-                  onChangeText={(text) => setCustomDocInputs((prev) => ({ ...prev, [fc.id]: text }))}
+                  onChangeText={(text) =>
+                    setCustomDocInputs((prev) => ({ ...prev, [fc.id]: normalizeCustomDocInput(text) }))
+                  }
                 />
                 <Pressable
                   style={[styles.saveBtn, { backgroundColor: '#4b5563' }]}
@@ -2650,6 +2521,7 @@ const styles = StyleSheet.create({
     borderRadius: 8,
     paddingHorizontal: 10,
     fontSize: 13,
+    color: CHARCOAL,
     backgroundColor: '#fff',
   },
   miniInput: {
@@ -2660,6 +2532,7 @@ const styles = StyleSheet.create({
     borderRadius: 8,
     paddingHorizontal: 10,
     fontSize: 13,
+    color: CHARCOAL,
     backgroundColor: '#fff',
   },
   dateSelectButton: {
@@ -2674,7 +2547,7 @@ const styles = StyleSheet.create({
     backgroundColor: '#fff',
   },
   dateSelectText: { fontSize: 13, color: CHARCOAL, fontWeight: '600' },
-  dateSelectPlaceholder: { color: '#9CA3AF', fontWeight: '500' },
+  dateSelectPlaceholder: { color: MUTED, fontWeight: '500' },
   saveButton: {
     backgroundColor: CHARCOAL,
     paddingHorizontal: 14,

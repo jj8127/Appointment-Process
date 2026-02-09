@@ -28,35 +28,44 @@ const MUTED = '#6b7280';
 const BORDER = '#E5E7EB';
 const BACKGROUND = '#F3F4F6';
 const INPUT_BG = '#F9FAFB';
-const EXPO_PUSH_URL = 'https://exp.host/--/api/v2/push/send';
 
 async function notifyAllFcs(title: string, body: string) {
-  await supabase.from('notifications').insert({
-    title,
-    body,
-    category: 'exam_round',
-    recipient_role: 'fc',
-    resident_id: null,
-  });
-
-  const { data: tokens } = await supabase.from('device_tokens').select('expo_push_token').eq('role', 'fc');
-  const payload =
-    tokens?.map((t: any) => ({
-      to: t.expo_push_token,
+  const { data, error } = await supabase.functions.invoke('fc-notify', {
+    body: {
+      type: 'notify',
+      target_role: 'fc',
+      target_id: null,
       title,
       body,
-      data: { type: 'exam_round', url: '/exam-apply' },
-      sound: 'default',
-      priority: 'high',
-      channelId: 'alerts',
-    })) ?? [];
-  if (payload.length) {
-    await fetch(EXPO_PUSH_URL, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(payload),
-    });
+      category: 'exam_round',
+      url: '/exam-apply',
+    },
+  });
+  if (error) throw error;
+  if (!data?.ok) {
+    throw new Error(data?.message ?? '알림 전송 실패');
   }
+}
+
+async function adminAction(
+  adminPhone: string,
+  action: string,
+  payload: Record<string, unknown>,
+): Promise<{ ok: boolean; [key: string]: unknown }> {
+  const normalizedPhone = (adminPhone ?? '').replace(/[^0-9]/g, '');
+  if (!normalizedPhone) {
+    throw new Error('로그인 정보가 없습니다. 다시 로그인해주세요.');
+  }
+  const { data, error } = await supabase.functions.invoke('admin-action', {
+    body: { adminPhone: normalizedPhone, action, payload },
+  });
+  if (error) {
+    throw new Error(error instanceof Error ? error.message : '관리자 처리 중 오류가 발생했습니다.');
+  }
+  if (!data?.ok) {
+    throw new Error(data?.message ?? '관리자 처리 중 오류가 발생했습니다.');
+  }
+  return data as { ok: boolean; [key: string]: unknown };
 }
 
 const weekdays = ['일', '월', '화', '수', '목', '금', '토'];
@@ -151,7 +160,7 @@ function RoundedButton({
 }
 
 export default function ExamRegisterScreen() {
-  const { role, readOnly } = useSession();
+  const { role, readOnly, residentId } = useSession();
   const canEdit = role === 'admin' && !readOnly;
   const assertCanEdit = () => {
     if (!canEdit) {
@@ -236,43 +245,26 @@ export default function ExamRegisterScreen() {
         round_label: roundForm.roundLabel.trim() || null,
         notes: roundForm.notes.trim() || null,
       };
-      if (mode === 'update') {
-        if (!selectedRoundId) throw new Error('수정할 시험 차수가 선택되지 않았습니다.');
-        const { error } = await supabase
-          .from('exam_rounds')
-          .update(payload)
-          .eq('id', selectedRoundId);
-        if (error) throw error;
-        const targetId = selectedRoundId;
-        if (draftLocations.length > 0) {
-          const rows = draftLocations.map((loc) => ({
-            round_id: targetId,
-            location_name: loc.name,
-            sort_order: loc.order,
-          }));
-          const { error: locErr } = await supabase.from('exam_locations').insert(rows);
-          if (locErr) throw locErr;
-        }
-        return { id: targetId };
-      } else {
-        const { data, error } = await supabase
-          .from('exam_rounds')
-          .insert(payload)
-          .select('id')
-          .single();
-        if (error) throw error;
-        const targetId = data.id as string;
-        if (draftLocations.length > 0) {
-          const rows = draftLocations.map((loc) => ({
-            round_id: targetId,
-            location_name: loc.name,
-            sort_order: loc.order,
-          }));
-          const { error: locErr } = await supabase.from('exam_locations').insert(rows);
-          if (locErr) throw locErr;
-        }
-        return { id: targetId };
+      if (mode === 'update' && !selectedRoundId) {
+        throw new Error('수정할 시험 차수가 선택되지 않았습니다.');
       }
+
+      const locationRows = draftLocations.map((loc) => ({
+        location_name: loc.name,
+        sort_order: loc.order,
+      }));
+
+      const result = await adminAction(residentId ?? '', 'upsertExamRound', {
+        roundId: mode === 'update' ? selectedRoundId : null,
+        data: payload,
+        locations: locationRows,
+      });
+
+      const savedId = (result.roundId as string | undefined) ?? selectedRoundId ?? null;
+      if (!savedId) {
+        throw new Error('시험 일정 저장에 실패했습니다.');
+      }
+      return { id: savedId };
     },
     onSuccess: async (res, mode) => {
       Alert.alert(
@@ -289,10 +281,10 @@ export default function ExamRegisterScreen() {
 
       const examTitle = `${formatDate(toYmd(examDate) || '')}${roundForm.roundLabel ? ` (${roundForm.roundLabel})` : ''}`;
       const actionLabel = mode === 'create' ? '등록' : '수정';
-      await notifyAllFcs(
+      void notifyAllFcs(
         `${examTitle} 일정이 ${actionLabel}되었습니다.`,
         '응시를 희망하는 경우 신청해주세요.',
-      );
+      ).catch(() => undefined);
     },
     onSettled: (_data, error) => {
       if (error) {
@@ -335,8 +327,7 @@ export default function ExamRegisterScreen() {
   const deleteRound = useMutation({
     mutationFn: async (id: string) => {
       assertCanEdit();
-      const { error } = await supabase.from('exam_rounds').delete().eq('id', id);
-      if (error) throw error;
+      await adminAction(residentId ?? '', 'deleteExamRound', { roundId: id });
     },
     onSuccess: () => {
       refetch();

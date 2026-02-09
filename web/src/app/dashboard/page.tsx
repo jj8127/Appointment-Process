@@ -657,6 +657,7 @@ export default function DashboardPage() {
           <TextInput
             label="예정(Plan)"
             placeholder="예: 12월 2차 / 1월 1차"
+            classNames={{ input: 'muted-placeholder-input' }}
             value={schedule ?? ''}
             onChange={(e) => {
               const val = e.currentTarget?.value || '';
@@ -1065,6 +1066,7 @@ export default function DashboardPage() {
             <TextInput
               placeholder="이름, 연락처 검색"
               leftSection={<IconSearch size={16} stroke={1.5} />}
+              classNames={{ input: 'muted-placeholder-input' }}
               value={keyword}
               onChange={(e) => {
                 const val = e.currentTarget?.value || '';
@@ -1185,6 +1187,7 @@ export default function DashboardPage() {
                   <TextInput
                     label="임시사번"
                     placeholder="T-123456"
+                    classNames={{ input: 'muted-placeholder-input' }}
                     value={tempIdInput}
                     onChange={(e) => {
                       const val = e.currentTarget?.value || '';
@@ -1500,6 +1503,7 @@ export default function DashboardPage() {
                         value={docsDeadlineInput}
                         onChange={handleDocsDeadlineChange}
                         placeholder="YYYY-MM-DD"
+                        classNames={{ input: 'muted-placeholder-input' }}
                         valueFormat="YYYY-MM-DD"
                         clearable
                         size="sm"
@@ -1571,12 +1575,14 @@ export default function DashboardPage() {
                   <Group align="flex-end" gap={6}>
                     <TextInput
                       placeholder="기타 서류 입력"
+                      classNames={{ input: 'muted-placeholder-input' }}
                       style={{ flex: 1 }}
                       size="xs"
                       value={customDocInput}
                       onChange={(e) => {
                         const val = e.currentTarget?.value || '';
-                        setCustomDocInput(val);
+                        const cleaned = val.replace(/\u200B/g, '').trimStart();
+                        setCustomDocInput(cleaned.trim().length === 0 ? '' : cleaned);
                       }}
                     />
                     <Button
@@ -1679,6 +1685,7 @@ export default function DashboardPage() {
           </Text>
           <Textarea
             placeholder="예: 서류 식별이 어려워 재제출이 필요합니다."
+            classNames={{ input: 'muted-placeholder-input' }}
             minRows={3}
             value={rejectReason}
             onChange={(e) => setRejectReason(e.currentTarget.value)}

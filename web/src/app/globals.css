@@ -35,3 +35,12 @@ body {
   font-weight: 700;
   font-size: 1.1rem;
 }
+
+.muted-placeholder-input {
+  color: #111827;
+}
+
+.muted-placeholder-input::placeholder {
+  color: #6b7280 !important;
+  opacity: 1;
+}

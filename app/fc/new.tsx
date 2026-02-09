@@ -126,8 +126,6 @@ const EMAIL_DOMAINS = [
 const CARRIER_OPTIONS = ['SKT', 'KT', 'LGU+', 'SKT 알뜰폰', 'KT 알뜰폰', 'LGU+ 알뜰폰'];
 const SIGNUP_STORAGE_KEY = 'fc-onboarding/signup';
 
-const EXPO_PUSH_URL = 'https://exp.host/--/api/v2/push/send';
-
 async function sendNotificationAndPush(
   role: 'admin' | 'fc',
   residentId: string | null,
@@ -135,37 +133,20 @@ async function sendNotificationAndPush(
   body: string,
 ) {
   try {
-    await supabase.from('notifications').insert({
-      title,
-      body,
-      category: 'app_event',
-      recipient_role: role,
-      resident_id: residentId,
-    });
-
-    const baseQuery = supabase.from('device_tokens').select('expo_push_token');
-    const { data: tokens } =
-      role === 'fc' && residentId
-        ? await baseQuery.eq('role', 'fc').eq('resident_id', residentId)
-        : await baseQuery.eq('role', 'admin');
-
-    const payload =
-      tokens?.map((t: any) => ({
-        to: t.expo_push_token,
+    const { data, error } = await supabase.functions.invoke('fc-notify', {
+      body: {
+        type: 'notify',
+        target_role: role,
+        target_id: residentId,
         title,
         body,
-        data: { type: 'app_event', resident_id: residentId },
-        sound: 'default',
-        priority: 'high',
-        channelId: 'alerts',
-      })) ?? [];
-
-    if (payload.length) {
-      await fetch(EXPO_PUSH_URL, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload),
-      });
+        category: 'app_event',
+        url: '/dashboard',
+      },
+    });
+    if (error) throw error;
+    if (!data?.ok) {
+      throw new Error(data?.message ?? '알림 전송 실패');
     }
   } catch (err) {
     logger.warn('sendNotificationAndPush failed', err);

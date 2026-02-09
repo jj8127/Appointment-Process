@@ -17,7 +17,11 @@
       "Bash(ls:*)",
       "Bash(xargs -I {} bash -c 'echo \"\"{}:\"\" && grep -c \"\"bottomNav\\\\|Animated.ScrollView\"\" {} 2>/dev/null || echo 0')",
       "mcp__filesystem__write_file",
-      "Bash(supabase functions deploy:*)"
+      "Bash(supabase functions deploy:*)",
+      "Bash(test:*)",
+      "Bash(git commit:*)",
+      "Bash(eas build:*)",
+      "Bash(npm install:*)"
     ]
   }
 }

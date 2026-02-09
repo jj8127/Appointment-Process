@@ -225,15 +225,3 @@ export const TOAST = {
     bottom: 100,
   },
 } as const;
-
-// Deprecated colors (for migration reference)
-// TODO: Remove these after migrating all files
-export const DEPRECATED = {
-  ORANGE: COLORS.primary,
-  ORANGE_LIGHT: COLORS.primaryLight,
-  CHARCOAL: COLORS.charcoal,
-  GRAY: COLORS.gray[500],
-  LIGHT_GRAY: COLORS.gray[200],
-  TEXT_MUTED: COLORS.text.muted,
-  BG_GRAY: COLORS.background.secondary,
-} as const;

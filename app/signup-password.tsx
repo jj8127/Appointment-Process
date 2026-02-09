@@ -104,58 +104,17 @@ export default function SignupPasswordScreen() {
 
     setLoading(true);
     try {
-      const { data: existing, error: fetchError } = await supabase
-        .from('fc_profiles')
-        .select('id')
-        .eq('phone', payload.phone)
-        .maybeSingle();
-
-      if (fetchError) {
-        Alert.alert('오류', '회원 정보 조회에 실패했습니다.');
-        return;
-      }
-
-      if (existing?.id) {
-        logger.debug('[signup] Updating existing profile', { id: existing.id, payload });
-        const { error: updateError } = await supabase
-          .from('fc_profiles')
-          .update({
-            name: payload.name,
-            affiliation: payload.affiliation,
-            recommender: payload.recommender,
-            email: payload.email,
-            carrier: payload.carrier,
-          })
-          .eq('id', existing.id);
-        if (updateError) {
-          logger.error('[signup] Profile update failed', updateError);
-          Alert.alert('오류', '회원 정보 저장에 실패했습니다.');
-          return;
-        }
-        logger.debug('[signup] Profile updated successfully');
-      } else {
-        logger.debug('[signup] Inserting new profile', { payload });
-        const { error: insertError } = await supabase.from('fc_profiles').insert({
+      // Pass profile data to set-password Edge Function (service role key handles RLS)
+      const { data, error } = await supabase.functions.invoke('set-password', {
+        body: {
           phone: payload.phone,
+          password: trimmedPassword,
           name: payload.name,
           affiliation: payload.affiliation,
           recommender: payload.recommender,
           email: payload.email,
-          address: '',
-          status: 'draft',
-          identity_completed: false,
           carrier: payload.carrier,
-        });
-        if (insertError) {
-          logger.error('[signup] Profile insert failed', insertError);
-          Alert.alert('오류', '회원 정보 저장에 실패했습니다.');
-          return;
-        }
-        logger.debug('[signup] Profile inserted successfully');
-      }
-
-      const { data, error } = await supabase.functions.invoke('set-password', {
-        body: { phone: payload.phone, password: trimmedPassword },
+        },
       });
       if (error) {
         let detail = error.message;

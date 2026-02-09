@@ -23,6 +23,7 @@ import {
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
+import { useKeyboardPadding } from '@/hooks/use-keyboard-padding';
 import { useSession } from '@/hooks/use-session';
 import { supabase } from '@/lib/supabase';
 import { logger } from '@/lib/logger';
@@ -52,6 +53,7 @@ export default function ChatScreen() {
   const { role, residentId, displayName } = useSession();
   const { targetId, targetName } = useLocalSearchParams<{ targetId?: string; targetName?: string }>();
   const insets = useSafeAreaInsets();
+  const keyboardPadding = useKeyboardPadding();
 
   const myId = role === 'admin' ? 'admin' : residentId ?? '';
   const otherId = role === 'admin' ? targetId ?? '' : 'admin';
@@ -181,31 +183,26 @@ export default function ChatScreen() {
     const notiBody = type === 'text' ? content : type === 'image' ? '사진을 보냈습니다.' : '파일을 보냈습니다.';
     const senderName = role === 'admin' ? '총무팀' : displayName?.trim() || residentId || 'FC';
     const notiTitle = `${senderName}: ${notiBody}`;
+    const notifyUrl = isReceiverAdmin ? `/chat?targetId=${myId}&targetName=FC` : '/chat';
 
-    supabase
-      .from('notifications')
-      .insert({
-        title: notiTitle,
-        body: notiBody,
-        category: 'message',
-        recipient_role: recipientRole,
-        resident_id: residentIdForPush,
-      })
-      .then(async () => {
-        try {
-          await supabase.functions.invoke('fc-notify', {
-            body: {
-              type: 'message',
-              target_role: recipientRole,
-              target_id: residentIdForPush,
-              message: notiTitle,
-              sender_id: myId,
-            },
-          });
-        } catch (e) {
-          logger.warn('Error in message handling', { error: e });
-        }
+    try {
+      const { data: notifyData, error: notifyError } = await supabase.functions.invoke('fc-notify', {
+        body: {
+          type: 'notify',
+          target_role: recipientRole,
+          target_id: residentIdForPush,
+          title: notiTitle,
+          body: notiBody,
+          category: 'message',
+          url: notifyUrl,
+        },
       });
+      if (notifyError || !notifyData?.ok) {
+        logger.warn('Error in message notification', { error: notifyError ?? notifyData?.message });
+      }
+    } catch (e) {
+      logger.warn('Error in message notification', { error: e });
+    }
   };
 
   const handleSendText = () => {
@@ -452,7 +449,13 @@ export default function ChatScreen() {
         />
 
         {uploading && (
-          <View style={styles.uploadingOverlay}>
+          <View
+            style={[
+              styles.uploadingOverlay,
+              {
+                bottom: 80 + (Platform.OS === 'android' ? keyboardPadding : 0),
+              },
+            ]}>
             <ActivityIndicator size="small" color={HANWHA_ORANGE} />
             <Text style={styles.uploadingText}>파일 전송 중...</Text>
             <TouchableOpacity onPress={handleCancelUpload} style={styles.cancelUploadBtn} activeOpacity={0.8}>
@@ -466,7 +469,7 @@ export default function ChatScreen() {
           style={[
             styles.inputWrapper,
             {
-              paddingBottom: Math.max(insets.bottom, 12),
+              paddingBottom: Math.max(insets.bottom, 12) + (Platform.OS === 'android' ? keyboardPadding : 0),
             },
           ]}>
           <View style={styles.inputContainer}>

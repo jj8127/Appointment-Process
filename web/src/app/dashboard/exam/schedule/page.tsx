@@ -44,48 +44,6 @@ import { z } from 'zod';
 import { supabase } from '@/lib/supabase';
 import { useSession } from '@/hooks/use-session';
 
-import { logger } from '@/lib/logger';
-const EXPO_PUSH_URL = 'https://exp.host/--/api/v2/push/send';
-
-async function notifyAllFcs(title: string, body: string) {
-    const { error: insertError } = await supabase.from('notifications').insert({
-        title,
-        body,
-        category: 'exam_round',
-        recipient_role: 'fc',
-        resident_id: null,
-    });
-    if (insertError) throw insertError;
-
-    const { data: tokens, error: tokenError } = await supabase
-        .from('device_tokens')
-        .select('expo_push_token')
-        .eq('role', 'fc');
-    if (tokenError) throw tokenError;
-
-    const payload =
-        tokens?.filter((t: any) => t.expo_push_token).map((t: any) => ({
-            to: t.expo_push_token,
-            title,
-            body,
-            data: { type: 'exam_round', url: '/exam/apply' },
-            sound: 'default',
-            priority: 'high',
-            channelId: 'alerts',
-        })) ?? [];
-
-    if (!payload.length) return;
-    const resp = await fetch(EXPO_PUSH_URL, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload),
-    });
-    if (!resp.ok) {
-        const text = await resp.text();
-        throw new Error(`Expo push failed: ${resp.status} ${text}`);
-    }
-}
-
 // --- Constants ---
 const HANWHA_ORANGE = '#f36f21';
 const CHARCOAL = '#111827';
@@ -114,6 +72,14 @@ const roundSchema = z.object({
 });
 
 type RoundFormValues = z.infer<typeof roundSchema>;
+type RoundQueryRow = Omit<ExamRound, 'locations'> & {
+    exam_locations?: { id: string; location_name: string }[] | null;
+};
+
+const errorMessage = (err: unknown, fallback: string) => {
+    if (err instanceof Error && err.message) return err.message;
+    return fallback;
+};
 
 const validateRoundForm = (values: RoundFormValues) => {
     const result = roundSchema.safeParse(values);
@@ -122,7 +88,7 @@ const validateRoundForm = (values: RoundFormValues) => {
     }
 
     const errors: Record<string, string> = {};
-    const issues = result.error?.issues ?? (result.error as any)?.errors ?? [];
+    const issues = result.error?.issues ?? [];
     if (!Array.isArray(issues)) {
         return { form: '입력값을 다시 확인해주세요.' };
     }
@@ -175,7 +141,7 @@ export default function ExamSchedulePage() {
             if (roundError) throw roundError;
 
             // Transform to cleaner type
-            return (roundsData || []).map((r: any) => ({
+            return ((roundsData ?? []) as RoundQueryRow[]).map((r) => ({
                 ...r,
                 locations: r.exam_locations || [],
             })) as ExamRound[];
@@ -193,83 +159,17 @@ export default function ExamSchedulePage() {
                 round_label,
                 exam_type: values.exam_type,
                 notes,
+                locations: values.locations,
+                roundId: editingId,
+                actionLabel: editingId ? '수정' as const : '등록' as const,
             };
-
-            let roundId = editingId;
-
-            if (!roundId) {
-                // Insert Round
-                const { data, error } = await supabase
-                    .from('exam_rounds')
-                    .insert(payload)
-                    .select()
-                    .single();
-                if (error) throw error;
-                roundId = data.id;
-            } else {
-                // Update Round
-                const { error } = await supabase
-                    .from('exam_rounds')
-                    .update(payload)
-                    .eq('id', roundId);
-                if (error) throw error;
-            }
-
-            if (!roundId) throw new Error('Round ID missing');
-
-            // Manage Locations
-            // Strategy: 
-            // 1. Fetch existing locations for this round
-            // 2. Determine which to add (new tags)
-            // 3. For editing, we DO NOT delete existing locations to prevent FK errors with applications.
-            //    We only ADD new ones. If user removed a tag, we try to delete, but ignore FK error or checking it?
-            //    Simplest safe MVP: Only Insert new ones. Users cannot delete locations yet via this UI if it risks data integrity.
-            //    Or: Try to delete locations NOT in the new list. If creation fails, so be it.
-
-            const { data: existingLocs } = await supabase
-                .from('exam_locations')
-                .select('location_name, id')
-                .eq('round_id', roundId);
-
-            const existingNames = new Set(existingLocs?.map(l => l.location_name) || []);
-            const newNames = values.locations;
-
-            // To Add
-            const toAdd = newNames.filter(n => !existingNames.has(n));
-
-            if (toAdd.length > 0) {
-                const { error: insertErr } = await supabase.from('exam_locations').insert(
-                    toAdd.map((name, idx) => ({
-                        round_id: roundId,
-                        location_name: name,
-                        sort_order: idx // Simple order
-                    }))
-                );
-                if (insertErr) throw insertErr;
-            }
-
-            // To Delete (Only if user removed from tags)
-            // Warning: This will fail if applications exist. We wrap in try/catch or just let it fail silently/show warning.
-            const toRemove = existingLocs?.filter(l => !newNames.includes(l.location_name)) || [];
-            if (toRemove.length > 0) {
-                const { error: delError } = await supabase
-                    .from('exam_locations')
-                    .delete()
-                    .in('id', toRemove.map(l => l.id));
-
-                if (delError) {
-                    logger.warn('Failed to delete some locations due to existing applications', delError);
-                    // Optional: Notify user
-                    if (delError.code === '23503') { // ForeignKeyViolation
-                        // We suppress this specific error for UX or show a warning toast?
-                        // Let's suppress and just log.
-                    } else {
-                        throw delError;
-                    }
-                }
+            const { saveExamRoundAction } = await import('./actions');
+            const result = await saveExamRoundAction({ success: false }, payload);
+            if (!result.success) {
+                throw new Error(result.error || '저장 실패');
             }
         },
-        onSuccess: async (_data, values) => {
+        onSuccess: () => {
             notifications.show({
                 title: editingId ? '수정 완료' : '등록 완료',
                 message: `시험 일정이 ${editingId ? '수정' : '등록'}되었습니다.`,
@@ -277,24 +177,11 @@ export default function ExamSchedulePage() {
             });
             queryClient.invalidateQueries({ queryKey: ['exam-rounds'] });
             handleClose();
-            try {
-                const dateLabel = values.exam_date && !values.is_date_tbd ? dayjs(values.exam_date).format('YYYY-MM-DD') : '미정';
-                const title = `${dateLabel}${values.round_label ? ` (${values.round_label})` : ''} 일정 ${editingId ? '수정' : '등록'}`;
-                const body = `시험 일정이 ${editingId ? '수정' : '등록'}되었습니다.`;
-                await notifyAllFcs(title, body);
-            } catch (err: any) {
-                logger.error('[exam-rounds] notify failed', err?.message ?? err);
-                notifications.show({
-                    title: '알림 전송 실패',
-                    message: err?.message ?? '알림 전송 중 오류가 발생했습니다.',
-                    color: 'yellow',
-                });
-            }
         },
-        onError: (err: any) => {
+        onError: (err: unknown) => {
             notifications.show({
                 title: '저장 실패',
-                message: err.message,
+                message: errorMessage(err, '저장 중 오류가 발생했습니다.'),
                 color: 'red',
             });
         },
@@ -319,10 +206,10 @@ export default function ExamSchedulePage() {
             setDeleteTarget(null);
             closeDelete();
         },
-        onError: (err: any) => {
+        onError: (err: unknown) => {
             notifications.show({
                 title: '삭제 실패',
-                message: err.message || '오류가 발생했습니다.',
+                message: errorMessage(err, '오류가 발생했습니다.'),
                 color: 'red',
             });
         },
