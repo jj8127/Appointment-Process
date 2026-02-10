@@ -1050,15 +1050,7 @@ export default function DashboardScreen() {
   };
   const renderAdminActions = (fc: FcRow) => {
     if (role !== 'admin') return null;
-    if (!canEdit) {
-      return (
-        <View style={styles.cardSection}>
-          <Text style={styles.cardTitle}>관리자 기능</Text>
-          <Text style={{ color: MUTED, fontSize: 13 }}>본부장은 조회 전용 계정입니다.</Text>
-        </View>
-      );
-    }
-    const isEditing = !!editMode[fc.id];
+    const isEditing = canEdit ? !!editMode[fc.id] : false;
     const actionBlocks: React.ReactNode[] = [];
 
     if (!isEditing) {
@@ -1073,9 +1065,9 @@ export default function DashboardScreen() {
               <Text style={styles.actionButtonTextSecondary}>전화로 안내하기</Text>
             </Pressable>
             <Pressable
-              style={styles.actionButtonPrimary}
+              style={[styles.actionButtonPrimary, !canEdit && styles.actionButtonDisabled]}
               onPress={() => handleSendReminder(fc)}
-              disabled={reminderLoading === fc.id}
+              disabled={!canEdit || reminderLoading === fc.id}
             >
               <Feather name="send" size={16} color="#fff" />
               <Text style={styles.actionButtonText}>알림 전송</Text>
@@ -1109,9 +1101,11 @@ export default function DashboardScreen() {
                       style={[
                         styles.filterTab,
                         isSelected && styles.filterTabActive,
-                        { flex: 1, alignItems: 'center', justifyContent: 'center' }
+                        { flex: 1, alignItems: 'center', justifyContent: 'center' },
+                        !canEdit && { opacity: 0.6 },
                       ]}
                       onPress={() => setCareerInputs((prev) => ({ ...prev, [fc.id]: type }))}
+                      disabled={!canEdit}
                     >
                       <Text style={[styles.filterText, isSelected && styles.filterTextActive]}>
                         {type}
@@ -1128,12 +1122,13 @@ export default function DashboardScreen() {
                   placeholder="임시사번 입력 (예: T-12345)"
                   placeholderTextColor="#9CA3AF"
                   onChangeText={(t) => setTempInputs((prev) => ({ ...prev, [fc.id]: t }))}
+                  editable={canEdit}
                 />
                 <Pressable
                   style={[
                     styles.saveBtn,
                     { paddingHorizontal: 20 },
-                    updateTemp.isPending && styles.actionButtonDisabled
+                    (!canEdit || updateTemp.isPending) && styles.actionButtonDisabled
                   ]}
                   onPress={() =>
                     updateTemp.mutate({
@@ -1144,7 +1139,7 @@ export default function DashboardScreen() {
                       phone: fc.phone,
                     })
                   }
-                  disabled={updateTemp.isPending}
+                  disabled={!canEdit || updateTemp.isPending}
                 >
                   <Text style={styles.saveBtnText}>
                     {updateTemp.isPending ? '저장중...' : hasSavedTemp && currentTemp === fc.temp_id ? '수정' : '저장'}
@@ -1205,7 +1200,7 @@ export default function DashboardScreen() {
                 labelApproved="승인 완료"
                 showNeutralForPending
                 allowPendingPress
-                readOnly={false}
+                readOnly={!canEdit}
               />
             </View>
           </View>
@@ -1228,7 +1223,7 @@ export default function DashboardScreen() {
                 <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: 8, alignItems: 'center' }}>
                   <Text style={{ fontSize: 13, fontWeight: '600', color: CHARCOAL }}>필수 서류 요청</Text>
                   <Pressable
-                    style={[styles.docSaveButton, updateDocReqs.isPending && styles.actionButtonDisabled]}
+                    style={[styles.docSaveButton, (!canEdit || updateDocReqs.isPending) && styles.actionButtonDisabled]}
                     onPress={() =>
                       updateDocReqs.mutate({
                         id: fc.id,
@@ -1238,7 +1233,7 @@ export default function DashboardScreen() {
                         currentDeadline: fc.docs_deadline_at ?? null,
                       })
                     }
-                    disabled={updateDocReqs.isPending}
+                    disabled={!canEdit || updateDocReqs.isPending}
                   >
                     <Text style={styles.docSaveButtonText}>
                       {updateDocReqs.isPending ? '저장중...' : '요청 저장'}
@@ -1249,7 +1244,8 @@ export default function DashboardScreen() {
                 <View style={{ flexDirection: 'row', gap: 8, alignItems: 'center', marginBottom: 8 }}>
                   <Text style={{ fontSize: 12, color: MUTED, minWidth: 70 }}>서류 마감일</Text>
                   <Pressable
-                    style={[styles.dateSelectButton, { flex: 1 }]}
+                    style={[styles.dateSelectButton, { flex: 1 }, !canEdit && { opacity: 0.6 }]}
+                    disabled={!canEdit}
                     onPress={() => {
                       const baseDate = parseYmd(docDeadlineInputs[fc.id]) ?? new Date();
                       setDocDeadlineTempDate(baseDate);
@@ -1299,6 +1295,7 @@ export default function DashboardScreen() {
                         isSubmitted && styles.docChipSubmitted,
                       ]}
                       onPress={() => toggleDocSelection(fc.id, doc)}
+                      disabled={!canEdit}
                     >
                       <Text style={[styles.docChipText, { color: textColor }]}>{doc}</Text>
                     </Pressable>
@@ -1316,6 +1313,7 @@ export default function DashboardScreen() {
                         isSubmitted && styles.docChipSubmitted,
                       ]}
                       onPress={() => toggleDocSelection(fc.id, doc)}
+                      disabled={!canEdit}
                     >
                       <Text style={[styles.docChipText, { color: textColor }]}>{doc}</Text>
                     </Pressable>
@@ -1332,10 +1330,12 @@ export default function DashboardScreen() {
                   onChangeText={(text) =>
                     setCustomDocInputs((prev) => ({ ...prev, [fc.id]: normalizeCustomDocInput(text) }))
                   }
+                  editable={canEdit}
                 />
                 <Pressable
-                  style={[styles.saveBtn, { backgroundColor: '#4b5563' }]}
+                  style={[styles.saveBtn, { backgroundColor: '#4b5563' }, !canEdit && styles.actionButtonDisabled]}
                   onPress={() => addCustomDoc(fc.id)}
+                  disabled={!canEdit}
                 >
                   <Text style={styles.saveBtnText}>추가</Text>
                 </Pressable>
@@ -1400,10 +1400,11 @@ export default function DashboardScreen() {
                           labelApproved="승인"
                         showNeutralForPending
                         allowPendingPress
-                        readOnly={false}
+                        readOnly={!canEdit}
                       />
                       <Pressable
-                        style={styles.deleteIconButton}
+                        style={[styles.deleteIconButton, !canEdit && { opacity: 0.4 }]}
+                        disabled={!canEdit}
                         onPress={() =>
                           deleteDocFile({
                             fcId: fc.id,
@@ -1452,6 +1453,7 @@ export default function DashboardScreen() {
                       [fc.id]: { ...(prev[fc.id] ?? {}), life: t },
                     }))
                   }
+                  editable={canEdit}
                 />
               </View>
               <View style={styles.scheduleInputGroup}>
@@ -1467,11 +1469,12 @@ export default function DashboardScreen() {
                       [fc.id]: { ...(prev[fc.id] ?? {}), nonlife: t },
                     }))
                   }
+                  editable={canEdit}
                 />
               </View>
               <Pressable
-                style={[styles.saveBtn, updateAppointmentSchedule.isPending && styles.actionButtonDisabled]}
-                disabled={updateAppointmentSchedule.isPending}
+                style={[styles.saveBtn, (!canEdit || updateAppointmentSchedule.isPending) && styles.actionButtonDisabled]}
+                disabled={!canEdit || updateAppointmentSchedule.isPending}
                 onPress={() => {
                   const lifeVal = (scheduleInput.life ?? '').trim();
                   const nonlifeVal = (scheduleInput.nonlife ?? '').trim();
@@ -1541,7 +1544,7 @@ export default function DashboardScreen() {
                   labelApproved="승인"
                 showNeutralForPending
                 allowPendingPress
-                readOnly={false}
+                readOnly={!canEdit}
               />
             </View>
 
@@ -1590,49 +1593,53 @@ export default function DashboardScreen() {
                   labelApproved="승인"
                 showNeutralForPending
                 allowPendingPress
-                readOnly={false}
+                readOnly={!canEdit}
               />
             </View>
           </View>,
         );
       }
 
-      actionBlocks.push(
-        <View
-          key="danger-zone"
-          style={[
-            styles.cardSection,
-            { backgroundColor: '#fff5f5', borderColor: '#fecdd3' },
-          ]}
-        >
-          <Text style={{ fontSize: 13, fontWeight: '700', color: '#b91c1c', marginBottom: 8 }}>
-            FC 정보 삭제
-          </Text>
-          <Text style={{ color: '#b91c1c', fontSize: 12, marginBottom: 10 }}>
-            프로필과 제출된 서류가 모두 삭제됩니다. 복구할 수 없습니다.
-          </Text>
-          <Pressable
-            style={styles.deleteButton}
-            onPress={() => handleDeleteRequest(fc)}
-            disabled={deleteFc.isPending}
+      if (canEdit) {
+        actionBlocks.push(
+          <View
+            key="danger-zone"
+            style={[
+              styles.cardSection,
+              { backgroundColor: '#fff5f5', borderColor: '#fecdd3' },
+            ]}
           >
-            <Feather name="trash-2" size={16} color="#b91c1c" />
-            <Text style={styles.deleteText}>{deleteFc.isPending ? '삭제중...' : 'FC 정보 삭제'}</Text>
-          </Pressable>
-        </View>,
-      );
+            <Text style={{ fontSize: 13, fontWeight: '700', color: '#b91c1c', marginBottom: 8 }}>
+              FC 정보 삭제
+            </Text>
+            <Text style={{ color: '#b91c1c', fontSize: 12, marginBottom: 10 }}>
+              프로필과 제출된 서류가 모두 삭제됩니다. 복구할 수 없습니다.
+            </Text>
+            <Pressable
+              style={styles.deleteButton}
+              onPress={() => handleDeleteRequest(fc)}
+              disabled={deleteFc.isPending}
+            >
+              <Feather name="trash-2" size={16} color="#b91c1c" />
+              <Text style={styles.deleteText}>{deleteFc.isPending ? '삭제중...' : 'FC 정보 삭제'}</Text>
+            </Pressable>
+          </View>,
+        );
+      }
     }
 
     return (
       <View style={styles.actionArea}>
         <View style={styles.cardHeaderRow}>
-          <Text style={styles.cardTitle}>관리자 액션</Text>
-          <Pressable style={styles.toggleEditButton} onPress={() => toggleEditMode(fc.id)}>
-            <Text style={styles.toggleEditText}>
-              {isEditing ? '닫기' : '정보 수정 및 서류 재설정'}
-            </Text>
-            <Feather name={isEditing ? 'chevron-up' : 'settings'} size={14} color={MUTED} />
-          </Pressable>
+          <Text style={styles.cardTitle}>{canEdit ? '관리자 액션' : '관리자 현황 (읽기 전용)'}</Text>
+          {canEdit && (
+            <Pressable style={styles.toggleEditButton} onPress={() => toggleEditMode(fc.id)}>
+              <Text style={styles.toggleEditText}>
+                {isEditing ? '닫기' : '정보 수정 및 서류 재설정'}
+              </Text>
+              <Feather name={isEditing ? 'chevron-up' : 'settings'} size={14} color={MUTED} />
+            </Pressable>
+          )}
         </View>
 
         {!isEditing && actionBlocks}
@@ -1697,7 +1704,8 @@ export default function DashboardScreen() {
                 <View style={{ flexDirection: 'row', gap: 8, alignItems: 'center', marginBottom: 8 }}>
                   <Text style={{ fontSize: 12, color: MUTED, minWidth: 70 }}>서류 마감일</Text>
                   <Pressable
-                    style={[styles.dateSelectButton, { flex: 1 }]}
+                    style={[styles.dateSelectButton, { flex: 1 }, !canEdit && { opacity: 0.6 }]}
+                    disabled={!canEdit}
                     onPress={() => {
                       const baseDate = parseYmd(docDeadlineInputs[fc.id]) ?? new Date();
                       setDocDeadlineTempDate(baseDate);
@@ -1753,6 +1761,7 @@ export default function DashboardScreen() {
                         isSubmitted && styles.docChipSubmitted,
                       ]}
                       onPress={() => toggleDocSelection(fc.id, doc)}
+                      disabled={!canEdit}
                     >
                       <Text style={[styles.docChipText, { color: textColor }]}>{doc}</Text>
                     </Pressable>
@@ -1770,6 +1779,7 @@ export default function DashboardScreen() {
                         isSubmitted && styles.docChipSubmitted,
                       ]}
                       onPress={() => toggleDocSelection(fc.id, doc)}
+                      disabled={!canEdit}
                     >
                       <Text style={[styles.docChipText, { color: textColor }]}>{doc}</Text>
                     </Pressable>

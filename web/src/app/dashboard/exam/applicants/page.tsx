@@ -194,6 +194,7 @@ type ExamRegistrationRow = {
 };
 
 type ProfileRow = {
+    id: string;
     phone: string;
     name: string | null;
     affiliation: string | null;
@@ -259,21 +260,40 @@ export default function ExamApplicantsPage() {
 
             const { data: profiles } = await supabase
                 .from('fc_profiles')
-                .select('phone,name,affiliation,address,resident_id_masked')
+                .select('id,phone,name,affiliation,address,resident_id_masked')
                 .eq('signup_completed', true)
                 .in('phone', phones);
             const profileRows = (profiles ?? []) as ProfileRow[];
             const pmap = new Map(profileRows.map((p) => [p.phone, p]));
 
+            let residentNumbersByFcId: Record<string, string | null> = {};
+            const fcIds = Array.from(new Set(profileRows.map((p) => p.id).filter(Boolean)));
+            if (fcIds.length > 0) {
+                try {
+                    const resp = await fetch('/api/admin/resident-numbers', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ fcIds }),
+                    });
+                    const json = (await resp.json().catch(() => null)) as any;
+                    if (resp.ok && json?.ok) {
+                        residentNumbersByFcId = (json.residentNumbers ?? {}) as Record<string, string | null>;
+                    }
+                } catch {
+                    // If the server API fails, fall back to masked values (page stays usable).
+                }
+            }
+
             return base.map((b) => {
                 const p = pmap.get(b.resident_id);
+                const fullResident = p?.id ? residentNumbersByFcId[p.id] : null;
                 return {
                     ...b,
                     name: p?.name ?? '이름없음',
                     phone: p?.phone ?? b.resident_id,
                     affiliation: p?.affiliation ?? '-',
                     address: p?.address ?? '-',
-                    resident_id: p?.resident_id_masked ?? '-',
+                    resident_id: fullResident ?? p?.resident_id_masked ?? '-',
                 };
             });
         }

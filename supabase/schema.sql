@@ -366,7 +366,8 @@ create policy "fc_profiles select"
   on public.fc_profiles
   for select
   using (
-    public.is_admin()
+    auth.role() = 'anon'
+    or public.is_admin()
     or public.is_manager()
     or (public.is_fc() and id = public.current_fc_id())
   );
@@ -504,7 +505,8 @@ create policy "exam_rounds select"
   on public.exam_rounds
   for select
   using (
-    public.is_admin()
+    auth.role() = 'anon'
+    or public.is_admin()
     or public.is_manager()
     or public.is_fc()
   );
@@ -539,7 +541,8 @@ create policy "exam_locations select"
   on public.exam_locations
   for select
   using (
-    public.is_admin()
+    auth.role() = 'anon'
+    or public.is_admin()
     or public.is_manager()
     or public.is_fc()
   );
@@ -816,7 +819,8 @@ create policy "exam_registrations select"
   on public.exam_registrations
   for select
   using (
-    public.is_admin()
+    auth.role() = 'anon'
+    or public.is_admin()
     or public.is_manager()
     or (public.is_fc() and fc_id = public.current_fc_id())
   );
@@ -827,6 +831,12 @@ create policy "exam_registrations insert"
   for insert
   with check (public.is_admin() or (public.is_fc() and fc_id = public.current_fc_id()));
 
+drop policy if exists "exam_registrations anon insert" on public.exam_registrations;
+create policy "exam_registrations anon insert"
+  on public.exam_registrations
+  for insert
+  with check (auth.role() = 'anon');
+
 drop policy if exists "exam_registrations update" on public.exam_registrations;
 create policy "exam_registrations update"
   on public.exam_registrations
@@ -834,11 +844,23 @@ create policy "exam_registrations update"
   using (public.is_admin() or (public.is_fc() and fc_id = public.current_fc_id()))
   with check (public.is_admin() or (public.is_fc() and fc_id = public.current_fc_id()));
 
+drop policy if exists "exam_registrations anon update" on public.exam_registrations;
+create policy "exam_registrations anon update"
+  on public.exam_registrations
+  for update
+  using (auth.role() = 'anon');
+
 drop policy if exists "exam_registrations delete" on public.exam_registrations;
 create policy "exam_registrations delete"
   on public.exam_registrations
   for delete
   using (public.is_admin());
+
+drop policy if exists "exam_registrations anon delete" on public.exam_registrations;
+create policy "exam_registrations anon delete"
+  on public.exam_registrations
+  for delete
+  using (auth.role() = 'anon');
 
 -- 1) exam_type 컬럼 추가 (life / nonlife)
 alter table public.exam_rounds

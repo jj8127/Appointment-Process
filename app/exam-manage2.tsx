@@ -64,16 +64,16 @@ type FcProfile = {
 };
 
 type ApplicantRow = {
+  registrationId: string;
   residentId: string;
   headQuarter: string;
   name: string;
   residentNumber: string;
   address: string;
   phone: string;
-  exams: string[];
+  examInfo: string;
   isConfirmed: boolean;
   thirdExam: boolean;
-  latestRegistrationId: string;
   feePaidDate?: string | null;
 };
 
@@ -133,8 +133,7 @@ async function fetchApplicantsNonlife(): Promise<ApplicantRow[]> {
     `,
     )
     .eq('exam_rounds.exam_type', EXAM_TYPE)
-    .order('resident_id', { ascending: true })
-    .order('created_at', { ascending: true });
+    .order('created_at', { ascending: false });
 
   if (error) throw error;
   const rows = (data ?? []) as ExamRegistrationRaw[];
@@ -152,35 +151,26 @@ async function fetchApplicantsNonlife(): Promise<ApplicantRow[]> {
     profileMap = Object.fromEntries((profiles ?? []).map((p: any) => [p.phone as string, p as FcProfile]));
   }
 
-  const grouped: Record<string, ApplicantRow> = {};
+  const result: ApplicantRow[] = [];
   for (const reg of rows) {
     const key = reg.resident_id;
     const profile = profileMap[key];
     if (!profile) continue;
-    const examInfo = buildExamInfo(reg);
-    if (!grouped[key]) {
-      grouped[key] = {
-        residentId: key,
-        headQuarter: profile?.affiliation ?? '-',
-        name: profile?.name ?? '-',
-        residentNumber: profile?.resident_id_masked ?? '-',
-        address: profile?.address ?? '-',
-        phone: profile?.phone ?? key,
-        exams: examInfo ? [examInfo] : [],
-        isConfirmed: !!reg.is_confirmed,
-        thirdExam: !!reg.is_third_exam,
-        latestRegistrationId: reg.id,
-        feePaidDate: reg.fee_paid_date ?? null,
-      };
-    } else {
-      if (examInfo) grouped[key].exams.push(examInfo);
-      grouped[key].latestRegistrationId = reg.id;
-      grouped[key].isConfirmed = !!reg.is_confirmed;
-      grouped[key].thirdExam = !!reg.is_third_exam;
-      grouped[key].feePaidDate = reg.fee_paid_date ?? grouped[key].feePaidDate ?? null;
-    }
+    result.push({
+      registrationId: reg.id,
+      residentId: key,
+      headQuarter: profile?.affiliation ?? '-',
+      name: profile?.name ?? '-',
+      residentNumber: profile?.resident_id_masked ?? '-',
+      address: profile?.address ?? '-',
+      phone: profile?.phone ?? key,
+      examInfo: buildExamInfo(reg),
+      isConfirmed: !!reg.is_confirmed,
+      thirdExam: !!reg.is_third_exam,
+      feePaidDate: reg.fee_paid_date ?? null,
+    });
   }
-  return Object.values(grouped);
+  return result;
 }
 
 export default function ExamManageNonlifeScreen() {
@@ -215,8 +205,11 @@ export default function ExamManageNonlifeScreen() {
 
   const onRefresh = useCallback(async () => {
     setRefreshing(true);
-    await refetch();
-    setRefreshing(false);
+    try {
+      await refetch();
+    } finally {
+      setRefreshing(false);
+    }
   }, [refetch]);
 
   const filteredApplicants = useMemo(() => {
@@ -227,7 +220,7 @@ export default function ExamManageNonlifeScreen() {
         !keyword ||
         a.name.toLowerCase().includes(keyword) ||
         a.phone.includes(keyword) ||
-        a.exams.some((info) => info.toLowerCase().includes(keyword));
+        a.examInfo.toLowerCase().includes(keyword);
       let matchStatus = true;
       if (filterStatus === 'confirmed') matchStatus = a.isConfirmed;
       if (filterStatus === 'pending') matchStatus = !a.isConfirmed;
@@ -261,14 +254,14 @@ export default function ExamManageNonlifeScreen() {
   });
 
   const handleToggle = (applicant: ApplicantRow) => {
-    toggleMutation.mutate({ registrationId: applicant.latestRegistrationId, value: !applicant.isConfirmed });
+    toggleMutation.mutate({ registrationId: applicant.registrationId, value: !applicant.isConfirmed });
   };
 
   const renderCard = (a: ApplicantRow) => {
     const statusText = a.isConfirmed ? '접수 완료' : '미접수';
     const statusColor = a.isConfirmed ? BADGE_CONFIRMED_TEXT : BADGE_PENDING_TEXT;
     return (
-      <View key={a.residentId} style={styles.card}>
+      <View key={a.registrationId} style={styles.card}>
         <View style={styles.cardHeader}>
           <View>
             <Text style={styles.nameText}>
@@ -301,16 +294,12 @@ export default function ExamManageNonlifeScreen() {
           <InfoLabelValue label="주소" value={a.address} fullWidth />
         </View>
 
-        {a.exams.length > 0 && (
+        {a.examInfo ? (
           <View style={styles.examSection}>
             <Text style={styles.examLabel}>신청 내역</Text>
-            {a.exams.map((info, idx) => (
-              <Text key={idx} style={styles.examText}>
-                • {info}
-              </Text>
-            ))}
+            <Text style={styles.examText}>• {a.examInfo}</Text>
           </View>
-        )}
+        ) : null}
       </View>
     );
   };

@@ -24,6 +24,8 @@ if (!serviceKey) throw new Error('Missing SUPABASE_SERVICE_ROLE_KEY');
 
 const supabase = createClient(supabaseUrl, serviceKey);
 
+const textDecoder = new TextDecoder();
+
 function json(body: Record<string, unknown>, status = 200) {
   return new Response(JSON.stringify(body), {
     status,
@@ -40,6 +42,41 @@ type ActionRequest = {
   action: string;
   payload: Record<string, any>;
 };
+
+function toBase64(bytes: Uint8Array) {
+  let binary = '';
+  bytes.forEach((b) => (binary += String.fromCharCode(b)));
+  return btoa(binary);
+}
+
+function fromBase64(input: string) {
+  const binary = atob(input);
+  const bytes = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i += 1) {
+    bytes[i] = binary.charCodeAt(i);
+  }
+  return bytes;
+}
+
+async function importAesKeyForDecrypt(base64Key: string) {
+  const raw = fromBase64(base64Key);
+  return crypto.subtle.importKey('raw', raw, { name: 'AES-GCM' }, false, ['decrypt']);
+}
+
+async function decrypt(value: string, key: CryptoKey) {
+  const parts = value.split('.');
+  if (parts.length !== 2) throw new Error('Invalid encrypted value');
+  const iv = fromBase64(parts[0]);
+  const cipher = fromBase64(parts[1]);
+  const plain = new Uint8Array(await crypto.subtle.decrypt({ name: 'AES-GCM', iv }, key, cipher));
+  return textDecoder.decode(plain);
+}
+
+function isServiceRoleRequest(req: Request) {
+  const auth = req.headers.get('authorization') ?? '';
+  const token = auth.toLowerCase().startsWith('bearer ') ? auth.slice(7) : auth;
+  return token === serviceKey;
+}
 
 async function verifyAdmin(phone: string): Promise<boolean> {
   const { data } = await supabase
@@ -77,6 +114,70 @@ serve(async (req: Request) => {
   }
 
   try {
+    // ── getResidentNumbers (INTERNAL ONLY) ──
+    if (action === 'getResidentNumbers') {
+      // 주민번호 전체는 극도로 민감한 PII라서, 클라이언트(anon)에서 직접 호출되지 않도록
+      // 서버(서비스 롤)에서만 호출 가능하게 제한합니다.
+      if (!isServiceRoleRequest(req)) {
+        return fail('Unauthorized: internal only', 403);
+      }
+
+      const identityKey = getEnv('FC_IDENTITY_KEY');
+      if (!identityKey) {
+        return fail('Missing FC_IDENTITY_KEY', 500);
+      }
+
+      const { fcIds } = payload as { fcIds?: string[] };
+      if (!Array.isArray(fcIds) || fcIds.length === 0) return fail('fcIds are required');
+
+      const uniqueFcIds = Array.from(
+        new Set(
+          fcIds.map((v) => String(v ?? '').trim()).filter(Boolean),
+        ),
+      );
+
+      const key = await importAesKeyForDecrypt(identityKey);
+
+      const residentNumbers: Record<string, string | null> = {};
+      const chunkSize = 100;
+      for (let i = 0; i < uniqueFcIds.length; i += chunkSize) {
+        const chunk = uniqueFcIds.slice(i, i + chunkSize);
+        const { data: rows, error } = await supabase
+          .from('fc_identity_secure')
+          .select('fc_id,resident_number_encrypted')
+          .in('fc_id', chunk);
+        if (error) throw error;
+
+        for (const row of rows ?? []) {
+          const fcId = (row as any).fc_id as string;
+          const enc = (row as any).resident_number_encrypted as string | null;
+          if (!fcId || !enc) {
+            if (fcId) residentNumbers[fcId] = null;
+            continue;
+          }
+
+          try {
+            const plain = await decrypt(enc, key);
+            const digits = plain.replace(/[^0-9]/g, '');
+            if (digits.length === 13) {
+              residentNumbers[fcId] = `${digits.slice(0, 6)}-${digits.slice(6)}`;
+            } else {
+              residentNumbers[fcId] = null;
+            }
+          } catch {
+            residentNumbers[fcId] = null;
+          }
+        }
+      }
+
+      // ensure every requested id exists in map
+      for (const fcId of uniqueFcIds) {
+        if (!(fcId in residentNumbers)) residentNumbers[fcId] = null;
+      }
+
+      return json({ ok: true, residentNumbers });
+    }
+
     // ── updateProfile ──
     if (action === 'updateProfile') {
       const { fcId, data } = payload as { fcId: string; data: Record<string, any> };

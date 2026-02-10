@@ -1,18 +1,17 @@
 import { Feather } from '@expo/vector-icons';
-import React, { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
+import React, { createContext, useCallback, useContext, useEffect, useRef, useState } from 'react';
 import { Alert, Modal, Pressable, StyleSheet, Text, View } from 'react-native';
 import Animated, {
-  Easing,
   FadeIn,
   FadeOut,
+  runOnJS,
   useAnimatedStyle,
   useSharedValue,
   withSpring,
-  withTiming,
-  runOnJS,
+  withTiming
 } from 'react-native-reanimated';
 
-import { COLORS, RADIUS, SPACING, TYPOGRAPHY, ANIMATION, ALERT_VARIANTS } from '@/lib/theme';
+import { ALERT_VARIANTS, ANIMATION, COLORS, RADIUS, SPACING, TYPOGRAPHY } from '@/lib/theme';
 
 type ButtonStyle = 'default' | 'cancel' | 'destructive';
 type AlertVariant = 'info' | 'success' | 'warning' | 'error';
@@ -42,7 +41,7 @@ type AppAlertHandler = (
   options?: AppAlertOptions,
 ) => void;
 
-const AlertContext = createContext<AppAlertHandler>(() => {});
+const AlertContext = createContext<AppAlertHandler>(() => { });
 
 export function useAppAlert() {
   return useContext(AlertContext);
@@ -171,7 +170,7 @@ function AlertCard({
 export function AppAlertProvider({ children }: { children: React.ReactNode }) {
   const [queue, setQueue] = useState<AppAlert[]>([]);
   const currentAlert = queue[0] ?? null;
-  const showRef = useRef<AppAlertHandler>(() => {});
+  const showRef = useRef<AppAlertHandler>(() => { });
 
   const showAlert = useCallback<AppAlertHandler>((title, message, buttons, options) => {
     const normalizedButtons = normalizeButtons(buttons);
@@ -275,7 +274,7 @@ const styles = StyleSheet.create({
     marginTop: SPACING.lg,
     width: '100%',
     flexDirection: 'row',
-    justifyContent: 'flex-end',
+    justifyContent: 'space-between',
     gap: SPACING.sm,
   },
   buttonStack: {
@@ -292,7 +291,7 @@ const styles = StyleSheet.create({
     minHeight: 44,
   },
   buttonCompact: {
-    minWidth: 100,
+    width: 100,
   },
   buttonFull: {
     width: '100%',

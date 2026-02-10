@@ -7,16 +7,16 @@ import { router } from 'expo-router';
 import { AnimatePresence, MotiView } from 'moti';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
-    ActivityIndicator,
-    Alert,
-    Modal,
-    Platform,
-    Pressable,
-    RefreshControl,
-    ScrollView,
-    StyleSheet,
-    Text,
-    View,
+  ActivityIndicator,
+  Alert,
+  Modal,
+  Platform,
+  Pressable,
+  RefreshControl,
+  ScrollView,
+  StyleSheet,
+  Text,
+  View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
@@ -24,8 +24,8 @@ import { KeyboardAwareWrapper } from '@/components/KeyboardAwareWrapper';
 import { RefreshButton } from '@/components/RefreshButton';
 import { useIdentityGate } from '@/hooks/use-identity-gate';
 import { useSession } from '@/hooks/use-session';
-import { supabase } from '@/lib/supabase';
 import { logger } from '@/lib/logger';
+import { supabase } from '@/lib/supabase';
 import { ExamRoundWithLocations, formatDate } from '@/types/exam';
 
 const HANWHA_ORANGE = '#f36f21';
@@ -37,6 +37,20 @@ const ORANGE_FAINT = '#fff1e6';
 const weekdays = ['일', '월', '화', '수', '목', '금', '토'];
 const formatKoreanDate = (d: Date) =>
   `${d.getFullYear()}년 ${d.getMonth() + 1}월 ${d.getDate()}일 (${weekdays[d.getDay()]})`;
+const formatExamInfo = (dateStr?: string | null, label?: string | null) => {
+  const labelPart = label || '';
+  let datePart = '응시 날짜 미정';
+
+  if (dateStr) {
+    const d = new Date(dateStr);
+    if (!Number.isNaN(d.getTime())) {
+      datePart = `${d.getMonth() + 1}월 ${d.getDate()}일`;
+    }
+  }
+
+  if (labelPart) return `${labelPart} / ${datePart}`;
+  return datePart;
+};
 const toYmd = (d: Date) =>
   `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 const CARD_SHADOW = {
@@ -168,6 +182,10 @@ export default function ExamApplyScreen() {
   const [feePaidDate, setFeePaidDate] = useState<Date | null>(null);
   const [showFeePaidPicker, setShowFeePaidPicker] = useState(false);
   const [tempFeePaidDate, setTempFeePaidDate] = useState<Date | null>(null);
+  const [selectedApplyId, setSelectedApplyId] = useState<string | null>(null);
+  const [isDropdownOpen, setIsDropdownOpen] = useState(false);
+
+
 
   useEffect(() => {
     if (!hydrated) return;
@@ -226,40 +244,44 @@ export default function ExamApplyScreen() {
     [selectedRound],
   );
 
-  const { data: myLastApply, refetch: refetchMyApply } = useQuery<MyExamApply | null>({
-    queryKey: ['my-exam-apply', residentId],
+  const { data: myApplies = [], refetch: refetchMyApply } = useQuery<MyExamApply[]>({
+    queryKey: ['my-exam-apply-life', residentId],
     enabled: role === 'fc' && !!residentId,
-    queryFn: async (): Promise<MyExamApply | null> => {
+    queryFn: async (): Promise<MyExamApply[]> => {
       const { data, error } = await supabase
         .from('exam_registrations')
         .select(
-          'id, round_id, location_id, status, is_confirmed, is_third_exam, created_at, exam_rounds(exam_date, round_label), exam_locations(location_name)',
+          'id, round_id, location_id, status, is_confirmed, is_third_exam, created_at, exam_rounds!inner(exam_date, round_label, exam_type), exam_locations(location_name)',
         )
         .eq('resident_id', residentId)
-        .order('created_at', { ascending: false })
-        .limit(1)
-        .maybeSingle();
+        .eq('exam_rounds.exam_type', 'life')
+        .order('created_at', { ascending: false });
 
       if (error && (error as any).code === '42P01') {
-        return null;
+        return [];
       }
       if (error) throw error;
 
-      // Requirement 1: If exam round is deleted (null), treat as no application
-      if (!data?.exam_rounds) {
-        return null;
-      }
-
-      return {
-        ...data,
-        exam_rounds: normalizeSingle(data?.exam_rounds as any),
-        exam_locations: normalizeSingle(data?.exam_locations as any),
-      } as MyExamApply | null;
+      return (data ?? [])
+        .filter((d: any) => d.exam_rounds)
+        .map((d: any) => ({
+          ...d,
+          exam_rounds: normalizeSingle(d.exam_rounds),
+          exam_locations: normalizeSingle(d.exam_locations),
+        })) as MyExamApply[];
     },
   });
 
-  const isConfirmed = !!myLastApply?.is_confirmed;
-  const statusLabel = isConfirmed ? '접수 완료' : '미접수';
+  const currentApply = useMemo(() => {
+    if (myApplies.length === 0) return null;
+    return myApplies.find((a) => a.id === selectedApplyId) ?? myApplies[0];
+  }, [myApplies, selectedApplyId]);
+
+  const existingForRound = useMemo(
+    () => myApplies.find((a) => a.round_id === selectedRoundId) ?? null,
+    [myApplies, selectedRoundId],
+  );
+  const isConfirmedForRound = !!existingForRound?.is_confirmed;
   const lockMessage = '시험 접수가 완료되어 시험 일정을 수정할 수 없습니다.';
   // allowance_date가 있고 status가 pending이 아니면 신청 가능
   const isAllowanceApproved = Boolean(myProfile?.allowance_date) && myProfile?.status !== 'allowance-pending';
@@ -280,29 +302,25 @@ export default function ExamApplyScreen() {
     };
   }, [residentId, refetchMyApply]);
 
+  // 선택된 회차에 기존 신청이 있으면 데이터 복원
   useEffect(() => {
-    if (myLastApply?.is_third_exam != null) {
-      setWantsThird(!!myLastApply.is_third_exam);
-    }
-    if (myLastApply?.round_id) setSelectedRoundId(myLastApply.round_id);
-    if (myLastApply?.location_id) setSelectedLocationId(myLastApply.location_id);
-    if (!myLastApply) {
-      setSelectedRoundId(null);
+    if (existingForRound) {
+      if (existingForRound.is_third_exam != null) setWantsThird(!!existingForRound.is_third_exam);
+      setSelectedLocationId(existingForRound.location_id);
+    } else {
       setSelectedLocationId(null);
       setWantsThird(false);
     }
     setFeePaidDate(null);
     setTempFeePaidDate(null);
-  }, [myLastApply]);
+  }, [existingForRound?.id]);
 
-  const hasHistory = !!myLastApply?.id;
   const [refreshing, setRefreshing] = useState(false);
 
   const onRefresh = useCallback(async () => {
     setRefreshing(true);
     try {
       await refetch();
-      // myLastApply는 react-query가 residentId를 key로 사용하므로 별도 refetch 없어도 최신 상태로 유지
     } finally {
       setRefreshing(false);
     }
@@ -320,7 +338,7 @@ export default function ExamApplyScreen() {
         throw new Error('응시료 납입 일자를 입력해주세요.');
       }
 
-      if (isConfirmed) {
+      if (isConfirmedForRound) {
         throw new Error(lockMessage);
       }
 
@@ -341,21 +359,22 @@ export default function ExamApplyScreen() {
         throw new Error('마감된 일정입니다. 다른 시험 일정을 선택해주세요.');
       }
 
-      if (hasHistory && myLastApply?.id) {
+      if (existingForRound) {
+        // 선택된 회차에 기존 신청이 있으면 UPDATE
         const { error } = await supabase
           .from('exam_registrations')
           .update({
-            round_id: roundId,
             location_id: locationId,
             status: 'applied',
             is_confirmed: false,
             is_third_exam: wantsThird,
             fee_paid_date: toYmd(feePaidDate),
           })
-          .eq('id', myLastApply.id);
+          .eq('id', existingForRound.id);
 
         if (error) throw error;
       } else {
+        // 새 회차 신청 → INSERT
         const { error } = await supabase.from('exam_registrations').insert({
           resident_id: residentId,
           round_id: roundId,
@@ -382,7 +401,7 @@ export default function ExamApplyScreen() {
     },
     onSuccess: () => {
       Alert.alert('신청 완료', '시험 신청이 정상적으로 등록되었습니다.');
-      router.replace('/'); // 홈으로 이동
+      refetchMyApply();
     },
     onSettled: (_data, error) => {
       if (error) {
@@ -393,25 +412,26 @@ export default function ExamApplyScreen() {
   });
 
   const cancelMutation = useMutation({
-    mutationFn: async () => {
-      if (!hasHistory || !myLastApply?.id) {
+    mutationFn: async (registrationId: string) => {
+      const target = myApplies.find((a) => a.id === registrationId);
+      if (!target) {
         throw new Error('취소할 신청 내역이 없습니다.');
       }
 
-      if (isConfirmed) {
+      if (target.is_confirmed) {
         throw new Error(lockMessage);
       }
 
       const { error } = await supabase
         .from('exam_registrations')
         .delete()
-        .eq('id', myLastApply.id);
+        .eq('id', registrationId);
 
       if (error) throw error;
     },
     onSuccess: () => {
       Alert.alert('취소 완료', '시험 신청이 취소되었습니다.');
-      router.replace('/'); // 취소 후에도 홈으로 이동
+      refetchMyApply();
     },
     onSettled: (_data, error) => {
       if (error) {
@@ -421,28 +441,30 @@ export default function ExamApplyScreen() {
     },
   });
 
-  const handleCancelPress = () => {
-    if (isConfirmed) {
-      Alert.alert('알림', lockMessage);
-      return;
-    }
-    if (!myLastApply?.id) {
+  const handleCancelPress = (registrationId: string) => {
+    const target = myApplies.find((a) => a.id === registrationId);
+    if (!target) {
       Alert.alert('알림', '취소할 신청 내역이 없습니다.');
       return;
     }
+    if (target.is_confirmed) {
+      Alert.alert('알림', lockMessage);
+      return;
+    }
     if (Platform.OS === 'web') {
-      cancelMutation.mutate();
+      cancelMutation.mutate(registrationId);
       return;
     }
     Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
     Alert.alert('신청 취소', '정말 취소하시겠습니까?', [
       { text: '아니요', style: 'cancel' },
-      { text: '예', style: 'destructive', onPress: () => cancelMutation.mutate() },
+      { text: '예', style: 'destructive', onPress: () => cancelMutation.mutate(registrationId) },
     ]);
   };
 
   const handleRoundSelect = (round: ExamRoundWithLocations) => {
-    if (isConfirmed) {
+    const confirmedForThis = myApplies.find((a) => a.round_id === round.id)?.is_confirmed;
+    if (confirmedForThis) {
       Alert.alert('수정 불가', lockMessage);
       return;
     }
@@ -452,11 +474,10 @@ export default function ExamApplyScreen() {
     }
     Haptics.selectionAsync();
     setSelectedRoundId(round.id);
-    setSelectedLocationId(null);
   };
 
   const handleLocationSelect = (id: string) => {
-    if (isConfirmed) {
+    if (isConfirmedForRound) {
       Alert.alert('수정 불가', lockMessage);
       return;
     }
@@ -496,7 +517,7 @@ export default function ExamApplyScreen() {
             />
           </View>
 
-          {/* Status Card */}
+          {/* Status Card - 내 신청 내역 (드롭다운 방식) */}
           <MotiView
             from={{ opacity: 0, translateY: -10 }}
             animate={{ opacity: 1, translateY: 0 }}
@@ -506,49 +527,118 @@ export default function ExamApplyScreen() {
               <Feather name="info" size={16} color={HANWHA_ORANGE} />
               <Text style={styles.statusTitle}>내 신청 내역</Text>
             </View>
-            {!myLastApply ? (
+
+            {myApplies.length === 0 ? (
               <Text style={styles.emptyText}>아직 신청한 시험이 없습니다.</Text>
             ) : (
               <View style={styles.statusContent}>
-                <View style={styles.statusRow}>
-                  <Text style={styles.statusLabel}>시험일자</Text>
-                  <Text style={styles.statusValue}>
-                    {myLastApply.exam_rounds?.exam_date
-                      ? formatDate(myLastApply.exam_rounds.exam_date)
-                      : '-'}
+                {/* 1. 신청 내역 선택 드롭다운 (2건 이상일 때만 활성화) */}
+                <Pressable
+                  style={[styles.dropdownButton, isDropdownOpen && styles.dropdownButtonActive]}
+                  onPress={() => {
+                    if (myApplies.length > 1) {
+                      Haptics.selectionAsync();
+                      setIsDropdownOpen((prev) => !prev);
+                    }
+                  }}
+                  disabled={myApplies.length <= 1}
+                >
+                  <Text style={styles.dropdownButtonText}>
+                    {currentApply
+                      ? formatExamInfo(currentApply.exam_rounds?.exam_date, currentApply.exam_rounds?.round_label)
+                      : '선택된 내역 없음'}
                   </Text>
-                </View>
-                <View style={styles.statusRow}>
-                  <Text style={styles.statusLabel}>응시지역</Text>
-                  <Text style={styles.statusValue}>
-                    {myLastApply.exam_locations?.location_name ?? '-'}
-                  </Text>
-                </View>
-                  <View style={styles.statusRow}>
-                    <Text style={styles.statusLabel}>신청 과목</Text>
-                    <Text style={styles.statusValue}>
-                      {myLastApply.is_third_exam ? '생명, 제3' : '생명'}
-                    </Text>
-                  </View>
-                <View style={styles.statusDivider} />
-                <View style={styles.statusRow}>
-                  <Text style={styles.statusLabel}>상태</Text>
-                  <View
-                    style={[
-                      styles.statusBadge,
-                      isConfirmed ? styles.badgeConfirmed : styles.badgePending,
-                    ]}
+                  {myApplies.length > 1 && (
+                    <Feather
+                      name={isDropdownOpen ? 'chevron-up' : 'chevron-down'}
+                      size={18}
+                      color={CHARCOAL}
+                    />
+                  )}
+                </Pressable>
+
+                {/* 2. 드롭다운 리스트 (열렸을 때) */}
+                {isDropdownOpen && myApplies.length > 1 && (
+                  <MotiView
+                    from={{ opacity: 0, height: 0 }}
+                    animate={{ opacity: 1, height: 'auto' }}
+                    style={styles.dropdownList}
                   >
-                    <Text
-                      style={[
-                        styles.statusBadgeText,
-                        isConfirmed ? styles.textConfirmed : styles.textPending,
-                      ]}
-                    >
-                      {statusLabel}
-                    </Text>
+                    {myApplies.map((apply) => {
+                      const isSelected = currentApply?.id === apply.id;
+                      return (
+                        <Pressable
+                          key={apply.id}
+                          style={[styles.dropdownItem, isSelected && styles.dropdownItemActive]}
+                          onPress={() => {
+                            setSelectedApplyId(apply.id);
+                            setIsDropdownOpen(false);
+                            Haptics.selectionAsync();
+                          }}
+                        >
+                          <Text
+                            style={[
+                              styles.dropdownItemText,
+                              isSelected && styles.dropdownItemTextActive,
+                            ]}
+                          >
+                            {formatExamInfo(apply.exam_rounds?.exam_date, apply.exam_rounds?.round_label)}
+                          </Text>
+                          {isSelected && <Feather name="check" size={14} color={HANWHA_ORANGE} />}
+                        </Pressable>
+                      );
+                    })}
+                  </MotiView>
+                )}
+
+                {/* 3. 선택된 내역 상세 정보 */}
+                {currentApply && (
+                  <View style={styles.applyDetailCard}>
+                    <View style={styles.statusRow}>
+                      <Text style={styles.statusLabel}>시험일자</Text>
+                      <Text style={styles.statusValue}>
+                        {formatExamInfo(currentApply.exam_rounds?.exam_date, currentApply.exam_rounds?.round_label)}
+                      </Text>
+                    </View>
+                    <View style={styles.statusRow}>
+                      <Text style={styles.statusLabel}>응시지역</Text>
+                      <Text style={styles.statusValue}>
+                        {currentApply.exam_locations?.location_name ?? '-'}
+                      </Text>
+                    </View>
+                    <View style={styles.statusRow}>
+                      <Text style={styles.statusLabel}>신청 과목</Text>
+                      <Text style={styles.statusValue}>
+                        {currentApply.is_third_exam ? '생명, 제3' : '생명'}
+                      </Text>
+                    </View>
+                    <View style={styles.statusRow}>
+                      <Text style={styles.statusLabel}>상태</Text>
+                      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                        <View
+                          style={[
+                            styles.statusBadge,
+                            currentApply.is_confirmed ? styles.badgeConfirmed : styles.badgePending,
+                          ]}
+                        >
+                          <Text
+                            style={[
+                              styles.statusBadgeText,
+                              currentApply.is_confirmed ? styles.textConfirmed : styles.textPending,
+                            ]}
+                          >
+                            {currentApply.is_confirmed ? '접수 완료' : '미접수'}
+                          </Text>
+                        </View>
+                        {!currentApply.is_confirmed && (
+                          <Pressable onPress={() => handleCancelPress(currentApply.id)}>
+                            <Text style={{ color: '#ef4444', fontSize: 13, fontWeight: '600' }}>취소</Text>
+                          </Pressable>
+                        )}
+                      </View>
+                    </View>
                   </View>
-                </View>
+                )}
               </View>
             )}
           </MotiView>
@@ -563,6 +653,7 @@ export default function ExamApplyScreen() {
                 {allRounds.map((round, idx) => {
                   const isActive = round.id === selectedRoundId;
                   const closed = isRoundClosed(round);
+                  const alreadyApplied = myApplies.some((a) => a.round_id === round.id);
                   return (
                     <MotiView
                       key={round.id}
@@ -579,16 +670,23 @@ export default function ExamApplyScreen() {
                         ]}
                       >
                         <View style={styles.selectionInfo}>
-                          <Text
-                            style={[
-                              styles.selectionTitle,
-                              isActive && styles.textActive,
-                              closed && styles.textDisabled,
-                            ]}
-                          >
-                            {formatDate(round.exam_date)}
-                            {round.round_label ? ` (${round.round_label})` : ''}
-                          </Text>
+                          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                            <Text
+                              style={[
+                                styles.selectionTitle,
+                                isActive && styles.textActive,
+                                closed && styles.textDisabled,
+                              ]}
+                            >
+                              {formatDate(round.exam_date)}
+                              {round.round_label ? ` (${round.round_label})` : ''}
+                            </Text>
+                            {alreadyApplied && (
+                              <View style={{ backgroundColor: '#DBEAFE', paddingHorizontal: 6, paddingVertical: 2, borderRadius: 4 }}>
+                                <Text style={{ fontSize: 11, color: '#2563EB', fontWeight: '700' }}>신청됨</Text>
+                              </View>
+                            )}
+                          </View>
                           <Text style={styles.selectionSub}>
                             마감: {formatDate(round.registration_deadline)}
                           </Text>
@@ -675,7 +773,7 @@ export default function ExamApplyScreen() {
               <Pressable
                 style={[styles.toggleCard, wantsLife && styles.toggleCardActive]}
                 onPress={() => {
-                  if (isConfirmed) {
+                  if (isConfirmedForRound) {
                     Alert.alert('수정 불가', lockMessage);
                   } else {
                     Haptics.selectionAsync();
@@ -699,7 +797,7 @@ export default function ExamApplyScreen() {
               <Pressable
                 style={[styles.toggleCard, wantsThird && styles.toggleCardActive]}
                 onPress={() => {
-                  if (isConfirmed) {
+                  if (isConfirmedForRound) {
                     Alert.alert('수정 불가', lockMessage);
                   } else {
                     Haptics.selectionAsync();
@@ -756,7 +854,7 @@ export default function ExamApplyScreen() {
             <View style={styles.actionButtons}>
               <Pressable
                 onPress={() => {
-                  if (isConfirmed) {
+                  if (isConfirmedForRound) {
                     Alert.alert('알림', lockMessage);
                     return;
                   }
@@ -772,13 +870,13 @@ export default function ExamApplyScreen() {
                   !selectedLocationId ||
                   !feePaidDate ||
                   isSelectedRoundClosed ||
-                  isConfirmed
+                  isConfirmedForRound
                 }
                 style={({ pressed }) => [styles.submitBtnWrapper, pressed && styles.pressedScale]}
               >
                 <LinearGradient
                   colors={
-                    isConfirmed || !selectedRoundId || !selectedLocationId || !feePaidDate
+                    isConfirmedForRound || !selectedRoundId || !selectedLocationId || !feePaidDate
                       ? ['#d1d5db', '#9ca3af']
                       : [HANWHA_ORANGE, '#fb923c']
                   }
@@ -787,21 +885,11 @@ export default function ExamApplyScreen() {
                   style={styles.submitBtn}
                 >
                   <Text style={styles.submitBtnText}>
-                    {isConfirmed ? '시험 접수 완료' : hasHistory ? '신청 내역 수정하기' : '시험 신청하기'}
+                    {isConfirmedForRound ? '시험 접수 완료' : existingForRound ? '신청 내역 수정하기' : '시험 신청하기'}
                   </Text>
                   {applyMutation.isPending && <ActivityIndicator color="#fff" style={{ marginLeft: 8 }} />}
                 </LinearGradient>
               </Pressable>
-
-              {hasHistory && (
-                <Pressable
-                  onPress={handleCancelPress}
-                  disabled={cancelMutation.isPending || isConfirmed || !myLastApply?.id}
-                  style={({ pressed }) => [styles.cancelBtn, pressed && styles.pressedOpacity]}
-                >
-                  <Text style={styles.cancelBtnText}>{isConfirmed ? '신청 취소불가' : '신청 취소하기'}</Text>
-                </Pressable>
-              )}
             </View>
           </View>
 
@@ -880,7 +968,69 @@ const styles = StyleSheet.create({
   },
   statusHeader: { flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 12 },
   statusTitle: { fontSize: 16, fontWeight: '700', color: CHARCOAL }, // 14 -> 16
-  statusContent: { gap: 8 },
+  statusContent: { gap: 12 },
+
+  // Dropdown Styles
+  dropdownButton: {
+    backgroundColor: '#fff',
+    borderWidth: 1,
+    borderColor: '#d1d5db',
+    borderRadius: 8,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 4,
+  },
+  dropdownButtonActive: {
+    borderColor: HANWHA_ORANGE,
+  },
+  dropdownButtonText: {
+    fontSize: 15,
+    fontWeight: '600',
+    color: CHARCOAL,
+  },
+  dropdownList: {
+    backgroundColor: '#fff',
+    borderWidth: 1,
+    borderColor: '#e5e7eb',
+    borderRadius: 8,
+    marginTop: -4,
+    marginBottom: 8,
+    overflow: 'hidden',
+    ...CARD_SHADOW,
+    zIndex: 10,
+  },
+  dropdownItem: {
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    borderBottomWidth: 1,
+    borderBottomColor: '#f3f4f6',
+  },
+  dropdownItemActive: {
+    backgroundColor: '#fff7ed',
+  },
+  dropdownItemText: {
+    fontSize: 14,
+    color: CHARCOAL,
+  },
+  dropdownItemTextActive: {
+    color: HANWHA_ORANGE,
+    fontWeight: '700',
+  },
+  applyDetailCard: {
+    backgroundColor: '#FAFAFA',
+    borderRadius: 12,
+    padding: 16,
+    borderWidth: 1,
+    borderColor: '#f0f0f0',
+    gap: 10,
+  },
+
   statusRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
   statusLabel: { fontSize: 15, color: MUTED }, // 13 -> 15
   statusValue: { fontSize: 16, fontWeight: '600', color: CHARCOAL }, // 14 -> 16

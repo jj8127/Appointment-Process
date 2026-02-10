@@ -41,7 +41,6 @@ import dayjs from 'dayjs';
 import { useState } from 'react';
 import { z } from 'zod';
 
-import { supabase } from '@/lib/supabase';
 import { useSession } from '@/hooks/use-session';
 
 // --- Constants ---
@@ -72,10 +71,6 @@ const roundSchema = z.object({
 });
 
 type RoundFormValues = z.infer<typeof roundSchema>;
-type RoundQueryRow = Omit<ExamRound, 'locations'> & {
-    exam_locations?: { id: string; location_name: string }[] | null;
-};
-
 const errorMessage = (err: unknown, fallback: string) => {
     if (err instanceof Error && err.message) return err.message;
     return fallback;
@@ -129,22 +124,10 @@ export default function ExamSchedulePage() {
     const { data: rounds, isLoading } = useQuery({
         queryKey: ['exam-rounds'],
         queryFn: async () => {
-            // Fetch rounds
-            const { data: roundsData, error: roundError } = await supabase
-                .from('exam_rounds')
-                .select(`
-          *,
-          exam_locations ( id, location_name )
-        `)
-                .order('exam_date', { ascending: false });
-
-            if (roundError) throw roundError;
-
-            // Transform to cleaner type
-            return ((roundsData ?? []) as RoundQueryRow[]).map((r) => ({
-                ...r,
-                locations: r.exam_locations || [],
-            })) as ExamRound[];
+            const { fetchExamRoundsAction } = await import('./actions');
+            const result = await fetchExamRoundsAction();
+            if (!result.success) throw new Error(result.error || '조회 실패');
+            return (result.data ?? []) as ExamRound[];
         },
     });
 

@@ -178,6 +178,56 @@ export async function saveExamRoundAction(
     }
 }
 
+export async function fetchExamRoundsAction(): Promise<{
+    success: boolean;
+    data?: Array<{
+        id: string;
+        exam_date: string | null;
+        registration_deadline: string;
+        round_label: string;
+        exam_type?: string;
+        notes?: string;
+        locations: { id: string; location_name: string }[];
+    }>;
+    error?: string;
+}> {
+    try {
+        const { data, error } = await adminSupabase
+            .from('exam_rounds')
+            .select(`*, exam_locations ( id, location_name )`)
+            .order('exam_date', { ascending: false });
+
+        if (error) throw error;
+
+        type RoundRow = {
+            id: string;
+            exam_date: string | null;
+            registration_deadline: string;
+            round_label: string;
+            exam_type?: string;
+            notes?: string;
+            exam_locations?: { id: string; location_name: string }[] | null;
+        };
+        const rounds = (data ?? [] as RoundRow[]).map((r) => {
+            const row = r as RoundRow;
+            return {
+                id: row.id,
+                exam_date: row.exam_date,
+                registration_deadline: row.registration_deadline,
+                round_label: row.round_label,
+                exam_type: row.exam_type,
+                notes: row.notes,
+                locations: row.exam_locations || [],
+            };
+        });
+
+        return { success: true, data: rounds };
+    } catch (err: unknown) {
+        logger.error('[fetchExamRounds] failed', err);
+        return { success: false, error: errorMessage(err, '시험 일정 조회 실패') };
+    }
+}
+
 export async function deleteExamRoundAction(
     prevState: DeleteRoundState,
     payload: { roundId: string }
