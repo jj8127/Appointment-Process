@@ -1,5 +1,6 @@
 'use client';
 
+import { useSession } from '@/hooks/use-session';
 import {
     ActionIcon,
     Badge,
@@ -26,7 +27,6 @@ import { IconChevronDown, IconDownload, IconRefresh, IconSearch, IconX } from '@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import dayjs from 'dayjs';
 import { useMemo, useState } from 'react';
-import { useSession } from '@/hooks/use-session';
 
 import { supabase } from '@/lib/supabase';
 
@@ -207,16 +207,16 @@ export default function ExamApplicantsPage() {
 
     const colMinWidth: Record<ColumnField, number> = useMemo(
         () => ({
-            round_info: 170,
-            subject_display: 200,
-            affiliation: 260,
+            round_info: 100,
+            subject_display: 120,
+            affiliation: 180,
             name: 120,
             resident_id: 170,
             address: 420,
-            phone: 160,
-            location_name: 140,
-            fee_paid_date: 160,
-            is_confirmed: 220,
+            phone: 150,
+            location_name: 100,
+            fee_paid_date: 150,
+            is_confirmed: 180,
         }),
         []
     );
