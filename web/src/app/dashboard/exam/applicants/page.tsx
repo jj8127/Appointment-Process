@@ -208,7 +208,7 @@ type ProfileRow = {
 
 export default function ExamApplicantsPage() {
     const queryClient = useQueryClient();
-    const { isReadOnly } = useSession();
+    const { isReadOnly, hydrated, role } = useSession();
     const [filters, setFilters] = useState<FilterState>({});
 
     const colMinWidth: Record<ColumnField, number> = useMemo(
@@ -229,7 +229,8 @@ export default function ExamApplicantsPage() {
 
     // --- Fetch All Recent Applicants ---
     const { data: applicants, isLoading, refetch } = useQuery({
-        queryKey: ['exam-applicants-all-recent'],
+        queryKey: ['exam-applicants-all-recent', role],
+        enabled: hydrated,
         queryFn: async () => {
             // limit 1000 for performance
             const { data, error } = await supabase
@@ -272,11 +273,12 @@ export default function ExamApplicantsPage() {
 
             let residentNumbersByFcId: Record<string, string | null> = {};
             const fcIds = Array.from(new Set(profileRows.map((p) => p.id).filter(Boolean)));
-            if (fcIds.length > 0) {
+            if (role === 'admin' && fcIds.length > 0) {
                 try {
                     const resp = await fetch('/api/admin/resident-numbers', {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json' },
+                        credentials: 'include',
                         body: JSON.stringify({ fcIds }),
                     });
                     const json: unknown = await resp.json().catch(() => null);
