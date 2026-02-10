@@ -306,7 +306,7 @@ export default function ExamApplicantsPage() {
         return applicants.filter(item => {
             return Object.entries(filters).every(([field, selectedValues]) => {
                 if (!selectedValues || selectedValues.length === 0) return true;
-                const val = getRowValue(item, field);
+                const val = getRowValue(item, field as RowField);
                 return selectedValues.includes(val);
             });
         });
