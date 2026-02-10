@@ -210,13 +210,13 @@ export default function ExamApplicantsPage() {
             round_info: 100,
             subject_display: 120,
             affiliation: 180,
-            name: 120,
+            name: 80,
             resident_id: 170,
             address: 420,
-            phone: 150,
-            location_name: 100,
-            fee_paid_date: 150,
-            is_confirmed: 180,
+            phone: 120,
+            location_name: 70,
+            fee_paid_date: 120,
+            is_confirmed: 130,
         }),
         []
     );
