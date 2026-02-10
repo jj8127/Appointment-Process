@@ -115,6 +115,21 @@ export function SessionProvider({ children }: { children: ReactNode }) {
         persist();
     }, [state, hydrated]);
 
+    // Keep cookies in sync with the in-memory session so server routes can validate admin actions.
+    useEffect(() => {
+        if (!hydrated) return;
+
+        if (state.role && state.residentId) {
+            document.cookie = getCookieString(COOKIE_ROLE, state.role ?? '');
+            document.cookie = getCookieString(COOKIE_RESIDENT, state.residentId ?? '');
+            document.cookie = getCookieString(COOKIE_DISPLAY, state.displayName ?? '');
+        } else {
+            document.cookie = getCookieString(COOKIE_ROLE, '', 0);
+            document.cookie = getCookieString(COOKIE_RESIDENT, '', 0);
+            document.cookie = getCookieString(COOKIE_DISPLAY, '', 0);
+        }
+    }, [hydrated, state.displayName, state.residentId, state.role]);
+
     const value = useMemo<SessionContextValue>(
         () => ({
             ...state,
