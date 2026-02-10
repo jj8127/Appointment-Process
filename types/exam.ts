@@ -1,6 +1,7 @@
 export type ExamRound = {
   id: string;
-  exam_date: string;
+  // Nullable to support "미정" (TBD) schedules
+  exam_date: string | null;
   registration_deadline: string;
   round_label?: string | null;
   notes?: string | null;
@@ -21,7 +22,8 @@ export type ExamRoundWithLocations = ExamRound & {
   locations: ExamLocation[];
 };
 
-export function formatDate(value: string) {
+export function formatDate(value?: string | null) {
+  if (!value) return '미정';
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return value;
   const y = date.getFullYear();
