@@ -1,11 +1,13 @@
 'use client';
 
 import { useSession } from '@/hooks/use-session';
-import { AppShell, Avatar, Burger, Group, Menu, NavLink, Text, UnstyledButton } from '@mantine/core';
-import { useDisclosure } from '@mantine/hooks';
+import { ActionIcon, AppShell, Avatar, Burger, Group, Menu, NavLink, Text, UnstyledButton } from '@mantine/core';
+import { useDisclosure, useLocalStorage } from '@mantine/hooks';
 import {
   IconBell,
   IconCalendarEvent,
+  IconChevronLeft,
+  IconChevronRight,
   IconFileText,
   IconHome,
   IconLink,
@@ -23,6 +25,10 @@ type NavItem = { label: string; href: string; icon: React.ComponentType<{ size?:
 
 export default function DashboardLayout({ children }: { children: React.ReactNode }) {
   const [opened, { toggle }] = useDisclosure();
+  const [desktopCollapsed, setDesktopCollapsed] = useLocalStorage<boolean>({
+    key: 'fc-onboarding-web:dashboard-navbar-collapsed',
+    defaultValue: false,
+  });
   const router = useRouter();
   const pathname = usePathname();
   const { role, logout, hydrated, displayName, residentMask } = useSession();
@@ -55,16 +61,31 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
     return null;
   }
 
+  const navbarWidth = desktopCollapsed ? 72 : 260;
+
   return (
     <AppShell
       header={{ height: 64 }}
-      navbar={{ width: 260, breakpoint: 'sm', collapsed: { mobile: !opened } }}
+      navbar={{ width: navbarWidth, breakpoint: 'sm', collapsed: { mobile: !opened } }}
       padding="md"
     >
       <AppShell.Header>
         <Group h="100%" px="md" justify="space-between" wrap="nowrap">
           <Group wrap="nowrap">
             <Burger opened={opened} onClick={toggle} hiddenFrom="sm" size="sm" />
+            <ActionIcon
+              variant="subtle"
+              color="gray"
+              visibleFrom="sm"
+              onClick={() => setDesktopCollapsed((v) => !v)}
+              aria-label={desktopCollapsed ? '사이드바 펼치기' : '사이드바 접기'}
+            >
+              {desktopCollapsed ? (
+                <IconChevronRight size={18} stroke={1.6} />
+              ) : (
+                <IconChevronLeft size={18} stroke={1.6} />
+              )}
+            </ActionIcon>
             <Text fw={800} size="lg">
               FC 온보딩 웹
             </Text>
@@ -107,7 +128,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
         </Group>
       </AppShell.Header>
 
-      <AppShell.Navbar p="md">
+      <AppShell.Navbar p={desktopCollapsed ? 'xs' : 'md'}>
         <AppShell.Section grow>
           {navItems.map((item) => {
             const active = pathname === item.href;
@@ -115,11 +136,21 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
             return (
               <NavLink
                 key={item.href}
-                label={item.label}
+                label={desktopCollapsed ? null : item.label}
                 active={active}
-                leftSection={<Icon size={16} stroke={1.6} />}
+                leftSection={<Icon size={desktopCollapsed ? 18 : 16} stroke={1.6} />}
                 onClick={() => router.push(item.href)}
                 variant="light"
+                aria-label={item.label}
+                title={desktopCollapsed ? item.label : undefined}
+                styles={
+                  desktopCollapsed
+                    ? {
+                        root: { justifyContent: 'center' },
+                        section: { marginInlineEnd: 0 },
+                      }
+                    : undefined
+                }
               />
             );
           })}
@@ -127,11 +158,21 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
 
         <AppShell.Section>
           <NavLink
-            label="로그아웃"
+            label={desktopCollapsed ? null : '로그아웃'}
             color="red"
-            leftSection={<IconLogout size={16} stroke={1.6} />}
+            leftSection={<IconLogout size={desktopCollapsed ? 18 : 16} stroke={1.6} />}
             onClick={logout}
             variant="light"
+            aria-label="로그아웃"
+            title={desktopCollapsed ? '로그아웃' : undefined}
+            styles={
+              desktopCollapsed
+                ? {
+                    root: { justifyContent: 'center' },
+                    section: { marginInlineEnd: 0 },
+                  }
+                : undefined
+            }
           />
         </AppShell.Section>
       </AppShell.Navbar>
