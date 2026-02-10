@@ -25,6 +25,10 @@ const COOKIE_ROLE = 'session_role';
 const COOKIE_RESIDENT = 'session_resident';
 const COOKIE_DISPLAY = 'session_display';
 
+function isRole(value: unknown): value is Exclude<Role, null> {
+    return value === 'admin' || value === 'manager' || value === 'fc';
+}
+
 const computeMask = (raw: string) => {
     const digits = raw.replace(/[^0-9]/g, '');
     if (!digits) return '';
@@ -74,13 +78,18 @@ export function SessionProvider({ children }: { children: ReactNode }) {
                     // Security: Decode obfuscated session data
                     const decoded = deobfuscate(raw);
                     const parsed = JSON.parse(decoded) as Partial<SessionState>;
-                    if (parsed.role && parsed.residentId) {
+                    if (isRole(parsed.role) && parsed.residentId) {
                         setState({
                             role: parsed.role,
                             residentId: parsed.residentId,
                             residentMask: computeMask(parsed.residentId),
                             displayName: parsed.displayName ?? '',
                         });
+
+                        // Ensure server route handlers can validate session immediately on reload.
+                        document.cookie = getCookieString(COOKIE_ROLE, parsed.role);
+                        document.cookie = getCookieString(COOKIE_RESIDENT, parsed.residentId);
+                        document.cookie = getCookieString(COOKIE_DISPLAY, parsed.displayName ?? '');
                     }
                 }
             } catch (err) {
