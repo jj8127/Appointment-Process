@@ -198,6 +198,7 @@ type ProfileRow = {
     name: string | null;
     affiliation: string | null;
     address: string | null;
+    resident_id_masked: string | null;
 };
 
 export default function ExamApplicantsPage() {
@@ -211,7 +212,7 @@ export default function ExamApplicantsPage() {
             subject_display: 120,
             affiliation: 180,
             name: 80,
-            resident_id: 170,
+            resident_id: 130,
             address: 420,
             phone: 120,
             location_name: 70,
@@ -258,7 +259,7 @@ export default function ExamApplicantsPage() {
 
             const { data: profiles } = await supabase
                 .from('fc_profiles')
-                .select('phone,name,affiliation,address')
+                .select('phone,name,affiliation,address,resident_id_masked')
                 .eq('signup_completed', true)
                 .in('phone', phones);
             const profileRows = (profiles ?? []) as ProfileRow[];
@@ -272,6 +273,7 @@ export default function ExamApplicantsPage() {
                     phone: p?.phone ?? b.resident_id,
                     affiliation: p?.affiliation ?? '-',
                     address: p?.address ?? '-',
+                    resident_id: p?.resident_id_masked ?? '-',
                 };
             });
         }
