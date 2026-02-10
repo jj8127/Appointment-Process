@@ -5,6 +5,7 @@ import { fileURLToPath } from 'node:url';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const nextDir = path.join(__dirname, '..', '.next');
+const webDir = path.join(__dirname, '..');
 
 function removeDir(dir) {
   if (!fs.existsSync(dir)) return;
@@ -28,6 +29,34 @@ function removeDir(dir) {
 
 if (!fs.existsSync(nextDir)) {
   process.exit(0);
+}
+
+function isNextDevRunningWindows() {
+  if (process.platform !== 'win32') return false;
+  const webDirEscaped = webDir.replaceAll('"', '""');
+  const ps = [
+    `$webDir = "${webDirEscaped}";`,
+    `$proc = Get-CimInstance Win32_Process -Filter "Name='node.exe'" |`,
+    `  Where-Object { $_.CommandLine -and $_.CommandLine -like ("*" + $webDir + "*") -and (`,
+    `    $_.CommandLine -match "\\\\next\\\\dist\\\\" -or $_.CommandLine -match "\\\\.next\\\\dev\\\\"`,
+    `  ) } | Select-Object -First 1 -ExpandProperty ProcessId;`,
+    `if ($proc) { Write-Output $proc }`,
+  ].join(' ');
+
+  try {
+    const out = execFileSync('powershell.exe', ['-NoProfile', '-Command', ps], {
+      encoding: 'utf8',
+      stdio: ['ignore', 'pipe', 'ignore'],
+    }).trim();
+    return Boolean(out);
+  } catch {
+    return false;
+  }
+}
+
+if (isNextDevRunningWindows()) {
+  console.error('[clean-next] Next dev appears to be running for this folder. Stop it before cleaning `.next`.');
+  process.exit(1);
 }
 
 // On Windows, deleting `.next` while a dev server is running can partially delete
