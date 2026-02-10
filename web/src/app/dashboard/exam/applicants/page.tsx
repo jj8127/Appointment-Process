@@ -25,7 +25,7 @@ import { notifications } from '@mantine/notifications';
 import { IconChevronDown, IconDownload, IconRefresh, IconSearch, IconX } from '@tabler/icons-react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import dayjs from 'dayjs';
-import { useEffect, useMemo, useState } from 'react';
+import { useMemo, useState } from 'react';
 import { useSession } from '@/hooks/use-session';
 
 import { supabase } from '@/lib/supabase';
@@ -47,7 +47,8 @@ type Applicant = {
     address: string;
     location_name: string;
     round_label: string;
-    exam_date: string;
+    exam_date: string | null;
+    exam_type?: string | null;
     fee_paid_date?: string | null;
     is_confirmed: boolean;
     is_third_exam?: boolean;
@@ -64,18 +65,20 @@ interface ExcelColumnFilterProps {
     onApply: (selected: string[]) => void;
 }
 
+type RowField = ExcelColumnFilterProps['field'];
+
 const ExcelColumnFilter = ({ title, options, selected, onApply }: ExcelColumnFilterProps) => {
     const [opened, setOpened] = useState(false);
     const [search, setSearch] = useState('');
     const [tempSelected, setTempSelected] = useState<string[]>(selected);
 
-    // Sync temp state when opening
-    useEffect(() => {
-        if (opened) {
+    const handleOpenedChange = (next: boolean) => {
+        setOpened(next);
+        if (next) {
             setTempSelected(selected);
             setSearch('');
         }
-    }, [opened, selected]);
+    };
 
     const filteredOptions = options.filter(opt =>
         opt.toLowerCase().includes(search.toLowerCase())
@@ -97,9 +100,9 @@ const ExcelColumnFilter = ({ title, options, selected, onApply }: ExcelColumnFil
     const isIndeterminate = filteredOptions.some(opt => tempSelected.includes(opt)) && !isAllSelected;
 
     return (
-        <Popover opened={opened} onChange={setOpened} width={280} position="bottom-start" withArrow shadow="md">
+        <Popover opened={opened} onChange={handleOpenedChange} width={280} position="bottom-start" withArrow shadow="md">
             <Popover.Target>
-                <UnstyledButton onClick={() => setOpened((o) => !o)} style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                <UnstyledButton onClick={() => handleOpenedChange(!opened)} style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
                     <Text fw={700} size="sm" c={selected.length > 0 ? 'orange' : 'dimmed'}>
                         {title}
                     </Text>
@@ -166,6 +169,25 @@ const ExcelColumnFilter = ({ title, options, selected, onApply }: ExcelColumnFil
     );
 };
 
+type ExamRegistrationRow = {
+    id: string;
+    status: string;
+    created_at: string;
+    resident_id: string;
+    is_confirmed: boolean;
+    is_third_exam?: boolean | null;
+    fee_paid_date?: string | null;
+    exam_locations?: { location_name?: string | null } | null;
+    exam_rounds?: { round_label?: string | null; exam_date?: string | null; exam_type?: string | null } | null;
+};
+
+type ProfileRow = {
+    phone: string;
+    name: string | null;
+    affiliation: string | null;
+    address: string | null;
+};
+
 export default function ExamApplicantsPage() {
     const queryClient = useQueryClient();
     const { isReadOnly } = useSession();
@@ -181,14 +203,15 @@ export default function ExamApplicantsPage() {
                 .select(`
           id, status, created_at, resident_id, is_confirmed, is_third_exam, fee_paid_date,
           exam_locations ( location_name ),
-          exam_rounds ( round_label, exam_date )
+          exam_rounds ( round_label, exam_date, exam_type )
         `)
                 .order('created_at', { ascending: false })
                 .limit(1000);
 
             if (error) throw error;
 
-            const base = (data ?? []).map((d: any) => ({
+            const rows = (data ?? []) as ExamRegistrationRow[];
+            const base = rows.map((d) => ({
                 id: d.id,
                 status: d.status,
                 created_at: d.created_at,
@@ -197,7 +220,8 @@ export default function ExamApplicantsPage() {
                 is_third_exam: d.is_third_exam,
                 location_name: d.exam_locations?.location_name || '미정',
                 round_label: d.exam_rounds?.round_label || '-',
-                exam_date: d.exam_rounds?.exam_date,
+                exam_date: d.exam_rounds?.exam_date ?? null,
+                exam_type: d.exam_rounds?.exam_type ?? null,
                 fee_paid_date: d.fee_paid_date ?? null,
             })) as Applicant[];
 
@@ -209,7 +233,8 @@ export default function ExamApplicantsPage() {
                 .select('phone,name,affiliation,address')
                 .eq('signup_completed', true)
                 .in('phone', phones);
-            const pmap = new Map((profiles ?? []).map((p: any) => [p.phone, p]));
+            const profileRows = (profiles ?? []) as ProfileRow[];
+            const pmap = new Map(profileRows.map((p) => [p.phone, p]));
 
             return base.map((b) => {
                 const p = pmap.get(b.resident_id);
@@ -226,34 +251,46 @@ export default function ExamApplicantsPage() {
 
     // --- Derived Data Helper ---
     // Calculate display values for filtering and rendering
-    const getRowValue = (item: Applicant, field: string) => {
-        if (field === 'round_info') return `${dayjs(item.exam_date).format('YYYY-MM-DD')} (${item.round_label})`;
-        if (field === 'fee_paid_date') return item.fee_paid_date ? dayjs(item.fee_paid_date).format('YYYY-MM-DD') : '-';
-        if (field === 'is_confirmed') return item.is_confirmed ? '접수 완료' : '미접수';
-        if (field === 'subject_display') {
-            const label = item.round_label || '';
-            const isNonLife = label.includes('손해');
-            const isLife = label.includes('생명');
-
-            const subjects = [];
-            if (isNonLife) subjects.push('손해보험');
-            else if (isLife) subjects.push('생명보험');
-            else subjects.push('기타'); // Default fallback
-
-            if (item.is_third_exam) {
-                subjects.push('제3보험');
+    const getRowValue = (item: Applicant, field: RowField) => {
+        switch (field) {
+            case 'round_info': {
+                const examDate = item.exam_date ? dayjs(item.exam_date).format('YYYY-MM-DD') : '미정';
+                return `${examDate} (${item.round_label})`;
             }
+            case 'fee_paid_date':
+                return item.fee_paid_date ? dayjs(item.fee_paid_date).format('YYYY-MM-DD') : '-';
+            case 'is_confirmed':
+                return item.is_confirmed ? '접수 완료' : '미접수';
+            case 'subject_display': {
+                const label = item.round_label || '';
+                const subjects: string[] = [];
 
-            // Note: If distinct 'Life' flag existed, we'd use it. For now, infer Life/Non-Life base + Third.
-            return subjects.join(', ');
+                // Prefer explicit exam_type from exam_rounds.
+                if (item.exam_type === 'life') subjects.push('생명보험');
+                else if (item.exam_type === 'nonlife') subjects.push('손해보험');
+                else {
+                    // Backward compatible inference from label if exam_type is missing.
+                    const isNonLife = label.includes('손해');
+                    const isLife = label.includes('생명');
+                    if (isNonLife) subjects.push('손해보험');
+                    else if (isLife) subjects.push('생명보험');
+                    else subjects.push('미정');
+                }
+
+                if (item.is_third_exam) {
+                    subjects.push('제3보험');
+                }
+
+                return subjects.join(', ');
+            }
+            default:
+                return String(item[field] ?? '');
         }
-        // @ts-ignore
-        return String(item[field] || '');
     };
 
     const filterOptions = useMemo(() => {
         if (!applicants) return {};
-        const fields = ['round_info', 'name', 'phone', 'affiliation', 'address', 'location_name', 'fee_paid_date', 'is_confirmed', 'subject_display'];
+        const fields: RowField[] = ['round_info', 'name', 'phone', 'affiliation', 'address', 'location_name', 'fee_paid_date', 'is_confirmed', 'subject_display'];
         const options: Record<string, string[]> = {};
 
         fields.forEach(field => {
@@ -295,9 +332,9 @@ export default function ExamApplicantsPage() {
             return { id, isConfirmed };
         },
         onSuccess: ({ id, isConfirmed }) => {
-            queryClient.setQueryData(['exam-applicants-all-recent'], (old: any) => {
+            queryClient.setQueryData(['exam-applicants-all-recent'], (old: unknown) => {
                 if (!Array.isArray(old)) return old;
-                return old.map((item) => (item.id === id ? { ...item, is_confirmed: isConfirmed } : item));
+                return (old as Applicant[]).map((item) => (item.id === id ? { ...item, is_confirmed: isConfirmed } : item));
             });
             notifications.show({
                 title: '상태 변경 완료',
@@ -306,8 +343,9 @@ export default function ExamApplicantsPage() {
                 icon: <IconRefresh size={16} />,
             });
         },
-        onError: (err: any) => {
-            notifications.show({ title: '오류', message: err.message, color: 'red' });
+        onError: (err: unknown) => {
+            const msg = err instanceof Error ? err.message : '처리 중 오류가 발생했습니다.';
+            notifications.show({ title: '오류', message: msg, color: 'red' });
         },
     });
 
@@ -348,11 +386,11 @@ export default function ExamApplicantsPage() {
         URL.revokeObjectURL(url);
     };
 
-    const renderHeader = (title: string, field: string) => (
+    const renderHeader = (title: string, field: RowField) => (
         <Table.Th>
             <ExcelColumnFilter
                 title={title}
-                field={field as any}
+                field={field}
                 options={filterOptions[field] || []}
                 selected={filters[field] || []}
                 onApply={(val) => setFilters(prev => ({ ...prev, [field]: val }))}
@@ -437,7 +475,9 @@ export default function ExamApplicantsPage() {
                                         <Table.Tr key={item.id}>
                                             <Table.Td>
                                                 <Stack gap={0}>
-                                                    <Text size="xs" c="dimmed">{dayjs(item.exam_date).format('YYYY-MM-DD')}</Text>
+                                                    <Text size="xs" c="dimmed">
+                                                        {item.exam_date ? dayjs(item.exam_date).format('YYYY-MM-DD') : '미정'}
+                                                    </Text>
                                                     <Text size="sm" fw={500} style={{ whiteSpace: 'normal', lineHeight: 1.3 }}>
                                                         {item.round_label}
                                                     </Text>
@@ -477,7 +517,10 @@ export default function ExamApplicantsPage() {
                                                         indicator: { backgroundColor: item.is_confirmed ? HANWHA_ORANGE : '#adb5bd' },
                                                         label: { fontWeight: 600 }
                                                     }}
-                                                    disabled={updateStatusMutation.isPending && updateStatusMutation.variables?.id === item.id}
+                                                    disabled={
+                                                        isReadOnly ||
+                                                        (updateStatusMutation.isPending && updateStatusMutation.variables?.id === item.id)
+                                                    }
                                                 />
                                             </Table.Td>
                                         </Table.Tr>
