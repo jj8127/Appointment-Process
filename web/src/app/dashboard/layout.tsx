@@ -1,13 +1,11 @@
 'use client';
 
 import { useSession } from '@/hooks/use-session';
-import { ActionIcon, AppShell, Avatar, Burger, Group, Menu, NavLink, Text, UnstyledButton } from '@mantine/core';
-import { useDisclosure, useLocalStorage } from '@mantine/hooks';
+import { AppShell, Avatar, Burger, Group, Menu, NavLink, Text, UnstyledButton, useMantineTheme } from '@mantine/core';
+import { useDisclosure, useMediaQuery } from '@mantine/hooks';
 import {
   IconBell,
   IconCalendarEvent,
-  IconChevronLeft,
-  IconChevronRight,
   IconFileText,
   IconHome,
   IconLink,
@@ -19,16 +17,18 @@ import {
 } from '@tabler/icons-react';
 import { usePathname, useRouter } from 'next/navigation';
 import type React from 'react';
-import { useEffect, useMemo } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 
 type NavItem = { label: string; href: string; icon: React.ComponentType<{ size?: number; stroke?: number }> };
 
 export default function DashboardLayout({ children }: { children: React.ReactNode }) {
   const [opened, { toggle }] = useDisclosure();
-  const [desktopCollapsed, setDesktopCollapsed] = useLocalStorage<boolean>({
-    key: 'fc-onboarding-web:dashboard-navbar-collapsed',
-    defaultValue: false,
-  });
+  const theme = useMantineTheme();
+  const isDesktop = useMediaQuery(`(min-width: ${theme.breakpoints.sm})`);
+
+  // Desktop hover-expand behavior (collapsed by default).
+  const [desktopExpanded, setDesktopExpanded] = useState(false);
+  const collapseTimerRef = useRef<number | null>(null);
   const router = useRouter();
   const pathname = usePathname();
   const { role, logout, hydrated, displayName, residentMask } = useSession();
@@ -57,11 +57,40 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
     }
   }, [hydrated, role, router]);
 
+  useEffect(() => {
+    return () => {
+      if (collapseTimerRef.current != null) {
+        window.clearTimeout(collapseTimerRef.current);
+        collapseTimerRef.current = null;
+      }
+    };
+  }, []);
+
   if (!hydrated || !role) {
     return null;
   }
 
-  const navbarWidth = desktopCollapsed ? 72 : 260;
+  const navbarExpanded = !isDesktop || desktopExpanded;
+  const navbarWidth = isDesktop ? (navbarExpanded ? 260 : 72) : 260;
+
+  const handleNavbarEnter = () => {
+    if (!isDesktop) return;
+    if (collapseTimerRef.current != null) {
+      window.clearTimeout(collapseTimerRef.current);
+      collapseTimerRef.current = null;
+    }
+    setDesktopExpanded(true);
+  };
+
+  const handleNavbarLeave = () => {
+    if (!isDesktop) return;
+    if (collapseTimerRef.current != null) {
+      window.clearTimeout(collapseTimerRef.current);
+    }
+    collapseTimerRef.current = window.setTimeout(() => {
+      setDesktopExpanded(false);
+    }, 140);
+  };
 
   return (
     <AppShell
@@ -73,19 +102,6 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
         <Group h="100%" px="md" justify="space-between" wrap="nowrap">
           <Group wrap="nowrap">
             <Burger opened={opened} onClick={toggle} hiddenFrom="sm" size="sm" />
-            <ActionIcon
-              variant="subtle"
-              color="gray"
-              visibleFrom="sm"
-              onClick={() => setDesktopCollapsed((v) => !v)}
-              aria-label={desktopCollapsed ? '사이드바 펼치기' : '사이드바 접기'}
-            >
-              {desktopCollapsed ? (
-                <IconChevronRight size={18} stroke={1.6} />
-              ) : (
-                <IconChevronLeft size={18} stroke={1.6} />
-              )}
-            </ActionIcon>
             <Text fw={800} size="lg">
               FC 온보딩 웹
             </Text>
@@ -128,7 +144,12 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
         </Group>
       </AppShell.Header>
 
-      <AppShell.Navbar p={desktopCollapsed ? 'xs' : 'md'}>
+      <AppShell.Navbar
+        p={navbarExpanded ? 'md' : 'xs'}
+        onMouseEnter={handleNavbarEnter}
+        onMouseLeave={handleNavbarLeave}
+        style={isDesktop ? { transition: 'width 160ms ease' } : undefined}
+      >
         <AppShell.Section grow>
           {navItems.map((item) => {
             const active = pathname === item.href;
@@ -136,15 +157,15 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
             return (
               <NavLink
                 key={item.href}
-                label={desktopCollapsed ? null : item.label}
+                label={navbarExpanded ? item.label : null}
                 active={active}
-                leftSection={<Icon size={desktopCollapsed ? 18 : 16} stroke={1.6} />}
+                leftSection={<Icon size={navbarExpanded ? 16 : 18} stroke={1.6} />}
                 onClick={() => router.push(item.href)}
                 variant="light"
                 aria-label={item.label}
-                title={desktopCollapsed ? item.label : undefined}
+                title={!navbarExpanded ? item.label : undefined}
                 styles={
-                  desktopCollapsed
+                  !navbarExpanded
                     ? {
                         root: { justifyContent: 'center' },
                         section: { marginInlineEnd: 0 },
@@ -158,15 +179,15 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
 
         <AppShell.Section>
           <NavLink
-            label={desktopCollapsed ? null : '로그아웃'}
+            label={navbarExpanded ? '로그아웃' : null}
             color="red"
-            leftSection={<IconLogout size={desktopCollapsed ? 18 : 16} stroke={1.6} />}
+            leftSection={<IconLogout size={navbarExpanded ? 16 : 18} stroke={1.6} />}
             onClick={logout}
             variant="light"
             aria-label="로그아웃"
-            title={desktopCollapsed ? '로그아웃' : undefined}
+            title={!navbarExpanded ? '로그아웃' : undefined}
             styles={
-              desktopCollapsed
+              !navbarExpanded
                 ? {
                     root: { justifyContent: 'center' },
                     section: { marginInlineEnd: 0 },
