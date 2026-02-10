@@ -45,6 +45,24 @@ const CHARCOAL = '#111827';
 const MUTED = '#6b7280';
 const BACKGROUND_LIGHT = '#F9FAFB';
 
+type DocProfile = {
+    name: string | null;
+    phone: string | null;
+    affiliation: string | null;
+};
+
+type DocumentRow = {
+    id: string;
+    fc_id: string | null;
+    doc_type: string;
+    file_name: string | null;
+    storage_path: string | null;
+    status: string;
+    reviewer_note: string | null;
+    created_at: string;
+    fc_profiles?: DocProfile | null;
+};
+
 // Status Badge Helper
 const getStatusColor = (status: string) => {
     switch (status) {
@@ -74,25 +92,25 @@ export default function DocumentsPage() {
 
     // Preview Modal State
     const [previewOpened, { open: openPreview, close: closePreview }] = useDisclosure(false);
-    const [selectedDoc, setSelectedDoc] = useState<any>(null);
+    const [selectedDoc, setSelectedDoc] = useState<DocumentRow | null>(null);
     const [signedUrl, setSignedUrl] = useState<string | null>(null);
 
     // Reject Modal State
     const [rejectOpened, { open: openReject, close: closeReject }] = useDisclosure(false);
     const [rejectReason, setRejectReason] = useState('');
-    const [targetDocForReject, setTargetDocForReject] = useState<any>(null);
+    const [targetDocForReject, setTargetDocForReject] = useState<DocumentRow | null>(null);
 
     // Data Fetching
-    const { data: documents, isLoading } = useQuery({
+    const { data: documents, isLoading } = useQuery<DocumentRow[]>({
         queryKey: ['documents-list'],
         queryFn: async () => {
             const { data, error } = await supabase
                 .from('fc_documents')
-                .select('*, fc_profiles (name, phone, affiliation)')
+                .select('id, fc_id, doc_type, file_name, storage_path, status, reviewer_note, created_at, fc_profiles (name, phone, affiliation)')
                 .order('created_at', { ascending: false });
 
             if (error) throw error;
-            return data;
+            return (data ?? []) as unknown as DocumentRow[];
         },
     });
 
@@ -102,17 +120,17 @@ export default function DocumentsPage() {
         let docs = documents;
 
         if (activeTab === 'pending') {
-            docs = docs.filter((d: any) => ['pending', 'submitted'].includes(d.status));
+            docs = docs.filter((d) => ['pending', 'submitted'].includes(d.status));
         } else if (activeTab === 'approved') {
-            docs = docs.filter((d: any) => d.status === 'approved');
+            docs = docs.filter((d) => d.status === 'approved');
         } else if (activeTab === 'rejected') {
-            docs = docs.filter((d: any) => d.status === 'rejected');
+            docs = docs.filter((d) => d.status === 'rejected');
         }
         return docs;
     }, [documents, activeTab]);
 
     // --- Auto Advance Logic ---
-    const checkAutoAdvance = async (fcId: number, phone: string) => {
+    const checkAutoAdvance = async (fcId: string, phone: string) => {
         // Check if there are any documents for this FC that are NOT approved (and not deleted)
         const { data: pendingDocs, error } = await supabase
             .from('fc_documents')
@@ -147,7 +165,7 @@ export default function DocumentsPage() {
 
     // Mutations
     const updateStatusMutation = useMutation({
-        mutationFn: async ({ doc, status, reason }: { doc: any; status: string; reason?: string }) => {
+        mutationFn: async ({ doc, status, reason }: { doc: DocumentRow; status: string; reason?: string }) => {
             const reviewerNote =
                 status === 'rejected' ? (reason ?? '').trim() || null : status === 'approved' ? null : undefined;
             const { error } = await supabase
@@ -202,17 +220,18 @@ export default function DocumentsPage() {
                 checkAutoAdvance(updatedDoc.fc_id, updatedDoc.fc_profiles.phone);
             }
         },
-        onError: (err: any) => {
+        onError: (err: unknown) => {
+            const msg = err instanceof Error ? err.message : '처리 중 오류가 발생했습니다.';
             notifications.show({
                 title: '처리 실패',
-                message: err.message,
+                message: msg,
                 color: 'red',
             });
         },
     });
 
     // Handlers
-    const handlePreview = async (doc: any) => {
+    const handlePreview = async (doc: DocumentRow) => {
         setSelectedDoc(doc);
         setSignedUrl(null);
         openPreview();
@@ -248,7 +267,7 @@ export default function DocumentsPage() {
         closeConfirm();
     };
 
-    const handleApprove = (doc: any) => {
+    const handleApprove = (doc: DocumentRow) => {
         showConfirm({
             title: '서류 승인',
             message: `'${doc.doc_type}' 문서를 승인하시겠습니까?`,
@@ -258,7 +277,7 @@ export default function DocumentsPage() {
         });
     };
 
-    const handleRejectInit = (doc: any) => {
+    const handleRejectInit = (doc: DocumentRow) => {
         setTargetDocForReject(doc);
         setRejectReason('');
         openReject();
@@ -277,7 +296,7 @@ export default function DocumentsPage() {
         });
     };
 
-    const rows = filteredDocs.map((doc: any) => (
+    const rows = filteredDocs.map((doc) => (
         <Table.Tr key={doc.id} style={{ transition: 'background-color 0.2s' }}>
             <Table.Td>
                 <Text size="sm" c="dimmed">{dayjs(doc.created_at).format('YYYY-MM-DD HH:mm')}</Text>
@@ -358,7 +377,7 @@ export default function DocumentsPage() {
         </Table.Tr>
     ));
 
-    const isImage = (path: string) => {
+    const isImage = (path: string | null | undefined) => {
         if (!path) return false;
         const lower = path.toLowerCase();
         return lower.endsWith('.jpg') || lower.endsWith('.jpeg') || lower.endsWith('.png') || lower.endsWith('.webp');
@@ -384,9 +403,9 @@ export default function DocumentsPage() {
                 variant="pills"
                 radius="xl"
             >
-                <Tabs.List bg={BACKGROUND_LIGHT} p={4} style={{ borderRadius: 24, border: '1px solid #e9ecef', display: 'inline-flex' }}>
-                    <Tabs.Tab value="pending" fw={600} px="lg" py="xs" style={{ borderRadius: 20 }}>
-                        미처리 <Badge size="xs" circle ml={6} color="orange">{documents?.filter((d: any) => ['pending', 'submitted'].includes(d.status)).length || 0}</Badge>
+            <Tabs.List bg={BACKGROUND_LIGHT} p={4} style={{ borderRadius: 24, border: '1px solid #e9ecef', display: 'inline-flex' }}>
+                <Tabs.Tab value="pending" fw={600} px="lg" py="xs" style={{ borderRadius: 20 }}>
+                        미처리 <Badge size="xs" circle ml={6} color="orange">{documents?.filter((d) => ['pending', 'submitted'].includes(d.status)).length || 0}</Badge>
                     </Tabs.Tab>
                     <Tabs.Tab value="approved" fw={600} px="lg" py="xs" style={{ borderRadius: 20 }}>승인됨</Tabs.Tab>
                     <Tabs.Tab value="rejected" fw={600} px="lg" py="xs" style={{ borderRadius: 20 }}>반려됨</Tabs.Tab>

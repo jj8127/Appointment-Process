@@ -39,6 +39,15 @@ const schema = z.object({
     body: z.string().min(1, '내용을 입력해주세요'),
 });
 
+function createNoticeAttachmentPath(originalName: string) {
+    const fileExt = originalName.split('.').pop() || 'bin';
+    const suffix =
+        typeof crypto !== 'undefined' && 'randomUUID' in crypto
+            ? crypto.randomUUID()
+            : Math.random().toString(36).substring(2, 10);
+    return `${Date.now()}_${suffix}.${fileExt}`;
+}
+
 const glassStyle = {
     backgroundColor: 'rgba(255, 255, 255, 0.7)',
     backdropFilter: 'blur(12px)',
@@ -64,14 +73,13 @@ export default function CreateNoticePage() {
             title: '',
             body: '',
         },
-        validate: zodResolver(schema as any),
+        // Mantine zodResolver types are not fully compatible with zod v4 typing.
+        // Avoid `any` while still satisfying the resolver's expected schema type.
+        validate: zodResolver(schema as unknown as Parameters<typeof zodResolver>[0]),
     });
 
     const uploadToSupabase = async (file: File) => {
-        const fileExt = file.name.split('.').pop();
-        const randomSuffix = Math.random().toString(36).substring(7);
-        const fileName = `${Date.now()}_${randomSuffix}.${fileExt}`;
-        const filePath = `${fileName}`;
+        const filePath = createNoticeAttachmentPath(file.name);
 
         const { error } = await supabase.storage
             .from('notice-attachments')

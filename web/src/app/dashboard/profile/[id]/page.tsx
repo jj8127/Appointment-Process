@@ -88,7 +88,19 @@ export default function FcProfilePage({ params }: { params: Promise<{ id: string
     const { id: fcId } = use(params);
 
     const [isEditing, setIsEditing] = useState(false);
-    const [memo, setMemo] = useState('');
+
+    // --- Form ---
+    const form = useForm({
+        initialValues: {
+            name: '',
+            phone: '',
+            address: '',
+            email: '',
+            affiliation: '',
+            career_type: '',
+            admin_memo: '',
+        },
+    });
 
     // --- Fetch Data ---
     const { data: profile, isLoading: isProfileLoading } = useQuery({
@@ -123,20 +135,7 @@ export default function FcProfilePage({ params }: { params: Promise<{ id: string
         enabled: !!profile?.phone,
     });
 
-    // --- Form ---
-    const form = useForm({
-        initialValues: {
-            name: '',
-            phone: '',
-            address: '',
-            email: '',
-            affiliation: '',
-            career_type: '',
-        },
-    });
-
     // Sync Form with Data
-    // eslint-disable-next-line react-hooks/set-state-in-effect, react-hooks/exhaustive-deps
     useEffect(() => {
         if (profile) {
             form.setValues({
@@ -146,10 +145,10 @@ export default function FcProfilePage({ params }: { params: Promise<{ id: string
                 email: profile.email || '',
                 affiliation: profile.affiliation || '',
                 career_type: profile.career_type || '', // Assuming column exists
+                admin_memo: profile.admin_memo || '',
             });
-            setMemo(profile.admin_memo || '');
         }
-    }, [profile]);
+    }, [profile, form]);
 
     // --- Mutations ---
     const updateProfileMutation = useMutation({
@@ -172,7 +171,7 @@ export default function FcProfilePage({ params }: { params: Promise<{ id: string
         mutationFn: async () => {
             const { error } = await supabase
                 .from('fc_profiles')
-                .update({ admin_memo: memo })
+                .update({ admin_memo: form.values.admin_memo })
                 .eq('id', fcId);
             if (error) throw error;
         },
@@ -355,8 +354,7 @@ export default function FcProfilePage({ params }: { params: Promise<{ id: string
                                     minRows={4}
                                     autosize
                                     variant="filled"
-                                    value={memo}
-                                    onChange={(e) => setMemo(e.currentTarget.value)}
+                                    {...form.getInputProps('admin_memo')}
                                     styles={{ input: { backgroundColor: 'white' } }}
                                 />
                             </Card>

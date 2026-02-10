@@ -27,7 +27,7 @@ import {
     IconSend,
     IconUser
 } from '@tabler/icons-react';
-import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { useQuery } from '@tanstack/react-query';
 import dayjs from 'dayjs';
 import { useEffect, useRef, useState } from 'react';
 import { useSession } from '@/hooks/use-session';
@@ -63,8 +63,6 @@ type Message = {
 
 // --- Page Component ---
 export default function ChatPage() {
-    const queryClient = useQueryClient();
-    const { isReadOnly } = useSession();
     const [selectedFc, setSelectedFc] = useState<ChatPreview | null>(null);
     const [keyword, setKeyword] = useState('');
 
@@ -146,7 +144,7 @@ export default function ChatPage() {
             .on(
                 'postgres_changes',
                 { event: '*', schema: 'public', table: 'messages' },
-                (payload) => {
+                () => {
                     // If a new message comes in, refetch the list to update order/badge
                     refetchList();
                 }
@@ -382,12 +380,14 @@ function ChatRoom({ fc }: { fc: ChatPreview }) {
                     ok: resp.ok,
                     data,
                 });
-            } catch (fnErr: any) {
-                logger.warn('[chat][admin->fc] fc-notify proxy error', fnErr?.message ?? fnErr);
+            } catch (fnErr: unknown) {
+                const msg = fnErr instanceof Error ? fnErr.message : String(fnErr);
+                logger.warn('[chat][admin->fc] fc-notify proxy error', msg);
             }
 
-        } catch (err: any) {
-            notifications.show({ title: '전송 실패', message: err.message, color: 'red' });
+        } catch (err: unknown) {
+            const msg = err instanceof Error ? err.message : '전송 중 오류가 발생했습니다.';
+            notifications.show({ title: '전송 실패', message: msg, color: 'red' });
         } finally {
             setIsSending(false);
         }
