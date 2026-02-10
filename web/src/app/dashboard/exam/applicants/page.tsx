@@ -67,6 +67,18 @@ interface ExcelColumnFilterProps {
 
 type RowField = ExcelColumnFilterProps['field'];
 
+type ColumnField =
+    | 'round_info'
+    | 'subject_display'
+    | 'affiliation'
+    | 'name'
+    | 'resident_id'
+    | 'address'
+    | 'phone'
+    | 'location_name'
+    | 'fee_paid_date'
+    | 'is_confirmed';
+
 const ExcelColumnFilter = ({ title, options, selected, onApply }: ExcelColumnFilterProps) => {
     const [opened, setOpened] = useState(false);
     const [search, setSearch] = useState('');
@@ -193,6 +205,22 @@ export default function ExamApplicantsPage() {
     const { isReadOnly } = useSession();
     const [filters, setFilters] = useState<FilterState>({});
 
+    const colMinWidth: Record<ColumnField, number> = useMemo(
+        () => ({
+            round_info: 170,
+            subject_display: 200,
+            affiliation: 260,
+            name: 120,
+            resident_id: 170,
+            address: 420,
+            phone: 160,
+            location_name: 140,
+            fee_paid_date: 160,
+            is_confirmed: 220,
+        }),
+        []
+    );
+
     // --- Fetch All Recent Applicants ---
     const { data: applicants, isLoading, refetch } = useQuery({
         queryKey: ['exam-applicants-all-recent'],
@@ -290,7 +318,7 @@ export default function ExamApplicantsPage() {
 
     const filterOptions = useMemo(() => {
         if (!applicants) return {};
-        const fields: RowField[] = ['round_info', 'name', 'phone', 'affiliation', 'address', 'location_name', 'fee_paid_date', 'is_confirmed', 'subject_display'];
+        const fields: ColumnField[] = ['round_info', 'name', 'phone', 'affiliation', 'address', 'location_name', 'fee_paid_date', 'is_confirmed', 'subject_display'];
         const options: Record<string, string[]> = {};
 
         fields.forEach(field => {
@@ -386,8 +414,8 @@ export default function ExamApplicantsPage() {
         URL.revokeObjectURL(url);
     };
 
-    const renderHeader = (title: string, field: RowField) => (
-        <Table.Th>
+    const renderHeader = (title: string, field: ColumnField, minWidth?: number) => (
+        <Table.Th style={minWidth ? { minWidth } : undefined}>
             <ExcelColumnFilter
                 title={title}
                 field={field}
@@ -443,28 +471,28 @@ export default function ExamApplicantsPage() {
 
                 {/* Table */}
                 <Paper shadow="sm" radius="md" withBorder p="0" bg="white" style={{ overflow: 'hidden' }}>
-                    <ScrollArea h={650} type="auto">
-                        <Table highlightOnHover verticalSpacing="sm" horizontalSpacing="md" striped withColumnBorders stickyHeader>
+                    <ScrollArea h={650} type="always" offsetScrollbars styles={{ viewport: { overflowX: 'auto', overflowY: 'auto' } }}>
+                        <Table
+                            highlightOnHover
+                            verticalSpacing="sm"
+                            horizontalSpacing="md"
+                            striped
+                            withColumnBorders
+                            stickyHeader
+                            style={{ minWidth: 1950 }}
+                        >
                             <Table.Thead bg="gray.0">
                                 <Table.Tr>
-                                    <Table.Th style={{ minWidth: 140 }}>
-                                        <ExcelColumnFilter
-                                            title="시험 구분"
-                                            field="round_info"
-                                            options={filterOptions['round_info'] || []}
-                                            selected={filters['round_info'] || []}
-                                            onApply={(val) => setFilters(prev => ({ ...prev, 'round_info': val }))}
-                                        />
-                                    </Table.Th>
-                                    {renderHeader('시험 응시 과목', 'subject_display')}
-                                    {renderHeader('소속', 'affiliation')}
-                                    {renderHeader('이름', 'name')}
-                                    {renderHeader('주민등록번호', 'resident_id')}
-                                    {renderHeader('주소', 'address')}
-                                    {renderHeader('전화번호', 'phone')}
-                                    {renderHeader('고사장', 'location_name')}
-                                    {renderHeader('응시료 납입일', 'fee_paid_date')}
-                                    {renderHeader('상태', 'is_confirmed')}
+                                    {renderHeader('시험 구분', 'round_info', colMinWidth.round_info)}
+                                    {renderHeader('시험 응시 과목', 'subject_display', colMinWidth.subject_display)}
+                                    {renderHeader('소속', 'affiliation', colMinWidth.affiliation)}
+                                    {renderHeader('이름', 'name', colMinWidth.name)}
+                                    {renderHeader('주민등록번호', 'resident_id', colMinWidth.resident_id)}
+                                    {renderHeader('주소', 'address', colMinWidth.address)}
+                                    {renderHeader('전화번호', 'phone', colMinWidth.phone)}
+                                    {renderHeader('고사장', 'location_name', colMinWidth.location_name)}
+                                    {renderHeader('응시료 납입일', 'fee_paid_date', colMinWidth.fee_paid_date)}
+                                    {renderHeader('상태', 'is_confirmed', colMinWidth.is_confirmed)}
                                 </Table.Tr>
                             </Table.Thead>
                             <Table.Tbody>
@@ -484,17 +512,22 @@ export default function ExamApplicantsPage() {
                                                 </Stack>
                                             </Table.Td>
                                             <Table.Td>
-                                                <Badge variant="light" color="blue" radius="sm">
+                                                <Badge
+                                                    variant="light"
+                                                    color="blue"
+                                                    radius="sm"
+                                                    styles={{ label: { whiteSpace: 'normal' } }}
+                                                >
                                                     {getRowValue(item, 'subject_display')}
                                                 </Badge>
                                             </Table.Td>
                                             <Table.Td><Text size="sm">{item.affiliation}</Text></Table.Td>
                                             <Table.Td><Text fw={600} size="sm">{item.name}</Text></Table.Td>
                                             <Table.Td><Text size="sm" c="dimmed">{item.resident_id}</Text></Table.Td>
-                                            <Table.Td style={{ maxWidth: 200 }}>
-                                                <Tooltip label={item.address} disabled={!item.address || item.address === '-'}>
-                                                    <Text size="sm" truncate>{item.address}</Text>
-                                                </Tooltip>
+                                            <Table.Td>
+                                                <Text size="sm" style={{ whiteSpace: 'normal', lineHeight: 1.3 }}>
+                                                    {item.address}
+                                                </Text>
                                             </Table.Td>
                                             <Table.Td><Text size="sm">{item.phone}</Text></Table.Td>
                                             <Table.Td><Text size="sm">{item.location_name}</Text></Table.Td>
