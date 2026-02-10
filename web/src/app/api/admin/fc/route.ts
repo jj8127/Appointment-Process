@@ -72,7 +72,8 @@ export async function POST(req: Request) {
         .eq('id', fcId);
       if (updateError) throw updateError;
 
-      const shouldNotifyTemp = Boolean((data as any).temp_id);
+      const tempId = typeof data['temp_id'] === 'string' ? data['temp_id'] : null;
+      const shouldNotifyTemp = Boolean(tempId);
       if (shouldNotifyTemp && phone) {
         const { data: profile } = await adminSupabase
           .from('fc_profiles')
@@ -80,7 +81,7 @@ export async function POST(req: Request) {
           .eq('id', fcId)
           .maybeSingle();
         const title = '임시번호 발급';
-        const body = `임시사번: ${(data as any).temp_id} 이 발급되었습니다.`;
+        const body = `임시사번: ${tempId} 이 발급되었습니다.`;
         await adminSupabase.from('notifications').insert({
           title,
           body,

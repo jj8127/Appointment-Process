@@ -4,6 +4,10 @@ import { logger } from '@/lib/logger';
 import { cookies } from 'next/headers';
 import { NextResponse } from 'next/server';
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value) && typeof value === 'object' && !Array.isArray(value);
+}
+
 type Body = {
   fcIds?: string[];
 };
@@ -93,18 +97,38 @@ export async function POST(req: Request) {
       }),
     });
 
-    const data = (await resp.json().catch(() => null)) as any;
-    if (!resp.ok || !data?.ok) {
+    const data: unknown = await resp.json().catch(() => null);
+    const isOk =
+      resp.ok &&
+      isRecord(data) &&
+      data.ok === true &&
+      isRecord(data.residentNumbers);
+
+    if (!isOk) {
       logger.error('[api/admin/resident-numbers] edge function failed', {
         status: resp.status,
         body: data,
       });
-      const msg = data?.message ?? data?.error ?? 'Edge Function failed';
-      return NextResponse.json({ error: msg }, { status: 500, headers: SECURITY_HEADERS });
+
+      let msg = 'Edge Function failed';
+      if (isRecord(data)) {
+        if (typeof data.message === 'string') msg = data.message;
+        else if (typeof data.error === 'string') msg = data.error;
+      }
+
+      return NextResponse.json(
+        { error: msg },
+        { status: resp.status === 403 ? 403 : 500, headers: SECURITY_HEADERS },
+      );
     }
 
+    const residentNumbers = (data as Record<string, unknown>).residentNumbers as Record<
+      string,
+      string | null
+    >;
+
     return NextResponse.json(
-      { ok: true, residentNumbers: data.residentNumbers ?? {} },
+      { ok: true, residentNumbers },
       { headers: SECURITY_HEADERS },
     );
   } catch (err: unknown) {
@@ -113,4 +137,3 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: error?.message ?? 'Request failed' }, { status: 500, headers: SECURITY_HEADERS });
   }
 }
-

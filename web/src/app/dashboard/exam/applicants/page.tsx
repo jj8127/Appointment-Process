@@ -30,6 +30,10 @@ import { useMemo, useState } from 'react';
 
 import { supabase } from '@/lib/supabase';
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+    return Boolean(value) && typeof value === 'object' && !Array.isArray(value);
+}
+
 // --- Constants ---
 const HANWHA_ORANGE = '#F37321';
 const CHARCOAL = '#111827';
@@ -213,7 +217,7 @@ export default function ExamApplicantsPage() {
             subject_display: 120,
             affiliation: 180,
             name: 80,
-            resident_id: 130,
+            resident_id: 110,
             address: 420,
             phone: 120,
             location_name: 70,
@@ -275,9 +279,9 @@ export default function ExamApplicantsPage() {
                         headers: { 'Content-Type': 'application/json' },
                         body: JSON.stringify({ fcIds }),
                     });
-                    const json = (await resp.json().catch(() => null)) as any;
-                    if (resp.ok && json?.ok) {
-                        residentNumbersByFcId = (json.residentNumbers ?? {}) as Record<string, string | null>;
+                    const json: unknown = await resp.json().catch(() => null);
+                    if (resp.ok && isRecord(json) && json.ok === true && isRecord(json.residentNumbers)) {
+                        residentNumbersByFcId = json.residentNumbers as Record<string, string | null>;
                     }
                 } catch {
                     // If the server API fails, fall back to masked values (page stays usable).
