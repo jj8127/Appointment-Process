@@ -58,6 +58,12 @@ credentials/
 # Archived documents (historical analysis, not needed in repo)
 .archive/
 
+# local codex/mcp settings
+.codex/
+
+# local tooling checkout
+Claude-Code-Usage-Monitor/
+
 # local gradle cache
 .gradle-home/
 
