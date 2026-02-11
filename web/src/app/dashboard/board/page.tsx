@@ -1,5 +1,25 @@
 'use client';
 
+import { useSession } from '@/hooks/use-session';
+import {
+  BoardDetail,
+  BoardListItem,
+  buildBoardActor,
+  createBoardComment,
+  createBoardPost,
+  deleteBoardComment,
+  deleteBoardPost,
+  fetchBoardCategories,
+  fetchBoardDetail,
+  fetchBoardList,
+  finalizeBoardAttachments,
+  formatFileSize,
+  signBoardAttachments,
+  toggleBoardReaction,
+  toggleCommentLike,
+  updateBoardComment,
+  updateBoardPost,
+} from '@/lib/board-api';
 import {
   ActionIcon,
   Alert,
@@ -42,29 +62,9 @@ import {
   IconTrash,
   IconX,
 } from '@tabler/icons-react';
-import { motion, AnimatePresence } from 'framer-motion';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { AnimatePresence, motion } from 'framer-motion';
 import { useEffect, useMemo, useState } from 'react';
-import { useSession } from '@/hooks/use-session';
-import {
-  BoardDetail,
-  BoardListItem,
-  buildBoardActor,
-  createBoardComment,
-  createBoardPost,
-  deleteBoardPost,
-  deleteBoardComment,
-  fetchBoardDetail,
-  fetchBoardList,
-  fetchBoardCategories,
-  finalizeBoardAttachments,
-  formatFileSize,
-  signBoardAttachments,
-  toggleCommentLike,
-  toggleBoardReaction,
-  updateBoardComment,
-  updateBoardPost,
-} from '@/lib/board-api';
 
 // 감정 표현 타입
 const REACTION_TYPES = [
@@ -201,7 +201,7 @@ export default function BoardPage() {
   }, [selectedPostId]);
   /* eslint-enable react-hooks/set-state-in-effect */
 
-  const { data: listData, isLoading } = useQuery({
+  const { data: listData, isLoading, error, isError, refetch } = useQuery({
     queryKey: ['board-posts', actor?.role, actor?.residentId],
     queryFn: () => {
       if (!actor) return Promise.resolve({ items: [], nextCursor: null });
@@ -1041,6 +1041,15 @@ export default function BoardPage() {
 
         {/* 게시글 목록 */}
         <Stack gap="md">
+          {isError && (
+            <Alert color="red" title="오류 발생" withCloseButton onClose={() => refetch()}>
+              게시글을 불러오는데 실패했습니다.
+              {error instanceof Error ? ` (${error.message})` : ''}
+              <Button size="xs" variant="outline" color="red" onClick={() => refetch()} mt="xs">
+                다시 시도
+              </Button>
+            </Alert>
+          )}
           {isLoading && (
             <Text size="sm" c="dimmed">
               게시글을 불러오는 중입니다...
@@ -1073,108 +1082,127 @@ export default function BoardPage() {
                     onClick={() => handleViewPost(post)}
                   >
                     <Stack gap="md">
-                    {/* 게시글 헤더 */}
-                    <Group justify="space-between" align="flex-start">
-                      <Group>
-                        <Avatar color="orange" radius="xl" size="lg">
-                          {post.authorName.charAt(0)}
-                        </Avatar>
-                        <div>
-                          <Group gap="xs" align="center">
-                            <Text size="sm" fw={600}>
-                              {post.authorName}
+                      {/* 게시글 헤더 */}
+                      <Group justify="space-between" align="flex-start">
+                        <Group>
+                          <Avatar color="orange" radius="xl" size="lg">
+                            {post.authorName.charAt(0)}
+                          </Avatar>
+                          <div>
+                            <Group gap="xs" align="center">
+                              <Text size="sm" fw={600}>
+                                {post.authorName}
+                              </Text>
+                              <Badge
+                                size="xs"
+                                variant="light"
+                                color={post.authorRole === 'admin' ? 'blue' : 'purple'}
+                              >
+                                {post.authorRole === 'admin' ? '관리자' : '본부장'}
+                              </Badge>
+                            </Group>
+                            <Text size="xs" c="dimmed">
+                              {new Date(post.createdAt).toLocaleDateString('ko-KR', {
+                                year: 'numeric',
+                                month: 'long',
+                                day: 'numeric',
+                                hour: '2-digit',
+                                minute: '2-digit',
+                              })}
                             </Text>
-                            <Badge
-                              size="xs"
-                              variant="light"
-                              color={post.authorRole === 'admin' ? 'blue' : 'purple'}
-                            >
-                              {post.authorRole === 'admin' ? '관리자' : '본부장'}
-                            </Badge>
-                          </Group>
-                          <Text size="xs" c="dimmed">
-                            {new Date(post.createdAt).toLocaleDateString('ko-KR', {
-                              year: 'numeric',
-                              month: 'long',
-                              day: 'numeric',
-                              hour: '2-digit',
-                              minute: '2-digit',
-                            })}
-                          </Text>
-                        </div>
+                          </div>
+                        </Group>
+
+                        {canManagePost(post) && (
+                          <Menu shadow="md" width={200}>
+                            <Menu.Target>
+                              <ActionIcon variant="subtle" color="gray">
+                                <IconDotsVertical size={16} />
+                              </ActionIcon>
+                            </Menu.Target>
+                            <Menu.Dropdown>
+                              <Menu.Item
+                                leftSection={<IconEdit size={14} />}
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  handleEditPost(post);
+                                }}
+                              >
+                                수정
+                              </Menu.Item>
+                              <Menu.Item
+                                color="red"
+                                leftSection={<IconTrash size={14} />}
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  handleDeletePost(post);
+                                }}
+                              >
+                                삭제
+                              </Menu.Item>
+                            </Menu.Dropdown>
+                          </Menu>
+                        )}
                       </Group>
 
-                      {canManagePost(post) && (
-                        <Menu shadow="md" width={200}>
-                          <Menu.Target>
-                            <ActionIcon variant="subtle" color="gray">
-                              <IconDotsVertical size={16} />
-                            </ActionIcon>
-                          </Menu.Target>
-                          <Menu.Dropdown>
-                            <Menu.Item
-                              leftSection={<IconEdit size={14} />}
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                handleEditPost(post);
-                              }}
-                            >
-                              수정
-                            </Menu.Item>
-                            <Menu.Item
-                              color="red"
-                              leftSection={<IconTrash size={14} />}
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                handleDeletePost(post);
-                              }}
-                            >
-                              삭제
-                            </Menu.Item>
-                          </Menu.Dropdown>
-                        </Menu>
-                      )}
-                    </Group>
-
-                    {/* 게시글 내용 */}
-                    <div>
-                      <Title order={4} mb="xs">
-                        {post.title}
-                      </Title>
-                      <Text size="sm" c="dimmed" lineClamp={2}>
-                        {post.contentPreview}
-                      </Text>
-                    </div>
-
-                    {previewImages.length > 0 && (
-                      <SimpleGrid cols={{ base: 1, sm: 2, md: 3 }} spacing="xs">
-                        {previewImages.map((file) => (
-                          <Card key={file.id} withBorder padding="xs" radius="md">
-                            <Image
-                              src={file.signedUrl}
-                              alt={file.fileName}
-                              radius="md"
-                              height={120}
-                              fit="cover"
-                            />
-                          </Card>
-                        ))}
-                      </SimpleGrid>
-                    )}
-
-                    <Divider />
-
-                    <Group justify="flex-end">
-                      <Group gap="xs">
-                        <ThemeIcon variant="light" color="gray" size="sm">
-                          <IconMessage size={14} />
-                        </ThemeIcon>
-                        <Text size="sm" c="dimmed">
-                          {post.stats.commentCount}개의 댓글
+                      {/* 게시글 내용 */}
+                      <div>
+                        <Title order={4} mb="xs">
+                          {post.title}
+                        </Title>
+                        <Text size="sm" c="dimmed" lineClamp={2}>
+                          {post.contentPreview}
                         </Text>
+                      </div>
+
+                      {previewImages.length > 0 && (
+                        <SimpleGrid cols={{ base: 1, sm: 2, md: 3 }} spacing="xs">
+                          {previewImages.map((file) => (
+                            <Card key={file.id} withBorder padding="xs" radius="md">
+                              <Image
+                                src={file.signedUrl}
+                                alt={file.fileName}
+                                radius="md"
+                                height={120}
+                                fit="cover"
+                              />
+                            </Card>
+                          ))}
+                        </SimpleGrid>
+                      )}
+
+                      <Divider />
+
+                      <Group justify="space-between" mt="md">
+                        <Group gap="md">
+                          {REACTION_TYPES.map((reaction) => (
+                            <Group key={reaction.id} gap={4} align="center">
+                              <ThemeIcon
+                                variant="light"
+                                color={reaction.color}
+                                size="xs"
+                                radius="xl"
+                                style={{ backgroundColor: 'transparent' }}
+                              >
+                                <reaction.icon size={14} />
+                              </ThemeIcon>
+                              <Text size="xs" c={`${reaction.color}.6`} fw={500}>
+                                {post.reactions?.[reaction.id] ?? 0}
+                              </Text>
+                            </Group>
+                          ))}
+                        </Group>
+
+                        <Group gap="xs">
+                          <ThemeIcon variant="light" color="gray" size="sm">
+                            <IconMessage size={14} />
+                          </ThemeIcon>
+                          <Text size="sm" c="dimmed">
+                            {post.stats.commentCount}개의 댓글
+                          </Text>
+                        </Group>
                       </Group>
-                    </Group>
-                  </Stack>
+                    </Stack>
                   </Card>
                 </motion.div>
               );

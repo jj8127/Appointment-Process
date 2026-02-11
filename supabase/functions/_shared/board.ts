@@ -27,6 +27,8 @@ const defaultOrigin = allowedOrigins[0] ?? 'https://yourdomain.com';
 
 export function resolveCorsOrigin(origin?: string) {
   if (origin && allowedOrigins.includes(origin)) return origin;
+  // Allow localhost for development
+  if (origin?.includes('localhost') || origin?.includes('127.0.0.1')) return origin;
   return defaultOrigin;
 }
 

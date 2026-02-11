@@ -75,6 +75,7 @@ serve(async (req: Request) => {
       title: 'New board post',
       body: title,
       category: 'board_post',
+      target_url: `/board-detail?postId=${data.id}`,
     },
     {
       recipient_role: 'admin',
@@ -82,6 +83,7 @@ serve(async (req: Request) => {
       title: 'New board post',
       body: title,
       category: 'board_post',
+      target_url: `/board-detail?postId=${data.id}`,
     },
     {
       recipient_role: 'manager',
@@ -89,6 +91,7 @@ serve(async (req: Request) => {
       title: 'New board post',
       body: title,
       category: 'board_post',
+      target_url: `/board-detail?postId=${data.id}`,
     },
   ];
 

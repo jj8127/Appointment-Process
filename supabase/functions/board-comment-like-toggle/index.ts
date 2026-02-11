@@ -33,7 +33,7 @@ serve(async (req: Request) => {
 
   const { data: comment, error: commentError } = await supabase
     .from('board_comments')
-    .select('id,author_resident_id,author_role,content')
+    .select('id,post_id,author_resident_id,author_role,content')
     .eq('id', commentId)
     .maybeSingle();
 
@@ -81,6 +81,7 @@ serve(async (req: Request) => {
         title: 'New comment like',
         body: comment.content?.slice(0, 120) ?? '',
         category: 'board_comment_like',
+        target_url: `/board-detail?postId=${comment.post_id}`,
       });
     }
   }

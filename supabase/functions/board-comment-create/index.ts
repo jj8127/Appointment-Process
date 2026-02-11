@@ -125,6 +125,7 @@ serve(async (req: Request) => {
       title: 'New comment',
       body: post.title ?? 'New comment',
       category: parentId ? 'board_reply' : 'board_comment',
+      target_url: `/board-detail?postId=${postId}`,
     }));
     await supabase.from('notifications').insert(notificationRows);
   }

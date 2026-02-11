@@ -1,6 +1,6 @@
 import { Feather } from '@expo/vector-icons';
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useNavigation } from '@react-navigation/native';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useFocusEffect, useRouter } from 'expo-router';
 import { MotiView } from 'moti';
 import { useCallback, useEffect, useMemo, useState } from 'react';
@@ -18,6 +18,7 @@ import {
   TextInput,
   View,
 } from 'react-native';
+import { Gesture, GestureDetector } from 'react-native-gesture-handler';
 import Animated, {
   Easing,
   runOnJS,
@@ -29,17 +30,14 @@ import Animated, {
   withTiming,
 } from 'react-native-reanimated';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
-import { Gesture, GestureDetector } from 'react-native-gesture-handler';
 
-import { CardSkeleton } from '@/components/LoadingSkeleton';
 import { KeyboardAwareWrapper } from '@/components/KeyboardAwareWrapper';
+import { CardSkeleton } from '@/components/LoadingSkeleton';
+import { DEFAULT_REACTIONS, ReactionPicker } from '@/components/ReactionPicker';
 import { RefreshButton } from '@/components/RefreshButton';
-import { ReactionPicker, DEFAULT_REACTIONS } from '@/components/ReactionPicker';
 import { useKeyboardPadding } from '@/hooks/use-keyboard-padding';
 import { useSession } from '@/hooks/use-session';
-import { ANIMATION } from '@/lib/theme';
 import {
-  BoardCategory,
   BoardDetail,
   BoardListItem,
   BoardListParams,
@@ -51,10 +49,11 @@ import {
   fetchBoardList,
   formatFileSize,
   logBoardError,
-  updateBoardComment,
-  toggleCommentLike,
   toggleBoardReaction,
+  toggleCommentLike,
+  updateBoardComment
 } from '@/lib/board-api';
+import { ANIMATION } from '@/lib/theme';
 
 const HANWHA_ORANGE = '#f36f21';
 const CHARCOAL = '#111827';
@@ -186,6 +185,7 @@ export default function BoardScreen() {
   const [editingCommentId, setEditingCommentId] = useState<string | null>(null);
   const [editingCommentText, setEditingCommentText] = useState('');
   const [collapsedThreadIds, setCollapsedThreadIds] = useState<string[]>([]);
+  const [isThreadInitialized, setIsThreadInitialized] = useState(false);
   const [replyTarget, setReplyTarget] = useState<{
     id: string;
     authorName: string;
@@ -734,18 +734,26 @@ export default function BoardScreen() {
       setEditingCommentText('');
       setReplyTarget(null);
       setCollapsedThreadIds([]);
+      setIsThreadInitialized(false);
     }
   }, [selectedPost]);
-  
+
   useEffect(() => {
-    if (!selectedPost || collapsedThreadIds.length > 0) return;
+    if (!selectedPost || isThreadInitialized) return;
+
+    // 댓글 데이터가 로드되었는지 확인 (빈 배열일 수도 있으므로 길이 체크는 신중히)
+    // 여기서는 threadedComments가 계산된 시점에 실행됨
+
     const initialCollapsed = threadedComments.roots
       .filter((comment) => (threadedComments.repliesByParent.get(comment.id)?.length ?? 0) > 0)
       .map((comment) => comment.id);
-    if (initialCollapsed.length > 0) {
+
+    // 댓글이 있는데 초기화되지 않았다면 초기화 수행
+    if (modalComments.length > 0) {
       setCollapsedThreadIds(initialCollapsed);
+      setIsThreadInitialized(true);
     }
-  }, [collapsedThreadIds.length, selectedPost, threadedComments]);
+  }, [isThreadInitialized, modalComments.length, selectedPost, threadedComments]);
 
   // 서버에서 필터링/정렬된 게시글 사용
   const filteredPosts = posts;
@@ -980,6 +988,16 @@ export default function BoardScreen() {
 
                 {/* 반응 및 댓글 요약 */}
                 <View style={styles.footer}>
+                  <View style={styles.reactionRow}>
+                    {DEFAULT_REACTIONS.map((reaction) => (
+                      <View key={reaction.id} style={styles.reactionItem}>
+                        <Feather name={reaction.icon as any} size={14} color={reaction.color} />
+                        <Text style={[styles.reactionCount, { color: reaction.color }]}>
+                          {post.reactions?.[reaction.id as keyof typeof post.reactions] ?? 0}
+                        </Text>
+                      </View>
+                    ))}
+                  </View>
                   <View style={styles.commentInfo}>
                     <Feather name="message-circle" size={14} color={TEXT_MUTED} />
                     <Text style={styles.commentCount}>{post.stats.commentCount}</Text>
@@ -1048,114 +1066,114 @@ export default function BoardScreen() {
                 contentContainerStyle={{ paddingBottom: commentBarInset + insets.bottom, flexGrow: 1 }}
                 keyboardShouldPersistTaps="handled"
               >
-              {/* 작성자 정보 */}
-              <View style={styles.modalAuthor}>
-                <View style={styles.avatar}>
-                  <Text style={styles.avatarText}>{modalPost?.authorName?.charAt(0) ?? '?'}</Text>
-                </View>
-                <View style={{ flex: 1 }}>
-                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-                    <Text style={styles.authorName}>{modalPost?.authorName ?? ''}</Text>
-                    <View style={[styles.roleBadge, { backgroundColor: modalPost?.authorRole === 'admin' ? '#dbeafe' : '#e9d5ff' }]}>
-                      <Text style={[styles.roleText, { color: modalPost?.authorRole === 'admin' ? '#2563eb' : '#9333ea' }]}>
-                        {modalPost?.authorRole === 'admin' ? '관리자' : '본부장'}
-                      </Text>
+                {/* 작성자 정보 */}
+                <View style={styles.modalAuthor}>
+                  <View style={styles.avatar}>
+                    <Text style={styles.avatarText}>{modalPost?.authorName?.charAt(0) ?? '?'}</Text>
+                  </View>
+                  <View style={{ flex: 1 }}>
+                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                      <Text style={styles.authorName}>{modalPost?.authorName ?? ''}</Text>
+                      <View style={[styles.roleBadge, { backgroundColor: modalPost?.authorRole === 'admin' ? '#dbeafe' : '#e9d5ff' }]}>
+                        <Text style={[styles.roleText, { color: modalPost?.authorRole === 'admin' ? '#2563eb' : '#9333ea' }]}>
+                          {modalPost?.authorRole === 'admin' ? '관리자' : '본부장'}
+                        </Text>
+                      </View>
                     </View>
+                    <Text style={styles.date}>
+                      {modalPost?.createdAt
+                        ? new Date(modalPost.createdAt).toLocaleDateString('ko-KR', {
+                          year: 'numeric',
+                          month: 'long',
+                          day: 'numeric',
+                          hour: '2-digit',
+                          minute: '2-digit',
+                        })
+                        : ''}
+                    </Text>
                   </View>
-                  <Text style={styles.date}>
-                    {modalPost?.createdAt
-                      ? new Date(modalPost.createdAt).toLocaleDateString('ko-KR', {
-                      year: 'numeric',
-                      month: 'long',
-                      day: 'numeric',
-                      hour: '2-digit',
-                      minute: '2-digit',
-                    })
-                      : ''}
-                  </Text>
                 </View>
-              </View>
 
-              <Text style={styles.modalPostTitle}>{modalPost?.title ?? ''}</Text>
-              <Text style={styles.modalPostContent}>{modalPost?.content ?? ''}</Text>
+                <Text style={styles.modalPostTitle}>{modalPost?.title ?? ''}</Text>
+                <Text style={styles.modalPostContent}>{modalPost?.content ?? ''}</Text>
 
-              {modalAttachments.length > 0 && (
-                <View style={styles.attachmentSection}>
-                  <Text style={styles.sectionTitle}>첨부파일</Text>
+                {modalAttachments.length > 0 && (
+                  <View style={styles.attachmentSection}>
+                    <Text style={styles.sectionTitle}>첨부파일</Text>
 
-                  <View style={styles.attachmentGrid}>
-                    {modalAttachments
-                      .filter((item) => item.fileType === 'image')
-                      .map((item) => (
-                        <View key={item.id} style={styles.attachmentGridItem}>
-                          {item.signedUrl ? (
-                            <Image source={{ uri: item.signedUrl }} style={styles.attachmentGridImage} />
-                          ) : (
-                            <View style={styles.attachmentGridPlaceholder}>
-                              <Feather name="image" size={18} color={TEXT_MUTED} />
-                            </View>
-                          )}
-                          <Text style={styles.attachmentName} numberOfLines={1}>
-                            {item.fileName}
-                          </Text>
-                          <Text style={styles.attachmentSize}>{formatFileSize(item.fileSize)}</Text>
-                        </View>
-                      ))}
-                  </View>
-
-                  <View style={styles.attachmentList}>
-                    {modalAttachments
-                      .filter((item) => item.fileType === 'file')
-                      .map((item) => (
-                        <Pressable
-                          key={item.id}
-                          style={styles.attachmentItem}
-                          onPress={() => {
-                            if (item.signedUrl) {
-                              Linking.openURL(item.signedUrl);
-                            }
-                          }}
-                        >
-                          <View style={styles.attachmentIcon}>
-                            <Feather name="file-text" size={16} color={HANWHA_ORANGE} />
-                          </View>
-                          <View style={{ flex: 1 }}>
-                            <Text style={styles.attachmentName}>{item.fileName}</Text>
+                    <View style={styles.attachmentGrid}>
+                      {modalAttachments
+                        .filter((item) => item.fileType === 'image')
+                        .map((item) => (
+                          <View key={item.id} style={styles.attachmentGridItem}>
+                            {item.signedUrl ? (
+                              <Image source={{ uri: item.signedUrl }} style={styles.attachmentGridImage} />
+                            ) : (
+                              <View style={styles.attachmentGridPlaceholder}>
+                                <Feather name="image" size={18} color={TEXT_MUTED} />
+                              </View>
+                            )}
+                            <Text style={styles.attachmentName} numberOfLines={1}>
+                              {item.fileName}
+                            </Text>
                             <Text style={styles.attachmentSize}>{formatFileSize(item.fileSize)}</Text>
                           </View>
-                          <Feather name="download" size={16} color={TEXT_MUTED} />
-                        </Pressable>
-                      ))}
+                        ))}
+                    </View>
+
+                    <View style={styles.attachmentList}>
+                      {modalAttachments
+                        .filter((item) => item.fileType === 'file')
+                        .map((item) => (
+                          <Pressable
+                            key={item.id}
+                            style={styles.attachmentItem}
+                            onPress={() => {
+                              if (item.signedUrl) {
+                                Linking.openURL(item.signedUrl);
+                              }
+                            }}
+                          >
+                            <View style={styles.attachmentIcon}>
+                              <Feather name="file-text" size={16} color={HANWHA_ORANGE} />
+                            </View>
+                            <View style={{ flex: 1 }}>
+                              <Text style={styles.attachmentName}>{item.fileName}</Text>
+                              <Text style={styles.attachmentSize}>{formatFileSize(item.fileSize)}</Text>
+                            </View>
+                            <Feather name="download" size={16} color={TEXT_MUTED} />
+                          </Pressable>
+                        ))}
+                    </View>
                   </View>
-                </View>
-              )}
-
-              <View style={styles.divider} />
-
-              {/* 감정 표현 버튼 */}
-              <View style={styles.reactionsSection}>
-                <Text style={styles.sectionTitle}>반응 남기기</Text>
-                <ReactionPicker
-                  reactions={DEFAULT_REACTIONS}
-                  onReact={(reactionId) => addReactionMutation.mutate({ postId: selectedPost.id, reactionType: reactionId as ReactionKey })}
-                  reactionCounts={modalReactionCounts}
-                  selectedReactions={modalReactions.myReaction ? [modalReactions.myReaction] : []}
-                  showLabels={false}
-                />
-              </View>
-
-              <View style={styles.divider} />
-
-              {/* 댓글 섹션 */}
-              <View style={styles.commentsSection}>
-                <Text style={styles.sectionTitle}>댓글 ({modalComments.length || 0})</Text>
-
-                {threadedComments.roots.length > 0 ? (
-                  threadedComments.roots.map((comment) => renderCommentThread(comment))
-                ) : (
-                  <Text style={styles.noComments}>첫 댓글을 남겨보세요!</Text>
                 )}
-              </View>
+
+                <View style={styles.divider} />
+
+                {/* 감정 표현 버튼 */}
+                <View style={styles.reactionsSection}>
+                  <Text style={styles.sectionTitle}>반응 남기기</Text>
+                  <ReactionPicker
+                    reactions={DEFAULT_REACTIONS}
+                    onReact={(reactionId) => addReactionMutation.mutate({ postId: selectedPost.id, reactionType: reactionId as ReactionKey })}
+                    reactionCounts={modalReactionCounts}
+                    selectedReactions={modalReactions.myReaction ? [modalReactions.myReaction] : []}
+                    showLabels={false}
+                  />
+                </View>
+
+                <View style={styles.divider} />
+
+                {/* 댓글 섹션 */}
+                <View style={styles.commentsSection}>
+                  <Text style={styles.sectionTitle}>댓글 ({modalComments.length || 0})</Text>
+
+                  {threadedComments.roots.length > 0 ? (
+                    threadedComments.roots.map((comment) => renderCommentThread(comment))
+                  ) : (
+                    <Text style={styles.noComments}>첫 댓글을 남겨보세요!</Text>
+                  )}
+                </View>
 
               </KeyboardAwareWrapper>
               {/* 댓글 작성 */}
@@ -1409,6 +1427,20 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
+    marginTop: 12,
+  },
+  reactionRow: {
+    flexDirection: 'row',
+    gap: 12,
+  },
+  reactionItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+  },
+  reactionCount: {
+    fontSize: 12,
+    fontWeight: '600',
   },
   commentInfo: { flexDirection: 'row', alignItems: 'center', gap: 4 },
   commentCount: { fontSize: 13, color: TEXT_MUTED, fontWeight: '600' },
