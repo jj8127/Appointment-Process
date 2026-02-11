@@ -29,7 +29,7 @@ import {
 } from '@tabler/icons-react';
 import { useQuery } from '@tanstack/react-query';
 import dayjs from 'dayjs';
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { useSession } from '@/hooks/use-session';
 
 import { logger } from '@/lib/logger';
@@ -261,29 +261,36 @@ function ChatRoom({ fc }: { fc: ChatPreview }) {
     const viewport = useRef<HTMLDivElement>(null);
     const [isSending, setIsSending] = useState(false);
 
-    // Fetch Messages
-    const fetchMessages = async () => {
-        // Query: (sender=admin AND receiver=fc) OR (sender=fc AND receiver=admin)
-        const { data, error } = await supabase
-            .from('messages')
-            .select('*')
-            .or(`and(sender_id.eq.${ADMIN_ID},receiver_id.eq.${fc.phone}),and(sender_id.eq.${fc.phone},receiver_id.eq.${ADMIN_ID})`)
-            .order('created_at', { ascending: true }); // We want oldest first for chat flow
-
-        if (!error && data) {
-            setMessages(data as Message[]);
-            scrollToBottom();
-
-            // Mark as read immediately when loaded
-            const unreadIds = data.filter((m: Message) => m.sender_id === fc.phone && !m.is_read).map((m: Message) => m.id);
-            if (unreadIds.length > 0) {
-                await supabase.from('messages').update({ is_read: true }).in('id', unreadIds);
+    const scrollToBottom = useCallback(() => {
+        setTimeout(() => {
+            if (viewport.current) {
+                viewport.current.scrollTo({ top: viewport.current.scrollHeight, behavior: 'smooth' });
             }
-        }
-    };
+        }, 100);
+    }, []);
 
     useEffect(() => {
-        fetchMessages();
+        const fetchMessages = async () => {
+            // Query: (sender=admin AND receiver=fc) OR (sender=fc AND receiver=admin)
+            const { data, error } = await supabase
+                .from('messages')
+                .select('*')
+                .or(`and(sender_id.eq.${ADMIN_ID},receiver_id.eq.${fc.phone}),and(sender_id.eq.${fc.phone},receiver_id.eq.${ADMIN_ID})`)
+                .order('created_at', { ascending: true }); // We want oldest first for chat flow
+
+            if (!error && data) {
+                setMessages(data as Message[]);
+                scrollToBottom();
+
+                // Mark as read immediately when loaded
+                const unreadIds = data.filter((m: Message) => m.sender_id === fc.phone && !m.is_read).map((m: Message) => m.id);
+                if (unreadIds.length > 0) {
+                    await supabase.from('messages').update({ is_read: true }).in('id', unreadIds);
+                }
+            }
+        };
+
+        void fetchMessages();
 
         // Subscribe to this room
         const channel = supabase
@@ -315,15 +322,7 @@ function ChatRoom({ fc }: { fc: ChatPreview }) {
         return () => {
             supabase.removeChannel(channel);
         };
-    }, [fc.phone]);
-
-    const scrollToBottom = () => {
-        setTimeout(() => {
-            if (viewport.current) {
-                viewport.current.scrollTo({ top: viewport.current.scrollHeight, behavior: 'smooth' });
-            }
-        }, 100);
-    };
+    }, [fc.phone, scrollToBottom]);
 
     const handleSendMessage = async () => {
         if (!inputText.trim()) return;

@@ -6,6 +6,7 @@ import {
   Button,
   Container,
   Group,
+  Image,
   Loader,
   Paper,
   SimpleGrid,
@@ -120,11 +121,12 @@ export default function NotificationDetailPage() {
                   <SimpleGrid cols={{ base: 1, sm: 2 }}>
                     {data.images.map((url, idx) => (
                       <Anchor key={`${url}-${idx}`} href={url} target="_blank" rel="noreferrer">
-                        <img
+                        <Image
                           src={url}
                           alt={`notice-image-${idx + 1}`}
                           style={{
                             width: '100%',
+                            height: 'auto',
                             borderRadius: 12,
                             border: '1px solid #e5e7eb',
                             display: 'block',
@@ -163,4 +165,3 @@ export default function NotificationDetailPage() {
     </Container>
   );
 }
-
