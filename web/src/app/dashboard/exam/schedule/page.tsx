@@ -241,13 +241,12 @@ export default function ExamSchedulePage() {
     };
 
     // --- Render ---
-    const deadlineCutoff = (dateStr: string) =>
-        dayjs(dateStr).hour(18).minute(0).second(0).millisecond(0);
+    const deadlineCutoff = (dateStr: string) => dayjs(dateStr).endOf('day');
 
     const rows = rounds?.map((round) => {
         const cutoff = deadlineCutoff(round.registration_deadline);
         const now = dayjs();
-        const isClosed = now.isAfter(cutoff) || now.isSame(cutoff);
+        const isClosed = now.isAfter(cutoff);
 
         return (
         <Table.Tr key={round.id}>

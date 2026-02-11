@@ -227,8 +227,9 @@ export default function ExamApplyScreen() {
   const isRoundClosed = (round: ExamRoundWithLocations) => {
     const deadline = toDate(round.registration_deadline);
     if (!deadline) return false;
-    deadline.setHours(18, 0, 0, 0);
-    return deadline <= new Date();
+    // 신청 마감일은 당일 23:59:59까지 유효
+    deadline.setHours(23, 59, 59, 999);
+    return new Date() > deadline;
   };
 
   const selectedRound = useMemo(
