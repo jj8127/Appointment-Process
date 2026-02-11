@@ -312,7 +312,7 @@ export default function ExamApplyScreen() {
     }
     setFeePaidDate(null);
     setTempFeePaidDate(null);
-  }, [existingForRound?.id]);
+  }, [existingForRound]);
 
   const onRefresh = useCallback(async () => {
     setRefreshing(true);

@@ -10,7 +10,7 @@ import Animated, {
 } from 'react-native-reanimated';
 import { LinearGradient } from 'expo-linear-gradient';
 
-import { COLORS, SPACING, RADIUS, ANIMATION } from '@/lib/theme';
+import { COLORS, SPACING, RADIUS } from '@/lib/theme';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 

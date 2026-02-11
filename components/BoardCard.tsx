@@ -6,7 +6,6 @@ import Animated, {
   useAnimatedStyle,
   useSharedValue,
   withSpring,
-  withTiming,
 } from 'react-native-reanimated';
 
 import { COLORS, RADIUS, SPACING, TYPOGRAPHY, SHADOWS, ANIMATION } from '@/lib/theme';
@@ -51,12 +50,6 @@ const REACTION_CONFIG: Record<string, { icon: string; color: string }> = {
   check: { icon: 'check-circle', color: '#10b981' },
   smile: { icon: 'smile', color: '#f59e0b' },
 };
-
-function formatFileSize(bytes: number): string {
-  if (bytes < 1024) return `${bytes}B`;
-  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)}KB`;
-  return `${(bytes / (1024 * 1024)).toFixed(1)}MB`;
-}
 
 function formatDate(dateString: string): string {
   const date = new Date(dateString);

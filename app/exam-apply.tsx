@@ -314,7 +314,7 @@ export default function ExamApplyScreen() {
     }
     setFeePaidDate(null);
     setTempFeePaidDate(null);
-  }, [existingForRound?.id]);
+  }, [existingForRound]);
 
   const [refreshing, setRefreshing] = useState(false);
 

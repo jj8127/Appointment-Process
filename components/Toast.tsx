@@ -3,8 +3,6 @@ import React, { createContext, useCallback, useContext, useEffect, useMemo, useR
 import { Dimensions, StyleSheet, Text, View } from 'react-native';
 import { Gesture, GestureDetector } from 'react-native-gesture-handler';
 import Animated, {
-  FadeIn,
-  FadeOut,
   SlideInUp,
   SlideOutUp,
   runOnJS,

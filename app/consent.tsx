@@ -195,7 +195,7 @@ export default function AllowanceConsentScreen() {
         setIsApproved(false);
       }
 
-    } catch (e) {
+    } catch {
       // ignore
     } finally {
       setRefreshing(false);

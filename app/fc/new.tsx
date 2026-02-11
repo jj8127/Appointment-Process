@@ -290,7 +290,7 @@ export default function FcNewScreen() {
       }
     }
     setExistingTempId(merged.temp_id);
-  }, [phoneFromSession, setValue]);
+  }, [phoneFromSession, reset]);
 
   useEffect(() => {
     loadExisting();

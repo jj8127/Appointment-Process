@@ -4,7 +4,7 @@ import React from 'react';
 import { StyleSheet, Text, View, ViewStyle } from 'react-native';
 
 import { Button, ButtonProps } from './Button';
-import { COLORS, RADIUS, SPACING, TYPOGRAPHY, ANIMATION } from '@/lib/theme';
+import { COLORS, SPACING, TYPOGRAPHY, ANIMATION } from '@/lib/theme';
 
 export interface EmptyStateProps {
   icon?: keyof typeof Feather.glyphMap;
