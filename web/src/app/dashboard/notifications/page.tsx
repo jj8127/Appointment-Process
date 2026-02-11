@@ -22,6 +22,7 @@ import { IconPlus, IconRefresh, IconSearch, IconTrash } from '@tabler/icons-reac
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import dayjs from 'dayjs';
 import Link from 'next/link';
+import { useRouter } from 'next/navigation';
 import { useState } from 'react';
 
 import { useSession } from '@/hooks/use-session';
@@ -59,6 +60,7 @@ async function fetchNotices(): Promise<NoticeItem[]> {
 
 export default function NotificationsPage() {
     const queryClient = useQueryClient();
+    const router = useRouter();
     const { hydrated, role, isReadOnly } = useSession();
     const [keyword, setKeyword] = useState('');
 
@@ -141,7 +143,11 @@ export default function NotificationsPage() {
     });
 
     const rows = filteredNotices.map((notice: NoticeItem) => (
-            <Table.Tr key={notice.id}>
+            <Table.Tr
+                key={notice.id}
+                style={{ cursor: 'pointer' }}
+                onClick={() => router.push(`/dashboard/notifications/${notice.id}`)}
+            >
             <Table.Td style={{ width: 120 }}>
                 <Text size="sm" c="dimmed">
                     {dayjs(notice.created_at).format('YYYY-MM-DD')}
@@ -167,7 +173,10 @@ export default function NotificationsPage() {
                     <ActionIcon
                         variant="subtle"
                         color="red"
-                        onClick={() => handleDelete(notice.id)}
+                        onClick={(e) => {
+                            e.stopPropagation();
+                            handleDelete(notice.id);
+                        }}
                         loading={deleteMutation.isPending && deleteMutation.variables === notice.id}
                     >
                         <IconTrash size={16} />

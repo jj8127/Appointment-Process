@@ -8,6 +8,22 @@ type DeleteBody = {
   id?: string;
 };
 
+type NoticeFile = {
+  name?: string;
+  url?: string;
+  type?: string;
+};
+
+type NoticeRow = {
+  id: string;
+  title: string;
+  body: string;
+  category: string | null;
+  created_at: string;
+  images?: string[] | null;
+  files?: NoticeFile[] | null;
+};
+
 async function getSession() {
   const cookieStore = await cookies();
   const session = {
@@ -27,7 +43,65 @@ async function getSession() {
   return { ok: true as const, session };
 }
 
-export async function GET() {
+async function getNoticeList(): Promise<NoticeRow[]> {
+  const withAttachments = await adminSupabase
+    .from('notices')
+    .select('id,title,body,category,created_at,images,files')
+    .order('created_at', { ascending: false });
+
+  if (!withAttachments.error) {
+    return (withAttachments.data ?? []) as NoticeRow[];
+  }
+
+  // Backward compatible fallback for environments without images/files columns.
+  if (withAttachments.error.code === '42703') {
+    const basic = await adminSupabase
+      .from('notices')
+      .select('id,title,body,category,created_at')
+      .order('created_at', { ascending: false });
+
+    if (basic.error) throw basic.error;
+    return ((basic.data ?? []) as NoticeRow[]).map((row) => ({
+      ...row,
+      images: null,
+      files: null,
+    }));
+  }
+
+  throw withAttachments.error;
+}
+
+async function getNoticeById(id: string): Promise<NoticeRow | null> {
+  const withAttachments = await adminSupabase
+    .from('notices')
+    .select('id,title,body,category,created_at,images,files')
+    .eq('id', id)
+    .maybeSingle();
+
+  if (!withAttachments.error) {
+    return (withAttachments.data ?? null) as NoticeRow | null;
+  }
+
+  if (withAttachments.error.code === '42703') {
+    const basic = await adminSupabase
+      .from('notices')
+      .select('id,title,body,category,created_at')
+      .eq('id', id)
+      .maybeSingle();
+
+    if (basic.error) throw basic.error;
+    if (!basic.data) return null;
+    return {
+      ...(basic.data as NoticeRow),
+      images: null,
+      files: null,
+    };
+  }
+
+  throw withAttachments.error;
+}
+
+export async function GET(req: Request) {
   const sessionCheck = await getSession();
   if (!sessionCheck.ok) {
     return NextResponse.json(
@@ -36,44 +110,29 @@ export async function GET() {
     );
   }
 
+  const requestUrl = new URL(req.url);
+  const id = requestUrl.searchParams.get('id')?.trim() ?? '';
   const rateLimit = checkRateLimit(`notices:list:${sessionCheck.session.residentId}`, 60, 60_000);
   if (!rateLimit.allowed) {
     return NextResponse.json({ error: 'Too many requests' }, { status: 429, headers: SECURITY_HEADERS });
   }
 
   try {
-    const withAttachments = await adminSupabase
-      .from('notices')
-      .select('id,title,body,category,created_at,images,files')
-      .order('created_at', { ascending: false });
-
-    if (!withAttachments.error) {
-      return NextResponse.json(
-        { ok: true, notices: withAttachments.data ?? [] },
-        { headers: SECURITY_HEADERS },
-      );
-    }
-
-    // Backward compatible fallback for environments without images/files columns.
-    if (withAttachments.error.code === '42703') {
-      const basic = await adminSupabase
-        .from('notices')
-        .select('id,title,body,category,created_at')
-        .order('created_at', { ascending: false });
-
-      if (basic.error) {
-        return NextResponse.json({ error: basic.error.message }, { status: 500, headers: SECURITY_HEADERS });
+    if (id) {
+      const notice = await getNoticeById(id);
+      if (!notice) {
+        return NextResponse.json({ error: 'Notice not found' }, { status: 404, headers: SECURITY_HEADERS });
       }
-
       return NextResponse.json(
-        { ok: true, notices: basic.data ?? [] },
+        { ok: true, notice },
         { headers: SECURITY_HEADERS },
       );
     }
 
+    const notices = await getNoticeList();
     return NextResponse.json(
-      { error: withAttachments.error.message },
-      { status: 500, headers: SECURITY_HEADERS },
+      { ok: true, notices },
+      { headers: SECURITY_HEADERS },
     );
   } catch (err: unknown) {
     const error = err as Error;
@@ -131,4 +190,3 @@ export async function DELETE(req: Request) {
     );
   }
 }
-
