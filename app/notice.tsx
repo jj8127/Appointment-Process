@@ -40,24 +40,65 @@ type Notice = {
   files: AttachedFile[] | null;
 };
 
-const fetchNotices = async (): Promise<Notice[]> => {
-  const { data, error } = await supabase
-    .from('notices')
-    .select('id,title,body,category,created_at,images,files')
-    .order('created_at', { ascending: false })
-    .limit(20);
+type InboxNoticePayload = {
+  id: string;
+  title: string;
+  body: string;
+  category?: string | null;
+  created_at?: string | null;
+  images?: unknown;
+  files?: unknown;
+};
+
+type InboxListResponse = {
+  ok?: boolean;
+  message?: string;
+  notices?: InboxNoticePayload[];
+};
+
+const isAttachedFile = (value: unknown): value is AttachedFile => {
+  if (!value || typeof value !== 'object') return false;
+  const row = value as Record<string, unknown>;
+  return typeof row.name === 'string' && typeof row.url === 'string' && typeof row.type === 'string';
+};
+
+const fetchNotices = async (role: 'admin' | 'fc' | null, residentId: string): Promise<Notice[]> => {
+  if (!role) return [];
+
+  const { data, error } = await supabase.functions.invoke<InboxListResponse>('fc-notify', {
+    body: {
+      type: 'inbox_list',
+      role,
+      resident_id: role === 'fc' ? (residentId || null) : null,
+      limit: 100,
+    },
+  });
+
   if (error) throw error;
-  return data ?? [];
+  if (!data?.ok) {
+    throw new Error(data?.message ?? '공지를 불러오지 못했습니다.');
+  }
+
+  return (data.notices ?? []).map((item) => ({
+    id: item.id,
+    title: item.title,
+    body: item.body,
+    category: item.category ?? '공지',
+    created_at: item.created_at ?? new Date().toISOString(),
+    images: Array.isArray(item.images) ? item.images.filter((img): img is string => typeof img === 'string') : null,
+    files: Array.isArray(item.files) ? item.files.filter(isAttachedFile) : null,
+  }));
 };
 
 export default function NoticeScreen() {
-  const { role } = useSession();
+  const { role, residentId, hydrated } = useSession();
   const insets = useSafeAreaInsets();
   const { scrollHandler, animatedStyle } = useBottomNavAnimation();
 
   const { data, isLoading, isError, refetch } = useQuery({
-    queryKey: ['notices', 'list'],
-    queryFn: fetchNotices,
+    queryKey: ['notices', 'list', role, residentId],
+    queryFn: () => fetchNotices(role, residentId),
+    enabled: hydrated,
   });
 
   const [refreshing, setRefreshing] = useState(false);
@@ -65,8 +106,22 @@ export default function NoticeScreen() {
 
   const deleteMutation = useMutation({
     mutationFn: async (id: string) => {
-      const { error } = await supabase.from('notices').delete().eq('id', id);
+      if (role !== 'admin') {
+        throw new Error('관리자만 공지를 삭제할 수 있습니다.');
+      }
+
+      const { data, error } = await supabase.functions.invoke<{ ok?: boolean; message?: string }>('fc-notify', {
+        body: {
+          type: 'inbox_delete',
+          role: 'admin',
+          resident_id: null,
+          notice_ids: [id],
+        },
+      });
       if (error) throw error;
+      if (!data?.ok) {
+        throw new Error(data?.message ?? '공지 삭제 중 문제가 발생했습니다.');
+      }
     },
     onSuccess: () => {
       Alert.alert('삭제 완료', '공지사항이 삭제되었습니다.');

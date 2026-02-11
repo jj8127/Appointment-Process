@@ -50,6 +50,16 @@ type Payload =
 
 type TokenRow = { expo_push_token: string; resident_id: string | null; display_name: string | null };
 type FcRow = { id: string; name: string | null; resident_id_masked: string | null; phone: string | null };
+type NoticeFile = { name?: string; url?: string; type?: string };
+type NoticeRow = {
+  id: string;
+  title: string;
+  body: string;
+  category: string | null;
+  created_at: string;
+  images?: string[] | null;
+  files?: NoticeFile[] | null;
+};
 
 const EXPO_PUSH_URL = 'https://exp.host/--/api/v2/push/send';
 
@@ -74,6 +84,36 @@ if (!serviceKey) {
 }
 
 const supabase = createClient(supabaseUrl, serviceKey);
+
+async function fetchNoticesWithOptionalAttachments(limit = 20): Promise<NoticeRow[]> {
+  const withAttachments = await supabase
+    .from('notices')
+    .select('id,title,body,category,created_at,images,files')
+    .order('created_at', { ascending: false })
+    .limit(limit);
+
+  if (!withAttachments.error) {
+    return (withAttachments.data ?? []) as NoticeRow[];
+  }
+
+  // Backward compatibility: some environments may not have images/files columns yet.
+  if (withAttachments.error.code === '42703') {
+    const basic = await supabase
+      .from('notices')
+      .select('id,title,body,category,created_at')
+      .order('created_at', { ascending: false })
+      .limit(limit);
+
+    if (basic.error) throw basic.error;
+    return ((basic.data ?? []) as NoticeRow[]).map((row) => ({
+      ...row,
+      images: null,
+      files: null,
+    }));
+  }
+
+  throw withAttachments.error;
+}
 
 function getTargetUrl(role: 'admin' | 'fc', payload: Payload, message: string, fcId: string): string {
   const msg = message.toLowerCase();
@@ -179,12 +219,13 @@ serve(async (req: Request) => {
     const { data: notifications, error: notifErr } = await notifQuery;
     if (notifErr) return err(notifErr.message, 500);
 
-    const { data: notices, error: noticeErr } = await supabase
-      .from('notices')
-      .select('id,title,body,category,created_at')
-      .order('created_at', { ascending: false })
-      .limit(20);
-    if (noticeErr) return err(noticeErr.message, 500);
+    let notices: NoticeRow[] = [];
+    try {
+      notices = await fetchNoticesWithOptionalAttachments(20);
+    } catch (noticeErr) {
+      const message = noticeErr instanceof Error ? noticeErr.message : 'Failed to fetch notices';
+      return err(message, 500);
+    }
 
     return ok({
       ok: true,
