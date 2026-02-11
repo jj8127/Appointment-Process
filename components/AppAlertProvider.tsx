@@ -144,7 +144,13 @@ function AlertCard({
         {!!alert.message && <Text style={styles.message}>{alert.message}</Text>}
 
         {/* Buttons */}
-        <View style={[styles.buttonRow, isStacked && styles.buttonStack]}>
+        <View
+          style={[
+            styles.buttonRow,
+            (alert.buttons?.length ?? 0) === 1 && styles.buttonRowCenter,
+            isStacked && styles.buttonStack,
+          ]}
+        >
           {alert.buttons.map((button, index) => {
             const buttonStyle = resolveButtonStyle(button);
             return (
@@ -276,6 +282,9 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'space-between',
     gap: SPACING.sm,
+  },
+  buttonRowCenter: {
+    justifyContent: 'center',
   },
   buttonStack: {
     flexDirection: 'column',

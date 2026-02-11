@@ -5,7 +5,6 @@ import { useCallback, useMemo, useRef, useState } from 'react';
 import {
   Alert,
   BackHandler,
-  findNodeHandle,
   Modal,
   Pressable,
   StyleSheet,
@@ -67,11 +66,12 @@ export default function SignupScreen() {
 
   const { scrollToInput } = useKeyboardAware();
 
-  const handleFocus = (ref: React.RefObject<TextInputType | null>) => {
-    const node = findNodeHandle(ref.current);
-    if (node) {
-      scrollToInput(node);
-    }
+  const handleFocusTarget = (target?: number) => {
+    if (!target) return;
+    // Android/Fabric에서 키보드 오픈 타이밍으로 첫 스크롤이 누락될 수 있어 짧게 재시도
+    scrollToInput(target);
+    setTimeout(() => scrollToInput(target), 80);
+    setTimeout(() => scrollToInput(target), 220);
   };
 
   const emailValue = useMemo(() => {
@@ -150,8 +150,9 @@ export default function SignupScreen() {
         end={{ x: 1, y: 1 }}
       />
       <KeyboardAwareWrapper
-        contentContainerStyle={[styles.container, { paddingBottom: Math.max(120, keyboardPadding + 40) }]}
-        extraScrollHeight={140}
+        contentContainerStyle={[styles.container, { paddingBottom: Math.max(160, keyboardPadding + 120) }]}
+        extraScrollHeight={220}
+        keyboardDismissMode="on-drag"
       >
         <View style={styles.hero}>
           <Text style={styles.heroEyebrow}>회원가입</Text>
@@ -186,7 +187,7 @@ export default function SignupScreen() {
               value={name}
               onChangeText={setName}
               returnKeyType="next"
-              onFocus={() => handleFocus(nameRef)}
+              onFocus={(e) => handleFocusTarget(e.nativeEvent.target)}
               onSubmitEditing={() => phoneRef.current?.focus()}
               blurOnSubmit={false}
               scrollEnabled={false}
@@ -207,7 +208,7 @@ export default function SignupScreen() {
               onChangeText={setPhone}
               keyboardType="phone-pad"
               returnKeyType="next"
-              onFocus={() => handleFocus(phoneRef)}
+              onFocus={(e) => handleFocusTarget(e.nativeEvent.target)}
               onSubmitEditing={() => {
                 setShowCarrierPicker(true);
               }}
@@ -243,7 +244,7 @@ export default function SignupScreen() {
               value={recommender}
               onChangeText={setRecommender}
               returnKeyType="next"
-              onFocus={() => handleFocus(recommenderRef)}
+              onFocus={(e) => handleFocusTarget(e.nativeEvent.target)}
               onSubmitEditing={() => emailLocalRef.current?.focus()}
               blurOnSubmit={false}
               scrollEnabled={false}
@@ -263,7 +264,7 @@ export default function SignupScreen() {
                 autoCapitalize="none"
                 keyboardType="email-address"
                 returnKeyType="next"
-                onFocus={() => handleFocus(emailLocalRef)}
+                onFocus={(e) => handleFocusTarget(e.nativeEvent.target)}
                 onSubmitEditing={() => {
                   if (emailDomain === '직접입력') {
                     customDomainRef.current?.focus();
@@ -301,7 +302,7 @@ export default function SignupScreen() {
                     autoCapitalize="none"
                     keyboardType="email-address"
                     returnKeyType="done"
-                    onFocus={() => handleFocus(customDomainRef)}
+                    onFocus={(e) => handleFocusTarget(e.nativeEvent.target)}
                     onSubmitEditing={handleNext}
                     scrollEnabled={false}
                   />

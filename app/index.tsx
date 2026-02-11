@@ -7,9 +7,10 @@ import { LinearGradient } from 'expo-linear-gradient';
 import * as Notifications from 'expo-notifications';
 import { Stack, router, useFocusEffect } from 'expo-router';
 import { MotiView } from 'moti';
-import { type ElementRef, useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator,
+  Dimensions,
   Platform,
   Pressable,
   RefreshControl,
@@ -17,11 +18,10 @@ import {
   Text,
   View
 } from 'react-native';
-import Animated, { useAnimatedScrollHandler, useAnimatedStyle, useSharedValue, withTiming } from 'react-native-reanimated';
+import Animated, { runOnUI, scrollTo as reanimatedScrollTo, useAnimatedRef, useAnimatedScrollHandler, useAnimatedStyle, useSharedValue, withTiming } from 'react-native-reanimated';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { TourGuideZone, useTourGuideController } from 'rn-tourguide';
 
-import { ImageTourGuide, TourStep } from '@/components/ImageTourGuide';
 import { Skeleton } from '@/components/LoadingSkeleton';
 import { RefreshButton } from '@/components/RefreshButton';
 import { useIdentityStatus } from '@/hooks/use-identity-status';
@@ -32,68 +32,14 @@ import { supabase } from '@/lib/supabase';
 import type { FCDocument } from '@/types/dashboard';
 import type { FcProfile } from '@/types/fc';
 
-const SHORTCUT_GUIDE_STEPS: TourStep[] = [
-  {
-    x: 26,
-    y: 17,
-    width: 46,
-    height: 22,
-    title: '시험 신청',
-    description: '생명/제3보험 및 손해보험 시험을\n여기서 간편하게 신청할 수 있습니다.',
-    tooltipPosition: 'bottom',
-  },
-  {
-    x: 75,
-    y: 17,
-    width: 46,
-    height: 22,
-    title: '손해 시험 신청',
-    description: '손해보험 시험 접수가 필요한 경우\n여기서 진행할 수 있습니다.',
-    tooltipPosition: 'bottom',
-  },
-  {
-    x: 26,
-    y: 41,
-    width: 46,
-    height: 22,
-    title: '기본 정보',
-    description: '이름, 소속, 이메일 등\n인적사항을 관리할 수 있습니다.',
-  },
-  {
-    x: 75,
-    y: 41,
-    width: 46,
-    height: 22,
-    title: '수당 동의',
-    description: '위촉 과정에 필요한 수당 지급 약관에\n동의하였는지 관리합니다.',
-  },
-  {
-    x: 26,
-    y: 64, // Adjusted from 55 to avoid overlap with row 2 (y=50)
-    width: 46,
-    height: 22,
-    title: '서류 업로드',
-    description: '합격증, 수료증 등 필수 서류를\n여기서 바로 등록하세요.',
-    tooltipPosition: 'top',
-  },
-  {
-    x: 75,
-    y: 64, // Adjusted from 55
-    width: 46,
-    height: 22,
-    title: '위촉',
-    description: '보험사 위촉 진행을 위한 모바일 URL에\n쉽게 접속할 수 있습니다.',
-    tooltipPosition: 'top',
-  },
-  {
-    x: 26,
-    y: 87, // Adjusted from 75 to be Row 4
-    width: 46,
-    height: 22,
-    title: '1:1 문의',
-    description: '궁금한 점이 있다면 총무팀에게\n언제든지 메시지를 보내보세요.',
-    tooltipPosition: 'top',
-  },
+const SHORTCUT_TOUR_TEXTS = [
+  '생명/제3보험 시험 일정을 확인하고 접수할 수 있어요.',
+  '손해보험 시험 접수 메뉴예요.',
+  '이름, 소속, 주소 등 기본 정보를 관리해요.',
+  '수당 지급을 위한 약관 동의 상태를 확인해요.',
+  '필수 서류를 업로드하고 상태를 확인해요.',
+  '위촉 URL로 이동해 위촉 절차를 진행해요.',
+  '총무팀에 1:1 문의를 바로 보낼 수 있어요.',
 ];
 
 // Android Crash Fix: Strips Moti props on Android to prevent Reanimated from attaching to unmounting views
@@ -484,7 +430,6 @@ export default function Home() {
   const [adminHomeTab, setAdminHomeTab] = useState<'onboarding' | 'exam'>('onboarding');
   const [isLoggingOut, setIsLoggingOut] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
-  const [showShortcutGuide, setShowShortcutGuide] = useState(false);
 
   const isAdminExam = role === 'admin' && adminHomeTab === 'exam';
   const adminNavItems = [
@@ -506,9 +451,17 @@ export default function Home() {
 
   // FC 전용 코치마크
   const { canStart, start, eventEmitter } = useTourGuideController();
+  const {
+    start: startShortcutTour,
+    canStart: canStartShortcutTour,
+    eventEmitter: shortcutEventEmitter,
+    TourGuideZone: ShortcutTourGuideZone,
+  } = useTourGuideController('shortcut');
   const isFc = role === 'fc';
 
-  const [tourBlocking, setTourBlocking] = useState(false);
+  const [mainTourBlocking, setMainTourBlocking] = useState(false);
+  const [shortcutTourBlocking, setShortcutTourBlocking] = useState(false);
+  const isTourBlocking = mainTourBlocking || shortcutTourBlocking;
 
   useEffect(() => {
     if (!hydrated) return;
@@ -522,8 +475,8 @@ export default function Home() {
   useEffect(() => {
     if (!eventEmitter) return;
 
-    const onStart = () => setTourBlocking(true);
-    const onStop = () => setTourBlocking(false);
+    const onStart = () => setMainTourBlocking(true);
+    const onStop = () => setMainTourBlocking(false);
 
     // 투어 시작/종료 계열 이벤트로 blocking 토글
     eventEmitter.on('start', onStart);
@@ -537,53 +490,116 @@ export default function Home() {
     };
   }, [eventEmitter]);
 
-  // Auto-scroll refs
-  const scrollViewRef = useRef<ElementRef<typeof Animated.ScrollView>>(null);
+  useEffect(() => {
+    if (!shortcutEventEmitter) return;
+
+    const onStart = () => setShortcutTourBlocking(true);
+    const onStop = () => setShortcutTourBlocking(false);
+
+    shortcutEventEmitter.on('start', onStart);
+    shortcutEventEmitter.on('stop', onStop);
+    shortcutEventEmitter.on('finish', onStop);
+
+    return () => {
+      shortcutEventEmitter.off('start', onStart);
+      shortcutEventEmitter.off('stop', onStop);
+      shortcutEventEmitter.off('finish', onStop);
+    };
+  }, [shortcutEventEmitter]);
+
+  // Auto-scroll refs & cached positions
+  const scrollViewRef = useAnimatedRef<Animated.ScrollView>();
   const contentRef = useRef<View>(null);
   const zone2Ref = useRef<View>(null);
   const zone3Ref = useRef<View>(null);
   const zone4Ref = useRef<View>(null);
+  const zoneScrollTargets = useRef<Record<number, number>>({});
+  const shortcutZoneRefs = useRef<(View | null)[]>([]);
+  const shortcutScrollTargets = useRef<Record<number, number>>({});
 
-  const scrollToZoneMeasured = useCallback((zone: number) => {
-    if (!contentRef.current) return;
+  // 투어 시작 시 zone 위치를 미리 캐시 (스크롤 전 측정)
+  const cacheZonePositions = useCallback(() => {
+    const contentNode = contentRef.current;
+    if (!contentNode) return;
+    const refs = [
+      { zone: 2, ref: zone2Ref },
+      { zone: 3, ref: zone3Ref },
+      { zone: 4, ref: zone4Ref },
+    ];
+    const viewportHeight = Dimensions.get('window').height - insets.top - insets.bottom;
+    for (const { zone, ref } of refs) {
+      if (!ref.current) continue;
+      ref.current.measureLayout(
+        contentNode,
+        (_x, y, _w, h) => {
+          // 요소가 뷰포트 상단 40% 지점에 오도록 스크롤 타겟 설정
+          const targetY = Math.max(0, y - viewportHeight * 0.35);
+          zoneScrollTargets.current[zone] = targetY;
+          logger.debug(`[cacheZonePos] zone ${zone}: y=${y}, h=${h}, targetY=${targetY}`);
+        },
+        () => {},
+      );
+    }
+  }, [insets.top, insets.bottom]);
 
-    const targetRef =
-      zone === 2 ? zone2Ref.current :
-        zone === 3 ? zone3Ref.current :
-          zone === 4 ? zone4Ref.current :
-            null;
+  const cacheShortcutZonePositions = useCallback(() => {
+    const contentNode = contentRef.current;
+    if (!contentNode) return;
+    const viewportHeight = Dimensions.get('window').height - insets.top - insets.bottom;
 
-    if (!targetRef) return;
+    shortcutZoneRefs.current.forEach((targetRef, index) => {
+      if (!targetRef) return;
+      const zone = index + 1;
+      targetRef.measureLayout(
+        contentNode,
+        (_x, y) => {
+          const targetY = Math.max(0, y - viewportHeight * 0.25);
+          shortcutScrollTargets.current[zone] = targetY;
+          logger.debug(`[cacheShortcutPos] zone ${zone}: y=${y}, targetY=${targetY}`);
+        },
+        () => { },
+      );
+    });
+  }, [insets.top, insets.bottom]);
 
-    const paddingTop = 24;
+  // 투어가 시작되면 zone 위치 캐시
+  useEffect(() => {
+    if (mainTourBlocking) {
+      // 레이아웃 안정 후 측정
+      requestAnimationFrame(() => cacheZonePositions());
+    }
+  }, [mainTourBlocking, cacheZonePositions]);
 
-    // 핵심: contentRef(ScrollView 내부 콘텐츠) 기준으로 y를 직접 측정
-    targetRef.measureLayout(
-      contentRef.current,
-      (_x, y) => {
-        logger.debug(`[scrollToZoneMeasured] zone: ${zone}, measured y: ${y}`);
-        const targetY = Math.max(0, y - paddingTop);
-        requestAnimationFrame(() => {
-          scrollViewRef.current?.scrollTo({ y: targetY, animated: true });
-        });
-      },
-      () => {
-        logger.debug('[measureLayout error]');
-      }
-    );
-  }, []);
+  useEffect(() => {
+    if (shortcutTourBlocking) {
+      requestAnimationFrame(() => cacheShortcutZonePositions());
+    }
+  }, [shortcutTourBlocking, cacheShortcutZonePositions]);
 
   useEffect(() => {
     const handleStepChange = (step: any) => {
-      const z = step?.zone;
-      logger.debug('[tour stepChange]', { step, zone: z });
+      const z = step?.order;
+      logger.debug('[tour stepChange]', { z, name: step?.name, order: step?.order });
 
       if (role !== 'fc') return;
       if (typeof z !== 'number') return;
 
-      if (z === 2 || z === 3 || z === 4) {
-        // 레이스 방지: 한 프레임 뒤에 측정/스크롤
-        requestAnimationFrame(() => scrollToZoneMeasured(z));
+      // runOnUI로 UI 스레드에서 동기적으로 스크롤
+      // → 라이브러리의 measure()가 실행될 때 이미 스크롤 완료
+      if (z === 1) {
+        runOnUI(() => {
+          'worklet';
+          reanimatedScrollTo(scrollViewRef, 0, 0, false);
+        })();
+      } else if (z >= 2 && z <= 4) {
+        const targetY = zoneScrollTargets.current[z];
+        if (targetY != null) {
+          logger.debug(`[tour scroll] zone ${z} → targetY=${targetY}`);
+          runOnUI((y: number) => {
+            'worklet';
+            reanimatedScrollTo(scrollViewRef, 0, y, false);
+          })(targetY);
+        }
       }
     };
 
@@ -595,16 +611,62 @@ export default function Home() {
         eventEmitter.off('stepChange', handleStepChange);
       }
     };
-  }, [eventEmitter, role, scrollToZoneMeasured]);
+  }, [eventEmitter, role, scrollViewRef]);
+
+  useEffect(() => {
+    const handleShortcutStepChange = (step: any) => {
+      const z = step?.order;
+      logger.debug('[shortcut stepChange]', { z, name: step?.name, order: step?.order });
+
+      if (role !== 'fc') return;
+      if (typeof z !== 'number') return;
+
+      const targetY = shortcutScrollTargets.current[z];
+      if (targetY == null) return;
+
+      logger.debug(`[shortcut scroll] zone ${z} → targetY=${targetY}`);
+      runOnUI((y: number) => {
+        'worklet';
+        reanimatedScrollTo(scrollViewRef, 0, y, false);
+      })(targetY);
+    };
+
+    if (shortcutEventEmitter) {
+      shortcutEventEmitter.on('stepChange', handleShortcutStepChange);
+    }
+    return () => {
+      if (shortcutEventEmitter) {
+        shortcutEventEmitter.off('stepChange', handleShortcutStepChange);
+      }
+    };
+  }, [shortcutEventEmitter, role, scrollViewRef]);
 
 
   const startFcTour = useCallback(() => {
     if (!isFc) return;
-    if (!canStart) return;
 
     Haptics.selectionAsync();
+    cacheZonePositions();
     start();
-  }, [isFc, canStart, start]);
+
+    // canStart가 늦게 true가 되는 기기에서 시작 누락 방지
+    if (!canStart) {
+      setTimeout(() => start(), 140);
+      setTimeout(() => start(), 320);
+    }
+  }, [isFc, canStart, cacheZonePositions, start]);
+
+  const startShortcutGuide = useCallback(() => {
+    if (!isFc) return;
+
+    Haptics.selectionAsync();
+    cacheShortcutZonePositions();
+    startShortcutTour();
+    if (!canStartShortcutTour) {
+      setTimeout(() => startShortcutTour(), 140);
+      setTimeout(() => startShortcutTour(), 320);
+    }
+  }, [isFc, canStartShortcutTour, cacheShortcutZonePositions, startShortcutTour]);
 
 
 
@@ -999,7 +1061,6 @@ export default function Home() {
         refreshControl={
           <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
         }
-        scrollEnabled={!tourBlocking}
         onScroll={scrollHandler}
         scrollEventThrottle={16}
       >
@@ -1574,7 +1635,7 @@ export default function Home() {
               style={{ marginBottom: 20 }}
             >
               <Pressable
-                onPress={() => setShowShortcutGuide(true)}
+                onPress={startShortcutGuide}
                 accessibilityRole="button"
                 accessibilityLabel="바로가기 사용법 설명 듣기"
                 style={({ pressed }) => [
@@ -1619,29 +1680,58 @@ export default function Home() {
             </AndroidSafeMotiView>
           )}
           <View style={styles.actionGrid}>
-            {quickLinks.map((item, index) => (
-              <AndroidSafeMotiView
-                key={`${item.href}-${item.stepKey ?? 'default'}`}
-                from={{ opacity: 0, translateY: 20 }}
-                animate={{ opacity: 1, translateY: 0 }}
-                transition={{ type: 'spring', delay: 300 + index * 50 }}
-                style={{ width: '48%' }}
-              >
-                <Pressable
-                  style={({ pressed }) => [styles.actionCardGrid, pressed && styles.pressedScale]}
-                  onPress={() => handlePressLink(item.href as any, item.stepKey)}>
-                  <View style={styles.iconCircle}>
-                    <Feather
-                      name={getLinkIcon(item.stepKey ? `${item.href}?status=${item.stepKey}` : item.href)}
-                      size={22}
-                      color={HANWHA_ORANGE}
-                    />
+            {quickLinks.map((item, index) => {
+              const key = `${item.href}-${item.stepKey ?? 'default'}`;
+              const card = (
+                <AndroidSafeMotiView
+                  from={{ opacity: 0, translateY: 20 }}
+                  animate={{ opacity: 1, translateY: 0 }}
+                  transition={{ type: 'spring', delay: 300 + index * 50 }}
+                  style={{ width: '100%' }}
+                >
+                  <Pressable
+                    style={({ pressed }) => [styles.actionCardGrid, pressed && styles.pressedScale]}
+                    onPress={() => handlePressLink(item.href as any, item.stepKey)}>
+                    <View style={styles.iconCircle}>
+                      <Feather
+                        name={getLinkIcon(item.stepKey ? `${item.href}?status=${item.stepKey}` : item.href)}
+                        size={22}
+                        color={HANWHA_ORANGE}
+                      />
+                    </View>
+                    <Text style={styles.actionTitleGrid} numberOfLines={1}>{item.title}</Text>
+                    <Text style={styles.actionDescGrid} numberOfLines={2}>{item.description}</Text>
+                  </Pressable>
+                </AndroidSafeMotiView>
+              );
+
+              if (role === 'fc') {
+                return (
+                  <View
+                    key={key}
+                    style={{ width: '48%' }}
+                    collapsable={false}
+                    ref={(node) => {
+                      shortcutZoneRefs.current[index] = node;
+                    }}
+                  >
+                    <ShortcutTourGuideZone
+                      zone={index + 1}
+                      text={SHORTCUT_TOUR_TEXTS[index] ?? `${item.title} 메뉴예요.`}
+                      borderRadius={16}
+                    >
+                      {card}
+                    </ShortcutTourGuideZone>
                   </View>
-                  <Text style={styles.actionTitleGrid} numberOfLines={1}>{item.title}</Text>
-                  <Text style={styles.actionDescGrid} numberOfLines={2}>{item.description}</Text>
-                </Pressable>
-              </AndroidSafeMotiView>
-            ))}
+                );
+              }
+
+              return (
+                <View key={key} style={{ width: '48%' }}>
+                  {card}
+                </View>
+              );
+            })}
           </View>
         </View >
       </Animated.ScrollView >
@@ -1718,7 +1808,7 @@ export default function Home() {
         ) : null
       }
       {
-        tourBlocking && (
+        isTourBlocking && (
           <Pressable
             style={[StyleSheet.absoluteFillObject, { zIndex: 9999, elevation: 9999 }]}
             onPress={() => { }}
@@ -1726,14 +1816,6 @@ export default function Home() {
           />
         )
       }
-      {role === 'fc' && (
-        <ImageTourGuide
-          visible={showShortcutGuide}
-          onClose={() => setShowShortcutGuide(false)}
-          imageSource={require('@/assets/guide/shortcuts-guide.png')}
-          steps={SHORTCUT_GUIDE_STEPS}
-        />
-      )}
     </SafeAreaView >
   );
 }
