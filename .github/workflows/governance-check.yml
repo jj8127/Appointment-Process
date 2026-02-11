@@ -1,0 +1,39 @@
+name: Governance Check
+
+on:
+  pull_request:
+  push:
+
+jobs:
+  governance:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Set diff range
+        run: |
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            echo "BASE_SHA=${{ github.event.pull_request.base.sha }}" >> "$GITHUB_ENV"
+            echo "HEAD_SHA=${{ github.event.pull_request.head.sha }}" >> "$GITHUB_ENV"
+          elif [ "${{ github.event_name }}" = "push" ]; then
+            BEFORE="${{ github.event.before }}"
+            if [ "$BEFORE" != "0000000000000000000000000000000000000000" ]; then
+              echo "BASE_SHA=$BEFORE" >> "$GITHUB_ENV"
+              echo "HEAD_SHA=${{ github.sha }}" >> "$GITHUB_ENV"
+            fi
+          fi
+
+      - name: Run governance checks
+        run: node scripts/ci/check-governance.mjs
+
+      - name: Validate PR checklist
+        if: github.event_name == 'pull_request'
+        run: node scripts/ci/check-pr-template.mjs
