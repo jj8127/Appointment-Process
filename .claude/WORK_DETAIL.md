@@ -7,6 +7,49 @@
 
 ---
 
+## <a id="20260211-12"></a> 2026-02-11 | 앱/웹 미점검 영역 종합 점검 및 안정화 패치
+
+**작업 내용**:
+- 모바일/웹 전체 정적 검사 및 테스트 실행:
+  - 모바일 `expo lint`, `tsc --noEmit`, `jest --runInBand`
+  - 웹 `eslint`, `next build`, `tsc --noEmit`
+- 실결함 보정:
+  - `app/_layout.tsx`에서 누락된 `safeStorage` import 추가(런타임 참조 안정화)
+  - `useIdentityGate`의 잘못된 경로(`'/auth'`)를 실제 로그인 경로(`'/login'`)로 수정
+  - Jest가 `web/.next`를 스캔해 실패하던 문제를 ignore 패턴으로 차단
+  - 홈 가이드 시작 안정화: 메인/바로가기 가이드 상호 정지 후 `start(1)` 명시 시작 + 재시도 타이밍 보강
+- 품질 경고 정리(동작 변경 없는 리팩터링):
+  - 미사용 변수/임포트 제거
+  - Hook dependency 누락 경고 정리
+  - 웹 채팅 메시지 로딩 effect 의존성 정합성 보강
+  - 웹 공지 상세 이미지 렌더링 경고(`no-img-element`) 해소
+
+**핵심 파일**:
+- `app/_layout.tsx`
+- `hooks/use-identity-gate.ts`
+- `jest.config.js`
+- `app/consent.tsx`
+- `app/index.tsx`
+- `app/exam-apply.tsx`
+- `app/exam-apply2.tsx`
+- `app/fc/new.tsx`
+- `components/BoardCard.tsx`
+- `components/EmptyState.tsx`
+- `components/LoadingSkeleton.tsx`
+- `components/Toast.tsx`
+- `web/src/app/dashboard/chat/page.tsx`
+- `web/src/app/dashboard/notifications/[id]/page.tsx`
+
+**검증**:
+- `npm run lint` (mobile) 통과
+- `npx tsc --noEmit` (mobile) 통과
+- `npm test -- --runInBand` 통과 (2 suites, 53 tests)
+- `npm run lint` (web) 통과
+- `npm run build` (web) 통과
+- `npx tsc --noEmit` (web) 통과
+
+---
+
 ## <a id="20260211-11"></a> 2026-02-11 | 문서 거버넌스 CI/PR 강제 및 SSOT 정리
 
 **작업 내용**:

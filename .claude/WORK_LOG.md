@@ -20,6 +20,7 @@
 ## 최근 작업
 | 날짜 | 작업 | 핵심 파일 | 상세 |
 |------|------|----------|------|
+| 02-11 | 앱/웹 미점검 영역 종합 점검 및 안정화 패치 | `app/index.tsx`, `app/_layout.tsx`, `jest.config.js` | [→ 상세](WORK_DETAIL.md#20260211-12) |
 | 02-11 | 문서 거버넌스 CI/PR 강제 및 SSOT 정리 | `.github/workflows/governance-check.yml`, `.claude/PROJECT_GUIDE.md` | [→ 상세](WORK_DETAIL.md#20260211-11) |
 | 02-11 | 시험 접수 마감 기준을 당일 23:59:59로 보정 | `app/exam-apply.tsx`, `web/src/app/dashboard/exam/schedule/page.tsx` | [→ 상세](WORK_DETAIL.md#20260211-10) |
 | 02-11 | 서류 마감일(18:00 기준) 알림 로직 정합성 보정 | `supabase/functions/docs-deadline-reminder/index.ts`, `web/src/app/api/admin/fc/route.ts` | [→ 상세](WORK_DETAIL.md#20260211-9) |
@@ -49,4 +50,3 @@
 | 01-19 | 게시판 고도화 + Claude Skills/Subagent 체계 도입 | `app/board*.tsx`, `.claude/*` | [→ 상세](WORK_DETAIL.md#20260119-1) |
 | 01-17 | 웹 빌드(TypeScript) 오류 수정 | `web/src/*` | [→ 상세](WORK_DETAIL.md#20260117-1) |
 | 01-17 | 게시판 기능(앱/웹 + Functions) 대규모 도입 | `web/src/app/dashboard/board/*`, `supabase/functions/board-*` | [→ 상세](WORK_DETAIL.md#20260117-2) |
-| 01-13 | 문서 최신화 및 Manager 읽기 전용 UI 보강 | `AI.md`, `web/src/app/dashboard/page.tsx` | [→ 상세](WORK_DETAIL.md#20260113-1) |
