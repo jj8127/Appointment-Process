@@ -20,6 +20,8 @@
 ## 최근 작업
 | 날짜 | 작업 | 핵심 파일 | 상세 |
 |------|------|----------|------|
+| 02-11 | 정책/보안 정리(B): 로컬 산출물/설정 추적 해제 | `.gitignore`, `.codex/config.toml`, `testsprite_tests/*` | [→ 상세](WORK_DETAIL.md#20260211-14) |
+| 02-11 | 안전 묶음(A): 빌드 산출물/미사용 모듈 정리 | `dist-web-new2/*`, `app/admin-register.tsx`, `components/*` | [→ 상세](WORK_DETAIL.md#20260211-13) |
 | 02-11 | 앱/웹 미점검 영역 종합 점검 및 안정화 패치 | `app/index.tsx`, `app/_layout.tsx`, `jest.config.js` | [→ 상세](WORK_DETAIL.md#20260211-12) |
 | 02-11 | 문서 거버넌스 CI/PR 강제 및 SSOT 정리 | `.github/workflows/governance-check.yml`, `.claude/PROJECT_GUIDE.md` | [→ 상세](WORK_DETAIL.md#20260211-11) |
 | 02-11 | 시험 접수 마감 기준을 당일 23:59:59로 보정 | `app/exam-apply.tsx`, `web/src/app/dashboard/exam/schedule/page.tsx` | [→ 상세](WORK_DETAIL.md#20260211-10) |
@@ -48,5 +50,3 @@
 | 01-21 | Supabase Security Advisor 권고 반영 | `supabase/schema.sql` | [→ 상세](WORK_DETAIL.md#20260121-2) |
 | 01-20 | 하단 내비 컴포넌트 도입 및 설정 화면 정리 | `components/BottomNav.tsx`, `app/settings.tsx` | [→ 상세](WORK_DETAIL.md#20260120-1) |
 | 01-19 | 게시판 고도화 + Claude Skills/Subagent 체계 도입 | `app/board*.tsx`, `.claude/*` | [→ 상세](WORK_DETAIL.md#20260119-1) |
-| 01-17 | 웹 빌드(TypeScript) 오류 수정 | `web/src/*` | [→ 상세](WORK_DETAIL.md#20260117-1) |
-| 01-17 | 게시판 기능(앱/웹 + Functions) 대규모 도입 | `web/src/app/dashboard/board/*`, `supabase/functions/board-*` | [→ 상세](WORK_DETAIL.md#20260117-2) |

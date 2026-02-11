@@ -7,6 +7,54 @@
 
 ---
 
+## <a id="20260211-14"></a> 2026-02-11 | 정책/보안 정리(B): 로컬 산출물/설정 추적 해제
+
+**작업 내용**:
+- 정책 불일치 정리:
+  - 추적 중이던 `testsprite_tests/` 산출물 삭제(이미 `.gitignore` 대상)
+  - 고아 gitlink 상태의 `Claude-Code-Usage-Monitor` 제거
+- 보안/로컬 설정 정리:
+  - 민감값이 포함될 수 있는 `.codex/config.toml`, `.codex/mcp.json` 추적 제거
+  - `.gitignore`에 `.codex/`, `Claude-Code-Usage-Monitor/` 추가
+
+**핵심 파일**:
+- `.gitignore`
+- `.codex/config.toml` (삭제)
+- `.codex/mcp.json` (삭제)
+- `testsprite_tests/*` (삭제)
+- `Claude-Code-Usage-Monitor` (gitlink 삭제)
+
+---
+
+## <a id="20260211-13"></a> 2026-02-11 | 안전 묶음(A): 빌드 산출물/미사용 모듈 정리
+
+**작업 내용**:
+- 빌드 산출물 정리:
+  - `dist-web-new2/` 전체 삭제
+  - 재추적 방지를 위해 `.gitignore`에 `dist-web/`, `dist-web-new2/` 추가
+- 미사용 코드/자산 정리:
+  - 미사용 라우트/모듈 삭제:
+    - `app/admin-register.tsx`
+    - `components/LoginForm.tsx`, `components/ImageTourGuide.tsx`
+    - `components/BoardCard.tsx`, `components/EmptyState.tsx`
+    - `components/external-link.tsx`, `components/haptic-tab.tsx`, `components/hello-wave.tsx`
+    - `components/ui/icon-symbol.tsx`, `components/ui/icon-symbol.ios.tsx`
+    - `hooks/use-dashboard-data.ts`, `hooks/use-theme-color.ts`
+    - `constants/theme.ts`, `lib/docRules.ts`
+  - 미사용 자산 삭제:
+    - `assets/guide/shortcuts-guide.jpg`
+    - `assets/guide/shortcuts-guide.png`
+    - `agreement_imag/00.jpg`
+
+**검증**:
+- `npm run lint` (mobile) 통과
+- `npx tsc --noEmit` (mobile) 통과
+- `npm test -- --runInBand` 통과
+- `npm run lint` (web) 통과
+- `npm run build` (web) 통과
+
+---
+
 ## <a id="20260211-12"></a> 2026-02-11 | 앱/웹 미점검 영역 종합 점검 및 안정화 패치
 
 **작업 내용**:
