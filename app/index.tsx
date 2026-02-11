@@ -450,9 +450,10 @@ export default function Home() {
   });
 
   // FC 전용 코치마크
-  const { canStart, start, eventEmitter } = useTourGuideController();
+  const { canStart, start, stop: stopMainTour, eventEmitter } = useTourGuideController();
   const {
     start: startShortcutTour,
+    stop: stopShortcutTour,
     canStart: canStartShortcutTour,
     eventEmitter: shortcutEventEmitter,
     TourGuideZone: ShortcutTourGuideZone,
@@ -646,27 +647,31 @@ export default function Home() {
     if (!isFc) return;
 
     Haptics.selectionAsync();
+    stopShortcutTour();
     cacheZonePositions();
-    start();
+    start(1);
 
     // canStart가 늦게 true가 되는 기기에서 시작 누락 방지
     if (!canStart) {
-      setTimeout(() => start(), 140);
-      setTimeout(() => start(), 320);
+      setTimeout(() => start(1), 140);
+      setTimeout(() => start(1), 320);
+      setTimeout(() => start(1), 520);
     }
-  }, [isFc, canStart, cacheZonePositions, start]);
+  }, [isFc, canStart, cacheZonePositions, start, stopShortcutTour]);
 
   const startShortcutGuide = useCallback(() => {
     if (!isFc) return;
 
     Haptics.selectionAsync();
+    stopMainTour();
     cacheShortcutZonePositions();
-    startShortcutTour();
+    startShortcutTour(1);
     if (!canStartShortcutTour) {
-      setTimeout(() => startShortcutTour(), 140);
-      setTimeout(() => startShortcutTour(), 320);
+      setTimeout(() => startShortcutTour(1), 140);
+      setTimeout(() => startShortcutTour(1), 320);
+      setTimeout(() => startShortcutTour(1), 520);
     }
-  }, [isFc, canStartShortcutTour, cacheShortcutZonePositions, startShortcutTour]);
+  }, [isFc, canStartShortcutTour, cacheShortcutZonePositions, startShortcutTour, stopMainTour]);
 
 
 

@@ -19,7 +19,7 @@ export function useIdentityGate(options: GateOptions = {}) {
     if (!hydrated) return;
     if (role !== 'fc') return;
     if (!residentId) {
-      router.replace('/auth');
+      router.replace('/login');
       return;
     }
     if (!isLoading && (!data || !data.identityCompleted)) {

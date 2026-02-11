@@ -20,6 +20,7 @@ import { ToastProvider } from '@/components/Toast';
 import { useColorScheme } from '@/hooks/use-color-scheme';
 import { SessionProvider } from '@/hooks/use-session';
 import { logger } from '@/lib/logger';
+import { safeStorage } from '@/lib/safe-storage';
 
 import {
   AntDesign,
