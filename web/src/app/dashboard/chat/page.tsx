@@ -349,13 +349,25 @@ function ChatRoom({ fc }: { fc: ChatPreview }) {
             // 3. Send Notification + Push (with debug logs)
             const notifBody = trimmed.length > 50 ? `${trimmed.slice(0, 50)}...` : trimmed;
 
-            const { error: notifErr } = await supabase.from('notifications').insert({
+            const notificationBase = {
                 title: '상담 답변 알림',
                 body: notifBody,
-                recipient_role: 'fc',
+                recipient_role: 'fc' as const,
                 resident_id: fc.phone,
-                category: 'message'
+                category: 'message',
+            };
+
+            let { error: notifErr } = await supabase.from('notifications').insert({
+                ...notificationBase,
+                target_url: '/chat',
             });
+
+            const missingTargetColumn =
+                notifErr?.code === '42703' || String(notifErr?.message ?? '').includes('target_url');
+            if (missingTargetColumn) {
+                const fallback = await supabase.from('notifications').insert(notificationBase);
+                notifErr = fallback.error ?? null;
+            }
             if (notifErr) {
                 logger.warn('[chat][admin->fc] notifications insert error', notifErr.message);
             } else {

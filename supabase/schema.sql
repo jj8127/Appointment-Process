@@ -134,8 +134,12 @@ create table if not exists public.notifications (
   title text not null,
   body text not null,
   category text,
+  target_url text,
   created_at timestamptz not null default now()
 );
+
+alter table public.notifications
+  add column if not exists target_url text;
 
 alter table public.device_tokens
   drop constraint if exists device_tokens_role_check;

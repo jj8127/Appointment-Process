@@ -310,7 +310,11 @@ serve(async (req: Request) => {
         docs_deadline_at: normalizedDeadline,
       };
       if (shouldResetNotify) profileUpdate.docs_deadline_last_notified_at = null;
-      await supabase.from('fc_profiles').update({ status: 'docs-requested', ...profileUpdate }).eq('id', fcId);
+      const { error: profileError } = await supabase
+        .from('fc_profiles')
+        .update({ status: 'docs-requested', ...profileUpdate })
+        .eq('id', fcId);
+      if (profileError) throw profileError;
 
       return json({ ok: true });
     }
@@ -498,21 +502,36 @@ serve(async (req: Request) => {
 
     // ── sendNotification ──
     if (action === 'sendNotification') {
-      const { phone, title, body: notifBody, role: recipientRole } = payload as {
+      const { phone, title, body: notifBody, role: recipientRole, url } = payload as {
         phone?: string;
         title: string;
         body: string;
         role?: string;
+        url?: string;
       };
       if (!title || !notifBody) return fail('title and body are required');
 
-      await supabase.from('notifications').insert({
+      const insertPayload = {
         title,
         body: notifBody,
         category: 'app_event',
         recipient_role: recipientRole ?? 'fc',
         resident_id: phone ?? null,
+      } as const;
+
+      let { error: insertError } = await supabase.from('notifications').insert({
+        ...insertPayload,
+        target_url: url ?? null,
       });
+
+      const missingTargetColumn =
+        insertError?.code === '42703' || String(insertError?.message ?? '').includes('target_url');
+      if (missingTargetColumn) {
+        const fallback = await supabase.from('notifications').insert(insertPayload);
+        insertError = fallback.error ?? null;
+      }
+
+      if (insertError) throw insertError;
 
       return json({ ok: true });
     }

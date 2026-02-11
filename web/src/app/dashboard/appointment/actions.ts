@@ -129,6 +129,7 @@ export async function updateAppointmentAction(
     const { error: notifError } = await adminSupabase.from('notifications').insert({
         title: notifTitle,
         body: notifBody,
+        target_url: '/appointment',
         recipient_role: 'fc',
         resident_id: phone,
     });

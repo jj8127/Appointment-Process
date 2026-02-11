@@ -226,6 +226,7 @@ function ChatContent() {
         title: '새 메시지',
         body: notiBody,
         category: 'message',
+        target_url: recipientRole === 'admin' ? `/chat?targetId=${myId}&targetName=FC` : '/chat',
         recipient_role: recipientRole,
         resident_id: residentIdForPush,
       });

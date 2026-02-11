@@ -85,6 +85,7 @@ export async function POST(req: Request) {
         await adminSupabase.from('notifications').insert({
           title,
           body,
+          target_url: '/consent',
           recipient_role: 'fc',
           resident_id: phone,
         });
@@ -124,17 +125,18 @@ export async function POST(req: Request) {
 
       if (msg && phone) {
         const finalTitle = title || '상태 업데이트';
-        await adminSupabase.from('notifications').insert({
-          title: finalTitle,
-          body: msg,
-          recipient_role: 'fc',
-          resident_id: phone,
-        });
-
         let url = '/notifications';
         if (status === 'allowance-consented') url = '/docs-upload';
         else if (status === 'docs-approved') url = '/appointment';
         else if (status === 'temp-id-issued') url = '/consent';
+
+        await adminSupabase.from('notifications').insert({
+          title: finalTitle,
+          body: msg,
+          target_url: url,
+          recipient_role: 'fc',
+          resident_id: phone,
+        });
 
         await sendPushNotification(phone, { title: finalTitle, body: msg, data: { url } });
       }
@@ -232,10 +234,11 @@ export async function POST(req: Request) {
         profileUpdate.docs_deadline_last_notified_at = null;
       }
 
-      await adminSupabase
+      const { error: profileUpdateError } = await adminSupabase
         .from('fc_profiles')
         .update({ status: 'docs-requested', ...profileUpdate })
         .eq('id', fcId);
+      if (profileUpdateError) throw profileUpdateError;
 
       if (phone) {
         const title = '필수 서류 등록 알림';
@@ -243,6 +246,7 @@ export async function POST(req: Request) {
         await adminSupabase.from('notifications').insert({
           title,
           body,
+          target_url: '/docs-upload',
           recipient_role: 'fc',
           resident_id: phone,
         });
@@ -299,6 +303,7 @@ export async function POST(req: Request) {
       await adminSupabase.from('notifications').insert({
         title,
         body,
+        target_url: url ?? '/notifications',
         recipient_role: 'fc',
         resident_id: phone,
       });

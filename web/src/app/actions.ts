@@ -22,13 +22,28 @@ export async function sendPushNotification(
         return { success: false, error: 'No user ID provided' };
     }
 
+    const targetUrl = typeof data?.url === 'string' ? data.url : null;
+
     // Insert into notifications table (using adminSupabase to bypass RLS)
-    const { error: notifError } = await adminSupabase.from('notifications').insert({
+    const notificationBase = {
         title,
         body,
         recipient_role: 'fc',
         resident_id: userId,
+    } as const;
+
+    let { error: notifError } = await adminSupabase.from('notifications').insert({
+        ...notificationBase,
+        target_url: targetUrl,
     });
+
+    const missingTargetColumn =
+        notifError?.code === '42703' || String(notifError?.message ?? '').includes('target_url');
+    if (missingTargetColumn) {
+        const fallback = await adminSupabase.from('notifications').insert(notificationBase);
+        notifError = fallback.error ?? null;
+    }
+
     if (notifError) {
         logger.warn('[sendPushNotification] notifications insert failed:', notifError);
     }

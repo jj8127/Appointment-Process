@@ -156,7 +156,7 @@ export default function DocumentsPage() {
                 const title = '서류 검토 완료';
                 const body = '모든 서류가 승인되었습니다. 위촉 계약 단계로 진행해주세요.';
                 await supabase.from('notifications').insert({
-                    title, body, recipient_role: 'fc', resident_id: phone
+                    title, body, target_url: '/appointment', recipient_role: 'fc', resident_id: phone
                 });
                 await sendPushNotification(phone, { title, body, data: { url: '/appointment' } });
             }
@@ -196,6 +196,7 @@ export default function DocumentsPage() {
                 await supabase.from('notifications').insert({
                     title,
                     body,
+                    target_url: '/docs-upload',
                     recipient_role: 'fc',
                     resident_id: doc.fc_profiles.phone,
                     category: '서류',

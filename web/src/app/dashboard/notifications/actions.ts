@@ -59,13 +59,17 @@ export async function createNoticeAction(
     const { category, title, body, images, files } = validatedFields.data;
 
     // 1. Insert Notice
-    const { error: noticeError } = await adminSupabase.from('notices').insert({
+    const { data: insertedNotice, error: noticeError } = await adminSupabase
+        .from('notices')
+        .insert({
         title,
         body,
         category,
         images: images || [],
         files: files || [],
-    });
+        })
+        .select('id')
+        .single();
 
     if (noticeError) {
         return {
@@ -74,11 +78,14 @@ export async function createNoticeAction(
         };
     }
 
+    const targetUrl = insertedNotice?.id ? `/notice-detail?id=${insertedNotice.id}` : '/notice';
+
     // 2. Insert Notification History
     const { error: notifError } = await adminSupabase.from('notifications').insert({
         title,
         body,
         category,
+        target_url: targetUrl,
         recipient_role: 'fc',
         resident_id: null, // Broadcast
     });
@@ -108,7 +115,7 @@ export async function createNoticeAction(
             to: t.expo_push_token,
             title: `공지: ${title}`,
             body: body,
-            data: { type: 'notice' },
+            data: { type: 'notice', url: targetUrl },
             sound: 'default',
             priority: 'high',
             channelId: 'alerts',

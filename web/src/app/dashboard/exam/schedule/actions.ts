@@ -33,11 +33,13 @@ const errorMessage = (err: unknown, fallback: string) => {
     return fallback;
 };
 
-async function notifyExamRoundChanged(title: string, body: string) {
+async function notifyExamRoundChanged(title: string, body: string, examType: 'life' | 'nonlife') {
+    const targetUrl = examType === 'nonlife' ? '/exam-apply2' : '/exam-apply';
     const { error: notifError } = await adminSupabase.from('notifications').insert({
         title,
         body,
         category: 'exam_round',
+        target_url: targetUrl,
         recipient_role: 'fc',
         resident_id: null,
     });
@@ -61,7 +63,7 @@ async function notifyExamRoundChanged(title: string, body: string) {
             to: token,
             title,
             body,
-            data: { type: 'exam_round', url: '/exam/apply' },
+            data: { type: 'exam_round', url: targetUrl },
             sound: 'default',
             priority: 'high',
             channelId: 'alerts',
@@ -169,7 +171,7 @@ export async function saveExamRoundAction(
         const actionText = actionLabel ?? (roundId ? '수정' : '등록');
         const title = `${dateLabel}${round_label ? ` (${round_label})` : ''} 일정 ${actionText}`;
         const body = `시험 일정이 ${actionText}되었습니다.`;
-        await notifyExamRoundChanged(title, body);
+        await notifyExamRoundChanged(title, body, exam_type);
 
         return { success: true, message: '저장 완료', roundId: targetRoundId };
     } catch (err: unknown) {

@@ -141,7 +141,7 @@ export default function AdminNoticeScreen() {
   };
 
   // 공지 등록 후 모든 FC에게 알림 + 푸시 전송
-  const notifyAllFcs = async (titleText: string, bodyText: string, categoryText?: string) => {
+  const notifyAllFcs = async (titleText: string, bodyText: string, categoryText?: string, url?: string) => {
     try {
       const { data, error } = await supabase.functions.invoke('fc-notify', {
         body: {
@@ -151,7 +151,7 @@ export default function AdminNoticeScreen() {
           title: `공지: ${titleText}`,
           body: bodyText,
           category: categoryText || '공지',
-          url: '/notice',
+          url: url ?? '/notice',
         },
       });
       if (error) throw error;
@@ -192,16 +192,21 @@ export default function AdminNoticeScreen() {
       // Or if schema is jsonb array of objects, verify implementation_plan.
       // Plan said: images (JSONB array of strings), files (JSONB array of objects)
 
-      const { error } = await supabase.from('notices').insert({
+      const { data: insertedNotice, error } = await supabase
+        .from('notices')
+        .insert({
         title: title.trim(),
         body: body.trim(),
         category: category.trim() || '공지사항',
         images: imageUrls,
         files: uploadedFiles,
-      });
+        })
+        .select('id')
+        .single();
       if (error) throw error;
 
-      await notifyAllFcs(title.trim(), body.trim(), category.trim());
+      const noticeUrl = insertedNotice?.id ? `/notice-detail?id=${insertedNotice.id}` : '/notice';
+      await notifyAllFcs(title.trim(), body.trim(), category.trim(), noticeUrl);
       Alert.alert('등록 완료', '공지사항이 성공적으로 등록되었습니다.');
       setTitle('');
       setBody('');

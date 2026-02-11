@@ -302,6 +302,8 @@ export default function RootLayout() {
                           <Stack.Screen name="appointment" options={{ ...baseHeader, title: '위촉' }} />
                           <Stack.Screen name="notifications" options={{ ...baseHeader, title: '알림' }} />
                           <Stack.Screen name="notice" options={{ ...baseHeader, title: '공지사항' }} />
+                          <Stack.Screen name="notice-detail" options={{ ...baseHeader, title: '공지 상세' }} />
+                          <Stack.Screen name="board-detail" options={{ ...baseHeader, title: '게시글 상세' }} />
                           <Stack.Screen name="admin-notice" options={{ ...baseHeader, title: '공지 등록' }} />
                           <Stack.Screen name="exams/life" options={{ ...baseHeader, title: '생명 시험 등록' }} />
                           <Stack.Screen name="exams/nonlife" options={{ ...baseHeader, title: '손해 시험 등록' }} />
@@ -406,6 +408,8 @@ export default function RootLayout() {
                           <Stack.Screen name="appointment" options={{ ...baseHeader, title: '위촉' }} />
                           <Stack.Screen name="notifications" options={{ ...baseHeader, title: '알림' }} />
                           <Stack.Screen name="notice" options={{ ...baseHeader, title: '공지사항' }} />
+                          <Stack.Screen name="notice-detail" options={{ ...baseHeader, title: '공지 상세' }} />
+                          <Stack.Screen name="board-detail" options={{ ...baseHeader, title: '게시글 상세' }} />
                           <Stack.Screen name="admin-notice" options={{ ...baseHeader, title: '공지 등록' }} />
                           <Stack.Screen name="exams/life" options={{ ...baseHeader, title: '생명 시험 등록' }} />
                           <Stack.Screen name="exams/nonlife" options={{ ...baseHeader, title: '손해 시험 등록' }} />

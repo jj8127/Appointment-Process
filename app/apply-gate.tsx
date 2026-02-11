@@ -40,7 +40,7 @@ export default function ApplyGateScreen() {
           <Text style={styles.title}>위촉(등록) 신청 안내</Text>
           <Text style={styles.body}>지금부터는 설계사 위촉(등록) 신청 절차를 시작합니다.</Text>
           <Text style={styles.body}>임시사번 발급 및 등록 서류 처리에 주민번호/주소가 필수입니다.</Text>
-          <Text style={styles.body}>둘러보기/문의 기능은 입력 없이 이용 가능합니다.</Text>
+          <Text style={styles.body}>공지/알림/문의 기능은 입력 없이 이용 가능합니다.</Text>
         </View>
 
         <View style={styles.buttonRow}>

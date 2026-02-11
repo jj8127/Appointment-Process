@@ -89,6 +89,7 @@ export async function updateDocStatusAction(
                     await adminSupabase.from('notifications').insert({
                         title,
                         body,
+                        target_url: '/appointment',
                         recipient_role: 'fc',
                         resident_id: phone,
                     });
@@ -112,6 +113,7 @@ export async function updateDocStatusAction(
         await adminSupabase.from('notifications').insert({
             title,
             body,
+            target_url: '/docs-upload',
             recipient_role: 'fc',
             resident_id: phone,
         });

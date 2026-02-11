@@ -23,11 +23,37 @@ import { logger } from '@/lib/logger';
 
 type Notice = {
   id: string;
+  rawId: string;
+  title: string;
+  body: string;
+  category?: string | null;
+  targetUrl?: string | null;
+  created_at?: string | null;
+  source: 'notification' | 'notice';
+};
+
+type InboxNotificationPayload = {
+  id: string;
+  title: string;
+  body: string;
+  category?: string | null;
+  target_url?: string | null;
+  created_at?: string | null;
+};
+
+type InboxNoticePayload = {
+  id: string;
   title: string;
   body: string;
   category?: string | null;
   created_at?: string | null;
-  source: 'notification' | 'notice';
+};
+
+type InboxListResponse = {
+  ok?: boolean;
+  message?: string;
+  notifications?: InboxNotificationPayload[];
+  notices?: InboxNoticePayload[];
 };
 
 const HIDDEN_NOTICE_KEY_PREFIX = 'hiddenNoticeIds';
@@ -71,7 +97,7 @@ export default function NotificationsScreen() {
   const fetchInbox = useCallback(async (): Promise<{ pushRows: Notice[]; noticeRows: Notice[] }> => {
     if (!role) return { pushRows: [], noticeRows: [] };
 
-    const { data, error } = await supabase.functions.invoke('fc-notify', {
+    const { data, error } = await supabase.functions.invoke<InboxListResponse>('fc-notify', {
       body: {
         type: 'inbox_list',
         role,
@@ -85,20 +111,24 @@ export default function NotificationsScreen() {
       throw new Error(data?.message ?? '알림을 불러오지 못했습니다.');
     }
 
-    const pushRows: Notice[] = (data.notifications ?? []).map((item: any) => ({
+    const pushRows: Notice[] = (data.notifications ?? []).map((item) => ({
       id: `notification:${item.id}`,
+      rawId: item.id,
       title: item.title,
       body: item.body,
       category: item.category ?? '알림',
+      targetUrl: item.target_url ?? null,
       created_at: item.created_at,
       source: 'notification',
     }));
 
-    const noticeRows: Notice[] = (data.notices ?? []).map((item: any) => ({
+    const noticeRows: Notice[] = (data.notices ?? []).map((item) => ({
       id: `notice:${item.id}`,
+      rawId: item.id,
       title: item.title,
       body: item.body,
       category: item.category ?? '공지',
+      targetUrl: null,
       created_at: item.created_at,
       source: 'notice',
     }));
@@ -124,7 +154,7 @@ export default function NotificationsScreen() {
       });
       setNotices(merged);
       await AsyncStorage.setItem('lastNotificationCheckTime', new Date().toISOString());
-    } catch (err: any) {
+    } catch (err: unknown) {
       logger.warn('Failed to load notifications', err);
     } finally {
       setLoading(false);
@@ -156,31 +186,84 @@ export default function NotificationsScreen() {
     toggleSelection(id);
   };
 
+  const normalizeTargetUrl = (url: string): string => {
+    const trimmed = url.trim();
+    if (!trimmed) return '/notifications';
+    if (trimmed.startsWith('http://') || trimmed.startsWith('https://')) {
+      const match = trimmed.match(/^https?:\/\/[^/]+(\/.*)?$/i);
+      const path = match?.[1] ?? '/notifications';
+      return normalizeTargetUrl(path);
+    }
+
+    if (trimmed.startsWith('/dashboard/notifications')) return '/notice';
+    if (trimmed.startsWith('/dashboard/chat')) return '/admin-messenger';
+    if (trimmed.startsWith('/board?')) return trimmed.replace('/board?', '/board-detail?');
+    if (trimmed.startsWith('/exam/apply2')) return '/exam-apply2';
+    if (trimmed.startsWith('/exam/apply')) return '/exam-apply';
+    if (trimmed.startsWith('/dashboard')) return '/dashboard';
+    return trimmed;
+  };
+
+  const resolveNotificationRoute = (item: Notice): string | null => {
+    if (item.source === 'notice') {
+      return `/notice-detail?id=${encodeURIComponent(item.rawId)}`;
+    }
+
+    if (item.targetUrl) {
+      return normalizeTargetUrl(item.targetUrl);
+    }
+
+    const category = (item.category ?? '').toLowerCase();
+    const lowerTitle = item.title?.toLowerCase?.() ?? '';
+    const lowerBody = item.body?.toLowerCase?.() ?? '';
+
+    if (category.includes('message') || lowerTitle.includes('메시지') || lowerBody.includes('메시지')) {
+      return role === 'admin' ? '/admin-messenger' : '/chat';
+    }
+    if (category.startsWith('board_') || lowerTitle.includes('게시판') || lowerBody.includes('게시판')) {
+      return '/board';
+    }
+    if (category.includes('exam_round') || lowerTitle.includes('시험 일정') || lowerBody.includes('시험 일정')) {
+      return lowerTitle.includes('손해') || lowerBody.includes('손해') ? '/exam-apply2' : '/exam-apply';
+    }
+    if (category.includes('exam_apply') || lowerTitle.includes('시험 신청') || lowerBody.includes('시험 신청')) {
+      return lowerTitle.includes('손해') || lowerBody.includes('손해') ? '/exam-apply2' : '/exam-apply';
+    }
+    if (category.includes('docs') || lowerTitle.includes('서류') || lowerBody.includes('서류')) {
+      return '/docs-upload';
+    }
+    if (
+      lowerTitle.includes('임시번호') ||
+      lowerTitle.includes('임시사번') ||
+      lowerBody.includes('임시번호') ||
+      lowerBody.includes('임시사번') ||
+      lowerTitle.includes('temp id') ||
+      lowerBody.includes('temp id')
+    ) {
+      return '/consent';
+    }
+    if (lowerTitle.includes('수당') || lowerBody.includes('수당')) {
+      return '/consent';
+    }
+    if (lowerTitle.includes('위촉') || lowerBody.includes('위촉')) {
+      return '/appointment';
+    }
+    if (lowerTitle.includes('공지') || lowerBody.includes('공지')) {
+      return '/notice';
+    }
+
+    return null;
+  };
+
   const handlePressItem = (item: Notice) => {
     if (selectionMode) {
       toggleSelection(item.id);
       return;
     }
 
-    // 위촉 완료 보고 알림이면 대시보드로 이동
-    const lowerTitle = item.title?.toLowerCase?.() ?? '';
-    const lowerBody = item.body?.toLowerCase?.() ?? '';
-    const isAppointmentReport =
-      (lowerTitle.includes('위촉') && lowerTitle.includes('보고')) ||
-      (lowerBody.includes('위촉') && lowerBody.includes('보고'));
-
-    if (item.source === 'notification' && isAppointmentReport) {
-      router.replace('/dashboard');
-      return;
-    }
-
-    // 서류 검토 완료 알림이면 위촉 페이지로 이동
-    const isDocsApproved =
-      lowerTitle.includes('서류') && lowerTitle.includes('완료') ||
-      lowerBody.includes('서류') && lowerBody.includes('완료');
-
-    if (item.source === 'notification' && isDocsApproved) {
-      router.replace('/appointment');
+    const route = resolveNotificationRoute(item);
+    if (route) {
+      router.push(route as never);
       return;
     }
 
@@ -243,8 +326,9 @@ export default function NotificationsScreen() {
             } else {
               Alert.alert('삭제 완료', '선택한 항목을 삭제했습니다.');
             }
-          } catch (err: any) {
-            Alert.alert('오류', err?.message ?? '삭제 중 문제가 발생했습니다.');
+          } catch (err: unknown) {
+            const message = err instanceof Error ? err.message : '삭제 중 문제가 발생했습니다.';
+            Alert.alert('오류', message);
           }
         },
       },
