@@ -12,7 +12,7 @@ import { supabase } from '@/lib/supabase';
 import { COLORS, TYPOGRAPHY, SPACING, RADIUS } from '@/lib/theme';
 
 export default function SettingsScreen() {
-  const { role, residentId, displayName, logout } = useSession();
+  const { role, residentId, residentMask, displayName, logout } = useSession();
   const insets = useSafeAreaInsets();
   const { scrollHandler, animatedStyle } = useBottomNavAnimation();
 
@@ -35,15 +35,19 @@ export default function SettingsScreen() {
     if (!residentId) return;
     setDeleting(true);
     try {
-      const { error } = await supabase.functions.invoke('delete-account', {
-        body: { residentId },
+      const { data, error } = await supabase.functions.invoke<{ ok?: boolean; deleted?: boolean; error?: string }>('delete-account', {
+        body: { residentId, residentMask },
       });
       if (error) throw error;
+      if (!data?.ok || !data?.deleted) {
+        throw new Error(data?.error ?? '계정 삭제에 실패했습니다. 다시 시도해주세요.');
+      }
       Alert.alert('삭제 완료', '계정과 관련 데이터가 삭제되었습니다.');
       logout();
       router.replace('/login');
-    } catch (err: any) {
-      Alert.alert('삭제 실패', err?.message ?? '계정 삭제 중 오류가 발생했습니다.');
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : '계정 삭제 중 오류가 발생했습니다.';
+      Alert.alert('삭제 실패', message);
     } finally {
       setDeleting(false);
       setShowDeleteConfirm(false);

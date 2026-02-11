@@ -600,13 +600,15 @@ export default function DashboardScreen() {
     mutationFn: async ({ id, phone }: { id: string; phone?: string | null }) => {
       assertCanEdit();
       if (phone) {
-        const { data, error } = await supabase.functions.invoke('delete-account', {
+        const { data, error } = await supabase.functions.invoke<{ ok?: boolean; deleted?: boolean; error?: string }>('delete-account', {
           body: { residentId: phone },
         });
         if (error) {
           logger.warn('[deleteFc] delete-account failed, fallback to admin-action', error.message ?? error);
-        } else if (data?.ok) {
+        } else if (data?.ok && data?.deleted) {
           return;
+        } else {
+          logger.warn('[deleteFc] delete-account returned non-deleted result, fallback to admin-action', data);
         }
       }
       // Fallback: use admin-action Edge Function (bypasses RLS)

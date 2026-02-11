@@ -1,7 +1,20 @@
 import { serve } from 'https://deno.land/std@0.224.0/http/server.ts';
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.45.4';
 
-type Payload = { residentId: string };
+type Payload = {
+  residentId?: string;
+  residentMask?: string;
+  fcId?: string;
+};
+
+type FcProfileRow = {
+  id: string;
+  phone: string | null;
+};
+
+type FcDocumentRow = {
+  storage_path: string | null;
+};
 
 function getEnv(name: string): string | undefined {
   const g: any = globalThis as any;
@@ -63,6 +76,62 @@ function formatPhone(digits: string) {
   return `${digits.slice(0, 3)}-${digits.slice(3, 7)}-${digits.slice(7)}`;
 }
 
+function cleanPhone(input: string) {
+  return (input ?? '').replace(/[^0-9]/g, '');
+}
+
+async function pickProfileByEq(
+  column: 'id' | 'phone' | 'resident_id_masked',
+  value: string,
+): Promise<FcProfileRow | null> {
+  const { data, error } = await supabase
+    .from('fc_profiles')
+    .select('id,phone')
+    .eq(column, value)
+    .limit(1);
+
+  if (error) {
+    throw error;
+  }
+
+  const list = (data ?? []) as FcProfileRow[];
+  return list[0] ?? null;
+}
+
+async function resolveProfile(payload: Payload): Promise<FcProfileRow | null> {
+  const rawResident = String(payload.residentId ?? '').trim();
+  const residentMask = String(payload.residentMask ?? '').trim();
+  const rawFcId = String(payload.fcId ?? '').trim();
+  const residentDigits = cleanPhone(rawResident);
+
+  if (rawFcId) {
+    const byId = await pickProfileByEq('id', rawFcId);
+    if (byId) return byId;
+  }
+
+  if (residentDigits) {
+    const byPhoneDigits = await pickProfileByEq('phone', residentDigits);
+    if (byPhoneDigits) return byPhoneDigits;
+  }
+
+  if (rawResident && rawResident !== residentDigits) {
+    const byPhoneRaw = await pickProfileByEq('phone', rawResident);
+    if (byPhoneRaw) return byPhoneRaw;
+  }
+
+  if (residentMask) {
+    const byMask = await pickProfileByEq('resident_id_masked', residentMask);
+    if (byMask) return byMask;
+  }
+
+  if (rawResident && rawResident.includes('-')) {
+    const byMaskRaw = await pickProfileByEq('resident_id_masked', rawResident);
+    if (byMaskRaw) return byMaskRaw;
+  }
+
+  return null;
+}
+
 serve(async (req: Request) => {
   if (req.method === 'OPTIONS') {
     return new Response('ok', { headers: corsHeaders });
@@ -81,32 +150,35 @@ serve(async (req: Request) => {
     return err('Invalid JSON', 400);
   }
 
-  const residentId = (body.residentId ?? '').replace(/[^0-9]/g, '');
-  if (!residentId) {
-    return err('residentId required', 400);
+  const residentIdRaw = String(body.residentId ?? '').trim();
+  const residentMask = String(body.residentMask ?? '').trim();
+  const fcIdFromBody = String(body.fcId ?? '').trim();
+  const residentIdDigits = cleanPhone(residentIdRaw);
+
+  if (!residentIdRaw && !residentMask && !fcIdFromBody) {
+    return err('residentId or fcId required', 400);
   }
-  const residentIdMasked = formatPhone(residentId);
 
-  const { data: profile, error: profileError } = await supabase
-    .from('fc_profiles')
-    .select('id')
-    .eq('phone', residentId)
-    .maybeSingle();
-
-  if (profileError) {
-    return err(profileError.message, 500);
+  let profile: FcProfileRow | null = null;
+  try {
+    profile = await resolveProfile(body);
+  } catch (profileError) {
+    const message = profileError instanceof Error ? profileError.message : 'Profile lookup failed';
+    return err(message, 500);
   }
 
   if (!profile?.id) {
-    return ok({ ok: true, deleted: false });
+    return err('FC profile not found', 404);
   }
 
-  const fcId = profile.id as string;
+  const fcId = profile.id;
+  const residentId = cleanPhone(profile.phone ?? '') || residentIdDigits;
+  const residentIdMasked = formatPhone(residentId);
 
   const docsResult = await ignoreMissingTable(
     await supabase.from('fc_documents').select('storage_path').eq('fc_id', fcId),
   );
-  const paths = (docsResult.data ?? []).map((doc: any) => doc.storage_path).filter(Boolean);
+  const paths = ((docsResult.data ?? []) as FcDocumentRow[]).map((doc) => doc.storage_path).filter(Boolean) as string[];
   if (paths.length > 0) {
     const { error: storageError } = await supabase.storage.from('fc-documents').remove(paths);
     if (storageError) {
@@ -114,10 +186,7 @@ serve(async (req: Request) => {
     }
   }
 
-  const docsDeleteResult = await ignoreMissingTable(
-    await supabase.from('fc_documents').delete().eq('fc_id', fcId),
-  );
-  if ((docsDeleteResult as any).error) return err((docsDeleteResult as any).error.message, 500);
+  await ignoreMissingTable(await supabase.from('fc_documents').delete().eq('fc_id', fcId));
 
   await ignoreMissingTable(
     await supabase.from('messages').delete().or(`sender_id.eq.${residentId},receiver_id.eq.${residentId}`),
@@ -133,6 +202,7 @@ serve(async (req: Request) => {
     await supabase.from('notifications').delete().or(`resident_id.eq.${residentId},fc_id.eq.${fcId}`),
   );
   await ignoreMissingTable(await supabase.from('device_tokens').delete().eq('resident_id', residentId));
+  await ignoreMissingTable(await supabase.from('web_push_subscriptions').delete().eq('resident_id', residentId));
   await ignoreMissingTable(await supabase.from('fc_identity_secure').delete().eq('fc_id', fcId));
 
   const { error: profileDeleteError } = await supabase.from('fc_profiles').delete().eq('id', fcId);
