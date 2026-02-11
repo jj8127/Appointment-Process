@@ -24,10 +24,42 @@ import dayjs from 'dayjs';
 import Link from 'next/link';
 import { useState } from 'react';
 
-import { supabase } from '@/lib/supabase';
+import { useSession } from '@/hooks/use-session';
+
+type NoticeItem = {
+    id: string;
+    title?: string;
+    body?: string;
+    category?: string;
+    created_at?: string;
+    is_push_sent?: boolean;
+    image_url?: string;
+    attachment_url?: string;
+};
+
+type NoticesResponse = {
+    ok?: boolean;
+    notices?: NoticeItem[];
+    error?: string;
+};
+
+async function fetchNotices(): Promise<NoticeItem[]> {
+    const res = await fetch('/api/admin/notices', {
+        method: 'GET',
+        credentials: 'include',
+    });
+    const data = (await res.json().catch(() => ({}))) as NoticesResponse;
+
+    if (!res.ok || !data?.ok) {
+        throw new Error(data?.error ?? '공지 목록을 불러오지 못했습니다.');
+    }
+
+    return data.notices ?? [];
+}
 
 export default function NotificationsPage() {
     const queryClient = useQueryClient();
+    const { hydrated, role, isReadOnly } = useSession();
     const [keyword, setKeyword] = useState('');
 
     // 확인 모달 상태
@@ -52,22 +84,24 @@ export default function NotificationsPage() {
 
     // Fetch Notices
     const { data: noticesData, isLoading } = useQuery({
-        queryKey: ['notices'],
-        queryFn: async () => {
-            const { data, error } = await supabase
-                .from('notices')
-                .select('*')
-                .order('created_at', { ascending: false });
-            if (error) throw error;
-            return data;
-        },
+        queryKey: ['notices', role],
+        queryFn: fetchNotices,
+        enabled: hydrated && (role === 'admin' || role === 'manager'),
     });
 
     // Delete Mutation
     const deleteMutation = useMutation({
         mutationFn: async (id: string) => {
-            const { error } = await supabase.from('notices').delete().eq('id', id);
-            if (error) throw error;
+            const res = await fetch('/api/admin/notices', {
+                method: 'DELETE',
+                headers: { 'Content-Type': 'application/json' },
+                credentials: 'include',
+                body: JSON.stringify({ id }),
+            });
+            const data = (await res.json().catch(() => ({}))) as { ok?: boolean; error?: string };
+            if (!res.ok || !data?.ok) {
+                throw new Error(data?.error ?? '삭제에 실패했습니다.');
+            }
         },
         onSuccess: () => {
             notifications.show({
@@ -96,17 +130,6 @@ export default function NotificationsPage() {
         });
     };
 
-    type NoticeItem = {
-        id: string;
-        title?: string;
-        body?: string;
-        category?: string;
-        created_at?: string;
-        is_push_sent?: boolean;
-        image_url?: string;
-        attachment_url?: string;
-    };
-
     const filteredNotices = (noticesData || []).filter((notice: NoticeItem) => {
         if (!keyword.trim()) return true;
         const q = keyword.toLowerCase();
@@ -118,7 +141,7 @@ export default function NotificationsPage() {
     });
 
     const rows = filteredNotices.map((notice: NoticeItem) => (
-        <Table.Tr key={notice.id}>
+            <Table.Tr key={notice.id}>
             <Table.Td style={{ width: 120 }}>
                 <Text size="sm" c="dimmed">
                     {dayjs(notice.created_at).format('YYYY-MM-DD')}
@@ -140,14 +163,16 @@ export default function NotificationsPage() {
                 </Text>
             </Table.Td>
             <Table.Td style={{ width: 60 }} align="right">
-                <ActionIcon
-                    variant="subtle"
-                    color="red"
-                    onClick={() => handleDelete(notice.id)}
-                    loading={deleteMutation.isPending && deleteMutation.variables === notice.id}
-                >
-                    <IconTrash size={16} />
-                </ActionIcon>
+                {!isReadOnly && role === 'admin' ? (
+                    <ActionIcon
+                        variant="subtle"
+                        color="red"
+                        onClick={() => handleDelete(notice.id)}
+                        loading={deleteMutation.isPending && deleteMutation.variables === notice.id}
+                    >
+                        <IconTrash size={16} />
+                    </ActionIcon>
+                ) : null}
             </Table.Td>
         </Table.Tr>
     ));
@@ -165,14 +190,16 @@ export default function NotificationsPage() {
                 </div>
 
                 <Group>
-                    <Button
-                        component={Link}
-                        href="/dashboard/notifications/create"
-                        leftSection={<IconPlus size={16} />}
-                        color="orange"
-                    >
-                        새 공지 등록
-                    </Button>
+                    {!isReadOnly && role === 'admin' ? (
+                        <Button
+                            component={Link}
+                            href="/dashboard/notifications/create"
+                            leftSection={<IconPlus size={16} />}
+                            color="orange"
+                        >
+                            새 공지 등록
+                        </Button>
+                    ) : null}
                 </Group>
             </Group>
 
