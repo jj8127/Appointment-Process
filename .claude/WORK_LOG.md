@@ -50,5 +50,3 @@
 | 01-26 | 앱 브랜딩 자산 및 일부 삭제 경로 조정 | `assets/*`, `app/dashboard.tsx` | [→ 상세](WORK_DETAIL.md#20260126-3) |
 | 01-21 | 모바일 게시판 홈 네비게이션 동선 조정 | `app/board-home.tsx` | [→ 상세](WORK_DETAIL.md#20260121-1) |
 | 01-21 | Supabase Security Advisor 권고 반영 | `supabase/schema.sql` | [→ 상세](WORK_DETAIL.md#20260121-2) |
-| 01-20 | 하단 내비 컴포넌트 도입 및 설정 화면 정리 | `components/BottomNav.tsx`, `app/settings.tsx` | [→ 상세](WORK_DETAIL.md#20260120-1) |
-| 01-19 | 게시판 고도화 + Claude Skills/Subagent 체계 도입 | `app/board*.tsx`, `.claude/*` | [→ 상세](WORK_DETAIL.md#20260119-1) |
