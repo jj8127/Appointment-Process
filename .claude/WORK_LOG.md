@@ -20,6 +20,8 @@
 ## 최근 작업
 | 날짜 | 작업 | 핵심 파일 | 상세 |
 |------|------|----------|------|
+| 02-11 | iOS 빌드 번들ID 등록 실패(Apple Maintenance) 대응 | `docs/guides/명령어 모음집.txt` | [→ 상세](WORK_DETAIL.md#20260211-16) |
+| 02-11 | Android 릴리즈 난독화/리소스 축소 설정 반영 | `app.json` | [→ 상세](WORK_DETAIL.md#20260211-15) |
 | 02-11 | 정책/보안 정리(B): 로컬 산출물/설정 추적 해제 | `.gitignore`, `.codex/config.toml`, `testsprite_tests/*` | [→ 상세](WORK_DETAIL.md#20260211-14) |
 | 02-11 | 안전 묶음(A): 빌드 산출물/미사용 모듈 정리 | `dist-web-new2/*`, `app/admin-register.tsx`, `components/*` | [→ 상세](WORK_DETAIL.md#20260211-13) |
 | 02-11 | 앱/웹 미점검 영역 종합 점검 및 안정화 패치 | `app/index.tsx`, `app/_layout.tsx`, `jest.config.js` | [→ 상세](WORK_DETAIL.md#20260211-12) |

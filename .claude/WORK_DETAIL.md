@@ -7,6 +7,44 @@
 
 ---
 
+## <a id="20260211-15"></a> 2026-02-11 | Android 릴리즈 난독화/리소스 축소 설정 반영
+
+**작업 내용**:
+- `expo-build-properties`의 Android 릴리즈 옵션에 아래 값을 추가:
+  - `enableMinifyInReleaseBuilds: true`
+  - `enableShrinkResourcesInReleaseBuilds: true`
+- 목적:
+  - 릴리즈 AAB에서 R8 난독화/코드 최적화 활성화
+  - 리소스 축소로 앱 크기 감소
+  - Play Console의 deobfuscation 관련 경고 원인(난독화 미설정 상태) 해소 기반 마련
+
+**핵심 파일**:
+- `app.json`
+
+**검증**:
+- `npx expo config --type public --json` 성공
+
+---
+
+## <a id="20260211-16"></a> 2026-02-11 | iOS 빌드 번들ID 등록 실패(Apple Maintenance) 대응
+
+**작업 내용**:
+- `eas build` 실패 로그의 HTML 본문(`Maintenance - Apple Developer`) 기준으로 Apple Developer 포털 점검 응답을 원인으로 확인
+- Git/EAS 로컬 환경 점검:
+  - `eas --version`을 `16.32.0`으로 업데이트
+  - `eas whoami`로 계정 인증 상태 확인(`jj8127`)
+- 운영 문서 보강:
+  - Apple 점검 시 우회 빌드 커맨드(`--non-interactive --freeze-credentials`)와 재설정 순서를 명령어 문서에 추가
+
+**핵심 파일**:
+- `docs/guides/명령어 모음집.txt`
+
+**검증**:
+- `Invoke-WebRequest https://developer.apple.com/maintenance/` 결과에서 maintenance 문구 확인
+- `eas --version` 결과 `16.32.0` 확인
+
+---
+
 ## <a id="20260211-14"></a> 2026-02-11 | 정책/보안 정리(B): 로컬 산출물/설정 추적 해제
 
 **작업 내용**:
