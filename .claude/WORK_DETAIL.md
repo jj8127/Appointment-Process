@@ -7,6 +7,41 @@
 
 ---
 
+## <a id="20260219-1"></a> 2026-02-19 | 회원가입 사전 중복검증/홈 플로우 안정화 및 AGENTS 거버넌스 문서 추가
+
+**Commit**: `46d7a59`  
+**작업 내용**:
+- 회원가입 시작 단계에서 OTP 발송 전 번호 중복 여부를 사전 확인하도록 보강:
+  - `request-signup-otp`에 `checkOnly` 모드 추가
+  - FC/총무/본부장 전화번호 중복을 서버에서 일괄 판정
+  - 이미 가입된 번호는 `ok: false`와 안내 메시지로 반환
+- 앱 가입 화면에서 `checkOnly` 호출을 사용해 중복 번호를 조기 차단하고, 확인 중 버튼 비활성화 처리 추가
+- 신원정보 저장 이후 홈 진입 단계 계산이 즉시 갱신되도록 `my-fc-status` 쿼리 invalidate/refetch 추가
+- Android 홈 화면 뒤로가기 시 앱 종료 확인 다이얼로그 추가 (`app/index.tsx`, `app/home-lite.tsx`)
+- 루트/하위 `AGENTS.md` 문서군 및 `AGENT.md`를 추가해 모듈별 컨텍스트 라우팅 문서 체계 정리
+
+**핵심 파일**:
+- `app/signup.tsx`
+- `supabase/functions/request-signup-otp/index.ts`
+- `app/identity.tsx`
+- `app/index.tsx`
+- `app/home-lite.tsx`
+- `app/_layout.tsx`
+- `AGENT.md`
+- `AGENTS.md`
+- `app/AGENTS.md`
+- `components/AGENTS.md`
+- `hooks/AGENTS.md`
+- `web/AGENTS.md`
+- `supabase/AGENTS.md`
+- `supabase/functions/AGENTS.md`
+
+**검증**:
+- 커밋 기준 코드/문서 diff 검토
+- 거버넌스 조건(코드 변경 시 `WORK_LOG` + `WORK_DETAIL` 동시 갱신) 충족 확인
+
+---
+
 ## <a id="20260211-15"></a> 2026-02-11 | Android 릴리즈 난독화/리소스 축소 설정 반영
 
 **작업 내용**:

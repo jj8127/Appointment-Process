@@ -20,6 +20,7 @@
 ## 최근 작업
 | 날짜 | 작업 | 핵심 파일 | 상세 |
 |------|------|----------|------|
+| 02-19 | 회원가입 사전 중복검증/홈 플로우 안정화 및 AGENTS 거버넌스 문서 추가 | `app/signup.tsx`, `supabase/functions/request-signup-otp/index.ts`, `app/index.tsx`, `AGENTS.md` | [→ 상세](WORK_DETAIL.md#20260219-1) |
 | 02-11 | iOS 빌드 번들ID 등록 실패(Apple Maintenance) 대응 | `docs/guides/명령어 모음집.txt` | [→ 상세](WORK_DETAIL.md#20260211-16) |
 | 02-11 | Android 릴리즈 난독화/리소스 축소 설정 반영 | `app.json` | [→ 상세](WORK_DETAIL.md#20260211-15) |
 | 02-11 | 정책/보안 정리(B): 로컬 산출물/설정 추적 해제 | `.gitignore`, `.codex/config.toml`, `testsprite_tests/*` | [→ 상세](WORK_DETAIL.md#20260211-14) |
@@ -49,4 +50,3 @@
 | 01-26 | 동의/서류/일정/알림 액션 흐름 개선 | `app/consent.tsx`, `app/appointment.tsx` | [→ 상세](WORK_DETAIL.md#20260126-2) |
 | 01-26 | 앱 브랜딩 자산 및 일부 삭제 경로 조정 | `assets/*`, `app/dashboard.tsx` | [→ 상세](WORK_DETAIL.md#20260126-3) |
 | 01-21 | 모바일 게시판 홈 네비게이션 동선 조정 | `app/board-home.tsx` | [→ 상세](WORK_DETAIL.md#20260121-1) |
-| 01-21 | Supabase Security Advisor 권고 반영 | `supabase/schema.sql` | [→ 상세](WORK_DETAIL.md#20260121-2) |
