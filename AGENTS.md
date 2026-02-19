@@ -147,6 +147,7 @@ supabase secrets list --project-ref <project-ref>
   - auth/role behavior remains compatible with existing read-only and status constraints
 
 ### Progress Ledger
+- `2026-02-19 | Web Docs Badge Counting | Updated dashboard "검토 중" doc badge to count only submitted docs that are neither approved nor rejected | web/src/app/dashboard/page.tsx | web lint | Keep doc summary badges aligned with submitted-doc filters`
 - `2026-02-19 | Web Profile Editability | Fixed FC profile detail/edit + admin memo save to use server-mediated admin API (`/api/admin/fc`) and applied admin-only editable controls (manager read-only) | web/src/app/dashboard/profile/[id]/page.tsx | web lint | Extend same server-mediated write pattern to remaining direct client-write screens`
 - `2026-02-19 | Resident Number Visibility | Expanded full resident-number rendering paths by removing masked fallbacks and wiring admin screens (web/mobile) to resident-number retrieval action | supabase/functions/admin-action/index.ts, web/src/app/dashboard/exam/applicants/page.tsx, web/src/app/dashboard/profile/[id]/page.tsx, app/exam-manage.tsx, app/exam-manage2.tsx, app/fc/new.tsx | mobile/web lint + flow-path review | Add focused authorization regression checks for resident-number retrieval action`
 - `2026-02-19 | Governance/Docs | Removed WORK_LOG recent-table row-cap enforcement from policy and CI checks to allow continuous history accumulation | AGENTS.md, .claude/PROJECT_GUIDE.md, scripts/ci/check-governance.mjs | Governance script review | Keep anchor-link integrity checks while logs grow`

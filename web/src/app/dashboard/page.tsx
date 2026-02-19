@@ -833,7 +833,13 @@ export default function DashboardPage() {
                 const totalDocs = docs.length;
                 const submittedDocs = docs.filter((d: FCDocument) => d.storage_path && d.storage_path !== 'deleted').length;
                 const approvedDocs = docs.filter((d: FCDocument) => d.status === 'approved').length;
-                const pendingDocs = docs.filter((d: FCDocument) => d.status !== 'approved' && d.status !== 'rejected').length;
+                const pendingDocs = docs.filter(
+                  (d: FCDocument) =>
+                    d.storage_path &&
+                    d.storage_path !== 'deleted' &&
+                    d.status !== 'approved' &&
+                    d.status !== 'rejected',
+                ).length;
                 const rejectedDocs = docs.filter((d: FCDocument) => d.status === 'rejected').length;
                 const isAllDocsApproved = doc.key === 'approved';
                 return (
