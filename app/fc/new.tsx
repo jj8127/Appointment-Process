@@ -170,6 +170,7 @@ export default function FcNewScreen() {
   const [showAddressSearch, setShowAddressSearch] = useState(false);
   const keyboardPadding = useKeyboardPadding();
   const [existingResidentMasked, setExistingResidentMasked] = useState<string | null>(null);
+  const [existingResidentNumberFull, setExistingResidentNumberFull] = useState<string | null>(null);
   const [existingAddress, setExistingAddress] = useState('');
   const [existingAddressDetail, setExistingAddressDetail] = useState('');
   const [addressHeight, setAddressHeight] = useState(90);
@@ -226,6 +227,7 @@ export default function FcNewScreen() {
       return;
     }
     logger.debug('[fc/new] loadExisting: DB data', { data });
+    setExistingResidentNumberFull(null);
 
     let signupPayload: Partial<FormValues & { phone?: string; carrier?: string }> | null = null;
     try {
@@ -278,6 +280,22 @@ export default function FcNewScreen() {
     setExistingAddress(merged.address);
     setExistingAddressDetail(merged.addressDetail);
     setExistingResidentMasked(merged.residentMasked);
+    if (role === 'admin' && data?.id && phoneFromSession) {
+      try {
+        const { data: residentData, error: residentError } = await supabase.functions.invoke('admin-action', {
+          body: {
+            adminPhone: normalizePhone(phoneFromSession),
+            action: 'getResidentNumbers',
+            payload: { fcIds: [data.id] },
+          },
+        });
+        if (residentError) throw residentError;
+        const full = residentData?.residentNumbers?.[data.id];
+        setExistingResidentNumberFull(typeof full === 'string' && full ? full : null);
+      } catch (err) {
+        logger.warn('[fc/new] full resident number fetch failed', err);
+      }
+    }
     if (merged.email && merged.email.includes('@')) {
       const [local, domainPart] = merged.email.split('@');
       setEmailLocal(local ?? '');
@@ -290,7 +308,7 @@ export default function FcNewScreen() {
       }
     }
     setExistingTempId(merged.temp_id);
-  }, [phoneFromSession, reset]);
+  }, [phoneFromSession, reset, role]);
 
   useEffect(() => {
     loadExisting();
@@ -681,7 +699,11 @@ export default function FcNewScreen() {
         <View style={styles.sectionCard}>
           <Text style={styles.sectionTitle}>신원 정보</Text>
           {existingResidentMasked ? (
-            <Text style={styles.helperText}>현재 주민번호: {existingResidentMasked}</Text>
+            <Text style={styles.helperText}>
+              {existingResidentNumberFull
+                ? `현재 주민번호: ${existingResidentNumberFull}`
+                : '현재 주민번호가 등록되어 있습니다.'}
+            </Text>
           ) : (
             <Text style={styles.helperText}>변경이 필요할 때만 주민번호를 입력해주세요.</Text>
           )}

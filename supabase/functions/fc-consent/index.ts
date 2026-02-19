@@ -1,4 +1,6 @@
+// eslint-disable-next-line import/no-unresolved
 import { serve } from 'https://deno.land/std@0.224.0/http/server.ts';
+// eslint-disable-next-line import/no-unresolved
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.45.4';
 
 type Payload = {
@@ -81,7 +83,7 @@ serve(async (req: Request) => {
 
   const { data: profile, error: profileError } = await supabase
     .from('fc_profiles')
-    .select('id,name')
+    .select('id,name,temp_id')
     .eq('phone', phone)
     .maybeSingle();
 
@@ -90,6 +92,9 @@ serve(async (req: Request) => {
   }
   if (!profile?.id) {
     return json({ ok: false, message: 'Profile not found.' }, 404);
+  }
+  if (!profile?.temp_id) {
+    return json({ ok: false, message: '임시사번이 발급된 후 수당 동의일을 입력할 수 있습니다.' });
   }
 
   const { data: updated, error: updateError } = await supabase

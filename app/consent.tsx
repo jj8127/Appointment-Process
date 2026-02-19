@@ -117,6 +117,10 @@ export default function AllowanceConsentScreen() {
   const ymd = useMemo(() => (selectedDate ? toYMD(selectedDate) : ''), [selectedDate]);
 
   const submit = async () => {
+    if (!tempId) {
+      Alert.alert('임시사번 필요', '임시사번이 발급된 후 수당 동의일을 입력할 수 있습니다.');
+      return;
+    }
     if (!selectedDate) {
       Alert.alert('입력 확인', '수당 동의일을 선택해주세요.');
       return;

@@ -17,6 +17,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { RefreshButton } from '@/components/RefreshButton';
 import { useSession } from '@/hooks/use-session';
+import { logger } from '@/lib/logger';
 import { supabase } from '@/lib/supabase';
 
 const ORANGE = '#f36f21';
@@ -58,7 +59,6 @@ type ExamRegistrationRaw = {
 type FcProfile = {
   id: string;
   name: string | null;
-  resident_id_masked: string | null;
   address: string | null;
   phone: string | null;
 };
@@ -122,7 +122,7 @@ function buildExamInfo(reg: ExamRegistrationRaw): string {
   return `${roundLabel || ''} ${datePart ? `: ${datePart}` : ''}${locName ? ` [${locName}]` : ''}`.trim();
 }
 
-async function fetchApplicantsLife(): Promise<ApplicantRow[]> {
+async function fetchApplicantsLife(adminPhone: string): Promise<ApplicantRow[]> {
   const { data, error } = await supabase
     .from('exam_registrations')
     .select(
@@ -142,13 +142,33 @@ async function fetchApplicantsLife(): Promise<ApplicantRow[]> {
   const residentIds = Array.from(new Set(rows.map((r) => r.resident_id).filter((v): v is string => !!v)));
 
   let profileMap: Record<string, FcProfile & { affiliation?: string | null }> = {};
+  let residentNumbersByFcId: Record<string, string | null> = {};
   if (residentIds.length > 0) {
     const { data: profiles, error: pError } = await supabase
       .from('fc_profiles')
-      .select('id, name, resident_id_masked, address, phone, affiliation')
+      .select('id, name, address, phone, affiliation')
       .in('phone', residentIds);
     if (pError) throw pError;
     profileMap = Object.fromEntries((profiles ?? []).map((p: any) => [p.phone as string, p as FcProfile]));
+
+    const fcIds = Array.from(new Set((profiles ?? []).map((p: any) => String(p.id ?? '')).filter(Boolean)));
+    if (fcIds.length > 0) {
+      try {
+        const { data: residentData, error: residentError } = await supabase.functions.invoke('admin-action', {
+          body: {
+            adminPhone: adminPhone.replace(/[^0-9]/g, ''),
+            action: 'getResidentNumbers',
+            payload: { fcIds },
+          },
+        });
+        if (residentError) throw residentError;
+        if (residentData?.ok && residentData?.residentNumbers) {
+          residentNumbersByFcId = residentData.residentNumbers as Record<string, string | null>;
+        }
+      } catch (err) {
+        logger.warn('[exam-manage] resident number fetch failed', err);
+      }
+    }
   }
 
   const result: ApplicantRow[] = [];
@@ -161,7 +181,7 @@ async function fetchApplicantsLife(): Promise<ApplicantRow[]> {
       residentId: key,
       headQuarter: profile?.affiliation ?? '-',
       name: profile?.name ?? '-',
-      residentNumber: profile?.resident_id_masked ?? '-',
+      residentNumber: (profile?.id ? residentNumbersByFcId[profile.id] : null) ?? '-',
       address: profile?.address ?? '-',
       phone: profile?.phone ?? key,
       examInfo: buildExamInfo(reg),
@@ -174,7 +194,7 @@ async function fetchApplicantsLife(): Promise<ApplicantRow[]> {
 }
 
 export default function ExamManageLifeScreen() {
-  const { role, hydrated, readOnly } = useSession();
+  const { role, hydrated, readOnly, residentId } = useSession();
   const canEdit = role === 'admin' && !readOnly;
   const assertCanEdit = () => {
     if (!canEdit) {
@@ -187,8 +207,8 @@ export default function ExamManageLifeScreen() {
 
   const { data: applicants, isLoading, refetch } = useQuery<ApplicantRow[]>({
     queryKey: ['exam-applicants', EXAM_TYPE],
-    queryFn: () => fetchApplicantsLife(),
-    enabled: role === 'admin',
+    queryFn: () => fetchApplicantsLife(residentId ?? ''),
+    enabled: role === 'admin' && !!residentId,
   });
 
   // Realtime: 시험 접수 변경 시 관리자 화면 갱신

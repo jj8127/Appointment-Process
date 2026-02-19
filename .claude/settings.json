@@ -2,7 +2,10 @@
   "permissions": {
     "allow": [
       "Bash(git rm:*)",
-      "Bash(supabase db execute:*)"
+      "Bash(supabase db execute:*)",
+      "Bash(vercel deploy:*)",
+      "Bash(vercel project settings:*)",
+      "Bash(vercel project inspect:*)"
     ]
   }
 }

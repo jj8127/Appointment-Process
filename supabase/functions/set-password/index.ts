@@ -109,6 +109,32 @@ serve(async (req: Request) => {
     return fail('password_mismatch', '비밀번호가 일치하지 않습니다.');
   }
 
+  // 관리자(총무) 계정 중복 차단
+  const { data: adminAccount, error: adminError } = await supabase
+    .from('admin_accounts')
+    .select('id')
+    .eq('phone', phone)
+    .maybeSingle();
+  if (adminError) {
+    return json({ ok: false, code: 'db_error', message: adminError.message }, 500);
+  }
+  if (adminAccount) {
+    return fail('already_exists', '해당 번호로 총무 계정이 이미 있습니다.');
+  }
+
+  // 본부장 계정 중복 차단
+  const { data: managerAccount, error: managerError } = await supabase
+    .from('manager_accounts')
+    .select('id')
+    .eq('phone', phone)
+    .maybeSingle();
+  if (managerError) {
+    return json({ ok: false, code: 'db_error', message: managerError.message }, 500);
+  }
+  if (managerAccount) {
+    return fail('already_exists', '해당 번호로 본부장 계정이 이미 있습니다.');
+  }
+
   const { data: profile, error: profileError } = await supabase
     .from('fc_profiles')
     .select('id,name,phone,phone_verified')

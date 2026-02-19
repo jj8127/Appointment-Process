@@ -185,7 +185,7 @@ try {
 ### 5.2 문서화 시스템 (정책 + 로그 2계층)
 ```txt
 PROJECT_GUIDE.md : 규칙/정책 기준
-WORK_LOG.md      : 요약 인덱스 (200줄 이하 유지)
+WORK_LOG.md      : 요약 인덱스
 WORK_DETAIL.md   : 상세 누적 이력 (앵커 기반)
 ```
 
@@ -196,7 +196,7 @@ WORK_DETAIL.md   : 상세 누적 이력 (앵커 기반)
 ### 5.3 작업 완료 시 업데이트 순서
 1. `WORK_DETAIL.md` 상단에 상세 항목 추가
 2. `WORK_LOG.md` 최근 작업 테이블에 요약 1행 추가
-3. 테이블 30행 초과 시 오래된 행 제거
+3. 최신 항목이 상단에 오도록 정렬 유지
 4. 프로젝트 현황/주의사항 변경 시 상단 섹션 갱신
 5. 스키마 변경 시 `supabase/schema.sql` + `supabase/migrations/*.sql` 동시 반영
 

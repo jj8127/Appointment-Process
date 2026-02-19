@@ -7,6 +7,123 @@
 
 ---
 
+## <a id="20260219-7"></a> 2026-02-19 | 웹 FC 상세 페이지에서 프로필/관리자 메모 수정 경로를 서버 API로 전환하고 관리자만 수정 가능하도록 권한 제어 보강
+
+**작업 내용**:
+- FC 상세 페이지(`web/src/app/dashboard/profile/[id]/page.tsx`)의 프로필 저장/메모 저장 로직에서 클라이언트 직접 `supabase.from('fc_profiles').update(...)` 호출을 제거
+- `/api/admin/fc`의 `updateProfile` 액션을 사용하도록 변경해 관리자 쓰기 경로를 서버 중계 경로로 통일
+- `useSession` 기반 권한 상태(`role`, `isReadOnly`)를 반영해 관리자(admin)만 수정 가능하도록 버튼/입력 상태를 제어하고, manager 계정에서는 읽기 전용 동작을 명시적으로 유지
+- 저장 후 `fc-profile` 쿼리 invalidate를 통해 화면 반영을 안정화
+
+**핵심 파일**:
+- `web/src/app/dashboard/profile/[id]/page.tsx`
+- `AGENTS.md`
+
+**검증**:
+- `cd web && npm run lint` 통과
+
+---
+
+## <a id="20260219-6"></a> 2026-02-19 | 주민번호 표기 경로 전반에서 마스킹 fallback 제거 및 관리자 화면 전체번호 조회 확장
+
+**작업 내용**:
+- 주민번호 전체 조회 액션(`admin-action:getResidentNumbers`)의 내부 전용 제약을 해제해 관리자 모바일 화면에서도 동일 액션을 사용 가능하도록 조정
+- 웹 신청자/프로필 화면의 주민번호 표시 fallback에서 `resident_id_masked` 사용을 제거하고, 원문 조회 실패 시 `-`로 처리하도록 정리
+- 모바일 관리자 시험 신청자 화면(`exam-manage`, `exam-manage2`)에 주민번호 원문 조회(`getResidentNumbers`)를 연결
+- FC 기본정보 화면(`fc/new`)의 기존 마스킹 문자열 노출을 제거하고, 관리자 세션에서는 원문 조회 시 원문 표시하도록 보강
+
+**핵심 파일**:
+- `supabase/functions/admin-action/index.ts`
+- `web/src/app/dashboard/exam/applicants/page.tsx`
+- `web/src/app/dashboard/profile/[id]/page.tsx`
+- `app/exam-manage.tsx`
+- `app/exam-manage2.tsx`
+- `app/fc/new.tsx`
+
+**검증**:
+- `npm run lint` (mobile) 통과
+- `cd web && npm run lint` 통과
+
+---
+
+## <a id="20260219-5"></a> 2026-02-19 | WORK_LOG 최근 작업 행수 제한 제거(정책/CI 동기화)
+
+**작업 내용**:
+- 문서 정책에서 `WORK_LOG` 최근 작업 테이블의 행수 상한(30행) 규칙을 제거
+- CI 거버넌스 검사(`check-governance.mjs`)에서 최근 작업 행수 초과 실패 검사를 제거
+- 연동 문서 표현을 상한 기준에서 "최신 항목 상단 정렬 유지" 기준으로 정리
+
+**핵심 파일**:
+- `AGENTS.md`
+- `.claude/PROJECT_GUIDE.md`
+- `.claude/WORK_LOG.md`
+- `scripts/ci/check-governance.mjs`
+
+**검증**:
+- `node scripts/ci/check-governance.mjs` 통과
+- `WORK_LOG` ↔ `WORK_DETAIL` 앵커 링크 규칙 유지 확인
+
+---
+
+## <a id="20260219-4"></a> 2026-02-19 | 관리자 웹 서류 탭에서 미제출 항목 노출 필터 보정
+
+**작업 내용**:
+- 관리자 웹 대시보드의 FC 상세 > 서류 탭에서 `제출된 서류` 집계/목록 필터가
+  `storage_path !== 'deleted'`만 검사하던 조건을 수정
+- `storage_path`가 실제로 존재하는(업로드된) 항목만 `제출된 서류`에 노출되도록 보정
+- 결과적으로 미제출 항목(빈 `storage_path`)은 `제출된 서류` 영역에서 제외됨
+
+**핵심 파일**:
+- `web/src/app/dashboard/page.tsx`
+
+**검증**:
+- `cd web && npm run lint` 통과
+- 제출된 서류 count/list 조건이 동일 필터(`storage_path && storage_path !== 'deleted'`)로 정렬된 것 확인
+
+---
+
+## <a id="20260219-3"></a> 2026-02-19 | 웹 FC 상세에서 관리자 주민번호 원문 조회 표시 연동
+
+**작업 내용**:
+- 웹 FC 상세 페이지에서 `resident_id_masked`만 표시하던 로직을 보완해, 관리자 권한일 때 서버 API(`/api/admin/resident-numbers`)를 통해 주민번호 원문을 조회하도록 변경
+- 주민번호 원문 조회 실패 또는 관리자 권한이 아닌 경우에는 기존 마스킹값으로 자동 fallback하도록 유지
+- 생년월일 표시도 동일한 표시값(원문 우선, 실패 시 마스킹) 기준으로 계산되도록 정렬
+
+**핵심 파일**:
+- `web/src/app/dashboard/profile/[id]/page.tsx`
+
+**검증**:
+- `cd web && npm run lint` 통과
+- 관리자 전용 주민번호 조회 경로를 기존 서버-중계 API 기반으로 사용해 보안 경로 유지 확인
+
+---
+
+## <a id="20260219-2"></a> 2026-02-19 | 수당동의 임시사번 선검증 및 계정 중복 차단 강화
+
+**작업 내용**:
+- 수당 동의 입력 시 임시사번(`temp_id`)이 없는 FC를 서버/클라이언트에서 선차단하도록 보강:
+  - `fc-consent`에서 `temp_id`를 조회하고 미발급 시 실패 응답 반환
+  - 모바일 `app/consent.tsx` 제출 전 임시사번 존재 여부를 확인하고 안내 알림 후 중단
+- 비밀번호 설정 시 전화번호 중복 계정 차단 강화:
+  - `set-password`에서 `admin_accounts`, `manager_accounts` 중복을 선검사해 FC 계정 생성 차단
+- 웹 프로필 페이지 effect 의존성 경고를 정리해 폼 초기화 동작을 안정화
+- Supabase Edge Functions용 Deno import map 파일(`supabase/functions/deno.json`) 추가 및 IDE Deno 설정 반영
+
+**핵심 파일**:
+- `app/consent.tsx`
+- `supabase/functions/fc-consent/index.ts`
+- `supabase/functions/set-password/index.ts`
+- `web/src/app/dashboard/profile/[id]/page.tsx`
+- `supabase/functions/deno.json`
+- `.vscode/settings.json`
+- `.claude/settings.json`
+
+**검증**:
+- 변경 파일 diff 검토로 수당 동의 선검증/중복 차단 로직 반영 확인
+- 문서 거버넌스 규칙(`WORK_LOG` + `WORK_DETAIL` 동시 갱신) 충족 확인
+
+---
+
 ## <a id="20260219-1"></a> 2026-02-19 | 회원가입 사전 중복검증/홈 플로우 안정화 및 AGENTS 거버넌스 문서 추가
 
 **Commit**: `46d7a59`  

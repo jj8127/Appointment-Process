@@ -203,7 +203,6 @@ type ProfileRow = {
     name: string | null;
     affiliation: string | null;
     address: string | null;
-    resident_id_masked: string | null;
 };
 
 export default function ExamApplicantsPage() {
@@ -265,7 +264,7 @@ export default function ExamApplicantsPage() {
 
             const { data: profiles } = await supabase
                 .from('fc_profiles')
-                .select('id,phone,name,affiliation,address,resident_id_masked')
+                .select('id,phone,name,affiliation,address')
                 .eq('signup_completed', true)
                 .in('phone', phones);
             const profileRows = (profiles ?? []) as ProfileRow[];
@@ -286,7 +285,7 @@ export default function ExamApplicantsPage() {
                         residentNumbersByFcId = json.residentNumbers as Record<string, string | null>;
                     }
                 } catch {
-                    // If the server API fails, fall back to masked values (page stays usable).
+                    // Keep page usable even if resident-number API fails.
                 }
             }
 
@@ -299,7 +298,7 @@ export default function ExamApplicantsPage() {
                     phone: p?.phone ?? b.resident_id,
                     affiliation: p?.affiliation ?? '-',
                     address: p?.address ?? '-',
-                    resident_id: fullResident ?? p?.resident_id_masked ?? '-',
+                    resident_id: fullResident ?? '-',
                 };
             });
         }

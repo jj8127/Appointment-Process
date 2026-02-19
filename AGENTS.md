@@ -103,10 +103,11 @@ supabase secrets list --project-ref <project-ref>
 
 ### Working Backlog (Track in This File)
 - In progress
-  - Harden admin write paths to be consistently server-mediated.
+  - Harden admin write paths to be consistently server-mediated (profile detail info/memo save path migrated on 2026-02-19).
   - Guard status transition consistency between mobile, web, and Edge Functions.
   - Add focused regression coverage for docs and appointment branching.
 - Next
+  - Migrate remaining direct client write paths on web screens to server-mediated admin APIs.
   - Expand notice/notification fallback and failure visibility.
   - Verify manager read-only behavior on all new dashboard actions.
   - Normalize date/deadline handling rules across UI and backend.
@@ -118,7 +119,7 @@ supabase secrets list --project-ref <project-ref>
 ### Progress Recording Protocol
 - `AGENTS.md` is the primary quick-status file for current progress and roadmap.
 - Update this section whenever work changes delivery status, risks, or roadmap priorities.
-- Add new entries at the top of the ledger and keep the latest 30 entries.
+- Add new entries at the top of the ledger and keep chronological readability.
 - Entry format:
   - `YYYY-MM-DD | Scope | Change | Key Files | Verification | Next`
 - If details are large, keep one-line summary here and reference deeper docs as optional support.
@@ -146,6 +147,12 @@ supabase secrets list --project-ref <project-ref>
   - auth/role behavior remains compatible with existing read-only and status constraints
 
 ### Progress Ledger
+- `2026-02-19 | Web Profile Editability | Fixed FC profile detail/edit + admin memo save to use server-mediated admin API (`/api/admin/fc`) and applied admin-only editable controls (manager read-only) | web/src/app/dashboard/profile/[id]/page.tsx | web lint | Extend same server-mediated write pattern to remaining direct client-write screens`
+- `2026-02-19 | Resident Number Visibility | Expanded full resident-number rendering paths by removing masked fallbacks and wiring admin screens (web/mobile) to resident-number retrieval action | supabase/functions/admin-action/index.ts, web/src/app/dashboard/exam/applicants/page.tsx, web/src/app/dashboard/profile/[id]/page.tsx, app/exam-manage.tsx, app/exam-manage2.tsx, app/fc/new.tsx | mobile/web lint + flow-path review | Add focused authorization regression checks for resident-number retrieval action`
+- `2026-02-19 | Governance/Docs | Removed WORK_LOG recent-table row-cap enforcement from policy and CI checks to allow continuous history accumulation | AGENTS.md, .claude/PROJECT_GUIDE.md, scripts/ci/check-governance.mjs | Governance script review | Keep anchor-link integrity checks while logs grow`
+- `2026-02-19 | Web Docs UX | Fixed admin docs tab so "submitted documents" list/count includes only rows with real uploaded storage paths (exclude empty path placeholders) | web/src/app/dashboard/page.tsx | web lint + condition-path review | Add regression check for docs request rows with empty storage_path`
+- `2026-02-19 | Web Profile/PII | Wired full resident-number display on FC detail page for admin via server-mediated resident-number API with masked fallback | web/src/app/dashboard/profile/[id]/page.tsx | web lint + route contract review | Keep manager/read-only flows on masked fallback and monitor API failure visibility`
+- `2026-02-19 | Auth/Consent Guard | Blocked allowance consent before temp ID and blocked FC set-password when admin/manager phone exists; aligned Deno editor setup | app/consent.tsx, supabase/functions/fc-consent/index.ts, supabase/functions/set-password/index.ts, supabase/functions/deno.json | Diff review + governance doc sync | Add regression checks for temp-id gate and cross-role phone collisions`
 - `2026-02-11 | Release/Build | Applied Android release minify and shrink resources settings | app.json | Config reviewed in repo | Validate release pipeline on next build`
 - `2026-02-11 | Security/Governance | Removed sensitive local configs and non-source test artifacts from tracking | .gitignore, testsprite_tests/* | Git status and policy checks | Keep local-secret hygiene rules enforced`
 - `2026-02-11 | Stability Cleanup | Removed unneeded build bundles and unreferenced modules | dist-web-new2/*, app/admin-register.tsx | Repo scan and dependency checks | Watch for accidental artifact reintroduction`

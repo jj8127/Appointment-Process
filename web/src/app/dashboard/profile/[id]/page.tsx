@@ -1,5 +1,6 @@
 'use client';
 
+import { useSession } from '@/hooks/use-session';
 import { getAdminStep } from '@/lib/shared';
 import type { FcProfile, FcStatus } from '@/types/fc';
 import { supabase } from '@/lib/supabase';
@@ -40,6 +41,10 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import dayjs from 'dayjs';
 import { useRouter } from 'next/navigation';
 import { use, useEffect, useState } from 'react';
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+    return Boolean(value) && typeof value === 'object' && !Array.isArray(value);
+}
 
 // --- Constants ---
 const HANWHA_ORANGE = '#f36f21';
@@ -86,6 +91,7 @@ export default function FcProfilePage({ params }: { params: Promise<{ id: string
     const router = useRouter();
     const queryClient = useQueryClient();
     const { id: fcId } = use(params);
+    const { hydrated, role, isReadOnly } = useSession();
 
     const [isEditing, setIsEditing] = useState(false);
 
@@ -135,6 +141,28 @@ export default function FcProfilePage({ params }: { params: Promise<{ id: string
         enabled: !!profile?.phone,
     });
 
+    const { data: residentNumberFull } = useQuery({
+        queryKey: ['fc-resident-number-full', fcId, role],
+        enabled: hydrated && role === 'admin' && !!fcId,
+        queryFn: async () => {
+            const resp = await fetch('/api/admin/resident-numbers', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                credentials: 'include',
+                body: JSON.stringify({ fcIds: [fcId] }),
+            });
+
+            const json: unknown = await resp.json().catch(() => null);
+            if (!resp.ok || !isRecord(json) || json.ok !== true || !isRecord(json.residentNumbers)) {
+                return null;
+            }
+
+            const residentNumbers = json.residentNumbers as Record<string, unknown>;
+            const value = residentNumbers[fcId];
+            return typeof value === 'string' && value.trim() ? value : null;
+        },
+    });
+
     // Sync Form with Data
     useEffect(() => {
         if (profile) {
@@ -144,20 +172,46 @@ export default function FcProfilePage({ params }: { params: Promise<{ id: string
                 address: profile.address || '',
                 email: profile.email || '',
                 affiliation: profile.affiliation || '',
-                career_type: profile.career_type || '', // Assuming column exists
+                career_type: profile.career_type || '',
                 admin_memo: profile.admin_memo || '',
             });
         }
-    }, [profile, form]);
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [profile]);
 
     // --- Mutations ---
     const updateProfileMutation = useMutation({
         mutationFn: async (values: typeof form.values) => {
-            const { error } = await supabase
-                .from('fc_profiles')
-                .update(values)
-                .eq('id', fcId);
-            if (error) throw error;
+            const normalizedCareerType = values.career_type.trim();
+            const payload = {
+                name: values.name.trim(),
+                phone: values.phone.trim(),
+                affiliation: values.affiliation.trim(),
+                address: values.address.trim() || null,
+                email: values.email.trim() || null,
+                career_type: normalizedCareerType === '신입' || normalizedCareerType === '경력' ? normalizedCareerType : null,
+            };
+
+            const resp = await fetch('/api/admin/fc', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    action: 'updateProfile',
+                    payload: {
+                        fcId,
+                        data: payload,
+                        phone: profile?.phone ?? payload.phone,
+                    },
+                }),
+            });
+
+            const json: unknown = await resp.json().catch(() => null);
+            if (!resp.ok) {
+                if (isRecord(json) && typeof json.error === 'string' && json.error.trim()) {
+                    throw new Error(json.error);
+                }
+                throw new Error('프로필 저장에 실패했습니다.');
+            }
         },
         onSuccess: () => {
             notifications.show({ title: '저장 완료', message: '프로필 정보가 수정되었습니다.', color: 'green' });
@@ -169,18 +223,47 @@ export default function FcProfilePage({ params }: { params: Promise<{ id: string
 
     const saveMemoMutation = useMutation({
         mutationFn: async () => {
-            const { error } = await supabase
-                .from('fc_profiles')
-                .update({ admin_memo: form.values.admin_memo })
-                .eq('id', fcId);
-            if (error) throw error;
+            const resp = await fetch('/api/admin/fc', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    action: 'updateProfile',
+                    payload: {
+                        fcId,
+                        data: { admin_memo: form.values.admin_memo },
+                    },
+                }),
+            });
+
+            const json: unknown = await resp.json().catch(() => null);
+            if (!resp.ok) {
+                if (isRecord(json) && typeof json.error === 'string' && json.error.trim()) {
+                    throw new Error(json.error);
+                }
+                throw new Error('관리자 메모 저장에 실패했습니다.');
+            }
         },
-        onSuccess: () => notifications.show({ title: '메모 저장', message: '관리자 메모가 저장되었습니다.', color: 'green' }),
+        onSuccess: () => {
+            notifications.show({ title: '메모 저장', message: '관리자 메모가 저장되었습니다.', color: 'green' });
+            queryClient.invalidateQueries({ queryKey: ['fc-profile', fcId] });
+        },
         onError: (err: Error) => notifications.show({ title: '오류', message: err.message, color: 'red' }),
     });
 
     // --- Helpers ---
-    const handleSaveInfo = () => updateProfileMutation.mutate(form.values);
+    const canEdit = hydrated && role === 'admin' && !isReadOnly;
+
+    const handleSaveInfo = () => {
+        if (!canEdit) {
+            notifications.show({ title: '권한 없음', message: '관리자 계정에서만 수정할 수 있습니다.', color: 'yellow' });
+            return;
+        }
+        if (!form.values.name.trim() || !form.values.phone.trim() || !form.values.affiliation.trim()) {
+            notifications.show({ title: '입력 확인', message: '이름, 연락처, 소속은 비워둘 수 없습니다.', color: 'yellow' });
+            return;
+        }
+        updateProfileMutation.mutate(form.values);
+    };
 
     const getBirthDate = (residentNum: string | null) => {
         if (!residentNum) return '-';
@@ -195,9 +278,16 @@ export default function FcProfilePage({ params }: { params: Promise<{ id: string
         return 'blue';
     };
 
+    useEffect(() => {
+        if (!canEdit && isEditing) {
+            setIsEditing(false);
+        }
+    }, [canEdit, isEditing]);
+
     if (isProfileLoading) return <LoadingOverlay visible />;
     if (!profile) return <Container py="xl"><Text>FC 정보를 찾을 수 없습니다.</Text></Container>;
 
+    const residentNumberDisplay = residentNumberFull ?? null;
     const adminStepLabel = getAdminStep(profile as unknown as FcProfile);
 
     return (
@@ -255,11 +345,11 @@ export default function FcProfilePage({ params }: { params: Promise<{ id: string
                                 <Title order={4} c={CHARCOAL}>상세 회원가입</Title>
                                 {isEditing ? (
                                     <Group gap="xs">
-                                        <Button variant="default" size="xs" onClick={() => setIsEditing(false)}>취소</Button>
-                                        <Button color="green" size="xs" leftSection={<IconDeviceFloppy size={14} />} onClick={handleSaveInfo} loading={updateProfileMutation.isPending}>저장</Button>
+                                        <Button variant="default" size="xs" onClick={() => setIsEditing(false)} disabled={!canEdit}>취소</Button>
+                                        <Button color="green" size="xs" leftSection={<IconDeviceFloppy size={14} />} onClick={handleSaveInfo} loading={updateProfileMutation.isPending} disabled={!canEdit}>저장</Button>
                                     </Group>
                                 ) : (
-                                    <Button variant="subtle" color="orange" size="xs" leftSection={<IconEdit size={14} />} onClick={() => setIsEditing(true)}>수정</Button>
+                                    <Button variant="subtle" color={canEdit ? 'orange' : 'gray'} size="xs" leftSection={<IconEdit size={14} />} onClick={() => setIsEditing(true)} disabled={!canEdit}>수정</Button>
                                 )}
                             </Group>
 
@@ -268,8 +358,8 @@ export default function FcProfilePage({ params }: { params: Promise<{ id: string
                                     <Grid.Col span={6}>
                                         <TextInput
                                             label="이름"
-                                            variant={isEditing ? 'default' : 'unstyled'}
-                                            readOnly={!isEditing}
+                                            variant={isEditing && canEdit ? 'default' : 'unstyled'}
+                                            readOnly={!isEditing || !canEdit}
                                             {...form.getInputProps('name')}
                                             styles={{ input: { fontWeight: 600, color: CHARCOAL } }}
                                         />
@@ -277,8 +367,8 @@ export default function FcProfilePage({ params }: { params: Promise<{ id: string
                                     <Grid.Col span={6}>
                                         <TextInput
                                             label="연락처"
-                                            variant={isEditing ? 'default' : 'unstyled'}
-                                            readOnly={!isEditing}
+                                            variant={isEditing && canEdit ? 'default' : 'unstyled'}
+                                            readOnly={!isEditing || !canEdit}
                                             {...form.getInputProps('phone')}
                                         />
                                     </Grid.Col>
@@ -287,28 +377,28 @@ export default function FcProfilePage({ params }: { params: Promise<{ id: string
                                             label="주민등록번호"
                                             variant="unstyled"
                                             readOnly
-                                            value={profile.resident_id_masked || '-'}
+                                            value={residentNumberDisplay || '-'}
                                         />
-                                        <Text size="xs" c="dimmed" mt={4}>생년월일: {getBirthDate(profile.resident_id_masked)}</Text>
+                                        <Text size="xs" c="dimmed" mt={4}>생년월일: {getBirthDate(residentNumberDisplay)}</Text>
                                     </Grid.Col>
                                     <Grid.Col span={6}>
                                         <TextInput
                                             label="이메일"
-                                            leftSection={isEditing && <IconMail size={16} />}
-                                            variant={isEditing ? 'default' : 'unstyled'}
-                                            readOnly={!isEditing}
+                                            leftSection={isEditing && canEdit ? <IconMail size={16} /> : undefined}
+                                            variant={isEditing && canEdit ? 'default' : 'unstyled'}
+                                            readOnly={!isEditing || !canEdit}
                                             {...form.getInputProps('email')}
-                                            placeholder={isEditing ? 'example@email.com' : '-'}
+                                            placeholder={isEditing && canEdit ? 'example@email.com' : '-'}
                                         />
                                     </Grid.Col>
                                     <Grid.Col span={12}>
                                         <TextInput
                                             label="주소"
-                                            leftSection={isEditing && <IconMapPin size={16} />}
-                                            variant={isEditing ? 'default' : 'unstyled'}
-                                            readOnly={!isEditing}
+                                            leftSection={isEditing && canEdit ? <IconMapPin size={16} /> : undefined}
+                                            variant={isEditing && canEdit ? 'default' : 'unstyled'}
+                                            readOnly={!isEditing || !canEdit}
                                             {...form.getInputProps('address')}
-                                            placeholder={isEditing ? '주소를 입력하세요' : '-'}
+                                            placeholder={isEditing && canEdit ? '주소를 입력하세요' : '-'}
                                         />
                                     </Grid.Col>
                                 </Grid>
@@ -319,8 +409,8 @@ export default function FcProfilePage({ params }: { params: Promise<{ id: string
                                     <Grid.Col span={6}>
                                         <TextInput
                                             label="경력 구분"
-                                            variant={isEditing ? 'default' : 'unstyled'}
-                                            readOnly={!isEditing}
+                                            variant={isEditing && canEdit ? 'default' : 'unstyled'}
+                                            readOnly={!isEditing || !canEdit}
                                             {...form.getInputProps('career_type')}
                                             placeholder="신입/경력"
                                         />
@@ -328,8 +418,8 @@ export default function FcProfilePage({ params }: { params: Promise<{ id: string
                                     <Grid.Col span={6}>
                                         <TextInput
                                             label="소속 (지점)"
-                                            variant={isEditing ? 'default' : 'unstyled'}
-                                            readOnly={!isEditing}
+                                            variant={isEditing && canEdit ? 'default' : 'unstyled'}
+                                            readOnly={!isEditing || !canEdit}
                                             {...form.getInputProps('affiliation')}
                                         />
                                     </Grid.Col>
@@ -345,7 +435,7 @@ export default function FcProfilePage({ params }: { params: Promise<{ id: string
                             <Card shadow="sm" radius="md" withBorder bg="yellow.0">
                                 <Group justify="space-between" mb="sm">
                                     <Title order={5} c="orange.9">관리자 메모</Title>
-                                    <ActionIcon variant="light" color="orange" onClick={() => saveMemoMutation.mutate()} loading={saveMemoMutation.isPending}>
+                                    <ActionIcon variant="light" color={canEdit ? 'orange' : 'gray'} onClick={() => saveMemoMutation.mutate()} loading={saveMemoMutation.isPending} disabled={!canEdit}>
                                         <IconCheck size={16} />
                                     </ActionIcon>
                                 </Group>
@@ -354,6 +444,7 @@ export default function FcProfilePage({ params }: { params: Promise<{ id: string
                                     minRows={4}
                                     autosize
                                     variant="filled"
+                                    readOnly={!canEdit}
                                     {...form.getInputProps('admin_memo')}
                                     styles={{ input: { backgroundColor: 'white' } }}
                                 />

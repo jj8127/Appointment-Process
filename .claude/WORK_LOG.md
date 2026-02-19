@@ -1,6 +1,6 @@
 # 작업 로그
 
-> AI Agent는 매 세션 시작 시 이 파일을 먼저 읽고, 작업 시작 전에 최신 앵커를 확인하세요. (200줄 이하 유지)
+> AI Agent는 매 세션 시작 시 이 파일을 먼저 읽고, 작업 시작 전에 최신 앵커를 확인하세요.
 > 상세 이력: [WORK_DETAIL.md](WORK_DETAIL.md)
 
 ---
@@ -20,6 +20,12 @@
 ## 최근 작업
 | 날짜 | 작업 | 핵심 파일 | 상세 |
 |------|------|----------|------|
+| 02-19 | 웹 FC 상세 페이지에서 프로필/관리자 메모 수정 경로를 서버 API로 전환하고 관리자만 수정 가능하도록 권한 제어 보강 | `web/src/app/dashboard/profile/[id]/page.tsx`, `AGENTS.md` | [→ 상세](WORK_DETAIL.md#20260219-7) |
+| 02-19 | 주민번호 표기 경로 전반에서 마스킹 fallback 제거 및 관리자 화면 전체번호 조회 확장 | `supabase/functions/admin-action/index.ts`, `web/src/app/dashboard/exam/applicants/page.tsx`, `web/src/app/dashboard/profile/[id]/page.tsx`, `app/exam-manage.tsx`, `app/exam-manage2.tsx`, `app/fc/new.tsx` | [→ 상세](WORK_DETAIL.md#20260219-6) |
+| 02-19 | WORK_LOG 최근 작업 행수 제한 제거(정책/CI 동기화) | `AGENTS.md`, `.claude/PROJECT_GUIDE.md`, `scripts/ci/check-governance.mjs` | [→ 상세](WORK_DETAIL.md#20260219-5) |
+| 02-19 | 관리자 웹 서류 탭에서 미제출 항목 노출 필터 보정 | `web/src/app/dashboard/page.tsx` | [→ 상세](WORK_DETAIL.md#20260219-4) |
+| 02-19 | 웹 FC 상세에서 관리자 주민번호 원문 조회 표시 연동 | `web/src/app/dashboard/profile/[id]/page.tsx` | [→ 상세](WORK_DETAIL.md#20260219-3) |
+| 02-19 | 수당동의 임시사번 선검증 및 계정 중복 차단 강화 | `app/consent.tsx`, `supabase/functions/fc-consent/index.ts`, `supabase/functions/set-password/index.ts` | [→ 상세](WORK_DETAIL.md#20260219-2) |
 | 02-19 | 회원가입 사전 중복검증/홈 플로우 안정화 및 AGENTS 거버넌스 문서 추가 | `app/signup.tsx`, `supabase/functions/request-signup-otp/index.ts`, `app/index.tsx`, `AGENTS.md` | [→ 상세](WORK_DETAIL.md#20260219-1) |
 | 02-11 | iOS 빌드 번들ID 등록 실패(Apple Maintenance) 대응 | `docs/guides/명령어 모음집.txt` | [→ 상세](WORK_DETAIL.md#20260211-16) |
 | 02-11 | Android 릴리즈 난독화/리소스 축소 설정 반영 | `app.json` | [→ 상세](WORK_DETAIL.md#20260211-15) |

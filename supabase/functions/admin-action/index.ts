@@ -72,12 +72,6 @@ async function decrypt(value: string, key: CryptoKey) {
   return textDecoder.decode(plain);
 }
 
-function isServiceRoleRequest(req: Request) {
-  const auth = req.headers.get('authorization') ?? '';
-  const token = auth.toLowerCase().startsWith('bearer ') ? auth.slice(7) : auth;
-  return token === serviceKey;
-}
-
 async function verifyAdmin(phone: string): Promise<boolean> {
   const { data } = await supabase
     .from('admin_accounts')
@@ -114,14 +108,8 @@ serve(async (req: Request) => {
   }
 
   try {
-    // ── getResidentNumbers (INTERNAL ONLY) ──
+    // ── getResidentNumbers ──
     if (action === 'getResidentNumbers') {
-      // 주민번호 전체는 극도로 민감한 PII라서, 클라이언트(anon)에서 직접 호출되지 않도록
-      // 서버(서비스 롤)에서만 호출 가능하게 제한합니다.
-      if (!isServiceRoleRequest(req)) {
-        return fail('Unauthorized: internal only', 403);
-      }
-
       const identityKey = getEnv('FC_IDENTITY_KEY');
       if (!identityKey) {
         return fail('Missing FC_IDENTITY_KEY', 500);

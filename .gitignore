@@ -46,9 +46,6 @@ app-example
 /ios
 /android
 
-.vercel
-.env*.local
-
 # firebase service account (do not commit secrets)
 appointmentprocess-90a2e-firebase-adminsdk-fbsvc-2c333083b0.json
 appointmentprocess-90a2e-firebase-adminsdk-fbsvc-0d96dc10d7.json
@@ -75,3 +72,6 @@ nul
 # Vercel deployment
 .vercel
 .env*.local
+
+# local deployment mirror
+web_deploy/

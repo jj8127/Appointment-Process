@@ -1333,12 +1333,12 @@ export default function DashboardPage() {
                   <Card withBorder radius="md" p="sm" bg="gray.0">
                     <Group justify="space-between" mb="xs">
                       <Text fw={600} size="sm">
-                        제출된 서류 ({selectedFc.fc_documents?.filter((d: FCDocument) => d.storage_path !== 'deleted').length || 0}건)
+                        제출된 서류 ({selectedFc.fc_documents?.filter((d: FCDocument) => d.storage_path && d.storage_path !== 'deleted').length || 0}건)
                       </Text>
                     </Group>
-                    {selectedFc.fc_documents?.filter((d: FCDocument) => d.storage_path !== 'deleted').length ? (
+                    {selectedFc.fc_documents?.filter((d: FCDocument) => d.storage_path && d.storage_path !== 'deleted').length ? (
                       <Stack gap={8}>
-                        {selectedFc.fc_documents?.filter((d: FCDocument) => d.storage_path !== 'deleted').map((d: FCDocument, idx: number) => {
+                        {selectedFc.fc_documents?.filter((d: FCDocument) => d.storage_path && d.storage_path !== 'deleted').map((d: FCDocument, idx: number) => {
                           const isSubmitted = d.storage_path && d.storage_path.length > 0;
                           return (
                             <Card

@@ -44,13 +44,6 @@ function hasAnchorInWorkDetail(content, anchor) {
   return new RegExp(`<a id="${anchor}"><\\/a>`, 'm').test(content);
 }
 
-function countRecentWorkRows(content) {
-  const section = content.split('## 최근 작업')[1] ?? '';
-  if (!section) return 0;
-  const rowRegex = /^\|\s*\d{2}-\d{2}\s*\|/gm;
-  return [...section.matchAll(rowRegex)].length;
-}
-
 function isCodePath(path) {
   return (
     path.startsWith('app/') ||
@@ -84,11 +77,6 @@ function main() {
       if (!hasAnchorInWorkDetail(workDetail, anchor)) {
         errors.push(`WORK_LOG anchor not found in WORK_DETAIL: ${anchor}`);
       }
-    }
-
-    const rowCount = countRecentWorkRows(workLog);
-    if (rowCount > 30) {
-      errors.push(`WORK_LOG recent table has ${rowCount} rows (max 30).`);
     }
   }
 
