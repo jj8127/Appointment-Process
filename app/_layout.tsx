@@ -19,6 +19,7 @@ import FcTourTooltip from '@/components/FcTourTooltip';
 import { ToastProvider } from '@/components/Toast';
 import { useColorScheme } from '@/hooks/use-color-scheme';
 import { SessionProvider } from '@/hooks/use-session';
+import { useInAppUpdate } from '@/hooks/useInAppUpdate';
 import { logger } from '@/lib/logger';
 import { safeStorage } from '@/lib/safe-storage';
 
@@ -76,6 +77,8 @@ SplashScreen.preventAutoHideAsync();
 export default function RootLayout() {
   const isWeb = Platform.OS === 'web';
   const enableTourGuide = Platform.OS === 'android';
+
+  useInAppUpdate();
   const fontSources = useMemo<Record<string, FontSource>>(() => {
     if (isWeb) {
       return {

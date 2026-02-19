@@ -140,9 +140,12 @@ export default function IdentityScreen() {
 
       // Invalidate identity status cache to trigger real-time update
       await queryClient.invalidateQueries({ queryKey: ['identity-status', residentId] });
+      // my-fc-status 캐시도 무효화: 홈 화면의 calcStep이 최신 데이터로 단계를 재계산하도록
+      await queryClient.invalidateQueries({ queryKey: ['my-fc-status', residentId] });
 
       // 캐시 업데이트 후 라우팅 (즉시 라우팅하면 index.tsx가 다시 home-lite로 리디렉션함)
       await queryClient.refetchQueries({ queryKey: ['identity-status', residentId] });
+      await queryClient.refetchQueries({ queryKey: ['my-fc-status', residentId] });
 
       Alert.alert('등록 완료', '신원 정보가 저장되었습니다.');
       if (next) {

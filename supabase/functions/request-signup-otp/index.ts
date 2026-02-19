@@ -3,6 +3,7 @@ import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.45.4';
 
 type Payload = {
   phone?: string;
+  checkOnly?: boolean;
 };
 
 function getEnv(name: string): string | undefined {
@@ -152,8 +153,36 @@ serve(async (req: Request) => {
   }
 
   const phone = cleanPhone(body.phone ?? '');
+  const checkOnly = body.checkOnly === true;
+
   if (!phone) return fail('phone_required', '휴대폰 번호를 입력해주세요.');
   if (phone.length !== 11) return fail('invalid_phone', '휴대폰 번호는 숫자 11자리로 입력해주세요.');
+
+  // 관리자(총무) 계정 중복 체크
+  const { data: adminAccount, error: adminError } = await supabase
+    .from('admin_accounts')
+    .select('id')
+    .eq('phone', phone)
+    .maybeSingle();
+  if (adminError) {
+    return json({ ok: false, code: 'db_error', message: adminError.message }, 500);
+  }
+  if (adminAccount) {
+    return json({ ok: false, code: 'already_exists', message: '해당 번호로 총무 계정이 이미 있습니다.' });
+  }
+
+  // 본부장 계정 중복 체크
+  const { data: managerAccount, error: managerError } = await supabase
+    .from('manager_accounts')
+    .select('id')
+    .eq('phone', phone)
+    .maybeSingle();
+  if (managerError) {
+    return json({ ok: false, code: 'db_error', message: managerError.message }, 500);
+  }
+  if (managerAccount) {
+    return json({ ok: false, code: 'already_exists', message: '해당 번호로 본부장 계정이 이미 있습니다.' });
+  }
 
   const { data: profile, error: profileError } = await supabase
     .from('fc_profiles')
@@ -166,7 +195,12 @@ serve(async (req: Request) => {
   }
 
   if (profile?.phone_verified) {
-    return json({ ok: true, already_verified: true });
+    return json({ ok: false, code: 'already_exists', message: '해당 번호로 FC 계정이 이미 있습니다.' });
+  }
+
+  // checkOnly: 중복 없음 확인만 하고 OTP 발송 없이 반환
+  if (checkOnly) {
+    return json({ ok: true, available: true });
   }
 
   const now = new Date();

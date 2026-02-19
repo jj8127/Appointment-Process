@@ -1,7 +1,7 @@
 import { Feather } from '@expo/vector-icons';
-import { router } from 'expo-router';
-import { useEffect } from 'react';
-import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { router, useFocusEffect } from 'expo-router';
+import { useCallback, useEffect } from 'react';
+import { Alert, BackHandler, Platform, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { useSession } from '@/hooks/use-session';
@@ -39,6 +39,27 @@ export default function HomeLiteScreen() {
       router.replace('/');
     }
   }, [data?.identityCompleted, hydrated, isLoading, role]);
+
+  // Android 뒤로가기 버튼: 앱 종료 확인 다이얼로그
+  useFocusEffect(
+    useCallback(() => {
+      if (Platform.OS !== 'android') return;
+      const onBackPress = () => {
+        Alert.alert(
+          '앱 종료',
+          '앱을 종료하시겠습니까?',
+          [
+            { text: '취소', style: 'cancel' },
+            { text: '종료', style: 'destructive', onPress: () => BackHandler.exitApp() },
+          ],
+          { cancelable: true }
+        );
+        return true;
+      };
+      const sub = BackHandler.addEventListener('hardwareBackPress', onBackPress);
+      return () => sub.remove();
+    }, [])
+  );
 
   return (
     <SafeAreaView style={styles.safe} edges={['left', 'right', 'bottom']}>

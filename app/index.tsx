@@ -10,6 +10,8 @@ import { MotiView } from 'moti';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator,
+  Alert,
+  BackHandler,
   Dimensions,
   Platform,
   Pressable,
@@ -802,8 +804,26 @@ export default function Home() {
     }, [refetchMsgCount, refetchNotifCount])
   );
 
-
-
+  // Android 뒤로가기 버튼: 앱 종료 확인 다이얼로그
+  useFocusEffect(
+    useCallback(() => {
+      if (Platform.OS !== 'android') return;
+      const onBackPress = () => {
+        Alert.alert(
+          '앱 종료',
+          '앱을 종료하시겠습니까?',
+          [
+            { text: '취소', style: 'cancel' },
+            { text: '종료', style: 'destructive', onPress: () => BackHandler.exitApp() },
+          ],
+          { cancelable: true }
+        );
+        return true;
+      };
+      const sub = BackHandler.addEventListener('hardwareBackPress', onBackPress);
+      return () => sub.remove();
+    }, [])
+  );
 
   const hasAnySchedule = !!schedLife || !!schedNon;
   const isMissingDates = (!!schedLife && !dateLife) || (!!schedNon && !dateNon);

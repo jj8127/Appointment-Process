@@ -18,6 +18,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { KeyboardAwareWrapper, useKeyboardAware } from '@/components/KeyboardAwareWrapper';
 import { useKeyboardPadding } from '@/hooks/use-keyboard-padding';
 import { safeStorage } from '@/lib/safe-storage';
+import { supabase } from '@/lib/supabase';
 import { COLORS, TYPOGRAPHY, SPACING, RADIUS } from '@/lib/theme';
 import { validatePhone, validateEmail, validateRequired, normalizePhone } from '@/lib/validation';
 
@@ -55,6 +56,7 @@ export default function SignupScreen() {
   const [carrier, setCarrier] = useState('');
   const [showDomainPicker, setShowDomainPicker] = useState(false);
   const [showCarrierPicker, setShowCarrierPicker] = useState(false);
+  const [checking, setChecking] = useState(false);
   const keyboardPadding = useKeyboardPadding();
 
   // Refs for keyboard navigation
@@ -111,6 +113,24 @@ export default function SignupScreen() {
     }
 
     const digits = normalizePhone(phone);
+
+    // 중복 계정 체크 (OTP 발송 없이 확인만)
+    setChecking(true);
+    try {
+      const { data, error } = await supabase.functions.invoke('request-signup-otp', {
+        body: { phone: digits, checkOnly: true },
+      });
+      if (error) throw error;
+      if (!data?.ok) {
+        Alert.alert('가입 불가', data?.message ?? '이미 가입된 번호입니다.');
+        return;
+      }
+    } catch (err: any) {
+      Alert.alert('오류', err?.message ?? '번호 확인 중 문제가 발생했습니다.');
+      return;
+    } finally {
+      setChecking(false);
+    }
 
     await safeStorage.setItem(
       STORAGE_KEY,
@@ -313,8 +333,8 @@ export default function SignupScreen() {
 
         </View>
 
-        <Pressable style={styles.primaryButton} onPress={handleNext}>
-          <Text style={styles.primaryButtonText}>비밀번호 설정으로 이동</Text>
+        <Pressable style={[styles.primaryButton, checking && { opacity: 0.6 }]} onPress={handleNext} disabled={checking}>
+          <Text style={styles.primaryButtonText}>{checking ? '확인 중...' : '비밀번호 설정으로 이동'}</Text>
         </Pressable>
 
         <Pressable style={styles.linkButton} onPress={() => router.replace('/login')}>
