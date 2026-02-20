@@ -13,7 +13,6 @@ import {
   Platform,
   Pressable,
   RefreshControl,
-  ScrollView,
   StyleSheet,
   Text,
   View,
@@ -53,6 +52,7 @@ const formatExamInfo = (dateStr?: string | null, label?: string | null) => {
 };
 const toYmd = (d: Date) =>
   `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+const ROUND_DEADLINE_RETENTION_DAYS = 7;
 const CARD_SHADOW = {
   shadowColor: '#000',
   shadowOpacity: 0.05,
@@ -99,7 +99,7 @@ async function notifyFcSelf(title: string, body: string, residentId: string) {
 
 const fetchRounds = async (): Promise<ExamRoundWithLocations[]> => {
   const cutoffDate = new Date();
-  cutoffDate.setDate(cutoffDate.getDate() - 7);
+  cutoffDate.setDate(cutoffDate.getDate() - ROUND_DEADLINE_RETENTION_DAYS);
 
   const { data, error } = await supabase
     .from('exam_rounds')
@@ -123,7 +123,7 @@ const fetchRounds = async (): Promise<ExamRoundWithLocations[]> => {
     `,
     )
     .eq('exam_type', 'nonlife')
-    .gte('registration_deadline', cutoffDate.toISOString())
+    .gte('registration_deadline', toYmd(cutoffDate))
     .order('exam_date', { ascending: true })
     .order('registration_deadline', { ascending: true })
     .order('sort_order', { foreignTable: 'exam_locations', ascending: true });
@@ -208,7 +208,11 @@ export default function ExamApplyScreen() {
   });
 
   // FC 프로필 상태 조회 (수당 동의 검토 완료 여부)
-  const { data: myProfile, isLoading: profileLoading } = useQuery({
+  const {
+    data: myProfile,
+    isLoading: profileLoading,
+    refetch: refetchProfileStatus,
+  } = useQuery({
     queryKey: ['my-profile-status', residentId],
     enabled: role === 'fc' && !!residentId,
     queryFn: async () => {
@@ -317,11 +321,11 @@ export default function ExamApplyScreen() {
   const onRefresh = useCallback(async () => {
     setRefreshing(true);
     try {
-      await refetch();
+      await Promise.all([refetch(), refetchMyApply(), refetchProfileStatus()]);
     } finally {
       setRefreshing(false);
     }
-  }, [refetch]);
+  }, [refetch, refetchMyApply, refetchProfileStatus]);
 
   const applyMutation = useMutation({
     mutationFn: async () => {
@@ -486,24 +490,21 @@ export default function ExamApplyScreen() {
 
   return (
     <SafeAreaView style={styles.safe} edges={['left', 'right', 'bottom']}>
-      <KeyboardAwareWrapper>
-        <ScrollView
-          contentContainerStyle={styles.container}
-          refreshControl={
-            <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
-          }
-        >
-          <View style={styles.header}>
-            <View>
-              <Text style={styles.headerTitle}>손해보험 시험 신청</Text>
-              <Text style={styles.headerSub}>시험 일정과 응시 지역을 선택해주세요.</Text>
-            </View>
-            <RefreshButton
-              onPress={() => {
-                refetch();
-              }}
-            />
+      <KeyboardAwareWrapper
+        contentContainerStyle={styles.container}
+        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}
+      >
+        <View style={styles.header}>
+          <View>
+            <Text style={styles.headerTitle}>손해보험 시험 신청</Text>
+            <Text style={styles.headerSub}>시험 일정과 응시 지역을 선택해주세요.</Text>
           </View>
+          <RefreshButton
+            onPress={() => {
+              onRefresh();
+            }}
+          />
+        </View>
 
           <MotiView
             from={{ opacity: 0, translateY: -10 }}
@@ -844,8 +845,7 @@ export default function ExamApplyScreen() {
             </View>
           </View>
 
-          <View style={{ height: 40 }} />
-        </ScrollView>
+        <View style={{ height: 40 }} />
 
         {Platform.OS === 'ios' && (
           <Modal visible={showFeePaidPicker} transparent animationType="fade">
