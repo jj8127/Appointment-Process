@@ -1,25 +1,28 @@
 import { Feather } from '@expo/vector-icons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import * as Haptics from 'expo-haptics';
 import { useRouter } from 'expo-router';
 import { MotiView } from 'moti';
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
   FlatList,
+  LayoutChangeEvent,
   Pressable,
   RefreshControl,
   StyleSheet,
   Text,
+  GestureResponderEvent,
   View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { RefreshButton } from '@/components/RefreshButton';
 import { useSession } from '@/hooks/use-session';
+import { logger } from '@/lib/logger';
 import { supabase } from '@/lib/supabase';
 import { COLORS } from '@/lib/theme';
-import { logger } from '@/lib/logger';
 
 type Notice = {
   id: string;
@@ -57,6 +60,12 @@ type InboxListResponse = {
 };
 
 const HIDDEN_NOTICE_KEY_PREFIX = 'hiddenNoticeIds';
+const LIST_CONTENT_PADDING_TOP = 20;
+const ITEM_BOTTOM_GAP = 12;
+const FALLBACK_ITEM_HEIGHT = 104;
+const AUTO_SCROLL_EDGE_THRESHOLD = 72;
+const AUTO_SCROLL_MAX_STEP = 18;
+const AUTO_SCROLL_INTERVAL_MS = 32;
 
 export default function NotificationsScreen() {
   const router = useRouter();
@@ -66,7 +75,197 @@ export default function NotificationsScreen() {
   const [refreshing, setRefreshing] = useState(false);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [selectionMode, setSelectionMode] = useState(false);
-  const hiddenNoticeStorageKey = role === 'fc' ? `${HIDDEN_NOTICE_KEY_PREFIX}:${residentId || 'fc'}` : null;
+  const [dragArmed, setDragArmed] = useState(false);
+  const [isDragging, setIsDragging] = useState(false);
+
+  const hiddenNoticeStorageKey =
+    role === 'fc' ? `${HIDDEN_NOTICE_KEY_PREFIX}:${residentId || 'fc'}` : null;
+
+  const selectionModeRef = useRef(selectionMode);
+  const isDraggingRef = useRef(isDragging);
+  const selectedIdsRef = useRef(selectedIds);
+  const selectedCountRef = useRef(0);
+  const dragSelectArmedRef = useRef(false);
+  const lastDragSelectedIdRef = useRef<string | null>(null);
+  const ignoreNextPressIdRef = useRef<string | null>(null);
+  const listTopRef = useRef(0);
+  const dragListTopRef = useRef(0);
+  const listContainerRef = useRef<View | null>(null);
+  const flatListRef = useRef<FlatList<Notice> | null>(null);
+  const listContainerHeightRef = useRef(0);
+  const listContentHeightRef = useRef(0);
+  const dragPointerPageYRef = useRef<number | null>(null);
+  const autoScrollTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  const itemHeightsRef = useRef<Map<string, number>>(new Map());
+  const itemLayoutsRef = useRef<Map<string, { y: number; height: number }>>(new Map());
+  const scrollOffsetRef = useRef(0);
+
+  useEffect(() => {
+    selectionModeRef.current = selectionMode;
+  }, [selectionMode]);
+
+  useEffect(() => {
+    isDraggingRef.current = isDragging;
+  }, [isDragging]);
+
+  useEffect(() => {
+    selectedIdsRef.current = selectedIds;
+    selectedCountRef.current = selectedIds.size;
+  }, [selectedIds]);
+
+  const stopAutoScroll = useCallback(() => {
+    if (autoScrollTimerRef.current) {
+      clearInterval(autoScrollTimerRef.current);
+      autoScrollTimerRef.current = null;
+    }
+    dragPointerPageYRef.current = null;
+  }, []);
+
+  const recomputeItemLayouts = useCallback(() => {
+    const nextLayouts = new Map<string, { y: number; height: number }>();
+    let cursor = LIST_CONTENT_PADDING_TOP;
+    for (const notice of notices) {
+      const height = itemHeightsRef.current.get(notice.id) ?? FALLBACK_ITEM_HEIGHT;
+      nextLayouts.set(notice.id, { y: cursor, height });
+      cursor += height + ITEM_BOTTOM_GAP;
+    }
+    itemLayoutsRef.current = nextLayouts;
+  }, [notices]);
+
+  useEffect(() => {
+    recomputeItemLayouts();
+  }, [recomputeItemLayouts]);
+
+  useEffect(() => {
+    if (selectionMode && selectedIds.size === 0) {
+      setSelectionMode(false);
+    }
+  }, [selectionMode, selectedIds.size]);
+
+  const endDragSelection = useCallback(() => {
+    setDragArmed(false);
+    dragSelectArmedRef.current = false;
+    lastDragSelectedIdRef.current = null;
+    dragListTopRef.current = 0;
+    stopAutoScroll();
+    setIsDragging(false);
+  }, [stopAutoScroll]);
+
+  useEffect(() => {
+    if (!selectionMode) {
+      endDragSelection();
+      ignoreNextPressIdRef.current = null;
+    }
+  }, [endDragSelection, selectionMode]);
+
+  useEffect(() => {
+    return () => {
+      stopAutoScroll();
+    };
+  }, [stopAutoScroll]);
+
+  const findItemAtAbsoluteY = useCallback((pageY: number): string | null => {
+    const topBase = dragSelectArmedRef.current ? dragListTopRef.current : listTopRef.current;
+    const contentY = pageY - topBase + scrollOffsetRef.current;
+    for (const [id, layout] of itemLayoutsRef.current) {
+      if (contentY >= layout.y && contentY <= layout.y + layout.height + 14) {
+        return id;
+      }
+    }
+    return null;
+  }, []);
+
+  const selectByContainerY = useCallback(
+    (pageY: number) => {
+      const hitId = findItemAtAbsoluteY(pageY);
+      if (!hitId || hitId === lastDragSelectedIdRef.current) return;
+
+      lastDragSelectedIdRef.current = hitId;
+
+      let changed = false;
+      setSelectedIds((prev) => {
+        const has = prev.has(hitId);
+        const next = new Set(prev);
+        if (has) {
+          next.delete(hitId);
+        } else {
+          next.add(hitId);
+        }
+        selectedIdsRef.current = next;
+        selectedCountRef.current = next.size;
+        changed = true;
+        return next;
+      });
+      if (changed) {
+        void Haptics.selectionAsync();
+      }
+    },
+    [findItemAtAbsoluteY],
+  );
+
+  const stepAutoScroll = useCallback(() => {
+    if (!dragSelectArmedRef.current) {
+      stopAutoScroll();
+      return;
+    }
+
+    const pointerPageY = dragPointerPageYRef.current;
+    if (pointerPageY == null) {
+      stopAutoScroll();
+      return;
+    }
+
+    const containerHeight = listContainerHeightRef.current;
+    const contentHeight = listContentHeightRef.current;
+    if (containerHeight <= 0 || contentHeight <= containerHeight) {
+      return;
+    }
+
+    const topBase = dragSelectArmedRef.current ? dragListTopRef.current : listTopRef.current;
+    const localY = pointerPageY - topBase;
+    const edge = Math.min(AUTO_SCROLL_EDGE_THRESHOLD, containerHeight / 2);
+
+    let step = 0;
+    if (localY < edge) {
+      const intensity = Math.min(1, (edge - localY) / edge);
+      step = -Math.max(2, Math.round(AUTO_SCROLL_MAX_STEP * intensity));
+    } else if (localY > containerHeight - edge) {
+      const intensity = Math.min(1, (localY - (containerHeight - edge)) / edge);
+      step = Math.max(2, Math.round(AUTO_SCROLL_MAX_STEP * intensity));
+    }
+
+    if (step === 0) {
+      stopAutoScroll();
+      return;
+    }
+
+    const maxOffset = Math.max(0, contentHeight - containerHeight);
+    const nextOffset = Math.min(maxOffset, Math.max(0, scrollOffsetRef.current + step));
+    if (nextOffset === scrollOffsetRef.current) {
+      stopAutoScroll();
+      return;
+    }
+
+    flatListRef.current?.scrollToOffset({ offset: nextOffset, animated: false });
+    scrollOffsetRef.current = nextOffset;
+    selectByContainerY(pointerPageY);
+  }, [selectByContainerY, stopAutoScroll]);
+
+  const ensureAutoScrollLoop = useCallback(() => {
+    if (autoScrollTimerRef.current) return;
+    autoScrollTimerRef.current = setInterval(() => {
+      stepAutoScroll();
+    }, AUTO_SCROLL_INTERVAL_MS);
+  }, [stepAutoScroll]);
+
+  const updateDragPointer = useCallback(
+    (pageY: number) => {
+      dragPointerPageYRef.current = pageY;
+      ensureAutoScrollLoop();
+    },
+    [ensureAutoScrollLoop],
+  );
 
   const loadHiddenNoticeIds = useCallback(async (): Promise<Set<string>> => {
     if (!hiddenNoticeStorageKey) return new Set();
@@ -148,10 +347,10 @@ export default function NotificationsScreen() {
           return !hiddenNoticeIds.has(rawNoticeId);
         })
         .sort((a, b) => {
-        const aTime = a.created_at ? new Date(a.created_at).getTime() : 0;
-        const bTime = b.created_at ? new Date(b.created_at).getTime() : 0;
-        return bTime - aTime;
-      });
+          const aTime = a.created_at ? new Date(a.created_at).getTime() : 0;
+          const bTime = b.created_at ? new Date(b.created_at).getTime() : 0;
+          return bTime - aTime;
+        });
       setNotices(merged);
       await AsyncStorage.setItem('lastNotificationCheckTime', new Date().toISOString());
     } catch (err: unknown) {
@@ -163,27 +362,143 @@ export default function NotificationsScreen() {
   }, [fetchInbox, hydrated, loadHiddenNoticeIds]);
 
   useEffect(() => {
-    load();
+    void load();
   }, [load]);
 
   const handleRefresh = () => {
     setRefreshing(true);
-    load();
+    void load();
   };
 
-  const toggleSelection = (id: string) => {
+  const toggleSelection = useCallback((id: string) => {
     setSelectedIds((prev) => {
       const next = new Set(prev);
       if (next.has(id)) next.delete(id);
       else next.add(id);
-      if (next.size === 0) setSelectionMode(false);
       return next;
     });
+  }, []);
+
+  const handleLongPressItem = useCallback((id: string) => {
+    void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy);
+
+    if (!selectionModeRef.current) {
+      setSelectionMode(true);
+    }
+
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) {
+        next.delete(id);
+      } else {
+        next.add(id);
+      }
+      selectedIdsRef.current = next;
+      selectedCountRef.current = next.size;
+      return next;
+    });
+
+    ignoreNextPressIdRef.current = id;
+    setDragArmed(true);
+    dragSelectArmedRef.current = true;
+    dragListTopRef.current = listTopRef.current;
+    lastDragSelectedIdRef.current = id;
+    setIsDragging(false);
+  }, []);
+
+  const handlePressMoveItem = useCallback(
+    (event: GestureResponderEvent) => {
+      if (!dragSelectArmedRef.current) return;
+      if (!isDraggingRef.current) {
+        setIsDragging(true);
+      }
+      updateDragPointer(event.nativeEvent.pageY);
+      selectByContainerY(event.nativeEvent.pageY);
+    },
+    [selectByContainerY, updateDragPointer],
+  );
+
+  const cancelSelection = () => {
+    setSelectionMode(false);
+    setSelectedIds(new Set());
   };
 
-  const handleLongPress = (id: string) => {
+  const handleSelectAll = () => {
+    if (!notices.length) return;
     setSelectionMode(true);
-    toggleSelection(id);
+    setSelectedIds(new Set(notices.map((n) => n.id)));
+  };
+
+  const handleDeleteSelected = () => {
+    if (!selectedIds.size) return;
+    Alert.alert('알림 삭제', `선택한 ${selectedIds.size}개를 삭제할까요?`, [
+      { text: '취소', style: 'cancel' },
+      {
+        text: '삭제',
+        style: 'destructive',
+        onPress: () => {
+          void doDelete();
+        },
+      },
+    ]);
+  };
+
+  const doDelete = async () => {
+    try {
+      if (!role) {
+        throw new Error('로그인 정보를 확인할 수 없습니다.');
+      }
+
+      const notifIds = Array.from(selectedIds)
+        .filter((id) => id.startsWith('notification:'))
+        .map((id) => id.replace('notification:', ''));
+      const noticeIds = Array.from(selectedIds)
+        .filter((id) => id.startsWith('notice:'))
+        .map((id) => id.replace('notice:', ''));
+
+      if (notifIds.length > 0 || (role === 'admin' && noticeIds.length > 0)) {
+        const { data, error } = await supabase.functions.invoke('fc-notify', {
+          body: {
+            type: 'inbox_delete',
+            role,
+            resident_id: role === 'fc' ? (residentId ?? null) : null,
+            notification_ids: notifIds,
+            notice_ids: role === 'admin' ? noticeIds : [],
+          },
+        });
+        if (error) throw error;
+        if (!data?.ok) {
+          throw new Error(
+            typeof data?.message === 'string' ? data.message : '삭제 중 문제가 발생했습니다.',
+          );
+        }
+      }
+
+      if (role === 'fc' && noticeIds.length > 0) {
+        const hidden = await loadHiddenNoticeIds();
+        noticeIds.forEach((id) => hidden.add(id));
+        await saveHiddenNoticeIds(hidden);
+      }
+
+      setSelectedIds(new Set());
+      setSelectionMode(false);
+      await load();
+
+      const isNoticeOnlyFc = role === 'fc' && noticeIds.length > 0 && notifIds.length === 0;
+      setTimeout(() => {
+        Alert.alert(
+          '완료',
+          isNoticeOnlyFc
+            ? '선택한 공지는 알림센터에서 숨김 처리되었습니다.'
+            : '선택한 항목을 삭제했습니다.',
+        );
+      }, 300);
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : '삭제 중 문제가 발생했습니다.';
+      setTimeout(() => {
+        Alert.alert('오류', message);
+      }, 300);
+    }
   };
 
   const normalizeTargetUrl = (url: string): string => {
@@ -191,8 +506,7 @@ export default function NotificationsScreen() {
     if (!trimmed) return '/notifications';
     if (trimmed.startsWith('http://') || trimmed.startsWith('https://')) {
       const match = trimmed.match(/^https?:\/\/[^/]+(\/.*)?$/i);
-      const path = match?.[1] ?? '/notifications';
-      return normalizeTargetUrl(path);
+      return normalizeTargetUrl(match?.[1] ?? '/notifications');
     }
 
     if (trimmed.startsWith('/dashboard/notifications')) return '/notice';
@@ -256,7 +570,13 @@ export default function NotificationsScreen() {
   };
 
   const handlePressItem = (item: Notice) => {
-    if (selectionMode) {
+    if (isDraggingRef.current) return;
+
+    if (selectionModeRef.current) {
+      if (ignoreNextPressIdRef.current === item.id) {
+        ignoreNextPressIdRef.current = null;
+        return;
+      }
       toggleSelection(item.id);
       return;
     }
@@ -270,83 +590,22 @@ export default function NotificationsScreen() {
     Alert.alert(item.title, item.body, [{ text: '확인' }]);
   };
 
-  const cancelSelection = () => {
-    setSelectionMode(false);
-    setSelectedIds(new Set());
-  };
-
-  const handleDeleteSelected = () => {
-    if (!selectedIds.size) return;
-    Alert.alert('알림 삭제', `선택한 ${selectedIds.size}개를 삭제할까요?`, [
-      { text: '취소', style: 'cancel' },
-      {
-        text: '삭제',
-        style: 'destructive',
-        onPress: async () => {
-          try {
-            if (!role) {
-              throw new Error('로그인 정보를 확인할 수 없습니다.');
-            }
-
-            const notifIds = Array.from(selectedIds)
-              .filter((id) => id.startsWith('notification:'))
-              .map((id) => id.replace('notification:', ''));
-            const noticeIds = Array.from(selectedIds)
-              .filter((id) => id.startsWith('notice:'))
-              .map((id) => id.replace('notice:', ''));
-
-            if (notifIds.length || noticeIds.length) {
-              const { data, error } = await supabase.functions.invoke('fc-notify', {
-                body: {
-                  type: 'inbox_delete',
-                  role,
-                  resident_id: role === 'fc' ? (residentId ?? null) : null,
-                  notification_ids: notifIds,
-                  notice_ids: role === 'admin' ? noticeIds : [],
-                },
-              });
-              if (error) throw error;
-              if (!data?.ok) {
-                throw new Error(data?.message ?? '삭제 중 문제가 발생했습니다.');
-              }
-            }
-
-            if (role === 'fc' && noticeIds.length > 0) {
-              const hidden = await loadHiddenNoticeIds();
-              noticeIds.forEach((id) => hidden.add(id));
-              await saveHiddenNoticeIds(hidden);
-            }
-
-            setSelectedIds(new Set());
-            setSelectionMode(false);
-            await load();
-
-            if (role === 'fc' && noticeIds.length > 0 && !notifIds.length) {
-              Alert.alert('삭제 완료', '선택한 공지는 알림센터에서 숨김 처리되었습니다.');
-            } else {
-              Alert.alert('삭제 완료', '선택한 항목을 삭제했습니다.');
-            }
-          } catch (err: unknown) {
-            const message = err instanceof Error ? err.message : '삭제 중 문제가 발생했습니다.';
-            Alert.alert('오류', message);
-          }
-        },
-      },
-    ]);
-  };
-
-  const handleSelectAll = () => {
-    if (!notices.length) return;
-    setSelectionMode(true);
-    setSelectedIds(new Set(notices.map((n) => n.id)));
-  };
-
   const renderItem = ({ item, index }: { item: Notice; index: number }) => {
     const isNotice = item.source === 'notice';
-    const iconName = isNotice ? 'mic' : 'bell';
-    const iconColor = isNotice ? COLORS.primary : '#3B82F6';
-    const bgIcon = isNotice ? '#FFF7ED' : '#EFF6FF';
     const isSelected = selectedIds.has(item.id);
+    const iconName = isNotice ? 'mic' : 'bell';
+    const iconColor = isSelected ? COLORS.primary : isNotice ? COLORS.primary : '#3B82F6';
+    const bgIcon = isSelected ? '#FFE8D7' : isNotice ? '#FFF7ED' : '#EFF6FF';
+    const categoryColor = isSelected ? COLORS.primary : isNotice ? COLORS.primary : COLORS.text.secondary;
+    const dateColor = isSelected ? COLORS.primaryDark : COLORS.text.muted;
+
+    const onItemLayout = (event: LayoutChangeEvent) => {
+      const { height } = event.nativeEvent.layout;
+      const prev = itemHeightsRef.current.get(item.id);
+      if (prev !== undefined && Math.abs(prev - height) < 0.5) return;
+      itemHeightsRef.current.set(item.id, height);
+      recomputeItemLayouts();
+    };
 
     return (
       <MotiView
@@ -355,18 +614,32 @@ export default function NotificationsScreen() {
         transition={{ delay: index * 50 }}
       >
         <Pressable
-          style={[styles.itemContainer, isSelected && styles.itemSelected]}
+          style={[styles.itemContainer, isSelected ? styles.itemSelected : styles.itemUnselected]}
           onPress={() => handlePressItem(item)}
-          onLongPress={() => handleLongPress(item.id)}
-          android_ripple={{ color: '#F3F4F6' }}
+          onLongPress={() => handleLongPressItem(item.id)}
+          onPressMove={handlePressMoveItem}
+          onPressOut={() => {
+            if (dragSelectArmedRef.current && !isDraggingRef.current) {
+              endDragSelection();
+            } else if (!dragSelectArmedRef.current) {
+              stopAutoScroll();
+            }
+          }}
+          delayLongPress={350}
+          android_ripple={selectionMode ? null : { color: '#F3F4F6' }}
+          onLayout={onItemLayout}
         >
           <View style={[styles.iconBox, { backgroundColor: bgIcon }]}>
             <Feather name={iconName} size={20} color={iconColor} />
           </View>
           <View style={styles.contentBox}>
             <View style={styles.titleRow}>
-              <Text style={styles.category}>{item.category === 'app_event' ? '앱 알림' : item.category}</Text>
-              <Text style={styles.date}>{item.created_at ? new Date(item.created_at).toLocaleDateString() : ''}</Text>
+              <Text style={[styles.category, { color: categoryColor }]}>
+                {item.category === 'app_event' ? '앱 알림' : item.category}
+              </Text>
+              <Text style={[styles.date, { color: dateColor }]}>
+                {item.created_at ? new Date(item.created_at).toLocaleDateString() : ''}
+              </Text>
             </View>
             <Text style={styles.title} numberOfLines={1}>
               {item.title}
@@ -375,13 +648,19 @@ export default function NotificationsScreen() {
               {item.body}
             </Text>
           </View>
-          {selectionMode && (
+          <View
+            style={[
+              styles.checkContainer,
+              selectionMode ? styles.checkContainerVisible : styles.checkContainerHidden,
+              isSelected && styles.checkContainerSelected,
+            ]}
+          >
             <Feather
               name={isSelected ? 'check-circle' : 'circle'}
               size={20}
               color={isSelected ? COLORS.primary : '#D1D5DB'}
             />
-          )}
+          </View>
         </Pressable>
       </MotiView>
     );
@@ -413,24 +692,87 @@ export default function NotificationsScreen() {
         )}
       </View>
 
+      {selectionMode && (
+        <View style={styles.dragHint}>
+          <Feather name={isDragging ? 'move' : 'info'} size={13} color={COLORS.primary} />
+          <Text style={styles.dragHintText}>
+            {isDragging ? '드래그하여 선택 중...' : '꾹 눌러 드래그하면 여러 항목을 한번에 선택할 수 있습니다'}
+          </Text>
+        </View>
+      )}
+
       {loading && !refreshing ? (
         <View style={styles.center}>
           <ActivityIndicator color={COLORS.primary} />
         </View>
       ) : (
-        <FlatList
-          data={notices}
-          keyExtractor={(item) => item.id}
-          renderItem={renderItem}
-          contentContainerStyle={styles.listContent}
-          refreshControl={<RefreshControl refreshing={refreshing} onRefresh={handleRefresh} />}
-          ListEmptyComponent={
-            <View style={styles.emptyState}>
-              <Feather name="bell-off" size={48} color="#E5E7EB" />
-              <Text style={styles.emptyText}>새로운 알림이 없습니다.</Text>
-            </View>
-          }
-        />
+        <View
+          ref={listContainerRef}
+          style={{ flex: 1 }}
+          onTouchMoveCapture={(event) => {
+            if (!dragSelectArmedRef.current) return;
+            if (!isDraggingRef.current) {
+              setIsDragging(true);
+            }
+            updateDragPointer(event.nativeEvent.pageY);
+            selectByContainerY(event.nativeEvent.pageY);
+          }}
+          onTouchEndCapture={() => {
+            if (dragSelectArmedRef.current) {
+              endDragSelection();
+            } else {
+              stopAutoScroll();
+            }
+          }}
+          onTouchCancelCapture={() => {
+            if (dragSelectArmedRef.current) {
+              endDragSelection();
+            } else {
+              stopAutoScroll();
+            }
+          }}
+          onLayout={() => {
+            listContainerRef.current?.measureInWindow((_x, y) => {
+              listTopRef.current = y;
+            });
+          }}
+        >
+          <FlatList
+            ref={flatListRef}
+            data={notices}
+            keyExtractor={(item) => item.id}
+            renderItem={renderItem}
+            contentContainerStyle={styles.listContent}
+            scrollEnabled={!dragArmed && !isDragging}
+            onLayout={(event) => {
+              const { height } = event.nativeEvent.layout;
+              listContainerHeightRef.current = height;
+              listContainerRef.current?.measureInWindow((_x, y) => {
+                listTopRef.current = y;
+              });
+            }}
+            onContentSizeChange={(_width, height) => {
+              listContentHeightRef.current = height;
+            }}
+            onScroll={(evt) => {
+              scrollOffsetRef.current = evt.nativeEvent.contentOffset.y;
+            }}
+            scrollEventThrottle={16}
+            refreshControl={
+              <RefreshControl
+                refreshing={refreshing}
+                onRefresh={handleRefresh}
+                enabled={!selectionMode && !dragArmed && !isDragging}
+              />
+            }
+            ListEmptyComponent={
+              <View style={styles.emptyState}>
+                <Feather name="bell-off" size={48} color="#E5E7EB" />
+                <Text style={styles.emptyText}>새로운 알림이 없습니다.</Text>
+              </View>
+            }
+          />
+        </View>
       )}
     </SafeAreaView>
   );
@@ -446,11 +788,24 @@ const styles = StyleSheet.create({
     paddingVertical: 16,
     borderBottomWidth: 1,
     borderBottomColor: '#F3F4F6',
+    minHeight: 64,
   },
   headerTitle: { fontSize: 22, fontWeight: '800', color: COLORS.text.primary },
 
   center: { flex: 1, justifyContent: 'center', alignItems: 'center' },
   listContent: { padding: 20, paddingBottom: 40 },
+
+  dragHint: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    paddingHorizontal: 16,
+    paddingVertical: 7,
+    backgroundColor: '#FFF7ED',
+    borderBottomWidth: 1,
+    borderBottomColor: '#FED7AA',
+  },
+  dragHintText: { fontSize: 12, color: COLORS.primary, fontWeight: '500', flex: 1 },
 
   itemContainer: {
     flexDirection: 'row',
@@ -464,7 +819,32 @@ const styles = StyleSheet.create({
   },
   itemSelected: {
     borderColor: COLORS.primary,
-    backgroundColor: '#FFF7ED',
+    borderWidth: 2,
+    backgroundColor: '#FFF1E6',
+  },
+  itemUnselected: {
+    borderWidth: 1,
+    borderColor: COLORS.border.light,
+    backgroundColor: '#fff',
+  },
+  checkContainer: {
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: 'transparent',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  checkContainerVisible: {
+    opacity: 1,
+  },
+  checkContainerHidden: {
+    opacity: 0,
+  },
+  checkContainerSelected: {
+    backgroundColor: '#FFE8D7',
+    borderColor: '#FDC8A5',
   },
   iconBox: {
     width: 40,
@@ -483,6 +863,7 @@ const styles = StyleSheet.create({
 
   emptyState: { alignItems: 'center', marginTop: 60, gap: 12 },
   emptyText: { fontSize: 15, color: COLORS.text.secondary },
+
   selectionHeader: {
     flexDirection: 'row',
     alignItems: 'center',

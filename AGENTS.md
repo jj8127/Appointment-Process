@@ -109,12 +109,14 @@ supabase secrets list --project-ref <project-ref>
 - Next
   - Migrate remaining direct client write paths on web screens to server-mediated admin APIs.
   - Expand notice/notification fallback and failure visibility.
+  - Add mobile notification-center regression coverage for long-press multi-select (tap/drag/scroll interaction paths).
   - Verify manager read-only behavior on all new dashboard actions.
   - Normalize date/deadline handling rules across UI and backend.
 - Blockers/Risks
   - RLS and service-role path mismatch can silently break admin writes.
   - Schema-to-migration drift can cause deployment failures.
   - Status condition drift across app/web/function layers can cause UX inconsistencies.
+  - Android FlatList + gesture-responder conflicts can regress drag-select behavior without device-level checks.
 
 ### Progress Recording Protocol
 - `AGENTS.md` is the primary quick-status file for current progress and roadmap.
@@ -147,6 +149,12 @@ supabase secrets list --project-ref <project-ref>
   - auth/role behavior remains compatible with existing read-only and status constraints
 
 ### Progress Ledger
+- `2026-02-20 | Mobile Notifications UX | Removed temporary in-app drag debug instrumentation (overlay panel + debug event logging) after stabilizing long-press multi-select behavior; kept production drag select/deselect + auto-scroll logic only | app/notifications.tsx, AGENTS.md | npm run lint -- app/notifications.tsx | Validate selection flow on device without debug overlay/log noise`
+- `2026-02-20 | Mobile Notifications UX | Updated drag toggle behavior to allow same-gesture re-entry toggling (removed one-pass visited guard), so moving back over already-touched rows in a single drag flips selection state again (e.g., A,B,C then back over B,C deselects) while preserving auto-scroll | app/notifications.tsx, AGENTS.md | npm run lint -- app/notifications.tsx | Verify back-and-forth drag toggles same rows repeatedly without lifting finger`
+- `2026-02-20 | Mobile Notifications UX | Switched drag multi-select from fixed action mode to per-item dynamic toggle so a single drag in selection mode can both select and deselect without finger reset; kept visited-once-per-drag guard and auto-scroll support | app/notifications.tsx, AGENTS.md | npm run lint -- app/notifications.tsx | Validate single continuous drag toggles mixed selected/unselected rows while preserving auto-scroll behavior`
+- `2026-02-20 | Mobile Notifications UX | Added edge-triggered auto-scroll during long-press drag multi-select so dragging near top/bottom continuously scrolls and keeps selecting/deselecting across off-screen rows; wired FlatList/content height refs and drag-pointer loop with safe stop conditions | app/notifications.tsx, AGENTS.md | npm run lint -- app/notifications.tsx | Validate sustained drag-to-bottom/top selection on Android and iOS with long lists`
+- `2026-02-20 | Mobile Notifications UX | Completed long-press multi-select polish by adding drag deselect mode (long-press on selected item => deselect sweep), stabilizing drag visited-state handling, and unifying selected-row visuals (card border/background/check badge/text accents) while preserving in-app drag debug telemetry | app/notifications.tsx, AGENTS.md | npm run lint -- app/notifications.tsx | Reproduce select/deselect drag sweeps on Android and confirm consistent selected-card visuals across mixed rows`
+- `2026-02-19 | Manager Notice Permissions | 본부장(manager)이 공지사항을 등록할 수 있고 본인 게시글에 한해 수정·삭제 가능하도록 변경. notices 테이블에 created_by 컬럼 추가, API 소유권 검증(DELETE/PATCH), 목록·상세·등록·수정 페이지 UI 반영 | supabase/schema.sql, supabase/migrations/20260219_add_notices_created_by.sql, web/src/app/api/admin/notices/route.ts, web/src/app/dashboard/notifications/actions.ts, web/src/app/dashboard/notifications/page.tsx, web/src/app/dashboard/notifications/create/page.tsx, web/src/app/dashboard/notifications/[id]/page.tsx, web/src/app/dashboard/notifications/[id]/edit/page.tsx | web lint pass | Supabase migration 배포 필요 (created_by 컬럼); admin은 여전히 전체 공지 관리 가능`
 - `2026-02-19 | Web Docs Badge Counting | Updated dashboard "검토 중" doc badge to count only submitted docs that are neither approved nor rejected | web/src/app/dashboard/page.tsx | web lint | Keep doc summary badges aligned with submitted-doc filters`
 - `2026-02-19 | Web Profile Editability | Fixed FC profile detail/edit + admin memo save to use server-mediated admin API (`/api/admin/fc`) and applied admin-only editable controls (manager read-only) | web/src/app/dashboard/profile/[id]/page.tsx | web lint | Extend same server-mediated write pattern to remaining direct client-write screens`
 - `2026-02-19 | Resident Number Visibility | Expanded full resident-number rendering paths by removing masked fallbacks and wiring admin screens (web/mobile) to resident-number retrieval action | supabase/functions/admin-action/index.ts, web/src/app/dashboard/exam/applicants/page.tsx, web/src/app/dashboard/profile/[id]/page.tsx, app/exam-manage.tsx, app/exam-manage2.tsx, app/fc/new.tsx | mobile/web lint + flow-path review | Add focused authorization regression checks for resident-number retrieval action`
