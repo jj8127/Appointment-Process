@@ -7,6 +7,32 @@
 
 ---
 
+## <a id="20260220-1"></a> 2026-02-20 | 모바일 시험 신청(생명/손해) 마감 필터 기준 통일 및 당겨서 새로고침 제스처 복구
+
+**Commit**: `0c25c96`  
+**작업 내용**:
+- `app/exam-apply.tsx`, `app/exam-apply2.tsx`의 시험 일정 조회 기준을 동일화:
+  - `registration_deadline`이 최근 7일 이내인 일정만 조회되도록 통일
+  - cutoff 비교 포맷을 `YYYY-MM-DD`로 정렬해 화면 간 날짜 비교 일관성 확보
+- 두 화면 모두 새로고침 UX를 동일화:
+  - 당겨서 새로고침/헤더 새로고침 버튼이 모두 `round list + my applications + profile allowance state`를 함께 갱신하도록 변경
+- 새로고침 제스처 미동작 원인(중첩 스크롤 구조) 제거:
+  - `KeyboardAwareWrapper` 내부의 중첩 `ScrollView`를 제거하고, `RefreshControl`을 wrapper에 직접 연결해 단일 스크롤 소유 구조로 수정
+- 관련 진행 이력을 `AGENTS.md` Progress Ledger에 추가
+
+**핵심 파일**:
+- `app/exam-apply.tsx`
+- `app/exam-apply2.tsx`
+- `AGENTS.md`
+- `.claude/WORK_LOG.md`
+- `.claude/WORK_DETAIL.md`
+
+**검증**:
+- `npm run lint -- app/exam-apply.tsx app/exam-apply2.tsx` 통과
+- 실제 기기 확인 기준: 생명/손해 시험 신청 화면에서 pull-to-refresh 제스처 정상 동작 및 상단 새로고침 버튼과 동일한 데이터 갱신 경로 사용
+
+---
+
 ## <a id="20260219-8"></a> 2026-02-19 | 웹 대시보드 서류 배지의 "검토 중" 카운트를 제출 문서 기준으로 보정
 
 **작업 내용**:
