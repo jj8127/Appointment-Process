@@ -18,7 +18,7 @@ import {
 } from '@mantine/core';
 import { useDisclosure } from '@mantine/hooks';
 import { notifications } from '@mantine/notifications';
-import { IconPlus, IconRefresh, IconSearch, IconTrash } from '@tabler/icons-react';
+import { IconEdit, IconPlus, IconRefresh, IconSearch, IconTrash } from '@tabler/icons-react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import dayjs from 'dayjs';
 import Link from 'next/link';
@@ -33,6 +33,7 @@ type NoticeItem = {
     body?: string;
     category?: string;
     created_at?: string;
+    created_by?: string | null;
     is_push_sent?: boolean;
     image_url?: string;
     attachment_url?: string;
@@ -61,7 +62,7 @@ async function fetchNotices(): Promise<NoticeItem[]> {
 export default function NotificationsPage() {
     const queryClient = useQueryClient();
     const router = useRouter();
-    const { hydrated, role, isReadOnly } = useSession();
+    const { hydrated, role, residentId } = useSession();
     const [keyword, setKeyword] = useState('');
 
     // 확인 모달 상태
@@ -82,6 +83,16 @@ export default function NotificationsPage() {
             confirmConfig.onConfirm();
         }
         closeConfirm();
+    };
+
+    // 공지 작성/수정/삭제 가능 여부
+    // 본부장(manager)은 isReadOnly=true 이지만 공지 등록/본인글 수정-삭제는 허용
+    const canCreate = role === 'admin' || role === 'manager';
+    const canManageNotice = (notice: NoticeItem) => {
+        if (role === 'admin') return true;
+        // 본부장은 본인 게시글만 수정/삭제 가능
+        if (role === 'manager') return notice.created_by === residentId;
+        return false;
     };
 
     // Fetch Notices
@@ -142,49 +153,64 @@ export default function NotificationsPage() {
         );
     });
 
-    const rows = filteredNotices.map((notice: NoticeItem) => (
+    const rows = filteredNotices.map((notice: NoticeItem) => {
+        const canManage = canManageNotice(notice);
+        return (
             <Table.Tr
                 key={notice.id}
                 style={{ cursor: 'pointer' }}
                 onClick={() => router.push(`/dashboard/notifications/${notice.id}`)}
             >
-            <Table.Td style={{ width: 120 }}>
-                <Text size="sm" c="dimmed">
-                    {dayjs(notice.created_at).format('YYYY-MM-DD')}
-                </Text>
-            </Table.Td>
-            <Table.Td style={{ width: 100 }}>
-                <Badge variant="light" color="blue" radius="sm">
-                    {notice.category}
-                </Badge>
-            </Table.Td>
-            <Table.Td>
-                <Text size="sm" fw={600}>
-                    {notice.title}
-                </Text>
-            </Table.Td>
-            <Table.Td style={{ maxWidth: 300 }}>
-                <Text size="sm" truncate>
-                    {notice.body}
-                </Text>
-            </Table.Td>
-            <Table.Td style={{ width: 60 }} align="right">
-                {!isReadOnly && role === 'admin' ? (
-                    <ActionIcon
-                        variant="subtle"
-                        color="red"
-                        onClick={(e) => {
-                            e.stopPropagation();
-                            handleDelete(notice.id);
-                        }}
-                        loading={deleteMutation.isPending && deleteMutation.variables === notice.id}
-                    >
-                        <IconTrash size={16} />
-                    </ActionIcon>
-                ) : null}
-            </Table.Td>
-        </Table.Tr>
-    ));
+                <Table.Td style={{ width: 120 }}>
+                    <Text size="sm" c="dimmed">
+                        {dayjs(notice.created_at).format('YYYY-MM-DD')}
+                    </Text>
+                </Table.Td>
+                <Table.Td style={{ width: 100 }}>
+                    <Badge variant="light" color="blue" radius="sm">
+                        {notice.category}
+                    </Badge>
+                </Table.Td>
+                <Table.Td>
+                    <Text size="sm" fw={600}>
+                        {notice.title}
+                    </Text>
+                </Table.Td>
+                <Table.Td style={{ maxWidth: 300 }}>
+                    <Text size="sm" truncate>
+                        {notice.body}
+                    </Text>
+                </Table.Td>
+                <Table.Td style={{ width: 80 }} align="right">
+                    {canManage ? (
+                        <Group gap={4} justify="flex-end" wrap="nowrap">
+                            <ActionIcon
+                                variant="subtle"
+                                color="blue"
+                                onClick={(e) => {
+                                    e.stopPropagation();
+                                    router.push(`/dashboard/notifications/${notice.id}/edit`);
+                                }}
+                            >
+                                <IconEdit size={16} />
+                            </ActionIcon>
+                            <ActionIcon
+                                variant="subtle"
+                                color="red"
+                                onClick={(e) => {
+                                    e.stopPropagation();
+                                    handleDelete(notice.id);
+                                }}
+                                loading={deleteMutation.isPending && deleteMutation.variables === notice.id}
+                            >
+                                <IconTrash size={16} />
+                            </ActionIcon>
+                        </Group>
+                    ) : null}
+                </Table.Td>
+            </Table.Tr>
+        );
+    });
 
     return (
         <Container size="xl" py="xl">
@@ -199,7 +225,7 @@ export default function NotificationsPage() {
                 </div>
 
                 <Group>
-                    {!isReadOnly && role === 'admin' ? (
+                    {canCreate ? (
                         <Button
                             component={Link}
                             href="/dashboard/notifications/create"

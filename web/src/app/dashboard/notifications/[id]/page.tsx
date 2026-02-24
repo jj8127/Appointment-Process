@@ -8,16 +8,21 @@ import {
   Group,
   Image,
   Loader,
+  Modal,
   Paper,
   SimpleGrid,
   Stack,
   Text,
   Title,
 } from '@mantine/core';
-import { IconArrowLeft, IconPaperclip } from '@tabler/icons-react';
-import { useQuery } from '@tanstack/react-query';
+import { useDisclosure } from '@mantine/hooks';
+import { notifications } from '@mantine/notifications';
+import { IconArrowLeft, IconEdit, IconPaperclip, IconTrash } from '@tabler/icons-react';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import dayjs from 'dayjs';
 import { useParams, useRouter } from 'next/navigation';
+
+import { useSession } from '@/hooks/use-session';
 
 type NoticeFile = {
   name?: string;
@@ -31,6 +36,7 @@ type NoticeItem = {
   body: string;
   category?: string | null;
   created_at?: string | null;
+  created_by?: string | null;
   images?: string[] | null;
   files?: NoticeFile[] | null;
 };
@@ -57,13 +63,42 @@ async function fetchNotice(id: string): Promise<NoticeItem> {
 
 export default function NotificationDetailPage() {
   const router = useRouter();
+  const queryClient = useQueryClient();
   const params = useParams<{ id: string }>();
   const id = String(params?.id ?? '').trim();
+
+  const { role, residentId } = useSession();
+  const [confirmOpened, { open: openConfirm, close: closeConfirm }] = useDisclosure(false);
 
   const { data, isLoading, isError, error } = useQuery({
     queryKey: ['notice-detail', id],
     queryFn: () => fetchNotice(id),
     enabled: Boolean(id),
+  });
+
+  const canManage =
+    role === 'admin' ||
+    (role === 'manager' && !!data?.created_by && data.created_by === residentId);
+
+  const deleteMutation = useMutation({
+    mutationFn: async () => {
+      const res = await fetch('/api/admin/notices', {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({ id }),
+      });
+      const json = (await res.json().catch(() => ({}))) as { ok?: boolean; error?: string };
+      if (!res.ok || !json.ok) throw new Error(json.error ?? '삭제에 실패했습니다.');
+    },
+    onSuccess: () => {
+      notifications.show({ title: '삭제 완료', message: '공지사항이 삭제되었습니다.', color: 'gray' });
+      queryClient.invalidateQueries({ queryKey: ['notices'] });
+      router.push('/dashboard/notifications');
+    },
+    onError: (err: Error) => {
+      notifications.show({ title: '삭제 실패', message: err.message, color: 'red' });
+    },
   });
 
   return (
@@ -77,6 +112,28 @@ export default function NotificationDetailPage() {
           >
             목록으로
           </Button>
+
+          {canManage ? (
+            <Group gap="xs">
+              <Button
+                variant="light"
+                color="blue"
+                leftSection={<IconEdit size={16} />}
+                onClick={() => router.push(`/dashboard/notifications/${id}/edit`)}
+              >
+                수정
+              </Button>
+              <Button
+                variant="light"
+                color="red"
+                leftSection={<IconTrash size={16} />}
+                loading={deleteMutation.isPending}
+                onClick={openConfirm}
+              >
+                삭제
+              </Button>
+            </Group>
+          ) : null}
         </Group>
 
         <Paper withBorder radius="md" p="lg">
@@ -162,6 +219,27 @@ export default function NotificationDetailPage() {
           ) : null}
         </Paper>
       </Stack>
+
+      {/* 삭제 확인 모달 */}
+      <Modal
+        opened={confirmOpened}
+        onClose={closeConfirm}
+        title={<Text fw={700}>공지사항 삭제</Text>}
+        size="sm"
+        centered
+      >
+        <Stack gap="md">
+          <Text size="sm">정말 삭제하시겠습니까? (앱 알림 이력은 유지될 수 있습니다)</Text>
+          <Group justify="flex-end">
+            <Button variant="default" onClick={closeConfirm}>
+              취소
+            </Button>
+            <Button color="red" loading={deleteMutation.isPending} onClick={() => { closeConfirm(); deleteMutation.mutate(); }}>
+              삭제
+            </Button>
+          </Group>
+        </Stack>
+      </Modal>
     </Container>
   );
 }

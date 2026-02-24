@@ -1,6 +1,7 @@
 'use server';
 
 import { revalidatePath } from 'next/cache';
+import { cookies } from 'next/headers';
 import { z } from 'zod';
 import { sendWebPush } from '@/lib/web-push';
 import { adminSupabase } from '@/lib/admin-supabase';
@@ -33,6 +34,11 @@ export type CreateNoticeState = {
     };
 };
 
+async function getSessionResidentId(): Promise<string | null> {
+    const cookieStore = await cookies();
+    return cookieStore.get('session_resident')?.value ?? null;
+}
+
 export async function createNoticeAction(
     prevState: CreateNoticeState,
     formData: FormData
@@ -57,6 +63,7 @@ export async function createNoticeAction(
     }
 
     const { category, title, body, images, files } = validatedFields.data;
+    const createdBy = await getSessionResidentId();
 
     // 1. Insert Notice
     const { data: insertedNotice, error: noticeError } = await adminSupabase
@@ -67,6 +74,7 @@ export async function createNoticeAction(
         category,
         images: images || [],
         files: files || [],
+        created_by: createdBy,
         })
         .select('id')
         .single();
@@ -165,4 +173,81 @@ export async function createNoticeAction(
 
     revalidatePath('/dashboard/notifications');
     return { success: true, message: '공지사항이 등록 및 발송되었습니다.' };
+}
+
+export type UpdateNoticeState = {
+    success: boolean;
+    message?: string;
+    errors?: {
+        category?: string[];
+        title?: string[];
+        body?: string[];
+    };
+};
+
+export async function updateNoticeAction(
+    prevState: UpdateNoticeState,
+    formData: FormData
+): Promise<UpdateNoticeState> {
+    const id = (formData.get('id') as string | null)?.trim();
+    if (!id) {
+        return { success: false, message: '공지 ID가 없습니다.' };
+    }
+
+    const imagesRaw = formData.get('images');
+    const filesRaw = formData.get('files');
+
+    const validatedFields = NoticeSchema.safeParse({
+        category: formData.get('category'),
+        title: formData.get('title'),
+        body: formData.get('body'),
+        images: imagesRaw ? JSON.parse(imagesRaw as string) : [],
+        files: filesRaw ? JSON.parse(filesRaw as string) : [],
+    });
+
+    if (!validatedFields.success) {
+        return {
+            success: false,
+            errors: validatedFields.error.flatten().fieldErrors,
+            message: '입력값을 확인해주세요.',
+        };
+    }
+
+    const { category, title, body, images, files } = validatedFields.data;
+
+    const cookieStore = await cookies();
+    const role = cookieStore.get('session_role')?.value ?? null;
+    const residentId = cookieStore.get('session_resident')?.value ?? null;
+
+    if (role !== 'admin' && role !== 'manager') {
+        return { success: false, message: '권한이 없습니다.' };
+    }
+
+    // Managers can only update their own notices
+    if (role === 'manager') {
+        const { data: existing } = await adminSupabase
+            .from('notices')
+            .select('created_by')
+            .eq('id', id)
+            .maybeSingle();
+        if (!existing) {
+            return { success: false, message: '공지를 찾을 수 없습니다.' };
+        }
+        if (existing.created_by !== residentId) {
+            return { success: false, message: '본인이 작성한 공지만 수정할 수 있습니다.' };
+        }
+    }
+
+    const { error } = await adminSupabase
+        .from('notices')
+        .update({ title, body, category, images: images ?? [], files: files ?? [] })
+        .eq('id', id);
+
+    if (error) {
+        return { success: false, message: `수정 실패: ${error.message}` };
+    }
+
+    revalidatePath('/dashboard/notifications');
+    revalidatePath(`/dashboard/notifications/${id}`);
+    return { success: true, message: '공지사항이 수정되었습니다.' };
 }

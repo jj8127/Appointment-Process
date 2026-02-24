@@ -8,6 +8,15 @@ type DeleteBody = {
   id?: string;
 };
 
+type PatchBody = {
+  id?: string;
+  title?: string;
+  body?: string;
+  category?: string;
+  images?: string[];
+  files?: { name: string; size?: number; type?: string; url: string }[];
+};
+
 type NoticeFile = {
   name?: string;
   url?: string;
@@ -20,6 +29,7 @@ type NoticeRow = {
   body: string;
   category: string | null;
   created_at: string;
+  created_by: string | null;
   images?: string[] | null;
   files?: NoticeFile[] | null;
 };
@@ -46,14 +56,14 @@ async function getSession() {
 async function getNoticeList(): Promise<NoticeRow[]> {
   const withAttachments = await adminSupabase
     .from('notices')
-    .select('id,title,body,category,created_at,images,files')
+    .select('id,title,body,category,created_at,created_by,images,files')
     .order('created_at', { ascending: false });
 
   if (!withAttachments.error) {
     return (withAttachments.data ?? []) as NoticeRow[];
   }
 
-  // Backward compatible fallback for environments without images/files columns.
+  // Backward compatible fallback for environments without images/files/created_by columns.
   if (withAttachments.error.code === '42703') {
     const basic = await adminSupabase
       .from('notices')
@@ -63,6 +73,7 @@ async function getNoticeList(): Promise<NoticeRow[]> {
     if (basic.error) throw basic.error;
     return ((basic.data ?? []) as NoticeRow[]).map((row) => ({
       ...row,
+      created_by: null,
       images: null,
       files: null,
     }));
@@ -74,7 +85,7 @@ async function getNoticeList(): Promise<NoticeRow[]> {
 async function getNoticeById(id: string): Promise<NoticeRow | null> {
   const withAttachments = await adminSupabase
     .from('notices')
-    .select('id,title,body,category,created_at,images,files')
+    .select('id,title,body,category,created_at,created_by,images,files')
     .eq('id', id)
     .maybeSingle();
 
@@ -93,6 +104,7 @@ async function getNoticeById(id: string): Promise<NoticeRow | null> {
     if (!basic.data) return null;
     return {
       ...(basic.data as NoticeRow),
+      created_by: null,
       images: null,
       files: null,
     };
@@ -144,7 +156,7 @@ export async function GET(req: Request) {
   }
 }
 
-export async function DELETE(req: Request) {
+export async function PATCH(req: Request) {
   const sessionCheck = await getSession();
   if (!sessionCheck.ok) {
     return NextResponse.json(
@@ -153,8 +165,65 @@ export async function DELETE(req: Request) {
     );
   }
 
-  if (sessionCheck.session.role !== 'admin') {
-    return NextResponse.json({ error: 'Forbidden' }, { status: 403, headers: SECURITY_HEADERS });
+  const rateLimit = checkRateLimit(`notices:update:${sessionCheck.session.residentId}`, 30, 60_000);
+  if (!rateLimit.allowed) {
+    return NextResponse.json({ error: 'Too many requests' }, { status: 429, headers: SECURITY_HEADERS });
+  }
+
+  let body: PatchBody;
+  try {
+    body = (await req.json()) as PatchBody;
+  } catch (err) {
+    logger.error('[api/admin/notices][PATCH] invalid json', err);
+    return NextResponse.json({ error: 'Invalid JSON payload' }, { status: 400, headers: SECURITY_HEADERS });
+  }
+
+  const id = body.id?.trim();
+  if (!id) {
+    return NextResponse.json({ error: 'id is required' }, { status: 400, headers: SECURITY_HEADERS });
+  }
+
+  try {
+    // Managers can only update their own notices
+    if (sessionCheck.session.role === 'manager') {
+      const notice = await getNoticeById(id);
+      if (!notice) {
+        return NextResponse.json({ error: 'Notice not found' }, { status: 404, headers: SECURITY_HEADERS });
+      }
+      if (notice.created_by !== sessionCheck.session.residentId) {
+        return NextResponse.json({ error: 'Forbidden' }, { status: 403, headers: SECURITY_HEADERS });
+      }
+    }
+
+    const updateFields: Record<string, unknown> = {};
+    if (body.title !== undefined) updateFields.title = body.title;
+    if (body.body !== undefined) updateFields.body = body.body;
+    if (body.category !== undefined) updateFields.category = body.category;
+    if (body.images !== undefined) updateFields.images = body.images;
+    if (body.files !== undefined) updateFields.files = body.files;
+
+    const { error } = await adminSupabase.from('notices').update(updateFields).eq('id', id);
+    if (error) {
+      return NextResponse.json({ error: error.message }, { status: 500, headers: SECURITY_HEADERS });
+    }
+    return NextResponse.json({ ok: true }, { headers: SECURITY_HEADERS });
+  } catch (err: unknown) {
+    const error = err as Error;
+    logger.error('[api/admin/notices][PATCH] failed', error);
+    return NextResponse.json(
+      { error: error?.message ?? 'Request failed' },
+      { status: 500, headers: SECURITY_HEADERS },
+    );
+  }
+}
+
+export async function DELETE(req: Request) {
+  const sessionCheck = await getSession();
+  if (!sessionCheck.ok) {
+    return NextResponse.json(
+      { error: sessionCheck.error },
+      { status: sessionCheck.status, headers: SECURITY_HEADERS },
+    );
   }
 
   const rateLimit = checkRateLimit(`notices:delete:${sessionCheck.session.residentId}`, 30, 60_000);
@@ -176,6 +245,17 @@ export async function DELETE(req: Request) {
   }
 
   try {
+    // Managers can only delete their own notices
+    if (sessionCheck.session.role === 'manager') {
+      const notice = await getNoticeById(id);
+      if (!notice) {
+        return NextResponse.json({ error: 'Notice not found' }, { status: 404, headers: SECURITY_HEADERS });
+      }
+      if (notice.created_by !== sessionCheck.session.residentId) {
+        return NextResponse.json({ error: 'Forbidden' }, { status: 403, headers: SECURITY_HEADERS });
+      }
+    }
+
     const { error } = await adminSupabase.from('notices').delete().eq('id', id);
     if (error) {
       return NextResponse.json({ error: error.message }, { status: 500, headers: SECURITY_HEADERS });
