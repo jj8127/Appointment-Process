@@ -1,5 +1,4 @@
-import { createServerClient, type CookieOptions } from '@supabase/ssr';
-import { cookies } from 'next/headers';
+import { createClient } from '@supabase/supabase-js';
 import { NextResponse } from 'next/server';
 
 type SubscriptionPayload = {
@@ -13,6 +12,12 @@ type SubscriptionPayload = {
   role?: 'admin' | 'fc';
   residentId?: string;
 };
+
+// Service role client: bypasses RLS (custom auth has no Supabase auth.uid())
+const adminClient = createClient(
+  process.env.NEXT_PUBLIC_SUPABASE_URL!,
+  process.env.SUPABASE_SERVICE_ROLE_KEY!,
+);
 
 export async function POST(request: Request) {
   let payload: SubscriptionPayload;
@@ -30,32 +35,7 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: 'Invalid subscription' }, { status: 400 });
   }
 
-  const cookieStore = await cookies();
-  const supabase = createServerClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
-    {
-      cookies: {
-        get(name: string) {
-          return cookieStore.get(name)?.value;
-        },
-        set(name: string, value: string, options: CookieOptions) {
-          try {
-            cookieStore.set({ name, value, ...options });
-          } catch {
-          }
-        },
-        remove(name: string, options: CookieOptions) {
-          try {
-            cookieStore.set({ name, value: '', ...options });
-          } catch {
-          }
-        },
-      },
-    }
-  );
-
-  const { error } = await supabase
+  const { error } = await adminClient
     .from('web_push_subscriptions')
     .upsert(
       {

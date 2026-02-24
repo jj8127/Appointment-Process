@@ -25,6 +25,9 @@ interface NotifyRequestBody {
   target_id?: string | null;
   message?: string;
   sender_id?: string;
+  title?: string;
+  body?: string;
+  url?: string;
   [key: string]: unknown;
 }
 
@@ -50,6 +53,33 @@ export async function POST(req: Request) {
   }
 
   try {
+    // Handle web push notifications for admin-targeted notify events (docs, exam, consent, etc.)
+    if (body.type === 'notify' && body.target_role === 'admin') {
+      const title = body.title ?? '새 알림';
+      const message = body.body ?? '새로운 알림이 도착했습니다.';
+      const url = body.url ?? '/dashboard';
+
+      const { data: subs, error: subsError } = await adminClient
+        .from('web_push_subscriptions')
+        .select('endpoint,p256dh,auth')
+        .eq('role', 'admin');
+
+      if (subsError) {
+        logger.error('[fc-notify] Error fetching admin subscriptions:', subsError);
+      } else if (subs && subs.length > 0) {
+        const result = await sendWebPush(subs, { title, body: message, data: { url } });
+        if (result.expired.length > 0) {
+          const { error: deleteError } = await adminClient
+            .from('web_push_subscriptions')
+            .delete()
+            .in('endpoint', result.expired);
+          if (deleteError) {
+            logger.error('[fc-notify] Error deleting expired subscriptions:', deleteError);
+          }
+        }
+      }
+    }
+
     // Handle web push notifications for messages
     if (body.type === 'message') {
       const targetRole = body.target_role;

@@ -94,6 +94,30 @@ if (!serviceKey) {
 
 const supabase = createClient(supabaseUrl, serviceKey);
 
+/**
+ * Send web push notification to all admin browser subscribers.
+ * Calls the Next.js /api/admin/push endpoint with a shared secret.
+ * Fire-and-forget: errors are logged but do not block the response.
+ */
+async function notifyAdminWebPush(title: string, body: string, url: string) {
+  const adminWebUrl = getEnv('ADMIN_WEB_URL');
+  const pushSecret = getEnv('ADMIN_PUSH_SECRET');
+  if (!adminWebUrl || !pushSecret) return;
+
+  try {
+    await fetch(`${adminWebUrl}/api/admin/push`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-Admin-Push-Secret': pushSecret,
+      },
+      body: JSON.stringify({ title, body, url }),
+    });
+  } catch (e) {
+    console.warn('[fc-notify] admin web push callback failed', e);
+  }
+}
+
 async function fetchNoticesWithOptionalAttachments(limit = 20): Promise<NoticeRow[]> {
   const withAttachments = await supabase
     .from('notices')
@@ -262,9 +286,15 @@ serve(async (req: Request) => {
     let notices: NoticeRow[] = [];
     try {
       notices = await fetchNoticesWithOptionalAttachments(20);
-    } catch (noticeErr) {
-      const message = noticeErr instanceof Error ? noticeErr.message : 'Failed to fetch notices';
-      return err(message, 500);
+    } catch (noticeErr: unknown) {
+      // If notices table doesn't exist yet, return empty list instead of 500
+      const code = (noticeErr as { code?: string })?.code;
+      if (code === '42P01') {
+        notices = [];
+      } else {
+        const message = noticeErr instanceof Error ? noticeErr.message : 'Failed to fetch notices';
+        return err(message, 500);
+      }
     }
 
     return ok({
@@ -428,6 +458,11 @@ serve(async (req: Request) => {
       console.warn('notifications insert failed', logError.message);
     }
 
+    // Send web push to admin browser subscribers (fire-and-forget)
+    if (target_role === 'admin') {
+      await notifyAdminWebPush(title, message, url);
+    }
+
     if (!tokens.length) {
       return ok({ ok: true, sent: 0, logged: !logError, msg: 'No tokens found' });
     }
@@ -508,6 +543,11 @@ serve(async (req: Request) => {
     target_url: targetUrl,
   });
   if (logError) console.warn('notifications insert failed', logError.message);
+
+  // Send web push to admin browser subscribers for fc_update / fc_delete (fire-and-forget)
+  if (targetRole === 'admin') {
+    await notifyAdminWebPush(title, message, targetUrl);
+  }
 
   if (!tokens.length) {
     return ok({ ok: true, sent: 0, logged: true });
