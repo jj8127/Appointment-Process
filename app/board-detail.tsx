@@ -1,7 +1,7 @@
 import { Feather } from '@expo/vector-icons';
 import { useQuery } from '@tanstack/react-query';
 import { useLocalSearchParams, useRouter } from 'expo-router';
-import { useMemo } from 'react';
+import { useMemo, useState } from 'react';
 import {
   ActivityIndicator,
   Linking,
@@ -13,15 +13,24 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
+import { LinkifiedSelectableText } from '@/components/LinkifiedSelectableText';
+import { ImagePreviewModal } from '@/components/ImagePreviewModal';
 import { useSession } from '@/hooks/use-session';
 import { buildBoardActor, fetchBoardDetail, formatFileSize } from '@/lib/board-api';
 import { COLORS } from '@/lib/theme';
+
+const safeText = (value?: string | null) => (typeof value === 'string' ? value : '');
+type PreviewModalState = {
+  images: { url: string; title?: string }[];
+  initialIndex: number;
+};
 
 export default function BoardDetailScreen() {
   const router = useRouter();
   const { postId } = useLocalSearchParams<{ postId?: string }>();
   const postIdValue = useMemo(() => (Array.isArray(postId) ? postId[0] : postId) ?? '', [postId]);
   const { role, residentId, displayName, readOnly } = useSession();
+  const [previewImage, setPreviewImage] = useState<PreviewModalState | null>(null);
 
   const actor = useMemo(
     () =>
@@ -47,6 +56,27 @@ export default function BoardDetailScreen() {
     } catch {
       // ignore
     }
+  };
+
+  const openAttachment = (
+    file: {
+      id: string;
+      fileType: 'image' | 'file';
+      signedUrl?: string;
+      fileName: string;
+    },
+    imageAttachments: { id: string; url: string; title?: string }[],
+  ) => {
+    if (!file.signedUrl) return;
+    if (file.fileType === 'image') {
+      const imageIndex = imageAttachments.findIndex((image) => image.id === file.id);
+      setPreviewImage({
+        images: imageAttachments.map((image) => ({ url: image.url, title: image.title })),
+        initialIndex: imageIndex >= 0 ? imageIndex : 0,
+      });
+      return;
+    }
+    openUrl(file.signedUrl);
   };
 
   if (!postIdValue) {
@@ -95,6 +125,13 @@ export default function BoardDetailScreen() {
 
   const detail = data;
   const post = detail.post;
+  const imageAttachments = detail.attachments
+    .filter((file) => file.fileType === 'image' && !!file.signedUrl)
+    .map((file) => ({
+      id: file.id,
+      url: file.signedUrl as string,
+      title: file.fileName,
+    }));
 
   return (
     <SafeAreaView style={styles.safe} edges={['left', 'right', 'bottom']}>
@@ -105,16 +142,20 @@ export default function BoardDetailScreen() {
           </View>
           <Text style={styles.metaText}>{new Date(post.createdAt).toLocaleDateString()}</Text>
         </View>
-        <Text style={styles.title}>{post.title}</Text>
-        <Text style={styles.author}>작성자: {post.authorName}</Text>
+        <Text style={styles.title} selectable>{safeText(post.title)}</Text>
+        <Text style={styles.author} selectable>{`작성자: ${safeText(post.authorName)}`}</Text>
         <View style={styles.divider} />
-        <Text style={styles.content}>{post.content}</Text>
+        <LinkifiedSelectableText text={post.content} style={styles.content} />
 
         {detail.attachments.length > 0 && (
           <View style={styles.section}>
             <Text style={styles.sectionTitle}>첨부 파일</Text>
             {detail.attachments.map((file) => (
-              <Pressable key={file.id} style={styles.fileItem} onPress={() => openUrl(file.signedUrl)}>
+              <Pressable
+                key={file.id}
+                style={styles.fileItem}
+                onPress={() => openAttachment(file, imageAttachments)}
+              >
                 <Feather name={file.fileType === 'image' ? 'image' : 'paperclip'} size={14} color={COLORS.primary} />
                 <Text style={styles.fileName} numberOfLines={1}>
                   {file.fileName}
@@ -136,7 +177,7 @@ export default function BoardDetailScreen() {
                   <Text style={styles.commentAuthor}>{comment.authorName}</Text>
                   <Text style={styles.commentDate}>{new Date(comment.createdAt).toLocaleDateString()}</Text>
                 </View>
-                <Text style={styles.commentContent}>{comment.content}</Text>
+                <LinkifiedSelectableText text={comment.content} style={styles.commentContent} />
               </View>
             ))
           )}
@@ -146,6 +187,13 @@ export default function BoardDetailScreen() {
           <Text style={styles.listButtonText}>게시판 목록으로</Text>
         </Pressable>
       </ScrollView>
+
+      <ImagePreviewModal
+        visible={!!previewImage}
+        images={previewImage?.images ?? []}
+        initialIndex={previewImage?.initialIndex ?? 0}
+        onClose={() => setPreviewImage(null)}
+      />
     </SafeAreaView>
   );
 }
@@ -213,4 +261,3 @@ const styles = StyleSheet.create({
   },
   listButtonText: { color: '#fff', fontWeight: '700' },
 });
-

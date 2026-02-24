@@ -11,6 +11,7 @@ type Payload = {
   categoryId?: string;
   title?: string;
   content?: string;
+  attachmentOrder?: string[];
 };
 
 serve(async (req: Request) => {
@@ -60,20 +61,62 @@ serve(async (req: Request) => {
   if (body.categoryId) payload.category_id = body.categoryId;
   if (body.title !== undefined) payload.title = body.title.trim();
   if (body.content !== undefined) payload.content = body.content.trim();
+  const attachmentOrder = Array.isArray(body.attachmentOrder) ? body.attachmentOrder.filter(Boolean) : null;
 
-  if (Object.keys(payload).length === 0) {
+  if (Object.keys(payload).length === 0 && !attachmentOrder) {
     return json({ ok: false, code: 'invalid_payload', message: 'no fields to update' }, 400, origin);
   }
 
-  payload.edited_at = new Date().toISOString();
+  if (Object.keys(payload).length > 0) {
+    payload.edited_at = new Date().toISOString();
 
-  const { error } = await supabase
-    .from('board_posts')
-    .update(payload)
-    .eq('id', postId);
+    const { error } = await supabase
+      .from('board_posts')
+      .update(payload)
+      .eq('id', postId);
 
-  if (error) {
-    return json({ ok: false, code: 'db_error', message: error.message }, 500, origin);
+    if (error) {
+      return json({ ok: false, code: 'db_error', message: error.message }, 500, origin);
+    }
+  }
+
+  if (attachmentOrder) {
+    const uniqueOrder = new Set(attachmentOrder);
+    if (uniqueOrder.size !== attachmentOrder.length) {
+      return json({ ok: false, code: 'invalid_attachment_order', message: 'duplicate attachment ids' }, 400, origin);
+    }
+
+    const { data: currentAttachments, error: attachmentError } = await supabase
+      .from('board_attachments')
+      .select('id')
+      .eq('post_id', postId);
+
+    if (attachmentError) {
+      return json({ ok: false, code: 'db_error', message: attachmentError.message }, 500, origin);
+    }
+
+    const currentIds = (currentAttachments ?? []).map((item) => item.id);
+    if (currentIds.length !== attachmentOrder.length) {
+      return json({ ok: false, code: 'invalid_attachment_order', message: 'attachment count mismatch' }, 400, origin);
+    }
+
+    const currentSet = new Set(currentIds);
+    const isValidOrder = attachmentOrder.every((id) => currentSet.has(id));
+    if (!isValidOrder) {
+      return json({ ok: false, code: 'invalid_attachment_order', message: 'attachment ids mismatch' }, 400, origin);
+    }
+
+    for (let index = 0; index < attachmentOrder.length; index += 1) {
+      const attachmentId = attachmentOrder[index];
+      const { error: sortError } = await supabase
+        .from('board_attachments')
+        .update({ sort_order: index })
+        .eq('id', attachmentId)
+        .eq('post_id', postId);
+      if (sortError) {
+        return json({ ok: false, code: 'db_error', message: sortError.message }, 500, origin);
+      }
+    }
   }
 
   return json({ ok: true }, 200, origin);

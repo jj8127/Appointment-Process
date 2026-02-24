@@ -7,6 +7,7 @@ type FileInput = {
   fileSize: number;
   mimeType?: string;
   fileType: 'image' | 'file';
+  sortOrder?: number;
 };
 
 type Payload = {
@@ -63,6 +64,7 @@ serve(async (req: Request) => {
     file_size: file.fileSize,
     mime_type: file.mimeType ?? null,
     storage_path: file.storagePath,
+    sort_order: Number.isFinite(file.sortOrder) ? Math.max(0, Math.trunc(file.sortOrder as number)) : 0,
     created_by_resident_id: actorCheck.actor.residentId,
   }));
 

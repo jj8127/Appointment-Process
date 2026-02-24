@@ -32,6 +32,8 @@ import Animated, {
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { KeyboardAwareWrapper } from '@/components/KeyboardAwareWrapper';
+import { ImagePreviewModal } from '@/components/ImagePreviewModal';
+import { LinkifiedSelectableText } from '@/components/LinkifiedSelectableText';
 import { CardSkeleton } from '@/components/LoadingSkeleton';
 import { DEFAULT_REACTIONS, ReactionPicker } from '@/components/ReactionPicker';
 import { RefreshButton } from '@/components/RefreshButton';
@@ -76,6 +78,16 @@ type ReactionMutationContext = {
 type CommentLikeMutationContext = {
   previousDetail?: BoardDetail;
 };
+type PreviewModalState = {
+  images: { url: string; title?: string }[];
+  initialIndex: number;
+};
+
+const safeText = (value?: string | null) => (typeof value === 'string' ? value : '');
+const getInitial = (value?: string | null) => {
+  const normalized = safeText(value).trim();
+  return normalized ? normalized.charAt(0) : '?';
+};
 
 const buildReactionCounts = (counts?: Partial<ReactionCounts>): ReactionCounts => ({
   like: counts?.like ?? 0,
@@ -114,6 +126,10 @@ type CommentLikeButtonProps = {
   liked: boolean;
   count: number;
   onPress: () => void;
+};
+
+type AttachmentPreviewThumbProps = {
+  uri?: string;
 };
 
 function CommentLikeButton({ liked, count, onPress }: CommentLikeButtonProps) {
@@ -160,6 +176,30 @@ function CommentLikeButton({ liked, count, onPress }: CommentLikeButtonProps) {
   );
 }
 
+function AttachmentPreviewThumb({ uri }: AttachmentPreviewThumbProps) {
+  const [failed, setFailed] = useState(!uri);
+
+  useEffect(() => {
+    setFailed(!uri);
+  }, [uri]);
+
+  return (
+    <View style={styles.attachmentThumb}>
+      {!failed && uri ? (
+        <Image
+          source={{ uri }}
+          style={styles.attachmentThumbImage}
+          onError={() => setFailed(true)}
+        />
+      ) : (
+        <View style={styles.attachmentThumbPlaceholder}>
+          <Feather name="image" size={16} color={TEXT_MUTED} />
+        </View>
+      )}
+    </View>
+  );
+}
+
 export default function BoardScreen() {
   const router = useRouter();
   const navigation = useNavigation();
@@ -176,6 +216,7 @@ export default function BoardScreen() {
 
   const [refreshing, setRefreshing] = useState(false);
   const [selectedPost, setSelectedPost] = useState<BoardPost | null>(null);
+  const [previewImage, setPreviewImage] = useState<PreviewModalState | null>(null);
   const [commentText, setCommentText] = useState('');
   const [searchQuery, setSearchQuery] = useState('');
   const [searchInput, setSearchInput] = useState('');
@@ -205,6 +246,7 @@ export default function BoardScreen() {
   const bottomNavTranslateY = useSharedValue(0);
   const modalTranslateY = useSharedValue(0);
   const closeModal = useCallback(() => setSelectedPost(null), []);
+  const closePreviewImage = useCallback(() => setPreviewImage(null), []);
   const animateCloseModal = useCallback(() => {
     modalTranslateY.value = withTiming(
       screenHeight,
@@ -321,7 +363,7 @@ export default function BoardScreen() {
       isMine: selectedPost.isMine,
     }
     : null);
-  const modalAttachments = detailData?.attachments ?? [];
+  const modalAttachments = useMemo(() => detailData?.attachments ?? [], [detailData?.attachments]);
   const fallbackReactions = selectedPost?.reactions ?? {
     like: 0,
     heart: 0,
@@ -332,6 +374,18 @@ export default function BoardScreen() {
     ...fallbackReactions,
     myReaction: null,
   };
+  const modalAttachmentImages = useMemo(
+    () =>
+      modalAttachments
+        .filter((item) => item.fileType === 'image' && !!item.signedUrl)
+        .map((item) => ({
+          id: item.id,
+          url: item.signedUrl as string,
+          title: item.fileName,
+          fileSize: item.fileSize,
+        })),
+    [modalAttachments],
+  );
   const modalReactionCounts = {
     like: modalReactions.like,
     heart: modalReactions.heart,
@@ -595,7 +649,7 @@ export default function BoardScreen() {
         text: '수정',
         onPress: () => {
           setEditingCommentId(comment.id);
-          setEditingCommentText(comment.content);
+          setEditingCommentText(safeText(comment.content));
         },
       },
       {
@@ -628,11 +682,11 @@ export default function BoardScreen() {
       >
         <View style={styles.commentHeader}>
           <View style={styles.avatarSmall}>
-            <Text style={styles.avatarTextSmall}>{comment.authorName.charAt(0)}</Text>
+            <Text style={styles.avatarTextSmall}>{getInitial(comment.authorName)}</Text>
           </View>
           <View style={{ flex: 1 }}>
             <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-              <Text style={styles.commentAuthor}>{comment.authorName}</Text>
+              <Text style={styles.commentAuthor}>{safeText(comment.authorName)}</Text>
               <View style={styles.commentRoleBadge}>
                 <Text style={styles.commentRoleText}>
                   {comment.authorRole === 'admin' ? '관리자' : comment.authorRole === 'manager' ? '본부장' : 'FC'}
@@ -696,7 +750,7 @@ export default function BoardScreen() {
             </View>
           </View>
         ) : (
-          <Text style={styles.commentContent}>{comment.content}</Text>
+          <LinkifiedSelectableText text={comment.content} style={styles.commentContent} />
         )}
         <View style={styles.commentActions}>
           <Pressable
@@ -735,6 +789,7 @@ export default function BoardScreen() {
       setReplyTarget(null);
       setCollapsedThreadIds([]);
       setIsThreadInitialized(false);
+      setPreviewImage(null);
     }
   }, [selectedPost]);
 
@@ -932,11 +987,11 @@ export default function BoardScreen() {
                 <View style={styles.cardHeader}>
                   <View style={styles.authorBadge}>
                     <View style={styles.avatar}>
-                      <Text style={styles.avatarText}>{post.authorName.charAt(0)}</Text>
+                      <Text style={styles.avatarText}>{getInitial(post.authorName)}</Text>
                     </View>
                     <View>
                       <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-                        <Text style={styles.authorName}>{post.authorName}</Text>
+                        <Text style={styles.authorName}>{safeText(post.authorName)}</Text>
                         <View style={[styles.roleBadge, { backgroundColor: post.authorRole === 'admin' ? '#dbeafe' : '#e9d5ff' }]}>
                           <Text style={[styles.roleText, { color: post.authorRole === 'admin' ? '#2563eb' : '#9333ea' }]}>
                             {post.authorRole === 'admin' ? '관리자' : '본부장'}
@@ -949,30 +1004,20 @@ export default function BoardScreen() {
                 </View>
 
                 {/* 게시글 내용 */}
-                <Text style={styles.postTitle} numberOfLines={1}>
+                <Text style={styles.postTitle} numberOfLines={1} selectable>
                   {post.isPinned && <Feather name="bookmark" size={14} color={HANWHA_ORANGE} />}{' '}
-                  {post.title}
+                  {safeText(post.title)}
                 </Text>
-                <Text style={styles.postContent} numberOfLines={2}>
-                  {post.contentPreview}
-                </Text>
+                <LinkifiedSelectableText text={post.contentPreview} style={styles.postContent} numberOfLines={2} />
 
                 {post.attachments && post.attachments.length > 0 && (
                   <View style={styles.attachmentPreview}>
                     <View style={styles.attachmentPreviewImages}>
                       {post.attachments
                         .filter((item) => item.fileType === 'image')
-                        .slice(0, 3)
+                        .slice(0, 4)
                         .map((item) => (
-                          <View key={item.id} style={styles.attachmentThumb}>
-                            {item.signedUrl ? (
-                              <Image source={{ uri: item.signedUrl }} style={styles.attachmentThumbImage} />
-                            ) : (
-                              <View style={styles.attachmentThumbPlaceholder}>
-                                <Feather name="image" size={16} color={TEXT_MUTED} />
-                              </View>
-                            )}
-                          </View>
+                          <AttachmentPreviewThumb key={item.id} uri={item.signedUrl} />
                         ))}
                     </View>
                     <View style={styles.attachmentMeta}>
@@ -1069,11 +1114,11 @@ export default function BoardScreen() {
                 {/* 작성자 정보 */}
                 <View style={styles.modalAuthor}>
                   <View style={styles.avatar}>
-                    <Text style={styles.avatarText}>{modalPost?.authorName?.charAt(0) ?? '?'}</Text>
+                    <Text style={styles.avatarText}>{getInitial(modalPost?.authorName)}</Text>
                   </View>
                   <View style={{ flex: 1 }}>
                     <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-                      <Text style={styles.authorName}>{modalPost?.authorName ?? ''}</Text>
+                      <Text style={styles.authorName}>{safeText(modalPost?.authorName)}</Text>
                       <View style={[styles.roleBadge, { backgroundColor: modalPost?.authorRole === 'admin' ? '#dbeafe' : '#e9d5ff' }]}>
                         <Text style={[styles.roleText, { color: modalPost?.authorRole === 'admin' ? '#2563eb' : '#9333ea' }]}>
                           {modalPost?.authorRole === 'admin' ? '관리자' : '본부장'}
@@ -1094,31 +1139,35 @@ export default function BoardScreen() {
                   </View>
                 </View>
 
-                <Text style={styles.modalPostTitle}>{modalPost?.title ?? ''}</Text>
-                <Text style={styles.modalPostContent}>{modalPost?.content ?? ''}</Text>
+                <Text style={styles.modalPostTitle} selectable>{safeText(modalPost?.title)}</Text>
+                <LinkifiedSelectableText text={modalPost?.content} style={styles.modalPostContent} />
 
                 {modalAttachments.length > 0 && (
                   <View style={styles.attachmentSection}>
                     <Text style={styles.sectionTitle}>첨부파일</Text>
 
                     <View style={styles.attachmentGrid}>
-                      {modalAttachments
-                        .filter((item) => item.fileType === 'image')
-                        .map((item) => (
-                          <View key={item.id} style={styles.attachmentGridItem}>
-                            {item.signedUrl ? (
-                              <Image source={{ uri: item.signedUrl }} style={styles.attachmentGridImage} />
-                            ) : (
-                              <View style={styles.attachmentGridPlaceholder}>
-                                <Feather name="image" size={18} color={TEXT_MUTED} />
-                              </View>
-                            )}
+                      {modalAttachmentImages.map((item, index) => (
+                          <Pressable
+                            key={item.id}
+                            style={({ pressed }) => [
+                              styles.attachmentGridItem,
+                              pressed && { opacity: 0.75 },
+                            ]}
+                            onPress={() => {
+                              setPreviewImage({
+                                images: modalAttachmentImages.map((image) => ({ url: image.url, title: image.title })),
+                                initialIndex: index,
+                              });
+                            }}
+                          >
+                            <Image source={{ uri: item.url }} style={styles.attachmentGridImage} />
                             <Text style={styles.attachmentName} numberOfLines={1}>
-                              {item.fileName}
+                              {item.title}
                             </Text>
                             <Text style={styles.attachmentSize}>{formatFileSize(item.fileSize)}</Text>
-                          </View>
-                        ))}
+                          </Pressable>
+                      ))}
                     </View>
 
                     <View style={styles.attachmentList}>
@@ -1211,6 +1260,13 @@ export default function BoardScreen() {
           </Animated.View>
         </View>
       )}
+
+      <ImagePreviewModal
+        visible={!!previewImage}
+        images={previewImage?.images ?? []}
+        initialIndex={previewImage?.initialIndex ?? 0}
+        onClose={closePreviewImage}
+      />
     </SafeAreaView>
   );
 }

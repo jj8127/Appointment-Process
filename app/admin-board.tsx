@@ -3,7 +3,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import * as DocumentPicker from 'expo-document-picker';
 import * as ImagePicker from 'expo-image-picker';
 import { useLocalSearchParams, useRouter } from 'expo-router';
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Alert,
   Image,
@@ -16,6 +16,7 @@ import {
   TextInput,
   View,
 } from 'react-native';
+import DraggableFlatList, { RenderItemParams } from 'react-native-draggable-flatlist';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { Button } from '@/components/Button';
@@ -42,7 +43,7 @@ const CHARCOAL = '#111827';
 const MUTED = '#6b7280';
 const BORDER = '#e5e7eb';
 const INPUT_BG = '#F9FAFB';
-const MAX_ATTACHMENTS = 5;
+const MAX_ATTACHMENTS = 20;
 
 type LocalAttachment = {
   id: string;
@@ -51,6 +52,27 @@ type LocalAttachment = {
   mimeType: string;
   fileSize: number;
   fileType: 'image' | 'file';
+};
+
+const isImageAttachment = (attachment: LocalAttachment) => attachment.fileType === 'image';
+
+const splitAttachmentsByType = (items: LocalAttachment[]) => {
+  const images = items.filter(isImageAttachment);
+  const files = items.filter((item) => item.fileType !== 'image');
+  return { images, files };
+};
+
+const groupImagesFirst = (items: LocalAttachment[]) => {
+  const { images, files } = splitAttachmentsByType(items);
+  return [...images, ...files];
+};
+
+const replaceImageOrder = (
+  items: LocalAttachment[],
+  orderedImages: LocalAttachment[],
+) => {
+  const { files } = splitAttachmentsByType(items);
+  return [...orderedImages, ...files];
 };
 
 export default function AdminBoardScreen() {
@@ -79,6 +101,23 @@ export default function AdminBoardScreen() {
   const [existingAttachments, setExistingAttachments] = useState<LocalAttachment[]>([]);
   const [didLoadPost, setDidLoadPost] = useState(false);
   const pickingRef = useRef(false);
+
+  const existingImages = useMemo(
+    () => existingAttachments.filter(isImageAttachment),
+    [existingAttachments],
+  );
+  const existingFiles = useMemo(
+    () => existingAttachments.filter((item) => item.fileType !== 'image'),
+    [existingAttachments],
+  );
+  const newImages = useMemo(
+    () => attachments.filter(isImageAttachment),
+    [attachments],
+  );
+  const newFiles = useMemo(
+    () => attachments.filter((item) => item.fileType !== 'image'),
+    [attachments],
+  );
 
   const { data: categories = [] } = useQuery({
     queryKey: ['board-categories', actor?.role, actor?.residentId],
@@ -116,14 +155,16 @@ export default function AdminBoardScreen() {
     setTitle(detailData.post.title);
     setContent(detailData.post.content);
     setCategoryId(detailData.post.categoryId);
-    setExistingAttachments(detailData.attachments.map((file) => ({
-      id: file.id,
-      uri: file.signedUrl ?? '',
-      fileName: file.fileName,
-      mimeType: file.mimeType ?? 'application/octet-stream',
-      fileSize: file.fileSize,
-      fileType: file.fileType,
-    })));
+    setExistingAttachments(
+      groupImagesFirst(detailData.attachments.map((file) => ({
+        id: file.id,
+        uri: file.signedUrl ?? '',
+        fileName: file.fileName,
+        mimeType: file.mimeType ?? 'application/octet-stream',
+        fileSize: file.fileSize,
+        fileType: file.fileType,
+      }))),
+    );
     setDidLoadPost(true);
   }, [actor?.role, detailData, didLoadPost, router]);
 
@@ -157,6 +198,7 @@ export default function AdminBoardScreen() {
           categoryId,
           title: title.trim(),
           content: content.trim(),
+          attachmentOrder: existingAttachments.map((file) => file.id),
         });
       }
       if (attachments.length > 0) {
@@ -192,6 +234,7 @@ export default function AdminBoardScreen() {
             fileSize: file.fileSize,
             mimeType: file.mimeType,
             fileType: file.fileType,
+            sortOrder: existingAttachments.length + index,
           })),
         );
       }
@@ -207,7 +250,7 @@ export default function AdminBoardScreen() {
             setTitle('');
             setContent('');
             setAttachments([]);
-            router.back();
+            router.replace('/admin-board-manage');
           },
         },
       ]);
@@ -221,7 +264,7 @@ export default function AdminBoardScreen() {
 
   const addAttachments = (nextFiles: LocalAttachment[]) => {
     setAttachments((prev) => {
-      const merged = [...prev, ...nextFiles];
+      const merged = groupImagesFirst([...prev, ...nextFiles]);
       if (merged.length > MAX_ATTACHMENTS) {
         Alert.alert('첨부 제한', `최대 ${MAX_ATTACHMENTS}개까지 첨부할 수 있습니다.`);
         return merged.slice(0, MAX_ATTACHMENTS);
@@ -290,7 +333,7 @@ export default function AdminBoardScreen() {
     setAttachments((prev) => prev.filter((item) => item.id !== id));
   };
 
-  const removeExistingAttachment = (file: LocalAttachment) => {
+  const removeExistingAttachment = useCallback((file: LocalAttachment) => {
     if (!actor || !postId) return;
     Alert.alert('첨부 삭제', `'${file.fileName}' 첨부파일을 삭제할까요?`, [
       { text: '취소', style: 'cancel' },
@@ -310,7 +353,119 @@ export default function AdminBoardScreen() {
         },
       },
     ]);
-  };
+  }, [actor, postId, queryClient]);
+
+  const handleExistingImageDragEnd = useCallback((orderedImages: LocalAttachment[]) => {
+    setExistingAttachments((prev) => replaceImageOrder(prev, orderedImages));
+  }, []);
+
+  const handleNewImageDragEnd = useCallback((orderedImages: LocalAttachment[]) => {
+    setAttachments((prev) => replaceImageOrder(prev, orderedImages));
+  }, []);
+
+  const renderExistingImageItem = useCallback(
+    ({ item, drag, isActive, getIndex }: RenderItemParams<LocalAttachment>) => (
+      <View style={[styles.attachmentItem, isActive && styles.attachmentItemDragging]}>
+        <Pressable
+          style={({ pressed }) => [
+            styles.attachmentOpen,
+            pressed && { opacity: 0.7 },
+          ]}
+          onPress={() => {
+            if (item.uri) {
+              Linking.openURL(item.uri);
+            }
+          }}
+          onLongPress={existingImages.length > 1 ? drag : undefined}
+          delayLongPress={220}
+        >
+          <Image source={{ uri: item.uri }} style={styles.attachmentThumbnail} />
+          <View style={{ flex: 1 }}>
+            <Text style={styles.attachmentName} numberOfLines={1}>
+              {item.fileName}
+            </Text>
+            <Text style={styles.attachmentSize}>{formatFileSize(item.fileSize)}</Text>
+          </View>
+          <Feather name="download" size={16} color={MUTED} />
+        </Pressable>
+        {existingImages.length > 1 && (
+          <Pressable
+            style={({ pressed }) => [
+              styles.attachmentReorderHandle,
+              pressed && { opacity: 0.7 },
+            ]}
+            onLongPress={drag}
+            delayLongPress={180}
+          >
+            <View style={styles.attachmentOrderBadge}>
+              <Text style={styles.attachmentOrderText}>{(getIndex?.() ?? 0) + 1}</Text>
+            </View>
+            <Feather name="move" size={14} color={MUTED} />
+          </Pressable>
+        )}
+        <Pressable
+          style={({ pressed }) => [
+            styles.attachmentRemove,
+            pressed && { opacity: 0.6 },
+          ]}
+          onPress={() => removeExistingAttachment(item)}
+          disabled={isActive}
+        >
+          <Feather name="trash-2" size={16} color={MUTED} />
+        </Pressable>
+      </View>
+    ),
+    [existingImages.length, removeExistingAttachment],
+  );
+
+  const renderNewImageItem = useCallback(
+    ({ item, drag, isActive, getIndex }: RenderItemParams<LocalAttachment>) => (
+      <View style={[styles.attachmentItem, isActive && styles.attachmentItemDragging]}>
+        <Pressable
+          style={({ pressed }) => [
+            styles.attachmentOpen,
+            pressed && { opacity: 0.7 },
+          ]}
+          onLongPress={newImages.length > 1 ? drag : undefined}
+          delayLongPress={220}
+        >
+          <Image source={{ uri: item.uri }} style={styles.attachmentThumbnail} />
+          <View style={{ flex: 1 }}>
+            <Text style={styles.attachmentName} numberOfLines={1}>
+              {item.fileName}
+            </Text>
+            <Text style={styles.attachmentSize}>{formatFileSize(item.fileSize)}</Text>
+          </View>
+        </Pressable>
+        {newImages.length > 1 && (
+          <Pressable
+            style={({ pressed }) => [
+              styles.attachmentReorderHandle,
+              pressed && { opacity: 0.7 },
+            ]}
+            onLongPress={drag}
+            delayLongPress={180}
+          >
+            <View style={styles.attachmentOrderBadge}>
+              <Text style={styles.attachmentOrderText}>{(getIndex?.() ?? 0) + 1}</Text>
+            </View>
+            <Feather name="move" size={14} color={MUTED} />
+          </Pressable>
+        )}
+        <Pressable
+          style={({ pressed }) => [
+            styles.attachmentRemove,
+            pressed && { opacity: 0.6 },
+          ]}
+          onPress={() => removeAttachment(item.id)}
+          disabled={isActive}
+        >
+          <Feather name="x" size={16} color={MUTED} />
+        </Pressable>
+      </View>
+    ),
+    [newImages.length],
+  );
 
   return (
     <SafeAreaView style={styles.safe} edges={['top', 'left', 'right', 'bottom']}>
@@ -330,7 +485,22 @@ export default function AdminBoardScreen() {
               <Text style={styles.subtitle}>{screenSubtitle}</Text>
             </View>
           </View>
-          <RefreshButton />
+          <View style={styles.headerActions}>
+            {isEditMode && (
+              <Pressable
+                style={({ pressed }) => [
+                  styles.headerSubmitButton,
+                  pressed && { opacity: 0.75 },
+                  (loading || !canWrite || !categoryId || !title.trim() || !content.trim()) && styles.headerSubmitButtonDisabled,
+                ]}
+                onPress={handleSubmit}
+                disabled={loading || !canWrite || !categoryId || !title.trim() || !content.trim()}
+              >
+                <Text style={styles.headerSubmitButtonText}>게시글 수정</Text>
+              </Pressable>
+            )}
+            <RefreshButton />
+          </View>
         </View>
 
         {!canWrite && (
@@ -427,76 +597,116 @@ export default function AdminBoardScreen() {
             {isEditMode && existingAttachments.length > 0 && (
               <View style={styles.attachmentList}>
                 <Text style={styles.attachmentSectionLabel}>기존 첨부파일</Text>
-                {existingAttachments.map((file) => (
-                  <View key={file.id} style={styles.attachmentItem}>
-                    <Pressable
-                      style={({ pressed }) => [
-                        styles.attachmentOpen,
-                        pressed && { opacity: 0.7 },
-                      ]}
-                      onPress={() => {
-                        if (file.uri) {
-                          Linking.openURL(file.uri);
-                        }
-                      }}
-                    >
-                      {file.fileType === 'image' && file.uri ? (
-                        <Image source={{ uri: file.uri }} style={styles.attachmentThumbnail} />
-                      ) : (
-                        <View style={styles.attachmentIcon}>
-                          <Feather name="file-text" size={16} color={HANWHA_ORANGE} />
-                        </View>
-                      )}
-                      <View style={{ flex: 1 }}>
-                        <Text style={styles.attachmentName} numberOfLines={1}>
-                          {file.fileName}
-                        </Text>
-                        <Text style={styles.attachmentSize}>{formatFileSize(file.fileSize)}</Text>
-                      </View>
-                      <Feather name="download" size={16} color={MUTED} />
-                    </Pressable>
-                    <Pressable
-                      style={({ pressed }) => [
-                        styles.attachmentRemove,
-                        pressed && { opacity: 0.6 },
-                      ]}
-                      onPress={() => removeExistingAttachment(file)}
-                    >
-                      <Feather name="trash-2" size={16} color={MUTED} />
-                    </Pressable>
+                {existingImages.length > 0 && (
+                  <View style={styles.attachmentSubsection}>
+                    <Text style={styles.attachmentSubsectionLabel}>이미지</Text>
+                    {existingImages.length > 1 && (
+                      <Text style={styles.attachmentOrderHint}>이미지를 길게 눌러 드래그로 순서를 조정하세요.</Text>
+                    )}
+                    <DraggableFlatList
+                      data={existingImages}
+                      keyExtractor={(item) => item.id}
+                      renderItem={renderExistingImageItem}
+                      onDragEnd={({ data }) => handleExistingImageDragEnd(data)}
+                      scrollEnabled={false}
+                      activationDistance={6}
+                      containerStyle={styles.attachmentDraggableList}
+                      ItemSeparatorComponent={() => <View style={styles.attachmentDraggableSeparator} />}
+                    />
                   </View>
-                ))}
+                )}
+                {existingFiles.length > 0 && (
+                  <View style={styles.attachmentSubsection}>
+                    <Text style={styles.attachmentSubsectionLabel}>파일</Text>
+                    {existingFiles.map((file) => (
+                      <View key={file.id} style={styles.attachmentItem}>
+                        <Pressable
+                          style={({ pressed }) => [
+                            styles.attachmentOpen,
+                            pressed && { opacity: 0.7 },
+                          ]}
+                          onPress={() => {
+                            if (file.uri) {
+                              Linking.openURL(file.uri);
+                            }
+                          }}
+                        >
+                          <View style={styles.attachmentIcon}>
+                            <Feather name="file-text" size={16} color={HANWHA_ORANGE} />
+                          </View>
+                          <View style={{ flex: 1 }}>
+                            <Text style={styles.attachmentName} numberOfLines={1}>
+                              {file.fileName}
+                            </Text>
+                            <Text style={styles.attachmentSize}>{formatFileSize(file.fileSize)}</Text>
+                          </View>
+                          <Feather name="download" size={16} color={MUTED} />
+                        </Pressable>
+                        <Pressable
+                          style={({ pressed }) => [
+                            styles.attachmentRemove,
+                            pressed && { opacity: 0.6 },
+                          ]}
+                          onPress={() => removeExistingAttachment(file)}
+                        >
+                          <Feather name="trash-2" size={16} color={MUTED} />
+                        </Pressable>
+                      </View>
+                    ))}
+                  </View>
+                )}
               </View>
             )}
             {attachments.length > 0 && (
               <View style={styles.attachmentList}>
                 {isEditMode && <Text style={styles.attachmentSectionLabel}>추가 첨부파일</Text>}
-                {attachments.map((file) => (
-                  <View key={file.id} style={styles.attachmentItem}>
-                    {file.fileType === 'image' ? (
-                      <Image source={{ uri: file.uri }} style={styles.attachmentThumbnail} />
-                    ) : (
-                      <View style={styles.attachmentIcon}>
-                        <Feather name="file-text" size={16} color={HANWHA_ORANGE} />
-                      </View>
+                {newImages.length > 0 && (
+                  <View style={styles.attachmentSubsection}>
+                    <Text style={styles.attachmentSubsectionLabel}>이미지</Text>
+                    {newImages.length > 1 && (
+                      <Text style={styles.attachmentOrderHint}>이미지를 길게 눌러 드래그로 순서를 조정하세요.</Text>
                     )}
-                    <View style={{ flex: 1 }}>
-                      <Text style={styles.attachmentName} numberOfLines={1}>
-                        {file.fileName}
-                      </Text>
-                      <Text style={styles.attachmentSize}>{formatFileSize(file.fileSize)}</Text>
-                    </View>
-                    <Pressable
-                      style={({ pressed }) => [
-                        styles.attachmentRemove,
-                        pressed && { opacity: 0.6 },
-                      ]}
-                      onPress={() => removeAttachment(file.id)}
-                    >
-                      <Feather name="x" size={16} color={MUTED} />
-                    </Pressable>
+                    <DraggableFlatList
+                      data={newImages}
+                      keyExtractor={(item) => item.id}
+                      renderItem={renderNewImageItem}
+                      onDragEnd={({ data }) => handleNewImageDragEnd(data)}
+                      scrollEnabled={false}
+                      activationDistance={6}
+                      containerStyle={styles.attachmentDraggableList}
+                      ItemSeparatorComponent={() => <View style={styles.attachmentDraggableSeparator} />}
+                    />
                   </View>
-                ))}
+                )}
+                {newFiles.length > 0 && (
+                  <View style={styles.attachmentSubsection}>
+                    <Text style={styles.attachmentSubsectionLabel}>파일</Text>
+                    {newFiles.map((file) => (
+                      <View key={file.id} style={styles.attachmentItem}>
+                        <View style={styles.attachmentOpen}>
+                          <View style={styles.attachmentIcon}>
+                            <Feather name="file-text" size={16} color={HANWHA_ORANGE} />
+                          </View>
+                          <View style={{ flex: 1 }}>
+                            <Text style={styles.attachmentName} numberOfLines={1}>
+                              {file.fileName}
+                            </Text>
+                            <Text style={styles.attachmentSize}>{formatFileSize(file.fileSize)}</Text>
+                          </View>
+                        </View>
+                        <Pressable
+                          style={({ pressed }) => [
+                            styles.attachmentRemove,
+                            pressed && { opacity: 0.6 },
+                          ]}
+                          onPress={() => removeAttachment(file.id)}
+                        >
+                          <Feather name="x" size={16} color={MUTED} />
+                        </Pressable>
+                      </View>
+                    ))}
+                  </View>
+                )}
               </View>
             )}
           </View>
@@ -532,6 +742,25 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     alignItems: 'flex-start',
     marginBottom: 16,
+  },
+  headerActions: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  headerSubmitButton: {
+    paddingHorizontal: 10,
+    paddingVertical: 7,
+    borderRadius: 10,
+    backgroundColor: HANWHA_ORANGE,
+  },
+  headerSubmitButtonDisabled: {
+    opacity: 0.45,
+  },
+  headerSubmitButtonText: {
+    color: '#fff',
+    fontSize: 12,
+    fontWeight: '700',
   },
   backButton: {
     width: 40,
@@ -597,9 +826,27 @@ const styles = StyleSheet.create({
     marginTop: 12,
     gap: 10,
   },
+  attachmentSubsection: {
+    gap: 8,
+  },
+  attachmentDraggableList: {
+    gap: 10,
+  },
+  attachmentDraggableSeparator: {
+    height: 10,
+  },
   attachmentSectionLabel: {
     fontSize: 12,
     fontWeight: '700',
+    color: MUTED,
+  },
+  attachmentSubsectionLabel: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: '#4b5563',
+  },
+  attachmentOrderHint: {
+    fontSize: 11,
     color: MUTED,
   },
   attachmentItem: {
@@ -611,6 +858,10 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: BORDER,
     backgroundColor: '#fff',
+  },
+  attachmentItemDragging: {
+    borderColor: HANWHA_ORANGE,
+    backgroundColor: '#fff7ed',
   },
   attachmentOpen: {
     flex: 1,
@@ -634,6 +885,29 @@ const styles = StyleSheet.create({
   },
   attachmentName: { fontSize: 13, fontWeight: '600', color: CHARCOAL },
   attachmentSize: { fontSize: 12, color: MUTED },
+  attachmentOrderBadge: {
+    minWidth: 24,
+    height: 24,
+    borderRadius: 12,
+    backgroundColor: '#f3f4f6',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginRight: 2,
+  },
+  attachmentOrderText: {
+    fontSize: 11,
+    fontWeight: '700',
+    color: MUTED,
+  },
+  attachmentReorderHandle: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    paddingHorizontal: 4,
+    paddingVertical: 2,
+    borderRadius: 999,
+    backgroundColor: '#f9fafb',
+  },
   attachmentRemove: {
     width: 28,
     height: 28,

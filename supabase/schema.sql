@@ -161,7 +161,8 @@ create table if not exists public.notices (
   title text not null,
   body text not null,
   category text,
-  created_at timestamptz not null default now()
+  created_at timestamptz not null default now(),
+  created_by text
 );
 
 create table if not exists public.exam_rounds (
@@ -942,6 +943,7 @@ create table if not exists public.board_attachments (
   mime_type text,
   storage_path text not null unique,
   created_by_resident_id text not null,
+  sort_order integer not null default 0,
   created_at timestamptz not null default now()
 );
 
@@ -986,6 +988,9 @@ create index if not exists idx_board_posts_pinned
 
 create index if not exists idx_board_attachments_post
   on public.board_attachments (post_id);
+
+create index if not exists idx_board_attachments_post_sort
+  on public.board_attachments (post_id, sort_order, created_at);
 
 create index if not exists idx_board_post_reactions_post
   on public.board_post_reactions (post_id);

@@ -120,7 +120,7 @@ type WebAttachment = {
   fileType: 'image' | 'file';
   previewUrl?: string;
 };
-const MAX_ATTACHMENTS = 5;
+const MAX_ATTACHMENTS = 20;
 
 export default function BoardPage() {
   const { role, residentId, displayName, isReadOnly } = useSession();

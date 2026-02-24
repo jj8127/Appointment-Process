@@ -169,7 +169,7 @@ export function requireRole(actor: Actor, roles: Role[], origin?: string) {
 }
 
 export const ATTACHMENT_LIMITS = {
-  maxFiles: 5,
+  maxFiles: 20,
   maxTotalBytes: 100 * 1024 * 1024,
   maxImageBytes: 10 * 1024 * 1024,
   maxFileBytes: 50 * 1024 * 1024,

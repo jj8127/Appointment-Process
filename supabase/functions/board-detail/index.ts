@@ -47,8 +47,9 @@ serve(async (req: Request) => {
   const [attachmentsRes, reactionsRes, commentsRes, likesRes] = await Promise.all([
     supabase
       .from('board_attachments')
-      .select('id,file_type,file_name,file_size,mime_type,storage_path')
+      .select('id,file_type,file_name,file_size,mime_type,storage_path,sort_order')
       .eq('post_id', postId)
+      .order('sort_order', { ascending: true })
       .order('created_at', { ascending: true }),
     supabase
       .from('board_post_reactions')

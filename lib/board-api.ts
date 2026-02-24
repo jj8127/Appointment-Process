@@ -162,7 +162,13 @@ export async function createBoardPost(actor: BoardActor, payload: { categoryId: 
   return invokeBoard<{ id: string }>('board-create', { actor, ...payload });
 }
 
-export async function updateBoardPost(actor: BoardActor, payload: { postId: string; categoryId?: string; title?: string; content?: string }) {
+export async function updateBoardPost(actor: BoardActor, payload: {
+  postId: string;
+  categoryId?: string;
+  title?: string;
+  content?: string;
+  attachmentOrder?: string[];
+}) {
   return invokeBoard<null>('board-update', { actor, ...payload });
 }
 
@@ -213,7 +219,14 @@ export async function signBoardAttachments(
 export async function finalizeBoardAttachments(
   actor: BoardActor,
   postId: string,
-  files: Array<{ storagePath: string; fileName: string; fileSize: number; mimeType?: string; fileType: 'image' | 'file' }>,
+  files: Array<{
+    storagePath: string;
+    fileName: string;
+    fileSize: number;
+    mimeType?: string;
+    fileType: 'image' | 'file';
+    sortOrder?: number;
+  }>,
 ) {
   return invokeBoard<null>('board-attachment-finalize', { actor, postId, files });
 }

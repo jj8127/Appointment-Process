@@ -138,8 +138,11 @@ serve(async (req: Request) => {
         .in('post_id', postIds),
       supabase
         .from('board_attachments')
-        .select('id,post_id,file_type,file_name,file_size,storage_path')
-        .in('post_id', postIds),
+        .select('id,post_id,file_type,file_name,file_size,storage_path,sort_order,created_at')
+        .in('post_id', postIds)
+        .order('post_id', { ascending: true })
+        .order('sort_order', { ascending: true })
+        .order('created_at', { ascending: true }),
     ]);
 
     if (reactionsRes.error) {
@@ -161,16 +164,26 @@ serve(async (req: Request) => {
 
     const signedUrlMap = new Map<string, string>();
     const imageCounts = new Map<string, number>();
+    const createSignedUrlWithRetry = async (storagePath: string) => {
+      for (let attempt = 0; attempt < 2; attempt += 1) {
+        const { data, error } = await supabase.storage
+          .from('board-attachments')
+          .createSignedUrl(storagePath, 60 * 60 * 6);
+        if (!error && data?.signedUrl) {
+          return data.signedUrl;
+        }
+      }
+      return null;
+    };
+
     for (const row of attachmentsRes.data ?? []) {
       if (row.file_type !== 'image') continue;
       const current = imageCounts.get(row.post_id) ?? 0;
-      if (current >= 3) continue;
-      imageCounts.set(row.post_id, current + 1);
-      const { data, error } = await supabase.storage
-        .from('board-attachments')
-        .createSignedUrl(row.storage_path, 60 * 60);
-      if (!error && data?.signedUrl) {
-        signedUrlMap.set(row.id, data.signedUrl);
+      if (current >= 4) continue;
+      const signedUrl = await createSignedUrlWithRetry(row.storage_path);
+      if (signedUrl) {
+        signedUrlMap.set(row.id, signedUrl);
+        imageCounts.set(row.post_id, current + 1);
       }
     }
 
