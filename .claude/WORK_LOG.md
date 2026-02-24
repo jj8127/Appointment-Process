@@ -20,6 +20,7 @@
 ## 최근 작업
 | 날짜 | 작업 | 핵심 파일 | 상세 |
 |------|------|----------|------|
+| 02-24 | 어드민 브라우저 웹 푸시 알림 추가 (FC 서류/동의/시험/채팅 → 어드민 OS 알림) | `web/src/app/api/admin/push/route.ts`, `supabase/functions/fc-notify/index.ts`, `web/src/app/api/fc-notify/route.ts`, `web/src/app/api/web-push/subscribe/route.ts` | [→ 상세](WORK_DETAIL.md#20260224-1) |
 | 02-20 | 모바일 시험 신청(생명/손해) 마감 필터 기준 통일 및 당겨서 새로고침 제스처 복구 | `app/exam-apply.tsx`, `app/exam-apply2.tsx`, `AGENTS.md` | [→ 상세](WORK_DETAIL.md#20260220-1) |
 | 02-19 | 웹 대시보드 서류 배지의 "검토 중" 카운트를 제출 문서 기준으로 보정 | `web/src/app/dashboard/page.tsx` | [→ 상세](WORK_DETAIL.md#20260219-8) |
 | 02-19 | 웹 FC 상세 페이지에서 프로필/관리자 메모 수정 경로를 서버 API로 전환하고 관리자만 수정 가능하도록 권한 제어 보강 | `web/src/app/dashboard/profile/[id]/page.tsx`, `AGENTS.md` | [→ 상세](WORK_DETAIL.md#20260219-7) |

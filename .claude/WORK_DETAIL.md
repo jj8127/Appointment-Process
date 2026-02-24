@@ -7,6 +7,44 @@
 
 ---
 
+## <a id="20260224-1"></a> 2026-02-24 | 어드민 브라우저 웹 푸시 알림 추가
+
+**Commit**: `475f11b`
+**작업 내용**:
+- `web/src/app/api/admin/push/route.ts` 신규 생성:
+  - `X-Admin-Push-Secret` 헤더로 인증하는 보호 엔드포인트
+  - `web_push_subscriptions` 테이블에서 `role='admin'` 구독자 조회 후 `sendWebPush` 발송
+  - 만료 구독 자동 정리
+- `supabase/functions/fc-notify/index.ts` 수정:
+  - `notifyAdminWebPush(title, body, url)` 헬퍼 추가
+  - `type='notify'`+`target_role='admin'`, `type='message'`+`target_role='admin'`, `type='fc_update'`, `type='fc_delete'` 처리 후 어드민 웹 푸시 콜백 호출
+- `web/src/app/api/fc-notify/route.ts` 수정:
+  - `type='notify'`+`target_role='admin'` 케이스에 웹 푸시 처리 추가
+- `web/src/app/api/web-push/subscribe/route.ts` 수정:
+  - anon 클라이언트 → service role 클라이언트로 교체
+  - 커스텀 인증 환경에서 `auth.uid()=null`로 인한 RLS 차단 버그 수정
+- Supabase 시크릿 등록: `ADMIN_PUSH_SECRET`, `ADMIN_WEB_URL`
+- Vercel 환경변수 등록: `NEXT_PUBLIC_WEB_PUSH_VAPID_PUBLIC_KEY`, `WEB_PUSH_VAPID_PRIVATE_KEY`, `WEB_PUSH_SUBJECT`, `ADMIN_PUSH_SECRET`
+- `fc-notify` Edge Function 배포 완료
+
+**핵심 파일**:
+- `web/src/app/api/admin/push/route.ts` (신규)
+- `supabase/functions/fc-notify/index.ts`
+- `web/src/app/api/fc-notify/route.ts`
+- `web/src/app/api/web-push/subscribe/route.ts`
+- `.claude/WORK_LOG.md`
+- `.claude/WORK_DETAIL.md`
+
+**검증**:
+- `cd web && npm run lint` 통과
+- Vercel 빌드 통과 (notifications edit 페이지 누락 파일 추가 커밋 포함)
+
+**다음 단계**:
+- 어드민이 `adminweb-red.vercel.app` 접속 후 브라우저 알림 권한 허용 필요
+- FC 채팅/서류/동의/시험 신청 시 OS 알림 수신 확인
+
+---
+
 ## <a id="20260220-1"></a> 2026-02-20 | 모바일 시험 신청(생명/손해) 마감 필터 기준 통일 및 당겨서 새로고침 제스처 복구
 
 **Commit**: `0c25c96`  
