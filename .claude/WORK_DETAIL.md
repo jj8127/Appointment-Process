@@ -7,6 +7,33 @@
 
 ---
 
+## <a id="20260225-12"></a> 2026-02-25 | 거버넌스 CI 복구(문서/스키마 동기화)
+
+**Commit**: `working tree`  
+**작업 내용**:
+- GitHub Actions `governance-check` 실패 원인 대응:
+  - `Code changed but WORK_LOG.md and WORK_DETAIL.md were not both updated.`
+  - `Schema change policy violation: update supabase/schema.sql and supabase/migrations/*.sql together.`
+- 수정 반영:
+  - `.claude/WORK_LOG.md`, `.claude/WORK_DETAIL.md` 동시 업데이트
+  - `supabase/schema.sql`에 `notices.created_by` 스키마 동기화 보강
+  - 동기화용 no-op 마이그레이션 추가:
+    - `supabase/migrations/20260225000002_schema_sync_notices_created_by.sql`
+
+**핵심 파일**:
+- `supabase/schema.sql`
+- `supabase/migrations/20260225000002_schema_sync_notices_created_by.sql`
+- `.claude/WORK_LOG.md`
+- `.claude/WORK_DETAIL.md`
+
+**검증**:
+- 로컬 실행: `node scripts/ci/check-governance.mjs` 통과
+
+**다음 단계**:
+- 해당 커밋 푸시 후 GitHub Actions `Governance Check` 재실행/통과 확인
+
+---
+
 ## <a id="20260225-11"></a> 2026-02-25 | request_board 메신저 첨부파일 UI 완성(모바일)
 
 **Commit**: `working tree`  

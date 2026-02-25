@@ -165,6 +165,10 @@ create table if not exists public.notices (
   created_by text
 );
 
+-- keep schema parity with migration history
+alter table public.notices
+  add column if not exists created_by text;
+
 create table if not exists public.exam_rounds (
   id uuid primary key default gen_random_uuid(),
   exam_date date not null,
