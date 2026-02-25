@@ -24,7 +24,7 @@ import { COLORS, TYPOGRAPHY, SPACING, RADIUS } from '@/lib/theme';
 export default function LoginScreen() {
     const { skipAuto } = useLocalSearchParams<{ skipAuto?: string }>();
     const skipAutoRedirect = skipAuto === '1';
-    const { role, residentId, hydrated } = useSession();
+    const { role, residentId, hydrated, isRequestBoardDesigner } = useSession();
     const [phoneInput, setPhoneInput] = useState('');
     const [passwordInput, setPasswordInput] = useState('');
     const keyboardPadding = useKeyboardPadding();
@@ -36,13 +36,13 @@ export default function LoginScreen() {
         if (skipAutoRedirect) return;
         if (!hydrated) return;
         if (role === 'admin') {
-            router.replace('/');
+            router.replace(isRequestBoardDesigner ? '/request-board' : '/');
             return;
         }
         if (role === 'fc' && residentId) {
             router.replace('/home-lite');
         }
-    }, [hydrated, residentId, role, skipAutoRedirect]);
+    }, [hydrated, isRequestBoardDesigner, residentId, role, skipAutoRedirect]);
 
     const handleLogin = () => {
         login(phoneInput, passwordInput);

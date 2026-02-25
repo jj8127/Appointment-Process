@@ -3,6 +3,7 @@ import { Alert, Keyboard } from 'react-native';
 import * as Haptics from 'expo-haptics';
 import { router } from 'expo-router';
 import { useSession } from '@/hooks/use-session';
+import { rbBridgeLogin, setBridgeToken } from '@/lib/request-board-api';
 import { supabase } from '@/lib/supabase';
 import { validatePhone, validateRequired, normalizePhone } from '@/lib/validation';
 
@@ -13,6 +14,7 @@ type LoginResponse = {
   role?: 'admin' | 'fc' | 'manager';
   residentId?: string;
   displayName?: string;
+  requestBoardBridgeToken?: string;
 };
 
 type UseLoginOptions = {
@@ -82,13 +84,38 @@ export function useLogin(options?: UseLoginOptions) {
       // Success - set session
       const readOnly = data.role === 'manager';
       const nextRole = data.role === 'admin' || data.role === 'manager' ? 'admin' : 'fc';
-      loginAs(nextRole, data.residentId ?? digits, data.displayName ?? '', readOnly);
+      const bridgeToken = data.requestBoardBridgeToken ?? null;
+      await setBridgeToken(bridgeToken);
+
+      let requestBoardRole: 'fc' | 'designer' | null = null;
+      let isRequestBoardDesigner = false;
+      if (bridgeToken) {
+        try {
+          const bridged = await rbBridgeLogin(bridgeToken);
+          if (bridged.success && (bridged.user?.role === 'designer' || bridged.user?.role === 'fc')) {
+            requestBoardRole = bridged.user.role;
+            isRequestBoardDesigner = bridged.user.role === 'designer';
+          }
+        } catch {
+          requestBoardRole = null;
+          isRequestBoardDesigner = false;
+        }
+      }
+
+      loginAs(
+        nextRole,
+        data.residentId ?? digits,
+        data.displayName ?? '',
+        readOnly,
+        isRequestBoardDesigner,
+        requestBoardRole,
+      );
 
       // Navigate or call custom success handler
       if (options?.onSuccess) {
         options.onSuccess(nextRole);
       } else {
-        router.replace(nextRole === 'admin' ? '/' : '/home-lite');
+        router.replace(isRequestBoardDesigner ? '/request-board' : nextRole === 'admin' ? '/' : '/home-lite');
       }
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : '오류가 발생했습니다. 다시 시도해주세요.';

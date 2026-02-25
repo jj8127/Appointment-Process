@@ -11,6 +11,7 @@ const BASE_URL = (
 
 const STORAGE_KEY_TOKEN = 'rb_jwt_token';
 const STORAGE_KEY_USER = 'rb_user';
+const STORAGE_KEY_BRIDGE_TOKEN = 'rb_bridge_token';
 
 /* ─── Types ─── */
 
@@ -107,12 +108,23 @@ export type RbDmMessage = {
 
 let cachedToken: string | null = null;
 let cachedUser: RbUser | null = null;
+let cachedBridgeToken: string | null = null;
 
 export async function getStoredToken(): Promise<string | null> {
   if (cachedToken) return cachedToken;
   try {
     cachedToken = await safeStorage.getItem(STORAGE_KEY_TOKEN);
     return cachedToken;
+  } catch {
+    return null;
+  }
+}
+
+export async function getStoredBridgeToken(): Promise<string | null> {
+  if (cachedBridgeToken) return cachedBridgeToken;
+  try {
+    cachedBridgeToken = await safeStorage.getItem(STORAGE_KEY_BRIDGE_TOKEN);
+    return cachedBridgeToken;
   } catch {
     return null;
   }
@@ -137,6 +149,15 @@ async function storeAuth(token: string, user: RbUser) {
   await safeStorage.setItem(STORAGE_KEY_USER, JSON.stringify(user));
 }
 
+export async function setBridgeToken(token: string | null) {
+  cachedBridgeToken = token;
+  if (token) {
+    await safeStorage.setItem(STORAGE_KEY_BRIDGE_TOKEN, token);
+  } else {
+    await safeStorage.removeItem(STORAGE_KEY_BRIDGE_TOKEN);
+  }
+}
+
 export async function clearAuth() {
   cachedToken = null;
   cachedUser = null;
@@ -144,11 +165,56 @@ export async function clearAuth() {
   await safeStorage.removeItem(STORAGE_KEY_USER);
 }
 
+export async function clearRequestBoardState() {
+  await clearAuth();
+  await setBridgeToken(null);
+}
+
+async function bridgeLogin(
+  bridgeToken?: string,
+): Promise<{ success: boolean; user?: RbUser; error?: string }> {
+  const tokenFromStorage = bridgeToken ?? (await getStoredBridgeToken());
+  if (!tokenFromStorage) {
+    return { success: false, error: '브릿지 토큰이 없습니다.' };
+  }
+
+  try {
+    const res = await fetch(`${BASE_URL}/api/auth/bridge-login`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ bridgeToken: tokenFromStorage }),
+    });
+    const json = await res.json();
+
+    if (!json.success || !json.data?.token) {
+      return { success: false, error: json.error ?? json.message ?? '브릿지 로그인 실패' };
+    }
+
+    const user: RbUser = {
+      id: json.data.user.id,
+      name: json.data.user.name,
+      email: json.data.user.email,
+      phone: json.data.user.phone,
+      role: json.data.user.role,
+    };
+    await storeAuth(json.data.token, user);
+    return { success: true, user };
+  } catch (err) {
+    logger.warn('[rb-api] bridge login error', err);
+    return { success: false, error: '서버에 연결할 수 없습니다.' };
+  }
+}
+
+export async function rbBridgeLogin(bridgeToken?: string) {
+  return bridgeLogin(bridgeToken);
+}
+
 /* ─── HTTP helpers ─── */
 
 async function rbFetch<T>(
   path: string,
   options: RequestInit = {},
+  allowRetry = true,
 ): Promise<{ success: boolean; data?: T; error?: string }> {
   const token = await getStoredToken();
   const headers: Record<string, string> = {
@@ -168,8 +234,14 @@ async function rbFetch<T>(
     // Only clear auth on 401 (token expired/invalid), NOT on 403 (forbidden/role mismatch)
     if (res.status === 401) {
       logger.warn(`[rb-api] 401 Unauthorized: ${path}`);
+      if (allowRetry && path !== '/api/auth/bridge-login') {
+        const relogin = await bridgeLogin();
+        if (relogin.success) {
+          return rbFetch<T>(path, options, false);
+        }
+      }
       await clearAuth();
-      return { success: false, error: '인증이 만료되었습니다. 다시 로그인해주세요.' };
+      return { success: false, error: '인증이 만료되었습니다. 앱에서 다시 로그인해주세요.' };
     }
 
     if (res.status === 403) {
@@ -236,7 +308,13 @@ export async function rbLogin(
 
 export async function rbCheckAuth(): Promise<{ authenticated: boolean; user?: RbUser }> {
   const token = await getStoredToken();
-  if (!token) return { authenticated: false };
+  if (!token) {
+    const bridged = await bridgeLogin();
+    if (bridged.success && bridged.user) {
+      return { authenticated: true, user: bridged.user };
+    }
+    return { authenticated: false };
+  }
 
   const res = await rbFetch<RbUser>('/api/auth/me');
   if (res.success && res.data) {

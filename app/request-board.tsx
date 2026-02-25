@@ -1,4 +1,5 @@
 import { Feather } from '@expo/vector-icons';
+import * as Clipboard from 'expo-clipboard';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Stack, useRouter } from 'expo-router';
 import { MotiView } from 'moti';
@@ -28,6 +29,9 @@ import { COLORS, RADIUS, SHADOWS, SPACING, TYPOGRAPHY } from '@/lib/theme';
 const YOUTUBE_URL = 'https://youtu.be/Otu7hc2trfY?si=4sby6Qt9OtTB06GM';
 const SCREEN_WIDTH = Dimensions.get('window').width;
 const CARD_GAP = 10;
+const REQUEST_BOARD_WEB_URL = (
+  process.env.EXPO_PUBLIC_REQUEST_BOARD_URL || 'https://requestboard-steel.vercel.app'
+).replace(/\/$/, '');
 
 const REQUEST_BOARD_CATEGORY_PREFIX = 'request_board_';
 
@@ -98,22 +102,29 @@ const formatRelativeTime = (dateStr: string): string => {
 export default function RequestBoardScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
-  const { role, residentId, hydrated } = useSession();
+  const { role, residentId, hydrated, isRequestBoardDesigner, requestBoardRole } = useSession();
   const [notifications, setNotifications] = useState<NotificationItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
 
-  const navPreset = role === 'admin' ? 'admin-onboarding' : 'fc';
+  const navPreset = isRequestBoardDesigner
+    ? 'request-board-designer'
+    : role === 'admin'
+      ? 'admin-onboarding'
+      : 'fc';
 
   /* ─── Data fetch ─── */
   const fetchData = useCallback(async () => {
-    if (!role) return;
+    const inboxRole: 'admin' | 'fc' | null = role
+      ? (requestBoardRole ? 'fc' : role)
+      : null;
+    if (!inboxRole) return;
     try {
       const { data, error } = await supabase.functions.invoke('fc-notify', {
         body: {
           type: 'inbox_list',
-          role,
-          resident_id: role === 'fc' ? (residentId ?? null) : null,
+          role: inboxRole,
+          resident_id: inboxRole === 'fc' ? (residentId ?? null) : null,
           limit: 100,
         },
       });
@@ -137,7 +148,7 @@ export default function RequestBoardScreen() {
       setLoading(false);
       setRefreshing(false);
     }
-  }, [role, residentId]);
+  }, [role, residentId, requestBoardRole]);
 
   useEffect(() => {
     if (hydrated) fetchData();
@@ -194,6 +205,16 @@ export default function RequestBoardScreen() {
     router.push('/notifications');
   };
 
+  const copyRequestBoardUrl = async () => {
+    try {
+      await Clipboard.setStringAsync(REQUEST_BOARD_WEB_URL);
+      Alert.alert('복사 완료', 'request_board 접속 주소를 복사했습니다.');
+    } catch (err) {
+      logger.warn('failed to copy request_board url', err);
+      Alert.alert('복사 실패', '주소 복사 중 오류가 발생했습니다.');
+    }
+  };
+
   const handleNotifPress = (item: NotificationItem) => {
     const catKey = (item.category ?? '').trim().toLowerCase();
     const isMessage = catKey === 'request_board_message';
@@ -219,13 +240,21 @@ export default function RequestBoardScreen() {
             <Text style={styles.headerTitle}>설계 요청</Text>
             <Text style={styles.headerSub}>의뢰 현황과 알림을 한눈에</Text>
           </View>
-          <Pressable
-            style={({ pressed }) => [styles.headerAction, pressed && { opacity: 0.6 }]}
-            onPress={openNotifications}
-          >
-            <Feather name="bell" size={20} color={COLORS.gray[700]} />
-            {notifications.length > 0 && <View style={styles.badge} />}
-          </Pressable>
+          <View style={styles.headerActions}>
+            <Pressable
+              style={({ pressed }) => [styles.headerAction, pressed && { opacity: 0.6 }]}
+              onPress={copyRequestBoardUrl}
+            >
+              <Feather name="copy" size={18} color={COLORS.gray[700]} />
+            </Pressable>
+            <Pressable
+              style={({ pressed }) => [styles.headerAction, pressed && { opacity: 0.6 }]}
+              onPress={openNotifications}
+            >
+              <Feather name="bell" size={20} color={COLORS.gray[700]} />
+              {notifications.length > 0 && <View style={styles.badge} />}
+            </Pressable>
+          </View>
         </View>
       </View>
 
@@ -500,6 +529,11 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
+  },
+  headerActions: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
   },
   headerTitle: {
     fontSize: TYPOGRAPHY.fontSize.xl,

@@ -20,6 +20,7 @@
 ## 최근 작업
 | 날짜 | 작업 | 핵심 파일 | 상세 |
 |------|------|----------|------|
+| 02-25 | request_board 본부장(FC 리더) 브릿지 권한 정렬 + 재테스트 완료 | `hooks/use-login.ts`, `hooks/use-session.tsx`, `app/request-board.tsx`, `app/notifications.tsx`, `supabase/functions/login-with-password/index.ts` | [→ 상세](WORK_DETAIL.md#20260225-13) |
 | 02-25 | 거버넌스 CI 복구: WORK_LOG/WORK_DETAIL 동시 갱신 + schema/migration 동기화(no-op) 반영 | `supabase/schema.sql`, `supabase/migrations/20260225000002_schema_sync_notices_created_by.sql`, `.claude/WORK_LOG.md`, `.claude/WORK_DETAIL.md` | [→ 상세](WORK_DETAIL.md#20260225-12) |
 | 02-25 | request_board 메신저 첨부파일 UI 완성(이미지/문서 선택, 업로드 후 전송, 메시지 내 썸네일/파일카드/이미지 확대 미리보기) + 타입 정리(implicit any 제거) | `app/request-board-messenger.tsx`, `AGENTS.md` | [→ 상세](WORK_DETAIL.md#20260225-11) |
 | 02-25 | 알림 출처 구분 강화(온보딩앱 vs 설계요청): request_board 푸시에 `[설계요청]` 접두 + 앱 알림센터 출처 배지/카테고리 라벨 적용 | `supabase/functions/fc-notify/index.ts`, `app/notifications.tsx`, `AGENTS.md` | [→ 상세](WORK_DETAIL.md#20260225-10) |

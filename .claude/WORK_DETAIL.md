@@ -7,6 +7,45 @@
 
 ---
 
+## <a id="20260225-13"></a> 2026-02-25 | request_board 본부장(FC 리더) 브릿지 권한 정렬 + 재테스트
+
+**Commit**: `working tree`  
+**작업 내용**:
+- 사용자 정책 정렬:
+  - app의 `manager(본부장)`는 request_board `designer`가 아니라 `fc` 계열로 취급하도록 브릿지 로그인 경로 재정렬
+  - request_board designer 전용 모드 활성화는 `rbBridgeLogin` 결과가 실제 `designer`일 때만 true가 되도록 고정
+- 세션/알림 경로 분리:
+  - `use-session`에 `requestBoardRole('fc'|'designer'|null)` 상태 추가
+  - request_board 알림함 조회 시 app role 대신 `requestBoardRole` 우선 사용
+  - designer 브릿지 계정이 아닌 경우 inbox 조회는 `role=fc + resident_id`로 고정
+- 배포 반영:
+  - `supabase/functions/login-with-password` 프로덕션 재배포 완료
+  - manager 계정 브릿지 토큰 role을 `designer` -> `fc`로 전환
+- 추가 UX:
+  - request_board 화면 헤더에 웹 URL 복사 버튼 추가
+
+**핵심 파일**:
+- `hooks/use-login.ts`
+- `hooks/use-session.tsx`
+- `app/request-board.tsx`
+- `app/notifications.tsx`
+- `supabase/functions/login-with-password/index.ts`
+
+**검증**:
+- 정적 검증:
+  - `npm run lint -- hooks/use-login.ts hooks/use-session.tsx app/request-board.tsx app/notifications.tsx` 통과
+- 배포 검증:
+  - `supabase functions deploy login-with-password --project-ref ubeginyxaotcamuqpmud` 성공
+- API 실측:
+  - `login-with-password(01093118127)` -> `role=manager`, `requestBoardBridgeToken` 발급 확인
+  - `POST /api/auth/bridge-login` -> manager token으로 `role=fc` 로그인 성공(403 재현 해소)
+  - request_board DM 송신 후 `fc-notify inbox_list(role=fc,resident_id=01093118127)`에서 `request_board_message` 적재 확인
+
+**다음 단계**:
+- 모바일 앱 빌드/OTA 배포 후 실기기에서 본부장 계정 로그인 -> 설계페이지 진입 -> 알림센터 반영을 UI 기준으로 최종 확인
+
+---
+
 ## <a id="20260225-12"></a> 2026-02-25 | 거버넌스 CI 복구(문서/스키마 동기화)
 
 **Commit**: `working tree`  

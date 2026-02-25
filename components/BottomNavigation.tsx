@@ -14,7 +14,7 @@ export interface NavItem {
 }
 
 /** 역할별 네비게이션 프리셋 */
-export type NavPreset = 'fc' | 'admin-onboarding' | 'admin-exam' | 'manager';
+export type NavPreset = 'fc' | 'admin-onboarding' | 'admin-exam' | 'manager' | 'request-board-designer';
 
 const FC_NAV_ITEMS: NavItem[] = [
   { key: 'home', label: '홈', icon: 'home', route: '/' },
@@ -44,11 +44,17 @@ const MANAGER_NAV_ITEMS: NavItem[] = [
   { key: 'settings', label: '설정', icon: 'settings', route: '/settings' },
 ];
 
+const REQUEST_BOARD_DESIGNER_NAV_ITEMS: NavItem[] = [
+  { key: 'request-board', label: '설계요청', icon: 'file-text', route: '/request-board' },
+  { key: 'settings', label: '설정', icon: 'settings', route: '/settings' },
+];
+
 const NAV_PRESETS: Record<NavPreset, NavItem[]> = {
   fc: FC_NAV_ITEMS,
   'admin-onboarding': ADMIN_ONBOARDING_NAV_ITEMS,
   'admin-exam': ADMIN_EXAM_NAV_ITEMS,
   manager: MANAGER_NAV_ITEMS,
+  'request-board-designer': REQUEST_BOARD_DESIGNER_NAV_ITEMS,
 };
 
 interface BottomNavigationProps {

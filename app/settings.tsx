@@ -12,7 +12,7 @@ import { supabase } from '@/lib/supabase';
 import { COLORS, TYPOGRAPHY, SPACING, RADIUS } from '@/lib/theme';
 
 export default function SettingsScreen() {
-  const { role, residentId, residentMask, displayName, logout } = useSession();
+  const { role, residentId, residentMask, displayName, logout, isRequestBoardDesigner } = useSession();
   const insets = useSafeAreaInsets();
   const { scrollHandler, animatedStyle } = useBottomNavAnimation();
 
@@ -69,7 +69,9 @@ export default function SettingsScreen() {
           </View>
           <View style={styles.row}>
             <Text style={styles.label}>역할</Text>
-            <Text style={styles.value}>{role === 'admin' ? '관리자' : 'FC'}</Text>
+            <Text style={styles.value}>
+              {isRequestBoardDesigner ? '설계매니저' : role === 'admin' ? '관리자' : 'FC'}
+            </Text>
           </View>
         </View>
 
@@ -94,7 +96,7 @@ export default function SettingsScreen() {
       </Animated.ScrollView>
 
       <BottomNavigation
-        preset={role === 'admin' ? 'admin-onboarding' : 'fc'}
+        preset={isRequestBoardDesigner ? 'request-board-designer' : role === 'admin' ? 'admin-onboarding' : 'fc'}
         activeKey="settings"
         animatedStyle={animatedStyle}
         bottomInset={insets.bottom}

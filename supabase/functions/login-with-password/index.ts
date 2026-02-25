@@ -35,6 +35,11 @@ if (!serviceKey) {
 
 const supabase = createClient(supabaseUrl, serviceKey);
 const encoder = new TextEncoder();
+const requestBoardAuthBridgeSecret = (getEnv('REQUEST_BOARD_AUTH_BRIDGE_SECRET') ?? '').trim();
+const requestBoardBridgeTtlSecRaw = Number((getEnv('REQUEST_BOARD_AUTH_BRIDGE_TTL_SEC') ?? '2592000').trim());
+const requestBoardBridgeTtlSec = Number.isFinite(requestBoardBridgeTtlSecRaw) && requestBoardBridgeTtlSecRaw > 0
+  ? Math.floor(requestBoardBridgeTtlSecRaw)
+  : 2592000;
 
 const MAX_FAILS = 5;
 const LOCK_MINUTES = 10;
@@ -60,6 +65,10 @@ function toBase64(bytes: Uint8Array) {
   return btoa(binary);
 }
 
+function toBase64Url(bytes: Uint8Array) {
+  return toBase64(bytes).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/g, '');
+}
+
 function fromBase64(input: string) {
   const binary = atob(input);
   const bytes = new Uint8Array(binary.length);
@@ -78,6 +87,34 @@ async function hashPassword(password: string, saltBase64: string) {
     256,
   );
   return toBase64(new Uint8Array(bits));
+}
+
+async function createBridgeToken(
+  phone: string,
+  role: 'fc' | 'designer',
+): Promise<string | null> {
+  if (!requestBoardAuthBridgeSecret) return null;
+
+  const nowSec = Math.floor(Date.now() / 1000);
+  const payload = {
+    phone,
+    role,
+    iat: nowSec,
+    exp: nowSec + requestBoardBridgeTtlSec,
+  };
+  const payloadPart = toBase64Url(encoder.encode(JSON.stringify(payload)));
+
+  const key = await crypto.subtle.importKey(
+    'raw',
+    encoder.encode(requestBoardAuthBridgeSecret),
+    { name: 'HMAC', hash: 'SHA-256' },
+    false,
+    ['sign'],
+  );
+  const sigBuffer = await crypto.subtle.sign('HMAC', key, encoder.encode(payloadPart));
+  const signaturePart = toBase64Url(new Uint8Array(sigBuffer));
+
+  return `${payloadPart}.${signaturePart}`;
 }
 
 serve(async (req: Request) => {
@@ -166,7 +203,14 @@ serve(async (req: Request) => {
       .update({ failed_count: 0, locked_until: null })
       .eq('id', admin.id);
 
-    return json({ ok: true, role: 'admin', residentId: admin.phone, displayName: admin.name ?? '' });
+    const requestBoardBridgeToken = await createBridgeToken(admin.phone, 'designer');
+    return json({
+      ok: true,
+      role: 'admin',
+      residentId: admin.phone,
+      displayName: admin.name ?? '',
+      ...(requestBoardBridgeToken ? { requestBoardBridgeToken } : {}),
+    });
   }
 
   const { data: manager, error: managerError } = await supabase
@@ -227,7 +271,14 @@ serve(async (req: Request) => {
       .update({ failed_count: 0, locked_until: null })
       .eq('id', manager.id);
 
-    return json({ ok: true, role: 'manager', residentId: manager.phone, displayName: manager.name ?? '' });
+    const requestBoardBridgeToken = await createBridgeToken(manager.phone, 'fc');
+    return json({
+      ok: true,
+      role: 'manager',
+      residentId: manager.phone,
+      displayName: manager.name ?? '',
+      ...(requestBoardBridgeToken ? { requestBoardBridgeToken } : {}),
+    });
   }
 
   const { data: profile, error: profileError } = await supabase
@@ -298,5 +349,12 @@ serve(async (req: Request) => {
     .update({ failed_count: 0, locked_until: null })
     .eq('fc_id', profile.id);
 
-  return json({ ok: true, role: 'fc', residentId: profile.phone, displayName: profile.name ?? '' });
+  const requestBoardBridgeToken = await createBridgeToken(profile.phone, 'fc');
+  return json({
+    ok: true,
+    role: 'fc',
+    residentId: profile.phone,
+    displayName: profile.name ?? '',
+    ...(requestBoardBridgeToken ? { requestBoardBridgeToken } : {}),
+  });
 });

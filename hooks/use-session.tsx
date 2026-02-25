@@ -1,9 +1,11 @@
 import { createContext, ReactNode, useContext, useEffect, useMemo, useState } from 'react';
 import { logger } from '@/lib/logger';
 import { registerPushToken } from '@/lib/notifications';
+import { clearRequestBoardState } from '@/lib/request-board-api';
 import { safeStorage } from '@/lib/safe-storage';
 
 type Role = 'admin' | 'fc' | null;
+type RequestBoardRole = 'fc' | 'designer' | null;
 
 type SessionState = {
   role: Role;
@@ -11,11 +13,20 @@ type SessionState = {
   residentMask: string; // formatted phone number
   displayName: string;
   readOnly: boolean;
+  isRequestBoardDesigner: boolean;
+  requestBoardRole: RequestBoardRole;
 };
 
 type SessionContextValue = SessionState & {
   hydrated: boolean;
-  loginAs: (role: Role, residentId: string, displayName?: string, readOnly?: boolean) => void;
+  loginAs: (
+    role: Role,
+    residentId: string,
+    displayName?: string,
+    readOnly?: boolean,
+    isRequestBoardDesigner?: boolean,
+    requestBoardRole?: RequestBoardRole,
+  ) => void;
   logout: () => void;
 };
 
@@ -29,7 +40,15 @@ const computeMask = (raw: string) => {
   return `${digits.slice(0, 3)}-${digits.slice(3, 7)}-${digits.slice(7)}`;
 };
 
-const initialState: SessionState = { role: null, residentId: '', residentMask: '', displayName: '', readOnly: false };
+const initialState: SessionState = {
+  role: null,
+  residentId: '',
+  residentMask: '',
+  displayName: '',
+  readOnly: false,
+  isRequestBoardDesigner: false,
+  requestBoardRole: null,
+};
 const STORAGE_KEY = 'fc-onboarding/session';
 
 export function SessionProvider({ children }: { children: ReactNode }) {
@@ -43,12 +62,21 @@ export function SessionProvider({ children }: { children: ReactNode }) {
         if (raw) {
           const parsed = JSON.parse(raw) as Partial<SessionState>;
           if (parsed.role && parsed.residentId) {
+            const restoredRequestBoardRole =
+              parsed.requestBoardRole === 'fc' || parsed.requestBoardRole === 'designer'
+                ? parsed.requestBoardRole
+                : null;
             setState({
               role: parsed.role,
               residentId: parsed.residentId,
               residentMask: computeMask(parsed.residentId),
               displayName: parsed.displayName ?? '',
               readOnly: Boolean(parsed.readOnly),
+              isRequestBoardDesigner:
+                parsed.isRequestBoardDesigner !== undefined
+                  ? Boolean(parsed.isRequestBoardDesigner)
+                  : restoredRequestBoardRole === 'designer',
+              requestBoardRole: restoredRequestBoardRole,
             });
           }
         }
@@ -71,6 +99,8 @@ export function SessionProvider({ children }: { children: ReactNode }) {
             residentId: state.residentId,
             displayName: state.displayName,
             readOnly: state.readOnly,
+            isRequestBoardDesigner: state.isRequestBoardDesigner,
+            requestBoardRole: state.requestBoardRole,
           };
           await safeStorage.setItem(STORAGE_KEY, JSON.stringify(payload));
         } else {
@@ -90,14 +120,24 @@ export function SessionProvider({ children }: { children: ReactNode }) {
       logout: () => {
         setState(initialState);
         safeStorage.removeItem(STORAGE_KEY).catch((err) => logger.warn('Session clear failed', err));
+        clearRequestBoardState().catch((err) => logger.warn('request_board session clear failed', err));
       },
-      loginAs: (role, residentId, displayName = '', readOnly = false) => {
+      loginAs: (
+        role,
+        residentId,
+        displayName = '',
+        readOnly = false,
+        isRequestBoardDesigner = false,
+        requestBoardRole = null,
+      ) => {
         setState({
           role,
           residentId,
           residentMask: computeMask(residentId),
           displayName,
           readOnly,
+          isRequestBoardDesigner,
+          requestBoardRole,
         });
       },
     }),
@@ -107,9 +147,20 @@ export function SessionProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     if (!hydrated) return;
     if (state.role && state.residentId) {
-      registerPushToken(state.role as 'admin' | 'fc', state.residentId, state.displayName);
+      const pushRole: 'admin' | 'fc' =
+        state.requestBoardRole === 'designer'
+          ? 'fc'
+          : (state.role as 'admin' | 'fc');
+      registerPushToken(pushRole, state.residentId, state.displayName);
     }
-  }, [hydrated, state.role, state.residentId, state.displayName]);
+  }, [
+    hydrated,
+    state.role,
+    state.residentId,
+    state.displayName,
+    state.isRequestBoardDesigner,
+    state.requestBoardRole,
+  ]);
 
   return <SessionContext.Provider value={value}>{children}</SessionContext.Provider>;
 }

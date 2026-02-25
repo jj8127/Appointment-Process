@@ -204,7 +204,7 @@ function AttachmentPreviewThumb({ uri }: AttachmentPreviewThumbProps) {
 export default function AdminBoardManageScreen() {
   const router = useRouter();
   const navigation = useNavigation();
-  const { role, displayName, residentId, readOnly } = useSession();
+  const { role, displayName, residentId, readOnly, isRequestBoardDesigner } = useSession();
   const queryClient = useQueryClient();
   const insets = useSafeAreaInsets();
   const keyboardPadding = useKeyboardPadding();
@@ -216,6 +216,12 @@ export default function AdminBoardManageScreen() {
     [displayName, readOnly, residentId, role],
   );
   const isManager = actor?.role === 'manager';
+
+  useEffect(() => {
+    if (role === 'admin' && isRequestBoardDesigner) {
+      router.replace('/request-board');
+    }
+  }, [isRequestBoardDesigner, role, router]);
 
   const [refreshing, setRefreshing] = useState(false);
   const [selectedPost, setSelectedPost] = useState<BoardPost | null>(null);
@@ -1107,8 +1113,8 @@ export default function AdminBoardManageScreen() {
 
       {/* 하단 네비게이션 바 (스크롤시 사라짐) */}
       <BottomNavigation
-        preset={isManager ? 'manager' : 'admin-onboarding'}
-        activeKey="board"
+        preset={isRequestBoardDesigner ? 'request-board-designer' : isManager ? 'manager' : 'admin-onboarding'}
+        activeKey={isRequestBoardDesigner ? 'request-board' : 'board'}
         animatedStyle={bottomNavAnimatedStyle as any}
         bottomInset={insets.bottom}
       />

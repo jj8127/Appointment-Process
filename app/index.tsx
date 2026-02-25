@@ -397,7 +397,7 @@ const getLinkIcon = (href: string) => {
 
 export default function Home() {
   useInAppUpdate(); // Check for Android updates on mount
-  const { role, residentId, displayName, logout, hydrated } = useSession();
+  const { role, residentId, displayName, logout, hydrated, isRequestBoardDesigner } = useSession();
   const { mode } = useLocalSearchParams<{ mode?: string }>();
   const { data: identityStatus, isLoading: identityLoading } = useIdentityStatus();
 
@@ -897,6 +897,13 @@ export default function Home() {
     }
   }, [hydrated, role]);
 
+  useEffect(() => {
+    if (!hydrated) return;
+    if (role === 'admin' && isRequestBoardDesigner) {
+      router.replace('/request-board');
+    }
+  }, [hydrated, isRequestBoardDesigner, role]);
+
   // 기본정보는 회원가입 시 이미 저장되므로 강제 리다이렉트 제거
   // 사용자가 홈 화면의 "기본 정보" 버튼을 눌러 자발적으로 편집 가능
 
@@ -1083,6 +1090,16 @@ export default function Home() {
   }
 
   if (!hydrated) {
+    return (
+      <SafeAreaView style={styles.safe} edges={['left', 'right', 'bottom']}>
+        <View style={[styles.container, { alignItems: 'center', justifyContent: 'center', flex: 1 }]}>
+          <ActivityIndicator color={HANWHA_ORANGE} />
+        </View>
+      </SafeAreaView>
+    );
+  }
+
+  if (role === 'admin' && isRequestBoardDesigner) {
     return (
       <SafeAreaView style={styles.safe} edges={['left', 'right', 'bottom']}>
         <View style={[styles.container, { alignItems: 'center', justifyContent: 'center', flex: 1 }]}>

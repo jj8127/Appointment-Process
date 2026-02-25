@@ -2,7 +2,7 @@ import { Feather } from '@expo/vector-icons';
 import { useMutation, useQuery } from '@tanstack/react-query';
 import { router } from 'expo-router';
 import { MotiView } from 'moti';
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import {
   Alert,
   Image,
@@ -94,9 +94,15 @@ const fetchNotices = async (role: 'admin' | 'fc' | null, residentId: string): Pr
 };
 
 export default function NoticeScreen() {
-  const { role, residentId, hydrated } = useSession();
+  const { role, residentId, hydrated, isRequestBoardDesigner } = useSession();
   const insets = useSafeAreaInsets();
   const { scrollHandler, animatedStyle } = useBottomNavAnimation();
+
+  useEffect(() => {
+    if (role === 'admin' && isRequestBoardDesigner) {
+      router.replace('/request-board');
+    }
+  }, [isRequestBoardDesigner, role]);
 
   const { data, isLoading, isError, refetch } = useQuery({
     queryKey: ['notices', 'list', role, residentId],
@@ -289,8 +295,8 @@ export default function NoticeScreen() {
       </Animated.ScrollView>
 
       <BottomNavigation
-        preset={role === 'admin' ? 'admin-onboarding' : 'fc'}
-        activeKey="board"
+        preset={isRequestBoardDesigner ? 'request-board-designer' : role === 'admin' ? 'admin-onboarding' : 'fc'}
+        activeKey={isRequestBoardDesigner ? 'request-board' : 'board'}
         animatedStyle={animatedStyle}
         bottomInset={insets.bottom}
       />

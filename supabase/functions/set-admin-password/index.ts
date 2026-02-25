@@ -40,6 +40,13 @@ if (!adminSecret) {
 }
 const supabase = createClient(supabaseUrl, serviceKey);
 const encoder = new TextEncoder();
+const requestBoardPasswordSyncUrl = (getEnv('REQUEST_BOARD_PASSWORD_SYNC_URL') ?? '').trim();
+const requestBoardPasswordSyncToken = (getEnv('REQUEST_BOARD_PASSWORD_SYNC_TOKEN') ?? '').trim();
+const requestBoardPasswordSyncTimeoutRaw = Number((getEnv('REQUEST_BOARD_PASSWORD_SYNC_TIMEOUT_MS') ?? '5000').trim());
+const requestBoardPasswordSyncTimeoutMs =
+  Number.isFinite(requestBoardPasswordSyncTimeoutRaw) && requestBoardPasswordSyncTimeoutRaw >= 1000
+    ? Math.floor(requestBoardPasswordSyncTimeoutRaw)
+    : 5000;
 
 function json(body: Record<string, unknown>, status = 200) {
   return new Response(JSON.stringify(body), {
@@ -70,6 +77,39 @@ async function hashPassword(password: string, saltBytes: Uint8Array) {
     256,
   );
   return toBase64(new Uint8Array(bits));
+}
+
+async function syncRequestBoardPassword(phone: string, password: string) {
+  if (!requestBoardPasswordSyncUrl || !requestBoardPasswordSyncToken) return;
+
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), requestBoardPasswordSyncTimeoutMs);
+  try {
+    const response = await fetch(requestBoardPasswordSyncUrl, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-request-bridge-token': requestBoardPasswordSyncToken,
+      },
+      body: JSON.stringify({ phone, password }),
+      signal: controller.signal,
+    });
+
+    if (!response.ok) {
+      const text = await response.text().catch(() => '');
+      console.warn(`[set-admin-password] request_board sync failed: ${response.status} ${text.slice(0, 200)}`);
+      return;
+    }
+
+    const json = await response.json().catch(() => ({}));
+    if (!json?.success) {
+      console.warn(`[set-admin-password] request_board sync error: ${JSON.stringify(json).slice(0, 200)}`);
+    }
+  } catch (error) {
+    console.warn('[set-admin-password] request_board sync error:', error);
+  } finally {
+    clearTimeout(timeout);
+  }
 }
 
 serve(async (req: Request) => {
@@ -136,6 +176,8 @@ serve(async (req: Request) => {
   if (error) {
     return json({ ok: false, code: 'db_error', message: error.message }, 500);
   }
+
+  await syncRequestBoardPassword(phone, password);
 
   return json({ ok: true, phone, name, active });
 });

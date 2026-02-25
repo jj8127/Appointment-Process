@@ -86,7 +86,7 @@ const isRequestBoardCategory = (category?: string | null): boolean =>
 
 export default function NotificationsScreen() {
   const router = useRouter();
-  const { role, residentId, hydrated } = useSession();
+  const { role, residentId, hydrated, isRequestBoardDesigner, requestBoardRole } = useSession();
   const [notices, setNotices] = useState<Notice[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -95,8 +95,12 @@ export default function NotificationsScreen() {
   const [dragArmed, setDragArmed] = useState(false);
   const [isDragging, setIsDragging] = useState(false);
 
+  const inboxRole: 'admin' | 'fc' | null = role
+    ? (requestBoardRole ? 'fc' : role)
+    : null;
+  const inboxResidentId = inboxRole === 'fc' ? (residentId || null) : null;
   const hiddenNoticeStorageKey =
-    role === 'fc' ? `${HIDDEN_NOTICE_KEY_PREFIX}:${residentId || 'fc'}` : null;
+    inboxRole === 'fc' ? `${HIDDEN_NOTICE_KEY_PREFIX}:${residentId || 'fc'}` : null;
 
   const selectionModeRef = useRef(selectionMode);
   const isDraggingRef = useRef(isDragging);
@@ -311,13 +315,13 @@ export default function NotificationsScreen() {
   );
 
   const fetchInbox = useCallback(async (): Promise<{ pushRows: Notice[]; noticeRows: Notice[] }> => {
-    if (!role) return { pushRows: [], noticeRows: [] };
+    if (!inboxRole) return { pushRows: [], noticeRows: [] };
 
     const { data, error } = await supabase.functions.invoke<InboxListResponse>('fc-notify', {
       body: {
         type: 'inbox_list',
-        role,
-        resident_id: role === 'fc' ? (residentId ?? null) : null,
+        role: inboxRole,
+        resident_id: inboxResidentId,
         limit: 100,
       },
     });
@@ -351,8 +355,15 @@ export default function NotificationsScreen() {
       origin: 'notice',
     }));
 
-    return { pushRows, noticeRows };
-  }, [residentId, role]);
+    if (!isRequestBoardDesigner) {
+      return { pushRows, noticeRows };
+    }
+
+    return {
+      pushRows: pushRows.filter((item) => item.origin === 'request_board'),
+      noticeRows: [],
+    };
+  }, [inboxResidentId, inboxRole, isRequestBoardDesigner]);
 
   const load = useCallback(async () => {
     if (!hydrated) return;
@@ -464,7 +475,7 @@ export default function NotificationsScreen() {
 
   const doDelete = async () => {
     try {
-      if (!role) {
+      if (!inboxRole) {
         throw new Error('로그인 정보를 확인할 수 없습니다.');
       }
 
@@ -475,14 +486,14 @@ export default function NotificationsScreen() {
         .filter((id) => id.startsWith('notice:'))
         .map((id) => id.replace('notice:', ''));
 
-      if (notifIds.length > 0 || (role === 'admin' && noticeIds.length > 0)) {
+      if (notifIds.length > 0 || (inboxRole === 'admin' && noticeIds.length > 0)) {
         const { data, error } = await supabase.functions.invoke('fc-notify', {
           body: {
             type: 'inbox_delete',
-            role,
-            resident_id: role === 'fc' ? (residentId ?? null) : null,
+            role: inboxRole,
+            resident_id: inboxResidentId,
             notification_ids: notifIds,
-            notice_ids: role === 'admin' ? noticeIds : [],
+            notice_ids: inboxRole === 'admin' ? noticeIds : [],
           },
         });
         if (error) throw error;
@@ -493,7 +504,7 @@ export default function NotificationsScreen() {
         }
       }
 
-      if (role === 'fc' && noticeIds.length > 0) {
+      if (inboxRole === 'fc' && noticeIds.length > 0) {
         const hidden = await loadHiddenNoticeIds();
         noticeIds.forEach((id) => hidden.add(id));
         await saveHiddenNoticeIds(hidden);
@@ -503,7 +514,7 @@ export default function NotificationsScreen() {
       setSelectionMode(false);
       await load();
 
-      const isNoticeOnlyFc = role === 'fc' && noticeIds.length > 0 && notifIds.length === 0;
+      const isNoticeOnlyFc = inboxRole === 'fc' && noticeIds.length > 0 && notifIds.length === 0;
       setTimeout(() => {
         Alert.alert(
           '완료',

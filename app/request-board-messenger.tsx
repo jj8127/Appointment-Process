@@ -1,7 +1,6 @@
 import { Feather } from '@expo/vector-icons';
 import * as DocumentPicker from 'expo-document-picker';
 import * as ImagePicker from 'expo-image-picker';
-import { LinearGradient } from 'expo-linear-gradient';
 import { Stack, useRouter } from 'expo-router';
 import { MotiView } from 'moti';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
@@ -31,7 +30,7 @@ import {
   type RbDmMessage,
   type RbMessage,
   type RbUser,
-  clearAuth,
+  rbBridgeLogin,
   rbCheckAuth,
   rbCreateDmConversation,
   rbGetConversations,
@@ -39,7 +38,6 @@ import {
   rbGetDmConversations,
   rbGetDmMessages,
   rbGetMessages,
-  rbLogin,
   rbSendDmMessage,
   rbSendMessage,
   rbUploadAttachments,
@@ -163,12 +161,9 @@ export default function RequestBoardMessengerScreen() {
   const { residentId } = useSession();
 
   // Auth
-  const [authState, setAuthState] = useState<'checking' | 'login' | 'ready'>('checking');
+  const [authState, setAuthState] = useState<'checking' | 'ready' | 'error'>('checking');
   const [rbUser, setRbUser] = useState<RbUser | null>(null);
-  const [loginPhone, setLoginPhone] = useState('');
-  const [loginPw, setLoginPw] = useState('');
-  const [loginError, setLoginError] = useState('');
-  const [loginLoading, setLoginLoading] = useState(false);
+  const [authError, setAuthError] = useState('');
 
   // Conversations + Designers
   const [conversations, setConversations] = useState<UnifiedConversation[]>([]);
@@ -191,40 +186,33 @@ export default function RequestBoardMessengerScreen() {
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   /* ─── Auth Flow ─── */
-  useEffect(() => {
-    (async () => {
-      const { authenticated, user } = await rbCheckAuth();
-      if (authenticated && user) {
-        setRbUser(user);
-        setAuthState('ready');
-      } else {
-        setLoginPhone(residentId ?? '');
-        setAuthState('login');
-      }
-    })();
-  }, [residentId]);
-
-  const handleLogin = async () => {
-    setLoginError('');
-    setLoginLoading(true);
-    const { success, user, error } = await rbLogin(loginPhone, loginPw);
-    setLoginLoading(false);
-    if (success && user) {
+  const ensureAuth = useCallback(async () => {
+    setAuthError('');
+    setAuthState('checking');
+    const { authenticated, user } = await rbCheckAuth();
+    if (authenticated && user) {
       setRbUser(user);
       setAuthState('ready');
-    } else {
-      setLoginError(error ?? '로그인에 실패했습니다.');
+      return;
     }
-  };
 
-  const handleLogout = async () => {
-    await clearAuth();
+    const bridged = await rbBridgeLogin();
+    if (bridged.success && bridged.user) {
+      setRbUser(bridged.user);
+      setAuthState('ready');
+      return;
+    }
+
     setRbUser(null);
-    setActiveConv(null);
-    setConversations([]);
-    setDesigners([]);
-    setAuthState('login');
-  };
+    setAuthState('error');
+    setAuthError(
+      bridged.error ?? '설계요청 계정 연결에 실패했습니다. 앱에서 다시 로그인한 뒤 시도해주세요.',
+    );
+  }, []);
+
+  useEffect(() => {
+    ensureAuth();
+  }, [residentId, ensureAuth]);
 
   /* ─── Conversation + Designer List ─── */
   const loadConversations = useCallback(async () => {
@@ -603,9 +591,9 @@ export default function RequestBoardMessengerScreen() {
   }
 
   /* ═══════════════════════════════════════════════════
-     RENDER: Login Screen
+     RENDER: Auth Error
      ═══════════════════════════════════════════════════ */
-  if (authState === 'login') {
+  if (authState === 'error') {
     return (
       <View style={styles.container}>
         <Stack.Screen options={{ headerShown: false }} />
@@ -621,85 +609,33 @@ export default function RequestBoardMessengerScreen() {
           </View>
         </View>
 
-        <KeyboardAvoidingView
-          style={{ flex: 1 }}
-          behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-        >
-          <FlatList
-            data={[]}
-            renderItem={null}
-            keyboardShouldPersistTaps="handled"
-            contentContainerStyle={{ flexGrow: 1 }}
-            ListHeaderComponent={
-              <View style={styles.loginWrap}>
-                <View style={styles.loginIconWrap}>
-                  <Feather name="message-circle" size={40} color={COLORS.primary} />
-                </View>
-                <Text style={styles.loginTitle}>설계요청 계정 로그인</Text>
-                <Text style={styles.loginDesc}>
-                  설계요청 페이지에서 사용하는{'\n'}전화번호와 비밀번호를 입력해주세요
-                </Text>
+        <View style={styles.loginWrap}>
+          <View style={styles.loginIconWrap}>
+            <Feather name="alert-triangle" size={36} color={COLORS.primary} />
+          </View>
+          <Text style={styles.loginTitle}>설계요청 계정 연결 실패</Text>
+          <Text style={styles.loginDesc}>{authError}</Text>
 
-                <View style={styles.inputGroup}>
-                  <Text style={styles.inputLabel}>전화번호</Text>
-                  <TextInput
-                    style={styles.input}
-                    value={loginPhone}
-                    onChangeText={setLoginPhone}
-                    placeholder="01012345678"
-                    placeholderTextColor={COLORS.gray[400]}
-                    keyboardType="phone-pad"
-                    autoCorrect={false}
-                  />
-                </View>
+          <Pressable
+            style={({ pressed }) => [styles.loginBtn, pressed && { opacity: 0.85 }]}
+            onPress={ensureAuth}
+          >
+            <View style={styles.loginBtnGradient}>
+              <Text style={styles.loginBtnText}>다시 시도</Text>
+            </View>
+          </Pressable>
 
-                <View style={styles.inputGroup}>
-                  <Text style={styles.inputLabel}>비밀번호</Text>
-                  <TextInput
-                    style={styles.input}
-                    value={loginPw}
-                    onChangeText={setLoginPw}
-                    placeholder="비밀번호 입력"
-                    placeholderTextColor={COLORS.gray[400]}
-                    secureTextEntry
-                    onSubmitEditing={handleLogin}
-                  />
-                </View>
-
-                {loginError ? (
-                  <View style={styles.errorWrap}>
-                    <Feather name="alert-circle" size={14} color={COLORS.error} />
-                    <Text style={styles.errorText}>{loginError}</Text>
-                  </View>
-                ) : null}
-
-                <Pressable
-                  style={({ pressed }) => [
-                    styles.loginBtn,
-                    pressed && { opacity: 0.85 },
-                    loginLoading && { opacity: 0.6 },
-                  ]}
-                  onPress={handleLogin}
-                  disabled={loginLoading || !loginPhone.trim() || !loginPw}
-                >
-                  <LinearGradient
-                    colors={[COLORS.primary, COLORS.primaryDark]}
-                    style={styles.loginBtnGradient}
-                  >
-                    {loginLoading ? (
-                      <ActivityIndicator color="#fff" size="small" />
-                    ) : (
-                      <Text style={styles.loginBtnText}>로그인</Text>
-                    )}
-                  </LinearGradient>
-                </Pressable>
-
-                {/* Bottom spacing for keyboard */}
-                <View style={{ height: 40 }} />
-              </View>
-            }
-          />
-        </KeyboardAvoidingView>
+          <Pressable
+            style={({ pressed }) => [
+              styles.retryBtn,
+              { marginTop: SPACING.sm },
+              pressed && { opacity: 0.7 },
+            ]}
+            onPress={() => router.replace('/login')}
+          >
+            <Text style={styles.retryBtnText}>앱 로그인 화면으로 이동</Text>
+          </Pressable>
+        </View>
       </View>
     );
   }
@@ -1026,8 +962,11 @@ export default function RequestBoardMessengerScreen() {
               </View>
             )}
           </View>
-          <Pressable style={styles.backBtn} onPress={handleLogout}>
-            <Feather name="log-out" size={18} color={COLORS.gray[500]} />
+          <Pressable
+            style={styles.backBtn}
+            onPress={() => { setConvLoading(true); loadConversations(); }}
+          >
+            <Feather name="refresh-cw" size={18} color={COLORS.gray[500]} />
           </Pressable>
         </View>
 
