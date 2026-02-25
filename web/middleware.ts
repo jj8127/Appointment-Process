@@ -8,13 +8,16 @@ function isPublicPath(pathname: string) {
 
 export function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl;
+  const isStaticAsset = /\.[^/]+$/.test(pathname);
 
   // Skip static assets and API routes
   if (
     pathname.startsWith('/_next') ||
     pathname.startsWith('/api') ||
     pathname.startsWith('/static') ||
-    pathname.startsWith('/assets')
+    pathname.startsWith('/assets') ||
+    pathname === '/sw.js' ||
+    isStaticAsset
   ) {
     return NextResponse.next();
   }
@@ -37,5 +40,5 @@ export function middleware(request: NextRequest) {
 }
 
 export const config = {
-  matcher: ['/((?!_next/static|_next/image|favicon.ico|api).*)'],
+  matcher: ['/((?!api|_next/static|_next/image|favicon.ico|sw.js|.*\\..*).*)'],
 };

@@ -31,6 +31,7 @@ import { DateInput } from '@mantine/dates';
 import { useDisclosure } from '@mantine/hooks';
 import {
   IconCalendar,
+  IconBell,
   IconCheck,
   IconChevronLeft,
   IconChevronRight,
@@ -67,16 +68,18 @@ import {
 import { sendPushNotification } from '../actions';
 import { updateAppointmentAction } from './appointment/actions';
 import { updateDocStatusAction } from './docs/actions';
+import { registerWebPushSubscription } from '@/components/WebPushRegistrar';
 
 import { logger } from '../../lib/logger';
 export default function DashboardPage() {
   const router = useRouter();
   const queryClient = useQueryClient();
-  const { isReadOnly } = useSession();
+  const { isReadOnly, role, residentId } = useSession();
   const [activeTab, setActiveTab] = useState<string | null>('all');
   const [keyword, setKeyword] = useState('');
   const [currentPage, setCurrentPage] = useState(1);
   const ITEMS_PER_PAGE = 20;
+  const [isPushRegistering, setIsPushRegistering] = useState(false);
 
   // 모달 상태
   const [opened, { open, close }] = useDisclosure(false);
@@ -943,6 +946,113 @@ export default function DashboardPage() {
     };
   }, [fcs]);
 
+  const handleWebPushSettings = async () => {
+    setIsPushRegistering(true);
+    try {
+      const result = await registerWebPushSubscription(role, residentId, { forceResubscribe: true });
+      if (result.ok) {
+        notifications.show({
+          title: '웹 알림 설정 완료',
+          message: '브라우저 알림이 정상 등록되었습니다.',
+          color: 'green',
+        });
+        return;
+      }
+
+      if (result.message === 'unsupported') {
+        notifications.show({
+          title: '지원되지 않음',
+          message: '현재 브라우저는 웹 푸시를 지원하지 않습니다.',
+          color: 'orange',
+        });
+        return;
+      }
+
+      if (result.message === 'permission-not-granted') {
+        notifications.show({
+          title: '알림 권한 필요',
+          message: '브라우저 사이트 설정에서 알림을 허용한 뒤 다시 시도해주세요.',
+          color: 'orange',
+        });
+        return;
+      }
+
+      notifications.show({
+        title: '웹 알림 등록 실패',
+        message: result.message ?? '알림 등록 중 오류가 발생했습니다.',
+        color: 'red',
+      });
+    } catch (err: unknown) {
+      const error = err as Error;
+      notifications.show({
+        title: '웹 알림 등록 실패',
+        message: error?.message ?? '알림 등록 중 오류가 발생했습니다.',
+        color: 'red',
+      });
+    } finally {
+      setIsPushRegistering(false);
+    }
+  };
+
+  const handleBrowserNotificationTest = async () => {
+    if (typeof window === 'undefined' || typeof Notification === 'undefined') {
+      notifications.show({
+        title: '지원되지 않음',
+        message: '이 브라우저에서는 알림 API를 지원하지 않습니다.',
+        color: 'orange',
+      });
+      return;
+    }
+
+    try {
+      let permission = Notification.permission;
+      if (permission === 'default') {
+        permission = await Notification.requestPermission();
+      }
+
+      if (permission !== 'granted') {
+        notifications.show({
+          title: '알림 권한 필요',
+          message: '브라우저 사이트 설정에서 알림을 허용해주세요.',
+          color: 'orange',
+        });
+        return;
+      }
+
+      const title = 'FC 온보딩 알림 테스트';
+      const body = '이 알림이 보이면 브라우저/OS 알림 경로는 정상입니다.';
+
+      if ('serviceWorker' in navigator) {
+        const registration = await navigator.serviceWorker.getRegistration();
+        if (registration) {
+          await registration.showNotification(title, {
+            body,
+            icon: '/favicon.ico',
+            badge: '/favicon.ico',
+            data: { url: '/dashboard' },
+          });
+        } else {
+          new Notification(title, { body, icon: '/favicon.ico' });
+        }
+      } else {
+        new Notification(title, { body, icon: '/favicon.ico' });
+      }
+
+      notifications.show({
+        title: '테스트 알림 전송',
+        message: '브라우저 시스템 알림 영역을 확인해주세요.',
+        color: 'green',
+      });
+    } catch (err: unknown) {
+      const error = err as Error;
+      notifications.show({
+        title: '알림 테스트 실패',
+        message: error?.message ?? '알림 테스트 중 오류가 발생했습니다.',
+        color: 'red',
+      });
+    }
+  };
+
   return (
     <Box p="lg" maw={1600} mx="auto">
       <Stack gap="xl">
@@ -952,14 +1062,33 @@ export default function DashboardPage() {
             <Title order={1} fw={800} c="dark.8">대시보드</Title>
             <Text c="dimmed" mt={4}>FC 온보딩 전체 현황판</Text>
           </div>
-          <Button
-            leftSection={<IconRefresh size={16} />}
-            onClick={() => queryClient.invalidateQueries({ queryKey: ['dashboard-list'] })}
-            variant="default"
-            radius="md"
-          >
-            새로고침
-          </Button>
+          <Group gap="xs">
+            <Button
+              leftSection={<IconBell size={16} />}
+              onClick={handleWebPushSettings}
+              loading={isPushRegistering}
+              variant="default"
+              radius="md"
+            >
+              알림 설정
+            </Button>
+            <Button
+              leftSection={<IconBell size={16} />}
+              onClick={handleBrowserNotificationTest}
+              variant="default"
+              radius="md"
+            >
+              알림 테스트
+            </Button>
+            <Button
+              leftSection={<IconRefresh size={16} />}
+              onClick={() => queryClient.invalidateQueries({ queryKey: ['dashboard-list'] })}
+              variant="default"
+              radius="md"
+            >
+              새로고침
+            </Button>
+          </Group>
         </Group>
 
         {/* Read-only Mode Alert */}

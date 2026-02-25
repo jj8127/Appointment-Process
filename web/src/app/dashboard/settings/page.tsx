@@ -1,6 +1,11 @@
 'use client';
 
 import { useSession } from '@/hooks/use-session';
+import {
+  getWebPushPermissionState,
+  registerWebPushSubscription,
+  type WebPushPermissionState,
+} from '@/components/WebPushRegistrar';
 import { supabase } from '@/lib/supabase';
 import {
   Button,
@@ -15,9 +20,9 @@ import {
   Title,
 } from '@mantine/core';
 import { notifications } from '@mantine/notifications';
-import { IconAlertTriangle } from '@tabler/icons-react';
+import { IconAlertTriangle, IconBell } from '@tabler/icons-react';
 import { useRouter } from 'next/navigation';
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 
 type ConfirmStep = 1 | 2;
 
@@ -29,6 +34,8 @@ export default function SettingsPage() {
   const [step, setStep] = useState<ConfirmStep>(1);
   const [confirmChecked, setConfirmChecked] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [pushLoading, setPushLoading] = useState(false);
+  const [pushPermission, setPushPermission] = useState<WebPushPermissionState>('unsupported');
 
   const isFc = role === 'fc';
   const displayRole = role === 'admin' ? '관리자' : 'FC';
@@ -36,6 +43,25 @@ export default function SettingsPage() {
     if (role === 'admin') return '총무 계정';
     return residentMask || '전화번호 미등록';
   }, [role, residentMask]);
+
+  useEffect(() => {
+    if (!hydrated) return;
+    setPushPermission(getWebPushPermissionState());
+  }, [hydrated]);
+
+  const pushStatusText = useMemo(() => {
+    if (pushPermission === 'granted') return '알림 허용됨';
+    if (pushPermission === 'denied') return '알림 차단됨';
+    if (pushPermission === 'default') return '아직 설정되지 않음';
+    return '이 브라우저는 웹 푸시를 지원하지 않습니다.';
+  }, [pushPermission]);
+
+  const pushButtonLabel = useMemo(() => {
+    if (pushPermission === 'granted') return '웹 알림 재등록';
+    if (pushPermission === 'denied') return '권한 재확인';
+    if (pushPermission === 'default') return '웹 알림 허용';
+    return '지원되지 않음';
+  }, [pushPermission]);
 
   if (!hydrated) return null;
 
@@ -187,6 +213,57 @@ export default function SettingsPage() {
     }
   };
 
+  const handleEnableWebPush = async () => {
+    setPushLoading(true);
+
+    try {
+      const result = await registerWebPushSubscription(role, residentId, { forceResubscribe: true });
+      setPushPermission(result.permission);
+
+      if (result.ok) {
+        notifications.show({
+          title: '웹 알림 설정 완료',
+          message: '브라우저 웹 알림이 정상 등록되었습니다.',
+          color: 'green',
+        });
+        return;
+      }
+
+      if (result.message === 'unsupported') {
+        notifications.show({
+          title: '지원되지 않음',
+          message: '현재 브라우저에서는 웹 알림을 지원하지 않습니다.',
+          color: 'orange',
+        });
+        return;
+      }
+
+      if (result.message === 'permission-not-granted') {
+        notifications.show({
+          title: '알림 권한 필요',
+          message: '브라우저 사이트 설정에서 알림을 허용한 뒤 다시 시도해주세요.',
+          color: 'orange',
+        });
+        return;
+      }
+
+      notifications.show({
+        title: '웹 알림 등록 실패',
+        message: result.message ?? '알 수 없는 오류가 발생했습니다.',
+        color: 'red',
+      });
+    } catch (err: unknown) {
+      const error = err as Error;
+      notifications.show({
+        title: '웹 알림 등록 실패',
+        message: error?.message ?? '오류가 발생했습니다.',
+        color: 'red',
+      });
+    } finally {
+      setPushLoading(false);
+      setPushPermission(getWebPushPermissionState());
+    }
+  };
 
   return (
     <Container size="sm" py="lg">
@@ -228,6 +305,36 @@ export default function SettingsPage() {
                   {displaySub}
                 </Text>
               </Group>
+            </Stack>
+
+            <Divider my="sm" />
+
+            <Stack gap="xs">
+              <Group gap={6}>
+                <IconBell size={16} />
+                <Text size="sm" fw={600}>
+                  웹 알림
+                </Text>
+              </Group>
+              <Text size="xs" c="dimmed">
+                상태: {pushStatusText}
+              </Text>
+              <Group justify="flex-end">
+                <Button
+                  size="xs"
+                  variant="light"
+                  onClick={handleEnableWebPush}
+                  loading={pushLoading}
+                  disabled={pushPermission === 'unsupported'}
+                >
+                  {pushButtonLabel}
+                </Button>
+              </Group>
+              {pushPermission === 'denied' && (
+                <Text size="xs" c="dimmed">
+                  브라우저 주소창 사이트 설정에서 알림 권한을 허용해야 수신됩니다.
+                </Text>
+              )}
             </Stack>
 
             <Divider my="sm" />

@@ -38,6 +38,7 @@ const HANWHA_ORANGE = '#f36f21';
 const CHARCOAL = '#111827';
 const MUTED = '#6b7280';
 const ADMIN_ID = 'admin';
+const ROOM_POLL_INTERVAL_MS = 2500;
 
 // --- Types ---
 type ChatPreview = {
@@ -59,6 +60,35 @@ type Message = {
     message_type: 'text' | 'image' | 'file';
     file_url?: string | null;
     file_name?: string | null;
+};
+
+const sortMessagesByCreatedAt = (rows: Message[]) =>
+    [...rows].sort((a, b) => {
+        const aTime = new Date(a.created_at).getTime();
+        const bTime = new Date(b.created_at).getTime();
+        if (aTime !== bTime) return aTime - bTime;
+        return a.id.localeCompare(b.id);
+    });
+
+const areMessagesEqual = (prev: Message[], next: Message[]) => {
+    if (prev.length !== next.length) return false;
+    for (let i = 0; i < prev.length; i += 1) {
+        const a = prev[i];
+        const b = next[i];
+        if (
+            a.id !== b.id
+            || a.content !== b.content
+            || a.sender_id !== b.sender_id
+            || a.receiver_id !== b.receiver_id
+            || a.created_at !== b.created_at
+            || a.is_read !== b.is_read
+            || (a.file_url ?? null) !== (b.file_url ?? null)
+            || (a.file_name ?? null) !== (b.file_name ?? null)
+        ) {
+            return false;
+        }
+    }
+    return true;
 };
 
 // --- Page Component ---
@@ -236,7 +266,7 @@ export default function ChatPage() {
                 {/* Right Panel */}
                 <Box flex={1} style={{ display: 'flex', flexDirection: 'column' }} bg="white">
                     {selectedFc ? (
-                        <ChatRoom fc={selectedFc} />
+                        <ChatRoom fc={selectedFc} onConversationUpdated={() => void refetchList()} />
                     ) : (
                         <Stack align="center" justify="center" h="100%" c="dimmed">
                             <ThemeIcon size={80} radius="xl" color="gray.2" variant="light">
@@ -254,12 +284,13 @@ export default function ChatPage() {
 }
 
 // --- Chat Room Component ---
-function ChatRoom({ fc }: { fc: ChatPreview }) {
+function ChatRoom({ fc, onConversationUpdated }: { fc: ChatPreview; onConversationUpdated?: () => void }) {
     const { isReadOnly } = useSession();
     const [messages, setMessages] = useState<Message[]>([]);
     const [inputText, setInputText] = useState('');
     const viewport = useRef<HTMLDivElement>(null);
     const [isSending, setIsSending] = useState(false);
+    const messagesRef = useRef<Message[]>([]);
 
     const scrollToBottom = useCallback(() => {
         setTimeout(() => {
@@ -269,60 +300,98 @@ function ChatRoom({ fc }: { fc: ChatPreview }) {
         }, 100);
     }, []);
 
-    useEffect(() => {
-        const fetchMessages = async () => {
-            // Query: (sender=admin AND receiver=fc) OR (sender=fc AND receiver=admin)
+    const applyMessages = useCallback((rows: Message[]) => {
+        const sorted = sortMessagesByCreatedAt(rows);
+        if (areMessagesEqual(messagesRef.current, sorted)) {
+            return false;
+        }
+        messagesRef.current = sorted;
+        setMessages(sorted);
+        return true;
+    }, []);
+
+    const fetchMessages = useCallback(
+        async (options?: { scrollOnChange?: boolean; notifyList?: boolean }) => {
             const { data, error } = await supabase
                 .from('messages')
                 .select('*')
-                .or(`and(sender_id.eq.${ADMIN_ID},receiver_id.eq.${fc.phone}),and(sender_id.eq.${fc.phone},receiver_id.eq.${ADMIN_ID})`)
-                .order('created_at', { ascending: true }); // We want oldest first for chat flow
+                .or(
+                    `and(sender_id.eq.${ADMIN_ID},receiver_id.eq.${fc.phone}),and(sender_id.eq.${fc.phone},receiver_id.eq.${ADMIN_ID})`,
+                )
+                .order('created_at', { ascending: true });
 
-            if (!error && data) {
-                setMessages(data as Message[]);
+            if (error || !data) return;
+
+            const changed = applyMessages(data as Message[]);
+            if (changed && options?.scrollOnChange) {
                 scrollToBottom();
-
-                // Mark as read immediately when loaded
-                const unreadIds = data.filter((m: Message) => m.sender_id === fc.phone && !m.is_read).map((m: Message) => m.id);
-                if (unreadIds.length > 0) {
-                    await supabase.from('messages').update({ is_read: true }).in('id', unreadIds);
-                }
             }
-        };
+            if (changed && options?.notifyList) {
+                onConversationUpdated?.();
+            }
 
-        void fetchMessages();
+            const unreadIds = data.filter((m: Message) => m.sender_id === fc.phone && !m.is_read).map((m: Message) => m.id);
+            if (unreadIds.length > 0) {
+                await supabase.from('messages').update({ is_read: true }).in('id', unreadIds);
+                messagesRef.current = messagesRef.current.map((m) =>
+                    unreadIds.includes(m.id) ? { ...m, is_read: true } : m,
+                );
+                setMessages(messagesRef.current);
+            }
+        },
+        [applyMessages, fc.phone, onConversationUpdated, scrollToBottom],
+    );
 
-        // Subscribe to this room
+    useEffect(() => {
+        void fetchMessages({ scrollOnChange: true, notifyList: true });
+    }, [fetchMessages]);
+
+    useEffect(() => {
         const channel = supabase
             .channel(`chat-room-${fc.phone}`)
             .on(
                 'postgres_changes',
                 { event: '*', schema: 'public', table: 'messages' },
                 (payload) => {
-                    const newMsg = payload.new as Message;
-                    // Check if this message belongs to this conversation
+                    const row = (payload.new ?? payload.old) as Partial<Message> | null;
+                    const senderId = row?.sender_id;
+                    const receiverId = row?.receiver_id;
                     const isRelated =
-                        (newMsg.sender_id === ADMIN_ID && newMsg.receiver_id === fc.phone) ||
-                        (newMsg.sender_id === fc.phone && newMsg.receiver_id === ADMIN_ID);
-
-                    if (isRelated) {
-                        if (payload.eventType === 'INSERT') {
-                            setMessages((prev) => [...prev, newMsg]);
-                            scrollToBottom();
-                            // Use canAutoScroll logic if needed? For now force scroll
-                            if (newMsg.sender_id === fc.phone) {
-                                supabase.from('messages').update({ is_read: true }).eq('id', newMsg.id);
-                            }
-                        }
-                    }
-                }
+                        (senderId === ADMIN_ID && receiverId === fc.phone) ||
+                        (senderId === fc.phone && receiverId === ADMIN_ID);
+                    if (!isRelated) return;
+                    void fetchMessages({ scrollOnChange: payload.eventType === 'INSERT', notifyList: true });
+                },
             )
             .subscribe();
 
         return () => {
             supabase.removeChannel(channel);
         };
-    }, [fc.phone, scrollToBottom]);
+    }, [fc.phone, fetchMessages]);
+
+    useEffect(() => {
+        const intervalId = window.setInterval(() => {
+            void fetchMessages();
+        }, ROOM_POLL_INTERVAL_MS);
+
+        const handleFocus = () => {
+            void fetchMessages({ notifyList: true });
+        };
+        const handleVisibility = () => {
+            if (document.visibilityState === 'visible') {
+                void fetchMessages({ notifyList: true });
+            }
+        };
+
+        window.addEventListener('focus', handleFocus);
+        document.addEventListener('visibilitychange', handleVisibility);
+        return () => {
+            window.clearInterval(intervalId);
+            window.removeEventListener('focus', handleFocus);
+            document.removeEventListener('visibilitychange', handleVisibility);
+        };
+    }, [fetchMessages]);
 
     const handleSendMessage = async () => {
         if (!inputText.trim()) return;
@@ -332,18 +401,31 @@ function ChatRoom({ fc }: { fc: ChatPreview }) {
             const trimmed = inputText.trim();
 
             // 1. Insert Message
-            const { error } = await supabase.from('messages').insert({
-                sender_id: ADMIN_ID,
-                receiver_id: fc.phone,
-                content: trimmed,
-                message_type: 'text',
-                is_read: false
-            });
+            const { data: inserted, error } = await supabase
+                .from('messages')
+                .insert({
+                    sender_id: ADMIN_ID,
+                    receiver_id: fc.phone,
+                    content: trimmed,
+                    message_type: 'text',
+                    is_read: false
+                })
+                .select('*')
+                .single();
 
             if (error) throw error;
 
-            // 2. Clear input
+            // 2. Clear input + reflect immediately in UI
             setInputText('');
+            if (inserted) {
+                const next = sortMessagesByCreatedAt([...messagesRef.current, inserted as Message]);
+                messagesRef.current = next;
+                setMessages(next);
+                scrollToBottom();
+                onConversationUpdated?.();
+            } else {
+                void fetchMessages({ scrollOnChange: true, notifyList: true });
+            }
 
             // 3. Send Notification + Push (with debug logs)
             const notifBody = trimmed.length > 50 ? `${trimmed.slice(0, 50)}...` : trimmed;

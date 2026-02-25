@@ -34,6 +34,8 @@ type Payload =
       category?: string;
       url?: string;
       fc_id?: string | null;
+      sender_id?: string;
+      sender_name?: string;
     }
   | {
       type: 'message';
@@ -41,6 +43,7 @@ type Payload =
       target_id: string | null;
       message: string;
       sender_id: string;
+      sender_name?: string;
       title?: string;
       body?: string;
       category?: string;
@@ -69,8 +72,32 @@ type NoticeRow = {
   images?: string[] | null;
   files?: NoticeFile[] | null;
 };
+type BoardNoticeCategoryRow = {
+  id: string;
+  name: string | null;
+};
+type BoardNoticePostRow = {
+  id: string;
+  title: string;
+  content: string;
+  created_at: string;
+};
+type BoardAttachmentRow = {
+  id: string;
+  post_id: string;
+  file_type: 'image' | 'file';
+  file_name: string;
+  file_size: number;
+  mime_type: string | null;
+  storage_path: string;
+  sort_order: number;
+  created_at: string;
+};
 
 const EXPO_PUSH_URL = 'https://exp.host/--/api/v2/push/send';
+const BOARD_NOTICE_CATEGORY_SLUG = 'notice';
+const BOARD_NOTICE_ID_PREFIX = 'board_notice:';
+const BOARD_ATTACHMENT_SIGN_EXPIRES_SECONDS = 60 * 60 * 6;
 
 const sanitize = (v?: string | null) => (v ?? '').replace(/[^0-9]/g, '');
 
@@ -94,27 +121,113 @@ if (!serviceKey) {
 
 const supabase = createClient(supabaseUrl, serviceKey);
 
+function getAdminPushEndpoint(rawUrl: string): string | null {
+  const trimmed = rawUrl.trim();
+  if (!trimmed) return null;
+
+  try {
+    const parsed = new URL(trimmed);
+    return `${parsed.origin}/api/admin/push`;
+  } catch {
+    try {
+      const parsed = new URL(`https://${trimmed}`);
+      return `${parsed.origin}/api/admin/push`;
+    } catch {
+      return null;
+    }
+  }
+}
+
+type AdminWebPushResult = {
+  ok: boolean;
+  status?: number;
+  sent?: number;
+  failed?: number;
+  reason?: string;
+};
+
+type NotificationSource = 'request_board' | 'fc_onboarding';
+const REQUEST_BOARD_CATEGORY_PREFIX = 'request_board_';
+
+function resolveNotificationSource(category?: string | null): NotificationSource {
+  const normalized = (category ?? '').trim().toLowerCase();
+  if (normalized.startsWith(REQUEST_BOARD_CATEGORY_PREFIX)) {
+    return 'request_board';
+  }
+  return 'fc_onboarding';
+}
+
+function buildPushTitleWithSource(title: string, source: NotificationSource): string {
+  if (source !== 'request_board') return title;
+
+  const trimmed = title.trim();
+  if (trimmed.startsWith('[설계요청]')) return trimmed;
+  return `[설계요청] ${trimmed}`;
+}
+
 /**
  * Send web push notification to all admin browser subscribers.
- * Calls the Next.js /api/admin/push endpoint with a shared secret.
+ * Calls the Next.js /api/admin/push endpoint.
  * Fire-and-forget: errors are logged but do not block the response.
  */
 async function notifyAdminWebPush(title: string, body: string, url: string) {
   const adminWebUrl = getEnv('ADMIN_WEB_URL');
   const pushSecret = getEnv('ADMIN_PUSH_SECRET');
-  if (!adminWebUrl || !pushSecret) return;
+
+  if (!adminWebUrl) {
+    console.warn('[fc-notify] admin web push disabled: missing ADMIN_WEB_URL');
+    return { ok: false, reason: 'missing-admin-web-url' } as AdminWebPushResult;
+  }
+
+  const endpoint = getAdminPushEndpoint(adminWebUrl);
+  if (!endpoint) {
+    console.warn('[fc-notify] admin web push disabled: invalid ADMIN_WEB_URL');
+    return { ok: false, reason: 'invalid-admin-web-url' } as AdminWebPushResult;
+  }
+
+  const headers: HeadersInit = {
+    'Content-Type': 'application/json',
+    'Authorization': `Bearer ${serviceKey}`,
+    'apikey': serviceKey,
+  };
+  if (pushSecret) {
+    headers['X-Admin-Push-Secret'] = pushSecret;
+  }
 
   try {
-    await fetch(`${adminWebUrl}/api/admin/push`, {
+    const resp = await fetch(endpoint, {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'X-Admin-Push-Secret': pushSecret,
-      },
+      headers,
       body: JSON.stringify({ title, body, url }),
     });
+
+    const text = await resp.text().catch(() => '');
+    let parsed: Record<string, unknown> | null = null;
+    try {
+      parsed = text ? (JSON.parse(text) as Record<string, unknown>) : null;
+    } catch {
+      parsed = null;
+    }
+
+    if (!resp.ok) {
+      console.warn('[fc-notify] admin web push callback failed', {
+        status: resp.status,
+        statusText: resp.statusText,
+        body: text.slice(0, 300),
+      });
+      return {
+        ok: false,
+        status: resp.status,
+        reason: `http-${resp.status}`,
+      } as AdminWebPushResult;
+    }
+
+    const sent = typeof parsed?.sent === 'number' ? parsed.sent : undefined;
+    const failed = typeof parsed?.failed === 'number' ? parsed.failed : undefined;
+    return { ok: true, status: resp.status, sent, failed } as AdminWebPushResult;
   } catch (e) {
     console.warn('[fc-notify] admin web push callback failed', e);
+    return { ok: false, reason: 'callback-network-error' } as AdminWebPushResult;
   }
 }
 
@@ -146,6 +259,149 @@ async function fetchNoticesWithOptionalAttachments(limit = 20): Promise<NoticeRo
   }
 
   throw withAttachments.error;
+}
+
+function isMissingTableError(error: unknown): boolean {
+  const code = (error as { code?: string } | null)?.code;
+  return code === '42P01';
+}
+
+async function fetchBoardNoticeCategory(): Promise<BoardNoticeCategoryRow | null> {
+  const { data, error } = await supabase
+    .from('board_categories')
+    .select('id,name')
+    .eq('slug', BOARD_NOTICE_CATEGORY_SLUG)
+    .maybeSingle();
+
+  if (error) {
+    if (isMissingTableError(error)) return null;
+    throw error;
+  }
+  if (!data?.id) return null;
+
+  return data as BoardNoticeCategoryRow;
+}
+
+async function createBoardAttachmentSignedUrl(storagePath: string): Promise<string | null> {
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    const { data, error } = await supabase.storage
+      .from('board-attachments')
+      .createSignedUrl(storagePath, BOARD_ATTACHMENT_SIGN_EXPIRES_SECONDS);
+    if (!error && data?.signedUrl) {
+      return data.signedUrl;
+    }
+  }
+  return null;
+}
+
+async function fetchBoardNoticesWithAttachments(limit = 20): Promise<NoticeRow[]> {
+  const category = await fetchBoardNoticeCategory();
+  if (!category?.id) return [];
+
+  const { data: posts, error: postError } = await supabase
+    .from('board_posts')
+    .select('id,title,content,created_at')
+    .eq('category_id', category.id)
+    .order('created_at', { ascending: false })
+    .limit(limit);
+
+  if (postError) {
+    if (isMissingTableError(postError)) return [];
+    throw postError;
+  }
+
+  const postRows = (posts ?? []) as BoardNoticePostRow[];
+  if (postRows.length === 0) return [];
+
+  const postIds = postRows.map((row) => row.id);
+  const { data: attachments, error: attachmentError } = await supabase
+    .from('board_attachments')
+    .select('id,post_id,file_type,file_name,file_size,mime_type,storage_path,sort_order,created_at')
+    .in('post_id', postIds)
+    .order('post_id', { ascending: true })
+    .order('sort_order', { ascending: true })
+    .order('created_at', { ascending: true });
+
+  if (attachmentError) {
+    if (isMissingTableError(attachmentError)) {
+      return postRows.map((row) => ({
+        id: `${BOARD_NOTICE_ID_PREFIX}${row.id}`,
+        title: row.title,
+        body: row.content,
+        category: category.name ?? '공지',
+        created_at: row.created_at,
+        images: null,
+        files: null,
+      }));
+    }
+    throw attachmentError;
+  }
+
+  const attachmentRows = (attachments ?? []) as BoardAttachmentRow[];
+  const signedEntries = await Promise.all(
+    attachmentRows.map(async (row) => [row.id, await createBoardAttachmentSignedUrl(row.storage_path)] as const),
+  );
+  const signedUrlMap = new Map<string, string>();
+  signedEntries.forEach(([id, signedUrl]) => {
+    if (signedUrl) {
+      signedUrlMap.set(id, signedUrl);
+    }
+  });
+
+  const imageMap = new Map<string, string[]>();
+  const fileMap = new Map<string, NoticeFile[]>();
+
+  attachmentRows.forEach((row) => {
+    const signedUrl = signedUrlMap.get(row.id);
+    if (!signedUrl) return;
+
+    if (row.file_type === 'image') {
+      const current = imageMap.get(row.post_id) ?? [];
+      current.push(signedUrl);
+      imageMap.set(row.post_id, current);
+      return;
+    }
+
+    const currentFiles = fileMap.get(row.post_id) ?? [];
+    currentFiles.push({
+      name: row.file_name,
+      url: signedUrl,
+      type: row.mime_type ?? 'application/octet-stream',
+    });
+    fileMap.set(row.post_id, currentFiles);
+  });
+
+  return postRows.map((row) => ({
+    id: `${BOARD_NOTICE_ID_PREFIX}${row.id}`,
+    title: row.title,
+    body: row.content,
+    category: category.name ?? '공지',
+    created_at: row.created_at,
+    images: imageMap.get(row.id) ?? null,
+    files: fileMap.get(row.id) ?? null,
+  }));
+}
+
+async function fetchUnifiedNotices(limit = 20): Promise<NoticeRow[]> {
+  const safeLimit = Math.max(1, Math.min(limit, 200));
+  const [legacyNotices, boardNotices] = await Promise.all([
+    fetchNoticesWithOptionalAttachments(safeLimit).catch((error) => {
+      if (isMissingTableError(error)) return [] as NoticeRow[];
+      throw error;
+    }),
+    fetchBoardNoticesWithAttachments(safeLimit).catch((error) => {
+      if (isMissingTableError(error)) return [] as NoticeRow[];
+      throw error;
+    }),
+  ]);
+
+  const merged = [...legacyNotices, ...boardNotices];
+  merged.sort((a, b) => {
+    const aTime = new Date(a.created_at).getTime();
+    const bTime = new Date(b.created_at).getTime();
+    return bTime - aTime;
+  });
+  return merged.slice(0, safeLimit);
 }
 
 function getTargetUrl(role: 'admin' | 'fc', payload: Payload, message: string, fcId: string): string {
@@ -188,6 +444,17 @@ function buildTitle(fcName: string | null, payload: Payload, message?: string) {
     }
   }
   return `${name} 업데이트`;
+}
+
+function dedupeTokens(tokens: TokenRow[]): TokenRow[] {
+  const seen = new Set<string>();
+  return tokens.filter((token) => {
+    const key = token.expo_push_token?.trim();
+    if (!key) return false;
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
 }
 
 // Security: Restrict CORS to specific origins
@@ -285,16 +552,10 @@ serve(async (req: Request) => {
 
     let notices: NoticeRow[] = [];
     try {
-      notices = await fetchNoticesWithOptionalAttachments(20);
+      notices = await fetchUnifiedNotices(limit);
     } catch (noticeErr: unknown) {
-      // If notices table doesn't exist yet, return empty list instead of 500
-      const code = (noticeErr as { code?: string })?.code;
-      if (code === '42P01') {
-        notices = [];
-      } else {
-        const message = noticeErr instanceof Error ? noticeErr.message : 'Failed to fetch notices';
-        return err(message, 500);
-      }
+      const message = noticeErr instanceof Error ? noticeErr.message : 'Failed to fetch notices';
+      return err(message, 500);
     }
 
     return ok({
@@ -343,6 +604,17 @@ serve(async (req: Request) => {
     const noticeIds = Array.isArray(body.notice_ids)
       ? body.notice_ids.filter((id) => typeof id === 'string' && id.trim().length > 0)
       : [];
+    const regularNoticeIds: string[] = [];
+    const boardNoticePostIds: string[] = [];
+
+    noticeIds.forEach((id) => {
+      if (id.startsWith(BOARD_NOTICE_ID_PREFIX)) {
+        const postId = id.slice(BOARD_NOTICE_ID_PREFIX.length).trim();
+        if (postId) boardNoticePostIds.push(postId);
+        return;
+      }
+      regularNoticeIds.push(id);
+    });
 
     let deletedNotifications = 0;
     let deletedNotices = 0;
@@ -368,14 +640,55 @@ serve(async (req: Request) => {
       deletedNotifications = count ?? 0;
     }
 
-    // notices는 전체 공지이므로 admin 계정에서만 서버 삭제 허용
-    if (noticeIds.length > 0 && role === 'admin') {
+    // 공지 삭제는 admin 계정에서만 서버 삭제 허용
+    if (regularNoticeIds.length > 0 && role === 'admin') {
       const { count, error: noticeDeleteErr } = await supabase
         .from('notices')
         .delete({ count: 'exact' })
-        .in('id', noticeIds);
+        .in('id', regularNoticeIds);
       if (noticeDeleteErr) return err(noticeDeleteErr.message, 500);
       deletedNotices = count ?? 0;
+    }
+
+    // 게시판 공지(카테고리 slug=notice)도 공지 목록에서 삭제 요청 시 함께 삭제
+    if (boardNoticePostIds.length > 0 && role === 'admin') {
+      const category = await fetchBoardNoticeCategory();
+      if (category?.id) {
+        const { data: deletablePosts, error: postErr } = await supabase
+          .from('board_posts')
+          .select('id')
+          .eq('category_id', category.id)
+          .in('id', boardNoticePostIds);
+        if (postErr) return err(postErr.message, 500);
+
+        const deletableIds = (deletablePosts ?? []).map((row) => row.id as string);
+        if (deletableIds.length > 0) {
+          const { data: attachments, error: attachmentErr } = await supabase
+            .from('board_attachments')
+            .select('storage_path')
+            .in('post_id', deletableIds);
+          if (attachmentErr) return err(attachmentErr.message, 500);
+
+          const storagePaths = (attachments ?? [])
+            .map((row) => row.storage_path as string)
+            .filter((path) => typeof path === 'string' && path.length > 0);
+          if (storagePaths.length > 0) {
+            const { error: storageErr } = await supabase.storage
+              .from('board-attachments')
+              .remove(storagePaths);
+            if (storageErr) {
+              console.warn('[fc-notify] board attachment cleanup failed', storageErr.message);
+            }
+          }
+
+          const { count: boardDeleteCount, error: boardDeleteErr } = await supabase
+            .from('board_posts')
+            .delete({ count: 'exact' })
+            .in('id', deletableIds);
+          if (boardDeleteErr) return err(boardDeleteErr.message, 500);
+          deletedNotices += boardDeleteCount ?? 0;
+        }
+      }
     }
 
     return ok({
@@ -387,20 +700,27 @@ serve(async (req: Request) => {
 
   // 홈 상단 최신 공지 조회 (RLS 우회)
   if (body.type === 'latest_notice') {
-    const { data, error: latestErr } = await supabase
-      .from('notices')
-      .select('title,body,category,created_at')
-      .order('created_at', { ascending: false })
-      .limit(1)
-      .maybeSingle();
-    if (latestErr) return err(latestErr.message, 500);
-    return ok({ ok: true, notice: data ?? null });
+    try {
+      const notices = await fetchUnifiedNotices(1);
+      const notice = notices.length > 0
+        ? {
+          title: notices[0].title,
+          body: notices[0].body,
+          category: notices[0].category,
+          created_at: notices[0].created_at,
+        }
+        : null;
+      return ok({ ok: true, notice });
+    } catch (latestErr: unknown) {
+      const message = latestErr instanceof Error ? latestErr.message : 'Failed to fetch latest notice';
+      return err(message, 500);
+    }
   }
 
   // 직접 알림 처리 (notify/message)
   if (body.type === 'notify' || body.type === 'message') {
     const target_role = body.target_role;
-    const target_id = body.target_id;
+    const target_id = sanitize(body.target_id);
 
     const title =
       body.type === 'notify'
@@ -414,27 +734,41 @@ serve(async (req: Request) => {
       body.type === 'notify'
         ? body.category ?? 'app_event'
         : body.category ?? 'message';
+    const notificationSource = resolveNotificationSource(category);
+    const pushTitle = buildPushTitleWithSource(title, notificationSource);
 
     let url = body.type === 'notify' ? body.url ?? '/notifications' : body.url ?? '/chat';
     if (body.type === 'message' && target_role === 'admin' && !body.url) {
-      url = `/chat?targetId=${body.sender_id}&targetName=FC`;
+      let senderName = body.sender_name?.trim() || '';
+
+      if (!senderName && body.sender_id?.trim()) {
+        const { data: senderProfile } = await supabase
+          .from('fc_profiles')
+          .select('name')
+          .eq('phone', sanitize(body.sender_id))
+          .maybeSingle();
+        senderName = senderProfile?.name?.trim() || '';
+      }
+
+      const resolvedSenderName = senderName || body.sender_id || 'FC';
+      url = `/chat?targetId=${encodeURIComponent(body.sender_id)}&targetName=${encodeURIComponent(resolvedSenderName)}`;
     }
 
     let tokens: TokenRow[] = [];
 
-    if (target_role === 'admin') {
+    if (target_id) {
+      // target_id 지정 시 role과 무관하게 같은 번호의 모든 토큰(fc/admin/manager)을 대상으로 발송
       const { data, error } = await supabase
         .from('device_tokens')
         .select('expo_push_token,resident_id,display_name')
-        .eq('role', 'admin');
+        .eq('resident_id', target_id);
       if (!error && data) tokens = data;
     } else {
-      if (target_id) {
+      if (target_role === 'admin') {
         const { data, error } = await supabase
           .from('device_tokens')
           .select('expo_push_token,resident_id,display_name')
-          .eq('role', 'fc')
-          .eq('resident_id', target_id);
+          .eq('role', 'admin');
         if (!error && data) tokens = data;
       } else {
         const { data, error } = await supabase
@@ -444,13 +778,14 @@ serve(async (req: Request) => {
         if (!error && data) tokens = data;
       }
     }
+    tokens = dedupeTokens(tokens);
 
     const logError = await insertNotificationWithFallback({
       title,
       body: message,
       category,
       recipient_role: target_role,
-      resident_id: target_id,
+      resident_id: target_id || null,
       fc_id: body.fc_id ?? null,
       target_url: url,
     });
@@ -458,23 +793,25 @@ serve(async (req: Request) => {
       console.warn('notifications insert failed', logError.message);
     }
 
-    // Send web push to admin browser subscribers (fire-and-forget)
+    let adminWebPush: AdminWebPushResult | null = null;
+    // Send web push to admin browser subscribers
     if (target_role === 'admin') {
-      await notifyAdminWebPush(title, message, url);
+      adminWebPush = await notifyAdminWebPush(pushTitle, message, url);
     }
 
     if (!tokens.length) {
-      return ok({ ok: true, sent: 0, logged: !logError, msg: 'No tokens found' });
+      return ok({ ok: true, sent: 0, logged: !logError, msg: 'No tokens found', web_push: adminWebPush });
     }
 
     const pushPayload = tokens.map((t) => ({
       to: t.expo_push_token,
-      title,
+      title: pushTitle,
       body: message,
       data: {
         url,
         type: category,
-        resident_id: target_id,
+        source: notificationSource,
+        resident_id: target_id || null,
       },
       sound: 'default',
       priority: 'high',
@@ -488,7 +825,7 @@ serve(async (req: Request) => {
     });
     const result = await resp.json();
 
-    return ok({ ok: true, sent: tokens.length, logged: !logError, result });
+    return ok({ ok: true, sent: tokens.length, logged: !logError, result, web_push: adminWebPush });
   }
 
   // 기존 fc/admin 업데이트/삭제 로직
@@ -524,10 +861,10 @@ serve(async (req: Request) => {
     const { data, error } = await supabase
       .from('device_tokens')
       .select('expo_push_token,resident_id,display_name')
-      .eq('role', 'fc')
       .eq('resident_id', targetResidentId);
     if (!error && data) tokens = data;
   }
+  tokens = dedupeTokens(tokens);
 
   const title = buildTitle(fcRow.name, body, (body as any).message);
   const message = (body as any).message ?? title;
@@ -544,13 +881,14 @@ serve(async (req: Request) => {
   });
   if (logError) console.warn('notifications insert failed', logError.message);
 
-  // Send web push to admin browser subscribers for fc_update / fc_delete (fire-and-forget)
+  let adminWebPush: AdminWebPushResult | null = null;
+  // Send web push to admin browser subscribers for fc_update / fc_delete
   if (targetRole === 'admin') {
-    await notifyAdminWebPush(title, message, targetUrl);
+    adminWebPush = await notifyAdminWebPush(title, message, targetUrl);
   }
 
   if (!tokens.length) {
-    return ok({ ok: true, sent: 0, logged: true });
+    return ok({ ok: true, sent: 0, logged: true, web_push: adminWebPush });
   }
 
   const payload = tokens.map((t) => ({
@@ -576,5 +914,5 @@ serve(async (req: Request) => {
 
   const result = await resp.json();
 
-  return ok({ ok: true, sent: tokens.length, logged: true, result });
+  return ok({ ok: true, sent: tokens.length, logged: true, result, web_push: adminWebPush });
 });

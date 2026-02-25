@@ -1,11 +1,29 @@
+self.addEventListener('install', () => {
+  self.skipWaiting();
+});
+
+self.addEventListener('activate', (event) => {
+  event.waitUntil(self.clients.claim());
+});
+
 self.addEventListener('push', (event) => {
-  const data = event.data ? event.data.json() : {};
-  const title = data.title || 'Notification';
+  let data = {};
+  try {
+    data = event.data ? event.data.json() : {};
+  } catch {
+    data = {
+      title: '알림',
+      body: event.data ? event.data.text() : '',
+      data: {},
+    };
+  }
+
+  const title = data.title || 'FC 온보딩 알림';
   const options = {
     body: data.body || '',
     data: data.data || {},
-    icon: '/favicon.png',
-    badge: '/favicon.png',
+    icon: '/favicon.ico',
+    badge: '/favicon.ico',
   };
 
   event.waitUntil(self.registration.showNotification(title, options));

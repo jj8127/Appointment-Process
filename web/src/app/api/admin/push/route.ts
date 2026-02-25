@@ -8,17 +8,43 @@ const adminClient = createClient(
   process.env.SUPABASE_SERVICE_ROLE_KEY!,
 );
 
+const normalizeToken = (value?: string | null) =>
+  (value ?? '')
+    .trim()
+    .replace(/^['"]+|['"]+$/g, '')
+    .replace(/\\n/g, '')
+    .replace(/\r?\n/g, '')
+    .trim();
+
 /**
  * Protected admin web push endpoint.
  * Called by the fc-notify Edge Function to send web push to all admin browser subscribers.
  *
- * Security: Validated via X-Admin-Push-Secret header (shared secret between Edge Function and Next.js).
+ * Security: Validated via one of:
+ * 1) X-Admin-Push-Secret header
+ * 2) Authorization Bearer service-role key (Edge Function to Next.js internal callback)
  */
 export async function POST(req: Request) {
-  const secret = req.headers.get('X-Admin-Push-Secret');
-  const expected = process.env.ADMIN_PUSH_SECRET;
+  const secret = normalizeToken(req.headers.get('X-Admin-Push-Secret'));
+  const expectedSecret = normalizeToken(process.env.ADMIN_PUSH_SECRET);
+  const serviceRoleKey = normalizeToken(process.env.SUPABASE_SERVICE_ROLE_KEY);
+  const authHeader = req.headers.get('Authorization') ?? '';
+  const apikey = normalizeToken(req.headers.get('apikey'));
+  const bearer = authHeader.startsWith('Bearer ') ? normalizeToken(authHeader.slice(7)) : '';
 
-  if (!expected || !secret || secret !== expected) {
+  const secretAuthOk = Boolean(expectedSecret && secret && secret === expectedSecret);
+  const serviceRoleAuthOk = Boolean(serviceRoleKey && bearer && bearer === serviceRoleKey);
+  const apikeyAuthOk = Boolean(serviceRoleKey && apikey && apikey === serviceRoleKey);
+
+  if (!secretAuthOk && !serviceRoleAuthOk && !apikeyAuthOk) {
+    const authMeta = {
+      hasSecret: Boolean(secret),
+      hasBearer: Boolean(bearer),
+      hasApikey: Boolean(apikey),
+      secretConfigured: Boolean(expectedSecret),
+      serviceRoleConfigured: Boolean(serviceRoleKey),
+    };
+    logger.warn('[admin/push] unauthorized request', authMeta);
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
 
