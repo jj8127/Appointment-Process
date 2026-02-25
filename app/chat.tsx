@@ -7,6 +7,7 @@ import { StatusBar } from 'expo-status-bar';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator,
+  AppState,
   Alert,
   Dimensions,
   FlatList,
@@ -27,12 +28,20 @@ import { useKeyboardPadding } from '@/hooks/use-keyboard-padding';
 import { useSession } from '@/hooks/use-session';
 import { supabase } from '@/lib/supabase';
 import { logger } from '@/lib/logger';
+import {
+  ADMIN_CHAT_ID,
+  buildManagerChatLabel,
+  isSameManagerName,
+  parseAffiliationManagerInfo,
+  sanitizePhone,
+} from '@/lib/messenger-participants';
 
 const HANWHA_ORANGE = '#f36f21';
 const CHARCOAL = '#111827';
 const MUTED = '#6b7280';
 const SOFT_BG = '#F9FAFB';
 const SCREEN_WIDTH = Dimensions.get('window').width;
+const CHAT_POLL_INTERVAL_MS = 2500;
 
 export const options = { headerShown: false };
 
@@ -49,15 +58,60 @@ type Message = {
   file_size?: number | null;
 };
 
+const sortMessagesDesc = (rows: Message[]) =>
+  [...rows].sort((a, b) => {
+    const aTime = new Date(a.created_at).getTime();
+    const bTime = new Date(b.created_at).getTime();
+    if (aTime !== bTime) return bTime - aTime;
+    return b.id.localeCompare(a.id);
+  });
+
+const areMessagesEqual = (prev: Message[], next: Message[]) => {
+  if (prev.length !== next.length) return false;
+  for (let i = 0; i < prev.length; i += 1) {
+    const a = prev[i];
+    const b = next[i];
+    if (
+      a.id !== b.id
+      || a.content !== b.content
+      || a.sender_id !== b.sender_id
+      || a.receiver_id !== b.receiver_id
+      || a.created_at !== b.created_at
+      || a.is_read !== b.is_read
+      || (a.message_type ?? 'text') !== (b.message_type ?? 'text')
+      || (a.file_url ?? null) !== (b.file_url ?? null)
+      || (a.file_name ?? null) !== (b.file_name ?? null)
+      || (a.file_size ?? null) !== (b.file_size ?? null)
+    ) {
+      return false;
+    }
+  }
+  return true;
+};
+
 export default function ChatScreen() {
-  const { role, residentId, displayName } = useSession();
-  const { targetId, targetName } = useLocalSearchParams<{ targetId?: string; targetName?: string }>();
+  const { role, residentId, displayName, readOnly } = useSession();
+  const { targetId, targetName } = useLocalSearchParams<{
+    targetId?: string | string[];
+    targetName?: string | string[];
+  }>();
   const insets = useSafeAreaInsets();
   const keyboardPadding = useKeyboardPadding();
+  const targetIdValue = Array.isArray(targetId) ? targetId[0] : targetId;
+  const targetNameValue = Array.isArray(targetName) ? targetName[0] : targetName;
 
-  const myId = role === 'admin' ? 'admin' : residentId ?? '';
-  const otherId = role === 'admin' ? targetId ?? '' : 'admin';
-  const headerTitle = role === 'admin' ? targetName ?? 'FC' : '총무팀';
+  const isManagerSession = role === 'admin' && readOnly;
+  const myId = role === 'admin'
+    ? (isManagerSession ? sanitizePhone(residentId) : ADMIN_CHAT_ID)
+    : sanitizePhone(residentId);
+  const targetIdSanitized = sanitizePhone(targetIdValue);
+  const [resolvedFcTargetId, setResolvedFcTargetId] = useState('');
+  const otherId = role === 'admin' ? targetIdSanitized : resolvedFcTargetId;
+  const [resolvedTargetName, setResolvedTargetName] = useState('');
+  const [resolvedManagerLabel, setResolvedManagerLabel] = useState('총무팀');
+  const headerTitle = role === 'admin'
+    ? resolvedTargetName || targetIdValue || 'FC'
+    : resolvedManagerLabel;
 
   const [messages, setMessages] = useState<Message[]>([]);
   const [text, setText] = useState('');
@@ -66,6 +120,15 @@ export default function ChatScreen() {
   const isUploadCancelled = useRef(false);
   const flatListRef = useRef<FlatList>(null);
   const deletedIdsRef = useRef<Set<string>>(new Set());
+  const messagesRef = useRef<Message[]>([]);
+
+  const applyMessages = useCallback((rows: Message[]) => {
+    const sorted = sortMessagesDesc(rows);
+    if (areMessagesEqual(messagesRef.current, sorted)) return false;
+    messagesRef.current = sorted;
+    setMessages(sorted);
+    return true;
+  }, []);
 
   const fetchMessages = useCallback(async () => {
     if (!myId || !otherId) return;
@@ -79,20 +142,25 @@ export default function ChatScreen() {
       return;
     }
     const filtered = (data ?? []).filter((m) => !deletedIdsRef.current.has(m.id));
-    setMessages(filtered);
+    applyMessages(filtered as Message[]);
 
-    await supabase
-      .from('messages')
-      .update({ is_read: true })
-      .eq('sender_id', otherId)
-      .eq('receiver_id', myId)
-      .eq('is_read', false);
-  }, [myId, otherId]);
+    const unreadIds = filtered
+      .filter((m) => m.sender_id === otherId && m.receiver_id === myId && !m.is_read)
+      .map((m) => m.id);
+    if (unreadIds.length > 0) {
+      await supabase.from('messages').update({ is_read: true }).in('id', unreadIds);
+      const updated = messagesRef.current.map((m) =>
+        m.sender_id === otherId && m.receiver_id === myId ? { ...m, is_read: true } : m,
+      );
+      messagesRef.current = updated;
+      setMessages(updated);
+    }
+  }, [applyMessages, myId, otherId]);
 
   useEffect(() => {
     if (!myId || !otherId) return;
 
-    fetchMessages();
+    void fetchMessages();
 
     const channel = supabase
       .channel(`chat-${myId}-${otherId}`)
@@ -104,11 +172,13 @@ export default function ChatScreen() {
             const deletedId = (payload as any).old?.id;
             if (deletedId) {
               deletedIdsRef.current.add(deletedId);
-              setMessages((prev) => prev.filter((m) => m.id !== deletedId));
+              const next = messagesRef.current.filter((m) => m.id !== deletedId);
+              messagesRef.current = next;
+              setMessages(next);
               return;
             }
             // old 정보가 없으면 전체 재조회
-            fetchMessages();
+            void fetchMessages();
             return;
           }
           const newMsg = payload.new as Message;
@@ -119,12 +189,16 @@ export default function ChatScreen() {
           if (!related) return;
 
           if (payload.eventType === 'INSERT') {
-            setMessages((prev) => (prev.some((m) => m.id === newMsg.id) ? prev : [newMsg, ...prev]));
+            applyMessages(
+              messagesRef.current.some((m) => m.id === newMsg.id)
+                ? messagesRef.current
+                : [newMsg, ...messagesRef.current],
+            );
             if (newMsg.sender_id === otherId) {
-              supabase.from('messages').update({ is_read: true }).eq('id', newMsg.id);
+              void supabase.from('messages').update({ is_read: true }).eq('id', newMsg.id);
             }
           } else if (payload.eventType === 'UPDATE') {
-            setMessages((prev) => prev.map((m) => (m.id === newMsg.id ? newMsg : m)));
+            applyMessages(messagesRef.current.map((m) => (m.id === newMsg.id ? newMsg : m)));
           }
         },
       )
@@ -133,7 +207,131 @@ export default function ChatScreen() {
     return () => {
       supabase.removeChannel(channel);
     };
+  }, [applyMessages, fetchMessages, myId, otherId]);
+
+  useEffect(() => {
+    if (!myId || !otherId) return;
+    const intervalId = setInterval(() => {
+      void fetchMessages();
+    }, CHAT_POLL_INTERVAL_MS);
+
+    const appStateSub = AppState.addEventListener('change', (nextState) => {
+      if (nextState === 'active') {
+        void fetchMessages();
+      }
+    });
+
+    return () => {
+      clearInterval(intervalId);
+      appStateSub.remove();
+    };
   }, [fetchMessages, myId, otherId]);
+
+  useEffect(() => {
+    if (role !== 'fc') return;
+
+    if (!residentId) {
+      setResolvedFcTargetId(ADMIN_CHAT_ID);
+      setResolvedManagerLabel('총무팀');
+      return;
+    }
+
+    let active = true;
+
+    (async () => {
+      const phone = sanitizePhone(residentId);
+      const { data: profile, error: profileError } = await supabase
+        .from('fc_profiles')
+        .select('affiliation')
+        .eq('phone', phone)
+        .maybeSingle();
+
+      if (!active) return;
+      if (profileError) {
+        logger.debug('[chat] resolve fc affiliation failed', { error: profileError.message, phone });
+        setResolvedFcTargetId(ADMIN_CHAT_ID);
+        setResolvedManagerLabel('총무팀');
+        return;
+      }
+
+      const affiliation = (profile?.affiliation ?? '').trim();
+      const affiliationInfo = parseAffiliationManagerInfo(affiliation);
+      if (!affiliationInfo?.managerName) {
+        setResolvedFcTargetId(ADMIN_CHAT_ID);
+        setResolvedManagerLabel('총무팀');
+        return;
+      }
+
+      const { data: managers, error: managerError } = await supabase
+        .from('manager_accounts')
+        .select('name,phone')
+        .eq('active', true);
+
+      if (!active) return;
+      if (managerError) {
+        logger.debug('[chat] resolve manager account failed', {
+          error: managerError.message,
+          managerName: affiliationInfo.managerName,
+        });
+        setResolvedFcTargetId(ADMIN_CHAT_ID);
+        setResolvedManagerLabel('총무팀');
+        return;
+      }
+
+      const matchedManager = (managers ?? []).find((manager) =>
+        isSameManagerName(manager?.name, affiliationInfo.managerName),
+      );
+
+      if (!matchedManager?.phone) {
+        setResolvedFcTargetId(ADMIN_CHAT_ID);
+        setResolvedManagerLabel('총무팀');
+        return;
+      }
+
+      setResolvedFcTargetId(sanitizePhone(matchedManager.phone));
+      setResolvedManagerLabel(buildManagerChatLabel(affiliation, matchedManager.name));
+    })();
+
+    return () => {
+      active = false;
+    };
+  }, [residentId, role]);
+
+  useEffect(() => {
+    if (role !== 'admin') return;
+
+    const paramName = (targetNameValue ?? '').trim();
+    if (paramName && paramName !== 'FC') {
+      setResolvedTargetName(paramName);
+      return;
+    }
+
+    if (!otherId) {
+      setResolvedTargetName(paramName || 'FC');
+      return;
+    }
+
+    let active = true;
+    (async () => {
+      const { data, error } = await supabase
+        .from('fc_profiles')
+        .select('name')
+        .eq('phone', otherId)
+        .maybeSingle();
+
+      if (!active) return;
+      if (error) {
+        logger.debug('[chat] resolve target name failed', { error: error.message, otherId });
+      }
+
+      const profileName = (data?.name ?? '').trim();
+      setResolvedTargetName(profileName || paramName || otherId || 'FC');
+    })();
+
+    return () => {
+      active = false;
+    };
+  }, [otherId, role, targetNameValue]);
 
   useEffect(() => {
     return () => {
@@ -158,32 +356,48 @@ export default function ChatScreen() {
     type: 'text' | 'image' | 'file' = 'text',
     fileData?: { url: string; name: string; size?: number },
   ) => {
-    if (!myId || !otherId) return;
+    if (!myId || !otherId) {
+      if (role === 'fc') {
+        Alert.alert('잠시만요', '대화 상대 정보를 확인 중입니다. 잠시 후 다시 시도해주세요.');
+      }
+      return;
+    }
     if (isUploadCancelled.current) return;
 
-    const { error } = await supabase.from('messages').insert({
-      sender_id: myId,
-      receiver_id: otherId,
-      content,
-      message_type: type,
-      file_url: fileData?.url ?? null,
-      file_name: fileData?.name ?? null,
-      file_size: fileData?.size ?? null,
-    });
+    const { data: inserted, error } = await supabase
+      .from('messages')
+      .insert({
+        sender_id: myId,
+        receiver_id: otherId,
+        content,
+        message_type: type,
+        file_url: fileData?.url ?? null,
+        file_name: fileData?.name ?? null,
+        file_size: fileData?.size ?? null,
+      })
+      .select('*')
+      .single();
 
     if (error) {
       logger.warn('sendMessage error', { error: error.message });
       Alert.alert('전송 실패', '메시지를 보내지 못했습니다.');
       return;
     }
+    if (inserted && !deletedIdsRef.current.has(inserted.id)) {
+      applyMessages([inserted as Message, ...messagesRef.current]);
+    }
 
-    const isReceiverAdmin = otherId === 'admin';
-    const recipientRole = isReceiverAdmin ? 'admin' : 'fc';
-    const residentIdForPush = isReceiverAdmin ? null : otherId;
+    const isSenderStaff = role === 'admin';
+    const recipientRole: 'admin' | 'fc' = isSenderStaff ? 'fc' : 'admin';
+    const residentIdForPush = otherId || null;
     const notiBody = type === 'text' ? content : type === 'image' ? '사진을 보냈습니다.' : '파일을 보냈습니다.';
-    const senderName = role === 'admin' ? '총무팀' : displayName?.trim() || residentId || 'FC';
+    const senderName = role === 'admin'
+      ? (isManagerSession ? displayName?.trim() || residentId || '본부장' : '총무팀')
+      : displayName?.trim() || residentId || 'FC';
     const notiTitle = `${senderName}: ${notiBody}`;
-    const notifyUrl = isReceiverAdmin ? `/chat?targetId=${myId}&targetName=FC` : '/chat';
+    const notifyUrl = isSenderStaff
+      ? '/chat'
+      : `/chat?targetId=${encodeURIComponent(myId)}&targetName=${encodeURIComponent(senderName)}`;
 
     try {
       const { data: notifyData, error: notifyError } = await supabase.functions.invoke('fc-notify', {
@@ -195,6 +409,8 @@ export default function ChatScreen() {
           body: notiBody,
           category: 'message',
           url: notifyUrl,
+          sender_id: myId,
+          sender_name: senderName,
         },
       });
       if (notifyError || !notifyData?.ok) {

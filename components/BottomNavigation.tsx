@@ -16,35 +16,31 @@ export interface NavItem {
 /** 역할별 네비게이션 프리셋 */
 export type NavPreset = 'fc' | 'admin-onboarding' | 'admin-exam' | 'manager';
 
-/** FC 사용자 네비게이션 */
 const FC_NAV_ITEMS: NavItem[] = [
   { key: 'home', label: '홈', icon: 'home', route: '/' },
   { key: 'board', label: '게시판', icon: 'clipboard', route: '/board' },
-  { key: 'notice', label: '공지', icon: 'bell', route: '/notice' },
+  { key: 'request-board', label: '설계요청', icon: 'file-text', route: '/request-board' },
   { key: 'settings', label: '설정', icon: 'settings', route: '/settings' },
 ];
 
-/** 관리자 위촉 탭 네비게이션 */
 const ADMIN_ONBOARDING_NAV_ITEMS: NavItem[] = [
-  { key: 'onboarding', label: '위촉 홈', icon: 'home' },
-  { key: 'exam', label: '시험 홈', icon: 'book-open' },
+  { key: 'onboarding', label: '위촉 홈', icon: 'home', route: '/?mode=onboarding' },
+  { key: 'exam', label: '시험 홈', icon: 'book-open', route: '/?mode=exam' },
   { key: 'board', label: '게시판', icon: 'clipboard', route: '/admin-board-manage' },
-  { key: 'notice', label: '공지', icon: 'bell', route: '/admin-notice' },
+  { key: 'request-board', label: '설계요청', icon: 'file-text', route: '/request-board' },
 ];
 
-/** 관리자 시험 탭 네비게이션 */
 const ADMIN_EXAM_NAV_ITEMS: NavItem[] = [
-  { key: 'onboarding', label: '위촉 홈', icon: 'home' },
-  { key: 'exam', label: '시험 홈', icon: 'book-open' },
+  { key: 'onboarding', label: '위촉 홈', icon: 'home', route: '/?mode=onboarding' },
+  { key: 'exam', label: '시험 홈', icon: 'book-open', route: '/?mode=exam' },
   { key: 'board', label: '게시판', icon: 'clipboard', route: '/admin-board-manage' },
-  { key: 'notice', label: '공지', icon: 'bell', route: '/admin-notice' },
+  { key: 'request-board', label: '설계요청', icon: 'file-text', route: '/request-board' },
 ];
 
-/** 본부장 네비게이션 (FC와 유사, 읽기 전용) */
 const MANAGER_NAV_ITEMS: NavItem[] = [
   { key: 'home', label: '홈', icon: 'home', route: '/' },
   { key: 'board', label: '게시판', icon: 'clipboard', route: '/admin-board-manage' },
-  { key: 'notice', label: '공지', icon: 'bell', route: '/notice' },
+  { key: 'request-board', label: '설계요청', icon: 'file-text', route: '/request-board' },
   { key: 'settings', label: '설정', icon: 'settings', route: '/settings' },
 ];
 
@@ -119,8 +115,13 @@ export function BottomNavigation({
 
     // 라우팅
     if (item.route) {
-      // 현재 페이지면 무시
-      if (pathname === item.route) return;
+      const [targetPath, query] = item.route.split('?');
+      // query가 있는 경우(mode 전환 등)는 스택 누적 없이 replace 처리
+      if (query) {
+        router.replace(item.route as any);
+        return;
+      }
+      if (pathname === targetPath) return;
       router.push(item.route as any);
     }
   };

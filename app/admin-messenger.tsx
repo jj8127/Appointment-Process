@@ -15,8 +15,13 @@ import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context'
 
 import { FormInput } from '@/components/FormInput';
 import { RefreshButton } from '@/components/RefreshButton';
-import { supabase } from '@/lib/supabase';
 import { useSession } from '@/hooks/use-session';
+import {
+  isSameManagerName,
+  parseAffiliationManagerInfo,
+  sanitizePhone,
+} from '@/lib/messenger-participants';
+import { supabase } from '@/lib/supabase';
 
 const CHARCOAL = '#111827';
 const MUTED = '#6b7280';
@@ -25,6 +30,7 @@ type ChatPreview = {
   fc_id: string;
   name: string;
   phone: string;
+  affiliation: string | null;
   last_message: string | null;
   last_time: string | null;
   unread_count: number;
@@ -32,26 +38,49 @@ type ChatPreview = {
 
 export default function AdminMessengerScreen() {
   const router = useRouter();
-  const { role } = useSession();
+  const { role, residentId, readOnly } = useSession();
   const [refreshing, setRefreshing] = useState(false);
   const [keyword, setKeyword] = useState('');
   const insets = useSafeAreaInsets();
+  const isManagerSession = role === 'admin' && readOnly;
+  const myChatId = isManagerSession ? sanitizePhone(residentId) : 'admin';
 
   const fetchChatList = async () => {
+    let managerName = '';
+    if (isManagerSession) {
+      const { data: managerAccount, error: managerError } = await supabase
+        .from('manager_accounts')
+        .select('name')
+        .eq('phone', myChatId)
+        .maybeSingle();
+      if (managerError) throw managerError;
+      managerName = (managerAccount?.name ?? '').trim();
+    }
+
     const { data: fcs, error: fcError } = await supabase
       .from('fc_profiles')
-      .select('id,name,phone')
+      .select('id,name,phone,affiliation')
+      .eq('signup_completed', true)
       .order('name');
     if (fcError) throw fcError;
 
+    const scopedFcs = isManagerSession
+      ? (fcs ?? []).filter((fc) => {
+        if (!managerName) return false;
+        const parsed = parseAffiliationManagerInfo(fc.affiliation);
+        if (!parsed?.managerName) return false;
+        return isSameManagerName(parsed.managerName, managerName);
+      })
+      : (fcs ?? []);
+
     const previews: ChatPreview[] = [];
 
-    for (const fc of fcs ?? []) {
+    for (const fc of scopedFcs) {
       const { data: lastMsgs, error: lastErr } = await supabase
         .from('messages')
         .select('content,created_at,sender_id,is_read')
         .or(
-          `and(sender_id.eq.admin,receiver_id.eq.${fc.phone}),and(sender_id.eq.${fc.phone},receiver_id.eq.admin)`,
+          `and(sender_id.eq.${myChatId},receiver_id.eq.${fc.phone}),and(sender_id.eq.${fc.phone},receiver_id.eq.${myChatId})`,
         )
         .order('created_at', { ascending: false })
         .limit(1);
@@ -63,14 +92,15 @@ export default function AdminMessengerScreen() {
         .from('messages')
         .select('*', { count: 'exact', head: true })
         .eq('sender_id', fc.phone)
-        .eq('receiver_id', 'admin')
+        .eq('receiver_id', myChatId)
         .eq('is_read', false);
       if (countErr) throw countErr;
 
       previews.push({
         fc_id: fc.id,
-        name: fc.name,
+        name: typeof fc.name === 'string' && fc.name.trim().length > 0 ? fc.name.trim() : fc.phone ?? 'FC',
         phone: fc.phone,
+        affiliation: fc.affiliation ?? null,
         last_message: lastMsg?.content ?? null,
         last_time: lastMsg?.created_at ?? null,
         unread_count: count ?? 0,
@@ -87,7 +117,7 @@ export default function AdminMessengerScreen() {
   };
 
   const { data, isLoading, refetch } = useQuery({
-    queryKey: ['admin-chat-list'],
+    queryKey: ['admin-chat-list', role, residentId, readOnly],
     queryFn: fetchChatList,
     enabled: role === 'admin',
   });
@@ -95,7 +125,7 @@ export default function AdminMessengerScreen() {
   useEffect(() => {
     if (role !== 'admin') return;
     const channel = supabase
-      .channel('admin-chat-list-changes')
+      .channel(`admin-chat-list-changes-${myChatId}`)
       .on(
         'postgres_changes',
         { event: '*', schema: 'public', table: 'messages' },
@@ -105,7 +135,7 @@ export default function AdminMessengerScreen() {
     return () => {
       supabase.removeChannel(channel);
     };
-  }, [role, refetch]);
+  }, [myChatId, role, refetch]);
 
   const onRefresh = useCallback(async () => {
     setRefreshing(true);

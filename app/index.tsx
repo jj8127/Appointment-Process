@@ -5,7 +5,7 @@ import Constants from 'expo-constants';
 import * as Haptics from 'expo-haptics';
 import { LinearGradient } from 'expo-linear-gradient';
 import * as Notifications from 'expo-notifications';
-import { Stack, router, useFocusEffect } from 'expo-router';
+import { Stack, router, useFocusEffect, useLocalSearchParams } from 'expo-router';
 import { MotiView } from 'moti';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import {
@@ -111,7 +111,7 @@ const quickLinksFc: QuickLink[] = [
   { href: '/consent', title: '수당 동의', description: '약관 동의 관리' },
   { href: '/docs-upload', title: '서류 업로드', description: '필수 서류 제출' },
   { href: '/appointment', title: '위촉', description: '위촉 URL 접속 및 완료' },
-  { href: '/chat', title: '1:1 문의', description: '총무팀과 대화하기' },
+  { href: '/chat', title: '1:1 문의', description: '소속 본부장과 대화하기' },
 ];
 
 const steps = [
@@ -398,6 +398,7 @@ const getLinkIcon = (href: string) => {
 export default function Home() {
   useInAppUpdate(); // Check for Android updates on mount
   const { role, residentId, displayName, logout, hydrated } = useSession();
+  const { mode } = useLocalSearchParams<{ mode?: string }>();
   const { data: identityStatus, isLoading: identityLoading } = useIdentityStatus();
 
   const insets = useSafeAreaInsets();
@@ -540,7 +541,7 @@ export default function Home() {
           zoneScrollTargets.current[zone] = targetY;
           logger.debug(`[cacheZonePos] zone ${zone}: y=${y}, h=${h}, targetY=${targetY}`);
         },
-        () => {},
+        () => { },
       );
     }
   }, [insets.top, insets.bottom]);
@@ -686,6 +687,15 @@ export default function Home() {
       setAdminHomeTab('onboarding');
     }
   }, [role]);
+
+  useEffect(() => {
+    if (role !== 'admin') return;
+    if (mode === 'exam') {
+      setAdminHomeTab('exam');
+      return;
+    }
+    setAdminHomeTab('onboarding');
+  }, [mode, role]);
 
   // 테스트용: Supabase 연결 확인 (컴포넌트 내부에서 실행)
   useEffect(() => {
@@ -957,6 +967,11 @@ export default function Home() {
     if (tab === adminHomeTab) return;
     Haptics.selectionAsync();
     setAdminHomeTab(tab);
+    if (tab === 'exam') {
+      router.replace('/?mode=exam');
+      return;
+    }
+    router.replace('/');
   };
 
   const onRefresh = useCallback(async () => {
@@ -1788,6 +1803,15 @@ export default function Home() {
               </View>
               <Text style={styles.bottomNavLabel}>게시판</Text>
             </Pressable>
+            <Pressable
+              style={({ pressed }) => [styles.bottomNavItem, pressed && styles.pressedOpacity]}
+              onPress={() => router.push('/request-board')}
+            >
+              <View style={styles.bottomNavIconWrap}>
+                <Feather name="file-text" size={20} color={HANWHA_ORANGE} />
+              </View>
+              <Text style={styles.bottomNavLabel}>설계요청</Text>
+            </Pressable>
           </Animated.View>
         ) : role === 'fc' ? (
           <Animated.View style={[styles.bottomNav, { paddingBottom: Math.max(insets.bottom, 12) }, bottomNavAnimatedStyle]}>
@@ -1812,12 +1836,12 @@ export default function Home() {
 
             <Pressable
               style={({ pressed }) => [styles.bottomNavItem, pressed && styles.pressedOpacity]}
-              onPress={() => router.push('/notice')}
+              onPress={() => router.push('/request-board')}
             >
               <View style={styles.bottomNavIconWrap}>
-                <Feather name="bell" size={20} color={HANWHA_ORANGE} />
+                <Feather name="file-text" size={20} color={HANWHA_ORANGE} />
               </View>
-              <Text style={styles.bottomNavLabel}>공지</Text>
+              <Text style={styles.bottomNavLabel}>설계요청</Text>
             </Pressable>
 
             <Pressable

@@ -105,7 +105,7 @@ export default function HomeLiteScreen() {
                 <Feather name="message-circle" size={18} color={COLORS.primary} />
               </View>
               <Text style={styles.linkTitle}>1:1 문의</Text>
-              <Text style={styles.linkText}>총무팀에게 문의하세요.</Text>
+              <Text style={styles.linkText}>소속 본부장에게 문의하세요.</Text>
             </Pressable>
             <Pressable style={styles.linkCard} onPress={() => router.push('/notice')}>
               <View style={styles.linkIcon}>
