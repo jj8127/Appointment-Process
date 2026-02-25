@@ -166,10 +166,7 @@ export const calcStep = (profile: FcProfile) => {
     docs.length > 0 && docs.every((d) => d.storage_path && d.storage_path !== 'deleted');
   const allApproved = allSubmitted && docs.every((d) => d.status === 'approved');
   if (!allApproved) return 3;
-
-  if (profile.status !== 'final-link-sent') return 4;
-
-  return 5;
+  return 4;
 };
 
 export const getAdminStep = (profile: FcProfile) => {
@@ -181,3 +178,4 @@ export const getAdminStep = (profile: FcProfile) => {
   if (rawStep === 4) return '3단계 위촉 진행';
   return '4단계 완료';
 };
+
