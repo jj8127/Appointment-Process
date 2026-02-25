@@ -105,9 +105,60 @@ export type BoardDetail = {
 
 type InvokeResult<T> = { ok: boolean; data?: T; message?: string };
 
+async function extractFunctionsErrorMessage(error: unknown): Promise<string | null> {
+  if (!error || typeof error !== 'object') return null;
+  const withContext = error as {
+    context?: {
+      bodyUsed?: boolean;
+      json?: () => Promise<unknown>;
+      text?: () => Promise<string>;
+    };
+  };
+  const context = withContext.context;
+  if (!context) return null;
+
+  if (typeof context.json === 'function' && !context.bodyUsed) {
+    try {
+      const payload = await context.json() as { message?: string; code?: string } | null;
+      if (payload?.message) return payload.message;
+      if (payload?.code) return payload.code;
+    } catch {
+      // fall through to text parsing
+    }
+  }
+
+  if (typeof context.text === 'function' && !context.bodyUsed) {
+    try {
+      const raw = await context.text();
+      if (!raw) return null;
+      const parsed = JSON.parse(raw) as { message?: string; code?: string };
+      if (parsed?.message) return parsed.message;
+      if (parsed?.code) return parsed.code;
+      return raw;
+    } catch {
+      return null;
+    }
+  }
+
+  return null;
+}
+
 async function invokeBoard<T>(name: string, body: Record<string, unknown>): Promise<T> {
   const { data, error } = await supabase.functions.invoke(name, { body });
-  if (error) throw error;
+  if (error) {
+    const message = await extractFunctionsErrorMessage(error);
+    if (message) {
+      throw new Error(message);
+    }
+    const status = (error as { context?: { status?: number } })?.context?.status;
+    const fallback = status === 400
+      ? '요청이 올바르지 않습니다. 첨부파일 개수/용량을 확인해주세요.'
+      : null;
+    const rawMessage = typeof (error as { message?: unknown })?.message === 'string'
+      ? (error as { message: string }).message
+      : null;
+    throw new Error(fallback ?? rawMessage ?? '요청에 실패했습니다.');
+  }
   const payload = data as InvokeResult<T> | null;
   if (!payload?.ok) {
     throw new Error(payload?.message ?? '요청에 실패했습니다.');

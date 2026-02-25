@@ -33,6 +33,7 @@ import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context'
 import { Gesture, GestureDetector } from 'react-native-gesture-handler';
 
 import { CardSkeleton } from '@/components/LoadingSkeleton';
+import { BottomNavigation } from '@/components/BottomNavigation';
 import { ImagePreviewModal } from '@/components/ImagePreviewModal';
 import { KeyboardAwareWrapper } from '@/components/KeyboardAwareWrapper';
 import { LinkifiedSelectableText } from '@/components/LinkifiedSelectableText';
@@ -1105,41 +1106,12 @@ export default function AdminBoardManageScreen() {
       )}
 
       {/* 하단 네비게이션 바 (스크롤시 사라짐) */}
-      <Animated.View
-        style={[
-          styles.bottomNav,
-          { paddingBottom: Math.max(insets.bottom, 12) },
-          bottomNavAnimatedStyle,
-        ]}
-      >
-        <Pressable style={styles.bottomNavItem} onPress={() => router.back()}>
-          <View style={styles.bottomNavIconWrap}>
-            <Feather name="home" size={20} color={HANWHA_ORANGE} />
-          </View>
-          <Text style={styles.bottomNavLabel}>홈</Text>
-        </Pressable>
-
-        <Pressable style={styles.bottomNavItem}>
-          <View style={[styles.bottomNavIconWrap, styles.bottomNavIconWrapActive]}>
-            <Feather name="clipboard" size={20} color="#fff" />
-          </View>
-          <Text style={[styles.bottomNavLabel, styles.bottomNavLabelActive]}>게시판</Text>
-        </Pressable>
-
-        <Pressable style={styles.bottomNavItem} onPress={() => router.push('/notice')}>
-          <View style={styles.bottomNavIconWrap}>
-            <Feather name="bell" size={20} color={HANWHA_ORANGE} />
-          </View>
-          <Text style={styles.bottomNavLabel}>공지</Text>
-        </Pressable>
-
-        <Pressable style={styles.bottomNavItem} onPress={() => router.push('/settings')}>
-          <View style={styles.bottomNavIconWrap}>
-            <Feather name="settings" size={20} color={HANWHA_ORANGE} />
-          </View>
-          <Text style={styles.bottomNavLabel}>설정</Text>
-        </Pressable>
-      </Animated.View>
+      <BottomNavigation
+        preset={isManager ? 'manager' : 'admin-onboarding'}
+        activeKey="board"
+        animatedStyle={bottomNavAnimatedStyle as any}
+        bottomInset={insets.bottom}
+      />
 
       {/* 게시글 상세 모달 */}
       {selectedPost && (

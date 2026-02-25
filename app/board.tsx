@@ -1,7 +1,7 @@
 import { Feather } from '@expo/vector-icons';
 import { useNavigation } from '@react-navigation/native';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { useFocusEffect, useRouter } from 'expo-router';
+import { useFocusEffect, useLocalSearchParams, useRouter } from 'expo-router';
 import { MotiView } from 'moti';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
@@ -122,6 +122,34 @@ const applyReactionUpdate = (
 
 type BoardPost = BoardListItem;
 
+const buildPlaceholderPost = (postId: string): BoardPost => {
+  const now = new Date().toISOString();
+  return {
+    id: postId,
+    categoryId: '',
+    title: '',
+    contentPreview: '',
+    authorName: '',
+    authorRole: 'manager',
+    createdAt: now,
+    updatedAt: now,
+    isPinned: false,
+    isMine: false,
+    stats: {
+      commentCount: 0,
+      reactionCount: 0,
+      attachmentCount: 0,
+    },
+    reactions: {
+      like: 0,
+      heart: 0,
+      check: 0,
+      smile: 0,
+    },
+    attachments: [],
+  };
+};
+
 type CommentLikeButtonProps = {
   liked: boolean;
   count: number;
@@ -202,6 +230,7 @@ function AttachmentPreviewThumb({ uri }: AttachmentPreviewThumbProps) {
 
 export default function BoardScreen() {
   const router = useRouter();
+  const { postId } = useLocalSearchParams<{ postId?: string }>();
   const navigation = useNavigation();
   const { role, displayName, residentId, readOnly } = useSession();
   const queryClient = useQueryClient();
@@ -232,6 +261,11 @@ export default function BoardScreen() {
     authorName: string;
     parentId: string;
   } | null>(null);
+  const routePostId = useMemo(() => {
+    const value = Array.isArray(postId) ? postId[0] : postId;
+    if (typeof value !== 'string') return '';
+    return value.trim();
+  }, [postId]);
 
   // 정렬 옵션 레이블
   const sortLabels: Record<NonNullable<BoardListParams['sort']>, string> = {
@@ -245,7 +279,12 @@ export default function BoardScreen() {
   const lastScrollY = useSharedValue(0);
   const bottomNavTranslateY = useSharedValue(0);
   const modalTranslateY = useSharedValue(0);
-  const closeModal = useCallback(() => setSelectedPost(null), []);
+  const closeModal = useCallback(() => {
+    setSelectedPost(null);
+    if (routePostId) {
+      router.replace('/board');
+    }
+  }, [routePostId, router]);
   const closePreviewImage = useCallback(() => setPreviewImage(null), []);
   const animateCloseModal = useCallback(() => {
     modalTranslateY.value = withTiming(
@@ -411,6 +450,16 @@ export default function BoardScreen() {
     await refetch();
     setRefreshing(false);
   }, [refetch]);
+
+  useEffect(() => {
+    if (!routePostId || !actor) return;
+
+    const fromList = posts.find((item) => item.id === routePostId) ?? null;
+    setSelectedPost((prev) => {
+      if (prev?.id === routePostId) return prev;
+      return fromList ?? buildPlaceholderPost(routePostId);
+    });
+  }, [actor, posts, routePostId]);
 
   // Add reaction mutation
   const addReactionMutation = useMutation<
@@ -1076,11 +1125,11 @@ export default function BoardScreen() {
           <Text style={[styles.bottomNavLabel, styles.bottomNavLabelActive]}>게시판</Text>
         </Pressable>
 
-        <Pressable style={styles.bottomNavItem} onPress={() => router.push('/notice')}>
+        <Pressable style={styles.bottomNavItem} onPress={() => router.push('/request-board')}>
           <View style={styles.bottomNavIconWrap}>
-            <Feather name="bell" size={20} color={HANWHA_ORANGE} />
+            <Feather name="file-text" size={20} color={HANWHA_ORANGE} />
           </View>
-          <Text style={styles.bottomNavLabel}>공지</Text>
+          <Text style={styles.bottomNavLabel}>설계요청</Text>
         </Pressable>
 
         <Pressable style={styles.bottomNavItem} onPress={() => router.push('/settings')}>
@@ -1148,25 +1197,25 @@ export default function BoardScreen() {
 
                     <View style={styles.attachmentGrid}>
                       {modalAttachmentImages.map((item, index) => (
-                          <Pressable
-                            key={item.id}
-                            style={({ pressed }) => [
-                              styles.attachmentGridItem,
-                              pressed && { opacity: 0.75 },
-                            ]}
-                            onPress={() => {
-                              setPreviewImage({
-                                images: modalAttachmentImages.map((image) => ({ url: image.url, title: image.title })),
-                                initialIndex: index,
-                              });
-                            }}
-                          >
-                            <Image source={{ uri: item.url }} style={styles.attachmentGridImage} />
-                            <Text style={styles.attachmentName} numberOfLines={1}>
-                              {item.title}
-                            </Text>
-                            <Text style={styles.attachmentSize}>{formatFileSize(item.fileSize)}</Text>
-                          </Pressable>
+                        <Pressable
+                          key={item.id}
+                          style={({ pressed }) => [
+                            styles.attachmentGridItem,
+                            pressed && { opacity: 0.75 },
+                          ]}
+                          onPress={() => {
+                            setPreviewImage({
+                              images: modalAttachmentImages.map((image) => ({ url: image.url, title: image.title })),
+                              initialIndex: index,
+                            });
+                          }}
+                        >
+                          <Image source={{ uri: item.url }} style={styles.attachmentGridImage} />
+                          <Text style={styles.attachmentName} numberOfLines={1}>
+                            {item.title}
+                          </Text>
+                          <Text style={styles.attachmentSize}>{formatFileSize(item.fileSize)}</Text>
+                        </Pressable>
                       ))}
                     </View>
 

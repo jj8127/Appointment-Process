@@ -33,6 +33,7 @@ type Notice = {
   targetUrl?: string | null;
   created_at?: string | null;
   source: 'notification' | 'notice';
+  origin: 'request_board' | 'fc_onboarding' | 'notice';
 };
 
 type InboxNotificationPayload = {
@@ -66,6 +67,22 @@ const FALLBACK_ITEM_HEIGHT = 104;
 const AUTO_SCROLL_EDGE_THRESHOLD = 72;
 const AUTO_SCROLL_MAX_STEP = 18;
 const AUTO_SCROLL_INTERVAL_MS = 32;
+const REQUEST_BOARD_CATEGORY_PREFIX = 'request_board_';
+
+const REQUEST_BOARD_CATEGORY_LABELS: Record<string, string> = {
+  request_board_new_request: '의뢰 도착',
+  request_board_accepted: '의뢰 수락',
+  request_board_rejected: '의뢰 거절',
+  request_board_completed: '설계 완료',
+  request_board_cancelled: '의뢰 취소',
+  'request_board_fc-accepted': 'FC 승인',
+  'request_board_fc-rejected': 'FC 거절',
+  request_board_message: '새 메시지',
+  request_board_bridge_test: '연동 테스트',
+};
+
+const isRequestBoardCategory = (category?: string | null): boolean =>
+  (category ?? '').trim().toLowerCase().startsWith(REQUEST_BOARD_CATEGORY_PREFIX);
 
 export default function NotificationsScreen() {
   const router = useRouter();
@@ -319,6 +336,7 @@ export default function NotificationsScreen() {
       targetUrl: item.target_url ?? null,
       created_at: item.created_at,
       source: 'notification',
+      origin: isRequestBoardCategory(item.category) ? 'request_board' : 'fc_onboarding',
     }));
 
     const noticeRows: Notice[] = (data.notices ?? []).map((item) => ({
@@ -330,6 +348,7 @@ export default function NotificationsScreen() {
       targetUrl: null,
       created_at: item.created_at,
       source: 'notice',
+      origin: 'notice',
     }));
 
     return { pushRows, noticeRows };
@@ -518,9 +537,34 @@ export default function NotificationsScreen() {
     return trimmed;
   };
 
+  const getOriginLabel = (item: Notice): string => {
+    if (item.origin === 'request_board') return '설계요청';
+    return '온보딩앱';
+  };
+
+  const getCategoryLabel = (item: Notice): string => {
+    if (item.source === 'notice') return '공지';
+
+    const rawCategory = (item.category ?? '').trim();
+    if (!rawCategory) return '알림';
+
+    const normalized = rawCategory.toLowerCase();
+    if (normalized === 'app_event') return '앱 알림';
+
+    if (item.origin === 'request_board') {
+      return REQUEST_BOARD_CATEGORY_LABELS[normalized] ?? '설계요청 알림';
+    }
+
+    return rawCategory;
+  };
+
   const resolveNotificationRoute = (item: Notice): string | null => {
     if (item.source === 'notice') {
       return `/notice-detail?id=${encodeURIComponent(item.rawId)}`;
+    }
+
+    if (item.origin === 'request_board') {
+      return null;
     }
 
     if (item.targetUrl) {
@@ -587,6 +631,11 @@ export default function NotificationsScreen() {
       return;
     }
 
+    if (item.origin === 'request_board') {
+      Alert.alert(item.title, `${item.body}\n\n상세 내용은 설계요청(request_board)에서 확인할 수 있습니다.`, [{ text: '확인' }]);
+      return;
+    }
+
     Alert.alert(item.title, item.body, [{ text: '확인' }]);
   };
 
@@ -598,6 +647,9 @@ export default function NotificationsScreen() {
     const bgIcon = isSelected ? '#FFE8D7' : isNotice ? '#FFF7ED' : '#EFF6FF';
     const categoryColor = isSelected ? COLORS.primary : isNotice ? COLORS.primary : COLORS.text.secondary;
     const dateColor = isSelected ? COLORS.primaryDark : COLORS.text.muted;
+    const originLabel = getOriginLabel(item);
+    const categoryLabel = getCategoryLabel(item);
+    const isRequestBoard = item.origin === 'request_board';
 
     const onItemLayout = (event: LayoutChangeEvent) => {
       const { height } = event.nativeEvent.layout;
@@ -634,9 +686,17 @@ export default function NotificationsScreen() {
           </View>
           <View style={styles.contentBox}>
             <View style={styles.titleRow}>
-              <Text style={[styles.category, { color: categoryColor }]}>
-                {item.category === 'app_event' ? '앱 알림' : item.category}
-              </Text>
+              <View style={styles.metaLeft}>
+                <View
+                  style={[
+                    styles.originBadge,
+                    isRequestBoard ? styles.originBadgeRequestBoard : styles.originBadgeOnboarding,
+                  ]}
+                >
+                  <Text style={styles.originBadgeText}>{originLabel}</Text>
+                </View>
+                <Text style={[styles.category, { color: categoryColor }]}>{categoryLabel}</Text>
+              </View>
               <Text style={[styles.date, { color: dateColor }]}>
                 {item.created_at ? new Date(item.created_at).toLocaleDateString() : ''}
               </Text>
@@ -856,6 +916,23 @@ const styles = StyleSheet.create({
   },
   contentBox: { flex: 1, gap: 4 },
   titleRow: { flexDirection: 'row', justifyContent: 'space-between', marginBottom: 2 },
+  metaLeft: { flexDirection: 'row', alignItems: 'center', gap: 6, flexShrink: 1, paddingRight: 8 },
+  originBadge: {
+    borderRadius: 999,
+    paddingHorizontal: 8,
+    paddingVertical: 2,
+  },
+  originBadgeRequestBoard: {
+    backgroundColor: '#DBEAFE',
+  },
+  originBadgeOnboarding: {
+    backgroundColor: '#FFEDD5',
+  },
+  originBadgeText: {
+    fontSize: 10,
+    fontWeight: '700',
+    color: '#1E3A8A',
+  },
   category: { fontSize: 12, fontWeight: '700', color: COLORS.primary },
   date: { fontSize: 12, color: '#9CA3AF' },
   title: { fontSize: 16, fontWeight: '700', color: COLORS.text.primary },

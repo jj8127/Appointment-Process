@@ -376,8 +376,6 @@ export default function AdminBoardScreen() {
               Linking.openURL(item.uri);
             }
           }}
-          onLongPress={existingImages.length > 1 ? drag : undefined}
-          delayLongPress={220}
         >
           <Image source={{ uri: item.uri }} style={styles.attachmentThumbnail} />
           <View style={{ flex: 1 }}>
@@ -426,8 +424,6 @@ export default function AdminBoardScreen() {
             styles.attachmentOpen,
             pressed && { opacity: 0.7 },
           ]}
-          onLongPress={newImages.length > 1 ? drag : undefined}
-          delayLongPress={220}
         >
           <Image source={{ uri: item.uri }} style={styles.attachmentThumbnail} />
           <View style={{ flex: 1 }}>
@@ -601,7 +597,7 @@ export default function AdminBoardScreen() {
                   <View style={styles.attachmentSubsection}>
                     <Text style={styles.attachmentSubsectionLabel}>이미지</Text>
                     {existingImages.length > 1 && (
-                      <Text style={styles.attachmentOrderHint}>이미지를 길게 눌러 드래그로 순서를 조정하세요.</Text>
+                      <Text style={styles.attachmentOrderHint}>우측 이동 아이콘을 길게 눌러 드래그로 순서를 조정하세요.</Text>
                     )}
                     <DraggableFlatList
                       data={existingImages}
@@ -609,7 +605,7 @@ export default function AdminBoardScreen() {
                       renderItem={renderExistingImageItem}
                       onDragEnd={({ data }) => handleExistingImageDragEnd(data)}
                       scrollEnabled={false}
-                      activationDistance={6}
+                      activationDistance={22}
                       containerStyle={styles.attachmentDraggableList}
                       ItemSeparatorComponent={() => <View style={styles.attachmentDraggableSeparator} />}
                     />
@@ -664,7 +660,7 @@ export default function AdminBoardScreen() {
                   <View style={styles.attachmentSubsection}>
                     <Text style={styles.attachmentSubsectionLabel}>이미지</Text>
                     {newImages.length > 1 && (
-                      <Text style={styles.attachmentOrderHint}>이미지를 길게 눌러 드래그로 순서를 조정하세요.</Text>
+                      <Text style={styles.attachmentOrderHint}>우측 이동 아이콘을 길게 눌러 드래그로 순서를 조정하세요.</Text>
                     )}
                     <DraggableFlatList
                       data={newImages}
@@ -672,7 +668,7 @@ export default function AdminBoardScreen() {
                       renderItem={renderNewImageItem}
                       onDragEnd={({ data }) => handleNewImageDragEnd(data)}
                       scrollEnabled={false}
-                      activationDistance={6}
+                      activationDistance={22}
                       containerStyle={styles.attachmentDraggableList}
                       ItemSeparatorComponent={() => <View style={styles.attachmentDraggableSeparator} />}
                     />

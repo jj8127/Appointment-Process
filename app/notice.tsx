@@ -1,5 +1,6 @@
 import { Feather } from '@expo/vector-icons';
 import { useMutation, useQuery } from '@tanstack/react-query';
+import { router } from 'expo-router';
 import { MotiView } from 'moti';
 import { useMemo, useState } from 'react';
 import {
@@ -55,6 +56,8 @@ type InboxListResponse = {
   message?: string;
   notices?: InboxNoticePayload[];
 };
+
+const BOARD_NOTICE_ID_PREFIX = 'board_notice:';
 
 const isAttachedFile = (value: unknown): value is AttachedFile => {
   if (!value || typeof value !== 'object') return false;
@@ -161,6 +164,23 @@ export default function NoticeScreen() {
     }
   };
 
+  const handleOpenNotice = (noticeId: string) => {
+    if (noticeId.startsWith(BOARD_NOTICE_ID_PREFIX)) {
+      const postId = noticeId.slice(BOARD_NOTICE_ID_PREFIX.length).trim();
+      if (!postId) return;
+      router.push({
+        pathname: '/board',
+        params: { postId },
+      });
+      return;
+    }
+
+    router.push({
+      pathname: '/notice-detail',
+      params: { id: noticeId },
+    });
+  };
+
   return (
     <SafeAreaView style={styles.safe} edges={['left', 'right', 'bottom']}>
       <View style={styles.header}>
@@ -203,7 +223,7 @@ export default function NoticeScreen() {
             animate={{ opacity: 1, translateY: 0 }}
             transition={{ delay: index * 50 }}
           >
-            <View style={styles.card}>
+            <Pressable style={styles.card} onPress={() => handleOpenNotice(n.id)}>
               <View style={styles.cardHeader}>
                 <View style={styles.badge}>
                   <Text style={styles.badgeText}>{n.category || '공지'}</Text>
@@ -211,7 +231,15 @@ export default function NoticeScreen() {
                 <View style={styles.headerActions}>
                   <Text style={styles.date}>{new Date(n.created_at).toLocaleDateString()}</Text>
                   {role === 'admin' && (
-                    <Feather name="trash-2" size={18} color="#9CA3AF" onPress={() => handleDelete(n.id)} />
+                    <Pressable
+                      hitSlop={8}
+                      onPress={(event) => {
+                        event.stopPropagation();
+                        handleDelete(n.id);
+                      }}
+                    >
+                      <Feather name="trash-2" size={18} color="#9CA3AF" />
+                    </Pressable>
                   )}
                 </View>
               </View>
@@ -223,7 +251,13 @@ export default function NoticeScreen() {
               {n.images && n.images.length > 0 && (
                 <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.imageScroll}>
                   {n.images.map((imgUrl, i) => (
-                    <Pressable key={i} onPress={() => handleOpenLink(imgUrl)}>
+                    <Pressable
+                      key={i}
+                      onPress={(event) => {
+                        event.stopPropagation();
+                        void handleOpenLink(imgUrl);
+                      }}
+                    >
                       <Image source={{ uri: imgUrl }} style={styles.noticeImage} />
                     </Pressable>
                   ))}
@@ -234,7 +268,14 @@ export default function NoticeScreen() {
               {n.files && n.files.length > 0 && (
                 <View style={styles.fileList}>
                   {n.files.map((file, i) => (
-                    <Pressable key={i} style={styles.fileItem} onPress={() => handleOpenLink(file.url)}>
+                    <Pressable
+                      key={i}
+                      style={styles.fileItem}
+                      onPress={(event) => {
+                        event.stopPropagation();
+                        void handleOpenLink(file.url);
+                      }}
+                    >
                       <Feather name="paperclip" size={14} color={COLORS.text.secondary} />
                       <Text style={styles.fileName} numberOfLines={1}>{file.name}</Text>
                       <Feather name="download-cloud" size={14} color={COLORS.primary} />
@@ -242,14 +283,14 @@ export default function NoticeScreen() {
                   ))}
                 </View>
               )}
-            </View>
+            </Pressable>
           </MotiView>
         ))}
       </Animated.ScrollView>
 
       <BottomNavigation
         preset={role === 'admin' ? 'admin-onboarding' : 'fc'}
-        activeKey="notice"
+        activeKey="board"
         animatedStyle={animatedStyle}
         bottomInset={insets.bottom}
       />
