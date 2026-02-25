@@ -19,6 +19,8 @@ create table if not exists public.fc_profiles (
   allowance_date date,
   appointment_url text,
   appointment_date date,
+  life_commission_completed boolean not null default false,
+  nonlife_commission_completed boolean not null default false,
   docs_deadline_at date,
   docs_deadline_last_notified_at date,
   status text not null default 'draft',
@@ -39,6 +41,10 @@ create table if not exists public.fc_profiles (
 drop index if exists idx_fc_profiles_resident_id_masked;
 create unique index if not exists idx_fc_profiles_resident_id_hash on public.fc_profiles (resident_id_hash);
 create unique index if not exists idx_fc_profiles_phone on public.fc_profiles (phone);
+alter table public.fc_profiles
+  add column if not exists life_commission_completed boolean not null default false;
+alter table public.fc_profiles
+  add column if not exists nonlife_commission_completed boolean not null default false;
 
 create table if not exists public.fc_identity_secure (
   id uuid primary key default gen_random_uuid(),

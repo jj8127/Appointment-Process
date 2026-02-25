@@ -258,12 +258,13 @@ export default function DashboardPage() {
     if (!fcs) return [];
     let result = fcs.map((fc: FCProfileWithDocuments) => {
       const rawStep = calcStep(fc);
+      const useWorkflowStep = Boolean(fc.identity_completed) || rawStep >= 4;
       // Map raw 1-5 to Admin 1-4
       // Raw 1 (Info), 2 (Allowance) -> Admin 1 (Allowance)
       // Raw 3 (Docs) -> Admin 2
       // Raw 4 (Appt) -> Admin 3
       // Raw 5 (Done) -> Admin 4
-      const adminStep = fc.identity_completed ? (rawStep <= 2 ? 1 : rawStep - 1) : 0;
+      const adminStep = useWorkflowStep ? (rawStep <= 2 ? 1 : rawStep - 1) : 0;
       return { ...fc, step: rawStep, adminStep };
     });
 

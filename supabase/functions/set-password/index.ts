@@ -11,7 +11,10 @@ type Payload = {
   recommender?: string;
   email?: string;
   carrier?: string;
+  commissionStatus?: 'none' | 'life_only' | 'nonlife_only' | 'both' | string;
 };
+
+type CommissionCompletionStatus = 'none' | 'life_only' | 'nonlife_only' | 'both';
 
 function getEnv(name: string): string | undefined {
   const g: any = globalThis as any;
@@ -63,6 +66,34 @@ function fail(code: string, message: string) {
 
 function cleanPhone(input: string) {
   return (input ?? '').replace(/[^0-9]/g, '');
+}
+
+function normalizeCommissionStatus(input?: string): CommissionCompletionStatus {
+  if (input === 'life_only' || input === 'nonlife_only' || input === 'both') return input;
+  return 'none';
+}
+
+function mapCommissionToProfileState(input: CommissionCompletionStatus): {
+  status: 'draft' | 'appointment-completed' | 'final-link-sent';
+  lifeCompleted: boolean;
+  nonlifeCompleted: boolean;
+} {
+  if (input === 'both') {
+    return { status: 'final-link-sent', lifeCompleted: true, nonlifeCompleted: true };
+  }
+  if (input === 'life_only') {
+    return { status: 'appointment-completed', lifeCompleted: true, nonlifeCompleted: false };
+  }
+  if (input === 'nonlife_only') {
+    return { status: 'appointment-completed', lifeCompleted: false, nonlifeCompleted: true };
+  }
+  return { status: 'draft', lifeCompleted: false, nonlifeCompleted: false };
+}
+
+function isMissingColumnError(error: unknown): boolean {
+  const code = (error as { code?: string } | null)?.code;
+  const message = String((error as { message?: string } | null)?.message ?? '').toLowerCase();
+  return code === '42703' || message.includes('column') || message.includes('life_commission_completed') || message.includes('nonlife_commission_completed');
 }
 
 function toBase64(bytes: Uint8Array) {
@@ -191,26 +222,45 @@ serve(async (req: Request) => {
   const profileRecommender = (body.recommender ?? '').trim();
   const profileEmail = (body.email ?? '').trim();
   const profileCarrier = (body.carrier ?? '').trim();
+  const commissionStatus = normalizeCommissionStatus(body.commissionStatus);
+  const commissionState = mapCommissionToProfileState(commissionStatus);
 
   let fcId = profile?.id as string | undefined;
   let displayName = profile?.name ?? '';
 
   if (!fcId) {
-    const { data: inserted, error: insertError } = await supabase
+    const insertPayload: Record<string, unknown> = {
+      phone,
+      name: profileName,
+      affiliation: profileAffiliation,
+      recommender: profileRecommender,
+      email: profileEmail,
+      address: '',
+      status: commissionState.status,
+      identity_completed: false,
+      carrier: profileCarrier,
+      life_commission_completed: commissionState.lifeCompleted,
+      nonlife_commission_completed: commissionState.nonlifeCompleted,
+    };
+
+    let insertResult = await supabase
       .from('fc_profiles')
-      .insert({
-        phone,
-        name: profileName,
-        affiliation: profileAffiliation,
-        recommender: profileRecommender,
-        email: profileEmail,
-        address: '',
-        status: 'draft',
-        identity_completed: false,
-        carrier: profileCarrier,
-      })
+      .insert(insertPayload)
       .select('id,name')
       .maybeSingle();
+
+    if (insertResult.error && isMissingColumnError(insertResult.error)) {
+      const fallbackPayload = { ...insertPayload };
+      delete fallbackPayload.life_commission_completed;
+      delete fallbackPayload.nonlife_commission_completed;
+      insertResult = await supabase
+        .from('fc_profiles')
+        .insert(fallbackPayload)
+        .select('id,name')
+        .maybeSingle();
+    }
+
+    const { data: inserted, error: insertError } = insertResult;
 
     if (insertError || !inserted?.id) {
       return json(
@@ -222,7 +272,11 @@ serve(async (req: Request) => {
     displayName = inserted.name ?? '';
   } else if (profileName) {
     // Update profile with signup form data (in case profile was created by OTP with empty fields)
-    const updatePayload: Record<string, string> = {};
+    const updatePayload: Record<string, string | boolean> = {
+      status: commissionState.status,
+      life_commission_completed: commissionState.lifeCompleted,
+      nonlife_commission_completed: commissionState.nonlifeCompleted,
+    };
     if (profileName) updatePayload.name = profileName;
     if (profileAffiliation) updatePayload.affiliation = profileAffiliation;
     if (profileRecommender) updatePayload.recommender = profileRecommender;
@@ -230,8 +284,33 @@ serve(async (req: Request) => {
     if (profileCarrier) updatePayload.carrier = profileCarrier;
 
     if (Object.keys(updatePayload).length > 0) {
-      await supabase.from('fc_profiles').update(updatePayload).eq('id', fcId);
+      let updateResult = await supabase.from('fc_profiles').update(updatePayload).eq('id', fcId);
+      if (updateResult.error && isMissingColumnError(updateResult.error)) {
+        const fallbackPayload = { ...updatePayload };
+        delete fallbackPayload.life_commission_completed;
+        delete fallbackPayload.nonlife_commission_completed;
+        updateResult = await supabase.from('fc_profiles').update(fallbackPayload).eq('id', fcId);
+      }
+      if (updateResult.error) {
+        return json({ ok: false, code: 'db_error', message: updateResult.error.message }, 500);
+      }
       displayName = profileName || displayName;
+    }
+  } else {
+    const statusOnlyPayload: Record<string, string | boolean> = {
+      status: commissionState.status,
+      life_commission_completed: commissionState.lifeCompleted,
+      nonlife_commission_completed: commissionState.nonlifeCompleted,
+    };
+    let statusUpdateResult = await supabase.from('fc_profiles').update(statusOnlyPayload).eq('id', fcId);
+    if (statusUpdateResult.error && isMissingColumnError(statusUpdateResult.error)) {
+      const fallbackPayload = { ...statusOnlyPayload };
+      delete fallbackPayload.life_commission_completed;
+      delete fallbackPayload.nonlife_commission_completed;
+      statusUpdateResult = await supabase.from('fc_profiles').update(fallbackPayload).eq('id', fcId);
+    }
+    if (statusUpdateResult.error) {
+      return json({ ok: false, code: 'db_error', message: statusUpdateResult.error.message }, 500);
     }
   }
   if (profile?.phone_verified === false) {

@@ -355,7 +355,6 @@ export default function FcNewScreen() {
       email: values.email,
       carrier: values.carrier,
       career_type: null,
-      status: 'draft',
     };
 
     logger.debug('[DEBUG] Mobile: Creating FC Profile Payload', { basePayload });
@@ -374,9 +373,15 @@ export default function FcNewScreen() {
       error = updateErr;
       data = existing as { id: string };
     } else {
+      const insertPayload = {
+        ...basePayload,
+        status: 'draft',
+        life_commission_completed: false,
+        nonlife_commission_completed: false,
+      };
       const { data: insertData, error: insertErr } = await supabase
         .from('fc_profiles')
-        .insert(basePayload)
+        .insert(insertPayload)
         .select('id')
         .single();
       data = insertData as any;

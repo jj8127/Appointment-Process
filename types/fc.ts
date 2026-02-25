@@ -18,6 +18,8 @@ export type DocumentType = string;
 
 export type RequiredDocType = DocumentType;
 
+export type CommissionCompletionStatus = 'none' | 'life_only' | 'nonlife_only' | 'both';
+
 export type FcProfile = {
   id: string;
   name: string;
@@ -42,6 +44,8 @@ export type FcProfile = {
   appointment_date_nonlife?: string | null;
   appointment_reject_reason_life?: string | null;
   appointment_reject_reason_nonlife?: string | null;
+  life_commission_completed?: boolean | null;
+  nonlife_commission_completed?: boolean | null;
   status: FcStatus;
   is_tour_seen?: boolean;
   created_at: string;

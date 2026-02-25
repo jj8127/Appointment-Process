@@ -7,6 +7,64 @@
 
 ---
 
+## <a id="20260225-14"></a> 2026-02-25 | FC 위촉 2트랙(생명/손해) 완료 상태 분기 도입
+
+**Commit**: `working tree`  
+**작업 내용**:
+- 요구사항 반영:
+  - FC 가입 시 위촉 완료 상태를 `none / life_only / nonlife_only / both`로 선택할 수 있도록 추가
+  - 기존 `status` 단일 분기로 발생하던 혼선을 줄이기 위해 생명/손해 완료 플래그를 별도 저장
+- 앱 가입/저장 경로:
+  - `signup -> signup-verify -> signup-password -> set-password` payload에 `commissionStatus` 연결
+  - `set-password`에서 `commissionStatus`를 `status + life/nonlife completion`으로 매핑
+    - `none` -> `draft`, false/false
+    - `life_only` -> `appointment-completed`, true/false
+    - `nonlife_only` -> `appointment-completed`, false/true
+    - `both` -> `final-link-sent`, true/true
+  - 신규 컬럼 미적용 환경에서도 가입 실패를 피하도록 컬럼 누락 fallback 처리 추가
+- 홈 화면/단계 로직:
+  - `calcStep` 우선순위 보정: `final-link-sent`는 즉시 Step 5, 단일 트랙 완료는 Step 4 우선
+  - 위촉 배지를 명확화: `생명/손해` 각각 `완료/대기`로 표시 + `위촉 완료 X/2` 요약 노출
+  - FC 홈의 두 렌더 경로 모두 동일 배지/요약이 노출되도록 정렬
+- 웹 관리자 정합성:
+  - shared `calcStep`, `getAppointmentProgress`도 동일 completion 플래그를 반영해 Step 집계/표시 정렬
+- 데이터/스키마:
+  - `fc_profiles`에 `life_commission_completed`, `nonlife_commission_completed` 컬럼 추가
+  - 마이그레이션에서 기존 `appointment_date_*` 데이터 기반 backfill + status 정규화 반영
+- 보강:
+  - `app/fc/new.tsx`에서 기존 프로필 수정 시 status를 `draft`로 덮어쓰던 동작 제거(완료 상태 보존)
+
+**핵심 파일**:
+- `app/signup.tsx`
+- `app/signup-verify.tsx`
+- `app/signup-password.tsx`
+- `app/index.tsx`
+- `app/fc/new.tsx`
+- `supabase/functions/set-password/index.ts`
+- `types/fc.ts`
+- `web/src/types/fc.ts`
+- `web/src/lib/shared.ts`
+- `web/src/app/dashboard/page.tsx`
+- `supabase/schema.sql`
+- `supabase/migrations/20260225000003_add_commission_completion_flags.sql`
+
+**검증**:
+- 모바일 코드 lint:
+  - `npm run lint -- app/signup.tsx app/signup-verify.tsx app/signup-password.tsx app/index.tsx app/fc/new.tsx types/fc.ts` 통과
+- 웹 공유 로직 lint:
+  - `cd web && npm run lint -- src/lib/shared.ts src/types/fc.ts src/app/dashboard/page.tsx` 통과
+- 거버넌스 체크:
+  - `node scripts/ci/check-governance.mjs` 통과
+- 배포/마이그레이션:
+  - `supabase functions deploy set-password --project-ref ubeginyxaotcamuqpmud` 성공
+  - `supabase db push --linked` 성공 (`20260225000003_add_commission_completion_flags.sql` 적용 확인)
+  - 서비스키 조회 검증: `fc_profiles(id,phone,status,life_commission_completed,nonlife_commission_completed)` select 성공
+
+**다음 단계**:
+- DB migration + set-password 함수 배포 후 실기기에서 4개 가입 케이스(미완료/생명만/손해만/모두완료) 단계/배지 확인
+
+---
+
 ## <a id="20260225-13"></a> 2026-02-25 | request_board 본부장(FC 리더) 브릿지 권한 정렬 + 재테스트
 
 **Commit**: `working tree`  

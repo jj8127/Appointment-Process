@@ -21,6 +21,7 @@ import { safeStorage } from '@/lib/safe-storage';
 import { supabase } from '@/lib/supabase';
 import { COLORS, TYPOGRAPHY, SPACING, RADIUS } from '@/lib/theme';
 import { validatePhone, validateEmail, validateRequired, normalizePhone } from '@/lib/validation';
+import type { CommissionCompletionStatus } from '@/types/fc';
 
 const STORAGE_KEY = 'fc-onboarding/signup';
 
@@ -45,8 +46,16 @@ const EMAIL_DOMAINS = [
 ];
 const CARRIER_OPTIONS = ['SKT', 'KT', 'LGU+', 'SKT 알뜰폰', 'KT 알뜰폰', 'LGU+ 알뜰폰'];
 
+const COMMISSION_OPTIONS: { value: CommissionCompletionStatus; label: string; sub: string }[] = [
+  { value: 'none', label: '미완료', sub: '생명/손해 위촉 모두 진행 예정' },
+  { value: 'life_only', label: '생명 완료', sub: '생명 완료, 손해 위촉 진행 예정' },
+  { value: 'nonlife_only', label: '손해 완료', sub: '손해 완료, 생명 위촉 진행 예정' },
+  { value: 'both', label: '모두 완료', sub: '생명/손해 위촉 모두 완료' },
+];
+
 export default function SignupScreen() {
   const [selectedAffiliation, setSelectedAffiliation] = useState('');
+  const [commissionStatus, setCommissionStatus] = useState<CommissionCompletionStatus>('none');
   const [name, setName] = useState('');
   const [phone, setPhone] = useState('');
   const [recommender, setRecommender] = useState('');
@@ -112,6 +121,12 @@ export default function SignupScreen() {
       return;
     }
 
+    const commissionValidation = validateRequired(commissionStatus, '위촉 상태');
+    if (!commissionValidation.isValid) {
+      Alert.alert('입력 확인', commissionValidation.error);
+      return;
+    }
+
     const digits = normalizePhone(phone);
 
     // 중복 계정 체크 (OTP 발송 없이 확인만)
@@ -141,6 +156,7 @@ export default function SignupScreen() {
         recommender: recommender.trim(),
         email: emailValue,
         carrier: carrier.trim(),
+        commissionStatus,
       }),
     );
     router.push('/signup-verify');
@@ -212,6 +228,25 @@ export default function SignupScreen() {
               blurOnSubmit={false}
               scrollEnabled={false}
             />
+          </View>
+
+          <View style={styles.field}>
+            <Text style={styles.label}>현재 위촉 상태</Text>
+            <View style={styles.commissionBox}>
+              {COMMISSION_OPTIONS.map((opt) => {
+                const active = commissionStatus === opt.value;
+                return (
+                  <Pressable
+                    key={opt.value}
+                    style={[styles.commissionItem, active && styles.commissionItemActive]}
+                    onPress={() => setCommissionStatus(opt.value)}
+                  >
+                    <Text style={[styles.commissionLabel, active && styles.commissionLabelActive]}>{opt.label}</Text>
+                    <Text style={[styles.commissionSub, active && styles.commissionSubActive]}>{opt.sub}</Text>
+                  </Pressable>
+                );
+              })}
+            </View>
           </View>
         </View>
 
@@ -431,6 +466,37 @@ const styles = StyleSheet.create({
   affiliationActive: { borderColor: COLORS.primary, backgroundColor: COLORS.primaryPale },
   affiliationText: { color: COLORS.text.primary, fontSize: TYPOGRAPHY.fontSize.md },
   affiliationTextActive: { color: COLORS.primary, fontWeight: TYPOGRAPHY.fontWeight.bold },
+  commissionBox: {
+    gap: SPACING.xs,
+  },
+  commissionItem: {
+    borderWidth: 1,
+    borderColor: COLORS.border.light,
+    borderRadius: RADIUS.base,
+    backgroundColor: COLORS.white,
+    paddingVertical: 10,
+    paddingHorizontal: 12,
+    gap: 2,
+  },
+  commissionItemActive: {
+    borderColor: COLORS.primary,
+    backgroundColor: COLORS.primaryPale,
+  },
+  commissionLabel: {
+    color: COLORS.text.primary,
+    fontSize: TYPOGRAPHY.fontSize.sm,
+    fontWeight: TYPOGRAPHY.fontWeight.bold,
+  },
+  commissionLabelActive: {
+    color: COLORS.primary,
+  },
+  commissionSub: {
+    color: COLORS.text.secondary,
+    fontSize: TYPOGRAPHY.fontSize.xs,
+  },
+  commissionSubActive: {
+    color: COLORS.primary,
+  },
   field: { gap: 6 },
   label: { fontWeight: TYPOGRAPHY.fontWeight.bold, color: COLORS.text.primary, fontSize: TYPOGRAPHY.fontSize.md },
   input: {

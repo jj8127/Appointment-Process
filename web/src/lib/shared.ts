@@ -74,12 +74,14 @@ export const getDocProgress = (profile: FcProfile) => {
 export const getAppointmentProgress = (profile: FcProfile, type: 'life' | 'nonlife') => {
   const schedule =
     type === 'life' ? profile.appointment_schedule_life : profile.appointment_schedule_nonlife;
-  const approved =
+  const approvedByDate =
     type === 'life' ? profile.appointment_date_life : profile.appointment_date_nonlife;
+  const approvedByFlag =
+    type === 'life' ? profile.life_commission_completed : profile.nonlife_commission_completed;
   const submitted =
     type === 'life' ? profile.appointment_date_life_sub : profile.appointment_date_nonlife_sub;
 
-  if (approved) {
+  if (approvedByDate || approvedByFlag) {
     return { key: 'approved' as AppointmentProgressKey, label: '승인완료', color: 'green' };
   }
   if (submitted) {
@@ -126,6 +128,12 @@ export const getSummaryStatus = (profile: FcProfile) => {
 };
 
 export const calcStep = (profile: FcProfile) => {
+  const lifeCompleted = Boolean(profile.life_commission_completed || profile.appointment_date_life);
+  const nonlifeCompleted = Boolean(profile.nonlife_commission_completed || profile.appointment_date_nonlife);
+
+  if (profile.status === 'final-link-sent' || (lifeCompleted && nonlifeCompleted)) return 5;
+  if (profile.status === 'appointment-completed' || lifeCompleted || nonlifeCompleted) return 4;
+
   const allowancePassedStatuses: FcProfile['status'][] = [
     'allowance-consented',
     'docs-requested',
@@ -165,8 +173,8 @@ export const calcStep = (profile: FcProfile) => {
 };
 
 export const getAdminStep = (profile: FcProfile) => {
-  if (!profile.identity_completed) return '0단계 사전등록';
   const rawStep = calcStep(profile);
+  if (!profile.identity_completed && rawStep < 4) return '0단계 사전등록';
   // FC Step 1 (Info) and Step 2 (Allowance) -> Admin Step 1 (Allowance)
   if (rawStep <= 2) return '1단계 수당동의';
   if (rawStep === 3) return '2단계 문서제출';

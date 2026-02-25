@@ -243,7 +243,7 @@ const fetchFcStatus = async (residentId: string) => {
   const { data, error } = await supabase
     .from('fc_profiles')
     .select(
-      'id,name,affiliation,phone,status,temp_id,allowance_date,appointment_url,appointment_date,appointment_schedule_life,appointment_schedule_nonlife,appointment_date_life,appointment_date_nonlife,appointment_date_life_sub,appointment_date_nonlife_sub,resident_id_masked,email,address,is_tour_seen,signup_completed,fc_documents(doc_type,storage_path,status)',
+      'id,name,affiliation,phone,status,temp_id,allowance_date,appointment_url,appointment_date,appointment_schedule_life,appointment_schedule_nonlife,appointment_date_life,appointment_date_nonlife,appointment_date_life_sub,appointment_date_nonlife_sub,life_commission_completed,nonlife_commission_completed,resident_id_masked,email,address,is_tour_seen,signup_completed,fc_documents(doc_type,storage_path,status)',
     )
     .eq('phone', residentId)
     .maybeSingle();
@@ -263,6 +263,8 @@ const fetchFcStatus = async (residentId: string) => {
     appointment_date_nonlife: null,
     appointment_date_life_sub: null,
     appointment_date_nonlife_sub: null,
+    life_commission_completed: false,
+    nonlife_commission_completed: false,
     resident_id_masked: null,
     phone: null,
     email: null,
@@ -328,6 +330,13 @@ const fetchExamStats = async (): Promise<ExamStats> => {
 
 function calcStep(myFc: any) {
   if (!myFc) return 1;
+
+  const lifeCompleted = Boolean(myFc.life_commission_completed || myFc.appointment_date_life);
+  const nonlifeCompleted = Boolean(myFc.nonlife_commission_completed || myFc.appointment_date_nonlife);
+
+  // 최종 완료/부분 완료 사용자는 위촉 단계 기준으로 즉시 분기한다.
+  if (myFc.status === 'final-link-sent' || (lifeCompleted && nonlifeCompleted)) return 5;
+  if (myFc.status === 'appointment-completed' || lifeCompleted || nonlifeCompleted) return 4;
 
   // full home에 도달했다는 것은 identity가 완료되었다는 것
   // 신원확인 완료(주민번호 또는 주소 입력) 시 1단계 완료로 간주
@@ -790,6 +799,8 @@ export default function Home() {
   // 기존 approved 날짜 or 제출한 날짜 있으면 입력 완료로 간주
   const dateLife = myFc?.appointment_date_life || myFc?.appointment_date_life_sub;
   const dateNon = myFc?.appointment_date_nonlife || myFc?.appointment_date_nonlife_sub;
+  const lifeCompleted = Boolean(myFc?.life_commission_completed || myFc?.appointment_date_life);
+  const nonLifeCompleted = Boolean(myFc?.nonlife_commission_completed || myFc?.appointment_date_nonlife);
 
   // Unread Counts
   const { data: unreadMsgCount = 0, refetch: refetchMsgCount } = useQuery({
@@ -858,7 +869,11 @@ export default function Home() {
       nextStepSubText = '서류를 검토중입니다.';
     }
   } else if (isUrlStep) {
-    if (!hasAnySchedule) {
+    if (lifeCompleted && !nonLifeCompleted) {
+      nextStepSubText = '생명 위촉은 완료되었습니다. 손해 위촉을 진행해 주세요.';
+    } else if (!lifeCompleted && nonLifeCompleted) {
+      nextStepSubText = '손해 위촉은 완료되었습니다. 생명 위촉을 진행해 주세요.';
+    } else if (!hasAnySchedule) {
       nextStepSubText = '위촉 차수를 입력중입니다. 기다려주세요.';
     } else if (isMissingDates) {
       nextStepSubText = '터치하여 위촉을 진행해 주세요';
@@ -868,27 +883,14 @@ export default function Home() {
   } else if (activeStep.key === 'final') {
     nextStepSubText = '모든 위촉 과정이 끝났습니다.';
   }
-  const getAppointmentStatus = (
-    date: string | null | undefined,
-    submittedDate: string | null | undefined,
-    schedule: string | null | undefined,
-  ) => {
-    if (date) return { label: '완료', color: '#ffffff', bg: '#16a34a' };
-    if (submittedDate) return { label: '입력됨(승인대기)', color: '#ffffff', bg: '#f97316' };
-    if (schedule) return { label: `${schedule}진행중`, color: '#fcfcfcff', bg: '#f97316' };
-    return { label: '진행중', color: '#ffffff', bg: '#2563eb' };
+  const getAppointmentStatus = (completed: boolean) => {
+    if (completed) return { label: '완료', color: '#ffffff', bg: '#16a34a' };
+    return { label: '대기', color: '#ffffff', bg: '#64748b' };
   };
 
-  const lifeStatus = getAppointmentStatus(
-    myFc?.appointment_date_life,
-    myFc?.appointment_date_life_sub,
-    myFc?.appointment_schedule_life,
-  );
-  const nonLifeStatus = getAppointmentStatus(
-    myFc?.appointment_date_nonlife,
-    myFc?.appointment_date_nonlife_sub,
-    myFc?.appointment_schedule_nonlife,
-  );
+  const lifeStatus = getAppointmentStatus(lifeCompleted);
+  const nonLifeStatus = getAppointmentStatus(nonLifeCompleted);
+  const completedCommissionCount = Number(lifeCompleted) + Number(nonLifeCompleted);
 
   useEffect(() => {
     if (!hydrated) return;
@@ -1522,6 +1524,7 @@ export default function Home() {
                                   </View>
                                 </View>
                               </View>
+                              <Text style={styles.statusSummaryText}>위촉 완료 {completedCommissionCount}/2</Text>
                               {/* 진행 단계 (기존 Stepper) */}
                               <View style={[styles.stepContainer, { marginTop: 8 }]}>
                                 {steps.map((step, index) => {
@@ -1613,28 +1616,46 @@ export default function Home() {
                     </View>
                   </View>
                 ) : (
-                  <View style={styles.stepContainer}>
-                    {steps.map((step, index) => {
-                      const stepNum = index + 1;
-                      const isActive = stepNum === currentStep;
-                      const isDone = stepNum < currentStep;
-                      return (
-                        <View key={step.key} style={styles.stepWrapper}>
-                          {index < steps.length - 1 && (
-                            <View style={[styles.stepConnector, isDone && styles.stepConnectorDone]} />
-                          )}
-                          <View style={[styles.stepCircle, isActive && styles.stepCircleActive, isDone && styles.stepCircleDone]}>
-                            {isDone ? (
-                              <Feather name="check" size={14} color="#fff" />
-                            ) : (
-                              <Text style={[styles.stepNumber, isActive && styles.stepNumberActive]}>{stepNum}</Text>
-                            )}
-                          </View>
-                          <Text style={[styles.stepLabel, isActive && styles.stepLabelActive]}>{step.label}</Text>
+                  <>
+                    <View style={styles.statusRow}>
+                      <View style={styles.statusItem}>
+                        <Text style={styles.statusLabel}>생명 위촉</Text>
+                        <View style={[styles.statusBadge, { backgroundColor: lifeStatus.bg }]}>
+                          <Text style={[styles.statusText, { color: lifeStatus.color }]}>{lifeStatus.label}</Text>
                         </View>
-                      );
-                    })}
-                  </View>
+                      </View>
+                      <View style={styles.statusDivider} />
+                      <View style={styles.statusItem}>
+                        <Text style={styles.statusLabel}>손해 위촉</Text>
+                        <View style={[styles.statusBadge, { backgroundColor: nonLifeStatus.bg }]}>
+                          <Text style={[styles.statusText, { color: nonLifeStatus.color }]}>{nonLifeStatus.label}</Text>
+                        </View>
+                      </View>
+                    </View>
+                    <Text style={styles.statusSummaryText}>위촉 완료 {completedCommissionCount}/2</Text>
+                    <View style={styles.stepContainer}>
+                      {steps.map((step, index) => {
+                        const stepNum = index + 1;
+                        const isActive = stepNum === currentStep;
+                        const isDone = stepNum < currentStep;
+                        return (
+                          <View key={step.key} style={styles.stepWrapper}>
+                            {index < steps.length - 1 && (
+                              <View style={[styles.stepConnector, isDone && styles.stepConnectorDone]} />
+                            )}
+                            <View style={[styles.stepCircle, isActive && styles.stepCircleActive, isDone && styles.stepCircleDone]}>
+                              {isDone ? (
+                                <Feather name="check" size={14} color="#fff" />
+                              ) : (
+                                <Text style={[styles.stepNumber, isActive && styles.stepNumberActive]}>{stepNum}</Text>
+                              )}
+                            </View>
+                            <Text style={[styles.stepLabel, isActive && styles.stepLabelActive]}>{step.label}</Text>
+                          </View>
+                        );
+                      })}
+                    </View>
+                  </>
                 )}
                 <View style={styles.glanceRow}>
                   <Pressable
@@ -2140,6 +2161,14 @@ const styles = StyleSheet.create({
   statusBadge: { paddingHorizontal: 8, paddingVertical: 4, borderRadius: 6 },
   statusText: { fontSize: 13, fontWeight: '700' }, // 11 -> 13
   statusDivider: { width: 1, height: 24, backgroundColor: BORDER, marginHorizontal: 12 },
+  statusSummaryText: {
+    marginTop: 2,
+    marginBottom: 10,
+    textAlign: 'center',
+    color: TEXT_MUTED,
+    fontSize: 13,
+    fontWeight: '600',
+  },
   glanceRow: {
     flexDirection: 'row',
     gap: 10,
