@@ -72,6 +72,10 @@ nul
 # Vercel deployment
 .vercel
 .env*.local
+web/vercel_temp.json
 
 # local deployment mirror
 web_deploy/
+
+.vercel
+.env*.local

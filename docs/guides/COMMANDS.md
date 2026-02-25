@@ -87,13 +87,15 @@ del testsprite_tests\tmp\execution.lock
 
 **Android Build**
 ```bash
-eas build --platform android --profile production
+npm run eas:build:android
 ```
 
 **iOS Build**
 ```bash
-eas build --platform ios --profile production
+npm run eas:build:ios
 ```
+
+> `npm run eas:build:*`는 Git 2.45+에서 발생할 수 있는 `core.hooksPath` shallow-clone(128) 충돌을 자동으로 정리합니다.
 
 ### Deployment
 
@@ -304,8 +306,8 @@ node -e "const crypto=require('crypto');const password='새비번';const salt=cr
 | Run Android App | `npx expo run:android` |
 | Run iOS (Expo Go) | `npx expo start` |
 | Start Web Dev | `cd web && npm run dev` |
-| Build Android | `eas build --platform android --profile production` |
-| Build iOS | `eas build --platform ios --profile production` |
+| Build Android | `npm run eas:build:android` |
+| Build iOS | `npm run eas:build:ios` |
 | Deploy to Vercel | `vercel deploy --prod` |
 | Submit to App Store | `eas submit --platform ios --latest` |
 | Clear App Data | `adb uninstall com.jj8127.Garam_in` |

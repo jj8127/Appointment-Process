@@ -9,11 +9,13 @@
     "ios": "expo run:ios",
     "build": "expo export --platform web",
     "web": "expo start --web",
+    "eas:build:android": "node ./scripts/eas-build.js android production",
+    "eas:build:ios": "node ./scripts/eas-build.js ios production",
     "lint": "expo lint",
     "test": "jest",
     "test:watch": "jest --watch",
     "test:coverage": "jest --coverage",
-    "prepare": "husky"
+    "prepare": "node ./scripts/prepare.js"
   },
   "dependencies": {
     "@actbase/react-daum-postcode": "^1.0.4",

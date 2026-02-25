@@ -22,7 +22,9 @@
       "Bash(git commit:*)",
       "Bash(eas build:*)",
       "Bash(npm install:*)",
-      "Bash(supabase projects list:*)"
+      "Bash(supabase projects list:*)",
+      "Bash(supabase secrets list:*)",
+      "Bash(supabase secrets set:*)"
     ]
   }
 }
