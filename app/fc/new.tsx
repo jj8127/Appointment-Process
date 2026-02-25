@@ -105,15 +105,43 @@ const schema = z.object({
 type FormValues = z.infer<typeof schema>;
 
 const AFFILIATION_OPTIONS = [
-  '1본부 [본부장: 서선미]',
-  '2본부 [본부장: 박성훈]',
-  '3본부 [본부장: 현경숙]',
-  '4본부 [본부장: 최철준]',
-  '5본부 [본부장: 박선희]',
-  '6본부 [본부장: 김태희]',
-  '7본부 [본부장: 김동훈]',
-  '8본부 [본부장: 정승철]',
+  '1팀(서울1) : 서선미 본부장님',
+  '2팀(서울2) : 박성훈 본부장님',
+  '3팀(부산1) : 김태희 본부장님',
+  '4팀(대전1) : 현경숙 본부장님',
+  '5팀(대전2) : 최철준 본부장님',
+  '6팀(전주1) : 박선희 본부장님',
+  '7팀(청주1/직할) : 김동훈 본부장님',
+  '8팀(서울3) : 정승철 본부장님',
 ];
+
+const LEGACY_AFFILIATION_TO_NEW: Record<string, string> = {
+  '1본부 [본부장: 서선미]': '1팀(서울1) : 서선미 본부장님',
+  '2본부 [본부장: 박성훈]': '2팀(서울2) : 박성훈 본부장님',
+  '3본부 [본부장: 현경숙]': '3팀(부산1) : 김태희 본부장님',
+  '4본부 [본부장: 최철준]': '4팀(대전1) : 현경숙 본부장님',
+  '5본부 [본부장: 박선희]': '5팀(대전2) : 최철준 본부장님',
+  '6본부 [본부장: 김태희]': '6팀(전주1) : 박선희 본부장님',
+  '7본부 [본부장: 김동훈]': '7팀(청주1/직할) : 김동훈 본부장님',
+  '8본부 [본부장: 정승철]': '8팀(서울3) : 정승철 본부장님',
+};
+
+const normalizeAffiliationLabel = (value: string): string => {
+  const trimmed = value.trim();
+  if (!trimmed) return '';
+  if (AFFILIATION_OPTIONS.includes(trimmed)) return trimmed;
+
+  const mapped = LEGACY_AFFILIATION_TO_NEW[trimmed];
+  if (mapped) return mapped;
+
+  const prefix = trimmed.match(/^([1-8])\s*(본부|팀)/);
+  if (prefix) {
+    const index = Number(prefix[1]) - 1;
+    return AFFILIATION_OPTIONS[index] ?? trimmed;
+  }
+
+  return trimmed;
+};
 
 const EMAIL_DOMAINS = [
   'naver.com',
@@ -258,10 +286,7 @@ export default function FcNewScreen() {
       temp_id: data?.temp_id ?? null,
     };
 
-    const matchedAffiliation =
-      merged.affiliation && !AFFILIATION_OPTIONS.includes(merged.affiliation)
-        ? AFFILIATION_OPTIONS.find((opt) => opt.startsWith(merged.affiliation)) ?? merged.affiliation
-        : merged.affiliation;
+    const matchedAffiliation = normalizeAffiliationLabel(merged.affiliation);
 
     reset({
       affiliation: matchedAffiliation,

@@ -1,0 +1,2 @@
+-- Placeholder migration to align local history with already-applied remote version 20260129031641.
+-- This file intentionally contains no DDL/DML.

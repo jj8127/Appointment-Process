@@ -25,14 +25,14 @@ import { validatePhone, validateEmail, validateRequired, normalizePhone } from '
 const STORAGE_KEY = 'fc-onboarding/signup';
 
 const AFFILIATION_OPTIONS = [
-  '1본부 [본부장: 서선미]',
-  '2본부 [본부장: 박성훈]',
-  '3본부 [본부장: 현경숙]',
-  '4본부 [본부장: 최철준]',
-  '5본부 [본부장: 박선희]',
-  '6본부 [본부장: 김태희]',
-  '7본부 [본부장: 김동훈]',
-  '8본부 [본부장: 정승철]',
+  '1팀(서울1) : 서선미 본부장님',
+  '2팀(서울2) : 박성훈 본부장님',
+  '3팀(부산1) : 김태희 본부장님',
+  '4팀(대전1) : 현경숙 본부장님',
+  '5팀(대전2) : 최철준 본부장님',
+  '6팀(전주1) : 박선희 본부장님',
+  '7팀(청주1/직할) : 김동훈 본부장님',
+  '8팀(서울3) : 정승철 본부장님',
 ];
 
 const EMAIL_DOMAINS = [
