@@ -7,6 +7,372 @@
 
 ---
 
+## <a id="20260225-11"></a> 2026-02-25 | request_board 메신저 첨부파일 UI 완성(모바일)
+
+**Commit**: `working tree`  
+**작업 내용**:
+- 사용자 요청(이전 세션 중단 지점) 기준으로 `request_board` 연동 메신저 화면의 첨부 기능을 마무리:
+  - 갤러리 이미지 선택(`expo-image-picker`)
+  - 문서 선택(`expo-document-picker`)
+  - 전송 전 pending 첨부 목록(가로 strip) + 개별 제거
+  - 전송 시 파일 우선 업로드(`rbUploadAttachments`) 후 메시지 전송(`rbSendMessage`/`rbSendDmMessage`)
+  - 첨부만 있는 메시지도 전송 가능하도록 본문 placeholder 처리(`[첨부파일]`)
+- 대화 렌더링 확장:
+  - 이미지 첨부: 썸네일 그리드 + 탭 시 전체화면 미리보기 모달
+  - 일반 파일: 파일 카드(아이콘/파일명/용량) + 탭 시 URL 오픈
+- 타입 안정화:
+  - `FlatList` 제네릭/콜백 파라미터 타입 명시
+  - 신규 렌더 경로 `implicit any` 제거
+  - 불필요한 `as any` 제거(아이콘 name 타입/메시지 sender 접근)
+
+**핵심 파일**:
+- `app/request-board-messenger.tsx`
+- `AGENTS.md`
+- `.claude/WORK_LOG.md`
+- `.claude/WORK_DETAIL.md`
+
+**검증**:
+- `npm run lint -- app/request-board-messenger.tsx` 통과
+- `npx tsc --noEmit --pretty false` 실행 후 파일 단위 확인:
+  - `request-board-messenger.tsx` 오류 없음
+  - 참고: 프로젝트 내 기존 다른 파일 오류(`app/fc/new.tsx`, `app/notifications.tsx`)는 별도 선행 이슈로 잔존
+- request_board 서버 계약 대조:
+  - `/api/messages/attachments/upload` 경로 및 `attachments[{fileName,fileType,fileSize,fileUrl}]` payload 형식 일치 확인
+
+**다음 단계**:
+- Android/iOS 실기기에서 request 채팅/DM 각각 아래 시나리오 검증:
+  - 이미지/문서 첨부 전송
+  - 첨부파일만 전송(텍스트 없음)
+  - 파일 카드 탭 시 외부 열기
+  - 이미지 전체화면 미리보기 닫기/복귀
+
+---
+
+## <a id="20260225-9"></a> 2026-02-25 | `fc-notify` target_id role 무관 통합 발송
+
+**Commit**: `working tree`  
+**작업 내용**:
+- 사용자 이슈 재현:
+  - 같은 번호라도 `device_tokens.role='admin'` 인 경우 `target_role='fc'` 발송에서 `sent=0` 발생
+  - 실제 예시: `01093118127`은 토큰 2건이 모두 `admin` role이라 기존 로직에서 누락
+- 코드 수정:
+  - `supabase/functions/fc-notify/index.ts`
+  - `notify/message` 경로에서 `target_id`가 있으면 `role` 필터를 제거하고 `resident_id=target_id` 기준으로 토큰 조회
+  - `fc_update/admin_update` 레거시 분기 중 FC 대상 경로도 `resident_id` 기준 조회로 정렬
+  - `dedupeTokens()` 추가로 동일 Expo 토큰 중복 발송 방지
+- 기대 효과:
+  - `target_id` 지정 단건 알림은 FC/Admin/Manager 어느 role로 토큰이 등록되어 있어도 동일 번호 디바이스에 발송
+
+**핵심 파일**:
+- `supabase/functions/fc-notify/index.ts`
+- `AGENTS.md`
+- `.claude/WORK_LOG.md`
+- `.claude/WORK_DETAIL.md`
+
+**검증**:
+- 함수 배포: `supabase functions deploy fc-notify --project-ref ubeginyxaotcamuqpmud` 완료
+- 라이브 검증:
+  - `POST https://adminweb-red.vercel.app/api/fc-notify`
+  - payload: `type=notify,target_role=fc,target_id=01093118127`
+  - 결과: `status=200`, `sent=2` 확인 (수정 전 동일 대상 `sent=0`)
+
+**다음 단계**:
+- `request_board` 브릿지 경로에서 서선미 실기기 수신 확인
+- 필요 시 `target_id` 포맷 유효성(11자리 숫자) 실패 로그를 별도 집계
+
+---
+
+## <a id="20260225-10"></a> 2026-02-25 | 알림 출처 구분 강화(온보딩앱 vs 설계요청)
+
+**Commit**: `working tree`  
+**작업 내용**:
+- 사용자 요구사항: 동일 앱에서 수신되는 알림을
+  - `fc-onboarding-app` 자체 이벤트
+  - `request_board` 브릿지 이벤트
+  로 명확히 구분 가능하도록 개선
+- 서버(즉시 반영) 변경:
+  - `supabase/functions/fc-notify/index.ts`
+  - `request_board_*` 카테고리 알림은 Expo Push 제목에 `[설계요청]` 접두어 자동 부여
+  - Push data에 `source`(`request_board`/`fc_onboarding`) 포함
+- 앱 UI(앱 업데이트 반영) 변경:
+  - `app/notifications.tsx`
+  - 알림센터 목록에 출처 배지 추가: `설계요청` / `온보딩앱`
+  - `request_board_*` 카테고리 라벨을 사용자 친화 문구로 정규화
+    - 예: `request_board_accepted -> 의뢰 수락`, `request_board_message -> 새 메시지`
+  - request_board 알림 탭 시 온보딩 내부 라우트로 오인 이동하지 않도록 안내 알림 처리
+
+**핵심 파일**:
+- `supabase/functions/fc-notify/index.ts`
+- `app/notifications.tsx`
+- `AGENTS.md`
+- `.claude/WORK_LOG.md`
+- `.claude/WORK_DETAIL.md`
+
+**검증**:
+- `supabase functions deploy fc-notify --project-ref ubeginyxaotcamuqpmud` 완료
+- `npm run lint -- app/notifications.tsx` 통과
+- 라이브 호출(`POST https://adminweb-red.vercel.app/api/fc-notify`) 발송 성공 확인
+
+**다음 단계**:
+- 서버 푸시 제목 접두어(`[설계요청]`)는 즉시 적용됨
+- 알림센터 출처 배지 UI는 모바일 앱 빌드/배포 후 실사용 반영
+
+---
+
+## <a id="20260224-8"></a> 2026-02-24 | 데스크톱 알림 미표시 대응: 서비스워커/정적자산 경로 보정
+
+**Commit**: `working tree`
+**작업 내용**:
+- 배포본 실측으로 원인 후보 확정:
+  - `https://adminweb-red.vercel.app/sw.js`가 `307 -> /auth`로 리다이렉트되던 상태 확인
+  - 서비스워커/정적자산 접근 경로가 인증 미들웨어에 영향을 받으면 브라우저 푸시 수신 표시가 불안정해질 수 있음
+- 코드 수정:
+  - `web/middleware.ts`
+    - matcher를 정적 파일/`sw.js` 제외 패턴으로 보강해 서비스워커·정적자산 요청이 인증 리다이렉트 대상이 되지 않도록 조정
+  - `web/public/sw.js`
+    - `install/activate`에서 `skipWaiting`/`clients.claim` 추가
+    - `push` 이벤트 payload를 `json()` 실패 시 `text()` fallback 하도록 방어
+    - 알림 아이콘/배지 경로를 존재하는 `/favicon.ico`로 통일
+  - `web/src/app/dashboard/page.tsx`
+    - `알림 테스트` 버튼의 icon/badge 경로를 `/favicon.png` -> `/favicon.ico`로 수정
+- 운영 반영:
+  - 웹 프로덕션 재배포 완료
+  - 새 배포: `https://admin-ff5m38mw8-jun-jeongs-projects.vercel.app`
+  - alias: `https://adminweb-red.vercel.app`
+
+**핵심 파일**:
+- `web/middleware.ts`
+- `web/public/sw.js`
+- `web/src/app/dashboard/page.tsx`
+- `AGENTS.md`
+- `.claude/WORK_LOG.md`
+- `.claude/WORK_DETAIL.md`
+
+**검증**:
+- `cd web && npm run lint -- middleware.ts src/app/dashboard/page.tsx public/sw.js` 통과
+- 외부 응답 확인:
+  - `curl -I https://adminweb-red.vercel.app/sw.js` => `200 OK`
+  - `curl -I https://adminweb-red.vercel.app/adminWebLogo.png` => `200 OK`
+  - `curl -I https://adminweb-red.vercel.app/favicon.ico` => `200 OK`
+- 체인 검증:
+  - `POST https://adminweb-red.vercel.app/api/fc-notify` 직접 호출 결과
+  - 응답에 `web_push: { ok: true, status: 200, sent: 1, failed: 0 }` 확인
+
+**다음 단계**:
+- 운영 브라우저에서 `Ctrl+F5` 1회 후 `알림 테스트` 버튼 재실행(신규 SW 활성화 반영)
+- 그래도 OS 배너가 없으면 코드 경로가 아니라 OS/브라우저 정책 문제이므로 Windows의 Chrome 앱 알림 허용/집중 모드(Focus) 해제/Chrome 조용한 알림 UI 설정을 점검
+
+---
+
+## <a id="20260224-7"></a> 2026-02-24 | 데스크톱 알림 미표시 원인 분리 진단 보강
+
+**Commit**: `working tree`
+**작업 내용**:
+- 서버-사이드 진단 보강:
+  - `supabase/functions/fc-notify/index.ts`에서 admin 대상 웹푸시 콜백 결과를 응답에 포함하도록 확장
+  - 응답 필드: `web_push: { ok, status, sent, failed, reason }`
+  - 대상 경로: `type=notify`, `type=message`, `fc_update/fc_delete` 계열 admin 웹푸시 호출
+- 클라이언트-사이드 진단 보강:
+  - 대시보드 헤더에 `알림 테스트` 버튼 추가
+  - 클릭 시 Notification permission 확인/요청 후 즉시 테스트 알림(`serviceWorker.showNotification` 우선, fallback `new Notification`) 발송
+  - 결과를 토스트로 안내해 브라우저/OS 알림 차단 여부를 즉시 확인 가능
+- 운영 반영:
+  - `fc-notify` 재배포(버전 49)
+  - 웹 프로덕션 재배포(`admin-fqbyh32rq-jun-jeongs-projects.vercel.app`, alias `adminweb-red`)
+
+**핵심 파일**:
+- `supabase/functions/fc-notify/index.ts`
+- `web/src/app/dashboard/page.tsx`
+- `AGENTS.md`
+- `.claude/WORK_LOG.md`
+- `.claude/WORK_DETAIL.md`
+
+**검증**:
+- `cd web && npm run lint -- src/app/dashboard/page.tsx` 통과
+- `supabase functions deploy fc-notify --project-ref ubeginyxaotcamuqpmud` 완료 (version 49)
+- 직접 invoke 결과:
+  - `web_push: { ok: true, status: 200, sent: 1, failed: 0 }` 확인
+- Vercel deploy ready + alias 연결 확인:
+  - `https://admin-fqbyh32rq-jun-jeongs-projects.vercel.app`
+  - `https://adminweb-red.vercel.app`
+
+**다음 단계**:
+- 운영자가 대시보드 상단 `알림 테스트` 버튼을 눌러 로컬 OS 알림 표시 여부 확인
+- 테스트 알림도 미표시이면 OS/브라우저 알림 설정(Windows Focus Assist, Chrome 사이트 권한, 조용한 알림 UI)을 우선 점검
+
+---
+
+## <a id="20260224-6"></a> 2026-02-24 | 대시보드 상단 웹 알림 설정 버튼 추가
+
+**Commit**: `working tree`
+**작업 내용**:
+- 관리자 대시보드 헤더(`대시보드 / FC 온보딩 전체 현황판`) 우측 버튼 영역에 `알림 설정` 버튼 추가
+- 기존 `새로고침` 버튼 왼쪽에 배치하여 운영자가 현재 화면에서 바로 웹푸시 권한 요청/재등록 가능하도록 개선
+- 버튼 클릭 시 `registerWebPushSubscription(role, residentId, { forceResubscribe: true })` 실행:
+  - 성공: 등록 완료 알림
+  - 브라우저 미지원/권한 거부/기타 실패: 상황별 안내 알림
+- 관리자 흐름과 동일한 shared web-push 헬퍼를 재사용하여 설정 페이지와 동작 일관성 유지
+
+**핵심 파일**:
+- `web/src/app/dashboard/page.tsx`
+- `AGENTS.md`
+- `.claude/WORK_LOG.md`
+- `.claude/WORK_DETAIL.md`
+
+**검증**:
+- `cd web && npm run lint -- src/app/dashboard/page.tsx` 통과
+- Vercel production 배포 완료:
+  - `https://admin-q7k45zhrs-jun-jeongs-projects.vercel.app`
+  - alias: `https://adminweb-red.vercel.app`
+
+**다음 단계**:
+- 웹 프로덕션 배포 후 대시보드 상단 `알림 설정` 버튼 노출 확인
+- 버튼 클릭 후 FC 앱 메시지 전송 시 총무 브라우저 알림 수신 확인
+
+---
+
+## <a id="20260224-5"></a> 2026-02-24 | 설정 페이지 웹 알림 권한 버튼/상태 UI 추가
+
+**Commit**: `working tree`
+**작업 내용**:
+- 웹 설정 페이지(`dashboard/settings`)에 웹푸시 상태/권한 제어 UI 추가:
+  - 상태 표시: `granted`, `denied`, `default`, `unsupported`
+  - 버튼 액션: 권한 요청 + 웹푸시 구독 강제 재등록(`forceResubscribe`)
+  - 권한 거부(`denied`) 시 브라우저 사이트 설정 안내 메시지 제공
+- `WebPushRegistrar` 리팩터링:
+  - `getWebPushPermissionState()`
+  - `registerWebPushSubscription(role, residentId, opts)`
+  - 자동 등록(`useEffect`)과 수동 버튼 액션에서 동일 함수 재사용
+- 구독 API 실패 시 에러 메시지를 반환해 설정 화면에서 사용자 피드백 노출
+
+**핵심 파일**:
+- `web/src/components/WebPushRegistrar.tsx`
+- `web/src/app/dashboard/settings/page.tsx`
+- `AGENTS.md`
+- `.claude/WORK_LOG.md`
+- `.claude/WORK_DETAIL.md`
+
+**검증**:
+- `cd web && npm run lint -- src/components/WebPushRegistrar.tsx src/app/dashboard/settings/page.tsx` 통과
+- Vercel production 배포 완료:
+  - `https://admin-nbmu1fo8i-jun-jeongs-projects.vercel.app`
+  - alias: `https://adminweb-red.vercel.app`
+
+**다음 단계**:
+- 총무 계정으로 `설정 > 웹 알림` 버튼 클릭 후 권한 허용/재등록
+- FC 앱에서 메시지 전송하여 총무 브라우저 백그라운드 알림 수신 확인
+
+---
+
+## <a id="20260224-4"></a> 2026-02-24 | 총무 웹푸시 미수신 복구(운영 반영 완료)
+
+**Commit**: `working tree`
+**작업 내용**:
+- 원인 확정:
+  - `/api/admin/push`가 401을 반환했지만 헤더 자체는 도달하고 있었음
+  - 실측 디버그 결과 `hasSecret/hasBearer/hasApikey=true` + `secretConfigured/serviceRoleConfigured=true` 상태에서 비교만 실패
+  - 결론: auth 토큰 비교 시 env/헤더 포맷 오염(개행/literal `\\n`/따옴표)으로 문자열 불일치
+- 서버 수정:
+  - `web/src/app/api/admin/push/route.ts`
+    - `normalizeToken()` 추가 (trim + quote 제거 + literal `\\n` 제거 + 개행 제거)
+    - `X-Admin-Push-Secret`, Bearer, apikey, env secret/service key 모두 정규화 후 비교
+  - `web/src/lib/web-push.ts`
+    - VAPID env 정규화/검증 강화(공백/개행/literal `\\n` 제거, invalid config 명시 로그)
+- 운영 반영:
+  - Vercel production env 강제 overwrite:
+    - `NEXT_PUBLIC_SUPABASE_URL`
+    - `SUPABASE_SERVICE_ROLE_KEY`
+    - `NEXT_PUBLIC_SUPABASE_ANON_KEY`
+    - `ADMIN_PUSH_SECRET`
+    - `NEXT_PUBLIC_WEB_PUSH_VAPID_PUBLIC_KEY`
+    - `WEB_PUSH_VAPID_PRIVATE_KEY`
+    - `WEB_PUSH_SUBJECT`
+  - Vercel production 재배포 완료:
+    - `https://admin-c87og339h-jun-jeongs-projects.vercel.app`
+    - alias: `https://adminweb-red.vercel.app`
+
+**핵심 파일**:
+- `web/src/app/api/admin/push/route.ts`
+- `web/src/lib/web-push.ts`
+- `AGENTS.md`
+- `.claude/WORK_LOG.md`
+- `.claude/WORK_DETAIL.md`
+
+**검증**:
+- `cd web && npm run lint -- src/app/api/admin/push/route.ts src/lib/web-push.ts` 통과
+- 실서비스 엔드포인트 검증:
+  - `POST https://adminweb-red.vercel.app/api/admin/push`
+  - Bearer+apikey 인증: `200 {"ok":true,"sent":1,"failed":0}`
+  - `X-Admin-Push-Secret` 인증: `200 {"ok":true,"sent":1,"failed":0}`
+- `fc-notify` 직접 invoke:
+  - `200` 응답 + admin 대상 notifications row insert 확인
+
+**다음 단계**:
+- 실제 FC 앱에서 총무로 채팅 메시지 전송 후, 구독된 총무 브라우저(같은 프로필/권한 허용 상태)에서 백그라운드 알림 수신 최종 확인
+
+---
+
+## <a id="20260224-3"></a> 2026-02-24 | 웹푸시 VAPID env 포맷 오류 방어 추가
+
+**Commit**: `working tree`
+**작업 내용**:
+- `web/src/lib/web-push.ts`에 웹푸시 env 정규화 로직 추가:
+  - 따옴표/공백/개행 및 literal `\\n` 제거
+  - VAPID 공개키/비공개키는 내부 공백 제거까지 수행
+- VAPID 설정 실패 시 `webpush.setVapidDetails` 예외를 잡아 명시 로그(`invalid VAPID configuration`)를 남기고 안전하게 비활성 처리
+- 필수 VAPID env 누락 시 경고 로그 추가(`missing VAPID configuration`)
+- 배경: 실제 진단 중 local env의 VAPID 키 끝에 literal `\\n`이 포함되어 web-push 키 검증 실패 재현됨
+
+**핵심 파일**:
+- `web/src/lib/web-push.ts`
+- `AGENTS.md`
+- `.claude/WORK_LOG.md`
+- `.claude/WORK_DETAIL.md`
+
+**검증**:
+- `cd web && npm run lint -- src/lib/web-push.ts src/app/api/admin/push/route.ts` 통과
+
+**다음 단계**:
+- Next.js 웹 런타임 재배포
+- Vercel 환경변수의 `NEXT_PUBLIC_WEB_PUSH_VAPID_PUBLIC_KEY`, `WEB_PUSH_VAPID_PRIVATE_KEY`, `WEB_PUSH_SUBJECT`에 불필요한 `\\n`/공백이 없는지 확인
+
+---
+
+## <a id="20260224-2"></a> 2026-02-24 | 앱→총무 채팅 웹푸시 누락 대응(콜백 신뢰성 보강)
+
+**Commit**: `working tree`
+**작업 내용**:
+- `supabase/functions/fc-notify/index.ts`의 어드민 웹푸시 콜백 로직 보강:
+  - `ADMIN_WEB_URL`에 경로가 포함되어 있어도 origin 기준으로 `/api/admin/push`를 강제 조합하도록 정규화
+  - 콜백 요청 헤더에 `Authorization: Bearer <service-role>` + `apikey`를 추가해 `ADMIN_PUSH_SECRET` 드리프트 상황에서도 인증 fallback 가능
+  - 401/404/500 등 non-2xx 응답 본문을 함수 로그에 남기도록 개선해 운영 가시성 강화
+  - `ADMIN_WEB_URL` 누락/형식 오류 시 조기 경고 로그 추가
+- `web/src/app/api/admin/push/route.ts` 인증 보강:
+  - 기존 `X-Admin-Push-Secret` 단일 검증에서
+    `X-Admin-Push-Secret` 또는 `Authorization Bearer(service-role key)` 둘 중 하나 통과 시 허용하도록 확장
+  - 인증 실패 시 `hasSecret/hasBearer/secretConfigured` 메타 로그를 남겨 원인 파악 단축
+- 운영 진단:
+  - 로컬 `web/.env.local` 기준 푸시/시크릿 키 존재 여부를 재점검해 누락 가능성을 제거
+  - 콜백 non-2xx 응답을 로그로 노출하도록 변경해 401/404 류의 미표시 실패를 운영에서 즉시 확인 가능하게 개선
+
+**핵심 파일**:
+- `supabase/functions/fc-notify/index.ts`
+- `web/src/app/api/admin/push/route.ts`
+- `AGENTS.md`
+- `.claude/WORK_LOG.md`
+- `.claude/WORK_DETAIL.md`
+
+**검증**:
+- `cd web && npm run lint -- src/app/api/admin/push/route.ts` 통과
+- `supabase functions deploy fc-notify --project-ref ubeginyxaotcamuqpmud` 완료 (버전 48 반영 확인)
+- `deno` 실행기가 로컬에 없어 Edge Function 포맷/린트 커맨드는 미실행
+
+**다음 단계**:
+- 배포된 Next.js 환경의 `ADMIN_PUSH_SECRET`와 Supabase `ADMIN_PUSH_SECRET` 동기화 확인
+- FC 앱에서 총무 채팅 메시지 전송 후 브라우저 백그라운드 알림 재검증
+
+---
+
 ## <a id="20260224-1"></a> 2026-02-24 | 어드민 브라우저 웹 푸시 알림 추가
 
 **Commit**: `475f11b`

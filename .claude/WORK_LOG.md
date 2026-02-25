@@ -20,6 +20,16 @@
 ## 최근 작업
 | 날짜 | 작업 | 핵심 파일 | 상세 |
 |------|------|----------|------|
+| 02-25 | request_board 메신저 첨부파일 UI 완성(이미지/문서 선택, 업로드 후 전송, 메시지 내 썸네일/파일카드/이미지 확대 미리보기) + 타입 정리(implicit any 제거) | `app/request-board-messenger.tsx`, `AGENTS.md` | [→ 상세](WORK_DETAIL.md#20260225-11) |
+| 02-25 | 알림 출처 구분 강화(온보딩앱 vs 설계요청): request_board 푸시에 `[설계요청]` 접두 + 앱 알림센터 출처 배지/카테고리 라벨 적용 | `supabase/functions/fc-notify/index.ts`, `app/notifications.tsx`, `AGENTS.md` | [→ 상세](WORK_DETAIL.md#20260225-10) |
+| 02-25 | `fc-notify` 대상번호(`target_id`) role 무관 통합 발송 확장(FC/Admin/Manager) + 중복토큰 제거 | `supabase/functions/fc-notify/index.ts`, `AGENTS.md` | [→ 상세](WORK_DETAIL.md#20260225-9) |
+| 02-24 | 데스크톱 알림 미표시 대응: 서비스워커/정적자산 공개 경로 보정 + sw 푸시 파싱 보강 + 테스트 알림 아이콘 경로 수정 | `web/middleware.ts`, `web/public/sw.js`, `web/src/app/dashboard/page.tsx`, `AGENTS.md` | [→ 상세](WORK_DETAIL.md#20260224-8) |
+| 02-24 | 데스크톱 알림 미표시 진단 보강(web_push 콜백 결과 응답 + 대시보드 알림 테스트 버튼) | `supabase/functions/fc-notify/index.ts`, `web/src/app/dashboard/page.tsx`, `AGENTS.md` | [→ 상세](WORK_DETAIL.md#20260224-7) |
+| 02-24 | 대시보드 상단에 웹 알림 설정 버튼 추가(권한 요청/재등록) | `web/src/app/dashboard/page.tsx`, `AGENTS.md` | [→ 상세](WORK_DETAIL.md#20260224-6) |
+| 02-24 | 설정 페이지에 웹 알림 권한 버튼/상태 UI 추가 및 수동 재등록 지원 | `web/src/components/WebPushRegistrar.tsx`, `web/src/app/dashboard/settings/page.tsx`, `AGENTS.md` | [→ 상세](WORK_DETAIL.md#20260224-5) |
+| 02-24 | 총무 웹푸시 미수신 복구(토큰 비교 정규화 + Vercel env 재주입 + 프로덕션 재배포) | `web/src/app/api/admin/push/route.ts`, `web/src/lib/web-push.ts`, `AGENTS.md` | [→ 상세](WORK_DETAIL.md#20260224-4) |
+| 02-24 | 웹푸시 VAPID env 포맷 오류 방어(\\n/공백/따옴표 정규화 + 유효성 로그) | `web/src/lib/web-push.ts`, `AGENTS.md` | [→ 상세](WORK_DETAIL.md#20260224-3) |
+| 02-24 | 앱→총무 채팅 웹푸시 누락 대응(콜백 URL 정규화, 인증 fallback, 실패 로그 가시화) | `supabase/functions/fc-notify/index.ts`, `web/src/app/api/admin/push/route.ts`, `AGENTS.md` | [→ 상세](WORK_DETAIL.md#20260224-2) |
 | 02-24 | 어드민 브라우저 웹 푸시 알림 추가 (FC 서류/동의/시험/채팅 → 어드민 OS 알림) | `web/src/app/api/admin/push/route.ts`, `supabase/functions/fc-notify/index.ts`, `web/src/app/api/fc-notify/route.ts`, `web/src/app/api/web-push/subscribe/route.ts` | [→ 상세](WORK_DETAIL.md#20260224-1) |
 | 02-20 | 모바일 시험 신청(생명/손해) 마감 필터 기준 통일 및 당겨서 새로고침 제스처 복구 | `app/exam-apply.tsx`, `app/exam-apply2.tsx`, `AGENTS.md` | [→ 상세](WORK_DETAIL.md#20260220-1) |
 | 02-19 | 웹 대시보드 서류 배지의 "검토 중" 카운트를 제출 문서 기준으로 보정 | `web/src/app/dashboard/page.tsx` | [→ 상세](WORK_DETAIL.md#20260219-8) |
