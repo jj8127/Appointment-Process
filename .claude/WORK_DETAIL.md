@@ -7,6 +7,33 @@
 
 ---
 
+## <a id="20260225-15"></a> 2026-02-25 | 웹 빌드 타입 오류 핫픽스(`calcStep` 불필요 분기 제거)
+
+**Commit**: `af4ca84`  
+**작업 내용**:
+- Vercel 프로덕션 빌드(TypeScript) 실패 원인 수정:
+  - 파일: `web/src/lib/shared.ts`
+  - 함수: `calcStep`
+  - 증상: `profile.status`가 상단 분기에서 이미 좁혀진 상태에서 하단에 `profile.status !== 'final-link-sent'` 비교가 남아 타입 충돌 발생
+  - 조치: 문서 승인 완료 후 분기에서 불필요한 `final-link-sent` 재비교/`return 5` 경로 제거, `return 4`로 단순화
+- 영향:
+  - 런타임 동작 변경 없음(상단에서 `final-link-sent`/양 트랙 완료는 이미 Step 5 처리)
+  - 타입 체크 경고만 제거하여 CI/Vercel 빌드 통과 복구
+
+**핵심 파일**:
+- `web/src/lib/shared.ts`
+- `.claude/WORK_LOG.md`
+- `.claude/WORK_DETAIL.md`
+
+**검증**:
+- 웹 빌드: `cd web && npm run build` 통과
+- 거버넌스 체크: `node scripts/ci/check-governance.mjs` 통과
+
+**다음 단계**:
+- 해당 문서 동기화 커밋 푸시 후 GitHub Actions `Governance Check` 재실행/통과 확인
+
+---
+
 ## <a id="20260225-14"></a> 2026-02-25 | FC 위촉 2트랙(생명/손해) 완료 상태 분기 도입
 
 **Commit**: `working tree`  
