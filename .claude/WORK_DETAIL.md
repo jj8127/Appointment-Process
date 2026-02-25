@@ -7,6 +7,47 @@
 
 ---
 
+## <a id="20260225-16"></a> 2026-02-25 | FC 삭제 완전 정리 보강(웹/엣지/fallback 경로 통합)
+
+**Commit**: `working tree`  
+**작업 내용**:
+- 사용자 이슈 대응:
+  - 총무 웹에서 FC 삭제 후 일부 데이터(알림/토큰/게시판 반응/브릿지 프로필 등)가 남는 케이스를 제거
+- 삭제 범위 확장:
+  - `resident_id` 기준 삭제를 단일 값이 아니라 `digits/raw/masked` 식별자 세트로 통합 처리
+  - 기존 누락 테이블 삭제 추가:
+    - `device_tokens`
+    - `web_push_subscriptions`
+    - `board_comment_likes`
+    - `profiles`(`fc_id` 기반)
+  - `exam_registrations`, `notifications`는 `fc_id` + `resident_id` 양쪽 축에서 삭제
+  - 채팅 파일 삭제 경로 정규화(`.../chat-uploads/...` -> 버킷 내부 path) 보강
+  - `fc_credentials`, `fc_identity_secure` 명시 삭제(캐스케이드 누락 대비)
+  - 링크된 `profiles.id`에 대해 `auth.admin.deleteUser` 호출로 auth 사용자까지 정리 시도
+- 경로별 정합성:
+  - 총무 웹 삭제 API: `web/src/app/api/fc-delete/route.ts`
+  - 모바일/공용 계정삭제 함수: `supabase/functions/delete-account/index.ts`
+  - 모바일 fallback 삭제(`admin-action deleteFc`)도 동일 기준 반영
+  - 웹 설정의 FC 자가 삭제는 직접 테이블 삭제 대신 `delete-account` 함수 호출로 단일화
+
+**핵심 파일**:
+- `web/src/app/api/fc-delete/route.ts`
+- `supabase/functions/delete-account/index.ts`
+- `supabase/functions/admin-action/index.ts`
+- `web/src/app/dashboard/settings/page.tsx`
+- `.claude/WORK_LOG.md`
+- `.claude/WORK_DETAIL.md`
+
+**검증**:
+- 웹 빌드: `cd web && npm run build` 통과 (TypeScript 포함)
+- 참고: 루트 `expo lint`는 웹 alias/deno remote import 해석 한계로 파일 단위 검증에 부적합하여 웹 빌드 기준으로 검증
+
+**다음 단계**:
+- 프로덕션 반영 후 실데이터로 1건 삭제 검증:
+  - 삭제 전/후 `fc_profiles`, `fc_credentials`, `fc_identity_secure`, `notifications`, `device_tokens`, `web_push_subscriptions`, `messages`, `board_*` 레코드 카운트 비교
+
+---
+
 ## <a id="20260225-15"></a> 2026-02-25 | 웹 빌드 타입 오류 핫픽스(`calcStep` 불필요 분기 제거)
 
 **Commit**: `af4ca84`  

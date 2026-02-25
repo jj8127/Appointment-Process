@@ -98,99 +98,23 @@ export default function SettingsPage() {
     setLoading(true);
 
     try {
-      console.log('[Settings] Starting account deletion', { residentId });
-
-      const { data: profile, error: profileError } = await supabase
-        .from('fc_profiles')
-        .select('id, name')
-        .eq('phone', residentId)
-        .maybeSingle();
-
-      if (profileError) throw profileError;
-      if (!profile?.id) throw new Error('프로필 정보를 찾을 수 없습니다.');
-
-      console.log('[Settings] Profile found', { id: profile.id, name: profile.name });
-
-      // 1. Storage 파일 삭제
-      const { data: docs, error: docsError } = await supabase
-        .from('fc_documents')
-        .select('storage_path')
-        .eq('fc_id', profile.id);
-
-      if (docsError) throw docsError;
-
-      const storagePaths = (docs ?? []).map((doc) => doc.storage_path).filter(Boolean);
-      if (storagePaths.length > 0) {
-        const { error: storageError } = await supabase.storage.from('fc-documents').remove(storagePaths);
-        if (storageError) {
-          console.warn('[Settings] Storage deletion failed (continuing)', storageError);
-        } else {
-          console.log('[Settings] Storage files deleted', { count: storagePaths.length });
-        }
-      }
-
-      // 2. fc_documents 삭제
-      const { error: docDeleteError, count: docDeleteCount } = await supabase
-        .from('fc_documents')
-        .delete({ count: 'exact' })
-        .eq('fc_id', profile.id);
-      if (docDeleteError) throw docDeleteError;
-      console.log('[Settings] Documents deleted', { count: docDeleteCount });
-
-      // 3. exam_registrations 삭제
-      const { error: examDeleteError, count: examDeleteCount } = await supabase
-        .from('exam_registrations')
-        .delete({ count: 'exact' })
-        .eq('resident_id', residentId);
-      if (examDeleteError) throw examDeleteError;
-      console.log('[Settings] Exam registrations deleted', { count: examDeleteCount });
-
-      // 4. messages 삭제
-      const { error: messageDeleteError, count: messageDeleteCount } = await supabase
-        .from('messages')
-        .delete({ count: 'exact' })
-        .or(`sender_id.eq.${residentId},receiver_id.eq.${residentId}`);
-      if (messageDeleteError) throw messageDeleteError;
-      console.log('[Settings] Messages deleted', { count: messageDeleteCount });
-
-      // 5. notifications 삭제
-      const { error: notificationDeleteError, count: notificationDeleteCount } = await supabase
-        .from('notifications')
-        .delete({ count: 'exact' })
-        .eq('recipient_role', 'fc')
-        .eq('resident_id', residentId);
-      if (notificationDeleteError) throw notificationDeleteError;
-      console.log('[Settings] Notifications deleted', { count: notificationDeleteCount });
-
-      // 6. device_tokens 삭제
-      const { error: tokenDeleteError, count: tokenDeleteCount } = await supabase
-        .from('device_tokens')
-        .delete({ count: 'exact' })
-        .eq('resident_id', residentId);
-      if (tokenDeleteError) throw tokenDeleteError;
-      console.log('[Settings] Device tokens deleted', { count: tokenDeleteCount });
-
-      // 7. fc_profiles 삭제 (메인)
-      const { error: profileDeleteError, count: profileDeleteCount } = await supabase
-        .from('fc_profiles')
-        .delete({ count: 'exact' })
-        .eq('id', profile.id);
-      if (profileDeleteError) throw profileDeleteError;
-
-      // 검증: 실제로 삭제되었는지 확인
-      if (profileDeleteCount === 0) {
-        console.error('[Settings] No profile deleted', { id: profile.id });
-        throw new Error('계정 삭제에 실패했습니다. 다시 시도해주세요.');
-      }
-
-      console.log('[Settings] Account deletion completed', {
-        profileId: profile.id,
-        deletedDocs: docDeleteCount,
-        deletedExams: examDeleteCount,
-        deletedMessages: messageDeleteCount,
-        deletedNotifications: notificationDeleteCount,
-        deletedTokens: tokenDeleteCount,
+      console.log('[Settings] Starting account deletion via delete-account function', {
+        residentId,
+        residentMask,
       });
+
+      const { data, error } = await supabase.functions.invoke<{ ok?: boolean; deleted?: boolean; error?: string }>(
+        'delete-account',
+        {
+          body: { residentId, residentMask },
+        },
+      );
+      if (error) {
+        throw new Error(error.message ?? '계정 삭제 함수 호출에 실패했습니다.');
+      }
+      if (!data?.ok || !data?.deleted) {
+        throw new Error(data?.error ?? '계정 삭제에 실패했습니다. 다시 시도해주세요.');
+      }
 
       notifications.show({
         title: '계정 삭제 완료',

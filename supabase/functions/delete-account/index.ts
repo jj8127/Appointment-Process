@@ -16,6 +16,22 @@ type FcDocumentRow = {
   storage_path: string | null;
 };
 
+type BoardPostRow = {
+  id: string;
+};
+
+type BoardAttachmentRow = {
+  storage_path: string | null;
+};
+
+type ChatFileRow = {
+  file_url: string | null;
+};
+
+type LinkedProfileRow = {
+  id: string;
+};
+
 function getEnv(name: string): string | undefined {
   const g: any = globalThis as any;
   if (g?.Deno?.env?.get) return g.Deno.env.get(name);
@@ -24,7 +40,10 @@ function getEnv(name: string): string | undefined {
 }
 
 // Security: Restrict CORS to specific origins
-const allowedOrigins = (getEnv('ALLOWED_ORIGINS') ?? '').split(',').map(o => o.trim()).filter(Boolean);
+const allowedOrigins = (getEnv('ALLOWED_ORIGINS') ?? '')
+  .split(',')
+  .map((o) => o.trim())
+  .filter(Boolean);
 const corsHeaders = {
   'Access-Control-Allow-Origin': allowedOrigins.length > 0 ? allowedOrigins[0] : 'https://yourdomain.com',
   'Access-Control-Allow-Headers': 'Content-Type, Authorization, x-client-info, apikey',
@@ -69,6 +88,10 @@ async function ignoreMissingTable<T>(result: { error: any; data?: T }) {
   return result;
 }
 
+function cleanPhone(input: string) {
+  return (input ?? '').replace(/[^0-9]/g, '');
+}
+
 function formatPhone(digits: string) {
   if (!digits) return '';
   if (digits.length <= 3) return digits;
@@ -76,8 +99,31 @@ function formatPhone(digits: string) {
   return `${digits.slice(0, 3)}-${digits.slice(3, 7)}-${digits.slice(7)}`;
 }
 
-function cleanPhone(input: string) {
-  return (input ?? '').replace(/[^0-9]/g, '');
+function buildResidentIds(phone: string | null | undefined) {
+  const raw = String(phone ?? '').trim();
+  const digits = cleanPhone(raw);
+  const values = new Set<string>();
+
+  if (digits) values.add(digits);
+  if (raw) values.add(raw);
+  if (digits) {
+    const masked = formatPhone(digits);
+    if (masked) values.add(masked);
+  }
+
+  return Array.from(values).filter(Boolean);
+}
+
+function extractChatUploadPath(fileUrl: string | null | undefined): string | null {
+  const raw = String(fileUrl ?? '').trim();
+  if (!raw) return null;
+  const marker = '/chat-uploads/';
+  const idx = raw.indexOf(marker);
+  if (idx < 0) return null;
+  const withBucket = raw.slice(idx + marker.length);
+  const pathOnly = withBucket.split('?')[0] ?? '';
+  const normalized = pathOnly.replace(/^\/+/, '');
+  return normalized || null;
 }
 
 async function pickProfileByEq(
@@ -172,41 +218,125 @@ serve(async (req: Request) => {
   }
 
   const fcId = profile.id;
-  const residentId = cleanPhone(profile.phone ?? '') || residentIdDigits;
-  const residentIdMasked = formatPhone(residentId);
+  const resolvedPhone = cleanPhone(profile.phone ?? '') || residentIdDigits;
+  const residentIds = buildResidentIds(resolvedPhone);
 
+  const deleteByResident = async (table: string, column: string) => {
+    if (residentIds.length === 0) return { data: null };
+    if (residentIds.length === 1) {
+      return ignoreMissingTable(await supabase.from(table).delete().eq(column, residentIds[0]));
+    }
+    return ignoreMissingTable(await supabase.from(table).delete().in(column, residentIds));
+  };
+
+  const selectPostsByResident = async () => {
+    if (residentIds.length === 0) return { data: [] as BoardPostRow[] };
+    if (residentIds.length === 1) {
+      return ignoreMissingTable(
+        await supabase.from('board_posts').select('id').eq('author_resident_id', residentIds[0]),
+      );
+    }
+    return ignoreMissingTable(
+      await supabase.from('board_posts').select('id').in('author_resident_id', residentIds),
+    );
+  };
+
+  // 1) FC 문서 스토리지 정리
   const docsResult = await ignoreMissingTable(
     await supabase.from('fc_documents').select('storage_path').eq('fc_id', fcId),
   );
-  const paths = ((docsResult.data ?? []) as FcDocumentRow[]).map((doc) => doc.storage_path).filter(Boolean) as string[];
-  if (paths.length > 0) {
-    const { error: storageError } = await supabase.storage.from('fc-documents').remove(paths);
+  const docPaths = ((docsResult.data ?? []) as FcDocumentRow[])
+    .map((doc) => doc.storage_path)
+    .filter((p): p is string => !!p && p !== 'deleted');
+  if (docPaths.length > 0) {
+    const { error: storageError } = await supabase.storage.from('fc-documents').remove(docPaths);
     if (storageError) {
-      console.warn('storage remove failed', storageError.message ?? storageError);
+      console.warn('[delete-account] fc-documents storage remove failed', storageError.message ?? storageError);
     }
   }
 
+  // 2) 게시판 관련 삭제 (likes/reactions/comments/posts + attachments)
+  await deleteByResident('board_comment_likes', 'resident_id');
+  await deleteByResident('board_post_reactions', 'resident_id');
+  await deleteByResident('board_comments', 'author_resident_id');
+
+  const postsResult = await selectPostsByResident();
+  const postIds = ((postsResult.data ?? []) as BoardPostRow[]).map((p) => p.id);
+  if (postIds.length > 0) {
+    const postAttachmentsResult = await ignoreMissingTable(
+      await supabase.from('board_attachments').select('storage_path').in('post_id', postIds),
+    );
+    const boardAttachmentPaths = ((postAttachmentsResult.data ?? []) as BoardAttachmentRow[])
+      .map((a) => a.storage_path)
+      .filter((p): p is string => !!p);
+    if (boardAttachmentPaths.length > 0) {
+      const { error: boardStorageError } = await supabase.storage
+        .from('board-attachments')
+        .remove(boardAttachmentPaths);
+      if (boardStorageError) {
+        console.warn(
+          '[delete-account] board-attachments storage remove failed',
+          boardStorageError.message ?? boardStorageError,
+        );
+      }
+    }
+    await ignoreMissingTable(await supabase.from('board_posts').delete().in('id', postIds));
+  }
+
+  // 3) 채팅 첨부 스토리지 정리 (FC가 보낸 파일만)
+  if (residentIds.length > 0) {
+    let chatFileQuery = supabase.from('messages').select('file_url').in('message_type', ['image', 'file']);
+    chatFileQuery =
+      residentIds.length === 1
+        ? chatFileQuery.eq('sender_id', residentIds[0])
+        : chatFileQuery.in('sender_id', residentIds);
+    const chatFilesResult = await ignoreMissingTable(await chatFileQuery);
+    const chatPaths = Array.from(
+      new Set(
+        ((chatFilesResult.data ?? []) as ChatFileRow[])
+          .map((m) => extractChatUploadPath(m.file_url))
+          .filter((p): p is string => !!p),
+      ),
+    );
+    if (chatPaths.length > 0) {
+      const { error: chatStorageError } = await supabase.storage.from('chat-uploads').remove(chatPaths);
+      if (chatStorageError) {
+        console.warn('[delete-account] chat-uploads storage remove failed', chatStorageError.message ?? chatStorageError);
+      }
+    }
+  }
+
+  // 4) resident/fc 연관 레코드 삭제
   await ignoreMissingTable(await supabase.from('fc_documents').delete().eq('fc_id', fcId));
-
-  await ignoreMissingTable(
-    await supabase.from('messages').delete().or(`sender_id.eq.${residentId},receiver_id.eq.${residentId}`),
-  );
-
-  await ignoreMissingTable(
-    await supabase
-      .from('exam_registrations')
-      .delete()
-      .or(`resident_id.eq.${residentId},resident_id.eq.${residentIdMasked}`),
-  );
-  await ignoreMissingTable(
-    await supabase.from('notifications').delete().or(`resident_id.eq.${residentId},fc_id.eq.${fcId}`),
-  );
-  await ignoreMissingTable(await supabase.from('device_tokens').delete().eq('resident_id', residentId));
-  await ignoreMissingTable(await supabase.from('web_push_subscriptions').delete().eq('resident_id', residentId));
+  await ignoreMissingTable(await supabase.from('fc_credentials').delete().eq('fc_id', fcId));
   await ignoreMissingTable(await supabase.from('fc_identity_secure').delete().eq('fc_id', fcId));
+  await ignoreMissingTable(await supabase.from('exam_registrations').delete().eq('fc_id', fcId));
+  await ignoreMissingTable(await supabase.from('notifications').delete().eq('fc_id', fcId));
 
+  await deleteByResident('messages', 'sender_id');
+  await deleteByResident('messages', 'receiver_id');
+  await deleteByResident('exam_registrations', 'resident_id');
+  await deleteByResident('notifications', 'resident_id');
+  await deleteByResident('device_tokens', 'resident_id');
+  await deleteByResident('web_push_subscriptions', 'resident_id');
+
+  // 5) auth/profiles bridge 정리
+  const linkedProfilesResult = await ignoreMissingTable(
+    await supabase.from('profiles').select('id').eq('fc_id', fcId),
+  );
+  const linkedProfileIds = ((linkedProfilesResult.data ?? []) as LinkedProfileRow[]).map((row) => row.id);
+  for (const profileId of linkedProfileIds) {
+    const { error: authDeleteError } = await supabase.auth.admin.deleteUser(profileId);
+    if (authDeleteError) {
+      console.warn('[delete-account] auth user delete failed', profileId, authDeleteError.message ?? authDeleteError);
+    }
+  }
+  await ignoreMissingTable(await supabase.from('profiles').delete().eq('fc_id', fcId));
+
+  // 6) 최종 프로필 삭제
   const { error: profileDeleteError } = await supabase.from('fc_profiles').delete().eq('id', fcId);
   if (profileDeleteError) return err(profileDeleteError.message, 500);
 
   return ok({ ok: true, deleted: true });
 });
+

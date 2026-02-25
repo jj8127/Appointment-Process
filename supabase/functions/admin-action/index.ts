@@ -82,6 +82,42 @@ async function verifyAdmin(phone: string): Promise<boolean> {
   return !!data?.id;
 }
 
+function cleanPhone(input: string | null | undefined): string {
+  return String(input ?? '').replace(/[^0-9]/g, '');
+}
+
+function formatPhone(digits: string): string {
+  if (!digits) return '';
+  if (digits.length <= 3) return digits;
+  if (digits.length <= 7) return `${digits.slice(0, 3)}-${digits.slice(3)}`;
+  return `${digits.slice(0, 3)}-${digits.slice(3, 7)}-${digits.slice(7)}`;
+}
+
+function buildResidentIds(phone: string | null | undefined): string[] {
+  const raw = String(phone ?? '').trim();
+  const digits = cleanPhone(raw);
+  const values = new Set<string>();
+  if (digits) values.add(digits);
+  if (raw) values.add(raw);
+  if (digits) {
+    const masked = formatPhone(digits);
+    if (masked) values.add(masked);
+  }
+  return Array.from(values).filter(Boolean);
+}
+
+function extractChatUploadPath(fileUrl: string | null | undefined): string | null {
+  const raw = String(fileUrl ?? '').trim();
+  if (!raw) return null;
+  const marker = '/chat-uploads/';
+  const idx = raw.indexOf(marker);
+  if (idx < 0) return null;
+  const withBucket = raw.slice(idx + marker.length);
+  const pathOnly = withBucket.split('?')[0] ?? '';
+  const normalized = pathOnly.replace(/^\/+/, '');
+  return normalized || null;
+}
+
 serve(async (req: Request) => {
   if (req.method === 'OPTIONS') {
     return new Response('ok', { headers: corsHeaders });
@@ -461,11 +497,22 @@ serve(async (req: Request) => {
       const { fcId, phone } = payload as { fcId: string; phone?: string | null };
       if (!fcId) return fail('fcId is required');
 
-      let resolvedPhone = phone?.replace(/[^0-9]/g, '') || null;
+      let resolvedPhone = cleanPhone(phone ?? '') || null;
       if (!resolvedPhone) {
         const { data: profile } = await supabase.from('fc_profiles').select('phone').eq('id', fcId).maybeSingle();
-        resolvedPhone = profile?.phone || null;
+        resolvedPhone = cleanPhone(profile?.phone ?? '') || null;
       }
+
+      const residentIds = buildResidentIds(resolvedPhone);
+
+      const deleteByResident = async (table: string, column: string) => {
+        if (residentIds.length === 0) return;
+        if (residentIds.length === 1) {
+          await supabase.from(table).delete().eq(column, residentIds[0]);
+          return;
+        }
+        await supabase.from(table).delete().in(column, residentIds);
+      };
 
       const { data: docs } = await supabase.from('fc_documents').select('storage_path').eq('fc_id', fcId);
       const pathsToDelete = (docs ?? []).map((d: any) => d.storage_path).filter((p: string) => p && p !== 'deleted');
@@ -473,15 +520,85 @@ serve(async (req: Request) => {
         await supabase.storage.from('fc-documents').remove(pathsToDelete);
       }
 
-      await supabase.from('fc_documents').delete().eq('fc_id', fcId);
-      if (resolvedPhone) {
-        const maskedPhone = resolvedPhone.replace(/^(\d{3})(\d{3,4})(\d{4})$/, '$1-$2-$3');
-        await supabase.from('messages').delete().or(`sender_id.eq.${resolvedPhone},receiver_id.eq.${resolvedPhone}`);
-        await supabase.from('exam_registrations').delete().or(`resident_id.eq.${resolvedPhone},resident_id.eq.${maskedPhone}`);
-        await supabase.from('notifications').delete().or(`resident_id.eq.${resolvedPhone},fc_id.eq.${fcId}`);
-        await supabase.from('device_tokens').delete().eq('resident_id', resolvedPhone);
+      // 게시판 참여 데이터 삭제
+      await deleteByResident('board_comment_likes', 'resident_id');
+      await deleteByResident('board_post_reactions', 'resident_id');
+      await deleteByResident('board_comments', 'author_resident_id');
+
+      // FC가 작성한 게시글 정리 + 첨부 스토리지 정리
+      if (residentIds.length > 0) {
+        let residentPostsQuery = supabase.from('board_posts').select('id');
+        residentPostsQuery =
+          residentIds.length === 1
+            ? residentPostsQuery.eq('author_resident_id', residentIds[0])
+            : residentPostsQuery.in('author_resident_id', residentIds);
+        const { data: residentPosts } = await residentPostsQuery;
+        const postIds = (residentPosts ?? []).map((row: any) => row.id).filter(Boolean);
+        if (postIds.length > 0) {
+          const { data: boardAttachments } = await supabase
+            .from('board_attachments')
+            .select('storage_path')
+            .in('post_id', postIds);
+          const boardPaths = (boardAttachments ?? [])
+            .map((row: any) => row.storage_path)
+            .filter((p: string) => !!p);
+          if (boardPaths.length > 0) {
+            await supabase.storage.from('board-attachments').remove(boardPaths);
+          }
+          await supabase.from('board_posts').delete().in('id', postIds);
+        }
       }
+
+      // 채팅 첨부파일 스토리지 정리 (FC 발신 파일)
+      if (residentIds.length > 0) {
+        let chatFileQuery = supabase.from('messages').select('file_url').in('message_type', ['image', 'file']);
+        chatFileQuery =
+          residentIds.length === 1
+            ? chatFileQuery.eq('sender_id', residentIds[0])
+            : chatFileQuery.in('sender_id', residentIds);
+        const { data: chatFileRows } = await chatFileQuery;
+        const chatPaths = Array.from(
+          new Set(
+            (chatFileRows ?? [])
+              .map((row: any) => extractChatUploadPath(row.file_url))
+              .filter((p: string | null): p is string => !!p),
+          ),
+        );
+        if (chatPaths.length > 0) {
+          await supabase.storage.from('chat-uploads').remove(chatPaths);
+        }
+      }
+
+      await supabase.from('fc_documents').delete().eq('fc_id', fcId);
+      await supabase.from('fc_credentials').delete().eq('fc_id', fcId);
       await supabase.from('fc_identity_secure').delete().eq('fc_id', fcId);
+      await supabase.from('exam_registrations').delete().eq('fc_id', fcId);
+      await supabase.from('notifications').delete().eq('fc_id', fcId);
+
+      await deleteByResident('messages', 'sender_id');
+      await deleteByResident('messages', 'receiver_id');
+      await deleteByResident('exam_registrations', 'resident_id');
+      await deleteByResident('notifications', 'resident_id');
+      await deleteByResident('device_tokens', 'resident_id');
+      await deleteByResident('web_push_subscriptions', 'resident_id');
+
+      // auth/profiles 정리
+      const { data: linkedProfiles } = await supabase.from('profiles').select('id').eq('fc_id', fcId);
+      const linkedProfileIds = (linkedProfiles ?? []).map((row: any) => row.id).filter(Boolean);
+      for (const profileId of linkedProfileIds) {
+        await supabase.auth.admin.deleteUser(profileId);
+      }
+      await supabase.from('profiles').delete().eq('fc_id', fcId);
+
+      if (resolvedPhone) {
+        const maskedPhone = formatPhone(resolvedPhone);
+        // 레거시 폰 문자열 포맷 잔여값 정리 (추가 안전장치)
+        await supabase
+          .from('exam_registrations')
+          .delete()
+          .or(`resident_id.eq.${resolvedPhone},resident_id.eq.${maskedPhone}`);
+      }
+
       const { error } = await supabase.from('fc_profiles').delete().eq('id', fcId);
       if (error) throw error;
 
