@@ -1,5 +1,6 @@
 -- Supabase 스키마/정책 정의
 -- Supabase SQL Editor나 supabase CLI로 실행하세요.
+-- governance sync marker: 2026-02-26 (migration 20260226000004_fix_partial_commission_signup_status.sql)
 
 create extension if not exists "uuid-ossp";
 

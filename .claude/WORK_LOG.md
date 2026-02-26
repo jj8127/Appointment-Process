@@ -20,6 +20,7 @@
 ## 최근 작업
 | 날짜 | 작업 | 핵심 파일 | 상세 |
 |------|------|----------|------|
+| 02-26 | Push 거버넌스 실패 재발 방지 문서화 + schema sync marker 추가 | `AGENTS.md`, `docs/guides/COMMANDS.md`, `supabase/schema.sql`, `.claude/WORK_LOG.md`, `.claude/WORK_DETAIL.md` | [→ 상세](WORK_DETAIL.md#20260226-11) |
 | 02-26 | BLOCKED 역할순 실행(FC→본부장→총무→설계매니저) 자동검증 + PASS 전환 8건 | `scripts/testing/run-fc-blocked-cli.mjs`, `scripts/testing/run-manager-blocked-cli.mjs`, `scripts/testing/run-admin-blocked-cli.mjs`, `scripts/testing/run-designer-blocked-cli.mjs`, `docs/testing/INTEGRATED_TEST_RUN_RESULT.json`, `docs/testing/evidence/*`, `AGENTS.md` | [→ 상세](WORK_DETAIL.md#20260226-10) |
 | 02-26 | 통합 테스트 실행체계 구축(누락 방지) | `docs/testing/INTEGRATED_TEST_CHECKLIST.md`, `docs/testing/integrated-test-cases.json`, `scripts/testing/init-integrated-test-run.mjs`, `scripts/testing/validate-integrated-test-run.mjs`, `package.json`, `AGENTS.md` | [→ 상세](WORK_DETAIL.md#20260226-9) |
 | 02-26 | 모바일 하단 네비 정책 보정(총무/본부장 5탭 고정 + 설계매니저 2탭 유지) | `components/BottomNavigation.tsx`, `lib/bottom-navigation.ts`, `app/index.tsx`, `lib/__tests__/bottom-navigation.test.ts`, `AGENTS.md` | [→ 상세](WORK_DETAIL.md#20260226-8) |

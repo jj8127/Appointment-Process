@@ -10,6 +10,7 @@
   - [App Development](#app-development)
   - [Web Development](#web-development)
   - [Testing](#testing)
+  - [Push Preflight (Governance)](#push-preflight-governance)
 - [Build & Deployment](#build--deployment)
   - [Building](#building)
   - [Deployment](#deployment)
@@ -75,6 +76,23 @@ npm run qa:validate:integrated
 ```
 
 > 상세 가이드는 `docs/testing/INTEGRATED_TEST_CHECKLIST.md`를 참고합니다.
+
+### Push Preflight (Governance)
+
+#### Mandatory check before every push
+```bash
+node scripts/ci/check-governance.mjs
+```
+
+#### If governance fails with schema/migration sync error
+```text
+Schema change policy violation: update supabase/schema.sql and supabase/migrations/*.sql together.
+```
+
+Action:
+1. If `supabase/migrations/*.sql` changed, add a same-push `supabase/schema.sql` sync edit.
+2. Re-run `node scripts/ci/check-governance.mjs`.
+3. Push only after `[governance-check] passed`.
 
 #### Web Bundle for Testsprite
 

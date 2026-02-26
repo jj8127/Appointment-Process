@@ -7,6 +7,48 @@
 
 ---
 
+## <a id="20260226-11"></a> 2026-02-26 | Push 거버넌스 실패 재발 방지 문서화 + schema sync marker
+
+**Commit**: `working tree`  
+**배경**:
+- GitHub Action `governance-check.yml` 실패 재발 확인
+- 로컬 재현 결과:
+  - `node scripts/ci/check-governance.mjs`
+  - 실패 메시지: `Schema change policy violation: update supabase/schema.sql and supabase/migrations/*.sql together.`
+
+**조치**:
+- 규칙 문서 강화:
+  - `AGENTS.md`
+    - Session Close Checklist에 `push 전 governance check` 필수 추가
+    - `Push Preflight (Mandatory)` 섹션 신설
+    - migration-only 변경도 같은 push에서 `supabase/schema.sql` diff가 필요함을 명시
+  - `docs/guides/COMMANDS.md`
+    - `Push Preflight (Governance)` 섹션 추가
+    - 실패 메시지/대응 절차(재실행 후 pass 확인) 명문화
+- 즉시 CI 통과 보정:
+  - `supabase/schema.sql` 상단에 governance sync marker 주석 추가
+  - `supabase/migrations/20260226000005_schema_sync_governance.sql` no-op migration 추가
+  - 목적: 같은 push 범위에서 `schema.sql` + `migrations/*.sql` 동시 변경 조건 충족
+
+**핵심 파일**:
+- `AGENTS.md`
+- `docs/guides/COMMANDS.md`
+- `supabase/schema.sql`
+- `supabase/migrations/20260226000005_schema_sync_governance.sql`
+- `.claude/WORK_LOG.md`
+- `.claude/WORK_DETAIL.md`
+
+**검증**:
+- 로컬 governance 재실행:
+  - `node scripts/ci/check-governance.mjs` -> `passed`
+
+**재발 방지 운용 규칙(요약)**:
+1. push 전 `node scripts/ci/check-governance.mjs`를 항상 실행
+2. `supabase/migrations/*.sql` 변경 시 같은 push에 `supabase/schema.sql` sync diff 포함
+3. 코드 경로 변경 시 `.claude/WORK_LOG.md` + `.claude/WORK_DETAIL.md` 동시 갱신
+
+---
+
 ## <a id="20260226-10"></a> 2026-02-26 | BLOCKED 역할순 실행(FC→본부장→총무→설계매니저) 자동검증 + PASS 전환
 
 **Commit**: `working tree`  

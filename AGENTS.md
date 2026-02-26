@@ -180,6 +180,7 @@ supabase secrets list --project-ref <project-ref>
 3. If status model or rules changed, update `Snapshot` and `Canonical Workflow State`.
 4. If schema changed, verify both `supabase/schema.sql` and `supabase/migrations/*.sql` were updated.
 5. If CI/governance assumptions changed, update this file in the same change set.
+6. Before every push, run `node scripts/ci/check-governance.mjs` locally and push only after it passes.
 
 ### Governance Validation Rules
 - Documentation and schema governance checks are enforced in CI:
@@ -188,7 +189,14 @@ supabase secrets list --project-ref <project-ref>
 - Required consistency checks:
   - docs and code changes stay synchronized for behavior-impacting work
   - schema and migrations stay synchronized for DB changes
+  - note: CI currently treats any `supabase/migrations/*.sql` change as requiring a same-push `supabase/schema.sql` diff, even for data-fix/no-op migrations
   - auth/role behavior remains compatible with existing read-only and status constraints
+
+### Push Preflight (Mandatory)
+1. Run `node scripts/ci/check-governance.mjs` before commit and before push.
+2. If `supabase/migrations/*.sql` changed, also include a `supabase/schema.sql` sync touch in the same push.
+3. If code paths (`app/`, `web/`, `supabase/`, `components/`, `hooks/`, `lib/`, `types/`) changed, update both `.claude/WORK_LOG.md` and `.claude/WORK_DETAIL.md` together.
+4. Re-run governance check; push only when output is `[governance-check] passed`.
 
 ### Progress Ledger
 - `2026-02-26 | Role-Ordered BLOCKED Execution (FC→본부장→총무→설계매니저) | Added executable CLI integration runners and converted previously blocked checklist cases to verified PASS where API-level end-to-end validation was feasible: FC commission/signup+request_board sync (`ONB-01`, `P0-11`, `P0-12`, `P0-13`), 본부장(manager) 설계코드 CRUD + readOnly API guard partial evidence (`RB-08`, `P0-02 partial`), 설계매니저 request lifecycle (`RB-03`, `RB-05`), 총무 allowance consent approve/reject/resubmit transition (`ONB-04`); all test users/data cleaned up after each run and integrated validator kept green | scripts/testing/run-fc-blocked-cli.mjs, scripts/testing/run-manager-blocked-cli.mjs, scripts/testing/run-designer-blocked-cli.mjs, scripts/testing/run-admin-blocked-cli.mjs, docs/testing/evidence/*.md, docs/testing/evidence/*.json, docs/testing/INTEGRATED_TEST_RUN_RESULT.json, AGENTS.md | runner executions pass (`node scripts/testing/run-*-blocked-cli.mjs`), integrated validator pass (`npm run qa:validate:integrated`), current tally `PASS=10, BLOCKED=42, FAIL=0` | Continue role-order execution on remaining BLOCKED items that need device/UI/manual cross-platform validation and keep adding evidence with cleanup discipline`
