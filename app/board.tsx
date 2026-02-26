@@ -69,6 +69,20 @@ const CARD_SHADOW = {
   elevation: 3,
 };
 
+const getCategoryTheme = (categoryName: string) => {
+  const normalized = categoryName.trim().toLowerCase();
+  if (normalized.includes('공지')) {
+    return { backgroundColor: '#FFF7ED', borderColor: '#FED7AA', textColor: '#C2410C' };
+  }
+  if (normalized.includes('교육')) {
+    return { backgroundColor: '#EFF6FF', borderColor: '#BFDBFE', textColor: '#1D4ED8' };
+  }
+  if (normalized.includes('서류')) {
+    return { backgroundColor: '#ECFDF5', borderColor: '#A7F3D0', textColor: '#047857' };
+  }
+  return { backgroundColor: '#F3F4F6', borderColor: '#E5E7EB', textColor: '#4B5563' };
+};
+
 type ReactionKey = 'like' | 'heart' | 'check' | 'smile';
 type ReactionCounts = Record<ReactionKey, number>;
 type ReactionMutationContext = {
@@ -387,6 +401,17 @@ export default function BoardScreen() {
   });
 
   const posts = useMemo(() => listData?.items ?? [], [listData]);
+  const categoryNameMap = useMemo(() => {
+    const map = new Map<string, string>();
+    (categories ?? []).forEach((category) => {
+      map.set(category.id, category.name);
+    });
+    return map;
+  }, [categories]);
+  const resolveCategoryName = useCallback(
+    (rawCategoryId?: string | null) => categoryNameMap.get(rawCategoryId ?? '') ?? '일반',
+    [categoryNameMap],
+  );
   const modalPost = detailData?.post ?? (selectedPost
     ? {
       id: selectedPost.id,
@@ -1024,6 +1049,26 @@ export default function BoardScreen() {
                 style={({ pressed }) => [styles.card, pressed && { opacity: 0.7 }]}
                 onPress={() => setSelectedPost(post)}
               >
+                {(() => {
+                  const categoryName = resolveCategoryName(post.categoryId);
+                  const categoryTheme = getCategoryTheme(categoryName);
+                  return (
+                    <View
+                      style={[
+                        styles.categoryBadge,
+                        {
+                          backgroundColor: categoryTheme.backgroundColor,
+                          borderColor: categoryTheme.borderColor,
+                        },
+                      ]}
+                    >
+                      <Text style={[styles.categoryBadgeText, { color: categoryTheme.textColor }]}>
+                        {categoryName}
+                      </Text>
+                    </View>
+                  );
+                })()}
+
                 {/* 고정 게시글 배지 */}
                 {post.isPinned && (
                   <View style={styles.pinnedBadge}>
@@ -1173,6 +1218,25 @@ export default function BoardScreen() {
                           {modalPost?.authorRole === 'admin' ? '관리자' : '본부장'}
                         </Text>
                       </View>
+                      {(() => {
+                        const categoryName = resolveCategoryName(modalPost?.categoryId);
+                        const categoryTheme = getCategoryTheme(categoryName);
+                        return (
+                          <View
+                            style={[
+                              styles.categoryBadge,
+                              {
+                                backgroundColor: categoryTheme.backgroundColor,
+                                borderColor: categoryTheme.borderColor,
+                              },
+                            ]}
+                          >
+                            <Text style={[styles.categoryBadgeText, { color: categoryTheme.textColor }]}>
+                              {categoryName}
+                            </Text>
+                          </View>
+                        );
+                      })()}
                     </View>
                     <Text style={styles.date}>
                       {modalPost?.createdAt
@@ -1462,6 +1526,15 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     color: '#fff',
   },
+  categoryBadge: {
+    alignSelf: 'flex-start',
+    borderWidth: 1,
+    borderRadius: 999,
+    paddingHorizontal: 9,
+    paddingVertical: 3,
+    marginBottom: 8,
+  },
+  categoryBadgeText: { fontSize: 11, fontWeight: '700' },
   card: {
     backgroundColor: '#fff',
     borderRadius: 16,

@@ -7,6 +7,117 @@
 
 ---
 
+## <a id="20260226-6"></a> 2026-02-26 | 앱 게시판 카테고리 유형 배지 노출 + request_board 계정 자동 생성 동기화 보강
+
+**Commit**: `working tree`  
+**작업 내용**:
+- 앱 게시판(`app/board.tsx`) 카드/상세에 게시글 유형(카테고리) 배지 노출 추가
+  - 카테고리명(`공지/교육/서류/일반`) 기반 색상 테마 함수 추가
+  - 목록 카드와 상세 모달 모두 동일 포맷으로 배지 표시
+- request_board 계정 자동 동기화 보강
+  - `set-password` / `reset-password` / `set-admin-password` / `login-with-password`에서
+    request_board 비밀번호 동기화 호출 시 `role/name/companyName` 메타 전달
+  - 앱 로그인 성공 시점에도 동기화 호출하여 “가입은 되었지만 request_board 계정 없음” 케이스를 자동 복구
+
+**핵심 파일**:
+- `app/board.tsx`
+- `supabase/functions/login-with-password/index.ts`
+- `supabase/functions/set-password/index.ts`
+- `supabase/functions/reset-password/index.ts`
+- `supabase/functions/set-admin-password/index.ts`
+- `.claude/WORK_LOG.md`
+- `.claude/WORK_DETAIL.md`
+
+**검증**:
+- 모바일 lint: `npm run lint -- app/board.tsx` 통과
+- 웹 빌드(TypeScript 포함): `cd web && npm run build` 통과
+- 함수 배포 상태 확인: `supabase functions list --project-ref ubeginyxaotcamuqpmud`에서 4개 함수 ACTIVE 버전 반영 확인
+
+---
+
+## <a id="20260226-5"></a> 2026-02-26 | 부분 위촉 가입 Step 오분류/잠금 회귀 수정(1단계 시작 + 상태전환 보정 + 데이터 보정 migration)
+
+**Commit**: `working tree`  
+**작업 내용**:
+- 문제 정리:
+  - 회원가입에서 `life_only`/`nonlife_only`를 선택하면 `status=appointment-completed`로 저장되어 FC 홈이 즉시 4단계로 점프
+  - 동일 상태값을 근거로 수당동의/서류 승인 UI 일부가 조기 잠금되어, 실제로 필요한 1단계부터의 진행 흐름과 불일치
+- 수정:
+  - `set-password`의 위촉 상태 매핑 분리/공유화
+    - 신규 공유 모듈: `supabase/functions/_shared/commission.ts`
+    - `life_only`/`nonlife_only`는 `draft`로 시작하고 완료 플래그만 유지
+    - `both`만 `final-link-sent` 유지
+  - 단계 계산 로직 정렬
+    - 모바일 홈(`app/index.tsx`), 모바일 관리자(`app/dashboard.tsx`), 웹 공용(`web/src/lib/shared.ts`)을 동일 우선순위로 정렬
+    - 우선순위: `final/both 완료` -> `신원 완료` -> `수당동의` -> `서류` -> `위촉`
+    - 한쪽 위촉 완료 플래그만으로 4단계 점프하지 않도록 수정
+  - 위촉 확정 상태 전환 보정
+    - `admin-action`/웹 서버액션/웹 대시보드 낙관적 상태 갱신에서
+      `appointment_date_*` 뿐 아니라 `life/nonlife_commission_completed` 플래그를 함께 고려해
+      `final-link-sent` 판정
+  - 기존 데이터 보정 migration 추가
+    - `supabase/migrations/20260226000004_fix_partial_commission_signup_status.sql`
+    - 과거 로직으로 `appointment-completed`가 된 “부분 위촉 가입 직후형(온보딩 진행 흔적 없음)”만 `draft`로 되돌림
+    - 이미 진행 중인 FC(동의일/서류/차수/문서 행 존재)는 제외
+- 회귀 테스트 추가:
+  - `lib/__tests__/commission.test.ts`
+  - `lib/__tests__/workflow-step-regression.test.ts`
+
+**핵심 파일**:
+- `supabase/functions/_shared/commission.ts`
+- `supabase/functions/set-password/index.ts`
+- `app/index.tsx`
+- `app/dashboard.tsx`
+- `web/src/lib/shared.ts`
+- `supabase/functions/admin-action/index.ts`
+- `web/src/app/dashboard/appointment/actions.ts`
+- `web/src/app/dashboard/page.tsx`
+- `supabase/migrations/20260226000004_fix_partial_commission_signup_status.sql`
+- `lib/__tests__/commission.test.ts`
+- `lib/__tests__/workflow-step-regression.test.ts`
+- `.claude/WORK_LOG.md`
+- `.claude/WORK_DETAIL.md`
+
+**검증**:
+- 모바일 lint:
+  - `npm run lint -- app/index.tsx app/dashboard.tsx lib/__tests__/commission.test.ts lib/__tests__/workflow-step-regression.test.ts` 통과
+- 단위 테스트:
+  - `npm test -- --runInBand` 통과 (4 suites / 68 tests)
+  - 신규 회귀 테스트 2개 포함 통과
+- 웹 lint:
+  - `cd web && npm run lint -- src/lib/shared.ts src/app/dashboard/appointment/actions.ts src/app/dashboard/page.tsx` 통과
+- 웹 빌드(TypeScript 포함):
+  - `cd web && npm run build` 통과
+- DB 마이그레이션 사전 점검:
+  - `supabase db push --linked --dry-run` 통과 (`20260226000004_fix_partial_commission_signup_status.sql` 적용 대상 확인)
+- 리스크 시뮬레이션(직접 실행):
+  - `appointment status transition simulation: ok` (부분완료+반대트랙 확정 시 `final-link-sent`)
+  - `migration demotion predicate simulation: ok` (보정 SQL 조건이 진행중 FC를 제외하는지 확인)
+- 참고:
+  - `expo lint`로 Deno Edge Function 파일을 직접 lint하면 원격 import 해석(`deno.land`, `esm.sh`) 한계로 `import/no-unresolved`가 발생하여 해당 경고는 검증 대상에서 제외
+
+**운영 반영 결과**:
+- DB/함수 배포:
+  - `supabase db push --linked` 성공 (`20260226000004_fix_partial_commission_signup_status.sql` 적용)
+  - `supabase functions deploy set-password --project-ref ubeginyxaotcamuqpmud` 성공
+  - `supabase functions deploy admin-action --project-ref ubeginyxaotcamuqpmud` 성공
+- 배포 후 런타임 점검:
+  - 함수 직접 호출 스모크:
+    - `set-password` 입력 검증 응답 확인 (`invalid_phone`)
+    - `admin-action` 인증 검증 응답 확인 (`unauthorized`)
+  - 원격 데이터 정합성 점검(서비스 롤 조회):
+    - `partialAppointmentCompleted: 0`
+    - `bothDoneNotFinal: 0`
+    - `badDemotionTarget: 0`
+- 웹 운영 배포:
+  - `vercel deploy --prod --archive=tgz` 성공
+  - 운영 URL/API 인증 경로 스모크 확인 (`/api/admin/list` 401 정상)
+
+**남은 실기기 확인**:
+- `none/life_only/nonlife_only/both` 가입 4케이스 홈 단계/잠금 상태 검증 (Android/iOS 수동 시나리오)
+
+---
+
 ## <a id="20260226-4"></a> 2026-02-26 | 관리자 웹 헤더 벨 알림센터 추가 + 사이드바 알림/공지 제거(클릭 이동/확인 카운트 차감)
 
 **Commit**: `working tree`  

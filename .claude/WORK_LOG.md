@@ -20,6 +20,9 @@
 ## 최근 작업
 | 날짜 | 작업 | 핵심 파일 | 상세 |
 |------|------|----------|------|
+| 02-26 | 앱 게시판 카드/상세 카테고리 유형 배지 추가 + request_board 계정 자동 생성 동기화 보강 | `app/board.tsx`, `supabase/functions/login-with-password/index.ts`, `supabase/functions/set-password/index.ts`, `supabase/functions/reset-password/index.ts`, `supabase/functions/set-admin-password/index.ts` | [→ 상세](WORK_DETAIL.md#20260226-6) |
+| 02-26 | 설계요청 탭 의뢰 현황 통계카드(FC/설계매니저) + 설계코드 관리 화면 추가 | `app/request-board.tsx`, `lib/request-board-api.ts`, `app/request-board-fc-codes.tsx` | 작업직접 |
+| 02-26 | 부분 위촉 가입 Step 오분류/잠금 회귀 수정(1단계 시작 + 상태전환 보정 + 데이터 보정 migration) | `supabase/functions/set-password/index.ts`, `supabase/functions/_shared/commission.ts`, `app/index.tsx`, `app/dashboard.tsx`, `web/src/lib/shared.ts`, `web/src/app/dashboard/appointment/actions.ts`, `web/src/app/dashboard/page.tsx`, `supabase/functions/admin-action/index.ts`, `supabase/migrations/20260226000004_fix_partial_commission_signup_status.sql`, `lib/__tests__/commission.test.ts`, `lib/__tests__/workflow-step-regression.test.ts` | [→ 상세](WORK_DETAIL.md#20260226-5) |
 | 02-26 | 관리자 웹 헤더 벨 알림센터 추가 + 사이드바 알림/공지 제거(클릭 이동/확인 카운트 차감) | `web/src/components/DashboardNotificationBell.tsx`, `web/src/app/dashboard/layout.tsx`, `.claude/WORK_LOG.md`, `.claude/WORK_DETAIL.md` | [→ 상세](WORK_DETAIL.md#20260226-4) |
 | 02-26 | FC 가람지사 메신저 대상 목록/총무 채팅 복구(RLS 우회 + targetId=admin 처리) | `app/chat.tsx`, `supabase/functions/fc-notify/index.ts`, `.claude/WORK_LOG.md`, `.claude/WORK_DETAIL.md` | [→ 상세](WORK_DETAIL.md#20260226-3) |
 | 02-26 | 앱 게시판 관리 목록 카테고리 표시 추가(공지/교육 등) | `app/admin-board-manage.tsx`, `.claude/WORK_LOG.md`, `.claude/WORK_DETAIL.md` | [→ 상세](WORK_DETAIL.md#20260226-2) |
