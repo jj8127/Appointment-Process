@@ -41,7 +41,7 @@ const SHORTCUT_TOUR_TEXTS = [
   '수당 지급을 위한 약관 동의 상태를 확인해요.',
   '필수 서류를 업로드하고 상태를 확인해요.',
   '위촉 URL로 이동해 위촉 절차를 진행해요.',
-  '총무팀에 1:1 문의를 바로 보낼 수 있어요.',
+  '통합 메신저에서 가람지사/설계요청 대화를 선택할 수 있어요.',
 ];
 
 // Android Crash Fix: Strips Moti props on Android to prevent Reanimated from attaching to unmounting views
@@ -94,7 +94,7 @@ const quickLinksAdminOnboarding: QuickLink[] = [
   { href: '/dashboard', stepKey: 'step5', title: '완료 관리', description: '위촉 완료 현황' },
   { href: '/admin-board', title: '게시판 작성', description: '정보 게시판 글쓰기' },
   { href: '/admin-notice', title: '공지 등록', description: '새소식 작성' },
-  { href: '/admin-messenger', title: '메신저', description: 'FC 1:1 대화 관리' },
+  { href: '/messenger', title: '메신저', description: '가람지사/설계요청 대화 이동' },
 ];
 
 const quickLinksAdminExam: QuickLink[] = [
@@ -111,7 +111,7 @@ const quickLinksFc: QuickLink[] = [
   { href: '/consent', title: '수당 동의', description: '약관 동의 관리' },
   { href: '/docs-upload', title: '서류 업로드', description: '필수 서류 제출' },
   { href: '/appointment', title: '위촉', description: '위촉 URL 접속 및 완료' },
-  { href: '/chat', title: '1:1 문의', description: '소속 본부장과 대화하기' },
+  { href: '/messenger', title: '메신저', description: '가람지사/설계요청 대화 선택' },
 ];
 
 const steps = [
@@ -398,7 +398,7 @@ const getLinkIcon = (href: string) => {
   if (href.includes('consent')) return 'check-circle'; // 수당 동의
   if (href.includes('docs-upload')) return 'upload-cloud'; // 서류 업로드
   if (href.includes('appointment')) return 'smartphone'; // 위촉
-  if (href.includes('admin-messenger')) return 'message-circle'; // 메신저
+  if (href.includes('messenger')) return 'message-circle'; // 메신저
   if (href.includes('chat')) return 'message-circle'; // 1:1 문의
 
   return 'chevron-right';
@@ -1313,10 +1313,10 @@ export default function Home() {
                 <View ref={zone2Ref} collapsable={false}>
                   <TourGuideZone
                     zone={2}
-                    text="총무팀과 1:1 문의를 할 수 있어요. 최근 메시지도 여기서 미리 볼 수 있어요."
+                    text="메신저 허브에서 가람지사/설계요청 대화를 선택할 수 있어요."
                     borderRadius={24}>
                     <AndroidSafeMotiView from={{ opacity: 0, translateY: 10 }} animate={{ opacity: 1, translateY: 0 }} transition={{ type: 'spring', delay: 100 }}>
-                      <Pressable onPress={() => handlePressLink('/chat')}>
+                      <Pressable onPress={() => handlePressLink('/messenger')}>
                         <LinearGradient
                           colors={['#f36f21', '#fabc3c']}
                           start={{ x: 0, y: 0 }}
@@ -1325,9 +1325,9 @@ export default function Home() {
                         >
                           <View style={styles.ctaContent}>
                             <View style={styles.ctaBadge}>
-                              <Text style={styles.ctaBadgeText}>1:1 문의</Text>
+                              <Text style={styles.ctaBadgeText}>메신저</Text>
                             </View>
-                            <Text style={styles.ctaTitle}>총무팀과 대화하기</Text>
+                            <Text style={styles.ctaTitle}>통합 메신저 열기</Text>
                             <Text style={styles.ctaSub} numberOfLines={2}>
                               {latestAdminMsgLoading
                                 ? '메시지 불러오는 중...'
@@ -1368,7 +1368,7 @@ export default function Home() {
                 </View>
               ) : (
                 <AndroidSafeMotiView from={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} transition={{ type: 'spring', delay: 100 }}>
-                  <Pressable onPress={() => handlePressLink('/chat')}>
+                  <Pressable onPress={() => handlePressLink('/messenger')}>
                     <LinearGradient
                       colors={['#f36f21', '#fabc3c']}
                       start={{ x: 0, y: 0 }}
@@ -1377,9 +1377,9 @@ export default function Home() {
                     >
                       <View style={styles.ctaContent}>
                         <View style={styles.ctaBadge}>
-                          <Text style={styles.ctaBadgeText}>1:1 문의</Text>
+                          <Text style={styles.ctaBadgeText}>메신저</Text>
                         </View>
-                        <Text style={styles.ctaTitle}>총무팀과 대화하기</Text>
+                        <Text style={styles.ctaTitle}>통합 메신저 열기</Text>
                         <Text style={styles.ctaSub} numberOfLines={2}>
                           {latestAdminMsgLoading
                             ? '메시지 불러오는 중...'

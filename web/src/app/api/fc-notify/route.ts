@@ -85,7 +85,6 @@ export async function POST(req: Request) {
       const targetRole = body.target_role;
       const targetId = body.target_id;
       const message = body.message ?? '새로운 메시지가 도착했습니다.';
-      const senderId = body.sender_id;
 
       let query = adminClient.from('web_push_subscriptions').select('endpoint,p256dh,auth');
 
@@ -100,9 +99,16 @@ export async function POST(req: Request) {
       if (subsError) {
         logger.error('[fc-notify] Error fetching subscriptions:', subsError);
       } else if (subs && subs.length > 0) {
+        const senderId = String(body.sender_id ?? '').replace(/[^0-9]/g, '');
+        const senderName = String(body.sender_name ?? '').trim();
+        const query = new URLSearchParams();
+        query.set('channel', 'garam');
+        if (senderId) query.set('targetId', senderId);
+        if (senderName) query.set('targetName', senderName);
+
         const url =
           targetRole === 'admin'
-            ? `/dashboard/chat?targetId=${senderId ?? ''}`
+            ? `/dashboard/messenger?${query.toString()}`
             : '/chat';
 
         const result = await sendWebPush(subs, {

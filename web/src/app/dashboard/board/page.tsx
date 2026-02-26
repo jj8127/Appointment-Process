@@ -65,6 +65,7 @@ import {
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { AnimatePresence, motion } from 'framer-motion';
 import { useEffect, useMemo, useState } from 'react';
+import { useRouter, useSearchParams } from 'next/navigation';
 
 // 감정 표현 타입
 const REACTION_TYPES = [
@@ -122,9 +123,43 @@ type WebAttachment = {
 };
 const MAX_ATTACHMENTS = 20;
 
+const buildPlaceholderPost = (postId: string): BoardPost => {
+  const now = new Date().toISOString();
+  return {
+    id: postId,
+    categoryId: '',
+    title: '',
+    contentPreview: '',
+    authorName: '',
+    authorRole: 'manager',
+    createdAt: now,
+    updatedAt: now,
+    isPinned: false,
+    isMine: false,
+    stats: {
+      commentCount: 0,
+      reactionCount: 0,
+      attachmentCount: 0,
+    },
+    reactions: {
+      like: 0,
+      heart: 0,
+      check: 0,
+      smile: 0,
+    },
+    attachments: [],
+  };
+};
+
 export default function BoardPage() {
+  const router = useRouter();
+  const searchParams = useSearchParams();
   const { role, residentId, displayName, isReadOnly } = useSession();
   const queryClient = useQueryClient();
+  const routePostId = useMemo(() => {
+    const value = searchParams.get('postId')?.trim();
+    return value ?? '';
+  }, [searchParams]);
   const actor = useMemo(
     () => buildBoardActor({ role, residentId, displayName, readOnly: isReadOnly }),
     [displayName, isReadOnly, residentId, role],
@@ -216,6 +251,25 @@ export default function BoardPage() {
     const q = searchQuery.toLowerCase();
     return posts.filter((post) => post.title.toLowerCase().includes(q) || post.contentPreview.toLowerCase().includes(q));
   }, [posts, searchQuery]);
+
+  /* eslint-disable react-hooks/set-state-in-effect */
+  useEffect(() => {
+    if (!routePostId) return;
+    if (selectedPostId === routePostId) return;
+
+    const found = posts.find((post) => post.id === routePostId);
+    if (found) {
+      setSelectedPost(found);
+      setCommentText('');
+      return;
+    }
+
+    if (!isLoading) {
+      setSelectedPost((prev) => (prev?.id === routePostId ? prev : buildPlaceholderPost(routePostId)));
+      setCommentText('');
+    }
+  }, [isLoading, posts, routePostId, selectedPostId]);
+  /* eslint-enable react-hooks/set-state-in-effect */
 
   const { data: detailData } = useQuery({
     queryKey: ['board-detail', selectedPostId],
@@ -413,7 +467,7 @@ export default function BoardPage() {
         message: '게시글이 삭제되었습니다.',
         color: 'red',
       });
-      setSelectedPost(null);
+      closePostModal();
     },
     onError: (error: Error) => {
       notifications.show({
@@ -983,6 +1037,17 @@ export default function BoardPage() {
     deletePostMutation.mutate(post.id);
   };
 
+  const closePostModal = () => {
+    setSelectedPost(null);
+    setCommentText('');
+
+    if (!routePostId) return;
+    const nextParams = new URLSearchParams(searchParams.toString());
+    nextParams.delete('postId');
+    const nextQuery = nextParams.toString();
+    router.replace(nextQuery ? `/dashboard/board?${nextQuery}` : '/dashboard/board');
+  };
+
   return (
     <Container size="lg" py="xl">
       <Stack gap="xl">
@@ -1389,10 +1454,7 @@ export default function BoardPage() {
       {/* 게시글 상세 모달 */}
       <Modal
         opened={!!selectedPostId}
-        onClose={() => {
-          setSelectedPost(null);
-          setCommentText('');
-        }}
+        onClose={closePostModal}
         title={
           <Group>
             <Avatar color="orange" radius="xl" size="md">

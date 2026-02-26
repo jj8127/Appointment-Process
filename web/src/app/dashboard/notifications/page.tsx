@@ -27,6 +27,8 @@ import { useState } from 'react';
 
 import { useSession } from '@/hooks/use-session';
 
+const BOARD_NOTICE_ID_PREFIX = 'board_notice:';
+
 type NoticeItem = {
     id: string;
     title?: string;
@@ -43,6 +45,20 @@ type NoticesResponse = {
     ok?: boolean;
     notices?: NoticeItem[];
     error?: string;
+};
+
+const extractBoardPostId = (noticeId: string): string | null => {
+    if (!noticeId.startsWith(BOARD_NOTICE_ID_PREFIX)) return null;
+    const postId = noticeId.slice(BOARD_NOTICE_ID_PREFIX.length).trim();
+    return postId.length > 0 ? postId : null;
+};
+
+const resolveNoticePath = (noticeId: string): string => {
+    const postId = extractBoardPostId(noticeId);
+    if (postId) {
+        return `/dashboard/board?postId=${encodeURIComponent(postId)}`;
+    }
+    return `/dashboard/notifications/${noticeId}`;
 };
 
 async function fetchNotices(): Promise<NoticeItem[]> {
@@ -155,11 +171,15 @@ export default function NotificationsPage() {
 
     const rows = filteredNotices.map((notice: NoticeItem) => {
         const canManage = canManageNotice(notice);
+        const postId = extractBoardPostId(notice.id);
+        const detailPath = resolveNoticePath(notice.id);
+        const editPath = postId ? `/dashboard/board?postId=${encodeURIComponent(postId)}` : `/dashboard/notifications/${notice.id}/edit`;
+
         return (
             <Table.Tr
                 key={notice.id}
                 style={{ cursor: 'pointer' }}
-                onClick={() => router.push(`/dashboard/notifications/${notice.id}`)}
+                onClick={() => router.push(detailPath)}
             >
                 <Table.Td style={{ width: 120 }}>
                     <Text size="sm" c="dimmed">
@@ -189,7 +209,7 @@ export default function NotificationsPage() {
                                 color="blue"
                                 onClick={(e) => {
                                     e.stopPropagation();
-                                    router.push(`/dashboard/notifications/${notice.id}/edit`);
+                                    router.push(editPath);
                                 }}
                             >
                                 <IconEdit size={16} />

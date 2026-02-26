@@ -2,7 +2,7 @@ import { Feather, Ionicons } from '@expo/vector-icons';
 import * as DocumentPicker from 'expo-document-picker';
 import { Image } from 'expo-image';
 import * as ImagePicker from 'expo-image-picker';
-import { useLocalSearchParams } from 'expo-router';
+import { useLocalSearchParams, useRouter } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import {
@@ -30,9 +30,6 @@ import { supabase } from '@/lib/supabase';
 import { logger } from '@/lib/logger';
 import {
   ADMIN_CHAT_ID,
-  buildManagerChatLabel,
-  isSameManagerName,
-  parseAffiliationManagerInfo,
   sanitizePhone,
 } from '@/lib/messenger-participants';
 
@@ -58,6 +55,18 @@ type Message = {
   file_size?: number | null;
 };
 
+type FcChatTarget = {
+  id: string;
+  label: string;
+  subtitle: string;
+  kind: 'manager' | 'admin';
+};
+
+type ChatTargetManager = {
+  name?: string | null;
+  phone?: string | null;
+};
+
 const sortMessagesDesc = (rows: Message[]) =>
   [...rows].sort((a, b) => {
     const aTime = new Date(a.created_at).getTime();
@@ -65,6 +74,17 @@ const sortMessagesDesc = (rows: Message[]) =>
     if (aTime !== bTime) return bTime - aTime;
     return b.id.localeCompare(a.id);
   });
+
+const dedupeMessagesById = (rows: Message[]) => {
+  const map = new Map<string, Message>();
+  rows.forEach((row) => {
+    if (!row?.id) return;
+    if (!map.has(row.id)) {
+      map.set(row.id, row);
+    }
+  });
+  return Array.from(map.values());
+};
 
 const areMessagesEqual = (prev: Message[], next: Message[]) => {
   if (prev.length !== next.length) return false;
@@ -90,6 +110,7 @@ const areMessagesEqual = (prev: Message[], next: Message[]) => {
 };
 
 export default function ChatScreen() {
+  const router = useRouter();
   const { role, residentId, displayName, readOnly } = useSession();
   const { targetId, targetName } = useLocalSearchParams<{
     targetId?: string | string[];
@@ -104,14 +125,21 @@ export default function ChatScreen() {
   const myId = role === 'admin'
     ? (isManagerSession ? sanitizePhone(residentId) : ADMIN_CHAT_ID)
     : sanitizePhone(residentId);
-  const targetIdSanitized = sanitizePhone(targetIdValue);
-  const [resolvedFcTargetId, setResolvedFcTargetId] = useState('');
-  const otherId = role === 'admin' ? targetIdSanitized : resolvedFcTargetId;
+  const normalizedTargetId = (targetIdValue ?? '').trim().toLowerCase() === ADMIN_CHAT_ID
+    ? ADMIN_CHAT_ID
+    : sanitizePhone(targetIdValue);
+  const otherId = normalizedTargetId;
   const [resolvedTargetName, setResolvedTargetName] = useState('');
-  const [resolvedManagerLabel, setResolvedManagerLabel] = useState('총무팀');
+  const [fcTargets, setFcTargets] = useState<FcChatTarget[]>([]);
+  const [targetsLoading, setTargetsLoading] = useState(false);
+  const [targetsError, setTargetsError] = useState<string | null>(null);
+  const selectedFcTarget = role === 'fc'
+    ? fcTargets.find((target) => target.id === otherId) ?? null
+    : null;
+  const showFcTargetPicker = role === 'fc' && !otherId;
   const headerTitle = role === 'admin'
     ? resolvedTargetName || targetIdValue || 'FC'
-    : resolvedManagerLabel;
+    : targetNameValue?.trim() || selectedFcTarget?.label || '메신저';
 
   const [messages, setMessages] = useState<Message[]>([]);
   const [text, setText] = useState('');
@@ -123,12 +151,78 @@ export default function ChatScreen() {
   const messagesRef = useRef<Message[]>([]);
 
   const applyMessages = useCallback((rows: Message[]) => {
-    const sorted = sortMessagesDesc(rows);
+    const uniqueRows = dedupeMessagesById(rows);
+    const sorted = sortMessagesDesc(uniqueRows);
     if (areMessagesEqual(messagesRef.current, sorted)) return false;
     messagesRef.current = sorted;
     setMessages(sorted);
     return true;
   }, []);
+
+  const loadFcTargets = useCallback(async () => {
+    if (role !== 'fc') return;
+    setTargetsLoading(true);
+    setTargetsError(null);
+
+    try {
+      const residentPhone = sanitizePhone(residentId);
+      const { data, error } = await supabase.functions.invoke('fc-notify', {
+        body: {
+          type: 'chat_targets',
+          resident_id: residentPhone,
+        },
+      });
+
+      if (error || !data?.ok) {
+        const message = error?.message ?? data?.message ?? '대화 상대 목록을 불러오지 못했습니다.';
+        throw new Error(message);
+      }
+
+      const managers: ChatTargetManager[] = Array.isArray(data.managers)
+        ? (data.managers as ChatTargetManager[])
+        : [];
+
+      const managerTargets: FcChatTarget[] = [];
+      managers.forEach((manager) => {
+        const phone = sanitizePhone(manager.phone);
+        if (!phone) return;
+        const rawName = (manager.name ?? '').trim();
+        const managerName = rawName.replace(/\s*본부장(?:님)?\s*$/, '').trim();
+        const displayName = managerName ? `${managerName} 본부장` : phone;
+        managerTargets.push({
+          id: phone,
+          label: displayName,
+          subtitle: '본부장',
+          kind: 'manager',
+        });
+      });
+
+      const deduped = Array.from(
+        managerTargets.reduce((map, target) => {
+          if (!map.has(target.id)) {
+            map.set(target.id, target);
+          }
+          return map;
+        }, new Map<string, FcChatTarget>()).values(),
+      );
+
+      setFcTargets([
+        ...deduped,
+        {
+          id: ADMIN_CHAT_ID,
+          label: '총무',
+          subtitle: '총무팀',
+          kind: 'admin',
+        },
+      ]);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : '대화 상대 목록을 불러오지 못했습니다.';
+      logger.debug('[chat] fc target list load failed', { message });
+      setTargetsError(message);
+    } finally {
+      setTargetsLoading(false);
+    }
+  }, [residentId, role]);
 
   const fetchMessages = useCallback(async () => {
     if (!myId || !otherId) return;
@@ -229,73 +323,8 @@ export default function ChatScreen() {
 
   useEffect(() => {
     if (role !== 'fc') return;
-
-    if (!residentId) {
-      setResolvedFcTargetId(ADMIN_CHAT_ID);
-      setResolvedManagerLabel('총무팀');
-      return;
-    }
-
-    let active = true;
-
-    (async () => {
-      const phone = sanitizePhone(residentId);
-      const { data: profile, error: profileError } = await supabase
-        .from('fc_profiles')
-        .select('affiliation')
-        .eq('phone', phone)
-        .maybeSingle();
-
-      if (!active) return;
-      if (profileError) {
-        logger.debug('[chat] resolve fc affiliation failed', { error: profileError.message, phone });
-        setResolvedFcTargetId(ADMIN_CHAT_ID);
-        setResolvedManagerLabel('총무팀');
-        return;
-      }
-
-      const affiliation = (profile?.affiliation ?? '').trim();
-      const affiliationInfo = parseAffiliationManagerInfo(affiliation);
-      if (!affiliationInfo?.managerName) {
-        setResolvedFcTargetId(ADMIN_CHAT_ID);
-        setResolvedManagerLabel('총무팀');
-        return;
-      }
-
-      const { data: managers, error: managerError } = await supabase
-        .from('manager_accounts')
-        .select('name,phone')
-        .eq('active', true);
-
-      if (!active) return;
-      if (managerError) {
-        logger.debug('[chat] resolve manager account failed', {
-          error: managerError.message,
-          managerName: affiliationInfo.managerName,
-        });
-        setResolvedFcTargetId(ADMIN_CHAT_ID);
-        setResolvedManagerLabel('총무팀');
-        return;
-      }
-
-      const matchedManager = (managers ?? []).find((manager) =>
-        isSameManagerName(manager?.name, affiliationInfo.managerName),
-      );
-
-      if (!matchedManager?.phone) {
-        setResolvedFcTargetId(ADMIN_CHAT_ID);
-        setResolvedManagerLabel('총무팀');
-        return;
-      }
-
-      setResolvedFcTargetId(sanitizePhone(matchedManager.phone));
-      setResolvedManagerLabel(buildManagerChatLabel(affiliation, matchedManager.name));
-    })();
-
-    return () => {
-      active = false;
-    };
-  }, [residentId, role]);
+    void loadFcTargets();
+  }, [loadFcTargets, role]);
 
   useEffect(() => {
     if (role !== 'admin') return;
@@ -358,7 +387,7 @@ export default function ChatScreen() {
   ) => {
     if (!myId || !otherId) {
       if (role === 'fc') {
-        Alert.alert('잠시만요', '대화 상대 정보를 확인 중입니다. 잠시 후 다시 시도해주세요.');
+        Alert.alert('대상 선택 필요', '메신저에서 대화할 대상을 먼저 선택해주세요.');
       }
       return;
     }
@@ -395,9 +424,7 @@ export default function ChatScreen() {
       ? (isManagerSession ? displayName?.trim() || residentId || '본부장' : '총무팀')
       : displayName?.trim() || residentId || 'FC';
     const notiTitle = `${senderName}: ${notiBody}`;
-    const notifyUrl = isSenderStaff
-      ? '/chat'
-      : `/chat?targetId=${encodeURIComponent(myId)}&targetName=${encodeURIComponent(senderName)}`;
+    const notifyUrl = `/chat?targetId=${encodeURIComponent(myId)}&targetName=${encodeURIComponent(senderName)}`;
 
     try {
       const { data: notifyData, error: notifyError } = await supabase.functions.invoke('fc-notify', {
@@ -559,6 +586,16 @@ export default function ChatScreen() {
     return d.toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit' });
   };
 
+  const openFcChatTarget = (target: FcChatTarget) => {
+    router.push({
+      pathname: '/chat',
+      params: {
+        targetId: target.id,
+        targetName: target.label,
+      },
+    });
+  };
+
   const renderMessageContent = (item: Message, isMe: boolean) => {
     if (item.message_type === 'image' && item.file_url) {
       return (
@@ -643,6 +680,80 @@ export default function ChatScreen() {
     );
   };
 
+  const renderFcTargetItem = ({ item }: { item: FcChatTarget }) => (
+    <Pressable
+      style={({ pressed }) => [
+        styles.targetItem,
+        pressed && { opacity: 0.85 },
+      ]}
+      onPress={() => openFcChatTarget(item)}
+    >
+      <View style={styles.targetAvatar}>
+        <Feather
+          name={item.kind === 'admin' ? 'shield' : 'user'}
+          size={20}
+          color={item.kind === 'admin' ? HANWHA_ORANGE : MUTED}
+        />
+      </View>
+      <View style={styles.targetBody}>
+        <Text style={styles.targetName}>{item.label}</Text>
+        <Text style={styles.targetSubtitle}>{item.subtitle}</Text>
+      </View>
+      <View style={styles.targetBadge}>
+        <Text style={styles.targetBadgeText}>{item.kind === 'admin' ? '총무' : '본부장'}</Text>
+      </View>
+      <Feather name="chevron-right" size={18} color="#9CA3AF" />
+    </Pressable>
+  );
+
+  if (showFcTargetPicker) {
+    return (
+      <View style={styles.container}>
+        <StatusBar style="dark" backgroundColor="#fff" />
+        <View style={styles.header}>
+          <Text style={styles.headerTitle}>메신저</Text>
+        </View>
+
+        <View style={styles.targetIntroCard}>
+          <Text style={styles.targetIntroTitle}>대화 상대를 선택하세요</Text>
+          <Text style={styles.targetIntroText}>
+            본부장 또는 총무를 선택하면 바로 채팅을 시작할 수 있습니다.
+          </Text>
+        </View>
+
+        {targetsLoading ? (
+          <View style={styles.center}>
+            <ActivityIndicator color={HANWHA_ORANGE} />
+          </View>
+        ) : targetsError ? (
+          <View style={styles.center}>
+            <Text style={styles.targetHelperText}>목록을 불러오지 못했습니다.</Text>
+            <Pressable
+              style={({ pressed }) => [styles.retryButton, pressed && { opacity: 0.9 }]}
+              onPress={() => {
+                void loadFcTargets();
+              }}
+            >
+              <Text style={styles.retryButtonText}>다시 시도</Text>
+            </Pressable>
+          </View>
+        ) : (
+          <FlatList
+            data={fcTargets}
+            keyExtractor={(item) => item.id}
+            renderItem={renderFcTargetItem}
+            contentContainerStyle={styles.targetListContent}
+            ListEmptyComponent={(
+              <View style={styles.targetEmptyCard}>
+                <Text style={styles.targetHelperText}>대화 가능한 대상이 없습니다.</Text>
+              </View>
+            )}
+          />
+        )}
+      </View>
+    );
+  }
+
   return (
     <View style={styles.container}>
       <StatusBar style="dark" backgroundColor="#fff" />
@@ -718,6 +829,7 @@ export default function ChatScreen() {
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: SOFT_BG },
+  center: { flex: 1, justifyContent: 'center', alignItems: 'center', paddingHorizontal: 16 },
   header: {
     height: 56,
     flexDirection: 'row',
@@ -842,4 +954,73 @@ const styles = StyleSheet.create({
     gap: 4,
   },
   cancelUploadText: { fontSize: 12, color: '#555', fontWeight: '500' },
+  targetIntroCard: {
+    marginTop: 16,
+    marginHorizontal: 16,
+    backgroundColor: '#FFF7ED',
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: '#FED7AA',
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    gap: 4,
+  },
+  targetIntroTitle: { fontSize: 14, fontWeight: '700', color: '#9A3412' },
+  targetIntroText: { fontSize: 12, color: '#C2410C' },
+  targetListContent: {
+    paddingHorizontal: 16,
+    paddingTop: 14,
+    paddingBottom: 24,
+    gap: 10,
+  },
+  targetItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#fff',
+    borderWidth: 1,
+    borderColor: '#F3F4F6',
+    borderRadius: 14,
+    paddingHorizontal: 12,
+    paddingVertical: 12,
+    gap: 10,
+  },
+  targetAvatar: {
+    width: 42,
+    height: 42,
+    borderRadius: 21,
+    backgroundColor: '#F9FAFB',
+    borderWidth: 1,
+    borderColor: '#E5E7EB',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  targetBody: { flex: 1, minWidth: 0, gap: 2 },
+  targetName: { fontSize: 15, fontWeight: '700', color: CHARCOAL },
+  targetSubtitle: { fontSize: 12, color: MUTED },
+  targetBadge: {
+    borderRadius: 999,
+    backgroundColor: '#FFF7ED',
+    borderWidth: 1,
+    borderColor: '#FED7AA',
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+  },
+  targetBadgeText: { fontSize: 11, fontWeight: '700', color: '#C2410C' },
+  targetEmptyCard: {
+    backgroundColor: '#fff',
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: '#E5E7EB',
+    paddingVertical: 20,
+    alignItems: 'center',
+  },
+  targetHelperText: { fontSize: 13, color: MUTED, fontWeight: '600' },
+  retryButton: {
+    marginTop: 10,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 10,
+    backgroundColor: '#F3F4F6',
+  },
+  retryButtonText: { fontSize: 13, color: CHARCOAL, fontWeight: '700' },
 });

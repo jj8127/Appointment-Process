@@ -49,6 +49,7 @@ import {
   createBoardComment,
   deleteBoardComment,
   deleteBoardPost,
+  fetchBoardCategories,
   fetchBoardDetail,
   fetchBoardList,
   formatFileSize,
@@ -88,6 +89,20 @@ const safeText = (value?: string | null) => (typeof value === 'string' ? value :
 const getInitial = (value?: string | null) => {
   const normalized = safeText(value).trim();
   return normalized ? normalized.charAt(0) : '?';
+};
+
+const getCategoryTheme = (categoryName: string) => {
+  const normalized = categoryName.trim().toLowerCase();
+  if (normalized === '공지') {
+    return { backgroundColor: '#fff7ed', borderColor: '#fed7aa', textColor: '#c2410c' };
+  }
+  if (normalized === '교육') {
+    return { backgroundColor: '#eff6ff', borderColor: '#bfdbfe', textColor: '#1d4ed8' };
+  }
+  if (normalized === '서류') {
+    return { backgroundColor: '#f0fdf4', borderColor: '#bbf7d0', textColor: '#166534' };
+  }
+  return { backgroundColor: '#f3f4f6', borderColor: '#e5e7eb', textColor: '#374151' };
 };
 
 const buildReactionCounts = (counts?: Partial<ReactionCounts>): ReactionCounts => ({
@@ -343,6 +358,15 @@ export default function AdminBoardManageScreen() {
     enabled: !!actor,
   });
 
+  const { data: categories = [] } = useQuery({
+    queryKey: ['board-categories', actor?.role, actor?.residentId],
+    queryFn: () => {
+      if (!actor) return Promise.resolve([]);
+      return fetchBoardCategories(actor);
+    },
+    enabled: !!actor,
+  });
+
   const selectedPostId = selectedPost?.id ?? null;
   const { data: detailData } = useQuery({
     queryKey: ['board-detail', selectedPostId],
@@ -354,6 +378,13 @@ export default function AdminBoardManageScreen() {
   });
 
   const posts = useMemo(() => listData?.items ?? [], [listData]);
+  const categoryNameMap = useMemo(() => {
+    const map = new Map<string, string>();
+    categories.forEach((category) => {
+      map.set(category.id, category.name);
+    });
+    return map;
+  }, [categories]);
   const modalPost = detailData?.post ?? (selectedPost
     ? {
       id: selectedPost.id,
@@ -993,17 +1024,21 @@ export default function AdminBoardManageScreen() {
             </View>
           )}
 
-          {filteredPosts.map((post, index) => (
-            <MotiView
-              key={post.id}
-              from={{ opacity: 0, translateY: 10 }}
-              animate={{ opacity: 1, translateY: 0 }}
-              transition={{ delay: index * 50 }}
-            >
-              <Pressable
-                style={({ pressed }) => [styles.card, pressed && { opacity: 0.7 }]}
-                onPress={() => setSelectedPost(post)}
+          {filteredPosts.map((post, index) => {
+            const categoryName = categoryNameMap.get(post.categoryId) ?? '일반';
+            const categoryTheme = getCategoryTheme(categoryName);
+
+            return (
+              <MotiView
+                key={post.id}
+                from={{ opacity: 0, translateY: 10 }}
+                animate={{ opacity: 1, translateY: 0 }}
+                transition={{ delay: index * 50 }}
               >
+                <Pressable
+                  style={({ pressed }) => [styles.card, pressed && { opacity: 0.7 }]}
+                  onPress={() => setSelectedPost(post)}
+                >
                 {/* 게시글 헤더 */}
                 <View style={styles.cardHeader}>
                   <View style={styles.authorBadge}>
@@ -1028,6 +1063,19 @@ export default function AdminBoardManageScreen() {
                 <Text style={styles.postTitle} numberOfLines={1} selectable>
                   {safeText(post.title)}
                 </Text>
+                <View
+                  style={[
+                    styles.categoryBadge,
+                    {
+                      backgroundColor: categoryTheme.backgroundColor,
+                      borderColor: categoryTheme.borderColor,
+                    },
+                  ]}
+                >
+                  <Text style={[styles.categoryBadgeText, { color: categoryTheme.textColor }]}>
+                    {categoryName}
+                  </Text>
+                </View>
                 <LinkifiedSelectableText text={post.contentPreview} style={styles.postContent} numberOfLines={2} />
 
                 {post.attachments && post.attachments.length > 0 && (
@@ -1086,9 +1134,10 @@ export default function AdminBoardManageScreen() {
                     <Text style={[styles.actionText, { color: '#ef4444' }]}>삭제</Text>
                   </Pressable>
                 </View>
-              </Pressable>
-            </MotiView>
-          ))}
+                </Pressable>
+              </MotiView>
+            );
+          })}
         </View>
       </Animated.ScrollView>
 
@@ -1457,6 +1506,15 @@ const styles = StyleSheet.create({
   roleText: { fontSize: 11, fontWeight: '600' },
   date: { fontSize: 12, color: TEXT_MUTED, marginTop: 2 },
   postTitle: { fontSize: 17, fontWeight: '700', color: CHARCOAL, marginBottom: 6 },
+  categoryBadge: {
+    alignSelf: 'flex-start',
+    paddingHorizontal: 9,
+    paddingVertical: 4,
+    borderRadius: 999,
+    borderWidth: 1,
+    marginBottom: 8,
+  },
+  categoryBadgeText: { fontSize: 11, fontWeight: '700' },
   postContent: { fontSize: 14, color: TEXT_MUTED, lineHeight: 20 },
   divider: { height: 1, backgroundColor: BORDER, marginVertical: 12 },
   attachmentPreview: {

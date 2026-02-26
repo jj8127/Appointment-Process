@@ -29,7 +29,8 @@ import {
 } from '@tabler/icons-react';
 import { useQuery } from '@tanstack/react-query';
 import dayjs from 'dayjs';
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useSearchParams } from 'next/navigation';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useSession } from '@/hooks/use-session';
 
 import { logger } from '@/lib/logger';
@@ -39,6 +40,7 @@ const CHARCOAL = '#111827';
 const MUTED = '#6b7280';
 const ADMIN_ID = 'admin';
 const ROOM_POLL_INTERVAL_MS = 2500;
+const sanitize = (value: string | null | undefined) => String(value ?? '').replace(/[^0-9]/g, '');
 
 // --- Types ---
 type ChatPreview = {
@@ -95,6 +97,16 @@ const areMessagesEqual = (prev: Message[], next: Message[]) => {
 export default function ChatPage() {
     const [selectedFc, setSelectedFc] = useState<ChatPreview | null>(null);
     const [keyword, setKeyword] = useState('');
+    const searchParams = useSearchParams();
+
+    const deepLinkedTargetId = useMemo(
+        () => sanitize(searchParams.get('targetId')),
+        [searchParams],
+    );
+    const deepLinkedTargetName = useMemo(
+        () => (searchParams.get('targetName') ?? '').trim(),
+        [searchParams],
+    );
 
     // --- Left Panel: Chat List Fetching ---
     const { data: chatList, isLoading: isListLoading, refetch: refetchList } = useQuery({
@@ -166,6 +178,21 @@ export default function ChatPage() {
         const q = keyword.trim().toLowerCase();
         return item.name.toLowerCase().includes(q) || item.phone.includes(q);
     });
+    const deepLinkedSelection = useMemo(() => {
+        if (!chatList || chatList.length === 0 || !deepLinkedTargetId) return null;
+        const matched = chatList.find((item) => item.phone === deepLinkedTargetId);
+        if (matched) return matched;
+        if (!deepLinkedTargetName) return null;
+        return {
+            fc_id: deepLinkedTargetId,
+            name: deepLinkedTargetName,
+            phone: deepLinkedTargetId,
+            last_message: null,
+            last_time: null,
+            unread_count: 0,
+        } as ChatPreview;
+    }, [chatList, deepLinkedTargetId, deepLinkedTargetName]);
+    const activeFc = selectedFc ?? deepLinkedSelection;
 
     // --- Realtime List Updates ---
     useEffect(() => {
@@ -185,7 +212,6 @@ export default function ChatPage() {
             supabase.removeChannel(channel);
         };
     }, [refetchList]);
-
 
     return (
         <Container size="xl" py="xl" h="calc(100vh - 80px)">
@@ -219,7 +245,7 @@ export default function ChatPage() {
                                     <Box
                                         key={item.fc_id}
                                         p="md"
-                                        bg={selectedFc?.fc_id === item.fc_id ? 'orange.0' : 'transparent'}
+                                        bg={activeFc?.fc_id === item.fc_id ? 'orange.0' : 'transparent'}
                                         style={{ cursor: 'pointer', borderBottom: '1px solid #f1f3f5', transition: 'background 0.2s' }}
                                         onClick={() => setSelectedFc(item)}
                                         className="hover:bg-gray-50"
@@ -265,8 +291,8 @@ export default function ChatPage() {
 
                 {/* Right Panel */}
                 <Box flex={1} style={{ display: 'flex', flexDirection: 'column' }} bg="white">
-                    {selectedFc ? (
-                        <ChatRoom fc={selectedFc} onConversationUpdated={() => void refetchList()} />
+                    {activeFc ? (
+                        <ChatRoom fc={activeFc} onConversationUpdated={() => void refetchList()} />
                     ) : (
                         <Stack align="center" justify="center" h="100%" c="dimmed">
                             <ThemeIcon size={80} radius="xl" color="gray.2" variant="light">

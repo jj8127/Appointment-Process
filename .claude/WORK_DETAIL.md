@@ -7,6 +7,184 @@
 
 ---
 
+## <a id="20260226-4"></a> 2026-02-26 | 관리자 웹 헤더 벨 알림센터 추가 + 사이드바 알림/공지 제거(클릭 이동/확인 카운트 차감)
+
+**Commit**: `working tree`  
+**작업 내용**:
+- 사용자 요청 반영:
+  - 관리자 웹 사이드바에서 `알림/공지` 항목 제거
+  - 앱과 동일하게 헤더의 종(벨) 아이콘으로 알림 목록 확인 가능하도록 개선
+- 구현:
+  - `web/src/components/DashboardNotificationBell.tsx` 신규 생성
+    - `fc-notify`의 `inbox_list`를 사용해 알림/공지 통합 목록 조회
+    - `request_board`/`온보딩`/`공지` 출처 배지 + 카테고리 라벨 표시
+    - 항목 클릭 시 관련 페이지 라우팅:
+      - request_board 메시지/이벤트 → `/dashboard/messenger?channel=request-board`
+      - 내부 메시지/기타 타깃 URL → 웹 대시보드 경로로 정규화 후 이동
+      - 공지(board_notice 포함) → 게시판 상세(`/dashboard/board?postId=...`) 또는 공지 상세
+    - `모두 확인` 버튼 제공
+    - 확인(항목 클릭) 시 로컬 읽음 상태 저장으로 벨 카운트 즉시 감소
+  - `web/src/app/dashboard/layout.tsx`
+    - 헤더 우측 사용자 메뉴 앞에 `DashboardNotificationBell` 배치
+    - 사이드바 네비 `알림/공지` 메뉴 제거
+- 읽음 카운트 처리 방식:
+  - 서버 스키마에 개별 `is_read` 컬럼이 없어 사용자별 확인 상태는 브라우저 로컬 저장소(`dashboard-notification-seen:*`)로 관리
+  - 사용자가 항목을 확인(클릭)하면 해당 ID가 읽음으로 기록되고 벨 숫자에서 즉시 제외
+
+**핵심 파일**:
+- `web/src/components/DashboardNotificationBell.tsx`
+- `web/src/app/dashboard/layout.tsx`
+- `.claude/WORK_LOG.md`
+- `.claude/WORK_DETAIL.md`
+
+**검증**:
+- 웹 lint:
+  - `cd web && npm run lint -- src/app/dashboard/layout.tsx src/components/DashboardNotificationBell.tsx` 통과
+- 웹 빌드(TypeScript 포함):
+  - `cd web && npm run build` 통과
+- 거버넌스:
+  - `node scripts/ci/check-governance.mjs` 통과
+
+**다음 단계**:
+- 관리자 계정 실기 확인:
+  - 헤더 벨 목록 노출/새로고침/모두 확인 동작
+  - 알림 항목 클릭 시 대상 화면 이동
+  - 클릭 후 벨 카운트 감소(즉시 반영)
+
+---
+
+## <a id="20260226-3"></a> 2026-02-26 | FC 가람지사 메신저 대상 목록/총무 채팅 복구(RLS 우회 + targetId=admin 처리)
+
+**Commit**: `working tree`  
+**작업 내용**:
+- 사용자 이슈 대응:
+  - FC가 `메신저 -> 가람지사 메신저` 진입 시 본부장 버튼이 보이지 않음
+  - 총무 버튼이 보여도 채팅 진입/발송이 동작하지 않음
+- 원인 정리:
+  - 기존 FC 대상 목록 로딩이 앱 anon 클라이언트에서 `manager_accounts` 직접 조회에 의존해 RLS 환경에서 빈 목록이 반환됨
+  - `chat.tsx`에서 `targetId`를 무조건 전화번호 sanitize하여 `targetId=admin`이 빈 문자열로 변환됨
+- 조치:
+  - `supabase/functions/fc-notify/index.ts`에 `type: 'chat_targets'` 분기 추가
+    - 입력 `resident_id` 검증
+    - `fc_profiles(phone, signup_completed=true)` 확인 후 서비스 롤로 `manager_accounts(active=true)` 조회
+    - `managers: [{ name, phone }]` 응답 반환
+  - `app/chat.tsx`에서 FC 대상 목록 로딩을 신규 함수 호출로 전환
+    - 본부장 목록 + `총무` 고정 항목을 함께 렌더링하는 대상 선택 UI 유지
+  - `targetId` 정규화 보정:
+    - `targetId === 'admin'`이면 sanitize하지 않고 그대로 사용
+    - 총무 채팅 `otherId`가 빈 문자열로 떨어지는 현상 제거
+
+**핵심 파일**:
+- `app/chat.tsx`
+- `supabase/functions/fc-notify/index.ts`
+- `.claude/WORK_LOG.md`
+- `.claude/WORK_DETAIL.md`
+
+**검증**:
+- 모바일 lint:
+  - `npm run lint -- app/chat.tsx app/messenger.tsx app/admin-messenger.tsx` 통과
+- 테스트:
+  - `npm test -- --runInBand` 통과 (2 suites / 53 tests)
+- 거버넌스:
+  - `node scripts/ci/check-governance.mjs` 통과
+- 함수 배포:
+  - `supabase functions deploy fc-notify --project-ref ubeginyxaotcamuqpmud` 완료
+- 런타임 API 확인:
+  - `fc-notify` `type=chat_targets, resident_id=01064122836` 호출 성공
+  - 응답 managers에 `서선미 / 01093118127` 포함 확인
+
+**다음 단계**:
+- 실기기(Android/iOS)에서 FC 계정으로 `가람지사 메신저` 진입 시
+  - 본부장/총무 대상 목록 노출 여부
+  - 각각 선택 후 송수신/읽음 처리까지 확인
+
+---
+
+## <a id="20260226-2"></a> 2026-02-26 | 앱 게시판 관리 목록 카테고리 표시 추가(공지/교육 등)
+
+**Commit**: `working tree`  
+**작업 내용**:
+- 사용자 요청 반영:
+  - 앱의 `게시판 관리` 목록 카드에서 글의 유형(카테고리)이 보이지 않던 문제를 개선
+  - 예: `공지`, `교육`, `서류`, `일반`
+- 구현 방식:
+  - `app/admin-board-manage.tsx`에서 `fetchBoardCategories`를 함께 조회
+  - `categoryId -> categoryName` 매핑(Map) 생성
+  - 목록 카드 제목 하단에 카테고리 배지 렌더링 추가
+  - 카테고리별 색상 톤 적용:
+    - 공지: 오렌지 계열
+    - 교육: 블루 계열
+    - 서류: 그린 계열
+    - 기타: 그레이 계열
+
+**핵심 파일**:
+- `app/admin-board-manage.tsx`
+- `.claude/WORK_LOG.md`
+- `.claude/WORK_DETAIL.md`
+
+**검증**:
+- 모바일 lint:
+  - `npm run lint -- app/admin-board-manage.tsx` 통과
+
+**다음 단계**:
+- 실기기에서 게시판 관리 목록 진입 후 카테고리 배지 노출/색상 확인
+
+---
+
+## <a id="20260226-1"></a> 2026-02-26 | 관리자 웹 공지/게시판 공지 일관화(통합 목록 + 게시판 딥링크 + 삭제 경로 통합)
+
+**Commit**: `working tree`  
+**작업 내용**:
+- 배경:
+  - 모바일에서는 이미 `공지 페이지`와 `게시판 공지(slug=notice)`를 통합 소스로 처리하고 있었지만,
+    관리자 웹(`알림/공지`)은 `notices` 테이블만 조회해 게시판 공지가 분리되어 보이던 상태
+- 서버 API 통합:
+  - `web/src/app/api/admin/notices/route.ts`에서 목록 조회 시
+    - 기존 `notices` + 게시판 `board_posts(category_slug=notice)`를 병합
+    - 게시판 공지 ID를 `board_notice:{postId}` 형식으로 표준화
+    - `created_at` 기준 통합 정렬
+  - 상세 조회(`GET id`)에서도 `board_notice:*` 식별자를 처리하도록 확장
+    - 게시판 첨부(`board_attachments`)는 signed URL로 매핑
+  - 삭제(`DELETE`)도 `board_notice:*` 식별자 지원
+    - 게시글 삭제 + 스토리지(`board-attachments`) 정리 경로 포함
+  - 수정(`PATCH`)은 게시판 공지에 대해 명시적으로 차단
+    - 안내 메시지: `게시판 공지는 게시판에서 수정해주세요.`
+- 관리자 화면 동작 일관화:
+  - `web/src/app/dashboard/notifications/page.tsx`
+    - 통합 목록에서 `board_notice:*` 클릭 시 `/dashboard/board?postId=...`로 이동
+    - 편집 버튼도 게시판 공지인 경우 게시판 상세 진입으로 연결
+  - `web/src/app/dashboard/notifications/[id]/page.tsx`
+    - `board_notice:*` 접근 시 자동으로 게시판 상세로 리다이렉트
+  - `web/src/app/dashboard/notifications/[id]/edit/page.tsx`
+    - `board_notice:*` 편집 URL 접근 시 게시판으로 리다이렉트
+- 게시판 상세 딥링크 처리:
+  - `web/src/app/dashboard/board/page.tsx`
+    - `postId` 쿼리 파라미터를 읽어 게시글 상세 모달을 자동 오픈
+    - 모달 닫기 시 `postId` 쿼리를 제거해 URL/상태 동기화
+
+**핵심 파일**:
+- `web/src/app/api/admin/notices/route.ts`
+- `web/src/app/dashboard/notifications/page.tsx`
+- `web/src/app/dashboard/notifications/[id]/page.tsx`
+- `web/src/app/dashboard/notifications/[id]/edit/page.tsx`
+- `web/src/app/dashboard/board/page.tsx`
+- `.claude/WORK_LOG.md`
+- `.claude/WORK_DETAIL.md`
+
+**검증**:
+- 웹 lint:
+  - `cd web && npm run lint -- src/app/api/admin/notices/route.ts src/app/dashboard/notifications/page.tsx src/app/dashboard/notifications/[id]/page.tsx src/app/dashboard/notifications/[id]/edit/page.tsx src/app/dashboard/board/page.tsx` 통과
+- 웹 빌드(TypeScript 포함):
+  - `cd web && npm run build` 통과
+
+**다음 단계**:
+- 운영 환경에서 관리자 계정으로 실제 확인:
+  - `알림/공지` 목록에 게시판 공지와 일반 공지가 함께 노출되는지
+  - 게시판 공지 클릭 시 게시판 상세 모달로 진입하는지
+  - 게시판 공지 삭제 시 목록/게시판/첨부파일 정리가 함께 되는지
+
+---
+
 ## <a id="20260225-16"></a> 2026-02-25 | FC 삭제 완전 정리 보강(웹/엣지/fallback 경로 통합)
 
 **Commit**: `working tree`  

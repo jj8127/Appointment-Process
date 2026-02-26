@@ -5,6 +5,7 @@ type Payload =
   | { type: 'fc_update'; fc_id: string; message?: string }
   | { type: 'fc_delete'; fc_id: string; message?: string }
   | { type: 'admin_update'; fc_id: string; message?: string }
+  | { type: 'chat_targets'; resident_id?: string | null }
   | {
       type: 'inbox_list';
       role: 'admin' | 'fc';
@@ -510,6 +511,39 @@ serve(async (req: Request) => {
     console.log('[fc-notify] payload', body);
   } catch {
     return err('Invalid JSON', 400);
+  }
+
+  if (body.type === 'chat_targets') {
+    const residentId = sanitize(body.resident_id);
+    if (!residentId) {
+      return err('resident_id is required', 400);
+    }
+
+    const { data: fcProfile, error: fcProfileErr } = await supabase
+      .from('fc_profiles')
+      .select('id')
+      .eq('phone', residentId)
+      .eq('signup_completed', true)
+      .maybeSingle();
+    if (fcProfileErr) return err(fcProfileErr.message, 500);
+    if (!fcProfile?.id) return err('FC profile not found', 403);
+
+    const { data: managers, error: managerErr } = await supabase
+      .from('manager_accounts')
+      .select('name,phone')
+      .eq('active', true)
+      .order('name');
+    if (managerErr) return err(managerErr.message, 500);
+
+    return ok({
+      ok: true,
+      managers: (managers ?? [])
+        .map((manager) => ({
+          name: typeof manager.name === 'string' ? manager.name : '',
+          phone: sanitize(manager.phone),
+        }))
+        .filter((manager) => manager.phone.length > 0),
+    });
   }
 
   // 알림센터 목록 조회 (RLS 우회)

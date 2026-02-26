@@ -1,10 +1,10 @@
 'use client';
 
 import { useSession } from '@/hooks/use-session';
+import { DashboardNotificationBell } from '@/components/DashboardNotificationBell';
 import { AppShell, Avatar, Burger, Group, Menu, NavLink, Text, UnstyledButton, useMantineTheme } from '@mantine/core';
 import { useDisclosure, useMediaQuery } from '@mantine/hooks';
 import {
-  IconBell,
   IconCalendarEvent,
   IconFileText,
   IconHome,
@@ -31,7 +31,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   const collapseTimerRef = useRef<number | null>(null);
   const router = useRouter();
   const pathname = usePathname();
-  const { role, logout, hydrated, displayName, residentMask } = useSession();
+  const { role, logout, hydrated, displayName, residentMask, residentId } = useSession();
 
   const userInitial = displayName?.trim()?.[0] ?? (role === 'admin' ? '총' : 'F');
   const roleLabel = role === 'admin' ? '관리자' : 'FC';
@@ -42,9 +42,8 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
       { label: '홈', icon: IconHome, href: '/dashboard' },
       { label: '문서 관리', icon: IconFileText, href: '/dashboard/docs' },
       { label: '위촉 진행', icon: IconLink, href: '/dashboard/appointment' },
-      { label: '알림/공지', icon: IconBell, href: '/dashboard/notifications' },
       { label: '게시판', icon: IconNews, href: '/dashboard/board' },
-      { label: '메신저 (채팅)', icon: IconMessage, href: '/dashboard/chat' },
+      { label: '메신저', icon: IconMessage, href: '/dashboard/messenger' },
       { label: '시험 일정', icon: IconCalendarEvent, href: '/dashboard/exam/schedule' },
       { label: '시험 신청자', icon: IconUsers, href: '/dashboard/exam/applicants' },
     ],
@@ -107,40 +106,44 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
             </Text>
           </Group>
 
-          <Menu shadow="md" width={220} position="bottom-end">
-            <Menu.Target>
-              <UnstyledButton>
-                <Group gap="sm" wrap="nowrap">
-                  <Avatar color="orange" radius="xl" size="sm">
-                    {userInitial}
-                  </Avatar>
-                  <div>
-                    <Text size="sm" fw={600} c="dark">
-                      {displayName?.trim() || roleLabel}
-                    </Text>
-                    <Text size="xs" c="dimmed">
-                      {subLabel}
-                    </Text>
-                  </div>
-                </Group>
-              </UnstyledButton>
-            </Menu.Target>
-            <Menu.Dropdown>
-              <Menu.Item
-                leftSection={<IconSettings size={16} stroke={1.6} />}
-                onClick={() => router.push('/dashboard/settings')}
-              >
-                설정
-              </Menu.Item>
-              <Menu.Item
-                color="red"
-                leftSection={<IconLogout size={16} stroke={1.6} />}
-                onClick={logout}
-              >
-                로그아웃
-              </Menu.Item>
-            </Menu.Dropdown>
-          </Menu>
+          <Group gap="sm" wrap="nowrap">
+            <DashboardNotificationBell role={role} residentId={residentId} />
+
+            <Menu shadow="md" width={220} position="bottom-end">
+              <Menu.Target>
+                <UnstyledButton>
+                  <Group gap="sm" wrap="nowrap">
+                    <Avatar color="orange" radius="xl" size="sm">
+                      {userInitial}
+                    </Avatar>
+                    <div>
+                      <Text size="sm" fw={600} c="dark">
+                        {displayName?.trim() || roleLabel}
+                      </Text>
+                      <Text size="xs" c="dimmed">
+                        {subLabel}
+                      </Text>
+                    </div>
+                  </Group>
+                </UnstyledButton>
+              </Menu.Target>
+              <Menu.Dropdown>
+                <Menu.Item
+                  leftSection={<IconSettings size={16} stroke={1.6} />}
+                  onClick={() => router.push('/dashboard/settings')}
+                >
+                  설정
+                </Menu.Item>
+                <Menu.Item
+                  color="red"
+                  leftSection={<IconLogout size={16} stroke={1.6} />}
+                  onClick={logout}
+                >
+                  로그아웃
+                </Menu.Item>
+              </Menu.Dropdown>
+            </Menu>
+          </Group>
         </Group>
       </AppShell.Header>
 
@@ -152,7 +155,9 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
       >
         <AppShell.Section grow>
           {navItems.map((item) => {
-            const active = pathname === item.href;
+            const active = item.href === '/dashboard/messenger'
+              ? pathname === '/dashboard/messenger' || pathname === '/dashboard/chat'
+              : pathname === item.href;
             const Icon = item.icon;
             return (
               <NavLink

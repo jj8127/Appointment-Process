@@ -299,6 +299,7 @@ export default function RootLayout() {
                           <Stack.Screen name="docs-upload" options={{ ...baseHeader, title: '필수 서류 업로드' }} />
                           <Stack.Screen name="exam-apply" options={{ ...baseHeader, title: '생명/제3보험 시험 신청' }} />
                           <Stack.Screen name="exam-apply2" options={{ ...baseHeader, title: '손해보험 시험 신청' }} />
+                          <Stack.Screen name="messenger" options={{ ...baseHeader, title: '메신저' }} />
                           <Stack.Screen name="chat" options={{ ...baseHeader, title: '1:1 문의' }} />
                           <Stack.Screen name="settings" options={{ ...baseHeader, title: '설정' }} />
 
@@ -408,6 +409,7 @@ export default function RootLayout() {
                           <Stack.Screen name="docs-upload" options={{ ...baseHeader, title: '필수 서류 업로드' }} />
                           <Stack.Screen name="exam-apply" options={{ ...baseHeader, title: '생명/제3보험 시험 신청' }} />
                           <Stack.Screen name="exam-apply2" options={{ ...baseHeader, title: '손해보험 시험 신청' }} />
+                          <Stack.Screen name="messenger" options={{ ...baseHeader, title: '메신저' }} />
                           <Stack.Screen name="chat" options={{ ...baseHeader, title: '1:1 문의' }} />
                           <Stack.Screen name="settings" options={{ ...baseHeader, title: '설정' }} />
 

@@ -31,6 +31,8 @@ import { updateNoticeAction } from '../../actions';
 
 import { logger } from '@/lib/logger';
 
+const BOARD_NOTICE_ID_PREFIX = 'board_notice:';
+
 const schema = z.object({
     category: z.string().min(1, '카테고리를 입력해주세요'),
     title: z.string().min(1, '제목을 입력해주세요'),
@@ -59,6 +61,12 @@ type NoticeResponse = {
     error?: string;
 };
 
+const extractBoardPostId = (noticeId: string): string | null => {
+    if (!noticeId.startsWith(BOARD_NOTICE_ID_PREFIX)) return null;
+    const postId = noticeId.slice(BOARD_NOTICE_ID_PREFIX.length).trim();
+    return postId.length > 0 ? postId : null;
+};
+
 function createNoticeAttachmentPath(originalName: string) {
     const fileExt = originalName.split('.').pop() || 'bin';
     const suffix =
@@ -79,6 +87,7 @@ export default function EditNoticePage() {
     const router = useRouter();
     const params = useParams<{ id: string }>();
     const id = String(params?.id ?? '').trim();
+    const boardPostId = extractBoardPostId(id);
 
     const [isPending, startTransition] = useTransition();
     const [isFetching, setIsFetching] = useState(true);
@@ -107,6 +116,10 @@ export default function EditNoticePage() {
 
     // Load existing notice
     useEffect(() => {
+        if (boardPostId) {
+            router.replace(`/dashboard/board?postId=${encodeURIComponent(boardPostId)}`);
+            return;
+        }
         if (!id) return;
         fetch(`/api/admin/notices?id=${encodeURIComponent(id)}`, { credentials: 'include' })
             .then((res) => res.json() as Promise<NoticeResponse>)
@@ -120,7 +133,15 @@ export default function EditNoticePage() {
             .catch((err: Error) => setFetchError(err.message))
             .finally(() => setIsFetching(false));
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [id]);
+    }, [boardPostId, id, router]);
+
+    if (boardPostId) {
+        return (
+            <Container size="sm" py={rem(60)}>
+                <Text c="dimmed">게시판으로 이동 중입니다...</Text>
+            </Container>
+        );
+    }
 
     const uploadToSupabase = async (file: File) => {
         const filePath = createNoticeAttachmentPath(file.name);

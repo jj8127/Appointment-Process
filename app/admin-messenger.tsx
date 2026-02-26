@@ -17,8 +17,6 @@ import { FormInput } from '@/components/FormInput';
 import { RefreshButton } from '@/components/RefreshButton';
 import { useSession } from '@/hooks/use-session';
 import {
-  isSameManagerName,
-  parseAffiliationManagerInfo,
   sanitizePhone,
 } from '@/lib/messenger-participants';
 import { supabase } from '@/lib/supabase';
@@ -46,17 +44,6 @@ export default function AdminMessengerScreen() {
   const myChatId = isManagerSession ? sanitizePhone(residentId) : 'admin';
 
   const fetchChatList = async () => {
-    let managerName = '';
-    if (isManagerSession) {
-      const { data: managerAccount, error: managerError } = await supabase
-        .from('manager_accounts')
-        .select('name')
-        .eq('phone', myChatId)
-        .maybeSingle();
-      if (managerError) throw managerError;
-      managerName = (managerAccount?.name ?? '').trim();
-    }
-
     const { data: fcs, error: fcError } = await supabase
       .from('fc_profiles')
       .select('id,name,phone,affiliation')
@@ -64,14 +51,7 @@ export default function AdminMessengerScreen() {
       .order('name');
     if (fcError) throw fcError;
 
-    const scopedFcs = isManagerSession
-      ? (fcs ?? []).filter((fc) => {
-        if (!managerName) return false;
-        const parsed = parseAffiliationManagerInfo(fc.affiliation);
-        if (!parsed?.managerName) return false;
-        return isSameManagerName(parsed.managerName, managerName);
-      })
-      : (fcs ?? []);
+    const scopedFcs = fcs ?? [];
 
     const previews: ChatPreview[] = [];
 

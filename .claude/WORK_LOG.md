@@ -20,6 +20,10 @@
 ## 최근 작업
 | 날짜 | 작업 | 핵심 파일 | 상세 |
 |------|------|----------|------|
+| 02-26 | 관리자 웹 헤더 벨 알림센터 추가 + 사이드바 알림/공지 제거(클릭 이동/확인 카운트 차감) | `web/src/components/DashboardNotificationBell.tsx`, `web/src/app/dashboard/layout.tsx`, `.claude/WORK_LOG.md`, `.claude/WORK_DETAIL.md` | [→ 상세](WORK_DETAIL.md#20260226-4) |
+| 02-26 | FC 가람지사 메신저 대상 목록/총무 채팅 복구(RLS 우회 + targetId=admin 처리) | `app/chat.tsx`, `supabase/functions/fc-notify/index.ts`, `.claude/WORK_LOG.md`, `.claude/WORK_DETAIL.md` | [→ 상세](WORK_DETAIL.md#20260226-3) |
+| 02-26 | 앱 게시판 관리 목록 카테고리 표시 추가(공지/교육 등) | `app/admin-board-manage.tsx`, `.claude/WORK_LOG.md`, `.claude/WORK_DETAIL.md` | [→ 상세](WORK_DETAIL.md#20260226-2) |
+| 02-26 | 관리자 웹 공지/게시판 공지 일관화(통합 목록 + 게시판 딥링크 + 삭제 경로 통합) | `web/src/app/api/admin/notices/route.ts`, `web/src/app/dashboard/notifications/page.tsx`, `web/src/app/dashboard/notifications/[id]/page.tsx`, `web/src/app/dashboard/notifications/[id]/edit/page.tsx`, `web/src/app/dashboard/board/page.tsx`, `.claude/WORK_LOG.md`, `.claude/WORK_DETAIL.md` | [→ 상세](WORK_DETAIL.md#20260226-1) |
 | 02-25 | FC 삭제 완전 정리 보강(웹/엣지/fallback 경로 통합) | `web/src/app/api/fc-delete/route.ts`, `supabase/functions/delete-account/index.ts`, `supabase/functions/admin-action/index.ts`, `web/src/app/dashboard/settings/page.tsx`, `.claude/WORK_LOG.md`, `.claude/WORK_DETAIL.md` | [→ 상세](WORK_DETAIL.md#20260225-16) |
 | 02-25 | 웹 빌드 타입 오류 핫픽스(`calcStep` 불필요 분기 제거) | `web/src/lib/shared.ts`, `.claude/WORK_LOG.md`, `.claude/WORK_DETAIL.md` | [→ 상세](WORK_DETAIL.md#20260225-15) |
 | 02-25 | FC 위촉 2트랙(생명/손해) 완료 상태 분기 도입 + 홈/총무 Step 정렬 | `app/signup.tsx`, `app/index.tsx`, `supabase/functions/set-password/index.ts`, `web/src/lib/shared.ts`, `web/src/app/dashboard/page.tsx`, `supabase/schema.sql` | [→ 상세](WORK_DETAIL.md#20260225-14) |

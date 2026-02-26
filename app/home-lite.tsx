@@ -15,10 +15,11 @@ type LockedItem = {
 };
 
 const LOCKED_ITEMS: LockedItem[] = [
-  { label: '임시사번 발급 요청', hint: '신원 정보 입력 후 진행' },
-  { label: '수당 동의', hint: '위촉 절차 시작 후 이용 가능' },
-  { label: '서류 업로드', hint: '위촉 절차 시작 후 이용 가능' },
-  { label: '시험 신청', hint: '위촉 절차 시작 후 이용 가능' },
+  { label: '임시사번 발급 요청', hint: '주민번호/주소 입력 후 이용 가능' },
+  { label: '수당 동의', hint: '주민번호/주소 입력 후 이용 가능' },
+  { label: '서류 업로드', hint: '주민번호/주소 입력 후 이용 가능' },
+  { label: '시험 신청', hint: '주민번호/주소 입력 후 이용 가능' },
+  { label: '설계 요청', hint: '주민번호/주소 입력 후 이용 가능' },
 ];
 
 export default function HomeLiteScreen() {
@@ -64,7 +65,7 @@ export default function HomeLiteScreen() {
   return (
     <SafeAreaView style={styles.safe} edges={['left', 'right', 'bottom']}>
       <View style={styles.topBar}>
-        <Text style={styles.topTitle}>FC 홈</Text>
+        <Text style={styles.topTitle}>임시 홈</Text>
         <View style={styles.topActions}>
           <Pressable style={styles.iconButton} onPress={() => router.push('/settings')}>
             <Feather name="settings" size={18} color={COLORS.text.primary} />
@@ -85,44 +86,44 @@ export default function HomeLiteScreen() {
             {displayName?.trim() ? `${displayName}님, 반갑습니다!` : '환영합니다!'}
           </Text>
           <Text style={styles.heroText}>
-            위촉 절차 진행을 위해 추가 정보 입력이 필요합니다(주민번호/주소).
+            앱의 모든 기능을 사용하기 위해서는 추가 정보 입력이 필요합니다. 먼저 주민번호와 주소를 입력해 주세요.
           </Text>
           <Pressable
             style={styles.primaryButton}
             onPress={() => router.push('/apply-gate')}
             testID="home-lite-apply-start"
-            accessibilityLabel="등록 신청 시작"
+            accessibilityLabel="필수 정보 입력 시작"
           >
-            <Text style={styles.primaryButtonText}>등록 신청 시작</Text>
+            <Text style={styles.primaryButtonText}>필수 정보 입력 시작</Text>
           </Pressable>
         </View>
 
         <View style={styles.section}>
-          <Text style={styles.sectionTitle}>바로가기</Text>
+          <Text style={styles.sectionTitle}>지금 가능한 메뉴</Text>
           <View style={styles.linkGrid}>
-            <Pressable style={styles.linkCard} onPress={() => router.push('/chat')}>
+            <Pressable style={styles.linkCard} onPress={() => router.push('/messenger')}>
               <View style={styles.linkIcon}>
                 <Feather name="message-circle" size={18} color={COLORS.primary} />
               </View>
-              <Text style={styles.linkTitle}>1:1 문의</Text>
-              <Text style={styles.linkText}>소속 본부장에게 문의하세요.</Text>
+              <Text style={styles.linkTitle}>메신저</Text>
+              <Text style={styles.linkText}>가람지사/설계요청 대화를 한 곳에서 선택합니다.</Text>
             </Pressable>
             <Pressable style={styles.linkCard} onPress={() => router.push('/notice')}>
               <View style={styles.linkIcon}>
                 <Feather name="clipboard" size={18} color={COLORS.primary} />
               </View>
-              <Text style={styles.linkTitle}>공지/안내</Text>
-              <Text style={styles.linkText}>공지와 안내를 확인하세요.</Text>
+              <Text style={styles.linkTitle}>공지사항</Text>
+              <Text style={styles.linkText}>업무 공지와 운영 안내를 확인하세요.</Text>
             </Pressable>
           </View>
         </View>
 
         <View style={styles.section}>
-          <Text style={styles.sectionTitle}>위촉 절차</Text>
+          <Text style={styles.sectionTitle}>업무 준비 상태</Text>
           <View style={styles.lockedNotice}>
             <Feather name="lock" size={16} color={COLORS.primary} />
             <Text style={styles.lockedNoticeText}>
-              위촉 절차는 신원 정보 입력 이후에 사용할 수 있습니다.
+              핵심 업무 기능은 주민번호/주소 입력 후 사용할 수 있습니다.
             </Text>
           </View>
           <View style={styles.lockedList}>

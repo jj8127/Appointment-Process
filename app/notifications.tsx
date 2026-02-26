@@ -540,7 +540,10 @@ export default function NotificationsScreen() {
     }
 
     if (trimmed.startsWith('/dashboard/notifications')) return '/notice';
-    if (trimmed.startsWith('/dashboard/chat')) return '/admin-messenger';
+    if (trimmed.startsWith('/dashboard/chat')) return '/messenger?channel=garam';
+    if (trimmed === '/admin-messenger') return '/messenger?channel=garam';
+    if (trimmed === '/chat') return '/messenger?channel=garam';
+    if (trimmed === '/request-board-messenger') return '/messenger?channel=request-board';
     if (trimmed.startsWith('/board?')) return trimmed.replace('/board?', '/board-detail?');
     if (trimmed.startsWith('/exam/apply2')) return '/exam-apply2';
     if (trimmed.startsWith('/exam/apply')) return '/exam-apply';
@@ -575,7 +578,11 @@ export default function NotificationsScreen() {
     }
 
     if (item.origin === 'request_board') {
-      return null;
+      const category = (item.category ?? '').trim().toLowerCase();
+      if (category === 'request_board_message') {
+        return '/messenger?channel=request-board';
+      }
+      return '/request-board';
     }
 
     if (item.targetUrl) {
@@ -587,7 +594,7 @@ export default function NotificationsScreen() {
     const lowerBody = item.body?.toLowerCase?.() ?? '';
 
     if (category.includes('message') || lowerTitle.includes('메시지') || lowerBody.includes('메시지')) {
-      return role === 'admin' ? '/admin-messenger' : '/chat';
+      return '/messenger?channel=garam';
     }
     if (category.startsWith('board_') || lowerTitle.includes('게시판') || lowerBody.includes('게시판')) {
       return '/board';

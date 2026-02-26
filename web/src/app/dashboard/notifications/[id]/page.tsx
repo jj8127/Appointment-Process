@@ -21,8 +21,11 @@ import { IconArrowLeft, IconEdit, IconPaperclip, IconTrash } from '@tabler/icons
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import dayjs from 'dayjs';
 import { useParams, useRouter } from 'next/navigation';
+import { useEffect } from 'react';
 
 import { useSession } from '@/hooks/use-session';
+
+const BOARD_NOTICE_ID_PREFIX = 'board_notice:';
 
 type NoticeFile = {
   name?: string;
@@ -47,6 +50,12 @@ type NoticeResponse = {
   error?: string;
 };
 
+const extractBoardPostId = (noticeId: string): string | null => {
+  if (!noticeId.startsWith(BOARD_NOTICE_ID_PREFIX)) return null;
+  const postId = noticeId.slice(BOARD_NOTICE_ID_PREFIX.length).trim();
+  return postId.length > 0 ? postId : null;
+};
+
 async function fetchNotice(id: string): Promise<NoticeItem> {
   const res = await fetch(`/api/admin/notices?id=${encodeURIComponent(id)}`, {
     method: 'GET',
@@ -66,14 +75,20 @@ export default function NotificationDetailPage() {
   const queryClient = useQueryClient();
   const params = useParams<{ id: string }>();
   const id = String(params?.id ?? '').trim();
+  const boardPostId = extractBoardPostId(id);
 
   const { role, residentId } = useSession();
   const [confirmOpened, { open: openConfirm, close: closeConfirm }] = useDisclosure(false);
 
+  useEffect(() => {
+    if (!boardPostId) return;
+    router.replace(`/dashboard/board?postId=${encodeURIComponent(boardPostId)}`);
+  }, [boardPostId, router]);
+
   const { data, isLoading, isError, error } = useQuery({
     queryKey: ['notice-detail', id],
     queryFn: () => fetchNotice(id),
-    enabled: Boolean(id),
+    enabled: Boolean(id) && !boardPostId,
   });
 
   const canManage =
@@ -100,6 +115,16 @@ export default function NotificationDetailPage() {
       notifications.show({ title: '삭제 실패', message: err.message, color: 'red' });
     },
   });
+
+  if (boardPostId) {
+    return (
+      <Container size="md" py="xl">
+        <Group justify="center" py="xl">
+          <Loader color="orange" />
+        </Group>
+      </Container>
+    );
+  }
 
   return (
     <Container size="md" py="xl">
