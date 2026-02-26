@@ -1,0 +1,62 @@
+{
+  "generatedAt": "2026-02-26T07:04:43.596Z",
+  "scope": [
+    "RB-08",
+    "P0-02(partial-api)"
+  ],
+  "managerPhoneSuffix": "3560",
+  "steps": {
+    "managerAccountUpsert": {
+      "ok": true,
+      "at": "2026-02-26T07:04:44.249Z"
+    },
+    "managerLogin": {
+      "status": 200,
+      "role": "manager",
+      "at": "2026-02-26T07:04:47.212Z"
+    },
+    "requestBoardLogin": {
+      "status": 200,
+      "role": "fc",
+      "at": "2026-02-26T07:04:47.813Z"
+    },
+    "fcCodesCompanyNames": {
+      "status": 200,
+      "count": 28,
+      "at": "2026-02-26T07:04:48.415Z"
+    },
+    "fcCodesCreate": {
+      "status": 201,
+      "codeId": 452,
+      "company": "ABL생명",
+      "at": "2026-02-26T07:04:49.852Z"
+    },
+    "fcCodesPatch": {
+      "status": 200,
+      "at": "2026-02-26T07:04:50.671Z"
+    },
+    "fcCodesListAfterPatch": {
+      "status": 200,
+      "rowCount": 1,
+      "at": "2026-02-26T07:04:51.286Z"
+    },
+    "fcCodesDelete": {
+      "status": 200,
+      "at": "2026-02-26T07:04:52.076Z"
+    },
+    "fcCodesListAfterDelete": {
+      "status": 200,
+      "rowCount": 0,
+      "at": "2026-02-26T07:04:52.590Z"
+    },
+    "managerAdminActionUnauthorized": {
+      "status": 403,
+      "message": "Unauthorized: not an admin",
+      "at": "2026-02-26T07:04:53.180Z"
+    }
+  },
+  "cleanup": {
+    "keepData": false,
+    "at": "2026-02-26T07:04:53.376Z"
+  }
+}

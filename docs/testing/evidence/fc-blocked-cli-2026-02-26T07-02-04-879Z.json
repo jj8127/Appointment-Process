@@ -1,0 +1,74 @@
+{
+  "generatedAt": "2026-02-26T07:01:29.714Z",
+  "environment": {
+    "supabaseProject": "ubeginyxaotcamuqpmud.supabase.co",
+    "requestBoardBaseUrl": "https://requestboard-steel.vercel.app"
+  },
+  "scope": [
+    "ONB-01",
+    "P0-11",
+    "P0-12",
+    "P0-13"
+  ],
+  "commissionRuns": [
+    {
+      "scenario": "none",
+      "phoneSuffix": "9715",
+      "setPasswordStatus": 200,
+      "fcLoginStatus": 200,
+      "rbLoginStatus": 200,
+      "expectedStatus": "draft",
+      "verifiedAt": "2026-02-26T07:01:36.162Z"
+    },
+    {
+      "scenario": "life_only",
+      "phoneSuffix": "9716",
+      "setPasswordStatus": 200,
+      "fcLoginStatus": 200,
+      "rbLoginStatus": 200,
+      "expectedStatus": "draft",
+      "verifiedAt": "2026-02-26T07:01:41.562Z"
+    },
+    {
+      "scenario": "nonlife_only",
+      "phoneSuffix": "9717",
+      "setPasswordStatus": 200,
+      "fcLoginStatus": 200,
+      "rbLoginStatus": 200,
+      "expectedStatus": "draft",
+      "verifiedAt": "2026-02-26T07:01:46.237Z"
+    },
+    {
+      "scenario": "both",
+      "phoneSuffix": "9718",
+      "setPasswordStatus": 200,
+      "fcLoginStatus": 200,
+      "rbLoginStatus": 200,
+      "expectedStatus": "final-link-sent",
+      "verifiedAt": "2026-02-26T07:01:50.991Z"
+    }
+  ],
+  "resetSyncRun": {
+    "phoneSuffix": "9715",
+    "resetStatus": 200,
+    "fcLoginStatus": 200,
+    "rbLoginStatus": 200,
+    "verifiedAt": "2026-02-26T07:01:59.455Z"
+  },
+  "syncRecoveryRun": {
+    "phoneSuffix": "9715",
+    "desyncSyncStatus": 200,
+    "rbDesyncLoginStatus": 200,
+    "rbOldPasswordFailureStatus": 401,
+    "fcResyncLoginStatus": 200,
+    "rbRecoveredLoginStatus": 200,
+    "rbDesyncAfterRecoveryFailureStatus": 401,
+    "verifiedAt": "2026-02-26T07:02:04.570Z"
+  },
+  "cleanup": {
+    "keepData": false,
+    "fcDeletedCount": 4,
+    "rbDeletedCount": 4,
+    "executedAt": "2026-02-26T07:02:04.879Z"
+  }
+}

@@ -79,7 +79,11 @@ async function hashPassword(password: string, saltBytes: Uint8Array) {
   return toBase64(new Uint8Array(bits));
 }
 
-async function syncRequestBoardPassword(phone: string, password: string) {
+async function syncRequestBoardPassword(
+  phone: string,
+  password: string,
+  options?: { role?: 'fc' | 'designer'; name?: string | null; companyName?: string | null },
+) {
   if (!requestBoardPasswordSyncUrl || !requestBoardPasswordSyncToken) return;
 
   const controller = new AbortController();
@@ -91,7 +95,13 @@ async function syncRequestBoardPassword(phone: string, password: string) {
         'Content-Type': 'application/json',
         'x-request-bridge-token': requestBoardPasswordSyncToken,
       },
-      body: JSON.stringify({ phone, password }),
+      body: JSON.stringify({
+        phone,
+        password,
+        role: options?.role ?? 'fc',
+        name: options?.name ?? undefined,
+        companyName: options?.companyName ?? undefined,
+      }),
       signal: controller.signal,
     });
 
@@ -177,7 +187,11 @@ serve(async (req: Request) => {
     return json({ ok: false, code: 'db_error', message: error.message }, 500);
   }
 
-  await syncRequestBoardPassword(phone, password);
+  await syncRequestBoardPassword(phone, password, {
+    role: 'designer',
+    name,
+    companyName: '가람in',
+  });
 
   return json({ ok: true, phone, name, active });
 });

@@ -124,12 +124,14 @@ const createFilterOptions = (role: string | null): FilterOption[] => {
 type FilterKey = 'all' | StepKey;
 
 const calcStep = (profile: FcRow) => {
-  const hasBasicInfo =
-    Boolean(profile.name && profile.affiliation && profile.resident_id_masked) &&
-    Boolean(profile.email || profile.address);
-  if (!hasBasicInfo) return 1;
+  const lifeCompleted = Boolean(profile.life_commission_completed || profile.appointment_date_life);
+  const nonlifeCompleted = Boolean(profile.nonlife_commission_completed || profile.appointment_date_nonlife);
+  const bothCompleted = lifeCompleted && nonlifeCompleted;
+  if (profile.status === 'final-link-sent' || bothCompleted) return 5;
 
-  // [1단계 우선] 수당 동의 완료 여부
+  const hasIdentity = Boolean(profile.identity_completed || profile.resident_id_masked || profile.address);
+  if (!hasIdentity) return 1;
+
   const allowancePassedStatuses: FcProfile['status'][] = [
     'allowance-consented',
     'docs-requested',
@@ -140,26 +142,17 @@ const calcStep = (profile: FcRow) => {
     'appointment-completed',
     'final-link-sent',
   ];
-  if (!allowancePassedStatuses.includes(profile.status)) {
-    return 2; // 수당동의 단계
-  }
+  const allowancePassedByStatus = allowancePassedStatuses.includes(profile.status);
+  const allowancePassedByDate = Boolean(profile.allowance_date) && profile.status !== 'allowance-pending';
+  if (!allowancePassedByStatus && !allowancePassedByDate) return 2;
 
-  // [2단계 우선] 서류 승인 여부 (요청된 모든 서류 제출 + 승인 필요)
   const docs = (profile.fc_documents ?? []) as FCDocument[];
   const allSubmitted =
     docs.length > 0 && docs.every((d) => d.storage_path && d.storage_path !== 'deleted');
   const allApproved = allSubmitted && docs.every((d) => d.status === 'approved');
-  if (!allApproved) {
-    return 3; // 서류 단계
-  }
+  if (!allApproved) return 3;
 
-  // [3단계 우선] 위촉 최종 완료 여부
-  if (profile.status !== 'final-link-sent') {
-    return 4; // 위촉 진행 단계 (총무 승인 필요)
-  }
-
-  // 완료
-  return 5;
+  return 4;
 };
 
 const normalizeDateInput = (value?: string | null) => {
@@ -212,6 +205,7 @@ type FcRow = {
   appointment_date: string | null;
   docs_deadline_at?: string | null;
   resident_id_masked: string | null;
+  identity_completed?: boolean | null;
   career_type: string | null;
   email: string | null;
   address: string | null;
@@ -224,6 +218,8 @@ type FcRow = {
   appointment_date_nonlife_sub?: string | null;
   appointment_reject_reason_life?: string | null;
   appointment_reject_reason_nonlife?: string | null;
+  life_commission_completed?: boolean | null;
+  nonlife_commission_completed?: boolean | null;
   fc_documents?: { doc_type: string; storage_path: string | null; file_name: string | null; status: string | null }[];
 };
 type FcRowWithStep = FcRow & { stepKey: StepKey };
@@ -298,7 +294,7 @@ const fetchFcs = async (
   let query = supabase
     .from('fc_profiles')
       .select(
-        'id,name,affiliation,phone,temp_id,status,allowance_date,appointment_url,appointment_date,docs_deadline_at,appointment_schedule_life,appointment_schedule_nonlife,appointment_date_life,appointment_date_nonlife,appointment_date_life_sub,appointment_date_nonlife_sub,appointment_reject_reason_life,appointment_reject_reason_nonlife,resident_id_masked,career_type,email,address,address_detail,fc_documents(doc_type,storage_path,file_name,status)',
+        'id,name,affiliation,phone,temp_id,status,allowance_date,appointment_url,appointment_date,docs_deadline_at,appointment_schedule_life,appointment_schedule_nonlife,appointment_date_life,appointment_date_nonlife,appointment_date_life_sub,appointment_date_nonlife_sub,appointment_reject_reason_life,appointment_reject_reason_nonlife,resident_id_masked,identity_completed,career_type,email,address,address_detail,life_commission_completed,nonlife_commission_completed,fc_documents(doc_type,storage_path,file_name,status)',
       )
     .order('created_at', { ascending: false });
 

@@ -22,6 +22,7 @@ import { CardSkeleton } from '@/components/LoadingSkeleton';
 import { RefreshButton } from '@/components/RefreshButton';
 import { useBottomNavAnimation } from '@/hooks/use-bottom-nav-animation';
 import { useSession } from '@/hooks/use-session';
+import { resolveBottomNavActiveKey, resolveBottomNavPreset } from '@/lib/bottom-navigation';
 import { supabase } from '@/lib/supabase';
 import { COLORS, TYPOGRAPHY, SPACING, RADIUS } from '@/lib/theme';
 
@@ -94,9 +95,14 @@ const fetchNotices = async (role: 'admin' | 'fc' | null, residentId: string): Pr
 };
 
 export default function NoticeScreen() {
-  const { role, residentId, hydrated, isRequestBoardDesigner } = useSession();
+  const { role, residentId, hydrated, isRequestBoardDesigner, readOnly } = useSession();
   const insets = useSafeAreaInsets();
   const { scrollHandler, animatedStyle } = useBottomNavAnimation();
+  const navPreset = resolveBottomNavPreset({ role, readOnly, hydrated, isRequestBoardDesigner });
+  const navActiveKey = resolveBottomNavActiveKey(
+    navPreset,
+    isRequestBoardDesigner ? 'request-board' : 'board',
+  );
 
   useEffect(() => {
     if (role === 'admin' && isRequestBoardDesigner) {
@@ -295,8 +301,8 @@ export default function NoticeScreen() {
       </Animated.ScrollView>
 
       <BottomNavigation
-        preset={isRequestBoardDesigner ? 'request-board-designer' : role === 'admin' ? 'admin-onboarding' : 'fc'}
-        activeKey={isRequestBoardDesigner ? 'request-board' : 'board'}
+        preset={navPreset ?? undefined}
+        activeKey={navActiveKey}
         animatedStyle={animatedStyle}
         bottomInset={insets.bottom}
       />

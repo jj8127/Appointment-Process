@@ -24,8 +24,10 @@ import Animated, { runOnUI, scrollTo as reanimatedScrollTo, useAnimatedRef, useA
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { TourGuideZone, useTourGuideController } from 'rn-tourguide';
 
+import { BottomNavigation } from '@/components/BottomNavigation';
 import { Skeleton } from '@/components/LoadingSkeleton';
 import { RefreshButton } from '@/components/RefreshButton';
+import { resolveBottomNavActiveKey, resolveBottomNavPreset } from '@/lib/bottom-navigation';
 import { useIdentityStatus } from '@/hooks/use-identity-status';
 import { useSession } from '@/hooks/use-session';
 import { useInAppUpdate } from '@/hooks/useInAppUpdate';
@@ -243,7 +245,7 @@ const fetchFcStatus = async (residentId: string) => {
   const { data, error } = await supabase
     .from('fc_profiles')
     .select(
-      'id,name,affiliation,phone,status,temp_id,allowance_date,appointment_url,appointment_date,appointment_schedule_life,appointment_schedule_nonlife,appointment_date_life,appointment_date_nonlife,appointment_date_life_sub,appointment_date_nonlife_sub,life_commission_completed,nonlife_commission_completed,resident_id_masked,email,address,is_tour_seen,signup_completed,fc_documents(doc_type,storage_path,status)',
+      'id,name,affiliation,phone,status,temp_id,allowance_date,appointment_url,appointment_date,appointment_schedule_life,appointment_schedule_nonlife,appointment_date_life,appointment_date_nonlife,appointment_date_life_sub,appointment_date_nonlife_sub,life_commission_completed,nonlife_commission_completed,resident_id_masked,email,address,identity_completed,is_tour_seen,signup_completed,fc_documents(doc_type,storage_path,status)',
     )
     .eq('phone', residentId)
     .maybeSingle();
@@ -269,6 +271,7 @@ const fetchFcStatus = async (residentId: string) => {
     phone: null,
     email: null,
     address: null,
+    identity_completed: false,
     is_tour_seen: false,
     fc_documents: [],
   };
@@ -333,44 +336,44 @@ function calcStep(myFc: any) {
 
   const lifeCompleted = Boolean(myFc.life_commission_completed || myFc.appointment_date_life);
   const nonlifeCompleted = Boolean(myFc.nonlife_commission_completed || myFc.appointment_date_nonlife);
+  const bothCompleted = lifeCompleted && nonlifeCompleted;
 
-  // 최종 완료/부분 완료 사용자는 위촉 단계 기준으로 즉시 분기한다.
-  if (myFc.status === 'final-link-sent' || (lifeCompleted && nonlifeCompleted)) return 5;
-  if (myFc.status === 'appointment-completed' || lifeCompleted || nonlifeCompleted) return 4;
+  if (myFc.status === 'final-link-sent' || bothCompleted) return 5;
 
-  // full home에 도달했다는 것은 identity가 완료되었다는 것
-  // 신원확인 완료(주민번호 또는 주소 입력) 시 1단계 완료로 간주
-  const hasIdentity = Boolean(myFc.resident_id_masked || myFc.address);
+  const hasIdentity = Boolean(myFc.identity_completed || myFc.resident_id_masked || myFc.address);
   logger.debug('[calcStep] Checking identity', {
+    identity_completed: myFc.identity_completed,
     resident_id_masked: myFc.resident_id_masked,
     address: myFc.address,
-    hasIdentity
+    hasIdentity,
   });
   if (!hasIdentity) return 1;
 
-  // [1단계 우선] 수당 동의 완료 여부
-  // 관리자 승인 이후에는 status가 allowance-pending이 아니므로 문서 단계로 진행
-  const isAllowanceApproved = Boolean(myFc.allowance_date) && myFc.status !== 'allowance-pending';
-  if (!isAllowanceApproved) {
-    return 2; // 수당 동의 단계에서 대기
+  const allowancePassedStatuses = [
+    'allowance-consented',
+    'docs-requested',
+    'docs-pending',
+    'docs-submitted',
+    'docs-rejected',
+    'docs-approved',
+    'appointment-completed',
+    'final-link-sent',
+  ];
+  const allowancePassedByStatus = allowancePassedStatuses.includes(myFc.status);
+  const allowancePassedByDate = Boolean(myFc.allowance_date) && myFc.status !== 'allowance-pending';
+  if (!allowancePassedByStatus && !allowancePassedByDate) {
+    return 2;
   }
 
-  // [2단계 우선] 서류 승인 여부
   const docs = myFc.fc_documents ?? [];
   const allSubmitted =
     docs.length > 0 && docs.every((d: FCDocument) => d.storage_path && d.storage_path !== 'deleted');
   const allApproved = allSubmitted && docs.every((d: FCDocument) => d.status === 'approved');
   if (!allApproved) {
-    return 3; // 서류 단계에서 대기
+    return 3;
   }
 
-  // [3단계 우선] 위촉 최종 완료 여부
-  if (myFc.status !== 'final-link-sent') {
-    return 4; // 위촉 진행 단계에서 대기 (총무 승인 필요)
-  }
-
-  // 모두 통과
-  return 5;
+  return 4;
 }
 
 const getStepKey = (profile: FcProfile): StepKey => {
@@ -406,7 +409,7 @@ const getLinkIcon = (href: string) => {
 
 export default function Home() {
   useInAppUpdate(); // Check for Android updates on mount
-  const { role, residentId, displayName, logout, hydrated, isRequestBoardDesigner } = useSession();
+  const { role, residentId, displayName, logout, hydrated, isRequestBoardDesigner, readOnly } = useSession();
   const { mode } = useLocalSearchParams<{ mode?: string }>();
   const { data: identityStatus, isLoading: identityLoading } = useIdentityStatus();
 
@@ -444,10 +447,18 @@ export default function Home() {
   const [refreshing, setRefreshing] = useState(false);
 
   const isAdminExam = role === 'admin' && adminHomeTab === 'exam';
-  const adminNavItems = [
-    { key: 'onboarding' as const, label: '위촉 홈', icon: 'home' as const },
-    { key: 'exam' as const, label: '시험 홈', icon: 'book-open' as const },
-  ];
+  const bottomNavPreset = resolveBottomNavPreset(
+    { role, readOnly, hydrated, isRequestBoardDesigner },
+    { adminHomeTab },
+  );
+  const isAdminLikePreset =
+    bottomNavPreset === 'admin-onboarding' ||
+    bottomNavPreset === 'admin-exam' ||
+    bottomNavPreset === 'manager';
+  const bottomNavActiveKey = resolveBottomNavActiveKey(
+    bottomNavPreset,
+    isAdminLikePreset ? adminHomeTab : 'home',
+  );
 
 
 
@@ -1169,7 +1180,7 @@ export default function Home() {
 
           {role === 'admin' && (
             <View style={styles.homeTitleWrap}>
-              <Text style={styles.homeTitle}>{adminHomeTab === 'exam' ? '시험 홈' : '위촉 홈'}</Text>
+              <Text style={styles.homeTitle}>{adminHomeTab === 'exam' ? '시험' : '위촉'}</Text>
               <Text style={styles.homeSubtitleText}>
                 {adminHomeTab === 'exam'
                   ? '시험 일정 등록과 신청자 관리 메뉴를 모았습니다.'
@@ -1814,86 +1825,15 @@ export default function Home() {
         </View >
       </Animated.ScrollView >
 
-      {
-        role === 'admin' ? (
-          <Animated.View style={[styles.bottomNav, { paddingBottom: Math.max(insets.bottom, 12) }, bottomNavAnimatedStyle]}>
-            {adminNavItems.map((item) => {
-              const isActive = adminHomeTab === item.key;
-              return (
-                <Pressable
-                  key={item.key}
-                  style={({ pressed }) => [styles.bottomNavItem, pressed && styles.pressedOpacity]}
-                  onPress={() => handleAdminTabChange(item.key)}
-                >
-                  <View style={[styles.bottomNavIconWrap, isActive && styles.bottomNavIconWrapActive]}>
-                    <Feather name={item.icon} size={20} color={isActive ? '#fff' : HANWHA_ORANGE} />
-                  </View>
-                  <Text style={[styles.bottomNavLabel, isActive && styles.bottomNavLabelActive]}>{item.label}</Text>
-                </Pressable>
-              );
-            })}
-            <Pressable
-              style={({ pressed }) => [styles.bottomNavItem, pressed && styles.pressedOpacity]}
-              onPress={() => router.push('/admin-board-manage')}
-            >
-              <View style={styles.bottomNavIconWrap}>
-                <Feather name="clipboard" size={20} color={HANWHA_ORANGE} />
-              </View>
-              <Text style={styles.bottomNavLabel}>게시판</Text>
-            </Pressable>
-            <Pressable
-              style={({ pressed }) => [styles.bottomNavItem, pressed && styles.pressedOpacity]}
-              onPress={() => router.push('/request-board')}
-            >
-              <View style={styles.bottomNavIconWrap}>
-                <Feather name="file-text" size={20} color={HANWHA_ORANGE} />
-              </View>
-              <Text style={styles.bottomNavLabel}>설계요청</Text>
-            </Pressable>
-          </Animated.View>
-        ) : role === 'fc' ? (
-          <Animated.View style={[styles.bottomNav, { paddingBottom: Math.max(insets.bottom, 12) }, bottomNavAnimatedStyle]}>
-            <Pressable
-              style={({ pressed }) => [styles.bottomNavItem, pressed && styles.pressedOpacity]}
-            >
-              <View style={[styles.bottomNavIconWrap, styles.bottomNavIconWrapActive]}>
-                <Feather name="home" size={20} color="#fff" />
-              </View>
-              <Text style={[styles.bottomNavLabel, styles.bottomNavLabelActive]}>홈</Text>
-            </Pressable>
-
-            <Pressable
-              style={({ pressed }) => [styles.bottomNavItem, pressed && styles.pressedOpacity]}
-              onPress={() => router.push('/board')}
-            >
-              <View style={styles.bottomNavIconWrap}>
-                <Feather name="clipboard" size={20} color={HANWHA_ORANGE} />
-              </View>
-              <Text style={styles.bottomNavLabel}>게시판</Text>
-            </Pressable>
-
-            <Pressable
-              style={({ pressed }) => [styles.bottomNavItem, pressed && styles.pressedOpacity]}
-              onPress={() => router.push('/request-board')}
-            >
-              <View style={styles.bottomNavIconWrap}>
-                <Feather name="file-text" size={20} color={HANWHA_ORANGE} />
-              </View>
-              <Text style={styles.bottomNavLabel}>설계요청</Text>
-            </Pressable>
-
-            <Pressable
-              style={({ pressed }) => [styles.bottomNavItem, pressed && styles.pressedOpacity]}
-              onPress={() => router.push('/settings')}
-            >
-              <View style={styles.bottomNavIconWrap}>
-                <Feather name="settings" size={20} color={HANWHA_ORANGE} />
-              </View>
-              <Text style={styles.bottomNavLabel}>설정</Text>
-            </Pressable>
-          </Animated.View>
-        ) : null
-      }
+      <BottomNavigation
+        preset={bottomNavPreset ?? undefined}
+        activeKey={bottomNavActiveKey}
+        onAdminTabChange={
+          isAdminLikePreset ? handleAdminTabChange : undefined
+        }
+        animatedStyle={bottomNavAnimatedStyle as any}
+        bottomInset={insets.bottom}
+      />
       {
         isTourBlocking && (
           <Pressable
@@ -2227,34 +2167,6 @@ const styles = StyleSheet.create({
     color: TEXT_MUTED,
     lineHeight: 18,
   },
-  bottomNav: {
-    position: 'absolute',
-    left: 0,
-    right: 0,
-    bottom: 0,
-    flexDirection: 'row',
-    backgroundColor: '#fff',
-    paddingHorizontal: 20,
-    paddingTop: 0,
-    justifyContent: 'space-between',
-    borderTopWidth: 1,
-    borderTopColor: BORDER,
-    ...CARD_SHADOW,
-  },
-  bottomNavItem: { flex: 1, alignItems: 'center', justifyContent: 'center', gap: 6, paddingVertical: 3 },
-  bottomNavIconWrap: {
-    width: 30,
-    height: 30,
-    borderRadius: 22,
-    borderWidth: 1,
-    borderColor: BORDER,
-    backgroundColor: '#fff',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  bottomNavIconWrapActive: { backgroundColor: HANWHA_ORANGE, borderColor: HANWHA_ORANGE },
-  bottomNavLabel: { fontSize: 13, color: TEXT_MUTED, fontWeight: '700' },
-  bottomNavLabelActive: { color: CHARCOAL },
   // Step
   stepContainer: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
   stepWrapper: { flex: 1, alignItems: 'center', position: 'relative' },

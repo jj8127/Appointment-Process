@@ -8,13 +8,19 @@ import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context'
 import { BottomNavigation } from '@/components/BottomNavigation';
 import { useBottomNavAnimation } from '@/hooks/use-bottom-nav-animation';
 import { useSession } from '@/hooks/use-session';
+import { resolveBottomNavActiveKey, resolveBottomNavPreset } from '@/lib/bottom-navigation';
 import { supabase } from '@/lib/supabase';
 import { COLORS, TYPOGRAPHY, SPACING, RADIUS } from '@/lib/theme';
 
 export default function SettingsScreen() {
-  const { role, residentId, residentMask, displayName, logout, isRequestBoardDesigner } = useSession();
+  const { role, residentId, residentMask, displayName, logout, isRequestBoardDesigner, readOnly, hydrated } = useSession();
   const insets = useSafeAreaInsets();
   const { scrollHandler, animatedStyle } = useBottomNavAnimation();
+  const navPreset = resolveBottomNavPreset({ role, readOnly, hydrated, isRequestBoardDesigner });
+  const navActiveKey = resolveBottomNavActiveKey(
+    navPreset,
+    isRequestBoardDesigner ? 'request-board' : 'settings',
+  );
 
   const [deleting, setDeleting] = useState(false);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
@@ -96,8 +102,8 @@ export default function SettingsScreen() {
       </Animated.ScrollView>
 
       <BottomNavigation
-        preset={isRequestBoardDesigner ? 'request-board-designer' : role === 'admin' ? 'admin-onboarding' : 'fc'}
-        activeKey="settings"
+        preset={navPreset ?? undefined}
+        activeKey={navActiveKey}
         animatedStyle={animatedStyle}
         bottomInset={insets.bottom}
       />

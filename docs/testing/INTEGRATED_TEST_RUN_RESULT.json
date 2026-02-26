@@ -1,0 +1,822 @@
+{
+  "meta": {
+    "generatedAt": "2026-02-26T06:50:40.142Z",
+    "source": "docs/testing/integrated-test-cases.json",
+    "note": "status: NOT_RUN | PASS | FAIL | BLOCKED | SKIPPED"
+  },
+  "runs": [
+    {
+      "caseId": "ONB-01",
+      "area": "위촉",
+      "priority": "P0",
+      "platform": [
+        "app"
+      ],
+      "title": "회원가입 위촉 4경우 독립 실행(none/life_only/nonlife_only/both)",
+      "status": "PASS",
+      "owner": "codex",
+      "executedAt": "2026-02-26T07:02:04.879Z",
+      "evidence": [
+        "docs/testing/evidence/fc-blocked-cli-2026-02-26T07-02-04-879Z.md#ONB-01",
+        "docs/testing/evidence/fc-blocked-cli-2026-02-26T07-02-04-879Z.json",
+        "node scripts/testing/run-fc-blocked-cli.mjs"
+      ],
+      "notes": "API-level independent execution for none/life_only/nonlife_only/both via set-password completed; fc_profiles status+commission flags verified and request_board login sync verified for each scenario. Cleanup completed."
+    },
+    {
+      "caseId": "ONB-02",
+      "area": "위촉",
+      "priority": "P0",
+      "platform": [
+        "app",
+        "web"
+      ],
+      "title": "본등록 후 양트랙 완료 FC만 5단계 완료 표시",
+      "status": "PASS",
+      "owner": "codex",
+      "executedAt": "2026-02-26T06:53:42.739Z",
+      "evidence": [
+        "npm test -- --runInBand (lib/__tests__/workflow-step-regression.test.ts)"
+      ],
+      "notes": "workflow-step regression tests verify only both-completed FC reaches step5 and partial completion does not jump to final step."
+    },
+    {
+      "caseId": "ONB-03",
+      "area": "위촉",
+      "priority": "P0",
+      "platform": [
+        "app",
+        "web"
+      ],
+      "title": "총무 화면(앱/웹)에서 위촉 상태별 FC 표시 정확성",
+      "status": "BLOCKED",
+      "owner": "codex",
+      "executedAt": "2026-02-26T06:53:42.739Z",
+      "evidence": [],
+      "notes": "Requires live role accounts, real device/browser interactions, push channel delivery, and/or destructive production-like mutations that are not safely executable in this CLI-only session."
+    },
+    {
+      "caseId": "ONB-04",
+      "area": "위촉",
+      "priority": "P0",
+      "platform": [
+        "app",
+        "web"
+      ],
+      "title": "FC 수당동의 + 총무 승인/반려",
+      "status": "PASS",
+      "owner": "codex",
+      "executedAt": "2026-02-26T07:12:13.128Z",
+      "evidence": [
+        "docs/testing/evidence/admin-blocked-cli-2026-02-26T07-12-13-129Z.md#ONB-04",
+        "docs/testing/evidence/admin-blocked-cli-2026-02-26T07-12-13-129Z.json",
+        "node scripts/testing/run-admin-blocked-cli.mjs"
+      ],
+      "notes": "FC 수당동의 제출(fcc-consent) -> 총무 승인(admin-action updateStatus allowance-consented) -> 총무 반려(temp-id-issued + reject reason) -> FC 재제출 시 reject reason 초기화까지 API/DB 상태전이 검증 완료. 테스트 데이터 cleanup 완료."
+    },
+    {
+      "caseId": "ONB-05",
+      "area": "위촉",
+      "priority": "P0",
+      "platform": [
+        "app",
+        "web"
+      ],
+      "title": "총무 서류요청 + FC 제출서류 승인/반려",
+      "status": "BLOCKED",
+      "owner": "codex",
+      "executedAt": "2026-02-26T06:53:42.739Z",
+      "evidence": [],
+      "notes": "Requires live role accounts, real device/browser interactions, push channel delivery, and/or destructive production-like mutations that are not safely executable in this CLI-only session."
+    },
+    {
+      "caseId": "ONB-06",
+      "area": "위촉",
+      "priority": "P0",
+      "platform": [
+        "app"
+      ],
+      "title": "FC 서류 제출칸 생성/제출 동작",
+      "status": "BLOCKED",
+      "owner": "codex",
+      "executedAt": "2026-02-26T06:53:42.739Z",
+      "evidence": [],
+      "notes": "Requires live role accounts, real device/browser interactions, push channel delivery, and/or destructive production-like mutations that are not safely executable in this CLI-only session."
+    },
+    {
+      "caseId": "ONB-07",
+      "area": "위촉",
+      "priority": "P0",
+      "platform": [
+        "app",
+        "web"
+      ],
+      "title": "총무 위촉차수 입력/승인/반려(모든 경우의 수)",
+      "status": "BLOCKED",
+      "owner": "codex",
+      "executedAt": "2026-02-26T06:53:42.739Z",
+      "evidence": [],
+      "notes": "Requires live role accounts, real device/browser interactions, push channel delivery, and/or destructive production-like mutations that are not safely executable in this CLI-only session."
+    },
+    {
+      "caseId": "ONB-08",
+      "area": "위촉",
+      "priority": "P0",
+      "platform": [
+        "app"
+      ],
+      "title": "FC 위촉차수 표시 + 위촉완료일 입력(모든 경우의 수)",
+      "status": "BLOCKED",
+      "owner": "codex",
+      "executedAt": "2026-02-26T06:53:42.739Z",
+      "evidence": [],
+      "notes": "Requires live role accounts, real device/browser interactions, push channel delivery, and/or destructive production-like mutations that are not safely executable in this CLI-only session."
+    },
+    {
+      "caseId": "ONB-09",
+      "area": "위촉",
+      "priority": "P0",
+      "platform": [
+        "app",
+        "web"
+      ],
+      "title": "수당동의 전 시험접수 차단 + 완료 후 신청/수정/취소",
+      "status": "BLOCKED",
+      "owner": "codex",
+      "executedAt": "2026-02-26T06:53:42.739Z",
+      "evidence": [],
+      "notes": "Requires live role accounts, real device/browser interactions, push channel delivery, and/or destructive production-like mutations that are not safely executable in this CLI-only session."
+    },
+    {
+      "caseId": "ONB-10",
+      "area": "위촉",
+      "priority": "P0",
+      "platform": [
+        "app",
+        "web"
+      ],
+      "title": "총무 시험 등록 처리(FC 신청 건)",
+      "status": "BLOCKED",
+      "owner": "codex",
+      "executedAt": "2026-02-26T06:53:42.739Z",
+      "evidence": [],
+      "notes": "Requires live role accounts, real device/browser interactions, push channel delivery, and/or destructive production-like mutations that are not safely executable in this CLI-only session."
+    },
+    {
+      "caseId": "BRD-01",
+      "area": "게시판",
+      "priority": "P0",
+      "platform": [
+        "app",
+        "web"
+      ],
+      "title": "본부장/총무 게시글 등록",
+      "status": "BLOCKED",
+      "owner": "codex",
+      "executedAt": "2026-02-26T06:53:42.739Z",
+      "evidence": [],
+      "notes": "Requires live role accounts, real device/browser interactions, push channel delivery, and/or destructive production-like mutations that are not safely executable in this CLI-only session."
+    },
+    {
+      "caseId": "BRD-02",
+      "area": "게시판",
+      "priority": "P0",
+      "platform": [
+        "app",
+        "web"
+      ],
+      "title": "본부장 본인 글 수정/삭제",
+      "status": "BLOCKED",
+      "owner": "codex",
+      "executedAt": "2026-02-26T06:53:42.739Z",
+      "evidence": [],
+      "notes": "Requires live role accounts, real device/browser interactions, push channel delivery, and/or destructive production-like mutations that are not safely executable in this CLI-only session."
+    },
+    {
+      "caseId": "BRD-03",
+      "area": "게시판",
+      "priority": "P0",
+      "platform": [
+        "app",
+        "web"
+      ],
+      "title": "파일첨부 + 이미지 미리보기",
+      "status": "BLOCKED",
+      "owner": "codex",
+      "executedAt": "2026-02-26T06:53:42.739Z",
+      "evidence": [],
+      "notes": "Requires live role accounts, real device/browser interactions, push channel delivery, and/or destructive production-like mutations that are not safely executable in this CLI-only session."
+    },
+    {
+      "caseId": "BRD-04",
+      "area": "게시판",
+      "priority": "P0",
+      "platform": [
+        "app",
+        "web"
+      ],
+      "title": "첨부 이미지 순서 변경",
+      "status": "BLOCKED",
+      "owner": "codex",
+      "executedAt": "2026-02-26T06:53:42.739Z",
+      "evidence": [],
+      "notes": "Requires live role accounts, real device/browser interactions, push channel delivery, and/or destructive production-like mutations that are not safely executable in this CLI-only session."
+    },
+    {
+      "caseId": "BRD-05",
+      "area": "게시판",
+      "priority": "P0",
+      "platform": [
+        "app",
+        "web"
+      ],
+      "title": "게시글 유형(카테고리) 노출 정확성",
+      "status": "BLOCKED",
+      "owner": "codex",
+      "executedAt": "2026-02-26T06:53:42.739Z",
+      "evidence": [],
+      "notes": "Requires live role accounts, real device/browser interactions, push channel delivery, and/or destructive production-like mutations that are not safely executable in this CLI-only session."
+    },
+    {
+      "caseId": "BRD-06",
+      "area": "게시판",
+      "priority": "P0",
+      "platform": [
+        "app",
+        "web"
+      ],
+      "title": "FC/총무/본부장 감정표현 추가/취소/변경",
+      "status": "BLOCKED",
+      "owner": "codex",
+      "executedAt": "2026-02-26T06:53:42.739Z",
+      "evidence": [],
+      "notes": "Requires live role accounts, real device/browser interactions, push channel delivery, and/or destructive production-like mutations that are not safely executable in this CLI-only session."
+    },
+    {
+      "caseId": "BRD-07",
+      "area": "게시판",
+      "priority": "P0",
+      "platform": [
+        "app",
+        "web"
+      ],
+      "title": "총무 모든 글 등록/삭제 권한",
+      "status": "BLOCKED",
+      "owner": "codex",
+      "executedAt": "2026-02-26T06:53:42.739Z",
+      "evidence": [],
+      "notes": "Requires live role accounts, real device/browser interactions, push channel delivery, and/or destructive production-like mutations that are not safely executable in this CLI-only session."
+    },
+    {
+      "caseId": "BRD-08",
+      "area": "게시판",
+      "priority": "P0",
+      "platform": [
+        "app",
+        "web"
+      ],
+      "title": "댓글/대댓글/좋아요/수정/삭제",
+      "status": "BLOCKED",
+      "owner": "codex",
+      "executedAt": "2026-02-26T06:53:42.739Z",
+      "evidence": [],
+      "notes": "Requires live role accounts, real device/browser interactions, push channel delivery, and/or destructive production-like mutations that are not safely executable in this CLI-only session."
+    },
+    {
+      "caseId": "BRD-09",
+      "area": "게시판",
+      "priority": "P0",
+      "platform": [
+        "app",
+        "web"
+      ],
+      "title": "공지 분류 글의 위촉 페이지 미리보기 노출",
+      "status": "BLOCKED",
+      "owner": "codex",
+      "executedAt": "2026-02-26T06:53:42.739Z",
+      "evidence": [],
+      "notes": "Requires live role accounts, real device/browser interactions, push channel delivery, and/or destructive production-like mutations that are not safely executable in this CLI-only session."
+    },
+    {
+      "caseId": "RB-01",
+      "area": "설계요청",
+      "priority": "P0",
+      "platform": [
+        "app",
+        "web"
+      ],
+      "title": "통계(전체/대기/진행/완료) 앱-웹 동시 반영",
+      "status": "BLOCKED",
+      "owner": "codex",
+      "executedAt": "2026-02-26T06:53:42.739Z",
+      "evidence": [],
+      "notes": "Requires live role accounts, real device/browser interactions, push channel delivery, and/or destructive production-like mutations that are not safely executable in this CLI-only session."
+    },
+    {
+      "caseId": "RB-02",
+      "area": "설계요청",
+      "priority": "P0",
+      "platform": [
+        "app",
+        "web"
+      ],
+      "title": "주소 복사/사용법 버튼 동작",
+      "status": "BLOCKED",
+      "owner": "codex",
+      "executedAt": "2026-02-26T06:53:42.739Z",
+      "evidence": [],
+      "notes": "Requires live role accounts, real device/browser interactions, push channel delivery, and/or destructive production-like mutations that are not safely executable in this CLI-only session."
+    },
+    {
+      "caseId": "RB-03",
+      "area": "설계요청",
+      "priority": "P0",
+      "platform": [
+        "app",
+        "web"
+      ],
+      "title": "설계매니저 완료 의뢰에 대한 승인/거절 처리",
+      "status": "PASS",
+      "owner": "codex",
+      "executedAt": "2026-02-26T07:10:22.700Z",
+      "evidence": [
+        "docs/testing/evidence/designer-blocked-cli-2026-02-26T07-10-22-700Z.md#RB-03",
+        "docs/testing/evidence/designer-blocked-cli-2026-02-26T07-10-22-700Z.json",
+        "node scripts/testing/run-designer-blocked-cli.mjs"
+      ],
+      "notes": "request_board API E2E로 설계매니저 완료건에 대한 FC 승인/거절 양쪽 경로를 모두 실행해 request_designers.fc_decision이 accepted/rejected로 정확히 저장되는지 검증. 테스트 사용자/데이터 cleanup 완료."
+    },
+    {
+      "caseId": "RB-04",
+      "area": "설계요청",
+      "priority": "P0",
+      "platform": [
+        "app",
+        "web"
+      ],
+      "title": "메신저 파일 송수신",
+      "status": "BLOCKED",
+      "owner": "codex",
+      "executedAt": "2026-02-26T06:53:42.739Z",
+      "evidence": [],
+      "notes": "Requires live role accounts, real device/browser interactions, push channel delivery, and/or destructive production-like mutations that are not safely executable in this CLI-only session."
+    },
+    {
+      "caseId": "RB-05",
+      "area": "설계요청",
+      "priority": "P0",
+      "platform": [
+        "app",
+        "web"
+      ],
+      "title": "설계매니저 거절/수락/완료/완료첨부파일",
+      "status": "PASS",
+      "owner": "codex",
+      "executedAt": "2026-02-26T07:10:22.700Z",
+      "evidence": [
+        "docs/testing/evidence/designer-blocked-cli-2026-02-26T07-10-22-700Z.md#RB-05",
+        "docs/testing/evidence/designer-blocked-cli-2026-02-26T07-10-22-700Z.json",
+        "node scripts/testing/run-designer-blocked-cli.mjs"
+      ],
+      "notes": "request_board API E2E로 설계매니저 거절, 수락, 완료(첨부 포함) 경로를 모두 실행하고 assignment 상태(rejected/completed) 반영을 검증. 테스트 사용자/데이터 cleanup 완료."
+    },
+    {
+      "caseId": "RB-06",
+      "area": "설계요청",
+      "priority": "P0",
+      "platform": [
+        "app"
+      ],
+      "title": "설계매니저 하단네비 2탭(설계요청/설정) 고정",
+      "status": "PASS",
+      "owner": "codex",
+      "executedAt": "2026-02-26T06:53:42.739Z",
+      "evidence": [
+        "npm test -- --runInBand (lib/__tests__/bottom-navigation.test.ts)",
+        "npm run lint -- components/BottomNavigation.tsx lib/bottom-navigation.ts"
+      ],
+      "notes": "bottom navigation resolver/preset tests and component lint verify request-board designer bottom nav is fixed to request-board/settings."
+    },
+    {
+      "caseId": "RB-07",
+      "area": "설계요청",
+      "priority": "P0",
+      "platform": [
+        "app"
+      ],
+      "title": "설계 알림 수신(설계매니저/FC/본부장/총무)",
+      "status": "BLOCKED",
+      "owner": "codex",
+      "executedAt": "2026-02-26T06:53:42.739Z",
+      "evidence": [],
+      "notes": "Requires live role accounts, real device/browser interactions, push channel delivery, and/or destructive production-like mutations that are not safely executable in this CLI-only session."
+    },
+    {
+      "caseId": "RB-08",
+      "area": "설계요청",
+      "priority": "P0",
+      "platform": [
+        "app",
+        "web"
+      ],
+      "title": "FC/본부장 설계코드 추가/수정/삭제",
+      "status": "PASS",
+      "owner": "codex",
+      "executedAt": "2026-02-26T07:04:53.376Z",
+      "evidence": [
+        "docs/testing/evidence/manager-blocked-cli-2026-02-26T07-04-53-376Z.md#RB-08",
+        "docs/testing/evidence/manager-blocked-cli-2026-02-26T07-04-53-376Z.json",
+        "node scripts/testing/run-manager-blocked-cli.mjs"
+      ],
+      "notes": "본부장(manager) 임시계정으로 login-with-password 성공 후 request_board(fc role) 로그인, /api/fc-codes create->patch->list->delete->list 흐름을 모두 2xx로 검증. 정리(cleanup) 완료."
+    },
+    {
+      "caseId": "SET-01",
+      "area": "설정",
+      "priority": "P0",
+      "platform": [
+        "app",
+        "web"
+      ],
+      "title": "FC/본부장/총무 본인 계정 삭제 완전성",
+      "status": "BLOCKED",
+      "owner": "codex",
+      "executedAt": "2026-02-26T06:53:42.739Z",
+      "evidence": [],
+      "notes": "Requires live role accounts, real device/browser interactions, push channel delivery, and/or destructive production-like mutations that are not safely executable in this CLI-only session."
+    },
+    {
+      "caseId": "SET-02",
+      "area": "설정",
+      "priority": "P0",
+      "platform": [
+        "app",
+        "web"
+      ],
+      "title": "총무의 FC 삭제 완전성(앱/웹)",
+      "status": "BLOCKED",
+      "owner": "codex",
+      "executedAt": "2026-02-26T06:53:42.739Z",
+      "evidence": [],
+      "notes": "Requires live role accounts, real device/browser interactions, push channel delivery, and/or destructive production-like mutations that are not safely executable in this CLI-only session."
+    },
+    {
+      "caseId": "ETC-01",
+      "area": "기타",
+      "priority": "P0",
+      "platform": [
+        "app"
+      ],
+      "title": "FC 메신저 본부장/총무 목록 노출",
+      "status": "BLOCKED",
+      "owner": "codex",
+      "executedAt": "2026-02-26T06:53:42.739Z",
+      "evidence": [],
+      "notes": "Requires live role accounts, real device/browser interactions, push channel delivery, and/or destructive production-like mutations that are not safely executable in this CLI-only session."
+    },
+    {
+      "caseId": "ETC-02",
+      "area": "기타",
+      "priority": "P0",
+      "platform": [
+        "app"
+      ],
+      "title": "본부장/총무 메신저 FC 목록 노출",
+      "status": "BLOCKED",
+      "owner": "codex",
+      "executedAt": "2026-02-26T06:53:42.739Z",
+      "evidence": [],
+      "notes": "Requires live role accounts, real device/browser interactions, push channel delivery, and/or destructive production-like mutations that are not safely executable in this CLI-only session."
+    },
+    {
+      "caseId": "ETC-03",
+      "area": "기타",
+      "priority": "P0",
+      "platform": [
+        "app",
+        "web"
+      ],
+      "title": "메신저 파일 첨부 + 메시지 전송",
+      "status": "BLOCKED",
+      "owner": "codex",
+      "executedAt": "2026-02-26T06:53:42.739Z",
+      "evidence": [],
+      "notes": "Requires live role accounts, real device/browser interactions, push channel delivery, and/or destructive production-like mutations that are not safely executable in this CLI-only session."
+    },
+    {
+      "caseId": "ETC-04",
+      "area": "기타",
+      "priority": "P0",
+      "platform": [
+        "app",
+        "web"
+      ],
+      "title": "읽음/안읽음 알림 구분 동작",
+      "status": "BLOCKED",
+      "owner": "codex",
+      "executedAt": "2026-02-26T06:53:42.739Z",
+      "evidence": [],
+      "notes": "Requires live role accounts, real device/browser interactions, push channel delivery, and/or destructive production-like mutations that are not safely executable in this CLI-only session."
+    },
+    {
+      "caseId": "P0-01",
+      "area": "추가필수",
+      "priority": "P0",
+      "platform": [
+        "app",
+        "web"
+      ],
+      "title": "계정 전환 시 권한/하단네비/데이터 캐시 격리",
+      "status": "BLOCKED",
+      "owner": "codex",
+      "executedAt": "2026-02-26T06:53:42.739Z",
+      "evidence": [],
+      "notes": "Requires live role accounts, real device/browser interactions, push channel delivery, and/or destructive production-like mutations that are not safely executable in this CLI-only session."
+    },
+    {
+      "caseId": "P0-02",
+      "area": "추가필수",
+      "priority": "P0",
+      "platform": [
+        "app",
+        "web"
+      ],
+      "title": "본부장(readOnly) 권한 우회 차단(URL/API)",
+      "status": "BLOCKED",
+      "owner": "codex",
+      "executedAt": "2026-02-26T07:04:53.376Z",
+      "evidence": [
+        "docs/testing/evidence/manager-blocked-cli-2026-02-26T07-04-53-376Z.md#P0-02(partial-api)",
+        "docs/testing/evidence/manager-blocked-cli-2026-02-26T07-04-53-376Z.json",
+        "node scripts/testing/run-manager-blocked-cli.mjs"
+      ],
+      "notes": "부분 검증 완료: manager phone으로 admin-action write 호출 시 403(Unauthorized: not an admin) 확인. 다만 URL/UI 우회 경로(앱/웹 화면 직접 접근)는 디바이스/브라우저 수동 검증이 남아 BLOCKED 유지."
+    },
+    {
+      "caseId": "P0-03",
+      "area": "추가필수",
+      "priority": "P0",
+      "platform": [
+        "app",
+        "web"
+      ],
+      "title": "상태 전이 무결성(비정상 순서 차단)",
+      "status": "BLOCKED",
+      "owner": "codex",
+      "executedAt": "2026-02-26T06:53:42.739Z",
+      "evidence": [],
+      "notes": "Requires live role accounts, real device/browser interactions, push channel delivery, and/or destructive production-like mutations that are not safely executable in this CLI-only session."
+    },
+    {
+      "caseId": "P0-04",
+      "area": "추가필수",
+      "priority": "P0",
+      "platform": [
+        "app",
+        "web"
+      ],
+      "title": "동시 작업 충돌 일관성(총무 앱/웹)",
+      "status": "BLOCKED",
+      "owner": "codex",
+      "executedAt": "2026-02-26T06:53:42.739Z",
+      "evidence": [],
+      "notes": "Requires live role accounts, real device/browser interactions, push channel delivery, and/or destructive production-like mutations that are not safely executable in this CLI-only session."
+    },
+    {
+      "caseId": "P0-05",
+      "area": "추가필수",
+      "priority": "P0",
+      "platform": [
+        "app",
+        "web"
+      ],
+      "title": "버튼 연타 시 중복 처리 방지",
+      "status": "BLOCKED",
+      "owner": "codex",
+      "executedAt": "2026-02-26T06:53:42.739Z",
+      "evidence": [],
+      "notes": "Requires live role accounts, real device/browser interactions, push channel delivery, and/or destructive production-like mutations that are not safely executable in this CLI-only session."
+    },
+    {
+      "caseId": "P0-06",
+      "area": "추가필수",
+      "priority": "P0",
+      "platform": [
+        "app",
+        "web"
+      ],
+      "title": "네트워크 실패 복구/재시도/에러 메시지",
+      "status": "BLOCKED",
+      "owner": "codex",
+      "executedAt": "2026-02-26T06:53:42.739Z",
+      "evidence": [],
+      "notes": "Requires live role accounts, real device/browser interactions, push channel delivery, and/or destructive production-like mutations that are not safely executable in this CLI-only session."
+    },
+    {
+      "caseId": "P0-07",
+      "area": "추가필수",
+      "priority": "P0",
+      "platform": [
+        "app",
+        "web"
+      ],
+      "title": "푸시 클릭 딥링크 정확성",
+      "status": "BLOCKED",
+      "owner": "codex",
+      "executedAt": "2026-02-26T06:53:42.739Z",
+      "evidence": [],
+      "notes": "Requires live role accounts, real device/browser interactions, push channel delivery, and/or destructive production-like mutations that are not safely executable in this CLI-only session."
+    },
+    {
+      "caseId": "P0-08",
+      "area": "추가필수",
+      "priority": "P0",
+      "platform": [
+        "app",
+        "web"
+      ],
+      "title": "삭제 후 고아 데이터 부재(DB/Storage/참조)",
+      "status": "BLOCKED",
+      "owner": "codex",
+      "executedAt": "2026-02-26T06:53:42.739Z",
+      "evidence": [],
+      "notes": "Requires live role accounts, real device/browser interactions, push channel delivery, and/or destructive production-like mutations that are not safely executable in this CLI-only session."
+    },
+    {
+      "caseId": "P0-09",
+      "area": "추가필수",
+      "priority": "P0",
+      "platform": [
+        "app",
+        "web"
+      ],
+      "title": "업로드 경계값(대용량/오류확장자/0바이트/취소/재시도)",
+      "status": "BLOCKED",
+      "owner": "codex",
+      "executedAt": "2026-02-26T06:53:42.739Z",
+      "evidence": [],
+      "notes": "Requires live role accounts, real device/browser interactions, push channel delivery, and/or destructive production-like mutations that are not safely executable in this CLI-only session."
+    },
+    {
+      "caseId": "P0-10",
+      "area": "추가필수",
+      "priority": "P0",
+      "platform": [
+        "app",
+        "web"
+      ],
+      "title": "마감 시점 경계(자정/타임존) 처리",
+      "status": "BLOCKED",
+      "owner": "codex",
+      "executedAt": "2026-02-26T06:53:42.739Z",
+      "evidence": [],
+      "notes": "Requires live role accounts, real device/browser interactions, push channel delivery, and/or destructive production-like mutations that are not safely executable in this CLI-only session."
+    },
+    {
+      "caseId": "P0-11",
+      "area": "추가필수",
+      "priority": "P0",
+      "platform": [
+        "app",
+        "web"
+      ],
+      "title": "앱 회원가입/비번설정 -> request_board 웹 로그인 연동",
+      "status": "PASS",
+      "owner": "codex",
+      "executedAt": "2026-02-26T07:02:04.879Z",
+      "evidence": [
+        "docs/testing/evidence/fc-blocked-cli-2026-02-26T07-02-04-879Z.md#P0-11",
+        "docs/testing/evidence/fc-blocked-cli-2026-02-26T07-02-04-879Z.json",
+        "node scripts/testing/run-fc-blocked-cli.mjs"
+      ],
+      "notes": "앱 회원가입/비번설정(set-password) 후 동일 전화번호/비밀번호로 request_board /api/auth/login 성공(4개 시나리오) 확인."
+    },
+    {
+      "caseId": "P0-12",
+      "area": "추가필수",
+      "priority": "P0",
+      "platform": [
+        "app",
+        "web"
+      ],
+      "title": "앱 비밀번호 변경/재설정 -> request_board 웹 동기화",
+      "status": "PASS",
+      "owner": "codex",
+      "executedAt": "2026-02-26T07:02:04.879Z",
+      "evidence": [
+        "docs/testing/evidence/fc-blocked-cli-2026-02-26T07-02-04-879Z.md#P0-12",
+        "docs/testing/evidence/fc-blocked-cli-2026-02-26T07-02-04-879Z.json",
+        "node scripts/testing/run-fc-blocked-cli.mjs"
+      ],
+      "notes": "앱 reset-password(인증코드 경로) 후 fc login + request_board login이 새 비밀번호로 모두 성공하는지 확인."
+    },
+    {
+      "caseId": "P0-13",
+      "area": "추가필수",
+      "priority": "P0",
+      "platform": [
+        "app",
+        "web"
+      ],
+      "title": "비밀번호 동기화 실패 복구(재시도/다음 로그인)",
+      "status": "PASS",
+      "owner": "codex",
+      "executedAt": "2026-02-26T07:02:04.879Z",
+      "evidence": [
+        "docs/testing/evidence/fc-blocked-cli-2026-02-26T07-02-04-879Z.md#P0-13",
+        "docs/testing/evidence/fc-blocked-cli-2026-02-26T07-02-04-879Z.json",
+        "node scripts/testing/run-fc-blocked-cli.mjs"
+      ],
+      "notes": "request_board 비밀번호를 의도적으로 불일치 상태로 만든 뒤(login 실패 확인), fc login-with-password 재로그인으로 동기화 복구되어 request_board 로그인 정상화되는지 확인."
+    },
+    {
+      "caseId": "P1-01",
+      "area": "추가권장",
+      "priority": "P1",
+      "platform": [
+        "app",
+        "web"
+      ],
+      "title": "request_board 브릿지 토큰 만료/무효 처리",
+      "status": "BLOCKED",
+      "owner": "codex",
+      "executedAt": "2026-02-26T06:53:42.739Z",
+      "evidence": [],
+      "notes": "Requires live role accounts, real device/browser interactions, push channel delivery, and/or destructive production-like mutations that are not safely executable in this CLI-only session."
+    },
+    {
+      "caseId": "P1-02",
+      "area": "추가권장",
+      "priority": "P1",
+      "platform": [
+        "app",
+        "web"
+      ],
+      "title": "다기기 동시접속 동기화(읽음/메시지/진행상태)",
+      "status": "BLOCKED",
+      "owner": "codex",
+      "executedAt": "2026-02-26T06:53:42.739Z",
+      "evidence": [],
+      "notes": "Requires live role accounts, real device/browser interactions, push channel delivery, and/or destructive production-like mutations that are not safely executable in this CLI-only session."
+    },
+    {
+      "caseId": "P1-03",
+      "area": "추가권장",
+      "priority": "P1",
+      "platform": [
+        "app",
+        "web"
+      ],
+      "title": "대량 데이터 성능/누락 검증",
+      "status": "BLOCKED",
+      "owner": "codex",
+      "executedAt": "2026-02-26T06:53:42.739Z",
+      "evidence": [],
+      "notes": "Requires live role accounts, real device/browser interactions, push channel delivery, and/or destructive production-like mutations that are not safely executable in this CLI-only session."
+    },
+    {
+      "caseId": "P1-04",
+      "area": "추가권장",
+      "priority": "P1",
+      "platform": [
+        "app"
+      ],
+      "title": "구버전 앱 호환성(마이그레이션 이후)",
+      "status": "BLOCKED",
+      "owner": "codex",
+      "executedAt": "2026-02-26T06:53:42.739Z",
+      "evidence": [],
+      "notes": "Requires live role accounts, real device/browser interactions, push channel delivery, and/or destructive production-like mutations that are not safely executable in this CLI-only session."
+    },
+    {
+      "caseId": "P1-05",
+      "area": "추가권장",
+      "priority": "P1",
+      "platform": [
+        "app",
+        "web"
+      ],
+      "title": "비관리자 경로 개인정보 노출 점검",
+      "status": "BLOCKED",
+      "owner": "codex",
+      "executedAt": "2026-02-26T06:53:42.739Z",
+      "evidence": [],
+      "notes": "Requires live role accounts, real device/browser interactions, push channel delivery, and/or destructive production-like mutations that are not safely executable in this CLI-only session."
+    },
+    {
+      "caseId": "P1-06",
+      "area": "추가권장",
+      "priority": "P1",
+      "platform": [
+        "app",
+        "web"
+      ],
+      "title": "장애 관찰 가능성(로그/모니터링 추적성)",
+      "status": "BLOCKED",
+      "owner": "codex",
+      "executedAt": "2026-02-26T06:53:42.739Z",
+      "evidence": [],
+      "notes": "Requires live role accounts, real device/browser interactions, push channel delivery, and/or destructive production-like mutations that are not safely executable in this CLI-only session."
+    }
+  ]
+}

@@ -40,6 +40,13 @@ const requestBoardBridgeTtlSecRaw = Number((getEnv('REQUEST_BOARD_AUTH_BRIDGE_TT
 const requestBoardBridgeTtlSec = Number.isFinite(requestBoardBridgeTtlSecRaw) && requestBoardBridgeTtlSecRaw > 0
   ? Math.floor(requestBoardBridgeTtlSecRaw)
   : 2592000;
+const requestBoardPasswordSyncUrl = (getEnv('REQUEST_BOARD_PASSWORD_SYNC_URL') ?? '').trim();
+const requestBoardPasswordSyncToken = (getEnv('REQUEST_BOARD_PASSWORD_SYNC_TOKEN') ?? '').trim();
+const requestBoardPasswordSyncTimeoutRaw = Number((getEnv('REQUEST_BOARD_PASSWORD_SYNC_TIMEOUT_MS') ?? '5000').trim());
+const requestBoardPasswordSyncTimeoutMs =
+  Number.isFinite(requestBoardPasswordSyncTimeoutRaw) && requestBoardPasswordSyncTimeoutRaw >= 1000
+    ? Math.floor(requestBoardPasswordSyncTimeoutRaw)
+    : 5000;
 
 const MAX_FAILS = 5;
 const LOCK_MINUTES = 10;
@@ -115,6 +122,49 @@ async function createBridgeToken(
   const signaturePart = toBase64Url(new Uint8Array(sigBuffer));
 
   return `${payloadPart}.${signaturePart}`;
+}
+
+async function syncRequestBoardPassword(
+  phone: string,
+  password: string,
+  options?: { role?: 'fc' | 'designer'; name?: string | null; companyName?: string | null },
+) {
+  if (!requestBoardPasswordSyncUrl || !requestBoardPasswordSyncToken) return;
+
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), requestBoardPasswordSyncTimeoutMs);
+  try {
+    const response = await fetch(requestBoardPasswordSyncUrl, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-request-bridge-token': requestBoardPasswordSyncToken,
+      },
+      body: JSON.stringify({
+        phone,
+        password,
+        role: options?.role ?? 'fc',
+        name: options?.name ?? undefined,
+        companyName: options?.companyName ?? undefined,
+      }),
+      signal: controller.signal,
+    });
+
+    if (!response.ok) {
+      const text = await response.text().catch(() => '');
+      console.warn(`[login-with-password] request_board sync failed: ${response.status} ${text.slice(0, 200)}`);
+      return;
+    }
+
+    const json = await response.json().catch(() => ({}));
+    if (!json?.success) {
+      console.warn(`[login-with-password] request_board sync error: ${JSON.stringify(json).slice(0, 200)}`);
+    }
+  } catch (error) {
+    console.warn('[login-with-password] request_board sync error:', error);
+  } finally {
+    clearTimeout(timeout);
+  }
 }
 
 serve(async (req: Request) => {
@@ -203,6 +253,12 @@ serve(async (req: Request) => {
       .update({ failed_count: 0, locked_until: null })
       .eq('id', admin.id);
 
+    await syncRequestBoardPassword(admin.phone, password, {
+      role: 'designer',
+      name: admin.name ?? '',
+      companyName: '가람in',
+    });
+
     const requestBoardBridgeToken = await createBridgeToken(admin.phone, 'designer');
     return json({
       ok: true,
@@ -270,6 +326,11 @@ serve(async (req: Request) => {
       .from('manager_accounts')
       .update({ failed_count: 0, locked_until: null })
       .eq('id', manager.id);
+
+    await syncRequestBoardPassword(manager.phone, password, {
+      role: 'fc',
+      name: manager.name ?? '',
+    });
 
     const requestBoardBridgeToken = await createBridgeToken(manager.phone, 'fc');
     return json({
@@ -348,6 +409,11 @@ serve(async (req: Request) => {
     .from('fc_credentials')
     .update({ failed_count: 0, locked_until: null })
     .eq('fc_id', profile.id);
+
+  await syncRequestBoardPassword(profile.phone, password, {
+    role: 'fc',
+    name: profile.name ?? '',
+  });
 
   const requestBoardBridgeToken = await createBridgeToken(profile.phone, 'fc');
   return json({

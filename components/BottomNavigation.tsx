@@ -2,6 +2,7 @@ import { Feather } from '@expo/vector-icons';
 import { useRouter, usePathname } from 'expo-router';
 import { Pressable, StyleSheet, Text, View, ViewStyle } from 'react-native';
 import Animated from 'react-native-reanimated';
+import type { BottomNavPreset } from '@/lib/bottom-navigation';
 import { COLORS, SHADOWS } from '@/lib/theme';
 
 /** 네비게이션 아이템 정의 */
@@ -14,7 +15,7 @@ export interface NavItem {
 }
 
 /** 역할별 네비게이션 프리셋 */
-export type NavPreset = 'fc' | 'admin-onboarding' | 'admin-exam' | 'manager' | 'request-board-designer';
+export type NavPreset = BottomNavPreset;
 
 const FC_NAV_ITEMS: NavItem[] = [
   { key: 'home', label: '홈', icon: 'home', route: '/' },
@@ -24,23 +25,26 @@ const FC_NAV_ITEMS: NavItem[] = [
 ];
 
 const ADMIN_ONBOARDING_NAV_ITEMS: NavItem[] = [
-  { key: 'onboarding', label: '위촉 홈', icon: 'home', route: '/?mode=onboarding' },
-  { key: 'exam', label: '시험 홈', icon: 'book-open', route: '/?mode=exam' },
-  { key: 'board', label: '게시판', icon: 'clipboard', route: '/admin-board-manage' },
+  { key: 'onboarding', label: '위촉', icon: 'home', route: '/?mode=onboarding' },
+  { key: 'exam', label: '시험', icon: 'book-open', route: '/?mode=exam' },
   { key: 'request-board', label: '설계요청', icon: 'file-text', route: '/request-board' },
+  { key: 'board', label: '게시판', icon: 'clipboard', route: '/admin-board-manage' },
+  { key: 'settings', label: '설정', icon: 'settings', route: '/settings' },
 ];
 
 const ADMIN_EXAM_NAV_ITEMS: NavItem[] = [
-  { key: 'onboarding', label: '위촉 홈', icon: 'home', route: '/?mode=onboarding' },
-  { key: 'exam', label: '시험 홈', icon: 'book-open', route: '/?mode=exam' },
-  { key: 'board', label: '게시판', icon: 'clipboard', route: '/admin-board-manage' },
+  { key: 'onboarding', label: '위촉', icon: 'home', route: '/?mode=onboarding' },
+  { key: 'exam', label: '시험', icon: 'book-open', route: '/?mode=exam' },
   { key: 'request-board', label: '설계요청', icon: 'file-text', route: '/request-board' },
+  { key: 'board', label: '게시판', icon: 'clipboard', route: '/admin-board-manage' },
+  { key: 'settings', label: '설정', icon: 'settings', route: '/settings' },
 ];
 
 const MANAGER_NAV_ITEMS: NavItem[] = [
-  { key: 'home', label: '홈', icon: 'home', route: '/' },
-  { key: 'board', label: '게시판', icon: 'clipboard', route: '/admin-board-manage' },
+  { key: 'onboarding', label: '위촉', icon: 'home', route: '/?mode=onboarding' },
+  { key: 'exam', label: '시험', icon: 'book-open', route: '/?mode=exam' },
   { key: 'request-board', label: '설계요청', icon: 'file-text', route: '/request-board' },
+  { key: 'board', label: '게시판', icon: 'clipboard', route: '/admin-board-manage' },
   { key: 'settings', label: '설정', icon: 'settings', route: '/settings' },
 ];
 

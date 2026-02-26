@@ -41,6 +41,7 @@ import { RefreshButton } from '@/components/RefreshButton';
 import { ReactionPicker, DEFAULT_REACTIONS } from '@/components/ReactionPicker';
 import { useKeyboardPadding } from '@/hooks/use-keyboard-padding';
 import { useSession } from '@/hooks/use-session';
+import { resolveBottomNavActiveKey, resolveBottomNavPreset } from '@/lib/bottom-navigation';
 import { ANIMATION } from '@/lib/theme';
 import {
   BoardDetail,
@@ -219,7 +220,7 @@ function AttachmentPreviewThumb({ uri }: AttachmentPreviewThumbProps) {
 export default function AdminBoardManageScreen() {
   const router = useRouter();
   const navigation = useNavigation();
-  const { role, displayName, residentId, readOnly, isRequestBoardDesigner } = useSession();
+  const { role, displayName, residentId, readOnly, isRequestBoardDesigner, hydrated } = useSession();
   const queryClient = useQueryClient();
   const insets = useSafeAreaInsets();
   const keyboardPadding = useKeyboardPadding();
@@ -231,6 +232,16 @@ export default function AdminBoardManageScreen() {
     [displayName, readOnly, residentId, role],
   );
   const isManager = actor?.role === 'manager';
+  const navPreset = resolveBottomNavPreset({
+    role,
+    readOnly,
+    hydrated,
+    isRequestBoardDesigner,
+  });
+  const navActiveKey = resolveBottomNavActiveKey(
+    navPreset,
+    isRequestBoardDesigner ? 'request-board' : 'board',
+  );
 
   useEffect(() => {
     if (role === 'admin' && isRequestBoardDesigner) {
@@ -1162,8 +1173,8 @@ export default function AdminBoardManageScreen() {
 
       {/* 하단 네비게이션 바 (스크롤시 사라짐) */}
       <BottomNavigation
-        preset={isRequestBoardDesigner ? 'request-board-designer' : isManager ? 'manager' : 'admin-onboarding'}
-        activeKey={isRequestBoardDesigner ? 'request-board' : 'board'}
+        preset={navPreset ?? undefined}
+        activeKey={navActiveKey}
         animatedStyle={bottomNavAnimatedStyle as any}
         bottomInset={insets.bottom}
       />

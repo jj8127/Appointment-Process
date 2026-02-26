@@ -1,0 +1,49 @@
+{
+  "generatedAt": "2026-02-26T07:12:05.245Z",
+  "scope": [
+    "ONB-04"
+  ],
+  "phones": {
+    "adminSuffix": "5311",
+    "fcSuffix": "5411"
+  },
+  "steps": {
+    "adminUpsert": {
+      "ok": true,
+      "at": "2026-02-26T07:12:05.700Z"
+    },
+    "fcProfileInsert": {
+      "ok": true,
+      "fcId": "2ab60da6-6c1d-4076-b590-7745eb503e8a",
+      "at": "2026-02-26T07:12:05.831Z"
+    },
+    "fcConsentSubmit": {
+      "status": 200,
+      "profileStatus": "allowance-pending",
+      "allowanceDate": "2026-02-26",
+      "at": "2026-02-26T07:12:08.458Z"
+    },
+    "adminApprove": {
+      "status": 200,
+      "profileStatus": "allowance-consented",
+      "at": "2026-02-26T07:12:09.097Z"
+    },
+    "adminReject": {
+      "status": 200,
+      "profileStatus": "temp-id-issued",
+      "rejectReason": "TC_REJECT_REASON",
+      "at": "2026-02-26T07:12:09.660Z"
+    },
+    "fcConsentResubmit": {
+      "status": 200,
+      "profileStatus": "allowance-pending",
+      "allowanceDate": "2026-02-27",
+      "rejectReason": null,
+      "at": "2026-02-26T07:12:12.916Z"
+    }
+  },
+  "cleanup": {
+    "keepData": false,
+    "at": "2026-02-26T07:12:13.128Z"
+  }
+}

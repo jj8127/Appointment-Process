@@ -37,10 +37,10 @@ export default function ApplyGateScreen() {
           <View style={styles.iconCircle}>
             <Feather name="shield" size={20} color={COLORS.primary} />
           </View>
-          <Text style={styles.title}>위촉(등록) 신청 안내</Text>
-          <Text style={styles.body}>지금부터는 설계사 위촉(등록) 신청 절차를 시작합니다.</Text>
-          <Text style={styles.body}>임시사번 발급 및 등록 서류 처리에 주민번호/주소가 필수입니다.</Text>
-          <Text style={styles.body}>공지/알림/문의 기능은 입력 없이 이용 가능합니다.</Text>
+          <Text style={styles.title}>추가 정보 입력 안내</Text>
+          <Text style={styles.body}>앱의 모든 기능을 사용하기 위해서는 추가 정보 입력이 필요합니다.</Text>
+          <Text style={styles.body}>먼저 주민번호와 주소를 입력해 주세요.</Text>
+          <Text style={styles.body}>입력이 완료되면 설계 요청, 메신저, 공지/알림, 위촉 관련 기능을 모두 이용할 수 있습니다.</Text>
         </View>
 
         <View style={styles.buttonRow}>
@@ -63,9 +63,9 @@ export default function ApplyGateScreen() {
             variant="primary"
             size="md"
             style={styles.button}
-            accessibilityLabel="등록 신청 시작"
+            accessibilityLabel="추가 정보 입력 시작"
           >
-            등록 신청 시작
+            추가 정보 입력 시작
           </Button>
         </View>
       </View>

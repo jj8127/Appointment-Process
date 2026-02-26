@@ -130,9 +130,12 @@ export const getSummaryStatus = (profile: FcProfile) => {
 export const calcStep = (profile: FcProfile) => {
   const lifeCompleted = Boolean(profile.life_commission_completed || profile.appointment_date_life);
   const nonlifeCompleted = Boolean(profile.nonlife_commission_completed || profile.appointment_date_nonlife);
+  const bothCompleted = lifeCompleted && nonlifeCompleted;
 
-  if (profile.status === 'final-link-sent' || (lifeCompleted && nonlifeCompleted)) return 5;
-  if (profile.status === 'appointment-completed' || lifeCompleted || nonlifeCompleted) return 4;
+  if (profile.status === 'final-link-sent' || bothCompleted) return 5;
+
+  const hasIdentity = Boolean(profile.identity_completed || profile.resident_id_masked || profile.address);
+  if (!hasIdentity) return 1;
 
   const allowancePassedStatuses: FcProfile['status'][] = [
     'allowance-consented',
@@ -145,21 +148,9 @@ export const calcStep = (profile: FcProfile) => {
     'final-link-sent',
   ];
 
-  /*
-   * Fix: Prioritize status check over hasBasicInfo.
-   * If status indicates we are already past allowance consent,
-   * we shouldn't fallback to step 1 even if name/affiliation is missing.
-   */
-  if (allowancePassedStatuses.includes(profile.status)) {
-    // Proceed to Docs/Appointment check
-  } else {
-    // Not passed allowance yet. Check if basic info is done.
-    const hasBasicInfo =
-      Boolean(profile.name && profile.affiliation && profile.resident_id_masked) &&
-      Boolean(profile.email || profile.address);
-    if (!hasBasicInfo) return 1;
-    return 2;
-  }
+  const allowancePassedByStatus = allowancePassedStatuses.includes(profile.status);
+  const allowancePassedByDate = Boolean(profile.allowance_date) && profile.status !== 'allowance-pending';
+  if (!allowancePassedByStatus && !allowancePassedByDate) return 2;
 
   const docs = profile.fc_documents ?? [];
   const allSubmitted =

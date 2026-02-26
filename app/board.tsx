@@ -31,12 +31,14 @@ import Animated, {
 } from 'react-native-reanimated';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 
+import { BottomNavigation } from '@/components/BottomNavigation';
 import { KeyboardAwareWrapper } from '@/components/KeyboardAwareWrapper';
 import { ImagePreviewModal } from '@/components/ImagePreviewModal';
 import { LinkifiedSelectableText } from '@/components/LinkifiedSelectableText';
 import { CardSkeleton } from '@/components/LoadingSkeleton';
 import { DEFAULT_REACTIONS, ReactionPicker } from '@/components/ReactionPicker';
 import { RefreshButton } from '@/components/RefreshButton';
+import { resolveBottomNavActiveKey, resolveBottomNavPreset } from '@/lib/bottom-navigation';
 import { useKeyboardPadding } from '@/hooks/use-keyboard-padding';
 import { useSession } from '@/hooks/use-session';
 import {
@@ -246,7 +248,7 @@ export default function BoardScreen() {
   const router = useRouter();
   const { postId } = useLocalSearchParams<{ postId?: string }>();
   const navigation = useNavigation();
-  const { role, displayName, residentId, readOnly } = useSession();
+  const { role, displayName, residentId, readOnly, hydrated, isRequestBoardDesigner } = useSession();
   const queryClient = useQueryClient();
   const insets = useSafeAreaInsets();
   const keyboardPadding = useKeyboardPadding();
@@ -255,6 +257,16 @@ export default function BoardScreen() {
   const actor = useMemo(
     () => buildBoardActor({ role, residentId, displayName, readOnly }),
     [displayName, readOnly, residentId, role],
+  );
+  const navPreset = resolveBottomNavPreset({
+    role,
+    readOnly,
+    hydrated,
+    isRequestBoardDesigner,
+  });
+  const navActiveKey = resolveBottomNavActiveKey(
+    navPreset,
+    isRequestBoardDesigner ? 'request-board' : 'board',
   );
 
   const [refreshing, setRefreshing] = useState(false);
@@ -1149,41 +1161,12 @@ export default function BoardScreen() {
       </Animated.ScrollView>
 
       {/* 하단 네비게이션 바 (스크롤시 사라짐) */}
-      <Animated.View
-        style={[
-          styles.bottomNav,
-          { paddingBottom: Math.max(insets.bottom, 12) },
-          bottomNavAnimatedStyle,
-        ]}
-      >
-        <Pressable style={styles.bottomNavItem} onPress={() => router.push('/')}>
-          <View style={styles.bottomNavIconWrap}>
-            <Feather name="home" size={20} color={HANWHA_ORANGE} />
-          </View>
-          <Text style={styles.bottomNavLabel}>홈</Text>
-        </Pressable>
-
-        <Pressable style={styles.bottomNavItem}>
-          <View style={[styles.bottomNavIconWrap, styles.bottomNavIconWrapActive]}>
-            <Feather name="clipboard" size={20} color="#fff" />
-          </View>
-          <Text style={[styles.bottomNavLabel, styles.bottomNavLabelActive]}>게시판</Text>
-        </Pressable>
-
-        <Pressable style={styles.bottomNavItem} onPress={() => router.push('/request-board')}>
-          <View style={styles.bottomNavIconWrap}>
-            <Feather name="file-text" size={20} color={HANWHA_ORANGE} />
-          </View>
-          <Text style={styles.bottomNavLabel}>설계요청</Text>
-        </Pressable>
-
-        <Pressable style={styles.bottomNavItem} onPress={() => router.push('/settings')}>
-          <View style={styles.bottomNavIconWrap}>
-            <Feather name="settings" size={20} color={HANWHA_ORANGE} />
-          </View>
-          <Text style={styles.bottomNavLabel}>설정</Text>
-        </Pressable>
-      </Animated.View>
+      <BottomNavigation
+        preset={navPreset ?? undefined}
+        activeKey={navActiveKey}
+        animatedStyle={bottomNavAnimatedStyle as any}
+        bottomInset={insets.bottom}
+      />
 
       {/* 게시글 상세 모달 */}
       {selectedPost && (
@@ -1625,45 +1608,6 @@ const styles = StyleSheet.create({
   emptyBox: { alignItems: 'center', marginTop: 60, gap: 12 },
   emptyText: { fontSize: 15, color: TEXT_MUTED },
   errorText: { fontSize: 15, color: '#EF4444' },
-
-  // Bottom Nav
-  bottomNav: {
-    position: 'absolute',
-    left: 0,
-    right: 0,
-    bottom: 0,
-    flexDirection: 'row',
-    backgroundColor: '#fff',
-    paddingHorizontal: 16,
-    paddingTop: 10,
-    paddingBottom: 8,
-    borderTopWidth: 1,
-    borderTopColor: BORDER,
-    ...CARD_SHADOW,
-  },
-  bottomNavItem: {
-    flex: 1,
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 6,
-    paddingVertical: 3,
-  },
-  bottomNavIconWrap: {
-    width: 30,
-    height: 30,
-    borderRadius: 22,
-    backgroundColor: 'rgba(243,111,33,0.08)',
-    borderWidth: 1.5,
-    borderColor: 'rgba(243,111,33,0.15)',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  bottomNavIconWrapActive: {
-    backgroundColor: HANWHA_ORANGE,
-    borderColor: HANWHA_ORANGE,
-  },
-  bottomNavLabel: { fontSize: 13, color: TEXT_MUTED, fontWeight: '700' },
-  bottomNavLabelActive: { color: CHARCOAL },
 
   // Modal
   modal: {

@@ -1,5 +1,10 @@
 import { serve } from 'https://deno.land/std@0.224.0/http/server.ts';
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.45.4';
+import {
+  mapCommissionToProfileState,
+  normalizeCommissionStatus,
+  type CommissionCompletionStatus,
+} from '../_shared/commission.ts';
 
 type Payload = {
   phone: string;
@@ -11,10 +16,8 @@ type Payload = {
   recommender?: string;
   email?: string;
   carrier?: string;
-  commissionStatus?: 'none' | 'life_only' | 'nonlife_only' | 'both' | string;
+  commissionStatus?: CommissionCompletionStatus | string;
 };
-
-type CommissionCompletionStatus = 'none' | 'life_only' | 'nonlife_only' | 'both';
 
 function getEnv(name: string): string | undefined {
   const g: any = globalThis as any;
@@ -68,28 +71,6 @@ function cleanPhone(input: string) {
   return (input ?? '').replace(/[^0-9]/g, '');
 }
 
-function normalizeCommissionStatus(input?: string): CommissionCompletionStatus {
-  if (input === 'life_only' || input === 'nonlife_only' || input === 'both') return input;
-  return 'none';
-}
-
-function mapCommissionToProfileState(input: CommissionCompletionStatus): {
-  status: 'draft' | 'appointment-completed' | 'final-link-sent';
-  lifeCompleted: boolean;
-  nonlifeCompleted: boolean;
-} {
-  if (input === 'both') {
-    return { status: 'final-link-sent', lifeCompleted: true, nonlifeCompleted: true };
-  }
-  if (input === 'life_only') {
-    return { status: 'appointment-completed', lifeCompleted: true, nonlifeCompleted: false };
-  }
-  if (input === 'nonlife_only') {
-    return { status: 'appointment-completed', lifeCompleted: false, nonlifeCompleted: true };
-  }
-  return { status: 'draft', lifeCompleted: false, nonlifeCompleted: false };
-}
-
 function isMissingColumnError(error: unknown): boolean {
   const code = (error as { code?: string } | null)?.code;
   const message = String((error as { message?: string } | null)?.message ?? '').toLowerCase();
@@ -112,7 +93,11 @@ async function hashPassword(password: string, saltBytes: Uint8Array) {
   return toBase64(new Uint8Array(bits));
 }
 
-async function syncRequestBoardPassword(phone: string, password: string) {
+async function syncRequestBoardPassword(
+  phone: string,
+  password: string,
+  options?: { role?: 'fc' | 'designer'; name?: string | null; companyName?: string | null },
+) {
   if (!requestBoardPasswordSyncUrl || !requestBoardPasswordSyncToken) return;
 
   const controller = new AbortController();
@@ -124,7 +109,13 @@ async function syncRequestBoardPassword(phone: string, password: string) {
         'Content-Type': 'application/json',
         'x-request-bridge-token': requestBoardPasswordSyncToken,
       },
-      body: JSON.stringify({ phone, password }),
+      body: JSON.stringify({
+        phone,
+        password,
+        role: options?.role ?? 'fc',
+        name: options?.name ?? undefined,
+        companyName: options?.companyName ?? undefined,
+      }),
       signal: controller.signal,
     });
 
@@ -365,7 +356,10 @@ serve(async (req: Request) => {
     return json({ ok: false, code: 'db_error', message: profileUpdateError.message }, 500);
   }
 
-  await syncRequestBoardPassword(phone, password);
+  await syncRequestBoardPassword(phone, password, {
+    role: 'fc',
+    name: displayName,
+  });
 
   return json({ ok: true, residentId: phone, displayName });
 });

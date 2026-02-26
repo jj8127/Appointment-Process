@@ -1,0 +1,67 @@
+{
+  "generatedAt": "2026-02-26T07:09:33.369Z",
+  "scope": [
+    "RB-03",
+    "RB-05"
+  ],
+  "users": {
+    "fcPhoneSuffix": "3380",
+    "designerPhoneSuffix": "3391"
+  },
+  "steps": {
+    "fcRegister": {
+      "status": 201,
+      "at": "2026-02-26T07:09:35.130Z"
+    },
+    "designerRegister": {
+      "status": 201,
+      "at": "2026-02-26T07:09:36.625Z"
+    },
+    "fcLogin": {
+      "status": 200,
+      "at": "2026-02-26T07:09:37.207Z"
+    },
+    "designerLogin": {
+      "status": 200,
+      "at": "2026-02-26T07:09:38.088Z"
+    },
+    "productsList": {
+      "status": 200,
+      "productId": 2,
+      "at": "2026-02-26T07:09:38.624Z"
+    },
+    "designersList": {
+      "status": 200,
+      "designerId": 160,
+      "at": "2026-02-26T07:09:39.157Z"
+    }
+  },
+  "requests": {
+    "rejectFlow": {
+      "requestId": 96,
+      "designerRejectStatus": 200,
+      "assignmentStatus": "rejected"
+    },
+    "fcApproveFlow": {
+      "requestId": 97,
+      "designerAcceptStatus": 200,
+      "designerCompleteStatus": 200,
+      "fcAcceptStatus": 200,
+      "assignmentStatus": "completed",
+      "fcDecision": "accepted"
+    },
+    "fcRejectFlow": {
+      "requestId": 98,
+      "designerAcceptStatus": 200,
+      "designerCompleteStatus": 200,
+      "fcRejectStatus": 200,
+      "assignmentStatus": "completed",
+      "fcDecision": "rejected"
+    }
+  },
+  "cleanup": {
+    "keepData": false,
+    "deletedUserCount": 2,
+    "at": "2026-02-26T07:10:22.700Z"
+  }
+}

@@ -15,6 +15,8 @@
     "test": "jest",
     "test:watch": "jest --watch",
     "test:coverage": "jest --coverage",
+    "qa:init:integrated": "node ./scripts/testing/init-integrated-test-run.mjs",
+    "qa:validate:integrated": "node ./scripts/testing/validate-integrated-test-run.mjs",
     "prepare": "node ./scripts/prepare.js"
   },
   "dependencies": {

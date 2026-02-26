@@ -281,7 +281,7 @@ export default function RootLayout() {
                               ),
                             }}
                           />
-                          <Stack.Screen name="apply-gate" options={{ ...baseHeader, title: '위촉 신청 안내' }} />
+                          <Stack.Screen name="apply-gate" options={{ ...baseHeader, title: '추가 정보 입력 안내' }} />
                           <Stack.Screen name="identity" options={{ ...baseHeader, title: '신원 확인' }} />
                           <Stack.Screen
                             name="fc/new"
@@ -402,7 +402,7 @@ export default function RootLayout() {
                               ),
                             }}
                           />
-                          <Stack.Screen name="apply-gate" options={{ ...baseHeader, title: '위촉 신청 안내' }} />
+                          <Stack.Screen name="apply-gate" options={{ ...baseHeader, title: '추가 정보 입력 안내' }} />
                           <Stack.Screen name="identity" options={{ ...baseHeader, title: '신원 확인' }} />
                           <Stack.Screen name="fc/new" options={{ ...baseHeader, title: '기본 정보' }} />
                           <Stack.Screen name="consent" options={{ ...baseHeader, title: '수당 지급 동의서' }} />

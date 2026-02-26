@@ -252,12 +252,16 @@ serve(async (req: Request) => {
         .from('fc_profiles')
         .update(updatePayload)
         .eq('id', fcId)
-        .select('appointment_date_life, appointment_date_nonlife')
+        .select(
+          'appointment_date_life, appointment_date_nonlife, life_commission_completed, nonlife_commission_completed',
+        )
         .single();
       if (error) throw error;
 
-      const bothSet = Boolean(updated?.appointment_date_life) && Boolean(updated?.appointment_date_nonlife);
-      const nextStatus = date === null ? 'docs-approved' : bothSet ? 'final-link-sent' : 'appointment-completed';
+      const lifeDone = Boolean(updated?.appointment_date_life || updated?.life_commission_completed);
+      const nonlifeDone = Boolean(updated?.appointment_date_nonlife || updated?.nonlife_commission_completed);
+      const bothDone = lifeDone && nonlifeDone;
+      const nextStatus = date === null ? 'docs-approved' : bothDone ? 'final-link-sent' : 'appointment-completed';
       const { error: statusErr } = await supabase.from('fc_profiles').update({ status: nextStatus }).eq('id', fcId);
       if (statusErr) throw statusErr;
 

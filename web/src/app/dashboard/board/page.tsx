@@ -123,6 +123,13 @@ type WebAttachment = {
 };
 const MAX_ATTACHMENTS = 20;
 
+const resolveCategoryBadgeColor = (categoryName: string): string => {
+  if (categoryName === '공지') return 'orange';
+  if (categoryName === '교육') return 'blue';
+  if (categoryName === '서류') return 'green';
+  return 'gray';
+};
+
 const buildPlaceholderPost = (postId: string): BoardPost => {
   const now = new Date().toISOString();
   return {
@@ -246,6 +253,12 @@ export default function BoardPage() {
   });
 
   const posts = useMemo(() => listData?.items ?? [], [listData?.items]);
+  const categoryNameMap = useMemo(
+    () => new Map(categories.map((category) => [category.id, category.name])),
+    [categories],
+  );
+  const resolveCategoryName = (rawCategoryId?: string | null) =>
+    categoryNameMap.get(rawCategoryId ?? '') ?? '일반';
   const filteredPosts = useMemo(() => {
     if (!searchQuery.trim()) return posts;
     const q = searchQuery.toLowerCase();
@@ -1165,6 +1178,13 @@ export default function BoardPage() {
                               >
                                 {post.authorRole === 'admin' ? '관리자' : '본부장'}
                               </Badge>
+                              <Badge
+                                size="xs"
+                                variant="light"
+                                color={resolveCategoryBadgeColor(resolveCategoryName(post.categoryId))}
+                              >
+                                {resolveCategoryName(post.categoryId)}
+                              </Badge>
                             </Group>
                             <Text size="xs" c="dimmed">
                               {new Date(post.createdAt).toLocaleDateString('ko-KR', {
@@ -1469,6 +1489,13 @@ export default function BoardPage() {
                   color={modalPost?.authorRole === 'admin' ? 'blue' : 'purple'}
                 >
                   {modalPost?.authorRole === 'admin' ? '관리자' : '본부장'}
+                </Badge>
+                <Badge
+                  size="xs"
+                  variant="light"
+                  color={resolveCategoryBadgeColor(resolveCategoryName(modalPost?.categoryId))}
+                >
+                  {resolveCategoryName(modalPost?.categoryId)}
                 </Badge>
               </Group>
               <Text size="xs" c="dimmed">

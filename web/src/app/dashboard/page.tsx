@@ -631,9 +631,14 @@ export default function DashboardPage() {
               updateSelectedFc({
                 [isLife ? 'appointment_date_life' : 'appointment_date_nonlife']: value,
               });
-              const nextLife = isLife ? value : selectedFc!.appointment_date_life;
-              const nextNonlife = !isLife ? value : selectedFc!.appointment_date_nonlife;
-              const nextStatus = nextLife && nextNonlife ? 'final-link-sent' : 'appointment-completed';
+              const nextLifeDone = Boolean(
+                (isLife ? value : selectedFc!.appointment_date_life) || selectedFc!.life_commission_completed,
+              );
+              const nextNonlifeDone = Boolean(
+                (!isLife ? value : selectedFc!.appointment_date_nonlife) ||
+                selectedFc!.nonlife_commission_completed,
+              );
+              const nextStatus = nextLifeDone && nextNonlifeDone ? 'final-link-sent' : 'appointment-completed';
               updateSelectedFc({ status: nextStatus });
             }
           } else {

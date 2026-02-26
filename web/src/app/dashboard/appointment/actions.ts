@@ -103,9 +103,11 @@ export async function updateAppointmentAction(
             nextStatus = 'docs-approved';
         } else {
             // Confirming
-            const lifeSet = !!updatedProfile.appointment_date_life;
-            const nonlifeSet = !!updatedProfile.appointment_date_nonlife;
-            if (lifeSet && nonlifeSet) {
+            const lifeDone = Boolean(updatedProfile.appointment_date_life || updatedProfile.life_commission_completed);
+            const nonlifeDone = Boolean(
+                updatedProfile.appointment_date_nonlife || updatedProfile.nonlife_commission_completed,
+            );
+            if (lifeDone && nonlifeDone) {
                 nextStatus = 'final-link-sent';
             } else {
                 nextStatus = 'appointment-completed';

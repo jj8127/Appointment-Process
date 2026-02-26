@@ -492,3 +492,181 @@ export async function rbGetUnreadCount(): Promise<number> {
   ]);
   return (msg.data?.count ?? 0) + (dm.data?.count ?? 0);
 }
+
+/* ─── Request Stats ─── */
+
+export type RbRequestSummary = {
+  id: number;
+  status?: string;
+  assignmentStatus?: string;
+  completedAt?: string | null;
+  completed_at?: string | null;
+  processingDays?: number;
+  processing_days?: number;
+  customer_name?: string;
+  request_designers?: { status: string; fc_decision?: string | null }[];
+};
+
+/* ─── Request List & Review ─── */
+
+export type RbRequestAttachmentFull = {
+  id: number;
+  file_name: string;
+  file_type: string;
+  file_size: number;
+  file_url: string;
+  description?: string | null;
+  expiry_date?: string | null;
+  created_at: string;
+};
+
+export type RbDesignerAssignment = {
+  id: number;
+  designer_id: number;
+  status: string;
+  fc_decision: 'pending' | 'accepted' | 'rejected' | null;
+  fc_decision_reason?: string | null;
+  fc_decided_at?: string | null;
+  design_url?: string | null;
+  accepted_at?: string | null;
+  completed_at?: string | null;
+  processing_days?: number | null;
+  rejection_reason?: string | null;
+  request_attachments?: RbRequestAttachmentFull[];
+  designers?: {
+    id: number;
+    company_name: string | null;
+    users?: { id: number; name: string; email?: string } | null;
+  } | null;
+};
+
+export type RbRequestListItem = {
+  id: number;
+  status: string;
+  customer_name: string;
+  created_at: string;
+  request_products?: {
+    product_id: number;
+    insurance_products?: { id: number; name: string; icon?: string | null } | null;
+  }[];
+  request_designers?: {
+    id: number;
+    designer_id: number;
+    status: string;
+    fc_decision: 'pending' | 'accepted' | 'rejected' | null;
+    completed_at?: string | null;
+    designers?: {
+      id: number;
+      company_name: string | null;
+      users?: { id: number; name: string } | null;
+    } | null;
+  }[];
+};
+
+export type RbRequestDetail = {
+  id: number;
+  status: string;
+  customer_name: string;
+  customer_phone?: string | null;
+  customer_birth_date?: string | null;
+  request_details?: string | null;
+  created_at: string;
+  updated_at?: string;
+  request_products?: {
+    product_id: number;
+    insurance_products?: { id: number; name: string; icon?: string | null } | null;
+  }[];
+  request_designers?: RbDesignerAssignment[];
+};
+
+export async function rbGetRequestList(): Promise<RbRequestListItem[]> {
+  const res = await rbFetch<unknown>('/api/requests?limit=100&page=1');
+  if (!res.success || res.data == null) return [];
+  if (Array.isArray(res.data)) return res.data as RbRequestListItem[];
+  const obj = res.data as Record<string, unknown>;
+  const arr = obj.requests ?? obj.data;
+  return Array.isArray(arr) ? (arr as RbRequestListItem[]) : [];
+}
+
+export async function rbGetRequestDetail(id: number): Promise<RbRequestDetail | null> {
+  const res = await rbFetch<RbRequestDetail>(`/api/requests/${id}`);
+  if (!res.success || !res.data) return null;
+  return res.data;
+}
+
+export async function rbApproveDesign(
+  requestId: number,
+  designerId: number,
+): Promise<{ success: boolean; error?: string; message?: string }> {
+  return rbFetch(`/api/requests/${requestId}/designers/${designerId}/fc-accept`, {
+    method: 'POST',
+  });
+}
+
+export async function rbRejectDesign(
+  requestId: number,
+  designerId: number,
+  reason: string,
+): Promise<{ success: boolean; error?: string; message?: string }> {
+  return rbFetch(`/api/requests/${requestId}/designers/${designerId}/fc-reject`, {
+    method: 'POST',
+    body: JSON.stringify({ reason }),
+  });
+}
+
+export async function rbGetRequests(): Promise<RbRequestSummary[]> {
+  const res = await rbFetch<unknown>('/api/requests?limit=500&page=1');
+  if (!res.success || res.data == null) return [];
+  if (Array.isArray(res.data)) return res.data as RbRequestSummary[];
+  const obj = res.data as Record<string, unknown>;
+  const arr = obj.requests ?? obj.data;
+  return Array.isArray(arr) ? (arr as RbRequestSummary[]) : [];
+}
+
+/* ─── FC Company Codes ─── */
+
+export type RbFcCode = {
+  id: number;
+  insurer_name: string;
+  code_value: string;
+  is_active?: boolean;
+  updated_at: string;
+};
+
+export async function rbGetFcCodes(): Promise<RbFcCode[]> {
+  const res = await rbFetch<RbFcCode[]>('/api/fc-codes');
+  if (res.success && Array.isArray(res.data)) return res.data;
+  return [];
+}
+
+export async function rbGetCompanyNames(): Promise<string[]> {
+  const res = await rbFetch<string[]>('/api/fc-codes/company-names');
+  if (res.success && Array.isArray(res.data)) return res.data;
+  return [];
+}
+
+export async function rbCreateFcCode(
+  insurerName: string,
+  codeValue: string,
+): Promise<{ success: boolean; data?: RbFcCode; error?: string; message?: string }> {
+  return rbFetch<RbFcCode>('/api/fc-codes', {
+    method: 'POST',
+    body: JSON.stringify({ insurerName, codeValue }),
+  });
+}
+
+export async function rbUpdateFcCode(
+  id: number,
+  payload: { insurerName?: string; codeValue?: string },
+): Promise<{ success: boolean; data?: RbFcCode; error?: string }> {
+  return rbFetch<RbFcCode>(`/api/fc-codes/${id}`, {
+    method: 'PATCH',
+    body: JSON.stringify(payload),
+  });
+}
+
+export async function rbDeleteFcCode(
+  id: number,
+): Promise<{ success: boolean; error?: string }> {
+  return rbFetch<undefined>(`/api/fc-codes/${id}`, { method: 'DELETE' });
+}

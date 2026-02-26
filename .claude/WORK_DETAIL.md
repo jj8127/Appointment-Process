@@ -7,6 +7,205 @@
 
 ---
 
+## <a id="20260226-10"></a> 2026-02-26 | BLOCKED 역할순 실행(FC→본부장→총무→설계매니저) 자동검증 + PASS 전환
+
+**Commit**: `working tree`  
+**작업 내용**:
+- 사용자 요청대로 `BLOCKED` 항목을 역할 순서(`FC -> 본부장 -> 총무 -> 설계매니저`)로 실제 실행 가능한 케이스부터 자동화하여 검증
+- 신규 실행기 추가:
+  - `scripts/testing/run-fc-blocked-cli.mjs`
+  - `scripts/testing/run-manager-blocked-cli.mjs`
+  - `scripts/testing/run-admin-blocked-cli.mjs`
+  - `scripts/testing/run-designer-blocked-cli.mjs`
+- 각 실행기에서 테스트 계정/데이터를 생성 후 검증 완료 시 즉시 cleanup(삭제) 수행
+- 증적 파일 자동 생성:
+  - `docs/testing/evidence/fc-blocked-cli-*.{md,json}`
+  - `docs/testing/evidence/manager-blocked-cli-*.{md,json}`
+  - `docs/testing/evidence/admin-blocked-cli-*.{md,json}`
+  - `docs/testing/evidence/designer-blocked-cli-*.{md,json}`
+- `INTEGRATED_TEST_RUN_RESULT.json` 상태 전환:
+  - `PASS` 전환: `ONB-01`, `ONB-04`, `RB-03`, `RB-05`, `RB-08`, `P0-11`, `P0-12`, `P0-13`
+  - `P0-02`는 API 차단(403) 부분 검증 증적 추가 후, UI/URL 우회 미검증으로 `BLOCKED` 유지
+
+**핵심 파일**:
+- `scripts/testing/run-fc-blocked-cli.mjs`
+- `scripts/testing/run-manager-blocked-cli.mjs`
+- `scripts/testing/run-admin-blocked-cli.mjs`
+- `scripts/testing/run-designer-blocked-cli.mjs`
+- `docs/testing/evidence/fc-blocked-cli-2026-02-26T07-02-04-879Z.md`
+- `docs/testing/evidence/manager-blocked-cli-2026-02-26T07-04-53-376Z.md`
+- `docs/testing/evidence/admin-blocked-cli-2026-02-26T07-12-13-129Z.md`
+- `docs/testing/evidence/designer-blocked-cli-2026-02-26T07-10-22-700Z.md`
+- `docs/testing/INTEGRATED_TEST_RUN_RESULT.json`
+- `AGENTS.md`
+- `.claude/WORK_LOG.md`
+- `.claude/WORK_DETAIL.md`
+
+**검증**:
+- FC 실행기: `node scripts/testing/run-fc-blocked-cli.mjs` 통과
+  - 4개 위촉 경우의 수(`none/life_only/nonlife_only/both`) + request_board 로그인 연동 확인
+  - reset-password 동기화 + desync 후 login 재동기화 복구 확인
+- 본부장 실행기: `node scripts/testing/run-manager-blocked-cli.mjs` 통과
+  - manager login-with-password -> request_board(fc role) 로그인 -> 설계코드 CRUD 확인
+  - manager의 `admin-action` write 시 403 확인
+- 총무 실행기: `node scripts/testing/run-admin-blocked-cli.mjs` 통과
+  - FC 수당동의 제출 -> 총무 승인 -> 총무 반려 -> FC 재제출 상태 전이 확인
+- 설계매니저 실행기: `node scripts/testing/run-designer-blocked-cli.mjs` 통과
+  - 의뢰 거절/수락/완료(첨부 포함), FC 승인/거절까지 전이 확인
+- 통합 검증:
+  - `npm run qa:validate:integrated` 통과
+  - 집계: `PASS=10`, `FAIL=0`, `BLOCKED=42`, `SKIPPED=0`
+
+**다음 단계**:
+- 남은 `BLOCKED(42)` 중 디바이스/웹 UI 수동 검증 필수 항목(하단네비/푸시/업로드 경계/웹-앱 동시 반영)을 동일 역할순으로 계속 실행하고 동일 증적 포맷으로 누적
+
+---
+
+## <a id="20260226-9"></a> 2026-02-26 | 통합 테스트 실행체계 구축(누락 방지)
+
+**Commit**: `working tree`  
+**작업 내용**:
+- 사용자 통합 체크리스트(위촉/게시판/설계요청/설정/기타 + 추가 P0/P1)를
+  실제 운영 가능한 실행 체계로 변환
+- 구성:
+  - 케이스 원장(SSOT): `docs/testing/integrated-test-cases.json` (총 52 케이스)
+  - 실행 가이드: `docs/testing/INTEGRATED_TEST_CHECKLIST.md`
+  - 결과 파일 부트스트랩: `scripts/testing/init-integrated-test-run.mjs`
+  - 누락/형식 검증 게이트: `scripts/testing/validate-integrated-test-run.mjs`
+  - npm 명령 추가:
+    - `npm run qa:init:integrated`
+    - `npm run qa:validate:integrated`
+- 검증 규칙(validator):
+  - 케이스 누락/중복/미등록 ID 탐지
+  - 상태값 유효성(`NOT_RUN|PASS|FAIL|BLOCKED|SKIPPED`)
+  - 실행된 케이스의 `executedAt` 필수
+  - `PASS`는 `evidence` 필수
+  - `FAIL/BLOCKED/SKIPPED`는 `notes` 필수
+  - `NOT_RUN` 존재 시 실패 처리(누락 방지)
+
+**핵심 파일**:
+- `docs/testing/INTEGRATED_TEST_CHECKLIST.md`
+- `docs/testing/integrated-test-cases.json`
+- `scripts/testing/init-integrated-test-run.mjs`
+- `scripts/testing/validate-integrated-test-run.mjs`
+- `package.json`
+- `AGENTS.md`
+- `.claude/WORK_LOG.md`
+- `.claude/WORK_DETAIL.md`
+
+**검증**:
+- 생성 스크립트:
+  - `npm run qa:init:integrated -- --force` 통과 (52 케이스 결과 파일 생성 확인)
+- 검증 스크립트:
+  - `npm run qa:validate:integrated` 동작 확인 (`NOT_RUN=52`로 실패, 게이트 정상)
+
+**다음 단계**:
+- QA 실행자가 `INTEGRATED_TEST_RUN_RESULT.json`에 케이스별 증적/결과 입력 후
+  `qa:validate:integrated`가 0으로 종료되는 상태를 릴리즈 전 필수 게이트로 적용
+
+---
+
+## <a id="20260226-8"></a> 2026-02-26 | 모바일 하단 네비 정책 보정(총무/본부장 5탭 고정 + 설계매니저 2탭 유지)
+
+**Commit**: `working tree`  
+**작업 내용**:
+- 사용자 요구사항 반영(정책 보정):
+  - 총무(admin) / 본부장(manager, readOnly): 하단 탭을 동일 5개로 고정
+    - `위촉 홈 -> 시험 홈 -> 설계요청 -> 게시판 -> 설정`
+  - 설계매니저(`request-board-designer`): 하단 탭 2개 유지
+    - `설계요청 -> 설정`
+- 수정:
+  - `components/BottomNavigation.tsx`
+    - `admin-onboarding`, `admin-exam`, `manager` 프리셋 모두 5탭/동일 순서로 정렬
+  - `lib/bottom-navigation.ts`
+    - `PRESET_KEYS`를 동일 순서로 고정해 `activeKey` fallback 일관화
+  - `app/index.tsx`
+    - `manager` 프리셋도 admin-like 탭 전환 대상에 포함
+    - 홈 탭 활성 상태가 `adminHomeTab(onboarding/exam)`과 동기화되도록 보정
+  - `lib/__tests__/bottom-navigation.test.ts`
+    - manager fallback 기대값을 신규 키 체계에 맞게 갱신
+- 문서화:
+  - `AGENTS.md` `Bottom Navigation Contract`에 역할별 고정 탭 세트 명시
+
+**핵심 파일**:
+- `components/BottomNavigation.tsx`
+- `lib/bottom-navigation.ts`
+- `app/index.tsx`
+- `lib/__tests__/bottom-navigation.test.ts`
+- `AGENTS.md`
+- `.claude/WORK_LOG.md`
+- `.claude/WORK_DETAIL.md`
+
+**검증**:
+- 모바일 lint:
+  - `npm run lint -- components/BottomNavigation.tsx lib/bottom-navigation.ts app/index.tsx lib/__tests__/bottom-navigation.test.ts` 통과
+- 단위 테스트:
+  - `npm test -- --runInBand` 통과
+
+**다음 단계**:
+- 실기기(Android/iOS) role 검증:
+  - 총무/본부장: 모든 주요 화면에서 5탭 구성/순서 고정 확인
+  - 설계매니저: 2탭만 노출되는지 확인
+
+---
+
+## <a id="20260226-7"></a> 2026-02-26 | 모바일 하단 네비 SSOT 통일(총무/본부장/FC/설계매니저 공통 규칙)
+
+**Commit**: `working tree`  
+**작업 내용**:
+- 문제 정리:
+  - 총무/본부장 계정에서 화면마다 하단 네비 프리셋 계산 방식이 달라 탭 구성이 바뀌는 현상 반복
+  - 일부 화면은 수동 하단바(`Pressable` 직접 렌더), 일부 화면은 `BottomNavigation` 프리셋 사용으로 경로별 불일치 발생
+  - session hydrate 전 기본 분기(예: `role !== admin -> fc`)로 첫 프레임 탭이 바뀌는 깜빡임 가능성 존재
+- 수정:
+  - 공통 규칙 SSOT 신규 추가: `lib/bottom-navigation.ts`
+    - `resolveBottomNavPreset`
+    - `resolveBottomNavActiveKey`
+  - 규칙:
+    - `hydrated=false`면 `null` preset 반환(잘못된 초기 탭 방지)
+    - `isRequestBoardDesigner=true` 최우선
+    - `role=admin && readOnly=true`는 `manager` 프리셋 고정
+    - `role=admin && readOnly=false`만 `admin-onboarding/admin-exam` 사용
+  - 적용 화면 일괄 정렬:
+    - `app/index.tsx`, `app/board.tsx`, `app/admin-board-manage.tsx`, `app/notice.tsx`, `app/settings.tsx`, `app/request-board.tsx`, `app/request-board-fc-codes.tsx`
+  - 수동 하단바 제거:
+    - `app/index.tsx`, `app/board.tsx`의 하드코딩 네비 제거 후 `BottomNavigation` 단일 사용
+  - 회귀 테스트 추가:
+    - `lib/__tests__/bottom-navigation.test.ts`에서 프리셋/activeKey 매핑 고정 검증
+  - 재발 방지 문서화:
+    - `AGENTS.md`에 `Bottom Navigation Contract (Mobile)` 섹션 추가
+    - 금지 규칙(수동 하단바/화면별 ternary 복붙 금지)과 mapping invariant 명시
+
+**핵심 파일**:
+- `lib/bottom-navigation.ts`
+- `components/BottomNavigation.tsx`
+- `app/index.tsx`
+- `app/board.tsx`
+- `app/admin-board-manage.tsx`
+- `app/notice.tsx`
+- `app/settings.tsx`
+- `app/request-board.tsx`
+- `app/request-board-fc-codes.tsx`
+- `lib/__tests__/bottom-navigation.test.ts`
+- `AGENTS.md`
+- `.claude/WORK_LOG.md`
+- `.claude/WORK_DETAIL.md`
+
+**검증**:
+- 모바일 lint:
+  - `npm run lint -- components/BottomNavigation.tsx lib/bottom-navigation.ts app/index.tsx app/board.tsx app/admin-board-manage.tsx app/notice.tsx app/settings.tsx app/request-board.tsx app/request-board-fc-codes.tsx lib/__tests__/bottom-navigation.test.ts` 통과
+- 단위 테스트:
+  - `npm test -- --runInBand` 통과 (신규 `bottom-navigation` 테스트 포함)
+- 거버넌스:
+  - `node scripts/ci/check-governance.mjs` 통과
+
+**다음 단계**:
+- 실기기(Android/iOS)에서 role 매트릭스 스모크:
+  - 총무(admin), 본부장(manager/readOnly), FC, 설계매니저 각각 로그인
+  - `홈 -> 게시판 -> 설계요청 -> 설정/공지` 이동 시 탭 구성(개수/순서) 불변 확인
+
+---
+
 ## <a id="20260226-6"></a> 2026-02-26 | 앱 게시판 카테고리 유형 배지 노출 + request_board 계정 자동 생성 동기화 보강
 
 **Commit**: `working tree`  

@@ -62,6 +62,20 @@ npm run dev
 
 ### Testing
 
+#### Integrated Checklist Run (누락 방지)
+
+**1. 실행 결과 파일 초기화**
+```bash
+npm run qa:init:integrated
+```
+
+**2. 케이스 수행 후 누락/형식 검증**
+```bash
+npm run qa:validate:integrated
+```
+
+> 상세 가이드는 `docs/testing/INTEGRATED_TEST_CHECKLIST.md`를 참고합니다.
+
 #### Web Bundle for Testsprite
 
 **1. 웹 번들 생성**
