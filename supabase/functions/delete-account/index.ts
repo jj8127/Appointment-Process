@@ -5,9 +5,18 @@ type Payload = {
   residentId?: string;
   residentMask?: string;
   fcId?: string;
+  role?: 'fc' | 'admin' | 'manager';
+  roleHint?: 'fc' | 'admin' | 'manager';
 };
 
+type AccountRole = 'fc' | 'admin' | 'manager';
+
 type FcProfileRow = {
+  id: string;
+  phone: string | null;
+};
+
+type AccountRow = {
   id: string;
   phone: string | null;
 };
@@ -80,6 +89,16 @@ function err(message: string, status = 400) {
 
 async function ignoreMissingTable<T>(result: { error: any; data?: T }) {
   if (result.error?.code === '42P01') {
+    return { data: result.data };
+  }
+  if (result.error) {
+    throw result.error;
+  }
+  return result;
+}
+
+async function ignoreMissingTableOrColumn<T>(result: { error: any; data?: T }) {
+  if (result.error?.code === '42P01' || result.error?.code === '42703') {
     return { data: result.data };
   }
   if (result.error) {
@@ -178,6 +197,59 @@ async function resolveProfile(payload: Payload): Promise<FcProfileRow | null> {
   return null;
 }
 
+function isRoleHint(value: unknown): value is AccountRole {
+  return value === 'fc' || value === 'admin' || value === 'manager';
+}
+
+function buildPhoneCandidates(payload: Payload) {
+  const residentIdRaw = String(payload.residentId ?? '').trim();
+  const residentMask = String(payload.residentMask ?? '').trim();
+  const values = new Set<string>();
+  if (residentIdRaw) values.add(residentIdRaw);
+  const residentIdDigits = cleanPhone(residentIdRaw);
+  if (residentIdDigits) values.add(residentIdDigits);
+  if (residentMask) values.add(residentMask);
+  const residentMaskDigits = cleanPhone(residentMask);
+  if (residentMaskDigits) values.add(residentMaskDigits);
+  return Array.from(values).filter(Boolean);
+}
+
+async function pickAccountByPhone(
+  table: 'admin_accounts' | 'manager_accounts',
+  value: string,
+): Promise<AccountRow | null> {
+  const { data, error } = await supabase
+    .from(table)
+    .select('id,phone')
+    .eq('phone', value)
+    .limit(1);
+
+  if (error) {
+    throw error;
+  }
+
+  const list = (data ?? []) as AccountRow[];
+  return list[0] ?? null;
+}
+
+async function resolveRoleAccount(
+  table: 'admin_accounts' | 'manager_accounts',
+  payload: Payload,
+): Promise<AccountRow | null> {
+  const candidates = buildPhoneCandidates(payload);
+  for (const raw of candidates) {
+    const digits = cleanPhone(raw);
+    const attempts = new Set<string>();
+    if (raw) attempts.add(raw);
+    if (digits) attempts.add(digits);
+    for (const candidate of attempts) {
+      const row = await pickAccountByPhone(table, candidate);
+      if (row) return row;
+    }
+  }
+  return null;
+}
+
 serve(async (req: Request) => {
   if (req.method === 'OPTIONS') {
     return new Response('ok', { headers: corsHeaders });
@@ -200,26 +272,65 @@ serve(async (req: Request) => {
   const residentMask = String(body.residentMask ?? '').trim();
   const fcIdFromBody = String(body.fcId ?? '').trim();
   const residentIdDigits = cleanPhone(residentIdRaw);
+  const roleHint = isRoleHint(body.role) ? body.role : isRoleHint(body.roleHint) ? body.roleHint : null;
 
   if (!residentIdRaw && !residentMask && !fcIdFromBody) {
     return err('residentId or fcId required', 400);
   }
 
+  const roleSearchOrder: AccountRole[] = roleHint ? [roleHint] : ['fc', 'admin', 'manager'];
+  let resolvedRole: AccountRole | null = null;
   let profile: FcProfileRow | null = null;
+  let roleAccount: AccountRow | null = null;
+
   try {
-    profile = await resolveProfile(body);
-  } catch (profileError) {
-    const message = profileError instanceof Error ? profileError.message : 'Profile lookup failed';
+    for (const role of roleSearchOrder) {
+      if (role === 'fc') {
+        profile = await resolveProfile(body);
+        if (profile?.id) {
+          resolvedRole = 'fc';
+          break;
+        }
+        continue;
+      }
+
+      if (role === 'admin') {
+        roleAccount = await resolveRoleAccount('admin_accounts', body);
+        if (roleAccount?.id) {
+          resolvedRole = 'admin';
+          break;
+        }
+        continue;
+      }
+
+      roleAccount = await resolveRoleAccount('manager_accounts', body);
+      if (roleAccount?.id) {
+        resolvedRole = 'manager';
+        break;
+      }
+    }
+  } catch (resolveError) {
+    const message = resolveError instanceof Error ? resolveError.message : 'Account lookup failed';
     return err(message, 500);
   }
 
-  if (!profile?.id) {
-    return err('FC profile not found', 404);
+  if (!resolvedRole) {
+    return err('Account not found', 404);
   }
 
-  const fcId = profile.id;
-  const resolvedPhone = cleanPhone(profile.phone ?? '') || residentIdDigits;
-  const residentIds = buildResidentIds(resolvedPhone);
+  const resolvedPhone =
+    resolvedRole === 'fc'
+      ? cleanPhone(profile?.phone ?? '') || residentIdDigits || cleanPhone(residentMask)
+      : cleanPhone(roleAccount?.phone ?? '') || residentIdDigits || cleanPhone(residentMask);
+  const residentIds = Array.from(
+    new Set([
+      ...buildResidentIds(resolvedPhone),
+      residentIdRaw,
+      residentMask,
+      residentIdDigits,
+    ].filter(Boolean)),
+  );
+  const fcId = resolvedRole === 'fc' ? profile?.id ?? null : null;
 
   const deleteByResident = async (table: string, column: string) => {
     if (residentIds.length === 0) return { data: null };
@@ -242,16 +353,18 @@ serve(async (req: Request) => {
   };
 
   // 1) FC 문서 스토리지 정리
-  const docsResult = await ignoreMissingTable(
-    await supabase.from('fc_documents').select('storage_path').eq('fc_id', fcId),
-  );
-  const docPaths = ((docsResult.data ?? []) as FcDocumentRow[])
-    .map((doc) => doc.storage_path)
-    .filter((p): p is string => !!p && p !== 'deleted');
-  if (docPaths.length > 0) {
-    const { error: storageError } = await supabase.storage.from('fc-documents').remove(docPaths);
-    if (storageError) {
-      console.warn('[delete-account] fc-documents storage remove failed', storageError.message ?? storageError);
+  if (fcId) {
+    const docsResult = await ignoreMissingTable(
+      await supabase.from('fc_documents').select('storage_path').eq('fc_id', fcId),
+    );
+    const docPaths = ((docsResult.data ?? []) as FcDocumentRow[])
+      .map((doc) => doc.storage_path)
+      .filter((p): p is string => !!p && p !== 'deleted');
+    if (docPaths.length > 0) {
+      const { error: storageError } = await supabase.storage.from('fc-documents').remove(docPaths);
+      if (storageError) {
+        console.warn('[delete-account] fc-documents storage remove failed', storageError.message ?? storageError);
+      }
     }
   }
 
@@ -307,11 +420,13 @@ serve(async (req: Request) => {
   }
 
   // 4) resident/fc 연관 레코드 삭제
-  await ignoreMissingTable(await supabase.from('fc_documents').delete().eq('fc_id', fcId));
-  await ignoreMissingTable(await supabase.from('fc_credentials').delete().eq('fc_id', fcId));
-  await ignoreMissingTable(await supabase.from('fc_identity_secure').delete().eq('fc_id', fcId));
-  await ignoreMissingTable(await supabase.from('exam_registrations').delete().eq('fc_id', fcId));
-  await ignoreMissingTable(await supabase.from('notifications').delete().eq('fc_id', fcId));
+  if (fcId) {
+    await ignoreMissingTable(await supabase.from('fc_documents').delete().eq('fc_id', fcId));
+    await ignoreMissingTable(await supabase.from('fc_credentials').delete().eq('fc_id', fcId));
+    await ignoreMissingTable(await supabase.from('fc_identity_secure').delete().eq('fc_id', fcId));
+    await ignoreMissingTable(await supabase.from('exam_registrations').delete().eq('fc_id', fcId));
+    await ignoreMissingTable(await supabase.from('notifications').delete().eq('fc_id', fcId));
+  }
 
   await deleteByResident('messages', 'sender_id');
   await deleteByResident('messages', 'receiver_id');
@@ -319,24 +434,49 @@ serve(async (req: Request) => {
   await deleteByResident('notifications', 'resident_id');
   await deleteByResident('device_tokens', 'resident_id');
   await deleteByResident('web_push_subscriptions', 'resident_id');
+  await deleteByResident('board_attachments', 'created_by_resident_id');
+  await ignoreMissingTableOrColumn(
+    residentIds.length <= 1
+      ? await supabase
+          .from('notices')
+          .delete()
+          .eq('created_by', residentIds[0] ?? '')
+      : await supabase
+          .from('notices')
+          .delete()
+          .in('created_by', residentIds),
+  );
 
   // 5) auth/profiles bridge 정리
-  const linkedProfilesResult = await ignoreMissingTable(
-    await supabase.from('profiles').select('id').eq('fc_id', fcId),
-  );
-  const linkedProfileIds = ((linkedProfilesResult.data ?? []) as LinkedProfileRow[]).map((row) => row.id);
-  for (const profileId of linkedProfileIds) {
-    const { error: authDeleteError } = await supabase.auth.admin.deleteUser(profileId);
-    if (authDeleteError) {
-      console.warn('[delete-account] auth user delete failed', profileId, authDeleteError.message ?? authDeleteError);
+  if (fcId) {
+    const linkedProfilesResult = await ignoreMissingTable(
+      await supabase.from('profiles').select('id').eq('fc_id', fcId),
+    );
+    const linkedProfileIds = ((linkedProfilesResult.data ?? []) as LinkedProfileRow[]).map((row) => row.id);
+    for (const profileId of linkedProfileIds) {
+      const { error: authDeleteError } = await supabase.auth.admin.deleteUser(profileId);
+      if (authDeleteError) {
+        console.warn('[delete-account] auth user delete failed', profileId, authDeleteError.message ?? authDeleteError);
+      }
     }
+    await ignoreMissingTable(await supabase.from('profiles').delete().eq('fc_id', fcId));
   }
-  await ignoreMissingTable(await supabase.from('profiles').delete().eq('fc_id', fcId));
 
   // 6) 최종 프로필 삭제
-  const { error: profileDeleteError } = await supabase.from('fc_profiles').delete().eq('id', fcId);
-  if (profileDeleteError) return err(profileDeleteError.message, 500);
+  if (resolvedRole === 'fc' && fcId) {
+    const { error: profileDeleteError } = await supabase.from('fc_profiles').delete().eq('id', fcId);
+    if (profileDeleteError) return err(profileDeleteError.message, 500);
+  }
 
-  return ok({ ok: true, deleted: true });
+  if (resolvedRole === 'admin' && roleAccount?.id) {
+    const { error: adminDeleteError } = await supabase.from('admin_accounts').delete().eq('id', roleAccount.id);
+    if (adminDeleteError) return err(adminDeleteError.message, 500);
+  }
+
+  if (resolvedRole === 'manager' && roleAccount?.id) {
+    const { error: managerDeleteError } = await supabase.from('manager_accounts').delete().eq('id', roleAccount.id);
+    if (managerDeleteError) return err(managerDeleteError.message, 500);
+  }
+
+  return ok({ ok: true, deleted: true, role: resolvedRole });
 });
-

@@ -25,9 +25,11 @@ export default function SettingsScreen() {
   const [deleting, setDeleting] = useState(false);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
 
+  const accountRole: 'fc' | 'admin' | 'manager' = readOnly ? 'manager' : role === 'admin' ? 'admin' : 'fc';
+
   const handleDelete = () => {
-    if (role !== 'fc') {
-      Alert.alert('안내', '관리자 계정은 삭제할 수 없습니다.');
+    if (!role) {
+      Alert.alert('오류', '로그인 정보를 확인할 수 없습니다.');
       return;
     }
     if (!residentId) {
@@ -42,7 +44,7 @@ export default function SettingsScreen() {
     setDeleting(true);
     try {
       const { data, error } = await supabase.functions.invoke<{ ok?: boolean; deleted?: boolean; error?: string }>('delete-account', {
-        body: { residentId, residentMask },
+        body: { residentId, residentMask, role: accountRole },
       });
       if (error) throw error;
       if (!data?.ok || !data?.deleted) {
@@ -76,7 +78,7 @@ export default function SettingsScreen() {
           <View style={styles.row}>
             <Text style={styles.label}>역할</Text>
             <Text style={styles.value}>
-              {isRequestBoardDesigner ? '설계매니저' : role === 'admin' ? '관리자' : 'FC'}
+              {isRequestBoardDesigner ? '설계매니저' : readOnly ? '본부장' : role === 'admin' ? '총무' : 'FC'}
             </Text>
           </View>
         </View>

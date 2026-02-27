@@ -162,12 +162,15 @@ OTP 검증
 ## 3. 계정 관리 API
 
 ### 3.1 delete-account
-FC 계정 삭제
+계정 삭제 (FC/총무/본부장)
 
 **Request**
 ```typescript
 {
-  phone: string;
+  residentId: string;                   // 전화번호(숫자)
+  residentMask?: string;                // 선택: 하이픈 포함 형식
+  fcId?: string;                        // 선택: FC UUID
+  role?: 'fc' | 'admin' | 'manager';   // 선택: 삭제 대상 역할 힌트
 }
 ```
 
@@ -175,16 +178,19 @@ FC 계정 삭제
 ```typescript
 {
   ok: boolean;
-  message?: string;
+  deleted: boolean;
+  role: 'fc' | 'admin' | 'manager';
+  error?: string;
 }
 ```
 
 **동작**
-- fc_profiles 삭제
-- fc_identity_secure 삭제
-- fc_credentials 삭제
-- fc_documents 삭제
-- Storage 파일 삭제
+- 공통: resident_id 기반 메시지/알림/디바이스토큰/웹푸시/게시판 연관 데이터 정리
+- `role='fc'` 또는 FC 자동 해석 시:
+  - `fc_profiles`, `fc_identity_secure`, `fc_credentials`, `fc_documents`, `profiles(auth bridge)` 삭제
+  - FC 문서/게시판/채팅 업로드 스토리지 정리
+- `role='admin'` 또는 admin 자동 해석 시: `admin_accounts` 본인 계정 삭제
+- `role='manager'` 또는 manager 자동 해석 시: `manager_accounts` 본인 계정 삭제
 
 ---
 

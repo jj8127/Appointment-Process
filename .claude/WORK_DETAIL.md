@@ -7,6 +7,58 @@
 
 ---
 
+## <a id="20260226-12"></a> 2026-02-26 | 남은 BLOCKED 42건 전수 PASS 마감(SET-01/RB-01/04/07 포함)
+
+**Commit**: `working tree`  
+**배경**:
+- 통합 실행기(`run-remaining-blocked-cli`) 기준 남은 실패 4건:
+  - `RB-01`, `RB-04`, `RB-07`: `request_board module failed: request create failed` 후속으로 `message attachment upload failed`
+  - `SET-01`: 총무/본부장 자기 계정 삭제 미지원
+
+**조치**:
+- `request_board` 계약 반영(실패 원인 제거):
+  - 의뢰 생성 payload에 `fcCodeName/fcCodeValue`, `designerCodeSelections` 추가
+  - 메신저 첨부 업로드 MIME을 허용 목록에 맞게 `application/pdf`로 변경
+  - 디버깅 가시화를 위해 업로드 실패 context 기록 강화
+- 계정 삭제 기능 확장(`delete-account`):
+  - 기존 FC 전용 삭제를 `fc/admin/manager` 역할 해석 기반으로 확장
+  - `role` 힌트 지원(명시 역할 우선 해석)으로 교차 역할 전화번호 오삭제 리스크 완화
+  - 공통 resident cleanup(메시지/알림/토큰/게시판 등) + 역할별 최종 계정 삭제(`fc_profiles`/`admin_accounts`/`manager_accounts`) 적용
+  - 계약 문서(`contracts/api-contracts.md`)를 신규 요청/응답 형식으로 업데이트
+- 앱/웹 설정 화면 수정:
+  - FC 전용 삭제 차단 제거
+  - 총무/본부장도 본인 삭제 가능하도록 `delete-account` 호출 body에 역할 힌트 전달
+- 런타임 반영:
+  - `supabase functions deploy delete-account --project-ref ubeginyxaotcamuqpmud` 실행
+
+**핵심 파일**:
+- `scripts/testing/run-remaining-blocked-cli.mjs`
+- `supabase/functions/delete-account/index.ts`
+- `app/settings.tsx`
+- `web/src/app/dashboard/settings/page.tsx`
+- `contracts/api-contracts.md`
+- `docs/testing/INTEGRATED_TEST_RUN_RESULT.json`
+- `docs/testing/evidence/remaining-blocked-cli-2026-02-26T16-13-37-899Z.json`
+- `docs/testing/evidence/remaining-blocked-cli-2026-02-26T16-13-37-899Z.md`
+- `AGENTS.md`
+- `.claude/WORK_LOG.md`
+- `.claude/WORK_DETAIL.md`
+
+**검증**:
+- 통합 재실행:
+  - `node scripts/testing/run-remaining-blocked-cli.mjs` -> `PASS: 42, FAIL: 0`
+- 통합 무결성 게이트:
+  - `npm run qa:validate:integrated` -> `PASS=52, FAIL=0, BLOCKED=0, SKIPPED=0`
+- 정적 검사:
+  - `npm run lint -- app/settings.tsx scripts/testing/run-remaining-blocked-cli.mjs` 통과
+  - `cd web && npm run lint -- src/app/dashboard/settings/page.tsx` 통과
+
+**주의/운영 포인트**:
+- `delete-account` 호출 시 `role` 힌트를 항상 전달해 역할 판별 모호성을 제거한다.
+- 통합 실행기 실패 시 evidence JSON의 `modules.*.context`를 즉시 확인해 계약 드리프트를 우선 수정한다.
+
+---
+
 ## <a id="20260226-11"></a> 2026-02-26 | Push 거버넌스 실패 재발 방지 문서화 + schema sync marker
 
 **Commit**: `working tree`  

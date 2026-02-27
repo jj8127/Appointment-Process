@@ -37,10 +37,11 @@ export default function SettingsPage() {
   const [pushLoading, setPushLoading] = useState(false);
   const [pushPermission, setPushPermission] = useState<WebPushPermissionState>('unsupported');
 
-  const isFc = role === 'fc';
-  const displayRole = role === 'admin' ? '관리자' : 'FC';
+  const deleteRole = role === 'admin' ? 'admin' : role === 'manager' ? 'manager' : role === 'fc' ? 'fc' : null;
+  const displayRole = role === 'admin' ? '총무' : role === 'manager' ? '본부장' : 'FC';
   const displaySub = useMemo(() => {
     if (role === 'admin') return '총무 계정';
+    if (role === 'manager') return '본부장 계정';
     return residentMask || '전화번호 미등록';
   }, [role, residentMask]);
 
@@ -77,16 +78,15 @@ export default function SettingsPage() {
   };
 
   const handleDeleteAccount = async () => {
-    if (!isFc) {
+    if (!residentId) {
       notifications.show({
-        title: '계정 삭제 불가',
-        message: '관리자 계정은 삭제할 수 없습니다.',
+        title: '계정 정보 없음',
+        message: '현재 로그인 정보를 확인할 수 없습니다.',
         color: 'red',
       });
       return;
     }
-
-    if (!residentId) {
+    if (!deleteRole) {
       notifications.show({
         title: '계정 정보 없음',
         message: '현재 로그인 정보를 확인할 수 없습니다.',
@@ -106,7 +106,7 @@ export default function SettingsPage() {
       const { data, error } = await supabase.functions.invoke<{ ok?: boolean; deleted?: boolean; error?: string }>(
         'delete-account',
         {
-          body: { residentId, residentMask },
+          body: { residentId, residentMask, role: deleteRole },
         },
       );
       if (error) {
@@ -276,7 +276,7 @@ export default function SettingsPage() {
                   color="red"
                   size="xs"
                   onClick={openModal}
-                  disabled={!isFc}
+                  disabled={!deleteRole}
                   styles={{
                     root: {
                       padding: 0,
@@ -292,11 +292,6 @@ export default function SettingsPage() {
                   계정 삭제
                 </Button>
               </Group>
-              {!isFc && (
-                <Text size="xs" c="dimmed">
-                  관리자 계정은 삭제할 수 없습니다.
-                </Text>
-              )}
             </Stack>
           </Stack>
         </Paper>

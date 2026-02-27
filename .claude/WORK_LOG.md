@@ -20,6 +20,7 @@
 ## 최근 작업
 | 날짜 | 작업 | 핵심 파일 | 상세 |
 |------|------|----------|------|
+| 02-26 | 남은 BLOCKED 42건 전수 PASS 마감(SET-01/RB-01/04/07 포함) | `scripts/testing/run-remaining-blocked-cli.mjs`, `supabase/functions/delete-account/index.ts`, `app/settings.tsx`, `web/src/app/dashboard/settings/page.tsx`, `contracts/api-contracts.md`, `docs/testing/INTEGRATED_TEST_RUN_RESULT.json` | [→ 상세](WORK_DETAIL.md#20260226-12) |
 | 02-26 | Push 거버넌스 실패 재발 방지 문서화 + schema sync marker 추가 | `AGENTS.md`, `docs/guides/COMMANDS.md`, `supabase/schema.sql`, `.claude/WORK_LOG.md`, `.claude/WORK_DETAIL.md` | [→ 상세](WORK_DETAIL.md#20260226-11) |
 | 02-26 | BLOCKED 역할순 실행(FC→본부장→총무→설계매니저) 자동검증 + PASS 전환 8건 | `scripts/testing/run-fc-blocked-cli.mjs`, `scripts/testing/run-manager-blocked-cli.mjs`, `scripts/testing/run-admin-blocked-cli.mjs`, `scripts/testing/run-designer-blocked-cli.mjs`, `docs/testing/INTEGRATED_TEST_RUN_RESULT.json`, `docs/testing/evidence/*`, `AGENTS.md` | [→ 상세](WORK_DETAIL.md#20260226-10) |
 | 02-26 | 통합 테스트 실행체계 구축(누락 방지) | `docs/testing/INTEGRATED_TEST_CHECKLIST.md`, `docs/testing/integrated-test-cases.json`, `scripts/testing/init-integrated-test-run.mjs`, `scripts/testing/validate-integrated-test-run.mjs`, `package.json`, `AGENTS.md` | [→ 상세](WORK_DETAIL.md#20260226-9) |
