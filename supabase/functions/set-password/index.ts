@@ -83,6 +83,19 @@ function toBase64(bytes: Uint8Array) {
   return btoa(binary);
 }
 
+function parseDesignerCompanyNameFromAffiliation(affiliation?: string | null): string | null {
+  if (!affiliation) return null;
+  const normalized = affiliation.trim();
+  if (!normalized) return null;
+  const marker = '설계매니저';
+  const markerIndex = normalized.indexOf(marker);
+  if (markerIndex === -1) return null;
+
+  // e.g. "농협생명 설계매니저" -> "농협생명"
+  const company = normalized.slice(0, markerIndex).trim();
+  return company.length > 0 ? company : null;
+}
+
 async function hashPassword(password: string, saltBytes: Uint8Array) {
   const key = await crypto.subtle.importKey('raw', encoder.encode(password), 'PBKDF2', false, ['deriveBits']);
   const bits = await crypto.subtle.deriveBits(
@@ -199,7 +212,7 @@ serve(async (req: Request) => {
 
   const { data: profile, error: profileError } = await supabase
     .from('fc_profiles')
-    .select('id,name,phone,phone_verified')
+    .select('id,name,phone,phone_verified,affiliation')
     .eq('phone', phone)
     .maybeSingle();
 
@@ -218,6 +231,7 @@ serve(async (req: Request) => {
 
   let fcId = profile?.id as string | undefined;
   let displayName = profile?.name ?? '';
+  let effectiveAffiliation = profile?.affiliation ?? profileAffiliation;
 
   if (!fcId) {
     const insertPayload: Record<string, unknown> = {
@@ -261,6 +275,7 @@ serve(async (req: Request) => {
     }
     fcId = inserted.id as string;
     displayName = inserted.name ?? '';
+    effectiveAffiliation = profileAffiliation;
   } else if (profileName) {
     // Update profile with signup form data (in case profile was created by OTP with empty fields)
     const updatePayload: Record<string, string | boolean> = {
@@ -286,6 +301,9 @@ serve(async (req: Request) => {
         return json({ ok: false, code: 'db_error', message: updateResult.error.message }, 500);
       }
       displayName = profileName || displayName;
+      if (profileAffiliation) {
+        effectiveAffiliation = profileAffiliation;
+      }
     }
   } else {
     const statusOnlyPayload: Record<string, string | boolean> = {
@@ -356,9 +374,11 @@ serve(async (req: Request) => {
     return json({ ok: false, code: 'db_error', message: profileUpdateError.message }, 500);
   }
 
+  const designerCompanyName = parseDesignerCompanyNameFromAffiliation(effectiveAffiliation);
   await syncRequestBoardPassword(phone, password, {
-    role: 'fc',
+    role: designerCompanyName ? 'designer' : 'fc',
     name: displayName,
+    ...(designerCompanyName ? { companyName: designerCompanyName } : {}),
   });
 
   return json({ ok: true, residentId: phone, displayName });

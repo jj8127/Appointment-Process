@@ -40,7 +40,7 @@ export default function LoginScreen() {
             return;
         }
         if (role === 'fc' && residentId) {
-            router.replace('/home-lite');
+            router.replace(isRequestBoardDesigner ? '/request-board' : '/home-lite');
         }
     }, [hydrated, isRequestBoardDesigner, residentId, role, skipAutoRedirect]);
 
@@ -178,7 +178,7 @@ const styles = StyleSheet.create({
     },
     logo: {
         width: 220,
-        height: 240,
+        height: 210,
     },
     logoDecoration: {
         position: 'absolute',

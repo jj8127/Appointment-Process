@@ -527,6 +527,7 @@ serve(async (req: Request) => {
       // 게시판 참여 데이터 삭제
       await deleteByResident('board_comment_likes', 'resident_id');
       await deleteByResident('board_post_reactions', 'resident_id');
+      await deleteByResident('board_post_views', 'resident_id');
       await deleteByResident('board_comments', 'author_resident_id');
 
       // FC가 작성한 게시글 정리 + 첨부 스토리지 정리

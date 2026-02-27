@@ -163,6 +163,31 @@ serve(async (req: Request) => {
     return fail('weak_password', '비밀번호는 8자 이상이며 영문+숫자+특수문자를 포함해야 합니다.');
   }
 
+  // 역할 충돌 방지: 총무 계정은 FC/본부장 계정과 휴대폰 번호를 공유할 수 없다.
+  const { data: managerAccount, error: managerError } = await supabase
+    .from('manager_accounts')
+    .select('id')
+    .eq('phone', phone)
+    .maybeSingle();
+  if (managerError) {
+    return json({ ok: false, code: 'db_error', message: managerError.message }, 500);
+  }
+  if (managerAccount) {
+    return fail('already_exists', '해당 번호로 본부장 계정이 이미 있습니다.');
+  }
+
+  const { data: fcProfile, error: fcError } = await supabase
+    .from('fc_profiles')
+    .select('id')
+    .eq('phone', phone)
+    .maybeSingle();
+  if (fcError) {
+    return json({ ok: false, code: 'db_error', message: fcError.message }, 500);
+  }
+  if (fcProfile) {
+    return fail('already_exists', '해당 번호로 FC 계정이 이미 있습니다.');
+  }
+
   const saltBytes = crypto.getRandomValues(new Uint8Array(16));
   const passwordHash = await hashPassword(password, saltBytes);
   const passwordSalt = toBase64(saltBytes);
@@ -188,9 +213,8 @@ serve(async (req: Request) => {
   }
 
   await syncRequestBoardPassword(phone, password, {
-    role: 'designer',
+    role: 'fc',
     name,
-    companyName: '가람in',
   });
 
   return json({ ok: true, phone, name, active });

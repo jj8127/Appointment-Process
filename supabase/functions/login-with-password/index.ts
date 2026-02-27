@@ -167,6 +167,23 @@ async function syncRequestBoardPassword(
   }
 }
 
+function parseDesignerCompanyNameFromAffiliation(affiliation?: string | null): string | null {
+  const raw = String(affiliation ?? '').trim();
+  if (!raw) return null;
+
+  const marker = '설계매니저';
+  const markerIndex = raw.lastIndexOf(marker);
+  if (markerIndex < 0) return null;
+
+  // e.g. "농협생명 설계매니저" -> "농협생명"
+  const companyName = raw
+    .slice(0, markerIndex)
+    .replace(/[:\-\s]+$/g, '')
+    .trim();
+
+  return companyName || null;
+}
+
 serve(async (req: Request) => {
   if (req.method === 'OPTIONS') {
     return new Response('ok', { headers: corsHeaders });
@@ -254,12 +271,11 @@ serve(async (req: Request) => {
       .eq('id', admin.id);
 
     await syncRequestBoardPassword(admin.phone, password, {
-      role: 'designer',
+      role: 'fc',
       name: admin.name ?? '',
-      companyName: '가람in',
     });
 
-    const requestBoardBridgeToken = await createBridgeToken(admin.phone, 'designer');
+    const requestBoardBridgeToken = await createBridgeToken(admin.phone, 'fc');
     return json({
       ok: true,
       role: 'admin',
@@ -344,7 +360,7 @@ serve(async (req: Request) => {
 
   const { data: profile, error: profileError } = await supabase
     .from('fc_profiles')
-    .select('id,name,phone,signup_completed')
+    .select('id,name,phone,signup_completed,affiliation')
     .eq('phone', phone)
     .maybeSingle();
 
@@ -410,12 +426,16 @@ serve(async (req: Request) => {
     .update({ failed_count: 0, locked_until: null })
     .eq('fc_id', profile.id);
 
+  const designerCompanyName = parseDesignerCompanyNameFromAffiliation(profile.affiliation);
+  const requestBoardRole: 'fc' | 'designer' = designerCompanyName ? 'designer' : 'fc';
+
   await syncRequestBoardPassword(profile.phone, password, {
-    role: 'fc',
+    role: requestBoardRole,
     name: profile.name ?? '',
+    ...(designerCompanyName ? { companyName: designerCompanyName } : {}),
   });
 
-  const requestBoardBridgeToken = await createBridgeToken(profile.phone, 'fc');
+  const requestBoardBridgeToken = await createBridgeToken(profile.phone, requestBoardRole);
   return json({
     ok: true,
     role: 'fc',

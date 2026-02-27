@@ -576,6 +576,12 @@ export type RbRequestDetail = {
     product_id: number;
     insurance_products?: { id: number; name: string; icon?: string | null } | null;
   }[];
+  fc?: {
+    id: number;
+    name: string;
+    email?: string | null;
+    phone?: string | null;
+  } | null;
   request_designers?: RbDesignerAssignment[];
 };
 

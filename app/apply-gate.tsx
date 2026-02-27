@@ -11,7 +11,7 @@ import { COLORS } from '@/lib/theme';
 
 export default function ApplyGateScreen() {
   const { next } = useLocalSearchParams<{ next?: string }>();
-  const { role, hydrated } = useSession();
+  const { role, hydrated, isRequestBoardDesigner } = useSession();
   const { data, isLoading } = useIdentityStatus();
 
   useEffect(() => {
@@ -24,11 +24,16 @@ export default function ApplyGateScreen() {
       router.replace('/');
       return;
     }
+    if (isRequestBoardDesigner) {
+      const nextPath = (typeof next === 'string' && next) ? (next as Href) : ('/' as Href);
+      router.replace(nextPath);
+      return;
+    }
     if (!isLoading && data?.identityCompleted) {
       const nextPath = (typeof next === 'string' && next) ? (next as Href) : ('/' as Href);
       router.replace(nextPath);
     }
-  }, [data?.identityCompleted, hydrated, isLoading, next, role]);
+  }, [data?.identityCompleted, hydrated, isLoading, isRequestBoardDesigner, next, role]);
 
   return (
     <SafeAreaView style={styles.safe} edges={['left', 'right', 'bottom']}>

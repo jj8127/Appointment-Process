@@ -33,8 +33,8 @@ export async function fetchIdentityStatus(residentId: string): Promise<IdentityS
 }
 
 export function useIdentityStatus() {
-  const { role, residentId, hydrated } = useSession();
-  const enabled = hydrated && role === 'fc' && !!residentId;
+  const { role, residentId, hydrated, isRequestBoardDesigner } = useSession();
+  const enabled = hydrated && role === 'fc' && !!residentId && !isRequestBoardDesigner;
 
   return useQuery({
     queryKey: ['identity-status', residentId],

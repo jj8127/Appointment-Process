@@ -371,6 +371,7 @@ serve(async (req: Request) => {
   // 2) 게시판 관련 삭제 (likes/reactions/comments/posts + attachments)
   await deleteByResident('board_comment_likes', 'resident_id');
   await deleteByResident('board_post_reactions', 'resident_id');
+  await deleteByResident('board_post_views', 'resident_id');
   await deleteByResident('board_comments', 'author_resident_id');
 
   const postsResult = await selectPostsByResident();
@@ -474,6 +475,15 @@ serve(async (req: Request) => {
   }
 
   if (resolvedRole === 'manager' && roleAccount?.id) {
+    const managerPhone = cleanPhone(roleAccount.phone ?? '');
+    if (managerPhone) {
+      await ignoreMissingTable(
+        await supabase
+          .from('affiliation_manager_mappings')
+          .delete()
+          .eq('manager_phone', managerPhone),
+      );
+    }
     const { error: managerDeleteError } = await supabase.from('manager_accounts').delete().eq('id', roleAccount.id);
     if (managerDeleteError) return err(managerDeleteError.message, 500);
   }

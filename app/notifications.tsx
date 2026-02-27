@@ -86,7 +86,7 @@ const isRequestBoardCategory = (category?: string | null): boolean =>
 
 export default function NotificationsScreen() {
   const router = useRouter();
-  const { role, residentId, hydrated, isRequestBoardDesigner, requestBoardRole } = useSession();
+  const { role, residentId, hydrated, isRequestBoardDesigner } = useSession();
   const [notices, setNotices] = useState<Notice[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -95,10 +95,8 @@ export default function NotificationsScreen() {
   const [dragArmed, setDragArmed] = useState(false);
   const [isDragging, setIsDragging] = useState(false);
 
-  const inboxRole: 'admin' | 'fc' | null = role
-    ? (requestBoardRole ? 'fc' : role)
-    : null;
-  const inboxResidentId = inboxRole === 'fc' ? (residentId || null) : null;
+  const inboxRole: 'admin' | 'fc' | null = role;
+  const inboxResidentId = residentId || null;
   const hiddenNoticeStorageKey =
     inboxRole === 'fc' ? `${HIDDEN_NOTICE_KEY_PREFIX}:${residentId || 'fc'}` : null;
 

@@ -53,7 +53,16 @@ type Payload =
     };
 
 type TokenRow = { expo_push_token: string; resident_id: string | null; display_name: string | null };
-type FcRow = { id: string; name: string | null; resident_id_masked: string | null; phone: string | null };
+type FcRow = {
+  id: string;
+  name: string | null;
+  resident_id_masked: string | null;
+  phone: string | null;
+  affiliation: string | null;
+};
+type AdminAccountRow = { phone: string | null };
+type ManagerAccountRow = { phone: string | null };
+type AffiliationManagerMappingRow = { manager_phone: string | null };
 type NoticeFile = { name?: string; url?: string; type?: string };
 type NotificationInsert = {
   title: string;
@@ -99,8 +108,46 @@ const EXPO_PUSH_URL = 'https://exp.host/--/api/v2/push/send';
 const BOARD_NOTICE_CATEGORY_SLUG = 'notice';
 const BOARD_NOTICE_ID_PREFIX = 'board_notice:';
 const BOARD_ATTACHMENT_SIGN_EXPIRES_SECONDS = 60 * 60 * 6;
+const AFFILIATION_OPTIONS = [
+  '1팀(서울1) : 서선미 본부장님',
+  '2팀(서울2) : 박성훈 본부장님',
+  '3팀(부산1) : 김태희 본부장님',
+  '4팀(대전1) : 현경숙 본부장님',
+  '5팀(대전2) : 최철준 본부장님',
+  '6팀(전주1) : 김정수 본부장님',
+  '7팀(청주1/직할) : 김동훈 본부장님',
+  '8팀(서울3) : 정승철 본부장님',
+  '9팀(서울4) : 이현옥 본부장님',
+] as const;
+const LEGACY_AFFILIATION_TO_NEW: Record<string, string> = {
+  '1본부 [본부장: 서선미]': '1팀(서울1) : 서선미 본부장님',
+  '2본부 [본부장: 박성훈]': '2팀(서울2) : 박성훈 본부장님',
+  '3본부 [본부장: 현경숙]': '3팀(부산1) : 김태희 본부장님',
+  '4본부 [본부장: 최철준]': '4팀(대전1) : 현경숙 본부장님',
+  '5본부 [본부장: 박선희]': '5팀(대전2) : 최철준 본부장님',
+  '6본부 [본부장: 김태희]': '6팀(전주1) : 김정수 본부장님',
+  '7본부 [본부장: 김동훈]': '7팀(청주1/직할) : 김동훈 본부장님',
+  '8본부 [본부장: 정승철]': '8팀(서울3) : 정승철 본부장님',
+};
 
 const sanitize = (v?: string | null) => (v ?? '').replace(/[^0-9]/g, '');
+const normalizeWhitespace = (value?: string | null) => (value ?? '').replace(/\s+/g, ' ').trim();
+const normalizeAffiliationLabel = (value?: string | null): string => {
+  const trimmed = normalizeWhitespace(value);
+  if (!trimmed) return '';
+  if (AFFILIATION_OPTIONS.includes(trimmed as (typeof AFFILIATION_OPTIONS)[number])) return trimmed;
+
+  const mapped = LEGACY_AFFILIATION_TO_NEW[trimmed];
+  if (mapped) return mapped;
+
+  const prefix = trimmed.match(/^([1-9])\s*(본부|팀)/);
+  if (prefix?.[1]) {
+    const index = Number(prefix[1]) - 1;
+    return AFFILIATION_OPTIONS[index] ?? trimmed;
+  }
+
+  return trimmed;
+};
 
 function getEnv(name: string): string | undefined {
   const g: any = globalThis as any;
@@ -458,6 +505,47 @@ function dedupeTokens(tokens: TokenRow[]): TokenRow[] {
   });
 }
 
+async function resolveFcUpdateAdminRecipientIds(fcAffiliation?: string | null): Promise<string[]> {
+  const normalizedAffiliation = normalizeAffiliationLabel(fcAffiliation);
+  const [adminsRes, mappingRes] = await Promise.all([
+    supabase
+      .from('admin_accounts')
+      .select('phone')
+      .eq('active', true),
+    supabase
+      .from('affiliation_manager_mappings')
+      .select('manager_phone')
+      .eq('active', true)
+      .eq('affiliation', normalizedAffiliation),
+  ]);
+
+  if (adminsRes.error) throw adminsRes.error;
+  if (mappingRes.error && mappingRes.error.code !== '42P01') throw mappingRes.error;
+
+  const adminPhones = ((adminsRes.data ?? []) as AdminAccountRow[])
+    .map((admin) => sanitize(admin.phone))
+    .filter((phone) => phone.length > 0);
+
+  const mappedManagerPhones = ((mappingRes.data ?? []) as AffiliationManagerMappingRow[])
+    .map((row) => sanitize(row.manager_phone))
+    .filter((phone) => phone.length > 0);
+
+  let managerPhones: string[] = [];
+  if (mappedManagerPhones.length > 0) {
+    const { data: activeManagers, error: managerErr } = await supabase
+      .from('manager_accounts')
+      .select('phone')
+      .eq('active', true)
+      .in('phone', mappedManagerPhones);
+    if (managerErr) throw managerErr;
+    managerPhones = ((activeManagers ?? []) as ManagerAccountRow[])
+      .map((manager) => sanitize(manager.phone))
+      .filter((phone) => phone.length > 0);
+  }
+
+  return Array.from(new Set([...adminPhones, ...managerPhones]));
+}
+
 // Security: Restrict CORS to specific origins
 const allowedOrigins = (getEnv('ALLOWED_ORIGINS') ?? '').split(',').map(o => o.trim()).filter(Boolean);
 const corsHeaders = {
@@ -566,7 +654,11 @@ serve(async (req: Request) => {
           query = query.eq('recipient_role', 'fc').is('resident_id', null);
         }
       } else {
-        query = query.eq('recipient_role', 'admin');
+        if (residentId) {
+          query = query.eq('recipient_role', 'admin').or(`resident_id.eq.${residentId},resident_id.is.null`);
+        } else {
+          query = query.eq('recipient_role', 'admin').is('resident_id', null);
+        }
       }
 
       return query;
@@ -619,7 +711,11 @@ serve(async (req: Request) => {
         countQuery = countQuery.eq('recipient_role', 'fc').is('resident_id', null);
       }
     } else {
-      countQuery = countQuery.eq('recipient_role', 'admin');
+      if (residentId) {
+        countQuery = countQuery.eq('recipient_role', 'admin').or(`resident_id.eq.${residentId},resident_id.is.null`);
+      } else {
+        countQuery = countQuery.eq('recipient_role', 'admin').is('resident_id', null);
+      }
     }
 
     const { count, error: countErr } = await countQuery;
@@ -666,7 +762,11 @@ serve(async (req: Request) => {
           deleteQuery = deleteQuery.eq('recipient_role', 'fc').is('resident_id', null);
         }
       } else {
-        deleteQuery = deleteQuery.eq('recipient_role', 'admin');
+        if (residentId) {
+          deleteQuery = deleteQuery.eq('recipient_role', 'admin').or(`resident_id.eq.${residentId},resident_id.is.null`);
+        } else {
+          deleteQuery = deleteQuery.eq('recipient_role', 'admin').is('resident_id', null);
+        }
       }
 
       const { count, error: notifDeleteErr } = await deleteQuery;
@@ -871,7 +971,7 @@ serve(async (req: Request) => {
 
   const { data: fc, error: fcError } = await supabase
     .from('fc_profiles')
-    .select('id,name,resident_id_masked,phone')
+    .select('id,name,resident_id_masked,phone,affiliation')
     .eq('id', fc_id)
     .maybeSingle();
 
@@ -882,14 +982,66 @@ serve(async (req: Request) => {
 
   const targetRole: 'admin' | 'fc' = body.type === 'admin_update' ? 'fc' : 'admin';
   const targetResidentId = targetRole === 'fc' ? sanitize(fcRow.phone) : null;
+  const isFcAdminUpdateEvent = body.type === 'fc_update' || body.type === 'fc_delete';
 
+  const title = buildTitle(fcRow.name, body, (body as any).message);
+  const message = (body as any).message ?? title;
+  const targetUrl = getTargetUrl(targetRole, body, message, fcRow.id);
   let tokens: TokenRow[] = [];
-  if (body.type === 'fc_update' || body.type === 'fc_delete') {
-    const { data, error } = await supabase
-      .from('device_tokens')
-      .select('expo_push_token,resident_id,display_name')
-      .eq('role', 'admin');
-    if (!error && data) tokens = data;
+  let logError: { message: string } | null = null;
+
+  if (isFcAdminUpdateEvent) {
+    let recipientResidentIds: string[] = [];
+    try {
+      recipientResidentIds = await resolveFcUpdateAdminRecipientIds(fcRow.affiliation);
+    } catch (recipientError: unknown) {
+      const message = recipientError instanceof Error ? recipientError.message : 'failed to resolve admin recipients';
+      return err(message, 500);
+    }
+
+    if (recipientResidentIds.length > 0) {
+      const { data, error } = await supabase
+        .from('device_tokens')
+        .select('expo_push_token,resident_id,display_name')
+        .eq('role', 'admin')
+        .in('resident_id', recipientResidentIds);
+      if (error) {
+        console.warn('[fc-notify] device token load failed', error.message);
+      } else if (data) {
+        tokens = data;
+      }
+
+      const notificationRows = recipientResidentIds.map((recipientId) => ({
+        title,
+        body: message,
+        category: (body as any).type,
+        fc_id: fcRow.id,
+        resident_id: recipientId,
+        recipient_role: 'admin' as const,
+        target_url: targetUrl,
+      }));
+
+      const firstTry = await supabase.from('notifications').insert(notificationRows);
+      if (firstTry.error) {
+        const missingTargetColumn =
+          firstTry.error.code === '42703'
+          || String(firstTry.error.message ?? '').includes('target_url');
+        if (missingTargetColumn) {
+          const fallbackRows = notificationRows.map(({ target_url: _ignored, ...row }) => row);
+          const fallback = await supabase.from('notifications').insert(fallbackRows);
+          if (fallback.error) {
+            logError = fallback.error;
+          }
+        } else {
+          logError = firstTry.error;
+        }
+      }
+    } else {
+      console.warn('[fc-notify] no admin recipients resolved for fc_update/fc_delete', {
+        fc_id,
+        affiliation: fcRow.affiliation,
+      });
+    }
   } else {
     if (!targetResidentId) return err('FC phone number not found', 400);
     const { data, error } = await supabase
@@ -897,22 +1049,19 @@ serve(async (req: Request) => {
       .select('expo_push_token,resident_id,display_name')
       .eq('resident_id', targetResidentId);
     if (!error && data) tokens = data;
+
+    logError = await insertNotificationWithFallback({
+      title,
+      body: message,
+      category: (body as any).type,
+      fc_id: fcRow.id,
+      resident_id: targetResidentId,
+      recipient_role: targetRole,
+      target_url: targetUrl,
+    });
   }
+
   tokens = dedupeTokens(tokens);
-
-  const title = buildTitle(fcRow.name, body, (body as any).message);
-  const message = (body as any).message ?? title;
-  const targetUrl = getTargetUrl(targetRole, body, message, fcRow.id);
-
-  const logError = await insertNotificationWithFallback({
-    title,
-    body: message,
-    category: (body as any).type,
-    fc_id: fcRow.id,
-    resident_id: targetResidentId,
-    recipient_role: targetRole,
-    target_url: targetUrl,
-  });
   if (logError) console.warn('notifications insert failed', logError.message);
 
   let adminWebPush: AdminWebPushResult | null = null;
@@ -922,7 +1071,7 @@ serve(async (req: Request) => {
   }
 
   if (!tokens.length) {
-    return ok({ ok: true, sent: 0, logged: true, web_push: adminWebPush });
+    return ok({ ok: true, sent: 0, logged: !logError, web_push: adminWebPush });
   }
 
   const payload = tokens.map((t) => ({
@@ -948,5 +1097,5 @@ serve(async (req: Request) => {
 
   const result = await resp.json();
 
-  return ok({ ok: true, sent: tokens.length, logged: true, result, web_push: adminWebPush });
+  return ok({ ok: true, sent: tokens.length, logged: !logError, result, web_push: adminWebPush });
 });

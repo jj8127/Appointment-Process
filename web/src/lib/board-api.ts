@@ -42,6 +42,7 @@ export type BoardListItem = {
     commentCount: number;
     reactionCount: number;
     attachmentCount: number;
+    viewCount: number;
   };
   reactions?: {
     like: number;
@@ -72,6 +73,7 @@ export type BoardDetail = {
     editedAt?: string;
     isPinned: boolean;
     isMine: boolean;
+    viewCount: number;
   };
   attachments: Array<{
     id: string;

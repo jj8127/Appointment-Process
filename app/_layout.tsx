@@ -14,6 +14,7 @@ import { TourGuideProvider } from 'rn-tourguide';
 
 import { AppAlertProvider } from '@/components/AppAlertProvider';
 import CompactHeader from '@/components/CompactHeader';
+import SplashAnimation from '@/components/SplashAnimation';
 import { ErrorBoundary } from '@/components/ErrorBoundary';
 import FcTourTooltip from '@/components/FcTourTooltip';
 import { ToastProvider } from '@/components/Toast';
@@ -100,6 +101,7 @@ export default function RootLayout() {
     } as Record<string, FontSource>;
   }, [isWeb]);
   const [loaded, setLoaded] = useState(false);
+  const [showSplash, setShowSplash] = useState(true);
   const [error, setError] = useState<Error | null>(null);
 
   const colorScheme = useColorScheme();
@@ -190,7 +192,7 @@ export default function RootLayout() {
 
   return (
     <ErrorBoundary>
-      <GestureHandlerRootView style={{ flex: 1 }}>
+      <GestureHandlerRootView style={{ flex: 1, position: 'relative' }}>
         <SafeAreaProvider>
           <QueryClientProvider client={queryClient}>
             <SessionProvider>
@@ -439,6 +441,7 @@ export default function RootLayout() {
             </SessionProvider>
           </QueryClientProvider>
         </SafeAreaProvider>
+        {showSplash && <SplashAnimation onDone={() => setShowSplash(false)} />}
       </GestureHandlerRootView>
     </ErrorBoundary>
   );

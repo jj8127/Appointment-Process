@@ -37,6 +37,12 @@ const formatDate = (value?: string | null) => {
   return d.toLocaleDateString('ko-KR', { year: 'numeric', month: '2-digit', day: '2-digit' });
 };
 
+const formatPhone = (value?: string | null) => {
+  const digits = String(value ?? '').replace(/[^0-9]/g, '');
+  if (digits.length === 11) return `${digits.slice(0, 3)}-${digits.slice(3, 7)}-${digits.slice(7)}`;
+  return value ?? '-';
+};
+
 const formatFileSize = (bytes: number): string => {
   if (bytes < 1024) return `${bytes}B`;
   if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)}KB`;
@@ -47,8 +53,8 @@ const ASSIGNMENT_STATUS_LABEL: Record<string, { label: string; color: string; bg
   pending: { label: '수락 대기', color: '#F59E0B', bg: '#FEF3C7' },
   accepted: { label: '진행중', color: '#3B82F6', bg: '#EFF6FF' },
   completed: { label: '설계 완료', color: '#8B5CF6', bg: '#EDE9FE' },
-  rejected: { label: '거절', color: '#EF4444', bg: '#FEE2E2' },
-  cancelled: { label: '취소', color: COLORS.gray[500], bg: COLORS.gray[100] },
+  rejected: { label: '설계 거절', color: '#EF4444', bg: '#FEE2E2' },
+  cancelled: { label: '요청 취소', color: COLORS.gray[500], bg: COLORS.gray[100] },
 };
 
 const REQUEST_STATUS_LABEL: Record<string, { label: string; color: string; bg: string }> = {
@@ -96,7 +102,11 @@ export default function RequestBoardReviewScreen() {
   const requestId = id ? parseInt(id, 10) : null;
 
   const fetchData = useCallback(async () => {
-    if (!requestId) return;
+    if (!requestId || Number.isNaN(requestId)) {
+      setFetchError('유효하지 않은 의뢰 ID입니다.');
+      setLoading(false);
+      return;
+    }
     setFetchError(null);
     try {
       const data = await rbGetRequestDetail(requestId);
@@ -219,17 +229,24 @@ export default function RequestBoardReviewScreen() {
         key={assignment.id}
         style={[styles.assignmentCard, needsReview && styles.assignmentCardHighlight]}
       >
-        {/* Designer Info */}
-        <View style={styles.assignmentHeader}>
-          <View style={styles.designerAvatarWrap}>
-            <Feather name="user" size={16} color={COLORS.primary} />
+        {/* Designer Info (설계매니저 계정에서는 본인 프로필 노출 생략) */}
+        {isRequestBoardDesigner ? (
+          <View style={styles.assignmentHeaderSimple}>
+            <Text style={styles.assignmentHeaderLabel}>의뢰 처리 상태</Text>
+            <StatusBadge {...statusInfo} status={assignment.status} />
           </View>
-          <View style={styles.designerInfo}>
-            <Text style={styles.designerName}>{designerName}</Text>
-            {companyName && <Text style={styles.designerCompany}>{companyName}</Text>}
+        ) : (
+          <View style={styles.assignmentHeader}>
+            <View style={styles.designerAvatarWrap}>
+              <Feather name="user" size={16} color={COLORS.primary} />
+            </View>
+            <View style={styles.designerInfo}>
+              <Text style={styles.designerName}>{designerName}</Text>
+              {companyName && <Text style={styles.designerCompany}>{companyName}</Text>}
+            </View>
+            <StatusBadge {...statusInfo} status={assignment.status} />
           </View>
-          <StatusBadge {...statusInfo} status={assignment.status} />
-        </View>
+        )}
 
         {/* Timeline */}
         <View style={styles.timelineRow}>
@@ -428,16 +445,26 @@ export default function RequestBoardReviewScreen() {
               </View>
               <Text style={styles.infoProducts}>{getProductNames(detail)}</Text>
             </View>
-            <View style={styles.infoMetaRow}>
-              <View style={styles.infoMeta}>
-                <Feather name="calendar" size={12} color={COLORS.gray[400]} />
-                <Text style={styles.infoMetaText}>요청일 {formatDate(detail.created_at)}</Text>
-              </View>
-              {detail.request_details && (
-                <View style={styles.infoMetaRow}>
-                  <Feather name="file-text" size={12} color={COLORS.gray[400]} />
-                  <Text style={styles.infoMetaText} numberOfLines={2}>
-                    {detail.request_details}
+          <View style={styles.infoMetaRow}>
+            <View style={styles.infoMeta}>
+              <Feather name="calendar" size={12} color={COLORS.gray[400]} />
+              <Text style={styles.infoMetaText}>요청일 {formatDate(detail.created_at)}</Text>
+            </View>
+            <View style={styles.infoMeta}>
+              <Feather name="user" size={12} color={COLORS.gray[400]} />
+              <Text style={styles.infoMetaText}>고객명 {detail.customer_name ?? '-'}</Text>
+            </View>
+            <View style={styles.infoMeta}>
+              <Feather name="user" size={12} color={COLORS.gray[400]} />
+              <Text style={styles.infoMetaText}>
+                요청 FC {detail.fc?.name ?? '-'} ({formatPhone(detail.fc?.phone)})
+              </Text>
+            </View>
+            {detail.request_details && (
+              <View style={styles.infoMetaRow}>
+                <Feather name="file-text" size={12} color={COLORS.gray[400]} />
+                <Text style={styles.infoMetaText} numberOfLines={2}>
+                  {detail.request_details}
                   </Text>
                 </View>
               )}
@@ -700,6 +727,17 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: SPACING.sm,
     marginBottom: SPACING.sm,
+  },
+  assignmentHeaderSimple: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: SPACING.sm,
+  },
+  assignmentHeaderLabel: {
+    fontSize: TYPOGRAPHY.fontSize.sm,
+    color: COLORS.gray[700],
+    fontWeight: '600' as const,
   },
   designerAvatarWrap: {
     width: 36,

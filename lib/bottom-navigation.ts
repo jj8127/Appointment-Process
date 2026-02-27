@@ -38,7 +38,8 @@ export function resolveBottomNavPreset(
   options?: ResolveBottomNavPresetOptions,
 ): BottomNavPreset | null {
   if (input.hydrated === false) return null;
-  if (input.isRequestBoardDesigner) return 'request-board-designer';
+  // admin(총무/본부장) 계정은 isRequestBoardDesigner 플래그와 무관하게 admin 프리셋 사용
+  if (input.isRequestBoardDesigner && input.role !== 'admin') return 'request-board-designer';
 
   if (input.role === 'admin') {
     if (input.readOnly) return 'manager';

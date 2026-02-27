@@ -128,7 +128,12 @@ export function BottomNavigation({
       const [targetPath, query] = item.route.split('?');
       // query가 있는 경우(mode 전환 등)는 스택 누적 없이 replace 처리
       if (query) {
-        router.replace(item.route as any);
+        const params = Object.fromEntries(new URLSearchParams(query).entries());
+        if (pathname === targetPath) {
+          router.setParams(params as any);
+          return;
+        }
+        router.replace({ pathname: targetPath as any, params } as any);
         return;
       }
       if (pathname === targetPath) return;

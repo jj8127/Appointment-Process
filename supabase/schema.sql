@@ -100,6 +100,21 @@ create table if not exists public.manager_accounts (
   updated_at timestamptz not null default now()
 );
 
+create table if not exists public.affiliation_manager_mappings (
+  id uuid primary key default gen_random_uuid(),
+  affiliation text not null,
+  manager_phone text not null,
+  active boolean not null default true,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+  unique (affiliation, manager_phone)
+);
+
+create index if not exists idx_affiliation_manager_mappings_affiliation
+  on public.affiliation_manager_mappings (affiliation);
+create index if not exists idx_affiliation_manager_mappings_manager_phone
+  on public.affiliation_manager_mappings (manager_phone);
+
 create table if not exists public.profiles (
   id uuid primary key references auth.users (id) on delete cascade,
   role text not null check (role in ('admin', 'fc', 'manager')),
@@ -282,6 +297,11 @@ create trigger trg_manager_accounts_updated_at
 before update on public.manager_accounts
 for each row execute function public.set_updated_at();
 
+drop trigger if exists trg_affiliation_manager_mappings_updated_at on public.affiliation_manager_mappings;
+create trigger trg_affiliation_manager_mappings_updated_at
+before update on public.affiliation_manager_mappings
+for each row execute function public.set_updated_at();
+
 drop trigger if exists trg_profiles_updated_at on public.profiles;
 create trigger trg_profiles_updated_at
 before update on public.profiles
@@ -308,6 +328,7 @@ alter table public.fc_identity_secure enable row level security;
 alter table public.fc_credentials enable row level security;
 alter table public.admin_accounts enable row level security;
 alter table public.manager_accounts enable row level security;
+alter table public.affiliation_manager_mappings enable row level security;
 alter table public.profiles enable row level security;
 alter table public.web_push_subscriptions enable row level security;
 alter table public.notifications enable row level security;
@@ -663,6 +684,31 @@ create policy "admin_accounts delete"
   for delete
   using (public.is_admin());
 
+drop policy if exists "affiliation_manager_mappings select" on public.affiliation_manager_mappings;
+create policy "affiliation_manager_mappings select"
+  on public.affiliation_manager_mappings
+  for select
+  using (public.is_admin() or public.is_manager());
+
+drop policy if exists "affiliation_manager_mappings insert" on public.affiliation_manager_mappings;
+create policy "affiliation_manager_mappings insert"
+  on public.affiliation_manager_mappings
+  for insert
+  with check (public.is_admin());
+
+drop policy if exists "affiliation_manager_mappings update" on public.affiliation_manager_mappings;
+create policy "affiliation_manager_mappings update"
+  on public.affiliation_manager_mappings
+  for update
+  using (public.is_admin())
+  with check (public.is_admin());
+
+drop policy if exists "affiliation_manager_mappings delete" on public.affiliation_manager_mappings;
+create policy "affiliation_manager_mappings delete"
+  on public.affiliation_manager_mappings
+  for delete
+  using (public.is_admin());
+
 -- 스토리지 버킷
 insert into storage.buckets (id, name, public) values ('fc-documents', 'fc-documents', false)
 on conflict (id) do nothing;
@@ -969,6 +1015,15 @@ create table if not exists public.board_post_reactions (
   unique (post_id, resident_id)
 );
 
+create table if not exists public.board_post_views (
+  id uuid primary key default gen_random_uuid(),
+  post_id uuid not null references public.board_posts(id) on delete cascade,
+  resident_id text not null,
+  role text not null check (role in ('admin','manager','fc')),
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
 create table if not exists public.board_comments (
   id uuid primary key default gen_random_uuid(),
   post_id uuid not null references public.board_posts(id) on delete cascade,
@@ -1006,6 +1061,12 @@ create index if not exists idx_board_attachments_post_sort
 create index if not exists idx_board_post_reactions_post
   on public.board_post_reactions (post_id);
 
+create index if not exists idx_board_post_views_post
+  on public.board_post_views (post_id);
+
+create index if not exists idx_board_post_views_resident
+  on public.board_post_views (resident_id);
+
 create index if not exists idx_board_comments_post_parent
   on public.board_comments (post_id, parent_id, created_at);
 
@@ -1038,6 +1099,11 @@ create trigger trg_board_post_reactions_updated_at
 before update on public.board_post_reactions
 for each row execute function public.set_updated_at();
 
+drop trigger if exists trg_board_post_views_updated_at on public.board_post_views;
+create trigger trg_board_post_views_updated_at
+before update on public.board_post_views
+for each row execute function public.set_updated_at();
+
 drop trigger if exists trg_board_comments_updated_at on public.board_comments;
 create trigger trg_board_comments_updated_at
 before update on public.board_comments
@@ -1057,6 +1123,7 @@ alter table public.board_categories enable row level security;
 alter table public.board_posts enable row level security;
 alter table public.board_attachments enable row level security;
 alter table public.board_post_reactions enable row level security;
+alter table public.board_post_views enable row level security;
 alter table public.board_comments enable row level security;
 alter table public.board_comment_likes enable row level security;
 
@@ -1088,6 +1155,13 @@ create policy "board_post_reactions service_role"
   using (auth.role() = 'service_role')
   with check (auth.role() = 'service_role');
 
+drop policy if exists "board_post_views service_role" on public.board_post_views;
+create policy "board_post_views service_role"
+  on public.board_post_views
+  for all
+  using (auth.role() = 'service_role')
+  with check (auth.role() = 'service_role');
+
 drop policy if exists "board_comments service_role" on public.board_comments;
 create policy "board_comments service_role"
   on public.board_comments
@@ -1109,11 +1183,13 @@ select
   p.id as post_id,
   count(distinct c.id) as comment_count,
   count(distinct r.id) as reaction_count,
-  count(distinct a.id) as attachment_count
+  count(distinct a.id) as attachment_count,
+  count(v.id) as view_count
 from public.board_posts p
 left join public.board_comments c on c.post_id = p.id
 left join public.board_post_reactions r on r.post_id = p.id
 left join public.board_attachments a on a.post_id = p.id
+left join public.board_post_views v on v.post_id = p.id
 group by p.id;
 
 create or replace view public.board_comment_stats
@@ -1133,7 +1209,8 @@ select
   p.*,
   coalesce(s.comment_count, 0) as comment_count,
   coalesce(s.reaction_count, 0) as reaction_count,
-  coalesce(s.attachment_count, 0) as attachment_count
+  coalesce(s.attachment_count, 0) as attachment_count,
+  coalesce(s.view_count, 0) as view_count
 from public.board_posts p
 left join public.board_post_stats s on s.post_id = p.id;
 

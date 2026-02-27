@@ -313,6 +313,7 @@ type Actor = {
         commentCount: number;
         reactionCount: number;
         attachmentCount: number;
+        viewCount: number;
       };
       reactions?: {
         like: number;
@@ -362,6 +363,7 @@ type Actor = {
       editedAt?: string;
       isPinned: boolean;
       isMine: boolean;
+      viewCount: number;
     };
     attachments: Array<{
       id: string;

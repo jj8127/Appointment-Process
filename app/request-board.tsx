@@ -1,7 +1,7 @@
 import { Feather } from '@expo/vector-icons';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as Clipboard from 'expo-clipboard';
-import { LinearGradient } from 'expo-linear-gradient';
-import { Stack, useRouter } from 'expo-router';
+import { Stack, useFocusEffect, useRouter } from 'expo-router';
 import { MotiView } from 'moti';
 import { useCallback, useEffect, useState } from 'react';
 import {
@@ -18,13 +18,15 @@ import {
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
+import { AppTopActionBar } from '@/components/AppTopActionBar';
 import { BottomNavigation } from '@/components/BottomNavigation';
 import { useSession } from '@/hooks/use-session';
 import { resolveBottomNavActiveKey, resolveBottomNavPreset } from '@/lib/bottom-navigation';
 import { logger } from '@/lib/logger';
-import { rbGetRequests, type RbRequestSummary } from '@/lib/request-board-api';
+import { rbGetRequestList, rbGetRequests, type RbRequestSummary } from '@/lib/request-board-api';
 import { supabase } from '@/lib/supabase';
 import { COLORS, RADIUS, SHADOWS, SPACING, TYPOGRAPHY } from '@/lib/theme';
+import { buildWelcomeTitle } from '@/lib/welcome-title';
 
 /* ─── Constants ─── */
 
@@ -104,6 +106,8 @@ type ReqStats = {
   avgDays: number;
 };
 
+type RequestListFilter = 'all' | 'pending' | 'in_progress' | 'completed';
+
 const DEFAULT_REQ_STATS: ReqStats = {
   loaded: false,
   total: 0,
@@ -120,13 +124,26 @@ function computeReqStats(
   requests: RbRequestSummary[],
   isDesigner: boolean,
 ): Omit<ReqStats, 'loaded'> {
-  const getStatus = (r: RbRequestSummary) => r.assignmentStatus ?? r.status ?? '';
+  const normalizeStatus = (raw?: string | null): string => {
+    const status = String(raw ?? '').trim().toLowerCase();
+    if (!status) return '';
+    if (status === 'accepted' || status === 'in-progress' || status === 'inprogress') {
+      return 'in_progress';
+    }
+    return status;
+  };
+
+  // FC/본부장/총무 뷰는 요청 상태(status)를 우선, 설계매니저 뷰는 배정 상태(assignmentStatus)를 우선 사용
+  const getStatus = (r: RbRequestSummary) =>
+    normalizeStatus(isDesigner ? (r.assignmentStatus ?? r.status ?? '') : (r.status ?? r.assignmentStatus ?? ''));
+
   const now = new Date();
 
   const pending = requests.filter((r) => getStatus(r) === 'pending').length;
-  const inProgress = requests.filter((r) => getStatus(r) === 'accepted').length;
+  const inProgress = requests.filter((r) => getStatus(r) === 'in_progress').length;
   const completedAll = requests.filter((r) => getStatus(r) === 'completed');
   const completed = completedAll.length;
+  // 대시보드 카드에서 노출하는 3개 상태(대기/진행/완료) 합계와 동일하게 맞춘다.
   const total = pending + inProgress + completed;
 
   const completedThisMonth = isDesigner
@@ -144,7 +161,7 @@ function computeReqStats(
     isDesigner && completedAll.length > 0
       ? Math.round(
           (completedAll.reduce(
-            (s, r) => s + (r.processingDays ?? r.processing_days ?? 0),
+            (s, r) => s + Number(r.processingDays ?? r.processing_days ?? 0),
             0,
           ) /
             completedAll.length) *
@@ -160,11 +177,19 @@ function computeReqStats(
 export default function RequestBoardScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
-  const { role, residentId, hydrated, isRequestBoardDesigner, requestBoardRole, readOnly } = useSession();
+  const { role, residentId, displayName, hydrated, isRequestBoardDesigner, requestBoardRole, readOnly, logout } = useSession();
   const [notifications, setNotifications] = useState<NotificationItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [reqStats, setReqStats] = useState<ReqStats>(DEFAULT_REQ_STATS);
+  const [unreadNotifCount, setUnreadNotifCount] = useState(0);
+  const homeHeaderTitle = buildWelcomeTitle({
+    role,
+    readOnly,
+    isRequestBoardDesigner,
+    displayName,
+    fallbackTitle: '홈',
+  });
 
   const navPreset = resolveBottomNavPreset({
     role,
@@ -182,9 +207,7 @@ export default function RequestBoardScreen() {
 
   /* ─── Data fetch ─── */
   const fetchData = useCallback(async () => {
-    const inboxRole: 'admin' | 'fc' | null = role
-      ? (requestBoardRole ? 'fc' : role)
-      : null;
+    const inboxRole: 'admin' | 'fc' | null = role;
     if (!inboxRole) return;
 
     await Promise.allSettled([
@@ -195,7 +218,7 @@ export default function RequestBoardScreen() {
             body: {
               type: 'inbox_list',
               role: inboxRole,
-              resident_id: inboxRole === 'fc' ? (residentId ?? null) : null,
+              resident_id: residentId ?? null,
               limit: 100,
             },
           });
@@ -218,12 +241,43 @@ export default function RequestBoardScreen() {
         }
       })(),
 
+      // Unread notification count (same contract as home header bell)
+      (async () => {
+        try {
+          const lastCheck = await AsyncStorage.getItem('lastNotificationCheckTime');
+          const lastCheckDate = lastCheck ? new Date(lastCheck) : new Date(0);
+          const { data, error } = await supabase.functions.invoke('fc-notify', {
+            body: {
+              type: 'inbox_unread_count',
+              role: inboxRole,
+              resident_id: residentId ?? null,
+              since: lastCheckDate.toISOString(),
+            },
+          });
+          if (error) throw error;
+          if (!data?.ok) throw new Error(data?.message ?? '미확인 알림 조회 실패');
+          setUnreadNotifCount(Number(data.count ?? 0));
+        } catch (err) {
+          logger.warn('request-board unread notification count fetch failed', err);
+          setUnreadNotifCount(0);
+        }
+      })(),
+
       // Request stats from request_board API (FC, 본부장, 총무 and Designer views)
       (async () => {
         // skip if user has no request_board access at all
         if (!isRequestBoardDesigner && !requestBoardRole && role !== 'fc') return;
         try {
-          const requests = await rbGetRequests();
+          const requests = isRequestBoardDesigner
+            ? await rbGetRequests()
+            : (await rbGetRequestList()).map((item) => ({
+                id: item.id,
+                status: item.status,
+                request_designers: item.request_designers?.map((d) => ({
+                  status: d.status,
+                  fc_decision: d.fc_decision,
+                })),
+              }));
           const computed = computeReqStats(requests, !!isRequestBoardDesigner);
           setReqStats({ loaded: true, ...computed });
         } catch (err) {
@@ -239,6 +293,14 @@ export default function RequestBoardScreen() {
   useEffect(() => {
     if (hydrated) fetchData();
   }, [hydrated, fetchData]);
+
+  useFocusEffect(
+    useCallback(() => {
+      if (hydrated) {
+        void fetchData();
+      }
+    }, [hydrated, fetchData]),
+  );
 
   const handleRefresh = () => {
     setRefreshing(true);
@@ -264,12 +326,19 @@ export default function RequestBoardScreen() {
     router.push('/request-board-fc-codes' as any);
   };
 
-  const openRequests = () => {
-    router.push('/request-board-requests' as any);
+  const openRequests = (filter: RequestListFilter = 'all') => {
+    router.push({
+      pathname: '/request-board-requests' as any,
+      params: { filter },
+    } as any);
   };
 
   const openNotifications = () => {
     router.push('/notifications');
+  };
+
+  const handleLogout = () => {
+    logout();
   };
 
   const copyRequestBoardUrl = async () => {
@@ -300,29 +369,15 @@ export default function RequestBoardScreen() {
     <View style={styles.container}>
       <Stack.Screen options={{ headerShown: false }} />
 
-      {/* Header */}
-      <View style={[styles.header, { paddingTop: Math.max(insets.top, 20) + 4 }]}>
-        <View style={styles.headerInner}>
-          <View>
-            <Text style={styles.headerTitle}>설계 요청</Text>
-            <Text style={styles.headerSub}>의뢰 현황과 알림을 한눈에</Text>
-          </View>
-          <View style={styles.headerActions}>
-            <Pressable
-              style={({ pressed }) => [styles.headerAction, pressed && { opacity: 0.6 }]}
-              onPress={copyRequestBoardUrl}
-            >
-              <Feather name="copy" size={18} color={COLORS.gray[700]} />
-            </Pressable>
-            <Pressable
-              style={({ pressed }) => [styles.headerAction, pressed && { opacity: 0.6 }]}
-              onPress={openNotifications}
-            >
-              <Feather name="bell" size={20} color={COLORS.gray[700]} />
-              {notifications.length > 0 && <View style={styles.badge} />}
-            </Pressable>
-          </View>
-        </View>
+      <AppTopActionBar
+        title={homeHeaderTitle}
+        onLogout={handleLogout}
+        onOpenNotifications={openNotifications}
+        notificationCount={unreadNotifCount}
+      />
+      <View style={styles.pageTitleWrap}>
+        <Text style={styles.pageTitle}>설계 요청</Text>
+        <Text style={styles.pageSubtitle}>의뢰 현황과 알림을 한눈에</Text>
       </View>
 
       <ScrollView
@@ -373,23 +428,44 @@ export default function RequestBoardScreen() {
               <View style={styles.reqStatsGrid}>
                 {isRequestBoardDesigner ? (
                   <>
-                    <View style={[styles.reqStatCard, { borderLeftColor: '#F59E0B' }]}>
+                    <Pressable
+                      style={({ pressed }) => [
+                        styles.reqStatCard,
+                        { borderLeftColor: '#F59E0B' },
+                        pressed && styles.reqStatCardPressed,
+                      ]}
+                      onPress={() => openRequests('pending')}
+                    >
                       <Text style={[styles.reqStatValue, { color: '#F59E0B' }]}>{reqStats.pending}</Text>
                       <Text style={styles.reqStatLabel}>수락 대기중</Text>
                       <Text style={styles.reqStatDesc}>빠른 확인 필요</Text>
-                    </View>
-                    <View style={[styles.reqStatCard, { borderLeftColor: '#3B82F6' }]}>
+                    </Pressable>
+                    <Pressable
+                      style={({ pressed }) => [
+                        styles.reqStatCard,
+                        { borderLeftColor: '#3B82F6' },
+                        pressed && styles.reqStatCardPressed,
+                      ]}
+                      onPress={() => openRequests('in_progress')}
+                    >
                       <Text style={[styles.reqStatValue, { color: '#3B82F6' }]}>{reqStats.inProgress}</Text>
                       <Text style={styles.reqStatLabel}>작업중인 의뢰</Text>
                       <Text style={styles.reqStatDesc}>
                         평균 {reqStats.avgDays}일 경과
                       </Text>
-                    </View>
-                    <View style={[styles.reqStatCard, { borderLeftColor: '#10B981' }]}>
-                      <Text style={[styles.reqStatValue, { color: '#10B981' }]}>{reqStats.completedThisMonth}</Text>
-                      <Text style={styles.reqStatLabel}>이번 달 완료</Text>
-                      <Text style={styles.reqStatDesc}>지난달 대비</Text>
-                    </View>
+                    </Pressable>
+                    <Pressable
+                      style={({ pressed }) => [
+                        styles.reqStatCard,
+                        { borderLeftColor: '#10B981' },
+                        pressed && styles.reqStatCardPressed,
+                      ]}
+                      onPress={() => openRequests('completed')}
+                    >
+                      <Text style={[styles.reqStatValue, { color: '#10B981' }]}>{reqStats.completed}</Text>
+                      <Text style={styles.reqStatLabel}>완료 의뢰</Text>
+                      <Text style={styles.reqStatDesc}>누적 완료 의뢰</Text>
+                    </Pressable>
                     <View style={[styles.reqStatCard, { borderLeftColor: '#8B5CF6' }]}>
                       <Text style={[styles.reqStatValue, { color: '#8B5CF6' }]}>{reqStats.avgDays}<Text style={styles.reqStatUnit}>일</Text></Text>
                       <Text style={styles.reqStatLabel}>평균 처리 시간</Text>
@@ -398,26 +474,54 @@ export default function RequestBoardScreen() {
                   </>
                 ) : (
                   <>
-                    <View style={[styles.reqStatCard, { borderLeftColor: COLORS.primary }]}>
+                    <Pressable
+                      style={({ pressed }) => [
+                        styles.reqStatCard,
+                        { borderLeftColor: COLORS.primary },
+                        pressed && styles.reqStatCardPressed,
+                      ]}
+                      onPress={() => openRequests('all')}
+                    >
                       <Text style={[styles.reqStatValue, { color: COLORS.primary }]}>{reqStats.total}</Text>
                       <Text style={styles.reqStatLabel}>전체 의뢰건수</Text>
                       <Text style={styles.reqStatDesc}>누적 의뢰</Text>
-                    </View>
-                    <View style={[styles.reqStatCard, { borderLeftColor: '#F59E0B' }]}>
+                    </Pressable>
+                    <Pressable
+                      style={({ pressed }) => [
+                        styles.reqStatCard,
+                        { borderLeftColor: '#F59E0B' },
+                        pressed && styles.reqStatCardPressed,
+                      ]}
+                      onPress={() => openRequests('pending')}
+                    >
                       <Text style={[styles.reqStatValue, { color: '#F59E0B' }]}>{reqStats.pending}</Text>
                       <Text style={styles.reqStatLabel}>수락 대기중</Text>
                       <Text style={styles.reqStatDesc}>설계 매니저 수락 대기</Text>
-                    </View>
-                    <View style={[styles.reqStatCard, { borderLeftColor: '#3B82F6' }]}>
+                    </Pressable>
+                    <Pressable
+                      style={({ pressed }) => [
+                        styles.reqStatCard,
+                        { borderLeftColor: '#3B82F6' },
+                        pressed && styles.reqStatCardPressed,
+                      ]}
+                      onPress={() => openRequests('in_progress')}
+                    >
                       <Text style={[styles.reqStatValue, { color: '#3B82F6' }]}>{reqStats.inProgress}</Text>
                       <Text style={styles.reqStatLabel}>진행중인 의뢰</Text>
                       <Text style={styles.reqStatDesc}>처리 중</Text>
-                    </View>
-                    <View style={[styles.reqStatCard, { borderLeftColor: '#10B981' }]}>
+                    </Pressable>
+                    <Pressable
+                      style={({ pressed }) => [
+                        styles.reqStatCard,
+                        { borderLeftColor: '#10B981' },
+                        pressed && styles.reqStatCardPressed,
+                      ]}
+                      onPress={() => openRequests('completed')}
+                    >
                       <Text style={[styles.reqStatValue, { color: '#10B981' }]}>{reqStats.completed}</Text>
-                      <Text style={styles.reqStatLabel}>이번 달 완료</Text>
+                      <Text style={styles.reqStatLabel}>완료 의뢰</Text>
                       <Text style={styles.reqStatDesc}>완료된 의뢰</Text>
-                    </View>
+                    </Pressable>
                   </>
                 )}
               </View>
@@ -612,7 +716,9 @@ export default function RequestBoardScreen() {
                 <View style={styles.infoCardText}>
                   <Text style={styles.infoCardTitle}>실시간 메신저</Text>
                   <Text style={styles.infoCardDesc}>
-                    설계 매니저와 실시간으로{'\n'}메시지를 주고받을 수 있습니다
+                    {isRequestBoardDesigner
+                      ? 'FC와 실시간으로 메시지를 주고받을 수 있습니다'
+                      : '설계 매니저와 실시간으로\n메시지를 주고받을 수 있습니다'}
                   </Text>
                 </View>
                 <Feather name="chevron-right" size={16} color={COLORS.gray[400]} />
@@ -647,52 +753,22 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: COLORS.gray[50],
   },
-
-  /* Header */
-  header: {
-    backgroundColor: '#fff',
-    paddingHorizontal: SPACING.base,
-    paddingBottom: SPACING.md,
-    borderBottomWidth: 1,
-    borderBottomColor: COLORS.border.light,
-    ...SHADOWS.sm,
-  },
-  headerInner: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
+  pageTitleWrap: {
+    marginHorizontal: SPACING.base,
+    marginBottom: SPACING.sm,
     alignItems: 'center',
   },
-  headerActions: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-  },
-  headerTitle: {
+  pageTitle: {
     fontSize: TYPOGRAPHY.fontSize.xl,
     fontWeight: '800' as const,
     color: COLORS.gray[900],
+    textAlign: 'center',
   },
-  headerSub: {
+  pageSubtitle: {
     fontSize: TYPOGRAPHY.fontSize.sm,
     color: COLORS.text.muted,
     marginTop: 2,
-  },
-  headerAction: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    backgroundColor: COLORS.gray[100],
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  badge: {
-    position: 'absolute',
-    top: 8,
-    right: 8,
-    width: 8,
-    height: 8,
-    borderRadius: 4,
-    backgroundColor: COLORS.error,
+    textAlign: 'center',
   },
 
   scrollContent: {
@@ -913,6 +989,9 @@ const styles = StyleSheet.create({
     borderLeftWidth: 3,
     borderLeftColor: COLORS.primary,
     ...SHADOWS.sm,
+  },
+  reqStatCardPressed: {
+    opacity: 0.85,
   },
   reqStatValue: {
     fontSize: 28,

@@ -24,15 +24,16 @@ import Animated, { runOnUI, scrollTo as reanimatedScrollTo, useAnimatedRef, useA
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { TourGuideZone, useTourGuideController } from 'rn-tourguide';
 
+import { AppTopActionBar } from '@/components/AppTopActionBar';
 import { BottomNavigation } from '@/components/BottomNavigation';
 import { Skeleton } from '@/components/LoadingSkeleton';
-import { RefreshButton } from '@/components/RefreshButton';
 import { resolveBottomNavActiveKey, resolveBottomNavPreset } from '@/lib/bottom-navigation';
 import { useIdentityStatus } from '@/hooks/use-identity-status';
 import { useSession } from '@/hooks/use-session';
 import { useInAppUpdate } from '@/hooks/useInAppUpdate';
 import { logger } from '@/lib/logger';
 import { supabase } from '@/lib/supabase';
+import { buildWelcomeTitle } from '@/lib/welcome-title';
 import type { FCDocument } from '@/types/dashboard';
 import type { FcProfile } from '@/types/fc';
 
@@ -228,7 +229,7 @@ const fetchUnreadNotificationCount = async (role: 'admin' | 'fc' | null, residen
       body: {
         type: 'inbox_unread_count',
         role,
-        resident_id: role === 'fc' ? (residentId ?? null) : null,
+        resident_id: residentId ?? null,
         since: lastCheckDate.toISOString(),
       },
     });
@@ -490,11 +491,12 @@ export default function Home() {
   useEffect(() => {
     if (!hydrated) return;
     if (role !== 'fc') return;
+    if (isRequestBoardDesigner) return;
     if (identityLoading) return;
     if (identityStatus && !identityStatus.identityCompleted) {
       router.replace('/home-lite');
     }
-  }, [hydrated, identityLoading, identityStatus, role]);
+  }, [hydrated, identityLoading, identityStatus, isRequestBoardDesigner, role]);
 
   useEffect(() => {
     if (!eventEmitter) return;
@@ -789,8 +791,14 @@ export default function Home() {
   const currentStep = myFc ? calcStep(myFc) : 1;
   const activeStep = steps[Math.min(steps.length - 1, Math.max(0, currentStep - 1))];
   const profileName = typeof myFc?.name === 'string' ? myFc.name.trim() : '';
-  const sessionName = displayName?.trim() ?? '';
-  const fcWelcomeName = profileName || sessionName || 'FC';
+  const homeHeaderTitle = buildWelcomeTitle({
+    role,
+    readOnly,
+    isRequestBoardDesigner,
+    displayName,
+    fcName: profileName,
+    fallbackTitle: '홈',
+  });
 
   const uploadedDocs =
     myFc?.fc_documents?.filter((d: FCDocument) => d.storage_path && d.storage_path !== 'deleted').length ?? 0;
@@ -912,7 +920,7 @@ export default function Home() {
 
   useEffect(() => {
     if (!hydrated) return;
-    if (role === 'admin' && isRequestBoardDesigner) {
+    if (isRequestBoardDesigner) {
       router.replace('/request-board');
     }
   }, [hydrated, isRequestBoardDesigner, role]);
@@ -988,10 +996,10 @@ export default function Home() {
     Haptics.selectionAsync();
     setAdminHomeTab(tab);
     if (tab === 'exam') {
-      router.replace('/?mode=exam');
+      router.setParams({ mode: 'exam' } as any);
       return;
     }
-    router.replace('/');
+    router.setParams({ mode: 'onboarding' } as any);
   };
 
   const onRefresh = useCallback(async () => {
@@ -1112,7 +1120,7 @@ export default function Home() {
     );
   }
 
-  if (role === 'admin' && isRequestBoardDesigner) {
+  if (isRequestBoardDesigner) {
     return (
       <SafeAreaView style={styles.safe} edges={['left', 'right', 'bottom']}>
         <View style={[styles.container, { alignItems: 'center', justifyContent: 'center', flex: 1 }]}>
@@ -1140,43 +1148,12 @@ export default function Home() {
           collapsable={false}
           style={[styles.container, { paddingBottom: contentBottomPadding }]}
         >
-          <View style={styles.topBar}>
-            <View style={styles.topActions}>
-              <Pressable style={styles.logoutButton} onPress={handleLogout}>
-                <Text style={styles.logoutText}>로그아웃</Text>
-              </Pressable>
-              <Pressable style={styles.bellButton} onPress={() => router.push('/settings')}>
-                <Feather name="settings" size={20} color={CHARCOAL} />
-              </Pressable>
-              <Pressable style={styles.bellButton} onPress={() => router.push('/notifications')}>
-                <Feather name="bell" size={20} color={CHARCOAL} />
-                {unreadNotifCount > 0 && (
-                  <View
-                    style={{
-                      position: 'absolute',
-                      top: -8,
-                      right: -8,
-                      minWidth: 24,
-                      height: 24,
-                      borderRadius: 12,
-                      backgroundColor: '#EF4444',
-                      justifyContent: 'center',
-                      alignItems: 'center',
-                      borderWidth: 1,
-                      borderColor: '#fff',
-                    }}
-                  >
-                    <Text style={{ color: '#fff', fontSize: 12, fontWeight: 'bold' }}>
-                      {unreadNotifCount > 99 ? '99+' : unreadNotifCount}
-                    </Text>
-                  </View>
-                )}
-              </Pressable>
-            </View>
-            <View style={styles.rightActions}>
-              <RefreshButton />
-            </View>
-          </View>
+          <AppTopActionBar
+            title={homeHeaderTitle}
+            onLogout={handleLogout}
+            onOpenNotifications={() => router.push('/notifications')}
+            notificationCount={unreadNotifCount}
+          />
 
           {role === 'admin' && (
             <View style={styles.homeTitleWrap}>
@@ -1189,20 +1166,11 @@ export default function Home() {
             </View>
           )}
 
-          {role === 'fc' ? (
-            <Stack.Screen
-              options={{
-                title: `${fcWelcomeName}님 환영합니다`,
-                headerLeft: () => null,
-              }}
-            />
-          ) : (
-            <Stack.Screen
-              options={{
-                headerLeft: () => null,
-              }}
-            />
-          )}
+          <Stack.Screen
+            options={{
+              headerShown: false,
+            }}
+          />
 
 
 
@@ -1879,36 +1847,23 @@ const styles = StyleSheet.create({
     paddingBottom: 20,
     backgroundColor: '#fff',
   },
-  topBar: {
-    paddingHorizontal: 20,
-    paddingVertical: 6,
-    flexDirection: 'row',
-    justifyContent: 'space-between',
+  homeTitleWrap: {
+    marginHorizontal: 20,
+    marginBottom: 6,
     alignItems: 'center',
-    marginBottom: 8,
   },
-  topActions: { flexDirection: 'row', alignItems: 'center', gap: 12 },
-  logoutButton: {
-    backgroundColor: '#F3F4F6',
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    borderRadius: 20,
+  homeTitle: {
+    fontSize: 26,
+    fontWeight: '800',
+    color: CHARCOAL,
+    textAlign: 'center',
   },
-  logoutText: { fontSize: 14, color: TEXT_MUTED, fontWeight: '600' },
-  bellButton: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
-    backgroundColor: '#fff',
-    alignItems: 'center',
-    justifyContent: 'center',
-    borderWidth: 1,
-    borderColor: '#E5E7EB',
+  homeSubtitleText: {
+    marginTop: 4,
+    color: TEXT_MUTED,
+    fontSize: 14,
+    textAlign: 'center',
   },
-  rightActions: { flexDirection: 'row', alignItems: 'center', gap: 12 },
-  homeTitleWrap: { marginHorizontal: 20, marginBottom: 6 },
-  homeTitle: { fontSize: 26, fontWeight: '800', color: CHARCOAL },
-  homeSubtitleText: { marginTop: 4, color: TEXT_MUTED, fontSize: 14 },
   notice: {
     marginHorizontal: 20,
     marginBottom: 20,

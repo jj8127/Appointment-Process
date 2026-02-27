@@ -94,7 +94,8 @@ export function useLogin(options?: UseLoginOptions) {
           const bridged = await rbBridgeLogin(bridgeToken);
           if (bridged.success && (bridged.user?.role === 'designer' || bridged.user?.role === 'fc')) {
             requestBoardRole = bridged.user.role;
-            isRequestBoardDesigner = bridged.user.role === 'designer';
+            // admin(총무/본부장) 계정은 request_board designer 여부에 관계없이 항상 admin 화면 유지
+            isRequestBoardDesigner = bridged.user.role === 'designer' && nextRole === 'fc';
           }
         } catch {
           requestBoardRole = null;

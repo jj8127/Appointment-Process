@@ -1,8 +1,9 @@
 import { Feather } from '@expo/vector-icons';
-import { Stack, useRouter } from 'expo-router';
+import { Stack, useLocalSearchParams, useRouter } from 'expo-router';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   ActivityIndicator,
+  Alert,
   FlatList,
   Pressable,
   RefreshControl,
@@ -34,12 +35,44 @@ const getProductNames = (req: RbRequestListItem): string => {
   return names.length > 0 ? names.join(', ') : '종목 없음';
 };
 
-type FilterKey = 'all' | 'review_pending' | 'in_progress' | 'completed';
+type FilterKey = 'all' | 'pending' | 'in_progress' | 'completed' | 'review_pending';
 
 const hasPendingReview = (req: RbRequestListItem) =>
   (req.request_designers ?? []).some(
     (d) => d.status === 'completed' && (d.fc_decision === 'pending' || d.fc_decision == null),
   );
+
+const getFcDecisionMeta = (req: RbRequestListItem) => {
+  const assignments = req.request_designers ?? [];
+  const decisions = assignments.map((d) => d.fc_decision);
+  const hasDesignerRejected = assignments.some((d) => d.status === 'rejected');
+  const hasCancelled =
+    req.status === 'cancelled' || assignments.some((d) => d.status === 'cancelled');
+
+  if (decisions.includes('rejected')) {
+    return { icon: 'thumbs-down' as const, text: 'FC 거절', color: '#DC2626' };
+  }
+  if (decisions.includes('accepted')) {
+    return { icon: 'thumbs-up' as const, text: 'FC 승인', color: '#059669' };
+  }
+
+  const hasCompletedPending = assignments.some(
+    (d) => d.status === 'completed' && (d.fc_decision === 'pending' || d.fc_decision == null),
+  );
+  if (hasCompletedPending) {
+    return { icon: 'clock' as const, text: 'FC 검토대기', color: '#B45309' };
+  }
+
+  if (hasDesignerRejected) {
+    return { icon: 'x-circle' as const, text: '설계 거절', color: '#DC2626' };
+  }
+
+  if (hasCancelled) {
+    return { icon: 'slash' as const, text: '요청 취소', color: COLORS.gray[500] };
+  }
+
+  return { icon: 'minus-circle' as const, text: 'FC 미결정', color: COLORS.gray[500] };
+};
 
 const REQUEST_STATUS_LABEL: Record<string, { label: string; color: string; bg: string }> = {
   pending: { label: '수락 대기', color: '#F59E0B', bg: '#FEF3C7' },
@@ -52,6 +85,7 @@ const REQUEST_STATUS_LABEL: Record<string, { label: string; color: string; bg: s
 
 export default function RequestBoardRequestsScreen() {
   const router = useRouter();
+  const { filter } = useLocalSearchParams<{ filter?: string | string[] }>();
   const insets = useSafeAreaInsets();
   const { role, readOnly, hydrated, isRequestBoardDesigner } = useSession();
 
@@ -60,6 +94,23 @@ export default function RequestBoardRequestsScreen() {
   const [refreshing, setRefreshing] = useState(false);
   const [fetchError, setFetchError] = useState<string | null>(null);
   const [activeFilter, setActiveFilter] = useState<FilterKey>('all');
+
+  useEffect(() => {
+    const rawFilter = Array.isArray(filter) ? filter[0] : filter;
+    const nextFilter = (() => {
+      if (
+        rawFilter === 'all' ||
+        rawFilter === 'pending' ||
+        rawFilter === 'in_progress' ||
+        rawFilter === 'completed' ||
+        rawFilter === 'review_pending'
+      ) {
+        return rawFilter;
+      }
+      return 'all';
+    })();
+    setActiveFilter(nextFilter);
+  }, [filter]);
 
   const fetchData = useCallback(async () => {
     setFetchError(null);
@@ -89,12 +140,30 @@ export default function RequestBoardRequestsScreen() {
     () => requests.filter(hasPendingReview).length,
     [requests],
   );
+  const pendingCount = useMemo(
+    () => requests.filter((r) => r.status === 'pending').length,
+    [requests],
+  );
+  const inProgressCount = useMemo(
+    () => requests.filter((r) => r.status === 'in_progress').length,
+    [requests],
+  );
+  const completedCount = useMemo(
+    () => requests.filter((r) => r.status === 'completed').length,
+    [requests],
+  );
+  const countedTotal = useMemo(
+    () => pendingCount + inProgressCount + completedCount,
+    [pendingCount, inProgressCount, completedCount],
+  );
 
   const filteredRequests = useMemo(() => {
     const sorted = [...requests].sort(
       (a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime(),
     );
     switch (activeFilter) {
+      case 'pending':
+        return sorted.filter((r) => r.status === 'pending');
       case 'review_pending':
         return sorted.filter(hasPendingReview);
       case 'in_progress':
@@ -102,15 +171,18 @@ export default function RequestBoardRequestsScreen() {
       case 'completed':
         return sorted.filter((r) => r.status === 'completed');
       default:
-        return sorted;
+        return sorted.filter(
+          (r) => r.status === 'pending' || r.status === 'in_progress' || r.status === 'completed',
+        );
     }
   }, [requests, activeFilter]);
 
   const FILTERS: { key: FilterKey; label: string; count?: number }[] = [
-    { key: 'all', label: '전체', count: requests.length },
+    { key: 'all', label: '전체', count: countedTotal },
+    { key: 'pending', label: '수락 대기', count: pendingCount },
+    { key: 'in_progress', label: '진행중', count: inProgressCount },
+    { key: 'completed', label: '완료', count: completedCount },
     { key: 'review_pending', label: '검토 대기', count: reviewPendingCount },
-    { key: 'in_progress', label: '진행중', count: requests.filter((r) => r.status === 'in_progress').length },
-    { key: 'completed', label: '완료', count: requests.filter((r) => r.status === 'completed').length },
   ];
 
   /* ─── Render ─── */
@@ -121,10 +193,8 @@ export default function RequestBoardRequestsScreen() {
       color: COLORS.gray[500],
       bg: COLORS.gray[100],
     };
-    const designerCount = (item.request_designers ?? []).length;
-    const completedCount = (item.request_designers ?? []).filter(
-      (d) => d.status === 'completed',
-    ).length;
+    const requestId = Number(item.id ?? (item as any).request_id ?? 0);
+    const fcDecisionMeta = getFcDecisionMeta(item);
 
     return (
       <Pressable
@@ -133,7 +203,14 @@ export default function RequestBoardRequestsScreen() {
           isPendingReview && styles.requestCardHighlight,
           pressed && { opacity: 0.85 },
         ]}
-        onPress={() => router.push({ pathname: '/request-board-review' as any, params: { id: String(item.id) } })}
+        onPress={() => {
+          if (!Number.isFinite(requestId) || requestId <= 0) {
+            logger.warn('[requests] invalid request id', { rawId: item.id, rawRequestId: (item as any).request_id });
+            Alert.alert('오류', '의뢰 상세 정보를 열 수 없습니다. 새로고침 후 다시 시도해주세요.');
+            return;
+          }
+          router.push({ pathname: '/request-board-review' as any, params: { id: String(requestId) } });
+        }}
       >
         {isPendingReview && (
           <View style={styles.reviewBadge}>
@@ -161,14 +238,12 @@ export default function RequestBoardRequestsScreen() {
             <Feather name="calendar" size={11} color={COLORS.gray[400]} />
             <Text style={styles.cardMetaText}>{formatDate(item.created_at)}</Text>
           </View>
-          {designerCount > 0 && (
-            <View style={styles.cardMeta}>
-              <Feather name="users" size={11} color={COLORS.gray[400]} />
-              <Text style={styles.cardMetaText}>
-                설계 {completedCount}/{designerCount}
-              </Text>
-            </View>
-          )}
+          <View style={styles.cardMeta}>
+            <Feather name={fcDecisionMeta.icon} size={11} color={fcDecisionMeta.color} />
+            <Text style={[styles.cardMetaText, { color: fcDecisionMeta.color }]}>
+              {fcDecisionMeta.text}
+            </Text>
+          </View>
           <View style={[styles.cardMeta, { marginLeft: 'auto' }]}>
             <Text style={[styles.cardMetaText, { color: COLORS.primary }]}>
               상세 보기

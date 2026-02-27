@@ -42,7 +42,7 @@ serve(async (req: Request) => {
   const search = (body.search ?? '').trim();
 
   const baseSelect =
-    'id,category_id,title,content,author_name,author_role,author_resident_id,created_at,updated_at,edited_at,is_pinned,pinned_at,comment_count,reaction_count,attachment_count,search_vector';
+    'id,category_id,title,content,author_name,author_role,author_resident_id,created_at,updated_at,edited_at,is_pinned,pinned_at,comment_count,reaction_count,attachment_count,view_count,search_vector';
 
   const sortField = sort === 'latest' ? 'updated_at' : 'created_at';
   const ascending = order === 'asc';
@@ -110,6 +110,7 @@ serve(async (req: Request) => {
       commentCount: row.comment_count ?? 0,
       reactionCount: row.reaction_count ?? 0,
       attachmentCount: row.attachment_count ?? 0,
+      viewCount: row.view_count ?? 0,
     },
   });
 

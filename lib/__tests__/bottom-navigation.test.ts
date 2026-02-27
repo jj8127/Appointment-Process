@@ -14,7 +14,27 @@ describe('bottom navigation resolver', () => {
     ).toBeNull();
   });
 
-  it('prioritizes request-board designer preset', () => {
+  it('prioritizes request-board designer preset for fc role', () => {
+    expect(
+      resolveBottomNavPreset({
+        role: 'fc',
+        hydrated: true,
+        isRequestBoardDesigner: true,
+      }),
+    ).toBe('request-board-designer');
+  });
+
+  it('admin with isRequestBoardDesigner does not get designer preset', () => {
+    // 총무(admin, readOnly=false)는 isRequestBoardDesigner가 true여도 admin 프리셋 유지
+    expect(
+      resolveBottomNavPreset({
+        role: 'admin',
+        readOnly: false,
+        hydrated: true,
+        isRequestBoardDesigner: true,
+      }),
+    ).toBe('admin-onboarding');
+    // 본부장(admin, readOnly=true)도 동일하게 manager 프리셋 유지
     expect(
       resolveBottomNavPreset({
         role: 'admin',
@@ -22,7 +42,7 @@ describe('bottom navigation resolver', () => {
         hydrated: true,
         isRequestBoardDesigner: true,
       }),
-    ).toBe('request-board-designer');
+    ).toBe('manager');
   });
 
   it('maps admin + readOnly to manager preset', () => {

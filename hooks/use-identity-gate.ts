@@ -11,13 +11,14 @@ type GateOptions = {
 export function useIdentityGate(options: GateOptions = {}) {
   const { nextPath, enabled = true } = options;
   const pathname = usePathname();
-  const { role, residentId, hydrated } = useSession();
+  const { role, residentId, hydrated, isRequestBoardDesigner } = useSession();
   const { data, isLoading } = useIdentityStatus();
 
   useEffect(() => {
     if (!enabled) return;
     if (!hydrated) return;
     if (role !== 'fc') return;
+    if (isRequestBoardDesigner) return;
     if (!residentId) {
       router.replace('/login');
       return;
@@ -28,7 +29,7 @@ export function useIdentityGate(options: GateOptions = {}) {
         params: { next: nextPath ?? pathname ?? '/' },
       } as any);
     }
-  }, [enabled, hydrated, role, residentId, isLoading, data, nextPath, pathname]);
+  }, [enabled, hydrated, role, isRequestBoardDesigner, residentId, isLoading, data, nextPath, pathname]);
 
   return { identity: data, isLoading };
 }

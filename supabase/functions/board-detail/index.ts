@@ -31,9 +31,23 @@ serve(async (req: Request) => {
   const postId = body.postId;
   if (!postId) return json({ ok: false, code: 'invalid_payload', message: 'postId is required' }, 400, origin);
 
+  // 조회수 집계: 상세 조회 호출마다 1건 누적
+  const { error: viewTrackError } = await supabase
+    .from('board_post_views')
+    .insert({
+      post_id: postId,
+      resident_id: actorCheck.actor.residentId,
+      role: actorCheck.actor.role,
+    });
+
+  if (viewTrackError) {
+    // 조회수 기록 실패가 상세 조회 전체 실패로 이어지지 않도록 경고만 남기고 진행
+    console.warn('[board-detail] view track failed', viewTrackError.message);
+  }
+
   const { data: post, error: postError } = await supabase
-    .from('board_posts')
-    .select('id,category_id,title,content,author_name,author_role,author_resident_id,created_at,updated_at,edited_at,is_pinned')
+    .from('board_posts_with_stats')
+    .select('id,category_id,title,content,author_name,author_role,author_resident_id,created_at,updated_at,edited_at,is_pinned,view_count')
     .eq('id', postId)
     .maybeSingle();
 
@@ -147,6 +161,7 @@ serve(async (req: Request) => {
         editedAt: post.edited_at ?? undefined,
         isPinned: post.is_pinned,
         isMine: post.author_resident_id === actorCheck.actor.residentId,
+        viewCount: post.view_count ?? 0,
       },
       attachments,
       reactions,

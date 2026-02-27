@@ -1,7 +1,7 @@
 import { Feather } from '@expo/vector-icons';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useNavigation } from '@react-navigation/native';
-import { useFocusEffect, useRouter } from 'expo-router';
+import { Stack, useFocusEffect, useRouter } from 'expo-router';
 import { MotiView } from 'moti';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
@@ -33,16 +33,17 @@ import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context'
 import { Gesture, GestureDetector } from 'react-native-gesture-handler';
 
 import { CardSkeleton } from '@/components/LoadingSkeleton';
+import { AppTopActionBar } from '@/components/AppTopActionBar';
 import { BottomNavigation } from '@/components/BottomNavigation';
 import { ImagePreviewModal } from '@/components/ImagePreviewModal';
 import { KeyboardAwareWrapper } from '@/components/KeyboardAwareWrapper';
 import { LinkifiedSelectableText } from '@/components/LinkifiedSelectableText';
-import { RefreshButton } from '@/components/RefreshButton';
 import { ReactionPicker, DEFAULT_REACTIONS } from '@/components/ReactionPicker';
 import { useKeyboardPadding } from '@/hooks/use-keyboard-padding';
 import { useSession } from '@/hooks/use-session';
 import { resolveBottomNavActiveKey, resolveBottomNavPreset } from '@/lib/bottom-navigation';
 import { ANIMATION } from '@/lib/theme';
+import { buildWelcomeTitle } from '@/lib/welcome-title';
 import {
   BoardDetail,
   BoardListItem,
@@ -76,7 +77,7 @@ type ReactionKey = 'like' | 'heart' | 'check' | 'smile';
 type ReactionCounts = Record<ReactionKey, number>;
 type ReactionMutationContext = {
   previousDetail?: BoardDetail;
-  previousList?: { items: BoardPost[]; nextCursor?: string | null };
+  previousMyReaction: ReactionKey | null | undefined;
 };
 type CommentLikeMutationContext = {
   previousDetail?: BoardDetail;
@@ -220,12 +221,19 @@ function AttachmentPreviewThumb({ uri }: AttachmentPreviewThumbProps) {
 export default function AdminBoardManageScreen() {
   const router = useRouter();
   const navigation = useNavigation();
-  const { role, displayName, residentId, readOnly, isRequestBoardDesigner, hydrated } = useSession();
+  const { role, displayName, residentId, readOnly, isRequestBoardDesigner, hydrated, logout } = useSession();
   const queryClient = useQueryClient();
   const insets = useSafeAreaInsets();
   const keyboardPadding = useKeyboardPadding();
   const screenHeight = Dimensions.get('window').height;
   const bottomNavHeight = 72;
+  const homeHeaderTitle = buildWelcomeTitle({
+    role,
+    readOnly,
+    isRequestBoardDesigner,
+    displayName,
+    fallbackTitle: '홈',
+  });
 
   const actor = useMemo(
     () => buildBoardActor({ role, residentId, displayName, readOnly }),
@@ -263,6 +271,8 @@ export default function AdminBoardManageScreen() {
     authorName: string;
     parentId: string;
   } | null>(null);
+  // undefined = not yet set (use server data), null = cleared, ReactionKey = selected
+  const [myReactionOverride, setMyReactionOverride] = useState<ReactionKey | null | undefined>(undefined);
 
   // Scroll animation for bottom nav
   const lastScrollY = useSharedValue(0);
@@ -302,14 +312,15 @@ export default function AdminBoardManageScreen() {
     [animateCloseModal, modalTranslateY],
   );
 
+  const openedPostId = selectedPost?.id ?? null;
   useEffect(() => {
-    if (!selectedPost) {
+    if (!openedPostId) {
       modalTranslateY.value = 0;
       return;
     }
     modalTranslateY.value = screenHeight;
     modalTranslateY.value = withTiming(0, { duration: 380, easing: Easing.out(Easing.cubic) });
-  }, [modalTranslateY, screenHeight, selectedPost]);
+  }, [modalTranslateY, screenHeight, openedPostId]);
 
   const scrollHandler = useAnimatedScrollHandler({
     onScroll: (event) => {
@@ -396,6 +407,10 @@ export default function AdminBoardManageScreen() {
     });
     return map;
   }, [categories]);
+  const resolveCategoryName = useCallback(
+    (rawCategoryId?: string | null) => categoryNameMap.get(rawCategoryId ?? '') ?? '일반',
+    [categoryNameMap],
+  );
   const modalPost = detailData?.post ?? (selectedPost
     ? {
       id: selectedPost.id,
@@ -409,6 +424,7 @@ export default function AdminBoardManageScreen() {
       editedAt: selectedPost.editedAt,
       isPinned: selectedPost.isPinned,
       isMine: selectedPost.isMine,
+      viewCount: selectedPost.stats.viewCount ?? 0,
     }
     : null);
   const modalAttachments = useMemo(() => detailData?.attachments ?? [], [detailData?.attachments]);
@@ -440,6 +456,8 @@ export default function AdminBoardManageScreen() {
     check: modalReactions.check,
     smile: modalReactions.smile,
   };
+  const effectiveMyReaction: ReactionKey | null =
+    myReactionOverride !== undefined ? myReactionOverride : (modalReactions.myReaction ?? null);
   const modalComments = useMemo(() => detailData?.comments ?? [], [detailData?.comments]);
   const threadedComments = useMemo(() => {
     const roots = modalComments.filter((comment) => !comment.parentId);
@@ -459,6 +477,13 @@ export default function AdminBoardManageScreen() {
     await refetch();
     setRefreshing(false);
   }, [refetch]);
+  const handleLogout = () => {
+    logout();
+  };
+
+  useEffect(() => {
+    setMyReactionOverride(undefined);
+  }, [selectedPostId]);
 
   // Add reaction mutation
   const addReactionMutation = useMutation<
@@ -475,16 +500,11 @@ export default function AdminBoardManageScreen() {
       if (!actor) return undefined;
 
       const detailKey = ['board-detail', postId];
-      const listKey = ['board-posts', actor.role, actor.residentId];
-
-      await queryClient.cancelQueries({ queryKey: detailKey });
-      await queryClient.cancelQueries({ queryKey: listKey });
-
       const previousDetail = queryClient.getQueryData<BoardDetail>(detailKey);
-      const previousList = queryClient.getQueryData<{ items: BoardPost[]; nextCursor?: string | null }>(listKey);
+      const previousMyReaction = myReactionOverride;
       const currentCounts = buildReactionCounts(previousDetail?.reactions ?? modalReactions);
-      const currentMyReaction = (previousDetail?.reactions?.myReaction ?? modalReactions.myReaction ?? null) as ReactionKey | null;
-      const { nextCounts, nextMyReaction, delta } = applyReactionUpdate(currentCounts, currentMyReaction, reactionType);
+      const currentMyReaction = effectiveMyReaction;
+      const { nextCounts, nextMyReaction } = applyReactionUpdate(currentCounts, currentMyReaction, reactionType);
 
       if (previousDetail) {
         queryClient.setQueryData<BoardDetail>(detailKey, {
@@ -497,47 +517,16 @@ export default function AdminBoardManageScreen() {
         });
       }
 
-      if (previousList) {
-        queryClient.setQueryData(listKey, {
-          ...previousList,
-          items: previousList.items.map((item) => (
-            item.id === postId
-              ? {
-                ...item,
-                reactions: { ...nextCounts },
-                stats: {
-                  ...item.stats,
-                  reactionCount: Math.max(0, item.stats.reactionCount + delta),
-                },
-              }
-              : item
-          )),
-        });
-      }
+      setMyReactionOverride(nextMyReaction);
 
-      setSelectedPost((prev) => {
-        if (!prev || prev.id !== postId) return prev;
-        return {
-          ...prev,
-          reactions: { ...nextCounts },
-          stats: {
-            ...prev.stats,
-            reactionCount: Math.max(0, prev.stats.reactionCount + delta),
-          },
-        };
-      });
-
-      return { previousDetail, previousList };
+      return { previousDetail, previousMyReaction };
     },
     onError: (error, variables, context) => {
       const detailKey = ['board-detail', variables.postId];
-      const listKey = actor ? ['board-posts', actor.role, actor.residentId] : ['board-posts'];
       if (context?.previousDetail) {
         queryClient.setQueryData(detailKey, context.previousDetail);
       }
-      if (context?.previousList) {
-        queryClient.setQueryData(listKey, context.previousList);
-      }
+      setMyReactionOverride(context?.previousMyReaction);
       logBoardError('reaction', error);
       Alert.alert('오류', '반응 처리에 실패했습니다.');
     },
@@ -554,6 +543,7 @@ export default function AdminBoardManageScreen() {
           },
         };
       });
+      setMyReactionOverride(data.myReaction ?? null);
     },
   });
 
@@ -977,14 +967,15 @@ export default function AdminBoardManageScreen() {
 
   return (
     <SafeAreaView style={styles.safe} edges={['left', 'right', 'bottom']}>
-      <View style={[styles.header, { paddingTop: 8 + insets.top }]}>
-        <View>
-          <Text style={styles.title}>게시판 관리</Text>
-          <Text style={styles.subtitle}>게시글 확인 및 관리</Text>
-        </View>
-        <View style={styles.headerActions}>
-          <RefreshButton onPress={onRefresh} />
-        </View>
+      <Stack.Screen options={{ headerShown: false }} />
+      <AppTopActionBar
+        title={homeHeaderTitle}
+        onLogout={handleLogout}
+        onOpenNotifications={() => router.push('/notifications')}
+      />
+      <View style={styles.pageTitleWrap}>
+        <Text style={styles.title}>게시판 관리</Text>
+        <Text style={styles.subtitle}>게시글 확인 및 관리</Text>
       </View>
 
       {isManager && (
@@ -1036,7 +1027,7 @@ export default function AdminBoardManageScreen() {
           )}
 
           {filteredPosts.map((post, index) => {
-            const categoryName = categoryNameMap.get(post.categoryId) ?? '일반';
+            const categoryName = resolveCategoryName(post.categoryId);
             const categoryTheme = getCategoryTheme(categoryName);
 
             return (
@@ -1071,20 +1062,23 @@ export default function AdminBoardManageScreen() {
                 </View>
 
                 {/* 게시글 내용 */}
-                <Text style={styles.postTitle} numberOfLines={1} selectable>
-                  {safeText(post.title)}
-                </Text>
-                <View
-                  style={[
-                    styles.categoryBadge,
-                    {
-                      backgroundColor: categoryTheme.backgroundColor,
-                      borderColor: categoryTheme.borderColor,
-                    },
-                  ]}
-                >
-                  <Text style={[styles.categoryBadgeText, { color: categoryTheme.textColor }]}>
-                    {categoryName}
+                <View style={styles.titleRow}>
+                  <View
+                    style={[
+                      styles.categoryBadge,
+                      styles.categoryBadgeInline,
+                      {
+                        backgroundColor: categoryTheme.backgroundColor,
+                        borderColor: categoryTheme.borderColor,
+                      },
+                    ]}
+                  >
+                    <Text style={[styles.categoryBadgeText, { color: categoryTheme.textColor }]}>
+                      {categoryName}
+                    </Text>
+                  </View>
+                  <Text style={styles.postTitleInline}>
+                    {safeText(post.title)}
                   </Text>
                 </View>
                 <LinkifiedSelectableText text={post.contentPreview} style={styles.postContent} numberOfLines={2} />
@@ -1112,9 +1106,25 @@ export default function AdminBoardManageScreen() {
 
                 {/* 반응 및 댓글 요약 */}
                 <View style={styles.footer}>
-                  <View style={styles.commentInfo}>
-                    <Feather name="message-circle" size={14} color={TEXT_MUTED} />
-                    <Text style={styles.commentCount}>{post.stats.commentCount}</Text>
+                  <View style={styles.reactionRow}>
+                    {DEFAULT_REACTIONS.map((reaction) => (
+                      <View key={reaction.id} style={styles.reactionItem}>
+                        <Feather name={reaction.icon as any} size={14} color={reaction.color} />
+                        <Text style={[styles.reactionCount, { color: reaction.color }]}>
+                          {post.reactions?.[reaction.id as keyof typeof post.reactions] ?? 0}
+                        </Text>
+                      </View>
+                    ))}
+                  </View>
+                  <View style={styles.footerMeta}>
+                    <View style={styles.commentInfo}>
+                      <Feather name="eye" size={14} color={TEXT_MUTED} />
+                      <Text style={styles.commentCount}>{post.stats.viewCount ?? 0}</Text>
+                    </View>
+                    <View style={styles.commentInfo}>
+                      <Feather name="message-circle" size={14} color={TEXT_MUTED} />
+                      <Text style={styles.commentCount}>{post.stats.commentCount}</Text>
+                    </View>
                   </View>
                 </View>
 
@@ -1223,6 +1233,10 @@ export default function AdminBoardManageScreen() {
                         })
                         : ''}
                     </Text>
+                    <View style={styles.viewMeta}>
+                      <Feather name="eye" size={14} color={TEXT_MUTED} />
+                      <Text style={styles.viewMetaText}>조회 {modalPost?.viewCount ?? 0}</Text>
+                    </View>
                   </View>
                   {canShowPostActions && (
                     <Pressable
@@ -1238,7 +1252,32 @@ export default function AdminBoardManageScreen() {
                   )}
                 </View>
 
-              <Text style={styles.modalPostTitle} selectable>{safeText(modalPost?.title)}</Text>
+              {(() => {
+                const categoryName = resolveCategoryName(modalPost?.categoryId);
+                const categoryTheme = getCategoryTheme(categoryName);
+                return (
+                  <View style={styles.modalTitleRow}>
+                    <View
+                      style={[
+                        styles.categoryBadge,
+                        styles.categoryBadgeInline,
+                        {
+                          backgroundColor: categoryTheme.backgroundColor,
+                          borderColor: categoryTheme.borderColor,
+                        },
+                      ]}
+                    >
+                      <Text style={[styles.categoryBadgeText, { color: categoryTheme.textColor }]}>
+                        {categoryName}
+                      </Text>
+                    </View>
+                    <Text style={styles.modalPostTitleInline} selectable>
+                      {safeText(modalPost?.title)}
+                    </Text>
+                  </View>
+                );
+              })()}
+
               <LinkifiedSelectableText text={modalPost?.content} style={styles.modalPostContent} />
 
               {modalAttachments.length > 0 && (
@@ -1305,7 +1344,7 @@ export default function AdminBoardManageScreen() {
                   reactions={DEFAULT_REACTIONS}
                   onReact={(reactionId) => addReactionMutation.mutate({ postId: selectedPost.id, reactionType: reactionId as ReactionKey })}
                   reactionCounts={modalReactionCounts}
-                  selectedReactions={modalReactions.myReaction ? [modalReactions.myReaction] : []}
+                  selectedReactions={effectiveMyReaction ? [effectiveMyReaction] : []}
                   showLabels={false}
                 />
               </View>
@@ -1407,18 +1446,7 @@ export default function AdminBoardManageScreen() {
 
 const styles = StyleSheet.create({
   safe: { flex: 1, backgroundColor: '#fff' },
-  header: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    paddingHorizontal: 24,
-    paddingTop: 8,
-    paddingBottom: 16,
-    borderBottomWidth: 1,
-    borderBottomColor: BORDER,
-    backgroundColor: '#fff',
-  },
-  headerActions: { flexDirection: 'row', alignItems: 'center', gap: 10 },
+  pageTitleWrap: { marginHorizontal: 20, marginBottom: 8 },
   title: { fontSize: 24, fontWeight: '800', color: CHARCOAL },
   subtitle: { fontSize: 13, color: TEXT_MUTED, marginTop: 4 },
   fabContainer: {
@@ -1516,7 +1544,28 @@ const styles = StyleSheet.create({
   },
   roleText: { fontSize: 11, fontWeight: '600' },
   date: { fontSize: 12, color: TEXT_MUTED, marginTop: 2 },
-  postTitle: { fontSize: 17, fontWeight: '700', color: CHARCOAL, marginBottom: 6 },
+  viewMeta: {
+    marginTop: 4,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+  },
+  viewMetaText: { fontSize: 12, color: TEXT_MUTED, fontWeight: '600' },
+  titleRow: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: 8,
+    marginBottom: 6,
+  },
+  postTitleInline: {
+    flex: 1,
+    minWidth: 0,
+    flexShrink: 1,
+    fontSize: 17,
+    lineHeight: 24,
+    fontWeight: '700',
+    color: CHARCOAL,
+  },
   categoryBadge: {
     alignSelf: 'flex-start',
     paddingHorizontal: 9,
@@ -1524,6 +1573,10 @@ const styles = StyleSheet.create({
     borderRadius: 999,
     borderWidth: 1,
     marginBottom: 8,
+  },
+  categoryBadgeInline: {
+    marginBottom: 0,
+    flexShrink: 0,
   },
   categoryBadgeText: { fontSize: 11, fontWeight: '700' },
   postContent: { fontSize: 14, color: TEXT_MUTED, lineHeight: 20 },
@@ -1564,6 +1617,20 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     alignItems: 'center',
   },
+  reactionRow: {
+    flexDirection: 'row',
+    gap: 12,
+  },
+  reactionItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+  },
+  reactionCount: {
+    fontSize: 12,
+    fontWeight: '600',
+  },
+  footerMeta: { flexDirection: 'row', alignItems: 'center', gap: 10 },
   commentInfo: { flexDirection: 'row', alignItems: 'center', gap: 4 },
   commentCount: { fontSize: 13, color: TEXT_MUTED, fontWeight: '600' },
   adminActions: { flexDirection: 'row', justifyContent: 'flex-end', gap: 8 },
@@ -1685,11 +1752,17 @@ const styles = StyleSheet.create({
     gap: 12,
     marginBottom: 12,
   },
-  modalPostTitle: {
+  modalTitleRow: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: 8,
+    marginBottom: 12,
+  },
+  modalPostTitleInline: {
+    flex: 1,
     fontSize: 20,
     fontWeight: '700',
     color: CHARCOAL,
-    marginBottom: 12,
     lineHeight: 28,
   },
   modalPostContent: {

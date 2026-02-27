@@ -20,6 +20,21 @@
 ## 최근 작업
 | 날짜 | 작업 | 핵심 파일 | 상세 |
 |------|------|----------|------|
+| 02-27 | 소속-본부장 매핑 테이블 도입(알림 수신 정확도 강화) | `supabase/migrations/20260227000008_add_affiliation_manager_mappings.sql`, `supabase/schema.sql`, `supabase/functions/fc-notify/index.ts`, `supabase/functions/delete-account/index.ts`, `docs/guides/COMMANDS.md` | [→ 상세](WORK_DETAIL.md#20260227-15) |
+| 02-27 | 알림 inbox 기준 통일(위촉/설계요청) + 본부장 FC업데이트 수신 범위 제한 | `app/index.tsx`, `app/request-board.tsx`, `app/notifications.tsx`, `supabase/functions/fc-notify/index.ts` | [→ 상세](WORK_DETAIL.md#20260227-14) |
+| 02-27 | 알림 배지 UI 깨짐 보정(폰트 스케일 고정) | `components/AppTopActionBar.tsx` | [→ 상세](WORK_DETAIL.md#20260227-13) |
+| 02-27 | 설계요청 현황 카드 탭 -> 단계 필터 목록 연동 | `app/request-board.tsx`, `app/request-board-requests.tsx` | [→ 상세](WORK_DETAIL.md#20260227-12) |
+| 02-27 | 환영문구 폰트 추가 축소 | `components/AppTopActionBar.tsx` | [→ 상세](WORK_DETAIL.md#20260227-11) |
+| 02-27 | 게시글 조회수 집계 기준 전환(조회 이벤트 누적) | `supabase/functions/board-detail/index.ts`, `supabase/schema.sql`, `supabase/migrations/20260227000007_allow_repeated_board_views.sql` | [→ 상세](WORK_DETAIL.md#20260227-10) |
+| 02-27 | 헤더 타이틀 축소 + 게시판(관리) 동일 헤더 적용 | `components/AppTopActionBar.tsx`, `app/admin-board-manage.tsx` | [→ 상세](WORK_DETAIL.md#20260227-9) |
+| 02-27 | 상단 헤더 1행 재배치(알림-환영문구-로그아웃) | `components/AppTopActionBar.tsx`, `app/index.tsx`, `app/request-board.tsx`, `app/board.tsx` | [→ 상세](WORK_DETAIL.md#20260227-8) |
+| 02-27 | 게시판 카테고리+제목 동일 행 정렬 | `app/admin-board-manage.tsx`, `app/board.tsx` | [→ 상세](WORK_DETAIL.md#20260227-7) |
+| 02-27 | 게시판 공지 우선 표시 + 게시글 조회수 추적/노출 | `app/admin-board-manage.tsx`, `app/board.tsx`, `supabase/functions/board-detail/index.ts`, `supabase/functions/board-list/index.ts`, `supabase/schema.sql`, `supabase/migrations/20260227000006_add_board_post_views.sql`, `lib/board-api.ts`, `web/src/lib/board-api.ts`, `contracts/api-contracts.md` | [→ 상세](WORK_DETAIL.md#20260227-6) |
+| 02-27 | 위촉/시험/설계요청 섹션 타이틀 중앙 정렬 | `app/index.tsx`, `app/request-board.tsx` | [→ 상세](WORK_DETAIL.md#20260227-5) |
+| 02-27 | 홈/설계요청 종 아이콘 미확인 배지 기준 통일 | `app/request-board.tsx` | [→ 상세](WORK_DETAIL.md#20260227-4) |
+| 02-27 | 설계 매니저 환영 문구 적용 | `lib/welcome-title.ts`, `app/index.tsx`, `app/request-board.tsx`, `app/board.tsx` | [→ 상세](WORK_DETAIL.md#20260227-3) |
+| 02-27 | 시험 일정 삭제 버튼 미동작 수정(생명/손해) | `app/exam-register.tsx`, `app/exam-register2.tsx` | [→ 상세](WORK_DETAIL.md#20260227-2) |
+| 02-27 | 앱 상단 헤더 공통화(위촉/시험/설계요청/게시판) + 우측 새로고침 제거 | `components/AppTopActionBar.tsx`, `lib/welcome-title.ts`, `app/index.tsx`, `app/request-board.tsx`, `app/board.tsx` | [→ 상세](WORK_DETAIL.md#20260227-1) |
 | 02-26 | 남은 BLOCKED 42건 전수 PASS 마감(SET-01/RB-01/04/07 포함) | `scripts/testing/run-remaining-blocked-cli.mjs`, `supabase/functions/delete-account/index.ts`, `app/settings.tsx`, `web/src/app/dashboard/settings/page.tsx`, `contracts/api-contracts.md`, `docs/testing/INTEGRATED_TEST_RUN_RESULT.json` | [→ 상세](WORK_DETAIL.md#20260226-12) |
 | 02-26 | Push 거버넌스 실패 재발 방지 문서화 + schema sync marker 추가 | `AGENTS.md`, `docs/guides/COMMANDS.md`, `supabase/schema.sql`, `.claude/WORK_LOG.md`, `.claude/WORK_DETAIL.md` | [→ 상세](WORK_DETAIL.md#20260226-11) |
 | 02-26 | BLOCKED 역할순 실행(FC→본부장→총무→설계매니저) 자동검증 + PASS 전환 8건 | `scripts/testing/run-fc-blocked-cli.mjs`, `scripts/testing/run-manager-blocked-cli.mjs`, `scripts/testing/run-admin-blocked-cli.mjs`, `scripts/testing/run-designer-blocked-cli.mjs`, `docs/testing/INTEGRATED_TEST_RUN_RESULT.json`, `docs/testing/evidence/*`, `AGENTS.md` | [→ 상세](WORK_DETAIL.md#20260226-10) |

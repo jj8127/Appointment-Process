@@ -1,9 +1,11 @@
+import { Feather } from '@expo/vector-icons';
 import DateTimePicker from '@react-native-community/datetimepicker';
 import { useMutation, useQuery } from '@tanstack/react-query';
 import { router } from 'expo-router';
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Alert,
+  Animated,
   Platform,
   Pressable,
   RefreshControl,
@@ -22,7 +24,6 @@ import { supabase } from '@/lib/supabase';
 import { ExamRoundWithLocations, formatDate } from '@/types/exam';
 
 const ORANGE = '#f36f21';
-const ORANGE_LIGHT = '#f7b182';
 const CHARCOAL = '#111827';
 const MUTED = '#6b7280';
 const BORDER = '#E5E7EB';
@@ -167,6 +168,7 @@ export default function ExamRegisterScreen() {
       throw new Error('본부장은 조회 전용 계정입니다.');
     }
   };
+
   const [roundForm, setRoundForm] = useState<RoundForm>(emptyRoundForm);
   const [examDate, setExamDate] = useState(new Date());
   const [deadlineDate, setDeadlineDate] = useState(new Date());
@@ -178,7 +180,12 @@ export default function ExamRegisterScreen() {
   const [draftLocations, setDraftLocations] = useState<{ id: string; name: string; order: number }[]>([]);
   const [refreshing, setRefreshing] = useState(false);
   const [notesHeight, setNotesHeight] = useState(80);
+  const [showForm, setShowForm] = useState(false);
   const isEditMode = Boolean(selectedRoundId);
+
+  // 애니메이션 값
+  const formOpacity = useRef(new Animated.Value(0)).current;
+  const formTranslateY = useRef(new Animated.Value(24)).current;
 
   useEffect(() => {
     if (role !== 'admin') {
@@ -197,7 +204,6 @@ export default function ExamRegisterScreen() {
     queryFn: fetchRounds,
   });
 
-  // Realtime: exam_rounds / exam_locations 변경 시 즉시 갱신
   useEffect(() => {
     const roundChannel = supabase
       .channel('exam-register-nonlife-rounds')
@@ -235,6 +241,35 @@ export default function ExamRegisterScreen() {
     [rounds],
   );
 
+  // 폼 열릴 때 슬라이드-인 애니메이션
+  useEffect(() => {
+    if (showForm) {
+      formOpacity.setValue(0);
+      formTranslateY.setValue(24);
+      Animated.parallel([
+        Animated.timing(formOpacity, {
+          toValue: 1,
+          duration: 260,
+          useNativeDriver: true,
+        }),
+        Animated.spring(formTranslateY, {
+          toValue: 0,
+          friction: 8,
+          tension: 65,
+          useNativeDriver: true,
+        }),
+      ]).start();
+    }
+  }, [showForm, formOpacity, formTranslateY]);
+
+  // 폼 닫기 (슬라이드-아웃 후 unmount)
+  const closeFormWithAnim = useCallback(() => {
+    Animated.parallel([
+      Animated.timing(formOpacity, { toValue: 0, duration: 200, useNativeDriver: true }),
+      Animated.timing(formTranslateY, { toValue: -12, duration: 200, useNativeDriver: true }),
+    ]).start(() => setShowForm(false));
+  }, [formOpacity, formTranslateY]);
+
   const saveRound = useMutation({
     mutationFn: async (mode: 'create' | 'update') => {
       assertCanEdit();
@@ -271,6 +306,7 @@ export default function ExamRegisterScreen() {
         '저장 완료',
         mode === 'create' ? '새 시험 일정이 등록되었습니다.' : '시험 일정이 업데이트되었습니다.',
       );
+      closeFormWithAnim();
       refetch();
       if (res?.id) {
         setSelectedRoundId(res.id);
@@ -334,7 +370,7 @@ export default function ExamRegisterScreen() {
     },
     onSettled: (_data, error) => {
       if (error) {
-        const message = error instanceof Error ? error.message : '지역 삭제 중 오류가 발생했습니다.';
+        const message = error instanceof Error ? error.message : '삭제 중 오류가 발생했습니다.';
         Alert.alert('삭제 실패', message);
       }
     },
@@ -361,6 +397,9 @@ export default function ExamRegisterScreen() {
     setLocationInput('');
     setLocationOrder('0');
     setDraftLocations([]);
+    if (!showForm) {
+      setShowForm(true);
+    }
   };
 
   const handleSelectRound = (round: ExamRoundWithLocations) => {
@@ -378,6 +417,9 @@ export default function ExamRegisterScreen() {
     setLocationInput('');
     setLocationOrder('0');
     setDraftLocations([]);
+    if (!showForm) {
+      setShowForm(true);
+    }
   };
 
   const selectedRound = useMemo(
@@ -402,243 +444,319 @@ export default function ExamRegisterScreen() {
             시험 일자, 신청 마감일, 차수/메모, 비고와 응시 지역을 한 번에 입력해 저장합니다.
           </Text>
 
-          {/* 시험 일정 + 응시 지역 입력 */}
+          {/* 등록된 시험 일정 목록 */}
           <View style={styles.card}>
-            <View style={styles.modeBanner}>
-              <Text style={styles.modeText}>{isEditMode ? '수정 모드' : '신규 등록 모드'}</Text>
-              {isEditMode && (
-                <Pressable onPress={startNewRound} style={styles.modeAction} disabled={!canEdit}>
-                  <Text style={styles.modeActionText}>신규 등록으로 전환</Text>
+            <View style={styles.listSectionHeader}>
+              <View>
+                <Text style={styles.sectionTitle}>등록된 시험 일정</Text>
+                {sortedRounds.length > 0 && (
+                  <Text style={styles.sectionCount}>{sortedRounds.length}개 등록됨</Text>
+                )}
+              </View>
+              {canEdit && (
+                <Pressable
+                  onPress={startNewRound}
+                  style={({ pressed }) => [styles.addButton, pressed && styles.addButtonPressed]}
+                >
+                  <Feather name="plus" size={15} color="#fff" />
+                  <Text style={styles.addButtonText}>시험 추가</Text>
                 </Pressable>
               )}
             </View>
-            <Text style={styles.sectionTitle}>시험 일정 입력</Text>
 
-            <Text style={styles.label}>시험 일자</Text>
-            {Platform.OS === 'ios' || Platform.OS === 'web' ? (
-              <DateTimePicker
-                value={examDate}
-                mode="date"
-                onChange={(_, date) => date && setExamDate(date)}
-              />
-            ) : (
-              <Pressable
-                onPress={() => setShowExamPicker(true)}
-                style={styles.dateBox}
-              >
-                <Text style={styles.dateText}>{formatKoreanDate(examDate)}</Text>
-              </Pressable>
-            )}
-            {showExamPicker && Platform.OS === 'android' && (
-              <DateTimePicker
-                value={examDate}
-                mode="date"
-                display="default"
-                onChange={(event, date) => {
-                  setShowExamPicker(false);
-                  if (event.type === 'set' && date) setExamDate(date);
-                }}
-              />
-            )}
-
-            <Text style={styles.label}>신청 마감일</Text>
-            {Platform.OS === 'ios' || Platform.OS === 'web' ? (
-              <DateTimePicker
-                value={deadlineDate}
-                mode="date"
-                onChange={(_, date) => date && setDeadlineDate(date)}
-              />
-            ) : (
-              <Pressable
-                onPress={() => setShowDeadlinePicker(true)}
-                style={styles.dateBox}
-              >
-                <Text style={styles.dateText}>{formatKoreanDate(deadlineDate)}</Text>
-              </Pressable>
-            )}
-            {showDeadlinePicker && Platform.OS === 'android' && (
-              <DateTimePicker
-                value={deadlineDate}
-                mode="date"
-                display="default"
-                onChange={(event, date) => {
-                  setShowDeadlinePicker(false);
-                  if (event.type === 'set' && date) setDeadlineDate(date);
-                }}
-              />
-            )}
-
-            <Text style={styles.label}>차수/메모 (선택)</Text>
-            <TextInput
-              placeholder="예: 12월 1차 / 12월 2차"
-              placeholderTextColor={MUTED}
-              value={roundForm.roundLabel}
-              onChangeText={(text) =>
-                setRoundForm((prev) => ({ ...prev, roundLabel: text }))
-              }
-              editable={canEdit}
-              style={styles.input}
-            />
-
-            <Text style={styles.label}>비고 (선택)</Text>
-            <TextInput
-              placeholder="추가 안내를 적어주세요."
-              placeholderTextColor={MUTED}
-              value={roundForm.notes}
-              onChangeText={(text) =>
-                setRoundForm((prev) => ({ ...prev, notes: text }))
-              }
-              editable={canEdit}
-              style={[styles.input, { height: notesHeight }]}
-              multiline
-              scrollEnabled={false}
-              onContentSizeChange={(e) => {
-                const nextHeight = Math.max(80, e.nativeEvent.contentSize.height);
-                if (nextHeight !== notesHeight) setNotesHeight(nextHeight);
-              }}
-            />
-
-            <Text style={styles.label}>응시 지역</Text>
-            <View style={styles.row}>
-              <View style={{ flex: 2 }}>
-                <TextInput
-                  placeholder="예: 청주, 대전 등"
-                  placeholderTextColor={MUTED}
-                  value={locationInput}
-                  onChangeText={setLocationInput}
-                  editable={canEdit}
-                  style={styles.input}
-                />
-              </View>
-              <View style={{ width: 8 }} />
-              <View style={{ flex: 1 }}>
-                <TextInput
-                  placeholder="정렬순서"
-                  placeholderTextColor={MUTED}
-                  value={locationOrder}
-                  onChangeText={setLocationOrder}
-                  keyboardType="number-pad"
-                  editable={canEdit}
-                  style={styles.input}
-                />
-              </View>
-            </View>
-            <View style={{ marginTop: 8 }}>
-              <RoundedButton
-                label="지역 추가"
-                onPress={() => {
-                  const trimmed = locationInput.trim();
-                  if (!trimmed) {
-                    Alert.alert('입력 필요', '응시 지역을 입력해주세요.');
-                    return;
-                  }
-                  const order = Number(locationOrder) || 0;
-                  setDraftLocations((prev) => [
-                    ...prev,
-                    { id: `${Date.now()}-${Math.random()}`, name: trimmed, order },
-                  ]);
-                  setLocationInput('');
-                  setLocationOrder('0');
-                }}
-                variant="secondary"
-                disabled={!canEdit}
-              />
-            </View>
-            {draftLocations.length > 0 && (
-              <View style={{ marginTop: 8 }}>
-                <Text style={styles.label}>추가된 지역</Text>
-                {draftLocations.map((loc) => (
-                  <View key={loc.id} style={styles.locationRow}>
-                    <Text style={styles.locationName}>
-                      {loc.name} (정렬: {loc.order})
-                    </Text>
-                    <Pressable
-                      onPress={() =>
-                        setDraftLocations((prev) => prev.filter((item) => item.id !== loc.id))
-                      }
-                      style={styles.locationDelete}
-                      disabled={!canEdit}
-                    >
-                      <Text style={styles.locationDeleteText}>삭제</Text>
-                    </Pressable>
-                  </View>
-                ))}
-              </View>
-            )}
-
-            <View style={styles.row}>
-              <View style={{ flex: 1 }}>
-                <RoundedButton
-                  label={
-                    selectedRoundId ? '선택 일정 업데이트' : '새 일정 저장'
-                  }
-                  onPress={() =>
-                    saveRound.mutate(selectedRoundId ? 'update' : 'create')
-                  }
-                  variant="primary"
-                  disabled={!canEdit || saveRound.isPending}
-                />
-              </View>
-              <View style={{ width: 12 }} />
-              <View style={{ flex: 1 }}>
-                <RoundedButton
-                  label={isEditMode ? '신규 등록 모드' : '폼 초기화'}
-                  onPress={startNewRound}
-                  variant="secondary"
-                  disabled={!canEdit}
-                />
-              </View>
-            </View>
-          </View>
-
-          {/* 등록된 시험 일정 목록 */}
-          <View style={styles.card}>
-            <Text style={styles.sectionTitle}>등록된 시험 일정</Text>
-            {selectedRound && (
-              <Text style={styles.activeNotice}>
-                현재 수정 중: {formatDate(selectedRound.exam_date)}{' '}
-                {selectedRound.round_label ? `(${selectedRound.round_label})` : ''}
-              </Text>
-            )}
             {isLoading || isFetching ? (
-              <Text style={styles.caption}>등록된 시험 일정을 불러오는 중입니다...</Text>
+              <View style={styles.emptyState}>
+                <Text style={styles.emptyCaption}>불러오는 중...</Text>
+              </View>
             ) : !sortedRounds.length ? (
-              <Text style={styles.caption}>
-                아직 등록된 시험 일정이 없습니다. 상단에서 일정을 먼저 등록하세요.
-              </Text>
+              <View style={styles.emptyState}>
+                <Feather name="calendar" size={38} color="#D1D5DB" />
+                <Text style={styles.emptyTitle}>등록된 시험 일정이 없습니다</Text>
+                {canEdit && (
+                  <Text style={styles.emptyCaption}>우측 상단 [시험 추가]를 눌러 등록하세요.</Text>
+                )}
+              </View>
             ) : (
-              sortedRounds.map((round) => (
-                <Pressable
-                  key={round.id}
-                  onPress={() => handleSelectRound(round)}
-                  style={[
-                    styles.roundItem,
-                    selectedRoundId === round.id && styles.roundItemActive,
-                  ]}
-                >
-                  <View style={{ flex: 1 }}>
-                    <Text style={styles.roundTitle}>
-                      {formatDate(round.exam_date)}{' '}
-                      {round.round_label ? `(${round.round_label})` : ''}
-                    </Text>
-                    <Text style={styles.roundMeta}>
-                      마감: {formatDate(round.registration_deadline)}
-                    </Text>
-                    <Text style={styles.roundMeta}>
-                      지역 {round.locations?.length ?? 0}개 등록됨
-                    </Text>
-                  </View>
-                  <Pressable
-                    onPress={() => handleDeleteRound(round.id)}
-                    style={styles.deleteBadge}
-                    disabled={!canEdit}
-                  >
-                    <Text style={styles.deleteText}>삭제</Text>
-                  </Pressable>
-                </Pressable>
-              ))
+              <View style={styles.roundList}>
+                {sortedRounds.map((round) => {
+                  const isSelected = selectedRoundId === round.id;
+                  return (
+                    <View
+                      key={round.id}
+                      style={[styles.roundItem, isSelected && styles.roundItemActive]}
+                    >
+                      {/* 왼쪽 액센트 바 */}
+                      <View style={[styles.roundAccent, isSelected && styles.roundAccentActive]} />
+
+                      {/* 내용 */}
+                      <View style={styles.roundContent}>
+                        <Text style={[styles.roundTitle, isSelected && styles.roundTitleActive]}>
+                          {formatDate(round.exam_date)}
+                          {round.round_label ? (
+                            <Text style={styles.roundLabelInline}> · {round.round_label}</Text>
+                          ) : null}
+                        </Text>
+                        <View style={styles.roundMetaRow}>
+                          <Feather name="calendar" size={11} color={MUTED} />
+                          <Text style={styles.roundMetaText}>
+                            마감 {formatDate(round.registration_deadline)}
+                          </Text>
+                        </View>
+                        <View style={styles.roundMetaRow}>
+                          <Feather name="map-pin" size={11} color={MUTED} />
+                          <Text style={styles.roundMetaText}>
+                            지역 {round.locations?.length ?? 0}개
+                          </Text>
+                        </View>
+                      </View>
+
+                      {/* 액션 버튼 */}
+                      <View style={styles.roundActions}>
+                        <Pressable
+                          onPress={() => handleSelectRound(round)}
+                          disabled={!canEdit}
+                          style={({ pressed }) => [
+                            styles.actionBtn,
+                            styles.editActionBtn,
+                            !canEdit && styles.badgeDisabled,
+                            pressed && styles.actionBtnPressed,
+                          ]}
+                        >
+                          <Feather name="edit-2" size={12} color={canEdit ? '#1d4ed8' : '#9CA3AF'} />
+                          <Text style={[styles.actionBtnText, styles.editBtnText, !canEdit && styles.badgeTextDisabled]}>
+                            수정
+                          </Text>
+                        </Pressable>
+                        <Pressable
+                          onPress={() => handleDeleteRound(round.id)}
+                          disabled={!canEdit}
+                          style={({ pressed }) => [
+                            styles.actionBtn,
+                            styles.deleteActionBtn,
+                            !canEdit && styles.badgeDisabled,
+                            pressed && styles.actionBtnPressed,
+                          ]}
+                        >
+                          <Feather name="trash-2" size={12} color={canEdit ? '#b91c1c' : '#9CA3AF'} />
+                          <Text style={[styles.actionBtnText, styles.deleteBtnText, !canEdit && styles.badgeTextDisabled]}>
+                            삭제
+                          </Text>
+                        </Pressable>
+                      </View>
+                    </View>
+                  );
+                })}
+              </View>
             )}
           </View>
+
+          {/* 입력 폼 (애니메이션 슬라이드) */}
+          {showForm && (
+            <Animated.View
+              style={{
+                opacity: formOpacity,
+                transform: [{ translateY: formTranslateY }],
+              }}
+            >
+              <View style={[styles.card, styles.formCard]}>
+                {/* 폼 헤더 */}
+                <View style={styles.formHeader}>
+                  <View style={styles.formHeaderLeft}>
+                    <View style={[styles.formModeDot, isEditMode && styles.formModeDotEdit]} />
+                    <Text style={styles.formModeLabel}>
+                      {isEditMode
+                        ? `수정 중: ${formatDate(selectedRound?.exam_date ?? '')}${selectedRound?.round_label ? ` · ${selectedRound.round_label}` : ''}`
+                        : '새 시험 일정 등록'}
+                    </Text>
+                  </View>
+                  <Pressable onPress={closeFormWithAnim} hitSlop={8} style={styles.formCloseBtn}>
+                    <Feather name="x" size={18} color={MUTED} />
+                  </Pressable>
+                </View>
+
+                <View style={styles.divider} />
+
+                <Text style={styles.label}>시험 일자</Text>
+                {Platform.OS === 'ios' || Platform.OS === 'web' ? (
+                  <DateTimePicker
+                    value={examDate}
+                    mode="date"
+                    onChange={(_, date) => date && setExamDate(date)}
+                  />
+                ) : (
+                  <Pressable
+                    onPress={() => setShowExamPicker(true)}
+                    style={styles.dateBox}
+                  >
+                    <Feather name="calendar" size={15} color={CHARCOAL} />
+                    <Text style={styles.dateText}>{formatKoreanDate(examDate)}</Text>
+                  </Pressable>
+                )}
+                {showExamPicker && Platform.OS === 'android' && (
+                  <DateTimePicker
+                    value={examDate}
+                    mode="date"
+                    display="default"
+                    onChange={(event, date) => {
+                      setShowExamPicker(false);
+                      if (event.type === 'set' && date) setExamDate(date);
+                    }}
+                  />
+                )}
+
+                <Text style={styles.label}>신청 마감일</Text>
+                {Platform.OS === 'ios' || Platform.OS === 'web' ? (
+                  <DateTimePicker
+                    value={deadlineDate}
+                    mode="date"
+                    onChange={(_, date) => date && setDeadlineDate(date)}
+                  />
+                ) : (
+                  <Pressable
+                    onPress={() => setShowDeadlinePicker(true)}
+                    style={styles.dateBox}
+                  >
+                    <Feather name="calendar" size={15} color={CHARCOAL} />
+                    <Text style={styles.dateText}>{formatKoreanDate(deadlineDate)}</Text>
+                  </Pressable>
+                )}
+                {showDeadlinePicker && Platform.OS === 'android' && (
+                  <DateTimePicker
+                    value={deadlineDate}
+                    mode="date"
+                    display="default"
+                    onChange={(event, date) => {
+                      setShowDeadlinePicker(false);
+                      if (event.type === 'set' && date) setDeadlineDate(date);
+                    }}
+                  />
+                )}
+
+                <Text style={styles.label}>차수/메모 (선택)</Text>
+                <TextInput
+                  placeholder="예: 12월 1차 / 12월 2차"
+                  placeholderTextColor={MUTED}
+                  value={roundForm.roundLabel}
+                  onChangeText={(text) =>
+                    setRoundForm((prev) => ({ ...prev, roundLabel: text }))
+                  }
+                  editable={canEdit}
+                  style={styles.input}
+                />
+
+                <Text style={styles.label}>비고 (선택)</Text>
+                <TextInput
+                  placeholder="추가 안내를 적어주세요."
+                  placeholderTextColor={MUTED}
+                  value={roundForm.notes}
+                  onChangeText={(text) =>
+                    setRoundForm((prev) => ({ ...prev, notes: text }))
+                  }
+                  editable={canEdit}
+                  style={[styles.input, { height: notesHeight }]}
+                  multiline
+                  scrollEnabled={false}
+                  onContentSizeChange={(e) => {
+                    const nextHeight = Math.max(80, e.nativeEvent.contentSize.height);
+                    if (nextHeight !== notesHeight) setNotesHeight(nextHeight);
+                  }}
+                />
+
+                <Text style={styles.label}>응시 지역</Text>
+                <View style={styles.row}>
+                  <View style={{ flex: 2 }}>
+                    <TextInput
+                      placeholder="예: 청주, 대전 등"
+                      placeholderTextColor={MUTED}
+                      value={locationInput}
+                      onChangeText={setLocationInput}
+                      editable={canEdit}
+                      style={styles.input}
+                    />
+                  </View>
+                  <View style={{ width: 8 }} />
+                  <View style={{ flex: 1 }}>
+                    <TextInput
+                      placeholder="정렬순서"
+                      placeholderTextColor={MUTED}
+                      value={locationOrder}
+                      onChangeText={setLocationOrder}
+                      keyboardType="number-pad"
+                      editable={canEdit}
+                      style={styles.input}
+                    />
+                  </View>
+                </View>
+                <View style={{ marginTop: 8 }}>
+                  <RoundedButton
+                    label="지역 추가"
+                    onPress={() => {
+                      const trimmed = locationInput.trim();
+                      if (!trimmed) {
+                        Alert.alert('입력 필요', '응시 지역을 입력해주세요.');
+                        return;
+                      }
+                      const order = Number(locationOrder) || 0;
+                      setDraftLocations((prev) => [
+                        ...prev,
+                        { id: `${Date.now()}-${Math.random()}`, name: trimmed, order },
+                      ]);
+                      setLocationInput('');
+                      setLocationOrder('0');
+                    }}
+                    variant="secondary"
+                    disabled={!canEdit}
+                  />
+                </View>
+                {draftLocations.length > 0 && (
+                  <View style={styles.draftLocationsList}>
+                    <Text style={styles.draftLocationsLabel}>추가된 지역</Text>
+                    {draftLocations.map((loc) => (
+                      <View key={loc.id} style={styles.locationRow}>
+                        <View style={styles.locationDot} />
+                        <Text style={styles.locationName}>
+                          {loc.name}
+                          <Text style={styles.locationOrder}> (순서: {loc.order})</Text>
+                        </Text>
+                        <Pressable
+                          onPress={() =>
+                            setDraftLocations((prev) => prev.filter((item) => item.id !== loc.id))
+                          }
+                          style={({ pressed }) => [styles.locationDelete, pressed && { opacity: 0.6 }]}
+                          disabled={!canEdit}
+                        >
+                          <Feather name="x" size={13} color="#b91c1c" />
+                        </Pressable>
+                      </View>
+                    ))}
+                  </View>
+                )}
+
+                <View style={[styles.row, { marginTop: 16 }]}>
+                  <View style={{ flex: 1 }}>
+                    <RoundedButton
+                      label={saveRound.isPending ? '저장 중...' : (selectedRoundId ? '일정 업데이트' : '일정 저장')}
+                      onPress={() =>
+                        saveRound.mutate(selectedRoundId ? 'update' : 'create')
+                      }
+                      variant="primary"
+                      disabled={!canEdit || saveRound.isPending}
+                    />
+                  </View>
+                  <View style={{ width: 12 }} />
+                  <View style={{ flex: 1 }}>
+                    <RoundedButton
+                      label="취소"
+                      onPress={closeFormWithAnim}
+                      variant="secondary"
+                      disabled={saveRound.isPending}
+                    />
+                  </View>
+                </View>
+              </View>
+            </Animated.View>
+          )}
+
         </ScrollView>
       </KeyboardAwareWrapper>
     </SafeAreaView>
@@ -666,59 +784,218 @@ const styles = StyleSheet.create({
   },
   caption: {
     color: MUTED,
-  },
-  activeNotice: {
-    paddingVertical: 6,
-    color: '#9a3412',
-    fontWeight: '700',
+    fontSize: 13,
   },
   card: {
     backgroundColor: '#fff',
-    padding: 16,
-    borderRadius: 12,
+    borderRadius: 14,
     borderWidth: 1,
     borderColor: BORDER,
-    gap: 12,
     shadowColor: '#000',
-    shadowOpacity: 0.05,
-    shadowOffset: { width: 0, height: 1 },
-    shadowRadius: 4,
+    shadowOpacity: 0.06,
+    shadowOffset: { width: 0, height: 2 },
+    shadowRadius: 6,
     elevation: 3,
+    overflow: 'hidden',
+  },
+  formCard: {
+    padding: 16,
+    gap: 0,
+  },
+  listSectionHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 16,
+    paddingTop: 16,
+    paddingBottom: 12,
   },
   sectionTitle: {
     fontSize: 16,
     fontWeight: '800',
     color: CHARCOAL,
-    marginBottom: 4,
   },
-  modeBanner: {
+  sectionCount: {
+    fontSize: 12,
+    color: MUTED,
+    marginTop: 2,
+  },
+  addButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+    borderRadius: 8,
+    backgroundColor: CHARCOAL,
+  },
+  addButtonPressed: {
+    opacity: 0.82,
+    transform: [{ scale: 0.97 }],
+  },
+  addButtonText: {
+    color: '#ffffff',
+    fontWeight: '700',
+    fontSize: 14,
+  },
+
+  // 라운드 목록
+  roundList: {
+    paddingHorizontal: 12,
+    paddingBottom: 12,
+    gap: 8,
+  },
+  roundItem: {
+    flexDirection: 'row',
+    alignItems: 'stretch',
+    borderWidth: 1,
+    borderColor: BORDER,
+    borderRadius: 12,
+    backgroundColor: '#fff',
+    overflow: 'hidden',
+  },
+  roundItemActive: {
+    borderColor: ORANGE,
+    backgroundColor: '#fff7ed',
+  },
+  roundAccent: {
+    width: 4,
+    backgroundColor: '#E5E7EB',
+  },
+  roundAccentActive: {
+    backgroundColor: ORANGE,
+  },
+  roundContent: {
+    flex: 1,
+    paddingVertical: 13,
+    paddingHorizontal: 12,
+  },
+  roundTitle: {
+    fontSize: 14,
+    fontWeight: '700',
+    color: CHARCOAL,
+    lineHeight: 20,
+  },
+  roundTitleActive: {
+    color: ORANGE,
+  },
+  roundLabelInline: {
+    fontWeight: '500',
+    color: MUTED,
+    fontSize: 13,
+  },
+  roundMetaRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    marginTop: 4,
+  },
+  roundMetaText: {
+    fontSize: 12,
+    color: MUTED,
+  },
+  roundActions: {
+    flexDirection: 'column',
+    justifyContent: 'center',
+    gap: 6,
+    paddingVertical: 12,
+    paddingRight: 12,
+    paddingLeft: 6,
+  },
+  actionBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 6,
+    borderWidth: 1,
+  },
+  editActionBtn: {
+    borderColor: '#bfdbfe',
+    backgroundColor: '#eff6ff',
+  },
+  deleteActionBtn: {
+    borderColor: '#fecdd3',
+    backgroundColor: '#FEF2F2',
+  },
+  actionBtnText: {
+    fontSize: 12,
+    fontWeight: '700',
+  },
+  editBtnText: {
+    color: '#1d4ed8',
+  },
+  deleteBtnText: {
+    color: '#b91c1c',
+  },
+  actionBtnPressed: {
+    opacity: 0.65,
+    transform: [{ scale: 0.95 }],
+  },
+  badgeDisabled: {
+    opacity: 0.38,
+  },
+  badgeTextDisabled: {
+    color: '#9CA3AF',
+  },
+
+  // 빈 상태
+  emptyState: {
+    alignItems: 'center',
+    paddingVertical: 28,
+    paddingHorizontal: 16,
+    gap: 8,
+  },
+  emptyTitle: {
+    fontSize: 15,
+    fontWeight: '600',
+    color: '#374151',
+  },
+  emptyCaption: {
+    fontSize: 13,
+    color: MUTED,
+    textAlign: 'center',
+  },
+
+  // 폼
+  formHeader: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    paddingVertical: 8,
-    paddingHorizontal: 12,
-    borderRadius: 10,
-    borderWidth: 1,
-    borderColor: '#E5E7EB',
-    backgroundColor: '#F9FAFB',
+    marginBottom: 12,
   },
-  modeText: {
-    fontWeight: '800',
-    color: CHARCOAL,
+  formHeaderLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    flex: 1,
   },
-  modeAction: {
-    paddingHorizontal: 10,
-    paddingVertical: 6,
-    borderRadius: 999,
-    backgroundColor: ORANGE_LIGHT,
+  formModeDot: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    backgroundColor: '#9CA3AF',
   },
-  modeActionText: {
-    color: '#1f2937',
+  formModeDotEdit: {
+    backgroundColor: ORANGE,
+  },
+  formModeLabel: {
+    fontSize: 14,
     fontWeight: '700',
-    fontSize: 12,
+    color: CHARCOAL,
+    flex: 1,
+  },
+  formCloseBtn: {
+    padding: 4,
+  },
+  divider: {
+    height: 1,
+    backgroundColor: BORDER,
+    marginBottom: 4,
   },
   label: {
-    marginTop: 8,
+    marginTop: 12,
     marginBottom: 6,
     fontWeight: '600',
     color: '#374151',
@@ -735,6 +1012,9 @@ const styles = StyleSheet.create({
     color: CHARCOAL,
   },
   dateBox: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
     borderWidth: 1,
     borderColor: '#D1D5DB',
     borderRadius: 8,
@@ -745,80 +1025,61 @@ const styles = StyleSheet.create({
   dateText: {
     fontWeight: '600',
     color: CHARCOAL,
+    fontSize: 15,
   },
   row: {
     flexDirection: 'row',
-    marginTop: 12,
     alignItems: 'center',
   },
-  roundItem: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    padding: 14,
+
+  // 지역 목록
+  draftLocationsList: {
+    marginTop: 10,
     borderWidth: 1,
     borderColor: BORDER,
-    borderRadius: 12,
-    backgroundColor: '#fff',
-    marginBottom: 12,
+    borderRadius: 8,
+    backgroundColor: '#F9FAFB',
+    padding: 10,
+    gap: 2,
   },
-  roundItemActive: {
-    borderColor: ORANGE,
-    backgroundColor: '#fff7ed',
-  },
-  roundTitle: {
+  draftLocationsLabel: {
+    fontSize: 12,
     fontWeight: '700',
-    color: CHARCOAL,
-  },
-  roundMeta: {
     color: MUTED,
-    marginTop: 2,
-  },
-  deleteBadge: {
-    marginLeft: 12,
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    borderRadius: 6,
-    borderWidth: 1,
-    borderColor: '#fecdd3',
-    backgroundColor: '#FEF2F2',
-  },
-  deleteText: {
-    color: '#b91c1c',
-    fontWeight: '700',
-    fontSize: 13,
-  },
-  roundSummary: {
-    fontWeight: '700',
-    color: CHARCOAL,
-    marginBottom: 8,
+    marginBottom: 6,
   },
   locationRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingVertical: 8,
+    paddingVertical: 6,
+    gap: 8,
+  },
+  locationDot: {
+    width: 5,
+    height: 5,
+    borderRadius: 3,
+    backgroundColor: ORANGE,
   },
   locationName: {
     flex: 1,
     color: CHARCOAL,
     fontSize: 14,
+    fontWeight: '500',
+  },
+  locationOrder: {
+    color: MUTED,
+    fontWeight: '400',
+    fontSize: 13,
   },
   locationDelete: {
-    paddingHorizontal: 10,
-    paddingVertical: 6,
-    borderRadius: 6,
-    borderWidth: 1,
-    borderColor: '#fecdd3',
-    backgroundColor: '#FEF2F2',
+    padding: 4,
   },
-  locationDeleteText: {
-    color: '#b91c1c',
-    fontSize: 12,
-    fontWeight: '700',
-  },
+
+  // 버튼
   btnBase: {
-    paddingVertical: 12,
+    paddingVertical: 13,
     paddingHorizontal: 14,
-    borderRadius: 8,
+    borderRadius: 10,
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -840,7 +1101,8 @@ const styles = StyleSheet.create({
     opacity: 0.5,
   },
   btnPressed: {
-    transform: [{ scale: 0.98 }],
+    transform: [{ scale: 0.97 }],
+    opacity: 0.85,
   },
   btnTextPrimary: {
     color: '#ffffff',

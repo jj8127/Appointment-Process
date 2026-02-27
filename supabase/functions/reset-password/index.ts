@@ -69,6 +69,19 @@ function toBase64(bytes: Uint8Array) {
   return btoa(binary);
 }
 
+function parseDesignerCompanyNameFromAffiliation(affiliation?: string | null): string | null {
+  if (!affiliation) return null;
+  const normalized = affiliation.trim();
+  if (!normalized) return null;
+  const marker = '설계매니저';
+  const markerIndex = normalized.indexOf(marker);
+  if (markerIndex === -1) return null;
+
+  // e.g. "농협생명 설계매니저" -> "농협생명"
+  const company = normalized.slice(0, markerIndex).trim();
+  return company.length > 0 ? company : null;
+}
+
 function fromBase64(input: string) {
   const binary = atob(input);
   const bytes = new Uint8Array(binary.length);
@@ -184,7 +197,7 @@ serve(async (req: Request) => {
 
   const { data: profile, error: profileError } = await supabase
     .from('fc_profiles')
-    .select('id,phone')
+    .select('id,phone,name,affiliation')
     .eq('phone', phone)
     .maybeSingle();
 
@@ -244,7 +257,12 @@ serve(async (req: Request) => {
     return json({ ok: false, code: 'db_error', message: updateError.message }, 500);
   }
 
-  await syncRequestBoardPassword(phone, newPassword, { role: 'fc' });
+  const designerCompanyName = parseDesignerCompanyNameFromAffiliation(profile.affiliation);
+  await syncRequestBoardPassword(phone, newPassword, {
+    role: designerCompanyName ? 'designer' : 'fc',
+    name: profile.name ?? null,
+    ...(designerCompanyName ? { companyName: designerCompanyName } : {}),
+  });
 
   return json({ ok: true });
 });

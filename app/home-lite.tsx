@@ -23,7 +23,7 @@ const LOCKED_ITEMS: LockedItem[] = [
 ];
 
 export default function HomeLiteScreen() {
-  const { role, hydrated, logout, displayName } = useSession();
+  const { role, hydrated, logout, displayName, isRequestBoardDesigner } = useSession();
   const { data, isLoading } = useIdentityStatus();
 
   useEffect(() => {
@@ -36,10 +36,14 @@ export default function HomeLiteScreen() {
       router.replace('/');
       return;
     }
+    if (isRequestBoardDesigner) {
+      router.replace('/request-board');
+      return;
+    }
     if (!isLoading && data?.identityCompleted) {
       router.replace('/');
     }
-  }, [data?.identityCompleted, hydrated, isLoading, role]);
+  }, [data?.identityCompleted, hydrated, isLoading, isRequestBoardDesigner, role]);
 
   // Android 뒤로가기 버튼: 앱 종료 확인 다이얼로그
   useFocusEffect(
@@ -83,7 +87,7 @@ export default function HomeLiteScreen() {
         <View style={styles.heroCard}>
           <Text style={styles.heroEyebrow}>둘러보기 모드</Text>
           <Text style={styles.heroTitle}>
-            {displayName?.trim() ? `${displayName}님, 반갑습니다!` : '환영합니다!'}
+            {displayName?.trim() ? `${displayName}님, 반갑습니다!` : '환영합니다.!'}
           </Text>
           <Text style={styles.heroText}>
             앱의 모든 기능을 사용하기 위해서는 추가 정보 입력이 필요합니다. 먼저 주민번호와 주소를 입력해 주세요.

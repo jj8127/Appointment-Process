@@ -215,6 +215,32 @@ FROM public.manager_accounts
 ORDER BY created_at DESC;
 ```
 
+#### Assign Manager to Affiliation (알림 수신 매핑)
+```sql
+-- 한 소속에 여러 본부장을 붙일 수 있습니다.
+INSERT INTO public.affiliation_manager_mappings (
+    affiliation,
+    manager_phone,
+    active
+)
+VALUES
+    ('1팀(서울1) : 서선미 본부장님', '01012341234', true),
+    ('1팀(서울1) : 서선미 본부장님', '01099998888', true)
+ON CONFLICT (affiliation, manager_phone)
+DO UPDATE SET
+    active = EXCLUDED.active,
+    updated_at = now();
+```
+
+```sql
+-- 비활성/해제
+UPDATE public.affiliation_manager_mappings
+SET active = false,
+    updated_at = now()
+WHERE affiliation = '1팀(서울1) : 서선미 본부장님'
+  AND manager_phone = '01012341234';
+```
+
 #### Create FC Account
 
 **1. 비밀번호 해시/솔트 생성**

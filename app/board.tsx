@@ -1,7 +1,7 @@
 import { Feather } from '@expo/vector-icons';
 import { useNavigation } from '@react-navigation/native';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { useFocusEffect, useLocalSearchParams, useRouter } from 'expo-router';
+import { Stack, useFocusEffect, useLocalSearchParams, useRouter } from 'expo-router';
 import { MotiView } from 'moti';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
@@ -31,13 +31,13 @@ import Animated, {
 } from 'react-native-reanimated';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 
+import { AppTopActionBar } from '@/components/AppTopActionBar';
 import { BottomNavigation } from '@/components/BottomNavigation';
 import { KeyboardAwareWrapper } from '@/components/KeyboardAwareWrapper';
 import { ImagePreviewModal } from '@/components/ImagePreviewModal';
 import { LinkifiedSelectableText } from '@/components/LinkifiedSelectableText';
 import { CardSkeleton } from '@/components/LoadingSkeleton';
 import { DEFAULT_REACTIONS, ReactionPicker } from '@/components/ReactionPicker';
-import { RefreshButton } from '@/components/RefreshButton';
 import { resolveBottomNavActiveKey, resolveBottomNavPreset } from '@/lib/bottom-navigation';
 import { useKeyboardPadding } from '@/hooks/use-keyboard-padding';
 import { useSession } from '@/hooks/use-session';
@@ -58,6 +58,7 @@ import {
   updateBoardComment
 } from '@/lib/board-api';
 import { ANIMATION } from '@/lib/theme';
+import { buildWelcomeTitle } from '@/lib/welcome-title';
 
 const HANWHA_ORANGE = '#f36f21';
 const CHARCOAL = '#111827';
@@ -89,7 +90,7 @@ type ReactionKey = 'like' | 'heart' | 'check' | 'smile';
 type ReactionCounts = Record<ReactionKey, number>;
 type ReactionMutationContext = {
   previousDetail?: BoardDetail;
-  previousList?: { items: BoardPost[]; nextCursor?: string | null };
+  previousMyReaction: ReactionKey | null | undefined;
 };
 type CommentLikeMutationContext = {
   previousDetail?: BoardDetail;
@@ -155,6 +156,7 @@ const buildPlaceholderPost = (postId: string): BoardPost => {
       commentCount: 0,
       reactionCount: 0,
       attachmentCount: 0,
+      viewCount: 0,
     },
     reactions: {
       like: 0,
@@ -248,11 +250,18 @@ export default function BoardScreen() {
   const router = useRouter();
   const { postId } = useLocalSearchParams<{ postId?: string }>();
   const navigation = useNavigation();
-  const { role, displayName, residentId, readOnly, hydrated, isRequestBoardDesigner } = useSession();
+  const { role, displayName, residentId, readOnly, hydrated, isRequestBoardDesigner, logout } = useSession();
   const queryClient = useQueryClient();
   const insets = useSafeAreaInsets();
   const keyboardPadding = useKeyboardPadding();
   const screenHeight = Dimensions.get('window').height;
+  const homeHeaderTitle = buildWelcomeTitle({
+    role,
+    readOnly,
+    isRequestBoardDesigner,
+    displayName,
+    fallbackTitle: '홈',
+  });
 
   const actor = useMemo(
     () => buildBoardActor({ role, residentId, displayName, readOnly }),
@@ -287,6 +296,8 @@ export default function BoardScreen() {
     authorName: string;
     parentId: string;
   } | null>(null);
+  // undefined = not yet set (use server data), null = cleared, ReactionKey = selected
+  const [myReactionOverride, setMyReactionOverride] = useState<ReactionKey | null | undefined>(undefined);
   const routePostId = useMemo(() => {
     const value = Array.isArray(postId) ? postId[0] : postId;
     if (typeof value !== 'string') return '';
@@ -437,6 +448,7 @@ export default function BoardScreen() {
       editedAt: selectedPost.editedAt,
       isPinned: selectedPost.isPinned,
       isMine: selectedPost.isMine,
+      viewCount: selectedPost.stats.viewCount ?? 0,
     }
     : null);
   const modalAttachments = useMemo(() => detailData?.attachments ?? [], [detailData?.attachments]);
@@ -468,6 +480,9 @@ export default function BoardScreen() {
     check: modalReactions.check,
     smile: modalReactions.smile,
   };
+  // myReactionOverride takes priority: undefined = use server, null/key = local value
+  const effectiveMyReaction: ReactionKey | null =
+    myReactionOverride !== undefined ? myReactionOverride : (modalReactions.myReaction ?? null);
   const modalComments = useMemo(() => detailData?.comments ?? [], [detailData?.comments]);
   const threadedComments = useMemo(() => {
     const roots = modalComments.filter((comment) => !comment.parentId);
@@ -498,6 +513,11 @@ export default function BoardScreen() {
     });
   }, [actor, posts, routePostId]);
 
+  // Reset reaction override whenever a different post is opened
+  useEffect(() => {
+    setMyReactionOverride(undefined);
+  }, [selectedPostId]);
+
   // Add reaction mutation
   const addReactionMutation = useMutation<
     { myReaction: ReactionKey | null },
@@ -513,17 +533,18 @@ export default function BoardScreen() {
       if (!actor) return undefined;
 
       const detailKey = ['board-detail', postId];
-      const listKey = ['board-posts', actor.role, actor.residentId];
-
-      await queryClient.cancelQueries({ queryKey: detailKey });
-      await queryClient.cancelQueries({ queryKey: listKey });
-
+      // Do NOT cancel the detail query — cancelling an in-flight initial fetch
+      // causes React Query to revert to "loading" state and auto-retry, which
+      // appears as a page reload. myReactionOverride handles the UI state locally.
       const previousDetail = queryClient.getQueryData<BoardDetail>(detailKey);
-      const previousList = queryClient.getQueryData<{ items: BoardPost[]; nextCursor?: string | null }>(listKey);
-      const currentCounts = buildReactionCounts(previousDetail?.reactions ?? modalReactions);
-      const currentMyReaction = (previousDetail?.reactions?.myReaction ?? modalReactions.myReaction ?? null) as ReactionKey | null;
-      const { nextCounts, nextMyReaction, delta } = applyReactionUpdate(currentCounts, currentMyReaction, reactionType);
+      const previousMyReaction = myReactionOverride;
 
+      // effectiveMyReaction captures the current state (override > server > null)
+      const currentMyReaction = effectiveMyReaction;
+      const currentCounts = buildReactionCounts(previousDetail?.reactions ?? modalReactions);
+      const { nextCounts, nextMyReaction } = applyReactionUpdate(currentCounts, currentMyReaction, reactionType);
+
+      // Optimistically update detail cache (if already loaded)
       if (previousDetail) {
         queryClient.setQueryData<BoardDetail>(detailKey, {
           ...previousDetail,
@@ -535,47 +556,18 @@ export default function BoardScreen() {
         });
       }
 
-      if (previousList) {
-        queryClient.setQueryData(listKey, {
-          ...previousList,
-          items: previousList.items.map((item) => (
-            item.id === postId
-              ? {
-                ...item,
-                reactions: { ...nextCounts },
-                stats: {
-                  ...item.stats,
-                  reactionCount: Math.max(0, item.stats.reactionCount + delta),
-                },
-              }
-              : item
-          )),
-        });
-      }
+      // Always update local reaction state immediately (no waiting for server)
+      setMyReactionOverride(nextMyReaction);
 
-      setSelectedPost((prev) => {
-        if (!prev || prev.id !== postId) return prev;
-        return {
-          ...prev,
-          reactions: { ...nextCounts },
-          stats: {
-            ...prev.stats,
-            reactionCount: Math.max(0, prev.stats.reactionCount + delta),
-          },
-        };
-      });
-
-      return { previousDetail, previousList };
+      return { previousDetail, previousMyReaction };
     },
     onError: (error, variables, context) => {
       const detailKey = ['board-detail', variables.postId];
-      const listKey = actor ? ['board-posts', actor.role, actor.residentId] : ['board-posts'];
       if (context?.previousDetail) {
         queryClient.setQueryData(detailKey, context.previousDetail);
       }
-      if (context?.previousList) {
-        queryClient.setQueryData(listKey, context.previousList);
-      }
+      // Revert local reaction state
+      setMyReactionOverride(context?.previousMyReaction);
       logBoardError('reaction', error);
       Alert.alert('오류', '반응 처리에 실패했습니다.');
     },
@@ -592,6 +584,8 @@ export default function BoardScreen() {
           },
         };
       });
+      // Confirm local state with server response
+      setMyReactionOverride(data.myReaction ?? null);
     },
   });
 
@@ -913,6 +907,9 @@ export default function BoardScreen() {
   const modalHeaderPaddingTop = Math.max(insets.top - 12, 8);
   const modalTopGap = Math.max(insets.top + 12, 24);
   const commentBarInset = 96;
+  const handleLogout = () => {
+    logout();
+  };
 
   useEffect(() => {
     const unsubscribe = navigation.addListener('beforeRemove', (event) => {
@@ -939,9 +936,15 @@ export default function BoardScreen() {
 
   return (
     <SafeAreaView style={styles.safe} edges={['left', 'right', 'bottom']}>
-      <View style={[styles.header, { paddingTop: 8 + insets.top }]}>
-        <Text style={styles.title}>정보 게시판</Text>
-        <RefreshButton onPress={onRefresh} />
+      <Stack.Screen options={{ headerShown: false }} />
+      <AppTopActionBar
+        title={homeHeaderTitle}
+        onLogout={handleLogout}
+        onOpenNotifications={() => router.push('/notifications')}
+      />
+      <View style={styles.pageTitleWrap}>
+        <Text style={styles.title}>게시판</Text>
+        <Text style={styles.pageSubtitle}>공지와 게시글을 확인하세요.</Text>
       </View>
 
       <Animated.ScrollView
@@ -1061,26 +1064,6 @@ export default function BoardScreen() {
                 style={({ pressed }) => [styles.card, pressed && { opacity: 0.7 }]}
                 onPress={() => setSelectedPost(post)}
               >
-                {(() => {
-                  const categoryName = resolveCategoryName(post.categoryId);
-                  const categoryTheme = getCategoryTheme(categoryName);
-                  return (
-                    <View
-                      style={[
-                        styles.categoryBadge,
-                        {
-                          backgroundColor: categoryTheme.backgroundColor,
-                          borderColor: categoryTheme.borderColor,
-                        },
-                      ]}
-                    >
-                      <Text style={[styles.categoryBadgeText, { color: categoryTheme.textColor }]}>
-                        {categoryName}
-                      </Text>
-                    </View>
-                  );
-                })()}
-
                 {/* 고정 게시글 배지 */}
                 {post.isPinned && (
                   <View style={styles.pinnedBadge}>
@@ -1110,10 +1093,32 @@ export default function BoardScreen() {
                 </View>
 
                 {/* 게시글 내용 */}
-                <Text style={styles.postTitle} numberOfLines={1} selectable>
-                  {post.isPinned && <Feather name="bookmark" size={14} color={HANWHA_ORANGE} />}{' '}
-                  {safeText(post.title)}
-                </Text>
+                {(() => {
+                  const categoryName = resolveCategoryName(post.categoryId);
+                  const categoryTheme = getCategoryTheme(categoryName);
+                  return (
+                    <View style={styles.titleRow}>
+                      <View
+                        style={[
+                          styles.categoryBadge,
+                          styles.categoryBadgeInline,
+                          {
+                            backgroundColor: categoryTheme.backgroundColor,
+                            borderColor: categoryTheme.borderColor,
+                          },
+                        ]}
+                      >
+                        <Text style={[styles.categoryBadgeText, { color: categoryTheme.textColor }]}>
+                          {categoryName}
+                        </Text>
+                      </View>
+                      <Text style={styles.postTitleInline}>
+                        {post.isPinned && <Feather name="bookmark" size={14} color={HANWHA_ORANGE} />}{' '}
+                        {safeText(post.title)}
+                      </Text>
+                    </View>
+                  );
+                })()}
                 <LinkifiedSelectableText text={post.contentPreview} style={styles.postContent} numberOfLines={2} />
 
                 {post.attachments && post.attachments.length > 0 && (
@@ -1149,9 +1154,15 @@ export default function BoardScreen() {
                       </View>
                     ))}
                   </View>
-                  <View style={styles.commentInfo}>
-                    <Feather name="message-circle" size={14} color={TEXT_MUTED} />
-                    <Text style={styles.commentCount}>{post.stats.commentCount}</Text>
+                  <View style={styles.footerMeta}>
+                    <View style={styles.commentInfo}>
+                      <Feather name="eye" size={14} color={TEXT_MUTED} />
+                      <Text style={styles.commentCount}>{post.stats.viewCount ?? 0}</Text>
+                    </View>
+                    <View style={styles.commentInfo}>
+                      <Feather name="message-circle" size={14} color={TEXT_MUTED} />
+                      <Text style={styles.commentCount}>{post.stats.commentCount}</Text>
+                    </View>
                   </View>
                 </View>
               </Pressable>
@@ -1232,6 +1243,10 @@ export default function BoardScreen() {
                         })
                         : ''}
                     </Text>
+                    <View style={styles.viewMeta}>
+                      <Feather name="eye" size={14} color={TEXT_MUTED} />
+                      <Text style={styles.viewMetaText}>조회 {modalPost?.viewCount ?? 0}</Text>
+                    </View>
                   </View>
                 </View>
 
@@ -1302,7 +1317,7 @@ export default function BoardScreen() {
                     reactions={DEFAULT_REACTIONS}
                     onReact={(reactionId) => addReactionMutation.mutate({ postId: selectedPost.id, reactionType: reactionId as ReactionKey })}
                     reactionCounts={modalReactionCounts}
-                    selectedReactions={modalReactions.myReaction ? [modalReactions.myReaction] : []}
+                    selectedReactions={effectiveMyReaction ? [effectiveMyReaction] : []}
                     showLabels={false}
                   />
                 </View>
@@ -1369,18 +1384,12 @@ export default function BoardScreen() {
 
 const styles = StyleSheet.create({
   safe: { flex: 1, backgroundColor: '#fff' },
-  header: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    paddingHorizontal: 24,
-    paddingTop: 8,
-    paddingBottom: 16,
-    borderBottomWidth: 1,
-    borderBottomColor: BORDER,
-    backgroundColor: '#fff',
+  pageTitleWrap: {
+    marginHorizontal: 20,
+    marginBottom: 8,
   },
   title: { fontSize: 24, fontWeight: '800', color: CHARCOAL },
+  pageSubtitle: { marginTop: 4, color: TEXT_MUTED, fontSize: 14 },
   searchContainer: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -1517,6 +1526,10 @@ const styles = StyleSheet.create({
     paddingVertical: 3,
     marginBottom: 8,
   },
+  categoryBadgeInline: {
+    marginBottom: 0,
+    flexShrink: 0,
+  },
   categoryBadgeText: { fontSize: 11, fontWeight: '700' },
   card: {
     backgroundColor: '#fff',
@@ -1550,7 +1563,21 @@ const styles = StyleSheet.create({
   },
   roleText: { fontSize: 11, fontWeight: '600' },
   date: { fontSize: 12, color: TEXT_MUTED, marginTop: 2 },
-  postTitle: { fontSize: 17, fontWeight: '700', color: CHARCOAL, marginBottom: 6 },
+  titleRow: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: 8,
+    marginBottom: 6,
+  },
+  postTitleInline: {
+    flex: 1,
+    minWidth: 0,
+    flexShrink: 1,
+    fontSize: 17,
+    lineHeight: 24,
+    fontWeight: '700',
+    color: CHARCOAL,
+  },
   postContent: { fontSize: 14, color: TEXT_MUTED, lineHeight: 20 },
   divider: { height: 1, backgroundColor: BORDER, marginVertical: 12 },
   attachmentPreview: {
@@ -1604,7 +1631,19 @@ const styles = StyleSheet.create({
     fontWeight: '600',
   },
   commentInfo: { flexDirection: 'row', alignItems: 'center', gap: 4 },
+  footerMeta: { flexDirection: 'row', alignItems: 'center', gap: 10 },
   commentCount: { fontSize: 13, color: TEXT_MUTED, fontWeight: '600' },
+  viewMeta: {
+    marginTop: 4,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+  },
+  viewMetaText: {
+    fontSize: 12,
+    color: TEXT_MUTED,
+    fontWeight: '600',
+  },
   emptyBox: { alignItems: 'center', marginTop: 60, gap: 12 },
   emptyText: { fontSize: 15, color: TEXT_MUTED },
   errorText: { fontSize: 15, color: '#EF4444' },

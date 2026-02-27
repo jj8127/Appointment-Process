@@ -178,11 +178,15 @@ export async function POST(req: Request) {
     const { error: reactionError } = await deleteByResident('board_post_reactions', 'resident_id');
     if (reactionError) logger.error('[api/fc-delete] Board reactions delete failed', reactionError);
 
-    // D-3. Comments
+    // D-3. Views
+    const { error: viewError } = await deleteByResident('board_post_views', 'resident_id');
+    if (viewError) logger.error('[api/fc-delete] Board views delete failed', viewError);
+
+    // D-4. Comments
     const { error: commentError } = await deleteByResident('board_comments', 'author_resident_id');
     if (commentError) logger.error('[api/fc-delete] Board comments delete failed', commentError);
 
-    // D-4. Posts & Attachments
+    // D-5. Posts & Attachments
     const { data: residentPosts, error: residentPostsError } = await selectPostsByResident();
     if (residentPostsError) {
       logger.error('[api/fc-delete] Board posts select failed', residentPostsError);
@@ -401,4 +405,3 @@ export async function POST(req: Request) {
     { status: 200 },
   );
 }
-

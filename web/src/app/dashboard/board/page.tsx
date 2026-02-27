@@ -147,6 +147,7 @@ const buildPlaceholderPost = (postId: string): BoardPost => {
       commentCount: 0,
       reactionCount: 0,
       attachmentCount: 0,
+      viewCount: 0,
     },
     reactions: {
       like: 0,
@@ -306,6 +307,7 @@ export default function BoardPage() {
       editedAt: selectedPost.editedAt,
       isPinned: selectedPost.isPinned,
       isMine: selectedPost.isMine,
+      viewCount: selectedPost.stats.viewCount ?? 0,
     }
     : null);
   const modalAttachments = detailData?.attachments ?? [];

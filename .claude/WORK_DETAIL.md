@@ -7,6 +7,508 @@
 
 ---
 
+## <a id="20260227-15"></a> 2026-02-27 | 소속-본부장 매핑 테이블 도입(알림 수신 정확도 강화)
+
+**Commit**: `working tree`  
+**배경**:
+- 기존 `fc_update/fc_delete` 본부장 수신 범위가 FC `affiliation`의 본부장 이름 파싱에 의존해, 소속 단위 다중 본부장/운영 계정 변화 상황에서 100% 정확 보장이 어려웠다.
+- 요구사항에 따라 이름 매칭이 아닌 `소속-본부장 매핑 테이블` 기반으로 수신자를 결정하도록 구조 전환이 필요했다.
+
+**조치**:
+- DB 스키마/마이그레이션:
+  - `public.affiliation_manager_mappings` 신설
+    - 컬럼: `affiliation`, `manager_phone`, `active`, timestamps
+    - 유니크: `(affiliation, manager_phone)`
+    - 인덱스: `affiliation`, `manager_phone`
+  - RLS/policy 추가(조회: admin/manager, 변경: admin)
+  - trigger 추가: `trg_affiliation_manager_mappings_updated_at`
+  - legacy 소속 라벨 정규화(update) 및 현재 팀 라벨 기준 초기 매핑 seed 추가
+- 알림 수신 로직 변경:
+  - `supabase/functions/fc-notify/index.ts`
+    - `fc_update/fc_delete` 수신자 결정 시 `affiliation_manager_mappings` 조회 기반으로 변경
+    - 본부장 수신자는 `manager_accounts.active=true` + 매핑된 `manager_phone`만 포함
+    - `admin_accounts.active=true`는 기존처럼 전체 수신 유지
+    - 소속 라벨 정규화(`1본부`/legacy 포맷 -> 현재 팀 라벨) 로직 추가
+    - 매핑 테이블 미생성 환경(42P01)에는 관리자(총무) 수신만 유지하도록 방어
+- 계정 삭제 정리 보강:
+  - `supabase/functions/delete-account/index.ts`
+    - 본부장 계정 삭제 시 `affiliation_manager_mappings.manager_phone` 연결 행도 함께 삭제
+- 운영 명령어 문서 보강:
+  - `docs/guides/COMMANDS.md`
+    - 소속-본부장 매핑 upsert/비활성 SQL 예시 추가
+
+**핵심 파일**:
+- `supabase/migrations/20260227000008_add_affiliation_manager_mappings.sql`
+- `supabase/schema.sql`
+- `supabase/functions/fc-notify/index.ts`
+- `supabase/functions/delete-account/index.ts`
+- `docs/guides/COMMANDS.md`
+- `.claude/WORK_LOG.md`
+- `.claude/WORK_DETAIL.md`
+- `AGENTS.md`
+
+**검증**:
+- DB 반영: `supabase db push --linked` 성공 (`20260227000008` 적용)
+- 마이그레이션 동기화: `supabase migration list --linked` local/remote 일치 확인
+- 함수 배포: `supabase functions deploy fc-notify --project-ref ubeginyxaotcamuqpmud` 성공
+- 통합 거버넌스: `node scripts/ci/check-governance.mjs` 통과
+- 실데이터 스모크(임시 계정/매핑 삽입 후 정리):
+  - 동일 소속에 임시 본부장 매핑 추가 시 수신자 계산에 즉시 포함 확인
+  - 결과: `manager_count` 증가 및 `includes_test_manager=true` 확인 후 정리 완료
+- 참고: Edge Function 파일 lint는 Deno remote import 해석 한계로 `import/no-unresolved` 경고가 남음(기존과 동일)
+
+**운영 메모**:
+- 앞으로 본부장 수신 범위는 이름 파싱이 아니라 `affiliation_manager_mappings` 데이터가 기준이다.
+- 동일 소속에 여러 본부장을 두려면 해당 소속에 대해 `manager_phone` 행을 여러 개 추가하면 즉시 반영된다.
+
+---
+
+## <a id="20260227-14"></a> 2026-02-27 | 알림 inbox 기준 통일 + 본부장 FC업데이트 수신 범위 제한
+
+**Commit**: `working tree`  
+**배경**:
+- 위촉 홈과 설계요청 화면의 알림 배지/목록 기준이 서로 달라(관리자 세션에서 `requestBoardRole`에 따라 `fc/admin`이 바뀜) 같은 계정인데도 미확인 개수가 다르게 보이는 문제가 있었다.
+- 본부장(관리자 readOnly)은 모든 FC 업데이트 알림을 받는 구조여서, 본인 소속 FC 업데이트만 받아야 한다는 운영 요구와 맞지 않았다.
+
+**조치**:
+- `app/index.tsx`
+  - `inbox_unread_count` 호출 시 역할과 무관하게 `resident_id`를 항상 전달하도록 수정.
+- `app/request-board.tsx`
+  - inbox 역할 계산을 `requestBoardRole` 기반 강제 `fc` 변환에서 제거하고 세션 `role` 그대로 사용.
+  - `inbox_list`/`inbox_unread_count` 호출 모두 `resident_id`를 항상 전달하도록 통일.
+- `app/notifications.tsx`
+  - 알림함 inbox 역할 계산을 `role` 단일 기준으로 통일(`requestBoardRole` 분기 제거).
+  - `resident_id`를 역할과 무관하게 세션값으로 전달해 홈/설계요청/알림함이 동일 inbox 계약을 사용하도록 정렬.
+- `supabase/functions/fc-notify/index.ts`
+  - `inbox_list`/`inbox_unread_count`/`inbox_delete`에서 `role=admin`일 때도 `resident_id`가 있으면 `resident_id = 본인 OR null` 조건으로 조회/카운트/삭제하도록 보강.
+  - `fc_update`/`fc_delete` 이벤트는 더 이상 관리자 전체 공통행(`resident_id=null`)으로 적재하지 않고, 수신자별 행으로 적재하도록 변경:
+    - 총무(`admin_accounts.active=true`)는 기존처럼 전체 수신.
+    - 본부장(`manager_accounts.active=true`)은 FC `affiliation`에서 파싱한 본부장명과 일치하는 계정만 수신.
+  - 푸시 토큰 발송도 위 수신자 목록으로 제한해 본부장은 자기 소속 FC 업데이트만 수신.
+
+**핵심 파일**:
+- `app/index.tsx`
+- `app/request-board.tsx`
+- `app/notifications.tsx`
+- `supabase/functions/fc-notify/index.ts`
+- `.claude/WORK_LOG.md`
+- `.claude/WORK_DETAIL.md`
+- `AGENTS.md`
+
+**검증**:
+- `npm run lint -- app/index.tsx app/request-board.tsx app/notifications.tsx` 통과
+- `npm run lint -- supabase/functions/fc-notify/index.ts` 실행 시 Deno remote import 경로 해석 한계로 `import/no-unresolved` 2건 발생(기존 Edge Function lint 한계 범주)
+
+**운영 메모**:
+- 서버 반영이 필요한 변경이므로 실제 운영 적용 시 `supabase functions deploy fc-notify --project-ref <project-ref>` 배포가 필요하다.
+
+---
+
+## <a id="20260227-13"></a> 2026-02-27 | 알림 배지 UI 깨짐 보정(폰트 스케일 고정)
+
+**Commit**: `working tree`  
+**배경**:
+- 상단 알림 버튼 배지에서 `99` 카운트가 비정상적으로 크게 렌더링되어 배지 형태가 깨지는 문제가 발생.
+
+**조치**:
+- `components/AppTopActionBar.tsx`
+  - 배지 텍스트를 `badgeLabel`로 분리(`99+` 캡 유지)
+  - 배지 텍스트에 `allowFontScaling={false}`, `maxFontSizeMultiplier={1}` 적용
+  - 배지 크기/오프셋 보정:
+    - 기본 배지 축소(`20x20`) + 3자리(`99+`)용 `countBadgeWide` 분리
+  - `iconButton`에 `overflow: 'visible'` 명시로 배지 클리핑 리스크 제거
+
+**핵심 파일**:
+- `components/AppTopActionBar.tsx`
+- `.claude/WORK_LOG.md`
+- `.claude/WORK_DETAIL.md`
+- `AGENTS.md`
+
+**검증**:
+- `npm run lint -- components/AppTopActionBar.tsx` 통과
+
+---
+
+## <a id="20260227-12"></a> 2026-02-27 | 설계요청 현황 카드 탭 -> 단계 필터 목록 연동
+
+**Commit**: `working tree`  
+**배경**:
+- `설계 요청` 화면의 `의뢰 현황` 카드(전체/수락대기/진행중/완료)를 눌렀을 때 단계별 목록으로 바로 이어지는 동선이 필요했다.
+- 기존 `의뢰 목록 · 검토` 화면은 재사용하고 초기 필터만 카드별로 주입하는 요구.
+
+**조치**:
+- `app/request-board.tsx`
+  - `의뢰 현황` 카드를 `Pressable`로 전환
+  - 카드별로 `/request-board-requests?filter=<key>` 라우팅
+    - `전체 의뢰건수` -> `all`
+    - `수락 대기중` -> `pending`
+    - `진행중인 의뢰/작업중인 의뢰` -> `in_progress`
+    - `이번 달 완료` -> `completed`
+  - 카드 탭 피드백 스타일(`reqStatCardPressed`) 추가
+- `app/request-board-requests.tsx`
+  - URL 쿼리(`filter`)를 읽어 초기 필터를 적용하도록 확장
+  - 필터 키에 `pending` 추가
+  - 목록 필터 로직/탭 구성에 `수락 대기` 반영
+    - 기존 `검토 대기(review_pending)` 필터는 유지
+
+**핵심 파일**:
+- `app/request-board.tsx`
+- `app/request-board-requests.tsx`
+- `.claude/WORK_LOG.md`
+- `.claude/WORK_DETAIL.md`
+- `AGENTS.md`
+
+**검증**:
+- `npm run lint -- app/request-board.tsx app/request-board-requests.tsx` 통과
+
+---
+
+## <a id="20260227-11"></a> 2026-02-27 | 환영문구 폰트 추가 축소
+
+**Commit**: `working tree`  
+**배경**:
+- 공통 상단 헤더의 환영문구가 여전히 크게 보여 추가 축소 요청 발생.
+
+**조치**:
+- `components/AppTopActionBar.tsx`
+  - 환영문구 폰트 크기 `24 -> 20`으로 추가 축소
+
+**핵심 파일**:
+- `components/AppTopActionBar.tsx`
+- `.claude/WORK_LOG.md`
+- `.claude/WORK_DETAIL.md`
+- `AGENTS.md`
+
+**검증**:
+- `npm run lint -- components/AppTopActionBar.tsx` 통과
+
+---
+
+## <a id="20260227-10"></a> 2026-02-27 | 게시글 조회수 집계 기준 전환(조회 이벤트 누적)
+
+**Commit**: `working tree`  
+**배경**:
+- 기존 조회수는 `post_id + resident_id` 고유 사용자 기준(1인 1회)이라, 같은 사용자의 반복 조회가 카운트되지 않았다.
+- 사용자 요청으로 조회할 때마다 카운트가 증가하도록 기준 변경 필요.
+
+**조치**:
+- `supabase/functions/board-detail/index.ts`
+  - 조회수 기록 로직을 `upsert`에서 `insert`로 변경하여 상세 조회 호출마다 이벤트 1건 누적
+- `supabase/schema.sql`
+  - `board_post_views` 테이블의 `(post_id, resident_id)` 유니크 제약 제거
+  - `board_post_stats.view_count` 집계를 `count(v.id)`로 명시해 조회 이벤트 누적값 반영
+- `supabase/migrations/20260227000007_allow_repeated_board_views.sql`
+  - 운영 DB에서 유니크 제약 삭제
+  - `board_post_stats`, `board_posts_with_stats` 뷰 재정의
+
+**핵심 파일**:
+- `supabase/functions/board-detail/index.ts`
+- `supabase/schema.sql`
+- `supabase/migrations/20260227000007_allow_repeated_board_views.sql`
+- `.claude/WORK_LOG.md`
+- `.claude/WORK_DETAIL.md`
+- `AGENTS.md`
+
+**검증**:
+- 거버넌스 체크: `node scripts/ci/check-governance.mjs` 통과
+
+**운영 메모**:
+- 이제 같은 사용자가 같은 게시글을 다시 열어도 조회수가 계속 증가한다.
+
+---
+
+## <a id="20260227-9"></a> 2026-02-27 | 헤더 타이틀 축소 + 게시판(관리) 동일 헤더 적용
+
+**Commit**: `working tree`  
+**배경**:
+- 상단 환영문구 글자 크기가 과도하게 커서 잘림이 발생했고, 관리자 게시판 화면(`/admin-board-manage`)은 동일한 헤더 디자인을 아직 사용하지 않았다.
+
+**조치**:
+- `components/AppTopActionBar.tsx`
+  - 환영문구 폰트 크기 `34 -> 24`로 축소
+  - 좌/우 슬롯 폭을 줄여 가운데 타이틀 표시 영역 확대
+- `app/admin-board-manage.tsx`
+  - 기존 `게시판 관리 + 새로고침` 전용 헤더 제거
+  - 공통 `AppTopActionBar`(알림-환영문구-로그아웃) 적용
+  - 네이티브 스택 헤더 `headerShown: false`로 중복 제거
+  - 페이지 타이틀(`게시판 관리`)은 헤더 아래 섹션 타이틀로 유지
+
+**핵심 파일**:
+- `components/AppTopActionBar.tsx`
+- `app/admin-board-manage.tsx`
+- `.claude/WORK_LOG.md`
+- `.claude/WORK_DETAIL.md`
+- `AGENTS.md`
+
+**검증**:
+- `npm run lint -- components/AppTopActionBar.tsx app/admin-board-manage.tsx app/board.tsx` 통과
+
+---
+
+## <a id="20260227-8"></a> 2026-02-27 | 상단 헤더 1행 재배치(알림-환영문구-로그아웃)
+
+**Commit**: `working tree`  
+**배경**:
+- 기존 헤더가 `환영문구(상단) + 로그아웃/알림/설정(하단)` 2행 구조여서, 사용자 요청대로 1행 구조로 재배치 필요.
+
+**조치**:
+- `components/AppTopActionBar.tsx`
+  - `설정` 버튼 제거
+  - 레이아웃을 `왼쪽 알림 버튼 / 가운데 환영문구 / 오른쪽 로그아웃` 1행으로 재구성
+  - `title` prop 추가, safe-area top inset 반영
+- `app/index.tsx`, `app/request-board.tsx`, `app/board.tsx`
+  - `AppTopActionBar`에 `title={homeHeaderTitle}` 전달
+  - `Stack.Screen` 기본 네이티브 헤더는 `headerShown: false`로 비활성화하여 중복 환영문구 제거
+
+**핵심 파일**:
+- `components/AppTopActionBar.tsx`
+- `app/index.tsx`
+- `app/request-board.tsx`
+- `app/board.tsx`
+- `.claude/WORK_LOG.md`
+- `.claude/WORK_DETAIL.md`
+- `AGENTS.md`
+
+**검증**:
+- `npm run lint -- components/AppTopActionBar.tsx app/index.tsx app/board.tsx app/request-board.tsx` 통과
+
+---
+
+## <a id="20260227-7"></a> 2026-02-27 | 게시판 카테고리+제목 동일 행 정렬
+
+**Commit**: `working tree`  
+**배경**:
+- 직전 변경에서 카테고리 배지를 제목보다 먼저 배치했지만, 카테고리와 제목이 줄바꿈되어 시작해 가독성이 떨어진다는 피드백이 발생.
+
+**조치**:
+- `app/admin-board-manage.tsx`
+  - 목록 카드와 상세 모달 모두 `카테고리 배지 + 제목`을 동일 행(`titleRow`, `modalTitleRow`)에서 시작하도록 레이아웃 변경
+- `app/board.tsx`
+  - 목록 카드의 카테고리/제목도 동일 패턴(`titleRow`)으로 통일
+- 공통 스타일 보강:
+  - `categoryBadgeInline`, `postTitleInline`, `modalPostTitleInline` 추가로 배지-제목 한 줄 정렬 시 margin 충돌 제거
+
+**핵심 파일**:
+- `app/admin-board-manage.tsx`
+- `app/board.tsx`
+- `.claude/WORK_LOG.md`
+- `.claude/WORK_DETAIL.md`
+- `AGENTS.md`
+
+**검증**:
+- `npm run lint -- app/admin-board-manage.tsx app/board.tsx` 통과
+
+---
+
+## <a id="20260227-6"></a> 2026-02-27 | 게시판 공지 우선 표시 + 게시글 조회수 추적/노출
+
+**Commit**: `working tree`  
+**배경**:
+- 앱 게시판 관리 목록/상세에서 카테고리(`공지` 등)가 제목 뒤 흐름에 노출되어 식별성이 떨어졌고, 게시글별 조회수를 추적/확인할 수 있는 수치가 없었다.
+
+**조치**:
+- 카테고리 노출 순서 보정:
+  - `app/admin-board-manage.tsx` 목록 카드에서 카테고리 배지를 제목보다 먼저 배치
+  - 상세 모달에서도 제목 상단에 카테고리 배지 노출
+- 조회수 저장/집계 추가:
+  - `supabase/schema.sql` + `supabase/migrations/20260227000006_add_board_post_views.sql`
+    - `board_post_views` 테이블/인덱스/RLS/trigger 추가
+    - `board_post_stats`, `board_posts_with_stats` 뷰에 `view_count` 포함
+  - `supabase/functions/board-detail/index.ts`
+    - 상세 조회 시 `(post_id, resident_id)` 기준 `upsert`로 1인 1조회 집계
+  - `supabase/functions/board-list/index.ts`
+    - 목록 응답 stats에 `viewCount` 포함
+- 조회수 UI 노출:
+  - `app/admin-board-manage.tsx`
+    - 목록 카드 하단: `eye + viewCount`
+    - 상세 모달 메타: `조회 {viewCount}`
+  - `app/board.tsx`
+    - 목록/상세 조회수 표시 동기화
+- 계약/타입/정리 경로 동기화:
+  - `lib/board-api.ts`, `web/src/lib/board-api.ts`, `contracts/api-contracts.md`
+  - FC 삭제/계정 삭제 정리 경로에 `board_post_views` 삭제 추가
+    - `supabase/functions/delete-account/index.ts`
+    - `supabase/functions/admin-action/index.ts`
+    - `web/src/app/api/fc-delete/route.ts`
+  - 웹 게시판 placeholder 타입에도 `viewCount` 반영 (`web/src/app/dashboard/board/page.tsx`)
+
+**핵심 파일**:
+- `app/admin-board-manage.tsx`
+- `app/board.tsx`
+- `supabase/functions/board-detail/index.ts`
+- `supabase/functions/board-list/index.ts`
+- `supabase/schema.sql`
+- `supabase/migrations/20260227000006_add_board_post_views.sql`
+- `lib/board-api.ts`
+- `web/src/lib/board-api.ts`
+- `contracts/api-contracts.md`
+- `supabase/functions/delete-account/index.ts`
+- `supabase/functions/admin-action/index.ts`
+- `web/src/app/api/fc-delete/route.ts`
+- `web/src/app/dashboard/board/page.tsx`
+- `.claude/WORK_LOG.md`
+- `.claude/WORK_DETAIL.md`
+- `AGENTS.md`
+
+**검증**:
+- 앱 린트(변경 화면/타입):
+  - `npm run lint -- app/admin-board-manage.tsx app/board.tsx lib/board-api.ts` 통과
+- 웹 린트:
+  - `cd web && npm run lint -- src/lib/board-api.ts src/app/dashboard/board/page.tsx src/app/api/fc-delete/route.ts` 통과
+- 거버넌스:
+  - `node scripts/ci/check-governance.mjs` 통과
+
+**운영 메모**:
+- 조회수는 `board-detail` 진입 시점에만 증가(정확히는 사용자별 최초 1회 기록)하므로 목록 스크롤만으로는 조회수가 오르지 않는다.
+
+---
+
+## <a id="20260227-5"></a> 2026-02-27 | 위촉/시험/설계요청 섹션 타이틀 중앙 정렬
+
+**Commit**: `working tree`  
+**배경**:
+- 사용자 요청에 따라 홈의 `위촉/시험` 제목/설명, 설계요청의 `설계 요청` 제목/설명을 모두 가운데 정렬로 통일 필요.
+
+**조치**:
+- `app/index.tsx`
+  - `homeTitleWrap`에 `alignItems: 'center'` 추가
+  - `homeTitle`, `homeSubtitleText`에 `textAlign: 'center'` 추가
+- `app/request-board.tsx`
+  - `pageTitleWrap`에 `alignItems: 'center'` 추가
+  - `pageTitle`, `pageSubtitle`에 `textAlign: 'center'` 추가
+
+**핵심 파일**:
+- `app/index.tsx`
+- `app/request-board.tsx`
+- `.claude/WORK_LOG.md`
+- `.claude/WORK_DETAIL.md`
+- `AGENTS.md`
+
+**검증**:
+- `npm run lint -- app/index.tsx app/request-board.tsx` 통과
+
+---
+
+## <a id="20260227-4"></a> 2026-02-27 | 홈/설계요청 종 아이콘 미확인 배지 기준 통일
+
+**Commit**: `working tree`  
+**배경**:
+- 홈 화면 종 아이콘은 알림 확인 후 빨간 배지가 사라지는데, 설계요청 화면 종 아이콘은 확인 후에도 배지가 남는 불일치가 있었다.
+- 원인: 설계요청은 `notifications.length`(목록 개수) 기준 점 배지, 홈은 `inbox_unread_count`(미확인 개수) 기준 배지를 사용.
+
+**조치**:
+- `app/request-board.tsx`에서 홈과 동일한 미확인 개수 계약(`fc-notify` `inbox_unread_count`)으로 배지 기준 통일
+- `lastNotificationCheckTime`를 읽어 `since` 파라미터 반영
+- 화면 복귀 시 배지가 즉시 갱신되도록 `useFocusEffect`로 포커스 시 재조회
+- 상단 바에는 `showNotificationDot` 대신 `notificationCount` 전달
+
+**핵심 파일**:
+- `app/request-board.tsx`
+- `.claude/WORK_LOG.md`
+- `.claude/WORK_DETAIL.md`
+- `AGENTS.md`
+
+**검증**:
+- `npm run lint -- app/request-board.tsx` 통과
+
+---
+
+## <a id="20260227-3"></a> 2026-02-27 | 설계 매니저 환영 문구 적용
+
+**Commit**: `working tree`  
+**배경**:
+- 설계 매니저(request_board designer)로 로그인한 세션에서도 일반 role 기반 환영 문구가 노출되어 사용자 식별 문구가 맞지 않았다.
+
+**조치**:
+- 공통 환영 타이틀 유틸(`buildWelcomeTitle`)에 `isRequestBoardDesigner` 우선 분기 추가
+  - 출력 규칙: `{이름} 설계 매니저님 환영합니다..`
+  - 이름이 없을 경우: `설계 매니저님 환영합니다.`
+  - 이름 말미에 `설계매니저/설계 매니저`가 이미 포함된 경우 중복 접미사 제거
+- 호출부 반영:
+  - `app/index.tsx`
+  - `app/request-board.tsx`
+  - `app/board.tsx`
+
+**핵심 파일**:
+- `lib/welcome-title.ts`
+- `app/index.tsx`
+- `app/request-board.tsx`
+- `app/board.tsx`
+- `.claude/WORK_LOG.md`
+- `.claude/WORK_DETAIL.md`
+- `AGENTS.md`
+
+**검증**:
+- `npm run lint -- lib/welcome-title.ts app/index.tsx app/request-board.tsx app/board.tsx` 통과
+
+---
+
+## <a id="20260227-2"></a> 2026-02-27 | 시험 일정 삭제 버튼 미동작(생명/손해) 수정
+
+**Commit**: `working tree`  
+**배경**:
+- `생명 시험 등록`/`손해 시험 등록` 화면에서 일정 카드 내부 `삭제` 버튼 탭 시 삭제 확인이 뜨지 않는 문제가 발생했다.
+- 원인: 일정 카드(`Pressable`) 안에 삭제 버튼(`Pressable`)이 중첩되어 Android에서 부모 탭 이벤트가 우선 처리되는 케이스.
+
+**조치**:
+- 삭제 버튼 `onPress`에서 `event.stopPropagation()` 적용해 부모 카드 선택 이벤트 전파 차단
+- 동시에 readOnly 계정에서 삭제 버튼이 비활성 상태로 명확히 보이도록 `disabled` 시각 스타일 추가
+
+**핵심 파일**:
+- `app/exam-register.tsx`
+- `app/exam-register2.tsx`
+- `.claude/WORK_LOG.md`
+- `.claude/WORK_DETAIL.md`
+- `AGENTS.md`
+
+**검증**:
+- `npm run lint -- app/exam-register.tsx app/exam-register2.tsx` 통과
+
+**운영 메모**:
+- 카드 전체 탭과 카드 내부 개별 액션을 함께 둘 때는 내부 액션에 이벤트 전파 차단(`stopPropagation`)을 기본 적용한다.
+
+---
+
+## <a id="20260227-1"></a> 2026-02-27 | 앱 상단 헤더 공통화(위촉/시험/설계요청/게시판) + 우측 새로고침 제거
+
+**Commit**: `working tree`  
+**배경**:
+- 앱 상단 액션 바가 화면마다 분기되어 `설정` 위치와 `새로고침` 노출이 일관되지 않았고, 설계요청/게시판은 홈과 다른 헤더 패턴을 사용하고 있었다.
+
+**조치**:
+- 공통 상단 액션 바 컴포넌트 추가:
+  - `components/AppTopActionBar.tsx`
+  - 구조 고정: `로그아웃 + 알림(좌측)` / `설정(우측)`
+  - 우측 `새로고침` 버튼 제거
+- 환영 타이틀 계산 로직 공통화:
+  - `lib/welcome-title.ts` (`FC/본부장(readOnly)/총무` 문구 규칙 일원화)
+- 화면 적용:
+  - `app/index.tsx`: 기존 개별 버튼/새로고침 제거 후 `AppTopActionBar` 적용
+  - `app/request-board.tsx`: 기존 전용 헤더 제거, 공통 상단바 + 페이지 타이틀(설계 요청) 적용
+  - `app/board.tsx`: 기존 `RefreshButton` 헤더 제거, 공통 상단바 + 페이지 타이틀(게시판) 적용
+  - `request-board`/`board` 상단 네이티브 헤더도 홈과 동일하게 환영 문구를 쓰도록 `Stack.Screen` 옵션 동기화
+
+**핵심 파일**:
+- `components/AppTopActionBar.tsx`
+- `lib/welcome-title.ts`
+- `app/index.tsx`
+- `app/request-board.tsx`
+- `app/board.tsx`
+- `.claude/WORK_LOG.md`
+- `.claude/WORK_DETAIL.md`
+- `AGENTS.md`
+
+**검증**:
+- lint:  
+  - `npm run lint -- app/index.tsx app/request-board.tsx app/board.tsx components/AppTopActionBar.tsx lib/welcome-title.ts` 통과
+- 회귀 단위 테스트:  
+  - `npm test -- --runInBand lib/__tests__/bottom-navigation.test.ts` 통과
+
+**운영 메모**:
+- 상단 액션 바 변경은 `AppTopActionBar` 단일 컴포넌트에서만 수정하고, 개별 화면에서 버튼을 재구현하지 않는다.
+
+---
+
 ## <a id="20260226-12"></a> 2026-02-26 | 남은 BLOCKED 42건 전수 PASS 마감(SET-01/RB-01/04/07 포함)
 
 **Commit**: `working tree`  
