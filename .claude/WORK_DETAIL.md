@@ -7,6 +7,23 @@
 
 ---
 
+## <a id="20260228-1"></a> 2026-02-28 | 서비스 브랜딩 변경 (request_board 표시명 → 가람Link)
+
+**Commit**: `5544c21`
+**배경**:
+- request_board 웹 서비스명이 '설계요청'으로 표시되고 있었으나, 공식 브랜드명을 '가람Link'로 확정.
+- 모바일 앱(fc-onboarding-app)의 request_board 관련 UI 텍스트도 동일하게 통일 필요.
+
+**조치**:
+- `app/request-board-messenger.tsx`: 헤더 타이틀 `설계요청 메신저` → `가람Link 메신저`, 계정 연결 실패 오류 문구 2곳 변경
+- `app/request-board-fc-codes.tsx`: 로그인 상태 확인 오류 문구 변경
+- `app/request-board.tsx`: `설계요청 주소 복사` 버튼 레이블, 빈 상태 텍스트 변경
+
+**검증**: lint pass (`npm run lint -- app/request-board-messenger.tsx app/request-board-fc-codes.tsx app/request-board.tsx`)
+**다음**: 없음 (비즈니스 로직 용어 '설계요청'은 변경하지 않음)
+
+---
+
 ## <a id="20260227-15"></a> 2026-02-27 | 소속-본부장 매핑 테이블 도입(알림 수신 정확도 강화)
 
 **Commit**: `working tree`  

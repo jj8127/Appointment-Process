@@ -20,6 +20,7 @@
 ## 최근 작업
 | 날짜 | 작업 | 핵심 파일 | 상세 |
 |------|------|----------|------|
+| 02-28 | 서비스 브랜딩 변경 (request_board 표시명 → 가람Link) | `app/request-board-messenger.tsx`, `app/request-board-fc-codes.tsx`, `app/request-board.tsx` | [→ 상세](WORK_DETAIL.md#20260228-1) |
 | 02-27 | 소속-본부장 매핑 테이블 도입(알림 수신 정확도 강화) | `supabase/migrations/20260227000008_add_affiliation_manager_mappings.sql`, `supabase/schema.sql`, `supabase/functions/fc-notify/index.ts`, `supabase/functions/delete-account/index.ts`, `docs/guides/COMMANDS.md` | [→ 상세](WORK_DETAIL.md#20260227-15) |
 | 02-27 | 알림 inbox 기준 통일(위촉/설계요청) + 본부장 FC업데이트 수신 범위 제한 | `app/index.tsx`, `app/request-board.tsx`, `app/notifications.tsx`, `supabase/functions/fc-notify/index.ts` | [→ 상세](WORK_DETAIL.md#20260227-14) |
 | 02-27 | 알림 배지 UI 깨짐 보정(폰트 스케일 고정) | `components/AppTopActionBar.tsx` | [→ 상세](WORK_DETAIL.md#20260227-13) |
