@@ -206,7 +206,7 @@ export default function RequestBoardMessengerScreen() {
     setRbUser(null);
     setAuthState('error');
     setAuthError(
-      bridged.error ?? '설계요청 계정 연결에 실패했습니다. 앱에서 다시 로그인한 뒤 시도해주세요.',
+      bridged.error ?? '가람Link 계정 연결에 실패했습니다. 앱에서 다시 로그인한 뒤 시도해주세요.',
     );
   }, []);
 
@@ -604,7 +604,7 @@ export default function RequestBoardMessengerScreen() {
             <Pressable style={styles.backBtn} onPress={() => router.back()}>
               <Feather name="arrow-left" size={22} color={COLORS.gray[800]} />
             </Pressable>
-            <Text style={styles.headerTitleCenter}>설계요청 메신저</Text>
+            <Text style={styles.headerTitleCenter}>가람Link 메신저</Text>
             <View style={styles.backBtn} />
           </View>
         </View>
@@ -613,7 +613,7 @@ export default function RequestBoardMessengerScreen() {
           <View style={styles.loginIconWrap}>
             <Feather name="alert-triangle" size={36} color={COLORS.primary} />
           </View>
-          <Text style={styles.loginTitle}>설계요청 계정 연결 실패</Text>
+          <Text style={styles.loginTitle}>가람Link 계정 연결 실패</Text>
           <Text style={styles.loginDesc}>{authError}</Text>
 
           <Pressable

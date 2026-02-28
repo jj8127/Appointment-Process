@@ -93,7 +93,7 @@ export default function RequestBoardFcCodesScreen() {
       setCompanyNames(namesData);
     } catch (err) {
       logger.warn('[fc-codes] fetch failed', err);
-      setFetchError('데이터를 불러오는데 실패했습니다. 설계요청 앱에 로그인 상태를 확인해주세요.');
+      setFetchError('데이터를 불러오는데 실패했습니다. 가람Link에 로그인 상태를 확인해주세요.');
     } finally {
       setLoading(false);
       setRefreshing(false);

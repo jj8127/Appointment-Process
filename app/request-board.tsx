@@ -401,7 +401,7 @@ export default function RequestBoardScreen() {
               <View style={[styles.actionIconWrap, { backgroundColor: '#10B981' }]}>
                 <Feather name="link" size={20} color="#fff" />
               </View>
-              <Text style={styles.actionLabel}>설계요청{'\n'}주소 복사</Text>
+              <Text style={styles.actionLabel}>가람Link{'\n'}주소 복사</Text>
             </Pressable>
 
             <Pressable
@@ -591,7 +591,7 @@ export default function RequestBoardScreen() {
             ) : recentNotifs.length === 0 ? (
               <View style={styles.emptyWrap}>
                 <Feather name="inbox" size={40} color={COLORS.gray[200]} />
-                <Text style={styles.emptyText}>아직 설계요청 알림이 없습니다</Text>
+                <Text style={styles.emptyText}>아직 가람Link 알림이 없습니다</Text>
                 <Pressable
                   style={({ pressed }) => [styles.emptyAction, pressed && { opacity: 0.7 }]}
                   onPress={openMessenger}
