@@ -242,6 +242,20 @@ export function formatPhone(phone: string): string {
 }
 
 /**
+ * Safely decode a URL-encoded filename (e.g. %EA%B0%80%... → 가람Link_logo.png)
+ * - Returns the decoded string if valid; falls back to the original on error.
+ * - Safe to call on already-decoded strings.
+ */
+export function safeDecodeFileName(name: string | null | undefined): string {
+  if (!name) return '';
+  try {
+    return decodeURIComponent(name);
+  } catch {
+    return name;
+  }
+}
+
+/**
  * Format resident ID for display
  * - Converts "1234561234567" to "123456-1******"
  */

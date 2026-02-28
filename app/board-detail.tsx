@@ -18,6 +18,7 @@ import { ImagePreviewModal } from '@/components/ImagePreviewModal';
 import { useSession } from '@/hooks/use-session';
 import { buildBoardActor, fetchBoardDetail, formatFileSize } from '@/lib/board-api';
 import { COLORS } from '@/lib/theme';
+import { safeDecodeFileName } from '@/lib/validation';
 
 const safeText = (value?: string | null) => (typeof value === 'string' ? value : '');
 type PreviewModalState = {
@@ -130,7 +131,7 @@ export default function BoardDetailScreen() {
     .map((file) => ({
       id: file.id,
       url: file.signedUrl as string,
-      title: file.fileName,
+      title: safeDecodeFileName(file.fileName),
     }));
 
   return (
@@ -158,7 +159,7 @@ export default function BoardDetailScreen() {
               >
                 <Feather name={file.fileType === 'image' ? 'image' : 'paperclip'} size={14} color={COLORS.primary} />
                 <Text style={styles.fileName} numberOfLines={1}>
-                  {file.fileName}
+                  {safeDecodeFileName(file.fileName)}
                 </Text>
                 <Text style={styles.fileSize}>{formatFileSize(file.fileSize)}</Text>
               </Pressable>

@@ -20,6 +20,7 @@
 ## 최근 작업
 | 날짜 | 작업 | 핵심 파일 | 상세 |
 |------|------|----------|------|
+| 02-28 | 한글 파일명 URL 인코딩 깨짐 전수 수정 (safeDecodeFileName) | `lib/validation.ts`, `app/chat.tsx`, `app/board.tsx`, `app/admin-board-manage.tsx`, `app/board-detail.tsx`, `app/request-board-review.tsx` | [→ 상세](WORK_DETAIL.md#20260228-3) |
 | 02-28 | 위촉 홈 바로가기 '공지 등록' → 게시판 작성 화면으로 연결 변경 | `app/index.tsx` | [→ 상세](WORK_DETAIL.md#20260228-2) |
 | 02-28 | 서비스 브랜딩 변경 (request_board 표시명 → 가람Link) | `app/request-board-messenger.tsx`, `app/request-board-fc-codes.tsx`, `app/request-board.tsx` | [→ 상세](WORK_DETAIL.md#20260228-1) |
 | 02-27 | 소속-본부장 매핑 테이블 도입(알림 수신 정확도 강화) | `supabase/migrations/20260227000008_add_affiliation_manager_mappings.sql`, `supabase/schema.sql`, `supabase/functions/fc-notify/index.ts`, `supabase/functions/delete-account/index.ts`, `docs/guides/COMMANDS.md` | [→ 상세](WORK_DETAIL.md#20260227-15) |

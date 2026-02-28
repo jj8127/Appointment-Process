@@ -27,6 +27,7 @@ import {
   type RbRequestDetail,
 } from '@/lib/request-board-api';
 import { COLORS, RADIUS, SHADOWS, SPACING, TYPOGRAPHY } from '@/lib/theme';
+import { safeDecodeFileName } from '@/lib/validation';
 
 /* ─── Helpers ─── */
 
@@ -289,7 +290,7 @@ export default function RequestBoardReviewScreen() {
                   <Feather name="file" size={14} color={COLORS.primary} />
                 </View>
                 <View style={styles.fileInfo}>
-                  <Text style={styles.fileName} numberOfLines={1}>{file.file_name}</Text>
+                  <Text style={styles.fileName} numberOfLines={1}>{safeDecodeFileName(file.file_name)}</Text>
                   <Text style={styles.fileMeta}>
                     {formatFileSize(file.file_size)} · {formatDate(file.created_at)}
                   </Text>

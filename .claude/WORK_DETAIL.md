@@ -7,6 +7,28 @@
 
 ---
 
+## <a id="20260228-3"></a> 2026-02-28 | 한글 파일명 URL 인코딩 깨짐 전수 수정 (safeDecodeFileName)
+
+**Commit**: `pending`
+**배경**:
+- 한글 이름 파일을 첨부/전송하면 `%EA%B0%80%...` 형태로 화면에 그대로 노출되는 문제.
+- DB/Storage에 URL 인코딩된 파일명이 저장되고, 화면 렌더 시 디코딩 없이 표시.
+
+**조치**:
+- `lib/validation.ts`에 `safeDecodeFileName(name)` 공유 유틸 추가 (`decodeURIComponent` + try/catch)
+- 디코딩 미적용 파일 전수 수정:
+  - `app/chat.tsx`: `item.file_name` 렌더 시 적용
+  - `app/board.tsx`: 파일명 렌더 + 이미지 갤러리 title 매핑
+  - `app/admin-board-manage.tsx`: 파일명 렌더 + 이미지 갤러리 title 매핑
+  - `app/board-detail.tsx`: 파일명 렌더 + 이미지 갤러리 title 매핑
+  - `app/request-board-review.tsx`: `file.file_name` 렌더 시 적용
+- `app/request-board-messenger.tsx`는 이미 자체 `normalizeAttachmentFileName`(동일 로직) 적용 중이므로 미수정
+
+**검증**: lint pass, governance pass
+**다음**: 없음 (upload 시 파일명 보존은 Storage 정책이므로 표시 레이어에서만 처리)
+
+---
+
 ## <a id="20260228-2"></a> 2026-02-28 | 위촉 홈 바로가기 '공지 등록' → 게시판 작성 화면 연결 변경
 
 **Commit**: `pending`

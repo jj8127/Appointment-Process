@@ -44,6 +44,7 @@ import { useSession } from '@/hooks/use-session';
 import { resolveBottomNavActiveKey, resolveBottomNavPreset } from '@/lib/bottom-navigation';
 import { ANIMATION } from '@/lib/theme';
 import { buildWelcomeTitle } from '@/lib/welcome-title';
+import { safeDecodeFileName } from '@/lib/validation';
 import {
   BoardDetail,
   BoardListItem,
@@ -445,7 +446,7 @@ export default function AdminBoardManageScreen() {
         .map((item) => ({
           id: item.id,
           url: item.signedUrl as string,
-          title: item.fileName,
+          title: safeDecodeFileName(item.fileName),
           fileSize: item.fileSize,
         })),
     [modalAttachments],
@@ -1325,7 +1326,7 @@ export default function AdminBoardManageScreen() {
                             <Feather name="file-text" size={16} color={HANWHA_ORANGE} />
                           </View>
                           <View style={{ flex: 1 }}>
-                            <Text style={styles.attachmentName}>{item.fileName}</Text>
+                            <Text style={styles.attachmentName}>{safeDecodeFileName(item.fileName)}</Text>
                             <Text style={styles.attachmentSize}>{formatFileSize(item.fileSize)}</Text>
                           </View>
                           <Feather name="download" size={16} color={TEXT_MUTED} />

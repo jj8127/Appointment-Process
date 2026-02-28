@@ -28,6 +28,7 @@ import { useKeyboardPadding } from '@/hooks/use-keyboard-padding';
 import { useSession } from '@/hooks/use-session';
 import { supabase } from '@/lib/supabase';
 import { logger } from '@/lib/logger';
+import { safeDecodeFileName } from '@/lib/validation';
 import {
   ADMIN_CHAT_ID,
   sanitizePhone,
@@ -159,6 +160,32 @@ export default function ChatScreen() {
     return true;
   }, []);
 
+  const markIncomingAsRead = useCallback(async () => {
+    if (!myId || !otherId) return false;
+
+    const { error } = await supabase
+      .from('messages')
+      .update({ is_read: true })
+      .eq('sender_id', otherId)
+      .eq('receiver_id', myId)
+      .eq('is_read', false);
+
+    if (error) {
+      logger.debug('[chat] mark read failed', { error: error.message, myId, otherId });
+      return false;
+    }
+
+    const updated = messagesRef.current.map((message) =>
+      message.sender_id === otherId && message.receiver_id === myId
+        ? { ...message, is_read: true }
+        : message,
+    );
+
+    messagesRef.current = updated;
+    setMessages(updated);
+    return true;
+  }, [myId, otherId]);
+
   const loadFcTargets = useCallback(async () => {
     if (role !== 'fc') return;
     setTargetsLoading(true);
@@ -238,18 +265,13 @@ export default function ChatScreen() {
     const filtered = (data ?? []).filter((m) => !deletedIdsRef.current.has(m.id));
     applyMessages(filtered as Message[]);
 
-    const unreadIds = filtered
-      .filter((m) => m.sender_id === otherId && m.receiver_id === myId && !m.is_read)
-      .map((m) => m.id);
-    if (unreadIds.length > 0) {
-      await supabase.from('messages').update({ is_read: true }).in('id', unreadIds);
-      const updated = messagesRef.current.map((m) =>
-        m.sender_id === otherId && m.receiver_id === myId ? { ...m, is_read: true } : m,
-      );
-      messagesRef.current = updated;
-      setMessages(updated);
+    const hasUnreadIncoming = filtered.some(
+      (message) => message.sender_id === otherId && message.receiver_id === myId && !message.is_read,
+    );
+    if (hasUnreadIncoming) {
+      await markIncomingAsRead();
     }
-  }, [applyMessages, myId, otherId]);
+  }, [applyMessages, markIncomingAsRead, myId, otherId]);
 
   useEffect(() => {
     if (!myId || !otherId) return;
@@ -289,7 +311,7 @@ export default function ChatScreen() {
                 : [newMsg, ...messagesRef.current],
             );
             if (newMsg.sender_id === otherId) {
-              void supabase.from('messages').update({ is_read: true }).eq('id', newMsg.id);
+              void markIncomingAsRead();
             }
           } else if (payload.eventType === 'UPDATE') {
             applyMessages(messagesRef.current.map((m) => (m.id === newMsg.id ? newMsg : m)));
@@ -301,7 +323,7 @@ export default function ChatScreen() {
     return () => {
       supabase.removeChannel(channel);
     };
-  }, [applyMessages, fetchMessages, myId, otherId]);
+  }, [applyMessages, fetchMessages, markIncomingAsRead, myId, otherId]);
 
   useEffect(() => {
     if (!myId || !otherId) return;
@@ -462,15 +484,16 @@ export default function ChatScreen() {
       const ext = uri.split('.').pop()?.toLowerCase() ?? 'bin';
       const fileName = `chat/${Date.now()}_${Math.random().toString(36).slice(2)}.${ext}`;
 
-      const formData = new FormData();
-      formData.append('file', {
-        uri,
-        name: fileName,
-        type: fileType,
-      } as any);
+      const uploadMimeType = fileType?.trim() || 'application/octet-stream';
+      const localFileResponse = await fetch(uri);
+      if (!localFileResponse.ok) {
+        throw new Error(`파일을 읽지 못했습니다. (${localFileResponse.status})`);
+      }
+      const fileBlob = await localFileResponse.blob();
 
-      const { error } = await supabase.storage.from('chat-uploads').upload(fileName, formData, {
-        contentType: fileType,
+      const { error } = await supabase.storage.from('chat-uploads').upload(fileName, fileBlob, {
+        contentType: uploadMimeType,
+        upsert: false,
       });
       if (isUploadCancelled.current) return null;
       if (error) throw error;
@@ -613,7 +636,7 @@ export default function ChatScreen() {
           </View>
           <View style={{ flex: 1 }}>
             <Text style={[styles.msgText, isMe ? styles.msgTextMe : styles.msgTextOther]} numberOfLines={1}>
-              {item.file_name || '파일'}
+              {safeDecodeFileName(item.file_name) || '파일'}
             </Text>
             <Text style={{ fontSize: 11, color: isMe ? '#eee' : '#999' }}>탭하여 다운로드</Text>
           </View>
