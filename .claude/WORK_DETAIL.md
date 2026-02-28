@@ -7,6 +7,21 @@
 
 ---
 
+## <a id="20260228-2"></a> 2026-02-28 | 위촉 홈 바로가기 '공지 등록' → 게시판 작성 화면 연결 변경
+
+**Commit**: `pending`
+**배경**:
+- 위촉 홈 바로가기의 '공지 등록' 버튼이 `/admin-notice`로 이동하고 있었으나, 게시판의 '글쓰기' 버튼과 동일하게 `/admin-board`로 이동하도록 요청.
+
+**조치**:
+- `app/index.tsx` `quickLinksAdmin` 배열에서 '공지 등록' 항목의 href를 `/admin-notice` → `/admin-board`로 변경.
+- 아이콘 매핑(`admin-board` → `edit`)은 기존 resolver 규칙에 의해 자동 적용됨.
+
+**검증**: `npm run lint -- app/index.tsx`
+**다음**: 없음
+
+---
+
 ## <a id="20260228-1"></a> 2026-02-28 | 서비스 브랜딩 변경 (request_board 표시명 → 가람Link)
 
 **Commit**: `5544c21`
