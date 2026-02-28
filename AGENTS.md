@@ -7,6 +7,18 @@
 - Keep FC onboarding workflow and admin operations consistent across mobile app, admin web, and backend services.
 - Protect sensitive identity data while preserving existing API and workflow behavior.
 
+### Domain & Role Contract (GaramPA)
+- `가람PA지사`는 FC(보험설계사) 조직이며, 고객 보험을 여러 보험사와 비교해 최적 설계를 제공한다.
+- `가람in`은 앱 이름이며, 회사명/소속명(`company_name`, `affiliation`)으로 사용하지 않는다.
+- 역할 경계(업무 기준):
+  - `fc`: 고객 상담 후 보험사 설계 매니저에게 설계 의뢰를 요청하는 주체
+  - `manager`(본부장): FC 리더 역할이며 request_board 의뢰 요청 주체 기준에서는 FC와 동일하게 취급
+  - `admin`(총무): 가람PA지사 운영/행정 지원 역할, 설계 의뢰 요청 주체가 아님
+  - `designer`(설계 매니저): 보험사 측 설계 담당자로 FC/본부장의 의뢰를 수신/처리
+- 프로젝트 경계:
+  - `fc-onboarding-app`: 위촉/온보딩/운영(FC·본부장·총무) 중심 시스템
+  - `request_board`: FC(본부장 포함) -> 설계 매니저 설계의뢰 처리 시스템
+
 ### Tech Stack
 - Mobile app: Expo (React Native, Expo Router, TanStack Query)
 - Admin web: Next.js App Router (Mantine, TanStack Query)

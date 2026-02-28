@@ -423,6 +423,46 @@ export default function BoardScreen() {
     enabled: !!actor && !!selectedPostId,
   });
 
+  useEffect(() => {
+    if (!actor || !detailData?.post?.id) return;
+    const nextViewCount = detailData.post.viewCount;
+    if (typeof nextViewCount !== 'number') return;
+
+    const targetPostId = detailData.post.id;
+
+    setSelectedPost((prev) => {
+      if (!prev || prev.id !== targetPostId) return prev;
+      return {
+        ...prev,
+        stats: {
+          ...prev.stats,
+          viewCount: nextViewCount,
+        },
+      };
+    });
+
+    queryClient.setQueriesData<{ items: BoardListItem[]; nextCursor?: string | null }>(
+      { queryKey: ['board-posts', actor.role, actor.residentId] },
+      (current) => {
+        if (!current?.items?.length) return current;
+        let changed = false;
+        const nextItems = current.items.map((item) => {
+          if (item.id !== targetPostId) return item;
+          if ((item.stats?.viewCount ?? 0) === nextViewCount) return item;
+          changed = true;
+          return {
+            ...item,
+            stats: {
+              ...item.stats,
+              viewCount: nextViewCount,
+            },
+          };
+        });
+        return changed ? { ...current, items: nextItems } : current;
+      },
+    );
+  }, [actor, detailData?.post?.id, detailData?.post?.viewCount, queryClient]);
+
   const posts = useMemo(() => listData?.items ?? [], [listData]);
   const categoryNameMap = useMemo(() => {
     const map = new Map<string, string>();

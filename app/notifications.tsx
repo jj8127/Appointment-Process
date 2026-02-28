@@ -115,6 +115,8 @@ export default function NotificationsScreen() {
   const listContentHeightRef = useRef(0);
   const dragPointerPageYRef = useRef<number | null>(null);
   const autoScrollTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const alertTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const mountedRef = useRef(true);
 
   const itemHeightsRef = useRef<Map<string, number>>(new Map());
   const itemLayoutsRef = useRef<Map<string, { y: number; height: number }>>(new Map());
@@ -139,6 +141,13 @@ export default function NotificationsScreen() {
       autoScrollTimerRef.current = null;
     }
     dragPointerPageYRef.current = null;
+  }, []);
+
+  const clearAlertTimer = useCallback(() => {
+    if (alertTimerRef.current) {
+      clearTimeout(alertTimerRef.current);
+      alertTimerRef.current = null;
+    }
   }, []);
 
   const recomputeItemLayouts = useCallback(() => {
@@ -180,9 +189,11 @@ export default function NotificationsScreen() {
 
   useEffect(() => {
     return () => {
+      mountedRef.current = false;
+      clearAlertTimer();
       stopAutoScroll();
     };
-  }, [stopAutoScroll]);
+  }, [clearAlertTimer, stopAutoScroll]);
 
   const findItemAtAbsoluteY = useCallback((pageY: number): string | null => {
     const topBase = dragSelectArmedRef.current ? dragListTopRef.current : listTopRef.current;
@@ -238,6 +249,7 @@ export default function NotificationsScreen() {
     const containerHeight = listContainerHeightRef.current;
     const contentHeight = listContentHeightRef.current;
     if (containerHeight <= 0 || contentHeight <= containerHeight) {
+      stopAutoScroll();
       return;
     }
 
@@ -379,11 +391,13 @@ export default function NotificationsScreen() {
           const bTime = b.created_at ? new Date(b.created_at).getTime() : 0;
           return bTime - aTime;
         });
+      if (!mountedRef.current) return;
       setNotices(merged);
       await AsyncStorage.setItem('lastNotificationCheckTime', new Date().toISOString());
     } catch (err: unknown) {
       logger.warn('Failed to load notifications', err);
     } finally {
+      if (!mountedRef.current) return;
       setLoading(false);
       setRefreshing(false);
     }
@@ -458,29 +472,35 @@ export default function NotificationsScreen() {
   };
 
   const handleDeleteSelected = () => {
-    if (!selectedIds.size) return;
-    Alert.alert('알림 삭제', `선택한 ${selectedIds.size}개를 삭제할까요?`, [
+    const selectedSnapshot = Array.from(selectedIdsRef.current);
+    if (!selectedSnapshot.length) return;
+    Alert.alert('알림 삭제', `선택한 ${selectedSnapshot.length}개를 삭제할까요?`, [
       { text: '취소', style: 'cancel' },
       {
         text: '삭제',
         style: 'destructive',
         onPress: () => {
-          void doDelete();
+          void doDelete(selectedSnapshot);
         },
       },
     ]);
   };
 
-  const doDelete = async () => {
+  const doDelete = async (selectedSnapshot: string[]) => {
     try {
       if (!inboxRole) {
         throw new Error('로그인 정보를 확인할 수 없습니다.');
       }
 
-      const notifIds = Array.from(selectedIds)
+      clearAlertTimer();
+      endDragSelection();
+
+      const selectedSet = new Set(selectedSnapshot);
+
+      const notifIds = selectedSnapshot
         .filter((id) => id.startsWith('notification:'))
         .map((id) => id.replace('notification:', ''));
-      const noticeIds = Array.from(selectedIds)
+      const noticeIds = selectedSnapshot
         .filter((id) => id.startsWith('notice:'))
         .map((id) => id.replace('notice:', ''));
 
@@ -508,24 +528,28 @@ export default function NotificationsScreen() {
         await saveHiddenNoticeIds(hidden);
       }
 
+      if (!mountedRef.current) return;
+      setNotices((prev) => prev.filter((item) => !selectedSet.has(item.id)));
       setSelectedIds(new Set());
       setSelectionMode(false);
-      await load();
+      void load();
 
       const isNoticeOnlyFc = inboxRole === 'fc' && noticeIds.length > 0 && notifIds.length === 0;
-      setTimeout(() => {
+      alertTimerRef.current = setTimeout(() => {
+        if (!mountedRef.current) return;
         Alert.alert(
           '완료',
           isNoticeOnlyFc
             ? '선택한 공지는 알림센터에서 숨김 처리되었습니다.'
             : '선택한 항목을 삭제했습니다.',
         );
-      }, 300);
+      }, 150);
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : '삭제 중 문제가 발생했습니다.';
-      setTimeout(() => {
+      alertTimerRef.current = setTimeout(() => {
+        if (!mountedRef.current) return;
         Alert.alert('오류', message);
-      }, 300);
+      }, 150);
     }
   };
 
