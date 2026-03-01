@@ -1,5 +1,7 @@
 import { Feather } from '@expo/vector-icons';
+import * as Clipboard from 'expo-clipboard';
 import * as DocumentPicker from 'expo-document-picker';
+import * as FileSystem from 'expo-file-system/legacy';
 import * as ImagePicker from 'expo-image-picker';
 import { Stack, useRouter } from 'expo-router';
 import { MotiView } from 'moti';
@@ -10,7 +12,6 @@ import {
   FlatList,
   Image,
   KeyboardAvoidingView,
-  Linking,
   Modal,
   Platform,
   Pressable,
@@ -142,6 +143,16 @@ const formatFileSize = (bytes: number): string => {
   if (bytes < 1024) return `${bytes}B`;
   if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(0)}KB`;
   return `${(bytes / (1024 * 1024)).toFixed(1)}MB`;
+};
+
+const normalizeAttachmentFileName = (value: string): string => {
+  const raw = (value ?? '').trim();
+  if (!raw) return '첨부파일';
+  try {
+    return decodeURIComponent(raw);
+  } catch {
+    return raw;
+  }
 };
 
 const fileIcon = (type: string): FeatherIconName => {
@@ -421,7 +432,7 @@ export default function RequestBoardMessengerScreen() {
             (m as RbDmMessage).direct_message_attachments ??
             [];
           const attachments: MessageAttachment[] = rawAttachments.map((a) => ({
-            fileName: a.file_name,
+            fileName: normalizeAttachmentFileName(a.file_name),
             fileType: a.file_type,
             fileSize: a.file_size,
             fileUrl: a.file_url,
@@ -515,6 +526,133 @@ export default function RequestBoardMessengerScreen() {
     setPendingFiles((prev) => prev.filter((_, i) => i !== idx));
   };
 
+  const extractFileNameFromUrl = useCallback((url: string): string => {
+    const fallback = `garamlink-file-${Date.now()}`;
+    if (!url) return fallback;
+    const clean = url.split('?')[0]?.split('#')[0] ?? '';
+    const rawName = clean.split('/').pop() ?? '';
+    if (!rawName) return fallback;
+    try {
+      const decoded = decodeURIComponent(rawName).trim();
+      return decoded || fallback;
+    } catch {
+      return rawName || fallback;
+    }
+  }, []);
+
+  const resolveMimeTypeFromName = useCallback((fileName: string, rawMimeType?: string): string => {
+    const normalizedRawMime = (rawMimeType ?? '').trim().toLowerCase();
+    if (normalizedRawMime.includes('/')) {
+      return normalizedRawMime;
+    }
+    const lower = fileName.toLowerCase();
+    if (lower.endsWith('.jpg') || lower.endsWith('.jpeg')) return 'image/jpeg';
+    if (lower.endsWith('.png')) return 'image/png';
+    if (lower.endsWith('.webp')) return 'image/webp';
+    if (lower.endsWith('.gif')) return 'image/gif';
+    if (lower.endsWith('.bmp')) return 'image/bmp';
+    if (lower.endsWith('.heic')) return 'image/heic';
+    if (lower.endsWith('.heif')) return 'image/heif';
+    if (lower.endsWith('.pdf')) return 'application/pdf';
+    if (lower.endsWith('.doc')) return 'application/msword';
+    if (lower.endsWith('.docx')) return 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
+    if (lower.endsWith('.xls')) return 'application/vnd.ms-excel';
+    if (lower.endsWith('.xlsx')) return 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
+    if (lower.endsWith('.ppt')) return 'application/vnd.ms-powerpoint';
+    if (lower.endsWith('.pptx')) return 'application/vnd.openxmlformats-officedocument.presentationml.presentation';
+    if (lower.endsWith('.csv')) return 'text/csv';
+    if (lower.endsWith('.txt')) return 'text/plain';
+    if (lower.endsWith('.zip')) return 'application/zip';
+    if (lower.endsWith('.hwp')) return 'application/x-hwp';
+    return 'application/octet-stream';
+  }, []);
+
+  const sanitizeFileName = useCallback((fileName: string): string => {
+    const cleaned = fileName.replace(/[\\/:*?"<>|]/g, '_').trim();
+    return cleaned || `garamlink-file-${Date.now()}`;
+  }, []);
+
+  const ensureUniqueFileName = useCallback((fileName: string): string => {
+    const dotIdx = fileName.lastIndexOf('.');
+    const base = dotIdx > 0 ? fileName.slice(0, dotIdx) : fileName;
+    const ext = dotIdx > 0 ? fileName.slice(dotIdx) : '';
+    return `${base}-${Date.now()}${ext}`;
+  }, []);
+
+  const downloadRemoteFile = useCallback(
+    async (fileUrl: string, fileName?: string, rawMimeType?: string): Promise<string> => {
+      const inferredName = sanitizeFileName(fileName || extractFileNameFromUrl(fileUrl));
+      const mimeType = resolveMimeTypeFromName(inferredName, rawMimeType);
+      const tempBaseDir = FileSystem.cacheDirectory ?? FileSystem.documentDirectory;
+
+      if (!tempBaseDir) {
+        throw new Error('다운로드 임시 저장 경로를 찾을 수 없습니다.');
+      }
+
+      const tempUri = `${tempBaseDir}download-${Date.now()}`;
+      const downloaded = await FileSystem.downloadAsync(fileUrl, tempUri);
+      let savedFileName = inferredName;
+
+      try {
+        if (Platform.OS === 'android') {
+          const downloadDirUri = FileSystem.StorageAccessFramework.getUriForDirectoryInRoot('Download');
+          const permission =
+            await FileSystem.StorageAccessFramework.requestDirectoryPermissionsAsync(downloadDirUri);
+
+          if (!permission.granted) {
+            throw new Error('다운로드 폴더 접근 권한이 필요합니다.');
+          }
+
+          let destUri: string;
+          try {
+            destUri = await FileSystem.StorageAccessFramework.createFileAsync(
+              permission.directoryUri,
+              savedFileName,
+              mimeType,
+            );
+          } catch {
+            savedFileName = ensureUniqueFileName(savedFileName);
+            destUri = await FileSystem.StorageAccessFramework.createFileAsync(
+              permission.directoryUri,
+              savedFileName,
+              mimeType,
+            );
+          }
+
+          const base64 = await FileSystem.readAsStringAsync(downloaded.uri, {
+            encoding: FileSystem.EncodingType.Base64,
+          });
+          await FileSystem.writeAsStringAsync(destUri, base64, {
+            encoding: FileSystem.EncodingType.Base64,
+          });
+        } else {
+          const baseDocDir = FileSystem.documentDirectory;
+          if (!baseDocDir) {
+            throw new Error('문서 저장 경로를 찾을 수 없습니다.');
+          }
+          let destUri = `${baseDocDir}${savedFileName}`;
+          try {
+            await FileSystem.copyAsync({ from: downloaded.uri, to: destUri });
+          } catch {
+            savedFileName = ensureUniqueFileName(savedFileName);
+            destUri = `${baseDocDir}${savedFileName}`;
+            await FileSystem.copyAsync({ from: downloaded.uri, to: destUri });
+          }
+        }
+      } finally {
+        await FileSystem.deleteAsync(downloaded.uri, { idempotent: true }).catch(() => undefined);
+      }
+
+      return savedFileName;
+    },
+    [
+      ensureUniqueFileName,
+      extractFileNameFromUrl,
+      resolveMimeTypeFromName,
+      sanitizeFileName,
+    ],
+  );
+
   /* ─── Send Message ─── */
   const handleSend = async () => {
     if (!activeConv || (!inputText.trim() && pendingFiles.length === 0) || sending) return;
@@ -575,6 +713,50 @@ export default function RequestBoardMessengerScreen() {
       router.back();
     }
   };
+
+  const handleCopyPreviewImage = useCallback(async () => {
+    if (!previewImage) return;
+    try {
+      await Clipboard.setStringAsync(previewImage);
+      Alert.alert('복사 완료', '이미지 주소를 복사했습니다.');
+    } catch {
+      Alert.alert('복사 실패', '이미지 주소를 복사하지 못했습니다.');
+    }
+  }, [previewImage]);
+
+  const handleDownloadPreviewImage = useCallback(async () => {
+    if (!previewImage) return;
+    try {
+      const imageFileName = extractFileNameFromUrl(previewImage);
+      const normalizedImageFileName = /\.[a-z0-9]{2,6}$/i.test(imageFileName)
+        ? imageFileName
+        : `${imageFileName}.jpg`;
+      const downloadedFileName = await downloadRemoteFile(
+        previewImage,
+        normalizedImageFileName,
+        'image/jpeg',
+      );
+      const destinationLabel = Platform.OS === 'android' ? '다운로드 폴더' : '앱 문서 폴더';
+      Alert.alert('다운로드 완료', `${destinationLabel}에 저장되었습니다.\n${downloadedFileName}`);
+    } catch (error) {
+      logger.warn('[messenger] preview download failed', error);
+      Alert.alert('다운로드 실패', '이미지를 저장하지 못했습니다.');
+    }
+  }, [downloadRemoteFile, extractFileNameFromUrl, previewImage]);
+
+  const handleDownloadAttachment = useCallback(
+    async (file: MessageAttachment) => {
+      try {
+        const downloadedFileName = await downloadRemoteFile(file.fileUrl, file.fileName, file.fileType);
+        const destinationLabel = Platform.OS === 'android' ? '다운로드 폴더' : '앱 문서 폴더';
+        Alert.alert('다운로드 완료', `${destinationLabel}에 저장되었습니다.\n${downloadedFileName}`);
+      } catch (error) {
+        logger.warn('[messenger] attachment download failed', error);
+        Alert.alert('다운로드 실패', '파일을 저장하지 못했습니다.');
+      }
+    },
+    [downloadRemoteFile],
+  );
 
   /* ═══════════════════════════════════════════════════
      RENDER: Loading / Checking Auth
@@ -733,7 +915,9 @@ export default function RequestBoardMessengerScreen() {
                           styles.fileCard,
                           isOwn ? styles.fileCardOwn : styles.fileCardOther,
                         ]}
-                        onPress={() => Linking.openURL(file.fileUrl)}
+                        onPress={() => {
+                          void handleDownloadAttachment(file);
+                        }}
                       >
                         <Feather
                           name={fileIcon(file.fileType)}
@@ -893,11 +1077,22 @@ export default function RequestBoardMessengerScreen() {
           animationType="fade"
           onRequestClose={() => setPreviewImage(null)}
         >
-          <Pressable
-            style={styles.previewOverlay}
-            onPress={() => setPreviewImage(null)}
-          >
+          <View style={styles.previewOverlay}>
+            <Pressable
+              style={StyleSheet.absoluteFillObject}
+              onPress={() => setPreviewImage(null)}
+            />
             <View style={[styles.previewHeader, { paddingTop: Math.max(insets.top, 20) }]}>
+              <View style={styles.previewActionRow}>
+                <Pressable style={styles.previewActionBtn} onPress={handleCopyPreviewImage}>
+                  <Feather name="copy" size={14} color="#fff" />
+                  <Text style={styles.previewActionText}>복사</Text>
+                </Pressable>
+                <Pressable style={styles.previewActionBtn} onPress={handleDownloadPreviewImage}>
+                  <Feather name="download" size={14} color="#fff" />
+                  <Text style={styles.previewActionText}>다운로드</Text>
+                </Pressable>
+              </View>
               <Pressable
                 style={styles.previewCloseBtn}
                 onPress={() => setPreviewImage(null)}
@@ -912,7 +1107,7 @@ export default function RequestBoardMessengerScreen() {
                 resizeMode="contain"
               />
             )}
-          </Pressable>
+          </View>
         </Modal>
       </View>
     );
@@ -1326,7 +1521,9 @@ const styles = StyleSheet.create({
     borderRadius: RADIUS.base, marginTop: 4, minWidth: 180,
   },
   fileCardOwn: {
-    backgroundColor: 'rgba(255,255,255,0.2)',
+    backgroundColor: COLORS.primary,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.2)',
   },
   fileCardOther: {
     backgroundColor: COLORS.gray[50], borderWidth: 1, borderColor: COLORS.border.light,
@@ -1339,7 +1536,7 @@ const styles = StyleSheet.create({
   fileCardSize: {
     fontSize: TYPOGRAPHY.fontSize.xs, color: COLORS.gray[400], marginTop: 1,
   },
-  fileCardSizeOwn: { color: 'rgba(255,255,255,0.7)' },
+  fileCardSizeOwn: { color: 'rgba(255,255,255,0.88)' },
 
   /* Pending files strip */
   pendingStrip: {
@@ -1394,9 +1591,28 @@ const styles = StyleSheet.create({
   },
   previewHeader: {
     position: 'absolute', top: 0, left: 0, right: 0,
-    flexDirection: 'row', justifyContent: 'flex-end',
+    flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center',
     paddingHorizontal: SPACING.base, paddingBottom: SPACING.sm,
     zIndex: 10,
+  },
+  previewActionRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  previewActionBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    paddingHorizontal: 10,
+    height: 34,
+    borderRadius: 17,
+    backgroundColor: 'rgba(255,255,255,0.18)',
+  },
+  previewActionText: {
+    fontSize: 12,
+    color: '#fff',
+    fontWeight: '700',
   },
   previewCloseBtn: {
     width: 44, height: 44, borderRadius: 22,

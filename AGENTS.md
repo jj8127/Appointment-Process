@@ -10,6 +10,14 @@
 ### Domain & Role Contract (GaramPA)
 - `가람PA지사`는 FC(보험설계사) 조직이며, 고객 보험을 여러 보험사와 비교해 최적 설계를 제공한다.
 - `가람in`은 앱 이름이며, 회사명/소속명(`company_name`, `affiliation`)으로 사용하지 않는다.
+- 명칭 SSOT(혼용 금지):
+  - `가람in`: `fc-onboarding-app` 앱 이름(위촉/온보딩/운영 앱)
+  - `가람Link`: `request_board` 배포 사이트/서비스 표시명(웹/PWA)
+  - `request_board`: 설계의뢰 시스템의 기술/저장소 이름
+  - `설계요청`: 기능명(탭/화면 라벨), 브랜드명 대체어가 아님
+- 표기 규칙:
+  - 사용자 노출 문구는 채널에 맞게 사용한다. (`fc-onboarding-app` 문맥은 `가람in`, `request_board` 문맥은 `가람Link`)
+  - 회사명/소속명/보험사명 데이터 필드에는 `가람in`, `가람Link`, `설계요청`을 저장하지 않는다.
 - 역할 경계(업무 기준):
   - `fc`: 고객 상담 후 보험사 설계 매니저에게 설계 의뢰를 요청하는 주체
   - `manager`(본부장): FC 리더 역할이며 request_board 의뢰 요청 주체 기준에서는 FC와 동일하게 취급
