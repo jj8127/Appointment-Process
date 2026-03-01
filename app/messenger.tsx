@@ -15,6 +15,7 @@ import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context'
 import { useSession } from '@/hooks/use-session';
 import { logger } from '@/lib/logger';
 import { ADMIN_CHAT_ID, sanitizePhone } from '@/lib/messenger-participants';
+import { rbBridgeLogin, rbCheckAuth, rbGetUnreadCount } from '@/lib/request-board-api';
 import { supabase } from '@/lib/supabase';
 
 type ChannelQuery = 'garam' | 'request-board' | null;
@@ -36,7 +37,7 @@ export default function MessengerHubScreen() {
   const router = useRouter();
   const { channel } = useLocalSearchParams<{ channel?: string | string[] }>();
   const insets = useSafeAreaInsets();
-  const { role, residentId, hydrated, readOnly, requestBoardRole } = useSession();
+  const { role, residentId, hydrated, readOnly } = useSession();
   const oneShotOpenRef = useRef(false);
 
   const [loading, setLoading] = useState(true);
@@ -85,28 +86,14 @@ export default function MessengerHubScreen() {
             })
         : Promise.resolve(0);
 
-      const inboxRole: 'admin' | 'fc' = requestBoardRole ? 'fc' : role;
-      const requestBoardCountPromise = supabase.functions
-        .invoke('fc-notify', {
-          body: {
-            type: 'inbox_list',
-            role: inboxRole,
-            resident_id: inboxRole === 'fc' ? residentId ?? null : null,
-            limit: 150,
-          },
-        })
-        .then(({ data, error }) => {
-          if (error || !data?.ok) {
-            throw error ?? new Error(data?.message ?? 'request_board inbox load failed');
-          }
-          const notifications: { category?: string | null }[] = Array.isArray(data.notifications)
-            ? (data.notifications as { category?: string | null }[])
-            : [];
-          return notifications.filter((item) => {
-            const category = String(item?.category ?? '').trim().toLowerCase();
-            return category === 'request_board_message';
-          }).length;
-        });
+      const requestBoardCountPromise = (async () => {
+        const auth = await rbCheckAuth();
+        if (!auth.authenticated) {
+          const bridged = await rbBridgeLogin();
+          if (!bridged.success) return 0;
+        }
+        return rbGetUnreadCount();
+      })();
 
       const [internalCount, rbMessageCount] = await Promise.all([
         internalCountPromise,
@@ -122,7 +109,7 @@ export default function MessengerHubScreen() {
       setLoading(false);
       setRefreshing(false);
     }
-  }, [myChatId, requestBoardRole, residentId, role]);
+  }, [myChatId, role]);
 
   const handleRefresh = useCallback(async () => {
     setRefreshing(true);

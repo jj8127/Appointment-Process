@@ -96,7 +96,6 @@ const quickLinksAdminOnboarding: QuickLink[] = [
   { href: '/dashboard', stepKey: 'step4', title: '위촉 진행', description: '위촉 확인' },
   { href: '/dashboard', stepKey: 'step5', title: '완료 관리', description: '위촉 완료 현황' },
   { href: '/admin-board', title: '게시판 작성', description: '정보 게시판 글쓰기' },
-  { href: '/admin-board', title: '공지 등록', description: '새소식 작성' },
   { href: '/messenger', title: '메신저', description: '가람지사/설계요청 대화 이동' },
 ];
 
@@ -1738,7 +1737,7 @@ export default function Home() {
           )}
           <View style={styles.actionGrid}>
             {quickLinks.map((item, index) => {
-              const key = `${item.href}-${item.stepKey ?? 'default'}`;
+              const key = `${item.href}-${item.stepKey ?? item.title ?? index}`;
               const card = (
                 <AndroidSafeMotiView
                   from={{ opacity: 0, translateY: 20 }}

@@ -344,7 +344,7 @@ export default function RequestBoardScreen() {
   const copyRequestBoardUrl = async () => {
     try {
       await Clipboard.setStringAsync(REQUEST_BOARD_WEB_URL);
-      Alert.alert('복사 완료', 'request_board 접속 주소를 복사했습니다.');
+      Alert.alert('복사 완료', '가람Link 주소를 복사했습니다.');
     } catch (err) {
       logger.warn('failed to copy request_board url', err);
       Alert.alert('복사 실패', '주소 복사 중 오류가 발생했습니다.');

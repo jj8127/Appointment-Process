@@ -7,6 +7,43 @@
 
 ---
 
+## <a id="20260301-1"></a> 2026-03-01 | 메신저/홈 라우팅 안정화 + 관리자 메신저 UI/읽음 처리 개선
+
+**Commit**: `pending`
+**배경**:
+- 홈 화면 quick link와 라우트 설정에서 중복 항목/키 충돌로 경고가 발생했고(`No route named "auth"`, duplicate key),
+- 메신저 허브에서 request_board 미확인 카운트가 앱 inbox와 비동기적으로 어긋나는 문제가 있었다.
+- 관리자 메신저는 내부 소통 대상 필터링, 읽음 즉시 반영, 검색/가독성 개선이 필요했다.
+
+**조치**:
+- `app/_layout.tsx`
+  - 존재하지 않는 라우트 선언 `auth` 제거(중복 2곳).
+- `app/index.tsx`
+  - 위촉 홈 바로가기에서 중복 기능인 `공지 등록` 항목 제거.
+  - quick link key를 `href+stepKey`에서 `href+stepKey|title|index`로 보강해 duplicate key 경고 제거.
+- `app/messenger.tsx`
+  - request_board 미확인 카운트 집계를 `fc-notify inbox` 추정 방식에서 `rbCheckAuth/rbBridgeLogin/rbGetUnreadCount` 기반 실시간 집계로 전환.
+  - 불필요한 `requestBoardRole` 의존 제거.
+- `app/admin-messenger.tsx`
+  - 관리자/본부장 메신저 목록 UI 개편(검색창, 배지, 섹션 헤더, 아바타 색상/이니셜, empty state 개선).
+  - 내부 소통 대상만 노출하도록 소속 필터(`본부/팀/직할`) 적용.
+  - 채팅 진입 시 해당 FC unread를 optimistic 0으로 반영하고 서버 읽음 업데이트 동시 수행.
+  - 화면 포커스 복귀 시 리스트 refetch 보강.
+- `app/request-board.tsx`
+  - request_board URL 복사 완료 안내 문구를 `가람Link 주소`로 통일.
+
+**검증**:
+- 기존 수행: `npm run lint -- app/request-board-messenger.tsx` (선행 변경 포함 통과)
+- 라우팅/메신저 동작 수동 점검 대상:
+  - 홈 진입 시 duplicate key/no-route 경고 미발생
+  - 메신저 허브의 설계요청 미확인 배지와 request_board 실제 unread 일치
+  - 관리자 메신저에서 채팅 진입 직후 unread 배지 즉시 감소
+
+**다음**:
+- 앱 실기기에서 관리자/본부장 계정 기준 unread 반영 타이밍 및 소속 필터 누락 케이스 추가 확인
+
+---
+
 ## <a id="20260228-3"></a> 2026-02-28 | 한글 파일명 URL 인코딩 깨짐 전수 수정 (safeDecodeFileName)
 
 **Commit**: `pending`
