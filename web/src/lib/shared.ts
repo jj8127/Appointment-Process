@@ -108,20 +108,25 @@ export const getSummaryStatus = (profile: FcProfile) => {
     return { label: '수당동의 대기', color: 'gray' };
   }
 
+  const life = getAppointmentProgress(profile, 'life');
+  const nonlife = getAppointmentProgress(profile, 'nonlife');
+  const allApproved = life.key === 'approved' && nonlife.key === 'approved';
+  const isExplicitFinalStatus = profile.status === 'final-link-sent';
+
+  // "모든 위촉 완료" 가입자와 일반 완료 사용자를 동일하게 최종 완료로 취급한다.
+  if (isExplicitFinalStatus || allApproved) {
+    return { label: '최종 완료', color: 'green' };
+  }
+
   const doc = getDocProgress(profile);
   if (doc.key === 'no-request') return { label: '서류 요청 안함', color: 'gray' };
   if (doc.key === 'requested') return { label: '서류 제출 대기', color: 'orange' };
   if (doc.key === 'rejected') return { label: '서류 반려', color: 'red' };
   if (doc.key === 'in-progress') return { label: '', color: 'orange' };
 
-  const life = getAppointmentProgress(profile, 'life');
-  const nonlife = getAppointmentProgress(profile, 'nonlife');
   const anyApproved = life.key === 'approved' || nonlife.key === 'approved';
   const anySubmitted = life.key === 'fc-done' || nonlife.key === 'fc-done';
   const anySchedule = life.key === 'in-progress' || nonlife.key === 'in-progress';
-  const allApproved = life.key === 'approved' && nonlife.key === 'approved';
-
-  if (allApproved) return { label: '최종 완료', color: 'green' };
   if (anySubmitted) return { label: '', color: 'orange' };
   if (anySchedule || anyApproved) return { label: '', color: 'blue' };
   return { label: '위촉 차수 미입력', color: 'gray' };

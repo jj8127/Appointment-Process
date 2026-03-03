@@ -29,7 +29,7 @@ import { logger } from '@/lib/logger';
 import { safeStorage } from '@/lib/safe-storage';
 import { supabase } from '@/lib/supabase';
 import { COLORS, RADIUS, SHADOWS, SPACING, TYPOGRAPHY } from '@/lib/theme';
-import { formatPhone, normalizePhone } from '@/lib/validation';
+import { formatPhone, normalizePhone, validateResidentId } from '@/lib/validation';
 
 const CHARCOAL = '#111827';
 const TEXT_MUTED = '#6b7280';
@@ -85,17 +85,11 @@ const schema = z.object({
     });
   }
   if (/^\d{6}$/.test(front) && /^\d{7}$/.test(back)) {
-    const weights = [2, 3, 4, 5, 6, 7, 8, 9, 2, 3, 4, 5];
-    const digits = `${front}${back}`;
-    let sum = 0;
-    for (let i = 0; i < 12; i += 1) {
-      sum += Number(digits[i]) * weights[i];
-    }
-    const check = (11 - (sum % 11)) % 10;
-    if (check !== Number(digits[12])) {
+    const residentValidation = validateResidentId(`${front}${back}`);
+    if (!residentValidation.isValid) {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
-        message: '주민등록번호를 다시 확인해주세요.',
+        message: residentValidation.error ?? '주민등록번호를 다시 확인해주세요.',
         path: ['residentBack'],
       });
     }
@@ -262,8 +256,8 @@ export default function FcNewScreen() {
       new Set([normalizedKey, formatPhone(normalizedKey)].filter(Boolean)),
     );
     const query = phoneCandidates.length > 1
-      ? supabase.from('fc_profiles').select('affiliation,name,phone,recommender,email,career_type,temp_id,carrier,address,address_detail,resident_id_masked').in('phone', phoneCandidates)
-      : supabase.from('fc_profiles').select('affiliation,name,phone,recommender,email,career_type,temp_id,carrier,address,address_detail,resident_id_masked').eq('phone', phoneCandidates[0]);
+      ? supabase.from('fc_profiles').select('id,affiliation,name,phone,recommender,email,career_type,temp_id,carrier,address,address_detail,resident_id_masked').in('phone', phoneCandidates)
+      : supabase.from('fc_profiles').select('id,affiliation,name,phone,recommender,email,career_type,temp_id,carrier,address,address_detail,resident_id_masked').eq('phone', phoneCandidates[0]);
     const { data, error } = await query.maybeSingle();
     if (error) {
       logger.warn('FC load failed', error.message);

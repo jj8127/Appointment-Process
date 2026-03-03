@@ -81,15 +81,20 @@ async function sha256Base64(value: string) {
   return toBase64(hash);
 }
 
-function isValidResidentChecksum(front: string, back: string) {
+function isValidResidentOrForeignerNumber(front: string, back: string) {
   const digits = `${front}${back}`;
   if (!/^\d{13}$/.test(digits)) return false;
+  const identityDigit = Number(digits[6]);
+  if (identityDigit < 1 || identityDigit > 8) return false;
   const weights = [2, 3, 4, 5, 6, 7, 8, 9, 2, 3, 4, 5];
   let sum = 0;
   for (let i = 0; i < 12; i += 1) {
     sum += Number(digits[i]) * weights[i];
   }
-  const check = (11 - (sum % 11)) % 10;
+  const isForeignerNumber = identityDigit >= 5 && identityDigit <= 8;
+  const check = isForeignerNumber
+    ? (11 - (sum % 11) + 2) % 10
+    : (11 - (sum % 11)) % 10;
   return check === Number(digits[12]);
 }
 
@@ -137,7 +142,7 @@ serve(async (req: Request) => {
     if (residentFront.length !== 6 || residentBack.length !== 7) {
       return err('Invalid payload', 400);
     }
-    if (!isValidResidentChecksum(residentFront, residentBack)) {
+    if (!isValidResidentOrForeignerNumber(residentFront, residentBack)) {
       return err('Invalid resident number', 400);
     }
   }

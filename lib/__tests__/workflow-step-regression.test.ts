@@ -1,4 +1,4 @@
-import { calcStep } from '../../web/src/lib/shared';
+import { calcStep, getSummaryStatus } from '../../web/src/lib/shared';
 import type { FcProfile } from '../../web/src/types/fc';
 
 const approvedDocs: FcProfile['fc_documents'] = [
@@ -91,5 +91,17 @@ describe('workflow step regression', () => {
       fc_documents: approvedDocs,
     });
     expect(calcStep(row)).toBe(5);
+  });
+
+  test('signup with both commissions completed shows final summary even without docs', () => {
+    const row = profile({
+      status: 'final-link-sent',
+      life_commission_completed: true,
+      nonlife_commission_completed: true,
+      fc_documents: [],
+    });
+
+    expect(calcStep(row)).toBe(5);
+    expect(getSummaryStatus(row).label).toBe('최종 완료');
   });
 });

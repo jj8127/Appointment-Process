@@ -156,13 +156,15 @@ describe('validateName', () => {
 
 describe('validateResidentId', () => {
   // Helper function to calculate checksum
-  function calculateChecksum(digits: string): number {
+  function calculateChecksum(digits: string, isForeignerNumber = false): number {
     const weights = [2, 3, 4, 5, 6, 7, 8, 9, 2, 3, 4, 5];
     let sum = 0;
     for (let i = 0; i < 12; i++) {
       sum += parseInt(digits[i], 10) * weights[i];
     }
-    return (11 - (sum % 11)) % 10;
+    return isForeignerNumber
+      ? (11 - (sum % 11) + 2) % 10
+      : (11 - (sum % 11)) % 10;
   }
 
   // Valid test cases with correct checksum
@@ -181,6 +183,15 @@ describe('validateResidentId', () => {
     const base = '900101123456';
     const checksum = calculateChecksum(base);
     const validId = `${base.substring(0, 6)}-${base.substring(6)}${checksum}`;
+
+    const result = validateResidentId(validId);
+    expect(result.isValid).toBe(true);
+  });
+
+  it('should validate foreigner registration number checksum', () => {
+    const base = '900101523456';
+    const checksum = calculateChecksum(base, true);
+    const validId = base + checksum;
 
     const result = validateResidentId(validId);
     expect(result.isValid).toBe(true);
@@ -210,12 +221,12 @@ describe('validateResidentId', () => {
     expect(result.error).toBe('올바르지 않은 주민등록번호입니다.');
   });
 
-  it('should validate all gender digits (1-8)', () => {
+  it('should validate all identity digits (1-8) with matching checksum rules', () => {
     // Generate valid IDs for each gender digit (1-8)
     for (let gender = 1; gender <= 8; gender++) {
-      const base = `90010${gender}123456`;
-      const checksum = calculateChecksum(base.substring(0, 12));
-      const validId = base.substring(0, 12) + checksum;
+      const base = `900101${gender}23456`;
+      const checksum = calculateChecksum(base, gender >= 5);
+      const validId = `${base}${checksum}`;
 
       const result = validateResidentId(validId);
       expect(result.isValid).toBe(true);

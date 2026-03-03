@@ -1,10 +1,11 @@
 import Postcode from '@actbase/react-daum-postcode';
+import { Feather } from '@expo/vector-icons';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { useQueryClient } from '@tanstack/react-query';
 import { router, useLocalSearchParams } from 'expo-router';
 import { useEffect, useRef, useState } from 'react';
 import { Controller, useForm } from 'react-hook-form';
-import { Alert, Modal, StyleSheet, Text, TextInput, View } from 'react-native';
+import { Alert, Modal, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { z } from 'zod';
 
@@ -14,18 +15,7 @@ import { useKeyboardPadding } from '@/hooks/use-keyboard-padding';
 import { useSession } from '@/hooks/use-session';
 import { supabase } from '@/lib/supabase';
 import { COLORS, RADIUS, SHADOWS, SPACING, TYPOGRAPHY } from '@/lib/theme';
-
-const isValidResidentChecksum = (front: string, back: string) => {
-  const digits = `${front}${back}`;
-  if (!/^\d{13}$/.test(digits)) return false;
-  const weights = [2, 3, 4, 5, 6, 7, 8, 9, 2, 3, 4, 5];
-  let sum = 0;
-  for (let i = 0; i < 12; i += 1) {
-    sum += Number(digits[i]) * weights[i];
-  }
-  const check = (11 - (sum % 11)) % 10;
-  return check === Number(digits[12]);
-};
+import { validateResidentId } from '@/lib/validation';
 
 const getFunctionErrorMessage = async (err: any) => {
   if (!err) return '신원 정보 저장 중 문제가 발생했습니다.';
@@ -60,6 +50,7 @@ export default function IdentityScreen() {
   const queryClient = useQueryClient();
   const [submitting, setSubmitting] = useState(false);
   const [showAddressSearch, setShowAddressSearch] = useState(false);
+  const [showResidentBack, setShowResidentBack] = useState(false);
   const [addressHeight, setAddressHeight] = useState(90);
   const keyboardPadding = useKeyboardPadding();
 
@@ -109,8 +100,12 @@ export default function IdentityScreen() {
         setError('residentBack', { type: 'manual', message: '뒷 7자리를 숫자로 입력해주세요.' });
         return;
       }
-      if (!isValidResidentChecksum(front, back)) {
-        setError('residentBack', { type: 'manual', message: '주민등록번호를 다시 확인해주세요.' });
+      const residentValidation = validateResidentId(`${front}${back}`);
+      if (!residentValidation.isValid) {
+        setError('residentBack', {
+          type: 'manual',
+          message: residentValidation.error ?? '주민등록번호 또는 외국인등록번호를 다시 확인해주세요.',
+        });
         return;
       }
       if (!address) {
@@ -177,7 +172,7 @@ export default function IdentityScreen() {
           <Text style={styles.sectionTitle}>신원 확인</Text>
           <View style={styles.field}>
             <View style={styles.fieldLabelRow}>
-              <Text style={styles.label}>주민등록번호</Text>
+              <Text style={styles.label}>주민등록번호 / 외국인등록번호</Text>
               {formState.errors.residentFront?.message || formState.errors.residentBack?.message ? (
                 <Text style={styles.error}>
                   {formState.errors.residentFront?.message || formState.errors.residentBack?.message}
@@ -213,23 +208,38 @@ export default function IdentityScreen() {
                 control={control}
                 name="residentBack"
                 render={({ field: { onChange, value } }) => (
-                  <TextInput
-                    ref={residentBackRef}
-                    style={[styles.input, styles.residentInput]}
-                    placeholder="뒷 7자리"
-                    placeholderTextColor={COLORS.text.muted}
-                    value={value}
-                    testID="identity-resident-back"
-                    accessibilityLabel="주민등록번호 뒤 7자리"
-                    onChangeText={(txt) => {
-                      const cleaned = txt.replace(/[^0-9]/g, '').slice(0, 7);
-                      onChange(cleaned);
-                    }}
-                    keyboardType="number-pad"
-                    maxLength={7}
-                    secureTextEntry
-                    returnKeyType="next"
-                  />
+                  <View style={styles.residentBackWrap}>
+                    <TextInput
+                      ref={residentBackRef}
+                      style={[styles.input, styles.residentInput, styles.residentBackInput]}
+                      placeholder="뒷 7자리"
+                      placeholderTextColor={COLORS.text.muted}
+                      value={value}
+                      testID="identity-resident-back"
+                      accessibilityLabel="주민등록번호 또는 외국인등록번호 뒤 7자리"
+                      onChangeText={(txt) => {
+                        const cleaned = txt.replace(/[^0-9]/g, '').slice(0, 7);
+                        onChange(cleaned);
+                      }}
+                      keyboardType="number-pad"
+                      maxLength={7}
+                      secureTextEntry={!showResidentBack}
+                      returnKeyType="next"
+                    />
+                    <Pressable
+                      style={styles.residentVisibilityToggle}
+                      onPress={() => setShowResidentBack((prev) => !prev)}
+                      accessibilityRole="button"
+                      accessibilityLabel={showResidentBack ? '주민번호 뒷자리 숨기기' : '주민번호 뒷자리 보기'}
+                      testID="identity-resident-back-visibility-toggle"
+                    >
+                      <Feather
+                        name={showResidentBack ? 'eye-off' : 'eye'}
+                        size={18}
+                        color={COLORS.text.secondary}
+                      />
+                    </Pressable>
+                  </View>
                 )}
               />
             </View>
@@ -412,6 +422,23 @@ const styles = StyleSheet.create({
     color: COLORS.text.primary
   },
   residentInput: { flex: 1, minWidth: 0 },
+  residentBackWrap: {
+    flex: 1,
+    minWidth: 0,
+    position: 'relative',
+  },
+  residentBackInput: {
+    paddingRight: SPACING['2xl'],
+  },
+  residentVisibilityToggle: {
+    position: 'absolute',
+    right: 0,
+    top: 0,
+    width: SPACING['2xl'],
+    height: '100%',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
   inputMultiline: { minHeight: 90, textAlignVertical: 'top' },
   searchHeader: {
     flexDirection: 'row',

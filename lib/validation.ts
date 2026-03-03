@@ -150,11 +150,13 @@ export function validateName(name: string): ValidationResult {
 }
 
 /**
- * Resident ID (주민번호) validation
+ * Resident ID validation
  * - Must be exactly 13 digits
  * - First 6 digits: birth date (YYMMDD)
- * - 7th digit: gender code (1-4 for old format, 5-8 for new format)
+ * - 7th digit: identity code (1-4: 주민등록번호, 5-8: 외국인등록번호)
  * - Checksum validation (13th digit)
+ *   - 주민등록번호: (11 - (sum % 11)) % 10
+ *   - 외국인등록번호: (11 - (sum % 11) + 2) % 10
  */
 export function validateResidentId(residentId: string): ValidationResult {
   const digits = residentId.replace(/[^0-9]/g, '');
@@ -190,7 +192,10 @@ export function validateResidentId(residentId: string): ValidationResult {
     sum += parseInt(digits[i], 10) * weights[i];
   }
 
-  const checksum = (11 - (sum % 11)) % 10;
+  const isForeignerNumber = genderDigit >= 5 && genderDigit <= 8;
+  const checksum = isForeignerNumber
+    ? (11 - (sum % 11) + 2) % 10
+    : (11 - (sum % 11)) % 10;
   const lastDigit = parseInt(digits[12], 10);
 
   if (checksum !== lastDigit) {
