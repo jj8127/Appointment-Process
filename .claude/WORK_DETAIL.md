@@ -7,6 +7,112 @@
 
 ---
 
+## <a id="20260303-4"></a> 2026-03-03 | 주민번호 입력 UX 개선 + 외국인등록번호 검증 허용 + 최종완료 요약 통일
+
+**Commit**: `dc5dfe9`  
+**배경**:
+- 본등록 주민번호 뒷자리 입력 시 가시성 토글 요구사항 반영 필요.
+- 외국인등록번호 사용자들이 주민번호 체크섬 검증에서 차단되는 문제 존재.
+- `모든 위촉 완료` 가입자와 일반 완료자의 요약 상태가 웹 대시보드에서 일관되지 않게 표시됨.
+
+**조치**:
+- `app/identity.tsx`
+  - 주민번호/외국인등록번호 입력 라벨 명확화.
+  - 뒷자리 입력에 `eye / eye-off` 토글 버튼 추가(회원가입 비밀번호 UI 패턴 정렬).
+  - 검증을 공통 `validateResidentId`로 통합.
+- `lib/validation.ts`
+  - 13자리 검증에 외국인등록번호(7번째 자리 5~8) 체크섬 규칙 추가.
+- `app/fc/new.tsx`
+  - 주민번호 체크섬 로직을 공통 `validateResidentId` 재사용으로 교체.
+- `supabase/functions/store-identity/index.ts`
+  - 서버 검증도 외국인등록번호 체크섬을 허용하도록 확장.
+- `web/src/lib/shared.ts`
+  - `getSummaryStatus`에서 `final-link-sent`/양 트랙 완료를 문서 상태보다 우선 판정하도록 변경해 `최종 완료` 동일 표기 보장.
+- 테스트 보강:
+  - `lib/__tests__/validation.test.ts` 외국인등록번호 체크섬 케이스 추가.
+  - `lib/__tests__/workflow-step-regression.test.ts` 모두완료 가입자의 요약 상태 회귀 케이스 추가.
+
+**검증**:
+- `npm run lint -- app/identity.tsx app/fc/new.tsx lib/validation.ts lib/__tests__/validation.test.ts`
+- `npm test -- lib/__tests__/validation.test.ts`
+- `npm test -- lib/__tests__/workflow-step-regression.test.ts`
+- `cd web && npm run lint -- src/lib/shared.ts src/app/dashboard/page.tsx`
+
+---
+
+## <a id="20260303-3"></a> 2026-03-03 | 앱/웹 소속 필터 정규화 + 설계매니저 소속 제외
+
+**Commit**: `612f37d`  
+**배경**:
+- 모바일/웹 대시보드 소속 필터에 본부 소속 외 값(설계매니저 계열)이 섞여 필터 사용성이 저하됨.
+- request-board 통계는 FC 뷰/설계매니저 뷰 집계 기준이 달라 혼선 가능성이 있었음.
+
+**조치**:
+- `app/dashboard.tsx`
+  - 소속명 canonical 매핑 추가(레거시 라벨 정규화).
+  - 관리자 뷰에서 본부 canonical 소속만 필터/목록 대상으로 스코프 제한.
+- `web/src/app/api/admin/list/route.ts`
+  - `설계매니저` 소속 레코드 제외 후 canonical 소속으로 정규화 반환.
+- `app/request-board.tsx`
+  - FC/본부장 통계 집계를 배정 상태 중심으로 정렬.
+  - 요청 목록 타입 정합성 보강 및 일부 핸들러/주석 정리.
+- `app/notifications.tsx`
+  - 드래그 선택 터치 이벤트 핸들러를 `onTouchMove/onTouchEnd` 기반으로 안정화.
+- `app/request-board-review.tsx`
+  - 모달 경계색 토큰(`COLORS.border.medium`)으로 정리.
+
+**검증**:
+- `npm run lint -- app/dashboard.tsx app/request-board.tsx app/notifications.tsx app/request-board-review.tsx`
+- `cd web && npm run lint -- src/app/api/admin/list/route.ts`
+
+---
+
+## <a id="20260303-2"></a> 2026-03-03 | 시험신청 화면 게이팅 단순화 + 스플래시 정리
+
+**Commit**: `d641015`  
+**배경**:
+- 시험신청 화면에서 수당동의 검토 오버레이가 UX 동선을 과도하게 차단.
+- 시험신청 화면의 프로필 재조회 경로가 중복되어 새로고침 비용이 불필요하게 증가.
+
+**조치**:
+- `app/exam-apply.tsx`, `app/exam-apply2.tsx`
+  - 수당동의 상태 재조회 쿼리 제거.
+  - 새로고침 시 라운드/내신청 조회만 유지.
+  - 수당동의 검토 오버레이 및 관련 스타일 제거.
+- `components/SplashAnimation.tsx`
+  - 미사용 상수 정리.
+
+**검증**:
+- `npm run lint -- app/exam-apply.tsx app/exam-apply2.tsx components/SplashAnimation.tsx`
+
+---
+
+## <a id="20260303-1"></a> 2026-03-03 | 재가입 개인정보 초기화 강화 + 브릿지 role 동기화 + 버전 상향
+
+**Commit**: `691ece0`  
+**배경**:
+- FC 삭제 후 동일 번호 재가입 시 이전 신원/위촉 데이터 잔존 가능성이 있어 초기화 안전망 필요.
+- request_board 브릿지에서 admin/manager를 `fc`로 동기화하던 경로를 역할별로 분리할 필요가 있었음.
+
+**조치**:
+- `supabase/functions/request-signup-otp/index.ts`
+  - 기존 프로필에서 완료 이력 감지 시 `fc_identity_secure`, `fc_credentials` 삭제.
+  - `fc_profiles`의 신원/위촉/상태 관련 필드 초기화 로직 추가.
+- `supabase/functions/set-password/index.ts`
+  - 기존 프로필 업데이트 경로에서도 잔여 신원/위촉 필드 초기화 보강.
+- `supabase/functions/login-with-password/index.ts`
+  - request_board 브릿지 토큰/비밀번호 동기화 role 타입에 `admin`, `manager` 확장.
+  - 관리자/본부장 로그인 시 해당 role로 브릿지 동기화.
+- `supabase/functions/set-admin-password/index.ts`
+  - 관리자 비밀번호 동기화 role을 `admin`으로 정렬.
+- `app.json`
+  - 앱 버전 `2.0.2` 상향.
+
+**검증**:
+- `node scripts/ci/check-governance.mjs`
+
+---
+
 ## <a id="20260301-1"></a> 2026-03-01 | 메신저/홈 라우팅 안정화 + 관리자 메신저 UI/읽음 처리 개선
 
 **Commit**: `pending`

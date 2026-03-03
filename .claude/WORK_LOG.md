@@ -20,6 +20,10 @@
 ## 최근 작업
 | 날짜 | 작업 | 핵심 파일 | 상세 |
 |------|------|----------|------|
+| 03-03 | 주민번호 입력 UX 개선(보기/숨기기) + 외국인등록번호 검증 허용 + 웹 최종완료 요약 통일 | `app/identity.tsx`, `app/fc/new.tsx`, `lib/validation.ts`, `supabase/functions/store-identity/index.ts`, `web/src/lib/shared.ts` | [→ 상세](WORK_DETAIL.md#20260303-4) |
+| 03-03 | 앱/웹 대시보드 소속 필터 정규화(본부 소속만) + 설계매니저 소속 제외 | `app/dashboard.tsx`, `web/src/app/api/admin/list/route.ts`, `app/request-board.tsx` | [→ 상세](WORK_DETAIL.md#20260303-3) |
+| 03-03 | 시험신청 화면 수당동의 검토 오버레이 제거 및 새로고침 경로 단순화 | `app/exam-apply.tsx`, `app/exam-apply2.tsx`, `components/SplashAnimation.tsx` | [→ 상세](WORK_DETAIL.md#20260303-2) |
+| 03-03 | 재가입 시 잔여 개인정보 초기화 + request_board 브릿지 role 동기화 + 앱 버전 상향 | `supabase/functions/request-signup-otp/index.ts`, `supabase/functions/set-password/index.ts`, `supabase/functions/login-with-password/index.ts`, `supabase/functions/set-admin-password/index.ts`, `app.json` | [→ 상세](WORK_DETAIL.md#20260303-1) |
 | 03-01 | 메신저/홈 라우팅 안정화 + 관리자 메신저 UI/읽음 처리 개선 | `app/_layout.tsx`, `app/index.tsx`, `app/messenger.tsx`, `app/admin-messenger.tsx`, `app/request-board.tsx` | [→ 상세](WORK_DETAIL.md#20260301-1) |
 | 02-28 | 한글 파일명 URL 인코딩 깨짐 전수 수정 (safeDecodeFileName) | `lib/validation.ts`, `app/chat.tsx`, `app/board.tsx`, `app/admin-board-manage.tsx`, `app/board-detail.tsx`, `app/request-board-review.tsx` | [→ 상세](WORK_DETAIL.md#20260228-3) |
 | 02-28 | 위촉 홈 바로가기 '공지 등록' → 게시판 작성 화면으로 연결 변경 | `app/index.tsx` | [→ 상세](WORK_DETAIL.md#20260228-2) |
