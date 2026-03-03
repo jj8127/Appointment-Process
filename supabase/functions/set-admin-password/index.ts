@@ -82,7 +82,7 @@ async function hashPassword(password: string, saltBytes: Uint8Array) {
 async function syncRequestBoardPassword(
   phone: string,
   password: string,
-  options?: { role?: 'fc' | 'designer'; name?: string | null; companyName?: string | null },
+  options?: { role?: 'fc' | 'designer' | 'admin' | 'manager'; name?: string | null; companyName?: string | null },
 ) {
   if (!requestBoardPasswordSyncUrl || !requestBoardPasswordSyncToken) return;
 
@@ -213,7 +213,7 @@ serve(async (req: Request) => {
   }
 
   await syncRequestBoardPassword(phone, password, {
-    role: 'fc',
+    role: 'admin',
     name,
   });
 

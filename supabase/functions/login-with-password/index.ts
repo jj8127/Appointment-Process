@@ -98,7 +98,7 @@ async function hashPassword(password: string, saltBase64: string) {
 
 async function createBridgeToken(
   phone: string,
-  role: 'fc' | 'designer',
+  role: 'fc' | 'designer' | 'admin' | 'manager',
 ): Promise<string | null> {
   if (!requestBoardAuthBridgeSecret) return null;
 
@@ -127,7 +127,7 @@ async function createBridgeToken(
 async function syncRequestBoardPassword(
   phone: string,
   password: string,
-  options?: { role?: 'fc' | 'designer'; name?: string | null; companyName?: string | null },
+  options?: { role?: 'fc' | 'designer' | 'admin' | 'manager'; name?: string | null; companyName?: string | null },
 ) {
   if (!requestBoardPasswordSyncUrl || !requestBoardPasswordSyncToken) return;
 
@@ -271,11 +271,11 @@ serve(async (req: Request) => {
       .eq('id', admin.id);
 
     await syncRequestBoardPassword(admin.phone, password, {
-      role: 'fc',
+      role: 'admin',
       name: admin.name ?? '',
     });
 
-    const requestBoardBridgeToken = await createBridgeToken(admin.phone, 'fc');
+    const requestBoardBridgeToken = await createBridgeToken(admin.phone, 'admin');
     return json({
       ok: true,
       role: 'admin',
@@ -344,11 +344,11 @@ serve(async (req: Request) => {
       .eq('id', manager.id);
 
     await syncRequestBoardPassword(manager.phone, password, {
-      role: 'fc',
+      role: 'manager',
       name: manager.name ?? '',
     });
 
-    const requestBoardBridgeToken = await createBridgeToken(manager.phone, 'fc');
+    const requestBoardBridgeToken = await createBridgeToken(manager.phone, 'manager');
     return json({
       ok: true,
       role: 'manager',

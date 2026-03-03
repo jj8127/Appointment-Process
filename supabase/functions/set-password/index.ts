@@ -212,7 +212,7 @@ serve(async (req: Request) => {
 
   const { data: profile, error: profileError } = await supabase
     .from('fc_profiles')
-    .select('id,name,phone,phone_verified,affiliation')
+    .select('id,name,phone,phone_verified,affiliation,signup_completed,status,identity_completed')
     .eq('phone', phone)
     .maybeSingle();
 
@@ -278,10 +278,23 @@ serve(async (req: Request) => {
     effectiveAffiliation = profileAffiliation;
   } else if (profileName) {
     // Update profile with signup form data (in case profile was created by OTP with empty fields)
-    const updatePayload: Record<string, string | boolean> = {
+    // Also reset any stale PII fields that may have been left over from a previously completed profile
+    const updatePayload: Record<string, unknown> = {
       status: commissionState.status,
       life_commission_completed: commissionState.lifeCompleted,
       nonlife_commission_completed: commissionState.nonlifeCompleted,
+      // 이전 위촉 완료 후 재가입 시 identity 잔여 데이터 초기화
+      address: '',
+      address_detail: null,
+      resident_id_masked: null,
+      resident_id_hash: null,
+      identity_completed: false,
+      temp_id: null,
+      allowance_date: null,
+      appointment_url: null,
+      appointment_date: null,
+      docs_deadline_at: null,
+      docs_deadline_last_notified_at: null,
     };
     if (profileName) updatePayload.name = profileName;
     if (profileAffiliation) updatePayload.affiliation = profileAffiliation;

@@ -186,7 +186,7 @@ serve(async (req: Request) => {
 
   const { data: profile, error: profileError } = await supabase
     .from('fc_profiles')
-    .select('id,phone_verified,phone_verification_sent_at,phone_verification_locked_until')
+    .select('id,phone_verified,phone_verification_sent_at,phone_verification_locked_until,signup_completed,status,identity_completed')
     .eq('phone', phone)
     .maybeSingle();
 
@@ -226,15 +226,56 @@ serve(async (req: Request) => {
   const expiresAt = new Date(now.getTime() + OTP_TTL_MINUTES * 60 * 1000).toISOString();
 
   if (profile?.id) {
+    // 이전에 완료된 프로필이 남아있는 경우(삭제 미완료 등) 개인정보를 완전히 초기화
+    const hasStalePii =
+      profile.signup_completed === true ||
+      (profile.status && profile.status !== 'draft') ||
+      profile.identity_completed === true;
+
+    if (hasStalePii) {
+      // fc_identity_secure(암호화된 주민번호/주소) 먼저 삭제
+      await supabase.from('fc_identity_secure').delete().eq('fc_id', profile.id);
+      // fc_credentials(비밀번호) 삭제 — 재가입 시 새 비밀번호 설정 허용
+      await supabase.from('fc_credentials').delete().eq('fc_id', profile.id);
+    }
+
+    const updatePayload: Record<string, unknown> = {
+      phone_verification_hash: hash,
+      phone_verification_expires_at: expiresAt,
+      phone_verification_sent_at: now.toISOString(),
+      phone_verification_attempts: 0,
+      phone_verification_locked_until: null,
+    };
+
+    if (hasStalePii) {
+      // 개인 식별 정보 및 위촉 상태 초기화
+      Object.assign(updatePayload, {
+        name: '',
+        affiliation: '',
+        recommender: '',
+        email: '',
+        address: '',
+        address_detail: null,
+        resident_id_masked: null,
+        resident_id_hash: null,
+        identity_completed: false,
+        status: 'draft',
+        life_commission_completed: false,
+        nonlife_commission_completed: false,
+        temp_id: null,
+        allowance_date: null,
+        appointment_url: null,
+        appointment_date: null,
+        docs_deadline_at: null,
+        docs_deadline_last_notified_at: null,
+        signup_completed: false,
+        phone_verified: false,
+      });
+    }
+
     const { error: updateError } = await supabase
       .from('fc_profiles')
-      .update({
-        phone_verification_hash: hash,
-        phone_verification_expires_at: expiresAt,
-        phone_verification_sent_at: now.toISOString(),
-        phone_verification_attempts: 0,
-        phone_verification_locked_until: null,
-      })
+      .update(updatePayload)
       .eq('id', profile.id);
     if (updateError) {
       return json({ ok: false, code: 'db_error', message: updateError.message }, 500);
