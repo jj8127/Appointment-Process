@@ -2,7 +2,6 @@ import { useEffect, useRef } from 'react';
 import { Animated, Dimensions, Image, StyleSheet, View } from 'react-native';
 
 const ORANGE = '#f36f21';
-const CHARCOAL = '#111827';
 const { width: W } = Dimensions.get('window');
 
 const DOT_R = 7;
