@@ -23,7 +23,12 @@ import { BottomNavigation } from '@/components/BottomNavigation';
 import { useSession } from '@/hooks/use-session';
 import { resolveBottomNavActiveKey, resolveBottomNavPreset } from '@/lib/bottom-navigation';
 import { logger } from '@/lib/logger';
-import { rbGetRequestList, rbGetRequests, type RbRequestSummary } from '@/lib/request-board-api';
+import {
+  rbGetRequestList,
+  rbGetRequests,
+  type RbRequestListItem,
+  type RbRequestSummary,
+} from '@/lib/request-board-api';
 import { supabase } from '@/lib/supabase';
 import { COLORS, RADIUS, SHADOWS, SPACING, TYPOGRAPHY } from '@/lib/theme';
 import { buildWelcomeTitle } from '@/lib/welcome-title';
@@ -121,7 +126,7 @@ const DEFAULT_REQ_STATS: ReqStats = {
 /* ─── Helpers ─── */
 
 function computeReqStats(
-  requests: RbRequestSummary[],
+  requests: (RbRequestSummary | RbRequestListItem)[],
   isDesigner: boolean,
 ): Omit<ReqStats, 'loaded'> {
   const normalizeStatus = (raw?: string | null): string => {
@@ -132,8 +137,57 @@ function computeReqStats(
     }
     return status;
   };
+  const countUniqueProducts = (request: RbRequestSummary | RbRequestListItem): number => {
+    if (!('request_products' in request) || !request.request_products) return 0;
+    const ids = new Set(
+      request.request_products
+        .map((rp) => String(rp.product_id ?? '').trim())
+        .filter((id) => id.length > 0),
+    );
+    return ids.size;
+  };
 
-  // FC/본부장/총무 뷰는 요청 상태(status)를 우선, 설계매니저 뷰는 배정 상태(assignmentStatus)를 우선 사용
+  const assignmentStatusToBucket = (status: string): 'pending' | 'in_progress' | 'completed' | null => {
+    if (status === 'pending') return 'pending';
+    if (status === 'accepted' || status === 'in_progress') return 'in_progress';
+    if (status === 'completed') return 'completed';
+    return null;
+  };
+
+  // FC/본부장/총무 뷰는 가람Link Matrix와 동일하게 배정 상태(request_designers)로 집계한다.
+  if (!isDesigner) {
+    let pending = 0;
+    let inProgress = 0;
+    let completed = 0;
+
+    requests.forEach((request) => {
+      const productCount = countUniqueProducts(request);
+      if (productCount <= 0) return;
+
+      const assignments = request.request_designers ?? [];
+      assignments.forEach((assignment) => {
+        const status = normalizeStatus(assignment.status);
+        if (status === 'rejected' || status === 'cancelled') return;
+        const bucket = assignmentStatusToBucket(status);
+        if (!bucket) return;
+        if (bucket === 'pending') pending += productCount;
+        if (bucket === 'in_progress') inProgress += productCount;
+        if (bucket === 'completed') completed += productCount;
+      });
+    });
+
+    const total = pending + inProgress + completed;
+    return {
+      total,
+      pending,
+      inProgress,
+      completed,
+      completedThisMonth: completed,
+      avgDays: 0,
+    };
+  }
+
+  // 설계매니저 뷰는 배정 상태(assignmentStatus)를 우선 사용
   const getStatus = (r: RbRequestSummary) =>
     normalizeStatus(isDesigner ? (r.assignmentStatus ?? r.status ?? '') : (r.status ?? r.assignmentStatus ?? ''));
 
@@ -146,19 +200,17 @@ function computeReqStats(
   // 대시보드 카드에서 노출하는 3개 상태(대기/진행/완료) 합계와 동일하게 맞춘다.
   const total = pending + inProgress + completed;
 
-  const completedThisMonth = isDesigner
-    ? completedAll.filter((r) => {
-        const d = new Date(r.completedAt ?? r.completed_at ?? '');
-        return (
-          !isNaN(d.getTime()) &&
-          d.getFullYear() === now.getFullYear() &&
-          d.getMonth() === now.getMonth()
-        );
-      }).length
-    : completed;
+  const completedThisMonth = completedAll.filter((r) => {
+    const d = new Date(r.completedAt ?? r.completed_at ?? '');
+    return (
+      !isNaN(d.getTime()) &&
+      d.getFullYear() === now.getFullYear() &&
+      d.getMonth() === now.getMonth()
+    );
+  }).length;
 
   const avgDays =
-    isDesigner && completedAll.length > 0
+    completedAll.length > 0
       ? Math.round(
           (completedAll.reduce(
             (s, r) => s + Number(r.processingDays ?? r.processing_days ?? 0),
@@ -200,7 +252,7 @@ export default function RequestBoardScreen() {
   const navActiveKey = resolveBottomNavActiveKey(navPreset, 'request-board');
 
   // 설계 매니저가 아니면서 request_board를 FC로 사용하는 모든 사용자
-  // (FC 역할, 본부장/manager, 총무/admin 모두 bridge token을 갖고 있으면 FC로 동작)
+  // (FC 역할 + 본부장/manager 브릿지 계정이 FC로 매핑된 경우)
   const isRbFcUser =
     !isRequestBoardDesigner && (!!requestBoardRole || role === 'fc');
   const showStats = reqStats.loaded && (isRbFcUser || !!isRequestBoardDesigner);
@@ -270,14 +322,7 @@ export default function RequestBoardScreen() {
         try {
           const requests = isRequestBoardDesigner
             ? await rbGetRequests()
-            : (await rbGetRequestList()).map((item) => ({
-                id: item.id,
-                status: item.status,
-                request_designers: item.request_designers?.map((d) => ({
-                  status: d.status,
-                  fc_decision: d.fc_decision,
-                })),
-              }));
+            : await rbGetRequestList();
           const computed = computeReqStats(requests, !!isRequestBoardDesigner);
           setReqStats({ loaded: true, ...computed });
         } catch (err) {
@@ -539,7 +584,7 @@ export default function RequestBoardScreen() {
             <View style={styles.section}>
               <Pressable
                 style={({ pressed }) => [styles.codeManageCard, pressed && { opacity: 0.7 }]}
-                onPress={openRequests}
+                onPress={() => openRequests()}
               >
                 <View style={[styles.codeManageIcon, { backgroundColor: '#EDE9FE' }]}>
                   <Feather name="clipboard" size={20} color="#7C3AED" />

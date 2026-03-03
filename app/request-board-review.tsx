@@ -965,7 +965,7 @@ const styles = StyleSheet.create({
   },
   reasonInput: {
     borderWidth: 1,
-    borderColor: COLORS.border.base,
+    borderColor: COLORS.border.medium,
     borderRadius: RADIUS.md,
     padding: SPACING.md,
     fontSize: TYPOGRAPHY.fontSize.base,
@@ -990,7 +990,7 @@ const styles = StyleSheet.create({
     paddingVertical: 12,
     borderRadius: RADIUS.md,
     borderWidth: 1,
-    borderColor: COLORS.border.base,
+    borderColor: COLORS.border.medium,
     alignItems: 'center',
   },
   modalCancelBtnText: {

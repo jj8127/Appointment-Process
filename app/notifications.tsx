@@ -709,7 +709,7 @@ export default function NotificationsScreen() {
           style={[styles.itemContainer, isSelected ? styles.itemSelected : styles.itemUnselected]}
           onPress={() => handlePressItem(item)}
           onLongPress={() => handleLongPressItem(item.id)}
-          onPressMove={handlePressMoveItem}
+          onTouchMove={handlePressMoveItem}
           onPressOut={() => {
             if (dragSelectArmedRef.current && !isDraggingRef.current) {
               endDragSelection();
@@ -809,7 +809,7 @@ export default function NotificationsScreen() {
         <View
           ref={listContainerRef}
           style={{ flex: 1 }}
-          onTouchMoveCapture={(event) => {
+          onTouchMove={(event: GestureResponderEvent) => {
             if (!dragSelectArmedRef.current) return;
             if (!isDraggingRef.current) {
               setIsDragging(true);
@@ -817,14 +817,14 @@ export default function NotificationsScreen() {
             updateDragPointer(event.nativeEvent.pageY);
             selectByContainerY(event.nativeEvent.pageY);
           }}
-          onTouchEndCapture={() => {
+          onTouchEnd={() => {
             if (dragSelectArmedRef.current) {
               endDragSelection();
             } else {
               stopAutoScroll();
             }
           }}
-          onTouchCancelCapture={() => {
+          onTouchCancel={() => {
             if (dragSelectArmedRef.current) {
               endDragSelection();
             } else {

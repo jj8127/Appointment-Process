@@ -193,6 +193,65 @@ const ALL_DOC_OPTIONS: string[] = Array.from(
   ]),
 );
 
+const AFFILIATION_CANONICAL_OPTIONS = [
+  '1본부 서선미',
+  '2본부 박성훈',
+  '3본부 김태희',
+  '4본부 현경숙',
+  '5본부 최철준',
+  '6본부 김정수(박선희)',
+  '7본부 김동훈',
+  '8본부 정승철',
+  '9본부 이현욱(김주용)',
+];
+
+const LEGACY_AFFILIATION_TO_CANONICAL: Record<string, string> = {
+  '1본부 [본부장: 서선미]': '1본부 서선미',
+  '2본부 [본부장: 박성훈]': '2본부 박성훈',
+  '3본부 [본부장: 김태희]': '3본부 김태희',
+  '4본부 [본부장: 현경숙]': '4본부 현경숙',
+  '5본부 [본부장: 최철준]': '5본부 최철준',
+  '6본부 [본부장: 김정수]': '6본부 김정수(박선희)',
+  '6본부 [본부장: 박선희]': '6본부 김정수(박선희)',
+  '7본부 [본부장: 김동훈]': '7본부 김동훈',
+  '8본부 [본부장: 정승철]': '8본부 정승철',
+  '9본부 [본부장: 이현욱]': '9본부 이현욱(김주용)',
+  '9본부 [본부장: 김주용]': '9본부 이현욱(김주용)',
+  '1팀(서울1) : 서선미 본부장님': '1본부 서선미',
+  '2팀(서울2) : 박성훈 본부장님': '2본부 박성훈',
+  '3팀(부산1) : 김태희 본부장님': '3본부 김태희',
+  '4팀(대전1) : 현경숙 본부장님': '4본부 현경숙',
+  '5팀(대전2) : 최철준 본부장님': '5본부 최철준',
+  '6팀(전주1) : 김정수 본부장님': '6본부 김정수(박선희)',
+  '6팀(전주1) : 박선희 본부장님': '6본부 김정수(박선희)',
+  '7팀(청주1/직할) : 김동훈 본부장님': '7본부 김동훈',
+  '8팀(서울3) : 정승철 본부장님': '8본부 정승철',
+  '9팀(서울4) : 이현옥 본부장님': '9본부 이현욱(김주용)',
+  '9팀(서울4) : 이현욱 본부장님': '9본부 이현욱(김주용)',
+};
+
+const normalizeAffiliationLabel = (value?: string | null): string => {
+  const trimmed = (value ?? '').trim();
+  if (!trimmed) return '';
+  if (AFFILIATION_CANONICAL_OPTIONS.includes(trimmed)) return trimmed;
+
+  const mapped = LEGACY_AFFILIATION_TO_CANONICAL[trimmed];
+  if (mapped) return mapped;
+
+  const prefix = trimmed.match(/^([1-9])\s*(본부|팀)/);
+  if (prefix) {
+    const index = Number(prefix[1]) - 1;
+    return AFFILIATION_CANONICAL_OPTIONS[index] ?? trimmed;
+  }
+
+  return trimmed;
+};
+
+const isCanonicalOnboardingAffiliation = (value?: string | null): boolean => {
+  const normalized = normalizeAffiliationLabel(value);
+  return AFFILIATION_CANONICAL_OPTIONS.includes(normalized);
+};
+
 type FcRow = {
   id: string;
   name: string;
@@ -403,11 +462,27 @@ export default function DashboardScreen() {
   }, [isError]);
 
   // Compute unique affiliations (After data is declared)
+  const scopedData = useMemo(() => {
+    const source = data ?? [];
+    if (role !== 'admin') return source;
+    return source.filter((row) => isCanonicalOnboardingAffiliation(row.affiliation));
+  }, [data, role]);
+
   const affiliationOptions = useMemo(() => {
-    if (!data) return ['전체'];
-    const affiliations = new Set(data.filter((d) => d.affiliation).map((d) => d.affiliation));
-    return ['전체', ...Array.from(affiliations).sort()];
-  }, [data]);
+    if (scopedData.length === 0) return ['전체'];
+    const affiliations = new Set(
+      scopedData
+        .map((d) => normalizeAffiliationLabel(d.affiliation))
+        .filter((label) => label.length > 0),
+    );
+    return ['전체', ...Array.from(affiliations).sort((a, b) => a.localeCompare(b, 'ko-KR'))];
+  }, [scopedData]);
+
+  useEffect(() => {
+    if (!affiliationOptions.includes(affiliationFilter)) {
+      setAffiliationFilter('전체');
+    }
+  }, [affiliationFilter, affiliationOptions]);
 
   // Realtime: FC 프로필 / 서류 변경 시 대시보드 갱신
   useEffect(() => {
@@ -853,11 +928,11 @@ export default function DashboardScreen() {
   };
 
   const processedRows = useMemo<FcRowWithStep[]>(() => {
-    return (data ?? []).map((fc) => ({
+    return scopedData.map((fc) => ({
       ...fc,
       stepKey: getStepKey(fc),
     }));
-  }, [data]);
+  }, [scopedData]);
 
   const rows = useMemo<FcRowWithStep[]>(() => {
     const mainFilter = filterOptions.find((option) => option.key === statusFilter);
@@ -867,7 +942,7 @@ export default function DashboardScreen() {
     }
     // Affiliation Filter Logic
     if (affiliationFilter !== '전체') {
-      filtered = filtered.filter((fc) => fc.affiliation === affiliationFilter);
+      filtered = filtered.filter((fc) => normalizeAffiliationLabel(fc.affiliation) === affiliationFilter);
     }
     if (statusFilter === 'step2') {
       if (subFilter === 'no-id') {
@@ -2192,6 +2267,7 @@ export default function DashboardScreen() {
             const careerDisplay = careerInputs[fc.id] ?? fc.career_type ?? '-';
             const tempDisplay = tempInputs[fc.id] ?? fc.temp_id ?? '-';
             const allowanceDisplay = fc.allowance_date ?? '없음';
+            const affiliationDisplay = normalizeAffiliationLabel(fc.affiliation) || '-';
 
             return (
               <View key={fc.id} style={styles.listItem}>
@@ -2199,7 +2275,7 @@ export default function DashboardScreen() {
                   <View style={styles.listInfo}>
                     <View style={styles.nameRow}>
                       <Text style={styles.nameText}>{fc.name || '-'}</Text>
-                      <Text style={styles.affText}>{fc.affiliation || '-'}</Text>
+                      <Text style={styles.affText}>{affiliationDisplay}</Text>
                     </View>
                     <Text style={styles.subText}>
                       {fc.phone} · {STATUS_LABELS[fc.status] ?? fc.status}
