@@ -68,10 +68,9 @@ export function StatusToggle({
                     border: isManagerMode ? '1px solid #dee2e6' : undefined,
                 },
                 indicator: {
-                    backgroundColor: isManagerMode ? '#e9ecef' : '#fff',
-                    boxShadow: isManagerMode ? '0 1px 2px rgba(0,0,0,0.05)' : '0 1px 3px rgba(0,0,0,0.1)',
+                    backgroundColor: isNeutral ? '#dee2e6' : isManagerMode ? '#e9ecef' : '#fff',
+                    boxShadow: isNeutral ? 'none' : isManagerMode ? '0 1px 2px rgba(0,0,0,0.05)' : '0 1px 3px rgba(0,0,0,0.1)',
                     transition: 'transform 180ms ease, width 180ms ease, background-color 180ms ease, box-shadow 180ms ease',
-                    opacity: isNeutral ? 0 : 1,
                 },
                 label: {
                     fontWeight: 600,

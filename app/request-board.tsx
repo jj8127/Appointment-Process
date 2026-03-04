@@ -35,7 +35,7 @@ import { buildWelcomeTitle } from '@/lib/welcome-title';
 
 /* ─── Constants ─── */
 
-const YOUTUBE_URL = 'https://youtu.be/Otu7hc2trfY?si=4sby6Qt9OtTB06GM';
+const YOUTUBE_URL = 'https://youtube.com/playlist?list=PLF5rd5c2rE9xy-VsAdwq4NEUsJQtKD7Qd&si=vKx4TDq6ww9ZgKiT';
 const SCREEN_WIDTH = Dimensions.get('window').width;
 const CARD_GAP = 10;
 const REQUEST_BOARD_WEB_URL = (

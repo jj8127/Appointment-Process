@@ -7,6 +7,30 @@
 
 ---
 
+## <a id="20260304-1"></a> 2026-03-04 | 설계요청 가이드 링크 교체 + 웹 위촉 처리 버튼 UX 정리
+
+**Commit**: `pending`  
+**배경**:
+- 모바일 `설계요청` 화면의 사용법 링크를 단일 영상에서 최신 재생목록 링크로 교체할 필요가 있었다.
+- 웹 대시보드 위촉 섹션에서 `일정 저장`과 `승인/반려` 흐름이 토글 중심으로 섞여 있어 조작 의도가 불명확했다.
+
+**조치**:
+- `app/request-board.tsx`
+  - `YOUTUBE_URL`을 최신 재생목록 URL로 교체.
+- `web/src/app/dashboard/page.tsx`
+  - 위촉 액션 처리에서 `schedule` 저장은 즉시 저장되도록 변경(확인 모달 제거).
+  - `confirm`만 확인 모달을 유지하고, UI를 `승인 완료`/`반려` 버튼 구조로 단순화.
+  - FC 목록 `관리` 액션을 아이콘 버튼에서 텍스트 버튼으로 변경해 클릭 의도 가시성 강화.
+- `web/src/components/StatusToggle.tsx`
+  - neutral 상태 인디케이터를 숨김(opacity 0) 대신 중립 회색 배경으로 표시해 상태 식별성을 개선.
+
+**검증**:
+- `npm run lint -- app/request-board.tsx`
+- `cd web && npm run lint -- src/app/dashboard/page.tsx src/components/StatusToggle.tsx`
+- `node scripts/ci/check-governance.mjs`
+
+---
+
 ## <a id="20260303-4"></a> 2026-03-03 | 주민번호 입력 UX 개선 + 외국인등록번호 검증 허용 + 최종완료 요약 통일
 
 **Commit**: `dc5dfe9`  

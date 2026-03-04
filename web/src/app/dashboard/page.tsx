@@ -600,53 +600,59 @@ export default function DashboardPage() {
       value = dayjs(dateVal).format('YYYY-MM-DD');
     }
 
-    showConfirm({
-      title: type === 'confirm' ? '위촉 승인' : '위촉 예정월 저장',
-      message: `${type === 'confirm' ? '승인' : '저장'} 하시겠습니까?`,
-      confirmLabel: type === 'confirm' ? '승인' : '저장',
-      color: 'blue',
-      onConfirm: () => {
-        startAppointmentTransition(async () => {
-          const result = await updateAppointmentAction(
-            { success: false },
-            {
-              fcId: selectedFc!.id,
-              phone: selectedFc!.phone,
-              type,
-              category,
-              value,
-            }
-          );
-          if (result.success) {
-            notifications.show({ title: '완료', message: result.message, color: 'green' });
-            queryClient.invalidateQueries({ queryKey: ['dashboard-list'] });
-            if (type === 'schedule' && scheduleValue) {
-              updateSelectedFc({
-                [isLife ? 'appointment_schedule_life' : 'appointment_schedule_nonlife']: scheduleValue,
-              });
-            }
-            if (type === 'confirm' && dateValue) {
-              const dateKey = isLife ? 'lifeDate' : 'nonLifeDate';
-              setAppointmentInputs((prev) => ({ ...prev, [dateKey]: dateValue }));
-              updateSelectedFc({
-                [isLife ? 'appointment_date_life' : 'appointment_date_nonlife']: value,
-              });
-              const nextLifeDone = Boolean(
-                (isLife ? value : selectedFc!.appointment_date_life) || selectedFc!.life_commission_completed,
-              );
-              const nextNonlifeDone = Boolean(
-                (!isLife ? value : selectedFc!.appointment_date_nonlife) ||
-                selectedFc!.nonlife_commission_completed,
-              );
-              const nextStatus = nextLifeDone && nextNonlifeDone ? 'final-link-sent' : 'appointment-completed';
-              updateSelectedFc({ status: nextStatus });
-            }
-          } else {
-            notifications.show({ title: '오류', message: result.error, color: 'red' });
+    const executeTransition = () => {
+      startAppointmentTransition(async () => {
+        const result = await updateAppointmentAction(
+          { success: false },
+          {
+            fcId: selectedFc!.id,
+            phone: selectedFc!.phone,
+            type,
+            category,
+            value,
           }
-        });
-      },
-    });
+        );
+        if (result.success) {
+          notifications.show({ title: '완료', message: result.message, color: 'green' });
+          queryClient.invalidateQueries({ queryKey: ['dashboard-list'] });
+          if (type === 'schedule' && scheduleValue) {
+            updateSelectedFc({
+              [isLife ? 'appointment_schedule_life' : 'appointment_schedule_nonlife']: scheduleValue,
+            });
+          }
+          if (type === 'confirm' && dateValue) {
+            const dateKey = isLife ? 'lifeDate' : 'nonLifeDate';
+            setAppointmentInputs((prev) => ({ ...prev, [dateKey]: dateValue }));
+            updateSelectedFc({
+              [isLife ? 'appointment_date_life' : 'appointment_date_nonlife']: value,
+            });
+            const nextLifeDone = Boolean(
+              (isLife ? value : selectedFc!.appointment_date_life) || selectedFc!.life_commission_completed,
+            );
+            const nextNonlifeDone = Boolean(
+              (!isLife ? value : selectedFc!.appointment_date_nonlife) ||
+              selectedFc!.nonlife_commission_completed,
+            );
+            const nextStatus = nextLifeDone && nextNonlifeDone ? 'final-link-sent' : 'appointment-completed';
+            updateSelectedFc({ status: nextStatus });
+          }
+        } else {
+          notifications.show({ title: '오류', message: result.error, color: 'red' });
+        }
+      });
+    };
+
+    if (type === 'schedule') {
+      executeTransition();
+    } else {
+      showConfirm({
+        title: '위촉 승인',
+        message: '승인 하시겠습니까?',
+        confirmLabel: '승인',
+        color: 'blue',
+        onConfirm: executeTransition,
+      });
+    }
   };
 
   const renderAppointmentSection = (category: 'life' | 'nonlife') => {
@@ -722,9 +728,11 @@ export default function DashboardPage() {
             제출일: {dayjs(submittedDate).format('YYYY-MM-DD')}
           </Text>
         )}
-        <Group gap={8}>
+        <Stack gap={6}>
           <Button
-            variant="light" color={isReadOnly ? "gray" : "blue"} size="xs" flex={1}
+            fullWidth
+            variant={isReadOnly ? "default" : "filled"}
+            color={isReadOnly ? "gray" : "blue"}
             leftSection={<IconDeviceFloppy size={14} />}
             loading={isAppointmentPending}
             disabled={isReadOnly}
@@ -732,32 +740,28 @@ export default function DashboardPage() {
           >
             일정 저장
           </Button>
-          <StatusToggle
-            value={isConfirmed ? 'approved' : 'pending'}
-            onChange={(val) => {
-              if (val === 'approved') {
-                handleAppointmentAction({ stopPropagation: () => { } } as React.MouseEvent<HTMLButtonElement>, 'confirm', category);
-              } else if (isConfirmed) {
-                openRejectModal({ kind: 'appointment', category });
-              }
-            }}
-            labelPending="미승인"
-            labelApproved="승인 완료"
-            showNeutralForPending
-            readOnly={isReadOnly || isAppointmentPending}
-            isManagerMode={isReadOnly}
-          />
-          <Tooltip label="반려 (확정 취소)">
-            <ActionIcon
-              variant="light" color={isReadOnly ? "gray" : "red"} size="input-xs"
-              loading={isAppointmentPending}
-              disabled={isReadOnly}
+          <Group grow gap={6}>
+            <Button
+              variant={isConfirmed ? "filled" : "light"}
+              color="green"
+              size="xs"
+              disabled={isReadOnly || isAppointmentPending || isConfirmed}
+              loading={isAppointmentPending && !isConfirmed}
+              onClick={(e) => handleAppointmentAction(e, 'confirm', category)}
+            >
+              승인 완료
+            </Button>
+            <Button
+              variant="light"
+              color="red"
+              size="xs"
+              disabled={isReadOnly || isAppointmentPending || !isConfirmed}
               onClick={() => openRejectModal({ kind: 'appointment', category })}
             >
-              <IconX size={16} />
-            </ActionIcon>
-          </Tooltip>
-        </Group>
+              반려
+            </Button>
+          </Group>
+        </Stack>
       </Stack>
     );
   };
@@ -928,16 +932,18 @@ export default function DashboardPage() {
         </Badge>
       </Table.Td>
       <Table.Td>
-        <ActionIcon
-          variant="subtle"
-          color="gray"
+        <Button
+          variant="light"
+          color="blue"
+          size="xs"
+          leftSection={<IconEdit size={14} />}
           onClick={(e) => {
             e.stopPropagation();
             handleOpenModal(fc);
           }}
         >
-          <IconEdit size={16} />
-        </ActionIcon>
+          관리
+        </Button>
       </Table.Td>
     </Table.Tr>
   ));
@@ -1230,7 +1236,7 @@ export default function DashboardPage() {
                     <Table.Th w={150}>위촉 완료일</Table.Th>
                     <Table.Th w={200}>현재 상태</Table.Th>
                     <Table.Th w={120}>진행 단계</Table.Th>
-                    <Table.Th w={60} ta="center">관리</Table.Th>
+                    <Table.Th w={90} ta="center">관리</Table.Th>
                   </Table.Tr>
                 </Table.Thead>
                 <Table.Tbody>

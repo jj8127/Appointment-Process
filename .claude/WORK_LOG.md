@@ -20,6 +20,7 @@
 ## 최근 작업
 | 날짜 | 작업 | 핵심 파일 | 상세 |
 |------|------|----------|------|
+| 03-04 | 설계요청 가이드 링크 교체 + 웹 위촉 처리 버튼 UX 정리 | `app/request-board.tsx`, `web/src/app/dashboard/page.tsx`, `web/src/components/StatusToggle.tsx` | [→ 상세](WORK_DETAIL.md#20260304-1) |
 | 03-03 | 주민번호 입력 UX 개선(보기/숨기기) + 외국인등록번호 검증 허용 + 웹 최종완료 요약 통일 | `app/identity.tsx`, `app/fc/new.tsx`, `lib/validation.ts`, `supabase/functions/store-identity/index.ts`, `web/src/lib/shared.ts` | [→ 상세](WORK_DETAIL.md#20260303-4) |
 | 03-03 | 앱/웹 대시보드 소속 필터 정규화(본부 소속만) + 설계매니저 소속 제외 | `app/dashboard.tsx`, `web/src/app/api/admin/list/route.ts`, `app/request-board.tsx` | [→ 상세](WORK_DETAIL.md#20260303-3) |
 | 03-03 | 시험신청 화면 수당동의 검토 오버레이 제거 및 새로고침 경로 단순화 | `app/exam-apply.tsx`, `app/exam-apply2.tsx`, `components/SplashAnimation.tsx` | [→ 상세](WORK_DETAIL.md#20260303-2) |
