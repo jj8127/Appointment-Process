@@ -1,17 +1,16 @@
 import { serve } from 'https://deno.land/std@0.224.0/http/server.ts';
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.45.4';
+import {
+  createAppSessionToken,
+  createRequestBoardBridgeToken,
+  getEnv,
+  parseDesignerCompanyNameFromAffiliation,
+} from '../_shared/request-board-auth.ts';
 
 type Payload = {
   phone: string;
   password: string;
 };
-
-function getEnv(name: string): string | undefined {
-  const g: any = globalThis as any;
-  if (g?.Deno?.env?.get) return g.Deno.env.get(name);
-  if (g?.process?.env) return g.process.env[name];
-  return undefined;
-}
 
 // Security: Restrict CORS to specific origins
 const allowedOrigins = (getEnv('ALLOWED_ORIGINS') ?? '').split(',').map(o => o.trim()).filter(Boolean);
@@ -35,11 +34,6 @@ if (!serviceKey) {
 
 const supabase = createClient(supabaseUrl, serviceKey);
 const encoder = new TextEncoder();
-const requestBoardAuthBridgeSecret = (getEnv('REQUEST_BOARD_AUTH_BRIDGE_SECRET') ?? '').trim();
-const requestBoardBridgeTtlSecRaw = Number((getEnv('REQUEST_BOARD_AUTH_BRIDGE_TTL_SEC') ?? '2592000').trim());
-const requestBoardBridgeTtlSec = Number.isFinite(requestBoardBridgeTtlSecRaw) && requestBoardBridgeTtlSecRaw > 0
-  ? Math.floor(requestBoardBridgeTtlSecRaw)
-  : 2592000;
 const requestBoardPasswordSyncUrl = (getEnv('REQUEST_BOARD_PASSWORD_SYNC_URL') ?? '').trim();
 const requestBoardPasswordSyncToken = (getEnv('REQUEST_BOARD_PASSWORD_SYNC_TOKEN') ?? '').trim();
 const requestBoardPasswordSyncTimeoutRaw = Number((getEnv('REQUEST_BOARD_PASSWORD_SYNC_TIMEOUT_MS') ?? '5000').trim());
@@ -66,16 +60,6 @@ function cleanPhone(input: string) {
   return (input ?? '').replace(/[^0-9]/g, '');
 }
 
-function toBase64(bytes: Uint8Array) {
-  let binary = '';
-  bytes.forEach((b) => (binary += String.fromCharCode(b)));
-  return btoa(binary);
-}
-
-function toBase64Url(bytes: Uint8Array) {
-  return toBase64(bytes).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/g, '');
-}
-
 function fromBase64(input: string) {
   const binary = atob(input);
   const bytes = new Uint8Array(binary.length);
@@ -94,34 +78,6 @@ async function hashPassword(password: string, saltBase64: string) {
     256,
   );
   return toBase64(new Uint8Array(bits));
-}
-
-async function createBridgeToken(
-  phone: string,
-  role: 'fc' | 'designer' | 'admin' | 'manager',
-): Promise<string | null> {
-  if (!requestBoardAuthBridgeSecret) return null;
-
-  const nowSec = Math.floor(Date.now() / 1000);
-  const payload = {
-    phone,
-    role,
-    iat: nowSec,
-    exp: nowSec + requestBoardBridgeTtlSec,
-  };
-  const payloadPart = toBase64Url(encoder.encode(JSON.stringify(payload)));
-
-  const key = await crypto.subtle.importKey(
-    'raw',
-    encoder.encode(requestBoardAuthBridgeSecret),
-    { name: 'HMAC', hash: 'SHA-256' },
-    false,
-    ['sign'],
-  );
-  const sigBuffer = await crypto.subtle.sign('HMAC', key, encoder.encode(payloadPart));
-  const signaturePart = toBase64Url(new Uint8Array(sigBuffer));
-
-  return `${payloadPart}.${signaturePart}`;
 }
 
 async function syncRequestBoardPassword(
@@ -165,23 +121,6 @@ async function syncRequestBoardPassword(
   } finally {
     clearTimeout(timeout);
   }
-}
-
-function parseDesignerCompanyNameFromAffiliation(affiliation?: string | null): string | null {
-  const raw = String(affiliation ?? '').trim();
-  if (!raw) return null;
-
-  const marker = '설계매니저';
-  const markerIndex = raw.lastIndexOf(marker);
-  if (markerIndex < 0) return null;
-
-  // e.g. "농협생명 설계매니저" -> "농협생명"
-  const companyName = raw
-    .slice(0, markerIndex)
-    .replace(/[:\-\s]+$/g, '')
-    .trim();
-
-  return companyName || null;
 }
 
 serve(async (req: Request) => {
@@ -275,13 +214,15 @@ serve(async (req: Request) => {
       name: admin.name ?? '',
     });
 
-    const requestBoardBridgeToken = await createBridgeToken(admin.phone, 'admin');
+    const requestBoardBridgeToken = await createRequestBoardBridgeToken(admin.phone, 'admin');
+    const appSessionToken = await createAppSessionToken(admin.phone, 'admin');
     return json({
       ok: true,
       role: 'admin',
       residentId: admin.phone,
       displayName: admin.name ?? '',
       ...(requestBoardBridgeToken ? { requestBoardBridgeToken } : {}),
+      ...(appSessionToken ? { appSessionToken } : {}),
     });
   }
 
@@ -348,13 +289,15 @@ serve(async (req: Request) => {
       name: manager.name ?? '',
     });
 
-    const requestBoardBridgeToken = await createBridgeToken(manager.phone, 'manager');
+    const requestBoardBridgeToken = await createRequestBoardBridgeToken(manager.phone, 'manager');
+    const appSessionToken = await createAppSessionToken(manager.phone, 'manager');
     return json({
       ok: true,
       role: 'manager',
       residentId: manager.phone,
       displayName: manager.name ?? '',
       ...(requestBoardBridgeToken ? { requestBoardBridgeToken } : {}),
+      ...(appSessionToken ? { appSessionToken } : {}),
     });
   }
 
@@ -435,12 +378,14 @@ serve(async (req: Request) => {
     ...(designerCompanyName ? { companyName: designerCompanyName } : {}),
   });
 
-  const requestBoardBridgeToken = await createBridgeToken(profile.phone, requestBoardRole);
+  const requestBoardBridgeToken = await createRequestBoardBridgeToken(profile.phone, requestBoardRole);
+  const appSessionToken = await createAppSessionToken(profile.phone, 'fc');
   return json({
     ok: true,
     role: 'fc',
     residentId: profile.phone,
     displayName: profile.name ?? '',
     ...(requestBoardBridgeToken ? { requestBoardBridgeToken } : {}),
+    ...(appSessionToken ? { appSessionToken } : {}),
   });
 });

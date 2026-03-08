@@ -53,7 +53,7 @@ const formatDate = (value: string) => {
 export default function RequestBoardFcCodesScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
-  const { role, readOnly, hydrated, isRequestBoardDesigner } = useSession();
+  const { role, readOnly, hydrated, isRequestBoardDesigner, ensureRequestBoardSession } = useSession();
 
   const [codes, setCodes] = useState<RbFcCode[]>([]);
   const [companyNames, setCompanyNames] = useState<string[]>([]);
@@ -85,6 +85,11 @@ export default function RequestBoardFcCodesScreen() {
   const fetchData = useCallback(async () => {
     setFetchError(null);
     try {
+      const sync = await ensureRequestBoardSession();
+      if (!sync.ok) {
+        throw new Error(sync.error ?? '가람Link 세션 동기화에 실패했습니다.');
+      }
+
       const [codesData, namesData] = await Promise.all([
         rbGetFcCodes(),
         rbGetCompanyNames(),
@@ -98,7 +103,7 @@ export default function RequestBoardFcCodesScreen() {
       setLoading(false);
       setRefreshing(false);
     }
-  }, []);
+  }, [ensureRequestBoardSession]);
 
   useEffect(() => {
     fetchData();

@@ -1,11 +1,22 @@
-import { createContext, ReactNode, useContext, useEffect, useMemo, useState } from 'react';
+import { createContext, ReactNode, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import { logger } from '@/lib/logger';
 import { registerPushToken } from '@/lib/notifications';
-import { clearRequestBoardState } from '@/lib/request-board-api';
+import {
+  clearRequestBoardState,
+  getStoredAppSessionToken,
+  getStoredBridgeToken,
+  rbCheckAuth,
+} from '@/lib/request-board-api';
+import {
+  canUseRequestBoardSession,
+  deriveRequestBoardFlags,
+  shouldForceRequestBoardRelogin,
+} from '@/lib/request-board-session';
 import { safeStorage } from '@/lib/safe-storage';
 
 type Role = 'admin' | 'fc' | null;
 type RequestBoardRole = 'fc' | 'designer' | null;
+type RequestBoardSyncStatus = 'idle' | 'syncing' | 'ready' | 'error' | 'needs_reauth';
 
 type SessionState = {
   role: Role;
@@ -19,6 +30,8 @@ type SessionState = {
 
 type SessionContextValue = SessionState & {
   hydrated: boolean;
+  requestBoardSyncStatus: RequestBoardSyncStatus;
+  requestBoardSyncError: string | null;
   loginAs: (
     role: Role,
     residentId: string,
@@ -26,7 +39,13 @@ type SessionContextValue = SessionState & {
     readOnly?: boolean,
     isRequestBoardDesigner?: boolean,
     requestBoardRole?: RequestBoardRole,
+    appSessionToken?: string | null,
   ) => void;
+  ensureRequestBoardSession: (options?: { force?: boolean }) => Promise<{
+    ok: boolean;
+    error?: string;
+    needsRelogin?: boolean;
+  }>;
   logout: () => void;
 };
 
@@ -54,13 +73,107 @@ const STORAGE_KEY = 'fc-onboarding/session';
 export function SessionProvider({ children }: { children: ReactNode }) {
   const [state, setState] = useState<SessionState>(initialState);
   const [hydrated, setHydrated] = useState(false);
+  const [appSessionToken, setAppSessionToken] = useState<string | null>(null);
+  const [requestBoardSyncStatus, setRequestBoardSyncStatus] = useState<RequestBoardSyncStatus>('idle');
+  const [requestBoardSyncError, setRequestBoardSyncError] = useState<string | null>(null);
+  const requestBoardSyncPromiseRef = useRef<Promise<{ ok: boolean; error?: string; needsRelogin?: boolean }> | null>(null);
+
+  const clearSessionState = useCallback(async (options?: { clearAppSession?: boolean }) => {
+    setState(initialState);
+    if (options?.clearAppSession) {
+      setAppSessionToken(null);
+    }
+    setRequestBoardSyncStatus('idle');
+    setRequestBoardSyncError(null);
+    try {
+      await safeStorage.removeItem(STORAGE_KEY);
+    } catch (err) {
+      logger.warn('Session clear failed', err);
+    }
+    await clearRequestBoardState({ clearAppSession: options?.clearAppSession });
+  }, []);
+
+  const syncRequestBoardFlags = useCallback((requestBoardRole: RequestBoardRole) => {
+    setState((prev) => {
+      const next = deriveRequestBoardFlags(prev.role, requestBoardRole);
+      if (
+        prev.requestBoardRole === next.requestBoardRole
+        && prev.isRequestBoardDesigner === next.isRequestBoardDesigner
+      ) {
+        return prev;
+      }
+      return {
+        ...prev,
+        requestBoardRole: next.requestBoardRole,
+        isRequestBoardDesigner: next.isRequestBoardDesigner,
+      };
+    });
+  }, []);
+
+  const ensureRequestBoardSession = useCallback(async (options?: { force?: boolean }) => {
+    if (!hydrated) {
+      return { ok: false, error: '세션 복원 중입니다.' };
+    }
+
+    if (!canUseRequestBoardSession(state.role, state.readOnly)) {
+      setRequestBoardSyncStatus('idle');
+      setRequestBoardSyncError(null);
+      return { ok: true };
+    }
+
+    if (requestBoardSyncPromiseRef.current && !options?.force) {
+      return requestBoardSyncPromiseRef.current;
+    }
+
+    const syncPromise = (async () => {
+      setRequestBoardSyncStatus('syncing');
+      setRequestBoardSyncError(null);
+
+      const auth = await rbCheckAuth();
+      if (auth.authenticated && auth.user) {
+        const [bridgeToken, storedAppSessionToken] = await Promise.all([
+          getStoredBridgeToken(),
+          getStoredAppSessionToken(),
+        ]);
+        const needsRelogin = shouldForceRequestBoardRelogin({
+          authenticated: true,
+          hasBridgeToken: Boolean(bridgeToken),
+          hasAppSessionToken: Boolean(appSessionToken || storedAppSessionToken),
+        });
+
+        if (needsRelogin) {
+          const error = '가람Link 연동 세션을 업그레이드하려면 다시 로그인해주세요.';
+          setRequestBoardSyncStatus('needs_reauth');
+          setRequestBoardSyncError(error);
+          return { ok: false, error, needsRelogin: true };
+        }
+
+        syncRequestBoardFlags(auth.user.role === 'designer' ? 'designer' : 'fc');
+        setRequestBoardSyncStatus('ready');
+        return { ok: true };
+      }
+
+      const error = auth.error ?? '가람Link 세션 동기화에 실패했습니다.';
+      const needsRelogin = Boolean(auth.needsRelogin);
+      setRequestBoardSyncStatus(needsRelogin ? 'needs_reauth' : 'error');
+      setRequestBoardSyncError(error);
+      return { ok: false, error, needsRelogin };
+    })();
+
+    requestBoardSyncPromiseRef.current = syncPromise;
+    try {
+      return await syncPromise;
+    } finally {
+      requestBoardSyncPromiseRef.current = null;
+    }
+  }, [appSessionToken, hydrated, state.readOnly, state.role, syncRequestBoardFlags]);
 
   useEffect(() => {
     const restore = async () => {
       try {
         const raw = await safeStorage.getItem(STORAGE_KEY);
         if (raw) {
-          const parsed = JSON.parse(raw) as Partial<SessionState>;
+          const parsed = JSON.parse(raw) as Partial<SessionState> & { appSessionToken?: string | null };
           if (parsed.role && parsed.residentId) {
             const restoredRequestBoardRole =
               parsed.requestBoardRole === 'fc' || parsed.requestBoardRole === 'designer'
@@ -72,12 +185,18 @@ export function SessionProvider({ children }: { children: ReactNode }) {
               residentMask: computeMask(parsed.residentId),
               displayName: parsed.displayName ?? '',
               readOnly: Boolean(parsed.readOnly),
-              isRequestBoardDesigner:
-                parsed.isRequestBoardDesigner !== undefined
-                  ? Boolean(parsed.isRequestBoardDesigner)
-                  : restoredRequestBoardRole === 'designer',
-              requestBoardRole: restoredRequestBoardRole,
+              ...deriveRequestBoardFlags(
+                parsed.role,
+                parsed.isRequestBoardDesigner !== undefined && !restoredRequestBoardRole
+                  ? (parsed.isRequestBoardDesigner ? 'designer' : null)
+                  : restoredRequestBoardRole,
+              ),
             });
+            const restoredAppSessionToken =
+              typeof parsed.appSessionToken === 'string' && parsed.appSessionToken.trim()
+                ? parsed.appSessionToken
+                : await getStoredAppSessionToken();
+            setAppSessionToken(restoredAppSessionToken ?? null);
           }
         }
       } catch (err) {
@@ -101,6 +220,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
             readOnly: state.readOnly,
             isRequestBoardDesigner: state.isRequestBoardDesigner,
             requestBoardRole: state.requestBoardRole,
+            appSessionToken,
           };
           await safeStorage.setItem(STORAGE_KEY, JSON.stringify(payload));
         } else {
@@ -111,16 +231,38 @@ export function SessionProvider({ children }: { children: ReactNode }) {
       }
     };
     persist();
-  }, [state, hydrated]);
+  }, [appSessionToken, state, hydrated]);
+
+  useEffect(() => {
+    if (!hydrated) return;
+    if (!canUseRequestBoardSession(state.role, state.readOnly)) {
+      setRequestBoardSyncStatus('idle');
+      setRequestBoardSyncError(null);
+      return;
+    }
+
+    let cancelled = false;
+
+    void ensureRequestBoardSession().then((result) => {
+      if (cancelled || !result.needsRelogin) return;
+      logger.warn('[session] request_board session requires re-login');
+      void clearSessionState({ clearAppSession: true });
+    });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [clearSessionState, ensureRequestBoardSession, hydrated, state.readOnly, state.role, state.residentId]);
 
   const value = useMemo<SessionContextValue>(
     () => ({
       ...state,
       hydrated,
+      requestBoardSyncStatus,
+      requestBoardSyncError,
+      ensureRequestBoardSession,
       logout: () => {
-        setState(initialState);
-        safeStorage.removeItem(STORAGE_KEY).catch((err) => logger.warn('Session clear failed', err));
-        clearRequestBoardState().catch((err) => logger.warn('request_board session clear failed', err));
+        void clearSessionState({ clearAppSession: true });
       },
       loginAs: (
         role,
@@ -129,6 +271,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
         readOnly = false,
         isRequestBoardDesigner = false,
         requestBoardRole = null,
+        nextAppSessionToken = null,
       ) => {
         setState({
           role,
@@ -139,9 +282,19 @@ export function SessionProvider({ children }: { children: ReactNode }) {
           isRequestBoardDesigner,
           requestBoardRole,
         });
+        setAppSessionToken(nextAppSessionToken);
+        setRequestBoardSyncStatus('idle');
+        setRequestBoardSyncError(null);
       },
     }),
-    [hydrated, state],
+    [
+      clearSessionState,
+      ensureRequestBoardSession,
+      hydrated,
+      requestBoardSyncError,
+      requestBoardSyncStatus,
+      state,
+    ],
   );
 
   useEffect(() => {

@@ -4,7 +4,6 @@ import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useMemo, useState } from 'react';
 import {
   ActivityIndicator,
-  Linking,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -17,6 +16,7 @@ import { LinkifiedSelectableText } from '@/components/LinkifiedSelectableText';
 import { ImagePreviewModal } from '@/components/ImagePreviewModal';
 import { useSession } from '@/hooks/use-session';
 import { buildBoardActor, fetchBoardDetail, formatFileSize } from '@/lib/board-api';
+import { openExternalUrl } from '@/lib/open-external-url';
 import { COLORS } from '@/lib/theme';
 import { safeDecodeFileName } from '@/lib/validation';
 
@@ -53,7 +53,7 @@ export default function BoardDetailScreen() {
   const openUrl = async (url?: string) => {
     if (!url) return;
     try {
-      await Linking.openURL(url);
+      await openExternalUrl(url);
     } catch {
       // ignore
     }

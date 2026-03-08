@@ -4,7 +4,6 @@ import { useCallback, useEffect, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
-  Linking,
   Modal,
   Pressable,
   ScrollView,
@@ -19,6 +18,7 @@ import { BottomNavigation } from '@/components/BottomNavigation';
 import { useSession } from '@/hooks/use-session';
 import { resolveBottomNavActiveKey, resolveBottomNavPreset } from '@/lib/bottom-navigation';
 import { logger } from '@/lib/logger';
+import { openExternalUrl } from '@/lib/open-external-url';
 import {
   rbApproveDesign,
   rbGetRequestDetail,
@@ -88,7 +88,7 @@ export default function RequestBoardReviewScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const { id } = useLocalSearchParams<{ id: string }>();
-  const { role, readOnly, hydrated, isRequestBoardDesigner } = useSession();
+  const { role, readOnly, hydrated, isRequestBoardDesigner, ensureRequestBoardSession } = useSession();
 
   const [detail, setDetail] = useState<RbRequestDetail | null>(null);
   const [loading, setLoading] = useState(true);
@@ -110,6 +110,11 @@ export default function RequestBoardReviewScreen() {
     }
     setFetchError(null);
     try {
+      const sync = await ensureRequestBoardSession();
+      if (!sync.ok) {
+        throw new Error(sync.error ?? '가람Link 세션 동기화에 실패했습니다.');
+      }
+
       const data = await rbGetRequestDetail(requestId);
       setDetail(data);
       if (!data) setFetchError('의뢰 정보를 불러오는데 실패했습니다.');
@@ -119,7 +124,7 @@ export default function RequestBoardReviewScreen() {
     } finally {
       setLoading(false);
     }
-  }, [requestId]);
+  }, [ensureRequestBoardSession, requestId]);
 
   useEffect(() => {
     fetchData();
@@ -193,12 +198,7 @@ export default function RequestBoardReviewScreen() {
 
   const handleOpenFile = async (fileUrl: string) => {
     try {
-      const supported = await Linking.canOpenURL(fileUrl);
-      if (supported) {
-        await Linking.openURL(fileUrl);
-      } else {
-        Alert.alert('열기 실패', '파일을 열 수 없습니다.');
-      }
+      await openExternalUrl(fileUrl);
     } catch (err) {
       logger.warn('[review] open file failed', err);
       Alert.alert('열기 실패', '파일을 여는 중 오류가 발생했습니다.');

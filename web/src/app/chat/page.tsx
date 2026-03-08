@@ -23,6 +23,7 @@ import { useRouter, useSearchParams } from 'next/navigation';
 import type React from 'react';
 import { Suspense, useEffect, useMemo, useRef, useState } from 'react';
 
+import { buildAdminDashboardChatUrl } from '@/lib/admin-chat-url';
 import { logger } from '@/lib/logger';
 type Message = {
   id: string;
@@ -66,6 +67,18 @@ function ChatContent() {
 
   const viewportRef = useRef<HTMLDivElement>(null);
   const deletedIdsRef = useRef<Set<string>>(new Set());
+
+  useEffect(() => {
+    if (!hydrated) return;
+    if (role !== 'admin' && role !== 'manager') return;
+
+    router.replace(
+      buildAdminDashboardChatUrl({
+        targetId: targetIdParam,
+        targetName: targetNameParam,
+      }),
+    );
+  }, [hydrated, role, router, targetIdParam, targetNameParam]);
 
   const scrollToBottom = () => {
     requestAnimationFrame(() => {
@@ -295,6 +308,16 @@ function ChatContent() {
   };
 
   const isReady = hydrated && myId && otherId;
+
+  if (hydrated && (role === 'admin' || role === 'manager')) {
+    return (
+      <Container py="xl">
+        <Group justify="center">
+          <Loader color="orange" size="sm" />
+        </Group>
+      </Container>
+    );
+  }
 
   if (role === 'admin' && !otherId) {
     return (

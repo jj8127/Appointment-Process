@@ -1,5 +1,6 @@
 import { createClient } from '@supabase/supabase-js';
 import { NextResponse } from 'next/server';
+import { normalizeAdminDashboardUrl } from '@/lib/admin-chat-url';
 import { sendWebPush } from '@/lib/web-push';
 import { logger } from '@/lib/logger';
 
@@ -74,10 +75,12 @@ export async function POST(req: Request) {
     return NextResponse.json({ ok: true, sent: 0 });
   }
 
+  const normalizedUrl = normalizeAdminDashboardUrl(url ?? '/dashboard');
+
   const result = await sendWebPush(subs, {
     title,
     body: notifBody,
-    data: { url: url ?? '/dashboard' },
+    data: { url: normalizedUrl },
   });
 
   if (result.expired.length > 0) {

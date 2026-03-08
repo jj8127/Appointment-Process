@@ -7,7 +7,6 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Alert,
   Image,
-  Linking,
   Platform,
   Pressable,
   ScrollView,
@@ -25,6 +24,7 @@ import { KeyboardAwareWrapper } from '@/components/KeyboardAwareWrapper';
 import { RefreshButton } from '@/components/RefreshButton';
 import { useKeyboardPadding } from '@/hooks/use-keyboard-padding';
 import { useSession } from '@/hooks/use-session';
+import { openExternalUrl } from '@/lib/open-external-url';
 import {
   buildBoardActor,
   createBoardPost,
@@ -373,7 +373,9 @@ export default function AdminBoardScreen() {
           ]}
           onPress={() => {
             if (item.uri) {
-              Linking.openURL(item.uri);
+              openExternalUrl(item.uri).catch(() => {
+                Alert.alert('오류', '첨부파일을 열 수 없습니다.');
+              });
             }
           }}
         >
@@ -623,7 +625,9 @@ export default function AdminBoardScreen() {
                           ]}
                           onPress={() => {
                             if (file.uri) {
-                              Linking.openURL(file.uri);
+                              openExternalUrl(file.uri).catch(() => {
+                                Alert.alert('오류', '첨부파일을 열 수 없습니다.');
+                              });
                             }
                           }}
                         >

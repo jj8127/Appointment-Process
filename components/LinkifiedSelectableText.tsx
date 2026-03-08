@@ -1,6 +1,9 @@
 import * as Clipboard from 'expo-clipboard';
 import { useMemo } from 'react';
-import { Alert, Linking, StyleProp, StyleSheet, Text, TextStyle } from 'react-native';
+import { Alert, StyleProp, StyleSheet, Text, TextStyle } from 'react-native';
+
+import { normalizeExternalUrl } from '@/lib/external-url';
+import { openExternalUrl } from '@/lib/open-external-url';
 
 const URL_PATTERN = /((?:https?:\/\/|www\.)[^\s]+)/gi;
 
@@ -16,12 +19,6 @@ type LinkifiedSelectableTextProps = {
   numberOfLines?: number;
   selectable?: boolean;
 };
-
-function normalizeUrl(rawUrl: string) {
-  const trimmed = rawUrl.trim();
-  if (!trimmed) return '';
-  return /^https?:\/\//i.test(trimmed) ? trimmed : `https://${trimmed}`;
-}
 
 function splitTextByLinks(input: string): TextSegment[] {
   if (!input) return [{ text: '', isLink: false }];
@@ -58,14 +55,14 @@ export function LinkifiedSelectableText({
   const segments = useMemo(() => splitTextByLinks(safeText), [safeText]);
 
   const handleLinkPress = (rawUrl: string) => {
-    const normalized = normalizeUrl(rawUrl);
+    const normalized = normalizeExternalUrl(rawUrl);
     if (!normalized) return;
 
     Alert.alert('링크 옵션', normalized, [
       {
         text: '열기',
         onPress: () => {
-          Linking.openURL(normalized).catch(() => {
+          openExternalUrl(normalized).catch(() => {
             Alert.alert('오류', '링크를 열 수 없습니다.');
           });
         },

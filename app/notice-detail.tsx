@@ -6,7 +6,6 @@ import {
   ActivityIndicator,
   Alert,
   Image,
-  Linking,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -16,6 +15,7 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { useSession } from '@/hooks/use-session';
+import { openExternalUrl } from '@/lib/open-external-url';
 import { supabase } from '@/lib/supabase';
 import { COLORS } from '@/lib/theme';
 
@@ -104,12 +104,7 @@ export default function NoticeDetailScreen() {
 
   const handleOpenLink = async (url: string) => {
     try {
-      const supported = await Linking.canOpenURL(url);
-      if (!supported) {
-        Alert.alert('오류', '이 링크를 열 수 없습니다.');
-        return;
-      }
-      await Linking.openURL(url);
+      await openExternalUrl(url);
     } catch {
       Alert.alert('오류', '링크를 여는 중 문제가 발생했습니다.');
     }

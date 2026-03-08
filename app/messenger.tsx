@@ -15,7 +15,7 @@ import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context'
 import { useSession } from '@/hooks/use-session';
 import { logger } from '@/lib/logger';
 import { ADMIN_CHAT_ID, sanitizePhone } from '@/lib/messenger-participants';
-import { rbBridgeLogin, rbCheckAuth, rbGetUnreadCount } from '@/lib/request-board-api';
+import { rbGetUnreadCount } from '@/lib/request-board-api';
 import { supabase } from '@/lib/supabase';
 
 type ChannelQuery = 'garam' | 'request-board' | null;
@@ -37,7 +37,7 @@ export default function MessengerHubScreen() {
   const router = useRouter();
   const { channel } = useLocalSearchParams<{ channel?: string | string[] }>();
   const insets = useSafeAreaInsets();
-  const { role, residentId, hydrated, readOnly } = useSession();
+  const { role, residentId, hydrated, readOnly, ensureRequestBoardSession } = useSession();
   const oneShotOpenRef = useRef(false);
 
   const [loading, setLoading] = useState(true);
@@ -87,11 +87,8 @@ export default function MessengerHubScreen() {
         : Promise.resolve(0);
 
       const requestBoardCountPromise = (async () => {
-        const auth = await rbCheckAuth();
-        if (!auth.authenticated) {
-          const bridged = await rbBridgeLogin();
-          if (!bridged.success) return 0;
-        }
+        const sync = await ensureRequestBoardSession();
+        if (!sync.ok) return 0;
         return rbGetUnreadCount();
       })();
 
@@ -109,7 +106,7 @@ export default function MessengerHubScreen() {
       setLoading(false);
       setRefreshing(false);
     }
-  }, [myChatId, role]);
+  }, [ensureRequestBoardSession, myChatId, role]);
 
   const handleRefresh = useCallback(async () => {
     setRefreshing(true);

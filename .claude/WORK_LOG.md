@@ -20,6 +20,9 @@
 ## 최근 작업
 | 날짜 | 작업 | 핵심 파일 | 상세 |
 |------|------|----------|------|
+| 03-08 | 앱 세션 복원 시 가람Link 브릿지 세션 자동 재동기화 + 복구 불가 구세션 강제 재로그인 | `hooks/use-session.tsx`, `hooks/use-login.ts`, `lib/request-board-api.ts`, `lib/request-board-session.ts`, `supabase/functions/login-with-password/index.ts`, `supabase/functions/sync-request-board-session/index.ts`, `supabase/functions/_shared/request-board-auth.ts`, `app/request-board*.tsx`, `app/messenger.tsx`, `lib/__tests__/request-board-session.test.ts` | [→ 상세](WORK_DETAIL.md#20260308-3) |
+| 03-08 | 모바일 외부 링크 열기 경로를 인앱 브라우저 중심으로 통일(게시판/공지/설계요청/서류) | `lib/external-url.ts`, `lib/open-external-url.ts`, `components/LinkifiedSelectableText.tsx`, `app/request-board.tsx`, `app/board.tsx`, `app/admin-board.tsx`, `app/admin-board-manage.tsx`, `app/board-detail.tsx`, `app/notice.tsx`, `app/notice-detail.tsx`, `app/request-board-review.tsx`, `app/consent.tsx`, `app/docs-upload.tsx`, `lib/__tests__/external-url.test.ts` | [→ 상세](WORK_DETAIL.md#20260308-2) |
+| 03-08 | 관리자 웹 메시지 푸시 딥링크를 `/dashboard/chat`로 정규화 + 레거시 `/chat` 자동 리다이렉트 | `web/src/lib/admin-chat-url.ts`, `web/src/app/api/admin/push/route.ts`, `web/src/app/api/fc-notify/route.ts`, `web/public/sw.js`, `web/src/app/chat/page.tsx` | [→ 상세](WORK_DETAIL.md#20260308-1) |
 | 03-04 | 설계요청 가이드 링크 교체 + 웹 위촉 처리 버튼 UX 정리 | `app/request-board.tsx`, `web/src/app/dashboard/page.tsx`, `web/src/components/StatusToggle.tsx` | [→ 상세](WORK_DETAIL.md#20260304-1) |
 | 03-03 | 주민번호 입력 UX 개선(보기/숨기기) + 외국인등록번호 검증 허용 + 웹 최종완료 요약 통일 | `app/identity.tsx`, `app/fc/new.tsx`, `lib/validation.ts`, `supabase/functions/store-identity/index.ts`, `web/src/lib/shared.ts` | [→ 상세](WORK_DETAIL.md#20260303-4) |
 | 03-03 | 앱/웹 대시보드 소속 필터 정규화(본부 소속만) + 설계매니저 소속 제외 | `app/dashboard.tsx`, `web/src/app/api/admin/list/route.ts`, `app/request-board.tsx` | [→ 상세](WORK_DETAIL.md#20260303-3) |

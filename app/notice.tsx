@@ -6,7 +6,6 @@ import { useEffect, useMemo, useState } from 'react';
 import {
   Alert,
   Image,
-  Linking,
   Pressable,
   RefreshControl,
   ScrollView,
@@ -23,6 +22,7 @@ import { RefreshButton } from '@/components/RefreshButton';
 import { useBottomNavAnimation } from '@/hooks/use-bottom-nav-animation';
 import { useSession } from '@/hooks/use-session';
 import { resolveBottomNavActiveKey, resolveBottomNavPreset } from '@/lib/bottom-navigation';
+import { openExternalUrl } from '@/lib/open-external-url';
 import { supabase } from '@/lib/supabase';
 import { COLORS, TYPOGRAPHY, SPACING, RADIUS } from '@/lib/theme';
 
@@ -165,12 +165,7 @@ export default function NoticeScreen() {
 
   const handleOpenLink = async (url: string) => {
     try {
-      const supported = await Linking.canOpenURL(url);
-      if (supported) {
-        await Linking.openURL(url);
-      } else {
-        Alert.alert('오류', '이 파일을 열 수 없습니다.');
-      }
+      await openExternalUrl(url);
     } catch {
       Alert.alert('오류', '파일 링크를 여는 중 문제가 발생했습니다.');
     }

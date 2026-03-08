@@ -7,6 +7,115 @@
 
 ---
 
+## <a id="20260308-3"></a> 2026-03-08 | 앱 세션 복원 시 가람Link 브릿지 세션 자동 재동기화
+
+**Commit**: `pending`  
+**배경**:
+- 기존 구조는 `가람in` 로그인 시점에만 `request_board` 브릿지 토큰/세션을 만들고, 앱 세션 복원 시에는 이를 다시 보장하지 않았다.
+- 그 결과 오래된 앱 세션이나 브릿지 토큰이 없는 세션은 설계요청 화면 진입 시 `가람Link 계정 없음`처럼 보이는 오류가 재발할 수 있었다.
+
+**조치**:
+- `supabase/functions/_shared/request-board-auth.ts`
+  - request_board 브릿지 토큰과 `fc-onboarding` 앱 세션 토큰 서명/검증 공통 유틸 추가.
+- `supabase/functions/login-with-password/index.ts`
+  - 로그인 성공 시 기존 `requestBoardBridgeToken`과 함께 `appSessionToken`도 발급하도록 확장.
+- `supabase/functions/sync-request-board-session/index.ts`
+  - 저장된 앱 세션 토큰을 검증해 request_board 브릿지 토큰을 재발급하는 Edge Function 추가.
+  - FC/설계매니저/본부장(manager) 계정의 활성 상태와 가입 완료 상태를 다시 확인한 뒤 브릿지 역할을 재결정.
+- `lib/request-board-api.ts`
+  - app session 토큰 저장소 추가.
+  - 브릿지 토큰이 없으면 `sync-request-board-session`으로 자동 복구한 뒤 `bridge-login` 재시도하도록 보강.
+  - request_board JWT는 살아 있지만 복구 토큰(bridge/appSession)이 전혀 없는 구세션은 `needsRelogin`으로 판정해 일회성 재로그인을 강제하도록 변경.
+- `hooks/use-login.ts`
+  - 로그인 성공 시 `appSessionToken`을 함께 저장.
+- `hooks/use-session.tsx`
+  - 앱 세션 복원 직후 request_board 세션 자동 동기화 수행.
+  - FC/본부장(readOnly admin) 세션만 동기화 대상으로 제한.
+  - 복구 불가 구세션은 앱 세션 자체를 정리하고 다시 로그인하도록 강제.
+  - request_board 역할(`fc`/`designer`)을 세션 컨텍스트에 재동기화.
+- request_board 진입 화면 보강:
+  - `app/request-board.tsx`
+  - `app/request-board-fc-codes.tsx`
+  - `app/request-board-requests.tsx`
+  - `app/request-board-review.tsx`
+  - `app/request-board-messenger.tsx`
+  - `app/messenger.tsx`
+  - 진입/집계/메신저 unread 조회 전에 `ensureRequestBoardSession`을 통하도록 정리.
+- `lib/request-board-session.ts`, `lib/__tests__/request-board-session.test.ts`
+  - request_board 세션 사용 가능 여부, 설계매니저 플래그 결정, 구세션 강제 재로그인 조건을 순수 함수로 분리하고 테스트 추가.
+
+**검증**:
+- `npx jest lib/__tests__/request-board-session.test.ts`
+- `npx tsc --noEmit`
+- `npx eslint hooks/use-login.ts hooks/use-session.tsx lib/request-board-api.ts lib/request-board-session.ts lib/__tests__/request-board-session.test.ts app/request-board.tsx app/request-board-fc-codes.tsx app/request-board-requests.tsx app/request-board-review.tsx app/request-board-messenger.tsx app/messenger.tsx`
+- `node scripts/ci/check-governance.mjs`
+
+**운영 영향**:
+- 이번 패치 이후 새 로그인 세션은 앱 세션 복원만으로 request_board 세션이 자동 복구된다.
+- 반대로 과거에 생성된 `구세션` 중 복구 토큰이 전혀 없는 세션은 보안을 위해 한 번 강제 재로그인이 발생한다. 이 일회성 재로그인 이후에는 동일 원인으로 다시 깨지지 않도록 설계했다.
+
+---
+
+## <a id="20260308-2"></a> 2026-03-08 | 모바일 외부 링크 열기 경로를 인앱 브라우저 중심으로 통일
+
+**Commit**: `pending`  
+**배경**:
+- Android 앱에서 게시판/설계요청 화면의 외부 웹 링크를 열 때 `Linking.openURL`로 곧바로 외부 앱(Intent)로 넘겨, 사용자가 앱이 종료된 것처럼 느끼는 이탈 동선이 발생했다.
+- 특히 YouTube 재생목록 가이드 링크처럼 HTTP(S) 주소는 앱 컨텍스트를 유지한 채 열리는 인앱 브라우저 경로가 더 적합했다.
+
+**조치**:
+- `lib/external-url.ts`
+  - 외부 URL 정규화 유틸 추가.
+  - bare domain은 `https://`를 붙이고, `file://`, `content://`, `tel:` 등 기존 스킴은 그대로 보존하도록 정리.
+- `lib/open-external-url.ts`
+  - HTTP(S)는 `expo-web-browser`의 `openBrowserAsync`로 열고, 그 외 URI는 `Linking`으로 여는 공통 헬퍼 추가.
+- `components/LinkifiedSelectableText.tsx`
+  - 게시글/댓글 본문 링크 `열기` 액션을 공통 헬퍼로 교체.
+- 앱 화면 전반의 직접 `Linking.openURL` 경로 정리:
+  - `app/request-board.tsx` YouTube 가이드 링크
+  - `app/board.tsx`, `app/admin-board.tsx`, `app/admin-board-manage.tsx`, `app/board-detail.tsx` 게시판 첨부 열기
+  - `app/notice.tsx`, `app/notice-detail.tsx` 공지 첨부/이미지 열기
+  - `app/request-board-review.tsx` 설계 첨부 열기
+  - `app/consent.tsx` 수당동의 안내 사이트
+  - `app/docs-upload.tsx` 업로드한 문서 열기
+- `lib/__tests__/external-url.test.ts`
+  - HTTP(S)/bare domain/비HTTP 스킴 정규화 규칙과 브라우저 분기 기준 테스트 추가.
+
+**검증**:
+- `npx jest lib/__tests__/external-url.test.ts`
+- `npx eslint components/LinkifiedSelectableText.tsx app/request-board.tsx app/board.tsx app/admin-board.tsx app/admin-board-manage.tsx app/board-detail.tsx app/notice.tsx app/notice-detail.tsx app/request-board-review.tsx app/consent.tsx app/docs-upload.tsx lib/external-url.ts lib/open-external-url.ts lib/__tests__/external-url.test.ts`
+
+---
+
+## <a id="20260308-1"></a> 2026-03-08 | 관리자 웹 메시지 푸시 딥링크를 `/dashboard/chat`로 정규화
+
+**Commit**: `pending`  
+**배경**:
+- Chrome 웹 푸시 알림 클릭 시 관리자 메시지 딥링크가 레거시 `/chat?targetId=...` 경로로 열려 대시보드 외부 채팅 화면으로 진입했다.
+- 이 레거시 화면은 알림으로 새 창이 열렸을 때 브라우저 히스토리가 없어 뒤로가기 버튼이 사실상 무의미했고, 사용자가 원하는 `대시보드 채팅 직접 진입` 동선과 달랐다.
+
+**조치**:
+- `web/src/lib/admin-chat-url.ts`
+  - 관리자 웹 메시지 URL 빌더/정규화 유틸 추가.
+  - `/chat`, `/dashboard/messenger?channel=garam`, 절대 URL을 모두 `/dashboard/chat?targetId=...&targetName=...` 형태로 변환.
+- `web/src/app/api/admin/push/route.ts`
+  - Edge Function에서 전달받은 웹 푸시 URL을 관리자 대시보드 경로로 정규화한 뒤 브라우저 알림 payload에 실어 보내도록 수정.
+- `web/src/app/api/fc-notify/route.ts`
+  - 관리자 대상 메시지 웹 푸시 URL을 `/dashboard/chat` 직접 진입으로 변경.
+  - `sender_name`이 비어 있으면 `fc_profiles.phone` 기준으로 이름을 조회해 `targetName`을 채우도록 보강.
+- `web/public/sw.js`
+  - 알림 클릭 시 레거시 `/chat`·`/dashboard/messenger?channel=garam` 경로를 `/dashboard/chat`으로 정규화.
+  - 동일 origin의 기존 창이 열려 있으면 새 창 대신 해당 창을 `navigate()` 후 `focus()`하도록 변경해 히스토리/동선 안정화.
+- `web/src/app/chat/page.tsx`
+  - 관리자/본부장이 레거시 `/chat`로 들어오면 즉시 `/dashboard/chat`으로 `replace` 리다이렉트해 과거 링크/오래된 알림도 자동 복구.
+
+**검증**:
+- `cd web && npm run lint -- src/app/api/admin/push/route.ts src/app/api/fc-notify/route.ts src/app/chat/page.tsx src/lib/admin-chat-url.ts`
+- `cd web && npm run build`
+- 관리자 메시지 딥링크 기대값: `https://adminweb-red.vercel.app/dashboard/chat?targetId=01028780390&targetName=%EA%B9%80%EC%98%81%EC%B2%B4`
+
+---
+
 ## <a id="20260304-1"></a> 2026-03-04 | 설계요청 가이드 링크 교체 + 웹 위촉 처리 버튼 UX 정리
 
 **Commit**: `pending`  

@@ -31,7 +31,6 @@ import {
   type RbDmMessage,
   type RbMessage,
   type RbUser,
-  rbBridgeLogin,
   rbCheckAuth,
   rbCreateDmConversation,
   rbGetConversations,
@@ -169,7 +168,7 @@ const POLL_INTERVAL = 8000;
 export default function RequestBoardMessengerScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
-  const { residentId } = useSession();
+  const { residentId, ensureRequestBoardSession, requestBoardSyncError } = useSession();
 
   // Auth
   const [authState, setAuthState] = useState<'checking' | 'ready' | 'error'>('checking');
@@ -200,6 +199,14 @@ export default function RequestBoardMessengerScreen() {
   const ensureAuth = useCallback(async () => {
     setAuthError('');
     setAuthState('checking');
+    const sync = await ensureRequestBoardSession({ force: true });
+    if (!sync.ok) {
+      setRbUser(null);
+      setAuthState('error');
+      setAuthError(sync.error ?? requestBoardSyncError ?? '가람Link 계정 연결에 실패했습니다.');
+      return;
+    }
+
     const { authenticated, user } = await rbCheckAuth();
     if (authenticated && user) {
       setRbUser(user);
@@ -207,19 +214,12 @@ export default function RequestBoardMessengerScreen() {
       return;
     }
 
-    const bridged = await rbBridgeLogin();
-    if (bridged.success && bridged.user) {
-      setRbUser(bridged.user);
-      setAuthState('ready');
-      return;
-    }
-
     setRbUser(null);
     setAuthState('error');
     setAuthError(
-      bridged.error ?? '가람Link 계정 연결에 실패했습니다. 앱에서 다시 로그인한 뒤 시도해주세요.',
+      requestBoardSyncError ?? '가람Link 계정 연결에 실패했습니다. 앱에서 다시 로그인한 뒤 시도해주세요.',
     );
-  }, []);
+  }, [ensureRequestBoardSession, requestBoardSyncError]);
 
   useEffect(() => {
     ensureAuth();

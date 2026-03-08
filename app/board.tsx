@@ -9,7 +9,6 @@ import {
   BackHandler,
   Dimensions,
   Image,
-  Linking,
   Pressable,
   RefreshControl,
   ScrollView,
@@ -57,6 +56,7 @@ import {
   toggleCommentLike,
   updateBoardComment
 } from '@/lib/board-api';
+import { openExternalUrl } from '@/lib/open-external-url';
 import { ANIMATION } from '@/lib/theme';
 import { buildWelcomeTitle } from '@/lib/welcome-title';
 import { safeDecodeFileName } from '@/lib/validation';
@@ -1331,7 +1331,9 @@ export default function BoardScreen() {
                             style={styles.attachmentItem}
                             onPress={() => {
                               if (item.signedUrl) {
-                                Linking.openURL(item.signedUrl);
+                                openExternalUrl(item.signedUrl).catch(() => {
+                                  Alert.alert('오류', '첨부파일을 열 수 없습니다.');
+                                });
                               }
                             }}
                           >

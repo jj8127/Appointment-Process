@@ -1,5 +1,6 @@
 import { createClient } from '@supabase/supabase-js';
 import { NextResponse } from 'next/server';
+import { buildAdminDashboardChatUrl, normalizeAdminDashboardUrl } from '@/lib/admin-chat-url';
 import { sendWebPush } from '@/lib/web-push';
 
 import { logger } from '@/lib/logger';
@@ -31,6 +32,8 @@ interface NotifyRequestBody {
   [key: string]: unknown;
 }
 
+const sanitizePhoneDigits = (value: string | null | undefined) => String(value ?? '').replace(/[^0-9]/g, '');
+
 /**
  * FC Notification API Route
  *
@@ -57,7 +60,7 @@ export async function POST(req: Request) {
     if (body.type === 'notify' && body.target_role === 'admin') {
       const title = body.title ?? '새 알림';
       const message = body.body ?? '새로운 알림이 도착했습니다.';
-      const url = body.url ?? '/dashboard';
+      const url = normalizeAdminDashboardUrl(body.url ?? '/dashboard');
 
       const { data: subs, error: subsError } = await adminClient
         .from('web_push_subscriptions')
@@ -99,17 +102,29 @@ export async function POST(req: Request) {
       if (subsError) {
         logger.error('[fc-notify] Error fetching subscriptions:', subsError);
       } else if (subs && subs.length > 0) {
-        const senderId = String(body.sender_id ?? '').replace(/[^0-9]/g, '');
-        const senderName = String(body.sender_name ?? '').trim();
-        const query = new URLSearchParams();
-        query.set('channel', 'garam');
-        if (senderId) query.set('targetId', senderId);
-        if (senderName) query.set('targetName', senderName);
+        const senderId = sanitizePhoneDigits(String(body.sender_id ?? ''));
+        let senderName = String(body.sender_name ?? '').trim();
 
-        const url =
-          targetRole === 'admin'
-            ? `/dashboard/messenger?${query.toString()}`
-            : '/chat';
+        if (targetRole === 'admin' && senderId && !senderName) {
+          const { data: senderProfile, error: senderProfileError } = await adminClient
+            .from('fc_profiles')
+            .select('name')
+            .eq('phone', senderId)
+            .maybeSingle();
+
+          if (senderProfileError) {
+            logger.warn('[fc-notify] sender profile lookup failed:', senderProfileError);
+          } else {
+            senderName = senderProfile?.name?.trim() ?? '';
+          }
+        }
+
+        const url = targetRole === 'admin'
+          ? buildAdminDashboardChatUrl({
+              targetId: senderId,
+              targetName: senderName,
+            })
+          : '/chat';
 
         const result = await sendWebPush(subs, {
           title: '새 메시지',

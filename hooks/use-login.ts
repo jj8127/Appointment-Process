@@ -3,7 +3,7 @@ import { Alert, Keyboard } from 'react-native';
 import * as Haptics from 'expo-haptics';
 import { router } from 'expo-router';
 import { useSession } from '@/hooks/use-session';
-import { rbBridgeLogin, setBridgeToken } from '@/lib/request-board-api';
+import { rbBridgeLogin, setAppSessionToken, setBridgeToken } from '@/lib/request-board-api';
 import { supabase } from '@/lib/supabase';
 import { validatePhone, validateRequired, normalizePhone } from '@/lib/validation';
 
@@ -15,6 +15,7 @@ type LoginResponse = {
   residentId?: string;
   displayName?: string;
   requestBoardBridgeToken?: string;
+  appSessionToken?: string;
 };
 
 type UseLoginOptions = {
@@ -85,6 +86,8 @@ export function useLogin(options?: UseLoginOptions) {
       const readOnly = data.role === 'manager';
       const nextRole = data.role === 'admin' || data.role === 'manager' ? 'admin' : 'fc';
       const bridgeToken = data.requestBoardBridgeToken ?? null;
+      const appSessionToken = data.appSessionToken ?? null;
+      await setAppSessionToken(appSessionToken);
       await setBridgeToken(bridgeToken);
 
       let requestBoardRole: 'fc' | 'designer' | null = null;
@@ -110,6 +113,7 @@ export function useLogin(options?: UseLoginOptions) {
         readOnly,
         isRequestBoardDesigner,
         requestBoardRole,
+        appSessionToken,
       );
 
       // Navigate or call custom success handler

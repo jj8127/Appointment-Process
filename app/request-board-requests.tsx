@@ -87,7 +87,7 @@ export default function RequestBoardRequestsScreen() {
   const router = useRouter();
   const { filter } = useLocalSearchParams<{ filter?: string | string[] }>();
   const insets = useSafeAreaInsets();
-  const { role, readOnly, hydrated, isRequestBoardDesigner } = useSession();
+  const { role, readOnly, hydrated, isRequestBoardDesigner, ensureRequestBoardSession } = useSession();
 
   const [requests, setRequests] = useState<RbRequestListItem[]>([]);
   const [loading, setLoading] = useState(true);
@@ -115,6 +115,11 @@ export default function RequestBoardRequestsScreen() {
   const fetchData = useCallback(async () => {
     setFetchError(null);
     try {
+      const sync = await ensureRequestBoardSession();
+      if (!sync.ok) {
+        throw new Error(sync.error ?? '가람Link 세션 동기화에 실패했습니다.');
+      }
+
       const data = await rbGetRequestList();
       setRequests(data);
     } catch (err) {
@@ -124,7 +129,7 @@ export default function RequestBoardRequestsScreen() {
       setLoading(false);
       setRefreshing(false);
     }
-  }, []);
+  }, [ensureRequestBoardSession]);
 
   useEffect(() => {
     fetchData();

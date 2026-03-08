@@ -4,6 +4,7 @@
  */
 import { logger } from './logger';
 import { safeStorage } from './safe-storage';
+import { supabase } from './supabase';
 
 const BASE_URL = (
   process.env.EXPO_PUBLIC_REQUEST_BOARD_URL || 'https://requestboard-steel.vercel.app'
@@ -12,6 +13,7 @@ const BASE_URL = (
 const STORAGE_KEY_TOKEN = 'rb_jwt_token';
 const STORAGE_KEY_USER = 'rb_user';
 const STORAGE_KEY_BRIDGE_TOKEN = 'rb_bridge_token';
+const STORAGE_KEY_APP_SESSION_TOKEN = 'rb_app_session_token';
 
 /* ─── Types ─── */
 
@@ -109,6 +111,14 @@ export type RbDmMessage = {
 let cachedToken: string | null = null;
 let cachedUser: RbUser | null = null;
 let cachedBridgeToken: string | null = null;
+let cachedAppSessionToken: string | null = null;
+let bridgeRefreshPromise: Promise<{
+  success: boolean;
+  bridgeToken?: string;
+  requestBoardRole?: 'fc' | 'designer' | null;
+  error?: string;
+  errorCode?: string;
+}> | null = null;
 
 export async function getStoredToken(): Promise<string | null> {
   if (cachedToken) return cachedToken;
@@ -125,6 +135,16 @@ export async function getStoredBridgeToken(): Promise<string | null> {
   try {
     cachedBridgeToken = await safeStorage.getItem(STORAGE_KEY_BRIDGE_TOKEN);
     return cachedBridgeToken;
+  } catch {
+    return null;
+  }
+}
+
+export async function getStoredAppSessionToken(): Promise<string | null> {
+  if (cachedAppSessionToken) return cachedAppSessionToken;
+  try {
+    cachedAppSessionToken = await safeStorage.getItem(STORAGE_KEY_APP_SESSION_TOKEN);
+    return cachedAppSessionToken;
   } catch {
     return null;
   }
@@ -158,6 +178,15 @@ export async function setBridgeToken(token: string | null) {
   }
 }
 
+export async function setAppSessionToken(token: string | null) {
+  cachedAppSessionToken = token;
+  if (token) {
+    await safeStorage.setItem(STORAGE_KEY_APP_SESSION_TOKEN, token);
+  } else {
+    await safeStorage.removeItem(STORAGE_KEY_APP_SESSION_TOKEN);
+  }
+}
+
 export async function clearAuth() {
   cachedToken = null;
   cachedUser = null;
@@ -165,17 +194,115 @@ export async function clearAuth() {
   await safeStorage.removeItem(STORAGE_KEY_USER);
 }
 
-export async function clearRequestBoardState() {
+export async function clearRequestBoardState(options?: { clearAppSession?: boolean }) {
   await clearAuth();
   await setBridgeToken(null);
+  if (options?.clearAppSession) {
+    await setAppSessionToken(null);
+  }
 }
+
+type RbBridgeRefreshResult = {
+  success: boolean;
+  bridgeToken?: string;
+  requestBoardRole?: 'fc' | 'designer' | null;
+  error?: string;
+  errorCode?: string;
+};
+
+async function refreshBridgeTokenFromAppSession(): Promise<RbBridgeRefreshResult> {
+  if (bridgeRefreshPromise) return bridgeRefreshPromise;
+
+  bridgeRefreshPromise = (async () => {
+    const sessionToken = await getStoredAppSessionToken();
+    if (!sessionToken) {
+      return {
+        success: false,
+        error: '앱 세션 토큰이 없습니다.',
+        errorCode: 'missing_session_token',
+      };
+    }
+
+    try {
+      const { data, error } = await supabase.functions.invoke<{
+        ok?: boolean;
+        code?: string;
+        message?: string;
+        requestBoardBridgeToken?: string;
+        requestBoardRole?: 'fc' | 'designer' | null;
+      }>('sync-request-board-session', {
+        body: { sessionToken },
+      });
+
+      if (error) {
+        return {
+          success: false,
+          error: error instanceof Error ? error.message : '가람Link 세션 재동기화에 실패했습니다.',
+          errorCode: 'network_error',
+        };
+      }
+
+      if (!data?.ok || !data.requestBoardBridgeToken) {
+        return {
+          success: false,
+          error: data?.message ?? '가람Link 세션 재동기화에 실패했습니다.',
+          errorCode: data?.code ?? 'bridge_refresh_failed',
+        };
+      }
+
+      await setBridgeToken(data.requestBoardBridgeToken);
+      return {
+        success: true,
+        bridgeToken: data.requestBoardBridgeToken,
+        requestBoardRole:
+          data.requestBoardRole === 'fc' || data.requestBoardRole === 'designer'
+            ? data.requestBoardRole
+            : null,
+      };
+    } catch (err) {
+      logger.warn('[rb-api] app session bridge refresh error', err);
+      return {
+        success: false,
+        error: '가람Link 세션 재동기화 중 오류가 발생했습니다.',
+        errorCode: 'network_error',
+      };
+    }
+  })();
+
+  try {
+    return await bridgeRefreshPromise;
+  } finally {
+    bridgeRefreshPromise = null;
+  }
+}
+
+type RbBridgeLoginResult = {
+  success: boolean;
+  user?: RbUser;
+  error?: string;
+  errorCode?: string;
+};
 
 async function bridgeLogin(
   bridgeToken?: string,
-): Promise<{ success: boolean; user?: RbUser; error?: string }> {
-  const tokenFromStorage = bridgeToken ?? (await getStoredBridgeToken());
+  allowRefresh = true,
+): Promise<RbBridgeLoginResult> {
+  let tokenFromStorage = bridgeToken ?? (await getStoredBridgeToken());
   if (!tokenFromStorage) {
-    return { success: false, error: '브릿지 토큰이 없습니다.' };
+    const refreshed = await refreshBridgeTokenFromAppSession();
+    if (refreshed.success) {
+      tokenFromStorage = refreshed.bridgeToken ?? (await getStoredBridgeToken());
+    } else {
+      return {
+        success: false,
+        error: refreshed.error ?? '브릿지 토큰이 없습니다.',
+        errorCode: refreshed.errorCode ?? 'missing_bridge_token',
+      };
+    }
+  }
+
+  if (!tokenFromStorage) {
+    return { success: false, error: '브릿지 토큰이 없습니다.', errorCode: 'missing_bridge_token' };
   }
 
   try {
@@ -187,7 +314,26 @@ async function bridgeLogin(
     const json = await res.json();
 
     if (!json.success || !json.data?.token) {
-      return { success: false, error: json.error ?? json.message ?? '브릿지 로그인 실패' };
+      if (allowRefresh && !bridgeToken) {
+        const refreshed = await refreshBridgeTokenFromAppSession();
+        if (refreshed.success && refreshed.bridgeToken && refreshed.bridgeToken !== tokenFromStorage) {
+          return bridgeLogin(refreshed.bridgeToken, false);
+        }
+        if (!refreshed.success) {
+          return {
+            success: false,
+            error: refreshed.error ?? json.error ?? json.message ?? '브릿지 로그인 실패',
+            errorCode: refreshed.errorCode ?? 'bridge_login_failed',
+          };
+        }
+      }
+
+      const hasAppSessionToken = Boolean(await getStoredAppSessionToken());
+      return {
+        success: false,
+        error: json.error ?? json.message ?? '브릿지 로그인 실패',
+        errorCode: hasAppSessionToken ? 'bridge_login_failed' : 'invalid_bridge_token',
+      };
     }
 
     const user: RbUser = {
@@ -201,7 +347,7 @@ async function bridgeLogin(
     return { success: true, user };
   } catch (err) {
     logger.warn('[rb-api] bridge login error', err);
-    return { success: false, error: '서버에 연결할 수 없습니다.' };
+    return { success: false, error: '서버에 연결할 수 없습니다.', errorCode: 'network_error' };
   }
 }
 
@@ -306,19 +452,44 @@ export async function rbLogin(
   }
 }
 
-export async function rbCheckAuth(): Promise<{ authenticated: boolean; user?: RbUser }> {
+export async function rbCheckAuth(): Promise<{
+  authenticated: boolean;
+  user?: RbUser;
+  error?: string;
+  needsRelogin?: boolean;
+}> {
   const token = await getStoredToken();
   if (!token) {
     const bridged = await bridgeLogin();
     if (bridged.success && bridged.user) {
       return { authenticated: true, user: bridged.user };
     }
-    return { authenticated: false };
+    return {
+      authenticated: false,
+      error: bridged.error,
+      needsRelogin: bridged.errorCode === 'missing_session_token'
+        || bridged.errorCode === 'invalid_session_token'
+        || bridged.errorCode === 'invalid_bridge_token'
+        || bridged.errorCode === 'request_board_not_applicable'
+        || bridged.errorCode === 'not_found'
+        || bridged.errorCode === 'inactive_account'
+        || bridged.errorCode === 'not_completed'
+        || bridged.errorCode === 'bridge_refresh_failed',
+    };
   }
 
   const res = await rbFetch<RbUser>('/api/auth/me');
   if (res.success && res.data) {
     cachedUser = res.data;
+    const hasRecoveryToken = Boolean((await getStoredBridgeToken()) || (await getStoredAppSessionToken()));
+    if (!hasRecoveryToken) {
+      return {
+        authenticated: false,
+        user: res.data,
+        error: '가람Link 연동 세션을 업그레이드하려면 다시 로그인해주세요.',
+        needsRelogin: true,
+      };
+    }
     return { authenticated: true, user: res.data };
   }
   await clearAuth();

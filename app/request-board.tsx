@@ -8,7 +8,6 @@ import {
   ActivityIndicator,
   Alert,
   Dimensions,
-  Linking,
   Pressable,
   RefreshControl,
   ScrollView,
@@ -23,6 +22,7 @@ import { BottomNavigation } from '@/components/BottomNavigation';
 import { useSession } from '@/hooks/use-session';
 import { resolveBottomNavActiveKey, resolveBottomNavPreset } from '@/lib/bottom-navigation';
 import { logger } from '@/lib/logger';
+import { openExternalUrl } from '@/lib/open-external-url';
 import {
   rbGetRequestList,
   rbGetRequests,
@@ -190,6 +190,14 @@ function computeReqStats(
   // 설계매니저 뷰는 배정 상태(assignmentStatus)를 우선 사용
   const getStatus = (r: RbRequestSummary) =>
     normalizeStatus(isDesigner ? (r.assignmentStatus ?? r.status ?? '') : (r.status ?? r.assignmentStatus ?? ''));
+  const getCompletedAt = (request: RbRequestSummary | RbRequestListItem) =>
+    'completedAt' in request
+      ? request.completedAt
+      : ('completed_at' in request ? request.completed_at : null);
+  const getProcessingDays = (request: RbRequestSummary | RbRequestListItem) =>
+    'processingDays' in request
+      ? request.processingDays
+      : ('processing_days' in request ? request.processing_days : 0);
 
   const now = new Date();
 
@@ -201,7 +209,7 @@ function computeReqStats(
   const total = pending + inProgress + completed;
 
   const completedThisMonth = completedAll.filter((r) => {
-    const d = new Date(r.completedAt ?? r.completed_at ?? '');
+    const d = new Date(getCompletedAt(r) ?? '');
     return (
       !isNaN(d.getTime()) &&
       d.getFullYear() === now.getFullYear() &&
@@ -213,7 +221,7 @@ function computeReqStats(
     completedAll.length > 0
       ? Math.round(
           (completedAll.reduce(
-            (s, r) => s + Number(r.processingDays ?? r.processing_days ?? 0),
+            (s, r) => s + Number(getProcessingDays(r) ?? 0),
             0,
           ) /
             completedAll.length) *
@@ -229,12 +237,23 @@ function computeReqStats(
 export default function RequestBoardScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
-  const { role, residentId, displayName, hydrated, isRequestBoardDesigner, requestBoardRole, readOnly, logout } = useSession();
+  const {
+    role,
+    residentId,
+    displayName,
+    hydrated,
+    isRequestBoardDesigner,
+    requestBoardRole,
+    readOnly,
+    logout,
+    ensureRequestBoardSession,
+  } = useSession();
   const [notifications, setNotifications] = useState<NotificationItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [reqStats, setReqStats] = useState<ReqStats>(DEFAULT_REQ_STATS);
   const [unreadNotifCount, setUnreadNotifCount] = useState(0);
+  const [requestBoardAccessError, setRequestBoardAccessError] = useState<string | null>(null);
   const homeHeaderTitle = buildWelcomeTitle({
     role,
     readOnly,
@@ -261,6 +280,7 @@ export default function RequestBoardScreen() {
   const fetchData = useCallback(async () => {
     const inboxRole: 'admin' | 'fc' | null = role;
     if (!inboxRole) return;
+    setRequestBoardAccessError(null);
 
     await Promise.allSettled([
       // Notifications from fc-notify
@@ -320,6 +340,11 @@ export default function RequestBoardScreen() {
         // skip if user has no request_board access at all
         if (!isRequestBoardDesigner && !requestBoardRole && role !== 'fc') return;
         try {
+          const sync = await ensureRequestBoardSession();
+          if (!sync.ok) {
+            throw new Error(sync.error ?? '가람Link 세션 동기화에 실패했습니다.');
+          }
+
           const requests = isRequestBoardDesigner
             ? await rbGetRequests()
             : await rbGetRequestList();
@@ -327,13 +352,16 @@ export default function RequestBoardScreen() {
           setReqStats({ loaded: true, ...computed });
         } catch (err) {
           logger.warn('request-board stats fetch failed', err);
+          setRequestBoardAccessError(
+            err instanceof Error ? err.message : '가람Link 세션 동기화에 실패했습니다.',
+          );
         }
       })(),
     ]);
 
     setLoading(false);
     setRefreshing(false);
-  }, [role, residentId, requestBoardRole, isRequestBoardDesigner]);
+  }, [ensureRequestBoardSession, isRequestBoardDesigner, requestBoardRole, residentId, role]);
 
   useEffect(() => {
     if (hydrated) fetchData();
@@ -357,9 +385,10 @@ export default function RequestBoardScreen() {
   /* ─── Actions ─── */
   const openYoutube = async () => {
     try {
-      await Linking.openURL(YOUTUBE_URL);
+      await openExternalUrl(YOUTUBE_URL);
     } catch (err) {
       logger.warn('Failed to open YouTube', err);
+      Alert.alert('오류', '가이드를 열 수 없습니다.');
     }
   };
 
@@ -424,6 +453,13 @@ export default function RequestBoardScreen() {
         <Text style={styles.pageTitle}>설계 요청</Text>
         <Text style={styles.pageSubtitle}>의뢰 현황과 알림을 한눈에</Text>
       </View>
+
+      {requestBoardAccessError && (
+        <View style={styles.errorBanner}>
+          <Feather name="alert-circle" size={14} color="#B45309" />
+          <Text style={styles.errorBannerText}>{requestBoardAccessError}</Text>
+        </View>
+      )}
 
       <ScrollView
         contentContainerStyle={[styles.scrollContent, { paddingBottom: 80 + insets.bottom }]}
@@ -1017,6 +1053,25 @@ const styles = StyleSheet.create({
   feedBody: {
     fontSize: TYPOGRAPHY.fontSize.sm,
     color: COLORS.text.secondary,
+    lineHeight: 18,
+  },
+  errorBanner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    marginHorizontal: SPACING.base,
+    marginBottom: SPACING.sm,
+    paddingHorizontal: SPACING.base,
+    paddingVertical: SPACING.sm,
+    borderRadius: RADIUS.md,
+    backgroundColor: '#FFFBEB',
+    borderWidth: 1,
+    borderColor: '#FDE68A',
+  },
+  errorBannerText: {
+    flex: 1,
+    fontSize: TYPOGRAPHY.fontSize.sm,
+    color: '#92400E',
     lineHeight: 18,
   },
 

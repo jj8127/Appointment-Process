@@ -9,7 +9,6 @@ import {
   BackHandler,
   Dimensions,
   Image,
-  Linking,
   Pressable,
   RefreshControl,
   StyleSheet,
@@ -41,6 +40,7 @@ import { LinkifiedSelectableText } from '@/components/LinkifiedSelectableText';
 import { ReactionPicker, DEFAULT_REACTIONS } from '@/components/ReactionPicker';
 import { useKeyboardPadding } from '@/hooks/use-keyboard-padding';
 import { useSession } from '@/hooks/use-session';
+import { openExternalUrl } from '@/lib/open-external-url';
 import { resolveBottomNavActiveKey, resolveBottomNavPreset } from '@/lib/bottom-navigation';
 import { ANIMATION } from '@/lib/theme';
 import { buildWelcomeTitle } from '@/lib/welcome-title';
@@ -1318,7 +1318,9 @@ export default function AdminBoardManageScreen() {
                           style={styles.attachmentItem}
                           onPress={() => {
                             if (item.signedUrl) {
-                              Linking.openURL(item.signedUrl);
+                              openExternalUrl(item.signedUrl).catch(() => {
+                                Alert.alert('오류', '첨부파일을 열 수 없습니다.');
+                              });
                             }
                           }}
                         >

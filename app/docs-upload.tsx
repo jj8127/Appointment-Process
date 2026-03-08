@@ -7,7 +7,6 @@ import {
   ActivityIndicator,
   Alert,
   KeyboardAvoidingView,
-  Linking,
   Platform,
   Pressable,
   RefreshControl,
@@ -24,6 +23,7 @@ import { useIdentityGate } from '@/hooks/use-identity-gate';
 import { useKeyboardPadding } from '@/hooks/use-keyboard-padding';
 import { useSession } from '@/hooks/use-session';
 import { logger } from '@/lib/logger';
+import { openExternalUrl } from '@/lib/open-external-url';
 import { supabase } from '@/lib/supabase';
 import { COLORS } from '@/lib/theme';
 import { RequiredDoc } from '@/types/fc';
@@ -549,7 +549,9 @@ export default function DocsUploadScreen() {
                               Alert.alert('파일 열기 실패', error?.message ?? '링크 생성에 실패했습니다.');
                               return;
                             }
-                            Linking.openURL(signed.signedUrl);
+                            openExternalUrl(signed.signedUrl).catch(() => {
+                              Alert.alert('파일 열기 실패', '링크를 열 수 없습니다.');
+                            });
                           })();
                         }}
                       >
