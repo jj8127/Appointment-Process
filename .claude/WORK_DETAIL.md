@@ -7,6 +7,30 @@
 
 ---
 
+## <a id="20260308-4"></a> 2026-03-08 | `login-with-password` 런타임 500 핫픽스(`toBase64` 누락 복구)
+
+**Commit**: `pending`  
+**배경**:
+- 세션 동기화 리팩터링 이후 `login-with-password` Edge Function이 일부 로그인 시점에 `500`을 반환했고, 구버전 앱 사용자도 `Edge Function returned a non-2xx status code`로 로그인 자체가 막혔다.
+- 원인은 비밀번호 해시 비교 함수(`hashPassword`)가 사용하는 `toBase64()` 헬퍼를 리팩터링 중 제거해 런타임 `ReferenceError`가 발생한 것이었다.
+
+**조치**:
+- `supabase/functions/login-with-password/index.ts`
+  - `toBase64(bytes: Uint8Array)` 헬퍼를 복구해 기존 비밀번호 PBKDF2 해시 비교 경로를 정상화.
+- 운영 배포:
+  - `supabase functions deploy login-with-password`
+  - 배포 후 `login-with-password` 버전 `v45` 반영 확인.
+
+**검증**:
+- `supabase functions list`
+  - `login-with-password | ACTIVE | v45 | 2026-03-08 14:27:59 UTC`
+
+**운영 영향**:
+- 이 이슈는 앱 버전과 무관한 서버 함수 런타임 오류였기 때문에, 함수 재배포만으로 즉시 복구된다.
+- 구버전 앱 사용자도 별도 앱 업데이트 없이 다시 로그인 시도하면 정상 동작해야 한다.
+
+---
+
 ## <a id="20260308-3"></a> 2026-03-08 | 앱 세션 복원 시 가람Link 브릿지 세션 자동 재동기화
 
 **Commit**: `pending`  

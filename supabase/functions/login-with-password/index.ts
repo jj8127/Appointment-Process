@@ -60,6 +60,14 @@ function cleanPhone(input: string) {
   return (input ?? '').replace(/[^0-9]/g, '');
 }
 
+function toBase64(bytes: Uint8Array) {
+  let binary = '';
+  bytes.forEach((byte) => {
+    binary += String.fromCharCode(byte);
+  });
+  return btoa(binary);
+}
+
 function fromBase64(input: string) {
   const binary = atob(input);
   const bytes = new Uint8Array(binary.length);
