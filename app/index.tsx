@@ -32,10 +32,13 @@ import { useIdentityStatus } from '@/hooks/use-identity-status';
 import { useSession } from '@/hooks/use-session';
 import { useInAppUpdate } from '@/hooks/useInAppUpdate';
 import { logger } from '@/lib/logger';
+import { openExternalUrl } from '@/lib/open-external-url';
 import { supabase } from '@/lib/supabase';
 import { buildWelcomeTitle } from '@/lib/welcome-title';
 import type { FCDocument } from '@/types/dashboard';
 import type { FcProfile } from '@/types/fc';
+
+const YOUTUBE_URL = 'https://youtube.com/playlist?list=PLF5rd5c2rE9xy-VsAdwq4NEUsJQtKD7Qd&si=vKx4TDq6ww9ZgKiT';
 
 const SHORTCUT_TOUR_TEXTS = [
   '생명/제3보험 시험 일정을 확인하고 접수할 수 있어요.',
@@ -667,6 +670,14 @@ export default function Home() {
   }, [shortcutEventEmitter, role, scrollViewRef]);
 
 
+  const openHomeYoutube = useCallback(async () => {
+    try {
+      await openExternalUrl(YOUTUBE_URL);
+    } catch {
+      Alert.alert('오류', '가이드를 열 수 없습니다.');
+    }
+  }, []);
+
   const startFcTour = useCallback(() => {
     if (!isFc) return;
 
@@ -1214,49 +1225,69 @@ export default function Home() {
               transition={{ type: 'spring', delay: 180 }}
               style={{ marginBottom: 10 }}
             >
-              <Pressable
-                onPress={startFcTour}
-                accessibilityRole="button"
-                accessibilityLabel="앱 사용 가이드 시작"
-                style={({ pressed }) => [
-                  styles.guideCardNew,
-                  pressed && styles.guideCardNewPressed,
-                ]}
-              >
-                {/* Left icon */}
-                <View style={styles.guideIconWrapNew}>
-                  <LinearGradient
-                    colors={['#fff7ed', '#ffffff']}
-                    start={{ x: 0, y: 0 }}
-                    end={{ x: 1, y: 1 }}
-                    style={styles.guideIconGradientNew}
-                  >
-                    <Feather name="play" size={16} color={HANWHA_ORANGE} style={{ marginLeft: 1 }} />
-                  </LinearGradient>
-                </View>
+              <View style={styles.guideRowNew}>
+                {/* 앱 투어 가이드 카드 */}
+                <Pressable
+                  onPress={startFcTour}
+                  accessibilityRole="button"
+                  accessibilityLabel="앱 사용 가이드 시작"
+                  style={({ pressed }) => [
+                    styles.guideCardNew,
+                    styles.guideCardNewFlex,
+                    pressed && styles.guideCardNewPressed,
+                  ]}
+                >
+                  {/* Left icon */}
+                  <View style={styles.guideIconWrapNew}>
+                    <LinearGradient
+                      colors={['#fff7ed', '#ffffff']}
+                      start={{ x: 0, y: 0 }}
+                      end={{ x: 1, y: 1 }}
+                      style={styles.guideIconGradientNew}
+                    >
+                      <Feather name="play" size={16} color={HANWHA_ORANGE} style={{ marginLeft: 1 }} />
+                    </LinearGradient>
+                  </View>
 
-                {/* Text */}
-                <View style={styles.guideTextWrapNew}>
-                  <View style={styles.guideBadgeRowNew}>
-                    <View style={styles.guideBadgeNew}>
-                      <Text style={styles.guideBadgeTextNew}>GUIDE</Text>
+                  {/* Text */}
+                  <View style={styles.guideTextWrapNew}>
+                    <View style={styles.guideBadgeRowNew}>
+                      <View style={styles.guideBadgeNew}>
+                        <Text style={styles.guideBadgeTextNew}>GUIDE</Text>
+                      </View>
+                      <Text style={styles.guideBadgeHintNew}>처음 오셨나요?</Text>
                     </View>
-                    <Text style={styles.guideBadgeHintNew}>처음 오셨나요?</Text>
+
+                    <Text style={styles.guideTitleNew} numberOfLines={1}>
+                      앱 사용법 안내 시작하기
+                    </Text>
                   </View>
 
-                  <Text style={styles.guideTitleNew} numberOfLines={1}>
-                    앱 사용법 안내 시작하기
-                  </Text>
-                </View>
-
-                {/* CTA */}
-                <View style={styles.guideCtaNew}>
-                  <View style={styles.guideCtaChipNew}>
-                    <Text style={styles.guideCtaTextNew}>시작</Text>
-                    <Feather name="chevron-right" size={16} color="#fff" />
+                  {/* CTA */}
+                  <View style={styles.guideCtaNew}>
+                    <View style={styles.guideCtaChipNew}>
+                      <Text style={styles.guideCtaTextNew}>시작</Text>
+                      <Feather name="chevron-right" size={16} color="#fff" />
+                    </View>
                   </View>
-                </View>
-              </Pressable>
+                </Pressable>
+
+                {/* 유튜브 가이드 카드 */}
+                <Pressable
+                  onPress={openHomeYoutube}
+                  accessibilityRole="button"
+                  accessibilityLabel="유튜브 사용법 가이드 영상 보기"
+                  style={({ pressed }) => [
+                    styles.youtubeCardNew,
+                    pressed && styles.guideCardNewPressed,
+                  ]}
+                >
+                  <View style={styles.youtubeIconWrapNew}>
+                    <Feather name="youtube" size={22} color="#EF4444" />
+                  </View>
+                  <Text style={styles.youtubeCardTextNew}>사용법{'\n'}가이드</Text>
+                </Pressable>
+              </View>
             </AndroidSafeMotiView>
           )}
 
@@ -2270,6 +2301,55 @@ const styles = StyleSheet.create({
     fontSize: 12, // 15 -> 12
     color: '#C2410C', // Orange-700
     fontWeight: '500',
+    lineHeight: 16,
+  },
+
+  guideRowNew: {
+    flexDirection: 'row',
+    alignItems: 'stretch',
+    gap: 10,
+    marginHorizontal: 20,
+  },
+
+  guideCardNewFlex: {
+    flex: 1,
+    marginHorizontal: 0,
+  },
+
+  youtubeCardNew: {
+    width: 72,
+    borderRadius: 18,
+    paddingVertical: 14,
+    paddingHorizontal: 10,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#fff',
+    borderWidth: 1,
+    borderColor: '#FEE2E2',
+    shadowColor: '#000',
+    shadowOpacity: 0.06,
+    shadowRadius: 16,
+    shadowOffset: { width: 0, height: 8 },
+    elevation: 4,
+    gap: 8,
+  },
+
+  youtubeIconWrapNew: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: '#FEF2F2',
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 1,
+    borderColor: '#FEE2E2',
+  },
+
+  youtubeCardTextNew: {
+    fontSize: 11,
+    fontWeight: '700',
+    color: '#374151',
+    textAlign: 'center',
     lineHeight: 16,
   },
 

@@ -7,6 +7,19 @@
 
 ---
 
+## <a id="20260310-youtube-card"></a> 2026-03-10 | 홈 첫 화면 유튜브 가이드 카드 추가
+
+**배경**:
+- FC 첫 화면의 "앱 사용법 안내 시작하기" 카드 옆에 유튜브로 연결되는 별도 카드 추가 요청.
+
+**조치**:
+- `app/index.tsx`
+  - `openExternalUrl` import, `YOUTUBE_URL` 상수, `openHomeYoutube` 함수 추가.
+  - 가이드 카드를 `guideRowNew` (`flexDirection: 'row'`) 컨테이너로 묶고, 유튜브 카드(72px) 나란히 배치.
+  - 신규 스타일: `guideRowNew`, `guideCardNewFlex`, `youtubeCardNew`, `youtubeIconWrapNew`, `youtubeCardTextNew`.
+
+---
+
 ## <a id="20260310-commission-save-fix"></a> 2026-03-10 | 변경사항 저장 버튼에 위촉 상태 포함
 
 **Commit**: `5724e1f`
