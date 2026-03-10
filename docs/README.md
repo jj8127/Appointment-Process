@@ -1,34 +1,62 @@
 # 문서 디렉토리
 
-프로젝트 참조 문서를 카테고리별로 정리한 디렉토리입니다.
+`fc-onboarding-app/docs`는 운영, 배포, 테스트, 보조 가이드를 모아둔 인덱스입니다.
+
+- 기준일: `2026-03-08`
+- 문서 SSOT: 루트 `AGENTS.md`
 
 ## 디렉토리 구조
 
-### deployment/
-배포 관련 문서
-- `DEPLOYMENT.md` - 모바일/웹 배포 가이드
+### `deployment/`
 
-### guides/
-한글 사용 가이드 및 참조 자료
-- `명령어 모음집.txt` - 자주 사용하는 명령어 모음
-- `흐름도.txt` - 워크플로우 다이어그램
+- `DEPLOYMENT.md`
+  - Expo/EAS 배포 절차
+  - 릴리즈 체크포인트
+  - 운영 반영 순서
 
-### superclaude/
-SuperClaude 관련 문서
-- `agent_skill.md` - 에이전트 스킬 정의
-- `SUPERCLAUDE.md` - SuperClaude 사용 가이드
+### `guides/`
 
-## 핵심 문서 위치
+- `COMMANDS.md`
+  - 자주 쓰는 운영 명령어
+- `BOARD_REQUIREMENTS.md`
+  - 게시판 관련 요구사항/정책
+- `SMS_TESTING.md`
+  - 문자/OTP 테스트 메모
+- `명령어 모음집.txt`
+  - 로컬 작업용 명령 모음
+- `흐름도.txt`
+  - 업무 흐름 메모
 
-프로젝트의 핵심 문서는 루트 디렉토리에 있습니다:
-- `.cursorrules` - AI 핵심 규칙
-- `AI.md` - AI 상세 개발 가이드
-- `context.md` - 현재 세션 상태
-- `HANDOVER.md` - AI 핸드오버 프로토콜
-- `CLAUDE.md` - Claude Code용 가이드
-- `README.md` - 프로젝트 소개
+### `testing/`
 
-## 아키텍처 문서
+- `INTEGRATED_TEST_CHECKLIST.md`
+  - 통합 점검 시나리오
+- `integrated-test-cases.json`
+  - 통합 테스트 케이스 데이터
+- `INTEGRATED_TEST_RUN_RESULT.json`
+  - 최근 실행 결과 기록
 
-- `../adr/` - 아키텍처 결정 기록 (Architecture Decision Records)
-- `../contracts/` - API/DB/컴포넌트 계약 문서
+### `superclaude/`
+
+- `SUPERCLAUDE.md`
+- `agent_skill.md`
+
+보조 AI 문서이며, 현재 운영 규칙의 기준 문서는 아닙니다.
+
+## 함께 봐야 하는 루트 문서
+
+- `README.md`
+  - 프로젝트 개요/구성/명령
+- `AGENTS.md`
+  - 운영 규칙, 로드맵, 검증 기준
+- `.claude/PROJECT_GUIDE.md`
+  - 정책/컨텍스트 상세
+- `.claude/WORK_LOG.md`, `.claude/WORK_DETAIL.md`
+  - 최근 작업 이력
+
+## 문서 유지 원칙
+
+- 기능 동작이 바뀌면 코드와 함께 관련 문서도 갱신합니다.
+- 운영 절차가 바뀌면 `guides/` 또는 `deployment/` 문서를 우선 수정합니다.
+- 테스트 체크리스트가 바뀌면 `testing/` 하위 파일을 함께 맞춥니다.
+- 구조 설명이 바뀌면 이 인덱스와 루트 `README.md`를 같이 갱신합니다.

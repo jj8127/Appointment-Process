@@ -269,7 +269,11 @@ export default function DashboardPage() {
     });
 
     if (activeTab && activeTab !== 'all') {
-      if (activeTab === 'step0') {
+      if (activeTab === 'g_done') {
+        result = result.filter((fc: FCProfileWithDocuments & { adminStep: number }) => fc.adminStep === 4);
+      } else if (activeTab === 'g_others') {
+        result = result.filter((fc: FCProfileWithDocuments & { adminStep: number }) => fc.adminStep !== 4);
+      } else if (activeTab === 'step0') {
         result = result.filter((fc: FCProfileWithDocuments & { adminStep: number }) => !fc.identity_completed);
       } else {
         const stepNum = Number(activeTab.replace('step', ''));
@@ -1194,39 +1198,56 @@ export default function DashboardPage() {
 
         {/* Main Content Area */}
         <Paper shadow="sm" radius="lg" withBorder p="md" bg="white">
-          <Group justify="space-between" mb="md">
-            <Tabs
-              value={activeTab}
-              onChange={setActiveTab}
-              variant="pills"
-              radius="xl"
-              color="dark"
-            >
-              <Tabs.List bg="gray.1" p={4} style={{ borderRadius: 24 }}>
-                <Tabs.Tab value="all" fw={600} px={16}>전체</Tabs.Tab>
-                {/* Updated to use ADMIN_STEP_LABELS */}
-                {Object.entries(ADMIN_STEP_LABELS).map(([key, label]) => (
-                  <Tabs.Tab key={key} value={key} fw={600} px={16}>{label}</Tabs.Tab>
-                ))}
-              </Tabs.List>
-            </Tabs>
-            <TextInput
-              placeholder="이름, 연락처 검색"
-              leftSection={<IconSearch size={16} stroke={1.5} />}
-              classNames={{ input: 'muted-placeholder-input' }}
-              value={keyword}
-              onChange={(e) => {
-                const val = e.currentTarget?.value || '';
-                setKeyword(val);
-              }}
-              radius="xl"
-              w={260}
-            />
-          </Group>
+          <Stack gap="xs" mb="md">
+            <Group justify="space-between">
+              <Tabs
+                value={activeTab}
+                onChange={setActiveTab}
+                variant="pills"
+                radius="xl"
+                color="dark"
+              >
+                <Tabs.List bg="gray.1" p={4} style={{ borderRadius: 24 }}>
+                  <Tabs.Tab value="all" fw={600} px={16}>전체</Tabs.Tab>
+                  {/* Updated to use ADMIN_STEP_LABELS */}
+                  {Object.entries(ADMIN_STEP_LABELS).map(([key, label]) => (
+                    <Tabs.Tab key={key} value={key} fw={600} px={16}>{label}</Tabs.Tab>
+                  ))}
+                </Tabs.List>
+              </Tabs>
+              <TextInput
+                placeholder="이름, 연락처 검색"
+                leftSection={<IconSearch size={16} stroke={1.5} />}
+                classNames={{ input: 'muted-placeholder-input' }}
+                value={keyword}
+                onChange={(e) => {
+                  const val = e.currentTarget?.value || '';
+                  setKeyword(val);
+                }}
+                radius="xl"
+                w={260}
+              />
+            </Group>
+            <Group gap="xs">
+              <Text size="xs" c="dimmed" fw={500}>빠른 분류:</Text>
+              <Tabs
+                value={activeTab}
+                onChange={setActiveTab}
+                variant="pills"
+                radius="xl"
+                color="blue"
+              >
+                <Tabs.List bg="blue.0" p={4} style={{ borderRadius: 24 }}>
+                  <Tabs.Tab value="g_done" fw={600} px={14}>4단계 완료</Tabs.Tab>
+                  <Tabs.Tab value="g_others" fw={600} px={14}>그 이외 (0~3단계)</Tabs.Tab>
+                </Tabs.List>
+              </Tabs>
+            </Group>
+          </Stack>
 
           <Box pos="relative" mih={400}>
             <LoadingOverlay visible={isLoading} overlayProps={{ blur: 1 }} />
-            <ScrollArea h="calc(100vh - 420px)" type="auto" offsetScrollbars>
+            <ScrollArea h="calc(100vh - 280px)" type="auto" offsetScrollbars>
               <Table verticalSpacing="sm" highlightOnHover striped withTableBorder>
                 <Table.Thead bg="gray.0" style={{ position: 'sticky', top: 0, zIndex: 1 }}>
                   <Table.Tr>

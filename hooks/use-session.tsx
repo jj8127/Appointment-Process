@@ -13,6 +13,7 @@ import {
   shouldForceRequestBoardRelogin,
 } from '@/lib/request-board-session';
 import { safeStorage } from '@/lib/safe-storage';
+import { isValidMobilePhone, normalizePhone } from '@/lib/validation';
 
 type Role = 'admin' | 'fc' | null;
 type RequestBoardRole = 'fc' | 'designer' | null;
@@ -174,15 +175,24 @@ export function SessionProvider({ children }: { children: ReactNode }) {
         const raw = await safeStorage.getItem(STORAGE_KEY);
         if (raw) {
           const parsed = JSON.parse(raw) as Partial<SessionState> & { appSessionToken?: string | null };
-          if (parsed.role && parsed.residentId) {
+          const rawResidentId = typeof parsed.residentId === 'string' ? parsed.residentId : '';
+          const normalizedResidentId = normalizePhone(rawResidentId);
+          if (parsed.role && rawResidentId) {
+            if (!isValidMobilePhone(normalizedResidentId)) {
+              logger.warn('[session] dropping legacy session with non-phone residentId');
+              await safeStorage.removeItem(STORAGE_KEY);
+              await clearRequestBoardState({ clearAppSession: true });
+              setAppSessionToken(null);
+              return;
+            }
             const restoredRequestBoardRole =
               parsed.requestBoardRole === 'fc' || parsed.requestBoardRole === 'designer'
                 ? parsed.requestBoardRole
                 : null;
             setState({
               role: parsed.role,
-              residentId: parsed.residentId,
-              residentMask: computeMask(parsed.residentId),
+              residentId: normalizedResidentId,
+              residentMask: computeMask(normalizedResidentId),
               displayName: parsed.displayName ?? '',
               readOnly: Boolean(parsed.readOnly),
               ...deriveRequestBoardFlags(
@@ -273,10 +283,11 @@ export function SessionProvider({ children }: { children: ReactNode }) {
         requestBoardRole = null,
         nextAppSessionToken = null,
       ) => {
+        const normalizedResidentId = normalizePhone(residentId);
         setState({
           role,
-          residentId,
-          residentMask: computeMask(residentId),
+          residentId: normalizedResidentId,
+          residentMask: computeMask(normalizedResidentId),
           displayName,
           readOnly,
           isRequestBoardDesigner,

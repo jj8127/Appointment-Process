@@ -9,6 +9,8 @@ export interface ValidationResult {
   error?: string;
 }
 
+const VALID_MOBILE_PREFIXES = ['010', '011', '016', '017', '018', '019'];
+
 /**
  * Phone number validation
  * - Must be exactly 11 digits (Korean mobile format)
@@ -31,11 +33,7 @@ export function validatePhone(phone: string): ValidationResult {
     };
   }
 
-  // Optional: Validate Korean mobile prefix (010, 011, 016, 017, 018, 019)
-  const validPrefixes = ['010', '011', '016', '017', '018', '019'];
-  const prefix = digits.substring(0, 3);
-
-  if (!validPrefixes.includes(prefix)) {
+  if (!isValidMobilePhone(digits)) {
     return {
       isValid: false,
       error: '올바른 휴대폰 번호 형식이 아닙니다.',
@@ -230,6 +228,16 @@ export function validateRequired(value: string, fieldName: string): ValidationRe
  */
 export function normalizePhone(phone: string): string {
   return phone.replace(/[^0-9]/g, '');
+}
+
+/**
+ * Check whether a value is a valid Korean mobile number after normalization.
+ * - Used for backward-compatible session validation where only boolean validity matters.
+ */
+export function isValidMobilePhone(phone: string): boolean {
+  const digits = normalizePhone(phone);
+  if (digits.length !== 11) return false;
+  return VALID_MOBILE_PREFIXES.includes(digits.substring(0, 3));
 }
 
 /**

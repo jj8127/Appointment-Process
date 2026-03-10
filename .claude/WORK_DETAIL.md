@@ -7,6 +7,39 @@
 
 ---
 
+## <a id="20260309-1"></a> 2026-03-09 | 레거시 FC 세션 `residentId` 정리 + 메신저 대상 목록 복구 가드
+
+**Commit**: `pending`  
+**배경**:
+- FC 1:1 문의 화면에서 대화 상대 목록이 비어 있고 `목록을 불러오지 못했습니다.`만 표시되는 사례가 확인됐다.
+- 조사 결과 앱의 FC 메신저 대상 목록은 `fc-notify(type='chat_targets')`를 호출하며, 이 함수는 `fc_profiles.phone = resident_id` 조건을 만족해야만 본부장 목록을 반환한다.
+- 정상 전화번호를 넘기면 운영 함수가 `ok: true`를 반환했지만, 레거시 세션의 `residentId` 값은 예전 주민번호 계열 식별값이 남아 있을 수 있었고, 현재 세션 복원 훅은 이를 그대로 살려두고 있었다.
+
+**조치**:
+- `lib/validation.ts`
+  - `isValidMobilePhone()` 헬퍼를 추가해 세션 복원/메신저 로딩 모두 같은 휴대폰 형식 기준을 사용하도록 통일.
+- `hooks/use-session.tsx`
+  - 저장된 세션 복원 시 `residentId`를 전화번호로 정규화.
+  - 전화번호 형식이 아닌 레거시 `residentId`는 세션 자체를 폐기하고 request_board 관련 저장 상태도 함께 제거하도록 변경.
+  - `loginAs()`도 `residentId`를 전화번호 기준으로 정규화해 이후 저장값 드리프트를 줄였다.
+- `app/chat.tsx`
+  - FC 대상 목록 로드 전 `residentId`가 휴대폰 형식인지 먼저 검사.
+  - `FC profile not found` / `resident_id is required` 오류는 `세션이 오래되었습니다. 로그아웃 후 다시 로그인해주세요.`로 치환.
+  - 해당 경우 버튼 문구를 `다시 로그인`으로 바꾸고 세션 정리 후 로그인 화면으로 이동하도록 변경.
+- `lib/__tests__/validation.test.ts`
+  - 휴대폰 형식 판별 회귀 테스트 추가.
+
+**검증**:
+- `npx jest lib/__tests__/validation.test.ts`
+- `npx eslint hooks/use-session.tsx app/chat.tsx lib/validation.ts lib/__tests__/validation.test.ts`
+- `npx tsc --noEmit`
+
+**운영 영향**:
+- 이번 패치 이후 레거시 FC 세션은 메신저에서 모호한 실패 화면 대신 재로그인 경로로 정리된다.
+- 이미 구버전 앱을 쓰는 사용자는 즉시 조치로 `로그아웃 -> 재로그인`이 필요하다.
+
+---
+
 ## <a id="20260308-4"></a> 2026-03-08 | `login-with-password` 런타임 500 핫픽스(`toBase64` 누락 복구)
 
 **Commit**: `pending`  

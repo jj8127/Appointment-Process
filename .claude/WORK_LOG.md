@@ -20,6 +20,7 @@
 ## 최근 작업
 | 날짜 | 작업 | 핵심 파일 | 상세 |
 |------|------|----------|------|
+| 03-09 | 레거시 FC 세션의 `residentId` 형식 검증 추가 + 메신저 대상 목록 재로그인 안내 | `hooks/use-session.tsx`, `app/chat.tsx`, `lib/validation.ts`, `lib/__tests__/validation.test.ts` | [→ 상세](WORK_DETAIL.md#20260309-1) |
 | 03-08 | `login-with-password` 런타임 500 핫픽스(`toBase64` 누락 복구) | `supabase/functions/login-with-password/index.ts` | [→ 상세](WORK_DETAIL.md#20260308-4) |
 | 03-08 | 앱 세션 복원 시 가람Link 브릿지 세션 자동 재동기화 + 복구 불가 구세션 강제 재로그인 | `hooks/use-session.tsx`, `hooks/use-login.ts`, `lib/request-board-api.ts`, `lib/request-board-session.ts`, `supabase/functions/login-with-password/index.ts`, `supabase/functions/sync-request-board-session/index.ts`, `supabase/functions/_shared/request-board-auth.ts`, `app/request-board*.tsx`, `app/messenger.tsx`, `lib/__tests__/request-board-session.test.ts` | [→ 상세](WORK_DETAIL.md#20260308-3) |
 | 03-08 | 모바일 외부 링크 열기 경로를 인앱 브라우저 중심으로 통일(게시판/공지/설계요청/서류) | `lib/external-url.ts`, `lib/open-external-url.ts`, `components/LinkifiedSelectableText.tsx`, `app/request-board.tsx`, `app/board.tsx`, `app/admin-board.tsx`, `app/admin-board-manage.tsx`, `app/board-detail.tsx`, `app/notice.tsx`, `app/notice-detail.tsx`, `app/request-board-review.tsx`, `app/consent.tsx`, `app/docs-upload.tsx`, `lib/__tests__/external-url.test.ts` | [→ 상세](WORK_DETAIL.md#20260308-2) |

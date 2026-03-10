@@ -28,7 +28,7 @@ import { useKeyboardPadding } from '@/hooks/use-keyboard-padding';
 import { useSession } from '@/hooks/use-session';
 import { supabase } from '@/lib/supabase';
 import { logger } from '@/lib/logger';
-import { safeDecodeFileName } from '@/lib/validation';
+import { isValidMobilePhone, safeDecodeFileName } from '@/lib/validation';
 import {
   ADMIN_CHAT_ID,
   sanitizePhone,
@@ -40,6 +40,19 @@ const MUTED = '#6b7280';
 const SOFT_BG = '#F9FAFB';
 const SCREEN_WIDTH = Dimensions.get('window').width;
 const CHAT_POLL_INTERVAL_MS = 2500;
+const LEGACY_SESSION_ERROR = '세션이 오래되었습니다. 로그아웃 후 다시 로그인해주세요.';
+
+function getFcTargetLoadErrorMessage(message?: string | null) {
+  const normalized = String(message ?? '').trim();
+  if (!normalized) return '대화 상대 목록을 불러오지 못했습니다.';
+
+  const lower = normalized.toLowerCase();
+  if (lower.includes('fc profile not found') || lower.includes('resident_id is required')) {
+    return LEGACY_SESSION_ERROR;
+  }
+
+  return normalized;
+}
 
 export const options = { headerShown: false };
 
@@ -112,7 +125,7 @@ const areMessagesEqual = (prev: Message[], next: Message[]) => {
 
 export default function ChatScreen() {
   const router = useRouter();
-  const { role, residentId, displayName, readOnly } = useSession();
+  const { role, residentId, displayName, readOnly, logout } = useSession();
   const { targetId, targetName } = useLocalSearchParams<{
     targetId?: string | string[];
     targetName?: string | string[];
@@ -193,6 +206,10 @@ export default function ChatScreen() {
 
     try {
       const residentPhone = sanitizePhone(residentId);
+      if (!isValidMobilePhone(residentPhone)) {
+        throw new Error(LEGACY_SESSION_ERROR);
+      }
+
       const { data, error } = await supabase.functions.invoke('fc-notify', {
         body: {
           type: 'chat_targets',
@@ -201,7 +218,7 @@ export default function ChatScreen() {
       });
 
       if (error || !data?.ok) {
-        const message = error?.message ?? data?.message ?? '대화 상대 목록을 불러오지 못했습니다.';
+        const message = getFcTargetLoadErrorMessage(error?.message ?? data?.message);
         throw new Error(message);
       }
 
@@ -243,7 +260,7 @@ export default function ChatScreen() {
         },
       ]);
     } catch (error) {
-      const message = error instanceof Error ? error.message : '대화 상대 목록을 불러오지 못했습니다.';
+      const message = getFcTargetLoadErrorMessage(error instanceof Error ? error.message : null);
       logger.debug('[chat] fc target list load failed', { message });
       setTargetsError(message);
     } finally {
@@ -750,14 +767,21 @@ export default function ChatScreen() {
           </View>
         ) : targetsError ? (
           <View style={styles.center}>
-            <Text style={styles.targetHelperText}>목록을 불러오지 못했습니다.</Text>
+            <Text style={styles.targetHelperText}>{targetsError}</Text>
             <Pressable
               style={({ pressed }) => [styles.retryButton, pressed && { opacity: 0.9 }]}
               onPress={() => {
+                if (targetsError === LEGACY_SESSION_ERROR) {
+                  logout();
+                  router.replace('/login?skipAuto=1');
+                  return;
+                }
                 void loadFcTargets();
               }}
             >
-              <Text style={styles.retryButtonText}>다시 시도</Text>
+              <Text style={styles.retryButtonText}>
+                {targetsError === LEGACY_SESSION_ERROR ? '다시 로그인' : '다시 시도'}
+              </Text>
             </Pressable>
           </View>
         ) : (

@@ -6,6 +6,7 @@ import {
   validateResidentId,
   validateRequired,
   normalizePhone,
+  isValidMobilePhone,
   formatPhone,
   formatResidentId,
 } from '../validation';
@@ -274,6 +275,24 @@ describe('normalizePhone', () => {
 
   it('should return same string if already normalized', () => {
     expect(normalizePhone('01012345678')).toBe('01012345678');
+  });
+});
+
+describe('isValidMobilePhone', () => {
+  it('should accept normalized Korean mobile numbers', () => {
+    expect(isValidMobilePhone('01012345678')).toBe(true);
+  });
+
+  it('should accept formatted Korean mobile numbers', () => {
+    expect(isValidMobilePhone('010-1234-5678')).toBe(true);
+  });
+
+  it('should reject non-phone legacy identifiers', () => {
+    expect(isValidMobilePhone('9001011234567')).toBe(false);
+  });
+
+  it('should reject invalid prefixes', () => {
+    expect(isValidMobilePhone('02012345678')).toBe(false);
   });
 });
 

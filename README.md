@@ -1,37 +1,48 @@
-# 가람 in FC Onboarding Monorepo
+# 가람in FC Onboarding Monorepo
 
-보험 FC(설계사) 온보딩을 모바일 앱(Expo)과 관리자 웹(Next.js)에서 통합 운영하는 모노레포입니다.
+가람PA지사의 FC 위촉/온보딩/운영 앱(`가람in`)과 관리자 웹을 함께 관리하는 모노레포입니다.
 
-- 앱 이름: `가람 in`
-- 모바일 앱 버전: `1.4.6` (`app.json`)
-- 기준일: `2026-02-20`
+- 기준일: `2026-03-08`
+- 운영 문서 SSOT: `AGENTS.md`
+- 구성: Expo 모바일 앱 + Next.js 관리자 웹 + Supabase(Postgres/Storage/Edge Functions)
 
-## 1. 현재 프로젝트 스냅샷
+## 현재 스냅샷
 
-- 아키텍처: Expo 모바일 + Next.js 관리자 웹 + Supabase(Postgres/Storage/Edge Functions)
-- 인증: Supabase Auth 세션 중심이 아니라 `전화번호 + 비밀번호` 커스텀 인증 흐름과 `use-session` 상태를 기준으로 동작
-- 핵심 흐름: 회원가입/OTP/비밀번호 -> 신원확인 -> 임시사번 -> 수당동의 -> 시험 -> 서류 -> 위촉 -> 완료
-- 보안 포인트: 주민번호 평문 저장 금지, 민감 정보는 암호화 저장 + service-role 경유 조회
-- 운영 원칙: 관리자 쓰기 작업은 서버 API 또는 Edge Function 경유, RLS 제약 우회 클라이언트 쓰기 금지
+- 인증은 Supabase Auth 기본 세션이 아니라 `전화번호 + 비밀번호` 커스텀 흐름과 `use-session` 상태를 기준으로 동작합니다.
+- `가람in` 앱과 `가람Link(request_board)`는 계정 데이터를 연동하며, 최신 앱/함수 기준으로 request_board 세션도 자동 복구됩니다.
+- FC 핵심 흐름은 `회원가입 -> 본인확인 -> 수당동의 -> 시험 신청 -> 서류 업로드 -> 위촉 -> 완료`입니다.
+- 관리자/본부장 웹은 FC 현황, 시험, 서류, 공지, 채팅, 알림을 운영합니다.
+- 민감정보는 암호화 저장과 서버 경유 조회를 원칙으로 합니다.
 
-### 도메인/프로젝트 정의 (가람PA지사 기준)
+## 최근 반영 사항
 
-- `가람PA지사`: FC들이 소속된 조직으로, 고객 보험을 다수 보험사와 비교 설계하는 것이 핵심 업무
-- `가람in`: FC/본부장/총무/설계매니저 협업을 위한 앱 이름(`fc-onboarding-app`)
-- `가람Link`: `request_board` 배포 사이트/서비스 표시명(웹/PWA)
-- `request_board`: FC(본부장 포함)가 보험사 설계매니저에게 설계 의뢰를 처리하는 전용 시스템
-- `설계요청`: 기능/탭 이름이며 브랜드명(`가람in`, `가람Link`)과 별개
-- 규칙: `가람in`, `가람Link`, `설계요청`은 회사명/소속명 데이터로 쓰지 않음
+- request_board 세션 자동 동기화 추가
+  - 로그인 시 앱 세션 토큰 + request_board 브릿지 토큰 발급
+  - 세션 복원 시 `sync-request-board-session`으로 request_board 세션 자동 재동기화
+  - 복구 토큰이 전혀 없는 구세션은 1회 재로그인 유도
+- 모바일 외부 링크 처리 정규화
+  - 게시판/공지/설계요청의 HTTP(S) 링크를 `expo-web-browser` 인앱 브라우저로 열도록 통일
+  - 유튜브 재생목록 링크 클릭 시 앱 이탈처럼 보이던 문제 방지
+- 관리자 웹 푸시 딥링크 정규화
+  - Chrome 알림 클릭 시 `/dashboard/chat?targetId=...&targetName=...`로 직접 이동
+  - 기존 `/chat` 경로는 대시보드 채팅으로 리다이렉트
 
-## 2. 역할과 권한 모델
+## 도메인 규칙
 
-- `fc`: 고객 상담, 온보딩 진행, 설계 의뢰 요청 주체
-- `manager`(본부장): FC 리더 역할, 설계 의뢰 요청 주체 기준에서는 FC와 동일
-- `admin`(총무): FC 운영/행정 지원(상태 변경, 승인/반려, 공지/알림, 시험/서류 운영), 설계 의뢰 요청 주체가 아님
-- `designer`(설계매니저): 보험사 측 설계 담당자(의뢰 수신/처리 주체)
-- 예외: 웹 공지(`dashboard/notifications`)는 `manager`도 작성 가능하며, 본인 작성 글에 한해 수정/삭제 가능
+- `가람in`: `fc-onboarding-app` 앱/운영 시스템의 이름
+- `가람Link`: `request_board` 서비스의 사용자 노출 이름
+- `request_board`: 설계의뢰 시스템의 기술 저장소 이름
+- `설계요청`: 화면/탭 기능명
+- 위 이름들은 회사명/소속명/보험사명 데이터로 저장하지 않습니다.
 
-## 3. FC 온보딩 상태값 (Source of Truth)
+## 역할 모델
+
+- `fc`: 본인 온보딩 진행, 설계요청 생성 주체
+- `manager`: FC 리더 역할, 설계요청 기준에서는 FC와 동일한 요청 주체
+- `admin`: 총무/운영 역할, 승인/반려/공지/시험/서류 운영 담당
+- `designer`: 보험사 설계 매니저, request_board에서 의뢰 수신/처리
+
+## FC 상태 모델
 
 소스: `types/fc.ts`
 
@@ -49,88 +60,54 @@
 | 'final-link-sent'
 ```
 
-### 실제 업무 플로우
+## 저장소 구조
 
-1. 회원가입 및 OTP 인증
-2. 비밀번호 설정/로그인
-3. 신원확인 및 기본 정보 입력
-4. 임시사번 발급
-5. 수당 동의 및 승인
-6. 시험 일정 조회/신청(생명/손해)
-7. 서류 요청/업로드/심사
-8. 위촉 일정 제출/완료 처리
-9. 최종 링크 발송 및 종료
-
-## 4. 리포지토리 구조
-
-```txt
+```text
 fc-onboarding-app/
-├── app/                    # 모바일 라우트(Expo Router)
-├── components/             # 모바일 공용 UI
+├── app/                    # Expo Router 화면
+├── components/             # 공용 모바일 UI
 ├── hooks/                  # 세션/게이트/플랫폼 훅
-├── lib/                    # Supabase, logger, 유틸
-├── types/                  # 공용 타입 (FC 상태 포함)
-├── web/                    # 관리자 웹 (Next.js App Router)
-│   └── src/app/
+├── lib/                    # Supabase/bridge/API 유틸
+├── types/                  # 공용 타입
+├── web/                    # Next.js 관리자 웹
 ├── supabase/
 │   ├── schema.sql
 │   ├── migrations/
-│   └── functions/          # Deno Edge Functions
-├── contracts/              # API/DB/컴포넌트 계약 문서
+│   └── functions/          # Edge Functions
+├── docs/                   # 운영/배포/테스트 문서
+├── contracts/              # API/DB/컴포넌트 계약
 └── adr/                    # 아키텍처 결정 기록
 ```
 
-## 5. 주요 화면/엔트리
+## request_board 연동 포인트
 
-### 모바일 (`app/*`)
+- 앱 WebView/브릿지 진입 URL: `EXPO_PUBLIC_REQUEST_BOARD_URL`
+- 비밀번호 동기화:
+  - `supabase/functions/set-password`
+  - `supabase/functions/reset-password`
+  - `supabase/functions/login-with-password`
+- 세션 동기화:
+  - `supabase/functions/login-with-password`
+  - `supabase/functions/sync-request-board-session`
+  - `lib/request-board-api.ts`
+  - `hooks/use-session.tsx`
 
-- 라우트/프로바이더 엔트리: `app/_layout.tsx`
-- 로그인: `app/login.tsx`
-- 회원가입: `app/signup.tsx`, `app/signup-verify.tsx`, `app/signup-password.tsx`
-- 신원/기본정보: `app/identity.tsx`, `app/fc/new.tsx`
-- 수당동의: `app/consent.tsx`
-- 시험 신청: `app/exam-apply.tsx`, `app/exam-apply2.tsx`
-- 서류 업로드: `app/docs-upload.tsx`
-- 위촉: `app/appointment.tsx`
-- 알림/공지: `app/notifications.tsx`, `app/notice.tsx`
+운영상 주의:
 
-### 웹 관리자 (`web/src/app/*`)
+- `REQUEST_BOARD_AUTH_BRIDGE_SECRET`과 request_board의 `FC_ONBOARDING_AUTH_BRIDGE_SECRET`은 반드시 동일해야 합니다.
+- `REQUEST_BOARD_PASSWORD_SYNC_TOKEN`과 request_board의 `FC_ONBOARDING_PASSWORD_SYNC_TOKEN`도 반드시 동일해야 합니다.
 
-- 인증: `web/src/app/auth/page.tsx`
-- 대시보드: `web/src/app/dashboard/page.tsx`
-- FC 프로필 상세: `web/src/app/dashboard/profile/[id]/page.tsx`
-- 서류 관리: `web/src/app/dashboard/docs/page.tsx`
-- 시험 일정/신청자: `web/src/app/dashboard/exam/schedule/page.tsx`, `web/src/app/dashboard/exam/applicants/page.tsx`
-- 공지 관리: `web/src/app/dashboard/notifications/page.tsx`
-- 관리자 API 라우트: `web/src/app/api/admin/*`
+## 환경 변수
 
-### Supabase Edge Functions (`supabase/functions/*`)
-
-- 인증: `request-signup-otp`, `verify-signup-otp`, `set-password`, `login-with-password`, `reset-password`
-- 관리자 액션: `admin-action`
-- 민감정보 저장: `store-identity`
-- 수당/위촉: `fc-consent`, `fc-submit-appointment`
-- 알림/리마인더: `fc-notify`, `docs-deadline-reminder`
-
-## 6. 개발 환경 설정
-
-### 요구사항
-
-- Node.js 20+
-- npm 10+
-- Expo CLI 사용 가능 환경(Android Studio/Xcode 선택)
-- Supabase CLI (`supabase`)
-
-### 환경변수
-
-루트 `.env` (모바일/공용 Supabase 클라이언트):
+### 루트 `.env`
 
 ```bash
 EXPO_PUBLIC_SUPABASE_URL=...
 EXPO_PUBLIC_SUPABASE_ANON_KEY=...
+EXPO_PUBLIC_REQUEST_BOARD_URL=...
 ```
 
-웹 `web/.env.local`:
+### 웹 `web/.env.local`
 
 ```bash
 NEXT_PUBLIC_SUPABASE_URL=...
@@ -139,18 +116,25 @@ SUPABASE_SERVICE_ROLE_KEY=...
 NEXT_PUBLIC_WEB_PUSH_VAPID_PUBLIC_KEY=...
 WEB_PUSH_VAPID_PRIVATE_KEY=...
 WEB_PUSH_SUBJECT=mailto:...
+ADMIN_PUSH_SECRET=...
+NEXT_PUBLIC_REQUEST_BOARD_URL=...
 ```
 
-Edge Function secrets (Supabase 프로젝트):
+### Supabase Edge Function Secrets
 
 ```bash
 SUPABASE_URL=...
 SUPABASE_SERVICE_ROLE_KEY=...
+REQUEST_BOARD_AUTH_BRIDGE_SECRET=...
+REQUEST_BOARD_PASSWORD_SYNC_URL=...
+REQUEST_BOARD_PASSWORD_SYNC_TOKEN=...
+ADMIN_WEB_URL=...
+ADMIN_PUSH_SECRET=...
 ```
 
-## 7. 실행 명령
+## 실행 명령
 
-### 루트 (모바일/공용)
+### 모바일 앱
 
 ```bash
 npm install
@@ -162,7 +146,7 @@ npm test
 npm run test:coverage
 ```
 
-### 웹 관리자
+### 관리자 웹
 
 ```bash
 cd web
@@ -178,30 +162,31 @@ npm run lint
 supabase login
 supabase link --project-ref <project-ref>
 supabase db push
-supabase functions deploy <function-name> --project-ref <project-ref>
-supabase secrets list --project-ref <project-ref>
+supabase functions deploy login-with-password --project-ref <project-ref>
+supabase functions deploy sync-request-board-session --project-ref <project-ref>
 ```
 
-## 8. 운영/보안 가드레일
+### 검증
 
-1. 주민번호 평문 저장/로그/클라이언트 전달 금지
-2. 관리자 쓰기는 신뢰 경로(API/Edge Function/service-role) 경유
-3. 역할 모델(`admin`, `manager`, `fc`) 계약 유지
-4. 스키마 변경 시 `supabase/schema.sql` + `supabase/migrations/*.sql` 동시 반영
-5. Edge Function 응답 계약(`ok`, `message`) 호환성 유지
+```bash
+npx jest lib/__tests__/external-url.test.ts
+npx jest lib/__tests__/request-board-session.test.ts
+npx tsc --noEmit
+node scripts/ci/check-governance.mjs
+```
 
-## 9. 최근 반영 사항 (2026-02 기준)
+## 운영 가드레일
 
-- 시험 신청 화면(생명/손해) 필터링/새로고침 UX 정합성 개선
-- 모바일 알림센터 장문 리스트 멀티 셀렉트 드래그 UX 안정화
-- 소속 라벨 `1팀~8팀` 기준으로 정규화 및 레거시 데이터 보정 경로 추가
-- 웹 공지에서 manager 작성 및 본인 글 수정/삭제 허용(소유권 검증 포함)
-- 주민번호 조회 경로를 관리자 서비스 경유 패턴으로 확장
+1. 주민번호 평문은 DB/로그/클라이언트에 직접 저장하지 않습니다.
+2. 관리자 쓰기 경로는 서버 API 또는 Edge Function 경유만 허용합니다.
+3. `manager`는 읽기 중심 역할을 유지하고, 관리자 전용 쓰기 권한을 부여하지 않습니다.
+4. 스키마 변경 시 `supabase/schema.sql`과 `supabase/migrations/*.sql`를 함께 관리합니다.
+5. request_board 연동 변경 시 앱 코드, Edge Function, 관련 문서를 같은 변경 세트로 맞춥니다.
 
-## 10. 참고 문서
+## 참고 문서
 
-- 운영 정책/가이드: `AGENTS.md`, `.claude/PROJECT_GUIDE.md`
+- 운영 기준: `AGENTS.md`
 - 작업 로그: `.claude/WORK_LOG.md`, `.claude/WORK_DETAIL.md`
-- 계약 문서: `contracts/database-schema.md`, `contracts/api-contracts.md`, `contracts/component-contracts.md`
+- 문서 인덱스: `docs/README.md`
 - 아키텍처 결정: `adr/README.md`
-- 명령어 가이드: `docs/guides/COMMANDS.md`
+- 관리자 웹 안내: `web/README.md`
