@@ -175,7 +175,7 @@ export async function POST(req: Request) {
     logger.error('[api/fc-notify] proxy error:', error?.message ?? err);
 
     return NextResponse.json(
-      { error: error?.message ?? 'fc-notify proxy failed' },
+      { error: '요청 처리에 실패했습니다.' },
       { status: 500 },
     );
   }

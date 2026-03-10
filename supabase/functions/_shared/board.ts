@@ -64,6 +64,12 @@ export function fail(code: string, message: string, status = 400, origin?: strin
   return json({ ok: false, code, message }, status, origin);
 }
 
+/** DB 에러를 서버 로그에만 기록하고, 클라이언트에는 일반화된 메시지만 반환 */
+export function dbError(err: { message?: string }, origin?: string) {
+  console.error('[db_error]', err?.message);
+  return json({ ok: false, code: 'db_error', message: '데이터베이스 오류가 발생했습니다.' }, 500, origin);
+}
+
 export function cleanPhone(input: string) {
   return (input ?? '').replace(/[^0-9]/g, '');
 }

@@ -1,5 +1,5 @@
 import { serve } from 'https://deno.land/std@0.224.0/http/server.ts';
-import { buildCorsHeaders, json, parseJson, previewContent, requireActor, supabase } from '../_shared/board.ts';
+import { buildCorsHeaders, json, parseJson, previewContent, requireActor, supabase , dbError } from '../_shared/board.ts';
 
 type Payload = {
   actor?: {
@@ -88,10 +88,10 @@ serve(async (req: Request) => {
   const [pinnedResult, listResult] = await Promise.all([pinnedQuery, listQuery]);
 
   if (pinnedResult.error) {
-    return json({ ok: false, code: 'db_error', message: pinnedResult.error.message }, 500, origin);
+    return dbError(pinnedResult.error, origin);
   }
   if (listResult.error) {
-    return json({ ok: false, code: 'db_error', message: listResult.error.message }, 500, origin);
+    return dbError(listResult.error, origin);
   }
 
   const normalize = (row: any) => ({
@@ -147,10 +147,10 @@ serve(async (req: Request) => {
     ]);
 
     if (reactionsRes.error) {
-      return json({ ok: false, code: 'db_error', message: reactionsRes.error.message }, 500, origin);
+      return dbError(reactionsRes.error, origin);
     }
     if (attachmentsRes.error) {
-      return json({ ok: false, code: 'db_error', message: attachmentsRes.error.message }, 500, origin);
+      return dbError(attachmentsRes.error, origin);
     }
 
     (reactionsRes.data ?? []).forEach((row) => {

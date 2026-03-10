@@ -51,7 +51,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   );
 
   useEffect(() => {
-    if (hydrated && !role) {
+    if (hydrated && role !== 'admin' && role !== 'manager') {
       router.replace('/auth');
     }
   }, [hydrated, role, router]);
@@ -65,7 +65,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
     };
   }, []);
 
-  if (!hydrated || !role) {
+  if (!hydrated || (role !== 'admin' && role !== 'manager')) {
     return null;
   }
 

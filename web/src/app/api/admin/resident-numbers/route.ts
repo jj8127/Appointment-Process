@@ -134,6 +134,6 @@ export async function POST(req: Request) {
   } catch (err: unknown) {
     const error = err as Error;
     logger.error('[api/admin/resident-numbers] failed', error);
-    return NextResponse.json({ error: error?.message ?? 'Request failed' }, { status: 500, headers: SECURITY_HEADERS });
+    return NextResponse.json({ error: '요청 처리에 실패했습니다.' }, { status: 500, headers: SECURITY_HEADERS });
   }
 }

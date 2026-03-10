@@ -1,5 +1,5 @@
 import { serve } from 'https://deno.land/std@0.224.0/http/server.ts';
-import { buildCorsHeaders, json, parseJson, requireActor, supabase } from '../_shared/board.ts';
+import { buildCorsHeaders, json, parseJson, requireActor, supabase , dbError } from '../_shared/board.ts';
 
 type Payload = {
   actor?: {
@@ -81,16 +81,16 @@ serve(async (req: Request) => {
   ]);
 
   if (attachmentsRes.error) {
-    return json({ ok: false, code: 'db_error', message: attachmentsRes.error.message }, 500, origin);
+    return dbError(attachmentsRes.error, origin);
   }
   if (reactionsRes.error) {
-    return json({ ok: false, code: 'db_error', message: reactionsRes.error.message }, 500, origin);
+    return dbError(reactionsRes.error, origin);
   }
   if (commentsRes.error) {
-    return json({ ok: false, code: 'db_error', message: commentsRes.error.message }, 500, origin);
+    return dbError(commentsRes.error, origin);
   }
   if (likesRes.error) {
-    return json({ ok: false, code: 'db_error', message: likesRes.error.message }, 500, origin);
+    return dbError(likesRes.error, origin);
   }
 
   const reactions = {

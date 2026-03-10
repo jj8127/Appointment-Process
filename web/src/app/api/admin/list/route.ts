@@ -110,6 +110,6 @@ export async function GET() {
     } catch (err: unknown) {
         const error = err as Error;
         logger.error('[api/admin/list] failed', error);
-        return NextResponse.json({ error: error?.message ?? 'Fetch failed' }, { status: 500 });
+        return NextResponse.json({ error: '요청 처리에 실패했습니다.' }, { status: 500 });
     }
 }

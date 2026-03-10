@@ -383,7 +383,7 @@ export async function GET(req: Request) {
     const error = err as Error;
     logger.error('[api/admin/notices][GET] failed', error);
     return NextResponse.json(
-      { error: error?.message ?? 'Request failed' },
+      { error: '요청 처리에 실패했습니다.' },
       { status: 500, headers: SECURITY_HEADERS },
     );
   }
@@ -443,14 +443,14 @@ export async function PATCH(req: Request) {
 
     const { error } = await adminSupabase.from('notices').update(updateFields).eq('id', id);
     if (error) {
-      return NextResponse.json({ error: error.message }, { status: 500, headers: SECURITY_HEADERS });
+      return NextResponse.json({ error: '요청 처리에 실패했습니다.' }, { status: 500, headers: SECURITY_HEADERS });
     }
     return NextResponse.json({ ok: true }, { headers: SECURITY_HEADERS });
   } catch (err: unknown) {
     const error = err as Error;
     logger.error('[api/admin/notices][PATCH] failed', error);
     return NextResponse.json(
-      { error: error?.message ?? 'Request failed' },
+      { error: '요청 처리에 실패했습니다.' },
       { status: 500, headers: SECURITY_HEADERS },
     );
   }
@@ -501,7 +501,7 @@ export async function DELETE(req: Request) {
     } else {
       const { error } = await adminSupabase.from('notices').delete().eq('id', id);
       if (error) {
-        return NextResponse.json({ error: error.message }, { status: 500, headers: SECURITY_HEADERS });
+        return NextResponse.json({ error: '요청 처리에 실패했습니다.' }, { status: 500, headers: SECURITY_HEADERS });
       }
     }
 
@@ -510,7 +510,7 @@ export async function DELETE(req: Request) {
     const error = err as Error;
     logger.error('[api/admin/notices][DELETE] failed', error);
     return NextResponse.json(
-      { error: error?.message ?? 'Request failed' },
+      { error: '요청 처리에 실패했습니다.' },
       { status: 500, headers: SECURITY_HEADERS },
     );
   }

@@ -36,6 +36,13 @@ export function middleware(request: NextRequest) {
     return NextResponse.redirect(url);
   }
 
+  // /admin 경로는 admin role만 허용
+  if (pathname.startsWith('/admin') && role !== 'admin') {
+    const url = request.nextUrl.clone();
+    url.pathname = '/auth';
+    return NextResponse.redirect(url);
+  }
+
   return NextResponse.next();
 }
 

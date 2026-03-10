@@ -20,6 +20,7 @@
 ## 최근 작업
 | 날짜 | 작업 | 핵심 파일 | 상세 |
 |------|------|----------|------|
+| 03-11 | 보안 강화 — admin layout 추가, dashboard role 검증, middleware /admin 검증, API 에러 마스킹(8개 route), Edge Function board-* dbError 헬퍼(16개), fc_documents anon INSERT 제거 migration | `web/src/app/admin/layout.tsx`, `web/src/app/dashboard/layout.tsx`, `web/middleware.ts`, `web/src/lib/api-error.ts`, `supabase/functions/_shared/board.ts`, `supabase/migrations/20260310000001_fix_anon_write_policies.sql` | — |
 | 03-10 | iOS 키보드/사진 접근 권한 버그 수정 (채팅·메신저·서류업로드) | `app/chat.tsx`, `app/admin-messenger.tsx`, `app/docs-upload.tsx` | [→ 상세](WORK_DETAIL.md#20260310-ios-keyboard) |
 | 03-10 | iOS DateTimePicker 렌더링 버그 전체 수정 (위촉/시험응시/관리자 서류마감 화면) | `app/appointment.tsx`, `app/exam-apply.tsx`, `app/exam-apply2.tsx`, `app/dashboard.tsx` | [→ 상세](WORK_DETAIL.md#20260310-ios-datepicker-all) |
 | 03-10 | iOS 수당동의 화면 달력 DateTimePicker 렌더링 버그 수정 | `app/consent.tsx` | [→ 상세](WORK_DETAIL.md#20260310-ios-datepicker) |

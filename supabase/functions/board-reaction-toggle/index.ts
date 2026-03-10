@@ -1,5 +1,5 @@
 import { serve } from 'https://deno.land/std@0.224.0/http/server.ts';
-import { buildCorsHeaders, json, parseJson, requireActor, supabase } from '../_shared/board.ts';
+import { buildCorsHeaders, json, parseJson, requireActor, supabase , dbError } from '../_shared/board.ts';
 
 type Payload = {
   actor?: {
@@ -70,13 +70,13 @@ serve(async (req: Request) => {
         reaction_type: reactionType,
       });
     if (error) {
-      return json({ ok: false, code: 'db_error', message: error.message }, 500, origin);
+      return dbError(error, origin);
     }
     myReaction = reactionType;
   } else if (existing.reaction_type === reactionType) {
     const { error } = await supabase.from('board_post_reactions').delete().eq('id', existing.id);
     if (error) {
-      return json({ ok: false, code: 'db_error', message: error.message }, 500, origin);
+      return dbError(error, origin);
     }
     myReaction = null;
   } else {
@@ -85,7 +85,7 @@ serve(async (req: Request) => {
       .update({ reaction_type: reactionType })
       .eq('id', existing.id);
     if (error) {
-      return json({ ok: false, code: 'db_error', message: error.message }, 500, origin);
+      return dbError(error, origin);
     }
     myReaction = reactionType;
   }

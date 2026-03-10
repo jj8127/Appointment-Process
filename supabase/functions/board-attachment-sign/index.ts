@@ -90,7 +90,8 @@ serve(async (req: Request) => {
       .from('board-attachments')
       .createSignedUploadUrl(storagePath);
     if (error || !data?.signedUrl) {
-      return json({ ok: false, code: 'storage_error', message: error?.message ?? 'failed to sign upload' }, 500, origin);
+      console.error('[storage_error]', error?.message);
+      return json({ ok: false, code: 'storage_error', message: '파일 업로드 URL 생성에 실패했습니다.' }, 500, origin);
     }
     results.push({ storagePath, signedUrl: data.signedUrl });
   }

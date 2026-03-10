@@ -1,5 +1,5 @@
 import { serve } from 'https://deno.land/std@0.224.0/http/server.ts';
-import { buildCorsHeaders, json, parseJson, requireActor, supabase } from '../_shared/board.ts';
+import { buildCorsHeaders, json, parseJson, requireActor, supabase , dbError } from '../_shared/board.ts';
 
 type Payload = {
   actor?: {
@@ -37,7 +37,7 @@ serve(async (req: Request) => {
 
   const { data, error } = await query;
   if (error) {
-    return json({ ok: false, code: 'db_error', message: error.message }, 500, origin);
+    return dbError(error, origin);
   }
 
   const items = (data ?? []).map((row) => ({
