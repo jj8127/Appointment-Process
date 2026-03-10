@@ -1911,9 +1911,9 @@ const styles = StyleSheet.create({
   // CTA
   ctaCard: {
     marginHorizontal: 20,
-    borderRadius: 24,
-    padding: 24,
-    marginBottom: 24,
+    borderRadius: 20,
+    padding: 16,
+    marginBottom: 16,
     position: 'relative',
     overflow: 'hidden',
   },
@@ -1928,15 +1928,15 @@ const styles = StyleSheet.create({
   },
   ctaBadgeText: { color: '#fff', fontWeight: '700', fontSize: 13 }, // 11 -> 13
   ctaTitle: {
-    fontSize: 26, // 22 -> 26
+    fontSize: 22,
     fontWeight: '800',
     color: '#fff',
-    marginBottom: 6,
+    marginBottom: 4,
   },
   ctaSub: {
-    fontSize: 16, // 14 -> 16
+    fontSize: 14,
     color: 'rgba(255,255,255,0.9)',
-    lineHeight: 22,
+    lineHeight: 20,
   },
   examPillRow: { flexDirection: 'row', gap: 8, marginTop: 12, flexWrap: 'wrap' },
   examPill: {
