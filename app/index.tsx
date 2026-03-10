@@ -1281,123 +1281,6 @@ export default function Home() {
             </AndroidSafeMotiView>
           )}
 
-          {!(role === 'admin' && adminHomeTab === 'exam') && (
-            <>
-              {role === 'admin' ? (
-                <AndroidSafeMotiView from={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} transition={{ type: 'spring', delay: 100 }}>
-                  <Pressable onPress={() => handlePressLink('/dashboard', 'step4')}>
-                    <LinearGradient
-                      colors={['#f36f21', '#fabc3c']}
-                      start={{ x: 0, y: 0 }}
-                      end={{ x: 1, y: 1 }}
-                      style={styles.ctaCard}
-                    >
-                      <View style={styles.ctaContent}>
-                        <View style={[styles.ctaBadge, { backgroundColor: 'rgba(255,255,255,0.15)' }]}>
-                          <Text style={styles.ctaBadgeText}>관리자 할 일</Text>
-                        </View>
-                        <Text style={styles.ctaTitle}>
-                          {isLoading ? '현황 조회 중...' : `서류 대기 ${counts?.steps?.step4 ?? 0}건`}
-                        </Text>
-                        <Text style={styles.ctaSub}>승인을 기다리는 FC 서류를 검토해주세요.</Text>
-                      </View>
-                      <View style={[styles.ctaIconCircle, { backgroundColor: 'rgba(255,255,255,0.1)' }]}>
-                        <Feather name="file-text" size={24} color="#fff" />
-                      </View>
-                      <View style={styles.ctaDecoCircle} />
-                    </LinearGradient>
-                  </Pressable>
-                </AndroidSafeMotiView>
-              ) : isFc ? (
-                <View ref={zone2Ref} collapsable={false}>
-                  <TourGuideZone
-                    zone={2}
-                    text="메신저 허브에서 가람지사/설계요청 대화를 선택할 수 있어요."
-                    borderRadius={24}>
-                    <AndroidSafeMotiView from={{ opacity: 0, translateY: 10 }} animate={{ opacity: 1, translateY: 0 }} transition={{ type: 'spring', delay: 100 }}>
-                      <Pressable onPress={() => handlePressLink('/messenger')}>
-                        <LinearGradient
-                          colors={['#f36f21', '#fabc3c']}
-                          start={{ x: 0, y: 0 }}
-                          end={{ x: 1, y: 1 }}
-                          style={styles.ctaCard}
-                        >
-                          <View style={styles.ctaContent}>
-                            <View style={styles.ctaBadge}>
-                              <Text style={styles.ctaBadgeText}>메신저</Text>
-                            </View>
-                            <Text style={styles.ctaTitle}>통합 메신저 열기</Text>
-                            <Text style={styles.ctaSub} numberOfLines={2}>
-                              {latestAdminMsgLoading
-                                ? '메시지 불러오는 중...'
-                                : latestAdminMsg?.content
-                                  ? latestAdminMsg.content
-                                  : '최근 총무팀 메시지를 확인하세요.'}
-                            </Text>
-                          </View>
-                          <View style={styles.ctaIconCircle}>
-                            <Feather name="message-circle" size={24} color={HANWHA_ORANGE} />
-                            {unreadMsgCount > 0 && (
-                              <View
-                                style={{
-                                  position: 'absolute',
-                                  top: -8,
-                                  right: -8,
-                                  minWidth: 24,
-                                  height: 24,
-                                  borderRadius: 12,
-                                  backgroundColor: '#EF4444',
-                                  justifyContent: 'center',
-                                  alignItems: 'center',
-                                  borderWidth: 1.5,
-                                  borderColor: '#fff',
-                                }}
-                              >
-                                <Text style={{ color: '#fff', fontSize: 12, fontWeight: 'bold' }}>
-                                  {unreadMsgCount > 99 ? '99+' : unreadMsgCount}
-                                </Text>
-                              </View>
-                            )}
-                          </View>
-                          <View style={styles.ctaDecoCircle} />
-                        </LinearGradient>
-                      </Pressable>
-                    </AndroidSafeMotiView>
-                  </TourGuideZone>
-                </View>
-              ) : (
-                <AndroidSafeMotiView from={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} transition={{ type: 'spring', delay: 100 }}>
-                  <Pressable onPress={() => handlePressLink('/messenger')}>
-                    <LinearGradient
-                      colors={['#f36f21', '#fabc3c']}
-                      start={{ x: 0, y: 0 }}
-                      end={{ x: 1, y: 1 }}
-                      style={styles.ctaCard}
-                    >
-                      <View style={styles.ctaContent}>
-                        <View style={styles.ctaBadge}>
-                          <Text style={styles.ctaBadgeText}>메신저</Text>
-                        </View>
-                        <Text style={styles.ctaTitle}>통합 메신저 열기</Text>
-                        <Text style={styles.ctaSub} numberOfLines={2}>
-                          {latestAdminMsgLoading
-                            ? '메시지 불러오는 중...'
-                            : latestAdminMsg?.content
-                              ? latestAdminMsg.content
-                              : '최근 총무팀 메시지를 확인하세요.'}
-                        </Text>
-                      </View>
-                      <View style={styles.ctaIconCircle}>
-                        <Feather name="message-circle" size={24} color={HANWHA_ORANGE} />
-                      </View>
-                      <View style={styles.ctaDecoCircle} />
-                    </LinearGradient>
-                  </Pressable>
-                </AndroidSafeMotiView>
-              )}
-            </>
-          )}
-
           <AndroidSafeMotiView
             from={{ opacity: 0, translateY: 20 }}
             animate={{ opacity: 1, translateY: 0 }}
@@ -1693,6 +1576,123 @@ export default function Home() {
             )
             }
           </AndroidSafeMotiView>
+
+          {!(role === 'admin' && adminHomeTab === 'exam') && (
+            <>
+              {role === 'admin' ? (
+                <AndroidSafeMotiView from={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} transition={{ type: 'spring', delay: 100 }}>
+                  <Pressable onPress={() => handlePressLink('/dashboard', 'step4')}>
+                    <LinearGradient
+                      colors={['#f36f21', '#fabc3c']}
+                      start={{ x: 0, y: 0 }}
+                      end={{ x: 1, y: 1 }}
+                      style={styles.ctaCard}
+                    >
+                      <View style={styles.ctaContent}>
+                        <View style={[styles.ctaBadge, { backgroundColor: 'rgba(255,255,255,0.15)' }]}>
+                          <Text style={styles.ctaBadgeText}>관리자 할 일</Text>
+                        </View>
+                        <Text style={styles.ctaTitle}>
+                          {isLoading ? '현황 조회 중...' : `서류 대기 ${counts?.steps?.step4 ?? 0}건`}
+                        </Text>
+                        <Text style={styles.ctaSub}>승인을 기다리는 FC 서류를 검토해주세요.</Text>
+                      </View>
+                      <View style={[styles.ctaIconCircle, { backgroundColor: 'rgba(255,255,255,0.1)' }]}>
+                        <Feather name="file-text" size={24} color="#fff" />
+                      </View>
+                      <View style={styles.ctaDecoCircle} />
+                    </LinearGradient>
+                  </Pressable>
+                </AndroidSafeMotiView>
+              ) : isFc ? (
+                <View ref={zone2Ref} collapsable={false}>
+                  <TourGuideZone
+                    zone={2}
+                    text="메신저 허브에서 가람지사/설계요청 대화를 선택할 수 있어요."
+                    borderRadius={24}>
+                    <AndroidSafeMotiView from={{ opacity: 0, translateY: 10 }} animate={{ opacity: 1, translateY: 0 }} transition={{ type: 'spring', delay: 100 }}>
+                      <Pressable onPress={() => handlePressLink('/messenger')}>
+                        <LinearGradient
+                          colors={['#f36f21', '#fabc3c']}
+                          start={{ x: 0, y: 0 }}
+                          end={{ x: 1, y: 1 }}
+                          style={styles.ctaCard}
+                        >
+                          <View style={styles.ctaContent}>
+                            <View style={styles.ctaBadge}>
+                              <Text style={styles.ctaBadgeText}>메신저</Text>
+                            </View>
+                            <Text style={styles.ctaTitle}>통합 메신저 열기</Text>
+                            <Text style={styles.ctaSub} numberOfLines={2}>
+                              {latestAdminMsgLoading
+                                ? '메시지 불러오는 중...'
+                                : latestAdminMsg?.content
+                                  ? latestAdminMsg.content
+                                  : '최근 총무팀 메시지를 확인하세요.'}
+                            </Text>
+                          </View>
+                          <View style={styles.ctaIconCircle}>
+                            <Feather name="message-circle" size={24} color={HANWHA_ORANGE} />
+                            {unreadMsgCount > 0 && (
+                              <View
+                                style={{
+                                  position: 'absolute',
+                                  top: -8,
+                                  right: -8,
+                                  minWidth: 24,
+                                  height: 24,
+                                  borderRadius: 12,
+                                  backgroundColor: '#EF4444',
+                                  justifyContent: 'center',
+                                  alignItems: 'center',
+                                  borderWidth: 1.5,
+                                  borderColor: '#fff',
+                                }}
+                              >
+                                <Text style={{ color: '#fff', fontSize: 12, fontWeight: 'bold' }}>
+                                  {unreadMsgCount > 99 ? '99+' : unreadMsgCount}
+                                </Text>
+                              </View>
+                            )}
+                          </View>
+                          <View style={styles.ctaDecoCircle} />
+                        </LinearGradient>
+                      </Pressable>
+                    </AndroidSafeMotiView>
+                  </TourGuideZone>
+                </View>
+              ) : (
+                <AndroidSafeMotiView from={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} transition={{ type: 'spring', delay: 100 }}>
+                  <Pressable onPress={() => handlePressLink('/messenger')}>
+                    <LinearGradient
+                      colors={['#f36f21', '#fabc3c']}
+                      start={{ x: 0, y: 0 }}
+                      end={{ x: 1, y: 1 }}
+                      style={styles.ctaCard}
+                    >
+                      <View style={styles.ctaContent}>
+                        <View style={styles.ctaBadge}>
+                          <Text style={styles.ctaBadgeText}>메신저</Text>
+                        </View>
+                        <Text style={styles.ctaTitle}>통합 메신저 열기</Text>
+                        <Text style={styles.ctaSub} numberOfLines={2}>
+                          {latestAdminMsgLoading
+                            ? '메시지 불러오는 중...'
+                            : latestAdminMsg?.content
+                              ? latestAdminMsg.content
+                              : '최근 총무팀 메시지를 확인하세요.'}
+                        </Text>
+                      </View>
+                      <View style={styles.ctaIconCircle}>
+                        <Feather name="message-circle" size={24} color={HANWHA_ORANGE} />
+                      </View>
+                      <View style={styles.ctaDecoCircle} />
+                    </LinearGradient>
+                  </Pressable>
+                </AndroidSafeMotiView>
+              )}
+            </>
+          )}
 
           <View style={styles.linksSection}>
             <Text style={styles.sectionTitle}>
