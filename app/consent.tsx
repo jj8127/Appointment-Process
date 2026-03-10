@@ -372,14 +372,15 @@ export default function AllowanceConsentScreen() {
 
       {
         Platform.OS === 'ios' && (
-          <Modal visible={showPicker} transparent animationType="fade">
+          <Modal visible={showPicker} transparent animationType="slide">
             <View style={styles.pickerOverlay}>
               <View style={styles.pickerCard}>
                 <DateTimePicker
                   value={tempDate ?? selectedDate ?? new Date()}
                   mode="date"
-                  display="spinner"
+                  display="inline"
                   locale="ko-KR"
+                  accentColor={COLORS.primary}
                   onChange={(_, d) => {
                     if (d) setTempDate(d);
                   }}

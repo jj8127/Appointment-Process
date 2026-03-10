@@ -7,6 +7,20 @@
 
 ---
 
+## <a id="20260310-ios-datepicker"></a> 2026-03-10 | iOS 수당동의 화면 달력 DateTimePicker 렌더링 버그 수정
+
+**배경**:
+- 배포된 앱에서 수당동의(`consent.tsx`) 화면의 날짜 선택 달력이 iOS에서 빈 화면으로 나타나는 버그 발생.
+- `transparent` Modal 안에서 `display="spinner"` 사용 시 iOS 15+ 환경에서 UIPickerView가 렌더링되지 않는 네이티브 버그.
+
+**조치**:
+- `app/consent.tsx`
+  - iOS 전용 Modal: `display="spinner"` → `display="inline"` (달력 그리드 방식, transparent modal에서 정상 렌더링).
+  - `animationType="fade"` → `animationType="slide"` (inline 모드와 시각적으로 자연스러운 트랜지션).
+  - `accentColor={COLORS.primary}` 추가 (선택된 날짜 색상 브랜드 색상으로 통일).
+
+---
+
 ## <a id="20260310-youtube-card"></a> 2026-03-10 | 홈 첫 화면 유튜브 가이드 카드 추가
 
 **배경**:

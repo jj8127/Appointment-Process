@@ -20,6 +20,7 @@
 ## 최근 작업
 | 날짜 | 작업 | 핵심 파일 | 상세 |
 |------|------|----------|------|
+| 03-10 | iOS 수당동의 화면 달력 DateTimePicker 렌더링 버그 수정 | `app/consent.tsx` | [→ 상세](WORK_DETAIL.md#20260310-ios-datepicker) |
 | 03-10 | 홈 첫 화면에 유튜브 가이드 카드 추가 (가이드 카드 옆 나란히 배치) | `app/index.tsx` | [→ 상세](WORK_DETAIL.md#20260310-youtube-card) |
 | 03-10 | 변경사항 저장 버튼에 위촉 상태 포함 + `hasAppointmentCompletion` 버그 수정 | `web/src/app/dashboard/page.tsx` | [→ 상세](WORK_DETAIL.md#20260310-commission-save-fix) |
 | 03-10 | 총무 위촉 상태 수정 로직 보정(앱/웹 동기화 + `final-link-sent` 복구 기준 정교화) | `app/dashboard.tsx`, `web/src/app/dashboard/page.tsx`, `AGENTS.md` | [→ 상세](WORK_DETAIL.md#20260310-commission-admin) |
