@@ -20,6 +20,8 @@
 ## 최근 작업
 | 날짜 | 작업 | 핵심 파일 | 상세 |
 |------|------|----------|------|
+| 03-10 | 변경사항 저장 버튼에 위촉 상태 포함 + `hasAppointmentCompletion` 버그 수정 | `web/src/app/dashboard/page.tsx` | [→ 상세](WORK_DETAIL.md#20260310-commission-admin) |
+| 03-10 | 총무 위촉 상태 수정 로직 보정(앱/웹 동기화 + `final-link-sent` 복구 기준 정교화) | `app/dashboard.tsx`, `web/src/app/dashboard/page.tsx`, `AGENTS.md` | [→ 상세](WORK_DETAIL.md#20260310-commission-admin) |
 | 03-09 | 레거시 FC 세션의 `residentId` 형식 검증 추가 + 메신저 대상 목록 재로그인 안내 | `hooks/use-session.tsx`, `app/chat.tsx`, `lib/validation.ts`, `lib/__tests__/validation.test.ts` | [→ 상세](WORK_DETAIL.md#20260309-1) |
 | 03-08 | `login-with-password` 런타임 500 핫픽스(`toBase64` 누락 복구) | `supabase/functions/login-with-password/index.ts` | [→ 상세](WORK_DETAIL.md#20260308-4) |
 | 03-08 | 앱 세션 복원 시 가람Link 브릿지 세션 자동 재동기화 + 복구 불가 구세션 강제 재로그인 | `hooks/use-session.tsx`, `hooks/use-login.ts`, `lib/request-board-api.ts`, `lib/request-board-session.ts`, `supabase/functions/login-with-password/index.ts`, `supabase/functions/sync-request-board-session/index.ts`, `supabase/functions/_shared/request-board-auth.ts`, `app/request-board*.tsx`, `app/messenger.tsx`, `lib/__tests__/request-board-session.test.ts` | [→ 상세](WORK_DETAIL.md#20260308-3) |

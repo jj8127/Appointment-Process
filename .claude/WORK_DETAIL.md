@@ -7,6 +7,53 @@
 
 ---
 
+## <a id="20260310-commission-save-fix"></a> 2026-03-10 | 변경사항 저장 버튼에 위촉 상태 포함
+
+**Commit**: `5724e1f`
+**배경**:
+- 위촉 상태 칩을 변경한 후 "변경사항 저장" 버튼을 눌러도 DB에 반영되지 않는 버그 발견.
+- `updateInfoMutation`(변경사항 저장)에 commission 필드가 포함되지 않았고, "위촉 상태 저장" 전용 버튼만 별도로 존재했음.
+- `buildCommissionProfileUpdate`의 `hasAppointmentCompletion`에 `life || nonlife` 포함되어 있어, `'both'` → partial 변경 시 실제 위촉 날짜 없이도 `appointment-completed`로 설정되는 버그도 수정.
+
+**조치**:
+- `web/src/app/dashboard/page.tsx`
+  - `updateInfoMutation`에 `buildCommissionProfileUpdate()` 결과를 포함 → 변경사항 저장으로도 위촉 상태 저장.
+  - temp_id 상태 업데이트가 commission-set status를 덮어쓰지 않도록 `!commissionData.status` 조건 추가.
+  - `onSuccess`에서 commission 변경 내용을 `selectedFc`에 즉시 반영.
+  - `hasAppointmentCompletion`에서 `life || nonlife` 제거 → `appointment_date_*`만으로 판단.
+
+**검증**:
+- TypeScript 타입 체크 통과 (`npx tsc --noEmit` 오류 없음)
+
+---
+
+## <a id="20260310-commission-admin"></a> 2026-03-10 | 총무 위촉 상태 수정 로직 보정(앱/웹 공통)
+
+**Commit**: `pending`  
+**배경**:
+- 총무가 FC 회원가입 시 잘못 선택된 위촉 상태(`미완료/생명 완료/손해 완료/모두 완료`)를 앱과 관리자 웹에서 직접 수정할 수 있는 UI가 추가됐다.
+- 1차 구현은 위촉 플래그(`life_commission_completed`, `nonlife_commission_completed`) 저장까지만 처리하고 있어, `status='final-link-sent'` 사용자를 partial/none으로 되돌릴 때 실제 진행 이력과 상태 문자열이 어긋날 수 있었다.
+- 웹 모달은 저장 후 `selectedFc` 로컬 상태를 갱신하지 않아 같은 모달에서 이어지는 위촉 승인 액션이 stale 플래그를 읽을 여지도 있었다.
+
+**조치**:
+- `app/dashboard.tsx`
+  - 총무 위촉 상태 저장 시 플래그만 바꾸지 않고, 현재 FC의 실제 진행 이력(서류/수당동의/위촉 일정·제출·확정)을 바탕으로 복구 대상 `status`를 계산하는 `buildCommissionProfileUpdate()` 헬퍼를 추가.
+  - `both`는 `final-link-sent`로 승격하고, `final-link-sent` 해제 시에는 무조건 `draft`가 아니라 `appointment-completed` / `docs-approved` / `docs-submitted` / `docs-requested` / `allowance-consented` / `temp-id-issued` / `draft` 중 적절한 하한 상태로 복구.
+  - 대시보드 재조회 후 위촉 상태 프리필은 서버 최신값이 우선하도록 병합 순서를 수정.
+- `web/src/app/dashboard/page.tsx`
+  - 앱과 동일한 `buildCommissionProfileUpdate()` 헬퍼를 추가해 관리자 웹도 같은 기준으로 `status`를 복구하도록 정렬.
+  - 위촉 상태 저장 성공 시 `selectedFc` 로컬 상태를 즉시 갱신해, 같은 모달에서 이어지는 위촉 승인/반려 계산이 최신 플래그 기준으로 동작하도록 보정.
+  - 본부장(read-only) 계정은 위촉 상태 칩 선택 자체도 막아 저장 버튼뿐 아니라 입력 UI도 비활성화.
+
+**검증**:
+- 별도 실행 없음(사용자 요청 기준 코드 수정만 진행)
+
+**운영 영향**:
+- 총무가 위촉 상태를 수정해도 `final-link-sent` 해제 시 진행 이력이 `draft`로 과도하게 초기화되지 않는다.
+- 앱/웹 모두 동일 기준으로 상태를 복구하므로, 홈 단계 계산과 대시보드 배지 분기 드리프트가 줄어든다.
+
+---
+
 ## <a id="20260309-1"></a> 2026-03-09 | 레거시 FC 세션 `residentId` 정리 + 메신저 대상 목록 복구 가드
 
 **Commit**: `pending`  
