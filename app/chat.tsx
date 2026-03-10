@@ -528,6 +528,13 @@ export default function ChatScreen() {
   };
 
   const pickImage = async () => {
+    if (Platform.OS === 'ios') {
+      const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
+      if (status !== 'granted') {
+        Alert.alert('사진 접근 권한 필요', '설정 > 가람in > 사진 접근을 허용해 주세요.');
+        return;
+      }
+    }
     const result = await ImagePicker.launchImageLibraryAsync({
       mediaTypes: ImagePicker.MediaTypeOptions.Images,
       allowsEditing: false,
@@ -820,6 +827,8 @@ export default function ChatScreen() {
           inverted
           contentContainerStyle={styles.listContent}
           style={styles.list}
+          keyboardShouldPersistTaps="handled"
+          keyboardDismissMode="interactive"
         />
 
         {uploading && (

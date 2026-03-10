@@ -7,6 +7,26 @@
 
 ---
 
+## <a id="20260310-ios-keyboard"></a> 2026-03-10 | iOS 키보드 및 사진 접근 권한 버그 수정
+
+**배경**:
+- iOS 전체 코드베이스 감사 결과 발견.
+
+**조치**:
+- `app/chat.tsx`
+  - 메시지 FlatList에 `keyboardShouldPersistTaps="handled"` + `keyboardDismissMode="interactive"` 추가.
+    - iOS에서 키보드가 올라와 있을 때 메시지/버튼을 탭해도 무시되던 문제 수정.
+    - `interactive`: 드래그로 자연스럽게 키보드 내림.
+  - `pickImage()` 앞에 iOS 사진 접근 권한 체크 추가.
+    - 권한 거부 시 무음 실패 대신 "설정 > 가람in > 사진 접근" 안내 Alert.
+- `app/admin-messenger.tsx`
+  - FC 목록 FlatList에 `keyboardShouldPersistTaps="handled"` + `keyboardDismissMode="on-drag"` 추가.
+    - 검색 TextInput 포커스 중 목록 항목 탭이 무시되던 문제 수정.
+- `app/docs-upload.tsx`
+  - ScrollView에 `keyboardShouldPersistTaps="handled"` + `keyboardDismissMode="on-drag"` 추가.
+
+---
+
 ## <a id="20260310-ios-datepicker-all"></a> 2026-03-10 | iOS DateTimePicker 렌더링 버그 전체 수정
 
 **배경**:

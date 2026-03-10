@@ -466,6 +466,8 @@ export default function DocsUploadScreen() {
         <ScrollView
           contentContainerStyle={[styles.scrollContent, { paddingBottom: keyboardPadding + 100 }]}
           refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}
+          keyboardShouldPersistTaps="handled"
+          keyboardDismissMode="on-drag"
         >
           <View style={styles.list}>
             {docs.map((doc) => {

@@ -20,6 +20,7 @@
 ## 최근 작업
 | 날짜 | 작업 | 핵심 파일 | 상세 |
 |------|------|----------|------|
+| 03-10 | iOS 키보드/사진 접근 권한 버그 수정 (채팅·메신저·서류업로드) | `app/chat.tsx`, `app/admin-messenger.tsx`, `app/docs-upload.tsx` | [→ 상세](WORK_DETAIL.md#20260310-ios-keyboard) |
 | 03-10 | iOS DateTimePicker 렌더링 버그 전체 수정 (위촉/시험응시/관리자 서류마감 화면) | `app/appointment.tsx`, `app/exam-apply.tsx`, `app/exam-apply2.tsx`, `app/dashboard.tsx` | [→ 상세](WORK_DETAIL.md#20260310-ios-datepicker-all) |
 | 03-10 | iOS 수당동의 화면 달력 DateTimePicker 렌더링 버그 수정 | `app/consent.tsx` | [→ 상세](WORK_DETAIL.md#20260310-ios-datepicker) |
 | 03-10 | 홈 첫 화면에 유튜브 가이드 카드 추가 (가이드 카드 옆 나란히 배치) | `app/index.tsx` | [→ 상세](WORK_DETAIL.md#20260310-youtube-card) |
