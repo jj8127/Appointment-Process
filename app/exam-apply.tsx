@@ -880,13 +880,13 @@ export default function ExamApplyScreen() {
         <View style={{ height: 40 }} />
 
         {Platform.OS === 'ios' && (
-          <Modal visible={showFeePaidPicker} transparent animationType="fade">
+          <Modal visible={showFeePaidPicker} transparent animationType="slide">
             <View style={styles.pickerOverlay}>
               <View style={styles.pickerCard}>
                 <DateTimePicker
                   value={tempFeePaidDate ?? feePaidDate ?? new Date()}
                   mode="date"
-                  display="spinner"
+                  display="inline"
                   locale="ko-KR"
                   onChange={(_, selectedDate) => {
                     if (selectedDate) setTempFeePaidDate(selectedDate);

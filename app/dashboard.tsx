@@ -2243,7 +2243,7 @@ export default function DashboardScreen() {
             <Modal
               visible={Boolean(docDeadlinePickerId)}
               transparent
-              animationType="fade"
+              animationType="slide"
               onRequestClose={() => setDocDeadlinePickerId(null)}
             >
               <KeyboardAvoidingView
@@ -2256,7 +2256,7 @@ export default function DashboardScreen() {
                     <DateTimePicker
                       value={docDeadlineTempDate ?? new Date()}
                       mode="date"
-                      display="spinner"
+                      display="inline"
                       locale="ko-KR"
                       onChange={(_, d) => {
                         if (d) setDocDeadlineTempDate(d);

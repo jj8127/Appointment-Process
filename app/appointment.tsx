@@ -438,13 +438,13 @@ export default function AppointmentScreen() {
       </ScrollView>
 
       {Platform.OS === 'ios' && showPickerLife && (
-        <Modal visible transparent animationType="fade">
+        <Modal visible transparent animationType="slide">
           <View style={styles.pickerOverlay}>
             <View style={styles.pickerCard}>
               <DateTimePicker
                 value={tempLife ?? displayLife ?? new Date()}
                 mode="date"
-                display="spinner"
+                display="inline"
                 locale="ko-KR"
                 onChange={(_, d) => {
                   if (d) setTempLife(d);
@@ -477,13 +477,13 @@ export default function AppointmentScreen() {
       )}
 
       {Platform.OS === 'ios' && showPickerNonLife && (
-        <Modal visible transparent animationType="fade">
+        <Modal visible transparent animationType="slide">
           <View style={styles.pickerOverlay}>
             <View style={styles.pickerCard}>
               <DateTimePicker
                 value={tempNonLife ?? displayNonLife ?? new Date()}
                 mode="date"
-                display="spinner"
+                display="inline"
                 locale="ko-KR"
                 onChange={(_, d) => {
                   if (d) setTempNonLife(d);

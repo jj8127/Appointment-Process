@@ -7,6 +7,19 @@
 
 ---
 
+## <a id="20260310-ios-datepicker-all"></a> 2026-03-10 | iOS DateTimePicker 렌더링 버그 전체 수정
+
+**배경**:
+- `consent.tsx` 동일 버그(`transparent` Modal + `display="spinner"` → iOS 15+ 빈 화면)가 다른 화면에도 존재함을 발견.
+- 영향 화면: 위촉 날짜(`appointment.tsx` ×2), 시험 수수료 납입일(`exam-apply.tsx`, `exam-apply2.tsx`), 관리자 서류 마감일(`dashboard.tsx`).
+
+**조치**:
+- 4개 파일의 iOS Modal DateTimePicker 모두 동일하게 수정:
+  - `display="spinner"` → `display="inline"`
+  - `animationType="fade"` → `animationType="slide"`
+
+---
+
 ## <a id="20260310-ios-datepicker"></a> 2026-03-10 | iOS 수당동의 화면 달력 DateTimePicker 렌더링 버그 수정
 
 **배경**:
