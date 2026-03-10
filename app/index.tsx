@@ -1273,7 +1273,7 @@ export default function Home() {
                     style={({ pressed }) => [styles.youtubeIconBtnNew, pressed && { opacity: 0.7 }]}
                     hitSlop={6}
                   >
-                    <Feather name="youtube" size={14} color="#EF4444" />
+                    <Feather name="youtube" size={16} color="#EF4444" />
                     <Text style={styles.youtubeIconBtnTextNew}>영상</Text>
                   </Pressable>
                 </View>
@@ -2390,9 +2390,9 @@ const styles = StyleSheet.create({
   youtubeIconBtnNew: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 4,
-    paddingHorizontal: 10,
-    paddingVertical: 5,
+    gap: 6,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
     borderRadius: 999,
     backgroundColor: '#FEF2F2',
     borderWidth: 1,
@@ -2400,8 +2400,8 @@ const styles = StyleSheet.create({
   },
 
   youtubeIconBtnTextNew: {
-    fontSize: 11,
-    fontWeight: '700',
+    fontSize: 13,
+    fontWeight: '800',
     color: '#EF4444',
   },
 
