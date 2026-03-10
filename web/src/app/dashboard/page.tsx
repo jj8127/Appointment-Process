@@ -386,11 +386,15 @@ export default function DashboardPage() {
   const updateInfoMutation = useMutation({
     mutationFn: async () => {
       if (!selectedFc) return;
-      const payload: Partial<FcProfile> = { career_type: careerInput };
+      const commissionData = buildCommissionProfileUpdate(selectedFc, commissionInput);
+      const payload: Partial<FcProfile> & Record<string, unknown> = {
+        career_type: careerInput,
+        ...commissionData,
+      };
       if (tempIdInput && tempIdInput !== selectedFc.temp_id) {
         payload.temp_id = tempIdInput;
-        // Fix: Do not reset status if already advanced
-        if (selectedFc.status === 'draft') {
+        // Fix: Do not reset status if already advanced, and don't override commission-set status
+        if (selectedFc.status === 'draft' && !commissionData.status) {
           payload.status = 'temp-id-issued';
         }
       }
@@ -412,6 +416,8 @@ export default function DashboardPage() {
       }
     },
     onSuccess: () => {
+      const commissionData = buildCommissionProfileUpdate(selectedFc, commissionInput);
+      updateSelectedFc(commissionData as Partial<FCProfileWithDocuments>);
       notifications.show({ title: '저장 완료', message: '기본 정보가 업데이트되었습니다.', color: 'green' });
       queryClient.invalidateQueries({ queryKey: ['dashboard-list'] });
     },
