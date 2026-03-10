@@ -52,7 +52,7 @@ import { useEffect, useMemo, useState, useTransition } from 'react';
 
 import { useSession } from '@/hooks/use-session';
 import type { FCDocument, FCProfileWithDocuments } from '@/types/dashboard';
-import type { FcProfile, FcStatus } from '@/types/fc';
+import type { CommissionCompletionStatus, FcProfile, FcStatus } from '@/types/fc';
 import { notifications } from '@mantine/notifications';
 import { useRouter } from 'next/navigation';
 import { StatusToggle } from '../../components/StatusToggle';
@@ -71,6 +71,83 @@ import { updateDocStatusAction } from './docs/actions';
 import { registerWebPushSubscription } from '@/components/WebPushRegistrar';
 
 import { logger } from '../../lib/logger';
+
+const buildCommissionProfileUpdate = (
+  profile: FCProfileWithDocuments | null,
+  commission: CommissionCompletionStatus,
+): Record<string, unknown> => {
+  const life = commission === 'life_only' || commission === 'both';
+  const nonlife = commission === 'nonlife_only' || commission === 'both';
+  const updateData: Record<string, unknown> = {
+    life_commission_completed: life,
+    nonlife_commission_completed: nonlife,
+  };
+
+  if (!profile) return updateData;
+
+  if (commission === 'both') {
+    updateData.status = 'final-link-sent';
+    return updateData;
+  }
+
+  if (profile.status !== 'final-link-sent') {
+    return updateData;
+  }
+
+  const docs = profile.fc_documents ?? [];
+  const uploadedDocs = docs.filter((doc) => doc.storage_path && doc.storage_path !== 'deleted');
+  const allSubmitted =
+    docs.length > 0 && docs.every((doc) => doc.storage_path && doc.storage_path !== 'deleted');
+  const allApproved = allSubmitted && docs.every((doc) => doc.status === 'approved');
+  const hasAppointmentActivity = Boolean(
+    profile.appointment_schedule_life ||
+    profile.appointment_schedule_nonlife ||
+    profile.appointment_date_life_sub ||
+    profile.appointment_date_nonlife_sub ||
+    profile.appointment_reject_reason_life ||
+    profile.appointment_reject_reason_nonlife ||
+    profile.appointment_date_life ||
+    profile.appointment_date_nonlife,
+  );
+  const hasAppointmentCompletion = Boolean(
+    profile.appointment_date_life ||
+    profile.appointment_date_nonlife,
+  );
+
+  if (hasAppointmentCompletion) {
+    updateData.status = 'appointment-completed';
+    return updateData;
+  }
+
+  if (allApproved || hasAppointmentActivity) {
+    updateData.status = 'docs-approved';
+    return updateData;
+  }
+
+  if (uploadedDocs.length > 0) {
+    updateData.status = 'docs-submitted';
+    return updateData;
+  }
+
+  if (docs.length > 0) {
+    updateData.status = docs.some((doc) => doc.status === 'rejected') ? 'docs-rejected' : 'docs-requested';
+    return updateData;
+  }
+
+  if (profile.allowance_date) {
+    updateData.status = 'allowance-consented';
+    return updateData;
+  }
+
+  if (profile.temp_id) {
+    updateData.status = 'temp-id-issued';
+    return updateData;
+  }
+
+  updateData.status = 'draft';
+  return updateData;
+};
+
 export default function DashboardPage() {
   const router = useRouter();
   const queryClient = useQueryClient();
@@ -89,6 +166,7 @@ export default function DashboardPage() {
   // 수정용 상태
   const [tempIdInput, setTempIdInput] = useState('');
   const [careerInput, setCareerInput] = useState<'신입' | '경력' | null>(null);
+  const [commissionInput, setCommissionInput] = useState<CommissionCompletionStatus>('none');
   const [selectedDocs, setSelectedDocs] = useState<string[]>([]);
   const [customDocInput, setCustomDocInput] = useState('');
   const [docsDeadlineInput, setDocsDeadlineInput] = useState<Date | null>(null);
@@ -476,6 +554,29 @@ export default function DashboardPage() {
     },
   });
 
+  const updateCommissionMutation = useMutation({
+    mutationFn: async () => {
+      if (!selectedFc) return;
+      const data = buildCommissionProfileUpdate(selectedFc, commissionInput);
+
+      const resp = await fetch('/api/admin/fc', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          action: 'updateProfile',
+          payload: { fcId: selectedFc.id, data },
+        }),
+      });
+      if (!resp.ok) throw new Error('위촉 상태 저장 실패');
+      return data;
+    },
+    onSuccess: (data) => {
+      updateSelectedFc(data as Partial<FCProfileWithDocuments>);
+      notifications.show({ title: '저장 완료', message: '위촉 상태가 업데이트되었습니다.', color: 'green' });
+      queryClient.invalidateQueries({ queryKey: ['dashboard-list'] });
+    },
+    onError: (err: Error) => notifications.show({ title: '오류', message: err.message, color: 'red' }),
+  });
 
   const handleOpenModal = (fc: FCProfileWithDocuments) => {
     setSelectedFc(fc);
@@ -496,6 +597,15 @@ export default function DashboardPage() {
     });
 
     setCustomDocInput('');
+
+    // commission state
+    const life = Boolean(fc.life_commission_completed);
+    const nonlife = Boolean(fc.nonlife_commission_completed);
+    if (life && nonlife) setCommissionInput('both');
+    else if (life) setCommissionInput('life_only');
+    else if (nonlife) setCommissionInput('nonlife_only');
+    else setCommissionInput('none');
+
     setModalTab('info');
     open();
   };
@@ -1377,6 +1487,38 @@ export default function DashboardPage() {
                       </Group>
                     </Chip.Group>
                   </Box>
+                  <Box>
+                    <Text size="sm" fw={500} mb={6}>
+                      현재 위촉 상태
+                    </Text>
+                    <Chip.Group
+                      value={commissionInput}
+                      onChange={(v) => {
+                        if (isReadOnly) return;
+                        setCommissionInput(v as CommissionCompletionStatus);
+                      }}
+                    >
+                      <Group gap="xs" wrap="wrap">
+                        <Chip value="none" color="gray" variant="light" disabled={isReadOnly}>미완료</Chip>
+                        <Chip value="life_only" color="orange" variant="light" disabled={isReadOnly}>생명 완료</Chip>
+                        <Chip value="nonlife_only" color="blue" variant="light" disabled={isReadOnly}>손해 완료</Chip>
+                        <Chip value="both" color="green" variant="light" disabled={isReadOnly}>모두 완료</Chip>
+                      </Group>
+                    </Chip.Group>
+                    <Button
+                      fullWidth
+                      mt="sm"
+                      size="xs"
+                      color={isReadOnly ? 'gray' : 'teal'}
+                      variant="light"
+                      onClick={() => updateCommissionMutation.mutate()}
+                      loading={updateCommissionMutation.isPending}
+                      disabled={isReadOnly}
+                    >
+                      위촉 상태 저장
+                    </Button>
+                  </Box>
+
                   <Box mt="md">
                     <Group justify="space-between" mb="xs">
                       <Text fw={600} size="sm">수당 동의 검토</Text>

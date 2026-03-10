@@ -31,6 +31,7 @@ import { useKeyboardPadding } from '@/hooks/use-keyboard-padding';
 import { useSession } from '@/hooks/use-session';
 import { supabase } from '@/lib/supabase';
 import { logger } from '@/lib/logger';
+import type { CommissionCompletionStatus } from '@/types/fc';
 import { FcProfile } from '@/types/fc';
 import type { FCDocument } from '@/types/dashboard';
 
@@ -172,6 +173,82 @@ const normalizeCustomDocInput = (value: string) => {
 const getStepKey = (profile: FcRow): StepKey => {
   const step = Math.max(1, Math.min(5, calcStep(profile)));
   return `step${step}` as StepKey;
+};
+
+const buildCommissionProfileUpdate = (
+  profile: FcRow | undefined,
+  commission: CommissionCompletionStatus,
+): Record<string, unknown> => {
+  const life = commission === 'life_only' || commission === 'both';
+  const nonlife = commission === 'nonlife_only' || commission === 'both';
+  const updateData: Record<string, unknown> = {
+    life_commission_completed: life,
+    nonlife_commission_completed: nonlife,
+  };
+
+  if (!profile) return updateData;
+
+  if (commission === 'both') {
+    updateData.status = 'final-link-sent';
+    return updateData;
+  }
+
+  if (profile.status !== 'final-link-sent') {
+    return updateData;
+  }
+
+  const docs = profile.fc_documents ?? [];
+  const uploadedDocs = docs.filter((doc) => doc.storage_path && doc.storage_path !== 'deleted');
+  const allSubmitted =
+    docs.length > 0 && docs.every((doc) => doc.storage_path && doc.storage_path !== 'deleted');
+  const allApproved = allSubmitted && docs.every((doc) => doc.status === 'approved');
+  const hasAppointmentActivity = Boolean(
+    profile.appointment_schedule_life ||
+    profile.appointment_schedule_nonlife ||
+    profile.appointment_date_life_sub ||
+    profile.appointment_date_nonlife_sub ||
+    profile.appointment_reject_reason_life ||
+    profile.appointment_reject_reason_nonlife ||
+    profile.appointment_date_life ||
+    profile.appointment_date_nonlife,
+  );
+  const hasAppointmentCompletion = Boolean(
+    profile.appointment_date_life ||
+    profile.appointment_date_nonlife,
+  );
+
+  if (hasAppointmentCompletion) {
+    updateData.status = 'appointment-completed';
+    return updateData;
+  }
+
+  if (allApproved || hasAppointmentActivity) {
+    updateData.status = 'docs-approved';
+    return updateData;
+  }
+
+  if (uploadedDocs.length > 0) {
+    updateData.status = 'docs-submitted';
+    return updateData;
+  }
+
+  if (docs.length > 0) {
+    updateData.status = docs.some((doc) => doc.status === 'rejected') ? 'docs-rejected' : 'docs-requested';
+    return updateData;
+  }
+
+  if (profile.allowance_date) {
+    updateData.status = 'allowance-consented';
+    return updateData;
+  }
+
+  if (profile.temp_id) {
+    updateData.status = 'temp-id-issued';
+    return updateData;
+  }
+
+  updateData.status = 'draft';
+  return updateData;
 };
 
 const docOptions: string[] = [
@@ -398,6 +475,7 @@ export default function DashboardScreen() {
   const [docDeadlinePickerId, setDocDeadlinePickerId] = useState<string | null>(null);
   const [docDeadlineTempDate, setDocDeadlineTempDate] = useState<Date | null>(null);
   const [customDocInputs, setCustomDocInputs] = useState<Record<string, string>>({});
+  const [commissionInputs, setCommissionInputs] = useState<Record<string, CommissionCompletionStatus>>({});
   const [scheduleInputs, setScheduleInputs] = useState<Record<string, { life?: string; nonlife?: string }>>({});
   const [expanded, setExpanded] = useState<Record<string, boolean>>({});
   const [refreshing, setRefreshing] = useState(false);
@@ -531,11 +609,21 @@ export default function DashboardScreen() {
         };
         if (fc.docs_deadline_at) deadlinePrefill[fc.id] = fc.docs_deadline_at;
       });
+      const commissionPrefill: Record<string, CommissionCompletionStatus> = {};
+      data.forEach((fc) => {
+        const life = Boolean(fc.life_commission_completed);
+        const nonlife = Boolean(fc.nonlife_commission_completed);
+        if (life && nonlife) commissionPrefill[fc.id] = 'both';
+        else if (life) commissionPrefill[fc.id] = 'life_only';
+        else if (nonlife) commissionPrefill[fc.id] = 'nonlife_only';
+        else commissionPrefill[fc.id] = 'none';
+      });
       setDocSelections(next);
       setTempInputs((prev) => ({ ...tempPrefill, ...prev }));
       setCareerInputs((prev) => ({ ...careerPrefill, ...prev }));
       setScheduleInputs((prev) => ({ ...schedulePrefill, ...prev }));
       setDocDeadlineInputs((prev) => ({ ...deadlinePrefill, ...prev }));
+      setCommissionInputs((prev) => ({ ...prev, ...commissionPrefill }));
     }, [data]);
 
   const onRefresh = useCallback(async () => {
@@ -718,6 +806,25 @@ export default function DashboardScreen() {
       if (error) {
         const message = error instanceof Error ? error.message : '상태 업데이트 중 문제가 발생했습니다.';
         Alert.alert('처리 실패', message);
+      }
+    },
+  });
+
+  const updateCommission = useMutation({
+    mutationFn: async ({ id, commission }: { id: string; commission: CommissionCompletionStatus }) => {
+      assertCanEdit();
+      const currentFc = (data ?? []).find((f) => f.id === id);
+      const updateData = buildCommissionProfileUpdate(currentFc, commission);
+      await adminAction(residentId, 'updateProfile', { fcId: id, data: updateData });
+    },
+    onSuccess: () => {
+      Alert.alert('저장 완료', '위촉 상태가 저장되었습니다.');
+      refetch();
+    },
+    onSettled: (_data, error) => {
+      if (error) {
+        const message = error instanceof Error ? error.message : '저장 중 문제가 발생했습니다.';
+        Alert.alert('저장 실패', message);
       }
     },
   });
@@ -1230,6 +1337,48 @@ export default function DashboardScreen() {
                   {fc.allowance_date ? `수당 동의일: ${fc.allowance_date}` : '수당 동의일 입력 대기'}
                 </Text>
               </View>
+            </View>
+
+            {/* Commission State Section */}
+            <View style={{ marginTop: 12, marginBottom: 16 }}>
+              <Text style={{ fontSize: 12, fontWeight: '600', color: MUTED, marginBottom: 8 }}>현재 위촉 상태</Text>
+              <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginBottom: 8 }}>
+                {([
+                  { value: 'none' as CommissionCompletionStatus, label: '미완료' },
+                  { value: 'life_only' as CommissionCompletionStatus, label: '생명 완료' },
+                  { value: 'nonlife_only' as CommissionCompletionStatus, label: '손해 완료' },
+                  { value: 'both' as CommissionCompletionStatus, label: '모두 완료' },
+                ]).map((opt) => {
+                  const current = commissionInputs[fc.id] ?? 'none';
+                  const isSelected = current === opt.value;
+                  return (
+                    <Pressable
+                      key={opt.value}
+                      style={[
+                        styles.filterTab,
+                        isSelected && styles.filterTabActive,
+                        { paddingHorizontal: 14, paddingVertical: 6 },
+                        !canEdit && { opacity: 0.6 },
+                      ]}
+                      onPress={() => setCommissionInputs((prev) => ({ ...prev, [fc.id]: opt.value }))}
+                      disabled={!canEdit}
+                    >
+                      <Text style={[styles.filterText, isSelected && styles.filterTextActive]}>{opt.label}</Text>
+                    </Pressable>
+                  );
+                })}
+              </View>
+              <Pressable
+                style={[
+                  styles.saveBtn,
+                  { alignItems: 'center' },
+                  (!canEdit || updateCommission.isPending) && styles.actionButtonDisabled,
+                ]}
+                onPress={() => updateCommission.mutate({ id: fc.id, commission: commissionInputs[fc.id] ?? 'none' })}
+                disabled={!canEdit || updateCommission.isPending}
+              >
+                <Text style={styles.saveBtnText}>{updateCommission.isPending ? '저장중...' : '위촉 상태 저장'}</Text>
+              </Pressable>
             </View>
 
             <View style={{ height: 1, backgroundColor: '#F3F4F6', marginBottom: 16 }} />
