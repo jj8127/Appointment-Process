@@ -24,6 +24,7 @@ import { FormInput } from '@/components/FormInput';
 import { ScreenHeader } from '@/components/ScreenHeader';
 import { useIdentityGate } from '@/hooks/use-identity-gate';
 import { useKeyboardPadding } from '@/hooks/use-keyboard-padding';
+import { AGREEMENT_GUIDE_IMAGES } from '@/lib/guide-images';
 import { useSession } from '@/hooks/use-session';
 import { logger } from '@/lib/logger';
 import { openExternalUrl } from '@/lib/open-external-url';
@@ -36,18 +37,6 @@ const formatKoreanDate = (d: Date) =>
 
 const toYMD = (d: Date) =>
   `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
-
-const AGREEMENT_IMAGES = [
-  require('../agreement_imag/01.jpg'),
-  require('../agreement_imag/02.jpg'),
-  require('../agreement_imag/03.jpg'),
-  require('../agreement_imag/04.jpg'),
-  require('../agreement_imag/05.jpg'),
-  require('../agreement_imag/06.jpg'),
-  require('../agreement_imag/07.jpg'),
-  require('../agreement_imag/08.jpg'),
-  require('../agreement_imag/09.jpg'),
-];
 
 export default function AllowanceConsentScreen() {
   const { residentId } = useSession();
@@ -67,7 +56,7 @@ export default function AllowanceConsentScreen() {
   const [refreshing, setRefreshing] = useState(false);
   const sliderRef = useRef<FlatList>(null);
 
-  const maxIndex = AGREEMENT_IMAGES.length - 1;
+  const maxIndex = AGREEMENT_GUIDE_IMAGES.length - 1;
 
   useEffect(() => {
     const load = async () => {
@@ -105,10 +94,10 @@ export default function AllowanceConsentScreen() {
   }, [residentId]);
 
   useEffect(() => {
-    if (AGREEMENT_IMAGES[0]) {
+    if (AGREEMENT_GUIDE_IMAGES[0]) {
       // Web safety check
       if (typeof Image.resolveAssetSource === 'function') {
-        const { width: iw, height: ih } = Image.resolveAssetSource(AGREEMENT_IMAGES[0]);
+        const { width: iw, height: ih } = Image.resolveAssetSource(AGREEMENT_GUIDE_IMAGES[0]);
         if (iw && ih) setImageRatio(ih / iw);
       }
     }
@@ -241,7 +230,7 @@ export default function AllowanceConsentScreen() {
           <View style={styles.sliderContainer}>
             <FlatList
               ref={sliderRef}
-              data={AGREEMENT_IMAGES}
+              data={AGREEMENT_GUIDE_IMAGES}
               keyExtractor={(_, i) => String(i)}
               horizontal
               showsHorizontalScrollIndicator={false}
@@ -272,7 +261,7 @@ export default function AllowanceConsentScreen() {
               )}
             />
             <View style={styles.pagination}>
-              {AGREEMENT_IMAGES.map((_, i) => (
+               {AGREEMENT_GUIDE_IMAGES.map((_, i) => (
                 <View key={i} style={[styles.dot, currentIndex === i && styles.dotActive]} />
               ))}
             </View>

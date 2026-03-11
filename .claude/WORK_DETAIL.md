@@ -7,6 +7,56 @@
 
 ---
 
+## <a id="20260311-designer-doc-sync"></a> 2026-03-11 | 설계매니저 앱 연동 구조 문서 정합화
+
+**배경**:
+- 운영 중 request_board 설계매니저 계정은 별도로 존재하지만, `가람in` 쪽은 독립 `designer` role 테이블/세션 구조가 아니어서 생성 규칙이 혼동될 수 있었다.
+- 실제 앱 구조는 설계매니저를 `fc_profiles`/`fc_credentials`에 저장하고 `affiliation = '<보험사> 설계매니저'` 패턴으로 request_board 브릿지 role을 `designer`로 해석한다.
+- 운영 DB 확인 결과 앱 기준 request_board-linked 설계매니저 프로필 수는 현재 `54명`이었다.
+
+**조치**:
+- `AGENTS.md`
+  - Snapshot 기준일을 `2026-03-11`로 갱신.
+  - 설계매니저 앱 연동 구조를 명시:
+    - 앱 내부 독립 role 없음
+    - `fc_profiles`/`fc_credentials` 저장
+    - `affiliation` 패턴 기반 request_board `designer` 브릿지 발급
+  - 현재 앱 DB 기준 linked 설계매니저 수 `54명` 반영.
+
+**검증**:
+- 운영 DB 조회:
+  - `fc_profiles.affiliation ilike '%설계매니저%'` = `54`
+- 현재 세션/브릿지 구현 대조:
+  - `hooks/use-session.tsx`
+  - `supabase/functions/login-with-password/index.ts`
+  - `lib/bottom-navigation.ts`
+
+---
+
+## <a id="20260311-guide-images"></a> 2026-03-11 | 수당동의/위촉 가이드 이미지 자산 경로 정리
+
+**배경**:
+- `app/consent.tsx`의 수당동의 가이드 이미지가 실제 앱에서 보이지 않는 이슈 확인.
+- 가이드 이미지가 프로젝트 루트 별도 폴더(`agreement_imag`, `appointment_img`)를 직접 `require()`하는 구조였고, 네이티브 빌드 자산 번들링 경로로는 불안정했다.
+- 동일 패턴이 `app/appointment.tsx`에도 있어 이후 같은 문제가 재발할 가능성이 있었다.
+
+**조치**:
+- `assets/images/guides/agreement/*.jpg`, `assets/images/guides/appointment/*.jpg`로 가이드 이미지를 복제해 앱 번들 기준 경로로 정리.
+- `lib/guide-images.ts` 추가:
+  - 수당동의/위촉 가이드 이미지 배열을 한 곳에서 관리.
+- `app/consent.tsx`
+  - 기존 `../agreement_imag/*.jpg` 직접 참조 제거.
+  - `AGREEMENT_GUIDE_IMAGES` import로 교체.
+- `app/appointment.tsx`
+  - 기존 `../appointment_img/*.jpg` 직접 참조 제거.
+  - `APPOINTMENT_GUIDE_IMAGES` import로 교체.
+
+**검증**:
+- `npx tsc --noEmit` 통과
+- `npm run lint -- app/consent.tsx app/appointment.tsx lib/guide-images.ts` 통과
+
+---
+
 ## <a id="20260310-ios-keyboard"></a> 2026-03-10 | iOS 키보드 및 사진 접근 권한 버그 수정
 
 **배경**:

@@ -21,6 +21,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { Button } from '@/components/Button';
 import { ScreenHeader } from '@/components/ScreenHeader';
 import { useIdentityGate } from '@/hooks/use-identity-gate';
+import { APPOINTMENT_GUIDE_IMAGES } from '@/lib/guide-images';
 import { useKeyboardPadding } from '@/hooks/use-keyboard-padding';
 import { useSession } from '@/hooks/use-session';
 import { supabase } from '@/lib/supabase';
@@ -35,33 +36,6 @@ const toYMD = (d: Date) =>
   `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 
 const formatShortKoreanDate = (d: Date) => d.toLocaleDateString('ko-KR');
-
-const APPOINTMENT_IMAGES = [
-  require('../appointment_img/img2.jpg'),
-  require('../appointment_img/img3.jpg'),
-  require('../appointment_img/img4.jpg'),
-  require('../appointment_img/img5.jpg'),
-  require('../appointment_img/img6.jpg'),
-  require('../appointment_img/img7.jpg'),
-  require('../appointment_img/img8.jpg'),
-  require('../appointment_img/img9.jpg'),
-  require('../appointment_img/img10.jpg'),
-  require('../appointment_img/img11.jpg'),
-  require('../appointment_img/img12.jpg'),
-  require('../appointment_img/img13.jpg'),
-  require('../appointment_img/img14.jpg'),
-  require('../appointment_img/img15.jpg'),
-  require('../appointment_img/img16.jpg'),
-  require('../appointment_img/img17.jpg'),
-  require('../appointment_img/img18.jpg'),
-  require('../appointment_img/img19.jpg'),
-  require('../appointment_img/img20.jpg'),
-  require('../appointment_img/img21.jpg'),
-  require('../appointment_img/img22.jpg'),
-  require('../appointment_img/img23.jpg'),
-  require('../appointment_img/img24.jpg'),
-  require('../appointment_img/img25.jpg'),
-];
 
 export default function AppointmentScreen() {
   const { role, residentId } = useSession();
@@ -140,10 +114,10 @@ export default function AppointmentScreen() {
   }, [load]);
 
   useEffect(() => {
-    if (APPOINTMENT_IMAGES[0]) {
+    if (APPOINTMENT_GUIDE_IMAGES[0]) {
       // Web safety check
       if (typeof Image.resolveAssetSource === 'function') {
-        const src = Image.resolveAssetSource(APPOINTMENT_IMAGES[0]);
+        const src = Image.resolveAssetSource(APPOINTMENT_GUIDE_IMAGES[0]);
         if (src?.width && src?.height) setImageRatio(src.height / src.width);
       }
     }
@@ -396,7 +370,7 @@ export default function AppointmentScreen() {
                 <Text style={styles.sectionTitle}>위촉 진행 가이드</Text>
                 <Text style={styles.sectionDesc}>아래 화면을 참고해 위촉 절차를 완료해주세요.</Text>
                 <FlatList
-                  data={APPOINTMENT_IMAGES}
+              data={APPOINTMENT_GUIDE_IMAGES}
                   keyExtractor={(_, i) => String(i)}
                   horizontal
                   showsHorizontalScrollIndicator={false}
@@ -427,7 +401,7 @@ export default function AppointmentScreen() {
                   }}
                 />
                 <View style={styles.pagination}>
-                  {APPOINTMENT_IMAGES.map((_, i) => (
+              {APPOINTMENT_GUIDE_IMAGES.map((_, i) => (
                     <View key={i} style={[styles.dot, currentIndex === i && styles.dotActive]} />
                   ))}
                 </View>
