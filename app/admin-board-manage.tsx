@@ -38,6 +38,7 @@ import { ImagePreviewModal } from '@/components/ImagePreviewModal';
 import { KeyboardAwareWrapper } from '@/components/KeyboardAwareWrapper';
 import { LinkifiedSelectableText } from '@/components/LinkifiedSelectableText';
 import { ReactionPicker, DEFAULT_REACTIONS } from '@/components/ReactionPicker';
+import { useAppLogout } from '@/hooks/use-app-logout';
 import { useKeyboardPadding } from '@/hooks/use-keyboard-padding';
 import { useSession } from '@/hooks/use-session';
 import { openExternalUrl } from '@/lib/open-external-url';
@@ -221,8 +222,9 @@ function AttachmentPreviewThumb({ uri }: AttachmentPreviewThumbProps) {
 
 export default function AdminBoardManageScreen() {
   const router = useRouter();
+  const appLogout = useAppLogout();
   const navigation = useNavigation();
-  const { role, displayName, residentId, readOnly, isRequestBoardDesigner, hydrated, logout } = useSession();
+  const { role, displayName, residentId, readOnly, isRequestBoardDesigner, hydrated } = useSession();
   const queryClient = useQueryClient();
   const insets = useSafeAreaInsets();
   const keyboardPadding = useKeyboardPadding();
@@ -478,8 +480,16 @@ export default function AdminBoardManageScreen() {
     await refetch();
     setRefreshing(false);
   }, [refetch]);
+
+  useEffect(() => {
+    if (!hydrated) return;
+    if (!role) {
+      router.replace('/login');
+    }
+  }, [hydrated, role, router]);
+
   const handleLogout = () => {
-    logout();
+    appLogout();
   };
 
   useEffect(() => {

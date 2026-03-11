@@ -7,6 +7,42 @@
 
 ---
 
+## <a id="20260311-logout-rb-sync"></a> 2026-03-11 | 로그아웃 공통 동작 통일 + request_board 첫 로그인 세션 재바인딩 강화
+
+**배경**:
+- 설계매니저가 `가람in`에서 `가람Link` 진입 화면을 사용할 때 상단 `로그아웃` 버튼을 눌러도 즉시 로그인 화면으로 이동하지 않아 버튼이 먹지 않는 것처럼 보이는 문제가 있었다.
+- 일부 request_board 관련 화면은 세션이 비워져도 자체적으로 `/login` 리다이렉트하지 않아, 로그아웃/세션 강제정리 뒤에도 같은 화면에 남을 수 있었다.
+- request_board 연동은 앱 로그인 직후에도 기존 `rb_jwt_token`이 남아 있으면 이전 사용자 세션을 재사용할 여지가 있었고, 이 경우 fresh login 이후에도 세션 업그레이드/재로그인 안내가 튈 수 있었다.
+
+**조치**:
+- `hooks/use-app-logout.ts`
+  - 앱 공통 로그아웃 액션 추가: 세션 정리 + `/login` 즉시 이동.
+- `app/request-board.tsx`, `app/board.tsx`, `app/admin-board-manage.tsx`, `app/settings.tsx`, `app/home-lite.tsx`
+  - 로그아웃 액션을 공통 훅으로 통일.
+  - 세션이 비워진 상태(`role === null`)를 감지하면 `/login`으로 리다이렉트하도록 보강.
+- `components/AppTopActionBar.tsx`
+  - 알림/로그아웃 터치 영역에 `hitSlop` 추가.
+- `hooks/use-login.ts`
+  - 새 로그인 성공 시 request_board 로컬 인증 상태(`rb_jwt_token`, bridge/app session token)를 먼저 초기화한 뒤 새 토큰을 저장하도록 변경.
+  - `login-with-password`가 내려주는 `requestBoardRole(fc|designer)`를 즉시 받아, bridge-login이 일시 실패해도 첫 화면에서 올바른 설계매니저/FC 분기를 유지하도록 보강.
+- `hooks/use-session.tsx`
+  - request_board `/api/auth/me` 결과의 전화번호가 현재 앱 세션 전화번호와 다르면 stale request_board JWT로 판단하고 `clearAuth()` 후 current bridge/app session으로 재바인딩하도록 변경.
+- `supabase/functions/login-with-password/index.ts`
+  - 앱 로그인 응답에 `requestBoardRole` 포함(`manager -> fc`, request_board-linked FC -> `fc|designer`, admin -> `null`).
+
+**검증**:
+- `npm run lint -- hooks/use-app-logout.ts hooks/use-login.ts hooks/use-session.tsx components/AppTopActionBar.tsx app/request-board.tsx app/board.tsx app/admin-board-manage.tsx app/settings.tsx app/home-lite.tsx`
+- `npx tsc --noEmit`
+- `npx jest lib/__tests__/request-board-session.test.ts`
+- `node scripts/ci/check-governance.mjs`
+
+**운영 후 확인 포인트**:
+- 설계매니저/FC/본부장 계정으로 상단 `로그아웃` 탭 시 즉시 `/login`으로 이동하는지
+- 서로 다른 계정으로 연속 로그인 시 request_board가 이전 사용자 JWT를 재사용하지 않는지
+- fresh login 직후 설계매니저가 `설계 요청`/`설계요청 메신저`에 진입해도 `가람Link 연동 세션을 업그레이드하려면 다시 로그인해주세요.` 경고가 다시 뜨지 않는지
+
+---
+
 ## <a id="20260311-designer-doc-sync"></a> 2026-03-11 | 설계매니저 앱 연동 구조 문서 정합화
 
 **배경**:

@@ -5,6 +5,7 @@ import { Alert, BackHandler, Platform, Pressable, ScrollView, StyleSheet, Text, 
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { useSession } from '@/hooks/use-session';
+import { useAppLogout } from '@/hooks/use-app-logout';
 import { useIdentityStatus } from '@/hooks/use-identity-status';
 import { COLORS, TYPOGRAPHY, SPACING, RADIUS } from '@/lib/theme';
 
@@ -23,7 +24,8 @@ const LOCKED_ITEMS: LockedItem[] = [
 ];
 
 export default function HomeLiteScreen() {
-  const { role, hydrated, logout, displayName, isRequestBoardDesigner } = useSession();
+  const { role, hydrated, displayName, isRequestBoardDesigner } = useSession();
+  const appLogout = useAppLogout();
   const { data, isLoading } = useIdentityStatus();
 
   useEffect(() => {
@@ -77,7 +79,7 @@ export default function HomeLiteScreen() {
           <Pressable style={styles.iconButton} onPress={() => router.push('/notifications')}>
             <Feather name="bell" size={18} color={COLORS.text.primary} />
           </Pressable>
-          <Pressable style={styles.logoutButton} onPress={logout}>
+          <Pressable style={styles.logoutButton} onPress={appLogout}>
             <Text style={styles.logoutText}>로그아웃</Text>
           </Pressable>
         </View>

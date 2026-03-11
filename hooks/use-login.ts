@@ -3,7 +3,7 @@ import { Alert, Keyboard } from 'react-native';
 import * as Haptics from 'expo-haptics';
 import { router } from 'expo-router';
 import { useSession } from '@/hooks/use-session';
-import { rbBridgeLogin, setAppSessionToken, setBridgeToken } from '@/lib/request-board-api';
+import { clearRequestBoardState, rbBridgeLogin, setAppSessionToken, setBridgeToken } from '@/lib/request-board-api';
 import { supabase } from '@/lib/supabase';
 import { validatePhone, validateRequired, normalizePhone } from '@/lib/validation';
 
@@ -16,6 +16,7 @@ type LoginResponse = {
   displayName?: string;
   requestBoardBridgeToken?: string;
   appSessionToken?: string;
+  requestBoardRole?: 'fc' | 'designer' | null;
 };
 
 type UseLoginOptions = {
@@ -87,11 +88,16 @@ export function useLogin(options?: UseLoginOptions) {
       const nextRole = data.role === 'admin' || data.role === 'manager' ? 'admin' : 'fc';
       const bridgeToken = data.requestBoardBridgeToken ?? null;
       const appSessionToken = data.appSessionToken ?? null;
+      const fallbackRequestBoardRole =
+        data.requestBoardRole === 'fc' || data.requestBoardRole === 'designer'
+          ? data.requestBoardRole
+          : null;
+      await clearRequestBoardState({ clearAppSession: true });
       await setAppSessionToken(appSessionToken);
       await setBridgeToken(bridgeToken);
 
-      let requestBoardRole: 'fc' | 'designer' | null = null;
-      let isRequestBoardDesigner = false;
+      let requestBoardRole: 'fc' | 'designer' | null = fallbackRequestBoardRole;
+      let isRequestBoardDesigner = fallbackRequestBoardRole === 'designer' && nextRole === 'fc';
       if (bridgeToken) {
         try {
           const bridged = await rbBridgeLogin(bridgeToken);
@@ -101,8 +107,8 @@ export function useLogin(options?: UseLoginOptions) {
             isRequestBoardDesigner = bridged.user.role === 'designer' && nextRole === 'fc';
           }
         } catch {
-          requestBoardRole = null;
-          isRequestBoardDesigner = false;
+          requestBoardRole = fallbackRequestBoardRole;
+          isRequestBoardDesigner = fallbackRequestBoardRole === 'designer' && nextRole === 'fc';
         }
       }
 

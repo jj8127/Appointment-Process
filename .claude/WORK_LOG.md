@@ -20,6 +20,7 @@
 ## 최근 작업
 | 날짜 | 작업 | 핵심 파일 | 상세 |
 |------|------|----------|------|
+| 03-11 | 로그아웃 공통 동작 통일 + request_board 첫 로그인 세션 재바인딩 강화 | `hooks/use-app-logout.ts`, `hooks/use-login.ts`, `hooks/use-session.tsx`, `supabase/functions/login-with-password/index.ts`, `app/request-board.tsx`, `app/board.tsx`, `app/admin-board-manage.tsx`, `app/settings.tsx`, `app/home-lite.tsx`, `components/AppTopActionBar.tsx` | [→ 상세](WORK_DETAIL.md#20260311-logout-rb-sync) |
 | 03-11 | 운영 문서 정합화 — 설계매니저 앱 연동 구조(`fc_profiles.affiliation` 기반)와 현재 54명 상태를 AGENTS에 명시 | `AGENTS.md` | [→ 상세](WORK_DETAIL.md#20260311-designer-doc-sync) |
 | 03-11 | 수당동의/위촉 가이드 이미지 자산 경로 정리(앱 번들 안정화) | `app/consent.tsx`, `app/appointment.tsx`, `lib/guide-images.ts`, `assets/images/guides/*` | [→ 상세](WORK_DETAIL.md#20260311-guide-images) |
 | 03-11 | 보안 강화 — admin layout 추가, dashboard role 검증, middleware /admin 검증, API 에러 마스킹(8개 route), Edge Function board-* dbError 헬퍼(16개), fc_documents anon INSERT 제거 migration | `web/src/app/admin/layout.tsx`, `web/src/app/dashboard/layout.tsx`, `web/middleware.ts`, `web/src/lib/api-error.ts`, `supabase/functions/_shared/board.ts`, `supabase/migrations/20260310000001_fix_anon_write_policies.sql` | — |

@@ -19,6 +19,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { AppTopActionBar } from '@/components/AppTopActionBar';
 import { BottomNavigation } from '@/components/BottomNavigation';
+import { useAppLogout } from '@/hooks/use-app-logout';
 import { useSession } from '@/hooks/use-session';
 import { resolveBottomNavActiveKey, resolveBottomNavPreset } from '@/lib/bottom-navigation';
 import { logger } from '@/lib/logger';
@@ -237,6 +238,7 @@ function computeReqStats(
 export default function RequestBoardScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
+  const appLogout = useAppLogout();
   const {
     role,
     residentId,
@@ -245,7 +247,6 @@ export default function RequestBoardScreen() {
     isRequestBoardDesigner,
     requestBoardRole,
     readOnly,
-    logout,
     ensureRequestBoardSession,
   } = useSession();
   const [notifications, setNotifications] = useState<NotificationItem[]>([]);
@@ -275,6 +276,13 @@ export default function RequestBoardScreen() {
   const isRbFcUser =
     !isRequestBoardDesigner && (!!requestBoardRole || role === 'fc');
   const showStats = reqStats.loaded && (isRbFcUser || !!isRequestBoardDesigner);
+
+  useEffect(() => {
+    if (!hydrated) return;
+    if (!role) {
+      router.replace('/login');
+    }
+  }, [hydrated, role, router]);
 
   /* ─── Data fetch ─── */
   const fetchData = useCallback(async () => {
@@ -412,7 +420,7 @@ export default function RequestBoardScreen() {
   };
 
   const handleLogout = () => {
-    logout();
+    appLogout();
   };
 
   const copyRequestBoardUrl = async () => {

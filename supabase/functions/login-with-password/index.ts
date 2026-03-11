@@ -229,6 +229,7 @@ serve(async (req: Request) => {
       role: 'admin',
       residentId: admin.phone,
       displayName: admin.name ?? '',
+      requestBoardRole: null,
       ...(requestBoardBridgeToken ? { requestBoardBridgeToken } : {}),
       ...(appSessionToken ? { appSessionToken } : {}),
     });
@@ -304,6 +305,7 @@ serve(async (req: Request) => {
       role: 'manager',
       residentId: manager.phone,
       displayName: manager.name ?? '',
+      requestBoardRole: 'fc',
       ...(requestBoardBridgeToken ? { requestBoardBridgeToken } : {}),
       ...(appSessionToken ? { appSessionToken } : {}),
     });
@@ -393,6 +395,7 @@ serve(async (req: Request) => {
     role: 'fc',
     residentId: profile.phone,
     displayName: profile.name ?? '',
+    requestBoardRole,
     ...(requestBoardBridgeToken ? { requestBoardBridgeToken } : {}),
     ...(appSessionToken ? { appSessionToken } : {}),
   });

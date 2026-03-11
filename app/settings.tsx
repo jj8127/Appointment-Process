@@ -1,11 +1,12 @@
 import { Feather } from '@expo/vector-icons';
 import { router } from 'expo-router';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Alert, Modal, Pressable, StyleSheet, Text, View } from 'react-native';
 import Animated from 'react-native-reanimated';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { BottomNavigation } from '@/components/BottomNavigation';
+import { useAppLogout } from '@/hooks/use-app-logout';
 import { useBottomNavAnimation } from '@/hooks/use-bottom-nav-animation';
 import { useSession } from '@/hooks/use-session';
 import { resolveBottomNavActiveKey, resolveBottomNavPreset } from '@/lib/bottom-navigation';
@@ -14,6 +15,7 @@ import { COLORS, TYPOGRAPHY, SPACING, RADIUS } from '@/lib/theme';
 
 export default function SettingsScreen() {
   const { role, residentId, residentMask, displayName, logout, isRequestBoardDesigner, readOnly, hydrated } = useSession();
+  const appLogout = useAppLogout();
   const insets = useSafeAreaInsets();
   const { scrollHandler, animatedStyle } = useBottomNavAnimation();
   const navPreset = resolveBottomNavPreset({ role, readOnly, hydrated, isRequestBoardDesigner });
@@ -26,6 +28,13 @@ export default function SettingsScreen() {
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
 
   const accountRole: 'fc' | 'admin' | 'manager' = readOnly ? 'manager' : role === 'admin' ? 'admin' : 'fc';
+
+  useEffect(() => {
+    if (!hydrated) return;
+    if (!role) {
+      router.replace('/login');
+    }
+  }, [hydrated, role]);
 
   const handleDelete = () => {
     if (!role) {
@@ -98,7 +107,7 @@ export default function SettingsScreen() {
           </Pressable>
         </View>
 
-        <Pressable style={styles.logoutButton} onPress={logout}>
+        <Pressable style={styles.logoutButton} onPress={appLogout}>
           <Text style={styles.logoutText}>로그아웃</Text>
         </Pressable>
       </Animated.ScrollView>

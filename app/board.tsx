@@ -37,6 +37,7 @@ import { ImagePreviewModal } from '@/components/ImagePreviewModal';
 import { LinkifiedSelectableText } from '@/components/LinkifiedSelectableText';
 import { CardSkeleton } from '@/components/LoadingSkeleton';
 import { DEFAULT_REACTIONS, ReactionPicker } from '@/components/ReactionPicker';
+import { useAppLogout } from '@/hooks/use-app-logout';
 import { resolveBottomNavActiveKey, resolveBottomNavPreset } from '@/lib/bottom-navigation';
 import { useKeyboardPadding } from '@/hooks/use-keyboard-padding';
 import { useSession } from '@/hooks/use-session';
@@ -249,9 +250,10 @@ function AttachmentPreviewThumb({ uri }: AttachmentPreviewThumbProps) {
 
 export default function BoardScreen() {
   const router = useRouter();
+  const appLogout = useAppLogout();
   const { postId } = useLocalSearchParams<{ postId?: string }>();
   const navigation = useNavigation();
-  const { role, displayName, residentId, readOnly, hydrated, isRequestBoardDesigner, logout } = useSession();
+  const { role, displayName, residentId, readOnly, hydrated, isRequestBoardDesigner } = useSession();
   const queryClient = useQueryClient();
   const insets = useSafeAreaInsets();
   const keyboardPadding = useKeyboardPadding();
@@ -948,8 +950,15 @@ export default function BoardScreen() {
   const modalHeaderPaddingTop = Math.max(insets.top - 12, 8);
   const modalTopGap = Math.max(insets.top + 12, 24);
   const commentBarInset = 96;
+  useEffect(() => {
+    if (!hydrated) return;
+    if (!role) {
+      router.replace('/login');
+    }
+  }, [hydrated, role, router]);
+
   const handleLogout = () => {
-    logout();
+    appLogout();
   };
 
   useEffect(() => {

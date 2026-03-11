@@ -2,6 +2,7 @@ import { createContext, ReactNode, useCallback, useContext, useEffect, useMemo, 
 import { logger } from '@/lib/logger';
 import { registerPushToken } from '@/lib/notifications';
 import {
+  clearAuth,
   clearRequestBoardState,
   getStoredAppSessionToken,
   getStoredBridgeToken,
@@ -130,7 +131,18 @@ export function SessionProvider({ children }: { children: ReactNode }) {
       setRequestBoardSyncStatus('syncing');
       setRequestBoardSyncError(null);
 
-      const auth = await rbCheckAuth();
+      let auth = await rbCheckAuth();
+      if (auth.authenticated && auth.user) {
+        const normalizedRequestBoardPhone = normalizePhone(auth.user.phone ?? '');
+        if (normalizedRequestBoardPhone && normalizedRequestBoardPhone !== state.residentId) {
+          logger.warn('[session] request_board auth user mismatch, refreshing bridge session', {
+            appResidentId: state.residentId,
+            requestBoardPhone: normalizedRequestBoardPhone,
+          });
+          await clearAuth();
+          auth = await rbCheckAuth();
+        }
+      }
       if (auth.authenticated && auth.user) {
         const [bridgeToken, storedAppSessionToken] = await Promise.all([
           getStoredBridgeToken(),
@@ -167,7 +179,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     } finally {
       requestBoardSyncPromiseRef.current = null;
     }
-  }, [appSessionToken, hydrated, state.readOnly, state.role, syncRequestBoardFlags]);
+  }, [appSessionToken, hydrated, state.readOnly, state.residentId, state.role, syncRequestBoardFlags]);
 
   useEffect(() => {
     const restore = async () => {

@@ -28,7 +28,7 @@ export function AppTopActionBar({
   return (
     <View style={[styles.topBar, { paddingTop: Math.max(insets.top + 6, 12) }]}>
       <View style={styles.sideSlotLeft}>
-        <Pressable style={styles.iconButton} onPress={onOpenNotifications}>
+        <Pressable style={styles.iconButton} onPress={onOpenNotifications} hitSlop={10}>
           <Feather name="bell" size={20} color={CHARCOAL} />
           {showCountBadge && (
             <View style={[styles.countBadge, badgeLabel.length >= 3 && styles.countBadgeWide]}>
@@ -52,7 +52,7 @@ export function AppTopActionBar({
       </View>
 
       <View style={styles.sideSlotRight}>
-        <Pressable style={styles.logoutButton} onPress={onLogout}>
+        <Pressable style={styles.logoutButton} onPress={onLogout} hitSlop={10}>
           <Text style={styles.logoutText}>로그아웃</Text>
         </Pressable>
       </View>
