@@ -4,6 +4,7 @@ import * as Haptics from 'expo-haptics';
 import { router } from 'expo-router';
 import { useSession } from '@/hooks/use-session';
 import { clearRequestBoardState, rbBridgeLogin, setAppSessionToken, setBridgeToken } from '@/lib/request-board-api';
+import { normalizeStaffType } from '@/lib/staff-identity';
 import { supabase } from '@/lib/supabase';
 import { validatePhone, validateRequired, normalizePhone } from '@/lib/validation';
 
@@ -14,6 +15,7 @@ type LoginResponse = {
   role?: 'admin' | 'fc' | 'manager';
   residentId?: string;
   displayName?: string;
+  staffType?: 'admin' | 'developer' | null;
   requestBoardBridgeToken?: string;
   appSessionToken?: string;
   requestBoardRole?: 'fc' | 'designer' | null;
@@ -86,6 +88,7 @@ export function useLogin(options?: UseLoginOptions) {
       // Success - set session
       const readOnly = data.role === 'manager';
       const nextRole = data.role === 'admin' || data.role === 'manager' ? 'admin' : 'fc';
+      const staffType = normalizeStaffType(data.staffType);
       const bridgeToken = data.requestBoardBridgeToken ?? null;
       const appSessionToken = data.appSessionToken ?? null;
       const fallbackRequestBoardRole =
@@ -116,6 +119,7 @@ export function useLogin(options?: UseLoginOptions) {
         nextRole,
         data.residentId ?? digits,
         data.displayName ?? '',
+        staffType,
         readOnly,
         isRequestBoardDesigner,
         requestBoardRole,

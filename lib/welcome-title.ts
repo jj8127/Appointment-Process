@@ -1,9 +1,12 @@
+import type { StaffType } from '@/lib/staff-identity';
+
 type UserRole = 'admin' | 'fc' | null | undefined;
 
 type BuildWelcomeTitleParams = {
   role: UserRole;
   readOnly?: boolean;
   isRequestBoardDesigner?: boolean;
+  staffType?: StaffType;
   displayName?: string | null;
   fcName?: string | null;
   fallbackTitle?: string;
@@ -13,6 +16,7 @@ export function buildWelcomeTitle({
   role,
   readOnly = false,
   isRequestBoardDesigner = false,
+  staffType = null,
   displayName,
   fcName,
   fallbackTitle = '홈',
@@ -38,6 +42,10 @@ export function buildWelcomeTitle({
     if (readOnly) {
       const managerBaseName = normalizedDisplayName.replace(/\s+/g, '').replace(/본부장$/, '').trim();
       return managerBaseName ? `${managerBaseName} 본부장님 환영합니다.` : '본부장님 환영합니다.';
+    }
+    if (staffType === 'developer') {
+      const developerBaseName = normalizedDisplayName.replace(/\s+/g, '').replace(/개발자$/, '').trim();
+      return developerBaseName ? `${developerBaseName} 개발자님 환영합니다.` : '개발자님 환영합니다.';
     }
     return '총무님 환영합니다.';
   }

@@ -43,6 +43,7 @@ import { useKeyboardPadding } from '@/hooks/use-keyboard-padding';
 import { useSession } from '@/hooks/use-session';
 import { openExternalUrl } from '@/lib/open-external-url';
 import { resolveBottomNavActiveKey, resolveBottomNavPreset } from '@/lib/bottom-navigation';
+import { getBoardAuthorRoleLabel, getBoardRoleBadgeStyle } from '@/lib/staff-identity';
 import { ANIMATION } from '@/lib/theme';
 import { buildWelcomeTitle } from '@/lib/welcome-title';
 import { safeDecodeFileName } from '@/lib/validation';
@@ -224,7 +225,7 @@ export default function AdminBoardManageScreen() {
   const router = useRouter();
   const appLogout = useAppLogout();
   const navigation = useNavigation();
-  const { role, displayName, residentId, readOnly, isRequestBoardDesigner, hydrated } = useSession();
+  const { role, displayName, residentId, readOnly, isRequestBoardDesigner, hydrated, staffType } = useSession();
   const queryClient = useQueryClient();
   const insets = useSafeAreaInsets();
   const keyboardPadding = useKeyboardPadding();
@@ -234,6 +235,7 @@ export default function AdminBoardManageScreen() {
     role,
     readOnly,
     isRequestBoardDesigner,
+    staffType,
     displayName,
     fallbackTitle: '홈',
   });
@@ -756,7 +758,7 @@ export default function AdminBoardManageScreen() {
               <Text style={styles.commentAuthor}>{safeText(comment.authorName)}</Text>
               <View style={styles.commentRoleBadge}>
                 <Text style={styles.commentRoleText}>
-                  {comment.authorRole === 'admin' ? '관리자' : comment.authorRole === 'manager' ? '본부장' : 'FC'}
+                  {getBoardAuthorRoleLabel(comment.authorRole)}
                 </Text>
               </View>
             </View>
@@ -1061,9 +1063,9 @@ export default function AdminBoardManageScreen() {
                     <View>
                       <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
                         <Text style={styles.authorName}>{safeText(post.authorName)}</Text>
-                        <View style={[styles.roleBadge, { backgroundColor: post.authorRole === 'admin' ? '#dbeafe' : '#e9d5ff' }]}>
-                          <Text style={[styles.roleText, { color: post.authorRole === 'admin' ? '#2563eb' : '#9333ea' }]}>
-                            {post.authorRole === 'admin' ? '관리자' : '본부장'}
+                        <View style={[styles.roleBadge, { backgroundColor: getBoardRoleBadgeStyle(post.authorRole).backgroundColor }]}>
+                          <Text style={[styles.roleText, { color: getBoardRoleBadgeStyle(post.authorRole).color }]}>
+                            {getBoardAuthorRoleLabel(post.authorRole)}
                           </Text>
                         </View>
                       </View>
@@ -1227,9 +1229,9 @@ export default function AdminBoardManageScreen() {
                   <View style={{ flex: 1 }}>
                     <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
                       <Text style={styles.authorName}>{safeText(modalPost?.authorName)}</Text>
-                      <View style={[styles.roleBadge, { backgroundColor: modalPost?.authorRole === 'admin' ? '#dbeafe' : '#e9d5ff' }]}>
-                        <Text style={[styles.roleText, { color: modalPost?.authorRole === 'admin' ? '#2563eb' : '#9333ea' }]}>
-                          {modalPost?.authorRole === 'admin' ? '관리자' : '본부장'}
+                      <View style={[styles.roleBadge, { backgroundColor: getBoardRoleBadgeStyle(modalPost?.authorRole ?? 'manager').backgroundColor }]}>
+                        <Text style={[styles.roleText, { color: getBoardRoleBadgeStyle(modalPost?.authorRole ?? 'manager').color }]}>
+                          {getBoardAuthorRoleLabel(modalPost?.authorRole ?? 'manager')}
                         </Text>
                       </View>
                     </View>

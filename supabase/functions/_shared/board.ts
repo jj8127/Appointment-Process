@@ -1,6 +1,7 @@
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.45.4';
 
 export type Role = 'admin' | 'manager' | 'fc';
+export type BoardDisplayRole = Role | 'developer';
 
 export type Actor = {
   role: Role;
@@ -189,4 +190,46 @@ export function previewContent(content: string, max = 140) {
   const normalized = (content ?? '').replace(/\s+/g, ' ').trim();
   if (normalized.length <= max) return normalized;
   return `${normalized.slice(0, max)}...`;
+}
+
+export async function resolveDeveloperResidentIds(rows: Array<{ author_role?: string | null; author_resident_id?: string | null }>) {
+  const adminResidentIds = Array.from(
+    new Set(
+      rows
+        .filter((row) => row.author_role === 'admin')
+        .map((row) => cleanPhone(row.author_resident_id ?? ''))
+        .filter((residentId) => residentId.length === 11),
+    ),
+  );
+
+  if (adminResidentIds.length === 0) return new Set<string>();
+
+  const { data, error } = await supabase
+    .from('admin_accounts')
+    .select('phone,staff_type,active')
+    .in('phone', adminResidentIds)
+    .eq('active', true);
+
+  if (error) throw error;
+
+  return new Set(
+    (data ?? [])
+      .filter((row) => row.staff_type === 'developer')
+      .map((row) => cleanPhone(row.phone))
+      .filter((residentId) => residentId.length === 11),
+  );
+}
+
+export function toBoardDisplayRole(
+  authorRole: string | null | undefined,
+  authorResidentId: string | null | undefined,
+  developerResidentIds: Set<string>,
+): BoardDisplayRole {
+  if (authorRole === 'admin') {
+    const residentId = cleanPhone(authorResidentId ?? '');
+    if (developerResidentIds.has(residentId)) return 'developer';
+    return 'admin';
+  }
+  if (authorRole === 'manager') return 'manager';
+  return 'fc';
 }

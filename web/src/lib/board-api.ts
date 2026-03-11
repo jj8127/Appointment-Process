@@ -2,6 +2,7 @@ import { supabase } from '@/lib/supabase';
 import { logger } from '@/lib/logger';
 
 export type BoardActorRole = 'admin' | 'manager' | 'fc';
+export type BoardDisplayRole = 'admin' | 'manager' | 'fc' | 'developer';
 
 export type BoardActor = {
   role: BoardActorRole;
@@ -32,7 +33,7 @@ export type BoardListItem = {
   title: string;
   contentPreview: string;
   authorName: string;
-  authorRole: 'admin' | 'manager';
+  authorRole: BoardDisplayRole;
   createdAt: string;
   updatedAt: string;
   editedAt?: string;
@@ -50,14 +51,14 @@ export type BoardListItem = {
     check: number;
     smile: number;
   };
-  attachments?: Array<{
+  attachments?: {
     id: string;
     fileType: 'image' | 'file';
     fileName: string;
     fileSize: number;
     storagePath: string;
     signedUrl?: string;
-  }>;
+  }[];
 };
 
 export type BoardDetail = {
@@ -67,7 +68,7 @@ export type BoardDetail = {
     title: string;
     content: string;
     authorName: string;
-    authorRole: 'admin' | 'manager';
+    authorRole: BoardDisplayRole;
     createdAt: string;
     updatedAt: string;
     editedAt?: string;
@@ -75,7 +76,7 @@ export type BoardDetail = {
     isMine: boolean;
     viewCount: number;
   };
-  attachments: Array<{
+  attachments: {
     id: string;
     fileType: 'image' | 'file';
     fileName: string;
@@ -83,7 +84,7 @@ export type BoardDetail = {
     mimeType?: string;
     storagePath: string;
     signedUrl?: string;
-  }>;
+  }[];
   reactions: {
     like: number;
     heart: number;
@@ -91,18 +92,18 @@ export type BoardDetail = {
     smile: number;
     myReaction?: 'like' | 'heart' | 'check' | 'smile' | null;
   };
-  comments: Array<{
+  comments: {
     id: string;
     parentId?: string | null;
     content: string;
     authorName: string;
-    authorRole: 'admin' | 'manager' | 'fc';
+    authorRole: BoardDisplayRole;
     createdAt: string;
     editedAt?: string;
     stats: { likeCount: number; replyCount: number };
     isMine: boolean;
     isLiked: boolean;
-  }>;
+  }[];
 };
 
 type InvokeResult<T> = { ok: boolean; data?: T; message?: string };
@@ -260,9 +261,9 @@ export async function toggleCommentLike(actor: BoardActor, commentId: string) {
 export async function signBoardAttachments(
   actor: BoardActor,
   postId: string,
-  files: Array<{ fileName: string; mimeType: string; fileSize: number; fileType: 'image' | 'file' }>,
+  files: { fileName: string; mimeType: string; fileSize: number; fileType: 'image' | 'file' }[],
 ) {
-  return invokeBoard<Array<{ storagePath: string; signedUrl: string }>>('board-attachment-sign', {
+  return invokeBoard<{ storagePath: string; signedUrl: string }[]>('board-attachment-sign', {
     actor,
     postId,
     files,
@@ -272,14 +273,14 @@ export async function signBoardAttachments(
 export async function finalizeBoardAttachments(
   actor: BoardActor,
   postId: string,
-  files: Array<{
+  files: {
     storagePath: string;
     fileName: string;
     fileSize: number;
     mimeType?: string;
     fileType: 'image' | 'file';
     sortOrder?: number;
-  }>,
+  }[],
 ) {
   return invokeBoard<null>('board-attachment-finalize', { actor, postId, files });
 }

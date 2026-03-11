@@ -1,6 +1,7 @@
 'use client';
 
 import { supabase } from '@/lib/supabase';
+import { isDeveloperSession, type StaffType } from '@/lib/staff-identity';
 import {
   ActionIcon,
   Badge,
@@ -27,6 +28,7 @@ type DashboardRole = 'admin' | 'manager' | 'fc';
 type DashboardNotificationBellProps = {
   role: DashboardRole;
   residentId: string;
+  staffType?: StaffType;
 };
 
 type InboxNotificationPayload = {
@@ -202,7 +204,7 @@ const compareByCreatedAtDesc = (a: HeaderNotificationItem, b: HeaderNotification
   return bTime - aTime;
 };
 
-export function DashboardNotificationBell({ role, residentId }: DashboardNotificationBellProps) {
+export function DashboardNotificationBell({ role, residentId, staffType = null }: DashboardNotificationBellProps) {
   const router = useRouter();
   const [opened, setOpened] = useState(false);
 
@@ -222,27 +224,36 @@ export function DashboardNotificationBell({ role, residentId }: DashboardNotific
   );
 
   const { data: items = [], isLoading, isRefetching, refetch } = useQuery({
-    queryKey: ['dashboard-header-notifications', role, residentId],
+    queryKey: ['dashboard-header-notifications', role, residentId, staffType],
     refetchInterval: 30_000,
     queryFn: async (): Promise<HeaderNotificationItem[]> => {
-      const inboxRole: 'admin' | 'fc' = role === 'fc' ? 'fc' : 'admin';
-      const inboxResidentId = inboxRole === 'fc' ? sanitize(residentId) : null;
+      const fetchInbox = async (inboxRole: 'admin' | 'fc') => {
+        const inboxResidentId = inboxRole === 'fc' ? sanitize(residentId) : null;
+        const { data, error } = await supabase.functions.invoke<InboxListResponse>('fc-notify', {
+          body: {
+            type: 'inbox_list',
+            role: inboxRole,
+            resident_id: inboxResidentId,
+            limit: LIST_LIMIT,
+          },
+        });
+        if (error) throw error;
+        if (!data?.ok) {
+          throw new Error(data?.message ?? '알림을 불러오지 못했습니다.');
+        }
+        return data;
+      };
 
-      const { data, error } = await supabase.functions.invoke<InboxListResponse>('fc-notify', {
-        body: {
-          type: 'inbox_list',
-          role: inboxRole,
-          resident_id: inboxResidentId,
-          limit: LIST_LIMIT,
-        },
-      });
+      const isDeveloper = isDeveloperSession({ role, staffType });
+      const [primaryInbox, developerFcInbox] = await Promise.all([
+        fetchInbox(role === 'fc' ? 'fc' : 'admin'),
+        isDeveloper ? fetchInbox('fc') : Promise.resolve(null),
+      ]);
 
-      if (error) throw error;
-      if (!data?.ok) {
-        throw new Error(data?.message ?? '알림을 불러오지 못했습니다.');
-      }
-
-      const mappedNotifications: HeaderNotificationItem[] = (data.notifications ?? []).map((item) => ({
+      const mappedNotifications: HeaderNotificationItem[] = [
+        ...(primaryInbox.notifications ?? []),
+        ...((developerFcInbox?.notifications ?? []).filter((item) => isRequestBoardCategory(item.category))),
+      ].map((item) => ({
         id: `notification:${item.id}`,
         rawId: item.id,
         title: item.title,
@@ -254,7 +265,7 @@ export function DashboardNotificationBell({ role, residentId }: DashboardNotific
         origin: isRequestBoardCategory(item.category) ? 'request_board' : 'fc_onboarding',
       }));
 
-      const mappedNotices: HeaderNotificationItem[] = (data.notices ?? []).map((item) => ({
+      const mappedNotices: HeaderNotificationItem[] = (primaryInbox.notices ?? []).map((item) => ({
         id: `notice:${item.id}`,
         rawId: item.id,
         title: item.title,
@@ -266,7 +277,13 @@ export function DashboardNotificationBell({ role, residentId }: DashboardNotific
         origin: 'notice',
       }));
 
-      return [...mappedNotifications, ...mappedNotices].sort(compareByCreatedAtDesc);
+      const deduped = new Map<string, HeaderNotificationItem>();
+      [...mappedNotifications, ...mappedNotices].forEach((item) => {
+        if (!deduped.has(item.id)) {
+          deduped.set(item.id, item);
+        }
+      });
+      return Array.from(deduped.values()).sort(compareByCreatedAtDesc);
     },
   });
 

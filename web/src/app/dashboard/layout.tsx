@@ -2,6 +2,7 @@
 
 import { useSession } from '@/hooks/use-session';
 import { DashboardNotificationBell } from '@/components/DashboardNotificationBell';
+import { getDashboardRoleLabel, getDashboardRoleSubLabel } from '@/lib/staff-identity';
 import { AppShell, Avatar, Burger, Group, Menu, NavLink, Text, UnstyledButton, useMantineTheme } from '@mantine/core';
 import { useDisclosure, useMediaQuery } from '@mantine/hooks';
 import {
@@ -31,11 +32,11 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   const collapseTimerRef = useRef<number | null>(null);
   const router = useRouter();
   const pathname = usePathname();
-  const { role, logout, hydrated, displayName, residentMask, residentId } = useSession();
+  const { role, logout, hydrated, displayName, residentMask, residentId, staffType, isReadOnly } = useSession();
 
-  const userInitial = displayName?.trim()?.[0] ?? (role === 'admin' ? '총' : 'F');
-  const roleLabel = role === 'admin' ? '관리자' : 'FC';
-  const subLabel = role === 'admin' ? '총무 계정' : residentMask || '전화번호 미등록';
+  const roleLabel = getDashboardRoleLabel({ role, staffType, isReadOnly });
+  const subLabel = getDashboardRoleSubLabel({ role, staffType, isReadOnly }) ?? (residentMask || '전화번호 미등록');
+  const userInitial = displayName?.trim()?.[0] ?? roleLabel[0] ?? 'F';
 
   const navItems: NavItem[] = useMemo(
     () => [
@@ -107,7 +108,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
           </Group>
 
           <Group gap="sm" wrap="nowrap">
-            <DashboardNotificationBell role={role} residentId={residentId} />
+            <DashboardNotificationBell role={role} residentId={residentId} staffType={staffType} />
 
             <Menu shadow="md" width={220} position="bottom-end">
               <Menu.Target>

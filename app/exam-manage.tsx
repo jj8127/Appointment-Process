@@ -17,6 +17,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { RefreshButton } from '@/components/RefreshButton';
 import { useSession } from '@/hooks/use-session';
+import { notifyExamApprovalStatus } from '@/lib/exam-approval-notify';
 import { logger } from '@/lib/logger';
 import { supabase } from '@/lib/supabase';
 
@@ -247,13 +248,31 @@ export default function ExamManageLifeScreen() {
   }, [role, hydrated]);
 
   const toggleMutation = useMutation({
-    mutationFn: async (params: { registrationId: string; value: boolean }) => {
+    mutationFn: async (params: { applicant: ApplicantRow; value: boolean }) => {
       assertCanEdit();
-      const { error } = await supabase.from('exam_registrations').update({ is_confirmed: params.value }).eq('id', params.registrationId);
+      const nextStatus = params.value ? 'confirmed' : 'applied';
+      const { error } = await supabase
+        .from('exam_registrations')
+        .update({ is_confirmed: params.value, status: nextStatus })
+        .eq('id', params.applicant.registrationId);
       if (error) throw error;
+      return params;
     },
-    onSuccess: () => {
+    onSuccess: async ({ applicant, value }) => {
       queryClient.invalidateQueries({ queryKey: ['exam-applicants', EXAM_TYPE] });
+      if (!value) return;
+
+      try {
+        await notifyExamApprovalStatus({
+          residentId: applicant.residentId,
+          examInfo: applicant.examInfo,
+          examPath: '/exam-apply',
+          isConfirmed: true,
+        });
+      } catch (err) {
+        logger.warn('[exam-manage] approval notification failed', err);
+        Alert.alert('알림 전송 실패', '시험 상태는 저장되었지만 FC 앱 알림 전송은 실패했습니다.');
+      }
     },
     onSettled: (_data, error) => {
       if (error) {
@@ -264,7 +283,7 @@ export default function ExamManageLifeScreen() {
   });
 
   const handleToggle = (applicant: ApplicantRow) => {
-    toggleMutation.mutate({ registrationId: applicant.registrationId, value: !applicant.isConfirmed });
+    toggleMutation.mutate({ applicant, value: !applicant.isConfirmed });
   };
 
   const [refreshing, setRefreshing] = useState(false);

@@ -2,6 +2,7 @@ const encoder = new TextEncoder();
 
 export type RequestBoardBridgeRole = 'fc' | 'designer' | 'admin' | 'manager';
 export type AppSessionSourceRole = 'fc' | 'admin' | 'manager';
+export type AppSessionStaffType = 'admin' | 'developer';
 
 type SignedTokenKind = 'request_board_bridge' | 'fc_onboarding_session';
 
@@ -20,6 +21,7 @@ type BridgeTokenPayload = SignedTokenPayloadBase & {
 type AppSessionTokenPayload = SignedTokenPayloadBase & {
   kind: 'fc_onboarding_session';
   role: AppSessionSourceRole;
+  staffType?: AppSessionStaffType;
 };
 
 export function getEnv(name: string): string | undefined {
@@ -138,6 +140,7 @@ export async function createRequestBoardBridgeToken(
 export async function createAppSessionToken(
   phone: string,
   role: AppSessionSourceRole,
+  staffType?: AppSessionStaffType,
 ) {
   const secret = (getEnv('REQUEST_BOARD_AUTH_BRIDGE_SECRET') ?? '').trim();
   if (!secret) return null;
@@ -150,6 +153,7 @@ export async function createAppSessionToken(
     kind: 'fc_onboarding_session',
     phone,
     role,
+    ...(role === 'admin' && staffType ? { staffType } : {}),
     iat: nowSec,
     exp: nowSec + ttlSec,
   };
@@ -164,6 +168,13 @@ export async function parseAppSessionToken(token: string) {
   const parsed = await verifySignedToken<AppSessionTokenPayload>(token, secret);
   if (!parsed || parsed.kind !== 'fc_onboarding_session') return null;
   if (parsed.role !== 'fc' && parsed.role !== 'admin' && parsed.role !== 'manager') return null;
+  if (
+    parsed.staffType !== undefined
+    && parsed.staffType !== 'admin'
+    && parsed.staffType !== 'developer'
+  ) {
+    return null;
+  }
   return parsed;
 }
 

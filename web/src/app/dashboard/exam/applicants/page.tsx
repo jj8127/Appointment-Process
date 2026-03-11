@@ -205,6 +205,44 @@ type ProfileRow = {
     address: string | null;
 };
 
+const formatExamApprovalInfo = (item: Applicant) => {
+    const dateLabel = item.exam_date ? dayjs(item.exam_date).format('YYYY-MM-DD') : '시험 일정';
+    const roundLabel = item.round_label && item.round_label !== '-' ? ` (${item.round_label})` : '';
+    const locationLabel = item.location_name && item.location_name !== '미정' ? ` [${item.location_name}]` : '';
+    return `${dateLabel}${roundLabel}${locationLabel}`;
+};
+
+async function notifyFcExamApprovalStatus(item: Applicant, isConfirmed: boolean) {
+    const targetId = (item.phone ?? '').replace(/[^0-9]/g, '');
+    if (!targetId) {
+        throw new Error('FC 전화번호를 찾을 수 없습니다.');
+    }
+
+    const title = isConfirmed
+        ? '시험 신청이 승인되었습니다.'
+        : '시험 신청 승인 상태가 변경되었습니다.';
+    const body = isConfirmed
+        ? `${formatExamApprovalInfo(item)} 접수가 승인되었습니다. 시험 신청 화면에서 상태를 확인해주세요.`
+        : `${formatExamApprovalInfo(item)} 접수 완료가 해제되었습니다. 시험 신청 화면에서 상태를 확인해주세요.`;
+
+    const { data, error } = await supabase.functions.invoke('fc-notify', {
+        body: {
+            type: 'notify',
+            target_role: 'fc',
+            target_id: targetId,
+            title,
+            body,
+            category: 'exam_apply',
+            url: item.exam_type === 'nonlife' ? '/exam-apply2' : '/exam-apply',
+        },
+    });
+
+    if (error) throw error;
+    if (!data?.ok) {
+        throw new Error((data as { message?: string } | null)?.message ?? '시험 승인 알림 전송 실패');
+    }
+}
+
 export default function ExamApplicantsPage() {
     const queryClient = useQueryClient();
     const { isReadOnly, hydrated, role } = useSession();
@@ -377,19 +415,21 @@ export default function ExamApplicantsPage() {
 
     // --- Mutations ---
     const updateStatusMutation = useMutation({
-        mutationFn: async ({ id, isConfirmed }: { id: string; isConfirmed: boolean }) => {
+        mutationFn: async ({ item, isConfirmed }: { item: Applicant; isConfirmed: boolean }) => {
             const nextStatus = isConfirmed ? 'confirmed' : 'applied';
             const { error } = await supabase
                 .from('exam_registrations')
                 .update({ is_confirmed: isConfirmed, status: nextStatus })
-                .eq('id', id);
+                .eq('id', item.id);
             if (error) throw error;
-            return { id, isConfirmed };
+            return { item, isConfirmed, nextStatus };
         },
-        onSuccess: ({ id, isConfirmed }) => {
-            queryClient.setQueryData(['exam-applicants-all-recent'], (old: unknown) => {
+        onSuccess: async ({ item, isConfirmed, nextStatus }) => {
+            queryClient.setQueryData(['exam-applicants-all-recent', role], (old: unknown) => {
                 if (!Array.isArray(old)) return old;
-                return (old as Applicant[]).map((item) => (item.id === id ? { ...item, is_confirmed: isConfirmed } : item));
+                return (old as Applicant[]).map((row) =>
+                    row.id === item.id ? { ...row, is_confirmed: isConfirmed, status: nextStatus } : row,
+                );
             });
             notifications.show({
                 title: '상태 변경 완료',
@@ -397,6 +437,18 @@ export default function ExamApplicantsPage() {
                 color: 'green',
                 icon: <IconRefresh size={16} />,
             });
+            if (!isConfirmed) return;
+
+            try {
+                await notifyFcExamApprovalStatus(item, true);
+            } catch (err: unknown) {
+                const msg = err instanceof Error ? err.message : '시험 승인 알림 전송에 실패했습니다.';
+                notifications.show({
+                    title: '알림 전송 실패',
+                    message: `상태는 저장되었지만 FC 앱 알림 전송은 실패했습니다. (${msg})`,
+                    color: 'yellow',
+                });
+            }
         },
         onError: (err: unknown) => {
             const msg = err instanceof Error ? err.message : '처리 중 오류가 발생했습니다.';
@@ -570,7 +622,7 @@ export default function ExamApplicantsPage() {
                                                         { label: '접수 완료', value: 'true' },
                                                     ]}
                                                     value={String(item.is_confirmed)}
-                                                    onChange={(v) => updateStatusMutation.mutate({ id: item.id, isConfirmed: v === 'true' })}
+                                                    onChange={(v) => updateStatusMutation.mutate({ item, isConfirmed: v === 'true' })}
                                                     color={item.is_confirmed ? 'orange' : 'gray'}
                                                     styles={{
                                                         root: { backgroundColor: item.is_confirmed ? '#fff4e6' : '#f1f3f5' },
@@ -579,7 +631,7 @@ export default function ExamApplicantsPage() {
                                                     }}
                                                     disabled={
                                                         isReadOnly ||
-                                                        (updateStatusMutation.isPending && updateStatusMutation.variables?.id === item.id)
+                                                        (updateStatusMutation.isPending && updateStatusMutation.variables?.item.id === item.id)
                                                     }
                                                 />
                                             </Table.Td>

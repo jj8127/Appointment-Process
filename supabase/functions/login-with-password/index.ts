@@ -161,7 +161,7 @@ serve(async (req: Request) => {
 
   const { data: admin, error: adminError } = await supabase
     .from('admin_accounts')
-    .select('id,name,phone,password_hash,password_salt,failed_count,locked_until,password_set_at,active')
+    .select('id,name,phone,password_hash,password_salt,failed_count,locked_until,password_set_at,active,staff_type')
     .eq('phone', phone)
     .maybeSingle();
 
@@ -170,11 +170,12 @@ serve(async (req: Request) => {
   }
 
   if (admin?.id) {
+    const staffType = admin.staff_type === 'developer' ? 'developer' : 'admin';
     if (!admin.active) {
-      return fail('inactive_admin', '관리자 계정이 비활성화되었습니다.', { role: 'admin' });
+      return fail('inactive_admin', '관리자 계정이 비활성화되었습니다.', { role: 'admin', staffType });
     }
     if (!admin.password_set_at) {
-      return fail('needs_password_setup', '관리자 비밀번호가 아직 설정되지 않았습니다.', { role: 'admin' });
+      return fail('needs_password_setup', '관리자 비밀번호가 아직 설정되지 않았습니다.', { role: 'admin', staffType });
     }
 
     const now = new Date();
@@ -184,6 +185,7 @@ serve(async (req: Request) => {
         return fail('locked', '로그인 시도가 너무 많아 잠시 후 다시 시도해주세요.', {
           lockedUntil: lockedUntil.toISOString(),
           role: 'admin',
+          staffType,
         });
       }
     }
@@ -208,7 +210,9 @@ serve(async (req: Request) => {
         shouldLock
           ? '로그인 시도가 너무 많아 잠시 후 다시 시도해주세요.'
           : '비밀번호가 올바르지 않습니다.',
-        shouldLock ? { lockedUntil: lockedUntil?.toISOString(), role: 'admin' } : { remaining, role: 'admin' },
+        shouldLock
+          ? { lockedUntil: lockedUntil?.toISOString(), role: 'admin', staffType }
+          : { remaining, role: 'admin', staffType },
       );
     }
 
@@ -217,19 +221,22 @@ serve(async (req: Request) => {
       .update({ failed_count: 0, locked_until: null })
       .eq('id', admin.id);
 
+    const requestBoardBridgeRole = staffType === 'developer' ? 'fc' : 'admin';
+    const requestBoardRole = staffType === 'developer' ? 'fc' : null;
     await syncRequestBoardPassword(admin.phone, password, {
-      role: 'admin',
-      name: admin.name ?? '',
+      role: requestBoardBridgeRole,
+      name: staffType === 'developer' ? '개발자' : admin.name ?? '',
     });
 
-    const requestBoardBridgeToken = await createRequestBoardBridgeToken(admin.phone, 'admin');
-    const appSessionToken = await createAppSessionToken(admin.phone, 'admin');
+    const requestBoardBridgeToken = await createRequestBoardBridgeToken(admin.phone, requestBoardBridgeRole);
+    const appSessionToken = await createAppSessionToken(admin.phone, 'admin', staffType);
     return json({
       ok: true,
       role: 'admin',
       residentId: admin.phone,
       displayName: admin.name ?? '',
-      requestBoardRole: null,
+      staffType,
+      requestBoardRole,
       ...(requestBoardBridgeToken ? { requestBoardBridgeToken } : {}),
       ...(appSessionToken ? { appSessionToken } : {}),
     });

@@ -32,13 +32,13 @@ import dayjs from 'dayjs';
 import { useSearchParams } from 'next/navigation';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useSession } from '@/hooks/use-session';
+import { getWebStaffChatActorId, getWebStaffSenderName } from '@/lib/staff-identity';
 
 import { logger } from '@/lib/logger';
 // --- Constants ---
 const HANWHA_ORANGE = '#f36f21';
 const CHARCOAL = '#111827';
 const MUTED = '#6b7280';
-const ADMIN_ID = 'admin';
 const ROOM_POLL_INTERVAL_MS = 2500;
 const sanitize = (value: string | null | undefined) => String(value ?? '').replace(/[^0-9]/g, '');
 
@@ -95,9 +95,14 @@ const areMessagesEqual = (prev: Message[], next: Message[]) => {
 
 // --- Page Component ---
 export default function ChatPage() {
+    const { role, residentId, staffType } = useSession();
     const [selectedFc, setSelectedFc] = useState<ChatPreview | null>(null);
     const [keyword, setKeyword] = useState('');
     const searchParams = useSearchParams();
+    const myChatId = useMemo(
+        () => getWebStaffChatActorId({ role, residentId, staffType }),
+        [residentId, role, staffType],
+    );
 
     const deepLinkedTargetId = useMemo(
         () => sanitize(searchParams.get('targetId')),
@@ -110,7 +115,7 @@ export default function ChatPage() {
 
     // --- Left Panel: Chat List Fetching ---
     const { data: chatList, isLoading: isListLoading, refetch: refetchList } = useQuery({
-        queryKey: ['admin-chat-list'],
+        queryKey: ['admin-chat-list', role, residentId, staffType],
         queryFn: async () => {
             // 1. Fetch all FCs (only completed signups)
             const { data: fcs, error: fcError } = await supabase
@@ -130,7 +135,7 @@ export default function ChatPage() {
                 const { data: lastMsgs } = await supabase
                     .from('messages')
                     .select('content,created_at')
-                    .or(`and(sender_id.eq.admin,receiver_id.eq.${fc.phone}),and(sender_id.eq.${fc.phone},receiver_id.eq.admin)`)
+                    .or(`and(sender_id.eq.${myChatId},receiver_id.eq.${fc.phone}),and(sender_id.eq.${fc.phone},receiver_id.eq.${myChatId})`)
                     .order('created_at', { ascending: false })
                     .limit(1);
 
@@ -141,7 +146,7 @@ export default function ChatPage() {
                     .from('messages')
                     .select('*', { count: 'exact', head: true })
                     .eq('sender_id', fc.phone)
-                    .eq('receiver_id', ADMIN_ID)
+                    .eq('receiver_id', myChatId)
                     .eq('is_read', false);
 
                 // Only include if there is at least one message OR unread count > 0? 
@@ -311,7 +316,15 @@ export default function ChatPage() {
 
 // --- Chat Room Component ---
 function ChatRoom({ fc, onConversationUpdated }: { fc: ChatPreview; onConversationUpdated?: () => void }) {
-    const { isReadOnly } = useSession();
+    const { isReadOnly, role, residentId, staffType, displayName } = useSession();
+    const myChatId = useMemo(
+        () => getWebStaffChatActorId({ role, residentId, staffType }),
+        [residentId, role, staffType],
+    );
+    const senderName = useMemo(
+        () => getWebStaffSenderName({ role, residentId, staffType, displayName }),
+        [displayName, residentId, role, staffType],
+    );
     const [messages, setMessages] = useState<Message[]>([]);
     const [inputText, setInputText] = useState('');
     const viewport = useRef<HTMLDivElement>(null);
@@ -342,7 +355,7 @@ function ChatRoom({ fc, onConversationUpdated }: { fc: ChatPreview; onConversati
                 .from('messages')
                 .select('*')
                 .or(
-                    `and(sender_id.eq.${ADMIN_ID},receiver_id.eq.${fc.phone}),and(sender_id.eq.${fc.phone},receiver_id.eq.${ADMIN_ID})`,
+                    `and(sender_id.eq.${myChatId},receiver_id.eq.${fc.phone}),and(sender_id.eq.${fc.phone},receiver_id.eq.${myChatId})`,
                 )
                 .order('created_at', { ascending: true });
 
@@ -365,7 +378,7 @@ function ChatRoom({ fc, onConversationUpdated }: { fc: ChatPreview; onConversati
                 setMessages(messagesRef.current);
             }
         },
-        [applyMessages, fc.phone, onConversationUpdated, scrollToBottom],
+        [applyMessages, fc.phone, myChatId, onConversationUpdated, scrollToBottom],
     );
 
     useEffect(() => {
@@ -383,8 +396,8 @@ function ChatRoom({ fc, onConversationUpdated }: { fc: ChatPreview; onConversati
                     const senderId = row?.sender_id;
                     const receiverId = row?.receiver_id;
                     const isRelated =
-                        (senderId === ADMIN_ID && receiverId === fc.phone) ||
-                        (senderId === fc.phone && receiverId === ADMIN_ID);
+                        (senderId === myChatId && receiverId === fc.phone) ||
+                        (senderId === fc.phone && receiverId === myChatId);
                     if (!isRelated) return;
                     void fetchMessages({ scrollOnChange: payload.eventType === 'INSERT', notifyList: true });
                 },
@@ -394,7 +407,7 @@ function ChatRoom({ fc, onConversationUpdated }: { fc: ChatPreview; onConversati
         return () => {
             supabase.removeChannel(channel);
         };
-    }, [fc.phone, fetchMessages]);
+    }, [fc.phone, fetchMessages, myChatId]);
 
     useEffect(() => {
         const intervalId = window.setInterval(() => {
@@ -430,7 +443,7 @@ function ChatRoom({ fc, onConversationUpdated }: { fc: ChatPreview; onConversati
             const { data: inserted, error } = await supabase
                 .from('messages')
                 .insert({
-                    sender_id: ADMIN_ID,
+                    sender_id: myChatId,
                     receiver_id: fc.phone,
                     content: trimmed,
                     message_type: 'text',
@@ -490,7 +503,8 @@ function ChatRoom({ fc, onConversationUpdated }: { fc: ChatPreview; onConversati
                         target_role: 'fc',
                         target_id: fc.phone,
                         message: notifBody,
-                        sender_id: ADMIN_ID,
+                        sender_id: myChatId,
+                        sender_name: senderName,
                     }),
                 });
                 const data = await resp.json().catch(() => null);
@@ -541,7 +555,7 @@ function ChatRoom({ fc, onConversationUpdated }: { fc: ChatPreview; onConversati
             <ScrollArea flex={1} viewportRef={viewport} p="md" bg={HANWHA_ORANGE + '08'}>
                 <Stack gap="sm">
                     {messages.map((msg) => {
-                        const isMe = msg.sender_id === ADMIN_ID;
+                        const isMe = msg.sender_id === myChatId;
                         return (
                             <Group key={msg.id} justify={isMe ? 'flex-end' : 'flex-start'} align="flex-end" gap={4}>
                                 {!isMe && (

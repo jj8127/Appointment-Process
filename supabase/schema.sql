@@ -76,6 +76,7 @@ create table if not exists public.admin_accounts (
   id uuid primary key default gen_random_uuid(),
   name text not null,
   phone text not null unique,
+  staff_type text not null default 'admin' check (staff_type in ('admin', 'developer')),
   password_hash text not null,
   password_salt text not null,
   password_set_at timestamptz,

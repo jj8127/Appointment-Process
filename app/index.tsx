@@ -412,7 +412,7 @@ const getLinkIcon = (href: string) => {
 
 export default function Home() {
   useInAppUpdate(); // Check for Android updates on mount
-  const { role, residentId, displayName, logout, hydrated, isRequestBoardDesigner, readOnly } = useSession();
+  const { role, residentId, displayName, logout, hydrated, isRequestBoardDesigner, readOnly, staffType } = useSession();
   const { mode } = useLocalSearchParams<{ mode?: string }>();
   const { data: identityStatus, isLoading: identityLoading } = useIdentityStatus();
 
@@ -805,6 +805,7 @@ export default function Home() {
     role,
     readOnly,
     isRequestBoardDesigner,
+    staffType,
     displayName,
     fcName: profileName,
     fallbackTitle: '홈',

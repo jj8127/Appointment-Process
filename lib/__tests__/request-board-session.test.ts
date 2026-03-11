@@ -6,10 +6,11 @@ import {
 
 describe('request board session helpers', () => {
   it('allows FC and read-only admin sessions to use request_board', () => {
-    expect(canUseRequestBoardSession('fc', false)).toBe(true);
-    expect(canUseRequestBoardSession('admin', true)).toBe(true);
-    expect(canUseRequestBoardSession('admin', false)).toBe(false);
-    expect(canUseRequestBoardSession(null, false)).toBe(false);
+    expect(canUseRequestBoardSession('fc', false, null)).toBe(true);
+    expect(canUseRequestBoardSession('admin', true, null)).toBe(true);
+    expect(canUseRequestBoardSession('admin', false, 'developer')).toBe(true);
+    expect(canUseRequestBoardSession('admin', false, null)).toBe(false);
+    expect(canUseRequestBoardSession(null, false, null)).toBe(false);
   });
 
   it('marks only FC-side designer bridge users as request-board designers', () => {

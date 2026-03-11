@@ -20,6 +20,8 @@
 ## 최근 작업
 | 날짜 | 작업 | 핵심 파일 | 상세 |
 |------|------|----------|------|
+| 03-11 | 개발자 계정 subtype 도입 — 총무 권한 유지, 표시/메신저/request_board 연동만 분리 | `supabase/migrations/20260311000002_add_admin_staff_type.sql`, `supabase/functions/login-with-password/index.ts`, `supabase/functions/sync-request-board-session/index.ts`, `supabase/functions/fc-notify/index.ts`, `supabase/functions/board-list/index.ts`, `supabase/functions/board-detail/index.ts`, `hooks/use-session.tsx`, `hooks/use-login.ts`, `lib/staff-identity.ts`, `app/chat.tsx`, `app/messenger.tsx`, `app/notifications.tsx`, `web/src/app/dashboard/layout.tsx`, `web/src/app/dashboard/chat/page.tsx`, `web/src/app/chat/page.tsx`, `web/src/components/DashboardNotificationBell.tsx` | [→ 상세](WORK_DETAIL.md#20260311-developer-subtype) |
+| 03-11 | 시험 신청 승인 시 FC 앱 알림 누락 보완(앱 관리자/웹 관리자 공통) | `lib/exam-approval-notify.ts`, `app/exam-manage.tsx`, `app/exam-manage2.tsx`, `web/src/app/dashboard/exam/applicants/page.tsx` | [→ 상세](WORK_DETAIL.md#20260311-exam-approval-notify) |
 | 03-11 | 로그아웃 공통 동작 통일 + request_board 첫 로그인 세션 재바인딩 강화 | `hooks/use-app-logout.ts`, `hooks/use-login.ts`, `hooks/use-session.tsx`, `supabase/functions/login-with-password/index.ts`, `app/request-board.tsx`, `app/board.tsx`, `app/admin-board-manage.tsx`, `app/settings.tsx`, `app/home-lite.tsx`, `components/AppTopActionBar.tsx` | [→ 상세](WORK_DETAIL.md#20260311-logout-rb-sync) |
 | 03-11 | 운영 문서 정합화 — 설계매니저 앱 연동 구조(`fc_profiles.affiliation` 기반)와 현재 54명 상태를 AGENTS에 명시 | `AGENTS.md` | [→ 상세](WORK_DETAIL.md#20260311-designer-doc-sync) |
 | 03-11 | 수당동의/위촉 가이드 이미지 자산 경로 정리(앱 번들 안정화) | `app/consent.tsx`, `app/appointment.tsx`, `lib/guide-images.ts`, `assets/images/guides/*` | [→ 상세](WORK_DETAIL.md#20260311-guide-images) |

@@ -247,6 +247,7 @@ export default function RequestBoardScreen() {
     isRequestBoardDesigner,
     requestBoardRole,
     readOnly,
+    staffType,
     ensureRequestBoardSession,
   } = useSession();
   const [notifications, setNotifications] = useState<NotificationItem[]>([]);
@@ -259,6 +260,7 @@ export default function RequestBoardScreen() {
     role,
     readOnly,
     isRequestBoardDesigner,
+    staffType,
     displayName,
     fallbackTitle: '홈',
   });

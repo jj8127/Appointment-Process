@@ -1,6 +1,7 @@
 'use client';
 
 import { useSession } from '@/hooks/use-session';
+import { getDashboardRoleLabel, getWebStaffChatActorId, isDeveloperSession } from '@/lib/staff-identity';
 import { supabase } from '@/lib/supabase';
 import {
   Badge,
@@ -23,8 +24,6 @@ import { useEffect, useMemo } from 'react';
 const HANWHA_ORANGE = '#f36f21';
 const CHARCOAL = '#111827';
 const MUTED = '#6b7280';
-const ADMIN_CHAT_ID = 'admin';
-
 type InboxNotification = {
   category?: string | null;
 };
@@ -34,7 +33,7 @@ const sanitize = (value: string | null | undefined) => String(value ?? '').repla
 export default function MessengerHubPage() {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const { role, residentId, hydrated, isReadOnly } = useSession();
+  const { role, residentId, hydrated, isReadOnly, staffType } = useSession();
 
   const requestBoardBaseUrl = useMemo(
     () => (process.env.NEXT_PUBLIC_REQUEST_BOARD_URL || 'https://requestboard-steel.vercel.app').replace(/\/$/, ''),
@@ -66,9 +65,10 @@ export default function MessengerHubPage() {
     queryKey: ['dashboard-messenger-hub-counts', role, residentId],
     enabled: hydrated && Boolean(role),
     queryFn: async () => {
-      const myChatId = role === 'admin' || role === 'manager'
-        ? ADMIN_CHAT_ID
-        : sanitize(residentId);
+      const myChatId =
+        role === 'admin' || role === 'manager'
+          ? getWebStaffChatActorId({ role, residentId, staffType })
+          : sanitize(residentId);
 
       const { count: internalUnreadCount, error: internalUnreadErr } = await supabase
         .from('messages')
@@ -78,7 +78,8 @@ export default function MessengerHubPage() {
 
       if (internalUnreadErr) throw internalUnreadErr;
 
-      const requestBoardRole: 'admin' | 'fc' = role === 'manager' ? 'fc' : 'admin';
+      const requestBoardRole: 'admin' | 'fc' =
+        role === 'manager' || isDeveloperSession({ role, isReadOnly, staffType }) ? 'fc' : 'admin';
       const requestBoardResidentId = requestBoardRole === 'fc' ? sanitize(residentId) : null;
 
       const { data, error } = await supabase.functions.invoke('fc-notify', {
@@ -144,7 +145,7 @@ export default function MessengerHubPage() {
                   <div>
                     <Text fw={700}>가람지사 메신저</Text>
                     <Text size="sm" c="dimmed">
-                      FC, 본부장, 총무 대화
+                      FC, 본부장, 총무, 개발자 대화
                     </Text>
                   </div>
                 </Group>
@@ -156,7 +157,11 @@ export default function MessengerHubPage() {
               </Group>
 
               <Text size="sm" c="dimmed">
-                {isReadOnly ? '본부장 계정은 조회 전용으로 채팅을 확인할 수 있습니다.' : '총무 계정에서 FC 전체 대화를 관리합니다.'}
+                {isReadOnly
+                  ? '본부장 계정은 조회 전용으로 채팅을 확인할 수 있습니다.'
+                  : staffType === 'developer'
+                    ? `${getDashboardRoleLabel({ role, staffType, isReadOnly })} 계정에서 FC와 1:1 대화를 관리합니다.`
+                    : '총무 계정에서 FC 전체 대화를 관리합니다.'}
               </Text>
 
               <Group justify="space-between">

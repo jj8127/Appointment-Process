@@ -1,6 +1,7 @@
 'use client';
 
 import { useSession } from '@/hooks/use-session';
+import { normalizeStaffType } from '@/lib/staff-identity';
 import { supabase } from '@/lib/supabase';
 import {
     Button,
@@ -109,7 +110,7 @@ export default function AuthPage() {
             }
 
             const nextRole = data.role === 'admin' ? 'admin' : data.role === 'manager' ? 'manager' : 'fc';
-            loginAs(nextRole, data.residentId ?? digits, data.displayName ?? '');
+            loginAs(nextRole, data.residentId ?? digits, data.displayName ?? '', normalizeStaffType(data.staffType));
             if (nextRole === 'admin' || nextRole === 'manager') {
                 router.replace('/');
             } else if (!data.displayName || data.displayName.trim() === '') {

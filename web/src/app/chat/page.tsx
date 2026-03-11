@@ -25,6 +25,7 @@ import { Suspense, useEffect, useMemo, useRef, useState } from 'react';
 
 import { buildAdminDashboardChatUrl } from '@/lib/admin-chat-url';
 import { logger } from '@/lib/logger';
+import { getWebStaffChatActorId, getWebStaffSenderName } from '@/lib/staff-identity';
 type Message = {
   id: string;
   content: string;
@@ -45,20 +46,37 @@ type ChatMessage = Message & {
 
 const HANWHA_ORANGE = '#f36f21';
 const CHARCOAL = '#111827';
+const sanitize = (value: string | null | undefined) => String(value ?? '').replace(/[^0-9]/g, '');
 
 function ChatContent() {
-  const { role, residentId, hydrated } = useSession();
+  const { role, residentId, hydrated, staffType, displayName } = useSession();
   const params = useSearchParams();
   const router = useRouter();
 
   const targetIdParam = params.get('targetId') ?? '';
   const targetNameParam = params.get('targetName') ?? '';
 
-  const myId = useMemo(() => (role === 'admin' ? 'admin' : residentId ?? ''), [role, residentId]);
-  const otherId = useMemo(() => (role === 'admin' ? targetIdParam : 'admin'), [role, targetIdParam]);
+  const myId = useMemo(() => {
+    if (role === 'admin' || role === 'manager') {
+      return getWebStaffChatActorId({ role, residentId, staffType });
+    }
+    return sanitize(residentId);
+  }, [residentId, role, staffType]);
+  const otherId = useMemo(() => {
+    if (role === 'admin' || role === 'manager') return targetIdParam;
+    const normalizedTargetId = sanitize(targetIdParam);
+    return normalizedTargetId || 'admin';
+  }, [role, targetIdParam]);
   const headerTitle = useMemo(
-    () => (role === 'admin' ? targetNameParam || otherId || 'FC' : '총무팀'),
-    [role, targetNameParam, otherId],
+    () => {
+      if (role === 'admin' || role === 'manager') return targetNameParam || otherId || 'FC';
+      return targetNameParam || (otherId === 'admin' ? '총무팀' : otherId || '메신저');
+    },
+    [otherId, role, targetNameParam],
+  );
+  const senderName = useMemo(
+    () => getWebStaffSenderName({ role, residentId, staffType, displayName }),
+    [displayName, residentId, role, staffType],
   );
 
   const [messages, setMessages] = useState<ChatMessage[]>([]);
@@ -261,6 +279,7 @@ function ChatContent() {
             target_id: residentIdForPush,
             message: notiBody,
             sender_id: myId,
+            sender_name: senderName,
           }),
         });
         const data = await resp.json().catch(() => null);
@@ -319,7 +338,7 @@ function ChatContent() {
     );
   }
 
-  if (role === 'admin' && !otherId) {
+  if ((role === 'admin' || role === 'manager') && !otherId) {
     return (
       <Container size="md" py="xl">
         <Paper shadow="sm" radius="lg" withBorder p="xl">
@@ -354,7 +373,7 @@ function ChatContent() {
                 {headerTitle || '채팅'}
               </Title>
               <Text size="xs" c="dimmed">
-                {role === 'admin' ? 'FC와 1:1 상담' : '총무팀과 1:1 상담'}
+                {role === 'admin' || role === 'manager' ? 'FC와 1:1 상담' : `${headerTitle}와 1:1 상담`}
               </Text>
             </div>
           </Group>

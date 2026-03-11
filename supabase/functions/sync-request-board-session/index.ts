@@ -85,7 +85,7 @@ serve(async (req: Request) => {
   if (session.role === 'admin') {
     const { data: admin, error } = await supabase
       .from('admin_accounts')
-      .select('phone,active,name')
+      .select('phone,active,name,staff_type')
       .eq('phone', phone)
       .maybeSingle();
 
@@ -101,7 +101,22 @@ serve(async (req: Request) => {
       return fail('inactive_account', '비활성화된 계정입니다.', 403);
     }
 
-    return fail('request_board_not_applicable', '총무 계정은 가람Link 요청 주체가 아닙니다.', 403);
+    const staffType = admin.staff_type === 'developer' ? 'developer' : 'admin';
+    if (staffType !== 'developer') {
+      return fail('request_board_not_applicable', '총무 계정은 가람Link 요청 주체가 아닙니다.', 403);
+    }
+
+    const requestBoardBridgeToken = await createRequestBoardBridgeToken(admin.phone, 'fc');
+    if (!requestBoardBridgeToken) {
+      return fail('bridge_secret_missing', '브릿지 토큰을 발급할 수 없습니다.', 500);
+    }
+
+    return json({
+      ok: true,
+      requestBoardBridgeToken,
+      requestBoardRole: 'fc',
+      displayName: admin.name ?? '',
+    });
   }
 
   if (session.role === 'manager') {

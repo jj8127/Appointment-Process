@@ -4,6 +4,7 @@ import { useRouter } from 'next/navigation';
 import { createContext, ReactNode, useContext, useEffect, useMemo, useState } from 'react';
 
 import { logger } from '@/lib/logger';
+import { normalizeStaffType, type StaffType } from '@/lib/staff-identity';
 type Role = 'admin' | 'manager' | 'fc' | null;
 
 type SessionState = {
@@ -11,11 +12,12 @@ type SessionState = {
     residentId: string;
     residentMask: string;
     displayName: string;
+    staffType: StaffType;
 };
 
 type SessionContextValue = SessionState & {
     hydrated: boolean;
-    loginAs: (role: Role, residentId: string, displayName?: string) => void;
+    loginAs: (role: Role, residentId: string, displayName?: string, staffType?: StaffType) => void;
     logout: () => void;
     isReadOnly: boolean; // manager는 읽기 전용
 };
@@ -24,6 +26,7 @@ const SessionContext = createContext<SessionContextValue | undefined>(undefined)
 const COOKIE_ROLE = 'session_role';
 const COOKIE_RESIDENT = 'session_resident';
 const COOKIE_DISPLAY = 'session_display';
+const COOKIE_STAFF_TYPE = 'session_staff_type';
 
 function isRole(value: unknown): value is Exclude<Role, null> {
     return value === 'admin' || value === 'manager' || value === 'fc';
@@ -37,7 +40,7 @@ const computeMask = (raw: string) => {
     return `${digits.slice(0, 3)}-${digits.slice(3, 7)}-${digits.slice(7)}`;
 };
 
-const initialState: SessionState = { role: null, residentId: '', residentMask: '', displayName: '' };
+const initialState: SessionState = { role: null, residentId: '', residentMask: '', displayName: '', staffType: null };
 const STORAGE_KEY = 'fc-onboarding/session';
 const COOKIE_MAX_AGE = 60 * 60 * 24 * 30; // 30일
 
@@ -84,12 +87,14 @@ export function SessionProvider({ children }: { children: ReactNode }) {
                             residentId: parsed.residentId,
                             residentMask: computeMask(parsed.residentId),
                             displayName: parsed.displayName ?? '',
+                            staffType: normalizeStaffType(parsed.staffType),
                         });
 
                         // Ensure server route handlers can validate session immediately on reload.
                         document.cookie = getCookieString(COOKIE_ROLE, parsed.role);
                         document.cookie = getCookieString(COOKIE_RESIDENT, parsed.residentId);
                         document.cookie = getCookieString(COOKIE_DISPLAY, parsed.displayName ?? '');
+                        document.cookie = getCookieString(COOKIE_STAFF_TYPE, normalizeStaffType(parsed.staffType) ?? '');
                     }
                 }
             } catch (err) {
@@ -110,6 +115,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
                         role: state.role,
                         residentId: state.residentId,
                         displayName: state.displayName,
+                        staffType: state.staffType,
                     };
                     // Security: Obfuscate session data before storing in localStorage
                     const encoded = obfuscate(JSON.stringify(payload));
@@ -132,25 +138,28 @@ export function SessionProvider({ children }: { children: ReactNode }) {
             document.cookie = getCookieString(COOKIE_ROLE, state.role ?? '');
             document.cookie = getCookieString(COOKIE_RESIDENT, state.residentId ?? '');
             document.cookie = getCookieString(COOKIE_DISPLAY, state.displayName ?? '');
+            document.cookie = getCookieString(COOKIE_STAFF_TYPE, state.staffType ?? '');
         } else {
             document.cookie = getCookieString(COOKIE_ROLE, '', 0);
             document.cookie = getCookieString(COOKIE_RESIDENT, '', 0);
             document.cookie = getCookieString(COOKIE_DISPLAY, '', 0);
+            document.cookie = getCookieString(COOKIE_STAFF_TYPE, '', 0);
         }
-    }, [hydrated, state.displayName, state.residentId, state.role]);
+    }, [hydrated, state.displayName, state.residentId, state.role, state.staffType]);
 
     const value = useMemo<SessionContextValue>(
         () => ({
             ...state,
             hydrated,
             isReadOnly: state.role === 'manager', // manager는 읽기 전용
-            loginAs: (role, residentId, displayName = '') => {
-                setState({ role, residentId, residentMask: computeMask(residentId), displayName });
+            loginAs: (role, residentId, displayName = '', staffType = null) => {
+                setState({ role, residentId, residentMask: computeMask(residentId), displayName, staffType });
                 // Security: Set cookies with Secure and SameSite flags
                 // Note: For production, consider server-side session tokens with HttpOnly cookies
                 document.cookie = getCookieString(COOKIE_ROLE, role ?? '');
                 document.cookie = getCookieString(COOKIE_RESIDENT, residentId ?? '');
                 document.cookie = getCookieString(COOKIE_DISPLAY, displayName ?? '');
+                document.cookie = getCookieString(COOKIE_STAFF_TYPE, staffType ?? '');
             },
             logout: () => {
                 setState(initialState);
@@ -159,6 +168,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
                 document.cookie = getCookieString(COOKIE_ROLE, '', 0);
                 document.cookie = getCookieString(COOKIE_RESIDENT, '', 0);
                 document.cookie = getCookieString(COOKIE_DISPLAY, '', 0);
+                document.cookie = getCookieString(COOKIE_STAFF_TYPE, '', 0);
                 router.replace('/auth');
             },
         }),

@@ -14,7 +14,8 @@ import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context'
 
 import { useSession } from '@/hooks/use-session';
 import { logger } from '@/lib/logger';
-import { ADMIN_CHAT_ID, sanitizePhone } from '@/lib/messenger-participants';
+import { sanitizePhone } from '@/lib/messenger-participants';
+import { getAccountRoleLabel, getStaffChatActorId } from '@/lib/staff-identity';
 import { rbGetUnreadCount } from '@/lib/request-board-api';
 import { supabase } from '@/lib/supabase';
 
@@ -37,7 +38,7 @@ export default function MessengerHubScreen() {
   const router = useRouter();
   const { channel } = useLocalSearchParams<{ channel?: string | string[] }>();
   const insets = useSafeAreaInsets();
-  const { role, residentId, hydrated, readOnly, ensureRequestBoardSession } = useSession();
+  const { role, residentId, hydrated, readOnly, staffType, ensureRequestBoardSession } = useSession();
   const oneShotOpenRef = useRef(false);
 
   const [loading, setLoading] = useState(true);
@@ -47,10 +48,10 @@ export default function MessengerHubScreen() {
 
   const myChatId = useMemo(() => {
     if (role === 'admin') {
-      return readOnly ? sanitizePhone(residentId) : ADMIN_CHAT_ID;
+      return getStaffChatActorId({ residentId, readOnly, staffType });
     }
     return sanitizePhone(residentId);
-  }, [readOnly, residentId, role]);
+  }, [readOnly, residentId, role, staffType]);
 
   const openGaramMessenger = useCallback(() => {
     if (role === 'admin') {
@@ -144,9 +145,11 @@ export default function MessengerHubScreen() {
 
   const garamDescription = role === 'admin'
     ? readOnly
-      ? '본부장/총무 화면에서 모든 FC와 대화'
-      : '총무 화면에서 모든 FC와 1:1 대화'
-    : 'FC, 본부장, 총무 간 내부 소통';
+      ? '본부장/총무/개발자 화면에서 모든 FC와 대화'
+      : staffType === 'developer'
+        ? '개발자 화면에서 FC와 1:1 대화'
+        : '총무 화면에서 모든 FC와 1:1 대화'
+    : 'FC, 본부장, 총무, 개발자 간 내부 소통';
 
   return (
     <SafeAreaView style={styles.safe} edges={['left', 'right', 'bottom']}>
@@ -182,6 +185,9 @@ export default function MessengerHubScreen() {
                 )}
               </View>
               <Text style={styles.channelDesc}>{garamDescription}</Text>
+              {role === 'admin' && !readOnly && (
+                <Text style={styles.helperLine}>{getAccountRoleLabel({ role, readOnly, staffType })} 계정으로 표시됩니다.</Text>
+              )}
             </View>
             <Feather name="chevron-right" size={18} color="#9CA3AF" />
           </Pressable>
@@ -260,6 +266,7 @@ const styles = StyleSheet.create({
   channelHeadRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
   channelTitle: { fontSize: 16, fontWeight: '700', color: CHARCOAL },
   channelDesc: { fontSize: 13, color: MUTED },
+  helperLine: { fontSize: 12, color: '#9CA3AF' },
   badge: {
     minWidth: 20,
     height: 20,

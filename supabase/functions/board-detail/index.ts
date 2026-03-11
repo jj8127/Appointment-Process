@@ -1,5 +1,14 @@
 import { serve } from 'https://deno.land/std@0.224.0/http/server.ts';
-import { buildCorsHeaders, json, parseJson, requireActor, supabase , dbError } from '../_shared/board.ts';
+import {
+  buildCorsHeaders,
+  json,
+  parseJson,
+  requireActor,
+  supabase,
+  dbError,
+  resolveDeveloperResidentIds,
+  toBoardDisplayRole,
+} from '../_shared/board.ts';
 
 type Payload = {
   actor?: {
@@ -93,6 +102,14 @@ serve(async (req: Request) => {
     return dbError(likesRes.error, origin);
   }
 
+  const developerResidentIds = await resolveDeveloperResidentIds([
+    { author_role: post.author_role, author_resident_id: post.author_resident_id },
+    ...((commentsRes.data ?? []).map((row) => ({
+      author_role: row.author_role,
+      author_resident_id: row.author_resident_id,
+    }))),
+  ]);
+
   const reactions = {
     like: 0,
     heart: 0,
@@ -118,7 +135,7 @@ serve(async (req: Request) => {
     parentId: row.parent_id ?? null,
     content: row.content,
     authorName: row.author_name,
-    authorRole: row.author_role,
+    authorRole: toBoardDisplayRole(row.author_role, row.author_resident_id, developerResidentIds),
     createdAt: row.created_at,
     editedAt: row.edited_at ?? undefined,
     stats: {
@@ -155,7 +172,7 @@ serve(async (req: Request) => {
         title: post.title,
         content: post.content,
         authorName: post.author_name,
-        authorRole: post.author_role,
+        authorRole: toBoardDisplayRole(post.author_role, post.author_resident_id, developerResidentIds),
         createdAt: post.created_at,
         updatedAt: post.updated_at,
         editedAt: post.edited_at ?? undefined,

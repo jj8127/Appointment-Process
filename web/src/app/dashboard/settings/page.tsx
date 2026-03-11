@@ -1,6 +1,7 @@
 'use client';
 
 import { useSession } from '@/hooks/use-session';
+import { getDashboardRoleLabel, getDashboardRoleSubLabel } from '@/lib/staff-identity';
 import {
   getWebPushPermissionState,
   registerWebPushSubscription,
@@ -28,7 +29,7 @@ type ConfirmStep = 1 | 2;
 
 export default function SettingsPage() {
   const router = useRouter();
-  const { role, residentId, residentMask, displayName, hydrated, logout } = useSession();
+  const { role, residentId, residentMask, displayName, hydrated, logout, staffType, isReadOnly } = useSession();
 
   const [opened, setOpened] = useState(false);
   const [step, setStep] = useState<ConfirmStep>(1);
@@ -38,12 +39,12 @@ export default function SettingsPage() {
   const [pushPermission, setPushPermission] = useState<WebPushPermissionState>('unsupported');
 
   const deleteRole = role === 'admin' ? 'admin' : role === 'manager' ? 'manager' : role === 'fc' ? 'fc' : null;
-  const displayRole = role === 'admin' ? '총무' : role === 'manager' ? '본부장' : 'FC';
+  const displayRole = getDashboardRoleLabel({ role, staffType, isReadOnly });
   const displaySub = useMemo(() => {
-    if (role === 'admin') return '총무 계정';
-    if (role === 'manager') return '본부장 계정';
+    const roleSub = getDashboardRoleSubLabel({ role, staffType, isReadOnly });
+    if (roleSub) return roleSub;
     return residentMask || '전화번호 미등록';
-  }, [role, residentMask]);
+  }, [isReadOnly, residentMask, role, staffType]);
 
   useEffect(() => {
     if (!hydrated) return;

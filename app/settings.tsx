@@ -10,11 +10,12 @@ import { useAppLogout } from '@/hooks/use-app-logout';
 import { useBottomNavAnimation } from '@/hooks/use-bottom-nav-animation';
 import { useSession } from '@/hooks/use-session';
 import { resolveBottomNavActiveKey, resolveBottomNavPreset } from '@/lib/bottom-navigation';
+import { getAccountRoleLabel } from '@/lib/staff-identity';
 import { supabase } from '@/lib/supabase';
 import { COLORS, TYPOGRAPHY, SPACING, RADIUS } from '@/lib/theme';
 
 export default function SettingsScreen() {
-  const { role, residentId, residentMask, displayName, logout, isRequestBoardDesigner, readOnly, hydrated } = useSession();
+  const { role, residentId, residentMask, displayName, logout, isRequestBoardDesigner, readOnly, hydrated, staffType } = useSession();
   const appLogout = useAppLogout();
   const insets = useSafeAreaInsets();
   const { scrollHandler, animatedStyle } = useBottomNavAnimation();
@@ -87,7 +88,7 @@ export default function SettingsScreen() {
           <View style={styles.row}>
             <Text style={styles.label}>역할</Text>
             <Text style={styles.value}>
-              {isRequestBoardDesigner ? '설계매니저' : readOnly ? '본부장' : role === 'admin' ? '총무' : 'FC'}
+              {getAccountRoleLabel({ role, readOnly, isRequestBoardDesigner, staffType })}
             </Text>
           </View>
         </View>

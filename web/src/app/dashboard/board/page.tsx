@@ -1,6 +1,7 @@
 'use client';
 
 import { useSession } from '@/hooks/use-session';
+import { getBoardAuthorAvatarColor, getBoardAuthorBadgeColor, getBoardAuthorRoleLabel } from '@/lib/staff-identity';
 import {
   BoardDetail,
   BoardListItem,
@@ -866,7 +867,7 @@ export default function BoardPage() {
         <Card withBorder radius="md" padding="md" style={{ background: depth >= 1 ? '#F9FAFB' : '#fff' }}>
           <Group justify="space-between" align="flex-start" wrap="nowrap">
             <Group gap="sm" align="flex-start" wrap="nowrap">
-              <Avatar color={comment.authorRole === 'manager' ? 'grape' : comment.authorRole === 'admin' ? 'blue' : 'orange'} radius="xl" size="sm">
+              <Avatar color={getBoardAuthorAvatarColor(comment.authorRole)} radius="xl" size="sm">
                 {comment.authorName.charAt(0)}
               </Avatar>
               <div style={{ flex: 1 }}>
@@ -874,8 +875,8 @@ export default function BoardPage() {
                   <Text size="sm" fw={600}>
                     {comment.authorName}
                   </Text>
-                  <Badge size="xs" variant="light" color="gray">
-                    {comment.authorRole === 'admin' ? '관리자' : comment.authorRole === 'manager' ? '본부장' : 'FC'}
+                  <Badge size="xs" variant="light" color={getBoardAuthorBadgeColor(comment.authorRole)}>
+                    {getBoardAuthorRoleLabel(comment.authorRole)}
                   </Badge>
                   <Text size="xs" c="dimmed">
                     {createdLabel}
@@ -1073,7 +1074,7 @@ export default function BoardPage() {
               정보 게시판
             </Title>
             <Text c="dimmed" mt={4}>
-              본부장과 총무가 공유하는 정보 공간
+              본부장, 총무, 개발자가 공유하는 정보 공간
             </Text>
           </div>
 
@@ -1176,9 +1177,9 @@ export default function BoardPage() {
                               <Badge
                                 size="xs"
                                 variant="light"
-                                color={post.authorRole === 'admin' ? 'blue' : 'purple'}
+                                color={getBoardAuthorBadgeColor(post.authorRole)}
                               >
-                                {post.authorRole === 'admin' ? '관리자' : '본부장'}
+                                {getBoardAuthorRoleLabel(post.authorRole)}
                               </Badge>
                               <Badge
                                 size="xs"
@@ -1488,9 +1489,9 @@ export default function BoardPage() {
                 <Badge
                   size="xs"
                   variant="light"
-                  color={modalPost?.authorRole === 'admin' ? 'blue' : 'purple'}
+                  color={getBoardAuthorBadgeColor(modalPost?.authorRole ?? 'manager')}
                 >
-                  {modalPost?.authorRole === 'admin' ? '관리자' : '본부장'}
+                  {getBoardAuthorRoleLabel(modalPost?.authorRole ?? 'manager')}
                 </Badge>
                 <Badge
                   size="xs"

@@ -1,5 +1,15 @@
 import { serve } from 'https://deno.land/std@0.224.0/http/server.ts';
-import { buildCorsHeaders, json, parseJson, previewContent, requireActor, supabase , dbError } from '../_shared/board.ts';
+import {
+  buildCorsHeaders,
+  json,
+  parseJson,
+  previewContent,
+  requireActor,
+  supabase,
+  dbError,
+  resolveDeveloperResidentIds,
+  toBoardDisplayRole,
+} from '../_shared/board.ts';
 
 type Payload = {
   actor?: {
@@ -94,13 +104,18 @@ serve(async (req: Request) => {
     return dbError(listResult.error, origin);
   }
 
+  const developerResidentIds = await resolveDeveloperResidentIds([
+    ...(pinnedResult.data ?? []),
+    ...(listResult.data ?? []),
+  ]);
+
   const normalize = (row: any) => ({
     id: row.id,
     categoryId: row.category_id,
     title: row.title,
     contentPreview: previewContent(row.content),
     authorName: row.author_name,
-    authorRole: row.author_role,
+    authorRole: toBoardDisplayRole(row.author_role, row.author_resident_id, developerResidentIds),
     createdAt: row.created_at,
     updatedAt: row.updated_at,
     editedAt: row.edited_at ?? undefined,

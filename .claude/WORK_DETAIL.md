@@ -7,6 +7,114 @@
 
 ---
 
+## <a id="20260311-developer-subtype"></a> 2026-03-11 | 개발자 계정 subtype 도입 + request_board FC 브릿지
+
+**배경**:
+- 총무와 동일한 운영 권한을 유지하되, FC 메신저에서는 총무와 다른 별도 상대방으로 보여야 하고, 앱/웹/게시판/알림에서는 직책이 `총무`가 아니라 `개발자`로 표시되는 전용 운영 계정이 필요했다.
+- 동시에 가람Link에서는 별도 관리자 역할이 아니라 기존 `FC`와 동일한 권한 모델을 유지해야 했고, direct login/bridge login 모두 이름이 `개발자`로 보여야 했다.
+- 기존 top-level role 계약(`admin`/`manager`/`fc`)을 깨면 세션, 권한, request_board 브릿지, read-only 분기 전반을 다시 바꿔야 해서 회귀 범위가 과도했다.
+
+**조치**:
+- 스키마/세션 계약:
+  - `supabase/migrations/20260311000002_add_admin_staff_type.sql`, `supabase/schema.sql`
+    - `admin_accounts.staff_type` 컬럼 추가 (`admin` / `developer`, default `admin`).
+  - `supabase/functions/_shared/request-board-auth.ts`
+    - 앱 세션 토큰에 optional `staffType` 포함.
+  - `hooks/use-session.tsx`, `hooks/use-login.ts`, `lib/request-board-session.ts`
+    - 앱 세션 상태에 `staffType` 저장/복원.
+    - request_board 사용 가능 조건을 `admin + staffType=developer`까지 확장.
+- 앱/브릿지 인증:
+  - `supabase/functions/login-with-password/index.ts`
+    - `admin_accounts.staff_type` 조회 추가.
+    - `staff_type='developer'`이면 앱 role은 계속 `admin`, request_board bridge/direct sync role은 `fc`, request_board 표시 이름은 `개발자`로 발급.
+  - `supabase/functions/sync-request-board-session/index.ts`
+    - 총무는 기존처럼 request_board 비대상 유지.
+    - 개발자 subtype만 `fc` bridge token 재발급 허용.
+- 메신저/알림/표시 분리:
+  - `lib/staff-identity.ts`, `web/src/lib/staff-identity.ts`
+    - 개발자 계정 라벨, sender name, chat actor id, board badge helper 추가.
+  - `app/chat.tsx`, `app/admin-messenger.tsx`, `app/messenger.tsx`
+    - FC 대상 목록에 `developers` 별도 노출.
+    - 개발자는 총무 공용 actor id가 아니라 본인 전화번호 actor id 사용.
+  - `app/notifications.tsx`, `web/src/components/DashboardNotificationBell.tsx`
+    - 개발자 admin 세션은 admin inbox + request_board용 fc inbox를 병합 로드.
+  - `supabase/functions/fc-notify/index.ts`
+    - `chat_targets` 응답에 `developers` 추가.
+- 게시판/웹 라벨:
+  - `supabase/functions/_shared/board.ts`, `board-list`, `board-detail`
+    - 게시글/댓글 작성자가 `admin + staff_type=developer`면 display role을 `developer`로 변환.
+  - `app/board.tsx`, `app/admin-board-manage.tsx`, `app/board-detail.tsx`, `web/src/app/dashboard/board/page.tsx`
+    - 배지/라벨을 `개발자`까지 지원.
+  - `web/src/app/dashboard/layout.tsx`, `web/src/app/dashboard/settings/page.tsx`, `web/src/app/dashboard/messenger/page.tsx`, `web/src/app/dashboard/chat/page.tsx`, `web/src/app/chat/page.tsx`
+    - 헤더/설정/메신저에서 개발자 직책 라벨과 개별 채팅 actor id 반영.
+- 운영 계정 생성:
+  - `admin_accounts`에 `name='개발자'`, `phone='01058006018'`, `staff_type='developer'` 계정 생성.
+  - PBKDF2-SHA256(100000회) 해시로 앱 비밀번호 저장.
+  - 개발자 앱 로그인 시 request_board에 `fc` direct 계정이 자동 동기화되도록 verified.
+
+**검증**:
+- 정적 검증:
+  - `npx tsc --noEmit`
+  - `npx eslint app/chat.tsx app/admin-messenger.tsx app/messenger.tsx app/notifications.tsx app/board.tsx app/admin-board-manage.tsx app/board-detail.tsx hooks/use-login.ts hooks/use-session.tsx lib/staff-identity.ts lib/board-api.ts lib/request-board-session.ts lib/welcome-title.ts lib/__tests__/request-board-session.test.ts web/src/lib/board-api.ts`
+  - `cd web && npm run lint -- src/app/dashboard/layout.tsx src/app/dashboard/settings/page.tsx src/app/dashboard/messenger/page.tsx src/app/dashboard/chat/page.tsx src/app/chat/page.tsx src/app/dashboard/board/page.tsx src/components/DashboardNotificationBell.tsx src/lib/staff-identity.ts src/lib/board-api.ts src/hooks/use-session.tsx src/app/auth/page.tsx`
+  - `npx jest lib/__tests__/request-board-session.test.ts`
+  - `cd web && npm run build`
+  - `node scripts/ci/check-governance.mjs`
+- 원격 반영:
+  - `supabase db push`로 `20260311000002_add_admin_staff_type.sql` 적용
+  - Edge Function deploy:
+    - `login-with-password`
+    - `sync-request-board-session`
+    - `fc-notify`
+    - `board-list`
+    - `board-detail`
+- 런타임 검증:
+  - 앱 로그인 (`login-with-password`): `role=admin`, `staffType=developer`, `requestBoardRole=fc`, bridge/app session token 발급 확인
+  - request_board bridge-login: `role=fc`, `name=개발자`
+  - request_board direct login: `role=fc`, `name=개발자`
+  - `sync-request-board-session`: 개발자 세션에서 `requestBoardRole=fc`로 재발급 확인
+  - `fc-notify chat_targets`: FC 대상 목록에 `developers[0] = { name: '개발자', phone: '01058006018' }` 확인
+
+**운영 후 확인 포인트**:
+- 모바일/웹 클라이언트 배포 후 개발자 계정이 설정/헤더/알림/게시판에서 `개발자`로 표기되는지
+- FC 메신저 대상 선택에서 총무와 별개 `개발자` 항목이 보이고, 대화가 공용 총무방과 섞이지 않는지
+- 개발자 계정으로 가람Link direct login/bridge login 후 FC 권한만 가지는지
+
+---
+
+## <a id="20260311-exam-approval-notify"></a> 2026-03-11 | 시험 신청 승인 시 FC 앱 알림 누락 보완
+
+**배경**:
+- FC가 시험 신청을 한 뒤 총무가 `접수 완료/승인 완료`로 상태를 바꿔도 FC 모바일 앱 알림센터와 푸시가 오지 않는 문제가 확인되었다.
+- 원인을 확인한 결과 시험 승인 화면 3곳이 모두 `exam_registrations.is_confirmed`/`status` 갱신만 수행하고, 다른 승인 흐름처럼 `fc-notify`를 호출하지 않았다.
+  - 모바일 총무 생명보험 신청자 화면 `app/exam-manage.tsx`
+  - 모바일 총무 손해보험 신청자 화면 `app/exam-manage2.tsx`
+  - 관리자 웹 신청자 관리 화면 `web/src/app/dashboard/exam/applicants/page.tsx`
+
+**조치**:
+- `lib/exam-approval-notify.ts`
+  - FC 시험 승인 알림 전송 공통 헬퍼 추가.
+  - `residentId` 정규화, 승인/해제 메시지 생성, `fc-notify`(`target_role='fc'`) 호출을 캡슐화.
+- `app/exam-manage.tsx`, `app/exam-manage2.tsx`
+  - 총무 승인 토글 시 `is_confirmed`뿐 아니라 `status`도 `confirmed/applied`로 동기화.
+  - `접수 완료`로 변경될 때 공통 헬퍼로 FC 앱 알림 전송.
+  - 알림 전송 실패 시 승인 상태 저장은 유지하고 운영자에게만 경고 표시.
+- `web/src/app/dashboard/exam/applicants/page.tsx`
+  - 웹 승인 토글도 동일하게 FC 앱 알림 전송.
+  - 캐시 업데이트 키를 실제 query key(`['exam-applicants-all-recent', role]`)와 맞춰 즉시 반영 경로를 안정화.
+
+**검증**:
+- `npm run lint -- lib/exam-approval-notify.ts app/exam-manage.tsx app/exam-manage2.tsx`
+- `npx tsc --noEmit`
+- `cd web && npm run lint -- src/app/dashboard/exam/applicants/page.tsx`
+
+**운영 후 확인 포인트**:
+- 총무 앱에서 생명/손해 시험 신청자를 `접수 완료`로 바꿀 때 FC 앱 푸시와 알림센터 항목이 생성되는지
+- 관리자 웹에서 동일 토글 시 FC 앱 푸시와 알림센터 항목이 생성되는지
+- `미접수`로 되돌릴 때 승인 저장은 유지되고 불필요한 에러로 막히지 않는지
+
+---
+
 ## <a id="20260311-logout-rb-sync"></a> 2026-03-11 | 로그아웃 공통 동작 통일 + request_board 첫 로그인 세션 재바인딩 강화
 
 **배경**:

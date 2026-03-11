@@ -21,6 +21,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { RefreshButton } from '@/components/RefreshButton';
 import { useSession } from '@/hooks/use-session';
 import { logger } from '@/lib/logger';
+import { isDeveloperSession } from '@/lib/staff-identity';
 import { supabase } from '@/lib/supabase';
 import { COLORS } from '@/lib/theme';
 
@@ -86,7 +87,7 @@ const isRequestBoardCategory = (category?: string | null): boolean =>
 
 export default function NotificationsScreen() {
   const router = useRouter();
-  const { role, residentId, hydrated, isRequestBoardDesigner } = useSession();
+  const { role, residentId, hydrated, isRequestBoardDesigner, readOnly, staffType } = useSession();
   const [notices, setNotices] = useState<Notice[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -327,21 +328,32 @@ export default function NotificationsScreen() {
   const fetchInbox = useCallback(async (): Promise<{ pushRows: Notice[]; noticeRows: Notice[] }> => {
     if (!inboxRole) return { pushRows: [], noticeRows: [] };
 
-    const { data, error } = await supabase.functions.invoke<InboxListResponse>('fc-notify', {
-      body: {
-        type: 'inbox_list',
-        role: inboxRole,
-        resident_id: inboxResidentId,
-        limit: 100,
-      },
-    });
+    const fetchRoleInbox = async (roleToLoad: 'admin' | 'fc') => {
+      const { data, error } = await supabase.functions.invoke<InboxListResponse>('fc-notify', {
+        body: {
+          type: 'inbox_list',
+          role: roleToLoad,
+          resident_id: roleToLoad === 'fc' ? inboxResidentId : null,
+          limit: 100,
+        },
+      });
+      if (error) throw error;
+      if (!data?.ok) {
+        throw new Error(data?.message ?? '알림을 불러오지 못했습니다.');
+      }
+      return data;
+    };
 
-    if (error) throw error;
-    if (!data?.ok) {
-      throw new Error(data?.message ?? '알림을 불러오지 못했습니다.');
-    }
+    const isDeveloper = isDeveloperSession({ role, readOnly, staffType });
+    const [primaryInbox, developerFcInbox] = await Promise.all([
+      fetchRoleInbox(inboxRole),
+      isDeveloper ? fetchRoleInbox('fc') : Promise.resolve(null),
+    ]);
 
-    const pushRows: Notice[] = (data.notifications ?? []).map((item) => ({
+    const pushRows: Notice[] = [
+      ...(primaryInbox.notifications ?? []),
+      ...((developerFcInbox?.notifications ?? []).filter((item) => isRequestBoardCategory(item.category))),
+    ].map((item) => ({
       id: `notification:${item.id}`,
       rawId: item.id,
       title: item.title,
@@ -353,7 +365,7 @@ export default function NotificationsScreen() {
       origin: isRequestBoardCategory(item.category) ? 'request_board' : 'fc_onboarding',
     }));
 
-    const noticeRows: Notice[] = (data.notices ?? []).map((item) => ({
+    const noticeRows: Notice[] = (primaryInbox.notices ?? []).map((item) => ({
       id: `notice:${item.id}`,
       rawId: item.id,
       title: item.title,
@@ -370,10 +382,18 @@ export default function NotificationsScreen() {
     }
 
     return {
-      pushRows: pushRows.filter((item) => item.origin === 'request_board'),
+      pushRows: Array.from(
+        pushRows
+          .filter((item) => item.origin === 'request_board')
+          .reduce((map, item) => {
+            if (!map.has(item.id)) map.set(item.id, item);
+            return map;
+          }, new Map<string, Notice>())
+          .values(),
+      ),
       noticeRows: [],
     };
-  }, [inboxResidentId, inboxRole, isRequestBoardDesigner]);
+  }, [inboxResidentId, inboxRole, isRequestBoardDesigner, readOnly, role, staffType]);
 
   const load = useCallback(async () => {
     if (!hydrated) return;
@@ -496,22 +516,45 @@ export default function NotificationsScreen() {
       endDragSelection();
 
       const selectedSet = new Set(selectedSnapshot);
+      const selectedItems = notices.filter((item) => selectedSet.has(item.id));
+      const isDeveloper = isDeveloperSession({ role, readOnly, staffType });
 
-      const notifIds = selectedSnapshot
-        .filter((id) => id.startsWith('notification:'))
-        .map((id) => id.replace('notification:', ''));
+      const adminNotifIds = selectedItems
+        .filter((item) => item.source === 'notification' && (!isDeveloper || item.origin !== 'request_board'))
+        .map((item) => item.rawId);
+      const developerFcNotifIds = selectedItems
+        .filter((item) => item.source === 'notification' && isDeveloper && item.origin === 'request_board')
+        .map((item) => item.rawId);
       const noticeIds = selectedSnapshot
         .filter((id) => id.startsWith('notice:'))
         .map((id) => id.replace('notice:', ''));
 
-      if (notifIds.length > 0 || (inboxRole === 'admin' && noticeIds.length > 0)) {
+      if (adminNotifIds.length > 0 || (inboxRole === 'admin' && noticeIds.length > 0)) {
         const { data, error } = await supabase.functions.invoke('fc-notify', {
           body: {
             type: 'inbox_delete',
             role: inboxRole,
             resident_id: inboxResidentId,
-            notification_ids: notifIds,
+            notification_ids: adminNotifIds,
             notice_ids: inboxRole === 'admin' ? noticeIds : [],
+          },
+        });
+        if (error) throw error;
+        if (!data?.ok) {
+          throw new Error(
+            typeof data?.message === 'string' ? data.message : '삭제 중 문제가 발생했습니다.',
+          );
+        }
+      }
+
+      if (developerFcNotifIds.length > 0) {
+        const { data, error } = await supabase.functions.invoke('fc-notify', {
+          body: {
+            type: 'inbox_delete',
+            role: 'fc',
+            resident_id: inboxResidentId,
+            notification_ids: developerFcNotifIds,
+            notice_ids: [],
           },
         });
         if (error) throw error;
@@ -534,7 +577,8 @@ export default function NotificationsScreen() {
       setSelectionMode(false);
       void load();
 
-      const isNoticeOnlyFc = inboxRole === 'fc' && noticeIds.length > 0 && notifIds.length === 0;
+      const totalNotifIds = adminNotifIds.length + developerFcNotifIds.length;
+      const isNoticeOnlyFc = inboxRole === 'fc' && noticeIds.length > 0 && totalNotifIds === 0;
       alertTimerRef.current = setTimeout(() => {
         if (!mountedRef.current) return;
         Alert.alert(

@@ -14,6 +14,7 @@ import {
   shouldForceRequestBoardRelogin,
 } from '@/lib/request-board-session';
 import { safeStorage } from '@/lib/safe-storage';
+import { normalizeStaffType, type StaffType } from '@/lib/staff-identity';
 import { isValidMobilePhone, normalizePhone } from '@/lib/validation';
 
 type Role = 'admin' | 'fc' | null;
@@ -25,6 +26,7 @@ type SessionState = {
   residentId: string; // now stores phone number digits
   residentMask: string; // formatted phone number
   displayName: string;
+  staffType: StaffType;
   readOnly: boolean;
   isRequestBoardDesigner: boolean;
   requestBoardRole: RequestBoardRole;
@@ -38,6 +40,7 @@ type SessionContextValue = SessionState & {
     role: Role,
     residentId: string,
     displayName?: string,
+    staffType?: StaffType,
     readOnly?: boolean,
     isRequestBoardDesigner?: boolean,
     requestBoardRole?: RequestBoardRole,
@@ -66,6 +69,7 @@ const initialState: SessionState = {
   residentId: '',
   residentMask: '',
   displayName: '',
+  staffType: null,
   readOnly: false,
   isRequestBoardDesigner: false,
   requestBoardRole: null,
@@ -117,7 +121,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
       return { ok: false, error: '세션 복원 중입니다.' };
     }
 
-    if (!canUseRequestBoardSession(state.role, state.readOnly)) {
+    if (!canUseRequestBoardSession(state.role, state.readOnly, state.staffType)) {
       setRequestBoardSyncStatus('idle');
       setRequestBoardSyncError(null);
       return { ok: true };
@@ -179,7 +183,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     } finally {
       requestBoardSyncPromiseRef.current = null;
     }
-  }, [appSessionToken, hydrated, state.readOnly, state.residentId, state.role, syncRequestBoardFlags]);
+  }, [appSessionToken, hydrated, state.readOnly, state.residentId, state.role, state.staffType, syncRequestBoardFlags]);
 
   useEffect(() => {
     const restore = async () => {
@@ -206,6 +210,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
               residentId: normalizedResidentId,
               residentMask: computeMask(normalizedResidentId),
               displayName: parsed.displayName ?? '',
+              staffType: normalizeStaffType(parsed.staffType),
               readOnly: Boolean(parsed.readOnly),
               ...deriveRequestBoardFlags(
                 parsed.role,
@@ -239,6 +244,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
             role: state.role,
             residentId: state.residentId,
             displayName: state.displayName,
+            staffType: state.staffType,
             readOnly: state.readOnly,
             isRequestBoardDesigner: state.isRequestBoardDesigner,
             requestBoardRole: state.requestBoardRole,
@@ -257,7 +263,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     if (!hydrated) return;
-    if (!canUseRequestBoardSession(state.role, state.readOnly)) {
+    if (!canUseRequestBoardSession(state.role, state.readOnly, state.staffType)) {
       setRequestBoardSyncStatus('idle');
       setRequestBoardSyncError(null);
       return;
@@ -274,7 +280,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     return () => {
       cancelled = true;
     };
-  }, [clearSessionState, ensureRequestBoardSession, hydrated, state.readOnly, state.role, state.residentId]);
+  }, [clearSessionState, ensureRequestBoardSession, hydrated, state.readOnly, state.role, state.residentId, state.staffType]);
 
   const value = useMemo<SessionContextValue>(
     () => ({
@@ -290,6 +296,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
         role,
         residentId,
         displayName = '',
+        staffType = null,
         readOnly = false,
         isRequestBoardDesigner = false,
         requestBoardRole = null,
@@ -301,6 +308,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
           residentId: normalizedResidentId,
           residentMask: computeMask(normalizedResidentId),
           displayName,
+          staffType,
           readOnly,
           isRequestBoardDesigner,
           requestBoardRole,

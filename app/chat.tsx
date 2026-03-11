@@ -33,6 +33,10 @@ import {
   ADMIN_CHAT_ID,
   sanitizePhone,
 } from '@/lib/messenger-participants';
+import {
+  getStaffChatActorId,
+  getStaffChatSenderName,
+} from '@/lib/staff-identity';
 
 const HANWHA_ORANGE = '#f36f21';
 const CHARCOAL = '#111827';
@@ -73,7 +77,7 @@ type FcChatTarget = {
   id: string;
   label: string;
   subtitle: string;
-  kind: 'manager' | 'admin';
+  kind: 'manager' | 'admin' | 'developer';
 };
 
 type ChatTargetManager = {
@@ -125,7 +129,7 @@ const areMessagesEqual = (prev: Message[], next: Message[]) => {
 
 export default function ChatScreen() {
   const router = useRouter();
-  const { role, residentId, displayName, readOnly, logout } = useSession();
+  const { role, residentId, displayName, readOnly, logout, staffType } = useSession();
   const { targetId, targetName } = useLocalSearchParams<{
     targetId?: string | string[];
     targetName?: string | string[];
@@ -135,9 +139,8 @@ export default function ChatScreen() {
   const targetIdValue = Array.isArray(targetId) ? targetId[0] : targetId;
   const targetNameValue = Array.isArray(targetName) ? targetName[0] : targetName;
 
-  const isManagerSession = role === 'admin' && readOnly;
   const myId = role === 'admin'
-    ? (isManagerSession ? sanitizePhone(residentId) : ADMIN_CHAT_ID)
+    ? getStaffChatActorId({ residentId, readOnly, staffType })
     : sanitizePhone(residentId);
   const normalizedTargetId = (targetIdValue ?? '').trim().toLowerCase() === ADMIN_CHAT_ID
     ? ADMIN_CHAT_ID
@@ -225,6 +228,9 @@ export default function ChatScreen() {
       const managers: ChatTargetManager[] = Array.isArray(data.managers)
         ? (data.managers as ChatTargetManager[])
         : [];
+      const developers: ChatTargetManager[] = Array.isArray(data.developers)
+        ? (data.developers as ChatTargetManager[])
+        : [];
 
       const managerTargets: FcChatTarget[] = [];
       managers.forEach((manager) => {
@@ -250,8 +256,23 @@ export default function ChatScreen() {
         }, new Map<string, FcChatTarget>()).values(),
       );
 
+      const developerTargets = Array.from(
+        developers.reduce((map, developer) => {
+          const phone = sanitizePhone(developer.phone);
+          if (!phone || map.has(phone)) return map;
+          map.set(phone, {
+            id: phone,
+            label: '개발자',
+            subtitle: '개발자',
+            kind: 'developer' as const,
+          });
+          return map;
+        }, new Map<string, FcChatTarget>()).values(),
+      );
+
       setFcTargets([
         ...deduped,
+        ...developerTargets,
         {
           id: ADMIN_CHAT_ID,
           label: '총무',
@@ -460,7 +481,7 @@ export default function ChatScreen() {
     const residentIdForPush = otherId || null;
     const notiBody = type === 'text' ? content : type === 'image' ? '사진을 보냈습니다.' : '파일을 보냈습니다.';
     const senderName = role === 'admin'
-      ? (isManagerSession ? displayName?.trim() || residentId || '본부장' : '총무팀')
+      ? getStaffChatSenderName({ displayName, residentId, readOnly, staffType })
       : displayName?.trim() || residentId || 'FC';
     const notiTitle = `${senderName}: ${notiBody}`;
     const notifyUrl = `/chat?targetId=${encodeURIComponent(myId)}&targetName=${encodeURIComponent(senderName)}`;
@@ -737,9 +758,9 @@ export default function ChatScreen() {
     >
       <View style={styles.targetAvatar}>
         <Feather
-          name={item.kind === 'admin' ? 'shield' : 'user'}
+          name={item.kind === 'admin' ? 'shield' : item.kind === 'developer' ? 'tool' : 'user'}
           size={20}
-          color={item.kind === 'admin' ? HANWHA_ORANGE : MUTED}
+          color={item.kind === 'admin' || item.kind === 'developer' ? HANWHA_ORANGE : MUTED}
         />
       </View>
       <View style={styles.targetBody}>
@@ -747,7 +768,9 @@ export default function ChatScreen() {
         <Text style={styles.targetSubtitle}>{item.subtitle}</Text>
       </View>
       <View style={styles.targetBadge}>
-        <Text style={styles.targetBadgeText}>{item.kind === 'admin' ? '총무' : '본부장'}</Text>
+        <Text style={styles.targetBadgeText}>
+          {item.kind === 'admin' ? '총무' : item.kind === 'developer' ? '개발자' : '본부장'}
+        </Text>
       </View>
       <Feather name="chevron-right" size={18} color="#9CA3AF" />
     </Pressable>
@@ -764,7 +787,7 @@ export default function ChatScreen() {
         <View style={styles.targetIntroCard}>
           <Text style={styles.targetIntroTitle}>대화 상대를 선택하세요</Text>
           <Text style={styles.targetIntroText}>
-            본부장 또는 총무를 선택하면 바로 채팅을 시작할 수 있습니다.
+            본부장, 총무 또는 개발자를 선택하면 바로 채팅을 시작할 수 있습니다.
           </Text>
         </View>
 

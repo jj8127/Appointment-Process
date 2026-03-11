@@ -19,6 +19,7 @@ import { logger } from '@/lib/logger';
 import {
   sanitizePhone,
 } from '@/lib/messenger-participants';
+import { getStaffChatActorId } from '@/lib/staff-identity';
 import { supabase } from '@/lib/supabase';
 
 const CHARCOAL = '#111827';
@@ -70,13 +71,12 @@ const hashColor = (value: string) => {
 
 export default function AdminMessengerScreen() {
   const router = useRouter();
-  const { role, residentId, readOnly } = useSession();
+  const { role, residentId, readOnly, staffType } = useSession();
   const [refreshing, setRefreshing] = useState(false);
   const [keyword, setKeyword] = useState('');
   const [optimisticUnreadByPhone, setOptimisticUnreadByPhone] = useState<Record<string, number>>({});
   const insets = useSafeAreaInsets();
-  const isManagerSession = role === 'admin' && readOnly;
-  const myChatId = isManagerSession ? sanitizePhone(residentId) : 'admin';
+  const myChatId = getStaffChatActorId({ residentId, readOnly, staffType });
 
   const fetchChatList = async () => {
     if (!myChatId) return [];
@@ -146,7 +146,7 @@ export default function AdminMessengerScreen() {
   };
 
   const { data, isLoading, refetch } = useQuery({
-    queryKey: ['admin-chat-list', role, residentId, readOnly],
+    queryKey: ['admin-chat-list', role, residentId, readOnly, staffType],
     queryFn: fetchChatList,
     enabled: role === 'admin',
   });

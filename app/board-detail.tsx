@@ -17,6 +17,7 @@ import { ImagePreviewModal } from '@/components/ImagePreviewModal';
 import { useSession } from '@/hooks/use-session';
 import { buildBoardActor, fetchBoardDetail, formatFileSize } from '@/lib/board-api';
 import { openExternalUrl } from '@/lib/open-external-url';
+import { getBoardAuthorRoleLabel, getBoardRoleBadgeStyle } from '@/lib/staff-identity';
 import { COLORS } from '@/lib/theme';
 import { safeDecodeFileName } from '@/lib/validation';
 
@@ -134,12 +135,14 @@ export default function BoardDetailScreen() {
       title: safeDecodeFileName(file.fileName),
     }));
 
+  const roleBadgeStyle = getBoardRoleBadgeStyle(post.authorRole);
+
   return (
     <SafeAreaView style={styles.safe} edges={['left', 'right', 'bottom']}>
       <ScrollView contentContainerStyle={styles.container}>
         <View style={styles.metaRow}>
-          <View style={styles.roleBadge}>
-            <Text style={styles.roleText}>{post.authorRole === 'admin' ? '관리자' : '본부장'}</Text>
+          <View style={[styles.roleBadge, { backgroundColor: roleBadgeStyle.backgroundColor }]}>
+            <Text style={[styles.roleText, { color: roleBadgeStyle.color }]}>{getBoardAuthorRoleLabel(post.authorRole)}</Text>
           </View>
           <Text style={styles.metaText}>{new Date(post.createdAt).toLocaleDateString()}</Text>
         </View>
