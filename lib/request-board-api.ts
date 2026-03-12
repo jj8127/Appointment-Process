@@ -3,12 +3,11 @@
  * Handles authentication, conversation listing, message fetch/send.
  */
 import { logger } from './logger';
+import { getRequestBoardApiBaseUrl } from './request-board-url';
 import { safeStorage } from './safe-storage';
 import { supabase } from './supabase';
 
-const BASE_URL = (
-  process.env.EXPO_PUBLIC_REQUEST_BOARD_URL || 'https://requestboard-steel.vercel.app'
-).replace(/\/$/, '');
+const BASE_URL = getRequestBoardApiBaseUrl();
 
 const STORAGE_KEY_TOKEN = 'rb_jwt_token';
 const STORAGE_KEY_USER = 'rb_user';
@@ -34,11 +33,11 @@ export type RbConversation = {
   participantRole: 'fc' | 'designer';
   status: string;
   request: { id: number; customer_name: string; status: string } | null;
-  fc: { id: number; name: string } | null;
+  fc: { id: number; name: string; phone: string | null } | null;
   designer: {
     id: number;
     company_name: string | null;
-    users: { id: number; name: string } | null;
+    users: { id: number; name: string; phone: string | null } | null;
   } | null;
   lastMessage: {
     id: number;
@@ -81,7 +80,7 @@ export type RbMessage = {
 export type RbDmConversation = {
   id: number;
   type: 'direct';
-  participant: { id: number; name: string; role: string } | null;
+  participant: { id: number; name: string; role: string; phone: string | null } | null;
   lastMessage: {
     id: number;
     message: string;
@@ -92,6 +91,15 @@ export type RbDmConversation = {
   unreadCount: number;
   created_at: string;
   updated_at: string;
+};
+
+export type RbPresenceSnapshot = {
+  phone: string;
+  garam_in_at: string | null;
+  garam_link_at: string | null;
+  last_seen_at: string | null;
+  is_online: boolean;
+  updated_at: string | null;
 };
 
 export type RbDmMessage = {
@@ -549,6 +557,30 @@ export async function rbGetDmConversations(): Promise<RbDmConversation[]> {
   return [];
 }
 
+export async function rbGetPresence(
+  phones: (string | null | undefined)[],
+): Promise<RbPresenceSnapshot[]> {
+  const normalizedPhones = Array.from(
+    new Set(
+      phones
+        .map((phone) => String(phone ?? '').replace(/[^0-9]/g, ''))
+        .filter((phone) => phone.length === 11)
+    )
+  ).slice(0, 100);
+
+  if (normalizedPhones.length === 0) {
+    return [];
+  }
+
+  const params = new URLSearchParams({ phones: normalizedPhones.join(',') });
+  const res = await rbFetch<RbPresenceSnapshot[]>(`/api/presence?${params.toString()}`);
+  if (res.success && res.data) {
+    return res.data;
+  }
+  logger.warn('[rb-api] presence fetch failed:', res.error);
+  return [];
+}
+
 export async function rbGetDmMessages(
   conversationId: number,
   limit = 50,
@@ -643,11 +675,45 @@ export async function rbGetDesigners(search?: string): Promise<RbDesigner[]> {
   return [];
 }
 
+export type RbDirectMessageUser = {
+  id: number;
+  name: string;
+  role: 'fc' | 'designer';
+  phone: string | null;
+};
+
+export async function rbGetDirectMessageUsers(
+  search?: string,
+  role?: 'fc' | 'designer',
+): Promise<RbDirectMessageUser[]> {
+  const params = new URLSearchParams();
+  if (search) params.set('search', search);
+  if (role) params.set('role', role);
+
+  const query = params.toString();
+  const res = await rbFetch<RbDirectMessageUser[]>(`/api/direct-messages/users${query ? `?${query}` : ''}`);
+  if (res.success && res.data) {
+    logger.info(`[rb-api] direct message users loaded: ${res.data.length} items`);
+    return res.data;
+  }
+  logger.warn('[rb-api] direct message users failed:', res.error);
+  return [];
+}
+
 /* ─── Create DM Conversation ─── */
 
 export async function rbCreateDmConversation(
   participantId: number,
-): Promise<{ success: boolean; data?: { id: number; type: string; participant: { id: number; name: string; role: string }; isNew: boolean }; error?: string }> {
+): Promise<{
+  success: boolean;
+  data?: {
+    id: number;
+    type: string;
+    participant: { id: number; name: string; role: string; phone: string | null };
+    isNew: boolean;
+  };
+  error?: string;
+}> {
   return rbFetch('/api/direct-messages/conversations', {
     method: 'POST',
     body: JSON.stringify({ participantId }),

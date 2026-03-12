@@ -1,5 +1,12 @@
 'use client';
 
+import { fetchPresence } from '@/lib/presence-api';
+import {
+    formatPresenceLabel,
+    getPresenceColor,
+    normalizePresencePhone,
+    type WebPresenceSnapshot,
+} from '@/lib/presence';
 import { supabase } from '@/lib/supabase';
 import {
     ActionIcon,
@@ -40,6 +47,7 @@ const HANWHA_ORANGE = '#f36f21';
 const CHARCOAL = '#111827';
 const MUTED = '#6b7280';
 const ROOM_POLL_INTERVAL_MS = 2500;
+const PRESENCE_POLL_INTERVAL_MS = 30_000;
 const sanitize = (value: string | null | undefined) => String(value ?? '').replace(/[^0-9]/g, '');
 
 // --- Types ---
@@ -98,6 +106,7 @@ export default function ChatPage() {
     const { role, residentId, staffType } = useSession();
     const [selectedFc, setSelectedFc] = useState<ChatPreview | null>(null);
     const [keyword, setKeyword] = useState('');
+    const [presenceByPhone, setPresenceByPhone] = useState<Record<string, WebPresenceSnapshot>>({});
     const searchParams = useSearchParams();
     const myChatId = useMemo(
         () => getWebStaffChatActorId({ role, residentId, staffType }),
@@ -198,6 +207,71 @@ export default function ChatPage() {
         } as ChatPreview;
     }, [chatList, deepLinkedTargetId, deepLinkedTargetName]);
     const activeFc = selectedFc ?? deepLinkedSelection;
+    const getPresenceSnapshot = useCallback(
+        (phone: string | null | undefined) => presenceByPhone[normalizePresencePhone(phone)] ?? null,
+        [presenceByPhone],
+    );
+    const trackedPresencePhones = useMemo(
+        () => Array.from(
+            new Set(
+                (chatList ?? [])
+                    .map((item) => normalizePresencePhone(item.phone))
+                    .filter((phone) => phone.length === 11),
+            ),
+        ),
+        [chatList],
+    );
+    const loadPresence = useCallback(async (phones = trackedPresencePhones) => {
+        if (phones.length === 0) {
+            setPresenceByPhone({});
+            return;
+        }
+
+        const rows = await fetchPresence(phones);
+        const nextPresenceByPhone = rows.reduce<Record<string, WebPresenceSnapshot>>((acc, row) => {
+            acc[normalizePresencePhone(row.phone)] = row;
+            return acc;
+        }, {});
+
+        setPresenceByPhone(nextPresenceByPhone);
+    }, [trackedPresencePhones]);
+
+    useEffect(() => {
+        if (trackedPresencePhones.length === 0) {
+            setPresenceByPhone({});
+            return;
+        }
+
+        void loadPresence(trackedPresencePhones);
+    }, [loadPresence, trackedPresencePhones]);
+
+    useEffect(() => {
+        if (trackedPresencePhones.length === 0) {
+            return;
+        }
+
+        const intervalId = window.setInterval(() => {
+            void loadPresence(trackedPresencePhones);
+        }, PRESENCE_POLL_INTERVAL_MS);
+
+        const handleFocus = () => {
+            void loadPresence(trackedPresencePhones);
+        };
+        const handleVisibility = () => {
+            if (document.visibilityState === 'visible') {
+                void loadPresence(trackedPresencePhones);
+            }
+        };
+
+        window.addEventListener('focus', handleFocus);
+        document.addEventListener('visibilitychange', handleVisibility);
+
+        return () => {
+            window.clearInterval(intervalId);
+            window.removeEventListener('focus', handleFocus);
+            document.removeEventListener('visibilitychange', handleVisibility);
+        };
+    }, [loadPresence, trackedPresencePhones]);
 
     // --- Realtime List Updates ---
     useEffect(() => {
@@ -255,10 +329,31 @@ export default function ChatPage() {
                                         onClick={() => setSelectedFc(item)}
                                         className="hover:bg-gray-50"
                                     >
-                                        <Group align="flex-start" wrap="nowrap">
-                                            <Avatar color="gray" radius="xl">
-                                                <IconUser size={18} />
-                                            </Avatar>
+                                        {(() => {
+                                            const presence = getPresenceSnapshot(item.phone);
+                                            const presenceLabel = formatPresenceLabel(presence);
+
+                                            return (
+                                                <Group align="flex-start" wrap="nowrap">
+                                                    <Box pos="relative">
+                                                        <Avatar color="gray" radius="xl">
+                                                            <IconUser size={18} />
+                                                        </Avatar>
+                                                        {presenceLabel ? (
+                                                            <Box
+                                                                w={12}
+                                                                h={12}
+                                                                pos="absolute"
+                                                                right={-1}
+                                                                bottom={-1}
+                                                                style={{
+                                                                    borderRadius: '50%',
+                                                                    border: '2px solid white',
+                                                                    backgroundColor: getPresenceColor(presence),
+                                                                }}
+                                                            />
+                                                        ) : null}
+                                                    </Box>
                                             <Box style={{ flex: 1, minWidth: 0 }}>
                                                 <Group justify="space-between" mb={2}>
                                                     <Text size="sm" fw={600} truncate>{item.name}</Text>
@@ -270,6 +365,26 @@ export default function ChatPage() {
                                                         </Text>
                                                     )}
                                                 </Group>
+                                                {presenceLabel ? (
+                                                    <Group gap={6} mb={4}>
+                                                        <Box
+                                                            w={6}
+                                                            h={6}
+                                                            style={{
+                                                                borderRadius: '50%',
+                                                                backgroundColor: getPresenceColor(presence),
+                                                            }}
+                                                        />
+                                                        <Text
+                                                            size="xs"
+                                                            c={presence?.is_online ? '#15803D' : 'dimmed'}
+                                                            fw={presence?.is_online ? 600 : 400}
+                                                            lineClamp={1}
+                                                        >
+                                                            {presenceLabel}
+                                                        </Text>
+                                                    </Group>
+                                                ) : null}
                                                 <Group justify="space-between">
                                                     <Text size="xs" c={item.unread_count > 0 ? CHARCOAL : 'dimmed'} lineClamp={1} fw={item.unread_count > 0 ? 600 : 400}>
                                                         {item.last_message || '대화가 없습니다.'}
@@ -281,7 +396,9 @@ export default function ChatPage() {
                                                     )}
                                                 </Group>
                                             </Box>
-                                        </Group>
+                                                </Group>
+                                            );
+                                        })()}
                                     </Box>
                                 ))
                             ) : (
@@ -297,7 +414,11 @@ export default function ChatPage() {
                 {/* Right Panel */}
                 <Box flex={1} style={{ display: 'flex', flexDirection: 'column' }} bg="white">
                     {activeFc ? (
-                        <ChatRoom fc={activeFc} onConversationUpdated={() => void refetchList()} />
+                        <ChatRoom
+                            fc={activeFc}
+                            presence={getPresenceSnapshot(activeFc.phone)}
+                            onConversationUpdated={() => void refetchList()}
+                        />
                     ) : (
                         <Stack align="center" justify="center" h="100%" c="dimmed">
                             <ThemeIcon size={80} radius="xl" color="gray.2" variant="light">
@@ -315,7 +436,15 @@ export default function ChatPage() {
 }
 
 // --- Chat Room Component ---
-function ChatRoom({ fc, onConversationUpdated }: { fc: ChatPreview; onConversationUpdated?: () => void }) {
+function ChatRoom({
+    fc,
+    presence,
+    onConversationUpdated,
+}: {
+    fc: ChatPreview;
+    presence: WebPresenceSnapshot | null;
+    onConversationUpdated?: () => void;
+}) {
     const { isReadOnly, role, residentId, staffType, displayName } = useSession();
     const myChatId = useMemo(
         () => getWebStaffChatActorId({ role, residentId, staffType }),
@@ -532,6 +661,7 @@ function ChatRoom({ fc, onConversationUpdated }: { fc: ChatPreview; onConversati
             handleSendMessage();
         }
     };
+    const presenceLabel = formatPresenceLabel(presence);
 
     return (
         <>
@@ -539,10 +669,45 @@ function ChatRoom({ fc, onConversationUpdated }: { fc: ChatPreview; onConversati
             <Box p="md" style={{ borderBottom: '1px solid #e9ecef' }}>
                 <Group justify="space-between">
                     <Group gap="xs">
-                        <Avatar color="orange" radius="xl">{fc.name[0]}</Avatar>
+                        <Box pos="relative">
+                            <Avatar color="orange" radius="xl">{fc.name[0]}</Avatar>
+                            {presenceLabel ? (
+                                <Box
+                                    w={12}
+                                    h={12}
+                                    pos="absolute"
+                                    right={-1}
+                                    bottom={-1}
+                                    style={{
+                                        borderRadius: '50%',
+                                        border: '2px solid white',
+                                        backgroundColor: getPresenceColor(presence),
+                                    }}
+                                />
+                            ) : null}
+                        </Box>
                         <div>
                             <Text fw={700} size="md">{fc.name}</Text>
                             <Text size="xs" c="dimmed">{fc.phone}</Text>
+                            {presenceLabel ? (
+                                <Group gap={6} mt={2}>
+                                    <Box
+                                        w={6}
+                                        h={6}
+                                        style={{
+                                            borderRadius: '50%',
+                                            backgroundColor: getPresenceColor(presence),
+                                        }}
+                                    />
+                                    <Text
+                                        size="xs"
+                                        c={presence?.is_online ? '#15803D' : 'dimmed'}
+                                        fw={presence?.is_online ? 600 : 400}
+                                    >
+                                        {presenceLabel}
+                                    </Text>
+                                </Group>
+                            ) : null}
                         </div>
                     </Group>
                     <Button variant="subtle" size="xs" leftSection={<IconPhone size={14} />} color="gray">

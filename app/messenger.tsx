@@ -3,6 +3,7 @@ import { useFocusEffect, useLocalSearchParams, useRouter } from 'expo-router';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
+  AppState,
   Pressable,
   RefreshControl,
   ScrollView,
@@ -24,6 +25,7 @@ type ChannelQuery = 'garam' | 'request-board' | null;
 const HANWHA_ORANGE = '#f36f21';
 const CHARCOAL = '#111827';
 const MUTED = '#6b7280';
+const HUB_REFRESH_INTERVAL_MS = 5000;
 
 function parseChannel(value: string | string[] | undefined): ChannelQuery {
   if (!value) return null;
@@ -34,11 +36,40 @@ function parseChannel(value: string | string[] | undefined): ChannelQuery {
   return null;
 }
 
+const normalizeAffiliation = (value?: string | null) => (value ?? '').replace(/\s+/g, '');
+
+const isInternalAffiliation = (value?: string | null) => {
+  const normalized = normalizeAffiliation(value);
+  if (!normalized) return false;
+  if (/\d+본부/.test(normalized)) return true;
+  if (/\d+팀/.test(normalized)) return true;
+  if (normalized.includes('직할')) return true;
+  return false;
+};
+
+async function fetchInternalChatSenderIds() {
+  const { data, error } = await supabase
+    .from('fc_profiles')
+    .select('phone,affiliation')
+    .eq('signup_completed', true);
+
+  if (error) throw error;
+
+  return Array.from(
+    new Set(
+      (data ?? [])
+        .filter((item) => isInternalAffiliation(item.affiliation))
+        .map((item) => sanitizePhone(item.phone))
+        .filter((phone) => phone.length > 0),
+    ),
+  );
+}
+
 export default function MessengerHubScreen() {
   const router = useRouter();
   const { channel } = useLocalSearchParams<{ channel?: string | string[] }>();
   const insets = useSafeAreaInsets();
-  const { role, residentId, hydrated, readOnly, staffType, ensureRequestBoardSession } = useSession();
+  const { role, residentId, hydrated, readOnly, staffType, isRequestBoardDesigner } = useSession();
   const oneShotOpenRef = useRef(false);
 
   const [loading, setLoading] = useState(true);
@@ -52,18 +83,79 @@ export default function MessengerHubScreen() {
     }
     return sanitizePhone(residentId);
   }, [readOnly, residentId, role, staffType]);
+  const shouldScopeInternalUnread = role === 'admin' || isRequestBoardDesigner;
 
   const openGaramMessenger = useCallback(() => {
-    if (role === 'admin') {
+    if (role === 'admin' || isRequestBoardDesigner) {
       router.push('/admin-messenger');
       return;
     }
     router.push('/chat');
-  }, [role, router]);
+  }, [isRequestBoardDesigner, role, router]);
 
   const openRequestBoardMessenger = useCallback(() => {
     router.push('/request-board-messenger' as never);
   }, [router]);
+
+  const loadInternalUnreadCount = useCallback(async () => {
+    if (!role || !myChatId) {
+      setInternalUnread(0);
+      return 0;
+    }
+    try {
+      if (shouldScopeInternalUnread) {
+        const scopedSenderIds = await fetchInternalChatSenderIds();
+        if (scopedSenderIds.length === 0) {
+          setInternalUnread(0);
+          return 0;
+        }
+
+        const { count, error } = await supabase
+          .from('messages')
+          .select('id', { count: 'exact', head: true })
+          .eq('receiver_id', myChatId)
+          .eq('is_read', false)
+          .in('sender_id', scopedSenderIds);
+
+        if (error) throw error;
+        const nextCount = count ?? 0;
+        setInternalUnread(nextCount);
+        return nextCount;
+      }
+
+      const { count, error } = await supabase
+        .from('messages')
+        .select('id', { count: 'exact', head: true })
+        .eq('receiver_id', myChatId)
+        .eq('is_read', false);
+
+      if (error) throw error;
+      const nextCount = count ?? 0;
+      setInternalUnread(nextCount);
+      return nextCount;
+    } catch (err) {
+      logger.debug('[messenger-hub] internal count load failed', err);
+      setInternalUnread(0);
+      return 0;
+    }
+  }, [myChatId, role, shouldScopeInternalUnread]);
+
+  const loadRequestBoardUnreadCount = useCallback(async () => {
+    if (!role) {
+      setRequestBoardMessageCount(0);
+      return 0;
+    }
+
+    try {
+      const nextCount = await rbGetUnreadCount();
+      setRequestBoardMessageCount(nextCount);
+      return nextCount;
+    } catch (err) {
+      logger.debug('[messenger-hub] request_board count load failed', err);
+      setRequestBoardMessageCount(0);
+      return 0;
+    }
+  }, [role]);
 
   const loadCounts = useCallback(async () => {
     if (!role) {
@@ -75,30 +167,10 @@ export default function MessengerHubScreen() {
     }
 
     try {
-      const internalCountPromise = myChatId
-        ? supabase
-            .from('messages')
-            .select('id', { count: 'exact', head: true })
-            .eq('receiver_id', myChatId)
-            .eq('is_read', false)
-            .then(({ count, error }) => {
-              if (error) throw error;
-              return count ?? 0;
-            })
-        : Promise.resolve(0);
-
-      const requestBoardCountPromise = (async () => {
-        const sync = await ensureRequestBoardSession();
-        if (!sync.ok) return 0;
-        return rbGetUnreadCount();
-      })();
-
-      const [internalCount, rbMessageCount] = await Promise.all([
-        internalCountPromise,
-        requestBoardCountPromise,
+      await Promise.all([
+        loadInternalUnreadCount(),
+        loadRequestBoardUnreadCount(),
       ]);
-      setInternalUnread(internalCount);
-      setRequestBoardMessageCount(rbMessageCount);
     } catch (err) {
       logger.debug('[messenger-hub] count load failed', err);
       setInternalUnread(0);
@@ -107,7 +179,7 @@ export default function MessengerHubScreen() {
       setLoading(false);
       setRefreshing(false);
     }
-  }, [ensureRequestBoardSession, myChatId, role]);
+  }, [loadInternalUnreadCount, loadRequestBoardUnreadCount, role]);
 
   const handleRefresh = useCallback(async () => {
     setRefreshing(true);
@@ -125,9 +197,45 @@ export default function MessengerHubScreen() {
 
   useFocusEffect(
     useCallback(() => {
-      if (!hydrated || !role) return;
+      if (!hydrated || !role) return undefined;
       void loadCounts();
-    }, [hydrated, loadCounts, role]),
+
+      const intervalId = setInterval(() => {
+        void loadCounts();
+      }, HUB_REFRESH_INTERVAL_MS);
+
+      const appStateSubscription = AppState.addEventListener('change', (nextState) => {
+        if (nextState === 'active') {
+          void loadCounts();
+        }
+      });
+
+      const messageChannel = myChatId
+        ? supabase
+            .channel(`messenger-hub-unread-${myChatId}`)
+            .on(
+              'postgres_changes',
+              {
+                event: '*',
+                schema: 'public',
+                table: 'messages',
+                filter: `receiver_id=eq.${myChatId}`,
+              },
+              () => {
+                void loadInternalUnreadCount();
+              },
+            )
+            .subscribe()
+        : null;
+
+      return () => {
+        clearInterval(intervalId);
+        appStateSubscription.remove();
+        if (messageChannel) {
+          void supabase.removeChannel(messageChannel);
+        }
+      };
+    }, [hydrated, loadCounts, loadInternalUnreadCount, myChatId, role]),
   );
 
   useEffect(() => {
@@ -143,13 +251,15 @@ export default function MessengerHubScreen() {
     openRequestBoardMessenger();
   }, [channel, hydrated, openGaramMessenger, openRequestBoardMessenger, role]);
 
-  const garamDescription = role === 'admin'
-    ? readOnly
-      ? '본부장/총무/개발자 화면에서 모든 FC와 대화'
-      : staffType === 'developer'
-        ? '개발자 화면에서 FC와 1:1 대화'
-        : '총무 화면에서 모든 FC와 1:1 대화'
-    : 'FC, 본부장, 총무, 개발자 간 내부 소통';
+  const garamDescription = isRequestBoardDesigner
+    ? '설계 매니저 화면에서 모든 FC와 1:1 대화'
+    : role === 'admin'
+      ? readOnly
+        ? '본부장/총무/개발자 화면에서 모든 FC와 대화'
+        : staffType === 'developer'
+          ? '개발자 화면에서 FC와 1:1 대화'
+          : '총무 화면에서 모든 FC와 1:1 대화'
+      : 'FC, 본부장, 총무, 개발자 간 내부 소통';
 
   return (
     <SafeAreaView style={styles.safe} edges={['left', 'right', 'bottom']}>
@@ -185,8 +295,10 @@ export default function MessengerHubScreen() {
                 )}
               </View>
               <Text style={styles.channelDesc}>{garamDescription}</Text>
-              {role === 'admin' && !readOnly && (
-                <Text style={styles.helperLine}>{getAccountRoleLabel({ role, readOnly, staffType })} 계정으로 표시됩니다.</Text>
+              {(role === 'admin' || isRequestBoardDesigner) && !readOnly && (
+                <Text style={styles.helperLine}>
+                  {getAccountRoleLabel({ role, readOnly, staffType, isRequestBoardDesigner })} 계정으로 표시됩니다.
+                </Text>
               )}
             </View>
             <Feather name="chevron-right" size={18} color="#9CA3AF" />

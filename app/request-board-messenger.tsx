@@ -7,6 +7,7 @@ import { Stack, useRouter } from 'expo-router';
 import { MotiView } from 'moti';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
+  AppState,
   ActivityIndicator,
   Alert,
   FlatList,
@@ -28,16 +29,21 @@ import { useSession } from '@/hooks/use-session';
 import { logger } from '@/lib/logger';
 import {
   type RbAttachmentMeta,
+  type RbDesigner,
+  type RbDirectMessageUser,
   type RbDmMessage,
   type RbMessage,
+  type RbPresenceSnapshot,
   type RbUser,
   rbCheckAuth,
   rbCreateDmConversation,
   rbGetConversations,
+  rbGetDirectMessageUsers,
   rbGetDesigners,
   rbGetDmConversations,
   rbGetDmMessages,
   rbGetMessages,
+  rbGetPresence,
   rbSendDmMessage,
   rbSendMessage,
   rbUploadAttachments,
@@ -59,7 +65,9 @@ type UnifiedConversation = {
   unreadCount: number;
   primaryConversationId: number;
   conversationIds: number[];
+  participantUserId: number | null;
   participantRole: string;
+  participantPhone?: string | null;
 };
 
 type MessageAttachment = {
@@ -87,15 +95,16 @@ type UnifiedMessage = {
   attachments: MessageAttachment[];
 };
 
-type DesignerItem = {
+type DirectoryItem = {
   id: string;
-  designerId: number;
   userId: number;
   name: string;
   company: string;
   initial: string;
   avatarColor: string;
   hasConversation: boolean;
+  phone?: string | null;
+  role: 'fc' | 'designer';
 };
 
 /* ─── Helpers ─── */
@@ -162,6 +171,80 @@ const fileIcon = (type: string): FeatherIconName => {
 };
 
 const POLL_INTERVAL = 8000;
+const PRESENCE_POLL_INTERVAL = 30000;
+const STALE_PRESENCE_TIMESTAMP_MS = new Date(0).getTime();
+
+const normalizePresencePhone = (value: string | null | undefined): string =>
+  String(value ?? '').replace(/[^0-9]/g, '');
+
+const parseMeaningfulPresenceTimestamp = (value: string | null | undefined): number | null => {
+  if (!value) {
+    return null;
+  }
+
+  const timestamp = new Date(value).getTime();
+  if (!Number.isFinite(timestamp) || timestamp <= STALE_PRESENCE_TIMESTAMP_MS) {
+    return null;
+  }
+
+  return timestamp;
+};
+
+const resolveDisplayLastSeenAt = (presence: RbPresenceSnapshot): number | null => {
+  const explicitLastSeenAt = parseMeaningfulPresenceTimestamp(presence.last_seen_at);
+  if (explicitLastSeenAt !== null) {
+    return explicitLastSeenAt;
+  }
+
+  const platformLastSeenAt = [presence.garam_in_at, presence.garam_link_at]
+    .map((value) => parseMeaningfulPresenceTimestamp(value))
+    .filter((value): value is number => value !== null);
+
+  if (platformLastSeenAt.length > 0) {
+    return Math.max(...platformLastSeenAt);
+  }
+
+  if (!presence.is_online) {
+    return parseMeaningfulPresenceTimestamp(presence.updated_at);
+  }
+
+  return null;
+};
+
+const hasPresenceHistory = (presence: RbPresenceSnapshot): boolean =>
+  resolveDisplayLastSeenAt(presence) !== null;
+
+const formatPresenceLabel = (presence: RbPresenceSnapshot | null | undefined): string | null => {
+  if (!presence) {
+    return null;
+  }
+
+  if (presence.is_online) {
+    return '활동중';
+  }
+
+  if (!hasPresenceHistory(presence)) {
+    return '첫 접속 전';
+  }
+
+  const timestamp = resolveDisplayLastSeenAt(presence);
+  if (timestamp === null) {
+    return null;
+  }
+
+  const diffMs = Math.max(0, Date.now() - timestamp);
+  const diffMinutes = Math.floor(diffMs / 60000);
+  const diffHours = Math.floor(diffMinutes / 60);
+  const diffDays = Math.floor(diffHours / 24);
+
+  if (diffMinutes < 1) return '방금 전 접속';
+  if (diffMinutes < 60) return `${diffMinutes}분 전 접속`;
+  if (diffHours < 24) return `${diffHours}시간 전 접속`;
+  return `${diffDays}일 전 접속`;
+};
+
+const getPresenceColor = (presence: RbPresenceSnapshot | null | undefined): string =>
+  presence?.is_online ? '#22C55E' : '#94A3B8';
 
 /* ─── Screen ─── */
 
@@ -177,12 +260,13 @@ export default function RequestBoardMessengerScreen() {
 
   // Conversations + Designers
   const [conversations, setConversations] = useState<UnifiedConversation[]>([]);
-  const [designers, setDesigners] = useState<DesignerItem[]>([]);
+  const [directoryUsers, setDirectoryUsers] = useState<DirectoryItem[]>([]);
   const [convLoading, setConvLoading] = useState(true);
   const [convRefreshing, setConvRefreshing] = useState(false);
   const [convError, setConvError] = useState('');
   const [searchQuery, setSearchQuery] = useState('');
   const [creatingDm, setCreatingDm] = useState<string | null>(null); // designer id being created
+  const [presenceByPhone, setPresenceByPhone] = useState<Record<string, RbPresenceSnapshot>>({});
 
   // Chat detail
   const [activeConv, setActiveConv] = useState<UnifiedConversation | null>(null);
@@ -234,15 +318,19 @@ export default function RequestBoardMessengerScreen() {
 
       // Fetch conversations and designers in parallel
       // Use Promise.allSettled to avoid one failure killing everything
-      const [reqResult, dmResult, designerResult] = await Promise.allSettled([
+      const directoryPromise = rbUser.role === 'fc'
+        ? rbGetDesigners().then((users) => ({ kind: 'designers' as const, users }))
+        : rbGetDirectMessageUsers(undefined, 'fc').then((users) => ({ kind: 'fc-users' as const, users }));
+
+      const [reqResult, dmResult, directoryResult] = await Promise.allSettled([
         rbGetConversations(),
         rbGetDmConversations(),
-        rbUser.role === 'fc' ? rbGetDesigners() : Promise.resolve([]),
+        directoryPromise,
       ]);
 
       const reqConvs = reqResult.status === 'fulfilled' ? reqResult.value : [];
       const dmConvs = dmResult.status === 'fulfilled' ? dmResult.value : [];
-      const allDesigners = designerResult.status === 'fulfilled' ? designerResult.value : [];
+      const directoryPayload = directoryResult.status === 'fulfilled' ? directoryResult.value : null;
 
       if (reqResult.status === 'rejected') {
         logger.warn('[messenger] request conversations failed', reqResult.reason);
@@ -251,7 +339,9 @@ export default function RequestBoardMessengerScreen() {
         logger.warn('[messenger] DM conversations failed', dmResult.reason);
       }
 
-      logger.info(`[messenger] fetched: ${reqConvs.length} request convs, ${dmConvs.length} DM convs, ${allDesigners.length} designers`);
+      logger.info(
+        `[messenger] fetched: ${reqConvs.length} request convs, ${dmConvs.length} DM convs, ${directoryPayload?.users.length ?? 0} directory users`,
+      );
 
       const unified: UnifiedConversation[] = [];
       const participantUserIds = new Set<number>();
@@ -281,7 +371,9 @@ export default function RequestBoardMessengerScreen() {
           unreadCount: c.unreadCount,
           primaryConversationId: c.primaryConversationId,
           conversationIds: c.conversationIds,
+          participantUserId: isFC ? c.designer?.users?.id ?? null : c.fc?.id ?? null,
           participantRole: isFC ? 'designer' : 'fc',
+          participantPhone: isFC ? c.designer?.users?.phone ?? null : c.fc?.phone ?? null,
         });
       }
 
@@ -303,41 +395,69 @@ export default function RequestBoardMessengerScreen() {
           unreadCount: d.unreadCount,
           primaryConversationId: d.id,
           conversationIds: [d.id],
+          participantUserId: d.participant?.id ?? null,
           participantRole: d.participant?.role ?? 'fc',
+          participantPhone: d.participant?.phone ?? null,
         });
       }
 
-      unified.sort((a, b) => b.lastTimestamp - a.lastTimestamp);
-      setConversations(unified);
+      const visibleConversations = rbUser.role === 'designer'
+        ? unified.filter((conversation) => conversation.participantRole === 'fc')
+        : unified;
 
-      logger.info(`[messenger] total unified conversations: ${unified.length}`);
+      visibleConversations.sort((a, b) => b.lastTimestamp - a.lastTimestamp);
+      setConversations(visibleConversations);
+      setActiveConv((prev) => {
+        if (!prev) {
+          return prev;
+        }
+        return visibleConversations.find((item) => item.id === prev.id) ?? prev;
+      });
 
-      if (unified.length === 0 && reqConvs.length === 0 && dmConvs.length === 0) {
+      logger.info(`[messenger] total visible conversations: ${visibleConversations.length}`);
+
+      if (visibleConversations.length === 0 && reqConvs.length === 0 && dmConvs.length === 0) {
         // Both returned empty - might be an auth or data issue
         if (reqResult.status === 'rejected' || dmResult.status === 'rejected') {
           setConvError('대화 목록을 불러오는데 실패했습니다. 아래로 당겨서 다시 시도해주세요.');
         }
       }
 
-      // Build designer list (filter out those already in conversations)
-      const designerItems: DesignerItem[] = allDesigners
-        .filter((d) => d.users)
-        .map((d) => {
-          const name = d.users!.name;
-          const userId = d.users!.id;
-          return {
-            id: `designer-${d.id}`,
-            designerId: d.id,
-            userId,
-            name,
-            company: d.company_name ?? '',
-            initial: name.charAt(0),
-            avatarColor: hashColor(name),
-            hasConversation: participantUserIds.has(userId),
-          };
-        });
+      const nextDirectoryUsers: DirectoryItem[] = rbUser.role === 'fc'
+        ? ((directoryPayload?.kind === 'designers' ? directoryPayload.users : []) as RbDesigner[])
+            .filter((designer) => designer.users)
+            .map((designer) => {
+              const name = designer.users!.name;
+              const userId = designer.users!.id;
+              return {
+                id: `designer-${designer.id}`,
+                userId,
+                name,
+                company: designer.company_name ?? '',
+                initial: name.charAt(0),
+                avatarColor: hashColor(name),
+                hasConversation: participantUserIds.has(userId),
+                phone: designer.users?.phone ?? null,
+                role: 'designer' as const,
+              };
+            })
+        : ((directoryPayload?.kind === 'fc-users' ? directoryPayload.users : []) as RbDirectMessageUser[])
+            .map((user) => {
+              const name = user.name?.trim() || 'FC';
+              return {
+                id: `fc-${user.id}`,
+                userId: user.id,
+                name,
+                company: '',
+                initial: name.charAt(0),
+                avatarColor: hashColor(name),
+                hasConversation: participantUserIds.has(user.id),
+                phone: user.phone ?? null,
+                role: 'fc' as const,
+              };
+            });
 
-      setDesigners(designerItems);
+      setDirectoryUsers(nextDirectoryUsers);
     } catch (err) {
       logger.warn('[messenger] load conversations failed', err);
       setConvError('대화 목록을 불러오는데 실패했습니다. 아래로 당겨서 다시 시도해주세요.');
@@ -354,7 +474,7 @@ export default function RequestBoardMessengerScreen() {
     }
   }, [authState, loadConversations]);
 
-  // Filtered conversations + designers for search
+  // Filtered conversations + directory users for search
   const filteredConvs = useMemo(() => {
     if (!searchQuery.trim()) return conversations;
     const q = searchQuery.trim().toLowerCase();
@@ -366,41 +486,128 @@ export default function RequestBoardMessengerScreen() {
     );
   }, [conversations, searchQuery]);
 
-  const filteredDesigners = useMemo(() => {
-    const noConvDesigners = designers.filter((d) => !d.hasConversation);
-    if (!searchQuery.trim()) return noConvDesigners;
+  const filteredDirectoryUsers = useMemo(() => {
+    const baseUsers = rbUser?.role === 'designer'
+      ? directoryUsers
+      : directoryUsers.filter((user) => !user.hasConversation);
+
+    if (!searchQuery.trim()) return baseUsers;
     const q = searchQuery.trim().toLowerCase();
-    return noConvDesigners.filter(
-      (d) => d.name.toLowerCase().includes(q) || d.company.toLowerCase().includes(q),
+    return baseUsers.filter(
+      (user) =>
+        user.name.toLowerCase().includes(q) ||
+        user.company.toLowerCase().includes(q) ||
+        String(user.phone ?? '').includes(q),
     );
-  }, [designers, searchQuery]);
+  }, [directoryUsers, rbUser?.role, searchQuery]);
 
   const totalUnread = useMemo(
     () => conversations.reduce((acc, c) => acc + c.unreadCount, 0),
     [conversations],
   );
+  const getPresenceSnapshot = useCallback(
+    (phone: string | null | undefined) => presenceByPhone[normalizePresencePhone(phone)] ?? null,
+    [presenceByPhone],
+  );
+  const activeConvPresence = getPresenceSnapshot(activeConv?.participantPhone);
+  const activeConvPresenceLabel = formatPresenceLabel(activeConvPresence);
+  const trackedPhones = useMemo(
+    () => Array.from(
+      new Set(
+        [
+          ...filteredConvs.map((conv) => normalizePresencePhone(conv.participantPhone)),
+          ...filteredDirectoryUsers.map((user) => normalizePresencePhone(user.phone)),
+          normalizePresencePhone(activeConv?.participantPhone),
+        ].filter((phone) => phone.length === 11),
+      ),
+    ).slice(0, 100),
+    [activeConv?.participantPhone, filteredConvs, filteredDirectoryUsers],
+  );
+
+  const loadPresence = useCallback(async (phones = trackedPhones) => {
+    if (authState !== 'ready' || !rbUser || phones.length === 0) {
+      if (phones.length === 0) {
+        setPresenceByPhone({});
+      }
+      return;
+    }
+
+    const rows = await rbGetPresence(phones);
+    const nextPresenceByPhone = rows.reduce<Record<string, RbPresenceSnapshot>>((acc, row) => {
+      acc[normalizePresencePhone(row.phone)] = row;
+      return acc;
+    }, {});
+    setPresenceByPhone(nextPresenceByPhone);
+  }, [authState, rbUser, trackedPhones]);
+
+  useEffect(() => {
+    if (authState !== 'ready') {
+      setPresenceByPhone({});
+      return;
+    }
+
+    if (trackedPhones.length === 0) {
+      setPresenceByPhone({});
+      return;
+    }
+
+    void loadPresence(trackedPhones);
+  }, [authState, loadPresence, trackedPhones]);
+
+  useEffect(() => {
+    if (authState !== 'ready' || trackedPhones.length === 0) {
+      return;
+    }
+
+    const intervalId = setInterval(() => {
+      void loadPresence(trackedPhones);
+    }, PRESENCE_POLL_INTERVAL);
+
+    const subscription = AppState.addEventListener('change', (nextState) => {
+      if (nextState === 'active') {
+        void loadPresence(trackedPhones);
+      }
+    });
+
+    return () => {
+      clearInterval(intervalId);
+      subscription.remove();
+    };
+  }, [authState, loadPresence, trackedPhones]);
 
   /* ─── Start new DM conversation ─── */
-  const handleStartDm = async (designer: DesignerItem) => {
+  const handleStartDm = async (directoryUser: DirectoryItem) => {
     if (creatingDm) return;
-    setCreatingDm(designer.id);
+    if (directoryUser.hasConversation) {
+      const existingConversation = conversations.find(
+        (conversation) => conversation.participantUserId === directoryUser.userId,
+      );
+      if (existingConversation) {
+        openConversation(existingConversation);
+        return;
+      }
+    }
+
+    setCreatingDm(directoryUser.id);
     try {
-      const res = await rbCreateDmConversation(designer.userId);
+      const res = await rbCreateDmConversation(directoryUser.userId);
       if (res.success && res.data) {
         const conv: UnifiedConversation = {
           id: `dm-${res.data.id}`,
           type: 'dm',
-          name: designer.name,
-          company: designer.company,
-          initial: designer.initial,
-          avatarColor: designer.avatarColor,
+          name: directoryUser.name,
+          company: directoryUser.company,
+          initial: directoryUser.initial,
+          avatarColor: directoryUser.avatarColor,
           lastMessage: '',
           lastTime: '',
           lastTimestamp: Date.now(),
           unreadCount: 0,
           primaryConversationId: res.data.id,
           conversationIds: [res.data.id],
-          participantRole: 'designer',
+          participantUserId: res.data.participant.id ?? directoryUser.userId,
+          participantRole: directoryUser.role,
+          participantPhone: res.data.participant.phone ?? directoryUser.phone ?? null,
         };
         openConversation(conv);
       }
@@ -836,18 +1043,50 @@ export default function RequestBoardMessengerScreen() {
             <Feather name="arrow-left" size={22} color={COLORS.gray[800]} />
           </Pressable>
           <View style={styles.chatHeaderCenter}>
-            <View style={[styles.avatarSm, { backgroundColor: activeConv.avatarColor }]}>
-              <Text style={styles.avatarSmText}>{activeConv.initial}</Text>
+            <View style={styles.avatarWrap}>
+              <View style={[styles.avatarSm, { backgroundColor: activeConv.avatarColor }]}>
+                <Text style={styles.avatarSmText}>{activeConv.initial}</Text>
+              </View>
+              {activeConvPresenceLabel && (
+                <View
+                  style={[
+                    styles.presenceDot,
+                    styles.avatarPresenceDot,
+                    { backgroundColor: getPresenceColor(activeConvPresence) },
+                  ]}
+                />
+              )}
             </View>
-            <View>
+            <View style={styles.chatHeaderTextWrap}>
               <Text style={styles.chatHeaderName} numberOfLines={1}>
                 {activeConv.name}
               </Text>
-              {activeConv.company && (
-                <Text style={styles.chatHeaderCompany} numberOfLines={1}>
-                  {activeConv.company}
-                </Text>
-              )}
+              <View style={styles.chatHeaderMetaRow}>
+                {activeConvPresenceLabel && (
+                  <View style={styles.presenceRow}>
+                    <View
+                      style={[
+                        styles.presenceTinyDot,
+                        { backgroundColor: getPresenceColor(activeConvPresence) },
+                      ]}
+                    />
+                    <Text
+                      style={[
+                        styles.chatHeaderPresenceText,
+                        activeConvPresence?.is_online && styles.chatHeaderPresenceTextOnline,
+                      ]}
+                      numberOfLines={1}
+                    >
+                      {activeConvPresenceLabel}
+                    </Text>
+                  </View>
+                )}
+                {activeConv.company && (
+                  <Text style={styles.chatHeaderCompany} numberOfLines={1}>
+                    {activeConv.company}
+                  </Text>
+                )}
+              </View>
             </View>
           </View>
           <View style={styles.backBtn} />
@@ -1119,7 +1358,7 @@ export default function RequestBoardMessengerScreen() {
 
   type SectionItem =
     | { kind: 'conversation'; data: UnifiedConversation }
-    | { kind: 'designer'; data: DesignerItem };
+    | { kind: 'directory'; data: DirectoryItem };
 
   const sections: { title: string; data: SectionItem[] }[] = [];
 
@@ -1130,10 +1369,10 @@ export default function RequestBoardMessengerScreen() {
     });
   }
 
-  if (filteredDesigners.length > 0) {
+  if (filteredDirectoryUsers.length > 0) {
     sections.push({
-      title: '설계사 목록',
-      data: filteredDesigners.map((d) => ({ kind: 'designer' as const, data: d })),
+      title: rbUser?.role === 'designer' ? 'FC 목록' : '설계사 목록',
+      data: filteredDirectoryUsers.map((user) => ({ kind: 'directory' as const, data: user })),
     });
   }
 
@@ -1210,7 +1449,9 @@ export default function RequestBoardMessengerScreen() {
               ? convError
               : searchQuery
                 ? '다른 검색어로 시도해보세요'
-                : '설계 요청을 하면 매니저와\n대화를 시작할 수 있습니다'}
+                : rbUser?.role === 'designer'
+                  ? 'FC를 선택하면 바로\n대화를 시작할 수 있습니다'
+                  : '설계 요청을 하면 매니저와\n대화를 시작할 수 있습니다'}
           </Text>
           {convError && (
             <Pressable
@@ -1247,6 +1488,8 @@ export default function RequestBoardMessengerScreen() {
           renderItem={({ item, index }) => {
             if (item.kind === 'conversation') {
               const conv = item.data;
+              const convPresence = getPresenceSnapshot(conv.participantPhone);
+              const convPresenceLabel = formatPresenceLabel(convPresence);
               return (
                 <MotiView
                   from={{ opacity: 0, translateY: 6 }}
@@ -1260,8 +1503,18 @@ export default function RequestBoardMessengerScreen() {
                     ]}
                     onPress={() => openConversation(conv)}
                   >
-                    <View style={[styles.avatar, { backgroundColor: conv.avatarColor }]}>
-                      <Text style={styles.avatarText}>{conv.initial}</Text>
+                    <View style={styles.avatarWrap}>
+                      <View style={[styles.avatar, { backgroundColor: conv.avatarColor }]}>
+                        <Text style={styles.avatarText}>{conv.initial}</Text>
+                      </View>
+                      {convPresenceLabel && (
+                        <View
+                          style={[
+                            styles.presenceDot,
+                            { backgroundColor: getPresenceColor(convPresence) },
+                          ]}
+                        />
+                      )}
                     </View>
                     <View style={styles.convContent}>
                       <View style={styles.convTopRow}>
@@ -1277,6 +1530,25 @@ export default function RequestBoardMessengerScreen() {
                         </View>
                         <Text style={styles.convTime}>{conv.lastTime}</Text>
                       </View>
+                      {convPresenceLabel && (
+                        <View style={styles.presenceRow}>
+                          <View
+                            style={[
+                              styles.presenceTinyDot,
+                              { backgroundColor: getPresenceColor(convPresence) },
+                            ]}
+                          />
+                          <Text
+                            style={[
+                              styles.presenceText,
+                              convPresence?.is_online && styles.presenceTextOnline,
+                            ]}
+                            numberOfLines={1}
+                          >
+                            {convPresenceLabel}
+                          </Text>
+                        </View>
+                      )}
                       <View style={styles.convBottomRow}>
                         <Text style={styles.convMsg} numberOfLines={1}>
                           {conv.lastMessage || '메시지 없음'}
@@ -1295,9 +1567,11 @@ export default function RequestBoardMessengerScreen() {
               );
             }
 
-            // Designer item
-            const designer = item.data;
-            const isCreating = creatingDm === designer.id;
+            // Directory item
+            const directoryUser = item.data;
+            const isCreating = creatingDm === directoryUser.id;
+            const directoryPresence = getPresenceSnapshot(directoryUser.phone);
+            const directoryPresenceLabel = formatPresenceLabel(directoryPresence);
             return (
               <MotiView
                 from={{ opacity: 0, translateY: 6 }}
@@ -1309,32 +1583,63 @@ export default function RequestBoardMessengerScreen() {
                     styles.convItem,
                     pressed && { backgroundColor: COLORS.gray[50] },
                   ]}
-                  onPress={() => handleStartDm(designer)}
+                  onPress={() => handleStartDm(directoryUser)}
                   disabled={isCreating}
                 >
-                  <View style={[styles.avatar, { backgroundColor: designer.avatarColor }]}>
-                    <Text style={styles.avatarText}>{designer.initial}</Text>
+                  <View style={styles.avatarWrap}>
+                    <View style={[styles.avatar, { backgroundColor: directoryUser.avatarColor }]}>
+                      <Text style={styles.avatarText}>{directoryUser.initial}</Text>
+                    </View>
+                    {directoryPresenceLabel && (
+                      <View
+                        style={[
+                          styles.presenceDot,
+                          { backgroundColor: getPresenceColor(directoryPresence) },
+                        ]}
+                      />
+                    )}
                   </View>
                   <View style={styles.convContent}>
                     <View style={styles.convTopRow}>
                       <View style={styles.convNameRow}>
                         <Text style={styles.convName} numberOfLines={1}>
-                          {designer.name}
+                          {directoryUser.name}
                         </Text>
-                        {designer.company ? (
+                        {directoryUser.company ? (
                           <Text style={styles.convCompany} numberOfLines={1}>
-                            {designer.company}
+                            {directoryUser.company}
                           </Text>
                         ) : null}
                       </View>
                     </View>
+                    {directoryPresenceLabel && (
+                      <View style={styles.presenceRow}>
+                        <View
+                          style={[
+                            styles.presenceTinyDot,
+                            { backgroundColor: getPresenceColor(directoryPresence) },
+                          ]}
+                        />
+                        <Text
+                          style={[
+                            styles.presenceText,
+                            directoryPresence?.is_online && styles.presenceTextOnline,
+                          ]}
+                          numberOfLines={1}
+                        >
+                          {directoryPresenceLabel}
+                        </Text>
+                      </View>
+                    )}
                     <View style={styles.convBottomRow}>
                       {isCreating ? (
                         <ActivityIndicator size="small" color={COLORS.primary} />
                       ) : (
                         <View style={styles.startDmRow}>
                           <Feather name="message-circle" size={13} color={COLORS.primary} />
-                          <Text style={styles.startDmText}>대화 시작하기</Text>
+                          <Text style={styles.startDmText}>
+                            {directoryUser.hasConversation ? '대화 열기' : '대화 시작하기'}
+                          </Text>
                         </View>
                       )}
                     </View>
@@ -1407,18 +1712,33 @@ const styles = StyleSheet.create({
     flexDirection: 'row', alignItems: 'center',
     paddingVertical: SPACING.md, paddingHorizontal: SPACING.base,
   },
+  avatarWrap: { marginRight: SPACING.md, position: 'relative' },
   avatar: {
     width: 48, height: 48, borderRadius: 24,
-    alignItems: 'center', justifyContent: 'center', marginRight: SPACING.md,
+    alignItems: 'center', justifyContent: 'center',
   },
   avatarText: { fontSize: TYPOGRAPHY.fontSize.lg, fontWeight: '700', color: '#fff' },
+  presenceDot: {
+    position: 'absolute',
+    right: 1,
+    bottom: 1,
+    width: 13,
+    height: 13,
+    borderRadius: 6.5,
+    borderWidth: 2,
+    borderColor: '#fff',
+  },
   convContent: { flex: 1 },
   convTopRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 },
   convNameRow: { flexDirection: 'row', alignItems: 'center', gap: 6, flex: 1, marginRight: 8 },
   convName: { fontSize: TYPOGRAPHY.fontSize.md, fontWeight: '700', color: COLORS.gray[900], flexShrink: 1 },
   convCompany: { fontSize: TYPOGRAPHY.fontSize.xs, color: COLORS.text.muted, flexShrink: 1 },
   convTime: { fontSize: TYPOGRAPHY.fontSize.xs, color: COLORS.text.muted },
-  convBottomRow: { flexDirection: 'row', alignItems: 'center' },
+  presenceRow: { flexDirection: 'row', alignItems: 'center', gap: 5, marginBottom: 4 },
+  presenceTinyDot: { width: 6, height: 6, borderRadius: 3 },
+  presenceText: { fontSize: TYPOGRAPHY.fontSize.xs, color: COLORS.text.muted, flexShrink: 1 },
+  presenceTextOnline: { color: '#15803D', fontWeight: '600' },
+  convBottomRow: { flexDirection: 'row', alignItems: 'center', minHeight: 20 },
   convMsg: { flex: 1, fontSize: TYPOGRAPHY.fontSize.sm, color: COLORS.text.secondary, marginRight: 8 },
   convBadge: {
     backgroundColor: COLORS.primary, borderRadius: 10, minWidth: 20, height: 20,
@@ -1472,8 +1792,13 @@ const styles = StyleSheet.create({
   chatHeaderCenter: { flex: 1, flexDirection: 'row', alignItems: 'center', gap: 10, paddingHorizontal: 4 },
   avatarSm: { width: 34, height: 34, borderRadius: 17, alignItems: 'center', justifyContent: 'center' },
   avatarSmText: { fontSize: TYPOGRAPHY.fontSize.sm, fontWeight: '700', color: '#fff' },
+  avatarPresenceDot: { right: -1, bottom: -1, width: 11, height: 11, borderRadius: 5.5, borderColor: '#fff' },
+  chatHeaderTextWrap: { flex: 1, minWidth: 0 },
   chatHeaderName: { fontSize: TYPOGRAPHY.fontSize.md, fontWeight: '700', color: COLORS.gray[900] },
-  chatHeaderCompany: { fontSize: TYPOGRAPHY.fontSize.xs, color: COLORS.text.muted },
+  chatHeaderMetaRow: { flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 2, flexWrap: 'wrap' },
+  chatHeaderPresenceText: { fontSize: TYPOGRAPHY.fontSize.xs, color: COLORS.text.muted, maxWidth: 160 },
+  chatHeaderPresenceTextOnline: { color: '#15803D', fontWeight: '600' },
+  chatHeaderCompany: { fontSize: TYPOGRAPHY.fontSize.xs, color: COLORS.text.muted, flexShrink: 1 },
 
   msgListContent: { paddingHorizontal: SPACING.base, paddingTop: SPACING.sm, paddingBottom: SPACING.sm },
 

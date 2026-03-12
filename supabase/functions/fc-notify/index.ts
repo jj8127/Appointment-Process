@@ -630,7 +630,11 @@ serve(async (req: Request) => {
     if (fcProfileErr) return err(fcProfileErr.message, 500);
     if (!fcProfile?.id) return err('FC profile not found', 403);
 
-    const [{ data: managers, error: managerErr }, { data: developers, error: developerErr }] = await Promise.all([
+    const [
+      { data: managers, error: managerErr },
+      { data: developers, error: developerErr },
+      { data: admins, error: adminErr },
+    ] = await Promise.all([
       supabase
         .from('manager_accounts')
         .select('name,phone')
@@ -642,9 +646,16 @@ serve(async (req: Request) => {
         .eq('active', true)
         .eq('staff_type', 'developer')
         .order('name'),
+      supabase
+        .from('admin_accounts')
+        .select('name,phone,staff_type')
+        .eq('active', true)
+        .neq('staff_type', 'developer')
+        .order('name'),
     ]);
     if (managerErr) return err(managerErr.message, 500);
     if (developerErr) return err(developerErr.message, 500);
+    if (adminErr) return err(adminErr.message, 500);
 
     return ok({
       ok: true,
@@ -660,6 +671,13 @@ serve(async (req: Request) => {
           phone: sanitize(developer.phone),
         }))
         .filter((developer) => developer.phone.length > 0),
+      admins: ((admins ?? []) as AdminAccountRow[])
+        .map((admin) => ({
+          name: typeof admin.name === 'string' ? admin.name : '',
+          phone: sanitize(admin.phone),
+          staff_type: typeof admin.staff_type === 'string' ? admin.staff_type : null,
+        }))
+        .filter((admin) => admin.phone.length > 0),
     });
   }
 

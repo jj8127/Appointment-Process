@@ -18,6 +18,7 @@ import SplashAnimation from '@/components/SplashAnimation';
 import { ErrorBoundary } from '@/components/ErrorBoundary';
 import FcTourTooltip from '@/components/FcTourTooltip';
 import { ToastProvider } from '@/components/Toast';
+import { useAppPresenceHeartbeat } from '@/hooks/use-app-presence-heartbeat';
 import { useColorScheme } from '@/hooks/use-color-scheme';
 import { SessionProvider } from '@/hooks/use-session';
 import { useInAppUpdate } from '@/hooks/useInAppUpdate';
@@ -74,6 +75,11 @@ if (Platform.OS !== 'web') {
 }
 
 SplashScreen.preventAutoHideAsync();
+
+function PresenceBootstrap() {
+  useAppPresenceHeartbeat();
+  return null;
+}
 
 export default function RootLayout() {
   const isWeb = Platform.OS === 'web';
@@ -196,6 +202,7 @@ export default function RootLayout() {
         <SafeAreaProvider>
           <QueryClientProvider client={queryClient}>
             <SessionProvider>
+              <PresenceBootstrap />
               <AppAlertProvider>
                 <ToastProvider>
                   <ThemeProvider value={colorScheme === 'dark' ? DarkTheme : DefaultTheme}>
@@ -301,7 +308,7 @@ export default function RootLayout() {
                           <Stack.Screen name="exam-apply" options={{ ...baseHeader, title: '생명/제3보험 시험 신청' }} />
                           <Stack.Screen name="exam-apply2" options={{ ...baseHeader, title: '손해보험 시험 신청' }} />
                           <Stack.Screen name="messenger" options={{ ...baseHeader, title: '메신저' }} />
-                          <Stack.Screen name="chat" options={{ ...baseHeader, title: '1:1 문의' }} />
+                          <Stack.Screen name="chat" options={{ headerShown: false }} />
                           <Stack.Screen name="settings" options={{ ...baseHeader, title: '설정' }} />
 
                           <Stack.Screen name="dashboard" options={{ ...baseHeader, title: '전체 현황' }} />
@@ -410,7 +417,7 @@ export default function RootLayout() {
                           <Stack.Screen name="exam-apply" options={{ ...baseHeader, title: '생명/제3보험 시험 신청' }} />
                           <Stack.Screen name="exam-apply2" options={{ ...baseHeader, title: '손해보험 시험 신청' }} />
                           <Stack.Screen name="messenger" options={{ ...baseHeader, title: '메신저' }} />
-                          <Stack.Screen name="chat" options={{ ...baseHeader, title: '1:1 문의' }} />
+                          <Stack.Screen name="chat" options={{ headerShown: false }} />
                           <Stack.Screen name="settings" options={{ ...baseHeader, title: '설정' }} />
 
                           <Stack.Screen name="dashboard" options={{ ...baseHeader, title: '전체 현황' }} />

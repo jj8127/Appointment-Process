@@ -4,6 +4,7 @@ import { useFocusEffect, useRouter } from 'expo-router';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   ActivityIndicator,
+  AppState,
   FlatList,
   Pressable,
   RefreshControl,
@@ -16,15 +17,18 @@ import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context'
 
 import { useSession } from '@/hooks/use-session';
 import { logger } from '@/lib/logger';
+import { formatPresenceLabel, getPresenceColor, normalizePresencePhone } from '@/lib/presence';
 import {
   sanitizePhone,
 } from '@/lib/messenger-participants';
 import { getStaffChatActorId } from '@/lib/staff-identity';
 import { supabase } from '@/lib/supabase';
+import { fetchUserPresence, type AppPresenceSnapshot } from '@/lib/user-presence-api';
 
 const CHARCOAL = '#111827';
 const MUTED = '#6b7280';
 const HANWHA_ORANGE = '#f36f21';
+const PRESENCE_POLL_INTERVAL_MS = 30_000;
 const AVATAR_COLORS = [
   '#3B82F6',
   '#10B981',
@@ -71,15 +75,19 @@ const hashColor = (value: string) => {
 
 export default function AdminMessengerScreen() {
   const router = useRouter();
-  const { role, residentId, readOnly, staffType } = useSession();
+  const { role, residentId, readOnly, staffType, isRequestBoardDesigner } = useSession();
   const [refreshing, setRefreshing] = useState(false);
   const [keyword, setKeyword] = useState('');
   const [optimisticUnreadByPhone, setOptimisticUnreadByPhone] = useState<Record<string, number>>({});
+  const [presenceByPhone, setPresenceByPhone] = useState<Record<string, AppPresenceSnapshot>>({});
   const insets = useSafeAreaInsets();
-  const myChatId = getStaffChatActorId({ residentId, readOnly, staffType });
+  const canViewFcMessenger = role === 'admin' || isRequestBoardDesigner;
+  const myChatId = isRequestBoardDesigner
+    ? sanitizePhone(residentId)
+    : getStaffChatActorId({ residentId, readOnly, staffType });
 
   const fetchChatList = async () => {
-    if (!myChatId) return [];
+    if (!canViewFcMessenger || !myChatId) return [];
 
     const { data: fcs, error: fcError } = await supabase
       .from('fc_profiles')
@@ -146,17 +154,73 @@ export default function AdminMessengerScreen() {
   };
 
   const { data, isLoading, refetch } = useQuery({
-    queryKey: ['admin-chat-list', role, residentId, readOnly, staffType],
+    queryKey: ['admin-chat-list', role, residentId, readOnly, staffType, isRequestBoardDesigner],
     queryFn: fetchChatList,
-    enabled: role === 'admin',
+    enabled: canViewFcMessenger && !!myChatId,
   });
+
+  const trackedPresencePhones = useMemo(
+    () => Array.from(
+      new Set(
+        (data ?? [])
+          .map((item) => normalizePresencePhone(item.phone))
+          .filter((phone) => phone.length === 11),
+      ),
+    ),
+    [data],
+  );
+
+  const loadPresence = useCallback(async (phones = trackedPresencePhones) => {
+    if (phones.length === 0) {
+      setPresenceByPhone({});
+      return;
+    }
+
+    const rows = await fetchUserPresence(phones);
+    const nextPresenceByPhone = rows.reduce<Record<string, AppPresenceSnapshot>>((acc, row) => {
+      acc[normalizePresencePhone(row.phone)] = row;
+      return acc;
+    }, {});
+
+    setPresenceByPhone(nextPresenceByPhone);
+  }, [trackedPresencePhones]);
+
+  useEffect(() => {
+    if (trackedPresencePhones.length === 0) {
+      setPresenceByPhone({});
+      return;
+    }
+
+    void loadPresence(trackedPresencePhones);
+  }, [loadPresence, trackedPresencePhones]);
+
+  useEffect(() => {
+    if (trackedPresencePhones.length === 0) {
+      return;
+    }
+
+    const intervalId = setInterval(() => {
+      void loadPresence(trackedPresencePhones);
+    }, PRESENCE_POLL_INTERVAL_MS);
+
+    const subscription = AppState.addEventListener('change', (nextState) => {
+      if (nextState === 'active') {
+        void loadPresence(trackedPresencePhones);
+      }
+    });
+
+    return () => {
+      clearInterval(intervalId);
+      subscription.remove();
+    };
+  }, [loadPresence, trackedPresencePhones]);
 
   useEffect(() => {
     setOptimisticUnreadByPhone({});
   }, [data]);
 
   useEffect(() => {
-    if (role !== 'admin') return;
+    if (!canViewFcMessenger) return;
     const channel = supabase
       .channel(`admin-chat-list-changes-${myChatId}`)
       .on(
@@ -168,13 +232,13 @@ export default function AdminMessengerScreen() {
     return () => {
       supabase.removeChannel(channel);
     };
-  }, [myChatId, role, refetch]);
+  }, [canViewFcMessenger, myChatId, refetch]);
 
   useFocusEffect(
     useCallback(() => {
-      if (role !== 'admin') return;
+      if (!canViewFcMessenger) return;
       void refetch();
-    }, [refetch, role]),
+    }, [canViewFcMessenger, refetch]),
   );
 
   const onRefresh = useCallback(async () => {
@@ -242,41 +306,75 @@ export default function AdminMessengerScreen() {
     [data, getUnreadCount],
   );
 
-  const renderItem = ({ item }: { item: ChatPreview }) => (
-    <Pressable
-      style={({ pressed }) => [styles.chatItem, pressed && { backgroundColor: '#F9FAFB' }]}
-      onPress={() => handleOpenChat(item)}
-    >
-      <View style={[styles.avatar, { backgroundColor: item.avatarColor }]}>
-        <Text style={styles.avatarText}>{item.initial}</Text>
-      </View>
-      <View style={styles.content}>
-        <View style={styles.topRow}>
-          <View style={styles.nameRow}>
-            <Text style={styles.name} numberOfLines={1}>{item.name}</Text>
-            {item.affiliation ? (
-              <Text style={styles.affiliation} numberOfLines={1}>
-                {item.affiliation}
-              </Text>
-            ) : null}
+  const renderItem = ({ item }: { item: ChatPreview }) => {
+    const presence = presenceByPhone[normalizePresencePhone(item.phone)] ?? null;
+    const presenceLabel = formatPresenceLabel(presence);
+
+    return (
+      <Pressable
+        style={({ pressed }) => [styles.chatItem, pressed && { backgroundColor: '#F9FAFB' }]}
+        onPress={() => handleOpenChat(item)}
+      >
+        <View style={styles.avatarWrap}>
+          <View style={[styles.avatar, { backgroundColor: item.avatarColor }]}>
+            <Text style={styles.avatarText}>{item.initial}</Text>
           </View>
-          <Text style={styles.time}>{formatTime(item.last_time)}</Text>
+          {presenceLabel ? (
+            <View
+              style={[
+                styles.presenceDot,
+                { backgroundColor: getPresenceColor(presence) },
+              ]}
+            />
+          ) : null}
         </View>
-        <View style={styles.bottomRow}>
-          <Text style={styles.message} numberOfLines={1}>
-            {item.last_message ?? '메시지가 없습니다.'}
-          </Text>
-          {getUnreadCount(item) > 0 && (
-            <View style={styles.badge}>
-              <Text style={styles.badgeText}>
-                {getUnreadCount(item) > 99 ? '99+' : getUnreadCount(item)}
+        <View style={styles.content}>
+          <View style={styles.topRow}>
+            <View style={styles.nameRow}>
+              <Text style={styles.name} numberOfLines={1}>{item.name}</Text>
+              {item.affiliation ? (
+                <Text style={styles.affiliation} numberOfLines={1}>
+                  {item.affiliation}
+                </Text>
+              ) : null}
+            </View>
+            <Text style={styles.time}>{formatTime(item.last_time)}</Text>
+          </View>
+          {presenceLabel ? (
+            <View style={styles.presenceRow}>
+              <View
+                style={[
+                  styles.presenceTinyDot,
+                  { backgroundColor: getPresenceColor(presence) },
+                ]}
+              />
+              <Text
+                style={[
+                  styles.presenceText,
+                  presence?.is_online && styles.presenceTextOnline,
+                ]}
+                numberOfLines={1}
+              >
+                {presenceLabel}
               </Text>
             </View>
-          )}
+          ) : null}
+          <View style={styles.bottomRow}>
+            <Text style={styles.message} numberOfLines={1}>
+              {item.last_message ?? '메시지가 없습니다.'}
+            </Text>
+            {getUnreadCount(item) > 0 && (
+              <View style={styles.badge}>
+                <Text style={styles.badgeText}>
+                  {getUnreadCount(item) > 99 ? '99+' : getUnreadCount(item)}
+                </Text>
+              </View>
+            )}
+          </View>
         </View>
-      </View>
-    </Pressable>
-  );
+      </Pressable>
+    );
+  };
 
   return (
     <SafeAreaView style={[styles.safe, { paddingTop: insets.top }]} edges={['left', 'right', 'bottom']}>
@@ -337,7 +435,9 @@ export default function AdminMessengerScreen() {
               <Feather name="message-circle" size={40} color="#D1D5DB" />
               <Text style={styles.emptyTitle}>대화 기록이 없습니다.</Text>
               <Text style={styles.emptyDesc}>
-                설계 매니저 계정은 이 목록에서 제외되며{'\n'}가람지사 내부 대화만 표시됩니다.
+                {isRequestBoardDesigner
+                  ? '가람지사 내부 FC 대화만 표시됩니다.'
+                  : `설계 매니저 계정은 이 목록에서 제외되며${'\n'}가람지사 내부 대화만 표시됩니다.`}
               </Text>
             </View>
           }
@@ -416,12 +516,25 @@ const styles = StyleSheet.create({
     paddingVertical: 12,
     gap: 12,
   },
+  avatarWrap: {
+    position: 'relative',
+  },
   avatar: {
     width: 46,
     height: 46,
     borderRadius: 23,
     alignItems: 'center',
     justifyContent: 'center',
+  },
+  presenceDot: {
+    position: 'absolute',
+    right: -1,
+    bottom: -1,
+    width: 14,
+    height: 14,
+    borderRadius: 7,
+    borderWidth: 2,
+    borderColor: '#fff',
   },
   avatarText: { color: '#fff', fontSize: 18, fontWeight: '700' },
   content: { flex: 1, gap: 4 },
@@ -430,6 +543,10 @@ const styles = StyleSheet.create({
   name: { fontSize: 16, fontWeight: '700', color: CHARCOAL, flexShrink: 1 },
   affiliation: { fontSize: 11, color: MUTED, flexShrink: 1 },
   time: { fontSize: 12, color: MUTED },
+  presenceRow: { flexDirection: 'row', alignItems: 'center', gap: 6 },
+  presenceTinyDot: { width: 7, height: 7, borderRadius: 3.5 },
+  presenceText: { fontSize: 12, color: MUTED, flexShrink: 1 },
+  presenceTextOnline: { color: '#15803D', fontWeight: '600' },
   bottomRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', gap: 8 },
   message: { fontSize: 14, color: '#6B7280', flex: 1 },
   badge: {

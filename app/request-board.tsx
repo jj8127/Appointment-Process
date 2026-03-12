@@ -30,6 +30,7 @@ import {
   type RbRequestListItem,
   type RbRequestSummary,
 } from '@/lib/request-board-api';
+import { getRequestBoardWebBaseUrl } from '@/lib/request-board-url';
 import { supabase } from '@/lib/supabase';
 import { COLORS, RADIUS, SHADOWS, SPACING, TYPOGRAPHY } from '@/lib/theme';
 import { buildWelcomeTitle } from '@/lib/welcome-title';
@@ -39,9 +40,7 @@ import { buildWelcomeTitle } from '@/lib/welcome-title';
 const YOUTUBE_URL = 'https://youtube.com/playlist?list=PLF5rd5c2rE9xy-VsAdwq4NEUsJQtKD7Qd&si=vKx4TDq6ww9ZgKiT';
 const SCREEN_WIDTH = Dimensions.get('window').width;
 const CARD_GAP = 10;
-const REQUEST_BOARD_WEB_URL = (
-  process.env.EXPO_PUBLIC_REQUEST_BOARD_URL || 'https://requestboard-steel.vercel.app'
-).replace(/\/$/, '');
+const REQUEST_BOARD_WEB_URL = getRequestBoardWebBaseUrl();
 
 const REQUEST_BOARD_CATEGORY_PREFIX = 'request_board_';
 

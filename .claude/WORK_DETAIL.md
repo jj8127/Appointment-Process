@@ -7,6 +7,313 @@
 
 ---
 
+## <a id="20260312-request-board-designer-fc-directory"></a> 2026-03-12 | 설계 매니저 GaramLink 메신저에 전체 FC 디렉터리 추가
+
+**배경**:
+- 사용자 스크린샷 기준 실제 문제 화면은 내부 `admin-messenger`가 아니라 `app/request-board-messenger.tsx`였다.
+- 이 화면은 FC 사용자일 때만 `rbGetDesigners()`를 호출해 새 대화 후보를 만들고, 설계 매니저일 때는 `rbGetConversations()`와 `rbGetDmConversations()`로 이미 존재하는 대화만 보여주고 있었다.
+- 그래서 설계 매니저 앱 메신저에서는 이미 대화가 있는 FC 몇 명만 보이고, 직접 대화 가능한 전체 FC 목록은 전혀 노출되지 않았다.
+
+**조치**:
+- `lib/request-board-api.ts`
+  - `GET /api/direct-messages/users`를 호출하는 `rbGetDirectMessageUsers()`를 추가해 앱에서도 request_board 서버의 FC/설계매니저 디렉터리를 사용할 수 있게 했다.
+- `app/request-board-messenger.tsx`
+  - 설계 매니저 로그인 시 기존 대화 목록과 별개로 FC 디렉터리를 불러오도록 확장했다.
+  - 목록 하단에 `FC 목록` 섹션을 추가해 전체 FC 후보를 노출하고, 이미 대화가 있는 FC는 `대화 열기`, 없는 FC는 `대화 시작하기`로 분기했다.
+  - 대화/DM 데이터에 `participantUserId`를 보존해, 동일 FC의 기존 대화가 있으면 새 DM을 생성하지 않고 기존 대화로 바로 진입하도록 맞췄다.
+  - 추가 방어로, 설계 매니저 세션에서 렌더링되는 기존 대화 목록도 `participantRole === 'fc'`인 항목만 노출하도록 걸러 다른 설계 매니저 DM이 섞여 보이지 않게 막았다.
+  - FC 로그인 시 기존 `설계사 목록` 동작은 그대로 유지했다.
+
+**검증**:
+- `npm run lint -- app/request-board-messenger.tsx lib/request-board-api.ts` ✅
+- `node scripts/ci/check-governance.mjs` ✅
+
+**후속 확인 포인트**:
+- 설계 매니저 계정으로 앱 `메신저 -> 설계요청 메신저` 진입 시 `대화` 섹션 아래에 `FC 목록`이 추가로 보이는지
+- `FC 목록`에서 이미 대화한 FC를 누르면 기존 방이 열리고, 처음 대화하는 FC를 누르면 새 DM이 생성되는지
+
+---
+
+## <a id="20260312-admin-hub-unread-scope"></a> 2026-03-12 | 총무 메신저 허브 unread 집계 범위 보정
+
+**배경**:
+- `가람in` 메신저 허브(`app/messenger.tsx`)는 내부 unread 배지를 단순히 `messages.receiver_id = myChatId AND is_read = false` 전체 건수로 계산하고 있었다.
+- 반면 총무/본부장/설계매니저가 실제로 들어가는 FC 목록 화면(`app/admin-messenger.tsx`)은 `signup_completed = true`이면서 내부 소속(`N본부`, `N팀`, `직할`)에 해당하는 FC만 노출하고, unread도 그 목록 안의 발신자별 합계만 보여준다.
+- 이 차이 때문에 총무 로그인 상태에서 채널 선택 허브에 unread `1`이 떠도, 실제 FC 목록에는 읽지 않은 대화가 하나도 보이지 않는 불일치가 발생했다.
+
+**조치**:
+- `app/messenger.tsx`
+  - 허브 쪽에 내부 FC 소속 판별 helper를 추가해 `admin-messenger`와 같은 내부 소속 기준(`본부`/`팀`/`직할`)을 적용했다.
+  - 총무/본부장/설계매니저 세션에서는 `fc_profiles`에서 실제 채널 목록에 노출될 FC 전화번호 집합을 먼저 만들고, 그 발신자(`sender_id`)로 들어온 unread만 합산하도록 변경했다.
+  - 일반 FC 세션은 기존처럼 본인 `receiver_id` 기준 unread 집계를 유지했다.
+
+**검증**:
+- `npx tsc --noEmit` ✅
+
+**후속 확인 포인트**:
+- 총무 계정으로 앱 로그인 후, 실제 읽지 않은 FC 대화가 없으면 `메신저 -> 가람지사 메신저` 카드 배지가 사라지는지
+- 내부 소속 FC가 실제 unread 메시지를 보낸 경우 허브 배지 숫자와 `admin-messenger` 목록 합계가 일치하는지
+
+---
+
+## <a id="20260312-designer-messenger-fc-list"></a> 2026-03-12 | 설계 매니저 앱 메신저에서 FC 목록 복구
+
+**배경**:
+- 설계 매니저 계정은 앱 세션상 `role='fc'`이지만 `requestBoardRole='designer'` 플래그로 구분된다.
+- 그런데 메신저 허브(`app/messenger.tsx`)는 `admin`만 FC 목록 화면(`/admin-messenger`)으로 보내고, 나머지 모든 사용자를 내부 `1:1 문의` 화면(`/chat`)으로 보내고 있었다.
+- 동시에 FC 목록 화면(`app/admin-messenger.tsx`) 자체도 `role === 'admin'`일 때만 목록 조회를 허용하고 있어, 설계 매니저가 해당 화면에 들어가더라도 전체 FC 목록을 불러올 수 없었다.
+
+**조치**:
+- `app/messenger.tsx`
+  - `isRequestBoardDesigner` 세션을 별도 분기해, 설계 매니저가 `가람지사 메신저`를 열면 FC 목록 화면(`/admin-messenger`)으로 이동하도록 수정했다.
+  - 카드 설명/계정 라벨도 설계 매니저 기준 문구로 보정했다.
+- `app/admin-messenger.tsx`
+  - `role === 'admin'` 뿐 아니라 `isRequestBoardDesigner` 세션도 FC 목록 조회를 허용하도록 확장했다.
+  - 설계 매니저는 내부 채팅 actor id를 `ADMIN_CHAT_ID`가 아닌 본인 전화번호로 사용하게 조정해, FC와의 1:1 메시지 조회/안읽음 계산이 올바르게 작동하도록 맞췄다.
+  - 빈 목록 안내 문구도 설계 매니저 화면에 맞게 분기했다.
+
+**검증**:
+- `npm run lint -- app/messenger.tsx app/admin-messenger.tsx` ✅
+- `node scripts/ci/check-governance.mjs` ✅
+
+**후속 확인 포인트**:
+- 설계 매니저 계정으로 앱 로그인 후 `메신저 -> 가람지사 메신저` 진입 시 `1:1 문의` 대상 선택 화면이 아니라 FC 목록 화면이 바로 열리는지
+- 특정 FC 대화 진입 후 마지막 메시지/안읽음 수가 설계 매니저 본인 전화번호 기준으로 정상 표시되는지
+
+---
+
+## <a id="20260312-chat-native-header-off"></a> 2026-03-12 | 내부 `1:1 문의` 기본 스택 헤더 비활성화
+
+**배경**:
+- 직전 헤더 통일 작업 후 `app/chat.tsx`에 커스텀 대화 헤더가 추가됐지만, 앱 루트 스택(`app/_layout.tsx`)은 여전히 `chat` 라우트에 기본 `1:1 문의` 헤더를 등록하고 있었다.
+- 그 결과 실제 기기에서는 상단에 기본 스택 헤더가 먼저 보이고, 그 아래에 새 커스텀 헤더가 한 번 더 렌더링되는 중복 헤더 문제가 생겼다.
+- 사용자는 스크린샷으로 `1:1 문의` 타이틀 바와 아바타형 대화 헤더가 동시에 노출되는 현상을 보고했다.
+
+**조치**:
+- `app/_layout.tsx`
+  - 두 개의 `chat` 라우트 등록부 모두 `headerShown: false`로 바꿔, 내부 `1:1 문의` 화면에서는 루트 스택 기본 헤더가 아예 렌더링되지 않도록 수정했다.
+  - 화면 내부의 커스텀 헤더만 남도록 하여 설계매니저 메신저와 같은 단일 헤더 구조를 유지하게 했다.
+
+**검증**:
+- `npm run lint -- app/_layout.tsx app/chat.tsx` ✅
+- `node scripts/ci/check-governance.mjs` ✅
+
+**후속 확인 포인트**:
+- Android 실기기에서 `메신저 -> 가람지사 메신저 -> 1:1 문의` 진입 시 상단 `1:1 문의` 기본 바가 사라지고 커스텀 헤더만 보이는지
+- 관리자 경로에서 같은 `chat` 화면을 열어도 네이티브 스택 헤더가 다시 노출되지 않는지
+
+---
+
+## <a id="20260312-presence-first-login-label"></a> 2026-03-12 | 활동 상태 UI에 `첫 접속 전` 상태 추가
+
+**배경**:
+- 최근 추가한 활동 상태 UI는 `활동중` 또는 `N분 전 접속`처럼 meaningful timestamp가 있을 때만 렌더링했다.
+- 그래서 한 번도 로그인하지 않아 `user_presence` row가 없거나, row는 있어도 meaningful last-seen이 없는 사용자는 아바타 점과 보조 문구가 통째로 숨겨졌다.
+- 로컬/일부 환경에서 `get_user_presence` RPC가 빠진 경우 fallback이 `user_presence` 실존 row만 반환해, 미접속 사용자는 snapshot 자체가 생성되지 않는 문제도 있었다.
+
+**조치**:
+- `lib/presence.ts`, `app/request-board-messenger.tsx`, `web/src/lib/presence.ts`
+  - meaningful history가 전혀 없고 offline인 경우 라벨을 `첫 접속 전`으로 반환하도록 통일했다.
+  - 기존 `활동중` / `방금 전 접속` / `N분/시간/일 전 접속` 계산은 그대로 유지했다.
+- `supabase/functions/user-presence/index.ts`
+  - RPC 성공/실패와 무관하게 요청한 전화번호 목록 기준으로 snapshot을 합성하도록 변경했다.
+  - `user_presence` row가 없는 번호는 `is_online=false`, timestamp 전부 `null`인 placeholder snapshot으로 채워 앱/웹 UI가 같은 조건으로 상태를 렌더링할 수 있게 했다.
+
+**검증**:
+- `npx tsc --noEmit` ✅
+
+**후속 확인 포인트**:
+- 앱 내부 메신저, 관리자 모바일 메신저, 관리자 웹 채팅, GaramLink 메신저에서 로그인 이력 없는 사용자가 `첫 접속 전`으로 보이는지
+- RPC가 없는 로컬/부분 환경에서도 같은 사용자가 점+라벨까지 포함해 일관되게 노출되는지
+
+---
+
+## <a id="20260312-chat-header-parity"></a> 2026-03-12 | 내부 `1:1 문의` 헤더를 설계매니저 메신저 스타일로 통일
+
+**배경**:
+- 앱 안에는 내부 메신저(`app/chat.tsx`)와 설계매니저용 GaramLink 메신저(`app/request-board-messenger.tsx`)가 공존하는데, 대화 화면 헤더 스타일이 서로 달랐다.
+- 내부 메신저는 상단에 중앙 정렬된 제목형 헤더를 쓰고 있어, 설계매니저와 대화하는 화면의 아바타/이름/접속상태 구조와 시각적으로 분리되어 보였다.
+- 사용자는 `유지영` 설계매니저와 대화하는 화면을 기준으로 두 메신저 헤더를 통일해 달라고 요청했다.
+
+**조치**:
+- `app/chat.tsx`
+  - 대화 화면 헤더를 중앙 제목형 레이아웃에서, `request-board-messenger`와 같은 좌측 아바타 + 이름 + 접속상태 구조로 교체했다.
+  - 상대 이름 기준 이니셜 아바타와 해시 색상을 추가해 `개발자`, `총무`, `본부장`, FC 대상 모두 같은 헤더 패턴으로 보이게 맞췄다.
+  - 활동중/마지막 접속 문구가 있으면 아바타 점과 보조 텍스트를 같은 줄 규칙으로 렌더링하도록 정리했다.
+  - 뒤로가기 버튼을 헤더 좌측에 배치해 기존 대화 진입/복귀 동선을 유지했다.
+
+**검증**:
+- `npm run lint -- app/chat.tsx` ✅
+
+**후속 확인 포인트**:
+- FC가 `메신저 -> 가람지사 메신저 -> 개발자/총무/본부장`으로 들어간 대화 화면 상단이 GaramLink 메신저와 같은 구조로 보이는지
+- 관리자 목록(`app/admin-messenger.tsx`)에서 FC 대화를 열었을 때도 같은 헤더 패턴과 뒤로가기 동작이 유지되는지
+
+---
+
+## <a id="20260312-request-board-dev-url-presence-label"></a> 2026-03-12 | 앱 GaramLink 로컬 URL 자동 해석 + presence sentinel 라벨 보정
+
+**배경**:
+- 앱 안 `가람Link 메신저(request-board-messenger)`는 활동중 UI 자체는 이미 렌더링하고 있었지만, Expo 개발 환경에서 `EXPO_PUBLIC_REQUEST_BOARD_URL`이 비어 있으면 기본값으로 운영 `https://requestboard-steel.vercel.app`를 바라보고 있었다.
+- 반면 사용자는 로컬 `request_board`(`localhost:5173`)에서 설계매니저 활동중을 확인하고 있었기 때문에, 앱과 웹이 서로 다른 GaramLink 인스턴스를 보면서 presence가 엇갈렸다.
+- 추가로 앱 쪽 presence 라벨 포맷터는 request_board 웹에서 이미 막아둔 stale sentinel(`1970-01-01`)을 그대로 마지막 접속으로 취급할 수 있어, 비정상적인 `N만일 전 접속` 문구가 다시 노출될 위험이 있었다.
+
+**조치**:
+- `lib/request-board-url.ts`
+  - 새 공통 resolver를 추가했다.
+  - 우선순위는 `EXPO_PUBLIC_REQUEST_BOARD_API_URL` / `EXPO_PUBLIC_REQUEST_BOARD_WEB_URL` / 레거시 `EXPO_PUBLIC_REQUEST_BOARD_URL` 순으로 명시적 설정을 사용한다.
+  - 명시적 값이 없고 Expo 개발 빌드(`__DEV__`)이면 `Constants.expoConfig.hostUri`와 `Constants.linkingUri`에서 Expo host를 파싱해:
+    - GaramLink API: `http://<expo-host>:3000`
+    - GaramLink 웹: `http://<expo-host>:5173`
+    로 자동 해석하도록 만들었다.
+  - Android 에뮬레이터에서 host가 `localhost/127.0.0.1`로 잡히면 `10.0.2.2`로 보정한다.
+- `lib/request-board-api.ts`
+  - 앱의 GaramLink API client가 새 resolver의 API base URL을 사용하도록 변경했다.
+- `app/request-board.tsx`
+  - 앱의 GaramLink 외부 진입/copy URL도 새 resolver의 웹 base URL을 사용하도록 맞췄다.
+- `app/request-board-messenger.tsx`, `lib/presence.ts`
+  - stale sentinel(`1970-01-01`)은 마지막 접속 시각으로 취급하지 않도록 웹과 동일한 기준을 적용했다.
+  - `last_seen_at`이 sentinel/invalid이면 플랫폼 timestamp(`garam_in_at` / `garam_link_at`)를 우선 보고, 그것도 없고 offline이면 `updated_at`을 fallback으로 사용한다.
+
+**검증**:
+- `npx tsc --noEmit` ✅
+- `node scripts/ci/check-governance.mjs` ✅
+
+**후속 확인 포인트**:
+- Expo/Metro를 재시작한 뒤, 로컬 `request_board` 서버(`:3000`)와 웹(`:5173`)을 띄운 상태에서 앱 `가람Link 메신저`가 같은 설계매니저의 `활동중`을 표시하는지
+- 앱에서 stale/offline row가 더 이상 sentinel 기반 `수만 일 전 접속`으로 보이지 않는지
+
+---
+
+## <a id="20260312-messenger-live-badge-file-card"></a> 2026-03-12 | 메신저 허브 live unread 배지 + 내부 파일 카드 레이아웃
+
+**배경**:
+- 메신저 허브 첫 화면(`app/messenger.tsx`)의 unread 배지는 화면 포커스 진입이나 수동 pull-to-refresh 때만 다시 계산돼, 허브를 열어둔 상태에서는 새 메시지가 와도 숫자가 바로 바뀌지 않았다.
+- `가람in` 내부 메신저(`app/chat.tsx`)는 파일 첨부를 일반 텍스트 버블 안에 그대로 렌더링하고 있어, 긴 파일명이나 파일 카드 너비 계산이 겹치면 오렌지 버블이 찌그러지거나 시간 라벨과 시각적으로 엇나갔다.
+- 1차 보정 뒤에도 own bubble 안 파일 카드가 내용 기준으로 과도하게 수축해, 아이콘만 남고 파일명이 사실상 보이지 않는 케이스가 확인됐다.
+
+**조치**:
+- `app/messenger.tsx`
+  - unread 로딩을 내부 메신저 / `가람Link` 메신저로 분리했다.
+  - 내부 unread는 `messages.receiver_id = myChatId` 기준 Supabase realtime 구독으로 즉시 다시 계산하도록 바꿨다.
+  - 허브 화면이 열려 있는 동안 5초 간격 active-screen polling과 `AppState active` 복귀 refresh를 추가해 `가람Link` unread 카드도 새로고침 없이 따라오도록 보강했다.
+- `app/chat.tsx`
+  - 파일 메시지를 전용 `fileCard` 레이아웃으로 분리하고, `minWidth: 0`, `maxWidth: '100%'`, 전용 icon/text/download 영역을 넣어 bubble width 계산을 안정화했다.
+  - 파일 메시지 bubble padding을 별도로 조정해 내부 카드가 오렌지 bubble 밖으로 밀리거나 과하게 눌리지 않도록 정리했다.
+  - 후속으로 파일 카드 자체에 읽기 가능한 고정/최소 폭(`FILE_CARD_WIDTH`, `minWidth`)을 주고, 파일명 텍스트 영역에 `flexBasis: 0` + `numberOfLines={2}`를 적용해 아이콘/다운로드 버튼이 있어도 파일명이 항상 보이도록 수정했다.
+  - presence 문구(`N분 전 접속`)가 헤더에 추가됐을 때 상대 이름이 좌측으로 밀려 보이지 않도록, 헤더 제목 묶음을 중앙 정렬 전용 컨테이너로 분리하고 두 줄 높이에 맞게 `minHeight + paddingVertical` 기준으로 정렬을 다시 잡았다.
+
+**검증**:
+- `npm run lint -- app/messenger.tsx app/chat.tsx` ✅
+
+**후속 확인 포인트**:
+- 메신저 허브를 열어둔 상태에서 새 메시지를 받을 때 `가람지사 메신저` / `설계요청 메신저` 카드 숫자가 pull-to-refresh 없이 바뀌는지
+- Android/iOS 실기기에서 PDF/문서 파일을 보냈을 때 파일 카드가 bubble 안에서 안정적으로 보이고 시간 라벨과 겹치지 않으며 파일명이 실제로 노출되는지
+
+---
+
+## <a id="20260311-app-presence-hotfix"></a> 2026-03-11 | 앱 활동중 heartbeat 핫픽스 (`user-presence` fallback)
+
+**배경**:
+- 앱 메신저에서 활동중 UI가 계속 보이지 않아 `user_presence` 런타임 상태를 직접 조회했다.
+- 확인 결과 `ubeginyxaotcamuqpmud` 프로젝트의 `user_presence`는 비어 있었고, 테스트용 signed app-session token으로 `user-presence`를 호출하면 `500 db_error`가 재현됐다.
+- 원인은 `touch_user_presence` RPC가 런타임에서 실패할 때 Edge Function이 그대로 500을 반환하고 있었기 때문이다. request_board 서버에서는 이미 같은 계열 RPC 오류에 대해 direct-table fallback을 두고 있었다.
+
+**조치**:
+- `supabase/functions/user-presence/index.ts`
+  - `get_user_presence`, `touch_user_presence`, `stale_user_presence` RPC 호출이 실패하면 누락 RPC(`PGRST202`) 여부와 관계없이 모두 direct-table read/write fallback으로 내려가도록 수정했다.
+  - fallback 진입 시 `console.warn(...)`으로 원인 추적 로그를 남기도록 정리했다.
+- 배포
+  - `supabase functions deploy user-presence --project-ref ubeginyxaotcamuqpmud`
+
+**검증**:
+- `npx tsc --noEmit` ✅
+- 원격 함수 프로브 ✅
+  - signed app-session token으로 `user-presence` `action=heartbeat` 호출 시 `200` + `is_online=true`
+  - 같은 토큰으로 `action=read` 호출 시 방금 기록한 `garam_in_at` row 반환
+
+**운영 메모**:
+- 앱 안 `가람Link 메신저(request-board-messenger)`는 별도 request_board 프로젝트 데이터를 읽는다. 따라서 현재 보이는 설계매니저가 request_board 쪽 `user_presence`를 남기지 않았다면 활동중 UI는 계속 숨겨진다.
+- `가람in` 내부 presence는 `appSessionToken`이 없는 구세션에서는 여전히 write/read가 불가능하므로, 이 경우 앱에서 한 번 로그아웃 후 다시 로그인해야 한다.
+
+---
+
+## <a id="20260311-chat-safe-area"></a> 2026-03-11 | 안드로이드 edge-to-edge 하단 안전영역 보정 (`1:1 문의`)
+
+**배경**:
+- `app.json`에서 Android `edgeToEdgeEnabled: true`가 켜져 있어, 하단 시스템 네비게이션 영역을 화면별로 직접 피해야 한다.
+- `app/chat.tsx`의 FC 대상 선택 리스트는 하단 inset을 반영하지 않아 마지막 카드가 시스템 네비게이션 바 뒤로 일부 가려졌다.
+- 같은 화면의 업로드 진행 오버레이와 입력 바도 서로 다른 bottom 여백 기준을 써서 기기별로 하단 간격이 들쭉날쭉할 수 있었다.
+
+**조치**:
+- `app/chat.tsx`
+  - `bottomSafeInset` 계산을 추가해 Android/iOS 공통 하단 안전영역 기준을 한 곳으로 통일했다.
+  - FC 대상 선택 `FlatList`의 `contentContainerStyle`에 동적 `paddingBottom`을 적용해 마지막 본부장/총무/개발자 카드가 시스템 네비게이션 바와 겹치지 않도록 조정했다.
+  - 파일 업로드 오버레이와 채팅 입력 바도 동일한 하단 inset 기준을 사용하도록 정렬했다.
+
+**검증**:
+- `npm run lint -- app/chat.tsx` ✅
+
+**후속 확인 포인트**:
+- Android 실기기에서 3버튼 네비게이션/제스처 네비게이션 각각 마지막 대상 카드가 완전히 보이는지
+- 업로드 중 오버레이가 입력 바와 시스템 네비게이션 사이에서 안정적으로 떠 있는지
+
+---
+
+## <a id="20260311-presence-foundation"></a> 2026-03-11 | 활동중 표시 기반 추가 (가람in 앱 heartbeat + 가람Link 메신저 UI)
+
+**배경**:
+- 활동중 표시는 `가람in`과 `가람Link`를 전화번호 단위로 묶어 계산해야 했다.
+- 모바일 앱은 Supabase Auth가 아니라 커스텀 앱 세션(`appSessionToken`) 기반이라, 직접 DB write 대신 Edge Function 경유가 필요했다.
+- request_board 운영 배포는 Vercel serverless라 지속 Socket.IO presence보다 `HTTP heartbeat + shared DB(user_presence)`가 현실적인 기준이다.
+
+**조치**:
+- DB / 공통 스키마
+  - `supabase/migrations/20260311000003_create_user_presence.sql`
+  - `supabase/schema.sql`
+    - `user_presence(phone PK, garam_in_at, garam_link_at, updated_at)` 추가
+    - `touch_user_presence`, `stale_user_presence`, `get_user_presence` RPC 함수 추가
+    - service-role 전용 실행 권한 정리
+- Edge Function
+  - `supabase/functions/user-presence/index.ts`
+    - `sessionToken`을 `parseAppSessionToken`으로 검증
+    - `heartbeat/offline` 액션별로 `garam_in` 컬럼만 갱신
+    - `fc_profiles`, `admin_accounts`, `manager_accounts` 존재/활성 검증 포함
+- 모바일 앱 전역 writer
+  - `lib/user-presence-api.ts`
+    - `user-presence` Edge Function invoke 래퍼 추가
+  - `hooks/use-app-presence-heartbeat.ts`
+    - `AppState active` 시 즉시 heartbeat + 30초 interval
+    - `background/inactive` 시 즉시 offline
+    - in-flight write 중 상태 전환 시 queued action으로 순서 보정
+  - `app/_layout.tsx`
+    - `SessionProvider` 내부에 `PresenceBootstrap` 추가해 앱 전역 heartbeat 시작
+- request_board 메신저 reader
+  - `lib/request-board-api.ts`
+    - participant phone 포함 타입 확장
+    - `rbGetPresence()` 추가
+  - `app/request-board-messenger.tsx`
+    - conversation/DM/designer item에 participant phone 보관
+    - presence polling(30초 + app active 복귀 refresh) 추가
+    - 목록/상단 헤더에 avatar dot + `활동중` / `N분 전 접속` 표시 추가
+
+**검증**:
+- 앱 타입체크:
+  - `npx tsc --noEmit` ✅
+- request_board 연동 빌드:
+  - `request_board/server`: `npm run build` ✅
+  - `request_board/client`: `npm run build` ✅
+- 주의:
+  - `npx tsc --project supabase/functions/tsconfig.json --noEmit`는 기존 `board-*`, `fc-notify` 타입 오류 때문에 전체 통과하지 못했고, 이번 변경과 직접 관련 없는 선행 이슈로 판단했다.
+  - 이 환경에는 `deno` 실행기가 없어 `user-presence` 함수 단독 `deno check`는 수행하지 못했다.
+
+**후속 확인 포인트**:
+- 모바일 앱 foreground/background 전환 시 상대방 화면에서 `활동중`이 자연스럽게 바뀌는지
+- request_board 웹/PWA hidden 30초 grace가 깜빡임 없이 동작하는지
+- cross-platform(가람in만 켜짐 / 가람Link만 켜짐 / 둘 다 켜짐) 합산 online 계산이 의도대로 보이는지
+
+---
+
 ## <a id="20260311-developer-subtype"></a> 2026-03-11 | 개발자 계정 subtype 도입 + request_board FC 브릿지
 
 **배경**:

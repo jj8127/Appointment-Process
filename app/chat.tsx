@@ -1,10 +1,11 @@
 import { Feather, Ionicons } from '@expo/vector-icons';
 import * as DocumentPicker from 'expo-document-picker';
+import * as FileSystem from 'expo-file-system/legacy';
 import { Image } from 'expo-image';
 import * as ImagePicker from 'expo-image-picker';
-import { useLocalSearchParams, useRouter } from 'expo-router';
+import { Stack, useFocusEffect, useLocalSearchParams, useRouter } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   AppState,
@@ -26,8 +27,15 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { useKeyboardPadding } from '@/hooks/use-keyboard-padding';
 import { useSession } from '@/hooks/use-session';
-import { supabase } from '@/lib/supabase';
 import { logger } from '@/lib/logger';
+import {
+  aggregatePresence,
+  formatPresenceLabel,
+  getPresenceColor,
+  normalizePresencePhone,
+} from '@/lib/presence';
+import { fetchUserPresence, type AppPresenceSnapshot } from '@/lib/user-presence-api';
+import { supabase } from '@/lib/supabase';
 import { isValidMobilePhone, safeDecodeFileName } from '@/lib/validation';
 import {
   ADMIN_CHAT_ID,
@@ -44,7 +52,37 @@ const MUTED = '#6b7280';
 const SOFT_BG = '#F9FAFB';
 const SCREEN_WIDTH = Dimensions.get('window').width;
 const CHAT_POLL_INTERVAL_MS = 2500;
+const PRESENCE_POLL_INTERVAL_MS = 30_000;
+const CHAT_UPLOAD_BUCKET = 'chat-uploads';
+const FILE_CARD_WIDTH = Math.min(SCREEN_WIDTH * 0.64, 260);
 const LEGACY_SESSION_ERROR = '세션이 오래되었습니다. 로그아웃 후 다시 로그인해주세요.';
+const HEADER_AVATAR_COLORS = [
+  '#3B82F6',
+  '#10B981',
+  '#F59E0B',
+  '#8B5CF6',
+  '#EC4899',
+  '#06B6D4',
+  '#84CC16',
+  '#F97316',
+  '#6366F1',
+  '#EF4444',
+];
+
+function getHeaderAvatarColor(value: string) {
+  let hash = 0;
+  for (let index = 0; index < value.length; index += 1) {
+    hash = (hash * 31 + value.charCodeAt(index)) | 0;
+  }
+  return HEADER_AVATAR_COLORS[Math.abs(hash) % HEADER_AVATAR_COLORS.length];
+}
+
+function getHeaderAvatarInitial(value: string) {
+  const normalized = value.replace(/\s+/g, '').trim();
+  if (!normalized) return '메';
+  if (/^[0-9]+$/.test(normalized)) return 'F';
+  return normalized.charAt(0);
+}
 
 function getFcTargetLoadErrorMessage(message?: string | null) {
   const normalized = String(message ?? '').trim();
@@ -78,11 +116,13 @@ type FcChatTarget = {
   label: string;
   subtitle: string;
   kind: 'manager' | 'admin' | 'developer';
+  presencePhones: string[];
 };
 
-type ChatTargetManager = {
+type ChatTargetContact = {
   name?: string | null;
   phone?: string | null;
+  staff_type?: string | null;
 };
 
 const sortMessagesDesc = (rows: Message[]) =>
@@ -127,6 +167,16 @@ const areMessagesEqual = (prev: Message[], next: Message[]) => {
   return true;
 };
 
+const areUnreadCountMapsEqual = (
+  prev: Record<string, number>,
+  next: Record<string, number>,
+) => {
+  const prevKeys = Object.keys(prev);
+  const nextKeys = Object.keys(next);
+  if (prevKeys.length !== nextKeys.length) return false;
+  return prevKeys.every((key) => (prev[key] ?? 0) === (next[key] ?? 0));
+};
+
 export default function ChatScreen() {
   const router = useRouter();
   const { role, residentId, displayName, readOnly, logout, staffType } = useSession();
@@ -136,6 +186,8 @@ export default function ChatScreen() {
   }>();
   const insets = useSafeAreaInsets();
   const keyboardPadding = useKeyboardPadding();
+  const bottomSafeInset = Math.max(insets.bottom, Platform.OS === 'android' ? 20 : 12);
+  const pickerListBottomPadding = bottomSafeInset + 24;
   const targetIdValue = Array.isArray(targetId) ? targetId[0] : targetId;
   const targetNameValue = Array.isArray(targetName) ? targetName[0] : targetName;
 
@@ -148,8 +200,10 @@ export default function ChatScreen() {
   const otherId = normalizedTargetId;
   const [resolvedTargetName, setResolvedTargetName] = useState('');
   const [fcTargets, setFcTargets] = useState<FcChatTarget[]>([]);
+  const [targetUnreadCounts, setTargetUnreadCounts] = useState<Record<string, number>>({});
   const [targetsLoading, setTargetsLoading] = useState(false);
   const [targetsError, setTargetsError] = useState<string | null>(null);
+  const [presenceByPhone, setPresenceByPhone] = useState<Record<string, AppPresenceSnapshot>>({});
   const selectedFcTarget = role === 'fc'
     ? fcTargets.find((target) => target.id === otherId) ?? null
     : null;
@@ -157,6 +211,33 @@ export default function ChatScreen() {
   const headerTitle = role === 'admin'
     ? resolvedTargetName || targetIdValue || 'FC'
     : targetNameValue?.trim() || selectedFcTarget?.label || '메신저';
+  const getPresenceSnapshot = useCallback(
+    (phone: string | null | undefined) => presenceByPhone[normalizePresencePhone(phone)] ?? null,
+    [presenceByPhone],
+  );
+  const getPresenceGroupSnapshot = useCallback(
+    (phones: (string | null | undefined)[]) => aggregatePresence(presenceByPhone, phones),
+    [presenceByPhone],
+  );
+  const headerPresence = role === 'admin'
+    ? getPresenceSnapshot(otherId)
+    : getPresenceGroupSnapshot(selectedFcTarget?.presencePhones ?? []);
+  const headerPresenceLabel = formatPresenceLabel(headerPresence);
+  const headerAvatarColor = getHeaderAvatarColor(headerTitle || otherId || '메신저');
+  const headerAvatarInitial = getHeaderAvatarInitial(headerTitle);
+  const trackedPresencePhones = useMemo(
+    () => Array.from(
+      new Set(
+        [
+          role === 'admin' ? otherId : null,
+          ...fcTargets.flatMap((target) => target.presencePhones),
+        ]
+          .map((phone) => normalizePresencePhone(phone))
+          .filter((phone) => phone.length === 11),
+      ),
+    ),
+    [fcTargets, otherId, role],
+  );
 
   const [messages, setMessages] = useState<Message[]>([]);
   const [text, setText] = useState('');
@@ -166,6 +247,56 @@ export default function ChatScreen() {
   const flatListRef = useRef<FlatList>(null);
   const deletedIdsRef = useRef<Set<string>>(new Set());
   const messagesRef = useRef<Message[]>([]);
+  const fcTargetsRef = useRef<FcChatTarget[]>([]);
+
+  useEffect(() => {
+    fcTargetsRef.current = fcTargets;
+  }, [fcTargets]);
+
+  const loadPresence = useCallback(async (phones = trackedPresencePhones) => {
+    if (phones.length === 0) {
+      setPresenceByPhone({});
+      return;
+    }
+
+    const rows = await fetchUserPresence(phones);
+    const nextPresenceByPhone = rows.reduce<Record<string, AppPresenceSnapshot>>((acc, row) => {
+      acc[normalizePresencePhone(row.phone)] = row;
+      return acc;
+    }, {});
+
+    setPresenceByPhone(nextPresenceByPhone);
+  }, [trackedPresencePhones]);
+
+  useEffect(() => {
+    if (trackedPresencePhones.length === 0) {
+      setPresenceByPhone({});
+      return;
+    }
+
+    void loadPresence(trackedPresencePhones);
+  }, [loadPresence, trackedPresencePhones]);
+
+  useEffect(() => {
+    if (trackedPresencePhones.length === 0) {
+      return;
+    }
+
+    const intervalId = setInterval(() => {
+      void loadPresence(trackedPresencePhones);
+    }, PRESENCE_POLL_INTERVAL_MS);
+
+    const subscription = AppState.addEventListener('change', (nextState) => {
+      if (nextState === 'active') {
+        void loadPresence(trackedPresencePhones);
+      }
+    });
+
+    return () => {
+      clearInterval(intervalId);
+      subscription.remove();
+    };
+  }, [loadPresence, trackedPresencePhones]);
 
   const applyMessages = useCallback((rows: Message[]) => {
     const uniqueRows = dedupeMessagesById(rows);
@@ -202,6 +333,46 @@ export default function ChatScreen() {
     return true;
   }, [myId, otherId]);
 
+  const loadTargetUnreadCounts = useCallback(async (targets?: FcChatTarget[]) => {
+    if (role !== 'fc' || !myId) {
+      setTargetUnreadCounts({});
+      return;
+    }
+
+    const targetIds = (targets ?? fcTargetsRef.current)
+      .map((target) => target.id)
+      .filter((targetId) => !!targetId);
+
+    if (targetIds.length === 0) {
+      setTargetUnreadCounts({});
+      return;
+    }
+
+    const { data, error } = await supabase
+      .from('messages')
+      .select('sender_id')
+      .eq('receiver_id', myId)
+      .eq('is_read', false)
+      .in('sender_id', targetIds);
+
+    if (error) {
+      logger.debug('[chat] unread count load failed', { error: error.message, myId });
+      return;
+    }
+
+    const nextCounts = ((data ?? []) as Pick<Message, 'sender_id'>[]).reduce<Record<string, number>>(
+      (acc, row) => {
+        const senderId = String(row.sender_id ?? '').trim();
+        if (!senderId) return acc;
+        acc[senderId] = (acc[senderId] ?? 0) + 1;
+        return acc;
+      },
+      {},
+    );
+
+    setTargetUnreadCounts((prev) => (areUnreadCountMapsEqual(prev, nextCounts) ? prev : nextCounts));
+  }, [myId, role]);
+
   const loadFcTargets = useCallback(async () => {
     if (role !== 'fc') return;
     setTargetsLoading(true);
@@ -225,11 +396,14 @@ export default function ChatScreen() {
         throw new Error(message);
       }
 
-      const managers: ChatTargetManager[] = Array.isArray(data.managers)
-        ? (data.managers as ChatTargetManager[])
+      const managers: ChatTargetContact[] = Array.isArray(data.managers)
+        ? (data.managers as ChatTargetContact[])
         : [];
-      const developers: ChatTargetManager[] = Array.isArray(data.developers)
-        ? (data.developers as ChatTargetManager[])
+      const developers: ChatTargetContact[] = Array.isArray(data.developers)
+        ? (data.developers as ChatTargetContact[])
+        : [];
+      const admins: ChatTargetContact[] = Array.isArray(data.admins)
+        ? (data.admins as ChatTargetContact[])
         : [];
 
       const managerTargets: FcChatTarget[] = [];
@@ -244,6 +418,7 @@ export default function ChatScreen() {
           label: displayName,
           subtitle: '본부장',
           kind: 'manager',
+          presencePhones: [phone],
         });
       });
 
@@ -265,12 +440,21 @@ export default function ChatScreen() {
             label: '개발자',
             subtitle: '개발자',
             kind: 'developer' as const,
+            presencePhones: [phone],
           });
           return map;
         }, new Map<string, FcChatTarget>()).values(),
       );
+      const adminPresencePhones = Array.from(
+        new Set(
+          admins
+            .filter((admin) => admin.staff_type !== 'developer')
+            .map((admin) => sanitizePhone(admin.phone))
+            .filter(Boolean),
+        ),
+      );
 
-      setFcTargets([
+      const nextTargets: FcChatTarget[] = [
         ...deduped,
         ...developerTargets,
         {
@@ -278,8 +462,12 @@ export default function ChatScreen() {
           label: '총무',
           subtitle: '총무팀',
           kind: 'admin',
+          presencePhones: adminPresencePhones,
         },
-      ]);
+      ];
+
+      setFcTargets(nextTargets);
+      void loadTargetUnreadCounts(nextTargets);
     } catch (error) {
       const message = getFcTargetLoadErrorMessage(error instanceof Error ? error.message : null);
       logger.debug('[chat] fc target list load failed', { message });
@@ -287,7 +475,7 @@ export default function ChatScreen() {
     } finally {
       setTargetsLoading(false);
     }
-  }, [residentId, role]);
+  }, [loadTargetUnreadCounts, residentId, role]);
 
   const fetchMessages = useCallback(async () => {
     if (!myId || !otherId) return;
@@ -381,10 +569,37 @@ export default function ChatScreen() {
     };
   }, [fetchMessages, myId, otherId]);
 
+  useFocusEffect(
+    useCallback(() => {
+      if (role !== 'fc') return undefined;
+      void loadFcTargets();
+      return undefined;
+    }, [loadFcTargets, role]),
+  );
+
   useEffect(() => {
-    if (role !== 'fc') return;
-    void loadFcTargets();
-  }, [loadFcTargets, role]);
+    if (role !== 'fc' || !myId || !showFcTargetPicker) return;
+
+    const channel = supabase
+      .channel(`chat-target-unread-${myId}`)
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'messages',
+          filter: `receiver_id=eq.${myId}`,
+        },
+        () => {
+          void loadTargetUnreadCounts();
+        },
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [loadTargetUnreadCounts, myId, role, showFcTargetPicker]);
 
   useEffect(() => {
     if (role !== 'admin') return;
@@ -523,20 +738,41 @@ export default function ChatScreen() {
       const fileName = `chat/${Date.now()}_${Math.random().toString(36).slice(2)}.${ext}`;
 
       const uploadMimeType = fileType?.trim() || 'application/octet-stream';
-      const localFileResponse = await fetch(uri);
-      if (!localFileResponse.ok) {
-        throw new Error(`파일을 읽지 못했습니다. (${localFileResponse.status})`);
+      if (Platform.OS === 'web') {
+        const localFileResponse = await fetch(uri);
+        if (!localFileResponse.ok) {
+          throw new Error(`파일을 읽지 못했습니다. (${localFileResponse.status})`);
+        }
+        const fileBlob = await localFileResponse.blob();
+        const byteArray = new Uint8Array(await fileBlob.arrayBuffer());
+
+        const { error } = await supabase.storage.from(CHAT_UPLOAD_BUCKET).upload(fileName, byteArray, {
+          contentType: uploadMimeType,
+          upsert: false,
+        });
+        if (error) throw error;
+      } else {
+        const { data, error } = await supabase.storage
+          .from(CHAT_UPLOAD_BUCKET)
+          .createSignedUploadUrl(fileName);
+        if (error || !data?.signedUrl) {
+          throw error ?? new Error('Signed upload URL 생성 실패');
+        }
+
+        const uploadResult = await FileSystem.uploadAsync(data.signedUrl, uri, {
+          httpMethod: 'PUT',
+          uploadType: FileSystem.FileSystemUploadType.BINARY_CONTENT,
+          headers: { 'Content-Type': uploadMimeType },
+        });
+
+        if (uploadResult.status < 200 || uploadResult.status >= 300) {
+          throw new Error(`업로드 실패 (status ${uploadResult.status})`);
+        }
       }
-      const fileBlob = await localFileResponse.blob();
 
-      const { error } = await supabase.storage.from('chat-uploads').upload(fileName, fileBlob, {
-        contentType: uploadMimeType,
-        upsert: false,
-      });
       if (isUploadCancelled.current) return null;
-      if (error) throw error;
 
-      const { data: urlData } = supabase.storage.from('chat-uploads').getPublicUrl(fileName);
+      const { data: urlData } = supabase.storage.from(CHAT_UPLOAD_BUCKET).getPublicUrl(fileName);
       return urlData.publicUrl;
     } catch (e) {
       if (isUploadCancelled.current) return null;
@@ -664,6 +900,10 @@ export default function ChatScreen() {
     });
   };
 
+  const handleBack = () => {
+    router.back();
+  };
+
   const renderMessageContent = (item: Message, isMe: boolean) => {
     if (item.message_type === 'image' && item.file_url) {
       return (
@@ -674,17 +914,33 @@ export default function ChatScreen() {
     }
 
     if (item.message_type === 'file' && item.file_url) {
+      const fileName = safeDecodeFileName(item.file_name) || '파일';
       return (
-        <TouchableOpacity style={styles.fileContainer} onPress={() => Linking.openURL(item.file_url!)}>
-          <View style={styles.fileIconBox}>
-            <Ionicons name="document-text" size={24} color={HANWHA_ORANGE} />
+        <TouchableOpacity
+          style={[styles.fileCard, isMe ? styles.fileCardMe : styles.fileCardOther]}
+          onPress={() => Linking.openURL(item.file_url!)}
+          activeOpacity={0.82}
+        >
+          <View style={[styles.fileIconBox, isMe ? styles.fileIconBoxMe : styles.fileIconBoxOther]}>
+            <Ionicons name="document-text" size={22} color={isMe ? '#fff' : HANWHA_ORANGE} />
           </View>
-          <View style={{ flex: 1 }}>
-            <Text style={[styles.msgText, isMe ? styles.msgTextMe : styles.msgTextOther]} numberOfLines={1}>
-              {safeDecodeFileName(item.file_name) || '파일'}
+          <View style={styles.fileTextWrap}>
+            <Text
+              style={[styles.fileName, isMe ? styles.fileNameMe : styles.fileNameOther]}
+              numberOfLines={2}
+              ellipsizeMode="tail"
+            >
+              {fileName}
             </Text>
-            <Text style={{ fontSize: 11, color: isMe ? '#eee' : '#999' }}>탭하여 다운로드</Text>
+            <Text style={[styles.fileHint, isMe ? styles.fileHintMe : styles.fileHintOther]} numberOfLines={1}>
+              탭하여 다운로드
+            </Text>
           </View>
+          <Feather
+            name="download"
+            size={15}
+            color={isMe ? 'rgba(255,255,255,0.82)' : '#9CA3AF'}
+          />
         </TouchableOpacity>
       );
     }
@@ -731,6 +987,10 @@ export default function ChatScreen() {
                   paddingVertical: 4,
                   backgroundColor: isMe ? HANWHA_ORANGE : '#fff',
                 },
+                item.message_type === 'file' && {
+                  paddingHorizontal: 8,
+                  paddingVertical: 8,
+                },
               ]}>
               {renderMessageContent(item, isMe)}
             </View>
@@ -748,33 +1008,68 @@ export default function ChatScreen() {
     );
   };
 
-  const renderFcTargetItem = ({ item }: { item: FcChatTarget }) => (
-    <Pressable
-      style={({ pressed }) => [
-        styles.targetItem,
-        pressed && { opacity: 0.85 },
-      ]}
-      onPress={() => openFcChatTarget(item)}
-    >
-      <View style={styles.targetAvatar}>
-        <Feather
-          name={item.kind === 'admin' ? 'shield' : item.kind === 'developer' ? 'tool' : 'user'}
-          size={20}
-          color={item.kind === 'admin' || item.kind === 'developer' ? HANWHA_ORANGE : MUTED}
-        />
-      </View>
-      <View style={styles.targetBody}>
-        <Text style={styles.targetName}>{item.label}</Text>
-        <Text style={styles.targetSubtitle}>{item.subtitle}</Text>
-      </View>
-      <View style={styles.targetBadge}>
-        <Text style={styles.targetBadgeText}>
-          {item.kind === 'admin' ? '총무' : item.kind === 'developer' ? '개발자' : '본부장'}
-        </Text>
-      </View>
-      <Feather name="chevron-right" size={18} color="#9CA3AF" />
-    </Pressable>
-  );
+  const renderFcTargetItem = ({ item }: { item: FcChatTarget }) => {
+    const targetPresence = getPresenceGroupSnapshot(item.presencePhones);
+    const targetPresenceLabel = formatPresenceLabel(targetPresence);
+
+    return (
+      <Pressable
+        style={({ pressed }) => [
+          styles.targetItem,
+          pressed && { opacity: 0.85 },
+        ]}
+        onPress={() => openFcChatTarget(item)}
+      >
+        <View style={styles.targetAvatarWrap}>
+          <View style={styles.targetAvatar}>
+            <Feather
+              name={item.kind === 'admin' ? 'shield' : item.kind === 'developer' ? 'tool' : 'user'}
+              size={20}
+              color={item.kind === 'admin' || item.kind === 'developer' ? HANWHA_ORANGE : MUTED}
+            />
+          </View>
+          {targetPresenceLabel ? (
+            <View
+              style={[
+                styles.targetPresenceDot,
+                { backgroundColor: getPresenceColor(targetPresence) },
+              ]}
+            />
+          ) : null}
+        </View>
+        <View style={styles.targetBody}>
+          <Text style={styles.targetName}>{item.label}</Text>
+          <Text style={styles.targetSubtitle}>{item.subtitle}</Text>
+          {targetPresenceLabel ? (
+            <Text
+              style={[
+                styles.targetPresenceText,
+                targetPresence?.is_online && styles.targetPresenceTextOnline,
+              ]}
+              numberOfLines={1}
+            >
+              {targetPresenceLabel}
+            </Text>
+          ) : null}
+        </View>
+        <View style={styles.targetMeta}>
+          {(targetUnreadCounts[item.id] ?? 0) > 0 && (
+            <View style={styles.targetUnreadBadge}>
+              <Text style={styles.targetUnreadBadgeText}>
+                {(targetUnreadCounts[item.id] ?? 0) > 99 ? '99+' : targetUnreadCounts[item.id] ?? 0}
+              </Text>
+            </View>
+          )}
+          <View style={styles.targetBadge}>
+            <Text style={styles.targetBadgeText}>
+              {item.kind === 'admin' ? '총무' : item.kind === 'developer' ? '개발자' : '본부장'}
+            </Text>
+          </View>
+        </View>
+        <Feather name="chevron-right" size={18} color="#9CA3AF" />
+      </Pressable>
+    );
+  };
 
   if (showFcTargetPicker) {
     return (
@@ -819,7 +1114,10 @@ export default function ChatScreen() {
             data={fcTargets}
             keyExtractor={(item) => item.id}
             renderItem={renderFcTargetItem}
-            contentContainerStyle={styles.targetListContent}
+            contentContainerStyle={[
+              styles.targetListContent,
+              { paddingBottom: pickerListBottomPadding },
+            ]}
             ListEmptyComponent={(
               <View style={styles.targetEmptyCard}>
                 <Text style={styles.targetHelperText}>대화 가능한 대상이 없습니다.</Text>
@@ -833,9 +1131,52 @@ export default function ChatScreen() {
 
   return (
     <View style={styles.container}>
+      <Stack.Screen options={{ headerShown: false }} />
       <StatusBar style="dark" backgroundColor="#fff" />
-      <View style={styles.header}>
-        <Text style={styles.headerTitle}>{headerTitle}</Text>
+      <View style={[styles.conversationHeader, { paddingTop: Math.max(insets.top, 20) + 4 }]}>
+        <Pressable style={styles.backBtn} onPress={handleBack}>
+          <Feather name="arrow-left" size={22} color={CHARCOAL} />
+        </Pressable>
+        <View style={styles.conversationHeaderCenter}>
+          <View style={styles.conversationAvatarWrap}>
+            <View style={[styles.conversationAvatar, { backgroundColor: headerAvatarColor }]}>
+              <Text style={styles.conversationAvatarText}>{headerAvatarInitial}</Text>
+            </View>
+            {headerPresenceLabel ? (
+              <View
+                style={[
+                  styles.conversationAvatarPresenceDot,
+                  { backgroundColor: getPresenceColor(headerPresence) },
+                ]}
+              />
+            ) : null}
+          </View>
+          <View style={styles.conversationHeaderTextWrap}>
+            <Text style={styles.conversationHeaderTitle} numberOfLines={1}>
+              {headerTitle}
+            </Text>
+            {headerPresenceLabel ? (
+              <View style={styles.conversationPresenceRow}>
+                <View
+                  style={[
+                    styles.conversationPresenceTinyDot,
+                    { backgroundColor: getPresenceColor(headerPresence) },
+                  ]}
+                />
+                <Text
+                  style={[
+                    styles.conversationPresenceText,
+                    headerPresence?.is_online && styles.conversationPresenceTextOnline,
+                  ]}
+                  numberOfLines={1}
+                >
+                  {headerPresenceLabel}
+                </Text>
+              </View>
+            ) : null}
+          </View>
+        </View>
+        <View style={styles.backBtn} />
       </View>
 
       <KeyboardAvoidingView
@@ -859,7 +1200,7 @@ export default function ChatScreen() {
             style={[
               styles.uploadingOverlay,
               {
-                bottom: 80 + (Platform.OS === 'android' ? keyboardPadding : 0),
+                bottom: 68 + bottomSafeInset + (Platform.OS === 'android' ? keyboardPadding : 0),
               },
             ]}>
             <ActivityIndicator size="small" color={HANWHA_ORANGE} />
@@ -875,7 +1216,7 @@ export default function ChatScreen() {
           style={[
             styles.inputWrapper,
             {
-              paddingBottom: Math.max(insets.bottom, 12) + (Platform.OS === 'android' ? keyboardPadding : 0),
+              paddingBottom: bottomSafeInset + (Platform.OS === 'android' ? keyboardPadding : 0),
             },
           ]}>
           <View style={styles.inputContainer}>
@@ -910,17 +1251,103 @@ const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: SOFT_BG },
   center: { flex: 1, justifyContent: 'center', alignItems: 'center', paddingHorizontal: 16 },
   header: {
-    height: 56,
+    minHeight: 56,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
     paddingHorizontal: 16,
+    paddingVertical: 10,
     backgroundColor: '#fff',
     borderBottomWidth: 1,
     borderBottomColor: '#F3F4F6',
   },
-  backBtn: { padding: 4 },
-  headerTitle: { fontSize: 18, fontWeight: '700', color: CHARCOAL },
+  headerContent: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    maxWidth: '100%',
+  },
+  backBtn: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  headerTitle: { fontSize: 18, fontWeight: '700', color: CHARCOAL, textAlign: 'center' },
+  headerPresenceText: { marginTop: 4, fontSize: 12, color: MUTED, textAlign: 'center' },
+  headerPresenceTextOnline: { color: '#15803D', fontWeight: '600' },
+  conversationHeader: {
+    minHeight: 64,
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 12,
+    paddingBottom: 12,
+    backgroundColor: '#fff',
+    borderBottomWidth: 1,
+    borderBottomColor: '#F3F4F6',
+  },
+  conversationHeaderCenter: {
+    flex: 1,
+    minWidth: 0,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    paddingHorizontal: 4,
+  },
+  conversationAvatarWrap: {
+    position: 'relative',
+  },
+  conversationAvatar: {
+    width: 46,
+    height: 46,
+    borderRadius: 23,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  conversationAvatarText: {
+    fontSize: 22,
+    fontWeight: '700',
+    color: '#fff',
+  },
+  conversationAvatarPresenceDot: {
+    position: 'absolute',
+    right: -1,
+    bottom: -1,
+    width: 13,
+    height: 13,
+    borderRadius: 6.5,
+    borderWidth: 2,
+    borderColor: '#fff',
+  },
+  conversationHeaderTextWrap: {
+    flex: 1,
+    minWidth: 0,
+  },
+  conversationHeaderTitle: {
+    fontSize: 18,
+    fontWeight: '700',
+    color: CHARCOAL,
+  },
+  conversationPresenceRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    marginTop: 4,
+  },
+  conversationPresenceTinyDot: {
+    width: 7,
+    height: 7,
+    borderRadius: 3.5,
+  },
+  conversationPresenceText: {
+    fontSize: 12,
+    color: MUTED,
+    flexShrink: 1,
+  },
+  conversationPresenceTextOnline: {
+    color: '#15803D',
+    fontWeight: '600',
+  },
   list: { flex: 1 },
   listContent: { paddingVertical: 20, paddingHorizontal: 16, gap: 16 },
   msgRow: { flexDirection: 'row', marginBottom: 12, width: '100%' },
@@ -939,7 +1366,7 @@ const styles = StyleSheet.create({
   },
   senderName: { fontSize: 12, color: MUTED, marginLeft: 2, marginBottom: 4 },
   msgContainer: { flex: 1, minWidth: 0 },
-  bubbleWrapper: { maxWidth: SCREEN_WIDTH * 0.82, width: 'auto' },
+  bubbleWrapper: { maxWidth: SCREEN_WIDTH * 0.82, width: 'auto', minWidth: 0 },
   bubbleWrapperMe: { alignSelf: 'flex-end' },
   bubbleWrapperOther: { alignSelf: 'flex-start' },
   bubble: {
@@ -999,15 +1426,62 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   sendBtnDisabled: { backgroundColor: '#E5E7EB' },
-  fileContainer: { flexDirection: 'row', alignItems: 'center', gap: 10 },
   fileIconBox: {
     width: 40,
     height: 40,
-    borderRadius: 8,
-    backgroundColor: '#fff',
+    borderRadius: 10,
     alignItems: 'center',
     justifyContent: 'center',
+    flexShrink: 0,
   },
+  fileIconBoxMe: {
+    backgroundColor: 'rgba(255,255,255,0.2)',
+  },
+  fileIconBoxOther: {
+    backgroundColor: '#fff',
+  },
+  fileCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    width: FILE_CARD_WIDTH,
+    maxWidth: '100%',
+    minWidth: 190,
+  },
+  fileCardMe: {
+    backgroundColor: 'rgba(255,255,255,0.14)',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.2)',
+    borderRadius: 12,
+    paddingHorizontal: 10,
+    paddingVertical: 10,
+  },
+  fileCardOther: {
+    backgroundColor: '#F9FAFB',
+    borderWidth: 1,
+    borderColor: '#E5E7EB',
+    borderRadius: 12,
+    paddingHorizontal: 10,
+    paddingVertical: 10,
+  },
+  fileTextWrap: {
+    flex: 1,
+    flexBasis: 0,
+    minWidth: 72,
+    gap: 2,
+  },
+  fileName: {
+    fontSize: 14,
+    fontWeight: '700',
+    lineHeight: 18,
+  },
+  fileNameMe: { color: '#fff' },
+  fileNameOther: { color: CHARCOAL },
+  fileHint: {
+    fontSize: 11,
+  },
+  fileHintMe: { color: 'rgba(255,255,255,0.84)' },
+  fileHintOther: { color: '#6B7280' },
   uploadingOverlay: {
     position: 'absolute',
     bottom: 80,
@@ -1063,6 +1537,9 @@ const styles = StyleSheet.create({
     paddingVertical: 12,
     gap: 10,
   },
+  targetAvatarWrap: {
+    position: 'relative',
+  },
   targetAvatar: {
     width: 42,
     height: 42,
@@ -1073,9 +1550,22 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
+  targetPresenceDot: {
+    position: 'absolute',
+    right: -1,
+    bottom: -1,
+    width: 12,
+    height: 12,
+    borderRadius: 6,
+    borderWidth: 2,
+    borderColor: '#fff',
+  },
   targetBody: { flex: 1, minWidth: 0, gap: 2 },
   targetName: { fontSize: 15, fontWeight: '700', color: CHARCOAL },
   targetSubtitle: { fontSize: 12, color: MUTED },
+  targetPresenceText: { fontSize: 12, color: MUTED },
+  targetPresenceTextOnline: { color: '#15803D', fontWeight: '600' },
+  targetMeta: { flexDirection: 'row', alignItems: 'center', gap: 8, marginLeft: 12 },
   targetBadge: {
     borderRadius: 999,
     backgroundColor: '#FFF7ED',
@@ -1085,6 +1575,16 @@ const styles = StyleSheet.create({
     paddingVertical: 3,
   },
   targetBadgeText: { fontSize: 11, fontWeight: '700', color: '#C2410C' },
+  targetUnreadBadge: {
+    minWidth: 22,
+    height: 22,
+    borderRadius: 11,
+    paddingHorizontal: 7,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: HANWHA_ORANGE,
+  },
+  targetUnreadBadgeText: { fontSize: 11, fontWeight: '700', color: '#fff' },
   targetEmptyCard: {
     backgroundColor: '#fff',
     borderRadius: 12,
