@@ -7,6 +7,27 @@
 
 ---
 
+## <a id="20260312-request-board-driving-status"></a> 2026-03-12 | GaramLink 의뢰 상세에 고객 운전여부 표시 추가
+
+**배경**:
+- request_board 쪽 고객 등록/의뢰 스키마에 `customer_driving_status`가 추가되면서, 앱 안 GaramLink 의뢰 상세(`app/request-board-review.tsx`)도 같은 고객 정보를 보여줘야 했다.
+- 기존 모바일 리뷰 화면은 `customer_name`, `request_details`, 요청 FC 정도만 보여주고 있어 새 필드가 전혀 노출되지 않았다.
+
+**조치**:
+- `lib/request-board-api.ts`
+  - `RbRequestDetail` 타입에 `customer_driving_status?: 'yes' | 'no' | null` 필드를 추가해 앱 레이어가 새 응답 계약을 읽을 수 있게 했다.
+- `app/request-board-review.tsx`
+  - `yes/no/null` 값을 `예/아니요/미입력`으로 매핑하는 helper를 추가했다.
+  - 의뢰 상세 정보 카드 메타 영역에 `운전여부` 라인을 추가해 고객명/요청 FC와 같은 레벨로 노출되도록 정렬했다.
+
+**검증**:
+- `npx eslint app/request-board-review.tsx lib/request-board-api.ts` ✅
+
+**후속 확인 포인트**:
+- 앱에서 GaramLink 의뢰 상세 진입 시 신규 의뢰는 `예/아니요`, 기존 구의뢰는 `미입력`으로 보이는지 on-device 확인
+
+---
+
 ## <a id="20260312-request-board-designer-fc-directory"></a> 2026-03-12 | 설계 매니저 GaramLink 메신저에 전체 FC 디렉터리 추가
 
 **배경**:

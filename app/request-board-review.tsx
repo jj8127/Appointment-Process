@@ -44,6 +44,12 @@ const formatPhone = (value?: string | null) => {
   return value ?? '-';
 };
 
+const formatDrivingStatus = (value?: 'yes' | 'no' | null) => {
+  if (value === 'yes') return '예';
+  if (value === 'no') return '아니요';
+  return '미입력';
+};
+
 const formatFileSize = (bytes: number): string => {
   if (bytes < 1024) return `${bytes}B`;
   if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)}KB`;
@@ -454,6 +460,12 @@ export default function RequestBoardReviewScreen() {
             <View style={styles.infoMeta}>
               <Feather name="user" size={12} color={COLORS.gray[400]} />
               <Text style={styles.infoMetaText}>고객명 {detail.customer_name ?? '-'}</Text>
+            </View>
+            <View style={styles.infoMeta}>
+              <Feather name="check-circle" size={12} color={COLORS.gray[400]} />
+              <Text style={styles.infoMetaText}>
+                운전여부 {formatDrivingStatus(detail.customer_driving_status)}
+              </Text>
             </View>
             <View style={styles.infoMeta}>
               <Feather name="user" size={12} color={COLORS.gray[400]} />
