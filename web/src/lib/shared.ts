@@ -77,24 +77,59 @@ const hasAllowancePassed = (profile: Pick<FcProfile, 'status' | 'allowance_date'
   return Boolean(profile.temp_id) && (allowancePassedByStatus || allowancePassedByDate);
 };
 
-const hasFinalCompletionEvidence = (profile: FcProfile) => {
+const getCommissionCompletionState = (
+  profile: Pick<
+    FcProfile,
+    'life_commission_completed' | 'nonlife_commission_completed' | 'appointment_date_life' | 'appointment_date_nonlife'
+  >,
+) => {
   const lifeCompleted = Boolean(profile.life_commission_completed || profile.appointment_date_life);
   const nonlifeCompleted = Boolean(profile.nonlife_commission_completed || profile.appointment_date_nonlife);
   const bothCompleted = lifeCompleted && nonlifeCompleted;
 
-  if (!bothCompleted) {
-    return false;
-  }
+  return { lifeCompleted, nonlifeCompleted, bothCompleted };
+};
 
-  if (!hasIdentityInfo(profile)) {
-    return false;
-  }
+const isSignupCommissionComplete = (
+  profile: Pick<
+    FcProfile,
+    | 'identity_completed'
+    | 'resident_id_masked'
+    | 'address'
+    | 'temp_id'
+    | 'allowance_date'
+    | 'appointment_schedule_life'
+    | 'appointment_schedule_nonlife'
+    | 'appointment_date_life'
+    | 'appointment_date_nonlife'
+    | 'appointment_date_life_sub'
+    | 'appointment_date_nonlife_sub'
+    | 'life_commission_completed'
+    | 'nonlife_commission_completed'
+    | 'fc_documents'
+  >,
+) => {
+  const { bothCompleted } = getCommissionCompletionState(profile);
+  const { docs } = getApprovedDocumentState(profile);
 
-  if (!hasAllowancePassed(profile)) {
-    return false;
-  }
+  return Boolean(
+    bothCompleted &&
+    !hasIdentityInfo(profile) &&
+    !profile.temp_id &&
+    !profile.allowance_date &&
+    !profile.appointment_schedule_life &&
+    !profile.appointment_schedule_nonlife &&
+    !profile.appointment_date_life &&
+    !profile.appointment_date_nonlife &&
+    !profile.appointment_date_life_sub &&
+    !profile.appointment_date_nonlife_sub &&
+    docs.length === 0,
+  );
+};
 
-  return getApprovedDocumentState(profile).allApproved;
+const hasFinalCompletionEvidence = (profile: FcProfile) => {
+  const { bothCompleted } = getCommissionCompletionState(profile);
+  return profile.status === 'final-link-sent' || bothCompleted;
 };
 
 export const getDocProgress = (profile: FcProfile) => {
@@ -163,6 +198,9 @@ export const getSummaryStatus = (profile: FcProfile) => {
   const fullyCompleted = hasFinalCompletionEvidence(profile);
 
   if (fullyCompleted) {
+    if (isSignupCommissionComplete(profile)) {
+      return { label: '가입 시 위촉 완료', color: 'green' };
+    }
     return { label: '최종 완료', color: 'green' };
   }
 
@@ -194,6 +232,7 @@ export const calcStep = (profile: FcProfile) => {
 
 export const getAdminStep = (profile: FcProfile) => {
   const rawStep = calcStep(profile);
+  if (rawStep === 5) return '4단계 완료';
   if (!hasIdentityInfo(profile)) return '0단계 사전등록';
   // FC Step 1 (Info) and Step 2 (Allowance) -> Admin Step 1 (Allowance)
   if (rawStep <= 2) return '1단계 수당동의';

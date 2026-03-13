@@ -7,6 +7,57 @@
 
 ---
 
+## <a id="20260313-web-dashboard-career-badge-copy"></a> 2026-03-13 | 관리자 웹 FC 목록의 `조회중` 배지를 `미입력`으로 정정
+
+**배경**:
+- 관리자 웹 FC 목록(`web/src/app/dashboard/page.tsx`)은 `career_type`이 비어 있으면 회색 배지에 `조회중`을 표시하고 있었다.
+- 이 값은 네트워크 로딩 상태가 아니라 단순 null 데이터라서, 가입이 끝난 FC도 아직 화면이 불러오는 중처럼 보이는 오해를 만들었다.
+
+**조치**:
+- `web/src/app/dashboard/page.tsx`
+  - `career_type`이 null/empty일 때 표시하던 회색 `조회중` 배지를 `미입력`으로 변경했다.
+  - 목록 화면의 라벨 의미를 상세 화면과 맞춰, 값 없음과 실제 로딩 상태를 구분하게 했다.
+
+**검증**:
+- `cd web && npm run lint -- src/app/dashboard/page.tsx` ✅
+
+**후속 확인 포인트**:
+- 관리자 웹 FC 목록에서 `career_type = null`인 계정이 더 이상 `조회중`으로 보이지 않는지 확인
+
+---
+
+## <a id="20260313-web-signup-commission-complete-step-align"></a> 2026-03-13 | 관리자 웹 완료 판정을 가입 시 위촉 완료 규칙에 다시 정렬
+
+**배경**:
+- 관리자 웹 단계 계산을 보수적으로 조정하면서, `temp_id + 수당동의 + 승인서류`가 모두 없으면 완료로 보지 않도록 바뀌었다.
+- 하지만 Garamin 가입 시 `현재 위촉 상태`를 함께 받는 도메인 규칙상, 가입자가 생명/손해 위촉을 모두 이미 완료했다고 입력한 경우에는 별도 위촉 진행 대상이 아니다.
+- 이 케이스는 `set-password`에서 `life_commission_completed=true`, `nonlife_commission_completed=true`, `status='final-link-sent'`로 저장되며, 최근 웹 로직은 이를 `0단계 사전등록` + `임시사번 미발급`으로 잘못 내리고 있었다.
+
+**조치**:
+- `web/src/lib/shared.ts`
+  - 완료 판정을 모바일과 다시 맞춰 `status='final-link-sent'` 또는 양쪽 commission 완료 플래그가 모두 true면 완료 단계로 보도록 복원했다.
+  - 다만 가입 시 곧바로 위촉 완료로 들어온 계정은 일반 최종 완료와 구분할 수 있도록, 신원/임시사번/수당동의/서류/일정 흔적이 없는 pure signup 완료 케이스를 `가입 시 위촉 완료` 요약 라벨로 표시하도록 분기했다.
+  - `getAdminStep`는 `rawStep === 5`를 먼저 처리하도록 바꿔, identity가 비어 있어도 완료 계정이 `0단계 사전등록`으로 내려가지 않게 정리했다.
+
+**검증**:
+- 실제 FC `김진희 / 01039772523` 확인:
+  - `status = final-link-sent`
+  - `identity_completed = false`
+  - `temp_id = null`
+  - `allowance_date = null`
+  - `life_commission_completed = true`
+  - `nonlife_commission_completed = true`
+  - `fc_documents = []`
+  - 이 케이스는 이제 `0단계 사전등록`이 아니라 완료 단계로 분류된다.
+- `cd web && npm run lint -- src/lib/shared.ts` ✅
+- 샘플 계산 결과: `rawStep = 5`, `adminStep = 4단계 완료`, `summary = 가입 시 위촉 완료`
+
+**후속 확인 포인트**:
+- 관리자 웹 목록/상세에서 가입 시 위촉 완료 계정이 `임시사번 미발급` 대신 완료 상태로 표시되는지 확인
+- 일반 온보딩 완료 계정은 기존처럼 `최종 완료`/`4단계 완료`로 유지되는지 확인
+
+---
+
 ## <a id="20260313-web-profile-presence-step-audit-fix"></a> 2026-03-13 | 관리자 웹 FC 상세의 presence/단계/서류 표시 정합성 보정
 
 **배경**:

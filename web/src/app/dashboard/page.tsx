@@ -906,7 +906,7 @@ export default function DashboardPage() {
               {fc.career_type ? (
                 <Text size="xs" c="dimmed">{fc.career_type}</Text>
               ) : (
-                <Badge color="gray" size="xs" variant="outline">조회중</Badge>
+                <Badge color="gray" size="xs" variant="outline">미입력</Badge>
               )}
               <Badge
                 color={fc.identity_completed ? 'green' : 'orange'}

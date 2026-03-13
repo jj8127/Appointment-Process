@@ -20,6 +20,8 @@
 ## 최근 작업
 | 날짜 | 작업 | 핵심 파일 | 상세 |
 |------|------|----------|------|
+| 03-13 | 관리자 웹 FC 목록의 `조회중` 배지를 `미입력`으로 정정 | `web/src/app/dashboard/page.tsx` | [→ 상세](WORK_DETAIL.md#20260313-web-dashboard-career-badge-copy) |
+| 03-13 | 관리자 웹 완료 판정을 가입 시 위촉 완료 규칙에 다시 정렬 | `web/src/lib/shared.ts` | [→ 상세](WORK_DETAIL.md#20260313-web-signup-commission-complete-step-align) |
 | 03-13 | 관리자 웹 FC 상세의 presence/단계/서류 표시 정합성 보정 | `web/src/app/dashboard/profile/[id]/page.tsx`, `web/src/lib/shared.ts` | [→ 상세](WORK_DETAIL.md#20260313-web-profile-presence-step-audit-fix) |
 | 03-12 | GaramLink 의뢰 상세에 고객 운전여부 표시 추가 | `app/request-board-review.tsx`, `lib/request-board-api.ts`, `AGENTS.md` | [→ 상세](WORK_DETAIL.md#20260312-request-board-driving-status) |
 | 03-12 | 설계 매니저 GaramLink 메신저에 전체 FC 디렉터리 추가 | `app/request-board-messenger.tsx`, `lib/request-board-api.ts`, `AGENTS.md` | [→ 상세](WORK_DETAIL.md#20260312-request-board-designer-fc-directory) |
