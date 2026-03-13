@@ -84,7 +84,7 @@ supabase secrets list --project-ref <project-ref>
 - 활동 상태 UI는 로그인 이력 없는 사용자도 숨기지 않고 `첫 접속 전`으로 표시하며, `user-presence` fallback은 RPC가 없는 환경에서도 요청한 모든 전화번호에 placeholder snapshot을 반환하도록 보강됐다.
 - 모바일 메신저 허브(`app/messenger.tsx`)는 내부 메신저 unread를 Supabase realtime으로, `가람Link` unread를 active-screen polling으로 갱신해 카드 배지가 새로고침 없이 따라오도록 보강됐고, 총무/본부장/설계매니저 세션의 내부 unread는 실제 FC 목록에 노출되는 내부 소속 발신자만 합산하도록 정렬됐다.
 - 내부 메신저(`app/chat.tsx`)의 파일 메시지는 전용 파일 카드 레이아웃으로 렌더링해 긴 파일명/첨부 아이콘 조합에서도 버블이 깨지지 않도록 정리됐고, 대화 헤더도 GaramLink 메신저와 같은 아바타/이름/presence 패턴으로 정렬됐다.
-- GaramLink 의뢰 상세(`app/request-board-review.tsx`)는 request_board의 고객 `운전여부` 필드를 읽어 `예/아니요/미입력`으로 노출하도록 확장됐다.
+- GaramLink 의뢰 상세(`app/request-board-review.tsx`)는 request_board의 고객 `운전구분` 필드를 읽어 legacy `예/아니요`와 신규 11종 차량 구분(`승용차/승합차/화물차/이륜자동차` 영업용/자가용, `건설기계`, `농기계`, `기타`)을 그대로 노출하도록 확장됐다.
 - 모바일 공통 `AppAlertProvider`는 기술적인 에러 원문(`Edge Function`, `non-2xx`, 권한/네트워크/중복 관련 영문 문구)을 사용자용 한국어 경고/오류 알림으로 정규화하고, 본등록 주민번호 입력 오류는 즉시 `입력 확인` 알림으로 안내하도록 보강됐다.
 - Sensitive identity flow is established: encrypted resident number storage and service-role mediated access path.
 - Recent stabilization work (2026-02-10 to 2026-02-11) focused on RLS-safe server APIs, notifications/notices reliability, exam deadline handling, and release hygiene cleanup.

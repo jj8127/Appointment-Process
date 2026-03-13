@@ -19,6 +19,7 @@ import { useSession } from '@/hooks/use-session';
 import { resolveBottomNavActiveKey, resolveBottomNavPreset } from '@/lib/bottom-navigation';
 import { logger } from '@/lib/logger';
 import { openExternalUrl } from '@/lib/open-external-url';
+import { formatRequestBoardDrivingStatus } from '@/lib/request-board-driving-status';
 import {
   rbApproveDesign,
   rbGetRequestDetail,
@@ -42,12 +43,6 @@ const formatPhone = (value?: string | null) => {
   const digits = String(value ?? '').replace(/[^0-9]/g, '');
   if (digits.length === 11) return `${digits.slice(0, 3)}-${digits.slice(3, 7)}-${digits.slice(7)}`;
   return value ?? '-';
-};
-
-const formatDrivingStatus = (value?: 'yes' | 'no' | null) => {
-  if (value === 'yes') return '예';
-  if (value === 'no') return '아니요';
-  return '미입력';
 };
 
 const formatFileSize = (bytes: number): string => {
@@ -464,7 +459,7 @@ export default function RequestBoardReviewScreen() {
             <View style={styles.infoMeta}>
               <Feather name="check-circle" size={12} color={COLORS.gray[400]} />
               <Text style={styles.infoMetaText}>
-                운전여부 {formatDrivingStatus(detail.customer_driving_status)}
+                운전구분 {formatRequestBoardDrivingStatus(detail.customer_driving_status)}
               </Text>
             </View>
             <View style={styles.infoMeta}>

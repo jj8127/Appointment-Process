@@ -806,7 +806,7 @@ export type RbRequestDetail = {
   customer_name: string;
   customer_phone?: string | null;
   customer_birth_date?: string | null;
-  customer_driving_status?: 'yes' | 'no' | null;
+  customer_driving_status?: string | null;
   request_details?: string | null;
   created_at: string;
   updated_at?: string;

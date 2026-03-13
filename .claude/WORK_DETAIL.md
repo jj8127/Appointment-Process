@@ -7,6 +7,31 @@
 
 ---
 
+## <a id="20260313-request-board-driving-status-codes"></a> 2026-03-13 | GaramLink 의뢰 상세의 고객 `운전구분` 표시를 11종 코드까지 지원하도록 확장
+
+**배경**:
+- `request_board` 고객 등록의 운전 입력이 기존 `예/아니요`에서 11종 차량 구분 드롭다운으로 확대됐다.
+- 모바일 `app/request-board-review.tsx`는 아직 `yes/no`만 라벨링하고 있어, 새 값이 들어오면 `미입력`으로 잘못 보일 상태였다.
+
+**조치**:
+- `lib/request-board-driving-status.ts`
+  - request_board 고객 `운전구분` 코드를 한글 라벨로 바꾸는 포맷터를 추가했다.
+  - legacy `yes/no`와 신규 11종 코드 모두 지원한다.
+- `app/request-board-review.tsx`
+  - 기존 `예/아니요` 전용 포맷터를 제거하고 공용 포맷터를 사용하도록 변경했다.
+  - 고객 정보 메타 라벨도 `운전여부`에서 `운전구분`으로 조정했다.
+- `lib/request-board-api.ts`
+  - `customer_driving_status` 타입을 `string | null`로 완화해 새 상세 코드도 안전하게 수신하도록 맞췄다.
+
+**검증**:
+- `npm run lint -- app/request-board-review.tsx lib/request-board-api.ts lib/request-board-driving-status.ts` ✅
+
+**후속 확인 포인트**:
+- 신규 의뢰 상세에서 `승용차(자가용)` 등 상세 운전구분이 그대로 표시되는지 확인
+- 과거 legacy 의뢰는 기존처럼 `예/아니요`로 유지되는지 확인
+
+---
+
 ## <a id="20260313-ios-address-search-only"></a> 2026-03-13 | iPhone 본등록 주소 입력을 검색 전용 흐름으로 정리
 
 **배경**:
