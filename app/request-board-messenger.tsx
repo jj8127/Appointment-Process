@@ -27,6 +27,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { useSession } from '@/hooks/use-session';
 import { logger } from '@/lib/logger';
+import { formatRequestBoardFcDisplayName } from '@/lib/request-board-fc-identity';
 import {
   type RbAttachmentMeta,
   type RbDesigner,
@@ -88,6 +89,8 @@ type UnifiedMessage = {
   id: number;
   senderId: number;
   senderName: string;
+  senderRole: string;
+  senderAffiliation?: string;
   message: string;
   createdAt: string;
   isOwn: boolean;
@@ -279,6 +282,44 @@ export default function RequestBoardMessengerScreen() {
   const flatListRef = useRef<FlatList<UnifiedMessage>>(null);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
+  const mergeMessagesDesc = useCallback((rows: UnifiedMessage[]) => {
+    const byId = new Map<number, UnifiedMessage>();
+    rows.forEach((row) => {
+      if (!byId.has(row.id)) {
+        byId.set(row.id, row);
+      }
+    });
+    return Array.from(byId.values()).sort(
+      (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime(),
+    );
+  }, []);
+
+  const mapRawMessageToUnified = useCallback((message: RbMessage | RbDmMessage): UnifiedMessage => {
+    const rawAttachments =
+      (message as RbMessage).message_attachments ??
+      (message as RbDmMessage).direct_message_attachments ??
+      [];
+    const attachments: MessageAttachment[] = rawAttachments.map((attachment) => ({
+      fileName: normalizeAttachmentFileName(attachment.file_name),
+      fileType: attachment.file_type,
+      fileSize: attachment.file_size,
+      fileUrl: attachment.file_url,
+    }));
+
+    return {
+      id: message.id,
+      senderId: message.sender_id,
+      senderName: message.sender?.name ?? '알 수 없음',
+      senderRole: message.sender?.role ?? 'fc',
+      senderAffiliation: message.sender?.role === 'fc' ? message.sender?.affiliation ?? undefined : undefined,
+      message: message.message,
+      createdAt: message.created_at,
+      isOwn: message.sender_id === rbUser?.id,
+      deleted: !!('deleted_at' in message && message.deleted_at),
+      attachments,
+    };
+  }, [rbUser?.id]);
+
   /* ─── Auth Flow ─── */
   const ensureAuth = useCallback(async () => {
     setAuthError('');
@@ -351,7 +392,9 @@ export default function RequestBoardMessengerScreen() {
         const name = isFC
           ? c.designer?.users?.name ?? c.designer?.company_name ?? '설계 매니저'
           : c.fc?.name ?? 'FC';
-        const company = isFC ? c.designer?.company_name ?? undefined : undefined;
+        const company = isFC
+          ? c.designer?.company_name ?? undefined
+          : c.fc?.affiliation ?? undefined;
 
         if (isFC && c.designer?.users?.id) participantUserIds.add(c.designer.users.id);
         if (!isFC && c.fc?.id) participantUserIds.add(c.fc.id);
@@ -385,6 +428,9 @@ export default function RequestBoardMessengerScreen() {
           id: `dm-${d.id}`,
           type: 'dm',
           name,
+          company: d.participant?.role === 'fc'
+            ? d.participant?.affiliation ?? undefined
+            : d.participant?.company_name ?? undefined,
           initial: name.charAt(0),
           avatarColor: hashColor(name),
           lastMessage: d.lastMessage?.message ?? '',
@@ -448,7 +494,7 @@ export default function RequestBoardMessengerScreen() {
                 id: `fc-${user.id}`,
                 userId: user.id,
                 name,
-                company: '',
+                company: user.affiliation?.trim() ?? '',
                 initial: name.charAt(0),
                 avatarColor: hashColor(name),
                 hasConversation: participantUserIds.has(user.id),
@@ -630,33 +676,11 @@ export default function RequestBoardMessengerScreen() {
         raw = await rbGetDmMessages(conv.primaryConversationId, 100);
       }
 
-      const mapped: UnifiedMessage[] = raw
-        .filter((m) => !('deleted_at' in m && m.deleted_at))
-        .map((m) => {
-          // Extract attachments from either request messages or DM messages
-          const rawAttachments =
-            (m as RbMessage).message_attachments ??
-            (m as RbDmMessage).direct_message_attachments ??
-            [];
-          const attachments: MessageAttachment[] = rawAttachments.map((a) => ({
-            fileName: normalizeAttachmentFileName(a.file_name),
-            fileType: a.file_type,
-            fileSize: a.file_size,
-            fileUrl: a.file_url,
-          }));
-
-          return {
-            id: m.id,
-            senderId: m.sender_id,
-            senderName: m.sender?.name ?? '알 수 없음',
-            message: m.message,
-            createdAt: m.created_at,
-            isOwn: m.sender_id === rbUser.id,
-            deleted: !!('deleted_at' in m && m.deleted_at),
-            attachments,
-          };
-        })
-        .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+      const mapped = mergeMessagesDesc(
+        raw
+          .filter((message) => !('deleted_at' in message && message.deleted_at))
+          .map(mapRawMessageToUnified),
+      );
 
       setMessages(mapped);
     } catch (err) {
@@ -664,7 +688,7 @@ export default function RequestBoardMessengerScreen() {
     } finally {
       setMsgLoading(false);
     }
-  }, [rbUser]);
+  }, [mapRawMessageToUnified, mergeMessagesDesc, rbUser]);
 
   const openConversation = (conv: UnifiedConversation) => {
     setActiveConv(conv);
@@ -865,6 +889,10 @@ export default function RequestBoardMessengerScreen() {
     if (!activeConv || (!inputText.trim() && pendingFiles.length === 0) || sending) return;
     const text = inputText.trim();
     const files = [...pendingFiles];
+    const tempMessageId = -Date.now();
+    const previousConversation = conversations.find((conversation) => conversation.id === activeConv.id) ?? null;
+    let optimisticPreviewMessage = '';
+    let optimisticPreviewTime = 0;
     setInputText('');
     setPendingFiles([]);
     setSending(true);
@@ -888,20 +916,95 @@ export default function RequestBoardMessengerScreen() {
 
       let res;
       const msgText = text || (attachments ? '[첨부파일]' : '');
+      const optimisticMessage: UnifiedMessage = {
+        id: tempMessageId,
+        senderId: rbUser?.id ?? 0,
+        senderName: rbUser?.name ?? '나',
+        senderRole: rbUser?.role ?? 'fc',
+        senderAffiliation: rbUser?.role === 'fc' ? rbUser?.affiliation ?? undefined : undefined,
+        message: msgText,
+        createdAt: new Date().toISOString(),
+        isOwn: true,
+        deleted: false,
+        attachments: (attachments ?? []).map((attachment) => ({
+          fileName: normalizeAttachmentFileName(attachment.fileName),
+          fileType: attachment.fileType,
+          fileSize: attachment.fileSize,
+          fileUrl: attachment.fileUrl,
+        })),
+      };
+      optimisticPreviewMessage = optimisticMessage.message;
+      optimisticPreviewTime = new Date(optimisticMessage.createdAt).getTime();
+      setMessages((prev) => mergeMessagesDesc([optimisticMessage, ...prev.filter((message) => message.id !== tempMessageId)]));
+      setConversations((prev) =>
+        prev.map((conversation) =>
+          conversation.id === activeConv.id
+            ? {
+                ...conversation,
+                lastMessage: optimisticPreviewMessage,
+                lastTime: fmtRelative(optimisticMessage.createdAt),
+                lastTimestamp: optimisticPreviewTime,
+              }
+            : conversation,
+        ),
+      );
+
       if (activeConv.type === 'request') {
         res = await rbSendMessage(activeConv.primaryConversationId, msgText, attachments);
       } else {
         res = await rbSendDmMessage(activeConv.primaryConversationId, msgText, attachments);
       }
 
-      if (res.success) {
-        await loadMessages(activeConv);
+      if (res.success && res.data) {
+        const sentMessage = mapRawMessageToUnified(res.data);
+        setMessages((prev) =>
+          mergeMessagesDesc([
+            sentMessage,
+            ...prev.filter((message) => message.id !== tempMessageId && message.id !== sentMessage.id),
+          ]),
+        );
+        setConversations((prev) =>
+          prev.map((conversation) =>
+            conversation.id === activeConv.id
+              ? {
+                  ...conversation,
+                  lastMessage: sentMessage.message,
+                  lastTime: fmtRelative(sentMessage.createdAt),
+                  lastTimestamp: new Date(sentMessage.createdAt).getTime(),
+                }
+              : conversation,
+          ),
+        );
         setTimeout(() => flatListRef.current?.scrollToOffset({ offset: 0, animated: true }), 100);
       } else {
+        setMessages((prev) => prev.filter((message) => message.id !== tempMessageId));
+        if (previousConversation) {
+          setConversations((prev) =>
+            prev.map((conversation) =>
+              conversation.id === previousConversation.id &&
+              conversation.lastMessage === optimisticPreviewMessage &&
+              conversation.lastTimestamp === optimisticPreviewTime
+                ? previousConversation
+                : conversation,
+            ),
+          );
+        }
         setInputText(text);
         setPendingFiles(files);
       }
     } catch {
+      setMessages((prev) => prev.filter((message) => message.id !== tempMessageId));
+      if (previousConversation) {
+        setConversations((prev) =>
+          prev.map((conversation) =>
+            conversation.id === previousConversation.id &&
+            conversation.lastMessage === optimisticPreviewMessage &&
+            conversation.lastTimestamp === optimisticPreviewTime
+              ? previousConversation
+              : conversation,
+          ),
+        );
+      }
       setInputText(text);
       setPendingFiles(files);
     } finally {
@@ -1211,7 +1314,11 @@ export default function RequestBoardMessengerScreen() {
                           <Text style={styles.avatarXsText}>{activeConv.initial}</Text>
                         </View>
                         <View style={styles.otherBubbleWrap}>
-                          <Text style={styles.otherSender}>{item.senderName}</Text>
+                          <Text style={styles.otherSender}>
+                            {item.senderRole === 'fc'
+                              ? formatRequestBoardFcDisplayName(item.senderName, item.senderAffiliation)
+                              : item.senderName}
+                          </Text>
                           {hasText && (
                             <View style={styles.otherBubble}>
                               <Text style={styles.otherBubbleText}>{item.message}</Text>

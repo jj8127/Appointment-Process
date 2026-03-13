@@ -882,9 +882,13 @@ serve(async (req: Request) => {
   // 홈 상단 최신 공지 조회 (RLS 우회)
   if (body.type === 'latest_notice') {
     try {
-      const notices = await fetchUnifiedNotices(1);
+      const notices = await fetchBoardNoticesWithAttachments(1).catch((error) => {
+        if (isMissingTableError(error)) return [] as NoticeRow[];
+        throw error;
+      });
       const notice = notices.length > 0
         ? {
+          id: notices[0].id,
           title: notices[0].title,
           body: notices[0].body,
           category: notices[0].category,

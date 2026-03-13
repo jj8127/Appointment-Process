@@ -307,6 +307,32 @@ export default function ChatScreen() {
     return true;
   }, []);
 
+  const createOptimisticMessage = useCallback(
+    (
+      content: string,
+      type: 'text' | 'image' | 'file' = 'text',
+      fileData?: { url: string; name: string; size?: number },
+    ): Message | null => {
+      if (!myId || !otherId) {
+        return null;
+      }
+
+      return {
+        id: `local-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+        content,
+        sender_id: myId,
+        receiver_id: otherId,
+        created_at: new Date().toISOString(),
+        is_read: true,
+        message_type: type,
+        file_url: fileData?.url ?? null,
+        file_name: fileData?.name ?? null,
+        file_size: fileData?.size ?? null,
+      };
+    },
+    [myId, otherId],
+  );
+
   const markIncomingAsRead = useCallback(async () => {
     if (!myId || !otherId) return false;
 
@@ -668,6 +694,11 @@ export default function ChatScreen() {
     }
     if (isUploadCancelled.current) return;
 
+    const optimisticMessage = createOptimisticMessage(content, type, fileData);
+    if (optimisticMessage) {
+      applyMessages([optimisticMessage, ...messagesRef.current]);
+    }
+
     const { data: inserted, error } = await supabase
       .from('messages')
       .insert({
@@ -683,12 +714,20 @@ export default function ChatScreen() {
       .single();
 
     if (error) {
+      if (optimisticMessage) {
+        applyMessages(messagesRef.current.filter((message) => message.id !== optimisticMessage.id));
+      }
       logger.warn('sendMessage error', { error: error.message });
       Alert.alert('전송 실패', '메시지를 보내지 못했습니다.');
       return;
     }
     if (inserted && !deletedIdsRef.current.has(inserted.id)) {
-      applyMessages([inserted as Message, ...messagesRef.current]);
+      applyMessages([
+        inserted as Message,
+        ...messagesRef.current.filter((message) =>
+          message.id !== optimisticMessage?.id && message.id !== inserted.id
+        ),
+      ]);
     }
 
     const isSenderStaff = role === 'admin';
@@ -701,26 +740,25 @@ export default function ChatScreen() {
     const notiTitle = `${senderName}: ${notiBody}`;
     const notifyUrl = `/chat?targetId=${encodeURIComponent(myId)}&targetName=${encodeURIComponent(senderName)}`;
 
-    try {
-      const { data: notifyData, error: notifyError } = await supabase.functions.invoke('fc-notify', {
-        body: {
-          type: 'notify',
-          target_role: recipientRole,
-          target_id: residentIdForPush,
-          title: notiTitle,
-          body: notiBody,
-          category: 'message',
-          url: notifyUrl,
-          sender_id: myId,
-          sender_name: senderName,
-        },
-      });
+    void supabase.functions.invoke('fc-notify', {
+      body: {
+        type: 'notify',
+        target_role: recipientRole,
+        target_id: residentIdForPush,
+        title: notiTitle,
+        body: notiBody,
+        category: 'message',
+        url: notifyUrl,
+        sender_id: myId,
+        sender_name: senderName,
+      },
+    }).then(({ data: notifyData, error: notifyError }) => {
       if (notifyError || !notifyData?.ok) {
         logger.warn('Error in message notification', { error: notifyError ?? notifyData?.message });
       }
-    } catch (e) {
+    }).catch((e) => {
       logger.warn('Error in message notification', { error: e });
-    }
+    });
   };
 
   const handleSendText = () => {

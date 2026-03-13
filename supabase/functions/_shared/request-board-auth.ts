@@ -16,6 +16,7 @@ type SignedTokenPayloadBase = {
 type BridgeTokenPayload = SignedTokenPayloadBase & {
   kind: 'request_board_bridge';
   role: RequestBoardBridgeRole;
+  affiliation?: string | null;
 };
 
 type AppSessionTokenPayload = SignedTokenPayloadBase & {
@@ -118,6 +119,7 @@ async function verifySignedToken<TPayload extends SignedTokenPayloadBase>(
 export async function createRequestBoardBridgeToken(
   phone: string,
   role: RequestBoardBridgeRole,
+  affiliation?: string | null,
 ) {
   const secret = (getEnv('REQUEST_BOARD_AUTH_BRIDGE_SECRET') ?? '').trim();
   if (!secret) return null;
@@ -130,6 +132,9 @@ export async function createRequestBoardBridgeToken(
     kind: 'request_board_bridge',
     phone,
     role,
+    ...((role === 'fc' || role === 'manager') && String(affiliation ?? '').trim()
+      ? { affiliation: String(affiliation ?? '').trim() }
+      : {}),
     iat: nowSec,
     exp: nowSec + ttlSec,
   };

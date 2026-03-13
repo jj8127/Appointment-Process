@@ -6,6 +6,7 @@ import {
   parseAppSessionToken,
   parseDesignerCompanyNameFromAffiliation,
 } from '../_shared/request-board-auth.ts';
+import { resolveManagerAffiliation } from '../_shared/manager-affiliation.ts';
 
 type RequestBody = {
   sessionToken?: string;
@@ -138,7 +139,11 @@ serve(async (req: Request) => {
       return fail('inactive_account', '비활성화된 계정입니다.', 403);
     }
 
-    const requestBoardBridgeToken = await createRequestBoardBridgeToken(manager.phone, 'manager');
+    const requestBoardBridgeToken = await createRequestBoardBridgeToken(
+      manager.phone,
+      'manager',
+      resolveManagerAffiliation(manager.name),
+    );
     if (!requestBoardBridgeToken) {
       return fail('bridge_secret_missing', '브릿지 토큰을 발급할 수 없습니다.', 500);
     }
@@ -171,7 +176,11 @@ serve(async (req: Request) => {
 
   const designerCompanyName = parseDesignerCompanyNameFromAffiliation(profile.affiliation);
   const requestBoardRole = designerCompanyName ? 'designer' : 'fc';
-  const requestBoardBridgeToken = await createRequestBoardBridgeToken(profile.phone, requestBoardRole);
+  const requestBoardBridgeToken = await createRequestBoardBridgeToken(
+    profile.phone,
+    requestBoardRole,
+    requestBoardRole === 'fc' ? profile.affiliation ?? null : undefined,
+  );
 
   if (!requestBoardBridgeToken) {
     return fail('bridge_secret_missing', '브릿지 토큰을 발급할 수 없습니다.', 500);

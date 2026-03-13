@@ -22,6 +22,7 @@ import { RefreshButton } from '@/components/RefreshButton';
 import { useBottomNavAnimation } from '@/hooks/use-bottom-nav-animation';
 import { useSession } from '@/hooks/use-session';
 import { resolveBottomNavActiveKey, resolveBottomNavPreset } from '@/lib/bottom-navigation';
+import { resolveNoticeRoute } from '@/lib/notice-route';
 import { openExternalUrl } from '@/lib/open-external-url';
 import { supabase } from '@/lib/supabase';
 import { COLORS, TYPOGRAPHY, SPACING, RADIUS } from '@/lib/theme';
@@ -57,8 +58,6 @@ type InboxListResponse = {
   message?: string;
   notices?: InboxNoticePayload[];
 };
-
-const BOARD_NOTICE_ID_PREFIX = 'board_notice:';
 
 const isAttachedFile = (value: unknown): value is AttachedFile => {
   if (!value || typeof value !== 'object') return false;
@@ -172,20 +171,11 @@ export default function NoticeScreen() {
   };
 
   const handleOpenNotice = (noticeId: string) => {
-    if (noticeId.startsWith(BOARD_NOTICE_ID_PREFIX)) {
-      const postId = noticeId.slice(BOARD_NOTICE_ID_PREFIX.length).trim();
-      if (!postId) return;
-      router.push({
-        pathname: '/board',
-        params: { postId },
-      });
+    const route = resolveNoticeRoute(noticeId);
+    if (!route) {
       return;
     }
-
-    router.push({
-      pathname: '/notice-detail',
-      params: { id: noticeId },
-    });
+    router.push(route as any);
   };
 
   return (

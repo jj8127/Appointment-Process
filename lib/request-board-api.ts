@@ -22,6 +22,7 @@ export type RbUser = {
   email: string;
   phone: string;
   role: 'fc' | 'designer';
+  affiliation?: string | null;
 };
 
 export type RbConversation = {
@@ -33,7 +34,7 @@ export type RbConversation = {
   participantRole: 'fc' | 'designer';
   status: string;
   request: { id: number; customer_name: string; status: string } | null;
-  fc: { id: number; name: string; phone: string | null } | null;
+  fc: { id: number; name: string; phone: string | null; affiliation?: string | null } | null;
   designer: {
     id: number;
     company_name: string | null;
@@ -73,14 +74,21 @@ export type RbMessage = {
   is_read: boolean;
   created_at: string;
   deleted_at?: string | null;
-  sender?: { id: number; name: string; role: string };
+  sender?: { id: number; name: string; role: string; affiliation?: string | null };
   message_attachments?: RbAttachment[];
 };
 
 export type RbDmConversation = {
   id: number;
   type: 'direct';
-  participant: { id: number; name: string; role: string; phone: string | null } | null;
+  participant: {
+    id: number;
+    name: string;
+    role: string;
+    phone: string | null;
+    company_name?: string | null;
+    affiliation?: string | null;
+  } | null;
   lastMessage: {
     id: number;
     message: string;
@@ -110,7 +118,7 @@ export type RbDmMessage = {
   is_read: boolean;
   created_at: string;
   deleted_at?: string | null;
-  sender?: { id: number; name: string; role: string };
+  sender?: { id: number; name: string; role: string; affiliation?: string | null };
   direct_message_attachments?: RbAttachment[];
 };
 
@@ -350,6 +358,7 @@ async function bridgeLogin(
       email: json.data.user.email,
       phone: json.data.user.phone,
       role: json.data.user.role,
+      affiliation: json.data.user.affiliation ?? undefined,
     };
     await storeAuth(json.data.token, user);
     return { success: true, user };
@@ -450,6 +459,7 @@ export async function rbLogin(
       email: json.data.user.email,
       phone: json.data.user.phone,
       role: json.data.user.role,
+      affiliation: json.data.user.affiliation ?? undefined,
     };
     await storeAuth(json.data.token, user);
     logger.info(`[rb-api] login success: userId=${user.id}, role=${user.role}`);
@@ -659,7 +669,7 @@ export async function rbUploadAttachments(
 export type RbDesigner = {
   id: number;
   company_name: string | null;
-  users: { id: number; name: string; email?: string; phone?: string } | null;
+  users: { id: number; name: string; email?: string; phone?: string; affiliation?: string | null } | null;
   designer_products?: { product_id: number; insurance_products: { id: number; name: string; icon?: string } }[];
 };
 
@@ -680,6 +690,8 @@ export type RbDirectMessageUser = {
   name: string;
   role: 'fc' | 'designer';
   phone: string | null;
+  company_name?: string | null;
+  affiliation?: string | null;
 };
 
 export async function rbGetDirectMessageUsers(
@@ -709,7 +721,14 @@ export async function rbCreateDmConversation(
   data?: {
     id: number;
     type: string;
-    participant: { id: number; name: string; role: string; phone: string | null };
+    participant: {
+      id: number;
+      name: string;
+      role: string;
+      phone: string | null;
+      company_name?: string | null;
+      affiliation?: string | null;
+    };
     isNew: boolean;
   };
   error?: string;
@@ -819,6 +838,7 @@ export type RbRequestDetail = {
     name: string;
     email?: string | null;
     phone?: string | null;
+    affiliation?: string | null;
   } | null;
   request_designers?: RbDesignerAssignment[];
 };

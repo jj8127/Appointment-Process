@@ -7,6 +7,191 @@
 
 ---
 
+## <a id="20260313-request-board-manager-affiliation-sync"></a> 2026-03-13 | GaramLink 본부장 affiliation sync + FC 표시 중복 제거
+
+**배경**:
+- 기존 FC affiliation sync는 `fc_profiles` 경로만 다뤘고, 본부장(manager) 계정의 request_board 브릿지/비밀번호 sync payload에는 affiliation이 비어 있었다.
+- 그 결과 request_board 운영 DB에 `users.affiliation` 컬럼을 반영해도 본부장 요청자는 다시 로그인할 때 소속이 채워지지 않았고, 표시 포맷도 `1본부 서선미 · 서선미`처럼 중복될 위험이 있었다.
+
+**조치**:
+- `supabase/functions/_shared/manager-affiliation.ts`
+  - 본부장 이름을 canonical affiliation(`1본부 서선미`, `6본부 김정수(박선희)` 등)으로 변환하는 helper를 추가했다.
+- `supabase/functions/_shared/request-board-auth.ts`
+  - request_board bridge token이 manager role에서도 affiliation payload를 담을 수 있게 확장했다.
+- `supabase/functions/login-with-password/index.ts`
+  - 본부장 로그인 시 request_board password sync와 bridge token 둘 다 manager affiliation을 함께 보내도록 수정했다.
+- `supabase/functions/sync-request-board-session/index.ts`
+  - 앱 세션 복원 경로도 본부장 affiliation을 담은 bridge token을 재발급하도록 맞췄다.
+- `lib/request-board-fc-identity.ts`
+  - 소속 문자열 안에 이름이 이미 포함된 경우 추가 `· 이름`을 붙이지 않도록 포맷터를 보강했다.
+
+**검증**:
+- `npx eslint supabase/functions/_shared/manager-affiliation.ts supabase/functions/_shared/request-board-auth.ts supabase/functions/login-with-password/index.ts supabase/functions/sync-request-board-session/index.ts lib/request-board-fc-identity.ts --rule "import/no-unresolved: off"` ✅
+- `node scripts/ci/check-governance.mjs` ✅
+
+## <a id="20260313-request-board-fc-affiliation-sync"></a> 2026-03-13 | GaramLink FC 소속 브릿지 sync + 임베디드 화면 표시 확장
+
+**배경**:
+- request_board 쪽은 설계매니저가 보는 FC 이름에 소속을 붙여 보여줄 준비가 되어 있었지만, fc-onboarding-app 브릿지 토큰과 비밀번호 sync payload는 FC `affiliation`을 전달하지 않고 있었다.
+- 그 결과 request_board `users.affiliation`이 비어 있는 FC가 많았고, 가람in 임베디드 GaramLink 메신저/의뢰상세에서도 여전히 FC 이름만 보이는 상태였다.
+- 사용자 요구는 설계매니저가 보는 모든 FC 이름에 대해 소속을 함께 확인할 수 있게 만드는 것이었다.
+
+**조치**:
+- `supabase/functions/_shared/request-board-auth.ts`
+  - request_board bridge token payload가 FC role일 때 `affiliation`을 포함할 수 있도록 확장했다.
+- `supabase/functions/login-with-password/index.ts`
+  - FC 로그인 시 request_board password sync payload와 bridge token 둘 다 `affiliation`을 함께 전달하도록 수정했다.
+- `supabase/functions/set-password/index.ts`, `supabase/functions/reset-password/index.ts`
+  - FC 신규 비밀번호 설정/재설정 시 request_board password sync에 `affiliation`을 포함하도록 맞췄다.
+- `supabase/functions/sync-request-board-session/index.ts`
+  - 앱 세션 복원/재동기화 경로도 FC `affiliation`을 담은 bridge token을 다시 발급하도록 보강했다.
+- `lib/request-board-api.ts`
+  - request conversation/message/direct user/request detail 타입에 FC `affiliation`을 추가해 앱이 해당 필드를 안전하게 받을 수 있게 했다.
+- `lib/request-board-fc-identity.ts`
+  - FC 표시명을 `소속 · 이름`으로 포맷하는 공용 helper를 추가했다.
+- `app/request-board-messenger.tsx`
+  - 설계매니저 view에서 request 대화, direct DM, FC 디렉터리, 메시지 sender 라벨이 모두 FC `affiliation`을 읽어 표시하도록 수정했다.
+- `app/request-board-review.tsx`
+  - 의뢰 상세의 `요청 FC` 라벨도 `소속 · 이름` 형식으로 바꿨다.
+
+**검증**:
+- `npx eslint supabase/functions/_shared/request-board-auth.ts supabase/functions/login-with-password/index.ts supabase/functions/set-password/index.ts supabase/functions/reset-password/index.ts supabase/functions/sync-request-board-session/index.ts app/request-board-messenger.tsx app/request-board-review.tsx lib/request-board-api.ts lib/request-board-fc-identity.ts --rule "import/no-unresolved: off"` ✅
+- `node scripts/ci/check-governance.mjs` ✅
+- `request_board: npm run build:client` ✅
+- `request_board: npm run build:server` ✅
+
+**후속 확인 포인트**:
+- 기존 FC 계정은 다음 로그인 또는 `sync-request-board-session` 재동기화 뒤에 request_board `users.affiliation`이 채워지므로, 설계매니저 실기기에서 메신저/의뢰상세 라벨이 `{소속} · {이름}`으로 보이는지 확인
+
+---
+
+## <a id="20260313-home-latest-notice-board-only"></a> 2026-03-13 | 홈 최신 공지를 게시판 공지 소스로 고정
+
+**배경**:
+- 기존 홈 최신 공지 카드는 `board_notice:` id를 받은 경우에는 게시판 상세 모달로 보낼 수 있었지만, `latest_notice` 자체는 legacy `notices`와 게시판 `공지`를 함께 섞은 최신 1건을 반환하고 있었다.
+- 이 구조에서는 홈 카드가 여전히 legacy 공지를 집으면 `/notice-detail` 계열 화면으로 열려, 게시판에서 같은 `공지` 글을 눌렀을 때와 완전히 같은 화면으로 통일되지 않았다.
+- 사용자 요구는 홈 공지 카드도 게시판 글 탭과 같은 화면 계열로 고정하는 것이었다.
+
+**조치**:
+- `supabase/functions/fc-notify/index.ts`
+  - `latest_notice` 응답 소스를 `fetchUnifiedNotices(1)`에서 `fetchBoardNoticesWithAttachments(1)`로 바꿔, 홈 상단 카드는 게시판 `공지` 카테고리 글만 최신 공지로 사용하도록 정리했다.
+- `app/index.tsx`
+  - 홈 카드 탭 시 route 해석 실패 fallback을 `/notice`에서 `/board`로 변경해, 게시판 공지가 없더라도 홈 공지 진입이 게시판 화면 계열을 벗어나지 않게 맞췄다.
+
+**검증**:
+- `npm run lint -- app/index.tsx` ✅
+- `node scripts/ci/check-governance.mjs` ✅
+
+**후속 확인 포인트**:
+- `fc-notify` 배포 후 실기기에서 홈 상단 공지 카드를 눌렀을 때, 게시판 목록에서 같은 공지 글을 눌렀을 때와 동일한 게시판 상세 모달 surface로 진입하는지 확인
+
+---
+
+## <a id="20260313-request-board-messenger-designer-company"></a> 2026-03-13 | 가람Link 메신저 direct DM 설계매니저 회사명 표시 복구
+
+**배경**:
+- 가람in 임베디드 GaramLink 메신저(`app/request-board-messenger.tsx`)는 대화 목록/상단 헤더에 `company` 슬롯을 이미 가지고 있었지만, direct DM API 응답에는 설계매니저 `company_name`이 포함되지 않고 있었다.
+- 그 결과 FC가 설계매니저와 direct DM을 시작해도 새로고침 또는 재진입 뒤에는 이름만 남고 어느 보험사/회사 소속인지 식별할 수 없었다.
+- request 기반 대화는 `designer.company_name`을 쓰고 있었기 때문에, request 대화와 direct DM의 표시 정보가 서로 달라지는 불일치도 있었다.
+
+**조치**:
+- `lib/request-board-api.ts`
+  - direct DM 대화/사용자 타입(`RbDmConversation`, `RbDirectMessageUser`, `rbCreateDmConversation`)에 `company_name` 필드를 추가해 앱-웹 계약을 확장했다.
+- `app/request-board-messenger.tsx`
+  - direct DM 대화 매핑 시 `participant.company_name`을 conversation `company`로 연결해, 기존 UI가 목록 카드와 활성 대화 헤더에서 같은 회사명을 바로 렌더링하도록 복구했다.
+- request_board 서버/웹 경로도 함께 정렬해 direct DM 응답과 웹 메신저 변환부에서 같은 `company_name`을 사용하도록 맞췄다.
+
+**검증**:
+- `npm run lint -- app/request-board-messenger.tsx lib/request-board-api.ts` ✅
+- `request_board: npm run build:server` ✅
+- `request_board: npm run build:client` ✅
+
+**후속 확인 포인트**:
+- 기존 direct DM 대화가 있는 FC 계정으로 가람in `실시간 메신저`에 재진입했을 때, 설계매니저 이름 아래/헤더에 회사명이 즉시 보이는지 실기기 확인
+
+---
+
+## <a id="20260313-request-board-shortcut-activity-route"></a> 2026-03-13 | 설계요청 페이지 메신저 위치 이동 + 최근활동 탭 동선 안정화
+
+**배경**:
+- 가람in `설계 요청` 화면에서 `실시간 메신저`가 `알아두세요` 섹션 안에 묻혀 있어, 실제 핵심 액션인 `의뢰 현황` 확인 뒤 바로 대화로 이동하기 어려웠다.
+- 같은 화면의 `최근 활동` 항목은 탭 시 Alert만 띄우는 방식이라 동선이 어색했고, 사용자 보고 기준으로 탭 후 비정상 동작과 앱 강제 종료가 발생하고 있었다.
+
+**조치**:
+- `app/request-board.tsx`
+  - `실시간 메신저` 카드를 `의뢰 현황` 카드 바로 아래, `의뢰 목록 · 검토` 위로 이동해 핵심 업무 흐름에 맞게 재배치했다.
+  - `알아두세요` 섹션에서는 메신저 카드를 제거하고 `개인정보 보호`, `푸시 알림` 안내만 남겼다.
+  - `최근 활동` 항목 탭은 더 이상 Alert를 띄우지 않고, 카테고리에 따라 `메신저`, `의뢰 목록(상태별 필터)`, `알림센터`로 직접 이동하도록 정리했다.
+  - 메시지 알림은 바로 메신저를 열고, 의뢰 상태 알림은 `pending/in_progress/completed/all` 필터에 맞는 의뢰 목록으로 보내도록 매핑했다.
+
+**검증**:
+- `npx eslint app/request-board.tsx app/chat.tsx app/request-board-messenger.tsx` ✅
+- `npx tsc --noEmit` ✅
+
+**후속 확인 포인트**:
+- 설계요청 화면에서 `실시간 메신저` 카드가 의뢰현황 아래에 바로 보이는지 확인
+- `최근 활동` 항목 탭 시 앱이 종료되지 않고, 메시지는 메신저로, 상태 알림은 의뢰 목록으로 정상 이동하는지 실기기 확인
+
+---
+
+## <a id="20260313-messenger-send-latency"></a> 2026-03-13 | 내부/가람Link 메신저 전송 체감 속도 개선
+
+**배경**:
+- 가람in 내부 메신저(`app/chat.tsx`)는 Supabase insert가 끝날 때까지 내 메시지 버블이 생기지 않았고, 알림 Edge Function 호출도 같은 전송 흐름에 매달려 있었다.
+- 앱 내부 GaramLink 메신저(`app/request-board-messenger.tsx`)도 전송 성공 뒤 `loadMessages()` 전체 재조회까지 기다려야 화면이 갱신돼, 짧은 텍스트 메시지도 체감이 느렸다.
+- 첨부 전송 실패 시에는 입력창/목록 preview가 일부만 되돌아갈 위험이 있어, 낙관적 UI를 붙이더라도 롤백 정합성이 필요했다.
+
+**조치**:
+- `app/chat.tsx`
+  - 전송 시작 시 임시 메시지 버블을 바로 추가하는 optimistic helper를 넣었다.
+  - 실제 insert 성공 시 임시 버블을 실데이터로 치환하고, 실패 시 임시 버블만 제거하도록 정리했다.
+  - `fc-notify` 호출은 `await` 대신 background 처리로 바꿔 알림 지연이 메시지 렌더링을 막지 않게 했다.
+- `app/request-board-messenger.tsx`
+  - request/DM 공통으로 임시 메시지와 대화 preview를 먼저 반영하고, 성공 응답이 오면 임시 row를 실데이터로 교체하도록 바꿨다.
+  - 전송 후 `loadMessages(activeConv)` 전체 재호출을 제거해 불필요한 왕복을 줄였다.
+  - 실패 시 임시 메시지, 입력값, 파일 선택, 대화 preview를 함께 되돌리되, 그 사이 다른 최신 preview가 들어왔으면 덮어쓰지 않도록 가드를 넣었다.
+
+**검증**:
+- `npx eslint app/chat.tsx app/request-board-messenger.tsx` ✅
+- `npx tsc --noEmit` ✅
+
+**후속 확인 포인트**:
+- 실기기에서 텍스트 메시지 전송 시 버블이 즉시 보이고, 실패 시 입력창/preview가 자연스럽게 복구되는지 확인
+- 가람Link embedded messenger에서 첨부 전송 뒤 불필요한 전체 재조회 없이 메시지 한 건만 추가되는지 확인
+
+---
+
+## <a id="20260313-home-latest-notice-route-unification"></a> 2026-03-13 | 홈 상단 최신 공지 카드 라우팅을 게시판 공지 상세와 통일
+
+**배경**:
+- 가람in 홈 상단의 최신 공지 카드는 제목만 보여주고 실제 공지 `id`는 버리고 있어, 누르면 항상 `/notice` 목록으로 이동했다.
+- 반면 공지 목록(`app/notice.tsx`)은 `board_notice:` 접두어를 해석해 게시판 `공지` 카테고리 글이면 `/board?postId=...`로 보내고 있었다.
+- 같은 공지를 홈에서 눌렀을 때와 게시판/공지 목록에서 눌렀을 때 도착 화면이 달라지는 불일치가 발생했다.
+
+**조치**:
+- `lib/notice-route.ts`
+  - `board_notice:` 접두어를 해석해 공지 `id`를 실제 이동 경로(`/board?postId=...` 또는 `/notice-detail?id=...`)로 바꾸는 공용 helper를 추가했다.
+- `app/index.tsx`
+  - 홈 최신 공지 조회 타입을 명시하고, 상단 카드 클릭 시 공용 helper를 사용해 직접 상세 화면으로 이동하도록 변경했다.
+  - `latest_notice` 응답에 `id`가 없을 때만 기존처럼 `/notice`로 fallback 하도록 유지했다.
+- `app/notice.tsx`
+  - 공지 목록 화면도 동일 helper를 사용하도록 바꿔 홈/목록 경로 판별 규칙을 하나로 통일했다.
+- `app/notifications.tsx`
+  - 알림센터의 `source === 'notice'` 항목도 동일 helper를 사용하도록 맞춰, 공지 진입점별 상세 화면 차이를 줄였다.
+- `supabase/functions/fc-notify/index.ts`
+  - `latest_notice` 응답에 최신 공지의 `id`를 포함하도록 확장했다.
+  - board 기반 공지는 이미 `board_notice:<postId>` 형태로 합쳐지고 있으므로, 홈 화면도 이 값을 그대로 받아 게시판 상세 모달로 열 수 있다.
+
+**검증**:
+- `npm run lint -- app/index.tsx app/notice.tsx app/notifications.tsx lib/notice-route.ts` ✅
+- `node scripts/ci/check-governance.mjs` ✅
+
+**후속 확인 포인트**:
+- 최신 공지가 게시판 `공지` 글일 때 홈 상단 카드 탭이 게시판 목록에서 같은 글을 눌렀을 때와 동일한 상세 모달을 여는지 실기기에서 확인
+- 변경을 운영에 반영하려면 `supabase functions deploy fc-notify` 배포 필요
+
+---
+
 ## <a id="20260313-exam-no-refund-copy"></a> 2026-03-13 | 시험 신청 화면에 접수비 환불 불가 안내 문구 추가
 
 **배경**:

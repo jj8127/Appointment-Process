@@ -21,6 +21,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { RefreshButton } from '@/components/RefreshButton';
 import { useSession } from '@/hooks/use-session';
 import { logger } from '@/lib/logger';
+import { resolveNoticeRoute } from '@/lib/notice-route';
 import { isDeveloperSession } from '@/lib/staff-identity';
 import { supabase } from '@/lib/supabase';
 import { COLORS } from '@/lib/theme';
@@ -640,7 +641,7 @@ export default function NotificationsScreen() {
 
   const resolveNotificationRoute = (item: Notice): string | null => {
     if (item.source === 'notice') {
-      return `/notice-detail?id=${encodeURIComponent(item.rawId)}`;
+      return resolveNoticeRoute(item.rawId);
     }
 
     if (item.origin === 'request_board') {

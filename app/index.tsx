@@ -32,6 +32,7 @@ import { useIdentityStatus } from '@/hooks/use-identity-status';
 import { useSession } from '@/hooks/use-session';
 import { useInAppUpdate } from '@/hooks/useInAppUpdate';
 import { logger } from '@/lib/logger';
+import { resolveNoticeRoute } from '@/lib/notice-route';
 import { openExternalUrl } from '@/lib/open-external-url';
 import { supabase } from '@/lib/supabase';
 import { buildWelcomeTitle } from '@/lib/welcome-title';
@@ -82,6 +83,18 @@ type StepKey = 'step1' | 'step2' | 'step3' | 'step4' | 'step5';
 type StepCounts = Record<StepKey, number>;
 type CountsResult = { total: number; steps: StepCounts };
 const EMPTY_STEP_COUNTS: StepCounts = { step1: 0, step2: 0, step3: 0, step4: 0, step5: 0 };
+type LatestNoticeSummary = {
+  id: string;
+  title: string;
+  body: string;
+  category?: string | null;
+  created_at?: string | null;
+};
+type LatestNoticeResponse = {
+  ok?: boolean;
+  message?: string;
+  notice?: LatestNoticeSummary | null;
+};
 
 const CARD_SHADOW = {
   shadowColor: '#000',
@@ -157,9 +170,9 @@ const ADMIN_METRIC_CONFIG: { label: string; key: StepKey }[] = [
   { label: '4단계 완료', key: 'step5' },
 ];
 
-const fetchLatestNotice = async () => {
+const fetchLatestNotice = async (): Promise<LatestNoticeSummary | null> => {
   try {
-    const { data, error } = await supabase.functions.invoke('fc-notify', {
+    const { data, error } = await supabase.functions.invoke<LatestNoticeResponse>('fc-notify', {
       body: { type: 'latest_notice' },
     });
     if (error) throw error;
@@ -1041,6 +1054,16 @@ export default function Home() {
     router.push(href as any);
   };
 
+  const handleOpenLatestNotice = () => {
+    Haptics.selectionAsync();
+    const route = resolveNoticeRoute(latestNotice?.id ?? null);
+    if (route) {
+      router.push(route as any);
+      return;
+    }
+    router.push('/board');
+  };
+
   const handleStatClick = (stepKey: StepKey) => {
     Haptics.selectionAsync();
     router.push(`/dashboard?status=${stepKey}` as any);
@@ -1194,7 +1217,7 @@ export default function Home() {
                   borderRadius={12}>
                   <Pressable
                     style={({ pressed }) => [styles.notice, pressed && styles.pressedOpacity]}
-                    onPress={() => handlePressLink('/notice')}>
+                    onPress={handleOpenLatestNotice}>
                     <View style={styles.noticeDot} />
                     <Text style={styles.noticeText} numberOfLines={1}>
                       {latestNotice?.title ? `공지: ${latestNotice.title}` : '공지: 최신 공지사항을 확인하세요'}
@@ -1208,7 +1231,7 @@ export default function Home() {
             <AndroidSafeMotiView from={{ opacity: 0, translateY: -10 }} animate={{ opacity: 1, translateY: 0 }} transition={{ type: 'timing', duration: 500 }}>
               <Pressable
                 style={({ pressed }) => [styles.notice, pressed && styles.pressedOpacity]}
-                onPress={() => handlePressLink('/notice')}>
+                onPress={handleOpenLatestNotice}>
                 <View style={styles.noticeDot} />
                 <Text style={styles.noticeText} numberOfLines={1}>
                   {latestNotice?.title ? `공지: ${latestNotice.title}` : '공지: 최신 공지사항을 확인하세요'}

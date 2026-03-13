@@ -18,6 +18,7 @@ import { BottomNavigation } from '@/components/BottomNavigation';
 import { useSession } from '@/hooks/use-session';
 import { resolveBottomNavActiveKey, resolveBottomNavPreset } from '@/lib/bottom-navigation';
 import { logger } from '@/lib/logger';
+import { formatRequestBoardFcDisplayName } from '@/lib/request-board-fc-identity';
 import { openExternalUrl } from '@/lib/open-external-url';
 import { formatRequestBoardDrivingStatus } from '@/lib/request-board-driving-status';
 import {
@@ -465,7 +466,7 @@ export default function RequestBoardReviewScreen() {
             <View style={styles.infoMeta}>
               <Feather name="user" size={12} color={COLORS.gray[400]} />
               <Text style={styles.infoMetaText}>
-                요청 FC {detail.fc?.name ?? '-'} ({formatPhone(detail.fc?.phone)})
+                요청 FC {formatRequestBoardFcDisplayName(detail.fc?.name ?? '-', detail.fc?.affiliation)} ({formatPhone(detail.fc?.phone)})
               </Text>
             </View>
             {detail.request_details && (

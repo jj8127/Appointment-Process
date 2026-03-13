@@ -20,6 +20,13 @@
 ## 최근 작업
 | 날짜 | 작업 | 핵심 파일 | 상세 |
 |------|------|----------|------|
+| 03-13 | GaramLink 본부장 소속도 브릿지 sync에 포함하고 중복 이름 표기를 정리 | `supabase/functions/_shared/manager-affiliation.ts`, `supabase/functions/_shared/request-board-auth.ts`, `supabase/functions/login-with-password/index.ts`, `supabase/functions/sync-request-board-session/index.ts`, `lib/request-board-fc-identity.ts`, `AGENTS.md` | [→ 상세](WORK_DETAIL.md#20260313-request-board-manager-affiliation-sync) |
+| 03-13 | GaramLink FC 소속을 브릿지 sync에 포함하고 임베디드 메신저/의뢰상세에도 표시 | `supabase/functions/_shared/request-board-auth.ts`, `supabase/functions/login-with-password/index.ts`, `supabase/functions/set-password/index.ts`, `supabase/functions/reset-password/index.ts`, `supabase/functions/sync-request-board-session/index.ts`, `app/request-board-messenger.tsx`, `app/request-board-review.tsx`, `lib/request-board-api.ts`, `lib/request-board-fc-identity.ts`, `AGENTS.md` | [→ 상세](WORK_DETAIL.md#20260313-request-board-fc-affiliation-sync) |
+| 03-13 | 홈 최신 공지를 게시판 공지 소스로 고정하고 fallback도 게시판으로 정렬 | `app/index.tsx`, `supabase/functions/fc-notify/index.ts`, `AGENTS.md` | [→ 상세](WORK_DETAIL.md#20260313-home-latest-notice-board-only) |
+| 03-13 | 가람Link 메신저 direct DM에서도 설계매니저 회사명이 보이도록 동기화 | `app/request-board-messenger.tsx`, `lib/request-board-api.ts`, `AGENTS.md` | [→ 상세](WORK_DETAIL.md#20260313-request-board-messenger-designer-company) |
+| 03-13 | 설계요청 페이지 메신저 위치 이동 + 최근활동 탭 동선 안정화 | `app/request-board.tsx`, `AGENTS.md` | [→ 상세](WORK_DETAIL.md#20260313-request-board-shortcut-activity-route) |
+| 03-13 | 내부/가람Link 메신저 전송 체감 속도 개선 | `app/chat.tsx`, `app/request-board-messenger.tsx`, `AGENTS.md` | [→ 상세](WORK_DETAIL.md#20260313-messenger-send-latency) |
+| 03-13 | 홈 상단 최신 공지 카드가 게시판 공지와 동일한 상세 화면으로 이동하도록 라우팅 통일 | `app/index.tsx`, `app/notice.tsx`, `app/notifications.tsx`, `lib/notice-route.ts`, `supabase/functions/fc-notify/index.ts`, `AGENTS.md` | [→ 상세](WORK_DETAIL.md#20260313-home-latest-notice-route-unification) |
 | 03-13 | 시험 신청 화면에 접수비 환불 불가 안내 문구 추가 | `app/exam-apply.tsx`, `app/exam-apply2.tsx`, `AGENTS.md` | [→ 상세](WORK_DETAIL.md#20260313-exam-no-refund-copy) |
 | 03-13 | GaramLink 운전구분 `안함` 표시 지원 | `lib/request-board-driving-status.ts` | [→ 상세](WORK_DETAIL.md#20260313-request-board-driving-status-none) |
 | 03-13 | 시험 신청 상단 응시료 안내 재배치 + 총무 시험 신청자 삭제 기능 추가 | `app/exam-apply.tsx`, `app/exam-apply2.tsx`, `app/exam-manage2.tsx`, `supabase/functions/admin-action/index.ts`, `web/src/app/dashboard/exam/applicants/page.tsx`, `web/src/app/api/admin/exam-applicants/route.ts`, `AGENTS.md` | [→ 상세](WORK_DETAIL.md#20260313-exam-fee-delete-admin) |

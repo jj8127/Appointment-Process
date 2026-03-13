@@ -82,15 +82,6 @@ function parseDesignerCompanyNameFromAffiliation(affiliation?: string | null): s
   return company.length > 0 ? company : null;
 }
 
-function fromBase64(input: string) {
-  const binary = atob(input);
-  const bytes = new Uint8Array(binary.length);
-  for (let i = 0; i < binary.length; i += 1) {
-    bytes[i] = binary.charCodeAt(i);
-  }
-  return bytes;
-}
-
 async function sha256Base64(value: string) {
   const bytes = encoder.encode(value);
   const hash = new Uint8Array(await crypto.subtle.digest('SHA-256', bytes));
@@ -110,7 +101,12 @@ async function hashPassword(password: string, saltBytes: Uint8Array) {
 async function syncRequestBoardPassword(
   phone: string,
   password: string,
-  options?: { role?: 'fc' | 'designer'; name?: string | null; companyName?: string | null },
+  options?: {
+    role?: 'fc' | 'designer';
+    name?: string | null;
+    companyName?: string | null;
+    affiliation?: string | null;
+  },
 ) {
   if (!requestBoardPasswordSyncUrl || !requestBoardPasswordSyncToken) return;
 
@@ -129,6 +125,7 @@ async function syncRequestBoardPassword(
         role: options?.role ?? 'fc',
         name: options?.name ?? undefined,
         companyName: options?.companyName ?? undefined,
+        affiliation: options?.role === 'fc' ? options?.affiliation ?? undefined : undefined,
       }),
       signal: controller.signal,
     });
@@ -261,6 +258,7 @@ serve(async (req: Request) => {
   await syncRequestBoardPassword(phone, newPassword, {
     role: designerCompanyName ? 'designer' : 'fc',
     name: profile.name ?? null,
+    ...(designerCompanyName ? {} : { affiliation: profile.affiliation ?? null }),
     ...(designerCompanyName ? { companyName: designerCompanyName } : {}),
   });
 

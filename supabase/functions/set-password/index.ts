@@ -109,7 +109,12 @@ async function hashPassword(password: string, saltBytes: Uint8Array) {
 async function syncRequestBoardPassword(
   phone: string,
   password: string,
-  options?: { role?: 'fc' | 'designer'; name?: string | null; companyName?: string | null },
+  options?: {
+    role?: 'fc' | 'designer';
+    name?: string | null;
+    companyName?: string | null;
+    affiliation?: string | null;
+  },
 ) {
   if (!requestBoardPasswordSyncUrl || !requestBoardPasswordSyncToken) return;
 
@@ -128,6 +133,7 @@ async function syncRequestBoardPassword(
         role: options?.role ?? 'fc',
         name: options?.name ?? undefined,
         companyName: options?.companyName ?? undefined,
+        affiliation: options?.role === 'fc' ? options?.affiliation ?? undefined : undefined,
       }),
       signal: controller.signal,
     });
@@ -391,6 +397,7 @@ serve(async (req: Request) => {
   await syncRequestBoardPassword(phone, password, {
     role: designerCompanyName ? 'designer' : 'fc',
     name: displayName,
+    ...(designerCompanyName ? {} : { affiliation: effectiveAffiliation ?? null }),
     ...(designerCompanyName ? { companyName: designerCompanyName } : {}),
   });
 

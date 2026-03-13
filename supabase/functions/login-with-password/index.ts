@@ -6,6 +6,7 @@ import {
   getEnv,
   parseDesignerCompanyNameFromAffiliation,
 } from '../_shared/request-board-auth.ts';
+import { resolveManagerAffiliation } from '../_shared/manager-affiliation.ts';
 
 type Payload = {
   phone: string;
@@ -91,7 +92,12 @@ async function hashPassword(password: string, saltBase64: string) {
 async function syncRequestBoardPassword(
   phone: string,
   password: string,
-  options?: { role?: 'fc' | 'designer' | 'admin' | 'manager'; name?: string | null; companyName?: string | null },
+  options?: {
+    role?: 'fc' | 'designer' | 'admin' | 'manager';
+    name?: string | null;
+    companyName?: string | null;
+    affiliation?: string | null;
+  },
 ) {
   if (!requestBoardPasswordSyncUrl || !requestBoardPasswordSyncToken) return;
 
@@ -110,6 +116,10 @@ async function syncRequestBoardPassword(
         role: options?.role ?? 'fc',
         name: options?.name ?? undefined,
         companyName: options?.companyName ?? undefined,
+        affiliation:
+          options?.role === 'fc' || options?.role === 'manager'
+            ? options?.affiliation ?? undefined
+            : undefined,
       }),
       signal: controller.signal,
     });
@@ -300,12 +310,18 @@ serve(async (req: Request) => {
       .update({ failed_count: 0, locked_until: null })
       .eq('id', manager.id);
 
+    const managerAffiliation = resolveManagerAffiliation(manager.name);
     await syncRequestBoardPassword(manager.phone, password, {
       role: 'manager',
       name: manager.name ?? '',
+      affiliation: managerAffiliation,
     });
 
-    const requestBoardBridgeToken = await createRequestBoardBridgeToken(manager.phone, 'manager');
+    const requestBoardBridgeToken = await createRequestBoardBridgeToken(
+      manager.phone,
+      'manager',
+      managerAffiliation,
+    );
     const appSessionToken = await createAppSessionToken(manager.phone, 'manager');
     return json({
       ok: true,
@@ -392,10 +408,15 @@ serve(async (req: Request) => {
   await syncRequestBoardPassword(profile.phone, password, {
     role: requestBoardRole,
     name: profile.name ?? '',
+    ...(requestBoardRole === 'fc' ? { affiliation: profile.affiliation ?? null } : {}),
     ...(designerCompanyName ? { companyName: designerCompanyName } : {}),
   });
 
-  const requestBoardBridgeToken = await createRequestBoardBridgeToken(profile.phone, requestBoardRole);
+  const requestBoardBridgeToken = await createRequestBoardBridgeToken(
+    profile.phone,
+    requestBoardRole,
+    requestBoardRole === 'fc' ? profile.affiliation ?? null : undefined,
+  );
   const appSessionToken = await createAppSessionToken(profile.phone, 'fc');
   return json({
     ok: true,

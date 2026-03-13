@@ -434,17 +434,40 @@ export default function RequestBoardScreen() {
     }
   };
 
+  const resolveRequestFilterFromCategory = (
+    category: string,
+  ): RequestListFilter | null => {
+    switch (category) {
+      case 'request_board_new_request':
+        return 'pending';
+      case 'request_board_accepted':
+      case 'request_board_fc-accepted':
+        return 'in_progress';
+      case 'request_board_completed':
+        return 'completed';
+      case 'request_board_rejected':
+      case 'request_board_fc-rejected':
+      case 'request_board_cancelled':
+        return 'all';
+      default:
+        return null;
+    }
+  };
+
   const handleNotifPress = (item: NotificationItem) => {
     const catKey = (item.category ?? '').trim().toLowerCase();
-    const isMessage = catKey === 'request_board_message';
-    Alert.alert(
-      item.title,
-      item.body,
-      [
-        { text: '닫기', style: 'cancel' },
-        ...(isMessage ? [{ text: '메신저 열기', onPress: openMessenger }] : []),
-      ],
-    );
+    if (catKey === 'request_board_message') {
+      openMessenger();
+      return;
+    }
+
+    const filter = resolveRequestFilterFromCategory(catKey);
+    if (filter) {
+      openRequests(filter);
+      return;
+    }
+
+    openNotifications();
   };
 
   /* ─── Render ─── */
@@ -615,6 +638,34 @@ export default function RequestBoardScreen() {
                   </>
                 )}
               </View>
+            </View>
+          </MotiView>
+        )}
+
+        {showStats && (
+          <MotiView
+            from={{ opacity: 0, translateY: 12 }}
+            animate={{ opacity: 1, translateY: 0 }}
+            transition={{ type: 'timing', duration: 400, delay: 100 }}
+          >
+            <View style={styles.section}>
+              <Pressable
+                style={({ pressed }) => [styles.codeManageCard, pressed && { opacity: 0.7 }]}
+                onPress={openMessenger}
+              >
+                <View style={[styles.codeManageIcon, { backgroundColor: '#FEF3C7' }]}>
+                  <Feather name="message-circle" size={20} color="#F59E0B" />
+                </View>
+                <View style={styles.codeManageText}>
+                  <Text style={styles.codeManageTitle}>실시간 메신저</Text>
+                  <Text style={styles.codeManageDesc}>
+                    {isRequestBoardDesigner
+                      ? 'FC와 실시간으로 메시지를 주고받을 수 있습니다'
+                      : '설계 매니저와 실시간으로 메시지를 주고받을 수 있습니다'}
+                  </Text>
+                </View>
+                <Feather name="chevron-right" size={18} color={COLORS.gray[400]} />
+              </Pressable>
             </View>
           </MotiView>
         )}
@@ -798,21 +849,6 @@ export default function RequestBoardScreen() {
                   </Text>
                 </View>
               </View>
-              <Pressable
-                style={({ pressed }) => [styles.infoCard, pressed && { backgroundColor: COLORS.gray[50] }]}
-                onPress={openMessenger}
-              >
-                <Feather name="message-circle" size={18} color="#F59E0B" />
-                <View style={styles.infoCardText}>
-                  <Text style={styles.infoCardTitle}>실시간 메신저</Text>
-                  <Text style={styles.infoCardDesc}>
-                    {isRequestBoardDesigner
-                      ? 'FC와 실시간으로 메시지를 주고받을 수 있습니다'
-                      : '설계 매니저와 실시간으로\n메시지를 주고받을 수 있습니다'}
-                  </Text>
-                </View>
-                <Feather name="chevron-right" size={16} color={COLORS.gray[400]} />
-              </Pressable>
               <View style={styles.infoCard}>
                 <Feather name="bell" size={18} color="#10B981" />
                 <View style={styles.infoCardText}>
