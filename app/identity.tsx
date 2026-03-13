@@ -13,27 +13,12 @@ import { Button } from '@/components/Button';
 import { KeyboardAwareWrapper } from '@/components/KeyboardAwareWrapper';
 import { useKeyboardPadding } from '@/hooks/use-keyboard-padding';
 import { useSession } from '@/hooks/use-session';
+import { logger } from '@/lib/logger';
+import { extractFunctionErrorMessage, mapStoreIdentityErrorMessage, toResidentInputAlertMessage } from '@/lib/store-identity-error';
 import { supabase } from '@/lib/supabase';
 import { COLORS, RADIUS, SHADOWS, SPACING, TYPOGRAPHY } from '@/lib/theme';
+import { toUserFacingAlertMessage } from '@/lib/user-facing-error';
 import { validateResidentId } from '@/lib/validation';
-
-const getFunctionErrorMessage = async (err: any) => {
-  if (!err) return '신원 정보 저장 중 문제가 발생했습니다.';
-  const context = err.context ?? {};
-  const response = context.response as Response | undefined;
-  if (response) {
-    try {
-      const text = await response.text();
-      if (text) return text;
-    } catch {
-      // ignore
-    }
-  }
-  const body = context.body;
-  if (typeof body === 'string' && body) return body;
-  if (body && typeof body === 'object' && 'message' in body) return String(body.message);
-  return err.message ?? '신원 정보 저장 중 문제가 발생했습니다.';
-};
 
 const schema = z.object({
   residentFront: z.string().regex(/^[0-9]{6}$/, '앞 6자리를 숫자로 입력해주세요.'),
@@ -106,6 +91,7 @@ export default function IdentityScreen() {
           type: 'manual',
           message: residentValidation.error ?? '주민등록번호 또는 외국인등록번호를 다시 확인해주세요.',
         });
+        Alert.alert('입력 확인', toResidentInputAlertMessage(residentValidation.error));
         return;
       }
       if (!address) {
@@ -126,11 +112,9 @@ export default function IdentityScreen() {
       };
       const { error } = await supabase.functions.invoke('store-identity', { body: payload });
       if (error) {
-        let message = await getFunctionErrorMessage(error);
-        if (message.includes('non-2xx')) {
-          message = '서버 설정 오류 가능성이 큽니다. Edge Function(store-identity) 환경변수를 확인해주세요.';
-        }
-        throw new Error(message);
+        const rawMessage = await extractFunctionErrorMessage(error, '신원 정보 저장 중 문제가 발생했습니다.');
+        logger.warn('[identity] store-identity failed', { rawMessage });
+        throw new Error(mapStoreIdentityErrorMessage(rawMessage));
       }
 
       // Invalidate identity status cache to trigger real-time update
@@ -149,9 +133,38 @@ export default function IdentityScreen() {
         router.replace('/');
       }
     } catch (err: any) {
-      Alert.alert('저장 실패', err?.message ?? '신원 정보 저장 중 문제가 발생했습니다.');
+      Alert.alert('저장 실패', toUserFacingAlertMessage(err, '신원 정보 저장 중 문제가 발생했습니다.'));
     } finally {
       setSubmitting(false);
+    }
+  };
+
+  const onInvalid = (errors: Partial<Record<keyof FormValues, { message?: string }>>) => {
+    const residentMessage = errors.residentBack?.message ?? errors.residentFront?.message;
+
+    if (residentMessage) {
+      Alert.alert('입력 확인', toResidentInputAlertMessage(residentMessage));
+      if (errors.residentFront?.message) {
+        residentFrontRef.current?.focus();
+      } else {
+        residentBackRef.current?.focus();
+      }
+      return;
+    }
+
+    if (errors.address?.message) {
+      Alert.alert('입력 확인', errors.address.message);
+      setShowAddressSearch(true);
+      return;
+    }
+
+    const addressMessage =
+      errors.addressDetail?.message ??
+      '입력 정보를 다시 확인해주세요.';
+
+    Alert.alert('입력 확인', addressMessage);
+    if (errors.addressDetail?.message) {
+      addressDetailRef.current?.focus();
     }
   };
 
@@ -250,6 +263,7 @@ export default function IdentityScreen() {
               <Text style={styles.label}>주소</Text>
               {formState.errors.address?.message ? <Text style={styles.error}>{formState.errors.address?.message}</Text> : null}
             </View>
+            <Text style={styles.helperText}>기본 주소는 주소 검색으로 입력해주세요.</Text>
             <Button
               onPress={() => setShowAddressSearch(true)}
               variant="outline"
@@ -259,27 +273,35 @@ export default function IdentityScreen() {
             >
               주소 검색
             </Button>
-            <Controller
-              control={control}
-              name="address"
-              render={({ field: { onChange, value } }) => (
-                <TextInput
-                  style={[styles.input, styles.inputMultiline, { height: addressHeight }]}
-                  placeholder="도로명 또는 지번 주소"
-                  placeholderTextColor={COLORS.text.muted}
-                  value={value}
-                  testID="identity-address"
-                  accessibilityLabel="주소"
-                  onChangeText={onChange}
-                  multiline
-                  scrollEnabled={false}
-                  onContentSizeChange={(e) => {
-                    const nextHeight = Math.max(90, e.nativeEvent.contentSize.height);
-                    if (nextHeight !== addressHeight) setAddressHeight(nextHeight);
-                  }}
+            <Pressable
+              onPress={() => setShowAddressSearch(true)}
+              accessibilityRole="button"
+              accessibilityLabel="주소 다시 검색"
+            >
+              <View pointerEvents="none">
+                <Controller
+                  control={control}
+                  name="address"
+                  render={({ field: { value } }) => (
+                    <TextInput
+                      style={[styles.input, styles.inputMultiline, styles.readOnlyInput, { height: addressHeight }]}
+                      placeholder="주소 검색 버튼을 눌러 입력해주세요."
+                      placeholderTextColor={COLORS.text.muted}
+                      value={value}
+                      testID="identity-address"
+                      accessibilityLabel="주소"
+                      editable={false}
+                      multiline
+                      scrollEnabled={false}
+                      onContentSizeChange={(e) => {
+                        const nextHeight = Math.max(90, e.nativeEvent.contentSize.height);
+                        if (nextHeight !== addressHeight) setAddressHeight(nextHeight);
+                      }}
+                    />
+                  )}
                 />
-              )}
-            />
+              </View>
+            </Pressable>
           </View>
 
           <View style={styles.field}>
@@ -309,7 +331,7 @@ export default function IdentityScreen() {
         </View>
 
         <Button
-          onPress={handleSubmit(onSubmit)}
+          onPress={handleSubmit(onSubmit, onInvalid)}
           disabled={submitting}
           loading={submitting}
           variant="primary"
@@ -340,8 +362,9 @@ export default function IdentityScreen() {
               const base = data.address || '';
               const extra = data.buildingName ? ` (${data.buildingName})` : '';
               const full = `${data.zonecode ? `[${data.zonecode}] ` : ''}${base}${extra}`;
-              setValue('address', full, { shouldValidate: true });
+              setValue('address', full, { shouldValidate: true, shouldDirty: true });
               setShowAddressSearch(false);
+              setTimeout(() => addressDetailRef.current?.focus(), 250);
             }}
             onError={() => {
               Alert.alert('주소 검색 실패', '주소 검색 중 오류가 발생했습니다. 다시 시도해주세요.');
@@ -402,6 +425,10 @@ const styles = StyleSheet.create({
     color: COLORS.error,
     fontSize: TYPOGRAPHY.fontSize.xs + 1
   },
+  helperText: {
+    color: COLORS.text.muted,
+    fontSize: TYPOGRAPHY.fontSize.xs + 1,
+  },
   input: {
     borderWidth: 1,
     borderColor: COLORS.border.light,
@@ -411,6 +438,9 @@ const styles = StyleSheet.create({
     backgroundColor: COLORS.white,
     fontSize: TYPOGRAPHY.fontSize.base,
     color: COLORS.text.primary,
+  },
+  readOnlyInput: {
+    color: COLORS.text.secondary,
   },
   residentRow: {
     flexDirection: 'row',

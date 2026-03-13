@@ -12,6 +12,7 @@ import Animated, {
 } from 'react-native-reanimated';
 
 import { ALERT_VARIANTS, ANIMATION, COLORS, RADIUS, SPACING, TYPOGRAPHY } from '@/lib/theme';
+import { inferAlertVariantFromTitle, inferUserFacingAlertFallback, toUserFacingAlertMessage } from '@/lib/user-facing-error';
 
 type ButtonStyle = 'default' | 'cancel' | 'destructive';
 type AlertVariant = 'info' | 'success' | 'warning' | 'error';
@@ -180,7 +181,15 @@ export function AppAlertProvider({ children }: { children: React.ReactNode }) {
 
   const showAlert = useCallback<AppAlertHandler>((title, message, buttons, options) => {
     const normalizedButtons = normalizeButtons(buttons);
-    setQueue((prev) => [...prev, { title, message, buttons: normalizedButtons, options }]);
+    const normalizedMessage =
+      typeof message === 'string'
+        ? toUserFacingAlertMessage(message, inferUserFacingAlertFallback(title))
+        : message;
+    const normalizedOptions: AppAlertOptions = {
+      ...options,
+      variant: options?.variant ?? inferAlertVariantFromTitle(title),
+    };
+    setQueue((prev) => [...prev, { title, message: normalizedMessage, buttons: normalizedButtons, options: normalizedOptions }]);
   }, []);
 
   const dismissAlert = useCallback(() => {

@@ -27,6 +27,7 @@ import { useKeyboardPadding } from '@/hooks/use-keyboard-padding';
 import { useSession } from '@/hooks/use-session';
 import { logger } from '@/lib/logger';
 import { safeStorage } from '@/lib/safe-storage';
+import { extractFunctionErrorMessage, mapStoreIdentityErrorMessage, toResidentInputAlertMessage } from '@/lib/store-identity-error';
 import { supabase } from '@/lib/supabase';
 import { COLORS, RADIUS, SHADOWS, SPACING, TYPOGRAPHY } from '@/lib/theme';
 import { formatPhone, normalizePhone, validateResidentId } from '@/lib/validation';
@@ -34,24 +35,6 @@ import { formatPhone, normalizePhone, validateResidentId } from '@/lib/validatio
 const CHARCOAL = '#111827';
 const TEXT_MUTED = '#6b7280';
 const PLACEHOLDER = '#9ca3af';
-
-const getFunctionErrorMessage = async (err: any) => {
-  if (!err) return '신원 정보 저장에 실패했습니다.';
-  const context = err.context ?? {};
-  const response = context.response as Response | undefined;
-  if (response) {
-    try {
-      const text = await response.text();
-      if (text) return text;
-    } catch {
-      // ignore
-    }
-  }
-  const body = context.body;
-  if (typeof body === 'string' && body) return body;
-  if (body && typeof body === 'object' && 'message' in body) return String(body.message);
-  return err.message ?? '신원 정보 저장에 실패했습니다.';
-};
 
 const schema = z.object({
   affiliation: z.string().min(1, '소속을 선택해주세요.'),
@@ -434,11 +417,9 @@ export default function FcNewScreen() {
         });
         if (identityErr) {
           setSubmitting(false);
-          let message = await getFunctionErrorMessage(identityErr);
-          if (message.includes('non-2xx')) {
-            message = '서버 설정 오류 가능성이 큽니다. Edge Function(store-identity) 환경변수를 확인해주세요.';
-          }
-          Alert.alert('저장 실패', message);
+          const rawMessage = await extractFunctionErrorMessage(identityErr, '신원 정보 저장에 실패했습니다.');
+          logger.warn('[fc/new] store-identity failed', { rawMessage });
+          Alert.alert('저장 실패', mapStoreIdentityErrorMessage(rawMessage));
           return;
         }
       } catch (err: any) {
@@ -475,6 +456,18 @@ export default function FcNewScreen() {
   const onError = (errors: any) => {
     const missing = Object.keys(errors);
     if (missing.length > 0) {
+      const residentMessage = errors.residentBack?.message ?? errors.residentFront?.message;
+      if (residentMessage) {
+        const firstResidentField = errors.residentFront?.message ? 'residentFront' : 'residentBack';
+        Alert.alert('입력 확인', toResidentInputAlertMessage(residentMessage));
+        if (firstResidentField === 'residentFront') {
+          residentFrontRef.current?.focus();
+        } else {
+          residentBackRef.current?.focus();
+        }
+        return;
+      }
+
       const LABELS: Record<string, string> = {
         affiliation: '소속',
         name: '이름',
@@ -509,6 +502,8 @@ export default function FcNewScreen() {
         recommenderRef.current?.focus();
       } else if (first === 'carrier') {
         setShowCarrierPicker(true);
+      } else if (first === 'address') {
+        setShowAddressSearch(true);
       } else if (first === 'addressDetail') {
         addressDetailRef.current?.focus();
       } else if (first === 'residentFront') {
@@ -807,28 +802,37 @@ export default function FcNewScreen() {
                 <Text style={styles.error}>{formState.errors.address?.message}</Text>
               ) : null}
             </View>
+            <Text style={styles.helperText}>기본 주소는 주소 검색으로 입력해주세요.</Text>
             <Pressable style={styles.searchButton} onPress={() => setShowAddressSearch(true)}>
               <Text style={styles.searchButtonText}>주소 검색</Text>
             </Pressable>
-            <Controller
-              control={control}
-              name="address"
-              render={({ field: { onChange, value } }) => (
-                <TextInput
-                  style={[styles.input, styles.inputMultiline, { height: Math.max(90, addressHeight) }]}
-                  placeholder="도로명 또는 지번 주소"
-                  placeholderTextColor={PLACEHOLDER}
-                  value={value}
-                  multiline
-                  scrollEnabled={false}
-                  onChangeText={onChange}
-                  onContentSizeChange={(e) => {
-                    const nextHeight = Math.max(90, e.nativeEvent.contentSize.height);
-                    if (nextHeight !== addressHeight) setAddressHeight(nextHeight);
-                  }}
+            <Pressable
+              onPress={() => setShowAddressSearch(true)}
+              accessibilityRole="button"
+              accessibilityLabel="주소 다시 검색"
+            >
+              <View pointerEvents="none">
+                <Controller
+                  control={control}
+                  name="address"
+                  render={({ field: { value } }) => (
+                    <TextInput
+                      style={[styles.input, styles.inputMultiline, styles.readOnlyInput, { height: Math.max(90, addressHeight) }]}
+                      placeholder="주소 검색 버튼을 눌러 입력해주세요."
+                      placeholderTextColor={PLACEHOLDER}
+                      value={value}
+                      editable={false}
+                      multiline
+                      scrollEnabled={false}
+                      onContentSizeChange={(e) => {
+                        const nextHeight = Math.max(90, e.nativeEvent.contentSize.height);
+                        if (nextHeight !== addressHeight) setAddressHeight(nextHeight);
+                      }}
+                    />
+                  )}
                 />
-              )}
-            />
+              </View>
+            </Pressable>
           </View>
           <FormField
             control={control}
@@ -922,8 +926,9 @@ export default function FcNewScreen() {
               const base = data.address || '';
               const extra = data.buildingName ? ` (${data.buildingName})` : '';
               const full = `${data.zonecode ? `[${data.zonecode}] ` : ''}${base}${extra}`;
-              setValue('address', full, { shouldValidate: true });
+              setValue('address', full, { shouldValidate: true, shouldDirty: true });
               setShowAddressSearch(false);
+              setTimeout(() => addressDetailRef.current?.focus(), 250);
             }}
             onError={() => {
               Alert.alert('주소 검색 실패', '주소 검색 중 오류가 발생했습니다. 다시 시도해주세요.');
@@ -1085,6 +1090,9 @@ const styles = StyleSheet.create({
   inputMultiline: {
     minHeight: 80,
     textAlignVertical: 'top',
+  },
+  readOnlyInput: {
+    color: COLORS.text.secondary,
   },
   inputWithIcon: {
     paddingRight: 44,

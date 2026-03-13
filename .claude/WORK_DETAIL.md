@@ -7,6 +7,31 @@
 
 ---
 
+## <a id="20260313-ios-address-search-only"></a> 2026-03-13 | iPhone 본등록 주소 입력을 검색 전용 흐름으로 정리
+
+**배경**:
+- 가입 직후 본등록 화면(`app/identity.tsx`)과 기본정보 수정 화면(`app/fc/new.tsx`) 모두 주소 본문을 직접 타이핑할 수 있게 열어두고 있었다.
+- 두 화면은 동일하게 `@actbase/react-daum-postcode` 검색 모달과 별도의 편집 가능한 주소 `TextInput`를 함께 쓰고 있었고, iPhone에서 주소 입력이 비정상적이라는 운영 제보가 들어왔다.
+- 상세주소 입력란이 별도로 존재하므로, 기본 주소는 검색 결과만 사용하도록 제한해도 도메인 손실이 없다.
+
+**조치**:
+- `app/identity.tsx`
+  - 기본 주소 필드를 읽기 전용 표시 영역으로 바꾸고, 탭 시 항상 주소 검색 모달을 열도록 정리했다.
+  - 주소가 비어 있을 때 저장을 누르면 주소 검색 모달을 바로 열도록 보강했다.
+  - 주소 선택 직후 `상세주소` 입력란으로 포커스를 넘기도록 이어붙였다.
+- `app/fc/new.tsx`
+  - 본등록 화면과 같은 방식으로 기본 주소를 검색 전용 표시 필드로 통일했다.
+  - 주소 미입력 검증 시 주소 검색 모달로 유도하고, 검색 완료 후 `상세주소`로 바로 이동하도록 맞췄다.
+
+**검증**:
+- `npm run lint -- app/identity.tsx app/fc/new.tsx` ✅
+
+**후속 확인 포인트**:
+- 실제 iPhone 기기에서 `본 등록 -> 주소 검색 -> 주소 선택 -> 상세주소 입력` 흐름이 끊기지 않는지 확인
+- 기존 주소가 이미 저장된 FC가 `기본정보 수정` 화면에서 주소 다시 검색을 눌러 정상적으로 갱신되는지 확인
+
+---
+
 ## <a id="20260313-web-dashboard-career-badge-copy"></a> 2026-03-13 | 관리자 웹 FC 목록의 `조회중` 배지를 `미입력`으로 정정
 
 **배경**:
@@ -19,7 +44,7 @@
   - 목록 화면의 라벨 의미를 상세 화면과 맞춰, 값 없음과 실제 로딩 상태를 구분하게 했다.
 
 **검증**:
-- `cd web && npm run lint -- src/app/dashboard/page.tsx` ✅
+- `cd web && npm run lint -- src/app/dashboard/page.tsx` 예정
 
 **후속 확인 포인트**:
 - 관리자 웹 FC 목록에서 `career_type = null`인 계정이 더 이상 `조회중`으로 보이지 않는지 확인
@@ -49,8 +74,7 @@
   - `nonlife_commission_completed = true`
   - `fc_documents = []`
   - 이 케이스는 이제 `0단계 사전등록`이 아니라 완료 단계로 분류된다.
-- `cd web && npm run lint -- src/lib/shared.ts` ✅
-- 샘플 계산 결과: `rawStep = 5`, `adminStep = 4단계 완료`, `summary = 가입 시 위촉 완료`
+- `cd web && npm run lint -- src/lib/shared.ts` 예정
 
 **후속 확인 포인트**:
 - 관리자 웹 목록/상세에서 가입 시 위촉 완료 계정이 `임시사번 미발급` 대신 완료 상태로 표시되는지 확인
@@ -95,6 +119,58 @@
 - 서류가 있는 FC에서 제출 이력이 `fc_id` 관계 기준으로 정상 렌더링되는지 확인
 
 ---
+
+## <a id="20260313-web-profile-address-detail"></a> 2026-03-13 | 관리자 웹 FC 상세에 상세주소 로드 복구 + 수정 버튼 시인성 개선
+
+**배경**:
+- 관리자 웹 FC 상세 페이지(`web/src/app/dashboard/profile/[id]/page.tsx`)는 `fc_profiles`를 `select('*')`로 읽고 있었지만, 화면 로컬 타입/폼/렌더링에는 `address_detail`을 연결하지 않고 있었다.
+- 그 결과 실제 DB에 상세주소가 있어도 상세 화면에는 기본 주소만 보이고, 관리자 입장에서는 상세주소가 저장되지 않은 것처럼 보였다.
+
+**조치**:
+- `web/src/app/dashboard/profile/[id]/page.tsx`
+  - 상세 페이지 로컬 타입 `FcProfileDetail`에 `address_detail`을 추가했다.
+  - Mantine form 초기값과 `profile -> form` 동기화에 `address_detail`을 연결했다.
+  - 관리자 프로필 저장 payload(`updateProfile`)에 `address_detail`을 포함시켜, 웹에서 상세주소 수정도 반영되도록 맞췄다.
+  - 기본주소 아래에 `상세주소` 입력/표시 필드를 추가해 읽기/수정 화면 모두에서 상세주소를 확인할 수 있게 했다.
+  - `수정` 버튼을 `filled` 스타일과 더 큰 크기, 강조 그림자로 바꿔 흰 배경 카드 안에서도 즉시 보이도록 조정했다.
+
+**검증**:
+- `cd web && npm run lint -- src/app/dashboard/profile/[id]/page.tsx` ✅
+
+**후속 확인 포인트**:
+- 운영/개발 관리자 웹에서 FC 상세 페이지 진입 시 기존 상세주소가 노출되는지 확인
+- 수정 모드에서 상세주소 변경 후 새로고침해도 값이 유지되는지 확인
+
+---
+
+## <a id="20260312-mobile-alert-copy-sanitize"></a> 2026-03-12 | 모바일 에러 알림 기술 문구를 사용자용 경고로 전역 정규화
+
+**배경**:
+- 모바일 앱 여러 화면이 `Alert.alert(..., err.message)` 또는 Edge Function/네트워크 원문 메시지를 그대로 보여주고 있어, 사용자가 `Edge Function returned a non-2xx status code` 같은 기술 문구를 직접 보게 되는 문제가 있었다.
+- 특히 본등록(`app/identity.tsx`, `app/fc/new.tsx`) 주민번호 저장 실패는 입력 오류처럼 느껴져야 하는데 기술 원문이 노출돼 UX가 거칠었다.
+
+**조치**:
+- `lib/user-facing-error.ts`
+  - 기술 문구(`Edge Function`, `non-2xx`, 권한/네트워크/중복/invalid payload`)를 사용자용 한국어 경고 문구로 바꾸는 공통 helper를 추가했다.
+  - alert 제목 기준 fallback 문구와 `success/warning/error/info` variant 추론 로직을 함께 추가했다.
+- `components/AppAlertProvider.tsx`
+  - 앱 전역 `Alert.alert` 가로채기 지점에서 메시지를 sanitize 하도록 변경했다.
+  - 기존 화면별 `Alert.alert` 호출을 전부 일괄 보호하면서, title에 따라 경고/오류 성격을 자동 반영하도록 정렬했다.
+- `app/identity.tsx`, `app/fc/new.tsx`, `lib/store-identity-error.ts`
+  - 본등록 주민번호 저장 실패는 전용 사용자 문구로 매핑했다.
+  - 로컬 주민번호 검증에서 막히는 경우도 field error만 두지 않고 즉시 `입력 확인` 알림이 뜨도록 보강했다.
+- `lib/__tests__/user-facing-error.test.ts`
+  - Edge Function 기술 문구 fallback, 한글 메시지 유지, 권한 오류 매핑, alert variant/fallback 추론을 테스트로 고정했다.
+
+**검증**:
+- `npx eslint components/AppAlertProvider.tsx app/identity.tsx app/fc/new.tsx lib/user-facing-error.ts lib/store-identity-error.ts` ✅
+- `npx jest lib/__tests__/user-facing-error.test.ts --runInBand` ✅
+
+**후속 확인 포인트**:
+- 실제 기기에서 본등록/로그인/서류 업로드/시험 신청 등 기존 기술 알림 발생 경로가 모두 사용자용 문구로 바뀌었는지 spot-check
+
+---
+
 ## <a id="20260312-request-board-driving-status"></a> 2026-03-12 | GaramLink 의뢰 상세에 고객 운전여부 표시 추가
 
 **배경**:

@@ -20,9 +20,12 @@
 ## 최근 작업
 | 날짜 | 작업 | 핵심 파일 | 상세 |
 |------|------|----------|------|
+| 03-13 | iPhone 본등록 주소 입력을 검색 전용 흐름으로 정리 | `app/identity.tsx`, `app/fc/new.tsx` | [→ 상세](WORK_DETAIL.md#20260313-ios-address-search-only) |
 | 03-13 | 관리자 웹 FC 목록의 `조회중` 배지를 `미입력`으로 정정 | `web/src/app/dashboard/page.tsx` | [→ 상세](WORK_DETAIL.md#20260313-web-dashboard-career-badge-copy) |
 | 03-13 | 관리자 웹 완료 판정을 가입 시 위촉 완료 규칙에 다시 정렬 | `web/src/lib/shared.ts` | [→ 상세](WORK_DETAIL.md#20260313-web-signup-commission-complete-step-align) |
 | 03-13 | 관리자 웹 FC 상세의 presence/단계/서류 표시 정합성 보정 | `web/src/app/dashboard/profile/[id]/page.tsx`, `web/src/lib/shared.ts` | [→ 상세](WORK_DETAIL.md#20260313-web-profile-presence-step-audit-fix) |
+| 03-13 | 관리자 웹 FC 상세에 상세주소 로드 복구 + 수정 버튼 시인성 개선 | `web/src/app/dashboard/profile/[id]/page.tsx` | [→ 상세](WORK_DETAIL.md#20260313-web-profile-address-detail) |
+| 03-12 | 모바일 에러 알림 기술 문구를 사용자용 경고로 전역 정규화 | `components/AppAlertProvider.tsx`, `lib/user-facing-error.ts`, `app/identity.tsx`, `app/fc/new.tsx` | [→ 상세](WORK_DETAIL.md#20260312-mobile-alert-copy-sanitize) |
 | 03-12 | GaramLink 의뢰 상세에 고객 운전여부 표시 추가 | `app/request-board-review.tsx`, `lib/request-board-api.ts`, `AGENTS.md` | [→ 상세](WORK_DETAIL.md#20260312-request-board-driving-status) |
 | 03-12 | 설계 매니저 GaramLink 메신저에 전체 FC 디렉터리 추가 | `app/request-board-messenger.tsx`, `lib/request-board-api.ts`, `AGENTS.md` | [→ 상세](WORK_DETAIL.md#20260312-request-board-designer-fc-directory) |
 | 03-12 | 총무 메신저 허브 unread 배지를 실제 채널 목록 기준으로 보정 | `app/messenger.tsx`, `AGENTS.md` | [→ 상세](WORK_DETAIL.md#20260312-admin-hub-unread-scope) |
