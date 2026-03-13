@@ -7,6 +7,46 @@
 
 ---
 
+## <a id="20260313-exam-fee-delete-admin"></a> 2026-03-13 | 시험 신청 상단 응시료 안내 재배치 + 총무 시험 신청자 삭제 기능 추가
+
+**배경**:
+- FC 시험 신청 화면 2종(`app/exam-apply.tsx`, `app/exam-apply2.tsx`) 모두 `응시료 납입 일자`가 과목 선택 아래에 있어, 가장 먼저 확인해야 할 입금 정보가 스크롤 하단에 밀려 있었다.
+- 안내 문구도 `접수비 반환` 기준으로 남아 있어 실제 운영 규칙인 `미입금 시 접수 불가`를 직접적으로 전달하지 못했다.
+- 총무는 모바일 `생명보험 신청자`/`손해보험 신청자`와 웹 `신청자 관리`에서 잘못 들어온 시험 신청을 직접 정리할 수 있어야 했지만, 기존에는 승인 토글만 있고 삭제 수단이 없었다.
+
+**조치**:
+- `app/exam-apply.tsx`
+  - `응시료 납입 일자` 입력을 화면 최상단 섹션으로 이동했다.
+  - 안내 문구를 `응시료 미입금 시, 시험 접수 불가능합니다.`로 교체했다.
+  - 생명보험 시험 전용 계좌 `신한 110-505-328638 김태훈` 안내 카드를 추가했다.
+- `app/exam-apply2.tsx`
+  - 손해보험 시험 신청 화면에도 같은 상단 배치를 적용했다.
+  - 손해보험 시험 전용 계좌 `신한 110-444-751201 김태훈` 안내 카드를 추가했다.
+- `supabase/functions/admin-action/index.ts`
+  - 총무 전용 `deleteExamRegistration` 액션을 추가해 모바일 앱이 Edge Function 경유로 신청자를 삭제할 수 있게 했다.
+- `app/exam-manage2.tsx`
+  - 손해보험 신청자 카드에 `삭제` 버튼과 확인 alert를 추가했다.
+  - 삭제 중에는 승인 토글/삭제 버튼을 함께 잠가 중복 액션을 막는다.
+- `web/src/app/api/admin/exam-applicants/route.ts`
+  - 웹 총무 세션 쿠키를 검증하고 `exam_registrations`를 삭제하는 서버 API를 추가했다.
+- `web/src/app/dashboard/exam/applicants/page.tsx`
+  - 신청자 관리 표에 `관리` 열과 삭제 아이콘을 추가했다.
+  - 삭제 성공 시 캐시에서 즉시 제거하고, manager read-only 세션은 기존대로 삭제가 비활성화된다.
+
+**검증**:
+- `npx eslint app/exam-apply.tsx app/exam-apply2.tsx app/exam-manage.tsx app/exam-manage2.tsx lib/exam-admin-api.ts` ✅
+- `npx tsc --noEmit` ✅
+- `cd web && npx eslint src/app/dashboard/exam/applicants/page.tsx src/app/api/admin/exam-applicants/route.ts` ✅
+- `cd web && npx tsc --noEmit` ✅
+- 참고: `npx eslint supabase/functions/admin-action/index.ts --rule "import/no-unresolved: off"` 기준으로 신규 변경 에러는 없고, 기존 미사용 `toBase64` 경고 1건만 남는다.
+
+**후속 확인 포인트**:
+- 실제 FC 화면에서 응시료 납입일/계좌 블록이 최상단에 먼저 보이고, 미입금 안내 문구가 운영 문구와 일치하는지 확인
+- 실제 총무 계정으로 모바일 생명/손해 신청자 화면과 웹 신청자 관리 화면에서 삭제가 정상 동작하는지 확인
+- 변경된 모바일 삭제 동작을 운영 반영하려면 `supabase functions deploy admin-action` 배포가 필요
+
+---
+
 ## <a id="20260313-request-board-driving-status-codes"></a> 2026-03-13 | GaramLink 의뢰 상세의 고객 `운전구분` 표시를 11종 코드까지 지원하도록 확장
 
 **배경**:
@@ -29,6 +69,21 @@
 **후속 확인 포인트**:
 - 신규 의뢰 상세에서 `승용차(자가용)` 등 상세 운전구분이 그대로 표시되는지 확인
 - 과거 legacy 의뢰는 기존처럼 `예/아니요`로 유지되는지 확인
+
+---
+
+## <a id="20260313-request-board-driving-status-none"></a> 2026-03-13 | GaramLink 운전구분 `안함` 표시 지원
+
+**배경**:
+- request_board 고객 등록의 운전구분 선택지에 `안함`이 추가됐다.
+- 모바일 `request-board-review` 포맷터가 이 코드를 모르면 `미입력`으로 잘못 렌더링된다.
+
+**조치**:
+- `lib/request-board-driving-status.ts`
+  - `none -> 안함` 매핑을 추가했다.
+
+**검증**:
+- `npm run lint -- app/request-board-review.tsx lib/request-board-driving-status.ts` ✅
 
 ---
 

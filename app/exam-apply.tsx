@@ -53,6 +53,7 @@ const formatExamInfo = (dateStr?: string | null, label?: string | null) => {
 const toYmd = (d: Date) =>
   `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 const ROUND_DEADLINE_RETENTION_DAYS = 7;
+const LIFE_EXAM_FEE_ACCOUNT = '신한 110-505-328638 김태훈';
 const CARD_SHADOW = {
   shadowColor: '#000',
   shadowOpacity: 0.05,
@@ -501,6 +502,42 @@ export default function ExamApplyScreen() {
           />
         </View>
 
+        <View style={styles.section}>
+          <Text style={styles.sectionHeader}>📅 응시료 납입 일자</Text>
+          <Text style={styles.inputHint}>응시료 미입금 시, 시험 접수 불가능합니다.</Text>
+          <View style={styles.accountCard}>
+            <Text style={styles.accountLabel}>응시료 납입 계좌</Text>
+            <Text style={styles.accountValue}>{LIFE_EXAM_FEE_ACCOUNT}</Text>
+          </View>
+          <Pressable
+            style={styles.dateInput}
+            onPress={() => {
+              setTempFeePaidDate(feePaidDate ?? new Date());
+              setShowFeePaidPicker(true);
+            }}
+          >
+            <Text style={[styles.dateInputText, !feePaidDate && styles.dateInputPlaceholder]}>
+              {feePaidDate ? formatKoreanDate(feePaidDate) : '날짜를 선택해주세요'}
+            </Text>
+            <Feather name="calendar" size={18} color={MUTED} />
+          </Pressable>
+          {showFeePaidPicker && Platform.OS !== 'ios' && (
+            <DateTimePicker
+              value={feePaidDate ?? new Date()}
+              mode="date"
+              display="default"
+              locale="ko-KR"
+              onChange={(event: DateTimePickerEvent, selectedDate?: Date) => {
+                setShowFeePaidPicker(false);
+                if (event.type === 'dismissed') {
+                  return;
+                }
+                if (selectedDate) setFeePaidDate(selectedDate);
+              }}
+            />
+          )}
+        </View>
+
           {/* Status Card - 내 신청 내역 (드롭다운 방식) */}
           <MotiView
             from={{ opacity: 0, translateY: -10 }}
@@ -803,38 +840,6 @@ export default function ExamApplyScreen() {
               </Pressable>
             </View>
 
-            <View style={styles.inputGroup}>
-              <Text style={styles.sectionHeader}>📅 응시료 납입 일자</Text>
-              <Text style={styles.inputHint}>접수비 반환을 위해 입금 날짜를 반드시 입력해주세요.</Text>
-              <Pressable
-                style={styles.dateInput}
-                onPress={() => {
-                  setTempFeePaidDate(feePaidDate ?? new Date());
-                  setShowFeePaidPicker(true);
-                }}
-              >
-                <Text style={[styles.dateInputText, !feePaidDate && styles.dateInputPlaceholder]}>
-                  {feePaidDate ? formatKoreanDate(feePaidDate) : '날짜를 선택해주세요'}
-                </Text>
-                <Feather name="calendar" size={18} color={MUTED} />
-              </Pressable>
-              {showFeePaidPicker && Platform.OS !== 'ios' && (
-                <DateTimePicker
-                  value={feePaidDate ?? new Date()}
-                  mode="date"
-                  display="default"
-                  locale="ko-KR"
-                  onChange={(event: DateTimePickerEvent, selectedDate?: Date) => {
-                    setShowFeePaidPicker(false);
-                    if (event.type === 'dismissed') {
-                      return;
-                    }
-                    if (selectedDate) setFeePaidDate(selectedDate);
-                  }}
-                />
-              )}
-            </View>
-
             <View style={styles.actionButtons}>
               <Pressable
                 onPress={() => {
@@ -1074,7 +1079,17 @@ const styles = StyleSheet.create({
   toggleCardActive: { borderColor: HANWHA_ORANGE, backgroundColor: ORANGE_FAINT },
   toggleTitle: { fontSize: 17, fontWeight: '700', color: CHARCOAL }, // 15 -> 17
   toggleDesc: { fontSize: 14, color: MUTED, marginTop: 4 }, // 12 -> 14
-  inputGroup: { marginTop: 18, marginBottom: 6 },
+  accountCard: {
+    backgroundColor: '#fff7ed',
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: '#fdba74',
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    marginBottom: 12,
+  },
+  accountLabel: { fontSize: 12, fontWeight: '700', color: '#9a3412', marginBottom: 4 },
+  accountValue: { fontSize: 16, fontWeight: '800', color: CHARCOAL },
   dateInput: {
     backgroundColor: '#fff',
     borderRadius: 12,

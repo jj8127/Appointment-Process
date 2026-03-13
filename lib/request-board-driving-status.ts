@@ -1,4 +1,5 @@
 const DRIVING_STATUS_LABEL_MAP = new Map<string, string>([
+  ['none', '안함'],
   ['yes', '예'],
   ['no', '아니요'],
   ['passenger_business', '승용차(영업용)'],

@@ -23,7 +23,7 @@ import {
     UnstyledButton
 } from '@mantine/core';
 import { notifications } from '@mantine/notifications';
-import { IconChevronDown, IconDownload, IconRefresh, IconSearch, IconX } from '@tabler/icons-react';
+import { IconChevronDown, IconDownload, IconRefresh, IconSearch, IconTrash, IconX } from '@tabler/icons-react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import dayjs from 'dayjs';
 import { useMemo, useState } from 'react';
@@ -81,7 +81,8 @@ type ColumnField =
     | 'phone'
     | 'location_name'
     | 'fee_paid_date'
-    | 'is_confirmed';
+    | 'is_confirmed'
+    | 'actions';
 
 const ExcelColumnFilter = ({ title, options, selected, onApply }: ExcelColumnFilterProps) => {
     const [opened, setOpened] = useState(false);
@@ -260,6 +261,7 @@ export default function ExamApplicantsPage() {
             location_name: 70,
             fee_paid_date: 120,
             is_confirmed: 130,
+            actions: 90,
         }),
         []
     );
@@ -383,7 +385,7 @@ export default function ExamApplicantsPage() {
 
     const filterOptions = useMemo(() => {
         if (!applicants) return {};
-        const fields: ColumnField[] = ['round_info', 'name', 'phone', 'affiliation', 'address', 'location_name', 'fee_paid_date', 'is_confirmed', 'subject_display'];
+        const fields: RowField[] = ['round_info', 'name', 'phone', 'affiliation', 'address', 'location_name', 'fee_paid_date', 'is_confirmed', 'subject_display'];
         const options: Record<string, string[]> = {};
 
         fields.forEach(field => {
@@ -456,6 +458,50 @@ export default function ExamApplicantsPage() {
         },
     });
 
+    const deleteApplicantMutation = useMutation({
+        mutationFn: async (item: Applicant) => {
+            const response = await fetch('/api/admin/exam-applicants', {
+                method: 'DELETE',
+                headers: { 'Content-Type': 'application/json' },
+                credentials: 'include',
+                body: JSON.stringify({ registrationId: item.id }),
+            });
+
+            const json: unknown = await response.json().catch(() => null);
+            const isOk = response.ok && isRecord(json) && json.ok === true;
+            if (!isOk) {
+                const message =
+                    isRecord(json) && typeof json.error === 'string'
+                        ? json.error
+                        : '시험 신청 삭제에 실패했습니다.';
+                throw new Error(message);
+            }
+
+            return {
+                item,
+                deleted: !isRecord(json) || typeof json.deleted !== 'boolean' ? true : json.deleted,
+            };
+        },
+        onSuccess: ({ item, deleted }) => {
+            queryClient.setQueryData(['exam-applicants-all-recent', role], (old: unknown) => {
+                if (!Array.isArray(old)) return old;
+                return (old as Applicant[]).filter((row) => row.id !== item.id);
+            });
+            notifications.show({
+                title: deleted ? '삭제 완료' : '이미 삭제됨',
+                message: deleted
+                    ? `${item.name} 신청 내역을 삭제했습니다.`
+                    : '이미 삭제된 신청 내역입니다.',
+                color: deleted ? 'green' : 'blue',
+                icon: <IconTrash size={16} />,
+            });
+        },
+        onError: (err: unknown) => {
+            const msg = err instanceof Error ? err.message : '처리 중 오류가 발생했습니다.';
+            notifications.show({ title: '삭제 실패', message: msg, color: 'red' });
+        },
+    });
+
     // --- CSV Download ---
     const handleDownloadCsv = () => {
         if (filteredRows.length === 0) {
@@ -493,17 +539,27 @@ export default function ExamApplicantsPage() {
         URL.revokeObjectURL(url);
     };
 
-    const renderHeader = (title: string, field: ColumnField, minWidth?: number) => (
-        <Table.Th style={minWidth ? { minWidth } : undefined}>
-            <ExcelColumnFilter
-                title={title}
-                field={field}
-                options={filterOptions[field] || []}
-                selected={filters[field] || []}
-                onApply={(val) => setFilters(prev => ({ ...prev, [field]: val }))}
-            />
-        </Table.Th>
-    );
+    const renderHeader = (title: string, field: ColumnField, minWidth?: number) => {
+        if (field === 'actions') {
+            return (
+            <Table.Th style={minWidth ? { minWidth } : undefined}>
+                <Text fw={700} size="sm" c="dimmed">{title}</Text>
+            </Table.Th>
+            );
+        }
+
+        return (
+            <Table.Th style={minWidth ? { minWidth } : undefined}>
+                <ExcelColumnFilter
+                    title={title}
+                    field={field}
+                    options={filterOptions[field] || []}
+                    selected={filters[field] || []}
+                    onApply={(val) => setFilters(prev => ({ ...prev, [field]: val }))}
+                />
+            </Table.Th>
+        );
+    };
 
     return (
         <Container size="xl" py="xl">
@@ -558,7 +614,7 @@ export default function ExamApplicantsPage() {
                             striped
                             withColumnBorders
                             stickyHeader
-                            style={{ minWidth: 1950 }}
+                            style={{ minWidth: 2040 }}
                         >
                             <Table.Thead bg="gray.0">
                                 <Table.Tr>
@@ -572,11 +628,12 @@ export default function ExamApplicantsPage() {
                                     {renderHeader('고사장', 'location_name', colMinWidth.location_name)}
                                     {renderHeader('응시료 납입일', 'fee_paid_date', colMinWidth.fee_paid_date)}
                                     {renderHeader('상태', 'is_confirmed', colMinWidth.is_confirmed)}
+                                    {renderHeader('관리', 'actions', colMinWidth.actions)}
                                 </Table.Tr>
                             </Table.Thead>
                             <Table.Tbody>
                                 {isLoading ? (
-                                    <Table.Tr><Table.Td colSpan={10} align="center" py={80}><Loader color="orange" type="dots" /></Table.Td></Table.Tr>
+                                    <Table.Tr><Table.Td colSpan={11} align="center" py={80}><Loader color="orange" type="dots" /></Table.Td></Table.Tr>
                                 ) : filteredRows.length > 0 ? (
                                     filteredRows.map((item) => (
                                         <Table.Tr key={item.id}>
@@ -635,10 +692,37 @@ export default function ExamApplicantsPage() {
                                                     }
                                                 />
                                             </Table.Td>
+                                            <Table.Td>
+                                                <Tooltip label={isReadOnly ? '본부장은 삭제할 수 없습니다.' : '신청자 삭제'}>
+                                                    <ActionIcon
+                                                        variant="light"
+                                                        color="red"
+                                                        size="lg"
+                                                        disabled={
+                                                            isReadOnly ||
+                                                            (deleteApplicantMutation.isPending &&
+                                                                deleteApplicantMutation.variables?.id === item.id)
+                                                        }
+                                                        loading={
+                                                            deleteApplicantMutation.isPending &&
+                                                            deleteApplicantMutation.variables?.id === item.id
+                                                        }
+                                                        onClick={() => {
+                                                            if (isReadOnly) return;
+                                                            if (!window.confirm(`${item.name} 신청 내역을 삭제하시겠습니까?`)) {
+                                                                return;
+                                                            }
+                                                            deleteApplicantMutation.mutate(item);
+                                                        }}
+                                                    >
+                                                        <IconTrash size={16} />
+                                                    </ActionIcon>
+                                                </Tooltip>
+                                            </Table.Td>
                                         </Table.Tr>
                                     ))
                                 ) : (
-                                    <Table.Tr><Table.Td colSpan={10} align="center" py={80} c="dimmed">
+                                    <Table.Tr><Table.Td colSpan={11} align="center" py={80} c="dimmed">
                                         <Stack align="center" gap="xs">
                                             <IconSearch size={40} color="#dee2e6" />
                                             <Text>데이터가 없습니다.</Text>

@@ -17,6 +17,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { RefreshButton } from '@/components/RefreshButton';
 import { useSession } from '@/hooks/use-session';
+import { deleteExamRegistrationAsAdmin } from '@/lib/exam-admin-api';
 import { notifyExamApprovalStatus } from '@/lib/exam-approval-notify';
 import { logger } from '@/lib/logger';
 import { supabase } from '@/lib/supabase';
@@ -292,13 +293,55 @@ export default function ExamManageNonlifeScreen() {
     },
   });
 
+  const deleteMutation = useMutation({
+    mutationFn: async (applicant: ApplicantRow) => {
+      assertCanEdit();
+      await deleteExamRegistrationAsAdmin({
+        adminPhone: residentId ?? '',
+        registrationId: applicant.registrationId,
+      });
+      return applicant;
+    },
+    onSuccess: (applicant) => {
+      queryClient.invalidateQueries({ queryKey: ['exam-applicants', EXAM_TYPE] });
+      Alert.alert('삭제 완료', `${applicant.name} 신청 내역을 삭제했습니다.`);
+    },
+    onSettled: (_data, error) => {
+      if (error) {
+        const message = error instanceof Error ? error.message : '오류가 발생했습니다.';
+        Alert.alert('삭제 실패', message);
+      }
+    },
+  });
+
   const handleToggle = (applicant: ApplicantRow) => {
     toggleMutation.mutate({ applicant, value: !applicant.isConfirmed });
+  };
+
+  const handleDelete = (applicant: ApplicantRow) => {
+    if (!canEdit || deleteMutation.isPending) {
+      return;
+    }
+
+    Alert.alert(
+      '시험 신청 삭제',
+      `${applicant.name}님의 신청 내역을 삭제하시겠습니까?\n삭제 후에는 되돌릴 수 없습니다.`,
+      [
+        { text: '취소', style: 'cancel' },
+        {
+          text: '삭제',
+          style: 'destructive',
+          onPress: () => deleteMutation.mutate(applicant),
+        },
+      ],
+    );
   };
 
   const renderCard = (a: ApplicantRow) => {
     const statusText = a.isConfirmed ? '접수 완료' : '미접수';
     const statusColor = a.isConfirmed ? BADGE_CONFIRMED_TEXT : BADGE_PENDING_TEXT;
+    const isDeleting =
+      deleteMutation.isPending && deleteMutation.variables?.registrationId === a.registrationId;
     return (
       <View key={a.registrationId} style={styles.card}>
         <View style={styles.cardHeader}>
@@ -308,20 +351,33 @@ export default function ExamManageNonlifeScreen() {
             </Text>
             <Text style={styles.phoneText}>{a.phone}</Text>
           </View>
-          <Pressable
-            onPress={() => handleToggle(a)}
-            disabled={!canEdit || toggleMutation.isPending}
-            style={[
-              styles.statusBadge,
-              a.isConfirmed ? styles.badgeConfirmed : styles.badgePending,
-              (!canEdit || toggleMutation.isPending) && { opacity: 0.6 },
-            ]}
-          >
-            <Text style={[styles.statusBadgeText, a.isConfirmed ? styles.textConfirmed : styles.textPending]}>
-              {statusText}
-            </Text>
-            <Feather name={a.isConfirmed ? 'check' : 'x'} size={14} color={statusColor} />
-          </Pressable>
+          <View style={styles.cardActions}>
+            <Pressable
+              onPress={() => handleToggle(a)}
+              disabled={!canEdit || toggleMutation.isPending || isDeleting}
+              style={[
+                styles.statusBadge,
+                a.isConfirmed ? styles.badgeConfirmed : styles.badgePending,
+                (!canEdit || toggleMutation.isPending || isDeleting) && { opacity: 0.6 },
+              ]}
+            >
+              <Text style={[styles.statusBadgeText, a.isConfirmed ? styles.textConfirmed : styles.textPending]}>
+                {statusText}
+              </Text>
+              <Feather name={a.isConfirmed ? 'check' : 'x'} size={14} color={statusColor} />
+            </Pressable>
+            <Pressable
+              onPress={() => handleDelete(a)}
+              disabled={!canEdit || isDeleting || toggleMutation.isPending}
+              style={[
+                styles.deleteButton,
+                (!canEdit || isDeleting || toggleMutation.isPending) && { opacity: 0.6 },
+              ]}
+            >
+              <Feather name="trash-2" size={14} color="#dc2626" />
+              <Text style={styles.deleteButtonText}>{isDeleting ? '삭제 중' : '삭제'}</Text>
+            </Pressable>
+          </View>
         </View>
 
         <View style={styles.divider} />
@@ -458,6 +514,7 @@ const styles = StyleSheet.create({
     elevation: 2,
   },
   cardHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 10 },
+  cardActions: { alignItems: 'flex-end', gap: 8 },
   nameText: { fontSize: 18, fontWeight: '700', color: CHARCOAL },
   hqText: { fontSize: 14, color: MUTED, fontWeight: '400' },
   phoneText: { fontSize: 13, color: MUTED, marginTop: 2 },
@@ -476,6 +533,18 @@ const styles = StyleSheet.create({
   statusBadgeText: { fontSize: 12, fontWeight: '700' },
   textConfirmed: { color: BADGE_CONFIRMED_TEXT },
   textPending: { color: BADGE_PENDING_TEXT },
+  deleteButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: '#fecaca',
+    backgroundColor: '#fef2f2',
+  },
+  deleteButtonText: { fontSize: 12, fontWeight: '700', color: '#dc2626' },
 
   divider: { height: 1, backgroundColor: '#F3F4F6', marginBottom: 10 },
 

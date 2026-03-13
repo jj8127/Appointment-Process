@@ -496,6 +496,21 @@ serve(async (req: Request) => {
       return json({ ok: true });
     }
 
+    // ── deleteExamRegistration ──
+    if (action === 'deleteExamRegistration') {
+      const { registrationId } = payload as { registrationId?: string };
+      const normalizedRegistrationId = String(registrationId ?? '').trim();
+      if (!normalizedRegistrationId) return fail('registrationId is required');
+
+      const { error, count } = await supabase
+        .from('exam_registrations')
+        .delete({ count: 'exact' })
+        .eq('id', normalizedRegistrationId);
+      if (error) throw error;
+
+      return json({ ok: true, deleted: Boolean(count && count > 0) });
+    }
+
     // ── deleteFc ──
     if (action === 'deleteFc') {
       const { fcId, phone } = payload as { fcId: string; phone?: string | null };
