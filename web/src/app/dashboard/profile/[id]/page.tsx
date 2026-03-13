@@ -1,7 +1,9 @@
 'use client';
 
+import { fetchPresence } from '@/lib/presence-api';
+import { formatPresenceLabel } from '@/lib/presence';
+import { STATUS_LABELS, getAdminStep } from '@/lib/shared';
 import { useSession } from '@/hooks/use-session';
-import { getAdminStep } from '@/lib/shared';
 import type { FcProfile, FcStatus } from '@/types/fc';
 import { supabase } from '@/lib/supabase';
 import {
@@ -111,7 +113,7 @@ export default function FcProfilePage({ params }: { params: Promise<{ id: string
     });
 
     // --- Fetch Data ---
-    const { data: profile, isLoading: isProfileLoading } = useQuery({
+    const { data: profile, isLoading: isProfileLoading, error: profileError } = useQuery({
         queryKey: ['fc-profile', fcId],
         queryFn: async () => {
             const { data, error } = await supabase
@@ -125,22 +127,15 @@ export default function FcProfilePage({ params }: { params: Promise<{ id: string
         enabled: !!fcId,
     });
 
-    const { data: documents } = useQuery({
-        queryKey: ['fc-documents', fcId],
+    const { data: presence, isError: isPresenceError } = useQuery({
+        queryKey: ['fc-profile-presence', profile?.phone],
         queryFn: async () => {
-            // Need profile phone to link documents
-            if (!profile?.phone) return [];
-
-            const { data: docs, error: docError } = await supabase
-                .from('fc_documents')
-                .select('*')
-                .eq('resident_id', profile.phone)
-                .order('created_at', { ascending: false });
-
-            if (docError) throw docError;
-            return docs as FcDocument[];
+            const rows = await fetchPresence([profile?.phone]);
+            return rows[0] ?? null;
         },
-        enabled: !!profile?.phone,
+        enabled: Boolean(profile?.phone),
+        refetchInterval: 30_000,
+        refetchOnWindowFocus: true,
     });
 
     const { data: residentNumberFull } = useQuery({
@@ -289,10 +284,26 @@ export default function FcProfilePage({ params }: { params: Promise<{ id: string
     }, [canEdit, isEditing]);
 
     if (isProfileLoading) return <LoadingOverlay visible />;
+    if (profileError) {
+        return (
+            <Container py="xl">
+                <Text>FC 상세 정보를 불러오지 못했습니다.</Text>
+            </Container>
+        );
+    }
     if (!profile) return <Container py="xl"><Text>FC 정보를 찾을 수 없습니다.</Text></Container>;
 
     const residentNumberDisplay = residentNumberFull ?? null;
     const adminStepLabel = getAdminStep(profile as unknown as FcProfile);
+    const documents = profile.fc_documents ?? [];
+    const presenceLabel = isPresenceError
+        ? '활동 정보 확인 불가'
+        : presence
+            ? (formatPresenceLabel(presence) ?? '첫 접속 전')
+            : '첫 접속 전';
+    const presenceBadgeColor = isPresenceError ? 'gray' : presence?.is_online ? 'green' : 'gray';
+    const presenceBadgeVariant = !isPresenceError && presence?.is_online ? 'filled' : 'light';
+    const statusLabel = STATUS_LABELS[profile.status] ?? profile.status;
 
     return (
         <Box bg={BACKGROUND} style={{ minHeight: '100vh' }}>
@@ -303,8 +314,8 @@ export default function FcProfilePage({ params }: { params: Promise<{ id: string
                         <Button variant="subtle" color="gray" size="xs" leftSection={<IconArrowLeft size={14} />} onClick={() => router.back()}>
                             목록으로 돌아가기
                         </Button>
-                        <Badge size="lg" variant="gradient" gradient={{ from: 'orange', to: 'red' }}>
-                            {profile.status === 'final-link-sent' ? '활동중' : profile.status}
+                        <Badge size="lg" color={presenceBadgeColor} variant={presenceBadgeVariant}>
+                            {presenceLabel}
                         </Badge>
                     </Group>
 
@@ -316,7 +327,7 @@ export default function FcProfilePage({ params }: { params: Promise<{ id: string
                         <Stack gap={4}>
                             <Group gap="xs" align="center">
                                 <Title order={2} c={CHARCOAL}>{profile.name}</Title>
-                                <Badge variant="light" color={!profile.career_type ? 'gray' : 'blue'}>{profile.career_type || '조회중'}</Badge>
+                                <Badge variant="light" color={!profile.career_type ? 'gray' : 'blue'}>{profile.career_type || '미입력'}</Badge>
                             </Group>
                             <Group gap="lg">
                                 <Group gap={4}>
@@ -333,6 +344,7 @@ export default function FcProfilePage({ params }: { params: Promise<{ id: string
                         <Stack gap={0} ml="auto" align="flex-end">
                             <Text size="xs" c="dimmed" fw={700} tt="uppercase">Current Step</Text>
                             <Text size="xl" fw={800} c={getStepColor(adminStepLabel)}>{adminStepLabel}</Text>
+                            <Text size="sm" c="dimmed">{statusLabel}</Text>
                         </Stack>
                     </Group>
                 </Container>

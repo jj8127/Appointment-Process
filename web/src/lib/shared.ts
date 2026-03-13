@@ -47,6 +47,56 @@ export const DOC_OPTIONS: string[] = [
 type DocProgressKey = 'no-request' | 'requested' | 'in-progress' | 'rejected' | 'approved';
 type AppointmentProgressKey = 'not-set' | 'in-progress' | 'fc-done' | 'approved';
 
+const ALLOWANCE_PASSED_STATUSES: FcProfile['status'][] = [
+  'allowance-consented',
+  'docs-requested',
+  'docs-pending',
+  'docs-submitted',
+  'docs-rejected',
+  'docs-approved',
+  'appointment-completed',
+  'final-link-sent',
+];
+
+const hasIdentityInfo = (profile: Pick<FcProfile, 'identity_completed' | 'resident_id_masked' | 'address'>) =>
+  Boolean(profile.identity_completed || profile.resident_id_masked || profile.address);
+
+const getApprovedDocumentState = (profile: Pick<FcProfile, 'fc_documents'>) => {
+  const docs = profile.fc_documents ?? [];
+  const allSubmitted =
+    docs.length > 0 && docs.every((d) => d.storage_path && d.storage_path !== 'deleted');
+  const allApproved = allSubmitted && docs.every((d) => d.status === 'approved');
+
+  return { docs, allSubmitted, allApproved };
+};
+
+const hasAllowancePassed = (profile: Pick<FcProfile, 'status' | 'allowance_date' | 'temp_id'>) => {
+  const allowancePassedByStatus = ALLOWANCE_PASSED_STATUSES.includes(profile.status);
+  const allowancePassedByDate = Boolean(profile.allowance_date) && profile.status !== 'allowance-pending';
+
+  return Boolean(profile.temp_id) && (allowancePassedByStatus || allowancePassedByDate);
+};
+
+const hasFinalCompletionEvidence = (profile: FcProfile) => {
+  const lifeCompleted = Boolean(profile.life_commission_completed || profile.appointment_date_life);
+  const nonlifeCompleted = Boolean(profile.nonlife_commission_completed || profile.appointment_date_nonlife);
+  const bothCompleted = lifeCompleted && nonlifeCompleted;
+
+  if (!bothCompleted) {
+    return false;
+  }
+
+  if (!hasIdentityInfo(profile)) {
+    return false;
+  }
+
+  if (!hasAllowancePassed(profile)) {
+    return false;
+  }
+
+  return getApprovedDocumentState(profile).allApproved;
+};
+
 export const getDocProgress = (profile: FcProfile) => {
   const docs = profile.fc_documents ?? [];
   if (!docs.length) {
@@ -110,11 +160,9 @@ export const getSummaryStatus = (profile: FcProfile) => {
 
   const life = getAppointmentProgress(profile, 'life');
   const nonlife = getAppointmentProgress(profile, 'nonlife');
-  const allApproved = life.key === 'approved' && nonlife.key === 'approved';
-  const isExplicitFinalStatus = profile.status === 'final-link-sent';
+  const fullyCompleted = hasFinalCompletionEvidence(profile);
 
-  // "모든 위촉 완료" 가입자와 일반 완료 사용자를 동일하게 최종 완료로 취급한다.
-  if (isExplicitFinalStatus || allApproved) {
+  if (fullyCompleted) {
     return { label: '최종 완료', color: 'green' };
   }
 
@@ -133,41 +181,20 @@ export const getSummaryStatus = (profile: FcProfile) => {
 };
 
 export const calcStep = (profile: FcProfile) => {
-  const lifeCompleted = Boolean(profile.life_commission_completed || profile.appointment_date_life);
-  const nonlifeCompleted = Boolean(profile.nonlife_commission_completed || profile.appointment_date_nonlife);
-  const bothCompleted = lifeCompleted && nonlifeCompleted;
+  if (hasFinalCompletionEvidence(profile)) return 5;
 
-  if (profile.status === 'final-link-sent' || bothCompleted) return 5;
+  if (!hasIdentityInfo(profile)) return 1;
 
-  const hasIdentity = Boolean(profile.identity_completed || profile.resident_id_masked || profile.address);
-  if (!hasIdentity) return 1;
+  if (!hasAllowancePassed(profile)) return 2;
 
-  const allowancePassedStatuses: FcProfile['status'][] = [
-    'allowance-consented',
-    'docs-requested',
-    'docs-pending',
-    'docs-submitted',
-    'docs-rejected',
-    'docs-approved',
-    'appointment-completed',
-    'final-link-sent',
-  ];
-
-  const allowancePassedByStatus = allowancePassedStatuses.includes(profile.status);
-  const allowancePassedByDate = Boolean(profile.allowance_date) && profile.status !== 'allowance-pending';
-  if (!allowancePassedByStatus && !allowancePassedByDate) return 2;
-
-  const docs = profile.fc_documents ?? [];
-  const allSubmitted =
-    docs.length > 0 && docs.every((d) => d.storage_path && d.storage_path !== 'deleted');
-  const allApproved = allSubmitted && docs.every((d) => d.status === 'approved');
+  const { allApproved } = getApprovedDocumentState(profile);
   if (!allApproved) return 3;
   return 4;
 };
 
 export const getAdminStep = (profile: FcProfile) => {
   const rawStep = calcStep(profile);
-  if (!profile.identity_completed && rawStep < 4) return '0단계 사전등록';
+  if (!hasIdentityInfo(profile)) return '0단계 사전등록';
   // FC Step 1 (Info) and Step 2 (Allowance) -> Admin Step 1 (Allowance)
   if (rawStep <= 2) return '1단계 수당동의';
   if (rawStep === 3) return '2단계 문서제출';

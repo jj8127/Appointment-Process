@@ -7,6 +7,43 @@
 
 ---
 
+## <a id="20260313-web-profile-presence-step-audit-fix"></a> 2026-03-13 | 관리자 웹 FC 상세의 presence/단계/서류 표시 정합성 보정
+
+**배경**:
+- 관리자 웹 FC 상세 페이지에서 상단 `활동중` 배지가 실제 presence가 아니라 `status === 'final-link-sent'` 조건으로 하드코딩돼 있었다.
+- `CURRENT STEP`도 `final-link-sent` 또는 수수료 완료 플래그만으로 최종 완료를 판정해, 중간 산출물(`temp_id`, `allowance_date`, 승인된 서류) 없이 `4단계 완료`가 보일 수 있었다.
+- 제출 서류 이력은 이미 `fc_profiles -> fc_documents(*)` 관계를 읽고 있으면서도, 화면에서는 다시 `resident_id = phone` 기준으로 재조회해 스키마 키(`fc_id`)와 어긋난 빈 목록이 나올 수 있었다.
+- `career_type`이 비어 있으면 로딩이 끝난 상태에서도 `조회중`이 떠서 실제 미입력과 로딩 상태가 구분되지 않았다.
+
+**조치**:
+- `web/src/app/dashboard/profile/[id]/page.tsx`
+  - 상단 배지를 실제 `/api/presence` 조회 결과로 교체하고, presence가 없으면 `첫 접속 전`, 오류 시 `활동 정보 확인 불가`로 표시하도록 정리했다.
+  - 헤더 우측에 현재 status의 한글 라벨을 함께 노출해, presence와 workflow status를 분리해서 읽을 수 있게 했다.
+  - `career_type` null 표시를 `조회중`에서 `미입력`으로 변경했다.
+  - 제출 서류 이력은 잘못된 `resident_id` 재조회 쿼리를 제거하고, 이미 로드된 `profile.fc_documents` 관계 데이터를 그대로 사용하도록 수정했다.
+  - 프로필 상세 로딩 실패 시 `FC 정보를 찾을 수 없습니다` 대신 명시적인 상세 로드 실패 문구를 보여주도록 보강했다.
+- `web/src/lib/shared.ts`
+  - 완료 단계 판정 전용 helper를 추가해, 최종 완료는 `신원정보 + temp_id + 수당동의 통과 + 승인된 서류 + 양쪽 commission 완료` 근거가 모두 있을 때만 성립하도록 보수화했다.
+  - `calcStep`, `getAdminStep`, `getSummaryStatus`가 같은 전제 조건을 공유하도록 맞춰, 상세 페이지와 관리자 대시보드 단계/요약 표시가 같은 기준을 쓰게 했다.
+
+**검증**:
+- `cd web && npm run lint -- src/app/dashboard/profile/[id]/page.tsx src/lib/shared.ts` ✅
+- 실제 대상 FC(`01080145882`) 조회 결과 확인:
+  - `status = final-link-sent`
+  - `life_commission_completed = true`
+  - `nonlife_commission_completed = true`
+  - `temp_id = null`
+  - `allowance_date = null`
+  - `fc_documents = []`
+  - `user_presence = []`
+  - 기존 화면은 이 상태에서도 `활동중`, `4단계 완료`를 표시했으나, 새 로직은 해당 값들을 완료/활동 근거로 사용하지 않음
+
+**후속 확인 포인트**:
+- 관리자 웹 FC 상세 진입 시 상단 배지가 실제 presence와 일치하는지 확인
+- 중간 산출물이 비어 있는 이력성/수동보정 계정이 `4단계 완료`로 과표시되지 않는지 확인
+- 서류가 있는 FC에서 제출 이력이 `fc_id` 관계 기준으로 정상 렌더링되는지 확인
+
+---
 ## <a id="20260312-request-board-driving-status"></a> 2026-03-12 | GaramLink 의뢰 상세에 고객 운전여부 표시 추가
 
 **배경**:
