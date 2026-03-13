@@ -59,6 +59,7 @@ type FcProfileDetail = {
     phone: string;
     resident_id_masked: string | null;
     address: string | null;
+    address_detail: string | null;
     email: string | null;
     affiliation: string | null;
     step?: string; // Optional since it's not in DB
@@ -101,6 +102,7 @@ export default function FcProfilePage({ params }: { params: Promise<{ id: string
             name: '',
             phone: '',
             address: '',
+            address_detail: '',
             email: '',
             affiliation: '',
             career_type: '',
@@ -170,6 +172,7 @@ export default function FcProfilePage({ params }: { params: Promise<{ id: string
                 name: profile.name || '',
                 phone: profile.phone || '',
                 address: profile.address || '',
+                address_detail: profile.address_detail || '',
                 email: profile.email || '',
                 affiliation: profile.affiliation || '',
                 career_type: profile.career_type || '',
@@ -188,6 +191,7 @@ export default function FcProfilePage({ params }: { params: Promise<{ id: string
                 phone: values.phone.trim(),
                 affiliation: values.affiliation.trim(),
                 address: values.address.trim() || null,
+                address_detail: values.address_detail.trim() || null,
                 email: values.email.trim() || null,
                 career_type: normalizedCareerType === '신입' || normalizedCareerType === '경력' ? normalizedCareerType : null,
             };
@@ -349,7 +353,25 @@ export default function FcProfilePage({ params }: { params: Promise<{ id: string
                                         <Button color="green" size="xs" leftSection={<IconDeviceFloppy size={14} />} onClick={handleSaveInfo} loading={updateProfileMutation.isPending} disabled={!canEdit}>저장</Button>
                                     </Group>
                                 ) : (
-                                    <Button variant="subtle" color={canEdit ? 'orange' : 'gray'} size="xs" leftSection={<IconEdit size={14} />} onClick={() => setIsEditing(true)} disabled={!canEdit}>수정</Button>
+                                    <Button
+                                        variant={canEdit ? 'filled' : 'default'}
+                                        color={canEdit ? 'orange' : 'gray'}
+                                        size="sm"
+                                        radius="xl"
+                                        leftSection={<IconEdit size={16} />}
+                                        onClick={() => setIsEditing(true)}
+                                        disabled={!canEdit}
+                                        styles={
+                                            canEdit
+                                                ? {
+                                                    root: { boxShadow: '0 10px 24px rgba(243, 111, 33, 0.22)' },
+                                                    label: { fontWeight: 700 },
+                                                }
+                                                : undefined
+                                        }
+                                    >
+                                        수정
+                                    </Button>
                                 )}
                             </Group>
 
@@ -399,6 +421,15 @@ export default function FcProfilePage({ params }: { params: Promise<{ id: string
                                             readOnly={!isEditing || !canEdit}
                                             {...form.getInputProps('address')}
                                             placeholder={isEditing && canEdit ? '주소를 입력하세요' : '-'}
+                                        />
+                                    </Grid.Col>
+                                    <Grid.Col span={12}>
+                                        <TextInput
+                                            label="상세주소"
+                                            variant={isEditing && canEdit ? 'default' : 'unstyled'}
+                                            readOnly={!isEditing || !canEdit}
+                                            {...form.getInputProps('address_detail')}
+                                            placeholder={isEditing && canEdit ? '상세주소를 입력하세요' : '-'}
                                         />
                                     </Grid.Col>
                                 </Grid>
