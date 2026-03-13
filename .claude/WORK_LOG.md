@@ -20,6 +20,7 @@
 ## 최근 작업
 | 날짜 | 작업 | 핵심 파일 | 상세 |
 |------|------|----------|------|
+| 03-13 | 시험 신청 화면에 접수비 환불 불가 안내 문구 추가 | `app/exam-apply.tsx`, `app/exam-apply2.tsx`, `AGENTS.md` | [→ 상세](WORK_DETAIL.md#20260313-exam-no-refund-copy) |
 | 03-13 | GaramLink 운전구분 `안함` 표시 지원 | `lib/request-board-driving-status.ts` | [→ 상세](WORK_DETAIL.md#20260313-request-board-driving-status-none) |
 | 03-13 | 시험 신청 상단 응시료 안내 재배치 + 총무 시험 신청자 삭제 기능 추가 | `app/exam-apply.tsx`, `app/exam-apply2.tsx`, `app/exam-manage2.tsx`, `supabase/functions/admin-action/index.ts`, `web/src/app/dashboard/exam/applicants/page.tsx`, `web/src/app/api/admin/exam-applicants/route.ts`, `AGENTS.md` | [→ 상세](WORK_DETAIL.md#20260313-exam-fee-delete-admin) |
 | 03-13 | GaramLink 의뢰 상세의 고객 `운전구분` 표시를 11종 코드까지 지원하도록 확장 | `app/request-board-review.tsx`, `lib/request-board-api.ts`, `lib/request-board-driving-status.ts`, `AGENTS.md` | [→ 상세](WORK_DETAIL.md#20260313-request-board-driving-status-codes) |

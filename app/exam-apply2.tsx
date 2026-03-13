@@ -487,7 +487,7 @@ export default function ExamApplyScreen() {
 
         <View style={styles.section}>
           <Text style={styles.sectionHeader}>📅 응시료 납입 일자</Text>
-          <Text style={styles.inputHint}>응시료 미입금 시, 시험 접수 불가능합니다.</Text>
+          <Text style={styles.inputHint}>응시료 미입금 시 시험 접수 불가능하며, 납입한 접수비는 반환되지 않습니다.</Text>
           <View style={styles.accountCard}>
             <Text style={styles.accountLabel}>응시료 납입 계좌</Text>
             <Text style={styles.accountValue}>{NONLIFE_EXAM_FEE_ACCOUNT}</Text>
