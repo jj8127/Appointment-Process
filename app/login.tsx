@@ -135,7 +135,7 @@ export default function LoginScreen() {
                                 style={({ pressed }) => [styles.linkButton, pressed && styles.backButtonPressed]}
                                 onPress={() => router.push('/reset-password')}
                             >
-                                <Text style={styles.linkButtonText}>비밀번호를 잊으셨나요?</Text>
+                                <Text style={styles.linkButtonText}>대신 비밀 번호 변경하기</Text>
                             </Pressable>
 
                             <Pressable

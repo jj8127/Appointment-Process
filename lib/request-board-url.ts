@@ -40,6 +40,11 @@ const normalizeDevHost = (host: string): string => {
   return host.trim();
 };
 
+const shouldUseDerivedDevUrl = (): boolean => {
+  const raw = String(process.env.EXPO_PUBLIC_REQUEST_BOARD_USE_LOCAL_DEV ?? '').trim().toLowerCase();
+  return raw === '1' || raw === 'true' || raw === 'yes';
+};
+
 const resolveExpoHost = (): string | null => {
   const candidates = [
     Constants.expoConfig?.hostUri,
@@ -93,7 +98,7 @@ const resolveRequestBoardBaseUrl = (
     return explicitUrl;
   }
 
-  if (typeof __DEV__ !== 'undefined' && __DEV__) {
+  if (typeof __DEV__ !== 'undefined' && __DEV__ && shouldUseDerivedDevUrl()) {
     const derivedUrl = buildDerivedDevUrl(devPort);
     if (derivedUrl) {
       logResolvedUrl(scope, derivedUrl);

@@ -3,7 +3,7 @@ import { Alert, Keyboard } from 'react-native';
 import * as Haptics from 'expo-haptics';
 import { router } from 'expo-router';
 import { useSession } from '@/hooks/use-session';
-import { clearRequestBoardState, rbBridgeLogin, setAppSessionToken, setBridgeToken } from '@/lib/request-board-api';
+import { clearRequestBoardState, setAppSessionToken, setBridgeToken } from '@/lib/request-board-api';
 import { normalizeStaffType } from '@/lib/staff-identity';
 import { supabase } from '@/lib/supabase';
 import { validatePhone, validateRequired, normalizePhone } from '@/lib/validation';
@@ -99,21 +99,8 @@ export function useLogin(options?: UseLoginOptions) {
       await setAppSessionToken(appSessionToken);
       await setBridgeToken(bridgeToken);
 
-      let requestBoardRole: 'fc' | 'designer' | null = fallbackRequestBoardRole;
-      let isRequestBoardDesigner = fallbackRequestBoardRole === 'designer' && nextRole === 'fc';
-      if (bridgeToken) {
-        try {
-          const bridged = await rbBridgeLogin(bridgeToken);
-          if (bridged.success && (bridged.user?.role === 'designer' || bridged.user?.role === 'fc')) {
-            requestBoardRole = bridged.user.role;
-            // admin(총무/본부장) 계정은 request_board designer 여부에 관계없이 항상 admin 화면 유지
-            isRequestBoardDesigner = bridged.user.role === 'designer' && nextRole === 'fc';
-          }
-        } catch {
-          requestBoardRole = fallbackRequestBoardRole;
-          isRequestBoardDesigner = fallbackRequestBoardRole === 'designer' && nextRole === 'fc';
-        }
-      }
+      const requestBoardRole: 'fc' | 'designer' | null = fallbackRequestBoardRole;
+      const isRequestBoardDesigner = fallbackRequestBoardRole === 'designer' && nextRole === 'fc';
 
       loginAs(
         nextRole,

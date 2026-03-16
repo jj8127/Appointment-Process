@@ -8,6 +8,7 @@ import { safeStorage } from './safe-storage';
 import { supabase } from './supabase';
 
 const BASE_URL = getRequestBoardApiBaseUrl();
+const REQUEST_BOARD_FETCH_TIMEOUT_MS = 8000;
 
 const STORAGE_KEY_TOKEN = 'rb_jwt_token';
 const STORAGE_KEY_USER = 'rb_user';
@@ -135,6 +136,27 @@ let bridgeRefreshPromise: Promise<{
   error?: string;
   errorCode?: string;
 }> | null = null;
+
+const isAbortError = (err: unknown): err is Error =>
+  err instanceof Error && err.name === 'AbortError';
+
+async function fetchWithTimeout(
+  url: string,
+  options: RequestInit = {},
+  timeoutMs = REQUEST_BOARD_FETCH_TIMEOUT_MS,
+): Promise<Response> {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+
+  try {
+    return await fetch(url, {
+      ...options,
+      signal: controller.signal,
+    });
+  } finally {
+    clearTimeout(timer);
+  }
+}
 
 export async function getStoredToken(): Promise<string | null> {
   if (cachedToken) return cachedToken;
@@ -322,7 +344,7 @@ async function bridgeLogin(
   }
 
   try {
-    const res = await fetch(`${BASE_URL}/api/auth/bridge-login`, {
+    const res = await fetchWithTimeout(`${BASE_URL}/api/auth/bridge-login`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ bridgeToken: tokenFromStorage }),
@@ -364,7 +386,13 @@ async function bridgeLogin(
     return { success: true, user };
   } catch (err) {
     logger.warn('[rb-api] bridge login error', err);
-    return { success: false, error: '서버에 연결할 수 없습니다.', errorCode: 'network_error' };
+    return {
+      success: false,
+      error: isAbortError(err)
+        ? '가람Link 서버 응답이 지연되고 있습니다. 잠시 후 다시 시도해주세요.'
+        : '서버에 연결할 수 없습니다.',
+      errorCode: 'network_error',
+    };
   }
 }
 
@@ -389,7 +417,7 @@ async function rbFetch<T>(
   const url = `${BASE_URL}${path}`;
 
   try {
-    const res = await fetch(url, {
+    const res = await fetchWithTimeout(url, {
       ...options,
       headers,
     });
@@ -431,7 +459,12 @@ async function rbFetch<T>(
     return json;
   } catch (err) {
     logger.warn(`[rb-api] network error: ${path}`, err);
-    return { success: false, error: '서버에 연결할 수 없습니다.' };
+    return {
+      success: false,
+      error: isAbortError(err)
+        ? '가람Link 서버 응답이 지연되고 있습니다. 잠시 후 다시 시도해주세요.'
+        : '서버에 연결할 수 없습니다.',
+    };
   }
 }
 
@@ -442,7 +475,7 @@ export async function rbLogin(
   password: string,
 ): Promise<{ success: boolean; user?: RbUser; error?: string }> {
   try {
-    const res = await fetch(`${BASE_URL}/api/auth/login`, {
+    const res = await fetchWithTimeout(`${BASE_URL}/api/auth/login`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ phone: phone.trim(), password }),
@@ -466,7 +499,12 @@ export async function rbLogin(
     return { success: true, user };
   } catch (err) {
     logger.warn('[rb-api] login error', err);
-    return { success: false, error: '서버에 연결할 수 없습니다.' };
+    return {
+      success: false,
+      error: isAbortError(err)
+        ? '가람Link 서버 응답이 지연되고 있습니다. 잠시 후 다시 시도해주세요.'
+        : '서버에 연결할 수 없습니다.',
+    };
   }
 }
 
