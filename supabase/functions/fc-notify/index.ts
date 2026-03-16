@@ -11,12 +11,14 @@ type Payload =
       role: 'admin' | 'fc';
       resident_id?: string | null;
       limit?: number;
+      include_request_board_fc?: boolean;
     }
   | {
       type: 'inbox_unread_count';
       role: 'admin' | 'fc';
       resident_id?: string | null;
       since?: string | null;
+      include_request_board_fc?: boolean;
     }
   | {
       type: 'inbox_delete';
@@ -24,6 +26,7 @@ type Payload =
       resident_id?: string | null;
       notification_ids?: string[];
       notice_ids?: string[];
+      include_request_board_fc?: boolean;
     }
   | { type: 'latest_notice' }
   | {
@@ -686,8 +689,9 @@ serve(async (req: Request) => {
     const role = body.role;
     const residentId = sanitize(body.resident_id);
     const limit = Math.max(1, Math.min(Number(body.limit ?? 80) || 80, 200));
+    const includeRequestBoardFc = role === 'admin' && residentId.length > 0 && body.include_request_board_fc === true;
 
-    const buildNotifQuery = (selectColumns: string) => {
+    const buildPrimaryNotifQuery = (selectColumns: string) => {
       let query = supabase
         .from('notifications')
         .select(selectColumns)
@@ -711,70 +715,128 @@ serve(async (req: Request) => {
       return query;
     };
 
-    let { data: notifications, error: notifErr } = await buildNotifQuery(
-      'id,title,body,category,target_url,created_at,resident_id,recipient_role',
-    );
+    const runNotifQuery = async (buildQuery: (selectColumns: string) => ReturnType<typeof supabase.from>) => {
+      let { data, error } = await buildQuery(
+        'id,title,body,category,target_url,created_at,resident_id,recipient_role',
+      );
 
-    if (notifErr?.code === '42703') {
-      const fallback = await buildNotifQuery('id,title,body,category,created_at,resident_id,recipient_role');
-      notifErr = fallback.error;
-      notifications = (fallback.data ?? []).map((row) => ({ ...row, target_url: null }));
-    }
+      if (error?.code === '42703') {
+        const fallback = await buildQuery('id,title,body,category,created_at,resident_id,recipient_role');
+        error = fallback.error;
+        data = (fallback.data ?? []).map((row) => ({ ...row, target_url: null }));
+      }
 
-    if (notifErr) return err(notifErr.message, 500);
+      if (error) {
+        throw error;
+      }
 
-    let notices: NoticeRow[] = [];
+      return (data ?? []).map((row) => ({
+        ...row,
+        target_url: 'target_url' in row ? row.target_url ?? null : null,
+      }));
+    };
+
     try {
+      const [primaryNotifications, requestBoardFcNotifications] = await Promise.all([
+        runNotifQuery(buildPrimaryNotifQuery),
+        includeRequestBoardFc
+          ? runNotifQuery((selectColumns) =>
+              supabase
+                .from('notifications')
+                .select(selectColumns)
+                .eq('recipient_role', 'fc')
+                .eq('resident_id', residentId)
+                .ilike('category', `${REQUEST_BOARD_CATEGORY_PREFIX}%`)
+                .order('created_at', { ascending: false })
+                .limit(limit),
+            )
+          : Promise.resolve([]),
+      ]);
+
+      const notifications = Array.from(
+        [...primaryNotifications, ...requestBoardFcNotifications]
+          .reduce((map, item) => {
+            if (!map.has(item.id)) map.set(item.id, item);
+            return map;
+          }, new Map<string, (typeof primaryNotifications)[number]>())
+          .values(),
+      )
+        .sort(
+          (a, b) =>
+            new Date(String(b.created_at ?? 0)).getTime() - new Date(String(a.created_at ?? 0)).getTime(),
+        )
+        .slice(0, limit);
+
+      let notices: NoticeRow[] = [];
       notices = await fetchUnifiedNotices(limit);
-    } catch (noticeErr: unknown) {
-      const message = noticeErr instanceof Error ? noticeErr.message : 'Failed to fetch notices';
+
+      return ok({
+        ok: true,
+        notifications,
+        notices: notices ?? [],
+      });
+    } catch (listErr: unknown) {
+      const message = listErr instanceof Error ? listErr.message : 'Failed to fetch notifications';
       return err(message, 500);
     }
-
-    return ok({
-      ok: true,
-      notifications: notifications ?? [],
-      notices: notices ?? [],
-    });
   }
 
   // 홈 벨 아이콘 unread 개수 조회 (RLS 우회)
   if (body.type === 'inbox_unread_count') {
     const role = body.role;
     const residentId = sanitize(body.resident_id);
+    const includeRequestBoardFc = role === 'admin' && residentId.length > 0 && body.include_request_board_fc === true;
 
     const sinceDate = body.since ? new Date(body.since) : new Date(0);
     const sinceIso = Number.isNaN(sinceDate.getTime()) ? new Date(0).toISOString() : sinceDate.toISOString();
 
-    let countQuery = supabase
-      .from('notifications')
-      .select('id', { count: 'exact', head: true })
-      .gt('created_at', sinceIso);
+    const buildPrimaryCountQuery = () => {
+      let countQuery = supabase
+        .from('notifications')
+        .select('id', { count: 'exact', head: true })
+        .gt('created_at', sinceIso);
 
-    if (role === 'fc') {
-      if (residentId) {
-        countQuery = countQuery.eq('recipient_role', 'fc').or(`resident_id.eq.${residentId},resident_id.is.null`);
+      if (role === 'fc') {
+        if (residentId) {
+          countQuery = countQuery.eq('recipient_role', 'fc').or(`resident_id.eq.${residentId},resident_id.is.null`);
+        } else {
+          countQuery = countQuery.eq('recipient_role', 'fc').is('resident_id', null);
+        }
       } else {
-        countQuery = countQuery.eq('recipient_role', 'fc').is('resident_id', null);
+        if (residentId) {
+          countQuery = countQuery.eq('recipient_role', 'admin').or(`resident_id.eq.${residentId},resident_id.is.null`);
+        } else {
+          countQuery = countQuery.eq('recipient_role', 'admin').is('resident_id', null);
+        }
       }
-    } else {
-      if (residentId) {
-        countQuery = countQuery.eq('recipient_role', 'admin').or(`resident_id.eq.${residentId},resident_id.is.null`);
-      } else {
-        countQuery = countQuery.eq('recipient_role', 'admin').is('resident_id', null);
-      }
+
+      return countQuery;
+    };
+
+    const { count: primaryCount, error: primaryCountErr } = await buildPrimaryCountQuery();
+    if (primaryCountErr) return err(primaryCountErr.message, 500);
+
+    let requestBoardFcCount = 0;
+    if (includeRequestBoardFc) {
+      const { count, error } = await supabase
+        .from('notifications')
+        .select('id', { count: 'exact', head: true })
+        .eq('recipient_role', 'fc')
+        .eq('resident_id', residentId)
+        .ilike('category', `${REQUEST_BOARD_CATEGORY_PREFIX}%`)
+        .gt('created_at', sinceIso);
+      if (error) return err(error.message, 500);
+      requestBoardFcCount = count ?? 0;
     }
 
-    const { count, error: countErr } = await countQuery;
-    if (countErr) return err(countErr.message, 500);
-
-    return ok({ ok: true, count: count ?? 0 });
+    return ok({ ok: true, count: (primaryCount ?? 0) + requestBoardFcCount });
   }
 
   // 알림센터 선택 항목 삭제 (RLS 우회)
   if (body.type === 'inbox_delete') {
     const role = body.role;
     const residentId = sanitize(body.resident_id);
+    const includeRequestBoardFc = role === 'admin' && residentId.length > 0 && body.include_request_board_fc === true;
     const notificationIds = Array.isArray(body.notification_ids)
       ? body.notification_ids.filter((id) => typeof id === 'string' && id.trim().length > 0)
       : [];
@@ -819,6 +881,18 @@ serve(async (req: Request) => {
       const { count, error: notifDeleteErr } = await deleteQuery;
       if (notifDeleteErr) return err(notifDeleteErr.message, 500);
       deletedNotifications = count ?? 0;
+
+      if (includeRequestBoardFc) {
+        const { count: requestBoardDeleteCount, error: requestBoardDeleteErr } = await supabase
+          .from('notifications')
+          .delete({ count: 'exact' })
+          .in('id', notificationIds)
+          .eq('recipient_role', 'fc')
+          .eq('resident_id', residentId)
+          .ilike('category', `${REQUEST_BOARD_CATEGORY_PREFIX}%`);
+        if (requestBoardDeleteErr) return err(requestBoardDeleteErr.message, 500);
+        deletedNotifications += requestBoardDeleteCount ?? 0;
+      }
     }
 
     // 공지 삭제는 admin 계정에서만 서버 삭제 허용

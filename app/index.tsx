@@ -234,7 +234,11 @@ const fetchUnreadMessageCount = async (residentId: string) => {
   return count ?? 0;
 };
 
-const fetchUnreadNotificationCount = async (role: 'admin' | 'fc' | null, residentId: string | null) => {
+const fetchUnreadNotificationCount = async (
+  role: 'admin' | 'fc' | null,
+  residentId: string | null,
+  includeRequestBoardFc = false,
+) => {
   try {
     if (!role) return 0;
     const lastCheck = await AsyncStorage.getItem('lastNotificationCheckTime');
@@ -246,6 +250,7 @@ const fetchUnreadNotificationCount = async (role: 'admin' | 'fc' | null, residen
         role,
         resident_id: residentId ?? null,
         since: lastCheckDate.toISOString(),
+        include_request_board_fc: includeRequestBoardFc,
       },
     });
     if (error) throw error;
@@ -425,7 +430,7 @@ const getLinkIcon = (href: string) => {
 
 export default function Home() {
   useInAppUpdate(); // Check for Android updates on mount
-  const { role, residentId, displayName, logout, hydrated, isRequestBoardDesigner, readOnly, staffType } = useSession();
+  const { role, residentId, displayName, logout, hydrated, isRequestBoardDesigner, requestBoardRole, readOnly, staffType } = useSession();
   const { mode } = useLocalSearchParams<{ mode?: string }>();
   const { data: identityStatus, isLoading: identityLoading } = useIdentityStatus();
 
@@ -854,8 +859,8 @@ export default function Home() {
   });
 
   const { data: unreadNotifCount = 0, refetch: refetchNotifCount } = useQuery({
-    queryKey: ['unread-notif-count', role, residentId],
-    queryFn: () => fetchUnreadNotificationCount(role, residentId),
+    queryKey: ['unread-notif-count', role, residentId, requestBoardRole],
+    queryFn: () => fetchUnreadNotificationCount(role, residentId, role === 'admin' && requestBoardRole === 'fc'),
     enabled: !!role,
     refetchInterval: 5000, // Poll every 5s for notifications
   });

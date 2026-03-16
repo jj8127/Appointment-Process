@@ -292,6 +292,7 @@ export default function RequestBoardScreen() {
   const isRbFcUser =
     !isRequestBoardDesigner && (!!requestBoardRole || role === 'fc');
   const showStats = reqStats.loaded && (isRbFcUser || !!isRequestBoardDesigner);
+  const includeRequestBoardFcInbox = role === 'admin' && requestBoardRole === 'fc';
 
   useEffect(() => {
     if (!hydrated) return;
@@ -316,6 +317,7 @@ export default function RequestBoardScreen() {
               role: inboxRole,
               resident_id: residentId ?? null,
               limit: 100,
+              include_request_board_fc: includeRequestBoardFcInbox,
             },
           });
           if (error) throw error;
@@ -348,6 +350,7 @@ export default function RequestBoardScreen() {
               role: inboxRole,
               resident_id: residentId ?? null,
               since: lastCheckDate.toISOString(),
+              include_request_board_fc: includeRequestBoardFcInbox,
             },
           });
           if (error) throw error;
@@ -385,7 +388,7 @@ export default function RequestBoardScreen() {
 
     setLoading(false);
     setRefreshing(false);
-  }, [ensureRequestBoardSession, isRequestBoardDesigner, requestBoardRole, residentId, role]);
+  }, [ensureRequestBoardSession, includeRequestBoardFcInbox, isRequestBoardDesigner, requestBoardRole, residentId, role]);
 
   useEffect(() => {
     if (hydrated) fetchData();

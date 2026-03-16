@@ -7,6 +7,70 @@
 
 ---
 
+## <a id="20260316-request-board-inbox-bridge-sync"></a> 2026-03-16 | GaramLink 브리지 알림 인박스 연동 복구
+
+**배경**:
+- 가람Link에서 발생한 알림은 가람in 알림센터와 `설계 요청` 최근 활동에도 보여야 하지만, 실제로는 본부장/개발자처럼 앱 role이 `admin`이고 request_board role이 `fc`인 세션에서 누락될 수 있었다.
+- 원인을 확인한 결과 `request_board` 브리지는 `fc-notify`에 항상 `target_role='fc'`로 적재하고 있었는데, 가람in 쪽 `fc-notify inbox_*` 조회는 `role='admin'`일 때 `recipient_role='admin'`만 읽고 있었다.
+- 동시에 모바일 알림센터(`app/notifications.tsx`)는 admin inbox 조회 시 `resident_id`를 `null`로 보내 개인 대상 알림까지 놓칠 수 있었다.
+
+**조치**:
+- `supabase/functions/fc-notify/index.ts`
+  - `inbox_list`, `inbox_unread_count`, `inbox_delete` payload에 `include_request_board_fc` 옵션을 추가했다.
+  - admin 세션이 `resident_id`와 함께 이 옵션을 보내면, 같은 전화번호로 적재된 `request_board_*` + `recipient_role='fc'` 알림을 admin inbox 결과/카운트/삭제 경로에 함께 합치도록 보강했다.
+- `app/notifications.tsx`
+  - admin 계열 세션도 inbox 조회 시 `resident_id`를 항상 전달하도록 수정했다.
+  - 개발자 전용 이중 조회/이중 삭제 분기를 걷어내고, `requestBoardRole === 'fc'`일 때 `include_request_board_fc` 한 번만 전달하도록 단순화했다.
+- `app/request-board.tsx`
+  - `설계 요청` 메인의 최근 활동/미확인 알림 집계가 본부장·개발자 세션에서도 같은 통합 inbox 규칙을 사용하도록 맞췄다.
+- `app/index.tsx`
+  - 홈 상단 벨 배지 unread 조회도 `requestBoardRole === 'fc'`인 admin 세션에서 GaramLink 브리지 알림을 포함하도록 정리했다.
+
+**검증**:
+- `npx eslint app/notifications.tsx app/request-board.tsx app/index.tsx`
+- `npx tsc --noEmit`
+- `node -` inline TypeScript parse check for `supabase/functions/fc-notify/index.ts`
+
+## <a id="20260316-request-board-login-timeout-dev-url-fix"></a> 2026-03-16 | GaramLink 로그인/최근활동/의뢰목록 무한로딩 방지
+
+**배경**:
+- 사용자 제보 기준 가람in 로그인 버튼이 계속 로딩 상태에 머물고, 이어서 `설계 요청`의 `최근 활동`과 `의뢰 목록`도 무한 로딩에 빠졌다.
+- 원인을 확인한 결과 앱 로그인은 `login-with-password` 성공 직후 `rbBridgeLogin()`을 동기 대기하고 있었고, request_board URL resolver는 Expo 개발 빌드에서 명시적 env가 없으면 Expo host 기준 로컬 `:3000` / `:5173`로 자동 전환되고 있었다.
+- 따라서 디바이스에서 로컬 request_board 서버가 떠 있지 않은 상태로 개발 빌드를 열면 로그인 단계부터 request_board fetch가 붙잡히고, 이후 `최근 활동`/`의뢰 목록`도 같은 base URL에서 응답 없이 대기할 수 있었다.
+
+**조치**:
+- `hooks/use-login.ts`
+  - 앱 로그인 성공 후 request_board 브릿지 로그인을 더 이상 동기 대기하지 않도록 바꿨다.
+  - `login-with-password`가 내려주는 `requestBoardRole` fallback으로 즉시 앱 세션을 열어, GaramLink 연결 지연이 앱 로그인 전체를 막지 않게 정리했다.
+- `lib/request-board-url.ts`
+  - Expo 개발 빌드의 request_board 로컬 host 자동 해석을 기본 동작에서 제거하고, `EXPO_PUBLIC_REQUEST_BOARD_USE_LOCAL_DEV=1`일 때만 명시적으로 opt-in 하도록 변경했다.
+  - env가 없으면 개발 빌드도 운영 GaramLink URL을 기본값으로 사용하게 맞췄다.
+- `lib/request-board-api.ts`
+  - bridge login / 공통 API fetch / direct login에 8초 타임아웃을 추가해 request_board 응답 지연 시 무한 대기 대신 명시적 오류로 빠지도록 보강했다.
+- `README.md`, `AGENTS.md`
+  - 로컬 request_board 개발은 `EXPO_PUBLIC_REQUEST_BOARD_USE_LOCAL_DEV=1` opt-in 방식이라는 환경 계약으로 문서를 갱신했다.
+
+**검증**:
+- `npx eslint hooks/use-login.ts lib/request-board-api.ts lib/request-board-url.ts`
+- `npx tsc --noEmit`
+- `node scripts/ci/check-governance.mjs`
+
+---
+
+## <a id="20260316-login-reset-copy"></a> 2026-03-16 | 가람in 로그인 비밀번호 재설정 링크 문구 교체
+
+**배경**:
+- 운영 요청에 따라 가람in 로그인 화면 하단의 `비밀번호를 잊으셨나요?` 안내를 보다 직접적인 표현으로 바꿔야 했다.
+- 동작 자체는 그대로 `reset-password` 화면으로 이동하지만, 실제 사용자에게는 비밀번호 분실 안내보다 변경 동작을 더 명확하게 보이는 문구가 필요했다.
+
+**조치**:
+- `app/login.tsx`
+  - 로그인 버튼 아래 링크 레이블을 `대신 비밀 번호 변경하기`로 교체했다.
+  - 라우팅 경로와 버튼 스타일은 유지하고 노출 문구만 변경했다.
+
+**검증**:
+- `npx eslint app/login.tsx`
+
 ## <a id="20260316-request-board-list-hydration-layout-fix"></a> 2026-03-16 | GaramLink 의뢰목록 초기 실패 배너 및 상태 배지 겹침 정리
 
 **배경**:

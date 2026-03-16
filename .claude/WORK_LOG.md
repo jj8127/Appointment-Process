@@ -20,6 +20,9 @@
 ## 최근 작업
 | 날짜 | 작업 | 핵심 파일 | 상세 |
 |------|------|----------|------|
+| 03-16 | GaramLink 브리지 알림이 본부장/개발자 세션에서도 가람in 알림센터·홈·설계요청 최근활동에 보이도록 inbox 연동 복구 | `supabase/functions/fc-notify/index.ts`, `app/notifications.tsx`, `app/request-board.tsx`, `app/index.tsx` | [→ 상세](WORK_DETAIL.md#20260316-request-board-inbox-bridge-sync) |
+| 03-16 | GaramLink 로그인/최근활동/의뢰목록이 로컬 request_board 대기 때문에 무한로딩되지 않도록 URL 기본값과 API 타임아웃을 보정 | `hooks/use-login.ts`, `lib/request-board-api.ts`, `lib/request-board-url.ts`, `README.md`, `AGENTS.md` | [→ 상세](WORK_DETAIL.md#20260316-request-board-login-timeout-dev-url-fix) |
+| 03-16 | 가람in 로그인 하단 비밀번호 재설정 링크 문구를 운영 요청 표현으로 교체 | `app/login.tsx` | [→ 상세](WORK_DETAIL.md#20260316-login-reset-copy) |
 | 03-16 | GaramLink 의뢰목록 초기 실패 배너를 세션 복원 이후로 늦추고 상태 배지 겹침을 정리 | `app/request-board-requests.tsx`, `app/request-board-review.tsx` | [→ 상세](WORK_DETAIL.md#20260316-request-board-list-hydration-layout-fix) |
 | 03-16 | 가람Link 수락대기/검토대기 건수가 가람in 메인·목록 헤더에서 바로 보이도록 가시성 강화 | `app/request-board.tsx`, `app/request-board-requests.tsx` | [→ 상세](WORK_DETAIL.md#20260316-request-board-pending-visibility) |
 | 03-16 | GaramLink 의뢰 목록/상세에 취소 의뢰와 고객 상세·요청 상품·보험 자격 정보를 다시 연결하고 FC 검토 동선을 보강 | `app/request-board-review.tsx`, `app/request-board-requests.tsx`, `app/request-board.tsx`, `lib/request-board-api.ts` | [→ 상세](WORK_DETAIL.md#20260316-request-board-review-sync-cancelled) |
