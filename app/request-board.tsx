@@ -104,6 +104,7 @@ type ReqStats = {
   // FC view
   total: number;
   pending: number;
+  reviewPending: number;
   inProgress: number;
   completed: number;
   // Designer view
@@ -111,12 +112,13 @@ type ReqStats = {
   avgDays: number;
 };
 
-type RequestListFilter = 'all' | 'pending' | 'in_progress' | 'completed';
+type RequestListFilter = 'all' | 'pending' | 'in_progress' | 'completed' | 'cancelled' | 'review_pending';
 
 const DEFAULT_REQ_STATS: ReqStats = {
   loaded: false,
   total: 0,
   pending: 0,
+  reviewPending: 0,
   inProgress: 0,
   completed: 0,
   completedThisMonth: 0,
@@ -157,8 +159,10 @@ function computeReqStats(
   // FC/본부장/총무 뷰는 가람Link Matrix와 동일하게 배정 상태(request_designers)로 집계한다.
   if (!isDesigner) {
     let pending = 0;
+    let reviewPending = 0;
     let inProgress = 0;
     let completed = 0;
+    let cancelled = 0;
 
     requests.forEach((request) => {
       const productCount = countUniqueProducts(request);
@@ -167,7 +171,17 @@ function computeReqStats(
       const assignments = request.request_designers ?? [];
       assignments.forEach((assignment) => {
         const status = normalizeStatus(assignment.status);
-        if (status === 'rejected' || status === 'cancelled') return;
+        if (status === 'rejected') return;
+        if (status === 'cancelled') {
+          cancelled += productCount;
+          return;
+        }
+        if (
+          status === 'completed'
+          && (assignment.fc_decision === 'pending' || assignment.fc_decision == null)
+        ) {
+          reviewPending += productCount;
+        }
         const bucket = assignmentStatusToBucket(status);
         if (!bucket) return;
         if (bucket === 'pending') pending += productCount;
@@ -176,10 +190,11 @@ function computeReqStats(
       });
     });
 
-    const total = pending + inProgress + completed;
+    const total = pending + inProgress + completed + cancelled;
     return {
       total,
       pending,
+      reviewPending,
       inProgress,
       completed,
       completedThisMonth: completed,
@@ -204,9 +219,9 @@ function computeReqStats(
   const pending = requests.filter((r) => getStatus(r) === 'pending').length;
   const inProgress = requests.filter((r) => getStatus(r) === 'in_progress').length;
   const completedAll = requests.filter((r) => getStatus(r) === 'completed');
+  const cancelled = requests.filter((r) => getStatus(r) === 'cancelled').length;
   const completed = completedAll.length;
-  // 대시보드 카드에서 노출하는 3개 상태(대기/진행/완료) 합계와 동일하게 맞춘다.
-  const total = pending + inProgress + completed;
+  const total = pending + inProgress + completed + cancelled;
 
   const completedThisMonth = completedAll.filter((r) => {
     const d = new Date(getCompletedAt(r) ?? '');
@@ -229,7 +244,7 @@ function computeReqStats(
         ) / 10
       : 0;
 
-  return { total, pending, inProgress, completed, completedThisMonth, avgDays };
+  return { total, pending, reviewPending: 0, inProgress, completed, completedThisMonth, avgDays };
 }
 
 /* ─── Component ─── */
@@ -447,8 +462,9 @@ export default function RequestBoardScreen() {
         return 'completed';
       case 'request_board_rejected':
       case 'request_board_fc-rejected':
+        return 'completed';
       case 'request_board_cancelled':
-        return 'all';
+        return 'cancelled';
       default:
         return null;
     }
@@ -538,6 +554,62 @@ export default function RequestBoardScreen() {
           >
             <View style={styles.section}>
               <Text style={styles.sectionTitle}>의뢰 현황</Text>
+              {!isRequestBoardDesigner ? (
+                <View style={styles.reqFocusList}>
+                  <Pressable
+                    style={({ pressed }) => [
+                      styles.reqFocusCard,
+                      styles.reqFocusCardPending,
+                      pressed && styles.reqFocusCardPressed,
+                    ]}
+                    onPress={() => openRequests('pending')}
+                  >
+                    <View style={[styles.reqFocusIconWrap, { backgroundColor: '#FEF3C7' }]}>
+                      <Feather name="clock" size={18} color="#B45309" />
+                    </View>
+                    <View style={styles.reqFocusText}>
+                      <View style={styles.reqFocusTitleRow}>
+                        <Text style={styles.reqFocusTitle}>설계매니저 수락 대기</Text>
+                        <Text style={[styles.reqFocusCount, { color: '#B45309' }]}>
+                          {reqStats.pending}건
+                        </Text>
+                      </View>
+                      <Text style={styles.reqFocusDesc}>
+                        {reqStats.pending > 0
+                          ? '아직 수락하지 않은 의뢰를 바로 확인하세요'
+                          : '현재 수락 대기 중인 의뢰가 없습니다'}
+                      </Text>
+                    </View>
+                    <Feather name="chevron-right" size={18} color="#B45309" />
+                  </Pressable>
+                  <Pressable
+                    style={({ pressed }) => [
+                      styles.reqFocusCard,
+                      styles.reqFocusCardReview,
+                      pressed && styles.reqFocusCardPressed,
+                    ]}
+                    onPress={() => openRequests('review_pending')}
+                  >
+                    <View style={[styles.reqFocusIconWrap, { backgroundColor: '#EDE9FE' }]}>
+                      <Feather name="eye" size={18} color="#7C3AED" />
+                    </View>
+                    <View style={styles.reqFocusText}>
+                      <View style={styles.reqFocusTitleRow}>
+                        <Text style={styles.reqFocusTitle}>FC 검토 대기</Text>
+                        <Text style={[styles.reqFocusCount, { color: '#7C3AED' }]}>
+                          {reqStats.reviewPending}건
+                        </Text>
+                      </View>
+                      <Text style={styles.reqFocusDesc}>
+                        {reqStats.reviewPending > 0
+                          ? '설계 완료 후 확인이 필요한 건을 모아 봅니다'
+                          : '현재 FC 검토 대기 의뢰가 없습니다'}
+                      </Text>
+                    </View>
+                    <Feather name="chevron-right" size={18} color="#7C3AED" />
+                  </Pressable>
+                </View>
+              ) : null}
               <View style={styles.reqStatsGrid}>
                 {isRequestBoardDesigner ? (
                   <>
@@ -1125,6 +1197,60 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     flexWrap: 'wrap',
     gap: CARD_GAP,
+  },
+  reqFocusList: {
+    gap: SPACING.sm,
+    marginBottom: SPACING.sm,
+  },
+  reqFocusCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: SPACING.md,
+    backgroundColor: '#fff',
+    borderRadius: RADIUS.md,
+    padding: SPACING.base,
+    borderWidth: 1,
+    ...SHADOWS.sm,
+  },
+  reqFocusCardPending: {
+    borderColor: '#FCD34D',
+  },
+  reqFocusCardReview: {
+    borderColor: '#DDD6FE',
+  },
+  reqFocusCardPressed: {
+    opacity: 0.85,
+  },
+  reqFocusIconWrap: {
+    width: 40,
+    height: 40,
+    borderRadius: 12,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  reqFocusText: {
+    flex: 1,
+  },
+  reqFocusTitleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: SPACING.sm,
+  },
+  reqFocusTitle: {
+    flex: 1,
+    fontSize: TYPOGRAPHY.fontSize.sm,
+    fontWeight: '700' as const,
+    color: COLORS.gray[800],
+  },
+  reqFocusCount: {
+    fontSize: TYPOGRAPHY.fontSize.base,
+    fontWeight: '800' as const,
+  },
+  reqFocusDesc: {
+    fontSize: TYPOGRAPHY.fontSize.xs,
+    color: COLORS.text.secondary,
+    marginTop: 2,
   },
   reqStatCard: {
     width: (SCREEN_WIDTH - SPACING.base * 2 - CARD_GAP) / 2,

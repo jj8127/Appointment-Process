@@ -128,6 +128,7 @@ npm run eas:build:ios
 ```
 
 > `npm run eas:build:*`는 Git 2.45+에서 발생할 수 있는 `core.hooksPath` shallow-clone(128) 충돌을 자동으로 정리합니다.
+> 글로벌 `eas-cli`가 오래된 경우에는 자동으로 `npx eas-cli@18.3.0`로 우회해, 최근 EAS 업로드 단계와 안 맞는 구버전 CLI를 타지 않도록 합니다.
 
 ### Deployment
 

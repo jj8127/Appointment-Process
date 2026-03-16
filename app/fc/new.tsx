@@ -1,4 +1,3 @@
-import Postcode from '@actbase/react-daum-postcode';
 import { Feather } from '@expo/vector-icons';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { useQueryClient } from '@tanstack/react-query';
@@ -21,6 +20,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { z } from 'zod';
 
 import { Button } from '@/components/Button';
+import { DaumPostcode } from '@/components/DaumPostcode';
 import { KeyboardAwareWrapper, useKeyboardAware } from '@/components/KeyboardAwareWrapper';
 import { ScreenHeader } from '@/components/ScreenHeader';
 import { useKeyboardPadding } from '@/hooks/use-keyboard-padding';
@@ -919,7 +919,7 @@ export default function FcNewScreen() {
               <Text style={styles.searchClose}>닫기</Text>
             </Pressable>
           </View>
-          <Postcode
+          <DaumPostcode
             style={{ flex: 1 }}
             jsOptions={{ animation: true }}
             onSelected={(data: any) => {

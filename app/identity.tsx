@@ -1,4 +1,3 @@
-import Postcode from '@actbase/react-daum-postcode';
 import { Feather } from '@expo/vector-icons';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { useQueryClient } from '@tanstack/react-query';
@@ -10,6 +9,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { z } from 'zod';
 
 import { Button } from '@/components/Button';
+import { DaumPostcode } from '@/components/DaumPostcode';
 import { KeyboardAwareWrapper } from '@/components/KeyboardAwareWrapper';
 import { useKeyboardPadding } from '@/hooks/use-keyboard-padding';
 import { useSession } from '@/hooks/use-session';
@@ -355,7 +355,7 @@ export default function IdentityScreen() {
               닫기
             </Button>
           </View>
-          <Postcode
+          <DaumPostcode
             style={{ flex: 1 }}
             jsOptions={{ animation: true }}
             onSelected={(data: any) => {

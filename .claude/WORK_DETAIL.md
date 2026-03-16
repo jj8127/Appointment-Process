@@ -7,6 +7,123 @@
 
 ---
 
+## <a id="20260316-request-board-list-hydration-layout-fix"></a> 2026-03-16 | GaramLink 의뢰목록 초기 실패 배너 및 상태 배지 겹침 정리
+
+**배경**:
+- 정승철 계정 실데이터를 다시 확인한 결과 2026-03-16 기준 GaramLink 의뢰는 `223(cancelled)`, `222(completed/rejected)`, `221(completed/fc review pending)` 총 3건이며, `FC 검토 대기`는 1건이었다.
+- 그런데 앱 `의뢰 목록` 화면은 세션 `hydrated` 이전에도 `ensureRequestBoardSession()`을 바로 호출해, 실제 데이터 유무와 무관하게 첫 진입 시 `세션 복원 중입니다.` 경로를 generic `의뢰 목록을 불러오는데 실패했습니다.` 배너로 바꿔 보여줄 수 있었다.
+- 같은 화면의 카드 상단은 `검토 대기` 강조 배지를 absolute 배치로 올려두고, 완료 상태 배지를 같은 우측 상단에 렌더링하고 있어 `완료`와 `검토 대기`가 겹쳐 보였다.
+
+**조치**:
+- `app/request-board-requests.tsx`
+  - 데이터 fetch를 `hydrated` 이후로 지연시켜 세션 복원 중 허위 실패 배너가 뜨지 않게 수정했다.
+  - sync 실패 시 generic 문구 대신 실제 오류 메시지를 우선 노출하도록 바꿔, 재로그인 필요/연동 실패 같은 원인을 화면에서 바로 알 수 있게 정리했다.
+  - 의뢰 카드 우측 상태 표시를 absolute overlay 대신 세로 스택 badge column으로 변경해 `검토 대기`와 `완료`가 겹치지 않게 수정했다.
+- `app/request-board-review.tsx`
+  - 상세 화면도 동일하게 `hydrated` 이후에만 fetch하도록 맞추고, sync 실패 시 실제 오류 메시지를 우선 표시하게 보강했다.
+
+**검증**:
+- 실서버 API 재확인: `login-with-password(01099801777) -> /api/auth/bridge-login -> /api/requests?limit=100&page=1`
+- `npx eslint app/request-board-requests.tsx app/request-board-review.tsx`
+- `npx tsc --noEmit`
+- `node scripts/ci/check-governance.mjs`
+
+---
+
+## <a id="20260316-request-board-pending-visibility"></a> 2026-03-16 | GaramLink 수락대기/검토대기 가시성 강화
+
+**배경**:
+- FC 입장에서 `설계 매니저 수락 대기` 건수는 홈 통계 카드 안 숫자로만 보여 한눈에 찾기 어려웠고, 의뢰 목록 상단의 강조 배지는 `검토 대기`만 보여 같은 화면에서 현재 무엇이 밀려 있는지 구분이 잘 되지 않았다.
+- 실계정 검토 기준 사용자 피드백도 “수락대기 중인 의뢰가 있는지, 있다면 몇 건인지 바로 확인이 안 된다”는 점에 집중돼 있었다.
+
+**조치**:
+- `app/request-board.tsx`
+  - FC/본부장/총무용 통계에 `reviewPending` 집계를 추가했다.
+  - `설계요청` 메인 `의뢰 현황` 상단에 `설계매니저 수락 대기`, `FC 검토 대기` 2개의 요약 카드를 추가해 현재 즉시 확인이 필요한 건수를 카드 그리드보다 먼저 보이게 정리했다.
+- `app/request-board-requests.tsx`
+  - 의뢰 목록 헤더에 같은 두 상태를 별도 요약 카드로 노출해 필터 탭 전에 현재 밀린 건수를 바로 읽을 수 있게 보강했다.
+
+**검증**:
+- `npx eslint app/request-board.tsx app/request-board-requests.tsx`
+- `npx tsc --noEmit`
+- `node scripts/ci/check-governance.mjs`
+
+## <a id="20260316-request-board-review-sync-cancelled"></a> 2026-03-16 | GaramLink 의뢰 목록/상세 취소 의뢰 및 고객 상세정보 연동 보강
+
+**배경**:
+- 가람in 임베디드 GaramLink 의뢰 목록은 `cancelled` 상태를 집계/필터에서 제외하고 있어, 취소 의뢰 알림을 눌러도 목록에 해당 건이 보이지 않을 수 있었다.
+- 의뢰 상세 화면은 실제 request_board 응답이 담고 있는 주민번호, 주소, 직업, 보험 자격, 건강정보, 납입정보, 요청 상품, 설계 링크/취소 사유 같은 필드를 거의 렌더링하지 않아 “가람Link 정보가 모두 연동되는지” 검토 결과와 어긋나 있었다.
+- 최근 활동 알림도 `request_board_cancelled`와 FC 거절 카테고리를 적절한 의뢰 목록 필터로 보내지 못해, 사용자가 알림과 목록 화면 사이에서 상태를 추적하기 어려웠다.
+
+**조치**:
+- `lib/request-board-api.ts`
+  - request detail/assignment 타입을 확장해 고객 상세정보, 보험 자격, 건강/납입 정보, FC 코드 스냅샷, 설계 링크, 취소 사유/시점까지 앱이 안전하게 받을 수 있도록 정리했다.
+- `app/request-board-review.tsx`
+  - 의뢰 상세를 `의뢰 정보`, `고객 정보`, `건강 정보`, `납입 정보` 섹션으로 확장하고, `요청 상품`과 `보험 자격`도 명시적으로 보이도록 정리했다.
+  - 완료 건은 설계 링크를 별도 row로 노출하고, 배정 메타에는 FC 코드, 설계 거절 사유, 요청 취소 사유를 함께 표시하도록 보강했다.
+  - 기존 2줄 요약에 머물던 요청 내용도 full-width 필드로 승격해 가람Link 상세와 정보 밀도를 맞췄다.
+- `app/request-board-requests.tsx`
+  - `cancelled` 필터/카운트를 추가하고, `전체` 목록에도 취소 의뢰를 포함시켰다.
+  - 카드 하단 결정 메타가 취소 의뢰를 `요청 취소`로 명확히 보여주도록 정리했다.
+- `app/request-board.tsx`
+  - FC/본부장/총무용 의뢰 통계의 총계에 취소 의뢰를 반영했다.
+  - 최근 활동 알림 카테고리 매핑에서 `request_board_cancelled`는 `cancelled`, `request_board_rejected`/`request_board_fc-rejected`는 `completed` 필터로 열리도록 보정했다.
+
+**검증**:
+- `npx eslint app/request-board-review.tsx app/request-board-requests.tsx app/request-board.tsx lib/request-board-api.ts`
+- `npx tsc --noEmit`
+- 실계정 E2E:
+  - GaramLink direct 로그인(`01099801777 / qwer1234!`) 성공 확인
+  - 운영 GaramLink API 기준 의뢰 `223(cancelled)`, `221(completed)` 상세 응답 확인
+  - 로컬 Expo web 화면을 Playwright로 열고 request_board API 요청을 운영 서버로 프록시해 `취소` 목록과 의뢰 상세 렌더링 확인
+
+## <a id="20260316-eas-build-pinned-cli-fallback"></a> 2026-03-16 | EAS build wrapper pinned CLI fallback
+
+**배경**:
+- 운영 빌드가 Google Cloud XML 응답 `MalformedSecurityHeader` / `Header was included in signedheaders, but not in the request` / `x-goog-content-length-range` 오류로 업로드 단계에서 중단됐다.
+- 확인 결과 이 작업 머신의 글로벌 `eas-cli`는 `16.32.0`이었고, 프로젝트 래퍼 `scripts/eas-build.js`는 글로벌 `eas` 바이너리가 존재하면 버전 확인 없이 그 경로를 그대로 우선 사용하고 있었다.
+- Expo 공식 문서는 최신 EAS CLI 유지와 `npx eas-cli@latest` 사용을 권장하고 있으므로, 오래된 전역 CLI를 계속 타는 현재 래퍼 동작은 재현성 있는 운영 빌드 경로로 보기 어려웠다.
+
+**조치**:
+- `scripts/eas-build.js`
+  - 최소 요구 버전을 `18.3.0`으로 두고, 글로벌 `eas --version`을 먼저 확인하도록 보강했다.
+  - 글로벌 CLI가 없거나 최소 버전보다 낮으면 자동으로 `npx eas-cli@18.3.0`을 사용하도록 fallback 경로를 추가했다.
+  - 기존 `core.hooksPath` 정리 동작은 그대로 유지해 Git 2.45+ shallow clone 충돌 방지도 계속 보장한다.
+- `eas.json`
+  - CLI 요구 버전을 `>= 18.3.0`으로 상향해 래퍼를 우회해도 구버전 CLI가 조용히 실행되지 않게 맞췄다.
+- `docs/guides/COMMANDS.md`
+  - 표준 빌드 명령 `npm run eas:build:*`가 hooksPath 정리뿐 아니라 pinned CLI fallback도 수행한다는 운영 문구를 추가했다.
+
+**검증**:
+- `node scripts/eas-build.js ios production --help`
+- `node scripts/ci/check-governance.mjs`
+
+## <a id="20260316-ios-address-webview-host-allowlist"></a> 2026-03-16 | iPhone 본등록 주소 검색 WebView host allow-list 보강
+
+**배경**:
+- 2026-03-13에 본등록/기본정보 수정 주소 필드를 검색 전용으로 바꿨지만, iPhone 운영 제보상 주소 검색 결과를 눌러도 앱 폼으로 값이 돌아오지 않는 문제가 계속 남아 있었다.
+- 첨부 화면 녹화 기준 주소 검색이 앱 내부 모달이 아니라 SafariView 형태로 `code.map.kakao.com`에 열리고 있었고, 주소 선택 후에도 `onSelected` 콜백이 호출되지 않았다.
+- 원인을 확인한 결과 기존 `@actbase/react-daum-postcode` native WebView guard가 `postcode.map.daum.net`만 내부 허용 대상으로 보고 있어, 현재 Kakao가 실제로 쓰는 `code.map.kakao.com` 요청을 외부 브라우저로 내보내고 있었다.
+
+**조치**:
+- `lib/daum-postcode.ts`
+  - postcode WebView 내부에 남겨야 하는 신뢰 호스트 판별 helper를 추가했다.
+  - `postcode.map.daum.net`와 현재 iPhone 실사용 host인 `code.map.kakao.com`만 in-app 허용 대상으로 두고, 그 외 외부 링크는 기존처럼 앱 밖으로 열리게 분리했다.
+- `components/DaumPostcode.tsx`
+  - 서드파티 패키지 구현을 앱 로컬 컴포넌트로 대체했다.
+  - Daum postcode embed HTML + `window.ReactNativeWebView.postMessage` 콜백은 유지하되, WebView `onShouldStartLoadWithRequest`가 새 host allow-list를 사용하도록 바꿨다.
+- `app/identity.tsx`
+  - 본등록 주소 검색 모달이 새 공용 `DaumPostcode` 래퍼를 사용하도록 교체했다.
+- `app/fc/new.tsx`
+  - 기본정보 수정 화면도 동일한 `DaumPostcode` 래퍼를 재사용하도록 맞췄다.
+- `lib/__tests__/daum-postcode.test.ts`
+  - `code.map.kakao.com`은 내부 WebView에 남고, unrelated 외부 URL만 차단되는지 회귀 테스트를 추가했다.
+
+**검증**:
+- `npx jest lib/__tests__/daum-postcode.test.ts --runInBand`
+- `npx eslint components/DaumPostcode.tsx lib/daum-postcode.ts lib/__tests__/daum-postcode.test.ts app/identity.tsx app/fc/new.tsx`
+- `node scripts/ci/check-governance.mjs`
+
 ## <a id="20260313-request-board-manager-affiliation-sync"></a> 2026-03-13 | GaramLink 본부장 affiliation sync + FC 표시 중복 제거
 
 **배경**:

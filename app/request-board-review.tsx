@@ -1,6 +1,6 @@
 import { Feather } from '@expo/vector-icons';
 import { Stack, useLocalSearchParams, useRouter } from 'expo-router';
-import { useCallback, useEffect, useState } from 'react';
+import { type ReactNode, useCallback, useEffect, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
@@ -46,6 +46,30 @@ const formatPhone = (value?: string | null) => {
   return value ?? '-';
 };
 
+const formatSsn = (value?: string | null) => {
+  const digits = String(value ?? '').replace(/[^0-9*]/g, '');
+  if (digits.includes('*')) return value ?? '-';
+  if (digits.length === 13) return `${digits.slice(0, 6)}-${digits.slice(6)}`;
+  return value ?? '-';
+};
+
+const formatNullable = (value?: string | null) => {
+  const normalized = String(value ?? '').trim();
+  return normalized || '-';
+};
+
+const formatGender = (value?: string | null) => {
+  const normalized = String(value ?? '').trim().toLowerCase();
+  if (normalized === 'male' || normalized === '남' || normalized === '남성') return '남';
+  if (normalized === 'female' || normalized === '여' || normalized === '여성') return '여';
+  return '-';
+};
+
+const formatCurrency = (value?: number | null) => {
+  if (typeof value !== 'number' || !Number.isFinite(value)) return '-';
+  return `${value.toLocaleString('ko-KR')}원`;
+};
+
 const formatFileSize = (bytes: number): string => {
   if (bytes < 1024) return `${bytes}B`;
   if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)}KB`;
@@ -74,12 +98,38 @@ const getProductNames = (detail: RbRequestDetail): string => {
   return names.length > 0 ? names.join(', ') : '종목 없음';
 };
 
+const formatInsuranceQualifications = (value?: RbRequestDetail['insurance_qualifications']) => {
+  const labels: string[] = [];
+  if (value?.property) labels.push('손해보험');
+  if (value?.life) labels.push('생명보험');
+  if (value?.third) labels.push('제3보험');
+  return labels.length > 0 ? labels.join(', ') : '-';
+};
+
 /* ─── Sub-components ─── */
 
 function StatusBadge({ status, label, color, bg }: { status: string; label: string; color: string; bg: string }) {
   return (
     <View style={[styles.badge, { backgroundColor: bg }]}>
       <Text style={[styles.badgeText, { color }]}>{label}</Text>
+    </View>
+  );
+}
+
+function InfoField({ label, value, fullWidth = false }: { label: string; value: string; fullWidth?: boolean }) {
+  return (
+    <View style={[styles.infoField, fullWidth && styles.infoFieldFull]}>
+      <Text style={styles.infoFieldLabel}>{label}</Text>
+      <Text style={styles.infoFieldValue}>{value}</Text>
+    </View>
+  );
+}
+
+function InfoSection({ title, children }: { title: string; children: ReactNode }) {
+  return (
+    <View style={styles.infoSection}>
+      <Text style={styles.infoSectionTitle}>{title}</Text>
+      <View style={styles.infoGrid}>{children}</View>
     </View>
   );
 }
@@ -105,6 +155,9 @@ export default function RequestBoardReviewScreen() {
   const requestId = id ? parseInt(id, 10) : null;
 
   const fetchData = useCallback(async () => {
+    if (!hydrated) {
+      return;
+    }
     if (!requestId || Number.isNaN(requestId)) {
       setFetchError('유효하지 않은 의뢰 ID입니다.');
       setLoading(false);
@@ -122,15 +175,20 @@ export default function RequestBoardReviewScreen() {
       if (!data) setFetchError('의뢰 정보를 불러오는데 실패했습니다.');
     } catch (err) {
       logger.warn('[review] fetch failed', err);
-      setFetchError('의뢰 정보를 불러오는데 실패했습니다.');
+      setFetchError(
+        err instanceof Error && err.message
+          ? err.message
+          : '의뢰 정보를 불러오는데 실패했습니다.',
+      );
     } finally {
       setLoading(false);
     }
-  }, [ensureRequestBoardSession, requestId]);
+  }, [ensureRequestBoardSession, hydrated, requestId]);
 
   useEffect(() => {
+    if (!hydrated) return;
     fetchData();
-  }, [fetchData]);
+  }, [fetchData, hydrated]);
 
   /* ─── Actions ─── */
 
@@ -226,6 +284,10 @@ export default function RequestBoardReviewScreen() {
       (assignment.fc_decision === 'pending' || assignment.fc_decision == null);
     const fcDecided = assignment.fc_decision === 'accepted' || assignment.fc_decision === 'rejected';
     const attachments = assignment.request_attachments ?? [];
+    const assignmentCode = [assignment.fc_code_name, assignment.fc_code_value]
+      .map((value) => String(value ?? '').trim())
+      .filter((value) => value.length > 0)
+      .join(' / ');
 
     return (
       <View
@@ -275,6 +337,47 @@ export default function RequestBoardReviewScreen() {
             </View>
           )}
         </View>
+
+        {(assignmentCode || assignment.rejection_reason || assignment.cancel_reason) && (
+          <View style={styles.assignmentMetaWrap}>
+            {assignmentCode ? (
+              <View style={styles.assignmentMetaNote}>
+                <Feather name="hash" size={12} color={COLORS.primary} />
+                <Text style={styles.assignmentMetaText}>설계코드 {assignmentCode}</Text>
+              </View>
+            ) : null}
+            {assignment.status === 'rejected' && assignment.rejection_reason ? (
+              <View style={styles.assignmentMetaNote}>
+                <Feather name="alert-circle" size={12} color={COLORS.error} />
+                <Text style={styles.assignmentMetaText}>거절 사유 {assignment.rejection_reason}</Text>
+              </View>
+            ) : null}
+            {assignment.status === 'cancelled' && assignment.cancel_reason ? (
+              <View style={styles.assignmentMetaNote}>
+                <Feather name="slash" size={12} color={COLORS.gray[500]} />
+                <Text style={styles.assignmentMetaText}>취소 사유 {assignment.cancel_reason}</Text>
+              </View>
+            ) : null}
+          </View>
+        )}
+
+        {isCompleted && assignment.design_url ? (
+          <Pressable
+            style={({ pressed }) => [styles.designUrlRow, pressed && { opacity: 0.8 }]}
+            onPress={() => handleOpenFile(assignment.design_url!)}
+          >
+            <View style={styles.designUrlIcon}>
+              <Feather name="link" size={14} color={COLORS.primary} />
+            </View>
+            <View style={styles.designUrlInfo}>
+              <Text style={styles.designUrlTitle}>설계서 링크</Text>
+              <Text style={styles.designUrlValue} numberOfLines={1}>
+                {assignment.design_url}
+              </Text>
+            </View>
+            <Feather name="external-link" size={14} color={COLORS.primary} />
+          </Pressable>
+        ) : null}
 
         {/* Attachments */}
         {isCompleted && attachments.length > 0 && (
@@ -430,6 +533,55 @@ export default function RequestBoardReviewScreen() {
           contentContainerStyle={[styles.scrollContent, { paddingBottom: 80 + insets.bottom }]}
           showsVerticalScrollIndicator={false}
         >
+          {(() => {
+            const requestFields = [
+              { label: '요청일', value: formatDate(detail.created_at) },
+              { label: '고객명', value: formatNullable(detail.customer_name) },
+              {
+                label: '요청 FC',
+                value: `${formatRequestBoardFcDisplayName(detail.fc?.name ?? '-', detail.fc?.affiliation)} (${formatPhone(detail.fc?.phone)})`,
+              },
+              {
+                label: 'FC 코드',
+                value: [detail.fc_code_name, detail.fc_code_value]
+                  .map((value) => String(value ?? '').trim())
+                  .filter((value) => value.length > 0)
+                  .join(' / ') || '-',
+              },
+              { label: '요청 상품', value: getProductNames(detail), fullWidth: true },
+            ];
+            const customerFields = [
+              { label: '성별', value: formatGender(detail.customer_gender) },
+              { label: '생년월일', value: formatNullable(detail.customer_birth_date) },
+              { label: '주민번호', value: formatSsn(detail.customer_ssn) },
+              { label: '연락처', value: formatPhone(detail.customer_phone) },
+              { label: '통신사', value: formatNullable(detail.customer_carrier) },
+              { label: '주소', value: formatNullable(detail.customer_address), fullWidth: true },
+              { label: '직업', value: formatNullable(detail.customer_job) },
+              { label: '운전구분', value: formatRequestBoardDrivingStatus(detail.customer_driving_status) },
+              { label: '소득', value: formatNullable(detail.customer_income) },
+              { label: '이메일', value: formatNullable(detail.customer_email) },
+              { label: '키', value: formatNullable(detail.customer_height) },
+              { label: '몸무게', value: formatNullable(detail.customer_weight) },
+              { label: '소개자', value: formatNullable(detail.customer_referrer) },
+              { label: '보험 자격', value: formatInsuranceQualifications(detail.insurance_qualifications), fullWidth: true },
+            ];
+            const healthFields = [
+              { label: '최근 병원 방문', value: formatNullable(detail.recent_hospital_visit) },
+              { label: '현재 복용 약물', value: formatNullable(detail.current_medication) },
+              { label: '최근 입원 이력', value: formatNullable(detail.recent_hospitalization) },
+              { label: '주요 질병', value: formatNullable(detail.major_diseases) },
+            ];
+            const paymentFields = [
+              { label: '예금주', value: formatNullable(detail.account_holder) },
+              { label: '은행', value: formatNullable(detail.bank_name) },
+              { label: '계좌번호', value: formatNullable(detail.account_number), fullWidth: true },
+              { label: '월 납입액', value: formatCurrency(detail.monthly_payment) },
+            ];
+            const hasPaymentInfo = paymentFields.some((field) => field.value !== '-');
+
+            return (
+              <>
           {/* Request Info Card */}
           <View style={styles.infoCard}>
             <View style={styles.infoCardHeader}>
@@ -448,37 +600,52 @@ export default function RequestBoardReviewScreen() {
               </View>
               <Text style={styles.infoProducts}>{getProductNames(detail)}</Text>
             </View>
-          <View style={styles.infoMetaRow}>
-            <View style={styles.infoMeta}>
-              <Feather name="calendar" size={12} color={COLORS.gray[400]} />
-              <Text style={styles.infoMetaText}>요청일 {formatDate(detail.created_at)}</Text>
-            </View>
-            <View style={styles.infoMeta}>
-              <Feather name="user" size={12} color={COLORS.gray[400]} />
-              <Text style={styles.infoMetaText}>고객명 {detail.customer_name ?? '-'}</Text>
-            </View>
-            <View style={styles.infoMeta}>
-              <Feather name="check-circle" size={12} color={COLORS.gray[400]} />
-              <Text style={styles.infoMetaText}>
-                운전구분 {formatRequestBoardDrivingStatus(detail.customer_driving_status)}
-              </Text>
-            </View>
-            <View style={styles.infoMeta}>
-              <Feather name="user" size={12} color={COLORS.gray[400]} />
-              <Text style={styles.infoMetaText}>
-                요청 FC {formatRequestBoardFcDisplayName(detail.fc?.name ?? '-', detail.fc?.affiliation)} ({formatPhone(detail.fc?.phone)})
-              </Text>
-            </View>
-            {detail.request_details && (
-              <View style={styles.infoMetaRow}>
-                <Feather name="file-text" size={12} color={COLORS.gray[400]} />
-                <Text style={styles.infoMetaText} numberOfLines={2}>
-                  {detail.request_details}
-                  </Text>
-                </View>
-              )}
-            </View>
+            <InfoSection title="의뢰 정보">
+              {requestFields.map((field) => (
+                <InfoField
+                  key={field.label}
+                  label={field.label}
+                  value={field.value}
+                  fullWidth={field.fullWidth}
+                />
+              ))}
+              <InfoField
+                label="요청 내용"
+                value={formatNullable(detail.request_details)}
+                fullWidth
+              />
+            </InfoSection>
+            <InfoSection title="고객 정보">
+              {customerFields.map((field) => (
+                <InfoField
+                  key={field.label}
+                  label={field.label}
+                  value={field.value}
+                  fullWidth={field.fullWidth}
+                />
+              ))}
+            </InfoSection>
+            <InfoSection title="건강 정보">
+              {healthFields.map((field) => (
+                <InfoField key={field.label} label={field.label} value={field.value} />
+              ))}
+            </InfoSection>
+            {hasPaymentInfo ? (
+              <InfoSection title="납입 정보">
+                {paymentFields.map((field) => (
+                  <InfoField
+                    key={field.label}
+                    label={field.label}
+                    value={field.value}
+                    fullWidth={field.fullWidth}
+                  />
+                ))}
+              </InfoSection>
+            ) : null}
           </View>
+              </>
+            );
+          })()}
 
           {/* Designer Assignments */}
           <Text style={styles.sectionTitle}>
@@ -663,25 +830,41 @@ const styles = StyleSheet.create({
     fontSize: TYPOGRAPHY.fontSize.sm,
     color: COLORS.text.muted,
   },
-  infoMetaRow: {
+  infoSection: {
+    marginTop: SPACING.md,
+  },
+  infoSectionTitle: {
+    fontSize: TYPOGRAPHY.fontSize.sm,
+    fontWeight: '700' as const,
+    color: COLORS.gray[800],
+    marginBottom: SPACING.sm,
+  },
+  infoGrid: {
     flexDirection: 'row',
-    alignItems: 'center',
-    gap: 4,
     flexWrap: 'wrap',
-    paddingTop: SPACING.sm,
-    borderTopWidth: 1,
-    borderTopColor: COLORS.gray[100],
-    marginTop: SPACING.sm,
+    gap: SPACING.sm,
   },
-  infoMeta: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 4,
-    marginRight: SPACING.md,
+  infoField: {
+    width: '48%',
+    borderWidth: 1,
+    borderColor: COLORS.gray[100],
+    borderRadius: RADIUS.md,
+    paddingHorizontal: SPACING.sm,
+    paddingVertical: SPACING.sm,
+    backgroundColor: COLORS.gray[50],
   },
-  infoMetaText: {
+  infoFieldFull: {
+    width: '100%',
+  },
+  infoFieldLabel: {
     fontSize: TYPOGRAPHY.fontSize.xs,
     color: COLORS.gray[500],
+    marginBottom: 4,
+  },
+  infoFieldValue: {
+    fontSize: TYPOGRAPHY.fontSize.sm,
+    color: COLORS.gray[900],
+    fontWeight: '600' as const,
   },
 
   /* Section */
@@ -791,6 +974,58 @@ const styles = StyleSheet.create({
   timelineDate: {
     fontSize: TYPOGRAPHY.fontSize.xs,
     color: COLORS.gray[400],
+  },
+  assignmentMetaWrap: {
+    gap: 6,
+    marginBottom: SPACING.sm,
+  },
+  assignmentMetaNote: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: 6,
+    paddingHorizontal: SPACING.sm,
+    paddingVertical: SPACING.xs,
+    borderRadius: RADIUS.md,
+    backgroundColor: COLORS.gray[50],
+    borderWidth: 1,
+    borderColor: COLORS.gray[100],
+  },
+  assignmentMetaText: {
+    flex: 1,
+    fontSize: TYPOGRAPHY.fontSize.xs,
+    color: COLORS.gray[700],
+  },
+  designUrlRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: SPACING.sm,
+    padding: SPACING.sm,
+    borderRadius: RADIUS.md,
+    borderWidth: 1,
+    borderColor: COLORS.primary,
+    backgroundColor: COLORS.primaryPale,
+    marginBottom: SPACING.sm,
+  },
+  designUrlIcon: {
+    width: 32,
+    height: 32,
+    borderRadius: 8,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#fff',
+  },
+  designUrlInfo: {
+    flex: 1,
+  },
+  designUrlTitle: {
+    fontSize: TYPOGRAPHY.fontSize.sm,
+    fontWeight: '700' as const,
+    color: COLORS.primary,
+  },
+  designUrlValue: {
+    fontSize: TYPOGRAPHY.fontSize.xs,
+    color: COLORS.gray[600],
+    marginTop: 2,
   },
 
   /* Attachments */

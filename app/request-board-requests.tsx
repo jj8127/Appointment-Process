@@ -35,7 +35,7 @@ const getProductNames = (req: RbRequestListItem): string => {
   return names.length > 0 ? names.join(', ') : '종목 없음';
 };
 
-type FilterKey = 'all' | 'pending' | 'in_progress' | 'completed' | 'review_pending';
+type FilterKey = 'all' | 'pending' | 'in_progress' | 'completed' | 'cancelled' | 'review_pending';
 
 const hasPendingReview = (req: RbRequestListItem) =>
   (req.request_designers ?? []).some(
@@ -103,6 +103,7 @@ export default function RequestBoardRequestsScreen() {
         rawFilter === 'pending' ||
         rawFilter === 'in_progress' ||
         rawFilter === 'completed' ||
+        rawFilter === 'cancelled' ||
         rawFilter === 'review_pending'
       ) {
         return rawFilter;
@@ -113,6 +114,9 @@ export default function RequestBoardRequestsScreen() {
   }, [filter]);
 
   const fetchData = useCallback(async () => {
+    if (!hydrated) {
+      return;
+    }
     setFetchError(null);
     try {
       const sync = await ensureRequestBoardSession();
@@ -124,16 +128,21 @@ export default function RequestBoardRequestsScreen() {
       setRequests(data);
     } catch (err) {
       logger.warn('[requests] fetch failed', err);
-      setFetchError('의뢰 목록을 불러오는데 실패했습니다.');
+      setFetchError(
+        err instanceof Error && err.message
+          ? err.message
+          : '의뢰 목록을 불러오는데 실패했습니다.',
+      );
     } finally {
       setLoading(false);
       setRefreshing(false);
     }
-  }, [ensureRequestBoardSession]);
+  }, [ensureRequestBoardSession, hydrated]);
 
   useEffect(() => {
+    if (!hydrated) return;
     fetchData();
-  }, [fetchData]);
+  }, [fetchData, hydrated]);
 
   const handleRefresh = () => {
     setRefreshing(true);
@@ -157,9 +166,13 @@ export default function RequestBoardRequestsScreen() {
     () => requests.filter((r) => r.status === 'completed').length,
     [requests],
   );
+  const cancelledCount = useMemo(
+    () => requests.filter((r) => r.status === 'cancelled').length,
+    [requests],
+  );
   const countedTotal = useMemo(
-    () => pendingCount + inProgressCount + completedCount,
-    [pendingCount, inProgressCount, completedCount],
+    () => pendingCount + inProgressCount + completedCount + cancelledCount,
+    [pendingCount, inProgressCount, completedCount, cancelledCount],
   );
 
   const filteredRequests = useMemo(() => {
@@ -175,9 +188,15 @@ export default function RequestBoardRequestsScreen() {
         return sorted.filter((r) => r.status === 'in_progress');
       case 'completed':
         return sorted.filter((r) => r.status === 'completed');
+      case 'cancelled':
+        return sorted.filter((r) => r.status === 'cancelled');
       default:
         return sorted.filter(
-          (r) => r.status === 'pending' || r.status === 'in_progress' || r.status === 'completed',
+          (r) =>
+            r.status === 'pending' ||
+            r.status === 'in_progress' ||
+            r.status === 'completed' ||
+            r.status === 'cancelled',
         );
     }
   }, [requests, activeFilter]);
@@ -187,6 +206,7 @@ export default function RequestBoardRequestsScreen() {
     { key: 'pending', label: '수락 대기', count: pendingCount },
     { key: 'in_progress', label: '진행중', count: inProgressCount },
     { key: 'completed', label: '완료', count: completedCount },
+    { key: 'cancelled', label: '취소', count: cancelledCount },
     { key: 'review_pending', label: '검토 대기', count: reviewPendingCount },
   ];
 
@@ -217,21 +237,23 @@ export default function RequestBoardRequestsScreen() {
           router.push({ pathname: '/request-board-review' as any, params: { id: String(requestId) } });
         }}
       >
-        {isPendingReview && (
-          <View style={styles.reviewBadge}>
-            <Feather name="eye" size={10} color="#fff" />
-            <Text style={styles.reviewBadgeText}>검토 대기</Text>
-          </View>
-        )}
         <View style={styles.cardTop}>
           <View style={styles.cardTitleRow}>
             <Text style={styles.customerName} numberOfLines={1}>
               {item.customer_name}
             </Text>
-            <View style={[styles.statusBadge, { backgroundColor: statusInfo.bg }]}>
-              <Text style={[styles.statusBadgeText, { color: statusInfo.color }]}>
-                {statusInfo.label}
-              </Text>
+            <View style={styles.badgeColumn}>
+              {isPendingReview && (
+                <View style={styles.reviewStatusBadge}>
+                  <Feather name="eye" size={10} color="#fff" />
+                  <Text style={styles.reviewStatusBadgeText}>검토 대기</Text>
+                </View>
+              )}
+              <View style={[styles.statusBadge, { backgroundColor: statusInfo.bg }]}>
+                <Text style={[styles.statusBadgeText, { color: statusInfo.color }]}>
+                  {statusInfo.label}
+                </Text>
+              </View>
             </View>
           </View>
           <Text style={styles.productNames} numberOfLines={1}>
@@ -280,11 +302,41 @@ export default function RequestBoardRequestsScreen() {
             <Text style={styles.headerTitle}>의뢰 목록</Text>
             <Text style={styles.headerSub}>설계 의뢰를 검토하고 승인하세요</Text>
           </View>
-          {reviewPendingCount > 0 && (
-            <View style={styles.pendingBadge}>
-              <Text style={styles.pendingBadgeText}>{reviewPendingCount}</Text>
+        </View>
+
+        <View style={styles.summaryRow}>
+          <Pressable
+            style={({ pressed }) => [
+              styles.summaryCard,
+              styles.summaryCardPending,
+              pressed && styles.summaryCardPressed,
+            ]}
+            onPress={() => setActiveFilter('pending')}
+          >
+            <View style={[styles.summaryIconWrap, { backgroundColor: '#FEF3C7' }]}>
+              <Feather name="clock" size={15} color="#B45309" />
             </View>
-          )}
+            <View style={styles.summaryText}>
+              <Text style={styles.summaryLabel}>설계매니저 수락 대기</Text>
+              <Text style={[styles.summaryValue, { color: '#B45309' }]}>{pendingCount}건</Text>
+            </View>
+          </Pressable>
+          <Pressable
+            style={({ pressed }) => [
+              styles.summaryCard,
+              styles.summaryCardReview,
+              pressed && styles.summaryCardPressed,
+            ]}
+            onPress={() => setActiveFilter('review_pending')}
+          >
+            <View style={[styles.summaryIconWrap, { backgroundColor: '#EDE9FE' }]}>
+              <Feather name="eye" size={15} color="#7C3AED" />
+            </View>
+            <View style={styles.summaryText}>
+              <Text style={styles.summaryLabel}>FC 검토 대기</Text>
+              <Text style={[styles.summaryValue, { color: '#7C3AED' }]}>{reviewPendingCount}건</Text>
+            </View>
+          </Pressable>
         </View>
 
         {/* Filter tabs */}
@@ -415,19 +467,50 @@ const styles = StyleSheet.create({
     color: COLORS.text.muted,
     marginTop: 1,
   },
-  pendingBadge: {
-    minWidth: 24,
-    height: 24,
-    borderRadius: 12,
-    backgroundColor: COLORS.error,
+  summaryRow: {
+    flexDirection: 'row',
+    gap: SPACING.sm,
+    marginBottom: SPACING.sm,
+  },
+  summaryCard: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: SPACING.sm,
+    paddingHorizontal: SPACING.sm,
+    paddingVertical: SPACING.sm,
+    borderRadius: RADIUS.md,
+    borderWidth: 1,
+    backgroundColor: COLORS.gray[50],
+  },
+  summaryCardPending: {
+    borderColor: '#FCD34D',
+  },
+  summaryCardReview: {
+    borderColor: '#DDD6FE',
+  },
+  summaryCardPressed: {
+    opacity: 0.85,
+  },
+  summaryIconWrap: {
+    width: 32,
+    height: 32,
+    borderRadius: 10,
     alignItems: 'center',
     justifyContent: 'center',
-    paddingHorizontal: 6,
   },
-  pendingBadgeText: {
+  summaryText: {
+    flex: 1,
+  },
+  summaryLabel: {
     fontSize: TYPOGRAPHY.fontSize.xs,
-    fontWeight: '700' as const,
-    color: '#fff',
+    fontWeight: '600' as const,
+    color: COLORS.gray[600],
+  },
+  summaryValue: {
+    fontSize: TYPOGRAPHY.fontSize.base,
+    fontWeight: '800' as const,
+    marginTop: 1,
   },
 
   /* Filter tabs */
@@ -534,27 +617,10 @@ const styles = StyleSheet.create({
     borderColor: COLORS.primary,
     borderWidth: 1.5,
   },
-  reviewBadge: {
-    position: 'absolute',
-    top: 0,
-    right: 0,
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 3,
-    backgroundColor: COLORS.primary,
-    paddingHorizontal: 8,
-    paddingVertical: 3,
-    borderBottomLeftRadius: RADIUS.sm,
-  },
-  reviewBadgeText: {
-    fontSize: 10,
-    fontWeight: '700' as const,
-    color: '#fff',
-  },
   cardTop: { marginBottom: SPACING.sm },
   cardTitleRow: {
     flexDirection: 'row',
-    alignItems: 'center',
+    alignItems: 'flex-start',
     justifyContent: 'space-between',
     gap: SPACING.sm,
     marginBottom: 4,
@@ -564,6 +630,25 @@ const styles = StyleSheet.create({
     fontSize: TYPOGRAPHY.fontSize.base,
     fontWeight: '700' as const,
     color: COLORS.gray[900],
+  },
+  badgeColumn: {
+    alignItems: 'flex-end',
+    gap: 6,
+    flexShrink: 0,
+  },
+  reviewStatusBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    backgroundColor: COLORS.primary,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 12,
+  },
+  reviewStatusBadgeText: {
+    fontSize: TYPOGRAPHY.fontSize.xs,
+    fontWeight: '700' as const,
+    color: '#fff',
   },
   statusBadge: {
     paddingHorizontal: 8,

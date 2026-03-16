@@ -780,6 +780,8 @@ export type RbDesignerAssignment = {
   id: number;
   designer_id: number;
   status: string;
+  fc_code_name?: string | null;
+  fc_code_value?: string | null;
   fc_decision: 'pending' | 'accepted' | 'rejected' | null;
   fc_decision_reason?: string | null;
   fc_decided_at?: string | null;
@@ -788,6 +790,8 @@ export type RbDesignerAssignment = {
   completed_at?: string | null;
   processing_days?: number | null;
   rejection_reason?: string | null;
+  cancel_reason?: string | null;
+  cancelled_at?: string | null;
   request_attachments?: RbRequestAttachmentFull[];
   designers?: {
     id: number;
@@ -823,10 +827,35 @@ export type RbRequestDetail = {
   id: number;
   status: string;
   customer_name: string;
+  customer_ssn?: string | null;
+  customer_gender?: string | null;
   customer_phone?: string | null;
   customer_birth_date?: string | null;
+  customer_carrier?: string | null;
+  customer_address?: string | null;
+  customer_job?: string | null;
   customer_driving_status?: string | null;
+  customer_income?: string | null;
+  customer_email?: string | null;
+  customer_height?: string | null;
+  customer_weight?: string | null;
+  customer_referrer?: string | null;
+  insurance_qualifications?: {
+    property?: boolean;
+    life?: boolean;
+    third?: boolean;
+  } | null;
+  recent_hospital_visit?: string | null;
+  current_medication?: string | null;
+  recent_hospitalization?: string | null;
+  major_diseases?: string | null;
   request_details?: string | null;
+  fc_code_name?: string | null;
+  fc_code_value?: string | null;
+  account_holder?: string | null;
+  bank_name?: string | null;
+  account_number?: string | null;
+  monthly_payment?: number | null;
   created_at: string;
   updated_at?: string;
   request_products?: {

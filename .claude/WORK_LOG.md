@@ -20,6 +20,11 @@
 ## 최근 작업
 | 날짜 | 작업 | 핵심 파일 | 상세 |
 |------|------|----------|------|
+| 03-16 | GaramLink 의뢰목록 초기 실패 배너를 세션 복원 이후로 늦추고 상태 배지 겹침을 정리 | `app/request-board-requests.tsx`, `app/request-board-review.tsx` | [→ 상세](WORK_DETAIL.md#20260316-request-board-list-hydration-layout-fix) |
+| 03-16 | 가람Link 수락대기/검토대기 건수가 가람in 메인·목록 헤더에서 바로 보이도록 가시성 강화 | `app/request-board.tsx`, `app/request-board-requests.tsx` | [→ 상세](WORK_DETAIL.md#20260316-request-board-pending-visibility) |
+| 03-16 | GaramLink 의뢰 목록/상세에 취소 의뢰와 고객 상세·요청 상품·보험 자격 정보를 다시 연결하고 FC 검토 동선을 보강 | `app/request-board-review.tsx`, `app/request-board-requests.tsx`, `app/request-board.tsx`, `lib/request-board-api.ts` | [→ 상세](WORK_DETAIL.md#20260316-request-board-review-sync-cancelled) |
+| 03-16 | 구버전 글로벌 `eas-cli`를 타지 않도록 빌드 래퍼에 pinned CLI fallback 추가 | `scripts/eas-build.js`, `eas.json`, `docs/guides/COMMANDS.md`, `AGENTS.md` | [→ 상세](WORK_DETAIL.md#20260316-eas-build-pinned-cli-fallback) |
+| 03-16 | iPhone 본등록 주소 검색이 Safari로 이탈하지 않도록 Kakao postcode host 허용 목록을 앱 로컬 WebView로 고정 | `components/DaumPostcode.tsx`, `lib/daum-postcode.ts`, `app/identity.tsx`, `app/fc/new.tsx`, `AGENTS.md` | [→ 상세](WORK_DETAIL.md#20260316-ios-address-webview-host-allowlist) |
 | 03-13 | GaramLink 본부장 소속도 브릿지 sync에 포함하고 중복 이름 표기를 정리 | `supabase/functions/_shared/manager-affiliation.ts`, `supabase/functions/_shared/request-board-auth.ts`, `supabase/functions/login-with-password/index.ts`, `supabase/functions/sync-request-board-session/index.ts`, `lib/request-board-fc-identity.ts`, `AGENTS.md` | [→ 상세](WORK_DETAIL.md#20260313-request-board-manager-affiliation-sync) |
 | 03-13 | GaramLink FC 소속을 브릿지 sync에 포함하고 임베디드 메신저/의뢰상세에도 표시 | `supabase/functions/_shared/request-board-auth.ts`, `supabase/functions/login-with-password/index.ts`, `supabase/functions/set-password/index.ts`, `supabase/functions/reset-password/index.ts`, `supabase/functions/sync-request-board-session/index.ts`, `app/request-board-messenger.tsx`, `app/request-board-review.tsx`, `lib/request-board-api.ts`, `lib/request-board-fc-identity.ts`, `AGENTS.md` | [→ 상세](WORK_DETAIL.md#20260313-request-board-fc-affiliation-sync) |
 | 03-13 | 홈 최신 공지를 게시판 공지 소스로 고정하고 fallback도 게시판으로 정렬 | `app/index.tsx`, `supabase/functions/fc-notify/index.ts`, `AGENTS.md` | [→ 상세](WORK_DETAIL.md#20260313-home-latest-notice-board-only) |
