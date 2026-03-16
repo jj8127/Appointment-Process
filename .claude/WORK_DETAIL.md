@@ -7,6 +7,23 @@
 
 ---
 
+## <a id="20260316-login-hardening-governance-backfill"></a> 2026-03-16 | GaramLink 로그인 핫픽스 푸시 거버넌스 보강
+
+**배경**:
+- GitHub Actions `governance` 체크가 커밋 `7a93ae1`(`fix(app): harden garamlink login flow`)에서 실패했다.
+- 원인은 로그인/브릿지 URL 보정과 비밀번호 변경 문구 수정이 코드 diff로 포함됐지만, 같은 diff 범위에 `WORK_LOG.md`와 `WORK_DETAIL.md`가 함께 갱신되지 않았기 때문이다.
+- 기능 코드는 이미 정상 반영돼 있으므로, 재푸시를 위해서는 이전 로그인 핫픽스의 작업 이력을 문서에 명시적으로 보강할 필요가 있었다.
+
+**조치**:
+- `.claude/WORK_LOG.md`
+  - 2026-03-16 GaramLink 로그인 핫픽스 재푸시용 거버넌스 보강 항목을 추가했다.
+- `.claude/WORK_DETAIL.md`
+  - GitHub Actions 실패 원인과 재푸시 목적을 추적할 수 있도록 상세 이력을 추가했다.
+- 푸시 절차는 기존 커밋 amend 대신 docs-only 후속 커밋으로 정리해, 이미 원격에 올라간 로그인 핫픽스 이력은 유지하면서 governance diff만 보강하도록 정렬했다.
+
+**검증**:
+- `node scripts/ci/check-governance.mjs`
+
 ## <a id="20260316-request-board-inbox-bridge-sync"></a> 2026-03-16 | GaramLink 브리지 알림 인박스 연동 복구
 
 **배경**:

@@ -20,6 +20,7 @@
 ## 최근 작업
 | 날짜 | 작업 | 핵심 파일 | 상세 |
 |------|------|----------|------|
+| 03-16 | GaramLink 로그인 핫픽스 재푸시를 위해 거버넌스 이력 누락을 보강 | `.claude/WORK_LOG.md`, `.claude/WORK_DETAIL.md` | [→ 상세](WORK_DETAIL.md#20260316-login-hardening-governance-backfill) |
 | 03-16 | GaramLink 브리지 알림이 본부장/개발자 세션에서도 가람in 알림센터·홈·설계요청 최근활동에 보이도록 inbox 연동 복구 | `supabase/functions/fc-notify/index.ts`, `app/notifications.tsx`, `app/request-board.tsx`, `app/index.tsx` | [→ 상세](WORK_DETAIL.md#20260316-request-board-inbox-bridge-sync) |
 | 03-16 | GaramLink 로그인/최근활동/의뢰목록이 로컬 request_board 대기 때문에 무한로딩되지 않도록 URL 기본값과 API 타임아웃을 보정 | `hooks/use-login.ts`, `lib/request-board-api.ts`, `lib/request-board-url.ts`, `README.md`, `AGENTS.md` | [→ 상세](WORK_DETAIL.md#20260316-request-board-login-timeout-dev-url-fix) |
 | 03-16 | 가람in 로그인 하단 비밀번호 재설정 링크 문구를 운영 요청 표현으로 교체 | `app/login.tsx` | [→ 상세](WORK_DETAIL.md#20260316-login-reset-copy) |
