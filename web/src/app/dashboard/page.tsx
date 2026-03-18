@@ -170,6 +170,7 @@ export default function DashboardPage() {
   const [selectedDocs, setSelectedDocs] = useState<string[]>([]);
   const [customDocInput, setCustomDocInput] = useState('');
   const [docsDeadlineInput, setDocsDeadlineInput] = useState<Date | null>(null);
+  const [allowanceDateInput, setAllowanceDateInput] = useState<Date | null>(null);
   const handleDocsDeadlineChange = (value: string | null) => {
     if (!value) {
       setDocsDeadlineInput(null);
@@ -177,6 +178,14 @@ export default function DashboardPage() {
     }
     const nextValue = new Date(value);
     setDocsDeadlineInput(Number.isNaN(nextValue.getTime()) ? null : nextValue);
+  };
+  const handleAllowanceDateChange = (value: Date | string | null) => {
+    if (!value) {
+      setAllowanceDateInput(null);
+      return;
+    }
+    const nextValue = value instanceof Date ? value : new Date(value);
+    setAllowanceDateInput(Number.isNaN(nextValue.getTime()) ? null : nextValue);
   };
 
   // 위촉 일정 및 승인 상태
@@ -417,8 +426,59 @@ export default function DashboardPage() {
     },
     onSuccess: () => {
       const commissionData = buildCommissionProfileUpdate(selectedFc, commissionInput);
-      updateSelectedFc(commissionData as Partial<FCProfileWithDocuments>);
+      const nextProfileUpdates: Partial<FCProfileWithDocuments> = {
+        career_type: careerInput,
+        ...commissionData,
+      };
+      if (tempIdInput && tempIdInput !== selectedFc?.temp_id) {
+        nextProfileUpdates.temp_id = tempIdInput;
+      }
+      updateSelectedFc(nextProfileUpdates);
       notifications.show({ title: '저장 완료', message: '기본 정보가 업데이트되었습니다.', color: 'green' });
+      queryClient.invalidateQueries({ queryKey: ['dashboard-list'] });
+    },
+    onError: (err: Error) => notifications.show({ title: '오류', message: err.message, color: 'red' }),
+  });
+
+  const updateAllowanceDateMutation = useMutation({
+    mutationFn: async () => {
+      if (!selectedFc || !allowanceDateInput) {
+        throw new Error('수당 동의일을 선택해주세요.');
+      }
+      const normalizedAllowanceDate = dayjs(allowanceDateInput).format('YYYY-MM-DD');
+      const resp = await fetch('/api/admin/fc', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          action: 'updateAllowanceDate',
+          payload: {
+            fcId: selectedFc.id,
+            allowanceDate: normalizedAllowanceDate,
+          },
+        }),
+      });
+      const data: unknown = await resp.json().catch(() => null);
+      if (!resp.ok) {
+        const message =
+          data && typeof data === 'object' && 'error' in data
+            ? String((data as { error?: string }).error || '')
+            : '';
+        throw new Error(message || '수당 동의일 저장 실패');
+      }
+
+      const payload = data as { allowance_date?: string; status?: FcStatus } | null;
+      return {
+        allowanceDate: payload?.allowance_date ?? normalizedAllowanceDate,
+        status: payload?.status ?? selectedFc.status,
+      };
+    },
+    onSuccess: ({ allowanceDate, status }) => {
+      updateSelectedFc({
+        allowance_date: allowanceDate,
+        allowance_reject_reason: null,
+        status,
+      });
+      notifications.show({ title: '저장 완료', message: '수당 동의일이 저장되었습니다.', color: 'green' });
       queryClient.invalidateQueries({ queryKey: ['dashboard-list'] });
     },
     onError: (err: Error) => notifications.show({ title: '오류', message: err.message, color: 'red' }),
@@ -588,6 +648,7 @@ export default function DashboardPage() {
     setSelectedFc(fc);
     setTempIdInput(fc.temp_id || '');
     setCareerInput((fc.career_type as '신입' | '경력') || null);
+    setAllowanceDateInput(fc.allowance_date ? new Date(fc.allowance_date) : null);
     const currentDocs = fc.fc_documents?.map((d: FCDocument) => d.doc_type) || [];
     logger.debug('Opening Modal for:', fc.name);
     logger.debug('Init SelectedDocs:', currentDocs);
@@ -893,13 +954,13 @@ export default function DashboardPage() {
       style={{ cursor: 'pointer' }}
       onClick={() => router.push(`/dashboard/profile/${fc.id}`)}
     >
-      <Table.Td>
-        <Group gap="sm">
+      <Table.Td w={200}>
+        <Group gap="sm" wrap="nowrap" align="flex-start">
           <ThemeIcon variant="light" color="gray" size="lg" radius="xl">
             <IconUser size={18} />
           </ThemeIcon>
-          <div>
-            <Text size="sm" fw={600} c="dark.5">
+          <div style={{ minWidth: 0, flex: 1 }}>
+            <Text size="sm" fw={600} c="dark.5" style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
               {fc.name}
             </Text>
             <Group gap={6} mt={4}>
@@ -1367,7 +1428,7 @@ export default function DashboardPage() {
               <Table verticalSpacing="sm" highlightOnHover striped withTableBorder>
                 <Table.Thead bg="gray.0" style={{ position: 'sticky', top: 0, zIndex: 1 }}>
                   <Table.Tr>
-                    <Table.Th w={120}>FC 정보</Table.Th>
+                    <Table.Th w={200}>FC 정보</Table.Th>
                     <Table.Th w={100}>연락처</Table.Th>
                     <Table.Th w={140}>소속</Table.Th>
                     <Table.Th w={150}>위촉 완료일</Table.Th>
@@ -1536,28 +1597,65 @@ export default function DashboardPage() {
                         {selectedFc.allowance_date ? '입력됨' : '미입력'}
                       </Badge>
                     </Group>
-                    <TextInput
+                    <DateInput
                       label="동의일(Actual)"
-                      value={
-                        selectedFc.allowance_date
-                          ? dayjs(selectedFc.allowance_date).format('YYYY-MM-DD')
-                          : '미실시'
-                      }
-                      readOnly
-                      disabled
-                      variant="filled"
+                      value={allowanceDateInput}
+                      onChange={handleAllowanceDateChange}
+                      placeholder="YYYY-MM-DD"
+                      valueFormat="YYYY-MM-DD"
+                      disabled={isReadOnly}
+                      clearable={false}
                       radius="md"
                       size="md"
+                      leftSection={<IconCalendar size={16} />}
+                      previousIcon={<IconChevronLeft size={16} />}
+                      nextIcon={<IconChevronRight size={16} />}
+                      popoverProps={{ withinPortal: true, shadow: 'md', position: 'bottom-start' }}
                       styles={{
                         label: { fontWeight: 600, color: '#111827' },
                         input: {
-                          backgroundColor: '#F9FAFB',
+                          backgroundColor: isReadOnly ? '#F9FAFB' : '#FFFFFF',
                           color: '#111827',
                           borderColor: '#E5E7EB',
                           fontWeight: 600,
                         },
+                        calendarHeaderControl: { width: 32, height: 32 },
+                        calendarHeaderControlIcon: { width: 14, height: 14 },
+                        calendarHeaderLevel: { fontSize: 14, fontWeight: 700 },
+                        calendarHeader: { gap: 6 },
+                        weekday: {
+                          fontSize: 12,
+                          fontWeight: 700,
+                          textAlign: 'center',
+                          width: 36,
+                        },
+                        day: {
+                          width: 36,
+                          height: 36,
+                          fontSize: 13,
+                          fontWeight: 600,
+                          textAlign: 'center',
+                        },
+                        monthCell: { padding: 4 },
                       }}
                     />
+                    <Button
+                      fullWidth
+                      mt="sm"
+                      size="xs"
+                      color={isReadOnly ? 'gray' : 'orange'}
+                      variant="light"
+                      onClick={() => updateAllowanceDateMutation.mutate()}
+                      loading={updateAllowanceDateMutation.isPending}
+                      disabled={isReadOnly || !allowanceDateInput || !selectedFc.temp_id}
+                    >
+                      수당 동의일 저장
+                    </Button>
+                    {!selectedFc.temp_id && (
+                      <Text size="xs" c="dimmed" mt={6}>
+                        임시사번이 저장된 FC만 수당 동의일을 입력할 수 있습니다.
+                      </Text>
+                    )}
                     <Divider my="sm" />
                     <Text size="xs" fw={600} c="dimmed" mb={6}>
                       수당 동의 상태

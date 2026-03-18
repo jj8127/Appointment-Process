@@ -1,6 +1,7 @@
 'use client';
 
 import { useSession } from '@/hooks/use-session';
+import { logger } from '@/lib/logger';
 import { normalizeStaffType } from '@/lib/staff-identity';
 import { supabase } from '@/lib/supabase';
 import {
@@ -23,6 +24,43 @@ import { IconPhone, IconLock, IconArrowRight } from '@tabler/icons-react';
 
 const HANWHA_ORANGE = '#f36f21';
 const HANWHA_ORANGE_DARK = '#d65a16';
+
+function readErrorField(error: unknown, field: 'name' | 'message') {
+    if (!error || typeof error !== 'object') return '';
+    const value = (error as Record<string, unknown>)[field];
+    return typeof value === 'string' ? value.trim() : '';
+}
+
+function resolveLoginErrorMessage(error: unknown) {
+    const name = readErrorField(error, 'name');
+    const rawMessage = readErrorField(error, 'message');
+    const normalized = rawMessage.toLowerCase();
+    const isTransportError =
+        name === 'FunctionsFetchError' ||
+        normalized.includes('failed to send a request to the edge function') ||
+        normalized.includes('failed to fetch') ||
+        normalized.includes('networkerror');
+
+    if (isTransportError) {
+        return {
+            message: '로그인 요청을 서버로 보내지 못했습니다. 잠시 후 다시 시도해주세요.',
+            expected: true,
+            name,
+            rawMessage,
+        };
+    }
+
+    if (rawMessage) {
+        return { message: rawMessage, expected: false, name, rawMessage };
+    }
+
+    return {
+        message: '오류가 발생했습니다. 다시 시도해주세요.',
+        expected: false,
+        name,
+        rawMessage,
+    };
+}
 
 export default function AuthPage() {
     const { loginAs, role, residentId, hydrated, displayName } = useSession();
@@ -118,12 +156,27 @@ export default function AuthPage() {
             } else {
                 router.replace('/');
             }
-        } catch {
+        } catch (err: unknown) {
+            const loginError = resolveLoginErrorMessage(err);
+
+            if (loginError.expected) {
+                logger.warn('[web auth] login request failed before response', {
+                    name: loginError.name || 'UnknownError',
+                    message: loginError.rawMessage || 'No error message',
+                });
+            } else {
+                logger.error('[web auth] login failed', {
+                    name: loginError.name || 'UnknownError',
+                    message: loginError.rawMessage || loginError.message,
+                });
+            }
+
             notifications.show({
                 title: '로그인 실패',
-                message: '오류가 발생했습니다. 다시 시도해주세요.',
+                message: loginError.message,
                 color: 'red',
             });
+        } finally {
             setLoading(false);
         }
     };

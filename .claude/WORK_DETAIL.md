@@ -7,6 +7,110 @@
 
 ---
 
+## <a id="20260318-web-dashboard-fc-name-nowrap"></a> 2026-03-18 | 웹 대시보드 FC 이름을 아바타 오른쪽에 고정
+
+**배경**:
+- `fc-onboarding-app/web` 관리자 대시보드 FC 목록의 `FC 정보` 컬럼 폭이 좁고 셀 내부 `Group`이 wrap 가능한 상태라, 이름이 조금만 길어도 원형 사람 아이콘 아래로 떨어지는 케이스가 있었다.
+- 사용자 기준으로는 같은 테이블 안에서 일부 FC만 이름 정렬이 달라 보여 가독성이 깨지고, 아이콘 옆에 보여야 할 핵심 식별 정보가 아래 줄로 밀리는 문제가 있었다.
+
+**조치**:
+- `web/src/app/dashboard/page.tsx`
+  - `FC 정보` 컬럼 폭을 `120 -> 200`으로 넓혀 이름/배지가 같은 블록 안에 머무를 수 있게 조정했다.
+  - FC 목록 셀의 `Group`을 `wrap=\"nowrap\"` + `align=\"flex-start\"`로 바꿔 아이콘과 텍스트 블록이 세로로 분리되지 않게 고정했다.
+  - 이름 텍스트 컨테이너에 `minWidth: 0`을 주고, 이름은 `white-space: nowrap + text-overflow: ellipsis`로 처리해 긴 이름도 아이콘 오른쪽에서만 잘리도록 정리했다.
+
+**검증**:
+- `cd web && npx eslint src/app/dashboard/page.tsx`
+
+## <a id="20260318-login-with-password-cors-origin-echo"></a> 2026-03-18 | `login-with-password` CORS origin echo 보정 및 원격 재배포
+
+**배경**:
+- 웹 로그인 화면에서 `FunctionsFetchError`가 반복됐고, 실제 브라우저 토스트도 `Failed to send a request to the Edge Function`로 떨어졌다.
+- 원인을 확인한 결과 `supabase/functions/login-with-password/index.ts`가 `ALLOWED_ORIGINS` 목록이 여러 개여도 항상 첫 번째 origin만 `Access-Control-Allow-Origin`에 넣고 있었다.
+- 따라서 웹 앱이 다른 허용 origin 또는 `localhost`에서 호출되면 브라우저가 Edge Function 응답을 CORS로 차단하고, Supabase JS는 이를 `FunctionsFetchError`로만 표면화했다.
+
+**조치**:
+- `supabase/functions/login-with-password/index.ts`
+  - 요청 `Origin`을 읽어 허용 목록에 있으면 그 origin을 그대로 반사하는 `resolveCorsOrigin` / `buildCorsHeaders` 헬퍼를 추가했다.
+  - `localhost`, `127.0.0.1`은 개발용으로 명시 허용하고, `ALLOWED_ORIGINS`가 비어 있는 환경에서는 요청 origin으로 fallback 하도록 정리했다.
+  - 모든 `OPTIONS`, 성공 응답, 실패 응답이 동일한 request-aware CORS 헤더와 `Vary: Origin`을 사용하도록 통일했다.
+- 운영 반영:
+  - `supabase functions deploy login-with-password`로 원격 Supabase 함수 재배포를 완료했다.
+
+**검증**:
+- `supabase functions deploy login-with-password`
+- 원격 preflight 확인:
+  - `Origin: http://localhost:3000` + `OPTIONS /functions/v1/login-with-password`
+  - 응답 `Access-Control-Allow-Origin: http://localhost:3000`
+- 원격 로그인 확인:
+  - 같은 origin으로 실제 `POST /functions/v1/login-with-password`
+  - 응답 `ok=true` 확인
+
+## <a id="20260318-web-auth-functions-fetch-sanitize"></a> 2026-03-18 | 웹 로그인 `FunctionsFetchError` 사용자 노출/개발 오버레이 완화
+
+**배경**:
+- 웹 로그인 화면이 `Failed to send a request to the Edge Function` 같은 Supabase transport 에러 문구를 그대로 토스트로 노출해, 일반 사용자 기준으로 이해하기 어려웠다.
+- 동시에 `handleLogin` catch가 모든 실패를 `logger.error()`로 남기고 있어, 개발 모드에서는 Next.js가 `console.error`를 런타임 오류처럼 강조 표시해 실제 로그인 원인과 별개로 빨간 오버레이가 따라붙었다.
+- 실제 Edge Function 네트워크/CORS 원인은 별도 추적이 필요하지만, 우선 사용자 화면과 개발자 경험 측면에서 raw transport 에러를 그대로 노출하지 않도록 정리할 필요가 있었다.
+
+**조치**:
+- `web/src/app/auth/page.tsx`
+  - `FunctionsFetchError`, `Failed to fetch`, `Failed to send a request to the Edge Function` 패턴을 감지하는 로그인 에러 정규화 helper를 추가했다.
+  - transport 계열 실패는 사용자에게 `로그인 요청을 서버로 보내지 못했습니다. 잠시 후 다시 시도해주세요.`로 통일해 안내하도록 변경했다.
+  - 같은 transport 실패는 `logger.warn()`으로만 남겨 개발 모드 `console.error` 오버레이를 유발하지 않게 조정했다.
+  - 그 외 실제 앱 로직 오류만 `logger.error()`로 유지하고, 로그 payload는 `name/message`만 명시적으로 남기도록 정리했다.
+
+**검증**:
+- `cd web && npx eslint src/app/auth/page.tsx`
+- `cd web && npm run build`
+  - 현재 로컬 `next dev`가 실행 중이라 `scripts/clean-next.mjs` 단계에서 중단됨. 빌드 실패 원인은 이번 변경이 아니라 활성 dev 서버 감지다.
+
+## <a id="20260318-web-auth-error-visibility"></a> 2026-03-18 | 웹 로그인 실패 원인 노출 보강
+
+**배경**:
+- 운영 브라우저에서 로그인 실패 토스트가 `오류가 발생했습니다. 다시 시도해주세요.`만 보여 실제 원인을 판별하기 어려웠다.
+- 같은 계정으로 `login-with-password` Edge Function을 직접 호출했을 때는 정상 응답이 확인되어, 웹 클라이언트에서 발생하는 예외도 메시지와 로그를 그대로 남길 필요가 있었다.
+
+**조치**:
+- `web/src/app/auth/page.tsx`
+  - `catch`에서 예외 객체의 실제 `message`를 우선 노출하도록 변경했다.
+  - 동일 예외를 `logger.error('[web auth] login failed', err)`로 기록해 브라우저 콘솔/수집 로그에서 바로 추적할 수 있게 했다.
+  - `setLoading(false)`를 `finally`로 이동해 예외/조기실패 경로 모두에서 로딩 상태가 일관되게 해제되도록 정리했다.
+
+**검증**:
+- `cd web && npx eslint src/app/auth/page.tsx`
+- `login-with-password` 직접 호출 검증:
+  - 제공된 개발자 계정으로 Edge Function 응답 `ok=true, role=admin, staffType=developer` 확인
+
+## <a id="20260318-admin-allowance-date-direct-input"></a> 2026-03-18 | 총무가 모바일/웹에서 FC 수당 동의일 직접 입력 지원
+
+**배경**:
+- 기존 가람in 수당동의 흐름은 FC가 `app/consent.tsx`에서만 `allowance_date`를 직접 제출할 수 있었고, 총무는 입력 여부를 확인한 뒤 승인/반려만 할 수 있었다.
+- 운영 요청에 따라 총무도 FC 대신 수당 동의일을 직접 입력할 수 있어야 했고, 이 기능이 모바일 총무 대시보드와 `fc-onboarding-app/web` 관리자 대시보드 양쪽에서 동일하게 동작해야 했다.
+- FC 자가입력과 같은 안전장치를 유지하기 위해, 총무 직접 입력도 `temp_id` 선행 조건과 `allowance-pending` 상태 규칙을 공유해야 했다.
+
+**조치**:
+- `supabase/functions/admin-action/index.ts`
+  - 관리자 전용 `updateAllowanceDate` 액션을 추가했다.
+  - 날짜 형식을 `YYYY-MM-DD`로 검증하고, `temp_id`가 없는 FC는 저장을 막도록 했다.
+  - 현재 상태가 `draft/temp-id-issued/allowance-pending`이면 총무 직접 입력도 FC 제출과 동일하게 `allowance-pending`으로 맞추고, 이미 이후 단계인 FC는 기존 상태를 유지한 채 `allowance_date`만 수정하도록 정리했다.
+- `web/src/app/api/admin/fc/route.ts`
+  - 웹 관리자 대시보드용 서버 경로에도 같은 `updateAllowanceDate` 액션과 검증/상태 보정 로직을 추가했다.
+- `app/dashboard.tsx`
+  - 총무 모바일 카드의 `1단계: 정보 등록 및 수당동의` 섹션에 수당 동의일 날짜 선택기와 `동의일 저장` 버튼을 추가했다.
+  - Android는 인라인 `DateTimePicker`, iOS는 별도 모달 picker로 입력하게 했고, 반려 시 로컬 입력값도 함께 비우도록 정리했다.
+- `web/src/app/dashboard/page.tsx`
+  - 웹 관리자 `수당 동의` 탭의 `수당 동의 검토` 영역에 편집 가능한 날짜 입력기와 `수당 동의일 저장` 버튼을 추가했다.
+  - 저장 성공 시 모달 로컬 상태(`allowance_date`, `status`, `temp_id/career_type` 변경분)가 즉시 반영되도록 보강했다.
+- `.claude/PROJECT_GUIDE.md`
+  - 총무 직접 입력 시 지켜야 하는 수당 동의일 정책(`temp_id` 선행, `allowance-pending` 정렬)을 문서에 추가했다.
+
+**검증**:
+- `npx eslint app/dashboard.tsx`
+- `cd web && npx eslint src/app/dashboard/page.tsx src/app/api/admin/fc/route.ts`
+- `npx eslint supabase/functions/admin-action/index.ts`
+  - 현재 저장소의 Node ESLint 환경에서는 Deno remote import(`https://deno.land/...`, `https://esm.sh/...`)를 `import/no-unresolved`로 보고해 실패한다. 이번 변경으로 추가된 새 오류는 없었고, `deno` 실행 파일은 현재 환경에 설치되어 있지 않아 Deno lint/check는 수행하지 못했다.
+
 ## <a id="20260318-app-version-bump-218"></a> 2026-03-18 | Expo 앱 버전 2.1.8 상향 + `fc_profiles.admin_memo` 스키마 스냅샷 동기화
 
 **배경**:

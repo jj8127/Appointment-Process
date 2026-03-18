@@ -15,12 +15,24 @@ type Payload = {
 
 // Security: Restrict CORS to specific origins
 const allowedOrigins = (getEnv('ALLOWED_ORIGINS') ?? '').split(',').map(o => o.trim()).filter(Boolean);
-const corsHeaders = {
-  'Access-Control-Allow-Origin': allowedOrigins.length > 0 ? allowedOrigins[0] : 'https://yourdomain.com',
-  'Access-Control-Allow-Headers': 'Content-Type, Authorization, x-client-info, apikey',
-  'Access-Control-Allow-Methods': 'POST, OPTIONS',
-  'Access-Control-Allow-Credentials': 'true',
-};
+const defaultOrigin = allowedOrigins[0] ?? 'https://yourdomain.com';
+
+function resolveCorsOrigin(origin?: string) {
+  if (origin && allowedOrigins.includes(origin)) return origin;
+  if (origin?.includes('localhost') || origin?.includes('127.0.0.1')) return origin;
+  if (origin && allowedOrigins.length === 0) return origin;
+  return defaultOrigin;
+}
+
+function buildCorsHeaders(origin?: string) {
+  return {
+    'Access-Control-Allow-Origin': resolveCorsOrigin(origin),
+    'Access-Control-Allow-Headers': 'Content-Type, Authorization, x-client-info, apikey',
+    'Access-Control-Allow-Methods': 'POST, OPTIONS',
+    'Access-Control-Allow-Credentials': 'true',
+    Vary: 'Origin',
+  };
+}
 
 // Security: Validate required environment variables
 const supabaseUrl = getEnv('SUPABASE_URL');
@@ -46,15 +58,15 @@ const requestBoardPasswordSyncTimeoutMs =
 const MAX_FAILS = 5;
 const LOCK_MINUTES = 10;
 
-function json(body: Record<string, unknown>, status = 200) {
+function json(body: Record<string, unknown>, status = 200, origin?: string) {
   return new Response(JSON.stringify(body), {
     status,
-    headers: { 'Content-Type': 'application/json', ...corsHeaders },
+    headers: { 'Content-Type': 'application/json', ...buildCorsHeaders(origin) },
   });
 }
 
-function fail(code: string, message: string, extra: Record<string, unknown> = {}) {
-  return json({ ok: false, code, message, ...extra });
+function fail(code: string, message: string, extra: Record<string, unknown> = {}, origin?: string) {
+  return json({ ok: false, code, message, ...extra }, 200, origin);
 }
 
 function cleanPhone(input: string) {
@@ -142,31 +154,33 @@ async function syncRequestBoardPassword(
 }
 
 serve(async (req: Request) => {
+  const origin = req.headers.get('origin') ?? undefined;
+
   if (req.method === 'OPTIONS') {
-    return new Response('ok', { headers: corsHeaders });
+    return new Response('ok', { headers: buildCorsHeaders(origin) });
   }
   if (req.method !== 'POST') {
-    return json({ ok: false, code: 'method_not_allowed', message: 'Method not allowed' }, 405);
+    return json({ ok: false, code: 'method_not_allowed', message: 'Method not allowed' }, 405, origin);
   }
   if (!supabaseUrl || !serviceKey) {
-    return json({ ok: false, code: 'server_misconfigured', message: 'Missing Supabase credentials' }, 500);
+    return json({ ok: false, code: 'server_misconfigured', message: 'Missing Supabase credentials' }, 500, origin);
   }
 
   let body: Payload;
   try {
     body = await req.json();
   } catch {
-    return fail('invalid_json', 'Invalid JSON');
+    return fail('invalid_json', 'Invalid JSON', {}, origin);
   }
 
   const phone = cleanPhone(body.phone ?? '');
   const password = (body.password ?? '').trim();
 
   if (phone.length !== 11) {
-    return fail('invalid_phone', '휴대폰 번호는 숫자 11자리로 입력해주세요.');
+    return fail('invalid_phone', '휴대폰 번호는 숫자 11자리로 입력해주세요.', {}, origin);
   }
   if (!password) {
-    return fail('missing_password', '비밀번호를 입력해주세요.');
+    return fail('missing_password', '비밀번호를 입력해주세요.', {}, origin);
   }
 
   const { data: admin, error: adminError } = await supabase
@@ -176,16 +190,16 @@ serve(async (req: Request) => {
     .maybeSingle();
 
   if (adminError) {
-    return json({ ok: false, code: 'db_error', message: adminError.message }, 500);
+    return json({ ok: false, code: 'db_error', message: adminError.message }, 500, origin);
   }
 
   if (admin?.id) {
     const staffType = admin.staff_type === 'developer' ? 'developer' : 'admin';
     if (!admin.active) {
-      return fail('inactive_admin', '관리자 계정이 비활성화되었습니다.', { role: 'admin', staffType });
+      return fail('inactive_admin', '관리자 계정이 비활성화되었습니다.', { role: 'admin', staffType }, origin);
     }
     if (!admin.password_set_at) {
-      return fail('needs_password_setup', '관리자 비밀번호가 아직 설정되지 않았습니다.', { role: 'admin', staffType });
+      return fail('needs_password_setup', '관리자 비밀번호가 아직 설정되지 않았습니다.', { role: 'admin', staffType }, origin);
     }
 
     const now = new Date();
@@ -196,7 +210,7 @@ serve(async (req: Request) => {
           lockedUntil: lockedUntil.toISOString(),
           role: 'admin',
           staffType,
-        });
+        }, origin);
       }
     }
 
@@ -223,6 +237,7 @@ serve(async (req: Request) => {
         shouldLock
           ? { lockedUntil: lockedUntil?.toISOString(), role: 'admin', staffType }
           : { remaining, role: 'admin', staffType },
+        origin,
       );
     }
 
@@ -249,7 +264,7 @@ serve(async (req: Request) => {
       requestBoardRole,
       ...(requestBoardBridgeToken ? { requestBoardBridgeToken } : {}),
       ...(appSessionToken ? { appSessionToken } : {}),
-    });
+    }, 200, origin);
   }
 
   const { data: manager, error: managerError } = await supabase
@@ -259,15 +274,15 @@ serve(async (req: Request) => {
     .maybeSingle();
 
   if (managerError) {
-    return json({ ok: false, code: 'db_error', message: managerError.message }, 500);
+    return json({ ok: false, code: 'db_error', message: managerError.message }, 500, origin);
   }
 
   if (manager?.id) {
     if (!manager.active) {
-      return fail('inactive_manager', '본부장 계정이 비활성화되었습니다.', { role: 'manager' });
+      return fail('inactive_manager', '본부장 계정이 비활성화되었습니다.', { role: 'manager' }, origin);
     }
     if (!manager.password_set_at) {
-      return fail('needs_password_setup', '본부장 비밀번호가 아직 설정되지 않았습니다.', { role: 'manager' });
+      return fail('needs_password_setup', '본부장 비밀번호가 아직 설정되지 않았습니다.', { role: 'manager' }, origin);
     }
 
     const now = new Date();
@@ -277,7 +292,7 @@ serve(async (req: Request) => {
         return fail('locked', '로그인 시도가 너무 많아 잠시 후 다시 시도해주세요.', {
           lockedUntil: lockedUntil.toISOString(),
           role: 'manager',
-        });
+        }, origin);
       }
     }
 
@@ -302,6 +317,7 @@ serve(async (req: Request) => {
           ? '로그인 시도가 너무 많아 잠시 후 다시 시도해주세요.'
           : '비밀번호가 올바르지 않습니다.',
         shouldLock ? { lockedUntil: lockedUntil?.toISOString(), role: 'manager' } : { remaining, role: 'manager' },
+        origin,
       );
     }
 
@@ -331,7 +347,7 @@ serve(async (req: Request) => {
       requestBoardRole: 'fc',
       ...(requestBoardBridgeToken ? { requestBoardBridgeToken } : {}),
       ...(appSessionToken ? { appSessionToken } : {}),
-    });
+    }, 200, origin);
   }
 
   const { data: profile, error: profileError } = await supabase
@@ -341,13 +357,13 @@ serve(async (req: Request) => {
     .maybeSingle();
 
   if (profileError) {
-    return json({ ok: false, code: 'db_error', message: profileError.message }, 500);
+    return json({ ok: false, code: 'db_error', message: profileError.message }, 500, origin);
   }
   if (!profile?.id) {
-    return fail('not_found', '등록된 계정을 찾을 수 없습니다.');
+    return fail('not_found', '등록된 계정을 찾을 수 없습니다.', {}, origin);
   }
   if (!profile.signup_completed) {
-    return fail('not_completed', '회원가입이 완료되지 않았습니다. 회원가입을 완료해주세요.');
+    return fail('not_completed', '회원가입이 완료되지 않았습니다. 회원가입을 완료해주세요.', {}, origin);
   }
 
   const { data: creds, error: credsError } = await supabase
@@ -357,10 +373,10 @@ serve(async (req: Request) => {
     .maybeSingle();
 
   if (credsError) {
-    return json({ ok: false, code: 'db_error', message: credsError.message }, 500);
+    return json({ ok: false, code: 'db_error', message: credsError.message }, 500, origin);
   }
   if (!creds?.password_set_at) {
-    return fail('needs_password_setup', '비밀번호가 아직 설정되지 않았습니다.');
+    return fail('needs_password_setup', '비밀번호가 아직 설정되지 않았습니다.', {}, origin);
   }
 
   const now = new Date();
@@ -369,7 +385,7 @@ serve(async (req: Request) => {
     if (lockedUntil > now) {
       return fail('locked', '로그인 시도가 너무 많아 잠시 후 다시 시도해주세요.', {
         lockedUntil: lockedUntil.toISOString(),
-      });
+      }, origin);
     }
   }
 
@@ -394,6 +410,7 @@ serve(async (req: Request) => {
         ? '로그인 시도가 너무 많아 잠시 후 다시 시도해주세요.'
         : '비밀번호가 올바르지 않습니다.',
       shouldLock ? { lockedUntil: lockedUntil?.toISOString() } : { remaining },
+      origin,
     );
   }
 
@@ -426,5 +443,5 @@ serve(async (req: Request) => {
     requestBoardRole,
     ...(requestBoardBridgeToken ? { requestBoardBridgeToken } : {}),
     ...(appSessionToken ? { appSessionToken } : {}),
-  });
+  }, 200, origin);
 });

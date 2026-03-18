@@ -20,6 +20,11 @@
 ## 최근 작업
 | 날짜 | 작업 | 핵심 파일 | 상세 |
 |------|------|----------|------|
+| 03-18 | 웹 대시보드 FC 목록에서 이름이 원형 아이콘 아래로 떨어지지 않도록 컬럼 폭과 nowrap 레이아웃을 보정 | `web/src/app/dashboard/page.tsx` | [→ 상세](WORK_DETAIL.md#20260318-web-dashboard-fc-name-nowrap) |
+| 03-18 | `login-with-password`가 요청 origin을 그대로 CORS 응답하도록 보정하고 원격 Supabase 함수까지 재배포 | `supabase/functions/login-with-password/index.ts` | [→ 상세](WORK_DETAIL.md#20260318-login-with-password-cors-origin-echo) |
+| 03-18 | 웹 로그인 `FunctionsFetchError`를 사용자용 안내문으로 정규화하고 개발 모드 `console.error` 오버레이를 경고 로그로 완화 | `web/src/app/auth/page.tsx` | [→ 상세](WORK_DETAIL.md#20260318-web-auth-functions-fetch-sanitize) |
+| 03-18 | 웹 로그인 실패 시 실제 예외 메시지와 콘솔 로그를 남기도록 인증 화면 진단 가시성 보강 | `web/src/app/auth/page.tsx` | [→ 상세](WORK_DETAIL.md#20260318-web-auth-error-visibility) |
+| 03-18 | 총무가 모바일/웹에서 FC 수당 동의일을 직접 입력할 수 있도록 관리자 저장 경로와 대시보드 UI 확장 | `app/dashboard.tsx`, `web/src/app/dashboard/page.tsx`, `web/src/app/api/admin/fc/route.ts`, `supabase/functions/admin-action/index.ts`, `.claude/PROJECT_GUIDE.md` | [→ 상세](WORK_DETAIL.md#20260318-admin-allowance-date-direct-input) |
 | 03-18 | Expo 앱 버전 `2.1.8` 상향과 `fc_profiles.admin_memo` schema 스냅샷 동기화 | `app.json`, `supabase/schema.sql` | [→ 상세](WORK_DETAIL.md#20260318-app-version-bump-218) |
 | 03-18 | 관리자 메모 저장 실패 원인을 `fc_profiles.admin_memo` 스키마 드리프트로 진단하고 migration 추가, iPhone 주소 검색 후 상세주소 포커스 handoff를 모달 종료 기준으로 안정화 | `supabase/migrations/20260318000001_add_fc_profile_admin_memo.sql`, `web/src/app/api/admin/fc/route.ts`, `app/identity.tsx`, `app/fc/new.tsx`, `lib/daum-postcode.ts` | [→ 상세](WORK_DETAIL.md#20260318-admin-memo-migration-address-handoff) |
 | 03-16 | GaramLink 로그인 핫픽스 재푸시를 위해 거버넌스 이력 누락을 보강 | `.claude/WORK_LOG.md`, `.claude/WORK_DETAIL.md` | [→ 상세](WORK_DETAIL.md#20260316-login-hardening-governance-backfill) |

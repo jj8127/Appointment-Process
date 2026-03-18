@@ -474,6 +474,9 @@ export default function DashboardScreen() {
   const [docDeadlineInputs, setDocDeadlineInputs] = useState<Record<string, string>>({});
   const [docDeadlinePickerId, setDocDeadlinePickerId] = useState<string | null>(null);
   const [docDeadlineTempDate, setDocDeadlineTempDate] = useState<Date | null>(null);
+  const [allowanceInputs, setAllowanceInputs] = useState<Record<string, string>>({});
+  const [allowancePickerId, setAllowancePickerId] = useState<string | null>(null);
+  const [allowanceTempDate, setAllowanceTempDate] = useState<Date | null>(null);
   const [customDocInputs, setCustomDocInputs] = useState<Record<string, string>>({});
   const [commissionInputs, setCommissionInputs] = useState<Record<string, CommissionCompletionStatus>>({});
   const [scheduleInputs, setScheduleInputs] = useState<Record<string, { life?: string; nonlife?: string }>>({});
@@ -598,11 +601,13 @@ export default function DashboardScreen() {
       const careerPrefill: Record<string, '신입' | '경력'> = {};
       const schedulePrefill: Record<string, { life?: string; nonlife?: string }> = {};
       const deadlinePrefill: Record<string, string> = {};
+      const allowancePrefill: Record<string, string> = {};
       data.forEach((fc) => {
         const docs = fc.fc_documents?.map((d) => d.doc_type) ?? [];
         next[fc.id] = new Set(docs);
         if (fc.temp_id) tempPrefill[fc.id] = fc.temp_id;
         if (fc.career_type === '경력' || fc.career_type === '신입') careerPrefill[fc.id] = fc.career_type;
+        allowancePrefill[fc.id] = fc.allowance_date ?? '';
         schedulePrefill[fc.id] = {
           life: fc.appointment_schedule_life ?? '',
           nonlife: fc.appointment_schedule_nonlife ?? '',
@@ -621,6 +626,7 @@ export default function DashboardScreen() {
       setDocSelections(next);
       setTempInputs((prev) => ({ ...tempPrefill, ...prev }));
       setCareerInputs((prev) => ({ ...careerPrefill, ...prev }));
+      setAllowanceInputs((prev) => ({ ...allowancePrefill, ...prev }));
       setScheduleInputs((prev) => ({ ...schedulePrefill, ...prev }));
       setDocDeadlineInputs((prev) => ({ ...deadlinePrefill, ...prev }));
       setCommissionInputs((prev) => ({ ...prev, ...commissionPrefill }));
@@ -658,6 +664,31 @@ export default function DashboardScreen() {
     },
     onSuccess: () => {
       Alert.alert('저장 완료', '임시번호/경력 정보가 저장되었습니다.');
+      refetch();
+    },
+    onSettled: (_data, error) => {
+      if (error) {
+        const message = error instanceof Error ? error.message : '저장 중 문제가 발생했습니다.';
+        Alert.alert('저장 실패', message);
+      }
+    },
+  });
+
+  const updateAllowanceDate = useMutation({
+    mutationFn: async ({ id, allowanceDate }: { id: string; allowanceDate: string }) => {
+      assertCanEdit();
+      const result = await adminAction(residentId, 'updateAllowanceDate', {
+        fcId: id,
+        allowanceDate,
+      });
+      return {
+        allowanceDate: String(result.allowance_date ?? allowanceDate),
+        status: typeof result.status === 'string' ? result.status : null,
+      };
+    },
+    onSuccess: (result, variables) => {
+      setAllowanceInputs((prev) => ({ ...prev, [variables.id]: result.allowanceDate }));
+      Alert.alert('저장 완료', '수당 동의일이 저장되었습니다.');
       refetch();
     },
     onSettled: (_data, error) => {
@@ -1177,6 +1208,7 @@ export default function DashboardScreen() {
         `수당 동의가 반려되었습니다.\n사유: ${reason}`,
         '/consent',
       );
+      setAllowanceInputs((prev) => ({ ...prev, [rejectTarget.id]: '' }));
       setRejectModalVisible(false);
     } catch (err: unknown) {
       const error = err as Error;
@@ -1265,6 +1297,9 @@ export default function DashboardScreen() {
         const currentCareer = careerInputs[fc.id] ?? fc.career_type ?? '신입';
         const currentTemp = tempInputs[fc.id] ?? fc.temp_id ?? '';
         const hasSavedTemp = currentTemp.trim().length > 0;
+        const currentAllowance = allowanceInputs[fc.id] ?? fc.allowance_date ?? '';
+        const currentAllowanceDate = parseYmd(currentAllowance);
+        const hasPersistedTempId = Boolean((fc.temp_id ?? '').trim());
 
         actionBlocks.push(
           <View key="step1-merged" style={styles.cardSection}>
@@ -1337,6 +1372,61 @@ export default function DashboardScreen() {
                   {fc.allowance_date ? `수당 동의일: ${fc.allowance_date}` : '수당 동의일 입력 대기'}
                 </Text>
               </View>
+
+              <View style={styles.allowanceEditorRow}>
+                <Text style={styles.inlineFieldLabel}>수당 동의일</Text>
+                <Pressable
+                  style={[styles.dateSelectButton, styles.allowanceDateButton, !canEdit && styles.actionButtonDisabled]}
+                  disabled={!canEdit}
+                  onPress={() => {
+                    const baseDate = currentAllowanceDate ?? new Date();
+                    setAllowanceTempDate(baseDate);
+                    setAllowancePickerId(fc.id);
+                  }}
+                >
+                  <Text
+                    style={[
+                      styles.dateSelectText,
+                      !currentAllowanceDate && styles.dateSelectPlaceholder,
+                    ]}
+                  >
+                    {currentAllowanceDate ? formatKoreanDate(currentAllowanceDate) : '날짜를 선택하세요'}
+                  </Text>
+                  <Feather name="calendar" size={16} color={MUTED} />
+                </Pressable>
+                <Pressable
+                  style={[
+                    styles.saveBtn,
+                    styles.allowanceSaveButton,
+                    (!canEdit || !hasPersistedTempId || !currentAllowance || updateAllowanceDate.isPending) &&
+                      styles.actionButtonDisabled,
+                  ]}
+                  onPress={() => updateAllowanceDate.mutate({ id: fc.id, allowanceDate: currentAllowance })}
+                  disabled={!canEdit || !hasPersistedTempId || !currentAllowance || updateAllowanceDate.isPending}
+                >
+                  <Text style={styles.saveBtnText}>
+                    {updateAllowanceDate.isPending ? '저장중...' : '동의일 저장'}
+                  </Text>
+                </Pressable>
+              </View>
+              {!hasPersistedTempId && (
+                <Text style={styles.allowanceHelperText}>임시사번 저장 후 수당 동의일을 입력할 수 있습니다.</Text>
+              )}
+              {Platform.OS !== 'ios' && allowancePickerId === fc.id && (
+                <DateTimePicker
+                  value={currentAllowanceDate ?? new Date()}
+                  mode="date"
+                  display="default"
+                  locale="ko-KR"
+                  onChange={(event: DateTimePickerEvent, selectedDate?: Date) => {
+                    setAllowancePickerId(null);
+                    if (event.type === 'dismissed') return;
+                    if (selectedDate) {
+                      setAllowanceInputs((prev) => ({ ...prev, [fc.id]: toYmd(selectedDate) }));
+                    }
+                  }}
+                />
+              )}
             </View>
 
             {/* Commission State Section */}
@@ -2241,6 +2331,57 @@ export default function DashboardScreen() {
 
           {Platform.OS === 'ios' && (
             <Modal
+              visible={Boolean(allowancePickerId)}
+              transparent
+              animationType="slide"
+              onRequestClose={() => setAllowancePickerId(null)}
+            >
+              <KeyboardAvoidingView
+                behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+                style={{ flex: 1 }}
+              >
+                <Pressable style={styles.modalOverlay} onPress={() => setAllowancePickerId(null)}>
+                  <Pressable style={styles.modalContent} onPress={(e) => e.stopPropagation()}>
+                    <Text style={styles.modalTitle}>수당 동의일 선택</Text>
+                    <DateTimePicker
+                      value={allowanceTempDate ?? new Date()}
+                      mode="date"
+                      display="inline"
+                      locale="ko-KR"
+                      onChange={(_, d) => {
+                        if (d) setAllowanceTempDate(d);
+                      }}
+                    />
+                    <View style={styles.modalButtons}>
+                      <Pressable
+                        style={[styles.modalBtn, styles.modalBtnCancel]}
+                        onPress={() => setAllowancePickerId(null)}
+                      >
+                        <Text style={styles.modalBtnTextCancel}>취소</Text>
+                      </Pressable>
+                      <Pressable
+                        style={[styles.modalBtn, styles.modalBtnConfirm]}
+                        onPress={() => {
+                          if (allowancePickerId && allowanceTempDate) {
+                            setAllowanceInputs((prev) => ({
+                              ...prev,
+                              [allowancePickerId]: toYmd(allowanceTempDate),
+                            }));
+                          }
+                          setAllowancePickerId(null);
+                        }}
+                      >
+                        <Text style={styles.modalBtnTextConfirm}>확인</Text>
+                      </Pressable>
+                    </View>
+                  </Pressable>
+                </Pressable>
+              </KeyboardAvoidingView>
+            </Modal>
+          )}
+
+          {Platform.OS === 'ios' && (
+            <Modal
               visible={Boolean(docDeadlinePickerId)}
               transparent
               animationType="slide"
@@ -2966,6 +3107,29 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: 8,
+  },
+  allowanceEditorRow: {
+    marginTop: 10,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  inlineFieldLabel: {
+    minWidth: 70,
+    fontSize: 12,
+    color: MUTED,
+  },
+  allowanceDateButton: {
+    flex: 1,
+  },
+  allowanceSaveButton: {
+    minWidth: 86,
+    alignItems: 'center',
+  },
+  allowanceHelperText: {
+    marginTop: 6,
+    fontSize: 11,
+    color: MUTED,
   },
   allowanceBadge: {
     paddingHorizontal: 8,

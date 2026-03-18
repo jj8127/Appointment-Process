@@ -86,6 +86,19 @@ function cleanPhone(input: string | null | undefined): string {
   return String(input ?? '').replace(/[^0-9]/g, '');
 }
 
+function isValidYmd(value: string): boolean {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
+  const parsed = new Date(`${value}T00:00:00`);
+  return !Number.isNaN(parsed.getTime());
+}
+
+function resolveAllowanceStatus(currentStatus: string | null | undefined): string {
+  if (!currentStatus || ['draft', 'temp-id-issued', 'allowance-pending'].includes(currentStatus)) {
+    return 'allowance-pending';
+  }
+  return currentStatus;
+}
+
 function formatPhone(digits: string): string {
   if (!digits) return '';
   if (digits.length <= 3) return digits;
@@ -225,6 +238,44 @@ serve(async (req: Request) => {
         .eq('id', fcId);
       if (error) throw error;
       return json({ ok: true });
+    }
+
+    // ── updateAllowanceDate ──
+    if (action === 'updateAllowanceDate') {
+      const { fcId, allowanceDate } = payload as {
+        fcId?: string;
+        allowanceDate?: string | null;
+      };
+      const normalizedAllowanceDate = String(allowanceDate ?? '').trim();
+      if (!fcId || !normalizedAllowanceDate) {
+        return fail('fcId and allowanceDate are required');
+      }
+      if (!isValidYmd(normalizedAllowanceDate)) {
+        return fail('Invalid allowance date.');
+      }
+
+      const { data: profile, error: profileError } = await supabase
+        .from('fc_profiles')
+        .select('status,temp_id')
+        .eq('id', fcId)
+        .maybeSingle();
+      if (profileError) throw profileError;
+      if (!profile?.temp_id) {
+        return fail('임시사번이 발급된 후 수당 동의일을 입력할 수 있습니다.');
+      }
+
+      const nextStatus = resolveAllowanceStatus(profile.status);
+      const { error: updateError } = await supabase
+        .from('fc_profiles')
+        .update({
+          allowance_date: normalizedAllowanceDate,
+          allowance_reject_reason: null,
+          status: nextStatus,
+        })
+        .eq('id', fcId);
+      if (updateError) throw updateError;
+
+      return json({ ok: true, allowance_date: normalizedAllowanceDate, status: nextStatus });
     }
 
     // ── updateAppointmentDate ──

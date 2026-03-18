@@ -102,6 +102,11 @@
    - Edge Function은 기존 `ok` 기반 응답 계약 유지
    - 기존 클라이언트 파싱 형식(`data?.ok`, `data?.message`) 깨지지 않게 유지
 
+7. **수당 동의일 입력 규칙**
+   - `allowance_date`는 FC 자가입력(`app/consent.tsx`)과 총무 직접 입력(모바일 `app/dashboard.tsx`, 웹 `web/src/app/dashboard/page.tsx`) 모두 허용한다.
+   - 총무 직접 입력도 반드시 trusted 경로(`admin-action`, `/api/admin/fc`)를 통해 저장한다.
+   - 총무가 수당 동의일을 저장할 때는 `temp_id`가 먼저 존재해야 하며, 현재 상태가 `draft/temp-id-issued/allowance-pending`이면 `allowance-pending`으로 정렬한다.
+
 ---
 
 ## 3. 기술 스택 & 아키텍처

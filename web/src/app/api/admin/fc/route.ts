@@ -10,6 +10,7 @@ import { logger } from '@/lib/logger';
 type AdminAction =
   | 'updateProfile'
   | 'updateStatus'
+  | 'updateAllowanceDate'
   | 'updateDocsRequest'
   | 'deleteDocFile'
   | 'signDoc'
@@ -38,6 +39,19 @@ async function getAdminSession() {
 
 function badRequest(message: string) {
   return NextResponse.json({ error: message }, { status: 400 });
+}
+
+function isValidYmd(value: string): boolean {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
+  const parsed = new Date(`${value}T00:00:00`);
+  return !Number.isNaN(parsed.getTime());
+}
+
+function resolveAllowanceStatus(currentStatus: string | null | undefined): string {
+  if (!currentStatus || ['draft', 'temp-id-issued', 'allowance-pending'].includes(currentStatus)) {
+    return 'allowance-pending';
+  }
+  return currentStatus;
 }
 
 export async function POST(req: Request) {
@@ -142,6 +156,43 @@ export async function POST(req: Request) {
       }
 
       return NextResponse.json({ ok: true });
+    }
+
+    if (action === 'updateAllowanceDate') {
+      const { fcId, allowanceDate } = payload as {
+        fcId?: string;
+        allowanceDate?: string | null;
+      };
+      const normalizedAllowanceDate = String(allowanceDate ?? '').trim();
+      if (!fcId || !normalizedAllowanceDate) return badRequest('fcId and allowanceDate are required');
+      if (!isValidYmd(normalizedAllowanceDate)) return badRequest('유효한 수당 동의일을 입력해주세요.');
+
+      const { data: profile, error: profileError } = await adminSupabase
+        .from('fc_profiles')
+        .select('status,temp_id')
+        .eq('id', fcId)
+        .maybeSingle();
+      if (profileError) throw profileError;
+      if (!profile?.temp_id) {
+        return badRequest('임시사번이 발급된 후 수당 동의일을 입력할 수 있습니다.');
+      }
+
+      const nextStatus = resolveAllowanceStatus(profile.status);
+      const { error: updateError } = await adminSupabase
+        .from('fc_profiles')
+        .update({
+          allowance_date: normalizedAllowanceDate,
+          allowance_reject_reason: null,
+          status: nextStatus,
+        })
+        .eq('id', fcId);
+      if (updateError) throw updateError;
+
+      return NextResponse.json({
+        ok: true,
+        allowance_date: normalizedAllowanceDate,
+        status: nextStatus,
+      });
     }
 
     if (action === 'updateDocsRequest') {
