@@ -34,6 +34,7 @@ create table if not exists public.fc_profiles (
   phone_verification_sent_at timestamptz,
   phone_verification_attempts integer not null default 0,
   phone_verification_locked_until timestamptz,
+  admin_memo text,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
 );
@@ -46,6 +47,8 @@ alter table public.fc_profiles
   add column if not exists life_commission_completed boolean not null default false;
 alter table public.fc_profiles
   add column if not exists nonlife_commission_completed boolean not null default false;
+alter table public.fc_profiles
+  add column if not exists admin_memo text;
 
 create table if not exists public.fc_identity_secure (
   id uuid primary key default gen_random_uuid(),

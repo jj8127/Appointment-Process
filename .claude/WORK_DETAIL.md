@@ -7,6 +7,22 @@
 
 ---
 
+## <a id="20260318-app-version-bump-218"></a> 2026-03-18 | Expo 앱 버전 2.1.8 상향 + `fc_profiles.admin_memo` 스키마 스냅샷 동기화
+
+**배경**:
+- 현재 작업분 배포/배포 준비 기준 버전을 앱 설정에도 맞춰 둘 필요가 있어 `app.json`의 Expo 버전을 한 단계 올렸다.
+- `node scripts/ci/check-governance.mjs`를 다시 실행했을 때, 앞서 추가했던 `fc_profiles.admin_memo` migration이 `supabase/schema.sql` 스냅샷에는 아직 반영되지 않아 schema/migration 불일치로 실패했다.
+
+**조치**:
+- `app.json`
+  - Expo 앱 버전을 `2.1.7`에서 `2.1.8`로 갱신했다.
+- `supabase/schema.sql`
+  - `public.fc_profiles` 정의와 후행 `alter table` 스냅샷에 `admin_memo` 컬럼을 추가해 migration 상태와 스키마 스냅샷을 다시 일치시켰다.
+
+**검증**:
+- `npx expo config --json`
+- `node scripts/ci/check-governance.mjs`
+
 ## <a id="20260318-admin-memo-migration-address-handoff"></a> 2026-03-18 | 관리자 메모 스키마 드리프트 보정 + iPhone 주소 상세주소 포커스 handoff 안정화
 
 **배경**:
