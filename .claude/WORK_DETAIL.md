@@ -7,6 +7,35 @@
 
 ---
 
+## <a id="20260318-admin-memo-migration-address-handoff"></a> 2026-03-18 | 관리자 메모 스키마 드리프트 보정 + iPhone 주소 상세주소 포커스 handoff 안정화
+
+**배경**:
+- 관리자 웹 FC 상세(`web/src/app/dashboard/profile/[id]/page.tsx`)의 `관리자 메모` 저장 버튼이 실제로는 `요청 처리에 실패했습니다.` 토스트만 띄우고 저장되지 않는다는 제보가 들어왔다.
+- 연결된 Supabase를 직접 확인한 결과 `select admin_memo from fc_profiles`가 Postgres `42703 column does not exist`로 실패했고, 저장 화면은 `select('*')`를 쓰고 있어 로딩 시에는 조용히 지나가지만 저장 시 `.update({ admin_memo })`에서만 터지는 스키마 드리프트 상태였다.
+- iPhone 본등록/기본정보 수정 주소 흐름은 2026-03-16에 Kakao postcode host allow-list를 보강했지만, 주소 선택 직후 `setTimeout(...focus(), 250)`에만 의존하고 있어 모달 닫힘 애니메이션 타이밍에 따라 `상세주소` 입력 포커스가 끊길 여지가 남아 있었다.
+
+**조치**:
+- `supabase/migrations/20260318000001_add_fc_profile_admin_memo.sql`
+  - `fc_profiles.admin_memo` 컬럼을 `if not exists`로 추가하는 migration을 새로 작성했다.
+- `web/src/app/api/admin/fc/route.ts`
+  - DB에 `admin_memo` 컬럼이 없는 상태에서 저장을 시도하면 generic 500 대신 `Supabase 마이그레이션을 먼저 적용해주세요.`라는 원인형 메시지를 반환하도록 보강했다.
+- `lib/daum-postcode.ts`, `lib/__tests__/daum-postcode.test.ts`
+  - postcode WebView 내부 허용 host를 exact 2개에서 `*.map.daum.net`, `*.map.kakao.com`, `*.daumcdn.net` 패턴으로 넓혀 Kakao/Daum postcode 흐름의 추가 host 변형에 덜 취약하게 만들었다.
+  - 관련 회귀 테스트에 `search.map.daum.net`, `t1.daumcdn.net` 허용과 `accounts.kakao.com` 차단 케이스를 추가했다.
+- `app/identity.tsx`, `app/fc/new.tsx`
+  - 주소 검색 완료 후 즉시 `focus()`하던 경로를 `pendingAddressDetailFocus` 상태 + `InteractionManager.runAfterInteractions` 기반으로 교체했다.
+  - 이제 주소 선택 후 모달이 닫힌 다음에만 `상세주소` 입력란으로 포커스를 넘기므로, iPhone 모달 종료 타이밍과 충돌하는 문제를 줄인다.
+
+**검증**:
+- 연결 DB 진단: `select admin_memo from fc_profiles` 결과 `42703 column fc_profiles.admin_memo does not exist` 확인
+- `npx jest lib/__tests__/daum-postcode.test.ts --runInBand`
+- `npx eslint app/identity.tsx app/fc/new.tsx components/DaumPostcode.tsx lib/daum-postcode.ts lib/__tests__/daum-postcode.test.ts`
+- `cd web && npx eslint src/app/api/admin/fc/route.ts`
+
+**후속 확인 포인트**:
+- 대상 Supabase 환경에 `supabase db push` 또는 동등한 migration 적용 후 관리자 메모 저장이 즉시 복구되는지 확인
+- 실제 iPhone 기기에서 `주소 검색 -> 주소 선택 -> 상세주소 키보드 표시`가 모달 종료 뒤 안정적으로 이어지는지 재검증
+
 ## <a id="20260316-login-hardening-governance-backfill"></a> 2026-03-16 | GaramLink 로그인 핫픽스 푸시 거버넌스 보강
 
 **배경**:

@@ -4,7 +4,7 @@ import { useQueryClient } from '@tanstack/react-query';
 import { router, useLocalSearchParams } from 'expo-router';
 import { useEffect, useRef, useState } from 'react';
 import { Controller, useForm } from 'react-hook-form';
-import { Alert, Modal, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
+import { Alert, InteractionManager, Modal, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { z } from 'zod';
 
@@ -35,6 +35,7 @@ export default function IdentityScreen() {
   const queryClient = useQueryClient();
   const [submitting, setSubmitting] = useState(false);
   const [showAddressSearch, setShowAddressSearch] = useState(false);
+  const [pendingAddressDetailFocus, setPendingAddressDetailFocus] = useState(false);
   const [showResidentBack, setShowResidentBack] = useState(false);
   const [addressHeight, setAddressHeight] = useState(90);
   const keyboardPadding = useKeyboardPadding();
@@ -64,6 +65,30 @@ export default function IdentityScreen() {
       router.replace('/');
     }
   }, [hydrated, role]);
+
+  useEffect(() => {
+    if (showAddressSearch || !pendingAddressDetailFocus) {
+      return;
+    }
+
+    let cancelled = false;
+    let interactionHandle: { cancel?: () => void } | null = null;
+    const timeoutId = setTimeout(() => {
+      interactionHandle = InteractionManager.runAfterInteractions(() => {
+        if (cancelled) {
+          return;
+        }
+        addressDetailRef.current?.focus();
+        setPendingAddressDetailFocus(false);
+      });
+    }, 180);
+
+    return () => {
+      cancelled = true;
+      clearTimeout(timeoutId);
+      interactionHandle?.cancel?.();
+    };
+  }, [pendingAddressDetailFocus, showAddressSearch]);
 
   const onSubmit = async (values: FormValues) => {
     if (!residentId) {
@@ -363,8 +388,8 @@ export default function IdentityScreen() {
               const extra = data.buildingName ? ` (${data.buildingName})` : '';
               const full = `${data.zonecode ? `[${data.zonecode}] ` : ''}${base}${extra}`;
               setValue('address', full, { shouldValidate: true, shouldDirty: true });
+              setPendingAddressDetailFocus(true);
               setShowAddressSearch(false);
-              setTimeout(() => addressDetailRef.current?.focus(), 250);
             }}
             onError={() => {
               Alert.alert('주소 검색 실패', '주소 검색 중 오류가 발생했습니다. 다시 시도해주세요.');

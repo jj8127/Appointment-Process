@@ -316,6 +316,17 @@ export async function POST(req: Request) {
   } catch (err: unknown) {
     const error = err as Error;
     logger.error('[api/admin/fc] failed', error);
+    if (
+      typeof (err as { code?: unknown })?.code === 'string' &&
+      (err as { code?: string }).code === '42703' &&
+      typeof (err as { message?: unknown })?.message === 'string' &&
+      (err as { message?: string }).message?.includes('fc_profiles.admin_memo')
+    ) {
+      return NextResponse.json(
+        { error: '관리자 메모 컬럼이 없어 저장할 수 없습니다. Supabase 마이그레이션을 먼저 적용해주세요.' },
+        { status: 500 }
+      );
+    }
     return NextResponse.json({ error: '요청 처리에 실패했습니다.' }, { status: 500 });
   }
 }

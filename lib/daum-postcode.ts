@@ -1,6 +1,7 @@
 const TRUSTED_DAUM_POSTCODE_HOSTS = [
-  /^postcode\.map\.daum\.net$/i,
-  /^code\.map\.kakao\.com$/i,
+  /(^|\.)map\.daum\.net$/i,
+  /(^|\.)map\.kakao\.com$/i,
+  /(^|\.)daumcdn\.net$/i,
 ];
 
 const HTTP_URL_PREFIX = /^https?:\/\//i;

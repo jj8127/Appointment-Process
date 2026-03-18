@@ -20,6 +20,7 @@
 ## 최근 작업
 | 날짜 | 작업 | 핵심 파일 | 상세 |
 |------|------|----------|------|
+| 03-18 | 관리자 메모 저장 실패 원인을 `fc_profiles.admin_memo` 스키마 드리프트로 진단하고 migration 추가, iPhone 주소 검색 후 상세주소 포커스 handoff를 모달 종료 기준으로 안정화 | `supabase/migrations/20260318000001_add_fc_profile_admin_memo.sql`, `web/src/app/api/admin/fc/route.ts`, `app/identity.tsx`, `app/fc/new.tsx`, `lib/daum-postcode.ts` | [→ 상세](WORK_DETAIL.md#20260318-admin-memo-migration-address-handoff) |
 | 03-16 | GaramLink 로그인 핫픽스 재푸시를 위해 거버넌스 이력 누락을 보강 | `.claude/WORK_LOG.md`, `.claude/WORK_DETAIL.md` | [→ 상세](WORK_DETAIL.md#20260316-login-hardening-governance-backfill) |
 | 03-16 | GaramLink 브리지 알림이 본부장/개발자 세션에서도 가람in 알림센터·홈·설계요청 최근활동에 보이도록 inbox 연동 복구 | `supabase/functions/fc-notify/index.ts`, `app/notifications.tsx`, `app/request-board.tsx`, `app/index.tsx` | [→ 상세](WORK_DETAIL.md#20260316-request-board-inbox-bridge-sync) |
 | 03-16 | GaramLink 로그인/최근활동/의뢰목록이 로컬 request_board 대기 때문에 무한로딩되지 않도록 URL 기본값과 API 타임아웃을 보정 | `hooks/use-login.ts`, `lib/request-board-api.ts`, `lib/request-board-url.ts`, `README.md`, `AGENTS.md` | [→ 상세](WORK_DETAIL.md#20260316-request-board-login-timeout-dev-url-fix) |

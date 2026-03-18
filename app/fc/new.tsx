@@ -8,6 +8,7 @@ import {
   Alert,
   BackHandler,
   findNodeHandle,
+  InteractionManager,
   Modal,
   Pressable,
   ReturnKeyTypeOptions,
@@ -188,6 +189,7 @@ export default function FcNewScreen() {
   const [showDomainPicker, setShowDomainPicker] = useState(false);
   const [showCarrierPicker, setShowCarrierPicker] = useState(false);
   const [showAddressSearch, setShowAddressSearch] = useState(false);
+  const [pendingAddressDetailFocus, setPendingAddressDetailFocus] = useState(false);
   const keyboardPadding = useKeyboardPadding();
   const [existingResidentMasked, setExistingResidentMasked] = useState<string | null>(null);
   const [existingResidentNumberFull, setExistingResidentNumberFull] = useState<string | null>(null);
@@ -226,6 +228,30 @@ export default function FcNewScreen() {
     const emailValue = local && domainToUse ? `${local}@${domainToUse}` : '';
     setValue('email', emailValue, { shouldValidate: true });
   }, [setValue]);
+
+  useEffect(() => {
+    if (showAddressSearch || !pendingAddressDetailFocus) {
+      return;
+    }
+
+    let cancelled = false;
+    let interactionHandle: { cancel?: () => void } | null = null;
+    const timeoutId = setTimeout(() => {
+      interactionHandle = InteractionManager.runAfterInteractions(() => {
+        if (cancelled) {
+          return;
+        }
+        addressDetailRef.current?.focus();
+        setPendingAddressDetailFocus(false);
+      });
+    }, 180);
+
+    return () => {
+      cancelled = true;
+      clearTimeout(timeoutId);
+      interactionHandle?.cancel?.();
+    };
+  }, [pendingAddressDetailFocus, showAddressSearch]);
 
   const loadExisting = useCallback(async (phone?: string) => {
     const key = phone ?? phoneFromSession;
@@ -927,8 +953,8 @@ export default function FcNewScreen() {
               const extra = data.buildingName ? ` (${data.buildingName})` : '';
               const full = `${data.zonecode ? `[${data.zonecode}] ` : ''}${base}${extra}`;
               setValue('address', full, { shouldValidate: true, shouldDirty: true });
+              setPendingAddressDetailFocus(true);
               setShowAddressSearch(false);
-              setTimeout(() => addressDetailRef.current?.focus(), 250);
             }}
             onError={() => {
               Alert.alert('주소 검색 실패', '주소 검색 중 오류가 발생했습니다. 다시 시도해주세요.');
