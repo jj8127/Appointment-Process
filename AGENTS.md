@@ -76,6 +76,7 @@ supabase secrets list --project-ref <project-ref>
 - Manager read-only mode is implemented and must stay enforced across dashboard, exam, notice, and chat areas.
 - Auth is custom (phone + password via Edge Functions) and session state is based on `use-session`, not Supabase Auth session.
 - `admin_accounts`는 `staff_type`(`admin`/`developer`)를 지원한다. `developer`는 앱 권한은 총무와 동일하게 유지하고, 앱/웹 표기는 `개발자`, FC 메신저에서는 총무와 별도 대상, request_board 브릿지/직접 로그인 역할은 `fc`, request_board 표시 이름은 `개발자`를 사용한다.
+- `request-password-reset` / `reset-password`는 2026-03-19 기준 `admin_accounts`, `manager_accounts`, `fc_credentials`를 모두 조회해 총무/본부장/FC/request_board-linked 설계매니저가 같은 SMS 비밀번호 변경 흐름을 사용할 수 있다. 단, 일반 총무는 역할 계약상 GaramLink direct 계정을 만들지 않으며, `developer` subtype만 계속 `fc`로 sync된다. 운영 DB에는 migration `20260319000001_add_admin_manager_password_reset_fields.sql` 적용이 선행돼야 한다.
 - request_board-linked 설계매니저 계정은 `fc_profiles`/`fc_credentials`에 저장되고, 앱 내부 독립 role은 두지 않는다. 판별 기준은 `affiliation = '<보험사> 설계매니저'` 패턴이며, `login-with-password`가 이 값을 읽어 request_board 브릿지 role을 `designer`로 발급한다.
 - 현재 앱 DB 기준 request_board-linked 설계매니저 프로필은 `54명`이다.
 - request_board 브릿지 토큰/비밀번호 sync/session sync는 FC와 본부장(manager) role일 때 `affiliation`을 함께 전달하도록 확장됐다. 따라서 request_board와 가람in 임베디드 GaramLink 화면은 설계매니저가 보는 FC 이름을 `소속 · 이름`으로 맞출 수 있고, 소속 문자열에 이름이 이미 포함된 경우에는 중복 표기를 생략한다.

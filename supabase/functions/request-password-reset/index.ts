@@ -1,6 +1,8 @@
 import { serve } from 'https://deno.land/std@0.224.0/http/server.ts';
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.45.4';
 
+import { findPasswordResetAccount } from '../_shared/password-reset-account.ts';
+
 type Payload = {
   phone?: string;
 };
@@ -102,7 +104,7 @@ async function sendResetSms(to: string, code: string) {
     contentType: 'COMM',
     countryCode: '82',
     from: ncpSmsFrom,
-    content: `[FC 위촉] 비밀번호 재설정 코드: ${code} (15분 유효)`,
+    content: `[가람in] 비밀번호 변경 코드: ${code} (15분 유효)`,
     messages: [{ to }],
   };
 
@@ -159,39 +161,34 @@ serve(async (req: Request) => {
     return fail('invalid_phone', '휴대폰 번호는 숫자 11자리로 입력해주세요.');
   }
 
-  const { data: profile, error: profileError } = await supabase
-    .from('fc_profiles')
-    .select('id,phone,signup_completed')
-    .eq('phone', phone)
-    .maybeSingle();
-
-  if (profileError) {
-    return json({ ok: false, code: 'db_error', message: profileError.message }, 500);
+  const { account, error: accountError } = await findPasswordResetAccount(supabase, phone);
+  if (accountError) {
+    const message = accountError instanceof Error ? accountError.message : '계정 조회 중 오류가 발생했습니다.';
+    return json({ ok: false, code: 'db_error', message }, 500);
   }
 
-  if (!profile?.id) {
-    return fail('not_found', '회원가입된 계정을 찾을 수 없습니다.');
+  if (!account) {
+    return fail('not_found', '등록된 계정을 찾을 수 없습니다.');
   }
 
-  if (!profile.signup_completed) {
+  if (account.kind === 'admin' && !account.active) {
+    return fail('inactive_account', '총무 계정이 비활성화되었습니다.');
+  }
+
+  if (account.kind === 'manager' && !account.active) {
+    return fail('inactive_account', '본부장 계정이 비활성화되었습니다.');
+  }
+
+  if (account.kind === 'fc' && !account.signupCompleted) {
     return fail('not_completed', '회원가입이 완료되지 않았습니다.');
   }
 
-  const { data: creds, error: credsError } = await supabase
-    .from('fc_credentials')
-    .select('password_set_at,reset_sent_at')
-    .eq('fc_id', profile.id)
-    .maybeSingle();
-
-  if (credsError) {
-    return json({ ok: false, code: 'db_error', message: credsError.message }, 500);
-  }
-  if (!creds?.password_set_at) {
+  if (!account.passwordSetAt) {
     return fail('not_set', '비밀번호가 아직 설정되지 않았습니다.');
   }
 
-  if (creds.reset_sent_at) {
-    const sentAt = new Date(creds.reset_sent_at);
+  if (account.resetSentAt) {
+    const sentAt = new Date(account.resetSentAt);
     const elapsed = (Date.now() - sentAt.getTime()) / 1000;
     if (elapsed < RESET_COOLDOWN_SECONDS) {
       return json({ ok: false, code: 'cooldown', message: '잠시 후 다시 시도해주세요.' }, 429);
@@ -201,11 +198,22 @@ serve(async (req: Request) => {
   const code = generateResetCode();
   const tokenHash = await sha256Base64(code);
   const expiresAt = new Date(Date.now() + 15 * 60 * 1000).toISOString();
+  const resetSentAt = new Date().toISOString();
 
-  const { error: updateError } = await supabase
-    .from('fc_credentials')
-    .update({ reset_token_hash: tokenHash, reset_token_expires_at: expiresAt, reset_sent_at: new Date().toISOString() })
-    .eq('fc_id', profile.id);
+  const resetUpdatePayload = {
+    reset_token_hash: tokenHash,
+    reset_token_expires_at: expiresAt,
+    reset_sent_at: resetSentAt,
+  };
+
+  const updateResult =
+    account.kind === 'admin'
+      ? await supabase.from('admin_accounts').update(resetUpdatePayload).eq('id', account.id)
+      : account.kind === 'manager'
+        ? await supabase.from('manager_accounts').update(resetUpdatePayload).eq('id', account.id)
+        : await supabase.from('fc_credentials').update(resetUpdatePayload).eq('fc_id', account.id);
+
+  const { error: updateError } = updateResult;
 
   if (updateError) {
     return json({ ok: false, code: 'db_error', message: updateError.message }, 500);

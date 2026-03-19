@@ -7,6 +7,35 @@
 
 ---
 
+## <a id="20260319-role-aware-password-reset"></a> 2026-03-19 | 총무/본부장/FC/설계매니저 공통 SMS 비밀번호 변경
+
+**배경**:
+- 로그인 화면의 `비밀번호 변경` 진입은 기존에 `fc_profiles` / `fc_credentials`만 조회했다.
+- 그래서 `admin_accounts`에 저장된 총무와 `manager_accounts`에 저장된 본부장은 `request-password-reset`, `reset-password` 단계 모두에서 `등록된 계정을 찾을 수 없습니다.`로 막혔다.
+- 동시에 운영 요구사항은 linked 설계매니저, 본부장, FC까지 포함해 가람in에서 바꾼 비밀번호가 GaramLink와도 최대한 같은 값으로 유지되도록 맞추는 것이었다.
+
+**조치**:
+- `supabase/functions/_shared/password-reset-account.ts`
+  - 비밀번호 변경 대상 계정을 `admin_accounts -> manager_accounts -> fc_profiles/fc_credentials` 순서로 찾는 공통 helper를 추가했다.
+  - request_board 비밀번호 sync payload도 같은 helper에서 role별로 계산하도록 정리했다.
+- `supabase/functions/request-password-reset/index.ts`
+  - 총무/본부장/FC/request_board-linked 설계매니저까지 같은 SMS 코드 발송 흐름을 타도록 계정 판별을 공통 helper 기반으로 변경했다.
+  - 총무/본부장 inactive 상태, FC signup 미완료, password 미설정 케이스를 role-aware하게 분기했다.
+  - SMS 문구를 FC 전용 표현 대신 `[가람in] 비밀번호 변경 코드`로 일반화했다.
+- `supabase/functions/reset-password/index.ts`
+  - 총무/본부장은 각자 테이블의 PBKDF2 비밀번호를 갱신하고, FC/linked 설계매니저는 기존 `fc_credentials`를 갱신하도록 분기했다.
+  - 본부장/FC/linked 설계매니저/개발자 subtype은 기존 GaramLink sync 계약에 맞춰 reset 이후 같은 비밀번호를 request_board에도 전파하도록 유지했다.
+  - 일반 총무는 role contract를 유지하기 위해 GaramLink direct 계정을 새로 만들지 않고 앱 비밀번호만 갱신한다.
+- `supabase/migrations/20260319000001_add_admin_manager_password_reset_fields.sql`, `supabase/schema.sql`
+  - `admin_accounts`, `manager_accounts`에 `reset_token_hash`, `reset_token_expires_at`, `reset_sent_at` 컬럼을 추가했다.
+- `app/login.tsx`, `app/reset-password.tsx`, `app/settings.tsx`
+  - 로그인 하단 문구를 `비밀번호 변경하기`로 교체했다.
+  - 설정 화면 `계정` 카드에도 같은 비밀번호 변경 화면으로 가는 버튼을 추가했다.
+  - 비밀번호 변경 화면 제목/완료 문구를 `변경` 표현으로 정리했고, 미등록 번호는 signup 강제 이동 대신 일반 안내만 띄우도록 조정했다.
+
+**검증**:
+- `npx eslint app/login.tsx app/reset-password.tsx supabase/functions/request-password-reset/index.ts supabase/functions/reset-password/index.ts supabase/functions/_shared/password-reset-account.ts --rule "import/no-unresolved: off"`
+
 ## <a id="20260318-web-dashboard-fc-name-nowrap"></a> 2026-03-18 | 웹 대시보드 FC 이름을 아바타 오른쪽에 고정
 
 **배경**:

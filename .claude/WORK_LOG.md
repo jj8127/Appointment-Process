@@ -20,6 +20,7 @@
 ## 최근 작업
 | 날짜 | 작업 | 핵심 파일 | 상세 |
 |------|------|----------|------|
+| 03-19 | 총무/본부장/FC/설계매니저가 공통 SMS 비밀번호 변경 흐름을 쓰도록 role-aware reset을 추가하고 로그인/설정 진입 문구를 `비밀번호 변경하기`로 정리 | `supabase/functions/_shared/password-reset-account.ts`, `supabase/functions/request-password-reset/index.ts`, `supabase/functions/reset-password/index.ts`, `supabase/migrations/20260319000001_add_admin_manager_password_reset_fields.sql`, `supabase/schema.sql`, `app/login.tsx`, `app/reset-password.tsx`, `app/settings.tsx`, `AGENTS.md` | [→ 상세](WORK_DETAIL.md#20260319-role-aware-password-reset) |
 | 03-18 | 웹 대시보드 FC 목록에서 이름이 원형 아이콘 아래로 떨어지지 않도록 컬럼 폭과 nowrap 레이아웃을 보정 | `web/src/app/dashboard/page.tsx` | [→ 상세](WORK_DETAIL.md#20260318-web-dashboard-fc-name-nowrap) |
 | 03-18 | `login-with-password`가 요청 origin을 그대로 CORS 응답하도록 보정하고 원격 Supabase 함수까지 재배포 | `supabase/functions/login-with-password/index.ts` | [→ 상세](WORK_DETAIL.md#20260318-login-with-password-cors-origin-echo) |
 | 03-18 | 웹 로그인 `FunctionsFetchError`를 사용자용 안내문으로 정규화하고 개발 모드 `console.error` 오버레이를 경고 로그로 완화 | `web/src/app/auth/page.tsx` | [→ 상세](WORK_DETAIL.md#20260318-web-auth-functions-fetch-sanitize) |

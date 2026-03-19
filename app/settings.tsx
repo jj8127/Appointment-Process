@@ -91,6 +91,14 @@ export default function SettingsScreen() {
               {getAccountRoleLabel({ role, readOnly, isRequestBoardDesigner, staffType })}
             </Text>
           </View>
+          <Pressable
+            style={styles.secondaryButton}
+            onPress={() => router.push('/reset-password')}
+            accessibilityLabel="비밀번호 변경하기"
+          >
+            <Feather name="key" size={16} color={COLORS.primary} />
+            <Text style={styles.secondaryButtonText}>비밀번호 변경하기</Text>
+          </Pressable>
         </View>
 
         <View style={styles.card}>
@@ -177,6 +185,22 @@ const styles = StyleSheet.create({
   },
   deleteButtonDisabled: { opacity: 0.7 },
   deleteText: { color: COLORS.white, fontWeight: TYPOGRAPHY.fontWeight.bold },
+  secondaryButton: {
+    marginTop: SPACING.sm,
+    borderWidth: 1,
+    borderColor: COLORS.primary,
+    paddingVertical: SPACING.sm,
+    borderRadius: RADIUS.base,
+    flexDirection: 'row',
+    justifyContent: 'center',
+    alignItems: 'center',
+    gap: SPACING.sm,
+    backgroundColor: COLORS.primaryPale,
+  },
+  secondaryButtonText: {
+    color: COLORS.primary,
+    fontWeight: TYPOGRAPHY.fontWeight.bold,
+  },
   logoutButton: {
     marginTop: SPACING.sm,
     paddingVertical: SPACING.sm,

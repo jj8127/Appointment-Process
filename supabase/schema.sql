@@ -85,6 +85,9 @@ create table if not exists public.admin_accounts (
   password_set_at timestamptz,
   failed_count integer not null default 0,
   locked_until timestamptz,
+  reset_token_hash text,
+  reset_token_expires_at timestamptz,
+  reset_sent_at timestamptz,
   active boolean not null default true,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
@@ -99,10 +102,27 @@ create table if not exists public.manager_accounts (
   password_set_at timestamptz,
   failed_count integer not null default 0,
   locked_until timestamptz,
+  reset_token_hash text,
+  reset_token_expires_at timestamptz,
+  reset_sent_at timestamptz,
   active boolean not null default true,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
 );
+
+alter table public.admin_accounts
+  add column if not exists reset_token_hash text;
+alter table public.admin_accounts
+  add column if not exists reset_token_expires_at timestamptz;
+alter table public.admin_accounts
+  add column if not exists reset_sent_at timestamptz;
+
+alter table public.manager_accounts
+  add column if not exists reset_token_hash text;
+alter table public.manager_accounts
+  add column if not exists reset_token_expires_at timestamptz;
+alter table public.manager_accounts
+  add column if not exists reset_sent_at timestamptz;
 
 create table if not exists public.affiliation_manager_mappings (
   id uuid primary key default gen_random_uuid(),

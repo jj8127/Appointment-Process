@@ -62,17 +62,7 @@ export default function ResetPasswordScreen() {
       }
       if (!data?.ok) {
         if (data?.code === 'not_found') {
-          Alert.alert(
-            '회원가입 필요',
-            '회원가입이 되어 있지 않은 번호입니다.\n회원가입 페이지로 이동하시겠습니까?',
-            [
-              { text: '취소', style: 'cancel' },
-              {
-                text: '회원가입',
-                onPress: () => router.replace('/signup'),
-              },
-            ]
-          );
+          Alert.alert('알림', data?.message ?? '등록된 계정을 찾을 수 없습니다.');
           return;
         }
         if (data?.code === 'not_set' || data?.code === 'not_completed') {
@@ -98,7 +88,7 @@ export default function ResetPasswordScreen() {
         '인증 코드가 문자로 발송되었습니다.',
       );
     } catch (err: any) {
-      const message = err?.message || '비밀번호 재설정 요청에 실패했습니다.';
+      const message = err?.message || '비밀번호 변경 요청에 실패했습니다.';
       Alert.alert('오류', message);
     } finally {
       setLoading(false);
@@ -135,16 +125,16 @@ export default function ResetPasswordScreen() {
       });
       if (error) throw error;
       if (!data?.ok) {
-        Alert.alert('알림', data?.message ?? '재설정에 실패했습니다.');
+        Alert.alert('알림', data?.message ?? '비밀번호 변경에 실패했습니다.');
         return;
       }
 
       await supabase.auth.signOut().catch(() => {});
       logout();
-      Alert.alert('완료', '비밀번호 변경됨');
+      Alert.alert('완료', '비밀번호가 변경되었습니다.');
       router.replace('/login');
     } catch {
-      Alert.alert('오류', '비밀번호 재설정에 실패했습니다.');
+      Alert.alert('오류', '비밀번호 변경에 실패했습니다.');
     } finally {
       setLoading(false);
     }
@@ -171,7 +161,7 @@ export default function ResetPasswordScreen() {
               style={styles.card}
             >
               <View style={styles.headerSection}>
-                <Text style={styles.title}>비밀번호 재설정</Text>
+                <Text style={styles.title}>비밀번호 변경</Text>
                 <Text style={styles.subtitle}>문자로 받은 6자리 코드를 입력해주세요.</Text>
               </View>
 

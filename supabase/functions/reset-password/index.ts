@@ -1,6 +1,11 @@
 import { serve } from 'https://deno.land/std@0.224.0/http/server.ts';
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.45.4';
 
+import {
+  buildRequestBoardPasswordSyncOptions,
+  findPasswordResetAccount,
+} from '../_shared/password-reset-account.ts';
+
 type Payload = {
   phone?: string;
   email?: string;
@@ -68,20 +73,6 @@ function toBase64(bytes: Uint8Array) {
   bytes.forEach((b) => (binary += String.fromCharCode(b)));
   return btoa(binary);
 }
-
-function parseDesignerCompanyNameFromAffiliation(affiliation?: string | null): string | null {
-  if (!affiliation) return null;
-  const normalized = affiliation.trim();
-  if (!normalized) return null;
-  const marker = '설계매니저';
-  const markerIndex = normalized.indexOf(marker);
-  if (markerIndex === -1) return null;
-
-  // e.g. "농협생명 설계매니저" -> "농협생명"
-  const company = normalized.slice(0, markerIndex).trim();
-  return company.length > 0 ? company : null;
-}
-
 async function sha256Base64(value: string) {
   const bytes = encoder.encode(value);
   const hash = new Uint8Array(await crypto.subtle.digest('SHA-256', bytes));
@@ -102,7 +93,7 @@ async function syncRequestBoardPassword(
   phone: string,
   password: string,
   options?: {
-    role?: 'fc' | 'designer';
+    role?: 'fc' | 'designer' | 'admin' | 'manager';
     name?: string | null;
     companyName?: string | null;
     affiliation?: string | null;
@@ -125,7 +116,10 @@ async function syncRequestBoardPassword(
         role: options?.role ?? 'fc',
         name: options?.name ?? undefined,
         companyName: options?.companyName ?? undefined,
-        affiliation: options?.role === 'fc' ? options?.affiliation ?? undefined : undefined,
+        affiliation:
+          options?.role === 'fc' || options?.role === 'manager'
+            ? options?.affiliation ?? undefined
+            : undefined,
       }),
       signal: controller.signal,
     });
@@ -192,43 +186,41 @@ serve(async (req: Request) => {
     return fail('password_mismatch', '비밀번호가 일치하지 않습니다.');
   }
 
-  const { data: profile, error: profileError } = await supabase
-    .from('fc_profiles')
-    .select('id,phone,name,affiliation')
-    .eq('phone', phone)
-    .maybeSingle();
-
-  if (profileError) {
-    return json({ ok: false, code: 'db_error', message: profileError.message }, 500);
+  const { account, error: accountError } = await findPasswordResetAccount(supabase, phone);
+  if (accountError) {
+    const message = accountError instanceof Error ? accountError.message : '계정 조회 중 오류가 발생했습니다.';
+    return json({ ok: false, code: 'db_error', message }, 500);
   }
-  if (!profile?.id) {
+  if (!account) {
     return fail('not_found', '등록된 계정을 찾을 수 없습니다.');
   }
 
-  const { data: creds, error: credsError } = await supabase
-    .from('fc_credentials')
-    .select('reset_token_hash,reset_token_expires_at')
-    .eq('fc_id', profile.id)
-    .maybeSingle();
+  if (account.kind === 'admin' && !account.active) {
+    return fail('inactive_account', '총무 계정이 비활성화되었습니다.');
+  }
 
-  if (credsError) {
-    return json({ ok: false, code: 'db_error', message: credsError.message }, 500);
+  if (account.kind === 'manager' && !account.active) {
+    return fail('inactive_account', '본부장 계정이 비활성화되었습니다.');
+  }
+
+  if (account.kind === 'fc' && !account.signupCompleted) {
+    return fail('not_completed', '회원가입이 완료되지 않았습니다.');
   }
   const bypassToken = SMS_BYPASS_ENABLED && token === SMS_BYPASS_CODE;
-  if (!creds?.reset_token_hash || !creds.reset_token_expires_at) {
+  if (!account.resetTokenHash || !account.resetTokenExpiresAt) {
     if (!bypassToken) {
       return fail('invalid_token', '인증 코드가 유효하지 않습니다.');
     }
   }
 
   if (!bypassToken) {
-    const expiresAt = new Date(creds.reset_token_expires_at);
+    const expiresAt = new Date(account.resetTokenExpiresAt);
     if (expiresAt < new Date()) {
       return fail('expired_token', '인증 코드가 만료되었습니다.');
     }
 
     const tokenHash = await sha256Base64(token);
-    if (tokenHash !== creds.reset_token_hash) {
+    if (tokenHash !== account.resetTokenHash) {
       return fail('invalid_token', '인증 코드가 유효하지 않습니다.');
     }
   }
@@ -237,30 +229,31 @@ serve(async (req: Request) => {
   const passwordHash = await hashPassword(newPassword, saltBytes);
   const passwordSalt = toBase64(saltBytes);
 
-  const { error: updateError } = await supabase
-    .from('fc_credentials')
-    .update({
-      password_hash: passwordHash,
-      password_salt: passwordSalt,
-      password_set_at: new Date().toISOString(),
-      failed_count: 0,
-      locked_until: null,
-      reset_token_hash: null,
-      reset_token_expires_at: null,
-    })
-    .eq('fc_id', profile.id);
+  const passwordUpdatePayload = {
+    password_hash: passwordHash,
+    password_salt: passwordSalt,
+    password_set_at: new Date().toISOString(),
+    failed_count: 0,
+    locked_until: null,
+    reset_token_hash: null,
+    reset_token_expires_at: null,
+    reset_sent_at: null,
+  };
+
+  const updateResult =
+    account.kind === 'admin'
+      ? await supabase.from('admin_accounts').update(passwordUpdatePayload).eq('id', account.id)
+      : account.kind === 'manager'
+        ? await supabase.from('manager_accounts').update(passwordUpdatePayload).eq('id', account.id)
+        : await supabase.from('fc_credentials').update(passwordUpdatePayload).eq('fc_id', account.id);
+
+  const { error: updateError } = updateResult;
 
   if (updateError) {
     return json({ ok: false, code: 'db_error', message: updateError.message }, 500);
   }
 
-  const designerCompanyName = parseDesignerCompanyNameFromAffiliation(profile.affiliation);
-  await syncRequestBoardPassword(phone, newPassword, {
-    role: designerCompanyName ? 'designer' : 'fc',
-    name: profile.name ?? null,
-    ...(designerCompanyName ? {} : { affiliation: profile.affiliation ?? null }),
-    ...(designerCompanyName ? { companyName: designerCompanyName } : {}),
-  });
+  await syncRequestBoardPassword(phone, newPassword, buildRequestBoardPasswordSyncOptions(account));
 
   return json({ ok: true });
 });
