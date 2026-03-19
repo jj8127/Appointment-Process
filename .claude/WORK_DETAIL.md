@@ -7,6 +7,32 @@
 
 ---
 
+## <a id="20260319-referral-system-doc-baseline"></a> 2026-03-19 | 추천인 시스템 전용 문서 체계/테스트 자산 베이스라인 추가
+
+**배경**:
+- 추천인 시스템은 기존 위촉/설계요청 문서 체계에 섞여 들어가면 규칙, 장애 이력, 테스트 방법을 빠르게 찾기 어려웠다.
+- 특히 초대링크, 추천코드, 스토어 fallback, 운영 보정처럼 구현 범위가 넓고 장애 지점이 많은 기능은 도메인 전용 SSOT와 케이스 자산이 없으면 이후 AI가 일관되게 추적/회귀 검증하기 어렵다.
+
+**조치**:
+- `docs/referral-system/`
+  - 추천인 시스템 전용 폴더를 신설하고 `README.md`, `AGENTS.md`, `SPEC.md`, `ARCHITECTURE.md`, `TEST_CHECKLIST.md`, `test-cases.json`, `TEST_RUN_RESULT.json`, `INCIDENTS.md`, `fixtures/README.md`, `queries.sql`을 추가했다.
+  - `AGENTS.md`에는 추천인 작업 시 필수로 함께 갱신해야 하는 문서, 장애 기록 의무, 테스트 결과 포맷, 회귀 규칙을 명시했다.
+  - `SPEC.md`에는 `초대링크 + 추천코드 fallback`, 가입 완료 시 확정, 수동 입력 우선 등 현재 구현 계획 기준의 기본 정책과 미확정 항목을 정리했다.
+  - `test-cases.json`과 `TEST_RUN_RESULT.json`으로 추천인 전용 기계판독 테스트 카탈로그/실행 결과 틀을 만들고, `INCIDENTS.md`에는 재현 가능한 장애 기록 템플릿을 추가했다.
+- `docs/README.md`
+  - 새 `referral-system/` 디렉토리를 문서 인덱스에 등록하고 유지 원칙을 추가했다.
+- `AGENTS.md`
+  - 루트 운영 규칙에 추천인 흐름 변경 시 전용 문서 세트를 같이 갱신해야 한다는 규칙을 추가했다.
+  - Context Map에 추천인 시스템 SSOT 진입점을 추가했다.
+
+**검증**:
+- 문서/JSON 자산 추가만 수행했으며 런타임 코드 변경은 없음
+- `node`로 `docs/referral-system/test-cases.json`, `docs/referral-system/TEST_RUN_RESULT.json` JSON 파싱 성공 확인
+
+**메모**:
+- 현재 `queries.sql`은 권장 테이블명 기준 초안이다. 첫 추천인 스키마 머지 이후 실제 테이블명으로 즉시 동기화해야 한다.
+- 추천인 구현 시작 시 `INCIDENTS.md`와 `TEST_RUN_RESULT.json`을 빈 틀이 아니라 실제 이력 저장소로 전환해야 한다.
+
 ## <a id="20260319-postcode-webview-window-open-fix"></a> 2026-03-19 | iPhone 주소 검색 WebView 새 창/외부 이탈 보강 + 앱 버전 `2.1.9`
 
 **배경**:

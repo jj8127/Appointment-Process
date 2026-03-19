@@ -408,6 +408,7 @@ supabase secrets list --project-ref <project-ref>
 - Use TanStack Query patterns (`useQuery` for reads, `useMutation` + invalidation for writes).
 - Keep route/file conventions of Expo Router and Next App Router.
 - Add/update docs when behavior or rules change (`.claude/PROJECT_GUIDE.md`, `.claude/WORK_LOG.md`, `.claude/WORK_DETAIL.md`).
+- When touching referral flows, update `docs/referral-system/AGENTS.md`, `SPEC.md`, and the matching test/incident assets in the same change set.
 
 ### Don'ts
 - Do not hardcode keys, tokens, or service credentials.
@@ -436,6 +437,7 @@ supabase secrets list --project-ref <project-ref>
 ### References
 - Primary policy: `.claude/PROJECT_GUIDE.md`
 - Work logs: `.claude/WORK_LOG.md`, `.claude/WORK_DETAIL.md`
+- Referral domain SSOT: `docs/referral-system/AGENTS.md`
 - Commands: `docs/guides/COMMANDS.md`
 - Contracts: `contracts/database-schema.md`, `contracts/api-contracts.md`, `contracts/component-contracts.md`
 - Architecture decisions: `adr/README.md`
@@ -447,6 +449,7 @@ supabase secrets list --project-ref <project-ref>
 - Prefer explicit rule updates over ad-hoc comments in PRs.
 
 ## Context Map (Action-Based Routing)
+- **[Referral system SSOT](./docs/referral-system/AGENTS.md)** - Use when planning or implementing referral codes, invite links, deferred attribution, incidents, or referral-specific test assets.
 - **[Mobile screens and navigation (Expo Router)](./app/AGENTS.md)** - Use when editing `app/*` routes, navigation stacks, or FC/admin mobile flows.
 - **[Mobile shared UI components](./components/AGENTS.md)** - Use when changing reusable React Native UI, status controls, headers, or shared visual patterns.
 - **[Mobile session and behavior hooks](./hooks/AGENTS.md)** - Use when modifying auth/session, identity gates, or platform-specific hook logic.
