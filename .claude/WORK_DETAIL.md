@@ -7,6 +7,29 @@
 
 ---
 
+## <a id="20260319-postcode-webview-window-open-fix"></a> 2026-03-19 | iPhone 주소 검색 WebView 새 창/외부 이탈 보강 + 앱 버전 `2.1.9`
+
+**배경**:
+- iPhone 본등록/기본정보 수정 주소 검색은 기존 host allowlist 보강 이후에도 일부 Kakao postcode 단계가 `window.open` 또는 다른 HTTPS host로 튀면서 앱 WebView를 벗어나는 사례가 남아 있었다.
+- 이 경우 Safari 또는 외부 앱으로 빠져 주소 선택 callback이 React Native로 돌아오지 않았고, 운영에서는 주소 검색이 다시 끊긴 것처럼 보였다.
+
+**조치**:
+- `lib/daum-postcode.ts`
+  - 기존 `*.map.daum.net`/`*.map.kakao.com`/`*.daumcdn.net` host allowlist 대신, `about:`/`javascript:`/`data:`/`blob:` 같은 safe local 전환과 모든 `http(s)` 탐색을 postcode 전용 WebView 안에 남기도록 guard를 단순화했다.
+  - 대신 `mailto:`/`tel:`/`kakaomap://` 같은 non-web scheme만 외부로 내보내도록 정리했다.
+- `components/DaumPostcode.tsx`
+  - `window.open`, `_blank` anchor click, `onOpenWindow`, `onShouldStartLoadWithRequest`를 함께 가로채 새 창 시도도 같은 WebView 내부 redirect로 되돌리도록 보강했다.
+  - load/navigation/error trace를 남기는 진단 로깅과 dev 디버그 배너를 추가해 iOS 실기기에서 어떤 단계에서 이탈하는지 추적할 수 있게 했다.
+- `lib/__tests__/daum-postcode.test.ts`
+  - postcode web flow가 host에 상관없이 WebView 내부에 남고, non-web app scheme만 외부로 빠지는 새 guard 계약으로 테스트를 갱신했다.
+- `app.json`
+  - 다음 내부 배포 식별을 위해 Expo 앱 버전을 `2.1.9`로 상향했다.
+
+**검증**:
+- `npx eslint components/DaumPostcode.tsx lib/daum-postcode.ts lib/__tests__/daum-postcode.test.ts --rule "import/no-unresolved: off"`
+- `npx jest lib/__tests__/daum-postcode.test.ts --runInBand`
+- `node scripts/ci/check-governance.mjs`
+
 ## <a id="20260319-role-aware-password-reset"></a> 2026-03-19 | 총무/본부장/FC/설계매니저 공통 SMS 비밀번호 변경
 
 **배경**:

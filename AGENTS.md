@@ -68,7 +68,7 @@ supabase secrets list --project-ref <project-ref>
 
 ## Current Status & Roadmap
 
-### Snapshot (2026-03-13)
+### Snapshot (2026-03-19)
 - Project is operating as a dual-platform monorepo: Expo mobile app + Next.js admin web + Supabase backend.
 - Core FC onboarding flow is implemented end-to-end: signup, OTP/password, identity gate, consent, exam, docs, appointment, completion.
 - FC signup supports dual-commission completion selection (`none/life_only/nonlife_only/both`); partial completion (`life_only/nonlife_only`) now starts from Step 1 (`draft`) and preserves completion flags so remaining track proceeds through full onboarding flow.
@@ -79,6 +79,7 @@ supabase secrets list --project-ref <project-ref>
 - `request-password-reset` / `reset-password`는 2026-03-19 기준 `admin_accounts`, `manager_accounts`, `fc_credentials`를 모두 조회해 총무/본부장/FC/request_board-linked 설계매니저가 같은 SMS 비밀번호 변경 흐름을 사용할 수 있다. 단, 일반 총무는 역할 계약상 GaramLink direct 계정을 만들지 않으며, `developer` subtype만 계속 `fc`로 sync된다. 운영 DB에는 migration `20260319000001_add_admin_manager_password_reset_fields.sql` 적용이 선행돼야 한다.
 - request_board-linked 설계매니저 계정은 `fc_profiles`/`fc_credentials`에 저장되고, 앱 내부 독립 role은 두지 않는다. 판별 기준은 `affiliation = '<보험사> 설계매니저'` 패턴이며, `login-with-password`가 이 값을 읽어 request_board 브릿지 role을 `designer`로 발급한다.
 - 현재 앱 DB 기준 request_board-linked 설계매니저 프로필은 `54명`이다.
+- iPhone 주소 검색 WebView는 2026-03-19 기준 Kakao postcode의 다중 HTTPS hop과 `window.open`/`_blank` 분기를 모두 앱 내부 WebView에서 처리한다. `DaumPostcode`는 non-web scheme(`tel:`, `mailto:`, `kakaomap://` 등)만 외부로 보내며, dev 모드에서는 navigation trace 배너/로그로 이탈 지점을 확인할 수 있다.
 - request_board 브릿지 토큰/비밀번호 sync/session sync는 FC와 본부장(manager) role일 때 `affiliation`을 함께 전달하도록 확장됐다. 따라서 request_board와 가람in 임베디드 GaramLink 화면은 설계매니저가 보는 FC 이름을 `소속 · 이름`으로 맞출 수 있고, 소속 문자열에 이름이 이미 포함된 경우에는 중복 표기를 생략한다.
 - request_board 운영 DB에는 2026-03-13 기준 `users.affiliation` 컬럼/초기 backfill 51건이 적용됐다. 따라서 기존 본부장 requester(`서선미`)도 바로 `1본부 서선미`로 보이지만, app 원천 affiliation이 없는 legacy direct FC row는 별도 보강이 필요하다.
 - 가람in GaramLink 의뢰 목록/상세는 `cancelled` 상태를 별도 필터로 포함하고, 의뢰 상세에는 고객 기본정보/보험 자격/건강정보/납입정보/요청 상품/FC 코드/설계 링크/취소 사유까지 request_board 응답 기준으로 노출하도록 2026-03-16에 확장됐다.
