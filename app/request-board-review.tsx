@@ -569,7 +569,7 @@ export default function RequestBoardReviewScreen() {
             const healthFields = [
               { label: '최근 병원 방문', value: formatNullable(detail.recent_hospital_visit) },
               { label: '현재 복용 약물', value: formatNullable(detail.current_medication) },
-              { label: '최근 입원 이력', value: formatNullable(detail.recent_hospitalization) },
+              { label: '최근 5년 입원 및 수술 이력, 7일이상 치료 이력', value: formatNullable(detail.recent_hospitalization) },
               { label: '주요 질병', value: formatNullable(detail.major_diseases) },
             ];
             const paymentFields = [
