@@ -20,6 +20,7 @@
 ## 최근 작업
 | 날짜 | 작업 | 핵심 파일 | 상세 |
 |------|------|----------|------|
+| 03-23 | 가람Link에서 읽은 실제 unread 수가 가람in 홈/설계요청/알림센터 숫자에도 반영되도록 앱 count를 `app since + request_board live unread` 조합으로 재구성 | `lib/mobile-unread-notification-count.ts`, `lib/request-board-api.ts`, `app/index.tsx`, `app/request-board.tsx`, `app/notifications.tsx`, `supabase/functions/fc-notify/index.ts` | [→ 상세](WORK_DETAIL.md#20260323-live-request-board-unread-sync) |
 | 03-23 | 가람in 알림센터/홈/설계요청 unread가 0이면 홈 아이콘 배지와 시스템 알림도 함께 정리되도록 native badge sync helper를 추가 | `lib/system-notification-badge.ts`, `app/notifications.tsx`, `app/index.tsx`, `app/request-board.tsx` | [→ 상세](WORK_DETAIL.md#20260323-native-notification-badge-sync) |
 | 03-23 | 추천인 스키마를 trusted server path 전용 접근 모델, pending API 전제, 삭제 후 이력 보존(snapshot) 구조로 보강 | `supabase/schema.sql`, `supabase/migrations/20260323000001_add_referral_schema.sql`, `docs/referral-system/*`, `contracts/database-schema.md`, `adr/0004-referral-schema-baseline.md`, `AGENTS.md` | [→ 상세](WORK_DETAIL.md#20260323-referral-schema-hardening) |
 | 03-23 | 추천인 스키마 초안으로 `referral_codes`/`referral_attributions`/`referral_events`를 추가하고 migration, RLS, 계약 문서, ADR을 동기화 | `supabase/schema.sql`, `supabase/migrations/20260323000001_add_referral_schema.sql`, `contracts/database-schema.md`, `adr/0004-referral-schema-baseline.md`, `docs/referral-system/*` | [→ 상세](WORK_DETAIL.md#20260323-referral-schema-draft) |

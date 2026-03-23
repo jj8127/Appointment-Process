@@ -1,5 +1,4 @@
 import { Feather } from '@expo/vector-icons';
-import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as Clipboard from 'expo-clipboard';
 import { Stack, useFocusEffect, useRouter } from 'expo-router';
 import { MotiView } from 'moti';
@@ -23,6 +22,7 @@ import { useAppLogout } from '@/hooks/use-app-logout';
 import { useSession } from '@/hooks/use-session';
 import { resolveBottomNavActiveKey, resolveBottomNavPreset } from '@/lib/bottom-navigation';
 import { logger } from '@/lib/logger';
+import { fetchMobileUnreadNotificationCount } from '@/lib/mobile-unread-notification-count';
 import { openExternalUrl } from '@/lib/open-external-url';
 import {
   rbGetRequestList,
@@ -340,26 +340,18 @@ export default function RequestBoardScreen() {
         }
       })(),
 
-      // Unread notification count (same contract as home header bell)
-      (async () => {
-        try {
-          const lastCheck = await AsyncStorage.getItem('lastNotificationCheckTime');
-          const lastCheckDate = lastCheck ? new Date(lastCheck) : new Date(0);
-          const { data, error } = await supabase.functions.invoke('fc-notify', {
-            body: {
-              type: 'inbox_unread_count',
+        // Unread notification count (same contract as home header bell)
+        (async () => {
+          try {
+            const count = await fetchMobileUnreadNotificationCount({
               role: inboxRole,
-              resident_id: residentId ?? null,
-              since: lastCheckDate.toISOString(),
-              include_request_board_fc: includeRequestBoardFcInbox,
-            },
-          });
-          if (error) throw error;
-          if (!data?.ok) throw new Error(data?.message ?? '미확인 알림 조회 실패');
-          setUnreadNotifCount(Number(data.count ?? 0));
-        } catch (err) {
-          logger.warn('request-board unread notification count fetch failed', err);
-          setUnreadNotifCount(0);
+              residentId,
+              requestBoardRole,
+            });
+            setUnreadNotifCount(count);
+          } catch (err) {
+            logger.warn('request-board unread notification count fetch failed', err);
+            setUnreadNotifCount(0);
         }
       })(),
 

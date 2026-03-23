@@ -7,6 +7,30 @@
 
 ---
 
+## <a id="20260323-live-request-board-unread-sync"></a> 2026-03-23 | 가람Link 실제 unread를 가람in 숫자와 동기화
+
+**배경**:
+- 기존 가람in 홈/설계요청 벨 숫자는 `fc-notify inbox_unread_count`가 주는 `lastNotificationCheckTime 이후 생성된 bridge row 수`를 그대로 사용했다.
+- 그래서 사용자가 가람Link에서 알림을 읽어 `request_board.notifications.is_read`가 줄어도, 가람in 숫자는 여전히 과거 bridge insert 기준으로 남아 `가람Link에서 확인했는데 앱 숫자가 안 줄어든다`는 문제가 계속됐다.
+
+**조치**:
+- `lib/mobile-unread-notification-count.ts`
+  - 모바일 공통 unread 계산 helper를 추가해, 가람in 자체 알림은 기존 `lastNotificationCheckTime` 기준을 유지하되 가람Link 쪽은 request_board API의 실제 unread count를 별도로 합산하도록 정리했다.
+- `lib/request-board-api.ts`
+  - `/api/notifications/unread/count`를 호출하는 `rbGetNotificationUnreadCount()`를 추가했다.
+- `app/index.tsx`, `app/request-board.tsx`
+  - 홈/설계요청 헤더 숫자가 더 이상 bridge row 생성 시점에 묶이지 않고, 가람Link 실제 unread 변화를 polling/focus 주기마다 반영하도록 교체했다.
+- `app/notifications.tsx`
+  - 알림센터 진입 시 `lastNotificationCheckTime`는 갱신하되, native badge는 `0`으로 강제하지 않고 최신 가람Link unread를 포함한 합산 수치로 다시 맞추도록 수정했다.
+- `supabase/functions/fc-notify/index.ts`
+  - `inbox_unread_count`에 `exclude_request_board_categories` 옵션을 추가해, 앱 자체 알림 카운트와 request_board 실제 unread를 분리 합산할 수 있게 했다.
+
+**검증**:
+- `npm run lint`
+
+**메모**:
+- 이번 수정 이후 가람in 숫자는 `앱 내부에서 확인했는지`보다 `가람Link 실제 unread가 남아 있는지`를 우선 반영한다. 따라서 가람Link에서 읽음 처리하면 홈/설계요청 벨과 시스템 배지도 다음 동기화 주기에서 함께 감소한다.
+
 ## <a id="20260323-native-notification-badge-sync"></a> 2026-03-23 | 가람in 알림 확인 후 홈 배지/시스템 알림 동기화
 
 **배경**:

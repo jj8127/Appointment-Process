@@ -1,5 +1,4 @@
 import { Feather } from '@expo/vector-icons';
-import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useQuery } from '@tanstack/react-query';
 import Constants from 'expo-constants';
 import * as Haptics from 'expo-haptics';
@@ -32,6 +31,7 @@ import { useIdentityStatus } from '@/hooks/use-identity-status';
 import { useSession } from '@/hooks/use-session';
 import { useInAppUpdate } from '@/hooks/useInAppUpdate';
 import { logger } from '@/lib/logger';
+import { fetchMobileUnreadNotificationCount } from '@/lib/mobile-unread-notification-count';
 import { resolveNoticeRoute } from '@/lib/notice-route';
 import { openExternalUrl } from '@/lib/open-external-url';
 import { supabase } from '@/lib/supabase';
@@ -233,34 +233,6 @@ const fetchUnreadMessageCount = async (residentId: string) => {
     return 0;
   }
   return count ?? 0;
-};
-
-const fetchUnreadNotificationCount = async (
-  role: 'admin' | 'fc' | null,
-  residentId: string | null,
-  includeRequestBoardFc = false,
-) => {
-  try {
-    if (!role) return 0;
-    const lastCheck = await AsyncStorage.getItem('lastNotificationCheckTime');
-    const lastCheckDate = lastCheck ? new Date(lastCheck) : new Date(0);
-
-    const { data, error } = await supabase.functions.invoke('fc-notify', {
-      body: {
-        type: 'inbox_unread_count',
-        role,
-        resident_id: residentId ?? null,
-        since: lastCheckDate.toISOString(),
-        include_request_board_fc: includeRequestBoardFc,
-      },
-    });
-    if (error) throw error;
-    if (!data?.ok) throw new Error(data?.message ?? '알림 개수 조회 실패');
-    return Number(data.count ?? 0);
-  } catch (e) {
-    logger.debug('[Home] unread notif error', e);
-    return 0;
-  }
 };
 
 const fetchFcStatus = async (residentId: string) => {
@@ -865,7 +837,12 @@ export default function Home() {
     isFetched: hasFetchedUnreadNotifCount,
   } = useQuery({
     queryKey: ['unread-notif-count', role, residentId, requestBoardRole],
-    queryFn: () => fetchUnreadNotificationCount(role, residentId, role === 'admin' && requestBoardRole === 'fc'),
+    queryFn: () =>
+      fetchMobileUnreadNotificationCount({
+        role,
+        residentId,
+        requestBoardRole,
+      }),
     enabled: !!role,
     refetchInterval: 5000, // Poll every 5s for notifications
   });

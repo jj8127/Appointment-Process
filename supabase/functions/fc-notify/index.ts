@@ -19,6 +19,7 @@ type Payload =
       resident_id?: string | null;
       since?: string | null;
       include_request_board_fc?: boolean;
+      exclude_request_board_categories?: boolean;
     }
   | {
       type: 'inbox_delete';
@@ -786,6 +787,7 @@ serve(async (req: Request) => {
     const role = body.role;
     const residentId = sanitize(body.resident_id);
     const includeRequestBoardFc = role === 'admin' && residentId.length > 0 && body.include_request_board_fc === true;
+    const excludeRequestBoardCategories = body.exclude_request_board_categories === true;
 
     const sinceDate = body.since ? new Date(body.since) : new Date(0);
     const sinceIso = Number.isNaN(sinceDate.getTime()) ? new Date(0).toISOString() : sinceDate.toISOString();
@@ -802,22 +804,26 @@ serve(async (req: Request) => {
         } else {
           countQuery = countQuery.eq('recipient_role', 'fc').is('resident_id', null);
         }
-      } else {
-        if (residentId) {
-          countQuery = countQuery.eq('recipient_role', 'admin').or(`resident_id.eq.${residentId},resident_id.is.null`);
         } else {
-          countQuery = countQuery.eq('recipient_role', 'admin').is('resident_id', null);
+          if (residentId) {
+            countQuery = countQuery.eq('recipient_role', 'admin').or(`resident_id.eq.${residentId},resident_id.is.null`);
+          } else {
+            countQuery = countQuery.eq('recipient_role', 'admin').is('resident_id', null);
+          }
         }
-      }
 
-      return countQuery;
-    };
+        if (excludeRequestBoardCategories) {
+          countQuery = countQuery.not('category', 'ilike', `${REQUEST_BOARD_CATEGORY_PREFIX}%`);
+        }
+
+        return countQuery;
+      };
 
     const { count: primaryCount, error: primaryCountErr } = await buildPrimaryCountQuery();
     if (primaryCountErr) return err(primaryCountErr.message, 500);
 
     let requestBoardFcCount = 0;
-    if (includeRequestBoardFc) {
+    if (includeRequestBoardFc && !excludeRequestBoardCategories) {
       const { count, error } = await supabase
         .from('notifications')
         .select('id', { count: 'exact', head: true })

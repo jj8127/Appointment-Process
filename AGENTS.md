@@ -86,6 +86,7 @@ supabase secrets list --project-ref <project-ref>
 - 가람in GaramLink 의뢰 목록/상세는 `cancelled` 상태를 별도 필터로 포함하고, 의뢰 상세에는 고객 기본정보/보험 자격/건강정보/납입정보/요청 상품/FC 코드/설계 링크/취소 사유까지 request_board 응답 기준으로 노출하도록 2026-03-16에 확장됐다.
 - 가람Link 브리지 알림 inbox는 2026-03-16 기준 `requestBoardRole='fc'`인 admin 세션(본부장/개발자)에서도 같은 전화번호의 `request_board_*` FC 알림을 함께 집계하도록 보강돼, 가람in 홈 벨/알림센터/설계요청 최근 활동에서 누락되지 않는다.
 - 가람in 알림센터/홈/설계요청의 unread 집계는 2026-03-23 기준 Expo native badge와도 동기화된다. unread가 `0`이면 홈 아이콘 배지를 `0`으로 내리고 시스템 알림도 함께 정리해, 앱 내부 읽음 상태와 휴대폰 배지 숫자가 어긋나지 않도록 맞췄다.
+- 가람in 홈/설계요청/알림센터의 GaramLink 알림 숫자는 2026-03-23 기준 request_board 실제 unread count를 직접 합산한다. 따라서 GaramLink에서 읽음 처리하면 앱 내부 벨 숫자와 시스템 배지도 polling/focus/load 주기에서 함께 감소한다.
 - `user_presence` 공통 테이블/함수와 모바일 앱 전역 heartbeat(`AppState active/background`)가 추가되었고, `request-board-messenger`는 request_board presence API를 읽어 cross-platform 활동중/마지막 접속 문구를 렌더링한다.
 - Expo 개발 빌드에서도 기본값은 GaramLink 운영 URL이다. 로컬 `request_board` API(`:3000`)와 웹(`:5173`)를 자동 해석하려면 `EXPO_PUBLIC_REQUEST_BOARD_USE_LOCAL_DEV=1`을 명시적으로 켜고, 필요시 `EXPO_PUBLIC_REQUEST_BOARD_API_URL` / `EXPO_PUBLIC_REQUEST_BOARD_WEB_URL` / 레거시 `EXPO_PUBLIC_REQUEST_BOARD_URL`로 직접 덮어쓴다.
 - `user-presence` Edge Function은 RPC 실패 시 direct-table fallback으로 복구되도록 핫픽스되었고, `가람in` presence는 `appSessionToken`이 없는 구세션에서는 동작하지 않으므로 최초 1회 재로그인이 필요할 수 있다.

@@ -787,6 +787,11 @@ export async function rbGetUnreadCount(): Promise<number> {
   return (msg.data?.count ?? 0) + (dm.data?.count ?? 0);
 }
 
+export async function rbGetNotificationUnreadCount(): Promise<number> {
+  const res = await rbFetch<{ count: number }>('/api/notifications/unread/count');
+  return res.success ? Number(res.data?.count ?? 0) : 0;
+}
+
 /* ─── Request Stats ─── */
 
 export type RbRequestSummary = {

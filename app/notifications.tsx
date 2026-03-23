@@ -21,6 +21,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { RefreshButton } from '@/components/RefreshButton';
 import { useSession } from '@/hooks/use-session';
 import { logger } from '@/lib/logger';
+import { fetchMobileUnreadNotificationCount } from '@/lib/mobile-unread-notification-count';
 import { resolveNoticeRoute } from '@/lib/notice-route';
 import { supabase } from '@/lib/supabase';
 import { syncNativeNotificationBadge } from '@/lib/system-notification-badge';
@@ -402,13 +403,18 @@ export default function NotificationsScreen() {
           const bTime = b.created_at ? new Date(b.created_at).getTime() : 0;
           return bTime - aTime;
         });
-      if (!mountedRef.current) return;
-      setNotices(merged);
-      await AsyncStorage.setItem('lastNotificationCheckTime', new Date().toISOString());
-      await syncNativeNotificationBadge(0, {
-        context: 'notifications-screen-load',
-        dismissPresentedWhenZero: true,
-      });
+        if (!mountedRef.current) return;
+        setNotices(merged);
+        await AsyncStorage.setItem('lastNotificationCheckTime', new Date().toISOString());
+        const unreadCount = await fetchMobileUnreadNotificationCount({
+          role: inboxRole,
+          residentId: inboxResidentId,
+          requestBoardRole,
+        });
+        await syncNativeNotificationBadge(unreadCount, {
+          context: 'notifications-screen-load',
+          dismissPresentedWhenZero: true,
+        });
     } catch (err: unknown) {
       logger.warn('Failed to load notifications', err);
     } finally {
@@ -416,7 +422,7 @@ export default function NotificationsScreen() {
       setLoading(false);
       setRefreshing(false);
     }
-  }, [fetchInbox, hydrated, loadHiddenNoticeIds]);
+    }, [fetchInbox, hydrated, inboxResidentId, inboxRole, loadHiddenNoticeIds, requestBoardRole]);
 
   useEffect(() => {
     void load();
