@@ -1,6 +1,5 @@
-import AsyncStorage from '@react-native-async-storage/async-storage';
-
 import { logger } from './logger';
+import { getNotificationCheckpoint } from './notification-checkpoint';
 import { rbGetNotificationUnreadCount } from './request-board-api';
 import { supabase } from './supabase';
 
@@ -28,8 +27,11 @@ export async function fetchMobileUnreadNotificationCount({
   const includeLiveRequestBoardUnread = hasRequestBoardAccess(role, requestBoardRole);
 
   try {
-    const lastCheck = await AsyncStorage.getItem('lastNotificationCheckTime');
-    const lastCheckDate = lastCheck ? new Date(lastCheck) : new Date(0);
+    const lastCheckDate = await getNotificationCheckpoint({
+      role,
+      residentId,
+      requestBoardRole,
+    });
 
     const { data, error } = await supabase.functions.invoke('fc-notify', {
       body: {

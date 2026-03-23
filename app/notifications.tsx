@@ -22,6 +22,7 @@ import { RefreshButton } from '@/components/RefreshButton';
 import { useSession } from '@/hooks/use-session';
 import { logger } from '@/lib/logger';
 import { fetchMobileUnreadNotificationCount } from '@/lib/mobile-unread-notification-count';
+import { setNotificationCheckpointNow } from '@/lib/notification-checkpoint';
 import { resolveNoticeRoute } from '@/lib/notice-route';
 import { supabase } from '@/lib/supabase';
 import { syncNativeNotificationBadge } from '@/lib/system-notification-badge';
@@ -405,7 +406,11 @@ export default function NotificationsScreen() {
         });
         if (!mountedRef.current) return;
         setNotices(merged);
-        await AsyncStorage.setItem('lastNotificationCheckTime', new Date().toISOString());
+        await setNotificationCheckpointNow({
+          role: inboxRole,
+          residentId: inboxResidentId,
+          requestBoardRole,
+        });
         const unreadCount = await fetchMobileUnreadNotificationCount({
           role: inboxRole,
           residentId: inboxResidentId,

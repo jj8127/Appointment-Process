@@ -7,6 +7,30 @@
 
 ---
 
+## <a id="20260323-user-scoped-notification-checkpoint"></a> 2026-03-23 | GaramLink unread checkpoint를 사용자별로 분리해 재설치 drift 보정
+
+**배경**:
+- GaramLink 웹에서 unread가 `0`이어도 가람in 홈 벨 숫자가 남는 사례를 운영 데이터로 확인했다.
+- 원인을 분해해 보니 request_board unread 자체는 정상적으로 `0`을 반환했지만, 가람in `fetchMobileUnreadNotificationCount()`가 `lastNotificationCheckTime`이 비어 있을 때 `1970-01-01`부터의 앱 알림을 모두 unread처럼 다시 세고 있었다.
+- 특히 `expo run:android` 재설치/앱 데이터 초기화 뒤에는 AsyncStorage의 전역 `lastNotificationCheckTime` 키가 사라져, `resident_id is null` 공용 FC 알림(`exam_round`, 공지 등) 14건이 GaramLink unread와 별개로 다시 붙는 것이 실제 운영 계정에서 재현됐다.
+
+**조치**:
+- `lib/notification-checkpoint.ts`
+  - `role + residentId + requestBoardRole` 기준의 사용자별 notification checkpoint helper를 추가했다.
+  - checkpoint가 없거나 값이 깨진 경우 현재 시각으로 초기화해 과거 backlog를 첫 unread로 재집계하지 않도록 했다.
+- `lib/mobile-unread-notification-count.ts`
+  - unread count 계산이 더 이상 전역 AsyncStorage 키를 직접 읽지 않고 사용자별 checkpoint helper를 사용하도록 변경했다.
+- `app/notifications.tsx`
+  - 알림센터를 읽었을 때도 같은 사용자별 checkpoint를 갱신하도록 정리했다.
+
+**운영 확인**:
+- `request_board` 기준 `정준(테스트)` FC unread는 `0`
+- 반면 기존 `fc-notify inbox_unread_count(exclude_request_board_categories=true)`는 공용 FC 알림(`resident_id is null`) 14건 때문에 `14`
+- 이번 수정 후 checkpoint가 없는 첫 실행은 현재 시각으로 시작하므로, 재설치 직후 GaramLink live unread가 `0`이면 가람in 벨/배지도 `0`으로 맞춰진다.
+
+**검증**:
+- `npm run lint -- app/notifications.tsx lib/mobile-unread-notification-count.ts lib/notification-checkpoint.ts`
+
 ## <a id="20260323-live-request-board-unread-sync"></a> 2026-03-23 | 가람Link 실제 unread를 가람in 숫자와 동기화
 
 **배경**:

@@ -20,6 +20,7 @@
 ## 최근 작업
 | 날짜 | 작업 | 핵심 파일 | 상세 |
 |------|------|----------|------|
+| 03-23 | 가람in GaramLink unread checkpoint를 사용자별로 분리하고 첫 실행 기본값을 현재 시각으로 바꿔 재설치 뒤 과거 공용 알림이 카운트에 다시 섞이지 않도록 보정 | `lib/notification-checkpoint.ts`, `lib/mobile-unread-notification-count.ts`, `app/notifications.tsx` | [→ 상세](WORK_DETAIL.md#20260323-user-scoped-notification-checkpoint) |
 | 03-23 | 가람Link에서 읽은 실제 unread 수가 가람in 홈/설계요청/알림센터 숫자에도 반영되도록 앱 count를 `app since + request_board live unread` 조합으로 재구성 | `lib/mobile-unread-notification-count.ts`, `lib/request-board-api.ts`, `app/index.tsx`, `app/request-board.tsx`, `app/notifications.tsx`, `supabase/functions/fc-notify/index.ts` | [→ 상세](WORK_DETAIL.md#20260323-live-request-board-unread-sync) |
 | 03-23 | 가람in 알림센터/홈/설계요청 unread가 0이면 홈 아이콘 배지와 시스템 알림도 함께 정리되도록 native badge sync helper를 추가 | `lib/system-notification-badge.ts`, `app/notifications.tsx`, `app/index.tsx`, `app/request-board.tsx` | [→ 상세](WORK_DETAIL.md#20260323-native-notification-badge-sync) |
 | 03-23 | 추천인 스키마를 trusted server path 전용 접근 모델, pending API 전제, 삭제 후 이력 보존(snapshot) 구조로 보강 | `supabase/schema.sql`, `supabase/migrations/20260323000001_add_referral_schema.sql`, `docs/referral-system/*`, `contracts/database-schema.md`, `adr/0004-referral-schema-baseline.md`, `AGENTS.md` | [→ 상세](WORK_DETAIL.md#20260323-referral-schema-hardening) |
