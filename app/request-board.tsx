@@ -32,6 +32,7 @@ import {
 } from '@/lib/request-board-api';
 import { getRequestBoardWebBaseUrl } from '@/lib/request-board-url';
 import { supabase } from '@/lib/supabase';
+import { syncNativeNotificationBadge } from '@/lib/system-notification-badge';
 import { COLORS, RADIUS, SHADOWS, SPACING, TYPOGRAPHY } from '@/lib/theme';
 import { buildWelcomeTitle } from '@/lib/welcome-title';
 
@@ -437,6 +438,17 @@ export default function RequestBoardScreen() {
   const openNotifications = () => {
     router.push('/notifications');
   };
+
+  useEffect(() => {
+    if (loading) {
+      return;
+    }
+
+    void syncNativeNotificationBadge(unreadNotifCount, {
+      context: 'request-board-unread-count',
+      dismissPresentedWhenZero: true,
+    });
+  }, [loading, unreadNotifCount]);
 
   const handleLogout = () => {
     appLogout();

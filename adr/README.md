@@ -12,6 +12,7 @@
 | [0001](0001-record-architecture-decisions.md) | ADR 도입 | Accepted |
 | [0002](0002-custom-authentication-system.md) | 커스텀 인증 시스템 | Accepted |
 | [0003](0003-theme-system-and-reusable-components.md) | 테마 시스템 및 재사용 컴포넌트 | Accepted |
+| [0004](0004-referral-schema-baseline.md) | 추천인 스키마 베이스라인 | Proposed |
 
 ## ADR을 남겨야 하는 경우
 

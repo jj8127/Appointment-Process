@@ -106,6 +106,94 @@ FC 제출 서류
 | password_salt | text | NOT NULL | 솔트 |
 | created_at | timestamptz | DEFAULT now() | 생성일 |
 
+### 1.6 referral_codes (추천코드 마스터)
+추천인 코드와 소유 FC를 관리
+
+| 컬럼 | 타입 | 제약 | 설명 |
+|------|------|------|------|
+| id | uuid | PK | 추천코드 row ID |
+| fc_id | uuid | FK → fc_profiles.id | 코드 소유 FC |
+| code | text | UNIQUE, NOT NULL | 추천코드 |
+| is_active | boolean | DEFAULT true | 현재 활성 코드 여부 |
+| disabled_at | timestamptz | - | 비활성화 시각 |
+| created_at | timestamptz | DEFAULT now() | 생성일 |
+| updated_at | timestamptz | DEFAULT now() | 수정일 |
+
+**제약**
+- 동일 `code` 중복 금지
+- FC당 활성 코드 1개만 허용(partial unique index)
+- direct client select/write는 허용하지 않고, 운영/admin 또는 trusted server path만 접근한다.
+
+### 1.7 referral_attributions (추천 관계 추적/확정)
+자동 입력, 수동 수정, 가입 완료 후 확정까지의 추천 관계 추적
+
+| 컬럼 | 타입 | 제약 | 설명 |
+|------|------|------|------|
+| id | uuid | PK | 추천 관계 row ID |
+| inviter_fc_id | uuid | FK → fc_profiles.id, nullable | 추천한 FC FK(삭제 후 null 가능) |
+| inviter_phone | text | NOT NULL | 추천인 전화번호 snapshot(11자리 정규화) |
+| inviter_name | text | nullable | 추천인 이름 snapshot |
+| invitee_fc_id | uuid | FK → fc_profiles.id, nullable | 추천받아 가입한 FC |
+| invitee_phone | text | NOT NULL | 가입자 전화번호(11자리 정규화) |
+| referral_code_id | uuid | FK → referral_codes.id, nullable | 사용된 추천코드 row |
+| referral_code | text | NOT NULL | 사용된 추천코드 원문 |
+| source | text | nullable | 최종 확정 source (`auto_prefill`/`manual_entry`/`admin_override`) |
+| capture_source | text | NOT NULL | 최초 유입 source (`invite_link`/`manual_entry`/`unknown`) |
+| selection_source | text | nullable | 사용자가 최종 선택한 방식 |
+| status | text | NOT NULL | `captured`/`pending_signup`/`confirmed`/`rejected`/`cancelled`/`overridden` |
+| landing_session_id | text | - | 랜딩/유입 세션 식별자 |
+| device_hint | text | - | 기기/채널 힌트 |
+| rejection_reason | text | - | 거절 사유 |
+| captured_at | timestamptz | DEFAULT now() | 최초 포착 시각 |
+| confirmed_at | timestamptz | - | 최종 확정 시각 |
+| cancelled_at | timestamptz | - | 취소 시각 |
+| created_at | timestamptz | DEFAULT now() | 생성일 |
+| updated_at | timestamptz | DEFAULT now() | 수정일 |
+
+**제약**
+- invitee phone 기준 `confirmed` row는 1건만 허용
+- invitee fc_id 기준 `confirmed` row도 1건만 허용(partial unique index)
+- inviter와 invitee가 동일 FC가 되는 self-reference는 차단
+- inviter/invitee phone은 숫자 11자리 정규화 문자열만 허용
+- inviter 삭제 후에도 row는 남고 snapshot으로 복원 가능해야 한다
+
+### 1.8 referral_events (추천 이벤트 로그)
+추천 흐름 단계별 이벤트와 override 이력 저장
+
+| 컬럼 | 타입 | 제약 | 설명 |
+|------|------|------|------|
+| id | uuid | PK | 이벤트 row ID |
+| attribution_id | uuid | FK → referral_attributions.id, nullable | 연결된 추천 관계 |
+| referral_code_id | uuid | FK → referral_codes.id, nullable | 연결된 추천코드 |
+| referral_code | text | nullable | 추천코드 snapshot |
+| inviter_fc_id | uuid | FK → fc_profiles.id, nullable | 추천인 FC |
+| inviter_phone | text | nullable | 추천인 전화번호 snapshot |
+| inviter_name | text | nullable | 추천인 이름 snapshot |
+| invitee_fc_id | uuid | FK → fc_profiles.id, nullable | 가입자 FC |
+| invitee_phone | text | - | 가입자 전화번호 |
+| event_type | text | NOT NULL | 추천 이벤트 유형 |
+| source | text | nullable | 이벤트 시점 source |
+| landing_session_id | text | - | 랜딩 세션 |
+| metadata | jsonb | DEFAULT `{}` | 부가 로그 |
+| created_at | timestamptz | DEFAULT now() | 생성일 |
+
+**대표 event_type**
+- `link_clicked`
+- `app_opened_from_link`
+- `code_auto_prefilled`
+- `code_edited_before_signup`
+- `pending_attribution_saved`
+- `signup_completed`
+- `referral_confirmed`
+- `referral_rejected`
+- `admin_override_applied`
+
+### 1.9 Legacy Note
+
+- `fc_profiles.recommender`는 현재 자유입력 추천인 문자열 필드다.
+- 구조화된 추천인 SSOT는 `referral_codes`, `referral_attributions`, `referral_events`이며, `recommender`는 과도기 호환 필드로 취급한다.
+- 추천인 테이블 direct access는 V1에서 열지 않고, referral 전용 Edge Function/trusted server path를 통해서만 사용한다.
+
 ---
 
 ## 2. Storage 버킷
@@ -126,6 +214,9 @@ FC 제출 서류
 | fc_profiles | FC는 자기 데이터만, Admin은 전체 |
 | fc_identity_secure | Edge Function만 (service role) |
 | fc_documents | FC는 자기 서류만, Admin은 전체 |
+| referral_codes | 운영/admin 직접 조회만, 실사용 read/write는 trusted server path |
+| referral_attributions | direct client access 금지, trusted server path 또는 운영/admin만 접근 |
+| referral_events | direct client access 금지, trusted server path 또는 운영/admin만 접근 |
 
 ---
 

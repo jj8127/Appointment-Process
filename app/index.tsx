@@ -35,6 +35,7 @@ import { logger } from '@/lib/logger';
 import { resolveNoticeRoute } from '@/lib/notice-route';
 import { openExternalUrl } from '@/lib/open-external-url';
 import { supabase } from '@/lib/supabase';
+import { syncNativeNotificationBadge } from '@/lib/system-notification-badge';
 import { buildWelcomeTitle } from '@/lib/welcome-title';
 import type { FCDocument } from '@/types/dashboard';
 import type { FcProfile } from '@/types/fc';
@@ -858,12 +859,27 @@ export default function Home() {
     refetchInterval: 5000,
   });
 
-  const { data: unreadNotifCount = 0, refetch: refetchNotifCount } = useQuery({
+  const {
+    data: unreadNotifCount = 0,
+    refetch: refetchNotifCount,
+    isFetched: hasFetchedUnreadNotifCount,
+  } = useQuery({
     queryKey: ['unread-notif-count', role, residentId, requestBoardRole],
     queryFn: () => fetchUnreadNotificationCount(role, residentId, role === 'admin' && requestBoardRole === 'fc'),
     enabled: !!role,
     refetchInterval: 5000, // Poll every 5s for notifications
   });
+
+  useEffect(() => {
+    if (!hasFetchedUnreadNotifCount) {
+      return;
+    }
+
+    void syncNativeNotificationBadge(unreadNotifCount, {
+      context: 'home-unread-count',
+      dismissPresentedWhenZero: true,
+    });
+  }, [hasFetchedUnreadNotifCount, unreadNotifCount]);
 
   // Refresh counts on focus
   useFocusEffect(

@@ -4,12 +4,12 @@
     "area": "추천코드",
     "priority": "P0",
     "platform": ["app", "backend"],
-    "title": "유효 추천코드로 회원가입 시 추천 관계가 confirmed 된다",
-    "preconditions": ["활성 추천코드를 가진 inviter 계정이 존재한다", "invitee는 신규 가입 가능한 상태다"],
-    "steps": ["invitee가 회원가입 화면에서 유효 추천코드를 입력한다", "회원가입을 정상 완료한다"],
-    "expected": ["추천코드 검증이 통과한다", "추천 관계가 confirmed 상태로 저장된다", "source는 manual_code로 기록된다"],
+    "title": "자동 입력된 유효 추천코드로 회원가입 시 추천 관계가 confirmed 된다",
+    "preconditions": ["활성 추천코드를 가진 inviter 계정이 존재한다", "invitee는 신규 가입 가능한 상태다", "회원가입 화면에 추천코드가 자동 입력될 수 있는 유입 정보가 준비돼 있다"],
+    "steps": ["invitee가 자동 입력된 추천코드를 유지한 채 회원가입을 진행한다", "회원가입을 정상 완료한다"],
+    "expected": ["추천코드가 회원가입 화면에 자동 입력된다", "최종 선택 코드 검증이 통과한다", "추천 관계가 confirmed 상태로 저장된다", "source 또는 selection_source는 자동 입력 유지 기준으로 기록된다"],
     "evidenceRequired": ["화면 캡처", "서버 로그", "DB 확인"],
-    "dbAssertions": ["추천 관계 테이블에 inviter/invitee/confirmed row가 1건 존재한다", "이벤트 로그에 code_entered, signup_completed, referral_confirmed가 순서대로 남는다"]
+    "dbAssertions": ["추천 관계 테이블에 inviter/invitee/confirmed row가 1건 존재한다", "이벤트 로그에 code_auto_prefilled, signup_completed, referral_confirmed가 순서대로 남는다"]
   },
   {
     "id": "RF-CODE-02",
@@ -55,9 +55,9 @@
     "title": "앱이 이미 설치된 상태에서 초대링크 진입 시 자동 추천이 확정된다",
     "preconditions": ["앱이 기기에 설치되어 있다", "유효 초대링크가 준비돼 있다"],
     "steps": ["사용자가 초대링크를 연다", "앱이 링크 정보를 수신한 뒤 회원가입을 완료한다"],
-    "expected": ["앱이 referral_code를 자동 보존한다", "가입 완료 후 confirmed referral이 생성된다", "source는 invite_link로 기록된다"],
+    "expected": ["앱이 referral_code를 자동 보존한다", "가입 완료 후 confirmed referral이 생성된다", "capture_source는 invite_link로 기록된다"],
     "evidenceRequired": ["딥링크 진입 캡처", "서버 로그", "DB 확인"],
-    "dbAssertions": ["link_clicked 또는 app_opened_from_link 이벤트가 남는다", "confirmed row의 source가 invite_link다"]
+    "dbAssertions": ["link_clicked 또는 app_opened_from_link 이벤트가 남는다", "confirmed row의 capture_source가 invite_link다"]
   },
   {
     "id": "RF-LINK-02",
@@ -76,12 +76,36 @@
     "area": "초대링크",
     "priority": "P0",
     "platform": ["app", "backend"],
-    "title": "자동으로 잡힌 링크 추천보다 사용자가 직접 입력한 추천코드가 우선한다",
+    "title": "자동 입력된 링크 추천보다 사용자가 가입 완료 전 직접 입력한 추천코드가 우선한다",
     "preconditions": ["유효 초대링크로 앱에 pending attribution이 저장돼 있다", "다른 유효 추천코드가 준비돼 있다"],
     "steps": ["사용자가 회원가입 화면에서 다른 추천코드를 직접 입력한다", "회원가입을 완료한다"],
     "expected": ["최종 확정은 수동 입력 코드 기준으로 저장된다", "링크 기반 추천은 후보 또는 rejected/overridden 성격으로 남는다"],
     "evidenceRequired": ["화면 캡처", "서버 로그", "DB 확인"],
     "dbAssertions": ["confirmed row의 referral_code는 직접 입력한 코드다", "이벤트 또는 감사 로그에 우선순위 적용 흔적이 남는다"]
+  },
+  {
+    "id": "RF-CODE-05",
+    "area": "추천코드",
+    "priority": "P0",
+    "platform": ["backend"],
+    "title": "한 추천인은 여러 가입자를 추천할 수 있다",
+    "preconditions": ["같은 inviter에 대해 가입 가능한 invitee가 둘 이상 준비돼 있다"],
+    "steps": ["invitee 2명 이상이 같은 inviter의 추천코드로 각각 가입을 완료한다"],
+    "expected": ["같은 inviter에 연결된 confirmed invitee가 여러 건 생성된다", "inviter 기준 추천 수 집계가 정상 동작한다"],
+    "evidenceRequired": ["서버 로그", "DB 확인"],
+    "dbAssertions": ["같은 inviter_fc_id 또는 inviter_phone snapshot에 대해 confirmed row가 2건 이상 존재할 수 있다", "중복 제약이 invitee 단위로만 걸려 있다"]
+  },
+  {
+    "id": "RF-CODE-06",
+    "area": "추천코드",
+    "priority": "P0",
+    "platform": ["backend"],
+    "title": "한 가입자는 최종 추천인 1명만 가진다",
+    "preconditions": ["invitee에 대해 자동 입력 후보 또는 수동 입력 가능한 추천코드가 2개 이상 존재한다"],
+    "steps": ["invitee가 가입 완료까지 진행한다", "동일 invitee에 대해 다른 추천인으로 다시 확정 또는 중복 저장을 시도한다"],
+    "expected": ["invitee 기준 최종 confirmed 추천인은 1명만 남는다", "추가 확정 시도는 차단되거나 override 없이 저장되지 않는다"],
+    "evidenceRequired": ["서버 로그", "DB 확인"],
+    "dbAssertions": ["같은 invitee_fc_id 또는 invitee_phone에 대한 confirmed row 수는 최대 1이다"]
   },
   {
     "id": "RF-LINK-04",
@@ -141,7 +165,7 @@
     "steps": ["운영자가 추천 관계를 override 또는 cancel 한다", "사유를 입력한다"],
     "expected": ["추천 관계가 변경된다", "actor, before, after, reason이 감사 로그에 남는다"],
     "evidenceRequired": ["운영 화면 캡처", "서버 로그", "DB 확인"],
-    "dbAssertions": ["감사 로그 row가 1건 생성된다"]
+    "dbAssertions": ["admin_override_applied 이벤트가 1건 생성된다", "metadata에 actor/before/after/reason이 남는다"]
   },
   {
     "id": "RF-OBS-01",
@@ -160,12 +184,24 @@
     "area": "정합성",
     "priority": "P0",
     "platform": ["backend"],
-    "title": "고아 referral row와 invitee 중복 confirmed row가 없다",
+    "title": "invitee orphan row와 invitee 중복 confirmed row가 없고 inviter snapshot이 유지된다",
     "preconditions": ["추천 관련 테스트를 여러 번 실행한 상태다"],
     "steps": ["정합성 SQL을 실행한다"],
-    "expected": ["inviter 또는 invitee 없는 고아 row가 없다", "invitee 기준 confirmed row는 최대 1건이다"],
+    "expected": ["invitee 없는 고아 row가 없다", "invitee 기준 confirmed row는 최대 1건이다", "inviter FK가 null인 row에도 inviter snapshot이 남아 있다"],
     "evidenceRequired": ["SQL 결과"],
-    "dbAssertions": ["고아 row count = 0", "duplicate confirmed count = 0"]
+    "dbAssertions": ["invitee orphan row count = 0", "duplicate confirmed count = 0", "inviter_fc_id가 null인 row는 inviter_phone snapshot을 가진다"]
+  },
+  {
+    "id": "RF-HISTORY-01",
+    "area": "정합성",
+    "priority": "P0",
+    "platform": ["backend"],
+    "title": "추천인 계정 삭제 후에도 attribution/event snapshot으로 이력이 복원된다",
+    "preconditions": ["confirmed 추천 관계와 관련 이벤트가 1건 이상 존재한다", "삭제 가능한 inviter 계정이 존재한다"],
+    "steps": ["inviter 계정을 삭제 또는 비활성 정리한다", "운영자가 추천 관계와 이벤트 로그를 다시 조회한다"],
+    "expected": ["추천 attribution row가 삭제되지 않는다", "inviter FK는 null이 될 수 있지만 inviter_phone 또는 inviter_name snapshot으로 이력이 복원된다", "이벤트 로그에서도 referral_code 또는 inviter snapshot을 확인할 수 있다"],
+    "evidenceRequired": ["삭제 전/후 DB 확인", "운영 조회 응답", "서버 로그"],
+    "dbAssertions": ["삭제 후에도 attribution row count가 유지된다", "inviter_fc_id is null row에 inviter_phone snapshot이 남아 있다", "이벤트 로그 row에 referral_code 또는 inviter snapshot이 남아 있다"]
   },
   {
     "id": "RF-SEC-01",
@@ -178,6 +214,18 @@
     "expected": ["추천 관계 confirmed row가 생성되지 않는다", "운영자가 문제를 인지할 수 있는 로그는 남는다"],
     "evidenceRequired": ["서버 로그", "DB 확인"],
     "dbAssertions": ["confirmed row count 증가가 없다"]
+  },
+  {
+    "id": "RF-SEC-02",
+    "area": "보안",
+    "priority": "P0",
+    "platform": ["app", "backend"],
+    "title": "direct client access는 차단되고 trusted server path만 추천인 read/write를 수행한다",
+    "preconditions": ["일반 앱 클라이언트 세션과 운영/admin 세션이 각각 준비돼 있다"],
+    "steps": ["앱 클라이언트에서 referral 테이블 direct query/write를 시도한다", "동일 작업을 referral 전용 trusted API로 수행한다"],
+    "expected": ["클라이언트 direct query/write는 허용되지 않는다", "trusted API 경유 조회/저장은 정상 동작한다", "pending attribution과 confirm은 trusted API 호출 로그로 추적된다"],
+    "evidenceRequired": ["클라이언트 에러 증적", "API 응답", "서버 로그", "DB 확인"],
+    "dbAssertions": ["direct client path로 생성된 referral row가 없다", "trusted API 경유 row만 존재한다"]
   },
   {
     "id": "RF-INT-01",

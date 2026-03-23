@@ -2,7 +2,7 @@
 
 ## 1. 목적
 
-- 추천인 시스템에서 추천코드, 초대링크, fallback, 운영 보정, 장애 추적 흐름을 누락 없이 검증하기 위한 단일 실행 기준이다.
+- 추천인 시스템에서 자동 입력 추천코드, 초대링크, fallback, 운영 보정, 장애 추적 흐름을 누락 없이 검증하기 위한 단일 실행 기준이다.
 - 케이스 원본은 `test-cases.json`, 실행 결과는 `TEST_RUN_RESULT.json`, 장애 이력은 `INCIDENTS.md`를 사용한다.
 
 ## 2. 사용 방법
@@ -15,9 +15,10 @@
 ## 3. 실행 규칙
 
 - `P0`는 배포 차단 게이트다.
-- 자동 복원이 실패할 수 있는 케이스는 `추천코드 fallback`도 반드시 같이 검증한다.
+- 자동 입력이 기본이므로, 자동 입력 성공 케이스와 가입 전 수동 수정 fallback 케이스를 반드시 같이 검증한다.
 - 한 케이스 실행 전후로 테스트 계정/기기 상태를 초기화하거나, 초기화가 불가능하면 notes에 잔여 상태를 남긴다.
 - PASS라도 화면 증적만으로 끝내지 말고, 가능하면 서버 로그 또는 DB 검증을 함께 남긴다.
+- 추천인 테이블 direct client access는 금지되어 있으므로, pending/confirm/조회 케이스는 trusted Edge Function 호출 증적까지 남긴다.
 
 ## 4. 권장 실행 순서
 
@@ -32,10 +33,12 @@
 
 ### 5.1 추천코드
 
-- `RF-CODE-01` 유효 추천코드로 회원가입 시 추천 관계 확정
+- `RF-CODE-01` 자동 입력된 유효 추천코드로 회원가입 시 추천 관계 확정
 - `RF-CODE-02` 무효 또는 비활성 추천코드 차단
 - `RF-CODE-03` 자기추천 차단
 - `RF-CODE-04` 이미 확정된 추천 관계 재확정 차단
+- `RF-CODE-05` 한 추천인이 여러 가입자를 추천 가능
+- `RF-CODE-06` 한 가입자는 최종 추천인 1명만 가짐
 
 ### 5.2 초대링크
 
@@ -57,8 +60,10 @@
 ### 5.5 관찰성/정합성
 
 - `RF-OBS-01` 클릭부터 확정까지 이벤트 타임라인 복원 가능
-- `RF-DATA-01` 고아 referral row/중복 confirmed row 부재
+- `RF-DATA-01` invitee orphan/중복 confirmed row 부재 및 inviter snapshot 보존
+- `RF-HISTORY-01` inviter 계정 삭제 후에도 attribution/event snapshot으로 이력 복원 가능
 - `RF-SEC-01` 반복 무효 입력/링크 변조가 추천 관계를 만들지 않음
+- `RF-SEC-02` direct client access는 차단되고 trusted server path만 추천인 read/write를 수행
 
 ### 5.6 저장소 경계
 
@@ -73,6 +78,7 @@
   - 테스트 명령 출력
 - 상태 전이 케이스는 “변경 전/후” 둘 다 남긴다.
 - override/cancel은 이유(reason)와 actor가 같이 남는지 확인한다.
+- trusted API 경로 케이스는 함수 호출 payload, 응답, service 로그 중 최소 1개를 포함한다.
 
 ## 7. 장애 발생 시 추가 절차
 

@@ -20,6 +20,10 @@
 ## 최근 작업
 | 날짜 | 작업 | 핵심 파일 | 상세 |
 |------|------|----------|------|
+| 03-23 | 가람in 알림센터/홈/설계요청 unread가 0이면 홈 아이콘 배지와 시스템 알림도 함께 정리되도록 native badge sync helper를 추가 | `lib/system-notification-badge.ts`, `app/notifications.tsx`, `app/index.tsx`, `app/request-board.tsx` | [→ 상세](WORK_DETAIL.md#20260323-native-notification-badge-sync) |
+| 03-23 | 추천인 스키마를 trusted server path 전용 접근 모델, pending API 전제, 삭제 후 이력 보존(snapshot) 구조로 보강 | `supabase/schema.sql`, `supabase/migrations/20260323000001_add_referral_schema.sql`, `docs/referral-system/*`, `contracts/database-schema.md`, `adr/0004-referral-schema-baseline.md`, `AGENTS.md` | [→ 상세](WORK_DETAIL.md#20260323-referral-schema-hardening) |
+| 03-23 | 추천인 스키마 초안으로 `referral_codes`/`referral_attributions`/`referral_events`를 추가하고 migration, RLS, 계약 문서, ADR을 동기화 | `supabase/schema.sql`, `supabase/migrations/20260323000001_add_referral_schema.sql`, `contracts/database-schema.md`, `adr/0004-referral-schema-baseline.md`, `docs/referral-system/*` | [→ 상세](WORK_DETAIL.md#20260323-referral-schema-draft) |
+| 03-23 | 추천인 규칙을 자동 입력 코드 기본, inviter 다수 추천 허용, invitee 단일 최종 추천인, 가입 후 admin override 전용으로 재정의하고 테스트 자산을 동기화 | `docs/referral-system/SPEC.md`, `ARCHITECTURE.md`, `TEST_CHECKLIST.md`, `test-cases.json`, `TEST_RUN_RESULT.json`, `.claude/WORK_*` | [→ 상세](WORK_DETAIL.md#20260323-referral-rule-update) |
 | 03-20 | 가람in GaramLink 모바일 리뷰의 건강정보 3번 문구를 request_board 고객 등록/상세와 같은 표현으로 정렬 | `app/request-board-review.tsx` | [→ 상세](WORK_DETAIL.md#20260320-request-board-hospitalization-copy-sync) |
 | 03-19 | 추천인 시스템 전용 문서 체계와 케이스/장애 기록 자산을 신설하고 루트 문서 진입점을 연결 | `docs/referral-system/*`, `docs/README.md`, `AGENTS.md` | [→ 상세](WORK_DETAIL.md#20260319-referral-system-doc-baseline) |
 | 03-19 | iPhone 주소 검색 WebView가 새 창/외부 브라우저로 이탈하지 않도록 Daum postcode navigation guard를 전면 완화하고 앱 버전을 `2.1.9`로 상향 | `components/DaumPostcode.tsx`, `lib/daum-postcode.ts`, `lib/__tests__/daum-postcode.test.ts`, `app.json`, `AGENTS.md` | [→ 상세](WORK_DETAIL.md#20260319-postcode-webview-window-open-fix) |

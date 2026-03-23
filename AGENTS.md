@@ -77,6 +77,7 @@ supabase secrets list --project-ref <project-ref>
 - Auth is custom (phone + password via Edge Functions) and session state is based on `use-session`, not Supabase Auth session.
 - `admin_accounts`는 `staff_type`(`admin`/`developer`)를 지원한다. `developer`는 앱 권한은 총무와 동일하게 유지하고, 앱/웹 표기는 `개발자`, FC 메신저에서는 총무와 별도 대상, request_board 브릿지/직접 로그인 역할은 `fc`, request_board 표시 이름은 `개발자`를 사용한다.
 - `request-password-reset` / `reset-password`는 2026-03-19 기준 `admin_accounts`, `manager_accounts`, `fc_credentials`를 모두 조회해 총무/본부장/FC/request_board-linked 설계매니저가 같은 SMS 비밀번호 변경 흐름을 사용할 수 있다. 단, 일반 총무는 역할 계약상 GaramLink direct 계정을 만들지 않으며, `developer` subtype만 계속 `fc`로 sync된다. 운영 DB에는 migration `20260319000001_add_admin_manager_password_reset_fields.sql` 적용이 선행돼야 한다.
+- 추천인 시스템 스키마 초안(`referral_codes`, `referral_attributions`, `referral_events`)이 2026-03-23 기준 저장소에 추가됐다. 현재 구조화된 추천인 SSOT는 이 3개 테이블을 기준으로 설계되며, 기존 `fc_profiles.recommender` 자유입력 문자열은 과도기 호환 필드로 유지된다. 추천인 테이블은 direct client access를 열지 않고 trusted Edge Function/service-role 경로로만 사용하며, inviter 삭제 후에도 attribution/event snapshot이 남도록 설계한다.
 - request_board-linked 설계매니저 계정은 `fc_profiles`/`fc_credentials`에 저장되고, 앱 내부 독립 role은 두지 않는다. 판별 기준은 `affiliation = '<보험사> 설계매니저'` 패턴이며, `login-with-password`가 이 값을 읽어 request_board 브릿지 role을 `designer`로 발급한다.
 - 현재 앱 DB 기준 request_board-linked 설계매니저 프로필은 `54명`이다.
 - iPhone 주소 검색 WebView는 2026-03-19 기준 Kakao postcode의 다중 HTTPS hop과 `window.open`/`_blank` 분기를 모두 앱 내부 WebView에서 처리한다. `DaumPostcode`는 non-web scheme(`tel:`, `mailto:`, `kakaomap://` 등)만 외부로 보내며, dev 모드에서는 navigation trace 배너/로그로 이탈 지점을 확인할 수 있다.
@@ -84,6 +85,7 @@ supabase secrets list --project-ref <project-ref>
 - request_board 운영 DB에는 2026-03-13 기준 `users.affiliation` 컬럼/초기 backfill 51건이 적용됐다. 따라서 기존 본부장 requester(`서선미`)도 바로 `1본부 서선미`로 보이지만, app 원천 affiliation이 없는 legacy direct FC row는 별도 보강이 필요하다.
 - 가람in GaramLink 의뢰 목록/상세는 `cancelled` 상태를 별도 필터로 포함하고, 의뢰 상세에는 고객 기본정보/보험 자격/건강정보/납입정보/요청 상품/FC 코드/설계 링크/취소 사유까지 request_board 응답 기준으로 노출하도록 2026-03-16에 확장됐다.
 - 가람Link 브리지 알림 inbox는 2026-03-16 기준 `requestBoardRole='fc'`인 admin 세션(본부장/개발자)에서도 같은 전화번호의 `request_board_*` FC 알림을 함께 집계하도록 보강돼, 가람in 홈 벨/알림센터/설계요청 최근 활동에서 누락되지 않는다.
+- 가람in 알림센터/홈/설계요청의 unread 집계는 2026-03-23 기준 Expo native badge와도 동기화된다. unread가 `0`이면 홈 아이콘 배지를 `0`으로 내리고 시스템 알림도 함께 정리해, 앱 내부 읽음 상태와 휴대폰 배지 숫자가 어긋나지 않도록 맞췄다.
 - `user_presence` 공통 테이블/함수와 모바일 앱 전역 heartbeat(`AppState active/background`)가 추가되었고, `request-board-messenger`는 request_board presence API를 읽어 cross-platform 활동중/마지막 접속 문구를 렌더링한다.
 - Expo 개발 빌드에서도 기본값은 GaramLink 운영 URL이다. 로컬 `request_board` API(`:3000`)와 웹(`:5173`)를 자동 해석하려면 `EXPO_PUBLIC_REQUEST_BOARD_USE_LOCAL_DEV=1`을 명시적으로 켜고, 필요시 `EXPO_PUBLIC_REQUEST_BOARD_API_URL` / `EXPO_PUBLIC_REQUEST_BOARD_WEB_URL` / 레거시 `EXPO_PUBLIC_REQUEST_BOARD_URL`로 직접 덮어쓴다.
 - `user-presence` Edge Function은 RPC 실패 시 direct-table fallback으로 복구되도록 핫픽스되었고, `가람in` presence는 `appSessionToken`이 없는 구세션에서는 동작하지 않으므로 최초 1회 재로그인이 필요할 수 있다.

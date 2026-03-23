@@ -23,6 +23,7 @@ import { useSession } from '@/hooks/use-session';
 import { logger } from '@/lib/logger';
 import { resolveNoticeRoute } from '@/lib/notice-route';
 import { supabase } from '@/lib/supabase';
+import { syncNativeNotificationBadge } from '@/lib/system-notification-badge';
 import { COLORS } from '@/lib/theme';
 
 type Notice = {
@@ -404,6 +405,10 @@ export default function NotificationsScreen() {
       if (!mountedRef.current) return;
       setNotices(merged);
       await AsyncStorage.setItem('lastNotificationCheckTime', new Date().toISOString());
+      await syncNativeNotificationBadge(0, {
+        context: 'notifications-screen-load',
+        dismissPresentedWhenZero: true,
+      });
     } catch (err: unknown) {
       logger.warn('Failed to load notifications', err);
     } finally {

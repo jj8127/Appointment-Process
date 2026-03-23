@@ -1,25 +1,29 @@
 {
   "meta": {
-    "generatedAt": "2026-03-19T00:00:00.000Z",
+    "generatedAt": "2026-03-23T00:00:00.000Z",
     "source": "docs/referral-system/test-cases.json",
     "note": "status: NOT_RUN | PASS | FAIL | BLOCKED | SKIPPED"
   },
   "runs": [
-    { "caseId": "RF-CODE-01", "area": "추천코드", "priority": "P0", "platform": ["app", "backend"], "title": "유효 추천코드로 회원가입 시 추천 관계가 confirmed 된다", "status": "NOT_RUN", "owner": "", "executedAt": "", "evidence": [], "notes": "" },
+    { "caseId": "RF-CODE-01", "area": "추천코드", "priority": "P0", "platform": ["app", "backend"], "title": "자동 입력된 유효 추천코드로 회원가입 시 추천 관계가 confirmed 된다", "status": "NOT_RUN", "owner": "", "executedAt": "", "evidence": [], "notes": "" },
     { "caseId": "RF-CODE-02", "area": "추천코드", "priority": "P0", "platform": ["app", "backend"], "title": "무효 또는 비활성 추천코드는 확정되지 않는다", "status": "NOT_RUN", "owner": "", "executedAt": "", "evidence": [], "notes": "" },
     { "caseId": "RF-CODE-03", "area": "추천코드", "priority": "P0", "platform": ["app", "backend"], "title": "자기추천은 차단된다", "status": "NOT_RUN", "owner": "", "executedAt": "", "evidence": [], "notes": "" },
     { "caseId": "RF-CODE-04", "area": "추천코드", "priority": "P0", "platform": ["app", "backend"], "title": "이미 확정된 추천 관계는 다른 코드로 재확정되지 않는다", "status": "NOT_RUN", "owner": "", "executedAt": "", "evidence": [], "notes": "" },
+    { "caseId": "RF-CODE-05", "area": "추천코드", "priority": "P0", "platform": ["backend"], "title": "한 추천인은 여러 가입자를 추천할 수 있다", "status": "NOT_RUN", "owner": "", "executedAt": "", "evidence": [], "notes": "" },
+    { "caseId": "RF-CODE-06", "area": "추천코드", "priority": "P0", "platform": ["backend"], "title": "한 가입자는 최종 추천인 1명만 가진다", "status": "NOT_RUN", "owner": "", "executedAt": "", "evidence": [], "notes": "" },
     { "caseId": "RF-LINK-01", "area": "초대링크", "priority": "P0", "platform": ["app", "backend"], "title": "앱이 이미 설치된 상태에서 초대링크 진입 시 자동 추천이 확정된다", "status": "NOT_RUN", "owner": "", "executedAt": "", "evidence": [], "notes": "" },
     { "caseId": "RF-LINK-02", "area": "초대링크", "priority": "P0", "platform": ["app", "backend"], "title": "앱 미설치 상태에서 스토어 이동 후 첫 실행에도 추천 정보가 복원된다", "status": "NOT_RUN", "owner": "", "executedAt": "", "evidence": [], "notes": "" },
-    { "caseId": "RF-LINK-03", "area": "초대링크", "priority": "P0", "platform": ["app", "backend"], "title": "자동으로 잡힌 링크 추천보다 사용자가 직접 입력한 추천코드가 우선한다", "status": "NOT_RUN", "owner": "", "executedAt": "", "evidence": [], "notes": "" },
+    { "caseId": "RF-LINK-03", "area": "초대링크", "priority": "P0", "platform": ["app", "backend"], "title": "자동 입력된 링크 추천보다 사용자가 가입 완료 전 직접 입력한 추천코드가 우선한다", "status": "NOT_RUN", "owner": "", "executedAt": "", "evidence": [], "notes": "" },
     { "caseId": "RF-LINK-04", "area": "초대링크", "priority": "P1", "platform": ["app", "backend"], "title": "변조되었거나 만료된 초대링크는 graceful fallback으로 처리된다", "status": "NOT_RUN", "owner": "", "executedAt": "", "evidence": [], "notes": "" },
     { "caseId": "RF-STATE-01", "area": "상태복원", "priority": "P0", "platform": ["app", "backend"], "title": "가입 도중 이탈 후 재진입해도 pending attribution이 유지된다", "status": "NOT_RUN", "owner": "", "executedAt": "", "evidence": [], "notes": "" },
     { "caseId": "RF-STATE-02", "area": "상태복원", "priority": "P1", "platform": ["app", "backend"], "title": "cold start 또는 background resume에서도 중복 이벤트 없이 복원된다", "status": "NOT_RUN", "owner": "", "executedAt": "", "evidence": [], "notes": "" },
     { "caseId": "RF-ADMIN-01", "area": "운영", "priority": "P0", "platform": ["web", "backend"], "title": "운영자가 추천 관계와 source, 상태를 조회할 수 있다", "status": "NOT_RUN", "owner": "", "executedAt": "", "evidence": [], "notes": "" },
     { "caseId": "RF-ADMIN-02", "area": "운영", "priority": "P0", "platform": ["web", "backend"], "title": "운영 override 또는 cancel은 감사 로그를 남긴다", "status": "NOT_RUN", "owner": "", "executedAt": "", "evidence": [], "notes": "" },
     { "caseId": "RF-OBS-01", "area": "관찰성", "priority": "P0", "platform": ["backend"], "title": "클릭부터 확정까지 이벤트 타임라인이 복원 가능하다", "status": "NOT_RUN", "owner": "", "executedAt": "", "evidence": [], "notes": "" },
-    { "caseId": "RF-DATA-01", "area": "정합성", "priority": "P0", "platform": ["backend"], "title": "고아 referral row와 invitee 중복 confirmed row가 없다", "status": "NOT_RUN", "owner": "", "executedAt": "", "evidence": [], "notes": "" },
+    { "caseId": "RF-DATA-01", "area": "정합성", "priority": "P0", "platform": ["backend"], "title": "invitee orphan row와 invitee 중복 confirmed row가 없고 inviter snapshot이 유지된다", "status": "NOT_RUN", "owner": "", "executedAt": "", "evidence": [], "notes": "" },
+    { "caseId": "RF-HISTORY-01", "area": "정합성", "priority": "P0", "platform": ["backend"], "title": "추천인 계정 삭제 후에도 attribution/event snapshot으로 이력이 복원된다", "status": "NOT_RUN", "owner": "", "executedAt": "", "evidence": [], "notes": "" },
     { "caseId": "RF-SEC-01", "area": "보안", "priority": "P1", "platform": ["app", "backend"], "title": "반복 무효 입력 또는 링크 변조는 추천 관계를 만들지 않는다", "status": "NOT_RUN", "owner": "", "executedAt": "", "evidence": [], "notes": "" },
+    { "caseId": "RF-SEC-02", "area": "보안", "priority": "P0", "platform": ["app", "backend"], "title": "direct client access는 차단되고 trusted server path만 추천인 read/write를 수행한다", "status": "NOT_RUN", "owner": "", "executedAt": "", "evidence": [], "notes": "" },
     { "caseId": "RF-INT-01", "area": "저장소경계", "priority": "P1", "platform": ["app", "web", "backend"], "title": "request_board는 추천 관계 원본이 없어도 기존 흐름을 깨지 않는다", "status": "NOT_RUN", "owner": "", "executedAt": "", "evidence": [], "notes": "" }
   ]
 }

@@ -7,6 +7,120 @@
 
 ---
 
+## <a id="20260323-native-notification-badge-sync"></a> 2026-03-23 | 가람in 알림 확인 후 홈 배지/시스템 알림 동기화
+
+**배경**:
+- 가람Link 브리지 알림을 확인하면 앱 내부 unread 집계는 사라지지만, 휴대폰 홈 화면 배지 숫자와 시스템 알림이 그대로 남아 운영에서 `앱 안에는 알림이 없는데 숫자가 안 없어진다`는 제보가 있었다.
+- 기존 흐름은 Supabase inbox/read 상태만 갱신했고, Expo native badge count나 시스템 알림 dismiss 경로를 전혀 호출하지 않았다.
+
+**조치**:
+- `lib/system-notification-badge.ts`
+  - `expo-notifications` 기반 helper를 추가해 unread 수를 홈 아이콘 badge count에 반영하고, unread가 `0`이면 `dismissAllNotificationsAsync()`까지 같이 호출하도록 정리했다.
+- `app/notifications.tsx`
+  - 알림센터 조회/새로고침 후 현재 unread 수를 다시 계산해 native badge와 시스템 알림을 즉시 동기화하도록 연결했다.
+- `app/index.tsx`, `app/request-board.tsx`
+  - 홈 화면과 `설계 요청` 화면의 request_board 최근 활동 집계가 끝날 때도 같은 helper를 호출해, 앱 재진입 경로나 탭 이동 뒤에도 배지 숫자가 남지 않게 맞췄다.
+- `.claude/WORK_LOG.md`, `AGENTS.md`
+  - 운영 이력과 현재 스냅샷 문서를 함께 갱신했다.
+
+**검증**:
+- `npm run lint`
+
+**메모**:
+- unread가 남아 있는 경우에는 시스템 알림 전체 삭제를 하지 않고 badge count만 현재 수치로 맞춘다.
+
+## <a id="20260323-referral-schema-hardening"></a> 2026-03-23 | 추천인 접근 모델/이력 보존 보강
+
+**배경**:
+- 초기 추천인 스키마 초안은 테이블/문서 골격은 잡혔지만, 현재 가람in 세션 모델과 RLS가 맞지 않는 문제, 가입 전 pending write 경로 불명확, FC 삭제 시 추천 이력 유실 위험이 남아 있었다.
+- 다음 단계 구현 전에 trusted server path 원칙과 삭제 후 snapshot 보존 구조를 먼저 고정할 필요가 있었다.
+
+**조치**:
+- `supabase/schema.sql`, `supabase/migrations/20260323000001_add_referral_schema.sql`
+  - 추천인 테이블 direct client access를 열지 않도록 `referral_*` select 정책을 admin 직접 조회 전용으로 축소하고, 실사용 read/write는 trusted Edge Function/service-role 경로를 전제로 정리했다.
+  - `referral_attributions`에 `inviter_phone`, `inviter_name` snapshot을 추가하고 `inviter_fc_id`를 nullable + `on delete set null`로 바꿔 FC 삭제 후에도 추천 이력이 남도록 수정했다.
+  - `referral_events`에 `referral_code`, `inviter_phone`, `inviter_name` snapshot과 관련 인덱스를 추가해 FK 유실 후에도 사건 당시 맥락을 복원할 수 있게 했다.
+  - `invitee_phone`, `inviter_phone`은 정규화된 숫자 11자리만 허용하도록 제약을 강화했다.
+- `docs/referral-system/AGENTS.md`, `SPEC.md`, `ARCHITECTURE.md`, `TEST_CHECKLIST.md`, `test-cases.json`, `TEST_RUN_RESULT.json`
+  - direct client access 금지, trusted pending/confirm API 전제, 삭제 후 이력 보존 규칙을 SSOT 문서와 테스트 자산에 반영했다.
+  - `RF-HISTORY-01`, `RF-SEC-02` 등 회귀 케이스를 추가해 이력 보존과 접근 모델을 별도 검증 대상으로 승격했다.
+- `contracts/database-schema.md`, `adr/0004-referral-schema-baseline.md`, `AGENTS.md`
+  - 계약 문서와 ADR, 루트 Snapshot에 추천인 하드닝 방향을 반영했다.
+
+**검증**:
+- `node scripts/ci/check-governance.mjs`
+- `git diff --check`
+- `node`로 `docs/referral-system/test-cases.json`, `docs/referral-system/TEST_RUN_RESULT.json` JSON 파싱 성공 확인
+
+**메모**:
+- 아직 referral 전용 Edge Function 자체는 구현되지 않았다. 다음 단계는 `referral-upsert-pending` / `referral-confirm-signup` / 운영 조회 API 계약부터 들어가야 한다.
+
+---
+
+## <a id="20260323-referral-schema-draft"></a> 2026-03-23 | 추천인 스키마 초안 추가
+
+**배경**:
+- 추천인 규칙 문서는 정리됐지만, 실제 구현을 시작하려면 DB 레벨에서 추천코드 마스터, 추천 관계, 이벤트 로그의 구조가 먼저 고정돼야 했다.
+- 현재 회원가입은 `fc_profiles.recommender` 자유입력 문자열을 사용하고 있어, 신규 구조화 추천 관계와 과도기 호환 전략도 함께 문서화할 필요가 있었다.
+
+**조치**:
+- `supabase/schema.sql`
+  - `referral_codes`, `referral_attributions`, `referral_events` 테이블 초안을 추가했다.
+  - `referral_codes`는 FC당 활성 코드 1개를 partial unique index로 제한했다.
+  - `referral_attributions`는 `invitee_phone`과 `invitee_fc_id`를 함께 가져가 가입 전/후를 모두 추적하게 했고, `confirmed` 기준으로 invitee 최종 추천인 1명 제약을 partial unique index로 강제했다.
+  - `referral_events`는 `link_clicked`, `code_auto_prefilled`, `admin_override_applied` 등 단계형 이벤트 로그를 저장하도록 구성했다.
+  - `current_fc_phone()` 함수, `updated_at` trigger, referral 전용 RLS 정책을 추가했다.
+- `supabase/migrations/20260323000001_add_referral_schema.sql`
+  - 위 스키마 변경을 적용하는 migration 파일을 추가했다.
+- `contracts/database-schema.md`
+  - 신규 3개 테이블과 `fc_profiles.recommender` 레거시 호환 메모를 계약 문서에 반영했다.
+- `docs/referral-system/SPEC.md`, `ARCHITECTURE.md`, `queries.sql`
+  - 실제 테이블명 기준으로 문서를 갱신하고, 현재 1차 초안에서는 `admin override` 감사 흔적을 `referral_events`에 남긴다고 명시했다.
+- `adr/0004-referral-schema-baseline.md`, `adr/README.md`
+  - 추천인 스키마 베이스라인에 대한 ADR을 `Proposed` 상태로 추가했다.
+- `AGENTS.md`
+  - 루트 Snapshot에 추천인 스키마 초안 추가와 `recommender` 과도기 유지 사실을 기록했다.
+
+**검증**:
+- `node scripts/ci/check-governance.mjs`
+- `git diff --check`
+- `node`로 `docs/referral-system/test-cases.json`, `docs/referral-system/TEST_RUN_RESULT.json` JSON 파싱 성공 확인
+
+**메모**:
+- 현재 초안은 `admin override` 전용 별도 감사 테이블 없이 `referral_events` metadata를 사용하는 구조다.
+- 실제 구현 단계에서는 회원가입 화면 자동 입력과 Edge Function 계약이 이 스키마를 어떻게 채우는지 맞춰야 한다.
+
+## <a id="20260323-referral-rule-update"></a> 2026-03-23 | 추천인 규칙을 자동 입력 코드 기본 구조로 재정의
+
+**배경**:
+- 초기 추천인 문서 초안은 `초대링크 + 추천코드 fallback` 중심으로 정리돼 있었지만, 실제 구현 방향은 회원가입 화면에 추천코드를 자동 입력하는 쪽으로 더 구체화됐다.
+- 동시에 추천 관계 cardinality도 `A는 여러 명을 추천 가능`, `B는 최종 추천인 1명만 가짐`으로 명시할 필요가 있었고, `admin override`가 단순 확정이 아니라 가입 완료 후 운영자 예외 수정이라는 점도 문서상 더 분명해야 했다.
+
+**조치**:
+- `docs/referral-system/AGENTS.md`
+  - 추천인 구현 기준에 `가입 완료 후 일반 사용자 추천인 변경 금지`를 추가했다.
+  - Current Delivery Plan의 추천코드 MVP를 `자동 입력 코드 + 가입 전 수정 fallback` 기준으로 갱신했다.
+- `docs/referral-system/SPEC.md`
+  - 기본 방식을 `자동 입력 추천코드 + 수동 수정 fallback`으로 재정의했다.
+  - `한 inviter -> 여러 invitee`, `한 invitee -> 최종 추천인 1명` 규칙을 불변 규칙으로 명시했다.
+  - 가입 완료 후 변경은 `admin override`만 가능하다고 정리하고, `override` 용어 정의를 운영자 예외 수정으로 명확히 바꿨다.
+  - 추천 추적 데이터 모델에 `capture_source`, `selection_source` 예시 필드를 추가해 자동 입력 유지/수정 흔적을 남길 수 있게 했다.
+- `docs/referral-system/ARCHITECTURE.md`
+  - Phase 1과 주요 흐름을 `자동 입력 코드`, `가입 전 수정 UI`, `최종 선택 코드 검증` 기준으로 갱신했다.
+  - 관찰성 이벤트에 `code_auto_prefilled`, `code_edited_before_signup`를 추가했다.
+- `docs/referral-system/TEST_CHECKLIST.md`
+  - 자동 입력 기본 규칙과 가입 전 수정 fallback 검증 의무를 반영했다.
+  - cardinality 검증용 케이스(`RF-CODE-05`, `RF-CODE-06`)를 체크리스트에 추가했다.
+- `docs/referral-system/test-cases.json`, `docs/referral-system/TEST_RUN_RESULT.json`
+  - `RF-CODE-01`, `RF-LINK-03` 설명을 자동 입력 규칙에 맞게 수정했다.
+  - `한 추천인 다수 추천 가능`, `가입자 단일 최종 추천인` 케이스를 추가했다.
+
+**검증**:
+- `node`로 `docs/referral-system/test-cases.json`, `docs/referral-system/TEST_RUN_RESULT.json` JSON 파싱 성공 확인
+
+**메모**:
+- 이번 변경은 규칙 정리 단계다. 다음 구현 단계에서는 회원가입 화면의 자동 입력 소스가 `invite_link`인지 다른 유입 문맥인지에 따라 실제 `capture_source` 값을 구체화해야 한다.
+
 ## <a id="20260320-request-board-hospitalization-copy-sync"></a> 2026-03-20 | GaramLink 모바일 리뷰 건강정보 3번 문구 동기화
 
 **배경**:
