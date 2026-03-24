@@ -432,23 +432,26 @@ export default function DocumentsPage() {
                 </Button>
             </Group>
 
-            <Paper withBorder radius="xl" p="md" mb="xl" bg={BACKGROUND_LIGHT}>
-                <Stack gap="md">
-                    <Group justify="space-between" align="flex-end" gap="sm" wrap="wrap">
+            <Paper withBorder radius="lg" p="sm" mb="lg" bg="white" shadow="xs">
+                <Stack gap="sm">
+                    <Group justify="space-between" align="center" gap="sm" wrap="wrap">
                         <TextInput
                             value={searchValue}
                             onChange={(event) => setSearchValue(event.currentTarget.value)}
                             placeholder="후보자 성함 검색"
-                            leftSection={<IconSearch size={16} />}
-                            radius="xl"
-                            size="md"
+                            leftSection={<IconSearch size={14} />}
+                            radius="md"
+                            size="sm"
                             styles={{
-                                root: { flex: '1 1 320px', minWidth: 240 },
-                                input: { backgroundColor: 'white' },
+                                root: { flex: '0 1 360px', minWidth: 240 },
+                                input: {
+                                    backgroundColor: BACKGROUND_LIGHT,
+                                    borderColor: '#e5e7eb',
+                                },
                             }}
                         />
-                        <Text size="sm" c={MUTED}>
-                            업로드된 서류 {filteredDocs.length}건 표시 중
+                        <Text size="xs" c={MUTED} fw={500}>
+                            업로드된 서류 {filteredDocs.length}건
                         </Text>
                     </Group>
 
@@ -460,49 +463,48 @@ export default function DocumentsPage() {
                         radius="xl"
                     >
                         <Tabs.List
-                            p={4}
                             style={{
-                                borderRadius: 24,
-                                border: '1px solid #e9ecef',
-                                display: 'flex',
+                                display: 'inline-flex',
                                 flexWrap: 'wrap',
                                 gap: 8,
-                                backgroundColor: '#fff',
+                                padding: 0,
+                                backgroundColor: 'transparent',
+                                border: 'none',
                             }}
                         >
                             <Tabs.Tab
                                 value="pending"
                                 fw={600}
-                                px="lg"
-                                py="xs"
-                                style={{ borderRadius: 20, flex: '1 1 140px', justifyContent: 'center' }}
+                                px="md"
+                                py={6}
+                                style={{ borderRadius: 999, minHeight: 34 }}
                             >
                                 미처리 <Badge size="xs" circle ml={6} color="orange">{pendingReviewCount}</Badge>
                             </Tabs.Tab>
                             <Tabs.Tab
                                 value="approved"
                                 fw={600}
-                                px="lg"
-                                py="xs"
-                                style={{ borderRadius: 20, flex: '1 1 140px', justifyContent: 'center' }}
+                                px="md"
+                                py={6}
+                                style={{ borderRadius: 999, minHeight: 34 }}
                             >
                                 승인됨
                             </Tabs.Tab>
                             <Tabs.Tab
                                 value="rejected"
                                 fw={600}
-                                px="lg"
-                                py="xs"
-                                style={{ borderRadius: 20, flex: '1 1 140px', justifyContent: 'center' }}
+                                px="md"
+                                py={6}
+                                style={{ borderRadius: 999, minHeight: 34 }}
                             >
                                 반려됨
                             </Tabs.Tab>
                             <Tabs.Tab
                                 value="all"
                                 fw={600}
-                                px="lg"
-                                py="xs"
-                                style={{ borderRadius: 20, flex: '1 1 140px', justifyContent: 'center' }}
+                                px="md"
+                                py={6}
+                                style={{ borderRadius: 999, minHeight: 34 }}
                             >
                                 전체 목록
                             </Tabs.Tab>

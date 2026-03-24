@@ -20,6 +20,7 @@
 ## 최근 작업
 | 날짜 | 작업 | 핵심 파일 | 상세 |
 |------|------|----------|------|
+| 03-24 | 문서 관리 필터 UI를 compact한 검색창/탭 레이아웃으로 재정렬 | `web/src/app/dashboard/docs/page.tsx` | [→ 상세](WORK_DETAIL.md#20260324-docs-filter-ui-compact) |
 | 03-24 | 문서 관리 탭에 후보자 성함 검색과 업로드 기준 미처리 필터를 추가 | `web/src/app/dashboard/docs/page.tsx` | [→ 상세](WORK_DETAIL.md#20260324-docs-candidate-search-and-pending-filter) |
 | 03-23 | 가람in GaramLink unread checkpoint를 사용자별로 분리하고 첫 실행 기본값을 현재 시각으로 바꿔 재설치 뒤 과거 공용 알림이 카운트에 다시 섞이지 않도록 보정 | `lib/notification-checkpoint.ts`, `lib/mobile-unread-notification-count.ts`, `app/notifications.tsx` | [→ 상세](WORK_DETAIL.md#20260323-user-scoped-notification-checkpoint) |
 | 03-23 | 가람Link에서 읽은 실제 unread 수가 가람in 홈/설계요청/알림센터 숫자에도 반영되도록 앱 count를 `app since + request_board live unread` 조합으로 재구성 | `lib/mobile-unread-notification-count.ts`, `lib/request-board-api.ts`, `app/index.tsx`, `app/request-board.tsx`, `app/notifications.tsx`, `supabase/functions/fc-notify/index.ts` | [→ 상세](WORK_DETAIL.md#20260323-live-request-board-unread-sync) |
