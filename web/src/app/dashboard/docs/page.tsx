@@ -15,6 +15,7 @@ import {
     Table,
     Tabs,
     Text,
+    TextInput,
     Textarea,
     ThemeIcon,
     Title
@@ -28,6 +29,7 @@ import {
     IconFileText,
     IconList,
     IconRefresh,
+    IconSearch,
     IconX
 } from '@tabler/icons-react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
@@ -86,9 +88,18 @@ const STATUS_MAP: Record<string, string> = {
     deleted: '삭제됨',
 };
 
+const hasUploadedDocument = (doc: DocumentRow) => {
+    const storagePath = String(doc.storage_path ?? '').trim();
+    return Boolean(storagePath && storagePath !== 'deleted');
+};
+
+const isPendingReviewDocument = (doc: DocumentRow) =>
+    hasUploadedDocument(doc) && ['pending', 'submitted'].includes(doc.status);
+
 export default function DocumentsPage() {
     const queryClient = useQueryClient();
     const [activeTab, setActiveTab] = useState<string | null>('pending');
+    const [searchValue, setSearchValue] = useState('');
 
     // Preview Modal State
     const [previewOpened, { open: openPreview, close: closePreview }] = useDisclosure(false);
@@ -114,20 +125,45 @@ export default function DocumentsPage() {
         },
     });
 
+    const uploadedDocuments = useMemo(
+        () => (documents ?? []).filter(hasUploadedDocument),
+        [documents]
+    );
+
+    const pendingReviewCount = useMemo(
+        () => uploadedDocuments.filter(isPendingReviewDocument).length,
+        [uploadedDocuments]
+    );
+
     // Filter Logic
     const filteredDocs = useMemo(() => {
-        if (!documents) return [];
-        let docs = documents;
+        const normalizedSearch = searchValue.trim().toLowerCase();
+        let docs = uploadedDocuments;
 
         if (activeTab === 'pending') {
-            docs = docs.filter((d) => ['pending', 'submitted'].includes(d.status));
+            docs = docs.filter(isPendingReviewDocument);
         } else if (activeTab === 'approved') {
             docs = docs.filter((d) => d.status === 'approved');
         } else if (activeTab === 'rejected') {
             docs = docs.filter((d) => d.status === 'rejected');
         }
+
+        if (normalizedSearch) {
+            docs = docs.filter((doc) => {
+                const candidateName = String(doc.fc_profiles?.name ?? '').toLowerCase();
+                const phone = String(doc.fc_profiles?.phone ?? '').toLowerCase();
+                const affiliation = String(doc.fc_profiles?.affiliation ?? '').toLowerCase();
+
+                return (
+                    candidateName.includes(normalizedSearch)
+                    || phone.includes(normalizedSearch)
+                    || affiliation.includes(normalizedSearch)
+                );
+            });
+        }
+
         return docs;
-    }, [documents, activeTab]);
+    }, [uploadedDocuments, activeTab, searchValue]);
 
     // --- Auto Advance Logic ---
     const checkAutoAdvance = async (fcId: string, phone: string) => {
@@ -396,23 +432,84 @@ export default function DocumentsPage() {
                 </Button>
             </Group>
 
-            <Tabs
-                value={activeTab}
-                onChange={setActiveTab}
-                mb="xl"
-                color="orange"
-                variant="pills"
-                radius="xl"
-            >
-            <Tabs.List bg={BACKGROUND_LIGHT} p={4} style={{ borderRadius: 24, border: '1px solid #e9ecef', display: 'inline-flex' }}>
-                <Tabs.Tab value="pending" fw={600} px="lg" py="xs" style={{ borderRadius: 20 }}>
-                        미처리 <Badge size="xs" circle ml={6} color="orange">{documents?.filter((d) => ['pending', 'submitted'].includes(d.status)).length || 0}</Badge>
-                    </Tabs.Tab>
-                    <Tabs.Tab value="approved" fw={600} px="lg" py="xs" style={{ borderRadius: 20 }}>승인됨</Tabs.Tab>
-                    <Tabs.Tab value="rejected" fw={600} px="lg" py="xs" style={{ borderRadius: 20 }}>반려됨</Tabs.Tab>
-                    <Tabs.Tab value="all" fw={600} px="lg" py="xs" style={{ borderRadius: 20 }}>전체 목록</Tabs.Tab>
-                </Tabs.List>
-            </Tabs>
+            <Paper withBorder radius="xl" p="md" mb="xl" bg={BACKGROUND_LIGHT}>
+                <Stack gap="md">
+                    <Group justify="space-between" align="flex-end" gap="sm" wrap="wrap">
+                        <TextInput
+                            value={searchValue}
+                            onChange={(event) => setSearchValue(event.currentTarget.value)}
+                            placeholder="후보자 성함 검색"
+                            leftSection={<IconSearch size={16} />}
+                            radius="xl"
+                            size="md"
+                            styles={{
+                                root: { flex: '1 1 320px', minWidth: 240 },
+                                input: { backgroundColor: 'white' },
+                            }}
+                        />
+                        <Text size="sm" c={MUTED}>
+                            업로드된 서류 {filteredDocs.length}건 표시 중
+                        </Text>
+                    </Group>
+
+                    <Tabs
+                        value={activeTab}
+                        onChange={setActiveTab}
+                        color="orange"
+                        variant="pills"
+                        radius="xl"
+                    >
+                        <Tabs.List
+                            p={4}
+                            style={{
+                                borderRadius: 24,
+                                border: '1px solid #e9ecef',
+                                display: 'flex',
+                                flexWrap: 'wrap',
+                                gap: 8,
+                                backgroundColor: '#fff',
+                            }}
+                        >
+                            <Tabs.Tab
+                                value="pending"
+                                fw={600}
+                                px="lg"
+                                py="xs"
+                                style={{ borderRadius: 20, flex: '1 1 140px', justifyContent: 'center' }}
+                            >
+                                미처리 <Badge size="xs" circle ml={6} color="orange">{pendingReviewCount}</Badge>
+                            </Tabs.Tab>
+                            <Tabs.Tab
+                                value="approved"
+                                fw={600}
+                                px="lg"
+                                py="xs"
+                                style={{ borderRadius: 20, flex: '1 1 140px', justifyContent: 'center' }}
+                            >
+                                승인됨
+                            </Tabs.Tab>
+                            <Tabs.Tab
+                                value="rejected"
+                                fw={600}
+                                px="lg"
+                                py="xs"
+                                style={{ borderRadius: 20, flex: '1 1 140px', justifyContent: 'center' }}
+                            >
+                                반려됨
+                            </Tabs.Tab>
+                            <Tabs.Tab
+                                value="all"
+                                fw={600}
+                                px="lg"
+                                py="xs"
+                                style={{ borderRadius: 20, flex: '1 1 140px', justifyContent: 'center' }}
+                            >
+                                전체 목록
+                            </Tabs.Tab>
+                        </Tabs.List>
+                    </Tabs>
+                </Stack>
+            </Paper>
 
             <Paper shadow="sm" radius="lg" withBorder style={{ overflow: 'hidden' }} pos="relative" bg="white">
                 <LoadingOverlay visible={isLoading} overlayProps={{ blur: 2 }} zIndex={10} loaderProps={{ color: 'orange' }} />

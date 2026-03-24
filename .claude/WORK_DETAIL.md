@@ -7,6 +7,23 @@
 
 ---
 
+## <a id="20260324-docs-candidate-search-and-pending-filter"></a> 2026-03-24 | 문서 관리 탭 후보자 검색 + 미처리 필터 정합화
+
+**배경**:
+- 운영에서 문서 관리 탭도 특정 후보자 성함으로 해당 후보자의 서류만 빠르게 좁혀 봐야 한다는 요청이 있었다.
+- 기존 `미처리` 탭은 아직 실제 파일을 올리지 않은 placeholder 문서까지 함께 집계해, 제출하지 않은 후보자도 미처리 목록에 섞여 보였다.
+- 상단 탭/필터 UI가 가로폭이 좁은 화면에서 잘리거나 답답하게 보이는 문제도 있었다.
+
+**조치**:
+- `web/src/app/dashboard/docs/page.tsx`
+  - 후보자 이름을 중심으로 전화번호/소속까지 함께 찾을 수 있는 검색 입력을 추가해, 후보자 단위로 문서 목록을 좁혀 볼 수 있게 했다.
+  - `storage_path`가 실제로 존재하는 업로드 문서만 `전체 목록`과 `미처리` 집계에 포함하도록 정리했다.
+  - `미처리` 카운트는 업로드된 문서 중 `pending`/`submitted` 상태만 기준으로 다시 계산해, 미제출 placeholder row가 섞이지 않게 보정했다.
+  - 필터 영역을 `Paper` + wrap 레이아웃으로 재구성하고 탭 버튼에 `flex-wrap`을 적용해 작은 폭에서도 잘리지 않도록 정리했다.
+
+**검증**:
+- `cd web && npm run lint -- src/app/dashboard/docs/page.tsx`
+
 ## <a id="20260323-user-scoped-notification-checkpoint"></a> 2026-03-23 | GaramLink unread checkpoint를 사용자별로 분리해 재설치 drift 보정
 
 **배경**:
