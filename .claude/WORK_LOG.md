@@ -20,6 +20,7 @@
 ## 최근 작업
 | 날짜 | 작업 | 핵심 파일 | 상세 |
 |------|------|----------|------|
+| 03-24 | GaramLink 모바일 리뷰 건강정보 4문항을 request_board 새 표현과 다시 동기화 | `app/request-board-review.tsx` | [→ 상세](WORK_DETAIL.md#20260324-request-board-health-four-question-sync) |
 | 03-24 | 문서 관리 필터 UI를 compact한 검색창/탭 레이아웃으로 재정렬 | `web/src/app/dashboard/docs/page.tsx` | [→ 상세](WORK_DETAIL.md#20260324-docs-filter-ui-compact) |
 | 03-24 | 문서 관리 탭에 후보자 성함 검색과 업로드 기준 미처리 필터를 추가 | `web/src/app/dashboard/docs/page.tsx` | [→ 상세](WORK_DETAIL.md#20260324-docs-candidate-search-and-pending-filter) |
 | 03-23 | 가람in GaramLink unread checkpoint를 사용자별로 분리하고 첫 실행 기본값을 현재 시각으로 바꿔 재설치 뒤 과거 공용 알림이 카운트에 다시 섞이지 않도록 보정 | `lib/notification-checkpoint.ts`, `lib/mobile-unread-notification-count.ts`, `app/notifications.tsx` | [→ 상세](WORK_DETAIL.md#20260323-user-scoped-notification-checkpoint) |

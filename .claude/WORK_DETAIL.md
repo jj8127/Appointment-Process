@@ -7,6 +7,20 @@
 
 ---
 
+## <a id="20260324-request-board-health-four-question-sync"></a> 2026-03-24 | GaramLink 모바일 리뷰 건강정보 4문항을 request_board 새 표현과 동기화
+
+**배경**:
+- request_board 고객 등록/상세/설계매니저 상세의 건강정보 질문이 운영 요청으로 새 4문항 표현으로 바뀌었다.
+- 가람in `request-board-review`는 같은 request_board 상세 데이터를 읽지만, 모바일 리뷰 화면의 health label은 이전 문구를 계속 쓰고 있어 웹과 앱 사이 질문 표현이 다시 어긋나게 됐다.
+
+**조치**:
+- `app/request-board-review.tsx`
+  - `healthFields` 라벨을 request_board와 같은 순서/표현으로 교체했다.
+  - `current_medication -> 고혈압 당뇨 고지혈 약`, `recent_hospital_visit -> 3개월이내 병원 진료`, `recent_hospitalization -> 5년이내 입원/수술`, `major_diseases -> 중대질환(암,뇌,심,간질환)` 기준으로 정렬했다.
+
+**검증**:
+- `npx eslint app/request-board-review.tsx`
+
 ## <a id="20260324-docs-filter-ui-compact"></a> 2026-03-24 | 문서 관리 필터 UI compact 재정렬
 
 **배경**:

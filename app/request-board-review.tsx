@@ -567,10 +567,10 @@ export default function RequestBoardReviewScreen() {
               { label: '보험 자격', value: formatInsuranceQualifications(detail.insurance_qualifications), fullWidth: true },
             ];
             const healthFields = [
-              { label: '최근 병원 방문', value: formatNullable(detail.recent_hospital_visit) },
-              { label: '현재 복용 약물', value: formatNullable(detail.current_medication) },
-              { label: '최근 5년 입원 및 수술 이력, 7일이상 치료 이력', value: formatNullable(detail.recent_hospitalization) },
-              { label: '주요 질병', value: formatNullable(detail.major_diseases) },
+              { label: '고혈압 당뇨 고지혈 약 드시나요?', value: formatNullable(detail.current_medication) },
+              { label: '3개월이내 병원 진료 받은 내용 있으신가요?', value: formatNullable(detail.recent_hospital_visit) },
+              { label: '5년이내 입원이나 수술 있으셨나요?', value: formatNullable(detail.recent_hospitalization) },
+              { label: '중대질환 (암,뇌,심,간질환) 있으신가요?', value: formatNullable(detail.major_diseases) },
             ];
             const paymentFields = [
               { label: '예금주', value: formatNullable(detail.account_holder) },
