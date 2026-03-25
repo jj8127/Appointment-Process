@@ -78,6 +78,7 @@ supabase secrets list --project-ref <project-ref>
 - `admin_accounts`는 `staff_type`(`admin`/`developer`)를 지원한다. `developer`는 앱 권한은 총무와 동일하게 유지하고, 앱/웹 표기는 `개발자`, FC 메신저에서는 총무와 별도 대상, request_board 브릿지/직접 로그인 역할은 `fc`, request_board 표시 이름은 `개발자`를 사용한다.
 - `request-password-reset` / `reset-password`는 2026-03-19 기준 `admin_accounts`, `manager_accounts`, `fc_credentials`를 모두 조회해 총무/본부장/FC/request_board-linked 설계매니저가 같은 SMS 비밀번호 변경 흐름을 사용할 수 있다. 단, 일반 총무는 역할 계약상 GaramLink direct 계정을 만들지 않으며, `developer` subtype만 계속 `fc`로 sync된다. 운영 DB에는 migration `20260319000001_add_admin_manager_password_reset_fields.sql` 적용이 선행돼야 한다.
 - 추천인 시스템 스키마 초안(`referral_codes`, `referral_attributions`, `referral_events`)이 2026-03-23 기준 저장소에 추가됐다. 현재 구조화된 추천인 SSOT는 이 3개 테이블을 기준으로 설계되며, 기존 `fc_profiles.recommender` 자유입력 문자열은 과도기 호환 필드로 유지된다. 추천인 테이블은 direct client access를 열지 않고 trusted Edge Function/service-role 경로로만 사용하며, inviter 삭제 후에도 attribution/event snapshot이 남도록 설계한다.
+- 추천인 시스템은 2026-03-25 기준 `추천코드 운영 기반`이 먼저 구현됐다. `admin_backfill_referral_codes`, `admin_issue_referral_code`, `admin_disable_referral_code` service-role 함수와 관리자 웹 `/api/admin/referrals`, `/dashboard/referrals`가 추가되어 기존 FC 코드 백필, 재발급, 비활성, 본부장 read-only 조회를 지원한다. 가입 화면과 `fc_profiles.recommender` 경로는 아직 구조화 추천 관계와 연결되지 않았다.
 - request_board-linked 설계매니저 계정은 `fc_profiles`/`fc_credentials`에 저장되고, 앱 내부 독립 role은 두지 않는다. 판별 기준은 `affiliation = '<보험사> 설계매니저'` 패턴이며, `login-with-password`가 이 값을 읽어 request_board 브릿지 role을 `designer`로 발급한다.
 - 현재 앱 DB 기준 request_board-linked 설계매니저 프로필은 `54명`이다.
 - iPhone 주소 검색 WebView는 2026-03-19 기준 Kakao postcode의 다중 HTTPS hop과 `window.open`/`_blank` 분기를 모두 앱 내부 WebView에서 처리한다. `DaumPostcode`는 non-web scheme(`tel:`, `mailto:`, `kakaomap://` 등)만 외부로 보내며, dev 모드에서는 navigation trace 배너/로그로 이탈 지점을 확인할 수 있다.
@@ -176,6 +177,7 @@ supabase secrets list --project-ref <project-ref>
 ### Working Backlog (Track in This File)
 - In progress
 - Validate `설계 요청` page shortcut placement and recent-activity tap routing on-device after the 2026-03-13 request-board shortcut/activity fix.
+- Validate 추천인 코드 운영 기반 on web after the 2026-03-25 referral admin foundation: backfill idempotency, admin/developer mutate path, manager read-only UI + POST 403, and no signup/request_board regression.
 - Validate mobile internal messenger + embedded GaramLink messenger optimistic-send/rollback behavior on-device after the 2026-03-13 send-latency hardening.
 - Validate embedded GaramLink direct-DM company labels on-device after the 2026-03-13 designer-company sync so existing designer conversations show the insurer/company name in both the room list and active chat header after reload.
 - Validate designer-side FC affiliation labels on-device after the 2026-03-13 FC/본부장 affiliation sync update so GaramLink embedded messenger and request review show `{소속} · {이름}` (또는 소속 내 이름 중복 시 `{소속}`) after the next FC/login session refresh.

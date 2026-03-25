@@ -186,9 +186,31 @@ FC 제출 서류
 - `signup_completed`
 - `referral_confirmed`
 - `referral_rejected`
+- `code_generated`
+- `code_rotated`
+- `code_disabled`
 - `admin_override_applied`
 
-### 1.9 Legacy Note
+### 1.9 Referral Admin Helper Functions
+
+추천코드 운영 기반은 direct table write 대신 아래 service-role 함수 계약을 사용한다.
+
+- `generate_referral_code_candidate()`
+  - 문자집합 `ABCDEFGHJKLMNPQRSTUVWXYZ23456789` 기반 8자리 후보 생성
+- `is_request_board_designer_affiliation(text)`
+  - `설계매니저` 패턴 여부 판별
+- `admin_issue_referral_code(fc_id, actor_phone, actor_role, actor_staff_type, reason, rotate)`
+  - completed FC에 대해 추천코드 발급 또는 재발급
+  - `admin_accounts`, `manager_accounts`, request_board-linked designer, 비정규 11자리 phone은 발급 금지
+  - `referral_events`에 `code_generated` 또는 `code_rotated`와 actor metadata 기록
+- `admin_disable_referral_code(fc_id, actor_phone, actor_role, actor_staff_type, reason)`
+  - 현재 활성 코드 1건을 비활성화하고 `code_disabled` 이벤트 기록
+- `admin_backfill_referral_codes(limit, actor_phone, actor_role, actor_staff_type, reason)`
+  - 최대 100건 수동 batch
+  - `signup_completed=true`, `11자리 phone`, non-designer, non-admin, non-manager, 활성 코드 없음 조건만 처리
+  - 반복 호출 가능하도록 `FOR UPDATE SKIP LOCKED` 기반 resumable batch
+
+### 1.10 Legacy Note
 
 - `fc_profiles.recommender`는 현재 자유입력 추천인 문자열 필드다.
 - 구조화된 추천인 SSOT는 `referral_codes`, `referral_attributions`, `referral_events`이며, `recommender`는 과도기 호환 필드로 취급한다.

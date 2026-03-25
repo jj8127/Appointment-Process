@@ -63,3 +63,42 @@
 -- where inviter_fc_id is null
 --   and coalesce(inviter_phone, '') <> ''
 -- order by updated_at desc;
+
+-- 10. 추천코드 백필 대상(운영 계정/설계매니저 제외) 후보 확인
+-- select fp.id, fp.name, fp.phone, fp.affiliation
+-- from public.fc_profiles fp
+-- where fp.signup_completed = true
+--   and coalesce(fp.phone, '') ~ '^[0-9]{11}$'
+--   and coalesce(fp.affiliation, '') not like '%설계매니저%'
+--   and not exists (select 1 from public.admin_accounts aa where aa.phone = fp.phone)
+--   and not exists (select 1 from public.manager_accounts ma where ma.phone = fp.phone)
+--   and not exists (
+--     select 1
+--     from public.referral_codes rc
+--     where rc.fc_id = fp.id
+--       and rc.is_active = true
+--   )
+-- order by fp.created_at asc;
+
+-- 11. FC별 활성 추천코드 중복 탐지
+-- select fc_id, count(*) as active_code_count
+-- from public.referral_codes
+-- where is_active = true
+-- group by fc_id
+-- having count(*) > 1;
+
+-- 12. 최근 추천코드 운영 이벤트와 감사 metadata 확인
+-- select event_type, inviter_fc_id, referral_code, metadata, created_at
+-- from public.referral_events
+-- where event_type in ('code_generated', 'code_rotated', 'code_disabled')
+-- order by created_at desc
+-- limit 50;
+
+-- 13. manager/admin 전화번호와 겹치는 FC 추천코드 보유 여부 점검
+-- select fp.id, fp.name, fp.phone, rc.code, rc.is_active
+-- from public.fc_profiles fp
+-- join public.referral_codes rc
+--   on rc.fc_id = fp.id
+-- where exists (select 1 from public.admin_accounts aa where aa.phone = fp.phone)
+--    or exists (select 1 from public.manager_accounts ma where ma.phone = fp.phone)
+-- order by rc.created_at desc;
