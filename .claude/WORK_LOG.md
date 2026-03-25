@@ -20,6 +20,7 @@
 ## 최근 작업
 | 날짜 | 작업 | 핵심 파일 | 상세 |
 |------|------|----------|------|
+| 03-25 | 추천인 코드 운영 기반을 추가해 기존 FC 백필, 관리자/개발자 재발급·비활성, 본부장 read-only 조회를 `/api/admin/referrals`, `/dashboard/referrals`, service-role RPC로 연결 | `supabase/schema.sql`, `supabase/migrations/20260325000001_add_referral_code_admin_foundation.sql`, `web/src/app/api/admin/referrals/route.ts`, `web/src/lib/admin-referrals.ts`, `web/src/app/dashboard/referrals/page.tsx`, `docs/referral-system/*` | [→ 상세](WORK_DETAIL.md#20260325-referral-admin-foundation) |
 | 03-24 | 문서 관리 필터 UI를 compact한 검색창/탭 레이아웃으로 재정렬 | `web/src/app/dashboard/docs/page.tsx` | [→ 상세](WORK_DETAIL.md#20260324-docs-filter-ui-compact) |
 | 03-24 | 문서 관리 탭에 후보자 성함 검색과 업로드 기준 미처리 필터를 추가 | `web/src/app/dashboard/docs/page.tsx` | [→ 상세](WORK_DETAIL.md#20260324-docs-candidate-search-and-pending-filter) |
 | 03-23 | 가람in GaramLink unread checkpoint를 사용자별로 분리하고 첫 실행 기본값을 현재 시각으로 바꿔 재설치 뒤 과거 공용 알림이 카운트에 다시 섞이지 않도록 보정 | `lib/notification-checkpoint.ts`, `lib/mobile-unread-notification-count.ts`, `app/notifications.tsx` | [→ 상세](WORK_DETAIL.md#20260323-user-scoped-notification-checkpoint) |

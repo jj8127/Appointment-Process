@@ -123,20 +123,25 @@
 - 관리자 수동 보정 기능을 만들면 감사 로그 없이 배포하지 않는다.
 - 추천인 테이블은 인증 모델이 정리되기 전까지 클라이언트가 직접 조회/쓰기하지 않는다. 모든 읽기/쓰기는 trusted Edge Function 또는 service-role 경로로 제한한다.
 - FC 삭제/재가입 정리 시에도 추천 attribution/event 히스토리는 남아야 한다. 삭제 편의 때문에 추천인 감사 흔적을 잃는 구조는 허용하지 않는다.
+- 추천코드 운영 화면은 `manager` 읽기 전용 UI와 서버 `POST 403`을 동시에 만족해야 한다.
 
 ## 7. Current Delivery Plan
 
 1. 문서/테스트 체계 확립
    - 이 폴더의 SSOT와 케이스 체계 확정
-2. 추천코드 MVP
+2. 추천코드 운영 기반
+   - 기존 FC 추천코드 일괄 백필
+   - 관리자/개발자 재발급, 비활성, 감사 metadata
+   - 관리자/본부장 조회 화면과 read-only guard
+3. 추천코드 MVP
    - 자동 입력 코드, 가입 전 수정 fallback, trusted pending/confirm API, 추천 관계 확정
-3. 초대링크
+4. 초대링크
    - 랜딩, 앱 deep link, 스토어 fallback
-4. 설치 후 복원
+5. 설치 후 복원
    - deferred deep link 또는 install referrer 계열 복원
-5. 운영 도구
-   - 조회, 보정, 로그, 감사
-6. 회귀 자동화
+6. 운영 도구
+   - 추천 관계 조회, 보정, 로그, 감사
+7. 회귀 자동화
    - 반복 장애를 스크립트/테스트 자산으로 승격
 
 ## 8. Context Map

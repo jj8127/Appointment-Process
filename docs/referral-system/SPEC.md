@@ -1,7 +1,7 @@
 # 추천인 시스템 스펙 초안
 
 - 기준일: `2026-03-19`
-- 상태: `Draft for implementation planning`
+- 상태: `Draft for phased implementation`
 - 범위: 가람in 가입/초대 흐름
 
 ## 1. 목표
@@ -86,6 +86,8 @@
 - 권장 형식: `8자리` 영문 대문자+숫자
 - 혼동 문자(`O`, `0`, `I`, `1`)는 가능하면 제외
 - 기본 정책은 `사용자당 1개 활성 코드`
+- 2026-03-25 운영 기준 실제 코드 형식은 `ABCDEFGHJKLMNPQRSTUVWXYZ23456789` 문자집합의 8자리 고정이다.
+- 코드 생성 충돌 시 최대 10회까지 재시도하고, 초과 시 발급을 중단한다.
 
 ### 5.2 초대링크
 
@@ -184,6 +186,7 @@
 - 추천인 시스템 도입 이후의 구조화된 SSOT는 `referral_codes`, `referral_attributions`, `referral_events`다.
 - `fc_profiles.recommender`는 과도기 호환용 레거시 입력/표시 필드로 간주한다.
 - 신규 구현은 추천 관계 판단을 `fc_profiles.recommender` 문자열에 의존하지 않는다.
+- 2026-03-25 기준 오늘 구현 범위는 추천 관계 확정이 아니라 운영용 추천코드 마스터다. 따라서 가입 화면과 `set-password` 경로의 `recommender` 사용은 그대로 유지한다.
 - 실제 전환 시점에는 다음 중 하나를 별도 결정해야 한다.
   1. UI를 구조화 추천코드 기반으로 완전히 교체
   2. `recommender`를 표시용 cache로만 유지
@@ -211,6 +214,11 @@
   - 최근 이벤트 타임라인
   - inviter FK 존재 여부와 snapshot(phone/name) 보존 여부
 - 운영자가 추천 관계를 수정할 수 있다면 reason 입력과 감사 로그는 필수다.
+- 2026-03-25 기준 1차 운영 구현 범위는 `추천인 코드 마스터 운영`이다. 즉, 관리자 웹은 FC별 현재 활성 코드, 비활성 코드 이력, 최근 코드 운영 이벤트를 조회할 수 있어야 한다.
+- `backfill_missing_codes`는 수동 실행형 idempotent batch로만 운영하고, 1회 호출당 최대 100명만 처리한다.
+- 오늘 백필 대상은 `signup_completed=true`, `phone=11자리`, `affiliation`이 `설계매니저` 패턴이 아니고, `admin_accounts`/`manager_accounts` 전화번호와 겹치지 않으며, 활성 추천코드가 없는 `fc_profiles`만이다.
+- 조회 권한은 `admin`/`developer`/`manager` 모두 허용하되, mutate(`일괄 발급`, `재발급`, `비활성`)는 `admin` role만 허용한다.
+- `developer` subtype은 mutate 시 감사 metadata에 `actorStaffType=developer`로 남기고, `manager`는 UI read-only와 서버 `POST 403`을 동시에 만족해야 한다.
 
 ## 10. 미확정 항목
 

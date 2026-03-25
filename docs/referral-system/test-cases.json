@@ -168,6 +168,42 @@
     "dbAssertions": ["admin_override_applied 이벤트가 1건 생성된다", "metadata에 actor/before/after/reason이 남는다"]
   },
   {
+    "id": "RF-ADMIN-03",
+    "area": "운영",
+    "priority": "P0",
+    "platform": ["web", "backend"],
+    "title": "기존 FC 추천코드 백필은 대상만 발급하고 재실행해도 중복 활성 코드가 생기지 않는다",
+    "preconditions": ["signup_completed=true 이고 활성 추천코드가 없는 FC가 존재한다", "설계매니저, 미완료 가입자, 운영 계정 전화번호와 겹치는 FC, 기존 활성 코드 보유 FC가 각각 최소 1건 존재한다", "관리자 또는 개발자 세션이 준비돼 있다"],
+    "steps": ["운영자가 /dashboard/referrals 또는 POST /api/admin/referrals(backfill_missing_codes)로 일괄 발급을 실행한다", "같은 작업을 한 번 더 실행한다"],
+    "expected": ["백필은 대상 FC만 처리한다", "기존 활성 코드 보유 FC는 skip 된다", "두 번째 실행 후에도 FC당 활성 코드는 최대 1건이다", "remaining 값은 감소하거나 0을 유지한다"],
+    "evidenceRequired": ["운영 화면 캡처", "API 응답", "DB 확인"],
+    "dbAssertions": ["대상 FC에만 활성 추천코드가 생성된다", "설계매니저/미완료 가입자/운영 계정 겹침 FC에는 활성 추천코드가 생성되지 않는다", "fc_id 기준 활성 추천코드 중복 count = 0", "code_generated 이벤트가 생성된 FC 수와 일치한다"]
+  },
+  {
+    "id": "RF-ADMIN-04",
+    "area": "운영",
+    "priority": "P0",
+    "platform": ["web", "backend"],
+    "title": "추천코드 재발급/비활성은 활성 코드와 이벤트 로그를 일관되게 갱신한다",
+    "preconditions": ["활성 추천코드를 가진 FC가 존재한다", "관리자 또는 개발자 세션이 준비돼 있다"],
+    "steps": ["운영자가 사유를 입력해 재발급을 실행한다", "같은 FC에 대해 사유를 입력해 비활성을 실행한다"],
+    "expected": ["재발급 직후 새 활성 코드는 1건만 남고 이전 코드는 비활성화된다", "비활성 직후 활성 코드는 0건이 된다", "각 작업은 입력한 reason과 actor metadata를 남긴다"],
+    "evidenceRequired": ["운영 화면 캡처", "API 응답", "DB 확인"],
+    "dbAssertions": ["재발급 뒤 code_rotated 이벤트 1건과 새 활성 코드 1건이 존재한다", "비활성 뒤 code_disabled 이벤트 1건이 추가되고 활성 코드 count = 0 이다", "이벤트 metadata에 actorPhone/actorRole/actorStaffType/reason/previousCode/nextCode가 저장된다"]
+  },
+  {
+    "id": "RF-ADMIN-05",
+    "area": "운영",
+    "priority": "P0",
+    "platform": ["web", "backend"],
+    "title": "manager는 추천인 코드 화면과 GET은 조회 가능하지만 mutate UI와 POST 권한은 없다",
+    "preconditions": ["manager 계정이 준비돼 있다", "조회 가능한 추천코드 데이터가 최소 1건 존재한다"],
+    "steps": ["manager 세션으로 /dashboard/referrals를 연다", "GET /api/admin/referrals를 호출한다", "POST /api/admin/referrals(backfill 또는 rotate 또는 disable)를 시도한다"],
+    "expected": ["요약/목록/상세 조회는 가능하다", "일괄 발급/재발급/비활성 버튼은 숨김 또는 disabled 상태다", "POST는 403으로 거부된다"],
+    "evidenceRequired": ["운영 화면 캡처", "API 응답", "서버 로그"],
+    "dbAssertions": ["manager 시도 이후 referral_codes/referral_events 변경분이 없다"]
+  },
+  {
     "id": "RF-OBS-01",
     "area": "관찰성",
     "priority": "P0",

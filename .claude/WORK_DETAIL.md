@@ -7,6 +7,38 @@
 
 ---
 
+## <a id="20260325-referral-admin-foundation"></a> 2026-03-25 | 추천인 코드 운영 기반 추가
+
+**배경**:
+- 추천인 시스템은 스키마와 문서만 먼저 정리된 상태였고, 실제 운영에서는 기존 FC에게 추천코드를 안전하게 발급/조회/관리할 수 있는 기반이 아직 없었다.
+- 이미 서비스 중인 앱/웹에 붙는 기능이라, 가입 흐름 자체를 바로 바꾸기보다 보수적으로 `코드 마스터 운영`부터 별도 trusted 경로로 도입할 필요가 있었다.
+
+**조치**:
+- `supabase/schema.sql`, `supabase/migrations/20260325000001_add_referral_code_admin_foundation.sql`
+  - `referral_events.event_type`에 `code_generated`, `code_rotated`, `code_disabled`를 추가했다.
+  - service-role 전용 helper `generate_referral_code_candidate()`, `admin_issue_referral_code(...)`, `admin_disable_referral_code(...)`, `admin_backfill_referral_codes(...)`를 추가했다.
+  - 추천코드는 `ABCDEFGHJKLMNPQRSTUVWXYZ23456789` 집합의 8자리로 생성하고, 충돌 시 최대 10회까지 재시도하도록 고정했다.
+  - 발급 대상은 `signup_completed=true`, `11자리 phone`, non-`설계매니저`, non-`admin_accounts`, non-`manager_accounts`, 활성 코드 없음 조건으로 제한했다.
+  - backfill은 `LIMIT + FOR UPDATE SKIP LOCKED` 기반 resumable batch로 구현하고, 모든 mutate 이벤트 metadata에 `actorPhone`, `actorRole`, `actorStaffType`, `reason`, `previousCode`, `nextCode`를 남기도록 맞췄다.
+- `web/src/app/api/admin/referrals/route.ts`, `web/src/lib/admin-referrals.ts`, `web/src/types/referrals.ts`
+  - `GET /api/admin/referrals`를 추가해 요약/검색/페이지네이션 목록과 선택 FC 상세를 반환하도록 구현했다.
+  - `POST /api/admin/referrals`는 `backfill_missing_codes`, `rotate_code`, `disable_code`만 허용하고 `admin` role만 통과시키도록 제한했다.
+  - `developer` subtype은 `admin_accounts.staff_type`으로 구분해 감사 metadata에는 `developer`로 남기고, `manager`는 GET만 가능하도록 이중 차단했다.
+- `web/src/app/dashboard/layout.tsx`, `web/src/app/dashboard/referrals/page.tsx`
+  - 대시보드 사이드바에 `추천인 코드` 진입점을 추가하고 `/dashboard/referrals` 화면을 신설했다.
+  - 화면은 요약 카드, 검색 가능한 목록, 상세 패널(현재 코드/비활성 코드 이력/최근 운영 이벤트)로 구성했다.
+  - 관리자/개발자 세션에서는 `일괄 발급`, `재발급`, `비활성` 모달을 노출하고, 본부장은 읽기 전용 배지와 안내만 보이도록 구성했다.
+- `docs/referral-system/*`, `contracts/database-schema.md`, `AGENTS.md`, `docs/README.md`
+  - 추천인 SSOT에 오늘 단계가 `추천 관계 확정 전의 코드 운영 기반`임을 반영하고, 백필 규칙/권한 경계/테스트 케이스를 동기화했다.
+
+**검증**:
+- `cd web && npm run lint -- src/app/api/admin/referrals/route.ts src/app/dashboard/referrals/page.tsx src/app/dashboard/layout.tsx src/lib/admin-referrals.ts src/types/referrals.ts`
+- `cd web && npm run build`
+
+**메모**:
+- 오늘 구현은 기존 가입 화면(`signup.tsx`, `signup-password.tsx`, `set-password`)을 건드리지 않았다.
+- 구조화 추천 관계 저장(`pending/confirm`), 초대링크, deferred deep link, 운영 override/cancel은 후속 할당치다.
+
 ## <a id="20260324-docs-filter-ui-compact"></a> 2026-03-24 | 문서 관리 필터 UI compact 재정렬
 
 **배경**:
@@ -540,7 +572,7 @@
   - 상세 화면도 동일하게 `hydrated` 이후에만 fetch하도록 맞추고, sync 실패 시 실제 오류 메시지를 우선 표시하게 보강했다.
 
 **검증**:
-- 실서버 API 재확인: `login-with-password(01099801777) -> /api/auth/bridge-login -> /api/requests?limit=100&page=1`
+- 실서버 API 재확인: `login-with-password([redacted-phone]) -> /api/auth/bridge-login -> /api/requests?limit=100&page=1`
 - `npx eslint app/request-board-requests.tsx app/request-board-review.tsx`
 - `npx tsc --noEmit`
 - `node scripts/ci/check-governance.mjs`
@@ -590,7 +622,7 @@
 - `npx eslint app/request-board-review.tsx app/request-board-requests.tsx app/request-board.tsx lib/request-board-api.ts`
 - `npx tsc --noEmit`
 - 실계정 E2E:
-  - GaramLink direct 로그인(`01099801777 / qwer1234!`) 성공 확인
+  - GaramLink direct 로그인(`전화번호 redacted / shared password redacted`) 성공 확인
   - 운영 GaramLink API 기준 의뢰 `223(cancelled)`, `221(completed)` 상세 응답 확인
   - 로컬 Expo web 화면을 Playwright로 열고 request_board API 요청을 운영 서버로 프록시해 `취소` 목록과 의뢰 상세 렌더링 확인
 

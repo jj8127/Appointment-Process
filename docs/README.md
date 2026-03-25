@@ -32,9 +32,9 @@
 - `AGENTS.md`
   - 추천인 시스템 전용 운영 규칙과 변경 의무
 - `SPEC.md`
-  - 추천코드/초대링크 정책, 상태, 우선순위
+  - 추천코드/초대링크 정책, 상태, 우선순위, 코드 운영 규칙
 - `ARCHITECTURE.md`
-  - 링크, 앱, 서버, 스토어 fallback 구조
+  - 링크, 앱, 서버, 스토어 fallback 구조와 관리자 코드 운영 경계
 - `TEST_CHECKLIST.md`
   - 추천인 전용 실행 체크리스트
 - `test-cases.json`
