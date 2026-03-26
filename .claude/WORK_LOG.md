@@ -20,6 +20,7 @@
 ## 최근 작업
 | 날짜 | 작업 | 핵심 파일 | 상세 |
 |------|------|----------|------|
+| 03-26 | FC 상세 관리에서 임시사번을 비우고 `조회중(임시사번 미입력)` 단계로 되돌리는 버튼을 추가 | `web/src/app/dashboard/page.tsx` | [→ 상세](WORK_DETAIL.md#20260326-dashboard-reset-temp-id-to-lookup) |
 | 03-25 | 추천인 코드 운영 기반을 추가해 기존 FC 백필, 관리자/개발자 재발급·비활성, 본부장 read-only 조회를 `/api/admin/referrals`, `/dashboard/referrals`, service-role RPC로 연결 | `supabase/schema.sql`, `supabase/migrations/20260325000001_add_referral_code_admin_foundation.sql`, `web/src/app/api/admin/referrals/route.ts`, `web/src/lib/admin-referrals.ts`, `web/src/app/dashboard/referrals/page.tsx`, `docs/referral-system/*` | [→ 상세](WORK_DETAIL.md#20260325-referral-admin-foundation) |
 | 03-24 | GaramLink 모바일 리뷰 건강정보 4문항을 request_board 새 표현과 다시 동기화 | `app/request-board-review.tsx` | [→ 상세](WORK_DETAIL.md#20260324-request-board-health-four-question-sync) |
 | 03-24 | 문서 관리 필터 UI를 compact한 검색창/탭 레이아웃으로 재정렬 | `web/src/app/dashboard/docs/page.tsx` | [→ 상세](WORK_DETAIL.md#20260324-docs-filter-ui-compact) |

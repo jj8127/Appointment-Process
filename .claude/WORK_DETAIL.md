@@ -7,6 +7,22 @@
 
 ---
 
+## <a id="20260326-dashboard-reset-temp-id-to-lookup"></a> 2026-03-26 | FC 상세 관리에 `조회중(임시사번 미입력)` 복귀 버튼 추가
+
+**배경**:
+- 운영에서 FC 상세 관리 모달의 `임시사번`을 잘못 입력한 뒤, 다시 `조회중` 단계로 돌리고 싶다는 요청이 있었다.
+- 기존 화면은 `임시사번` 수정만 가능했고, 상태를 `draft(임시사번 미발급)`로 되돌리거나 수당 동의일을 초기화하는 전용 동작이 없어 이전 단계 복귀가 어려웠다.
+
+**조치**:
+- `web/src/app/dashboard/page.tsx`
+  - `draft`, `temp-id-issued`, `allowance-pending`, `allowance-consented` 상태이면서 `temp_id`가 있는 FC에만 `조회중 단계로 되돌리기` 버튼을 노출하도록 추가했다.
+  - 버튼 클릭 시 확인 모달을 거친 뒤 `updateProfile` API로 `temp_id=null`, `allowance_date=null`, `allowance_reject_reason=null`, `status='draft'`를 한 번에 저장하도록 구현했다.
+  - 성공 시 모달 로컬 상태도 즉시 비워, 사용자에게 `임시사번 미입력` 상태가 바로 반영되도록 맞췄다.
+
+**검증**:
+- `npx eslint src/app/dashboard/page.tsx`
+- `node scripts/ci/check-governance.mjs`
+
 ## <a id="20260325-referral-admin-foundation"></a> 2026-03-25 | 추천인 코드 운영 기반 추가
 
 **배경**:

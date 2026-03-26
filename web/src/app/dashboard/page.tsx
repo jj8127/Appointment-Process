@@ -238,6 +238,9 @@ export default function DashboardPage() {
     setSelectedFc((prev: FCProfileWithDocuments | null) => (prev ? { ...prev, ...updates } : prev));
   };
 
+  const isLookupResettableStatus = (status?: FcStatus | null) =>
+    Boolean(status && ['draft', 'temp-id-issued', 'allowance-pending', 'allowance-consented'].includes(status));
+
   const openRejectModal = (target: { kind: 'allowance' } | { kind: 'appointment'; category: 'life' | 'nonlife' } | { kind: 'doc'; doc: FCDocument }) => {
     setRejectReason('');
     setRejectTarget(target);
@@ -435,6 +438,55 @@ export default function DashboardPage() {
       }
       updateSelectedFc(nextProfileUpdates);
       notifications.show({ title: '저장 완료', message: '기본 정보가 업데이트되었습니다.', color: 'green' });
+      queryClient.invalidateQueries({ queryKey: ['dashboard-list'] });
+    },
+    onError: (err: Error) => notifications.show({ title: '오류', message: err.message, color: 'red' }),
+  });
+
+  const resetToLookupMutation = useMutation({
+    mutationFn: async () => {
+      if (!selectedFc) return;
+
+      const resp = await fetch('/api/admin/fc', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          action: 'updateProfile',
+          payload: {
+            fcId: selectedFc.id,
+            data: {
+              temp_id: null,
+              allowance_date: null,
+              allowance_reject_reason: null,
+              status: 'draft',
+            },
+          },
+        }),
+      });
+
+      const data = await resp.json().catch(() => null);
+      if (!resp.ok) {
+        const message =
+          data && typeof data === 'object' && 'error' in data
+            ? String((data as { error?: string }).error || '')
+            : '';
+        throw new Error(message || '조회중 단계로 되돌리기 실패');
+      }
+    },
+    onSuccess: () => {
+      setTempIdInput('');
+      setAllowanceDateInput(null);
+      updateSelectedFc({
+        temp_id: null,
+        allowance_date: null,
+        allowance_reject_reason: null,
+        status: 'draft',
+      });
+      notifications.show({
+        title: '초기화 완료',
+        message: '임시사번을 비우고 조회중 단계로 되돌렸습니다.',
+        color: 'green',
+      });
       queryClient.invalidateQueries({ queryKey: ['dashboard-list'] });
     },
     onError: (err: Error) => notifications.show({ title: '오류', message: err.message, color: 'red' }),
@@ -1246,6 +1298,10 @@ export default function DashboardPage() {
     }
   };
 
+  const canResetToLookup = Boolean(
+    selectedFc?.temp_id && !isReadOnly && isLookupResettableStatus(selectedFc?.status),
+  );
+
   return (
     <Box p="lg" maw={1600} mx="auto">
       <Stack gap="xl">
@@ -1539,6 +1595,31 @@ export default function DashboardPage() {
                       setTempIdInput(val);
                     }}
                   />
+                  {canResetToLookup && (
+                    <>
+                      <Button
+                        variant="light"
+                        color="gray"
+                        size="xs"
+                        leftSection={<IconRefresh size={14} />}
+                        loading={resetToLookupMutation.isPending}
+                        onClick={() => {
+                          showConfirm({
+                            title: '조회중 단계로 되돌리기',
+                            message: '임시사번과 수당 동의일을 비우고 조회중(임시사번 미입력) 단계로 되돌릴까요?',
+                            confirmLabel: '되돌리기',
+                            color: 'orange',
+                            onConfirm: () => resetToLookupMutation.mutate(),
+                          });
+                        }}
+                      >
+                        조회중 단계로 되돌리기
+                      </Button>
+                      <Text size="xs" c="dimmed" mt={-8}>
+                        잘못 입력한 임시사번을 비우고 이전 단계로 되돌릴 때 사용합니다.
+                      </Text>
+                    </>
+                  )}
                   <Box>
                     <Text size="sm" fw={500} mb={6}>
                       경력 구분 {careerInput === null && <Text span c="red" size="xs">(선택 필요)</Text>}
