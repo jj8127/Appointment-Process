@@ -38,7 +38,6 @@
 
 **메모**:
 - `admin-action` Deno 함수는 로컬에 `deno` 실행 환경이 없어 별도 타입체크는 수행하지 못했다. 대신 변경 범위는 권한 분기와 manager lookup 추가로 제한했다.
-
 ## <a id="20260327-web-dashboard-manager-list-and-allowance-pending-fix"></a> 2026-03-27 | 웹 대시보드 본부장 목록 조회 복구 + 수당동의 대기 라벨 정정
 
 **배경**:
