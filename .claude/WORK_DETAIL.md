@@ -7,6 +7,31 @@
 
 ---
 
+## <a id="20260327-manager-resident-number-phone-format-fix"></a> 2026-03-27 | 본부장 주민번호 조회 계정검증을 전화번호 다중 포맷으로 정규화
+
+**배경**:
+- 본부장(read-only manager) 계정은 권한상 주민번호 full-view를 읽을 수 있도록 열려 있었지만, 실제 웹 FC 상세에서 여전히 주민번호가 보이지 않는 문제가 남아 있었다.
+- 확인 결과 세션 검증(`server-session`)과 주민번호 API, `admin-action(getResidentNumbers)` 모두 계정 전화번호를 숫자 11자리만으로 비교하고 있었고, `manager_accounts.phone` 저장값이 하이픈 포함 형식이면 검증 단계에서 `403`이 발생했다.
+- 즉 권한 문제라기보다 `session_resident -> manager_accounts.phone` 매칭 포맷 불일치가 root cause였다.
+
+**조치**:
+- `web/src/lib/server-session.ts`
+  - 세션 검증 시 원본값, 숫자만 남긴 값, 하이픈 포함 값을 모두 `phoneCandidates`로 만들어 `admin_accounts`, `manager_accounts`, `fc_profiles` 조회에 공통 적용했다.
+- `web/src/app/api/admin/resident-numbers/route.ts`
+  - privileged staff self-check도 동일하게 다중 포맷 후보(`raw/digits/formatted`)로 비교하도록 바꿨다.
+- `supabase/functions/admin-action/index.ts`
+  - `verifyAdmin`, `verifyManager`가 `.eq('phone', phone)` 대신 `buildResidentIds(phone)` 기반 `.in('phone', phoneCandidates)`를 사용하게 해, manager read path가 저장 포맷 차이로 차단되지 않게 맞췄다.
+
+**로직 검토**:
+- 권한 범위는 바뀌지 않는다. 여전히 `getResidentNumbers` 읽기 액션에 한해서만 manager가 허용되고, write action은 기존처럼 `admin`만 가능하다.
+- 이번 변경은 전화번호 저장 형식 차이를 흡수하는 정규화 레이어 추가이므로, admin/manager 로그인 세션이 digits 또는 hyphenated 어느 쪽이든 동일하게 검증된다.
+
+**검증**:
+- `cd web && npm run lint -- src/lib/server-session.ts src/app/api/admin/resident-numbers/route.ts`
+
+**메모**:
+- 로컬 환경에 `deno`가 없어 `supabase/functions/admin-action/index.ts`의 별도 타입체크는 수행하지 못했다.
+
 ## <a id="20260327-handbook-governance-system"></a> 2026-03-27 | handbook/운영 핸드북 체계와 path-owner 기반 governance 게이트 추가
 
 **배경**:

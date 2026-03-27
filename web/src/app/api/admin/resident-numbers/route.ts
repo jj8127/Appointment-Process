@@ -12,6 +12,27 @@ type Body = {
   fcIds?: string[];
 };
 
+function formatPhone(digits: string): string {
+  if (!digits) return '';
+  if (digits.length <= 3) return digits;
+  if (digits.length <= 7) return `${digits.slice(0, 3)}-${digits.slice(3)}`;
+  return `${digits.slice(0, 3)}-${digits.slice(3, 7)}-${digits.slice(7)}`;
+}
+
+function buildPhoneCandidates(value: string | null | undefined): string[] {
+  const raw = String(value ?? '').trim();
+  const digits = raw.replace(/[^0-9]/g, '');
+  const values = new Set<string>();
+
+  if (raw) values.add(raw);
+  if (digits) values.add(digits);
+
+  const formatted = formatPhone(digits);
+  if (formatted) values.add(formatted);
+
+  return Array.from(values).filter(Boolean);
+}
+
 async function getAdminSession() {
   const cookieStore = await cookies();
   const session = {
@@ -72,11 +93,12 @@ export async function POST(req: Request) {
   try {
     // Harden a bit: confirm the privileged staff phone exists & active.
     const staffPhone = String(adminCheck.session.residentId ?? '').replace(/[^0-9]/g, '');
+    const staffPhoneCandidates = buildPhoneCandidates(adminCheck.session.residentId);
     const accountTable = adminCheck.session.role === 'manager' ? 'manager_accounts' : 'admin_accounts';
     const { data: staffRow } = await adminSupabase
       .from(accountTable)
       .select('id,active')
-      .eq('phone', staffPhone)
+      .in('phone', staffPhoneCandidates)
       .eq('active', true)
       .maybeSingle();
 

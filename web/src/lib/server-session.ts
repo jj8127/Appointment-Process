@@ -23,12 +23,35 @@ type SessionCheckResult =
 
 const normalizeDigits = (value: string) => value.replace(/[^0-9]/g, '');
 
-async function verifyRecord(role: ServerSessionRole, residentDigits: string, requireActive: boolean) {
+function formatPhone(digits: string): string {
+  if (!digits) return '';
+  if (digits.length <= 3) return digits;
+  if (digits.length <= 7) return `${digits.slice(0, 3)}-${digits.slice(3)}`;
+  return `${digits.slice(0, 3)}-${digits.slice(3, 7)}-${digits.slice(7)}`;
+}
+
+function buildPhoneCandidates(rawResidentId: string, residentDigits: string): string[] {
+  const values = new Set<string>();
+  const raw = String(rawResidentId ?? '').trim();
+  const formatted = formatPhone(residentDigits);
+
+  if (raw) values.add(raw);
+  if (residentDigits) values.add(residentDigits);
+  if (formatted) values.add(formatted);
+
+  return Array.from(values);
+}
+
+async function verifyRecord(
+  role: ServerSessionRole,
+  phoneCandidates: string[],
+  requireActive: boolean,
+) {
   if (role === 'admin') {
     let query = adminSupabase
       .from('admin_accounts')
       .select('id,active')
-      .eq('phone', residentDigits);
+      .in('phone', phoneCandidates);
 
     if (requireActive) {
       query = query.eq('active', true);
@@ -43,7 +66,7 @@ async function verifyRecord(role: ServerSessionRole, residentDigits: string, req
     let query = adminSupabase
       .from('manager_accounts')
       .select('id,active')
-      .eq('phone', residentDigits);
+      .in('phone', phoneCandidates);
 
     if (requireActive) {
       query = query.eq('active', true);
@@ -57,7 +80,7 @@ async function verifyRecord(role: ServerSessionRole, residentDigits: string, req
   const { data, error } = await adminSupabase
     .from('fc_profiles')
     .select('id')
-    .eq('phone', residentDigits)
+    .in('phone', phoneCandidates)
     .maybeSingle();
 
   if (error) throw error;
@@ -92,11 +115,12 @@ export async function getVerifiedServerSession(options: SessionCheckOptions): Pr
   if (residentDigits.length !== 11) {
     return { ok: false, status: 401, error: 'Invalid resident phone' };
   }
+  const phoneCandidates = buildPhoneCandidates(session.residentId, residentDigits);
 
   try {
     const verified = await verifyRecord(
       session.role,
-      residentDigits,
+      phoneCandidates,
       options.requireActive ?? true,
     );
 

@@ -73,20 +73,22 @@ async function decrypt(value: string, key: CryptoKey) {
 }
 
 async function verifyAdmin(phone: string): Promise<boolean> {
+  const phoneCandidates = buildResidentIds(phone);
   const { data } = await supabase
     .from('admin_accounts')
     .select('id,active')
-    .eq('phone', phone)
+    .in('phone', phoneCandidates)
     .eq('active', true)
     .maybeSingle();
   return !!data?.id;
 }
 
 async function verifyManager(phone: string): Promise<boolean> {
+  const phoneCandidates = buildResidentIds(phone);
   const { data } = await supabase
     .from('manager_accounts')
     .select('id,active')
-    .eq('phone', phone)
+    .in('phone', phoneCandidates)
     .eq('active', true)
     .maybeSingle();
   return !!data?.id;
