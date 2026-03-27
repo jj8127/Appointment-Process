@@ -23,7 +23,7 @@ async function getAdminSession() {
   if (!sessionCheck.valid) {
     return { ok: false as const, status: 401, error: sessionCheck.error ?? 'Unauthorized' };
   }
-  if (session.role !== 'admin') {
+  if (session.role !== 'admin' && session.role !== 'manager') {
     return { ok: false as const, status: 403, error: 'Forbidden' };
   }
 
@@ -70,16 +70,17 @@ export async function POST(req: Request) {
   }
 
   try {
-    // Harden a bit: confirm the admin phone exists & active (cookie role alone is not enough).
-    const adminPhone = String(adminCheck.session.residentId ?? '').replace(/[^0-9]/g, '');
-    const { data: adminRow } = await adminSupabase
-      .from('admin_accounts')
+    // Harden a bit: confirm the privileged staff phone exists & active.
+    const staffPhone = String(adminCheck.session.residentId ?? '').replace(/[^0-9]/g, '');
+    const accountTable = adminCheck.session.role === 'manager' ? 'manager_accounts' : 'admin_accounts';
+    const { data: staffRow } = await adminSupabase
+      .from(accountTable)
       .select('id,active')
-      .eq('phone', adminPhone)
+      .eq('phone', staffPhone)
       .eq('active', true)
       .maybeSingle();
 
-    if (!adminRow?.id) {
+    if (!staffRow?.id) {
       return NextResponse.json({ error: 'Forbidden' }, { status: 403, headers: SECURITY_HEADERS });
     }
 
@@ -91,7 +92,7 @@ export async function POST(req: Request) {
         Authorization: `Bearer ${serviceKey}`,
       },
       body: JSON.stringify({
-        adminPhone,
+        adminPhone: staffPhone,
         action: 'getResidentNumbers',
         payload: { fcIds },
       }),

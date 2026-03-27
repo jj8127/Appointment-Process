@@ -82,6 +82,16 @@ async function verifyAdmin(phone: string): Promise<boolean> {
   return !!data?.id;
 }
 
+async function verifyManager(phone: string): Promise<boolean> {
+  const { data } = await supabase
+    .from('manager_accounts')
+    .select('id,active')
+    .eq('phone', phone)
+    .eq('active', true)
+    .maybeSingle();
+  return !!data?.id;
+}
+
 function cleanPhone(input: string | null | undefined): string {
   return String(input ?? '').replace(/[^0-9]/g, '');
 }
@@ -151,9 +161,17 @@ serve(async (req: Request) => {
     return fail('adminPhone and action are required');
   }
 
-  const isAdmin = await verifyAdmin(adminPhone.replace(/[^0-9]/g, ''));
-  if (!isAdmin) {
-    return fail('Unauthorized: not an admin', 403);
+  const normalizedAdminPhone = adminPhone.replace(/[^0-9]/g, '');
+  const allowManagerRead = action === 'getResidentNumbers';
+  const isAuthorized = allowManagerRead
+    ? (await verifyAdmin(normalizedAdminPhone)) || (await verifyManager(normalizedAdminPhone))
+    : await verifyAdmin(normalizedAdminPhone);
+
+  if (!isAuthorized) {
+    return fail(
+      allowManagerRead ? 'Unauthorized: not an admin or manager' : 'Unauthorized: not an admin',
+      403,
+    );
   }
 
   try {

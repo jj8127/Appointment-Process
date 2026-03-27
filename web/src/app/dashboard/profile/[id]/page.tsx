@@ -59,6 +59,7 @@ type FcProfileDetail = {
     id: string;
     name: string;
     phone: string;
+    recommender: string | null;
     resident_id_masked: string | null;
     address: string | null;
     address_detail: string | null;
@@ -140,7 +141,7 @@ export default function FcProfilePage({ params }: { params: Promise<{ id: string
 
     const { data: residentNumberFull } = useQuery({
         queryKey: ['fc-resident-number-full', fcId, role],
-        enabled: hydrated && role === 'admin' && !!fcId,
+        enabled: hydrated && (role === 'admin' || role === 'manager') && !!fcId,
         queryFn: async () => {
             const resp = await fetch('/api/admin/resident-numbers', {
                 method: 'POST',
@@ -293,7 +294,7 @@ export default function FcProfilePage({ params }: { params: Promise<{ id: string
     }
     if (!profile) return <Container py="xl"><Text>FC 정보를 찾을 수 없습니다.</Text></Container>;
 
-    const residentNumberDisplay = residentNumberFull ?? null;
+    const residentNumberDisplay = residentNumberFull ?? profile.resident_id_masked ?? null;
     const adminStepLabel = getAdminStep(profile as unknown as FcProfile);
     const documents = profile.fc_documents ?? [];
     const presenceLabel = isPresenceError
@@ -464,6 +465,14 @@ export default function FcProfilePage({ params }: { params: Promise<{ id: string
                                             variant={isEditing && canEdit ? 'default' : 'unstyled'}
                                             readOnly={!isEditing || !canEdit}
                                             {...form.getInputProps('affiliation')}
+                                        />
+                                    </Grid.Col>
+                                    <Grid.Col span={6}>
+                                        <TextInput
+                                            label="추천인"
+                                            variant="unstyled"
+                                            readOnly
+                                            value={profile.recommender || '-'}
                                         />
                                     </Grid.Col>
                                 </Grid>

@@ -7,6 +7,38 @@
 
 ---
 
+## <a id="20260327-web-profile-manager-resident-number-and-recommender-fix"></a> 2026-03-27 | 웹 FC 상세 본부장 주민번호 조회 복구 + 추천인 표시 추가
+
+**배경**:
+- 본부장(read-only manager) 계정으로 웹 FC 상세에 들어가면 홈 목록은 읽을 수 있어도 주민등록번호가 `-`로만 남고, 상세 가입 정보에 추천인도 표시되지 않는 운영 문제가 확인됐다.
+- FC 상세는 `fc_profiles`를 직접 읽기 때문에 `recommender` 컬럼 자체는 가져올 수 있었지만, 화면 타입/렌더링에 추천인 필드가 빠져 있었다.
+- 주민번호 full-view는 `/api/admin/resident-numbers -> admin-action(getResidentNumbers)` 체인을 타는데, 두 곳 모두 `admin`만 허용하고 있어 manager 세션은 읽기 단계에서 차단되고 있었다.
+
+**조치**:
+- `web/src/app/dashboard/profile/[id]/page.tsx`
+  - `FcProfileDetail` 타입에 `recommender`를 추가했다.
+  - 주민번호 full-view 조회를 `admin`뿐 아니라 `manager`도 시도하도록 열었다.
+  - full-view를 못 받아오더라도 `profile.resident_id_masked`를 fallback으로 보여주도록 바꿨다.
+  - 상세 회원가입 카드에 read-only `추천인` 필드를 추가했다.
+- `web/src/app/api/admin/resident-numbers/route.ts`
+  - 세션 검증에서 `manager`를 read-only privileged viewer로 허용했다.
+  - 쿠키 전화번호 검증 테이블을 role 기준으로 `admin_accounts` / `manager_accounts`로 분기했다.
+  - Edge Function 호출에는 검증된 staff phone을 그대로 `adminPhone` payload로 전달하도록 정리했다.
+- `supabase/functions/admin-action/index.ts`
+  - `verifyManager()`를 추가했다.
+  - `getResidentNumbers` 액션에 한해 `admin || manager`를 허용하고, 나머지 write action은 기존대로 `admin`만 허용하도록 유지했다.
+
+**로직 검토**:
+- 권한 변경은 `getResidentNumbers` read path에만 한정돼 있어 본부장 세션이 관리자 쓰기 액션을 수행할 수는 없다.
+- 추천인은 `fc_profiles.recommender`의 read-only 노출만 추가했고, 추천인 운영 SSOT는 기존 referral handbook 계약을 그대로 유지한다.
+- 주민번호는 여전히 `fc_identity_secure` 복호화 경로를 우선 사용하고, 실패 시 마스킹값만 노출한다.
+
+**검증**:
+- `cd web && npm run lint -- src/app/dashboard/profile/[id]/page.tsx src/app/api/admin/resident-numbers/route.ts`
+
+**메모**:
+- `admin-action` Deno 함수는 로컬에 `deno` 실행 환경이 없어 별도 타입체크는 수행하지 못했다. 대신 변경 범위는 권한 분기와 manager lookup 추가로 제한했다.
+
 ## <a id="20260327-web-dashboard-manager-list-and-allowance-pending-fix"></a> 2026-03-27 | 웹 대시보드 본부장 목록 조회 복구 + 수당동의 대기 라벨 정정
 
 **배경**:

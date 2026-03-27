@@ -20,6 +20,7 @@
 ## 최근 작업
 | 날짜 | 작업 | 핵심 파일 | 상세 |
 |------|------|----------|------|
+| 03-27 | 웹 FC 상세에서 본부장도 주민번호와 추천인 정보를 읽을 수 있게 복구 | `web/src/app/dashboard/profile/[id]/page.tsx`, `web/src/app/api/admin/resident-numbers/route.ts`, `supabase/functions/admin-action/index.ts` | [→ 상세](WORK_DETAIL.md#20260327-web-profile-manager-resident-number-and-recommender-fix) |
 | 03-27 | 웹 대시보드에서 수당동의 반려 상태 라벨을 `수당동의 대기`로 정정하고, 본부장 read-only 세션도 FC 홈 목록을 동일하게 조회하도록 복구 | `web/src/lib/shared.ts`, `web/src/app/api/admin/list/route.ts`, `web/src/app/dashboard/page.tsx` | [→ 상세](WORK_DETAIL.md#20260327-web-dashboard-manager-list-and-allowance-pending-fix) |
 | 03-26 | FC 상세 관리에서 임시사번을 비우고 `조회중(임시사번 미입력)` 단계로 되돌리는 버튼을 추가 | `web/src/app/dashboard/page.tsx` | [→ 상세](WORK_DETAIL.md#20260326-dashboard-reset-temp-id-to-lookup) |
 | 03-25 | 추천인 코드 운영 기반을 추가해 기존 FC 백필, 관리자/개발자 재발급·비활성, 본부장 read-only 조회를 `/api/admin/referrals`, `/dashboard/referrals`, service-role RPC로 연결 | `supabase/schema.sql`, `supabase/migrations/20260325000001_add_referral_code_admin_foundation.sql`, `web/src/app/api/admin/referrals/route.ts`, `web/src/lib/admin-referrals.ts`, `web/src/app/dashboard/referrals/page.tsx`, `docs/referral-system/*` | [→ 상세](WORK_DETAIL.md#20260325-referral-admin-foundation) |
