@@ -221,6 +221,7 @@ ADMIN_PUSH_SECRET=...
 ## References
 
 - 운영 기준: [AGENTS.md](./AGENTS.md)
+- handbook: [docs/handbook/INDEX.md](./docs/handbook/INDEX.md)
 - 작업 로그: [.claude/WORK_LOG.md](./.claude/WORK_LOG.md), [.claude/WORK_DETAIL.md](./.claude/WORK_DETAIL.md)
 - 문서 인덱스: [docs/README.md](./docs/README.md)
 - 계약 문서: [contracts](./contracts)

@@ -1,0 +1,344 @@
+{
+  "version": 1,
+  "rules": [
+    {
+      "id": "mobile-auth-gates",
+      "severity": "contract",
+      "prefixes": [
+        "app/login.tsx",
+        "app/signup.tsx",
+        "app/signup-verify.tsx",
+        "app/signup-password.tsx",
+        "app/reset-password.tsx",
+        "app/apply-gate.tsx",
+        "app/identity.tsx"
+      ],
+      "requires_any": [
+        "docs/handbook/mobile/auth-and-gates.md",
+        "docs/handbook/shared/security-and-secret-operations.md",
+        "docs/handbook/shared/cross-repo-bridge-contract.md"
+      ]
+    },
+    {
+      "id": "mobile-fc-onboarding",
+      "severity": "behavior",
+      "prefixes": [
+        "app/index.tsx",
+        "app/home-lite.tsx",
+        "app/fc/",
+        "app/consent.tsx",
+        "app/docs-upload.tsx",
+        "app/appointment.tsx",
+        "types/fc.ts"
+      ],
+      "requires_any": [
+        "docs/handbook/mobile/fc-onboarding.md",
+        "docs/handbook/workflow-state-matrix.md",
+        "docs/handbook/admin-web/dashboard-lifecycle.md"
+      ]
+    },
+    {
+      "id": "mobile-exam",
+      "severity": "behavior",
+      "prefixes": [
+        "app/exam-apply.tsx",
+        "app/exam-apply2.tsx",
+        "app/exam-register.tsx",
+        "app/exam-register2.tsx",
+        "app/exam-manage.tsx",
+        "app/exam-manage2.tsx",
+        "web/src/app/dashboard/exam/",
+        "web/src/app/admin/exams/",
+        "web/src/app/api/admin/exam-applicants/route.ts",
+        "lib/exam-admin-api.ts",
+        "lib/exam-approval-notify.ts"
+      ],
+      "requires_any": [
+        "docs/handbook/mobile/exam-flows.md",
+        "docs/handbook/admin-web/exam-and-referral-ops.md"
+      ]
+    },
+    {
+      "id": "mobile-request-board",
+      "severity": "behavior",
+      "prefixes": [
+        "app/request-board.tsx",
+        "app/request-board-messenger.tsx",
+        "app/request-board-requests.tsx",
+        "app/request-board-review.tsx",
+        "app/request-board-fc-codes.tsx",
+        "lib/request-board-driving-status.ts",
+        "lib/request-board-fc-identity.ts",
+        "lib/request-board-url.ts"
+      ],
+      "requires_any": [
+        "docs/handbook/mobile/request-board-bridge.md",
+        "docs/handbook/shared/cross-repo-bridge-contract.md"
+      ]
+    },
+    {
+      "id": "mobile-messaging-content",
+      "severity": "behavior",
+      "prefixes": [
+        "app/messenger.tsx",
+        "app/chat.tsx",
+        "app/notifications.tsx",
+        "app/board.tsx",
+        "app/board-detail.tsx",
+        "app/notice.tsx",
+        "app/notice-detail.tsx",
+        "app/admin-board.tsx",
+        "app/admin-board-manage.tsx",
+        "app/admin-notice.tsx",
+        "app/admin-messenger.tsx",
+        "lib/messenger-participants.ts",
+        "lib/notice-route.ts"
+      ],
+      "requires_any": [
+        "docs/handbook/mobile/messenger-and-content.md",
+        "docs/handbook/backend/notifications-inbox-push.md",
+        "docs/handbook/backend/board-api-and-notice-model.md"
+      ]
+    },
+    {
+      "id": "admin-web-dashboard",
+      "severity": "behavior",
+      "prefixes": [
+        "web/src/app/dashboard/page.tsx",
+        "web/src/app/dashboard/profile/",
+        "web/src/app/dashboard/appointment/",
+        "web/src/app/api/admin/fc/route.ts",
+        "web/src/app/api/admin/list/route.ts"
+      ],
+      "requires_any": [
+        "docs/handbook/admin-web/dashboard-lifecycle.md",
+        "docs/handbook/backend/admin-operations-api.md",
+        "docs/handbook/workflow-state-matrix.md"
+      ]
+    },
+    {
+      "id": "admin-web-notice-board-chat",
+      "severity": "behavior",
+      "prefixes": [
+        "web/src/app/dashboard/notifications/",
+        "web/src/app/dashboard/board/",
+        "web/src/app/dashboard/messenger/",
+        "web/src/app/dashboard/chat/",
+        "web/src/app/api/admin/notices/route.ts"
+      ],
+      "requires_any": [
+        "docs/handbook/admin-web/notice-board-and-chat.md",
+        "docs/handbook/backend/board-api-and-notice-model.md",
+        "docs/handbook/backend/notifications-inbox-push.md"
+      ]
+    },
+    {
+      "id": "admin-web-exam-referral",
+      "severity": "behavior",
+      "prefixes": [
+        "web/src/app/dashboard/referrals/",
+        "web/src/app/api/admin/referrals/route.ts"
+      ],
+      "requires_any": [
+        "docs/handbook/admin-web/exam-and-referral-ops.md",
+        "docs/handbook/data/referral-schema-and-admin-rpcs.md"
+      ]
+    },
+    {
+      "id": "backend-admin-ops",
+      "severity": "contract",
+      "prefixes": [
+        "supabase/functions/admin-action/",
+        "supabase/functions/fc-consent/",
+        "supabase/functions/fc-submit-appointment/",
+        "web/src/app/api/fc-delete/route.ts",
+        "web/src/app/api/admin/resident-numbers/route.ts",
+        "lib/staff-identity.ts",
+        "web/src/lib/staff-identity.ts"
+      ],
+      "requires_any": [
+        "docs/handbook/backend/admin-operations-api.md",
+        "docs/handbook/data/identity-and-pii.md",
+        "docs/handbook/workflow-state-matrix.md"
+      ]
+    },
+    {
+      "id": "backend-auth-bridge",
+      "severity": "contract",
+      "prefixes": [
+        "supabase/functions/login-with-password/",
+        "supabase/functions/request-password-reset/",
+        "supabase/functions/reset-password/",
+        "supabase/functions/set-password/",
+        "supabase/functions/set-admin-password/",
+        "supabase/functions/request-signup-otp/",
+        "supabase/functions/verify-signup-otp/",
+        "supabase/functions/sync-request-board-session/",
+        "supabase/functions/delete-account/",
+        "hooks/use-session.tsx",
+        "web/src/hooks/use-session.tsx",
+        "lib/request-board-api.ts",
+        "lib/request-board-session.ts",
+        "lib/safe-storage.ts",
+        "lib/safe-storage.web.ts",
+        "web/src/lib/server-session.ts"
+      ],
+      "requires_any": [
+        "docs/handbook/shared/cross-repo-bridge-contract.md",
+        "docs/handbook/shared/security-and-secret-operations.md",
+        "docs/handbook/mobile/auth-and-gates.md"
+      ]
+    },
+    {
+      "id": "backend-notifications",
+      "severity": "contract",
+      "prefixes": [
+        "supabase/functions/fc-notify/",
+        "web/src/app/api/admin/push/route.ts",
+        "web/src/app/api/web-push/subscribe/route.ts",
+        "lib/mobile-unread-notification-count.ts",
+        "lib/notifications.ts",
+        "lib/system-notification-badge.ts"
+      ],
+      "requires_any": [
+        "docs/handbook/backend/notifications-inbox-push.md",
+        "docs/handbook/shared/security-and-secret-operations.md"
+      ]
+    },
+    {
+      "id": "backend-board",
+      "severity": "behavior",
+      "prefixes": [
+        "supabase/functions/board-"
+      ],
+      "requires_any": [
+        "docs/handbook/backend/board-api-and-notice-model.md",
+        "docs/handbook/data/storage-and-attachments.md"
+      ]
+    },
+    {
+      "id": "backend-runtime",
+      "severity": "contract",
+      "prefixes": [
+        "supabase/functions/docs-deadline-reminder/",
+        "supabase/functions/user-presence/",
+        "lib/presence.ts",
+        "lib/user-presence-api.ts",
+        "web/src/app/api/presence/route.ts"
+      ],
+      "requires_any": [
+        "docs/handbook/backend/scheduled-jobs-and-runtime.md",
+        "docs/handbook/data/presence-rpc-fallback.md"
+      ]
+    },
+    {
+      "id": "data-identity",
+      "severity": "contract",
+      "prefixes": [
+        "supabase/functions/store-identity/"
+      ],
+      "requires_any": [
+        "docs/handbook/data/identity-and-pii.md",
+        "docs/handbook/shared/security-and-secret-operations.md"
+      ]
+    },
+    {
+      "id": "data-schema",
+      "severity": "contract",
+      "prefixes": [
+        "supabase/schema.sql"
+      ],
+      "requires_any": [
+        "docs/handbook/data/data-model-canon.md"
+      ]
+    },
+    {
+      "id": "data-referral",
+      "severity": "contract",
+      "prefixes": [
+        "supabase/migrations/20260323000001_",
+        "supabase/migrations/20260325000001_"
+      ],
+      "requires_any": [
+        "docs/handbook/data/referral-schema-and-admin-rpcs.md"
+      ]
+    },
+    {
+      "id": "data-presence-migrations",
+      "severity": "contract",
+      "prefixes": [
+        "supabase/migrations/20260311000003_"
+      ],
+      "requires_any": [
+        "docs/handbook/data/presence-rpc-fallback.md",
+        "docs/handbook/backend/scheduled-jobs-and-runtime.md"
+      ]
+    },
+    {
+      "id": "data-storage-migrations",
+      "severity": "contract",
+      "prefixes": [
+        "supabase/migrations/20260311000004_",
+        "supabase/migrations/20260310000001_"
+      ],
+      "requires_any": [
+        "docs/handbook/data/storage-and-attachments.md",
+        "docs/handbook/shared/security-and-secret-operations.md"
+      ]
+    },
+    {
+      "id": "generic-app-route",
+      "severity": "internal",
+      "prefixes": [
+        "app/"
+      ],
+      "requires_any": [
+        "docs/handbook/screen-inventory.md",
+        "docs/handbook/button-action-matrix.md"
+      ]
+    },
+    {
+      "id": "generic-web-route",
+      "severity": "internal",
+      "prefixes": [
+        "web/src/app/",
+        "web/src/hooks/",
+        "web/src/lib/"
+      ],
+      "requires_any": [
+        "docs/handbook/screen-inventory.md",
+        "docs/handbook/button-action-matrix.md",
+        "docs/handbook/feature-catalog.md"
+      ]
+    },
+    {
+      "id": "generic-shared-mobile-code",
+      "severity": "internal",
+      "prefixes": [
+        "components/",
+        "hooks/",
+        "lib/",
+        "types/"
+      ],
+      "requires_any": [
+        "docs/handbook/button-action-matrix.md",
+        "docs/handbook/feature-catalog.md",
+        "docs/handbook/screen-inventory.md"
+      ]
+    },
+    {
+      "id": "generic-migration",
+      "severity": "contract",
+      "prefixes": [
+        "supabase/migrations/"
+      ],
+      "requires_any": [
+        "docs/handbook/data/data-model-canon.md",
+        "docs/handbook/data/storage-and-attachments.md",
+        "docs/handbook/data/presence-rpc-fallback.md",
+        "docs/handbook/data/referral-schema-and-admin-rpcs.md",
+        "docs/handbook/shared/security-and-secret-operations.md"
+      ]
+    }
+  ]
+}

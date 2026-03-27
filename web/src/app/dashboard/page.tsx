@@ -1610,8 +1610,13 @@ export default function DashboardPage() {
                       const val = e.currentTarget?.value || '';
                       setTempIdInput(val);
                     }}
-                  />
-                  {canResetToLookup && (
+                    />
+                    <TextInput
+                      label="추천인"
+                      value={selectedFc.recommender || '-'}
+                      readOnly
+                    />
+                    {canResetToLookup && (
                     <>
                       <Button
                         variant="light"

@@ -1,4 +1,4 @@
-import { calcStep, getSummaryStatus } from '../../web/src/lib/shared';
+import { calcStep, getStatusLabel, getSummaryStatus } from '../../web/src/lib/shared';
 import type { FcProfile } from '../../web/src/types/fc';
 
 const approvedDocs: FcProfile['fc_documents'] = [
@@ -56,6 +56,7 @@ describe('workflow step regression', () => {
   test('allowance passed without approved docs stays at step 3', () => {
     const row = profile({
       status: 'allowance-consented',
+      temp_id: 'TMP-001',
       resident_id_masked: '900101-*******',
       identity_completed: true,
       address: '서울시 중구',
@@ -65,9 +66,38 @@ describe('workflow step regression', () => {
     expect(calcStep(row)).toBe(3);
   });
 
+  test('allowance pending without allowance date stays on waiting label', () => {
+    const row = profile({
+      status: 'allowance-pending',
+      temp_id: 'TMP-001',
+      resident_id_masked: '900101-*******',
+      identity_completed: true,
+      address: '서울시 중구',
+      allowance_date: null,
+    });
+
+    expect(getSummaryStatus(row)).toEqual({ label: '수당동의 대기', color: 'gray' });
+    expect(getStatusLabel(row)).toBe('수당동의 대기');
+  });
+
+  test('allowance pending with allowance date shows review-in-progress label', () => {
+    const row = profile({
+      status: 'allowance-pending',
+      temp_id: 'TMP-001',
+      resident_id_masked: '900101-*******',
+      identity_completed: true,
+      address: '서울시 중구',
+      allowance_date: '2026-02-20',
+    });
+
+    expect(getSummaryStatus(row)).toEqual({ label: '수당동의 검토 중', color: 'orange' });
+    expect(getStatusLabel(row)).toBe('수당동의 검토 중');
+  });
+
   test('docs approved with one commission complete moves to step 4', () => {
     const row = profile({
       status: 'docs-approved',
+      temp_id: 'TMP-001',
       resident_id_masked: '900101-*******',
       identity_completed: true,
       address: '서울시 중구',
@@ -102,6 +132,6 @@ describe('workflow step regression', () => {
     });
 
     expect(calcStep(row)).toBe(5);
-    expect(getSummaryStatus(row).label).toBe('최종 완료');
+    expect(getSummaryStatus(row).label).toBe('가입 시 위촉 완료');
   });
 });

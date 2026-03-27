@@ -7,6 +7,21 @@
 
 ## 디렉토리 구조
 
+### `handbook/`
+
+- `INDEX.md`
+  - handbook 진입점
+- `shared/`
+  - 역할/브리지/보안 공통 계약
+- `mobile/`
+  - Expo 앱 화면 플레이북
+- `admin-web/`
+  - 관리자 웹 플레이북
+- `backend/`
+  - Edge Function/API/cron 런북
+- `data/`
+  - schema/storage/presence/referral 문서
+
 ### `deployment/`
 
 - `DEPLOYMENT.md`
@@ -78,6 +93,7 @@
 ## 문서 유지 원칙
 
 - 기능 동작이 바뀌면 코드와 함께 관련 문서도 갱신합니다.
+- handbook가 존재하는 영역은 handbook를 우선 SSOT로 갱신합니다.
 - 운영 절차가 바뀌면 `guides/` 또는 `deployment/` 문서를 우선 수정합니다.
 - 추천인 시스템이 바뀌면 `referral-system/` 하위 문서를 함께 맞춥니다.
 - 테스트 체크리스트가 바뀌면 `testing/` 하위 파일을 함께 맞춥니다.

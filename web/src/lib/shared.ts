@@ -61,6 +61,18 @@ const ALLOWANCE_PASSED_STATUSES: FcProfile['status'][] = [
 const hasIdentityInfo = (profile: Pick<FcProfile, 'identity_completed' | 'resident_id_masked' | 'address'>) =>
   Boolean(profile.identity_completed || profile.resident_id_masked || profile.address);
 
+const getAllowancePendingSummary = (profile: Pick<FcProfile, 'status' | 'allowance_date'>) => {
+  if (profile.status !== 'allowance-pending') {
+    return null;
+  }
+
+  if (profile.allowance_date) {
+    return { label: '수당동의 검토 중', color: 'orange' as const };
+  }
+
+  return { label: '수당동의 대기', color: 'gray' as const };
+};
+
 const getApprovedDocumentState = (profile: Pick<FcProfile, 'fc_documents'>) => {
   const docs = profile.fc_documents ?? [];
   const allSubmitted =
@@ -187,8 +199,9 @@ export const getSummaryStatus = (profile: FcProfile) => {
     if (profile.status === 'allowance-consented') {
       return { label: '수당동의 승인 완료', color: 'green' };
     }
-    if (profile.status === 'allowance-pending') {
-      return { label: '수당동의 대기', color: 'gray' };
+    const allowancePendingSummary = getAllowancePendingSummary(profile);
+    if (allowancePendingSummary) {
+      return allowancePendingSummary;
     }
     return { label: '수당동의 대기', color: 'gray' };
   }
@@ -216,6 +229,15 @@ export const getSummaryStatus = (profile: FcProfile) => {
   if (anySubmitted) return { label: '', color: 'orange' };
   if (anySchedule || anyApproved) return { label: '', color: 'blue' };
   return { label: '위촉 차수 미입력', color: 'gray' };
+};
+
+export const getStatusLabel = (profile: Pick<FcProfile, 'status' | 'allowance_date'>) => {
+  const allowancePendingSummary = getAllowancePendingSummary(profile);
+  if (allowancePendingSummary) {
+    return allowancePendingSummary.label;
+  }
+
+  return STATUS_LABELS[profile.status] ?? profile.status;
 };
 
 export const calcStep = (profile: FcProfile) => {

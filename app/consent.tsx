@@ -1,6 +1,7 @@
 import { Feather } from '@expo/vector-icons';
 import DateTimePicker from '@react-native-community/datetimepicker';
 import { router } from 'expo-router';
+import * as Clipboard from 'expo-clipboard';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Alert,
@@ -155,8 +156,25 @@ export default function AllowanceConsentScreen() {
   };
 
   const openAllowanceSite = () => {
-    openExternalUrl('https://www.sgic.co.kr').catch(() => Alert.alert('오류', '사이트를 열 수 없습니다.'));
+    openExternalUrl('https://www.sgic.co.kr', { preferExternalBrowser: true }).catch(() => {
+      Alert.alert('오류', '사이트를 열 수 없습니다.');
+    });
   };
+
+  const copyTempId = useCallback(async () => {
+    const trimmedTempId = tempId.trim();
+    if (!trimmedTempId) {
+      Alert.alert('복사할 임시사번 없음', '임시사번이 발급된 후 다시 시도해주세요.');
+      return;
+    }
+
+    try {
+      await Clipboard.setStringAsync(trimmedTempId);
+      Alert.alert('복사 완료', '임시사번을 복사했습니다.');
+    } catch {
+      Alert.alert('복사 실패', '임시사번 복사 중 오류가 발생했습니다.');
+    }
+  }, [tempId]);
 
   const { width } = useWindowDimensions();
   const cardWidth = Math.min(width - 48, 480); // Constrain max width for desktop
@@ -303,6 +321,26 @@ export default function AllowanceConsentScreen() {
               selectTextOnFocus={false}
               containerStyle={styles.inputGroup}
             />
+            <View style={styles.tempIdActionRow}>
+              <Button
+                onPress={() => { void copyTempId(); }}
+                disabled={!tempId.trim()}
+                variant="outline"
+                size="sm"
+                leftIcon={
+                  <Feather
+                    name="copy"
+                    size={14}
+                    color={tempId.trim() ? COLORS.primary : COLORS.text.disabled}
+                  />
+                }
+                accessibilityLabel="임시사번 복사"
+                accessibilityHint="발급된 임시사번을 클립보드에 복사합니다."
+                style={styles.tempIdCopyButton}
+              >
+                임시사번 복사
+              </Button>
+            </View>
 
             <View style={styles.inputGroup}>
               <Text style={styles.label}>수당동의일</Text>
@@ -507,6 +545,14 @@ const styles = StyleSheet.create({
   },
 
   inputGroup: { marginBottom: SPACING.base },
+  tempIdActionRow: {
+    alignItems: 'flex-end',
+    marginTop: -SPACING.sm,
+    marginBottom: SPACING.base,
+  },
+  tempIdCopyButton: {
+    minWidth: 148,
+  },
   label: {
     fontSize: TYPOGRAPHY.fontSize.sm + 1,
     fontWeight: TYPOGRAPHY.fontWeight.semibold,

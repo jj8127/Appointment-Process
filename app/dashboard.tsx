@@ -334,6 +334,7 @@ type FcRow = {
   name: string;
   affiliation: string;
   phone: string;
+  recommender: string | null;
   temp_id: string | null;
   status: FcProfile['status'];
   allowance_date: string | null;
@@ -430,7 +431,7 @@ const fetchFcs = async (
   let query = supabase
     .from('fc_profiles')
       .select(
-        'id,name,affiliation,phone,temp_id,status,allowance_date,appointment_url,appointment_date,docs_deadline_at,appointment_schedule_life,appointment_schedule_nonlife,appointment_date_life,appointment_date_nonlife,appointment_date_life_sub,appointment_date_nonlife_sub,appointment_reject_reason_life,appointment_reject_reason_nonlife,resident_id_masked,identity_completed,career_type,email,address,address_detail,life_commission_completed,nonlife_commission_completed,fc_documents(doc_type,storage_path,file_name,status)',
+        'id,name,affiliation,phone,recommender,temp_id,status,allowance_date,appointment_url,appointment_date,docs_deadline_at,appointment_schedule_life,appointment_schedule_nonlife,appointment_date_life,appointment_date_nonlife,appointment_date_life_sub,appointment_date_nonlife_sub,appointment_reject_reason_life,appointment_reject_reason_nonlife,resident_id_masked,identity_completed,career_type,email,address,address_detail,life_commission_completed,nonlife_commission_completed,fc_documents(doc_type,storage_path,file_name,status)',
       )
     .order('created_at', { ascending: false });
 
@@ -2612,6 +2613,7 @@ export default function DashboardScreen() {
                         value={fc.appointment_date_nonlife_sub ?? '미입력'}
                       />
                       <DetailRow label="경력구분" value={careerDisplay} />
+                      <DetailRow label="추천인" value={fc.recommender ?? '-'} />
                       <DetailRow label="이메일" value={fc.email ?? '-'} />
                       <DetailRow label="주소" value={`${fc.address ?? '-'} ${fc.address_detail ?? ''}`} />
                     </View>

@@ -2,7 +2,7 @@
 
 import { fetchPresence } from '@/lib/presence-api';
 import { formatPresenceLabel } from '@/lib/presence';
-import { STATUS_LABELS, getAdminStep } from '@/lib/shared';
+import { getAdminStep, getStatusLabel } from '@/lib/shared';
 import { useSession } from '@/hooks/use-session';
 import type { FcProfile, FcStatus } from '@/types/fc';
 import { supabase } from '@/lib/supabase';
@@ -304,7 +304,7 @@ export default function FcProfilePage({ params }: { params: Promise<{ id: string
             : '첫 접속 전';
     const presenceBadgeColor = isPresenceError ? 'gray' : presence?.is_online ? 'green' : 'gray';
     const presenceBadgeVariant = !isPresenceError && presence?.is_online ? 'filled' : 'light';
-    const statusLabel = STATUS_LABELS[profile.status] ?? profile.status;
+    const statusLabel = getStatusLabel(profile);
 
     return (
         <Box bg={BACKGROUND} style={{ minHeight: '100vh' }}>

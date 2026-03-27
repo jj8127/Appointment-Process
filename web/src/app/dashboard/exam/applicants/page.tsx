@@ -312,7 +312,7 @@ export default function ExamApplicantsPage() {
 
             let residentNumbersByFcId: Record<string, string | null> = {};
             const fcIds = Array.from(new Set(profileRows.map((p) => p.id).filter(Boolean)));
-            if (role === 'admin' && fcIds.length > 0) {
+            if ((role === 'admin' || role === 'manager') && fcIds.length > 0) {
                 try {
                     const resp = await fetch('/api/admin/resident-numbers', {
                         method: 'POST',

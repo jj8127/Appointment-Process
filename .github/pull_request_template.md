@@ -18,6 +18,7 @@
 ## 문서/운영 체크리스트 (필수)
 
 - [ ] PROJECT_GUIDE.md 확인
+- [ ] handbook owning 문서 확인/갱신 (정기 handbook sync 또는 계약 변경 시)
 - [ ] WORK_DETAIL 앵커 추가/업데이트
 - [ ] WORK_LOG 최근 작업 1행 추가/검토
 - [ ] 스키마 변경 시 schema.sql + migrations 동시 반영

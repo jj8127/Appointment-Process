@@ -7,6 +7,67 @@
 
 ---
 
+## <a id="20260327-handbook-governance-system"></a> 2026-03-27 | handbook/운영 핸드북 체계와 path-owner 기반 governance 게이트 추가
+
+**배경**:
+- `AGENTS.md`만으로는 두 프로젝트의 화면/버튼/운영 절차를 새 세션 AI나 신규 작업자가 빠르게 추적하기 어려웠다.
+- 기능 변경 때 어떤 문서를 같이 갱신해야 하는지 규칙이 없어서, handbook drift를 사람 기억에 의존하는 구조였다.
+
+**조치**:
+- `docs/handbook/**`, `docs/README.md`
+  - 공통/shared handbook, 저장소별 handbook index, screen inventory, workflow matrix, button matrix, runbook, change checklist를 추가해 문서 SSOT를 코드 옆으로 이동했다.
+- `scripts/ci/check-governance.mjs`
+  - path-owner map과 severity 기반 handbook sync 규칙을 읽어, handbook sync 세션일 때 관련 owner 문서 누락을 잡도록 확장했다.
+- `.github/pull_request_template.md`, `README.md`, `AGENTS.md`
+  - handbook 갱신 의무와 진입 문서를 PR/루트 문서에서 바로 찾을 수 있게 연결했다.
+
+**결과**:
+- 새 세션 AI는 handbook index와 change checklist를 따라 owner 문서를 먼저 찾을 수 있게 됐고, handbook 최신성도 PR/CI 기준으로 유지할 수 있게 됐다.
+
+**검증**:
+- `node scripts/ci/check-governance.mjs`
+
+**핵심 파일**:
+- `docs/handbook/shared/documentation-contract.md`
+- `docs/handbook/path-owner-map.json`
+- `scripts/ci/check-governance.mjs`
+- `.github/pull_request_template.md`
+
+## <a id="20260327-manager-visibility-consent-ux"></a> 2026-03-27 | 본부장 read-only 정보 노출과 가람in 수당동의 UX 보강
+
+**배경**:
+- 본부장(read-only manager) 계정은 “수정만 안 되고 보이는 정보는 모두 보여야 한다”는 운영 원칙과 달리, 일부 상세 화면에서 주민번호·추천인·시험 신청자 정보가 빠져 있었다.
+- 수당동의 단계는 `allowance-pending` 상태 안에서도 `날짜 미입력 = 대기`, `날짜 입력 후 승인 전 = 검토 중`을 구분해야 했지만 웹 공용 라벨이 이를 한 번에 다루지 못했다.
+- 가람in FC 화면에서는 임시사번을 바로 복사할 수 없었고, `서울보증보험 바로가기`도 외부 브라우저 대신 앱 내부에서 열려 UX 제약이 있었다.
+
+**조치**:
+- `web/src/app/dashboard/profile/[id]/page.tsx`, `web/src/app/dashboard/page.tsx`, `app/dashboard.tsx`
+  - FC 상세 웹/앱 뷰에서 `추천인`을 read-only로 노출하고, 웹 상세/상세 모달에서 주민번호 full-view를 우선 표시하도록 정리했다.
+- `web/src/app/dashboard/exam/applicants/page.tsx`
+  - 시험 신청자 관리 목록에서도 본부장이 full resident number를 읽어 올 수 있게 맞췄다.
+- `web/src/lib/shared.ts`, `lib/__tests__/workflow-step-regression.test.ts`
+  - `allowance-pending + allowance_date 있음`이면 `수당동의 검토 중`, 날짜가 없으면 `수당동의 대기`로 나누고 회귀 테스트를 추가했다.
+- `app/consent.tsx`, `lib/open-external-url.ts`
+  - 임시사번 복사 버튼을 추가하고, `서울보증보험 바로가기`는 외부 브라우저 선호 옵션으로 열리도록 공통 helper를 확장했다.
+
+**로직 검토**:
+- 본부장은 여전히 read-only 세션이므로 편집 권한이 생기지 않는다. 이번 변경은 읽기/표시 경로만 넓히는 성격이다.
+- 수당동의 상태는 `status` 값만으로 고정 라벨을 찍지 않고 `allowance_date`와 함께 파생 표시해야 운영 의미와 맞는다.
+
+**검증**:
+- `cd web && npm run lint -- src/app/dashboard/page.tsx "src/app/dashboard/profile/[id]/page.tsx" src/app/dashboard/exam/applicants/page.tsx src/lib/shared.ts`
+- `npx eslint app/consent.tsx app/dashboard.tsx lib/open-external-url.ts`
+- `npx jest lib/__tests__/workflow-step-regression.test.ts --runInBand`
+
+**핵심 파일**:
+- `web/src/app/dashboard/page.tsx`
+- `web/src/app/dashboard/profile/[id]/page.tsx`
+- `web/src/app/dashboard/exam/applicants/page.tsx`
+- `web/src/lib/shared.ts`
+- `app/consent.tsx`
+- `app/dashboard.tsx`
+- `lib/open-external-url.ts`
+
 ## <a id="20260327-web-profile-manager-resident-number-and-recommender-fix"></a> 2026-03-27 | 웹 FC 상세 본부장 주민번호 조회 복구 + 추천인 표시 추가
 
 **배경**:
