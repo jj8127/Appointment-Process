@@ -70,7 +70,7 @@ async function getAdminSession() {
     if (!sessionCheck.valid) {
         return { ok: false, status: 401, error: sessionCheck.error ?? 'Unauthorized' };
     }
-    if (session.role !== 'admin') {
+    if (session.role !== 'admin' && session.role !== 'manager') {
         return { ok: false, status: 403, error: 'Forbidden' };
     }
     return { ok: true, session };

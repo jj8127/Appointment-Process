@@ -151,7 +151,7 @@ const buildCommissionProfileUpdate = (
 export default function DashboardPage() {
   const router = useRouter();
   const queryClient = useQueryClient();
-  const { isReadOnly, role, residentId } = useSession();
+  const { hydrated, isReadOnly, role, residentId } = useSession();
   const [activeTab, setActiveTab] = useState<string | null>('all');
   const [keyword, setKeyword] = useState('');
   const [currentPage, setCurrentPage] = useState(1);
@@ -333,15 +333,31 @@ export default function DashboardPage() {
   };
 
   const { data: fcs, isLoading } = useQuery({
-    queryKey: ['dashboard-list'],
+    queryKey: ['dashboard-list', role, residentId],
     queryFn: async () => {
       const resp = await fetch('/api/admin/list');
-      if (!resp.ok) throw new Error('데이터 로딩 실패');
-      const { data, error } = { data: await resp.json(), error: null };
-      if (error) throw error;
+      const payload: unknown = await resp.json().catch(() => null);
+
+      if (!resp.ok) {
+        const message =
+          payload && typeof payload === 'object' && 'error' in payload
+            ? String((payload as { error?: string }).error || '')
+            : '';
+        throw new Error(message || '데이터 로딩 실패');
+      }
+
+      const data = Array.isArray(payload)
+        ? payload
+        : payload && typeof payload === 'object' && 'data' in payload
+          ? (payload as { data?: unknown }).data
+          : null;
+      if (!Array.isArray(data)) {
+        throw new Error('FC 목록 응답 형식이 올바르지 않습니다.');
+      }
       logger.debug('[DEBUG] Web: Fetched FC List:', JSON.stringify(data, null, 2));
       return data;
     },
+    enabled: hydrated && (role === 'admin' || role === 'manager'),
   });
 
   const filteredData = useMemo(() => {
@@ -1479,7 +1495,7 @@ export default function DashboardPage() {
           </Stack>
 
           <Box pos="relative" mih={400}>
-            <LoadingOverlay visible={isLoading} overlayProps={{ blur: 1 }} />
+            <LoadingOverlay visible={!hydrated || isLoading} overlayProps={{ blur: 1 }} />
             <ScrollArea h="calc(100vh - 280px)" type="auto" offsetScrollbars>
               <Table verticalSpacing="sm" highlightOnHover striped withTableBorder>
                 <Table.Thead bg="gray.0" style={{ position: 'sticky', top: 0, zIndex: 1 }}>

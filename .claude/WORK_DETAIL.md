@@ -7,6 +7,33 @@
 
 ---
 
+## <a id="20260327-web-dashboard-manager-list-and-allowance-pending-fix"></a> 2026-03-27 | 웹 대시보드 본부장 목록 조회 복구 + 수당동의 대기 라벨 정정
+
+**배경**:
+- 총무 웹에서 수당동의 반려를 처리해도 FC 현재 상태가 `수당동의 검토 중`으로 남아, 실제 기대 상태인 `수당동의 대기`와 어긋나 있었다.
+- 같은 시점에 본부장(read-only manager) 계정으로 웹 홈 대시보드에 들어가면 FC 목록이 비어 `조건에 맞는 데이터가 없습니다.`만 보이는 운영 이슈가 재현됐다.
+- 확인 결과 UI는 이미 read-only 모드로 설계되어 있었지만 `/api/admin/list` route가 `admin`만 허용하고 있어 manager 세션은 403으로 막히고 있었다.
+
+**조치**:
+- `web/src/lib/shared.ts`
+  - `STATUS_LABELS['allowance-pending']`를 `수당동의 대기`로 정정했다.
+  - `getSummaryStatus()`에서 `allowance-pending` 요약 라벨/색상을 fallback과 동일한 `수당동의 대기 / gray`로 맞췄다.
+- `web/src/app/api/admin/list/route.ts`
+  - 세션 검증에서 `manager`도 read-only 조회 역할로 허용해, 본부장 계정이 관리자 홈과 동일한 FC 목록 API를 읽을 수 있게 했다.
+- `web/src/app/dashboard/page.tsx`
+  - 대시보드 리스트 쿼리에 `hydrated` 가드를 추가해 세션 복구 전 빈 상태 요청이 먼저 나가지 않도록 조정했다.
+  - 쿼리 키를 `['dashboard-list', role, residentId]`로 확장해 역할 전환 후 캐시가 섞이지 않게 했다.
+  - `/api/admin/list` 응답을 배열/래핑 payload 모두 안전하게 해석하도록 방어 코드를 추가했다.
+  - `LoadingOverlay`를 `!hydrated || isLoading` 기준으로 표시해 하드 리로드 직후 빈 테이블 flash를 줄였다.
+
+**로직 검토**:
+- 본부장 계정은 이번 변경으로 `조회는 전체 허용, 수정은 기존 UI read-only 가드 유지` 정책에 맞춰졌다.
+- `queryClient.invalidateQueries({ queryKey: ['dashboard-list'] })`는 prefix 매칭으로 새 쿼리 키에도 그대로 유효하다.
+- `allowance-pending` 상태값 자체는 기존 반려 처리에서 이미 정확히 저장되고 있었고, 이번 커밋은 잘못된 표시 라벨만 바로잡는다.
+
+**검증**:
+- `cd web && npm run lint -- src/app/dashboard/page.tsx src/lib/shared.ts src/app/api/admin/list/route.ts`
+
 ## <a id="20260326-dashboard-reset-temp-id-to-lookup"></a> 2026-03-26 | FC 상세 관리에 `조회중(임시사번 미입력)` 복귀 버튼 추가
 
 **배경**:

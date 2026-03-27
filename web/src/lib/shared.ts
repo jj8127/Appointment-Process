@@ -3,7 +3,7 @@ import { FcProfile } from '../types/fc';
 export const STATUS_LABELS: Record<FcProfile['status'] | string, string> = {
   draft: '임시사번 미발급',
   'temp-id-issued': '임시사번 발급 완료',
-  'allowance-pending': '수당동의 검토 중',
+  'allowance-pending': '수당동의 대기',
   'allowance-consented': '수당동의 승인 완료',
   'docs-requested': '필수 서류 요청',
   'docs-pending': '서류 대기',
@@ -188,7 +188,7 @@ export const getSummaryStatus = (profile: FcProfile) => {
       return { label: '수당동의 승인 완료', color: 'green' };
     }
     if (profile.status === 'allowance-pending') {
-      return { label: '수당동의 검토 중', color: 'orange' };
+      return { label: '수당동의 대기', color: 'gray' };
     }
     return { label: '수당동의 대기', color: 'gray' };
   }
