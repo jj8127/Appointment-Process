@@ -25,8 +25,8 @@ type StatusDisplay = {
   color: WorkflowColor;
 };
 
-type WorkflowProfile = Parameters<typeof calcWorkflowStep>[0];
-type AdminWorkflowProfile = Parameters<typeof calcAdminWorkflowStep>[0];
+type WorkflowProfile = NonNullable<Parameters<typeof calcWorkflowStep>[0]>;
+type AdminWorkflowProfile = NonNullable<Parameters<typeof calcAdminWorkflowStep>[0]>;
 
 export const STATUS_LABELS: Record<FcProfile['status'] | string, string> = {
   draft: '임시사번 미발급',
@@ -106,8 +106,15 @@ export const DOC_OPTIONS: string[] = [
   '경력증명서',
 ];
 
-const getAllowancePendingSummary = (profile: Pick<FcProfile, 'status' | 'allowance_date'>) => {
-  if (profile.status !== 'allowance-pending') {
+const getAllowancePendingSummary = (
+  profile?:
+    | {
+        status?: FcProfile['status'];
+        allowance_date?: string | null;
+      }
+    | null,
+) => {
+  if (profile?.status !== 'allowance-pending') {
     return null;
   }
 
@@ -178,12 +185,12 @@ const getWorkflowStepKey = (step: WorkflowStepNumber) => `step${step}` as Workfl
 const getAdminWorkflowStepKey = (step: AdminWorkflowStepNumber) =>
   `step${step}` as AdminWorkflowStepKey;
 
-const getAdminWorkflowStepNumber = (profile: AdminWorkflowProfile): AdminWorkflowStepNumber => {
+const getAdminWorkflowStepNumber = (profile?: AdminWorkflowProfile | null): AdminWorkflowStepNumber => {
   return calcAdminWorkflowStep(profile);
 };
 
-export const getDocProgress = (profile: WorkflowProfile) => {
-  const docs = profile.fc_documents ?? [];
+export const getDocProgress = (profile?: WorkflowProfile | null) => {
+  const docs = profile?.fc_documents ?? [];
   if (!docs.length) {
     return { key: 'no-request' as DocProgressKey, label: '요청 안함', color: 'gray' as WorkflowColor };
   }
@@ -207,7 +214,7 @@ export const getDocProgress = (profile: WorkflowProfile) => {
   return { key: 'in-progress' as DocProgressKey, label: '제출 중', color: 'orange' as WorkflowColor };
 };
 
-export const getHanwhaProgress = (profile: WorkflowProfile) => {
+export const getHanwhaProgress = (profile?: WorkflowProfile | null) => {
   const approved = hasHanwhaApprovalEvidence(profile);
   if (approved) {
     if (hasHanwhaPdfMetadata(profile) || hasAppointmentWorkflowEvidence(profile)) {
@@ -220,26 +227,26 @@ export const getHanwhaProgress = (profile: WorkflowProfile) => {
     };
   }
 
-  if (profile.status === 'hanwha-commission-rejected' || hasText(profile.hanwha_commission_reject_reason)) {
+  if (profile?.status === 'hanwha-commission-rejected' || hasText(profile?.hanwha_commission_reject_reason)) {
     return { key: 'rejected' as HanwhaProgressKey, label: '반려', color: 'red' as WorkflowColor };
   }
 
-  if (profile.status === 'hanwha-commission-review' || Boolean(profile.hanwha_commission_date_sub)) {
+  if (profile?.status === 'hanwha-commission-review' || Boolean(profile?.hanwha_commission_date_sub)) {
     return { key: 'review' as HanwhaProgressKey, label: '검토 중', color: 'orange' as WorkflowColor };
   }
 
   return { key: 'ready' as HanwhaProgressKey, label: '진행 대기', color: 'blue' as WorkflowColor };
 };
 
-export const getAppointmentProgress = (profile: WorkflowProfile, type: 'life' | 'nonlife') => {
+export const getAppointmentProgress = (profile: WorkflowProfile | null | undefined, type: 'life' | 'nonlife') => {
   const schedule =
-    type === 'life' ? profile.appointment_schedule_life : profile.appointment_schedule_nonlife;
+    type === 'life' ? profile?.appointment_schedule_life : profile?.appointment_schedule_nonlife;
   const approvedByDate =
-    type === 'life' ? profile.appointment_date_life : profile.appointment_date_nonlife;
+    type === 'life' ? profile?.appointment_date_life : profile?.appointment_date_nonlife;
   const approvedByFlag =
-    type === 'life' ? profile.life_commission_completed : profile.nonlife_commission_completed;
+    type === 'life' ? profile?.life_commission_completed : profile?.nonlife_commission_completed;
   const submitted =
-    type === 'life' ? profile.appointment_date_life_sub : profile.appointment_date_nonlife_sub;
+    type === 'life' ? profile?.appointment_date_life_sub : profile?.appointment_date_nonlife_sub;
 
   if (approvedByDate || approvedByFlag) {
     return { key: 'approved' as AppointmentProgressKey, label: '승인완료', color: 'green' as WorkflowColor };
@@ -253,11 +260,11 @@ export const getAppointmentProgress = (profile: WorkflowProfile, type: 'life' | 
   return { key: 'not-set' as AppointmentProgressKey, label: '미입력', color: 'gray' as WorkflowColor };
 };
 
-export const calcStep = (profile: WorkflowProfile): WorkflowStepNumber => {
+export const calcStep = (profile?: WorkflowProfile | null): WorkflowStepNumber => {
   return calcWorkflowStep(profile);
 };
 
-export const getStepDisplay = (profile: WorkflowProfile) => {
+export const getStepDisplay = (profile?: WorkflowProfile | null) => {
   const step = calcStep(profile);
   const key = getWorkflowStepKey(step);
 
@@ -269,7 +276,7 @@ export const getStepDisplay = (profile: WorkflowProfile) => {
   };
 };
 
-export const getAdminStepDisplay = (profile: AdminWorkflowProfile) => {
+export const getAdminStepDisplay = (profile?: AdminWorkflowProfile | null) => {
   const step = getAdminWorkflowStepNumber(profile);
   const key = getAdminWorkflowStepKey(step);
 
@@ -281,18 +288,18 @@ export const getAdminStepDisplay = (profile: AdminWorkflowProfile) => {
   };
 };
 
-export const getSummaryStatus = (profile: WorkflowProfile): StatusDisplay => {
+export const getSummaryStatus = (profile?: WorkflowProfile | null): StatusDisplay => {
   const step = calcStep(profile);
 
   if (step === 5) {
-    if (isSignupCommissionComplete(profile)) {
+    if (profile && isSignupCommissionComplete(profile)) {
       return { label: '가입 시 위촉 완료', color: 'green' };
     }
     return { label: '완료', color: 'green' };
   }
 
   if (step === 1) {
-    if (!profile.temp_id) {
+    if (!profile?.temp_id) {
       return { label: '임시사번 미발급', color: 'gray' };
     }
 
@@ -327,11 +334,11 @@ export const getSummaryStatus = (profile: WorkflowProfile): StatusDisplay => {
   const anySubmitted = life.key === 'fc-done' || nonlife.key === 'fc-done';
   const anySchedule = life.key === 'in-progress' || nonlife.key === 'in-progress';
   const hasRejectReason = Boolean(
-    profile.appointment_reject_reason_life || profile.appointment_reject_reason_nonlife,
+    profile?.appointment_reject_reason_life || profile?.appointment_reject_reason_nonlife,
   );
 
   if (anySubmitted) return { label: '위촉 URL 검토 중', color: 'orange' };
-  if (anyApproved || anySchedule || hasRejectReason || hasText(profile.appointment_url)) {
+  if (anyApproved || anySchedule || hasRejectReason || hasText(profile?.appointment_url)) {
     return { label: '위촉 URL 진행 중', color: 'blue' };
   }
   return { label: '위촉 URL 대기', color: 'blue' };
@@ -387,4 +394,4 @@ export const getStatusLabel = (
   profile: Parameters<typeof getStatusDisplay>[0],
 ) => getStatusDisplay(profile).label;
 
-export const getAdminStep = (profile: AdminWorkflowProfile) => getAdminStepDisplay(profile).label;
+export const getAdminStep = (profile?: AdminWorkflowProfile | null) => getAdminStepDisplay(profile).label;
