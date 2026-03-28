@@ -37,6 +37,7 @@ import dayjs from 'dayjs';
 import { useMemo, useState } from 'react';
 
 import { StatusToggle } from '@/components/StatusToggle';
+import { useSession } from '@/hooks/use-session';
 import { supabase } from '@/lib/supabase';
 import { sendPushNotification } from '../../actions';
 
@@ -98,6 +99,7 @@ const isPendingReviewDocument = (doc: DocumentRow) =>
 
 export default function DocumentsPage() {
     const queryClient = useQueryClient();
+    const { isReadOnly } = useSession();
     const [activeTab, setActiveTab] = useState<string | null>('pending');
     const [searchValue, setSearchValue] = useState('');
 
@@ -183,18 +185,18 @@ export default function DocumentsPage() {
             // All cleared! Update FC Status
             const { error: updateError } = await supabase
                 .from('fc_profiles')
-                .update({ status: 'docs-approved' }) // or 'docs-completed'? Dashboard uses 'docs-approved' button to transition.
+                .update({ status: 'docs-approved' })
                 .eq('id', fcId);
 
             if (!updateError) {
-                notifications.show({ title: '자동 승인', message: '모든 서류가 승인되어 다음 단계로 넘어갑니다.', color: 'blue' });
+                notifications.show({ title: '자동 승인', message: '모든 서류가 승인되어 한화 위촉 단계로 넘어갑니다.', color: 'blue' });
                 // Send Push
                 const title = '서류 검토 완료';
-                const body = '모든 서류가 승인되었습니다. 위촉 계약 단계로 진행해주세요.';
+                const body = '모든 서류가 승인되었습니다. 한화 위촉 단계로 진행해주세요.';
                 await supabase.from('notifications').insert({
-                    title, body, target_url: '/appointment', recipient_role: 'fc', resident_id: phone
+                    title, body, target_url: '/hanwha-commission', recipient_role: 'fc', resident_id: phone
                 });
-                await sendPushNotification(phone, { title, body, data: { url: '/appointment' } });
+                await sendPushNotification(phone, { title, body, data: { url: '/hanwha-commission' }, skipNotificationInsert: true });
             }
         }
     };
@@ -237,7 +239,7 @@ export default function DocumentsPage() {
                     resident_id: doc.fc_profiles.phone,
                     category: '서류',
                 });
-                await sendPushNotification(doc.fc_profiles.phone, { title, body, data: { url: '/docs-upload' } });
+                await sendPushNotification(doc.fc_profiles.phone, { title, body, data: { url: '/docs-upload' }, skipNotificationInsert: true });
             }
             // Return doc for context
             return doc;
@@ -387,6 +389,7 @@ export default function DocumentsPage() {
                     <StatusToggle
                         value={doc.status === 'approved' ? 'approved' : 'pending'}
                         onChange={(val) => {
+                            if (isReadOnly) return;
                             if (val === 'approved') {
                                 handleApprove(doc);
                             } else {
@@ -407,7 +410,7 @@ export default function DocumentsPage() {
                         labelApproved="승인"
                         showNeutralForPending
                         allowPendingPress
-                        readOnly={doc.status === 'approved'}
+                        readOnly={isReadOnly || doc.status === 'approved'}
                     />
                 </Group>
             </Table.Td>
@@ -425,7 +428,7 @@ export default function DocumentsPage() {
             <Group justify="space-between" mb="lg" align="flex-end">
                 <div>
                     <Title order={2} c={CHARCOAL}>서류 통합 관리</Title>
-                    <Text c={MUTED} size="sm" mt={4}>제출된 서류를 검토하고 빠른 승인 처리를 진행하세요.</Text>
+                    <Text c={MUTED} size="sm" mt={4}>제출된 서류를 검토하고, 승인된 FC를 한화 위촉 단계로 넘깁니다.</Text>
                 </div>
                 <Button variant="light" color="gray" leftSection={<IconRefresh size={16} />} onClick={() => queryClient.invalidateQueries({ queryKey: ['documents-list'] })}>
                     새로고침
@@ -617,6 +620,7 @@ export default function DocumentsPage() {
                                     size="md"
                                     radius="md"
                                     leftSection={<IconCheck size={20} />}
+                                    disabled={isReadOnly}
                                     onClick={() => handleApprove(selectedDoc)}
                                 >
                                     승인 확정
@@ -627,6 +631,7 @@ export default function DocumentsPage() {
                                     size="md"
                                     radius="md"
                                     leftSection={<IconX size={20} />}
+                                    disabled={isReadOnly}
                                     onClick={() => { closePreview(); handleRejectInit(selectedDoc); }}
                                 >
                                     반려 하기
@@ -659,7 +664,7 @@ export default function DocumentsPage() {
                     />
                     <Group justify="flex-end" mt="sm">
                         <Button variant="default" onClick={closeReject}>취소</Button>
-                        <Button color="red" onClick={handleRejectConfirm} loading={updateStatusMutation.isPending}>반려 처리</Button>
+                        <Button color="red" onClick={handleRejectConfirm} loading={updateStatusMutation.isPending} disabled={isReadOnly}>반려 처리</Button>
                     </Group>
                 </Stack>
             </Modal>

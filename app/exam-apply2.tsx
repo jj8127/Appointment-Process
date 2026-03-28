@@ -1,6 +1,7 @@
 import { Feather } from '@expo/vector-icons';
 import DateTimePicker, { type DateTimePickerEvent } from '@react-native-community/datetimepicker';
 import { useMutation, useQuery } from '@tanstack/react-query';
+import * as Clipboard from 'expo-clipboard';
 import * as Haptics from 'expo-haptics';
 import { LinearGradient } from 'expo-linear-gradient';
 import { router } from 'expo-router';
@@ -306,6 +307,16 @@ export default function ExamApplyScreen() {
     }
   }, [refetch, refetchMyApply]);
 
+  const copyFeeAccount = useCallback(async () => {
+    try {
+      await Clipboard.setStringAsync(NONLIFE_EXAM_FEE_ACCOUNT);
+      void Haptics.selectionAsync().catch(() => {});
+      Alert.alert('복사 완료', '응시료 납입 계좌를 복사했습니다.');
+    } catch {
+      Alert.alert('복사 실패', '응시료 납입 계좌를 복사하지 못했습니다.');
+    }
+  }, []);
+
   const applyMutation = useMutation({
     mutationFn: async () => {
       if (!residentId) {
@@ -489,7 +500,19 @@ export default function ExamApplyScreen() {
           <Text style={styles.sectionHeader}>📅 응시료 납입 일자</Text>
           <Text style={styles.inputHint}>응시료 미입금 시 시험 접수 불가능하며, 납입한 접수비는 반환되지 않습니다.</Text>
           <View style={styles.accountCard}>
-            <Text style={styles.accountLabel}>응시료 납입 계좌</Text>
+            <View style={styles.accountHeaderRow}>
+              <Text style={styles.accountLabel}>응시료 납입 계좌</Text>
+              <Pressable
+                onPress={() => { void copyFeeAccount(); }}
+                accessibilityRole="button"
+                accessibilityLabel="응시료 납입 계좌 복사"
+                accessibilityHint="응시료 납입 계좌 정보를 클립보드에 복사합니다."
+                style={({ pressed }) => [styles.accountCopyChip, pressed && styles.accountCopyChipPressed]}
+              >
+                <Feather name="copy" size={13} color={HANWHA_ORANGE} />
+                <Text style={styles.accountCopyChipLabel}>복사</Text>
+              </Pressable>
+            </View>
             <Text style={styles.accountValue}>{NONLIFE_EXAM_FEE_ACCOUNT}</Text>
           </View>
           <Pressable
@@ -1029,8 +1052,33 @@ const styles = StyleSheet.create({
     paddingVertical: 12,
     marginBottom: 12,
   },
-  accountLabel: { fontSize: 12, fontWeight: '700', color: '#9a3412', marginBottom: 4 },
+  accountHeaderRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 6,
+  },
+  accountLabel: { fontSize: 12, fontWeight: '700', color: '#9a3412' },
   accountValue: { fontSize: 16, fontWeight: '800', color: CHARCOAL },
+  accountCopyChip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 999,
+    borderWidth: 1,
+    borderColor: '#fdba74',
+    backgroundColor: '#ffffff',
+  },
+  accountCopyChipPressed: {
+    opacity: 0.8,
+  },
+  accountCopyChipLabel: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: HANWHA_ORANGE,
+  },
   dateInput: {
     backgroundColor: '#fff',
     borderRadius: 12,

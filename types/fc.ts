@@ -10,6 +10,9 @@ export type FcStatus =
   | 'docs-submitted'
   | 'docs-rejected'
   | 'docs-approved'
+  | 'hanwha-commission-review'
+  | 'hanwha-commission-rejected'
+  | 'hanwha-commission-approved'
   | 'appointment-completed'
   | 'final-link-sent';
 
@@ -30,24 +33,33 @@ export type FcProfile = {
   address?: string | null;
   address_detail?: string | null;
   resident_id_masked?: string | null;
+  identity_completed?: boolean | null;
   career_type?: CareerType;
   temp_id?: string | null;
   allowance_date?: string | null;
   allowance_reject_reason?: string | null;
-  appointment_url?: string | null;
-  appointment_date?: string | null;
   docs_deadline_at?: string | null;
   docs_deadline_last_notified_at?: string | null;
+  hanwha_commission_date_sub?: string | null;
+  hanwha_commission_date?: string | null;
+  hanwha_commission_reject_reason?: string | null;
+  hanwha_commission_pdf_path?: string | null;
+  hanwha_commission_pdf_name?: string | null;
+  appointment_url?: string | null;
+  appointment_date?: string | null;
   appointment_schedule_life?: string | null;
   appointment_schedule_nonlife?: string | null;
   appointment_date_life?: string | null;
   appointment_date_nonlife?: string | null;
+  appointment_date_life_sub?: string | null;
+  appointment_date_nonlife_sub?: string | null;
   appointment_reject_reason_life?: string | null;
   appointment_reject_reason_nonlife?: string | null;
   life_commission_completed?: boolean | null;
   nonlife_commission_completed?: boolean | null;
   status: FcStatus;
-  is_tour_seen?: boolean;
+  is_tour_seen?: boolean | null;
+  signup_completed?: boolean | null;
   created_at: string;
   fc_documents?: {
     doc_type: string;

@@ -33,7 +33,7 @@ export async function getNotificationCheckpoint(
     }
   }
 
-  const fallback = new Date();
+  const fallback = options?.initializeIfMissing === false ? new Date(0) : new Date();
   if (options?.initializeIfMissing !== false) {
     await AsyncStorage.setItem(key, fallback.toISOString());
   }

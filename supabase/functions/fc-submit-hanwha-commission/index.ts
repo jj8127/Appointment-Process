@@ -1,12 +1,9 @@
 import { serve } from 'https://deno.land/std@0.224.0/http/server.ts';
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.45.4';
-import { canSubmitInsuranceCommission } from '../_shared/commission.ts';
 
 type Payload = {
   phone: string;
-  date_field: string;
-  date_value: string;
-  type: 'life' | 'nonlife';
+  hanwha_commission_date_sub: string;
 };
 
 function getEnv(name: string): string | undefined {
@@ -50,8 +47,9 @@ function isValidYmd(value: string) {
   return !Number.isNaN(parsed.getTime());
 }
 
-function getExpectedDateField(type: Payload['type']) {
-  return type === 'life' ? 'appointment_date_life_sub' : 'appointment_date_nonlife_sub';
+function trimOrNull(value?: string | null) {
+  const trimmed = String(value ?? '').trim();
+  return trimmed || null;
 }
 
 serve(async (req: Request) => {
@@ -60,39 +58,32 @@ serve(async (req: Request) => {
       return new Response('ok', { headers: corsHeaders });
     }
     if (req.method !== 'POST') {
-      return json({ ok: false, message: 'Method not allowed' }, 405);
+      return fail('Method not allowed', 405);
     }
     if (!supabaseUrl || !serviceKey) {
-      return json({ ok: false, message: 'Missing Supabase credentials' }, 500);
+      return fail('Missing Supabase credentials', 500);
     }
 
     let body: Payload;
     try {
       body = (await req.json()) as Payload;
     } catch {
-      return json({ ok: false, message: 'Invalid JSON' }, 400);
+      return fail('Invalid JSON');
     }
 
     const phone = cleanPhone(body.phone ?? '');
     if (phone.length !== 11) {
-      return json({ ok: false, message: 'Phone number must be 11 digits.' }, 400);
+      return fail('Phone number must be 11 digits.');
     }
 
-    const expectedDateField = getExpectedDateField(body.type);
-    if (!body.type || body.date_field !== expectedDateField) {
-      return json({ ok: false, message: 'Invalid date field for commission type.' }, 400);
-    }
-
-    const dateValue = (body.date_value ?? '').trim();
-    if (!dateValue || !isValidYmd(dateValue)) {
-      return json({ ok: false, message: 'Invalid appointment date.' }, 400);
+    const submissionDate = trimOrNull(body.hanwha_commission_date_sub);
+    if (!submissionDate || !isValidYmd(submissionDate)) {
+      return fail('Invalid Hanwha commission date.');
     }
 
     const { data: profile, error: profileError } = await supabase
       .from('fc_profiles')
-      .select(
-        'id,status,hanwha_commission_pdf_path,hanwha_commission_pdf_name,appointment_date_life,appointment_date_nonlife,life_commission_completed,nonlife_commission_completed',
-      )
+      .select('id,name,status,hanwha_commission_pdf_path,hanwha_commission_pdf_name')
       .eq('phone', phone)
       .maybeSingle();
 
@@ -103,41 +94,38 @@ serve(async (req: Request) => {
       return json({ ok: false, message: 'Profile not found.' }, 404);
     }
 
-    if (!canSubmitInsuranceCommission(profile)) {
-      return json(
-        {
-          ok: false,
-          message: 'Hanwha approval and PDF file are required before submitting insurance commission dates.',
-        },
-        409,
-      );
+    if (['appointment-completed', 'final-link-sent'].includes(String(profile.status ?? ''))) {
+      return fail('Legacy terminal profiles cannot re-enter the Hanwha review flow.');
+    }
+    if (!['docs-approved', 'hanwha-commission-review', 'hanwha-commission-rejected'].includes(String(profile.status ?? ''))) {
+      return fail('Hanwha commission can only be submitted after docs approval.');
     }
 
-    const updateData: Record<string, unknown> = {
-      [expectedDateField]: dateValue,
+    const updatePayload: Record<string, unknown> = {
+      hanwha_commission_date_sub: submissionDate,
+      hanwha_commission_date: null,
+      hanwha_commission_reject_reason: null,
+      hanwha_commission_pdf_path: null,
+      hanwha_commission_pdf_name: null,
+      status: 'hanwha-commission-review',
     };
 
-    if (body.type === 'life') {
-      updateData.appointment_reject_reason_life = null;
-    } else {
-      updateData.appointment_reject_reason_nonlife = null;
-    }
-
-    const { data, error } = await supabase
+    const { data: updated, error: updateError } = await supabase
       .from('fc_profiles')
-      .update(updateData)
+      .update(updatePayload)
       .eq('id', profile.id)
-      .select()
-      .single();
+      .select('id,name,status,hanwha_commission_date_sub,hanwha_commission_pdf_path,hanwha_commission_pdf_name')
+      .maybeSingle();
 
-    if (error) {
-      return json({ ok: false, message: error.message }, 500);
+    if (updateError) {
+      return json({ ok: false, message: updateError.message }, 500);
     }
 
-    return new Response(JSON.stringify({ ok: true, data }), {
-      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+    return json({
+      ok: true,
+      data: updated ?? { id: profile.id, name: profile.name ?? '' },
     });
   } catch (err: any) {
-    return json({ ok: false, message: err?.message ?? '보험 위촉 정보를 저장하지 못했습니다.' }, 500);
+    return fail(err?.message ?? '한화 위촉 정보를 저장하지 못했습니다.', 500);
   }
 });

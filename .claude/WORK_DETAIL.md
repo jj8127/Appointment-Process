@@ -7,6 +7,104 @@
 
 ---
 
+## <a id="20260328-hanwha-commission-workflow-overhaul"></a> 2026-03-28 | 한화 위촉 단계를 온보딩 플로우에 정식 편입하고 앱/웹/백엔드 상태 계산을 공통 helper로 수렴
+
+**배경**:
+- 기존 온보딩 플로우는 `수당동의 -> 서류제출 -> 생명/손해 위촉` 전제를 깔고 있어, 새 정책인 `한화 위촉 승인 + PDF 전달 후 위촉 URL 진행`을 정확히 반영하지 못했다.
+- 앱 홈, 앱 관리자 대시보드, 웹 공용 helper가 각자 다른 단계 계산을 가지고 있어 같은 FC를 봐도 단계/다음 단계/관리자 필터가 어긋날 수 있었다.
+- 문서 삭제/반려나 한화 재제출 뒤에도 stale PDF/기존 위촉 증거가 남아 다음 단계가 열릴 위험이 있어, 서버 쪽 reset 규칙을 함께 재정비해야 했다.
+
+**조치**:
+- 공통 상태/단계 helper를 추가했다.
+  - `lib/fc-workflow.ts`
+  - `web/src/lib/fc-workflow.ts`
+  - `한화 위촉 승인 + PDF 완료`가 아니면 위촉 URL 단계가 열리지 않도록 `hasUrlStageAccess()`를 재정의했다.
+- 상태/스키마를 확장했다.
+  - `types/fc.ts`, `web/src/types/fc.ts`
+  - `supabase/schema.sql`
+  - `supabase/migrations/20260328000001_add_hanwha_commission_contract.sql`
+  - `hanwha_commission_date_sub`, `hanwha_commission_date`, `hanwha_commission_reject_reason`, `hanwha_commission_pdf_path`, `hanwha_commission_pdf_name` 등을 추가했다.
+- Edge Function과 가입/세션 보조 로직을 새 단계에 맞췄다.
+  - `supabase/functions/admin-action/index.ts`
+  - `supabase/functions/fc-submit-hanwha-commission/index.ts`
+  - `supabase/functions/fc-submit-appointment/index.ts`
+  - `supabase/functions/_shared/commission.ts`
+  - `supabase/functions/fc-consent/index.ts`
+  - `supabase/functions/request-signup-otp/index.ts`
+  - `supabase/functions/set-password/index.ts`
+  - `supabase/functions/fc-notify/index.ts`
+  - 한화 반려/재제출 시 stale PDF 메타데이터를 비우고, 문서 invalidation 시 downstream 한화/위촉 URL 필드도 reset되도록 정리했다.
+- 앱 화면을 새 단계에 맞춰 개편했다.
+  - `app/index.tsx`: 내 진행 상황, 다음 단계, 바로가기를 새 단계 기준으로 재계산
+  - `app/hanwha-commission.tsx`: FC 전용 한화 위촉 제출 화면 추가
+  - `app/appointment.tsx`: 한화 승인 전 안내/잠금 로직 정리
+  - `app/dashboard.tsx`: 관리자 모바일 단계 필터/라벨을 웹 SSOT와 일치시킴
+  - `app/docs-upload.tsx`: 승인/반려 이후 profile 상태 및 reset 규칙 재계산
+- 웹 관리자 모달을 4탭 구조로 확장했다.
+  - `web/src/app/dashboard/page.tsx`
+  - `web/src/app/api/admin/fc/route.ts`
+  - 탭 순서를 `수당 동의 / 서류 관리 / 한화 위촉 관리 / 위촉 URL 관리`로 재구성
+  - 한화 PDF 업로드/다운로드/삭제와 승인/반려를 모달 안에서 처리하도록 확장
+  - 위촉 URL 탭은 더 이상 클릭 자체를 막지 않고, 준비되지 않은 경우 안내 패널만 표시하게 조정
+- 웹 helper/운영 화면을 동기화했다.
+  - `web/src/lib/shared.ts`
+  - `web/src/app/dashboard/appointment/actions.ts`
+  - `web/src/app/dashboard/appointment/page.tsx`
+  - `web/src/app/dashboard/docs/actions.ts`
+  - `web/src/app/dashboard/docs/page.tsx`
+  - `web/src/app/dashboard/layout.tsx`
+
+**결과**:
+- FC/총무/본부장이 앱과 웹 어디서 보더라도 `1 수당동의 -> 2 문서제출 -> 3 한화 위촉 -> 4 위촉 URL -> 5 완료`를 같은 기준으로 본다.
+- 한화 승인과 PDF 전달이 끝나기 전에는 위촉 URL 단계가 열리지 않는다.
+- 문서 삭제/반려와 한화 반려/재제출 이후 stale 메타데이터가 다음 단계 증거로 남지 않도록 reset 규칙을 통일했다.
+
+**검증**:
+- `npx eslint app/dashboard.tsx app/docs-upload.tsx app/appointment.tsx app/index.tsx lib/fc-workflow.ts lib/__tests__/workflow-step-regression.test.ts`
+- `cd web && npm run lint -- src/app/api/admin/fc/route.ts src/app/dashboard/docs/actions.ts src/app/dashboard/page.tsx`
+- `npx jest lib/__tests__/workflow-step-regression.test.ts lib/__tests__/commission.test.ts --runInBand`
+
+**메모**:
+- 로컬에 `deno`가 없어 `supabase/functions/*` 전용 타입체크는 별도로 수행하지 못했다.
+
+## <a id="20260328-exam-and-readonly-ops-polish"></a> 2026-03-28 | 시험 신청·관리 UX와 read-only 운영 화면 표시를 보강
+
+**배경**:
+- 시험 신청 FC 화면에서 `응시료 납입 계좌`를 복사할 수 없었고, 관리자/본부장 시험 신청자 관리에서는 홈 대시보드와 같은 소속 빠른 필터가 없어 운영 동선이 길었다.
+- 모바일 시험 신청자 관리 상단은 필터 UI가 경계선에 너무 붙어 보였고, 웹 시험 신청자 목록과 FC 상세 화면의 resident number/recommender 노출도 read-only 원칙에 맞춰 더 정리할 필요가 있었다.
+- 문서 승인/삭제 이후 profile과 모달 로컬 상태가 stale하게 남아, 운영자가 같은 모달 안에서 잘못된 다음 단계를 볼 수 있는 보조 경로도 함께 정리해야 했다.
+
+**조치**:
+- `app/exam-apply.tsx`, `app/exam-apply2.tsx`
+  - `응시료 납입 계좌` 옆에 복사 chip을 추가해 클립보드 복사와 완료 알림을 붙였다.
+- `app/exam-manage.tsx`, `app/exam-manage2.tsx`
+  - 생명/손해 신청자 관리 상단을 카드형 header로 정리하고, 홈 대시보드와 같은 톤의 소속 quick filter chip을 추가했다.
+- `web/src/app/dashboard/exam/applicants/page.tsx`
+  - 본부장도 신청자 resident number full-view를 읽을 수 있게 복구하고, 소속 빠른 필터를 상단에 추가했다.
+- `web/src/app/dashboard/profile/[id]/page.tsx`
+  - FC 상세 read-only 화면에서 주민번호 fallback과 추천인 표시를 보강했다.
+- `app/consent.tsx`
+  - 임시사번 복사 버튼 위치를 자연스럽게 재배치하고, 보증보험 링크는 외부 브라우저로 열리게 유지했다.
+- `web/src/app/api/admin/fc/route.ts`, `web/src/app/dashboard/docs/actions.ts`, `web/src/app/dashboard/page.tsx`
+  - 문서 삭제/반려 시 profile 단계와 모달 로컬 상태가 함께 강등/reset되도록 보정했다.
+
+**결과**:
+- FC는 시험 신청 화면에서 필요한 계좌 정보를 즉시 복사할 수 있고, 관리자/본부장은 앱/웹 모두에서 소속 기준으로 신청자 목록을 더 빠르게 탐색할 수 있다.
+- read-only 운영 화면은 주민번호/추천인/신청자 데이터를 더 일관되게 보여주면서도 편집 권한은 유지하지 않는다.
+- 문서 invalidation 직후에도 화면이 stale 상태를 계속 보여주지 않고, 현재 실제 profile 상태를 반영한다.
+
+**검증**:
+- `npx eslint app/consent.tsx app/exam-apply.tsx app/exam-apply2.tsx app/exam-manage.tsx app/exam-manage2.tsx`
+- `cd web && npm run lint -- src/app/dashboard/exam/applicants/page.tsx "src/app/dashboard/profile/[id]/page.tsx" src/app/api/admin/fc/route.ts src/app/dashboard/docs/actions.ts src/app/dashboard/page.tsx`
+
+**핵심 파일**:
+- `app/exam-apply.tsx`
+- `app/exam-apply2.tsx`
+- `app/exam-manage.tsx`
+- `app/exam-manage2.tsx`
+- `web/src/app/dashboard/exam/applicants/page.tsx`
+- `web/src/app/dashboard/profile/[id]/page.tsx`
+
 ## <a id="20260327-manager-resident-number-phone-format-fix"></a> 2026-03-27 | 본부장 주민번호 조회 계정검증을 전화번호 다중 포맷으로 정규화
 
 **배경**:
@@ -256,7 +354,7 @@
 **조치**:
 - `lib/notification-checkpoint.ts`
   - `role + residentId + requestBoardRole` 기준의 사용자별 notification checkpoint helper를 추가했다.
-  - checkpoint가 없거나 값이 깨진 경우 현재 시각으로 초기화해 과거 backlog를 첫 unread로 재집계하지 않도록 했다.
+- checkpoint가 없을 때 홈 unread 계산은 epoch 기준으로 전체 unread를 보여주고, checkpoint는 알림센터 진입/읽음 처리 시 생성·갱신되도록 조정했다.
 - `lib/mobile-unread-notification-count.ts`
   - unread count 계산이 더 이상 전역 AsyncStorage 키를 직접 읽지 않고 사용자별 checkpoint helper를 사용하도록 변경했다.
 - `app/notifications.tsx`

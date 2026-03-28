@@ -13,6 +13,8 @@ type AdminAction =
   | 'updateAllowanceDate'
   | 'updateDocsRequest'
   | 'deleteDocFile'
+  | 'createHanwhaPdfUploadUrl'
+  | 'deleteHanwhaPdf'
   | 'signDoc'
   | 'sendReminder';
 
@@ -52,6 +54,63 @@ function resolveAllowanceStatus(currentStatus: string | null | undefined): strin
     return 'allowance-pending';
   }
   return currentStatus;
+}
+
+function sanitizeFileName(fileName: string): string {
+  const normalized = fileName.trim().replace(/[^a-zA-Z0-9._-]+/g, '-');
+  const collapsed = normalized.replace(/-+/g, '-').replace(/^-|-$/g, '');
+  const ensuredPdf = collapsed.toLowerCase().endsWith('.pdf') ? collapsed : `${collapsed || 'hanwha-commission'}.pdf`;
+  return ensuredPdf;
+}
+
+function buildDocWorkflowResetPayload() {
+  return {
+    hanwha_commission_date_sub: null,
+    hanwha_commission_date: null,
+    hanwha_commission_reject_reason: null,
+    hanwha_commission_pdf_path: null,
+    hanwha_commission_pdf_name: null,
+    appointment_url: null,
+    appointment_date: null,
+    appointment_schedule_life: null,
+    appointment_schedule_nonlife: null,
+    appointment_date_life_sub: null,
+    appointment_date_nonlife_sub: null,
+    appointment_reject_reason_life: null,
+    appointment_reject_reason_nonlife: null,
+    appointment_date_life: null,
+    appointment_date_nonlife: null,
+    life_commission_completed: false,
+    nonlife_commission_completed: false,
+  };
+}
+
+async function syncProfileAfterDocMutation(fcId: string) {
+  const { data: docs, error: docsError } = await adminSupabase
+    .from('fc_documents')
+    .select('status,storage_path')
+    .eq('fc_id', fcId);
+  if (docsError) throw docsError;
+
+  const allDocs = docs ?? [];
+  const allSubmitted =
+    allDocs.length > 0 && allDocs.every((doc) => doc.storage_path && doc.storage_path !== 'deleted');
+  const allApproved = allSubmitted && allDocs.every((doc) => doc.status === 'approved');
+
+  const { error: profileError } = await adminSupabase
+    .from('fc_profiles')
+    .update(
+      allApproved
+        ? { status: 'docs-approved' }
+        : {
+            status: 'docs-pending',
+            ...buildDocWorkflowResetPayload(),
+          },
+    )
+    .eq('id', fcId);
+  if (profileError) throw profileError;
+
+  return { allApproved };
 }
 
 export async function POST(req: Request) {
@@ -103,7 +162,7 @@ export async function POST(req: Request) {
           recipient_role: 'fc',
           resident_id: phone,
         });
-        await sendPushNotification(phone, { title, body, data: { url: '/consent' } });
+        await sendPushNotification(phone, { title, body, data: { url: '/consent' }, skipNotificationInsert: true });
         logger.debug('[api/admin/fc] temp-id notified', { fcId, name: profile?.name });
       }
 
@@ -111,7 +170,7 @@ export async function POST(req: Request) {
     }
 
     if (action === 'updateStatus') {
-      const { fcId, status, title, msg, extra, phone } = payload as {
+      const { fcId, status, title, msg, extra: rawExtra, phone } = payload as {
         fcId?: string;
         status?: string;
         title?: string;
@@ -120,6 +179,34 @@ export async function POST(req: Request) {
         phone?: string;
       };
       if (!fcId || !status) return badRequest('fcId and status are required');
+      let extra = rawExtra;
+
+      if (status === 'hanwha-commission-approved') {
+        const approvedDate = String(extra?.hanwha_commission_date ?? dayjs().format('YYYY-MM-DD')).trim();
+        const pdfPath = String(extra?.hanwha_commission_pdf_path ?? '').trim();
+        const pdfName = String(extra?.hanwha_commission_pdf_name ?? '').trim();
+
+        if (!approvedDate || !isValidYmd(approvedDate)) {
+          return badRequest('한화 승인일이 필요합니다.');
+        }
+        extra = {
+          ...(extra ?? {}),
+          hanwha_commission_date: approvedDate,
+        };
+        if (!pdfPath || !pdfName) {
+          return badRequest('한화 위촉 PDF가 등록된 뒤에만 승인할 수 있습니다.');
+        }
+
+        const { data: currentProfile, error: profileError } = await adminSupabase
+          .from('fc_profiles')
+          .select('hanwha_commission_date_sub')
+          .eq('id', fcId)
+          .maybeSingle();
+        if (profileError) throw profileError;
+        if (!currentProfile?.hanwha_commission_date_sub) {
+          return badRequest('FC가 한화 위촉 완료일을 제출한 뒤에만 승인할 수 있습니다.');
+        }
+      }
 
       const { data: updatedData, error: updateError } = await adminSupabase
         .from('fc_profiles')
@@ -141,7 +228,8 @@ export async function POST(req: Request) {
         const finalTitle = title || '상태 업데이트';
         let url = '/notifications';
         if (status === 'allowance-consented') url = '/docs-upload';
-        else if (status === 'docs-approved') url = '/appointment';
+        else if (status === 'docs-approved') url = '/hanwha-commission';
+        else if (status === 'hanwha-commission-approved') url = '/hanwha-commission';
         else if (status === 'temp-id-issued') url = '/consent';
 
         await adminSupabase.from('notifications').insert({
@@ -152,7 +240,7 @@ export async function POST(req: Request) {
           resident_id: phone,
         });
 
-        await sendPushNotification(phone, { title: finalTitle, body: msg, data: { url } });
+        await sendPushNotification(phone, { title: finalTitle, body: msg, data: { url }, skipNotificationInsert: true });
       }
 
       return NextResponse.json({ ok: true });
@@ -301,7 +389,7 @@ export async function POST(req: Request) {
           recipient_role: 'fc',
           resident_id: phone,
         });
-        await sendPushNotification(phone, { title, body, data: { url: '/docs-upload' } });
+        await sendPushNotification(phone, { title, body, data: { url: '/docs-upload' }, skipNotificationInsert: true });
       }
 
       return NextResponse.json({ ok: true });
@@ -325,6 +413,56 @@ export async function POST(req: Request) {
         .update({ storage_path: 'deleted', file_name: 'deleted.pdf', status: 'pending', reviewer_note: null })
         .eq('fc_id', fcId)
         .eq('doc_type', docType);
+      if (updateErr) throw updateErr;
+
+      await syncProfileAfterDocMutation(fcId);
+
+      return NextResponse.json({ ok: true });
+    }
+
+    if (action === 'createHanwhaPdfUploadUrl') {
+      const { fcId, fileName } = payload as {
+        fcId?: string;
+        fileName?: string;
+      };
+      if (!fcId || !fileName) return badRequest('fcId and fileName are required');
+
+      const safeName = sanitizeFileName(fileName);
+      const storagePath = `${fcId}/hanwha-commission/${Date.now()}-${safeName}`;
+      const { data, error } = await adminSupabase.storage
+        .from('fc-documents')
+        .createSignedUploadUrl(storagePath, { upsert: true });
+      if (error || !data?.signedUrl || !data?.token) {
+        throw error ?? new Error('Signed upload URL creation failed');
+      }
+
+      return NextResponse.json({
+        ok: true,
+        path: storagePath,
+        signedUrl: data.signedUrl,
+        token: data.token,
+      });
+    }
+
+    if (action === 'deleteHanwhaPdf') {
+      const { fcId, storagePath } = payload as {
+        fcId?: string;
+        storagePath?: string;
+      };
+      if (!fcId || !storagePath) return badRequest('fcId and storagePath are required');
+
+      const { error: storageErr } = await adminSupabase.storage
+        .from('fc-documents')
+        .remove([storagePath]);
+      if (storageErr) throw storageErr;
+
+      const { error: updateErr } = await adminSupabase
+        .from('fc_profiles')
+        .update({
+          hanwha_commission_pdf_path: null,
+          hanwha_commission_pdf_name: null,
+        })
+        .eq('id', fcId);
       if (updateErr) throw updateErr;
 
       return NextResponse.json({ ok: true });
@@ -359,7 +497,7 @@ export async function POST(req: Request) {
         resident_id: phone,
       });
 
-      await sendPushNotification(phone, { title, body, data: url ? { url } : undefined });
+        await sendPushNotification(phone, { title, body, data: url ? { url } : undefined, skipNotificationInsert: true });
       return NextResponse.json({ ok: true });
     }
 

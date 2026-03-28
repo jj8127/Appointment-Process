@@ -2,7 +2,7 @@
 
 import { fetchPresence } from '@/lib/presence-api';
 import { formatPresenceLabel } from '@/lib/presence';
-import { getAdminStep, getStatusLabel } from '@/lib/shared';
+import { getAdminStepDisplay, getStatusDisplay } from '@/lib/shared';
 import { useSession } from '@/hooks/use-session';
 import type { FcProfile, FcStatus } from '@/types/fc';
 import { supabase } from '@/lib/supabase';
@@ -55,29 +55,10 @@ const MUTED = '#6b7280';
 const BACKGROUND = '#f8f9fa';
 
 // --- Types ---
-type FcProfileDetail = {
-    id: string;
-    name: string;
-    phone: string;
-    recommender: string | null;
-    resident_id_masked: string | null;
-    address: string | null;
-    address_detail: string | null;
-    email: string | null;
-    affiliation: string | null;
-    step?: string; // Optional since it's not in DB
+type FcProfileDetail = Omit<FcProfile, 'fc_documents' | 'career_type' | 'status'> & {
+    step?: string;
     status: FcStatus;
-    career_type: string | null; // 신입/경력
-    temp_id?: string | null;
-    identity_completed?: boolean | null;
-    created_at: string;
-    appointment_schedule_life?: string | null;
-    appointment_schedule_nonlife?: string | null;
-    appointment_date_life: string | null; // 위촉 예정일 (Life)
-    appointment_date_nonlife: string | null; // 위촉 예정일 (NonLife)
-    appointment_date_life_sub?: string | null;
-    appointment_date_nonlife_sub?: string | null;
-    allowance_date: string | null;
+    career_type: string | null;
     fc_documents?: FcDocument[];
     admin_memo: string | null;
 };
@@ -273,11 +254,6 @@ export default function FcProfilePage({ params }: { params: Promise<{ id: string
         return `${prefix.substring(0, 2)}.${prefix.substring(2, 4)}.${prefix.substring(4, 6)}`;
     };
 
-    const getStepColor = (stepLabel: string) => {
-        if (stepLabel.includes('완료') || stepLabel.includes('4단계')) return 'green';
-        return 'blue';
-    };
-
     useEffect(() => {
         if (!canEdit && isEditing) {
             setIsEditing(false);
@@ -295,7 +271,7 @@ export default function FcProfilePage({ params }: { params: Promise<{ id: string
     if (!profile) return <Container py="xl"><Text>FC 정보를 찾을 수 없습니다.</Text></Container>;
 
     const residentNumberDisplay = residentNumberFull ?? profile.resident_id_masked ?? null;
-    const adminStepLabel = getAdminStep(profile as unknown as FcProfile);
+    const adminStepDisplay = getAdminStepDisplay(profile);
     const documents = profile.fc_documents ?? [];
     const presenceLabel = isPresenceError
         ? '활동 정보 확인 불가'
@@ -304,7 +280,8 @@ export default function FcProfilePage({ params }: { params: Promise<{ id: string
             : '첫 접속 전';
     const presenceBadgeColor = isPresenceError ? 'gray' : presence?.is_online ? 'green' : 'gray';
     const presenceBadgeVariant = !isPresenceError && presence?.is_online ? 'filled' : 'light';
-    const statusLabel = getStatusLabel(profile);
+    const statusDisplay = getStatusDisplay(profile);
+    const statusTextColor = statusDisplay.color === 'gray' ? 'dimmed' : statusDisplay.color;
 
     return (
         <Box bg={BACKGROUND} style={{ minHeight: '100vh' }}>
@@ -344,8 +321,8 @@ export default function FcProfilePage({ params }: { params: Promise<{ id: string
 
                         <Stack gap={0} ml="auto" align="flex-end">
                             <Text size="xs" c="dimmed" fw={700} tt="uppercase">Current Step</Text>
-                            <Text size="xl" fw={800} c={getStepColor(adminStepLabel)}>{adminStepLabel}</Text>
-                            <Text size="sm" c="dimmed">{statusLabel}</Text>
+                            <Text size="xl" fw={800} c={adminStepDisplay.color}>{adminStepDisplay.label}</Text>
+                            <Text size="sm" c={statusTextColor}>{statusDisplay.label}</Text>
                         </Stack>
                     </Group>
                 </Container>

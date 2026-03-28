@@ -27,6 +27,7 @@ import { useSession } from '@/hooks/use-session';
 import { supabase } from '@/lib/supabase';
 import { COLORS, RADIUS, SHADOWS, SPACING, TYPOGRAPHY } from '@/lib/theme';
 const { width } = Dimensions.get('window');
+const HANWHA_APPROVED_STATUSES = ['hanwha-commission-approved', 'appointment-completed', 'final-link-sent'] as const;
 
 const weekdays = ['일', '월', '화', '수', '목', '금', '토'];
 const formatKoreanDate = (d: Date) =>
@@ -36,6 +37,25 @@ const toYMD = (d: Date) =>
   `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 
 const formatShortKoreanDate = (d: Date) => d.toLocaleDateString('ko-KR');
+const trimString = (value: string | null | undefined) => {
+  const normalized = value?.trim();
+  return normalized ? normalized : null;
+};
+
+const resolveFunctionInvokeErrorMessage = async (error: unknown, fallback: string) => {
+  if (error && typeof error === 'object' && 'context' in error) {
+    const context = (error as { context?: { json?: () => Promise<any> } }).context;
+    if (context?.json) {
+      const body = await context.json().catch(() => null);
+      const message = trimString(body?.message) ?? trimString(body?.error);
+      if (message) return message;
+    }
+  }
+  if (error instanceof Error && trimString(error.message)) {
+    return error.message;
+  }
+  return fallback;
+};
 
 export default function AppointmentScreen() {
   const { role, residentId } = useSession();
@@ -55,6 +75,10 @@ export default function AppointmentScreen() {
   const [submittedNonLife, setSubmittedNonLife] = useState<Date | null>(null);
   const [rejectReasonLife, setRejectReasonLife] = useState<string | null>(null);
   const [rejectReasonNonLife, setRejectReasonNonLife] = useState<string | null>(null);
+  const [hanwhaStatus, setHanwhaStatus] = useState<string | null>(null);
+  const [hanwhaApproved, setHanwhaApproved] = useState<Date | null>(null);
+  const [hanwhaPdfPath, setHanwhaPdfPath] = useState<string | null>(null);
+  const [hanwhaPdfName, setHanwhaPdfName] = useState<string | null>(null);
 
   // 화면 입력 값
   const [displayLife, setDisplayLife] = useState<Date | null>(null);
@@ -79,7 +103,7 @@ export default function AppointmentScreen() {
     const { data, error } = await supabase
       .from('fc_profiles')
       .select(
-        'appointment_schedule_life,appointment_schedule_nonlife,appointment_date_life,appointment_date_nonlife,appointment_date_life_sub,appointment_date_nonlife_sub,appointment_reject_reason_life,appointment_reject_reason_nonlife',
+        'status,hanwha_commission_date_sub,hanwha_commission_date,hanwha_commission_reject_reason,hanwha_commission_pdf_path,hanwha_commission_pdf_name,appointment_schedule_life,appointment_schedule_nonlife,appointment_date_life,appointment_date_nonlife,appointment_date_life_sub,appointment_date_nonlife_sub,appointment_reject_reason_life,appointment_reject_reason_nonlife',
       )
       .eq('phone', cleanPhone)
       .maybeSingle();
@@ -96,6 +120,7 @@ export default function AppointmentScreen() {
     const appNonLife = data?.appointment_date_nonlife ? new Date(data.appointment_date_nonlife) : null;
     const subLife = data?.appointment_date_life_sub ? new Date(data.appointment_date_life_sub) : null;
     const subNonLife = data?.appointment_date_nonlife_sub ? new Date(data.appointment_date_nonlife_sub) : null;
+    const appHanwha = data?.hanwha_commission_date ? new Date(data.hanwha_commission_date) : null;
 
     setApprovedLife(appLife);
     setApprovedNonLife(appNonLife);
@@ -103,6 +128,10 @@ export default function AppointmentScreen() {
     setSubmittedNonLife(subNonLife);
     setRejectReasonLife(data?.appointment_reject_reason_life ?? null);
     setRejectReasonNonLife(data?.appointment_reject_reason_nonlife ?? null);
+    setHanwhaStatus(data?.status ?? null);
+    setHanwhaApproved(appHanwha);
+    setHanwhaPdfPath(trimString(data?.hanwha_commission_pdf_path));
+    setHanwhaPdfName(trimString(data?.hanwha_commission_pdf_name));
 
     // 표시값: 승인>제출>없음
     setDisplayLife(appLife || subLife || null);
@@ -170,11 +199,11 @@ export default function AppointmentScreen() {
       });
 
       if (error) {
-        const message = error instanceof Error ? error.message : '정보를 저장하지 못했습니다.';
+        const message = await resolveFunctionInvokeErrorMessage(error, '정보를 저장하지 못했습니다.');
         throw new Error(message);
       }
       if (!data?.ok) {
-        throw new Error(data?.error ?? '정보를 저장하지 못했습니다.');
+        throw new Error(data?.message ?? data?.error ?? '정보를 저장하지 못했습니다.');
       }
       if (!data?.data?.id) {
         throw new Error('업데이트된 데이터가 없습니다. (전화번호 불일치 가능성)');
@@ -212,9 +241,18 @@ export default function AppointmentScreen() {
     }
   }, [load]);
 
+  const hanwhaApprovedByStatus = Boolean(
+    hanwhaStatus && HANWHA_APPROVED_STATUSES.includes(hanwhaStatus as (typeof HANWHA_APPROVED_STATUSES)[number]),
+  );
+  const hanwhaApprovedForGate = Boolean(hanwhaApproved || hanwhaApprovedByStatus);
+  const hasHanwhaApprovedPdf = Boolean(hanwhaApprovedForGate && hanwhaPdfPath && hanwhaPdfName);
+  const hasInsuranceSubmission = Boolean(approvedLife || approvedNonLife || submittedLife || submittedNonLife);
+  const insuranceGateLocked = !hasHanwhaApprovedPdf && !hasInsuranceSubmission;
+  const noAssignedInsuranceSchedule = !scheduleLife && !scheduleNonLife && !hasInsuranceSubmission;
+
   if (role !== 'fc') {
     return (
-      <SafeAreaView style={styles.safe} edges={['top', 'left', 'right', 'bottom']}>
+      <SafeAreaView style={styles.safe} edges={['left', 'right', 'bottom']}>
         <View style={[styles.container, { alignItems: 'center', justifyContent: 'center', flex: 1 }]}>
           <Text style={styles.infoText}>FC 계정으로 로그인하면 이용할 수 있습니다.</Text>
         </View>
@@ -338,74 +376,79 @@ export default function AppointmentScreen() {
   };
 
   return (
-    <SafeAreaView style={styles.safe} edges={['top', 'left', 'right', 'bottom']}>
+    <SafeAreaView style={styles.safe} edges={['left', 'right', 'bottom']}>
       <ScrollView
         contentContainerStyle={[styles.container, { paddingBottom: keyboardPadding + 40 }]}
         contentInsetAdjustmentBehavior="never"
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}
       >
         <ScreenHeader
-          title="위촉 진행"
-          subtitle="총무가 배정한 월 기준으로 진행 상황을 입력해주세요."
-          showRefresh
-          onRefresh={load}
+          title="생명/손해 위촉"
+          subtitle="한화 위촉 승인과 PDF 등록이 끝나면 이 화면에서 생명·손해 위촉 진행 상황을 입력합니다."
         />
 
         {loading ? (
           <ActivityIndicator color={COLORS.primary} style={{ marginTop: 40 }} />
         ) : (
           <>
-            {!scheduleLife && !scheduleNonLife && (
+            {insuranceGateLocked ? (
               <View style={styles.card}>
-                <Text style={styles.sectionTitle}>진행 중인 위촉이 없습니다</Text>
-                <Text style={styles.sectionDesc}>총무가 위촉 월을 배정하면 이곳에 표시됩니다.</Text>
+                <Text style={styles.sectionTitle}>생명/손해 위촉 대기</Text>
+                <Text style={styles.sectionDesc}>한화 위촉 승인과 PDF 등록이 끝나면 이 단계가 열립니다.</Text>
               </View>
-            )}
-
-            {scheduleLife && renderCard('life', scheduleLife)}
-            {scheduleNonLife && renderCard('nonlife', scheduleNonLife)}
-
-            {(scheduleLife || scheduleNonLife) && (
+            ) : noAssignedInsuranceSchedule ? (
               <View style={styles.card}>
-                <Text style={styles.sectionTitle}>위촉 진행 가이드</Text>
-                <Text style={styles.sectionDesc}>아래 화면을 참고해 위촉 절차를 완료해주세요.</Text>
-                <FlatList
-              data={APPOINTMENT_GUIDE_IMAGES}
-                  keyExtractor={(_, i) => String(i)}
-                  horizontal
-                  showsHorizontalScrollIndicator={false}
-                  pagingEnabled={false}
-                  decelerationRate="fast"
-                  snapToInterval={frameWidth}
-                  snapToAlignment="center"
-                  disableIntervalMomentum
-                  getItemLayout={(_, index) => ({
-                    length: frameWidth,
-                    offset: frameWidth * index,
-                    index,
-                  })}
-                  onMomentumScrollEnd={(e) => {
-                    const idx = Math.round(e.nativeEvent.contentOffset.x / frameWidth);
-                    setCurrentIndex(idx);
-                  }}
-                  renderItem={({ item }) => {
-                    const imageInnerWidth = frameWidth - 48;
-                    const frameHeight = imageRatio ? imageInnerWidth * imageRatio : imageInnerWidth;
-                    return (
-                      <View style={{ width: frameWidth, alignItems: 'center' }}>
-                        <View style={[styles.imageFrame, { width: imageInnerWidth, height: frameHeight }]}>
-                          <Image source={item} style={styles.guideImage} resizeMode="contain" />
-                        </View>
-                      </View>
-                    );
-                  }}
-                />
-                <View style={styles.pagination}>
-              {APPOINTMENT_GUIDE_IMAGES.map((_, i) => (
-                    <View key={i} style={[styles.dot, currentIndex === i && styles.dotActive]} />
-                  ))}
-                </View>
+                <Text style={styles.sectionTitle}>위촉 차수 입력 대기</Text>
+                <Text style={styles.sectionDesc}>총무가 위촉 차수를 입력중입니다. 기다려주세요.</Text>
               </View>
+            ) : (
+              <>
+                {scheduleLife && renderCard('life', scheduleLife)}
+                {scheduleNonLife && renderCard('nonlife', scheduleNonLife)}
+
+                {(scheduleLife || scheduleNonLife) && (
+                  <View style={styles.card}>
+                    <Text style={styles.sectionTitle}>위촉 진행 가이드</Text>
+                    <Text style={styles.sectionDesc}>아래 화면을 참고해 위촉 절차를 완료해주세요.</Text>
+                    <FlatList
+                      data={APPOINTMENT_GUIDE_IMAGES}
+                      keyExtractor={(_, i) => String(i)}
+                      horizontal
+                      showsHorizontalScrollIndicator={false}
+                      pagingEnabled={false}
+                      decelerationRate="fast"
+                      snapToInterval={frameWidth}
+                      snapToAlignment="center"
+                      disableIntervalMomentum
+                      getItemLayout={(_, index) => ({
+                        length: frameWidth,
+                        offset: frameWidth * index,
+                        index,
+                      })}
+                      onMomentumScrollEnd={(e) => {
+                        const idx = Math.round(e.nativeEvent.contentOffset.x / frameWidth);
+                        setCurrentIndex(idx);
+                      }}
+                      renderItem={({ item }) => {
+                        const imageInnerWidth = frameWidth - 48;
+                        const frameHeight = imageRatio ? imageInnerWidth * imageRatio : imageInnerWidth;
+                        return (
+                          <View style={{ width: frameWidth, alignItems: 'center' }}>
+                            <View style={[styles.imageFrame, { width: imageInnerWidth, height: frameHeight }]}>
+                              <Image source={item} style={styles.guideImage} resizeMode="contain" />
+                            </View>
+                          </View>
+                        );
+                      }}
+                    />
+                    <View style={styles.pagination}>
+                      {APPOINTMENT_GUIDE_IMAGES.map((_, i) => (
+                        <View key={i} style={[styles.dot, currentIndex === i && styles.dotActive]} />
+                      ))}
+                    </View>
+                  </View>
+                )}
+              </>
             )}
           </>
         )}
@@ -518,6 +561,25 @@ const styles = StyleSheet.create({
     fontSize: TYPOGRAPHY.fontSize.sm + 1,
     color: COLORS.text.muted,
     lineHeight: 20
+  },
+  hanwhaInfoList: {
+    gap: SPACING.sm,
+  },
+  hanwhaInfoRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    gap: SPACING.base,
+  },
+  hanwhaInfoLabel: {
+    fontSize: TYPOGRAPHY.fontSize.sm,
+    color: COLORS.text.muted,
+  },
+  hanwhaInfoValue: {
+    flex: 1,
+    textAlign: 'right',
+    fontSize: TYPOGRAPHY.fontSize.sm,
+    fontWeight: TYPOGRAPHY.fontWeight.semibold,
+    color: COLORS.text.primary,
   },
   rejectBox: {
     backgroundColor: COLORS.errorLight,

@@ -206,6 +206,7 @@ export default function ExamManageLifeScreen() {
   const queryClient = useQueryClient();
   const [searchText, setSearchText] = useState('');
   const [filterStatus, setFilterStatus] = useState<'all' | 'confirmed' | 'pending'>('all');
+  const [filterAffiliation, setFilterAffiliation] = useState('전체');
 
   const { data: applicants, isLoading, refetch } = useQuery<ApplicantRow[]>({
     queryKey: ['exam-applicants', EXAM_TYPE],
@@ -228,17 +229,31 @@ export default function ExamManageLifeScreen() {
     if (!applicants) return [];
     const keyword = searchText.trim().toLowerCase();
     return applicants.filter((a) => {
+      const matchAffiliation = filterAffiliation === '전체' || a.headQuarter === filterAffiliation;
       const matchText =
         !keyword ||
         a.name.toLowerCase().includes(keyword) ||
         a.phone.includes(keyword) ||
+        a.headQuarter.toLowerCase().includes(keyword) ||
         a.examInfo.toLowerCase().includes(keyword);
       let matchStatus = true;
       if (filterStatus === 'confirmed') matchStatus = a.isConfirmed;
       if (filterStatus === 'pending') matchStatus = !a.isConfirmed;
-      return matchText && matchStatus;
+      return matchAffiliation && matchText && matchStatus;
     });
-  }, [applicants, searchText, filterStatus]);
+  }, [applicants, filterAffiliation, searchText, filterStatus]);
+
+  const affiliationOptions = useMemo(() => {
+    if (!applicants) return ['전체'];
+    const unique = Array.from(
+      new Set(
+        applicants
+          .map((item) => item.headQuarter?.trim())
+          .filter((value): value is string => Boolean(value) && value !== '-'),
+      ),
+    ).sort((a, b) => a.localeCompare(b, 'ko'));
+    return ['전체', ...unique];
+  }, [applicants]);
 
   useEffect(() => {
     if (!hydrated) return;
@@ -435,6 +450,23 @@ export default function ExamManageLifeScreen() {
               </Pressable>
             ))}
           </View>
+
+          <View style={styles.affiliationSection}>
+            <Text style={styles.affiliationLabel}>소속 필터</Text>
+            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.affiliationRow}>
+              {affiliationOptions.map((affiliation) => (
+                <Pressable
+                  key={affiliation}
+                  style={[styles.filterChip, filterAffiliation === affiliation && styles.filterChipActive]}
+                  onPress={() => setFilterAffiliation(affiliation)}
+                >
+                  <Text style={[styles.filterText, filterAffiliation === affiliation && styles.filterTextActive]}>
+                    {affiliation}
+                  </Text>
+                </Pressable>
+              ))}
+            </ScrollView>
+          </View>
         </View>
 
         {isLoading && <ActivityIndicator color={ORANGE} style={{ marginVertical: 20 }} />}
@@ -463,12 +495,16 @@ const styles = StyleSheet.create({
   container: { padding: 16, gap: 12 },
 
   header: {
-    paddingHorizontal: 0,
-    paddingTop: 0,
-    paddingBottom: 12,
-    borderBottomWidth: 1,
-    borderBottomColor: '#F3F4F6',
+    padding: 16,
+    borderWidth: 1,
+    borderColor: BORDER,
+    borderRadius: 16,
     backgroundColor: '#fff',
+    shadowColor: '#000',
+    shadowOpacity: 0.04,
+    shadowRadius: 3,
+    shadowOffset: { width: 0, height: 1 },
+    elevation: 1,
   },
   headerTop: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 },
   headerTitle: { fontSize: 22, fontWeight: '800', color: CHARCOAL },
@@ -486,18 +522,31 @@ const styles = StyleSheet.create({
   },
   searchInput: { flex: 1, marginLeft: 8, fontSize: 15, color: CHARCOAL },
 
-  filterRow: { flexDirection: 'row', gap: 8 },
+  filterRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  affiliationSection: { marginTop: 14, gap: 8 },
+  affiliationLabel: { fontSize: 13, color: MUTED, fontWeight: '700' },
+  affiliationRow: {
+    gap: 8,
+    paddingRight: 24,
+  },
   filterChip: {
     paddingHorizontal: 14,
     paddingVertical: 6,
     borderRadius: 20,
-    backgroundColor: INPUT_BG,
+    backgroundColor: '#F9FAFB',
     borderWidth: 1,
-    borderColor: BORDER,
+    borderColor: '#E5E7EB',
   },
-  filterChipActive: { backgroundColor: CHARCOAL, borderColor: CHARCOAL },
-  filterText: { fontSize: 13, color: MUTED, fontWeight: '600' },
-  filterTextActive: { color: '#fff' },
+  filterChipActive: {
+    backgroundColor: ORANGE,
+    borderColor: ORANGE,
+  },
+  filterText: { fontSize: 13, color: MUTED, fontWeight: '500' },
+  filterTextActive: { color: '#fff', fontWeight: '700' },
 
   card: {
     backgroundColor: '#fff',

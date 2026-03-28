@@ -12,6 +12,28 @@ type UpdateDocStatusState = {
     error?: string;
 };
 
+function buildDocWorkflowResetPayload() {
+    return {
+        hanwha_commission_date_sub: null,
+        hanwha_commission_date: null,
+        hanwha_commission_reject_reason: null,
+        hanwha_commission_pdf_path: null,
+        hanwha_commission_pdf_name: null,
+        appointment_url: null,
+        appointment_date: null,
+        appointment_schedule_life: null,
+        appointment_schedule_nonlife: null,
+        appointment_date_life_sub: null,
+        appointment_date_nonlife_sub: null,
+        appointment_reject_reason_life: null,
+        appointment_reject_reason_nonlife: null,
+        appointment_date_life: null,
+        appointment_date_nonlife: null,
+        life_commission_completed: false,
+        nonlife_commission_completed: false,
+    };
+}
+
 export async function updateDocStatusAction(
     prevState: UpdateDocStatusState,
     payload: {
@@ -56,58 +78,59 @@ export async function updateDocStatusAction(
 
     let message = '서류 상태가 업데이트되었습니다.';
 
-    // 2. Check for Auto-Advance logic if Approved
-    if (status === 'approved') {
-        const { data: allDocs, error: fetchError } = await adminSupabase
-            .from('fc_documents')
-            .select('status, storage_path')
-            .eq('fc_id', fcId);
+    const { data: allDocs, error: fetchError } = await adminSupabase
+        .from('fc_documents')
+        .select('status, storage_path')
+        .eq('fc_id', fcId);
 
-        if (fetchError) {
-            logger.error('Error fetching docs for auto-advance check:', fetchError);
-        } else {
-            const docs = allDocs ?? [];
-            const allSubmitted =
-                docs.length > 0 &&
-                docs.every((d) => d.storage_path && d.storage_path !== 'deleted');
-            const allApproved = allSubmitted && docs.every((d) => d.status === 'approved');
-            // If all requested docs are submitted and approved, advance status
-            if (allApproved) {
-                // Update Profile Status
-                const { error: profileError } = await adminSupabase
-                    .from('fc_profiles')
-                    .update({ status: 'docs-approved' })
-                    .eq('id', fcId);
+    if (fetchError) {
+        logger.error('Error fetching docs for auto-advance check:', fetchError);
+        return { success: false, error: fetchError.message };
+    }
 
-                if (!profileError) {
-                    message = '모든 서류가 승인되어 위촉 URL 진행 단계로 자동 전환되었습니다.';
+    const docs = allDocs ?? [];
+    const allSubmitted =
+        docs.length > 0 &&
+        docs.every((d) => d.storage_path && d.storage_path !== 'deleted');
+    const allApproved = allSubmitted && docs.every((d) => d.status === 'approved');
 
-                    // Notification
-                    const title = '서류 검토 완료';
-                    const body = '모든 서류가 승인되었습니다. 위촉 계약 단계로 진행해주세요.';
+    const { error: profileError } = await adminSupabase
+        .from('fc_profiles')
+        .update(
+            allApproved
+                ? { status: 'docs-approved' }
+                : {
+                    status: 'docs-pending',
+                    ...buildDocWorkflowResetPayload(),
+                },
+        )
+        .eq('id', fcId);
 
-                    await adminSupabase.from('notifications').insert({
-                        title,
-                        body,
-                        target_url: '/appointment',
-                        recipient_role: 'fc',
-                        resident_id: phone,
-                    });
+    if (profileError) {
+        return { success: false, error: profileError.message };
+    }
 
-                    await sendPushNotification(phone, {
-                        title,
-                        body,
-                        data: { url: '/appointment' }
-                    });
-                }
-            }
-        }
+    if (status === 'approved' && allApproved) {
+        message = '모든 서류가 승인되어 한화 위촉 단계로 자동 전환되었습니다.';
+
+        const title = '서류 검토 완료';
+        const body = '모든 서류가 승인되었습니다. 한화 위촉 단계로 진행해주세요.';
+
+        await adminSupabase.from('notifications').insert({
+            title,
+            body,
+            target_url: '/hanwha-commission',
+            recipient_role: 'fc',
+            resident_id: phone,
+        });
+
+        await sendPushNotification(phone, {
+            title,
+            body,
+            data: { url: '/hanwha-commission' },
+            skipNotificationInsert: true,
+        });
     } else if (status === 'rejected') {
-        await adminSupabase
-            .from('fc_profiles')
-            .update({ status: 'docs-pending' })
-            .eq('id', fcId);
-
         const title = '서류 반려 안내';
         const body = `서류가 반려되었습니다.\n사유: ${(reason ?? '').trim() || '사유 없음'}`;
         await adminSupabase.from('notifications').insert({
@@ -117,7 +140,7 @@ export async function updateDocStatusAction(
             recipient_role: 'fc',
             resident_id: phone,
         });
-        await sendPushNotification(phone, { title, body, data: { url: '/docs-upload' } });
+        await sendPushNotification(phone, { title, body, data: { url: '/docs-upload' }, skipNotificationInsert: true });
     }
 
     revalidatePath('/dashboard');

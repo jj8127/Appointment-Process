@@ -176,12 +176,22 @@ export default function RootLayout() {
       try {
         Notifications = await import('expo-notifications');
         sub = Notifications.addNotificationResponseReceivedListener((response: any) => {
-          const url = response?.notification?.request?.content?.data?.url as string | undefined;
-          if (url) {
-            router.push(url as any);
-          } else {
-            router.push('/notifications');
-          }
+          const content = response?.notification?.request?.content;
+          const rawUrl = content?.data?.url as string | undefined;
+          const title = `${content?.title ?? ''}`.toLowerCase();
+          const body = `${content?.body ?? ''}`.toLowerCase();
+          const isHanwhaWorkflowNotification =
+            title.includes('한화 위촉 승인') ||
+            title.includes('한화 위촉 반려') ||
+            body.includes('한화 위촉이 승인') ||
+            body.includes('한화 위촉이 반려') ||
+            body.includes('승인 pdf');
+          const nextUrl =
+            isHanwhaWorkflowNotification
+              ? '/hanwha-commission'
+              : rawUrl || '/notifications';
+
+          router.push(nextUrl as any);
         });
       } catch (err) {
         logger.warn('push navigation listener failed', err);
@@ -312,7 +322,7 @@ export default function RootLayout() {
                           <Stack.Screen name="settings" options={{ ...baseHeader, title: '설정' }} />
 
                           <Stack.Screen name="dashboard" options={{ ...baseHeader, title: '전체 현황' }} />
-                          <Stack.Screen name="appointment" options={{ ...baseHeader, title: '위촉' }} />
+                          <Stack.Screen name="appointment" options={{ ...baseHeader, title: '생명/손해 위촉' }} />
                           <Stack.Screen name="notifications" options={{ ...baseHeader, title: '알림' }} />
                           <Stack.Screen name="notice" options={{ ...baseHeader, title: '공지사항' }} />
                           <Stack.Screen name="notice-detail" options={{ ...baseHeader, title: '공지 상세' }} />
@@ -421,7 +431,7 @@ export default function RootLayout() {
                           <Stack.Screen name="settings" options={{ ...baseHeader, title: '설정' }} />
 
                           <Stack.Screen name="dashboard" options={{ ...baseHeader, title: '전체 현황' }} />
-                          <Stack.Screen name="appointment" options={{ ...baseHeader, title: '위촉' }} />
+                      <Stack.Screen name="appointment" options={{ ...baseHeader, title: '생명/손해 위촉' }} />
                           <Stack.Screen name="notifications" options={{ ...baseHeader, title: '알림' }} />
                           <Stack.Screen name="notice" options={{ ...baseHeader, title: '공지사항' }} />
                           <Stack.Screen name="notice-detail" options={{ ...baseHeader, title: '공지 상세' }} />

@@ -2,7 +2,7 @@ doc_id: FC-HANDBOOK-SCREEN-INVENTORY
 owner_repo: fc-onboarding-app
 owner_area: handbook
 audience: developer, operator
-last_verified: 2026-03-26
+last_verified: 2026-03-28
 source_of_truth: app/* + web/src/app/*
 
 # 화면 인벤토리
@@ -10,7 +10,7 @@ source_of_truth: app/* + web/src/app/*
 ## Mobile
 
 - 인증/게이트: `login`, `signup`, `signup-verify`, `signup-password`, `reset-password`, `apply-gate`, `identity`
-- FC: `index`, `home-lite`, `fc/new`, `consent`, `docs-upload`, `appointment`, `exam-apply`, `exam-apply2`
+- FC: `index`, `home-lite`, `fc/new`, `consent`, `docs-upload`, `hanwha-commission`, `appointment`, `exam-apply`, `exam-apply2`
 - 공용/콘텐츠: `settings`, `notifications`, `notice`, `notice-detail`, `board`, `board-detail`, `messenger`, `chat`
 - GaramLink 연동: `request-board`, `request-board-messenger`, `request-board-requests`, `request-board-review`, `request-board-fc-codes`
 - Admin/Manager: `dashboard`, `exam-register`, `exam-register2`, `exam-manage`, `exam-manage2`, `admin-notice`, `admin-board`, `admin-board-manage`, `admin-messenger`

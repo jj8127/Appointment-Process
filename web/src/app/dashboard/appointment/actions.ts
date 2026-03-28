@@ -15,6 +15,81 @@ type UpdateAppointmentState = {
 type AppointmentActionType = 'schedule' | 'confirm' | 'reject';
 type AppointmentCategory = 'life' | 'nonlife';
 
+const HANWHA_APPROVED_STATUSES = ['hanwha-commission-approved', 'appointment-completed', 'final-link-sent'] as const;
+
+const trimValue = (value?: string | null) => String(value ?? '').trim();
+
+const hasHanwhaApprovedPdf = (profile: {
+    status?: string | null;
+    hanwha_commission_date?: string | null;
+    hanwha_commission_pdf_path?: string | null;
+    hanwha_commission_pdf_name?: string | null;
+}) =>
+    Boolean(
+        (profile.hanwha_commission_date || HANWHA_APPROVED_STATUSES.includes(String(profile.status ?? '') as (typeof HANWHA_APPROVED_STATUSES)[number])) &&
+        trimValue(profile.hanwha_commission_pdf_path) &&
+        trimValue(profile.hanwha_commission_pdf_name),
+    );
+
+const hasExistingInsuranceActivity = (profile: {
+    appointment_schedule_life?: string | null;
+    appointment_schedule_nonlife?: string | null;
+    appointment_date_life_sub?: string | null;
+    appointment_date_nonlife_sub?: string | null;
+    appointment_reject_reason_life?: string | null;
+    appointment_reject_reason_nonlife?: string | null;
+    appointment_date_life?: string | null;
+    appointment_date_nonlife?: string | null;
+    life_commission_completed?: boolean | null;
+    nonlife_commission_completed?: boolean | null;
+}) =>
+    Boolean(
+        profile.appointment_schedule_life ||
+        profile.appointment_schedule_nonlife ||
+        profile.appointment_date_life_sub ||
+        profile.appointment_date_nonlife_sub ||
+        profile.appointment_reject_reason_life ||
+        profile.appointment_reject_reason_nonlife ||
+        profile.appointment_date_life ||
+        profile.appointment_date_nonlife ||
+        profile.life_commission_completed ||
+        profile.nonlife_commission_completed,
+    );
+
+const resolveInsuranceStageStatus = (profile: {
+    status?: string | null;
+    hanwha_commission_date?: string | null;
+    hanwha_commission_pdf_path?: string | null;
+    hanwha_commission_pdf_name?: string | null;
+    appointment_schedule_life?: string | null;
+    appointment_schedule_nonlife?: string | null;
+    appointment_date_life_sub?: string | null;
+    appointment_date_nonlife_sub?: string | null;
+    appointment_reject_reason_life?: string | null;
+    appointment_reject_reason_nonlife?: string | null;
+    appointment_date_life?: string | null;
+    appointment_date_nonlife?: string | null;
+    life_commission_completed?: boolean | null;
+    nonlife_commission_completed?: boolean | null;
+}) => {
+    const lifeDone = Boolean(profile.appointment_date_life || profile.life_commission_completed);
+    const nonlifeDone = Boolean(profile.appointment_date_nonlife || profile.nonlife_commission_completed);
+
+    if (lifeDone && nonlifeDone) {
+        return 'final-link-sent';
+    }
+
+    if (hasExistingInsuranceActivity(profile)) {
+        return 'appointment-completed';
+    }
+
+    if (hasHanwhaApprovedPdf(profile)) {
+        return 'hanwha-commission-approved';
+    }
+
+    return 'hanwha-commission-review';
+};
+
 export async function updateAppointmentAction(
     prevState: UpdateAppointmentState,
     payload: {
@@ -41,6 +116,20 @@ export async function updateAppointmentAction(
     }
 
     const { fcId, phone, type, category, value, reason } = payload;
+
+    const { data: currentProfile, error: profileError } = await adminSupabase
+        .from('fc_profiles')
+        .select('status,hanwha_commission_date,hanwha_commission_pdf_path,hanwha_commission_pdf_name,appointment_schedule_life,appointment_schedule_nonlife,appointment_date_life_sub,appointment_date_nonlife_sub,appointment_reject_reason_life,appointment_reject_reason_nonlife,appointment_date_life,appointment_date_nonlife,life_commission_completed,nonlife_commission_completed')
+        .eq('id', fcId)
+        .single();
+
+    if (profileError) {
+        return { success: false, error: `프로필 조회 실패: ${profileError.message}` };
+    }
+
+    if (!hasExistingInsuranceActivity(currentProfile) && !hasHanwhaApprovedPdf(currentProfile)) {
+        return { success: false, error: '한화 위촉 승인과 PDF 등록이 끝난 뒤에만 보험 위촉 URL 단계를 진행할 수 있습니다.' };
+    }
 
     const categoryLabel = category === 'life' ? '생명보험' : '손해보험';
     const updatePayload: Record<string, string | null> = {};
@@ -80,39 +169,9 @@ export async function updateAppointmentAction(
         return { success: false, error: `업데이트 실패: ${updateError.message}` };
     }
 
-    // 2.1 Update Status based on Mobile Logic
-    // Mobile Logic:
-    // const bothSet = Boolean(data?.appointment_date_life) && Boolean(data?.appointment_date_nonlife);
-    // const nextStatus = date === null ? 'docs-approved' : bothSet ? 'final-link-sent' : 'appointment-completed';
-
-    // We need to determine the 'nextStatus' based on the UPDATED profile data.
-    // 'value' is the input. IF type is 'reject', value is effectively null logic (cleared).
-    // IF type is 'confirm', value is set.
-
-    // Mobile logic uses the *input* date to decide if it's a rejection (reset to docs-approved)
-    // OR looks at the state.
-    // Let's replicate strict logic:
-    // If we JUST cleared a date (type === reject), we go back to 'docs-approved'.
-    // If we JUST set a date (type === confirm), we check if BOTH are set.
-
     if (type === 'confirm' || type === 'reject') {
         let nextStatus = '';
-        if (type === 'reject') {
-            // If rejecting, Mobile logic suggests reverting to docs-approved.
-            // "date === null ? 'docs-approved'"
-            nextStatus = 'docs-approved';
-        } else {
-            // Confirming
-            const lifeDone = Boolean(updatedProfile.appointment_date_life || updatedProfile.life_commission_completed);
-            const nonlifeDone = Boolean(
-                updatedProfile.appointment_date_nonlife || updatedProfile.nonlife_commission_completed,
-            );
-            if (lifeDone && nonlifeDone) {
-                nextStatus = 'final-link-sent';
-            } else {
-                nextStatus = 'appointment-completed';
-            }
-        }
+        nextStatus = resolveInsuranceStageStatus(updatedProfile);
 
         if (nextStatus) {
             const { error: statusError } = await adminSupabase
@@ -142,6 +201,7 @@ export async function updateAppointmentAction(
         title: notifTitle,
         body: notifBody,
         data: { url: '/appointment' },
+        skipNotificationInsert: true,
     });
 
     if (!success) {

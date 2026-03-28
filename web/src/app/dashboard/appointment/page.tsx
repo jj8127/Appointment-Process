@@ -33,29 +33,67 @@ import dayjs from 'dayjs';
 import { useCallback, useMemo, useState, useTransition } from 'react';
 
 import { StatusToggle } from '@/components/StatusToggle';
+import { useSession } from '@/hooks/use-session';
 import { supabase } from '@/lib/supabase';
 import { updateAppointmentAction } from './actions';
 
 // FC Profile 타입 정의
 interface FcProfile {
-  id: number;
+  id: string;
   name?: string;
   phone?: string;
   affiliation?: string;
   created_at?: string;
+  status?: string;
   allowance_date?: string;
+  hanwha_commission_date_sub?: string | null;
+  hanwha_commission_date?: string | null;
+  hanwha_commission_reject_reason?: string | null;
+  hanwha_commission_pdf_path?: string | null;
+  hanwha_commission_pdf_name?: string | null;
   appointment_date_life?: string;
   appointment_date_nonlife?: string;
   appointment_date_life_sub?: string;
   appointment_date_nonlife_sub?: string;
   appointment_schedule_life?: string;
   appointment_schedule_nonlife?: string;
+  appointment_reject_reason_life?: string | null;
+  appointment_reject_reason_nonlife?: string | null;
+  life_commission_completed?: boolean | null;
+  nonlife_commission_completed?: boolean | null;
   fc_documents?: unknown[];
 }
 
 const CHARCOAL = '#111827';
 const MUTED = '#6b7280';
 const HANWHA_ORANGE = '#F37321';
+const HANWHA_APPROVED_STATUSES = ['hanwha-commission-approved', 'appointment-completed', 'final-link-sent'] as const;
+
+const trimValue = (value?: string | null) => String(value ?? '').trim();
+
+const hasHanwhaApprovedPdf = (fc: FcProfile) =>
+  Boolean(
+    (fc.hanwha_commission_date || HANWHA_APPROVED_STATUSES.includes(String(fc.status ?? '') as (typeof HANWHA_APPROVED_STATUSES)[number])) &&
+    trimValue(fc.hanwha_commission_pdf_path) &&
+    trimValue(fc.hanwha_commission_pdf_name),
+  );
+
+const hasInsuranceStageActivity = (fc: FcProfile) =>
+  Boolean(
+    fc.appointment_schedule_life ||
+    fc.appointment_schedule_nonlife ||
+    fc.appointment_date_life_sub ||
+    fc.appointment_date_nonlife_sub ||
+    fc.appointment_reject_reason_life ||
+    fc.appointment_reject_reason_nonlife ||
+    fc.appointment_date_life ||
+    fc.appointment_date_nonlife ||
+    fc.life_commission_completed ||
+    fc.nonlife_commission_completed,
+  );
+
+const isLegacyInsuranceStageRow = (fc: FcProfile) =>
+  hasInsuranceStageActivity(fc) && !hasHanwhaApprovedPdf(fc);
 
 // --- Filter Types & Components ---
 type FilterState = Record<string, string[]>;
@@ -171,6 +209,7 @@ const ExcelColumnFilter = ({ title, options, selected, onApply }: ExcelColumnFil
 
 export default function AppointmentPage() {
   const [, startTransition] = useTransition();
+  const { isReadOnly } = useSession();
   const [filterYear, setFilterYear] = useState<string | null>('2025');
   const [rejectModalOpen, setRejectModalOpen] = useState(false);
   const [rejectReason, setRejectReason] = useState('');
@@ -202,7 +241,7 @@ export default function AppointmentPage() {
   const [filters, setFilters] = useState<FilterState>({});
 
   // Local state for inputs
-  const [inputs, setInputs] = useState<Record<number, {
+  const [inputs, setInputs] = useState<Record<string, {
     lifeSchedule?: string;
     lifeDate?: Date | null;
     nonLifeSchedule?: string;
@@ -216,7 +255,7 @@ export default function AppointmentPage() {
         .from('fc_profiles')
         .select('*, fc_documents(*)')
         .eq('signup_completed', true)
-        .not('allowance_date', 'is', null)
+        .in('status', ['docs-approved', 'hanwha-commission-review', 'hanwha-commission-rejected', 'hanwha-commission-approved', 'appointment-completed', 'final-link-sent'])
         .order('created_at', { ascending: false });
 
       if (error) throw error;
@@ -224,28 +263,57 @@ export default function AppointmentPage() {
     },
   });
 
+  const getHanwhaStatus = useCallback((fc: FcProfile) => {
+    if (fc.status === 'docs-approved') {
+      return { label: '한화 위촉 대기', color: 'blue' };
+    }
+    if (fc.status === 'hanwha-commission-review') {
+      return { label: '한화 검토 중', color: 'orange' };
+    }
+    if (fc.status === 'hanwha-commission-rejected') {
+      return { label: '한화 반려', color: 'red' };
+    }
+    if (fc.status === 'hanwha-commission-approved') {
+      return hasHanwhaApprovedPdf(fc)
+        ? { label: '한화 승인 / PDF 완료', color: 'teal' }
+        : { label: '한화 승인 / PDF 대기', color: 'yellow' };
+    }
+    if (fc.status === 'appointment-completed' || fc.status === 'final-link-sent') {
+      return { label: '한화 승인 완료', color: 'teal' };
+    }
+    return { label: '사전 단계', color: 'gray' };
+  }, []);
+
+  const canManageInsuranceStage = useCallback((fc: FcProfile) => {
+    return hasInsuranceStageActivity(fc) || hasHanwhaApprovedPdf(fc);
+  }, []);
+
   const getOverallStatus = useCallback((fc: FcProfile) => {
     const life = !!fc.appointment_date_life;
     const nonlife = !!fc.appointment_date_nonlife;
     if (life && nonlife) return { label: '위촉 완료', color: 'green' };
     if (life || nonlife) return { label: '부분 완료', color: 'orange' };
-    return { label: '진행 중', color: 'blue' };
-  }, []);
+    if (!canManageInsuranceStage(fc)) return getHanwhaStatus(fc);
+    if (hasInsuranceStageActivity(fc)) return { label: '위촉 URL 진행 중', color: 'blue' };
+    return { label: '위촉 URL 진행 가능', color: 'teal' };
+  }, [canManageInsuranceStage, getHanwhaStatus]);
 
   // --- Derived Data for Filtering ---
   // 1. Apply Year/Month Filter first (processedFcs)
   const processedFcs = useMemo(() => {
     if (!fcs) return [] as FcProfile[];
     return fcs.filter((fc: FcProfile) => {
+      if (!canManageInsuranceStage(fc)) return false;
       if (filterYear && !dayjs(fc.created_at).isSame(dayjs(`${filterYear}-01-01`), 'year')) return false;
       return true;
     });
-  }, [fcs, filterYear]);
+  }, [canManageInsuranceStage, fcs, filterYear]);
 
   // 2. Helper to get values for filtering
   const getRowValue = useCallback((fc: FcProfile, field: string) => {
     if (field === 'name') return fc.name || '';
     if (field === 'affiliation') return fc.affiliation || '-';
+    if (field === 'hanwha') return getHanwhaStatus(fc).label;
     if (field === 'status') return getOverallStatus(fc).label;
     if (field === 'phone') return fc.phone || '';
     if (field === 'life') {
@@ -258,11 +326,11 @@ export default function AppointmentPage() {
       return fc.appointment_schedule_nonlife || '';
     }
     return '';
-  }, [getOverallStatus]);
+  }, [getHanwhaStatus, getOverallStatus]);
 
   // 3. Generate Filter Options based on processedFcs
   const filterOptions = useMemo(() => {
-    const fields = ['name', 'affiliation', 'status', 'life', 'nonlife']; // Fields we want to filter by
+    const fields = ['name', 'affiliation', 'hanwha', 'status', 'life', 'nonlife'];
     const options: Record<string, string[]> = {};
 
     fields.forEach(field => {
@@ -284,7 +352,7 @@ export default function AppointmentPage() {
   }, [processedFcs, filters, getRowValue]);
 
 
-  const handleInputChange = (fcId: number, field: string, value: string | Date | null) => {
+  const handleInputChange = (fcId: string, field: string, value: string | Date | null) => {
     setInputs((prev) => ({
       ...prev,
       [fcId]: {
@@ -301,6 +369,7 @@ export default function AppointmentPage() {
   };
 
   const handleRejectSubmit = () => {
+    if (isReadOnly) return;
     if (!rejectTarget) return;
     const reason = rejectReason.trim();
     if (!reason) {
@@ -335,6 +404,15 @@ export default function AppointmentPage() {
   };
 
   const executeAction = (fc: FcProfile, type: 'schedule' | 'confirm' | 'reject', category: 'life' | 'nonlife') => {
+    if (!canManageInsuranceStage(fc)) {
+      notifications.show({
+        title: '한화 위촉 대기',
+        message: '한화 위촉 승인과 PDF 등록이 끝난 뒤에만 보험 위촉 URL 단계를 진행할 수 있습니다.',
+        color: 'orange',
+      });
+      return;
+    }
+
     const input = inputs[fc.id] || {};
 
     let value: string | null = null;
@@ -364,7 +442,7 @@ export default function AppointmentPage() {
     }
 
     showConfirm({
-      title: type === 'confirm' ? '위촉 승인' : '위촉 예정월 저장',
+      title: type === 'confirm' ? '보험 위촉 승인' : '보험 위촉 예정월 저장',
       message: `${type === 'confirm' ? '승인' : '저장'} 하시겠습니까?`,
       onConfirm: () => {
         startTransition(async () => {
@@ -390,6 +468,28 @@ export default function AppointmentPage() {
     });
   };
 
+  const renderHanwhaSection = (fc: FcProfile) => {
+    const status = getHanwhaStatus(fc);
+    const hasPdf = Boolean(trimValue(fc.hanwha_commission_pdf_path) && trimValue(fc.hanwha_commission_pdf_name));
+
+    return (
+      <Stack gap="xs">
+        <Badge color={status.color} variant="light" w="fit-content">
+          {status.label}
+        </Badge>
+        <Text size="xs" c="dimmed">
+          제출일: {fc.hanwha_commission_date_sub ? dayjs(fc.hanwha_commission_date_sub).format('YYYY-MM-DD') : '미제출'}
+        </Text>
+        <Text size="xs" c="dimmed">
+          승인일: {fc.hanwha_commission_date ? dayjs(fc.hanwha_commission_date).format('YYYY-MM-DD') : '미승인'}
+        </Text>
+        <Badge color={hasPdf ? 'teal' : 'gray'} variant="outline" size="xs" w="fit-content">
+          {hasPdf ? 'PDF 등록 완료' : 'PDF 미등록'}
+        </Badge>
+      </Stack>
+    );
+  };
+
   const renderInsuranceSection = (fc: FcProfile, category: 'life' | 'nonlife') => {
     const input = inputs[fc.id] || {};
     const scheduleKey = category === 'life' ? 'lifeSchedule' : 'nonLifeSchedule';
@@ -411,9 +511,21 @@ export default function AppointmentPage() {
 
     const isConfirmed = !!dbDate;
     const hasSubmitted = !!subDate && !dbDate;
+    const insuranceStageOpen = canManageInsuranceStage(fc);
+    const isLegacyException = isLegacyInsuranceStageRow(fc);
 
     return (
       <Stack gap="xs">
+        {!insuranceStageOpen && (
+          <Text size="xs" c="dimmed">
+            한화 위촉 승인과 PDF 등록이 완료되면 보험 위촉 URL 단계를 진행할 수 있습니다.
+          </Text>
+        )}
+        {isLegacyException && (
+          <Badge variant="outline" color="yellow" size="xs" w="fit-content">
+            레거시 보험 이력 예외
+          </Badge>
+        )}
         {hasSubmitted && (
           <Badge variant="light" color="orange" size="xs" w="fit-content">
             FC 제출 {dayjs(subDate).format('YYYY-MM-DD')}
@@ -427,12 +539,12 @@ export default function AppointmentPage() {
             w={160}
             value={scheduleValue}
             onChange={(v) => handleInputChange(fc.id, scheduleKey, v.currentTarget.value)}
-            readOnly={isConfirmed}
-            disabled={isConfirmed}
+            readOnly={isReadOnly || isConfirmed || !insuranceStageOpen}
+            disabled={isReadOnly || isConfirmed || !insuranceStageOpen}
           />
           {!isConfirmed && (
             <Tooltip label="예정 메모 저장">
-              <ActionIcon variant="light" color="blue" size="md" mb={2} onClick={() => executeAction(fc, 'schedule', category)}>
+              <ActionIcon variant="light" color="blue" size="md" mb={2} disabled={isReadOnly || !insuranceStageOpen} onClick={() => executeAction(fc, 'schedule', category)}>
                 <IconDeviceFloppy size={16} />
               </ActionIcon>
             </Tooltip>
@@ -449,8 +561,8 @@ export default function AppointmentPage() {
             value={dateValue}
             onChange={(v) => handleInputChange(fc.id, dateKey, v)}
             clearable={!isConfirmed}
-            readOnly={isConfirmed}
-            disabled={isConfirmed}
+            readOnly={isReadOnly || isConfirmed || !insuranceStageOpen}
+            disabled={isReadOnly || isConfirmed || !insuranceStageOpen}
           />
           {hasSubmitted && (
             <Badge variant="light" color="orange" size="xs" mt={20}>
@@ -463,6 +575,7 @@ export default function AppointmentPage() {
           <StatusToggle
             value={isConfirmed ? 'approved' : 'pending'}
             onChange={(val) => {
+              if (isReadOnly) return;
               if (val === 'approved') {
                 executeAction(fc, 'confirm', category);
               }
@@ -470,7 +583,7 @@ export default function AppointmentPage() {
             labelPending="미승인"
             labelApproved="위촉 완료"
             showNeutralForPending
-            readOnly={isConfirmed}
+            readOnly={isReadOnly || isConfirmed || !insuranceStageOpen}
           />
         </Group>
       </Stack>
@@ -514,7 +627,7 @@ export default function AppointmentPage() {
               <Button variant="default" onClick={() => setRejectModalOpen(false)}>
                 취소
               </Button>
-              <Button color="red" onClick={handleRejectSubmit} loading={rejectSubmitting}>
+              <Button color="red" onClick={handleRejectSubmit} loading={rejectSubmitting} disabled={isReadOnly}>
                 반려 처리
               </Button>
             </Group>
@@ -544,8 +657,10 @@ export default function AppointmentPage() {
 
         <Group justify="space-between" align="flex-end">
           <div>
-            <Title order={2} c={CHARCOAL}>위촉 심사 및 확정</Title>
-            <Text c={MUTED} size="sm" mt={4}>수당 동의가 완료된 FC의 위촉 일정을 관리하고 최종 승인합니다.</Text>
+            <Title order={2} c={CHARCOAL}>보험 위촉 URL 심사 및 확정</Title>
+            <Text c={MUTED} size="sm" mt={4}>
+              한화 위촉 승인과 PDF 등록이 끝난 FC만 보험 위촉 URL 단계를 진행할 수 있습니다. 기존 보험 위촉 이력이 남아 있는 레거시 행만 예외로 유지됩니다.
+            </Text>
           </div>
           <Group>
             <Select
@@ -568,7 +683,7 @@ export default function AppointmentPage() {
               <Table.Thead bg="#F9FAFB">
                 <Table.Tr>
                   {renderHeader('FC 정보 (이름)', 'name')}
-                  {/* {renderHeader('소속', 'affiliation')} */}
+                  {renderHeader('한화 위촉', 'hanwha')}
                   {renderHeader('생명보험 위촉 (Life)', 'life')}
                   {renderHeader('손해보험 위촉 (Non-Life)', 'nonlife')}
                   {renderHeader('상태', 'status')}
@@ -594,11 +709,14 @@ export default function AppointmentPage() {
                               </Text>
                             </div>
                           </Group>
-                        </Table.Td>
-                        <Table.Td>
-                          {renderInsuranceSection(fc, 'life')}
-                        </Table.Td>
-                        <Table.Td>
+                      </Table.Td>
+                      <Table.Td>
+                        {renderHanwhaSection(fc)}
+                      </Table.Td>
+                      <Table.Td>
+                        {renderInsuranceSection(fc, 'life')}
+                      </Table.Td>
+                      <Table.Td>
                           {renderInsuranceSection(fc, 'nonlife')}
                         </Table.Td>
                         <Table.Td>
@@ -611,7 +729,7 @@ export default function AppointmentPage() {
                   })
                 ) : (
                   <Table.Tr>
-                    <Table.Td colSpan={4} align="center" py={40} c="dimmed">
+                    <Table.Td colSpan={5} align="center" py={40} c="dimmed">
                       {isLoading ? '로딩 중...' : '조건에 맞는 FC가 없습니다.'}
                     </Table.Td>
                   </Table.Tr>

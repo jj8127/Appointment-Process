@@ -1,6 +1,6 @@
 # 가람in FC Onboarding Monorepo
 
-> Last verified: `2026-03-15`  
+> Last verified: `2026-03-28`
 > Source of truth: [AGENTS.md](./AGENTS.md)
 
 가람PA지사의 FC 위촉, 온보딩, 운영, 관리자 웹을 함께 관리하는 모노레포입니다.  
@@ -19,7 +19,7 @@
 
 ## Current Snapshot
 
-- FC 핵심 흐름은 `회원가입 -> 본인확인 -> 수당동의 -> 시험 -> 서류 -> 위촉 -> 완료`까지 end-to-end로 구현되어 있습니다.
+- FC 핵심 흐름은 `회원가입 -> 본인확인 -> 수당동의 -> 시험 -> 서류 -> 한화 위촉 -> 위촉 URL -> 완료`까지 end-to-end로 구현되어 있습니다.
 - FC 가입은 `none / life_only / nonlife_only / both` 커미션 완료 유형을 지원하며, 부분 완료 사용자는 `draft`부터 남은 트랙을 계속 진행합니다.
 - `manager`는 앱/웹 전반에서 읽기 전용 역할을 유지합니다.
 - `developer`는 앱 권한은 총무와 같지만 표기와 request_board 브릿지 정체성은 별도 처리됩니다.
@@ -74,6 +74,9 @@ flowchart LR
 | 'docs-submitted'
 | 'docs-rejected'
 | 'docs-approved'
+| 'hanwha-commission-review'
+| 'hanwha-commission-rejected'
+| 'hanwha-commission-approved'
 | 'appointment-completed'
 | 'final-link-sent'
 ```
@@ -158,7 +161,7 @@ EXPO_PUBLIC_REQUEST_BOARD_WEB_URL=...
 EXPO_PUBLIC_REQUEST_BOARD_USE_LOCAL_DEV=1
 ```
 
-`EXPO_PUBLIC_REQUEST_BOARD_USE_LOCAL_DEV=1`은 Expo 개발 빌드에서만 로컬 Expo host 기준 `request_board` API(`:3000`) / 웹(`:5173`) 자동 해석을 켭니다. 값을 주지 않으면 앱은 운영 GaramLink URL을 사용합니다.
+`EXPO_PUBLIC_REQUEST_BOARD_USE_LOCAL_DEV=1`은 Expo 개발 빌드에서만 로컬 Expo host 기준 `request_board` API(`:3001`) / 웹(`:5173`) 자동 해석을 켭니다. 값을 주지 않으면 앱은 운영 GaramLink URL을 사용합니다.
 
 ### Admin Web `web/.env.local`
 

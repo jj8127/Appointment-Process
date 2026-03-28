@@ -31,7 +31,7 @@ export async function fetchMobileUnreadNotificationCount({
       role,
       residentId,
       requestBoardRole,
-    });
+    }, { initializeIfMissing: false });
 
     const { data, error } = await supabase.functions.invoke('fc-notify', {
       body: {

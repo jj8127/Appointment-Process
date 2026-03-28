@@ -1,6 +1,7 @@
 import { serve } from 'https://deno.land/std@0.224.0/http/server.ts';
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.45.4';
 import {
+  buildWorkflowResetPayload,
   mapCommissionToProfileState,
   normalizeCommissionStatus,
   type CommissionCompletionStatus,
@@ -74,7 +75,13 @@ function cleanPhone(input: string) {
 function isMissingColumnError(error: unknown): boolean {
   const code = (error as { code?: string } | null)?.code;
   const message = String((error as { message?: string } | null)?.message ?? '').toLowerCase();
-  return code === '42703' || message.includes('column') || message.includes('life_commission_completed') || message.includes('nonlife_commission_completed');
+  return (
+    code === '42703' ||
+    message.includes('column') ||
+    message.includes('life_commission_completed') ||
+    message.includes('nonlife_commission_completed') ||
+    message.includes('hanwha_commission')
+  );
 }
 
 function toBase64(bytes: Uint8Array) {
@@ -252,6 +259,7 @@ serve(async (req: Request) => {
       carrier: profileCarrier,
       life_commission_completed: commissionState.lifeCompleted,
       nonlife_commission_completed: commissionState.nonlifeCompleted,
+      ...buildWorkflowResetPayload(),
     };
 
     let insertResult = await supabase
@@ -264,6 +272,21 @@ serve(async (req: Request) => {
       const fallbackPayload = { ...insertPayload };
       delete fallbackPayload.life_commission_completed;
       delete fallbackPayload.nonlife_commission_completed;
+      delete fallbackPayload.appointment_schedule_life;
+      delete fallbackPayload.appointment_schedule_nonlife;
+      delete fallbackPayload.appointment_date_life;
+      delete fallbackPayload.appointment_date_nonlife;
+      delete fallbackPayload.appointment_date_life_sub;
+      delete fallbackPayload.appointment_date_nonlife_sub;
+      delete fallbackPayload.appointment_reject_reason_life;
+      delete fallbackPayload.appointment_reject_reason_nonlife;
+      delete fallbackPayload.docs_deadline_at;
+      delete fallbackPayload.docs_deadline_last_notified_at;
+      delete fallbackPayload.hanwha_commission_date_sub;
+      delete fallbackPayload.hanwha_commission_date;
+      delete fallbackPayload.hanwha_commission_reject_reason;
+      delete fallbackPayload.hanwha_commission_pdf_path;
+      delete fallbackPayload.hanwha_commission_pdf_name;
       insertResult = await supabase
         .from('fc_profiles')
         .insert(fallbackPayload)
@@ -299,8 +322,7 @@ serve(async (req: Request) => {
       allowance_date: null,
       appointment_url: null,
       appointment_date: null,
-      docs_deadline_at: null,
-      docs_deadline_last_notified_at: null,
+      ...buildWorkflowResetPayload(),
     };
     if (profileName) updatePayload.name = profileName;
     if (profileAffiliation) updatePayload.affiliation = profileAffiliation;
@@ -314,6 +336,21 @@ serve(async (req: Request) => {
         const fallbackPayload = { ...updatePayload };
         delete fallbackPayload.life_commission_completed;
         delete fallbackPayload.nonlife_commission_completed;
+        delete fallbackPayload.appointment_schedule_life;
+        delete fallbackPayload.appointment_schedule_nonlife;
+        delete fallbackPayload.appointment_date_life;
+        delete fallbackPayload.appointment_date_nonlife;
+        delete fallbackPayload.appointment_date_life_sub;
+        delete fallbackPayload.appointment_date_nonlife_sub;
+        delete fallbackPayload.appointment_reject_reason_life;
+        delete fallbackPayload.appointment_reject_reason_nonlife;
+        delete fallbackPayload.docs_deadline_at;
+        delete fallbackPayload.docs_deadline_last_notified_at;
+        delete fallbackPayload.hanwha_commission_date_sub;
+        delete fallbackPayload.hanwha_commission_date;
+        delete fallbackPayload.hanwha_commission_reject_reason;
+        delete fallbackPayload.hanwha_commission_pdf_path;
+        delete fallbackPayload.hanwha_commission_pdf_name;
         updateResult = await supabase.from('fc_profiles').update(fallbackPayload).eq('id', fcId);
       }
       if (updateResult.error) {
@@ -325,16 +362,32 @@ serve(async (req: Request) => {
       }
     }
   } else {
-    const statusOnlyPayload: Record<string, string | boolean> = {
+    const statusOnlyPayload: Record<string, unknown> = {
       status: commissionState.status,
       life_commission_completed: commissionState.lifeCompleted,
       nonlife_commission_completed: commissionState.nonlifeCompleted,
+      ...buildWorkflowResetPayload(),
     };
     let statusUpdateResult = await supabase.from('fc_profiles').update(statusOnlyPayload).eq('id', fcId);
     if (statusUpdateResult.error && isMissingColumnError(statusUpdateResult.error)) {
       const fallbackPayload = { ...statusOnlyPayload };
       delete fallbackPayload.life_commission_completed;
       delete fallbackPayload.nonlife_commission_completed;
+      delete fallbackPayload.appointment_schedule_life;
+      delete fallbackPayload.appointment_schedule_nonlife;
+      delete fallbackPayload.appointment_date_life;
+      delete fallbackPayload.appointment_date_nonlife;
+      delete fallbackPayload.appointment_date_life_sub;
+      delete fallbackPayload.appointment_date_nonlife_sub;
+      delete fallbackPayload.appointment_reject_reason_life;
+      delete fallbackPayload.appointment_reject_reason_nonlife;
+      delete fallbackPayload.docs_deadline_at;
+      delete fallbackPayload.docs_deadline_last_notified_at;
+      delete fallbackPayload.hanwha_commission_date_sub;
+      delete fallbackPayload.hanwha_commission_date;
+      delete fallbackPayload.hanwha_commission_reject_reason;
+      delete fallbackPayload.hanwha_commission_pdf_path;
+      delete fallbackPayload.hanwha_commission_pdf_name;
       statusUpdateResult = await supabase.from('fc_profiles').update(fallbackPayload).eq('id', fcId);
     }
     if (statusUpdateResult.error) {

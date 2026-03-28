@@ -11,6 +11,7 @@ import {
   InteractionManager,
   Modal,
   Pressable,
+  RefreshControl,
   ReturnKeyTypeOptions,
   StyleSheet,
   Text,
@@ -181,6 +182,7 @@ export default function FcNewScreen() {
   const [submitting, setSubmitting] = useState(false);
   const { residentId: phoneFromSession, loginAs, displayName, role } = useSession();
   const [existingTempId, setExistingTempId] = useState<string | null>(null);
+  const [refreshing, setRefreshing] = useState(false);
   const [selectedAffiliation, setSelectedAffiliation] = useState('');
   const [emailLocal, setEmailLocal] = useState('');
   const [emailDomain, setEmailDomain] = useState('');
@@ -581,7 +583,12 @@ export default function FcNewScreen() {
 
   // Pull-to-refresh: 기존 loadExisting을 재호출
   const onRefresh = useCallback(async () => {
-    await loadExisting();
+    setRefreshing(true);
+    try {
+      await loadExisting();
+    } finally {
+      setRefreshing(false);
+    }
   }, [loadExisting]);
 
   return (
@@ -603,13 +610,12 @@ export default function FcNewScreen() {
       />
       <KeyboardAwareWrapper
         contentContainerStyle={[styles.container, { paddingBottom: Math.max(120, keyboardPadding + 40) }]}
-        extraScrollHeight={140}>
+        extraScrollHeight={140}
+        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}>
         <ScreenHeader
           title="기본 정보"
           subtitle="입력 후 저장하면 다음 단계로 이동합니다."
           badge={existingTempId ? `임시번호 ${existingTempId}` : undefined}
-          showRefresh
-          onRefresh={onRefresh}
         />
 
         <View style={styles.sectionCard}>

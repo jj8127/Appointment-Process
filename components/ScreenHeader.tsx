@@ -1,7 +1,6 @@
 import React from 'react';
 import { View, Text, StyleSheet, ViewStyle } from 'react-native';
 import { COLORS, TYPOGRAPHY, SPACING } from '@/lib/theme';
-import { RefreshButton } from './RefreshButton';
 
 export interface ScreenHeaderProps {
   title: string;
@@ -18,8 +17,6 @@ export function ScreenHeader({
   subtitle,
   badge,
   badgeColor = COLORS.primary,
-  showRefresh = false,
-  onRefresh,
   style,
 }: ScreenHeaderProps) {
   return (
@@ -33,17 +30,13 @@ export function ScreenHeader({
           </Text>
         )}
       </View>
-      {showRefresh && onRefresh && <RefreshButton onPress={onRefresh} />}
     </View>
   );
 }
 
 const styles = StyleSheet.create({
   container: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'flex-start',
-    marginBottom: SPACING.sm,
+    marginBottom: SPACING.xs,
   },
   content: {
     flex: 1,

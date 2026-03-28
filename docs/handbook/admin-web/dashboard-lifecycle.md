@@ -2,8 +2,8 @@ doc_id: FC-ADMIN-DASHBOARD-LIFECYCLE
 owner_repo: fc-onboarding-app
 owner_area: admin-web
 audience: operator, developer
-last_verified: 2026-03-26
-source_of_truth: web/src/app/dashboard/page.tsx + web/src/app/api/admin/fc/route.ts
+last_verified: 2026-03-28
+source_of_truth: web/src/app/dashboard/page.tsx + web/src/app/api/admin/fc/route.ts + web/src/lib/shared.ts
 
 # Admin Web Playbook: Dashboard Lifecycle
 
@@ -26,7 +26,7 @@ source_of_truth: web/src/app/dashboard/page.tsx + web/src/app/api/admin/fc/route
 - FC 리스트/검색
 - step bucket
 - profile basic info
-- doc/appointment status
+- doc/hanwha/appointment status
 - commission flags
 
 ## 쓰는 데이터
@@ -35,14 +35,18 @@ source_of_truth: web/src/app/dashboard/page.tsx + web/src/app/api/admin/fc/route
 - `updateStatus`
 - `updateAllowanceDate`
 - `updateDocsRequest`
+- `createHanwhaPdfUploadUrl`
+- `deleteHanwhaPdf`
 - `signDoc`
 - `sendReminder`
+- hanwha approve/reject
 - appointment confirm/reject
 
 ## 상태/분기
 
 - `manager`는 같은 화면을 보더라도 write action이 비활성
-- temp-id, allowance, docs, appointment, commission flag가 서로 상태 합성에 영향
+- FC 상세 모달은 `수당 동의 / 서류 관리 / 한화 위촉 관리 / 위촉 URL 관리` 4탭 구조
+- temp-id, allowance, docs, hanwha, appointment, commission flag가 서로 상태 합성에 영향
 - FC 삭제는 별도 파괴적 작업
 
 ## 사용자 액션
@@ -51,6 +55,8 @@ source_of_truth: web/src/app/dashboard/page.tsx + web/src/app/api/admin/fc/route
 - 메모/기본정보 수정
 - 요청 서류 설정
 - 서류 승인/반려
+- 한화 PDF 업로드/삭제
+- 한화 승인/반려
 - 위촉 일정/확정/반려
 - resident number 조회
 

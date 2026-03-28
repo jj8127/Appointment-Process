@@ -2,7 +2,7 @@ doc_id: FC-DATA-MODEL-CANON
 owner_repo: fc-onboarding-app
 owner_area: data
 audience: developer, operator
-last_verified: 2026-03-26
+last_verified: 2026-03-28
 source_of_truth: supabase/schema.sql + supabase/migrations/*
 
 # Data Handbook: Data Model Canon
@@ -21,3 +21,22 @@ source_of_truth: supabase/schema.sql + supabase/migrations/*
 - `admin_accounts`
 - `manager_accounts`
 - docs/board/notification/presence/referral 관련 테이블
+
+## 온보딩 상태 핵심 컬럼
+
+- `fc_profiles.status`
+- `fc_profiles.temp_id`
+- `fc_profiles.allowance_date`
+- `fc_profiles.hanwha_commission_date_sub`
+- `fc_profiles.hanwha_commission_date`
+- `fc_profiles.hanwha_commission_reject_reason`
+- `fc_profiles.hanwha_commission_pdf_path`
+- `fc_profiles.hanwha_commission_pdf_name`
+- `fc_profiles.appointment_schedule_life`
+- `fc_profiles.appointment_schedule_nonlife`
+- `fc_profiles.appointment_date_life_sub`
+- `fc_profiles.appointment_date_nonlife_sub`
+- `fc_profiles.appointment_date_life`
+- `fc_profiles.appointment_date_nonlife`
+- `fc_profiles.life_commission_completed`
+- `fc_profiles.nonlife_commission_completed`

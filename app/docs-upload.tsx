@@ -19,6 +19,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { Button } from '@/components/Button';
 import { RefreshButton } from '@/components/RefreshButton';
+import { useToast } from '@/components/Toast';
 import { useIdentityGate } from '@/hooks/use-identity-gate';
 import { useKeyboardPadding } from '@/hooks/use-keyboard-padding';
 import { useSession } from '@/hooks/use-session';
@@ -32,6 +33,26 @@ type FcLite = { id: string; temp_id: string | null; name: string; status: string
 type DocItem = RequiredDoc & { storagePath?: string; originalName?: string };
 
 const BUCKET = 'fc-documents';
+const HANWHA_HANDOFF_STATUS = 'docs-approved';
+const DOC_WORKFLOW_RESET_FIELDS = {
+  hanwha_commission_date_sub: null,
+  hanwha_commission_date: null,
+  hanwha_commission_reject_reason: null,
+  hanwha_commission_pdf_path: null,
+  hanwha_commission_pdf_name: null,
+  appointment_url: null,
+  appointment_date: null,
+  appointment_schedule_life: null,
+  appointment_schedule_nonlife: null,
+  appointment_date_life: null,
+  appointment_date_nonlife: null,
+  appointment_date_life_sub: null,
+  appointment_date_nonlife_sub: null,
+  appointment_reject_reason_life: null,
+  appointment_reject_reason_nonlife: null,
+  life_commission_completed: false,
+  nonlife_commission_completed: false,
+} as const;
 
 const randomKey = () => Math.random().toString(36).slice(2, 10) + Date.now().toString(36);
 
@@ -71,6 +92,7 @@ async function sendNotificationAndPush(
 export default function DocsUploadScreen() {
   const { residentId, role } = useSession();
   useIdentityGate({ nextPath: '/docs-upload' });
+  const { showToast } = useToast();
   const router = useRouter();
   const { userId } = useLocalSearchParams<{ userId?: string }>();
   const isAdmin = role === 'admin';
@@ -89,6 +111,9 @@ export default function DocsUploadScreen() {
   );
 
   const progressPercent = docCount.total > 0 ? (docCount.uploaded / docCount.total) * 100 : 0;
+  const isDocsApproved = fc?.status === HANWHA_HANDOFF_STATUS;
+  const footerRoute = !isAdmin && isDocsApproved ? '/hanwha-commission' : '/';
+  const footerLabel = !isAdmin && isDocsApproved ? '한화 위촉 단계로 이동' : '홈으로 가기';
 
   const loadData = useCallback(async () => {
     try {
@@ -250,6 +275,7 @@ export default function DocsUploadScreen() {
     if (!asset?.uri) return;
 
     setUploadingType(type as string);
+    let uploadStateCleared = false;
     try {
       logger.debug('[upload] start', {
         docType: type,
@@ -323,32 +349,56 @@ export default function DocsUploadScreen() {
       setDocs(updatedDocs);
 
       const nameLabel = fc.name || 'FC';
-      await sendNotificationAndPush(
-        'admin',
-        residentId ?? null,
-        `${nameLabel}님이 ${type}을 제출했습니다.`,
-        `${nameLabel}님이 ${type}을 업로드했습니다.`,
-        '/dashboard',
-      );
-
-      const uploadedCount = updatedDocs.filter((d) => d.storagePath).length;
-      if (uploadedCount === updatedDocs.length && updatedDocs.length > 0) {
-        await sendNotificationAndPush(
+      const notificationJobs: Promise<unknown>[] = [
+        sendNotificationAndPush(
           'admin',
           residentId ?? null,
-          `${nameLabel}님이 모든 서류를 제출했습니다.`,
-          `${nameLabel}님이 모든 필수 서류를 업로드했습니다.`,
+          `${nameLabel}님이 ${type}을 제출했습니다.`,
+          `${nameLabel}님이 ${type}을 업로드했습니다.`,
           '/dashboard',
+        ),
+      ];
+      const uploadedCount = updatedDocs.filter((d) => d.storagePath).length;
+      if (uploadedCount === updatedDocs.length && updatedDocs.length > 0) {
+        notificationJobs.push(
+          sendNotificationAndPush(
+            'admin',
+            residentId ?? null,
+            `${nameLabel}님이 모든 서류를 제출했습니다.`,
+            `${nameLabel}님이 모든 필수 서류를 업로드했습니다.`,
+            '/dashboard',
+          ),
         );
       }
 
+      setUploadingType(null);
+      uploadStateCleared = true;
       logger.debug('[upload] success', { objectPath });
-      Alert.alert('업로드 완료', '파일이 정상적으로 등록되었습니다.');
+      showToast({
+        message:
+          uploadedCount === updatedDocs.length && updatedDocs.length > 0
+            ? '모든 필수 서류가 제출되었습니다.'
+            : '파일이 정상적으로 등록되었습니다.',
+        variant: 'success',
+      });
+      void Promise.allSettled(notificationJobs).then((results) => {
+        const rejected = results.filter((result) => result.status === 'rejected');
+        if (rejected.length > 0) {
+          logger.warn('[upload] notification failed', {
+            docType: type,
+            failures: rejected.map((result) =>
+              result.status === 'rejected' ? String(result.reason) : 'unknown',
+            ),
+          });
+        }
+      });
     } catch (err: any) {
       logger.warn('[upload] failed', { bucket: BUCKET, error: err?.message ?? err });
       Alert.alert('오류', err?.message ?? '업로드 실패');
     } finally {
-      setUploadingType(null);
+      if (!uploadStateCleared) {
+        setUploadingType(null);
+      }
     }
   };
 
@@ -370,10 +420,28 @@ export default function DocsUploadScreen() {
         .eq('doc_type', type);
       if (dbError) throw dbError;
 
+      const { error: profileError } = await supabase
+        .from('fc_profiles')
+        .update({
+          status: 'docs-pending',
+          ...DOC_WORKFLOW_RESET_FIELDS,
+        })
+        .eq('id', fc.id);
+      if (profileError) throw profileError;
+
       setDocs((prev) =>
         prev.map((doc) =>
           doc.type === type ? { ...doc, uploadedUrl: undefined, storagePath: undefined, originalName: undefined } : doc,
         ),
+      );
+      setFc((prev) =>
+        prev
+          ? {
+              ...prev,
+              status: 'docs-pending',
+              ...DOC_WORKFLOW_RESET_FIELDS,
+            }
+          : prev,
       );
     } catch (err: any) {
       Alert.alert('오류', err?.message ?? '삭제 실패');
@@ -384,13 +452,44 @@ export default function DocsUploadScreen() {
     if (!fc) return;
     setApproving(true);
     try {
-      const newStatus = isApprove ? 'docs-approved' : 'docs-rejected';
-      const { error } = await supabase.from('fc_profiles').update({ status: newStatus }).eq('id', fc.id);
+      if (isApprove) {
+        const { data: allDocs, error: docsError } = await supabase
+          .from('fc_documents')
+          .select('status,storage_path')
+          .eq('fc_id', fc.id);
+        if (docsError) throw docsError;
+
+        const requestedDocs = allDocs ?? [];
+        const allSubmitted =
+          requestedDocs.length > 0 &&
+          requestedDocs.every((doc) => doc.storage_path && doc.storage_path !== 'deleted');
+        const allApproved = allSubmitted && requestedDocs.every((doc) => doc.status === 'approved');
+
+        if (!allApproved) {
+          throw new Error('모든 요청 서류가 제출 및 승인된 뒤에만 한화 위촉 단계로 넘길 수 있습니다.');
+        }
+      }
+
+      const nextProfilePatch = isApprove
+        ? { status: HANWHA_HANDOFF_STATUS }
+        : {
+            status: 'docs-pending',
+            ...DOC_WORKFLOW_RESET_FIELDS,
+          };
+
+      const { error } = await supabase.from('fc_profiles').update(nextProfilePatch).eq('id', fc.id);
       if (error) throw error;
-      setFc((prev) => (prev ? { ...prev, status: newStatus } : prev));
-      Alert.alert('완료', isApprove ? '서류 검토가 완료되었습니다.' : '서류가 반려되었습니다.', [
-        { text: '확인', onPress: () => router.back() },
-      ]);
+
+      setFc((prev) => (prev ? { ...prev, ...nextProfilePatch } : prev));
+      Alert.alert(
+        '완료',
+        isApprove
+          ? '서류 검토가 완료되었습니다. 다음 단계는 보험 위촉 URL이 아니라 한화 위촉입니다.'
+          : '서류가 반려되었습니다. 다시 검토가 필요합니다.',
+        [
+          { text: '확인', onPress: () => router.back() },
+        ],
+      );
     } catch (err: any) {
       Alert.alert('오류', err?.message ?? '상태 업데이트 실패');
     } finally {
@@ -427,6 +526,9 @@ export default function DocsUploadScreen() {
           {isAdmin && (
             <View style={styles.adminActionBox}>
               <Text style={styles.adminLabel}>관리자 검토</Text>
+              <Text style={styles.adminHelperText}>
+                승인 시 FC는 보험 위촉 URL로 바로 가지 않고 한화 위촉 단계로 넘어갑니다.
+              </Text>
               <View style={styles.adminActionRow}>
                 <Button
                   onPress={() => handleApprove(false)}
@@ -445,9 +547,22 @@ export default function DocsUploadScreen() {
                   size="lg"
                   style={{ flex: 1 }}
                 >
-                  검토 완료 (승인)
+                  한화 위촉 단계로 승인
                 </Button>
               </View>
+            </View>
+          )}
+
+          {isDocsApproved && (
+            <View style={styles.handoffBox}>
+              <Text style={styles.handoffTitle}>
+                {isAdmin ? '한화 위촉 단계 인계 완료' : '서류 승인 완료'}
+              </Text>
+              <Text style={styles.handoffText}>
+                {isAdmin
+                  ? '이 FC의 다음 단계는 보험 위촉 URL이 아니라 한화 위촉입니다.'
+                  : '다음 단계는 보험 위촉 URL이 아니라 한화 위촉입니다. 한화 위촉 완료일 제출과 승인 확인을 먼저 진행해주세요.'}
+              </Text>
             </View>
           )}
 
@@ -603,13 +718,13 @@ export default function DocsUploadScreen() {
             )}
           </View>
           <Button
-            onPress={() => router.replace('/')}
+            onPress={() => router.replace(footerRoute as any)}
             variant="primary"
             size="lg"
             fullWidth
             style={{ marginTop: 12, marginBottom: 24 }}
           >
-            홈으로 가기
+            {footerLabel}
           </Button>
         </ScrollView>
       </KeyboardAvoidingView>
@@ -675,7 +790,31 @@ const styles = StyleSheet.create({
     gap: 12,
   },
   adminLabel: { fontSize: 14, fontWeight: '700', color: '#9a3412' },
+  adminHelperText: {
+    fontSize: 13,
+    lineHeight: 18,
+    color: '#9a3412',
+  },
   adminActionRow: { flexDirection: 'row', gap: 10 },
+  handoffBox: {
+    marginBottom: 12,
+    padding: 14,
+    borderRadius: 12,
+    backgroundColor: '#FFF7ED',
+    borderWidth: 1,
+    borderColor: '#FDBA74',
+    gap: 6,
+  },
+  handoffTitle: {
+    fontSize: 15,
+    fontWeight: '800',
+    color: '#9A3412',
+  },
+  handoffText: {
+    fontSize: 13,
+    lineHeight: 18,
+    color: '#9A3412',
+  },
 
   scrollContent: { padding: 24 },
 

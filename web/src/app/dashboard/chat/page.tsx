@@ -237,12 +237,10 @@ export default function ChatPage() {
     }, [trackedPresencePhones]);
 
     useEffect(() => {
-        if (trackedPresencePhones.length === 0) {
-            setPresenceByPhone({});
-            return;
-        }
-
-        void loadPresence(trackedPresencePhones);
+        const timeoutId = window.setTimeout(() => {
+            void loadPresence(trackedPresencePhones);
+        }, 0);
+        return () => window.clearTimeout(timeoutId);
     }, [loadPresence, trackedPresencePhones]);
 
     useEffect(() => {

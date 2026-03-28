@@ -68,9 +68,9 @@ supabase secrets list --project-ref <project-ref>
 
 ## Current Status & Roadmap
 
-### Snapshot (2026-03-19)
+### Snapshot (2026-03-28)
 - Project is operating as a dual-platform monorepo: Expo mobile app + Next.js admin web + Supabase backend.
-- Core FC onboarding flow is implemented end-to-end: signup, OTP/password, identity gate, consent, exam, docs, appointment, completion.
+- Core FC onboarding flow is implemented end-to-end: signup, OTP/password, identity gate, consent, exam, docs, Hanwha commission, insurance appointment URL, completion.
 - FC signup supports dual-commission completion selection (`none/life_only/nonlife_only/both`); partial completion (`life_only/nonlife_only`) now starts from Step 1 (`draft`) and preserves completion flags so remaining track proceeds through full onboarding flow.
 - Admins can correct FC signup commission selection from mobile/web dashboards, and `final-link-sent` downgrade paths must restore the nearest valid lower workflow status instead of blindly resetting to `draft`.
 - Manager read-only mode is implemented and must stay enforced across dashboard, exam, notice, and chat areas.
@@ -88,9 +88,9 @@ supabase secrets list --project-ref <project-ref>
 - 가람Link 브리지 알림 inbox는 2026-03-16 기준 `requestBoardRole='fc'`인 admin 세션(본부장/개발자)에서도 같은 전화번호의 `request_board_*` FC 알림을 함께 집계하도록 보강돼, 가람in 홈 벨/알림센터/설계요청 최근 활동에서 누락되지 않는다.
 - 가람in 알림센터/홈/설계요청의 unread 집계는 2026-03-23 기준 Expo native badge와도 동기화된다. unread가 `0`이면 홈 아이콘 배지를 `0`으로 내리고 시스템 알림도 함께 정리해, 앱 내부 읽음 상태와 휴대폰 배지 숫자가 어긋나지 않도록 맞췄다.
 - 가람in 홈/설계요청/알림센터의 GaramLink 알림 숫자는 2026-03-23 기준 request_board 실제 unread count를 직접 합산한다. 따라서 GaramLink에서 읽음 처리하면 앱 내부 벨 숫자와 시스템 배지도 polling/focus/load 주기에서 함께 감소한다.
-- 가람in unread checkpoint는 2026-03-23 기준 `role + residentId + requestBoardRole` 사용자별 키를 사용하며, checkpoint가 없는 첫 실행은 현재 시각으로 초기화한다. 따라서 `expo run:android` 재설치/앱 데이터 초기화 뒤에도 과거 공용 FC broadcast 알림이 GaramLink live unread 위에 다시 누적되지 않는다.
+- 가람in unread checkpoint는 2026-03-23 기준 `role + residentId + requestBoardRole` 사용자별 키를 사용한다. 홈 unread 계산은 checkpoint가 없으면 전체 unread를 보여주고, checkpoint는 알림센터 진입/읽음 처리 시점에 생성·갱신된다. 따라서 첫 진입에서도 기존 unread를 놓치지 않으면서, checkpoint 이후 신규 알림만 안정적으로 추적한다.
 - `user_presence` 공통 테이블/함수와 모바일 앱 전역 heartbeat(`AppState active/background`)가 추가되었고, `request-board-messenger`는 request_board presence API를 읽어 cross-platform 활동중/마지막 접속 문구를 렌더링한다.
-- Expo 개발 빌드에서도 기본값은 GaramLink 운영 URL이다. 로컬 `request_board` API(`:3000`)와 웹(`:5173`)를 자동 해석하려면 `EXPO_PUBLIC_REQUEST_BOARD_USE_LOCAL_DEV=1`을 명시적으로 켜고, 필요시 `EXPO_PUBLIC_REQUEST_BOARD_API_URL` / `EXPO_PUBLIC_REQUEST_BOARD_WEB_URL` / 레거시 `EXPO_PUBLIC_REQUEST_BOARD_URL`로 직접 덮어쓴다.
+- Expo 개발 빌드에서도 기본값은 GaramLink 운영 URL이다. 로컬 `request_board` API(`:3001`)와 웹(`:5173`)를 자동 해석하려면 `EXPO_PUBLIC_REQUEST_BOARD_USE_LOCAL_DEV=1`을 명시적으로 켜고, 필요시 `EXPO_PUBLIC_REQUEST_BOARD_API_URL` / `EXPO_PUBLIC_REQUEST_BOARD_WEB_URL` / 레거시 `EXPO_PUBLIC_REQUEST_BOARD_URL`로 직접 덮어쓴다.
 - `user-presence` Edge Function은 RPC 실패 시 direct-table fallback으로 복구되도록 핫픽스되었고, `가람in` presence는 `appSessionToken`이 없는 구세션에서는 동작하지 않으므로 최초 1회 재로그인이 필요할 수 있다.
 - 활동 상태 UI는 로그인 이력 없는 사용자도 숨기지 않고 `첫 접속 전`으로 표시하며, `user-presence` fallback은 RPC가 없는 환경에서도 요청한 모든 전화번호에 placeholder snapshot을 반환하도록 보강됐다.
 - 모바일 메신저 허브(`app/messenger.tsx`)는 내부 메신저 unread를 Supabase realtime으로, `가람Link` unread를 active-screen polling으로 갱신해 카드 배지가 새로고침 없이 따라오도록 보강됐고, 총무/본부장/설계매니저 세션의 내부 unread는 실제 FC 목록에 노출되는 내부 소속 발신자만 합산하도록 정렬됐다.
@@ -120,6 +120,9 @@ supabase secrets list --project-ref <project-ref>
   - `docs-submitted`
   - `docs-rejected`
   - `docs-approved`
+  - `hanwha-commission-review`
+  - `hanwha-commission-rejected`
+  - `hanwha-commission-approved`
   - `appointment-completed`
   - `final-link-sent`
 - FC commission completion flags (source of truth: `fc_profiles`)
@@ -132,7 +135,8 @@ supabase secrets list --project-ref <project-ref>
   - Allowance consent and approval
   - Exam schedule/apply
   - Docs request/upload/review
-  - Appointment schedule/completion
+  - Hanwha commission submit/review/PDF delivery
+  - Insurance appointment URL schedule/completion
   - Final completion
 
 ### Bottom Navigation Contract (Mobile)

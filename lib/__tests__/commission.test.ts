@@ -27,27 +27,27 @@ describe('commission status mapping', () => {
     });
   });
 
-  test('life_only keeps draft with life completed only', () => {
+  test('life_only no longer bypasses the workflow gate', () => {
     expect(mapCommissionToProfileState('life_only')).toEqual({
       status: 'draft',
-      lifeCompleted: true,
+      lifeCompleted: false,
       nonlifeCompleted: false,
     });
   });
 
-  test('nonlife_only keeps draft with nonlife completed only', () => {
+  test('nonlife_only no longer bypasses the workflow gate', () => {
     expect(mapCommissionToProfileState('nonlife_only')).toEqual({
       status: 'draft',
       lifeCompleted: false,
-      nonlifeCompleted: true,
+      nonlifeCompleted: false,
     });
   });
 
-  test('both moves to final-link-sent', () => {
+  test('both no longer jumps directly to final-link-sent', () => {
     expect(mapCommissionToProfileState('both')).toEqual({
-      status: 'final-link-sent',
-      lifeCompleted: true,
-      nonlifeCompleted: true,
+      status: 'draft',
+      lifeCompleted: false,
+      nonlifeCompleted: false,
     });
   });
 });

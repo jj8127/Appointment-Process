@@ -1,5 +1,6 @@
 import { serve } from 'https://deno.land/std@0.224.0/http/server.ts';
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.45.4';
+import { buildWorkflowResetPayload } from '../_shared/commission.ts';
 
 type Payload = {
   phone?: string;
@@ -270,6 +271,7 @@ serve(async (req: Request) => {
         docs_deadline_last_notified_at: null,
         signup_completed: false,
         phone_verified: false,
+        ...buildWorkflowResetPayload(),
       });
     }
 

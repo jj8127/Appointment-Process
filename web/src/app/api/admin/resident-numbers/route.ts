@@ -12,6 +12,30 @@ type Body = {
   fcIds?: string[];
 };
 
+function fromBase64(input: string): Uint8Array {
+  return Uint8Array.from(Buffer.from(input, 'base64'));
+}
+
+async function importAesKeyForDecrypt(base64Key: string): Promise<CryptoKey> {
+  const raw = fromBase64(base64Key);
+  return crypto.subtle.importKey('raw', raw, { name: 'AES-GCM' }, false, ['decrypt']);
+}
+
+async function decryptResidentNumber(value: string, key: CryptoKey): Promise<string | null> {
+  const parts = value.split('.');
+  if (parts.length !== 2) return null;
+
+  try {
+    const iv = fromBase64(parts[0]);
+    const cipher = fromBase64(parts[1]);
+    const plain = await crypto.subtle.decrypt({ name: 'AES-GCM', iv }, key, cipher);
+    const digits = Buffer.from(plain).toString('utf8').replace(/[^0-9]/g, '');
+    return digits.length === 13 ? `${digits.slice(0, 6)}-${digits.slice(6)}` : null;
+  } catch {
+    return null;
+  }
+}
+
 function formatPhone(digits: string): string {
   if (!digits) return '';
   if (digits.length <= 3) return digits;
@@ -49,6 +73,40 @@ async function getAdminSession() {
   }
 
   return { ok: true as const, session };
+}
+
+async function readResidentNumbersDirect(fcIds: string[]): Promise<Record<string, string | null> | null> {
+  const identityKey = process.env.FC_IDENTITY_KEY;
+  if (!identityKey) {
+    return null;
+  }
+
+  const key = await importAesKeyForDecrypt(identityKey);
+  const residentNumbers: Record<string, string | null> = Object.fromEntries(fcIds.map((fcId) => [fcId, null]));
+  const chunkSize = 100;
+
+  for (let i = 0; i < fcIds.length; i += chunkSize) {
+    const chunk = fcIds.slice(i, i + chunkSize);
+    const { data: rows, error } = await adminSupabase
+      .from('fc_identity_secure')
+      .select('fc_id,resident_number_encrypted')
+      .in('fc_id', chunk);
+
+    if (error) {
+      throw error;
+    }
+
+    for (const row of rows ?? []) {
+      const fcId = String(row.fc_id ?? '').trim();
+      const encrypted = typeof row.resident_number_encrypted === 'string'
+        ? row.resident_number_encrypted
+        : '';
+      if (!fcId || !encrypted) continue;
+      residentNumbers[fcId] = await decryptResidentNumber(encrypted, key);
+    }
+  }
+
+  return residentNumbers;
 }
 
 export async function POST(req: Request) {
@@ -106,6 +164,18 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: 'Forbidden' }, { status: 403, headers: SECURITY_HEADERS });
     }
 
+    try {
+      const residentNumbers = await readResidentNumbersDirect(fcIds);
+      if (residentNumbers) {
+        return NextResponse.json(
+          { ok: true, residentNumbers },
+          { headers: SECURITY_HEADERS },
+        );
+      }
+    } catch (err: unknown) {
+      logger.error('[api/admin/resident-numbers] direct decrypt failed; falling back to edge function', err);
+    }
+
     const resp = await fetch(`${supabaseUrl}/functions/v1/admin-action`, {
       method: 'POST',
       headers: {
@@ -145,10 +215,7 @@ export async function POST(req: Request) {
       );
     }
 
-    const residentNumbers = (data as Record<string, unknown>).residentNumbers as Record<
-      string,
-      string | null
-    >;
+    const residentNumbers = (data as Record<string, unknown>).residentNumbers as Record<string, string | null>;
 
     return NextResponse.json(
       { ok: true, residentNumbers },

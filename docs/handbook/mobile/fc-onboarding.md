@@ -2,8 +2,8 @@ doc_id: FC-APP-ONBOARDING
 owner_repo: fc-onboarding-app
 owner_area: mobile
 audience: developer, operator
-last_verified: 2026-03-26
-source_of_truth: app/index.tsx + app/home-lite.tsx + app/fc/new.tsx + app/consent.tsx + app/docs-upload.tsx + app/appointment.tsx
+last_verified: 2026-03-28
+source_of_truth: app/index.tsx + app/home-lite.tsx + app/fc/new.tsx + app/consent.tsx + app/docs-upload.tsx + app/hanwha-commission.tsx + app/appointment.tsx + lib/fc-workflow.ts
 
 # Mobile Playbook: FC Onboarding
 
@@ -18,6 +18,7 @@ source_of_truth: app/index.tsx + app/home-lite.tsx + app/fc/new.tsx + app/consen
 - `fc/new`
 - `consent`
 - `docs-upload`
+- `hanwha-commission`
 - `appointment`
 
 ## 표시 역할
@@ -29,6 +30,7 @@ source_of_truth: app/index.tsx + app/home-lite.tsx + app/fc/new.tsx + app/consen
 - `fc_profiles`
 - 현재 `status`
 - 요청 서류 목록/제출 상태
+- 한화 위촉 제출/승인/PDF 상태
 - appointment 제출/완료 상태
 - 커미션 완료 플래그
 
@@ -37,6 +39,7 @@ source_of_truth: app/index.tsx + app/home-lite.tsx + app/fc/new.tsx + app/consen
 - FC 기본정보 저장
 - 수당 동의 저장
 - 서류 업로드/재제출
+- 한화 위촉 완료일 제출
 - 위촉 제출
 
 ## 상태/분기
@@ -44,13 +47,16 @@ source_of_truth: app/index.tsx + app/home-lite.tsx + app/fc/new.tsx + app/consen
 - `home-lite`는 unlock 전 안내 역할
 - temp-id 선행 없이 consent를 완료할 수 없음
 - docs request가 있어야 `docs-upload`가 활성 역할을 가짐
-- appointment는 서류 승인 후 운영적으로 의미가 생김
+- 서류 승인 뒤에는 바로 appointment가 아니라 `hanwha-commission` 단계가 열림
+- 한화 승인과 PDF 등록이 끝나야 `appointment` 단계가 열린다
 
 ## 사용자 액션
 
 - 프로필 저장
 - 동의 제출
 - 파일 업로드/교체
+- 한화 위촉 완료일 제출
+- 한화 PDF 열람
 - 위촉 제출
 
 ## 성공 결과

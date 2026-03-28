@@ -2,7 +2,6 @@
 import { serve } from 'https://deno.land/std@0.224.0/http/server.ts';
 // eslint-disable-next-line import/no-unresolved
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.45.4';
-
 type Payload = {
   phone?: string;
   allowance_date?: string;
@@ -53,6 +52,13 @@ function isValidYmd(value: string) {
   return !Number.isNaN(parsed.getTime());
 }
 
+function resolveAllowanceStatus(currentStatus: string | null | undefined): string {
+  if (!currentStatus || ['draft', 'temp-id-issued', 'allowance-pending'].includes(currentStatus)) {
+    return 'allowance-pending';
+  }
+  return currentStatus;
+}
+
 serve(async (req: Request) => {
   if (req.method === 'OPTIONS') {
     return new Response('ok', { headers: corsHeaders });
@@ -83,7 +89,7 @@ serve(async (req: Request) => {
 
   const { data: profile, error: profileError } = await supabase
     .from('fc_profiles')
-    .select('id,name,temp_id')
+    .select('id,name,temp_id,status')
     .eq('phone', phone)
     .maybeSingle();
 
@@ -101,7 +107,7 @@ serve(async (req: Request) => {
     .from('fc_profiles')
     .update({
       allowance_date: allowanceDate,
-      status: 'allowance-pending',
+      status: resolveAllowanceStatus(profile.status),
       allowance_reject_reason: null,
     })
     .eq('id', profile.id)

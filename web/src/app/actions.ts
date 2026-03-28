@@ -9,11 +9,12 @@ type PushDate = {
     title: string;
     body: string;
     data?: Record<string, unknown>;
+    skipNotificationInsert?: boolean;
 };
 
 export async function sendPushNotification(
     userId: string,
-    { title, body, data }: PushDate
+    { title, body, data, skipNotificationInsert = false }: PushDate
 ) {
     logger.debug('[sendPushNotification] start', { userId, title, body });
 
@@ -32,20 +33,22 @@ export async function sendPushNotification(
         resident_id: userId,
     } as const;
 
-    let { error: notifError } = await adminSupabase.from('notifications').insert({
-        ...notificationBase,
-        target_url: targetUrl,
-    });
+    if (!skipNotificationInsert) {
+        let { error: notifError } = await adminSupabase.from('notifications').insert({
+            ...notificationBase,
+            target_url: targetUrl,
+        });
 
-    const missingTargetColumn =
-        notifError?.code === '42703' || String(notifError?.message ?? '').includes('target_url');
-    if (missingTargetColumn) {
-        const fallback = await adminSupabase.from('notifications').insert(notificationBase);
-        notifError = fallback.error ?? null;
-    }
+        const missingTargetColumn =
+            notifError?.code === '42703' || String(notifError?.message ?? '').includes('target_url');
+        if (missingTargetColumn) {
+            const fallback = await adminSupabase.from('notifications').insert(notificationBase);
+            notifError = fallback.error ?? null;
+        }
 
-    if (notifError) {
-        logger.warn('[sendPushNotification] notifications insert failed:', notifError);
+        if (notifError) {
+            logger.warn('[sendPushNotification] notifications insert failed:', notifError);
+        }
     }
 
     // Fetch Tokens

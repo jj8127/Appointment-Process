@@ -27,6 +27,11 @@ import { AppTopActionBar } from '@/components/AppTopActionBar';
 import { BottomNavigation } from '@/components/BottomNavigation';
 import { Skeleton } from '@/components/LoadingSkeleton';
 import { resolveBottomNavActiveKey, resolveBottomNavPreset } from '@/lib/bottom-navigation';
+import {
+  calcAdminWorkflowStep,
+  calcFcHomeWorkflowStep,
+  getFcHomeNextAction,
+} from '@/lib/fc-workflow';
 import { useIdentityStatus } from '@/hooks/use-identity-status';
 import { useSession } from '@/hooks/use-session';
 import { useInAppUpdate } from '@/hooks/useInAppUpdate';
@@ -37,7 +42,6 @@ import { openExternalUrl } from '@/lib/open-external-url';
 import { supabase } from '@/lib/supabase';
 import { syncNativeNotificationBadge } from '@/lib/system-notification-badge';
 import { buildWelcomeTitle } from '@/lib/welcome-title';
-import type { FCDocument } from '@/types/dashboard';
 import type { FcProfile } from '@/types/fc';
 
 const YOUTUBE_URL = 'https://youtube.com/playlist?list=PLF5rd5c2rE9xy-VsAdwq4NEUsJQtKD7Qd&si=vKx4TDq6ww9ZgKiT';
@@ -48,8 +52,9 @@ const SHORTCUT_TOUR_TEXTS = [
   '이름, 소속, 주소 등 기본 정보를 관리해요.',
   '수당 지급을 위한 약관 동의 상태를 확인해요.',
   '필수 서류를 업로드하고 상태를 확인해요.',
-  '위촉 URL로 이동해 위촉 절차를 진행해요.',
-  '통합 메신저에서 가람지사/설계요청 대화를 선택할 수 있어요.',
+  '한화라이프랩 위촉 진행 단계예요.',
+  '생명/손해 위촉 진행 단계예요.',
+  '총무/설계매니저와 대화할 수 있어요.',
 ];
 
 // Android Crash Fix: Strips Moti props on Android to prevent Reanimated from attaching to unmounting views
@@ -80,10 +85,10 @@ const CHARCOAL = '#111827';
 const TEXT_MUTED = '#6b7280';
 const BORDER = '#e5e7eb';
 const ORANGE_FAINT = '#fff1e6';
-type StepKey = 'step1' | 'step2' | 'step3' | 'step4' | 'step5';
+type StepKey = 'step0' | 'step1' | 'step2' | 'step3' | 'step4' | 'step5';
 type StepCounts = Record<StepKey, number>;
 type CountsResult = { total: number; steps: StepCounts };
-const EMPTY_STEP_COUNTS: StepCounts = { step1: 0, step2: 0, step3: 0, step4: 0, step5: 0 };
+const EMPTY_STEP_COUNTS: StepCounts = { step0: 0, step1: 0, step2: 0, step3: 0, step4: 0, step5: 0 };
 type LatestNoticeSummary = {
   id: string;
   title: string;
@@ -108,10 +113,11 @@ const CARD_SHADOW = {
 type QuickLink = { href: string; title: string; description: string; stepKey?: StepKey };
 
 const quickLinksAdminOnboarding: QuickLink[] = [
-  { href: '/dashboard', stepKey: 'step2', title: '수당 동의 안내', description: '기본 정보 저장 완료 FC' },
-  { href: '/dashboard', stepKey: 'step3', title: '서류 안내/검토', description: '제출해야 할 서류 관리' },
-  { href: '/dashboard', stepKey: 'step4', title: '위촉 진행', description: '위촉 확인' },
-  { href: '/dashboard', stepKey: 'step5', title: '완료 관리', description: '위촉 완료 현황' },
+  { href: '/dashboard', stepKey: 'step1', title: '수당 동의 안내', description: '수당 동의 검토 대상 FC' },
+  { href: '/dashboard', stepKey: 'step2', title: '서류 안내/검토', description: '제출해야 할 서류 관리' },
+  { href: '/dashboard', stepKey: 'step3', title: '한화 위촉', description: '한화 승인 및 PDF 등록' },
+  { href: '/dashboard', stepKey: 'step4', title: '위촉 URL', description: '보험 위촉 진행 확인' },
+  { href: '/dashboard', stepKey: 'step5', title: '완료 관리', description: '최종 완료 현황' },
   { href: '/admin-board', title: '게시판 작성', description: '정보 게시판 글쓰기' },
   { href: '/messenger', title: '메신저', description: '가람지사/설계요청 대화 이동' },
 ];
@@ -123,23 +129,37 @@ const quickLinksAdminExam: QuickLink[] = [
   { href: '/exam-manage2', title: '손해 신청자', description: '신청 현황 조회' },
 ];
 
-const quickLinksFc: QuickLink[] = [
+const quickLinksFcBase: QuickLink[] = [
   { href: '/exam-apply', title: '생명/제3 시험 신청', description: '시험 접수하기' },
   { href: '/exam-apply2', title: '손해 시험 신청', description: '시험 접수하기' },
   { href: '/fc/new', title: '기본 정보', description: '인적사항 수정' },
   { href: '/consent', title: '수당 동의', description: '약관 동의 관리' },
   { href: '/docs-upload', title: '서류 업로드', description: '필수 서류 제출' },
-  { href: '/appointment', title: '위촉', description: '위촉 URL 접속 및 완료' },
-  { href: '/messenger', title: '메신저', description: '가람지사/설계요청 대화 선택' },
+  { href: '/messenger', title: '메신저', description: '총무/설계매니저와 대화' },
 ];
 
-const steps = [
-  { key: 'info', label: '회원가입', fullLabel: '회원가입' },
-  { key: 'consent', label: '수당동의', fullLabel: '수당 동의' },
-  { key: 'docs', label: '문서제출', fullLabel: '문서 제출' },
-  { key: 'url', label: '위촉URL', fullLabel: '위촉 URL 진행' },
-  { key: 'final', label: '완료', fullLabel: '최종 완료' },
+const fcHomeSteps = [
+  { key: 'consent', label: '수당동의', fullLabel: '수당동의' },
+  { key: 'docs', label: '문서제출', fullLabel: '문서제출' },
+  { key: 'hanwha', label: '한화위촉', fullLabel: '한화 위촉' },
+  { key: 'url', label: '위촉URL', fullLabel: '위촉 URL' },
+  { key: 'final', label: '완료', fullLabel: '완료' },
 ];
+
+const buildFcQuickLinks = (profile?: FcProfile | null): QuickLink[] => {
+  const hanwhaLink: QuickLink = {
+    href: '/hanwha-commission',
+    title: '한화 위촉',
+    description: '한화라이프랩 위촉 진행',
+  };
+  const insuranceLink: QuickLink = {
+    href: '/appointment',
+    title: '생명/손해 위촉',
+    description: '생명/손해 위촉 진행',
+  };
+
+  return [...quickLinksFcBase.slice(0, 5), hanwhaLink, insuranceLink, quickLinksFcBase[5]];
+};
 
 const fetchCounts = async (role: 'admin' | 'fc' | null, residentId: string): Promise<CountsResult> => {
   if (role !== 'admin') {
@@ -148,7 +168,7 @@ const fetchCounts = async (role: 'admin' | 'fc' | null, residentId: string): Pro
 
   const { data, error } = await supabase
     .from('fc_profiles')
-    .select('name,affiliation,resident_id_masked,email,address,allowance_date,appointment_date,status,fc_documents(doc_type,storage_path,status)');
+    .select('name,affiliation,resident_id_masked,email,address,identity_completed,allowance_date,status,hanwha_commission_date,hanwha_commission_pdf_path,hanwha_commission_pdf_name,appointment_date_life,appointment_date_nonlife,appointment_date_life_sub,appointment_date_nonlife_sub,life_commission_completed,nonlife_commission_completed,fc_documents(doc_type,storage_path,status)');
   if (error) throw error;
 
   const steps: StepCounts = { ...EMPTY_STEP_COUNTS };
@@ -165,10 +185,11 @@ const fetchCounts = async (role: 'admin' | 'fc' | null, residentId: string): Pro
 };
 
 const ADMIN_METRIC_CONFIG: { label: string; key: StepKey }[] = [
-  { label: '1단계 수당동의', key: 'step2' },
-  { label: '2단계 문서제출', key: 'step3' },
-  { label: '3단계 위촉진행', key: 'step4' },
-  { label: '4단계 완료', key: 'step5' },
+  { label: '1단계 수당동의', key: 'step1' },
+  { label: '2단계 문서제출', key: 'step2' },
+  { label: '3단계 한화위촉', key: 'step3' },
+  { label: '4단계 위촉URL', key: 'step4' },
+  { label: '5단계 완료', key: 'step5' },
 ];
 
 const fetchLatestNotice = async (): Promise<LatestNoticeSummary | null> => {
@@ -239,7 +260,7 @@ const fetchFcStatus = async (residentId: string) => {
   const { data, error } = await supabase
     .from('fc_profiles')
     .select(
-      'id,name,affiliation,phone,status,temp_id,allowance_date,appointment_url,appointment_date,appointment_schedule_life,appointment_schedule_nonlife,appointment_date_life,appointment_date_nonlife,appointment_date_life_sub,appointment_date_nonlife_sub,life_commission_completed,nonlife_commission_completed,resident_id_masked,email,address,identity_completed,is_tour_seen,signup_completed,fc_documents(doc_type,storage_path,status)',
+      'id,name,affiliation,phone,status,temp_id,allowance_date,hanwha_commission_date_sub,hanwha_commission_date,hanwha_commission_reject_reason,hanwha_commission_pdf_path,hanwha_commission_pdf_name,appointment_url,appointment_date,appointment_schedule_life,appointment_schedule_nonlife,appointment_date_life,appointment_date_nonlife,appointment_date_life_sub,appointment_date_nonlife_sub,life_commission_completed,nonlife_commission_completed,resident_id_masked,email,address,identity_completed,is_tour_seen,signup_completed,fc_documents(doc_type,storage_path,status)',
     )
     .eq('phone', residentId)
     .maybeSingle();
@@ -251,6 +272,11 @@ const fetchFcStatus = async (residentId: string) => {
     status: 'draft',
     temp_id: null,
     allowance_date: null,
+    hanwha_commission_date_sub: null,
+    hanwha_commission_date: null,
+    hanwha_commission_reject_reason: null,
+    hanwha_commission_pdf_path: null,
+    hanwha_commission_pdf_name: null,
     appointment_url: null,
     appointment_date: null,
     appointment_schedule_life: null,
@@ -325,62 +351,23 @@ const fetchExamStats = async (): Promise<ExamStats> => {
   };
 };
 
-function calcStep(myFc: any) {
-  if (!myFc) return 1;
-
-  const lifeCompleted = Boolean(myFc.life_commission_completed || myFc.appointment_date_life);
-  const nonlifeCompleted = Boolean(myFc.nonlife_commission_completed || myFc.appointment_date_nonlife);
-  const bothCompleted = lifeCompleted && nonlifeCompleted;
-
-  if (myFc.status === 'final-link-sent' || bothCompleted) return 5;
-
-  const hasIdentity = Boolean(myFc.identity_completed || myFc.resident_id_masked || myFc.address);
-  logger.debug('[calcStep] Checking identity', {
-    identity_completed: myFc.identity_completed,
-    resident_id_masked: myFc.resident_id_masked,
-    address: myFc.address,
-    hasIdentity,
-  });
-  if (!hasIdentity) return 1;
-
-  const allowancePassedStatuses = [
-    'allowance-consented',
-    'docs-requested',
-    'docs-pending',
-    'docs-submitted',
-    'docs-rejected',
-    'docs-approved',
-    'appointment-completed',
-    'final-link-sent',
-  ];
-  const allowancePassedByStatus = allowancePassedStatuses.includes(myFc.status);
-  const allowancePassedByDate = Boolean(myFc.allowance_date) && myFc.status !== 'allowance-pending';
-  if (!allowancePassedByStatus && !allowancePassedByDate) {
-    return 2;
-  }
-
-  const docs = myFc.fc_documents ?? [];
-  const allSubmitted =
-    docs.length > 0 && docs.every((d: FCDocument) => d.storage_path && d.storage_path !== 'deleted');
-  const allApproved = allSubmitted && docs.every((d: FCDocument) => d.status === 'approved');
-  if (!allApproved) {
-    return 3;
-  }
-
-  return 4;
+function calcStep(myFc: FcProfile | null | undefined) {
+  if (!myFc) return 0;
+  return calcAdminWorkflowStep(myFc);
 }
 
 const getStepKey = (profile: FcProfile): StepKey => {
-  const step = Math.max(1, Math.min(5, calcStep(profile)));
+  const step = Math.max(0, Math.min(5, calcStep(profile)));
   return `step${step}` as StepKey;
 };
 
 const getLinkIcon = (href: string) => {
   // 관리자 메뉴
+  if (href.includes('status=step0')) return 'user-plus'; // 사전등록
   if (href.includes('status=step1')) return 'user-plus'; // 회원가입 관리
-  if (href.includes('status=step2')) return 'check-square'; // 수당 동의 안내
-  if (href.includes('status=step3')) return 'file-text'; // 서류 안내/검토
-  if (href.includes('status=step4')) return 'link'; // 위촉 진행
+  if (href.includes('status=step2')) return 'check-square'; // 서류 안내/검토
+  if (href.includes('status=step3')) return 'file-text'; // 한화 위촉
+  if (href.includes('status=step4')) return 'link'; // 위촉 URL
   if (href.includes('status=step5')) return 'award'; // 완료 관리
 
   if (href.includes('/exams/')) return 'calendar'; // 시험 일정 등록
@@ -394,6 +381,7 @@ const getLinkIcon = (href: string) => {
   if (href.includes('exam-apply')) return 'edit-3'; // 시험 신청
   if (href.includes('consent')) return 'check-circle'; // 수당 동의
   if (href.includes('docs-upload')) return 'upload-cloud'; // 서류 업로드
+  if (href.includes('hanwha-commission')) return 'file-text'; // 한화 위촉
   if (href.includes('appointment')) return 'smartphone'; // 위촉
   if (href.includes('messenger')) return 'message-circle'; // 메신저
   if (href.includes('chat')) return 'message-circle'; // 1:1 문의
@@ -764,12 +752,6 @@ export default function Home() {
     queryFn: fetchLatestNotice,
   });
 
-  const quickLinks =
-    role === 'admin'
-      ? adminHomeTab === 'exam'
-        ? quickLinksAdminExam
-        : quickLinksAdminOnboarding
-      : quickLinksFc;
   const {
     data: examStats,
     isLoading: examStatsLoading,
@@ -789,8 +771,23 @@ export default function Home() {
     enabled: role === 'fc' && !!residentId,
   });
 
-  const currentStep = myFc ? calcStep(myFc) : 1;
-  const activeStep = steps[Math.min(steps.length - 1, Math.max(0, currentStep - 1))];
+  const currentStep = myFc ? calcFcHomeWorkflowStep(myFc as FcProfile) : 1;
+  const nextAction = getFcHomeNextAction(myFc as FcProfile | null | undefined);
+  const nextActionRoute =
+    nextAction.route ??
+    (nextAction.key === 'consent'
+      ? '/consent'
+      : nextAction.key === 'docs'
+        ? '/docs-upload'
+        : nextAction.key === 'hanwha'
+          ? '/hanwha-commission'
+          : '/appointment');
+  const quickLinks =
+    role === 'admin'
+      ? adminHomeTab === 'exam'
+        ? quickLinksAdminExam
+        : quickLinksAdminOnboarding
+      : buildFcQuickLinks(myFc as FcProfile | null | undefined);
   const profileName = typeof myFc?.name === 'string' ? myFc.name.trim() : '';
   const homeHeaderTitle = buildWelcomeTitle({
     role,
@@ -802,24 +799,6 @@ export default function Home() {
     fallbackTitle: '홈',
   });
 
-  const uploadedDocs =
-    myFc?.fc_documents?.filter((d: FCDocument) => d.storage_path && d.storage_path !== 'deleted').length ?? 0;
-  const totalDocs = myFc?.fc_documents?.length ?? 0;
-  const isAllSubmitted = totalDocs > 0 && uploadedDocs >= totalDocs;
-
-  const isConsentStep = activeStep.key === 'consent';
-  const isDocsStep = activeStep.key === 'docs';
-  const isUrlStep = activeStep.key === 'url';
-
-  const hasTempId = !!myFc?.temp_id;
-  const hasAllowanceDate = !!myFc?.allowance_date;
-  const hasUnapprovedDocs = myFc?.fc_documents?.some((d: FCDocument) => d.status !== 'approved');
-
-  const schedLife = myFc?.appointment_schedule_life;
-  const schedNon = myFc?.appointment_schedule_nonlife;
-  // 기존 approved 날짜 or 제출한 날짜 있으면 입력 완료로 간주
-  const dateLife = myFc?.appointment_date_life || myFc?.appointment_date_life_sub;
-  const dateNon = myFc?.appointment_date_nonlife || myFc?.appointment_date_nonlife_sub;
   const lifeCompleted = Boolean(myFc?.life_commission_completed || myFc?.appointment_date_life);
   const nonLifeCompleted = Boolean(myFc?.nonlife_commission_completed || myFc?.appointment_date_nonlife);
 
@@ -858,12 +837,15 @@ export default function Home() {
     });
   }, [hasFetchedUnreadNotifCount, unreadNotifCount]);
 
-  // Refresh counts on focus
+  // Refresh home badges and FC progress when returning to the screen.
   useFocusEffect(
     useCallback(() => {
       refetchMsgCount();
       refetchNotifCount();
-    }, [refetchMsgCount, refetchNotifCount])
+      if (role === 'fc' && residentId) {
+        refetchMyFc?.();
+      }
+    }, [refetchMsgCount, refetchNotifCount, refetchMyFc, residentId, role])
   );
 
   // Android 뒤로가기 버튼: 앱 종료 확인 다이얼로그
@@ -887,43 +869,6 @@ export default function Home() {
     }, [])
   );
 
-  const hasAnySchedule = !!schedLife || !!schedNon;
-  const isMissingDates = (!!schedLife && !dateLife) || (!!schedNon && !dateNon);
-
-  let nextStepSubText = '터치하여 바로 진행하세요';
-  let isNextStepDisabled = !stepToLink(activeStep.key);
-
-  if (isConsentStep) {
-    if (hasAllowanceDate) {
-      nextStepSubText = '총무가 검토 중입니다. 기다려주세요.';
-    } else if (!hasTempId) {
-      nextStepSubText = '총무가 임시사번을 발급중입니다. 기다려주세요.';
-    } else {
-      nextStepSubText = '터치하여 바로 진행하세요';
-    }
-  } else if (isDocsStep) {
-    if (totalDocs === 0) {
-      nextStepSubText = '총무가 필요한 서류들을 검토 중입니다.';
-    } else if (!isAllSubmitted) {
-      nextStepSubText = '모든 문서를 제출하세요.';
-    } else if (hasUnapprovedDocs) {
-      nextStepSubText = '서류를 검토중입니다.';
-    }
-  } else if (isUrlStep) {
-    if (lifeCompleted && !nonLifeCompleted) {
-      nextStepSubText = '생명 위촉은 완료되었습니다. 손해 위촉을 진행해 주세요.';
-    } else if (!lifeCompleted && nonLifeCompleted) {
-      nextStepSubText = '손해 위촉은 완료되었습니다. 생명 위촉을 진행해 주세요.';
-    } else if (!hasAnySchedule) {
-      nextStepSubText = '위촉 차수를 입력중입니다. 기다려주세요.';
-    } else if (isMissingDates) {
-      nextStepSubText = '터치하여 위촉을 진행해 주세요';
-    } else {
-      nextStepSubText = '위촉 완료 여부를 검토중입니다.';
-    }
-  } else if (activeStep.key === 'final') {
-    nextStepSubText = '모든 위촉 과정이 끝났습니다.';
-  }
   const getAppointmentStatus = (completed: boolean) => {
     if (completed) return { label: '완료', color: '#ffffff', bg: '#16a34a' };
     return { label: '대기', color: '#ffffff', bg: '#64748b' };
@@ -1059,7 +1004,7 @@ export default function Home() {
       router.push(route as any);
       return;
     }
-    router.push('/board');
+    router.push('/notice');
   };
 
   const handleStatClick = (stepKey: StepKey) => {
@@ -1431,13 +1376,13 @@ export default function Home() {
                               <Text style={styles.statusSummaryText}>위촉 완료 {completedCommissionCount}/2</Text>
                               {/* 진행 단계 (기존 Stepper) */}
                               <View style={[styles.stepContainer, { marginTop: 8 }]}>
-                                {steps.map((step, index) => {
+                                {fcHomeSteps.map((step, index) => {
                                   const stepNum = index + 1;
                                   const isActive = stepNum === currentStep;
                                   const isDone = stepNum < currentStep;
                                   return (
                                     <View key={step.key} style={styles.stepWrapper}>
-                                      {index < steps.length - 1 && (
+                                      {index < fcHomeSteps.length - 1 && (
                                         <View style={[styles.stepConnector, isDone && styles.stepConnectorDone]} />
                                       )}
                                       <View style={[styles.stepCircle, isActive && styles.stepCircleActive, isDone && styles.stepCircleDone]}>
@@ -1470,9 +1415,13 @@ export default function Home() {
                         borderRadius={20}
                         style={{ flex: 1 }}>
                         <Pressable
-                          onPress={() => handlePressLink(stepToLink(activeStep.key))}
-                          disabled={isNextStepDisabled}
-                          style={({ pressed }) => [{ flex: 1 }, pressed && styles.pressedScale]}
+                          onPress={() => {
+                            handlePressLink(nextActionRoute);
+                          }}
+                          style={({ pressed }) => [
+                            { flex: 1 },
+                            pressed && styles.pressedScale,
+                          ]}
                         >
                           <LinearGradient
                             colors={['#f36f21', '#fabc3c']}
@@ -1490,10 +1439,10 @@ export default function Home() {
                                 </View>
                               </View>
                               <Text style={styles.premiumStepTitle} numberOfLines={1}>
-                                {activeStep.fullLabel}
+                                {nextAction.title}
                               </Text>
                               <Text style={styles.premiumStepSub}>
-                                {nextStepSubText}
+                                {nextAction.subtitle}
                               </Text>
                             </View>
                             <View style={styles.premiumStepDeco1} />
@@ -1538,13 +1487,13 @@ export default function Home() {
                     </View>
                     <Text style={styles.statusSummaryText}>위촉 완료 {completedCommissionCount}/2</Text>
                     <View style={styles.stepContainer}>
-                      {steps.map((step, index) => {
+                      {fcHomeSteps.map((step, index) => {
                         const stepNum = index + 1;
                         const isActive = stepNum === currentStep;
                         const isDone = stepNum < currentStep;
                         return (
                           <View key={step.key} style={styles.stepWrapper}>
-                            {index < steps.length - 1 && (
+                            {index < fcHomeSteps.length - 1 && (
                               <View style={[styles.stepConnector, isDone && styles.stepConnectorDone]} />
                             )}
                             <View style={[styles.stepCircle, isActive && styles.stepCircleActive, isDone && styles.stepCircleDone]}>
@@ -1563,9 +1512,13 @@ export default function Home() {
                 )}
                 <View style={styles.glanceRow}>
                   <Pressable
-                    onPress={() => handlePressLink(stepToLink(activeStep.key))}
-                    disabled={isNextStepDisabled}
-                    style={({ pressed }) => [{ flex: 1 }, pressed && styles.pressedScale]}
+                    onPress={() => {
+                      handlePressLink(nextActionRoute);
+                    }}
+                    style={({ pressed }) => [
+                      { flex: 1 },
+                      pressed && styles.pressedScale,
+                    ]}
                   >
                     <LinearGradient
                       colors={['#f36f21', '#fabc3c']}
@@ -1583,10 +1536,10 @@ export default function Home() {
                           </View>
                         </View>
                         <Text style={styles.premiumStepTitle} numberOfLines={1}>
-                          {activeStep.fullLabel}
+                          {nextAction.title}
                         </Text>
                         <Text style={styles.premiumStepSub}>
-                          {nextStepSubText}
+                          {nextAction.subtitle}
                         </Text>
                       </View>
                       <View style={styles.premiumStepDeco1} />
@@ -1856,23 +1809,6 @@ export default function Home() {
     </SafeAreaView >
   );
 }
-
-const stepToLink = (key: string) => {
-  switch (key) {
-    case 'info':
-      return '/fc/new';
-    case 'consent':
-      return '/consent';
-    case 'docs':
-      return '/docs-upload';
-    case 'url':
-      return '/appointment';
-    case 'final':
-      return '';
-    default:
-      return '';
-  }
-};
 
 const MetricCard = ({ label, value, onPress }: { label: string; value: string; onPress: () => void }) => {
   return (
@@ -2197,7 +2133,9 @@ const styles = StyleSheet.create({
   stepLabelActive: { color: CHARCOAL, fontWeight: '700' },
   premiumStepCard: {
     borderRadius: 20,
-    padding: 20,
+    paddingVertical: 22,
+    paddingHorizontal: 24,
+    marginHorizontal: 4,
     overflow: 'hidden',
     position: 'relative',
     height: 120, // Taller for impact

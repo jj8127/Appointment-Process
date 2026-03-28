@@ -1,6 +1,6 @@
 -- Supabase 스키마/정책 정의
 -- Supabase SQL Editor나 supabase CLI로 실행하세요.
--- governance sync marker: 2026-02-26 (migration 20260226000004_fix_partial_commission_signup_status.sql)
+-- governance sync marker: 2026-03-28 (migration 20260328000001_add_hanwha_commission_contract.sql)
 
 create extension if not exists "uuid-ossp";
 
@@ -18,12 +18,26 @@ create table if not exists public.fc_profiles (
   address_detail text,
   career_type text check (career_type in ('신입', '경력')),
   allowance_date date,
-  appointment_url text,
-  appointment_date date,
-  life_commission_completed boolean not null default false,
-  nonlife_commission_completed boolean not null default false,
+  allowance_reject_reason text,
   docs_deadline_at date,
   docs_deadline_last_notified_at date,
+  hanwha_commission_date_sub date,
+  hanwha_commission_date date,
+  hanwha_commission_reject_reason text,
+  hanwha_commission_pdf_path text,
+  hanwha_commission_pdf_name text,
+  appointment_url text,
+  appointment_date date,
+  appointment_schedule_life text,
+  appointment_schedule_nonlife text,
+  appointment_date_life date,
+  appointment_date_nonlife date,
+  appointment_date_life_sub date,
+  appointment_date_nonlife_sub date,
+  appointment_reject_reason_life text,
+  appointment_reject_reason_nonlife text,
+  life_commission_completed boolean not null default false,
+  nonlife_commission_completed boolean not null default false,
   status text not null default 'draft',
   identity_completed boolean not null default false,
   signup_completed boolean not null default false,
@@ -38,6 +52,9 @@ create table if not exists public.fc_profiles (
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
 );
+
+comment on column public.fc_profiles.status is
+  'FC onboarding workflow: draft -> temp-id-issued -> allowance-pending -> allowance-consented -> docs-requested -> docs-pending -> docs-submitted -> docs-rejected -> docs-approved -> hanwha-commission-review -> hanwha-commission-rejected -> hanwha-commission-approved -> appointment-completed -> final-link-sent';
 
 -- 주민번호 마스킹 기준 upsert를 위해 유니크 인덱스 추가
 drop index if exists idx_fc_profiles_resident_id_masked;
@@ -1414,10 +1431,58 @@ alter table public.fc_profiles
   add column if not exists allowance_reject_reason text;
 
 alter table public.fc_profiles
+  add column if not exists hanwha_commission_date_sub date;
+
+alter table public.fc_profiles
+  add column if not exists hanwha_commission_date date;
+
+alter table public.fc_profiles
+  add column if not exists hanwha_commission_reject_reason text;
+
+alter table public.fc_profiles
+  add column if not exists hanwha_commission_pdf_path text;
+
+alter table public.fc_profiles
+  add column if not exists hanwha_commission_pdf_name text;
+
+alter table public.fc_profiles
+  add column if not exists appointment_schedule_life text;
+
+alter table public.fc_profiles
+  add column if not exists appointment_schedule_nonlife text;
+
+alter table public.fc_profiles
+  add column if not exists appointment_date_life date;
+
+alter table public.fc_profiles
+  add column if not exists appointment_date_nonlife date;
+
+alter table public.fc_profiles
+  add column if not exists appointment_date_life_sub date;
+
+alter table public.fc_profiles
+  add column if not exists appointment_date_nonlife_sub date;
+
+alter table public.fc_profiles
   add column if not exists appointment_reject_reason_life text;
 
 alter table public.fc_profiles
   add column if not exists appointment_reject_reason_nonlife text;
+
+comment on column public.fc_profiles.hanwha_commission_date_sub is
+  'Date the FC submitted Hanwha commission review materials.';
+
+comment on column public.fc_profiles.hanwha_commission_date is
+  'Date Hanwha commission review was approved.';
+
+comment on column public.fc_profiles.hanwha_commission_reject_reason is
+  'Latest rejection reason for Hanwha commission review.';
+
+comment on column public.fc_profiles.hanwha_commission_pdf_path is
+  'Storage path for the Hanwha commission PDF used to gate review/approval.';
+
+comment on column public.fc_profiles.hanwha_commission_pdf_name is
+  'Original file name for the Hanwha commission PDF used to gate review/approval.';
 
 alter table public.fc_profiles
   drop column if exists resident_number;

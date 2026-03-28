@@ -1,5 +1,11 @@
 import { serve } from 'https://deno.land/std@0.224.0/http/server.ts';
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.45.4';
+import {
+  canSubmitInsuranceCommission,
+  buildWorkflowResetPayload,
+  isLegacyAppointmentTerminalStatus,
+  hasHanwhaPdfMetadata,
+} from '../_shared/commission.ts';
 
 function getEnv(name: string): string | undefined {
   const g: any = globalThis as any;
@@ -35,6 +41,32 @@ function json(body: Record<string, unknown>, status = 200) {
 
 function fail(message: string, status = 400) {
   return json({ ok: false, message }, status);
+}
+
+function hasExistingInsuranceStageActivity(profile: {
+  appointment_schedule_life?: string | null;
+  appointment_schedule_nonlife?: string | null;
+  appointment_date_life_sub?: string | null;
+  appointment_date_nonlife_sub?: string | null;
+  appointment_reject_reason_life?: string | null;
+  appointment_reject_reason_nonlife?: string | null;
+  appointment_date_life?: string | null;
+  appointment_date_nonlife?: string | null;
+  life_commission_completed?: boolean | null;
+  nonlife_commission_completed?: boolean | null;
+}) {
+  return Boolean(
+    profile.appointment_schedule_life ||
+    profile.appointment_schedule_nonlife ||
+    profile.appointment_date_life_sub ||
+    profile.appointment_date_nonlife_sub ||
+    profile.appointment_reject_reason_life ||
+    profile.appointment_reject_reason_nonlife ||
+    profile.appointment_date_life ||
+    profile.appointment_date_nonlife ||
+    profile.life_commission_completed ||
+    profile.nonlife_commission_completed,
+  );
 }
 
 type ActionRequest = {
@@ -98,10 +130,24 @@ function cleanPhone(input: string | null | undefined): string {
   return String(input ?? '').replace(/[^0-9]/g, '');
 }
 
+function trimOrNull(input: string | null | undefined): string | null {
+  const trimmed = String(input ?? '').trim();
+  return trimmed || null;
+}
+
 function isValidYmd(value: string): boolean {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
   const parsed = new Date(`${value}T00:00:00`);
   return !Number.isNaN(parsed.getTime());
+}
+
+function getKstYmd(reference = new Date()): string {
+  return new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'Asia/Seoul',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).format(reference);
 }
 
 function resolveAllowanceStatus(currentStatus: string | null | undefined): string {
@@ -141,6 +187,47 @@ function extractChatUploadPath(fileUrl: string | null | undefined): string | nul
   const pathOnly = withBucket.split('?')[0] ?? '';
   const normalized = pathOnly.replace(/^\/+/, '');
   return normalized || null;
+}
+
+function buildDocWorkflowResetPayload() {
+  const resetPayload = buildWorkflowResetPayload();
+  delete resetPayload.docs_deadline_at;
+  delete resetPayload.docs_deadline_last_notified_at;
+  return resetPayload;
+}
+
+async function syncProfileAfterDocMutation(fcId: string) {
+  const { data: allDocs, error: fetchError } = await supabase
+    .from('fc_documents')
+    .select('status,storage_path')
+    .eq('fc_id', fcId);
+  if (fetchError) throw fetchError;
+
+  const docs = allDocs ?? [];
+  const allSubmitted =
+    docs.length > 0 &&
+    docs.every((doc) => doc.storage_path && doc.storage_path !== 'deleted');
+  const allApproved = allSubmitted && docs.every((doc) => doc.status === 'approved');
+
+  if (allApproved) {
+    const { error: profileError } = await supabase
+      .from('fc_profiles')
+      .update({ status: 'docs-approved' })
+      .eq('id', fcId);
+    if (profileError) throw profileError;
+    return { allApproved: true };
+  }
+
+  const { error: profileError } = await supabase
+    .from('fc_profiles')
+    .update({
+      status: 'docs-pending',
+      ...buildDocWorkflowResetPayload(),
+    })
+    .eq('id', fcId);
+  if (profileError) throw profileError;
+
+  return { allApproved: false };
 }
 
 serve(async (req: Request) => {
@@ -298,6 +385,77 @@ serve(async (req: Request) => {
       return json({ ok: true, allowance_date: normalizedAllowanceDate, status: nextStatus });
     }
 
+    // ── updateHanwhaCommission ──
+    if (action === 'updateHanwhaCommission') {
+      const { fcId, decision, rejectReason, pdfPath, pdfName } = payload as {
+        fcId?: string;
+        decision?: 'approve' | 'reject';
+        rejectReason?: string | null;
+        pdfPath?: string | null;
+        pdfName?: string | null;
+      };
+      if (!fcId || !decision) return fail('fcId and decision are required');
+      if (decision !== 'approve' && decision !== 'reject') {
+        return fail('decision must be approve or reject');
+      }
+
+      const { data: profile, error: profileError } = await supabase
+        .from('fc_profiles')
+        .select('status,hanwha_commission_date_sub,hanwha_commission_pdf_path,hanwha_commission_pdf_name')
+        .eq('id', fcId)
+        .maybeSingle();
+      if (profileError) throw profileError;
+      if (!profile) {
+        return fail('Profile not found.', 404);
+      }
+      if (isLegacyAppointmentTerminalStatus(profile.status)) {
+        return fail('Legacy appointment-completed rows cannot re-enter Hanwha review.', 409);
+      }
+      if (!['docs-approved', 'hanwha-commission-review', 'hanwha-commission-rejected', 'hanwha-commission-approved'].includes(String(profile.status ?? ''))) {
+        return fail('Hanwha commission can only be processed after docs approval.', 409);
+      }
+      if (!trimOrNull(profile.hanwha_commission_date_sub)) {
+        return fail('FC submission date is required before Hanwha review can be processed.', 409);
+      }
+
+      if (decision === 'approve') {
+        const nextPdfPath = trimOrNull(pdfPath) ?? trimOrNull(profile.hanwha_commission_pdf_path);
+        const nextPdfName = trimOrNull(pdfName) ?? trimOrNull(profile.hanwha_commission_pdf_name);
+        if (!hasHanwhaPdfMetadata({ hanwha_commission_pdf_path: nextPdfPath, hanwha_commission_pdf_name: nextPdfName })) {
+          return fail('Hanwha PDF path and name are required for approval.', 409);
+        }
+
+        const updatePayload: Record<string, unknown> = {
+          hanwha_commission_date: getKstYmd(),
+          hanwha_commission_reject_reason: null,
+          status: 'hanwha-commission-approved',
+          hanwha_commission_pdf_path: nextPdfPath,
+          hanwha_commission_pdf_name: nextPdfName,
+        };
+
+        const { error: updateError } = await supabase.from('fc_profiles').update(updatePayload).eq('id', fcId);
+        if (updateError) throw updateError;
+        return json({ ok: true, status: 'hanwha-commission-approved' });
+      }
+
+      const normalizedRejectReason = String(rejectReason ?? '').trim();
+      if (!normalizedRejectReason) {
+        return fail('rejectReason is required when rejecting Hanwha commission.');
+      }
+
+      const updatePayload: Record<string, unknown> = {
+        hanwha_commission_date: null,
+        hanwha_commission_reject_reason: normalizedRejectReason,
+        status: 'hanwha-commission-rejected',
+        hanwha_commission_pdf_path: null,
+        hanwha_commission_pdf_name: null,
+      };
+
+      const { error: updateError } = await supabase.from('fc_profiles').update(updatePayload).eq('id', fcId);
+      if (updateError) throw updateError;
+      return json({ ok: true, status: 'hanwha-commission-rejected' });
+    }
+
     // ── updateAppointmentDate ──
     if (action === 'updateAppointmentDate') {
       const { fcId, type, date, isReject, rejectReason } = payload as {
@@ -308,6 +466,20 @@ serve(async (req: Request) => {
         rejectReason?: string | null;
       };
       if (!fcId || !type) return fail('fcId and type are required');
+
+      const { data: profile, error: profileError } = await supabase
+        .from('fc_profiles')
+        .select('status,hanwha_commission_pdf_path,hanwha_commission_pdf_name')
+        .eq('id', fcId)
+        .maybeSingle();
+      if (profileError) throw profileError;
+      if (!profile) return fail('Profile not found.', 404);
+      if (!canSubmitInsuranceCommission(profile)) {
+        return fail(
+          'Hanwha approval and PDF file are required before updating insurance commission dates.',
+          409,
+        );
+      }
 
       const field = type === 'life' ? 'appointment_date_life' : 'appointment_date_nonlife';
       const submittedField = type === 'life' ? 'appointment_date_life_sub' : 'appointment_date_nonlife_sub';
@@ -332,7 +504,18 @@ serve(async (req: Request) => {
       const lifeDone = Boolean(updated?.appointment_date_life || updated?.life_commission_completed);
       const nonlifeDone = Boolean(updated?.appointment_date_nonlife || updated?.nonlife_commission_completed);
       const bothDone = lifeDone && nonlifeDone;
-      const nextStatus = date === null ? 'docs-approved' : bothDone ? 'final-link-sent' : 'appointment-completed';
+      const currentStatus = String(profile?.status ?? '');
+      const preserveLegacyTerminal = isLegacyAppointmentTerminalStatus(currentStatus);
+      const nextStatus =
+        isReject || date === null
+          ? preserveLegacyTerminal
+            ? currentStatus
+            : 'hanwha-commission-approved'
+          : currentStatus === 'final-link-sent'
+            ? 'final-link-sent'
+            : bothDone
+              ? 'final-link-sent'
+              : 'appointment-completed';
       const { error: statusErr } = await supabase.from('fc_profiles').update({ status: nextStatus }).eq('id', fcId);
       if (statusErr) throw statusErr;
 
@@ -347,6 +530,21 @@ serve(async (req: Request) => {
         nonlife?: string | null;
       };
       if (!fcId) return fail('fcId is required');
+      const { data: profile, error: profileError } = await supabase
+        .from('fc_profiles')
+        .select(
+          'status,hanwha_commission_pdf_path,hanwha_commission_pdf_name,appointment_schedule_life,appointment_schedule_nonlife,appointment_date_life_sub,appointment_date_nonlife_sub,appointment_reject_reason_life,appointment_reject_reason_nonlife,appointment_date_life,appointment_date_nonlife,life_commission_completed,nonlife_commission_completed',
+        )
+        .eq('id', fcId)
+        .maybeSingle();
+      if (profileError) throw profileError;
+      if (!profile) return fail('Profile not found.', 404);
+      if (!hasExistingInsuranceStageActivity(profile) && !canSubmitInsuranceCommission(profile)) {
+        return fail(
+          'Hanwha approval and PDF file are required before updating insurance schedule.',
+          409,
+        );
+      }
       const updatePayload: Record<string, any> = {};
       if (life !== undefined) updatePayload.appointment_schedule_life = life || null;
       if (nonlife !== undefined) updatePayload.appointment_schedule_nonlife = nonlife || null;
@@ -437,21 +635,8 @@ serve(async (req: Request) => {
         .eq('doc_type', docType);
       if (error) throw error;
 
-      // Check if all docs approved → update profile status
-      if (status === 'approved') {
-        const { data: allDocs } = await supabase
-          .from('fc_documents')
-          .select('status,storage_path')
-          .eq('fc_id', fcId);
-        const allApproved = allDocs && allDocs.length > 0 &&
-          allDocs.every((d) => d.status === 'approved') &&
-          allDocs.every((d) => d.storage_path && d.storage_path !== 'deleted');
-        if (allApproved) {
-          await supabase.from('fc_profiles').update({ status: 'docs-approved' }).eq('id', fcId);
-          return json({ ok: true, allApproved: true });
-        }
-      }
-      return json({ ok: true, allApproved: false });
+      const { allApproved } = await syncProfileAfterDocMutation(fcId);
+      return json({ ok: true, allApproved });
     }
 
     // ── deleteDocFile ──
@@ -473,6 +658,7 @@ serve(async (req: Request) => {
         .eq('fc_id', fcId)
         .eq('doc_type', docType);
       if (error) throw error;
+      await syncProfileAfterDocMutation(fcId);
       return json({ ok: true });
     }
 

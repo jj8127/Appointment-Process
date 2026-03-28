@@ -10,6 +10,7 @@ import {
     Divider,
     Group,
     Loader,
+    Tabs,
     Paper,
     Popover,
     ScrollArea,
@@ -248,6 +249,7 @@ export default function ExamApplicantsPage() {
     const queryClient = useQueryClient();
     const { isReadOnly, hydrated, role } = useSession();
     const [filters, setFilters] = useState<FilterState>({});
+    const [quickAffiliation, setQuickAffiliation] = useState('전체');
 
     const colMinWidth: Record<ColumnField, number> = useMemo(
         () => ({
@@ -395,17 +397,31 @@ export default function ExamApplicantsPage() {
         return options;
     }, [applicants]);
 
+    const quickAffiliationOptions = useMemo(() => {
+        if (!applicants) return ['전체'];
+        const raw = applicants
+            .map((item) => item.affiliation || '-')
+            .filter(Boolean)
+            .sort((a, b) => a.localeCompare(b));
+        const unique = Array.from(new Set(raw));
+        return ['전체', ...unique];
+    }, [applicants]);
+
     // --- Filter Logic ---
     const filteredRows = useMemo(() => {
         if (!applicants) return [];
         return applicants.filter(item => {
+            if (quickAffiliation !== '전체' && item.affiliation !== quickAffiliation) {
+                return false;
+            }
+
             return Object.entries(filters).every(([field, selectedValues]) => {
                 if (!selectedValues || selectedValues.length === 0) return true;
                 const val = getRowValue(item, field as RowField);
                 return selectedValues.includes(val);
             });
         });
-    }, [applicants, filters]);
+    }, [applicants, filters, quickAffiliation]);
 
     // --- Stats ---
     const stats = useMemo(() => {
@@ -589,6 +605,24 @@ export default function ExamApplicantsPage() {
                 </Group>
 
                 {/* Stats */}
+                <Group gap="xs" align="flex-start" wrap="wrap">
+                    <Text size="xs" c="dimmed" fw={500}>빠른 분류:</Text>
+                    <Tabs
+                        value={quickAffiliation}
+                        onChange={setQuickAffiliation}
+                        variant="pills"
+                        radius="xl"
+                        color="blue"
+                    >
+                        <Tabs.List bg="blue.0" p={4} style={{ borderRadius: 24, flexWrap: 'wrap' }}>
+                            {quickAffiliationOptions.map((option) => (
+                                <Tabs.Tab key={option} value={option} fw={600} px={14}>
+                                    {option}
+                                </Tabs.Tab>
+                            ))}
+                        </Tabs.List>
+                    </Tabs>
+                </Group>
                 <Group grow>
                     <Paper p="md" radius="md" withBorder shadow="sm">
                         <Text size="xs" c="dimmed" fw={700} tt="uppercase">총 신청자 (현재 필터)</Text>

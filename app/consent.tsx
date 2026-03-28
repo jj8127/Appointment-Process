@@ -39,6 +39,22 @@ const formatKoreanDate = (d: Date) =>
 const toYMD = (d: Date) =>
   `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 
+const CONSENT_LOCKED_STATUSES = [
+  'allowance-consented',
+  'docs-requested',
+  'docs-pending',
+  'docs-submitted',
+  'docs-approved',
+  'hanwha-commission-review',
+  'hanwha-commission-rejected',
+  'hanwha-commission-approved',
+  'appointment-completed',
+  'final-link-sent',
+] as const;
+
+const isConsentLockedStatus = (status: string | null | undefined) =>
+  Boolean(status && CONSENT_LOCKED_STATUSES.includes(status as (typeof CONSENT_LOCKED_STATUSES)[number]));
+
 export default function AllowanceConsentScreen() {
   const { residentId } = useSession();
   useIdentityGate({ nextPath: '/consent' });
@@ -85,11 +101,7 @@ export default function AllowanceConsentScreen() {
       setRejectReason(data?.allowance_reject_reason ?? null);
 
       // Fix: Check status to block edits
-      if (data?.status && ['allowance-consented', 'docs-requested', 'docs-pending', 'docs-submitted', 'docs-approved', 'appointment-completed', 'final-link-sent'].includes(data.status)) {
-        setIsApproved(true);
-      } else {
-        setIsApproved(false);
-      }
+      setIsApproved(isConsentLockedStatus(data?.status));
     };
     load();
   }, [residentId]);
@@ -146,7 +158,7 @@ export default function AllowanceConsentScreen() {
         })
         .catch(() => { });
 
-      Alert.alert('저장 완료', '수당 동의일이 제출되었습니다. 총무 검토 후 다음 단계로 진행됩니다.');
+      Alert.alert('저장 완료', '수당 동의일이 제출되었습니다. 총무 검토 후 문서제출 단계로 진행됩니다.');
       router.replace('/');
     } catch (err: any) {
       Alert.alert('저장 실패', err?.message ?? '정보를 저장하지 못했습니다.');
@@ -200,11 +212,7 @@ export default function AllowanceConsentScreen() {
       setCareerType(data?.career_type ?? null);
       setRejectReason(data?.allowance_reject_reason ?? null);
 
-      if (data?.status && ['allowance-consented', 'docs-requested', 'docs-pending', 'docs-submitted', 'docs-approved', 'appointment-completed', 'final-link-sent'].includes(data.status)) {
-        setIsApproved(true);
-      } else {
-        setIsApproved(false);
-      }
+      setIsApproved(isConsentLockedStatus(data?.status));
 
     } catch {
       // ignore
@@ -228,8 +236,6 @@ export default function AllowanceConsentScreen() {
           <ScreenHeader
             title="수당 동의 가이드"
             subtitle="서울보증보험 사이트에서 진행해주세요."
-            showRefresh
-            onRefresh={onRefresh}
             style={styles.header}
           />
 
@@ -313,33 +319,42 @@ export default function AllowanceConsentScreen() {
               </Text>
             </View>
 
-            <FormInput
-              label="임시사번"
-              placeholder="총무가 임시사번을 발급하는 중입니다."
-              value={tempId}
-              editable={false}
-              selectTextOnFocus={false}
-              containerStyle={styles.inputGroup}
-            />
-            <View style={styles.tempIdActionRow}>
-              <Button
-                onPress={() => { void copyTempId(); }}
-                disabled={!tempId.trim()}
-                variant="outline"
-                size="sm"
-                leftIcon={
+            <View style={styles.inputGroup}>
+              <View style={styles.fieldHeaderRow}>
+                <Text style={styles.fieldHeaderLabel}>임시사번</Text>
+                <Pressable
+                  onPress={() => { void copyTempId(); }}
+                  disabled={!tempId.trim()}
+                  accessibilityRole="button"
+                  accessibilityLabel="임시사번 복사"
+                  accessibilityHint="발급된 임시사번을 클립보드에 복사합니다."
+                  style={({ pressed }) => [
+                    styles.tempIdCopyChip,
+                    !tempId.trim() && styles.tempIdCopyChipDisabled,
+                    pressed && tempId.trim() && styles.buttonPressed,
+                  ]}
+                >
                   <Feather
                     name="copy"
                     size={14}
                     color={tempId.trim() ? COLORS.primary : COLORS.text.disabled}
                   />
-                }
-                accessibilityLabel="임시사번 복사"
-                accessibilityHint="발급된 임시사번을 클립보드에 복사합니다."
-                style={styles.tempIdCopyButton}
-              >
-                임시사번 복사
-              </Button>
+                  <Text
+                    style={[
+                      styles.tempIdCopyChipLabel,
+                      !tempId.trim() && styles.tempIdCopyChipLabelDisabled,
+                    ]}
+                  >
+                    복사
+                  </Text>
+                </Pressable>
+              </View>
+              <FormInput
+                placeholder="총무가 임시사번을 발급하는 중입니다."
+                value={tempId}
+                editable={false}
+                selectTextOnFocus={false}
+              />
             </View>
 
             <View style={styles.inputGroup}>
@@ -545,13 +560,39 @@ const styles = StyleSheet.create({
   },
 
   inputGroup: { marginBottom: SPACING.base },
-  tempIdActionRow: {
-    alignItems: 'flex-end',
-    marginTop: -SPACING.sm,
-    marginBottom: SPACING.base,
+  fieldHeaderRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: SPACING.sm,
   },
-  tempIdCopyButton: {
-    minWidth: 148,
+  fieldHeaderLabel: {
+    fontSize: TYPOGRAPHY.fontSize.sm + 1,
+    fontWeight: TYPOGRAPHY.fontWeight.semibold,
+    color: COLORS.text.primary,
+  },
+  tempIdCopyChip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: SPACING.xs,
+    paddingHorizontal: SPACING.sm + 2,
+    paddingVertical: SPACING.xs + 2,
+    borderRadius: RADIUS.full,
+    borderWidth: 1,
+    borderColor: COLORS.primary,
+    backgroundColor: '#FFF4EC',
+  },
+  tempIdCopyChipDisabled: {
+    borderColor: COLORS.border.light,
+    backgroundColor: COLORS.background.secondary,
+  },
+  tempIdCopyChipLabel: {
+    fontSize: TYPOGRAPHY.fontSize.xs + 1,
+    fontWeight: TYPOGRAPHY.fontWeight.bold,
+    color: COLORS.primary,
+  },
+  tempIdCopyChipLabelDisabled: {
+    color: COLORS.text.disabled,
   },
   label: {
     fontSize: TYPOGRAPHY.fontSize.sm + 1,

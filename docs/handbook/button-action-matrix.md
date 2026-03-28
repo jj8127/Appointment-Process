@@ -2,7 +2,7 @@ doc_id: FC-HANDBOOK-ACTION-MATRIX
 owner_repo: fc-onboarding-app
 owner_area: handbook
 audience: developer, operator
-last_verified: 2026-03-26
+last_verified: 2026-03-28
 source_of_truth: app/* + web/src/app/* + supabase/functions/*
 
 # 핵심 액션 매트릭스
@@ -14,8 +14,10 @@ source_of_truth: app/* + web/src/app/* + supabase/functions/*
 | `FC-ONBOARDING.SAVE_PROFILE` | 저장 | `fc/new` | `fc` | 필수값 유효 | 기본정보/소속/커미션 저장 | `fc_profiles` | 저장 완료 | 입력 확인/서버 오류 | Onboarding |
 | `FC-ONBOARDING.CONSENT_SUBMIT` | 동의 완료 | `consent` | `fc` | temp-id 선행 | 수당동의 제출 | allowance state | 다음 단계 진입 | 게이트 오류 | Onboarding |
 | `FC-DOCS.UPLOAD` | 서류 업로드 | `docs-upload` | `fc` | 요청 서류 존재 | 파일 업로드/재제출 | storage + doc rows | 제출 상태 반영 | 업로드 실패 | Docs |
-| `FC-APPOINTMENT.SUBMIT` | 위촉 제출 | `appointment` | `fc` | 서류 승인 후 | 위촉 일정/완료 제출 | appointment fields | 제출 완료 | 서버 오류 | Appointment |
+| `FC-HANWHA.SUBMIT` | 한화 위촉 완료일 제출 | `hanwha-commission` | `fc` | 서류 승인 완료 | 한화 위촉 완료일 제출 | `fc_profiles.hanwha_commission_*` | 검토 대기 | 제출 실패 | Onboarding |
+| `FC-APPOINTMENT.SUBMIT` | 위촉 제출 | `appointment` | `fc` | 한화 승인 + PDF 완료 | 위촉 일정/완료 제출 | appointment fields | 제출 완료 | 서버 오류 | Appointment |
 | `FC-ADMIN.UPDATE_STATUS` | 상태 변경 | web `dashboard` | `admin` | readOnly 아님 | FC 상태 전이 | `fc_profiles.status` | 토스트/리스트 갱신 | 권한/계약 오류 | Admin lifecycle |
 | `FC-ADMIN.UPDATE_DOC_STATUS` | 승인/반려 | web `dashboard` docs tab | `admin` | 서류 row 존재 | 문서 상태 갱신 | doc row + profile status | 토스트/상태 갱신 | 권한/서버 오류 | Docs |
+| `FC-ADMIN.UPDATE_HANWHA` | 한화 승인/반려/PDF 관리 | web `dashboard` hanwha tab | `admin` | 한화 제출 row 존재 | 승인일 저장, PDF 업로드/삭제, 승인/반려 | `hanwha_commission_*` + notifications | 토스트/상태 갱신 | PDF/계약 오류 | Admin lifecycle |
 | `FC-ADMIN.CONFIRM_APPOINTMENT` | 위촉 확정 | web `dashboard` appointment tab | `admin` | 제출 정보 유효 | 위촉 완료/최종 완료 계산 | appointment fields + status | 완료 토스트 | 서버 오류 | Appointment |
 | `FC-BRIDGE.OPEN_REQUEST_BOARD` | 설계요청 열기 | `request-board` | `fc`, `manager`, `developer`, linked `designer` | 브리지 세션 복구 가능 | GaramLink 임베드/연결 | request_board JWT/session | 화면 진입 | 재로그인/브리지 오류 | Bridge |

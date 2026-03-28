@@ -2,8 +2,8 @@ doc_id: FC-HANDBOOK-WORKFLOW-MATRIX
 owner_repo: fc-onboarding-app
 owner_area: handbook
 audience: developer, operator
-last_verified: 2026-03-26
-source_of_truth: types/fc.ts + web/src/lib/shared.ts + web/src/app/api/admin/fc/route.ts
+last_verified: 2026-03-28
+source_of_truth: types/fc.ts + lib/fc-workflow.ts + web/src/lib/shared.ts + web/src/app/api/admin/fc/route.ts
 
 # 상태/전이 매트릭스
 
@@ -19,18 +19,23 @@ source_of_truth: types/fc.ts + web/src/lib/shared.ts + web/src/app/api/admin/fc/
 | `docs-pending` | 서류 일부 제출/반려 후 재대기 | FC, admin | 업로드/반려 | 예 |
 | `docs-submitted` | 요청 서류 제출 완료 | FC | 서류 업로드 | 예 |
 | `docs-rejected` | 서류 반려 상태 | admin | 서류 반려 | 예 |
-| `docs-approved` | 요청 서류 승인 완료 | admin | 서류 승인 | 예 |
-| `appointment-completed` | 위촉 처리 완료 | admin | `updateAppointmentAction` confirm | 예 |
+| `docs-approved` | 요청 서류 승인 완료, 한화 위촉 대기 | admin | 서류 승인 | 예 |
+| `hanwha-commission-review` | FC 한화 위촉 완료일 제출 후 검토 중 | FC, admin | `fc-submit-hanwha-commission`, `updateStatus` | 예 |
+| `hanwha-commission-rejected` | 한화 위촉 반려, 재제출 필요 | admin | `updateStatus` reject | 예 |
+| `hanwha-commission-approved` | 한화 위촉 승인 완료, PDF 등록 완료 | admin | `updateStatus` approve | 예 |
+| `appointment-completed` | 보험 위촉 URL 단계 진행 중/legacy 위촉 이력 보유 | FC, admin | `updateAppointmentAction` | 예 |
 | `final-link-sent` | 최종 완료 | admin, derived | 위촉 완료 + 커미션 조건 충족 | 예 |
 
 ## 상태 전이 메모
 
 - `temp_id` 입력은 `draft -> temp-id-issued`를 유발할 수 있습니다.
 - 수당일만 저장하면 `allowance-pending`, 동의 승인 시 `allowance-consented`입니다.
-- 요청 서류를 모두 제거하면 다시 `allowance-consented`로 내려갑니다.
-- 서류 반려는 `docs-pending`으로 되돌립니다.
-- 위촉 reject는 `docs-approved`로 복귀합니다.
-- 커미션 완료 플래그 조정은 `final-link-sent`를 강제 또는 해제할 수 있습니다.
+- 요청 서류가 모두 승인되면 `docs-approved`로 전환되고 다음 단계는 `한화 위촉`입니다.
+- 서류 반려/삭제/미완성 상태가 되면 `docs-pending`으로 내려가며 `hanwha_commission_*`, `appointment_*`, 커미션 완료 플래그를 함께 초기화합니다.
+- FC가 한화 위촉 완료일을 제출하면 `hanwha-commission-review`입니다.
+- 총무 승인 시 PDF가 필수이며, 승인 완료 후에만 보험 위촉 URL 단계가 의미를 갖습니다.
+- 한화 반려는 `hanwha-commission-rejected`로 되돌리고 PDF 메타데이터를 비웁니다.
+- `appointment-completed`와 `final-link-sent`는 legacy 보험 이력도 포함할 수 있지만, 신규 온보딩은 한화 승인 + PDF 이후에만 보험 위촉 단계로 진행합니다.
 
 ## GaramLink 요약
 

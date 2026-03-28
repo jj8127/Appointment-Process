@@ -635,13 +635,25 @@ export default function NotificationsScreen() {
       return '/request-board';
     }
 
+    const lowerTitle = item.title?.toLowerCase?.() ?? '';
+    const lowerBody = item.body?.toLowerCase?.() ?? '';
+
+    const isHanwhaWorkflowNotification =
+      lowerTitle.includes('한화 위촉 승인') ||
+      lowerTitle.includes('한화 위촉 반려') ||
+      lowerBody.includes('한화 위촉이 승인') ||
+      lowerBody.includes('한화 위촉이 반려') ||
+      lowerBody.includes('승인 pdf');
+
+    if (isHanwhaWorkflowNotification) {
+      return '/hanwha-commission';
+    }
+
     if (item.targetUrl) {
       return normalizeTargetUrl(item.targetUrl);
     }
 
     const category = (item.category ?? '').toLowerCase();
-    const lowerTitle = item.title?.toLowerCase?.() ?? '';
-    const lowerBody = item.body?.toLowerCase?.() ?? '';
 
     if (category.includes('message') || lowerTitle.includes('메시지') || lowerBody.includes('메시지')) {
       return '/messenger?channel=garam';

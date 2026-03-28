@@ -472,15 +472,26 @@ async function fetchUnifiedNotices(limit = 20): Promise<NoticeRow[]> {
 
 function getTargetUrl(role: 'admin' | 'fc', payload: Payload, message: string, fcId: string): string {
   const msg = message.toLowerCase();
+  const explicitUrl =
+    'url' in (payload as Record<string, unknown>) && typeof (payload as { url?: unknown }).url === 'string'
+      ? String((payload as { url?: string }).url ?? '').trim()
+      : '';
+
+  if (explicitUrl) {
+    return explicitUrl;
+  }
 
   if (role === 'fc') {
     if (msg.includes('임시번호') || msg.includes('경력')) return '/consent';
     if (msg.includes('서류 요청')) return '/docs-upload';
+    if (msg.includes('한화')) return '/hanwha-commission';
+    if (msg.includes('보험 위촉')) return '/appointment';
     if (msg.includes('위촉 url') || msg.includes('위촉url') || msg.includes('위촉')) return '/appointment';
     return '/notifications';
   }
 
   if (msg.includes('수당동의')) return '/dashboard';
+  if (msg.includes('한화')) return '/dashboard';
   if (msg.includes('업로드') || msg.includes('제출') || msg.includes('서류')) return `/docs-upload?userId=${fcId}`;
   return '/notifications';
 }
@@ -490,6 +501,7 @@ function buildTitle(fcName: string | null, payload: Payload, message?: string) {
   const msg = (message ?? '').toLowerCase();
 
   if (payload.type === 'admin_update') {
+    if (msg.includes('한화')) return '한화 위촉 안내';
     if (msg.includes('위촉')) return '위촉 URL 등록';
     if (msg.includes('temp')) return `${name}의 임시번호 안내`;
     if (msg.includes('docs') || msg.includes('서류')) return `${name} 서류 요청`;
@@ -501,6 +513,7 @@ function buildTitle(fcName: string | null, payload: Payload, message?: string) {
     return `${name} ${docName} 삭제`;
   }
   if (payload.type === 'fc_update') {
+    if (msg.includes('한화')) return `${name} 한화 위촉 제출`;
     if (msg.includes('기본') || msg.includes('정보')) return `${name} 기본 정보 업데이트`;
     if (msg.includes('temp')) return `${name}의 임시번호 안내`;
     if (msg.includes('서류') || msg.includes('업로드') || msg.includes('upload')) {
@@ -962,7 +975,7 @@ serve(async (req: Request) => {
   // 홈 상단 최신 공지 조회 (RLS 우회)
   if (body.type === 'latest_notice') {
     try {
-      const notices = await fetchBoardNoticesWithAttachments(1).catch((error) => {
+      const notices = await fetchUnifiedNotices(1).catch((error) => {
         if (isMissingTableError(error)) return [] as NoticeRow[];
         throw error;
       });
@@ -1033,7 +1046,7 @@ serve(async (req: Request) => {
         const { data, error } = await supabase
           .from('device_tokens')
           .select('expo_push_token,resident_id,display_name')
-          .eq('role', 'admin');
+          .in('role', ['admin', 'manager']);
         if (!error && data) tokens = data;
       } else {
         const { data, error } = await supabase
@@ -1134,7 +1147,6 @@ serve(async (req: Request) => {
       const { data, error } = await supabase
         .from('device_tokens')
         .select('expo_push_token,resident_id,display_name')
-        .eq('role', 'admin')
         .in('resident_id', recipientResidentIds);
       if (error) {
         console.warn('[fc-notify] device token load failed', error.message);
