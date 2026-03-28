@@ -148,8 +148,10 @@
       "id": "backend-admin-ops",
       "severity": "contract",
       "prefixes": [
+        "supabase/functions/_shared/commission.ts",
         "supabase/functions/admin-action/",
         "supabase/functions/fc-consent/",
+        "supabase/functions/fc-submit-hanwha-commission/",
         "supabase/functions/fc-submit-appointment/",
         "web/src/app/api/fc-delete/route.ts",
         "web/src/app/api/admin/resident-numbers/route.ts",

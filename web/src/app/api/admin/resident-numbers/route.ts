@@ -16,9 +16,13 @@ function fromBase64(input: string): Uint8Array {
   return Uint8Array.from(Buffer.from(input, 'base64'));
 }
 
+function toArrayBuffer(bytes: Uint8Array): ArrayBuffer {
+  return bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) as ArrayBuffer;
+}
+
 async function importAesKeyForDecrypt(base64Key: string): Promise<CryptoKey> {
   const raw = fromBase64(base64Key);
-  return crypto.subtle.importKey('raw', raw, { name: 'AES-GCM' }, false, ['decrypt']);
+  return crypto.subtle.importKey('raw', toArrayBuffer(raw), { name: 'AES-GCM' }, false, ['decrypt']);
 }
 
 async function decryptResidentNumber(value: string, key: CryptoKey): Promise<string | null> {
@@ -28,7 +32,11 @@ async function decryptResidentNumber(value: string, key: CryptoKey): Promise<str
   try {
     const iv = fromBase64(parts[0]);
     const cipher = fromBase64(parts[1]);
-    const plain = await crypto.subtle.decrypt({ name: 'AES-GCM', iv }, key, cipher);
+    const plain = await crypto.subtle.decrypt(
+      { name: 'AES-GCM', iv: toArrayBuffer(iv) },
+      key,
+      toArrayBuffer(cipher),
+    );
     const digits = Buffer.from(plain).toString('utf8').replace(/[^0-9]/g, '');
     return digits.length === 13 ? `${digits.slice(0, 6)}-${digits.slice(6)}` : null;
   } catch {

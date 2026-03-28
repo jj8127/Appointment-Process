@@ -2,7 +2,7 @@ doc_id: SHARED-SECURITY-SECRET-OPS
 owner_repo: fc-onboarding-app
 owner_area: shared-contract
 audience: developer, operator
-last_verified: 2026-03-26
+last_verified: 2026-03-28
 source_of_truth: env contracts + reset-password functions + admin service-role callers
 
 # Security And Secret Operations
@@ -28,3 +28,8 @@ source_of_truth: env contracts + reset-password functions + admin service-role c
 - 비밀번호 reset 계열은 가람in이 canonical entrypoint입니다.
 - request_board의 reset UI는 proxy일 뿐 독립 정책 원천이 아닙니다.
 - PII export/조회는 resident-number API 또는 owning secure path만 사용합니다.
+
+## 2026-03-28 운영 메모
+
+- `request-signup-otp`와 `set-password`는 로그인/가입 시 shared commission initializer를 거치므로, 위촉 단계 필드(`hanwha_commission_*`, 보험 위촉 제출/승인 필드) 초기화 규칙과 같이 검토해야 합니다.
+- 모바일/웹 push fanout은 `device_tokens.role='admin'`만 전제하면 안 됩니다. 총무 기기가 `manager` role로 등록될 수 있으므로, FC 제출 알림은 `admin`과 `manager` 토큰을 모두 포함해야 합니다.

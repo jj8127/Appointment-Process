@@ -25,6 +25,9 @@ type StatusDisplay = {
   color: WorkflowColor;
 };
 
+type WorkflowProfile = Parameters<typeof calcWorkflowStep>[0];
+type AdminWorkflowProfile = Parameters<typeof calcAdminWorkflowStep>[0];
+
 export const STATUS_LABELS: Record<FcProfile['status'] | string, string> = {
   draft: '임시사번 미발급',
   'temp-id-issued': '임시사번 발급 완료',
@@ -175,11 +178,11 @@ const getWorkflowStepKey = (step: WorkflowStepNumber) => `step${step}` as Workfl
 const getAdminWorkflowStepKey = (step: AdminWorkflowStepNumber) =>
   `step${step}` as AdminWorkflowStepKey;
 
-const getAdminWorkflowStepNumber = (profile: FcProfile): AdminWorkflowStepNumber => {
+const getAdminWorkflowStepNumber = (profile: AdminWorkflowProfile): AdminWorkflowStepNumber => {
   return calcAdminWorkflowStep(profile);
 };
 
-export const getDocProgress = (profile: FcProfile) => {
+export const getDocProgress = (profile: WorkflowProfile) => {
   const docs = profile.fc_documents ?? [];
   if (!docs.length) {
     return { key: 'no-request' as DocProgressKey, label: '요청 안함', color: 'gray' as WorkflowColor };
@@ -204,7 +207,7 @@ export const getDocProgress = (profile: FcProfile) => {
   return { key: 'in-progress' as DocProgressKey, label: '제출 중', color: 'orange' as WorkflowColor };
 };
 
-export const getHanwhaProgress = (profile: FcProfile) => {
+export const getHanwhaProgress = (profile: WorkflowProfile) => {
   const approved = hasHanwhaApprovalEvidence(profile);
   if (approved) {
     if (hasHanwhaPdfMetadata(profile) || hasAppointmentWorkflowEvidence(profile)) {
@@ -228,7 +231,7 @@ export const getHanwhaProgress = (profile: FcProfile) => {
   return { key: 'ready' as HanwhaProgressKey, label: '진행 대기', color: 'blue' as WorkflowColor };
 };
 
-export const getAppointmentProgress = (profile: FcProfile, type: 'life' | 'nonlife') => {
+export const getAppointmentProgress = (profile: WorkflowProfile, type: 'life' | 'nonlife') => {
   const schedule =
     type === 'life' ? profile.appointment_schedule_life : profile.appointment_schedule_nonlife;
   const approvedByDate =
@@ -250,11 +253,11 @@ export const getAppointmentProgress = (profile: FcProfile, type: 'life' | 'nonli
   return { key: 'not-set' as AppointmentProgressKey, label: '미입력', color: 'gray' as WorkflowColor };
 };
 
-export const calcStep = (profile: FcProfile): WorkflowStepNumber => {
+export const calcStep = (profile: WorkflowProfile): WorkflowStepNumber => {
   return calcWorkflowStep(profile);
 };
 
-export const getStepDisplay = (profile: FcProfile) => {
+export const getStepDisplay = (profile: WorkflowProfile) => {
   const step = calcStep(profile);
   const key = getWorkflowStepKey(step);
 
@@ -266,7 +269,7 @@ export const getStepDisplay = (profile: FcProfile) => {
   };
 };
 
-export const getAdminStepDisplay = (profile: FcProfile) => {
+export const getAdminStepDisplay = (profile: AdminWorkflowProfile) => {
   const step = getAdminWorkflowStepNumber(profile);
   const key = getAdminWorkflowStepKey(step);
 
@@ -278,7 +281,7 @@ export const getAdminStepDisplay = (profile: FcProfile) => {
   };
 };
 
-export const getSummaryStatus = (profile: FcProfile): StatusDisplay => {
+export const getSummaryStatus = (profile: WorkflowProfile): StatusDisplay => {
   const step = calcStep(profile);
 
   if (step === 5) {
@@ -384,4 +387,4 @@ export const getStatusLabel = (
   profile: Parameters<typeof getStatusDisplay>[0],
 ) => getStatusDisplay(profile).label;
 
-export const getAdminStep = (profile: FcProfile) => getAdminStepDisplay(profile).label;
+export const getAdminStep = (profile: AdminWorkflowProfile) => getAdminStepDisplay(profile).label;

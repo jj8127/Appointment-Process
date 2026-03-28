@@ -609,7 +609,7 @@ export default function ExamApplicantsPage() {
                     <Text size="xs" c="dimmed" fw={500}>빠른 분류:</Text>
                     <Tabs
                         value={quickAffiliation}
-                        onChange={setQuickAffiliation}
+                        onChange={(value) => setQuickAffiliation(value ?? '전체')}
                         variant="pills"
                         radius="xl"
                         color="blue"

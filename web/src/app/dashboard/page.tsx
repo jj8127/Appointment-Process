@@ -1061,8 +1061,8 @@ export default function DashboardPage() {
           extra: {
             hanwha_commission_date: dayjs().format('YYYY-MM-DD'),
             hanwha_commission_reject_reason: null,
-            hanwha_commission_pdf_path: selectedFc.hanwha_commission_pdf_path,
-            hanwha_commission_pdf_name: selectedFc.hanwha_commission_pdf_name,
+            hanwha_commission_pdf_path: selectedFc.hanwha_commission_pdf_path ?? null,
+            hanwha_commission_pdf_name: selectedFc.hanwha_commission_pdf_name ?? null,
           },
         }),
     });

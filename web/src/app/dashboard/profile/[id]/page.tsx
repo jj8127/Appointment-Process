@@ -58,7 +58,7 @@ const BACKGROUND = '#f8f9fa';
 type FcProfileDetail = Omit<FcProfile, 'fc_documents' | 'career_type' | 'status'> & {
     step?: string;
     status: FcStatus;
-    career_type: string | null;
+    career_type: FcProfile['career_type'];
     fc_documents?: FcDocument[];
     admin_memo: string | null;
 };

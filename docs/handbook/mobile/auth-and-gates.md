@@ -2,7 +2,7 @@ doc_id: FC-APP-AUTH-GATES
 owner_repo: fc-onboarding-app
 owner_area: mobile
 audience: developer, operator
-last_verified: 2026-03-26
+last_verified: 2026-03-28
 source_of_truth: app/login.tsx + app/signup*.tsx + app/reset-password.tsx + app/apply-gate.tsx + app/identity.tsx
 
 # Mobile Playbook: Auth And Gates
@@ -66,6 +66,11 @@ source_of_truth: app/login.tsx + app/signup*.tsx + app/reset-password.tsx + app/
 - SMS/OTP 실패
 - test-bypass 설정 오용
 - bridge token은 발급됐지만 request_board session 복구 실패
+
+## 구현 주의
+
+- `request-signup-otp`와 `set-password`는 인증 화면 로직이지만, 신규 FC 프로필 생성/재초기화 시 shared commission helper를 함께 통과합니다.
+- 위촉 단계 필드(`hanwha_commission_*`, 보험 위촉 제출/승인 날짜)가 늘어날 때는 인증 흐름이 해당 필드를 잘못 덮어쓰지 않는지 같이 점검해야 합니다.
 
 ## 연관 문서
 
