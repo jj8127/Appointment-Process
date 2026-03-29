@@ -7,6 +7,45 @@
 
 ---
 
+## <a id="20260329-resident-number-full-view-alignment"></a> 2026-03-29 | 가람in/GaramLink 주민번호 full-view 계약을 FC self-view와 embedded GaramLink까지 정렬
+
+**배경**:
+- 운영 정책은 이미 GaramIn/GaramLink 사용자 화면에서 full 주민번호 조회를 허용하는 쪽으로 이동했지만, 실제 코드와 문서에는 `admin/manager만`, `masked fallback`, `FC self-view 부재` 같은 옛 규칙이 섞여 있었다.
+- GaramLink 서버는 `fc/designer/manager/admin/developer` full-view 계약을 갖고 있었지만, 일부 hydration 경로와 가람in 임베디드 request_board fetch는 `ssnView=full`을 누락하고 있었다.
+- 가람in FC 본등록 화면은 full 주민번호 복호화를 `role === 'admin'`에만 묶고 있어 FC 본인이 자기 주민번호를 full-view로 확인하지 못했다.
+
+**조치**:
+- 가람in FC self-view를 trusted path 기준으로 열었다.
+  - `app/fc/new.tsx`
+  - `supabase/functions/admin-action/index.ts`
+  - `admin-action:getResidentNumbers`가 FC caller에 대해서는 `phone -> fc_profiles.id`를 역추적해 자기 `fcId`만 읽을 수 있게 제한했다.
+- 가람in embedded GaramLink resident number hydration을 full-view 기준으로 맞췄다.
+  - `lib/request-board-api.ts`
+  - `rbGetRequestList`, `rbGetRequestDetail`, `rbGetRequests`에 `ssnView=full`을 추가했다.
+- GaramLink list/detail hydration 누락 경로를 full-view로 정리했다.
+  - `request_board/server/src/routes/requests.ts`
+  - `request_board/client/src/pages/MatrixView.tsx`
+  - `request_board/client/src/pages/KanbanBoard.tsx`
+  - `request_board/client/src/pages/RequestDetail.tsx`
+- 문서/운영 규칙을 현행 정책에 맞게 동기화했다.
+  - `README.md`
+  - `AGENTS.md`
+  - `docs/handbook/data/identity-and-pii.md`
+  - `docs/handbook/backend/admin-operations-api.md`
+  - `request_board/README.md`
+  - `request_board/AGENTS.md`
+  - `request_board/client/AGENTS.md`
+  - `request_board/docs/project-specification.md`
+  - `request_board/docs/agent-task-prompts.md`
+  - `request_board/docs/handbook/data/identity-storage-and-ssn.md`
+
+**검증**:
+- `fc-onboarding-app`: 앱 lint, web build/lint, validation/workflow tests, governance
+- `request_board`: client build, server build, governance
+
+**메모**:
+- 현행 계약은 “DB/log/local persistence에는 평문 주민번호를 남기지 않되, trusted path를 통해 GaramIn/GaramLink 사용자 화면에는 full-view를 일관되게 제공한다”이다.
+
 ## <a id="20260328-hanwha-commission-workflow-overhaul"></a> 2026-03-28 | 한화 위촉 단계를 온보딩 플로우에 정식 편입하고 앱/웹/백엔드 상태 계산을 공통 helper로 수렴
 
 **배경**:

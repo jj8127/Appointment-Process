@@ -180,7 +180,13 @@ export default function FcNewScreen() {
   const fromParam = Array.isArray(from) ? from[0] : from;
   const queryClient = useQueryClient();
   const [submitting, setSubmitting] = useState(false);
-  const { residentId: phoneFromSession, loginAs, displayName, role } = useSession();
+  const {
+    residentId: phoneFromSession,
+    loginAs,
+    displayName,
+    role,
+    appSessionToken,
+  } = useSession();
   const [existingTempId, setExistingTempId] = useState<string | null>(null);
   const [refreshing, setRefreshing] = useState(false);
   const [selectedAffiliation, setSelectedAffiliation] = useState('');
@@ -325,11 +331,12 @@ export default function FcNewScreen() {
     setExistingAddress(merged.address);
     setExistingAddressDetail(merged.addressDetail);
     setExistingResidentMasked(merged.residentMasked);
-    if (role === 'admin' && data?.id && phoneFromSession) {
+    if (data?.id && phoneFromSession) {
       try {
         const { data: residentData, error: residentError } = await supabase.functions.invoke('admin-action', {
           body: {
             adminPhone: normalizePhone(phoneFromSession),
+            appSessionToken,
             action: 'getResidentNumbers',
             payload: { fcIds: [data.id] },
           },
@@ -353,7 +360,7 @@ export default function FcNewScreen() {
       }
     }
     setExistingTempId(merged.temp_id);
-  }, [phoneFromSession, reset, role]);
+  }, [appSessionToken, phoneFromSession, reset]);
 
   useEffect(() => {
     loadExisting();

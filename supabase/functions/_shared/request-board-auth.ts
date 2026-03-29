@@ -23,6 +23,7 @@ type AppSessionTokenPayload = SignedTokenPayloadBase & {
   kind: 'fc_onboarding_session';
   role: AppSessionSourceRole;
   staffType?: AppSessionStaffType;
+  fcId?: string;
 };
 
 export function getEnv(name: string): string | undefined {
@@ -146,6 +147,7 @@ export async function createAppSessionToken(
   phone: string,
   role: AppSessionSourceRole,
   staffType?: AppSessionStaffType,
+  fcId?: string | null,
 ) {
   const secret = (getEnv('REQUEST_BOARD_AUTH_BRIDGE_SECRET') ?? '').trim();
   if (!secret) return null;
@@ -159,6 +161,7 @@ export async function createAppSessionToken(
     phone,
     role,
     ...(role === 'admin' && staffType ? { staffType } : {}),
+    ...(role === 'fc' && String(fcId ?? '').trim() ? { fcId: String(fcId ?? '').trim() } : {}),
     iat: nowSec,
     exp: nowSec + ttlSec,
   };
@@ -178,6 +181,9 @@ export async function parseAppSessionToken(token: string) {
     && parsed.staffType !== 'admin'
     && parsed.staffType !== 'developer'
   ) {
+    return null;
+  }
+  if (parsed.fcId !== undefined && typeof parsed.fcId !== 'string') {
     return null;
   }
   return parsed;

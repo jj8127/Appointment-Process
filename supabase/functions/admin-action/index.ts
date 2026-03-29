@@ -6,6 +6,7 @@ import {
   isLegacyAppointmentTerminalStatus,
   hasHanwhaPdfMetadata,
 } from '../_shared/commission.ts';
+import { parseAppSessionToken } from '../_shared/request-board-auth.ts';
 
 function getEnv(name: string): string | undefined {
   const g: any = globalThis as any;
@@ -71,6 +72,7 @@ function hasExistingInsuranceStageActivity(profile: {
 
 type ActionRequest = {
   adminPhone: string;
+  appSessionToken?: string | null;
   action: string;
   payload: Record<string, any>;
 };
@@ -124,6 +126,18 @@ async function verifyManager(phone: string): Promise<boolean> {
     .eq('active', true)
     .maybeSingle();
   return !!data?.id;
+}
+
+async function getFcIdsForPhone(phone: string): Promise<string[]> {
+  const phoneCandidates = buildResidentIds(phone);
+  const { data, error } = await supabase
+    .from('fc_profiles')
+    .select('id')
+    .in('phone', phoneCandidates);
+  if (error) throw error;
+  return Array.from(
+    new Set((data ?? []).map((row: any) => String(row?.id ?? '').trim()).filter(Boolean)),
+  );
 }
 
 function cleanPhone(input: string | null | undefined): string {
@@ -245,20 +259,65 @@ serve(async (req: Request) => {
     return fail('Invalid JSON');
   }
 
-  const { adminPhone, action, payload } = body;
+  const { adminPhone, appSessionToken, action, payload } = body;
   if (!adminPhone || !action) {
     return fail('adminPhone and action are required');
   }
 
   const normalizedAdminPhone = adminPhone.replace(/[^0-9]/g, '');
-  const allowManagerRead = action === 'getResidentNumbers';
-  const isAuthorized = allowManagerRead
-    ? (await verifyAdmin(normalizedAdminPhone)) || (await verifyManager(normalizedAdminPhone))
+  const allowResidentRead = action === 'getResidentNumbers';
+  const authHeader = req.headers.get('Authorization') ?? '';
+  const isServiceCaller =
+    authHeader === `Bearer ${serviceKey}` ||
+    authHeader === serviceKey;
+
+  let trustedPhone = normalizedAdminPhone;
+  let trustedRole: 'admin' | 'manager' | 'fc' | null = null;
+  let trustedFcId: string | null = null;
+
+  if (allowResidentRead && !isServiceCaller) {
+    const parsedSession = typeof appSessionToken === 'string' && appSessionToken.trim()
+      ? await parseAppSessionToken(appSessionToken)
+      : null;
+    if (!parsedSession) {
+      return fail('Unauthorized: missing or invalid app session token', 401);
+    }
+    trustedPhone = cleanPhone(parsedSession.phone);
+    trustedRole = parsedSession.role;
+    trustedFcId = parsedSession.role === 'fc'
+      ? String(parsedSession.fcId ?? '').trim() || null
+      : null;
+  }
+
+  const isAdmin = trustedRole === 'admin'
+    ? await verifyAdmin(trustedPhone)
     : await verifyAdmin(normalizedAdminPhone);
+  const isManager =
+    !isAdmin &&
+    allowResidentRead &&
+    (
+      trustedRole === 'manager'
+        ? await verifyManager(trustedPhone)
+        : isServiceCaller
+          ? await verifyManager(normalizedAdminPhone)
+          : false
+    );
+  const requesterFcIds = !isAdmin && !isManager && allowResidentRead
+    ? trustedRole === 'fc'
+      ? trustedFcId
+        ? [trustedFcId]
+        : await getFcIdsForPhone(trustedPhone)
+      : []
+    : [];
+
+  if (!isAdmin && !isManager && allowResidentRead && trustedRole === 'fc' && !trustedFcId && requesterFcIds.length !== 1) {
+    return fail('Unauthorized: FC session scope is ambiguous. Please sign in again.', 403);
+  }
+  const isAuthorized = isAdmin || (allowResidentRead && (isManager || requesterFcIds.length > 0));
 
   if (!isAuthorized) {
     return fail(
-      allowManagerRead ? 'Unauthorized: not an admin or manager' : 'Unauthorized: not an admin',
+      allowResidentRead ? 'Unauthorized: not an admin, manager, or FC self' : 'Unauthorized: not an admin',
       403,
     );
   }
@@ -279,6 +338,14 @@ serve(async (req: Request) => {
           fcIds.map((v) => String(v ?? '').trim()).filter(Boolean),
         ),
       );
+
+      if (!isAdmin && !isManager) {
+        const allowedIds = new Set(requesterFcIds);
+        const outOfScopeId = uniqueFcIds.find((fcId) => !allowedIds.has(fcId));
+        if (outOfScopeId) {
+          return fail('Unauthorized: FC can only read own resident number', 403);
+        }
+      }
 
       const key = await importAesKeyForDecrypt(identityKey);
 

@@ -28,7 +28,7 @@ source_of_truth: supabase/functions/admin-action/index.ts + web/src/app/api/admi
 ## 운영 주의
 
 - service-role caller와 UI role contract를 분리해 생각하지 않습니다.
-- read-only manager는 route 차원에서도 막혀야 합니다.
+- resident-number full view는 trusted server path를 통해 앱/웹 사용자에게 제공할 수 있지만, 쓰기 권한은 계속 분리합니다.
 - 문서 무효화(반려/삭제/미완성)는 `hanwha_commission_*`, `appointment_*`, completion flag까지 같이 초기화해야 합니다.
 - 한화 승인 완료는 PDF path/name과 승인일이 모두 있어야만 저장됩니다.
 - FC 삭제는 storage/auth/notification/identity 정리까지 연쇄됩니다.

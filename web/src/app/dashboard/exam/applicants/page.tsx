@@ -340,7 +340,7 @@ export default function ExamApplicantsPage() {
                     phone: p?.phone ?? b.resident_id,
                     affiliation: p?.affiliation ?? '-',
                     address: p?.address ?? '-',
-                    resident_id: fullResident ?? '-',
+      resident_id: fullResident ?? '주민번호 조회 실패',
                 };
             });
         }

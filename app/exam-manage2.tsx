@@ -124,7 +124,7 @@ function buildExamInfo(reg: ExamRegistrationRaw): string {
   return `${roundLabel || ''} ${datePart ? `: ${datePart}` : ''}${locName ? ` [${locName}]` : ''}`.trim();
 }
 
-async function fetchApplicantsNonlife(adminPhone: string): Promise<ApplicantRow[]> {
+async function fetchApplicantsNonlife(adminPhone: string, appSessionToken: string | null): Promise<ApplicantRow[]> {
   const { data, error } = await supabase
     .from('exam_registrations')
     .select(
@@ -159,6 +159,7 @@ async function fetchApplicantsNonlife(adminPhone: string): Promise<ApplicantRow[
         const { data: residentData, error: residentError } = await supabase.functions.invoke('admin-action', {
           body: {
             adminPhone: adminPhone.replace(/[^0-9]/g, ''),
+            appSessionToken,
             action: 'getResidentNumbers',
             payload: { fcIds },
           },
@@ -183,7 +184,7 @@ async function fetchApplicantsNonlife(adminPhone: string): Promise<ApplicantRow[
       residentId: key,
       headQuarter: profile?.affiliation ?? '-',
       name: profile?.name ?? '-',
-      residentNumber: (profile?.id ? residentNumbersByFcId[profile.id] : null) ?? '-',
+      residentNumber: (profile?.id ? residentNumbersByFcId[profile.id] : null) ?? '주민번호 조회 실패',
       address: profile?.address ?? '-',
       phone: profile?.phone ?? key,
       examInfo: buildExamInfo(reg),
@@ -196,7 +197,7 @@ async function fetchApplicantsNonlife(adminPhone: string): Promise<ApplicantRow[
 }
 
 export default function ExamManageNonlifeScreen() {
-  const { role, hydrated, readOnly, residentId } = useSession();
+  const { role, hydrated, readOnly, residentId, appSessionToken } = useSession();
   const canEdit = role === 'admin' && !readOnly;
   const assertCanEdit = () => {
     if (!canEdit) {
@@ -209,10 +210,12 @@ export default function ExamManageNonlifeScreen() {
   const [filterAffiliation, setFilterAffiliation] = useState('전체');
   const [refreshing, setRefreshing] = useState(false);
 
+  const canReadResidentNumbers = role === 'admin' || role === 'manager';
+
   const { data: applicants, isLoading, refetch } = useQuery<ApplicantRow[]>({
-    queryKey: ['exam-applicants', EXAM_TYPE],
-    queryFn: () => fetchApplicantsNonlife(residentId ?? ''),
-    enabled: role === 'admin' && !!residentId,
+    queryKey: ['exam-applicants', EXAM_TYPE, residentId, appSessionToken],
+    queryFn: () => fetchApplicantsNonlife(residentId ?? '', appSessionToken),
+    enabled: canReadResidentNumbers && !!residentId && !!appSessionToken,
   });
 
   // Realtime: 시험 접수 변경 시 관리자 화면 갱신
@@ -267,8 +270,8 @@ export default function ExamManageNonlifeScreen() {
 
   useEffect(() => {
     if (!hydrated) return;
-    if (role && role !== 'admin') {
-      Alert.alert('접근 제한', '총무(관리자)만 접근할 수 있는 페이지입니다.');
+    if (role && role !== 'admin' && role !== 'manager') {
+      Alert.alert('접근 제한', '총무 또는 본부장만 접근할 수 있는 페이지입니다.');
       router.back();
     }
   }, [role, hydrated]);

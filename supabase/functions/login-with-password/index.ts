@@ -434,7 +434,7 @@ serve(async (req: Request) => {
     requestBoardRole,
     requestBoardRole === 'fc' ? profile.affiliation ?? null : undefined,
   );
-  const appSessionToken = await createAppSessionToken(profile.phone, 'fc');
+  const appSessionToken = await createAppSessionToken(profile.phone, 'fc', undefined, profile.id);
   return json({
     ok: true,
     role: 'fc',

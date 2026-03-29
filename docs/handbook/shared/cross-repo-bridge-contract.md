@@ -2,8 +2,8 @@ doc_id: SHARED-BRIDGE-CONTRACT
 owner_repo: fc-onboarding-app
 owner_area: shared-contract
 audience: developer, operator
-last_verified: 2026-03-26
-source_of_truth: supabase/functions/_shared/request-board-auth.ts + supabase/functions/sync-request-board-session/index.ts + request_board/server/src/routes/auth.ts
+last_verified: 2026-03-29
+source_of_truth: supabase/functions/_shared/request-board-auth.ts + supabase/functions/sync-request-board-session/index.ts + request_board/server/src/routes/auth.ts + lib/request-board-api.ts
 
 # Cross-Repo Bridge Contract
 
@@ -13,6 +13,7 @@ source_of_truth: supabase/functions/_shared/request-board-auth.ts + supabase/fun
 2. 모바일/웹 클라이언트는 필요 시 `bridge-login`으로 request_board JWT/session을 교환합니다.
 3. request_board auth가 사라지면 `sync-request-board-session`으로 재발급/복구를 시도합니다.
 4. 비밀번호 변경은 가람in이 canonical entrypoint이고 request_board bcrypt sync는 후행 동작입니다.
+5. 가람in에서 request_board 데이터를 임베드 조회할 때는 `ssnView=full` trusted path를 사용해 GaramLink와 같은 full 주민번호 표시 계약을 유지합니다.
 
 ## role mapping
 

@@ -48,7 +48,7 @@ const formatPhone = (value?: string | null) => {
 
 const formatSsn = (value?: string | null) => {
   const digits = String(value ?? '').replace(/[^0-9*]/g, '');
-  if (digits.includes('*')) return value ?? '-';
+  if (digits.includes('*')) return '전체 주민번호 조회 실패';
   if (digits.length === 13) return `${digits.slice(0, 6)}-${digits.slice(6)}`;
   return value ?? '-';
 };

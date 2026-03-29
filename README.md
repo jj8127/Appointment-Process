@@ -15,7 +15,7 @@
 | 인증 기준 | Supabase Auth 기본 세션이 아니라 `전화번호 + 비밀번호` + `use-session` |
 | 핵심 사용자 | `fc`, `manager`, `admin`, `developer` subtype, request_board-linked `designer` |
 | 외부 연동 | `가람Link(request_board)` 브릿지 로그인, 세션 sync, 비밀번호 sync, 앱 푸시 |
-| 민감정보 원칙 | 주민번호 평문 비저장, 서버 경유 조회, 서비스 롤 기반 접근 |
+| 민감정보 원칙 | 주민번호 평문 비영속 저장, trusted path 조회, 가람in trusted session(`admin`/`manager`/`fc`, `developer`는 admin subtype)과 GaramLink trusted path full-view 허용, FC self-view는 signed 현재 프로필 범위로 제한 |
 
 ## Current Snapshot
 
@@ -214,7 +214,8 @@ ADMIN_PUSH_SECRET=...
 
 ## Implementation Guardrails
 
-- 주민번호 평문을 DB, 로그, 클라이언트 payload에 직접 저장하지 않습니다.
+- 주민번호 평문을 DB, 로그, 로컬 영속 저장소에 직접 저장하지 않습니다.
+- 주민번호 full-view는 trusted server path를 통해 가람in trusted session(`admin`/`manager`/`fc`, `developer`는 admin subtype)과 GaramLink trusted path에 제공하며, FC 자기조회는 signed 현재 프로필 범위로만 허용합니다.
 - 관리자 쓰기 경로는 반드시 신뢰 가능한 서버 경로 또는 Edge Function을 거칩니다.
 - `manager`에 쓰기 권한을 추가하지 않습니다.
 - 스키마 변경 시 `supabase/schema.sql`과 `supabase/migrations/*.sql`를 함께 갱신합니다.

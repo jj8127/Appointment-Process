@@ -34,6 +34,7 @@ type SessionState = {
 
 type SessionContextValue = SessionState & {
   hydrated: boolean;
+  appSessionToken: string | null;
   requestBoardSyncStatus: RequestBoardSyncStatus;
   requestBoardSyncError: string | null;
   loginAs: (
@@ -286,6 +287,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     () => ({
       ...state,
       hydrated,
+      appSessionToken,
       requestBoardSyncStatus,
       requestBoardSyncError,
       ensureRequestBoardSession,
@@ -319,6 +321,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
       },
     }),
     [
+      appSessionToken,
       clearSessionState,
       ensureRequestBoardSession,
       hydrated,

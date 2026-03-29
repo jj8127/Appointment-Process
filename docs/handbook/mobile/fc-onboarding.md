@@ -2,7 +2,7 @@ doc_id: FC-APP-ONBOARDING
 owner_repo: fc-onboarding-app
 owner_area: mobile
 audience: developer, operator
-last_verified: 2026-03-28
+last_verified: 2026-03-29
 source_of_truth: app/index.tsx + app/home-lite.tsx + app/fc/new.tsx + app/consent.tsx + app/docs-upload.tsx + app/hanwha-commission.tsx + app/appointment.tsx + lib/fc-workflow.ts
 
 # Mobile Playbook: FC Onboarding
@@ -33,6 +33,7 @@ source_of_truth: app/index.tsx + app/home-lite.tsx + app/fc/new.tsx + app/consen
 - 한화 위촉 제출/승인/PDF 상태
 - appointment 제출/완료 상태
 - 커미션 완료 플래그
+- 주민번호 full-view trusted read 결과
 
 ## 쓰는 데이터
 
@@ -49,6 +50,7 @@ source_of_truth: app/index.tsx + app/home-lite.tsx + app/fc/new.tsx + app/consen
 - docs request가 있어야 `docs-upload`가 활성 역할을 가짐
 - 서류 승인 뒤에는 바로 appointment가 아니라 `hanwha-commission` 단계가 열림
 - 한화 승인과 PDF 등록이 끝나야 `appointment` 단계가 열린다
+- FC 본인 화면에서도 주민번호는 trusted server path로 full-view 조회되며, masked fallback을 새 계약으로 사용하지 않는다
 
 ## 사용자 액션
 

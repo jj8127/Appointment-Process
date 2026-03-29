@@ -20,7 +20,7 @@ source_of_truth: web/src/app/dashboard/exam/* + web/src/app/admin/exams/* + web/
 - 신청자 조회/삭제
 - legacy admin 시험 화면과 최신 dashboard 시험 화면이 공존
 - `/dashboard/exam/applicants` 는 상단 소속 quick filter를 제공
-- `manager`는 resident number/full view를 읽을 수 있지만 모든 쓰기 액션은 비활성
+- resident number/full view는 운영 역할(admin/manager/developer) 기준으로 읽을 수 있고, `manager`는 모든 쓰기 액션이 비활성
 
 ## 추천인 운영
 

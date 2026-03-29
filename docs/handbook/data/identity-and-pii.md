@@ -9,9 +9,10 @@ source_of_truth: supabase/schema.sql + supabase/functions/store-identity/index.t
 
 ## 규칙
 
-- resident number plaintext는 DB/log/client payload에 저장하지 않습니다.
+- resident number plaintext는 DB/log/local persistence에 저장하지 않습니다.
 - `fc_profiles`는 masked/hash 중심, `fc_identity_secure`는 암호문/secure payload 중심입니다.
-- resident-number full view는 trusted path에서만 허용됩니다.
+- resident-number full view는 trusted path를 통해 가람in trusted session(`admin`/`manager`/`fc`, `developer`는 admin subtype)과 GaramLink trusted path에 허용됩니다.
+- FC self-view는 signed app session의 현재 `fc_profile.id` 범위로 제한합니다. 운영(read-only) 표면은 `admin`/`manager` trusted path를 사용합니다.
 
 ## 운영 메모
 

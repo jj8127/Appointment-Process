@@ -270,7 +270,7 @@ export default function FcProfilePage({ params }: { params: Promise<{ id: string
     }
     if (!profile) return <Container py="xl"><Text>FC 정보를 찾을 수 없습니다.</Text></Container>;
 
-    const residentNumberDisplay = residentNumberFull ?? profile.resident_id_masked ?? null;
+    const residentNumberDisplay = residentNumberFull ?? '주민번호 조회 실패';
     const adminStepDisplay = getAdminStepDisplay(profile);
     const documents = profile.fc_documents ?? [];
     const presenceLabel = isPresenceError

@@ -916,7 +916,7 @@ export type RbRequestDetail = {
 };
 
 export async function rbGetRequestList(): Promise<RbRequestListItem[]> {
-  const res = await rbFetch<unknown>('/api/requests?limit=100&page=1');
+  const res = await rbFetch<unknown>('/api/requests?limit=100&page=1&ssnView=full');
   if (!res.success || res.data == null) return [];
   if (Array.isArray(res.data)) return res.data as RbRequestListItem[];
   const obj = res.data as Record<string, unknown>;
@@ -925,7 +925,7 @@ export async function rbGetRequestList(): Promise<RbRequestListItem[]> {
 }
 
 export async function rbGetRequestDetail(id: number): Promise<RbRequestDetail | null> {
-  const res = await rbFetch<RbRequestDetail>(`/api/requests/${id}`);
+  const res = await rbFetch<RbRequestDetail>(`/api/requests/${id}?ssnView=full`);
   if (!res.success || !res.data) return null;
   return res.data;
 }
@@ -951,7 +951,7 @@ export async function rbRejectDesign(
 }
 
 export async function rbGetRequests(): Promise<RbRequestSummary[]> {
-  const res = await rbFetch<unknown>('/api/requests?limit=500&page=1');
+  const res = await rbFetch<unknown>('/api/requests?limit=500&page=1&ssnView=full');
   if (!res.success || res.data == null) return [];
   if (Array.isArray(res.data)) return res.data as RbRequestSummary[];
   const obj = res.data as Record<string, unknown>;
