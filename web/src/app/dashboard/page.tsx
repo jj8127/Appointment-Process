@@ -53,7 +53,7 @@ import { useEffect, useMemo, useRef, useState, useTransition } from 'react';
 import { useSession } from '@/hooks/use-session';
 import { supabase } from '@/lib/supabase';
 import type { FCDocument, FCProfileWithDocuments } from '@/types/dashboard';
-import type { FcProfile, FcStatus } from '@/types/fc';
+import type { CommissionCompletionStatus, FcProfile, FcStatus } from '@/types/fc';
 import { notifications } from '@mantine/notifications';
 import { useRouter } from 'next/navigation';
 import { StatusToggle } from '../../components/StatusToggle';
@@ -104,6 +104,92 @@ const hasHanwhaApprovedPdf = (
     trimValue(profile.hanwha_commission_pdf_path) &&
     trimValue(profile.hanwha_commission_pdf_name),
   );
+
+const buildCommissionProfileUpdate = (
+  profile: FCProfileWithDocuments | null,
+  commission: CommissionCompletionStatus,
+): Record<string, unknown> => {
+  const life = commission === 'life_only' || commission === 'both';
+  const nonlife = commission === 'nonlife_only' || commission === 'both';
+  const updateData: Record<string, unknown> = {
+    life_commission_completed: life,
+    nonlife_commission_completed: nonlife,
+  };
+
+  if (!profile) return updateData;
+
+  if (commission === 'both') {
+    updateData.status = 'final-link-sent';
+    return updateData;
+  }
+
+  if (profile.status !== 'final-link-sent') {
+    return updateData;
+  }
+
+  const docs = profile.fc_documents ?? [];
+  const uploadedDocs = docs.filter((doc) => doc.storage_path && doc.storage_path !== 'deleted');
+  const allSubmitted =
+    docs.length > 0 && docs.every((doc) => doc.storage_path && doc.storage_path !== 'deleted');
+  const allApproved = allSubmitted && docs.every((doc) => doc.status === 'approved');
+  const hasAppointmentActivity = Boolean(
+    profile.appointment_schedule_life ||
+    profile.appointment_schedule_nonlife ||
+    profile.appointment_date_life_sub ||
+    profile.appointment_date_nonlife_sub ||
+    profile.appointment_reject_reason_life ||
+    profile.appointment_reject_reason_nonlife ||
+    profile.appointment_date_life ||
+    profile.appointment_date_nonlife,
+  );
+  const hasAppointmentCompletion = Boolean(
+    profile.appointment_date_life ||
+    profile.appointment_date_nonlife,
+  );
+
+  if (hasAppointmentCompletion) {
+    updateData.status = 'appointment-completed';
+    return updateData;
+  }
+
+  if (allApproved || hasAppointmentActivity) {
+    updateData.status = 'docs-approved';
+    return updateData;
+  }
+
+  if (uploadedDocs.length > 0) {
+    updateData.status = 'docs-submitted';
+    return updateData;
+  }
+
+  if (docs.length > 0) {
+    updateData.status = docs.some((doc) => doc.status === 'rejected') ? 'docs-rejected' : 'docs-requested';
+    return updateData;
+  }
+
+  if (profile.allowance_date) {
+    updateData.status = 'allowance-consented';
+    return updateData;
+  }
+
+  if (profile.temp_id) {
+    updateData.status = 'temp-id-issued';
+    return updateData;
+  }
+
+  updateData.status = 'draft';
+  return updateData;
+};
+
+const getCommissionCompletionStatus = (
+  life: boolean,
+  nonlife: boolean,
+): CommissionCompletionStatus => {
+  if (life && nonlife) return 'both';
+  if (life) return 'life_only';
+  if (nonlife) return 'nonlife_only';
+  return 'none';
+};
 
 const hasInsuranceStageActivity = (
   profile: Pick<
@@ -213,16 +299,6 @@ const getModalDateInputStyles = (disabled: boolean) => ({
   ...modalDateCalendarStyles,
 });
 
-const modalReadOnlyDateFieldStyles = {
-  label: modalDateFieldLabelStyle,
-  input: {
-    backgroundColor: '#F9FAFB',
-    color: '#111827',
-    borderColor: '#E5E7EB',
-    fontWeight: 600,
-  },
-};
-
 const getHanwhaStageStatus = (
   profile: Pick<
     FCProfileWithDocuments,
@@ -314,6 +390,7 @@ export default function DashboardPage() {
   // 수정용 상태
   const [tempIdInput, setTempIdInput] = useState('');
   const [careerInput, setCareerInput] = useState<'신입' | '경력' | null>(null);
+  const [commissionInput, setCommissionInput] = useState<CommissionCompletionStatus>('none');
   const [selectedDocs, setSelectedDocs] = useState<string[]>([]);
   const [customDocInput, setCustomDocInput] = useState('');
   const [docsDeadlineInput, setDocsDeadlineInput] = useState<Date | null>(null);
@@ -635,6 +712,38 @@ export default function DashboardPage() {
     onError: (err: Error) => notifications.show({ title: '오류', message: err.message, color: 'red' }),
   });
 
+  const updateCommissionMutation = useMutation({
+    mutationFn: async () => {
+      if (!selectedFc) return null;
+      const data = buildCommissionProfileUpdate(selectedFc, commissionInput);
+
+      const resp = await fetch('/api/admin/fc', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          action: 'updateProfile',
+          payload: { fcId: selectedFc.id, data },
+        }),
+      });
+      const payload = await resp.json().catch(() => null);
+      if (!resp.ok) {
+        const message =
+          payload && typeof payload === 'object' && 'error' in payload
+            ? String((payload as { error?: string }).error || '')
+            : '';
+        throw new Error(message || '위촉 상태 저장 실패');
+      }
+      return data;
+    },
+    onSuccess: (data) => {
+      if (!data) return;
+      updateSelectedFc(data as Partial<FCProfileWithDocuments>);
+      notifications.show({ title: '저장 완료', message: '위촉 상태가 업데이트되었습니다.', color: 'green' });
+      queryClient.invalidateQueries({ queryKey: ['dashboard-list'] });
+    },
+    onError: (err: Error) => notifications.show({ title: '오류', message: err.message, color: 'red' }),
+  });
+
   const resetToLookupMutation = useMutation({
     mutationFn: async () => {
       if (!selectedFc) return;
@@ -915,6 +1024,12 @@ export default function DashboardPage() {
     setSelectedFc(fc);
     setTempIdInput(fc.temp_id || '');
     setCareerInput((fc.career_type as '신입' | '경력') || null);
+    setCommissionInput(
+      getCommissionCompletionStatus(
+        Boolean(fc.life_commission_completed),
+        Boolean(fc.nonlife_commission_completed),
+      ),
+    );
     setAllowanceDateInput(fc.allowance_date ? new Date(fc.allowance_date) : null);
     setHanwhaSubmittedDateInput(fc.hanwha_commission_date_sub ? new Date(fc.hanwha_commission_date_sub) : null);
     const currentDocs = fc.fc_documents?.map((d: FCDocument) => d.doc_type) || [];
@@ -1410,6 +1525,34 @@ export default function DashboardPage() {
         </Stack>
       </Stack>
     );
+  };
+
+  const lifeCommissionSelected = commissionInput === 'life_only' || commissionInput === 'both';
+  const nonlifeCommissionSelected = commissionInput === 'nonlife_only' || commissionInput === 'both';
+  const commissionSummaryLabel =
+    commissionInput === 'both'
+      ? '생명/손해 완료'
+      : commissionInput === 'life_only'
+        ? '생명 완료'
+        : commissionInput === 'nonlife_only'
+          ? '손해 완료'
+          : '미완료';
+  const commissionSummaryColor =
+    commissionInput === 'both'
+      ? 'green'
+      : commissionInput === 'life_only'
+        ? 'orange'
+        : commissionInput === 'nonlife_only'
+          ? 'blue'
+          : 'gray';
+
+  const handleCommissionToggle = (category: 'life' | 'nonlife') => {
+    if (isReadOnly) return;
+
+    const nextLife = category === 'life' ? !lifeCommissionSelected : lifeCommissionSelected;
+    const nextNonlife = category === 'nonlife' ? !nonlifeCommissionSelected : nonlifeCommissionSelected;
+
+    setCommissionInput(getCommissionCompletionStatus(nextLife, nextNonlife));
   };
 
   /* Table Rows */
@@ -2785,6 +2928,49 @@ export default function DashboardPage() {
 
               <Tabs.Panel value="appointment">
                 <Stack gap="md">
+                  <Card withBorder radius="md" p="md" bg="gray.0">
+                    <Group justify="space-between" mb="xs">
+                      <Text fw={600} size="sm">위촉 상태</Text>
+                      <Badge variant="light" color={commissionSummaryColor} size="sm">
+                        {commissionSummaryLabel}
+                      </Badge>
+                    </Group>
+                    <Text size="xs" c="dimmed">
+                      생명/손해 위촉 완료 플래그를 독립적으로 저장할 수 있습니다.
+                    </Text>
+                    <Group gap="xs" wrap="wrap" mt="sm">
+                      <Chip
+                        checked={lifeCommissionSelected}
+                        onChange={() => handleCommissionToggle('life')}
+                        color="orange"
+                        variant={lifeCommissionSelected ? 'filled' : 'light'}
+                        disabled={isReadOnly || updateCommissionMutation.isPending}
+                      >
+                        생명 위촉 완료
+                      </Chip>
+                      <Chip
+                        checked={nonlifeCommissionSelected}
+                        onChange={() => handleCommissionToggle('nonlife')}
+                        color="blue"
+                        variant={nonlifeCommissionSelected ? 'filled' : 'light'}
+                        disabled={isReadOnly || updateCommissionMutation.isPending}
+                      >
+                        손해 위촉 완료
+                      </Chip>
+                    </Group>
+                    <Button
+                      fullWidth
+                      mt="sm"
+                      size="xs"
+                      color={isReadOnly ? 'gray' : 'teal'}
+                      variant="light"
+                      onClick={() => updateCommissionMutation.mutate()}
+                      loading={updateCommissionMutation.isPending}
+                      disabled={isReadOnly}
+                    >
+                      위촉 상태 저장
+                    </Button>
+                  </Card>
                   {canOpenInsuranceStage(selectedFc) ? (
                     <Card withBorder radius="md" p="md" bg="gray.0">
                       <Text fw={600} size="sm" mb="xs">생명/손해 위촉 심사 및 확정</Text>

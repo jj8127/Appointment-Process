@@ -16,9 +16,10 @@ source_of_truth: app/* + web/src/app/* + supabase/functions/*
 | `FC-DOCS.UPLOAD` | 서류 업로드 | `docs-upload` | `fc` | 요청 서류 존재 | 파일 업로드/재제출 | storage + doc rows | 제출 상태 반영 | 업로드 실패 | Docs |
 | `FC-HANWHA.SUBMIT` | 한화 위촉 URL 완료일 제출 | `hanwha-commission` | `fc` | 서류 승인 완료 | 한화 위촉 URL 완료일 제출 | `fc_profiles.hanwha_commission_*` | 검토 대기 | 제출 실패 | Onboarding |
 | `FC-APPOINTMENT.SUBMIT` | 생명/손해 위촉 제출 | `appointment` | `fc` | 한화 위촉 URL 승인 + PDF 완료 | 생명/손해 위촉 일정/완료 제출 | appointment fields | 제출 완료 | 서버 오류 | Appointment |
-| `FC-ADMIN.ALLOWANCE_STAGE` | 입력 완료 / 사전 심사 요청 완료 / 승인 완료 / 미승인 | web `dashboard` allowance tab + mobile `dashboard` | `admin` | readOnly 아님 + `allowance_date` 존재 | 수당동의 파생 상태와 반려 사유를 관리 | `status`, `allowance_prescreen_requested_at`, `allowance_reject_reason` | 상태 라벨/목록/홈 단계 갱신 | 권한/계약 오류 | Admin lifecycle |
+| `FC-ADMIN.ALLOWANCE_STAGE` | 입력 완료 / 사전 심사 요청 완료 / 승인 완료 / 미승인 | web `dashboard` allowance tab + mobile `dashboard` | `admin` | readOnly 아님 | 수당동의 파생 상태와 반려 사유를 관리 | `status`, `allowance_date`, `allowance_prescreen_requested_at`, `allowance_reject_reason` | 상태 라벨/목록/홈 단계 갱신 | 권한/계약 오류 | Admin lifecycle |
 | `FC-ADMIN.UPDATE_STATUS` | 상태 변경 | web `dashboard` | `admin` | readOnly 아님 | FC 상태 전이 | `fc_profiles.status` | 토스트/리스트 갱신 | 권한/계약 오류 | Admin lifecycle |
 | `FC-ADMIN.UPDATE_DOC_STATUS` | 승인/반려 | web `dashboard` docs tab | `admin` | 서류 row 존재 | 문서 상태 갱신 | doc row + profile status | 토스트/상태 갱신 | 권한/서버 오류 | Docs |
-| `FC-ADMIN.UPDATE_HANWHA` | 한화 승인/반려/PDF 관리 | web `dashboard` hanwha tab | `admin` | 한화 제출 row 존재 | 승인일 저장, PDF 업로드/삭제, 승인/반려 | `hanwha_commission_*` + notifications | 토스트/상태 갱신 | PDF/계약 오류 | Admin lifecycle |
+| `FC-ADMIN.UPDATE_HANWHA` | 한화 승인/반려/PDF 관리 | web `dashboard` hanwha tab | `admin` | 한화 제출 row 존재 | FC 제출 완료일 확인, PDF 업로드/삭제, 승인/반려 | `hanwha_commission_*` + notifications | 토스트/상태 갱신 | PDF/계약 오류 | Admin lifecycle |
+| `FC-ADMIN.UPDATE_COMMISSION_FLAGS` | 생명/손해 위촉 완료 저장 | web `dashboard` appointment tab | `admin` | readOnly 아님 | `생명 위촉 완료`, `손해 위촉 완료` 플래그를 독립적으로 저장 | `life_commission_completed`, `nonlife_commission_completed`, 필요 시 `status` | 토스트/목록 갱신 | 권한/계약 오류 | Appointment |
 | `FC-ADMIN.CONFIRM_APPOINTMENT` | 위촉 확정 | web `dashboard` appointment tab | `admin` | 제출 정보 유효 | 위촉 완료/최종 완료 계산 | appointment fields + status | 완료 토스트 | 서버 오류 | Appointment |
 | `FC-BRIDGE.OPEN_REQUEST_BOARD` | 설계요청 열기 | `request-board` | `fc`, `manager`, `developer`, linked `designer` | 브리지 세션 복구 가능 | GaramLink 임베드/연결 | request_board JWT/session | 화면 진입 | 재로그인/브리지 오류 | Bridge |

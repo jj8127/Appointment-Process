@@ -50,11 +50,12 @@
 1. 회원가입 (OTP + 비밀번호 설정)
 2. 신원확인/기본정보 등록
 3. 임시사번 발급
-4. 수당 동의 및 승인
+4. 수당 동의 입력, 사전 심사 요청, 승인/미승인
 5. 시험 일정 확인/신청
 6. 서류 요청/제출/승인
-7. 위촉 일정/완료 처리
-8. 최종 완료
+7. 한화 위촉 URL 제출/승인/PDF 전달
+8. 생명/손해 위촉 일정/완료 처리
+9. 최종 완료
 
 ### 📌 FC 상태값 (source: `types/fc.ts`)
 ```ts
@@ -67,6 +68,9 @@
 | 'docs-submitted'
 | 'docs-rejected'
 | 'docs-approved'
+| 'hanwha-commission-review'
+| 'hanwha-commission-rejected'
+| 'hanwha-commission-approved'
 | 'appointment-completed'
 | 'final-link-sent'
 ```
@@ -105,7 +109,17 @@
 7. **수당 동의일 입력 규칙**
    - `allowance_date`는 FC 자가입력(`app/consent.tsx`)과 총무 직접 입력(모바일 `app/dashboard.tsx`, 웹 `web/src/app/dashboard/page.tsx`) 모두 허용한다.
    - 총무 직접 입력도 반드시 trusted 경로(`admin-action`, `/api/admin/fc`)를 통해 저장한다.
-   - 총무가 수당 동의일을 저장할 때는 `temp_id`가 먼저 존재해야 하며, 현재 상태가 `draft/temp-id-issued/allowance-pending`이면 `allowance-pending`으로 정렬한다.
+   - 총무가 수당 동의일을 저장할 때는 trusted 경로를 사용하며, 현재 상태가 `draft/temp-id-issued/allowance-pending`이면 `allowance-pending`으로 정렬한다.
+   - 수당동의 단계 내부 표시는 `allowance_prescreen_requested_at`, `allowance_reject_reason`을 함께 사용한다.
+   - 파생 표시 순서:
+     - `allowance_date` 없음 => `FC 수당 동의일 미입력`
+     - `allowance_date` 있음 + `allowance_prescreen_requested_at` 없음 => `FC 수당 동의 입력 완료`
+     - `allowance_date` 있음 + `allowance_prescreen_requested_at` 있음 => `사전 심사 요청 완료`
+     - `status=allowance-consented` => `승인 완료`
+   - `status=allowance-pending + allowance_reject_reason 있음` => `미승인`
+   - 총무는 `allowance_date` 유무와 관계없이 `입력 완료 / 사전 심사 요청 완료 / 승인 완료 / 미승인` 상태를 조작할 수 있다. 다만 화면 라벨은 항상 `allowance_date` 존재 여부를 우선 반영한다.
+   - 단계 표시는 `3단계 한화 위촉 URL`, `4단계 생명/손해 위촉`을 기준으로 앱/웹을 통일한다.
+   - 웹 `FC 상세 관리 > 생명/손해 위촉` 탭에서는 총무가 `생명 위촉 완료`, `손해 위촉 완료` 플래그를 독립적으로 저장할 수 있다. 두 플래그가 모두 꺼진 상태는 별도 버튼 없이 미완료로 본다.
 
 ---
 

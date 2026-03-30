@@ -7,6 +7,36 @@
 
 ---
 
+## <a id="20260330-web-appointment-commission-toggle-buttons"></a> 2026-03-30 | 웹 FC 상세 관리 모달 `생명/손해 위촉` 탭에 독립형 완료 토글 2개 복구
+
+**배경**:
+- FC 상세 관리 모달의 `생명/손해 위촉` 탭에서 총무가 생명/손해 위촉 완료 플래그를 직접 조작하던 UI가 사라져, 완료 플래그 보정이 다시 불가능해졌다.
+- 현재 스키마와 타입은 이미 `life_commission_completed`, `nonlife_commission_completed`, `CommissionCompletionStatus`를 유지하고 있어, 기존 저장 경로를 다시 연결하는 편이 가장 작고 안전했다.
+- 요구사항은 `생명 위촉 완료`, `손해 위촉 완료` 두 버튼만 두고, 둘을 독립적으로 켜고 끌 수 있게 하는 것이다. 별도 `미완료` 버튼은 만들지 않는다.
+
+**조치**:
+- `web/src/app/dashboard/page.tsx`
+  - `CommissionCompletionStatus` import와 `buildCommissionProfileUpdate()` helper를 복구했다.
+  - `commissionInput` 상태와 `updateCommissionMutation`을 다시 추가해 기존 `/api/admin/fc -> updateProfile` 저장 경로를 재사용하도록 연결했다.
+  - `handleOpenModal()`에서 현재 FC의 `life_commission_completed`, `nonlife_commission_completed`를 읽어 `none/life_only/nonlife_only/both` 상태를 초기화하도록 보강했다.
+  - `생명/손해 위촉` 탭 상단에 `위촉 상태` 카드와 `생명 위촉 완료`, `손해 위촉 완료` 독립 토글 2개, `위촉 상태 저장` 버튼을 추가했다.
+  - 두 토글은 독립적으로 작동하며, 둘 다 꺼진 상태는 `none`으로 저장된다.
+- handbook/운영 문서 최소 동기화
+  - `docs/handbook/admin-web/dashboard-lifecycle.md`
+  - `docs/handbook/button-action-matrix.md`
+  - `.claude/PROJECT_GUIDE.md`
+  - 웹 관리자 모달에서 총무가 생명/손해 완료 플래그를 독립적으로 저장할 수 있다는 계약만 짧게 반영했다.
+
+**결과**:
+- 총무는 다시 웹 FC 상세 모달의 `생명/손해 위촉` 탭에서 생명/손해 완료 플래그를 각각 켜고 끌 수 있다.
+- 저장은 기존 trusted 경로를 그대로 사용하므로 새로운 API나 스키마 변경은 없다.
+- 본부장(read-only) 세션에서는 새 토글과 저장 버튼도 기존 규칙대로 비활성화된다.
+
+**검증**:
+- `cd web && npm run lint`
+
+---
+
 ## <a id="20260330-web-dashboard-modal-tabs-single-row"></a> 2026-03-30 | 웹 FC 상세 관리 모달 탭을 한 줄 4탭으로 복구
 
 **배경**:
