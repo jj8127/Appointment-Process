@@ -1458,8 +1458,7 @@ export default function DashboardPage() {
             }
             value={date}
             onChange={(value) => {
-              const nextValue =
-                !value ? null : value instanceof Date ? value : new Date(value);
+              const nextValue = !value ? null : new Date(value);
               const parsed = nextValue && !Number.isNaN(nextValue.getTime()) ? nextValue : null;
               setAppointmentInputs((prev) => ({
                 ...prev,

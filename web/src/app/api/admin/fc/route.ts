@@ -297,6 +297,7 @@ export async function POST(req: Request) {
         .eq('id', fcId)
         .maybeSingle();
       if (profileError) throw profileError;
+      if (!profile) return badRequest('FC profile not found');
 
       const nextStatus = resolveAllowanceStatus(profile.status);
       const { error: updateError } = await adminSupabase

@@ -7,6 +7,33 @@
 
 ---
 
+## <a id="20260330-admin-fc-route-null-guard-build-fix"></a> 2026-03-30 | admin route/date input 타입 오류를 정리해 Vercel production 빌드 복구
+
+**배경**:
+- Vercel의 Git 자동 배포는 정상 동작했지만, 최신 `main` production 배포 2건이 모두 `next build`의 TypeScript 단계에서 실패했다.
+- 실패 원인은 `web/src/app/api/admin/fc/route.ts`의 `updateAllowanceDate` 분기에서 `maybeSingle()` 결과를 null 가드 없이 `profile.status`로 바로 참조한 것이었다.
+- 로컬 `npm run build`도 동일한 오류를 재현했고, 이 한 줄 때문에 자동 배포가 계속 막히는 상태였다.
+
+**조치**:
+- `web/src/app/api/admin/fc/route.ts`
+  - `updateAllowanceDate` 분기에서 `profileError` 검사 뒤 `if (!profile) return badRequest('FC profile not found');` 가드를 추가했다.
+  - 이후에만 `resolveAllowanceStatus(profile.status)`를 호출하도록 정리했다.
+- `web/src/app/dashboard/page.tsx`
+  - 생명/손해 위촉 확정일 입력의 `onChange`에서 `value instanceof Date` 분기를 제거하고 `new Date(value)`로 일관되게 정규화했다.
+  - `DateValue` 타입이 문자열/날짜 혼합으로 추론될 때 생기던 `instanceof` TypeScript 오류를 없앴다.
+- `.claude/PROJECT_GUIDE.md`
+  - Supabase `maybeSingle()` 결과는 null 가능성을 먼저 가드해야 하며, 특히 `web/src/app/api/*` route는 Vercel production build에 직접 영향을 준다는 재발 방지 규칙을 추가했다.
+
+**결과**:
+- `main` 브랜치의 웹 production build를 깨던 TypeScript 오류 2건이 제거됐다.
+- Vercel Git 자동 배포 자체는 정상이며, 이번 수정으로 다시 최신 커밋이 production까지 통과할 수 있는 상태가 됐다.
+
+**검증**:
+- `cd web && npm run build`
+- `node scripts/ci/check-governance.mjs`
+
+---
+
 ## <a id="20260330-web-appointment-commission-toggle-buttons"></a> 2026-03-30 | 웹 FC 상세 관리 모달 `생명/손해 위촉` 탭에 독립형 완료 토글 2개 복구
 
 **배경**:

@@ -163,6 +163,7 @@ fc-onboarding-app/
 ### 4.1 TypeScript 엄격 모드 유지
 - `any` 최소화(불가피할 때만 범위 제한)
 - 에러 처리: `unknown` → `instanceof Error`로 메시지 추출
+- Supabase `maybeSingle()` 결과는 `null` 가능성을 먼저 가드한 뒤 필드를 참조한다. 특히 `web/src/app/api/*` route는 Vercel production build에서 TypeScript 오류로 바로 배포가 막힌다.
 
 ```ts
 try {
