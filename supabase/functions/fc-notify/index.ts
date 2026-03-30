@@ -502,7 +502,8 @@ function buildTitle(fcName: string | null, payload: Payload, message?: string) {
 
   if (payload.type === 'admin_update') {
     if (msg.includes('한화')) return '한화 위촉 안내';
-    if (msg.includes('위촉')) return '위촉 URL 등록';
+    if (msg.includes('보험 위촉')) return '생명/손해 위촉 안내';
+    if (msg.includes('위촉')) return '생명/손해 위촉 안내';
     if (msg.includes('temp')) return `${name}의 임시번호 안내`;
     if (msg.includes('docs') || msg.includes('서류')) return `${name} 서류 요청`;
     return `${name} 정보 업데이트`;

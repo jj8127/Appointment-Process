@@ -1,5 +1,11 @@
-import { calcStep, getStatusLabel, getSummaryStatus } from '../../web/src/lib/shared';
-import { getFcHomeNextAction } from '../fc-workflow';
+import {
+  ADMIN_STEP_LABELS,
+  STEP_LABELS,
+  calcStep,
+  getStatusLabel,
+  getSummaryStatus,
+} from '../../web/src/lib/shared';
+import { getAllowanceDisplayState, getFcHomeNextAction } from '../fc-workflow';
 import type { FcProfile } from '../../web/src/types/fc';
 
 const approvedDocs: FcProfile['fc_documents'] = [
@@ -21,6 +27,8 @@ const profile = (overrides: Partial<FcProfile> = {}): FcProfile => ({
   identity_completed: false,
   address: null,
   allowance_date: null,
+  allowance_prescreen_requested_at: null,
+  allowance_reject_reason: null,
   life_commission_completed: false,
   nonlife_commission_completed: false,
   fc_documents: [],
@@ -95,32 +103,79 @@ describe('workflow step regression', () => {
     expect(calcStep(row)).toBe(3);
   });
 
-  test('allowance pending without allowance date stays on waiting label', () => {
-    const row = profile({
-      status: 'allowance-pending',
-      temp_id: 'TMP-001',
-      resident_id_masked: '900101-*******',
-      identity_completed: true,
-      address: '서울시 중구',
-      allowance_date: null,
-    });
-
-    expect(getSummaryStatus(row)).toEqual({ label: '수당동의 대기', color: 'gray' });
-    expect(getStatusLabel(row)).toBe('수당동의 대기');
-  });
-
-  test('allowance pending with allowance date shows review-in-progress label', () => {
-    const row = profile({
-      status: 'allowance-pending',
-      temp_id: 'TMP-001',
-      resident_id_masked: '900101-*******',
-      identity_completed: true,
-      address: '서울시 중구',
-      allowance_date: '2026-02-20',
-    });
-
-    expect(getSummaryStatus(row)).toEqual({ label: '수당동의 검토 중', color: 'orange' });
-    expect(getStatusLabel(row)).toBe('수당동의 검토 중');
+  test.each([
+    {
+      name: 'missing',
+      row: profile({
+        status: 'allowance-pending',
+        temp_id: 'TMP-001',
+        resident_id_masked: '900101-*******',
+        identity_completed: true,
+        address: '서울시 중구',
+        allowance_date: null,
+      }),
+      expected: { key: 'missing', label: 'FC 수당 동의일 미입력', color: 'gray' },
+      summary: { label: 'FC 수당 동의일 미입력', color: 'gray' },
+    },
+    {
+      name: 'entered',
+      row: profile({
+        status: 'allowance-pending',
+        temp_id: 'TMP-001',
+        resident_id_masked: '900101-*******',
+        identity_completed: true,
+        address: '서울시 중구',
+        allowance_date: '2026-02-20',
+      }),
+      expected: { key: 'entered', label: 'FC 수당 동의 입력 완료', color: 'orange' },
+      summary: { label: 'FC 수당 동의 입력 완료', color: 'orange' },
+    },
+    {
+      name: 'prescreen',
+      row: profile({
+        status: 'allowance-pending',
+        temp_id: 'TMP-001',
+        resident_id_masked: '900101-*******',
+        identity_completed: true,
+        address: '서울시 중구',
+        allowance_date: '2026-02-20',
+        allowance_prescreen_requested_at: '2026-02-21T09:00:00+09:00',
+      }),
+      expected: { key: 'prescreen', label: '사전 심사 요청 완료', color: 'blue' },
+      summary: { label: '사전 심사 요청 완료', color: 'blue' },
+    },
+    {
+      name: 'approved',
+      row: profile({
+        status: 'allowance-consented',
+        temp_id: 'TMP-001',
+        resident_id_masked: '900101-*******',
+        identity_completed: true,
+        address: '서울시 중구',
+        allowance_date: '2026-02-20',
+      }),
+      expected: { key: 'approved', label: '승인 완료', color: 'green' },
+    },
+    {
+      name: 'rejected',
+      row: profile({
+        status: 'allowance-pending',
+        temp_id: 'TMP-001',
+        resident_id_masked: '900101-*******',
+        identity_completed: true,
+        address: '서울시 중구',
+        allowance_date: null,
+        allowance_reject_reason: '서명 누락',
+      }),
+      expected: { key: 'rejected', label: '미승인', color: 'red' },
+      summary: { label: '미승인', color: 'red' },
+    },
+  ])('allowance derived display state: $name', ({ row, expected, summary }) => {
+    expect(getAllowanceDisplayState(row as any)).toEqual(expected);
+    if (summary) {
+      expect(getSummaryStatus(row)).toEqual(summary);
+    }
+    expect(getStatusLabel(row)).toBe(expected.label);
   });
 
   test('docs approved with stale commission evidence stays at step 3', () => {
@@ -136,6 +191,13 @@ describe('workflow step regression', () => {
       fc_documents: approvedDocs,
     });
     expect(calcStep(row)).toBe(3);
+  });
+
+  test('workflow step labels pin step 3 and 4 naming', () => {
+    expect(STEP_LABELS.step3).toBe('3단계 한화 위촉 URL');
+    expect(STEP_LABELS.step4).toBe('4단계 생명/손해 위촉');
+    expect(ADMIN_STEP_LABELS.step3).toBe('3단계 한화 위촉 URL');
+    expect(ADMIN_STEP_LABELS.step4).toBe('4단계 생명/손해 위촉');
   });
 
   test('legacy appointment stage status still stays at step 4 without hanwha pdf', () => {
@@ -238,7 +300,7 @@ describe('workflow step regression', () => {
     });
   });
 
-  test('fc home still opens consent page while allowance review is pending', () => {
+  test('fc home shows entered allowance next action while prescreen is not requested yet', () => {
     const row = profile({
       status: 'allowance-pending',
       temp_id: 'TMP-001',
@@ -252,6 +314,27 @@ describe('workflow step regression', () => {
       step: 1,
       key: 'consent',
       route: '/consent',
+      subtitle: '총무가 사전 심사를 준비 중입니다.',
+      disabled: false,
+    });
+  });
+
+  test('fc home shows prescreen next action after admin requests allowance prescreen', () => {
+    const row = profile({
+      status: 'allowance-pending',
+      temp_id: 'TMP-001',
+      resident_id_masked: '900101-*******',
+      identity_completed: true,
+      address: '서울시 중구',
+      allowance_date: '2026-02-20',
+      allowance_prescreen_requested_at: '2026-02-21T09:00:00+09:00',
+    });
+
+    expect(getFcHomeNextAction(row as any)).toMatchObject({
+      step: 1,
+      key: 'consent',
+      route: '/consent',
+      subtitle: '사전 심사 결과를 기다리는 중입니다.',
       disabled: false,
     });
   });

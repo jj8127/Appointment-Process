@@ -128,7 +128,7 @@ export async function updateAppointmentAction(
     }
 
     if (!hasExistingInsuranceActivity(currentProfile) && !hasHanwhaApprovedPdf(currentProfile)) {
-        return { success: false, error: '한화 위촉 승인과 PDF 등록이 끝난 뒤에만 보험 위촉 URL 단계를 진행할 수 있습니다.' };
+        return { success: false, error: '한화 위촉 URL 승인과 PDF 등록이 끝난 뒤에만 생명/손해 위촉 단계를 진행할 수 있습니다.' };
     }
 
     const categoryLabel = category === 'life' ? '생명보험' : '손해보험';

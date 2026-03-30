@@ -2,6 +2,7 @@ import {
   calcAdminWorkflowStep,
   calcWorkflowStep,
   getApprovedDocumentState,
+  getAllowanceDisplayState,
   getCommissionCompletionState,
   hasAppointmentWorkflowEvidence,
   hasHanwhaApprovalEvidence,
@@ -32,16 +33,16 @@ export const STATUS_LABELS: Record<FcProfile['status'] | string, string> = {
   draft: '임시사번 미발급',
   'temp-id-issued': '임시사번 발급 완료',
   'allowance-pending': '수당동의 대기',
-  'allowance-consented': '수당동의 승인 완료',
+  'allowance-consented': '승인 완료',
   'docs-requested': '필수 서류 요청',
   'docs-pending': '서류 대기',
   'docs-submitted': '서류 제출됨',
   'docs-rejected': '서류 반려',
-  'docs-approved': '한화 위촉 대기',
-  'hanwha-commission-review': '한화 위촉 검토 중',
-  'hanwha-commission-rejected': '한화 위촉 반려',
-  'hanwha-commission-approved': '한화 위촉 승인 완료',
-  'appointment-completed': '위촉 URL 진행 중',
+  'docs-approved': '한화 위촉 URL 대기',
+  'hanwha-commission-review': '한화 위촉 URL 검토 중',
+  'hanwha-commission-rejected': '한화 위촉 URL 반려',
+  'hanwha-commission-approved': '한화 위촉 URL 승인 완료',
+  'appointment-completed': '생명/손해 위촉 진행 중',
   'final-link-sent': '완료',
 };
 
@@ -65,8 +66,8 @@ const STATUS_COLORS: Partial<Record<FcProfile['status'], WorkflowColor>> = {
 export const STEP_LABELS: Record<WorkflowStepKey, string> = {
   step1: '1단계 수당동의',
   step2: '2단계 문서제출',
-  step3: '3단계 한화 위촉',
-  step4: '4단계 위촉 URL',
+  step3: '3단계 한화 위촉 URL',
+  step4: '4단계 생명/손해 위촉',
   step5: '5단계 완료',
 };
 
@@ -74,8 +75,8 @@ export const ADMIN_STEP_LABELS: Record<AdminWorkflowStepKey, string> = {
   step0: '0단계 사전등록',
   step1: '1단계 수당동의',
   step2: '2단계 문서제출',
-  step3: '3단계 한화 위촉',
-  step4: '4단계 위촉 URL',
+  step3: '3단계 한화 위촉 URL',
+  step4: '4단계 생명/손해 위촉',
   step5: '5단계 완료',
 };
 
@@ -105,25 +106,6 @@ export const DOC_OPTIONS: string[] = [
   '이클린',
   '경력증명서',
 ];
-
-const getAllowancePendingSummary = (
-  profile?:
-    | {
-        status?: FcProfile['status'];
-        allowance_date?: string | null;
-      }
-    | null,
-) => {
-  if (profile?.status !== 'allowance-pending') {
-    return null;
-  }
-
-  if (profile.allowance_date) {
-    return { label: '수당동의 검토 중', color: 'orange' as const };
-  }
-
-  return { label: '수당동의 대기', color: 'gray' as const };
-};
 
 const isSignupCommissionComplete = (
   profile: Pick<
@@ -302,13 +284,8 @@ export const getSummaryStatus = (profile?: WorkflowProfile | null): StatusDispla
     if (!profile?.temp_id) {
       return { label: '임시사번 미발급', color: 'gray' };
     }
-
-    const allowancePendingSummary = getAllowancePendingSummary(profile);
-    if (allowancePendingSummary) {
-      return allowancePendingSummary;
-    }
-
-    return { label: '수당동의 대기', color: 'gray' };
+    const allowanceDisplay = getAllowanceDisplayState(profile);
+    return { label: allowanceDisplay.label, color: allowanceDisplay.color };
   }
 
   if (step === 2) {
@@ -322,10 +299,10 @@ export const getSummaryStatus = (profile?: WorkflowProfile | null): StatusDispla
 
   if (step === 3) {
     const hanwha = getHanwhaProgress(profile);
-    if (hanwha.key === 'ready') return { label: '한화 위촉 대기', color: 'blue' };
-    if (hanwha.key === 'review') return { label: '한화 위촉 검토 중', color: 'orange' };
-    if (hanwha.key === 'rejected') return { label: '한화 위촉 반려', color: 'red' };
-    return { label: '한화 위촉 승인 완료 (PDF 대기)', color: 'orange' };
+    if (hanwha.key === 'ready') return { label: '한화 위촉 URL 대기', color: 'blue' };
+    if (hanwha.key === 'review') return { label: '한화 위촉 URL 검토 중', color: 'orange' };
+    if (hanwha.key === 'rejected') return { label: '한화 위촉 URL 반려', color: 'red' };
+    return { label: '한화 위촉 URL 승인 완료 (PDF 대기)', color: 'orange' };
   }
 
   const life = getAppointmentProgress(profile, 'life');
@@ -337,11 +314,11 @@ export const getSummaryStatus = (profile?: WorkflowProfile | null): StatusDispla
     profile?.appointment_reject_reason_life || profile?.appointment_reject_reason_nonlife,
   );
 
-  if (anySubmitted) return { label: '위촉 URL 검토 중', color: 'orange' };
+  if (anySubmitted) return { label: '생명/손해 위촉 검토 중', color: 'orange' };
   if (anyApproved || anySchedule || hasRejectReason || hasText(profile?.appointment_url)) {
-    return { label: '위촉 URL 진행 중', color: 'blue' };
+    return { label: '생명/손해 위촉 진행 중', color: 'blue' };
   }
-  return { label: '위촉 URL 대기', color: 'blue' };
+  return { label: '생명/손해 위촉 대기', color: 'blue' };
 };
 
 export const getStatusDisplay = (
@@ -349,6 +326,8 @@ export const getStatusDisplay = (
     FcProfile,
     | 'status'
     | 'allowance_date'
+    | 'allowance_prescreen_requested_at'
+    | 'allowance_reject_reason'
     | 'temp_id'
     | 'fc_documents'
     | 'identity_completed'
@@ -373,9 +352,9 @@ export const getStatusDisplay = (
     | 'nonlife_commission_completed'
   >,
 ): StatusDisplay => {
-  const allowancePendingSummary = getAllowancePendingSummary(profile);
-  if (allowancePendingSummary) {
-    return allowancePendingSummary;
+  if (profile.status === 'allowance-pending' || profile.status === 'allowance-consented') {
+    const allowanceDisplay = getAllowanceDisplayState(profile);
+    return { label: allowanceDisplay.label, color: allowanceDisplay.color };
   }
 
   const fcProfile = profile as FcProfile;

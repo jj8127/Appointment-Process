@@ -1,0 +1,1026 @@
+.sceneShell {
+  position: relative;
+  overflow: hidden;
+  border: 1px solid rgba(255, 255, 255, 0.09);
+  border-radius: 28px;
+  background:
+    radial-gradient(circle at top, rgba(114, 143, 255, 0.12), transparent 38%),
+    linear-gradient(180deg, #0f1219 0%, #090b10 100%);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.05),
+    0 36px 70px rgba(1, 4, 11, 0.42);
+}
+
+.map {
+  position: relative;
+  aspect-ratio: 1.26 / 1;
+  overflow: hidden;
+  padding: 12px;
+  background:
+    linear-gradient(180deg, #9ec46d 0 10%, #86a85f 10% 12%, #1d1f25 12% 86%, #7f9ca5 86% 89%, #d3dee4 89% 100%);
+}
+
+.map::before {
+  content: '';
+  position: absolute;
+  inset: 12% 1.5% 12%;
+  background:
+    radial-gradient(circle at top, rgba(255, 255, 255, 0.12), transparent 18%),
+    linear-gradient(180deg, rgba(255, 255, 255, 0.04), transparent 18%);
+  pointer-events: none;
+}
+
+.topGarden {
+  position: absolute;
+  inset: 0 0 auto;
+  height: 12%;
+}
+
+.tree {
+  position: absolute;
+  top: 14%;
+  width: 6%;
+  height: 68%;
+}
+
+.tree::before,
+.tree::after {
+  content: '';
+  position: absolute;
+  left: 50%;
+  transform: translateX(-50%);
+}
+
+.tree::before {
+  top: 0;
+  width: 100%;
+  height: 78%;
+  border: 3px solid #4f655a;
+  border-radius: 50% 50% 42% 42%;
+  background:
+    radial-gradient(circle at 36% 34%, rgba(213, 232, 182, 0.45) 0 13%, transparent 14%),
+    radial-gradient(circle at 66% 44%, rgba(108, 140, 102, 0.4) 0 14%, transparent 15%),
+    linear-gradient(180deg, #759072 0%, #597360 100%);
+}
+
+.tree::after {
+  bottom: 0;
+  width: 18%;
+  height: 24%;
+  background: #795c43;
+}
+
+.floor {
+  position: absolute;
+  inset: 11.5% 1.4% 6%;
+  overflow: hidden;
+  border: 4px solid #40464f;
+  border-radius: 22px;
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.05), transparent 12%),
+    linear-gradient(180deg, #d4c3aa 0 60%, #d7d0c5 60% 100%);
+  box-shadow:
+    inset 0 0 0 2px rgba(255, 255, 255, 0.05),
+    0 20px 38px rgba(12, 16, 24, 0.24);
+}
+
+.connector,
+.threshold {
+  position: absolute;
+  image-rendering: pixelated;
+}
+
+.connector {
+  z-index: 0;
+  overflow: hidden;
+  border: 3px solid rgba(100, 84, 61, 0.78);
+  border-radius: 18px;
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.18), transparent 28%),
+    url('/agent-room-assets/floors/floor_2.png');
+  background-size: 34px 34px;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.12),
+    0 10px 16px rgba(20, 16, 10, 0.12);
+}
+
+.connector::after {
+  content: '';
+  position: absolute;
+  inset: 18% 8%;
+  border-radius: 12px;
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.14), rgba(0, 0, 0, 0.06)),
+    linear-gradient(90deg, transparent 0 8%, rgba(255, 245, 218, 0.18) 8% 14%, transparent 14% 22%, rgba(255, 245, 218, 0.18) 22% 28%, transparent 28% 36%, rgba(255, 245, 218, 0.18) 36% 42%, transparent 42% 50%, rgba(255, 245, 218, 0.18) 50% 56%, transparent 56% 64%, rgba(255, 245, 218, 0.18) 64% 70%, transparent 70% 78%, rgba(255, 245, 218, 0.18) 78% 84%, transparent 84%);
+  opacity: 0.72;
+}
+
+.connector::before {
+  content: '';
+  position: absolute;
+  inset: 16%;
+  border-radius: 12px;
+  background:
+    linear-gradient(90deg, rgba(255, 255, 255, 0.14) 0 12%, transparent 12% 22%, rgba(255, 255, 255, 0.14) 22% 34%, transparent 34% 44%, rgba(255, 255, 255, 0.14) 44% 56%, transparent 56% 66%, rgba(255, 255, 255, 0.14) 66% 78%, transparent 78% 88%, rgba(255, 255, 255, 0.14) 88% 100%),
+    rgba(78, 61, 40, 0.14);
+  opacity: 0.72;
+}
+
+.northPromenade {
+  left: 25%;
+  top: 31.5%;
+  width: 43%;
+  height: 7.5%;
+}
+
+.hubSpine {
+  left: 41.5%;
+  top: 35.5%;
+  width: 11%;
+  height: 28%;
+  border-radius: 18px 18px 26px 26px;
+}
+
+.codingWalk {
+  left: 25.5%;
+  top: 60%;
+  width: 20%;
+  height: 7%;
+}
+
+.reviewWalk {
+  left: 52%;
+  top: 60%;
+  width: 15%;
+  height: 7%;
+}
+
+.threshold {
+  z-index: 1;
+  overflow: hidden;
+  height: 3.8%;
+  border: 3px solid rgba(83, 66, 47, 0.84);
+  border-bottom-width: 2px;
+  border-radius: 12px;
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.16), transparent 40%),
+    linear-gradient(90deg, #b08d60 0 18%, #8f704f 18% 36%, #b08d60 36% 54%, #8f704f 54% 72%, #b08d60 72% 100%);
+  box-shadow: 0 4px 10px rgba(24, 16, 8, 0.14);
+}
+
+.threshold::after {
+  content: '';
+  position: absolute;
+  inset: 18% 10%;
+  border-radius: 8px;
+  background: linear-gradient(180deg, rgba(255, 244, 224, 0.22), transparent 70%);
+}
+
+.terraceThreshold {
+  left: 27.8%;
+  top: 31%;
+  width: 5.4%;
+}
+
+.supportThreshold {
+  left: 42.5%;
+  top: 29%;
+  width: 5%;
+}
+
+.loungeThreshold {
+  left: 61.4%;
+  top: 31%;
+  width: 5.6%;
+}
+
+.codingThreshold {
+  left: 39.2%;
+  top: 60.1%;
+  width: 5.6%;
+}
+
+.reviewThreshold {
+  left: 57.5%;
+  top: 59.7%;
+  width: 5.8%;
+}
+
+.room {
+  position: absolute;
+  overflow: hidden;
+  border: 4px solid #565c64;
+  background-repeat: repeat;
+  background-size: 38px 38px;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.12),
+    inset 0 -12px 22px rgba(0, 0, 0, 0.06);
+}
+
+.roomLabel {
+  position: absolute;
+  top: 12px;
+  left: 12px;
+  z-index: 2;
+  padding: 5px 10px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 999px;
+  background: rgba(22, 27, 35, 0.76);
+  color: rgba(239, 244, 250, 0.92);
+  font-size: 11px;
+  font-weight: 900;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  box-shadow: 0 10px 18px rgba(6, 9, 14, 0.12);
+}
+
+.sprite {
+  position: absolute;
+  z-index: 1;
+  background-position: center;
+  background-repeat: no-repeat;
+  background-size: contain;
+  image-rendering: pixelated;
+  transform: scale(1.18);
+  transform-origin: center bottom;
+}
+
+.terrace {
+  left: 4.5%;
+  top: 6%;
+  width: 27%;
+  height: 28%;
+  background-image:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.08), transparent 28%),
+    url('/agent-room-assets/floors/floor_6.png');
+}
+
+.terrace::after {
+  content: '';
+  position: absolute;
+  inset: 0 0 auto;
+  height: 18%;
+  background:
+    linear-gradient(90deg, rgba(255, 255, 255, 0.2) 0 6%, transparent 6% 20%, rgba(255, 255, 255, 0.2) 20% 26%, transparent 26% 40%, rgba(255, 255, 255, 0.2) 40% 46%, transparent 46% 60%, rgba(255, 255, 255, 0.2) 60% 66%, transparent 66% 80%, rgba(255, 255, 255, 0.2) 80% 86%, transparent 86%),
+    #9c6d3f;
+  border-bottom: 3px solid rgba(0, 0, 0, 0.12);
+}
+
+.terraceTable {
+  left: 10%;
+  top: 35%;
+  width: 24%;
+  height: 29%;
+  background-image: url('/agent-room-assets/furniture/COFFEE_TABLE/COFFEE_TABLE.png');
+}
+
+.terraceTableAlt {
+  left: 41%;
+  top: 34%;
+  width: 24%;
+  height: 29%;
+  background-image: url('/agent-room-assets/furniture/COFFEE_TABLE/COFFEE_TABLE.png');
+}
+
+.terraceBenchLeft {
+  left: 9%;
+  top: 64%;
+  width: 12%;
+  height: 13%;
+  background-image: url('/agent-room-assets/furniture/CUSHIONED_BENCH/CUSHIONED_BENCH.png');
+}
+
+.terraceBenchRight {
+  left: 33%;
+  top: 64%;
+  width: 12%;
+  height: 13%;
+  background-image: url('/agent-room-assets/furniture/CUSHIONED_BENCH/CUSHIONED_BENCH.png');
+}
+
+.terraceBenchAltLeft {
+  left: 40%;
+  top: 63%;
+  width: 12%;
+  height: 13%;
+  background-image: url('/agent-room-assets/furniture/CUSHIONED_BENCH/CUSHIONED_BENCH.png');
+}
+
+.terraceBenchAltRight {
+  left: 65%;
+  top: 63%;
+  width: 12%;
+  height: 13%;
+  background-image: url('/agent-room-assets/furniture/CUSHIONED_BENCH/CUSHIONED_BENCH.png');
+}
+
+.terracePlantLeft {
+  right: 14%;
+  top: 16%;
+  width: 12%;
+  height: 22%;
+  background-image: url('/agent-room-assets/furniture/PLANT_2/PLANT_2.png');
+}
+
+.terracePlantRight {
+  right: 8%;
+  top: 54%;
+  width: 10%;
+  height: 20%;
+  background-image: url('/agent-room-assets/furniture/PLANT/PLANT.png');
+}
+
+.supportRoom {
+  left: 34%;
+  top: 6%;
+  width: 18%;
+  height: 26%;
+  background-image:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.05), transparent 20%),
+    url('/agent-room-assets/floors/floor_1.png');
+}
+
+.supportShelfLeft {
+  left: 8%;
+  top: 16%;
+  width: 26%;
+  height: 20%;
+  background-image: url('/agent-room-assets/furniture/DOUBLE_BOOKSHELF/DOUBLE_BOOKSHELF.png');
+}
+
+.supportShelfRight {
+  left: 8%;
+  top: 42%;
+  width: 26%;
+  height: 20%;
+  background-image: url('/agent-room-assets/furniture/DOUBLE_BOOKSHELF/DOUBLE_BOOKSHELF.png');
+}
+
+.supportDesk {
+  right: 10%;
+  bottom: 12%;
+  width: 38%;
+  height: 24%;
+  background-image: url('/agent-room-assets/furniture/DESK/DESK_FRONT.png');
+}
+
+.supportPc {
+  right: 20%;
+  bottom: 24%;
+  width: 16%;
+  height: 22%;
+  background-image: url('/agent-room-assets/furniture/PC/PC_FRONT_ON_1.png');
+}
+
+.supportPainting {
+  right: 12%;
+  top: 18%;
+  width: 20%;
+  height: 18%;
+  background-image: url('/agent-room-assets/furniture/LARGE_PAINTING/LARGE_PAINTING.png');
+}
+
+.supportPlant {
+  right: 10%;
+  bottom: 12%;
+  width: 12%;
+  height: 20%;
+  background-image: url('/agent-room-assets/furniture/PLANT/PLANT.png');
+}
+
+.lounge {
+  right: 4.5%;
+  top: 6%;
+  width: 40%;
+  height: 28%;
+  background-image:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.06), transparent 20%),
+    url('/agent-room-assets/floors/floor_5.png');
+}
+
+.loungeSofaFront {
+  left: 28%;
+  top: 18%;
+  width: 24%;
+  height: 18%;
+  background-image: url('/agent-room-assets/furniture/SOFA/SOFA_FRONT.png');
+}
+
+.loungeSofaLeft {
+  left: 19%;
+  top: 17%;
+  width: 14%;
+  height: 26%;
+  background-image: url('/agent-room-assets/furniture/SOFA/SOFA_SIDE.png');
+  transform: scaleX(-1) scale(1.14);
+}
+
+.loungeSofaRight {
+  left: 52%;
+  top: 17%;
+  width: 14%;
+  height: 26%;
+  background-image: url('/agent-room-assets/furniture/SOFA/SOFA_SIDE.png');
+  transform: scale(1.14);
+}
+
+.loungeCoffeeTable {
+  left: 35%;
+  top: 46%;
+  width: 20%;
+  height: 22%;
+  background-image: url('/agent-room-assets/furniture/COFFEE_TABLE/COFFEE_TABLE.png');
+}
+
+.loungeShelfLeft {
+  left: 8%;
+  top: 17%;
+  width: 20%;
+  height: 22%;
+  background-image: url('/agent-room-assets/furniture/DOUBLE_BOOKSHELF/DOUBLE_BOOKSHELF.png');
+}
+
+.loungeSideTable {
+  left: 64%;
+  top: 47%;
+  width: 18%;
+  height: 22%;
+  background-image: url('/agent-room-assets/furniture/SMALL_TABLE/SMALL_TABLE_FRONT.png');
+}
+
+.loungePainting {
+  right: 12%;
+  top: 16%;
+  width: 18%;
+  height: 18%;
+  background-image: url('/agent-room-assets/furniture/LARGE_PAINTING/LARGE_PAINTING.png');
+}
+
+.loungePlant {
+  right: 10%;
+  bottom: 12%;
+  width: 10%;
+  height: 22%;
+  background-image: url('/agent-room-assets/furniture/PLANT_2/PLANT_2.png');
+}
+
+.workNook {
+  left: 5%;
+  top: 38%;
+  width: 18%;
+  height: 23%;
+  background-image:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.05), transparent 20%),
+    url('/agent-room-assets/floors/floor_3.png');
+}
+
+.nookDesk {
+  left: 10%;
+  bottom: 12%;
+  width: 42%;
+  height: 28%;
+  background-image: url('/agent-room-assets/furniture/DESK/DESK_FRONT.png');
+}
+
+.nookPc {
+  left: 24%;
+  bottom: 25%;
+  width: 16%;
+  height: 22%;
+  background-image: url('/agent-room-assets/furniture/PC/PC_FRONT_ON_2.png');
+}
+
+.nookShelf {
+  right: 10%;
+  top: 18%;
+  width: 24%;
+  height: 22%;
+  background-image: url('/agent-room-assets/furniture/DOUBLE_BOOKSHELF/DOUBLE_BOOKSHELF.png');
+}
+
+.nookPlant {
+  left: 12%;
+  top: 16%;
+  width: 10%;
+  height: 20%;
+  background-image: url('/agent-room-assets/furniture/PLANT/PLANT.png');
+}
+
+.codingStudio {
+  left: 5%;
+  bottom: 17%;
+  width: 43%;
+  height: 28%;
+  background-image:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.06), transparent 20%),
+    url('/agent-room-assets/floors/floor_4.png');
+}
+
+.checkerCarpet {
+  position: absolute;
+  inset: 16% 5% 7%;
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.86), rgba(245, 245, 242, 0.74)),
+    center / 48px 48px repeat url('/agent-room-assets/floors/floor_7.png');
+  border: 3px solid rgba(68, 76, 90, 0.24);
+  opacity: 0.9;
+}
+
+.codeDeskLeft,
+.codeDeskRight {
+  width: 32%;
+  height: 26%;
+  top: 26%;
+  background-image: url('/agent-room-assets/furniture/DESK/DESK_FRONT.png');
+}
+
+.codeDeskLeft {
+  left: 10%;
+}
+
+.codeDeskRight {
+  left: 50%;
+}
+
+.codePcLeft,
+.codePcRight {
+  width: 14%;
+  height: 22%;
+  top: 28%;
+}
+
+.codePcLeft {
+  left: 20%;
+  background-image: url('/agent-room-assets/furniture/PC/PC_FRONT_ON_1.png');
+}
+
+.codePcRight {
+  left: 60%;
+  background-image: url('/agent-room-assets/furniture/PC/PC_FRONT_ON_3.png');
+}
+
+.codeBenchLeft,
+.codeBenchRight {
+  width: 12%;
+  height: 12%;
+  top: 57%;
+  background-image: url('/agent-room-assets/furniture/CUSHIONED_BENCH/CUSHIONED_BENCH.png');
+}
+
+.codeBenchLeft {
+  left: 20%;
+}
+
+.codeBenchRight {
+  left: 60%;
+}
+
+.codeTable {
+  left: 39%;
+  bottom: 9%;
+  width: 20%;
+  height: 22%;
+  background-image: url('/agent-room-assets/furniture/SMALL_TABLE/SMALL_TABLE_FRONT.png');
+}
+
+.codeShelfLeft {
+  left: 8%;
+  top: 14%;
+  width: 20%;
+  height: 20%;
+  background-image: url('/agent-room-assets/furniture/DOUBLE_BOOKSHELF/DOUBLE_BOOKSHELF.png');
+}
+
+.codeShelfRight {
+  right: 8%;
+  top: 14%;
+  width: 20%;
+  height: 20%;
+  background-image: url('/agent-room-assets/furniture/DOUBLE_BOOKSHELF/DOUBLE_BOOKSHELF.png');
+}
+
+.codeWhiteboard {
+  right: 10%;
+  bottom: 10%;
+  width: 18%;
+  height: 20%;
+  background-image: url('/agent-room-assets/furniture/WHITEBOARD/WHITEBOARD.png');
+}
+
+.meetingRoom {
+  right: 7%;
+  bottom: 19%;
+  width: 30%;
+  height: 29%;
+  background-image:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.05), transparent 20%),
+    url('/agent-room-assets/floors/floor_3.png');
+}
+
+.meetingWhiteboard {
+  left: 12%;
+  top: 14%;
+  width: 28%;
+  height: 22%;
+  background-image: url('/agent-room-assets/furniture/WHITEBOARD/WHITEBOARD.png');
+}
+
+.meetingTable {
+  left: 31%;
+  top: 38%;
+  width: 32%;
+  height: 34%;
+  background-image: url('/agent-room-assets/furniture/TABLE_FRONT/TABLE_FRONT.png');
+}
+
+.meetingBenchTop,
+.meetingBenchBottom {
+  width: 10%;
+  height: 10%;
+  background-image: url('/agent-room-assets/furniture/CUSHIONED_BENCH/CUSHIONED_BENCH.png');
+}
+
+.meetingBenchTop {
+  left: 43%;
+  top: 26%;
+}
+
+.meetingBenchBottom {
+  left: 43%;
+  top: 74%;
+}
+
+.meetingShelf {
+  right: 12%;
+  top: 16%;
+  width: 20%;
+  height: 20%;
+  background-image: url('/agent-room-assets/furniture/DOUBLE_BOOKSHELF/DOUBLE_BOOKSHELF.png');
+}
+
+.meetingPlant {
+  right: 12%;
+  bottom: 12%;
+  width: 10%;
+  height: 22%;
+  background-image: url('/agent-room-assets/furniture/PLANT_2/PLANT_2.png');
+}
+
+.centralSteps {
+  position: absolute;
+  left: 31.5%;
+  top: 34%;
+  width: 28%;
+  height: 22%;
+  background:
+    linear-gradient(180deg, #7d624e 0%, #644c3a 100%);
+  clip-path: polygon(0 70%, 38% 70%, 38% 42%, 62% 42%, 62% 14%, 100% 14%, 100% 100%, 0 100%);
+  opacity: 0.96;
+  box-shadow: inset 0 18px 24px rgba(255, 255, 255, 0.08);
+}
+
+.stepRail {
+  position: absolute;
+  left: 42%;
+  top: 8%;
+  width: 16%;
+  height: 46%;
+  background:
+    linear-gradient(90deg, rgba(255, 255, 255, 0.16) 0 18%, transparent 18% 82%, rgba(0, 0, 0, 0.08) 82%);
+}
+
+.stepLanding {
+  position: absolute;
+  left: 14%;
+  bottom: 20%;
+  width: 54%;
+  height: 16%;
+  background: rgba(221, 207, 177, 0.3);
+}
+
+.centralDesk {
+  left: 32%;
+  top: 6%;
+  width: 30%;
+  height: 22%;
+  background-image: url('/agent-room-assets/furniture/DESK/DESK_FRONT.png');
+}
+
+.centralPc {
+  left: 40%;
+  top: 5%;
+  width: 16%;
+  height: 20%;
+  background-image: url('/agent-room-assets/furniture/PC/PC_FRONT_ON_3.png');
+}
+
+.centralPlant {
+  right: 10%;
+  bottom: 14%;
+  width: 12%;
+  height: 20%;
+  background-image: url('/agent-room-assets/furniture/PLANT_2/PLANT_2.png');
+}
+
+.centralPainting {
+  left: 10%;
+  top: 10%;
+  width: 18%;
+  height: 18%;
+  background-image: url('/agent-room-assets/furniture/LARGE_PAINTING/LARGE_PAINTING.png');
+}
+
+.hallShelf {
+  left: 9%;
+  bottom: 10%;
+  width: 22%;
+  height: 22%;
+  background-image: url('/agent-room-assets/furniture/DOUBLE_BOOKSHELF/DOUBLE_BOOKSHELF.png');
+}
+
+.windowBand {
+  position: absolute;
+  inset: auto 0 0;
+  height: 13%;
+  border-top: 4px solid #8ea8af;
+  background:
+    linear-gradient(90deg, rgba(255, 255, 255, 0.52) 0 7%, transparent 7% 11%, rgba(255, 255, 255, 0.52) 11% 18%, transparent 18% 22%, rgba(255, 255, 255, 0.52) 22% 29%, transparent 29% 33%, rgba(255, 255, 255, 0.52) 33% 40%, transparent 40% 44%, rgba(255, 255, 255, 0.52) 44% 51%, transparent 51% 55%, rgba(255, 255, 255, 0.52) 55% 62%, transparent 62% 66%, rgba(255, 255, 255, 0.52) 66% 73%, transparent 73% 77%, rgba(255, 255, 255, 0.52) 77% 84%, transparent 84% 88%, rgba(255, 255, 255, 0.52) 88% 95%, transparent 95%),
+    linear-gradient(180deg, rgba(255, 255, 255, 0.22), rgba(255, 255, 255, 0.04)),
+    #9db7bf;
+}
+
+.link {
+  position: absolute;
+  z-index: 6;
+  height: 2px;
+  transform-origin: left center;
+  border-top: 2px dashed rgba(36, 44, 58, 0.36);
+}
+
+.linkLabel {
+  position: absolute;
+  left: 50%;
+  top: -16px;
+  transform: translateX(-50%);
+  padding: 2px 6px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.92);
+  color: #232d3d;
+  font-size: 9px;
+  font-weight: 900;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.agent {
+  position: absolute;
+  z-index: 10;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  will-change: left, top;
+}
+
+.agent[data-priority='recent'] {
+  z-index: 9;
+}
+
+.agent[data-facing='left'] .avatar {
+  transform: scaleX(-1);
+}
+
+.avatar {
+  position: relative;
+  width: 30px;
+  height: 52px;
+  filter: drop-shadow(0 0 10px var(--agent-glow));
+}
+
+.shadow {
+  position: absolute;
+  left: 5px;
+  right: 5px;
+  bottom: 0;
+  height: 6px;
+  border-radius: 999px;
+  background: rgba(0, 0, 0, 0.18);
+}
+
+.agent[data-moving='true'] .shadow {
+  animation: shadowPulse 420ms steps(2, end) infinite;
+}
+
+.ring {
+  position: absolute;
+  left: 2px;
+  right: 2px;
+  bottom: 0;
+  height: 9px;
+  border-radius: 999px;
+  background: radial-gradient(circle, var(--agent-glow), transparent 70%);
+  opacity: 0.68;
+}
+
+.spriteAvatar {
+  position: absolute;
+  left: 1px;
+  top: 0;
+  width: 28px;
+  height: 48px;
+  background-image: var(--character-sheet);
+  background-repeat: no-repeat;
+  background-size: 196px 168px;
+  background-position: 0 0;
+  image-rendering: pixelated;
+  animation: spriteWalk 620ms steps(1, end) infinite;
+  animation-play-state: paused;
+}
+
+.agent[data-moving='true'] .spriteAvatar {
+  animation: spriteWalk 520ms steps(1, end) infinite;
+}
+
+.agent[data-priority='recent'][data-moving='true'] .spriteAvatar {
+  animation: spriteWalk 680ms steps(1, end) infinite;
+}
+
+.bubble {
+  position: absolute;
+  bottom: calc(100% + 12px);
+  min-width: 96px;
+  max-width: 176px;
+  padding: 8px 10px;
+  border: 3px solid rgba(57, 67, 82, 0.9);
+  border-radius: 15px;
+  background: rgba(255, 255, 255, 0.98);
+  color: #151b26;
+  font-size: 11px;
+  font-weight: 800;
+  line-height: 1.34;
+  text-align: center;
+  white-space: normal;
+  word-break: keep-all;
+  overflow-wrap: anywhere;
+  writing-mode: horizontal-tb;
+  box-shadow: 0 14px 24px rgba(12, 18, 29, 0.18);
+  transform: translateY(var(--bubble-offset-y));
+}
+
+.agent[data-bubble-align='center'] .bubble {
+  left: 50%;
+  transform: translateX(-50%) translateY(var(--bubble-offset-y));
+}
+
+.agent[data-bubble-align='left'] .bubble {
+  left: -10px;
+}
+
+.agent[data-bubble-align='right'] .bubble {
+  right: -10px;
+}
+
+.bubble::after {
+  content: '';
+  position: absolute;
+  bottom: -9px;
+  width: 12px;
+  height: 12px;
+  transform: rotate(45deg);
+  border-right: 3px solid rgba(57, 67, 82, 0.9);
+  border-bottom: 3px solid rgba(57, 67, 82, 0.9);
+  background: rgba(255, 255, 255, 0.98);
+}
+
+.agent[data-bubble-align='center'] .bubble::after {
+  left: 50%;
+  margin-left: -6px;
+}
+
+.agent[data-bubble-align='left'] .bubble::after {
+  left: 26px;
+}
+
+.agent[data-bubble-align='right'] .bubble::after {
+  right: 26px;
+}
+
+.nameTag {
+  margin-top: 2px;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 7px;
+  border-radius: 999px;
+  background: rgba(17, 23, 34, 0.86);
+  color: #eff4ff;
+  box-shadow: 0 10px 20px rgba(1, 5, 10, 0.16);
+}
+
+.agent[data-priority='recent'] .nameTag {
+  background: rgba(17, 23, 34, 0.72);
+}
+
+.nameText {
+  max-width: 96px;
+  overflow: hidden;
+  font-size: 10px;
+  font-weight: 900;
+  letter-spacing: 0.01em;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.statusChip {
+  padding: 1px 5px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.12);
+  font-size: 9px;
+  font-weight: 900;
+  text-transform: uppercase;
+}
+
+.agent[data-status='coding'] .statusChip {
+  background: rgba(245, 133, 61, 0.22);
+}
+
+.agent[data-status='researching'] .statusChip {
+  background: rgba(87, 168, 255, 0.2);
+}
+
+.agent[data-status='thinking'] .statusChip {
+  background: rgba(147, 113, 255, 0.2);
+}
+
+.agent[data-status='waiting'] .statusChip {
+  background: rgba(241, 195, 92, 0.2);
+}
+
+.agent[data-status='done'] .statusChip {
+  background: rgba(107, 198, 127, 0.2);
+}
+
+.agent[data-status='idle'] .statusChip {
+  background: rgba(146, 158, 171, 0.2);
+}
+
+@keyframes spriteWalk {
+  0%,
+  100% {
+    background-position-x: 0;
+  }
+
+  25% {
+    background-position-x: -28px;
+  }
+
+  50% {
+    background-position-x: -56px;
+  }
+
+  75% {
+    background-position-x: -84px;
+  }
+}
+
+@keyframes shadowPulse {
+  0%,
+  100% {
+    transform: scaleX(1);
+    opacity: 0.18;
+  }
+
+  50% {
+    transform: scaleX(0.84);
+    opacity: 0.12;
+  }
+}
+
+@media (max-width: 1200px) {
+  .map {
+    aspect-ratio: 1.14 / 1;
+  }
+
+  .bubble {
+    max-width: 156px;
+  }
+}
+
+@media (max-width: 780px) {
+  .map {
+    aspect-ratio: 1 / 1;
+    padding: 12px;
+  }
+
+  .floor {
+    inset: 12% 1.5% 6%;
+  }
+
+  .quietBadge {
+    right: 12px;
+    bottom: 12px;
+  }
+
+  .nameText {
+    max-width: 70px;
+  }
+}

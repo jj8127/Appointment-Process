@@ -18,6 +18,7 @@ create table if not exists public.fc_profiles (
   address_detail text,
   career_type text check (career_type in ('신입', '경력')),
   allowance_date date,
+  allowance_prescreen_requested_at timestamp with time zone,
   allowance_reject_reason text,
   docs_deadline_at date,
   docs_deadline_last_notified_at date,
@@ -53,6 +54,9 @@ create table if not exists public.fc_profiles (
   updated_at timestamptz not null default now()
 );
 
+alter table public.fc_profiles
+  drop constraint if exists fc_profiles_allowance_flow_requires_date;
+
 comment on column public.fc_profiles.status is
   'FC onboarding workflow: draft -> temp-id-issued -> allowance-pending -> allowance-consented -> docs-requested -> docs-pending -> docs-submitted -> docs-rejected -> docs-approved -> hanwha-commission-review -> hanwha-commission-rejected -> hanwha-commission-approved -> appointment-completed -> final-link-sent';
 
@@ -66,6 +70,8 @@ alter table public.fc_profiles
   add column if not exists nonlife_commission_completed boolean not null default false;
 alter table public.fc_profiles
   add column if not exists admin_memo text;
+alter table public.fc_profiles
+  add column if not exists allowance_prescreen_requested_at timestamp with time zone;
 
 create table if not exists public.fc_identity_secure (
   id uuid primary key default gen_random_uuid(),

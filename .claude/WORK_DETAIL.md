@@ -23,6 +23,34 @@
 
 ---
 
+## <a id="20260330-allowance-prescreen-doc-sync"></a> 2026-03-30 | 수당동의 파생 상태와 단계명 변경을 handbook/작업로그에 동기화
+
+**배경**:
+- 수당동의 단계는 더 이상 `allowance-pending = 검토중`으로 단순 표현할 수 없고, FC 입력 완료와 총무의 사전 심사 요청 완료를 분리해서 설명해야 한다.
+- 현재 화면/코드 설계는 `allowance_prescreen_requested_at`을 통해 수당동의 단계 내부 진행 상태를 나누는 방향으로 바뀌고 있어, handbook과 운영 로그가 이 계약을 그대로 따라가야 했다.
+- 동시에 단계명도 `3단계 한화 위촉 URL`, `4단계 생명/손해 위촉`으로 정리해야 앱/웹/운영 문서가 같은 용어를 쓴다.
+
+**조치**:
+- `docs/handbook/workflow-state-matrix.md`
+  - `allowance-pending` 내부 파생 상태를 `FC 수당 동의일 미입력 -> FC 수당 동의 입력 완료 -> 사전 심사 요청 완료 -> 승인 완료/미승인`으로 명시했다.
+  - `allowance_prescreen_requested_at`의 의미와 reset 규칙을 추가했다.
+  - `docs-approved` 이후 단계명을 `3단계 한화 위촉 URL`, `4단계 생명/손해 위촉`으로 다시 적었다.
+- `docs/handbook/mobile/fc-onboarding.md`
+  - 모바일 단계 정의와 FC 홈/다음 단계 문구를 새 수당동의 파생 상태 기준으로 정리했다.
+  - FC가 수당 동의일을 다시 저장하면 `allowance_prescreen_requested_at`과 반려 사유가 초기화된다는 동작을 문서화했다.
+- `docs/handbook/button-action-matrix.md`
+  - FC의 수당동의 저장 액션이 `allowance_prescreen_requested_at=null`, `allowance_reject_reason=null`을 함께 쓰는 계약으로 정리했다.
+  - 총무 수당동의 단계 조작(`입력 완료 / 사전 심사 요청 완료 / 승인 완료 / 미승인`) 전용 액션 행을 추가했다.
+- `.claude/WORK_LOG.md`
+  - 이번 handbook 동기화를 최근 작업에 추가했다.
+
+**결과**:
+- handbook과 운영 로그 기준으로는 이제 수당동의 단계가 `allowance_date`와 `allowance_prescreen_requested_at` 조합으로 파생 표현된다는 점이 명확해졌다.
+- 단계명도 `한화 위촉 URL`과 `생명/손해 위촉`으로 통일됐다.
+
+**메모**:
+- 이번 작업은 문서 동기화만 수행했다. 코드/스키마 변경 여부는 별도 구현 작업에서 관리한다.
+
 ## <a id="20260329-resident-number-full-view-alignment"></a> 2026-03-29 | 가람in/GaramLink 주민번호 full-view 계약을 FC self-view와 embedded GaramLink까지 정렬
 
 **배경**:
@@ -62,10 +90,10 @@
 **메모**:
 - 현행 계약은 “DB/log/local persistence에는 평문 주민번호를 남기지 않되, trusted path를 통해 GaramIn/GaramLink 사용자 화면에는 full-view를 일관되게 제공한다”이다.
 
-## <a id="20260328-hanwha-commission-workflow-overhaul"></a> 2026-03-28 | 한화 위촉 단계를 온보딩 플로우에 정식 편입하고 앱/웹/백엔드 상태 계산을 공통 helper로 수렴
+## <a id="20260328-hanwha-commission-workflow-overhaul"></a> 2026-03-28 | 한화 위촉 URL 단계를 온보딩 플로우에 정식 편입하고 앱/웹/백엔드 상태 계산을 공통 helper로 수렴
 
 **배경**:
-- 기존 온보딩 플로우는 `수당동의 -> 서류제출 -> 생명/손해 위촉` 전제를 깔고 있어, 새 정책인 `한화 위촉 승인 + PDF 전달 후 위촉 URL 진행`을 정확히 반영하지 못했다.
+- 기존 온보딩 플로우는 `수당동의 -> 서류제출 -> 생명/손해 위촉` 전제를 깔고 있어, 새 정책인 `3단계 한화 위촉 URL 승인 + PDF 전달 후 4단계 생명/손해 위촉 진행`을 정확히 반영하지 못했다.
 - 앱 홈, 앱 관리자 대시보드, 웹 공용 helper가 각자 다른 단계 계산을 가지고 있어 같은 FC를 봐도 단계/다음 단계/관리자 필터가 어긋날 수 있었다.
 - 문서 삭제/반려나 한화 재제출 뒤에도 stale PDF/기존 위촉 증거가 남아 다음 단계가 열릴 위험이 있어, 서버 쪽 reset 규칙을 함께 재정비해야 했다.
 
@@ -73,7 +101,7 @@
 - 공통 상태/단계 helper를 추가했다.
   - `lib/fc-workflow.ts`
   - `web/src/lib/fc-workflow.ts`
-  - `한화 위촉 승인 + PDF 완료`가 아니면 위촉 URL 단계가 열리지 않도록 `hasUrlStageAccess()`를 재정의했다.
+  - `한화 위촉 URL 승인 + PDF 완료`가 아니면 4단계 `생명/손해 위촉`이 열리지 않도록 `hasUrlStageAccess()`를 재정의했다.
 - 상태/스키마를 확장했다.
   - `types/fc.ts`, `web/src/types/fc.ts`
   - `supabase/schema.sql`
@@ -98,9 +126,9 @@
 - 웹 관리자 모달을 4탭 구조로 확장했다.
   - `web/src/app/dashboard/page.tsx`
   - `web/src/app/api/admin/fc/route.ts`
-  - 탭 순서를 `수당 동의 / 서류 관리 / 한화 위촉 관리 / 위촉 URL 관리`로 재구성
+  - 탭 순서를 `수당 동의 / 서류 관리 / 한화 위촉 관리 / 생명/손해 위촉 관리`로 재구성
   - 한화 PDF 업로드/다운로드/삭제와 승인/반려를 모달 안에서 처리하도록 확장
-  - 위촉 URL 탭은 더 이상 클릭 자체를 막지 않고, 준비되지 않은 경우 안내 패널만 표시하게 조정
+  - 생명/손해 위촉 탭은 더 이상 클릭 자체를 막지 않고, 준비되지 않은 경우 안내 패널만 표시하게 조정
 - 웹 helper/운영 화면을 동기화했다.
   - `web/src/lib/shared.ts`
   - `web/src/app/dashboard/appointment/actions.ts`
@@ -110,8 +138,8 @@
   - `web/src/app/dashboard/layout.tsx`
 
 **결과**:
-- FC/총무/본부장이 앱과 웹 어디서 보더라도 `1 수당동의 -> 2 문서제출 -> 3 한화 위촉 -> 4 위촉 URL -> 5 완료`를 같은 기준으로 본다.
-- 한화 승인과 PDF 전달이 끝나기 전에는 위촉 URL 단계가 열리지 않는다.
+- FC/총무/본부장이 앱과 웹 어디서 보더라도 `1 수당동의 -> 2 문서제출 -> 3 한화 위촉 URL -> 4 생명/손해 위촉 -> 5 완료`를 같은 기준으로 본다.
+- 한화 승인과 PDF 전달이 끝나기 전에는 4단계 `생명/손해 위촉`이 열리지 않는다.
 - 문서 삭제/반려와 한화 반려/재제출 이후 stale 메타데이터가 다음 단계 증거로 남지 않도록 reset 규칙을 통일했다.
 
 **검증**:

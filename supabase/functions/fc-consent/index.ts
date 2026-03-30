@@ -53,7 +53,7 @@ function isValidYmd(value: string) {
 }
 
 function resolveAllowanceStatus(currentStatus: string | null | undefined): string {
-  if (!currentStatus || ['draft', 'temp-id-issued', 'allowance-pending'].includes(currentStatus)) {
+  if (!currentStatus || ['draft', 'temp-id-issued', 'allowance-pending', 'allowance-consented'].includes(currentStatus)) {
     return 'allowance-pending';
   }
   return currentStatus;
@@ -107,6 +107,7 @@ serve(async (req: Request) => {
     .from('fc_profiles')
     .update({
       allowance_date: allowanceDate,
+      allowance_prescreen_requested_at: null,
       status: resolveAllowanceStatus(profile.status),
       allowance_reject_reason: null,
     })

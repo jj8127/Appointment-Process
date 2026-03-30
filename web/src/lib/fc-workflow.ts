@@ -2,6 +2,12 @@ import type { FcProfile } from '../types/fc';
 
 export type WorkflowStepNumber = 1 | 2 | 3 | 4 | 5;
 export type AdminWorkflowStepNumber = 0 | WorkflowStepNumber;
+export type AllowanceDisplayKey = 'missing' | 'entered' | 'prescreen' | 'approved' | 'rejected';
+export type AllowanceDisplay = {
+  key: AllowanceDisplayKey;
+  label: string;
+  color: 'gray' | 'orange' | 'blue' | 'green' | 'red';
+};
 
 type WorkflowProfile = Partial<
   Pick<
@@ -9,6 +15,8 @@ type WorkflowProfile = Partial<
     | 'status'
     | 'temp_id'
     | 'allowance_date'
+    | 'allowance_prescreen_requested_at'
+    | 'allowance_reject_reason'
     | 'identity_completed'
     | 'resident_id_masked'
     | 'address'
@@ -68,6 +76,28 @@ export const getApprovedDocumentState = (profile?: WorkflowProfile | null) => {
   const allApproved = allSubmitted && docs.every((doc) => doc.status === 'approved');
 
   return { docs, allSubmitted, allApproved };
+};
+
+export const getAllowanceDisplayState = (
+  profile?: WorkflowProfile | null,
+): AllowanceDisplay => {
+  if (profile?.status === 'allowance-consented') {
+    return { key: 'approved', label: '승인 완료', color: 'green' };
+  }
+
+  if (profile?.status === 'allowance-pending' && hasText(profile.allowance_reject_reason)) {
+    return { key: 'rejected', label: '미승인', color: 'red' };
+  }
+
+  if (!profile?.allowance_date) {
+    return { key: 'missing', label: 'FC 수당 동의일 미입력', color: 'gray' };
+  }
+
+  if (profile.allowance_prescreen_requested_at) {
+    return { key: 'prescreen', label: '사전 심사 요청 완료', color: 'blue' };
+  }
+
+  return { key: 'entered', label: 'FC 수당 동의 입력 완료', color: 'orange' };
 };
 
 export const hasAllowancePassed = (profile?: WorkflowProfile | null) => {

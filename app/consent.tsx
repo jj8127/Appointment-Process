@@ -158,7 +158,7 @@ export default function AllowanceConsentScreen() {
         })
         .catch(() => { });
 
-      Alert.alert('저장 완료', '수당 동의일이 제출되었습니다. 총무 검토 후 문서제출 단계로 진행됩니다.');
+      Alert.alert('저장 완료', '수당 동의일이 제출되었습니다. 총무가 사전 심사를 준비할 예정입니다.');
       router.replace('/');
     } catch (err: any) {
       Alert.alert('저장 실패', err?.message ?? '정보를 저장하지 못했습니다.');

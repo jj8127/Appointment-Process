@@ -37,6 +37,7 @@ export type FcProfile = {
   career_type?: CareerType;
   temp_id?: string | null;
   allowance_date?: string | null;
+  allowance_prescreen_requested_at?: string | null;
   allowance_reject_reason?: string | null;
   docs_deadline_at?: string | null;
   docs_deadline_last_notified_at?: string | null;

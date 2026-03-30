@@ -11,6 +11,7 @@ type AdminAction =
   | 'updateProfile'
   | 'updateStatus'
   | 'updateAllowanceDate'
+  | 'updateHanwhaSubmissionDate'
   | 'updateDocsRequest'
   | 'deleteDocFile'
   | 'createHanwhaPdfUploadUrl'
@@ -43,6 +44,16 @@ function badRequest(message: string) {
   return NextResponse.json({ error: message }, { status: 400 });
 }
 
+function isAllowanceFlowMutation(status: string, extra?: Record<string, unknown>) {
+  if (status === 'allowance-consented') {
+    return true;
+  }
+  if (status !== 'allowance-pending' || !extra) return false;
+  return ['allowance_date', 'allowance_prescreen_requested_at', 'allowance_reject_reason'].some((key) =>
+    Object.prototype.hasOwnProperty.call(extra, key),
+  );
+}
+
 function isValidYmd(value: string): boolean {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
   const parsed = new Date(`${value}T00:00:00`);
@@ -50,7 +61,7 @@ function isValidYmd(value: string): boolean {
 }
 
 function resolveAllowanceStatus(currentStatus: string | null | undefined): string {
-  if (!currentStatus || ['draft', 'temp-id-issued', 'allowance-pending'].includes(currentStatus)) {
+  if (!currentStatus || ['draft', 'temp-id-issued', 'allowance-pending', 'allowance-consented'].includes(currentStatus)) {
     return 'allowance-pending';
   }
   return currentStatus;
@@ -181,20 +192,40 @@ export async function POST(req: Request) {
       if (!fcId || !status) return badRequest('fcId and status are required');
       let extra = rawExtra;
 
+      if (isAllowanceFlowMutation(status, extra)) {
+        const { data: currentProfile, error: profileError } = await adminSupabase
+          .from('fc_profiles')
+          .select('allowance_date')
+          .eq('id', fcId)
+          .maybeSingle();
+        if (profileError) throw profileError;
+
+        const normalizedAllowanceDate = String(extra?.allowance_date ?? currentProfile?.allowance_date ?? '').trim();
+        if (normalizedAllowanceDate && !isValidYmd(normalizedAllowanceDate)) {
+          return badRequest('유효한 수당 동의일을 입력해주세요.');
+        }
+
+        extra = {
+          ...(extra ?? {}),
+          allowance_date: normalizedAllowanceDate || null,
+        };
+      }
+
       if (status === 'hanwha-commission-approved') {
         const approvedDate = String(extra?.hanwha_commission_date ?? dayjs().format('YYYY-MM-DD')).trim();
+        const submittedDate = String(extra?.hanwha_commission_date_sub ?? '').trim();
         const pdfPath = String(extra?.hanwha_commission_pdf_path ?? '').trim();
         const pdfName = String(extra?.hanwha_commission_pdf_name ?? '').trim();
 
         if (!approvedDate || !isValidYmd(approvedDate)) {
-          return badRequest('한화 승인일이 필요합니다.');
+          return badRequest('한화 위촉 URL 승인일이 필요합니다.');
         }
         extra = {
           ...(extra ?? {}),
           hanwha_commission_date: approvedDate,
         };
         if (!pdfPath || !pdfName) {
-          return badRequest('한화 위촉 PDF가 등록된 뒤에만 승인할 수 있습니다.');
+          return badRequest('한화 위촉 URL PDF가 등록된 뒤에만 승인할 수 있습니다.');
         }
 
         const { data: currentProfile, error: profileError } = await adminSupabase
@@ -203,9 +234,14 @@ export async function POST(req: Request) {
           .eq('id', fcId)
           .maybeSingle();
         if (profileError) throw profileError;
-        if (!currentProfile?.hanwha_commission_date_sub) {
-          return badRequest('FC가 한화 위촉 완료일을 제출한 뒤에만 승인할 수 있습니다.');
+        const effectiveSubmittedDate = submittedDate || String(currentProfile?.hanwha_commission_date_sub ?? '').trim();
+        if (!effectiveSubmittedDate || !isValidYmd(effectiveSubmittedDate)) {
+          return badRequest('한화 위촉 URL 완료일을 입력해주세요.');
         }
+        extra = {
+          ...(extra ?? {}),
+          hanwha_commission_date_sub: effectiveSubmittedDate,
+        };
       }
 
       const { data: updatedData, error: updateError } = await adminSupabase
@@ -257,19 +293,17 @@ export async function POST(req: Request) {
 
       const { data: profile, error: profileError } = await adminSupabase
         .from('fc_profiles')
-        .select('status,temp_id')
+        .select('status')
         .eq('id', fcId)
         .maybeSingle();
       if (profileError) throw profileError;
-      if (!profile?.temp_id) {
-        return badRequest('임시사번이 발급된 후 수당 동의일을 입력할 수 있습니다.');
-      }
 
       const nextStatus = resolveAllowanceStatus(profile.status);
       const { error: updateError } = await adminSupabase
         .from('fc_profiles')
         .update({
           allowance_date: normalizedAllowanceDate,
+          allowance_prescreen_requested_at: null,
           allowance_reject_reason: null,
           status: nextStatus,
         })
@@ -279,6 +313,46 @@ export async function POST(req: Request) {
       return NextResponse.json({
         ok: true,
         allowance_date: normalizedAllowanceDate,
+        status: nextStatus,
+      });
+    }
+
+    if (action === 'updateHanwhaSubmissionDate') {
+      const { fcId, submittedDate } = payload as {
+        fcId?: string;
+        submittedDate?: string | null;
+      };
+      const normalizedSubmittedDate = String(submittedDate ?? '').trim();
+      if (!fcId || !normalizedSubmittedDate) return badRequest('fcId and submittedDate are required');
+      if (!isValidYmd(normalizedSubmittedDate)) return badRequest('유효한 한화 위촉 URL 완료일을 입력해주세요.');
+
+      const { data: profile, error: profileError } = await adminSupabase
+        .from('fc_profiles')
+        .select('status')
+        .eq('id', fcId)
+        .maybeSingle();
+      if (profileError) throw profileError;
+
+      const nextStatus =
+        profile?.status === 'hanwha-commission-approved' ||
+        profile?.status === 'appointment-completed' ||
+        profile?.status === 'final-link-sent'
+          ? profile.status
+          : 'hanwha-commission-review';
+
+      const { error: updateError } = await adminSupabase
+        .from('fc_profiles')
+        .update({
+          hanwha_commission_date_sub: normalizedSubmittedDate,
+          hanwha_commission_reject_reason: null,
+          status: nextStatus,
+        })
+        .eq('id', fcId);
+      if (updateError) throw updateError;
+
+      return NextResponse.json({
+        ok: true,
+        hanwha_commission_date_sub: normalizedSubmittedDate,
         status: nextStatus,
       });
     }

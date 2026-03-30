@@ -70,7 +70,7 @@ supabase secrets list --project-ref <project-ref>
 
 ### Snapshot (2026-03-28)
 - Project is operating as a dual-platform monorepo: Expo mobile app + Next.js admin web + Supabase backend.
-- Core FC onboarding flow is implemented end-to-end: signup, OTP/password, identity gate, consent, exam, docs, Hanwha commission, insurance appointment URL, completion.
+- Core FC onboarding flow is implemented end-to-end: signup, OTP/password, identity gate, consent, exam, docs, Hanwha commission URL, life/non-life appointment, completion.
 - FC signup supports dual-commission completion selection (`none/life_only/nonlife_only/both`); partial completion (`life_only/nonlife_only`) now starts from Step 1 (`draft`) and preserves completion flags so remaining track proceeds through full onboarding flow.
 - Admins can correct FC signup commission selection from mobile/web dashboards, and `final-link-sent` downgrade paths must restore the nearest valid lower workflow status instead of blindly resetting to `draft`.
 - Manager read-only mode is implemented and must stay enforced across dashboard, exam, notice, and chat areas.
@@ -136,8 +136,8 @@ supabase secrets list --project-ref <project-ref>
   - Allowance consent and approval
   - Exam schedule/apply
   - Docs request/upload/review
-  - Hanwha commission submit/review/PDF delivery
-  - Insurance appointment URL schedule/completion
+  - Hanwha commission URL submit/review/PDF delivery
+  - Life/non-life appointment schedule/completion
   - Final completion
 
 ### Bottom Navigation Contract (Mobile)

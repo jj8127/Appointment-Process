@@ -43,10 +43,11 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
     () => [
       { label: '홈', icon: IconHome, href: '/dashboard' },
       { label: '문서 관리', icon: IconFileText, href: '/dashboard/docs' },
-      { label: '위촉 URL', icon: IconLink, href: '/dashboard/appointment' },
+        { label: '생명/손해 위촉', icon: IconLink, href: '/dashboard/appointment' },
       { label: '추천인 코드', icon: IconKey, href: '/dashboard/referrals' },
       { label: '게시판', icon: IconNews, href: '/dashboard/board' },
       { label: '메신저', icon: IconMessage, href: '/dashboard/messenger' },
+      { label: '에이전트 룸', icon: IconUsers, href: '/dashboard/agent-room' },
       { label: '시험 일정', icon: IconCalendarEvent, href: '/dashboard/exam/schedule' },
       { label: '시험 신청자', icon: IconUsers, href: '/dashboard/exam/applicants' },
     ],

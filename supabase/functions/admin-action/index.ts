@@ -165,10 +165,22 @@ function getKstYmd(reference = new Date()): string {
 }
 
 function resolveAllowanceStatus(currentStatus: string | null | undefined): string {
-  if (!currentStatus || ['draft', 'temp-id-issued', 'allowance-pending'].includes(currentStatus)) {
+  if (!currentStatus || ['draft', 'temp-id-issued', 'allowance-pending', 'allowance-consented'].includes(currentStatus)) {
     return 'allowance-pending';
   }
   return currentStatus;
+}
+
+function isAllowanceFlowMutation(status: string, extra?: Record<string, unknown>) {
+  if (status === 'allowance-consented') {
+    return true;
+  }
+  if (status !== 'allowance-pending' || !extra) {
+    return false;
+  }
+  return ['allowance_date', 'allowance_prescreen_requested_at', 'allowance_reject_reason'].some((key) =>
+    Object.prototype.hasOwnProperty.call(extra, key),
+  );
 }
 
 function formatPhone(digits: string): string {
@@ -406,9 +418,30 @@ serve(async (req: Request) => {
         extra?: Record<string, any>;
       };
       if (!fcId || !status) return fail('fcId and status are required');
+      let nextExtra = extra;
+
+      if (isAllowanceFlowMutation(status, nextExtra)) {
+        const { data: currentProfile, error: profileError } = await supabase
+          .from('fc_profiles')
+          .select('allowance_date')
+          .eq('id', fcId)
+          .maybeSingle();
+        if (profileError) throw profileError;
+
+        const normalizedAllowanceDate = String(nextExtra?.allowance_date ?? currentProfile?.allowance_date ?? '').trim();
+        if (normalizedAllowanceDate && !isValidYmd(normalizedAllowanceDate)) {
+          return fail('유효한 수당 동의일을 입력해주세요.');
+        }
+
+        nextExtra = {
+          ...(nextExtra ?? {}),
+          allowance_date: normalizedAllowanceDate || null,
+        };
+      }
+
       const { error } = await supabase
         .from('fc_profiles')
-        .update({ status, ...(extra ?? {}) })
+        .update({ status, ...(nextExtra ?? {}) })
         .eq('id', fcId);
       if (error) throw error;
       return json({ ok: true });
@@ -430,19 +463,17 @@ serve(async (req: Request) => {
 
       const { data: profile, error: profileError } = await supabase
         .from('fc_profiles')
-        .select('status,temp_id')
+        .select('status')
         .eq('id', fcId)
         .maybeSingle();
       if (profileError) throw profileError;
-      if (!profile?.temp_id) {
-        return fail('임시사번이 발급된 후 수당 동의일을 입력할 수 있습니다.');
-      }
 
       const nextStatus = resolveAllowanceStatus(profile.status);
       const { error: updateError } = await supabase
         .from('fc_profiles')
         .update({
           allowance_date: normalizedAllowanceDate,
+          allowance_prescreen_requested_at: null,
           allowance_reject_reason: null,
           status: nextStatus,
         })
@@ -452,14 +483,56 @@ serve(async (req: Request) => {
       return json({ ok: true, allowance_date: normalizedAllowanceDate, status: nextStatus });
     }
 
+    // ── updateHanwhaSubmissionDate ──
+    if (action === 'updateHanwhaSubmissionDate') {
+      const { fcId, submittedDate } = payload as {
+        fcId?: string;
+        submittedDate?: string | null;
+      };
+      const normalizedSubmittedDate = String(submittedDate ?? '').trim();
+      if (!fcId || !normalizedSubmittedDate) {
+        return fail('fcId and submittedDate are required');
+      }
+      if (!isValidYmd(normalizedSubmittedDate)) {
+        return fail('Invalid Hanwha submission date.');
+      }
+
+      const { data: profile, error: profileError } = await supabase
+        .from('fc_profiles')
+        .select('status')
+        .eq('id', fcId)
+        .maybeSingle();
+      if (profileError) throw profileError;
+
+      const nextStatus =
+        profile?.status === 'hanwha-commission-approved' ||
+        profile?.status === 'appointment-completed' ||
+        profile?.status === 'final-link-sent'
+          ? profile.status
+          : 'hanwha-commission-review';
+
+      const { error: updateError } = await supabase
+        .from('fc_profiles')
+        .update({
+          hanwha_commission_date_sub: normalizedSubmittedDate,
+          hanwha_commission_reject_reason: null,
+          status: nextStatus,
+        })
+        .eq('id', fcId);
+      if (updateError) throw updateError;
+
+      return json({ ok: true, hanwha_commission_date_sub: normalizedSubmittedDate, status: nextStatus });
+    }
+
     // ── updateHanwhaCommission ──
     if (action === 'updateHanwhaCommission') {
-      const { fcId, decision, rejectReason, pdfPath, pdfName } = payload as {
+      const { fcId, decision, rejectReason, pdfPath, pdfName, submittedDate } = payload as {
         fcId?: string;
         decision?: 'approve' | 'reject';
         rejectReason?: string | null;
         pdfPath?: string | null;
         pdfName?: string | null;
+        submittedDate?: string | null;
       };
       if (!fcId || !decision) return fail('fcId and decision are required');
       if (decision !== 'approve' && decision !== 'reject') {
@@ -481,7 +554,12 @@ serve(async (req: Request) => {
       if (!['docs-approved', 'hanwha-commission-review', 'hanwha-commission-rejected', 'hanwha-commission-approved'].includes(String(profile.status ?? ''))) {
         return fail('Hanwha commission can only be processed after docs approval.', 409);
       }
-      if (!trimOrNull(profile.hanwha_commission_date_sub)) {
+      const normalizedSubmittedDate = trimOrNull(submittedDate);
+      if (normalizedSubmittedDate && !isValidYmd(normalizedSubmittedDate)) {
+        return fail('Invalid Hanwha submission date.');
+      }
+      const nextSubmittedDate = normalizedSubmittedDate ?? trimOrNull(profile.hanwha_commission_date_sub);
+      if (!nextSubmittedDate) {
         return fail('FC submission date is required before Hanwha review can be processed.', 409);
       }
 
@@ -498,6 +576,7 @@ serve(async (req: Request) => {
           status: 'hanwha-commission-approved',
           hanwha_commission_pdf_path: nextPdfPath,
           hanwha_commission_pdf_name: nextPdfName,
+          hanwha_commission_date_sub: nextSubmittedDate,
         };
 
         const { error: updateError } = await supabase.from('fc_profiles').update(updatePayload).eq('id', fcId);
@@ -516,6 +595,7 @@ serve(async (req: Request) => {
         status: 'hanwha-commission-rejected',
         hanwha_commission_pdf_path: null,
         hanwha_commission_pdf_name: null,
+        hanwha_commission_date_sub: nextSubmittedDate,
       };
 
       const { error: updateError } = await supabase.from('fc_profiles').update(updatePayload).eq('id', fcId);

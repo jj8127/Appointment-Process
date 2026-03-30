@@ -183,8 +183,12 @@ export default function RootLayout() {
           const isHanwhaWorkflowNotification =
             title.includes('한화 위촉 승인') ||
             title.includes('한화 위촉 반려') ||
+            title.includes('한화 위촉 url 승인') ||
+            title.includes('한화 위촉 url 반려') ||
             body.includes('한화 위촉이 승인') ||
             body.includes('한화 위촉이 반려') ||
+            body.includes('한화 위촉 url이 승인') ||
+            body.includes('한화 위촉 url이 반려') ||
             body.includes('승인 pdf');
           const nextUrl =
             isHanwhaWorkflowNotification

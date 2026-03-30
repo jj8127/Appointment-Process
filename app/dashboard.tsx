@@ -32,6 +32,7 @@ import { ListSkeleton } from '@/components/LoadingSkeleton';
 import { useKeyboardPadding } from '@/hooks/use-keyboard-padding';
 import {
   calcAdminWorkflowStep as resolveAdminWorkflowStep,
+  getAllowanceDisplayState,
   getApprovedDocumentState,
   hasAppointmentWorkflowEvidence,
   hasHanwhaApprovalEvidence,
@@ -78,17 +79,17 @@ const parseYmd = (value?: string | null) => {
 const STATUS_LABELS: Record<FcProfile['status'], string> = {
   draft: '임시사번 미발급',
   'temp-id-issued': '임시사번 발급 완료',
-  'allowance-pending': '수당동의 대기',
-  'allowance-consented': '수당동의 승인 완료',
+  'allowance-pending': '수당동의 진행 중',
+  'allowance-consented': '승인 완료',
   'docs-requested': '필수 서류 요청',
   'docs-pending': '서류 대기',
   'docs-submitted': '서류 제출됨',
   'docs-rejected': '서류 반려',
-  'docs-approved': '한화 위촉 대기',
-  'hanwha-commission-review': '한화 위촉 검토 중',
-  'hanwha-commission-rejected': '한화 위촉 반려',
-  'hanwha-commission-approved': '한화 위촉 승인 완료',
-  'appointment-completed': '위촉 URL 진행 중',
+  'docs-approved': '한화 위촉 URL 대기',
+  'hanwha-commission-review': '한화 위촉 URL 검토 중',
+  'hanwha-commission-rejected': '한화 위촉 URL 반려',
+  'hanwha-commission-approved': '한화 위촉 URL 승인 완료',
+  'appointment-completed': '생명/손해 위촉 진행 중',
   'final-link-sent': '완료',
 };
 
@@ -97,8 +98,8 @@ const STEP_LABELS: Record<StepKey, string> = {
   step0: '0단계 사전등록',
   step1: '1단계 수당동의',
   step2: '2단계 문서제출',
-  step3: '3단계 한화 위촉',
-  step4: '4단계 위촉 URL',
+  step3: '3단계 한화 위촉 URL',
+  step4: '4단계 생명/손해 위촉',
   step5: '5단계 완료',
 };
 
@@ -123,9 +124,17 @@ const isHanwhaApproved = (profile: FcRow) => hasHanwhaApprovalEvidence(profile);
 
 const hasInsuranceSubmission = (profile: FcRow) => hasAppointmentWorkflowEvidence(profile);
 
+const getAllowanceDisplay = (profile: FcRow) =>
+  getAllowanceDisplayState({
+    status: profile.status,
+    allowance_date: profile.allowance_date,
+    allowance_prescreen_requested_at: profile.allowance_prescreen_requested_at,
+    allowance_reject_reason: profile.allowance_reject_reason,
+  });
+
 const getStatusLabel = (profile: FcRow) => {
-  if (profile.status === 'allowance-pending' && profile.allowance_date) {
-    return '수당동의 검토 중';
+  if (profile.status === 'allowance-pending' || profile.status === 'allowance-consented') {
+    return getAllowanceDisplay(profile).label;
   }
   return STATUS_LABELS[profile.status] ?? profile.status;
 };
@@ -241,6 +250,8 @@ type FcRow = {
   temp_id: string | null;
   status: FcProfile['status'];
   allowance_date: string | null;
+  allowance_prescreen_requested_at?: string | null;
+  allowance_reject_reason?: string | null;
   appointment_url: string | null;
   appointment_date: string | null;
   docs_deadline_at?: string | null;
@@ -340,7 +351,7 @@ const fetchFcs = async (
   let query = supabase
     .from('fc_profiles')
       .select(
-        'id,name,affiliation,phone,recommender,temp_id,status,allowance_date,appointment_url,appointment_date,docs_deadline_at,hanwha_commission_date_sub,hanwha_commission_date,hanwha_commission_reject_reason,hanwha_commission_pdf_path,hanwha_commission_pdf_name,appointment_schedule_life,appointment_schedule_nonlife,appointment_date_life,appointment_date_nonlife,appointment_date_life_sub,appointment_date_nonlife_sub,appointment_reject_reason_life,appointment_reject_reason_nonlife,resident_id_masked,identity_completed,career_type,email,address,address_detail,life_commission_completed,nonlife_commission_completed,fc_documents(doc_type,storage_path,file_name,status)',
+        'id,name,affiliation,phone,recommender,temp_id,status,allowance_date,allowance_prescreen_requested_at,allowance_reject_reason,appointment_url,appointment_date,docs_deadline_at,hanwha_commission_date_sub,hanwha_commission_date,hanwha_commission_reject_reason,hanwha_commission_pdf_path,hanwha_commission_pdf_name,appointment_schedule_life,appointment_schedule_nonlife,appointment_date_life,appointment_date_nonlife,appointment_date_life_sub,appointment_date_nonlife_sub,appointment_reject_reason_life,appointment_reject_reason_nonlife,resident_id_masked,identity_completed,career_type,email,address,address_detail,life_commission_completed,nonlife_commission_completed,fc_documents(doc_type,storage_path,file_name,status)',
       )
     .order('created_at', { ascending: false });
 
@@ -387,10 +398,21 @@ export default function DashboardScreen() {
   const [allowanceInputs, setAllowanceInputs] = useState<Record<string, string>>({});
   const [allowancePickerId, setAllowancePickerId] = useState<string | null>(null);
   const [allowanceTempDate, setAllowanceTempDate] = useState<Date | null>(null);
+  const [hanwhaSubmissionInputs, setHanwhaSubmissionInputs] = useState<Record<string, string>>({});
+  const [hanwhaSubmissionPickerId, setHanwhaSubmissionPickerId] = useState<string | null>(null);
+  const [hanwhaSubmissionTempDate, setHanwhaSubmissionTempDate] = useState<Date | null>(null);
   const [customDocInputs, setCustomDocInputs] = useState<Record<string, string>>({});
   const [hanwhaPdfDrafts, setHanwhaPdfDrafts] = useState<Record<string, HanwhaPdfDraft>>({});
   const [hanwhaPdfUploadingId, setHanwhaPdfUploadingId] = useState<string | null>(null);
   const [scheduleInputs, setScheduleInputs] = useState<Record<string, { life?: string; nonlife?: string }>>({});
+  const [appointmentActualInputs, setAppointmentActualInputs] = useState<
+    Record<string, { lifeDate?: string; nonLifeDate?: string }>
+  >({});
+  const [appointmentActualPicker, setAppointmentActualPicker] = useState<{
+    fcId: string;
+    type: 'life' | 'nonlife';
+  } | null>(null);
+  const [appointmentActualTempDate, setAppointmentActualTempDate] = useState<Date | null>(null);
   const [expanded, setExpanded] = useState<Record<string, boolean>>({});
   const [refreshing, setRefreshing] = useState(false);
 
@@ -516,15 +538,22 @@ export default function DashboardScreen() {
       const schedulePrefill: Record<string, { life?: string; nonlife?: string }> = {};
       const deadlinePrefill: Record<string, string> = {};
       const allowancePrefill: Record<string, string> = {};
+      const hanwhaSubmissionPrefill: Record<string, string> = {};
+      const appointmentActualPrefill: Record<string, { lifeDate?: string; nonLifeDate?: string }> = {};
       data.forEach((fc) => {
         const docs = fc.fc_documents?.map((d) => d.doc_type) ?? [];
         next[fc.id] = new Set(docs);
         if (fc.temp_id) tempPrefill[fc.id] = fc.temp_id;
         if (fc.career_type === '경력' || fc.career_type === '신입') careerPrefill[fc.id] = fc.career_type;
         allowancePrefill[fc.id] = fc.allowance_date ?? '';
+        hanwhaSubmissionPrefill[fc.id] = fc.hanwha_commission_date_sub ?? '';
         schedulePrefill[fc.id] = {
           life: fc.appointment_schedule_life ?? '',
           nonlife: fc.appointment_schedule_nonlife ?? '',
+        };
+        appointmentActualPrefill[fc.id] = {
+          lifeDate: fc.appointment_date_life ?? fc.appointment_date_life_sub ?? '',
+          nonLifeDate: fc.appointment_date_nonlife ?? fc.appointment_date_nonlife_sub ?? '',
         };
         if (fc.docs_deadline_at) deadlinePrefill[fc.id] = fc.docs_deadline_at;
       });
@@ -532,7 +561,9 @@ export default function DashboardScreen() {
       setTempInputs((prev) => ({ ...tempPrefill, ...prev }));
       setCareerInputs((prev) => ({ ...careerPrefill, ...prev }));
       setAllowanceInputs((prev) => ({ ...allowancePrefill, ...prev }));
+      setHanwhaSubmissionInputs((prev) => ({ ...hanwhaSubmissionPrefill, ...prev }));
       setScheduleInputs((prev) => ({ ...schedulePrefill, ...prev }));
+      setAppointmentActualInputs((prev) => ({ ...appointmentActualPrefill, ...prev }));
       setDocDeadlineInputs((prev) => ({ ...deadlinePrefill, ...prev }));
     }, [data]);
 
@@ -745,6 +776,31 @@ export default function DashboardScreen() {
     },
   });
 
+  const updateHanwhaSubmissionDate = useMutation({
+    mutationFn: async ({ id, submittedDate }: { id: string; submittedDate: string }) => {
+      assertCanEdit();
+      const result = await adminAction(residentId, 'updateHanwhaSubmissionDate', {
+        fcId: id,
+        submittedDate,
+      });
+      return {
+        submittedDate: String(result.hanwha_commission_date_sub ?? submittedDate),
+        status: typeof result.status === 'string' ? result.status : null,
+      };
+    },
+    onSuccess: (result, variables) => {
+      setHanwhaSubmissionInputs((prev) => ({ ...prev, [variables.id]: result.submittedDate }));
+      Alert.alert('저장 완료', '한화 위촉 URL 완료일이 저장되었습니다.');
+      refetch();
+    },
+    onSettled: (_data, error) => {
+      if (error) {
+        const message = error instanceof Error ? error.message : '저장 중 문제가 발생했습니다.';
+        Alert.alert('저장 실패', message);
+      }
+    },
+  });
+
   const updateHanwhaCommission = useMutation({
     mutationFn: async ({
       fc,
@@ -752,12 +808,14 @@ export default function DashboardScreen() {
       rejectReason,
       pdfPath,
       pdfName,
+      submittedDate,
     }: {
       fc: FcRow;
       decision: 'approve' | 'reject';
       rejectReason?: string | null;
       pdfPath?: string | null;
       pdfName?: string | null;
+      submittedDate?: string | null;
     }) => {
       assertCanEdit();
       await adminAction(residentId, 'updateHanwhaCommission', {
@@ -766,6 +824,7 @@ export default function DashboardScreen() {
         rejectReason,
         pdfPath,
         pdfName,
+        submittedDate,
       });
 
       if (decision === 'approve') {
@@ -773,24 +832,24 @@ export default function DashboardScreen() {
           residentId,
           'fc',
           fc.phone,
-          '한화 위촉 승인',
-          '한화 위촉이 승인되었습니다. 승인 PDF를 확인해주세요.',
+          '한화 위촉 URL 승인',
+          '한화 위촉 URL이 승인되었습니다. 승인 PDF를 확인해주세요.',
           '/hanwha-commission',
         );
         return;
       }
 
       const body = rejectReason
-        ? `한화 위촉이 반려되었습니다.\n사유: ${rejectReason}`
-        : '한화 위촉이 반려되었습니다. 내용을 확인해주세요.';
-      await sendNotificationAndPush(residentId, 'fc', fc.phone, '한화 위촉 반려', body, '/hanwha-commission');
+        ? `한화 위촉 URL이 반려되었습니다.\n사유: ${rejectReason}`
+        : '한화 위촉 URL이 반려되었습니다. 내용을 확인해주세요.';
+      await sendNotificationAndPush(residentId, 'fc', fc.phone, '한화 위촉 URL 반려', body, '/hanwha-commission');
     },
     onSuccess: (_, vars) => {
       Alert.alert(
         '처리 완료',
         vars.decision === 'approve'
-          ? '한화 위촉 승인이 저장되었습니다.'
-          : '한화 위촉 반려가 저장되었습니다.',
+          ? '한화 위촉 URL 승인이 저장되었습니다.'
+          : '한화 위촉 URL 반려가 저장되었습니다.',
       );
       setHanwhaPdfDrafts((prev) => {
         if (!prev[vars.fc.id]) return prev;
@@ -802,7 +861,7 @@ export default function DashboardScreen() {
     },
     onSettled: (_data, error) => {
       if (error) {
-        const message = error instanceof Error ? error.message : '한화 위촉 처리 중 문제가 발생했습니다.';
+        const message = error instanceof Error ? error.message : '한화 위촉 URL 처리 중 문제가 발생했습니다.';
         Alert.alert('처리 실패', message);
       }
     },
@@ -918,7 +977,7 @@ export default function DashboardScreen() {
           'fc',
           phone,
           '서류 검토 완료',
-          '모든 서류가 승인되었습니다. 한화 위촉 단계로 진행해주세요.',
+          '모든 서류가 승인되었습니다. 한화 위촉 URL 단계로 진행해주세요.',
           '/hanwha-commission',
         );
       }
@@ -1074,10 +1133,10 @@ export default function DashboardScreen() {
           name: asset.name ?? 'hanwha-commission.pdf',
         },
       }));
-      Alert.alert('업로드 완료', '한화 위촉 승인에 사용할 PDF가 준비되었습니다.');
+      Alert.alert('업로드 완료', '한화 위촉 URL 승인에 사용할 PDF가 준비되었습니다.');
     } catch (err: unknown) {
       const error = err as Error;
-      Alert.alert('업로드 실패', error?.message ?? '한화 PDF 업로드 중 문제가 발생했습니다.');
+      Alert.alert('업로드 실패', error?.message ?? '한화 위촉 URL PDF 업로드 중 문제가 발생했습니다.');
     } finally {
       setHanwhaPdfUploadingId(null);
     }
@@ -1220,10 +1279,15 @@ export default function DashboardScreen() {
       return;
     }
     try {
+      const nextAllowanceDate = allowanceInputs[rejectTarget.id] ?? rejectTarget.allowance_date ?? '';
       await updateStatus.mutateAsync({
         id: rejectTarget.id,
         nextStatus: 'allowance-pending',
-        extra: { allowance_date: null, allowance_reject_reason: reason },
+        extra: {
+          allowance_date: nextAllowanceDate || null,
+          allowance_prescreen_requested_at: null,
+          allowance_reject_reason: reason,
+        },
       });
       await sendNotificationAndPush(
         residentId,
@@ -1233,7 +1297,6 @@ export default function DashboardScreen() {
         `수당 동의가 반려되었습니다.\n사유: ${reason}`,
         '/consent',
       );
-      setAllowanceInputs((prev) => ({ ...prev, [rejectTarget.id]: '' }));
       setRejectModalVisible(false);
     } catch (err: unknown) {
       const error = err as Error;
@@ -1272,12 +1335,14 @@ export default function DashboardScreen() {
     }
     try {
       const draft = hanwhaPdfDrafts[hanwhaRejectTarget.id];
+      const submittedDate = hanwhaSubmissionInputs[hanwhaRejectTarget.id] ?? hanwhaRejectTarget.hanwha_commission_date_sub ?? null;
       await updateHanwhaCommission.mutateAsync({
         fc: hanwhaRejectTarget,
         decision: 'reject',
         rejectReason: reason,
         pdfPath: draft?.path,
         pdfName: draft?.name,
+        submittedDate,
       });
       clearHanwhaPdfDraft(hanwhaRejectTarget.id);
       setHanwhaRejectModalVisible(false);
@@ -1295,10 +1360,15 @@ export default function DashboardScreen() {
       return;
     }
     try {
+      const currentAppointmentInput = appointmentActualInputs[appointmentRejectTarget.id] ?? {};
+      const selectedDate =
+        appointmentRejectTarget.type === 'life'
+          ? currentAppointmentInput.lifeDate ?? null
+          : currentAppointmentInput.nonLifeDate ?? null;
       await updateAppointmentDate.mutateAsync({
         id: appointmentRejectTarget.id,
         type: appointmentRejectTarget.type,
-        date: null,
+        date: selectedDate || null,
         isReject: true,
         phone: appointmentRejectTarget.phone,
         rejectReason: reason,
@@ -1371,7 +1441,32 @@ export default function DashboardScreen() {
         const hasSavedTemp = currentTemp.trim().length > 0;
         const currentAllowance = allowanceInputs[fc.id] ?? fc.allowance_date ?? '';
         const currentAllowanceDate = parseYmd(currentAllowance);
-        const hasPersistedTempId = Boolean((fc.temp_id ?? '').trim());
+        const allowanceDisplay = getAllowanceDisplay(fc);
+        const allowanceBadgePalette =
+          allowanceDisplay.color === 'green'
+            ? {
+                container: styles.allowanceBadgeDone,
+                text: styles.allowanceBadgeTextDone,
+              }
+            : allowanceDisplay.color === 'blue'
+              ? {
+                  container: styles.allowanceBadgeInfo,
+                  text: styles.allowanceBadgeTextInfo,
+                }
+              : allowanceDisplay.color === 'orange'
+                ? {
+                    container: styles.allowanceBadgeWarning,
+                    text: styles.allowanceBadgeTextWarning,
+                  }
+                : allowanceDisplay.color === 'red'
+                  ? {
+                      container: styles.allowanceBadgeRejected,
+                      text: styles.allowanceBadgeTextRejected,
+                    }
+                  : {
+                      container: styles.allowanceBadgePending,
+                      text: styles.allowanceBadgeTextPending,
+                    };
 
         actionBlocks.push(
           <View key="step1-merged" style={styles.cardSection}>
@@ -1435,9 +1530,9 @@ export default function DashboardScreen() {
               </View>
 
               <View style={styles.allowanceInfoRow}>
-                <View style={[styles.allowanceBadge, fc.allowance_date ? styles.allowanceBadgeDone : styles.allowanceBadgePending]}>
-                  <Text style={[styles.allowanceBadgeText, fc.allowance_date ? styles.allowanceBadgeTextDone : styles.allowanceBadgeTextPending]}>
-                    {fc.allowance_date ? '입력됨' : '미입력'}
+                <View style={[styles.allowanceBadge, allowanceBadgePalette.container]}>
+                  <Text style={[styles.allowanceBadgeText, allowanceBadgePalette.text]}>
+                    {allowanceDisplay.label}
                   </Text>
                 </View>
                 <Text style={styles.allowanceDateText}>
@@ -1470,20 +1565,17 @@ export default function DashboardScreen() {
                   style={[
                     styles.saveBtn,
                     styles.allowanceSaveButton,
-                    (!canEdit || !hasPersistedTempId || !currentAllowance || updateAllowanceDate.isPending) &&
+                    (!canEdit || !currentAllowance || updateAllowanceDate.isPending) &&
                       styles.actionButtonDisabled,
                   ]}
                   onPress={() => updateAllowanceDate.mutate({ id: fc.id, allowanceDate: currentAllowance })}
-                  disabled={!canEdit || !hasPersistedTempId || !currentAllowance || updateAllowanceDate.isPending}
+                  disabled={!canEdit || !currentAllowance || updateAllowanceDate.isPending}
                 >
                   <Text style={styles.saveBtnText}>
                     {updateAllowanceDate.isPending ? '저장중...' : '동의일 저장'}
                   </Text>
                 </Pressable>
               </View>
-              {!hasPersistedTempId && (
-                <Text style={styles.allowanceHelperText}>임시사번 저장 후 수당 동의일을 입력할 수 있습니다.</Text>
-              )}
               {Platform.OS !== 'ios' && allowancePickerId === fc.id && (
                 <DateTimePicker
                   value={currentAllowanceDate ?? new Date()}
@@ -1505,57 +1597,119 @@ export default function DashboardScreen() {
 
             {/* Allowance Consent Section */}
             <View style={styles.cardHeaderRow}>
-              <Text style={{ fontSize: 13, fontWeight: '600', color: CHARCOAL }}>수당동의 여부</Text>
-                <MobileStatusToggle
-                  value={
-                    fc.status === 'allowance-consented' ||
-                    [
-                      'docs-requested',
-                      'docs-pending',
-                      'docs-submitted',
-                      'docs-rejected',
-                      'docs-approved',
-                      'hanwha-commission-review',
-                      'hanwha-commission-rejected',
-                      'hanwha-commission-approved',
-                      'appointment-completed',
-                      'final-link-sent',
-                    ].includes(fc.status)
-                      ? 'approved'
-                      : 'pending'
-                  }
-                  neutralPending={!fc.allowance_date || fc.status === 'allowance-pending'}
-                  onChange={async (val) => {
-                  if (val === 'approved') {
-                    try {
-                      await updateStatus.mutateAsync({
-                        id: fc.id,
-                        nextStatus: 'allowance-consented',
-                        extra: { allowance_reject_reason: null },
-                      });
-                      await sendNotificationAndPush(
-                        residentId,
-                        'fc',
-                        fc.phone,
-                        '수당동의 승인',
-                        '수당 동의가 승인되었습니다. 서류 제출 단계로 진행해주세요.',
-                        '/docs-upload',
-                      );
-                    } catch (err: unknown) {
-      const error = err as Error;
-                      Alert.alert('처리 실패', error?.message ?? '상태 업데이트 중 문제가 발생했습니다.');
-                    }
-                    return;
-                  }
-                  openRejectModal(fc);
-                }}
-                labelPending="미승인"
-                labelApproved="승인 완료"
-                showNeutralForPending
-                allowPendingPress
-                readOnly={!canEdit}
-              />
+              <Text style={{ fontSize: 13, fontWeight: '600', color: CHARCOAL }}>수당동의 상태</Text>
             </View>
+            <View style={[styles.actionRow, { flexWrap: 'wrap', marginTop: 8 }]}>
+              {(() => {
+                return (
+                  <>
+              <Pressable
+                style={[
+                  styles.filterTab,
+                  allowanceDisplay.key === 'entered' && styles.filterTabActive,
+                  (!canEdit || updateStatus.isPending) && styles.actionButtonDisabled,
+                ]}
+                onPress={async () => {
+                  try {
+                    await updateStatus.mutateAsync({
+                      id: fc.id,
+                      nextStatus: 'allowance-pending',
+                      extra: {
+                        allowance_date: currentAllowance || null,
+                        allowance_prescreen_requested_at: null,
+                        allowance_reject_reason: null,
+                      },
+                    });
+                  } catch (err: unknown) {
+                    const error = err as Error;
+                    Alert.alert('처리 실패', error?.message ?? '상태 업데이트 중 문제가 발생했습니다.');
+                  }
+                }}
+                disabled={!canEdit || updateStatus.isPending}
+              >
+                <Text style={[styles.filterText, allowanceDisplay.key === 'entered' && styles.filterTextActive]}>
+                  입력 완료
+                </Text>
+              </Pressable>
+              <Pressable
+                style={[
+                  styles.filterTab,
+                  allowanceDisplay.key === 'prescreen' && styles.filterTabActive,
+                  (!canEdit || updateStatus.isPending) && styles.actionButtonDisabled,
+                ]}
+                onPress={async () => {
+                  try {
+                    await updateStatus.mutateAsync({
+                      id: fc.id,
+                      nextStatus: 'allowance-pending',
+                      extra: {
+                        allowance_date: currentAllowance || null,
+                        allowance_prescreen_requested_at: new Date().toISOString(),
+                        allowance_reject_reason: null,
+                      },
+                    });
+                  } catch (err: unknown) {
+                    const error = err as Error;
+                    Alert.alert('처리 실패', error?.message ?? '상태 업데이트 중 문제가 발생했습니다.');
+                  }
+                }}
+                disabled={!canEdit || updateStatus.isPending}
+              >
+                <Text style={[styles.filterText, allowanceDisplay.key === 'prescreen' && styles.filterTextActive]}>
+                  사전 심사 요청 완료
+                </Text>
+              </Pressable>
+              <Pressable
+                style={[
+                  styles.filterTab,
+                  allowanceDisplay.key === 'approved' && styles.filterTabActive,
+                  (!canEdit || updateStatus.isPending) && styles.actionButtonDisabled,
+                ]}
+                onPress={async () => {
+                  try {
+                    await updateStatus.mutateAsync({
+                      id: fc.id,
+                      nextStatus: 'allowance-consented',
+                      extra: {
+                        allowance_date: currentAllowance || null,
+                        allowance_reject_reason: null,
+                      },
+                    });
+                    await sendNotificationAndPush(
+                      residentId,
+                      'fc',
+                      fc.phone,
+                      '수당동의 승인',
+                      '수당 동의가 승인되었습니다. 서류 제출 단계로 진행해주세요.',
+                      '/docs-upload',
+                    );
+                  } catch (err: unknown) {
+                    const error = err as Error;
+                    Alert.alert('처리 실패', error?.message ?? '상태 업데이트 중 문제가 발생했습니다.');
+                  }
+                }}
+                disabled={!canEdit || updateStatus.isPending}
+              >
+                <Text style={[styles.filterText, allowanceDisplay.key === 'approved' && styles.filterTextActive]}>
+                  승인 완료
+                </Text>
+              </Pressable>
+                  </>
+                );
+              })()}
+            </View>
+            <Pressable
+              style={[
+                styles.deleteButton,
+                { marginTop: 12 },
+                (!canEdit || updateStatus.isPending) && styles.actionButtonDisabled,
+              ]}
+              onPress={() => openRejectModal(fc)}
+              disabled={!canEdit || updateStatus.isPending}
+            >
+              <Feather name="x-circle" size={16} color="#b91c1c" />
+              <Text style={styles.deleteText}>미승인</Text>
+            </Pressable>
           </View>
         );
       }
@@ -1793,7 +1947,9 @@ export default function DashboardScreen() {
       }
 
       if (canShowHanwhaSection) {
-        const hanwhaSubmittedDate = fc.hanwha_commission_date_sub ?? null;
+        const currentHanwhaSubmitted = hanwhaSubmissionInputs[fc.id] ?? fc.hanwha_commission_date_sub ?? '';
+        const currentHanwhaSubmittedDate = parseYmd(currentHanwhaSubmitted);
+        const hanwhaSubmittedDate = currentHanwhaSubmitted || null;
         const hanwhaApprovedDate = fc.hanwha_commission_date ?? null;
         const hanwhaRejectReasonText = String(fc.hanwha_commission_reject_reason ?? '').trim();
         const hanwhaRejected = !hanwhaApproved && fc.status === 'hanwha-commission-rejected';
@@ -1814,7 +1970,7 @@ export default function DashboardScreen() {
         actionBlocks.push(
           <View key="hanwha-actions" style={styles.cardSection}>
             <View style={styles.cardHeaderRow}>
-              <Text style={styles.cardTitle}>3단계: 한화 위촉 검토</Text>
+            <Text style={styles.cardTitle}>3단계: 한화 위촉 URL</Text>
               <View
                 style={{
                   backgroundColor: hanwhaStatusMeta.backgroundColor,
@@ -1830,13 +1986,70 @@ export default function DashboardScreen() {
             </View>
 
             <Text style={{ fontSize: 12, color: MUTED, marginBottom: 10 }}>
-              서류 승인 후에는 한화 위촉 제출일과 승인 PDF를 먼저 확인한 뒤 보험 위촉 URL 단계로 넘깁니다.
+              서류 승인 후에는 한화 위촉 URL 진행 현황을 확인하고 승인 여부를 관리합니다.
             </Text>
 
-            <View style={{ gap: 8 }}>
-              <DetailRow label="한화 제출일" value={hanwhaSubmittedDate ?? '미제출'} />
-              <DetailRow label="한화 승인일" value={hanwhaApprovedDate ?? '미승인'} />
-              <DetailRow label="한화 PDF" value={hanwhaPdfName ?? '미등록'} />
+            <View style={styles.allowanceEditorRow}>
+              <Text style={styles.inlineFieldLabel}>한화 위촉 URL 완료일</Text>
+              <Pressable
+                style={[styles.dateSelectButton, styles.allowanceDateButton, !canEdit && styles.actionButtonDisabled]}
+                disabled={!canEdit}
+                onPress={() => {
+                  const baseDate = currentHanwhaSubmittedDate ?? new Date();
+                  setHanwhaSubmissionTempDate(baseDate);
+                  setHanwhaSubmissionPickerId(fc.id);
+                }}
+              >
+                <Text
+                  style={[
+                    styles.dateSelectText,
+                    !currentHanwhaSubmittedDate && styles.dateSelectPlaceholder,
+                  ]}
+                >
+                  {currentHanwhaSubmittedDate ? formatKoreanDate(currentHanwhaSubmittedDate) : '날짜를 선택하세요'}
+                </Text>
+                <Feather name="calendar" size={16} color={MUTED} />
+              </Pressable>
+              <Pressable
+                style={[
+                  styles.saveBtn,
+                  styles.allowanceSaveButton,
+                  (!canEdit || !currentHanwhaSubmitted || updateHanwhaSubmissionDate.isPending) &&
+                    styles.actionButtonDisabled,
+                ]}
+                onPress={() =>
+                  updateHanwhaSubmissionDate.mutate({
+                    id: fc.id,
+                    submittedDate: currentHanwhaSubmitted,
+                  })
+                }
+                disabled={!canEdit || !currentHanwhaSubmitted || updateHanwhaSubmissionDate.isPending}
+              >
+                <Text style={styles.saveBtnText}>
+                  {updateHanwhaSubmissionDate.isPending ? '저장중...' : '완료일 저장'}
+                </Text>
+              </Pressable>
+            </View>
+            {Platform.OS !== 'ios' && hanwhaSubmissionPickerId === fc.id && (
+              <DateTimePicker
+                value={currentHanwhaSubmittedDate ?? new Date()}
+                mode="date"
+                display="default"
+                locale="ko-KR"
+                onChange={(event: DateTimePickerEvent, selectedDate?: Date) => {
+                  setHanwhaSubmissionPickerId(null);
+                  if (event.type === 'dismissed') return;
+                  if (selectedDate) {
+                    setHanwhaSubmissionInputs((prev) => ({ ...prev, [fc.id]: toYmd(selectedDate) }));
+                  }
+                }}
+              />
+            )}
+
+            <View style={{ gap: 8, marginTop: 12 }}>
+              <DetailRow label="한화 위촉 URL 완료일" value={hanwhaSubmittedDate ?? '미입력'} />
+              <DetailRow label="한화 위촉 URL 승인 처리" value={hanwhaApprovedDate ?? '미승인'} />
+              <DetailRow label="한화 위촉 URL PDF" value={hanwhaPdfName ?? '미등록'} />
             </View>
 
             {hanwhaRejectReasonText ? (
@@ -1871,12 +2084,12 @@ export default function DashboardScreen() {
               <Pressable
                 style={[
                   styles.actionButtonPrimary,
-                  (!canEdit || updateHanwhaCommission.isPending || !hanwhaSubmittedDate || !hanwhaPdfPath || !hanwhaPdfName) &&
+                  (!canEdit || updateHanwhaCommission.isPending || !currentHanwhaSubmitted || !hanwhaPdfPath || !hanwhaPdfName) &&
                     styles.actionButtonDisabled,
                 ]}
                 onPress={() => {
-                  if (!hanwhaSubmittedDate) {
-                    Alert.alert('확인', 'FC가 한화 위촉 완료일을 아직 제출하지 않았습니다.');
+                  if (!currentHanwhaSubmitted) {
+                    Alert.alert('확인', '한화 위촉 URL 완료일을 먼저 입력해주세요.');
                     return;
                   }
                   if (!hanwhaPdfPath || !hanwhaPdfName) {
@@ -1888,19 +2101,20 @@ export default function DashboardScreen() {
                     decision: 'approve',
                     pdfPath: hanwhaPdfPath,
                     pdfName: hanwhaPdfName,
+                    submittedDate: currentHanwhaSubmitted,
                   });
                 }}
-                disabled={!canEdit || updateHanwhaCommission.isPending || !hanwhaSubmittedDate || !hanwhaPdfPath || !hanwhaPdfName}
+                disabled={!canEdit || updateHanwhaCommission.isPending || !currentHanwhaSubmitted || !hanwhaPdfPath || !hanwhaPdfName}
               >
                 <Feather name="check" size={16} color="#fff" />
-                <Text style={styles.actionButtonText}>
-                  {updateHanwhaCommission.isPending ? '처리중...' : '한화 승인'}
-                </Text>
-              </Pressable>
+                      <Text style={styles.actionButtonText}>
+                        {updateHanwhaCommission.isPending ? '처리중...' : '한화 위촉 URL 승인'}
+                      </Text>
+                    </Pressable>
               <Pressable
-                style={[styles.deleteButton, (!canEdit || updateHanwhaCommission.isPending || !hanwhaSubmittedDate) && { opacity: 0.5 }]}
+                style={[styles.deleteButton, (!canEdit || updateHanwhaCommission.isPending || !currentHanwhaSubmitted) && { opacity: 0.5 }]}
                 onPress={() => openHanwhaRejectModal(fc)}
-                disabled={!canEdit || updateHanwhaCommission.isPending || !hanwhaSubmittedDate}
+                disabled={!canEdit || updateHanwhaCommission.isPending || !currentHanwhaSubmitted}
               >
                 <Feather name="x-circle" size={16} color="#b91c1c" />
                 <Text style={styles.deleteText}>반려</Text>
@@ -1908,24 +2122,32 @@ export default function DashboardScreen() {
             </View>
 
             <Text style={{ fontSize: 12, color: MUTED, marginTop: 10 }}>
-              한화 승인 상태가 확인되면 4단계 보험 위촉 URL 관리가 열립니다.
+              한화 위촉 URL이 승인되면 4단계 생명/손해 위촉 단계로 넘어갑니다.
             </Text>
           </View>,
         );
       }
 
-      // 4단계: 보험 위촉 URL 진행 관리
+      // 4단계: 생명/손해 위촉 진행 관리
       if (canShowInsuranceSection) {
         const lifeVal = fc.appointment_schedule_life ?? '';
         const nonlifeVal = fc.appointment_schedule_nonlife ?? '';
         const lifeApproved = Boolean(fc.appointment_date_life);
         const nonlifeApproved = Boolean(fc.appointment_date_nonlife);
         const scheduleInput = scheduleInputs[fc.id] ?? { life: lifeVal, nonlife: nonlifeVal };
+        const currentAppointmentInput = appointmentActualInputs[fc.id] ?? {
+          lifeDate: fc.appointment_date_life ?? fc.appointment_date_life_sub ?? '',
+          nonLifeDate: fc.appointment_date_nonlife ?? fc.appointment_date_nonlife_sub ?? '',
+        };
+        const currentLifeActual = normalizeDateInput(currentAppointmentInput.lifeDate);
+        const currentNonlifeActual = normalizeDateInput(currentAppointmentInput.nonLifeDate);
+        const currentLifeActualDate = parseYmd(currentLifeActual);
+        const currentNonlifeActualDate = parseYmd(currentNonlifeActual);
         actionBlocks.push(
           <View key="final-actions" style={styles.cardSection}>
-            <Text style={styles.cardTitle}>4단계: 보험 위촉 URL 진행</Text>
+            <Text style={styles.cardTitle}>4단계: 생명/손해 위촉</Text>
             <Text style={{ fontSize: 12, color: MUTED, marginBottom: 10 }}>
-              한화 승인 후 생명/손해 보험 위촉 URL 진행 현황과 최종 승인 여부를 관리합니다.
+              한화 위촉 URL 승인 후 생명/손해 위촉 진행 현황과 최종 승인 여부를 관리합니다.
             </Text>
             {/* Schedule Input Helper (Existing) */}
             <View style={styles.scheduleEditRow}>
@@ -1946,6 +2168,24 @@ export default function DashboardScreen() {
                   editable={canEdit}
                 />
               </View>
+              <View style={[styles.scheduleInputGroup, { marginTop: 8 }]}>
+                <Text style={styles.scheduleInputLabel}>생명 위촉 확정일</Text>
+                <Pressable
+                  style={[styles.dateSelectButton, !canEdit && styles.actionButtonDisabled]}
+                  disabled={!canEdit}
+                  onPress={() => {
+                    setAppointmentActualTempDate(currentLifeActualDate ?? new Date());
+                    setAppointmentActualPicker({ fcId: fc.id, type: 'life' });
+                  }}
+                >
+                  <Text
+                    style={[styles.dateSelectText, !currentLifeActualDate && styles.dateSelectPlaceholder]}
+                  >
+                    {currentLifeActualDate ? formatKoreanDate(currentLifeActualDate) : '날짜를 선택하세요'}
+                  </Text>
+                  <Feather name="calendar" size={16} color={MUTED} />
+                </Pressable>
+              </View>
               <View style={styles.scheduleInputGroup}>
                 <Text style={styles.scheduleInputLabel}>손해 위촉 차수</Text>
                 <TextInput
@@ -1961,6 +2201,24 @@ export default function DashboardScreen() {
                   }
                   editable={canEdit}
                 />
+              </View>
+              <View style={[styles.scheduleInputGroup, { marginTop: 8 }]}>
+                <Text style={styles.scheduleInputLabel}>손해 위촉 확정일</Text>
+                <Pressable
+                  style={[styles.dateSelectButton, !canEdit && styles.actionButtonDisabled]}
+                  disabled={!canEdit}
+                  onPress={() => {
+                    setAppointmentActualTempDate(currentNonlifeActualDate ?? new Date());
+                    setAppointmentActualPicker({ fcId: fc.id, type: 'nonlife' });
+                  }}
+                >
+                  <Text
+                    style={[styles.dateSelectText, !currentNonlifeActualDate && styles.dateSelectPlaceholder]}
+                  >
+                    {currentNonlifeActualDate ? formatKoreanDate(currentNonlifeActualDate) : '날짜를 선택하세요'}
+                  </Text>
+                  <Feather name="calendar" size={16} color={MUTED} />
+                </Pressable>
               </View>
               <Pressable
                 style={[styles.saveBtn, (!canEdit || updateAppointmentSchedule.isPending) && styles.actionButtonDisabled]}
@@ -1998,6 +2256,8 @@ export default function DashboardScreen() {
                 <Text style={styles.scheduleText}>
                   {fc.appointment_date_life
                     ? `확정: ${fc.appointment_date_life}`
+                    : currentLifeActual
+                      ? `입력: ${currentLifeActual} (승인 대기)`
                     : fc.appointment_date_life_sub
                       ? `제출: ${fc.appointment_date_life_sub} (승인 대기)`
                       : lifeVal
@@ -2007,13 +2267,11 @@ export default function DashboardScreen() {
               </View>
                 <MobileStatusToggle
                   value={lifeApproved ? 'approved' : 'pending'}
-                  neutralPending={!fc.appointment_date_life_sub && !fc.appointment_reject_reason_life}
+                  neutralPending={!lifeApproved && !fc.appointment_reject_reason_life}
                   onChange={(val) => {
-                    const fallbackDate = () => fc.appointment_date_life || new Date().toISOString().split('T')[0];
-
                     if (val === 'approved') {
-                      if (!fc.appointment_date_life_sub) {
-                        Alert.alert('확인', 'FC가 위촉 완료일(생명)을 제출하지 않았습니다.');
+                      if (!currentLifeActual) {
+                        Alert.alert('확인', '위촉 완료일(생명)을 입력해주세요.');
                         return;
                       }
                       if (!lifeVal) {
@@ -2023,7 +2281,7 @@ export default function DashboardScreen() {
                       updateAppointmentDate.mutate({
                         id: fc.id,
                         type: 'life',
-                        date: fallbackDate(),
+                        date: currentLifeActual,
                         phone: fc.phone,
                       });
                     } else {
@@ -2037,6 +2295,26 @@ export default function DashboardScreen() {
                 readOnly={!canEdit}
               />
             </View>
+            {Platform.OS !== 'ios' &&
+              appointmentActualPicker?.fcId === fc.id &&
+              appointmentActualPicker.type === 'life' && (
+                <DateTimePicker
+                  value={currentLifeActualDate ?? new Date()}
+                  mode="date"
+                  display="default"
+                  locale="ko-KR"
+                  onChange={(event: DateTimePickerEvent, selectedDate?: Date) => {
+                    setAppointmentActualPicker(null);
+                    if (event.type === 'dismissed') return;
+                    if (selectedDate) {
+                      setAppointmentActualInputs((prev) => ({
+                        ...prev,
+                        [fc.id]: { ...(prev[fc.id] ?? {}), lifeDate: toYmd(selectedDate) },
+                      }));
+                    }
+                  }}
+                />
+              )}
 
             {/* NonLife Appointment Toggle */}
             <View style={styles.scheduleRow}>
@@ -2047,6 +2325,8 @@ export default function DashboardScreen() {
                 <Text style={styles.scheduleText}>
                   {fc.appointment_date_nonlife
                     ? `확정: ${fc.appointment_date_nonlife}`
+                    : currentNonlifeActual
+                      ? `입력: ${currentNonlifeActual} (승인 대기)`
                     : fc.appointment_date_nonlife_sub
                       ? `제출: ${fc.appointment_date_nonlife_sub} (승인 대기)`
                       : nonlifeVal
@@ -2056,13 +2336,11 @@ export default function DashboardScreen() {
               </View>
                 <MobileStatusToggle
                   value={nonlifeApproved ? 'approved' : 'pending'}
-                  neutralPending={!fc.appointment_date_nonlife_sub && !fc.appointment_reject_reason_nonlife}
+                  neutralPending={!nonlifeApproved && !fc.appointment_reject_reason_nonlife}
                   onChange={(val) => {
-                    const fallbackDate = () => fc.appointment_date_nonlife || new Date().toISOString().split('T')[0];
-
                     if (val === 'approved') {
-                      if (!fc.appointment_date_nonlife_sub) {
-                        Alert.alert('확인', 'FC가 위촉 완료일(손해)을 제출하지 않았습니다.');
+                      if (!currentNonlifeActual) {
+                        Alert.alert('확인', '위촉 완료일(손해)을 입력해주세요.');
                         return;
                       }
                       if (!nonlifeVal) {
@@ -2072,7 +2350,7 @@ export default function DashboardScreen() {
                       updateAppointmentDate.mutate({
                         id: fc.id,
                         type: 'nonlife',
-                        date: fallbackDate(),
+                        date: currentNonlifeActual,
                         phone: fc.phone,
                       });
                     } else {
@@ -2086,6 +2364,26 @@ export default function DashboardScreen() {
                 readOnly={!canEdit}
               />
             </View>
+            {Platform.OS !== 'ios' &&
+              appointmentActualPicker?.fcId === fc.id &&
+              appointmentActualPicker.type === 'nonlife' && (
+                <DateTimePicker
+                  value={currentNonlifeActualDate ?? new Date()}
+                  mode="date"
+                  display="default"
+                  locale="ko-KR"
+                  onChange={(event: DateTimePickerEvent, selectedDate?: Date) => {
+                    setAppointmentActualPicker(null);
+                    if (event.type === 'dismissed') return;
+                    if (selectedDate) {
+                      setAppointmentActualInputs((prev) => ({
+                        ...prev,
+                        [fc.id]: { ...(prev[fc.id] ?? {}), nonLifeDate: toYmd(selectedDate) },
+                      }));
+                    }
+                  }}
+                />
+              )}
           </View>,
         );
       }
@@ -2423,7 +2721,7 @@ export default function DashboardScreen() {
             >
               <Pressable style={styles.modalOverlay} onPress={() => setHanwhaRejectModalVisible(false)}>
                 <Pressable style={styles.modalContent} onPress={(e) => e.stopPropagation()}>
-                  <Text style={styles.modalTitle}>한화 위촉 반려</Text>
+                  <Text style={styles.modalTitle}>한화 위촉 URL 반려</Text>
                   <Text style={styles.modalText}>
                     {hanwhaRejectTarget?.name ?? 'FC'} 님에게 전달할 반려 사유를 입력해주세요.
                   </Text>
@@ -2655,6 +2953,114 @@ export default function DashboardScreen() {
             </Modal>
           )}
 
+          {Platform.OS === 'ios' && (
+            <Modal
+              visible={Boolean(hanwhaSubmissionPickerId)}
+              transparent
+              animationType="slide"
+              onRequestClose={() => setHanwhaSubmissionPickerId(null)}
+            >
+              <KeyboardAvoidingView
+                behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+                style={{ flex: 1 }}
+              >
+                <Pressable style={styles.modalOverlay} onPress={() => setHanwhaSubmissionPickerId(null)}>
+                  <Pressable style={styles.modalContent} onPress={(e) => e.stopPropagation()}>
+                    <Text style={styles.modalTitle}>한화 위촉 URL 완료일 선택</Text>
+                    <DateTimePicker
+                      value={hanwhaSubmissionTempDate ?? new Date()}
+                      mode="date"
+                      display="inline"
+                      locale="ko-KR"
+                      onChange={(_, d) => {
+                        if (d) setHanwhaSubmissionTempDate(d);
+                      }}
+                    />
+                    <View style={styles.modalButtons}>
+                      <Pressable
+                        style={[styles.modalBtn, styles.modalBtnCancel]}
+                        onPress={() => setHanwhaSubmissionPickerId(null)}
+                      >
+                        <Text style={styles.modalBtnTextCancel}>취소</Text>
+                      </Pressable>
+                      <Pressable
+                        style={[styles.modalBtn, styles.modalBtnConfirm]}
+                        onPress={() => {
+                          if (hanwhaSubmissionPickerId && hanwhaSubmissionTempDate) {
+                            setHanwhaSubmissionInputs((prev) => ({
+                              ...prev,
+                              [hanwhaSubmissionPickerId]: toYmd(hanwhaSubmissionTempDate),
+                            }));
+                          }
+                          setHanwhaSubmissionPickerId(null);
+                        }}
+                      >
+                        <Text style={styles.modalBtnTextConfirm}>확인</Text>
+                      </Pressable>
+                    </View>
+                  </Pressable>
+                </Pressable>
+              </KeyboardAvoidingView>
+            </Modal>
+          )}
+
+          {Platform.OS === 'ios' && (
+            <Modal
+              visible={Boolean(appointmentActualPicker)}
+              transparent
+              animationType="slide"
+              onRequestClose={() => setAppointmentActualPicker(null)}
+            >
+              <KeyboardAvoidingView
+                behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+                style={{ flex: 1 }}
+              >
+                <Pressable style={styles.modalOverlay} onPress={() => setAppointmentActualPicker(null)}>
+                  <Pressable style={styles.modalContent} onPress={(e) => e.stopPropagation()}>
+                    <Text style={styles.modalTitle}>
+                      {appointmentActualPicker?.type === 'life' ? '생명 위촉 확정일 선택' : '손해 위촉 확정일 선택'}
+                    </Text>
+                    <DateTimePicker
+                      value={appointmentActualTempDate ?? new Date()}
+                      mode="date"
+                      display="inline"
+                      locale="ko-KR"
+                      onChange={(_, d) => {
+                        if (d) setAppointmentActualTempDate(d);
+                      }}
+                    />
+                    <View style={styles.modalButtons}>
+                      <Pressable
+                        style={[styles.modalBtn, styles.modalBtnCancel]}
+                        onPress={() => setAppointmentActualPicker(null)}
+                      >
+                        <Text style={styles.modalBtnTextCancel}>취소</Text>
+                      </Pressable>
+                      <Pressable
+                        style={[styles.modalBtn, styles.modalBtnConfirm]}
+                        onPress={() => {
+                          if (appointmentActualPicker && appointmentActualTempDate) {
+                            setAppointmentActualInputs((prev) => ({
+                              ...prev,
+                              [appointmentActualPicker.fcId]: {
+                                ...(prev[appointmentActualPicker.fcId] ?? {}),
+                                [appointmentActualPicker.type === 'life' ? 'lifeDate' : 'nonLifeDate']:
+                                  toYmd(appointmentActualTempDate),
+                              },
+                            }));
+                          }
+                          setAppointmentActualPicker(null);
+                        }}
+                      >
+                        <Text style={styles.modalBtnTextConfirm}>확인</Text>
+                      </Pressable>
+                    </View>
+                  </Pressable>
+                </Pressable>
+              </KeyboardAvoidingView>
+            </Modal>
+          )}
+
           <View style={styles.headerContainer}>
           <View style={styles.headerTop}>
             <Text style={styles.headerTitle}>현황 대시보드</Text>
@@ -2819,9 +3225,9 @@ export default function DashboardScreen() {
                       <Text style={styles.cardTitle}>기본 정보</Text>
                       <DetailRow label="임시번호" value={tempDisplay} />
                       <DetailRow label="수당동의" value={allowanceDisplay} />
-                      <DetailRow label="한화 제출" value={fc.hanwha_commission_date_sub ?? '미입력'} />
-                      <DetailRow label="한화 승인" value={fc.hanwha_commission_date ?? '미입력'} />
-                      <DetailRow label="한화 PDF" value={fc.hanwha_commission_pdf_name ?? '미등록'} />
+                      <DetailRow label="한화 위촉 URL 제출" value={fc.hanwha_commission_date_sub ?? '미입력'} />
+                      <DetailRow label="한화 위촉 URL 승인 처리" value={fc.hanwha_commission_date ?? '미입력'} />
+                      <DetailRow label="한화 위촉 URL PDF" value={fc.hanwha_commission_pdf_name ?? '미등록'} />
                       <DetailRow
                         label="생명 위촉"
                         value={`${fc.appointment_schedule_life ?? '미정'}월 / 완료 ${fc.appointment_date_life ?? '미입력'}`}
@@ -3366,9 +3772,15 @@ const styles = StyleSheet.create({
     borderWidth: 1,
   },
   allowanceBadgeDone: { backgroundColor: '#ecfdf5', borderColor: '#a7f3d0' },
+  allowanceBadgeInfo: { backgroundColor: '#eff6ff', borderColor: '#bfdbfe' },
+  allowanceBadgeWarning: { backgroundColor: '#fff7ed', borderColor: '#fed7aa' },
+  allowanceBadgeRejected: { backgroundColor: '#fef2f2', borderColor: '#fecaca' },
   allowanceBadgePending: { backgroundColor: '#f3f4f6', borderColor: '#e5e7eb' },
   allowanceBadgeText: { fontSize: 11, fontWeight: '700' },
   allowanceBadgeTextDone: { color: '#059669' },
+  allowanceBadgeTextInfo: { color: '#2563eb' },
+  allowanceBadgeTextWarning: { color: '#c2410c' },
+  allowanceBadgeTextRejected: { color: '#b91c1c' },
   allowanceBadgeTextPending: { color: '#6b7280' },
   allowanceDateText: { fontSize: 12, color: CHARCOAL },
   // Modal Styles

@@ -11,6 +11,12 @@ export type FcHomeNextAction = {
   subtitle: string;
   disabled: boolean;
 };
+export type AllowanceDisplayKey = 'missing' | 'entered' | 'prescreen' | 'approved' | 'rejected';
+export type AllowanceDisplay = {
+  key: AllowanceDisplayKey;
+  label: string;
+  color: 'gray' | 'orange' | 'blue' | 'green' | 'red';
+};
 
 type WorkflowProfile = Partial<
   Pick<
@@ -18,6 +24,8 @@ type WorkflowProfile = Partial<
     | 'status'
     | 'temp_id'
     | 'allowance_date'
+    | 'allowance_prescreen_requested_at'
+    | 'allowance_reject_reason'
     | 'identity_completed'
     | 'resident_id_masked'
     | 'address'
@@ -79,6 +87,28 @@ export const getApprovedDocumentState = (profile?: WorkflowProfile | null) => {
   const allApproved = allSubmitted && docs.every((doc) => doc.status === 'approved');
 
   return { docs, allSubmitted, allApproved };
+};
+
+export const getAllowanceDisplayState = (
+  profile?: WorkflowProfile | null,
+): AllowanceDisplay => {
+  if (profile?.status === 'allowance-consented') {
+    return { key: 'approved', label: '승인 완료', color: 'green' };
+  }
+
+  if (profile?.status === 'allowance-pending' && hasText(profile.allowance_reject_reason)) {
+    return { key: 'rejected', label: '미승인', color: 'red' };
+  }
+
+  if (profile.allowance_prescreen_requested_at) {
+    return { key: 'prescreen', label: '사전 심사 요청 완료', color: 'blue' };
+  }
+
+  if (!profile?.allowance_date) {
+    return { key: 'missing', label: 'FC 수당 동의일 미입력', color: 'gray' };
+  }
+
+  return { key: 'entered', label: 'FC 수당 동의 입력 완료', color: 'orange' };
 };
 
 export const hasAllowancePassed = (
@@ -244,6 +274,7 @@ export const getFcHomeNextAction = (profile?: WorkflowProfile | null): FcHomeNex
   }
 
   if (step === 1) {
+    const allowanceDisplay = getAllowanceDisplayState(profile);
     if (!profile.temp_id) {
       return {
         step,
@@ -254,13 +285,33 @@ export const getFcHomeNextAction = (profile?: WorkflowProfile | null): FcHomeNex
         disabled: false,
       };
     }
-    if (profile.status === 'allowance-pending' && profile.allowance_date) {
+    if (allowanceDisplay.key === 'rejected') {
       return {
         step,
         key,
         route: '/consent',
         title: '수당동의',
-        subtitle: '총무가 검토 중입니다. 기다려주세요.',
+        subtitle: '반려 사유를 확인하고 다시 입력하세요',
+        disabled: false,
+      };
+    }
+    if (allowanceDisplay.key === 'prescreen') {
+      return {
+        step,
+        key,
+        route: '/consent',
+        title: '수당동의',
+        subtitle: '사전 심사 결과를 기다리는 중입니다.',
+        disabled: false,
+      };
+    }
+    if (allowanceDisplay.key === 'entered') {
+      return {
+        step,
+        key,
+        route: '/consent',
+        title: '수당동의',
+        subtitle: '총무가 사전 심사를 준비 중입니다.',
         disabled: false,
       };
     }
@@ -328,7 +379,7 @@ export const getFcHomeNextAction = (profile?: WorkflowProfile | null): FcHomeNex
         step,
         key,
         route: '/hanwha-commission',
-        title: '한화 위촉',
+        title: '한화 위촉 URL',
         subtitle: '반려 사유를 확인하고 개인 메신저 URL에서 다시 진행한 뒤 재제출하세요.',
         disabled: false,
       };
@@ -338,7 +389,7 @@ export const getFcHomeNextAction = (profile?: WorkflowProfile | null): FcHomeNex
         step,
         key,
         route: '/hanwha-commission',
-        title: '한화 위촉',
+        title: '한화 위촉 URL',
         subtitle: '총무가 가람in으로 승인 PDF를 전달 중입니다. 기다려주세요.',
         disabled: false,
       };
@@ -348,7 +399,7 @@ export const getFcHomeNextAction = (profile?: WorkflowProfile | null): FcHomeNex
         step,
         key,
         route: '/hanwha-commission',
-        title: '한화 위촉',
+        title: '한화 위촉 URL',
         subtitle: '총무가 위촉 여부를 검토중입니다.',
         disabled: false,
       };
@@ -357,7 +408,7 @@ export const getFcHomeNextAction = (profile?: WorkflowProfile | null): FcHomeNex
       step,
       key,
       route: '/hanwha-commission',
-      title: '한화 위촉',
+      title: '한화 위촉 URL',
       subtitle: '한화라이프랩 위촉 진행',
       disabled: false,
     };
@@ -374,7 +425,7 @@ export const getFcHomeNextAction = (profile?: WorkflowProfile | null): FcHomeNex
         key,
         route: '/appointment',
         title: '생명/손해 위촉',
-        subtitle: '한화 위촉 승인 PDF 확인 후 진행할 수 있습니다.',
+        subtitle: '한화 위촉 URL 승인 PDF 확인 후 진행할 수 있습니다.',
         disabled: false,
       };
     }

@@ -45,7 +45,7 @@ source_of_truth: web/src/app/dashboard/page.tsx + web/src/app/api/admin/fc/route
 ## 상태/분기
 
 - `manager`는 같은 화면을 보더라도 write action이 비활성
-- FC 상세 모달은 `수당 동의 / 서류 관리 / 한화 위촉 관리 / 위촉 URL 관리` 4탭 구조
+- FC 상세 모달은 `수당 동의 / 서류 관리 / 한화 위촉 URL 관리 / 생명/손해 위촉 관리` 4탭 구조
 - temp-id, allowance, docs, hanwha, appointment, commission flag가 서로 상태 합성에 영향
 - FC 삭제는 별도 파괴적 작업
 

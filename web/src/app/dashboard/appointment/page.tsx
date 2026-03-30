@@ -265,21 +265,21 @@ export default function AppointmentPage() {
 
   const getHanwhaStatus = useCallback((fc: FcProfile) => {
     if (fc.status === 'docs-approved') {
-      return { label: '한화 위촉 대기', color: 'blue' };
+      return { label: '한화 위촉 URL 대기', color: 'blue' };
     }
     if (fc.status === 'hanwha-commission-review') {
-      return { label: '한화 검토 중', color: 'orange' };
+      return { label: '한화 위촉 URL 검토 중', color: 'orange' };
     }
     if (fc.status === 'hanwha-commission-rejected') {
-      return { label: '한화 반려', color: 'red' };
+      return { label: '한화 위촉 URL 반려', color: 'red' };
     }
     if (fc.status === 'hanwha-commission-approved') {
       return hasHanwhaApprovedPdf(fc)
-        ? { label: '한화 승인 / PDF 완료', color: 'teal' }
-        : { label: '한화 승인 / PDF 대기', color: 'yellow' };
+        ? { label: '한화 위촉 URL 승인 / PDF 완료', color: 'teal' }
+        : { label: '한화 위촉 URL 승인 / PDF 대기', color: 'yellow' };
     }
     if (fc.status === 'appointment-completed' || fc.status === 'final-link-sent') {
-      return { label: '한화 승인 완료', color: 'teal' };
+      return { label: '한화 위촉 URL 승인 완료', color: 'teal' };
     }
     return { label: '사전 단계', color: 'gray' };
   }, []);
@@ -294,8 +294,8 @@ export default function AppointmentPage() {
     if (life && nonlife) return { label: '위촉 완료', color: 'green' };
     if (life || nonlife) return { label: '부분 완료', color: 'orange' };
     if (!canManageInsuranceStage(fc)) return getHanwhaStatus(fc);
-    if (hasInsuranceStageActivity(fc)) return { label: '위촉 URL 진행 중', color: 'blue' };
-    return { label: '위촉 URL 진행 가능', color: 'teal' };
+    if (hasInsuranceStageActivity(fc)) return { label: '생명/손해 위촉 진행 중', color: 'blue' };
+    return { label: '생명/손해 위촉 진행 가능', color: 'teal' };
   }, [canManageInsuranceStage, getHanwhaStatus]);
 
   // --- Derived Data for Filtering ---
@@ -406,8 +406,8 @@ export default function AppointmentPage() {
   const executeAction = (fc: FcProfile, type: 'schedule' | 'confirm' | 'reject', category: 'life' | 'nonlife') => {
     if (!canManageInsuranceStage(fc)) {
       notifications.show({
-        title: '한화 위촉 대기',
-        message: '한화 위촉 승인과 PDF 등록이 끝난 뒤에만 보험 위촉 URL 단계를 진행할 수 있습니다.',
+        title: '한화 위촉 URL 대기',
+        message: '한화 위촉 URL 승인과 PDF 등록이 끝난 뒤에만 생명/손해 위촉 단계를 진행할 수 있습니다.',
         color: 'orange',
       });
       return;
@@ -442,7 +442,7 @@ export default function AppointmentPage() {
     }
 
     showConfirm({
-      title: type === 'confirm' ? '보험 위촉 승인' : '보험 위촉 예정월 저장',
+        title: type === 'confirm' ? '생명/손해 위촉 승인' : '생명/손해 위촉 예정월 저장',
       message: `${type === 'confirm' ? '승인' : '저장'} 하시겠습니까?`,
       onConfirm: () => {
         startTransition(async () => {
@@ -517,9 +517,9 @@ export default function AppointmentPage() {
     return (
       <Stack gap="xs">
         {!insuranceStageOpen && (
-          <Text size="xs" c="dimmed">
-            한화 위촉 승인과 PDF 등록이 완료되면 보험 위촉 URL 단계를 진행할 수 있습니다.
-          </Text>
+            <Text size="xs" c="dimmed">
+              한화 위촉 URL 승인과 PDF 등록이 완료되면 생명/손해 위촉 단계를 진행할 수 있습니다.
+            </Text>
         )}
         {isLegacyException && (
           <Badge variant="outline" color="yellow" size="xs" w="fit-content">
@@ -657,10 +657,10 @@ export default function AppointmentPage() {
 
         <Group justify="space-between" align="flex-end">
           <div>
-            <Title order={2} c={CHARCOAL}>보험 위촉 URL 심사 및 확정</Title>
-            <Text c={MUTED} size="sm" mt={4}>
-              한화 위촉 승인과 PDF 등록이 끝난 FC만 보험 위촉 URL 단계를 진행할 수 있습니다. 기존 보험 위촉 이력이 남아 있는 레거시 행만 예외로 유지됩니다.
-            </Text>
+              <Title order={2} c={CHARCOAL}>생명/손해 위촉 심사 및 확정</Title>
+              <Text c={MUTED} size="sm" mt={4}>
+            한화 위촉 URL 승인과 PDF 등록이 끝난 FC만 생명/손해 위촉 단계를 진행할 수 있습니다. 기존 보험 위촉 이력이 남아 있는 레거시 행만 예외로 유지됩니다.
+              </Text>
           </div>
           <Group>
             <Select
@@ -683,7 +683,7 @@ export default function AppointmentPage() {
               <Table.Thead bg="#F9FAFB">
                 <Table.Tr>
                   {renderHeader('FC 정보 (이름)', 'name')}
-                  {renderHeader('한화 위촉', 'hanwha')}
+              {renderHeader('한화 위촉 URL', 'hanwha')}
                   {renderHeader('생명보험 위촉 (Life)', 'life')}
                   {renderHeader('손해보험 위촉 (Non-Life)', 'nonlife')}
                   {renderHeader('상태', 'status')}

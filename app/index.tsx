@@ -52,7 +52,7 @@ const SHORTCUT_TOUR_TEXTS = [
   '이름, 소속, 주소 등 기본 정보를 관리해요.',
   '수당 지급을 위한 약관 동의 상태를 확인해요.',
   '필수 서류를 업로드하고 상태를 확인해요.',
-  '한화라이프랩 위촉 진행 단계예요.',
+  '한화 위촉 URL 진행 단계예요.',
   '생명/손해 위촉 진행 단계예요.',
   '총무/설계매니저와 대화할 수 있어요.',
 ];
@@ -115,8 +115,8 @@ type QuickLink = { href: string; title: string; description: string; stepKey?: S
 const quickLinksAdminOnboarding: QuickLink[] = [
   { href: '/dashboard', stepKey: 'step1', title: '수당 동의 안내', description: '수당 동의 검토 대상 FC' },
   { href: '/dashboard', stepKey: 'step2', title: '서류 안내/검토', description: '제출해야 할 서류 관리' },
-  { href: '/dashboard', stepKey: 'step3', title: '한화 위촉', description: '한화 승인 및 PDF 등록' },
-  { href: '/dashboard', stepKey: 'step4', title: '위촉 URL', description: '보험 위촉 진행 확인' },
+  { href: '/dashboard', stepKey: 'step3', title: '한화 위촉 URL', description: '한화 위촉 URL 승인 및 PDF 등록' },
+  { href: '/dashboard', stepKey: 'step4', title: '생명/손해 위촉', description: '생명/손해 위촉 진행 확인' },
   { href: '/dashboard', stepKey: 'step5', title: '완료 관리', description: '최종 완료 현황' },
   { href: '/admin-board', title: '게시판 작성', description: '정보 게시판 글쓰기' },
   { href: '/messenger', title: '메신저', description: '가람지사/설계요청 대화 이동' },
@@ -141,15 +141,15 @@ const quickLinksFcBase: QuickLink[] = [
 const fcHomeSteps = [
   { key: 'consent', label: '수당동의', fullLabel: '수당동의' },
   { key: 'docs', label: '문서제출', fullLabel: '문서제출' },
-  { key: 'hanwha', label: '한화위촉', fullLabel: '한화 위촉' },
-  { key: 'url', label: '위촉URL', fullLabel: '위촉 URL' },
+  { key: 'hanwha', label: '한화 위촉 URL', fullLabel: '한화 위촉 URL' },
+  { key: 'url', label: '생명/손해 위촉', fullLabel: '생명/손해 위촉' },
   { key: 'final', label: '완료', fullLabel: '완료' },
 ];
 
 const buildFcQuickLinks = (profile?: FcProfile | null): QuickLink[] => {
   const hanwhaLink: QuickLink = {
     href: '/hanwha-commission',
-    title: '한화 위촉',
+    title: '한화 위촉 URL',
     description: '한화라이프랩 위촉 진행',
   };
   const insuranceLink: QuickLink = {
@@ -168,7 +168,7 @@ const fetchCounts = async (role: 'admin' | 'fc' | null, residentId: string): Pro
 
   const { data, error } = await supabase
     .from('fc_profiles')
-    .select('name,affiliation,resident_id_masked,email,address,identity_completed,allowance_date,status,hanwha_commission_date,hanwha_commission_pdf_path,hanwha_commission_pdf_name,appointment_date_life,appointment_date_nonlife,appointment_date_life_sub,appointment_date_nonlife_sub,life_commission_completed,nonlife_commission_completed,fc_documents(doc_type,storage_path,status)');
+    .select('name,affiliation,resident_id_masked,email,address,identity_completed,allowance_date,allowance_prescreen_requested_at,allowance_reject_reason,status,hanwha_commission_date,hanwha_commission_pdf_path,hanwha_commission_pdf_name,appointment_date_life,appointment_date_nonlife,appointment_date_life_sub,appointment_date_nonlife_sub,life_commission_completed,nonlife_commission_completed,fc_documents(doc_type,storage_path,status)');
   if (error) throw error;
 
   const steps: StepCounts = { ...EMPTY_STEP_COUNTS };
@@ -187,8 +187,8 @@ const fetchCounts = async (role: 'admin' | 'fc' | null, residentId: string): Pro
 const ADMIN_METRIC_CONFIG: { label: string; key: StepKey }[] = [
   { label: '1단계 수당동의', key: 'step1' },
   { label: '2단계 문서제출', key: 'step2' },
-  { label: '3단계 한화위촉', key: 'step3' },
-  { label: '4단계 위촉URL', key: 'step4' },
+  { label: '3단계 한화 위촉 URL', key: 'step3' },
+  { label: '4단계 생명/손해 위촉', key: 'step4' },
   { label: '5단계 완료', key: 'step5' },
 ];
 
@@ -260,7 +260,7 @@ const fetchFcStatus = async (residentId: string) => {
   const { data, error } = await supabase
     .from('fc_profiles')
     .select(
-      'id,name,affiliation,phone,status,temp_id,allowance_date,hanwha_commission_date_sub,hanwha_commission_date,hanwha_commission_reject_reason,hanwha_commission_pdf_path,hanwha_commission_pdf_name,appointment_url,appointment_date,appointment_schedule_life,appointment_schedule_nonlife,appointment_date_life,appointment_date_nonlife,appointment_date_life_sub,appointment_date_nonlife_sub,life_commission_completed,nonlife_commission_completed,resident_id_masked,email,address,identity_completed,is_tour_seen,signup_completed,fc_documents(doc_type,storage_path,status)',
+      'id,name,affiliation,phone,status,temp_id,allowance_date,allowance_prescreen_requested_at,allowance_reject_reason,hanwha_commission_date_sub,hanwha_commission_date,hanwha_commission_reject_reason,hanwha_commission_pdf_path,hanwha_commission_pdf_name,appointment_url,appointment_date,appointment_schedule_life,appointment_schedule_nonlife,appointment_date_life,appointment_date_nonlife,appointment_date_life_sub,appointment_date_nonlife_sub,life_commission_completed,nonlife_commission_completed,resident_id_masked,email,address,identity_completed,is_tour_seen,signup_completed,fc_documents(doc_type,storage_path,status)',
     )
     .eq('phone', residentId)
     .maybeSingle();
@@ -272,6 +272,8 @@ const fetchFcStatus = async (residentId: string) => {
     status: 'draft',
     temp_id: null,
     allowance_date: null,
+    allowance_prescreen_requested_at: null,
+    allowance_reject_reason: null,
     hanwha_commission_date_sub: null,
     hanwha_commission_date: null,
     hanwha_commission_reject_reason: null,
@@ -366,8 +368,8 @@ const getLinkIcon = (href: string) => {
   if (href.includes('status=step0')) return 'user-plus'; // 사전등록
   if (href.includes('status=step1')) return 'user-plus'; // 회원가입 관리
   if (href.includes('status=step2')) return 'check-square'; // 서류 안내/검토
-  if (href.includes('status=step3')) return 'file-text'; // 한화 위촉
-  if (href.includes('status=step4')) return 'link'; // 위촉 URL
+  if (href.includes('status=step3')) return 'file-text'; // 한화 위촉 URL
+  if (href.includes('status=step4')) return 'link'; // 생명/손해 위촉
   if (href.includes('status=step5')) return 'award'; // 완료 관리
 
   if (href.includes('/exams/')) return 'calendar'; // 시험 일정 등록
@@ -381,7 +383,7 @@ const getLinkIcon = (href: string) => {
   if (href.includes('exam-apply')) return 'edit-3'; // 시험 신청
   if (href.includes('consent')) return 'check-circle'; // 수당 동의
   if (href.includes('docs-upload')) return 'upload-cloud'; // 서류 업로드
-  if (href.includes('hanwha-commission')) return 'file-text'; // 한화 위촉
+  if (href.includes('hanwha-commission')) return 'file-text'; // 한화 위촉 URL
   if (href.includes('appointment')) return 'smartphone'; // 위촉
   if (href.includes('messenger')) return 'message-circle'; // 메신저
   if (href.includes('chat')) return 'message-circle'; // 1:1 문의

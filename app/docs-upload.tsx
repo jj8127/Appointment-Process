@@ -113,7 +113,7 @@ export default function DocsUploadScreen() {
   const progressPercent = docCount.total > 0 ? (docCount.uploaded / docCount.total) * 100 : 0;
   const isDocsApproved = fc?.status === HANWHA_HANDOFF_STATUS;
   const footerRoute = !isAdmin && isDocsApproved ? '/hanwha-commission' : '/';
-  const footerLabel = !isAdmin && isDocsApproved ? '한화 위촉 단계로 이동' : '홈으로 가기';
+  const footerLabel = !isAdmin && isDocsApproved ? '한화 위촉 URL 단계로 이동' : '홈으로 가기';
 
   const loadData = useCallback(async () => {
     try {
@@ -466,7 +466,7 @@ export default function DocsUploadScreen() {
         const allApproved = allSubmitted && requestedDocs.every((doc) => doc.status === 'approved');
 
         if (!allApproved) {
-          throw new Error('모든 요청 서류가 제출 및 승인된 뒤에만 한화 위촉 단계로 넘길 수 있습니다.');
+          throw new Error('모든 요청 서류가 제출 및 승인된 뒤에만 한화 위촉 URL 단계로 넘길 수 있습니다.');
         }
       }
 
@@ -484,8 +484,8 @@ export default function DocsUploadScreen() {
       Alert.alert(
         '완료',
         isApprove
-          ? '서류 검토가 완료되었습니다. 다음 단계는 보험 위촉 URL이 아니라 한화 위촉입니다.'
-          : '서류가 반려되었습니다. 다시 검토가 필요합니다.',
+          ? '서류 검토가 완료되었습니다. 다음 단계는 생명/손해 위촉이 아니라 한화 위촉 URL입니다.'
+            : '서류가 반려되었습니다. 다시 검토가 필요합니다.',
         [
           { text: '확인', onPress: () => router.back() },
         ],
@@ -527,7 +527,7 @@ export default function DocsUploadScreen() {
             <View style={styles.adminActionBox}>
               <Text style={styles.adminLabel}>관리자 검토</Text>
               <Text style={styles.adminHelperText}>
-                승인 시 FC는 보험 위촉 URL로 바로 가지 않고 한화 위촉 단계로 넘어갑니다.
+                승인 시 FC는 생명/손해 위촉으로 바로 가지 않고 한화 위촉 URL 단계로 넘어갑니다.
               </Text>
               <View style={styles.adminActionRow}>
                 <Button
@@ -547,7 +547,7 @@ export default function DocsUploadScreen() {
                   size="lg"
                   style={{ flex: 1 }}
                 >
-                  한화 위촉 단계로 승인
+                  한화 위촉 URL 단계로 승인
                 </Button>
               </View>
             </View>
@@ -555,13 +555,13 @@ export default function DocsUploadScreen() {
 
           {isDocsApproved && (
             <View style={styles.handoffBox}>
-              <Text style={styles.handoffTitle}>
-                {isAdmin ? '한화 위촉 단계 인계 완료' : '서류 승인 완료'}
-              </Text>
+                <Text style={styles.handoffTitle}>
+                  {isAdmin ? '한화 위촉 URL 단계 인계 완료' : '서류 승인 완료'}
+                </Text>
               <Text style={styles.handoffText}>
                 {isAdmin
-                  ? '이 FC의 다음 단계는 보험 위촉 URL이 아니라 한화 위촉입니다.'
-                  : '다음 단계는 보험 위촉 URL이 아니라 한화 위촉입니다. 한화 위촉 완료일 제출과 승인 확인을 먼저 진행해주세요.'}
+                  ? '이 FC의 다음 단계는 생명/손해 위촉이 아니라 한화 위촉 URL입니다.'
+                  : '다음 단계는 생명/손해 위촉이 아니라 한화 위촉 URL입니다. 한화 위촉 URL 완료일 제출과 승인 확인을 먼저 진행해주세요.'}
               </Text>
             </View>
           )}

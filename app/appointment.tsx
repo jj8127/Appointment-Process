@@ -384,7 +384,7 @@ export default function AppointmentScreen() {
       >
         <ScreenHeader
           title="생명/손해 위촉"
-          subtitle="한화 위촉 승인과 PDF 등록이 끝나면 이 화면에서 생명·손해 위촉 진행 상황을 입력합니다."
+      subtitle="한화 위촉 URL 승인과 PDF 등록이 끝나면 이 화면에서 생명·손해 위촉 진행 상황을 입력합니다."
         />
 
         {loading ? (
@@ -394,7 +394,7 @@ export default function AppointmentScreen() {
             {insuranceGateLocked ? (
               <View style={styles.card}>
                 <Text style={styles.sectionTitle}>생명/손해 위촉 대기</Text>
-                <Text style={styles.sectionDesc}>한화 위촉 승인과 PDF 등록이 끝나면 이 단계가 열립니다.</Text>
+        <Text style={styles.sectionDesc}>한화 위촉 URL 승인과 PDF 등록이 끝나면 이 단계가 열립니다.</Text>
               </View>
             ) : noAssignedInsuranceSchedule ? (
               <View style={styles.card}>
