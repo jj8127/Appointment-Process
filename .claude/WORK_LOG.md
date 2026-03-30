@@ -20,6 +20,7 @@
 ## 최근 작업
 | 날짜 | 작업 | 핵심 파일 | 상세 |
 |------|------|----------|------|
+| 03-30 | 웹 FC 상세 관리 모달 탭을 한 줄 4탭으로 복구하고 단계별 라벨을 축약 | `web/src/app/dashboard/page.tsx` | [→ 상세](WORK_DETAIL.md#20260330-web-dashboard-modal-tabs-single-row) |
 | 03-29 | 가람in/GaramLink 주민번호 full-view 계약을 FC self-view·GaramLink hydration·문서까지 다시 정렬 | `app/fc/new.tsx`, `supabase/functions/admin-action/index.ts`, `lib/request-board-api.ts`, `request_board/server/src/routes/requests.ts`, `request_board/client/src/pages/MatrixView.tsx`, `request_board/client/src/pages/KanbanBoard.tsx`, `README.md`, `AGENTS.md`, `docs/handbook/**` | [→ 상세](WORK_DETAIL.md#20260329-resident-number-full-view-alignment) |
 | 03-28 | 온보딩 플로우를 `수당동의 -> 문서제출 -> 한화 위촉 -> 위촉 URL -> 완료`로 재정의하고 앱/웹/백엔드 상태 계산을 공통 helper로 수렴 | `lib/fc-workflow.ts`, `web/src/lib/fc-workflow.ts`, `app/index.tsx`, `app/dashboard.tsx`, `app/hanwha-commission.tsx`, `web/src/app/dashboard/page.tsx`, `supabase/functions/admin-action/index.ts`, `supabase/functions/fc-submit-hanwha-commission/index.ts`, `supabase/schema.sql` | [→ 상세](WORK_DETAIL.md#20260328-hanwha-commission-workflow-overhaul) |
 | 03-28 | 시험 신청·관리 UX와 홈/상세 read-only 정보를 보강하고 공지/문서 reset 경로를 함께 정리 | `app/exam-apply.tsx`, `app/exam-apply2.tsx`, `app/exam-manage.tsx`, `app/exam-manage2.tsx`, `web/src/app/dashboard/exam/applicants/page.tsx`, `web/src/app/dashboard/profile/[id]/page.tsx`, `app/consent.tsx`, `web/src/app/api/admin/fc/route.ts`, `web/src/app/dashboard/docs/actions.ts` | [→ 상세](WORK_DETAIL.md#20260328-exam-and-readonly-ops-polish) |

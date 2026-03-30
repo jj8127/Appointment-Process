@@ -7,6 +7,22 @@
 
 ---
 
+## <a id="20260330-web-dashboard-modal-tabs-single-row"></a> 2026-03-30 | 웹 FC 상세 관리 모달 탭을 한 줄 4탭으로 복구
+
+**배경**:
+- FC 상세 관리 모달의 상단 탭이 긴 라벨과 `grow` 레이아웃 때문에 두 줄로 밀리면서, 마지막 탭이 별도 전체폭 버튼처럼 보였다.
+- 사용자는 `수당 동의 / 서류 관리 / 한화 위촉 / 생명/손해 위촉` 4개 탭이 반드시 같은 행에서 페이지 버튼처럼 보여야 한다고 요청했다.
+
+**조치**:
+- `web/src/app/dashboard/page.tsx`의 모달 탭 리스트에서 `grow`를 제거하고, nowrap 가로 레이아웃으로 고정했다.
+- 각 탭에 `flex: 1 1 0`, `minWidth: 0`, `whiteSpace: 'nowrap'`를 적용해 네 탭이 동일한 행에서 균등하게 배치되도록 맞췄다.
+- 긴 탭 라벨을 `한화 위촉`, `생명/손해 위촉`으로 축약해 실제 페이지 전환 버튼처럼 읽히도록 정리했다.
+
+**핵심 파일**:
+- `web/src/app/dashboard/page.tsx`
+
+---
+
 ## <a id="20260329-resident-number-full-view-alignment"></a> 2026-03-29 | 가람in/GaramLink 주민번호 full-view 계약을 FC self-view와 embedded GaramLink까지 정렬
 
 **배경**:

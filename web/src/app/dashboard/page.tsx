@@ -1920,18 +1920,37 @@ export default function DashboardPage() {
             </Group>
 
             <Tabs value={modalTab} onChange={setModalTab} color="orange" variant="outline" radius="md">
-              <Tabs.List grow mb="lg">
-                <Tabs.Tab value="info" leftSection={<IconEdit size={16} />}>
+              <Tabs.List
+                mb="lg"
+                style={{ display: 'flex', flexWrap: 'nowrap', gap: 8, overflowX: 'auto' }}
+              >
+                <Tabs.Tab
+                  value="info"
+                  leftSection={<IconEdit size={16} />}
+                  style={{ flex: '1 1 0', minWidth: 0, justifyContent: 'center', whiteSpace: 'nowrap' }}
+                >
                   수당 동의
                 </Tabs.Tab>
-                <Tabs.Tab value="docs" leftSection={<IconFileText size={16} />}>
+                <Tabs.Tab
+                  value="docs"
+                  leftSection={<IconFileText size={16} />}
+                  style={{ flex: '1 1 0', minWidth: 0, justifyContent: 'center', whiteSpace: 'nowrap' }}
+                >
                   서류 관리
                 </Tabs.Tab>
-                <Tabs.Tab value="hanwha" leftSection={<IconCalendar size={16} />}>
-                  한화 위촉 관리
+                <Tabs.Tab
+                  value="hanwha"
+                  leftSection={<IconCalendar size={16} />}
+                  style={{ flex: '1 1 0', minWidth: 0, justifyContent: 'center', whiteSpace: 'nowrap' }}
+                >
+                  한화 위촉
                 </Tabs.Tab>
-                <Tabs.Tab value="appointment" leftSection={<IconCalendar size={16} />}>
-                  위촉 URL 관리
+                <Tabs.Tab
+                  value="appointment"
+                  leftSection={<IconCalendar size={16} />}
+                  style={{ flex: '1 1 0', minWidth: 0, justifyContent: 'center', whiteSpace: 'nowrap' }}
+                >
+                  생명/손해 위촉
                 </Tabs.Tab>
 
               </Tabs.List>
