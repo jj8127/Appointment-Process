@@ -414,6 +414,7 @@ export default function DashboardScreen() {
   } | null>(null);
   const [appointmentActualTempDate, setAppointmentActualTempDate] = useState<Date | null>(null);
   const [expanded, setExpanded] = useState<Record<string, boolean>>({});
+  const [referralCodes, setReferralCodes] = useState<Record<string, string | null>>({});
   const [refreshing, setRefreshing] = useState(false);
 
   // Delete Modal State
@@ -1197,7 +1198,16 @@ export default function DashboardScreen() {
     } else {
       logger.debug('[dashboard] skip LayoutAnimation (Android)');
     }
-    setExpanded((prev) => ({ ...prev, [id]: !prev[id] }));
+    setExpanded((prev) => {
+      const next = { ...prev, [id]: !prev[id] };
+      if (next[id] && !(id in referralCodes)) {
+        void supabase.rpc('get_invitee_referral_code', { p_fc_id: id })
+          .then(({ data, error }) => {
+            setReferralCodes((r) => ({ ...r, [id]: (!error && data) ? (data as string) : null }));
+          });
+      }
+      return next;
+    });
   };
 
   const toggleEditMode = (id: string) => {
@@ -3246,6 +3256,7 @@ export default function DashboardScreen() {
                       />
                       <DetailRow label="경력구분" value={careerDisplay} />
                       <DetailRow label="추천인" value={fc.recommender ?? '-'} />
+                      <DetailRow label="추천 코드" value={referralCodes[fc.id] !== undefined ? (referralCodes[fc.id] ?? '-') : '...'} />
                       <DetailRow label="이메일" value={fc.email ?? '-'} />
                       <DetailRow label="주소" value={`${fc.address ?? '-'} ${fc.address_detail ?? ''}`} />
                     </View>

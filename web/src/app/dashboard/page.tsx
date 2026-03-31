@@ -389,6 +389,7 @@ export default function DashboardPage() {
 
   // 수정용 상태
   const [tempIdInput, setTempIdInput] = useState('');
+  const [recommenderInput, setRecommenderInput] = useState('');
   const [careerInput, setCareerInput] = useState<'신입' | '경력' | null>(null);
   const [commissionInput, setCommissionInput] = useState<CommissionCompletionStatus>('none');
   const [selectedDocs, setSelectedDocs] = useState<string[]>([]);
@@ -669,11 +670,28 @@ export default function DashboardPage() {
     setCurrentPage(1);
   }, [activeTab, keyword]);
 
+  const { data: selectedFcReferralCode, isFetching: isSelectedFcReferralCodeFetching } = useQuery({
+    queryKey: ['fc-referral-code', selectedFc?.id],
+    queryFn: async () => {
+      if (!selectedFc?.id) return null;
+      const resp = await fetch('/api/admin/fc', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'getReferralCode', payload: { fcId: selectedFc.id } }),
+      });
+      const json: unknown = await resp.json().catch(() => null);
+      if (!json || typeof json !== 'object' || !('referralCode' in json)) return null;
+      return ((json as { referralCode?: string | null }).referralCode) ?? null;
+    },
+    enabled: !!selectedFc?.id,
+  });
+
   const updateInfoMutation = useMutation({
     mutationFn: async () => {
       if (!selectedFc) return;
       const payload: Partial<FcProfile> & Record<string, unknown> = {
         career_type: careerInput,
+        recommender: recommenderInput.trim() || null,
       };
       if (tempIdInput && tempIdInput !== selectedFc.temp_id) {
         payload.temp_id = tempIdInput;
@@ -701,6 +719,7 @@ export default function DashboardPage() {
     onSuccess: () => {
       const nextProfileUpdates: Partial<FCProfileWithDocuments> = {
         career_type: careerInput,
+        recommender: recommenderInput.trim() || null,
       };
       if (tempIdInput && tempIdInput !== selectedFc?.temp_id) {
         nextProfileUpdates.temp_id = tempIdInput;
@@ -1023,6 +1042,7 @@ export default function DashboardPage() {
   const handleOpenModal = (fc: FCProfileWithDocuments) => {
     setSelectedFc(fc);
     setTempIdInput(fc.temp_id || '');
+    setRecommenderInput(fc.recommender || '');
     setCareerInput((fc.career_type as '신입' | '경력') || null);
     setCommissionInput(
       getCommissionCompletionStatus(
@@ -2192,9 +2212,17 @@ export default function DashboardPage() {
                     />
                     <TextInput
                       label="추천인"
-                      value={selectedFc.recommender || '-'}
-                      readOnly
+                      placeholder="추천인 이름 입력"
+                      value={recommenderInput}
+                      readOnly={isReadOnly}
+                      onChange={(e) => setRecommenderInput(e.currentTarget.value)}
                     />
+                    <Text size="xs" c="dimmed" mt={4}>
+                      추천 코드:{' '}
+                      <Text span fw={600} c="orange">
+                        {isSelectedFcReferralCodeFetching ? '조회 중...' : (selectedFcReferralCode ?? '-')}
+                      </Text>
+                    </Text>
                     {canResetToLookup && (
                     <>
                       <Button

@@ -57,3 +57,10 @@ source_of_truth: supabase/schema.sql + supabase/migrations/*
 - `20260331000001_enforce_exam_registration_location_round_match.sql`은 `exam_locations (id, round_id)` 복합 unique 제약과 `exam_registrations (location_id, round_id) -> exam_locations (id, round_id)` 복합 FK를 추가합니다.
 - 이 migration은 기존 오염 row `fc0421cd-6016-4732-b28f-324246085bc4`를 `4월 4차 생명보험 / 춘천`으로 재매핑한 뒤 제약을 추가합니다.
 - 결과적으로 시험 신청은 선택한 회차에 속한 응시 지역만 저장 가능하며, 다른 회차의 `location_id`를 섞어 저장할 수 없습니다.
+
+## 2026-03-31 추천인 코드 조회 RPC 메모
+
+- `referral_attributions`는 관리자 전용 RLS 테이블이므로, 모바일 anon 클라이언트는 직접 조회하지 않습니다.
+- `20260331000002_get_invitee_referral_code_fn.sql`은 `public.get_invitee_referral_code(uuid)` `SECURITY DEFINER` 함수를 추가합니다.
+- 이 함수는 `invitee_fc_id = p_fc_id`이면서 `status='confirmed'`인 attribution의 `referral_code`를 최신순으로 1건 반환합니다.
+- 권한은 `anon`, `authenticated`, `service_role` execute만 허용하고 `PUBLIC` 기본 execute는 revoke 합니다.

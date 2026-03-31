@@ -7,6 +7,84 @@
 
 ---
 
+## <a id="20260331-recommender-code-display"></a> 2026-03-31 | 추천인 이름이 보이는 관리자 화면에 받은 추천 코드 표시 추가
+
+**배경**:
+- 관리자들은 FC 상세 모달, 웹 프로필 상세, 모바일 관리자 대시보드에서 `추천인` 이름은 볼 수 있었지만, 실제로 어떤 추천 코드로 귀속된 FC인지는 바로 확인할 수 없었다.
+- 웹은 service-role API route를 통해 `referral_attributions`를 읽을 수 있지만, 모바일은 anon 클라이언트라 `referral_attributions` RLS를 직접 통과할 수 없었다.
+- 추천 코드가 없을 때도 행 자체를 숨기면 화면마다 정보 밀도가 달라져 운영 판단이 어려웠다.
+
+**조치**:
+- `supabase/migrations/20260331000002_get_invitee_referral_code_fn.sql`
+  - `public.get_invitee_referral_code(uuid)` `SECURITY DEFINER` SQL 함수를 추가했다.
+  - `confirmed` 상태의 `referral_attributions.referral_code`만 최신순으로 1건 반환한다.
+  - `anon`, `authenticated`, `service_role`에만 execute를 열고 `PUBLIC` 기본 execute는 revoke 했다.
+- `supabase/schema.sql`
+  - 위 RPC 함수와 grant/revoke를 canonical snapshot에 반영했다.
+- `web/src/app/api/admin/fc/route.ts`
+  - `getReferralCode` 액션을 추가해 service-role로 `referral_attributions`에서 invitee 기준 추천 코드를 읽도록 연결했다.
+- `web/src/app/dashboard/page.tsx`
+  - FC 상세 모달의 `추천인` 입력 바로 아래에 `추천 코드`를 항상 표시하도록 바꿨다.
+  - 코드가 없으면 `-`, 조회 중이면 `조회 중...`으로 표시한다.
+- `web/src/app/dashboard/profile/[id]/page.tsx`
+  - 프로필 상세의 `추천인` 필드 아래에 동일한 `추천 코드` 표시를 추가했다.
+  - 여기서도 코드가 없으면 `-`, 조회 중이면 `조회 중...`으로 고정했다.
+- `app/dashboard.tsx`
+  - FC 카드 확장 시 `get_invitee_referral_code` RPC를 lazy 호출해 `추천 코드` 행을 보여주도록 추가했다.
+
+**결과**:
+- 추천인 이름이 보이는 관리자 화면 3곳(웹 상세 모달, 웹 프로필 상세, 모바일 관리자 대시보드)에서 동일한 기준의 추천 코드를 확인할 수 있다.
+- 웹은 기존 관리자 route를 재사용하고, 모바일은 RLS를 직접 건드리지 않고 RPC 하나로 같은 데이터를 본다.
+- 추천 코드가 없더라도 UI에서 행이 사라지지 않으므로, `없음`과 `조회 실패/누락`을 구분하기 쉬워졌다.
+- `/dashboard/referrals`는 FC 자신의 활성 추천코드 운영 화면이라, invitee가 받은 코드 표시 대상에는 포함하지 않았다.
+- `app/fc/new.tsx`의 `추천인`은 신규 FC 생성 입력 필드라 이번 범위에서 UI 추가 없이 유지했다.
+
+**검증**:
+- `supabase migration list`
+  - `20260331000002_get_invitee_referral_code_fn.sql` local/remote 일치 확인
+- `supabase db push`
+  - 원격 DB 적용 성공
+- `cd web && npx tsc --noEmit`
+  - `dashboard/page.tsx`, `dashboard/profile/[id]/page.tsx`, `api/admin/fc/route.ts` 관련 추가 오류 없음
+- `npx tsc --noEmit`
+  - `app/dashboard.tsx` 관련 추가 오류 없음
+  - 전체 앱 기준으로는 기존 다른 파일의 타입 오류 때문에 종료 코드는 실패 가능
+- anon RPC 스모크 테스트
+  - `get_invitee_referral_code` 호출 자체는 정상 응답(`null`) 확인
+  - 운영 DB 기준 `status='confirmed' and invitee_fc_id is not null` attribution row가 아직 0건이라, 실제 코드 문자열 반환 케이스는 운영 데이터로는 재현 불가
+
+---
+
+## <a id="20260331-referral-phase1"></a> 2026-03-31 | 추천인 시스템 Phase 1 — EF 신규 + set-password attribution 연결
+
+### 배경
+- 추천인 스키마(`referral_codes`, `referral_attributions`, `referral_events`)와 Admin 운영 기반은 03-25 기준 완성
+- 가입 화면의 `recommender` 자유 텍스트가 구조화 attribution에 연결되지 않아 이번에 연결
+
+### 변경 파일
+| 파일 | 내용 |
+|------|------|
+| `supabase/functions/validate-referral-code/index.ts` | 신규. anon 호출, rate limiting(IP/1분 10회), enumeration 방지(`inactive=not_found`), inviterPhoneMasked |
+| `supabase/functions/get-my-referral-code/index.ts` | 신규. `parseAppSessionToken` 세션 검증, 설계매니저/admin/manager forbidden |
+| `supabase/functions/set-password/index.ts` | `referralCode?` Payload 추가, `captureReferralAttribution()` 헬퍼 추가 (best-effort), signup_completed 이후 attribution INSERT |
+| `supabase/scripts/backfill_referral_codes.sql` | 신규. 기존 FC 추천 코드 일괄 백필 SQL (`admin_backfill_referral_codes` RPC 호출) |
+
+### captureReferralAttribution 로직
+1. `referral_codes` 조회 (is_active=true)
+2. inviter profile 조회 (phone 없으면 skip)
+3. self-referral 체크 (inviterPhone=inviteePhone → skip)
+4. 기존 confirmed attribution 중복 체크
+5. `referral_attributions` INSERT (status='confirmed', confirmed_at=now())
+6. `referral_events` INSERT (event_type='referral_confirmed')
+7. `fc_profiles.recommender` = inviterName (기존 어드민 뷰 호환)
+8. 모든 에러는 console.warn만, throw 금지 (가입 차단 불가)
+
+### 백필 방법
+- 관리자 웹 `/dashboard/referrals` "일괄 발급" 버튼으로 100건씩 실행
+- 또는 Supabase SQL Editor에서 `supabase/scripts/backfill_referral_codes.sql` 실행 (remaining=0 될 때까지 반복)
+
+---
+
 ## <a id="20260331-exam-registration-location-round-guard"></a> 2026-03-31 | 시험 신청 회차-지역 불일치를 `춘천`으로 교정하고 복합 제약으로 재발 차단
 
 **배경**:

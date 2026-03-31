@@ -90,6 +90,7 @@ export default function FcProfilePage({ params }: { params: Promise<{ id: string
             email: '',
             affiliation: '',
             career_type: '',
+            recommender: '',
             admin_memo: '',
         },
     });
@@ -153,6 +154,7 @@ export default function FcProfilePage({ params }: { params: Promise<{ id: string
                 email: profile.email || '',
                 affiliation: profile.affiliation || '',
                 career_type: profile.career_type || '',
+                recommender: profile.recommender || '',
                 admin_memo: profile.admin_memo || '',
             });
         }
@@ -171,6 +173,7 @@ export default function FcProfilePage({ params }: { params: Promise<{ id: string
                 address_detail: values.address_detail.trim() || null,
                 email: values.email.trim() || null,
                 career_type: normalizedCareerType === '신입' || normalizedCareerType === '경력' ? normalizedCareerType : null,
+                recommender: values.recommender.trim() || null,
             };
 
             const resp = await fetch('/api/admin/fc', {
@@ -200,6 +203,21 @@ export default function FcProfilePage({ params }: { params: Promise<{ id: string
             queryClient.invalidateQueries({ queryKey: ['fc-profile', fcId] });
         },
         onError: (err: Error) => notifications.show({ title: '저장 실패', message: err.message, color: 'red' }),
+    });
+
+    const { data: inviteeReferralCode, isFetching: isInviteeReferralCodeFetching } = useQuery({
+        queryKey: ['fc-referral-code', fcId],
+        queryFn: async () => {
+            const resp = await fetch('/api/admin/fc', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ action: 'getReferralCode', payload: { fcId } }),
+            });
+            const json: unknown = await resp.json().catch(() => null);
+            if (!isRecord(json)) return null;
+            return (json.referralCode as string | null) ?? null;
+        },
+        enabled: !!fcId && hydrated && (role === 'admin' || role === 'manager'),
     });
 
     const saveMemoMutation = useMutation({
@@ -447,10 +465,17 @@ export default function FcProfilePage({ params }: { params: Promise<{ id: string
                                     <Grid.Col span={6}>
                                         <TextInput
                                             label="추천인"
-                                            variant="unstyled"
-                                            readOnly
-                                            value={profile.recommender || '-'}
+                                            variant={isEditing && canEdit ? 'default' : 'unstyled'}
+                                            readOnly={!isEditing || !canEdit}
+                                            placeholder={isEditing && canEdit ? '추천인 이름 입력' : '-'}
+                                            {...form.getInputProps('recommender')}
                                         />
+                                        <Text size="xs" c="dimmed" mt={4}>
+                                            추천 코드:{' '}
+                                            <Text span fw={600} c="orange">
+                                                {isInviteeReferralCodeFetching ? '조회 중...' : (inviteeReferralCode ?? '-')}
+                                            </Text>
+                                        </Text>
                                     </Grid.Col>
                                 </Grid>
                             </Stack>

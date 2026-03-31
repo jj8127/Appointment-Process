@@ -580,6 +580,20 @@ begin
 end;
 $$;
 
+create or replace function public.get_invitee_referral_code(p_fc_id uuid) returns text
+language sql
+stable
+security definer
+set search_path = public
+as $$
+  select ra.referral_code
+  from public.referral_attributions ra
+  where ra.invitee_fc_id = p_fc_id
+    and ra.status = 'confirmed'
+  order by ra.created_at desc
+  limit 1;
+$$;
+
 create or replace function public.is_request_board_designer_affiliation(p_affiliation text) returns boolean
 language sql
 stable
@@ -2213,11 +2227,13 @@ revoke all on function public.is_request_board_designer_affiliation(text) from p
 revoke all on function public.admin_issue_referral_code(uuid, text, text, text, text, boolean) from public, anon, authenticated;
 revoke all on function public.admin_disable_referral_code(uuid, text, text, text, text) from public, anon, authenticated;
 revoke all on function public.admin_backfill_referral_codes(integer, text, text, text, text) from public, anon, authenticated;
+revoke all on function public.get_invitee_referral_code(uuid) from public;
 
 grant execute on function public.touch_user_presence(text, text) to service_role;
 grant execute on function public.stale_user_presence(text, text, timestamptz) to service_role;
 grant execute on function public.get_user_presence(text[]) to service_role;
 grant execute on function public.generate_referral_code_candidate() to service_role;
+grant execute on function public.get_invitee_referral_code(uuid) to anon, authenticated, service_role;
 grant execute on function public.is_request_board_designer_affiliation(text) to service_role;
 grant execute on function public.admin_issue_referral_code(uuid, text, text, text, text, boolean) to service_role;
 grant execute on function public.admin_disable_referral_code(uuid, text, text, text, text) to service_role;
