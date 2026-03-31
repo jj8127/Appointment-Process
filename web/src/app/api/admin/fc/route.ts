@@ -581,17 +581,12 @@ export async function POST(req: Request) {
       const { fcId } = payload as { fcId?: string };
       if (!fcId) return badRequest('fcId is required');
 
-      const { data, error } = await adminSupabase
-        .from('referral_attributions')
-        .select('referral_code')
-        .eq('invitee_fc_id', fcId)
-        .eq('status', 'confirmed')
-        .order('created_at', { ascending: false })
-        .limit(1)
-        .maybeSingle();
+      const { data, error } = await adminSupabase.rpc('get_invitee_referral_code', {
+        p_fc_id: fcId,
+      });
 
       if (error) throw error;
-      return NextResponse.json({ ok: true, referralCode: data?.referral_code ?? null });
+      return NextResponse.json({ ok: true, referralCode: (data as string | null) ?? null });
     }
 
     return badRequest('Unknown action');

@@ -586,12 +586,32 @@ stable
 security definer
 set search_path = public
 as $$
-  select ra.referral_code
-  from public.referral_attributions ra
-  where ra.invitee_fc_id = p_fc_id
-    and ra.status = 'confirmed'
-  order by ra.created_at desc
-  limit 1;
+  with target_fc as (
+    select fp.id, nullif(trim(fp.recommender), '') as recommender_name
+    from public.fc_profiles fp
+    where fp.id = p_fc_id
+  )
+  select coalesce(
+    (
+      select rc.code
+      from target_fc tf
+      join public.fc_profiles inviter
+        on inviter.name = tf.recommender_name
+      join public.referral_codes rc
+        on rc.fc_id = inviter.id
+       and rc.is_active = true
+      order by rc.created_at desc
+      limit 1
+    ),
+    (
+      select ra.referral_code
+      from public.referral_attributions ra
+      where ra.invitee_fc_id = p_fc_id
+        and ra.status = 'confirmed'
+      order by ra.created_at desc
+      limit 1
+    )
+  );
 $$;
 
 create or replace function public.is_request_board_designer_affiliation(p_affiliation text) returns boolean

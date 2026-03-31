@@ -128,9 +128,9 @@
    - 모바일 시험 신청 화면은 기존 신청 복원 시에도 stale `location_id`를 그대로 되살리지 말고, 현재 회차 목록에 없는 값이면 재선택을 요구한다.
 
 9. **추천인 코드 표시**
-   - 추천인 이름이 관리자 UI에 표시되는 곳에서는, 같은 FC가 실제로 받은 추천 코드도 함께 표시한다.
-   - 웹 관리자(`web/src/app/dashboard/page.tsx`, `web/src/app/dashboard/profile/[id]/page.tsx`)는 `/api/admin/fc` `getReferralCode` 액션으로 service-role 기준 `referral_attributions.referral_code`를 조회한다.
-   - 모바일 관리자(`app/dashboard.tsx`)는 `public.get_invitee_referral_code(uuid)` RPC를 사용한다. 이 함수는 `referral_attributions` RLS를 우회하는 `SECURITY DEFINER` 함수이며, `confirmed` attribution만 반환한다.
+   - 추천인 이름이 관리자 UI에 표시되는 곳에서는, 그 추천인의 현재 활성 추천 코드를 함께 표시한다.
+   - 웹 관리자(`web/src/app/dashboard/page.tsx`, `web/src/app/dashboard/profile/[id]/page.tsx`)는 `/api/admin/fc` `getReferralCode` 액션으로 RPC `public.get_invitee_referral_code(uuid)`를 호출한다.
+   - 모바일 관리자(`app/dashboard.tsx`)도 같은 RPC를 사용한다. 이 함수는 `recommender -> referral_codes.is_active=true`를 우선 조회하고, 없을 때만 `confirmed referral_attributions.referral_code`를 fallback으로 반환한다.
    - 추천 코드가 없더라도 UI는 행 자체를 숨기지 말고 `-`로 표시한다.
 
 ---

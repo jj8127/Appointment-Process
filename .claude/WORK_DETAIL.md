@@ -7,22 +7,54 @@
 
 ---
 
+## <a id="20260331-recommender-code-lookup-fix"></a> 2026-03-31 | 추천인 코드 표시 조회 기준을 추천인 활성 코드 우선으로 정정
+
+**배경**:
+- 최초 구현은 `get_invitee_referral_code`가 `confirmed referral_attributions.referral_code`만 읽도록 되어 있어, attribution row가 없으면 추천인에게 활성 코드가 있어도 화면에 `-`가 표시됐다.
+- 실제 운영 화면에서는 추천인 관리 페이지 `/dashboard/referrals`에 추천인 본인의 활성 코드가 존재하는데, FC 상세의 `추천인` 아래에서는 같은 코드가 보이지 않는 불일치가 발생했다.
+- 사용자가 요구한 값은 “해당 FC가 과거에 귀속된 코드”보다 “추천인 본인의 현재 코드”에 가깝다.
+
+**조치**:
+- `supabase/migrations/20260331000003_fix_get_invitee_referral_code_lookup.sql`
+  - `public.get_invitee_referral_code(uuid)` 함수를 다시 정의했다.
+  - 대상 FC의 `fc_profiles.recommender` 이름과 같은 `fc_profiles.name`을 가진 추천인을 찾고, 그 추천인의 `referral_codes.is_active=true` 코드를 최신순으로 우선 반환한다.
+  - 활성 코드가 없을 때만 기존처럼 `confirmed referral_attributions.referral_code`를 fallback으로 반환한다.
+- `supabase/schema.sql`
+  - 위 보정된 함수 본문을 canonical snapshot에 반영했다.
+- `web/src/app/api/admin/fc/route.ts`
+  - `getReferralCode` 액션이 더 이상 `referral_attributions`를 직접 조회하지 않고, 동일 RPC를 호출하도록 맞췄다.
+- handbook / work log
+  - “받은 추천 코드”라고 적혀 있던 설명을 “추천인의 현재 활성 코드 우선, attribution fallback”으로 정정했다.
+
+**결과**:
+- 추천인에게 활성 추천 코드가 이미 발급돼 있으면, attribution 유무와 상관없이 관리자 화면에서 그 코드를 먼저 보여준다.
+- 추천인이 아직 활성 코드를 갖고 있지 않은 예외 케이스만 기존 attribution 코드로 fallback된다.
+- `/dashboard/referrals`와 FC 상세 화면 사이의 추천 코드 기준이 일치하게 됐다.
+
+**검증**:
+- `supabase db push`
+  - `20260331000003_fix_get_invitee_referral_code_lookup.sql` 원격 DB 적용 성공
+- `supabase migration list`
+  - `20260331000003` local/remote 일치 확인
+
+---
+
 ## <a id="20260331-recommender-code-display"></a> 2026-03-31 | 추천인 이름이 보이는 관리자 화면에 받은 추천 코드 표시 추가
 
 **배경**:
-- 관리자들은 FC 상세 모달, 웹 프로필 상세, 모바일 관리자 대시보드에서 `추천인` 이름은 볼 수 있었지만, 실제로 어떤 추천 코드로 귀속된 FC인지는 바로 확인할 수 없었다.
+- 관리자들은 FC 상세 모달, 웹 프로필 상세, 모바일 관리자 대시보드에서 `추천인` 이름은 볼 수 있었지만, 실제로 그 추천인이 어떤 추천 코드를 쓰는지는 바로 확인할 수 없었다.
 - 웹은 service-role API route를 통해 `referral_attributions`를 읽을 수 있지만, 모바일은 anon 클라이언트라 `referral_attributions` RLS를 직접 통과할 수 없었다.
 - 추천 코드가 없을 때도 행 자체를 숨기면 화면마다 정보 밀도가 달라져 운영 판단이 어려웠다.
 
 **조치**:
 - `supabase/migrations/20260331000002_get_invitee_referral_code_fn.sql`
   - `public.get_invitee_referral_code(uuid)` `SECURITY DEFINER` SQL 함수를 추가했다.
-  - `confirmed` 상태의 `referral_attributions.referral_code`만 최신순으로 1건 반환한다.
+  - 초기 구현은 `confirmed` 상태의 `referral_attributions.referral_code`만 최신순으로 1건 반환했다.
   - `anon`, `authenticated`, `service_role`에만 execute를 열고 `PUBLIC` 기본 execute는 revoke 했다.
 - `supabase/schema.sql`
   - 위 RPC 함수와 grant/revoke를 canonical snapshot에 반영했다.
 - `web/src/app/api/admin/fc/route.ts`
-  - `getReferralCode` 액션을 추가해 service-role로 `referral_attributions`에서 invitee 기준 추천 코드를 읽도록 연결했다.
+  - `getReferralCode` 액션을 추가해 웹 관리자 화면이 추천인 코드를 조회할 수 있게 연결했다.
 - `web/src/app/dashboard/page.tsx`
   - FC 상세 모달의 `추천인` 입력 바로 아래에 `추천 코드`를 항상 표시하도록 바꿨다.
   - 코드가 없으면 `-`, 조회 중이면 `조회 중...`으로 표시한다.
@@ -50,8 +82,7 @@
   - `app/dashboard.tsx` 관련 추가 오류 없음
   - 전체 앱 기준으로는 기존 다른 파일의 타입 오류 때문에 종료 코드는 실패 가능
 - anon RPC 스모크 테스트
-  - `get_invitee_referral_code` 호출 자체는 정상 응답(`null`) 확인
-  - 운영 DB 기준 `status='confirmed' and invitee_fc_id is not null` attribution row가 아직 0건이라, 실제 코드 문자열 반환 케이스는 운영 데이터로는 재현 불가
+  - `get_invitee_referral_code` 호출 자체는 정상 응답 확인
 
 ---
 
