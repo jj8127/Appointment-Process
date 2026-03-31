@@ -20,6 +20,7 @@
 - PASS라도 화면 증적만으로 끝내지 말고, 가능하면 서버 로그 또는 DB 검증을 함께 남긴다.
 - 추천인 테이블 direct client access는 금지되어 있으므로, pending/confirm/조회 케이스는 trusted Edge Function 호출 증적까지 남긴다.
 - 2026-03-25 기준 현재 런타임 구현은 `추천코드 운영 기반`이 먼저 들어갔다. 따라서 `/api/admin/referrals` 및 `/dashboard/referrals` 검증은 별도 P0 게이트로 취급한다.
+- 2026-03-31 기준 모바일 가입 검증은 Android 실기기에서 `소문자 입력 -> 단일 대문자 변환` 회귀와 `hanwhafcpass://signup?code=...` warm/cold deep link를 반드시 포함한다.
 
 ## 4. 권장 실행 순서
 
@@ -41,6 +42,7 @@
 - `RF-CODE-04` 이미 확정된 추천 관계 재확정 차단
 - `RF-CODE-05` 한 추천인이 여러 가입자를 추천 가능
 - `RF-CODE-06` 한 가입자는 최종 추천인 1명만 가짐
+- `RF-CODE-07` Android 추천코드 입력 시 소문자가 대문자 1회로만 정규화되고 중복 문자(`JJ`)가 생기지 않음
 
 ### 5.2 초대링크
 
@@ -48,6 +50,9 @@
 - `RF-LINK-02` 앱 미설치 상태에서 스토어 이동 후 첫 실행 복원
 - `RF-LINK-03` 링크 자동 추천 후 수동 코드 입력 시 우선순위 적용
 - `RF-LINK-04` 변조/만료 링크 graceful fallback
+- 수동 실행 예시:
+  - `adb.exe shell am start -W -a android.intent.action.VIEW -d 'hanwhafcpass://signup?code=KCSACZXU'`
+  - 기대값: 앱이 `/signup`으로 열리고 추천코드가 1회만 자동 입력된다.
 
 ### 5.3 상태 복원
 
@@ -84,6 +89,7 @@
 - 상태 전이 케이스는 “변경 전/후” 둘 다 남긴다.
 - override/cancel은 이유(reason)와 actor가 같이 남는지 확인한다.
 - trusted API 경로 케이스는 함수 호출 payload, 응답, service 로그 중 최소 1개를 포함한다.
+- 추천코드 입력 회귀는 실제 입력 문자열(`j -> J`, `ab -> AB`)과 결과 화면을 함께 남긴다.
 
 ## 7. 장애 발생 시 추가 절차
 

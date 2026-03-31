@@ -1,7 +1,7 @@
 # 추천인 시스템 아키텍처 초안
 
-- 기준일: `2026-03-19`
-- 상태: `Phased implementation baseline`
+- 기준일: `2026-03-31`
+- 상태: `Phase 2 implemented, install-referrer/override tooling pending`
 
 ## 1. 소유권
 
@@ -29,22 +29,22 @@
 회원가입 화면
   -> 추천코드 자동 입력
   -> 가입 전 사용자 수정 가능
-  -> 최종 선택 코드 서버 검증
-  -> pending attribution 저장
-  -> 가입 완료
-  -> confirmed referral 확정
+  -> validate-referral-code 검증
+  -> referralCode를 signup payload에 저장
+  -> set-password
+  -> confirmed referral 확정(best effort)
 ```
 
 ### 2.2 초대링크, 앱 이미 설치됨
 
 ```text
 초대링크 클릭
-  -> 앱 deep link 진입
-  -> 앱이 추천코드/세션 저장
+  -> 앱 deep link 진입 (`hanwhafcpass://signup?code=...`)
+  -> app/_layout.tsx가 pending code 저장
   -> 회원가입 화면에 추천코드 자동 입력
   -> 회원가입 시작
-  -> 가입 완료
-  -> confirmed referral 확정
+  -> set-password
+  -> confirmed referral 확정(best effort)
 ```
 
 ### 2.3 초대링크, 앱 미설치
@@ -73,16 +73,17 @@
 
 ### 3.1 App Layer
 
-- 딥링크 수신기
-- pending attribution 로컬 저장
-- 회원가입 화면 추천코드 자동 입력 + 가입 전 수정 UI
-- 가입 완료 시 referral payload 전송
+- 딥링크 수신기 (`app/_layout.tsx`)
+- pending code 로컬 저장 (`lib/referral-deeplink.ts`)
+- 회원가입 화면 추천코드 자동 입력 + 가입 전 수정 UI (`app/signup.tsx`)
+- Android IME 회귀 방지용 uncontrolled 추천코드 입력
+- 가입 완료 시 `referralCode` payload 전송 (`signup -> signup-verify -> signup-password`)
 
 ### 3.2 Backend / Edge Function Layer
 
-- 최종 선택 코드 검증 API
-- pending attribution 저장 API
-- 가입 완료 확정 API
+- 최종 선택 코드 검증 API (`validate-referral-code`)
+- FC 자기 코드 조회 API (`get-my-referral-code`)
+- 가입 완료 확정 API (`set-password` 내부 `captureReferralAttribution`)
 - 관리자 override API
 - 이벤트 로깅/조회 API
 - 관리자 웹 추천코드 운영 API (`GET/POST /api/admin/referrals`)
@@ -106,23 +107,22 @@
 
 ## 5. 상태 보존 전략
 
-추천 정보는 한 군데만 저장하면 유실되기 쉽다. 최소 2단계 보존을 권장한다.
+추천 정보는 한 군데만 저장하면 유실되기 쉽다. 현재 구현은 앱 로컬 pending 저장 + 가입 완료 시 직접 확정의 2단계 구조다.
 
 1. 앱 로컬 pending state
    - 딥링크 직후 UI 복원용
-2. 서버 pending attribution
-   - 앱 삭제/재설치, 세션 단절, 운영 추적용
+2. 가입 완료 시 server-side confirm
+   - `set-password`가 confirmed attribution/event를 기록
 
-운영 관점에서는 서버에 pending 상태가 남아야 “왜 자동 추천이 안 붙었는지”를 추적할 수 있다.
+서버 pending attribution은 아직 별도 API로 구현되지 않았고, install-referrer/deferred deep link와 함께 후속 단계로 남아 있다.
 
 ## 6. pending/confirm 쓰기 경로
 
-- `pending attribution` 생성/갱신은 `referral-upsert-pending` 같은 trusted Edge Function이 담당한다.
-- 회원가입 완료 시점 확정은 `referral-confirm-signup` 같은 trusted Edge Function이 담당한다.
+- 현재는 `pending attribution` 전용 서버 API 없이 앱 로컬 pending code만 유지한다.
+- 회원가입 완료 시점 확정은 `set-password` Edge Function이 담당한다.
 - 운영 조회/override는 별도 운영용 trusted API를 통해 수행한다.
-- 클라이언트는 추천코드 값, landing session, 디바이스 힌트 같은 입력만 전달하고 최종 DB 쓰기는 서버가 수행한다.
-- 2026-03-25 기준 운영용 추천코드 마스터는 Edge Function이 아니라 Next.js admin route handler + service-role RPC 경로로 먼저 구현한다.
-- 이 단계에서 가입 흐름은 아직 `pending/confirm` API를 사용하지 않으며, `recommender` 레거시 입력 필드는 그대로 남는다.
+- 클라이언트는 최종 `referralCode`만 전달하고, 실제 attribution/event 쓰기는 서버가 수행한다.
+- 운영용 추천코드 마스터는 Next.js admin route handler + service-role RPC 경로로 유지한다.
 
 ## 7. 삭제 후 이력 보존
 
@@ -182,18 +182,19 @@
 ### Phase 1B. 추천코드 MVP
 
 - 추천코드 생성/검증
-- trusted code validation/pending API
+- trusted code validation API
 - 회원가입 자동 입력 코드 UI
 - 가입 전 수정 fallback
-- confirmed 저장
+- `set-password` confirmed 저장
 - 추천 관계 관리자 조회
 
 ### Phase 2. 초대링크
 
 - 공유 링크 생성
-- 랜딩 로깅
 - 앱 딥링크 수신
-- pending attribution 저장
+- 로컬 pending code 저장
+- warm/cold start 복원
+- 랜딩 로깅/서버 pending attribution은 후속
 
 ### Phase 3. 설치 후 복원
 

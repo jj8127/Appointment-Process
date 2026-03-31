@@ -1,19 +1,20 @@
 {
   "meta": {
-    "generatedAt": "2026-03-23T00:00:00.000Z",
+    "generatedAt": "2026-03-31T12:20:00.000Z",
     "source": "docs/referral-system/test-cases.json",
     "note": "status: NOT_RUN | PASS | FAIL | BLOCKED | SKIPPED"
   },
   "runs": [
-    { "caseId": "RF-CODE-01", "area": "추천코드", "priority": "P0", "platform": ["app", "backend"], "title": "자동 입력된 유효 추천코드로 회원가입 시 추천 관계가 confirmed 된다", "status": "NOT_RUN", "owner": "", "executedAt": "", "evidence": [], "notes": "" },
+    { "caseId": "RF-CODE-01", "area": "추천코드", "priority": "P0", "platform": ["app", "backend"], "title": "자동 입력된 유효 추천코드로 회원가입 시 추천 관계가 confirmed 된다", "status": "BLOCKED", "owner": "Codex", "executedAt": "2026-03-31T12:20:00.000Z", "evidence": ["Invoke-RestMethod validate-referral-code(code=KCSACZXU) => ok=true, valid=true, inviterName=문주화", "supabase functions deploy set-password/get-my-referral-code/validate-referral-code"], "notes": "추천코드 검증과 함수 배포는 확인했지만, production DB를 실제로 바꾸는 신규 가입 1건 end-to-end는 아직 실행하지 않았다." },
     { "caseId": "RF-CODE-02", "area": "추천코드", "priority": "P0", "platform": ["app", "backend"], "title": "무효 또는 비활성 추천코드는 확정되지 않는다", "status": "NOT_RUN", "owner": "", "executedAt": "", "evidence": [], "notes": "" },
     { "caseId": "RF-CODE-03", "area": "추천코드", "priority": "P0", "platform": ["app", "backend"], "title": "자기추천은 차단된다", "status": "NOT_RUN", "owner": "", "executedAt": "", "evidence": [], "notes": "" },
     { "caseId": "RF-CODE-04", "area": "추천코드", "priority": "P0", "platform": ["app", "backend"], "title": "이미 확정된 추천 관계는 다른 코드로 재확정되지 않는다", "status": "NOT_RUN", "owner": "", "executedAt": "", "evidence": [], "notes": "" },
     { "caseId": "RF-CODE-05", "area": "추천코드", "priority": "P0", "platform": ["backend"], "title": "한 추천인은 여러 가입자를 추천할 수 있다", "status": "NOT_RUN", "owner": "", "executedAt": "", "evidence": [], "notes": "" },
     { "caseId": "RF-CODE-06", "area": "추천코드", "priority": "P0", "platform": ["backend"], "title": "한 가입자는 최종 추천인 1명만 가진다", "status": "NOT_RUN", "owner": "", "executedAt": "", "evidence": [], "notes": "" },
-    { "caseId": "RF-LINK-01", "area": "초대링크", "priority": "P0", "platform": ["app", "backend"], "title": "앱이 이미 설치된 상태에서 초대링크 진입 시 자동 추천이 확정된다", "status": "NOT_RUN", "owner": "", "executedAt": "", "evidence": [], "notes": "" },
+    { "caseId": "RF-LINK-01", "area": "초대링크", "priority": "P0", "platform": ["app", "backend"], "title": "앱이 이미 설치된 상태에서 초대링크 진입 시 자동 추천이 확정된다", "status": "BLOCKED", "owner": "Codex", "executedAt": "2026-03-31T12:20:00.000Z", "evidence": ["adb.exe shell am start -W -a android.intent.action.VIEW -d 'hanwhafcpass://signup?code=KCSACZXU' user-side smoke", "app/_layout.tsx deep link savePendingReferralCode 경로"], "notes": "딥링크 명령 자체와 라우팅 경로는 확인했지만, 자동 입력 뒤 실제 가입 완료까지는 아직 재실행하지 않았다." },
     { "caseId": "RF-LINK-02", "area": "초대링크", "priority": "P0", "platform": ["app", "backend"], "title": "앱 미설치 상태에서 스토어 이동 후 첫 실행에도 추천 정보가 복원된다", "status": "NOT_RUN", "owner": "", "executedAt": "", "evidence": [], "notes": "" },
     { "caseId": "RF-LINK-03", "area": "초대링크", "priority": "P0", "platform": ["app", "backend"], "title": "자동 입력된 링크 추천보다 사용자가 가입 완료 전 직접 입력한 추천코드가 우선한다", "status": "NOT_RUN", "owner": "", "executedAt": "", "evidence": [], "notes": "" },
+    { "caseId": "RF-CODE-07", "area": "추천코드", "priority": "P0", "platform": ["app"], "title": "Android 추천코드 입력 시 소문자가 대문자 1회로만 정규화되고 중복 문자(`JJ`)가 생기지 않는다", "status": "BLOCKED", "owner": "Codex", "executedAt": "2026-03-31T12:20:00.000Z", "evidence": ["app/signup.tsx uncontrolled TextInput 전환", "docs/referral-system/INCIDENTS.md#INC-001"], "notes": "코드 수정은 반영했지만, 수정 후 Android 실기기에서 `j -> J`, `ab -> AB` 회귀 확인은 아직 남아 있다." },
     { "caseId": "RF-LINK-04", "area": "초대링크", "priority": "P1", "platform": ["app", "backend"], "title": "변조되었거나 만료된 초대링크는 graceful fallback으로 처리된다", "status": "NOT_RUN", "owner": "", "executedAt": "", "evidence": [], "notes": "" },
     { "caseId": "RF-STATE-01", "area": "상태복원", "priority": "P0", "platform": ["app", "backend"], "title": "가입 도중 이탈 후 재진입해도 pending attribution이 유지된다", "status": "NOT_RUN", "owner": "", "executedAt": "", "evidence": [], "notes": "" },
     { "caseId": "RF-STATE-02", "area": "상태복원", "priority": "P1", "platform": ["app", "backend"], "title": "cold start 또는 background resume에서도 중복 이벤트 없이 복원된다", "status": "NOT_RUN", "owner": "", "executedAt": "", "evidence": [], "notes": "" },

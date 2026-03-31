@@ -32,6 +32,7 @@ type SignupPayload = {
   carrier: string;
   commissionStatus?: CommissionCompletionStatus;
   phoneVerified?: boolean;
+  referralCode?: string;
 };
 
 export default function SignupVerifyScreen() {

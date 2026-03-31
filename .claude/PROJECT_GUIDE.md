@@ -133,6 +133,13 @@
    - 모바일 관리자(`app/dashboard.tsx`)도 같은 RPC를 사용한다. 이 함수는 `recommender -> referral_codes.is_active=true`를 우선 조회하고, 없을 때만 `confirmed referral_attributions.referral_code`를 fallback으로 반환한다.
    - 추천 코드가 없더라도 UI는 행 자체를 숨기지 말고 `-`로 표시한다.
 
+10. **추천인 Phase 2 가입/딥링크 규칙**
+   - 가입 딥링크 형식은 `hanwhafcpass://signup?code=<REFERRAL_CODE>`를 기준으로 유지한다. 현재 앱은 `queryParams.code`만 읽고, `referralCode` 같은 별칭 파라미터는 사용하지 않는다.
+   - `app/_layout.tsx`는 cold start에서 추천코드만 pending storage에 저장하고, warm start에서만 `router.push('/signup')`를 추가로 호출한다. expo-router가 cold start 라우팅을 이미 처리하므로 여기서 다시 push를 넣지 않는다.
+   - 추천코드 pending 저장은 `lib/referral-deeplink.ts`의 단일 키(`fc-onboarding/pending-referral-code`)를 사용하고, `consumePendingReferralCode()`는 읽은 직후 삭제해 다음 가입으로 코드가 섞이지 않게 한다.
+   - `app/signup.tsx`의 추천코드 입력은 Android IME 중복 입력 회피를 위해 uncontrolled `TextInput` 패턴을 유지한다. `value` prop 재도입, `onChangeText` 안의 추가 native write(`setNativeProps`)는 금지하고, programmatic prefill에서만 native write를 허용한다.
+   - 추천코드 검증은 `validate-referral-code` Edge Function, 가입 완료 시 attribution 확정은 `set-password` Edge Function이 맡는다. 추천코드 관련 Edge Function 변경은 git push와 별개이므로 `validate-referral-code`, `get-my-referral-code`, `set-password`를 명시적으로 배포해야 한다.
+
 ---
 
 ## 3. 기술 스택 & 아키텍처

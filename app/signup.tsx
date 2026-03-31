@@ -1,7 +1,7 @@
 import { Feather } from '@expo/vector-icons';
 import { router, useFocusEffect } from 'expo-router';
 import { LinearGradient } from 'expo-linear-gradient';
-import { useCallback, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Alert,
   BackHandler,
@@ -17,6 +17,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { KeyboardAwareWrapper, useKeyboardAware } from '@/components/KeyboardAwareWrapper';
 import { useKeyboardPadding } from '@/hooks/use-keyboard-padding';
+import { consumePendingReferralCode } from '@/lib/referral-deeplink';
 import { safeStorage } from '@/lib/safe-storage';
 import { supabase } from '@/lib/supabase';
 import { COLORS, TYPOGRAPHY, SPACING, RADIUS } from '@/lib/theme';
@@ -59,7 +60,10 @@ export default function SignupScreen() {
   const [commissionStatus, setCommissionStatus] = useState<CommissionCompletionStatus>('none');
   const [name, setName] = useState('');
   const [phone, setPhone] = useState('');
-  const [recommender, setRecommender] = useState('');
+  const [referralCode, setReferralCode] = useState('');
+  const [referralStatus, setReferralStatus] = useState<'idle' | 'validating' | 'valid' | 'invalid'>('idle');
+  const [referralInviterName, setReferralInviterName] = useState('');
+  const referralDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [emailLocal, setEmailLocal] = useState('');
   const [emailDomain, setEmailDomain] = useState('');
   const [customDomain, setCustomDomain] = useState('');
@@ -154,7 +158,8 @@ export default function SignupScreen() {
         affiliation: selectedAffiliation,
         name: name.trim(),
         phone: digits,
-        recommender: recommender.trim(),
+        recommender: referralStatus === 'valid' ? referralInviterName : '',
+        referralCode: referralCode.trim().toUpperCase() || undefined,
         email: emailValue,
         carrier: carrier.trim(),
         commissionStatus,
@@ -162,6 +167,47 @@ export default function SignupScreen() {
     );
     router.push('/signup-verify');
   };
+
+  const validateReferralCode = useCallback(async (code: string) => {
+    const trimmed = code.trim().toUpperCase();
+    if (!trimmed) {
+      setReferralStatus('idle');
+      setReferralInviterName('');
+      return;
+    }
+    setReferralStatus('validating');
+    try {
+      const { data, error } = await supabase.functions.invoke('validate-referral-code', {
+        body: { code: trimmed },
+      });
+      if (error || !data?.valid) {
+        setReferralStatus('invalid');
+        setReferralInviterName('');
+      } else {
+        setReferralStatus('valid');
+        setReferralInviterName(data.inviterName ?? '');
+      }
+    } catch {
+      setReferralStatus('idle');
+    }
+  }, []);
+
+  const handleReferralCodeChange = (text: string) => {
+    const upper = text.toUpperCase();
+    setReferralCode(upper);
+    setReferralStatus('idle');
+    if (referralDebounceRef.current) clearTimeout(referralDebounceRef.current);
+    referralDebounceRef.current = setTimeout(() => validateReferralCode(upper), 400);
+  };
+
+  const handleReferralCodeBlur = () => {
+    if (referralDebounceRef.current) clearTimeout(referralDebounceRef.current);
+    validateReferralCode(referralCode);
+  };
+
+  useEffect(() => () => {
+    if (referralDebounceRef.current) clearTimeout(referralDebounceRef.current);
+  }, []);
 
   const handleBack = useCallback(() => {
     router.replace('/login');
@@ -176,6 +222,18 @@ export default function SignupScreen() {
       const subscription = BackHandler.addEventListener('hardwareBackPress', onHardwareBack);
       return () => subscription.remove();
     }, [handleBack]),
+  );
+
+  useFocusEffect(
+    useCallback(() => {
+      consumePendingReferralCode().then((code) => {
+        if (code && !referralCode) {
+          setReferralCode(code);
+          recommenderRef.current?.setNativeProps({ text: code });
+          validateReferralCode(code);
+        }
+      });
+    }, [referralCode, validateReferralCode]),
   );
 
   return (
@@ -291,20 +349,37 @@ export default function SignupScreen() {
           </View>
 
           <View style={styles.field}>
-            <Text style={styles.label}>추천인</Text>
+            <Text style={styles.label}>추천 코드 (선택)</Text>
             <TextInput
               ref={recommenderRef}
               style={styles.input}
-              placeholder="추천인 이름 (선택)"
+              placeholder="8자리 추천 코드"
               placeholderTextColor={COLORS.text.muted}
-              value={recommender}
-              onChangeText={setRecommender}
+              onChangeText={handleReferralCodeChange}
+              onBlur={handleReferralCodeBlur}
+              autoCapitalize="none"
+              maxLength={8}
               returnKeyType="next"
               onFocus={(e) => handleFocusTarget(e.nativeEvent.target)}
               onSubmitEditing={() => emailLocalRef.current?.focus()}
               blurOnSubmit={false}
               scrollEnabled={false}
             />
+            {referralStatus === 'validating' && (
+              <Text style={{ fontSize: 12, color: COLORS.text.muted, marginTop: 4 }}>
+                확인 중...
+              </Text>
+            )}
+            {referralStatus === 'valid' && (
+              <Text style={{ fontSize: 12, color: '#16a34a', marginTop: 4 }}>
+                ✓ {referralInviterName}님이 추천하셨어요
+              </Text>
+            )}
+            {referralStatus === 'invalid' && referralCode.length > 0 && (
+              <Text style={{ fontSize: 12, color: COLORS.error, marginTop: 4 }}>
+                유효하지 않은 추천 코드입니다
+              </Text>
+            )}
           </View>
 
           <View style={styles.field}>

@@ -1,5 +1,6 @@
 import { DarkTheme, DefaultTheme, ThemeProvider } from '@react-navigation/native';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import * as Linking from 'expo-linking';
 import * as NavigationBar from 'expo-navigation-bar';
 import * as Notifications from 'expo-notifications';
 import { Stack, router } from 'expo-router';
@@ -23,6 +24,7 @@ import { useColorScheme } from '@/hooks/use-color-scheme';
 import { SessionProvider } from '@/hooks/use-session';
 import { useInAppUpdate } from '@/hooks/useInAppUpdate';
 import { logger } from '@/lib/logger';
+import { savePendingReferralCode } from '@/lib/referral-deeplink';
 import { safeStorage } from '@/lib/safe-storage';
 
 import {
@@ -86,6 +88,37 @@ export default function RootLayout() {
   const enableTourGuide = Platform.OS === 'android';
 
   useInAppUpdate();
+
+  useEffect(() => {
+    function extractReferralCode(url: string | null): string | null {
+      if (!url) return null;
+      try {
+        const parsed = Linking.parse(url);
+        const code = parsed.queryParams?.code;
+        if (typeof code !== 'string' || !code.trim()) return null;
+        if (parsed.path === 'signup' || parsed.hostname === 'signup') return code.trim();
+      } catch {}
+      return null;
+    }
+
+    // cold start: expo-router가 이미 /signup으로 라우팅하므로 코드 저장만
+    Linking.getInitialURL().then((url) => {
+      const code = extractReferralCode(url);
+      if (code) savePendingReferralCode(code).catch(() => {});
+    }).catch(() => {});
+
+    // warm start: 코드 저장 후 /signup으로 이동
+    const sub = Linking.addEventListener('url', (event) => {
+      const code = extractReferralCode(event.url);
+      if (code) {
+        savePendingReferralCode(code).then(() => {
+          router.push('/signup');
+        }).catch(() => {});
+      }
+    });
+    return () => sub.remove();
+  }, []);
+
   const fontSources = useMemo<Record<string, FontSource>>(() => {
     if (isWeb) {
       return {

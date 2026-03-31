@@ -7,7 +7,7 @@ import * as DocumentPicker from 'expo-document-picker';
 import { FileSystemUploadType, uploadAsync } from 'expo-file-system/legacy';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import * as WebBrowser from 'expo-web-browser';
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { type ReactNode, useCallback, useEffect, useMemo, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
@@ -3255,8 +3255,17 @@ export default function DashboardScreen() {
                         value={fc.appointment_date_nonlife_sub ?? '미입력'}
                       />
                       <DetailRow label="경력구분" value={careerDisplay} />
-                      <DetailRow label="추천인" value={fc.recommender ?? '-'} />
-                      <DetailRow label="추천 코드" value={referralCodes[fc.id] !== undefined ? (referralCodes[fc.id] ?? '-') : '...'} />
+                      <DetailRow
+                        label="추천인"
+                        valueNode={(
+                          <Text style={styles.detailValue}>
+                            {fc.recommender ?? '-'}{' '}
+                            <Text style={styles.detailCodeInline}>
+                              {referralCodes[fc.id] !== undefined ? (referralCodes[fc.id] ?? '-') : '...'}
+                            </Text>
+                          </Text>
+                        )}
+                      />
                       <DetailRow label="이메일" value={fc.email ?? '-'} />
                       <DetailRow label="주소" value={`${fc.address ?? '-'} ${fc.address_detail ?? ''}`} />
                     </View>
@@ -3273,10 +3282,18 @@ export default function DashboardScreen() {
   );
 }
 
-const DetailRow = ({ label, value }: { label: string; value: string }) => (
+const DetailRow = ({
+  label,
+  value,
+  valueNode,
+}: {
+  label: string;
+  value?: string;
+  valueNode?: ReactNode;
+}) => (
   <View style={styles.detailRow}>
     <Text style={styles.detailLabel}>{label}</Text>
-    <Text style={styles.detailValue}>{value}</Text>
+    {valueNode ?? <Text style={styles.detailValue}>{value}</Text>}
   </View>
 );
 
@@ -3465,6 +3482,10 @@ const styles = StyleSheet.create({
     color: CHARCOAL,
     flex: 1,
     textAlign: 'right',
+  },
+  detailCodeInline: {
+    color: ORANGE,
+    fontWeight: '600',
   },
   adminSection: {
     marginTop: 12,

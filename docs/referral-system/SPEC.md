@@ -1,7 +1,7 @@
 # 추천인 시스템 스펙 초안
 
-- 기준일: `2026-03-19`
-- 상태: `Draft for phased implementation`
+- 기준일: `2026-03-31`
+- 상태: `Phase 2 implemented, Phase 3+ pending`
 - 범위: 가람in 가입/초대 흐름
 
 ## 1. 목표
@@ -18,6 +18,8 @@
 - 초대링크나 유입 정보가 있으면 회원가입 화면에 추천코드를 자동 입력한다.
 - 자동 입력은 기본값일 뿐이며, 가입 완료 전에는 사용자가 다른 유효 코드로 수정할 수 있다.
 - 자동 입력이 실패하거나 유입 정보가 없으면 추천코드를 수동 입력할 수 있다.
+- 현재 앱 UI는 `추천인 이름`이 아니라 `추천 코드 (선택)` 입력을 사용한다.
+- 추천코드는 입력 시 즉시 대문자로 정규화하고, `validate-referral-code` trusted path로 inviter 이름을 검증한다.
 
 ### 2.2 확정 시점
 
@@ -25,6 +27,7 @@
 - 가람in 온보딩 전체 완료와 추천 확정을 묶지 않는다.
 - 향후 보상/정산이 생기면 `reward_eligible` 같은 별도 상태를 추가한다.
 - 가입 전 `captured/pending_signup` 저장은 클라이언트 직접 DB 쓰기가 아니라 trusted server path에서만 처리한다.
+- 현재 구현은 `set-password` Edge Function이 `referralCode`를 받아 가입 완료 직후 best-effort로 confirmed attribution과 이벤트를 기록한다.
 
 ### 2.3 우선순위
 
@@ -72,6 +75,8 @@
 3. 앱 설치 여부에 따라 앱 열기 또는 스토어 이동
 4. 앱이 링크의 추천 정보를 임시 저장
 5. 가입 완료 시 추천 관계 확정
+- 현재 앱 deep link 계약은 `hanwhafcpass://signup?code=<referral_code>`다.
+- cold start에서는 pending code만 저장하고, warm start에서만 `/signup` 이동을 추가로 수행한다.
 
 ### 4.3 링크 유실 fallback
 
@@ -182,11 +187,11 @@
 
 ## 7.5 기존 `fc_profiles.recommender`와의 관계
 
-- 현재 앱 회원가입/기본정보 화면은 여전히 `fc_profiles.recommender` 자유입력 문자열을 사용 중이다.
+- 현재 회원가입 화면은 추천코드를 입력받고, 관리자/기본정보 표시 경로는 여전히 `fc_profiles.recommender` 문자열을 함께 사용한다.
 - 추천인 시스템 도입 이후의 구조화된 SSOT는 `referral_codes`, `referral_attributions`, `referral_events`다.
 - `fc_profiles.recommender`는 과도기 호환용 레거시 입력/표시 필드로 간주한다.
 - 신규 구현은 추천 관계 판단을 `fc_profiles.recommender` 문자열에 의존하지 않는다.
-- 2026-03-25 기준 오늘 구현 범위는 추천 관계 확정이 아니라 운영용 추천코드 마스터다. 따라서 가입 화면과 `set-password` 경로의 `recommender` 사용은 그대로 유지한다.
+- 2026-03-31 기준 가입 화면은 추천인 이름 대신 추천코드를 수집하고, `set-password`가 유효 코드의 inviter 이름을 `fc_profiles.recommender`에 다시 써서 관리자 레거시 화면과 호환한다.
 - 실제 전환 시점에는 다음 중 하나를 별도 결정해야 한다.
   1. UI를 구조화 추천코드 기반으로 완전히 교체
   2. `recommender`를 표시용 cache로만 유지
@@ -206,6 +211,7 @@
 
 - 운영 화면에서는 최소 아래가 보여야 한다.
   - 추천인
+  - 추천인의 현재 활성 추천코드(없으면 `-`)
   - 피추천인
   - source
   - capture_source / selection_source

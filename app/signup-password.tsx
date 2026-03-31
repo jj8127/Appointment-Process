@@ -34,6 +34,7 @@ type SignupPayload = {
   carrier: string;
   commissionStatus?: CommissionCompletionStatus;
   phoneVerified?: boolean;
+  referralCode?: string;
 };
 
 export default function SignupPasswordScreen() {
@@ -117,6 +118,7 @@ export default function SignupPasswordScreen() {
           email: payload.email,
           carrier: payload.carrier,
           commissionStatus: payload.commissionStatus ?? 'none',
+          referralCode: payload.referralCode || undefined,
         },
       });
       if (error) {

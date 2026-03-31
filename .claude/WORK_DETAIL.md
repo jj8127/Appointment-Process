@@ -7,6 +7,59 @@
 
 ---
 
+## <a id="20260331-referral-phase2-deeplink-inline-display"></a> 2026-03-31 | 추천인 Phase 2 딥링크/가입 확정 경로 정리 + 관리자 inline 코드 표시
+
+**배경**:
+- 추천인 코드 운영 기반과 관리자 조회는 이미 들어가 있었지만, 실제 FC 가입 플로우는 아직 구조화된 추천코드와 연결되지 않아 `fc_profiles.recommender` 자유입력 문자열에만 머물러 있었다.
+- 모바일 가입 화면에서 추천코드를 소문자로 입력하면 Android IME 조합과 controlled `TextInput`이 충돌해 `j -> JJ`처럼 문자가 두 번 들어가는 회귀가 발생했다.
+- 관리자 화면의 추천인 코드 표시는 기능적으로는 붙었지만, 사용자가 요구한 “추천인 이름 오른쪽 inline” 배치와는 달라 한 번 더 정렬이 필요했다.
+
+**조치**:
+- `app/_layout.tsx`, `lib/referral-deeplink.ts`
+  - 딥링크 `hanwhafcpass://signup?code=<REFERRAL_CODE>`를 처리하도록 앱 루트에서 추천코드 pending 저장을 추가했다.
+  - cold start는 추천코드만 저장하고, warm start에서만 `/signup`으로 push 한다.
+  - pending 코드는 읽은 직후 삭제하는 one-shot storage로 유지했다.
+- `app/signup.tsx`
+  - 추천인 자유입력 대신 `추천 코드 (선택)` 입력과 실시간 검증 UI를 추가했다.
+  - `validate-referral-code` Edge Function으로 inviter 이름을 검증하고, 유효하면 가입 payload에 `referralCode`와 inviter 이름을 함께 싣는다.
+  - Android 중복 입력 회귀를 막기 위해 추천코드 `TextInput`에서 `value` prop을 제거한 uncontrolled 패턴으로 정리했다.
+- `app/signup-verify.tsx`, `app/signup-password.tsx`
+  - `SignupPayload`에 `referralCode`를 추가하고 최종 비밀번호 설정 단계까지 전달되도록 연결했다.
+- `supabase/functions/validate-referral-code/index.ts`
+  - 신규 Edge Function을 추가했다.
+  - 활성 추천코드만 검증하고, inviter 이름/마스킹 전화번호를 반환하며, 무효/비활성은 같은 응답으로 숨겨 enumeration을 줄였다.
+- `supabase/functions/get-my-referral-code/index.ts`
+  - 신규 Edge Function을 추가했다.
+  - 앱 세션 토큰을 검증한 뒤 일반 FC만 자신의 활성 추천코드를 읽을 수 있도록 준비했다.
+- `supabase/functions/set-password/index.ts`
+  - `referralCode` payload를 받아, 가입 완료 직후 `captureReferralAttribution()`로 `referral_attributions`, `referral_events`, `fc_profiles.recommender`를 best-effort로 동기화하도록 확장했다.
+  - 추천 attribution 실패는 가입 자체를 막지 않도록 warn-only 처리했다.
+- `app/dashboard.tsx`, `web/src/app/dashboard/page.tsx`, `web/src/app/dashboard/profile/[id]/page.tsx`
+  - 추천인 이름과 추천 코드를 같은 줄 inline 배치로 다시 정렬했다.
+  - 코드 색은 기존 주황색 강조를 유지했다.
+
+**결과**:
+- FC 가입은 이제 딥링크 또는 수동 입력 추천코드를 `referralCode`로 보존하고, 가입 완료 시 `set-password`에서 구조화 attribution까지 연결한다.
+- Android에서 추천코드를 입력할 때 대문자 정규화는 유지하면서도 문자 중복 입력 회귀를 피한다.
+- 관리자 웹/모바일의 추천인 표시는 이름 오른쪽 inline 코드 배치로 통일됐다.
+- Supabase Edge Functions 배포도 함께 마쳐, 로컬 변경과 원격 런타임이 다시 어긋나지 않게 맞췄다.
+
+**검증**:
+- `npm run lint`
+- `cd web && npm run lint`
+- `cd web && npx tsc --noEmit --pretty false`
+- `supabase functions deploy validate-referral-code --project-ref ubeginyxaotcamuqpmud`
+- `supabase functions deploy get-my-referral-code --project-ref ubeginyxaotcamuqpmud`
+- `supabase functions deploy set-password --project-ref ubeginyxaotcamuqpmud`
+- `supabase functions list --project-ref ubeginyxaotcamuqpmud`
+  - `validate-referral-code` v2
+  - `get-my-referral-code` v2
+  - `set-password` v43
+- `Invoke-RestMethod`로 `validate-referral-code` 호출
+  - `code=KCSACZXU` 기준 `ok=true`, `valid=true`, `inviterName=문주화`, `inviterPhoneMasked=0102389****` 확인
+
+---
+
 ## <a id="20260331-recommender-code-lookup-fix"></a> 2026-03-31 | 추천인 코드 표시 조회 기준을 추천인 활성 코드 우선으로 정정
 
 **배경**:

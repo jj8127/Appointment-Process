@@ -463,19 +463,31 @@ export default function FcProfilePage({ params }: { params: Promise<{ id: string
                                         />
                                     </Grid.Col>
                                     <Grid.Col span={6}>
-                                        <TextInput
-                                            label="추천인"
-                                            variant={isEditing && canEdit ? 'default' : 'unstyled'}
-                                            readOnly={!isEditing || !canEdit}
-                                            placeholder={isEditing && canEdit ? '추천인 이름 입력' : '-'}
-                                            {...form.getInputProps('recommender')}
-                                        />
-                                        <Text size="xs" c="dimmed" mt={4}>
-                                            추천 코드:{' '}
-                                            <Text span fw={600} c="orange">
-                                                {isInviteeReferralCodeFetching ? '조회 중...' : (inviteeReferralCode ?? '-')}
-                                            </Text>
-                                        </Text>
+                                        {isEditing && canEdit ? (
+                                            <Group align="end" gap="xs" wrap="nowrap">
+                                                <TextInput
+                                                    style={{ flex: 1 }}
+                                                    label="추천인"
+                                                    placeholder="추천인 이름 입력"
+                                                    {...form.getInputProps('recommender')}
+                                                />
+                                                <Text size="sm" fw={600} c="orange" mb={10}>
+                                                    {isInviteeReferralCodeFetching ? '조회 중...' : (inviteeReferralCode ?? '-')}
+                                                </Text>
+                                            </Group>
+                                        ) : (
+                                            <Stack gap={6}>
+                                                <Text size="sm" fw={500} c={CHARCOAL}>추천인</Text>
+                                                <Group gap="xs" align="center">
+                                                    <Text size="md" c={CHARCOAL}>
+                                                        {form.values.recommender || '-'}
+                                                    </Text>
+                                                    <Text size="md" fw={600} c="orange">
+                                                        {isInviteeReferralCodeFetching ? '조회 중...' : (inviteeReferralCode ?? '-')}
+                                                    </Text>
+                                                </Group>
+                                            </Stack>
+                                        )}
                                     </Grid.Col>
                                 </Grid>
                             </Stack>

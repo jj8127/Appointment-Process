@@ -2210,19 +2210,19 @@ export default function DashboardPage() {
                       setTempIdInput(val);
                     }}
                     />
-                    <TextInput
-                      label="추천인"
-                      placeholder="추천인 이름 입력"
-                      value={recommenderInput}
-                      readOnly={isReadOnly}
-                      onChange={(e) => setRecommenderInput(e.currentTarget.value)}
-                    />
-                    <Text size="xs" c="dimmed" mt={4}>
-                      추천 코드:{' '}
-                      <Text span fw={600} c="orange">
+                    <Group align="end" gap="xs" wrap="nowrap">
+                      <TextInput
+                        style={{ flex: 1 }}
+                        label="추천인"
+                        placeholder="추천인 이름 입력"
+                        value={recommenderInput}
+                        readOnly={isReadOnly}
+                        onChange={(e) => setRecommenderInput(e.currentTarget.value)}
+                      />
+                      <Text size="sm" fw={600} c="orange" mb={10}>
                         {isSelectedFcReferralCodeFetching ? '조회 중...' : (selectedFcReferralCode ?? '-')}
                       </Text>
-                    </Text>
+                    </Group>
                     {canResetToLookup && (
                     <>
                       <Button

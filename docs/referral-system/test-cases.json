@@ -108,6 +108,18 @@
     "dbAssertions": ["같은 invitee_fc_id 또는 invitee_phone에 대한 confirmed row 수는 최대 1이다"]
   },
   {
+    "id": "RF-CODE-07",
+    "area": "추천코드",
+    "priority": "P0",
+    "platform": ["app"],
+    "title": "Android 추천코드 입력 시 소문자가 대문자 1회로만 정규화되고 중복 문자(`JJ`)가 생기지 않는다",
+    "preconditions": ["Android 실기기에 최신 앱 빌드가 설치되어 있다", "회원가입 화면에 접근할 수 있다"],
+    "steps": ["추천코드 칸에 `j`, `ab`, `kcsaczxu`를 순서대로 입력한다", "중간 삭제와 전체 삭제 후 재입력도 수행한다"],
+    "expected": ["입력값이 각각 `J`, `AB`, `KCSACZXU`로 1회만 반영된다", "문자가 중복 입력되지 않는다", "입력 중 앱이 추천코드를 검증하더라도 IME 조합을 깨지 않는다"],
+    "evidenceRequired": ["실기기 화면 캡처 또는 녹화", "입력 전/후 문자열 기록"],
+    "dbAssertions": []
+  },
+  {
     "id": "RF-LINK-04",
     "area": "초대링크",
     "priority": "P1",

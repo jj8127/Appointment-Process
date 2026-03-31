@@ -1,5 +1,5 @@
 import { serve } from 'https://deno.land/std@0.224.0/http/server.ts';
-import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.45.4';
+import { createClient, type SupabaseClient } from 'https://esm.sh/@supabase/supabase-js@2.45.4';
 import {
   buildWorkflowResetPayload,
   mapCommissionToProfileState,
@@ -18,6 +18,7 @@ type Payload = {
   email?: string;
   carrier?: string;
   commissionStatus?: CommissionCompletionStatus | string;
+  referralCode?: string;
 };
 
 function getEnv(name: string): string | undefined {
@@ -159,6 +160,143 @@ async function syncRequestBoardPassword(
     console.warn('[set-password] request_board sync error:', error);
   } finally {
     clearTimeout(timeout);
+  }
+}
+
+async function captureReferralAttribution(params: {
+  referralCode: string;
+  inviteePhone: string;
+  inviteeFcId: string;
+  supabase: SupabaseClient;
+}): Promise<void> {
+  try {
+    // Look up the referral code
+    const { data: referralCodeRow, error: codeError } = await params.supabase
+      .from('referral_codes')
+      .select('id, code, fc_id, is_active')
+      .eq('code', params.referralCode)
+      .eq('is_active', true)
+      .maybeSingle();
+
+    if (codeError) {
+      console.warn('[set-password] captureReferralAttribution: referral code lookup error', codeError.message);
+      return;
+    }
+    if (!referralCodeRow) {
+      console.warn('[set-password] captureReferralAttribution: referral code not found or inactive', params.referralCode);
+      return;
+    }
+
+    // Fetch inviter profile for phone and name
+    const { data: inviterProfile, error: inviterError } = await params.supabase
+      .from('fc_profiles')
+      .select('phone, name')
+      .eq('id', referralCodeRow.fc_id)
+      .maybeSingle();
+
+    if (inviterError) {
+      console.warn('[set-password] captureReferralAttribution: inviter profile lookup error', inviterError.message);
+      return;
+    }
+    if (!inviterProfile?.phone) {
+      console.warn('[set-password] captureReferralAttribution: inviter profile not found or missing phone');
+      return;
+    }
+
+    const inviterPhone = String(inviterProfile.phone);
+    const inviterName = String(inviterProfile?.name ?? '');
+
+    // Self-referral check
+    if (inviterPhone === params.inviteePhone) {
+      console.warn('[set-password] captureReferralAttribution: self-referral detected, skipping');
+      return;
+    }
+
+    // Duplicate confirmed attribution check
+    const { data: existingAttribution, error: existingError } = await params.supabase
+      .from('referral_attributions')
+      .select('id')
+      .eq('invitee_phone', params.inviteePhone)
+      .eq('status', 'confirmed')
+      .maybeSingle();
+
+    if (existingError) {
+      console.warn('[set-password] captureReferralAttribution: existing attribution check error', existingError.message);
+      return;
+    }
+    if (existingAttribution) {
+      console.warn('[set-password] captureReferralAttribution: confirmed attribution already exists for phone', params.inviteePhone);
+      return;
+    }
+
+    const now = new Date().toISOString();
+
+    // Insert referral_attributions
+    const { data: attribution, error: attributionError } = await params.supabase
+      .from('referral_attributions')
+      .insert({
+        inviter_fc_id: referralCodeRow.fc_id,
+        inviter_phone: inviterPhone,
+        inviter_name: inviterName,
+        invitee_fc_id: params.inviteeFcId,
+        invitee_phone: params.inviteePhone,
+        referral_code_id: referralCodeRow.id,
+        referral_code: referralCodeRow.code,
+        source: 'manual_entry',
+        capture_source: 'manual_entry',
+        selection_source: 'manual_entry_only',
+        status: 'confirmed',
+        confirmed_at: now,
+        captured_at: now,
+      })
+      .select('id')
+      .maybeSingle();
+
+    if (attributionError) {
+      console.warn('[set-password] captureReferralAttribution: attribution insert error', attributionError.message);
+      return;
+    }
+    if (!attribution?.id) {
+      console.warn('[set-password] captureReferralAttribution: attribution insert returned no id');
+      return;
+    }
+
+    // Insert referral_events
+    const { error: eventError } = await params.supabase
+      .from('referral_events')
+      .insert({
+        attribution_id: attribution.id,
+        referral_code_id: referralCodeRow.id,
+        referral_code: referralCodeRow.code,
+        inviter_fc_id: referralCodeRow.fc_id,
+        inviter_phone: inviterPhone,
+        inviter_name: inviterName,
+        invitee_fc_id: params.inviteeFcId,
+        invitee_phone: params.inviteePhone,
+        event_type: 'referral_confirmed',
+        source: 'manual_entry',
+        metadata: {
+          captureSource: 'set_password_signup',
+          selectionSource: 'manual_entry_only',
+        },
+      });
+
+    if (eventError) {
+      console.warn('[set-password] captureReferralAttribution: event insert error', eventError.message);
+      // Do not return — attribution was already inserted successfully
+    }
+
+    // Update fc_profiles.recommender for admin view compatibility
+    const { error: recommenderError } = await params.supabase
+      .from('fc_profiles')
+      .update({ recommender: inviterName })
+      .eq('id', params.inviteeFcId);
+
+    if (recommenderError) {
+      console.warn('[set-password] captureReferralAttribution: recommender update error', recommenderError.message);
+    }
+  } catch (err) {
+    console.warn('[set-password] captureReferralAttribution: unexpected error', err instanceof Error ? err.message : String(err));
   }
 }
 
@@ -453,6 +591,16 @@ serve(async (req: Request) => {
     ...(designerCompanyName ? {} : { affiliation: effectiveAffiliation ?? null }),
     ...(designerCompanyName ? { companyName: designerCompanyName } : {}),
   });
+
+  const referralCode = (body.referralCode ?? '').trim().toUpperCase();
+  if (referralCode && fcId) {
+    await captureReferralAttribution({
+      referralCode,
+      inviteePhone: phone,
+      inviteeFcId: fcId,
+      supabase,
+    });
+  }
 
   return json({ ok: true, residentId: phone, displayName });
 });
