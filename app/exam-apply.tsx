@@ -55,6 +55,7 @@ const toYmd = (d: Date) =>
   `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 const ROUND_DEADLINE_RETENTION_DAYS = 7;
 const LIFE_EXAM_FEE_ACCOUNT = '신한 110-505-328638 김태훈';
+const INVALID_LOCATION_MESSAGE = '선택한 응시 지역이 해당 시험 회차에 속하지 않습니다. 응시 지역을 다시 선택해주세요.';
 const CARD_SHADOW = {
   shadowColor: '#000',
   shadowOpacity: 0.05,
@@ -177,6 +178,39 @@ function normalizeSingle<T>(value: T | T[] | null | undefined): T | null {
   return Array.isArray(value) ? value[0] : value;
 }
 
+function isLocationInRound(round: ExamRoundWithLocations | null, locationId: string | null | undefined) {
+  if (!round || !locationId) return false;
+  return round.locations.some((location) => location.id === locationId);
+}
+
+function getExamRegistrationErrorMessage(error: unknown) {
+  if (!error) return '시험 신청 중 오류가 발생했습니다.';
+
+  if (error instanceof Error) {
+    const message = error.message ?? '';
+    if (message.includes('exam_registrations_location_round_fkey')) {
+      return INVALID_LOCATION_MESSAGE;
+    }
+    return message || '시험 신청 중 오류가 발생했습니다.';
+  }
+
+  if (typeof error === 'object') {
+    const maybeError = error as { code?: string; message?: string; details?: string; hint?: string };
+    const text = [maybeError.message, maybeError.details, maybeError.hint].filter(Boolean).join(' ');
+    if (text.includes('exam_registrations_location_round_fkey')) {
+      return INVALID_LOCATION_MESSAGE;
+    }
+    if (maybeError.code === '23503' && text.includes('exam_locations')) {
+      return INVALID_LOCATION_MESSAGE;
+    }
+    if (text) {
+      return text;
+    }
+  }
+
+  return '시험 신청 중 오류가 발생했습니다.';
+}
+
 export default function ExamApplyScreen() {
   const { role, residentId, displayName, hydrated } = useSession();
   useIdentityGate({ nextPath: '/exam-apply' });
@@ -295,14 +329,16 @@ export default function ExamApplyScreen() {
   useEffect(() => {
     if (existingForRound) {
       if (existingForRound.is_third_exam != null) setWantsThird(!!existingForRound.is_third_exam);
-      setSelectedLocationId(existingForRound.location_id);
+      setSelectedLocationId(
+        isLocationInRound(selectedRound, existingForRound.location_id) ? existingForRound.location_id : null,
+      );
     } else {
       setSelectedLocationId(null);
       setWantsThird(false);
     }
     setFeePaidDate(null);
     setTempFeePaidDate(null);
-  }, [existingForRound]);
+  }, [existingForRound, selectedRound]);
 
   const [refreshing, setRefreshing] = useState(false);
 
@@ -358,6 +394,10 @@ export default function ExamApplyScreen() {
         throw new Error('마감된 일정입니다. 다른 시험 일정을 선택해주세요.');
       }
 
+      if (!isLocationInRound(round, locationId)) {
+        throw new Error(INVALID_LOCATION_MESSAGE);
+      }
+
       if (existingForRound) {
         // 선택된 회차에 기존 신청이 있으면 UPDATE
         const { error } = await supabase
@@ -404,7 +444,7 @@ export default function ExamApplyScreen() {
     },
     onSettled: (_data, error) => {
       if (error) {
-        const message = error instanceof Error ? error.message : '시험 신청 중 오류가 발생했습니다.';
+        const message = getExamRegistrationErrorMessage(error);
         Alert.alert('신청 실패', message);
       }
     },
@@ -472,6 +512,7 @@ export default function ExamApplyScreen() {
       return;
     }
     Haptics.selectionAsync();
+    setSelectedLocationId(null);
     setSelectedRoundId(round.id);
   };
 

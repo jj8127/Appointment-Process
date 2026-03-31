@@ -2,8 +2,8 @@ doc_id: FC-APP-ONBOARDING
 owner_repo: fc-onboarding-app
 owner_area: mobile
 audience: developer, operator
-last_verified: 2026-03-30
-source_of_truth: app/index.tsx + app/home-lite.tsx + app/fc/new.tsx + app/consent.tsx + app/docs-upload.tsx + app/hanwha-commission.tsx + app/appointment.tsx + lib/fc-workflow.ts
+last_verified: 2026-03-31
+source_of_truth: app/index.tsx + app/home-lite.tsx + app/fc/new.tsx + app/consent.tsx + app/docs-upload.tsx + app/hanwha-commission.tsx + app/appointment.tsx + app/exam-apply.tsx + app/exam-apply2.tsx + lib/fc-workflow.ts
 
 # Mobile Playbook: FC Onboarding
 
@@ -50,6 +50,7 @@ source_of_truth: app/index.tsx + app/home-lite.tsx + app/fc/new.tsx + app/consen
 - 서류 업로드/재제출
 - 한화 위촉 URL 완료일 제출
 - 생명/손해 위촉 제출
+- 시험 신청 저장 시 선택한 회차에 속한 응시 지역만 저장
 
 ## 상태/분기
 
@@ -63,10 +64,12 @@ source_of_truth: app/index.tsx + app/home-lite.tsx + app/fc/new.tsx + app/consen
   - `status=allowance-consented` => `승인 완료`
   - `status=allowance-pending + allowance_reject_reason` => `미승인`
 - FC가 수당 동의일을 다시 저장하면 `allowance_prescreen_requested_at`과 `allowance_reject_reason`이 초기화되고 `FC 수당 동의 입력 완료`로 돌아간다
-- 총무는 FC가 수당 동의일을 입력한 뒤에만 모바일/웹 관리자 화면에서 `입력 완료 / 사전 심사 요청 완료 / 승인 완료 / 미승인`을 진행할 수 있고, 본부장은 같은 화면을 read-only로 본다
+- 총무는 `allowance_date` 유무와 관계없이 모바일/웹 관리자 화면에서 `입력 완료 / 사전 심사 요청 완료 / 승인 완료 / 미승인`을 진행할 수 있고, 본부장은 같은 화면을 read-only로 본다
+- 파생 라벨은 `allowance_date` 유무를 우선 반영하므로, 날짜가 비어 있으면 관리자 조작 후에도 `FC 수당 동의일 미입력`이 먼저 표시될 수 있다
 - 서류 승인 뒤에는 바로 4단계 `생명/손해 위촉`이 아니라 3단계 `hanwha-commission`(`한화 위촉 URL`)이 열린다
 - 한화 위촉 URL 승인과 PDF 등록이 끝나야 4단계 `appointment`(`생명/손해 위촉`)가 열린다
 - FC 본인 화면에서도 주민번호는 trusted server path로 full-view 조회되며, masked fallback을 새 계약으로 사용하지 않는다
+- 시험 신청 화면은 기존 신청을 복원할 때도 `location_id`가 현재 회차의 지역 목록에 없으면 선택 상태를 복원하지 않고, 다시 지역을 고르게 한다
 
 ## FC 홈/다음 단계 동작
 
@@ -96,6 +99,7 @@ source_of_truth: app/index.tsx + app/home-lite.tsx + app/fc/new.tsx + app/consen
 
 - 기술 에러는 사용자용 한국어 알림으로 변환
 - schema drift가 있으면 관리자 쪽 저장/조회와 어긋날 수 있음
+- 시험 신청 저장 시 회차-지역 불일치가 감지되면 `선택한 응시 지역이 해당 시험 회차에 속하지 않습니다.` 메시지로 차단한다
 
 ## 연관 문서
 

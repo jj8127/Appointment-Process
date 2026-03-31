@@ -7,6 +7,49 @@
 
 ---
 
+## <a id="20260331-exam-registration-location-round-guard"></a> 2026-03-31 | 시험 신청 회차-지역 불일치를 `춘천`으로 교정하고 복합 제약으로 재발 차단
+
+**배경**:
+- `exam_registrations`는 `round_id`와 `location_id`를 각각 별도 FK로만 보장하고 있어, 다른 회차의 `location_id`를 섞은 row가 저장될 수 있었다.
+- 실제 운영 데이터에도 `fc0421cd-6016-4732-b28f-324246085bc4` 한 건이 `4월 4차 생명보험` 회차와 `4월 1차 생명보험 / 서울` 지역을 함께 가리키는 오염 상태로 남아 있었다.
+- 모바일 `app/exam-apply.tsx`, `app/exam-apply2.tsx`는 선택된 회차와 지역을 클라이언트 상태에서만 조합하고, 저장 직전 `location_id`가 현재 회차 목록에 속하는지까지는 검증하지 않았다.
+
+**조치**:
+- `supabase/migrations/20260331000001_enforce_exam_registration_location_round_match.sql`
+  - 기존 오염 row를 `4월 4차 생명보험 / 춘천` location row로 재매핑했다.
+  - `exam_locations (id, round_id)` 복합 unique 제약을 추가했다.
+  - `exam_registrations (location_id, round_id) -> exam_locations (id, round_id)` 복합 FK와 `(location_id, round_id)` 인덱스를 추가했다.
+  - 마지막에 `exam_registrations`와 `exam_locations`의 회차 불일치 row 개수를 검사해 0건이 아니면 migration이 실패하도록 했다.
+- `supabase/schema.sql`
+  - 위 복합 unique/foreign key 계약과 인덱스를 canonical snapshot에 반영했다.
+- `app/exam-apply.tsx`, `app/exam-apply2.tsx`
+  - 저장 직전에 `selectedLocationId`가 현재 `selectedRound.locations`에 실제로 포함되는지 검사한다.
+  - 기존 신청 복원 시 현재 회차 목록에 없는 `location_id`는 선택 상태로 복원하지 않고 `null`로 초기화한다.
+  - 회차를 다시 고를 때는 `selectedLocationId`를 즉시 비워 stale 지역이 남지 않게 했다.
+  - 새 복합 FK 위반 에러는 `선택한 응시 지역이 해당 시험 회차에 속하지 않습니다.` 사용자 메시지로 번역한다.
+
+**결과**:
+- repo 기준으로 시험 신청 row가 항상 같은 회차에 속한 지역만 참조하도록 스키마와 모바일 저장 로직을 정리했다.
+- 기존 오염 row 1건은 원격 migration 적용으로 실제 `춘천` location row로 재매핑됐다.
+- 모바일에서 stale `location_id`가 남아도 저장 직전에 한 번 더 차단되므로, UI 상태 꼬임만으로는 같은 문제가 재발하지 않는다.
+- 원격 DB 기준 `exam_registrations`의 회차-지역 불일치 row 개수는 0건이다.
+
+**검증**:
+- `npm run lint` 통과
+- `npx tsc --noEmit`
+  - 이번 변경과 무관한 기존 타입 오류들(`app/appointment.tsx`, `app/exam-manage*.tsx`, `app/hanwha-commission.tsx`, `components/DaumPostcode.tsx`, `lib/fc-workflow.ts`)로 실패
+- `supabase migration list`
+  - `20260331000001_enforce_exam_registration_location_round_match.sql` local/remote 일치 확인
+- `supabase db push`
+  - 원격 DB 적용 성공
+- service-role 스모크 테스트
+  - 대상 row `fc0421cd-6016-4732-b28f-324246085bc4`가 `4월 4차 생명보험 / 춘천`으로 교정된 것 확인
+  - 전체 `exam_registrations` 21건 기준 회차-지역 불일치 0건 확인
+  - 다른 회차의 `location_id`로 insert 시 `exam_registrations_location_round_fkey` `23503`으로 차단되는 것 확인
+  - 같은 회차의 `location_id`로는 insert/delete가 정상 동작하는 것 확인
+
+---
+
 ## <a id="20260331-allowance-migration-order-fix"></a> 2026-03-31 | allowance migration 순서를 고쳐 웹 수당동의 반려 500 복구
 
 **배경**:

@@ -383,6 +383,7 @@ create table if not exists public.exam_locations (
   sort_order integer not null default 0,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now(),
+  unique (id, round_id),
   unique (round_id, location_name)
 );
 
@@ -1561,6 +1562,10 @@ create table if not exists public.exam_registrations (
   -- 시험 회차 / 응시 지역
   round_id uuid not null references public.exam_rounds (id) on delete cascade,
   location_id uuid not null references public.exam_locations (id) on delete cascade,
+  constraint exam_registrations_location_round_fkey
+    foreign key (location_id, round_id)
+    references public.exam_locations (id, round_id)
+    on delete cascade,
 
   -- 신청 상태
   status text not null default 'applied'
@@ -1596,6 +1601,9 @@ create index if not exists idx_exam_registrations_round
 
 create index if not exists idx_exam_registrations_location
   on public.exam_registrations (location_id);
+
+create index if not exists idx_exam_registrations_location_round
+  on public.exam_registrations (location_id, round_id);
 
 create index if not exists idx_exam_registrations_fc_id
   on public.exam_registrations (fc_id);
