@@ -1,3 +1,4 @@
+-- Clean up legacy allowance rows before any later constraint repair.
 alter table public.fc_profiles
   add column if not exists allowance_prescreen_requested_at timestamptz;
 

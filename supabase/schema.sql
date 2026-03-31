@@ -73,6 +73,9 @@ alter table public.fc_profiles
 alter table public.fc_profiles
   add column if not exists allowance_prescreen_requested_at timestamp with time zone;
 
+comment on column public.fc_profiles.allowance_prescreen_requested_at is
+  '총무가 수당동의 사전 심사를 실제로 요청한 시각';
+
 create table if not exists public.fc_identity_secure (
   id uuid primary key default gen_random_uuid(),
   fc_id uuid not null references public.fc_profiles (id) on delete cascade,

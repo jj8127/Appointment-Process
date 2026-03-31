@@ -18,6 +18,8 @@
 - `supabase/migrations/20260330000001_add_allowance_prescreen_requested_at.sql`
   - 컬럼 추가와 기존 불량 데이터 정리만 남기고, 중간/마지막의 constraint 재추가 구문을 제거했다.
   - 실제 constraint 제거는 뒤의 `20260330000002_relax_allowance_flow_requires_date.sql`가 담당하도록 순서를 바로잡았다.
+- `supabase/schema.sql`
+  - `allowance_prescreen_requested_at` 컬럼 코멘트를 schema snapshot에도 반영해 migration repair와 스키마 기준 파일을 같이 맞췄다.
 - 원격 적용
   - `supabase db push`로 누락된 2개 migration을 원격 DB에 반영했다.
 
