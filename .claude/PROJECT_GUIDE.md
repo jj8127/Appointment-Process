@@ -101,6 +101,7 @@
 5. **스키마 변경 절차**
    - `supabase/schema.sql` + `supabase/migrations/*.sql` 같이 관리
    - 스키마만 수정하고 마이그레이션 누락 금지
+   - 제약 조건을 강화/복구하는 migration은 기존 불량 데이터를 먼저 정리한 뒤 마지막에 constraint를 추가한다. 순서가 틀리면 원격 `db push`가 중간에서 막힌다.
 
 6. **기존 API 계약 유지**
    - Edge Function은 기존 `ok` 기반 응답 계약 유지

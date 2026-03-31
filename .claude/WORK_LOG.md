@@ -20,6 +20,7 @@
 ## 최근 작업
 | 날짜 | 작업 | 핵심 파일 | 상세 |
 |------|------|----------|------|
+| 03-31 | 누락된 allowance migration 순서를 바로잡고 원격 Supabase에 반영해 웹 수당동의 반려 500을 복구 | `supabase/migrations/20260330000001_add_allowance_prescreen_requested_at.sql`, `.claude/PROJECT_GUIDE.md`, `.claude/WORK_LOG.md`, `.claude/WORK_DETAIL.md` | [→ 상세](WORK_DETAIL.md#20260331-allowance-migration-order-fix) |
 | 03-30 | Vercel production 자동 배포를 막던 admin route/date input 타입 오류를 정리해 `main` 빌드를 복구 | `web/src/app/api/admin/fc/route.ts`, `web/src/app/dashboard/page.tsx`, `.claude/PROJECT_GUIDE.md`, `.claude/WORK_LOG.md`, `.claude/WORK_DETAIL.md` | [→ 상세](WORK_DETAIL.md#20260330-admin-fc-route-null-guard-build-fix) |
 | 03-30 | 웹 FC 상세 관리 모달 `생명/손해 위촉` 탭에 독립형 완료 토글 2개와 저장 버튼을 복구 | `web/src/app/dashboard/page.tsx`, `docs/handbook/admin-web/dashboard-lifecycle.md`, `docs/handbook/button-action-matrix.md`, `.claude/PROJECT_GUIDE.md`, `.claude/WORK_LOG.md`, `.claude/WORK_DETAIL.md` | [→ 상세](WORK_DETAIL.md#20260330-web-appointment-commission-toggle-buttons) |
 | 03-30 | 웹 FC 상세 관리 모달 탭을 한 줄 4탭으로 복구하고 단계별 라벨을 축약 | `web/src/app/dashboard/page.tsx` | [→ 상세](WORK_DETAIL.md#20260330-web-dashboard-modal-tabs-single-row) |

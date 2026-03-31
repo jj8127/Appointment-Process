@@ -7,6 +7,34 @@
 
 ---
 
+## <a id="20260331-allowance-migration-order-fix"></a> 2026-03-31 | allowance migration 순서를 고쳐 웹 수당동의 반려 500 복구
+
+**배경**:
+- `web/src/app/api/admin/fc/route.ts`의 수당동의 반려 경로는 `allowance_prescreen_requested_at` 컬럼을 포함해 `allowance-pending` 상태를 저장한다.
+- 실제 원격 Supabase에는 `20260330000001_add_allowance_prescreen_requested_at.sql`, `20260330000002_relax_allowance_flow_requires_date.sql`가 적용되지 않아, 반려 버튼 클릭 시 `PGRST204: Could not find the 'allowance_prescreen_requested_at' column` 500이 발생했다.
+- 원인을 따라가 보니 첫 번째 migration이 기존 불량 데이터를 정리하기 전에 check constraint를 먼저 추가하고 있어서 `supabase db push` 자체가 중간에서 실패하고 있었다.
+
+**조치**:
+- `supabase/migrations/20260330000001_add_allowance_prescreen_requested_at.sql`
+  - 컬럼 추가와 기존 불량 데이터 정리만 남기고, 중간/마지막의 constraint 재추가 구문을 제거했다.
+  - 실제 constraint 제거는 뒤의 `20260330000002_relax_allowance_flow_requires_date.sql`가 담당하도록 순서를 바로잡았다.
+- 원격 적용
+  - `supabase db push`로 누락된 2개 migration을 원격 DB에 반영했다.
+
+**결과**:
+- 연결된 Supabase 원격 DB가 이제 `allowance_prescreen_requested_at` 컬럼을 인식한다.
+- 웹 관리자에서 수당동의 반려 같은 allowance 상태 조작 POST가 더 이상 500으로 떨어지지 않는다.
+- 문제는 Edge Function 미배포가 아니라 DB migration 미적용 + migration 순서 오류였다.
+
+**검증**:
+- `supabase migration list`
+- `supabase db push`
+- 로컬 dev 서버에서 `/api/admin/fc` `updateStatus` 호출 재현
+  - `allowance-consented` 200
+  - `allowance-pending + allowance_reject_reason` 200
+
+---
+
 ## <a id="20260330-admin-fc-route-null-guard-build-fix"></a> 2026-03-30 | admin route/date input 타입 오류를 정리해 Vercel production 빌드 복구
 
 **배경**:
