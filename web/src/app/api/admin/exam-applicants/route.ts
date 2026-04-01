@@ -186,7 +186,7 @@ async function listApplicants() {
     .from('exam_registrations')
     .select(`
       id, status, created_at, resident_id, is_confirmed, is_third_exam, fee_paid_date,
-      exam_locations ( location_name ),
+      exam_locations!exam_registrations_location_round_fkey ( location_name ),
       exam_rounds ( round_label, exam_date, exam_type )
     `)
     .order('created_at', { ascending: false })
