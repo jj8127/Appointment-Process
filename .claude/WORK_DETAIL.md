@@ -5283,3 +5283,21 @@
 - `docs/guides/COMMANDS.md`
 - `docs/guides/SMS_TESTING.md`
 - `test-sms.js`
+## <a id="20260401-1"></a> 2026-04-01 | 웹 시험 신청자 관리 목록/상태 변경을 서버 API 경유로 전환
+
+**작업 내용**:
+- `web/src/app/dashboard/exam/applicants/page.tsx`가 브라우저 anon Supabase로 `exam_registrations`, `fc_profiles`를 직접 읽고 있어 production 권한/RLS 변화 시 목록이 빈 화면으로 보이는 문제를 확인했다.
+- `web/src/app/api/admin/exam-applicants/route.ts`에 관리자/본부장 공용 `GET` 목록 조회와 관리자 전용 `PATCH` 상태 변경을 추가하고, 서버 `adminSupabase`에서 시험 신청 목록/프로필/주민번호를 한 번에 조합하도록 옮겼다.
+- 화면은 `/api/admin/exam-applicants`만 호출하도록 바꿔 direct client query를 제거했고, 조회 실패 시 더 이상 "데이터가 없습니다"로 숨기지 않고 실제 오류 메시지를 노출하도록 보강했다.
+
+**핵심 파일**:
+- `web/src/app/api/admin/exam-applicants/route.ts`
+- `web/src/app/dashboard/exam/applicants/page.tsx`
+
+**검증**:
+- `cd web && npm run lint`
+- `cd web && npm run build`
+- `cd web && npx tsc --noEmit --pretty false` (`.next/dev/types` 누락 상태에서는 실패할 수 있어 build 후 재실행 기준으로 확인)
+
+---
+

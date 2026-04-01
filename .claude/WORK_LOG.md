@@ -166,6 +166,7 @@
 | 02-24 | 설정 페이지에 웹 알림 권한 버튼/상태 UI 추가 및 수동 재등록 지원 | `web/src/components/WebPushRegistrar.tsx`, `web/src/app/dashboard/settings/page.tsx`, `AGENTS.md` | [→ 상세](WORK_DETAIL.md#20260224-5) |
 | 02-24 | 총무 웹푸시 미수신 복구(토큰 비교 정규화 + Vercel env 재주입 + 프로덕션 재배포) | `web/src/app/api/admin/push/route.ts`, `web/src/lib/web-push.ts`, `AGENTS.md` | [→ 상세](WORK_DETAIL.md#20260224-4) |
 | 02-24 | 웹푸시 VAPID env 포맷 오류 방어(\\n/공백/따옴표 정규화 + 유효성 로그) | `web/src/lib/web-push.ts`, `AGENTS.md` | [→ 상세](WORK_DETAIL.md#20260224-3) |
+| 04-01 | 웹 시험 신청자 관리 목록/상태 변경을 서버 API 경유로 전환해 RLS 영향으로 목록이 비는 장애 복구 | `web/src/app/api/admin/exam-applicants/route.ts`, `web/src/app/dashboard/exam/applicants/page.tsx` | [→ 상세](WORK_DETAIL.md#20260401-1) |
 | 02-24 | 앱→총무 채팅 웹푸시 누락 대응(콜백 URL 정규화, 인증 fallback, 실패 로그 가시화) | `supabase/functions/fc-notify/index.ts`, `web/src/app/api/admin/push/route.ts`, `AGENTS.md` | [→ 상세](WORK_DETAIL.md#20260224-2) |
 | 02-24 | 어드민 브라우저 웹 푸시 알림 추가 (FC 서류/동의/시험/채팅 → 어드민 OS 알림) | `web/src/app/api/admin/push/route.ts`, `supabase/functions/fc-notify/index.ts`, `web/src/app/api/fc-notify/route.ts`, `web/src/app/api/web-push/subscribe/route.ts` | [→ 상세](WORK_DETAIL.md#20260224-1) |
 | 02-20 | 모바일 시험 신청(생명/손해) 마감 필터 기준 통일 및 당겨서 새로고침 제스처 복구 | `app/exam-apply.tsx`, `app/exam-apply2.tsx`, `AGENTS.md` | [→ 상세](WORK_DETAIL.md#20260220-1) |

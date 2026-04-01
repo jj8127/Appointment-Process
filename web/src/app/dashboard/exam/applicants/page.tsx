@@ -187,26 +187,6 @@ const ExcelColumnFilter = ({ title, options, selected, onApply }: ExcelColumnFil
     );
 };
 
-type ExamRegistrationRow = {
-    id: string;
-    status: string;
-    created_at: string;
-    resident_id: string;
-    is_confirmed: boolean;
-    is_third_exam?: boolean | null;
-    fee_paid_date?: string | null;
-    exam_locations?: { location_name?: string | null } | null;
-    exam_rounds?: { round_label?: string | null; exam_date?: string | null; exam_type?: string | null } | null;
-};
-
-type ProfileRow = {
-    id: string;
-    phone: string;
-    name: string | null;
-    affiliation: string | null;
-    address: string | null;
-};
-
 const formatExamApprovalInfo = (item: Applicant) => {
     const dateLabel = item.exam_date ? dayjs(item.exam_date).format('YYYY-MM-DD') : '시험 일정';
     const roundLabel = item.round_label && item.round_label !== '-' ? ` (${item.round_label})` : '';
@@ -269,80 +249,31 @@ export default function ExamApplicantsPage() {
     );
 
     // --- Fetch All Recent Applicants ---
-    const { data: applicants, isLoading, refetch } = useQuery({
+    const { data: applicants, isLoading, error: applicantsError, refetch } = useQuery({
         queryKey: ['exam-applicants-all-recent', role],
         enabled: hydrated,
         queryFn: async () => {
-            // limit 1000 for performance
-            const { data, error } = await supabase
-                .from('exam_registrations')
-                .select(`
-          id, status, created_at, resident_id, is_confirmed, is_third_exam, fee_paid_date,
-          exam_locations ( location_name ),
-          exam_rounds ( round_label, exam_date, exam_type )
-        `)
-                .order('created_at', { ascending: false })
-                .limit(1000);
+            const response = await fetch('/api/admin/exam-applicants', {
+                method: 'GET',
+                credentials: 'include',
+                cache: 'no-store',
+            });
+            const json: unknown = await response.json().catch(() => null);
 
-            if (error) throw error;
-
-            const rows = (data ?? []) as ExamRegistrationRow[];
-            const base = rows.map((d) => ({
-                id: d.id,
-                status: d.status,
-                created_at: d.created_at,
-                resident_id: d.resident_id,
-                is_confirmed: d.is_confirmed,
-                is_third_exam: d.is_third_exam,
-                location_name: d.exam_locations?.location_name || '미정',
-                round_label: d.exam_rounds?.round_label || '-',
-                exam_date: d.exam_rounds?.exam_date ?? null,
-                exam_type: d.exam_rounds?.exam_type ?? null,
-                fee_paid_date: d.fee_paid_date ?? null,
-            })) as Applicant[];
-
-            const phones = Array.from(new Set(base.map((b) => b.resident_id).filter(Boolean)));
-            if (phones.length === 0) return base;
-
-            const { data: profiles } = await supabase
-                .from('fc_profiles')
-                .select('id,phone,name,affiliation,address')
-                .eq('signup_completed', true)
-                .in('phone', phones);
-            const profileRows = (profiles ?? []) as ProfileRow[];
-            const pmap = new Map(profileRows.map((p) => [p.phone, p]));
-
-            let residentNumbersByFcId: Record<string, string | null> = {};
-            const fcIds = Array.from(new Set(profileRows.map((p) => p.id).filter(Boolean)));
-            if ((role === 'admin' || role === 'manager') && fcIds.length > 0) {
-                try {
-                    const resp = await fetch('/api/admin/resident-numbers', {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        credentials: 'include',
-                        body: JSON.stringify({ fcIds }),
-                    });
-                    const json: unknown = await resp.json().catch(() => null);
-                    if (resp.ok && isRecord(json) && json.ok === true && isRecord(json.residentNumbers)) {
-                        residentNumbersByFcId = json.residentNumbers as Record<string, string | null>;
-                    }
-                } catch {
-                    // Keep page usable even if resident-number API fails.
-                }
+            const isOk =
+                response.ok &&
+                isRecord(json) &&
+                json.ok === true &&
+                Array.isArray(json.applicants);
+            if (!isOk) {
+                const message =
+                    isRecord(json) && typeof json.error === 'string'
+                        ? json.error
+                        : '시험 신청 목록을 불러오지 못했습니다.';
+                throw new Error(message);
             }
 
-            return base.map((b) => {
-                const p = pmap.get(b.resident_id);
-                const fullResident = p?.id ? residentNumbersByFcId[p.id] : null;
-                return {
-                    ...b,
-                    name: p?.name ?? '이름없음',
-                    phone: p?.phone ?? b.resident_id,
-                    affiliation: p?.affiliation ?? '-',
-                    address: p?.address ?? '-',
-      resident_id: fullResident ?? '주민번호 조회 실패',
-                };
-            });
+            return json.applicants as Applicant[];
         }
     });
 
@@ -434,12 +365,25 @@ export default function ExamApplicantsPage() {
     // --- Mutations ---
     const updateStatusMutation = useMutation({
         mutationFn: async ({ item, isConfirmed }: { item: Applicant; isConfirmed: boolean }) => {
+            const response = await fetch('/api/admin/exam-applicants', {
+                method: 'PATCH',
+                headers: { 'Content-Type': 'application/json' },
+                credentials: 'include',
+                body: JSON.stringify({ registrationId: item.id, isConfirmed }),
+            });
+            const json: unknown = await response.json().catch(() => null);
             const nextStatus = isConfirmed ? 'confirmed' : 'applied';
-            const { error } = await supabase
-                .from('exam_registrations')
-                .update({ is_confirmed: isConfirmed, status: nextStatus })
-                .eq('id', item.id);
-            if (error) throw error;
+            const isOk =
+                response.ok &&
+                isRecord(json) &&
+                json.ok === true;
+            if (!isOk) {
+                const message =
+                    isRecord(json) && typeof json.error === 'string'
+                        ? json.error
+                        : '시험 신청 상태 변경에 실패했습니다.';
+                throw new Error(message);
+            }
             return { item, isConfirmed, nextStatus };
         },
         onSuccess: async ({ item, isConfirmed, nextStatus }) => {
@@ -668,6 +612,16 @@ export default function ExamApplicantsPage() {
                             <Table.Tbody>
                                 {isLoading ? (
                                     <Table.Tr><Table.Td colSpan={11} align="center" py={80}><Loader color="orange" type="dots" /></Table.Td></Table.Tr>
+                                ) : applicantsError ? (
+                                    <Table.Tr><Table.Td colSpan={11} align="center" py={80} c="red">
+                                        <Stack align="center" gap="xs">
+                                            <IconX size={36} color="#fa5252" />
+                                            <Text fw={600}>목록을 불러오지 못했습니다.</Text>
+                                            <Text size="sm" c="dimmed">
+                                                {applicantsError instanceof Error ? applicantsError.message : '잠시 후 다시 시도해주세요.'}
+                                            </Text>
+                                        </Stack>
+                                    </Table.Td></Table.Tr>
                                 ) : filteredRows.length > 0 ? (
                                     filteredRows.map((item) => (
                                         <Table.Tr key={item.id}>
