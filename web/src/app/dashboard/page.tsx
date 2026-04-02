@@ -58,7 +58,7 @@ import type { CommissionCompletionStatus, FcProfile, FcStatus } from '@/types/fc
 import { notifications } from '@mantine/notifications';
 import { useRouter } from 'next/navigation';
 import { StatusToggle } from '../../components/StatusToggle';
-import { getAllowanceDisplayState } from '../../lib/fc-workflow';
+import { getAllowanceDisplayState, type AllowanceDisplayKey } from '../../lib/fc-workflow';
 import {
   ADMIN_STEP_LABELS,
   calcStep,
@@ -117,6 +117,18 @@ const getRecommenderDisplay = (profile?: RecommenderDisplaySource | null) => {
     helperText: null,
   };
 };
+
+const ALLOWANCE_FLOW_CARDS: Array<{
+  key: AllowanceDisplayKey;
+  label: string;
+  helper: string;
+}> = [
+  { key: 'missing', label: '미입력', helper: 'FC 동의일 대기' },
+  { key: 'entered', label: '입력 완료', helper: '동의일 저장 완료' },
+  { key: 'prescreen', label: '사전 심사', helper: '사전 심사 요청 완료' },
+  { key: 'approved', label: '승인 완료', helper: '문서 단계 진행 가능' },
+  { key: 'rejected', label: '미승인', helper: '반려 사유 확인 필요' },
+];
 
 const readSignupReferralCode = (payload: unknown) => {
   if (!payload || typeof payload !== 'object') return null;
@@ -2342,6 +2354,57 @@ export default function DashboardPage() {
 
               <Tabs.Panel value="info">
                 <Stack gap="md">
+                  {(() => {
+                    const allowanceDisplay = getAllowanceDisplayState(selectedFc);
+
+                    return (
+                      <Box>
+                        <Text size="xs" fw={700} c="dimmed" mb={6}>
+                          상태 흐름
+                        </Text>
+                        <SimpleGrid cols={{ base: 1, sm: 2, lg: 5 }} spacing="sm">
+                          {ALLOWANCE_FLOW_CARDS.map((step) => {
+                            const active = step.key === allowanceDisplay.key;
+                            return (
+                              <Paper
+                                key={step.key}
+                                withBorder
+                                radius="md"
+                                p="sm"
+                                style={{
+                                  borderColor: active
+                                    ? 'var(--mantine-color-orange-3)'
+                                    : 'var(--mantine-color-gray-3)',
+                                  backgroundColor: active
+                                    ? 'var(--mantine-color-orange-0)'
+                                    : 'var(--mantine-color-white)',
+                                }}
+                              >
+                                <Group justify="space-between" align="flex-start" gap="xs">
+                                  <Stack gap={2}>
+                                    <Text size="xs" c="dimmed" fw={700}>
+                                      {step.label}
+                                    </Text>
+                                    <Text size="sm" fw={700}>
+                                      {step.helper}
+                                    </Text>
+                                  </Stack>
+                                  <Badge
+                                    size="xs"
+                                    variant={active ? 'filled' : 'light'}
+                                    color={active ? 'orange' : 'gray'}
+                                  >
+                                    {active ? '현재' : '대기'}
+                                  </Badge>
+                                </Group>
+                              </Paper>
+                            );
+                          })}
+                        </SimpleGrid>
+                      </Box>
+                    );
+                  })()}
+
                   <TextInput
                     label="임시사번"
                     placeholder="T-123456"
@@ -2468,31 +2531,15 @@ export default function DashboardPage() {
                       const allowanceDisplay = getAllowanceDisplayState(selectedFc);
                       const allowanceStateButtons = [
                         {
-                          key: 'entered',
-                          label: '입력 완료',
-                          active: allowanceDisplay.key === 'entered',
-                          color: 'gray' as const,
-                          onClick: () =>
-                            updateStatusMutation.mutate({
-                              status: 'allowance-pending',
-                              title: '수당동의 입력 완료',
-                              msg: '수당 동의일 입력이 확인되었습니다.',
-                              extra: {
-                                allowance_prescreen_requested_at: null,
-                                allowance_reject_reason: null,
-                              },
-                            }),
-                        },
-                        {
                           key: 'prescreen',
-                          label: '사전 심사 요청 완료',
+                          label: '사전 심사 요청 하기',
                           active: allowanceDisplay.key === 'prescreen',
                           color: 'blue' as const,
                           onClick: () =>
                             updateStatusMutation.mutate({
                               status: 'allowance-pending',
-                              title: '사전 심사 요청 완료',
-                              msg: '사전 심사 요청이 완료되었습니다.',
+                              title: '사전 심사 요청',
+                              msg: '사전 심사 요청을 보냈습니다.',
                               extra: {
                                 allowance_prescreen_requested_at: new Date().toISOString(),
                                 allowance_reject_reason: null,
@@ -2520,69 +2567,102 @@ export default function DashboardPage() {
 
                       return (
                         <>
-                          <Group justify="space-between" mb="xs">
-                            <Text fw={600} size="sm">수당 동의 상태</Text>
-                            <Badge variant="light" color={allowanceDisplay.color} size="sm">
-                              {allowanceDisplay.label}
-                            </Badge>
-                          </Group>
-                          <DateInput
-                            label="동의일(Actual)"
-                            value={allowanceDateInput}
-                            onChange={handleAllowanceDateChange}
-                            placeholder="YYYY-MM-DD"
-                            valueFormat="YYYY-MM-DD"
-                            disabled={isReadOnly}
-                            clearable={false}
-                            radius="md"
-                            size="md"
-                            leftSection={<IconCalendar size={16} />}
-                            previousIcon={<IconChevronLeft size={16} />}
-                            nextIcon={<IconChevronRight size={16} />}
-                            popoverProps={{ withinPortal: true, shadow: 'md', position: 'bottom-start' }}
-                            styles={getModalDateInputStyles(isReadOnly)}
-                          />
-                          <Button
-                            fullWidth
-                            mt="sm"
-                            size="xs"
-                            color={isReadOnly ? 'gray' : 'orange'}
-                            variant="light"
-                            onClick={() => updateAllowanceDateMutation.mutate()}
-                            loading={updateAllowanceDateMutation.isPending}
-                            disabled={isReadOnly || !allowanceDateInput}
-                          >
-                            수당 동의일 저장
-                          </Button>
-                          <Divider my="sm" />
-                          <Text size="xs" fw={600} c="dimmed" mb={6}>
-                            수당 동의 상태
-                          </Text>
-                          <Stack gap={8}>
-                            <Group gap="xs" wrap="wrap">
-                              {allowanceStateButtons.map((button) => (
-                                <Chip
-                                  key={button.key}
-                                  checked={button.active}
-                                  onChange={() => button.onClick()}
-                                  color={button.color}
-                                  variant={button.active ? 'filled' : 'light'}
-                                  disabled={allowanceStateDisabled}
+                          <Paper withBorder radius="lg" p="md">
+                            <Text fw={600} size="sm" mb="xs">
+                              관리자 조작
+                            </Text>
+                            <Text size="xs" c="dimmed" mb="md">
+                              상태 흐름을 확인한 뒤, 아래 조작으로 trusted path 상태를 저장합니다.
+                            </Text>
+
+                            {isReadOnly ? (
+                              <Alert
+                                mb="md"
+                                color="gray"
+                                radius="md"
+                                icon={<IconInfoCircle size={16} />}
+                              >
+                                <Text size="sm">
+                                  본부장 계정은 현재 상태 확인만 가능하며, 저장과 상태 변경 버튼은 비활성화됩니다.
+                                </Text>
+                              </Alert>
+                            ) : null}
+
+                            <SimpleGrid cols={{ base: 1, md: 2 }} spacing="md">
+                              <Stack gap="sm">
+                                <DateInput
+                                  label="동의일(Actual)"
+                                  value={allowanceDateInput}
+                                  onChange={handleAllowanceDateChange}
+                                  placeholder="YYYY-MM-DD"
+                                  valueFormat="YYYY-MM-DD"
+                                  disabled={isReadOnly}
+                                  clearable={false}
+                                  radius="md"
+                                  size="md"
+                                  leftSection={<IconCalendar size={16} />}
+                                  previousIcon={<IconChevronLeft size={16} />}
+                                  nextIcon={<IconChevronRight size={16} />}
+                                  popoverProps={{ withinPortal: true, shadow: 'md', position: 'bottom-start' }}
+                                  styles={getModalDateInputStyles(isReadOnly)}
+                                />
+                                <Button
+                                  fullWidth
+                                  size="sm"
+                                  color={isReadOnly ? 'gray' : 'orange'}
+                                  variant="light"
+                                  leftSection={<IconDeviceFloppy size={16} />}
+                                  onClick={() => updateAllowanceDateMutation.mutate()}
+                                  loading={updateAllowanceDateMutation.isPending}
+                                  disabled={isReadOnly || !allowanceDateInput}
                                 >
-                                  {button.label}
-                                </Chip>
-                              ))}
-                            </Group>
-                            <Button
-                              size="xs"
-                              variant="light"
-                              color="red"
-                              onClick={() => openRejectModal({ kind: 'allowance' })}
-                              disabled={allowanceStateDisabled}
-                            >
-                              미승인
-                            </Button>
-                          </Stack>
+                                  수당 동의일 저장
+                                </Button>
+                              </Stack>
+
+                              <Stack gap="sm">
+                                <Box>
+                                  <Text
+                                    size="sm"
+                                    fw={500}
+                                    mb={6}
+                                    c="transparent"
+                                    aria-hidden="true"
+                                  >
+                                    상태 조작
+                                  </Text>
+                                  <Button
+                                    fullWidth
+                                    color="blue"
+                                    variant={allowanceDisplay.key === 'prescreen' ? 'filled' : 'light'}
+                                    onClick={() => allowanceStateButtons[0].onClick()}
+                                    disabled={allowanceStateDisabled}
+                                    leftSection={<IconSend size={16} />}
+                                  >
+                                    사전 심사 요청 하기
+                                  </Button>
+                                </Box>
+                                <StatusToggle
+                                  value={allowanceDisplay.key === 'approved' ? 'approved' : 'pending'}
+                                  onChange={(val) => {
+                                    if (val === 'approved') {
+                                      allowanceStateButtons[1].onClick();
+                                      return;
+                                    }
+                                    if (allowanceDisplay.key === 'rejected') {
+                                      return;
+                                    }
+                                    openRejectModal({ kind: 'allowance' });
+                                  }}
+                                  labelPending="미승인"
+                                  labelApproved="승인 완료"
+                                  readOnly={allowanceStateDisabled}
+                                  allowPendingPress
+                                  isManagerMode={isReadOnly}
+                                />
+                              </Stack>
+                            </SimpleGrid>
+                          </Paper>
                         </>
                       );
                     })()}

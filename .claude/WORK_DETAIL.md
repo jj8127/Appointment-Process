@@ -7,6 +7,41 @@
 
 ---
 
+## <a id="20260402-web-allowance-status-ux-refresh"></a> 2026-04-02 | 웹 FC 상세 모달 수당동의 status-first UX 정리
+
+**배경**:
+- 운영 화면 기준 `web/src/app/dashboard/page.tsx`의 FC 상세 모달 `수당 동의` 탭은 날짜 입력기와 상태 칩/버튼이 느슨하게 나열돼 있어, 현재 수당동의 상태가 무엇인지 한눈에 판단하기 어려웠다.
+- allowance 상태 계약 자체는 이미 `allowance_date`, `allowance_prescreen_requested_at`, `allowance_reject_reason`, `status` 조합으로 정리돼 있었지만, UI가 이 파생 상태를 충분히 강조하지 못했다.
+- 특히 `FC 수당 동의일 미입력 / 입력 완료 / 사전 심사 요청 / 승인 완료 / 미승인` 중 어디에 있는지와 다음 조치가 무엇인지가 즉시 보이지 않는 점이 운영 혼선을 만들었다.
+
+**조치**:
+- `web/src/app/dashboard/page.tsx`
+  - `수당 동의` 탭 최상단에 상태 흐름 카드를 올려 `임시사번`보다 먼저 현재 수당 동의 단계를 읽을 수 있게 재배치했다.
+  - 상태 흐름은 5개 파생 상태(`미입력`, `입력 완료`, `사전 심사`, `승인 완료`, `미승인`)를 별도 카드로 보여 주고, 현재 단계만 연한 주황색 배경과 `현재` 배지로 강조하도록 정리했다.
+  - 초기 시안에 넣었던 상단 `현재 수당 동의 상태` 요약 카드는 제거해 정보 중복을 줄였다.
+  - 하단 `관리자 조작` 영역은 좌측 `동의일(Actual)` + `수당 동의일 저장`, 우측 `사전 심사 요청 하기` + `승인 완료/미승인` 토글의 2행 그리드로 다시 묶었다.
+  - 기존 `입력 완료` 버튼은 제거했고, 승인/미승인은 다른 화면에서 쓰는 `StatusToggle`을 그대로 재사용해 조작 패턴을 통일했다.
+  - `사전 심사 요청 완료` 문구는 실제 액션 의미에 맞춰 `사전 심사 요청 하기`로 바꾸고, 우측 열의 라벨 높이를 맞춰 좌우 row가 같은 기준선에 오도록 정렬했다.
+  - manager read-only 세션에서는 안내 Alert와 disabled controls로 조회 전용임을 명시했다.
+- `docs/handbook/admin-web/dashboard-lifecycle.md`
+  - 수당동의 탭의 source-of-truth 표시 구조가 `상태 흐름 상단 배치 + 관리자 조작 영역`이라는 점과 버튼 계약(`사전 심사 요청 하기`, 승인 토글)을 handbook에 반영했다.
+
+**결과**:
+- 총무/본부장은 `수당 동의` 탭을 열자마자 현재 단계가 무엇인지 상단 상태 흐름에서 바로 읽을 수 있다.
+- allowance 파생 상태 계약은 유지한 채, 조작 구조와 현재 단계 강조만 더 명확하게 정리했다.
+- 기존 `/api/admin/fc` trusted mutation 경로와 manager read-only 경계는 그대로 유지된다.
+
+**검증**:
+- `cd web && npm run lint -- src/app/dashboard/page.tsx src/lib/fc-workflow.ts src/lib/shared.ts`
+- `cd web && npx next build`
+  - earlier pass: direct production build로 Next.js 정적 생성과 타입 검사를 완료했다.
+- `node scripts/ci/check-governance.mjs`
+
+**남은 확인**:
+- 관리자/본부장 세션에서 FC 상세 모달 `수당 동의` 탭을 실제로 열어 상단 상태 흐름 강조색과 좌우 버튼 row 정렬을 시각 확인하면 된다.
+
+---
+
 ## <a id="20260402-web-dashboard-hanwha-badge-regression-fix"></a> 2026-04-02 | 웹 대시보드 목록 Hanwha 상태 배지 회귀 수정
 
 **배경**:

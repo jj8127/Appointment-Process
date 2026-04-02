@@ -20,6 +20,7 @@
 ## 최근 작업
 | 날짜 | 작업 | 핵심 파일 | 상세 |
 |------|------|----------|------|
+| 04-02 | 웹 FC 상세 모달 `수당 동의` 탭을 상태 흐름 상단 배치 + 연한 주황 current 강조 + `사전 심사 요청 하기`/승인 토글 구조로 다시 정리 | `web/src/app/dashboard/page.tsx`, `docs/handbook/admin-web/dashboard-lifecycle.md`, `.claude/WORK_LOG.md`, `.claude/WORK_DETAIL.md` | [→ 상세](WORK_DETAIL.md#20260402-web-allowance-status-ux-refresh) |
 | 04-02 | 가람in 회원가입 OTP 확인 화면에서 키보드가 열린 상태여도 `인증 완료`/`회원가입 완료` 버튼과 입력 완료 submit이 바로 동작하도록 키보드 dismiss-on-press 경로를 보강 | `app/signup-verify.tsx`, `app/signup-password.tsx`, `components/Button.tsx`, `docs/handbook/mobile/auth-and-gates.md`, `.claude/WORK_LOG.md`, `.claude/WORK_DETAIL.md` | [→ 상세](WORK_DETAIL.md#20260402-signup-verify-keyboard-submit-fix) |
 | 04-02 | 웹 대시보드 목록 `현재 상태`가 1,2단계 FC까지 `한화 위촉 URL 대기`로 덮이던 회귀를 막고 3단계 이상에서만 한화 배지를 렌더링하도록 수정 | `web/src/app/dashboard/page.tsx`, `.claude/WORK_LOG.md`, `.claude/WORK_DETAIL.md` | [→ 상세](WORK_DETAIL.md#20260402-web-dashboard-hanwha-badge-regression-fix) |
 | 04-02 | 웹 FC 상세 `/dashboard/profile/[id]`가 브라우저 anon Supabase `single()`로 `406`을 내던 경로를 서버 API 조회로 전환해 production 상세 화면을 복구 | `web/src/app/api/admin/fc/route.ts`, `web/src/app/dashboard/profile/[id]/page.tsx`, `docs/handbook/mobile/auth-and-gates.md`, `.claude/WORK_LOG.md`, `.claude/WORK_DETAIL.md` | [→ 상세](WORK_DETAIL.md#20260402-web-profile-406-server-path-fix) |
