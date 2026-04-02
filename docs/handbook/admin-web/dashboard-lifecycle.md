@@ -53,7 +53,8 @@ source_of_truth: web/src/app/dashboard/page.tsx + web/src/app/dashboard/profile/
 - FC 상세 모달과 `/dashboard/profile/[id]`는 `추천인` 아래에 invitee의 `가입 시 사용한 추천코드`를 함께 표시한다. confirmed attribution의 historical code가 우선이고, 그것이 없을 때만 inviter 현재 활성 코드 또는 구조화 링크 fallback을 사용하며, 모두 없으면 `-`로 유지한다.
 - temp-id, allowance, docs, hanwha, appointment, commission flag가 서로 상태 합성에 영향
 - 수당동의 탭은 `동의일(Actual)` 저장과 `입력 완료 / 사전 심사 요청 완료 / 승인 완료 / 미승인` 조작을 함께 처리하며, 총무는 `allowance_date` 유무와 관계없이 상태를 바꿀 수 있습니다.
-- 한화 위촉 탭은 `완료일(FC 제출)` 확인, 승인 PDF 업로드/삭제, `미승인 / 승인 완료` 조작을 담당하며 별도 `관리자 승인일` 입력 UI는 없습니다.
+- 한화 위촉 탭은 `완료일(FC 제출)` 확인, 승인 PDF 업로드/삭제, `FC 미전송 / FC 전송 완료` 조작을 담당하며 별도 `관리자 승인일` 입력 UI는 없습니다.
+- 승인 PDF 카드의 `PDF 업로드 완료`와 승인 토글의 `FC 전송 완료`는 같은 의미가 아닙니다. 총무는 PDF를 올린 뒤에도 마지막으로 `FC 전송 완료`를 눌러야 FC 앱에서 파일을 받을 수 있습니다.
 - 생명/손해 위촉 탭은 `생명 위촉 완료`, `손해 위촉 완료` 플래그를 독립 토글로 저장할 수 있고, 둘 다 꺼진 상태는 별도 버튼 없이 미완료로 본다.
 - 3단계 라벨은 `한화 위촉 URL`, 4단계 라벨은 `생명/손해 위촉`으로 통일합니다.
 - FC 삭제는 별도 파괴적 작업

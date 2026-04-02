@@ -157,6 +157,10 @@ const hasHanwhaApprovedPdf = (
     trimValue(profile.hanwha_commission_pdf_name),
   );
 
+const hasHanwhaPdfAttachment = (
+  profile: Pick<FCProfileWithDocuments, 'hanwha_commission_pdf_path' | 'hanwha_commission_pdf_name'>,
+) => Boolean(trimValue(profile.hanwha_commission_pdf_path) && trimValue(profile.hanwha_commission_pdf_name));
+
 const buildCommissionProfileUpdate = (
   profile: FCProfileWithDocuments | null,
   commission: CommissionCompletionStatus,
@@ -355,56 +359,54 @@ const getHanwhaStageStatus = (
   profile: Pick<
     FCProfileWithDocuments,
     | 'status'
+    | 'hanwha_commission_date_sub'
     | 'hanwha_commission_date'
     | 'hanwha_commission_pdf_path'
     | 'hanwha_commission_pdf_name'
   >,
 ) => {
-  if (profile.status === 'docs-approved') {
+  const hasSubmittedDate = Boolean(trimValue(profile.hanwha_commission_date_sub));
+  const hasPdfAttachment = hasHanwhaPdfAttachment(profile);
+
+  if (isHanwhaApproved(profile)) {
+    return { label: 'FC 전송 완료', color: 'teal' as const };
+  }
+  if (!hasSubmittedDate) {
     return { label: '한화 위촉 URL 대기', color: 'blue' as const };
   }
-  if (profile.status === 'hanwha-commission-review') {
-    return { label: '한화 위촉 URL 검토 중', color: 'orange' as const };
+  if (!hasPdfAttachment) {
+    return { label: '승인 PDF 업로드 필요', color: 'yellow' as const };
   }
   if (profile.status === 'hanwha-commission-rejected') {
-    return { label: '한화 위촉 URL 반려', color: 'red' as const };
+    return { label: 'FC 전송 승인 필요', color: 'red' as const };
   }
-  if (profile.status === 'hanwha-commission-approved') {
-    return hasHanwhaApprovedPdf(profile)
-      ? { label: '한화 위촉 URL 승인 / PDF 완료', color: 'teal' as const }
-      : { label: '한화 위촉 URL 승인 / PDF 대기', color: 'yellow' as const };
-  }
-  return null;
+  return { label: 'FC 전송 승인 필요', color: 'orange' as const };
 };
 
 const getHanwhaStageDescription = (
   profile: Pick<
     FCProfileWithDocuments,
     | 'status'
+    | 'hanwha_commission_date_sub'
     | 'hanwha_commission_date'
     | 'hanwha_commission_reject_reason'
     | 'hanwha_commission_pdf_path'
     | 'hanwha_commission_pdf_name'
   >,
 ) => {
-  if (profile.status === 'docs-approved') {
-    return '서류 승인이 완료되었습니다. FC는 한화 위촉 URL 단계로 이동해야 합니다.';
+  const hasSubmittedDate = Boolean(trimValue(profile.hanwha_commission_date_sub));
+  const hasPdfAttachment = hasHanwhaPdfAttachment(profile);
+
+  if (isHanwhaApproved(profile)) {
+    return 'FC에게 승인 PDF 전달이 완료되었습니다.';
   }
-  if (profile.status === 'hanwha-commission-review') {
-      return 'FC가 한화 위촉 URL 완료일을 제출했습니다. 승인과 PDF 등록 전에는 생명/손해 위촉 단계를 열 수 없습니다.';
+  if (!hasSubmittedDate) {
+    return '1. 완료일을 먼저 저장해주세요.';
   }
-  if (profile.status === 'hanwha-commission-rejected') {
-    const reason = trimValue(profile.hanwha_commission_reject_reason);
-    return reason
-      ? `한화 위촉 URL이 반려되었습니다. 사유: ${reason}`
-      : '한화 위촉 URL이 반려되었습니다. FC가 재제출해야 생명/손해 위촉 단계가 열립니다.';
+  if (!hasPdfAttachment) {
+    return '2. 승인 PDF를 업로드해주세요.';
   }
-  if (profile.status === 'hanwha-commission-approved') {
-    return hasHanwhaApprovedPdf(profile)
-        ? '한화 위촉 URL 승인과 PDF 등록이 완료되었습니다. 생명/손해 위촉 단계를 진행할 수 있습니다.'
-        : '한화 위촉 URL은 승인되었지만 PDF가 아직 등록되지 않았습니다. PDF 등록 후 생명/손해 위촉 단계가 열립니다.';
-  }
-  return null;
+  return '3. 마지막으로 승인 완료를 눌러야 FC 앱에 PDF가 전달됩니다.';
 };
 
 const getDefaultModalTab = (profile: FCProfileWithDocuments): string => {
@@ -3018,25 +3020,51 @@ export default function DashboardPage() {
                       완료일 저장
                     </Button>
                     <Divider my="sm" />
-                    <Text size="xs" fw={600} c="dimmed" mb={6}>
-                      한화 위촉 URL 상태
-                    </Text>
-                    <StatusToggle
-                      value={selectedFc.status === 'hanwha-commission-approved' ? 'approved' : 'pending'}
-                      onChange={(val) => {
-                        if (val === 'approved') {
-                          handleApproveHanwha();
-                          return;
-                        }
-                        openRejectModal({ kind: 'hanwha' });
+                    <Box
+                      p="sm"
+                      style={{
+                        borderRadius: 12,
+                        border: `1px solid ${
+                          hasHanwhaPdfAttachment(selectedFc) && !isHanwhaApproved(selectedFc) ? '#FED7AA' : '#E5E7EB'
+                        }`,
+                        backgroundColor:
+                          hasHanwhaPdfAttachment(selectedFc) && !isHanwhaApproved(selectedFc) ? '#FFF7ED' : '#F9FAFB',
                       }}
-                      labelPending="미승인"
-                      labelApproved="승인 완료"
-                      showNeutralForPending
-                      allowPendingPress
-                      readOnly={isReadOnly || updateStatusMutation.isPending}
-                      isManagerMode={isReadOnly}
-                    />
+                    >
+                      <Group justify="space-between" mb={4}>
+                        <Text
+                          size="xs"
+                          fw={700}
+                          c={hasHanwhaPdfAttachment(selectedFc) && !isHanwhaApproved(selectedFc) ? 'orange.8' : 'dimmed'}
+                        >
+                          FC 전송 승인
+                        </Text>
+                        {hasHanwhaPdfAttachment(selectedFc) && !isHanwhaApproved(selectedFc) ? (
+                          <Badge size="sm" color="orange" variant="light">
+                            마지막 승인 필요
+                          </Badge>
+                        ) : null}
+                      </Group>
+                      <Text size="xs" c="dimmed" mb="xs">
+                        PDF 업로드만으로는 FC에게 보이지 않습니다. 승인 완료를 눌러야 전송됩니다.
+                      </Text>
+                      <StatusToggle
+                        value={selectedFc.status === 'hanwha-commission-approved' ? 'approved' : 'pending'}
+                        onChange={(val) => {
+                          if (val === 'approved') {
+                            handleApproveHanwha();
+                            return;
+                          }
+                          openRejectModal({ kind: 'hanwha' });
+                        }}
+                        labelPending="FC 미전송"
+                        labelApproved="FC 전송 완료"
+                        showNeutralForPending
+                        allowPendingPress
+                        readOnly={isReadOnly || updateStatusMutation.isPending}
+                        isManagerMode={isReadOnly}
+                      />
+                    </Box>
                     <Card
                       mt="sm"
                       radius="md"
@@ -3093,9 +3121,9 @@ export default function DashboardPage() {
                               mt={4}
                             >
                               {selectedFc.status === 'hanwha-commission-approved'
-                                ? '승인됨'
+                                ? 'FC 전송 완료'
                                 : selectedFc.hanwha_commission_pdf_path
-                                  ? '등록됨'
+                                  ? 'PDF 업로드 완료'
                                   : '미등록'}
                             </Badge>
                           </div>
@@ -3137,6 +3165,13 @@ export default function DashboardPage() {
                         </Group>
                       </Group>
                     </Card>
+                    {hasHanwhaPdfAttachment(selectedFc) && !isHanwhaApproved(selectedFc) ? (
+                      <Alert mt="sm" color="orange" icon={<IconInfoCircle size={16} />} radius="md">
+                        <Text size="xs">
+                          아직 FC 앱에는 보이지 않습니다. 오른쪽 위 상태를 승인 완료로 바꿔주세요.
+                        </Text>
+                      </Alert>
+                    ) : null}
                     {!!selectedFc.hanwha_commission_reject_reason && (
                       <Textarea
                         mt="sm"
