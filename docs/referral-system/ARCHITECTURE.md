@@ -109,7 +109,7 @@
 - 따라서 추천인 테이블은 direct client RLS read/write를 열지 않는다.
 - 앱/웹은 추천인 정보를 직접 `select/insert/update`하지 않고, Edge Function 또는 service-role route를 통해서만 읽고 쓴다.
 - 관리자 웹 추천인 수정도 자유 텍스트가 아니라 서버 검색/선택형 trusted path로만 허용한다.
-- `public.get_invitee_referral_code(uuid)`의 intended repo contract는 migration `20260401000001_fix_referral_code_fn_anon_grant.sql` 이후 `service_role` execute only 다.
+- `public.get_invitee_referral_code(uuid)`의 intended repo contract는 migration `20260401000002_reassert_get_invitee_referral_code_service_role_only.sql` 이후 `service_role` execute only 다.
 - 다만 이 리뷰는 원격 DB rollout 상태를 다시 검증하지 않았다. remote drift가 있다면 그것은 배포 상태 문제이지 architecture SSOT가 아니다.
 - FC self-service 조회는 `get-my-referral-code` Edge Function을 통해 app session token을 검증한 뒤 active code를 읽는다.
 
@@ -128,14 +128,16 @@
 
 - 현재는 `pending attribution` 전용 서버 API 없이 앱 로컬 pending code만 유지한다.
 - 회원가입 완료 시점 확정은 `set-password` Edge Function이 담당한다.
+- `set-password`는 OTP path가 미리 만든 `phone_verified=true` profile만 최종 가입으로 승격하며, fresh-number direct call에서는 새 profile/credentials를 만들지 않는다.
+- `set-password`는 `fc_credentials.password_set_at`를 먼저 확인한 뒤에만 profile reset/update를 수행해, 중복 호출이 기존 추천인/온보딩 상태를 지우지 않게 한다.
 - `set-password`는 최종 추천코드 row를 다시 확인하고 `referral_attributions` + `fc_profiles.recommender_fc_id` + `fc_profiles.recommender`를 함께 동기화한다.
 - caller가 보낸 임의 `recommender` 문자열은 신뢰하지 않는다.
 - 클라이언트는 최종 `referralCode`와 검증 시점 `referralInviterFcId hint`만 전달하고, 실제 attribution/event 쓰기는 서버가 수행한다.
 - 관리자 UI의 `가입 시 사용한 추천코드` 표시값은 현재 `get_invitee_referral_code(uuid)` lookup order로 계산하며, 순서는 아래와 같다.
-  1. `fc_profiles.recommender_fc_id`의 현재 활성 코드
-  2. 최신 `confirmed referral_attributions.referral_code_id`에 연결된 코드 row
+  1. 최신 `confirmed referral_attributions.referral_code_id`에 연결된 코드 row
+  2. 최신 `confirmed referral_attributions.referral_code` snapshot
   3. 최신 `confirmed referral_attributions.inviter_fc_id`의 현재 활성 코드
-  4. 최신 `confirmed referral_attributions.referral_code` snapshot
+  4. `fc_profiles.recommender_fc_id`의 현재 활성 코드
 
 ## 7. 삭제 후 이력 보존
 
@@ -223,6 +225,7 @@
 
 - 회원가입 화면은 더 이상 자유입력 추천인 이름을 수집하지 않는다.
 - `fc_profiles.recommender`는 레거시 호환용 표시 cache다.
+- FC 기본정보 화면(`app/fc/new.tsx`)도 이 cache를 읽기 전용으로만 보여주고 저장 payload에는 다시 싣지 않는다.
 - 관리자 수동 수정도 자유입력이 아니라 `활성 추천코드 보유 FC` 검색/선택 UI만 허용한다.
 - 동명이인 보정 전략:
   - confirmed attribution이 있는 invitee는 자동 backfill

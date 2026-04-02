@@ -7,7 +7,7 @@
 
 ## 2. 현재 상태
 
-- `2026-04-02` 기준 등록된 추천인 이슈는 `7건`이다.
+- `2026-04-02` 기준 등록된 추천인 이슈는 `8건`이다.
 - 런타임 버그뿐 아니라 trust boundary, rollout status, 문서/테스트 drift로 운영 판단을 오도한 경우도 장애성 이력으로 남긴다.
 
 ## 3. 작성 규칙
@@ -46,6 +46,7 @@
 
 | ID | 날짜 | 제목 | linkedCases | 상태 |
 | --- | --- | --- | --- | --- |
+| INC-008 | 2026-04-02 | 추천인 hardening gap(`set-password` OTP bypass/duplicate wipe, FC cache tampering, historical code drift) | `RF-DATA-02`, `RF-SEC-03`, `RF-SEC-04`, `RF-SEC-05` | fixed |
 | INC-007 | 2026-04-02 | latest docs follow-up 이후에도 invitee 코드 문구와 source-baseline이 intermediate 상태로 남은 drift | `RF-ADMIN-01`, `RF-SELF-01`, `RF-SEC-02` | fixed |
 | INC-006 | 2026-04-02 | FC self-service 추천코드 조회 경계를 session-derived path로 재정렬하고 legacy alias를 harden | `RF-SELF-01`, `RF-SEC-02` | fixed |
 | INC-005 | 2026-04-01 | self-service 경로와 RPC grant 상태가 최신 worktree와 다시 어긋난 문서/로그 drift | `RF-SELF-01`, `RF-SEC-02` | fixed |
@@ -53,6 +54,50 @@
 | INC-003 | 2026-03-31 | 동명이인 안전화 후 live hardening gap(`set-password` fallback, override migration, clear audit) | `RF-ADMIN-06`, `RF-SEC-02` | mitigated |
 | INC-002 | 2026-03-31 | 동명이인 추천인 이름 매칭으로 잘못된 코드가 붙을 수 있던 구조 위험 | `RF-DATA-02`, `RF-ADMIN-06` | fixed |
 | INC-001 | 2026-03-31 | Android 추천코드 입력 시 대문자가 중복 입력되던 문제 | `RF-CODE-07` | fixed |
+
+## INC-008 | 2026-04-02 | 추천인 hardening gap(`set-password` OTP bypass/duplicate wipe, FC cache tampering, historical code drift)
+
+- symptom:
+  - `set-password`가 fresh number direct call에서도 새 FC profile/credentials를 만들 수 있었고, duplicate/direct call에서는 `already_set`를 반환하기 전에 기존 추천인/온보딩 상태를 먼저 지울 수 있었다.
+  - FC 기본정보 화면(`/fc/new`)은 가입 후에도 `fc_profiles.recommender`를 일반 사용자 자유입력으로 저장할 수 있었다.
+  - `get_invitee_referral_code(uuid)`는 inviter가 나중에 코드를 rotate하면 `가입 시 사용한 추천코드` 대신 현재 활성 코드를 먼저 보여줄 수 있었다.
+- impact:
+  - OTP 검증 없이 FC 계정을 생성하거나, 중복 가입 시도로 기존 추천인/온보딩 상태를 훼손할 수 있었다.
+  - 일반 FC가 추천인 표시 cache를 임의로 바꿔 구조화 추천 관계와 운영 화면 의미를 어지럽힐 수 있었다.
+  - 운영자와 관리자 화면이 historical signup code 대신 현재 inviter active code를 보여줘 감사/CS 판단을 오도할 수 있었다.
+- trigger:
+  - 2026-04-02 referral audit에서 `supabase/functions/set-password/index.ts`, `app/fc/new.tsx`, `supabase/schema.sql`을 current SSOT와 대조했을 때.
+- rootCause:
+  - `set-password`가 OTP-verified existing-profile invariant를 스스로 강제하지 않았고, duplicate guard보다 destructive reset/update가 먼저 실행됐다.
+  - 일반 FC 기본정보 편집 화면에서 legacy `recommender` cache write path가 남아 있었다.
+  - invitee code lookup이 current active code fallback을 historical confirmed attribution보다 앞에 두고 있었다.
+- fix:
+  - `set-password`에서 fresh-number insert branch를 제거하고 `phone_verified=true` existing profile만 통과시키도록 바꿨다.
+  - `fc_credentials.password_set_at` 확인을 profile reset/update보다 앞으로 이동했다.
+  - `/fc/new`에서 추천인 자유입력 필드를 제거하고 읽기 전용 표시로 교체했으며 저장 payload에서 `recommender`를 제외했다.
+  - `get_invitee_referral_code(uuid)`와 대응 migration을 historical-first order로 바꿨다.
+  - referral SSOT, handbook, contracts, work logs, harness 문서를 현재 hardening 기준으로 갱신했다.
+- linkedCases:
+  - RF-DATA-02
+  - RF-SEC-03
+  - RF-SEC-04
+  - RF-SEC-05
+- evidence:
+  - 코드 변경: `supabase/functions/set-password/index.ts`
+  - 코드 변경: `app/fc/new.tsx`
+  - 스키마/마이그레이션 변경: `supabase/schema.sql`, `supabase/migrations/20260402000002_fix_invitee_referral_code_history_priority.sql`
+  - 문서 변경: `docs/referral-system/*`, `.claude/PROJECT_GUIDE.md`, `docs/handbook/*`, `contracts/*`
+- reproduction:
+  1. fresh number 또는 미인증 profile phone으로 `set-password`를 직접 호출한다.
+  2. 이미 `password_set_at`가 있는 FC로 `set-password`를 다시 호출한다.
+  3. `/fc/new`에서 추천인 값을 바꿔 저장하거나, inviter code rotation 후 관리자 invitee code 표시를 확인한다.
+- regressionCheck:
+  - RF-DATA-02로 historical signup code priority를 다시 검증한다.
+  - RF-SEC-03으로 fresh-number direct call non-create를 확인한다.
+  - RF-SEC-04로 duplicate call before/after DB 값을 비교한다.
+  - RF-SEC-05로 `/fc/new` read-only behavior와 DB 보존을 확인한다.
+- notes:
+  - 이번 수정은 코드와 문서 hardening까지 반영했지만, 새 P0/P1 회귀 케이스의 live runtime evidence는 아직 수집하지 않았다.
 
 ## INC-005 | 2026-04-01 | self-service 경로와 RPC grant 상태가 최신 worktree와 다시 어긋난 문서/로그 drift
 

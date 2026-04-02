@@ -301,12 +301,12 @@
     "area": "정합성",
     "priority": "P0",
     "platform": ["backend", "web", "app"],
-    "title": "동명이인 이름과 무관하게 invitee 추천코드 조회는 구조화 FK 또는 confirmed attribution 기준으로만 동작한다",
-    "preconditions": ["동명이인 FC가 둘 이상 존재한다", "invitee의 `recommender_fc_id` 또는 confirmed attribution이 준비돼 있다"],
-    "steps": ["`get_invitee_referral_code(uuid)`를 service-role 경로로 호출한다", "웹 관리자 상세와 모바일 관리자 상세에서 같은 invitee를 연다"],
-    "expected": ["이름 문자열이 아닌 `recommender_fc_id` 또는 structured attribution이 기준이 된다", "동명이인 다른 FC의 활성 코드가 섞이지 않는다", "웹/모바일 표시 코드가 동일하다"],
+    "title": "동명이인 이름과 무관하게 invitee 추천코드 조회는 structured attribution 기준으로 historical signup code를 우선한다",
+    "preconditions": ["동명이인 FC가 둘 이상 존재한다", "invitee의 confirmed attribution이 준비돼 있다", "inviter가 가입 후 새 추천코드로 rotate된 상태를 만들 수 있다"],
+    "steps": ["`get_invitee_referral_code(uuid)`를 service-role 경로로 호출한다", "웹 관리자 상세와 모바일 관리자 상세에서 같은 invitee를 연다", "inviter current active code와 confirmed attribution snapshot을 비교한다"],
+    "expected": ["이름 문자열이 아닌 structured attribution이 기준이 된다", "동명이인 다른 FC의 활성 코드가 섞이지 않는다", "confirmed attribution이 있으면 가입 시 사용한 historical code가 inviter 현재 활성 코드보다 우선한다", "웹/모바일 표시 코드가 동일하다"],
     "evidenceRequired": ["RPC 결과", "운영 화면 캡처", "DB 확인"],
-    "dbAssertions": ["반환된 코드는 `recommender_fc_id`의 활성 코드 또는 최신 confirmed attribution row와 일치한다", "이름만 같은 다른 FC의 활성 코드는 반환되지 않는다"]
+    "dbAssertions": ["반환된 코드는 최신 confirmed attribution의 `referral_code_id` row 또는 `referral_code` snapshot과 일치한다", "confirmed attribution이 없을 때만 `recommender_fc_id` 현재 활성 코드 fallback을 허용한다", "이름만 같은 다른 FC의 활성 코드는 반환되지 않는다"]
   },
   {
     "id": "RF-HISTORY-01",
@@ -343,6 +343,42 @@
     "expected": ["클라이언트 direct query/write는 허용되지 않는다", "invitee 코드 조회는 trusted service-role 경유로만 동작한다", "FC self-service는 appSessionToken 검증형 Edge Function으로 동작한다", "원격 DB rollout이 미검증이면 PASS 대신 NOT_RUN 또는 BLOCKED로 남긴다"],
     "evidenceRequired": ["클라이언트 에러 증적", "API 응답", "서버 로그", "DB 확인"],
     "dbAssertions": ["direct client path로 생성된 referral row가 없다", "trusted API 경유 row만 존재한다"]
+  },
+  {
+    "id": "RF-SEC-03",
+    "area": "보안",
+    "priority": "P0",
+    "platform": ["backend"],
+    "title": "`set-password`는 OTP로 검증된 기존 profile 없이 신규 FC를 만들지 않는다",
+    "preconditions": ["가입 대상 전화번호에 대해 `phone_verified=true` profile이 없거나, 기존 profile이 있어도 `phone_verified=false` 상태다"],
+    "steps": ["fresh number 또는 미인증 profile phone으로 `set-password`를 직접 호출한다", "호출 전후 `fc_profiles`, `fc_credentials`를 비교한다"],
+    "expected": ["응답은 `phone_not_verified`로 거절된다", "새 `fc_profiles` row가 생성되지 않는다", "새 `fc_credentials` row가 생성되지 않는다"],
+    "evidenceRequired": ["함수 호출 응답", "DB 확인"],
+    "dbAssertions": ["대상 phone의 `fc_profiles` row count가 호출 전후 동일하다", "대상 phone/fc_id의 `fc_credentials` row가 생성되지 않는다"]
+  },
+  {
+    "id": "RF-SEC-04",
+    "area": "보안",
+    "priority": "P0",
+    "platform": ["backend"],
+    "title": "중복 `set-password` 호출은 `already_set`로 거절되고 기존 추천인/온보딩 상태를 지우지 않는다",
+    "preconditions": ["이미 `password_set_at`가 있는 FC profile이 존재한다", "해당 FC에 추천인 또는 온보딩 상태 값이 하나 이상 채워져 있다"],
+    "steps": ["기존 FC 전화번호로 `set-password`를 다시 호출한다", "호출 전후 `fc_profiles` 추천인/온보딩 컬럼을 비교한다"],
+    "expected": ["응답은 `already_set`로 거절된다", "`recommender`, `recommender_fc_id`, 주소/주민정보/상태 관련 필드가 보존된다", "추가 signup side effect가 발생하지 않는다"],
+    "evidenceRequired": ["함수 호출 응답", "DB 확인"],
+    "dbAssertions": ["호출 전후 `recommender`, `recommender_fc_id`, `address`, `resident_id_masked`, `status` 값이 동일하다", "`signup_completed` 또는 referral 이벤트가 불필요하게 추가되지 않는다"]
+  },
+  {
+    "id": "RF-SEC-05",
+    "area": "보안",
+    "priority": "P1",
+    "platform": ["app", "backend"],
+    "title": "FC 기본정보 화면은 추천인 cache를 읽기 전용으로만 노출하고 일반 사용자 저장으로 덮어쓰지 않는다",
+    "preconditions": ["추천인 cache(`fc_profiles.recommender`)가 있는 FC 계정으로 로그인되어 있다"],
+    "steps": ["FC 기본정보 화면(`/fc/new`)을 연다", "추천인 표시가 read-only인지 확인한다", "다른 기본정보를 저장한 뒤 recommender 값이 유지되는지 확인한다"],
+    "expected": ["추천인 입력창이 아니라 읽기 전용 표시만 보인다", "저장 payload에 자유입력 `recommender`가 포함되지 않는다", "다른 기본정보 저장 후에도 recommender cache가 임의로 바뀌지 않는다"],
+    "evidenceRequired": ["화면 캡처", "네트워크 또는 로그", "DB 확인"],
+    "dbAssertions": ["저장 전후 `fc_profiles.recommender` 값이 동일하다"]
   },
   {
     "id": "RF-INT-01",

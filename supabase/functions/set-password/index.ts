@@ -14,7 +14,6 @@ type Payload = {
   // Profile data from signup flow
   name?: string;
   affiliation?: string;
-  recommender?: string;
   email?: string;
   carrier?: string;
   commissionStatus?: CommissionCompletionStatus | string;
@@ -743,71 +742,29 @@ serve(async (req: Request) => {
     : { resolvedReferral: null, rejectionReason: null };
   const resolvedReferral = referralResolution.resolvedReferral;
 
-  let fcId = profile?.id as string | undefined;
+  if (!profile?.id || profile.phone_verified !== true) {
+    return fail('phone_not_verified', '휴대폰 인증이 필요합니다.');
+  }
+
+  const fcId = profile.id as string;
   let displayName = profile?.name ?? '';
   let effectiveAffiliation = profile?.affiliation ?? profileAffiliation;
 
-  if (!fcId) {
-    const insertPayload: Record<string, unknown> = {
-      phone,
-      name: profileName,
-      affiliation: profileAffiliation,
-      recommender: null,
-      recommender_fc_id: null,
-      email: profileEmail,
-      address: '',
-      status: commissionState.status,
-      identity_completed: false,
-      carrier: profileCarrier,
-      life_commission_completed: commissionState.lifeCompleted,
-      nonlife_commission_completed: commissionState.nonlifeCompleted,
-      ...buildWorkflowResetPayload(),
-    };
+  const { data: existingCreds, error: credsError } = await supabase
+    .from('fc_credentials')
+    .select('password_set_at')
+    .eq('fc_id', fcId)
+    .maybeSingle();
 
-    let insertResult = await supabase
-      .from('fc_profiles')
-      .insert(insertPayload)
-      .select('id,name')
-      .maybeSingle();
+  if (credsError) {
+    return json({ ok: false, code: 'db_error', message: credsError.message }, 500);
+  }
 
-    if (insertResult.error && isMissingColumnError(insertResult.error)) {
-      const fallbackPayload = { ...insertPayload };
-      delete fallbackPayload.life_commission_completed;
-      delete fallbackPayload.nonlife_commission_completed;
-      delete fallbackPayload.appointment_schedule_life;
-      delete fallbackPayload.appointment_schedule_nonlife;
-      delete fallbackPayload.appointment_date_life;
-      delete fallbackPayload.appointment_date_nonlife;
-      delete fallbackPayload.appointment_date_life_sub;
-      delete fallbackPayload.appointment_date_nonlife_sub;
-      delete fallbackPayload.appointment_reject_reason_life;
-      delete fallbackPayload.appointment_reject_reason_nonlife;
-      delete fallbackPayload.docs_deadline_at;
-      delete fallbackPayload.docs_deadline_last_notified_at;
-      delete fallbackPayload.hanwha_commission_date_sub;
-      delete fallbackPayload.hanwha_commission_date;
-      delete fallbackPayload.hanwha_commission_reject_reason;
-      delete fallbackPayload.hanwha_commission_pdf_path;
-      delete fallbackPayload.hanwha_commission_pdf_name;
-      insertResult = await supabase
-        .from('fc_profiles')
-        .insert(fallbackPayload)
-        .select('id,name')
-        .maybeSingle();
-    }
+  if (existingCreds?.password_set_at) {
+    return fail('already_set', '이미 비밀번호가 설정되어 있습니다.');
+  }
 
-    const { data: inserted, error: insertError } = insertResult;
-
-    if (insertError || !inserted?.id) {
-      return json(
-        { ok: false, code: 'db_error', message: insertError?.message ?? 'Failed to create profile' },
-        500,
-      );
-    }
-    fcId = inserted.id as string;
-    displayName = inserted.name ?? '';
-    effectiveAffiliation = profileAffiliation;
-  } else if (profileName) {
+  if (profileName) {
     // Update profile with signup form data (in case profile was created by OTP with empty fields)
     // Also reset any stale PII fields that may have been left over from a previously completed profile
     const updatePayload: Record<string, unknown> = {
@@ -899,24 +856,6 @@ serve(async (req: Request) => {
       return json({ ok: false, code: 'db_error', message: statusUpdateResult.error.message }, 500);
     }
   }
-  if (profile?.phone_verified === false) {
-    return fail('phone_not_verified', '휴대폰 인증이 필요합니다.');
-  }
-
-  const { data: existingCreds, error: credsError } = await supabase
-    .from('fc_credentials')
-    .select('password_set_at')
-    .eq('fc_id', fcId)
-    .maybeSingle();
-
-  if (credsError) {
-    return json({ ok: false, code: 'db_error', message: credsError.message }, 500);
-  }
-
-  if (existingCreds?.password_set_at) {
-    return fail('already_set', '이미 비밀번호가 설정되어 있습니다.');
-  }
-
   const saltBytes = crypto.getRandomValues(new Uint8Array(16));
   const passwordHash = await hashPassword(password, saltBytes);
   const passwordSalt = toBase64(saltBytes);

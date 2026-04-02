@@ -27,8 +27,10 @@
 - 추천 관계의 1차 확정 시점은 `회원가입 완료`다.
 - 가람in 온보딩 전체 완료와 추천 확정을 묶지 않는다.
 - 가입 전 `pending attribution` 서버 row는 현재 구현하지 않았다. 앱은 로컬 pending code만 유지한다.
+- `set-password`는 OTP trusted path가 이미 만든 `phone_verified=true` `fc_profiles` row만 최종 가입으로 승격한다. 미인증 번호나 fresh number direct call은 새 FC 프로필/credentials를 만들지 않고 거절한다.
 - `set-password` Edge Function이 `referralCode`를 받아 가입 완료 직후 best-effort로 confirmed attribution과 이벤트를 기록한다.
 - `set-password`는 유효한 추천코드가 해석된 경우에만 `fc_profiles.recommender_fc_id`와 `fc_profiles.recommender`를 저장한다.
+- `set-password`는 `fc_credentials.password_set_at`를 먼저 확인한 뒤에만 profile reset/update를 수행한다. 이미 가입이 끝난 FC에 대한 중복 호출이 추천인/온보딩 상태를 지우는 동작은 허용하지 않는다.
 - 현재 `set-password`가 남기는 attribution의 `source/capture_source/selection_source`는 deep link 여부와 무관하게 `manual_entry/manual_entry/manual_entry_only`로 정규화된다. 링크 provenance를 DB source에서 복원하는 계약은 아직 없다.
 
 ### 2.3 우선순위
@@ -36,6 +38,7 @@
 - 자동 입력된 추천코드는 회원가입 화면의 기본값으로만 사용한다.
 - 자동 입력된 코드가 있고 사용자가 가입 완료 전에 다른 유효 코드를 직접 입력하면 `명시 입력한 추천코드`를 우선한다.
 - 가입 완료 후에는 일반 사용자 경로로 추천인을 변경할 수 없고, 운영 수정이 필요하면 `admin override`로만 처리한다.
+- FC 기본정보 화면의 `recommender` cache는 읽기 전용 표시값으로만 남기고, 일반 사용자 저장 payload에 자유입력 추천인 문자열을 다시 포함하지 않는다.
 
 ### 2.4 불변 규칙
 
@@ -46,9 +49,10 @@
 - 추천 관계 변경은 관리자 감사 로그 없이는 허용하지 않음
 - 추천코드만 저장하고 추천인 사용자 정보가 없는 고아 상태 금지
 - 추천인 테이블(`referral_codes`, `referral_attributions`, `referral_events`)은 direct client access를 허용하지 않고 trusted server path로만 다룬다.
-- `public.get_invitee_referral_code(uuid)`의 intended repo contract는 migration `20260401000001_fix_referral_code_fn_anon_grant.sql` 이후 `service_role` execute only 다. 원격 DB가 모두 그 상태인지 확인하지 않았다면 rollout 미검증 상태로 기록하고, 예외 상태를 의도 계약처럼 문서화하지 않는다.
+- `public.get_invitee_referral_code(uuid)`의 intended repo contract는 migration `20260401000002_reassert_get_invitee_referral_code_service_role_only.sql` 이후 `service_role` execute only 다. 원격 DB가 모두 그 상태인지 확인하지 않았다면 rollout 미검증 상태로 기록하고, 예외 상태를 의도 계약처럼 문서화하지 않는다.
 - FC 삭제/재가입 정리 후에도 추천 attribution/event 감사 흔적은 남아야 한다.
 - 구조화 추천인 식별자의 SSOT는 `referral_code`, `inviter_fc_id`, `fc_profiles.recommender_fc_id`다. `fc_profiles.recommender`는 표시 cache로만 유지한다.
+- `fc_profiles.recommender`는 trusted signup/admin path만 갱신할 수 있는 읽기 전용 cache다. 일반 FC 정보 수정 화면에서 자유입력으로 덮어쓰지 않는다.
 
 ## 3. 용어
 
@@ -192,14 +196,15 @@
 - 구조화 추천 관계의 SSOT는 `referral_codes`, `referral_attributions`, `referral_events`, `fc_profiles.recommender_fc_id`다.
 - `fc_profiles.recommender_fc_id`는 관리자 화면과 invitee 조회 경로가 쓰는 구조화 링크다.
 - `fc_profiles.recommender`는 과도기 호환용 표시 cache이며, 추천 관계 판단에는 사용하지 않는다.
+- `fc_profiles.recommender`는 trusted signup/admin path만 갱신할 수 있는 읽기 전용 cache다. 일반 FC 기본정보 수정 화면에서 자유입력으로 덮어쓰지 않는다.
 - 관리자 수동 보정도 자유 입력 문자열이 아니라 `활성 추천코드 보유 FC` 검색/선택으로만 허용한다.
 - 레거시 `recommender` 문자열만 있는 FC도 관리자 화면에서 clear 또는 구조화 override 대상으로 다뤄야 한다.
 - invitee 화면의 `가입 시 사용한 추천코드` 표시값을 계산하는 함수 `get_invitee_referral_code(uuid)`는 아래 우선순위만 사용한다.
-  1. `fc_profiles.recommender_fc_id`의 현재 활성 `referral_codes`
-  2. 최신 `confirmed referral_attributions`의 `referral_code_id`에 연결된 코드 row
+  1. 최신 `confirmed referral_attributions`의 `referral_code_id`에 연결된 코드 row
+  2. 최신 `confirmed referral_attributions.referral_code` snapshot
   3. 최신 `confirmed referral_attributions`의 `inviter_fc_id` 현재 활성 코드
-  4. 최신 `confirmed referral_attributions.referral_code` snapshot
-- repo source 기준 direct execute grant는 migration `20260401000001_fix_referral_code_fn_anon_grant.sql` 이후 `service_role` only 다.
+  4. `fc_profiles.recommender_fc_id`의 현재 활성 `referral_codes` (confirmed attribution이 없을 때만 쓰는 degraded fallback)
+- repo source 기준 direct execute grant는 migration `20260401000002_reassert_get_invitee_referral_code_service_role_only.sql` 이후 `service_role` only 다.
 - 웹 추천인 override/legacy link 경로는 DB migration `20260331000005_admin_apply_recommender_override.sql` 원격 적용 전 배포 금지다.
 
 ## 8. 예외 규칙

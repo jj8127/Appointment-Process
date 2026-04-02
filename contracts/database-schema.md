@@ -19,7 +19,7 @@ FC 사용자의 메인 프로필 테이블
 | email | text | - | 이메일 |
 | address | text | - | 주소 |
 | address_detail | text | - | 상세주소 |
-| recommender | text | - | 추천인 표시 cache(레거시 호환) |
+| recommender | text | - | 추천인 표시 cache(레거시 호환, trusted path만 갱신) |
 | recommender_fc_id | uuid | FK → fc_profiles.id, nullable | 구조화된 추천인 FC 링크 |
 | resident_id_masked | text | - | 마스킹된 주민번호 (예: 900101-1******) |
 | resident_id_hash | text | UNIQUE | 주민번호 해시 (중복체크용) |
@@ -220,11 +220,12 @@ FC 제출 서류
 ### 1.10 Legacy Note
 
 - `fc_profiles.recommender_fc_id`가 구조화 추천인 링크의 직접 참조다.
-- `fc_profiles.recommender`는 현재 표시 cache/레거시 호환 필드다.
+- `fc_profiles.recommender`는 현재 표시 cache/레거시 호환 필드이며, 일반 FC 기본정보 수정 경로에서 자유입력으로 갱신하지 않는다.
 - 구조화된 추천인 SSOT는 `referral_codes`, `referral_attributions`, `referral_events`, `fc_profiles.recommender_fc_id`다.
 - 추천인 테이블 direct access는 V1에서 열지 않고, referral 전용 Edge Function/trusted server path를 통해서만 사용한다.
 - invitee 추천코드 조회 함수 `get_invitee_referral_code(uuid)`는 이름 문자열 매칭을 금지하고, `recommender_fc_id`와 structured attribution만 사용한다.
-- 단, `get_invitee_referral_code(uuid)`의 `anon/authenticated` execute grant는 2026-03-31 기준 구 모바일 관리자 build 호환용 임시 예외다. 새 구현은 `admin-action:getInviteeReferralCode` 또는 server-only route를 사용하고, 호환 build 정리 후 grant를 회수해야 한다.
+- confirmed attribution이 있으면 invitee 추천코드 표시는 historical signup code를 우선한다. 즉 `referral_code_id row -> referral_code snapshot -> inviter current active code -> recommender_fc_id current active code` 순서로만 fallback 한다.
+- `get_invitee_referral_code(uuid)` execute grant의 intended repo contract는 `20260401000002_reassert_get_invitee_referral_code_service_role_only.sql` 이후 `service_role` only 다. 새 구현은 `admin-action:getInviteeReferralCode` 또는 server-only route를 사용한다.
 
 ---
 

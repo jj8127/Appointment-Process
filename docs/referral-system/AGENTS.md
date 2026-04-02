@@ -122,9 +122,12 @@
 - 가입 완료 후 추천인 변경은 일반 사용자 경로로 허용하지 않는다.
 - 관리자 수동 보정 기능을 만들면 감사 로그 없이 배포하지 않는다.
 - 추천인 테이블은 인증 모델이 정리되기 전까지 클라이언트가 직접 조회/쓰기하지 않는다. 모든 읽기/쓰기는 trusted Edge Function 또는 service-role 경로로 제한한다.
-- `public.get_invitee_referral_code(uuid)`의 intended repo contract는 `20260401000001_fix_referral_code_fn_anon_grant.sql` 이후 `service_role` execute only 다. 새 코드에서 direct RPC 호출을 추가하지 말고 `admin-action:getInviteeReferralCode` 또는 server-only route를 사용한다.
+- `public.get_invitee_referral_code(uuid)`의 intended repo contract는 `20260401000002_reassert_get_invitee_referral_code_service_role_only.sql` 이후 `service_role` execute only 다. 새 코드에서 direct RPC 호출을 추가하지 말고 `admin-action:getInviteeReferralCode` 또는 server-only route를 사용한다.
 - 다만 이 문서는 source repo 기준 SSOT다. 원격 DB rollout이 실제로 끝났는지는 별도 검증 없이는 문서에서 완료라고 쓰지 않는다.
 - 관리자/운영 문서에서 invitee 코드 표시는 `추천인 현재 활성 코드`가 아니라 `가입 시 사용한 추천코드` 의미로 적는다. server lookup이 active-code fallback을 포함하더라도 사용자 문구를 그 내부 우선순위로 바꿔 적지 않는다.
+- `set-password`는 OTP trusted path가 이미 만든 `phone_verified=true` profile만 최종 가입으로 승격해야 한다. fresh-number direct call에서 신규 profile/credentials를 만들면 안 된다.
+- `set-password`는 `fc_credentials.password_set_at`를 destructive profile reset보다 먼저 확인해야 한다. duplicate/direct call이 기존 추천인/온보딩 상태를 지우는 동작은 금지한다.
+- FC 일반 사용자 기본정보 화면은 `fc_profiles.recommender` cache를 읽기 전용으로만 보여준다. 자유입력 저장 경로를 다시 열지 않는다.
 - FC 본인 추천코드 self-service 조회의 현재 앱 런타임 경로는 `hooks/use-my-referral-code.ts -> get-my-referral-code`다. `get-fc-referral-code`가 저장소에 남아 있어도 current hook path처럼 문서화하지 않는다.
 - 앱 미설치 후 스토어 설치/복원, landing click 로그, server-side pending attribution은 아직 live 계약이 아니다. 구현/검증이 끝나기 전에는 문서에서 이미 운영 중인 흐름처럼 서술하지 않는다.
 - FC 삭제/재가입 정리 시에도 추천 attribution/event 히스토리는 남아야 한다. 삭제 편의 때문에 추천인 감사 흔적을 잃는 구조는 허용하지 않는다.

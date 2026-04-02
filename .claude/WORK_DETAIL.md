@@ -7,6 +7,161 @@
 
 ---
 
+## <a id="20260402-web-dashboard-resident-number-restore"></a> 2026-04-02 | 웹 메인 대시보드 FC 상세 모달 주민번호 full-view 복구
+
+**배경**:
+- resident-number 정책은 이미 `admin`/`manager` trusted path full-view로 정렬돼 있었고, `/dashboard/profile/[id]`와 시험 신청자 관리에서는 별도 resident-number 조회 경로가 살아 있었다.
+- 하지만 실제 총무 운영 메인 동선인 `/dashboard` FC 상세 모달에서는 resident-number fetch/render가 빠져 있어, 정책상 허용된 주민번호를 대시보드에서 바로 확인할 수 없었다.
+- 이번 이슈는 권한/스키마 문제가 아니라 메인 운영 화면의 표시 드리프트이므로, 기존 `/api/admin/resident-numbers` trusted path를 재사용해 복구하는 것이 맞았다.
+
+**조치**:
+- `web/src/app/dashboard/page.tsx`
+  - `selectedFc.id` 기준 `useQuery` resident-number fetch를 추가했다.
+  - 조회 경로는 기존 trusted server route `/api/admin/resident-numbers`만 사용하도록 유지했다.
+  - FC 상세 모달 헤더에 주민등록번호 full-view와 생년월일(read-only derived text)을 추가해, 어느 탭에 있든 운영자가 바로 확인할 수 있게 했다.
+  - 조회 실패 시 `resident_id_masked` 같은 마스킹 fallback으로 되돌리지 않고 `주민번호 조회 실패`를 그대로 보여주도록 유지했다.
+- `docs/handbook/admin-web/dashboard-lifecycle.md`
+  - 메인 대시보드 모달도 resident-number full-view 대상이라는 점과, trusted path/조회 실패 표시 원칙을 handbook에 반영했다.
+
+**결과**:
+- 총무/본부장은 이제 `/dashboard` 메인 동선에서도 FC 상세 모달을 열면 주민번호와 생년월일을 즉시 확인할 수 있다.
+- resident-number는 여전히 `fc_identity_secure` 복호화 기반 trusted path에서만 읽고, 이번 변경으로 스키마/권한 모델은 바뀌지 않았다.
+
+**검증**:
+- `cd web && npm run lint -- src/app/dashboard/page.tsx`
+- `cd web && npm run build`
+- `node scripts/ci/check-governance.mjs`
+
+**남은 확인**:
+- 필요하면 실제 브라우저 런타임에서 `/dashboard` 모달을 열어 resident-number block 배치와 조회 실패 문구를 한 번 더 시각 확인하면 된다.
+
+## <a id="20260402-session-grounding-skill-discovery"></a> 2026-04-02 | 새 세션용 `hanhwa-session-grounding` skill 추가 + referral historical-first 계약 재확인
+
+**배경**:
+- `E:\hanhwa`에서는 새 세션 시작 시 읽어야 할 문서 묶음이 루트 `AGENTS.md`, `fc-onboarding-app/.claude/PROJECT_GUIDE.md`, `request_board/AGENTS.md`, `docs/referral-system/AGENTS.md` 등에 분산돼 있었다.
+- 새 세션 AI가 "문서부터 읽고 현재 흐름을 파악"해야 하는 요청을 받았을 때, 어떤 문서를 어떤 순서로 읽고 언제 referral 같은 고맥락 영역으로 확장할지에 대한 전용 skill이 없었다.
+- 동시에 review finding으로 재제기된 invitee code lookup 이슈는 source repo 기준으로 이미 historical-first contract와 rollout migration, `RF-DATA-02` PASS evidence가 정리된 상태여서, 새 동작 변경이 아니라 드리프트 재확인이 필요한 상황이었다.
+
+**조치**:
+- `C:\Users\jj812\.codex\skills\hanhwa-session-grounding`에 새 skill을 만들고, `references/document-bundles.md`에 `fc-onboarding-app`, `request_board`, referral expansion 문서 묶음을 고정했다.
+- skill 본문에는 scope 판별 -> `E:\hanhwa\AGENTS.md` 우선 읽기 -> repo base bundle 읽기 -> `WORK_LOG` 기반 anchor-only `WORK_DETAIL` 읽기 -> high-context bundle 확장 -> concise orientation summary 반환 순서를 명시했다.
+- `E:\hanhwa\AGENTS.md`에 새 세션 오리엔테이션/문서-first 요청은 `hanhwa-session-grounding`을 먼저 쓰도록 추가했다.
+- `.claude/PROJECT_GUIDE.md`의 작업 시작 체크리스트와 프롬프트 템플릿을 새 skill 기준으로 갱신했다.
+- referral finding 1 closure는 source drift 여부만 재확인했다.
+  - `supabase/schema.sql`의 `get_invitee_referral_code(uuid)` 순서가 여전히 `referral_code_id row -> referral_code snapshot -> inviter current active code -> recommender_fc_id active code`인지 확인했다.
+  - 추가 migration 없이 기존 `20260402000002_fix_invitee_referral_code_history_priority.sql`만 rollout artifact로 유지되는지 확인했다.
+  - `docs/referral-system/TEST_RUN_RESULT.json`의 `RF-DATA-02`가 여전히 PASS이며 historical signup code priority를 근거로 적고 있는지 확인했다.
+
+**결과**:
+- 이제 `E:\hanhwa` 새 세션 오리엔테이션은 전용 skill로 시작할 수 있고, 문서-first 요청에서도 base bundle과 referral expansion bundle을 일관된 순서로 읽게 됐다.
+- invitee code lookup review finding은 source repo 기준으로 이미 닫힌 상태이며, 이번 변경에서는 runtime/schema 계약을 다시 바꾸지 않았다.
+
+**검증**:
+- `python -X utf8 C:\Users\jj812\.codex\skills\.system\skill-creator\scripts\quick_validate.py C:\Users\jj812\.codex\skills\hanhwa-session-grounding`
+- `node scripts/ci/check-governance.mjs`
+- `Select-String -Path supabase\\schema.sql -Pattern 'create or replace function public.get_invitee_referral_code|confirmed_referral_code_row|confirmed_inviter_active_code|linked_recommender_code'`
+- `Select-String -Path docs\\referral-system\\TEST_RUN_RESULT.json -Pattern 'RF-DATA-02|historical signup code|Q2WX3ER4'`
+- fresh forward-test 3회
+  - `fc-onboarding-app` 일반 오리엔테이션: base bundle + 관련 `WORK_DETAIL` anchor + `web/AGENTS.md`까지 올바르게 확장
+  - `request_board` 일반 오리엔테이션: base bundle + Matrix/PWA push 관련 anchor와 handbook만 좁혀 읽음
+  - referral-specific 오리엔테이션: referral bundle을 추가로 읽고 historical-first / `set-password` ordering / trust-boundary 리스크를 분리해서 요약
+
+**남은 확인**:
+- 없음. 후속 개선은 실제 사용 중 bundle 과다 읽기나 누락 패턴이 드러날 때만 진행한다.
+
+## <a id="20260402-referral-rollout-runtime-verification"></a> 2026-04-02 | 추천인 hardening rollout 원격 반영 + 런타임 재검증
+
+**배경**:
+- 로컬 코드와 문서는 `set-password` hardening, `/fc/new` recommender read-only, historical-first invitee lookup까지 정리됐지만, linked Supabase 환경은 아직 새 migration과 함수 버전이 반영되지 않은 상태였다.
+- 또한 `RF-DATA-02`, `RF-SEC-03`, `RF-SEC-04`, `RF-SEC-05`는 runtime evidence가 없어 test-run asset상 `NOT_RUN/BLOCKED`로 남아 있었다.
+
+**조치**:
+- 원격 rollout
+  - `supabase db push --yes`로 `20260402000002_fix_invitee_referral_code_history_priority.sql`를 linked project `ubeginyxaotcamuqpmud`에 적용했다.
+  - `supabase functions deploy set-password --project-ref ubeginyxaotcamuqpmud`로 `set-password`를 재배포했다.
+  - 후속 `supabase migration list`에서 `20260402000002`가 local/remote 모두 반영된 것을 확인했고, `supabase functions list`에서 `set-password`가 version `47` / `2026-04-02 06:04:40 UTC`로 올라간 것을 확인했다.
+- synthetic fixture 준비
+  - 실사용 계정과 충돌하지 않도록 `REFTEST-*` 이름 prefix와 `01099989021/22/23/31/41/51` synthetic 전화번호를 사용했다.
+  - `docs/referral-system/fixtures/README.md`에 이 fixture phone과 용도를 기록했다.
+- runtime 검증
+  - `RF-DATA-02`
+    - same-name inviter A/B(`01099989021`, `01099989022`)와 invitee(`01099989023`)를 synthetic fixture로 준비했다.
+    - inviter A의 historical confirmed code를 `Q2WX3ER4`, rotation 이후 current active code를 `T5YU6PL7`, same-name inviter B active code를 `N8MB7VC6`로 만들었다.
+    - `get_invitee_referral_code(invitee)`가 `Q2WX3ER4`를 반환하는지 확인했다.
+  - `RF-SEC-03`
+    - fresh-number phone `01099989031`에 대해 anon direct `set-password`를 호출했다.
+    - 응답이 `phone_not_verified`이고, 전/후 `fc_profiles` row가 생성되지 않는지 확인했다.
+  - `RF-SEC-04`
+    - `01099989041` synthetic FC를 `phone_verified=true`, `password_set_at` set, `recommender/address/status/email/carrier`가 채워진 상태로 준비했다.
+    - duplicate anon direct `set-password`를 호출한 뒤 응답이 `already_set`인지, before/after profile snapshot이 동일한지 확인했다.
+  - `RF-SEC-05`
+    - `/fc/new` 저장 payload와 동일한 shape로 `recommender` 없는 update를 `01099989051` fixture에 실행했다.
+    - DB 수준에서는 `recommender=SEC05-CACHE-KEEP`가 유지되는 것을 확인했다.
+    - 다만 실제 앱 UI에서 read-only block이 렌더링되는 runtime 증거는 이번 세션에서 확보하지 못했다.
+- 결과 반영
+  - `docs/referral-system/TEST_RUN_RESULT.json`에 `RF-DATA-02`, `RF-SEC-03`, `RF-SEC-04`를 PASS로, `RF-SEC-05`를 BLOCKED로 반영했다.
+
+**결과**:
+- linked Supabase는 이제 `20260402000002_fix_invitee_referral_code_history_priority.sql`까지 source repo와 동기화됐다.
+- 원격 `set-password`는 version `47`로 올라갔다.
+- referral hardening 후속의 핵심 runtime 검증 3건은 PASS로 닫혔고, 남은 blocker는 `/fc/new` UI runtime evidence만 남았다.
+
+**검증**:
+- `supabase db push --yes`
+- `supabase migration list`
+- `supabase functions deploy set-password --project-ref ubeginyxaotcamuqpmud`
+- `supabase functions list --project-ref ubeginyxaotcamuqpmud`
+- inline Node runtime evidence script
+  - `RF-DATA-02` => inviter A current active `T5YU6PL7`, inviter B active `N8MB7VC6`, RPC result `Q2WX3ER4`
+  - `RF-SEC-03` => `phone_not_verified`, pre/post `fc_profiles(phone=01099989031)` null
+  - `RF-SEC-04` => `already_set`, before/after tracked profile fields identical
+  - `RF-SEC-05` => DB non-overwrite pass, UI runtime 미검증
+
+**남은 확인**:
+- `RF-SEC-05`는 실제 `/fc/new` 앱 UI 또는 browser/device runtime에서 read-only recommender block을 직접 확인해야 PASS로 올릴 수 있다.
+
+---
+
+## <a id="20260402-referral-hardening-followup"></a> 2026-04-02 | 추천인 hardening follow-up(`set-password` precondition/order fix + FC cache read-only + historical-first lookup)
+
+**배경**:
+- referral audit에서 4개의 구체적 무결성 이슈가 다시 드러났다.
+- `set-password`는 fresh number direct call에서도 profile/credentials를 만들 수 있었고, duplicate/direct call에서는 `already_set`를 반환하기 전에 기존 추천인/온보딩 상태를 먼저 지울 수 있었다.
+- `app/fc/new.tsx`는 가입 후에도 `fc_profiles.recommender`를 일반 사용자 자유입력으로 저장할 수 있었고, `get_invitee_referral_code(uuid)`는 inviter code rotation 후 historical signup code 대신 현재 활성 코드를 먼저 보여줄 수 있었다.
+
+**조치**:
+- `supabase/functions/set-password/index.ts`
+  - fresh-number insert branch를 제거하고 `phone_verified=true` existing profile만 최종 가입으로 승격하도록 변경했다.
+  - `fc_credentials.password_set_at` 확인을 profile reset/update보다 앞으로 이동해 duplicate/direct call이 기존 추천인/온보딩 상태를 지우지 않게 했다.
+  - 더 이상 쓰지 않는 legacy payload type `recommender` 선언을 제거했다.
+- `app/fc/new.tsx`
+  - 추천인 자유입력 필드를 제거하고 `가입 시 저장된 추천인` read-only block으로 교체했다.
+  - 저장 payload와 validation schema에서 `recommender`를 제거해 일반 사용자 기본정보 저장이 추천인 cache를 덮어쓰지 않게 했다.
+- `supabase/schema.sql`, `supabase/migrations/20260402000002_fix_invitee_referral_code_history_priority.sql`
+  - `get_invitee_referral_code(uuid)` lookup order를 historical-first로 바꿨다.
+  - 순서를 `confirmed referral_code_id row -> confirmed referral_code snapshot -> confirmed inviter current active code -> recommender_fc_id current active code`로 재정렬했다.
+- 문서/계약
+  - `docs/referral-system/*`, `docs/handbook/*`, `contracts/*`, `.claude/PROJECT_GUIDE.md`를 current hardening 기준으로 다시 맞췄다.
+  - 새 회귀 케이스 `RF-SEC-03`, `RF-SEC-04`, `RF-SEC-05`와 incident `INC-008`를 추가했다.
+
+**결과**:
+- `set-password`는 이제 OTP trusted path가 미리 만든 `phone_verified=true` profile만 최종 가입으로 승격한다.
+- duplicate/direct `set-password` 호출이 `already_set`를 반환하면서 기존 추천인/온보딩 상태를 지우는 경로를 막았다.
+- FC 기본정보 화면에서 추천인 cache는 읽기 전용으로만 남는다.
+- 관리자/모바일 invitee code lookup은 confirmed attribution이 있는 경우 historical signup code를 우선 표시한다.
+
+**검증**:
+- 코드 변경 후 정적 검증은 아래 항목으로 다시 수행했다.
+  - `npm run lint -- app/fc/new.tsx`
+  - `node -e "const fs=require('fs'); const ts=require('typescript'); const file='supabase/functions/set-password/index.ts'; const source=fs.readFileSync(file,'utf8'); const result=ts.transpileModule(source,{compilerOptions:{module:ts.ModuleKind.ESNext,target:ts.ScriptTarget.ES2022}}); if (result.diagnostics?.length) { console.error(result.diagnostics.map(d=>d.messageText).join('\\n')); process.exit(1); }"`
+  - `node -e "JSON.parse(require('fs').readFileSync('docs/referral-system/test-cases.json','utf8')); JSON.parse(require('fs').readFileSync('docs/referral-system/TEST_RUN_RESULT.json','utf8')); console.log('ok')"`
+
+**남은 확인**:
+- `RF-DATA-02`, `RF-SEC-03`, `RF-SEC-04`, `RF-SEC-05`는 코드 fix는 반영됐지만 live/runtime evidence는 아직 수집하지 않았다.
+- 새 migration `20260402000002_fix_invitee_referral_code_history_priority.sql` 적용과 referral function 재배포가 필요하다.
+
+---
+
 ## <a id="20260402-referral-rollout-verification-deploy"></a> 2026-04-02 | 추천인 rollout 검증 + Supabase migration/function 반영
 
 **배경**:

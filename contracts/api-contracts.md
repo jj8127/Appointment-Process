@@ -52,10 +52,15 @@ OTP 검증
 {
   phone: string;
   password: string;
-  name: string;
-  affiliation: string;
-  recommender?: string;
+  confirm?: string;
+  name?: string;
+  affiliation?: string;
   email?: string;
+  carrier?: string;
+  commissionStatus?: 'none' | 'life_only' | 'nonlife_only' | 'both';
+  referralCode?: string;
+  referralInviterFcId?: string;
+  recommender?: string; // legacy client field; trusted referral 판단에는 사용하지 않음
 }
 ```
 
@@ -63,9 +68,14 @@ OTP 검증
 ```typescript
 {
   ok: boolean;
+  code?: string;
   message?: string;
 }
 ```
+
+**추가 계약**
+- `set-password`는 OTP trusted path가 이미 만든 `phone_verified=true` `fc_profiles` row가 있을 때만 성공한다.
+- 이미 `fc_credentials.password_set_at`가 있는 FC에 대한 중복 호출은 `already_set`로 거절되며, 기존 추천인/온보딩 상태를 지우지 않는다.
 
 ### 1.4 login-with-password
 로그인

@@ -131,6 +131,16 @@ const readSignupReferralCode = (payload: unknown) => {
     : null;
 };
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value) && typeof value === 'object' && !Array.isArray(value);
+}
+
+const getBirthDate = (residentNumber?: string | null) => {
+  const digits = String(residentNumber ?? '').replace(/\D/g, '');
+  if (digits.length < 6) return '-';
+  return `${digits.slice(0, 2)}.${digits.slice(2, 4)}.${digits.slice(4, 6)}`;
+};
+
 const isHanwhaApproved = (
   profile: Pick<FCProfileWithDocuments, 'status' | 'hanwha_commission_date'>,
 ) => Boolean(profile.hanwha_commission_date || HANWHA_APPROVED_STATUSES.includes(profile.status));
@@ -733,6 +743,32 @@ export default function DashboardPage() {
     enabled: !!selectedFc?.id,
   });
 
+  const canReadResidentNumber = role === 'admin' || role === 'manager';
+  const {
+    data: selectedResidentNumber,
+    isFetching: isSelectedResidentNumberFetching,
+    refetch: refetchSelectedResidentNumber,
+  } = useQuery({
+    queryKey: ['dashboard-resident-number', selectedFc?.id, role],
+    queryFn: async () => {
+      if (!selectedFc?.id) return null;
+      const resp = await fetch('/api/admin/resident-numbers', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({ fcIds: [selectedFc.id] }),
+      });
+      const json: unknown = await resp.json().catch(() => null);
+      if (!resp.ok || !isRecord(json) || json.ok !== true || !isRecord(json.residentNumbers)) {
+        return null;
+      }
+      const residentNumbers = json.residentNumbers as Record<string, unknown>;
+      const value = residentNumbers[selectedFc.id];
+      return typeof value === 'string' && value.trim() ? value : null;
+    },
+    enabled: canReadResidentNumber && !!selectedFc?.id,
+  });
+
   useEffect(() => {
     if (!opened || !selectedFc?.id) {
       return;
@@ -740,6 +776,14 @@ export default function DashboardPage() {
 
     void refetchSignupReferralCode();
   }, [opened, refetchSignupReferralCode, selectedFc?.id]);
+
+  useEffect(() => {
+    if (!opened || !selectedFc?.id || !canReadResidentNumber) {
+      return;
+    }
+
+    void refetchSelectedResidentNumber();
+  }, [canReadResidentNumber, opened, refetchSelectedResidentNumber, selectedFc?.id]);
 
   const recommenderDisplay = useMemo(
     () => getRecommenderDisplay(selectedFc),
@@ -1967,6 +2011,9 @@ export default function DashboardPage() {
   const canResetToLookup = Boolean(
     selectedFc?.temp_id && !isReadOnly && isLookupResettableStatus(selectedFc?.status),
   );
+  const selectedResidentNumberDisplay = isSelectedResidentNumberFetching
+    ? '주민번호 조회 중...'
+    : (selectedResidentNumber ?? '주민번호 조회 실패');
 
   return (
     <Box p="lg" maw={1600} mx="auto">
@@ -2234,6 +2281,17 @@ export default function DashboardPage() {
                 <Text size="sm" c="dimmed">
                   {selectedFc.phone} · {selectedFc.affiliation || '소속 미정'}
                 </Text>
+                <Stack gap={2} mt={6}>
+                  <Text size="sm" fw={600} c="dark.8">
+                    주민등록번호:{' '}
+                    <Text component="span" size="sm" fw={700} c={isSelectedResidentNumberFetching ? 'dimmed' : 'dark.8'}>
+                      {selectedResidentNumberDisplay}
+                    </Text>
+                  </Text>
+                  <Text size="xs" c="dimmed">
+                    생년월일: {getBirthDate(selectedResidentNumber)}
+                  </Text>
+                </Stack>
               </div>
             </Group>
 

@@ -1,6 +1,6 @@
 {
   "meta": {
-    "generatedAt": "2026-04-01T18:30:00.000Z",
+    "generatedAt": "2026-04-02T12:00:00.000Z",
     "source": "docs/referral-system/test-cases.json",
     "note": "status: NOT_RUN | PASS | FAIL | BLOCKED | SKIPPED"
   },
@@ -277,17 +277,17 @@
       "area": "정합성",
       "priority": "P0",
       "platform": ["backend", "web", "app"],
-      "title": "동명이인 이름과 무관하게 invitee 추천코드 조회는 구조화 FK 또는 confirmed attribution 기준으로만 동작한다",
+      "title": "동명이인 이름과 무관하게 invitee 추천코드 조회는 structured attribution 기준으로 historical signup code를 우선한다",
       "status": "PASS",
       "owner": "Codex",
-      "executedAt": "2026-03-31T13:31:00.000Z",
+      "executedAt": "2026-04-02T06:10:00.000Z",
       "evidence": [
-        "service-role GET /rest/v1/fc_profiles?select=id,name,recommender,recommender_fc_id&recommender_fc_id=not.is.null&limit=1 => 현승호 / 최경집 / eb5e0214-a49a-428c-ba90-2c6a96940263",
-        "service-role GET /rest/v1/referral_codes?select=code,fc_id,is_active&fc_id=eq.eb5e0214-a49a-428c-ba90-2c6a96940263&is_active=eq.true => FVFHV8DY",
-        "service-role POST /rest/v1/rpc/get_invitee_referral_code {\"p_fc_id\":\"dabbb9a7-3690-4784-b003-07e0b959af3c\"} => FVFHV8DY",
-        "service-role GET /rest/v1/fc_profiles?select=id,name,recommender,recommender_fc_id&recommender=eq.%EA%B9%80%EC%A7%84%ED%9D%AC&recommender_fc_id=is.null => 김진희 legacy unresolved row 유지"
+        "service-role synthetic fixture setup: same-name inviter A/B phones `01099989021`/`01099989022`, invitee phone `01099989023`",
+        "service-role referral_codes active rows => inviter A current active `T5YU6PL7`, same-name inviter B active `N8MB7VC6`",
+        "service-role confirmed attribution snapshot for invitee fc_id `f43a6b8e-5045-4b41-a1ce-10d24666fa9f` => historical code `Q2WX3ER4`",
+        "service-role RPC `get_invitee_referral_code(f43a6b8e-5045-4b41-a1ce-10d24666fa9f)` => `Q2WX3ER4`"
       ],
-      "notes": "구조화 recommender_fc_id가 채워진 invitee는 해당 FK 소유자의 활성 코드와 RPC 결과가 일치했고, 동명이인 김진희 레거시 케이스는 자동 연결되지 않은 채 unresolved로 남았다."
+      "notes": "동명이인 inviter 2명을 같은 이름으로 만들고 inviter A 코드를 `Q2WX3ER4 -> T5YU6PL7`로 rotate한 뒤 재검증했다. RPC는 current active code가 아니라 confirmed historical code `Q2WX3ER4`를 반환했다."
     },
     {
       "caseId": "RF-HISTORY-01",
@@ -334,9 +334,56 @@
       "notes": "linked remote에 20260401000002를 반영한 뒤 anon RPC는 permission denied로 막히고 service-role RPC는 정상 응답했다. self-service current path도 `get-my-referral-code` + appSessionToken 기준으로 유지된다."
     },
     {
+      "caseId": "RF-SEC-03",
+      "area": "보안",
+      "priority": "P0",
+      "platform": ["backend"],
+      "title": "`set-password`는 OTP로 검증된 기존 profile 없이 신규 FC를 만들지 않는다",
+      "status": "PASS",
+      "owner": "Codex",
+      "executedAt": "2026-04-02T06:10:00.000Z",
+      "evidence": [
+        "service-role pre-check `fc_profiles(phone=01099989031)` => null",
+        "anon direct `POST /functions/v1/set-password` {phone:`01099989031`, ...} => `{ ok:false, code:\"phone_not_verified\" }`",
+        "service-role post-check `fc_profiles(phone=01099989031)` => null"
+      ],
+      "notes": "fresh-number direct call을 anon 경로로 다시 실행했고, `phone_not_verified`로 거절되면서 `fc_profiles` row가 생성되지 않는 것을 원격에서 확인했다."
+    },
+    {
+      "caseId": "RF-SEC-04",
+      "area": "보안",
+      "priority": "P0",
+      "platform": ["backend"],
+      "title": "중복 `set-password` 호출은 `already_set`로 거절되고 기존 추천인/온보딩 상태를 지우지 않는다",
+      "status": "PASS",
+      "owner": "Codex",
+      "executedAt": "2026-04-02T06:10:00.000Z",
+      "evidence": [
+        "service-role fixture upsert phone `01099989041` => name `REFTEST-SEC04`, recommender `SEC04-CACHE-KEEP`, address `서울 SEC04`, status `allowance-pending`, email `sec04@test.local`, carrier `SKT`, phone_verified=true, password_set_at set",
+        "anon direct `POST /functions/v1/set-password` for `01099989041` => `{ ok:false, code:\"already_set\" }`",
+        "service-role before/after profile snapshot for `01099989041` => tracked fields unchanged"
+      ],
+      "notes": "duplicate direct call 후 `name`, `affiliation`, `recommender`, `address`, `address_detail`, `status`, `email`, `carrier`를 비교했고 모두 보존됐다."
+    },
+    {
+      "caseId": "RF-SEC-05",
+      "area": "보안",
+      "priority": "P1",
+      "platform": ["app", "backend"],
+      "title": "FC 기본정보 화면은 추천인 cache를 읽기 전용으로만 노출하고 일반 사용자 저장으로 덮어쓰지 않는다",
+      "status": "BLOCKED",
+      "owner": "Codex",
+      "executedAt": "2026-04-02T06:10:00.000Z",
+      "evidence": [
+        "service-role fixture upsert phone `01099989051` => recommender `SEC05-CACHE-KEEP`",
+        "runtime DB simulation of `/fc/new` save payload without `recommender` => name/affiliation/email/carrier updated but recommender remained `SEC05-CACHE-KEEP`"
+      ],
+      "notes": "저장 payload가 recommender cache를 덮어쓰지 않는 것은 원격 DB로 확인했다. 다만 실제 앱 UI에서 read-only block이 보이는지 on-device/browser runtime은 이번 세션에서 실행하지 못해 BLOCKED로 유지한다."
+    },
+    {
       "caseId": "RF-INT-01",
       "area": "저장소경계",
-      "priority": "P0",
+      "priority": "P1",
       "platform": ["app", "web", "backend"],
       "title": "request_board는 추천 관계 원본이 없어도 기존 흐름을 깨지 않는다",
       "status": "NOT_RUN",
@@ -348,7 +395,7 @@
     {
       "caseId": "RF-SELF-01",
       "area": "추천코드",
-      "priority": "P1",
+      "priority": "P0",
       "platform": ["app", "backend"],
       "title": "FC self-service 추천코드 조회는 현재 runtime hook(`get-my-referral-code`) 기준으로 active code를 반환한다",
       "status": "BLOCKED",

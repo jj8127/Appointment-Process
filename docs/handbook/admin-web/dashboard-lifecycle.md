@@ -2,7 +2,7 @@ doc_id: FC-ADMIN-DASHBOARD-LIFECYCLE
 owner_repo: fc-onboarding-app
 owner_area: admin-web
 audience: operator, developer
-last_verified: 2026-03-31
+last_verified: 2026-04-02
 source_of_truth: web/src/app/dashboard/page.tsx + web/src/app/dashboard/profile/[id]/page.tsx + web/src/app/api/admin/fc/route.ts + web/src/lib/shared.ts
 
 # Admin Web Playbook: Dashboard Lifecycle
@@ -26,6 +26,7 @@ source_of_truth: web/src/app/dashboard/page.tsx + web/src/app/dashboard/profile/
 - FC 리스트/검색
 - step bucket
 - profile basic info
+- resident number full-view (`/dashboard` 모달 + `/dashboard/profile/[id]`)
 - recommender + invitee referral code
 - doc/hanwha/appointment status
 - commission flags
@@ -48,7 +49,8 @@ source_of_truth: web/src/app/dashboard/page.tsx + web/src/app/dashboard/profile/
 
 - `manager`는 같은 화면을 보더라도 write action이 비활성
 - FC 상세 모달은 `수당 동의 / 서류 관리 / 한화 위촉 / 생명/손해 위촉` 4탭 구조
-- FC 상세 모달과 `/dashboard/profile/[id]`는 `추천인` 아래에 해당 추천인의 현재 활성 `추천 코드`를 함께 표시한다. 활성 코드가 없으면 `confirmed attribution` 코드로 fallback하고, 둘 다 없으면 `-`로 유지한다.
+- FC 상세 모달 헤더는 `/api/admin/resident-numbers` trusted path를 통해 주민등록번호 full-view와 생년월일을 바로 보여준다. 실패 시 masked fallback으로 돌리지 않고 조회 실패를 그대로 표시한다.
+- FC 상세 모달과 `/dashboard/profile/[id]`는 `추천인` 아래에 invitee의 `가입 시 사용한 추천코드`를 함께 표시한다. confirmed attribution의 historical code가 우선이고, 그것이 없을 때만 inviter 현재 활성 코드 또는 구조화 링크 fallback을 사용하며, 모두 없으면 `-`로 유지한다.
 - temp-id, allowance, docs, hanwha, appointment, commission flag가 서로 상태 합성에 영향
 - 수당동의 탭은 `동의일(Actual)` 저장과 `입력 완료 / 사전 심사 요청 완료 / 승인 완료 / 미승인` 조작을 함께 처리하며, 총무는 `allowance_date` 유무와 관계없이 상태를 바꿀 수 있습니다.
 - 한화 위촉 탭은 `완료일(FC 제출)` 확인, 승인 PDF 업로드/삭제, `미승인 / 승인 완료` 조작을 담당하며 별도 `관리자 승인일` 입력 UI는 없습니다.

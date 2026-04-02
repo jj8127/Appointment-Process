@@ -2,7 +2,7 @@ doc_id: FC-DATA-MODEL-CANON
 owner_repo: fc-onboarding-app
 owner_area: data
 audience: developer, operator
-last_verified: 2026-03-31
+last_verified: 2026-04-02
 source_of_truth: supabase/schema.sql + supabase/migrations/*
 
 # Data Handbook: Data Model Canon
@@ -62,6 +62,6 @@ source_of_truth: supabase/schema.sql + supabase/migrations/*
 
 - `referral_attributions`는 관리자 전용 RLS 테이블이므로, 모바일 anon 클라이언트는 직접 조회하지 않습니다.
 - `20260331000002_get_invitee_referral_code_fn.sql`은 `public.get_invitee_referral_code(uuid)` `SECURITY DEFINER` 함수를 추가합니다.
-- `20260331000003_fix_get_invitee_referral_code_lookup.sql`은 위 함수를 수정해, 대상 FC의 `recommender` 이름과 일치하는 추천인의 `referral_codes.is_active=true` 코드를 우선 반환하도록 바로잡습니다.
-- 활성 코드가 없을 때만 `invitee_fc_id = p_fc_id`이면서 `status='confirmed'`인 attribution의 `referral_code`를 fallback으로 반환합니다.
-- 권한은 `anon`, `authenticated`, `service_role` execute만 허용하고 `PUBLIC` 기본 execute는 revoke 합니다.
+- `20260331000003_fix_get_invitee_referral_code_lookup.sql`은 위 함수를 이름 문자열이 아니라 `recommender_fc_id`와 structured attribution만 사용하도록 수정합니다.
+- `20260401000002_reassert_get_invitee_referral_code_service_role_only.sql`은 execute grant를 `service_role` only로 다시 고정합니다.
+- `20260402000002_fix_invitee_referral_code_history_priority.sql`은 lookup order를 historical-first로 바꿔, confirmed attribution이 있으면 `referral_code_id -> referral_code snapshot -> inviter active code` 순으로 먼저 읽고 `recommender_fc_id` 현재 활성 코드는 마지막 degraded fallback으로만 사용하게 합니다.

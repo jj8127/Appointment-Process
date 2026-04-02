@@ -23,10 +23,13 @@
 - `/dashboard/referrals`는 현재 `추천코드 운영 + 레거시 추천인 검토 큐` 화면이다. full `referral_attributions` 탐색기처럼 기대하는 케이스는 PASS로 처리하지 않는다.
 - 앱 미설치 -> 스토어 설치 -> 첫 실행 자동 복원은 현재 계약이 아니다. 해당 케이스는 `자동 복원 없음 + 수동 fallback 필요`를 확인하는 방향으로만 실행한다.
 - `RF-SEC-02`는 repo source 기준 intended contract와 runtime rollout 상태를 구분해서 적는다.
-  - repo source: `20260401000001_fix_referral_code_fn_anon_grant.sql` 이후 `get_invitee_referral_code(uuid)`는 `service_role` only
+  - repo source: `20260401000002_reassert_get_invitee_referral_code_service_role_only.sql` 이후 `get_invitee_referral_code(uuid)`는 `service_role` only
   - runtime rollout 미검증이면 PASS 대신 `NOT_RUN` 또는 `BLOCKED`
 - self-service 조회 문서는 현재 hook 경로 `hooks/use-my-referral-code.ts -> get-my-referral-code`를 기준으로 맞춘다.
 - 관리자 invitee 코드 조회 케이스는 사용자 의미를 `가입 시 사용한 추천코드`로 기록한다. 내부 lookup order를 이유로 `추천인 현재 활성 코드`라고 풀어 쓰지 않는다.
+- `RF-DATA-02`는 inviter가 이후 코드를 rotate해도 confirmed attribution이 있으면 historical signup code가 우선 표시되는지까지 확인해야 PASS다.
+- `RF-SEC-03`, `RF-SEC-04`는 `set-password` direct/duplicate 호출 hardening을 검증한다. source review만으로 PASS 처리하지 않는다.
+- `RF-SEC-05`는 FC 기본정보 화면에서 추천인 표시 cache가 읽기 전용인지 확인한다.
 
 ## 4. 권장 실행 순서
 
@@ -81,10 +84,13 @@
 
 - `RF-OBS-01` 현재 persisted runtime 범위(`signup_completed`, `referral_confirmed`, `referral_rejected`, code lifecycle, `admin_override_applied`)에서 이벤트 타임라인 복원 가능
 - `RF-DATA-01` invitee orphan/중복 confirmed row 부재 및 inviter snapshot 보존
-- `RF-DATA-02` 동명이인 이름과 무관하게 `get_invitee_referral_code(uuid)`가 `recommender_fc_id` 또는 structured attribution 기준으로만 코드를 반환함
+- `RF-DATA-02` 동명이인 이름과 무관하게 `get_invitee_referral_code(uuid)`가 structured attribution 기준으로 historical signup code를 우선 반환함
 - `RF-HISTORY-01` inviter 계정 삭제 후에도 attribution/event snapshot으로 이력 복원 가능
 - `RF-SEC-01` 반복 무효 입력/링크 변조가 추천 관계를 만들지 않음
 - `RF-SEC-02` direct client access는 차단되고 trusted server path만 추천인 read/write를 수행함
+- `RF-SEC-03` `set-password`는 OTP로 검증된 기존 profile 없이 신규 FC를 만들지 않음
+- `RF-SEC-04` 중복 `set-password` 호출은 `already_set`로 거절되고 기존 추천인/온보딩 상태를 지우지 않음
+- `RF-SEC-05` FC 기본정보 화면은 추천인 cache를 읽기 전용으로만 노출하고 일반 사용자 저장으로 덮어쓰지 않음
 
 ### 5.6 저장소 경계
 

@@ -32,4 +32,5 @@ source_of_truth: env contracts + reset-password functions + admin service-role c
 ## 2026-03-28 운영 메모
 
 - `request-signup-otp`와 `set-password`는 로그인/가입 시 shared commission initializer를 거치므로, 위촉 단계 필드(`hanwha_commission_*`, 보험 위촉 제출/승인 필드) 초기화 규칙과 같이 검토해야 합니다.
+- `set-password`는 OTP로 검증된 기존 profile만 승격하고, duplicate/direct call에서는 `password_set_at`를 먼저 확인한 뒤에만 reset/update를 수행해야 합니다. fresh-number bypass나 기존 추천인/온보딩 상태 wipe는 security regression으로 취급합니다.
 - 모바일/웹 push fanout은 `device_tokens.role='admin'`만 전제하면 안 됩니다. 총무 기기가 `manager` role로 등록될 수 있으므로, FC 제출 알림은 `admin`과 `manager` 토큰을 모두 포함해야 합니다.
