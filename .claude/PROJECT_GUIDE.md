@@ -128,17 +128,26 @@
    - 모바일 시험 신청 화면은 기존 신청 복원 시에도 stale `location_id`를 그대로 되살리지 말고, 현재 회차 목록에 없는 값이면 재선택을 요구한다.
 
 9. **추천인 코드 표시**
-   - 추천인 이름이 관리자 UI에 표시되는 곳에서는, 그 추천인의 현재 활성 추천 코드를 함께 표시한다.
+   - 관리자 UI의 invitee 코드 보조 문구는 `추천인 현재 활성 코드`가 아니라 `가입 시 사용한 추천코드` 의미로 유지한다.
    - 웹 관리자(`web/src/app/dashboard/page.tsx`, `web/src/app/dashboard/profile/[id]/page.tsx`)는 `/api/admin/fc` `getReferralCode` 액션으로 RPC `public.get_invitee_referral_code(uuid)`를 호출한다.
-   - 모바일 관리자(`app/dashboard.tsx`)도 같은 RPC를 사용한다. 이 함수는 `recommender -> referral_codes.is_active=true`를 우선 조회하고, 없을 때만 `confirmed referral_attributions.referral_code`를 fallback으로 반환한다.
+   - 모바일 관리자(`app/dashboard.tsx`)는 direct RPC가 아니라 `admin-action:getInviteeReferralCode` + `appSessionToken` trusted path를 사용한다. 새 코드에 direct `get_invitee_referral_code` 호출을 추가하지 않는다.
+   - `get_invitee_referral_code(uuid)`는 이름 문자열을 역매칭하지 않고, `fc_profiles.recommender_fc_id`의 활성 코드 -> 최신 `confirmed referral_attributions.referral_code_id` row -> 최신 `confirmed referral_attributions.inviter_fc_id`의 활성 코드 -> stored `referral_code` snapshot 순서만 사용한다.
+   - repo source 기준 migration `20260401000001_fix_referral_code_fn_anon_grant.sql` 이후 `get_invitee_referral_code(uuid)` execute grant는 `service_role` only 다. 다만 이 가이드는 source 기준 SSOT이고, 원격 DB rollout 완료 여부는 별도 검증 없이는 완료라고 적지 않는다.
    - 추천 코드가 없더라도 UI는 행 자체를 숨기지 말고 `-`로 표시한다.
+   - 관리자 추천인 수정은 자유 텍스트 입력이 아니라 `활성 추천코드 보유 FC` 검색/선택형만 허용한다. clear는 명시적 버튼으로만 허용하고, legacy 문자열만 있는 FC도 clear 버튼으로 제거할 수 있어야 하며, 변경 시 사유 입력과 `admin_override_applied` 감사 로그가 필수다.
+   - 웹 추천인 override/legacy link 기능은 DB migration `20260331000005_admin_apply_recommender_override.sql` 원격 반영 전 배포 금지다.
 
 10. **추천인 Phase 2 가입/딥링크 규칙**
    - 가입 딥링크 형식은 `hanwhafcpass://signup?code=<REFERRAL_CODE>`를 기준으로 유지한다. 현재 앱은 `queryParams.code`만 읽고, `referralCode` 같은 별칭 파라미터는 사용하지 않는다.
    - `app/_layout.tsx`는 cold start에서 추천코드만 pending storage에 저장하고, warm start에서만 `router.push('/signup')`를 추가로 호출한다. expo-router가 cold start 라우팅을 이미 처리하므로 여기서 다시 push를 넣지 않는다.
    - 추천코드 pending 저장은 `lib/referral-deeplink.ts`의 단일 키(`fc-onboarding/pending-referral-code`)를 사용하고, `consumePendingReferralCode()`는 읽은 직후 삭제해 다음 가입으로 코드가 섞이지 않게 한다.
+   - 앱 미설치 -> 스토어 설치 -> 첫 실행 자동 복원, landing click 로그, server-side pending attribution은 `2026-04-01` 기준 아직 live 계약이 아니다. 문서/테스트에서 구현 완료처럼 적지 않는다.
    - `app/signup.tsx`의 추천코드 입력은 Android IME 중복 입력 회피를 위해 uncontrolled `TextInput` 패턴을 유지한다. `value` prop 재도입, `onChangeText` 안의 추가 native write(`setNativeProps`)는 금지하고, programmatic prefill에서만 native write를 허용한다.
-   - 추천코드 검증은 `validate-referral-code` Edge Function, 가입 완료 시 attribution 확정은 `set-password` Edge Function이 맡는다. 추천코드 관련 Edge Function 변경은 git push와 별개이므로 `validate-referral-code`, `get-my-referral-code`, `set-password`를 명시적으로 배포해야 한다.
+   - 추천코드 검증은 `validate-referral-code` Edge Function, 가입 완료 시 attribution 확정은 `set-password` Edge Function이 맡는다. `validate-referral-code`는 `inviterFcId`를 함께 반환하고, `set-password`는 최종 코드 row를 다시 확인해 `referral_attributions`, `fc_profiles.recommender_fc_id`, `fc_profiles.recommender`를 함께 동기화해야 한다.
+   - `set-password`는 caller-controlled `body.recommender` 문자열을 신뢰하지 않는다. 유효한 추천코드가 해석된 경우에만 `recommender`/`recommender_fc_id`를 저장하고, 재가입 reset 경로에서도 현재 resolved referral이 없으면 stale 구조화 링크를 남기지 않는다.
+   - 현재 `set-password`가 남기는 attribution source 필드는 deep link 여부와 무관하게 `manual_entry/manual_entry/manual_entry_only`로 정규화된다. deep link provenance를 DB source로 따로 남기는 계약은 아직 없다.
+   - FC 본인 추천코드 self-service의 current hook path는 `hooks/use-my-referral-code.ts -> get-my-referral-code`다. `get-fc-referral-code`가 저장소에 남아 있어도 현재 앱 기준 active path처럼 문서화하지 않는다.
+   - 추천코드 관련 Edge Function 변경은 git push와 별개이므로 현재 worktree 기준 배포 대상은 `validate-referral-code`, `get-my-referral-code`, `set-password`다.
 
 ---
 

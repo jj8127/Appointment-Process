@@ -247,6 +247,7 @@ type FcRow = {
   affiliation: string;
   phone: string;
   recommender: string | null;
+  recommender_fc_id?: string | null;
   temp_id: string | null;
   status: FcProfile['status'];
   allowance_date: string | null;
@@ -281,13 +282,27 @@ type FcRow = {
 type FcRowWithStep = FcRow & { stepKey: StepKey };
 type HanwhaPdfDraft = { path: string; name: string };
 
+const trimDisplayValue = (value?: string | null) => String(value ?? '').trim();
+
+const getRecommenderDisplayText = (row: Pick<FcRow, 'recommender' | 'recommender_fc_id'>) => {
+  const recommenderValue = trimDisplayValue(row.recommender) || '-';
+  if (trimDisplayValue(row.recommender_fc_id)) {
+    return `연결된 추천인 FC: ${recommenderValue}`;
+  }
+  if (trimDisplayValue(row.recommender)) {
+    return `레거시 추천인 표시값: ${recommenderValue}`;
+  }
+  return '연결된 추천인 FC: -';
+};
+
 async function adminAction(
   adminPhone: string,
   action: string,
   payload: Record<string, any>,
+  appSessionToken?: string | null,
 ): Promise<{ ok: boolean; [key: string]: any }> {
   const { data, error } = await supabase.functions.invoke('admin-action', {
-    body: { adminPhone, action, payload },
+    body: { adminPhone, appSessionToken, action, payload },
   });
   if (error) {
     const msg = error instanceof Error ? error.message : 'Edge Function 호출 실패';
@@ -351,7 +366,7 @@ const fetchFcs = async (
   let query = supabase
     .from('fc_profiles')
       .select(
-        'id,name,affiliation,phone,recommender,temp_id,status,allowance_date,allowance_prescreen_requested_at,allowance_reject_reason,appointment_url,appointment_date,docs_deadline_at,hanwha_commission_date_sub,hanwha_commission_date,hanwha_commission_reject_reason,hanwha_commission_pdf_path,hanwha_commission_pdf_name,appointment_schedule_life,appointment_schedule_nonlife,appointment_date_life,appointment_date_nonlife,appointment_date_life_sub,appointment_date_nonlife_sub,appointment_reject_reason_life,appointment_reject_reason_nonlife,resident_id_masked,identity_completed,career_type,email,address,address_detail,life_commission_completed,nonlife_commission_completed,fc_documents(doc_type,storage_path,file_name,status)',
+        'id,name,affiliation,phone,recommender,recommender_fc_id,temp_id,status,allowance_date,allowance_prescreen_requested_at,allowance_reject_reason,appointment_url,appointment_date,docs_deadline_at,hanwha_commission_date_sub,hanwha_commission_date,hanwha_commission_reject_reason,hanwha_commission_pdf_path,hanwha_commission_pdf_name,appointment_schedule_life,appointment_schedule_nonlife,appointment_date_life,appointment_date_nonlife,appointment_date_life_sub,appointment_date_nonlife_sub,appointment_reject_reason_life,appointment_reject_reason_nonlife,resident_id_masked,identity_completed,career_type,email,address,address_detail,life_commission_completed,nonlife_commission_completed,fc_documents(doc_type,storage_path,file_name,status)',
       )
     .order('created_at', { ascending: false });
 
@@ -381,7 +396,7 @@ const fetchFcs = async (
 };
 
 export default function DashboardScreen() {
-  const { role, residentId, hydrated, readOnly } = useSession();
+  const { role, residentId, hydrated, readOnly, appSessionToken } = useSession();
   const router = useRouter();
   const { status } = useLocalSearchParams<{ mode?: string; status?: string }>();
   const [statusFilter, setStatusFilter] = useState<FilterKey>('all');
@@ -479,6 +494,25 @@ export default function DashboardScreen() {
     Alert.alert('대시보드 오류', '데이터를 불러오지 못했습니다. 로그를 확인해주세요.');
   }, [isError]);
 
+  const fetchInviteeReferralCode = useCallback(async (fcId: string) => {
+    try {
+      const result = await adminAction(
+        residentId ?? '',
+        'getInviteeReferralCode',
+        { fcId },
+        appSessionToken,
+      );
+      const signupReferralCode = typeof result.signupReferralCode === 'string' && result.signupReferralCode.trim()
+        ? result.signupReferralCode
+        : typeof result.referralCode === 'string' && result.referralCode.trim()
+          ? result.referralCode
+        : null;
+      setReferralCodes((prev) => ({ ...prev, [fcId]: signupReferralCode }));
+    } catch {
+      setReferralCodes((prev) => ({ ...prev, [fcId]: null }));
+    }
+  }, [appSessionToken, residentId]);
+
   // Compute unique affiliations (After data is declared)
   const scopedData = useMemo(() => {
     const source = data ?? [];
@@ -568,11 +602,28 @@ export default function DashboardScreen() {
       setDocDeadlineInputs((prev) => ({ ...deadlinePrefill, ...prev }));
     }, [data]);
 
+  useEffect(() => {
+    const expandedIds = Object.keys(expanded).filter((id) => expanded[id]);
+    expandedIds.forEach((id) => {
+      if (!(id in referralCodes)) {
+        void fetchInviteeReferralCode(id);
+      }
+    });
+  }, [expanded, fetchInviteeReferralCode, referralCodes]);
+
   const onRefresh = useCallback(async () => {
     setRefreshing(true);
-    await refetch();
-    setRefreshing(false);
-  }, [refetch]);
+    setReferralCodes({});
+    try {
+      await refetch();
+      const expandedIds = Object.keys(expanded).filter((id) => expanded[id]);
+      if (expandedIds.length > 0) {
+        await Promise.allSettled(expandedIds.map((id) => fetchInviteeReferralCode(id)));
+      }
+    } finally {
+      setRefreshing(false);
+    }
+  }, [expanded, fetchInviteeReferralCode, refetch]);
 
   const updateTemp = useMutation({
     mutationFn: async ({
@@ -1200,11 +1251,8 @@ export default function DashboardScreen() {
     }
     setExpanded((prev) => {
       const next = { ...prev, [id]: !prev[id] };
-      if (next[id] && !(id in referralCodes)) {
-        void supabase.rpc('get_invitee_referral_code', { p_fc_id: id })
-          .then(({ data, error }) => {
-            setReferralCodes((r) => ({ ...r, [id]: (!error && data) ? (data as string) : null }));
-          });
+      if (next[id]) {
+        void fetchInviteeReferralCode(id);
       }
       return next;
     });
@@ -3256,14 +3304,17 @@ export default function DashboardScreen() {
                       />
                       <DetailRow label="경력구분" value={careerDisplay} />
                       <DetailRow
-                        label="추천인"
+                        label="추천정보"
                         valueNode={(
-                          <Text style={styles.detailValue}>
-                            {fc.recommender ?? '-'}{' '}
-                            <Text style={styles.detailCodeInline}>
-                              {referralCodes[fc.id] !== undefined ? (referralCodes[fc.id] ?? '-') : '...'}
+                          <View style={styles.detailValueStack}>
+                            <Text style={styles.detailValue}>{getRecommenderDisplayText(fc)}</Text>
+                            <Text style={styles.detailMetaText}>
+                              가입 시 입력한 추천코드:{' '}
+                              <Text style={styles.detailCodeInline}>
+                                {referralCodes[fc.id] !== undefined ? (referralCodes[fc.id] ?? '-') : '...'}
+                              </Text>
                             </Text>
-                          </Text>
+                          </View>
                         )}
                       />
                       <DetailRow label="이메일" value={fc.email ?? '-'} />
@@ -3481,6 +3532,16 @@ const styles = StyleSheet.create({
     fontSize: 13,
     color: CHARCOAL,
     flex: 1,
+    textAlign: 'right',
+  },
+  detailValueStack: {
+    flex: 1,
+    alignItems: 'flex-end',
+    gap: 2,
+  },
+  detailMetaText: {
+    fontSize: 11,
+    color: MUTED,
     textAlign: 'right',
   },
   detailCodeInline: {

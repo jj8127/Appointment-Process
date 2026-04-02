@@ -7,6 +7,325 @@
 
 ---
 
+## <a id="20260402-referral-rollout-verification-deploy"></a> 2026-04-02 | 추천인 rollout 검증 + Supabase migration/function 반영
+
+**배경**:
+- 추천인 시스템 정리 작업은 code/doc/schema bundle까지는 정리됐지만, linked Supabase 기준 원격 migration 반영 상태와 Edge Function 배포 여부가 마지막으로 확인되지 않은 채 남아 있었다.
+- 이전 handoff 시점에는 `20260331000005_admin_apply_recommender_override.sql` 미적용 가능성과 `get_invitee_referral_code(uuid)` remote grant 재검증 미완료가 운영 리스크로 남아 있었다.
+- 실제 커밋/푸시 전에 linked prod(`ubeginyxaotcamuqpmud`)가 source repo contract와 맞는지 다시 검증할 필요가 있었다.
+
+**조치**:
+- 검증
+  - `npm run lint`로 루트 Expo lint를 재실행했다.
+  - `npx tsc --noEmit`를 돌려 전체 앱 타입 상태를 다시 확인했고, 실패 원인이 이번 추천인 변경이 아닌 기존 앱 타입 오류(`app/appointment.tsx`, `app/exam-manage*.tsx`, `app/hanwha-commission.tsx`, `components/DaumPostcode.tsx`, `lib/fc-workflow.ts`)임을 분리했다.
+  - 별도 필터링으로 이번 추천인 변경 파일(`app/_layout.tsx`, `app/dashboard.tsx`, `app/settings.tsx`, `app/signup*.tsx`, `hooks/use-my-referral-code.ts`, `web/*`, `supabase/functions/*`)이 root `tsc` 에러 목록에 새로 나타나지 않는 것을 확인했다.
+  - `cd web && npm run lint .`, `cd web && npm run build`로 관리자 웹 lint/build를 다시 통과시켰다.
+- Supabase rollout
+  - `supabase migration list`로 linked remote 상태를 읽어 `20260331000005`, `20260401000001`이 이미 반영돼 있고, 실제 pending migration은 `20260401000002`, `20260402000001` 두 개뿐임을 확인했다.
+  - `supabase db push --dry-run`으로 적용 대상을 다시 확인한 뒤 `supabase db push --yes`로 두 migration을 원격 DB에 반영했다.
+  - `supabase functions deploy admin-action`, `validate-referral-code`, `get-my-referral-code`, `get-fc-referral-code`, `set-password`를 linked project에 다시 배포했다.
+- 보안 재검증
+  - anon REST 호출로 `POST /rest/v1/rpc/get_invitee_referral_code`가 `401 permission denied`로 막히는 것을 확인했다.
+  - service-role REST 호출로 같은 RPC가 `200 null`로 실행되는 것을 확인했다.
+  - anon REST 호출로 `GET /rest/v1/referral_attributions?select=id,referral_code&limit=1`가 빈 결과만 반환하는 것을 확인했다.
+- 로그/테스트 자산
+  - 이번 rollout evidence를 기준으로 `.claude/WORK_LOG.md`, `.claude/WORK_DETAIL.md`, `docs/referral-system/TEST_RUN_RESULT.json`를 현재 상태로 갱신했다.
+
+**결과**:
+- linked Supabase remote는 이제 `20260402000001_drop_referral_confirmed_phone_unique.sql`까지 source repo migration chain과 일치한다.
+- 추천인 trusted-path 보안 케이스 `RF-SEC-02`는 remote evidence 기준 PASS로 올릴 수 있게 됐다.
+- `RF-ADMIN-06`의 migration blocker는 해소됐고, 남은 것은 안전한 실제 운영/테스트 대상 row를 잡아 mutation 자체를 검증하는 일뿐이다.
+
+**검증**:
+- `npm run lint`
+- `npx tsc --noEmit`
+- `npx tsc --noEmit` 출력 필터링으로 추천인 변경 파일 신규 에러 부재 확인
+- `cd web && npm run lint .`
+- `cd web && npm run build`
+- `supabase migration list`
+- `supabase db push --dry-run`
+- `supabase db push --yes`
+- `supabase functions deploy admin-action --project-ref ubeginyxaotcamuqpmud`
+- `supabase functions deploy validate-referral-code --project-ref ubeginyxaotcamuqpmud`
+- `supabase functions deploy get-my-referral-code --project-ref ubeginyxaotcamuqpmud`
+- `supabase functions deploy get-fc-referral-code --project-ref ubeginyxaotcamuqpmud`
+- `supabase functions deploy set-password --project-ref ubeginyxaotcamuqpmud`
+- anon REST `POST /rest/v1/rpc/get_invitee_referral_code` => `401 permission denied`
+- service-role REST `POST /rest/v1/rpc/get_invitee_referral_code` => `200 null`
+- anon REST `GET /rest/v1/referral_attributions?select=id,referral_code&limit=1` => `200 []`
+
+**남은 확인**:
+- `RF-ADMIN-06`은 blocker가 아니라 safe mutation target 부족 때문에 아직 실행하지 않았다.
+- 모바일 deep link / signup runtime은 이번 세션에서도 on-device 재검증까지는 수행하지 않았다.
+
+---
+
+## <a id="20260402-referral-doc-followup-realignment"></a> 2026-04-02 | 추천인 docs follow-up drift 재정렬
+
+**배경**:
+- verification follow-up에서 latest subagent fixes 이후에도 referral SSOT와 `.claude` 로그 일부가 earlier intermediate state 문구를 남기고 있는 것을 확인했다.
+- current worktree 기준 `hooks/use-my-referral-code.ts`는 `get-my-referral-code`를 사용하고, repo source의 `schema.sql` + `20260401000001_fix_referral_code_fn_anon_grant.sql`는 `get_invitee_referral_code(uuid)`를 `service_role` only baseline으로 정리하고 있다.
+- 반면 일부 문서/로그는 invitee 코드 표시를 `추천인 현재 활성 코드`처럼 읽히게 적거나, self-service/grant 상태를 earlier intermediate wording으로 남겨 두고 있었다.
+
+**조치**:
+- `docs/referral-system/AGENTS.md`, `SPEC.md`, `ARCHITECTURE.md`, `TEST_CHECKLIST.md`
+  - invitee 코드 표시 의미를 `가입 시 사용한 추천코드`로 통일했다.
+  - `get_invitee_referral_code(uuid)`의 source repo baseline은 `service_role` only, current self-service hook path는 `get-my-referral-code`로 다시 명시했다.
+- `docs/referral-system/INCIDENTS.md`, `test-cases.json`, `TEST_RUN_RESULT.json`
+  - 이번 follow-up drift를 `INC-007`로 기록했다.
+  - `RF-ADMIN-01` 설명을 current UI 의미에 맞게 `가입 시 사용한 추천코드` 기준으로 정리했다.
+- `.claude/PROJECT_GUIDE.md`, `.claude/WORK_LOG.md`, `.claude/WORK_DETAIL.md`
+  - current readers가 obsolete intermediate state를 current contract로 오해하지 않도록 wording을 정리했다.
+
+**결과**:
+- 추천인 문서 세트와 `.claude` 거버넌스 로그가 current worktree 기준 invitee 표시 의미, self-service path, source-baseline을 다시 일치하게 설명한다.
+- source review로 확인한 계약과 runtime 검증 완료 항목을 계속 분리해 읽을 수 있다.
+
+**검증**:
+- code review only
+  - `hooks/use-my-referral-code.ts`
+  - `supabase/schema.sql`
+  - `supabase/migrations/20260401000001_fix_referral_code_fn_anon_grant.sql`
+  - `app/dashboard.tsx`
+  - `web/src/app/dashboard/page.tsx`
+- 문서 자산 파싱
+  - `node -e "JSON.parse(require('fs').readFileSync('docs/referral-system/test-cases.json','utf8')); JSON.parse(require('fs').readFileSync('docs/referral-system/TEST_RUN_RESULT.json','utf8')); console.log('ok')"`
+
+**남은 확인**:
+- 원격 DB rollout 완료 여부는 이번 follow-up에서도 재검증하지 않았다.
+- 관리자 UI의 실제 표시 문자열은 화면별 미세 차이가 있을 수 있으므로, 문서에서는 의미 계약을 `가입 시 사용한 추천코드`로 유지한다.
+
+---
+
+## <a id="20260401-referral-doc-governance-realignment"></a> 2026-04-01 | 추천인 문서/거버넌스를 현재 worktree 기준으로 재정렬
+
+**배경**:
+- 같은 날짜의 earlier referral 문서 정리 이후 current worktree를 다시 대조하자, self-service hook 경로와 `get_invitee_referral_code` grant 상태가 문서/로그와 다시 어긋나 있었다.
+- 현재 파일 기준 `hooks/use-my-referral-code.ts`는 `get-my-referral-code`를 호출하고, repo source의 `schema.sql` + `20260401000001_fix_referral_code_fn_anon_grant.sql`는 `get_invitee_referral_code(uuid)`를 `service_role` only intended contract로 정리하고 있다.
+- 그런데 referral SSOT와 `.claude` 로그 일부는 여전히 `get-fc-referral-code` active path, `authenticated` grant 예외 잔존처럼 적혀 있었다.
+
+**조치**:
+- `docs/referral-system/AGENTS.md`, `SPEC.md`, `ARCHITECTURE.md`
+  - FC self-service current path를 `hooks/use-my-referral-code.ts -> get-my-referral-code`로 정정했다.
+  - `get_invitee_referral_code(uuid)`는 repo source 기준 `service_role` only intended contract로 다시 적고, remote rollout은 미검증 상태로 분리했다.
+  - `/dashboard/referrals`를 full `referral_attributions` 탐색기가 아니라 `추천코드 운영 + 레거시 추천인 검토 큐` 화면으로 명확히 낮췄다.
+- `docs/referral-system/TEST_CHECKLIST.md`, `test-cases.json`, `TEST_RUN_RESULT.json`
+  - `RF-SELF-01` 기대값을 `get-my-referral-code` current path 기준으로 바꿨다.
+  - `RF-SEC-02`는 source repo intended contract와 runtime rollout 검증을 분리하도록 재정의했다.
+  - `RF-LINK-02`, `RF-OBS-01`, `RF-ADMIN-01` 등 overstatement가 있던 케이스를 현재 구현 범위로 낮췄고, 이번 review에서 실제로 다시 돌리지 않은 항목은 `NOT_RUN/BLOCKED`로 유지했다.
+- `docs/referral-system/INCIDENTS.md`
+  - self-service path / RPC grant 상태 drift를 `INC-005`로 기록했다.
+- `.claude/PROJECT_GUIDE.md`, `.claude/WORK_LOG.md`
+  - 최신 contract를 현재 worktree 기준으로 다시 동기화했다.
+- `AGENTS.md`
+  - 추천인 snapshot의 `get_invitee_referral_code` grant 설명을 repo source 기준으로 정정했다.
+
+**결과**:
+- referral 문서 세트와 `.claude` 거버넌스 로그가 현재 worktree 기준 self-service path와 grant 상태를 다시 일치하게 설명한다.
+- 테스트 자산은 “실제 실행한 검증”과 “source review로만 확인한 계약”을 구분한다.
+- 앱 미설치 자동 복원, remote DB rollout 완료, self-service end-to-end 호출 성공 같은 항목은 이번 작업에서 검증했다고 주장하지 않는다.
+
+**검증**:
+- code review only
+  - `hooks/use-my-referral-code.ts`
+  - `supabase/functions/get-my-referral-code/index.ts`
+  - `supabase/schema.sql`
+  - `supabase/migrations/20260401000001_fix_referral_code_fn_anon_grant.sql`
+  - `web/src/lib/admin-referrals.ts`
+- 문서 자산 파싱
+  - `node -e "JSON.parse(require('fs').readFileSync('docs/referral-system/test-cases.json','utf8')); JSON.parse(require('fs').readFileSync('docs/referral-system/TEST_RUN_RESULT.json','utf8')); console.log('ok')"`
+
+**남은 확인**:
+- 원격 DB에 `20260401000001_fix_referral_code_fn_anon_grant.sql`가 실제로 모두 적용됐는지는 별도 검증이 필요하다.
+- `get-my-referral-code` current hook path의 실제 앱 호출 증적과 응답 검증은 아직 수행하지 않았다.
+
+---
+
+## <a id="20260402-referral-self-service-trust-boundary-hardening"></a> 2026-04-02 | 추천인 self-service trust boundary hardening
+
+**배경**:
+- FC 설정 화면 추천코드 조회의 active path를 `get-my-referral-code`로 고정할 수 있는 상태였지만, settings visibility rule과 legacy `get-fc-referral-code` alias 경계가 한 번에 정리되지 않았다.
+- request_board-linked 설계매니저 세션도 `role === 'fc'` 조건만으로 self-service 카드를 보려다 불필요한 오류를 만날 수 있었다.
+
+**조치**:
+- `hooks/use-my-referral-code.ts`
+  - active query path를 `get-my-referral-code`로 유지하고, `isRequestBoardDesigner` 세션에서는 query를 비활성화했다.
+- `app/settings.tsx`
+  - `내 추천 코드` 카드를 `role === 'fc' && !isRequestBoardDesigner`로 제한했다.
+  - 공유/복사 버튼을 명시 handler로 분리하고 실패 시 사용자 경고를 띄우도록 정리했다.
+- `supabase/functions/get-fc-referral-code/index.ts`
+  - legacy compatibility alias로 남기되 optional `phone` body가 인증된 세션 전화번호와 일치할 때만 허용하도록 harden했다.
+- 문서/로그
+  - `docs/referral-system/SPEC.md`, `test-cases.json`, `TEST_RUN_RESULT.json`, `INCIDENTS.md`, `AGENTS.md`, `.claude/WORK_LOG.md`를 current active path 기준으로 동기화했다.
+
+**결과**:
+- FC self-service 추천코드 조회는 이제 문서/코드 모두 `get-my-referral-code` app-session-token 검증형 경로를 active contract로 사용한다.
+- request_board designer 세션은 설정 화면에서 self-service 추천코드 카드를 보지 않는다.
+- `get-fc-referral-code`는 남아 있더라도 세션과 무관한 phone lookup을 허용하지 않는다.
+- 스키마/migration 추가 없이 trust boundary만 정리했다.
+
+**검증**:
+- `npx eslint app/settings.tsx hooks/use-my-referral-code.ts`
+- `node -e "const fs=require('fs'); const ts=require('typescript'); for (const file of ['supabase/functions/get-my-referral-code/index.ts','supabase/functions/get-fc-referral-code/index.ts']) { const source=fs.readFileSync(file,'utf8'); const result=ts.transpileModule(source,{compilerOptions:{module:ts.ModuleKind.ESNext,target:ts.ScriptTarget.ES2022}}); if (result.diagnostics?.length) { console.error(result.diagnostics.map(d=>d.messageText).join('\\n')); process.exit(1); } }"`
+
+**남은 확인**:
+- `supabase functions deploy get-my-referral-code --project-ref <project-ref>`
+- `supabase functions deploy get-fc-referral-code --project-ref <project-ref>`
+- FC 실기기 세션으로 설정 화면 추천코드가 정상 표시되는지, request_board designer 세션에서는 카드가 숨겨지는지 on-device 확인이 남아 있다.
+
+---
+
+## <a id="20260401-referral-doc-contract-reconciliation"></a> 2026-04-01 | 추천인 문서/테스트 자산 계약 재정렬
+
+**배경**:
+- 추천인 review 후 문서/테스트 자산을 다시 대조하자, 일부 문구가 실제 repo 구현보다 앞서 있었다.
+- 당시 핵심 이슈는 앱 미설치 후 자동 복원, full click-to-confirm observability, trusted-path-only 서술이 현재 runtime보다 강했다는 점이었다.
+
+**조치**:
+- 앱 미설치 복원은 manual fallback 계약으로 낮췄다.
+- 관찰성은 full funnel이 아니라 현재 persisted event 범위 기준으로 정리했다.
+- deep link는 앱 설치 상태 direct scheme + local pending prefill만 current contract로 남겼다.
+- 이 항목의 self-service path / RPC grant 세부 서술은 이후 current worktree와 다시 어긋나 `20260401-referral-doc-governance-realignment`에서 재정렬됐다.
+
+**결과**:
+- 추천인 문서 세트는 앱 설치 상태 deep link prefill만 current live flow로 서술하게 됐다.
+- 앱 미설치 후 자동 복원과 full funnel observability는 후속 과제로 남겨 둔 상태가 문서에 드러나게 됐다.
+- self-service path / RPC grant 상태의 최신 정리는 상단 `20260401-referral-doc-governance-realignment` 항목을 따른다.
+
+**검증**:
+- 문서-구현 대조만 수행했다. 신규 runtime validation은 실행하지 않았다.
+
+**남은 확인**:
+- 앱 미설치 경로와 remote rollout 검증은 별도 실행이 필요하다.
+
+---
+
+## <a id="20260331-referral-live-hardening-followup"></a> 2026-03-31 | 추천인 live hardening follow-up(`set-password` fallback 제거 + web clear/audit 보정)
+
+**배경**:
+- 추천인 동명이인 안전화 직후 live 서비스 관점에서 추가 검토를 돌리자, 새 구조가 완전히 안전하다고 보기 어려운 후속 리스크가 드러났다.
+- `set-password`는 유효한 추천코드가 없을 때도 caller-controlled `recommender` 문자열을 profile cache에 저장할 수 있었고, 웹 추천인 override는 새 RPC migration이 원격 DB에 없으면 즉시 실패하는 상태였다.
+- clear 이벤트는 `admin_override_applied` row를 남겨도 `/dashboard/referrals` 최근 이벤트에서 빠져 운영 감사 추적이 끊길 수 있었다.
+
+**조치**:
+- `supabase/functions/set-password/index.ts`
+  - `body.recommender` fallback 저장을 제거했다.
+  - 유효 추천코드가 해석된 경우에만 `nextRecommenderName` / `nextRecommenderFcId`를 세팅하도록 정리했다.
+  - 따라서 caller가 임의 문자열을 보내더라도 구조화 추천코드가 확인되지 않으면 `fc_profiles.recommender` / `recommender_fc_id`를 새로 오염시키지 않는다.
+- `web/src/app/api/admin/fc/route.ts`
+  - `updateProfile`의 저장 순서를 `일반 profile update -> recommender override RPC -> profile reload`로 조정했다.
+  - temp-id 알림 insert/push는 best-effort로 내려 partial failure 시 저장 자체가 실패로 뒤집히지 않게 했다.
+  - `admin_apply_recommender_override` 미적용 상태는 generic 500 대신 explicit 503으로 노출하도록 했다.
+- `web/src/lib/admin-referrals.ts`
+  - `admin_apply_recommender_override` 미적용 에러를 명시 메시지로 정규화했다.
+  - `fetchReferralEvents()`는 `invitee_fc_id`까지 읽고, `admin_override_applied` clear 이벤트에서 `metadata.beforeRecommenderFcId`를 fallback owner로 사용해 최근 이벤트에 보이게 했다.
+- `web/src/app/dashboard/page.tsx`, `web/src/app/dashboard/profile/[id]/page.tsx`
+  - `recommender_fc_id`가 없는 레거시 문자열-only FC도 clear 버튼으로 제거할 수 있게 dirty 판정/UI를 복구했다.
+- 문서
+  - `AGENTS.md`, `docs/referral-system/AGENTS.md`, `SPEC.md`, `ARCHITECTURE.md`, `TEST_CHECKLIST.md`, `INCIDENTS.md`, `contracts/database-schema.md`, `.claude/PROJECT_GUIDE.md`에 hotfix와 staged exception(`get_invitee_referral_code` public grant, migration `20260331000005` 미적용 상태)을 반영했다.
+
+**결과**:
+- live `set-password`는 이제 유효한 추천코드가 해석되지 않으면 추천인 cache를 새로 저장하지 않는다.
+- FC 상세/프로필의 레거시 추천인 clear가 다시 가능해졌고, clear 이벤트도 referral dashboard 최근 이력에 다시 잡히도록 로컬 코드가 정리됐다.
+- 웹 추천인 override는 여전히 DB migration `20260331000005_admin_apply_recommender_override.sql` 원격 적용이 선행돼야 하며, 현재 코드는 explicit 503으로 그 상태를 드러낸다.
+- `get_invitee_referral_code` public execute grant는 구 모바일 관리자 build 호환 때문에 아직 남아 있다. 이는 trusted-path-only 최종 상태가 아니며, 신버전 앱 롤아웃 후 회수해야 한다.
+
+**검증**:
+- 로컬 코드/거버넌스
+  - `npm run lint`
+  - `cd web && npm run lint`
+  - `cd web && npx tsc --noEmit --pretty false`
+  - `node scripts/ci/check-governance.mjs`
+- 원격 함수
+  - `supabase functions deploy set-password --project-ref ubeginyxaotcamuqpmud`
+  - `supabase functions list --project-ref ubeginyxaotcamuqpmud`
+    - `set-password` v45 (`2026-03-31 13:28:46 UTC`)
+- 원격 DB 상태
+  - `supabase migration list`
+    - `20260331000005_admin_apply_recommender_override.sql`는 `Local=20260331000005`, `Remote=` blank로 남아 있음
+
+**남은 확인**:
+- `SUPABASE_DB_PASSWORD` 부재로 `20260331000005_admin_apply_recommender_override.sql`를 원격 DB에 아직 적용하지 못했다. 따라서 웹 추천인 override/legacy link UI는 지금 배포하면 안 된다.
+- `get_invitee_referral_code(uuid)` public grant 회수는 새 모바일 관리자 build가 `admin-action:getInviteeReferralCode` 경로로 충분히 전환된 뒤 후속 단계로 남아 있다.
+
+---
+
+## <a id="20260331-referral-same-name-safety"></a> 2026-03-31 | 추천인 동명이인 안전화 구조화 링크 + admin 검색 선택형 override
+
+**배경**:
+- 추천인 스키마와 딥링크/가입 경로는 이미 `referral_codes`, `referral_attributions` 기반으로 들어가 있었지만, 운영 보조 경로는 여전히 `fc_profiles.recommender` 이름 문자열과 자유입력 수정에 기대고 있었다.
+- 운영 데이터에는 `김진희`, `박병준` 같은 동명이인이 실제로 존재하므로, 이름을 식별자처럼 쓰는 추천인 조회/보정 경로는 잘못된 추천코드 연결이나 오배정 위험이 있었다.
+- 관리자 화면에서 총무가 추천인을 직접 고쳐야 하는 실무 수요는 있었지만, 자유입력으로는 누가 누구인지 구분할 수 없고, 감사 로그도 구조화되지 않았다.
+
+**조치**:
+- `supabase/migrations/20260331000004_add_structured_recommender_links.sql`, `supabase/schema.sql`
+  - `fc_profiles.recommender_fc_id uuid references fc_profiles(id) on delete set null`과 index를 추가했다.
+  - 1차로 최신 `confirmed referral_attributions`의 `inviter_fc_id`를 backfill하고, 2차로는 활성 추천코드를 가진 동일 이름 후보가 정확히 1명인 경우만 `recommender_fc_id`를 채우도록 보수적 backfill을 넣었다.
+  - `public.get_invitee_referral_code(uuid)`는 더 이상 이름 매칭을 쓰지 않고, `recommender_fc_id` 활성 코드 -> 최신 confirmed attribution의 code/id -> stored attribution code 순으로만 조회하도록 다시 정의했다.
+- `supabase/functions/validate-referral-code/index.ts`, `app/signup.tsx`, `app/signup-verify.tsx`, `app/signup-password.tsx`, `supabase/functions/set-password/index.ts`
+  - 추천코드 검증 응답에 `inviterFcId`를 추가했다.
+  - 모바일 가입 payload는 `referralCode`와 함께 검증된 `referralInviterFcId`를 저장하고, `set-password`는 attribution 생성 시 `fc_profiles.recommender_fc_id`와 `fc_profiles.recommender` cache를 함께 동기화한다.
+  - 가입 시점부터 이름 문자열이 아니라 inviter UUID를 구조화 링크의 SSOT로 사용하도록 경로를 고정했다.
+- `web/src/lib/admin-referrals.ts`, `web/src/app/api/admin/fc/route.ts`, `web/src/app/api/admin/referrals/route.ts`
+  - 추천인 검색 후보/legacy unresolved queue/helper를 추가했다.
+  - `updateProfile`은 더 이상 임의 `recommender` 문자열 write를 받지 않고, `recommenderFcId + recommenderOverrideReason`만 받도록 바꿨다.
+  - `applyRecommenderSelection()`과 `linkLegacyRecommender()`는 활성 추천코드 보유자만 추천인으로 허용하고, 자기 자신 지정과 사유 누락을 차단하며, `referral_events.admin_override_applied` 감사 메타데이터를 남긴다.
+- `web/src/components/RecommenderSelect.tsx`, `web/src/app/dashboard/page.tsx`, `web/src/app/dashboard/profile/[id]/page.tsx`
+  - 총무 추천인 수정 UI를 자유입력에서 검색/선택형 컴포넌트로 교체했다.
+  - 후보 라벨은 `이름 · 소속`을 기본으로 하고, 동명이인/소속 미흡 시 전화번호 뒤 4자리를 덧붙여 구분하며, 활성 추천코드를 보조 pill/helper로 함께 노출한다.
+  - 기존 추천인이 있을 때는 명시적 연결 해제와 변경 사유 입력을 요구한다.
+- `web/src/app/dashboard/referrals/page.tsx`
+  - `/dashboard/referrals`에 `레거시 추천인 검토` 섹션을 추가했다.
+  - `recommender` 문자열만 있고 `recommender_fc_id`가 비어 있는 FC를 검토 큐로 노출하고, 총무만 검색/선택형으로 구조화 연결할 수 있게 했다. 본부장은 조회만 가능하다.
+- 문서
+  - `docs/referral-system/SPEC.md`, `ARCHITECTURE.md`, `TEST_CHECKLIST.md`, `INCIDENTS.md`, `test-cases.json`, `TEST_RUN_RESULT.json`, `contracts/database-schema.md`, `.claude/PROJECT_GUIDE.md`, `AGENTS.md`에 동명이인 안전화 규칙과 테스트/장애 기준을 동기화했다.
+
+**결과**:
+- 추천인 시스템의 구조적 식별자는 이제 `recommender_fc_id` / `inviter_fc_id`로 고정되고, `fc_profiles.recommender`는 표시 cache로만 남는다.
+- 고유하게 판별되는 legacy 문자열만 자동 backfill되고, 모호한 이름은 `/dashboard/referrals`의 검토 큐로 남아 총무가 명시적으로 연결해야 한다.
+- 관리자 화면의 추천인 수정은 더 이상 자유입력으로 오염될 수 없고, 변경 이유와 before/after가 감사 로그에 남는다.
+- invitee 추천코드 조회는 동명이인 이름과 무관하게 구조화 FK/confirmed attribution 기준으로만 동작한다.
+
+**검증**:
+- 코드/문서 정합성
+  - `npm run lint`
+  - `cd web && npm run lint`
+  - `cd web && npx tsc --noEmit --pretty false`
+  - `node scripts/ci/check-governance.mjs`
+- 원격 DB / Functions
+  - `supabase db push`
+  - `supabase migration list`
+    - `20260331000004_add_structured_recommender_links.sql` local/remote 일치 확인
+  - `supabase functions deploy validate-referral-code --project-ref ubeginyxaotcamuqpmud`
+  - `supabase functions deploy set-password --project-ref ubeginyxaotcamuqpmud`
+  - `supabase functions list --project-ref ubeginyxaotcamuqpmud`
+    - `validate-referral-code` v3 (`2026-03-31 13:30:15 UTC`)
+    - `set-password` v45 (`2026-03-31 13:28:46 UTC`)
+- 운영 데이터 검증
+  - service-role REST로 `fc_profiles?recommender_fc_id=not.is.null` 조회
+    - 예시: `현승호 -> 최경집(recommender_fc_id=eb5e0214-a49a-428c-ba90-2c6a96940263)`
+  - 같은 invitee에 대해 `get_invitee_referral_code(dabbb9a7-3690-4784-b003-07e0b959af3c)` 호출
+    - RPC 결과 `FVFHV8DY`
+    - `recommender_fc_id` 소유 FC의 활성 코드 조회 결과도 `FVFHV8DY`
+  - legacy unresolved 총량
+    - `fc_profiles` 기준 `recommender is not null and recommender_fc_id is null` = `58건`
+  - 동명이인 보수적 backfill 확인
+    - `김진희` FC 2명 존재
+    - 그중 `recommender='김진희'`인 invitee 1건은 여전히 `recommender_fc_id=null`로 남아 자동 연결되지 않음을 확인
+  - `validate-referral-code(code=KCSACZXU)`
+    - `ok=true`, `valid=true`, `inviterName=문주화`, `inviterFcId=1794145d-4fc7-4c3a-8377-4dcdd4bdefda`
+  - `validate-referral-code(code=ZZZZZZZZ)`
+    - `ok=true`, `valid=false`, `reason=not_found`
+  - anon direct table access
+    - `referral_attributions`, `referral_events` REST direct GET 결과 `[]`
+    - trusted path(`validate-referral-code`, `get_invitee_referral_code`)는 정상 응답
+
+**남은 확인**:
+- production에서 실제 신규 가입 1건을 끝까지 완료해 `referral_attributions.confirmed` row와 `fc_profiles.recommender_fc_id`가 함께 채워지는 end-to-end 증적은 아직 수동 실행 전이다.
+- 관리자 세션으로 `/dashboard/referrals`의 레거시 검토 큐에서 실제 override를 한 번 수행하는 UI/manual 검증도 추가로 남아 있다.
+
+---
+
 ## <a id="20260331-referral-phase2-deeplink-inline-display"></a> 2026-03-31 | 추천인 Phase 2 딥링크/가입 확정 경로 정리 + 관리자 inline 코드 표시
 
 **배경**:
@@ -60,12 +379,12 @@
 
 ---
 
-## <a id="20260331-recommender-code-lookup-fix"></a> 2026-03-31 | 추천인 코드 표시 조회 기준을 추천인 활성 코드 우선으로 정정
+## <a id="20260331-recommender-code-lookup-fix"></a> 2026-03-31 | invitee 추천코드 표시 조회 로직 1차 정정
 
 **배경**:
 - 최초 구현은 `get_invitee_referral_code`가 `confirmed referral_attributions.referral_code`만 읽도록 되어 있어, attribution row가 없으면 추천인에게 활성 코드가 있어도 화면에 `-`가 표시됐다.
 - 실제 운영 화면에서는 추천인 관리 페이지 `/dashboard/referrals`에 추천인 본인의 활성 코드가 존재하는데, FC 상세의 `추천인` 아래에서는 같은 코드가 보이지 않는 불일치가 발생했다.
-- 사용자가 요구한 값은 “해당 FC가 과거에 귀속된 코드”보다 “추천인 본인의 현재 코드”에 가깝다.
+- 이 시점의 1차 수정은 invitee 표시값 lookup을 보완하는 목적이었고, later 문서 contract에서는 사용자 의미를 `가입 시 사용한 추천코드`로 정리했다.
 
 **조치**:
 - `supabase/migrations/20260331000003_fix_get_invitee_referral_code_lookup.sql`
@@ -77,7 +396,7 @@
 - `web/src/app/api/admin/fc/route.ts`
   - `getReferralCode` 액션이 더 이상 `referral_attributions`를 직접 조회하지 않고, 동일 RPC를 호출하도록 맞췄다.
 - handbook / work log
-  - “받은 추천 코드”라고 적혀 있던 설명을 “추천인의 현재 활성 코드 우선, attribution fallback”으로 정정했다.
+  - 당시 설명을 lookup-order 중심으로 정리했다. current SSOT의 user-facing wording은 later follow-up에서 `가입 시 사용한 추천코드`로 다시 통일됐다.
 
 **결과**:
 - 추천인에게 활성 추천 코드가 이미 발급돼 있으면, attribution 유무와 상관없이 관리자 화면에서 그 코드를 먼저 보여준다.
@@ -92,7 +411,7 @@
 
 ---
 
-## <a id="20260331-recommender-code-display"></a> 2026-03-31 | 추천인 이름이 보이는 관리자 화면에 받은 추천 코드 표시 추가
+## <a id="20260331-recommender-code-display"></a> 2026-03-31 | 추천인 관련 관리자 화면에 invitee 추천코드 표시 추가
 
 **배경**:
 - 관리자들은 FC 상세 모달, 웹 프로필 상세, 모바일 관리자 대시보드에서 `추천인` 이름은 볼 수 있었지만, 실제로 그 추천인이 어떤 추천 코드를 쓰는지는 바로 확인할 수 없었다.
@@ -5223,6 +5542,24 @@
 - 공통 UI 컴포넌트/로깅/검증/테스트/Git hooks 기반 확장
 - 앱/웹/함수 전반 구조 정비
 
+## <a id="20260401-1"></a> 2026-04-01 | 웹 시험 신청자 관리 목록/상태 변경을 서버 API 경유로 전환
+
+**작업 내용**:
+- `web/src/app/dashboard/exam/applicants/page.tsx`가 브라우저 anon Supabase로 `exam_registrations`, `fc_profiles`를 직접 읽고 있어 production 권한/RLS 변화 시 목록이 빈 화면으로 보이는 문제를 확인했다.
+- `web/src/app/api/admin/exam-applicants/route.ts`에 관리자/본부장 공용 `GET` 목록 조회와 관리자 전용 `PATCH` 상태 변경을 추가하고, 서버 `adminSupabase`에서 시험 신청 목록/프로필/주민번호를 한 번에 조합하도록 옮겼다.
+- 화면은 `/api/admin/exam-applicants`만 호출하도록 바꿔 direct client query를 제거했고, 조회 실패 시 더 이상 "데이터가 없습니다"로 숨기지 않고 실제 오류 메시지를 노출하도록 보강했다.
+
+**핵심 파일**:
+- `web/src/app/api/admin/exam-applicants/route.ts`
+- `web/src/app/dashboard/exam/applicants/page.tsx`
+
+**검증**:
+- `cd web && npm run lint`
+- `cd web && npm run build`
+- `cd web && npx tsc --noEmit --pretty false` (`.next/dev/types` 누락 상태에서는 실패할 수 있어 build 후 재실행 기준으로 확인)
+
+---
+
 **핵심 파일(대표)**:
 - `AI.md`, `HANDOVER.md`, `contracts/*`, `adr/*`
 - `components/Button.tsx`, `components/FormInput.tsx`, `components/LoadingSkeleton.tsx`
@@ -5283,21 +5620,3 @@
 - `docs/guides/COMMANDS.md`
 - `docs/guides/SMS_TESTING.md`
 - `test-sms.js`
-## <a id="20260401-1"></a> 2026-04-01 | 웹 시험 신청자 관리 목록/상태 변경을 서버 API 경유로 전환
-
-**작업 내용**:
-- `web/src/app/dashboard/exam/applicants/page.tsx`가 브라우저 anon Supabase로 `exam_registrations`, `fc_profiles`를 직접 읽고 있어 production 권한/RLS 변화 시 목록이 빈 화면으로 보이는 문제를 확인했다.
-- `web/src/app/api/admin/exam-applicants/route.ts`에 관리자/본부장 공용 `GET` 목록 조회와 관리자 전용 `PATCH` 상태 변경을 추가하고, 서버 `adminSupabase`에서 시험 신청 목록/프로필/주민번호를 한 번에 조합하도록 옮겼다.
-- 화면은 `/api/admin/exam-applicants`만 호출하도록 바꿔 direct client query를 제거했고, 조회 실패 시 더 이상 "데이터가 없습니다"로 숨기지 않고 실제 오류 메시지를 노출하도록 보강했다.
-
-**핵심 파일**:
-- `web/src/app/api/admin/exam-applicants/route.ts`
-- `web/src/app/dashboard/exam/applicants/page.tsx`
-
-**검증**:
-- `cd web && npm run lint`
-- `cd web && npm run build`
-- `cd web && npx tsc --noEmit --pretty false` (`.next/dev/types` 누락 상태에서는 실패할 수 있어 build 후 재실행 기준으로 확인)
-
----
-

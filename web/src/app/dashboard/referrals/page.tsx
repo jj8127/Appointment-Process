@@ -31,6 +31,7 @@ import {
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useDeferredValue, useState } from 'react';
 
+import { RecommenderSelect } from '@/components/RecommenderSelect';
 import { useSession } from '@/hooks/use-session';
 import type {
   ReferralAdminDetail,
@@ -39,6 +40,7 @@ import type {
   ReferralAdminListResponse,
   ReferralAdminMutationRequest,
   ReferralAdminMutationResponse,
+  ReferralAdminUnresolvedItem,
 } from '@/types/referrals';
 
 const PAGE_SIZE = 20;
@@ -47,6 +49,7 @@ const BACKFILL_LIMIT = 100;
 type ActionModalState =
   | { action: 'backfill_missing_codes'; target: null }
   | { action: 'rotate_code' | 'disable_code'; target: ReferralAdminListItem }
+  | { action: 'link_legacy_recommender'; target: ReferralAdminUnresolvedItem }
   | null;
 
 function formatDateTime(value?: string | null) {
@@ -66,6 +69,7 @@ function getEventLabel(eventType: string) {
   if (eventType === 'code_generated') return '코드 발급';
   if (eventType === 'code_rotated') return '코드 재발급';
   if (eventType === 'code_disabled') return '코드 비활성';
+  if (eventType === 'admin_override_applied') return '추천인 연결 변경';
   return eventType;
 }
 
@@ -88,6 +92,18 @@ function getEventActorLabel(event: ReferralAdminEventItem) {
     ?? getMetadataString(event.metadata, 'actorRole')
     ?? 'system'
   );
+}
+
+function getUnresolvedStatusLabel(status: ReferralAdminUnresolvedItem['matchStatus']) {
+  if (status === 'ambiguous') return '동명이인 후보 다수';
+  if (status === 'auto_resolvable') return '자동 연결 가능';
+  return '활성 코드 후보 없음';
+}
+
+function getUnresolvedStatusColor(status: ReferralAdminUnresolvedItem['matchStatus']) {
+  if (status === 'ambiguous') return 'orange';
+  if (status === 'auto_resolvable') return 'blue';
+  return 'gray';
 }
 
 async function fetchReferrals(params: { page: number; search: string; fcId: string | null }) {
@@ -327,6 +343,7 @@ export default function ReferralDashboardPage() {
   const [selectedFcId, setSelectedFcId] = useState<string | null>(null);
   const [actionModal, setActionModal] = useState<ActionModalState>(null);
   const [reasonInput, setReasonInput] = useState('');
+  const [legacySelectedInviterFcId, setLegacySelectedInviterFcId] = useState<string | null>(null);
   const deferredSearch = useDeferredValue(search);
 
   const isAuthorized = hydrated && (role === 'admin' || role === 'manager');
@@ -356,6 +373,7 @@ export default function ReferralDashboardPage() {
   const showMutateControls = role === 'admin' && !isReadOnly && serverCanMutate;
   const summary = listQuery.data?.summary;
   const detail = detailQuery.data?.detail ?? null;
+  const unresolvedItems = listQuery.data?.unresolvedItems ?? [];
   const total = listQuery.data?.total ?? 0;
   const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
   const selectedItem = items.find((item) => item.fcId === effectiveSelectedFcId) ?? null;
@@ -369,7 +387,9 @@ export default function ReferralDashboardPage() {
           ? `추천코드 일괄 발급을 실행했습니다. 생성 ${Number(result.created ?? 0)}건, 건너뜀 ${Number(result.skipped ?? 0)}건`
           : variables.action === 'rotate_code'
             ? '추천코드를 재발급했습니다.'
-            : '추천코드를 비활성화했습니다.';
+            : variables.action === 'disable_code'
+              ? '추천코드를 비활성화했습니다.'
+              : '레거시 추천인을 구조화 링크로 저장했습니다.';
 
       notifications.show({
         title: '처리 완료',
@@ -379,6 +399,7 @@ export default function ReferralDashboardPage() {
 
       setActionModal(null);
       setReasonInput('');
+      setLegacySelectedInviterFcId(null);
       queryClient.invalidateQueries({ queryKey: ['dashboard-referrals'] });
     },
     onError: (error: Error) => {
@@ -408,9 +429,20 @@ export default function ReferralDashboardPage() {
     setActionModal({ action: 'disable_code', target: selectedItem });
   };
 
+  const openLegacyLinkModal = (target: ReferralAdminUnresolvedItem) => {
+    if (!showMutateControls) {
+      return;
+    }
+
+    setReasonInput('');
+    setLegacySelectedInviterFcId(null);
+    setActionModal({ action: 'link_legacy_recommender', target });
+  };
+
   const closeModal = () => {
     setActionModal(null);
     setReasonInput('');
+    setLegacySelectedInviterFcId(null);
   };
 
   const submitAction = () => {
@@ -431,6 +463,27 @@ export default function ReferralDashboardPage() {
         title: '사유 입력',
         message: '사유를 입력해주세요.',
         color: 'red',
+      });
+      return;
+    }
+
+    if (actionModal.action === 'link_legacy_recommender') {
+      if (!legacySelectedInviterFcId) {
+        notifications.show({
+          title: '추천인 선택',
+          message: '연결할 추천인을 선택해주세요.',
+          color: 'red',
+        });
+        return;
+      }
+
+      mutation.mutate({
+        action: 'link_legacy_recommender',
+        payload: {
+          inviteeFcId: actionModal.target.inviteeFcId,
+          inviterFcId: legacySelectedInviterFcId,
+          reason: reasonInput.trim(),
+        },
       });
       return;
     }
@@ -497,6 +550,7 @@ export default function ReferralDashboardPage() {
           <SummaryCard title="활성 코드 보유" value={summary?.activeCodeCount ?? 0} tone="blue" />
           <SummaryCard title="미발급 FC" value={summary?.missingCodeCount ?? 0} />
           <SummaryCard title="비활성 코드 이력" value={summary?.disabledCodeCount ?? 0} tone="gray" />
+          <SummaryCard title="검토 필요 추천인" value={summary?.unresolvedLegacyCount ?? 0} />
         </SimpleGrid>
 
         <SimpleGrid cols={{ base: 1, xl: 2 }} spacing="lg">
@@ -612,6 +666,93 @@ export default function ReferralDashboardPage() {
             />
           </Paper>
         </SimpleGrid>
+
+        <Paper withBorder radius="md" p="lg" bg="white">
+          <Stack gap="md">
+            <Group justify="space-between" align="flex-end">
+              <div>
+                <Title order={4}>레거시 추천인 검토</Title>
+                <Text size="sm" c="dimmed" mt={4}>
+                  `recommender` 문자열만 있고 구조화된 `recommender_fc_id`가 없는 FC를 검토합니다.
+                </Text>
+              </div>
+              <Badge color="gray" variant="light">
+                총 {unresolvedItems.length}건
+              </Badge>
+            </Group>
+
+            {unresolvedItems.length ? (
+              <ScrollArea>
+                <Table highlightOnHover>
+                  <Table.Thead>
+                    <Table.Tr>
+                      <Table.Th>FC</Table.Th>
+                      <Table.Th>기존 추천인</Table.Th>
+                      <Table.Th>후보 현황</Table.Th>
+                      <Table.Th>작업</Table.Th>
+                    </Table.Tr>
+                  </Table.Thead>
+                  <Table.Tbody>
+                    {unresolvedItems.map((item) => (
+                      <Table.Tr key={item.inviteeFcId}>
+                        <Table.Td>
+                          <Stack gap={0}>
+                            <Text size="sm" fw={600}>
+                              {item.inviteeName}
+                            </Text>
+                            <Text size="xs" c="dimmed">
+                              {item.inviteeAffiliation || '소속 미기록'}
+                            </Text>
+                            <Text size="xs" c="dimmed">
+                              {item.inviteePhone}
+                            </Text>
+                          </Stack>
+                        </Table.Td>
+                        <Table.Td>
+                          <Text size="sm">{item.legacyRecommenderName}</Text>
+                        </Table.Td>
+                        <Table.Td>
+                          <Stack gap={4}>
+                            <Badge color={getUnresolvedStatusColor(item.matchStatus)} variant="light" w="fit-content">
+                              {getUnresolvedStatusLabel(item.matchStatus)}
+                            </Badge>
+                            <Text size="xs" c="dimmed">
+                              후보 {item.candidateCount}명
+                            </Text>
+                            {item.candidatePreview.length ? (
+                              <Stack gap={2}>
+                                {item.candidatePreview.map((preview) => (
+                                  <Text key={preview} size="xs" c="dimmed">
+                                    {preview}
+                                  </Text>
+                                ))}
+                              </Stack>
+                            ) : null}
+                          </Stack>
+                        </Table.Td>
+                        <Table.Td>
+                          {showMutateControls ? (
+                            <Button size="xs" variant="light" onClick={() => openLegacyLinkModal(item)}>
+                              연결
+                            </Button>
+                          ) : (
+                            <Badge color="gray" variant="light">
+                              읽기 전용
+                            </Badge>
+                          )}
+                        </Table.Td>
+                      </Table.Tr>
+                    ))}
+                  </Table.Tbody>
+                </Table>
+              </ScrollArea>
+            ) : (
+              <Text size="sm" c="dimmed">
+                검토가 필요한 레거시 추천인이 없습니다.
+              </Text>
+            )}
+          </Stack>
+        </Paper>
       </Stack>
 
       <Modal
@@ -622,7 +763,9 @@ export default function ReferralDashboardPage() {
             ? '기존 FC 추천코드 일괄 발급'
             : actionModal?.action === 'rotate_code'
               ? '추천코드 재발급'
-              : '추천코드 비활성'
+              : actionModal?.action === 'disable_code'
+                ? '추천코드 비활성'
+                : '레거시 추천인 연결'
         }
         centered
       >
@@ -631,6 +774,27 @@ export default function ReferralDashboardPage() {
             <Alert color="orange" icon={<IconAlertCircle size={16} />}>
               한 번 실행할 때 최대 {BACKFILL_LIMIT}명의 미발급 FC를 처리합니다. 활성 코드가 있는 FC는 자동으로 건너뜁니다.
             </Alert>
+          ) : actionModal?.action === 'link_legacy_recommender' ? (
+            <>
+              <Text size="sm">
+                대상: <strong>{actionModal.target.inviteeName}</strong> ({actionModal.target.inviteePhone})
+              </Text>
+              <Text size="sm" c="dimmed">
+                기존 추천인 문자열: {actionModal.target.legacyRecommenderName}
+              </Text>
+              <RecommenderSelect
+                value={legacySelectedInviterFcId}
+                inviteeFcId={actionModal.target.inviteeFcId}
+                onChange={(candidate) => setLegacySelectedInviterFcId(candidate?.fcId ?? null)}
+              />
+              <Textarea
+                label="사유"
+                placeholder="운영 연결 사유를 입력해주세요."
+                minRows={3}
+                value={reasonInput}
+                onChange={(event) => setReasonInput(event.currentTarget.value)}
+              />
+            </>
           ) : (
             <>
               <Text size="sm">

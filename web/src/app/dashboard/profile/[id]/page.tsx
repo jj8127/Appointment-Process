@@ -4,6 +4,7 @@ import { fetchPresence } from '@/lib/presence-api';
 import { formatPresenceLabel } from '@/lib/presence';
 import { getAdminStepDisplay, getStatusDisplay } from '@/lib/shared';
 import { useSession } from '@/hooks/use-session';
+import { RecommenderSelect } from '@/components/RecommenderSelect';
 import type { FcProfile, FcStatus } from '@/types/fc';
 import { supabase } from '@/lib/supabase';
 import {
@@ -42,11 +43,44 @@ import {
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import dayjs from 'dayjs';
 import { useRouter } from 'next/navigation';
-import { use, useEffect, useState } from 'react';
+import { use, useCallback, useEffect, useState } from 'react';
 
 function isRecord(value: unknown): value is Record<string, unknown> {
     return Boolean(value) && typeof value === 'object' && !Array.isArray(value);
 }
+
+const trimValue = (value?: string | null) => String(value ?? '').trim();
+
+const getRecommenderDisplay = (profile?: Pick<FcProfile, 'recommender' | 'recommender_fc_id'> | null) => {
+    const recommenderValue = trimValue(profile?.recommender) || '-';
+    if (trimValue(profile?.recommender_fc_id)) {
+        return {
+            label: '연결된 추천인 FC',
+            value: recommenderValue,
+            helperText: null,
+        };
+    }
+    if (trimValue(profile?.recommender)) {
+        return {
+            label: '레거시 추천인 표시값',
+            value: recommenderValue,
+            helperText: '현재 값은 예전 가입 데이터에 남은 표시값이며, 구조화 추천인 연결은 아닙니다.',
+        };
+    }
+    return {
+        label: '연결된 추천인 FC',
+        value: '-',
+        helperText: null,
+    };
+};
+
+const readSignupReferralCode = (payload: unknown) => {
+    if (!isRecord(payload)) return null;
+    const signupReferralCode = 'signupReferralCode' in payload
+        ? payload.signupReferralCode
+        : ('inviteeReferralCode' in payload ? payload.inviteeReferralCode : null);
+    return typeof signupReferralCode === 'string' && signupReferralCode.trim() ? signupReferralCode : null;
+};
 
 // --- Constants ---
 const HANWHA_ORANGE = '#f36f21';
@@ -79,6 +113,9 @@ export default function FcProfilePage({ params }: { params: Promise<{ id: string
     const { hydrated, role, isReadOnly } = useSession();
 
     const [isEditing, setIsEditing] = useState(false);
+    const [selectedRecommenderFcId, setSelectedRecommenderFcId] = useState<string | null>(null);
+    const [clearRecommenderSelection, setClearRecommenderSelection] = useState(false);
+    const [recommenderOverrideReason, setRecommenderOverrideReason] = useState('');
 
     // --- Form ---
     const form = useForm({
@@ -121,6 +158,8 @@ export default function FcProfilePage({ params }: { params: Promise<{ id: string
         refetchOnWindowFocus: true,
     });
 
+    const recommenderDisplay = getRecommenderDisplay(profile);
+
     const { data: residentNumberFull } = useQuery({
         queryKey: ['fc-resident-number-full', fcId, role],
         enabled: hydrated && (role === 'admin' || role === 'manager') && !!fcId,
@@ -157,15 +196,26 @@ export default function FcProfilePage({ params }: { params: Promise<{ id: string
                 recommender: profile.recommender || '',
                 admin_memo: profile.admin_memo || '',
             });
+            setSelectedRecommenderFcId(profile.recommender_fc_id ?? null);
+            setClearRecommenderSelection(false);
+            setRecommenderOverrideReason('');
         }
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [profile]);
+
+    const hasAnyRecommender = Boolean(profile?.recommender_fc_id || form.values.recommender.trim());
+    const isRecommenderDirty = profile
+        ? clearRecommenderSelection
+            ? hasAnyRecommender
+            : (profile.recommender_fc_id ?? null) !== selectedRecommenderFcId
+        : false;
+    const isRecommenderReasonMissing = isRecommenderDirty && !recommenderOverrideReason.trim();
 
     // --- Mutations ---
     const updateProfileMutation = useMutation({
         mutationFn: async (values: typeof form.values) => {
             const normalizedCareerType = values.career_type.trim();
-            const payload = {
+            const payload: Record<string, unknown> = {
                 name: values.name.trim(),
                 phone: values.phone.trim(),
                 affiliation: values.affiliation.trim(),
@@ -173,8 +223,11 @@ export default function FcProfilePage({ params }: { params: Promise<{ id: string
                 address_detail: values.address_detail.trim() || null,
                 email: values.email.trim() || null,
                 career_type: normalizedCareerType === '신입' || normalizedCareerType === '경력' ? normalizedCareerType : null,
-                recommender: values.recommender.trim() || null,
             };
+            if (isRecommenderDirty) {
+                payload.recommenderFcId = clearRecommenderSelection ? null : selectedRecommenderFcId;
+                payload.recommenderOverrideReason = recommenderOverrideReason.trim();
+            }
 
             const resp = await fetch('/api/admin/fc', {
                 method: 'POST',
@@ -196,26 +249,29 @@ export default function FcProfilePage({ params }: { params: Promise<{ id: string
                 }
                 throw new Error('프로필 저장에 실패했습니다.');
             }
+            return json;
         },
         onSuccess: () => {
             notifications.show({ title: '저장 완료', message: '프로필 정보가 수정되었습니다.', color: 'green' });
             setIsEditing(false);
+            setClearRecommenderSelection(false);
+            setRecommenderOverrideReason('');
             queryClient.invalidateQueries({ queryKey: ['fc-profile', fcId] });
+            queryClient.invalidateQueries({ queryKey: ['fc-signup-referral-code', fcId] });
         },
         onError: (err: Error) => notifications.show({ title: '저장 실패', message: err.message, color: 'red' }),
     });
 
-    const { data: inviteeReferralCode, isFetching: isInviteeReferralCodeFetching } = useQuery({
-        queryKey: ['fc-referral-code', fcId],
+    const { data: signupReferralCode, isFetching: isSignupReferralCodeFetching } = useQuery({
+        queryKey: ['fc-signup-referral-code', fcId],
         queryFn: async () => {
             const resp = await fetch('/api/admin/fc', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ action: 'getReferralCode', payload: { fcId } }),
+                body: JSON.stringify({ action: 'getInviteeReferralCode', payload: { fcId } }),
             });
             const json: unknown = await resp.json().catch(() => null);
-            if (!isRecord(json)) return null;
-            return (json.referralCode as string | null) ?? null;
+            return readSignupReferralCode(json);
         },
         enabled: !!fcId && hydrated && (role === 'admin' || role === 'manager'),
     });
@@ -264,6 +320,26 @@ export default function FcProfilePage({ params }: { params: Promise<{ id: string
         updateProfileMutation.mutate(form.values);
     };
 
+    const handleCancelEdit = useCallback(() => {
+        if (profile) {
+            form.setValues({
+                name: profile.name || '',
+                phone: profile.phone || '',
+                address: profile.address || '',
+                address_detail: profile.address_detail || '',
+                email: profile.email || '',
+                affiliation: profile.affiliation || '',
+                career_type: profile.career_type || '',
+                recommender: profile.recommender || '',
+                admin_memo: profile.admin_memo || '',
+            });
+            setSelectedRecommenderFcId(profile.recommender_fc_id ?? null);
+            setClearRecommenderSelection(false);
+            setRecommenderOverrideReason('');
+        }
+        setIsEditing(false);
+    }, [form, profile]);
+
     const getBirthDate = (residentNum: string | null) => {
         if (!residentNum) return '-';
         const digits = residentNum.replace(/\D/g, '');
@@ -274,9 +350,9 @@ export default function FcProfilePage({ params }: { params: Promise<{ id: string
 
     useEffect(() => {
         if (!canEdit && isEditing) {
-            setIsEditing(false);
+            handleCancelEdit();
         }
-    }, [canEdit, isEditing]);
+    }, [canEdit, isEditing, handleCancelEdit]);
 
     if (isProfileLoading) return <LoadingOverlay visible />;
     if (profileError) {
@@ -357,8 +433,8 @@ export default function FcProfilePage({ params }: { params: Promise<{ id: string
                                 <Title order={4} c={CHARCOAL}>상세 회원가입</Title>
                                 {isEditing ? (
                                     <Group gap="xs">
-                                        <Button variant="default" size="xs" onClick={() => setIsEditing(false)} disabled={!canEdit}>취소</Button>
-                                        <Button color="green" size="xs" leftSection={<IconDeviceFloppy size={14} />} onClick={handleSaveInfo} loading={updateProfileMutation.isPending} disabled={!canEdit}>저장</Button>
+                                <Button variant="default" size="xs" onClick={handleCancelEdit} disabled={!canEdit}>취소</Button>
+                            <Button color="green" size="xs" leftSection={<IconDeviceFloppy size={14} />} onClick={handleSaveInfo} loading={updateProfileMutation.isPending} disabled={!canEdit || isRecommenderReasonMissing}>저장</Button>
                                     </Group>
                                 ) : (
                                     <Button
@@ -464,28 +540,71 @@ export default function FcProfilePage({ params }: { params: Promise<{ id: string
                                     </Grid.Col>
                                     <Grid.Col span={6}>
                                         {isEditing && canEdit ? (
-                                            <Group align="end" gap="xs" wrap="nowrap">
-                                                <TextInput
-                                                    style={{ flex: 1 }}
-                                                    label="추천인"
-                                                    placeholder="추천인 이름 입력"
-                                                    {...form.getInputProps('recommender')}
-                                                />
-                                                <Text size="sm" fw={600} c="orange" mb={10}>
-                                                    {isInviteeReferralCodeFetching ? '조회 중...' : (inviteeReferralCode ?? '-')}
+                                            <Stack gap={6}>
+                                                <Box style={{ flex: 1 }}>
+                                                    <RecommenderSelect
+                                                        label="추천인 연결 FC"
+                                                        value={clearRecommenderSelection ? null : selectedRecommenderFcId}
+                                                        inviteeFcId={fcId}
+                                                        onChange={(candidate) => {
+                                                            setSelectedRecommenderFcId(candidate?.fcId ?? null);
+                                                            setClearRecommenderSelection(false);
+                                                        }}
+                                                    />
+                                                </Box>
+                                                <Text size="xs" fw={600} c="dimmed">
+                                                    가입 시 입력한 추천코드:{' '}
+                                                    <Text component="span" size="xs" fw={700} c="orange">
+                                                        {isSignupReferralCodeFetching ? '조회 중...' : (signupReferralCode ?? '-')}
+                                                    </Text>
                                                 </Text>
-                                            </Group>
+                                                {profile?.recommender && !profile.recommender_fc_id && !clearRecommenderSelection ? (
+                                                    <Text size="xs" c="dimmed">
+                                                        현재 레거시 추천인 표시값: {profile.recommender}
+                                                    </Text>
+                                                ) : null}
+                                                {hasAnyRecommender ? (
+                                                    <Group gap="xs">
+                                                        <Button
+                                                            size="xs"
+                                                            variant="light"
+                                                            color="gray"
+                                                            onClick={() => {
+                                                                setSelectedRecommenderFcId(null);
+                                                                setClearRecommenderSelection(true);
+                                                            }}
+                                                        >
+                                                            추천인 연결 해제
+                                                        </Button>
+                                                    </Group>
+                                                ) : null}
+                                                {isRecommenderDirty ? (
+                                                    <Textarea
+                                                        label="추천인 변경 사유"
+                                                        placeholder="운영 수정 사유 입력"
+                                                        value={recommenderOverrideReason}
+                                                        onChange={(event) => setRecommenderOverrideReason(event.currentTarget.value)}
+                                                        minRows={2}
+                                                    />
+                                                ) : null}
+                                            </Stack>
                                         ) : (
                                             <Stack gap={6}>
-                                                <Text size="sm" fw={500} c={CHARCOAL}>추천인</Text>
-                                                <Group gap="xs" align="center">
-                                                    <Text size="md" c={CHARCOAL}>
-                                                        {form.values.recommender || '-'}
+                                                <Text size="sm" fw={500} c={CHARCOAL}>{recommenderDisplay.label}</Text>
+                                                <Text size="md" c={CHARCOAL}>
+                                                    {recommenderDisplay.value}
+                                                </Text>
+                                                {recommenderDisplay.helperText ? (
+                                                    <Text size="xs" c="dimmed">
+                                                        {recommenderDisplay.helperText}
                                                     </Text>
-                                                    <Text size="md" fw={600} c="orange">
-                                                        {isInviteeReferralCodeFetching ? '조회 중...' : (inviteeReferralCode ?? '-')}
+                                                ) : null}
+                                                <Text size="xs" fw={600} c="dimmed">
+                                                    가입 시 입력한 추천코드:{' '}
+                                                    <Text component="span" size="xs" fw={700} c="orange">
+                                                        {isSignupReferralCodeFetching ? '조회 중...' : (signupReferralCode ?? '-')}
                                                     </Text>
-                                                </Group>
+                                                </Text>
                                             </Stack>
                                         )}
                                     </Grid.Col>

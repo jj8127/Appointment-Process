@@ -3,6 +3,10 @@ import { cookies } from 'next/headers';
 import { NextResponse } from 'next/server';
 
 import { sendPushNotification } from '@/app/actions';
+import {
+  applyRecommenderSelection,
+  searchRecommenderCandidates,
+} from '@/lib/admin-referrals';
 import { adminSupabase } from '@/lib/admin-supabase';
 import { validateSession } from '@/lib/csrf';
 import { logger } from '@/lib/logger';
@@ -18,14 +22,50 @@ type AdminAction =
   | 'deleteHanwhaPdf'
   | 'signDoc'
   | 'sendReminder'
-  | 'getReferralCode';
+  | 'getInviteeReferralCode'
+  | 'getReferralCode'
+  | 'searchRecommenders';
+
+type AdminSession = {
+  role: 'admin';
+  residentId: string;
+  residentDigits: string;
+  staffType: 'admin' | 'developer';
+};
+
+type ManagerSession = {
+  role: 'manager';
+  residentId: string;
+  residentDigits: string;
+  staffType: 'manager';
+};
+
+type CookieSession = {
+  role: string | null;
+  residentId: string;
+  residentDigits: string;
+};
+
+type SessionErrorResult = {
+  ok: false;
+  status: number;
+  error: string;
+};
+
+type SessionSuccessResult<T> = {
+  ok: true;
+  session: T;
+};
 
 type AdminRequest = {
   action: AdminAction;
   payload: Record<string, unknown>;
 };
 
-async function getAdminSession() {
+const RECOMMENDER_RPC_NOT_READY_MESSAGE =
+  '운영 DB에 추천인 override 함수가 아직 적용되지 않았습니다. migration 20260331000005를 먼저 반영해주세요.';
+
+async function getValidatedCookieSession(): Promise<SessionErrorResult | SessionSuccessResult<CookieSession>> {
   const cookieStore = await cookies();
   const session = {
     role: cookieStore.get('session_role')?.value ?? null,
@@ -35,14 +75,102 @@ async function getAdminSession() {
   if (!sessionCheck.valid) {
     return { ok: false, status: 401, error: sessionCheck.error ?? 'Unauthorized' };
   }
-  if (session.role !== 'admin') {
+  const residentDigits = session.residentId.replace(/[^0-9]/g, '');
+  if (residentDigits.length !== 11) {
+    return { ok: false, status: 401, error: 'Invalid resident phone' };
+  }
+
+  return {
+    ok: true as const,
+    session: {
+      role: session.role,
+      residentId: session.residentId,
+      residentDigits,
+    },
+  };
+}
+
+async function getAdminSession(): Promise<SessionErrorResult | SessionSuccessResult<AdminSession>> {
+  const sessionCheck = await getValidatedCookieSession();
+  if (!sessionCheck.ok) {
+    return sessionCheck;
+  }
+
+  if (sessionCheck.session.role !== 'admin') {
     return { ok: false, status: 403, error: 'Forbidden' };
   }
-  return { ok: true, session };
+
+  const { data, error } = await adminSupabase
+    .from('admin_accounts')
+    .select('staff_type,active')
+    .eq('phone', sessionCheck.session.residentDigits)
+    .eq('active', true)
+    .maybeSingle();
+
+  if (error) {
+    logger.error('[api/admin/fc] session verification failed', error);
+    return { ok: false, status: 403, error: 'Forbidden' };
+  }
+  if (!data) {
+    return { ok: false, status: 403, error: 'Forbidden' };
+  }
+
+  const verifiedSession: AdminSession = {
+    role: 'admin',
+    residentId: sessionCheck.session.residentId,
+    residentDigits: sessionCheck.session.residentDigits,
+    staffType: data.staff_type === 'developer' ? 'developer' : 'admin',
+  };
+
+  return { ok: true, session: verifiedSession };
+}
+
+async function getReadSession(): Promise<SessionErrorResult | SessionSuccessResult<AdminSession | ManagerSession>> {
+  const sessionCheck = await getValidatedCookieSession();
+  if (!sessionCheck.ok) {
+    return sessionCheck;
+  }
+
+  if (sessionCheck.session.role === 'admin') {
+    return getAdminSession();
+  }
+
+  if (sessionCheck.session.role !== 'manager') {
+    return { ok: false, status: 403, error: 'Forbidden' };
+  }
+
+  const { data, error } = await adminSupabase
+    .from('manager_accounts')
+    .select('id,active')
+    .eq('phone', sessionCheck.session.residentDigits)
+    .eq('active', true)
+    .maybeSingle();
+
+  if (error) {
+    logger.error('[api/admin/fc] manager session verification failed', error);
+    return { ok: false, status: 403, error: 'Forbidden' };
+  }
+  if (!data) {
+    return { ok: false, status: 403, error: 'Forbidden' };
+  }
+
+  const verifiedSession: ManagerSession = {
+    role: 'manager',
+    residentId: sessionCheck.session.residentId,
+    residentDigits: sessionCheck.session.residentDigits,
+    staffType: 'manager',
+  };
+
+  return { ok: true, session: verifiedSession };
 }
 
 function badRequest(message: string) {
   return NextResponse.json({ error: message }, { status: 400 });
+}
+
+function isRecommenderRpcNotReadyError(error: unknown) {
+  const message = error instanceof Error ? error.message : String(error);
+  return message === RECOMMENDER_RPC_NOT_READY_MESSAGE;
 }
 
 function isAllowanceFlowMutation(status: string, extra?: Record<string, unknown>) {
@@ -126,11 +254,6 @@ async function syncProfileAfterDocMutation(fcId: string) {
 }
 
 export async function POST(req: Request) {
-  const adminCheck = await getAdminSession();
-  if (!adminCheck.ok) {
-    return NextResponse.json({ error: adminCheck.error }, { status: adminCheck.status });
-  }
-
   let body: AdminRequest;
   try {
     body = (await req.json()) as AdminRequest;
@@ -142,8 +265,16 @@ export async function POST(req: Request) {
   const { action, payload } = body ?? {};
   if (!action) return badRequest('action is required');
 
+  const sessionCheck = action === 'getReferralCode' || action === 'getInviteeReferralCode'
+    ? await getReadSession()
+    : await getAdminSession();
+  if (!sessionCheck.ok) {
+    return NextResponse.json({ error: sessionCheck.error }, { status: sessionCheck.status });
+  }
+
   try {
     if (action === 'updateProfile') {
+      const adminSession = sessionCheck.session as AdminSession;
       const { fcId, data, phone } = payload as {
         fcId?: string;
         data?: Record<string, unknown>;
@@ -151,34 +282,78 @@ export async function POST(req: Request) {
       };
       if (!fcId || !data) return badRequest('fcId and data are required');
 
-      const { error: updateError } = await adminSupabase
-        .from('fc_profiles')
-        .update(data)
-        .eq('id', fcId);
-      if (updateError) throw updateError;
+      const updateData = { ...data };
+      const hasStructuredRecommender = Object.prototype.hasOwnProperty.call(updateData, 'recommenderFcId');
+      const nextRecommenderFcId = hasStructuredRecommender
+        ? (String(updateData.recommenderFcId ?? '').trim() || null)
+        : null;
+      const recommenderOverrideReason = String(updateData.recommenderOverrideReason ?? '').trim();
 
-      const tempId = typeof data['temp_id'] === 'string' ? data['temp_id'] : null;
-      const shouldNotifyTemp = Boolean(tempId);
-      if (shouldNotifyTemp && phone) {
-        const { data: profile } = await adminSupabase
-          .from('fc_profiles')
-          .select('name')
-          .eq('id', fcId)
-          .maybeSingle();
-        const title = '임시번호 발급';
-        const body = `임시사번: ${tempId} 이 발급되었습니다.`;
-        await adminSupabase.from('notifications').insert({
-          title,
-          body,
-          target_url: '/consent',
-          recipient_role: 'fc',
-          resident_id: phone,
-        });
-        await sendPushNotification(phone, { title, body, data: { url: '/consent' }, skipNotificationInsert: true });
-        logger.debug('[api/admin/fc] temp-id notified', { fcId, name: profile?.name });
+      delete updateData.recommenderFcId;
+      delete updateData.recommenderOverrideReason;
+
+      if (Object.prototype.hasOwnProperty.call(updateData, 'recommender')) {
+        return badRequest('추천인은 목록에서 선택해주세요.');
       }
 
-      return NextResponse.json({ ok: true });
+      if (Object.keys(updateData).length > 0) {
+        const { error: updateError } = await adminSupabase
+          .from('fc_profiles')
+          .update(updateData)
+          .eq('id', fcId);
+        if (updateError) throw updateError;
+      }
+
+      if (hasStructuredRecommender) {
+        await applyRecommenderSelection({
+          actor: {
+            actorPhone: adminSession.residentDigits,
+            actorRole: 'admin',
+            actorStaffType: adminSession.staffType,
+          },
+          inviteeFcId: fcId,
+          inviterFcId: nextRecommenderFcId,
+          reason: recommenderOverrideReason,
+        });
+      }
+
+      const tempId = typeof updateData['temp_id'] === 'string' ? updateData['temp_id'] : null;
+      const shouldNotifyTemp = Boolean(tempId);
+      let updatedProfile: Record<string, unknown> | null = null;
+      const { data: profile, error: profileError } = await adminSupabase
+        .from('fc_profiles')
+        .select('name,recommender,recommender_fc_id,career_type,temp_id,status')
+        .eq('id', fcId)
+        .maybeSingle();
+      if (profileError) {
+        logger.warn('[api/admin/fc] profile reload failed after updateProfile', profileError);
+      } else {
+        updatedProfile = profile as Record<string, unknown> | null;
+      }
+
+      if (shouldNotifyTemp && phone) {
+        const title = '임시번호 발급';
+        const body = `임시사번: ${tempId} 이 발급되었습니다.`;
+        try {
+          await adminSupabase.from('notifications').insert({
+            title,
+            body,
+            target_url: '/consent',
+            recipient_role: 'fc',
+            resident_id: phone,
+          });
+          await sendPushNotification(phone, { title, body, data: { url: '/consent' }, skipNotificationInsert: true });
+          logger.debug('[api/admin/fc] temp-id notified', { fcId, name: profile?.name });
+        } catch (notifyError) {
+          logger.warn('[api/admin/fc] temp-id notification failed', {
+            fcId,
+            phone,
+            error: notifyError instanceof Error ? notifyError.message : String(notifyError),
+          });
+        }
+      }
+
+      return NextResponse.json({ ok: true, profile: updatedProfile });
     }
 
     if (action === 'updateStatus') {
@@ -577,7 +752,7 @@ export async function POST(req: Request) {
       return NextResponse.json({ ok: true });
     }
 
-    if (action === 'getReferralCode') {
+    if (action === 'getReferralCode' || action === 'getInviteeReferralCode') {
       const { fcId } = payload as { fcId?: string };
       if (!fcId) return badRequest('fcId is required');
 
@@ -586,13 +761,51 @@ export async function POST(req: Request) {
       });
 
       if (error) throw error;
-      return NextResponse.json({ ok: true, referralCode: (data as string | null) ?? null });
+      const signupReferralCode = (data as string | null) ?? null;
+      return NextResponse.json({
+        ok: true,
+        signupReferralCode,
+        inviteeReferralCode: signupReferralCode,
+        referralCode: signupReferralCode,
+      });
+    }
+
+    if (action === 'searchRecommenders') {
+      const { query, excludeFcId, selectedFcId } = payload as {
+        query?: string;
+        excludeFcId?: string | null;
+        selectedFcId?: string | null;
+      };
+
+      const result = await searchRecommenderCandidates({
+        query,
+        excludeFcId,
+        selectedFcId,
+      });
+
+      return NextResponse.json({ ok: true, ...result });
     }
 
     return badRequest('Unknown action');
   } catch (err: unknown) {
     const error = err as Error;
     logger.error('[api/admin/fc] failed', error);
+    if (isRecommenderRpcNotReadyError(error)) {
+      return NextResponse.json({ error: RECOMMENDER_RPC_NOT_READY_MESSAGE }, { status: 503 });
+    }
+    if (error?.message && [
+      '추천인은 목록에서 선택해주세요.',
+      '추천인 대상 FC를 찾을 수 없습니다.',
+      '추천인 후보 FC를 찾을 수 없습니다.',
+      '추천인 변경 사유를 입력해주세요.',
+      '활성 추천코드가 있는 FC만 추천인으로 선택할 수 있습니다.',
+      '자기 자신을 추천인으로 지정할 수 없습니다.',
+      '추천 관계 대상 FC 전화번호가 올바르지 않습니다.',
+      '추천인 후보 FC 전화번호가 올바르지 않습니다.',
+      RECOMMENDER_RPC_NOT_READY_MESSAGE,
+    ].includes(error.message)) {
+      return NextResponse.json({ error: error.message }, { status: 400 });
+    }
     if (
       typeof (err as { code?: unknown })?.code === 'string' &&
       (err as { code?: string }).code === '42703' &&

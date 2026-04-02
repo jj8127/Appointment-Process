@@ -19,6 +19,28 @@ type Payload = {
   carrier?: string;
   commissionStatus?: CommissionCompletionStatus | string;
   referralCode?: string;
+  referralInviterFcId?: string;
+};
+
+type ResolvedReferralDetails = {
+  referralCodeId: string;
+  referralCode: string;
+  inviterFcId: string;
+  inviterPhone: string;
+  inviterName: string;
+};
+
+type ReferralResolutionResult = {
+  resolvedReferral: ResolvedReferralDetails | null;
+  rejectionReason: string | null;
+};
+
+type ReferralCaptureResult = {
+  ok: boolean;
+  rejectionReason: string | null;
+  attributionId: string | null;
+  reusedHistoricalConfirmedRow: boolean;
+  warningReasons: string[];
 };
 
 function getEnv(name: string): string | undefined {
@@ -73,6 +95,14 @@ function cleanPhone(input: string) {
   return (input ?? '').replace(/[^0-9]/g, '');
 }
 
+function isNormalizedPhone(input: string): boolean {
+  return /^[0-9]{11}$/.test(input);
+}
+
+function isUniqueViolation(error: unknown): boolean {
+  return (error as { code?: string } | null)?.code === '23505';
+}
+
 function isMissingColumnError(error: unknown): boolean {
   const code = (error as { code?: string } | null)?.code;
   const message = String((error as { message?: string } | null)?.message ?? '').toLowerCase();
@@ -102,6 +132,10 @@ function parseDesignerCompanyNameFromAffiliation(affiliation?: string | null): s
   // e.g. "농협생명 설계매니저" -> "농협생명"
   const company = normalized.slice(0, markerIndex).trim();
   return company.length > 0 ? company : null;
+}
+
+function isRequestBoardDesignerAffiliation(affiliation?: string | null): boolean {
+  return parseDesignerCompanyNameFromAffiliation(affiliation) !== null;
 }
 
 async function hashPassword(password: string, saltBytes: Uint8Array) {
@@ -163,14 +197,13 @@ async function syncRequestBoardPassword(
   }
 }
 
-async function captureReferralAttribution(params: {
+async function resolveReferralDetails(params: {
   referralCode: string;
   inviteePhone: string;
-  inviteeFcId: string;
+  validatedInviterFcId?: string | null;
   supabase: SupabaseClient;
-}): Promise<void> {
+}): Promise<ReferralResolutionResult> {
   try {
-    // Look up the referral code
     const { data: referralCodeRow, error: codeError } = await params.supabase
       .from('referral_codes')
       .select('id, code, fc_id, is_active')
@@ -179,124 +212,444 @@ async function captureReferralAttribution(params: {
       .maybeSingle();
 
     if (codeError) {
-      console.warn('[set-password] captureReferralAttribution: referral code lookup error', codeError.message);
-      return;
+      console.warn('[set-password] resolveReferralDetails: referral code lookup error', codeError.message);
+      return { resolvedReferral: null, rejectionReason: 'code_lookup_failed' };
     }
     if (!referralCodeRow) {
-      console.warn('[set-password] captureReferralAttribution: referral code not found or inactive', params.referralCode);
-      return;
+      console.warn('[set-password] resolveReferralDetails: referral code not found or inactive', params.referralCode);
+      return { resolvedReferral: null, rejectionReason: 'not_found_or_inactive' };
+    }
+    if (params.validatedInviterFcId && params.validatedInviterFcId !== referralCodeRow.fc_id) {
+      console.warn(
+        '[set-password] resolveReferralDetails: inviter hint mismatch, using referral code source of truth',
+        JSON.stringify({
+          referralCode: params.referralCode,
+          validatedInviterFcId: params.validatedInviterFcId,
+          resolvedInviterFcId: referralCodeRow.fc_id,
+        }),
+      );
     }
 
-    // Fetch inviter profile for phone and name
     const { data: inviterProfile, error: inviterError } = await params.supabase
       .from('fc_profiles')
-      .select('phone, name')
+      .select('phone, name, signup_completed, affiliation')
       .eq('id', referralCodeRow.fc_id)
       .maybeSingle();
 
     if (inviterError) {
-      console.warn('[set-password] captureReferralAttribution: inviter profile lookup error', inviterError.message);
-      return;
+      console.warn('[set-password] resolveReferralDetails: inviter profile lookup error', inviterError.message);
+      return { resolvedReferral: null, rejectionReason: 'inviter_profile_lookup_failed' };
     }
     if (!inviterProfile?.phone) {
-      console.warn('[set-password] captureReferralAttribution: inviter profile not found or missing phone');
-      return;
+      console.warn('[set-password] resolveReferralDetails: inviter profile not found or missing phone');
+      return { resolvedReferral: null, rejectionReason: 'inviter_profile_missing' };
     }
 
-    const inviterPhone = String(inviterProfile.phone);
+    if (inviterProfile.signup_completed !== true) {
+      console.warn('[set-password] resolveReferralDetails: inviter profile is not signup completed');
+      return { resolvedReferral: null, rejectionReason: 'inviter_not_completed' };
+    }
+
+    if (isRequestBoardDesignerAffiliation(inviterProfile.affiliation)) {
+      console.warn('[set-password] resolveReferralDetails: inviter profile is request-board designer');
+      return { resolvedReferral: null, rejectionReason: 'inviter_not_eligible' };
+    }
+
+    const inviterPhone = cleanPhone(String(inviterProfile.phone));
     const inviterName = String(inviterProfile?.name ?? '');
 
-    // Self-referral check
-    if (inviterPhone === params.inviteePhone) {
-      console.warn('[set-password] captureReferralAttribution: self-referral detected, skipping');
-      return;
+    if (!isNormalizedPhone(inviterPhone)) {
+      console.warn('[set-password] resolveReferralDetails: inviter phone is not normalized');
+      return { resolvedReferral: null, rejectionReason: 'inviter_phone_invalid' };
     }
 
-    // Duplicate confirmed attribution check
-    const { data: existingAttribution, error: existingError } = await params.supabase
+    if (inviterPhone === params.inviteePhone) {
+      console.warn('[set-password] resolveReferralDetails: self-referral detected, skipping');
+      return { resolvedReferral: null, rejectionReason: 'self_referral' };
+    }
+
+    return {
+      resolvedReferral: {
+        referralCodeId: referralCodeRow.id,
+        referralCode: referralCodeRow.code,
+        inviterFcId: referralCodeRow.fc_id,
+        inviterPhone,
+        inviterName,
+      },
+      rejectionReason: null,
+    };
+  } catch (err) {
+    console.warn('[set-password] resolveReferralDetails: unexpected error', err instanceof Error ? err.message : String(err));
+    return { resolvedReferral: null, rejectionReason: 'unexpected_resolution_error' };
+  }
+}
+
+async function insertReferralEvent(params: {
+  supabase: SupabaseClient;
+  eventType: 'signup_completed' | 'referral_confirmed' | 'referral_rejected';
+  source: 'manual_entry';
+  attributionId?: string | null;
+  referralCodeId?: string | null;
+  referralCode?: string | null;
+  inviterFcId?: string | null;
+  inviterPhone?: string | null;
+  inviterName?: string | null;
+  inviteeFcId?: string | null;
+  inviteePhone?: string | null;
+  metadata?: Record<string, unknown>;
+  logLabel: string;
+}): Promise<void> {
+  const { error } = await params.supabase
+    .from('referral_events')
+    .insert({
+      attribution_id: params.attributionId ?? null,
+      referral_code_id: params.referralCodeId ?? null,
+      referral_code: params.referralCode ?? null,
+      inviter_fc_id: params.inviterFcId ?? null,
+      inviter_phone: params.inviterPhone ?? null,
+      inviter_name: params.inviterName ?? null,
+      invitee_fc_id: params.inviteeFcId ?? null,
+      invitee_phone: params.inviteePhone ?? null,
+      event_type: params.eventType,
+      source: params.source,
+      metadata: params.metadata ?? {},
+    });
+
+  if (error) {
+    console.warn(`[set-password] ${params.logLabel}: event insert error`, error.message);
+  }
+}
+
+async function persistRejectedReferralAttribution(params: {
+  resolvedReferral: ResolvedReferralDetails;
+  inviteePhone: string;
+  inviteeFcId: string;
+  rejectionReason: string;
+  supabase: SupabaseClient;
+}): Promise<string | null> {
+  const now = new Date().toISOString();
+  const rejectedPayload = {
+    inviter_fc_id: params.resolvedReferral.inviterFcId,
+    inviter_phone: params.resolvedReferral.inviterPhone,
+    inviter_name: params.resolvedReferral.inviterName,
+    invitee_fc_id: params.inviteeFcId,
+    invitee_phone: params.inviteePhone,
+    referral_code_id: params.resolvedReferral.referralCodeId,
+    referral_code: params.resolvedReferral.referralCode,
+    source: 'manual_entry',
+    capture_source: 'manual_entry',
+    selection_source: 'manual_entry_only',
+    status: 'rejected',
+    rejection_reason: params.rejectionReason,
+    cancelled_at: null,
+    confirmed_at: null,
+  };
+
+  try {
+    const { data: existingRejected, error: existingRejectedError } = await params.supabase
       .from('referral_attributions')
       .select('id')
+      .eq('invitee_fc_id', params.inviteeFcId)
       .eq('invitee_phone', params.inviteePhone)
-      .eq('status', 'confirmed')
+      .eq('referral_code', params.resolvedReferral.referralCode)
+      .eq('status', 'rejected')
+      .order('created_at', { ascending: false })
+      .limit(1)
       .maybeSingle();
 
-    if (existingError) {
-      console.warn('[set-password] captureReferralAttribution: existing attribution check error', existingError.message);
-      return;
-    }
-    if (existingAttribution) {
-      console.warn('[set-password] captureReferralAttribution: confirmed attribution already exists for phone', params.inviteePhone);
-      return;
+    if (existingRejectedError) {
+      console.warn(
+        '[set-password] persistRejectedReferralAttribution: rejected lookup error',
+        existingRejectedError.message,
+      );
+      return null;
     }
 
-    const now = new Date().toISOString();
+    if (existingRejected?.id) {
+      const { error: updateError } = await params.supabase
+        .from('referral_attributions')
+        .update({
+          ...rejectedPayload,
+          captured_at: now,
+        })
+        .eq('id', existingRejected.id);
 
-    // Insert referral_attributions
-    const { data: attribution, error: attributionError } = await params.supabase
+      if (updateError) {
+        console.warn(
+          '[set-password] persistRejectedReferralAttribution: rejected update error',
+          updateError.message,
+        );
+        return null;
+      }
+
+      return existingRejected.id;
+    }
+
+    const { data: insertedRejected, error: insertError } = await params.supabase
       .from('referral_attributions')
       .insert({
-        inviter_fc_id: referralCodeRow.fc_id,
-        inviter_phone: inviterPhone,
-        inviter_name: inviterName,
-        invitee_fc_id: params.inviteeFcId,
-        invitee_phone: params.inviteePhone,
-        referral_code_id: referralCodeRow.id,
-        referral_code: referralCodeRow.code,
-        source: 'manual_entry',
-        capture_source: 'manual_entry',
-        selection_source: 'manual_entry_only',
-        status: 'confirmed',
-        confirmed_at: now,
+        ...rejectedPayload,
         captured_at: now,
       })
       .select('id')
       .maybeSingle();
 
-    if (attributionError) {
-      console.warn('[set-password] captureReferralAttribution: attribution insert error', attributionError.message);
-      return;
-    }
-    if (!attribution?.id) {
-      console.warn('[set-password] captureReferralAttribution: attribution insert returned no id');
-      return;
-    }
-
-    // Insert referral_events
-    const { error: eventError } = await params.supabase
-      .from('referral_events')
-      .insert({
-        attribution_id: attribution.id,
-        referral_code_id: referralCodeRow.id,
-        referral_code: referralCodeRow.code,
-        inviter_fc_id: referralCodeRow.fc_id,
-        inviter_phone: inviterPhone,
-        inviter_name: inviterName,
-        invitee_fc_id: params.inviteeFcId,
-        invitee_phone: params.inviteePhone,
-        event_type: 'referral_confirmed',
-        source: 'manual_entry',
-        metadata: {
-          captureSource: 'set_password_signup',
-          selectionSource: 'manual_entry_only',
-        },
-      });
-
-    if (eventError) {
-      console.warn('[set-password] captureReferralAttribution: event insert error', eventError.message);
-      // Do not return — attribution was already inserted successfully
+    if (insertError) {
+      console.warn(
+        '[set-password] persistRejectedReferralAttribution: rejected insert error',
+        insertError.message,
+      );
+      return null;
     }
 
-    // Update fc_profiles.recommender for admin view compatibility
+    return insertedRejected?.id ?? null;
+  } catch (error) {
+    console.warn(
+      '[set-password] persistRejectedReferralAttribution: unexpected error',
+      error instanceof Error ? error.message : String(error),
+    );
+    return null;
+  }
+}
+
+async function captureReferralAttribution(params: {
+  resolvedReferral: ResolvedReferralDetails;
+  inviteePhone: string;
+  inviteeFcId: string;
+  supabase: SupabaseClient;
+}): Promise<ReferralCaptureResult> {
+  try {
+    const {
+      referralCodeId,
+      referralCode,
+      inviterFcId,
+      inviterPhone,
+      inviterName,
+    } = params.resolvedReferral;
+
+    const now = new Date().toISOString();
+    const confirmedSelect = 'id, invitee_fc_id, confirmed_at, created_at';
+    const { data: confirmedRowsByFc, error: confirmedByFcError } = await params.supabase
+      .from('referral_attributions')
+      .select(confirmedSelect)
+      .eq('status', 'confirmed')
+      .eq('invitee_fc_id', params.inviteeFcId)
+      .order('confirmed_at', { ascending: false })
+      .order('created_at', { ascending: false });
+
+    if (confirmedByFcError) {
+      console.warn(
+        '[set-password] captureReferralAttribution: confirmed-by-fc lookup error',
+        confirmedByFcError.message,
+      );
+      return {
+        ok: false,
+        rejectionReason: 'confirmed_lookup_failed',
+        attributionId: null,
+        reusedHistoricalConfirmedRow: false,
+        warningReasons: [],
+      };
+    }
+
+    const confirmedRows = (confirmedRowsByFc ?? []) as Array<{ id: string; invitee_fc_id: string | null }>;
+    const primaryConfirmed = confirmedRows[0] ?? null;
+    const otherConfirmedIds = primaryConfirmed ? confirmedRows.slice(1).map((row) => row.id) : [];
+    const reusedHistoricalConfirmedRow = confirmedRows.length > 0;
+    const warningReasons: string[] = [];
+    let attributionId = primaryConfirmed?.id ?? null;
+
+    const confirmedPayload = {
+      inviter_fc_id: inviterFcId,
+      inviter_phone: inviterPhone,
+      inviter_name: inviterName,
+      invitee_fc_id: params.inviteeFcId,
+      invitee_phone: params.inviteePhone,
+      referral_code_id: referralCodeId,
+      referral_code: referralCode,
+      source: 'manual_entry',
+      capture_source: 'manual_entry',
+      selection_source: 'manual_entry_only',
+      status: 'confirmed',
+      cancelled_at: null,
+      confirmed_at: now,
+    };
+
+    const overrideDuplicateConfirmed = async (duplicateIds: string[]) => {
+      if (duplicateIds.length === 0) return null;
+      const { error } = await params.supabase
+        .from('referral_attributions')
+        .update({
+          status: 'overridden',
+          source: 'manual_entry',
+          selection_source: 'manual_entry_only',
+          cancelled_at: now,
+        })
+        .in('id', duplicateIds);
+      return error;
+    };
+
+    const updateConfirmedRow = async (attributionRowId: string) => {
+      const { error } = await params.supabase
+        .from('referral_attributions')
+        .update(confirmedPayload)
+        .eq('id', attributionRowId);
+      return error;
+    };
+
+    if (primaryConfirmed) {
+      const attributionError = await updateConfirmedRow(primaryConfirmed.id);
+      if (attributionError) {
+        console.warn('[set-password] captureReferralAttribution: attribution update error', attributionError.message);
+        return {
+          ok: false,
+          rejectionReason: 'attribution_update_failed',
+          attributionId: null,
+          reusedHistoricalConfirmedRow,
+          warningReasons: [],
+        };
+      }
+    } else {
+      const insertPayload = {
+        ...confirmedPayload,
+        captured_at: now,
+      };
+      const { data: attribution, error: attributionError } = await params.supabase
+        .from('referral_attributions')
+        .insert(insertPayload)
+        .select('id')
+        .maybeSingle();
+
+      if (attributionError && !isUniqueViolation(attributionError)) {
+        console.warn('[set-password] captureReferralAttribution: attribution insert error', attributionError.message);
+        return {
+          ok: false,
+          rejectionReason: 'attribution_insert_failed',
+          attributionId: null,
+          reusedHistoricalConfirmedRow: false,
+          warningReasons: [],
+        };
+      }
+
+      if (isUniqueViolation(attributionError)) {
+        const { data: retriedRows, error: retryLookupError } = await params.supabase
+          .from('referral_attributions')
+          .select(confirmedSelect)
+          .eq('status', 'confirmed')
+          .eq('invitee_fc_id', params.inviteeFcId)
+          .order('confirmed_at', { ascending: false })
+          .order('created_at', { ascending: false });
+
+        if (retryLookupError) {
+          console.warn(
+            '[set-password] captureReferralAttribution: retry lookup after unique violation failed',
+            retryLookupError.message,
+          );
+          return {
+            ok: false,
+            rejectionReason: 'confirmed_lookup_failed',
+            attributionId: null,
+            reusedHistoricalConfirmedRow: false,
+            warningReasons: [],
+          };
+        }
+
+        const retryPrimary = ((retriedRows ?? []) as Array<{ id: string }>)[0];
+        if (!retryPrimary?.id) {
+          console.warn(
+            '[set-password] captureReferralAttribution: unique violation without fc-owned confirmed row; check DB uniqueness rollout or concurrent writes',
+          );
+          return {
+            ok: false,
+            rejectionReason: 'attribution_insert_conflict',
+            attributionId: null,
+            reusedHistoricalConfirmedRow: false,
+            warningReasons: ['attribution_insert_conflict'],
+          };
+        }
+
+        const retryError = await updateConfirmedRow(retryPrimary.id);
+        if (retryError) {
+          console.warn(
+            '[set-password] captureReferralAttribution: retry update after unique violation failed',
+            retryError.message,
+          );
+          return {
+            ok: false,
+            rejectionReason: 'attribution_update_failed',
+            attributionId: null,
+            reusedHistoricalConfirmedRow: true,
+            warningReasons: [],
+          };
+        }
+
+        attributionId = retryPrimary.id;
+      } else if (!attribution?.id) {
+        console.warn('[set-password] captureReferralAttribution: attribution insert returned no id');
+        return {
+          ok: false,
+          rejectionReason: 'attribution_insert_missing_id',
+          attributionId: null,
+          reusedHistoricalConfirmedRow: false,
+          warningReasons: [],
+        };
+      } else {
+        attributionId = attribution.id;
+      }
+    }
+
+    const overrideError = await overrideDuplicateConfirmed(otherConfirmedIds);
+    if (overrideError) {
+      console.warn('[set-password] captureReferralAttribution: duplicate override error', overrideError.message);
+      warningReasons.push('duplicate_override_failed');
+    }
+
     const { error: recommenderError } = await params.supabase
       .from('fc_profiles')
-      .update({ recommender: inviterName })
+      .update({ recommender: inviterName, recommender_fc_id: inviterFcId })
       .eq('id', params.inviteeFcId);
 
     if (recommenderError) {
       console.warn('[set-password] captureReferralAttribution: recommender update error', recommenderError.message);
+      warningReasons.push('recommender_update_failed');
     }
+
+    await insertReferralEvent({
+      supabase: params.supabase,
+      eventType: 'referral_confirmed',
+      source: 'manual_entry',
+      attributionId,
+      referralCodeId,
+      referralCode,
+      inviterFcId,
+      inviterPhone,
+      inviterName,
+      inviteeFcId: params.inviteeFcId,
+      inviteePhone: params.inviteePhone,
+      metadata: {
+        captureSource: 'set_password_signup',
+        selectionSource: 'manual_entry_only',
+        reusedHistoricalConfirmedRow,
+        warningReasons: warningReasons.length > 0 ? warningReasons : undefined,
+      },
+      logLabel: 'captureReferralAttribution',
+    });
+
+    return {
+      ok: true,
+      rejectionReason: null,
+      attributionId,
+      reusedHistoricalConfirmedRow,
+      warningReasons,
+    };
   } catch (err) {
     console.warn('[set-password] captureReferralAttribution: unexpected error', err instanceof Error ? err.message : String(err));
+    return {
+      ok: false,
+      rejectionReason: 'unexpected_capture_error',
+      attributionId: null,
+      reusedHistoricalConfirmedRow: false,
+      warningReasons: [],
+    };
   }
 }
 
@@ -374,11 +727,21 @@ serve(async (req: Request) => {
   // Profile data from signup form
   const profileName = (body.name ?? '').trim();
   const profileAffiliation = (body.affiliation ?? '').trim();
-  const profileRecommender = (body.recommender ?? '').trim();
   const profileEmail = (body.email ?? '').trim();
   const profileCarrier = (body.carrier ?? '').trim();
   const commissionStatus = normalizeCommissionStatus(body.commissionStatus);
   const commissionState = mapCommissionToProfileState(commissionStatus);
+  const referralCode = (body.referralCode ?? '').trim().toUpperCase();
+  const referralInviterFcId = (body.referralInviterFcId ?? '').trim() || null;
+  const referralResolution = referralCode
+    ? await resolveReferralDetails({
+        referralCode,
+        inviteePhone: phone,
+        validatedInviterFcId: referralInviterFcId,
+        supabase,
+      })
+    : { resolvedReferral: null, rejectionReason: null };
+  const resolvedReferral = referralResolution.resolvedReferral;
 
   let fcId = profile?.id as string | undefined;
   let displayName = profile?.name ?? '';
@@ -389,7 +752,8 @@ serve(async (req: Request) => {
       phone,
       name: profileName,
       affiliation: profileAffiliation,
-      recommender: profileRecommender,
+      recommender: null,
+      recommender_fc_id: null,
       email: profileEmail,
       address: '',
       status: commissionState.status,
@@ -453,6 +817,8 @@ serve(async (req: Request) => {
       // 이전 위촉 완료 후 재가입 시 identity 잔여 데이터 초기화
       address: '',
       address_detail: null,
+      recommender: null,
+      recommender_fc_id: null,
       resident_id_masked: null,
       resident_id_hash: null,
       identity_completed: false,
@@ -464,7 +830,6 @@ serve(async (req: Request) => {
     };
     if (profileName) updatePayload.name = profileName;
     if (profileAffiliation) updatePayload.affiliation = profileAffiliation;
-    if (profileRecommender) updatePayload.recommender = profileRecommender;
     if (profileEmail) updatePayload.email = profileEmail;
     if (profileCarrier) updatePayload.carrier = profileCarrier;
 
@@ -502,6 +867,8 @@ serve(async (req: Request) => {
   } else {
     const statusOnlyPayload: Record<string, unknown> = {
       status: commissionState.status,
+      recommender: null,
+      recommender_fc_id: null,
       life_commission_completed: commissionState.lifeCompleted,
       nonlife_commission_completed: commissionState.nonlifeCompleted,
       ...buildWorkflowResetPayload(),
@@ -584,6 +951,27 @@ serve(async (req: Request) => {
     return json({ ok: false, code: 'db_error', message: profileUpdateError.message }, 500);
   }
 
+  if (referralCode) {
+    await insertReferralEvent({
+      supabase,
+      eventType: 'signup_completed',
+      source: 'manual_entry',
+      referralCode: referralCode || null,
+      referralCodeId: resolvedReferral?.referralCodeId ?? null,
+      inviterFcId: resolvedReferral?.inviterFcId ?? null,
+      inviterPhone: resolvedReferral?.inviterPhone ?? null,
+      inviterName: resolvedReferral?.inviterName ?? null,
+      inviteeFcId: fcId,
+      inviteePhone: phone,
+      metadata: {
+        captureSource: 'set_password_signup',
+        validationOutcome: resolvedReferral ? 'resolved' : 'rejected',
+        rejectionReason: resolvedReferral ? null : referralResolution.rejectionReason,
+      },
+      logLabel: 'set-password',
+    });
+  }
+
   const designerCompanyName = parseDesignerCompanyNameFromAffiliation(effectiveAffiliation);
   await syncRequestBoardPassword(phone, password, {
     role: designerCompanyName ? 'designer' : 'fc',
@@ -592,13 +980,58 @@ serve(async (req: Request) => {
     ...(designerCompanyName ? { companyName: designerCompanyName } : {}),
   });
 
-  const referralCode = (body.referralCode ?? '').trim().toUpperCase();
-  if (referralCode && fcId) {
-    await captureReferralAttribution({
-      referralCode,
+  if (resolvedReferral && fcId) {
+    const captureResult = await captureReferralAttribution({
+      resolvedReferral,
       inviteePhone: phone,
       inviteeFcId: fcId,
       supabase,
+    });
+    if (!captureResult.ok) {
+      const rejectedAttributionId = captureResult.attributionId
+        ? null
+        : await persistRejectedReferralAttribution({
+            resolvedReferral,
+            inviteePhone: phone,
+            inviteeFcId: fcId,
+            rejectionReason: captureResult.rejectionReason ?? 'capture_failed',
+            supabase,
+          });
+
+      await insertReferralEvent({
+        supabase,
+        eventType: 'referral_rejected',
+        source: 'manual_entry',
+        attributionId: captureResult.attributionId ?? rejectedAttributionId,
+        referralCodeId: resolvedReferral.referralCodeId,
+        referralCode: resolvedReferral.referralCode,
+        inviterFcId: resolvedReferral.inviterFcId,
+        inviterPhone: resolvedReferral.inviterPhone,
+        inviterName: resolvedReferral.inviterName,
+        inviteeFcId: fcId,
+        inviteePhone: phone,
+        metadata: {
+          captureSource: 'set_password_signup',
+          rejectionReason: captureResult.rejectionReason,
+          rejectedAttributionPersisted: Boolean(rejectedAttributionId),
+          warningReasons: captureResult.warningReasons.length > 0 ? captureResult.warningReasons : undefined,
+        },
+        logLabel: 'set-password',
+      });
+    }
+  } else if (referralCode && fcId) {
+    await insertReferralEvent({
+      supabase,
+      eventType: 'referral_rejected',
+      source: 'manual_entry',
+      referralCode: referralCode || null,
+      inviteeFcId: fcId,
+      inviteePhone: phone,
+      metadata: {
+        captureSource: 'set_password_signup',
+        rejectionReason: referralResolution.rejectionReason ?? 'unresolved_referral',
+      },
+      logLabel: 'set-password',
     });
   }
 

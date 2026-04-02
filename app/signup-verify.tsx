@@ -33,6 +33,7 @@ type SignupPayload = {
   commissionStatus?: CommissionCompletionStatus;
   phoneVerified?: boolean;
   referralCode?: string;
+  referralInviterFcId?: string;
 };
 
 export default function SignupVerifyScreen() {

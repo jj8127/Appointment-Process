@@ -19,7 +19,8 @@ FC 사용자의 메인 프로필 테이블
 | email | text | - | 이메일 |
 | address | text | - | 주소 |
 | address_detail | text | - | 상세주소 |
-| recommender | text | - | 추천인 |
+| recommender | text | - | 추천인 표시 cache(레거시 호환) |
+| recommender_fc_id | uuid | FK → fc_profiles.id, nullable | 구조화된 추천인 FC 링크 |
 | resident_id_masked | text | - | 마스킹된 주민번호 (예: 900101-1******) |
 | resident_id_hash | text | UNIQUE | 주민번호 해시 (중복체크용) |
 | career_type | text | - | '신입' \| '경력' \| null |
@@ -209,12 +210,21 @@ FC 제출 서류
   - 최대 100건 수동 batch
   - `signup_completed=true`, `11자리 phone`, non-designer, non-admin, non-manager, 활성 코드 없음 조건만 처리
   - 반복 호출 가능하도록 `FOR UPDATE SKIP LOCKED` 기반 resumable batch
+- `admin_apply_recommender_override(invitee_fc_id, inviter_fc_id, actor_phone, actor_role, actor_staff_type, reason)`
+  - 추천인 선택/변경/clear를 단일 RPC로 처리
+  - `fc_profiles.recommender_fc_id`, `fc_profiles.recommender`, `referral_attributions`, `referral_events.admin_override_applied`를 함께 갱신
+  - 활성 추천코드가 있는 FC만 추천인으로 선택 가능
+  - self-reference 금지, 사유 필수
+  - 원격 DB에 migration `20260331000005_admin_apply_recommender_override.sql`가 반영되기 전에는 이 함수를 호출하는 웹 UI를 배포하지 않는다.
 
 ### 1.10 Legacy Note
 
-- `fc_profiles.recommender`는 현재 자유입력 추천인 문자열 필드다.
-- 구조화된 추천인 SSOT는 `referral_codes`, `referral_attributions`, `referral_events`이며, `recommender`는 과도기 호환 필드로 취급한다.
+- `fc_profiles.recommender_fc_id`가 구조화 추천인 링크의 직접 참조다.
+- `fc_profiles.recommender`는 현재 표시 cache/레거시 호환 필드다.
+- 구조화된 추천인 SSOT는 `referral_codes`, `referral_attributions`, `referral_events`, `fc_profiles.recommender_fc_id`다.
 - 추천인 테이블 direct access는 V1에서 열지 않고, referral 전용 Edge Function/trusted server path를 통해서만 사용한다.
+- invitee 추천코드 조회 함수 `get_invitee_referral_code(uuid)`는 이름 문자열 매칭을 금지하고, `recommender_fc_id`와 structured attribution만 사용한다.
+- 단, `get_invitee_referral_code(uuid)`의 `anon/authenticated` execute grant는 2026-03-31 기준 구 모바일 관리자 build 호환용 임시 예외다. 새 구현은 `admin-action:getInviteeReferralCode` 또는 server-only route를 사용하고, 호환 build 정리 후 grant를 회수해야 한다.
 
 ---
 

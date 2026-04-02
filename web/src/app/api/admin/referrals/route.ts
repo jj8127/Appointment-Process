@@ -4,6 +4,7 @@ import {
   backfillReferralCodes,
   disableReferralCode,
   getReferralAdminData,
+  linkLegacyRecommender,
   rotateReferralCode,
 } from '@/lib/admin-referrals';
 import { logger } from '@/lib/logger';
@@ -32,10 +33,20 @@ type DisableActionRequest = {
   };
 };
 
+type LinkLegacyActionRequest = {
+  action: 'link_legacy_recommender';
+  payload?: {
+    inviteeFcId?: string;
+    inviterFcId?: string;
+    reason?: string;
+  };
+};
+
 type ReferralAdminRequest =
   | BackfillActionRequest
   | RotateActionRequest
-  | DisableActionRequest;
+  | DisableActionRequest
+  | LinkLegacyActionRequest;
 
 const CLIENT_ERROR_MESSAGES = new Set([
   '추천코드 작업 권한이 없습니다.',
@@ -49,7 +60,17 @@ const CLIENT_ERROR_MESSAGES = new Set([
   '활성 추천코드가 없습니다.',
   '추천코드 생성 시 충돌이 반복되어 중단되었습니다.',
   '추천코드 작업 결과를 확인할 수 없습니다.',
+  '추천인 대상 FC를 찾을 수 없습니다.',
+  '추천인 후보 FC를 찾을 수 없습니다.',
+  '추천인 변경 사유를 입력해주세요.',
+  '활성 추천코드가 있는 FC만 추천인으로 선택할 수 있습니다.',
+  '자기 자신을 추천인으로 지정할 수 없습니다.',
+  '추천 관계 대상 FC 전화번호가 올바르지 않습니다.',
+  '추천인 후보 FC 전화번호가 올바르지 않습니다.',
 ]);
+
+const RECOMMENDER_RPC_NOT_READY_MESSAGE =
+  '운영 DB에 추천인 override 함수가 아직 적용되지 않았습니다. migration 20260331000005를 먼저 반영해주세요.';
 
 async function getReadSession() {
   return getVerifiedServerSession({ allowedRoles: ['admin', 'manager'], requireActive: true });
@@ -66,6 +87,11 @@ function badRequest(message: string) {
 function isClientError(error: unknown) {
   const message = error instanceof Error ? error.message : String(error);
   return CLIENT_ERROR_MESSAGES.has(message);
+}
+
+function isInfrastructureError(error: unknown) {
+  const message = error instanceof Error ? error.message : String(error);
+  return message === RECOMMENDER_RPC_NOT_READY_MESSAGE;
 }
 
 export async function GET(req: Request) {
@@ -143,9 +169,30 @@ export async function POST(req: Request) {
       return NextResponse.json({ ok: true, action, result });
     }
 
+    if (action === 'link_legacy_recommender') {
+      const inviteeFcId = payload?.inviteeFcId?.trim();
+      const inviterFcId = payload?.inviterFcId?.trim();
+      const reason = payload?.reason?.trim();
+      if (!inviteeFcId) {
+        return badRequest('inviteeFcId 값이 필요합니다.');
+      }
+      if (!inviterFcId) {
+        return badRequest('inviterFcId 값이 필요합니다.');
+      }
+      if (!reason) {
+        return badRequest('사유를 입력해주세요.');
+      }
+
+      const result = await linkLegacyRecommender(sessionCheck.session, inviteeFcId, inviterFcId, reason);
+      return NextResponse.json({ ok: true, action, result });
+    }
+
     return badRequest('지원하지 않는 action 입니다.');
   } catch (error) {
     logger.error('[api/admin/referrals] POST failed', error);
+    if (isInfrastructureError(error)) {
+      return NextResponse.json({ error: RECOMMENDER_RPC_NOT_READY_MESSAGE }, { status: 503 });
+    }
     if (isClientError(error)) {
       return badRequest(error instanceof Error ? error.message : String(error));
     }

@@ -7,11 +7,13 @@ import type {
   ReferralAdminEventItem,
   ReferralAdminListItem,
   ReferralAdminSummary,
+  ReferralAdminUnresolvedItem,
+  RecommenderCandidate,
 } from '@/types/referrals';
 import { adminSupabase } from '@/lib/admin-supabase';
 import { logger } from '@/lib/logger';
 
-const CODE_EVENT_TYPES = ['code_generated', 'code_rotated', 'code_disabled'] as const;
+const CODE_EVENT_TYPES = ['code_generated', 'code_rotated', 'code_disabled', 'admin_override_applied'] as const;
 const DEFAULT_PAGE = 1;
 const DEFAULT_PAGE_SIZE = 20;
 const MAX_PAGE_SIZE = 100;
@@ -40,9 +42,19 @@ type ReferralCodeRow = {
   disabled_at: string | null;
 };
 
+type FcProfileRow = {
+  id: string;
+  name: string;
+  phone: string | null;
+  affiliation: string | null;
+  recommender: string | null;
+  recommender_fc_id: string | null;
+};
+
 type ReferralEventRow = {
   id: string;
   inviter_fc_id: string | null;
+  invitee_fc_id: string | null;
   referral_code: string | null;
   event_type: CodeEventType;
   metadata: Record<string, unknown> | null;
@@ -67,10 +79,19 @@ type ReferralAdminData = {
   summary: ReferralAdminSummary;
   items: ReferralAdminListItem[];
   detail: ReferralAdminDetail | null;
+  unresolvedItems: ReferralAdminUnresolvedItem[];
   permissions: ReferralAdminPermissions;
   page: number;
   pageSize: number;
   total: number;
+};
+
+type RecommenderSelectionResult = {
+  changed: boolean;
+  inviteeFcId: string;
+  inviterFcId: string | null;
+  recommenderName: string | null;
+  referralCode: string | null;
 };
 
 const DB_ERROR_MESSAGE_MAP = new Map<string, string>([
@@ -83,6 +104,7 @@ const DB_ERROR_MESSAGE_MAP = new Map<string, string>([
   ['Manager accounts cannot receive referral codes', '본부장 계정에는 추천코드를 발급할 수 없습니다.'],
   ['Active referral code not found', '활성 추천코드가 없습니다.'],
   ['Failed to generate unique referral code after 10 attempts', '추천코드 생성 시 충돌이 반복되어 중단되었습니다.'],
+  ['admin_apply_recommender_override_not_ready', '운영 DB에 추천인 override 함수가 아직 적용되지 않았습니다. migration 20260331000005를 먼저 반영해주세요.'],
 ]);
 
 function normalizeDigits(value?: string | null) {
@@ -107,7 +129,65 @@ function normalizeRpcResult<T>(value: T | T[] | null): T | null {
 }
 
 function normalizeDbErrorMessage(message: string) {
+  if (message.includes('admin_apply_recommender_override')) {
+    return DB_ERROR_MESSAGE_MAP.get('admin_apply_recommender_override_not_ready') ?? message;
+  }
   return DB_ERROR_MESSAGE_MAP.get(message) ?? message;
+}
+
+function normalizeName(value?: string | null) {
+  return String(value ?? '').replace(/\s+/g, ' ').trim();
+}
+
+function getPhoneLast4(value?: string | null) {
+  const digits = normalizeDigits(value);
+  return digits.length >= 4 ? digits.slice(-4) : null;
+}
+
+function formatCandidateDescriptor(profile: Pick<EligibleProfileRow | FcProfileRow, 'affiliation' | 'phone'>, duplicateCount: number) {
+  const affiliation = normalizeName(profile.affiliation);
+  const phoneLast4 = getPhoneLast4(profile.phone);
+  const parts: string[] = [];
+
+  if (affiliation) {
+    parts.push(affiliation);
+  }
+  if (!affiliation || duplicateCount > 1) {
+    if (phoneLast4) {
+      parts.push(`끝 ${phoneLast4}`);
+    }
+  }
+
+  return parts.join(' · ') || '식별 정보 없음';
+}
+
+function buildCandidateDuplicateCounts(
+  profiles: Array<Pick<EligibleProfileRow | FcProfileRow, 'name'>>,
+) {
+  const counts = new Map<string, number>();
+  for (const profile of profiles) {
+    const key = normalizeName(profile.name);
+    if (!key) continue;
+    counts.set(key, (counts.get(key) ?? 0) + 1);
+  }
+  return counts;
+}
+
+function toRecommenderCandidate(
+  profile: Pick<EligibleProfileRow | FcProfileRow, 'id' | 'name' | 'affiliation' | 'phone'>,
+  activeCode: string | null,
+  duplicateCount: number,
+): RecommenderCandidate {
+  const descriptor = formatCandidateDescriptor(profile, duplicateCount);
+  return {
+    fcId: profile.id,
+    name: normalizeName(profile.name),
+    affiliation: normalizeName(profile.affiliation),
+    phoneLast4: getPhoneLast4(profile.phone),
+    activeCode,
+    descriptor,
+    label: [normalizeName(profile.name), descriptor].filter(Boolean).join(' · '),
+  };
 }
 
 function isEligibleProfile(profile: EligibleProfileRow) {
@@ -198,6 +278,33 @@ async function fetchEligibleProfiles() {
   });
 }
 
+async function fetchFcProfiles() {
+  const [{ data, error }, excludedStaffPhones] = await Promise.all([
+    adminSupabase
+      .from('fc_profiles')
+      .select('id,name,phone,affiliation,recommender,recommender_fc_id,signup_completed')
+      .eq('signup_completed', true)
+      .order('created_at', { ascending: false }),
+    fetchExcludedStaffPhones(),
+  ]);
+
+  if (error) {
+    throw error;
+  }
+
+  return ((data ?? []) as Array<FcProfileRow & { signup_completed?: boolean | null }>)
+    .filter((row) => !String(row.affiliation ?? '').includes('설계매니저'))
+    .filter((row) => !excludedStaffPhones.has(normalizeDigits(row.phone)))
+    .map((row) => ({
+      id: row.id,
+      name: row.name,
+      phone: row.phone,
+      affiliation: row.affiliation,
+      recommender: row.recommender,
+      recommender_fc_id: row.recommender_fc_id,
+    }));
+}
+
 async function fetchReferralCodes(fcIds: string[]) {
   if (fcIds.length === 0) {
     return [] as ReferralCodeRow[];
@@ -223,8 +330,8 @@ async function fetchReferralEvents(fcIds: string[]) {
 
   const { data, error } = await adminSupabase
     .from('referral_events')
-    .select('id,inviter_fc_id,referral_code,event_type,metadata,created_at')
-    .in('inviter_fc_id', fcIds)
+    .select('id,inviter_fc_id,invitee_fc_id,referral_code,event_type,metadata,created_at')
+    .or(`inviter_fc_id.in.(${fcIds.join(',')}),invitee_fc_id.in.(${fcIds.join(',')})`)
     .in('event_type', [...CODE_EVENT_TYPES])
     .order('created_at', { ascending: false });
 
@@ -257,24 +364,86 @@ function buildEventMaps(events: ReferralEventRow[]) {
   const lastEventAtByFc = new Map<string, string>();
 
   for (const eventRow of events) {
-    if (!eventRow.inviter_fc_id) {
+    const previousInviterFcId =
+      eventRow.event_type === 'admin_override_applied'
+      && !eventRow.inviter_fc_id
+      && eventRow.metadata
+      && typeof eventRow.metadata.beforeRecommenderFcId === 'string'
+      && eventRow.metadata.beforeRecommenderFcId.trim()
+        ? eventRow.metadata.beforeRecommenderFcId.trim()
+        : null;
+    const eventOwnerFcId = eventRow.inviter_fc_id ?? previousInviterFcId;
+
+    if (!eventOwnerFcId) {
       continue;
     }
 
     const nextEvent = toEventItem(eventRow);
-    const history = eventsByFc.get(eventRow.inviter_fc_id) ?? [];
+    const history = eventsByFc.get(eventOwnerFcId) ?? [];
     history.push(nextEvent);
-    eventsByFc.set(eventRow.inviter_fc_id, history);
+    eventsByFc.set(eventOwnerFcId, history);
 
-    if (!lastEventAtByFc.has(eventRow.inviter_fc_id)) {
-      lastEventAtByFc.set(eventRow.inviter_fc_id, eventRow.created_at);
+    if (!lastEventAtByFc.has(eventOwnerFcId)) {
+      lastEventAtByFc.set(eventOwnerFcId, eventRow.created_at);
     }
   }
 
   return { eventsByFc, lastEventAtByFc };
 }
 
-async function resolveAdminActorContext(session: VerifiedServerSession): Promise<AdminActorContext> {
+async function fetchActiveRecommenderCandidates() {
+  const profiles = await fetchEligibleProfiles();
+  const codes = await fetchReferralCodes(profiles.map((profile) => profile.id));
+  const { activeCodeByFc } = buildCodeMaps(codes);
+  const activeProfiles = profiles.filter((profile) => activeCodeByFc.has(profile.id));
+  const duplicateCounts = buildCandidateDuplicateCounts(activeProfiles);
+
+  return activeProfiles.map((profile) =>
+    toRecommenderCandidate(
+      profile,
+      activeCodeByFc.get(profile.id)?.code ?? null,
+      duplicateCounts.get(normalizeName(profile.name)) ?? 1,
+    ),
+  );
+}
+
+async function fetchRecommenderCandidateById(fcId: string) {
+  const { data, error } = await adminSupabase
+    .from('fc_profiles')
+    .select('id,name,phone,affiliation')
+    .eq('id', fcId)
+    .maybeSingle();
+
+  if (error) {
+    throw error;
+  }
+  if (!data?.id) {
+    return null;
+  }
+
+  const [codes, duplicateCandidates] = await Promise.all([
+    fetchReferralCodes([fcId]),
+    fetchActiveRecommenderCandidates(),
+  ]);
+  const duplicateCounts = buildCandidateDuplicateCounts([
+    ...duplicateCandidates.map((candidate) => ({ name: candidate.name })),
+    { name: data.name },
+  ]);
+  const activeCode = codes.find((row) => row.fc_id === fcId && row.is_active)?.code ?? null;
+
+  return toRecommenderCandidate(
+    {
+      id: data.id,
+      name: data.name,
+      phone: data.phone,
+      affiliation: data.affiliation,
+    },
+    activeCode,
+    duplicateCounts.get(normalizeName(data.name)) ?? 1,
+  );
+}
+
+export async function resolveAdminActorContext(session: VerifiedServerSession): Promise<AdminActorContext> {
   if (session.role !== 'admin') {
     throw new Error('추천코드 작업 권한이 없습니다.');
   }
@@ -296,12 +465,153 @@ async function resolveAdminActorContext(session: VerifiedServerSession): Promise
   };
 }
 
+function buildRecommenderCandidateSearchIndex(candidate: RecommenderCandidate) {
+  return [
+    candidate.name,
+    candidate.affiliation,
+    candidate.phoneLast4 ?? '',
+    candidate.activeCode ?? '',
+    candidate.label,
+  ]
+    .join(' ')
+    .toLowerCase();
+}
+
+export async function searchRecommenderCandidates(params: {
+  query?: string | null;
+  excludeFcId?: string | null;
+  selectedFcId?: string | null;
+  limit?: number;
+}) {
+  const query = String(params.query ?? '').trim().toLowerCase();
+  const excludeFcId = String(params.excludeFcId ?? '').trim();
+  const selectedFcId = String(params.selectedFcId ?? '').trim();
+  const safeLimit = clampPositiveInteger(params.limit ?? 20, 20, 50);
+  const allCandidates = await fetchActiveRecommenderCandidates();
+
+  const filtered = allCandidates
+    .filter((candidate) => candidate.fcId !== excludeFcId)
+    .filter((candidate) => (query ? buildRecommenderCandidateSearchIndex(candidate).includes(query) : true))
+    .slice(0, safeLimit);
+
+  const selectedCandidate = selectedFcId
+    ? (allCandidates.find((candidate) => candidate.fcId === selectedFcId)
+      ?? await fetchRecommenderCandidateById(selectedFcId))
+    : null;
+
+  const candidates = selectedCandidate && !filtered.some((candidate) => candidate.fcId === selectedCandidate.fcId)
+    ? [selectedCandidate, ...filtered].slice(0, safeLimit)
+    : filtered;
+
+  return {
+    candidates,
+    selectedCandidate,
+  };
+}
+
 function normalizeMutationResult(result: ReferralCodeMutationResult | null) {
   if (!result) {
     throw new Error('추천코드 작업 결과를 확인할 수 없습니다.');
   }
 
   return result;
+}
+
+function buildUnresolvedLegacyItems(
+  profiles: FcProfileRow[],
+  candidates: RecommenderCandidate[],
+) {
+  const candidatesByName = new Map<string, RecommenderCandidate[]>();
+  for (const candidate of candidates) {
+    const key = normalizeName(candidate.name);
+    if (!key) continue;
+    const current = candidatesByName.get(key) ?? [];
+    current.push(candidate);
+    candidatesByName.set(key, current);
+  }
+
+  return profiles
+    .filter((profile) => normalizeName(profile.recommender) && !profile.recommender_fc_id)
+    .map<ReferralAdminUnresolvedItem>((profile) => {
+      const matches = (candidatesByName.get(normalizeName(profile.recommender)) ?? [])
+        .filter((candidate) => candidate.fcId !== profile.id);
+      const matchStatus =
+        matches.length > 1
+          ? 'ambiguous'
+          : matches.length === 1
+            ? 'auto_resolvable'
+            : 'missing_candidate';
+
+      return {
+        inviteeFcId: profile.id,
+        inviteeName: profile.name,
+        inviteePhone: profile.phone ?? '',
+        inviteeAffiliation: profile.affiliation ?? '',
+        legacyRecommenderName: normalizeName(profile.recommender),
+        candidateCount: matches.length,
+        candidatePreview: matches.slice(0, 3).map((candidate) =>
+          [candidate.label, candidate.activeCode].filter(Boolean).join(' · '),
+        ),
+        matchStatus,
+      };
+    })
+    .sort((a, b) => {
+      const priority = { ambiguous: 0, missing_candidate: 1, auto_resolvable: 2 } as const;
+      const byStatus = priority[a.matchStatus] - priority[b.matchStatus];
+      if (byStatus !== 0) return byStatus;
+      return a.inviteeName.localeCompare(b.inviteeName, 'ko-KR');
+    });
+}
+
+export async function applyRecommenderSelection(params: {
+  actor: AdminActorContext;
+  inviteeFcId: string;
+  inviterFcId: string | null;
+  reason: string;
+}): Promise<RecommenderSelectionResult> {
+  const inviteeFcId = String(params.inviteeFcId ?? '').trim();
+  const inviterFcId = String(params.inviterFcId ?? '').trim() || null;
+  const reason = String(params.reason ?? '').trim();
+
+  if (!inviteeFcId) {
+    throw new Error('추천인 대상 FC를 찾을 수 없습니다.');
+  }
+  if (!reason) {
+    throw new Error('추천인 변경 사유를 입력해주세요.');
+  }
+  if (inviterFcId && inviterFcId === inviteeFcId) {
+    throw new Error('자기 자신을 추천인으로 지정할 수 없습니다.');
+  }
+
+  const { data, error } = await adminSupabase.rpc('admin_apply_recommender_override', {
+    p_invitee_fc_id: inviteeFcId,
+    p_inviter_fc_id: inviterFcId,
+    p_actor_phone: params.actor.actorPhone,
+    p_actor_role: params.actor.actorRole,
+    p_actor_staff_type: params.actor.actorStaffType,
+    p_reason: reason,
+  });
+
+  if (error) {
+    throw new Error(normalizeDbErrorMessage(error.message));
+  }
+
+  const result = normalizeRpcResult<Record<string, unknown>>(data as Record<string, unknown> | Record<string, unknown>[] | null);
+  if (!result) {
+    throw new Error('추천인 코드 작업 결과를 확인할 수 없습니다.');
+  }
+
+  return {
+    changed: Boolean(result.changed),
+    inviteeFcId: String(result.inviteeFcId ?? inviteeFcId),
+    inviterFcId: typeof result.inviterFcId === 'string' && result.inviterFcId.trim() ? result.inviterFcId : null,
+    recommenderName: typeof result.recommenderName === 'string' && result.recommenderName.trim()
+      ? result.recommenderName.trim()
+      : null,
+    referralCode: typeof result.referralCode === 'string' && result.referralCode.trim()
+      ? result.referralCode.trim()
+      : null,
+  };
 }
 
 export async function getReferralAdminData(
@@ -318,7 +628,11 @@ export async function getReferralAdminData(
   const search = String(params.search ?? '').trim();
   const requestedFcId = String(params.fcId ?? '').trim();
 
-  const profiles = await fetchEligibleProfiles();
+  const [profiles, allProfiles, activeCandidates] = await Promise.all([
+    fetchEligibleProfiles(),
+    fetchFcProfiles(),
+    fetchActiveRecommenderCandidates(),
+  ]);
   const fcIds = profiles.map((profile) => profile.id);
   const [codes, events] = await Promise.all([
     fetchReferralCodes(fcIds),
@@ -333,6 +647,7 @@ export async function getReferralAdminData(
     activeCodeCount: profiles.filter((profile) => activeCodeByFc.has(profile.id)).length,
     missingCodeCount: profiles.filter((profile) => !activeCodeByFc.has(profile.id)).length,
     disabledCodeCount: codes.filter((code) => !code.is_active).length,
+    unresolvedLegacyCount: allProfiles.filter((profile) => normalizeName(profile.recommender) && !profile.recommender_fc_id).length,
   };
 
   const normalizedSearch = search.toLowerCase();
@@ -390,6 +705,7 @@ export async function getReferralAdminData(
     summary,
     items,
     detail,
+    unresolvedItems: buildUnresolvedLegacyItems(allProfiles, activeCandidates),
     permissions: {
       canMutate: session.role === 'admin',
     },
@@ -483,6 +799,21 @@ export async function disableReferralCode(
       data as ReferralCodeMutationResult | ReferralCodeMutationResult[] | null,
     ),
   );
+}
+
+export async function linkLegacyRecommender(
+  session: VerifiedServerSession,
+  inviteeFcId: string,
+  inviterFcId: string,
+  reason: string,
+) {
+  const actor = await resolveAdminActorContext(session);
+  return applyRecommenderSelection({
+    actor,
+    inviteeFcId,
+    inviterFcId,
+    reason,
+  });
 }
 
 export function logReferralBackfillSkip(fcId: string, error: unknown) {

@@ -112,7 +112,10 @@ export default function RootLayout() {
       const code = extractReferralCode(event.url);
       if (code) {
         savePendingReferralCode(code).then(() => {
-          router.push('/signup');
+          router.replace({
+            pathname: '/signup',
+            params: { referralNonce: `${Date.now()}` },
+          });
         }).catch(() => {});
       }
     });

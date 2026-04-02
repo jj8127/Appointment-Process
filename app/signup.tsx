@@ -1,5 +1,5 @@
 import { Feather } from '@expo/vector-icons';
-import { router, useFocusEffect } from 'expo-router';
+import { router, useFocusEffect, useLocalSearchParams } from 'expo-router';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
@@ -63,6 +63,8 @@ export default function SignupScreen() {
   const [referralCode, setReferralCode] = useState('');
   const [referralStatus, setReferralStatus] = useState<'idle' | 'validating' | 'valid' | 'invalid'>('idle');
   const [referralInviterName, setReferralInviterName] = useState('');
+  const [referralInviterFcId, setReferralInviterFcId] = useState<string | null>(null);
+  const [referralCodeSource, setReferralCodeSource] = useState<'none' | 'deeplink' | 'manual'>('none');
   const referralDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [emailLocal, setEmailLocal] = useState('');
   const [emailDomain, setEmailDomain] = useState('');
@@ -72,6 +74,7 @@ export default function SignupScreen() {
   const [showCarrierPicker, setShowCarrierPicker] = useState(false);
   const [checking, setChecking] = useState(false);
   const keyboardPadding = useKeyboardPadding();
+  const { referralNonce } = useLocalSearchParams<{ referralNonce?: string }>();
 
   // Refs for keyboard navigation
   const nameRef = useRef<TextInputType>(null);
@@ -79,6 +82,11 @@ export default function SignupScreen() {
   const recommenderRef = useRef<TextInputType>(null);
   const emailLocalRef = useRef<TextInputType>(null);
   const customDomainRef = useRef<TextInputType>(null);
+  const referralCodeRef = useRef('');
+  const referralCodeSourceRef = useRef<'none' | 'deeplink' | 'manual'>('none');
+  const referralManualEditVersionRef = useRef(0);
+  const pendingReferralApplyRef = useRef<Promise<void> | null>(null);
+  const referralValidationRequestRef = useRef(0);
 
   const { scrollToInput } = useKeyboardAware();
 
@@ -160,6 +168,7 @@ export default function SignupScreen() {
         phone: digits,
         recommender: referralStatus === 'valid' ? referralInviterName : '',
         referralCode: referralCode.trim().toUpperCase() || undefined,
+        referralInviterFcId: referralStatus === 'valid' ? referralInviterFcId ?? undefined : undefined,
         email: emailValue,
         carrier: carrier.trim(),
         commissionStatus,
@@ -168,11 +177,17 @@ export default function SignupScreen() {
     router.push('/signup-verify');
   };
 
-  const validateReferralCode = useCallback(async (code: string) => {
+  const validateReferralCode = useCallback(async (
+    code: string,
+    source: 'none' | 'deeplink' | 'manual' = referralCodeSourceRef.current,
+  ) => {
     const trimmed = code.trim().toUpperCase();
+    const requestId = referralValidationRequestRef.current + 1;
+    referralValidationRequestRef.current = requestId;
     if (!trimmed) {
       setReferralStatus('idle');
       setReferralInviterName('');
+      setReferralInviterFcId(null);
       return;
     }
     setReferralStatus('validating');
@@ -180,38 +195,111 @@ export default function SignupScreen() {
       const { data, error } = await supabase.functions.invoke('validate-referral-code', {
         body: { code: trimmed },
       });
+      if (
+        referralValidationRequestRef.current !== requestId ||
+        referralCodeRef.current.trim().toUpperCase() !== trimmed ||
+        referralCodeSourceRef.current !== source
+      ) {
+        return;
+      }
       if (error || !data?.valid) {
         setReferralStatus('invalid');
         setReferralInviterName('');
+        setReferralInviterFcId(null);
       } else {
         setReferralStatus('valid');
         setReferralInviterName(data.inviterName ?? '');
+        setReferralInviterFcId(typeof data.inviterFcId === 'string' ? data.inviterFcId : null);
       }
     } catch {
+      if (
+        referralValidationRequestRef.current !== requestId ||
+        referralCodeRef.current.trim().toUpperCase() !== trimmed ||
+        referralCodeSourceRef.current !== source
+      ) {
+        return;
+      }
       setReferralStatus('idle');
+      setReferralInviterName('');
+      setReferralInviterFcId(null);
     }
   }, []);
 
   const handleReferralCodeChange = (text: string) => {
     const upper = text.toUpperCase();
+    referralManualEditVersionRef.current += 1;
+    referralCodeRef.current = upper;
+    referralCodeSourceRef.current = 'manual';
     setReferralCode(upper);
+    setReferralCodeSource('manual');
     setReferralStatus('idle');
+    setReferralInviterName('');
+    setReferralInviterFcId(null);
     if (referralDebounceRef.current) clearTimeout(referralDebounceRef.current);
-    referralDebounceRef.current = setTimeout(() => validateReferralCode(upper), 400);
+    referralDebounceRef.current = setTimeout(() => validateReferralCode(upper, 'manual'), 400);
   };
 
   const handleReferralCodeBlur = () => {
     if (referralDebounceRef.current) clearTimeout(referralDebounceRef.current);
-    validateReferralCode(referralCode);
+    validateReferralCode(referralCodeRef.current, referralCodeSourceRef.current);
   };
 
   useEffect(() => () => {
     if (referralDebounceRef.current) clearTimeout(referralDebounceRef.current);
   }, []);
 
+  useEffect(() => {
+    referralCodeRef.current = referralCode;
+  }, [referralCode]);
+
+  useEffect(() => {
+    referralCodeSourceRef.current = referralCodeSource;
+  }, [referralCodeSource]);
+
   const handleBack = useCallback(() => {
     router.replace('/login');
   }, []);
+
+  const applyPendingReferralCode = useCallback(() => {
+    if (pendingReferralApplyRef.current) {
+      return pendingReferralApplyRef.current.finally(() => applyPendingReferralCode());
+    }
+
+    const applyPromise = (async () => {
+      const manualEditVersionAtStart = referralManualEditVersionRef.current;
+      const code = await consumePendingReferralCode();
+      const normalizedCode = code?.trim().toUpperCase() ?? '';
+      if (!normalizedCode) return;
+      if (referralManualEditVersionRef.current !== manualEditVersionAtStart) return;
+      if (
+        referralCodeSourceRef.current === 'deeplink' &&
+        referralCodeRef.current === normalizedCode
+      ) {
+        return;
+      }
+
+      if (referralDebounceRef.current) {
+        clearTimeout(referralDebounceRef.current);
+        referralDebounceRef.current = null;
+      }
+      referralCodeRef.current = normalizedCode;
+      referralCodeSourceRef.current = 'deeplink';
+      setReferralCode(normalizedCode);
+      setReferralCodeSource('deeplink');
+      setReferralInviterName('');
+      setReferralInviterFcId(null);
+      recommenderRef.current?.setNativeProps({ text: normalizedCode });
+      await validateReferralCode(normalizedCode, 'deeplink');
+    })();
+
+    pendingReferralApplyRef.current = applyPromise.finally(() => {
+      if (pendingReferralApplyRef.current === applyPromise) {
+        pendingReferralApplyRef.current = null;
+      }
+    });
+
+    return pendingReferralApplyRef.current;
+  }, [validateReferralCode]);
 
   useFocusEffect(
     useCallback(() => {
@@ -226,15 +314,14 @@ export default function SignupScreen() {
 
   useFocusEffect(
     useCallback(() => {
-      consumePendingReferralCode().then((code) => {
-        if (code && !referralCode) {
-          setReferralCode(code);
-          recommenderRef.current?.setNativeProps({ text: code });
-          validateReferralCode(code);
-        }
-      });
-    }, [referralCode, validateReferralCode]),
+      void applyPendingReferralCode();
+    }, [applyPendingReferralCode]),
   );
+
+  useEffect(() => {
+    if (!referralNonce) return;
+    void applyPendingReferralCode();
+  }, [applyPendingReferralCode, referralNonce]);
 
   return (
     <SafeAreaView style={styles.safe} edges={['left', 'right', 'bottom']}>
