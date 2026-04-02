@@ -7,6 +7,35 @@
 
 ---
 
+## <a id="20260402-web-profile-406-server-path-fix"></a> 2026-04-02 | 웹 FC 상세 `/dashboard/profile/[id]` 406 복구
+
+**배경**:
+- production 배포 직후 `/dashboard/profile/[id]`에서 `FC 상세 정보를 불러오지 못했습니다.`가 노출됐고, 브라우저 콘솔에는 Supabase REST `fc_profiles?select=*,fc_documents(*)&id=eq.<uuid>` 요청이 `406 Not Acceptable`로 찍혔다.
+- 원인은 페이지가 아직 브라우저 anon Supabase client로 `fc_profiles(...).single()`를 직접 읽고 있었기 때문이다. production RLS/세션 조건에서 `0 row`가 되면 PostgREST singular 응답이 `406`으로 터지고, 화면은 그 에러를 그대로 상세 로드 실패로 처리하고 있었다.
+
+**조치**:
+- `web/src/app/api/admin/fc/route.ts`
+  - read-only 관리자/본부장 세션에서 사용할 `getProfile` 액션을 추가했다.
+  - service-role `adminSupabase`로 `fc_profiles`와 `fc_documents`를 서버에서 조회하고, `404 FC profile not found`를 명시적으로 반환하게 했다.
+- `web/src/app/dashboard/profile/[id]/page.tsx`
+  - 브라우저 direct Supabase query를 제거했다.
+  - 이제 `/api/admin/fc`에 `action: 'getProfile'`을 POST로 보내 trusted server path만 사용한다.
+  - 응답이 실패하면 route의 `error` 메시지를 사용하고, singular-query `406`을 더 이상 브라우저에서 직접 맞지 않게 했다.
+- `docs/handbook/mobile/auth-and-gates.md`
+  - 이번 signup/delete canonical rule 반영과 함께 auth gate owner-map 문서를 최신화했다.
+
+**결과**:
+- `/dashboard/profile/[id]`는 이제 브라우저 anon RLS 경로가 아니라 서버 service-role 경유로 profile detail을 읽는다.
+- production에서 `single()` 기반 `406`으로 상세 화면 전체가 비는 경로를 제거했다.
+
+**검증**:
+- `cd web && npm run lint -- src/app/api/admin/fc/route.ts src/app/dashboard/profile/[id]/page.tsx`
+- `cd web && npm run build`
+- `node scripts/ci/check-governance.mjs`
+
+**남은 확인**:
+- Vercel production 재배포 후 실제 `/dashboard/profile/[id]` 화면을 브라우저에서 다시 열어 406이 사라졌는지 확인하면 된다.
+
 ## <a id="20260402-zombie-signup-incident-recovery"></a> 2026-04-02 | `01051078127` zombie signup incident 복구 + `request-signup-otp` 재배포
 
 **배경**:

@@ -6,7 +6,6 @@ import { getAdminStepDisplay, getStatusDisplay } from '@/lib/shared';
 import { useSession } from '@/hooks/use-session';
 import { RecommenderSelect } from '@/components/RecommenderSelect';
 import type { FcProfile, FcStatus } from '@/types/fc';
-import { supabase } from '@/lib/supabase';
 import {
     ActionIcon,
     Avatar,
@@ -136,13 +135,24 @@ export default function FcProfilePage({ params }: { params: Promise<{ id: string
     const { data: profile, isLoading: isProfileLoading, error: profileError } = useQuery({
         queryKey: ['fc-profile', fcId],
         queryFn: async () => {
-            const { data, error } = await supabase
-                .from('fc_profiles')
-                .select('*, fc_documents(*)')
-                .eq('id', fcId)
-                .single();
-            if (error) throw error;
-            return data as FcProfileDetail;
+            const resp = await fetch('/api/admin/fc', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                credentials: 'include',
+                body: JSON.stringify({
+                    action: 'getProfile',
+                    payload: { fcId },
+                }),
+            });
+
+            const json: unknown = await resp.json().catch(() => null);
+            if (!resp.ok || !isRecord(json) || json.ok !== true || !isRecord(json.profile)) {
+                if (isRecord(json) && typeof json.error === 'string' && json.error.trim()) {
+                    throw new Error(json.error);
+                }
+                throw new Error('FC 상세 정보를 불러오지 못했습니다.');
+            }
+            return json.profile as unknown as FcProfileDetail;
         },
         enabled: !!fcId,
     });

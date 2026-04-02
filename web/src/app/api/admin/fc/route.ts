@@ -12,6 +12,7 @@ import { validateSession } from '@/lib/csrf';
 import { logger } from '@/lib/logger';
 
 type AdminAction =
+  | 'getProfile'
   | 'updateProfile'
   | 'updateStatus'
   | 'updateAllowanceDate'
@@ -265,7 +266,7 @@ export async function POST(req: Request) {
   const { action, payload } = body ?? {};
   if (!action) return badRequest('action is required');
 
-  const sessionCheck = action === 'getReferralCode' || action === 'getInviteeReferralCode'
+  const sessionCheck = action === 'getProfile' || action === 'getReferralCode' || action === 'getInviteeReferralCode'
     ? await getReadSession()
     : await getAdminSession();
   if (!sessionCheck.ok) {
@@ -273,6 +274,22 @@ export async function POST(req: Request) {
   }
 
   try {
+    if (action === 'getProfile') {
+      const { fcId } = payload as { fcId?: string };
+      if (!fcId) return badRequest('fcId is required');
+
+      const { data, error } = await adminSupabase
+        .from('fc_profiles')
+        .select('*, fc_documents(*)')
+        .eq('id', fcId)
+        .maybeSingle();
+
+      if (error) throw error;
+      if (!data) return NextResponse.json({ error: 'FC profile not found' }, { status: 404 });
+
+      return NextResponse.json({ ok: true, profile: data });
+    }
+
     if (action === 'updateProfile') {
       const adminSession = sessionCheck.session as AdminSession;
       const { fcId, data, phone } = payload as {

@@ -20,6 +20,7 @@
 ## 최근 작업
 | 날짜 | 작업 | 핵심 파일 | 상세 |
 |------|------|----------|------|
+| 04-02 | 웹 FC 상세 `/dashboard/profile/[id]`가 브라우저 anon Supabase `single()`로 `406`을 내던 경로를 서버 API 조회로 전환해 production 상세 화면을 복구 | `web/src/app/api/admin/fc/route.ts`, `web/src/app/dashboard/profile/[id]/page.tsx`, `docs/handbook/mobile/auth-and-gates.md`, `.claude/WORK_LOG.md`, `.claude/WORK_DETAIL.md` | [→ 상세](WORK_DETAIL.md#20260402-web-profile-406-server-path-fix) |
 | 04-02 | `01051078127` zombie signup incident를 정리해 원격 잔존을 정리하고 `request-signup-otp` / `delete-account` 재배포, 웹 auth 안내 문구 정합성 보정까지 묶어 signup/login 혼선을 복구 | `supabase/functions/request-signup-otp/index.ts`, `supabase/functions/delete-account/index.ts`, `web/src/app/auth/page.tsx`, `.claude/WORK_LOG.md`, `.claude/WORK_DETAIL.md` | [→ 상세](WORK_DETAIL.md#20260402-zombie-signup-incident-recovery) |
 | 04-02 | 웹 FC 상세 모달 한화 위촉 탭에서 `PDF 업로드 완료`와 `FC 전송 완료`를 분리해 총무 혼선을 줄이는 안내/강조 UI를 추가 | `web/src/app/dashboard/page.tsx`, `docs/handbook/admin-web/dashboard-lifecycle.md`, `.claude/WORK_LOG.md`, `.claude/WORK_DETAIL.md` | [→ 상세](WORK_DETAIL.md#20260402-web-hanwha-approval-ui-clarification) |
 | 04-02 | FC 한화 위촉 화면이 `승인됨` 여부와 무관하게 총무 첨부 PDF를 열람/다운로드할 수 있도록 정리하고, 단계 unlock은 기존 승인+PDF 계약으로 유지 | `app/hanwha-commission.tsx`, `lib/fc-workflow.ts`, `docs/handbook/mobile/fc-onboarding.md`, `docs/handbook/admin-web/dashboard-lifecycle.md`, `.claude/WORK_LOG.md`, `.claude/WORK_DETAIL.md` | [→ 상세](WORK_DETAIL.md#20260402-hanwha-pdf-access-decoupling) |
