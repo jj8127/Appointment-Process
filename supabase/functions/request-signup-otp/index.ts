@@ -7,6 +7,10 @@ type Payload = {
   checkOnly?: boolean;
 };
 
+type LinkedProfileRow = {
+  id: string;
+};
+
 function getEnv(name: string): string | undefined {
   const g: any = globalThis as any;
   if (g?.Deno?.env?.get) return g.Deno.env.get(name);
@@ -61,6 +65,20 @@ function fail(code: string, message: string, status = 400) {
 
 function cleanPhone(input: string) {
   return (input ?? '').replace(/[^0-9]/g, '');
+}
+
+async function cleanupPartialSignupArtifacts(fcId: string, linkedProfileIds: string[]) {
+  await supabase.from('fc_identity_secure').delete().eq('fc_id', fcId);
+  await supabase.from('fc_credentials').delete().eq('fc_id', fcId);
+
+  for (const profileId of linkedProfileIds) {
+    const { error: authDeleteError } = await supabase.auth.admin.deleteUser(profileId);
+    if (authDeleteError) {
+      console.warn('[request-signup-otp] auth cleanup failed', profileId, authDeleteError.message ?? authDeleteError);
+    }
+  }
+
+  await supabase.from('profiles').delete().eq('fc_id', fcId);
 }
 
 function toBase64(bytes: Uint8Array) {
@@ -195,7 +213,39 @@ serve(async (req: Request) => {
     return json({ ok: false, code: 'db_error', message: profileError.message }, 500);
   }
 
-  if (profile?.phone_verified) {
+  let hasCredentialRecord = false;
+  let hasPasswordSet = false;
+  let linkedProfileIds: string[] = [];
+
+  if (profile?.id) {
+    const { data: credentials, error: credentialsError } = await supabase
+      .from('fc_credentials')
+      .select('fc_id,password_set_at')
+      .eq('fc_id', profile.id)
+      .maybeSingle();
+
+    if (credentialsError) {
+      return json({ ok: false, code: 'db_error', message: credentialsError.message }, 500);
+    }
+
+    hasCredentialRecord = Boolean(credentials?.fc_id);
+    hasPasswordSet = Boolean(credentials?.password_set_at);
+
+    const { data: linkedProfiles, error: linkedProfilesError } = await supabase
+      .from('profiles')
+      .select('id')
+      .eq('fc_id', profile.id);
+
+    if (linkedProfilesError) {
+      return json({ ok: false, code: 'db_error', message: linkedProfilesError.message }, 500);
+    }
+
+    linkedProfileIds = ((linkedProfiles ?? []) as LinkedProfileRow[]).map((row) => row.id);
+  }
+
+  const hasActiveFcAccount = Boolean(profile?.id) && profile?.signup_completed === true && hasPasswordSet;
+
+  if (hasActiveFcAccount) {
     return json({ ok: false, code: 'already_exists', message: '해당 번호로 FC 계정이 이미 있습니다.' });
   }
 
@@ -227,17 +277,17 @@ serve(async (req: Request) => {
   const expiresAt = new Date(now.getTime() + OTP_TTL_MINUTES * 60 * 1000).toISOString();
 
   if (profile?.id) {
-    // 이전에 완료된 프로필이 남아있는 경우(삭제 미완료 등) 개인정보를 완전히 초기화
-    const hasStalePii =
+    // phone_verified만 남은 미완료 가입 row, 부분 삭제 row, 중단된 signup row는 fresh signup으로 복구한다.
+    const shouldResetProfile =
+      profile.phone_verified === true ||
       profile.signup_completed === true ||
       (profile.status && profile.status !== 'draft') ||
-      profile.identity_completed === true;
+      profile.identity_completed === true ||
+      hasCredentialRecord ||
+      linkedProfileIds.length > 0;
 
-    if (hasStalePii) {
-      // fc_identity_secure(암호화된 주민번호/주소) 먼저 삭제
-      await supabase.from('fc_identity_secure').delete().eq('fc_id', profile.id);
-      // fc_credentials(비밀번호) 삭제 — 재가입 시 새 비밀번호 설정 허용
-      await supabase.from('fc_credentials').delete().eq('fc_id', profile.id);
+    if (shouldResetProfile) {
+      await cleanupPartialSignupArtifacts(profile.id, linkedProfileIds);
     }
 
     const updatePayload: Record<string, unknown> = {
@@ -248,12 +298,13 @@ serve(async (req: Request) => {
       phone_verification_locked_until: null,
     };
 
-    if (hasStalePii) {
+    if (shouldResetProfile) {
       // 개인 식별 정보 및 위촉 상태 초기화
       Object.assign(updatePayload, {
         name: '',
         affiliation: '',
         recommender: '',
+        recommender_fc_id: null,
         email: '',
         address: '',
         address_detail: null,
@@ -271,6 +322,7 @@ serve(async (req: Request) => {
         docs_deadline_last_notified_at: null,
         signup_completed: false,
         phone_verified: false,
+        phone_verified_at: null,
         ...buildWorkflowResetPayload(),
       });
     }

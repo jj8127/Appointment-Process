@@ -100,7 +100,7 @@ export const getAllowanceDisplayState = (
     return { key: 'rejected', label: '미승인', color: 'red' };
   }
 
-  if (profile.allowance_prescreen_requested_at) {
+  if (profile?.allowance_prescreen_requested_at) {
     return { key: 'prescreen', label: '사전 심사 요청 완료', color: 'blue' };
   }
 

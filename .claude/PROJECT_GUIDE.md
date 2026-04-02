@@ -145,6 +145,7 @@
 - `app/signup.tsx`의 추천코드 입력은 Android IME 중복 입력 회피를 위해 uncontrolled `TextInput` 패턴을 유지한다. `value` prop 재도입, `onChangeText` 안의 추가 native write(`setNativeProps`)는 금지하고, programmatic prefill에서만 native write를 허용한다.
 - 추천코드 검증은 `validate-referral-code` Edge Function, 가입 완료 시 attribution 확정은 `set-password` Edge Function이 맡는다. `validate-referral-code`는 `inviterFcId`를 함께 반환하고, `set-password`는 최종 코드 row를 다시 확인해 `referral_attributions`, `fc_profiles.recommender_fc_id`, `fc_profiles.recommender`를 함께 동기화해야 한다.
 - `set-password`는 caller-controlled `body.recommender` 문자열을 신뢰하지 않는다. 유효한 추천코드가 해석된 경우에만 `recommender`/`recommender_fc_id`를 저장하고, OTP trusted path가 미리 만든 `phone_verified=true` profile만 최종 가입으로 승격하며, `password_set_at`를 먼저 확인한 뒤에만 reset/update를 수행해야 한다.
+- `request-signup-otp`는 `phone_verified=true`만으로 FC 기존 계정으로 판정하지 않는다. `signup_completed=true`와 `fc_credentials.password_set_at`가 함께 성립하는 login-capable FC account만 `already_exists`를 반환하고, verified-but-incomplete row나 부분 삭제 residue는 cleanup/reset 후 새 OTP 경로로 복구해야 한다.
 - `app/fc/new.tsx`는 가입 후 추천인 표시 cache를 읽기 전용으로만 노출한다. 일반 사용자 저장 payload에 자유입력 `recommender`를 다시 싣지 않는다.
    - 현재 `set-password`가 남기는 attribution source 필드는 deep link 여부와 무관하게 `manual_entry/manual_entry/manual_entry_only`로 정규화된다. deep link provenance를 DB source로 따로 남기는 계약은 아직 없다.
    - FC 본인 추천코드 self-service의 current hook path는 `hooks/use-my-referral-code.ts -> get-my-referral-code`다. `get-fc-referral-code`가 저장소에 남아 있어도 현재 앱 기준 active path처럼 문서화하지 않는다.

@@ -7,6 +7,57 @@
 
 ---
 
+## <a id="20260402-zombie-signup-incident-recovery"></a> 2026-04-02 | `01051078127` zombie signup incident 복구 + `request-signup-otp` 재배포
+
+**배경**:
+- 운영 제보상 `01051078127`는 로그인에서는 계정이 없거나 가입 미완료처럼 보이는데, 회원가입 사전 체크에서는 `해당 번호로 FC 계정이 이미 있습니다.`로 막히는 모순 상태에 빠져 있었다.
+- 원격 linked Supabase(`ubeginyxaotcamuqpmud`)를 service-role로 직접 조회한 결과, 이 번호에는 `fc_profiles` row 한 줄만 남아 있었다.
+  - `phone_verified=true`
+  - `signup_completed=false`
+  - `status='draft'`
+  - `fc_credentials`, `fc_identity_secure`, `profiles`, auth user는 모두 비어 있었다.
+- 따라서 확인된 직접 원인은 “완성된 계정”이 아니라 `phone_verified=true`인 미완료 signup residue였다. 다만 실제 사용자 증상은 signup blocker였기 때문에, 원격 `request-signup-otp` 런타임을 현재 source contract에 다시 맞춰주는 배포도 함께 필요했다.
+
+**조치**:
+- 원격 one-off cleanup
+  - `01051078127` 관련 `fc_profiles` / `fc_credentials` / `fc_identity_secure` / `profiles` / auth user footprint를 service-role 스크립트로 정리했다.
+  - 최종 원격 sweep에서는 blocker table(`fc_profiles`, `admin_accounts`, `manager_accounts`)이 모두 `0건`인지 다시 확인했고, 남아 있던 `user_presence.phone=1`, `referral_events.inviter_phone=1` 잔재도 함께 제거했다.
+- `supabase/functions/request-signup-otp/index.ts`
+  - `phone_verified=true`만으로 `already_exists`를 반환하던 early return을 제거했다.
+  - 이제 FC signup blocker는 `signup_completed=true && fc_credentials.password_set_at is not null`인 login-capable account로만 본다.
+  - 기존 verified-only / incomplete / partial-delete row는 stale signup으로 간주하고 OTP 재시도를 허용하도록 정리했다.
+- `supabase/functions/delete-account/index.ts`
+  - `user_presence.phone` cleanup을 추가했다.
+  - 삭제 후 `fc_profiles`, `admin_accounts`, `manager_accounts` blocker row가 남아 있으면 성공으로 끝내지 않도록 post-delete verification을 추가했다.
+- `web/src/app/auth/page.tsx`
+  - `not_found`와 `needs_password_setup` / `not_completed`를 분리해, incomplete account를 더 이상 `계정정보가 없습니다`로 번역하지 않게 보정했다.
+- 원격 재배포
+  - `supabase functions deploy request-signup-otp --project-ref ubeginyxaotcamuqpmud`
+  - `supabase functions deploy delete-account --project-ref ubeginyxaotcamuqpmud`
+
+**결과**:
+- `01051078127`는 현재 linked remote에서 signup blocker 기준으로 깨끗한 상태다.
+- live `request-signup-otp` checkOnly는 실제 번호 `01051078127`에 대해 `{ ok: true, available: true }`를 반환한다.
+- live `login-with-password`는 같은 번호에 대해 `{ ok: false, code: 'not_found' }`를 반환해 signup/login 안내가 한 방향으로 정렬됐다.
+- synthetic stale row도 live checkOnly에서 `{ ok: true, available: true }`를 반환해, verified-but-incomplete row가 signup blocker로 취급되지 않는 것을 다시 확인했다.
+
+**검증**:
+- remote cleanup before/after service-role query
+  - before: `fc_profiles(id=565868ac-021c-4dc3-95fe-cbe76c43c1f5, phone_verified=true, signup_completed=false, status=draft)` 1건
+  - after: blocker table `0건`, plus `user_presence.phone=0`, `referral_events.inviter_phone=0`
+- `supabase functions deploy request-signup-otp --project-ref ubeginyxaotcamuqpmud`
+- `supabase functions deploy delete-account --project-ref ubeginyxaotcamuqpmud`
+- live runtime check
+  - actual phone `01051078127` + `checkOnly=true` => `{ ok: true, available: true }`
+  - actual phone `01051078127` login => `{ ok: false, code: 'not_found' }`
+  - synthetic stale phone `01099990001` + `checkOnly=true` => `{ ok: true, available: true }`
+  - synthetic delete target `01099990002` => `delete-account { ok: true, deleted: true }`, remaining `fc_profiles(phone)=0`
+
+**남은 확인**:
+- 현재 확보된 증거는 `stale incomplete signup row`와 `signup precheck runtime alignment`까지다. 이번 incident만으로 `delete-account` 기능 자체가 실패했다고 단정할 증거는 없다.
+- 동일 증상이 다시 나오면 먼저 대상 번호의 `fc_profiles/signup_completed/password_set_at`와 auth bridge 상태를 조회한 뒤, 실제 삭제 호출 trace가 있었는지 별도로 확인해야 한다.
+- 모바일 총무 fallback `admin-action deleteFc`와 웹 `/api/fc-delete`는 이번 incident fix에서 post-delete verification을 추가하지 않았다.
+
 ## <a id="20260402-web-hanwha-approval-ui-clarification"></a> 2026-04-02 | 웹 한화 위촉 탭에서 `PDF 업로드 완료`와 `FC 전송 완료`를 분리해 총무 혼선을 줄이는 안내 UI 추가
 
 **배경**:
@@ -36,6 +87,37 @@
 
 **남은 확인**:
 - 실제 총무 계정으로 브라우저에서 한 번 `완료일 저장 -> PDF 업로드 -> FC 전송 완료` 흐름을 밟아, 오렌지 강조와 경고 문구가 충분히 눈에 띄는지 시각 확인하면 된다.
+
+## <a id="20260402-hanwha-pdf-access-decoupling"></a> 2026-04-02 | 한화 첨부 PDF 가시성과 다음 단계 unlock 규칙 분리
+
+**배경**:
+- 총무 웹 `한화 위촉` 탭은 `검토 중`/`반려` 상태에서도 PDF를 첨부할 수 있고, 운영자는 실제로 반려 사유와 함께 PDF를 붙여 FC에게 전달하는 흐름을 사용하고 있었다.
+- 하지만 FC 앱 `app/hanwha-commission.tsx`는 `isApproved && hasHanwhaPdfMetadata(...)`일 때만 PDF 카드와 열람/다운로드 버튼을 활성화하고 있어, 파일이 이미 저장돼 있어도 승인 전/반려 상태에서는 FC가 파일을 받아볼 수 없었다.
+- 최근 workflow helper는 올바르게 `한화 승인 + PDF`가 있어야만 다음 단계가 열린다고 가정하고 있었기 때문에, 이 이슈는 step gating을 완화하는 것이 아니라 `파일 가시성`과 `다음 단계 unlock`을 분리해야 해결되는 문제였다.
+
+**조치**:
+- `app/hanwha-commission.tsx`
+  - `hasAttachedPdf`를 `hanwha_commission_pdf_path/name` 존재 기준으로 따로 계산하고, FC의 파일 열람/다운로드 버튼은 이 값만으로 활성화되도록 분리했다.
+  - 기존 `hasApprovedPdf`는 `isApproved && hasAttachedPdf`로 유지해, 단계 잠금 해제와 승인 완료 copy는 계속 승인 기준을 따르도록 남겼다.
+  - 상태 배지/설명/카드 타이틀을 조정해 승인 전 첨부 파일은 `첨부 PDF`, 승인 후 파일은 `승인 PDF`로 보이도록 정리했다.
+  - 승인 전/반려 상태에서 파일이 있어도 `다음 단계는 총무 승인 후 열립니다.` 문구를 유지해 잘못된 진행 기대를 만들지 않도록 했다.
+- `lib/fc-workflow.ts`
+  - 기존 workflow regression test 실행을 막던 `profile?.allowance_prescreen_requested_at` null 가드를 추가해 현재 저장소 기준 타입 오류를 정리했다.
+- `docs/handbook/mobile/fc-onboarding.md`
+  - FC는 총무가 PDF를 첨부하면 승인 전에도 파일을 열람/다운로드할 수 있지만, appointment unlock은 계속 승인+PDF 기준이라는 계약을 반영했다.
+- `docs/handbook/admin-web/dashboard-lifecycle.md`
+  - 웹 Hanwha 탭에서 첨부된 PDF는 FC 앱에 바로 도착하지만, 단계 unlock은 승인 완료 기준이라는 운영 설명을 추가했다.
+
+**결과**:
+- 총무가 Hanwha PDF를 첨부하면 FC는 `hanwha-commission` 화면에서 상태가 `검토 중` 또는 `반려`여도 파일 자체를 열람/다운로드할 수 있다.
+- 동시에 기존 workflow helper와 홈/다음 단계 동선은 계속 `한화 승인 + PDF`가 있어야만 4단계 `생명/손해 위촉`을 열 수 있다.
+
+**검증**:
+- `npm run lint -- app/hanwha-commission.tsx lib/fc-workflow.ts lib/__tests__/workflow-step-regression.test.ts`
+- `npx jest lib/__tests__/workflow-step-regression.test.ts --runInBand`
+
+**남은 확인**:
+- 실제 기기에서 `반려 + PDF 첨부` 또는 `검토 중 + PDF 첨부` 케이스를 하나 열어, FC 앱 `hanwha-commission` 화면에서 버튼이 활성화되고 파일이 정상 열리는지 시각 확인하면 가장 좋다.
 
 ## <a id="20260402-web-dashboard-resident-number-restore"></a> 2026-04-02 | 웹 메인 대시보드 FC 상세 모달 주민번호 full-view 복구
 

@@ -129,10 +129,19 @@ export default function AuthPage() {
             });
             if (error) throw error;
             if (!data?.ok) {
-                if ((data?.code === 'needs_password_setup' || data?.code === 'not_found') && data?.role !== 'admin') {
+                if (data?.code === 'not_found' && data?.role !== 'admin') {
                     notifications.show({
                         title: '안내',
                         message: '계정정보가 없습니다. 회원가입 페이지로 이동합니다.',
+                        color: 'orange',
+                    });
+                    router.replace('/signup');
+                    return;
+                }
+                if ((data?.code === 'needs_password_setup' || data?.code === 'not_completed') && data?.role !== 'admin') {
+                    notifications.show({
+                        title: '안내',
+                        message: '회원가입이 완료되지 않았습니다. 회원가입 페이지로 이동합니다.',
                         color: 'orange',
                     });
                     router.replace('/signup');
