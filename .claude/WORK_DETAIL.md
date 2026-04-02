@@ -7,6 +7,29 @@
 
 ---
 
+## <a id="20260402-web-dashboard-hanwha-badge-regression-fix"></a> 2026-04-02 | 웹 대시보드 목록 Hanwha 상태 배지 회귀 수정
+
+**배경**:
+- 운영 확인 결과 웹 대시보드 목록의 `현재 상태` 컬럼이 1단계/2단계 FC까지 전부 `한화 위촉 URL 대기`로 보이고 있었다.
+- 필터링은 여전히 `adminStep` 기준으로 정상 동작했기 때문에, 데이터 분류가 아니라 목록 렌더링 우선순위 회귀로 좁혀졌다.
+- 원인은 목록 행에서 `getHanwhaStageStatus(fc)`를 단계와 무관하게 항상 먼저 평가하면서, 3단계 전 FC의 summary 상태까지 한화 배지로 덮어쓴 것이었다.
+
+**조치**:
+- `web/src/app/dashboard/page.tsx`
+  - 목록 `현재 상태` 렌더링에서 `workflowStep >= 3`일 때만 `getHanwhaStageStatus(fc)`를 사용하도록 조건을 추가했다.
+  - 1단계/2단계 FC는 기존 `getSummaryStatus(fc)` 흐름을 그대로 타고, 3단계 이상만 한화 진행 상태 배지를 표시하도록 되돌렸다.
+
+**결과**:
+- 대시보드 목록에서 1단계/2단계 FC는 다시 자신의 실제 단계 상태로 보인다.
+- 3단계 이상 FC만 `한화 위촉 URL 대기`, `승인 PDF 업로드 필요`, `FC 전송 승인 필요`, `FC 전송 완료` 같은 한화 상태 배지가 노출된다.
+
+**검증**:
+- `cd web && npm run lint -- src/app/dashboard/page.tsx`
+- `node scripts/ci/check-governance.mjs`
+
+**남은 확인**:
+- 운영 브라우저에서 `/dashboard` 목록을 새로고침해 1단계/2단계 FC가 더 이상 `한화 위촉 URL 대기`로 보이지 않는지만 한 번 시각 확인하면 된다.
+
 ## <a id="20260402-web-profile-406-server-path-fix"></a> 2026-04-02 | 웹 FC 상세 `/dashboard/profile/[id]` 406 복구
 
 **배경**:

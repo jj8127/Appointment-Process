@@ -1761,7 +1761,7 @@ export default function DashboardPage() {
       <Table.Td>
         {(() => {
           const workflowStep = fc.step ?? calcStep(fc);
-          const hanwha = getHanwhaStageStatus(fc);
+          const hanwha = workflowStep >= 3 ? getHanwhaStageStatus(fc) : null;
           const summary = getSummaryStatus(fc);
           const docs = fc.fc_documents ?? [];
           const totalDocs = docs.length;
