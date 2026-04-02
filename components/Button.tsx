@@ -1,5 +1,6 @@
 import React from 'react';
 import {
+  Keyboard,
   TouchableOpacity,
   Text,
   StyleSheet,
@@ -23,6 +24,7 @@ export interface ButtonProps {
   onPress?: () => void;
   disabled?: boolean;
   loading?: boolean;
+  dismissKeyboardOnPress?: boolean;
 
   // Styling
   variant?: ButtonVariant;
@@ -43,6 +45,7 @@ export function Button({
   onPress,
   disabled = false,
   loading = false,
+  dismissKeyboardOnPress = false,
   variant = 'primary',
   size = 'md',
   fullWidth = false,
@@ -61,6 +64,7 @@ export function Button({
 
   return (
     <TouchableOpacity
+      onPressIn={dismissKeyboardOnPress ? () => Keyboard.dismiss() : undefined}
       onPress={onPress}
       disabled={isDisabled}
       activeOpacity={0.7}

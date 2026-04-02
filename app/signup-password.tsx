@@ -216,6 +216,7 @@ export default function SignupPasswordScreen() {
                 variant="primary"
                 size="lg"
                 fullWidth
+                dismissKeyboardOnPress
                 style={styles.button}
               >
                 회원가입 완료

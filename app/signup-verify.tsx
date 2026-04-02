@@ -186,6 +186,8 @@ export default function SignupVerifyScreen() {
                 value={phone}
                 onChangeText={setPhone}
                 keyboardType="number-pad"
+                returnKeyType="done"
+                onSubmitEditing={requestCode}
                 editable={!loading}
                 containerStyle={styles.inputContainer}
               />
@@ -197,6 +199,7 @@ export default function SignupVerifyScreen() {
                 variant="outline"
                 size="md"
                 fullWidth
+                dismissKeyboardOnPress
                 style={styles.subButton}
               >
                 {cooldown > 0 ? `재전송 (${cooldown}s)` : '인증 코드 받기'}
@@ -209,6 +212,8 @@ export default function SignupVerifyScreen() {
                 value={code}
                 onChangeText={setCode}
                 keyboardType="number-pad"
+                returnKeyType="done"
+                onSubmitEditing={verifyCode}
                 editable={!loading}
                 containerStyle={styles.inputContainer}
               />
@@ -220,6 +225,7 @@ export default function SignupVerifyScreen() {
                 variant="primary"
                 size="lg"
                 fullWidth
+                dismissKeyboardOnPress
               >
                 인증 완료
               </Button>

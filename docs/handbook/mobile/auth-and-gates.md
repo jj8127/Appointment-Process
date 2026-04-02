@@ -70,6 +70,7 @@ source_of_truth: app/login.tsx + app/signup*.tsx + app/reset-password.tsx + app/
 ## 구현 주의
 
 - `request-signup-otp`와 `set-password`는 인증 화면 로직이지만, 가입 중 프로필 재초기화와 shared commission helper를 함께 통과합니다.
+- `signup-verify` / `signup-password`의 CTA는 키보드가 열린 상태에서도 first tap에 동작해야 합니다. OTP/비밀번호 단계 버튼은 필요 시 `Keyboard.dismiss()`를 먼저 호출하고, 인증 코드 입력은 `onSubmitEditing`으로도 같은 submit 경로를 타야 합니다.
 - `request-signup-otp`는 `phone_verified=true`만으로 기존 FC 계정으로 판단하지 않습니다. `signup_completed=true`와 `fc_credentials.password_set_at`가 함께 있는 login-capable account만 `already_exists` blocker이고, verified-but-incomplete row나 partial delete residue는 reset/cleanup 뒤 signup retry가 가능해야 합니다.
 - `set-password`는 OTP path가 이미 만든 `phone_verified=true` profile만 최종 가입으로 승격해야 하며, 신규 profile 생성이나 미인증 번호 bypass를 허용하면 안 됩니다.
 - `set-password`는 기존 `fc_credentials.password_set_at`를 먼저 확인한 뒤에만 profile reset을 수행해야 합니다. duplicate/direct call이 추천인/온보딩 상태를 지우는 회귀를 허용하지 않습니다.

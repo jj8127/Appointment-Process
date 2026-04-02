@@ -30,6 +30,36 @@
 **남은 확인**:
 - 운영 브라우저에서 `/dashboard` 목록을 새로고침해 1단계/2단계 FC가 더 이상 `한화 위촉 URL 대기`로 보이지 않는지만 한 번 시각 확인하면 된다.
 
+---
+
+## <a id="20260402-signup-verify-keyboard-submit-fix"></a> 2026-04-02 | 회원가입 OTP 확인 화면 키보드-탭 submit 복구
+
+**배경**:
+- 가람in 회원가입 중 `signup-verify` 화면에서 인증번호를 입력한 뒤 키보드가 올라와 있으면 `인증 완료` 버튼 탭이 바로 먹지 않는 회귀가 있었다.
+- 같은 패턴은 다음 단계 `signup-password`의 `회원가입 완료` 버튼에도 잠복할 수 있어, 회원가입 인증 플로우 전체 기준으로 정리할 필요가 있었다.
+
+**조치**:
+- `components/Button.tsx`
+  - 선택형 `dismissKeyboardOnPress` prop을 추가했다.
+  - 필요한 화면에서만 `onPressIn -> Keyboard.dismiss()`가 동작하게 해 기존 버튼 동작을 전역으로 바꾸지 않았다.
+- `app/signup-verify.tsx`
+  - `인증 코드 받기`, `인증 완료` 버튼에 `dismissKeyboardOnPress`를 적용했다.
+  - `휴대폰 번호`, `인증 코드` 입력에 각각 `returnKeyType="done"`과 `onSubmitEditing`을 연결해 키보드 완료 키로도 OTP 요청/검증이 바로 실행되게 했다.
+- `app/signup-password.tsx`
+  - `회원가입 완료` 버튼에도 같은 dismiss-on-press를 적용했다.
+
+**결과**:
+- 회원가입 OTP 확인 화면은 키보드가 열린 상태에서도 버튼 탭이 first tap에서 바로 먹는다.
+- 인증번호 입력 완료 키와 비밀번호 단계 완료 버튼도 같은 패턴으로 정렬됐다.
+
+**검증**:
+- `npm run lint -- app/signup-verify.tsx app/signup-password.tsx components/Button.tsx`
+
+**남은 확인**:
+- 실제 기기에서 `회원가입 -> 인증번호 입력 -> 키보드 열린 상태에서 인증 완료` 경로를 한 번 더 눌러 시각 확인하면 된다.
+
+---
+
 ## <a id="20260402-web-profile-406-server-path-fix"></a> 2026-04-02 | 웹 FC 상세 `/dashboard/profile/[id]` 406 복구
 
 **배경**:
@@ -54,10 +84,15 @@
 **검증**:
 - `cd web && npm run lint -- src/app/api/admin/fc/route.ts src/app/dashboard/profile/[id]/page.tsx`
 - `cd web && npm run build`
-- `node scripts/ci/check-governance.mjs`
+- `BASE_SHA=HEAD`, `HEAD_SHA=<worktree snapshot>` 기준 `node scripts/ci/check-governance.mjs`
+- `vercel deploy --prod --yes --archive=tgz`
+- production alias `https://adminweb-red.vercel.app/api/admin/fc`에 `action: 'getProfile'` POST smoke check
+  - unknown/removed FC id: `404 FC profile not found`
+  - existing FC id: `200 { ok: true, profile: ... }`
 
-**남은 확인**:
-- Vercel production 재배포 후 실제 `/dashboard/profile/[id]` 화면을 브라우저에서 다시 열어 406이 사라졌는지 확인하면 된다.
+**배포 결과**:
+- Vercel production deployment: `https://admin-nruy4ernv-jun-jeongs-projects.vercel.app`
+- public production alias 기준 `/api/admin/fc getProfile`가 관리자 cookie로 정상 응답하는 것까지 확인했다.
 
 ## <a id="20260402-zombie-signup-incident-recovery"></a> 2026-04-02 | `01051078127` zombie signup incident 복구 + `request-signup-otp` 재배포
 
