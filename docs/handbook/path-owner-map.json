@@ -220,6 +220,22 @@
       ]
     },
     {
+      "id": "backend-referral-self-service",
+      "severity": "contract",
+      "prefixes": [
+        "supabase/functions/get-my-referral-code/",
+        "supabase/functions/get-fc-referral-code/",
+        "supabase/functions/get-my-invitees/",
+        "supabase/functions/search-fc-for-referral/",
+        "supabase/functions/update-my-recommender/"
+      ],
+      "requires_any": [
+        "docs/handbook/data/referral-schema-and-admin-rpcs.md",
+        "docs/handbook/shared/security-and-secret-operations.md",
+        "docs/handbook/mobile/auth-and-gates.md"
+      ]
+    },
+    {
       "id": "backend-runtime",
       "severity": "contract",
       "prefixes": [

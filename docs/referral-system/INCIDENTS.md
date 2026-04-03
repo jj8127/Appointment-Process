@@ -7,7 +7,7 @@
 
 ## 2. 현재 상태
 
-- `2026-04-04` 기준 등록된 추천인 이슈는 `10건`이다.
+- `2026-04-04` 기준 등록된 추천인 이슈는 `11건`이다.
 - 런타임 버그뿐 아니라 trust boundary, rollout status, 문서/테스트 drift로 운영 판단을 오도한 경우도 장애성 이력으로 남긴다.
 
 ## 3. 작성 규칙
@@ -46,6 +46,7 @@
 
 | ID | 날짜 | 제목 | linkedCases | 상태 |
 | --- | --- | --- | --- | --- |
+| INC-011 | 2026-04-04 | 본부장 추천인 self-service 후속 결함(legacy session restore, trusted read, audit trail mismatch) | `RF-SELF-01`, `RF-SELF-02`, `RF-SEC-02` | fixed |
 | INC-010 | 2026-04-04 | 본부장이 추천인 self-service 대상인데 홈 바로가기/코드 발급 대상에서 빠져 있었음 | `RF-ADMIN-03`, `RF-SELF-01` | fixed |
 | INC-009 | 2026-04-03 | 추천인 그래프가 confirmed-only edge와 미완성 interaction 때문에 실사용 탐색기로 동작하지 않음 | `RF-ADMIN-07`, `RF-ADMIN-08` | fixed |
 | INC-008 | 2026-04-02 | 추천인 hardening gap(`set-password` OTP bypass/duplicate wipe, FC cache tampering, historical code drift) | `RF-DATA-02`, `RF-SEC-03`, `RF-SEC-04`, `RF-SEC-05` | fixed |
@@ -56,6 +57,51 @@
 | INC-003 | 2026-03-31 | 동명이인 안전화 후 live hardening gap(`set-password` fallback, override migration, clear audit) | `RF-ADMIN-06`, `RF-SEC-02` | mitigated |
 | INC-002 | 2026-03-31 | 동명이인 추천인 이름 매칭으로 잘못된 코드가 붙을 수 있던 구조 위험 | `RF-DATA-02`, `RF-ADMIN-06` | fixed |
 | INC-001 | 2026-03-31 | Android 추천코드 입력 시 대문자가 중복 입력되던 문제 | `RF-CODE-07` | fixed |
+
+## INC-011 | 2026-04-04 | 본부장 추천인 self-service 후속 결함(legacy session restore, trusted read, audit trail mismatch)
+
+- symptom:
+  - manager self-service 허용 이후에도 구 로컬 세션에 `role='manager'`가 남아 있으면 홈/설정/referral gate가 다시 닫혀 본부장이 재로그인 전까지 추천인 화면을 못 볼 수 있었다.
+  - 추천인 페이지는 현재 추천인을 direct client `fc_profiles` query로 읽고 실패를 숨겨서, 실제 recommender가 있어도 `등록된 추천인 없음`으로 잘못 보일 수 있었다.
+  - `update-my-recommender`는 `source='self_update'`, `selection_source='self_update'`, 잘못된 `referral_events(fc_id, meta)` 컬럼을 써서 attribution/event write가 DB에서 실패해도 `ok: true`를 반환할 수 있었다.
+- impact:
+  - 본부장 self-service rollout 이후에도 legacy 설치 기기에서는 추천인 바로가기/페이지가 다시 사라질 수 있었다.
+  - 추천인 현재값 표시가 trusted 경로와 어긋나 잘못된 빈 상태를 보여줄 수 있었다.
+  - 추천인 self-service 변경이 성공으로 보이지만 `referral_attributions` / `referral_events` 감사 이력이 남지 않는 무결성 문제가 있었다.
+- trigger:
+  - 2026-04-04 subagent 병렬 리뷰에서 모바일/보안/Supabase 관점 점검을 다시 돌렸을 때.
+- rootCause:
+  - `hooks/use-session.tsx` restore가 legacy persisted `manager` role을 현재 앱 권한모델(`admin + readOnly`)로 재정규화하지 않았다.
+  - `app/referral.tsx`가 trusted self-service 응답이 아니라 클라이언트 직접 조회로 `recommender` cache를 읽었고, refresh도 disabled query refetch를 그대로 호출했다.
+  - `supabase/functions/update-my-recommender/index.ts`가 schema enum/컬럼 계약과 다른 payload를 쓰고, insert/update/event 오류를 성공 응답으로 삼켰다.
+- fix:
+  - `hooks/use-session.tsx`에 legacy stored `manager` role을 `admin + readOnly`로 정규화하는 restore helper를 추가했다.
+  - `get-my-referral-code`가 active code와 함께 `recommender` cache를 반환하도록 넓히고, `hooks/use-my-referral-code.ts`, `app/settings.tsx`, `app/referral.tsx`는 그 trusted 응답만 사용하도록 바꿨다.
+  - `app/referral.tsx` refresh는 self-service 가능 세션에서만 refetch하고 `try/finally`로 spinner 정리를 보장하도록 수정했다.
+  - `update-my-recommender`는 `manual_entry` / `manual_entry_only` 계약으로 attribution을 갱신하고, `referral_events(invitee_fc_id, metadata)` 경로로 audit row를 남기며 DB 오류 시 성공을 반환하지 않도록 보정했다.
+  - 수정된 `get-my-referral-code`, `update-my-recommender`를 linked project `ubeginyxaotcamuqpmud`에 재배포했다.
+- linkedCases:
+  - RF-SELF-01
+  - RF-SELF-02
+  - RF-SEC-02
+- evidence:
+  - 코드 변경: `hooks/use-session.tsx`, `hooks/use-my-referral-code.ts`, `app/settings.tsx`, `app/referral.tsx`
+  - 코드 변경: `supabase/functions/get-my-referral-code/index.ts`, `supabase/functions/update-my-recommender/index.ts`
+  - 검증: `npx eslint app/settings.tsx app/referral.tsx hooks/use-my-referral-code.ts hooks/use-session.tsx`
+  - 검증: TypeScript transpile parse for `get-my-referral-code`, `update-my-recommender`
+  - 배포: `supabase functions deploy get-my-referral-code --project-ref ubeginyxaotcamuqpmud`
+  - 배포: `supabase functions deploy update-my-recommender --project-ref ubeginyxaotcamuqpmud`
+- reproduction:
+  1. 구 앱 로컬 세션에 `role='manager'` payload가 남아 있는 상태로 앱을 복원한다.
+  2. 추천인 페이지에서 현재 추천인 표시에 필요한 self-service read를 direct client query로 처리하거나, blocked/token-missing 상태에서 pull-to-refresh를 실행한다.
+  3. 추천인 변경 저장을 실행하면 attribution/event write가 schema와 어긋나도 성공 응답으로 끝나는지 확인한다.
+- regressionCheck:
+  - RF-SELF-01로 legacy manager session restore와 trusted self-service read path를 다시 확인한다.
+  - RF-SELF-02로 추천인 self-service 저장 후 current recommender 표시 + attribution/event trail을 함께 확인한다.
+  - RF-SEC-02로 direct client access가 아니라 trusted path만 읽기/쓰기를 수행하는지 유지 확인한다.
+- notes:
+  - 정적 검증과 Edge Function 재배포는 완료했다.
+  - 실제 본부장 계정으로 추천인 검색/저장까지 on-device 증적을 남기는 검증은 별도 후속이다.
 
 ## INC-009 | 2026-04-03 | 추천인 그래프가 confirmed-only edge와 미완성 interaction 때문에 실사용 탐색기로 동작하지 않음
 

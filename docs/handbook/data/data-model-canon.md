@@ -2,7 +2,7 @@ doc_id: FC-DATA-MODEL-CANON
 owner_repo: fc-onboarding-app
 owner_area: data
 audience: developer, operator
-last_verified: 2026-04-02
+last_verified: 2026-04-04
 source_of_truth: supabase/schema.sql + supabase/migrations/*
 
 # Data Handbook: Data Model Canon
@@ -65,3 +65,10 @@ source_of_truth: supabase/schema.sql + supabase/migrations/*
 - `20260331000003_fix_get_invitee_referral_code_lookup.sql`은 위 함수를 이름 문자열이 아니라 `recommender_fc_id`와 structured attribution만 사용하도록 수정합니다.
 - `20260401000002_reassert_get_invitee_referral_code_service_role_only.sql`은 execute grant를 `service_role` only로 다시 고정합니다.
 - `20260402000002_fix_invitee_referral_code_history_priority.sql`은 lookup order를 historical-first로 바꿔, confirmed attribution이 있으면 `referral_code_id -> referral_code snapshot -> inviter active code` 순으로 먼저 읽고 `recommender_fc_id` 현재 활성 코드는 마지막 degraded fallback으로만 사용하게 합니다.
+
+## 2026-04-04 추천인 self-service / manager eligibility 메모
+
+- `20260404000001_allow_manager_referral_codes.sql` 이후 completed manager-linked FC도 referral code issuance/backfill 대상 canonical set에 포함됩니다.
+- `referral_attributions.source`는 `auto_prefill | manual_entry | admin_override`, `selection_source`는 `auto_prefill_kept | auto_prefill_edited | manual_entry_only | admin_override`만 허용합니다.
+- self-service recommender update도 위 enum 계약을 그대로 따라야 하며, schema와 다른 provenance 문자열을 새로 추가하지 않습니다.
+- `referral_events` canonical 컬럼명은 `invitee_fc_id`, `metadata`입니다. self-service audit write도 이 계약을 따릅니다.

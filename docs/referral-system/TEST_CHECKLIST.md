@@ -56,6 +56,7 @@
 - `RF-CODE-06` 한 가입자는 최종 추천인 1명만 가짐
 - `RF-CODE-07` Android 추천코드 입력 시 소문자가 대문자 1회로만 정규화되고 중복 문자(`JJ`)가 생기지 않음
 - `RF-SELF-01` FC/본부장 self-service 추천코드 조회는 현재 runtime hook(`get-my-referral-code`) 기준으로 active code를 반환함
+- `RF-SELF-02` FC/본부장 self-service 추천인 변경은 trusted path로 현재 추천인 표시와 attribution/event audit trail을 함께 갱신함
 
 ### 5.2 초대링크
 

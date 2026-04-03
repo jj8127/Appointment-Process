@@ -1,6 +1,6 @@
 {
   "meta": {
-    "generatedAt": "2026-04-03T18:40:00.000Z",
+    "generatedAt": "2026-04-04T11:20:00.000Z",
     "source": "docs/referral-system/test-cases.json",
     "note": "status: NOT_RUN | PASS | FAIL | BLOCKED | SKIPPED"
   },
@@ -436,11 +436,32 @@
       "executedAt": "2026-04-02T00:00:00.000Z",
       "evidence": [
         "hooks/use-my-referral-code.ts => supabase.functions.invoke('get-my-referral-code')",
-        "app/settings.tsx => FC 전용 추천코드 카드 + request_board designer 비노출",
-        "supabase/functions/get-my-referral-code/index.ts => session phone/fcId 기반 self lookup",
+        "hooks/use-session.tsx => legacy stored role='manager' is normalized to admin+readOnly during restore",
+        "app/settings.tsx / app/referral.tsx => manager(readOnly) self-service gate + trusted recommender display path",
+        "supabase/functions/get-my-referral-code/index.ts => session phone/fcId 기반 self lookup + recommender cache response",
         "supabase/functions/get-fc-referral-code/index.ts => optional phone body must match authenticated session phone"
       ],
-      "notes": "저장소 기준 active hook path와 legacy alias hardening은 확인했다. 이번 변경으로 본부장(manager source role)도 self-service 대상에 포함됐지만, 실제 배포 환경에서 FC/본부장 세션으로 active code 응답까지 확인하는 on-device/live invoke는 아직 남아 있다."
+      "notes": "저장소 기준 active hook path, legacy manager session normalize, trusted recommender display path는 확인했다. 이번 변경으로 본부장(manager source role)도 self-service 대상에 포함됐지만, 실제 배포 환경에서 FC/본부장 세션으로 active code + recommender 응답까지 확인하는 on-device/live invoke는 아직 남아 있다."
+    },
+    {
+      "caseId": "RF-SELF-02",
+      "area": "추천코드",
+      "priority": "P0",
+      "platform": ["app", "backend"],
+      "title": "FC/본부장 self-service 추천인 변경은 trusted path로 현재 추천인 표시와 attribution/event audit trail을 함께 갱신한다",
+      "status": "BLOCKED",
+      "owner": "Codex",
+      "executedAt": "2026-04-04T11:20:00.000Z",
+      "evidence": [
+        "supabase/functions/update-my-recommender/index.ts => manual_entry/manual_entry_only contract + referral_events(invitee_fc_id, metadata) alignment",
+        "supabase/functions/get-my-referral-code/index.ts => recommender cache is returned by the trusted self-service response",
+        "app/referral.tsx => direct fc_profiles query 제거 + guarded refresh/try-finally",
+        "npx eslint app/settings.tsx app/referral.tsx hooks/use-my-referral-code.ts hooks/use-session.tsx",
+        "TypeScript transpile parse => supabase/functions/get-my-referral-code/index.ts, supabase/functions/update-my-recommender/index.ts",
+        "supabase functions deploy get-my-referral-code --project-ref ubeginyxaotcamuqpmud",
+        "supabase functions deploy update-my-recommender --project-ref ubeginyxaotcamuqpmud"
+      ],
+      "notes": "스키마/코드/배포 parity와 정적 검증은 완료했지만, 실제 FC/본부장 계정으로 추천인 검색-저장 후 confirmed attribution/event row와 화면 갱신을 한 번에 찍은 live evidence는 아직 없다."
     }
   ]
 }

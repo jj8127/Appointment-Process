@@ -7,6 +7,55 @@
 
 ---
 
+## <a id="20260404-manager-referral-review-hardening"></a> 2026-04-04 | 본부장 추천인 self-service 리뷰 하드닝
+
+**배경**:
+- 본부장을 FC-equivalent referral self-service 대상으로 정렬한 뒤 커밋/푸시 전에 서브에이전트 다각도 리뷰를 다시 돌렸다.
+- 리뷰 결과, 단순 노출 조건 외에 legacy manager session restore, referral page trusted read path, `update-my-recommender` audit trail write가 아직 계약과 어긋난 부분이 확인됐다.
+
+**확인된 문제**:
+- `hooks/use-session.tsx`
+  - 구 로컬 세션에 `role='manager'`가 남아 있으면 restore가 raw role을 그대로 살려, 새 referral gate(`role === 'admin' && readOnly`)와 어긋날 수 있었다.
+- `app/referral.tsx`
+  - 현재 추천인을 direct client `fc_profiles` query로 읽고 실패를 숨겨 실제 값이 있어도 `등록된 추천인 없음`으로 보일 수 있었다.
+  - blocked/token-missing 상태에서도 `refetchCode/refetchInvitees`를 호출해 pull-to-refresh spinner가 정리되지 않을 수 있었다.
+- `supabase/functions/update-my-recommender/index.ts`
+  - `referral_attributions.source/selection_source`에 schema에 없는 `self_update` 값을 쓰고 있었고,
+  - `referral_events` insert도 `fc_id`, `meta` 같은 잘못된 컬럼명을 사용하고 있었으며,
+  - 그 오류들을 성공 응답으로 삼켜 추천인 변경 후 감사 이력이 비는 무결성 문제가 있었다.
+
+**조치**:
+- `hooks/use-session.tsx`
+  - `normalizeStoredRole()` helper를 추가해 legacy persisted `manager` role을 restore 시 `admin + readOnly`로 정규화했다.
+- `supabase/functions/get-my-referral-code/index.ts`
+  - active code와 함께 `fc_profiles.recommender` cache를 trusted response로 반환하도록 확장했다.
+- `hooks/use-my-referral-code.ts`
+  - 단일 문자열 대신 `{ code, recommender }`를 반환하도록 정리했다.
+- `app/settings.tsx`, `app/referral.tsx`
+  - direct client `fc_profiles` query를 제거하고 trusted self-service 응답만 사용하도록 바꿨다.
+  - referral page refresh는 self-service 가능 세션에서만 refetch하고 `try/finally`로 spinner 정리를 보장하도록 수정했다.
+  - referral read 실패 시 빈 상태로 숨기지 않고 오류 문구를 노출하게 정리했다.
+- `supabase/functions/update-my-recommender/index.ts`
+  - attribution write를 `manual_entry` / `manual_entry_only` 계약으로 다시 맞췄다.
+  - 기존 confirmed row 재사용/중복 confirmed override 패턴을 `set-password`와 유사하게 정리했다.
+  - `referral_events` insert를 `invitee_fc_id`, `metadata` 기준으로 수정하고 DB 오류 시 성공을 반환하지 않도록 변경했다.
+- `docs/referral-system/*`
+  - self-service current recommender read path, 새 회귀 케이스 `RF-SELF-02`, incident `INC-011`을 추가했다.
+
+**검증**:
+- `npx eslint app/index.tsx app/settings.tsx app/referral.tsx hooks/use-my-referral-code.ts hooks/use-my-invitees.ts hooks/use-session.tsx`
+- TypeScript transpile parse
+  - `supabase/functions/get-my-referral-code/index.ts`
+  - `supabase/functions/update-my-recommender/index.ts`
+- `supabase functions deploy get-my-referral-code --project-ref ubeginyxaotcamuqpmud`
+- `supabase functions deploy update-my-recommender --project-ref ubeginyxaotcamuqpmud`
+
+**남은 확인**:
+- 실제 본부장 기기에서 legacy stored session restore 후 홈/설정/referral 진입이 바로 열리는지 on-device 검증이 필요하다.
+- 실제 FC/본부장 계정으로 추천인 검색/저장 후 `referral_attributions` / `referral_events` audit row를 live evidence로 다시 남겨야 한다.
+
+---
+
 ## <a id="20260404-manager-referral-self-service-alignment"></a> 2026-04-04 | 본부장 추천인 self-service 대상 정렬 + 코드 발급/backfill 포함
 
 **배경**:

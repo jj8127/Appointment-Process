@@ -85,7 +85,7 @@
 
 - 최종 선택 코드 검증 API: `validate-referral-code`
 - `validate-referral-code` 응답: `inviterName`, `inviterPhoneMasked`, `inviterFcId`, `codeId`
-- FC/본부장 자기 코드 조회의 현재 앱 경로: `get-my-referral-code`
+- FC/본부장 자기 코드/현재 추천인 cache 조회의 현재 앱 경로: `get-my-referral-code`
 - FC/본부장 자기 invitee 조회의 현재 앱 경로: `get-my-invitees`
 - FC/본부장 추천인 검색/저장의 현재 앱 경로: `search-fc-for-referral`, `update-my-recommender`
 - `get-fc-referral-code`는 legacy compatibility alias로 남아 있지만 current app hook path는 아니고, optional `phone` body는 세션 전화번호와 일치할 때만 허용된다.
@@ -119,8 +119,9 @@
 - 관리자 웹 추천인 수정도 자유 텍스트가 아니라 서버 검색/선택형 trusted path로만 허용한다.
 - `public.get_invitee_referral_code(uuid)`의 intended repo contract는 migration `20260401000002_reassert_get_invitee_referral_code_service_role_only.sql` 이후 `service_role` execute only 다.
 - 다만 이 리뷰는 원격 DB rollout 상태를 다시 검증하지 않았다. remote drift가 있다면 그것은 배포 상태 문제이지 architecture SSOT가 아니다.
-- FC/본부장 self-service 조회는 `get-my-referral-code` Edge Function을 통해 app session token을 검증한 뒤 active code를 읽는다.
+- FC/본부장 self-service 조회는 `get-my-referral-code` Edge Function을 통해 app session token을 검증한 뒤 active code와 현재 추천인 cache를 함께 읽는다.
 - 본부장 세션은 앱 UI role이 `admin/readOnly`여도 app session token source role이 `manager`면 같은 self-service trusted path를 사용한다.
+- legacy 로컬 세션의 `role='manager'` payload도 앱 복원 시 `admin + readOnly` UI state로 정규화해 홈/설정/referral self-service gate와 일치시킨다.
 
 ## 5. 상태 보존 전략
 

@@ -105,8 +105,10 @@
 
 1. 현재 앱 hook `useMyReferralCode()`는 `get-my-referral-code` Edge Function을 호출한다.
 2. active self-service 조회는 `Authorization: Bearer <appSessionToken>` 기반으로 세션의 `role(fc|manager)`, `phone`, `fcId`만 사용해 대상 FC를 해석한다.
-3. 본부장 세션은 앱 UI role이 `admin/readOnly`로 보이더라도 app session token source role이 `manager`이면 같은 self-service 경로로 active code / invitee / 추천인 검색·저장을 수행할 수 있다.
-4. `get-fc-referral-code`는 legacy compatibility alias로 저장소에 남아 있어도 `2026-04-02` 기준 current app hook path는 아니다. 이 함수의 optional `phone` body는 세션 전화번호와 일치할 때만 허용된다.
+3. 본부장 세션은 앱 UI role이 `admin/readOnly`로 보이더라도 app session token source role이 `manager`이면 같은 self-service 경로로 active code / 현재 추천인 cache / invitee / 추천인 검색·저장을 수행할 수 있다.
+4. 추천인 페이지의 현재 추천인 표시는 direct client `fc_profiles` query가 아니라 같은 trusted self-service 응답(`get-my-referral-code`)에서 내려온 `recommender` cache를 사용한다.
+5. legacy 로컬 세션에 `role='manager'`가 저장돼 있어도 앱 복원 단계에서 `admin + readOnly` UI state로 정규화돼 같은 self-service 동선을 유지해야 한다.
+6. `get-fc-referral-code`는 legacy compatibility alias로 저장소에 남아 있어도 `2026-04-02` 기준 current app hook path는 아니다. 이 함수의 optional `phone` body는 세션 전화번호와 일치할 때만 허용된다.
 
 ## 5. 식별자 규칙
 

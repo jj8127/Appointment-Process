@@ -424,8 +424,20 @@
     "title": "FC/본부장 self-service 추천코드 조회는 현재 runtime hook(`get-my-referral-code`) 기준으로 active code를 반환한다",
     "preconditions": ["FC 또는 본부장 계정이 appSessionToken을 가진 상태로 로그인되어 있다", "대상 FC가 active referral code를 가지고 있다"],
     "steps": ["앱에서 FC 또는 본부장 세션으로 `useMyReferralCode` 경로를 실행한다", "`get-my-referral-code` 응답과 화면 표시를 비교한다"],
-    "expected": ["현재 hook이 `get-my-referral-code`를 호출한다", "`Authorization: Bearer <appSessionToken>` 기반 검증이 적용된다", "FC와 본부장 세션 모두 응답으로 active code가 반환된다"],
+    "expected": ["현재 hook이 `get-my-referral-code`를 호출한다", "`Authorization: Bearer <appSessionToken>` 기반 검증이 적용된다", "FC와 본부장 세션 모두 응답으로 active code가 반환된다", "legacy 로컬 세션에 `role=manager`가 남아 있어도 앱 복원 시 `admin + readOnly` UI state로 정규화돼 self-service gate가 유지된다", "현재 추천인 표시는 direct client query가 아니라 같은 trusted 응답의 `recommender` cache를 사용한다"],
     "evidenceRequired": ["네트워크 호출 증적", "서버 로그", "화면 캡처"],
     "dbAssertions": ["반환된 코드는 해당 FC의 active referral_codes.code 와 일치한다"]
+  },
+  {
+    "id": "RF-SELF-02",
+    "area": "추천코드",
+    "priority": "P0",
+    "platform": ["app", "backend"],
+    "title": "FC/본부장 self-service 추천인 변경은 trusted path로 현재 추천인 표시와 attribution/event audit trail을 함께 갱신한다",
+    "preconditions": ["FC 또는 본부장 계정이 appSessionToken을 가진 상태로 로그인되어 있다", "선택 가능한 활성 추천코드 보유 inviter가 존재한다", "추천인 페이지(`/referral`)에 진입할 수 있다"],
+    "steps": ["추천인 페이지에서 이름/소속/추천코드 검색으로 inviter를 선택한다", "저장을 실행한다", "페이지 새로고침 또는 pull-to-refresh 뒤 현재 추천인 표시와 invitee/audit 결과를 확인한다"],
+    "expected": ["추천인 저장은 `update-my-recommender` trusted path로만 수행된다", "저장 성공 시 현재 추천인 표시가 같은 trusted self-service 응답 기준으로 갱신된다", "DB `referral_attributions`는 `manual_entry` / `manual_entry_only` 계약으로 confirmed 또는 overridden 상태를 정리한다", "DB `referral_events`에 `referral_confirmed` audit row가 남는다", "비대상 세션 또는 토큰 누락 상태에서 pull-to-refresh를 해도 spinner가 멈추지 않는 상태로 남지 않는다"],
+    "evidenceRequired": ["화면 캡처", "함수 호출 응답", "DB 확인"],
+    "dbAssertions": ["대상 invitee의 `fc_profiles.recommender_fc_id`가 선택한 inviter_fc_id로 저장된다", "invitee 기준 confirmed attribution은 최대 1건으로 유지된다", "최근 `referral_confirmed` 이벤트 row의 source는 `manual_entry`이고 metadata.selectionSource는 `manual_entry_only`다"]
   }
 ]
