@@ -79,6 +79,16 @@ source_of_truth: web/src/app/dashboard/page.tsx + web/src/app/dashboard/profile/
 - schema drift 시 탭별 저장 실패 가능
 - readOnly enforcement 누락은 즉시 회귀 취급
 
+## 관련 운영 화면
+
+- `/dashboard/referrals`
+  - 추천코드 마스터 운영, 비활성 코드 이력, 레거시 추천인 검토 큐를 다룬다.
+- `/dashboard/referrals/graph`
+  - 구조화 추천 관계를 읽기 전용 graph로 탐색하는 화면이다.
+  - visible edge는 `recommender_fc_id`를 기본 소스로 만들고, `confirmed attribution`은 같은 edge의 상태를 보강하는 보조 신호로만 겹친다.
+  - manager는 진입/조회만 가능하고 mutation CTA는 노출하지 않는다.
+  - graph는 node drag, 빈 공간 pan, fit/reset, 기본 node label 표시를 지원해야 한다.
+
 ## 연관 문서
 
 - [../workflow-state-matrix.md](E:/hanhwa/fc-onboarding-app/docs/handbook/workflow-state-matrix.md)

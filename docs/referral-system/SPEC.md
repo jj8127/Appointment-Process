@@ -101,11 +101,12 @@
 2. 회원가입 화면에서 추천코드를 수동 입력한다.
 3. 가입 완료 시 수동 코드 기준으로 확정한다.
 
-### 4.5 FC 본인 추천코드 self-service 조회
+### 4.5 FC/본부장 본인 추천코드 self-service 조회
 
 1. 현재 앱 hook `useMyReferralCode()`는 `get-my-referral-code` Edge Function을 호출한다.
-2. active self-service 조회는 `Authorization: Bearer <appSessionToken>` 기반으로 세션의 `phone` / `fcId`만 사용해 대상 FC를 해석한다.
-3. `get-fc-referral-code`는 legacy compatibility alias로 저장소에 남아 있어도 `2026-04-02` 기준 current app hook path는 아니다. 이 함수의 optional `phone` body는 세션 전화번호와 일치할 때만 허용된다.
+2. active self-service 조회는 `Authorization: Bearer <appSessionToken>` 기반으로 세션의 `role(fc|manager)`, `phone`, `fcId`만 사용해 대상 FC를 해석한다.
+3. 본부장 세션은 앱 UI role이 `admin/readOnly`로 보이더라도 app session token source role이 `manager`이면 같은 self-service 경로로 active code / invitee / 추천인 검색·저장을 수행할 수 있다.
+4. `get-fc-referral-code`는 legacy compatibility alias로 저장소에 남아 있어도 `2026-04-02` 기준 current app hook path는 아니다. 이 함수의 optional `phone` body는 세션 전화번호와 일치할 때만 허용된다.
 
 ## 5. 식별자 규칙
 
@@ -230,8 +231,16 @@
   - 코드 lifecycle + `admin_override_applied` 최근 이벤트
   - 레거시 추천인 검토 큐
 - `/dashboard/referrals`를 full `referral_attributions` 탐색기처럼 문서화하지 않는다.
+- `/dashboard/referrals/graph`는 read-first graph explorer다.
+  - visible edge 기본 소스는 `fc_profiles.recommender_fc_id`다.
+  - `confirmed referral_attributions`는 edge를 하나 더 그리는 용도가 아니라 같은 관계의 `confirmed` 근거를 덧씌우는 용도다.
+  - 레거시 `recommender` free-text는 edge로 추론하지 않고 `레거시 미해결` 플래그로만 남긴다.
+  - graph 안에서는 mutation CTA를 노출하지 않고, 운영 액션은 기존 `/dashboard/referrals` 리스트/상세 화면에 남긴다.
+  - graph layout은 세션 한정이며 node drag, 빈 공간 pan, fit/reset, 기본 node name label 표시를 지원해야 한다.
+  - manager는 graph page 진입과 조회는 가능하지만 계속 read-only다.
 - `backfill_missing_codes`는 수동 실행형 idempotent batch로만 운영하고, 1회 호출당 최대 100명만 처리한다.
-- 오늘 백필 대상은 `signup_completed=true`, `phone=11자리`, `affiliation`이 `설계매니저` 패턴이 아니고, `admin_accounts`/`manager_accounts` 전화번호와 겹치지 않으며, 활성 추천코드가 없는 `fc_profiles`만이다.
+- 오늘 백필 대상은 `signup_completed=true`, `phone=11자리`, `affiliation`이 `설계매니저` 패턴이 아니고, `admin_accounts` 전화번호와 겹치지 않으며, 활성 추천코드가 없는 `fc_profiles`만이다.
+- `manager_accounts`와 전화번호가 겹치는 completed `fc_profiles`도 본부장=FC 계약에 따라 추천코드 발급/backfill 대상에 포함한다.
 - 조회 권한은 `admin`/`developer`/`manager` 모두 허용하되, mutate(`일괄 발급`, `재발급`, `비활성`, `legacy link`)는 `admin` role만 허용한다.
 - `developer` subtype은 mutate 시 감사 metadata에 `actorStaffType=developer`로 남기고, `manager`는 UI read-only와 서버 `POST 403`을 동시에 만족해야 한다.
 - 관리자 override/cancel/clear는 모두 `reason` 입력이 필수이며, `referral_events.admin_override_applied.metadata`에 `actorPhone`, `actorRole`, `actorStaffType`, `beforeRecommenderName`, `beforeRecommenderFcId`, `afterRecommenderName`, `afterRecommenderFcId`, `reason`이 남아야 한다.

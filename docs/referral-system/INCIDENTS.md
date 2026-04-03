@@ -7,7 +7,7 @@
 
 ## 2. 현재 상태
 
-- `2026-04-02` 기준 등록된 추천인 이슈는 `8건`이다.
+- `2026-04-04` 기준 등록된 추천인 이슈는 `10건`이다.
 - 런타임 버그뿐 아니라 trust boundary, rollout status, 문서/테스트 drift로 운영 판단을 오도한 경우도 장애성 이력으로 남긴다.
 
 ## 3. 작성 규칙
@@ -46,6 +46,8 @@
 
 | ID | 날짜 | 제목 | linkedCases | 상태 |
 | --- | --- | --- | --- | --- |
+| INC-010 | 2026-04-04 | 본부장이 추천인 self-service 대상인데 홈 바로가기/코드 발급 대상에서 빠져 있었음 | `RF-ADMIN-03`, `RF-SELF-01` | fixed |
+| INC-009 | 2026-04-03 | 추천인 그래프가 confirmed-only edge와 미완성 interaction 때문에 실사용 탐색기로 동작하지 않음 | `RF-ADMIN-07`, `RF-ADMIN-08` | fixed |
 | INC-008 | 2026-04-02 | 추천인 hardening gap(`set-password` OTP bypass/duplicate wipe, FC cache tampering, historical code drift) | `RF-DATA-02`, `RF-SEC-03`, `RF-SEC-04`, `RF-SEC-05` | fixed |
 | INC-007 | 2026-04-02 | latest docs follow-up 이후에도 invitee 코드 문구와 source-baseline이 intermediate 상태로 남은 drift | `RF-ADMIN-01`, `RF-SELF-01`, `RF-SEC-02` | fixed |
 | INC-006 | 2026-04-02 | FC self-service 추천코드 조회 경계를 session-derived path로 재정렬하고 legacy alias를 harden | `RF-SELF-01`, `RF-SEC-02` | fixed |
@@ -54,6 +56,41 @@
 | INC-003 | 2026-03-31 | 동명이인 안전화 후 live hardening gap(`set-password` fallback, override migration, clear audit) | `RF-ADMIN-06`, `RF-SEC-02` | mitigated |
 | INC-002 | 2026-03-31 | 동명이인 추천인 이름 매칭으로 잘못된 코드가 붙을 수 있던 구조 위험 | `RF-DATA-02`, `RF-ADMIN-06` | fixed |
 | INC-001 | 2026-03-31 | Android 추천코드 입력 시 대문자가 중복 입력되던 문제 | `RF-CODE-07` | fixed |
+
+## INC-009 | 2026-04-03 | 추천인 그래프가 confirmed-only edge와 미완성 interaction 때문에 실사용 탐색기로 동작하지 않음
+
+- symptom:
+  - `/dashboard/referrals/graph`에서 추천 관계 선이 비어 보였고, 노드를 잡아 움직이기 어렵거나 빈 공간 drag로 화면을 이동하기 어려웠다.
+  - node label이 제한적으로만 보여 실제 운영자가 전체 네트워크를 읽기 어려웠다.
+- impact:
+  - 운영자가 graph를 열어도 구조화 추천 관계를 바로 읽지 못했고, 추천인 네트워크 탐색 도구로 쓰기 어려웠다.
+- trigger:
+  - 2026-04-03 운영 피드백에서 `confirmed referral_attributions`가 0건인 현재 DB 상태와 graph interaction 부족이 같이 드러났을 때.
+- rootCause:
+  - visible edge 생성이 `confirmed referral_attributions`에 과도하게 기대고 있었고, current runtime의 주된 구조화 링크 소스인 `fc_profiles.recommender_fc_id`가 graph surface의 기본 edge source로 충분히 반영되지 않았다.
+  - canvas는 custom node draw 대비 hit area, layout control, label strategy, drag/pan 사용성이 충분히 정리되지 않았다.
+- fix:
+  - graph edge 기본 소스를 `fc_profiles.recommender_fc_id`로 두고, `confirmed referral_attributions`는 same pair edge의 `relationshipState`를 강화하는 보조 증거로 merge했다.
+  - graph page를 read-first surface로 재정리하고 mutation CTA를 제거했다.
+  - canvas에 node drag, 빈 캔버스 pan, fit/reset, force tuning, 기본 node name label 표시를 반영했다.
+- linkedCases:
+  - RF-ADMIN-07
+  - RF-ADMIN-08
+- evidence:
+  - 코드 변경: `web/src/lib/admin-referrals.ts`
+  - 코드 변경: `web/src/components/referrals/ReferralGraphCanvas.tsx`
+  - 코드 변경: `web/src/app/dashboard/referrals/graph/page.tsx`
+  - API smoke: eligible FC 110, merged edges 41, relationshipCounts `{ structured: 41, confirmed: 0, structured_confirmed: 0 }`
+  - 정적 검증: `cd web && npm run lint -- ...`, `cd web && npx next build`
+- reproduction:
+  1. `confirmed referral_attributions`가 없는 현재 운영 데이터 기준으로 `/dashboard/referrals/graph`를 연다.
+  2. graph가 structured link를 기본 edge로 쓰지 않으면 연결선이 비어 보인다.
+  3. custom node draw/hit area/pan/label 정책이 부족하면 drag/pan/readability 문제가 같이 드러난다.
+- regressionCheck:
+  - RF-ADMIN-07로 graph API와 page가 빈 edge 없이 structured link를 먼저 보여주는지 확인한다.
+  - RF-ADMIN-08로 node drag, 빈 공간 pan, reset, label 가시성을 다시 확인한다.
+- notes:
+  - 이번 수정은 lint/build/API smoke까지 완료했지만, 브라우저 상호작용 실기 확인은 별도 후속 증적이 필요하다.
 
 ## INC-008 | 2026-04-02 | 추천인 hardening gap(`set-password` OTP bypass/duplicate wipe, FC cache tampering, historical code drift)
 
@@ -308,3 +345,37 @@
   3. 입력값이 `J`/`AB`가 아니라 중복되는지 확인한다.
 - regressionCheck:
   - `RF-CODE-07`로 승격했다.
+## INC-010 | 2026-04-04 | 본부장이 추천인 self-service 대상인데 홈 바로가기/코드 발급 대상에서 빠져 있었음
+
+- symptom:
+  - 본부장 세션에서는 홈에 `추천인 코드` 바로가기가 보이지 않았고, self-service 화면/설정 카드도 사실상 FC 전용으로만 열려 있었다.
+  - 추천코드 운영 백필/재발급 대상에서도 `manager_accounts`와 전화번호가 겹치는 completed FC가 제외되어 본부장에게 active code를 줄 수 없었다.
+- impact:
+  - 본부장이 FC 역할로 친구 초대/코드 공유를 해야 하는 운영 계약과 실제 앱/운영 발급 정책이 어긋나 있었다.
+  - 홈에서 추천인 페이지로 진입하지 못하거나, 운영자가 backfill을 돌려도 본부장 FC에는 code가 생기지 않았다.
+- trigger:
+  - 2026-04-04 운영 요청으로 “본부장도 FC이므로 추천인 코드 바로가기가 보이고 코드를 할당 받아야 한다”는 요구가 재확인됐을 때.
+- rootCause:
+  - 모바일 앱은 manager login을 `admin + readOnly` UI role로 정규화하지만, 추천인 self-service 노출 조건이 `role === 'fc'`로만 묶여 있었다.
+  - self-service Edge Function과 운영 backfill/admin issuance 함수가 모두 `manager` source role 또는 `manager_accounts` overlap을 추천코드 예외 대상으로 취급하고 있었다.
+- fix:
+  - 홈/설정/추천인 화면 훅에서 `manager source role -> admin/readOnly UI` 세션도 self-service 허용 대상으로 포함했다.
+  - `get-my-referral-code`, `get-fc-referral-code`, `get-my-invitees`, `search-fc-for-referral`, `update-my-recommender`가 `manager` app-session을 허용하도록 정렬했다.
+  - `admin_issue_referral_code`, `admin_backfill_referral_codes`, `web/src/lib/admin-referrals.ts`에서 manager overlap exclusion을 제거해 본부장-linked completed FC도 code issuance/backfill 대상에 포함했다.
+- linkedCases:
+  - RF-ADMIN-03
+  - RF-SELF-01
+- evidence:
+  - 코드 변경: `app/index.tsx`, `app/settings.tsx`, `app/referral.tsx`
+  - 코드 변경: `hooks/use-my-referral-code.ts`, `hooks/use-my-invitees.ts`
+  - 코드 변경: `supabase/functions/get-my-referral-code/index.ts`, `supabase/functions/get-fc-referral-code/index.ts`, `supabase/functions/get-my-invitees/index.ts`, `supabase/functions/search-fc-for-referral/index.ts`, `supabase/functions/update-my-recommender/index.ts`
+  - 코드 변경: `supabase/schema.sql`, `supabase/migrations/20260404000001_allow_manager_referral_codes.sql`, `web/src/lib/admin-referrals.ts`
+- reproduction:
+  1. 본부장 계정으로 앱에 로그인한다.
+  2. 홈 바로가기와 설정에서 추천인 코드 진입 동선을 확인한다.
+  3. 운영자 backfill 기준을 보면 `manager_accounts` overlap completed FC가 발급 대상에서 빠져 있었다.
+- regressionCheck:
+  - RF-SELF-01로 FC/본부장 self-service active code 조회를 다시 확인한다.
+  - RF-ADMIN-03으로 본부장-linked completed FC를 포함한 backfill idempotency를 다시 확인한다.
+- notes:
+  - 이번 세션에서는 코드/문서/스키마 계약까지 정리했다. 실제 원격 DB migration 적용 뒤 본부장 실계정 기준의 on-device 검증은 별도로 남아 있다.

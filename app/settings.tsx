@@ -27,13 +27,15 @@ export default function SettingsScreen() {
     isRequestBoardDesigner ? 'request-board' : 'settings',
   );
 
-  const { data: myReferralCode, isLoading: codeLoading, error: referralCodeError } = useMyReferralCode();
+  const { data: myReferralInfo, isLoading: codeLoading, error: referralCodeError } = useMyReferralCode();
+  const myReferralCode = myReferralInfo?.code ?? null;
 
   const [deleting, setDeleting] = useState(false);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
 
   const accountRole: 'fc' | 'admin' | 'manager' = readOnly ? 'manager' : role === 'admin' ? 'admin' : 'fc';
-  const canViewMyReferralCode = role === 'fc' && !isRequestBoardDesigner;
+  const canViewMyReferralCode =
+    !isRequestBoardDesigner && (role === 'fc' || (role === 'admin' && readOnly));
 
   useEffect(() => {
     if (!hydrated) return;

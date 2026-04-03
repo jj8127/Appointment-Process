@@ -229,12 +229,12 @@
     "area": "운영",
     "priority": "P0",
     "platform": ["web", "backend"],
-    "title": "기존 FC 추천코드 백필은 대상만 발급하고 재실행해도 중복 활성 코드가 생기지 않는다",
-    "preconditions": ["signup_completed=true 이고 활성 추천코드가 없는 FC가 존재한다", "설계매니저, 미완료 가입자, 운영 계정 전화번호와 겹치는 FC, 기존 활성 코드 보유 FC가 각각 최소 1건 존재한다", "관리자 또는 개발자 세션이 준비돼 있다"],
+    "title": "기존 FC/본부장-linked FC 추천코드 백필은 대상만 발급하고 재실행해도 중복 활성 코드가 생기지 않는다",
+    "preconditions": ["signup_completed=true 이고 활성 추천코드가 없는 FC가 존재한다", "manager_accounts와 전화번호가 겹치는 completed FC가 최소 1건 존재한다", "설계매니저, 미완료 가입자, 운영 계정 전화번호와 겹치는 FC, 기존 활성 코드 보유 FC가 각각 최소 1건 존재한다", "관리자 또는 개발자 세션이 준비돼 있다"],
     "steps": ["운영자가 /dashboard/referrals 또는 POST /api/admin/referrals(backfill_missing_codes)로 일괄 발급을 실행한다", "같은 작업을 한 번 더 실행한다"],
-    "expected": ["백필은 대상 FC만 처리한다", "기존 활성 코드 보유 FC는 skip 된다", "두 번째 실행 후에도 FC당 활성 코드는 최대 1건이다", "remaining 값은 감소하거나 0을 유지한다"],
+    "expected": ["백필은 대상 FC와 본부장-linked FC를 함께 처리한다", "기존 활성 코드 보유 FC는 skip 된다", "두 번째 실행 후에도 FC당 활성 코드는 최대 1건이다", "remaining 값은 감소하거나 0을 유지한다"],
     "evidenceRequired": ["운영 화면 캡처", "API 응답", "DB 확인"],
-    "dbAssertions": ["대상 FC에만 활성 추천코드가 생성된다", "설계매니저/미완료 가입자/운영 계정 겹침 FC에는 활성 추천코드가 생성되지 않는다", "fc_id 기준 활성 추천코드 중복 count = 0", "code_generated 이벤트가 생성된 FC 수와 일치한다"]
+    "dbAssertions": ["대상 FC와 manager_accounts 겹침 completed FC에 활성 추천코드가 생성된다", "설계매니저/미완료 가입자/운영 계정 겹침 FC에는 활성 추천코드가 생성되지 않는다", "fc_id 기준 활성 추천코드 중복 count = 0", "code_generated 이벤트가 생성된 FC 수와 일치한다"]
   },
   {
     "id": "RF-ADMIN-04",
@@ -271,6 +271,30 @@
     "expected": ["자유입력 없이 FC 계정 선택으로만 연결된다", "대상 FC의 `recommender_fc_id`와 `recommender` cache가 함께 갱신된다", "기존 confirmed attribution이 있으면 admin override 기준으로 교체되거나 덮어쓴다", "감사 이벤트가 생성된다"],
     "evidenceRequired": ["운영 화면 캡처", "API 응답", "DB 확인"],
     "dbAssertions": ["대상 FC `recommender_fc_id`가 선택한 inviter_fc_id 로 저장된다", "invitee 기준 confirmed attribution이 1건으로 유지된다", "`admin_override_applied` 이벤트 metadata에 before/after/reason/actor 가 저장된다"]
+  },
+  {
+    "id": "RF-ADMIN-07",
+    "area": "운영",
+    "priority": "P0",
+    "platform": ["web", "backend"],
+    "title": "`/dashboard/referrals/graph`는 structured link 기준으로 빈 선 없이 그려지고 manager read-only를 유지한다",
+    "preconditions": ["eligible FC 사이의 `recommender_fc_id` 구조화 링크가 1건 이상 존재한다", "manager 또는 admin이 그래프를 열 수 있다"],
+    "steps": ["graph API 또는 `/dashboard/referrals/graph`를 연다", "node/edge count와 manager read-only 노출 상태를 확인한다"],
+    "expected": ["visible edge는 `recommender_fc_id`를 기본으로 잡는다", "confirmed attribution이 있으면 same pair edge의 상태만 강화되고 중복 edge를 만들지 않는다", "manager는 graph를 볼 수 있지만 mutation CTA는 없다"],
+    "evidenceRequired": ["API 응답", "화면 캡처 또는 route 응답", "DB 확인"],
+    "dbAssertions": ["structured link가 존재하면 merged edge count는 0이 아니다", "legacy free-text recommender는 graph edge로 추론되지 않는다"]
+  },
+  {
+    "id": "RF-ADMIN-08",
+    "area": "운영",
+    "priority": "P1",
+    "platform": ["web"],
+    "title": "graph canvas는 node drag, 빈 공간 pan, reset, 기본 node name label을 지원한다",
+    "preconditions": ["그래프에 node와 edge가 표시된다"],
+    "steps": ["node를 drag해 위치를 바꾼다", "빈 공간을 drag해 viewport를 이동한다", "`Reset`을 눌러 layout을 다시 정렬한다", "기본 상태에서 node 이름이 보이는지 확인한다"],
+    "expected": ["node drag가 hit area와 일치하게 동작한다", "빈 공간 drag로 canvas를 pan할 수 있다", "reset 뒤 graph가 다시 모여 readable cluster를 만든다", "이름 라벨이 기본적으로 보이고 선택/검색/확대 시 추가 정보가 붙는다"],
+    "evidenceRequired": ["브라우저 화면 녹화 또는 캡처"],
+    "dbAssertions": []
   },
   {
     "id": "RF-OBS-01",
@@ -397,10 +421,10 @@
     "area": "추천코드",
     "priority": "P0",
     "platform": ["app", "backend"],
-    "title": "FC self-service 추천코드 조회는 현재 runtime hook(`get-my-referral-code`) 기준으로 active code를 반환한다",
-    "preconditions": ["FC 계정이 appSessionToken을 가진 상태로 로그인되어 있다", "대상 FC가 active referral code를 가지고 있다"],
-    "steps": ["앱에서 `useMyReferralCode` 경로를 실행한다", "`get-my-referral-code` 응답과 화면 표시를 비교한다"],
-    "expected": ["현재 hook이 `get-my-referral-code`를 호출한다", "`Authorization: Bearer <appSessionToken>` 기반 검증이 적용된다", "응답으로 active code가 반환된다"],
+    "title": "FC/본부장 self-service 추천코드 조회는 현재 runtime hook(`get-my-referral-code`) 기준으로 active code를 반환한다",
+    "preconditions": ["FC 또는 본부장 계정이 appSessionToken을 가진 상태로 로그인되어 있다", "대상 FC가 active referral code를 가지고 있다"],
+    "steps": ["앱에서 FC 또는 본부장 세션으로 `useMyReferralCode` 경로를 실행한다", "`get-my-referral-code` 응답과 화면 표시를 비교한다"],
+    "expected": ["현재 hook이 `get-my-referral-code`를 호출한다", "`Authorization: Bearer <appSessionToken>` 기반 검증이 적용된다", "FC와 본부장 세션 모두 응답으로 active code가 반환된다"],
     "evidenceRequired": ["네트워크 호출 증적", "서버 로그", "화면 캡처"],
     "dbAssertions": ["반환된 코드는 해당 FC의 active referral_codes.code 와 일치한다"]
   }

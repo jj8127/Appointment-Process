@@ -21,7 +21,12 @@ import { usePathname, useRouter } from 'next/navigation';
 import type React from 'react';
 import { useEffect, useMemo, useRef, useState } from 'react';
 
-type NavItem = { label: string; href: string; icon: React.ComponentType<{ size?: number; stroke?: number }> };
+type NavItem = {
+  label: string;
+  href: string;
+  icon: React.ComponentType<{ size?: number; stroke?: number }>;
+  children?: { label: string; href: string }[];
+};
 
 export default function DashboardLayout({ children }: { children: React.ReactNode }) {
   const [opened, { toggle }] = useDisclosure();
@@ -44,7 +49,15 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
       { label: '홈', icon: IconHome, href: '/dashboard' },
       { label: '문서 관리', icon: IconFileText, href: '/dashboard/docs' },
         { label: '생명/손해 위촉', icon: IconLink, href: '/dashboard/appointment' },
-      { label: '추천인 코드', icon: IconKey, href: '/dashboard/referrals' },
+      {
+        label: '추천인 코드',
+        icon: IconKey,
+        href: '/dashboard/referrals',
+        children: [
+          { label: '리스트', href: '/dashboard/referrals' },
+          { label: '그래프', href: '/dashboard/referrals/graph' },
+        ],
+      },
       { label: '게시판', icon: IconNews, href: '/dashboard/board' },
       { label: '메신저', icon: IconMessage, href: '/dashboard/messenger' },
       { label: '에이전트 룸', icon: IconUsers, href: '/dashboard/agent-room' },
@@ -159,10 +172,40 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
       >
         <AppShell.Section grow>
           {navItems.map((item) => {
-            const active = item.href === '/dashboard/messenger'
+            const isMessenger = item.href === '/dashboard/messenger';
+            const isParentActive = item.children
+              ? item.children.some((c) => pathname === c.href)
+              : false;
+            const active = isMessenger
               ? pathname === '/dashboard/messenger' || pathname === '/dashboard/chat'
-              : pathname === item.href;
+              : isParentActive || pathname === item.href;
             const Icon = item.icon;
+
+            if (item.children && navbarExpanded) {
+              return (
+                <NavLink
+                  key={item.href}
+                  label={item.label}
+                  active={active}
+                  leftSection={<Icon size={16} stroke={1.6} />}
+                  variant="light"
+                  aria-label={item.label}
+                  defaultOpened={isParentActive}
+                >
+                  {item.children.map((child) => (
+                    <NavLink
+                      key={child.href}
+                      label={child.label}
+                      active={pathname === child.href}
+                      onClick={() => router.push(child.href)}
+                      variant="light"
+                      pl="xl"
+                    />
+                  ))}
+                </NavLink>
+              );
+            }
+
             return (
               <NavLink
                 key={item.href}

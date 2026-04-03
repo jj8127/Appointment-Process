@@ -1,6 +1,6 @@
 {
   "meta": {
-    "generatedAt": "2026-04-02T12:00:00.000Z",
+    "generatedAt": "2026-04-03T18:40:00.000Z",
     "source": "docs/referral-system/test-cases.json",
     "note": "status: NOT_RUN | PASS | FAIL | BLOCKED | SKIPPED"
   },
@@ -201,12 +201,12 @@
       "area": "운영",
       "priority": "P0",
       "platform": ["web", "backend"],
-      "title": "기존 FC 추천코드 백필은 대상만 발급하고 재실행해도 중복 활성 코드가 생기지 않는다",
+      "title": "기존 FC/본부장-linked FC 추천코드 백필은 대상만 발급하고 재실행해도 중복 활성 코드가 생기지 않는다",
       "status": "NOT_RUN",
       "owner": "",
       "executedAt": "",
       "evidence": [],
-      "notes": ""
+      "notes": "manager_accounts와 전화번호가 겹치는 completed FC도 이제 발급/backfill 대상이다. 원격 DB migration 적용 후 실제 backfill 재실행 검증이 필요하다."
     },
     {
       "caseId": "RF-ADMIN-04",
@@ -247,6 +247,39 @@
         "web/src/lib/admin-referrals.ts applyRecommenderSelection -> admin_apply_recommender_override RPC hard dependency remains"
       ],
       "notes": "migration blocker는 해소됐다. 다만 linked production에서 임의 invitee row를 mutation 테스트 대상으로 쓰지 않았기 때문에 실제 legacy link/override 실행과 감사 로그 확인은 아직 수행하지 않았다."
+    },
+    {
+      "caseId": "RF-ADMIN-07",
+      "area": "운영",
+      "priority": "P0",
+      "platform": ["web", "backend"],
+      "title": "`/dashboard/referrals/graph`는 structured link 기준으로 빈 선 없이 그려지고 manager read-only를 유지한다",
+      "status": "PASS",
+      "owner": "Codex",
+      "executedAt": "2026-04-03T18:40:00.000Z",
+      "evidence": [
+        "cd web && npm run lint -- src/app/dashboard/referrals/page.tsx src/app/dashboard/referrals/graph/page.tsx src/components/referrals/ReferralGraphCanvas.tsx src/components/referrals/GraphNodeDrawer.tsx src/lib/admin-referrals.ts src/app/api/admin/referrals/graph/route.ts src/types/referral-graph.ts src/types/d3-force.d.ts",
+        "cd web && npx next build",
+        "service-role smoke => eligible FC 110, merged edges 41, relationshipCounts { structured: 41, confirmed: 0, structured_confirmed: 0 }, unresolved legacy count 57",
+        "code review: graph route allowedRoles ['admin','manager'], graph page exposes no mutate CTA"
+      ],
+      "notes": "현재 운영 데이터에서도 structured link 기반 edge가 41건으로 잡혀 graph empty-line 문제가 해소되는 것을 확인했다. manager read-only는 route allowedRoles와 graph UI에서 mutation control 제거를 함께 확인했다."
+    },
+    {
+      "caseId": "RF-ADMIN-08",
+      "area": "운영",
+      "priority": "P1",
+      "platform": ["web"],
+      "title": "graph canvas는 node drag, 빈 공간 pan, reset, 기본 node name label을 지원한다",
+      "status": "BLOCKED",
+      "owner": "Codex",
+      "executedAt": "2026-04-03T18:40:00.000Z",
+      "evidence": [
+        "cd web && npm run lint -- src/components/referrals/ReferralGraphCanvas.tsx src/app/dashboard/referrals/graph/page.tsx",
+        "cd web && npx next build",
+        "code review: nodePointerAreaPaint + enableNodeDrag + enablePanInteraction + fit/reset + 기본 node name label"
+      ],
+      "notes": "정적 검증과 코드 경로는 확인했지만, 실제 브라우저에서 node drag/empty-space pan/reset 후 cluster 재형성 체감은 아직 시각 증적을 남기지 못했다."
     },
     {
       "caseId": "RF-OBS-01",
@@ -397,7 +430,7 @@
       "area": "추천코드",
       "priority": "P0",
       "platform": ["app", "backend"],
-      "title": "FC self-service 추천코드 조회는 현재 runtime hook(`get-my-referral-code`) 기준으로 active code를 반환한다",
+      "title": "FC/본부장 self-service 추천코드 조회는 현재 runtime hook(`get-my-referral-code`) 기준으로 active code를 반환한다",
       "status": "BLOCKED",
       "owner": "Codex",
       "executedAt": "2026-04-02T00:00:00.000Z",
@@ -407,7 +440,7 @@
         "supabase/functions/get-my-referral-code/index.ts => session phone/fcId 기반 self lookup",
         "supabase/functions/get-fc-referral-code/index.ts => optional phone body must match authenticated session phone"
       ],
-      "notes": "저장소 기준 active hook path와 legacy alias hardening은 확인했다. 실제 배포 환경에서 FC 세션으로 active code 응답까지 확인하는 on-device/live invoke는 아직 남아 있다."
+      "notes": "저장소 기준 active hook path와 legacy alias hardening은 확인했다. 이번 변경으로 본부장(manager source role)도 self-service 대상에 포함됐지만, 실제 배포 환경에서 FC/본부장 세션으로 active code 응답까지 확인하는 on-device/live invoke는 아직 남아 있다."
     }
   ]
 }

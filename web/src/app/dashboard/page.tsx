@@ -51,7 +51,6 @@ import dayjs from 'dayjs';
 import { useEffect, useMemo, useRef, useState, useTransition } from 'react';
 
 import { useSession } from '@/hooks/use-session';
-import { RecommenderSelect } from '@/components/RecommenderSelect';
 import { supabase } from '@/lib/supabase';
 import type { FCDocument, FCProfileWithDocuments } from '@/types/dashboard';
 import type { CommissionCompletionStatus, FcProfile, FcStatus } from '@/types/fc';
@@ -88,35 +87,7 @@ const HANWHA_APPROVED_STATUSES: FcStatus[] = [
   'final-link-sent',
 ];
 
-type RecommenderDisplaySource = {
-  recommender?: string | null;
-  recommender_fc_id?: string | null;
-};
-
 const trimValue = (value?: string | null) => String(value ?? '').trim();
-
-const getRecommenderDisplay = (profile?: RecommenderDisplaySource | null) => {
-  const recommenderValue = trimValue(profile?.recommender) || '-';
-  if (trimValue(profile?.recommender_fc_id)) {
-    return {
-      label: '연결된 추천인 FC',
-      value: recommenderValue,
-      helperText: null,
-    };
-  }
-  if (trimValue(profile?.recommender)) {
-    return {
-      label: '레거시 추천인 표시값',
-      value: recommenderValue,
-      helperText: '현재 값은 예전 가입 데이터에 남은 표시값이며, 구조화 추천인 연결은 아닙니다.',
-    };
-  }
-  return {
-    label: '연결된 추천인 FC',
-    value: '-',
-    helperText: null,
-  };
-};
 
 const ALLOWANCE_FLOW_CARDS: Array<{
   key: AllowanceDisplayKey;
@@ -129,19 +100,6 @@ const ALLOWANCE_FLOW_CARDS: Array<{
   { key: 'approved', label: '승인 완료', helper: '문서 단계 진행 가능' },
   { key: 'rejected', label: '미승인', helper: '반려 사유 확인 필요' },
 ];
-
-const readSignupReferralCode = (payload: unknown) => {
-  if (!payload || typeof payload !== 'object') return null;
-  const signupReferralCode =
-    'signupReferralCode' in payload
-      ? (payload as { signupReferralCode?: unknown }).signupReferralCode
-      : 'inviteeReferralCode' in payload
-        ? (payload as { inviteeReferralCode?: unknown }).inviteeReferralCode
-        : null;
-  return typeof signupReferralCode === 'string' && signupReferralCode.trim()
-    ? signupReferralCode
-    : null;
-};
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value) && typeof value === 'object' && !Array.isArray(value);
@@ -455,9 +413,6 @@ export default function DashboardPage() {
 
   // 수정용 상태
   const [tempIdInput, setTempIdInput] = useState('');
-  const [selectedRecommenderFcId, setSelectedRecommenderFcId] = useState<string | null>(null);
-  const [clearRecommenderSelection, setClearRecommenderSelection] = useState(false);
-  const [recommenderOverrideReason, setRecommenderOverrideReason] = useState('');
   const [careerInput, setCareerInput] = useState<'신입' | '경력' | null>(null);
   const [commissionInput, setCommissionInput] = useState<CommissionCompletionStatus>('none');
   const [selectedDocs, setSelectedDocs] = useState<string[]>([]);
@@ -738,25 +693,6 @@ export default function DashboardPage() {
     setCurrentPage(1);
   }, [activeTab, keyword]);
 
-  const {
-    data: signupReferralCode,
-    isFetching: isSignupReferralCodeFetching,
-    refetch: refetchSignupReferralCode,
-  } = useQuery({
-    queryKey: ['fc-signup-referral-code', selectedFc?.id],
-    queryFn: async () => {
-      if (!selectedFc?.id) return null;
-      const resp = await fetch('/api/admin/fc', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action: 'getInviteeReferralCode', payload: { fcId: selectedFc.id } }),
-      });
-      const json: unknown = await resp.json().catch(() => null);
-      return readSignupReferralCode(json);
-    },
-    enabled: !!selectedFc?.id,
-  });
-
   const canReadResidentNumber = role === 'admin' || role === 'manager';
   const {
     data: selectedResidentNumber,
@@ -784,14 +720,6 @@ export default function DashboardPage() {
   });
 
   useEffect(() => {
-    if (!opened || !selectedFc?.id) {
-      return;
-    }
-
-    void refetchSignupReferralCode();
-  }, [opened, refetchSignupReferralCode, selectedFc?.id]);
-
-  useEffect(() => {
     if (!opened || !selectedFc?.id || !canReadResidentNumber) {
       return;
     }
@@ -799,29 +727,12 @@ export default function DashboardPage() {
     void refetchSelectedResidentNumber();
   }, [canReadResidentNumber, opened, refetchSelectedResidentNumber, selectedFc?.id]);
 
-  const recommenderDisplay = useMemo(
-    () => getRecommenderDisplay(selectedFc),
-    [selectedFc],
-  );
-
-  const hasAnyRecommender = Boolean(selectedFc?.recommender_fc_id || trimValue(selectedFc?.recommender));
-  const isRecommenderDirty = selectedFc
-    ? clearRecommenderSelection
-      ? hasAnyRecommender
-      : (selectedFc.recommender_fc_id ?? null) !== selectedRecommenderFcId
-    : false;
-  const isRecommenderReasonMissing = isRecommenderDirty && !recommenderOverrideReason.trim();
-
   const updateInfoMutation = useMutation({
     mutationFn: async () => {
       if (!selectedFc) return;
       const payload: Partial<FcProfile> & Record<string, unknown> = {
         career_type: careerInput,
       };
-      if (isRecommenderDirty) {
-        payload.recommenderFcId = clearRecommenderSelection ? null : selectedRecommenderFcId;
-        payload.recommenderOverrideReason = recommenderOverrideReason.trim();
-      }
       if (tempIdInput && tempIdInput !== selectedFc.temp_id) {
         payload.temp_id = tempIdInput;
         if (selectedFc.status === 'draft') {
@@ -857,11 +768,8 @@ export default function DashboardPage() {
         nextProfileUpdates.temp_id = tempIdInput;
       }
       updateSelectedFc(nextProfileUpdates);
-      setClearRecommenderSelection(false);
-      setRecommenderOverrideReason('');
       notifications.show({ title: '저장 완료', message: '기본 정보가 업데이트되었습니다.', color: 'green' });
       queryClient.invalidateQueries({ queryKey: ['dashboard-list'] });
-      queryClient.invalidateQueries({ queryKey: ['fc-signup-referral-code', selectedFc?.id ?? null] });
     },
     onError: (err: Error) => notifications.show({ title: '오류', message: err.message, color: 'red' }),
   });
@@ -1177,9 +1085,6 @@ export default function DashboardPage() {
   const handleOpenModal = (fc: FCProfileWithDocuments) => {
     setSelectedFc(fc);
     setTempIdInput(fc.temp_id || '');
-    setSelectedRecommenderFcId(fc.recommender_fc_id ?? null);
-    setClearRecommenderSelection(false);
-    setRecommenderOverrideReason('');
     setCareerInput((fc.career_type as '신입' | '경력') || null);
     setCommissionInput(
       getCommissionCompletionStatus(
@@ -2414,77 +2319,7 @@ export default function DashboardPage() {
                       const val = e.currentTarget?.value || '';
                       setTempIdInput(val);
                     }}
-                    />
-                    {isReadOnly ? (
-                      <Stack gap={6}>
-                        <TextInput
-                          style={{ flex: 1 }}
-                          label={recommenderDisplay.label}
-                          value={recommenderDisplay.value}
-                          readOnly
-                        />
-                        {recommenderDisplay.helperText ? (
-                          <Text size="xs" c="dimmed">
-                            {recommenderDisplay.helperText}
-                          </Text>
-                        ) : null}
-                        <Text size="xs" fw={600} c="dimmed">
-                          가입 시 입력한 추천코드:{' '}
-                          <Text component="span" size="xs" fw={700} c="orange">
-                            {isSignupReferralCodeFetching ? '조회 중...' : (signupReferralCode ?? '-')}
-                          </Text>
-                        </Text>
-                      </Stack>
-                    ) : (
-                      <Stack gap={6}>
-                        <Box style={{ flex: 1 }}>
-                          <RecommenderSelect
-                            label="추천인 연결 FC"
-                            value={clearRecommenderSelection ? null : selectedRecommenderFcId}
-                            inviteeFcId={selectedFc?.id ?? null}
-                            onChange={(candidate) => {
-                              setSelectedRecommenderFcId(candidate?.fcId ?? null);
-                              setClearRecommenderSelection(false);
-                            }}
-                          />
-                        </Box>
-                        <Text size="xs" fw={600} c="dimmed">
-                          가입 시 입력한 추천코드:{' '}
-                          <Text component="span" size="xs" fw={700} c="orange">
-                            {isSignupReferralCodeFetching ? '조회 중...' : (signupReferralCode ?? '-')}
-                          </Text>
-                        </Text>
-                        {selectedFc?.recommender && !selectedFc.recommender_fc_id && !clearRecommenderSelection ? (
-                          <Text size="xs" c="dimmed">
-                            현재 레거시 추천인 표시값: {selectedFc.recommender}
-                          </Text>
-                        ) : null}
-                        {hasAnyRecommender ? (
-                          <Group gap="xs">
-                            <Button
-                              variant="light"
-                              color="gray"
-                              size="xs"
-                              onClick={() => {
-                                setSelectedRecommenderFcId(null);
-                                setClearRecommenderSelection(true);
-                              }}
-                            >
-                              추천인 연결 해제
-                            </Button>
-                          </Group>
-                        ) : null}
-                        {isRecommenderDirty ? (
-                          <Textarea
-                            label="추천인 변경 사유"
-                            placeholder="운영 수정 사유 입력"
-                            value={recommenderOverrideReason}
-                            onChange={(event) => setRecommenderOverrideReason(event.currentTarget.value)}
-                            minRows={2}
-                          />
-                        ) : null}
-                      </Stack>
-                    )}
+                  />
                     {canResetToLookup && (
                     <>
                       <Button
@@ -2668,7 +2503,7 @@ export default function DashboardPage() {
                     })()}
                   </Box>
 
-                  <Button fullWidth mt="md" onClick={() => updateInfoMutation.mutate()} loading={updateInfoMutation.isPending} disabled={isReadOnly || isRecommenderReasonMissing || (!isRecommenderDirty && (selectedFc.status !== 'draft' && selectedFc.status !== 'temp-id-issued' && selectedFc.status !== 'allowance-pending'))} color={isReadOnly ? "gray" : "dark"}>
+                  <Button fullWidth mt="md" onClick={() => updateInfoMutation.mutate()} loading={updateInfoMutation.isPending} disabled={isReadOnly || (selectedFc.status !== 'draft' && selectedFc.status !== 'temp-id-issued' && selectedFc.status !== 'allowance-pending')} color={isReadOnly ? "gray" : "dark"}>
                     변경사항 저장
                   </Button>
 

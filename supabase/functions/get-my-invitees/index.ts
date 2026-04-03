@@ -5,6 +5,7 @@ import {
   parseAppSessionToken,
 } from '../_shared/request-board-auth.ts';
 
+// Security: Restrict CORS to specific origins
 const allowedOrigins = (getEnv('ALLOWED_ORIGINS') ?? '').split(',').map(o => o.trim()).filter(Boolean);
 const corsHeaders = {
   'Access-Control-Allow-Origin': allowedOrigins.length > 0 ? allowedOrigins[0] : 'https://yourdomain.com',
@@ -13,11 +14,16 @@ const corsHeaders = {
   'Access-Control-Allow-Credentials': 'true',
 };
 
+// Security: Validate required environment variables
 const supabaseUrl = getEnv('SUPABASE_URL');
 const serviceKey = getEnv('SUPABASE_SERVICE_ROLE_KEY');
 
-if (!supabaseUrl) throw new Error('Missing required environment variable: SUPABASE_URL');
-if (!serviceKey) throw new Error('Missing required environment variable: SUPABASE_SERVICE_ROLE_KEY');
+if (!supabaseUrl) {
+  throw new Error('Missing required environment variable: SUPABASE_URL');
+}
+if (!serviceKey) {
+  throw new Error('Missing required environment variable: SUPABASE_SERVICE_ROLE_KEY');
+}
 
 const supabase = createClient(supabaseUrl, serviceKey);
 
@@ -32,30 +38,27 @@ function fail(code: string, message: string) {
   return json({ ok: false, code, message });
 }
 
-type SessionPayload = Awaited<ReturnType<typeof parseAppSessionToken>>;
-
 function cleanPhone(input: string) {
   return (input ?? '').replace(/[^0-9]/g, '');
 }
 
-async function readOptionalJsonBody(req: Request) {
-  const raw = await req.text();
-  if (!raw.trim()) {
-    return {};
+function maskPhone(phone: string): string {
+  const cleaned = (phone ?? '').replace(/[^0-9]/g, '');
+  if (cleaned.length === 11) {
+    return `${cleaned.slice(0, 3)}-****-${cleaned.slice(7)}`;
   }
-
-  try {
-    const parsed = JSON.parse(raw) as unknown;
-    return typeof parsed === 'object' && parsed !== null ? parsed as Record<string, unknown> : {};
-  } catch {
-    return null;
+  if (cleaned.length > 4) {
+    return `${cleaned.slice(0, 3)}-****`;
   }
+  return '';
 }
 
-async function resolveSelfReferralCode(params: { session: SessionPayload }) {
+type SessionPayload = Awaited<ReturnType<typeof parseAppSessionToken>>;
+
+async function resolveMyInvitees(params: { session: SessionPayload }) {
   const session = params.session;
   if (!session || (session.role !== 'fc' && session.role !== 'manager')) {
-    return fail('forbidden', '추천 코드를 조회할 수 없는 계정입니다.');
+    return fail('forbidden', '초대 목록을 조회할 수 없는 계정입니다.');
   }
 
   const sessionPhone = cleanPhone(session.phone ?? '');
@@ -63,6 +66,7 @@ async function resolveSelfReferralCode(params: { session: SessionPayload }) {
     return fail('unauthorized', '인증이 필요합니다.');
   }
 
+  // Check if phone belongs to admin_accounts
   const { data: adminAccount, error: adminError } = await supabase
     .from('admin_accounts')
     .select('id')
@@ -72,7 +76,7 @@ async function resolveSelfReferralCode(params: { session: SessionPayload }) {
     return json({ ok: false, code: 'db_error', message: adminError.message }, 500);
   }
   if (adminAccount) {
-    return fail('forbidden', '추천 코드를 조회할 수 없는 계정입니다.');
+    return fail('forbidden', '초대 목록을 조회할 수 없는 계정입니다.');
   }
 
   const sessionFcId = String(session.fcId ?? '').trim();
@@ -101,32 +105,62 @@ async function resolveSelfReferralCode(params: { session: SessionPayload }) {
 
   const affiliation = String(profile.affiliation ?? '');
   if (affiliation.includes('설계매니저')) {
-    return fail('forbidden', '추천 코드를 조회할 수 없는 계정입니다.');
+    return fail('forbidden', '초대 목록을 조회할 수 없는 계정입니다.');
   }
 
-  const { data: referralRow, error: referralError } = await supabase
-    .from('referral_codes')
-    .select('code')
-    .eq('fc_id', profile.id)
-    .eq('is_active', true)
-    .order('created_at', { ascending: false })
-    .limit(1)
-    .maybeSingle();
+  // Query referral_attributions where inviter_fc_id = profile.id
+  const { data: attributions, error: attrError } = await supabase
+    .from('referral_attributions')
+    .select('id, invitee_fc_id, invitee_phone, status, captured_at, confirmed_at')
+    .eq('inviter_fc_id', profile.id)
+    .order('captured_at', { ascending: false })
+    .limit(50);
 
-  if (referralError) {
-    return json({ ok: false, code: 'db_error', message: referralError.message }, 500);
+  if (attrError) {
+    return json({ ok: false, code: 'db_error', message: attrError.message }, 500);
   }
 
-  return json({ ok: true, code: referralRow?.code ?? null });
-}
+  const rows = attributions ?? [];
 
-function readRequestedPhone(body: Record<string, unknown>) {
-  const rawPhone = body.phone;
-  if (rawPhone === undefined || rawPhone === null || rawPhone === '') {
-    return null;
+  // Collect invitee_fc_ids to batch-fetch fc_profiles
+  const inviteeFcIds = rows
+    .map(r => r.invitee_fc_id)
+    .filter((id): id is string => Boolean(id));
+
+  let fcProfileMap: Record<string, { name: string; phone: string }> = {};
+  if (inviteeFcIds.length > 0) {
+    const { data: fcProfiles, error: fcProfilesError } = await supabase
+      .from('fc_profiles')
+      .select('id, name, phone')
+      .in('id', inviteeFcIds);
+
+    if (fcProfilesError) {
+      return json({ ok: false, code: 'db_error', message: fcProfilesError.message }, 500);
+    }
+
+    for (const p of fcProfiles ?? []) {
+      fcProfileMap[p.id] = { name: p.name, phone: p.phone };
+    }
   }
 
-  return cleanPhone(String(rawPhone));
+  const invitees = rows.map(r => {
+    const fcProfile = r.invitee_fc_id ? fcProfileMap[r.invitee_fc_id] : null;
+
+    // Determine phone: prefer invitee_phone column, fallback to fc_profiles.phone
+    const rawPhone = r.invitee_phone ?? fcProfile?.phone ?? '';
+    const maskedPhone = maskPhone(rawPhone);
+
+    return {
+      id: r.id,
+      inviteeName: fcProfile?.name ?? null,
+      inviteePhone: maskedPhone,
+      status: r.status,
+      capturedAt: r.captured_at,
+      confirmedAt: r.confirmed_at ?? null,
+    };
+  });
+
+  return json({ ok: true, invitees });
 }
 
 serve(async (req: Request) => {
@@ -136,34 +170,22 @@ serve(async (req: Request) => {
   if (req.method !== 'POST') {
     return json({ ok: false, code: 'method_not_allowed', message: 'Method not allowed' }, 405);
   }
+  if (!supabaseUrl || !serviceKey) {
+    return json({ ok: false, code: 'server_misconfigured', message: 'Missing Supabase credentials' }, 500);
+  }
 
+  // Verify session token from Authorization header
   const authHeader = req.headers.get('Authorization') ?? '';
   const bearerMatch = authHeader.match(/^Bearer\s+(.+)$/i);
   if (!bearerMatch) {
     return fail('unauthorized', '인증이 필요합니다.');
   }
 
-  const session = await parseAppSessionToken(bearerMatch[1]);
+  const token = bearerMatch[1];
+  const session = await parseAppSessionToken(token);
   if (!session) {
     return fail('unauthorized', '인증이 필요합니다.');
   }
 
-  const body = await readOptionalJsonBody(req);
-  if (body === null) {
-    return fail('invalid_json', 'Invalid JSON');
-  }
-
-  const requestedPhone = readRequestedPhone(body);
-  if (requestedPhone !== null) {
-    if (requestedPhone.length !== 11) {
-      return fail('invalid_phone', '휴대폰 번호는 숫자 11자리로 입력해주세요.');
-    }
-
-    const sessionPhone = cleanPhone(session.phone ?? '');
-    if (sessionPhone !== requestedPhone) {
-      return fail('unauthorized', '인증이 필요합니다.');
-    }
-  }
-
-  return resolveSelfReferralCode({ session });
+  return resolveMyInvitees({ session });
 });

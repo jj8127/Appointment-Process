@@ -77,13 +77,17 @@
 - 회원가입 화면 추천코드 자동 입력 + 가입 전 수정 UI: `app/signup.tsx`
 - Android IME 회귀 방지용 uncontrolled 추천코드 입력
 - 가입 완료 시 `referralCode` + `referralInviterFcId` payload 전송: `signup -> signup-verify -> signup-password`
-- FC self-service 추천코드 조회: `hooks/use-my-referral-code.ts -> get-my-referral-code`
+- FC/본부장 self-service 추천코드 조회: `hooks/use-my-referral-code.ts -> get-my-referral-code`
+- FC/본부장 self-service 초대 목록 조회: `hooks/use-my-invitees.ts -> get-my-invitees`
+- FC/본부장 self-service 추천인 검색/변경: `app/referral.tsx -> search-fc-for-referral / update-my-recommender`
 
 ### 3.2 Backend / Edge Function Layer
 
 - 최종 선택 코드 검증 API: `validate-referral-code`
 - `validate-referral-code` 응답: `inviterName`, `inviterPhoneMasked`, `inviterFcId`, `codeId`
-- FC 자기 코드 조회의 현재 앱 경로: `get-my-referral-code`
+- FC/본부장 자기 코드 조회의 현재 앱 경로: `get-my-referral-code`
+- FC/본부장 자기 invitee 조회의 현재 앱 경로: `get-my-invitees`
+- FC/본부장 추천인 검색/저장의 현재 앱 경로: `search-fc-for-referral`, `update-my-recommender`
 - `get-fc-referral-code`는 legacy compatibility alias로 남아 있지만 current app hook path는 아니고, optional `phone` body는 세션 전화번호와 일치할 때만 허용된다.
 - 가입 완료 확정 API: `set-password` 내부 `captureReferralAttribution`
 - 관리자 모바일 invitee 코드 조회: `admin-action:getInviteeReferralCode`
@@ -92,6 +96,10 @@
   - `GET`: 요약/목록/상세 조회 + 레거시 추천인 검토 큐
   - `POST`: 수동 backfill, 코드 재발급, 코드 비활성, 레거시 추천인 수동 링크
   - 모든 쓰기는 service-role 서버 경로만 사용
+- 관리자 추천 관계 그래프 API: `GET /api/admin/referrals/graph`
+  - eligible FC node + code 상태를 읽는다
+  - visible edge는 `fc_profiles.recommender_fc_id`를 기본으로 만들고, `confirmed referral_attributions`는 같은 pair edge의 `relationshipState`를 강화하는 용도로만 merge한다
+  - graph route는 read-only이며 mutate path를 열지 않는다
 - 관리자 override API: `admin_apply_recommender_override(...)`
   - migration `20260331000005_admin_apply_recommender_override.sql`가 원격 적용되기 전에는 웹 배포 금지
 
@@ -111,7 +119,8 @@
 - 관리자 웹 추천인 수정도 자유 텍스트가 아니라 서버 검색/선택형 trusted path로만 허용한다.
 - `public.get_invitee_referral_code(uuid)`의 intended repo contract는 migration `20260401000002_reassert_get_invitee_referral_code_service_role_only.sql` 이후 `service_role` execute only 다.
 - 다만 이 리뷰는 원격 DB rollout 상태를 다시 검증하지 않았다. remote drift가 있다면 그것은 배포 상태 문제이지 architecture SSOT가 아니다.
-- FC self-service 조회는 `get-my-referral-code` Edge Function을 통해 app session token을 검증한 뒤 active code를 읽는다.
+- FC/본부장 self-service 조회는 `get-my-referral-code` Edge Function을 통해 app session token을 검증한 뒤 active code를 읽는다.
+- 본부장 세션은 앱 UI role이 `admin/readOnly`여도 app session token source role이 `manager`면 같은 self-service trusted path를 사용한다.
 
 ## 5. 상태 보존 전략
 
@@ -170,6 +179,12 @@
 - `code_validated`
 
 또한 `/dashboard/referrals` 최근 이벤트 패널은 full event stream이 아니라 `code_generated`, `code_rotated`, `code_disabled`, `admin_override_applied`만 보여준다.
+
+`/dashboard/referrals/graph`는 별도 read-heavy surface다.
+- node는 eligible FC + code status + legacy unresolved flag를 그린다.
+- edge는 `recommender_fc_id` 기반 structured link를 우선으로 하고, `confirmed` 근거가 있으면 same pair edge의 상태만 `structured_confirmed`로 올린다.
+- free-text `recommender`는 graph edge가 아니라 review queue/legacy badge로만 사용한다.
+- layout state는 세션 로컬이며 node drag, 빈 캔버스 pan, fit/reset, 기본 node label 표시를 지원한다.
 
 ## 9. 장애 추적 최소 로그 기준
 

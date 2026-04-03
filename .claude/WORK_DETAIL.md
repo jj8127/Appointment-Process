@@ -7,6 +7,269 @@
 
 ---
 
+## <a id="20260404-manager-referral-self-service-alignment"></a> 2026-04-04 | 본부장 추천인 self-service 대상 정렬 + 코드 발급/backfill 포함
+
+**배경**:
+- 운영 기준 본부장(manager)은 FC 리더라 추천인 코드 바로가기를 보고 자기 코드를 공유할 수 있어야 했는데, 실제 앱에서는 manager login이 `admin + readOnly` UI role로 정규화되어 홈/설정/referral self-service가 `role === 'fc'` 조건에 막혀 있었다.
+- 추천코드 운영 백필/발급도 `manager_accounts`와 전화번호가 겹치는 completed FC를 staff 예외로 제외하고 있어, 본부장-linked FC row에는 active referral code를 줄 수 없었다.
+- 즉 “본부장도 FC”라는 업무 계약과 앱 self-service/운영 발급 정책이 동시에 어긋난 상태였다.
+
+**조치**:
+- `app/index.tsx`, `app/settings.tsx`, `app/referral.tsx`
+  - 추천인 self-service 허용 조건을 `role === 'fc' || (role === 'admin' && readOnly)`로 정리해 본부장 세션도 FC-equivalent 사용자 경로에 포함했다.
+  - 홈 바로가기에 본부장용 `추천인 코드` CTA를 추가했고, 설정의 내 추천 코드 카드도 본부장 세션에서 열리게 했다.
+  - 추천인 페이지는 비대상 세션에는 안내 상태를 보여주고, 본부장 세션에서는 기존 코드/검색/저장/invitee 흐름을 그대로 쓸 수 있게 맞췄다.
+- `hooks/use-my-referral-code.ts`, `hooks/use-my-invitees.ts`
+  - query enable 조건과 queryKey를 본부장(readOnly admin UI)까지 포함하도록 갱신했다.
+- `supabase/functions/get-my-referral-code/index.ts`, `supabase/functions/get-fc-referral-code/index.ts`, `supabase/functions/get-my-invitees/index.ts`, `supabase/functions/search-fc-for-referral/index.ts`, `supabase/functions/update-my-recommender/index.ts`
+  - app session source role `manager`를 허용하고, self-service 단계에서 `manager_accounts` overlap만으로 차단하던 분기를 제거했다.
+  - `admin_accounts` 차단과 request_board designer 제외는 그대로 유지했다.
+- `supabase/schema.sql`, `supabase/migrations/20260404000001_allow_manager_referral_codes.sql`, `web/src/lib/admin-referrals.ts`
+  - `admin_issue_referral_code`, `admin_backfill_referral_codes`에서 `manager_accounts` overlap exclusion을 제거했다.
+  - 관리자 웹 referral data shaping도 manager-linked completed FC를 eligible/searchable 대상에 포함하도록 맞췄다.
+- `docs/referral-system/*`, `AGENTS.md`, `.claude/PROJECT_GUIDE.md`, `.codex/harness/*`
+  - 추천인 SSOT와 incident/test asset을 “manager는 admin read-only UI이지만 referral self-service와 code issuance 대상 FC” 계약으로 재정렬했다.
+
+**원격 반영**:
+- `supabase db push`
+  - `20260404000001_allow_manager_referral_codes.sql`를 linked project `ubeginyxaotcamuqpmud`에 적용했다.
+- `supabase functions deploy get-my-referral-code --project-ref ubeginyxaotcamuqpmud`
+- `supabase functions deploy get-fc-referral-code --project-ref ubeginyxaotcamuqpmud`
+- `supabase functions deploy get-my-invitees --project-ref ubeginyxaotcamuqpmud`
+- `supabase functions deploy search-fc-for-referral --project-ref ubeginyxaotcamuqpmud`
+- `supabase functions deploy update-my-recommender --project-ref ubeginyxaotcamuqpmud`
+
+**검증**:
+- `npx eslint app/index.tsx app/settings.tsx app/referral.tsx hooks/use-my-referral-code.ts hooks/use-my-invitees.ts`
+- `cd web && npm run lint -- src/lib/admin-referrals.ts`
+- TypeScript transpile parse
+  - `supabase/functions/get-my-referral-code/index.ts`
+  - `supabase/functions/get-fc-referral-code/index.ts`
+  - `supabase/functions/get-my-invitees/index.ts`
+  - `supabase/functions/search-fc-for-referral/index.ts`
+  - `supabase/functions/update-my-recommender/index.ts`
+- JSON parse
+  - `docs/referral-system/test-cases.json`
+  - `docs/referral-system/TEST_RUN_RESULT.json`
+- `supabase migration list --linked`
+  - local/remote 모두 `20260404000001` 적용 확인
+
+**남은 확인**:
+- 실제 본부장 계정으로 앱 홈에서 `추천인 코드` 바로가기가 보이는지 on-device 확인이 필요하다.
+- hosted admin web는 별도 deploy 전까지는 manager-linked FC가 추천인 운영 목록/카운트에 바로 반영되지 않을 수 있다.
+- 앱 UI 변경은 코드 반영만 끝난 상태라 production 사용자에게 즉시 보이게 하려면 OTA/build 배포가 추가로 필요하다.
+
+---
+
+## <a id="20260404-referral-branch-review-closeout"></a> 2026-04-04 | 추천인 branch 최종 리뷰 close-out
+
+**배경**:
+- 추천인 self-service/그래프 변경 묶음을 커밋·푸시하기 전 subagent 다각도 리뷰를 돌린 결과, release 전에 정리해야 할 drift와 UX 누락이 확인됐다.
+- 구체적으로는 compatibility alias `get-fc-referral-code`가 문서에 적힌 `admin_accounts` 차단 계약과 어긋나 있었고, 그래프 shaping이 `confirmed attribution`만 있는 pair도 standalone edge로 물질화할 수 있었으며, Drawer가 현재 visible subset 기준으로만 연결 관계를 보여 실제 연결을 과소표시할 수 있었고, drag 후 pinned node를 사용자에게 알려주는 시각적 표시가 부족했다.
+
+**조치**:
+- `supabase/functions/get-fc-referral-code/index.ts`
+  - `get-my-referral-code`와 같은 `admin_accounts` 차단을 다시 넣어 compatibility alias의 trust boundary를 복원했다.
+- `web/src/lib/admin-referrals.ts`
+  - graph edge 생성 순서를 `structured` 우선으로 고정하고, `confirmed attribution`은 기존 structured edge가 있을 때만 상태/코드를 merge하도록 바꿨다.
+  - 따라서 `confirmed`만으로 새 edge를 만들지 않고, `referralCount` / `inboundCount`도 structured-first contract에 맞는 집계로 다시 정렬됐다.
+- `web/src/app/dashboard/referrals/graph/page.tsx`
+  - Drawer의 `connectedNodes` 계산을 `visibleNodes/visibleEdges`가 아니라 전체 `allNodes/allEdges` 기준으로 바꿨다.
+  - 상단 `Reset` 버튼 라벨을 `고정 해제`로 바꾸고 tooltip에 “고정된 노드를 풀고 레이아웃을 다시 정렬”한다는 의미를 명시했다.
+- `web/src/components/referrals/ReferralGraphCanvas.tsx`
+  - pinned node(`fx/fy` 유지 중인 node)에 점선 외곽 링을 그려, 사용자가 어떤 node가 고정 상태인지 즉시 볼 수 있게 했다.
+
+**결과**:
+- compatibility alias와 release note의 trust-boundary 설명이 다시 일치한다.
+- 그래프 edge는 다시 `recommender_fc_id` 중심 구조화 링크만 surface에 쓰고, `confirmed attribution`은 보조 신호로만 merge된다.
+- 그래프 Drawer는 검색/상태/홉 필터가 걸려 있어도 실제 연결된 FC를 더 정확하게 보여준다.
+- 사용자는 drag 후 고정된 node를 시각적으로 인식할 수 있고, `고정 해제` 액션 의미도 더 분명해졌다.
+
+**검증**:
+- `cd web && npm run lint`
+- `cd web && npm run lint -- src/components/referrals/ReferralGraphCanvas.tsx src/app/dashboard/referrals/graph/page.tsx`
+- `cd web && npx next build`
+- `cd E:\hanhwa\fc-onboarding-app && npm run lint`
+- `cd E:\hanhwa\fc-onboarding-app && node scripts/ci/check-governance.mjs`
+
+---
+
+## <a id="20260403-referral-graph-pinned-anchor-spread-fix"></a> 2026-04-03 | 추천인 그래프 drag drop 고정 + moved cluster 재분산 보정
+
+**배경**:
+- 운영 피드백 기준 추천인 그래프에서 부모/루트 노드를 drag해 놓아도 손을 떼는 순간 원래 component 자리로 다시 끌려가고, 자식 노드들은 부모 주변을 둘러싸지 못한 채 한쪽에 뭉쳐 보였다.
+- 원인은 drop 좌표 자체는 `pinnedNodePositionsRef`에 남겨도, component-level center/boundary force가 여전히 원래 static anchor를 기준으로 작동하고 있었기 때문이다.
+- 동시에 sibling spread를 유지하는 지속 force가 없어, drag 이후에는 link attraction + charge + collision만 남아 자식 노드가 한쪽의 low-energy pocket으로 모이기 쉬웠다.
+
+**조치**:
+- `web/src/components/referrals/ReferralGraphCanvas.tsx`
+  - `resolveEffectiveComponentAnchors()`를 추가해, pinned node의 현재 좌표와 원래 seeded slot 간 displacement를 component 단위로 평균 내고 이를 기존 component anchor에 더한 `effective anchor`를 계산하도록 했다.
+  - dragged node/drop pin은 soft target이 아니라 실제 `fx/fy` 고정으로 되돌려, 사용자가 놓은 좌표에 그대로 남게 했다.
+  - 기존 component centering force와 component boundary force 모두 static `layout.componentAnchors` 대신 `effective anchor`를 보도록 바꿨다.
+  - `createPinnedComponentSpreadForce()`를 추가해, pinned node가 있는 component의 나머지 노드들을 새 effective anchor 기준의 seeded ring 위치로 약하게 끌어 다시 퍼지게 했다.
+  - spread strength는 physics mapping에서 `nodeSpreadStrength`로 따로 계산해 repulsion/link strength와 함께 완만하게 반응하도록 정리했다.
+- `.codex/harness/current-contract.md`, `.codex/harness/qa-report.md`, `.codex/harness/handoff.md`
+  - 이번 루프를 drag/drop snap-back + sibling clumping 보정 increment로 다시 기록했다.
+
+**결과**:
+- drag한 node는 drop 이후 원래 component slot로 되돌아가기보다 사용자가 놓은 위치에 남는 경로로 바뀌었다.
+- 같은 component의 sibling/child nodes는 moved anchor 주변 seeded offset으로 다시 퍼지게 되어, 부모 주위에 둘러서는 방향으로 동작 근거가 생겼다.
+- 기존 light theme, gear-panel physics controls, pan inertia, refresh-safe init은 유지한 채 force 동작만 좁게 수정했다.
+
+**검증**:
+- `cd web && npm run lint -- src/components/referrals/ReferralGraphCanvas.tsx src/app/dashboard/referrals/graph/page.tsx`
+- `cd web && npx next build`
+- 실제 브라우저에서 repeated drag/drop 체감은 이 셸 세션에서 직접 확인하지 못했다.
+
+---
+
+## <a id="20260403-mobile-referral-search-keyboard-aware"></a> 2026-04-03 | 모바일 추천인 검색 입력 키보드 대응 보강
+
+**배경**:
+- `app/referral.tsx`의 추천인 검색 입력은 일반 `ScrollView` 안에 있어, 키보드가 열려도 화면이 함께 올라오지 않아 입력창과 검색 결과가 가려질 수 있었다.
+- 같은 앱의 회원가입/기본정보 화면은 이미 `KeyboardAwareWrapper` 기반으로 키보드 대응을 맞추고 있었는데, 추천인 화면만 그 공통 패턴을 쓰지 않고 있었다.
+
+**조치**:
+- `app/referral.tsx`
+  - 루트 스크롤 컨테이너를 `ScrollView`에서 `KeyboardAwareWrapper`로 교체했다.
+  - `useKeyboardPadding()`을 붙여 키보드 높이에 맞춰 하단 여백이 같이 올라오도록 정리했다.
+  - 추천인 검색 입력만 wrapper 내부 자식 컴포넌트(`ReferralSearchField`)로 분리해 `useKeyboardAware()` 컨텍스트를 정상적으로 사용할 수 있게 했다.
+  - 검색 입력 `onFocus` 시 `scrollToInput()`을 짧은 재시도와 함께 호출해 Android에서 첫 포커스 스크롤 누락 가능성을 줄였다.
+  - 기존 JSX 문자열의 quote escape lint 오류도 같이 정리했다.
+
+**결과**:
+- 추천인 검색창에 포커스하면 키보드 오픈에 맞춰 화면이 함께 스크롤되는 모바일 패턴으로 정렬됐다.
+- 검색 결과 리스트가 있는 상태에서도 wrapper가 키보드 영역을 고려해 더 안정적으로 보이게 됐다.
+
+**검증**:
+- `cd e:\hanhwa\fc-onboarding-app && npx eslint app/referral.tsx`
+- 실기기/에뮬레이터 키보드 동작은 이 셸 세션에서 직접 확인하지 못했다.
+
+---
+
+## <a id="20260403-referral-graph-physics-controls"></a> 2026-04-03 | 추천인 그래프 물리 슬라이더/프리셋 + 라이트 테마 + pan 관성
+
+**배경**:
+- refresh-safe init과 read-only graph stabilization 이후에도 운영 피드백상 “컴포넌트끼리 너무 섞인다 / 너무 멀리 떨어진다 / 내부 노드가 굳는다 / 배경이 너무 어둡다 / 물리값을 직접 조절하고 싶다”는 요구가 계속 이어졌다.
+- 특히 Obsidian graph view처럼 `중심 장력`, `반발력`, `링크 장력`, `링크 거리`를 사용자가 직접 조절할 수 있게 해 달라는 요청이 들어와, 더 이상 force constant를 하드코딩된 개발자 전용 값으로만 둘 수 없게 됐다.
+- 동시에 기존 그래프는 read-only 탐색 도구라는 계약과 refresh-safe fit/pan/zoom 안정화 작업을 이미 거친 상태라, 새 제어 UI가 canvas pointer layer와 충돌하지 않도록 안전한 배치가 필요했다.
+
+**조치**:
+- `web/src/types/referral-graph.ts`
+  - `ReferralGraphPhysicsSettings`와 `DEFAULT_REFERRAL_GRAPH_PHYSICS`를 추가해 page/canvas가 같은 physics 계약을 공유하도록 정리했다.
+- `web/src/app/dashboard/referrals/graph/page.tsx`
+  - 그래프 헤더 우측 액션 그룹에 `장력 설정` 토글을 추가했다.
+  - physics panel은 canvas overlay가 아니라 헤더 내부 `Collapse`로 배치해 search/filter/fit-reset과 같은 수준의 제어로 정렬했다.
+  - 네 개 슬라이더(`중심 장력`, `반발력`, `링크 장력`, `링크 거리`)를 즉시 반영형 client state로 올리고, `useLocalStorage`로 개인별 선호값을 유지하게 했다.
+  - `균형`, `퍼짐`, `밀집` preset 버튼과 `기본값 복원`을 추가해 운영자가 빠르게 읽기 좋은 배치를 찾을 수 있게 했다.
+  - 그래프 surface를 light theme로 전환하고 헤더/범례/검색창/요약 배지 대비를 white surface에 맞게 다시 조정했다.
+- `web/src/components/referrals/ReferralGraphCanvas.tsx`
+  - `resolveGraphPhysics()`를 도입해 네 개 슬라이더 값을 내부 force constant로 매핑하도록 정리했다.
+  - 이 매핑은 charge strength/distance, link distance/strength, component anchor/boundary/separation strength, collision padding, component spacing에 동시에 반영되도록 설계했다.
+  - manual pan에는 release 이후 자연스럽게 감쇠되는 inertia를 넣었다.
+  - node drag는 drag 중에만 `fx/fy`를 쓰고 drop 시 다시 풀어 simulation에 복귀하게 바꿨다.
+  - disconnected component separation과 내부 node repulsion을 동시에 유지할 수 있도록 component boundary/separation force와 charge/collision tuning을 다시 조정했다.
+  - label pill, edge color, node shadow 등 canvas 색상도 light background 기준으로 보정했다.
+- `web/src/components/referrals/GraphNodeDrawer.tsx`
+  - light graph surface와 덜 충돌하도록 overlay/status badge tone을 소폭 정리했다.
+- `.codex/harness/current-contract.md`, `.codex/harness/qa-report.md`, `.codex/harness/handoff.md`
+  - 현재 increment를 “graph physics controls + motion tuning” 기준으로 재정의하고 정적 검증/잔여 브라우저 검증을 분리 기록했다.
+
+**결과**:
+- 운영자는 `/dashboard/referrals/graph`에서 별도 코드 수정 없이 물리값을 직접 조절할 수 있다.
+- graph는 여전히 read-only surface이며, data/API shape는 건드리지 않고 client-side force mapping만 확장했다.
+- component separation과 internal repulsion을 같은 증분에서 조절 가능하게 되어 “섞임”과 “과도한 이격”을 사용자/운영자가 직접 수습할 수 있는 구조가 생겼다.
+- light graph surface와 pan inertia가 기본 탐색 경험의 피로도를 줄이는 방향으로 정리됐다.
+
+**검증**:
+- `cd web && npm run lint -- src/components/referrals/ReferralGraphCanvas.tsx src/app/dashboard/referrals/graph/page.tsx src/components/referrals/GraphNodeDrawer.tsx src/types/referral-graph.ts`
+- `cd web && npx next build`
+- 이 셸 세션에서는 브라우저를 직접 조작하지 못해, slider 체감/graph feel/hard refresh 육안 검증은 별도로 남아 있다.
+
+---
+
+## <a id="20260403-referral-graph-refresh-race-fix"></a> 2026-04-03 | 추천인 그래프 hard refresh 초기화 race 완화
+
+**배경**:
+- 운영 확인 기준 `/dashboard/referrals/graph`는 홈에서 client navigation으로 들어오면 대체로 동작했지만, 브라우저에서 직접 hard refresh 하면 높은 확률로 노드가 좌상단에 몰리거나 큰 빈 캔버스만 보이고 상호작용이 죽는 상태가 반복됐다.
+- 기존 수습으로 manual pan/zoom과 runtime node reuse를 넣었지만, refresh-only failure는 여전히 남아 있어 데이터 계약이 아니라 graph mount/fit timing 문제로 다시 좁혀졌다.
+- planner/contract 하네스 검토 결과, `zoomToFit()`가 graph ref/viewport/node position 준비 전에 일찍 실행되거나 한번 실패해도 `fit 완료`로 처리되는 one-shot 초기화 경로가 핵심 의심 지점으로 정리됐다.
+
+**조치**:
+- `web/src/components/referrals/ReferralGraphCanvas.tsx`
+  - 새 runtime node에 deterministic seed position을 부여해 hard refresh 직후에도 `zoomToFit()`가 `x/y undefined` 상태를 만나지 않도록 완화했다.
+  - `fitGraph()`를 boolean-return 경로로 바꾸고, graph instance 존재 + `width/height >= 2` + 모든 visible node가 renderable 좌표를 가진 경우에만 fit을 성공으로 간주하도록 강화했다.
+  - 초기 auto-fit은 더 이상 1회 rAF에서 끝내지 않고, 성공할 때까지 다음 animation frame으로 재시도하도록 바꿨다. 따라서 refresh 타이밍이 늦더라도 “초기 fit 실패 -> 영구 미복구” 상태를 줄였다.
+  - manual pan/wheel handler는 현재 center/zoom/screen2GraphCoords가 유한값일 때만 동작하게 guard를 넣어, 잘못된 transform이 들어왔을 때 interaction이 추가로 망가지지 않게 했다.
+- `web/src/app/dashboard/referrals/graph/page.tsx`
+  - `ResizeObserver` 측정값을 바로 state에 반영하지 않고 다음 animation frame에 commit하도록 바꿨다.
+  - `canvasSize`가 너무 이른 transient measurement일 때 graph가 올라오지 않도록 최소 viewport gate(`>= 120px`)를 둬, hard refresh 순간의 비정상 작은 캔버스에 ForceGraph가 마운트되는 경우를 줄였다.
+- `.codex/harness/current-contract.md`, `.codex/harness/qa-report.md`, `.codex/harness/handoff.md`
+  - 이번 루프의 범위를 refresh-only race fix로 재정의하고, 정적 검증 결과와 브라우저 재확인 필요 사항을 분리 기록했다.
+
+**결과**:
+- 코드 기준으로는 hard refresh 시점에도 graph가 “유효한 ref + 유효한 viewport + 유효한 node positions”을 기다린 뒤 fit하도록 정리됐다.
+- 초기화 실패가 생겨도 one-shot으로 끝나지 않고 재시도 경로가 생겼다.
+- 페이지는 이제 trivial size 캔버스에서는 graph를 마운트하지 않으므로 refresh 시 layout race에 덜 민감해졌다.
+
+**검증**:
+- `cd web && npm run lint -- src/components/referrals/ReferralGraphCanvas.tsx src/app/dashboard/referrals/graph/page.tsx`
+- `cd web && npx next build`
+- 수동 브라우저 hard refresh 검증은 아직 이 셸 세션에서 직접 수행하지 못했다.
+
+---
+
+## <a id="20260403-referral-graph-stabilization"></a> 2026-04-03 | 추천인 그래프 안정화(`recommender_fc_id` edge + drag/pan/label)
+
+**배경**:
+- 운영 피드백 기준 `/dashboard/referrals/graph`는 추천 관계 선이 거의 보이지 않았고, 노드를 잡아 움직이거나 빈 공간을 drag해서 화면을 옮기는 탐색 경험이 부족했다.
+- current runtime DB에서는 `confirmed referral_attributions`가 0건인 반면 `fc_profiles.recommender_fc_id` 구조화 링크는 41건이어서, confirmed-only graph는 실사용에서 빈 화면처럼 보일 수 있었다.
+- label이 선택/확대 중심으로만 노출돼 전체 네트워크를 읽기 어렵다는 문제도 같이 드러났다.
+
+**조치**:
+- `web/src/lib/admin-referrals.ts`
+  - graph visible edge를 `fc_profiles.recommender_fc_id` 기준으로 만들고, `confirmed referral_attributions`는 same pair edge의 `relationshipState`를 `structured_confirmed`로 끌어올리는 보조 근거로 merge하도록 정리했다.
+  - node에 `isIsolated`, edge에 `relationshipState`를 싣는 graph 응답 계약을 유지하고, 레거시 `recommender` free-text는 edge로 추론하지 않도록 했다.
+- `web/src/components/referrals/ReferralGraphCanvas.tsx`
+  - custom node와 맞는 `nodePointerAreaPaint`, drag end pinning, fit/reset 대응, link attraction/charge tuning을 적용했다.
+  - connected nodes가 outward repulsion만 하지 않고 다시 읽기 좋은 cluster로 모이도록 link distance/strength를 조정했다.
+  - 이름 라벨은 기본적으로 모든 node에 보이게 두고, 선택/검색/확대 시에만 active code까지 붙도록 바꿨다.
+  - 빈 공간 pan은 `enablePanInteraction` 기준으로 유지했다.
+  - 후속 interaction 회귀 수습으로 runtime node map을 도입해 부모 state 변경/필터 재계산 시에도 drag 위치가 유지되도록 했고, drag 직후 click suppression을 넣어 node drop이 selection/filter collapse로 번지지 않게 막았다.
+  - `onZoom` 기반 React state 갱신 경로를 제거해 `Cannot update a component while rendering ForceGraph2D` 콘솔 에러 재발을 차단했고, selection change가 viewport를 다시 fit/center 하며 사용자 조작을 덮어쓰지 않도록 명시적 `Fit`/`Reset` 중심으로 정리했다.
+  - 추가 후속으로 built-in pan/zoom 의존을 제거하고 빈 공간 drag pan과 wheel zoom을 수동 viewport 제어로 교체해 “화면이 안 움직이는” 회귀를 직접 제어 가능한 경로로 바꿨다.
+- `web/src/app/dashboard/referrals/graph/page.tsx`
+  - graph를 read-only surface로 유지하면서 `Fit`, `Reset`, `선택 해제`, 상태 필터, `고립 노드 숨기기`, selection hop-depth를 정리했다.
+  - legend와 summary badge를 구조화/confirmed 의미 기준으로 다시 맞췄다.
+- `web/src/components/DashboardNotificationBell.tsx`
+  - 브라우저에서 `supabase.functions.invoke('fc-notify')`를 직접 호출하던 inbox fetch를 same-origin `/api/fc-notify` proxy로 교체해 `localhost:3000` 개발 환경의 CORS spam을 끊었다.
+- `web/src/components/referrals/GraphNodeDrawer.tsx`
+  - mutation CTA 없이 현재 코드, 비활성 이력, 연결 node, 최근 이벤트만 보여주는 inspection drawer로 유지했다.
+- `web/src/app/dashboard/referrals/page.tsx`
+  - graph에서 리스트로 이동할 때 `fcId` query를 initial selection으로 이어받는 흐름을 유지했다.
+- `docs/referral-system/*`, `docs/handbook/admin-web/dashboard-lifecycle.md`, `.codex/harness/*`
+  - graph의 실제 edge source, read-only 경계, drag/pan/label UX 목표를 문서와 harness에 반영했다.
+
+**결과**:
+- graph API smoke 기준 eligible FC 110명, merged edge 41개가 확인돼 current DB에서도 graph가 빈 선 상태로 남지 않는 계약으로 정리됐다.
+- graph surface는 mutation보다 탐색에 집중하고, node drag/empty-space pan/fit-reset/name label을 전제로 읽기 쉬운 네트워크 뷰를 목표 계약으로 고정했다.
+- 후속 debug cycle 기준 lint/build/evaluator review까지 통과했고, 남은 리스크는 실제 브라우저에서 pan/zoom feel과 label overlap을 육안으로 확인하는 단계로 좁혀졌다.
+- dashboard header의 `fc-notify` direct invoke 경로를 제거해 그래프 검증을 방해하던 CORS 콘솔 소음을 같은 증분에서 정리했다.
+
+**검증**:
+- `cd web && npm run lint -- src/app/dashboard/referrals/page.tsx src/app/dashboard/referrals/graph/page.tsx src/components/referrals/ReferralGraphCanvas.tsx src/components/referrals/GraphNodeDrawer.tsx src/lib/admin-referrals.ts src/app/api/admin/referrals/graph/route.ts src/types/referral-graph.ts src/types/d3-force.d.ts`
+- `cd web && npx next build`
+- service-role API smoke:
+  - eligible FC `110`
+  - merged edges `41`
+  - relationshipCounts `{ structured: 41, confirmed: 0, structured_confirmed: 0 }`
+  - unresolved legacy count `57`
+
+**남은 확인**:
+- lint/build/API smoke/evaluator review는 끝냈지만, 브라우저에서 실제 node drag, 빈 공간 pan, wheel zoom, reset 후 cluster 재형성, label overlap 체감과 `fc-notify` CORS 소거 여부는 추가 시각 검증이 남아 있다.
+
+---
+
 ## <a id="20260402-web-allowance-status-ux-refresh"></a> 2026-04-02 | 웹 FC 상세 모달 수당동의 status-first UX 정리
 
 **배경**:

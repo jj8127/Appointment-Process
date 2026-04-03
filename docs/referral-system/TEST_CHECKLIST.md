@@ -30,6 +30,9 @@
 - `RF-DATA-02`는 inviter가 이후 코드를 rotate해도 confirmed attribution이 있으면 historical signup code가 우선 표시되는지까지 확인해야 PASS다.
 - `RF-SEC-03`, `RF-SEC-04`는 `set-password` direct/duplicate 호출 hardening을 검증한다. source review만으로 PASS 처리하지 않는다.
 - `RF-SEC-05`는 FC 기본정보 화면에서 추천인 표시 cache가 읽기 전용인지 확인한다.
+- graph 검증은 API smoke와 브라우저 상호작용을 분리해서 남긴다.
+  - API smoke: merged edge count, `relationshipState`, unresolved legacy node count
+  - 브라우저: node drag, 빈 공간 pan, fit/reset, label 가시성, manager read-only
 
 ## 4. 권장 실행 순서
 
@@ -52,7 +55,7 @@
 - `RF-CODE-05` 한 추천인이 여러 가입자를 추천 가능
 - `RF-CODE-06` 한 가입자는 최종 추천인 1명만 가짐
 - `RF-CODE-07` Android 추천코드 입력 시 소문자가 대문자 1회로만 정규화되고 중복 문자(`JJ`)가 생기지 않음
-- `RF-SELF-01` FC self-service 추천코드 조회는 현재 runtime hook(`get-my-referral-code`) 기준으로 active code를 반환함
+- `RF-SELF-01` FC/본부장 self-service 추천코드 조회는 현재 runtime hook(`get-my-referral-code`) 기준으로 active code를 반환함
 
 ### 5.2 초대링크
 
@@ -75,10 +78,12 @@
 
 - `RF-ADMIN-01` 운영자가 추천코드 운영 상태, invitee의 `가입 시 사용한 추천코드` 표시값, 레거시 추천인 검토 대상을 조회 가능
 - `RF-ADMIN-02` 운영 override 또는 clear는 감사 로그를 남김
-- `RF-ADMIN-03` 기존 FC 추천코드 백필은 대상만 발급하고 재실행해도 중복 활성 코드가 생기지 않음
+- `RF-ADMIN-03` 기존 FC/본부장-linked FC 추천코드 백필은 대상만 발급하고 재실행해도 중복 활성 코드가 생기지 않음
 - `RF-ADMIN-04` 추천코드 재발급/비활성은 활성 코드와 이벤트 로그를 일관되게 갱신함
 - `RF-ADMIN-05` `manager`는 추천인 코드 화면/GET은 조회 가능하지만 mutate UI와 `POST` 권한은 없음
 - `RF-ADMIN-06` 레거시 추천인 검토 큐에서 구조화 링크가 없는 FC를 계정 선택형으로 연결하고 감사 로그를 남김
+- `RF-ADMIN-07` `/dashboard/referrals/graph`는 structured link 기준으로 빈 선 없이 그려지고 manager read-only를 유지함
+- `RF-ADMIN-08` graph canvas는 node drag, 빈 공간 pan, reset, 기본 node name label을 지원함
 
 ### 5.5 관찰성/정합성
 
@@ -108,7 +113,7 @@
 - 추천인 override는 `before/after/reason/actor`와 함께 `recommender_fc_id` / `referral_attributions`가 동시에 바뀌는지 확인한다.
 - 추천인 clear는 `recommender` 문자열만 있던 레거시 FC에서도 동작해야 하고, clear 이벤트가 추천인 운영 화면 최근 이벤트에 보이는지까지 확인한다.
 - trusted API 경로 케이스는 함수 호출 payload, 응답, service 로그 중 최소 1개를 포함한다.
-- self-service 조회 케이스는 현재 hook 경로(`get-my-referral-code`)와 응답 계약을 함께 남긴다.
+- self-service 조회 케이스는 현재 hook 경로(`get-my-referral-code`)와 FC/본부장 공통 응답 계약을 함께 남긴다.
 - 추천코드 입력 회귀는 실제 입력 문자열(`j -> J`, `ab -> AB`)과 결과 화면을 함께 남긴다.
 - source repo만 보고 맞춘 계약 정리는 evidence가 아니다. 그런 항목은 notes에 `code review only`로 명시한다.
 

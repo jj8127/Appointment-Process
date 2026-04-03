@@ -10,6 +10,7 @@ import type {
   ReferralAdminUnresolvedItem,
   RecommenderCandidate,
 } from '@/types/referrals';
+import type { GraphApiResponse, GraphEdge, GraphNode, GraphNodeStatus } from '@/types/referral-graph';
 import { adminSupabase } from '@/lib/admin-supabase';
 import { logger } from '@/lib/logger';
 
@@ -27,6 +28,13 @@ type EligibleProfileRow = {
   phone: string | null;
   affiliation: string | null;
   signup_completed: boolean | null;
+};
+
+type SearchableRecommenderProfileRow = {
+  id: string;
+  name: string;
+  phone: string | null;
+  affiliation: string | null;
 };
 
 type StaffPhoneRow = {
@@ -65,6 +73,21 @@ type ReferralCodeMutationResult = Record<string, unknown> & {
   changed?: boolean;
 };
 
+type ReferralAttributionRow = {
+  id: string;
+  inviter_fc_id: string | null;
+  invitee_fc_id: string | null;
+  referral_code: string | null;
+};
+
+type GraphEdgeDraft = {
+  id: string;
+  source: string;
+  target: string;
+  referralCode: string | null;
+  relationshipState: GraphEdge['relationshipState'];
+};
+
 type AdminActorContext = {
   actorPhone: string;
   actorRole: 'admin';
@@ -101,7 +124,6 @@ const DB_ERROR_MESSAGE_MAP = new Map<string, string>([
   ['Referral code requires normalized 11-digit FC phone', '전화번호가 정규화된 11자리인 FC만 추천코드를 발급할 수 있습니다.'],
   ['Request-board linked designer profiles cannot receive referral codes', '설계매니저 계정에는 추천코드를 발급할 수 없습니다.'],
   ['Admin accounts cannot receive referral codes', '운영 계정에는 추천코드를 발급할 수 없습니다.'],
-  ['Manager accounts cannot receive referral codes', '본부장 계정에는 추천코드를 발급할 수 없습니다.'],
   ['Active referral code not found', '활성 추천코드가 없습니다.'],
   ['Failed to generate unique referral code after 10 attempts', '추천코드 생성 시 충돌이 반복되어 중단되었습니다.'],
   ['admin_apply_recommender_override_not_ready', '운영 DB에 추천인 override 함수가 아직 적용되지 않았습니다. migration 20260331000005를 먼저 반영해주세요.'],
@@ -198,6 +220,15 @@ function isEligibleProfile(profile: EligibleProfileRow) {
   );
 }
 
+function isSearchableRecommenderProfile(
+  profile: Pick<SearchableRecommenderProfileRow, 'phone' | 'affiliation'>,
+) {
+  return (
+    /^\d{11}$/.test(normalizeDigits(profile.phone)) &&
+    !String(profile.affiliation ?? '').includes('설계매니저')
+  );
+}
+
 function buildSearchIndex(profile: EligibleProfileRow, activeCode: string | null) {
   return [
     profile.name ?? '',
@@ -230,22 +261,17 @@ function toEventItem(row: ReferralEventRow): ReferralAdminEventItem {
 }
 
 async function fetchExcludedStaffPhones() {
-  const [{ data: adminRows, error: adminError }, { data: managerRows, error: managerError }] = await Promise.all([
-    adminSupabase.from('admin_accounts').select('phone'),
-    adminSupabase.from('manager_accounts').select('phone'),
-  ]);
+  const { data: adminRows, error: adminError } = await adminSupabase
+    .from('admin_accounts')
+    .select('phone');
 
   if (adminError) {
     throw adminError;
   }
 
-  if (managerError) {
-    throw managerError;
-  }
-
   const excluded = new Set<string>();
 
-  for (const row of [...((adminRows ?? []) as StaffPhoneRow[]), ...((managerRows ?? []) as StaffPhoneRow[])]) {
+  for (const row of (adminRows ?? []) as StaffPhoneRow[]) {
     const digits = normalizeDigits(row.phone);
     if (digits.length === 11) {
       excluded.add(digits);
@@ -271,6 +297,28 @@ async function fetchEligibleProfiles() {
 
   return ((data ?? []) as EligibleProfileRow[]).filter((profile) => {
     if (!isEligibleProfile(profile)) {
+      return false;
+    }
+
+    return !excludedStaffPhones.has(normalizeDigits(profile.phone));
+  });
+}
+
+async function fetchSearchableRecommenderProfiles() {
+  const [{ data, error }, excludedStaffPhones] = await Promise.all([
+    adminSupabase
+      .from('fc_profiles')
+      .select('id,name,phone,affiliation')
+      .order('created_at', { ascending: false }),
+    fetchExcludedStaffPhones(),
+  ]);
+
+  if (error) {
+    throw error;
+  }
+
+  return ((data ?? []) as SearchableRecommenderProfileRow[]).filter((profile) => {
+    if (!isSearchableRecommenderProfile(profile)) {
       return false;
     }
 
@@ -392,7 +440,7 @@ function buildEventMaps(events: ReferralEventRow[]) {
 }
 
 async function fetchActiveRecommenderCandidates() {
-  const profiles = await fetchEligibleProfiles();
+  const profiles = await fetchSearchableRecommenderProfiles();
   const codes = await fetchReferralCodes(profiles.map((profile) => profile.id));
   const { activeCodeByFc } = buildCodeMaps(codes);
   const activeProfiles = profiles.filter((profile) => activeCodeByFc.has(profile.id));
@@ -821,4 +869,166 @@ export function logReferralBackfillSkip(fcId: string, error: unknown) {
     fcId,
     error: error instanceof Error ? error.message : String(error),
   });
+}
+
+async function fetchReferralAttributions() {
+  const { data, error } = await adminSupabase
+    .from('referral_attributions')
+    .select('id, inviter_fc_id, invitee_fc_id, referral_code')
+    .eq('status', 'confirmed')
+    .not('inviter_fc_id', 'is', null);
+
+  if (error) {
+    throw error;
+  }
+
+  return (data ?? []) as ReferralAttributionRow[];
+}
+
+function getMergedRelationshipState(
+  current: GraphEdgeDraft['relationshipState'] | undefined,
+  next: GraphEdgeDraft['relationshipState'],
+) {
+  if (!current || current === next) {
+    return next;
+  }
+
+  if (current === 'structured_confirmed' || next === 'structured_confirmed') {
+    return 'structured_confirmed';
+  }
+
+  return current === next ? current : 'structured_confirmed';
+}
+
+function upsertGraphEdge(
+  edgeMap: Map<string, GraphEdgeDraft>,
+  profileIdSet: Set<string>,
+  source: string | null,
+  target: string | null,
+  relationshipState: GraphEdgeDraft['relationshipState'],
+  referralCode: string | null,
+  options?: { allowCreate?: boolean },
+) {
+  if (!source || !target) {
+    return;
+  }
+
+  if (!profileIdSet.has(source) || !profileIdSet.has(target)) {
+    return;
+  }
+
+  const id = `${source}__${target}`;
+  const current = edgeMap.get(id);
+  if (!current) {
+    if (options?.allowCreate === false) {
+      return;
+    }
+
+    edgeMap.set(id, {
+      id,
+      source,
+      target,
+      referralCode,
+      relationshipState,
+    });
+    return;
+  }
+
+  current.relationshipState = getMergedRelationshipState(current.relationshipState, relationshipState);
+  if (!current.referralCode && referralCode) {
+    current.referralCode = referralCode;
+  }
+}
+
+export async function getReferralGraphData(session: VerifiedServerSession): Promise<GraphApiResponse> {
+  const [profiles, allProfiles, attributions] = await Promise.all([
+    fetchEligibleProfiles(),
+    fetchFcProfiles(),
+    fetchReferralAttributions(),
+  ]);
+
+  const fcIds = profiles.map((p) => p.id);
+  const codes = await fetchReferralCodes(fcIds);
+  const { activeCodeByFc, codeHistoryByFc } = buildCodeMaps(codes);
+
+  const profileIdSet = new Set(fcIds);
+  const referralCountByFc = new Map<string, number>();
+  const inboundCountByFc = new Map<string, number>();
+  const edgeMap = new Map<string, GraphEdgeDraft>();
+
+  for (const profile of allProfiles) {
+    upsertGraphEdge(
+      edgeMap,
+      profileIdSet,
+      profile.recommender_fc_id,
+      profile.id,
+      'structured',
+      null,
+    );
+  }
+
+  for (const row of attributions) {
+    upsertGraphEdge(
+      edgeMap,
+      profileIdSet,
+      row.inviter_fc_id,
+      row.invitee_fc_id,
+      'confirmed',
+      row.referral_code ?? null,
+      { allowCreate: false },
+    );
+  }
+
+  const legacyUnresolvedSet = new Set(
+    allProfiles
+      .filter((p) => normalizeName(p.recommender) && !p.recommender_fc_id)
+      .map((p) => p.id),
+  );
+
+  for (const edge of edgeMap.values()) {
+    referralCountByFc.set(edge.source, (referralCountByFc.get(edge.source) ?? 0) + 1);
+    inboundCountByFc.set(edge.target, (inboundCountByFc.get(edge.target) ?? 0) + 1);
+  }
+
+  const degreeByFc = new Map<string, number>();
+  for (const edge of edgeMap.values()) {
+    degreeByFc.set(edge.source, (degreeByFc.get(edge.source) ?? 0) + 1);
+    degreeByFc.set(edge.target, (degreeByFc.get(edge.target) ?? 0) + 1);
+  }
+
+  const nodes: GraphNode[] = profiles.map((profile) => {
+    const activeCodeRow = activeCodeByFc.get(profile.id) ?? null;
+    const codeHistory = codeHistoryByFc.get(profile.id) ?? [];
+
+    let nodeStatus: GraphNodeStatus;
+    if (activeCodeRow?.is_active) {
+      nodeStatus = 'has_active_code';
+    } else if (codeHistory.length > 0) {
+      nodeStatus = 'code_disabled';
+    } else {
+      nodeStatus = 'missing_code';
+    }
+
+    return {
+      id: profile.id,
+      name: profile.name,
+      phone: profile.phone ?? '',
+      affiliation: profile.affiliation ?? '',
+      activeCode: activeCodeRow?.code ?? null,
+      referralCount: referralCountByFc.get(profile.id) ?? 0,
+      inboundCount: inboundCountByFc.get(profile.id) ?? 0,
+      nodeStatus,
+      isIsolated: (degreeByFc.get(profile.id) ?? 0) === 0,
+      hasLegacyUnresolved: legacyUnresolvedSet.has(profile.id),
+    };
+  });
+
+  return {
+    ok: true,
+    nodes,
+    edges: Array.from(edgeMap.values()),
+    permissions: {
+      canMutate: session.role === 'admin',
+    },
+  };
 }

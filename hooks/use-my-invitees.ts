@@ -2,32 +2,34 @@ import { useQuery } from '@tanstack/react-query';
 import { supabase } from '@/lib/supabase';
 import { useSession } from './use-session';
 
-export type MyReferralCodeData = {
-  code: string | null;
-  recommender: string | null;
+export type Invitee = {
+  id: string;
+  inviteeName: string | null;
+  inviteePhone: string;
+  status: 'captured' | 'pending_signup' | 'confirmed' | 'rejected' | 'cancelled' | 'overridden';
+  capturedAt: string;
+  confirmedAt: string | null;
 };
 
-export function useMyReferralCode() {
+export function useMyInvitees() {
   const { role, residentId, appSessionToken, isRequestBoardDesigner, readOnly } = useSession();
   const canUseReferralSelfService =
     !isRequestBoardDesigner && (role === 'fc' || (role === 'admin' && readOnly));
 
   return useQuery({
-    queryKey: ['my-referral-code', role, residentId, Boolean(appSessionToken), isRequestBoardDesigner, readOnly],
+    queryKey: ['my-invitees', role, residentId, Boolean(appSessionToken), isRequestBoardDesigner, readOnly],
     queryFn: async () => {
       if (!appSessionToken) {
-        throw new Error('추천 코드를 확인하려면 다시 로그인해주세요.');
+        throw new Error('초대 목록을 확인하려면 다시 로그인해주세요.');
       }
 
       const { data, error } = await supabase.functions.invoke<{
         ok: boolean;
-        code: string | null;
-        recommender?: string | null;
-        codeId?: string | null;
-        createdAt?: string | null;
+        invitees?: Invitee[];
         message?: string;
+        code?: string;
       }>(
-        'get-my-referral-code',
+        'get-my-invitees',
         {
           body: {},
           headers: {
@@ -37,14 +39,9 @@ export function useMyReferralCode() {
       );
       if (error) throw error;
       if (!data?.ok) {
-        throw new Error(data?.message ?? '추천 코드를 불러오지 못했습니다.');
+        throw new Error(data?.message ?? '초대 목록을 불러오지 못했습니다.');
       }
-      return {
-        code: data.code ?? null,
-        recommender: typeof data.recommender === 'string' && data.recommender.trim()
-          ? data.recommender.trim()
-          : null,
-      } satisfies MyReferralCodeData;
+      return data.invitees ?? [];
     },
     enabled: canUseReferralSelfService && Boolean(residentId) && Boolean(appSessionToken),
     staleTime: 5 * 60 * 1000,

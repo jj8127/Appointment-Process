@@ -60,7 +60,7 @@ async function readOptionalJsonBody(req: Request) {
 
 async function resolveSelfReferralCode(params: { session: SessionPayload }) {
   const session = params.session;
-  if (!session || session.role !== 'fc') {
+  if (!session || (session.role !== 'fc' && session.role !== 'manager')) {
     return fail('forbidden', '추천 코드를 조회할 수 없는 계정입니다.');
   }
 
@@ -82,23 +82,10 @@ async function resolveSelfReferralCode(params: { session: SessionPayload }) {
     return fail('forbidden', '추천 코드를 조회할 수 없는 계정입니다.');
   }
 
-  // Check if phone belongs to manager_accounts
-  const { data: managerAccount, error: managerError } = await supabase
-    .from('manager_accounts')
-    .select('id')
-    .eq('phone', sessionPhone)
-    .maybeSingle();
-  if (managerError) {
-    return json({ ok: false, code: 'db_error', message: managerError.message }, 500);
-  }
-  if (managerAccount) {
-    return fail('forbidden', '추천 코드를 조회할 수 없는 계정입니다.');
-  }
-
   const sessionFcId = String(session.fcId ?? '').trim();
   const profileQuery = supabase
     .from('fc_profiles')
-    .select('id, phone, affiliation, signup_completed');
+    .select('id, phone, affiliation, signup_completed, recommender');
 
   const profileResult = sessionFcId
     ? await profileQuery.eq('id', sessionFcId).maybeSingle()
@@ -137,7 +124,15 @@ async function resolveSelfReferralCode(params: { session: SessionPayload }) {
   }
 
   if (!referralCode) {
-    return json({ ok: true, code: null, codeId: null, createdAt: null });
+    return json({
+      ok: true,
+      code: null,
+      codeId: null,
+      createdAt: null,
+      recommender: typeof profile.recommender === 'string' && profile.recommender.trim()
+        ? profile.recommender.trim()
+        : null,
+    });
   }
 
   return json({
@@ -145,6 +140,9 @@ async function resolveSelfReferralCode(params: { session: SessionPayload }) {
     code: referralCode.code,
     codeId: referralCode.id,
     createdAt: referralCode.created_at,
+    recommender: typeof profile.recommender === 'string' && profile.recommender.trim()
+      ? profile.recommender.trim()
+      : null,
   });
 }
 

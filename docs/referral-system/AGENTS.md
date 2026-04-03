@@ -119,7 +119,7 @@
 - 추천인 코드는 입력만 되고 실제 관계가 저장되지 않는 상태로 배포하지 않는다.
 - 초대링크는 앱 설치 상태 direct deep link prefill과 가입 확정이 이어지지 않으면 완료로 보지 않는다.
 - fallback 규칙이 정의되지 않은 상태에서 추천코드와 링크를 함께 배포하지 않는다.
-- 가입 완료 후 추천인 변경은 일반 사용자 경로로 허용하지 않는다.
+- 현재 앱 추천인 화면의 self-service 변경은 FC/본부장 세션에 한해 허용되며, 운영/admin bulk mutate 경로와 분리해 관리한다.
 - 관리자 수동 보정 기능을 만들면 감사 로그 없이 배포하지 않는다.
 - 추천인 테이블은 인증 모델이 정리되기 전까지 클라이언트가 직접 조회/쓰기하지 않는다. 모든 읽기/쓰기는 trusted Edge Function 또는 service-role 경로로 제한한다.
 - `public.get_invitee_referral_code(uuid)`의 intended repo contract는 `20260401000002_reassert_get_invitee_referral_code_service_role_only.sql` 이후 `service_role` execute only 다. 새 코드에서 direct RPC 호출을 추가하지 말고 `admin-action:getInviteeReferralCode` 또는 server-only route를 사용한다.
@@ -128,12 +128,14 @@
 - `set-password`는 OTP trusted path가 이미 만든 `phone_verified=true` profile만 최종 가입으로 승격해야 한다. fresh-number direct call에서 신규 profile/credentials를 만들면 안 된다.
 - `set-password`는 `fc_credentials.password_set_at`를 destructive profile reset보다 먼저 확인해야 한다. duplicate/direct call이 기존 추천인/온보딩 상태를 지우는 동작은 금지한다.
 - FC 일반 사용자 기본정보 화면은 `fc_profiles.recommender` cache를 읽기 전용으로만 보여준다. 자유입력 저장 경로를 다시 열지 않는다.
-- FC 본인 추천코드 self-service 조회의 현재 앱 런타임 경로는 `hooks/use-my-referral-code.ts -> get-my-referral-code`다. `get-fc-referral-code`가 저장소에 남아 있어도 current hook path처럼 문서화하지 않는다.
+- FC/본부장 본인 추천코드 self-service 조회의 현재 앱 런타임 경로는 `hooks/use-my-referral-code.ts -> get-my-referral-code`다. `get-fc-referral-code`가 저장소에 남아 있어도 current hook path처럼 문서화하지 않는다.
 - 앱 미설치 후 스토어 설치/복원, landing click 로그, server-side pending attribution은 아직 live 계약이 아니다. 구현/검증이 끝나기 전에는 문서에서 이미 운영 중인 흐름처럼 서술하지 않는다.
 - FC 삭제/재가입 정리 시에도 추천 attribution/event 히스토리는 남아야 한다. 삭제 편의 때문에 추천인 감사 흔적을 잃는 구조는 허용하지 않는다.
 - 추천코드 운영 화면은 `manager` 읽기 전용 UI와 서버 `POST 403`을 동시에 만족해야 한다.
 - 웹 추천인 override/legacy link UI는 DB migration `20260331000005_admin_apply_recommender_override.sql`이 원격 적용되기 전에는 배포하지 않는다.
 - `/dashboard/referrals`는 현재 `추천코드 마스터 운영 + 레거시 추천인 검토 큐` 화면이다. full `referral_attributions` 탐색기처럼 문서화하지 않는다.
+- `/dashboard/referrals/graph`는 추천 관계를 읽기 전용으로 탐색하는 graph surface다. visible edge 기본 소스는 `fc_profiles.recommender_fc_id`이고, `confirmed referral_attributions`는 같은 관계 edge의 상태를 강화하는 보조 증거로만 합친다.
+- `/dashboard/referrals/graph`는 graph 안에서 mutate CTA를 다시 열지 않는다. node drag, 빈 캔버스 pan, fit/reset, node label 가시성은 허용하되 manager는 계속 read-only다.
 
 ## 7. Current Delivery Plan
 

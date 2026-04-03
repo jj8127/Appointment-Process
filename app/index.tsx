@@ -55,6 +55,7 @@ const SHORTCUT_TOUR_TEXTS = [
   '한화 위촉 URL 진행 단계예요.',
   '생명/손해 위촉 진행 단계예요.',
   '총무/설계매니저와 대화할 수 있어요.',
+  '추천인 코드를 확인하고 친구를 초대할 수 있어요.',
 ];
 
 // Android Crash Fix: Strips Moti props on Android to prevent Reanimated from attaching to unmounting views
@@ -158,7 +159,12 @@ const buildFcQuickLinks = (profile?: FcProfile | null): QuickLink[] => {
     description: '생명/손해 위촉 진행',
   };
 
-  return [...quickLinksFcBase.slice(0, 5), hanwhaLink, insuranceLink, quickLinksFcBase[5]];
+  const referralLink: QuickLink = {
+    href: '/referral',
+    title: '추천인 코드',
+    description: '친구 초대 및 현황 확인',
+  };
+  return [...quickLinksFcBase.slice(0, 5), hanwhaLink, insuranceLink, quickLinksFcBase[5], referralLink];
 };
 
 const fetchCounts = async (role: 'admin' | 'fc' | null, residentId: string): Promise<CountsResult> => {
@@ -387,6 +393,7 @@ const getLinkIcon = (href: string) => {
   if (href.includes('appointment')) return 'smartphone'; // 위촉
   if (href.includes('messenger')) return 'message-circle'; // 메신저
   if (href.includes('chat')) return 'message-circle'; // 1:1 문의
+  if (href.includes('referral')) return 'gift'; // 추천인 코드
 
   return 'chevron-right';
 };
@@ -439,6 +446,8 @@ export default function Home() {
     bottomNavPreset === 'admin-onboarding' ||
     bottomNavPreset === 'admin-exam' ||
     bottomNavPreset === 'manager';
+  const canUseReferralSelfService =
+    !isRequestBoardDesigner && (role === 'fc' || (role === 'admin' && readOnly));
   const bottomNavActiveKey = resolveBottomNavActiveKey(
     bottomNavPreset,
     isAdminLikePreset ? adminHomeTab : 'home',
@@ -784,11 +793,17 @@ export default function Home() {
         : nextAction.key === 'hanwha'
           ? '/hanwha-commission'
           : '/appointment');
+  const managerReferralLink: QuickLink = {
+    href: '/referral',
+    title: '추천인 코드',
+    description: '친구 초대 및 현황 확인',
+  };
+  const adminQuickLinks = adminHomeTab === 'exam' ? quickLinksAdminExam : quickLinksAdminOnboarding;
   const quickLinks =
     role === 'admin'
-      ? adminHomeTab === 'exam'
-        ? quickLinksAdminExam
-        : quickLinksAdminOnboarding
+      ? readOnly && canUseReferralSelfService
+        ? [...adminQuickLinks, managerReferralLink]
+        : adminQuickLinks
       : buildFcQuickLinks(myFc as FcProfile | null | undefined);
   const profileName = typeof myFc?.name === 'string' ? myFc.name.trim() : '';
   const homeHeaderTitle = buildWelcomeTitle({
@@ -2103,7 +2118,7 @@ const styles = StyleSheet.create({
     lineHeight: 18,
   },
   // Step
-  stepContainer: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
+  stepContainer: { flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'space-between' },
   stepWrapper: { flex: 1, alignItems: 'center', position: 'relative' },
   stepConnector: {
     position: 'absolute',
@@ -2131,7 +2146,7 @@ const styles = StyleSheet.create({
   stepCircleDone: { backgroundColor: HANWHA_ORANGE, borderColor: HANWHA_ORANGE },
   stepNumber: { fontSize: 12, color: '#6B7280', fontWeight: '700' }, // 11 -> 12
   stepNumberActive: { color: HANWHA_ORANGE },
-  stepLabel: { fontSize: 12, color: '#9CA3AF' }, // 11 -> 12
+  stepLabel: { fontSize: 12, color: '#9CA3AF', textAlign: 'center' }, // 11 -> 12
   stepLabelActive: { color: CHARCOAL, fontWeight: '700' },
   premiumStepCard: {
     borderRadius: 20,

@@ -24,11 +24,14 @@ import { notifications } from '@mantine/notifications';
 import {
   IconAlertCircle,
   IconBan,
+  IconGraph,
   IconKey,
   IconRefresh,
   IconSearch,
 } from '@tabler/icons-react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import Link from 'next/link';
+import { useSearchParams } from 'next/navigation';
 import { useDeferredValue, useState } from 'react';
 
 import { RecommenderSelect } from '@/components/RecommenderSelect';
@@ -338,9 +341,12 @@ function DetailPanel(props: {
 export default function ReferralDashboardPage() {
   const queryClient = useQueryClient();
   const { hydrated, role, isReadOnly } = useSession();
+  const searchParams = useSearchParams();
   const [page, setPage] = useState(1);
   const [search, setSearch] = useState('');
-  const [selectedFcId, setSelectedFcId] = useState<string | null>(null);
+  const [selectedFcId, setSelectedFcId] = useState<string | null>(
+    () => searchParams.get('fcId')?.trim() || null,
+  );
   const [actionModal, setActionModal] = useState<ActionModalState>(null);
   const [reasonInput, setReasonInput] = useState('');
   const [legacySelectedInviterFcId, setLegacySelectedInviterFcId] = useState<string | null>(null);
@@ -519,18 +525,28 @@ export default function ReferralDashboardPage() {
             </Text>
           </div>
 
-          {showMutateControls ? (
+          <Group gap="xs">
             <Button
-              leftSection={<IconRefresh size={16} />}
-              onClick={() => setActionModal({ action: 'backfill_missing_codes', target: null })}
+              component={Link}
+              href="/dashboard/referrals/graph"
+              variant="subtle"
+              leftSection={<IconGraph size={16} />}
             >
-              일괄 발급
+              그래프 보기
             </Button>
-          ) : (
-            <Badge color="gray" variant="light">
-              {role === 'manager' ? '본부장 읽기 전용' : '조회 전용'}
-            </Badge>
-          )}
+            {showMutateControls ? (
+              <Button
+                leftSection={<IconRefresh size={16} />}
+                onClick={() => setActionModal({ action: 'backfill_missing_codes', target: null })}
+              >
+                일괄 발급
+              </Button>
+            ) : (
+              <Badge color="gray" variant="light">
+                {role === 'manager' ? '본부장 읽기 전용' : '조회 전용'}
+              </Badge>
+            )}
+          </Group>
         </Group>
 
         {!showMutateControls ? (

@@ -711,14 +711,6 @@ begin
     raise exception 'Admin accounts cannot receive referral codes';
   end if;
 
-  if exists (
-    select 1
-    from public.manager_accounts ma
-    where ma.phone = target_fc.phone
-  ) then
-    raise exception 'Manager accounts cannot receive referral codes';
-  end if;
-
   if public.is_request_board_designer_affiliation(target_fc.affiliation) then
     raise exception 'Request-board linked designer profiles cannot receive referral codes';
   end if;
@@ -892,11 +884,6 @@ begin
       )
       and not exists (
         select 1
-        from public.manager_accounts ma
-        where ma.phone = fp.phone
-      )
-      and not exists (
-        select 1
         from public.referral_codes rc
         where rc.fc_id = fp.id
           and rc.is_active = true
@@ -940,11 +927,6 @@ begin
       select 1
       from public.admin_accounts aa
       where aa.phone = fp.phone
-    )
-    and not exists (
-      select 1
-      from public.manager_accounts ma
-      where ma.phone = fp.phone
     )
     and not exists (
       select 1

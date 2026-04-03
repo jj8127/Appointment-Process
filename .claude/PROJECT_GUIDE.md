@@ -148,7 +148,7 @@
 - `request-signup-otp`는 `phone_verified=true`만으로 FC 기존 계정으로 판정하지 않는다. `signup_completed=true`와 `fc_credentials.password_set_at`가 함께 성립하는 login-capable FC account만 `already_exists`를 반환하고, verified-but-incomplete row나 부분 삭제 residue는 cleanup/reset 후 새 OTP 경로로 복구해야 한다.
 - `app/fc/new.tsx`는 가입 후 추천인 표시 cache를 읽기 전용으로만 노출한다. 일반 사용자 저장 payload에 자유입력 `recommender`를 다시 싣지 않는다.
    - 현재 `set-password`가 남기는 attribution source 필드는 deep link 여부와 무관하게 `manual_entry/manual_entry/manual_entry_only`로 정규화된다. deep link provenance를 DB source로 따로 남기는 계약은 아직 없다.
-   - FC 본인 추천코드 self-service의 current hook path는 `hooks/use-my-referral-code.ts -> get-my-referral-code`다. `get-fc-referral-code`가 저장소에 남아 있어도 현재 앱 기준 active path처럼 문서화하지 않는다.
+   - FC/본부장 본인 추천코드 self-service의 current hook path는 `hooks/use-my-referral-code.ts -> get-my-referral-code`다. 본부장은 앱 UI role이 `admin/readOnly`여도 app session source role이 `manager`면 같은 current path를 쓴다. `get-fc-referral-code`가 저장소에 남아 있어도 현재 앱 기준 active path처럼 문서화하지 않는다.
    - 추천코드 관련 Edge Function 변경은 git push와 별개이므로 현재 worktree 기준 배포 대상은 `validate-referral-code`, `get-my-referral-code`, `set-password`다.
 
 ---
@@ -219,7 +219,7 @@ try {
 ### 4.5 금지/주의
 - RLS 정책을 무시한 클라이언트 직접 관리자 쓰기 로직 추가 금지
 - 스키마 컬럼 추가 후 함수/클라이언트/마이그레이션 불일치 방치 금지
-- 읽기 전용(manager) 계정에서 쓰기 동작 가능하도록 만드는 변경 금지
+- 읽기 전용(manager) 계정에 관리자 mutate 권한을 여는 변경 금지. 예외가 필요하면 FC-equivalent self-service 범위로만 제한하고 문서/테스트를 함께 갱신
 
 ---
 

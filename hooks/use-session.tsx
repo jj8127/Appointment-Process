@@ -77,6 +77,23 @@ const initialState: SessionState = {
 };
 const STORAGE_KEY = 'fc-onboarding/session';
 
+function normalizeStoredRole(rawRole: unknown, readOnly: boolean): Pick<SessionState, 'role' | 'readOnly'> | null {
+  if (rawRole === 'fc') {
+    return { role: 'fc', readOnly };
+  }
+
+  if (rawRole === 'admin') {
+    return { role: 'admin', readOnly };
+  }
+
+  // Backward compatibility: older manager sessions were persisted as role='manager'.
+  if (rawRole === 'manager') {
+    return { role: 'admin', readOnly: true };
+  }
+
+  return null;
+}
+
 export function SessionProvider({ children }: { children: ReactNode }) {
   const [state, setState] = useState<SessionState>(initialState);
   const [hydrated, setHydrated] = useState(false);
@@ -194,7 +211,8 @@ export function SessionProvider({ children }: { children: ReactNode }) {
           const parsed = JSON.parse(raw) as Partial<SessionState> & { appSessionToken?: string | null };
           const rawResidentId = typeof parsed.residentId === 'string' ? parsed.residentId : '';
           const normalizedResidentId = normalizePhone(rawResidentId);
-          if (parsed.role && rawResidentId) {
+          const normalizedRole = normalizeStoredRole(parsed.role, Boolean(parsed.readOnly));
+          if (normalizedRole && rawResidentId) {
             if (!isValidMobilePhone(normalizedResidentId)) {
               logger.warn('[session] dropping legacy session with non-phone residentId');
               await safeStorage.removeItem(STORAGE_KEY);
@@ -207,14 +225,14 @@ export function SessionProvider({ children }: { children: ReactNode }) {
                 ? parsed.requestBoardRole
                 : null;
             setState({
-              role: parsed.role,
+              role: normalizedRole.role,
               residentId: normalizedResidentId,
               residentMask: computeMask(normalizedResidentId),
               displayName: parsed.displayName ?? '',
               staffType: normalizeStaffType(parsed.staffType),
-              readOnly: Boolean(parsed.readOnly),
+              readOnly: normalizedRole.readOnly,
               ...deriveRequestBoardFlags(
-                parsed.role,
+                normalizedRole.role,
                 parsed.isRequestBoardDesigner !== undefined && !restoredRequestBoardRole
                   ? (parsed.isRequestBoardDesigner ? 'designer' : null)
                   : restoredRequestBoardRole,
