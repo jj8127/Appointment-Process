@@ -11,6 +11,28 @@ export type Invitee = {
   confirmedAt: string | null;
 };
 
+async function toFunctionError(error: unknown, fallback: string) {
+  if (!error || typeof error !== 'object' || !('context' in error)) {
+    return error instanceof Error ? error : new Error(fallback);
+  }
+
+  const response = (error as { context?: unknown }).context;
+  if (!(response instanceof Response)) {
+    return error instanceof Error ? error : new Error(fallback);
+  }
+
+  try {
+    const payload = await response.clone().json() as { message?: string };
+    if (typeof payload?.message === 'string' && payload.message.trim()) {
+      return new Error(payload.message.trim());
+    }
+  } catch {
+    // Ignore body parse failure and fall back to the original error.
+  }
+
+  return error instanceof Error ? error : new Error(fallback);
+}
+
 export function useMyInvitees() {
   const { role, residentId, appSessionToken, isRequestBoardDesigner, readOnly } = useSession();
   const canUseReferralSelfService =
@@ -33,11 +55,11 @@ export function useMyInvitees() {
         {
           body: {},
           headers: {
-            Authorization: `Bearer ${appSessionToken}`,
+            'x-app-session-token': appSessionToken,
           },
         },
       );
-      if (error) throw error;
+      if (error) throw await toFunctionError(error, '초대 목록을 불러오지 못했습니다.');
       if (!data?.ok) {
         throw new Error(data?.message ?? '초대 목록을 불러오지 못했습니다.');
       }

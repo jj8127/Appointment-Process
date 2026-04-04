@@ -5,7 +5,31 @@ import { useSession } from './use-session';
 export type MyReferralCodeData = {
   code: string | null;
   recommender: string | null;
+  recommenderAffiliation: string | null;
+  recommenderCode: string | null;
 };
+
+async function toFunctionError(error: unknown, fallback: string) {
+  if (!error || typeof error !== 'object' || !('context' in error)) {
+    return error instanceof Error ? error : new Error(fallback);
+  }
+
+  const response = (error as { context?: unknown }).context;
+  if (!(response instanceof Response)) {
+    return error instanceof Error ? error : new Error(fallback);
+  }
+
+  try {
+    const payload = await response.clone().json() as { message?: string };
+    if (typeof payload?.message === 'string' && payload.message.trim()) {
+      return new Error(payload.message.trim());
+    }
+  } catch {
+    // Ignore body parse failure and fall back to the original error.
+  }
+
+  return error instanceof Error ? error : new Error(fallback);
+}
 
 export function useMyReferralCode() {
   const { role, residentId, appSessionToken, isRequestBoardDesigner, readOnly } = useSession();
@@ -23,6 +47,8 @@ export function useMyReferralCode() {
         ok: boolean;
         code: string | null;
         recommender?: string | null;
+        recommenderAffiliation?: string | null;
+        recommenderCode?: string | null;
         codeId?: string | null;
         createdAt?: string | null;
         message?: string;
@@ -31,11 +57,11 @@ export function useMyReferralCode() {
         {
           body: {},
           headers: {
-            Authorization: `Bearer ${appSessionToken}`,
+            'x-app-session-token': appSessionToken,
           },
         },
       );
-      if (error) throw error;
+      if (error) throw await toFunctionError(error, '추천 코드를 불러오지 못했습니다.');
       if (!data?.ok) {
         throw new Error(data?.message ?? '추천 코드를 불러오지 못했습니다.');
       }
@@ -43,6 +69,12 @@ export function useMyReferralCode() {
         code: data.code ?? null,
         recommender: typeof data.recommender === 'string' && data.recommender.trim()
           ? data.recommender.trim()
+          : null,
+        recommenderAffiliation: typeof data.recommenderAffiliation === 'string' && data.recommenderAffiliation.trim()
+          ? data.recommenderAffiliation.trim()
+          : null,
+        recommenderCode: typeof data.recommenderCode === 'string' && data.recommenderCode.trim()
+          ? data.recommenderCode.trim()
           : null,
       } satisfies MyReferralCodeData;
     },

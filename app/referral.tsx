@@ -23,17 +23,21 @@ import { useKeyboardPadding } from '@/hooks/use-keyboard-padding';
 import { useMyInvitees } from '@/hooks/use-my-invitees';
 import { useMyReferralCode } from '@/hooks/use-my-referral-code';
 import { useSession } from '@/hooks/use-session';
+import { supabase } from '@/lib/supabase';
 import { COLORS, RADIUS, SHADOWS, SPACING } from '@/lib/theme';
 
 const PLAY_STORE_URL = 'https://play.google.com/store/apps/details?id=com.jj8127.Garam_in';
+const INVITE_BASE_URL = process.env.EXPO_PUBLIC_INVITE_BASE_URL ?? '';
 
 function buildShareText(code: string): string {
-  const deeplink = `hanwhafcpass://signup?code=${code}`;
+  const inviteUrl = INVITE_BASE_URL
+    ? `${INVITE_BASE_URL}/invite?code=${code}`
+    : `hanwhafcpass://signup?code=${code}`;
   return [
     '가람in에서 보험 위촉을 함께 시작해요!',
     '',
-    '앱이 있으시면 아래 링크로 가입하세요 (추천 코드 자동 입력):',
-    deeplink,
+    '아래 링크를 눌러 가입하세요 (추천 코드 자동 입력):',
+    inviteUrl,
     '',
     '앱이 없으시면:',
     `Android: ${PLAY_STORE_URL}`,
@@ -130,6 +134,7 @@ export default function ReferralPage() {
 
   const [copied, setCopied] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
+  const [editMode, setEditMode] = useState(false);
 
   // 검색 상태
   const [searchQuery, setSearchQuery] = useState('');
@@ -141,6 +146,8 @@ export default function ReferralPage() {
   const searchReqRef = useRef(0);
   const referralCode = referralInfo?.code ?? null;
   const currentRecommender = referralInfo?.recommender ?? null;
+  const currentRecommenderAffiliation = referralInfo?.recommenderAffiliation ?? null;
+  const currentRecommenderCode = referralInfo?.recommenderCode ?? null;
   const referralInfoErrorMessage =
     referralInfoError instanceof Error
       ? referralInfoError.message
@@ -160,7 +167,7 @@ export default function ReferralPage() {
         ok: boolean; results?: FcSearchResult[];
       }>('search-fc-for-referral', {
         body: { query: q },
-        headers: { Authorization: `Bearer ${appSessionToken}` },
+        headers: { 'x-app-session-token': appSessionToken },
       });
       if (reqId !== searchReqRef.current) return;
       if (!error && data?.ok) setSearchResults(data.results ?? []);
@@ -202,7 +209,7 @@ export default function ReferralPage() {
         ok: boolean; inviterName?: string; message?: string;
       }>('update-my-recommender', {
         body: { code: selected.code },
-        headers: { Authorization: `Bearer ${appSessionToken}` },
+        headers: { 'x-app-session-token': appSessionToken },
       });
       if (error || !data?.ok) {
         Alert.alert('저장 실패', data?.message ?? '추천인 저장에 실패했습니다.');
@@ -211,6 +218,7 @@ export default function ReferralPage() {
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
       setSelected(null);
       setSearchQuery('');
+      setEditMode(false);
       await refetchReferralInfo();
       Alert.alert('저장 완료', `추천인이 '${data.inviterName ?? selected.name}'(으)로 저장됐습니다.`);
     } catch {
@@ -332,130 +340,185 @@ export default function ReferralPage() {
         </View>
 
         {/* ── 내 추천인 카드 ── */}
-        <View style={styles.recommenderCard}>
+        <View style={[
+          styles.recommenderCard,
+          currentRecommender && !editMode && styles.recommenderCardRegistered,
+        ]}>
           <View style={styles.recommenderHeader}>
-            <View style={styles.recommenderIconWrap}>
-              <Feather name="heart" size={16} color={COLORS.primary} />
+            <View style={[
+              styles.recommenderIconWrap,
+              currentRecommender && !editMode && styles.recommenderIconRegistered,
+            ]}>
+              <Feather
+                name={currentRecommender && !editMode ? 'user-check' : 'heart'}
+                size={16}
+                color={COLORS.primary}
+              />
             </View>
             <Text style={styles.recommenderTitle}>내 추천인</Text>
           </View>
 
-          {/* 현재 추천인 */}
-          {referralLoading ? (
+          {/* 로딩 중 */}
+          {referralLoading && (
             <Skeleton width="60%" height={20} borderRadius={4} style={{ marginBottom: SPACING.md }} />
-          ) : referralInfoError ? (
+          )}
+
+          {/* 오류 */}
+          {!referralLoading && referralInfoError && (
             <Text style={styles.currentRecommenderError}>{referralInfoErrorMessage}</Text>
-          ) : (
-            <View style={styles.currentRecommenderRow}>
-              <Text style={styles.currentRecommenderLabel}>현재 추천인</Text>
-              <Text style={[
-                styles.currentRecommenderValue,
-                !currentRecommender && styles.currentRecommenderEmpty,
-              ]}>
-                {currentRecommender ?? '등록된 추천인 없음'}
-              </Text>
-            </View>
           )}
 
-          <View style={styles.divider} />
-
-          {/* 검색 입력 */}
-          <Text style={styles.inputLabel}>
-            이름, 소속 또는 추천 코드로 {currentRecommender ? '변경' : '등록'}
-          </Text>
-
-          {/* 선택된 항목이 없을 때 → 검색 입력창 */}
-          {!selected && (
-            <ReferralSearchField
-              searchQuery={searchQuery}
-              searching={searching}
-              onChangeText={handleSearchChange}
-              onClear={() => {
-                setSearchQuery('');
-                setSearchResults([]);
-              }}
-            />
-          )}
-
-          {/* 검색 결과 목록 */}
-          {showResults && (
-            <View style={styles.resultsList}>
-              {searchResults.map((item) => (
+          {/* 등록됨 + 뷰 모드 */}
+          {!referralLoading && !referralInfoError && currentRecommender && !editMode && (
+            <>
+              <View style={styles.registeredBlock}>
+                <View style={styles.registeredNameRow}>
+                  <Text style={styles.registeredName}>{currentRecommender}</Text>
+                  {currentRecommenderAffiliation && (
+                    <Text style={styles.registeredAffiliation}>{currentRecommenderAffiliation}</Text>
+                  )}
+                  <View style={styles.statusBadgeRegistered}>
+                    <Text style={styles.statusBadgeRegisteredText}>✓ 연결됨</Text>
+                  </View>
+                </View>
+                {currentRecommenderCode && (
+                  <View style={styles.registeredCodeRow}>
+                    <Feather name="hash" size={12} color={COLORS.text.muted} />
+                    <Text style={styles.registeredCode}>{currentRecommenderCode}</Text>
+                  </View>
+                )}
+              </View>
+              <View style={styles.changeBtnRow}>
                 <Pressable
-                  key={item.fcId}
-                  style={({ pressed }) => [styles.resultItem, pressed && styles.resultItemPressed]}
-                  onPress={() => handleSelect(item)}
+                  style={({ pressed }) => [styles.changeBtn, pressed && { opacity: 0.75 }]}
+                  onPress={() => setEditMode(true)}
                 >
-                  <View style={styles.resultAvatar}>
-                    <Feather name="user" size={14} color={COLORS.gray[500]} />
-                  </View>
-                  <View style={styles.resultInfo}>
-                    <Text style={styles.resultName} numberOfLines={1}>{item.name}</Text>
-                    <Text style={styles.resultAffiliation} numberOfLines={1}>{item.affiliation}</Text>
-                  </View>
-                  {item.code ? (
-                    <View style={styles.resultCodeBadge}>
-                      <Text style={styles.resultCodeText}>{item.code}</Text>
-                    </View>
-                  ) : (
-                    <Text style={styles.resultNoCode}>코드 없음</Text>
-                  )}
-                </Pressable>
-              ))}
-            </View>
-          )}
-
-          {/* 검색어 2글자 미만 안내 */}
-          {searchQuery.length > 0 && searchQuery.length < 2 && !selected && (
-            <Text style={styles.searchHint}>2글자 이상 입력하면 검색돼요</Text>
-          )}
-
-          {/* 검색 결과 없음 */}
-          {searchQuery.length >= 2 && !searching && searchResults.length === 0 && !selected && (
-            <Text style={styles.searchHint}>검색 결과가 없어요</Text>
-          )}
-
-          {/* 선택된 항목 표시 */}
-          {selected && (
-            <View style={styles.selectedWrap}>
-              <View style={styles.selectedInfo}>
-                <View style={styles.selectedAvatar}>
-                  <Feather name="user-check" size={16} color={COLORS.primary} />
-                </View>
-                <View style={styles.selectedText}>
-                  <Text style={styles.selectedName}>{selected.name}</Text>
-                  <Text style={styles.selectedAffiliation}>{selected.affiliation}</Text>
-                  {selected.code && (
-                    <Text style={styles.selectedCode}>{selected.code}</Text>
-                  )}
-                </View>
-                <Pressable onPress={handleClearSelected} hitSlop={8} style={styles.clearBtn}>
-                  <Feather name="x" size={18} color={COLORS.text.muted} />
+                  <Text style={styles.changeBtnText}>변경하기</Text>
                 </Pressable>
               </View>
+            </>
+          )}
 
-              {!selected.code && (
-                <View style={styles.noCodeWarning}>
-                  <Feather name="alert-circle" size={13} color={COLORS.warning.dark} />
-                  <Text style={styles.noCodeWarningText}>이 분의 추천 코드가 없어 저장할 수 없습니다.</Text>
+          {/* 미등록 또는 editMode */}
+          {!referralLoading && !referralInfoError && (!currentRecommender || editMode) && (
+            <>
+              <View style={styles.divider} />
+
+              {/* 검색 입력 */}
+              <Text style={styles.inputLabel}>
+                이름, 소속 또는 추천 코드로 {currentRecommender ? '변경' : '등록'}
+              </Text>
+
+              {/* 선택된 항목이 없을 때 → 검색 입력창 */}
+              {!selected && (
+                <ReferralSearchField
+                  searchQuery={searchQuery}
+                  searching={searching}
+                  onChangeText={handleSearchChange}
+                  onClear={() => {
+                    setSearchQuery('');
+                    setSearchResults([]);
+                  }}
+                />
+              )}
+
+              {/* 검색 결과 목록 */}
+              {showResults && (
+                <View style={styles.resultsList}>
+                  {searchResults.map((item) => (
+                    <Pressable
+                      key={item.fcId}
+                      style={({ pressed }) => [styles.resultItem, pressed && styles.resultItemPressed]}
+                      onPress={() => handleSelect(item)}
+                    >
+                      <View style={styles.resultAvatar}>
+                        <Feather name="user" size={14} color={COLORS.gray[500]} />
+                      </View>
+                      <View style={styles.resultInfo}>
+                        <Text style={styles.resultName} numberOfLines={1}>{item.name}</Text>
+                        <Text style={styles.resultAffiliation} numberOfLines={1}>{item.affiliation}</Text>
+                      </View>
+                      {item.code ? (
+                        <View style={styles.resultCodeBadge}>
+                          <Text style={styles.resultCodeText}>{item.code}</Text>
+                        </View>
+                      ) : (
+                        <Text style={styles.resultNoCode}>코드 없음</Text>
+                      )}
+                    </Pressable>
+                  ))}
                 </View>
               )}
 
-              <Pressable
-                style={({ pressed }) => [
-                  styles.saveBtn,
-                  (!selected.code || saving) && styles.saveBtnDisabled,
-                  pressed && selected.code && styles.saveBtnPressed,
-                ]}
-                onPress={handleSave}
-                disabled={!selected.code || saving}
-              >
-                {saving
-                  ? <ActivityIndicator size="small" color="#fff" />
-                  : <Text style={styles.saveBtnText}>저장</Text>
-                }
-              </Pressable>
-            </View>
+              {/* 검색어 2글자 미만 안내 */}
+              {searchQuery.length > 0 && searchQuery.length < 2 && !selected && (
+                <Text style={styles.searchHint}>2글자 이상 입력하면 검색돼요</Text>
+              )}
+
+              {/* 검색 결과 없음 */}
+              {searchQuery.length >= 2 && !searching && searchResults.length === 0 && !selected && (
+                <Text style={styles.searchHint}>검색 결과가 없어요</Text>
+              )}
+
+              {/* 선택된 항목 표시 */}
+              {selected && (
+                <View style={styles.selectedWrap}>
+                  <View style={styles.selectedInfo}>
+                    <View style={styles.selectedAvatar}>
+                      <Feather name="user-check" size={16} color={COLORS.primary} />
+                    </View>
+                    <View style={styles.selectedText}>
+                      <Text style={styles.selectedName}>{selected.name}</Text>
+                      <Text style={styles.selectedAffiliation}>{selected.affiliation}</Text>
+                      {selected.code && (
+                        <Text style={styles.selectedCode}>{selected.code}</Text>
+                      )}
+                    </View>
+                    <Pressable onPress={handleClearSelected} hitSlop={8} style={styles.clearBtn}>
+                      <Feather name="x" size={18} color={COLORS.text.muted} />
+                    </Pressable>
+                  </View>
+
+                  {!selected.code && (
+                    <View style={styles.noCodeWarning}>
+                      <Feather name="alert-circle" size={13} color={COLORS.warning.dark} />
+                      <Text style={styles.noCodeWarningText}>이 분의 추천 코드가 없어 저장할 수 없습니다.</Text>
+                    </View>
+                  )}
+
+                  <Pressable
+                    style={({ pressed }) => [
+                      styles.saveBtn,
+                      (!selected.code || saving) && styles.saveBtnDisabled,
+                      pressed && selected.code && styles.saveBtnPressed,
+                    ]}
+                    onPress={handleSave}
+                    disabled={!selected.code || saving}
+                  >
+                    {saving
+                      ? <ActivityIndicator size="small" color="#fff" />
+                      : <Text style={styles.saveBtnText}>저장</Text>
+                    }
+                  </Pressable>
+                </View>
+              )}
+
+              {/* 취소하기 버튼 (editMode일 때만) */}
+              {editMode && (
+                <Pressable
+                  style={({ pressed }) => [styles.cancelBtn, pressed && { opacity: 0.7 }]}
+                  onPress={() => {
+                    setEditMode(false);
+                    setSelected(null);
+                    setSearchQuery('');
+                    setSearchResults([]);
+                  }}
+                >
+                  <Feather name="x" size={14} color={COLORS.text.secondary} />
+                  <Text style={styles.cancelBtnText}>취소하기</Text>
+                </Pressable>
+              )}
+            </>
           )}
         </View>
 
@@ -543,13 +606,24 @@ const styles = StyleSheet.create({
 
   // 추천인 카드
   recommenderCard: { backgroundColor: COLORS.background.primary, borderRadius: RADIUS.xl, padding: SPACING.base, marginBottom: SPACING.base, ...SHADOWS.sm },
+  recommenderCardRegistered: { borderLeftWidth: 4, borderLeftColor: COLORS.success },
   recommenderHeader: { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: SPACING.md },
   recommenderIconWrap: { width: 28, height: 28, borderRadius: 14, backgroundColor: COLORS.primaryPale, alignItems: 'center', justifyContent: 'center' },
+  recommenderIconRegistered: { backgroundColor: COLORS.primaryPale },
   recommenderTitle: { fontSize: 16, fontWeight: '700', color: COLORS.text.primary },
-  currentRecommenderRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: SPACING.md },
-  currentRecommenderLabel: { fontSize: 13, color: COLORS.text.muted },
-  currentRecommenderValue: { fontSize: 14, fontWeight: '600', color: COLORS.text.primary },
-  currentRecommenderEmpty: { color: COLORS.text.muted, fontWeight: '400' },
+  registeredBlock: { marginBottom: SPACING.md },
+  registeredNameRow: { flexDirection: 'row', alignItems: 'center', gap: 8, flexWrap: 'wrap', marginBottom: 4 },
+  registeredName: { fontSize: 20, fontWeight: '800', color: COLORS.text.primary },
+  registeredAffiliation: { fontSize: 13, color: COLORS.text.muted, flexShrink: 1 },
+  registeredCodeRow: { flexDirection: 'row', alignItems: 'center', gap: 4, marginTop: 2 },
+  registeredCode: { fontSize: 13, fontWeight: '700', color: COLORS.text.muted, letterSpacing: 1 },
+  statusBadgeRegistered: { backgroundColor: COLORS.success, borderRadius: RADIUS.full, paddingHorizontal: 8, paddingVertical: 3 },
+  statusBadgeRegisteredText: { fontSize: 11, fontWeight: '700', color: '#fff' },
+  changeBtnRow: { marginTop: SPACING.sm },
+  changeBtn: { borderWidth: 1, borderColor: COLORS.border.medium, borderRadius: RADIUS.md, height: 42, alignItems: 'center', justifyContent: 'center', backgroundColor: COLORS.background.secondary },
+  changeBtnText: { fontSize: 14, fontWeight: '600', color: COLORS.text.secondary },
+  cancelBtn: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, borderWidth: 1, borderColor: COLORS.border.medium, borderRadius: RADIUS.md, height: 42, marginTop: SPACING.md, backgroundColor: COLORS.background.secondary },
+  cancelBtnText: { fontSize: 14, fontWeight: '600', color: COLORS.text.secondary },
   currentRecommenderError: { fontSize: 13, color: COLORS.error, marginBottom: SPACING.md },
   divider: { height: 1, backgroundColor: COLORS.border.light, marginBottom: SPACING.md },
   inputLabel: { fontSize: 13, fontWeight: '600', color: COLORS.text.secondary, marginBottom: 8 },
