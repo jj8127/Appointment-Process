@@ -164,7 +164,10 @@ export default function RootLayout() {
   }, [fontSources]);
 
   useEffect(() => {
-    if (error) throw error;
+    if (error) {
+      logger.warn('[font] failed to load fonts, continuing without custom fonts', error);
+      setLoaded(true);
+    }
   }, [error]);
 
   useEffect(() => {
@@ -212,26 +215,30 @@ export default function RootLayout() {
       try {
         Notifications = await import('expo-notifications');
         sub = Notifications.addNotificationResponseReceivedListener((response: any) => {
-          const content = response?.notification?.request?.content;
-          const rawUrl = content?.data?.url as string | undefined;
-          const title = `${content?.title ?? ''}`.toLowerCase();
-          const body = `${content?.body ?? ''}`.toLowerCase();
-          const isHanwhaWorkflowNotification =
-            title.includes('한화 위촉 승인') ||
-            title.includes('한화 위촉 반려') ||
-            title.includes('한화 위촉 url 승인') ||
-            title.includes('한화 위촉 url 반려') ||
-            body.includes('한화 위촉이 승인') ||
-            body.includes('한화 위촉이 반려') ||
-            body.includes('한화 위촉 url이 승인') ||
-            body.includes('한화 위촉 url이 반려') ||
-            body.includes('승인 pdf');
-          const nextUrl =
-            isHanwhaWorkflowNotification
-              ? '/hanwha-commission'
-              : rawUrl || '/notifications';
+          try {
+            const content = response?.notification?.request?.content;
+            const rawUrl = content?.data?.url as string | undefined;
+            const title = `${content?.title ?? ''}`.toLowerCase();
+            const body = `${content?.body ?? ''}`.toLowerCase();
+            const isHanwhaWorkflowNotification =
+              title.includes('한화 위촉 승인') ||
+              title.includes('한화 위촉 반려') ||
+              title.includes('한화 위촉 url 승인') ||
+              title.includes('한화 위촉 url 반려') ||
+              body.includes('한화 위촉이 승인') ||
+              body.includes('한화 위촉이 반려') ||
+              body.includes('한화 위촉 url이 승인') ||
+              body.includes('한화 위촉 url이 반려') ||
+              body.includes('승인 pdf');
+            const nextUrl =
+              isHanwhaWorkflowNotification
+                ? '/hanwha-commission'
+                : rawUrl || '/notifications';
 
-          router.push(nextUrl as any);
+            router.push(nextUrl as any);
+          } catch (err) {
+            logger.warn('[push] navigation handler failed', err);
+          }
         });
       } catch (err) {
         logger.warn('push navigation listener failed', err);

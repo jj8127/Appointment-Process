@@ -2,7 +2,8 @@ import { Feather } from '@expo/vector-icons';
 import * as Clipboard from 'expo-clipboard';
 import * as Haptics from 'expo-haptics';
 import { LinearGradient } from 'expo-linear-gradient';
-import { useCallback, useRef, useState } from 'react';
+import { useLocalSearchParams } from 'expo-router';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
@@ -23,6 +24,7 @@ import { useKeyboardPadding } from '@/hooks/use-keyboard-padding';
 import { useMyInvitees } from '@/hooks/use-my-invitees';
 import { useMyReferralCode } from '@/hooks/use-my-referral-code';
 import { useSession } from '@/hooks/use-session';
+import { consumePendingReferralCode } from '@/lib/referral-deeplink';
 import { supabase } from '@/lib/supabase';
 import { COLORS, RADIUS, SHADOWS, SPACING } from '@/lib/theme';
 
@@ -30,16 +32,28 @@ const PLAY_STORE_URL = 'https://play.google.com/store/apps/details?id=com.jj8127
 const INVITE_BASE_URL = process.env.EXPO_PUBLIC_INVITE_BASE_URL ?? '';
 
 function buildShareText(code: string): string {
-  const inviteUrl = INVITE_BASE_URL
-    ? `${INVITE_BASE_URL}/invite?code=${code}`
-    : `hanwhafcpass://signup?code=${code}`;
+  if (INVITE_BASE_URL) {
+    const inviteUrl = `${INVITE_BASE_URL}/invite?code=${code}`;
+    return [
+      '가람in에서 보험 위촉을 함께 시작해요!',
+      '',
+      '아래 링크를 눌러 가입하세요 (추천 코드 자동 입력):',
+      inviteUrl,
+      '',
+      '앱이 없으시면:',
+      `Android: ${PLAY_STORE_URL}`,
+      'iOS: App Store에서 "가람in" 검색',
+    ].join('\n');
+  }
+  // INVITE_BASE_URL 미설정 시: 커스텀 스킴은 메신저에서 링크로 인식되지 않으므로
+  // 스토어 링크(HTTPS)를 사용하고 코드를 텍스트로 안내
   return [
     '가람in에서 보험 위촉을 함께 시작해요!',
     '',
-    '아래 링크를 눌러 가입하세요 (추천 코드 자동 입력):',
-    inviteUrl,
+    `추천 코드: ${code}`,
     '',
-    '앱이 없으시면:',
+    '가입 시 위 코드를 입력하면 추천인으로 연결됩니다.',
+    '',
     `Android: ${PLAY_STORE_URL}`,
     'iOS: App Store에서 "가람in" 검색',
   ].join('\n');
@@ -144,6 +158,7 @@ export default function ReferralPage() {
   const [saving, setSaving] = useState(false);
   const searchTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const searchReqRef = useRef(0);
+  const { referralNonce } = useLocalSearchParams<{ referralNonce?: string }>();
   const referralCode = referralInfo?.code ?? null;
   const currentRecommender = referralInfo?.recommender ?? null;
   const currentRecommenderAffiliation = referralInfo?.recommenderAffiliation ?? null;
@@ -178,6 +193,18 @@ export default function ReferralPage() {
       if (reqId === searchReqRef.current) setSearching(false);
     }
   }, [appSessionToken, canUseReferralSelfService]);
+
+  // 딥링크로 전달된 추천 코드: 편집 모드 진입 후 코드로 자동 검색
+  useEffect(() => {
+    if (!referralNonce || !canUseReferralSelfService) return;
+    (async () => {
+      const code = await consumePendingReferralCode();
+      if (!code) return;
+      setEditMode(true);
+      setSearchQuery(code);
+      void runSearch(code);
+    })();
+  }, [referralNonce, canUseReferralSelfService, runSearch]);
 
   const handleSearchChange = (text: string) => {
     setSearchQuery(text);
@@ -216,11 +243,12 @@ export default function ReferralPage() {
         return;
       }
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      const savedName = selected.name;
       setSelected(null);
       setSearchQuery('');
       setEditMode(false);
       await refetchReferralInfo();
-      Alert.alert('저장 완료', `추천인이 '${data.inviterName ?? selected.name}'(으)로 저장됐습니다.`);
+      Alert.alert('저장 완료', `추천인이 '${data.inviterName ?? savedName}'(으)로 저장됐습니다.`);
     } catch {
       Alert.alert('오류', '저장 중 오류가 발생했습니다.');
     } finally {

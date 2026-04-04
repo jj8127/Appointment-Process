@@ -17,7 +17,8 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { KeyboardAwareWrapper, useKeyboardAware } from '@/components/KeyboardAwareWrapper';
 import { useKeyboardPadding } from '@/hooks/use-keyboard-padding';
-import { consumePendingReferralCode } from '@/lib/referral-deeplink';
+import { consumePendingReferralCode, savePendingReferralCode } from '@/lib/referral-deeplink';
+import { useSession } from '@/hooks/use-session';
 import { safeStorage } from '@/lib/safe-storage';
 import { supabase } from '@/lib/supabase';
 import { COLORS, TYPOGRAPHY, SPACING, RADIUS } from '@/lib/theme';
@@ -75,6 +76,7 @@ export default function SignupScreen() {
   const [checking, setChecking] = useState(false);
   const keyboardPadding = useKeyboardPadding();
   const { referralNonce } = useLocalSearchParams<{ referralNonce?: string }>();
+  const { role, hydrated } = useSession();
 
   // Refs for keyboard navigation
   const nameRef = useRef<TextInputType>(null);
@@ -314,14 +316,30 @@ export default function SignupScreen() {
 
   useFocusEffect(
     useCallback(() => {
+      if (!hydrated) return;
+      if (role) {
+        // 로그인 상태: 대기 중인 추천 코드가 있으면 추천인 코드 페이지로 이동
+        (async () => {
+          const code = await consumePendingReferralCode();
+          if (!code) return;
+          await savePendingReferralCode(code);
+          router.replace({ pathname: '/referral', params: { referralNonce: Date.now().toString() } });
+        })();
+        return;
+      }
       void applyPendingReferralCode();
-    }, [applyPendingReferralCode]),
+    }, [applyPendingReferralCode, hydrated, role]),
   );
 
   useEffect(() => {
-    if (!referralNonce) return;
+    if (!referralNonce || !hydrated) return;
+    if (role) {
+      // 로그인 상태: 추천인 코드 페이지로 리다이렉트 (코드는 storage에 유지)
+      router.replace({ pathname: '/referral', params: { referralNonce } });
+      return;
+    }
     void applyPendingReferralCode();
-  }, [applyPendingReferralCode, referralNonce]);
+  }, [applyPendingReferralCode, referralNonce, hydrated, role]);
 
   return (
     <SafeAreaView style={styles.safe} edges={['left', 'right', 'bottom']}>

@@ -3,6 +3,7 @@
 import {
   Alert,
   Badge,
+  Box,
   Button,
   Card,
   Container,
@@ -362,6 +363,7 @@ export default function ReferralDashboardPage() {
     queryKey: ['dashboard-referrals', 'list', page, deferredSearch],
     queryFn: () => fetchReferrals({ page, search: deferredSearch, fcId: null }),
     enabled: isAuthorized,
+    placeholderData: (previousData) => previousData,
   });
 
   const items = listQuery.data?.items ?? [];
@@ -615,9 +617,7 @@ export default function ReferralDashboardPage() {
         </SimpleGrid>
 
         <SimpleGrid cols={{ base: 1, xl: 2 }} spacing="lg">
-          <Paper withBorder radius="md" p="lg" pos="relative" bg="white">
-            <LoadingOverlay visible={listQuery.isLoading} overlayProps={{ radius: 'md', blur: 1 }} />
-
+          <Paper withBorder radius="md" p="lg" bg="white">
             <Stack gap="md">
               <Group justify="space-between" align="center">
                 <TextInput
@@ -635,81 +635,87 @@ export default function ReferralDashboardPage() {
                 </Button>
               </Group>
 
-              <ScrollArea>
-                <Table highlightOnHover>
-                  <Table.Thead>
-                    <Table.Tr>
-                      <Table.Th>FC</Table.Th>
-                      <Table.Th>활성 코드</Table.Th>
-                      <Table.Th>비활성 이력</Table.Th>
-                      <Table.Th>최근 변경</Table.Th>
-                    </Table.Tr>
-                  </Table.Thead>
-                  <Table.Tbody>
-                    {items.length ? (
-                      items.map((item) => (
-                        <Table.Tr
-                          key={item.fcId}
-                          style={{ cursor: 'pointer' }}
-                          bg={effectiveSelectedFcId === item.fcId ? 'orange.0' : undefined}
-                          onClick={() => setSelectedFcId(item.fcId)}
-                        >
-                          <Table.Td>
-                            <Stack gap={0}>
-                              <Text size="sm" fw={600}>
-                                {item.name}
-                              </Text>
-                              <Text size="xs" c="dimmed">
-                                {item.affiliation || '소속 미기록'}
-                              </Text>
-                              <Text size="xs" c="dimmed">
-                                {item.phone}
-                              </Text>
-                            </Stack>
-                          </Table.Td>
-                          <Table.Td>
-                            {item.activeCode ? (
-                              <Stack gap={2}>
-                                <Badge color="orange" variant="light" w="fit-content">
-                                  {item.activeCode}
-                                </Badge>
-                                <Text size="xs" c="dimmed">
-                                  {formatDateTime(item.activeCodeCreatedAt)}
-                                </Text>
-                              </Stack>
-                            ) : (
-                              <Badge color="gray" variant="light">
-                                미발급
-                              </Badge>
-                            )}
-                          </Table.Td>
-                          <Table.Td>{item.disabledCodeCount}</Table.Td>
-                          <Table.Td>
-                            <Text size="xs" c="dimmed">
-                              {formatDateTime(item.lastEventAt)}
-                            </Text>
-                          </Table.Td>
-                        </Table.Tr>
-                      ))
-                    ) : (
-                      <Table.Tr>
-                        <Table.Td colSpan={4}>
-                          <Text size="sm" c="dimmed" ta="center" py="md">
-                            {listQuery.isLoading ? '불러오는 중입니다.' : '조회 결과가 없습니다.'}
-                          </Text>
-                        </Table.Td>
-                      </Table.Tr>
-                    )}
-                  </Table.Tbody>
-                </Table>
-              </ScrollArea>
+              <Box pos="relative">
+                <LoadingOverlay visible={listQuery.isFetching} overlayProps={{ radius: 'md', blur: 1 }} />
 
-              <Group justify="space-between" align="center">
-                <Text size="sm" c="dimmed">
-                  총 {total}건
-                </Text>
-                <Pagination total={totalPages} value={page} onChange={setPage} />
-              </Group>
+                <Stack gap="md">
+                  <ScrollArea>
+                    <Table highlightOnHover>
+                      <Table.Thead>
+                        <Table.Tr>
+                          <Table.Th>FC</Table.Th>
+                          <Table.Th>활성 코드</Table.Th>
+                          <Table.Th>비활성 이력</Table.Th>
+                          <Table.Th>최근 변경</Table.Th>
+                        </Table.Tr>
+                      </Table.Thead>
+                      <Table.Tbody>
+                        {items.length ? (
+                          items.map((item) => (
+                            <Table.Tr
+                              key={item.fcId}
+                              style={{ cursor: 'pointer' }}
+                              bg={effectiveSelectedFcId === item.fcId ? 'orange.0' : undefined}
+                              onClick={() => setSelectedFcId(item.fcId)}
+                            >
+                              <Table.Td>
+                                <Stack gap={0}>
+                                  <Text size="sm" fw={600}>
+                                    {item.name}
+                                  </Text>
+                                  <Text size="xs" c="dimmed">
+                                    {item.affiliation || '소속 미기록'}
+                                  </Text>
+                                  <Text size="xs" c="dimmed">
+                                    {item.phone}
+                                  </Text>
+                                </Stack>
+                              </Table.Td>
+                              <Table.Td>
+                                {item.activeCode ? (
+                                  <Stack gap={2}>
+                                    <Badge color="orange" variant="light" w="fit-content">
+                                      {item.activeCode}
+                                    </Badge>
+                                    <Text size="xs" c="dimmed">
+                                      {formatDateTime(item.activeCodeCreatedAt)}
+                                    </Text>
+                                  </Stack>
+                                ) : (
+                                  <Badge color="gray" variant="light">
+                                    미발급
+                                  </Badge>
+                                )}
+                              </Table.Td>
+                              <Table.Td>{item.disabledCodeCount}</Table.Td>
+                              <Table.Td>
+                                <Text size="xs" c="dimmed">
+                                  {formatDateTime(item.lastEventAt)}
+                                </Text>
+                              </Table.Td>
+                            </Table.Tr>
+                          ))
+                        ) : (
+                          <Table.Tr>
+                            <Table.Td colSpan={4}>
+                              <Text size="sm" c="dimmed" ta="center" py="md">
+                                {listQuery.isLoading ? '불러오는 중입니다.' : '조회 결과가 없습니다.'}
+                              </Text>
+                            </Table.Td>
+                          </Table.Tr>
+                        )}
+                      </Table.Tbody>
+                    </Table>
+                  </ScrollArea>
+
+                  <Group justify="space-between" align="center">
+                    <Text size="sm" c="dimmed">
+                      총 {total}건
+                    </Text>
+                    <Pagination total={totalPages} value={page} onChange={setPage} />
+                  </Group>
+                </Stack>
+              </Box>
             </Stack>
           </Paper>
 
