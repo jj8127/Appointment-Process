@@ -494,6 +494,36 @@ serve(async (req: Request) => {
           .delete()
           .eq('manager_phone', managerPhone),
       );
+
+      const managerShadowResult = await ignoreMissingTable(
+        await supabase
+          .from('fc_profiles')
+          .select('id')
+          .eq('phone', managerPhone)
+          .eq('is_manager_referral_shadow', true),
+      );
+      const managerShadowIds = ((managerShadowResult.data ?? []) as LinkedProfileRow[]).map((row) => row.id);
+
+      if (managerShadowIds.length > 0) {
+        await ignoreMissingTable(await supabase.from('fc_documents').delete().in('fc_id', managerShadowIds));
+        await ignoreMissingTable(await supabase.from('fc_credentials').delete().in('fc_id', managerShadowIds));
+        await ignoreMissingTable(await supabase.from('fc_identity_secure').delete().in('fc_id', managerShadowIds));
+        await ignoreMissingTable(await supabase.from('exam_registrations').delete().in('fc_id', managerShadowIds));
+        await ignoreMissingTable(await supabase.from('notifications').delete().in('fc_id', managerShadowIds));
+
+        const linkedProfilesResult = await ignoreMissingTable(
+          await supabase.from('profiles').select('id').in('fc_id', managerShadowIds),
+        );
+        const linkedProfileIds = ((linkedProfilesResult.data ?? []) as LinkedProfileRow[]).map((row) => row.id);
+        for (const profileId of linkedProfileIds) {
+          const { error: authDeleteError } = await supabase.auth.admin.deleteUser(profileId);
+          if (authDeleteError) {
+            console.warn('[delete-account] manager shadow auth user delete failed', profileId, authDeleteError.message ?? authDeleteError);
+          }
+        }
+        await ignoreMissingTable(await supabase.from('profiles').delete().in('fc_id', managerShadowIds));
+        await ignoreMissingTable(await supabase.from('fc_profiles').delete().in('id', managerShadowIds));
+      }
     }
     const { error: managerDeleteError } = await supabase.from('manager_accounts').delete().eq('id', roleAccount.id);
     if (managerDeleteError) return err(managerDeleteError.message, 500);

@@ -7,7 +7,7 @@
 
 ## 2. 현재 상태
 
-- `2026-04-04` 기준 등록된 추천인 이슈는 `11건`이다.
+- `2026-04-04` 기준 등록된 추천인 이슈는 `12건`이다.
 - 런타임 버그뿐 아니라 trust boundary, rollout status, 문서/테스트 drift로 운영 판단을 오도한 경우도 장애성 이력으로 남긴다.
 
 ## 3. 작성 규칙
@@ -46,6 +46,7 @@
 
 | ID | 날짜 | 제목 | linkedCases | 상태 |
 | --- | --- | --- | --- | --- |
+| INC-012 | 2026-04-04 | self-service `내가 초대한 사람들` 목록이 attribution-only + 50건 상한 때문에 일부 invitee를 누락함 | `RF-SELF-03` | fixed |
 | INC-011 | 2026-04-04 | 본부장 추천인 self-service 후속 결함(legacy session restore, trusted read, audit trail mismatch) | `RF-SELF-01`, `RF-SELF-02`, `RF-SEC-02` | fixed |
 | INC-010 | 2026-04-04 | 본부장이 추천인 self-service 대상인데 홈 바로가기/코드 발급 대상에서 빠져 있었음 | `RF-ADMIN-03`, `RF-SELF-01` | fixed |
 | INC-009 | 2026-04-03 | 추천인 그래프가 confirmed-only edge와 미완성 interaction 때문에 실사용 탐색기로 동작하지 않음 | `RF-ADMIN-07`, `RF-ADMIN-08` | fixed |
@@ -57,6 +58,37 @@
 | INC-003 | 2026-03-31 | 동명이인 안전화 후 live hardening gap(`set-password` fallback, override migration, clear audit) | `RF-ADMIN-06`, `RF-SEC-02` | mitigated |
 | INC-002 | 2026-03-31 | 동명이인 추천인 이름 매칭으로 잘못된 코드가 붙을 수 있던 구조 위험 | `RF-DATA-02`, `RF-ADMIN-06` | fixed |
 | INC-001 | 2026-03-31 | Android 추천코드 입력 시 대문자가 중복 입력되던 문제 | `RF-CODE-07` | fixed |
+
+## INC-012 | 2026-04-04 | self-service `내가 초대한 사람들` 목록이 attribution-only + 50건 상한 때문에 일부 invitee를 누락함
+
+- symptom:
+  - 가람in 추천인 코드 페이지의 `내가 초대한 사람들` 목록에서 실제보다 적은 수의 invitee만 보였다.
+  - 특히 `fc_profiles.recommender_fc_id` 구조화 링크는 있지만 `referral_attributions` row가 없는 invitee가 목록에서 빠졌고, attribution row가 많으면 `limit(50)` 때문에 뒷부분 invitee도 잘렸다.
+- impact:
+  - FC/본부장이 앱에서 자기 invitee 수를 신뢰할 수 없었고, 관리자 그래프/운영 화면과 self-service 앱 목록이 서로 다른 숫자를 보여줄 수 있었다.
+- trigger:
+  - 2026-04-04 운영 피드백으로 “추천인 코드 페이지에서도 내가 초대한 사람이 일부만 표시된다”는 보고가 들어왔을 때.
+- rootCause:
+  - `supabase/functions/get-my-invitees/index.ts`가 `referral_attributions.inviter_fc_id = me`만 조회하고 있었고, 현재 구조화 추천 관계 SSOT인 `fc_profiles.recommender_fc_id = me`를 합치지 않았다.
+  - 같은 함수가 attribution 조회에 `limit(50)`을 걸어 초대 인원이 많을 때 나머지를 조용히 잘라냈다.
+- fix:
+  - `get-my-invitees`를 `referral_attributions`와 `fc_profiles.recommender_fc_id` 구조화 링크를 함께 읽어 merge/dedupe 하도록 바꿨다.
+  - 구조화 링크만 있고 attribution이 없는 invitee는 self-service 목록에서 `confirmed` synthetic row로 보이게 했다.
+  - 정적 `limit(50)`을 제거해 invitee 목록이 임의 상한 때문에 부분만 보이지 않도록 정리했다.
+- linkedCases:
+  - RF-SELF-03
+- evidence:
+  - 코드 변경: `supabase/functions/get-my-invitees/index.ts`
+  - 정적 검증: `npx eslint hooks/use-my-invitees.ts app/referral.tsx`
+  - 정적 검증: TypeScript transpile parse for `supabase/functions/get-my-invitees/index.ts`
+- reproduction:
+  1. inviter 기준으로 `fc_profiles.recommender_fc_id = inviter`인 completed invitee가 있지만 `referral_attributions.inviter_fc_id = inviter` row는 일부만 있는 데이터를 준비한다.
+  2. 또는 inviter attribution row가 50건을 넘는 계정으로 self-service 추천인 페이지를 연다.
+  3. `내가 초대한 사람들` 목록이 실제 invitee 수보다 적게 보이는지 확인한다.
+- regressionCheck:
+  - RF-SELF-03으로 앱 목록, 함수 응답, DB merge count를 함께 다시 확인한다.
+- notes:
+  - 구현과 정적 검증은 완료했지만, 실제 inviter 계정 기준의 live count 대조 증적은 후속으로 남겨야 한다.
 
 ## INC-011 | 2026-04-04 | 본부장 추천인 self-service 후속 결함(legacy session restore, trusted read, audit trail mismatch)
 

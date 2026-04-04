@@ -2,6 +2,7 @@ import { serve } from 'https://deno.land/std@0.224.0/http/server.ts';
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.45.4';
 import {
   getEnv,
+  getAppSessionTokenFromRequest,
   parseAppSessionToken,
 } from '../_shared/request-board-auth.ts';
 
@@ -9,7 +10,7 @@ import {
 const allowedOrigins = (getEnv('ALLOWED_ORIGINS') ?? '').split(',').map(o => o.trim()).filter(Boolean);
 const corsHeaders = {
   'Access-Control-Allow-Origin': allowedOrigins.length > 0 ? allowedOrigins[0] : 'https://yourdomain.com',
-  'Access-Control-Allow-Headers': 'Content-Type, Authorization, x-client-info, apikey',
+  'Access-Control-Allow-Headers': 'Content-Type, Authorization, x-app-session-token, x-client-info, apikey',
   'Access-Control-Allow-Methods': 'POST, OPTIONS',
   'Access-Control-Allow-Credentials': 'true',
 };
@@ -55,15 +56,41 @@ function maskPhone(phone: string): string {
 
 type SessionPayload = Awaited<ReturnType<typeof parseAppSessionToken>>;
 
+async function ensureManagerReferralShadowProfile(managerPhone: string, managerName?: string | null) {
+  const { error } = await supabase.rpc('ensure_manager_referral_shadow_profile', {
+    p_manager_phone: managerPhone,
+    p_manager_name: typeof managerName === 'string' && managerName.trim() ? managerName.trim() : null,
+  });
+
+  return error;
+}
+
 async function resolveMyInvitees(params: { session: SessionPayload }) {
   const session = params.session;
-  if (!session || (session.role !== 'fc' && session.role !== 'manager')) {
+  if (!session || (session.role !== 'fc' && session.role !== 'manager' && session.role !== 'admin')) {
     return fail('forbidden', '초대 목록을 조회할 수 없는 계정입니다.');
   }
 
   const sessionPhone = cleanPhone(session.phone ?? '');
   if (sessionPhone.length !== 11) {
     return fail('unauthorized', '인증이 필요합니다.');
+  }
+
+  let managerAccount: { id: string; name: string | null } | null = null;
+  if (session.role === 'manager' || session.role === 'admin') {
+    const { data: managerRow, error: managerError } = await supabase
+      .from('manager_accounts')
+      .select('id, name')
+      .eq('phone', sessionPhone)
+      .eq('active', true)
+      .maybeSingle();
+    if (managerError) {
+      return json({ ok: false, code: 'db_error', message: managerError.message }, 500);
+    }
+    if (!managerRow?.id) {
+      return fail('forbidden', '초대 목록을 조회할 수 없는 계정입니다.');
+    }
+    managerAccount = managerRow;
   }
 
   // Check if phone belongs to admin_accounts
@@ -82,11 +109,19 @@ async function resolveMyInvitees(params: { session: SessionPayload }) {
   const sessionFcId = String(session.fcId ?? '').trim();
   const profileQuery = supabase
     .from('fc_profiles')
-    .select('id, phone, affiliation, signup_completed');
+    .select('id, phone, affiliation, signup_completed, is_manager_referral_shadow');
 
-  const profileResult = sessionFcId
+  let profileResult = sessionFcId
     ? await profileQuery.eq('id', sessionFcId).maybeSingle()
-    : await profileQuery.eq('phone', sessionPhone).eq('signup_completed', true).maybeSingle();
+    : await profileQuery.eq('phone', sessionPhone).maybeSingle();
+  if (!profileResult.data?.id && managerAccount) {
+    const ensureError = await ensureManagerReferralShadowProfile(sessionPhone, managerAccount.name);
+    if (ensureError) {
+      return json({ ok: false, code: 'db_error', message: ensureError.message }, 500);
+    }
+
+    profileResult = await profileQuery.eq('phone', sessionPhone).maybeSingle();
+  }
   const { data: profile, error: profileError } = profileResult;
 
   if (profileError) {
@@ -99,7 +134,8 @@ async function resolveMyInvitees(params: { session: SessionPayload }) {
   if (cleanPhone(String(profile.phone ?? '')) !== sessionPhone) {
     return fail('unauthorized', '인증이 필요합니다.');
   }
-  if (profile.signup_completed !== true) {
+  const isManagerShadow = profile.is_manager_referral_shadow === true;
+  if (profile.signup_completed !== true && !(managerAccount && isManagerShadow)) {
     return fail('not_found', '계정을 찾을 수 없습니다.');
   }
 
@@ -108,57 +144,136 @@ async function resolveMyInvitees(params: { session: SessionPayload }) {
     return fail('forbidden', '초대 목록을 조회할 수 없는 계정입니다.');
   }
 
-  // Query referral_attributions where inviter_fc_id = profile.id
-  const { data: attributions, error: attrError } = await supabase
-    .from('referral_attributions')
-    .select('id, invitee_fc_id, invitee_phone, status, captured_at, confirmed_at')
-    .eq('inviter_fc_id', profile.id)
-    .order('captured_at', { ascending: false })
-    .limit(50);
+  const [
+    { data: attributions, error: attrError },
+    { data: structuredInviteeProfiles, error: structuredInviteeError },
+  ] = await Promise.all([
+    supabase
+      .from('referral_attributions')
+      .select('id, invitee_fc_id, invitee_phone, status, captured_at, confirmed_at')
+      .eq('inviter_fc_id', profile.id)
+      .order('confirmed_at', { ascending: false, nullsFirst: false })
+      .order('captured_at', { ascending: false }),
+    supabase
+      .from('fc_profiles')
+      .select('id, name, phone, created_at, updated_at')
+      .eq('recommender_fc_id', profile.id)
+      .neq('id', profile.id)
+      .order('updated_at', { ascending: false, nullsFirst: false })
+      .order('created_at', { ascending: false }),
+  ]);
 
   if (attrError) {
     return json({ ok: false, code: 'db_error', message: attrError.message }, 500);
   }
 
+  if (structuredInviteeError) {
+    return json({ ok: false, code: 'db_error', message: structuredInviteeError.message }, 500);
+  }
+
   const rows = attributions ?? [];
+  const structuredProfiles = structuredInviteeProfiles ?? [];
+  const fcProfileMap: Record<string, { name: string | null; phone: string | null; createdAt: string | null; updatedAt: string | null }> = {};
 
-  // Collect invitee_fc_ids to batch-fetch fc_profiles
-  const inviteeFcIds = rows
-    .map(r => r.invitee_fc_id)
-    .filter((id): id is string => Boolean(id));
+  for (const profileRow of structuredProfiles) {
+    fcProfileMap[profileRow.id] = {
+      name: profileRow.name ?? null,
+      phone: profileRow.phone ?? null,
+      createdAt: profileRow.created_at ?? null,
+      updatedAt: profileRow.updated_at ?? null,
+    };
+  }
 
-  let fcProfileMap: Record<string, { name: string; phone: string }> = {};
-  if (inviteeFcIds.length > 0) {
-    const { data: fcProfiles, error: fcProfilesError } = await supabase
+  const missingInviteeFcIds = rows
+    .map((row) => row.invitee_fc_id)
+    .filter((id): id is string => Boolean(id) && !fcProfileMap[id]);
+
+  if (missingInviteeFcIds.length > 0) {
+    const { data: inviteeProfiles, error: inviteeProfilesError } = await supabase
       .from('fc_profiles')
-      .select('id, name, phone')
-      .in('id', inviteeFcIds);
+      .select('id, name, phone, created_at, updated_at')
+      .in('id', Array.from(new Set(missingInviteeFcIds)));
 
-    if (fcProfilesError) {
-      return json({ ok: false, code: 'db_error', message: fcProfilesError.message }, 500);
+    if (inviteeProfilesError) {
+      return json({ ok: false, code: 'db_error', message: inviteeProfilesError.message }, 500);
     }
 
-    for (const p of fcProfiles ?? []) {
-      fcProfileMap[p.id] = { name: p.name, phone: p.phone };
+    for (const profileRow of inviteeProfiles ?? []) {
+      fcProfileMap[profileRow.id] = {
+        name: profileRow.name ?? null,
+        phone: profileRow.phone ?? null,
+        createdAt: profileRow.created_at ?? null,
+        updatedAt: profileRow.updated_at ?? null,
+      };
     }
   }
 
-  const invitees = rows.map(r => {
-    const fcProfile = r.invitee_fc_id ? fcProfileMap[r.invitee_fc_id] : null;
+  type InviteeRow = {
+    id: string;
+    inviteeName: string | null;
+    inviteePhone: string;
+    status: 'captured' | 'pending_signup' | 'confirmed' | 'rejected' | 'cancelled' | 'overridden';
+    capturedAt: string;
+    confirmedAt: string | null;
+    sortTimestamp: number;
+  };
 
-    // Determine phone: prefer invitee_phone column, fallback to fc_profiles.phone
-    const rawPhone = r.invitee_phone ?? fcProfile?.phone ?? '';
-    const maskedPhone = maskPhone(rawPhone);
+  const inviteeMap = new Map<string, InviteeRow>();
 
-    return {
-      id: r.id,
-      inviteeName: fcProfile?.name ?? null,
-      inviteePhone: maskedPhone,
-      status: r.status,
-      capturedAt: r.captured_at,
-      confirmedAt: r.confirmed_at ?? null,
-    };
-  });
+  for (const row of rows) {
+    const profileRow = row.invitee_fc_id ? fcProfileMap[row.invitee_fc_id] : null;
+    const rawPhone = row.invitee_phone ?? profileRow?.phone ?? '';
+    const key = row.invitee_fc_id
+      ? `fc:${row.invitee_fc_id}`
+      : `phone:${cleanPhone(rawPhone) || row.id}`;
+    const sortValue = Date.parse(row.confirmed_at ?? row.captured_at ?? '') || 0;
+
+    inviteeMap.set(key, {
+      id: row.id,
+      inviteeName: profileRow?.name ?? null,
+      inviteePhone: maskPhone(rawPhone),
+      status: row.status,
+      capturedAt: row.captured_at,
+      confirmedAt: row.confirmed_at ?? null,
+      sortTimestamp: sortValue,
+    });
+  }
+
+  for (const structuredProfile of structuredProfiles) {
+    const key = `fc:${structuredProfile.id}`;
+    const referenceDate = structuredProfile.updated_at ?? structuredProfile.created_at ?? new Date(0).toISOString();
+    const sortValue = Date.parse(referenceDate) || 0;
+
+    if (inviteeMap.has(key)) {
+      const current = inviteeMap.get(key);
+      if (current && !current.inviteeName && structuredProfile.name) {
+        current.inviteeName = structuredProfile.name;
+      }
+      if (current && !current.inviteePhone && structuredProfile.phone) {
+        current.inviteePhone = maskPhone(structuredProfile.phone);
+      }
+      if (current && current.status !== 'confirmed') {
+        current.status = 'confirmed';
+        current.confirmedAt = current.confirmedAt ?? referenceDate;
+        current.sortTimestamp = Math.max(current.sortTimestamp, sortValue);
+      }
+      continue;
+    }
+
+    inviteeMap.set(key, {
+      id: `profile:${structuredProfile.id}`,
+      inviteeName: structuredProfile.name ?? null,
+      inviteePhone: maskPhone(structuredProfile.phone ?? ''),
+      status: 'confirmed',
+      capturedAt: referenceDate,
+      confirmedAt: referenceDate,
+      sortTimestamp: sortValue,
+    });
+  }
+
+  const invitees = Array.from(inviteeMap.values())
+    .sort((a, b) => b.sortTimestamp - a.sortTimestamp)
+    .map(({ sortTimestamp: _sortTimestamp, ...invitee }) => invitee);
 
   return json({ ok: true, invitees });
 }
@@ -175,13 +290,10 @@ serve(async (req: Request) => {
   }
 
   // Verify session token from Authorization header
-  const authHeader = req.headers.get('Authorization') ?? '';
-  const bearerMatch = authHeader.match(/^Bearer\s+(.+)$/i);
-  if (!bearerMatch) {
+  const token = getAppSessionTokenFromRequest(req);
+  if (!token) {
     return fail('unauthorized', '인증이 필요합니다.');
   }
-
-  const token = bearerMatch[1];
   const session = await parseAppSessionToken(token);
   if (!session) {
     return fail('unauthorized', '인증이 필요합니다.');

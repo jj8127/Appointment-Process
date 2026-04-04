@@ -50,6 +50,7 @@ create table if not exists public.fc_profiles (
   phone_verification_sent_at timestamptz,
   phone_verification_attempts integer not null default 0,
   phone_verification_locked_until timestamptz,
+  is_manager_referral_shadow boolean not null default false,
   admin_memo text,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
@@ -73,6 +74,8 @@ alter table public.fc_profiles
   add column if not exists admin_memo text;
 alter table public.fc_profiles
   add column if not exists allowance_prescreen_requested_at timestamp with time zone;
+alter table public.fc_profiles
+  add column if not exists is_manager_referral_shadow boolean not null default false;
 
 comment on column public.fc_profiles.allowance_prescreen_requested_at is
   '총무가 수당동의 사전 심사를 실제로 요청한 시각';
@@ -658,6 +661,136 @@ as $$
   select coalesce(trim(p_affiliation), '') like '%설계매니저%';
 $$;
 
+create or replace function public.resolve_manager_referral_affiliation(
+  p_manager_phone text,
+  p_manager_name text default null
+) returns text
+language plpgsql
+stable
+set search_path = public
+as $$
+declare
+  normalized_phone text := nullif(regexp_replace(coalesce(p_manager_phone, ''), '[^0-9]', '', 'g'), '');
+  resolved_affiliation text;
+begin
+  if normalized_phone is not null then
+    select nullif(trim(amm.affiliation), '')
+      into resolved_affiliation
+    from public.affiliation_manager_mappings amm
+    where amm.manager_phone = normalized_phone
+      and amm.active = true
+    order by amm.created_at asc, amm.affiliation asc
+    limit 1;
+  end if;
+
+  if resolved_affiliation is not null then
+    return resolved_affiliation;
+  end if;
+
+  return coalesce(nullif(trim(coalesce(p_manager_name, '')), ''), '본부장');
+end;
+$$;
+
+create or replace function public.ensure_manager_referral_shadow_profile(
+  p_manager_phone text,
+  p_manager_name text default null
+) returns uuid
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  normalized_phone text := nullif(regexp_replace(coalesce(p_manager_phone, ''), '[^0-9]', '', 'g'), '');
+  manager_row public.manager_accounts%rowtype;
+  existing_profile public.fc_profiles%rowtype;
+  resolved_name text;
+  resolved_affiliation text;
+begin
+  if normalized_phone is null or normalized_phone !~ '^[0-9]{11}$' then
+    raise exception 'manager_phone is required';
+  end if;
+
+  select *
+    into manager_row
+  from public.manager_accounts
+  where phone = normalized_phone
+    and active = true
+  limit 1;
+
+  if not found then
+    raise exception 'Active manager account not found';
+  end if;
+
+  resolved_name := coalesce(
+    nullif(trim(coalesce(p_manager_name, '')), ''),
+    nullif(trim(coalesce(manager_row.name, '')), ''),
+    '본부장'
+  );
+  resolved_affiliation := public.resolve_manager_referral_affiliation(normalized_phone, resolved_name);
+
+  select *
+    into existing_profile
+  from public.fc_profiles
+  where phone = normalized_phone
+  limit 1
+  for update;
+
+  if found then
+    if existing_profile.is_manager_referral_shadow = true then
+      update public.fc_profiles
+      set name = resolved_name,
+          affiliation = resolved_affiliation,
+          is_manager_referral_shadow = true
+      where id = existing_profile.id
+      returning *
+      into existing_profile;
+
+      return existing_profile.id;
+    end if;
+
+    if existing_profile.signup_completed = true
+       and not public.is_request_board_designer_affiliation(existing_profile.affiliation) then
+      return existing_profile.id;
+    end if;
+
+    raise exception 'Manager referral profile conflict';
+  end if;
+
+  insert into public.fc_profiles (
+    name,
+    affiliation,
+    phone,
+    status,
+    signup_completed,
+    phone_verified,
+    identity_completed,
+    is_manager_referral_shadow
+  )
+  values (
+    resolved_name,
+    resolved_affiliation,
+    normalized_phone,
+    'draft',
+    false,
+    false,
+    false,
+    true
+  )
+  returning *
+  into existing_profile;
+
+  return existing_profile.id;
+end;
+$$;
+
+revoke all on function public.ensure_manager_referral_shadow_profile(text, text) from public;
+revoke all on function public.ensure_manager_referral_shadow_profile(text, text) from anon;
+revoke all on function public.ensure_manager_referral_shadow_profile(text, text) from authenticated;
+grant execute on function public.ensure_manager_referral_shadow_profile(text, text) to service_role;
+
+comment on function public.ensure_manager_referral_shadow_profile(text, text)
+  is 'Create or refresh the referral-only fc_profiles shadow row for an active manager_accounts identity. Execute grant is service_role only.';
+
 create or replace function public.admin_issue_referral_code(
   p_fc_id uuid,
   p_actor_phone text,
@@ -676,6 +809,7 @@ declare
   candidate_code text;
   attempts integer := 0;
   event_type text := 'code_generated';
+  target_is_active_manager boolean := false;
   actor_role text := nullif(trim(coalesce(p_actor_role, '')), '');
   actor_staff_type text := nullif(trim(coalesce(p_actor_staff_type, '')), '');
   actor_phone text := nullif(regexp_replace(coalesce(p_actor_phone, ''), '[^0-9]', '', 'g'), '');
@@ -695,8 +829,17 @@ begin
     raise exception 'FC profile not found';
   end if;
 
-  if target_fc.signup_completed is distinct from true then
-    raise exception 'Referral code can only be issued to completed FC profiles';
+  select exists (
+    select 1
+    from public.manager_accounts ma
+    where ma.phone = target_fc.phone
+      and ma.active = true
+  )
+    into target_is_active_manager;
+
+  if target_fc.signup_completed is distinct from true
+     and not (target_fc.is_manager_referral_shadow = true and target_is_active_manager) then
+    raise exception 'Referral code can only be issued to completed FC profiles or active manager referral profiles';
   end if;
 
   if coalesce(target_fc.phone, '') !~ '^[0-9]{11}$' then
@@ -874,13 +1017,24 @@ begin
   from (
     select fp.id
     from public.fc_profiles fp
-    where fp.signup_completed = true
-      and coalesce(fp.phone, '') ~ '^[0-9]{11}$'
+    where coalesce(fp.phone, '') ~ '^[0-9]{11}$'
       and not public.is_request_board_designer_affiliation(fp.affiliation)
       and not exists (
         select 1
         from public.admin_accounts aa
         where aa.phone = fp.phone
+      )
+      and (
+        fp.signup_completed = true
+        or (
+          fp.is_manager_referral_shadow = true
+          and exists (
+            select 1
+            from public.manager_accounts ma
+            where ma.phone = fp.phone
+              and ma.active = true
+          )
+        )
       )
       and not exists (
         select 1
@@ -920,13 +1074,24 @@ begin
   select count(*)
     into remaining
   from public.fc_profiles fp
-  where fp.signup_completed = true
-    and coalesce(fp.phone, '') ~ '^[0-9]{11}$'
+  where coalesce(fp.phone, '') ~ '^[0-9]{11}$'
     and not public.is_request_board_designer_affiliation(fp.affiliation)
     and not exists (
       select 1
       from public.admin_accounts aa
       where aa.phone = fp.phone
+    )
+    and (
+      fp.signup_completed = true
+      or (
+        fp.is_manager_referral_shadow = true
+        and exists (
+          select 1
+          from public.manager_accounts ma
+          where ma.phone = fp.phone
+            and ma.active = true
+        )
+      )
     )
     and not exists (
       select 1

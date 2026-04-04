@@ -7,6 +7,52 @@
 
 ---
 
+## <a id="20260404-legacy-referral-cleanup-stage2-and-invitees-merge"></a> 2026-04-04 | 레거시 추천인 정리 2단계 + self-service invitee 목록 merge 복구
+
+**배경**:
+- `/dashboard/referrals`의 레거시 추천인 검토 큐는 “문자열 recommender가 남아 있다” 수준까지만 보여 줘서, exact-unique 자동 연결 가능 항목과 자기추천/후보 없음/동명이인을 분리하지 못하고 있었다.
+- 동시에 가람in 추천인 코드 페이지의 `내가 초대한 사람들`은 `referral_attributions.inviter_fc_id`만 보고 `limit(50)`까지 걸어 두고 있어, 구조화 링크만 있는 invitee나 50건을 넘는 invitee가 일부씩 누락됐다.
+- subagent review에서는 추가로 admin-web `GET` 경로가 manager shadow sync/backfill을 수행해 read-only 조회만으로 DB를 바꾸는 문제와, graph가 unresolved legacy를 inferred structured edge로 보이게 하는 문제도 함께 드러났다.
+
+**조치**:
+- `web/src/types/referrals.ts`
+  - `ReferralAdminUnresolvedItem`에 `candidateOptions`, `autoResolvableCandidate`, `matchStatus='self_referral'`를 추가했다.
+  - mutation action에 `clear_legacy_recommender`, `auto_resolve_legacy_recommenders`를 추가했다.
+- `web/src/lib/admin-referrals.ts`
+  - 레거시 검토 큐를 `자동 연결 가능 / 동명이인 후보 다수 / 후보 없음 / 잘못된 자기추천`으로 분류하도록 `buildUnresolvedLegacyItems()`를 확장했다.
+  - `clearLegacyRecommender()`, `autoResolveLegacyRecommenders()`를 추가해 exact-unique만 batch 대상으로 삼고 self-referral/no-match는 수동 검토 대상으로 남기게 했다.
+  - admin-web read path에서 `ensureActiveManagerReferralShadows()`와 `backfillLegacyManagerRecommenderLinks()`를 제거해 조회만으로 DB를 바꾸지 않게 했다.
+  - graph visible edge는 다시 `recommender_fc_id`만 structured source로 사용하게 되돌렸다.
+- `web/src/app/api/admin/referrals/route.ts`
+  - `clear_legacy_recommender`, `auto_resolve_legacy_recommenders` POST action을 추가했다.
+- `web/src/app/dashboard/referrals/page.tsx`
+  - 상태별 배지/액션(`확정`, `검토`, `제거`, `재지정`)과 `안전 자동 정리` 버튼을 추가했다.
+  - modal copy도 exact-unique/self-referral/no-match 기준으로 분기했다.
+- `supabase/functions/get-my-invitees/index.ts`
+  - `referral_attributions`와 `fc_profiles.recommender_fc_id`를 함께 읽어 merge/dedupe 하도록 바꿨다.
+  - structured link만 있고 attribution이 없는 invitee는 `confirmed` synthetic row로 노출하게 했다.
+  - attribution 조회의 정적 `limit(50)`을 제거했다.
+- `docs/referral-system/*`, `.codex/harness/*`, `.claude/WORK_LOG.md`
+  - 레거시 검토 큐 상태, safe auto-resolve 계약, self-service invitee merge 계약, 새 회귀 케이스 `RF-ADMIN-09`, `RF-ADMIN-10`, `RF-SELF-03`, incident `INC-012`를 반영했다.
+
+**검증**:
+- `npx eslint hooks/use-my-invitees.ts app/referral.tsx`
+- `cd web && npm run lint -- src/lib/admin-referrals.ts src/app/api/admin/referrals/route.ts src/app/dashboard/referrals/page.tsx src/types/referrals.ts`
+- TypeScript transpile parse
+  - `supabase/functions/get-my-invitees/index.ts`
+- `cd web && npx next build`
+- `supabase functions deploy get-my-invitees --project-ref ubeginyxaotcamuqpmud`
+- service-role smoke
+  - unresolved summary: `self_referral 3 / auto_resolvable 0 / ambiguous 0 / missing_candidate 38`
+  - inviter mismatch examples:
+    - `최경집`: structured `5`, attribution `0`
+    - `서선미`: structured `5`, attribution `1`
+    - mismatch inviter total: `28`
+
+**남은 확인**:
+- 앱 실기기/실세션 기준 `RF-SELF-03` 증적은 아직 없다. 같은 inviter 계정으로 화면 캡처 + 함수 응답 + DB count를 한 번 더 맞춰야 한다.
+- 현재 운영 데이터에는 `auto_resolvable = 0`이라 `안전 자동 정리` 버튼은 정상적으로 비활성 상태로 보일 수 있다.
+
 ## <a id="20260404-manager-referral-review-hardening"></a> 2026-04-04 | 본부장 추천인 self-service 리뷰 하드닝
 
 **배경**:

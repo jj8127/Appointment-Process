@@ -1,11 +1,11 @@
 import { serve } from 'https://deno.land/std@0.224.0/http/server.ts';
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.45.4';
-import { getEnv, parseAppSessionToken } from '../_shared/request-board-auth.ts';
+import { getAppSessionTokenFromRequest, getEnv, parseAppSessionToken } from '../_shared/request-board-auth.ts';
 
 const allowedOrigins = (getEnv('ALLOWED_ORIGINS') ?? '').split(',').map(o => o.trim()).filter(Boolean);
 const corsHeaders = {
   'Access-Control-Allow-Origin': allowedOrigins.length > 0 ? allowedOrigins[0] : 'https://yourdomain.com',
-  'Access-Control-Allow-Headers': 'Content-Type, Authorization, x-client-info, apikey',
+  'Access-Control-Allow-Headers': 'Content-Type, Authorization, x-app-session-token, x-client-info, apikey',
   'Access-Control-Allow-Methods': 'POST, OPTIONS',
   'Access-Control-Allow-Credentials': 'true',
 };
@@ -32,23 +32,56 @@ function cleanPhone(input: string) {
 
 type SessionPayload = Awaited<ReturnType<typeof parseAppSessionToken>>;
 
+async function ensureManagerReferralShadowProfile(managerPhone: string, managerName?: string | null) {
+  const { error } = await supabase.rpc('ensure_manager_referral_shadow_profile', {
+    p_manager_phone: managerPhone,
+    p_manager_name: typeof managerName === 'string' && managerName.trim() ? managerName.trim() : null,
+  });
+
+  return error;
+}
+
 async function resolveCallerFcId(session: SessionPayload): Promise<{ fcId: string; phone: string } | null> {
-  if (!session || (session.role !== 'fc' && session.role !== 'manager')) return null;
+  if (!session || (session.role !== 'fc' && session.role !== 'manager' && session.role !== 'admin')) return null;
   const sessionPhone = cleanPhone(session.phone ?? '');
   if (sessionPhone.length !== 11) return null;
 
   const { data: admin } = await supabase.from('admin_accounts').select('id').eq('phone', sessionPhone).maybeSingle();
   if (admin) return null;
 
+  let managerAccount: { id: string; name: string | null } | null = null;
+  if (session.role === 'manager' || session.role === 'admin') {
+    const { data: managerRow, error: managerError } = await supabase
+      .from('manager_accounts')
+      .select('id, name')
+      .eq('phone', sessionPhone)
+      .eq('active', true)
+      .maybeSingle();
+    if (managerError || !managerRow?.id) return null;
+    managerAccount = managerRow;
+  }
+
   const sessionFcId = String(session.fcId ?? '').trim();
-  const profileResult = sessionFcId
-    ? await supabase.from('fc_profiles').select('id, phone, affiliation, signup_completed').eq('id', sessionFcId).maybeSingle()
-    : await supabase.from('fc_profiles').select('id, phone, affiliation, signup_completed').eq('phone', sessionPhone).eq('signup_completed', true).maybeSingle();
+  let profileResult = sessionFcId
+    ? await supabase.from('fc_profiles').select('id, phone, affiliation, signup_completed, is_manager_referral_shadow').eq('id', sessionFcId).maybeSingle()
+    : await supabase.from('fc_profiles').select('id, phone, affiliation, signup_completed, is_manager_referral_shadow').eq('phone', sessionPhone).maybeSingle();
+
+  if (!profileResult.data?.id && managerAccount) {
+    const ensureError = await ensureManagerReferralShadowProfile(sessionPhone, managerAccount.name);
+    if (ensureError) return null;
+    profileResult = await supabase
+      .from('fc_profiles')
+      .select('id, phone, affiliation, signup_completed, is_manager_referral_shadow')
+      .eq('phone', sessionPhone)
+      .maybeSingle();
+  }
 
   const profile = profileResult.data;
   if (!profile?.id) return null;
   if (cleanPhone(String(profile.phone ?? '')) !== sessionPhone) return null;
-  if (profile.signup_completed !== true) return null;
+  if (profile.signup_completed !== true && !(managerAccount && profile.is_manager_referral_shadow === true)) {
+    return null;
+  }
   if (String(profile.affiliation ?? '').includes('설계매니저')) return null;
 
   return { fcId: profile.id as string, phone: sessionPhone };
@@ -65,11 +98,10 @@ serve(async (req: Request) => {
   if (req.method === 'OPTIONS') return new Response('ok', { headers: corsHeaders });
   if (req.method !== 'POST') return fail('method_not_allowed', 'Method not allowed', 405);
 
-  const authHeader = req.headers.get('Authorization') ?? '';
-  const bearerMatch = authHeader.match(/^Bearer\s+(.+)$/i);
-  if (!bearerMatch) return fail('unauthorized', '인증이 필요합니다.');
+  const token = getAppSessionTokenFromRequest(req);
+  if (!token) return fail('unauthorized', '인증이 필요합니다.');
 
-  const session = await parseAppSessionToken(bearerMatch[1]);
+  const session = await parseAppSessionToken(token);
   if (!session) return fail('unauthorized', '인증이 필요합니다.');
 
   const caller = await resolveCallerFcId(session);
@@ -97,8 +129,7 @@ serve(async (req: Request) => {
   // ── Query 1: search fc_profiles by name or affiliation ──
   const { data: profileRows, error: profileError } = await supabase
     .from('fc_profiles')
-    .select('id, name, affiliation')
-    .eq('signup_completed', true)
+    .select('id, name, affiliation, signup_completed, is_manager_referral_shadow')
     .or(`name.ilike.%${query}%,affiliation.ilike.%${query}%`)
     .neq('id', caller.fcId)        // exclude self
     .not('affiliation', 'ilike', '%설계매니저%')
@@ -109,6 +140,7 @@ serve(async (req: Request) => {
   }
 
   for (const p of profileRows ?? []) {
+    if (p.signup_completed !== true && p.is_manager_referral_shadow !== true) continue;
     resultMap.set(p.id, {
       fcId: p.id,
       name: p.name ?? '',
@@ -138,13 +170,13 @@ serve(async (req: Request) => {
   if (missingFcIds.length > 0) {
     const { data: extraProfiles, error: extraError } = await supabase
       .from('fc_profiles')
-      .select('id, name, affiliation')
+      .select('id, name, affiliation, signup_completed, is_manager_referral_shadow')
       .in('id', missingFcIds)
-      .eq('signup_completed', true)
       .not('affiliation', 'ilike', '%설계매니저%');
 
     if (!extraError) {
       for (const p of extraProfiles ?? []) {
+        if (p.signup_completed !== true && p.is_manager_referral_shadow !== true) continue;
         if (!resultMap.has(p.id)) {
           resultMap.set(p.id, {
             fcId: p.id,

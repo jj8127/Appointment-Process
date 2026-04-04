@@ -1,7 +1,9 @@
 import { NextResponse } from 'next/server';
 
 import {
+  autoResolveLegacyRecommenders,
   backfillReferralCodes,
+  clearLegacyRecommender,
   disableReferralCode,
   getReferralAdminData,
   linkLegacyRecommender,
@@ -42,21 +44,42 @@ type LinkLegacyActionRequest = {
   };
 };
 
+type ClearLegacyActionRequest = {
+  action: 'clear_legacy_recommender';
+  payload?: {
+    inviteeFcId?: string;
+    reason?: string;
+  };
+};
+
+type AutoResolveLegacyActionRequest = {
+  action: 'auto_resolve_legacy_recommenders';
+  payload?: {
+    limit?: number;
+    reason?: string;
+  };
+};
+
 type ReferralAdminRequest =
   | BackfillActionRequest
   | RotateActionRequest
   | DisableActionRequest
-  | LinkLegacyActionRequest;
+  | LinkLegacyActionRequest
+  | ClearLegacyActionRequest
+  | AutoResolveLegacyActionRequest;
 
 const CLIENT_ERROR_MESSAGES = new Set([
   '추천코드 작업 권한이 없습니다.',
   '사유를 입력해주세요.',
   '추천코드 대상 FC를 찾을 수 없습니다.',
   '가입 완료된 FC만 추천코드를 발급할 수 있습니다.',
+  '가입 완료된 FC 또는 활성 본부장 계정만 추천코드를 발급할 수 있습니다.',
   '전화번호가 정규화된 11자리인 FC만 추천코드를 발급할 수 있습니다.',
   '설계매니저 계정에는 추천코드를 발급할 수 없습니다.',
   '운영 계정에는 추천코드를 발급할 수 없습니다.',
   '본부장 계정에는 추천코드를 발급할 수 없습니다.',
+  '본부장 추천인 전용 프로필을 정리할 수 없습니다. 기존 FC 데이터와 전화번호 충돌 여부를 확인해주세요.',
+  '활성 본부장 계정을 찾을 수 없습니다.',
   '활성 추천코드가 없습니다.',
   '추천코드 생성 시 충돌이 반복되어 중단되었습니다.',
   '추천코드 작업 결과를 확인할 수 없습니다.',
@@ -184,6 +207,29 @@ export async function POST(req: Request) {
       }
 
       const result = await linkLegacyRecommender(sessionCheck.session, inviteeFcId, inviterFcId, reason);
+      return NextResponse.json({ ok: true, action, result });
+    }
+
+    if (action === 'clear_legacy_recommender') {
+      const inviteeFcId = payload?.inviteeFcId?.trim();
+      const reason = payload?.reason?.trim();
+      if (!inviteeFcId) {
+        return badRequest('inviteeFcId 값이 필요합니다.');
+      }
+      if (!reason) {
+        return badRequest('사유를 입력해주세요.');
+      }
+
+      const result = await clearLegacyRecommender(sessionCheck.session, inviteeFcId, reason);
+      return NextResponse.json({ ok: true, action, result });
+    }
+
+    if (action === 'auto_resolve_legacy_recommenders') {
+      const result = await autoResolveLegacyRecommenders(
+        sessionCheck.session,
+        payload?.limit,
+        payload?.reason,
+      );
       return NextResponse.json({ ok: true, action, result });
     }
 

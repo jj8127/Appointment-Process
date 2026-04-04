@@ -109,6 +109,10 @@
 4. 추천인 페이지의 현재 추천인 표시는 direct client `fc_profiles` query가 아니라 같은 trusted self-service 응답(`get-my-referral-code`)에서 내려온 `recommender` cache를 사용한다.
 5. legacy 로컬 세션에 `role='manager'`가 저장돼 있어도 앱 복원 단계에서 `admin + readOnly` UI state로 정규화돼 같은 self-service 동선을 유지해야 한다.
 6. `get-fc-referral-code`는 legacy compatibility alias로 저장소에 남아 있어도 `2026-04-02` 기준 current app hook path는 아니다. 이 함수의 optional `phone` body는 세션 전화번호와 일치할 때만 허용된다.
+7. `내가 초대한 사람들` 목록의 trusted source는 `get-my-invitees`다.
+8. `get-my-invitees`는 `referral_attributions.inviter_fc_id`만이 아니라 현재 구조화 링크 `fc_profiles.recommender_fc_id`도 함께 합쳐서 invitee를 구성해야 한다.
+9. 구조화 링크만 있고 attribution이 없는 invitee는 self-service 목록에서 `confirmed`로 표시할 수 있다.
+10. invitee 목록은 임의의 `50건` 정적 상한으로 잘라 보이지 않게 하면 안 된다. 실제 초대 수가 더 많으면 같은 trusted path에서 계속 보이도록 반환해야 한다.
 
 ## 5. 식별자 규칙
 
@@ -232,11 +236,20 @@
   - 비활성 코드 이력
   - 코드 lifecycle + `admin_override_applied` 최근 이벤트
   - 레거시 추천인 검토 큐
+- 레거시 추천인 검토 큐의 상태 분류 SSOT는 아래와 같다.
+  - `자동 연결 가능`: `recommender` 정규화 문자열과 eligible profile 이름이 정확히 1명으로만 일치하고, 자기 자신이 아니며, 운영 제외 규칙을 위반하지 않는 경우
+  - `동명이인 후보 다수`: 같은 이름 후보가 2명 이상인 경우
+  - `후보 없음`: 같은 이름 후보가 없는 경우
+  - `잘못된 자기추천`: invitee 이름과 `recommender`가 같아 자기 자신을 추천인으로 적은 경우
+- `안전 자동 정리` batch는 `자동 연결 가능` 상태만 대상으로 삼는다.
+  - exact-unique가 아닌 `동명이인 후보 다수`, `후보 없음`, `잘못된 자기추천`은 자동 정리 대상이 아니다.
+  - graph 또는 일반 조회 진입만으로 DB를 묵시적으로 바꾸지 않고, 운영자가 명시적으로 batch를 실행할 때만 구조화 링크를 저장한다.
+- `잘못된 자기추천`은 일반 `clear`와 동일하게 `reason`이 필수이고, 운영자가 제거 또는 재지정으로만 정리한다.
 - `/dashboard/referrals`를 full `referral_attributions` 탐색기처럼 문서화하지 않는다.
 - `/dashboard/referrals/graph`는 read-first graph explorer다.
   - visible edge 기본 소스는 `fc_profiles.recommender_fc_id`다.
   - `confirmed referral_attributions`는 edge를 하나 더 그리는 용도가 아니라 같은 관계의 `confirmed` 근거를 덧씌우는 용도다.
-  - 레거시 `recommender` free-text는 edge로 추론하지 않고 `레거시 미해결` 플래그로만 남긴다.
+  - 레거시 `recommender` free-text는 edge source가 아니다. 구조화 링크가 없으면 graph에서도 unresolved 상태로만 남긴다.
   - graph 안에서는 mutation CTA를 노출하지 않고, 운영 액션은 기존 `/dashboard/referrals` 리스트/상세 화면에 남긴다.
   - graph layout은 세션 한정이며 node drag, 빈 공간 pan, fit/reset, 기본 node name label 표시를 지원해야 한다.
   - manager는 graph page 진입과 조회는 가능하지만 계속 read-only다.

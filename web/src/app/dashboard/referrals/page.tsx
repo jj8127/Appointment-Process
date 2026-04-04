@@ -48,11 +48,13 @@ import type {
 
 const PAGE_SIZE = 20;
 const BACKFILL_LIMIT = 100;
+const LEGACY_AUTO_RESOLVE_LIMIT = 100;
 
 type ActionModalState =
   | { action: 'backfill_missing_codes'; target: null }
   | { action: 'rotate_code' | 'disable_code'; target: ReferralAdminListItem }
-  | { action: 'link_legacy_recommender'; target: ReferralAdminUnresolvedItem }
+  | { action: 'link_legacy_recommender' | 'clear_legacy_recommender'; target: ReferralAdminUnresolvedItem }
+  | { action: 'auto_resolve_legacy_recommenders'; target: null }
   | null;
 
 function formatDateTime(value?: string | null) {
@@ -98,12 +100,14 @@ function getEventActorLabel(event: ReferralAdminEventItem) {
 }
 
 function getUnresolvedStatusLabel(status: ReferralAdminUnresolvedItem['matchStatus']) {
+  if (status === 'self_referral') return '잘못된 자기추천';
   if (status === 'ambiguous') return '동명이인 후보 다수';
   if (status === 'auto_resolvable') return '자동 연결 가능';
-  return '활성 코드 후보 없음';
+  return '후보 없음';
 }
 
 function getUnresolvedStatusColor(status: ReferralAdminUnresolvedItem['matchStatus']) {
+  if (status === 'self_referral') return 'red';
   if (status === 'ambiguous') return 'orange';
   if (status === 'auto_resolvable') return 'blue';
   return 'gray';
@@ -380,6 +384,7 @@ export default function ReferralDashboardPage() {
   const summary = listQuery.data?.summary;
   const detail = detailQuery.data?.detail ?? null;
   const unresolvedItems = listQuery.data?.unresolvedItems ?? [];
+  const autoResolvableCount = unresolvedItems.filter((item) => item.matchStatus === 'auto_resolvable').length;
   const total = listQuery.data?.total ?? 0;
   const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
   const selectedItem = items.find((item) => item.fcId === effectiveSelectedFcId) ?? null;
@@ -391,10 +396,14 @@ export default function ReferralDashboardPage() {
       const message =
         variables.action === 'backfill_missing_codes'
           ? `추천코드 일괄 발급을 실행했습니다. 생성 ${Number(result.created ?? 0)}건, 건너뜀 ${Number(result.skipped ?? 0)}건`
+          : variables.action === 'auto_resolve_legacy_recommenders'
+            ? `안전 자동 정리를 실행했습니다. 연결 ${Number(result.linked ?? 0)}건, 건너뜀 ${Number(result.skipped ?? 0)}건, 실패 ${Number(result.failed ?? 0)}건`
           : variables.action === 'rotate_code'
             ? '추천코드를 재발급했습니다.'
             : variables.action === 'disable_code'
               ? '추천코드를 비활성화했습니다.'
+              : variables.action === 'clear_legacy_recommender'
+                ? '레거시 추천인을 제거했습니다.'
               : '레거시 추천인을 구조화 링크로 저장했습니다.';
 
       notifications.show({
@@ -441,8 +450,18 @@ export default function ReferralDashboardPage() {
     }
 
     setReasonInput('');
-    setLegacySelectedInviterFcId(null);
+    setLegacySelectedInviterFcId(target.autoResolvableCandidate?.fcId ?? null);
     setActionModal({ action: 'link_legacy_recommender', target });
+  };
+
+  const openLegacyClearModal = (target: ReferralAdminUnresolvedItem) => {
+    if (!showMutateControls) {
+      return;
+    }
+
+    setReasonInput('');
+    setLegacySelectedInviterFcId(null);
+    setActionModal({ action: 'clear_legacy_recommender', target });
   };
 
   const closeModal = () => {
@@ -464,11 +483,33 @@ export default function ReferralDashboardPage() {
       return;
     }
 
+    if (actionModal.action === 'auto_resolve_legacy_recommenders') {
+      mutation.mutate({
+        action: 'auto_resolve_legacy_recommenders',
+        payload: {
+          limit: LEGACY_AUTO_RESOLVE_LIMIT,
+          reason: 'legacy_auto_resolve_exact_unique',
+        },
+      });
+      return;
+    }
+
     if (!reasonInput.trim()) {
       notifications.show({
         title: '사유 입력',
         message: '사유를 입력해주세요.',
         color: 'red',
+      });
+      return;
+    }
+
+    if (actionModal.action === 'clear_legacy_recommender') {
+      mutation.mutate({
+        action: 'clear_legacy_recommender',
+        payload: {
+          inviteeFcId: actionModal.target.inviteeFcId,
+          reason: reasonInput.trim(),
+        },
       });
       return;
     }
@@ -491,6 +532,10 @@ export default function ReferralDashboardPage() {
           reason: reasonInput.trim(),
         },
       });
+      return;
+    }
+
+    if (actionModal.action !== 'rotate_code' && actionModal.action !== 'disable_code') {
       return;
     }
 
@@ -692,9 +737,21 @@ export default function ReferralDashboardPage() {
                   `recommender` 문자열만 있고 구조화된 `recommender_fc_id`가 없는 FC를 검토합니다.
                 </Text>
               </div>
-              <Badge color="gray" variant="light">
-                총 {unresolvedItems.length}건
-              </Badge>
+              <Group gap="xs">
+                <Badge color="gray" variant="light">
+                  총 {unresolvedItems.length}건
+                </Badge>
+                {showMutateControls ? (
+                  <Button
+                    variant="light"
+                    color="blue"
+                    disabled={autoResolvableCount === 0}
+                    onClick={() => setActionModal({ action: 'auto_resolve_legacy_recommenders', target: null })}
+                  >
+                    안전 자동 정리
+                  </Button>
+                ) : null}
+              </Group>
             </Group>
 
             {unresolvedItems.length ? (
@@ -748,9 +805,26 @@ export default function ReferralDashboardPage() {
                         </Table.Td>
                         <Table.Td>
                           {showMutateControls ? (
-                            <Button size="xs" variant="light" onClick={() => openLegacyLinkModal(item)}>
-                              연결
-                            </Button>
+                            <Group gap="xs">
+                              {item.matchStatus === 'self_referral' ? (
+                                <>
+                                  <Button size="xs" color="red" variant="light" onClick={() => openLegacyClearModal(item)}>
+                                    제거
+                                  </Button>
+                                  <Button size="xs" variant="light" onClick={() => openLegacyLinkModal(item)}>
+                                    재지정
+                                  </Button>
+                                </>
+                              ) : item.matchStatus === 'auto_resolvable' ? (
+                                <Button size="xs" color="blue" variant="light" onClick={() => openLegacyLinkModal(item)}>
+                                  확정
+                                </Button>
+                              ) : (
+                                <Button size="xs" variant="light" onClick={() => openLegacyLinkModal(item)}>
+                                  검토
+                                </Button>
+                              )}
+                            </Group>
                           ) : (
                             <Badge color="gray" variant="light">
                               읽기 전용
@@ -777,10 +851,14 @@ export default function ReferralDashboardPage() {
         title={
           actionModal?.action === 'backfill_missing_codes'
             ? '기존 FC 추천코드 일괄 발급'
+            : actionModal?.action === 'auto_resolve_legacy_recommenders'
+              ? '레거시 추천인 안전 자동 정리'
             : actionModal?.action === 'rotate_code'
               ? '추천코드 재발급'
-              : actionModal?.action === 'disable_code'
+            : actionModal?.action === 'disable_code'
                 ? '추천코드 비활성'
+                : actionModal?.action === 'clear_legacy_recommender'
+                  ? '레거시 추천인 제거'
                 : '레거시 추천인 연결'
         }
         centered
@@ -790,6 +868,30 @@ export default function ReferralDashboardPage() {
             <Alert color="orange" icon={<IconAlertCircle size={16} />}>
               한 번 실행할 때 최대 {BACKFILL_LIMIT}명의 미발급 FC를 처리합니다. 활성 코드가 있는 FC는 자동으로 건너뜁니다.
             </Alert>
+          ) : actionModal?.action === 'auto_resolve_legacy_recommenders' ? (
+            <Alert color="blue" icon={<IconAlertCircle size={16} />}>
+              exact-unique로 확정 가능한 레거시 추천인만 최대 {LEGACY_AUTO_RESOLVE_LIMIT}건까지 자동 연결합니다.
+              동명이인, 후보 없음, 자기추천은 자동 정리 대상에서 제외됩니다.
+            </Alert>
+          ) : actionModal?.action === 'clear_legacy_recommender' ? (
+            <>
+              <Text size="sm">
+                대상: <strong>{actionModal.target.inviteeName}</strong> ({actionModal.target.inviteePhone})
+              </Text>
+              <Text size="sm" c="dimmed">
+                기존 추천인 문자열: {actionModal.target.legacyRecommenderName}
+              </Text>
+              <Alert color="red" icon={<IconAlertCircle size={16} />}>
+                자기 자신을 추천인으로 적은 잘못된 레거시 데이터를 제거합니다.
+              </Alert>
+              <Textarea
+                label="사유"
+                placeholder="자기추천 제거 사유를 입력해주세요."
+                minRows={3}
+                value={reasonInput}
+                onChange={(event) => setReasonInput(event.currentTarget.value)}
+              />
+            </>
           ) : actionModal?.action === 'link_legacy_recommender' ? (
             <>
               <Text size="sm">
@@ -798,11 +900,31 @@ export default function ReferralDashboardPage() {
               <Text size="sm" c="dimmed">
                 기존 추천인 문자열: {actionModal.target.legacyRecommenderName}
               </Text>
-              <RecommenderSelect
-                value={legacySelectedInviterFcId}
-                inviteeFcId={actionModal.target.inviteeFcId}
-                onChange={(candidate) => setLegacySelectedInviterFcId(candidate?.fcId ?? null)}
-              />
+              {actionModal.target.matchStatus === 'auto_resolvable' && actionModal.target.autoResolvableCandidate ? (
+                <Alert color="blue" icon={<IconAlertCircle size={16} />}>
+                  자동 연결 후보:
+                  {' '}
+                  {actionModal.target.autoResolvableCandidate.label}
+                  {actionModal.target.autoResolvableCandidate.activeCode ? ` · ${actionModal.target.autoResolvableCandidate.activeCode}` : ''}
+                </Alert>
+              ) : null}
+              {actionModal.target.matchStatus === 'missing_candidate' ? (
+                <Alert color="gray" icon={<IconAlertCircle size={16} />}>
+                  활성 코드 후보가 없어 자동으로는 연결할 수 없습니다. 필요한 경우 아래에서 수동으로 추천인을 지정하세요.
+                </Alert>
+              ) : null}
+              {actionModal.target.matchStatus === 'ambiguous' ? (
+                <Alert color="orange" icon={<IconAlertCircle size={16} />}>
+                  동명이인 후보가 여러 명입니다. 정확한 추천인을 수동으로 선택해야 합니다.
+                </Alert>
+              ) : null}
+              {actionModal.target.matchStatus !== 'auto_resolvable' ? (
+                <RecommenderSelect
+                  value={legacySelectedInviterFcId}
+                  inviteeFcId={actionModal.target.inviteeFcId}
+                  onChange={(candidate) => setLegacySelectedInviterFcId(candidate?.fcId ?? null)}
+                />
+              ) : null}
               <Textarea
                 label="사유"
                 placeholder="운영 연결 사유를 입력해주세요."
@@ -813,9 +935,14 @@ export default function ReferralDashboardPage() {
             </>
           ) : (
             <>
-              <Text size="sm">
-                대상: <strong>{actionModal?.target.name}</strong> ({actionModal?.target.phone})
-              </Text>
+              {(() => {
+                const target = actionModal?.target as ReferralAdminListItem | undefined;
+                return (
+                  <Text size="sm">
+                    대상: <strong>{target?.name}</strong> ({target?.phone})
+                  </Text>
+                );
+              })()}
               <Textarea
                 label="사유"
                 placeholder="운영 사유를 입력해주세요."
@@ -831,7 +958,7 @@ export default function ReferralDashboardPage() {
               취소
             </Button>
             <Button
-              color={actionModal?.action === 'disable_code' ? 'red' : 'orange'}
+              color={actionModal?.action === 'disable_code' || actionModal?.action === 'clear_legacy_recommender' ? 'red' : actionModal?.action === 'auto_resolve_legacy_recommenders' ? 'blue' : 'orange'}
               loading={mutation.isPending}
               onClick={submitAction}
             >

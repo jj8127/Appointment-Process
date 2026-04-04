@@ -57,6 +57,7 @@
 - `RF-CODE-07` Android 추천코드 입력 시 소문자가 대문자 1회로만 정규화되고 중복 문자(`JJ`)가 생기지 않음
 - `RF-SELF-01` FC/본부장 self-service 추천코드 조회는 현재 runtime hook(`get-my-referral-code`) 기준으로 active code를 반환함
 - `RF-SELF-02` FC/본부장 self-service 추천인 변경은 trusted path로 현재 추천인 표시와 attribution/event audit trail을 함께 갱신함
+- `RF-SELF-03` FC/본부장 self-service `내가 초대한 사람들` 목록은 attribution과 `recommender_fc_id` 구조화 링크를 함께 반영하고 임의 상한으로 잘리지 않음
 
 ### 5.2 초대링크
 
@@ -85,6 +86,8 @@
 - `RF-ADMIN-06` 레거시 추천인 검토 큐에서 구조화 링크가 없는 FC를 계정 선택형으로 연결하고 감사 로그를 남김
 - `RF-ADMIN-07` `/dashboard/referrals/graph`는 structured link 기준으로 빈 선 없이 그려지고 manager read-only를 유지함
 - `RF-ADMIN-08` graph canvas는 node drag, 빈 공간 pan, reset, 기본 node name label을 지원함
+- `RF-ADMIN-09` 레거시 추천인 검토 큐는 `자동 연결 가능/동명이인 후보 다수/후보 없음/잘못된 자기추천` 상태를 정확히 분류함
+- `RF-ADMIN-10` `안전 자동 정리`는 exact-unique만 구조화하고 자기추천/후보 없음/동명이인은 남김
 
 ### 5.5 관찰성/정합성
 
@@ -113,8 +116,11 @@
 - override/clear는 이유(reason)와 actor가 같이 남는지 확인한다.
 - 추천인 override는 `before/after/reason/actor`와 함께 `recommender_fc_id` / `referral_attributions`가 동시에 바뀌는지 확인한다.
 - 추천인 clear는 `recommender` 문자열만 있던 레거시 FC에서도 동작해야 하고, clear 이벤트가 추천인 운영 화면 최근 이벤트에 보이는지까지 확인한다.
+- `잘못된 자기추천` 제거 케이스는 `recommender_fc_id`가 null로 정리되고 같은 invitee에 새 confirmed attribution이 생기지 않는지 확인한다.
+- `안전 자동 정리`는 처리 수/건너뜀 수/실패 수 요약과 실제 DB 반영 건수가 일치하는지 확인한다.
 - trusted API 경로 케이스는 함수 호출 payload, 응답, service 로그 중 최소 1개를 포함한다.
 - self-service 조회 케이스는 현재 hook 경로(`get-my-referral-code`)와 FC/본부장 공통 응답 계약을 함께 남긴다.
+- self-service invitee 목록 케이스는 `referral_attributions` 개수와 `recommender_fc_id` 구조화 링크 개수를 함께 대조하고, 구조화 링크만 있는 invitee도 목록에 포함되는지 확인한다.
 - 추천코드 입력 회귀는 실제 입력 문자열(`j -> J`, `ab -> AB`)과 결과 화면을 함께 남긴다.
 - source repo만 보고 맞춘 계약 정리는 evidence가 아니다. 그런 항목은 notes에 `code review only`로 명시한다.
 

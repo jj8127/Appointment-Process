@@ -61,7 +61,9 @@ export type ReferralAdminUnresolvedItem = {
   legacyRecommenderName: string;
   candidateCount: number;
   candidatePreview: string[];
-  matchStatus: 'ambiguous' | 'missing_candidate' | 'auto_resolvable';
+  candidateOptions: RecommenderCandidate[];
+  autoResolvableCandidate: RecommenderCandidate | null;
+  matchStatus: 'ambiguous' | 'missing_candidate' | 'auto_resolvable' | 'self_referral';
 };
 
 export type ReferralAdminPermissions = {
@@ -84,7 +86,9 @@ export type ReferralAdminMutationAction =
   | 'backfill_missing_codes'
   | 'rotate_code'
   | 'disable_code'
-  | 'link_legacy_recommender';
+  | 'link_legacy_recommender'
+  | 'clear_legacy_recommender'
+  | 'auto_resolve_legacy_recommenders';
 
 export type ReferralAdminMutationRequest =
   | {
@@ -106,6 +110,20 @@ export type ReferralAdminMutationRequest =
         inviteeFcId: string;
         inviterFcId: string;
         reason: string;
+      };
+    }
+  | {
+      action: 'clear_legacy_recommender';
+      payload: {
+        inviteeFcId: string;
+        reason: string;
+      };
+    }
+  | {
+      action: 'auto_resolve_legacy_recommenders';
+      payload?: {
+        limit?: number;
+        reason?: string;
       };
     };
 

@@ -189,6 +189,22 @@ export async function parseAppSessionToken(token: string) {
   return parsed;
 }
 
+export function getAppSessionTokenFromRequest(req: Request) {
+  const headerToken = req.headers.get('x-app-session-token')?.trim();
+  if (headerToken) {
+    return headerToken;
+  }
+
+  const authHeader = req.headers.get('Authorization') ?? '';
+  const bearerMatch = authHeader.match(/^Bearer\s+(.+)$/i);
+  if (!bearerMatch) {
+    return null;
+  }
+
+  const bearerToken = bearerMatch[1]?.trim();
+  return bearerToken || null;
+}
+
 export function parseDesignerCompanyNameFromAffiliation(affiliation?: string | null) {
   const raw = String(affiliation ?? '').trim();
   if (!raw) return null;

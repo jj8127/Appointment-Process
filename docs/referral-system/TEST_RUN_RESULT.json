@@ -282,6 +282,38 @@
       "notes": "정적 검증과 코드 경로는 확인했지만, 실제 브라우저에서 node drag/empty-space pan/reset 후 cluster 재형성 체감은 아직 시각 증적을 남기지 못했다."
     },
     {
+      "caseId": "RF-ADMIN-09",
+      "area": "운영",
+      "priority": "P0",
+      "platform": ["web", "backend"],
+      "title": "레거시 추천인 검토 큐는 자동 연결 가능/동명이인 후보 다수/후보 없음/잘못된 자기추천 상태를 정확히 분류한다",
+      "status": "PASS",
+      "owner": "Codex",
+      "executedAt": "2026-04-04T12:10:00.000Z",
+      "evidence": [
+        "service-role smoke => unresolvedCount 41, summary { self_referral: 3, auto_resolvable: 0, ambiguous: 0, missing_candidate: 38 }",
+        "web/src/lib/admin-referrals.ts buildUnresolvedLegacyItems => self_referral/auto_resolvable/ambiguous/missing_candidate classification",
+        "cd web && npm run lint -- src/lib/admin-referrals.ts src/app/api/admin/referrals/route.ts src/app/dashboard/referrals/page.tsx src/types/referrals.ts"
+      ],
+      "notes": "현재 운영 데이터에는 exact-unique/ambiguous가 0건이라 실제 UI에서 네 상태를 모두 동시에 보지는 못했다. 다만 service-role 집계와 서버 분류 로직, 타입/페이지 경로를 대조해 `self_referral 3건 / missing_candidate 38건`이 일치하는 것을 확인했다."
+    },
+    {
+      "caseId": "RF-ADMIN-10",
+      "area": "운영",
+      "priority": "P0",
+      "platform": ["web", "backend"],
+      "title": "`안전 자동 정리`는 exact-unique만 구조화하고 자기추천/후보 없음/동명이인은 남긴다",
+      "status": "PASS",
+      "owner": "Codex",
+      "executedAt": "2026-04-04T12:10:00.000Z",
+      "evidence": [
+        "service-role smoke => auto_resolvable 0, self_referral 3, missing_candidate 38, ambiguous 0",
+        "web/src/lib/admin-referrals.ts autoResolveLegacyRecommenders => unresolvedItems.filter(matchStatus === 'auto_resolvable') only",
+        "web/src/app/dashboard/referrals/page.tsx => `안전 자동 정리` button disabled when autoResolvableCount === 0"
+      ],
+      "notes": "현재 운영 데이터에는 exact-unique 대상이 0건이라 실제 batch mutate를 실행하지 않았다. 대신 서버 함수가 `auto_resolvable`만 대상으로 삼고, UI도 같은 조건에서만 batch를 열도록 고정된 것을 확인했다. self_referral/no-match가 자동 대상에서 제외된 점은 PASS로 판단했다."
+    },
+    {
       "caseId": "RF-OBS-01",
       "area": "관찰성",
       "priority": "P0",
@@ -462,6 +494,23 @@
         "supabase functions deploy update-my-recommender --project-ref ubeginyxaotcamuqpmud"
       ],
       "notes": "스키마/코드/배포 parity와 정적 검증은 완료했지만, 실제 FC/본부장 계정으로 추천인 검색-저장 후 confirmed attribution/event row와 화면 갱신을 한 번에 찍은 live evidence는 아직 없다."
+    },
+    {
+      "caseId": "RF-SELF-03",
+      "area": "추천코드",
+      "priority": "P0",
+      "platform": ["app", "backend"],
+      "title": "FC/본부장 self-service `내가 초대한 사람들` 목록은 attribution과 `recommender_fc_id` 구조화 링크를 함께 반영하고 임의 상한으로 잘리지 않는다",
+      "status": "BLOCKED",
+      "owner": "Codex",
+      "executedAt": "2026-04-04T12:25:00.000Z",
+      "evidence": [
+        "supabase/functions/get-my-invitees/index.ts => referral_attributions + fc_profiles(recommender_fc_id) merge and dedupe",
+        "npx eslint hooks/use-my-invitees.ts app/referral.tsx",
+        "TypeScript transpile parse => supabase/functions/get-my-invitees/index.ts",
+        "service-role smoke => inviter mismatch count 28, example `서선미 structured 5 / attribution 1`, `최경집 structured 5 / attribution 0`"
+      ],
+      "notes": "운영 DB에서 attribution-only 경로가 실제 undercount를 만든다는 증적은 확보했다. 다만 실제 inviter app 세션으로 `get-my-invitees` 응답과 화면 count를 찍은 live evidence는 아직 없다."
     }
   ]
 }

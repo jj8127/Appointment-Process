@@ -2,13 +2,14 @@ import { serve } from 'https://deno.land/std@0.224.0/http/server.ts';
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.45.4';
 import {
   getEnv,
+  getAppSessionTokenFromRequest,
   parseAppSessionToken,
 } from '../_shared/request-board-auth.ts';
 
 const allowedOrigins = (getEnv('ALLOWED_ORIGINS') ?? '').split(',').map(o => o.trim()).filter(Boolean);
 const corsHeaders = {
   'Access-Control-Allow-Origin': allowedOrigins.length > 0 ? allowedOrigins[0] : 'https://yourdomain.com',
-  'Access-Control-Allow-Headers': 'Content-Type, Authorization, x-client-info, apikey',
+  'Access-Control-Allow-Headers': 'Content-Type, Authorization, x-app-session-token, x-client-info, apikey',
   'Access-Control-Allow-Methods': 'POST, OPTIONS',
   'Access-Control-Allow-Credentials': 'true',
 };
@@ -45,8 +46,17 @@ function isUniqueViolation(error: { code?: string; message?: string } | null) {
   return error.code === '23505' || error.message?.toLowerCase().includes('duplicate key') === true;
 }
 
+async function ensureManagerReferralShadowProfile(managerPhone: string, managerName?: string | null) {
+  const { error } = await supabase.rpc('ensure_manager_referral_shadow_profile', {
+    p_manager_phone: managerPhone,
+    p_manager_name: typeof managerName === 'string' && managerName.trim() ? managerName.trim() : null,
+  });
+
+  return error;
+}
+
 async function resolveSession(session: SessionPayload) {
-  if (!session || (session.role !== 'fc' && session.role !== 'manager')) {
+  if (!session || (session.role !== 'fc' && session.role !== 'manager' && session.role !== 'admin')) {
     return { error: fail('forbidden', '추천인을 변경할 수 없는 계정입니다.') };
   }
   const sessionPhone = cleanPhone(session.phone ?? '');
@@ -57,17 +67,39 @@ async function resolveSession(session: SessionPayload) {
   const { data: adminRow } = await supabase.from('admin_accounts').select('id').eq('phone', sessionPhone).maybeSingle();
   if (adminRow) return { error: fail('forbidden', '추천인을 변경할 수 없는 계정입니다.') };
 
+  let managerAccount: { id: string; name: string | null } | null = null;
+  if (session.role === 'manager' || session.role === 'admin') {
+    const { data: managerRow, error: managerError } = await supabase
+      .from('manager_accounts')
+      .select('id, name')
+      .eq('phone', sessionPhone)
+      .eq('active', true)
+      .maybeSingle();
+    if (managerError) return { error: json({ ok: false, code: 'db_error', message: managerError.message }, 500) };
+    if (!managerRow?.id) return { error: fail('forbidden', '추천인을 변경할 수 없는 계정입니다.') };
+    managerAccount = managerRow;
+  }
+
   const sessionFcId = String(session.fcId ?? '').trim();
-  const profileQuery = supabase.from('fc_profiles').select('id, phone, affiliation, signup_completed');
-  const profileResult = sessionFcId
+  const profileQuery = supabase.from('fc_profiles').select('id, phone, affiliation, signup_completed, is_manager_referral_shadow');
+  let profileResult = sessionFcId
     ? await profileQuery.eq('id', sessionFcId).maybeSingle()
-    : await profileQuery.eq('phone', sessionPhone).eq('signup_completed', true).maybeSingle();
+    : await profileQuery.eq('phone', sessionPhone).maybeSingle();
+
+  if (!profileResult.data?.id && managerAccount) {
+    const ensureError = await ensureManagerReferralShadowProfile(sessionPhone, managerAccount.name);
+    if (ensureError) return { error: json({ ok: false, code: 'db_error', message: ensureError.message }, 500) };
+    profileResult = await profileQuery.eq('phone', sessionPhone).maybeSingle();
+  }
 
   const { data: profile, error: profileError } = profileResult;
   if (profileError) return { error: json({ ok: false, code: 'db_error', message: profileError.message }, 500) };
   if (!profile?.id) return { error: fail('not_found', '계정을 찾을 수 없습니다.') };
   if (cleanPhone(String(profile.phone ?? '')) !== sessionPhone) return { error: fail('unauthorized', '인증이 필요합니다.') };
-  if (profile.signup_completed !== true) return { error: fail('not_found', '계정을 찾을 수 없습니다.') };
+  const isManagerShadow = profile.is_manager_referral_shadow === true;
+  if (profile.signup_completed !== true && !(managerAccount && isManagerShadow)) {
+    return { error: fail('not_found', '계정을 찾을 수 없습니다.') };
+  }
   if (String(profile.affiliation ?? '').includes('설계매니저')) return { error: fail('forbidden', '추천인을 변경할 수 없는 계정입니다.') };
 
   return { profile: { id: profile.id as string, phone: sessionPhone } };
@@ -152,7 +184,7 @@ async function captureConfirmedAttribution(params: {
         return { error: json({ ok: false, code: 'db_error', message: retryLookupError.message }, 500) };
       }
 
-      const retryPrimary = ((retriedRows ?? []) as Array<{ id: string }>)[0];
+      const retryPrimary = ((retriedRows ?? []) as { id: string }[])[0];
       if (!retryPrimary?.id) {
         return { error: fail('attribution_insert_conflict', '추천인 이력을 저장하지 못했습니다.', 409) };
       }
@@ -232,11 +264,10 @@ serve(async (req: Request) => {
   if (req.method === 'OPTIONS') return new Response('ok', { headers: corsHeaders });
   if (req.method !== 'POST') return fail('method_not_allowed', 'Method not allowed', 405);
 
-  const authHeader = req.headers.get('Authorization') ?? '';
-  const bearerMatch = authHeader.match(/^Bearer\s+(.+)$/i);
-  if (!bearerMatch) return fail('unauthorized', '인증이 필요합니다.');
+  const token = getAppSessionTokenFromRequest(req);
+  if (!token) return fail('unauthorized', '인증이 필요합니다.');
 
-  const session = await parseAppSessionToken(bearerMatch[1]);
+  const session = await parseAppSessionToken(token);
   if (!session) return fail('unauthorized', '인증이 필요합니다.');
 
   // Parse body
@@ -274,13 +305,15 @@ serve(async (req: Request) => {
   // Fetch inviter profile
   const { data: inviter, error: inviterError } = await supabase
     .from('fc_profiles')
-    .select('id, name, phone, affiliation, signup_completed')
+    .select('id, name, phone, affiliation, signup_completed, is_manager_referral_shadow')
     .eq('id', referralRow.fc_id)
     .maybeSingle();
 
   if (inviterError) return json({ ok: false, code: 'db_error', message: inviterError.message }, 500);
   if (!inviter) return fail('invalid_code', '유효하지 않은 추천 코드입니다.');
-  if (inviter.signup_completed !== true) return fail('invalid_code', '유효하지 않은 추천 코드입니다.');
+  if (inviter.signup_completed !== true && inviter.is_manager_referral_shadow !== true) {
+    return fail('invalid_code', '유효하지 않은 추천 코드입니다.');
+  }
   if (String(inviter.affiliation ?? '').includes('설계매니저')) return fail('invalid_code', '유효하지 않은 추천 코드입니다.');
 
   const inviterPhone = cleanPhone(String(inviter.phone ?? ''));

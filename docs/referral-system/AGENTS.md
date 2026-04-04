@@ -134,6 +134,8 @@
 - 추천코드 운영 화면은 `manager` 읽기 전용 UI와 서버 `POST 403`을 동시에 만족해야 한다.
 - 웹 추천인 override/legacy link UI는 DB migration `20260331000005_admin_apply_recommender_override.sql`이 원격 적용되기 전에는 배포하지 않는다.
 - `/dashboard/referrals`는 현재 `추천코드 마스터 운영 + 레거시 추천인 검토 큐` 화면이다. full `referral_attributions` 탐색기처럼 문서화하지 않는다.
+- 레거시 추천인 검토 큐는 `자동 연결 가능`, `동명이인 후보 다수`, `후보 없음`, `잘못된 자기추천` 상태를 명시적으로 보여줘야 한다.
+- `안전 자동 정리` batch는 exact-unique(`자동 연결 가능`)만 처리하고, `잘못된 자기추천`/`후보 없음`/`동명이인 후보 다수`는 자동 정리 대상에 넣지 않는다.
 - `/dashboard/referrals/graph`는 추천 관계를 읽기 전용으로 탐색하는 graph surface다. visible edge 기본 소스는 `fc_profiles.recommender_fc_id`이고, `confirmed referral_attributions`는 같은 관계 edge의 상태를 강화하는 보조 증거로만 합친다.
 - `/dashboard/referrals/graph`는 graph 안에서 mutate CTA를 다시 열지 않는다. node drag, 빈 캔버스 pan, fit/reset, node label 가시성은 허용하되 manager는 계속 read-only다.
 

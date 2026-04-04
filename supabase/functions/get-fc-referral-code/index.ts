@@ -2,13 +2,14 @@ import { serve } from 'https://deno.land/std@0.224.0/http/server.ts';
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.45.4';
 import {
   getEnv,
+  getAppSessionTokenFromRequest,
   parseAppSessionToken,
 } from '../_shared/request-board-auth.ts';
 
 const allowedOrigins = (getEnv('ALLOWED_ORIGINS') ?? '').split(',').map(o => o.trim()).filter(Boolean);
 const corsHeaders = {
   'Access-Control-Allow-Origin': allowedOrigins.length > 0 ? allowedOrigins[0] : 'https://yourdomain.com',
-  'Access-Control-Allow-Headers': 'Content-Type, Authorization, x-client-info, apikey',
+  'Access-Control-Allow-Headers': 'Content-Type, Authorization, x-app-session-token, x-client-info, apikey',
   'Access-Control-Allow-Methods': 'POST, OPTIONS',
   'Access-Control-Allow-Credentials': 'true',
 };
@@ -38,6 +39,15 @@ function cleanPhone(input: string) {
   return (input ?? '').replace(/[^0-9]/g, '');
 }
 
+async function ensureManagerReferralShadowProfile(managerPhone: string, managerName?: string | null) {
+  const { error } = await supabase.rpc('ensure_manager_referral_shadow_profile', {
+    p_manager_phone: managerPhone,
+    p_manager_name: typeof managerName === 'string' && managerName.trim() ? managerName.trim() : null,
+  });
+
+  return error;
+}
+
 async function readOptionalJsonBody(req: Request) {
   const raw = await req.text();
   if (!raw.trim()) {
@@ -54,13 +64,30 @@ async function readOptionalJsonBody(req: Request) {
 
 async function resolveSelfReferralCode(params: { session: SessionPayload }) {
   const session = params.session;
-  if (!session || (session.role !== 'fc' && session.role !== 'manager')) {
+  if (!session || (session.role !== 'fc' && session.role !== 'manager' && session.role !== 'admin')) {
     return fail('forbidden', '추천 코드를 조회할 수 없는 계정입니다.');
   }
 
   const sessionPhone = cleanPhone(session.phone ?? '');
   if (sessionPhone.length !== 11) {
     return fail('unauthorized', '인증이 필요합니다.');
+  }
+
+  let managerAccount: { id: string; name: string | null } | null = null;
+  if (session.role === 'manager' || session.role === 'admin') {
+    const { data: managerRow, error: managerError } = await supabase
+      .from('manager_accounts')
+      .select('id, name')
+      .eq('phone', sessionPhone)
+      .eq('active', true)
+      .maybeSingle();
+    if (managerError) {
+      return json({ ok: false, code: 'db_error', message: managerError.message }, 500);
+    }
+    if (!managerRow?.id) {
+      return fail('forbidden', '추천 코드를 조회할 수 없는 계정입니다.');
+    }
+    managerAccount = managerRow;
   }
 
   const { data: adminAccount, error: adminError } = await supabase
@@ -78,11 +105,19 @@ async function resolveSelfReferralCode(params: { session: SessionPayload }) {
   const sessionFcId = String(session.fcId ?? '').trim();
   const profileQuery = supabase
     .from('fc_profiles')
-    .select('id, phone, affiliation, signup_completed');
+    .select('id, phone, affiliation, signup_completed, is_manager_referral_shadow');
 
-  const profileResult = sessionFcId
+  let profileResult = sessionFcId
     ? await profileQuery.eq('id', sessionFcId).maybeSingle()
-    : await profileQuery.eq('phone', sessionPhone).eq('signup_completed', true).maybeSingle();
+    : await profileQuery.eq('phone', sessionPhone).maybeSingle();
+  if (!profileResult.data?.id && managerAccount) {
+    const ensureError = await ensureManagerReferralShadowProfile(sessionPhone, managerAccount.name);
+    if (ensureError) {
+      return json({ ok: false, code: 'db_error', message: ensureError.message }, 500);
+    }
+
+    profileResult = await profileQuery.eq('phone', sessionPhone).maybeSingle();
+  }
   const { data: profile, error: profileError } = profileResult;
 
   if (profileError) {
@@ -95,7 +130,8 @@ async function resolveSelfReferralCode(params: { session: SessionPayload }) {
   if (cleanPhone(String(profile.phone ?? '')) !== sessionPhone) {
     return fail('unauthorized', '인증이 필요합니다.');
   }
-  if (profile.signup_completed !== true) {
+  const isManagerShadow = profile.is_manager_referral_shadow === true;
+  if (profile.signup_completed !== true && !(managerAccount && isManagerShadow)) {
     return fail('not_found', '계정을 찾을 수 없습니다.');
   }
 
@@ -137,13 +173,12 @@ serve(async (req: Request) => {
     return json({ ok: false, code: 'method_not_allowed', message: 'Method not allowed' }, 405);
   }
 
-  const authHeader = req.headers.get('Authorization') ?? '';
-  const bearerMatch = authHeader.match(/^Bearer\s+(.+)$/i);
-  if (!bearerMatch) {
+  const token = getAppSessionTokenFromRequest(req);
+  if (!token) {
     return fail('unauthorized', '인증이 필요합니다.');
   }
 
-  const session = await parseAppSessionToken(bearerMatch[1]);
+  const session = await parseAppSessionToken(token);
   if (!session) {
     return fail('unauthorized', '인증이 필요합니다.');
   }

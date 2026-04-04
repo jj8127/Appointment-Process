@@ -297,6 +297,30 @@
     "dbAssertions": []
   },
   {
+    "id": "RF-ADMIN-09",
+    "area": "운영",
+    "priority": "P0",
+    "platform": ["web", "backend"],
+    "title": "레거시 추천인 검토 큐는 자동 연결 가능/동명이인 후보 다수/후보 없음/잘못된 자기추천 상태를 정확히 분류한다",
+    "preconditions": ["`recommender` 문자열만 있고 `recommender_fc_id`가 비어 있는 레거시 invitee가 존재한다", "후보 없음, 동명이인, 자기추천 데이터를 최소 1건씩 준비할 수 있다"],
+    "steps": ["관리자가 `/dashboard/referrals`의 레거시 추천인 검토 큐를 연다", "각 레거시 row의 상태 배지와 후보 목록을 확인한다", "필요 시 같은 데이터를 API 응답으로 대조한다"],
+    "expected": ["자기추천은 `잘못된 자기추천`으로 분리된다", "exact-unique만 `자동 연결 가능`으로 분류된다", "후보가 여러 명이면 `동명이인 후보 다수`, 없으면 `후보 없음`으로 보인다", "각 row는 추천 후보 목록과 자동 연결 가능 후보를 함께 반환한다"],
+    "evidenceRequired": ["운영 화면 캡처", "API 응답", "DB 확인"],
+    "dbAssertions": ["응답의 `matchStatus`, `candidateCount`, `candidateOptions`, `autoResolvableCandidate`가 실제 후보 계산과 일치한다"]
+  },
+  {
+    "id": "RF-ADMIN-10",
+    "area": "운영",
+    "priority": "P0",
+    "platform": ["web", "backend"],
+    "title": "`안전 자동 정리`는 exact-unique만 구조화하고 자기추천/후보 없음/동명이인은 남긴다",
+    "preconditions": ["`auto_resolvable` 상태 레거시 row가 최소 1건 존재하거나 synthetic fixture를 만들 수 있다", "`self_referral`, `missing_candidate`, `ambiguous` 상태 row가 각각 존재한다", "관리자 세션이 준비돼 있다"],
+    "steps": ["관리자가 `/dashboard/referrals`에서 `안전 자동 정리`를 실행한다", "응답의 처리 수/건너뜀 수/실패 수를 확인한다", "실행 후 레거시 큐와 `fc_profiles.recommender_fc_id` 변경 결과를 다시 조회한다"],
+    "expected": ["exact-unique row만 구조화 링크로 저장된다", "`self_referral`, `missing_candidate`, `ambiguous`는 자동 정리 대상에서 제외된다", "자동 정리 후 대상 row는 미해결 목록에서 사라지거나 상태가 갱신된다", "응답 요약과 실제 DB 반영 건수가 일치한다"],
+    "evidenceRequired": ["운영 화면 캡처", "API 응답", "DB 확인"],
+    "dbAssertions": ["자동 정리 대상 row의 `recommender_fc_id`만 채워진다", "자기추천/후보 없음/동명이인 row는 여전히 미해결 상태로 남는다", "`admin_override_applied` 이벤트와 reason metadata가 반영된다"]
+  },
+  {
     "id": "RF-OBS-01",
     "area": "관찰성",
     "priority": "P0",
@@ -439,5 +463,17 @@
     "expected": ["추천인 저장은 `update-my-recommender` trusted path로만 수행된다", "저장 성공 시 현재 추천인 표시가 같은 trusted self-service 응답 기준으로 갱신된다", "DB `referral_attributions`는 `manual_entry` / `manual_entry_only` 계약으로 confirmed 또는 overridden 상태를 정리한다", "DB `referral_events`에 `referral_confirmed` audit row가 남는다", "비대상 세션 또는 토큰 누락 상태에서 pull-to-refresh를 해도 spinner가 멈추지 않는 상태로 남지 않는다"],
     "evidenceRequired": ["화면 캡처", "함수 호출 응답", "DB 확인"],
     "dbAssertions": ["대상 invitee의 `fc_profiles.recommender_fc_id`가 선택한 inviter_fc_id로 저장된다", "invitee 기준 confirmed attribution은 최대 1건으로 유지된다", "최근 `referral_confirmed` 이벤트 row의 source는 `manual_entry`이고 metadata.selectionSource는 `manual_entry_only`다"]
+  },
+  {
+    "id": "RF-SELF-03",
+    "area": "추천코드",
+    "priority": "P0",
+    "platform": ["app", "backend"],
+    "title": "FC/본부장 self-service `내가 초대한 사람들` 목록은 attribution과 `recommender_fc_id` 구조화 링크를 함께 반영하고 임의 상한으로 잘리지 않는다",
+    "preconditions": ["FC 또는 본부장 계정이 appSessionToken을 가진 상태로 로그인되어 있다", "해당 inviter에 대해 `referral_attributions.inviter_fc_id` row와 `fc_profiles.recommender_fc_id` 구조화 링크가 각각 1건 이상 존재하거나 fixture로 만들 수 있다"],
+    "steps": ["앱에서 `내가 초대한 사람들` 목록을 연다", "`get-my-invitees` 응답을 확인한다", "같은 inviter 기준 `referral_attributions`와 `fc_profiles.recommender_fc_id` 건수를 대조한다"],
+    "expected": ["기존 confirmed attribution invitee가 계속 보인다", "구조화 링크만 있고 attribution이 없는 invitee도 목록에 포함된다", "동일 invitee는 중복 행 없이 1번만 보인다", "임의의 `limit(50)` 같은 정적 상한 때문에 일부 invitee가 사라지지 않는다"],
+    "evidenceRequired": ["화면 캡처", "함수 호출 응답", "DB 확인"],
+    "dbAssertions": ["`get-my-invitees` 응답 건수는 동일 inviter의 `referral_attributions`와 `recommender_fc_id` 구조화 링크를 merge한 수와 일치한다", "구조화 링크만 있는 invitee는 `confirmed`로 반환된다"]
   }
 ]

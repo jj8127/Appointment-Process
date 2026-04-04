@@ -28,6 +28,7 @@ type EligibleProfileRow = {
   phone: string | null;
   affiliation: string | null;
   signup_completed: boolean | null;
+  is_manager_referral_shadow?: boolean | null;
 };
 
 type SearchableRecommenderProfileRow = {
@@ -35,6 +36,7 @@ type SearchableRecommenderProfileRow = {
   name: string;
   phone: string | null;
   affiliation: string | null;
+  is_manager_referral_shadow?: boolean | null;
 };
 
 type StaffPhoneRow = {
@@ -57,6 +59,7 @@ type FcProfileRow = {
   affiliation: string | null;
   recommender: string | null;
   recommender_fc_id: string | null;
+  is_manager_referral_shadow?: boolean | null;
 };
 
 type ReferralEventRow = {
@@ -117,10 +120,17 @@ type RecommenderSelectionResult = {
   referralCode: string | null;
 };
 
+type UnresolvedLegacyMatchStatus =
+  ReferralAdminUnresolvedItem['matchStatus'];
+
 const DB_ERROR_MESSAGE_MAP = new Map<string, string>([
   ['fc_id is required', '추천코드 대상 FC를 찾을 수 없습니다.'],
   ['FC profile not found', '추천코드 대상 FC를 찾을 수 없습니다.'],
+  ['Manager referral profile conflict', '본부장 추천인 전용 프로필을 정리할 수 없습니다. 기존 FC 데이터와 전화번호 충돌 여부를 확인해주세요.'],
+  ['manager_phone is required', '본부장 전화번호가 올바르지 않습니다.'],
+  ['Active manager account not found', '활성 본부장 계정을 찾을 수 없습니다.'],
   ['Referral code can only be issued to completed FC profiles', '가입 완료된 FC만 추천코드를 발급할 수 있습니다.'],
+  ['Referral code can only be issued to completed FC profiles or active manager referral profiles', '가입 완료된 FC 또는 활성 본부장 계정만 추천코드를 발급할 수 있습니다.'],
   ['Referral code requires normalized 11-digit FC phone', '전화번호가 정규화된 11자리인 FC만 추천코드를 발급할 수 있습니다.'],
   ['Request-board linked designer profiles cannot receive referral codes', '설계매니저 계정에는 추천코드를 발급할 수 없습니다.'],
   ['Admin accounts cannot receive referral codes', '운영 계정에는 추천코드를 발급할 수 없습니다.'],
@@ -214,7 +224,7 @@ function toRecommenderCandidate(
 
 function isEligibleProfile(profile: EligibleProfileRow) {
   return (
-    profile.signup_completed === true &&
+    (profile.signup_completed === true || profile.is_manager_referral_shadow === true) &&
     /^\d{11}$/.test(normalizeDigits(profile.phone)) &&
     !String(profile.affiliation ?? '').includes('설계매니저')
   );
@@ -285,8 +295,8 @@ async function fetchEligibleProfiles() {
   const [{ data, error }, excludedStaffPhones] = await Promise.all([
     adminSupabase
       .from('fc_profiles')
-      .select('id,name,phone,affiliation,signup_completed')
-      .eq('signup_completed', true)
+      .select('id,name,phone,affiliation,signup_completed,is_manager_referral_shadow')
+      .or('signup_completed.eq.true,is_manager_referral_shadow.eq.true')
       .order('created_at', { ascending: false }),
     fetchExcludedStaffPhones(),
   ]);
@@ -308,7 +318,7 @@ async function fetchSearchableRecommenderProfiles() {
   const [{ data, error }, excludedStaffPhones] = await Promise.all([
     adminSupabase
       .from('fc_profiles')
-      .select('id,name,phone,affiliation')
+      .select('id,name,phone,affiliation,is_manager_referral_shadow')
       .order('created_at', { ascending: false }),
     fetchExcludedStaffPhones(),
   ]);
@@ -330,8 +340,8 @@ async function fetchFcProfiles() {
   const [{ data, error }, excludedStaffPhones] = await Promise.all([
     adminSupabase
       .from('fc_profiles')
-      .select('id,name,phone,affiliation,recommender,recommender_fc_id,signup_completed')
-      .eq('signup_completed', true)
+      .select('id,name,phone,affiliation,recommender,recommender_fc_id,signup_completed,is_manager_referral_shadow')
+      .or('signup_completed.eq.true,is_manager_referral_shadow.eq.true')
       .order('created_at', { ascending: false }),
     fetchExcludedStaffPhones(),
   ]);
@@ -341,6 +351,7 @@ async function fetchFcProfiles() {
   }
 
   return ((data ?? []) as Array<FcProfileRow & { signup_completed?: boolean | null }>)
+    .filter((row) => row.signup_completed === true || row.is_manager_referral_shadow === true)
     .filter((row) => !String(row.affiliation ?? '').includes('설계매니저'))
     .filter((row) => !excludedStaffPhones.has(normalizeDigits(row.phone)))
     .map((row) => ({
@@ -350,6 +361,7 @@ async function fetchFcProfiles() {
       affiliation: row.affiliation,
       recommender: row.recommender,
       recommender_fc_id: row.recommender_fc_id,
+      is_manager_referral_shadow: row.is_manager_referral_shadow,
     }));
 }
 
@@ -581,30 +593,48 @@ function buildUnresolvedLegacyItems(
   return profiles
     .filter((profile) => normalizeName(profile.recommender) && !profile.recommender_fc_id)
     .map<ReferralAdminUnresolvedItem>((profile) => {
-      const matches = (candidatesByName.get(normalizeName(profile.recommender)) ?? [])
-        .filter((candidate) => candidate.fcId !== profile.id);
-      const matchStatus =
-        matches.length > 1
-          ? 'ambiguous'
-          : matches.length === 1
-            ? 'auto_resolvable'
-            : 'missing_candidate';
+      const normalizedLegacyRecommender = normalizeName(profile.recommender);
+      const allMatches = candidatesByName.get(normalizedLegacyRecommender) ?? [];
+      const selfReferral = normalizeName(profile.name) === normalizedLegacyRecommender;
+      const matches = allMatches.filter((candidate) => candidate.fcId !== profile.id);
+
+      let matchStatus: UnresolvedLegacyMatchStatus;
+      if (selfReferral) {
+        matchStatus = 'self_referral';
+      } else if (matches.length > 1) {
+        matchStatus = 'ambiguous';
+      } else if (matches.length === 1) {
+        matchStatus = 'auto_resolvable';
+      } else {
+        matchStatus = 'missing_candidate';
+      }
+
+      const autoResolvableCandidate = matchStatus === 'auto_resolvable'
+        ? matches[0] ?? null
+        : null;
 
       return {
         inviteeFcId: profile.id,
         inviteeName: profile.name,
         inviteePhone: profile.phone ?? '',
         inviteeAffiliation: profile.affiliation ?? '',
-        legacyRecommenderName: normalizeName(profile.recommender),
+        legacyRecommenderName: normalizedLegacyRecommender,
         candidateCount: matches.length,
         candidatePreview: matches.slice(0, 3).map((candidate) =>
           [candidate.label, candidate.activeCode].filter(Boolean).join(' · '),
         ),
+        candidateOptions: matches,
+        autoResolvableCandidate,
         matchStatus,
       };
     })
     .sort((a, b) => {
-      const priority = { ambiguous: 0, missing_candidate: 1, auto_resolvable: 2 } as const;
+      const priority = {
+        self_referral: 0,
+        auto_resolvable: 1,
+        ambiguous: 2,
+        missing_candidate: 3,
+      } as const;
       const byStatus = priority[a.matchStatus] - priority[b.matchStatus];
       if (byStatus !== 0) return byStatus;
       return a.inviteeName.localeCompare(b.inviteeName, 'ko-KR');
@@ -862,6 +892,72 @@ export async function linkLegacyRecommender(
     inviterFcId,
     reason,
   });
+}
+
+export async function clearLegacyRecommender(
+  session: VerifiedServerSession,
+  inviteeFcId: string,
+  reason: string,
+) {
+  const actor = await resolveAdminActorContext(session);
+  return applyRecommenderSelection({
+    actor,
+    inviteeFcId,
+    inviterFcId: null,
+    reason,
+  });
+}
+
+export async function autoResolveLegacyRecommenders(
+  session: VerifiedServerSession,
+  requestedLimit?: number,
+  requestedReason?: string | null,
+) {
+  const actor = await resolveAdminActorContext(session);
+  const safeLimit = clampPositiveInteger(requestedLimit ?? MAX_BACKFILL_LIMIT, MAX_BACKFILL_LIMIT, MAX_BACKFILL_LIMIT);
+  const reason = String(requestedReason ?? '').trim() || 'legacy_auto_resolve_exact_unique';
+  const [profiles, activeCandidates] = await Promise.all([
+    fetchFcProfiles(),
+    fetchActiveRecommenderCandidates(),
+  ]);
+  const unresolvedItems = buildUnresolvedLegacyItems(profiles, activeCandidates);
+  const autoResolvableItems = unresolvedItems.filter(
+    (item) => item.matchStatus === 'auto_resolvable' && item.autoResolvableCandidate,
+  );
+  const targets = autoResolvableItems.slice(0, safeLimit);
+
+  let linked = 0;
+  let skipped = 0;
+  let failed = 0;
+
+  for (const item of targets) {
+    try {
+      const result = await applyRecommenderSelection({
+        actor,
+        inviteeFcId: item.inviteeFcId,
+        inviterFcId: item.autoResolvableCandidate?.fcId ?? null,
+        reason,
+      });
+
+      if (result.changed) {
+        linked += 1;
+      } else {
+        skipped += 1;
+      }
+    } catch (error) {
+      failed += 1;
+      logReferralBackfillSkip(item.inviteeFcId, error);
+    }
+  }
+
+  return {
+    processed: targets.length,
+    linked,
+    skipped,
+    failed,
+    remaining: Math.max(0, autoResolvableItems.length - targets.length),
+    limit: safeLimit,
+  };
 }
 
 export function logReferralBackfillSkip(fcId: string, error: unknown) {
