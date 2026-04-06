@@ -7,6 +7,30 @@
 
 ---
 
+## <a id="20260406-governance-blocker-left-unstaged-mistake"></a> 2026-04-06 | PR governance blocker를 확인하고도 owner-map fix를 unstaged로 남긴 채 푸시한 실수 복구
+
+**배경**:
+- PR governance 실패 로그를 통해 `supabase/functions/invite/index.ts`, `supabase/functions/tsconfig.json`, `supabase/functions/validate-referral-code/index.ts`의 owner-map 누락을 이미 확인했었다.
+- 로컬 worktree에는 그 fix가 `docs/handbook/path-owner-map.json`으로 존재했지만, 이후 기능 커밋을 만들면서 이 파일을 staged 범위에 넣지 않은 채 푸시했다.
+- 결과적으로 PR `Governance Check`는 같은 이유로 다시 실패했다.
+
+**조치**:
+- `gh run view 24032384700 --repo jj8127/Appointment-Process --log`
+  - 최신 PR 실패가 여전히 같은 세 경로 owner-map 누락임을 다시 확인했다.
+- `docs/handbook/path-owner-map.json`
+  - referral signup/invite 관련 `backend-referral-signup-and-invite` rule을 실제 commit/push 대상에 다시 포함했다.
+- `.claude/MISTAKES.md`
+  - blocker fix를 로컬에만 두고 staged 범위에서 누락한 실수를 별도 항목으로 기록했다.
+
+**검증**:
+- 확인: `gh run view 24032384700 --repo jj8127/Appointment-Process --log`
+- 확인: `git -C E:\hanhwa\fc-onboarding-app diff -- docs/handbook/path-owner-map.json`
+
+**리스크 / 후속**:
+- 장수 브랜치에서 blocker fix와 현재 작업을 분리할 때도, 이미 확인된 PR blocker는 예외 없이 같은 push batch에 포함해야 한다.
+
+---
+
 ## <a id="20260406-web-root-entry-loader-regression-fix"></a> 2026-04-06 | 웹 root entry `/` 로더 고정 회귀 복구
 
 **배경**:

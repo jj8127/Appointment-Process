@@ -30,6 +30,14 @@
 - Verification:
 ```
 
+## 2026-04-06 | Commit Scope / Governance | PR 실패 원인으로 확인한 owner-map fix를 로컬에만 남기고 커밋 범위에서 제외한 채 푸시함
+- Symptom: PR `Codex/referral rollout closeout` governance check가 다시 실패했고, 로그에는 여전히 `supabase/functions/invite/index.ts`, `supabase/functions/tsconfig.json`, `supabase/functions/validate-referral-code/index.ts` owner-map 누락이 그대로 나왔다.
+- Root cause: 같은 세션에서 `docs/handbook/path-owner-map.json` 보강까지 해두고도, 이후 기능 커밋/푸시에서 "내가 방금 건드린 파일만" 선별한다는 이유로 그 fix를 제외했다. 결과적으로 PR 전체 diff 기준 blocker를 알고도 upstream에 보내지 못했다.
+- Why it was missed: 장수 브랜치 debt와 현재 commit scope를 분리하겠다는 판단은 맞았지만, 이미 확인된 PR blocker는 예외 없이 같은 push batch에 포함해야 한다는 원칙을 다시 적용하지 않았다.
+- Permanent guardrail: PR 실패 원인을 특정 파일 수준으로 확인한 뒤에는, 그 파일이 로컬 worktree에 남아 있으면 다음 push 전에 반드시 staged 여부를 다시 확인한다. `git diff -- <blocking-file>`와 `git diff --cached -- <blocking-file>` 둘 다 보고, blocker fix가 uncached 상태면 푸시하지 않는다.
+- Related files: `docs/handbook/path-owner-map.json`, `.claude/MISTAKES.md`, `.claude/WORK_LOG.md`, `.claude/WORK_DETAIL.md`
+- Verification: `gh run view 24032384700 --repo jj8127/Appointment-Process --log`, `git -C E:\hanhwa\fc-onboarding-app diff -- docs/handbook/path-owner-map.json`
+
 ## 2026-04-06 | Web Entry Routing | auth loop를 줄이려다 `/` 진입을 로더 고정 화면으로 남겨 실제 진입 경로가 끊김
 - Symptom: `http://localhost:3000` 서버는 200 응답을 주지만, 브라우저에서는 첫 화면이 계속 로더만 보이고 `/auth`나 `/dashboard`로 넘어가지 않았다.
 - Root cause: `/` 페이지에서 기존 client redirect를 제거한 뒤, 대체 분기 없이 로더만 렌더하도록 남겨 두었다. 그 결과 root entry가 세션 복원 이후에도 아무 route resolution을 하지 않았다.
