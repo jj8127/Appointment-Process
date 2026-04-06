@@ -7,6 +7,36 @@
 
 ---
 
+## <a id="20260406-batch1-zero-impact-repo-cleanup"></a> 2026-04-06 | Batch 1 무영향 repo 잔재 정리
+
+**배경**:
+- 단계별 정리 계획의 첫 배치로, 런타임 로직과 무관한 tracked 잔재만 먼저 제거해도 되는지 확인한 뒤 가장 확실한 후보부터 정리하기로 했다.
+- 대상은 `repo grep 0-hit`, 현재 소스/route에서 미참조, 외부 동작 계약과 무관한 텍스트/백업 파일로 제한했다.
+- `web` build 검증은 `scripts/clean-next.mjs` 때문에 로컬 dev server 실행 여부에 영향을 받으므로, 실제 최종 build 통과 증적을 남기기로 했다.
+
+**조치**:
+- 루트/웹에서 다음 tracked 잔재를 제거했다.
+  - `AGENTS_md_Master_Prompt_ghs8S.md`
+  - `vercel.json.bk`
+  - `web/build_output.txt`
+  - `web/lint_output.txt`
+  - `web/lint_output_2.txt`
+  - `web/LOGGER_CONVERSION_SUMMARY.md`
+- 로컬 루트 잡파일 `nul`도 함께 제거했다.
+- Batch 1 결과를 기준으로 `.codex/harness/*`, `WORK_LOG.md`, `WORK_DETAIL.md`를 현재 상태로 갱신했다.
+
+**결과**:
+- `fc-onboarding-app`는 기능 코드 변화 없이 root/web 레벨의 명백한 잔재만 줄인 상태가 됐다.
+- governance와 `web` production build는 모두 유지됐다.
+
+**검증**:
+- live reference 0-hit 확인(감사 로그/하네스 제외): `git -C E:\hanhwa\fc-onboarding-app grep -n "AGENTS_md_Master_Prompt_ghs8S.md\|vercel.json.bk\|build_output.txt\|lint_output.txt\|lint_output_2.txt\|LOGGER_CONVERSION_SUMMARY.md" -- . ":(exclude).claude/**" ":(exclude).codex/**"`
+- 통과: `cd E:\hanhwa\fc-onboarding-app && node scripts/ci/check-governance.mjs`
+- 통과: `cd E:\hanhwa\fc-onboarding-app\web && npm run build`
+
+**메모**:
+- 첫 `web` build 시 로컬 `npm run dev`가 떠 있어 `clean-next.mjs`가 중단됐고, 동일 스레드에서 띄운 dev server를 내린 뒤 재실행해 최종 통과를 확인했다.
+
 ## <a id="20260406-web-cookie-first-session-restore-batch"></a> 2026-04-06 | web cookie-first session restore 누적 변경과 앱 버전 `3.1.3` 반영 배치 정리
 
 **배경**:
