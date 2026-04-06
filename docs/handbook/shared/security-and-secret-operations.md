@@ -22,6 +22,7 @@ source_of_truth: env contracts + reset-password functions + admin service-role c
 - service-role 키가 있는 로컬 스크립트를 운영 DB에 바로 실행하지 않습니다.
 - bridge secret은 양 저장소를 같은 변경 세트로 회전합니다.
 - web localStorage/cookie를 “강한 서버 세션”으로 오해하지 않습니다.
+- 그렇다고 client restore가 localStorage만 보고 cookie를 무시하면 안 됩니다. admin web은 middleware/server route가 cookie를 기준으로 세션을 판단하므로, client restore는 cookie-first로 정렬하고 localStorage는 fallback/cache로만 사용합니다.
 - admin/manager cookie `session_resident`는 digits-only 원문으로 단정하지 않습니다. privileged server route는 raw / digits / hyphenated 후보를 함께 검증해야 하며, 포맷 차이 때문에 PII read가 막히면 security-hardening이 아니라 regression입니다.
 
 ## break-glass 메모

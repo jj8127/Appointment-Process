@@ -63,7 +63,7 @@ function resolveLoginErrorMessage(error: unknown) {
 }
 
 export default function AuthPage() {
-    const { loginAs, role, residentId, hydrated, displayName } = useSession();
+    const { loginAs, logout, role, residentId, hydrated } = useSession();
     const [phoneInput, setPhoneInput] = useState('');
     const [passwordInput, setPasswordInput] = useState('');
     const [loading, setLoading] = useState(false);
@@ -77,17 +77,13 @@ export default function AuthPage() {
     useEffect(() => {
         if (!hydrated) return;
         if (role === 'admin' || role === 'manager') {
-            router.replace('/');
+            router.replace('/dashboard');
             return;
         }
         if (role === 'fc' && residentId) {
-            if (!displayName?.trim()) {
-                router.replace('/fc/new');
-            } else {
-                router.replace('/');
-            }
+            logout({ redirectTo: null });
         }
-    }, [hydrated, role, residentId, displayName, router]);
+    }, [hydrated, logout, residentId, role, router]);
 
     const handleLogin = async () => {
         const code = phoneInput.trim();
@@ -157,14 +153,18 @@ export default function AuthPage() {
             }
 
             const nextRole = data.role === 'admin' ? 'admin' : data.role === 'manager' ? 'manager' : 'fc';
-            loginAs(nextRole, data.residentId ?? digits, data.displayName ?? '', normalizeStaffType(data.staffType));
-            if (nextRole === 'admin' || nextRole === 'manager') {
-                router.replace('/');
-            } else if (!data.displayName || data.displayName.trim() === '') {
-                router.replace('/fc/new');
-            } else {
-                router.replace('/');
+            if (nextRole === 'fc') {
+                notifications.show({
+                    title: '웹 로그인 제한',
+                    message: 'FC 계정은 관리자 웹이 아니라 FC 앱에서 이용해주세요.',
+                    color: 'orange',
+                });
+                setLoading(false);
+                return;
             }
+
+            loginAs(nextRole, data.residentId ?? digits, data.displayName ?? '', normalizeStaffType(data.staffType));
+            router.replace('/dashboard');
         } catch (err: unknown) {
             const loginError = resolveLoginErrorMessage(err);
 
@@ -257,9 +257,9 @@ export default function AuthPage() {
                                 로그인
                             </Title>
                             <Text c="dimmed" size="sm" style={{ lineHeight: 1.6 }}>
-                                관리자는 지정된 번호 + 비밀번호
+                                관리자/매니저 계정으로 로그인해주세요.
                                 <br />
-                                FC는 휴대폰 번호 + 비밀번호를 입력해주세요.
+                                FC 계정은 모바일 앱에서 이용합니다.
                             </Text>
                         </Box>
 

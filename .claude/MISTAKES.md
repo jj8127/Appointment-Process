@@ -54,6 +54,14 @@
 - Related files: `web/src/app/dashboard/page.tsx`, `docs/handbook/admin-web/dashboard-lifecycle.md`, `.claude/MISTAKES.md`, `.claude/WORK_LOG.md`, `.claude/WORK_DETAIL.md`
 - Verification: `Get-Content web/src/app/dashboard/page.tsx`, `Get-Content web/src/lib/fc-workflow.ts`, `Get-Content web/src/lib/shared.ts`
 
+## 2026-04-06 | Documentation Governance / Commit Batch | 누적 코드 변경을 한 번에 커밋하려다 WORK_LOG/WORK_DETAIL 갱신 없이 먼저 검증해 governance에 걸림
+- Symptom: 누적된 auth/session/web 진입 변경을 한 번에 커밋하려고 `node scripts/ci/check-governance.mjs`를 돌렸더니 `Code changed but WORK_LOG.md and WORK_DETAIL.md were not both updated.`로 실패했다.
+- Root cause: 기존 워킹트리에 남아 있던 코드 변경을 "이미 알고 있는 작업"으로 보고, 이번 커밋 배치에서 필요한 로그 갱신을 생략한 채 검증부터 돌렸다.
+- Why it was missed: 장수 브랜치에서 누적 변경을 정리할 때 파일 diff는 확인했지만, 거버넌스가 요구하는 "현재 커밋 배치 기준 로그 동반" 규칙을 다시 적용하지 않았다.
+- Permanent guardrail: 누적 변경을 뒤늦게 커밋할 때도 `git diff --stat` 단계에서 코드 파일이 보이면, 스테이징 전에 `WORK_LOG.md`/`WORK_DETAIL.md` 동반 갱신 여부를 먼저 확인한다. "예전에 문서화했을 것"이라는 기억으로 넘어가지 않는다.
+- Related files: `.claude/MISTAKES.md`, `.claude/WORK_LOG.md`, `.claude/WORK_DETAIL.md`
+- Verification: `git diff --stat`, `node scripts/ci/check-governance.mjs`
+
 ## 2026-04-06 | Commit Scope / Governance | PR 실패 원인으로 확인한 owner-map fix를 로컬에만 남기고 커밋 범위에서 제외한 채 푸시함
 - Symptom: PR `Codex/referral rollout closeout` governance check가 다시 실패했고, 로그에는 여전히 `supabase/functions/invite/index.ts`, `supabase/functions/tsconfig.json`, `supabase/functions/validate-referral-code/index.ts` owner-map 누락이 그대로 나왔다.
 - Root cause: 같은 세션에서 `docs/handbook/path-owner-map.json` 보강까지 해두고도, 이후 기능 커밋/푸시에서 "내가 방금 건드린 파일만" 선별한다는 이유로 그 fix를 제외했다. 결과적으로 PR 전체 diff 기준 blocker를 알고도 upstream에 보내지 못했다.

@@ -7,6 +7,44 @@
 
 ---
 
+## <a id="20260406-web-cookie-first-session-restore-batch"></a> 2026-04-06 | web cookie-first session restore 누적 변경과 앱 버전 `3.1.3` 반영 배치 정리
+
+**배경**:
+- 워킹트리에 admin web auth/session 관련 누적 변경이 남아 있었고, 주요 내용은 middleware cookie session과 `use-session` client restore를 다시 정렬하는 것이었다.
+- 변경 범위는 `web/src/hooks/use-session.tsx`, `web/middleware.ts`, `web/src/app/auth/page.tsx`, `web/src/app/dashboard/layout.tsx`, `web/src/app/admin/layout.tsx`에 걸쳐 있었다.
+- 함께 남아 있던 `app.json` 버전 `3.1.3` 반영과 VS Code `app.json` schema 보정도 같은 배치로 정리해야 했다.
+
+**조치**:
+- `web/src/hooks/use-session.tsx`
+  - cookie snapshot을 먼저 읽고 localStorage를 fallback으로만 쓰는 restore 경로로 재정렬했다.
+  - `logout`에 `redirectTo` 옵션을 추가해 `/auth` 페이지에서 FC 세션을 조용히 비우는 경로를 만들었다.
+- `web/middleware.ts`
+  - `/`는 staff cookie session이면 `/dashboard`, 그 외는 `/auth`로 즉시 분기하도록 조정했다.
+  - stale FC cookie가 웹 관리자 진입에 남아 있으면 redirect 전에 session cookie를 정리하도록 보강했다.
+- `web/src/app/auth/page.tsx`
+  - admin/manager는 `/dashboard`로 바로 보내고, FC 계정은 웹 사용 대상이 아니라는 안내 후 세션을 남기지 않게 했다.
+- `web/src/app/dashboard/layout.tsx`, `web/src/app/admin/layout.tsx`
+  - middleware가 이미 보호한 staff session을 hydrate gap에서 다시 client redirect로 튕기지 않도록 중복 redirect effect를 제거했다.
+- `docs/handbook/shared/security-and-secret-operations.md`, `AGENTS.md`
+  - admin web session은 cookie-first / localStorage fallback 계약이라는 운영 가드레일을 문서에 추가했다.
+- `app.json`
+  - Expo 버전을 `3.1.3`으로 올렸다.
+- `.vscode/settings.json`
+  - `app.json` 편집시 과도한 schema noise를 줄이는 workspace-local JSON schema를 추가했다.
+- `.claude/MISTAKES.md`
+  - 누적 코드 변경을 커밋할 때 로그 갱신을 빼먹고 governance에 먼저 걸린 실수를 기록했다.
+
+**검증**:
+- 통과: `cd E:\hanhwa\fc-onboarding-app\web && npm run lint -- src/hooks/use-session.tsx src/app/auth/page.tsx src/app/dashboard/layout.tsx src/app/admin/layout.tsx middleware.ts`
+- 통과: `cd E:\hanhwa\fc-onboarding-app\web && npx next build`
+- 확인: `cd E:\hanhwa\fc-onboarding-app && node scripts/ci/check-governance.mjs` 초기 실행은 `WORK_LOG/WORK_DETAIL` 누락으로 실패했고, 로그 보강 후 재실행에서 통과했다.
+
+**리스크 / 후속**:
+- 실제 admin/manager 브라우저 세션으로 `/`, `/auth`, `/dashboard` 진입을 한 번 더 밟아 cookie/localStorage drift가 사라졌는지 확인하면 가장 안전하다.
+- `app.json` 버전 상향이 포함되므로 이후 모바일 배포/빌드 노트는 `3.1.3` 기준으로 정리해야 한다.
+
+---
+
 ## <a id="20260406-dashboard-kpi-workflow-summary-alignment"></a> 2026-04-06 | 대시보드 상단 KPI 카드를 workflow helper 기준으로 재정렬
 
 **배경**:

@@ -68,12 +68,6 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   );
 
   useEffect(() => {
-    if (hydrated && role !== 'admin' && role !== 'manager') {
-      router.replace('/auth');
-    }
-  }, [hydrated, role, router]);
-
-  useEffect(() => {
     return () => {
       if (collapseTimerRef.current != null) {
         window.clearTimeout(collapseTimerRef.current);
@@ -154,7 +148,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
                 <Menu.Item
                   color="red"
                   leftSection={<IconLogout size={16} stroke={1.6} />}
-                  onClick={logout}
+                  onClick={() => logout()}
                 >
                   로그아웃
                 </Menu.Item>
@@ -234,7 +228,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
             label={navbarExpanded ? '로그아웃' : null}
             color="red"
             leftSection={<IconLogout size={navbarExpanded ? 16 : 18} stroke={1.6} />}
-            onClick={logout}
+            onClick={() => logout()}
             variant="light"
             aria-label="로그아웃"
             title={!navbarExpanded ? '로그아웃' : undefined}
