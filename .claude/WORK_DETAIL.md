@@ -7,6 +7,118 @@
 
 ---
 
+## <a id="20260406-web-root-entry-loader-regression-fix"></a> 2026-04-06 | 웹 root entry `/` 로더 고정 회귀 복구
+
+**배경**:
+- 사용자가 `http://localhost:3000`이 아무리 기다려도 열리지 않는다고 제보했다.
+- 실제로는 dev 서버가 정상적으로 `200 OK`를 반환하고 있었지만, headless Chrome으로 확인한 DOM은 첫 화면 로더만 남아 있고 route transition이 일어나지 않았다.
+- 원인은 `/` 페이지가 redirect 없이 로더만 렌더하도록 남아 있던 회귀였다.
+
+**조치**:
+- `web/src/app/page.tsx`
+  - `useSession`의 `hydrated`, `role`을 읽어 `/`에서 세션 기준으로 즉시 route를 결정하도록 복구했다.
+  - `admin`/`manager`는 `/dashboard`, 그 외는 `/auth`로 `router.replace` 한다.
+- `.claude/MISTAKES.md`
+  - auth/session 수정 뒤 `/` landing route를 브라우저로 다시 밟지 않은 실수를 기록했다.
+
+**검증**:
+- 확인: fresh `npm run dev` 로그에서 `Local: http://localhost:3000` ready
+- 확인: headless Chrome `--dump-dom http://localhost:3000`
+- 통과: `cd E:\hanhwa\fc-onboarding-app\web && npm run lint -- src/app/page.tsx`
+- 통과: `cd E:\hanhwa\fc-onboarding-app\web && npx next build`
+
+**리스크 / 후속**:
+- `/` root routing은 복구됐지만, 실제 admin/manager 로그인 세션을 들고 `/dashboard`까지 자연스럽게 넘어가는지는 브라우저에서 한 번 더 보면 가장 안전하다.
+
+---
+
+## <a id="20260406-web-appointment-direct-input-parity"></a> 2026-04-06 | 웹 생명/손해 위촉 완료일 총무 직접 저장 경로 추가
+
+**배경**:
+- 수당 동의는 이미 총무가 직접 `동의일(Actual)`을 입력해 trusted `/api/admin/fc` 경로로 저장할 수 있었지만, 생명/손해 위촉 완료일은 아직 `updateAppointmentAction`의 schedule/confirm 흐름에만 묶여 있었다.
+- 사용자 요구는 FC가 입력하는 위촉 완료일 화면에 총무 직접입력을 추가하되, 기존 schedule/confirm/reject 흐름은 그대로 두는 것이었다.
+- 상태 합성은 `appointment_date_life` / `appointment_date_nonlife` 와 commission flag를 기준으로 `appointment-completed` 또는 `final-link-sent`로 정렬돼야 했다.
+
+**조치**:
+- `web/src/lib/fc-workflow.ts`
+  - `resolveAppointmentCompletionStatus` helper를 추가해 생명/손해 위촉 완료 상태 보정을 공통화했다.
+- `web/src/app/api/admin/fc/route.ts`
+  - `updateAppointmentDate` trusted action을 추가했다.
+  - `category=life|nonlife` 와 `appointmentDate`를 검증하고, 해당 완료일과 반려 사유를 갱신한 뒤 공통 helper로 상태를 보정한다.
+- `web/src/app/dashboard/page.tsx`
+  - 생명/손해 위촉 섹션에 `완료일 저장` 버튼을 추가해 총무가 직접 완료일을 저장할 수 있게 했다.
+  - 저장 성공 시 selected FC state와 `dashboard-list` 캐시를 즉시 갱신한다.
+- `docs/handbook/admin-web/dashboard-lifecycle.md`
+  - 위촉 탭의 direct-input trusted path와 상태 보정 규칙을 문서화했다.
+- `.claude/MISTAKES.md`
+  - allowance와 appointment 사이 direct-input parity drift를 반복 가능한 실수로 기록했다.
+- `.claude/WORK_LOG.md`
+  - 이번 direct-input parity 작업을 최근 작업에 추가했다.
+
+**검증**:
+- 통과: `cd E:\hanhwa\fc-onboarding-app\web && npm run lint -- src/app/dashboard/page.tsx src/app/api/admin/fc/route.ts src/lib/fc-workflow.ts`
+- 통과: `cd E:\hanhwa\fc-onboarding-app\web && npx next build`
+- 통과: `cd E:\hanhwa\fc-onboarding-app && node scripts/ci/check-governance.mjs`
+
+**리스크 / 후속**:
+- direct save와 기존 confirm 모두 같은 완료일 필드를 만지므로, 이후 UI 수정 시 버튼 의미가 다시 흐려지지 않도록 탭 설명과 버튼 라벨을 함께 봐야 한다.
+- 실제 브라우저에서 admin/manager 세션으로 `/dashboard` appointment 섹션을 한 번 더 확인하면 좋다.
+
+---
+
+## <a id="20260406-governance-path-owner-map-fix"></a> 2026-04-06 | PR `#118` governance path-owner-map 누락 복구
+
+**배경**:
+- PR `Codex/referral rollout closeout #118`의 GitHub Actions governance check는 로컬 현재 변경분과 무관하게 branch 전체 diff에서 실패하고 있었다.
+- 실제 로그를 확인한 결과, handbook-sensitive path인데 `docs/handbook/path-owner-map.json`에 매핑이 없던 경로는 아래 세 개였다.
+  - `supabase/functions/invite/index.ts`
+  - `supabase/functions/validate-referral-code/index.ts`
+  - `supabase/functions/tsconfig.json`
+
+**조치**:
+- `docs/handbook/path-owner-map.json`
+  - `backend-referral-signup-and-invite` rule을 추가했다.
+  - 위 세 경로를 referral signup/invite 관련 contract로 묶고, owning handbook은 아래 셋 중 하나를 허용하도록 연결했다.
+    - `docs/handbook/data/referral-schema-and-admin-rpcs.md`
+    - `docs/handbook/mobile/auth-and-gates.md`
+    - `docs/handbook/shared/security-and-secret-operations.md`
+- `.claude/MISTAKES.md`
+  - 로컬 거버넌스만 보고 PR 전체 diff 기준 검증을 다시 하지 않은 실수를 별도 항목으로 기록했다.
+
+**검증**:
+- 통과: `BASE_SHA=0971c803f46eeb9be62bc3451e632b373d5d5fc9 HEAD_SHA=56b30c9582fc4c037607d3f53cb99b4234ad4e5f node scripts/ci/check-governance.mjs`
+- 확인: `gh run view 24017748248 --repo jj8127/Appointment-Process --log`
+
+**리스크 / 후속**:
+- 이번 fix는 owner-map 누락만 해소한다. PR 재실행 후 다른 누락이 새로 드러나면 같은 방식으로 PR 전체 diff 기준으로 추적해야 한다.
+
+---
+
+## <a id="20260406-governance-pr-diff-range-mistake"></a> 2026-04-06 | PR 거버넌스 실패 원인을 확인하고 `PR 전체 diff 기준 재검증` 실수로 기록
+
+**배경**:
+- 사용자가 공유한 스크린샷에서 PR `Codex/referral rollout closeout #118`의 `Governance Check`가 실패하고 있었다.
+- 로컬에서는 직전에 `node scripts/ci/check-governance.mjs`를 통과시켰기 때문에, 원인을 추측으로 적으면 잘못된 실수 기록이 될 위험이 있었다.
+- `gh run view 24017748248 --repo jj8127/Appointment-Process --log`로 실제 Actions 로그를 확인한 결과, 실패 원인은 이번 docs commit 자체가 아니라 branch 전체 diff에 남아 있던 path-owner-map 누락이었다.
+
+**조치**:
+- GitHub Actions run `24017748248`의 로그와 JSON 메타데이터를 직접 읽어 실제 실패 메시지를 확인했다.
+- 확인된 실패는 다음 세 path에 대한 handbook-sensitive path-owner-map rule 누락이었다.
+  - `supabase/functions/invite/index.ts`
+  - `supabase/functions/tsconfig.json`
+  - `supabase/functions/validate-referral-code/index.ts`
+- 이 사실을 기반으로 `.claude/MISTAKES.md`에 "로컬 거버넌스만 보고 PR 전체 diff range를 다시 보지 않은 실수"를 별도 항목으로 기록했다.
+
+**검증**:
+- 통과: `gh auth status`
+- 확인: `gh run view 24017748248 --repo jj8127/Appointment-Process --log`
+- 확인: `gh run view 24017748248 --repo jj8127/Appointment-Process --json name,workflowName,conclusion,status,url,event,headBranch,headSha,jobs`
+
+**리스크 / 후속**:
+- 이번 기록은 실수 원인 고정이 목적이다. PR `#118`을 실제로 녹색으로 만들려면 branch 전체 diff에 남아 있는 path-owner-map 누락 자체를 별도로 정리해야 한다.
+
+---
+
 ## <a id="20260406-documentation-mistake-ledger-requirement"></a> 2026-04-06 | 문서화 규칙에 `실수 발견 시 MISTAKES.md 의무 갱신`을 명시하고 session-grounding 스킬에도 반영
 
 **배경**:

@@ -8,6 +8,11 @@ import {
   searchRecommenderCandidates,
 } from '@/lib/admin-referrals';
 import { adminSupabase } from '@/lib/admin-supabase';
+import {
+  hasAppointmentWorkflowEvidence,
+  hasHanwhaApprovedPdf,
+  resolveAppointmentCompletionStatus,
+} from '@/lib/fc-workflow';
 import { validateSession } from '@/lib/csrf';
 import { logger } from '@/lib/logger';
 import { buildPhoneCandidates } from '@/lib/server-session';
@@ -18,6 +23,7 @@ type AdminAction =
   | 'updateStatus'
   | 'updateAllowanceDate'
   | 'updateHanwhaSubmissionDate'
+  | 'updateAppointmentDate'
   | 'updateDocsRequest'
   | 'deleteDocFile'
   | 'createHanwhaPdfUploadUrl'
@@ -583,6 +589,88 @@ export async function POST(req: Request) {
       return NextResponse.json({
         ok: true,
         hanwha_commission_date_sub: normalizedSubmittedDate,
+        status: nextStatus,
+      });
+    }
+
+    if (action === 'updateAppointmentDate') {
+      const { fcId, category, appointmentDate } = payload as {
+        fcId?: string;
+        category?: 'life' | 'nonlife';
+        appointmentDate?: string | null;
+      };
+      const normalizedAppointmentDate = String(appointmentDate ?? '').trim();
+      if (!fcId || !category || !normalizedAppointmentDate) {
+        return badRequest('FC, 위촉 구분, 위촉 완료일이 모두 필요합니다.');
+      }
+      if (!['life', 'nonlife'].includes(category)) {
+        return badRequest('유효한 위촉 구분이 필요합니다.');
+      }
+      if (!isValidYmd(normalizedAppointmentDate)) {
+        return badRequest('유효한 위촉 완료일을 입력해주세요.');
+      }
+
+      const { data: profile, error: profileError } = await adminSupabase
+        .from('fc_profiles')
+        .select([
+          'status',
+          'hanwha_commission_date',
+          'hanwha_commission_pdf_path',
+          'hanwha_commission_pdf_name',
+          'appointment_schedule_life',
+          'appointment_schedule_nonlife',
+          'appointment_date_life_sub',
+          'appointment_date_nonlife_sub',
+          'appointment_reject_reason_life',
+          'appointment_reject_reason_nonlife',
+          'appointment_date_life',
+          'appointment_date_nonlife',
+          'life_commission_completed',
+          'nonlife_commission_completed',
+        ].join(','))
+        .eq('id', fcId)
+        .maybeSingle();
+      if (profileError) throw profileError;
+      if (!profile) return badRequest('FC profile not found');
+      const appointmentProfile = profile as Parameters<typeof resolveAppointmentCompletionStatus>[0];
+      if (!hasAppointmentWorkflowEvidence(appointmentProfile) && !hasHanwhaApprovedPdf(appointmentProfile)) {
+        return badRequest('한화 위촉 URL 승인과 PDF 등록이 끝난 뒤에만 생명/손해 위촉 단계를 진행할 수 있습니다.');
+      }
+
+      const nextProfile =
+        category === 'life'
+          ? {
+              ...appointmentProfile,
+              appointment_date_life: normalizedAppointmentDate,
+            }
+          : {
+              ...appointmentProfile,
+              appointment_date_nonlife: normalizedAppointmentDate,
+            };
+      const nextStatus = resolveAppointmentCompletionStatus(nextProfile);
+
+      const { error: updateError } = await adminSupabase
+        .from('fc_profiles')
+        .update(
+          category === 'life'
+            ? {
+                appointment_date_life: normalizedAppointmentDate,
+                appointment_reject_reason_life: null,
+                status: nextStatus,
+              }
+            : {
+                appointment_date_nonlife: normalizedAppointmentDate,
+                appointment_reject_reason_nonlife: null,
+                status: nextStatus,
+              },
+        )
+        .eq('id', fcId);
+      if (updateError) throw updateError;
+
+      return NextResponse.json({
+        ok: true,
+        appointmentDate: normalizedAppointmentDate,
+        category,
         status: nextStatus,
       });
     }

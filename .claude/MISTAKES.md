@@ -30,6 +30,38 @@
 - Verification:
 ```
 
+## 2026-04-06 | Web Entry Routing | auth loop를 줄이려다 `/` 진입을 로더 고정 화면으로 남겨 실제 진입 경로가 끊김
+- Symptom: `http://localhost:3000` 서버는 200 응답을 주지만, 브라우저에서는 첫 화면이 계속 로더만 보이고 `/auth`나 `/dashboard`로 넘어가지 않았다.
+- Root cause: `/` 페이지에서 기존 client redirect를 제거한 뒤, 대체 분기 없이 로더만 렌더하도록 남겨 두었다. 그 결과 root entry가 세션 복원 이후에도 아무 route resolution을 하지 않았다.
+- Why it was missed: `middleware`와 `dashboard` 보호 경로만 확인하고, 사용자가 가장 먼저 여는 `/` landing route를 실제 브라우저로 다시 밟지 않았다. HTTP 200과 build 통과를 entry flow 정상으로 과대해석했다.
+- Permanent guardrail: auth/session 수정 뒤에는 `/`, `/auth`, `/dashboard` 세 진입점을 모두 브라우저 기준으로 확인한다. `/`는 세션에 따라 즉시 `/dashboard` 또는 `/auth`로 resolve되어야 하며, indefinite loader는 회귀로 본다.
+- Related files: `web/src/app/page.tsx`, `web/src/hooks/use-session.tsx`, `web/src/app/auth/page.tsx`, `web/src/app/dashboard/layout.tsx`
+- Verification: `http://localhost:3000` headless browser redirect 확인, `cd E:\hanhwa\fc-onboarding-app\web && npm run lint -- src/app/page.tsx`, `cd E:\hanhwa\fc-onboarding-app\web && npx next build`
+
+## 2026-04-06 | Admin Web Workflow Tabs | 수당 동의에만 있던 direct-input 계약을 생명/손해 위촉 완료일에는 맞추지 않아 운영 입력 흐름이 탭마다 갈라짐
+- Symptom: 총무는 `수당 동의` 탭에서는 `동의일(Actual)`을 trusted path로 직접 저장할 수 있었지만, `생명/손해 위촉` 탭에서는 같은 종류의 실제 완료일을 `승인 완료` 흐름에 기대어 우회적으로만 처리해야 했다.
+- Root cause: dashboard workflow tab을 단계별로 따로 보강하면서 `실제 날짜 직접입력 + trusted save route + status normalization + list invalidation` 계약을 allowance에만 만들고 appointment에는 parity 체크를 하지 않았다.
+- Why it was missed: 기존 appointment tab에 `승인 완료` 버튼이 이미 있다는 이유로 "총무도 입력 가능하다"라고 간주했고, 수당 동의에서 분리한 direct-input 패턴을 다른 workflow tab에도 적용해야 하는지까지 대조하지 않았다.
+- Permanent guardrail: admin workflow tab에 `Actual` 날짜 입력이 있으면 allowance, hanwha, appointment를 같은 4축으로 비교한다. `직접 저장 버튼`, `trusted route action`, `status normalization`, `dashboard-list/detail invalidation` 중 하나라도 빠지면 parity drift로 본다.
+- Related files: `web/src/app/dashboard/page.tsx`, `web/src/app/api/admin/fc/route.ts`, `web/src/lib/fc-workflow.ts`, `docs/handbook/admin-web/dashboard-lifecycle.md`
+- Verification: `cd E:\hanhwa\fc-onboarding-app\web && npm run lint -- src/app/dashboard/page.tsx src/app/api/admin/fc/route.ts src/lib/fc-workflow.ts`, `cd E:\hanhwa\fc-onboarding-app\web && npx next build`, `cd E:\hanhwa\fc-onboarding-app && node scripts/ci/check-governance.mjs`
+
+## 2026-04-06 | Governance / PR Diff Range | 로컬 거버넌스만 보고 장수 브랜치 전체 PR 거버넌스 상태를 확인하지 않아 PR 체크가 다시 실패
+- Symptom: 로컬에서는 `node scripts/ci/check-governance.mjs`가 통과했는데, PR `Codex/referral rollout closeout #118`의 GitHub Actions governance check는 즉시 실패했다.
+- Root cause: 현재 세션 변경분만 기준으로 거버넌스를 확인하고, `main -> 현재 브랜치 HEAD` 전체 PR diff range에서 남아 있던 governance debt를 다시 확인하지 않았다. 실제 실패 원인은 branch 전체 diff에 포함된 `supabase/functions/invite/index.ts`, `supabase/functions/tsconfig.json`, `supabase/functions/validate-referral-code/index.ts`에 대한 path-owner-map rule 누락이었다.
+- Why it was missed: 장수 브랜치 위에 후속 커밋만 얹으면서 "방금 바꾼 것만 통과하면 된다"는 관성으로 봤고, PR 단위 기준(`BASE_SHA=main`, `HEAD_SHA=current branch`)과 로컬 기준을 분리해 생각하지 않았다.
+- Permanent guardrail: 장수 브랜치나 기존 PR 위에 추가 커밋을 올릴 때는 로컬 검증만으로 닫지 않는다. 반드시 `gh run view` 또는 PR check 결과로 현재 PR 전체 diff의 governance 상태를 확인하고, 필요하면 `BASE_SHA=<main sha> HEAD_SHA=<branch sha> node scripts/ci/check-governance.mjs`처럼 PR 기준으로 다시 본다. 새 커밋이 docs-only여도 기존 브랜치 debt가 남아 있으면 "푸시 완료"로 보고하지 않는다.
+- Related files: `.claude/MISTAKES.md`, `.claude/WORK_LOG.md`, `.claude/WORK_DETAIL.md`
+- Verification: `gh run view 24017748248 --repo jj8127/Appointment-Process --log`, `gh run view 24017748248 --repo jj8127/Appointment-Process --json name,workflowName,conclusion,status,url,event,headBranch,headSha,jobs`
+
+## 2026-04-06 | Verification Discipline | 실행하지 못한 검증을 문서에 통과처럼 먼저 적으려 한 실수
+- Symptom: 게시판 알림 fanout 수정 후 `WORK_DETAIL`와 harness QA에 `deno check` 통과 문구를 먼저 넣었지만, 실제 shell에는 `deno` CLI가 없어 그 검증을 실행할 수 없었다.
+- Root cause: 구현 직후 문서화를 하면서 "원래 돌려야 하는 검증 세트"를 그대로 적었고, 실제 명령 실행 가능 여부와 결과를 문서 반영보다 나중에 확인했다.
+- Why it was missed: 코드 수정과 문서 갱신을 한 흐름으로 처리하면서, 검증 섹션을 계획이 아니라 증적로 써야 한다는 구분이 느슨해졌다.
+- Permanent guardrail: 검증 문서에는 실제로 실행한 명령과 shell 결과만 적는다. 실행 불가 도구(`deno` 등)가 있으면 즉시 `불가`로 기록하고 대체 검증을 별도 줄로 남긴다. "pass" 문구는 명령 출력 확인 뒤에만 쓴다.
+- Related files: `.claude/WORK_DETAIL.md`, `.codex/harness/qa-report.md`, `.codex/harness/handoff.md`
+- Verification: 문서 수정 후 governance check
+
 ## 2026-04-06 | Board Notifications | 게시판 글 작성이 알림함 저장만 되고 푸시 fanout은 빠져 앱 푸시가 가지 않음
 - Symptom: web 또는 가람in 앱에서 게시판 글을 작성하면 `notifications` row는 생겨 알림센터에는 보일 수 있지만, 가람in 기기와 admin/manager 대상 푸시는 전송되지 않았다.
 - Root cause: `board-create`가 `notifications` 테이블에 직접 row만 insert하고 끝났고, Expo push + admin web push fanout의 SSOT인 `fc-notify` 경로를 호출하지 않았다.

@@ -2,7 +2,7 @@ doc_id: FC-ADMIN-DASHBOARD-LIFECYCLE
 owner_repo: fc-onboarding-app
 owner_area: admin-web
 audience: operator, developer
-last_verified: 2026-04-02
+last_verified: 2026-04-06
 source_of_truth: web/src/app/dashboard/page.tsx + web/src/app/dashboard/profile/[id]/page.tsx + web/src/app/api/admin/fc/route.ts + web/src/lib/shared.ts
 
 # Admin Web Playbook: Dashboard Lifecycle
@@ -15,6 +15,8 @@ source_of_truth: web/src/app/dashboard/page.tsx + web/src/app/dashboard/profile/
 
 - `/dashboard`
 - `/dashboard/profile/[id]`
+- `/`와 `/auth`는 dashboard 진입 직전 단계이며, 최종 staff 진입 판정은 middleware cookie session과 `use-session` restore가 같은 snapshot을 공유해야 한다.
+- `/` root entry는 세션 복원 뒤 로더에 머무르면 안 되며, staff session이면 `/dashboard`, 그 외에는 `/auth`로 즉시 resolve되어야 한다.
 
 ## 표시 역할
 
@@ -48,6 +50,7 @@ source_of_truth: web/src/app/dashboard/page.tsx + web/src/app/dashboard/profile/
 ## 상태/분기
 
 - `manager`는 같은 화면을 보더라도 write action이 비활성
+- protected dashboard/admin layout은 middleware가 이미 통과시킨 staff session을 restore gap 때문에 다시 `/auth`로 밀어내면 안 된다.
 - FC 상세 모달은 `수당 동의 / 서류 관리 / 한화 위촉 / 생명/손해 위촉` 4탭 구조
 - FC 상세 모달 헤더는 `/api/admin/resident-numbers` trusted path를 통해 주민등록번호 full-view와 생년월일을 바로 보여준다. 실패 시 masked fallback으로 돌리지 않고 조회 실패를 그대로 표시한다.
 - `/dashboard` 모달과 `/dashboard/profile/[id]` resident-number fetch는 같은 trusted web contract를 공유해야 하며, 한쪽만 별도 로직으로 고치고 다른 쪽을 남기는 변경은 회귀로 본다.
@@ -56,6 +59,7 @@ source_of_truth: web/src/app/dashboard/page.tsx + web/src/app/dashboard/profile/
 - temp-id, allowance, docs, hanwha, appointment, commission flag가 서로 상태 합성에 영향
 - 수당동의 탭은 상단 `상태 흐름`을 `임시사번`보다 먼저 배치해 현재 파생 상태를 먼저 읽게 하고, 현재 카드만 연한 주황색으로 강조한다.
 - 하단 `관리자 조작` 영역은 좌측 `동의일(Actual)` + 저장, 우측 `사전 심사 요청 하기` + `미승인 / 승인 완료` 토글로 정리되어 있으며, 총무는 `allowance_date` 유무와 관계없이 trusted path 상태를 바꿀 수 있고 본부장은 같은 정보를 read-only로 본다.
+- 생명/손해 위촉 탭은 `확정일(Actual)`을 총무가 직접 저장할 수 있는 `완료일 저장` trusted path와, 기존 `일정 저장`/`승인 완료`/`반려` 조작을 함께 제공한다. 직접 저장은 `/api/admin/fc`의 `updateAppointmentDate`로 처리하고, 저장 후 리스트/상세 상태는 `appointment-completed` 또는 `final-link-sent`로 보정한다.
 - 한화 위촉 탭은 `완료일(FC 제출)` 확인, 승인 PDF 업로드/삭제, `FC 미전송 / FC 전송 완료` 조작을 담당하며 별도 `관리자 승인일` 입력 UI는 없습니다.
 - 승인 PDF 카드의 `PDF 업로드 완료`와 승인 토글의 `FC 전송 완료`는 같은 의미가 아닙니다. 총무는 PDF를 올린 뒤에도 마지막으로 `FC 전송 완료`를 눌러야 FC 앱에서 파일을 받을 수 있습니다.
 - 한화 PDF가 첨부되면 FC 앱 `hanwha-commission` 화면에서 상태가 `검토 중` 또는 `반려`여도 파일 자체는 열람/다운로드할 수 있습니다. 다만 생명/손해 위촉 단계 잠금 해제는 계속 `한화 승인 + PDF 등록` 기준입니다.
@@ -72,6 +76,7 @@ source_of_truth: web/src/app/dashboard/page.tsx + web/src/app/dashboard/profile/
 - 한화 PDF 업로드/삭제
 - 한화 승인/반려
 - 생명/손해 완료 플래그 저장
+- 생명/손해 위촉 완료일 직접 저장
 - 위촉 일정/확정/반려
 - resident number 조회
 

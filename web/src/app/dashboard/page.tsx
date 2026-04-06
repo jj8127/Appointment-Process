@@ -1048,6 +1048,67 @@ export default function DashboardPage() {
     },
   });
 
+  const updateAppointmentDateMutation = useMutation({
+    mutationFn: async ({ category }: { category: 'life' | 'nonlife' }) => {
+      if (!selectedFc) {
+        throw new Error('FC 정보를 찾을 수 없습니다.');
+      }
+
+      const dateInput = category === 'life' ? appointmentInputs.lifeDate : appointmentInputs.nonLifeDate;
+      if (!dateInput) {
+        throw new Error('위촉 완료일을 선택해주세요.');
+      }
+
+      const normalizedAppointmentDate = dayjs(dateInput).format('YYYY-MM-DD');
+      const resp = await fetch('/api/admin/fc', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          action: 'updateAppointmentDate',
+          payload: {
+            fcId: selectedFc.id,
+            category,
+            appointmentDate: normalizedAppointmentDate,
+          },
+        }),
+      });
+      const data = await resp.json().catch(() => null);
+      if (!resp.ok) {
+        const message =
+          data && typeof data === 'object' && 'error' in data
+            ? String((data as { error?: string }).error || '')
+            : '';
+        throw new Error(message || '위촉 완료일 저장 실패');
+      }
+      const nextStatus =
+        data && typeof data === 'object' && 'status' in data && typeof data.status === 'string'
+          ? (data.status as FcStatus)
+          : null;
+
+      return {
+        category,
+        appointmentDate: normalizedAppointmentDate,
+        status: nextStatus,
+      };
+    },
+    onSuccess: ({ category, appointmentDate, status }) => {
+      const dateKey = category === 'life' ? 'lifeDate' : 'nonLifeDate';
+      const fieldKey = category === 'life' ? 'appointment_date_life' : 'appointment_date_nonlife';
+      const rejectKey = category === 'life' ? 'appointment_reject_reason_life' : 'appointment_reject_reason_nonlife';
+      setAppointmentInputs((prev) => ({ ...prev, [dateKey]: new Date(appointmentDate) }));
+      updateSelectedFc({
+        [fieldKey]: appointmentDate,
+        [rejectKey]: null,
+        ...(status ? { status } : {}),
+      });
+      notifications.show({ title: '저장 완료', message: '위촉 완료일이 저장되었습니다.', color: 'green' });
+      queryClient.invalidateQueries({ queryKey: ['dashboard-list'] });
+    },
+    onError: (err: Error) => {
+      notifications.show({ title: '오류', message: err.message, color: 'red' });
+    },
+  });
+
   const handleOpenModal = (fc: FCProfileWithDocuments) => {
     setSelectedFc(fc);
     setTempIdInput(fc.temp_id || '');
@@ -1438,6 +1499,7 @@ export default function DashboardPage() {
     const submittedDate = isLife ? selectedFc.appointment_date_life_sub : selectedFc.appointment_date_nonlife_sub;
     const isSubmitted = !isConfirmed && !!submittedDate;
     const insuranceStageOpen = canOpenInsuranceStage(selectedFc);
+    const appointmentBusy = isAppointmentPending || updateAppointmentDateMutation.isPending;
 
     return (
       <Stack gap="xs" mt="sm">
@@ -1511,6 +1573,17 @@ export default function DashboardPage() {
             }}
           />
         </Group>
+        <Button
+          fullWidth
+          variant="light"
+          color={isReadOnly ? 'gray' : 'orange'}
+          leftSection={<IconDeviceFloppy size={14} />}
+          loading={updateAppointmentDateMutation.isPending}
+          disabled={isReadOnly || appointmentBusy || !insuranceStageOpen || !date}
+          onClick={() => updateAppointmentDateMutation.mutate({ category })}
+        >
+          완료일 저장
+        </Button>
         {isSubmitted && (
           <Text size="xs" c="orange">
             제출일: {dayjs(submittedDate).format('YYYY-MM-DD')}
@@ -1523,7 +1596,7 @@ export default function DashboardPage() {
             color={isReadOnly ? "gray" : "blue"}
             leftSection={<IconDeviceFloppy size={14} />}
             loading={isAppointmentPending}
-            disabled={isReadOnly || !insuranceStageOpen}
+            disabled={isReadOnly || appointmentBusy || !insuranceStageOpen}
             onClick={(e) => handleAppointmentAction(e, 'schedule', category)}
           >
             일정 저장
@@ -1533,7 +1606,7 @@ export default function DashboardPage() {
               variant={isConfirmed ? "filled" : "light"}
               color="green"
               size="xs"
-              disabled={isReadOnly || isAppointmentPending || !date || !insuranceStageOpen}
+              disabled={isReadOnly || appointmentBusy || !date || !insuranceStageOpen}
               loading={isAppointmentPending}
               onClick={(e) => handleAppointmentAction(e, 'confirm', category)}
             >
@@ -1543,7 +1616,7 @@ export default function DashboardPage() {
               variant="light"
               color="red"
               size="xs"
-              disabled={isReadOnly || isAppointmentPending || (!isConfirmed && !isSubmitted && !date) || !insuranceStageOpen}
+              disabled={isReadOnly || appointmentBusy || (!isConfirmed && !isSubmitted && !date) || !insuranceStageOpen}
               onClick={() => openRejectModal({ kind: 'appointment', category })}
             >
               반려
