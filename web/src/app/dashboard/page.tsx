@@ -65,6 +65,7 @@ import {
   DOC_OPTIONS,
   getAdminStepDisplay,
   getAppointmentProgress,
+  getDocProgress,
   getSummaryStatus
 } from '../../lib/shared';
 import { sendPushNotification } from '../actions';
@@ -1852,11 +1853,27 @@ export default function DashboardPage() {
   /* Metrics Calculation */
   const metrics = useMemo(() => {
     if (!fcs) return { total: 0, pendingAllowance: 0, pendingDocs: 0 };
-    return {
-      total: fcs.length,
-      pendingAllowance: fcs.filter((fc: FCProfileWithDocuments) => fc.status === 'allowance-pending').length,
-      pendingDocs: fcs.filter((fc: FCProfileWithDocuments) => fc.status === 'docs-pending' || fc.status === 'docs-submitted').length,
-    };
+
+    return fcs.reduce(
+      (acc, fc: FCProfileWithDocuments) => {
+        acc.total += 1;
+
+        const workflowStep = calcStep(fc);
+        const allowanceDisplay = getAllowanceDisplayState(fc);
+        const docProgress = getDocProgress(fc);
+
+        if (workflowStep === 1 && ['entered', 'prescreen'].includes(allowanceDisplay.key)) {
+          acc.pendingAllowance += 1;
+        }
+
+        if (workflowStep === 2 && docProgress.key === 'in-progress') {
+          acc.pendingDocs += 1;
+        }
+
+        return acc;
+      },
+      { total: 0, pendingAllowance: 0, pendingDocs: 0 },
+    );
   }, [fcs]);
 
   const handleWebPushSettings = async () => {
@@ -2036,13 +2053,13 @@ export default function DashboardPage() {
               <Text c="dimmed" size="sm" mb={6}>명</Text>
             </Group>
             <Text c="green" size="xs" fw={700} mt="md">
-              활성 FC 현황
+              가입 완료 FC 현황
             </Text>
           </Card>
 
           <Card padding="lg" radius="md" withBorder shadow="sm" bg="white">
             <Group justify="space-between" mb="xs">
-              <Text c="dimmed" tt="uppercase" fw={700} size="xs" style={{ letterSpacing: '0.5px' }}>수당동의 대기</Text>
+              <Text c="dimmed" tt="uppercase" fw={700} size="xs" style={{ letterSpacing: '0.5px' }}>수당동의 승인 대기</Text>
               <ThemeIcon variant="light" color="orange" radius="md" size="lg">
                 <IconCheck size={22} stroke={1.5} />
               </ThemeIcon>

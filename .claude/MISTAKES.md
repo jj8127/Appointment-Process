@@ -46,6 +46,14 @@
 - Related files: `.claude/MISTAKES.md`, `.claude/WORK_LOG.md`, `.claude/WORK_DETAIL.md`
 - Verification: `gh run view 24032520698 --repo jj8127/Appointment-Process --json attempt,headSha,conclusion,url`, `gh run view 24032713335 --repo jj8127/Appointment-Process --json attempt,headSha,conclusion,url`, `gh pr view 1 --repo jj8127/Appointment-Process --json body,updatedAt`
 
+## 2026-04-06 | Dashboard KPI / Workflow Summary | 상단 카드 집계를 raw status shortcut으로 두어 화면 라벨과 실제 의미가 어긋남
+- Symptom: 대시보드 상단 카드가 `총 인원`을 사실상 가입 완료 FC 전체 수로 보여주면서 `활성 FC 현황`이라 표기했고, `수당동의 대기`와 `서류검토 대기`도 workflow helper가 아닌 raw `status` shortcut 기준이라 운영자가 보는 의미와 숫자가 완전히 일치하지 않았다.
+- Root cause: 목록/모달/배지에서는 `calcStep`, `getAllowanceDisplayState`, `getDocProgress` 같은 파생 workflow helper를 쓰는데, 상단 KPI 카드만 `fcs.length`, `allowance-pending`, `docs-pending|docs-submitted` 같은 단순 status 집계로 남겨 두었다.
+- Why it was missed: 카드 숫자가 대략 그럴듯하게 움직였고, 세부 모달/배지 로직을 먼저 고치면서 summary card는 "단순 카운터"로 취급했다.
+- Permanent guardrail: 대시보드 KPI는 raw status shortcut을 직접 세지 않는다. 카드 문구와 숫자가 workflow 단계 의미를 공유해야 할 때는 list badge와 같은 helper(`calcStep`, `getAllowanceDisplayState`, `getDocProgress`)를 재사용하고, 문구가 helper 의미와 다르면 copy도 같이 수정한다.
+- Related files: `web/src/app/dashboard/page.tsx`, `docs/handbook/admin-web/dashboard-lifecycle.md`, `.claude/MISTAKES.md`, `.claude/WORK_LOG.md`, `.claude/WORK_DETAIL.md`
+- Verification: `Get-Content web/src/app/dashboard/page.tsx`, `Get-Content web/src/lib/fc-workflow.ts`, `Get-Content web/src/lib/shared.ts`
+
 ## 2026-04-06 | Commit Scope / Governance | PR 실패 원인으로 확인한 owner-map fix를 로컬에만 남기고 커밋 범위에서 제외한 채 푸시함
 - Symptom: PR `Codex/referral rollout closeout` governance check가 다시 실패했고, 로그에는 여전히 `supabase/functions/invite/index.ts`, `supabase/functions/tsconfig.json`, `supabase/functions/validate-referral-code/index.ts` owner-map 누락이 그대로 나왔다.
 - Root cause: 같은 세션에서 `docs/handbook/path-owner-map.json` 보강까지 해두고도, 이후 기능 커밋/푸시에서 "내가 방금 건드린 파일만" 선별한다는 이유로 그 fix를 제외했다. 결과적으로 PR 전체 diff 기준 blocker를 알고도 upstream에 보내지 못했다.

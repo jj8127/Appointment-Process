@@ -57,6 +57,9 @@ source_of_truth: web/src/app/dashboard/page.tsx + web/src/app/dashboard/profile/
 - `/dashboard/profile/[id]`는 브라우저 anon Supabase client로 `fc_profiles`를 직접 읽지 않는다. 상세 기본정보와 `fc_documents`는 `/api/admin/fc`의 read-only `getProfile` action을 통해 service-role 서버 경로에서 조회해야 하며, singular-query `406`을 브라우저가 직접 받는 구현은 회귀로 본다.
 - FC 상세 모달과 `/dashboard/profile/[id]`는 `추천인` 아래에 invitee의 `가입 시 사용한 추천코드`를 함께 표시한다. confirmed attribution의 historical code가 우선이고, 그것이 없을 때만 inviter 현재 활성 코드 또는 구조화 링크 fallback을 사용하며, 모두 없으면 `-`로 유지한다.
 - temp-id, allowance, docs, hanwha, appointment, commission flag가 서로 상태 합성에 영향
+- 대시보드 상단 KPI 카드는 별도 summary table이 아니라 `/api/admin/list`로 받은 FC 배열을 client에서 다시 집계한다. `총 인원`은 디자이너를 제외한 `signup_completed` FC 수이며 하단 문구는 `가입 완료 FC 현황`으로 맞춘다.
+- `수당동의 승인 대기` 카드는 raw `status === allowance-pending` 전체가 아니라, workflow step 1에 있으면서 `getAllowanceDisplayState` 기준 `entered` 또는 `prescreen` 상태인 FC만 센다. 반려(`rejected`)나 미입력(`missing`)은 `승인 필요`로 보지 않는다.
+- `서류검토 대기` 카드는 workflow step 2에 있으면서 `getDocProgress`가 `in-progress`인 FC만 센다. 즉 실제 업로드가 있어 검토가 필요한 건만 포함하고, `docs-requested`(업로드 전)나 `rejected`(재제출 대기)는 제외한다.
 - 수당동의 탭은 상단 `상태 흐름`을 `임시사번`보다 먼저 배치해 현재 파생 상태를 먼저 읽게 하고, 현재 카드만 연한 주황색으로 강조한다.
 - 하단 `관리자 조작` 영역은 좌측 `동의일(Actual)` + 저장, 우측 `사전 심사 요청 하기` + `미승인 / 승인 완료` 토글로 정리되어 있으며, 총무는 `allowance_date` 유무와 관계없이 trusted path 상태를 바꿀 수 있고 본부장은 같은 정보를 read-only로 본다.
 - 생명/손해 위촉 탭은 `확정일(Actual)`을 총무가 직접 저장할 수 있는 `완료일 저장` trusted path와, 기존 `일정 저장`/`승인 완료`/`반려` 조작을 함께 제공한다. 직접 저장은 `/api/admin/fc`의 `updateAppointmentDate`로 처리하고, 저장 후 리스트/상세 상태는 `appointment-completed` 또는 `final-link-sent`로 보정한다.

@@ -7,6 +7,38 @@
 
 ---
 
+## <a id="20260406-dashboard-kpi-workflow-summary-alignment"></a> 2026-04-06 | 대시보드 상단 KPI 카드를 workflow helper 기준으로 재정렬
+
+**배경**:
+- 사용자가 `/dashboard` 상단 카드(`총 인원`, `수당동의 대기`, `서류검토 대기`)의 숫자가 실제로 정상인지 질의했다.
+- 코드 확인 결과 카드 값은 `/api/admin/list` 응답을 프론트에서 직접 세고 있었지만, 모달/배지와 달리 `calcStep`, `getAllowanceDisplayState`, `getDocProgress` 같은 workflow helper를 쓰지 않고 raw `status` shortcut에 묶여 있었다.
+- 그 결과 숫자는 갱신되더라도 카드 문구와 운영 의미가 완전히 일치하지 않았다.
+
+**조치**:
+- `web/src/app/dashboard/page.tsx`
+  - 상단 KPI 집계를 helper 기반으로 다시 계산하도록 변경했다.
+  - `수당동의 승인 대기`는 workflow step 1 + allowance display `entered/prescreen`만 집계한다.
+  - `서류검토 대기`는 workflow step 2 + doc progress `in-progress`만 집계한다.
+  - `총 인원` 보조 문구는 실제 집계 의미에 맞게 `가입 완료 FC 현황`으로 바꿨다.
+- `docs/handbook/admin-web/dashboard-lifecycle.md`
+  - 상단 KPI 카드의 집계 기준을 handbook 계약으로 명시했다.
+- `.claude/MISTAKES.md`
+  - KPI가 workflow helper 대신 raw status shortcut에 묶여 드리프트된 패턴을 실수로 기록했다.
+
+**검증**:
+- 확인: `Get-Content web/src/app/dashboard/page.tsx`
+- 확인: `Get-Content web/src/lib/fc-workflow.ts`
+- 확인: `Get-Content web/src/lib/shared.ts`
+- 통과: `cd E:\hanhwa\fc-onboarding-app\web && npm run lint -- src/app/dashboard/page.tsx`
+- 통과: `cd E:\hanhwa\fc-onboarding-app\web && npx next build`
+- 통과: `cd E:\hanhwa\fc-onboarding-app && node scripts/ci/check-governance.mjs`
+- 확인: `Invoke-WebRequest -UseBasicParsing http://localhost:3000`
+
+**리스크 / 후속**:
+- 현재는 정적 로직 정렬까지 반영했다. 실제 운영 데이터 기준으로 카드 수치가 기대와 맞는지는 `/dashboard` 런타임 확인까지 하면 가장 안전하다.
+
+---
+
 ## <a id="20260406-ci-run-selection-reporting-mistake"></a> 2026-04-06 | 과거 rerun failure와 최신 synchronize success를 분리해 설명하지 않은 CI 보고 실수 기록
 
 **배경**:

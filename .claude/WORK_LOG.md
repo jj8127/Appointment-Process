@@ -20,6 +20,7 @@
 ## 최근 작업
 | 날짜 | 작업 | 핵심 파일 | 상세 |
 |------|------|----------|------|
+| 04-06 | 대시보드 상단 KPI 카드를 raw status shortcut 대신 workflow helper 기반 집계로 다시 맞추고, `총 인원` 보조 문구를 `가입 완료 FC 현황`으로 정리 | `web/src/app/dashboard/page.tsx`, `docs/handbook/admin-web/dashboard-lifecycle.md`, `.claude/MISTAKES.md`, `.claude/WORK_LOG.md`, `.claude/WORK_DETAIL.md` | [→ 상세](WORK_DETAIL.md#20260406-dashboard-kpi-workflow-summary-alignment) |
 | 04-06 | 과거 rerun failure와 최신 synchronize success를 분리해 설명하지 않은 CI 보고 실수를 기록하고, 이후에는 run id/attempt/head sha까지 같이 보고하도록 절차를 보강 | `.claude/MISTAKES.md`, `.claude/WORK_LOG.md`, `.claude/WORK_DETAIL.md` | [→ 상세](WORK_DETAIL.md#20260406-ci-run-selection-reporting-mistake) |
 | 04-06 | PR governance의 `Validate PR checklist` 실패를 확인하고, PR 템플릿 필수 체크리스트를 push 완료 조건으로 보도록 실수 기록과 운영 절차를 보강 | `.claude/MISTAKES.md`, `.claude/WORK_LOG.md`, `.claude/WORK_DETAIL.md` | [→ 상세](WORK_DETAIL.md#20260406-pr-checklist-governance-mistake) |
 | 04-06 | PR governance blocker로 확인해 둔 referral owner-map fix를 커밋 범위에서 빠뜨린 실수를 기록하고, `docs/handbook/path-owner-map.json` 보강을 실제 푸시 배치에 다시 포함 | `docs/handbook/path-owner-map.json`, `.claude/MISTAKES.md`, `.claude/WORK_LOG.md`, `.claude/WORK_DETAIL.md` | [→ 상세](WORK_DETAIL.md#20260406-governance-blocker-left-unstaged-mistake) |
