@@ -50,6 +50,7 @@ source_of_truth: web/src/app/dashboard/page.tsx + web/src/app/dashboard/profile/
 - `manager`는 같은 화면을 보더라도 write action이 비활성
 - FC 상세 모달은 `수당 동의 / 서류 관리 / 한화 위촉 / 생명/손해 위촉` 4탭 구조
 - FC 상세 모달 헤더는 `/api/admin/resident-numbers` trusted path를 통해 주민등록번호 full-view와 생년월일을 바로 보여준다. 실패 시 masked fallback으로 돌리지 않고 조회 실패를 그대로 표시한다.
+- `/dashboard` 모달과 `/dashboard/profile/[id]` resident-number fetch는 같은 trusted web contract를 공유해야 하며, 한쪽만 별도 로직으로 고치고 다른 쪽을 남기는 변경은 회귀로 본다.
 - `/dashboard/profile/[id]`는 브라우저 anon Supabase client로 `fc_profiles`를 직접 읽지 않는다. 상세 기본정보와 `fc_documents`는 `/api/admin/fc`의 read-only `getProfile` action을 통해 service-role 서버 경로에서 조회해야 하며, singular-query `406`을 브라우저가 직접 받는 구현은 회귀로 본다.
 - FC 상세 모달과 `/dashboard/profile/[id]`는 `추천인` 아래에 invitee의 `가입 시 사용한 추천코드`를 함께 표시한다. confirmed attribution의 historical code가 우선이고, 그것이 없을 때만 inviter 현재 활성 코드 또는 구조화 링크 fallback을 사용하며, 모두 없으면 `-`로 유지한다.
 - temp-id, allowance, docs, hanwha, appointment, commission flag가 서로 상태 합성에 영향

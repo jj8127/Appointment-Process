@@ -2,7 +2,7 @@ doc_id: FC-ADMIN-EXAM-REFERRAL
 owner_repo: fc-onboarding-app
 owner_area: admin-web
 audience: operator, developer
-last_verified: 2026-03-28
+last_verified: 2026-04-06
 source_of_truth: web/src/app/dashboard/exam/* + web/src/app/admin/exams/* + web/src/app/dashboard/referrals/page.tsx + web/src/app/api/admin/referrals/route.ts
 
 # Admin Web Playbook: Exam And Referral Ops
@@ -21,6 +21,8 @@ source_of_truth: web/src/app/dashboard/exam/* + web/src/app/admin/exams/* + web/
 - legacy admin 시험 화면과 최신 dashboard 시험 화면이 공존
 - `/dashboard/exam/applicants` 는 상단 소속 quick filter를 제공
 - resident number/full view는 운영 역할(admin/manager/developer) 기준으로 읽을 수 있고, `manager`는 모든 쓰기 액션이 비활성
+- `/api/admin/exam-applicants` 는 `exam_registrations.resident_id` 와 `fc_profiles.phone` 를 raw/digits/hyphenated 후보로 매칭한 뒤 `fc_identity_secure` 에서 full resident number를 읽는다.
+- `/dashboard/exam/applicants` 에서 주민등록번호 열이 일괄 `주민번호 조회 실패` 로 보이면 우선 `exam_registrations.resident_id` 와 `fc_profiles.phone` 포맷 drift, 그다음 `fc_identity_secure` 누락을 확인한다.
 
 ## 추천인 운영
 

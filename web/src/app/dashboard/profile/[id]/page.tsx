@@ -3,6 +3,7 @@
 import { fetchPresence } from '@/lib/presence-api';
 import { formatPresenceLabel } from '@/lib/presence';
 import { getAdminStepDisplay, getStatusDisplay } from '@/lib/shared';
+import { useResidentNumber } from '@/hooks/use-resident-number';
 import { useSession } from '@/hooks/use-session';
 import { RecommenderSelect } from '@/components/RecommenderSelect';
 import type { FcProfile, FcStatus } from '@/types/fc';
@@ -170,27 +171,7 @@ export default function FcProfilePage({ params }: { params: Promise<{ id: string
 
     const recommenderDisplay = getRecommenderDisplay(profile);
 
-    const { data: residentNumberFull } = useQuery({
-        queryKey: ['fc-resident-number-full', fcId, role],
-        enabled: hydrated && (role === 'admin' || role === 'manager') && !!fcId,
-        queryFn: async () => {
-            const resp = await fetch('/api/admin/resident-numbers', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                credentials: 'include',
-                body: JSON.stringify({ fcIds: [fcId] }),
-            });
-
-            const json: unknown = await resp.json().catch(() => null);
-            if (!resp.ok || !isRecord(json) || json.ok !== true || !isRecord(json.residentNumbers)) {
-                return null;
-            }
-
-            const residentNumbers = json.residentNumbers as Record<string, unknown>;
-            const value = residentNumbers[fcId];
-            return typeof value === 'string' && value.trim() ? value : null;
-        },
-    });
+    const { residentNumberDisplay } = useResidentNumber({ fcId });
 
     // Sync Form with Data
     useEffect(() => {
@@ -374,7 +355,6 @@ export default function FcProfilePage({ params }: { params: Promise<{ id: string
     }
     if (!profile) return <Container py="xl"><Text>FC 정보를 찾을 수 없습니다.</Text></Container>;
 
-    const residentNumberDisplay = residentNumberFull ?? '주민번호 조회 실패';
     const adminStepDisplay = getAdminStepDisplay(profile);
     const documents = profile.fc_documents ?? [];
     const presenceLabel = isPresenceError

@@ -2,7 +2,7 @@ doc_id: SHARED-SECURITY-SECRET-OPS
 owner_repo: fc-onboarding-app
 owner_area: shared-contract
 audience: developer, operator
-last_verified: 2026-03-28
+last_verified: 2026-04-06
 source_of_truth: env contracts + reset-password functions + admin service-role callers
 
 # Security And Secret Operations
@@ -22,6 +22,7 @@ source_of_truth: env contracts + reset-password functions + admin service-role c
 - service-role 키가 있는 로컬 스크립트를 운영 DB에 바로 실행하지 않습니다.
 - bridge secret은 양 저장소를 같은 변경 세트로 회전합니다.
 - web localStorage/cookie를 “강한 서버 세션”으로 오해하지 않습니다.
+- admin/manager cookie `session_resident`는 digits-only 원문으로 단정하지 않습니다. privileged server route는 raw / digits / hyphenated 후보를 함께 검증해야 하며, 포맷 차이 때문에 PII read가 막히면 security-hardening이 아니라 regression입니다.
 
 ## break-glass 메모
 

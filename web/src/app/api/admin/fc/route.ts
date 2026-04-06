@@ -10,6 +10,7 @@ import {
 import { adminSupabase } from '@/lib/admin-supabase';
 import { validateSession } from '@/lib/csrf';
 import { logger } from '@/lib/logger';
+import { buildPhoneCandidates } from '@/lib/server-session';
 
 type AdminAction =
   | 'getProfile'
@@ -101,10 +102,15 @@ async function getAdminSession(): Promise<SessionErrorResult | SessionSuccessRes
     return { ok: false, status: 403, error: 'Forbidden' };
   }
 
+  const phoneCandidates = buildPhoneCandidates(
+    sessionCheck.session.residentId,
+    sessionCheck.session.residentDigits,
+  );
+
   const { data, error } = await adminSupabase
     .from('admin_accounts')
     .select('staff_type,active')
-    .eq('phone', sessionCheck.session.residentDigits)
+    .in('phone', phoneCandidates)
     .eq('active', true)
     .maybeSingle();
 
@@ -140,10 +146,15 @@ async function getReadSession(): Promise<SessionErrorResult | SessionSuccessResu
     return { ok: false, status: 403, error: 'Forbidden' };
   }
 
+  const phoneCandidates = buildPhoneCandidates(
+    sessionCheck.session.residentId,
+    sessionCheck.session.residentDigits,
+  );
+
   const { data, error } = await adminSupabase
     .from('manager_accounts')
     .select('id,active')
-    .eq('phone', sessionCheck.session.residentDigits)
+    .in('phone', phoneCandidates)
     .eq('active', true)
     .maybeSingle();
 

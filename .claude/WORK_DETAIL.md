@@ -7,6 +7,68 @@
 
 ---
 
+## <a id="20260406-web-resident-number-regression-hardening-and-mistake-ledger"></a> 2026-04-06 | 웹 resident-number 회귀 hardening + exam applicants full-view 복구 + 실수 전용 문서 규칙 추가
+
+**배경**:
+- 주민번호 full-view는 이미 `admin`/`manager` trusted-path 계약으로 여러 차례 복구됐지만, 실제 web 구현은 `/dashboard` 모달과 `/dashboard/profile/[id]`가 resident-number fetch 로직을 따로 들고 있었고, admin/manager 세션 검증도 route마다 다른 전화번호 매칭 규칙을 사용하고 있었다.
+- 특히 `/api/admin/resident-numbers`는 raw/digits/formatted 후보를 모두 허용하도록 정렬돼 있었지만, `/api/admin/fc`는 여전히 digits-only `.eq('phone', residentDigits)`를 사용하고 있어 manager/admin 계정 저장 포맷 차이로 다시 어긋날 수 있었다.
+- 이후 실제 사용자 제보를 따라가 보니 `/dashboard/exam/applicants`는 `exam_registrations.resident_id` 와 `fc_profiles.phone` 포맷 drift, 그리고 direct decrypt 전용 resident-number read 경로가 겹쳐 주민번호 열이 전부 `주민번호 조회 실패`로 남아 있었다.
+- 기존 `WORK_LOG`/`WORK_DETAIL`에는 "무엇을 고쳤는가"는 남았지만, 왜 같은 유형의 실수가 반복되는지와 영구 가드레일은 별도 문서로 남지 않아 회귀 패턴이 계속 묻혔다.
+
+**조치**:
+- `web/src/hooks/use-resident-number.ts`
+  - resident-number query key에 `residentId`를 포함하고 error message를 surface에 그대로 전달하도록 보강했다.
+  - `refetchOnMount: 'always'`, explicit failure text, 생년월일 파생 표시를 공용 contract로 유지했다.
+- `web/src/lib/resident-number-client.ts`
+  - `/api/admin/resident-numbers` trusted path fetch와 오류 메시지 파싱을 공용 helper로 분리했다.
+- `web/src/app/dashboard/page.tsx`
+  - `/dashboard` FC 상세 모달 resident-number 조회를 `useResidentNumber`만 쓰도록 정리했다.
+  - 화면 내부 ad-hoc fetch/effect를 제거해 modal surface가 profile surface와 같은 read contract를 쓰도록 정렬했다.
+- `web/src/app/dashboard/profile/[id]/page.tsx`
+  - `/dashboard/profile/[id]`도 같은 shared hook을 쓰도록 바꿔 resident-number client path drift를 줄였다.
+- `web/src/lib/server-session.ts`
+  - 기존 raw/digits/formatted phone candidate builder를 export해 다른 route에서도 같은 정규화 규칙을 재사용할 수 있게 했다.
+- `web/src/app/api/admin/fc/route.ts`
+  - admin/manager session verification을 digits-only `.eq('phone', residentDigits)`에서 normalized candidate `.in('phone', phoneCandidates)`로 교체했다.
+  - 이로써 FC 상세 read route와 resident-number route가 같은 phone-format 허용 범위를 갖게 됐다.
+- `web/src/lib/server-resident-numbers.ts`
+  - direct decrypt와 `admin-action` fallback을 묶는 공용 resident-number server 유틸을 추가했다.
+  - resident-number full-view를 제공하는 route가 같은 secure read contract를 재사용하도록 정렬했다.
+- `web/src/app/api/admin/resident-numbers/route.ts`
+  - resident-number 조회 route를 `getVerifiedServerSession` + `readResidentNumbersWithFallback` 공용 경로로 정리했다.
+- `web/src/app/api/admin/exam-applicants/route.ts`
+  - `exam_registrations.resident_id` 와 `fc_profiles.phone` 를 raw/digits/hyphenated 후보로 매칭하도록 바꾸고, 주민번호 읽기도 direct decrypt 전용 로직 대신 공용 fallback 유틸을 사용하게 했다.
+  - 이로써 `/dashboard/exam/applicants` 도 `/dashboard` 및 `/dashboard/profile/[id]` 와 같은 resident-number read contract를 따른다.
+- `docs/handbook/admin-web/dashboard-lifecycle.md`
+  - `/dashboard`와 `/dashboard/profile/[id]` resident-number fetch는 같은 trusted web contract를 공유해야 하며, 한쪽만 따로 고치는 변경은 회귀라는 규칙을 handbook에 명시했다.
+- `docs/handbook/admin-web/exam-and-referral-ops.md`
+  - `/dashboard/exam/applicants` 주민번호 열은 phone 포맷 후보 매칭 + `fc_identity_secure` trusted read를 전제로 한다는 운영 규칙과 장애 확인 순서를 추가했다.
+- `docs/handbook/shared/documentation-contract.md`
+  - `.claude/MISTAKES.md`를 반복 가능한 실수/회귀 전용 문서로 정의하고, 어떤 경우에 반드시 같이 갱신해야 하는지 규칙을 추가했다.
+- `docs/handbook/change-checklist.md`
+  - 회귀/드리프트 fix에서는 `MISTAKES.md`도 최소 변경 세트에 포함해야 한다는 규칙을 추가했다.
+- `.claude/MISTAKES.md`
+  - resident-number 회귀를 첫 항목으로 기록하고, symptom/root cause/why missed/permanent guardrail을 따로 남겼다.
+- `.claude/PROJECT_GUIDE.md`, `AGENTS.md`, `scripts/ci/check-governance.mjs`
+  - 문서 체계를 `PROJECT_GUIDE + WORK_LOG + WORK_DETAIL + MISTAKES`로 확장하고, 거버넌스 필수 문서 목록에 `MISTAKES.md`를 포함했다.
+
+**검증**:
+- 통과: `cd E:\hanhwa\fc-onboarding-app\web && npm run lint -- src/app/dashboard/page.tsx src/app/dashboard/profile/[id]/page.tsx src/app/api/admin/resident-numbers/route.ts src/app/api/admin/fc/route.ts src/hooks/use-resident-number.ts src/lib/resident-number-client.ts src/lib/server-session.ts`
+- 통과: `cd E:\hanhwa\fc-onboarding-app\web && npm run lint -- src/app/api/admin/exam-applicants/route.ts src/app/api/admin/resident-numbers/route.ts src/lib/server-resident-numbers.ts src/lib/server-session.ts`
+- 통과: `cd E:\hanhwa\fc-onboarding-app\web && npx next build`
+  - 참고: `npm run build` wrapper는 현재 이 폴더의 Next dev 서버가 살아 있어 `scripts/clean-next.mjs` 단계에서 중단됐고, 실제 production build 검증은 `npx next build`로 수행했다.
+- 통과: `cd E:\hanhwa\fc-onboarding-app && node scripts/ci/check-governance.mjs`
+- 수동 코드 점검 기준:
+  - resident-number web fetch는 두 surface 모두 `useResidentNumber -> /api/admin/resident-numbers`만 사용한다.
+  - `/api/admin/fc` 세션 검증은 raw/digits/formatted 후보를 모두 허용한다.
+  - `/api/admin/exam-applicants` 는 `resident_id -> phone candidate -> secure resident-number` 순서의 공용 contract를 사용한다.
+
+**리스크 / 후속**:
+- 실제 운영 데이터에 `fc_identity_secure` row 자체가 누락된 FC가 있다면 UI 정렬만으로 full-view를 복구할 수는 없다.
+- 이번 변경은 web route/client drift를 줄였지만, runtime에서는 실제 admin/manager 계정으로 두 FC detail surface를 다시 확인해야 한다.
+
+---
+
 ## <a id="20260404-legacy-referral-cleanup-stage2-and-invitees-merge"></a> 2026-04-04 | 레거시 추천인 정리 2단계 + self-service invitee 목록 merge 복구
 
 **배경**:

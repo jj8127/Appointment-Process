@@ -24,6 +24,7 @@
 - `PROJECT_GUIDE.md`: 정책/규칙/표준 절차의 단일 기준
 - `WORK_LOG.md`: 최근 작업 요약 인덱스(상세 앵커 링크만 유지)
 - `WORK_DETAIL.md`: 구현 배경/변경 파일/검증 결과의 상세 이력
+- `MISTAKES.md`: 반복 가능한 실수/회귀/드리프트와 영구 가드레일만 기록하는 전용 로그
 
 ### 중복 최소화 원칙
 - 동일 규칙은 `PROJECT_GUIDE.md`에만 정의하고, 다른 문서는 링크로 참조
@@ -233,11 +234,12 @@ try {
 - [ ] 최근 Git 확인 (`git log --oneline -10`)
 - [ ] 기존 유사 코드 검색 후 패턴 확인
 
-### 5.2 문서화 시스템 (정책 + 로그 2계층)
+### 5.2 문서화 시스템 (정책 + 로그 + 실수 3계층)
 ```txt
 PROJECT_GUIDE.md : 규칙/정책 기준
 WORK_LOG.md      : 요약 인덱스
 WORK_DETAIL.md   : 상세 누적 이력 (앵커 기반)
+MISTAKES.md      : 반복 가능한 실수와 재발 방지 가드레일 전용
 ```
 
 #### 앵커 규칙
@@ -247,13 +249,14 @@ WORK_DETAIL.md   : 상세 누적 이력 (앵커 기반)
 ### 5.3 작업 완료 시 업데이트 순서
 1. `WORK_DETAIL.md` 상단에 상세 항목 추가
 2. `WORK_LOG.md` 최근 작업 테이블에 요약 1행 추가
-3. 최신 항목이 상단에 오도록 정렬 유지
-4. 프로젝트 현황/주의사항 변경 시 상단 섹션 갱신
-5. 스키마 변경 시 `supabase/schema.sql` + `supabase/migrations/*.sql` 동시 반영
+3. 회귀/드리프트/반복 가능 실수였다면 `MISTAKES.md`에도 root cause와 영구 가드레일 추가
+4. 최신 항목이 상단에 오도록 정렬 유지
+5. 프로젝트 현황/주의사항 변경 시 상단 섹션 갱신
+6. 스키마 변경 시 `supabase/schema.sql` + `supabase/migrations/*.sql` 동시 반영
 
 ### 5.4 자동 검증 (CI)
 - PR/Push에서 아래 항목을 자동 검사합니다.
-- 필수 문서 파일 존재 여부 (`PROJECT_GUIDE.md`, `WORK_LOG.md`, `WORK_DETAIL.md`)
+- 필수 문서 파일 존재 여부 (`PROJECT_GUIDE.md`, `WORK_LOG.md`, `WORK_DETAIL.md`, `MISTAKES.md`)
 - `WORK_LOG.md` 상세 링크 앵커가 `WORK_DETAIL.md`에 실제 존재하는지
 - 코드 변경 시 `WORK_LOG.md` + `WORK_DETAIL.md` 동시 갱신 여부
 - 스키마 변경 시 `schema.sql`과 `migrations` 동시 변경 여부
