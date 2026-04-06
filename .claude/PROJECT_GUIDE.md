@@ -30,6 +30,7 @@
 - 동일 규칙은 `PROJECT_GUIDE.md`에만 정의하고, 다른 문서는 링크로 참조
 - `WORK_LOG.md`에는 설명 문장을 늘리지 않고, 작업명 + 핵심 파일 + 상세 링크만 기록
 - 세부 구현 설명은 `WORK_DETAIL.md`로만 누적
+- 실수/회귀/드리프트/검증 누락처럼 "우리가 무엇을 잘못했는가"가 드러난 세션은 `MISTAKES.md`도 같은 change set에서 반드시 갱신
 
 ### 자동 검증/강제
 - CI(`.github/workflows/governance-check.yml`)에서 문서/스키마 규칙을 자동 검증
@@ -249,7 +250,7 @@ MISTAKES.md      : 반복 가능한 실수와 재발 방지 가드레일 전용
 ### 5.3 작업 완료 시 업데이트 순서
 1. `WORK_DETAIL.md` 상단에 상세 항목 추가
 2. `WORK_LOG.md` 최근 작업 테이블에 요약 1행 추가
-3. 회귀/드리프트/반복 가능 실수였다면 `MISTAKES.md`에도 root cause와 영구 가드레일 추가
+3. 이번 세션에서 실수(회귀, 계약 드리프트, 검증 누락, 중복 구현으로 인한 불일치 등)를 확인했다면 `MISTAKES.md`에도 root cause와 영구 가드레일을 반드시 추가
 4. 최신 항목이 상단에 오도록 정렬 유지
 5. 프로젝트 현황/주의사항 변경 시 상단 섹션 갱신
 6. 스키마 변경 시 `supabase/schema.sql` + `supabase/migrations/*.sql` 동시 반영

@@ -7,6 +7,32 @@
 
 ---
 
+## <a id="20260406-documentation-mistake-ledger-requirement"></a> 2026-04-06 | 문서화 규칙에 `실수 발견 시 MISTAKES.md 의무 갱신`을 명시하고 session-grounding 스킬에도 반영
+
+**배경**:
+- 저장소 안에는 이미 `MISTAKES.md` 관련 규칙이 있었지만, workspace 규칙, repo SSOT, handbook contract, session-grounding skill이 같은 강도로 정렬돼 있지는 않았다.
+- 그 결과 어떤 세션에서는 실수 기록을 남기고, 어떤 세션에서는 broad work log만 갱신한 채 끝날 여지가 남아 있었다.
+- 사용자 요청은 "실수를 했으면 그것도 반드시 기록"을 문서화 규칙 자체로 고정하고, 새 세션 오리엔테이션 스킬에서도 같은 요구를 상기시키는 것이었다.
+
+**조치**:
+- `E:\hanhwa\AGENTS.md`
+  - workspace 레벨에서 실수/회귀/드리프트/검증 누락을 확인한 세션은 대상 repo의 mistake-only ledger를 같은 change set에서 갱신해야 한다는 규칙을 추가했다.
+- `C:\Users\jj812\.codex\skills\hanhwa-session-grounding\SKILL.md`
+  - 현재 작업이 실수 수정/문서화라면 orientation summary에서 `MISTAKES.md` 갱신 의무를 명시적으로 호출하도록 추가했다.
+  - summary 포함 항목과 guardrail에도 같은 요구를 넣었다.
+- `.claude/PROJECT_GUIDE.md`
+  - 문서 SSOT 원칙과 작업 완료 순서에 `실수를 확인한 세션은 MISTAKES.md를 반드시 갱신` 규칙을 명시했다.
+- `docs/handbook/shared/documentation-contract.md`
+  - 실수 기록 원칙을 "조건 충족 시 의무"로 격상하고, 현재 세션에서 무엇을 잘못 이해했는지가 드러난 경우도 기록 대상에 포함했다.
+
+**검증**:
+- 통과: `cd E:\hanhwa\fc-onboarding-app && node scripts/ci/check-governance.mjs`
+
+**리스크 / 후속**:
+- 이 변경은 규칙 정렬이 목적이므로 자동으로 모든 세션을 강제하진 않는다. 다만 이후 session-grounding과 repo 문서를 읽는 흐름에서는 같은 요구가 반복적으로 surface되어 drift 가능성은 줄어든다.
+
+---
+
 ## <a id="20260406-board-post-push-fanout-parity-fix"></a> 2026-04-06 | 게시판 글 작성 알림 저장-only 경로에 push fanout parity 복구
 
 **배경**:
