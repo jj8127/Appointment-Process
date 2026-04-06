@@ -30,6 +30,14 @@
 - Verification:
 ```
 
+## 2026-04-06 | PR Checklist / Governance | 코드 거버넌스만 통과시키고 PR 템플릿 필수 체크리스트를 비워 둔 채 푸시함
+- Symptom: 최신 PR governance run에서 path-owner-map 검사는 통과했지만 `Validate PR checklist` 단계가 실패했고, `PROJECT_GUIDE.md 확인`, `WORK_DETAIL 앵커 추가/업데이트`, `WORK_LOG 최근 작업 1행 추가/검토`, `스키마 변경 시 schema.sql + migrations 동시 반영`, `릴리즈/운영 영향(함수 배포·마이그레이션) 기재` 항목이 미체크로 남아 있었다.
+- Root cause: repo의 governance를 `check-governance.mjs` 중심으로만 보고, PR body에 있는 별도 required checklist 검증까지 push 완료 조건에 포함하지 않았다.
+- Why it was missed: GitHub Actions failure를 파일/코드 이슈로만 생각하는 관성이 남아 있었고, PR 본문을 마지막 완료물로 취급하지 않았다.
+- Permanent guardrail: `git push` 뒤에는 `gh run view`로 workflow step 이름까지 확인하고, `Validate PR checklist`가 있는 repo에서는 PR body의 required checkbox를 같은 턴에 채운다. 코드/문서가 맞아도 PR template 미완성 상태면 "푸시 완료"로 보고하지 않는다. PR body를 뒤늦게 수정했으면 기존 `pull_request` run rerun만 믿지 말고, 새 `synchronize` 이벤트가 발생하도록 후속 커밋 또는 새 run 생성까지 확인한다.
+- Related files: `.claude/MISTAKES.md`, `.claude/WORK_LOG.md`, `.claude/WORK_DETAIL.md`
+- Verification: `gh run view 24032520698 --repo jj8127/Appointment-Process --log`, `gh pr view 1 --repo jj8127/Appointment-Process --json body`, `gh api repos/jj8127/Appointment-Process/pulls/1 --method PATCH --raw-field body=...`, `gh run rerun 24032520698 --repo jj8127/Appointment-Process`
+
 ## 2026-04-06 | Commit Scope / Governance | PR 실패 원인으로 확인한 owner-map fix를 로컬에만 남기고 커밋 범위에서 제외한 채 푸시함
 - Symptom: PR `Codex/referral rollout closeout` governance check가 다시 실패했고, 로그에는 여전히 `supabase/functions/invite/index.ts`, `supabase/functions/tsconfig.json`, `supabase/functions/validate-referral-code/index.ts` owner-map 누락이 그대로 나왔다.
 - Root cause: 같은 세션에서 `docs/handbook/path-owner-map.json` 보강까지 해두고도, 이후 기능 커밋/푸시에서 "내가 방금 건드린 파일만" 선별한다는 이유로 그 fix를 제외했다. 결과적으로 PR 전체 diff 기준 blocker를 알고도 upstream에 보내지 못했다.

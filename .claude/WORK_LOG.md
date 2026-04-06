@@ -20,6 +20,7 @@
 ## 최근 작업
 | 날짜 | 작업 | 핵심 파일 | 상세 |
 |------|------|----------|------|
+| 04-06 | PR governance의 `Validate PR checklist` 실패를 확인하고, PR 템플릿 필수 체크리스트를 push 완료 조건으로 보도록 실수 기록과 운영 절차를 보강 | `.claude/MISTAKES.md`, `.claude/WORK_LOG.md`, `.claude/WORK_DETAIL.md` | [→ 상세](WORK_DETAIL.md#20260406-pr-checklist-governance-mistake) |
 | 04-06 | PR governance blocker로 확인해 둔 referral owner-map fix를 커밋 범위에서 빠뜨린 실수를 기록하고, `docs/handbook/path-owner-map.json` 보강을 실제 푸시 배치에 다시 포함 | `docs/handbook/path-owner-map.json`, `.claude/MISTAKES.md`, `.claude/WORK_LOG.md`, `.claude/WORK_DETAIL.md` | [→ 상세](WORK_DETAIL.md#20260406-governance-blocker-left-unstaged-mistake) |
 | 04-06 | 웹 root entry `/`가 로더에 고정되던 회귀를 수정해 세션 기준으로 `/dashboard` 또는 `/auth`로 즉시 라우팅되게 복구 | `web/src/app/page.tsx`, `.claude/MISTAKES.md`, `.claude/WORK_LOG.md`, `.claude/WORK_DETAIL.md` | [→ 상세](WORK_DETAIL.md#20260406-web-root-entry-loader-regression-fix) |
 | 04-06 | 웹 생명/손해 위촉 탭에 총무 직접 완료일 저장 경로를 추가하고, trusted `/api/admin/fc` `updateAppointmentDate` action으로 상태를 `appointment-completed`/`final-link-sent`로 보정 | `web/src/app/dashboard/page.tsx`, `web/src/app/api/admin/fc/route.ts`, `web/src/lib/fc-workflow.ts`, `docs/handbook/admin-web/dashboard-lifecycle.md`, `.claude/MISTAKES.md`, `.claude/WORK_LOG.md`, `.claude/WORK_DETAIL.md` | [→ 상세](WORK_DETAIL.md#20260406-web-appointment-direct-input-parity) |

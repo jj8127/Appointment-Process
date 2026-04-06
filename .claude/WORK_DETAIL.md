@@ -7,6 +7,36 @@
 
 ---
 
+## <a id="20260406-pr-checklist-governance-mistake"></a> 2026-04-06 | PR checklist governance 실패를 코드 이슈와 별개로 확인하고 실수로 기록
+
+**배경**:
+- referral owner-map fix를 포함해 다시 푸시한 뒤, PR governance run의 파일/contract 검사는 통과했다.
+- 그런데 최신 실패 로그를 다시 읽어 보니, 이번에는 `Validate PR checklist` 단계가 실패했고 원인은 PR body의 필수 체크리스트 미체크였다.
+- 즉 코드나 문서 파일이 아니라 PR 템플릿 자체가 완료되지 않은 상태였다.
+
+**조치**:
+- `gh run view 24032520698 --repo jj8127/Appointment-Process --log`
+  - `Run governance checks`는 pass, `Validate PR checklist`만 fail임을 확인했다.
+- `gh pr view 1 --repo jj8127/Appointment-Process --json body`
+  - PR 본문에 필수 checkbox가 비어 있는 것을 확인했다.
+- `gh api repos/jj8127/Appointment-Process/pulls/1 --method PATCH --raw-field body=...`
+  - `gh pr edit`가 deprecated Projects(classic) GraphQL 경로에서 막히는 문제를 우회해 PR body를 직접 갱신했다.
+- `gh run rerun 24032520698 --repo jj8127/Appointment-Process`
+  - 기존 `pull_request` run rerun은 최초 event payload를 그대로 써서 checklist fail이 유지됨을 확인했다. 그래서 새 `synchronize` 이벤트를 만들 후속 커밋이 필요해졌다.
+- `.claude/MISTAKES.md`
+  - push 이후에도 PR checklist를 완료 조건으로 보지 않은 실수를 기록했다.
+
+**검증**:
+- 확인: `gh run view 24032520698 --repo jj8127/Appointment-Process --log`
+- 확인: `gh pr view 1 --repo jj8127/Appointment-Process --json body`
+- 확인: `gh api repos/jj8127/Appointment-Process/pulls/1 --method PATCH --raw-field body=...`
+- 확인: `gh run rerun 24032520698 --repo jj8127/Appointment-Process`
+
+**리스크 / 후속**:
+- 이 repo에서는 코드/문서 fix와 별도로 PR body checklist도 governance 대상이다. 이후에는 push 직후 run step 이름까지 확인해야 하고, PR body를 뒤늦게 고쳤다면 기존 run rerun이 아니라 새 `pull_request synchronize` run까지 생성해야 한다.
+
+---
+
 ## <a id="20260406-governance-blocker-left-unstaged-mistake"></a> 2026-04-06 | PR governance blocker를 확인하고도 owner-map fix를 unstaged로 남긴 채 푸시한 실수 복구
 
 **배경**:
