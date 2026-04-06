@@ -38,6 +38,14 @@
 - Related files: `.claude/MISTAKES.md`, `.claude/WORK_LOG.md`, `.claude/WORK_DETAIL.md`
 - Verification: `gh run view 24032520698 --repo jj8127/Appointment-Process --log`, `gh pr view 1 --repo jj8127/Appointment-Process --json body`, `gh api repos/jj8127/Appointment-Process/pulls/1 --method PATCH --raw-field body=...`, `gh run rerun 24032520698 --repo jj8127/Appointment-Process`
 
+## 2026-04-06 | CI Reporting / Run Selection | 성공한 최신 synchronize run이 있는데도 과거 rerun failure가 계속 보일 수 있다는 점을 충분히 분리해 설명하지 않음
+- Symptom: 사용자는 `Governance Check #122` rerun failure 화면을 보고 여전히 PR이 깨졌다고 인식했고, 실제로는 최신 `pull_request synchronize` run `24032713335`가 `success`였다.
+- Root cause: 제가 "현재 PR 기준 성공 run"과 "과거 SHA/attempt를 다시 돌린 rerun failure"를 명시적으로 분리해 설명하지 않았다.
+- Why it was missed: workflow 하나가 green이면 상태가 정리됐다고 보고, GitHub UI에서 이전 run attempt가 별도로 빨갛게 남아 사용자 눈에 먼저 보일 수 있다는 운영 맥락을 과소평가했다.
+- Permanent guardrail: CI 결과를 보고할 때는 항상 `run id`, `attempt`, `head sha`, `event`를 함께 적는다. 특히 rerun이 섞인 경우에는 "현재 PR head를 검증한 최신 synchronize run" 링크를 먼저 제시하고, 과거 rerun failure는 stale artifact라고 분명히 구분한다.
+- Related files: `.claude/MISTAKES.md`, `.claude/WORK_LOG.md`, `.claude/WORK_DETAIL.md`
+- Verification: `gh run view 24032520698 --repo jj8127/Appointment-Process --json attempt,headSha,conclusion,url`, `gh run view 24032713335 --repo jj8127/Appointment-Process --json attempt,headSha,conclusion,url`, `gh pr view 1 --repo jj8127/Appointment-Process --json body,updatedAt`
+
 ## 2026-04-06 | Commit Scope / Governance | PR 실패 원인으로 확인한 owner-map fix를 로컬에만 남기고 커밋 범위에서 제외한 채 푸시함
 - Symptom: PR `Codex/referral rollout closeout` governance check가 다시 실패했고, 로그에는 여전히 `supabase/functions/invite/index.ts`, `supabase/functions/tsconfig.json`, `supabase/functions/validate-referral-code/index.ts` owner-map 누락이 그대로 나왔다.
 - Root cause: 같은 세션에서 `docs/handbook/path-owner-map.json` 보강까지 해두고도, 이후 기능 커밋/푸시에서 "내가 방금 건드린 파일만" 선별한다는 이유로 그 fix를 제외했다. 결과적으로 PR 전체 diff 기준 blocker를 알고도 upstream에 보내지 못했다.

@@ -7,6 +7,31 @@
 
 ---
 
+## <a id="20260406-ci-run-selection-reporting-mistake"></a> 2026-04-06 | 과거 rerun failure와 최신 synchronize success를 분리해 설명하지 않은 CI 보고 실수 기록
+
+**배경**:
+- PR checklist 문제를 고친 뒤 새 커밋을 올려 `pull_request synchronize` run `24032713335`를 성공시켰다.
+- 그런데 GitHub UI에서는 과거 failure run `24032520698`의 rerun attempt가 별도로 빨갛게 남아 있었고, 사용자는 그 화면을 보고 여전히 PR이 깨진 상태로 인식했다.
+- 즉 실제 상태 자체보다, 어떤 run이 현재 PR head를 대표하는지 제 설명이 부족했다.
+
+**조치**:
+- `gh run view 24032520698 --repo jj8127/Appointment-Process --json attempt,headSha,conclusion,url`
+  - failure 화면이 과거 SHA `9de53fef3524ff3b34859b30f0d9dc4b5ad8474e`에 대한 attempt `2` rerun임을 다시 확인했다.
+- `gh run view 24032713335 --repo jj8127/Appointment-Process --json attempt,headSha,conclusion,url`
+  - 최신 `pull_request synchronize` run이 현재 HEAD `2a28d9f54a681055c90bdd5db3865a9c862e3bae` 기준 `success`임을 확인했다.
+- `.claude/MISTAKES.md`
+  - 앞으로는 CI 결과를 보고할 때 run id, attempt, head sha를 같이 적어 stale rerun과 최신 success를 분리하도록 guardrail을 추가했다.
+
+**검증**:
+- 확인: `gh run view 24032520698 --repo jj8127/Appointment-Process --json attempt,headSha,conclusion,url`
+- 확인: `gh run view 24032713335 --repo jj8127/Appointment-Process --json attempt,headSha,conclusion,url`
+- 확인: `gh pr view 1 --repo jj8127/Appointment-Process --json body,updatedAt`
+
+**리스크 / 후속**:
+- GitHub UI에서 오래된 rerun 실패가 상단에 다시 보일 수 있으므로, 이후에는 "현재 PR head를 검증한 최신 run" 링크를 항상 먼저 같이 전달해야 혼선을 줄일 수 있다.
+
+---
+
 ## <a id="20260406-pr-checklist-governance-mistake"></a> 2026-04-06 | PR checklist governance 실패를 코드 이슈와 별개로 확인하고 실수로 기록
 
 **배경**:
