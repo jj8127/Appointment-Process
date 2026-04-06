@@ -26,13 +26,17 @@
   - `skip_notification_insert: true`를 사용해 기존 board-create row insert와 중복 저장되지 않게 했다.
 - `docs/handbook/backend/notifications-inbox-push.md`
   - `board-create`가 inbox row를 직접 쓰는 예외 경로이며, 이 경우 `fc-notify` fanout을 `skip_notification_insert`와 함께 반드시 동반해야 한다는 운영 계약을 추가했다.
+- `docs/handbook/backend/board-api-and-notice-model.md`
+  - board API 런북에도 `board-create`가 저장-only로 끝나면 안 되고, 같은 요청 흐름에서 `fc-notify` fanout을 동반해야 한다는 메모를 추가했다.
 - `.claude/MISTAKES.md`, `.codex/harness/*`
   - 이번 누락을 mistake-only ledger와 harness 계약/QA/handoff에 반영했다.
 
 **검증**:
-- 통과: `deno check E:\hanhwa\fc-onboarding-app\supabase\functions\board-create\index.ts`
-- 통과: `deno check E:\hanhwa\fc-onboarding-app\supabase\functions\fc-notify\index.ts`
+- 불가: `deno check ...`
+  - 현재 로컬 shell에는 `deno` CLI가 없어 직접 Deno type-check는 수행하지 못했다.
+- 통과: `git -C E:\hanhwa\fc-onboarding-app diff --check -- supabase/functions/board-create/index.ts supabase/functions/fc-notify/index.ts docs/handbook/backend/notifications-inbox-push.md docs/handbook/backend/board-api-and-notice-model.md`
 - 통과: `cd E:\hanhwa\fc-onboarding-app && node scripts/ci/check-governance.mjs`
+- 참고: `npx -y -p typescript tsc ...`로 최소 파싱을 시도했지만, Deno remote import 해석 부재와 `fc-notify`의 기존 strict-type 노이즈 때문에 pass/fail 근거로 쓰지 않았다.
 - 미실행: 실제 device token이 있는 FC/admin/manager 계정으로 게시판 글을 작성해 Expo push와 admin web push를 수신하는 runtime 검증은 이번 세션에서 수행하지 못했다.
 
 **리스크 / 후속**:

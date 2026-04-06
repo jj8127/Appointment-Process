@@ -41,6 +41,7 @@ type Payload =
       fc_id?: string | null;
       sender_id?: string;
       sender_name?: string;
+      skip_notification_insert?: boolean;
     }
   | {
       type: 'message';
@@ -54,6 +55,7 @@ type Payload =
       category?: string;
       url?: string;
       fc_id?: string | null;
+      skip_notification_insert?: boolean;
     };
 
 type TokenRow = { expo_push_token: string; resident_id: string | null; display_name: string | null };
@@ -1000,6 +1002,7 @@ serve(async (req: Request) => {
   if (body.type === 'notify' || body.type === 'message') {
     const target_role = body.target_role;
     const target_id = sanitize(body.target_id);
+    const skipNotificationInsert = body.skip_notification_insert === true;
 
     const title =
       body.type === 'notify'
@@ -1059,15 +1062,17 @@ serve(async (req: Request) => {
     }
     tokens = dedupeTokens(tokens);
 
-    const logError = await insertNotificationWithFallback({
-      title,
-      body: message,
-      category,
-      recipient_role: target_role,
-      resident_id: target_id || null,
-      fc_id: body.fc_id ?? null,
-      target_url: url,
-    });
+    const logError = skipNotificationInsert
+      ? null
+      : await insertNotificationWithFallback({
+          title,
+          body: message,
+          category,
+          recipient_role: target_role,
+          resident_id: target_id || null,
+          fc_id: body.fc_id ?? null,
+          target_url: url,
+        });
     if (logError) {
       console.warn('notifications insert failed', logError.message);
     }
