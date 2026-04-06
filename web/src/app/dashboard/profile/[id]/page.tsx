@@ -127,6 +127,7 @@ export default function FcProfilePage({ params }: { params: Promise<{ id: string
             email: '',
             affiliation: '',
             career_type: '',
+            temp_id: '',
             recommender: '',
             admin_memo: '',
         },
@@ -184,6 +185,7 @@ export default function FcProfilePage({ params }: { params: Promise<{ id: string
                 email: profile.email || '',
                 affiliation: profile.affiliation || '',
                 career_type: profile.career_type || '',
+                temp_id: profile.temp_id || '',
                 recommender: profile.recommender || '',
                 admin_memo: profile.admin_memo || '',
             });
@@ -206,6 +208,7 @@ export default function FcProfilePage({ params }: { params: Promise<{ id: string
     const updateProfileMutation = useMutation({
         mutationFn: async (values: typeof form.values) => {
             const normalizedCareerType = values.career_type.trim();
+            const normalizedTempId = values.temp_id.trim();
             const payload: Record<string, unknown> = {
                 name: values.name.trim(),
                 phone: values.phone.trim(),
@@ -215,6 +218,9 @@ export default function FcProfilePage({ params }: { params: Promise<{ id: string
                 email: values.email.trim() || null,
                 career_type: normalizedCareerType === '신입' || normalizedCareerType === '경력' ? normalizedCareerType : null,
             };
+            if (normalizedTempId) {
+                payload.temp_id = normalizedTempId;
+            }
             if (isRecommenderDirty) {
                 payload.recommenderFcId = clearRecommenderSelection ? null : selectedRecommenderFcId;
                 payload.recommenderOverrideReason = recommenderOverrideReason.trim();
@@ -248,6 +254,7 @@ export default function FcProfilePage({ params }: { params: Promise<{ id: string
             setClearRecommenderSelection(false);
             setRecommenderOverrideReason('');
             queryClient.invalidateQueries({ queryKey: ['fc-profile', fcId] });
+            queryClient.invalidateQueries({ queryKey: ['dashboard-list'] });
             queryClient.invalidateQueries({ queryKey: ['fc-signup-referral-code', fcId] });
         },
         onError: (err: Error) => notifications.show({ title: '저장 실패', message: err.message, color: 'red' }),
@@ -321,6 +328,7 @@ export default function FcProfilePage({ params }: { params: Promise<{ id: string
                 email: profile.email || '',
                 affiliation: profile.affiliation || '',
                 career_type: profile.career_type || '',
+                temp_id: profile.temp_id || '',
                 recommender: profile.recommender || '',
                 admin_memo: profile.admin_memo || '',
             });
@@ -518,6 +526,15 @@ export default function FcProfilePage({ params }: { params: Promise<{ id: string
                                             readOnly={!isEditing || !canEdit}
                                             {...form.getInputProps('career_type')}
                                             placeholder="신입/경력"
+                                        />
+                                    </Grid.Col>
+                                    <Grid.Col span={6}>
+                                        <TextInput
+                                            label="임시사번"
+                                            variant={isEditing && canEdit ? 'default' : 'unstyled'}
+                                            readOnly={!isEditing || !canEdit}
+                                            {...form.getInputProps('temp_id')}
+                                            placeholder={isEditing && canEdit ? 'T-123456' : '-'}
                                         />
                                     </Grid.Col>
                                     <Grid.Col span={6}>

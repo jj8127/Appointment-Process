@@ -320,8 +320,33 @@ export async function POST(req: Request) {
       delete updateData.recommenderFcId;
       delete updateData.recommenderOverrideReason;
 
+      const hasTempIdUpdate = Object.prototype.hasOwnProperty.call(updateData, 'temp_id');
+      if (hasTempIdUpdate) {
+        if (typeof updateData.temp_id === 'string') {
+          updateData.temp_id = updateData.temp_id.trim() || null;
+        } else if (updateData.temp_id == null) {
+          updateData.temp_id = null;
+        }
+      }
+
       if (Object.prototype.hasOwnProperty.call(updateData, 'recommender')) {
         return badRequest('추천인은 목록에서 선택해주세요.');
+      }
+
+      if (
+        hasTempIdUpdate &&
+        updateData.temp_id &&
+        !Object.prototype.hasOwnProperty.call(updateData, 'status')
+      ) {
+        const { data: currentProfile, error: currentProfileError } = await adminSupabase
+          .from('fc_profiles')
+          .select('status')
+          .eq('id', fcId)
+          .maybeSingle();
+        if (currentProfileError) throw currentProfileError;
+        if (currentProfile?.status === 'draft') {
+          updateData.status = 'temp-id-issued';
+        }
       }
 
       if (Object.keys(updateData).length > 0) {

@@ -7,6 +7,113 @@
 
 ---
 
+## <a id="20260406-board-post-push-fanout-parity-fix"></a> 2026-04-06 | 게시판 글 작성 알림 저장-only 경로에 push fanout parity 복구
+
+**배경**:
+- 코드 확인 결과 web/앱의 일반 게시판 글 작성은 공통으로 `lib/board-api.ts -> board-create`를 타고 있었지만, 이 함수는 `notifications` row만 직접 insert하고 끝났다.
+- 반면 Expo push와 admin web push fanout의 SSOT는 `fc-notify`였고, 실제 push 전송은 `notify/message` 분기에서만 수행되고 있었다.
+- 그 결과 게시판 글 작성 후 알림센터/unread count에는 잡힐 수 있어도, 가람in 기기 푸시와 admin/manager 대상 웹 푸시는 구조적으로 빠져 있었다.
+
+**조치**:
+- `supabase/functions/fc-notify/index.ts`
+  - `notify/message` payload에 `skip_notification_insert` optional flag를 추가했다.
+  - 이 플래그가 `true`일 때는 기존 `notifications` insert를 건너뛰고, token fanout과 admin web push만 수행하도록 정리했다.
+  - 기존 caller는 이 필드를 보내지 않으므로 저장 + push 계약은 그대로 유지된다.
+- `supabase/functions/board-create/index.ts`
+  - 게시글 작성 후 `notifications` row를 넣는 경로를 `target_url` fallback까지 포함한 helper로 감쌌다.
+  - 저장 직후 `fc-notify`를 내부 호출해 `target_role='fc'`와 `target_role='admin'` 두 fanout을 실행하도록 추가했다.
+  - `admin` fanout은 기존 `fc-notify` 계약대로 admin/manager device token과 admin web push callback을 함께 포함하므로, 게시판 글 작성도 이제 앱 푸시와 웹 푸시 parity를 가진다.
+  - `skip_notification_insert: true`를 사용해 기존 board-create row insert와 중복 저장되지 않게 했다.
+- `docs/handbook/backend/notifications-inbox-push.md`
+  - `board-create`가 inbox row를 직접 쓰는 예외 경로이며, 이 경우 `fc-notify` fanout을 `skip_notification_insert`와 함께 반드시 동반해야 한다는 운영 계약을 추가했다.
+- `.claude/MISTAKES.md`, `.codex/harness/*`
+  - 이번 누락을 mistake-only ledger와 harness 계약/QA/handoff에 반영했다.
+
+**검증**:
+- 통과: `deno check E:\hanhwa\fc-onboarding-app\supabase\functions\board-create\index.ts`
+- 통과: `deno check E:\hanhwa\fc-onboarding-app\supabase\functions\fc-notify\index.ts`
+- 통과: `cd E:\hanhwa\fc-onboarding-app && node scripts/ci/check-governance.mjs`
+- 미실행: 실제 device token이 있는 FC/admin/manager 계정으로 게시판 글을 작성해 Expo push와 admin web push를 수신하는 runtime 검증은 이번 세션에서 수행하지 못했다.
+
+**리스크 / 후속**:
+- `fc-notify` 자체가 환경변수나 Expo/API callback 문제로 실패하는 경우 게시글 작성은 성공하고 push만 best-effort로 빠질 수 있다. 이 경우 원인 추적은 `fc-notify` runtime log와 `/api/admin/push` callback부터 확인해야 한다.
+- 실제 운영 확인은 `게시판 글 작성 -> 앱 알림센터 row 생성 -> FC 기기 푸시 -> admin/manager 앱 기기 푸시 -> admin web push` 순으로 한 번 더 확인해야 한다.
+
+---
+
+## <a id="20260406-web-profile-temp-id-detail-save-fix"></a> 2026-04-06 | 웹 FC 상세 임시사번 저장 복구 + 상세 저장 후 대시보드 stale 단계 정리
+
+**배경**:
+- 운영 제보상 `/dashboard/profile/[id]`에서 주소를 수정해도 목록 쪽에는 여전히 `사전등록`처럼 남고, 같은 상세 페이지에서는 임시사번을 저장할 수 없었다.
+- 원인을 확인해 보니 `web/src/app/dashboard/profile/[id]/page.tsx`의 수정 폼은 이름/연락처/주소/상세주소/이메일/소속/경력/추천인만 저장하고 있었고, `temp_id` 필드 자체가 없었다.
+- 같은 도메인의 `/dashboard` 모달은 `temp_id` 입력 시 클라이언트에서 `status='temp-id-issued'`를 함께 보내고 있었지만, 상세 페이지는 그 규칙을 공유하지 않아 screen 간 계약이 어긋나 있었다.
+- 상세 페이지 저장 성공 후에도 React Query invalidation은 `['fc-profile', fcId]`만 갱신하고 `['dashboard-list']`는 건드리지 않아, 목록/버킷/current-step 쪽은 이전 캐시가 남을 수 있었다.
+
+**조치**:
+- `web/src/app/dashboard/profile/[id]/page.tsx`
+  - FC 상세 수정 폼에 `temp_id`를 추가하고, profile load/cancel-reset 시 같은 값을 함께 복원하도록 정리했다.
+  - 저장 payload에 trimmed `temp_id`를 실어 기존 `/api/admin/fc` `updateProfile` trusted path를 그대로 재사용하도록 맞췄다.
+  - 저장 성공 후 `['dashboard-list']` query도 invalidate해 상세 페이지에서 돌아간 직후 목록/current-step이 stale로 남지 않게 했다.
+- `web/src/app/api/admin/fc/route.ts`
+  - `updateProfile`에서 `temp_id`가 오면 trim/null 정리를 먼저 수행하도록 보강했다.
+  - caller가 별도 `status`를 보내지 않았더라도, 현재 profile이 `draft`이고 새 `temp_id`가 저장되는 경우에만 보수적으로 `status='temp-id-issued'`를 함께 저장하도록 보정했다.
+  - 이로써 `/dashboard` 모달과 `/dashboard/profile/[id]`가 같은 trusted route 기준으로 임시사번 단계 전이를 공유하게 했다.
+- `.codex/harness/*`
+  - 이번 세션의 product spec / plan / current contract / QA / handoff를 현재 버그 기준으로 갱신했다.
+
+**검증**:
+- 통과: `cd E:\hanhwa\fc-onboarding-app\web && npm run lint -- src/app/dashboard/profile/[id]/page.tsx src/app/api/admin/fc/route.ts`
+- 통과: `cd E:\hanhwa\fc-onboarding-app\web && npx next build`
+- 통과: `git -C E:\hanhwa\fc-onboarding-app diff --check -- web/src/app/dashboard/profile/[id]/page.tsx web/src/app/api/admin/fc/route.ts .codex/harness/product-spec.md .codex/harness/plan.md .codex/harness/current-contract.md`
+- 미실행: 실제 관리자/본부장 세션으로 `/dashboard/profile/[id]` 저장 버튼을 눌러보는 authenticated browser 검증은 이번 세션에서 수행하지 못했다.
+
+**리스크 / 후속**:
+- 현재 증거는 trusted path 코드 리뷰 + lint/build 기준이므로, 실제 admin 세션에서 `temp_id` 저장 후 `/dashboard` row가 바로 바뀌는지 한 번 더 확인해야 한다.
+- 상세 페이지에서 빈 값으로 `temp_id`를 지우는 동작은 이번 계약 범위에 넣지 않았다. 기존 `조회중 단계로 되돌리기`는 여전히 `/dashboard` 모달 경로가 canonical reset path다.
+
+---
+
+## <a id="20260406-web-auth-session-reconciliation-loop-fix"></a> 2026-04-06 | 웹 auth session reconciliation으로 `/dashboard -> /auth -> /` 순환 정리
+
+**배경**:
+- resident-number 수정 이후에도 dev 서버 로그에서 `/dashboard`, `/auth`, `/` 요청이 반복됐고, 사용자는 실제 관리자 웹 접속이 불가능한 상태를 제보했다.
+- 원인은 단순 role 분기 하나가 아니라, server middleware는 cookie를 세션 source of truth로 보는데 `use-session`은 localStorage만 복원하고 있었던 점이었다.
+- 이 상태에서 보호 레이아웃(`dashboard`, `admin`)이 client-side redirect까지 직접 수행해, 쿠키 기준으로는 유효한 staff 세션이어도 client role이 잠시 `null`이면 `/dashboard -> /auth` bounce가 발생할 수 있었다.
+
+**조치**:
+- `web/src/hooks/use-session.tsx`
+  - session restore를 `cookie first -> localStorage fallback` 순서로 변경했다.
+  - localStorage만 남은 staff 세션도 cookie를 다시 써 server middleware와 즉시 정렬되게 했다.
+  - `logout`에 `redirectTo: null` 옵션을 추가해 auth page에서 불필요한 추가 navigation 없이 stale FC web session을 정리할 수 있게 했다.
+- `web/middleware.ts`
+  - `/`는 server 단계에서 바로 `/dashboard` 또는 `/auth`로 보내도록 정리했다.
+  - `/auth` 접근 시 유효한 staff cookie가 있으면 `/dashboard`로 보내고, FC/stale cookie는 지운 뒤 auth page를 열도록 정리했다.
+- `web/src/app/page.tsx`
+  - root page 자체의 client redirect를 제거하고, middleware가 진입 방향을 결정하는 구조로 바꿨다.
+- `web/src/app/auth/page.tsx`
+  - stale FC 세션을 `logout({ redirectTo: null })`로 정리하도록 바꿨다.
+- `web/src/app/dashboard/layout.tsx`
+  - protected layout의 client redirect를 제거해 restore gap에서 `/auth`로 밀어내는 경로를 없앴다.
+- `web/src/app/admin/layout.tsx`
+  - 같은 이유로 client redirect를 제거하고 hydrate + role gate만 남겼다.
+- `docs/handbook/admin-web/dashboard-lifecycle.md`
+  - admin web 진입 contract에서 middleware와 `use-session`이 같은 staff session snapshot을 공유해야 한다는 규칙을 추가했다.
+- `docs/handbook/shared/security-and-secret-operations.md`
+  - cookie/localStorage drift를 auth stability 문제로 다뤄야 한다는 운영 규칙을 추가했다.
+- `.claude/MISTAKES.md`, `.claude/WORK_LOG.md`, `AGENTS.md`
+  - 이번 auth loop를 repeatable contract drift로 기록하고, progress ledger에 반영했다.
+
+**검증**:
+- 통과: `cd E:\hanhwa\fc-onboarding-app\web && npm run lint -- src/hooks/use-session.tsx src/app/page.tsx src/app/auth/page.tsx src/app/dashboard/layout.tsx src/app/admin/layout.tsx`
+- 통과: `cd E:\hanhwa\fc-onboarding-app\web && npx next build`
+- 참고: `curl` 기반 단순 dev 서버 헤더 확인은 Next dev 응답이 redirect를 그대로 드러내지 않아 runtime loop 재현 증적로는 충분하지 않았다. 이번 세션에서는 코드 계약 + lint/build 중심으로 닫고, 실제 브라우저 spot-check를 후속 확인으로 남긴다.
+
+**리스크 / 후속**:
+- 실제 브라우저에서 admin/manager 세션으로 `/auth`, `/`, `/dashboard` 진입이 안정화됐는지 한 번 더 봐야 한다.
+- localStorage와 cookie가 둘 다 비어 있는 genuinely unauthenticated 상태는 계속 `/auth`로 가야 하므로, 이후 redirect를 추가할 때도 middleware 기준을 깨지 않도록 주의가 필요하다.
+
+---
+
 ## <a id="20260406-web-resident-number-regression-hardening-and-mistake-ledger"></a> 2026-04-06 | 웹 resident-number 회귀 hardening + exam applicants full-view 복구 + 실수 전용 문서 규칙 추가
 
 **배경**:
