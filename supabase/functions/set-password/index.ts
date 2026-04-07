@@ -6,6 +6,7 @@ import {
   normalizeCommissionStatus,
   type CommissionCompletionStatus,
 } from '../_shared/commission.ts';
+import { syncRequestBoardPassword } from '../_shared/request-board-password-sync.ts';
 
 type Payload = {
   phone: string;
@@ -145,55 +146,6 @@ async function hashPassword(password: string, saltBytes: Uint8Array) {
     256,
   );
   return toBase64(new Uint8Array(bits));
-}
-
-async function syncRequestBoardPassword(
-  phone: string,
-  password: string,
-  options?: {
-    role?: 'fc' | 'designer';
-    name?: string | null;
-    companyName?: string | null;
-    affiliation?: string | null;
-  },
-) {
-  if (!requestBoardPasswordSyncUrl || !requestBoardPasswordSyncToken) return;
-
-  const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), requestBoardPasswordSyncTimeoutMs);
-  try {
-    const response = await fetch(requestBoardPasswordSyncUrl, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'x-request-bridge-token': requestBoardPasswordSyncToken,
-      },
-      body: JSON.stringify({
-        phone,
-        password,
-        role: options?.role ?? 'fc',
-        name: options?.name ?? undefined,
-        companyName: options?.companyName ?? undefined,
-        affiliation: options?.role === 'fc' ? options?.affiliation ?? undefined : undefined,
-      }),
-      signal: controller.signal,
-    });
-
-    if (!response.ok) {
-      const text = await response.text().catch(() => '');
-      console.warn(`[set-password] request_board sync failed: ${response.status} ${text.slice(0, 200)}`);
-      return;
-    }
-
-    const json = await response.json().catch(() => ({}));
-    if (!json?.success) {
-      console.warn(`[set-password] request_board sync error: ${JSON.stringify(json).slice(0, 200)}`);
-    }
-  } catch (error) {
-    console.warn('[set-password] request_board sync error:', error);
-  } finally {
-    clearTimeout(timeout);
-  }
 }
 
 async function resolveReferralDetails(params: {
@@ -912,11 +864,21 @@ serve(async (req: Request) => {
   }
 
   const designerCompanyName = parseDesignerCompanyNameFromAffiliation(effectiveAffiliation);
-  await syncRequestBoardPassword(phone, password, {
-    role: designerCompanyName ? 'designer' : 'fc',
-    name: displayName,
-    ...(designerCompanyName ? {} : { affiliation: effectiveAffiliation ?? null }),
-    ...(designerCompanyName ? { companyName: designerCompanyName } : {}),
+  await syncRequestBoardPassword({
+    syncUrl: requestBoardPasswordSyncUrl,
+    syncToken: requestBoardPasswordSyncToken,
+    timeoutMs: requestBoardPasswordSyncTimeoutMs,
+    logPrefix: 'set-password',
+    phone,
+    password,
+    options: {
+      role: designerCompanyName ? 'designer' : 'fc',
+      name: displayName,
+      ...(designerCompanyName ? {} : { affiliation: effectiveAffiliation ?? null }),
+      ...(designerCompanyName ? { companyName: designerCompanyName } : {}),
+      initiatorRole: 'system',
+      syncReason: 'bootstrap',
+    },
   });
 
   if (resolvedReferral && fcId) {

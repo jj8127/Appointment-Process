@@ -30,6 +30,23 @@
 - Verification:
 ```
 
+## 2026-04-07 | request_board Password Mirror Contract | plain admin까지 request_board sync caller가 계속 남아 contract drift를 만들고 있었음
+- Symptom: request_board 쪽 direct mirror 대상이 `fc | designer`(+ `manager -> fc`, `developer -> fc`)로 좁아졌는데도, `login-with-password`, `set-admin-password`, password reset builder 일부는 plain `admin`까지 request_board sync를 계속 시도하고 있었다.
+- Root cause: request_board sync transport와 target-role 결정 로직이 `login-with-password`, `set-password`, `reset-password`, `set-admin-password`, `_shared/password-reset-account`에 복제돼 있었고, contract 변경을 한 surface에만 반영했다.
+- Why it was missed: request_board에서 `admin_not_mirrored` skip을 허용하고 있었기 때문에 즉시 사용자-visible 장애로 보이지 않았고, 그래서 "실제로는 필요 없는 privileged sync 시도"를 drift로 분류하지 않았다.
+- Permanent guardrail: request_board mirror target 결정은 shared helper + `_shared/password-reset-account` builder에서만 관리한다. plain `admin`은 `null`, `developer`는 `fc`, `manager`는 `manager`, linked `designer`는 `designer`라는 매핑을 로그인/최초설정/reset/admin설정 4개 caller에서 함께 대조한다.
+- Related files:
+  - `supabase/functions/_shared/request-board-password-sync.ts`
+  - `supabase/functions/_shared/password-reset-account.ts`
+  - `supabase/functions/login-with-password/index.ts`
+  - `supabase/functions/reset-password/index.ts`
+  - `supabase/functions/set-password/index.ts`
+  - `supabase/functions/set-admin-password/index.ts`
+- Verification:
+  - `cd E:\hanhwa\fc-onboarding-app\web && npm run build`
+  - `cd E:\hanhwa\fc-onboarding-app && node scripts/ci/check-governance.mjs`
+  - `deno --version` (runtime static check tool availability 확인)
+
 ## 2026-04-07 | Local Generated State / Ignore Policy | Supabase CLI 생성물과 로컬 Codex 권한 파일을 tracked 상태로 유지함
 - Symptom: 저장소에 `supabase/.temp/*`와 `.claude/settings.local.json`이 tracked 상태로 남아 있어, 현재 개발자 로컬 Supabase link 상태와 도구 권한 설정이 repo diff로 전파될 수 있었다.
 - Root cause: `.gitignore`에 `supabase/.temp/`와 `.claude/settings.local.json`가 빠져 있었고, generated/local-only state를 source artifact와 같은 수준으로 다루는 관성이 남아 있었다.

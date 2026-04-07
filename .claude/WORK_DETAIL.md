@@ -7,6 +7,44 @@
 
 ---
 
+## <a id="20260407-request-board-password-sync-batch3"></a> 2026-04-07 | Batch 3 request_board trusted password sync contract 정리
+
+**배경**:
+- 단계별 정리 계획의 세 번째 배치로, `request_board`의 hardcoded credential script 제거와 함께 `fc-onboarding-app -> request_board` 비밀번호 sync caller도 현재 역할 계약에 맞춰 정리해야 했다.
+- 목표는 plain `admin` mirror를 끊되, `developer` subtype / `manager` / `fc` / request_board-linked `designer`의 password parity는 그대로 유지하는 것이었다.
+
+**조치**:
+- `supabase/functions/_shared/request-board-password-sync.ts`
+  - request_board sync transport를 공통 helper로 추출했다.
+  - payload는 `fc | designer | manager` target role만 허용하고, optional `initiatorRole`, `syncReason` 메타를 함께 보낼 수 있게 했다.
+- `supabase/functions/_shared/password-reset-account.ts`
+  - plain `admin`은 `null`을 반환해 request_board sync 대상에서 제외했다.
+  - `developer` subtype은 `fc`, `manager`는 `manager`, linked designer는 `designer`, 일반 FC는 `fc` payload를 반환하도록 정리했다.
+- `supabase/functions/login-with-password/index.ts`
+  - plain `admin` request_board sync를 제거했다.
+  - `developer` subtype만 `role='fc'`, `initiatorRole='admin'`, `syncReason='login'`으로 sync하도록 바꿨다.
+  - `manager`, `fc`, linked `designer` 로그인 sync는 같은 shared helper를 사용하도록 정리했다.
+- `supabase/functions/reset-password/index.ts`
+  - password reset 이후 request_board-backed 대상만 shared helper로 sync하도록 정리했다.
+- `supabase/functions/set-password/index.ts`
+  - bootstrap sync를 shared helper 기반으로 정리하고 `syncReason='bootstrap'` 메타를 추가했다.
+- `supabase/functions/set-admin-password/index.ts`
+  - plain `admin` direct mirror가 없으므로 request_board sync 시도를 제거했다.
+- `README.md`
+  - request_board password sync 대상과 plain `admin` non-mirroring 계약을 문서에 반영했다.
+
+**결과**:
+- request_board sync target 결정을 caller마다 따로 들고 있던 중복이 줄었고, plain `admin` mirror drift가 제거됐다.
+- `developer` subtype / `manager` / `fc` / linked `designer`는 기존처럼 GaramLink login parity를 유지한다.
+
+**검증**:
+- 통과: `cd E:\hanhwa\fc-onboarding-app\web && npm run build`
+- 통과: `cd E:\hanhwa\fc-onboarding-app && node scripts/ci/check-governance.mjs`
+- 불가: `deno --version` (`deno` 미설치 환경)
+
+**리스크 / 후속**:
+- Edge Function source 변경이라 실제 runtime parity는 linked Supabase Functions 배포 또는 trusted API smoke로 한 번 더 확인하면 가장 안전하다.
+
 ## <a id="20260407-batch2-local-generated-state-cleanup"></a> 2026-04-07 | Batch 2 tracked local/generated state 정리
 
 **배경**:
