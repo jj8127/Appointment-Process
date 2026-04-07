@@ -30,6 +30,22 @@
 - Verification:
 ```
 
+## 2026-04-07 | Local Generated State / Ignore Policy | Supabase CLI 생성물과 로컬 Codex 권한 파일을 tracked 상태로 유지함
+- Symptom: 저장소에 `supabase/.temp/*`와 `.claude/settings.local.json`이 tracked 상태로 남아 있어, 현재 개발자 로컬 Supabase link 상태와 도구 권한 설정이 repo diff로 전파될 수 있었다.
+- Root cause: `.gitignore`에 `supabase/.temp/`와 `.claude/settings.local.json`가 빠져 있었고, generated/local-only state를 source artifact와 같은 수준으로 다루는 관성이 남아 있었다.
+- Why it was missed: 파일들이 직접 runtime code를 바꾸지 않으니 위험도가 낮다고 착각했고, build/governance가 통과하는 동안에도 "machine-local/generated state가 git에 있으면 안 된다"는 기준을 별도 확인하지 않았다.
+- Permanent guardrail: Supabase CLI나 Codex가 새 파일을 만들면 먼저 `generated/local-only` 여부를 판단한다. `supabase/.temp/**`와 `.claude/settings.local.json`은 항상 untracked가 원칙이며, cleanup 배치에서는 `git ls-files`와 `git check-ignore -v`로 실제 상태를 증명한 뒤에만 문서화한다.
+- Related files:
+  - `.gitignore`
+  - `.claude/settings.local.json`
+  - `supabase/.temp/cli-latest`
+  - `supabase/.temp/project-ref`
+- Verification:
+  - `git -C E:\hanhwa\fc-onboarding-app ls-files .claude/settings.local.json supabase/.temp`
+  - `git -C E:\hanhwa\fc-onboarding-app check-ignore -v --no-index .claude/settings.local.json supabase/.temp/cli-latest`
+  - `node scripts/ci/check-governance.mjs`
+  - `cd E:\hanhwa\fc-onboarding-app\web && npm run build`
+
 ## 2026-04-06 | PR Checklist / Governance | 코드 거버넌스만 통과시키고 PR 템플릿 필수 체크리스트를 비워 둔 채 푸시함
 - Symptom: 최신 PR governance run에서 path-owner-map 검사는 통과했지만 `Validate PR checklist` 단계가 실패했고, `PROJECT_GUIDE.md 확인`, `WORK_DETAIL 앵커 추가/업데이트`, `WORK_LOG 최근 작업 1행 추가/검토`, `스키마 변경 시 schema.sql + migrations 동시 반영`, `릴리즈/운영 영향(함수 배포·마이그레이션) 기재` 항목이 미체크로 남아 있었다.
 - Root cause: repo의 governance를 `check-governance.mjs` 중심으로만 보고, PR body에 있는 별도 required checklist 검증까지 push 완료 조건에 포함하지 않았다.

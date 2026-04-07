@@ -7,6 +7,45 @@
 
 ---
 
+## <a id="20260407-batch2-local-generated-state-cleanup"></a> 2026-04-07 | Batch 2 tracked local/generated state 정리
+
+**배경**:
+- 단계별 정리 계획의 두 번째 배치로, source-of-truth가 아닌 machine-local/generated state만 따로 정리하기로 했다.
+- 대상은 `git ls-files` 기준 실제 tracked 상태가 확인된 `.claude/settings.local.json`과 `supabase/.temp/*`로 제한했다.
+- 이전 배치에서 이미 "문서 선언과 실제 git 상태를 먼저 대조하라"는 guardrail을 세웠기 때문에, 이번에는 `git ls-files`, `git status --short`, `git check-ignore -v` 결과를 먼저 확보한 뒤 문서를 갱신했다.
+
+**조치**:
+- `.gitignore`에 다음 ignore 규칙을 추가했다.
+  - `.claude/settings.local.json`
+  - `supabase/.temp/`
+- `git rm --cached`로 다음 tracked local/generated files를 index에서 제거했다.
+  - `.claude/settings.local.json`
+  - `supabase/.temp/cli-latest`
+  - `supabase/.temp/gotrue-version`
+  - `supabase/.temp/pooler-url`
+  - `supabase/.temp/postgres-version`
+  - `supabase/.temp/project-ref`
+  - `supabase/.temp/rest-version`
+  - `supabase/.temp/storage-migration`
+  - `supabase/.temp/storage-version`
+- 반복 가능한 hygiene failure로 판단해 `.claude/MISTAKES.md`에도 guardrail을 추가했다.
+- tracked repo 증적으로 남는 `WORK_LOG.md`, `WORK_DETAIL.md`를 Batch 2 기준으로 갱신했다.
+
+**결과**:
+- `fc-onboarding-app` git tracked surface에서 로컬 Codex 권한 파일과 Supabase CLI generated state가 빠졌다.
+- 파일은 로컬 디스크에는 남아 있어 개발자 환경이 바로 깨지지 않고, 이후 regenerated 되어도 ignore 규칙 때문에 다시 tracked되지 않는다.
+- runtime/app/web/source contract는 바뀌지 않았다.
+
+**검증**:
+- 통과: `git -C E:\hanhwa\fc-onboarding-app ls-files .claude/settings.local.json supabase/.temp`
+- 통과: `git -C E:\hanhwa\fc-onboarding-app check-ignore -v --no-index .claude/settings.local.json supabase/.temp/cli-latest`
+- 통과: `git -C E:\hanhwa\fc-onboarding-app status --short -- .gitignore .claude/settings.local.json supabase/.temp`
+- 통과: `cd E:\hanhwa\fc-onboarding-app && node scripts/ci/check-governance.mjs`
+- 통과: `cd E:\hanhwa\fc-onboarding-app\web && npm run build`
+
+**메모**:
+- 이 배치는 local/generated state만 다루며, secret rotation이나 request_board 위험 스크립트 정리는 Batch 3으로 남긴다.
+
 ## <a id="20260406-batch1-zero-impact-repo-cleanup"></a> 2026-04-06 | Batch 1 무영향 repo 잔재 정리
 
 **배경**:
