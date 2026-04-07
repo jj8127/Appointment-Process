@@ -30,6 +30,20 @@
 - Verification:
 ```
 
+## 2026-04-07 | Governance / Path Owner Map | 새 handbook-sensitive Edge Function helper를 추가하고도 owner-map 규칙 편입을 빼먹음
+- Symptom: `fc-onboarding-app` push run은 성공했지만 최신 PR governance run에서 `supabase/functions/_shared/password-reset-account.ts`, `supabase/functions/_shared/request-board-password-sync.ts`에 대한 `No path-owner-map rule` 오류가 발생했다.
+- Root cause: `supabase/functions/` 아래 새 helper를 추가하면서 handbook-sensitive path-owner-map가 `_shared` 경로까지 이미 커버한다고 착각했고, 실제 prefix rule에 파일 2개를 넣지 않았다.
+- Why it was missed: local build와 push run만 먼저 보고 PR `pull_request` 기준 거버넌스에서 `main -> branch head` 전체 diff를 다시 대조하지 않았다.
+- Permanent guardrail: `supabase/functions/` 아래 새 폴더나 `_shared/*.ts` helper를 추가할 때는 구현 직후 `docs/handbook/path-owner-map.json`의 관련 rule(`backend-auth-bridge`, `backend-admin-ops`, `backend-runtime` 등)에 prefix가 실제로 있는지 먼저 확인한다. push success만으로 닫지 말고 PR run에서 `No path-owner-map rule`이 없는지까지 본다.
+- Related files:
+  - `docs/handbook/path-owner-map.json`
+  - `supabase/functions/_shared/password-reset-account.ts`
+  - `supabase/functions/_shared/request-board-password-sync.ts`
+  - `.claude/MISTAKES.md`
+- Verification:
+  - `gh run view 24061299763 --repo jj8127/Appointment-Process --log-failed`
+  - `cd E:\hanhwa\fc-onboarding-app && node scripts/ci/check-governance.mjs`
+
 ## 2026-04-07 | request_board Password Mirror Contract | plain admin까지 request_board sync caller가 계속 남아 contract drift를 만들고 있었음
 - Symptom: request_board 쪽 direct mirror 대상이 `fc | designer`(+ `manager -> fc`, `developer -> fc`)로 좁아졌는데도, `login-with-password`, `set-admin-password`, password reset builder 일부는 plain `admin`까지 request_board sync를 계속 시도하고 있었다.
 - Root cause: request_board sync transport와 target-role 결정 로직이 `login-with-password`, `set-password`, `reset-password`, `set-admin-password`, `_shared/password-reset-account`에 복제돼 있었고, contract 변경을 한 surface에만 반영했다.

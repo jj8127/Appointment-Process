@@ -177,6 +177,8 @@
         "supabase/functions/verify-signup-otp/",
         "supabase/functions/sync-request-board-session/",
         "supabase/functions/delete-account/",
+        "supabase/functions/_shared/password-reset-account.ts",
+        "supabase/functions/_shared/request-board-password-sync.ts",
         "supabase/functions/_shared/request-board-auth.ts",
         "hooks/use-session.tsx",
         "web/src/hooks/use-session.tsx",

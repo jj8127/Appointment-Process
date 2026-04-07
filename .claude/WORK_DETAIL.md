@@ -30,16 +30,21 @@
   - bootstrap sync를 shared helper 기반으로 정리하고 `syncReason='bootstrap'` 메타를 추가했다.
 - `supabase/functions/set-admin-password/index.ts`
   - plain `admin` direct mirror가 없으므로 request_board sync 시도를 제거했다.
+- `docs/handbook/path-owner-map.json`
+  - 새 `_shared` helper 2개(`password-reset-account.ts`, `request-board-password-sync.ts`)를 `backend-auth-bridge` owner rule에 편입해 local governance가 요구하는 owner-map 누락을 수정했다.
 - `README.md`
   - request_board password sync 대상과 plain `admin` non-mirroring 계약을 문서에 반영했다.
 
 **결과**:
 - request_board sync target 결정을 caller마다 따로 들고 있던 중복이 줄었고, plain `admin` mirror drift가 제거됐다.
 - `developer` subtype / `manager` / `fc` / linked `designer`는 기존처럼 GaramLink login parity를 유지한다.
+- path-owner-map follow-up을 반영해 local governance는 다시 통과했고, remote PR run 재확인은 후속 단계로 남는다.
 
 **검증**:
 - 통과: `cd E:\hanhwa\fc-onboarding-app\web && npm run build`
 - 통과: `cd E:\hanhwa\fc-onboarding-app && node scripts/ci/check-governance.mjs`
+- 확인: `gh run view 24061299763 --repo jj8127/Appointment-Process --log-failed`로 PR failure 원인이 `_shared` helper path-owner-map 누락임을 확인
+- 통과: 수정 후 `cd E:\hanhwa\fc-onboarding-app && node scripts/ci/check-governance.mjs` 재실행
 - 불가: `deno --version` (`deno` 미설치 환경)
 
 **리스크 / 후속**:
