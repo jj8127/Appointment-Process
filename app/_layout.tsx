@@ -385,6 +385,7 @@ export default function RootLayout() {
                           <Stack.Screen name="exam-manage" options={{ ...baseHeader, title: '생명/제3 신청자 관리' }} />
                           <Stack.Screen name="exam-manage2" options={{ ...baseHeader, title: '손해 신청자 관리' }} />
                           <Stack.Screen name="referral" options={{ ...baseHeader, title: '추천인 코드' }} />
+                          <Stack.Screen name="referral-tree" options={{ ...baseHeader, title: '추천 관계 전체 보기' }} />
                         </Stack>
 
                         <StatusBar style="dark" backgroundColor="#fff" />
@@ -495,6 +496,7 @@ export default function RootLayout() {
                           <Stack.Screen name="exam-manage" options={{ ...baseHeader, title: '생명/제3 신청자 관리' }} />
                           <Stack.Screen name="exam-manage2" options={{ ...baseHeader, title: '손해 신청자 관리' }} />
                           <Stack.Screen name="referral" options={{ ...baseHeader, title: '추천인 코드' }} />
+                          <Stack.Screen name="referral-tree" options={{ ...baseHeader, title: '추천 관계 전체 보기' }} />
                         </Stack>
                         <StatusBar style="dark" backgroundColor="#fff" />
                       </>

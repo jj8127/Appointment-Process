@@ -184,6 +184,7 @@ supabase secrets list --project-ref <project-ref>
 
 ### Working Backlog (Track in This File)
 - In progress
+- Validate mobile `추천인 코드` page inline referral tree + manager desktop graph shortcut after the 2026-04-10 self-service rollout (`app/referral.tsx` inline tree + `get-referral-tree` + subtree lazy expand auth).
 - Re-verify mobile `설정 > 계정 삭제 -> 동일 번호 재가입` on-device after the 2026-04-02 zombie-signup recovery (`request-signup-otp` canonical active-account blocker + `delete-account` post-delete verification).
 - Validate FC/본부장 settings self-service referral-code card on-device after the 2026-04-02 authenticated self-service hardening (`get-my-referral-code` active path + request_board designer hidden).
 - Validate `설계 요청` page shortcut placement and recent-activity tap routing on-device after the 2026-03-13 request-board shortcut/activity fix.

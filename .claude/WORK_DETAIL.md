@@ -7,6 +7,86 @@
 
 ---
 
+## <a id="20260410-mobile-referral-tree-self-service"></a> 2026-04-10 | 모바일 추천인 self-service tree를 `추천인 코드` 페이지에 인라인 흡수
+
+**배경**:
+- 기존 `app/referral.tsx`는 자기 코드 / 현재 추천인 / 직속 invitee만 평면적으로 보여줘, FC/본부장이 추천 관계 전체 연결 구조를 읽기 어려웠다.
+- 기존 admin web graph는 desktop-first canvas + separate web session 전제라 모바일 기본 surface로 쓰기 어려웠고, FC에게는 권한 경계도 맞지 않았다.
+- 그래서 모바일 기본 경로는 graph handoff가 아니라 `ancestor chain + subtree lazy drill-down`으로 재설계하고, 본부장에게만 desktop graph 보조 링크를 남기기로 했다.
+- 초기에는 별도 `app/referral-tree.tsx` 화면으로 붙였지만, 사용자 요청에 따라 이 구조를 다시 `추천인 코드` 페이지 안으로 흡수하고 `/referral-tree`는 호환 redirect만 남기기로 했다.
+
+**조치**:
+- 모바일 UI
+  - `app/referral.tsx`에 root summary card, `나를 추천한 경로`, `내가 추천한 사람들` subtree drill-down, 본부장 전용 desktop graph 외부 링크를 같은 페이지 안에 렌더링하도록 구성했다.
+  - 이후 사용자 피드백에 맞춰 같은 페이지 하단의 flat `초대 상태 목록` UI는 제거하고, 하위 관계 노출을 tree 섹션 하나로 정리했다.
+  - `app/referral-tree.tsx`는 기존 deep link/route 호환을 위해 `/referral` redirect만 담당하도록 단순화했다.
+  - `components/ReferralAncestorsChain.tsx`, `components/ReferralTreeNode.tsx`를 추가해 ancestor timeline과 recursive tree row를 분리했다.
+  - `app/_layout.tsx`에 `referral-tree` route를 두 stack 분기에 모두 등록했다.
+- 모바일 데이터 계층
+  - `hooks/use-referral-tree.ts`를 추가해 `get-referral-tree` Edge Function 호출, TanStack Query cache 관리, descendant lazy expand merge를 담당하게 했다.
+  - query gate는 기존 self-service와 동일하게 `FC 또는 admin+readOnly 본부장`만 허용하도록 맞췄다.
+- Supabase / trusted backend
+  - `supabase/migrations/20260410000001_add_referral_subtree_rpc.sql`와 `supabase/schema.sql`에 `public.get_referral_subtree(root_fc_id uuid, max_depth int)`를 추가했다.
+  - 이 RPC는 root row, ancestor chain, descendant subtree, `direct_invitee_count`, `total_descendant_count`, `relationship_source`를 service-role trusted read로 반환한다.
+  - descendant/ancestor BFS는 `is_manager_referral_shadow=true` row를 제외하고, descendant edge는 `fc_profiles.recommender_fc_id` + confirmed `referral_attributions`를 merged edge source로 사용한다.
+  - `supabase/functions/get-referral-tree/index.ts`를 추가해 app session token 검증, manager shadow profile 보정, subtree membership auth, RPC 응답 매핑을 수행하게 했다.
+- 문서 / 거버넌스
+  - referral SSOT(`docs/referral-system/SPEC.md`, `ARCHITECTURE.md`, `TEST_CHECKLIST.md`)에 mobile tree self-service 경로와 subtree auth 계약을 반영했다.
+  - handbook/contract 문서(`docs/handbook/data/referral-schema-and-admin-rpcs.md`, `docs/handbook/mobile/auth-and-gates.md`, `docs/handbook/data/data-model-canon.md`, `contracts/database-schema.md`)를 갱신했다.
+  - `docs/handbook/path-owner-map.json`에 mobile referral self-service rule과 `get-referral-tree` backend rule을 추가했다.
+  - `AGENTS.md` backlog, `.env.example`, `.claude/MISTAKES.md`, `.codex/harness/*`도 현재 increment 기준으로 갱신했다.
+
+**핵심 계약**:
+- 모바일 기본 surface는 별도 화면이 아니라 `app/referral.tsx` 내부의 self-service tree 섹션이다.
+- FC/본부장은 자기 서브트리 범위만 본다.
+- descendant lazy expand는 `requested fcId === self` 또는 `self subtree membership`이 확인된 descendant root만 허용한다.
+- 본부장만 `EXPO_PUBLIC_ADMIN_WEB_URL` 기반 external browser graph shortcut을 볼 수 있고, FC에게는 노출하지 않는다.
+
+**검증**:
+- 통과: `npx eslint app/referral.tsx app/referral-tree.tsx app/_layout.tsx components/ReferralAncestorsChain.tsx components/ReferralTreeNode.tsx hooks/use-referral-tree.ts`
+- 통과: `npx eslint --rule "import/no-unresolved: off" supabase/functions/get-referral-tree/index.ts`
+- 통과: `node scripts/ci/check-governance.mjs` (신규 파일은 `git add -N` intent-to-add 상태로 올린 뒤 재검증, 이후 reset)
+- 미완료: `supabase db push`, `supabase functions serve/deploy get-referral-tree`, Expo on-device runtime QA는 이번 턴에서 실행하지 못했다.
+
+**리스크 / 후속**:
+- `get_referral_subtree` SQL은 새 RPC라 실제 linked DB에서 `supabase db push`와 sample FC 기준 smoke query를 한 번 더 돌려야 한다.
+- subtree auth는 `requester root -> requested descendant` visible set 확인으로 구현했으므로, 깊은 트리 계정으로 실제 lazy expand를 on-device에서 재검증하는 것이 안전하다.
+- 본부장 desktop graph shortcut은 `EXPO_PUBLIC_ADMIN_WEB_URL`가 비어 있으면 숨겨지므로 env rollout이 필요하다.
+- legacy `/referral-tree` 진입은 계속 허용하되, 실제 UI 중복은 두지 않도록 `/referral` redirect만 유지한다.
+
+**운영 후속 조치**:
+- 실제 테스트 계정 `01051078127`에서 첫 진입 즉시 `불러오기 실패`가 재현됐다.
+- 확인 결과 원격 Supabase Functions 목록에 `get-referral-tree`가 없어서, 앱 화면은 새 코드를 탔지만 trusted backend는 아직 rollout되지 않은 상태였다.
+- `supabase functions deploy get-referral-tree --project-ref ubeginyxaotcamuqpmud`로 함수를 즉시 배포했다.
+- 동시에 `supabase db push --linked --yes`로 `20260410000001_add_referral_subtree_rpc.sql`을 밀려 했지만, 현재 CLI는 `SUPABASE_DB_PASSWORD` 미설정 + pooler `Circuit breaker open: Too many authentication errors`로 원격 DB 접속이 막혀 migration 적용은 보류됐다.
+- 사용자를 막지 않기 위해 `supabase/functions/get-referral-tree/index.ts`에 `get_referral_subtree` RPC 실패 시 direct table traversal fallback을 추가했고, fallback 포함 버전으로 함수를 다시 배포했다.
+- 이어서 실데이터를 확인해 보니 `01051078127`의 `recommender_fc_id`는 실제로 `서선미` manager shadow profile을 가리키고 있었다.
+- 그런데 초기 ancestor 로직은 `is_manager_referral_shadow=true` row를 상향 경로에서도 제외하고 있어서, `나를 추천한 경로`에 서선미가 빠지는 contract drift가 있었다.
+- 이를 수정해 Edge Function fallback ancestor traversal에서는 manager shadow recommender를 허용했고, 추후 RPC rollout 후에도 회귀하지 않도록 migration/schema/docs 계약도 함께 바꿨다.
+- 수정한 `get-referral-tree`를 다시 원격에 재배포했다.
+
+**추가 검증**:
+- 통과: `supabase functions list --project-ref ubeginyxaotcamuqpmud`에서 `get-referral-tree` 존재 확인
+- 통과: `supabase functions deploy get-referral-tree --project-ref ubeginyxaotcamuqpmud`
+- 통과: fallback 추가 후 `npx eslint --rule "import/no-unresolved: off" supabase/functions/get-referral-tree/index.ts`
+- 확인: service-role query 결과 `01051078127.recommender_fc_id -> 18f79264-5b93-4f37-a171-a459ab6c578a (서선미, is_manager_referral_shadow=true)`
+- 통과: manager shadow ancestor 허용 수정 후 `supabase functions deploy get-referral-tree --project-ref ubeginyxaotcamuqpmud`
+- 미완료: `supabase db push --linked --yes` (`SUPABASE_DB_PASSWORD` 필요, 현재 pooler auth circuit breaker)
+
+**iPhone/inline parity 후속 수정**:
+- iPhone 포함 추천인 self-service 재검토에서 세 가지 후속 결함을 확인했다.
+  - `update-my-recommender` 성공 후 `get-my-referral-code`만 refetch되어 같은 화면의 `나를 추천한 경로`가 stale로 남았다.
+  - `변경하기` CTA를 tree 성공 헤더 안으로만 옮겨 둔 탓에, `get-referral-tree` 실패 시 기존 추천인이 있는 사용자는 추천인 변경 self-service 자체를 잃었다.
+  - 공유 문구는 Android Play Store URL만 direct link가 있었고 iPhone은 항상 검색 안내만 남아 install fallback parity가 약했다.
+- 이를 수정해 `app/referral.tsx` 저장 완료 후 `refetchReferralInfo + refetchReferralTree`를 같이 실행하도록 바꿨다.
+- tree read 실패 상태에서도 기존 추천인 요약과 `추천인 변경하기` 버튼이 같은 `/referral` 화면 안의 fallback 카드로 남도록 복구했다.
+- share payload는 `EXPO_PUBLIC_APP_STORE_URL`가 있으면 direct App Store URL을 넣고, 없으면 기존 검색 안내로 degrade하도록 정리했다.
+- `.env.example`, `docs/referral-system/SPEC.md`, `docs/referral-system/TEST_CHECKLIST.md`, `docs/referral-system/INCIDENTS.md`, `.claude/MISTAKES.md`를 이 follow-up 기준으로 갱신했다.
+
+**추가 검증 (follow-up)**:
+- 통과: `npx eslint app/referral.tsx`
+- 미완료: 실제 iPhone 실기기 share sheet payload와 `get-referral-tree` 실패 상태 fallback UI 재검증
+
 ## <a id="20260407-request-board-password-sync-batch3"></a> 2026-04-07 | Batch 3 request_board trusted password sync contract 정리
 
 **배경**:

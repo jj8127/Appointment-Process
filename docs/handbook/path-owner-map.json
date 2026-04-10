@@ -101,6 +101,23 @@
       ]
     },
     {
+      "id": "mobile-referral-self-service",
+      "severity": "behavior",
+      "prefixes": [
+        "app/referral.tsx",
+        "app/referral-tree.tsx",
+        "hooks/use-my-referral-code.ts",
+        "hooks/use-my-invitees.ts",
+        "hooks/use-referral-tree.ts",
+        "components/ReferralAncestorsChain.tsx",
+        "components/ReferralTreeNode.tsx"
+      ],
+      "requires_any": [
+        "docs/handbook/data/referral-schema-and-admin-rpcs.md",
+        "docs/handbook/mobile/auth-and-gates.md"
+      ]
+    },
+    {
       "id": "admin-web-dashboard",
       "severity": "behavior",
       "prefixes": [
@@ -228,6 +245,7 @@
         "supabase/functions/get-my-referral-code/",
         "supabase/functions/get-fc-referral-code/",
         "supabase/functions/get-my-invitees/",
+        "supabase/functions/get-referral-tree/",
         "supabase/functions/search-fc-for-referral/",
         "supabase/functions/update-my-recommender/"
       ],

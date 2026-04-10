@@ -7,7 +7,7 @@
 
 ## 2. 현재 상태
 
-- `2026-04-04` 기준 등록된 추천인 이슈는 `12건`이다.
+- `2026-04-10` 기준 등록된 추천인 이슈는 `13건`이다.
 - 런타임 버그뿐 아니라 trust boundary, rollout status, 문서/테스트 drift로 운영 판단을 오도한 경우도 장애성 이력으로 남긴다.
 
 ## 3. 작성 규칙
@@ -46,6 +46,7 @@
 
 | ID | 날짜 | 제목 | linkedCases | 상태 |
 | --- | --- | --- | --- | --- |
+| INC-013 | 2026-04-10 | inline self-service tree 흡수 후 저장 동기화/실패 fallback/iPhone share parity가 같이 어긋남 | `RF-SELF-02`, `RF-SELF-03`, `RF-LINK-02` | fixed |
 | INC-012 | 2026-04-04 | self-service `내가 초대한 사람들` 목록이 attribution-only + 50건 상한 때문에 일부 invitee를 누락함 | `RF-SELF-03` | fixed |
 | INC-011 | 2026-04-04 | 본부장 추천인 self-service 후속 결함(legacy session restore, trusted read, audit trail mismatch) | `RF-SELF-01`, `RF-SELF-02`, `RF-SEC-02` | fixed |
 | INC-010 | 2026-04-04 | 본부장이 추천인 self-service 대상인데 홈 바로가기/코드 발급 대상에서 빠져 있었음 | `RF-ADMIN-03`, `RF-SELF-01` | fixed |
@@ -58,6 +59,49 @@
 | INC-003 | 2026-03-31 | 동명이인 안전화 후 live hardening gap(`set-password` fallback, override migration, clear audit) | `RF-ADMIN-06`, `RF-SEC-02` | mitigated |
 | INC-002 | 2026-03-31 | 동명이인 추천인 이름 매칭으로 잘못된 코드가 붙을 수 있던 구조 위험 | `RF-DATA-02`, `RF-ADMIN-06` | fixed |
 | INC-001 | 2026-03-31 | Android 추천코드 입력 시 대문자가 중복 입력되던 문제 | `RF-CODE-07` | fixed |
+
+## INC-013 | 2026-04-10 | inline self-service tree 흡수 후 저장 동기화/실패 fallback/iPhone share parity가 같이 어긋남
+
+- symptom:
+  - `/referral`에서 추천인을 저장한 직후에도 `나를 추천한 경로`가 이전 추천인 상태로 남아 사용자가 즉시 결과를 신뢰하기 어려웠다.
+  - `get-referral-tree`가 일시 실패하면, 이미 추천인이 있는 사용자는 현재 추천인을 보거나 `변경하기`를 누를 방법이 사라졌다.
+  - 추천 코드 공유 문구는 Android만 direct store URL이 있었고, iPhone은 항상 `App Store에서 "가람in" 검색` 텍스트만 내려갔다.
+- impact:
+  - self-service 저장이 성공해도 같은 화면의 추천인 관계 요약이 stale로 남아 UX가 어긋났다.
+  - tree read가 잠깐 실패한 것만으로 기존 사용자 추천인 변경 self-service가 막혔다.
+  - iPhone 초대 수신자는 Android보다 install fallback이 약했다.
+- trigger:
+  - 2026-04-10 inline tree UI를 `/referral`로 흡수한 뒤 iPhone parity/code review를 다시 진행했을 때.
+- rootCause:
+  - `app/referral.tsx`의 `handleSave`가 `get-my-referral-code`만 refetch하고 `get-referral-tree`를 함께 갱신하지 않았다.
+  - 기존 `내 추천인` 카드의 `변경하기` CTA를 tree 성공 렌더 헤더로만 옮기면서, tree error degraded mode를 별도로 남기지 않았다.
+  - share payload builder가 Android Play Store URL만 하드코딩하고 iOS direct App Store URL은 환경값/문서 계약으로 연결하지 않았다.
+- fix:
+  - 추천인 저장 성공 후 `get-my-referral-code`와 `get-referral-tree`를 함께 refetch하도록 수정했다.
+  - tree load 실패 시에도 현재 추천인 요약과 `추천인 변경하기` 버튼을 같은 `/referral` 화면의 fallback 카드에서 계속 제공하도록 복구했다.
+  - `EXPO_PUBLIC_APP_STORE_URL` 기반 iOS direct store link를 share 문구에 포함하고, 값이 없으면 기존 검색 안내로 degrade하도록 바꿨다.
+  - `.env.example`, `SPEC.md`, `TEST_CHECKLIST.md`를 현재 fallback/share 계약에 맞게 갱신했다.
+- linkedCases:
+  - RF-SELF-02
+  - RF-SELF-03
+  - RF-LINK-02
+- evidence:
+  - 코드 변경: `app/referral.tsx`
+  - 환경 문서: `.env.example`
+  - 문서 갱신: `docs/referral-system/SPEC.md`, `docs/referral-system/TEST_CHECKLIST.md`
+  - 정적 검증: `npx eslint app/referral.tsx`
+- reproduction:
+  1. 기존 추천인이 있는 계정으로 `/referral`에 들어간다.
+  2. 추천인을 변경해 저장하거나, `get-referral-tree` 요청을 의도적으로 실패시킨다.
+  3. 저장 직후 ancestor chain이 stale로 남거나, tree 실패 시 추천인 변경 CTA가 사라지는지 확인한다.
+  4. iPhone 기준 공유 문구에 direct App Store URL이 없는지 확인한다.
+- regressionCheck:
+  - RF-SELF-02로 저장 직후 current recommender/ancestor chain 동기화를 다시 확인한다.
+  - RF-SELF-03으로 tree 실패 상태에서도 추천인 변경 fallback이 살아있는지 확인한다.
+  - RF-LINK-02로 iOS share 문구가 direct App Store URL 또는 명시적 검색 안내를 포함하는지 확인한다.
+- notes:
+  - 이번 수정은 정적 반영까지 완료했다.
+  - 실제 iPhone 실기기에서 share sheet payload와 tree error fallback을 재확인하는 런타임 증적은 별도 후속이다.
 
 ## INC-012 | 2026-04-04 | self-service `내가 초대한 사람들` 목록이 attribution-only + 50건 상한 때문에 일부 invitee를 누락함
 

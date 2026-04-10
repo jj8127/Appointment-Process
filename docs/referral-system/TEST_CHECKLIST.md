@@ -56,13 +56,13 @@
 - `RF-CODE-06` 한 가입자는 최종 추천인 1명만 가짐
 - `RF-CODE-07` Android 추천코드 입력 시 소문자가 대문자 1회로만 정규화되고 중복 문자(`JJ`)가 생기지 않음
 - `RF-SELF-01` FC/본부장 self-service 추천코드 조회는 현재 runtime hook(`get-my-referral-code`) 기준으로 active code를 반환함
-- `RF-SELF-02` FC/본부장 self-service 추천인 변경은 trusted path로 현재 추천인 표시와 attribution/event audit trail을 함께 갱신함
-- `RF-SELF-03` FC/본부장 self-service `내가 초대한 사람들` 목록은 attribution과 `recommender_fc_id` 구조화 링크를 함께 반영하고 임의 상한으로 잘리지 않음
+- `RF-SELF-02` FC/본부장 self-service 추천인 변경은 trusted path로 현재 추천인 표시와 attribution/event audit trail을 함께 갱신하고, 저장 직후 같은 화면의 ancestor chain/current recommender가 재진입 없이 즉시 갱신됨
+- `RF-SELF-03` FC/본부장 self-service `app/referral.tsx`의 `나를 추천한 경로` / `내가 추천한 사람들` tree는 attribution과 `recommender_fc_id` 구조화 링크를 함께 반영하고, ancestor chain + subtree drill-down이 caller 자기 서브트리 범위 안에서만 동작하며, tree read 실패 시에도 기존 추천인 사용자는 같은 화면에서 변경 UI를 계속 열 수 있음
 
 ### 5.2 초대링크
 
 - `RF-LINK-01` 앱 설치 상태에서 초대링크 진입 후 자동 추천 확정
-- `RF-LINK-02` 앱 미설치 상태에서는 자동 복원이 없고 수동 추천코드 fallback이 필요함
+- `RF-LINK-02` 앱 미설치 상태에서는 자동 복원이 없고 수동 추천코드 fallback이 필요하며, iOS 공유 문구는 direct App Store URL 또는 명시적 검색 안내를 포함함
 - `RF-LINK-03` 링크 자동 추천 후 수동 코드 입력 시 우선순위 적용
 - `RF-LINK-04` 변조/만료 링크 graceful fallback
 
@@ -121,6 +121,8 @@
 - trusted API 경로 케이스는 함수 호출 payload, 응답, service 로그 중 최소 1개를 포함한다.
 - self-service 조회 케이스는 현재 hook 경로(`get-my-referral-code`)와 FC/본부장 공통 응답 계약을 함께 남긴다.
 - self-service invitee 목록 케이스는 `referral_attributions` 개수와 `recommender_fc_id` 구조화 링크 개수를 함께 대조하고, 구조화 링크만 있는 invitee도 목록에 포함되는지 확인한다.
+- self-service tree 케이스는 `get-referral-tree` 응답의 `ancestors`, `descendants`, `truncated`와 node expand 후 후속 요청 결과를 함께 남긴다.
+- 본부장 보조 링크 케이스는 모바일 화면에서 FC 미노출, 본부장 노출, 외부 브라우저 open만 확인하고 graph 자체 사용성 검증은 `RF-ADMIN-07/08`로 분리한다.
 - 추천코드 입력 회귀는 실제 입력 문자열(`j -> J`, `ab -> AB`)과 결과 화면을 함께 남긴다.
 - source repo만 보고 맞춘 계약 정리는 evidence가 아니다. 그런 항목은 notes에 `code review only`로 명시한다.
 

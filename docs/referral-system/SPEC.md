@@ -84,6 +84,7 @@
 4. `app/_layout.tsx`가 추천코드를 로컬 pending storage에 저장한다.
 5. 회원가입 화면이 pending code를 1회 소비해 자동 입력한다.
 6. 가입 완료 시 `set-password`가 추천 관계를 확정한다.
+7. 공유 메시지는 `EXPO_PUBLIC_INVITE_BASE_URL`가 있으면 HTTPS invite URL을 포함하고, iOS 설치 fallback은 `EXPO_PUBLIC_APP_STORE_URL`가 설정된 경우 direct App Store URL을 사용한다. 값이 없으면 `App Store에서 "가람in" 검색` 안내로 degrade한다.
 
 - 현재 앱 deep link 계약은 `hanwhafcpass://signup?code=<referral_code>`다.
 - cold start에서는 pending code만 저장하고, warm start에서만 `/signup` 이동을 추가로 수행한다.
@@ -113,6 +114,14 @@
 8. `get-my-invitees`는 `referral_attributions.inviter_fc_id`만이 아니라 현재 구조화 링크 `fc_profiles.recommender_fc_id`도 함께 합쳐서 invitee를 구성해야 한다.
 9. 구조화 링크만 있고 attribution이 없는 invitee는 self-service 목록에서 `confirmed`로 표시할 수 있다.
 10. invitee 목록은 임의의 `50건` 정적 상한으로 잘라 보이지 않게 하면 안 된다. 실제 초대 수가 더 많으면 같은 trusted path에서 계속 보이도록 반환해야 한다.
+11. 추천 관계 self-service tree의 현재 모바일 기본 surface는 `app/referral.tsx` 안의 `추천 관계 전체 구조` 섹션이며, 데이터 경로는 `hooks/use-referral-tree.ts -> get-referral-tree -> get_referral_subtree(...)`다.
+12. 이 섹션은 `나를 추천한 경로(ancestor chain)`와 `내가 추천한 사람들(subtree drill-down)`을 caller 자기 서브트리 범위 안에서만 보여준다.
+13. `나를 추천한 경로`는 현재 `fc_profiles.recommender_fc_id` 체인을 그대로 따른다. 따라서 실제 추천인이 active manager shadow profile로 저장된 경우에는 그 manager shadow 노드도 상위 경로에 보여야 한다.
+14. descendant lazy expand는 같은 trusted path를 다시 호출하되, `fcId=self only`가 아니라 `caller subtree membership`이 확인된 descendant root만 허용해야 한다.
+15. 본부장 전용 `PC 브라우저에서 그래프 뷰로 보기`는 보조 링크일 뿐이고, FC에게는 노출하지 않는다. 모바일 기본 surface는 그래프가 아니라 self-service tree/drill-down이다.
+16. `app/referral.tsx`는 별도의 flat `초대 상태 목록`을 더 이상 기본 surface로 렌더링하지 않는다. 현재 모바일 self-service 하위 관계 노출은 `내가 추천한 사람들` tree 섹션 하나로 정리한다.
+17. self-service로 추천인을 저장하면 같은 화면의 `get-my-referral-code`와 `get-referral-tree`를 함께 다시 불러와, 현재 추천인 표시와 ancestor chain이 재진입 없이 즉시 동기화돼야 한다.
+18. `get-referral-tree`가 일시 실패해도 기존 추천인이 있는 사용자는 같은 `/referral` 화면 안에서 추천인 변경 UI를 계속 열 수 있어야 한다. tree 성공 렌더가 유일한 변경 CTA가 되면 안 된다.
 
 ## 5. 식별자 규칙
 

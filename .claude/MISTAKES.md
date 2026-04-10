@@ -30,6 +30,81 @@
 - Verification:
 ```
 
+## 2026-04-10 | Referral Inline Self-Service | secondary tree query를 기본 self-service 화면에 합치면서 mutation sync와 degraded fallback을 함께 남기지 않음
+- Symptom:
+  - 추천인 저장 성공 직후 `/referral`의 `나를 추천한 경로`가 이전 상태로 남았고, `get-referral-tree`가 실패하면 기존 추천인 사용자는 `변경하기` CTA 자체를 잃었다.
+- Root cause:
+  - `app/referral.tsx`가 추천인 저장 후 `get-my-referral-code`만 refetch했고, 기존 `변경하기` affordance를 tree success 렌더 안으로만 옮겼다.
+- Why it was missed:
+  - inline tree 흡수 작업에서 중복 UI 제거와 정상 흐름에만 집중했고, tree를 “부가 read”가 아니라 실제 primary self-service affordance 일부로 취급해 degraded mode parity를 따로 점검하지 않았다.
+- Permanent guardrail:
+  - secondary query가 기본 self-service 화면을 enrich하더라도 mutation affordance는 primary trusted read만으로도 계속 열려야 한다. 같은 화면에서 여러 query가 같은 도메인 값을 표현하면, mutation 성공 알림 전에 관련 query를 모두 refetch/invalidate한다.
+- Related files:
+  - `app/referral.tsx`
+  - `hooks/use-my-referral-code.ts`
+  - `hooks/use-referral-tree.ts`
+  - `.claude/MISTAKES.md`
+- Verification:
+  - `npx eslint app/referral.tsx`
+
+## 2026-04-10 | Referral Tree Rollout | 앱 화면만 먼저 테스트하고 trusted backend rollout 상태를 같이 확인하지 않아 즉시 `불러오기 실패`가 발생함
+- Symptom:
+  - 모바일 `추천 관계 전체 보기` 화면이 열리지만, 첫 진입에서 곧바로 `불러오기 실패` 에러 상태로 떨어졌다.
+- Root cause:
+  - 새 모바일 route와 hook는 로컬에 반영됐지만, 원격 Supabase에는 `get-referral-tree` Edge Function이 아직 배포되지 않았고 `get_referral_subtree` migration도 적용되지 않았다.
+- Why it was missed:
+  - 정적 검증과 거버넌스 통과를 마감 기준처럼 다루고, self-service 화면이 의존하는 `Edge Function 존재 여부 + 원격 DB 계약`을 같은 턴의 런타임 체크로 확인하지 않았다.
+- Permanent guardrail:
+  - 새 trusted path를 앱에서 바로 호출하는 기능은 `화면 구현 완료`로 닫지 않는다. 최소한 `functions list/deploy`, 필요한 migration 적용 여부, 대표 계정 1개 실호출까지 확인한 뒤에만 사용자 테스트를 시작한다. migration이 당장 막히면 화면 호출부를 막기보다 Edge Function fallback 또는 rollout 순서를 먼저 정리한다.
+- Related files:
+  - `supabase/functions/get-referral-tree/index.ts`
+  - `supabase/migrations/20260410000001_add_referral_subtree_rpc.sql`
+  - `app/referral-tree.tsx`
+  - `.claude/MISTAKES.md`
+- Verification:
+  - `supabase functions list --project-ref ubeginyxaotcamuqpmud`
+  - `supabase functions deploy get-referral-tree --project-ref ubeginyxaotcamuqpmud`
+  - `npx eslint --rule "import/no-unresolved: off" supabase/functions/get-referral-tree/index.ts`
+
+## 2026-04-10 | Referral Tree Ancestor Contract | manager shadow를 descendant 오염 방지 규칙으로만 보지 않고 ancestor chain까지 같이 제외해 실제 추천인이 화면에서 사라짐
+- Symptom:
+  - `01051078127` 계정은 `fc_profiles.recommender='서선미'`, `recommender_fc_id=<서선미 shadow fc_id>`로 저장돼 있는데, `나를 추천한 경로`에는 서선미가 나타나지 않았다.
+- Root cause:
+  - `get_referral_subtree` SQL과 `get-referral-tree` fallback이 모두 `is_manager_referral_shadow=true` row를 ancestor traversal에서도 제외하고 있었다.
+- Why it was missed:
+  - manager shadow를 “트리를 오염시키는 synthetic row”로만 생각했고, 실제 운영 데이터에서는 manager 추천인이 구조화 링크로 shadow row에 저장된다는 점을 ancestor UX 요구와 함께 검토하지 않았다.
+- Permanent guardrail:
+  - `is_manager_referral_shadow`는 descendant child traversal에서만 기본 제외 규칙으로 다루고, `recommender_fc_id`에 실제로 저장된 ancestor recommender는 보여준다. “shadow 제외” 규칙을 문서화할 때는 ancestor/descendant에 동일 적용한다고 쓰지 말고, 경로별 예외를 같이 적는다.
+- Related files:
+  - `supabase/functions/get-referral-tree/index.ts`
+  - `supabase/migrations/20260410000001_add_referral_subtree_rpc.sql`
+  - `supabase/schema.sql`
+  - `docs/referral-system/SPEC.md`
+  - `docs/referral-system/ARCHITECTURE.md`
+  - `contracts/database-schema.md`
+- Verification:
+  - service-role query: `01051078127.recommender_fc_id -> 18f79264-5b93-4f37-a171-a459ab6c578a (서선미, manager shadow)`
+  - `supabase functions deploy get-referral-tree --project-ref ubeginyxaotcamuqpmud`
+  - `npx eslint --rule "import/no-unresolved: off" supabase/functions/get-referral-tree/index.ts`
+
+## 2026-04-10 | Referral Self-Service / Tree Auth | drill-down 화면 요청 패턴과 Edge Function 인가 범위를 따로 잡아 lazy expand가 막힐 뻔함
+- Symptom:
+  - 모바일 `추천 관계 전체 보기`는 descendant node를 탭할 때마다 해당 노드를 root로 한 subtree를 다시 읽는 구조인데, 초기 구현 계약을 `fcId=self only`로 잡으면 첫 화면은 떠도 2단계 expand부터 403으로 막히게 된다.
+- Root cause:
+  - 화면 설계(ancestor chain + subtree lazy drill-down)와 서버 인가 규칙을 같은 계약으로 검토하지 않았고, `초기 로드 root 기준 조회`와 `후속 descendant root 재조회`를 서로 다른 문제처럼 취급했다.
+- Why it was missed:
+  - self-service 보안 경계를 좁게 잡는 데만 집중해, 실제 화면이 어떤 `fcId`들을 후속 요청으로 보낼지까지 함께 대조하지 않았다.
+- Permanent guardrail:
+  - self-service 화면이 lazy expand / cursor / detail drill-down으로 하위 노드 id를 다시 요청하면, Edge Function 인가도 `self only`가 아니라 `self subtree membership` 기준으로 설계한다. 화면 요청 패턴(`router/queryFn/loadChildrenOf`)과 서버 인가(`requested id` 허용 범위)를 같은 리뷰 체크리스트에서 한 번에 대조한다.
+- Related files:
+  - `app/referral-tree.tsx`
+  - `hooks/use-referral-tree.ts`
+  - `supabase/functions/get-referral-tree/index.ts`
+  - `.claude/MISTAKES.md`
+- Verification:
+  - `npx eslint app/referral-tree.tsx hooks/use-referral-tree.ts`
+  - `npx eslint supabase/functions/get-referral-tree/index.ts`
+
 ## 2026-04-07 | Governance / Path Owner Map | 새 handbook-sensitive Edge Function helper를 추가하고도 owner-map 규칙 편입을 빼먹음
 - Symptom: `fc-onboarding-app` push run은 성공했지만 최신 PR governance run에서 `supabase/functions/_shared/password-reset-account.ts`, `supabase/functions/_shared/request-board-password-sync.ts`에 대한 `No path-owner-map rule` 오류가 발생했다.
 - Root cause: `supabase/functions/` 아래 새 helper를 추가하면서 handbook-sensitive path-owner-map가 `_shared` 경로까지 이미 커버한다고 착각했고, 실제 prefix rule에 파일 2개를 넣지 않았다.

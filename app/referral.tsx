@@ -7,6 +7,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
+  Linking,
   Platform,
   Pressable,
   RefreshControl,
@@ -20,18 +21,26 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { KeyboardAwareWrapper, useKeyboardAware } from '@/components/KeyboardAwareWrapper';
 import { Skeleton } from '@/components/LoadingSkeleton';
+import { ReferralAncestorsChain } from '@/components/ReferralAncestorsChain';
+import { ReferralTreeNode, type DescendantNode } from '@/components/ReferralTreeNode';
 import { useKeyboardPadding } from '@/hooks/use-keyboard-padding';
-import { useMyInvitees } from '@/hooks/use-my-invitees';
 import { useMyReferralCode } from '@/hooks/use-my-referral-code';
+import { useReferralTree } from '@/hooks/use-referral-tree';
 import { useSession } from '@/hooks/use-session';
 import { consumePendingReferralCode } from '@/lib/referral-deeplink';
 import { supabase } from '@/lib/supabase';
 import { COLORS, RADIUS, SHADOWS, SPACING } from '@/lib/theme';
 
 const PLAY_STORE_URL = 'https://play.google.com/store/apps/details?id=com.jj8127.Garam_in';
+const APP_STORE_URL = (process.env.EXPO_PUBLIC_APP_STORE_URL ?? '').trim();
 const INVITE_BASE_URL = process.env.EXPO_PUBLIC_INVITE_BASE_URL ?? '';
+const ADMIN_WEB_URL = (process.env.EXPO_PUBLIC_ADMIN_WEB_URL ?? '').replace(/\/$/, '');
 
 function buildShareText(code: string): string {
+  const iosInstallLine = APP_STORE_URL
+    ? `iOS: ${APP_STORE_URL}`
+    : 'iOS: App Store에서 "가람in" 검색';
+
   if (INVITE_BASE_URL) {
     const inviteUrl = `${INVITE_BASE_URL}/invite?code=${code}`;
     return [
@@ -42,7 +51,7 @@ function buildShareText(code: string): string {
       '',
       '앱이 없으시면:',
       `Android: ${PLAY_STORE_URL}`,
-      'iOS: App Store에서 "가람in" 검색',
+      iosInstallLine,
     ].join('\n');
   }
   // INVITE_BASE_URL 미설정 시: 커스텀 스킴은 메신저에서 링크로 인식되지 않으므로
@@ -55,28 +64,8 @@ function buildShareText(code: string): string {
     '가입 시 위 코드를 입력하면 추천인으로 연결됩니다.',
     '',
     `Android: ${PLAY_STORE_URL}`,
-    'iOS: App Store에서 "가람in" 검색',
+    iosInstallLine,
   ].join('\n');
-}
-
-type StatusInfo = { label: string; color: string; bg: string };
-
-function getStatusInfo(status: string): StatusInfo {
-  switch (status) {
-    case 'confirmed':
-      return { label: '연결됨', color: COLORS.success, bg: COLORS.successLight };
-    case 'captured':
-    case 'pending_signup':
-      return { label: '대기중', color: COLORS.gray[500], bg: COLORS.gray[100] };
-    default:
-      return { label: '미연결', color: COLORS.error, bg: COLORS.errorLight };
-  }
-}
-
-function formatDate(iso: string | null): string {
-  if (!iso) return '';
-  const d = new Date(iso);
-  return `${d.getFullYear()}.${String(d.getMonth() + 1).padStart(2, '0')}.${String(d.getDate()).padStart(2, '0')}`;
 }
 
 type FcSearchResult = {
@@ -135,6 +124,7 @@ function ReferralSearchField({
 
 export default function ReferralPage() {
   const { appSessionToken, role, readOnly, isRequestBoardDesigner } = useSession();
+  const isManager = role === 'admin' && readOnly === true;
   const canUseReferralSelfService =
     !isRequestBoardDesigner && (role === 'fc' || (role === 'admin' && readOnly));
   const {
@@ -143,7 +133,13 @@ export default function ReferralPage() {
     error: referralInfoError,
     refetch: refetchReferralInfo,
   } = useMyReferralCode();
-  const { data: invitees, isLoading: inviteesLoading, refetch: refetchInvitees } = useMyInvitees();
+  const {
+    data: referralTree,
+    isLoading: referralTreeLoading,
+    isError: referralTreeError,
+    refetch: refetchReferralTree,
+    loadChildrenOf,
+  } = useReferralTree({ depth: 2 });
   const keyboardPadding = useKeyboardPadding();
 
   const [copied, setCopied] = useState(false);
@@ -156,6 +152,8 @@ export default function ReferralPage() {
   const [searching, setSearching] = useState(false);
   const [selected, setSelected] = useState<FcSearchResult | null>(null);
   const [saving, setSaving] = useState(false);
+  const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set());
+  const [loadingIds, setLoadingIds] = useState<Set<string>>(new Set());
   const searchTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const searchReqRef = useRef(0);
   const { referralNonce } = useLocalSearchParams<{ referralNonce?: string }>();
@@ -167,6 +165,12 @@ export default function ReferralPage() {
     referralInfoError instanceof Error
       ? referralInfoError.message
       : '추천인 정보를 불러오지 못했습니다.';
+  const showRecommenderCard =
+    !currentRecommender || editMode || referralLoading || referralInfoError || referralTreeError;
+  const showRecommenderEditor =
+    !referralLoading && !referralInfoError && (!currentRecommender || editMode);
+  const showRecommenderFallbackSummary =
+    !referralLoading && !referralInfoError && Boolean(currentRecommender) && referralTreeError && !editMode;
 
   // 검색
   const runSearch = useCallback(async (q: string) => {
@@ -247,7 +251,7 @@ export default function ReferralPage() {
       setSelected(null);
       setSearchQuery('');
       setEditMode(false);
-      await refetchReferralInfo();
+      await Promise.all([refetchReferralInfo(), refetchReferralTree()]);
       Alert.alert('저장 완료', `추천인이 '${data.inviterName ?? savedName}'(으)로 저장됐습니다.`);
     } catch {
       Alert.alert('오류', '저장 중 오류가 발생했습니다.');
@@ -279,13 +283,49 @@ export default function ReferralPage() {
       if (!canUseReferralSelfService || !appSessionToken) {
         return;
       }
-      await Promise.all([refetchReferralInfo(), refetchInvitees()]);
+      await Promise.all([refetchReferralInfo(), refetchReferralTree()]);
     } finally {
       setRefreshing(false);
     }
   };
 
-  const inviteeList = invitees ?? [];
+  const handleToggleTreeNode = useCallback(
+    async (fcId: string) => {
+      if (expandedIds.has(fcId)) {
+        setExpandedIds((prev) => {
+          const next = new Set(prev);
+          next.delete(fcId);
+          return next;
+        });
+        return;
+      }
+
+      const alreadyLoaded = referralTree?.descendants?.some((node) => node.parentFcId === fcId);
+      if (alreadyLoaded) {
+        setExpandedIds((prev) => new Set([...prev, fcId]));
+        return;
+      }
+
+      setLoadingIds((prev) => new Set([...prev, fcId]));
+      try {
+        await loadChildrenOf(fcId);
+        setExpandedIds((prev) => new Set([...prev, fcId]));
+      } catch {
+        // retry via chevron tap
+      } finally {
+        setLoadingIds((prev) => {
+          const next = new Set(prev);
+          next.delete(fcId);
+          return next;
+        });
+      }
+    },
+    [expandedIds, loadChildrenOf, referralTree],
+  );
+
+  const rootDescendants: DescendantNode[] =
+    referralTree?.descendants?.filter((node) => referralTree.root && node.parentFcId === referralTree.root.fcId) ?? [];
+  const totalTreeDescendants = referralTree?.root.totalDescendantCount ?? 0;
   const showResults = searchResults.length > 0 && !selected;
   const blockedContent = !canUseReferralSelfService;
 
@@ -295,7 +335,7 @@ export default function ReferralPage() {
         style={styles.scroll}
         contentContainerStyle={[
           styles.scrollContent,
-          { paddingBottom: Math.max(SPACING['4xl'], keyboardPadding + 140) },
+          { paddingBottom: Math.max(SPACING['5xl'], keyboardPadding + 200) },
         ]}
         extraScrollHeight={180}
         refreshControl={
@@ -356,34 +396,42 @@ export default function ReferralPage() {
                 </Pressable>
               </View>
             )}
+            {referralTree ? (
+              <View style={styles.codeMetaRow}>
+                <View style={styles.codeMetaProfile}>
+                  <View style={styles.codeMetaAvatar}>
+                    <Feather name="user" size={18} color={COLORS.white} />
+                  </View>
+                  <View style={styles.codeMetaInfo}>
+                    <Text style={styles.codeMetaName} numberOfLines={1}>
+                      {referralTree.root.name ?? '나'}
+                    </Text>
+                    {referralTree.root.affiliation ? (
+                      <Text style={styles.codeMetaAffiliation} numberOfLines={1}>
+                        {referralTree.root.affiliation}
+                      </Text>
+                    ) : null}
+                  </View>
+                </View>
+                <View style={styles.codeMetaStatWrap}>
+                  <Text style={styles.codeMetaStatNum}>{totalTreeDescendants}</Text>
+                  <Text style={styles.codeMetaStatLabel}>전체 하위</Text>
+                </View>
+              </View>
+            ) : null}
           </View>
         </LinearGradient>
 
-        {/* 공유 안내 배너 */}
-        <View style={styles.infoBanner}>
-          <Feather name="info" size={14} color={COLORS.info} style={{ marginTop: 1 }} />
-          <Text style={styles.infoBannerText}>
-            링크를 공유하면 상대방이 가입할 때 추천 코드가 자동으로 입력돼요.{'\n'}앱이 없는 경우 Play Store / App Store에서 {'"'}가람in{'"'}을 설치한 뒤 코드를 직접 입력해 주세요.
-          </Text>
-        </View>
-
-        {/* ── 내 추천인 카드 ── */}
-        <View style={[
-          styles.recommenderCard,
-          currentRecommender && !editMode && styles.recommenderCardRegistered,
-        ]}>
+        {/* ── 추천인 등록/변경 카드 ── */}
+        {showRecommenderCard && (
+        <View style={styles.recommenderCard}>
           <View style={styles.recommenderHeader}>
-            <View style={[
-              styles.recommenderIconWrap,
-              currentRecommender && !editMode && styles.recommenderIconRegistered,
-            ]}>
-              <Feather
-                name={currentRecommender && !editMode ? 'user-check' : 'heart'}
-                size={16}
-                color={COLORS.primary}
-              />
+            <View style={styles.recommenderIconWrap}>
+              <Feather name="heart" size={16} color={COLORS.primary} />
             </View>
-            <Text style={styles.recommenderTitle}>내 추천인</Text>
+            <Text style={styles.recommenderTitle}>
+              {currentRecommender ? '추천인 변경' : '추천인 등록'}
+            </Text>
           </View>
 
           {/* 로딩 중 */}
@@ -396,39 +444,43 @@ export default function ReferralPage() {
             <Text style={styles.currentRecommenderError}>{referralInfoErrorMessage}</Text>
           )}
 
-          {/* 등록됨 + 뷰 모드 */}
-          {!referralLoading && !referralInfoError && currentRecommender && !editMode && (
+          {showRecommenderFallbackSummary && (
             <>
-              <View style={styles.registeredBlock}>
-                <View style={styles.registeredNameRow}>
-                  <Text style={styles.registeredName}>{currentRecommender}</Text>
-                  {currentRecommenderAffiliation && (
-                    <Text style={styles.registeredAffiliation}>{currentRecommenderAffiliation}</Text>
-                  )}
-                  <View style={styles.statusBadgeRegistered}>
-                    <Text style={styles.statusBadgeRegisteredText}>✓ 연결됨</Text>
-                  </View>
+              <View style={styles.divider} />
+              <Text style={styles.treeFallbackHint}>
+                관계 구조를 잠시 못 불러와도 추천인은 여기서 계속 변경할 수 있어요.
+              </Text>
+              <View style={styles.currentRecommenderFallbackCard}>
+                <View style={styles.currentRecommenderFallbackAvatar}>
+                  <Feather name="user-check" size={16} color={COLORS.primary} />
                 </View>
-                {currentRecommenderCode && (
-                  <View style={styles.registeredCodeRow}>
-                    <Feather name="hash" size={12} color={COLORS.text.muted} />
-                    <Text style={styles.registeredCode}>{currentRecommenderCode}</Text>
-                  </View>
-                )}
+                <View style={styles.currentRecommenderFallbackInfo}>
+                  <Text style={styles.currentRecommenderFallbackName} numberOfLines={1}>
+                    {currentRecommender}
+                  </Text>
+                  {currentRecommenderAffiliation ? (
+                    <Text style={styles.currentRecommenderFallbackAffiliation} numberOfLines={1}>
+                      {currentRecommenderAffiliation}
+                    </Text>
+                  ) : null}
+                  {currentRecommenderCode ? (
+                    <Text style={styles.currentRecommenderFallbackCode} numberOfLines={1}>
+                      {currentRecommenderCode}
+                    </Text>
+                  ) : null}
+                </View>
               </View>
-              <View style={styles.changeBtnRow}>
-                <Pressable
-                  style={({ pressed }) => [styles.changeBtn, pressed && { opacity: 0.75 }]}
-                  onPress={() => setEditMode(true)}
-                >
-                  <Text style={styles.changeBtnText}>변경하기</Text>
-                </Pressable>
-              </View>
+              <Pressable
+                style={({ pressed }) => [styles.fallbackChangeBtn, pressed && styles.fallbackChangeBtnPressed]}
+                onPress={() => setEditMode(true)}
+              >
+                <Text style={styles.fallbackChangeBtnText}>추천인 변경하기</Text>
+              </Pressable>
             </>
           )}
 
           {/* 미등록 또는 editMode */}
-          {!referralLoading && !referralInfoError && (!currentRecommender || editMode) && (
+          {showRecommenderEditor && (
             <>
               <View style={styles.divider} />
 
@@ -549,60 +601,111 @@ export default function ReferralPage() {
             </>
           )}
         </View>
-
-        {/* ── 내가 초대한 사람들 ── */}
-        <View style={[styles.sectionHeader, { marginTop: SPACING.sm }]}>
-          <Text style={styles.sectionTitle}>내가 초대한 사람들</Text>
-          {!inviteesLoading && inviteeList.length > 0 && (
-            <View style={styles.countBadge}>
-              <Text style={styles.countBadgeText}>{inviteeList.length}명</Text>
-            </View>
-          )}
-        </View>
-
-        {inviteesLoading ? (
-          <View style={styles.skeletonList}>
-            <Skeleton width="100%" height={72} borderRadius={RADIUS.lg} style={{ marginBottom: 10 }} />
-            <Skeleton width="100%" height={72} borderRadius={RADIUS.lg} style={{ marginBottom: 10 }} />
-            <Skeleton width="100%" height={72} borderRadius={RADIUS.lg} />
-          </View>
-        ) : inviteeList.length === 0 ? (
-          <View style={styles.emptyState}>
-            <View style={styles.emptyIconWrap}>
-              <Feather name="user-plus" size={32} color={COLORS.gray[300]} />
-            </View>
-            <Text style={styles.emptyTitle}>아직 초대한 사람이 없어요</Text>
-            <Text style={styles.emptyDesc}>추천 코드를 공유하면 여기에 표시됩니다.</Text>
-          </View>
-        ) : (
-          <View style={styles.inviteeList}>
-            {inviteeList.map((item) => {
-              const statusInfo = getStatusInfo(item.status);
-              const name = item.inviteeName ?? item.inviteePhone ?? '알 수 없음';
-              const dateStr = item.confirmedAt
-                ? `연결 ${formatDate(item.confirmedAt)}`
-                : `초대 ${formatDate(item.capturedAt)}`;
-              return (
-                <View key={item.id} style={styles.inviteeCard}>
-                  <View style={styles.inviteeAvatar}>
-                    <Feather name="user" size={18} color={COLORS.gray[400]} />
-                  </View>
-                  <View style={styles.inviteeInfo}>
-                    <Text style={styles.inviteeName} numberOfLines={1}>{name}</Text>
-                    <Text style={styles.inviteeDate}>{dateStr}</Text>
-                  </View>
-                  <View style={[styles.statusBadge, { backgroundColor: statusInfo.bg }]}>
-                    <Text style={[styles.statusText, { color: statusInfo.color }]}>{statusInfo.label}</Text>
-                  </View>
-                </View>
-              );
-            })}
-          </View>
         )}
 
-        <Text style={styles.footerNote}>
-          가입 완료 후 {'\''}연결됨{'\''}으로 표시됩니다.
-        </Text>
+        {referralTreeLoading ? (
+          <View style={styles.treeSkeletonWrap}>
+            <Skeleton width="100%" height={84} borderRadius={RADIUS.xl} style={{ marginBottom: SPACING.base }} />
+            <Skeleton width="48%" height={18} borderRadius={RADIUS.sm} style={{ marginBottom: SPACING.sm }} />
+            <Skeleton width="100%" height={60} borderRadius={RADIUS.lg} style={{ marginBottom: 8 }} />
+            <Skeleton width="82%" height={60} borderRadius={RADIUS.lg} style={{ marginBottom: SPACING.lg }} />
+            <Skeleton width="48%" height={18} borderRadius={RADIUS.sm} style={{ marginBottom: SPACING.sm }} />
+            <Skeleton width="100%" height={52} borderRadius={RADIUS.lg} style={{ marginBottom: 6 }} />
+            <Skeleton width="100%" height={52} borderRadius={RADIUS.lg} />
+          </View>
+        ) : referralTreeError ? (
+          <View style={styles.treeErrorState}>
+            <View style={styles.treeErrorIconWrap}>
+              <Feather name="alert-circle" size={26} color={COLORS.error} />
+            </View>
+            <Text style={styles.treeErrorTitle}>추천 관계 정보를 가져오지 못했어요</Text>
+            <Text style={styles.treeErrorDesc}>추천인 코드와 추천인 변경은 계속 사용할 수 있고, 관계 구조만 다시 불러오면 됩니다.</Text>
+            <Pressable
+              style={({ pressed }) => [styles.treeRetryBtn, pressed && { opacity: 0.85 }]}
+              onPress={() => refetchReferralTree()}
+            >
+              <Text style={styles.treeRetryBtnText}>관계 구조 다시 불러오기</Text>
+            </Pressable>
+          </View>
+        ) : referralTree ? (
+          <>
+            <View style={styles.treeSectionHeader}>
+              <Feather name="arrow-up-circle" size={15} color={COLORS.primary} />
+              <Text style={styles.treeSectionTitle}>나를 추천한 경로</Text>
+              {!!currentRecommender && !editMode && !referralLoading && !referralInfoError && (
+                <Pressable
+                  style={({ pressed }) => [styles.treeHeaderAction, pressed && styles.treeHeaderActionPressed]}
+                  onPress={() => setEditMode(true)}
+                >
+                  <Text style={styles.treeHeaderActionText}>변경하기</Text>
+                </Pressable>
+              )}
+            </View>
+            <View style={styles.treeSectionCard}>
+              <ReferralAncestorsChain ancestors={referralTree.ancestors} self={referralTree.root} />
+            </View>
+
+            <View style={[styles.treeSectionHeader, { marginTop: SPACING.lg }]}>
+              <Feather name="arrow-down-circle" size={15} color={COLORS.primary} />
+              <Text style={styles.treeSectionTitle}>내가 추천한 사람들</Text>
+              {rootDescendants.length > 0 && (
+                <View style={styles.treeCountBadge}>
+                  <Text style={styles.treeCountBadgeText}>{rootDescendants.length}명</Text>
+                </View>
+              )}
+            </View>
+            <View style={styles.treeSectionCard}>
+              {rootDescendants.length === 0 ? (
+                <View style={styles.treeEmptyState}>
+                  <Feather name="user-plus" size={26} color={COLORS.gray[200]} />
+                  <Text style={styles.treeEmptyTitle}>아직 추천한 사람이 없어요</Text>
+                  <Text style={styles.treeEmptyDesc}>추천 코드를 공유하면 여기에 연결됩니다.</Text>
+                </View>
+              ) : (
+                <>
+                  {rootDescendants.map((node) => (
+                    <ReferralTreeNode
+                      key={node.fcId}
+                      node={node}
+                      depth={0}
+                      expanded={expandedIds.has(node.fcId)}
+                      isLoadingExpand={loadingIds.has(node.fcId)}
+                      onToggle={handleToggleTreeNode}
+                      expandedIds={expandedIds}
+                      loadingIds={loadingIds}
+                      allNodes={referralTree.descendants}
+                    />
+                  ))}
+                  {referralTree.truncated && (
+                    <View style={styles.treeTruncatedBanner}>
+                      <Feather name="info" size={13} color={COLORS.info} />
+                      <Text style={styles.treeTruncatedText}>일부 하위 항목은 탭하면 더 볼 수 있어요</Text>
+                    </View>
+                  )}
+                </>
+              )}
+            </View>
+
+            {isManager && !!ADMIN_WEB_URL && (
+              <Pressable
+                style={({ pressed }) => [styles.graphLinkCard, pressed && { opacity: 0.7 }]}
+                onPress={() => Linking.openURL(`${ADMIN_WEB_URL}/dashboard/referrals/graph`)}
+                accessibilityRole="link"
+                accessibilityLabel="PC 브라우저에서 관리자 그래프 뷰 열기"
+              >
+                <View style={styles.graphLinkIconWrap}>
+                  <Feather name="share-2" size={18} color={COLORS.primary} />
+                </View>
+                <View style={styles.graphLinkTextWrap}>
+                  <Text style={styles.graphLinkTitle}>PC 브라우저에서 그래프 뷰로 보기</Text>
+                  <Text style={styles.graphLinkDesc}>모바일에서는 표시가 다를 수 있습니다</Text>
+                </View>
+                <Feather name="external-link" size={15} color={COLORS.gray[400]} />
+              </Pressable>
+            )}
+            <View style={styles.bottomContentSpacer} />
+          </>
+        ) : null}
           </>
         )}
       </KeyboardAwareWrapper>
@@ -616,45 +719,199 @@ const styles = StyleSheet.create({
   scrollContent: { padding: SPACING.base, paddingBottom: SPACING['4xl'] },
 
   // 내 코드 카드
-  codeCard: { borderRadius: RADIUS.xl, padding: SPACING.xl, marginBottom: SPACING.base, overflow: 'hidden', position: 'relative', ...SHADOWS.lg },
+  codeCard: { borderRadius: RADIUS.xl, padding: SPACING.lg, marginBottom: SPACING.base, overflow: 'hidden', position: 'relative', ...SHADOWS.lg },
   deco1: { position: 'absolute', top: -30, right: -30, width: 120, height: 120, borderRadius: 60, backgroundColor: 'rgba(255,255,255,0.1)' },
   deco2: { position: 'absolute', bottom: -20, left: -20, width: 80, height: 80, borderRadius: 40, backgroundColor: 'rgba(255,255,255,0.08)' },
   codeCardInner: { zIndex: 1 },
-  codeCardLabel: { fontSize: 13, fontWeight: '600', color: 'rgba(255,255,255,0.85)', marginBottom: 8, letterSpacing: 0.5 },
-  codeText: { fontSize: 34, fontWeight: '800', color: '#fff', letterSpacing: 6, marginBottom: 20, ...Platform.select({ ios: { fontVariant: ['tabular-nums'] } }) },
+  codeCardLabel: { fontSize: 12, fontWeight: '600', color: 'rgba(255,255,255,0.85)', marginBottom: 6, letterSpacing: 0.5 },
+  codeText: { fontSize: 30, fontWeight: '800', color: '#fff', letterSpacing: 5, marginBottom: 14, ...Platform.select({ ios: { fontVariant: ['tabular-nums'] } }) },
   codeEmpty: { fontSize: 16, color: 'rgba(255,255,255,0.7)', marginBottom: 12, marginTop: 4 },
-  codeActions: { flexDirection: 'row', gap: 10 },
-  codeBtn: { flexDirection: 'row', alignItems: 'center', gap: 6, backgroundColor: '#fff', paddingHorizontal: 14, paddingVertical: 9, borderRadius: RADIUS.full },
+  codeActions: { flexDirection: 'row', gap: 8 },
+  codeBtn: { flexDirection: 'row', alignItems: 'center', gap: 6, backgroundColor: '#fff', paddingHorizontal: 12, paddingVertical: 8, borderRadius: RADIUS.full },
   codeBtnPressed: { opacity: 0.8 },
-  codeBtnText: { fontSize: 13, fontWeight: '700', color: COLORS.primary },
+  codeBtnText: { fontSize: 12, fontWeight: '700', color: COLORS.primary },
+  codeMetaRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: SPACING.md,
+    marginTop: SPACING.md,
+    paddingTop: SPACING.sm,
+    borderTopWidth: 1,
+    borderTopColor: 'rgba(255,255,255,0.18)',
+  },
+  codeMetaProfile: { flex: 1, flexDirection: 'row', alignItems: 'center', gap: SPACING.sm, minWidth: 0 },
+  codeMetaAvatar: {
+    width: 38,
+    height: 38,
+    borderRadius: 19,
+    backgroundColor: 'rgba(255,255,255,0.18)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    flexShrink: 0,
+  },
+  codeMetaInfo: { flex: 1, minWidth: 0 },
+  codeMetaName: { fontSize: 15, fontWeight: '800', color: COLORS.white },
+  codeMetaAffiliation: { fontSize: 11, color: 'rgba(255,255,255,0.82)', marginTop: 1 },
+  codeMetaStatWrap: { alignItems: 'center', flexShrink: 0 },
+  codeMetaStatNum: { fontSize: 20, fontWeight: '800', color: COLORS.white },
+  codeMetaStatLabel: { fontSize: 10, color: 'rgba(255,255,255,0.75)', marginTop: 2 },
 
-  // 배너
-  infoBanner: { flexDirection: 'row', alignItems: 'flex-start', gap: 8, backgroundColor: COLORS.infoLight, borderRadius: RADIUS.md, padding: SPACING.md, marginBottom: SPACING.base },
-  infoBannerText: { flex: 1, fontSize: 12, color: COLORS.info, lineHeight: 18 },
+  treeSkeletonWrap: { marginBottom: SPACING.base },
+  treeErrorState: {
+    alignItems: 'center',
+    backgroundColor: COLORS.background.primary,
+    borderRadius: RADIUS.xl,
+    paddingHorizontal: SPACING.lg,
+    paddingVertical: SPACING.xl,
+    marginBottom: SPACING.base,
+    ...SHADOWS.sm,
+  },
+  treeErrorIconWrap: {
+    width: 52,
+    height: 52,
+    borderRadius: 26,
+    backgroundColor: COLORS.errorLight,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: SPACING.sm,
+  },
+  treeErrorTitle: {
+    fontSize: 15,
+    fontWeight: '700',
+    color: COLORS.text.primary,
+    textAlign: 'center',
+  },
+  treeErrorDesc: {
+    fontSize: 12,
+    lineHeight: 18,
+    color: COLORS.text.muted,
+    textAlign: 'center',
+    marginTop: 6,
+    marginBottom: SPACING.md,
+  },
+  treeRetryBtn: {
+    backgroundColor: COLORS.primary,
+    borderRadius: RADIUS.full,
+    paddingHorizontal: SPACING.lg,
+    paddingVertical: 10,
+  },
+  treeRetryBtnText: { fontSize: 13, fontWeight: '700', color: COLORS.white },
+  treeSectionHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    marginBottom: SPACING.sm,
+  },
+  treeSectionTitle: { flex: 1, fontSize: 14, fontWeight: '700', color: COLORS.text.primary },
+  treeHeaderAction: {
+    borderWidth: 1,
+    borderColor: COLORS.border.medium,
+    borderRadius: RADIUS.full,
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    backgroundColor: COLORS.background.secondary,
+  },
+  treeHeaderActionPressed: { opacity: 0.75 },
+  treeHeaderActionText: { fontSize: 12, fontWeight: '700', color: COLORS.text.secondary },
+  treeCountBadge: {
+    backgroundColor: COLORS.primaryPale,
+    borderRadius: RADIUS.full,
+    paddingHorizontal: 8,
+    paddingVertical: 2,
+  },
+  treeCountBadgeText: { fontSize: 12, fontWeight: '700', color: COLORS.primary },
+  treeSectionCard: {
+    backgroundColor: COLORS.background.primary,
+    borderRadius: RADIUS.xl,
+    padding: SPACING.sm,
+    ...SHADOWS.sm,
+  },
+  treeEmptyState: {
+    alignItems: 'center',
+    paddingVertical: SPACING['2xl'],
+    gap: SPACING.sm,
+  },
+  treeEmptyTitle: { fontSize: 14, fontWeight: '600', color: COLORS.text.secondary },
+  treeEmptyDesc: { fontSize: 12, color: COLORS.text.muted, textAlign: 'center' },
+  treeTruncatedBanner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    marginTop: SPACING.sm,
+    padding: SPACING.sm,
+    backgroundColor: COLORS.infoLight,
+    borderRadius: RADIUS.md,
+  },
+  treeTruncatedText: { flex: 1, fontSize: 12, color: COLORS.info },
 
   // 추천인 카드
   recommenderCard: { backgroundColor: COLORS.background.primary, borderRadius: RADIUS.xl, padding: SPACING.base, marginBottom: SPACING.base, ...SHADOWS.sm },
-  recommenderCardRegistered: { borderLeftWidth: 4, borderLeftColor: COLORS.success },
   recommenderHeader: { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: SPACING.md },
   recommenderIconWrap: { width: 28, height: 28, borderRadius: 14, backgroundColor: COLORS.primaryPale, alignItems: 'center', justifyContent: 'center' },
-  recommenderIconRegistered: { backgroundColor: COLORS.primaryPale },
   recommenderTitle: { fontSize: 16, fontWeight: '700', color: COLORS.text.primary },
-  registeredBlock: { marginBottom: SPACING.md },
-  registeredNameRow: { flexDirection: 'row', alignItems: 'center', gap: 8, flexWrap: 'wrap', marginBottom: 4 },
-  registeredName: { fontSize: 20, fontWeight: '800', color: COLORS.text.primary },
-  registeredAffiliation: { fontSize: 13, color: COLORS.text.muted, flexShrink: 1 },
-  registeredCodeRow: { flexDirection: 'row', alignItems: 'center', gap: 4, marginTop: 2 },
-  registeredCode: { fontSize: 13, fontWeight: '700', color: COLORS.text.muted, letterSpacing: 1 },
-  statusBadgeRegistered: { backgroundColor: COLORS.success, borderRadius: RADIUS.full, paddingHorizontal: 8, paddingVertical: 3 },
-  statusBadgeRegisteredText: { fontSize: 11, fontWeight: '700', color: '#fff' },
-  changeBtnRow: { marginTop: SPACING.sm },
-  changeBtn: { borderWidth: 1, borderColor: COLORS.border.medium, borderRadius: RADIUS.md, height: 42, alignItems: 'center', justifyContent: 'center', backgroundColor: COLORS.background.secondary },
-  changeBtnText: { fontSize: 14, fontWeight: '600', color: COLORS.text.secondary },
   cancelBtn: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, borderWidth: 1, borderColor: COLORS.border.medium, borderRadius: RADIUS.md, height: 42, marginTop: SPACING.md, backgroundColor: COLORS.background.secondary },
   cancelBtnText: { fontSize: 14, fontWeight: '600', color: COLORS.text.secondary },
   currentRecommenderError: { fontSize: 13, color: COLORS.error, marginBottom: SPACING.md },
   divider: { height: 1, backgroundColor: COLORS.border.light, marginBottom: SPACING.md },
   inputLabel: { fontSize: 13, fontWeight: '600', color: COLORS.text.secondary, marginBottom: 8 },
+  treeFallbackHint: {
+    fontSize: 12,
+    lineHeight: 18,
+    color: COLORS.text.muted,
+    marginBottom: SPACING.sm,
+  },
+  currentRecommenderFallbackCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    backgroundColor: COLORS.background.secondary,
+    borderRadius: RADIUS.md,
+    padding: 12,
+    marginBottom: 10,
+  },
+  currentRecommenderFallbackAvatar: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: COLORS.primaryPale,
+    alignItems: 'center',
+    justifyContent: 'center',
+    flexShrink: 0,
+  },
+  currentRecommenderFallbackInfo: { flex: 1, minWidth: 0 },
+  currentRecommenderFallbackName: {
+    fontSize: 15,
+    fontWeight: '700',
+    color: COLORS.text.primary,
+  },
+  currentRecommenderFallbackAffiliation: {
+    fontSize: 12,
+    color: COLORS.text.secondary,
+    marginTop: 1,
+  },
+  currentRecommenderFallbackCode: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: COLORS.primary,
+    marginTop: 3,
+    letterSpacing: 1,
+  },
+  fallbackChangeBtn: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    height: 42,
+    borderRadius: RADIUS.md,
+    borderWidth: 1,
+    borderColor: COLORS.border.medium,
+    backgroundColor: COLORS.background.secondary,
+  },
+  fallbackChangeBtnPressed: { opacity: 0.75 },
+  fallbackChangeBtnText: {
+    fontSize: 14,
+    fontWeight: '700',
+    color: COLORS.text.secondary,
+  },
 
   // 검색 입력
   searchInputWrap: {
@@ -709,33 +966,34 @@ const styles = StyleSheet.create({
   saveBtnPressed: { opacity: 0.85 },
   saveBtnText: { fontSize: 15, fontWeight: '700', color: '#fff' },
 
-  // 섹션 헤더
-  sectionHeader: { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: SPACING.md },
-  sectionTitle: { fontSize: 16, fontWeight: '700', color: COLORS.text.primary },
-  countBadge: { backgroundColor: COLORS.primary, borderRadius: RADIUS.full, paddingHorizontal: 8, paddingVertical: 2 },
-  countBadgeText: { fontSize: 11, fontWeight: '700', color: '#fff' },
+  // 본부장 그래프 링크
+  graphLinkCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: SPACING.md,
+    backgroundColor: COLORS.background.primary,
+    borderRadius: RADIUS.xl,
+    padding: SPACING.base,
+    marginTop: SPACING.lg,
+    marginBottom: SPACING.sm,
+    borderWidth: 1,
+    borderColor: COLORS.border.light,
+    ...SHADOWS.sm,
+  },
+  graphLinkIconWrap: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: COLORS.primaryPale,
+    alignItems: 'center',
+    justifyContent: 'center',
+    flexShrink: 0,
+  },
+  graphLinkTextWrap: { flex: 1, minWidth: 0 },
+  graphLinkTitle: { fontSize: 14, fontWeight: '700', color: COLORS.text.primary },
+  graphLinkDesc: { fontSize: 11, color: COLORS.text.muted, marginTop: 2 },
+  bottomContentSpacer: { height: SPACING['4xl'] },
 
-  // 스켈레톤
-  skeletonList: { marginBottom: SPACING.base },
-
-  // 빈 상태
-  emptyState: { alignItems: 'center', paddingVertical: SPACING['3xl'], paddingHorizontal: SPACING.xl },
-  emptyIconWrap: { width: 72, height: 72, borderRadius: 36, backgroundColor: COLORS.gray[100], alignItems: 'center', justifyContent: 'center', marginBottom: SPACING.md },
-  emptyTitle: { fontSize: 15, fontWeight: '600', color: COLORS.text.secondary, marginBottom: 6 },
-  emptyDesc: { fontSize: 13, color: COLORS.text.muted, textAlign: 'center' },
-
-  // 초대 목록
-  inviteeList: { gap: 10, marginBottom: SPACING.base },
-  inviteeCard: { flexDirection: 'row', alignItems: 'center', backgroundColor: COLORS.background.primary, borderRadius: RADIUS.lg, padding: SPACING.md, gap: 12, ...SHADOWS.sm },
-  inviteeAvatar: { width: 40, height: 40, borderRadius: 20, backgroundColor: COLORS.gray[100], alignItems: 'center', justifyContent: 'center' },
-  inviteeInfo: { flex: 1 },
-  inviteeName: { fontSize: 14, fontWeight: '600', color: COLORS.text.primary, marginBottom: 3 },
-  inviteeDate: { fontSize: 12, color: COLORS.text.muted },
-  statusBadge: { paddingHorizontal: 10, paddingVertical: 4, borderRadius: RADIUS.full },
-  statusText: { fontSize: 12, fontWeight: '700' },
-
-  // 하단 안내
-  footerNote: { fontSize: 12, color: COLORS.text.muted, textAlign: 'center', marginTop: SPACING.md },
   blockedState: {
     alignItems: 'center',
     justifyContent: 'center',

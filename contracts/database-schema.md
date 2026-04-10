@@ -216,6 +216,10 @@ FC 제출 서류
   - 활성 추천코드가 있는 FC만 추천인으로 선택 가능
   - self-reference 금지, 사유 필수
   - 원격 DB에 migration `20260331000005_admin_apply_recommender_override.sql`가 반영되기 전에는 이 함수를 호출하는 웹 UI를 배포하지 않는다.
+- `get_referral_subtree(root_fc_id, max_depth)`
+  - 모바일 self-service referral tree(`app/referral.tsx` inline section)용 trusted read RPC
+  - root row + ancestor chain + descendant subtree를 한 번에 반환하고, descendant row에는 `direct_invitee_count`, `total_descendant_count`, `relationship_source`를 포함한다.
+  - descendant BFS에서는 `is_manager_referral_shadow=true` child row를 제외하지만, ancestor chain은 현재 `recommender_fc_id`에 active manager shadow가 저장된 경우 그 shadow recommender를 그대로 포함한다. execute grant는 `service_role` only 다.
 
 ### 1.10 Legacy Note
 
@@ -226,6 +230,7 @@ FC 제출 서류
 - invitee 추천코드 조회 함수 `get_invitee_referral_code(uuid)`는 이름 문자열 매칭을 금지하고, `recommender_fc_id`와 structured attribution만 사용한다.
 - confirmed attribution이 있으면 invitee 추천코드 표시는 historical signup code를 우선한다. 즉 `referral_code_id row -> referral_code snapshot -> inviter current active code -> recommender_fc_id current active code` 순서로만 fallback 한다.
 - `get_invitee_referral_code(uuid)` execute grant의 intended repo contract는 `20260401000002_reassert_get_invitee_referral_code_service_role_only.sql` 이후 `service_role` only 다. 새 구현은 `admin-action:getInviteeReferralCode` 또는 server-only route를 사용한다.
+- `get_referral_subtree(uuid, int)`도 동일하게 `service_role` only trusted read helper다. 모바일 앱은 direct RPC를 호출하지 않고 `get-referral-tree` Edge Function을 통해서만 사용한다.
 
 ---
 
