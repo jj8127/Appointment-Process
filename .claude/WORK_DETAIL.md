@@ -87,6 +87,22 @@
 - 통과: `npx eslint app/referral.tsx`
 - 미완료: 실제 iPhone 실기기 share sheet payload와 `get-referral-tree` 실패 상태 fallback UI 재검증
 
+**Android vitals crash follow-up**:
+- 추가로 production Android vitals `34(3.1.3)`에서 `/referral` 관련으로 보이는 crash cluster가 확인됐다.
+  - `com.facebook.react.views.view.ReactClippingViewManager.addView`
+  - `android.view.ViewGroup.dispatchGetDisplayList`
+  - `IllegalStateException: ... null child at index ... the view may have been removed`
+  - wrapper cluster로 `com.facebook.react.common.JavascriptException`
+- 배포된 `3.1.3` referral 페이지 코드를 다시 대조해 보니, 해당 버전은 `KeyboardAwareWrapper(react-native-keyboard-aware-scroll-view)` 위에 `RefreshControl`, 추천인 edit mode, 추천인 카드 상태 전환, invitee list 등 child churn이 큰 구성을 그대로 사용하고 있었다.
+- current worktree도 같은 wrapper를 `/referral` primary container로 계속 쓰고 있어, 다음 릴리스 전 containment가 필요하다고 판단했다.
+- 그래서 `/referral` primary container를 일반 `ScrollView`로 교체하고, 검색 입력 focus auto-scroll을 제거했으며, 화면 전체를 단일 stable content wrapper로 감싸 native child tree churn을 줄였다.
+- keyboard 대응은 기존 `useKeyboardPadding` bottom padding만 유지해, keyboard-aware scroll의 Android native hierarchy cost보다 render stability를 우선했다.
+
+**추가 검증 (Android stability)**:
+- 통과: `npx eslint app/referral.tsx`
+- 미완료: Android production-like build에서 `/referral` 첫 진입, edit mode 전환, pull-to-refresh, tree/error 상태 전환 실기기 재검증
+- 미완료: 다음 배포 후 Android vitals에서 동일 cluster(`ReactClippingViewManager.addView`, `dispatchGetDisplayList null child`) 재발 여부 확인
+
 ## <a id="20260407-request-board-password-sync-batch3"></a> 2026-04-07 | Batch 3 request_board trusted password sync contract 정리
 
 **배경**:

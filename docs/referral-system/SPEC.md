@@ -122,6 +122,7 @@
 16. `app/referral.tsx`는 별도의 flat `초대 상태 목록`을 더 이상 기본 surface로 렌더링하지 않는다. 현재 모바일 self-service 하위 관계 노출은 `내가 추천한 사람들` tree 섹션 하나로 정리한다.
 17. self-service로 추천인을 저장하면 같은 화면의 `get-my-referral-code`와 `get-referral-tree`를 함께 다시 불러와, 현재 추천인 표시와 ancestor chain이 재진입 없이 즉시 동기화돼야 한다.
 18. `get-referral-tree`가 일시 실패해도 기존 추천인이 있는 사용자는 같은 `/referral` 화면 안에서 추천인 변경 UI를 계속 열 수 있어야 한다. tree 성공 렌더가 유일한 변경 CTA가 되면 안 된다.
+19. `/referral`의 Android 기본 컨테이너는 `KeyboardAwareScrollView` 같은 third-party keyboard-aware wrapper에 의존하지 않는다. 검색 입력이 화면 상단에 있어도 안정적으로 보이도록 일반 `ScrollView` + 명시적 하단 패딩을 우선 사용하고, render-stability를 키보드 자동 스크롤보다 우선한다.
 
 ## 5. 식별자 규칙
 

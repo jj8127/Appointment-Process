@@ -57,7 +57,7 @@
 - `RF-CODE-07` Android 추천코드 입력 시 소문자가 대문자 1회로만 정규화되고 중복 문자(`JJ`)가 생기지 않음
 - `RF-SELF-01` FC/본부장 self-service 추천코드 조회는 현재 runtime hook(`get-my-referral-code`) 기준으로 active code를 반환함
 - `RF-SELF-02` FC/본부장 self-service 추천인 변경은 trusted path로 현재 추천인 표시와 attribution/event audit trail을 함께 갱신하고, 저장 직후 같은 화면의 ancestor chain/current recommender가 재진입 없이 즉시 갱신됨
-- `RF-SELF-03` FC/본부장 self-service `app/referral.tsx`의 `나를 추천한 경로` / `내가 추천한 사람들` tree는 attribution과 `recommender_fc_id` 구조화 링크를 함께 반영하고, ancestor chain + subtree drill-down이 caller 자기 서브트리 범위 안에서만 동작하며, tree read 실패 시에도 기존 추천인 사용자는 같은 화면에서 변경 UI를 계속 열 수 있음
+- `RF-SELF-03` FC/본부장 self-service `app/referral.tsx`의 `나를 추천한 경로` / `내가 추천한 사람들` tree는 attribution과 `recommender_fc_id` 구조화 링크를 함께 반영하고, ancestor chain + subtree drill-down이 caller 자기 서브트리 범위 안에서만 동작하며, tree read 실패 시에도 기존 추천인 사용자는 같은 화면에서 변경 UI를 계속 열 수 있고 Android production build에서 render crash(`ReactClippingViewManager.addView`, `dispatchGetDisplayList null child`) 없이 진입/편집/새로고침이 가능해야 함
 
 ### 5.2 초대링크
 
@@ -122,6 +122,7 @@
 - self-service 조회 케이스는 현재 hook 경로(`get-my-referral-code`)와 FC/본부장 공통 응답 계약을 함께 남긴다.
 - self-service invitee 목록 케이스는 `referral_attributions` 개수와 `recommender_fc_id` 구조화 링크 개수를 함께 대조하고, 구조화 링크만 있는 invitee도 목록에 포함되는지 확인한다.
 - self-service tree 케이스는 `get-referral-tree` 응답의 `ancestors`, `descendants`, `truncated`와 node expand 후 후속 요청 결과를 함께 남긴다.
+- Android `/referral` 안정성 케이스는 production build에서 첫 진입, edit mode 전환, pull-to-refresh, tree/error 상태 전환을 최소 1회씩 밟고 `null child at index` / `ReactClippingViewManager.addView` 크래시가 없는지 확인한다.
 - 본부장 보조 링크 케이스는 모바일 화면에서 FC 미노출, 본부장 노출, 외부 브라우저 open만 확인하고 graph 자체 사용성 검증은 `RF-ADMIN-07/08`로 분리한다.
 - 추천코드 입력 회귀는 실제 입력 문자열(`j -> J`, `ab -> AB`)과 결과 화면을 함께 남긴다.
 - source repo만 보고 맞춘 계약 정리는 evidence가 아니다. 그런 항목은 notes에 `code review only`로 명시한다.

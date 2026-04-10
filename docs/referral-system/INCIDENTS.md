@@ -7,7 +7,7 @@
 
 ## 2. 현재 상태
 
-- `2026-04-10` 기준 등록된 추천인 이슈는 `13건`이다.
+- `2026-04-10` 기준 등록된 추천인 이슈는 `14건`이다.
 - 런타임 버그뿐 아니라 trust boundary, rollout status, 문서/테스트 drift로 운영 판단을 오도한 경우도 장애성 이력으로 남긴다.
 
 ## 3. 작성 규칙
@@ -46,6 +46,7 @@
 
 | ID | 날짜 | 제목 | linkedCases | 상태 |
 | --- | --- | --- | --- | --- |
+| INC-014 | 2026-04-10 | Android production `/referral` 화면이 keyboard-aware scroll + 다단계 조건부 렌더 조합에서 view hierarchy crash를 냄 | `RF-SELF-03` | fixed |
 | INC-013 | 2026-04-10 | inline self-service tree 흡수 후 저장 동기화/실패 fallback/iPhone share parity가 같이 어긋남 | `RF-SELF-02`, `RF-SELF-03`, `RF-LINK-02` | fixed |
 | INC-012 | 2026-04-04 | self-service `내가 초대한 사람들` 목록이 attribution-only + 50건 상한 때문에 일부 invitee를 누락함 | `RF-SELF-03` | fixed |
 | INC-011 | 2026-04-04 | 본부장 추천인 self-service 후속 결함(legacy session restore, trusted read, audit trail mismatch) | `RF-SELF-01`, `RF-SELF-02`, `RF-SEC-02` | fixed |
@@ -59,6 +60,39 @@
 | INC-003 | 2026-03-31 | 동명이인 안전화 후 live hardening gap(`set-password` fallback, override migration, clear audit) | `RF-ADMIN-06`, `RF-SEC-02` | mitigated |
 | INC-002 | 2026-03-31 | 동명이인 추천인 이름 매칭으로 잘못된 코드가 붙을 수 있던 구조 위험 | `RF-DATA-02`, `RF-ADMIN-06` | fixed |
 | INC-001 | 2026-03-31 | Android 추천코드 입력 시 대문자가 중복 입력되던 문제 | `RF-CODE-07` | fixed |
+
+## INC-014 | 2026-04-10 | Android production `/referral` 화면이 keyboard-aware scroll + 다단계 조건부 렌더 조합에서 view hierarchy crash를 냄
+
+- symptom:
+  - Play Console Android vitals에서 `3.1.3` production build에 `com.facebook.react.views.view.ReactClippingViewManager.addView`, `android.view.ViewGroup.dispatchGetDisplayList`, `null child at index ... the view may have been removed` 계열 crash가 발생했다.
+  - 같은 cluster에 `com.facebook.react.common.JavascriptException` wrapper도 함께 보여 실제 사용자에게는 referral self-service 화면 진입/전환 중 앱이 종료되는 것처럼 보일 수 있었다.
+- impact:
+  - FC/본부장이 추천인 코드 self-service 화면을 여는 핵심 경로에서 production crash가 날 수 있었다.
+  - `3.1.3` 프로덕션 트랙 사용자에게 직접 영향을 주는 안정성 문제다.
+- trigger:
+  - Android vitals에서 `34(3.1.3)` 빌드 기준 최근 production crash cluster를 검토했을 때.
+- rootCause:
+  - 당시 `/referral`은 `KeyboardAwareWrapper(react-native-keyboard-aware-scroll-view)` 위에 `RefreshControl`, 추천인 검색 edit mode, 등록/오류/성공 상태, invitee/tree 섹션 등 다단계 조건부 렌더를 한 화면에 함께 올리고 있었다.
+  - native stack이 `ReactClippingViewManager.addView`와 `dispatchGetDisplayList null child`에 집중된 점, 그리고 같은 버전의 배포 코드가 이 구조를 사용하고 있던 점을 근거로, Android에서 keyboard-aware scroll + child tree churn 조합이 view hierarchy를 불안정하게 만든 것으로 판단했다.
+- fix:
+  - `/referral`의 primary scroll container를 `KeyboardAwareWrapper`에서 일반 `ScrollView`로 교체했다.
+  - 검색 입력의 focus auto-scroll 로직을 제거하고, 화면 전체를 단일 stable content wrapper로 감싸 child tree churn을 줄였다.
+  - keyboard 대응은 명시적 bottom padding으로만 유지해 Android render-stability를 우선했다.
+- linkedCases:
+  - RF-SELF-03
+- evidence:
+  - Android vitals stack excerpt: `ReactClippingViewManager.addView`, `dispatchGetDisplayList`, `IllegalStateException null child at index`
+  - 코드 변경: `app/referral.tsx`
+  - 정적 검증: `npx eslint app/referral.tsx`
+- reproduction:
+  1. `3.1.3` production build의 `/referral` 화면을 Android 기기에서 연다.
+  2. 추천인 편집 모드 진입, pull-to-refresh, 상태 전환을 반복한다.
+  3. 일부 기기에서 view hierarchy crash가 발생하고 Android vitals에 같은 cluster가 쌓인다.
+- regressionCheck:
+  - RF-SELF-03으로 Android production build에서 `/referral` 첫 진입, edit mode, refresh, tree/error 전환을 다시 확인한다.
+  - 다음 릴리스 후 Android vitals에서 같은 `ReactClippingViewManager.addView` / `dispatchGetDisplayList null child` cluster 재발 여부를 확인한다.
+- notes:
+  - 이번 원인은 production stack과 배포 코드 구조를 맞춰 본 strong inference다. 현재 세션에서 동일 기기/OS 조합으로 local runtime 재현까지는 하지 못했다.
 
 ## INC-013 | 2026-04-10 | inline self-service tree 흡수 후 저장 동기화/실패 fallback/iPhone share parity가 같이 어긋남
 

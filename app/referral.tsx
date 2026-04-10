@@ -11,6 +11,7 @@ import {
   Platform,
   Pressable,
   RefreshControl,
+  ScrollView,
   Share,
   StyleSheet,
   Text,
@@ -19,7 +20,6 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
-import { KeyboardAwareWrapper, useKeyboardAware } from '@/components/KeyboardAwareWrapper';
 import { Skeleton } from '@/components/LoadingSkeleton';
 import { ReferralAncestorsChain } from '@/components/ReferralAncestorsChain';
 import { ReferralTreeNode, type DescendantNode } from '@/components/ReferralTreeNode';
@@ -88,15 +88,6 @@ function ReferralSearchField({
   onChangeText,
   onClear,
 }: ReferralSearchFieldProps) {
-  const { scrollToInput } = useKeyboardAware();
-
-  const handleFocusTarget = (target?: number | null) => {
-    if (!target) return;
-    scrollToInput(target);
-    setTimeout(() => scrollToInput(target), 80);
-    setTimeout(() => scrollToInput(target), 220);
-  };
-
   return (
     <View style={styles.searchInputWrap}>
       <Feather name="search" size={16} color={COLORS.text.muted} />
@@ -106,7 +97,6 @@ function ReferralSearchField({
         placeholderTextColor={COLORS.text.muted}
         value={searchQuery}
         onChangeText={onChangeText}
-        onFocus={(e) => handleFocusTarget(e.nativeEvent.target)}
         autoCapitalize="none"
         returnKeyType="search"
       />
@@ -331,31 +321,32 @@ export default function ReferralPage() {
 
   return (
     <SafeAreaView style={styles.safeArea} edges={['bottom']}>
-      <KeyboardAwareWrapper
+      <ScrollView
         style={styles.scroll}
         contentContainerStyle={[
           styles.scrollContent,
           { paddingBottom: Math.max(SPACING['5xl'], keyboardPadding + 200) },
         ]}
-        extraScrollHeight={180}
         refreshControl={
           <RefreshControl refreshing={refreshing} onRefresh={handleRefresh} tintColor={COLORS.primary} />
         }
+        showsVerticalScrollIndicator={false}
         keyboardShouldPersistTaps="handled"
         keyboardDismissMode="on-drag"
       >
-        {blockedContent ? (
-          <View style={styles.blockedState}>
-            <View style={styles.blockedIconWrap}>
-              <Feather name="lock" size={28} color={COLORS.gray[400]} />
+        <View style={styles.pageContent}>
+          {blockedContent ? (
+            <View style={styles.blockedState}>
+              <View style={styles.blockedIconWrap}>
+                <Feather name="lock" size={28} color={COLORS.gray[400]} />
+              </View>
+              <Text style={styles.blockedTitle}>추천인 코드는 FC 또는 본부장 세션에서만 사용할 수 있어요</Text>
+              <Text style={styles.blockedDescription}>
+                총무/개발자 계정은 운영 추천인 화면에서만 데이터를 조회할 수 있습니다.
+              </Text>
             </View>
-            <Text style={styles.blockedTitle}>추천인 코드는 FC 또는 본부장 세션에서만 사용할 수 있어요</Text>
-            <Text style={styles.blockedDescription}>
-              총무/개발자 계정은 운영 추천인 화면에서만 데이터를 조회할 수 있습니다.
-            </Text>
-          </View>
-        ) : (
-          <>
+          ) : (
+            <>
         {/* ── 내 추천 코드 카드 ── */}
         <LinearGradient
           colors={['#f36f21', '#fabc3c']}
@@ -706,9 +697,10 @@ export default function ReferralPage() {
             <View style={styles.bottomContentSpacer} />
           </>
         ) : null}
-          </>
-        )}
-      </KeyboardAwareWrapper>
+            </>
+          )}
+        </View>
+      </ScrollView>
     </SafeAreaView>
   );
 }
@@ -717,6 +709,7 @@ const styles = StyleSheet.create({
   safeArea: { flex: 1, backgroundColor: COLORS.background.secondary },
   scroll: { flex: 1 },
   scrollContent: { padding: SPACING.base, paddingBottom: SPACING['4xl'] },
+  pageContent: { flexGrow: 1 },
 
   // 내 코드 카드
   codeCard: { borderRadius: RADIUS.xl, padding: SPACING.lg, marginBottom: SPACING.base, overflow: 'hidden', position: 'relative', ...SHADOWS.lg },

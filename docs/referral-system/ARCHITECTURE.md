@@ -81,6 +81,7 @@
 - FC/본부장 self-service 초대 목록 조회: `hooks/use-my-invitees.ts -> get-my-invitees`
 - FC/본부장 self-service 추천 관계 tree embed: `app/referral.tsx -> hooks/use-referral-tree.ts -> get-referral-tree`
 - FC/본부장 self-service 추천인 검색/변경: `app/referral.tsx -> search-fc-for-referral / update-my-recommender`
+- `/referral`의 primary scroll container는 Android `dispatchGetDisplayList/null child` 계열 crash를 줄이기 위해 `KeyboardAwareScrollView`가 아니라 일반 `ScrollView`를 사용한다. 검색 입력은 화면 상단 배치 + 하단 keyboard padding으로 충분히 보이도록 유지한다.
 - 본부장 전용 desktop graph shortcut: `app/referral.tsx -> Linking.openURL(EXPO_PUBLIC_ADMIN_WEB_URL + '/dashboard/referrals/graph')`
 - `/referral-tree` route는 legacy 진입 호환용으로 `/referral` redirect만 유지한다.
 

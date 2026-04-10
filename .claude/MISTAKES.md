@@ -30,6 +30,23 @@
 - Verification:
 ```
 
+## 2026-04-10 | Android Referral Render Stability | keyboard-aware scroll을 multi-state self-service 화면의 기본 컨테이너로 유지한 채 Android render stability 검증을 건너뜀
+- Symptom:
+  - Android production `3.1.3`에서 `/referral` 화면 관련으로 `ReactClippingViewManager.addView`, `dispatchGetDisplayList`, `null child at index` 계열 crash가 발생했다.
+- Root cause:
+  - `KeyboardAwareWrapper(react-native-keyboard-aware-scroll-view)` 위에 `RefreshControl`, edit mode, tree/error/success 상태 전환 같은 child churn이 큰 화면을 올려두고도 Android production stability를 별도 체크하지 않았다.
+- Why it was missed:
+  - keyboard overlap UX를 우선시하면서 third-party keyboard-aware scroll의 Android native hierarchy cost를 과소평가했고, 기능 점검은 했어도 Android vitals 류 render stability는 별도 acceptance criterion으로 두지 않았다.
+- Permanent guardrail:
+  - Android primary screen이 `RefreshControl + large conditional sections + expand/collapse tree`를 함께 가지면 keyboard-aware wrapper를 기본값으로 쓰지 않는다. 먼저 plain `ScrollView`/stable container로 시작하고, keyboard auto-scroll이 꼭 필요할 때만 안전하게 추가한다. 릴리스 전에는 해당 화면의 Android 진입/편집/새로고침 전환을 production-like build에서 확인한다.
+- Related files:
+  - `app/referral.tsx`
+  - `components/KeyboardAwareWrapper.tsx`
+  - `docs/referral-system/TEST_CHECKLIST.md`
+  - `.claude/MISTAKES.md`
+- Verification:
+  - `npx eslint app/referral.tsx`
+
 ## 2026-04-10 | Referral Inline Self-Service | secondary tree query를 기본 self-service 화면에 합치면서 mutation sync와 degraded fallback을 함께 남기지 않음
 - Symptom:
   - 추천인 저장 성공 직후 `/referral`의 `나를 추천한 경로`가 이전 상태로 남았고, `get-referral-tree`가 실패하면 기존 추천인 사용자는 `변경하기` CTA 자체를 잃었다.
