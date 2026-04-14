@@ -7,6 +7,202 @@
 
 ---
 
+## <a id="20260414-mobile-exam-manage-applicant-list-embed-fix"></a> 2026-04-14 | 모바일 시험 신청자 목록 dual-FK embed ambiguity 복구
+
+**배경**:
+- 사용자 제보 기준으로 가람in 본부장 세션에서 `exam-manage`, `exam-manage2` 신청자 목록이 여전히 전혀 보이지 않았다.
+- 현재 코드와 live Supabase anon query를 다시 확인해보니, `exam_registrations`에서 `exam_locations`를 bare embed(`exam_locations ( location_name )`)로 읽는 순간 `PGRST201`이 발생했다.
+- 원인은 `exam_registrations -> exam_locations` 사이에 `location_id` FK와 `(location_id, round_id)` FK가 둘 다 존재해, PostgREST가 어떤 관계를 타야 할지 결정하지 못한 것이다.
+- 화면은 React Query error state를 별도로 렌더하지 않아, 이 실패가 사용자에게는 “목록이 아예 없음”처럼 보였다.
+
+**조치**:
+- `app/exam-manage.tsx`, `app/exam-manage2.tsx`
+  - `exam_locations` embed를 `exam_locations!exam_registrations_location_round_fkey`로 명시해 관계 모호성을 제거했다.
+  - query error state를 빈 목록 state와 분리해, 다시 같은 종류의 fetch failure가 나면 실제 오류 메시지가 화면에 보이게 했다.
+- `docs/handbook/mobile/exam-flows.md`
+  - 신청자 목록 화면은 dual FK 상황에서 explicit relation select를 써야 한다는 운영 규칙과, query failure를 빈 상태로 숨기면 안 된다는 규칙을 추가했다.
+- `.claude/*`, `.codex/harness/*`
+  - 이번 회귀를 dual-FK embed ambiguity + hidden error state로 기록했다.
+
+**결과**:
+- 신청자 목록 query는 더 이상 `PGRST201`로 즉시 실패하지 않고 life/nonlife rows를 정상 반환한다.
+- 이후 같은 쿼리 실패가 다시 생겨도 사용자는 빈 목록 대신 오류 문구를 보게 된다.
+
+**검증**:
+- 통과: `npm run lint -- app/exam-manage.tsx app/exam-manage2.tsx`
+- 통과: anon Supabase 재현 스크립트에서 bare relation query는 `PGRST201`, explicit relation query는 life 17건 / nonlife 6건 일부 rows 반환 확인
+- 미실행: 실제 본부장/총무 계정으로 on-device 목록 재진입 확인
+
+---
+
+## <a id="20260414-mobile-android-fabric-scroll-wrapper-hardening"></a> 2026-04-14 | Android Fabric scroll-wrapper crash family follow-up hardening
+
+**배경**:
+- Play Console로 전달받은 stack이 `com.facebook.react.common.JavascriptException` wrapper 위에 `ReactClippingViewManager.addView`, `The specified child already has a parent`를 남기고 있었고, 이는 `/referral`에서 이미 정리한 Android Fabric scroll ownership crash 계열과 같았다.
+- 현재 worktree를 다시 확인하니 `/referral`은 이미 plain `ScrollView`로 바뀌어 있었지만, `dashboard`, `exam-apply*`, `exam-register*`, `fc/new`는 여전히 `KeyboardAwareWrapper + RefreshControl + 큰 조건부 렌더` 조합을 쓰고 있었다.
+- 이번 세션에서는 Play Console을 직접 열어 `3.1.3`와 현재 배포선 `3.1.6`을 version split 하지는 못했다. 대신 source audit 기준으로 `/referral` fix landed 상태를 확인했고, 같은 crash family가 남을 수 있는 화면을 batch hardening 대상으로 정했다.
+
+**조치**:
+- `app/dashboard.tsx`
+  - Android에서만 primary scroll owner를 plain `ScrollView`로 바꾸고, 기존 `RefreshControl`과 bottom padding 계약은 유지했다.
+  - iOS는 기존 `KeyboardAwareWrapper`를 그대로 유지해 keyboard handling parity를 크게 흔들지 않도록 했다.
+- `app/exam-apply.tsx`, `app/exam-apply2.tsx`
+  - Android는 `ScrollView`가 화면 전체 스크롤과 refresh를 단독 소유하도록 바꾸고, iOS만 `KeyboardAwareWrapper`를 유지했다.
+- `app/exam-register.tsx`, `app/exam-register2.tsx`
+  - 기존 outer `KeyboardAwareWrapper` + inner `ScrollView` 구조에서 Android는 inner `ScrollView`만 남겨 scroll ownership을 하나로 줄였다.
+  - iOS에서는 기존 wrapper + form keyboard behavior를 유지했다.
+- `app/fc/new.tsx`
+  - Android는 plain `ScrollView` + keyboard bottom padding으로 바꿨다.
+  - 이 화면의 `useKeyboardAware().scrollToInput(...)` auto-scroll은 Android에서 no-op이 되지만, 현재 우선순위를 native mount crash 회피에 두고 iOS만 기존 auto-scroll contract를 유지했다.
+- `app/AGENTS.md`
+  - Android new architecture/Fabric 화면에서 `KeyboardAwareWrapper`와 `RefreshControl`, 큰 조건부 렌더 tree를 함께 쓰지 않는 규칙을 명시했다.
+- `.claude/*`, `.codex/harness/*`, `docs/referral-system/INCIDENTS.md`
+  - 이번 change set을 개별 route patch가 아니라 Android scroll-wrapper stability rule로 기록하고, `/referral` incident의 후속 hardening 맥락도 남겼다.
+
+**결과**:
+- 현재 앱에서 가장 위험도가 높던 고변동 Android 화면들은 `/referral`과 같은 `plain ScrollView owns scrolling` 패턴으로 정렬됐다.
+- `KeyboardAwareWrapper`는 simple form/iOS 중심으로만 남고, Android Fabric에서 `RefreshControl`과 child churn이 큰 화면에 primary scroll owner로 남아 있는 경로를 줄였다.
+- Play Console version split을 직접 확정하지 못한 상태에서도, current source 기준으로 남아 있던 동일 crash family exposure를 사전에 낮췄다.
+
+**검증**:
+- 통과: `npm run lint -- app/dashboard.tsx app/exam-apply.tsx app/exam-apply2.tsx app/exam-register.tsx app/exam-register2.tsx app/fc/new.tsx`
+- 미실행: Android release build에서 각 화면의 첫 진입, refresh, 키보드 open/close, 대형 상태 전환, 뒤로가기 복귀 QA
+- 미실행: Play Console에서 `3.1.3` vs `3.1.6` crash cluster version split 재확인
+
+---
+
+## <a id="20260414-mobile-referral-direct-recommender-card-layout-alignment"></a> 2026-04-14 | 모바일 direct recommender 카드 레이아웃 축 정리
+
+**배경**:
+- 사용자 피드백 기준으로 `/referral` 상단 direct recommender card에서 `직접 추천인` 배지와 추천 코드 badge가 한 축으로 읽히지 않고, 이름/소속과 코드 사이 중간에 떠 있는 것처럼 보였다.
+- 기존 `components/ReferralAncestorsChain.tsx`는 이름과 배지를 같은 `topRow`에 두고 추천 코드는 카드 우측 끝에 따로 배치해, 작은 화면에서 반쯤 수평/반쯤 분리된 구성이 됐다.
+- 이번 수정은 데이터 계약이나 상단 surface 범위를 바꾸는 작업이 아니라, 이미 고정한 `direct recommender 1명 카드`를 더 명확한 축으로 보이게 하는 UI 정리로 범위를 고정했다.
+
+**조치**:
+- `components/ReferralAncestorsChain.tsx`
+  - 카드 본문을 `왼쪽 정보 블록 + 오른쪽 메타 컬럼` 구조로 재배치했다.
+  - 왼쪽에는 이름/소속만 남기고, 오른쪽에는 `직접 추천인` 배지와 추천 코드 badge를 세로로 묶어 하나의 메타 영역처럼 읽히게 했다.
+  - 추천 코드 badge에는 최소 폭과 중앙 정렬을 주어, 코드 길이가 짧아도 badge가 들쭉날쭉해 보이지 않게 맞췄다.
+- `.claude/*`, `.codex/harness/*`
+  - 이번 수정이 contract change가 아니라 layout polish라는 점과 검증 범위를 작업 로그/harness에 반영했다.
+
+**결과**:
+- `/referral` 상단 direct recommender card에서 이름/소속은 좌측 정보 블록, `직접 추천인`과 추천 코드는 우측 메타 컬럼으로 읽혀 의도 축이 분명해졌다.
+- direct recommender 1명만 보인다는 기존 상단 contract와 tree/self-service 동작은 그대로 유지된다.
+
+**검증**:
+- 통과: `npm run lint -- components/ReferralAncestorsChain.tsx`
+- 통과: `node scripts/ci/check-governance.mjs`
+- 미실행: 실제 기기에서 `/referral` 상단 카드의 시각 균형(on-device visual QA)
+
+---
+
+## <a id="20260414-mobile-referral-lazy-load-depth-prefetch-fix"></a> 2026-04-14 | 모바일 추천인 tree lazy-expand absolute depth/prefetch 보정
+
+**배경**:
+- 사용자 제보 기준으로 `/referral`에서 `하기홍` 아래 사람들은 바로 열리는데 `박충희` 아래는 더 늦게 열리고 UI도 다르게 보였다.
+- 확인 결과 첫 화면 tree는 `depth:2` preload라 `하기홍` 아래까지는 이미 캐시에 있었지만, `박충희` 아래는 descendant lazy expand가 추가 trusted call을 타야 했다.
+- 동시에 `get_referral_subtree`가 내려주는 `node_depth`는 subtree root 기준 상대 depth인데, 클라이언트 merge가 이를 현재 화면 root 기준 absolute depth로 다시 쓰지 않아 `ReferralTreeNode` style 분기와 어긋나고 있었다.
+- 직전 increment 문서/harness에는 `components/ReferralAncestorsChain.tsx`가 제거됐다고 적혀 있었지만, 실제로는 direct recommender card 컴포넌트로 계속 살아 있어 그 드리프트도 같은 change set에서 정리해야 했다.
+
+**조치**:
+- `hooks/use-referral-tree.ts`
+  - subtree lazy fetch child를 merge할 때 현재 화면 tree에서 parent absolute depth를 찾아 `parentDepth + node.depth`로 다시 써서 absolute depth를 유지하도록 바꿨다.
+  - 같은 `fcId` subtree fetch가 동시에 중복 호출되지 않도록 in-flight guard를 넣었다.
+  - branch expand 뒤 visible direct child 중 아직 direct child cache가 없는 expandable node만 background 1단계 prefetch queue로 순차 호출하도록 추가했다.
+  - `truncated` 판단도 “아직 direct child가 덜 붙은 node가 있는가” 기준으로 다시 계산하도록 정리했다.
+- `lib/referral-tree.ts`, `lib/__tests__/referral-tree.test.ts`
+  - depth normalization, loaded-child 판정, truncated 계산을 pure helper로 분리했다.
+  - `depth:2 preload -> deeper lazy expand` 계약을 unit test로 고정했다.
+- `components/ReferralTreeNode.tsx`
+  - 아바타/이름 강조색 기준을 raw `node.depth === 1`에서 현재 render depth(`depth === 0`)로 옮겼다.
+  - 그래서 lazy-load로 들어온 deeper child가 subtree-relative depth 때문에 다시 top-level 강조 스타일을 띠지 않게 했다.
+- `app/referral.tsx`
+  - expand는 먼저 열고, direct child가 이미 캐시에 있으면 즉시 보여주며 background prefetch만 시작하게 정리했다.
+  - direct child가 아직 없으면 spinner와 함께 on-demand fetch를 기다리고, 성공 뒤 visible child prefetch를 이어서 시작한다.
+  - `get-referral-tree`가 성공했는데 ancestor가 비어 있는 경우에는 `get-my-referral-code` cache를 direct recommender fallback으로 다시 보여주지 않도록 stale fallback을 끊었다.
+- `docs/referral-system/*`
+  - `SPEC.md`, `ARCHITECTURE.md`, `TEST_CHECKLIST.md`, `test-cases.json`, `TEST_RUN_RESULT.json`, `INCIDENTS.md`를 `depth:2 initial load + absolute-depth lazy expand + background prefetch + no stale direct-recommender fallback` 기준으로 갱신했다.
+- `.claude/*`, `.codex/harness/*`
+  - 실수 레저, 작업 로그, harness contract/QA/handoff를 현재 increment 기준으로 갱신하고, `ReferralAncestorsChain` 제거라고 잘못 적힌 내용을 바로잡았다.
+
+**결과**:
+- `/referral` tree는 preload branch와 deeper lazy branch를 같은 absolute depth 규칙으로 렌더링한다.
+- `하기홍`를 펼친 뒤 `박충희` 같은 deeper expandable node는 background prefetch가 끝나면 바로 열릴 수 있고, 끝나지 않았더라도 중복 trusted call 없이 같은 promise를 재사용한다.
+- tree success/no-ancestor 상태에서 상단 direct recommender card가 stale current recommender cache를 다시 보여주지 않는다.
+- harness/current-contract도 실제 컴포넌트 상태와 다시 일치한다.
+
+**검증**:
+- 통과: `npm run lint -- app/referral.tsx components/ReferralTreeNode.tsx hooks/use-referral-tree.ts lib/referral-tree.ts lib/__tests__/referral-tree.test.ts`
+- 통과: `npm test -- --runInBand lib/__tests__/referral-tree.test.ts`
+- 통과: `node scripts/ci/check-governance.mjs`
+- 미실행: 실제 FC/본부장 세션에서 `하기홍 -> 박충희` expand 체감 속도와 background prefetch 재사용 여부 on-device 확인
+
+---
+
+## <a id="20260413-mobile-referral-direct-recommender-card"></a> 2026-04-13 | 모바일 추천인 코드 화면을 direct recommender 1명 카드로 축소
+
+**배경**:
+- 현재 `/referral` 상단은 `나를 추천한 경로`라는 이름으로 direct recommender부터 루트까지의 ancestor chain을 모두 노출하고 있었다.
+- 사용자 요청은 여기서 전체 업라인을 보여주지 말고, 실제로 내가 추천코드를 입력한 direct recommender 1명만 보이게 해달라는 것이었다.
+- 하위 `내가 추천한 사람들` tree와 trusted read 경로 자체를 바꾸는 요구는 아니므로, 이번 변경은 모바일 상단 surface contract 축소로 범위를 고정했다.
+
+**조치**:
+- `app/referral.tsx`
+  - 상단 섹션 제목을 `나를 추천한 경로`에서 `나를 추천한 사람`으로 바꾸고, 전체 ancestor chain 렌더 대신 마지막 ancestor 한 명만 보여주는 direct recommender card로 교체했다.
+  - tree 응답에 ancestor가 없을 때는 빈 상태를 노출하고, tree 응답이 비어도 trusted self-service 응답에 현재 추천인이 있으면 그 값을 fallback summary로 사용하도록 정리했다.
+- `components/ReferralAncestorsChain.tsx`
+  - 더 이상 모바일 런타임에서 쓰이지 않아 제거했다.
+- `docs/referral-system/SPEC.md`, `TEST_CHECKLIST.md`, `test-cases.json`, `TEST_RUN_RESULT.json`
+  - 모바일 self-service 현재 계약을 `direct recommender 1명 카드 + 내가 추천한 사람들 tree`로 재정렬했다.
+  - `RF-SELF-02`, `RF-SELF-03` 설명을 direct recommender card 기준으로 갱신하고, `RF-SELF-03` 실행 결과는 live evidence 미확보 상태로 유지했다.
+- `.codex/harness/*`, `.claude/WORK_LOG.md`, `.claude/WORK_DETAIL.md`
+  - 현재 increment 범위와 검증 상태를 최신 작업 기준으로 갱신했다.
+
+**결과**:
+- 모바일 추천인 코드 화면 상단에는 direct recommender 1명만 보이고, 더 윗단 ancestor chain은 현재 UI에서 숨겨진다.
+- 하단 `내가 추천한 사람들` subtree drill-down과 추천인 변경 self-service/trusted path는 그대로 유지된다.
+
+**검증**:
+- 통과: `npm run lint -- app/referral.tsx`
+- 통과: `node scripts/ci/check-governance.mjs`
+- 미실행: FC/본부장 실세션에서 `/referral` 상단이 direct recommender 1명만 보이는지 on-device 확인
+
+---
+
+## <a id="20260413-mobile-exam-manage-applicant-list-parity-fix"></a> 2026-04-13 | 모바일 `exam-manage*` 신청자 목록 parity 복구
+
+**배경**:
+- 사용자 제보 기준으로 가람in 본부장(read-only manager) 세션에서 `생명/제3 신청자 관리`, `손해 신청자 관리` 화면에 신청자 목록이 전혀 보이지 않았다.
+- 확인 결과 모바일 `app/exam-manage.tsx`, `app/exam-manage2.tsx`는 아직 `exam_registrations.resident_id -> fc_profiles.phone` exact match만 사용하고 있었고, profile miss row를 `continue`로 버리고 있었다.
+- 반면 웹 `/dashboard/exam/applicants`는 2026-04-06에 raw/digits/hyphenated 후보 매칭과 resident-number fallback contract로 이미 hardening됐다.
+- 또한 모바일은 주민번호 trusted read(`admin-action:getResidentNumbers`)를 위해 `appSessionToken`을 query enable 조건에 직접 넣고 있어, 토큰이 없거나 복원 전이면 목록 read 자체가 시작되지 않는 구조였다.
+
+**조치**:
+- `app/exam-manage.tsx`, `app/exam-manage2.tsx`
+  - `resident_id`와 `phone`을 raw / digits / hyphenated 후보로 확장하는 로컬 helper를 추가했다.
+  - `fc_profiles` 조회를 exact `residentIds` 대신 확장된 후보 집합으로 수행하고, profile map도 같은 후보 키로 다시 구성했다.
+  - 신청 row별 profile miss 시 더 이상 `continue`로 버리지 않고, 이름/주소/주민번호만 degraded fallback(`이름없음`, `-`)으로 채워 카드 자체는 계속 보이게 바꿨다.
+  - 주민번호 full-view read는 `fcIds.length > 0 && appSessionToken`일 때만 시도하도록 낮추고, trusted read가 불가능해도 기본 목록은 렌더링되게 유지했다.
+  - query enable 조건에서 `appSessionToken` hard requirement를 제거하고 `hydrated + role=admin(normalized manager 포함) + residentId`만으로 목록 read가 가능하도록 정리했다.
+  - 모바일 세션 계약상 본부장은 `role='admin' + readOnly=true`로 정규화되므로, 불가능한 `role === 'manager'` 분기를 제거했다.
+- `docs/handbook/mobile/exam-flows.md`
+  - 모바일 `exam-manage*`도 웹과 같은 resident/phone 후보 매칭 계약을 따라야 하며, 주민번호 trusted read 실패가 목록 전체를 가리면 회귀라는 규칙을 추가했다.
+- `.claude/MISTAKES.md`
+  - 웹 hardening 이후 모바일 parity를 놓친 반복 가능한 실수 패턴을 새 항목으로 기록했다.
+
+**결과**:
+- 본부장/총무 모바일 시험 신청자 화면은 전화번호 포맷 drift가 있어도 신청자 카드를 계속 보여준다.
+- `appSessionToken`이 비어 있거나 resident-number trusted read가 실패하더라도 목록 read 자체는 진행되고, 주민번호 필드만 degrade된다.
+- 모바일 `exam-manage*`와 웹 `/dashboard/exam/applicants` 사이의 profile lookup contract가 더 가까워졌다.
+
+**검증**:
+- 통과: `npm run lint -- app/exam-manage.tsx app/exam-manage2.tsx`
+- 통과: `node scripts/ci/check-governance.mjs`
+- 미실행: on-device 본부장 계정으로 `exam-manage`, `exam-manage2` 목록 재확인
+
+---
+
 ## <a id="20260410-mobile-referral-tree-self-service"></a> 2026-04-10 | 모바일 추천인 self-service tree를 `추천인 코드` 페이지에 인라인 흡수
 
 **배경**:

@@ -14,6 +14,7 @@ import {
   Platform,
   Pressable,
   RefreshControl,
+  ScrollView,
   StyleSheet,
   Text,
   View,
@@ -535,12 +536,12 @@ export default function ExamApplyScreen() {
     );
   }
 
-  return (
-    <SafeAreaView style={styles.safe} edges={['left', 'right', 'bottom']}>
-      <KeyboardAwareWrapper
-        contentContainerStyle={styles.container}
-        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}
-      >
+  const screenRefreshControl = (
+    <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
+  );
+
+  const screenContent = (
+    <>
         {/* Header */}
         <View style={styles.header}>
           <View>
@@ -986,8 +987,29 @@ export default function ExamApplyScreen() {
             </View>
           </Modal>
         )}
+    </>
+  );
 
-      </KeyboardAwareWrapper>
+  return (
+    <SafeAreaView style={styles.safe} edges={['left', 'right', 'bottom']}>
+      {Platform.OS === 'android' ? (
+        <ScrollView
+          contentContainerStyle={styles.container}
+          refreshControl={screenRefreshControl}
+          showsVerticalScrollIndicator={false}
+          keyboardShouldPersistTaps="handled"
+          keyboardDismissMode="on-drag"
+        >
+          {screenContent}
+        </ScrollView>
+      ) : (
+        <KeyboardAwareWrapper
+          contentContainerStyle={styles.container}
+          refreshControl={screenRefreshControl}
+        >
+          {screenContent}
+        </KeyboardAwareWrapper>
+      )}
     </SafeAreaView>
   );
 }

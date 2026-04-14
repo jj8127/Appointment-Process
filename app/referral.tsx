@@ -21,7 +21,7 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { Skeleton } from '@/components/LoadingSkeleton';
-import { ReferralAncestorsChain } from '@/components/ReferralAncestorsChain';
+import { ReferralDirectRecommenderCard } from '@/components/ReferralAncestorsChain';
 import { ReferralTreeNode, type DescendantNode } from '@/components/ReferralTreeNode';
 import { useKeyboardPadding } from '@/hooks/use-keyboard-padding';
 import { useMyReferralCode } from '@/hooks/use-my-referral-code';
@@ -129,6 +129,8 @@ export default function ReferralPage() {
     isError: referralTreeError,
     refetch: refetchReferralTree,
     loadChildrenOf,
+    hasLoadedChildrenOf,
+    prefetchVisibleChildrenOf,
   } = useReferralTree({ depth: 2 });
   const keyboardPadding = useKeyboardPadding();
 
@@ -290,16 +292,18 @@ export default function ReferralPage() {
         return;
       }
 
-      const alreadyLoaded = referralTree?.descendants?.some((node) => node.parentFcId === fcId);
+      setExpandedIds((prev) => new Set([...prev, fcId]));
+
+      const alreadyLoaded = hasLoadedChildrenOf(fcId);
       if (alreadyLoaded) {
-        setExpandedIds((prev) => new Set([...prev, fcId]));
+        prefetchVisibleChildrenOf(fcId);
         return;
       }
 
       setLoadingIds((prev) => new Set([...prev, fcId]));
       try {
         await loadChildrenOf(fcId);
-        setExpandedIds((prev) => new Set([...prev, fcId]));
+        prefetchVisibleChildrenOf(fcId);
       } catch {
         // retry via chevron tap
       } finally {
@@ -310,12 +314,30 @@ export default function ReferralPage() {
         });
       }
     },
-    [expandedIds, loadChildrenOf, referralTree],
+    [expandedIds, hasLoadedChildrenOf, loadChildrenOf, prefetchVisibleChildrenOf],
   );
 
   const rootDescendants: DescendantNode[] =
     referralTree?.descendants?.filter((node) => referralTree.root && node.parentFcId === referralTree.root.fcId) ?? [];
   const totalTreeDescendants = referralTree?.root.totalDescendantCount ?? 0;
+  const directRecommender = referralTree?.ancestors?.length
+    ? referralTree.ancestors[referralTree.ancestors.length - 1]
+    : null;
+  const directRecommenderSummary = directRecommender
+    ? {
+      name: directRecommender.name,
+      affiliation: directRecommender.affiliation,
+      code: directRecommender.code,
+    }
+    : referralTree
+      ? null
+      : currentRecommender
+      ? {
+        name: currentRecommender,
+        affiliation: currentRecommenderAffiliation,
+        code: currentRecommenderCode,
+      }
+      : null;
   const showResults = searchResults.length > 0 && !selected;
   const blockedContent = !canUseReferralSelfService;
 
@@ -621,8 +643,8 @@ export default function ReferralPage() {
         ) : referralTree ? (
           <>
             <View style={styles.treeSectionHeader}>
-              <Feather name="arrow-up-circle" size={15} color={COLORS.primary} />
-              <Text style={styles.treeSectionTitle}>나를 추천한 경로</Text>
+              <Feather name="heart" size={15} color={COLORS.primary} />
+              <Text style={styles.treeSectionTitle}>나를 추천한 사람</Text>
               {!!currentRecommender && !editMode && !referralLoading && !referralInfoError && (
                 <Pressable
                   style={({ pressed }) => [styles.treeHeaderAction, pressed && styles.treeHeaderActionPressed]}
@@ -633,7 +655,7 @@ export default function ReferralPage() {
               )}
             </View>
             <View style={styles.treeSectionCard}>
-              <ReferralAncestorsChain ancestors={referralTree.ancestors} self={referralTree.root} />
+              <ReferralDirectRecommenderCard recommender={directRecommenderSummary} />
             </View>
 
             <View style={[styles.treeSectionHeader, { marginTop: SPACING.lg }]}>

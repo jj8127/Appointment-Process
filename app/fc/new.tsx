@@ -10,9 +10,11 @@ import {
   findNodeHandle,
   InteractionManager,
   Modal,
+  Platform,
   Pressable,
   RefreshControl,
   ReturnKeyTypeOptions,
+  ScrollView,
   StyleSheet,
   Text,
   TextInput,
@@ -591,27 +593,9 @@ export default function FcNewScreen() {
     }
   }, [loadExisting]);
 
-  return (
-    <SafeAreaView style={styles.safe} edges={['left', 'right', 'bottom']}>
-      <Stack.Screen
-        options={{
-          headerShown: true,
-          headerTitle: '',
-          headerShadowVisible: false,
-          headerLeft: () => (
-            <Pressable
-              onPress={handleBack}
-              style={{ padding: 8, marginLeft: -8 }}
-            >
-              <Feather name="arrow-left" size={24} color={CHARCOAL} />
-            </Pressable>
-          ),
-        }}
-      />
-      <KeyboardAwareWrapper
-        contentContainerStyle={[styles.container, { paddingBottom: Math.max(120, keyboardPadding + 40) }]}
-        extraScrollHeight={140}
-        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}>
+  const screenRefreshControl = <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />;
+  const screenContent = (
+    <>
         <ScreenHeader
           title="기본 정보"
           subtitle="입력 후 저장하면 다음 단계로 이동합니다."
@@ -886,7 +870,45 @@ export default function FcNewScreen() {
         >
           {existingTempId ? '수정하기' : '저장하기'}
         </Button>
-      </KeyboardAwareWrapper>
+    </>
+  );
+
+  return (
+    <SafeAreaView style={styles.safe} edges={['left', 'right', 'bottom']}>
+      <Stack.Screen
+        options={{
+          headerShown: true,
+          headerTitle: '',
+          headerShadowVisible: false,
+          headerLeft: () => (
+            <Pressable
+              onPress={handleBack}
+              style={{ padding: 8, marginLeft: -8 }}
+            >
+              <Feather name="arrow-left" size={24} color={CHARCOAL} />
+            </Pressable>
+          ),
+        }}
+      />
+      {Platform.OS === 'android' ? (
+        <ScrollView
+          contentContainerStyle={[styles.container, { paddingBottom: Math.max(120, keyboardPadding + 40) }]}
+          refreshControl={screenRefreshControl}
+          keyboardShouldPersistTaps="handled"
+          keyboardDismissMode="on-drag"
+          showsVerticalScrollIndicator={false}
+        >
+          {screenContent}
+        </ScrollView>
+      ) : (
+        <KeyboardAwareWrapper
+          contentContainerStyle={[styles.container, { paddingBottom: Math.max(120, keyboardPadding + 40) }]}
+          extraScrollHeight={140}
+          refreshControl={screenRefreshControl}
+        >
+          {screenContent}
+        </KeyboardAwareWrapper>
+      )}
 
       <Modal visible={showDomainPicker} transparent animationType="fade">
         <Pressable style={styles.modalOverlay} onPress={() => setShowDomainPicker(false)}>

@@ -1,7 +1,15 @@
-import { useCallback, useMemo } from 'react';
+import { useCallback, useMemo, useRef } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 
 import type { DescendantNode } from '@/components/ReferralTreeNode';
+import {
+  computeReferralTreeTruncated,
+  getDirectChildren,
+  getNodeAbsoluteDepth,
+  hasLoadedDirectChildren,
+  normalizeSubtreeChildNodes,
+  sortDescendants,
+} from '@/lib/referral-tree';
 import { supabase } from '@/lib/supabase';
 
 import { useSession } from './use-session';
@@ -40,14 +48,6 @@ type ReferralTreeResponse = {
   message?: string;
   code?: string;
 };
-
-function sortDescendants(a: DescendantNode, b: DescendantNode) {
-  if (a.depth !== b.depth) {
-    return a.depth - b.depth;
-  }
-
-  return (a.name ?? '').localeCompare(b.name ?? '', 'ko');
-}
 
 function mergeUniqueDescendants(current: DescendantNode[], incoming: DescendantNode[]) {
   const map = new Map<string, DescendantNode>();
@@ -105,12 +105,17 @@ async function invokeReferralTree(
     throw new Error(data?.message ?? '추천 관계를 불러오지 못했습니다.');
   }
 
+  const sortedDescendants = (data.descendants ?? []).slice().sort(sortDescendants);
+
   return {
     root: data.root,
     ancestors: data.ancestors ?? [],
-    descendants: (data.descendants ?? []).slice().sort(sortDescendants),
+    descendants: sortedDescendants,
     depth: Number(data.depth ?? body.depth ?? 2),
-    truncated: Boolean(data.truncated),
+    truncated: computeReferralTreeTruncated({
+      root: data.root,
+      descendants: sortedDescendants,
+    }),
   } satisfies ReferralTreeData;
 }
 
@@ -120,6 +125,8 @@ export function useReferralTree(opts: { fcId?: string; depth?: number }) {
   const canUseReferralSelfService =
     !isRequestBoardDesigner && (role === 'fc' || (role === 'admin' && readOnly));
   const depth = Math.max(1, Math.min(3, Math.trunc(opts.depth ?? 2)));
+  const inFlightLoadsRef = useRef(new Map<string, Promise<DescendantNode[]>>());
+  const backgroundPrefetchQueueRef = useRef(Promise.resolve());
   const queryKey = useMemo(
     () => ['referral-tree', residentId, opts.fcId ?? 'self', depth] as const,
     [residentId, opts.fcId, depth],
@@ -152,11 +159,27 @@ export function useReferralTree(opts: { fcId?: string; depth?: number }) {
         return current;
       }
 
+      const mergedDescendants = mergeUniqueDescendants(current.descendants, nodes);
+
       return {
         ...current,
-        descendants: mergeUniqueDescendants(current.descendants, nodes),
+        descendants: mergedDescendants,
+        truncated: computeReferralTreeTruncated({
+          root: current.root,
+          descendants: mergedDescendants,
+        }),
       };
     });
+  }, [queryClient, queryKey]);
+
+  const hasLoadedChildrenOf = useCallback((fcId: string) => {
+    const current = queryClient.getQueryData<ReferralTreeData>(queryKey);
+
+    if (!current) {
+      return false;
+    }
+
+    return hasLoadedDirectChildren(current, fcId);
   }, [queryClient, queryKey]);
 
   const loadChildrenOf = useCallback(async (fcId: string) => {
@@ -164,34 +187,102 @@ export function useReferralTree(opts: { fcId?: string; depth?: number }) {
       throw new Error('추천 관계를 확인하려면 다시 로그인해주세요.');
     }
 
-    const subtree = await invokeReferralTree(appSessionToken, { fcId, depth: 1 });
-    const childNodes = subtree.descendants.filter((node) => node.parentFcId === fcId);
+    const currentTree = queryClient.getQueryData<ReferralTreeData>(queryKey);
+    if (currentTree && hasLoadedDirectChildren(currentTree, fcId)) {
+      return getDirectChildren(currentTree.descendants, fcId);
+    }
 
-    queryClient.setQueryData<ReferralTreeData | undefined>(queryKey, (current) => {
-      if (!current) {
-        return current;
+    const inFlightRequest = inFlightLoadsRef.current.get(fcId);
+    if (inFlightRequest) {
+      return inFlightRequest;
+    }
+
+    const fallbackParentDepth = currentTree ? getNodeAbsoluteDepth(currentTree, fcId) ?? 0 : 0;
+    const request = (async () => {
+      const subtree = await invokeReferralTree(appSessionToken, { fcId, depth: 1 });
+      const fallbackChildNodes = normalizeSubtreeChildNodes(
+        subtree.descendants,
+        fcId,
+        fallbackParentDepth,
+      );
+
+      queryClient.setQueryData<ReferralTreeData | undefined>(queryKey, (current) => {
+        if (!current) {
+          return current;
+        }
+
+        const parentDepth = getNodeAbsoluteDepth(current, fcId) ?? fallbackParentDepth;
+        const childNodes = normalizeSubtreeChildNodes(subtree.descendants, fcId, parentDepth);
+        const mergedDescendants = mergeUniqueDescendants(current.descendants, childNodes);
+        const nextRoot = current.root.fcId === subtree.root.fcId
+          ? {
+            ...current.root,
+            directInviteeCount: subtree.root.directInviteeCount ?? current.root.directInviteeCount,
+            totalDescendantCount: subtree.root.totalDescendantCount ?? current.root.totalDescendantCount,
+          }
+          : current.root;
+        const updatedDescendants = mergedDescendants.map((node) => (
+          node.fcId === subtree.root.fcId
+            ? {
+              ...node,
+              directInviteeCount: subtree.root.directInviteeCount ?? node.directInviteeCount,
+              totalDescendantCount: subtree.root.totalDescendantCount ?? node.totalDescendantCount,
+            }
+            : node
+        ));
+
+        return {
+          ...current,
+          root: nextRoot,
+          descendants: updatedDescendants,
+          truncated: computeReferralTreeTruncated({
+            root: nextRoot,
+            descendants: updatedDescendants,
+          }),
+        };
+      });
+
+      const nextTree = queryClient.getQueryData<ReferralTreeData>(queryKey);
+      if (!nextTree) {
+        return fallbackChildNodes;
       }
 
-      const mergedDescendants = mergeUniqueDescendants(current.descendants, childNodes);
-      const updatedDescendants = mergedDescendants.map((node) => (
-        node.fcId === subtree.root.fcId
-          ? {
-            ...node,
-            directInviteeCount: subtree.root.directInviteeCount ?? node.directInviteeCount,
-            totalDescendantCount: subtree.root.totalDescendantCount ?? node.totalDescendantCount,
-          }
-          : node
-      ));
-
-      return {
-        ...current,
-        descendants: updatedDescendants,
-        truncated: current.truncated || subtree.truncated,
-      };
+      return getDirectChildren(nextTree.descendants, fcId);
+    })().finally(() => {
+      inFlightLoadsRef.current.delete(fcId);
     });
 
-    return childNodes;
+    inFlightLoadsRef.current.set(fcId, request);
+    return request;
   }, [appSessionToken, queryClient, queryKey]);
+
+  const prefetchVisibleChildrenOf = useCallback((fcId: string) => {
+    const currentTree = queryClient.getQueryData<ReferralTreeData>(queryKey);
+    if (!currentTree) {
+      return;
+    }
+
+    const candidates = getDirectChildren(currentTree.descendants, fcId)
+      .filter((node) => node.directInviteeCount > 0)
+      .filter((node) => !hasLoadedDirectChildren(currentTree, node.fcId))
+      .map((node) => node.fcId);
+
+    if (candidates.length === 0) {
+      return;
+    }
+
+    for (const candidateId of candidates) {
+      backgroundPrefetchQueueRef.current = backgroundPrefetchQueueRef.current
+        .catch(() => undefined)
+        .then(async () => {
+          try {
+            await loadChildrenOf(candidateId);
+          } catch {
+            // Retry happens on explicit user expand.
+          }
+        });
+    }
+  }, [loadChildrenOf, queryClient, queryKey]);
 
   const refetch = useCallback(async () => {
     await query.refetch();
@@ -203,6 +294,8 @@ export function useReferralTree(opts: { fcId?: string; depth?: number }) {
     isError: query.isError,
     refetch,
     loadChildrenOf,
+    hasLoadedChildrenOf,
+    prefetchVisibleChildrenOf,
     mergeDescendants,
   };
 }

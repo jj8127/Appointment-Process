@@ -427,15 +427,15 @@ export default function ExamRegisterScreen() {
     [sortedRounds, selectedRoundId],
   );
 
-  return (
-    <SafeAreaView style={styles.safe} edges={['left', 'right', 'bottom']}>
-      <KeyboardAwareWrapper>
-        <ScrollView
-          contentContainerStyle={styles.container}
-          refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}
-          keyboardShouldPersistTaps="handled"
-          nestedScrollEnabled
-        >
+  const screenContent = (
+    <ScrollView
+      contentContainerStyle={styles.container}
+      refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}
+      keyboardShouldPersistTaps="handled"
+      keyboardDismissMode="on-drag"
+      showsVerticalScrollIndicator={false}
+      nestedScrollEnabled
+    >
           <View style={styles.headerRow}>
             <RefreshButton onPress={() => { refetch() }} />
             <Text style={styles.headerTitle}>손해보험 시험 일정 관리</Text>
@@ -757,8 +757,12 @@ export default function ExamRegisterScreen() {
             </Animated.View>
           )}
 
-        </ScrollView>
-      </KeyboardAwareWrapper>
+    </ScrollView>
+  );
+
+  return (
+    <SafeAreaView style={styles.safe} edges={['left', 'right', 'bottom']}>
+      {Platform.OS === 'android' ? screenContent : <KeyboardAwareWrapper>{screenContent}</KeyboardAwareWrapper>}
     </SafeAreaView>
   );
 }

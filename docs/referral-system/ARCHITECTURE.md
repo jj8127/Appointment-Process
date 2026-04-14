@@ -81,6 +81,8 @@
 - FC/본부장 self-service 초대 목록 조회: `hooks/use-my-invitees.ts -> get-my-invitees`
 - FC/본부장 self-service 추천 관계 tree embed: `app/referral.tsx -> hooks/use-referral-tree.ts -> get-referral-tree`
 - FC/본부장 self-service 추천인 검색/변경: `app/referral.tsx -> search-fc-for-referral / update-my-recommender`
+- `/referral` tree는 첫 화면에서 `depth: 2`까지만 읽고, 사용자가 branch를 펼칠 때 descendant subtree를 추가 요청한다. lazy expand로 내려온 subtree-relative `node_depth`는 hook cache merge 전에 현재 화면 root 기준 absolute depth로 다시 써서 렌더한다.
+- branch expand 직후에는 이미 보이는 직속 자식 중 하위가 더 있는 node만 background 1단계 prefetch를 순차 수행해, 다음 expand에서 같은 node를 즉시 열 수 있게 돕는다. prefetch는 현재 탭된 node의 spinner/expand를 block하지 않는다.
 - `/referral`의 primary scroll container는 Android `dispatchGetDisplayList/null child` 계열 crash를 줄이기 위해 `KeyboardAwareScrollView`가 아니라 일반 `ScrollView`를 사용한다. 검색 입력은 화면 상단 배치 + 하단 keyboard padding으로 충분히 보이도록 유지한다.
 - 본부장 전용 desktop graph shortcut: `app/referral.tsx -> Linking.openURL(EXPO_PUBLIC_ADMIN_WEB_URL + '/dashboard/referrals/graph')`
 - `/referral-tree` route는 legacy 진입 호환용으로 `/referral` redirect만 유지한다.
@@ -96,6 +98,7 @@
 - `get-referral-tree`는 service-role RPC `get_referral_subtree(root_fc_id uuid, max_depth int)`를 호출해 ancestor chain + descendant subtree를 한 번에 읽는다.
 - ancestor chain은 `fc_profiles.recommender_fc_id`를 그대로 따르며, recommender가 active manager shadow profile로 저장된 경우에도 그 shadow recommender를 포함한다.
 - descendant lazy expand도 같은 trusted path를 사용하며, Edge Function 인가는 `self subtree membership`을 확인한 descendant `fcId`만 허용해야 한다.
+- RPC/Edge Function이 내려주는 descendant `node_depth`는 조회한 subtree root 기준 상대값이다. 현재 모바일 self-service contract에서는 `hooks/use-referral-tree.ts`가 이 값을 현재 화면 root 기준 absolute depth로 정규화한 뒤만 cache/render에 사용한다.
 - `get-fc-referral-code`는 legacy compatibility alias로 남아 있지만 current app hook path는 아니고, optional `phone` body는 세션 전화번호와 일치할 때만 허용된다.
 - 가입 완료 확정 API: `set-password` 내부 `captureReferralAttribution`
 - 관리자 모바일 invitee 코드 조회: `admin-action:getInviteeReferralCode`
@@ -129,6 +132,7 @@
 - 다만 이 리뷰는 원격 DB rollout 상태를 다시 검증하지 않았다. remote drift가 있다면 그것은 배포 상태 문제이지 architecture SSOT가 아니다.
 - FC/본부장 self-service 조회는 `get-my-referral-code` Edge Function을 통해 app session token을 검증한 뒤 active code와 현재 추천인 cache를 함께 읽는다.
 - FC/본부장 self-service tree 조회는 `get-referral-tree` Edge Function을 통해 app session token을 검증한 뒤 caller 자기 서브트리 범위의 ancestor/descendant 정보만 읽는다.
+- current app self-service tree는 같은 trusted subtree read를 반복 호출하더라도 화면 cache가 absolute depth를 유지해야 한다. UI 들여쓰기/강조 스타일은 current render depth 기준으로 계산하고, subtree transport depth를 style source처럼 재사용하면 안 된다.
 - descendant traversal에서는 manager shadow child를 계속 제외하지만, ancestor path에 실제 recommender로 저장된 manager shadow는 예외적으로 보여준다.
 - 본부장 세션은 앱 UI role이 `admin/readOnly`여도 app session token source role이 `manager`면 같은 self-service trusted path를 사용한다.
 - legacy 로컬 세션의 `role='manager'` payload도 앱 복원 시 `admin + readOnly` UI state로 정규화해 홈/설정/referral self-service gate와 일치시킨다.

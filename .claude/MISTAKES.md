@@ -30,6 +30,90 @@
 - Verification:
 ```
 
+## 2026-04-14 | Mobile Exam Applicants | dual FK embed ambiguity를 bare relation으로 읽고, query 실패를 빈 상태로 숨겨 목록 전체가 사라짐
+- Symptom:
+  - 가람in 본부장/총무가 `exam-manage`, `exam-manage2`를 열면 시험 신청자가 있는데도 목록이 전혀 보이지 않았다.
+  - 화면은 실제 query failure를 보여주지 않고 `검색 결과가 없습니다`처럼 비어 보일 수 있었다.
+- Root cause:
+  - `exam_registrations`와 `exam_locations` 사이에 `location_id` FK와 `(location_id, round_id)` FK가 둘 다 생겼는데, 모바일 신청자 화면이 여전히 bare `exam_locations ( location_name )` embed를 사용했다.
+  - PostgREST가 이 다중 관계를 `PGRST201`로 거절했고, `useQuery` error state를 UI에서 따로 처리하지 않아 실패가 빈 결과처럼 보였다.
+- Why it was missed:
+  - 직전 수정에서 `resident_id -> fc_profiles.phone` 매칭 parity에 집중하면서, 같은 query 안의 embedded relation ambiguity까지 함께 재검토하지 않았다.
+  - 화면이 error state를 노출하지 않아 실제 원인을 앱에서 바로 읽기 어려웠다.
+- Permanent guardrail:
+  - `exam_registrations -> exam_locations` embed는 항상 `exam_locations!exam_registrations_location_round_fkey`처럼 FK를 명시한다.
+  - PostgREST embed failure 가능성이 있는 admin list screen은 empty state와 error state를 분리한다. query가 실패하면 빈 목록 문구를 재사용하지 않는다.
+- Related files:
+  - `app/exam-manage.tsx`, `app/exam-manage2.tsx`, `docs/handbook/mobile/exam-flows.md`
+- Verification:
+  - `npm run lint -- app/exam-manage.tsx app/exam-manage2.tsx`
+  - anon Supabase 재현 스크립트로 bare relation `PGRST201` 확인 후 explicit FK select에서 life/nonlife rows 반환 확인
+
+## 2026-04-14 | Mobile Android Fabric | `/referral` crash를 개별 화면 이슈로만 닫고 같은 scroll-wrapper 패턴이 남은 화면들을 즉시 정리하지 않음
+- Symptom:
+  - `/referral`은 이미 plain `ScrollView`로 옮겨졌는데도, 현재 앱에는 `dashboard`, `exam-apply*`, `exam-register*`, `fc/new`처럼 `KeyboardAwareWrapper + RefreshControl + 큰 조건부 렌더` 조합이 그대로 남아 있었다.
+  - Play Console에서 본 `ReactClippingViewManager.addView` / `The specified child already has a parent` 계열 Fabric crash를 특정 route 하나로만 보면, 현재 릴리스에서도 같은 crash family가 다른 화면에서 이어질 수 있다.
+- Root cause:
+  - Android production crash 원인을 `/referral` 로컬 구조와 연결해 복구한 뒤, 같은 wrapper ownership 패턴이 모바일 다른 고변동 화면에도 남아 있는지 screen-by-screen으로 즉시 재감사하지 않았다.
+  - `app/AGENTS.md`도 `KeyboardAwareWrapper` 재사용을 일반 권장으로만 적어 두고, Android Fabric 예외 규칙을 명시하지 않았다.
+- Why it was missed:
+  - incident를 "추천인 화면 회귀"로만 닫고 "Android Fabric scroll ownership" 공통 규칙으로 승격하지 않았다.
+  - local source audit와 Play Console version split은 별개의 작업인데, 전자는 진행하면서도 후자를 기다리느라 남은 위험 화면 batch hardening이 늦어질 수 있는 상태였다.
+- Permanent guardrail:
+  - Android new architecture/Fabric에서 `RefreshControl`과 큰 조건부 렌더 tree를 가진 화면은 `KeyboardAwareWrapper`를 primary scroll owner로 쓰지 않는다.
+  - 이런 screen은 Android에서 plain `ScrollView` + explicit keyboard padding으로 유지하고, iOS에서만 `KeyboardAwareWrapper`를 남긴다.
+  - 한 화면에서 wrapper-related native crash를 복구하면 같은 pattern이 남아 있는 route들을 같은 change set 또는 즉시 후속 batch로 나열해 확인한다.
+- Related files:
+  - `app/referral.tsx`, `app/dashboard.tsx`, `app/exam-apply.tsx`, `app/exam-apply2.tsx`, `app/exam-register.tsx`, `app/exam-register2.tsx`, `app/fc/new.tsx`, `app/AGENTS.md`, `docs/referral-system/INCIDENTS.md`
+- Verification:
+  - `npm run lint -- app/dashboard.tsx app/exam-apply.tsx app/exam-apply2.tsx app/exam-register.tsx app/exam-register2.tsx app/fc/new.tsx`
+  - `node scripts/ci/check-governance.mjs`
+  - follow-up Android release build QA + Play Console cluster trend 확인
+
+## 2026-04-14 | Mobile Referral Tree | preload depth와 subtree lazy-expand depth 계약을 한 tree로 보지 않아 deeper branch가 느리고 스타일도 어긋남
+- Symptom:
+  - `/referral`에서 `하기홍` 아래는 바로 열리는데 `박충희`처럼 depth 2 밖의 node 아래는 늦게 열리고, lazy-load로 붙은 child row가 다시 top-level 주황 스타일처럼 보였다.
+- Root cause:
+  - 첫 화면은 `depth:2` preload, deeper node는 subtree lazy fetch인데 `hooks/use-referral-tree.ts`가 subtree-relative `node_depth`를 현재 화면 root 기준 absolute depth로 정규화하지 않은 채 merge했다.
+  - `components/ReferralTreeNode.tsx`는 들여쓰기는 render depth로 계산하면서 강조 스타일은 raw `node.depth === 1`에 묶어, preload node와 lazy node가 서로 다른 시각 규칙을 탔다.
+  - 또한 tree success/no-ancestor 상태에서도 `app/referral.tsx`가 `get-my-referral-code` cache를 direct recommender fallback으로 재사용해 stale 상단 정보를 보여줄 수 있었다.
+- Why it was missed:
+  - `get-referral-tree` / `get_referral_subtree` transport depth가 subtree root 기준 상대값이라는 점은 알고 있었지만, 실제 모바일 UI가 preload branch와 lazy branch를 같은 tree surface에서 어떻게 합치는지까지 검증하지 않았다.
+  - “하기홍은 빠름 / 박충희는 느림”처럼 depth-dependent한 체감 차이를 데이터량 차이로 보기 쉽고, render depth와 payload depth가 분리돼 있다는 점을 뒤늦게 확인했다.
+- Permanent guardrail:
+  - tree API가 subtree root 기준 depth를 반환하면, 화면 cache merge 전에 현재 화면 root 기준 absolute depth로 다시 쓴다. recursive tree UI에서는 들여쓰기와 강조 스타일 모두 같은 render-depth 규칙을 사용하고 transport depth를 style source로 재사용하지 않는다.
+  - `depth:N preload + lazy expand`가 섞인 tree는 representative 계정 1개로 `preloaded branch`와 `deeper lazy branch`를 둘 다 열어 본다. 두 branch의 속도/스타일이 다르면 같은 session에서 root cause를 정리한 뒤 문서와 테스트 케이스에 남긴다.
+- Related files:
+  - `app/referral.tsx`
+  - `components/ReferralTreeNode.tsx`
+  - `hooks/use-referral-tree.ts`
+  - `lib/referral-tree.ts`
+  - `docs/referral-system/SPEC.md`
+  - `docs/referral-system/ARCHITECTURE.md`
+  - `docs/referral-system/INCIDENTS.md`
+- Verification:
+  - `npm run lint -- app/referral.tsx components/ReferralTreeNode.tsx hooks/use-referral-tree.ts lib/referral-tree.ts lib/__tests__/referral-tree.test.ts`
+  - `npm test -- --runInBand lib/__tests__/referral-tree.test.ts`
+
+## 2026-04-13 | Mobile Exam Applicants | 웹에서 고친 resident/phone 매칭 hardening을 모바일 `exam-manage*`에 옮기지 않아 본부장 목록이 통째로 비어 보임
+- Symptom:
+  - 가람in 본부장(read-only manager) 세션에서 `생명/제3 신청자 관리`, `손해 신청자 관리` 화면에 실제 신청 row가 있어도 목록이 전혀 보이지 않았다.
+- Root cause:
+  - 모바일 `app/exam-manage.tsx`, `app/exam-manage2.tsx`가 `exam_registrations.resident_id -> fc_profiles.phone` exact match만 사용했고, profile을 못 찾으면 row를 `continue`로 버렸다.
+  - 동시에 주민번호 full-view 보조 read를 위해 `appSessionToken`을 query enable 조건에 넣어, 토큰이 없을 때는 목록 read 자체가 시작되지 않았다.
+- Why it was missed:
+  - 2026-04-06에 웹 `/dashboard/exam/applicants`에서 raw/digits/hyphenated phone 후보 매칭과 resident-number fallback contract를 정리했지만, 같은 도메인의 모바일 `exam-manage*` 복제 구현과 parity를 다시 대조하지 않았다.
+- Permanent guardrail:
+  - 시험 신청자 surface는 웹과 모바일을 따로 보지 말고 한 계약으로 점검한다. `resident_id -> profile lookup`, `profile miss fallback`, `resident-number trusted read failure`, `manager read-only session` 네 축을 `web/src/app/dashboard/exam/applicants/page.tsx`와 `app/exam-manage*.tsx`에서 함께 비교한다.
+  - 주민번호 full-view는 부가 read일 뿐이므로, trusted read 토큰 부재나 decrypt 실패가 신청자 목록 전체를 숨기는 enable 조건이 되어서는 안 된다.
+- Related files:
+  - `app/exam-manage.tsx`
+  - `app/exam-manage2.tsx`
+  - `docs/handbook/mobile/exam-flows.md`
+  - `.claude/MISTAKES.md`
+- Verification:
+  - `npm run lint -- app/exam-manage.tsx app/exam-manage2.tsx`
+
 ## 2026-04-10 | Android Referral Render Stability | keyboard-aware scroll을 multi-state self-service 화면의 기본 컨테이너로 유지한 채 Android render stability 검증을 건너뜀
 - Symptom:
   - Android production `3.1.3`에서 `/referral` 화면 관련으로 `ReactClippingViewManager.addView`, `dispatchGetDisplayList`, `null child at index` 계열 crash가 발생했다.

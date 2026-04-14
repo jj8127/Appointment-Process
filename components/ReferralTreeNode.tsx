@@ -42,6 +42,7 @@ export function ReferralTreeNode({
   const directChildren = allNodes.filter((n) => n.parentFcId === node.fcId);
   const indent = Math.min(depth, MAX_VISUAL_DEPTH) * 14;
   const hasLoadedChildren = directChildren.length > 0;
+  const highlightTopLevel = depth === 0;
 
   return (
     <View>
@@ -82,17 +83,17 @@ export function ReferralTreeNode({
         </View>
 
         {/* 아바타 */}
-        <View style={[styles.avatar, node.depth === 1 && styles.avatarDepth1]}>
+        <View style={[styles.avatar, highlightTopLevel && styles.avatarDepth1]}>
           <Feather
             name="user"
             size={13}
-            color={node.depth === 1 ? COLORS.primary : COLORS.gray[400]}
+            color={highlightTopLevel ? COLORS.primary : COLORS.gray[400]}
           />
         </View>
 
         {/* 정보 영역 */}
         <View style={styles.infoWrap}>
-          <Text style={[styles.nodeName, node.depth === 1 && styles.nodeNameDepth1]} numberOfLines={1}>
+          <Text style={[styles.nodeName, highlightTopLevel && styles.nodeNameDepth1]} numberOfLines={1}>
             {node.name ?? '이름 없음'}
           </Text>
           {node.affiliation ? (

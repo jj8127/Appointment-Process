@@ -2669,12 +2669,9 @@ export default function DashboardScreen() {
     );
   }
 
-  return (
-    <SafeAreaView style={styles.safe} edges={['left', 'right', 'bottom']}>
-      <KeyboardAwareWrapper
-        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}
-        contentContainerStyle={{ paddingBottom: (deleteModalVisible ? 0 : keyboardPadding) + 40 }}
-      >
+  const screenRefreshControl = <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />;
+  const screenContent = (
+    <>
         <Modal
           visible={rejectModalVisible}
           transparent
@@ -3328,7 +3325,29 @@ export default function DashboardScreen() {
             );
           })}
         </View>
-      </KeyboardAwareWrapper>
+    </>
+  );
+
+  return (
+    <SafeAreaView style={styles.safe} edges={['left', 'right', 'bottom']}>
+      {Platform.OS === 'android' ? (
+        <ScrollView
+          refreshControl={screenRefreshControl}
+          contentContainerStyle={{ paddingBottom: (deleteModalVisible ? 0 : keyboardPadding) + 40 }}
+          keyboardShouldPersistTaps="handled"
+          keyboardDismissMode="on-drag"
+          showsVerticalScrollIndicator={false}
+        >
+          {screenContent}
+        </ScrollView>
+      ) : (
+        <KeyboardAwareWrapper
+          refreshControl={screenRefreshControl}
+          contentContainerStyle={{ paddingBottom: (deleteModalVisible ? 0 : keyboardPadding) + 40 }}
+        >
+          {screenContent}
+        </KeyboardAwareWrapper>
+      )}
     </SafeAreaView>
   );
 }

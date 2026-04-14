@@ -7,7 +7,7 @@
 
 ## 2. 현재 상태
 
-- `2026-04-10` 기준 등록된 추천인 이슈는 `14건`이다.
+- `2026-04-14` 기준 등록된 추천인 이슈는 `15건`이다.
 - 런타임 버그뿐 아니라 trust boundary, rollout status, 문서/테스트 drift로 운영 판단을 오도한 경우도 장애성 이력으로 남긴다.
 
 ## 3. 작성 규칙
@@ -46,6 +46,7 @@
 
 | ID | 날짜 | 제목 | linkedCases | 상태 |
 | --- | --- | --- | --- | --- |
+| INC-015 | 2026-04-14 | depth 2 preload와 subtree-relative lazy expand를 같은 tree contract로 정규화하지 않아 deeper branch가 느리고 스타일도 어긋남 | `RF-SELF-03` | fixed |
 | INC-014 | 2026-04-10 | Android production `/referral` 화면이 keyboard-aware scroll + 다단계 조건부 렌더 조합에서 view hierarchy crash를 냄 | `RF-SELF-03` | fixed |
 | INC-013 | 2026-04-10 | inline self-service tree 흡수 후 저장 동기화/실패 fallback/iPhone share parity가 같이 어긋남 | `RF-SELF-02`, `RF-SELF-03`, `RF-LINK-02` | fixed |
 | INC-012 | 2026-04-04 | self-service `내가 초대한 사람들` 목록이 attribution-only + 50건 상한 때문에 일부 invitee를 누락함 | `RF-SELF-03` | fixed |
@@ -60,6 +61,42 @@
 | INC-003 | 2026-03-31 | 동명이인 안전화 후 live hardening gap(`set-password` fallback, override migration, clear audit) | `RF-ADMIN-06`, `RF-SEC-02` | mitigated |
 | INC-002 | 2026-03-31 | 동명이인 추천인 이름 매칭으로 잘못된 코드가 붙을 수 있던 구조 위험 | `RF-DATA-02`, `RF-ADMIN-06` | fixed |
 | INC-001 | 2026-03-31 | Android 추천코드 입력 시 대문자가 중복 입력되던 문제 | `RF-CODE-07` | fixed |
+
+## INC-015 | 2026-04-14 | depth 2 preload와 subtree-relative lazy expand를 같은 tree contract로 정규화하지 않아 deeper branch가 느리고 스타일도 어긋남
+
+- symptom:
+  - `/referral`에서 `하기홍` 아래는 즉시 열리는데, 그 아래 `박충희` 같은 deeper branch는 눈에 띄게 늦게 열리고 row 강조색/아바타 스타일도 상위 depth처럼 다시 보였다.
+  - 특히 deeper lazy expand로 들어온 child가 실제 중첩 depth와 다르게 top-level 주황 스타일을 다시 띠어 사용자가 계층 구조를 잘못 읽을 수 있었다.
+- impact:
+  - FC/본부장 self-service tree의 drill-down 체감 속도가 branch depth에 따라 크게 달랐고, 하위 관계를 읽는 기본 UI의 시각 규칙이 일관되지 않았다.
+  - direct recommender card가 tree success/no-ancestor 상태에서도 stale current recommender cache로 fallback하면 상단 정보까지 오도될 수 있었다.
+- trigger:
+  - 2026-04-14 사용자가 `/referral` 스크린샷과 함께 “하기홍 아래는 빠른데 박충희 아래는 느리고 UI도 다르다”는 제보를 보냈을 때.
+- rootCause:
+  - 첫 화면 tree read는 `depth: 2`라서 `하기홍` 아래까지는 이미 캐시에 있었지만, `박충희` 아래는 descendant lazy expand가 추가 trusted call을 타야 했다.
+  - `get-referral-tree/get_referral_subtree`가 내려주는 `node_depth`는 조회한 subtree root 기준 상대값인데, `hooks/use-referral-tree.ts`가 이를 현재 화면 root 기준 absolute depth로 다시 쓰지 않고 merge했다.
+  - `components/ReferralTreeNode.tsx`는 들여쓰기는 재귀 render depth로 계산하면서도 강조 스타일은 raw `node.depth === 1`에 묶여 있어, lazy node만 다른 스타일을 띠었다.
+  - `/referral` 상단 direct recommender 요약도 tree success인데 ancestor가 비어 있을 때 `get-my-referral-code` cache로 다시 fallback해 stale 추천인을 보여줄 수 있었다.
+- fix:
+  - `hooks/use-referral-tree.ts`에서 subtree child merge 시 현재 화면 root 기준 absolute depth로 정규화하고, 같은 node 재요청을 막는 in-flight guard와 background 1단계 prefetch queue를 추가했다.
+  - `components/ReferralTreeNode.tsx`는 강조 스타일 기준을 transport `node.depth`에서 render depth로 옮겼다.
+  - `app/referral.tsx`는 branch expand를 즉시 열고, 필요 시 on-demand load 후 visible child prefetch를 시작하게 정리했으며 tree success/no-ancestor 상태에서는 stale current recommender fallback을 끊었다.
+  - referral SSOT/test assets에 absolute-depth lazy expand + prefetch contract를 반영했다.
+- linkedCases:
+  - RF-SELF-03
+- evidence:
+  - 코드 변경: `app/referral.tsx`, `components/ReferralTreeNode.tsx`, `hooks/use-referral-tree.ts`, `lib/referral-tree.ts`
+  - 정적 검증: `npm run lint -- app/referral.tsx components/ReferralTreeNode.tsx hooks/use-referral-tree.ts lib/referral-tree.ts lib/__tests__/referral-tree.test.ts`
+  - 단위 검증: `npm test -- --runInBand lib/__tests__/referral-tree.test.ts`
+- reproduction:
+  1. deeper descendant가 있는 계정으로 `/referral` 화면을 연다.
+  2. 첫 번째 branch(예: 하기홍)를 펼쳐 immediate child들을 본다.
+  3. 그 아래 deeper descendant를 가진 child(예: 박충희)를 이어서 펼친다.
+  4. preload 안쪽 branch와 달리 network wait가 생기고, lazy node child가 top-level 강조색처럼 보이는지 확인한다.
+- regressionCheck:
+  - RF-SELF-03으로 `depth:2` initial load, deeper node expand, stale recommender fallback 부재, background prefetch 유무를 함께 확인한다.
+- notes:
+  - 이번 세션에서는 helper test + lint까지 반영했고, 실제 FC/본부장 on-device에서 하기홍 -> 박충희 체감 속도 개선과 네트워크 중복 제거는 별도 runtime evidence가 필요하다.
 
 ## INC-014 | 2026-04-10 | Android production `/referral` 화면이 keyboard-aware scroll + 다단계 조건부 렌더 조합에서 view hierarchy crash를 냄
 
@@ -93,6 +130,7 @@
   - 다음 릴리스 후 Android vitals에서 같은 `ReactClippingViewManager.addView` / `dispatchGetDisplayList null child` cluster 재발 여부를 확인한다.
 - notes:
   - 이번 원인은 production stack과 배포 코드 구조를 맞춰 본 strong inference다. 현재 세션에서 동일 기기/OS 조합으로 local runtime 재현까지는 하지 못했다.
+  - 2026-04-14 follow-up source audit 기준으로 현재 worktree(`3.1.6`)의 `/referral`은 이미 plain `ScrollView`로 옮겨져 있었다. 다만 같은 `KeyboardAwareWrapper + RefreshControl + 큰 조건부 렌더` 패턴이 `dashboard`, `exam-apply*`, `exam-register*`, `fc/new`에 남아 있어, 같은 crash family의 공통 위험으로 보고 Android scroll ownership hardening batch를 추가 적용했다.
 
 ## INC-013 | 2026-04-10 | inline self-service tree 흡수 후 저장 동기화/실패 fallback/iPhone share parity가 같이 어긋남
 

@@ -21,6 +21,7 @@ import { deleteExamRegistrationAsAdmin } from '@/lib/exam-admin-api';
 import { notifyExamApprovalStatus } from '@/lib/exam-approval-notify';
 import { logger } from '@/lib/logger';
 import { supabase } from '@/lib/supabase';
+import { formatPhone, normalizePhone } from '@/lib/validation';
 
 const ORANGE = '#f36f21';
 const CHARCOAL = '#111827';
@@ -63,6 +64,7 @@ type FcProfile = {
   name: string | null;
   address: string | null;
   phone: string | null;
+  affiliation: string | null;
 };
 
 type ApplicantRow = {
@@ -89,6 +91,13 @@ function formatResidentNumber(num: string | null) {
 function normalizeSingle<T>(value: T | T[] | null | undefined): T | null {
   if (!value) return null;
   return Array.isArray(value) ? value[0] : value;
+}
+
+function buildPhoneCandidates(value: string | null | undefined) {
+  const raw = String(value ?? '').trim();
+  const digits = normalizePhone(raw);
+  const formatted = digits.length === 11 ? formatPhone(digits) : '';
+  return Array.from(new Set([raw, digits, formatted].filter(Boolean)));
 }
 
 function formatYmd(value?: string | null) {
@@ -131,7 +140,7 @@ async function fetchApplicantsLife(adminPhone: string, appSessionToken: string |
       `
       id, resident_id, status, is_confirmed, is_third_exam, fee_paid_date, created_at,
       exam_rounds!inner ( exam_type, exam_date, round_label ),
-      exam_locations ( location_name )
+      exam_locations!exam_registrations_location_round_fkey ( location_name )
     `,
     )
     .eq('exam_rounds.exam_type', EXAM_TYPE)
@@ -142,19 +151,24 @@ async function fetchApplicantsLife(adminPhone: string, appSessionToken: string |
   if (rows.length === 0) return [];
 
   const residentIds = Array.from(new Set(rows.map((r) => r.resident_id).filter((v): v is string => !!v)));
+  const profileLookupCandidates = Array.from(new Set(residentIds.flatMap((value) => buildPhoneCandidates(value))));
 
-  let profileMap: Record<string, FcProfile & { affiliation?: string | null }> = {};
+  const profileMap = new Map<string, FcProfile>();
   let residentNumbersByFcId: Record<string, string | null> = {};
-  if (residentIds.length > 0) {
+  if (profileLookupCandidates.length > 0) {
     const { data: profiles, error: pError } = await supabase
       .from('fc_profiles')
       .select('id, name, address, phone, affiliation')
-      .in('phone', residentIds);
+      .in('phone', profileLookupCandidates);
     if (pError) throw pError;
-    profileMap = Object.fromEntries((profiles ?? []).map((p: any) => [p.phone as string, p as FcProfile]));
+    for (const profile of (profiles ?? []) as FcProfile[]) {
+      for (const candidate of buildPhoneCandidates(profile.phone)) {
+        profileMap.set(candidate, profile);
+      }
+    }
 
-    const fcIds = Array.from(new Set((profiles ?? []).map((p: any) => String(p.id ?? '')).filter(Boolean)));
-    if (fcIds.length > 0) {
+    const fcIds = Array.from(new Set(((profiles ?? []) as FcProfile[]).map((profile) => String(profile.id ?? '')).filter(Boolean)));
+    if (fcIds.length > 0 && appSessionToken) {
       try {
         const { data: residentData, error: residentError } = await supabase.functions.invoke('admin-action', {
           body: {
@@ -177,14 +191,17 @@ async function fetchApplicantsLife(adminPhone: string, appSessionToken: string |
   const result: ApplicantRow[] = [];
   for (const reg of rows) {
     const key = reg.resident_id;
-    const profile = profileMap[key];
-    if (!profile) continue;
+    const profile = buildPhoneCandidates(key)
+      .map((candidate) => profileMap.get(candidate))
+      .find(Boolean);
     result.push({
       registrationId: reg.id,
       residentId: key,
       headQuarter: profile?.affiliation ?? '-',
-      name: profile?.name ?? '-',
-      residentNumber: (profile?.id ? residentNumbersByFcId[profile.id] : null) ?? '주민번호 조회 실패',
+      name: profile?.name ?? '이름없음',
+      residentNumber: profile?.id
+        ? ((residentNumbersByFcId[profile.id] ?? null) || '주민번호 조회 실패')
+        : '-',
       address: profile?.address ?? '-',
       phone: profile?.phone ?? key,
       examInfo: buildExamInfo(reg),
@@ -199,6 +216,8 @@ async function fetchApplicantsLife(adminPhone: string, appSessionToken: string |
 export default function ExamManageLifeScreen() {
   const { role, hydrated, readOnly, residentId, appSessionToken } = useSession();
   const canEdit = role === 'admin' && !readOnly;
+  // Mobile manager sessions are normalized to admin + readOnly in hooks/use-session.
+  const canReadApplicants = role === 'admin';
   const assertCanEdit = () => {
     if (!canEdit) {
       throw new Error('본부장은 조회 전용 계정입니다.');
@@ -209,12 +228,10 @@ export default function ExamManageLifeScreen() {
   const [filterStatus, setFilterStatus] = useState<'all' | 'confirmed' | 'pending'>('all');
   const [filterAffiliation, setFilterAffiliation] = useState('전체');
 
-  const canReadResidentNumbers = role === 'admin' || role === 'manager';
-
-  const { data: applicants, isLoading, refetch } = useQuery<ApplicantRow[]>({
+  const { data: applicants, isLoading, error: applicantsError, refetch } = useQuery<ApplicantRow[]>({
     queryKey: ['exam-applicants', EXAM_TYPE, residentId, appSessionToken],
     queryFn: () => fetchApplicantsLife(residentId ?? '', appSessionToken),
-    enabled: canReadResidentNumbers && !!residentId && !!appSessionToken,
+    enabled: hydrated && canReadApplicants && !!residentId,
   });
 
   // Realtime: 시험 접수 변경 시 관리자 화면 갱신
@@ -260,7 +277,7 @@ export default function ExamManageLifeScreen() {
 
   useEffect(() => {
     if (!hydrated) return;
-    if (role && role !== 'admin' && role !== 'manager') {
+    if (role && role !== 'admin') {
       Alert.alert('접근 제한', '총무 또는 본부장만 접근할 수 있는 페이지입니다.');
       router.back();
     }
@@ -474,7 +491,17 @@ export default function ExamManageLifeScreen() {
 
         {isLoading && <ActivityIndicator color={ORANGE} style={{ marginVertical: 20 }} />}
 
-        {!isLoading && filteredApplicants.length === 0 && (
+        {!isLoading && applicantsError && (
+          <View style={styles.emptyState}>
+            <Text style={styles.emptyText}>
+              {applicantsError instanceof Error
+                ? applicantsError.message
+                : '신청자 목록을 불러오지 못했습니다. 새로고침 후 다시 시도해주세요.'}
+            </Text>
+          </View>
+        )}
+
+        {!isLoading && !applicantsError && filteredApplicants.length === 0 && (
           <View style={styles.emptyState}>
             <Text style={styles.emptyText}>검색 결과가 없습니다.</Text>
           </View>
