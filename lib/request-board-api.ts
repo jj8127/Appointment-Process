@@ -656,38 +656,83 @@ export async function rbSendDmMessage(
 
 /* ─── File Upload ─── */
 
-export async function rbUploadAttachments(
-  files: { uri: string; name: string; type: string }[],
-): Promise<{ success: boolean; data?: RbAttachmentMeta[]; error?: string }> {
-  const token = await getStoredToken();
-  const formData = new FormData();
+async function extractUploadErrorMessage(
+  response: Response,
+  fallback: string,
+): Promise<string> {
+  try {
+    const payload = await response.clone().json() as { error?: unknown; message?: unknown };
+    const errorMessage = typeof payload?.error === 'string' ? payload.error.trim() : '';
+    if (errorMessage) {
+      return errorMessage;
+    }
 
-  for (const file of files) {
-    formData.append('files', {
-      uri: file.uri,
-      name: file.name,
-      type: file.type,
-    } as any);
+    const message = typeof payload?.message === 'string' ? payload.message.trim() : '';
+    if (message) {
+      return message;
+    }
+  } catch {
+    // Ignore JSON parse failures and use the fallback message.
   }
 
+  return fallback;
+}
+
+export async function rbUploadAttachments(
+  files: { uri: string; name: string; type: string }[],
+  allowRetry = true,
+): Promise<{ success: boolean; data?: RbAttachmentMeta[]; error?: string }> {
+  const token = await getStoredToken();
+
+  const buildFormData = () => {
+    const formData = new FormData();
+
+    for (const file of files) {
+      formData.append('files', {
+        uri: file.uri,
+        name: file.name,
+        type: file.type,
+      } as any);
+    }
+
+    return formData;
+  };
+
   try {
-    const res = await fetch(`${BASE_URL}/api/messages/attachments/upload`, {
+    const res = await fetchWithTimeout(`${BASE_URL}/api/messages/attachments/upload`, {
       method: 'POST',
       headers: {
         ...(token ? { Authorization: `Bearer ${token}` } : {}),
         // Do NOT set Content-Type - fetch auto-sets multipart/form-data with boundary
       },
-      body: formData,
+      body: buildFormData(),
     });
 
     if (res.status === 401) {
+      if (allowRetry) {
+        const relogin = await bridgeLogin();
+        if (relogin.success) {
+          return rbUploadAttachments(files, false);
+        }
+
+        await clearAuth();
+        return {
+          success: false,
+          error: relogin.error ?? '인증이 만료되었습니다. 앱에서 다시 로그인해주세요.',
+        };
+      }
+
       await clearAuth();
-      return { success: false, error: '인증이 만료되었습니다.' };
+      return { success: false, error: '인증이 만료되었습니다. 앱에서 다시 로그인해주세요.' };
     }
 
     if (!res.ok) {
-      logger.warn(`[rb-api] upload failed: HTTP ${res.status}`);
-      return { success: false, error: `파일 업로드 실패 (${res.status})` };
+      const errorMessage = await extractUploadErrorMessage(
+        res,
+        `파일 업로드 실패 (${res.status})`,
+      );
+      logger.warn(`[rb-api] upload failed: HTTP ${res.status}`, errorMessage);
+      return { success: false, error: errorMessage };
     }
 
     const json = await res.json();
@@ -695,7 +740,7 @@ export async function rbUploadAttachments(
       logger.info(`[rb-api] uploaded ${json.data.attachments.length} files`);
       return { success: true, data: json.data.attachments };
     }
-    return { success: false, error: json.error ?? '파일 업로드 실패' };
+    return { success: false, error: json.error ?? json.message ?? '파일 업로드 실패' };
   } catch (err) {
     logger.warn('[rb-api] upload error', err);
     return { success: false, error: '파일 업로드에 실패했습니다.' };

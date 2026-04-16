@@ -15,7 +15,7 @@
 ## 3. 실행 규칙
 
 - `P0`는 배포 차단 게이트다.
-- 자동 입력이 기본이므로, 자동 입력 성공 케이스와 가입 전 수동 수정 fallback 케이스를 반드시 같이 검증한다.
+- 자동 입력이 기본이므로, 자동 입력 성공 케이스와 가입 전 직접 코드 입력/검색 선택 fallback 케이스를 반드시 같이 검증한다.
 - 한 케이스 실행 전후로 테스트 계정/기기 상태를 초기화하거나, 초기화가 불가능하면 notes에 잔여 상태를 남긴다.
 - PASS라도 화면 증적만으로 끝내지 말고, 가능하면 서버 로그 또는 DB 검증을 함께 남긴다.
 - 추천인 테이블 direct client access는 금지되어 있으므로, confirm/운영 조회 케이스는 trusted Edge Function 또는 server route 호출 증적까지 남긴다.
@@ -26,6 +26,7 @@
   - repo source: `20260401000002_reassert_get_invitee_referral_code_service_role_only.sql` 이후 `get_invitee_referral_code(uuid)`는 `service_role` only
   - runtime rollout 미검증이면 PASS 대신 `NOT_RUN` 또는 `BLOCKED`
 - self-service 조회 문서는 현재 hook 경로 `hooks/use-my-referral-code.ts -> get-my-referral-code`를 기준으로 맞춘다.
+- self-service `RF-SELF-*`는 `appSessionToken`만 만료된 상태(bridge token 유효), 둘 다 만료된 상태(relogin CTA), plain admin/developer/linked designer 비대상 상태를 구분해 기록한다.
 - 관리자 invitee 코드 조회 케이스는 사용자 의미를 `가입 시 사용한 추천코드`로 기록한다. 내부 lookup order를 이유로 `추천인 현재 활성 코드`라고 풀어 쓰지 않는다.
 - `RF-DATA-02`는 inviter가 이후 코드를 rotate해도 confirmed attribution이 있으면 historical signup code가 우선 표시되는지까지 확인해야 PASS다.
 - `RF-SEC-03`, `RF-SEC-04`는 `set-password` direct/duplicate 호출 hardening을 검증한다. source review만으로 PASS 처리하지 않는다.
@@ -55,6 +56,7 @@
 - `RF-CODE-05` 한 추천인이 여러 가입자를 추천 가능
 - `RF-CODE-06` 한 가입자는 최종 추천인 1명만 가짐
 - `RF-CODE-07` Android 추천코드 입력 시 소문자가 대문자 1회로만 정규화되고 중복 문자(`JJ`)가 생기지 않음
+- `RF-CODE-08` 회원가입 화면에서 이름/소속/추천코드 검색으로 추천인을 선택해도 최종 저장은 유효한 추천코드 기준으로 수렴함
 - `RF-SELF-01` FC/본부장 self-service 추천코드 조회는 현재 runtime hook(`get-my-referral-code`) 기준으로 active code를 반환함
 - `RF-SELF-02` FC/본부장 self-service 추천인 변경은 trusted path로 현재 추천인 표시와 attribution/event audit trail을 함께 갱신하고, 저장 직후 같은 화면의 direct recommender/current recommender가 재진입 없이 즉시 갱신됨
 - `RF-SELF-03` FC/본부장 self-service `app/referral.tsx`는 `나를 추천한 사람` 카드에 direct recommender 1명만 노출하고 `내가 추천한 사람들` tree는 attribution과 `recommender_fc_id` 구조화 링크를 함께 반영해야 하며, `depth:2` 초기 로드 뒤 descendant lazy expand가 absolute depth 스타일을 유지하고 1단계 background prefetch로 다음 expand를 보조해야 하며, direct recommender card + subtree drill-down이 caller 자기 서브트리 범위 안에서만 동작하고 tree read 실패 시에도 기존 추천인 사용자는 같은 화면에서 변경 UI를 계속 열 수 있으며 Android production build에서 render crash(`ReactClippingViewManager.addView`, `dispatchGetDisplayList null child`) 없이 진입/편집/새로고침이 가능해야 함
@@ -62,7 +64,7 @@
 ### 5.2 초대링크
 
 - `RF-LINK-01` 앱 설치 상태에서 초대링크 진입 후 자동 추천 확정
-- `RF-LINK-02` 앱 미설치 상태에서는 자동 복원이 없고 수동 추천코드 fallback이 필요하며, iOS 공유 문구는 direct App Store URL 또는 명시적 검색 안내를 포함함
+- `RF-LINK-02` 앱 미설치 상태에서는 자동 복원이 없고 직접 코드 입력 또는 검색 선택 fallback이 필요하며, iOS 공유 문구는 direct App Store URL 또는 명시적 검색 안내를 포함함
 - `RF-LINK-03` 링크 자동 추천 후 수동 코드 입력 시 우선순위 적용
 - `RF-LINK-04` 변조/만료 링크 graceful fallback
 
@@ -120,9 +122,11 @@
 - `안전 자동 정리`는 처리 수/건너뜀 수/실패 수 요약과 실제 DB 반영 건수가 일치하는지 확인한다.
 - trusted API 경로 케이스는 함수 호출 payload, 응답, service 로그 중 최소 1개를 포함한다.
 - self-service 조회 케이스는 현재 hook 경로(`get-my-referral-code`)와 FC/본부장 공통 응답 계약을 함께 남긴다.
+- self-service 세션 복구 케이스는 `refresh-app-session` 호출 여부, bridge token 유효성, relogin CTA 노출 여부를 함께 남긴다.
 - self-service invitee 목록 케이스는 `referral_attributions` 개수와 `recommender_fc_id` 구조화 링크 개수를 함께 대조하고, 구조화 링크만 있는 invitee도 목록에 포함되는지 확인한다.
 - self-service tree 케이스는 `get-referral-tree` 응답의 `ancestors`, `descendants`, `truncated`와 node expand 후 후속 요청 결과를 함께 남긴다.
 - depth 2 밖의 deeper node를 펼칠 때는 subtree-relative `node_depth`가 화면 absolute depth로 정규화되어 top-level 강조색이 다시 붙지 않는지, prefetch가 끝난 node는 중복 요청 없이 즉시 열리는지 함께 확인한다.
+- `/referral` 최초 진입이 로그인 세션만 살아 있고 referral `appSessionToken`은 만료된 상태여도, bridge token이 유효하면 조회/저장이 같은 화면에서 자동 복구되는지 확인한다.
 - Android `/referral` 안정성 케이스는 production build에서 첫 진입, edit mode 전환, pull-to-refresh, tree/error 상태 전환을 최소 1회씩 밟고 `null child at index` / `ReactClippingViewManager.addView` 크래시가 없는지 확인한다.
 - 본부장 보조 링크 케이스는 모바일 화면에서 FC 미노출, 본부장 노출, 외부 브라우저 open만 확인하고 graph 자체 사용성 검증은 `RF-ADMIN-07/08`로 분리한다.
 - 추천코드 입력 회귀는 실제 입력 문자열(`j -> J`, `ab -> AB`)과 결과 화면을 함께 남긴다.

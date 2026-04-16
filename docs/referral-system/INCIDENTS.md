@@ -46,6 +46,7 @@
 
 | ID | 날짜 | 제목 | linkedCases | 상태 |
 | --- | --- | --- | --- | --- |
+| INC-016 | 2026-04-16 | 로그인 세션과 referral self-service `appSessionToken` 만료를 분리해 로그인돼도 `/referral`에서 다시 인증이 필요해짐 | `RF-SELF-01`, `RF-SELF-02`, `RF-SELF-03` | fixed |
 | INC-015 | 2026-04-14 | depth 2 preload와 subtree-relative lazy expand를 같은 tree contract로 정규화하지 않아 deeper branch가 느리고 스타일도 어긋남 | `RF-SELF-03` | fixed |
 | INC-014 | 2026-04-10 | Android production `/referral` 화면이 keyboard-aware scroll + 다단계 조건부 렌더 조합에서 view hierarchy crash를 냄 | `RF-SELF-03` | fixed |
 | INC-013 | 2026-04-10 | inline self-service tree 흡수 후 저장 동기화/실패 fallback/iPhone share parity가 같이 어긋남 | `RF-SELF-02`, `RF-SELF-03`, `RF-LINK-02` | fixed |
@@ -97,6 +98,43 @@
   - RF-SELF-03으로 `depth:2` initial load, deeper node expand, stale recommender fallback 부재, background prefetch 유무를 함께 확인한다.
 - notes:
   - 이번 세션에서는 helper test + lint까지 반영했고, 실제 FC/본부장 on-device에서 하기홍 -> 박충희 체감 속도 개선과 네트워크 중복 제거는 별도 runtime evidence가 필요하다.
+
+## INC-016 | 2026-04-16 | 로그인 세션과 referral self-service `appSessionToken` 만료를 분리해 로그인돼도 `/referral`에서 다시 인증이 필요해짐
+
+- symptom:
+  - 사용자는 가람in 앱 안에서 이미 로그인돼 있는데도 `/referral` 진입 시 `인증이 필요합니다.`가 뜨고, 추천인 조회/검색/저장이 전부 멈췄다.
+  - 특히 데이터는 정상인데 특정 추천인 이름에서만 인증이 막힌 것처럼 보여 원인을 사람/코드 데이터 문제로 오해하기 쉬웠다.
+- impact:
+  - FC/본부장 추천인 self-service 핵심 경로가 로그인 유지 상태에서도 임의로 끊기고, 사용자는 다시 로그인해야 하는지 자체를 판단하기 어려웠다.
+- trigger:
+  - 2026-04-16 운영 제보로 “이미 로그인돼 있는데 추천인 코드 화면에서 인증 필요가 뜨고 진행이 안 된다”는 보고가 들어왔을 때.
+- rootCause:
+  - 추천인 self-service는 앱 전체 로그인 세션과 별개 `appSessionToken`을 요구하는데, 해당 토큰 만료를 UI 로그인 상태와 함께 복구/설명하지 않았다.
+  - referral functions는 missing/expired token을 모두 generic `unauthorized`로만 반환했고, 클라이언트도 stored bridge token으로 silent refresh를 시도하지 않았다.
+- fix:
+  - `_shared/request-board-auth.ts`에 `parseRequestBoardBridgeToken`, `requireAppSessionFromRequest`, `missing/expired/invalid_app_session` 구분 로직을 추가했다.
+  - `refresh-app-session` Edge Function을 새로 만들어 stored request_board bridge token으로 FC/본부장 전용 referral `appSessionToken`을 1회 재발급하도록 연결했다.
+  - `hooks/use-referral-app-session.ts`를 추가해 `get-my-referral-code`, `get-referral-tree`, 추천인 검색/저장 경로가 자동 refresh 후 재시도하거나, bridge token까지 없으면 relogin CTA를 띄우게 했다.
+  - `/referral`은 generic unauthorized 대신 `세션이 만료되었습니다. 다시 로그인해주세요.`와 relogin CTA를 보여주도록 바꿨다.
+- linkedCases:
+  - RF-SELF-01
+  - RF-SELF-02
+  - RF-SELF-03
+- evidence:
+  - 코드 변경: `hooks/use-referral-app-session.ts`, `hooks/use-my-referral-code.ts`, `hooks/use-referral-tree.ts`, `app/referral.tsx`
+  - Edge Function: `supabase/functions/refresh-app-session/index.ts`
+  - shared auth: `supabase/functions/_shared/request-board-auth.ts`
+  - 정적 검증: `npx eslint app/referral.tsx hooks/use-my-referral-code.ts hooks/use-referral-app-session.ts hooks/use-referral-tree.ts hooks/use-session.tsx lib/request-board-api.ts`
+- reproduction:
+  1. 앱 로그인 세션은 유지한 채 referral `appSessionToken`만 만료된 상태를 만든다.
+  2. `/referral`에 진입하거나 추천인 검색/저장을 시도한다.
+  3. 기존 구현에서는 generic `인증이 필요합니다.`가 뜨고 사용자가 진행할 수 없었다.
+- regressionCheck:
+  - RF-SELF-01로 `appSessionToken`만 만료된 상태에서 자동 복구 후 조회가 되는지 확인한다.
+  - RF-SELF-02로 저장 시 same-screen refresh와 relogin fallback을 다시 확인한다.
+  - RF-SELF-03으로 bridge token까지 만료된 경우 relogin CTA가 뜨는지 확인한다.
+- notes:
+  - 이번 세션에서는 lint/governance 수준 검증만 수행했고, 실제 on-device runtime evidence는 별도 후속이 필요하다.
 
 ## INC-014 | 2026-04-10 | Android production `/referral` 화면이 keyboard-aware scroll + 다단계 조건부 렌더 조합에서 view hierarchy crash를 냄
 

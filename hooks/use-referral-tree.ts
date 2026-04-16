@@ -10,9 +10,9 @@ import {
   normalizeSubtreeChildNodes,
   sortDescendants,
 } from '@/lib/referral-tree';
-import { supabase } from '@/lib/supabase';
 
 import { useSession } from './use-session';
+import { useReferralAppSession } from './use-referral-app-session';
 
 export type ReferralTreeRoot = {
   fcId: string;
@@ -62,65 +62,9 @@ function mergeUniqueDescendants(current: DescendantNode[], incoming: DescendantN
   return Array.from(map.values()).sort(sortDescendants);
 }
 
-async function toFunctionError(error: unknown, fallback: string) {
-  if (!error || typeof error !== 'object' || !('context' in error)) {
-    return error instanceof Error ? error : new Error(fallback);
-  }
-
-  const response = (error as { context?: unknown }).context;
-  if (!(response instanceof Response)) {
-    return error instanceof Error ? error : new Error(fallback);
-  }
-
-  try {
-    const payload = await response.clone().json() as { message?: string };
-    if (typeof payload?.message === 'string' && payload.message.trim()) {
-      return new Error(payload.message.trim());
-    }
-  } catch {
-    // Ignore body parse failure and fall back to the original error.
-  }
-
-  return error instanceof Error ? error : new Error(fallback);
-}
-
-async function invokeReferralTree(
-  appSessionToken: string,
-  body: { fcId?: string; depth?: number },
-) {
-  const { data, error } = await supabase.functions.invoke<ReferralTreeResponse>(
-    'get-referral-tree',
-    {
-      body,
-      headers: {
-        'x-app-session-token': appSessionToken,
-      },
-    },
-  );
-
-  if (error) {
-    throw await toFunctionError(error, '추천 관계를 불러오지 못했습니다.');
-  }
-  if (!data?.ok || !data.root) {
-    throw new Error(data?.message ?? '추천 관계를 불러오지 못했습니다.');
-  }
-
-  const sortedDescendants = (data.descendants ?? []).slice().sort(sortDescendants);
-
-  return {
-    root: data.root,
-    ancestors: data.ancestors ?? [],
-    descendants: sortedDescendants,
-    depth: Number(data.depth ?? body.depth ?? 2),
-    truncated: computeReferralTreeTruncated({
-      root: data.root,
-      descendants: sortedDescendants,
-    }),
-  } satisfies ReferralTreeData;
-}
-
 export function useReferralTree(opts: { fcId?: string; depth?: number }) {
-  const { role, residentId, appSessionToken, isRequestBoardDesigner, readOnly } = useSession();
+  const { role, residentId, isRequestBoardDesigner, readOnly } = useSession();
+  const { invokeReferralFunction } = useReferralAppSession();
   const queryClient = useQueryClient();
   const canUseReferralSelfService =
     !isRequestBoardDesigner && (role === 'fc' || (role === 'admin' && readOnly));
@@ -131,20 +75,41 @@ export function useReferralTree(opts: { fcId?: string; depth?: number }) {
     () => ['referral-tree', residentId, opts.fcId ?? 'self', depth] as const,
     [residentId, opts.fcId, depth],
   );
+  const invokeReferralTree = useCallback(async (
+    body: { fcId?: string; depth?: number },
+  ) => {
+    const data = await invokeReferralFunction<ReferralTreeResponse>('get-referral-tree', {
+      body,
+      fallbackMessage: '추천 관계를 불러오지 못했습니다.',
+    });
+
+    if (!data.root) {
+      throw new Error(data.message ?? '추천 관계를 불러오지 못했습니다.');
+    }
+
+    const sortedDescendants = (data.descendants ?? []).slice().sort(sortDescendants);
+
+    return {
+      root: data.root,
+      ancestors: data.ancestors ?? [],
+      descendants: sortedDescendants,
+      depth: Number(data.depth ?? body.depth ?? 2),
+      truncated: computeReferralTreeTruncated({
+        root: data.root,
+        descendants: sortedDescendants,
+      }),
+    } satisfies ReferralTreeData;
+  }, [invokeReferralFunction]);
 
   const query = useQuery({
     queryKey,
     queryFn: async () => {
-      if (!appSessionToken) {
-        throw new Error('추천 관계를 확인하려면 다시 로그인해주세요.');
-      }
-
-      return invokeReferralTree(appSessionToken, {
+      return invokeReferralTree({
         ...(opts.fcId ? { fcId: opts.fcId } : {}),
         depth,
       });
     },
-    enabled: canUseReferralSelfService && Boolean(residentId) && Boolean(appSessionToken),
+    enabled: canUseReferralSelfService && Boolean(residentId),
     staleTime: 2 * 60 * 1000,
     gcTime: 10 * 60 * 1000,
   });
@@ -183,10 +148,6 @@ export function useReferralTree(opts: { fcId?: string; depth?: number }) {
   }, [queryClient, queryKey]);
 
   const loadChildrenOf = useCallback(async (fcId: string) => {
-    if (!appSessionToken) {
-      throw new Error('추천 관계를 확인하려면 다시 로그인해주세요.');
-    }
-
     const currentTree = queryClient.getQueryData<ReferralTreeData>(queryKey);
     if (currentTree && hasLoadedDirectChildren(currentTree, fcId)) {
       return getDirectChildren(currentTree.descendants, fcId);
@@ -199,7 +160,7 @@ export function useReferralTree(opts: { fcId?: string; depth?: number }) {
 
     const fallbackParentDepth = currentTree ? getNodeAbsoluteDepth(currentTree, fcId) ?? 0 : 0;
     const request = (async () => {
-      const subtree = await invokeReferralTree(appSessionToken, { fcId, depth: 1 });
+      const subtree = await invokeReferralTree({ fcId, depth: 1 });
       const fallbackChildNodes = normalizeSubtreeChildNodes(
         subtree.descendants,
         fcId,
@@ -254,7 +215,7 @@ export function useReferralTree(opts: { fcId?: string; depth?: number }) {
 
     inFlightLoadsRef.current.set(fcId, request);
     return request;
-  }, [appSessionToken, queryClient, queryKey]);
+  }, [invokeReferralTree, queryClient, queryKey]);
 
   const prefetchVisibleChildrenOf = useCallback((fcId: string) => {
     const currentTree = queryClient.getQueryData<ReferralTreeData>(queryKey);
@@ -292,6 +253,7 @@ export function useReferralTree(opts: { fcId?: string; depth?: number }) {
     data: query.data,
     isLoading: query.isLoading,
     isError: query.isError,
+    error: query.error,
     refetch,
     loadChildrenOf,
     hasLoadedChildrenOf,

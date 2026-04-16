@@ -7,6 +7,81 @@
 
 ---
 
+## <a id="20260416-referral-app-session-refresh-and-message-upload-fix"></a> 2026-04-16 | 추천인 app-session silent refresh + GaramLink 첨부 업로드 재인증 정렬
+
+**배경**:
+- 사용자 제보 기준으로 로그인은 유지되는데 `/referral`에서만 `인증이 필요합니다`가 뜨고, 추천인 검색/저장이 진행되지 않는 상태가 발생했다.
+- 원인은 로그인 유지에 쓰는 request_board bridge 세션과 referral self-service가 요구하는 `appSessionToken`이 분리돼 있는데, `appSessionToken` 만료 시 bridge token으로 복구하는 경로가 없었던 것이다.
+- 같은 세션에서 GaramLink 임베디드 메신저는 이미지/첨부 업로드가 401 이후 바로 실패했고, 서버가 준 상세 오류 대신 generic 업로드 실패만 보일 수 있었다.
+
+**조치**:
+- `supabase/functions/_shared/request-board-auth.ts`
+  - app session / bridge token을 `missing`, `expired`, `invalid`로 구분하는 상세 parser를 추가했다.
+  - 요청에서 referral app session을 읽는 공용 helper를 `requireAppSessionFromRequest`로 정리했다.
+- `supabase/functions/refresh-app-session/index.ts`
+  - 유효한 request_board bridge token을 받아 FC/본부장(`manager`)에 한해 새 `appSessionToken`을 재발급하는 function을 추가했다.
+  - plain `admin`, `designer`는 `forbidden`으로 거절해 referral self-service 범위를 넓히지 않도록 고정했다.
+- `hooks/use-referral-app-session.ts`
+  - current token -> `refresh-app-session` -> 원 요청 1회 retry -> 실패 시 토큰 정리 + relogin error 반환 흐름을 공통 helper로 묶었다.
+- `hooks/use-my-referral-code.ts`, `hooks/use-referral-tree.ts`, `app/referral.tsx`
+  - self-service 조회/검색/저장/tree fetch가 모두 같은 helper를 사용하도록 바꿨다.
+  - bridge token까지 없는 경우 generic auth 문구 대신 relogin CTA를 띄우고, spinner가 멈추지 않는 상태를 막았다.
+- `hooks/use-session.tsx`
+  - 새 `appSessionToken`을 저장소와 메모리 상태에 함께 반영하는 `replaceAppSessionToken` 경로를 추가했다.
+- `lib/request-board-api.ts`
+  - `rbUploadAttachments()`가 401에서 bridge-login을 1회 재시도하고, non-OK 응답은 서버 JSON의 `error/message`를 우선 surface하도록 정리했다.
+- `docs/referral-system/*`, `docs/handbook/*`, `.claude/*`, `.codex/harness/*`, `AGENTS.md`
+  - split session root cause, `refresh-app-session`, relogin CTA, P0 test coverage를 추천인 SSOT와 작업 기록에 반영했다.
+
+**결과**:
+- 로그인 사용자는 `appSessionToken`만 만료된 경우 `/referral` 조회/검색/저장이 bridge token 기반 silent refresh 뒤 이어서 동작한다.
+- bridge token까지 없거나 만료되면 추천인 화면은 더 이상 generic auth failure로 머무르지 않고, 명시적인 재로그인 CTA를 보여준다.
+- GaramLink 첨부 업로드는 request_board auth가 401로 만료된 경우 1회 자동 재인증을 시도하고, MIME/auth 같은 서버 상세 오류를 사용자까지 전달할 수 있게 됐다.
+
+**검증**:
+- 통과: `npx eslint app/referral.tsx hooks/use-my-referral-code.ts hooks/use-referral-app-session.ts hooks/use-referral-tree.ts hooks/use-session.tsx lib/request-board-api.ts`
+- 통과: `node scripts/ci/check-governance.mjs`
+- 미실행: `deno check` / live Supabase Edge Function invoke (`deno` 미설치)
+- 미실행: 실제 FC/본부장 계정으로 `appSessionToken`만 만료된 상태의 `/referral` silent refresh, 두 토큰 모두 없는 relogin CTA, GaramLink HEIC/WEBP 업로드 on-device 검증
+
+---
+
+## <a id="20260416-signup-referral-search-alignment"></a> 2026-04-16 | 회원가입 추천인 검색 계약 정렬
+
+**배경**:
+- 사용자 확인 기준으로 추천인 입력 surface가 두 곳(`app/signup.tsx`, 로그인 후 `/referral`)인데, 실제로는 `/referral`만 이름/소속/추천코드 검색을 지원하고 회원가입은 여전히 코드 direct input만 받고 있었다.
+- 문구도 signup은 `추천 코드 (선택)`, `/referral`은 `이름, 소속 또는 추천 코드로 등록/변경`으로 갈라져 있어 같은 추천인 도메인인데 입력 계약이 달라 보였다.
+- signup은 비로그인 path라 `/referral`의 `search-fc-for-referral`을 그대로 재사용할 수 없고, app-session 경계를 넘지 않는 별도 trusted search path가 필요했다.
+
+**조치**:
+- `components/ReferralSearchField.tsx`
+  - 이름/소속/추천코드 검색 입력창, 결과 리스트, 공통 placeholder/힌트 문구를 shared component로 분리했다.
+- `app/referral.tsx`
+  - 기존 self-service 검색 UI를 shared component 기반으로 교체해 signup과 같은 검색 copy/결과 surface를 쓰도록 정리했다.
+- `app/signup.tsx`
+  - 기존 8자리 추천코드 direct input과 deep-link prefill 경로는 유지했다.
+  - 그 아래에 `추천인 검색` block을 추가해 이름/소속/추천코드 검색 결과를 고를 수 있게 했고, 선택 결과는 기존 `referralCode`/`referralInviterFcId` 흐름으로 수렴시켰다.
+  - 검색 결과를 선택해도 최종 검증/저장은 기존 `validate-referral-code -> signup-verify/signup-password -> set-password` 계약을 그대로 따른다.
+- `supabase/functions/search-signup-referral/index.ts`
+  - 비로그인 signup 전용 trusted search function을 새로 추가했다.
+  - 공개 입력은 `query`만 받고, 결과는 `fcId`, `name`, `affiliation`, `code`만 반환하도록 제한했다.
+  - active referral code가 있는 completed/signup-eligible 후보만 노출하고, 간단한 IP rate limit을 넣었다.
+- `docs/referral-system/*`, `docs/handbook/*`, `.claude/*`, `.codex/harness/*`, `AGENTS.md`
+  - signup과 `/referral`이 같은 추천인 입력 계약을 가진다는 점, signup은 별도 trusted function을 쓴다는 점, 최종 확정은 여전히 code-based validation이라는 점을 SSOT/handbook/mistake ledger/handoff에 반영했다.
+
+**결과**:
+- 사용자 입장에서 추천인 입력은 회원가입과 로그인 후 self-service 모두 `코드 직접 입력` 또는 `이름/소속/추천코드 검색`으로 이해할 수 있게 정렬됐다.
+- signup은 검색 결과를 선택하더라도 새로운 저장 경로를 만들지 않고 기존 추천코드 검증 흐름을 그대로 사용하므로 downstream signup 확정 contract는 유지된다.
+- `/referral`과 signup이 같은 shared search UI copy를 사용해 다시 한쪽만 code-only로 남는 드리프트를 줄였다.
+
+**검증**:
+- 통과: `npm run lint -- app/signup.tsx app/referral.tsx components/ReferralSearchField.tsx`
+- 통과: `npx eslint --rule "import/no-unresolved: off" supabase/functions/search-signup-referral/index.ts`
+- 통과: `node scripts/ci/check-governance.mjs`
+- 미실행: 실제 기기에서 signup direct code, signup search selection, deep-link prefill, 로그인 후 `/referral` 검색 문구/on-device flow 확인
+
+---
+
 ## <a id="20260414-mobile-exam-manage-applicant-list-embed-fix"></a> 2026-04-14 | 모바일 시험 신청자 목록 dual-FK embed ambiguity 복구
 
 **배경**:

@@ -16,6 +16,13 @@ import type { TextInput as TextInputType } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { KeyboardAwareWrapper, useKeyboardAware } from '@/components/KeyboardAwareWrapper';
+import {
+  REFERRAL_SEARCH_EMPTY_HINT,
+  REFERRAL_SEARCH_MIN_CHARS_HINT,
+  ReferralSearchField,
+  ReferralSearchResultList,
+  type ReferralSearchResult,
+} from '@/components/ReferralSearchField';
 import { useKeyboardPadding } from '@/hooks/use-keyboard-padding';
 import { consumePendingReferralCode, savePendingReferralCode } from '@/lib/referral-deeplink';
 import { useSession } from '@/hooks/use-session';
@@ -66,7 +73,12 @@ export default function SignupScreen() {
   const [referralInviterName, setReferralInviterName] = useState('');
   const [referralInviterFcId, setReferralInviterFcId] = useState<string | null>(null);
   const [referralCodeSource, setReferralCodeSource] = useState<'none' | 'deeplink' | 'manual'>('none');
+  const [referralSearchQuery, setReferralSearchQuery] = useState('');
+  const [referralSearchResults, setReferralSearchResults] = useState<ReferralSearchResult[]>([]);
+  const [referralSearching, setReferralSearching] = useState(false);
+  const [selectedReferral, setSelectedReferral] = useState<ReferralSearchResult | null>(null);
   const referralDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const referralSearchTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [emailLocal, setEmailLocal] = useState('');
   const [emailDomain, setEmailDomain] = useState('');
   const [customDomain, setCustomDomain] = useState('');
@@ -89,6 +101,7 @@ export default function SignupScreen() {
   const referralManualEditVersionRef = useRef(0);
   const pendingReferralApplyRef = useRef<Promise<void> | null>(null);
   const referralValidationRequestRef = useRef(0);
+  const referralSearchRequestRef = useRef(0);
 
   const { scrollToInput } = useKeyboardAware();
 
@@ -227,6 +240,115 @@ export default function SignupScreen() {
     }
   }, []);
 
+  const clearReferralSearchState = useCallback(() => {
+    referralSearchRequestRef.current += 1;
+    if (referralSearchTimerRef.current) {
+      clearTimeout(referralSearchTimerRef.current);
+      referralSearchTimerRef.current = null;
+    }
+    setReferralSearchQuery('');
+    setReferralSearchResults([]);
+    setReferralSearching(false);
+  }, []);
+
+  const runReferralSearch = useCallback(async (query: string) => {
+    const trimmed = query.trim();
+    if (trimmed.length < 2) {
+      referralSearchRequestRef.current += 1;
+      setReferralSearchResults([]);
+      setReferralSearching(false);
+      return;
+    }
+
+    const requestId = referralSearchRequestRef.current + 1;
+    referralSearchRequestRef.current = requestId;
+    setReferralSearching(true);
+
+    try {
+      const { data, error } = await supabase.functions.invoke<{
+        ok: boolean;
+        results?: ReferralSearchResult[];
+      }>('search-signup-referral', {
+        body: { query: trimmed },
+      });
+
+      if (requestId !== referralSearchRequestRef.current) return;
+
+      if (!error && data?.ok) {
+        setReferralSearchResults(data.results ?? []);
+      } else {
+        setReferralSearchResults([]);
+      }
+    } catch {
+      if (requestId === referralSearchRequestRef.current) {
+        setReferralSearchResults([]);
+      }
+    } finally {
+      if (requestId === referralSearchRequestRef.current) {
+        setReferralSearching(false);
+      }
+    }
+  }, []);
+
+  const handleReferralSearchChange = (text: string) => {
+    setReferralSearchQuery(text);
+    setSelectedReferral(null);
+
+    if (referralSearchTimerRef.current) {
+      clearTimeout(referralSearchTimerRef.current);
+      referralSearchTimerRef.current = null;
+    }
+
+    if (text.trim().length < 2) {
+      referralSearchRequestRef.current += 1;
+      setReferralSearchResults([]);
+      setReferralSearching(false);
+      return;
+    }
+
+    referralSearchTimerRef.current = setTimeout(() => {
+      void runReferralSearch(text);
+    }, 350);
+  };
+
+  const handleReferralSearchSelect = (item: ReferralSearchResult) => {
+    const nextCode = String(item.code ?? '').trim().toUpperCase();
+    if (!nextCode) return;
+
+    referralManualEditVersionRef.current += 1;
+    referralCodeRef.current = nextCode;
+    referralCodeSourceRef.current = 'manual';
+    setReferralCode(nextCode);
+    setReferralCodeSource('manual');
+    setReferralStatus('idle');
+    setReferralInviterName('');
+    setReferralInviterFcId(null);
+    setSelectedReferral(item);
+    recommenderRef.current?.setNativeProps({ text: nextCode });
+
+    if (referralDebounceRef.current) {
+      clearTimeout(referralDebounceRef.current);
+      referralDebounceRef.current = null;
+    }
+
+    clearReferralSearchState();
+    void validateReferralCode(nextCode, 'manual');
+  };
+
+  const handleClearSelectedReferral = () => {
+    referralManualEditVersionRef.current += 1;
+    referralCodeRef.current = '';
+    referralCodeSourceRef.current = 'manual';
+    setReferralCode('');
+    setReferralCodeSource('manual');
+    setReferralStatus('idle');
+    setReferralInviterName('');
+    setReferralInviterFcId(null);
+    setSelectedReferral(null);
+    recommenderRef.current?.setNativeProps({ text: '' });
+    clearReferralSearchState();
+  };
+
   const handleReferralCodeChange = (text: string) => {
     const upper = text.toUpperCase();
     referralManualEditVersionRef.current += 1;
@@ -237,6 +359,7 @@ export default function SignupScreen() {
     setReferralStatus('idle');
     setReferralInviterName('');
     setReferralInviterFcId(null);
+    setSelectedReferral(null);
     if (referralDebounceRef.current) clearTimeout(referralDebounceRef.current);
     referralDebounceRef.current = setTimeout(() => validateReferralCode(upper, 'manual'), 400);
   };
@@ -248,6 +371,7 @@ export default function SignupScreen() {
 
   useEffect(() => () => {
     if (referralDebounceRef.current) clearTimeout(referralDebounceRef.current);
+    if (referralSearchTimerRef.current) clearTimeout(referralSearchTimerRef.current);
   }, []);
 
   useEffect(() => {
@@ -290,6 +414,8 @@ export default function SignupScreen() {
       setReferralCodeSource('deeplink');
       setReferralInviterName('');
       setReferralInviterFcId(null);
+      setSelectedReferral(null);
+      clearReferralSearchState();
       recommenderRef.current?.setNativeProps({ text: normalizedCode });
       await validateReferralCode(normalizedCode, 'deeplink');
     })();
@@ -301,7 +427,7 @@ export default function SignupScreen() {
     });
 
     return pendingReferralApplyRef.current;
-  }, [validateReferralCode]);
+  }, [clearReferralSearchState, validateReferralCode]);
 
   useFocusEffect(
     useCallback(() => {
@@ -454,11 +580,11 @@ export default function SignupScreen() {
           </View>
 
           <View style={styles.field}>
-            <Text style={styles.label}>추천 코드 (선택)</Text>
+            <Text style={styles.label}>추천인 (선택)</Text>
             <TextInput
               ref={recommenderRef}
               style={styles.input}
-              placeholder="8자리 추천 코드"
+              placeholder="추천 코드 직접 입력 (8자리)"
               placeholderTextColor={COLORS.text.muted}
               onChangeText={handleReferralCodeChange}
               onBlur={handleReferralCodeBlur}
@@ -485,6 +611,52 @@ export default function SignupScreen() {
                 유효하지 않은 추천 코드입니다
               </Text>
             )}
+            <Text style={styles.referralHelperText}>
+              추천 코드를 직접 입력하거나 아래에서 이름, 소속, 추천 코드로 검색해 선택할 수 있어요.
+            </Text>
+            <View style={styles.referralSearchSection}>
+              <Text style={styles.referralSearchLabel}>추천인 검색</Text>
+              <ReferralSearchField
+                searchQuery={referralSearchQuery}
+                searching={referralSearching}
+                onChangeText={handleReferralSearchChange}
+                onClear={clearReferralSearchState}
+              />
+              {referralSearchQuery.trim().length > 0 && referralSearchQuery.trim().length < 2 && (
+                <Text style={styles.referralSearchHint}>{REFERRAL_SEARCH_MIN_CHARS_HINT}</Text>
+              )}
+              {referralSearchQuery.trim().length >= 2 && !referralSearching && referralSearchResults.length === 0 && (
+                <Text style={styles.referralSearchHint}>{REFERRAL_SEARCH_EMPTY_HINT}</Text>
+              )}
+              {referralSearchResults.length > 0 && (
+                <ReferralSearchResultList
+                  results={referralSearchResults}
+                  onSelect={handleReferralSearchSelect}
+                />
+              )}
+              {selectedReferral && (
+                <View style={styles.selectedReferralWrap}>
+                  <View style={styles.selectedReferralInfo}>
+                    <View style={styles.selectedReferralText}>
+                      <Text style={styles.selectedReferralName} numberOfLines={1}>
+                        {selectedReferral.name}
+                      </Text>
+                      <Text style={styles.selectedReferralAffiliation} numberOfLines={1}>
+                        {selectedReferral.affiliation}
+                      </Text>
+                    </View>
+                    <View style={styles.selectedReferralCodeBadge}>
+                      <Text style={styles.selectedReferralCode}>
+                        {selectedReferral.code}
+                      </Text>
+                    </View>
+                  </View>
+                  <Pressable onPress={handleClearSelectedReferral} hitSlop={8}>
+                    <Text style={styles.selectedReferralClear}>선택 해제</Text>
+                  </Pressable>
+                </View>
+              )}
+            </View>
           </View>
 
           <View style={styles.field}>
@@ -781,6 +953,73 @@ const styles = StyleSheet.create({
     backgroundColor: COLORS.white,
     fontSize: TYPOGRAPHY.fontSize.md,
     height: 44,
+  },
+  referralHelperText: {
+    fontSize: TYPOGRAPHY.fontSize.sm,
+    color: COLORS.text.secondary,
+    lineHeight: TYPOGRAPHY.lineHeight.relaxed * TYPOGRAPHY.fontSize.sm,
+    marginTop: 2,
+  },
+  referralSearchSection: {
+    marginTop: SPACING.sm,
+  },
+  referralSearchLabel: {
+    fontSize: TYPOGRAPHY.fontSize.sm,
+    fontWeight: TYPOGRAPHY.fontWeight.bold,
+    color: COLORS.text.primary,
+    marginBottom: 6,
+  },
+  referralSearchHint: {
+    fontSize: TYPOGRAPHY.fontSize.xs,
+    color: COLORS.text.muted,
+    marginTop: 2,
+    marginBottom: SPACING.xs,
+  },
+  selectedReferralWrap: {
+    marginTop: SPACING.xs,
+    gap: 6,
+  },
+  selectedReferralInfo: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: SPACING.sm,
+    paddingHorizontal: 12,
+    paddingVertical: 12,
+    borderRadius: RADIUS.md,
+    backgroundColor: COLORS.background.secondary,
+    borderWidth: 1,
+    borderColor: COLORS.border.light,
+  },
+  selectedReferralText: {
+    flex: 1,
+  },
+  selectedReferralName: {
+    fontSize: TYPOGRAPHY.fontSize.sm,
+    fontWeight: TYPOGRAPHY.fontWeight.bold,
+    color: COLORS.text.primary,
+  },
+  selectedReferralAffiliation: {
+    marginTop: 2,
+    fontSize: TYPOGRAPHY.fontSize.xs,
+    color: COLORS.text.secondary,
+  },
+  selectedReferralCodeBadge: {
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    borderRadius: RADIUS.sm,
+    backgroundColor: COLORS.primaryPale,
+  },
+  selectedReferralCode: {
+    fontSize: TYPOGRAPHY.fontSize.xs,
+    fontWeight: TYPOGRAPHY.fontWeight.extrabold,
+    color: COLORS.primary,
+    letterSpacing: 1,
+  },
+  selectedReferralClear: {
+    alignSelf: 'flex-end',
+    fontSize: TYPOGRAPHY.fontSize.xs,
+    fontWeight: TYPOGRAPHY.fontWeight.bold,
+    color: COLORS.primary,
   },
   modalOverlay: {
     flex: 1,

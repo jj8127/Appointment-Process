@@ -2,7 +2,7 @@ doc_id: FC-DATA-REFERRAL
 owner_repo: fc-onboarding-app
 owner_area: data
 audience: developer, operator
-last_verified: 2026-04-13
+last_verified: 2026-04-16
 source_of_truth: supabase/schema.sql + supabase/migrations/20260323000001_add_referral_schema.sql + supabase/migrations/20260325000001_add_referral_code_admin_foundation.sql + supabase/migrations/20260404000001_allow_manager_referral_codes.sql
 
 # Data Handbook: Referral Schema And Admin RPCs
@@ -17,15 +17,24 @@ source_of_truth: supabase/schema.sql + supabase/migrations/20260323000001_add_re
 
 - FC/본부장 self-service current read path는 `hooks/use-my-referral-code.ts -> get-my-referral-code`다.
 - FC/본부장 self-service referral tree path는 `hooks/use-referral-tree.ts -> get-referral-tree -> get_referral_subtree(...)`다.
+- FC/본부장 self-service referral session guard는 `hooks/use-referral-app-session.ts -> refresh-app-session`이다.
 - referral tree의 현재 모바일 기본 surface는 `app/referral.tsx` 내부 섹션이며, `app/referral-tree.tsx`는 legacy 진입을 `/referral`로 보내는 compatibility route만 유지한다.
 - 현재 모바일 상단 surface는 ancestor chain 전체가 아니라 `get-referral-tree.ancestors`의 마지막 노드만 direct recommender 카드로 렌더링한다.
 - 본부장은 앱 UI role이 `admin + readOnly`여도 trusted app session source role이 `manager`면 같은 self-service 대상이다.
 - `get-my-referral-code`는 active code뿐 아니라 현재 추천인 표시 cache(`fc_profiles.recommender`)도 같은 trusted 응답으로 반환한다.
 - `app/referral.tsx`는 current recommender를 direct client `fc_profiles` query로 읽지 않고 위 self-service 응답을 사용한다.
 - `get-referral-tree`는 ancestor chain + descendant subtree를 service-role RPC로 읽고, descendant lazy expand도 같은 trusted path를 다시 사용한다.
+- self-service functions(`get-my-referral-code`, `get-referral-tree`, `search-fc-for-referral`, `update-my-recommender`, legacy `get-fc-referral-code`, `get-my-invitees`)는 missing/expired/invalid app session을 구분해 반환하고, 클라이언트는 bridge token으로 1회 silent refresh 후 재시도한다.
+- `refresh-app-session`은 request_board bridge token을 다시 검증한 뒤 completed FC와 active manager만 새 referral `appSessionToken`을 발급한다. plain admin/developer phone, linked designer, signup 미완료 FC는 `forbidden`이다.
 - backend는 ancestor chain 전체를 계속 반환하더라도, 모바일 UI는 현재 마지막 ancestor 1명만 표시하는 것이 intended contract다.
 - tree lazy expand 인가는 `requested fcId === self` 또는 `self subtree membership` 기준이어야 하며, FC/본부장이 자기 서브트리 밖 `fcId`를 임의 조회하게 열어두면 안 된다.
 - `update-my-recommender`는 `referral_attributions`를 `manual_entry` / `manual_entry_only` 계약으로 갱신하고, `referral_events`에는 `invitee_fc_id` + `metadata` 기준 `referral_confirmed` audit row를 남겨야 한다.
+
+## signup trusted reads / writes
+
+- 비로그인 회원가입 추천인 검색 current path는 `app/signup.tsx -> search-signup-referral`이다.
+- `search-signup-referral`은 app session 없이 호출되지만, 응답은 `name`, `affiliation`, `code`만 반환하고 전화번호/주민정보 같은 PII를 노출하지 않는다.
+- signup search 결과는 active referral code가 있는 후보만 반환해야 한다. 회원가입 화면이 결과를 선택해도 최종 payload는 기존 `referralCode` + `referralInviterFcId`만 유지하고, `validate-referral-code`를 다시 통과한 뒤 `set-password`가 확정한다.
 
 ## 운영 함수
 

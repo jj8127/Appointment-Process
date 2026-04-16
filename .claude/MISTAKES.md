@@ -30,6 +30,44 @@
 - Verification:
 ```
 
+## 2026-04-16 | Referral Self-Service Session Contract | 로그인 세션과 referral `appSessionToken`을 별도 상태로 두고 만료 복구를 정의하지 않아 로그인 사용자가 `/referral`에서 다시 인증에 막힘
+- Symptom:
+  - 사용자는 이미 `가람in`에 로그인돼 있는데 `/referral` 또는 추천인 저장 시 `인증이 필요합니다`가 뜨고, 추천코드 조회/변경만 막혔다.
+  - 특히 오래된 세션에서는 앱 진입은 되는데 추천인 화면만 열리지 않거나 저장이 진행되지 않는 식으로 보였다.
+- Root cause:
+  - 로그인 유지에 쓰는 request_board bridge 세션과 referral Edge Function이 요구하는 `appSessionToken`이 분리돼 있었지만, `appSessionToken`이 없거나 만료됐을 때 bridge token으로 조용히 재발급하는 경로를 두지 않았다.
+  - referral 함수들도 missing/expired/invalid app session을 모두 generic unauthorized로 뭉개 반환해, 클라이언트가 silent refresh와 재로그인 fallback을 구분할 수 없었다.
+- Why it was missed:
+  - self-service rollout 때 fresh login happy-path만 점검하고, `primary session valid + secondary session expired` 조합을 P0 시나리오로 고정하지 않았다.
+  - 화면에 보이는 메시지만 확인하고 토큰 만료 종류별 auth code contract를 명시적으로 설계하지 않았다.
+- Permanent guardrail:
+  - custom secondary session이 생기면 `primary session valid / secondary session expired` 조합을 반드시 P0 케이스로 문서·테스트·런타임 QA에 넣고, silent refresh 또는 relogin fallback을 코드와 SSOT에 함께 적는다.
+  - authenticated 화면은 generic unauthorized 문구 하나로 끝내지 말고 `missing_*`, `expired_*`, `invalid_*` 코드를 분리해 클라이언트 retry/logout 분기가 가능해야 한다.
+- Related files:
+  - `hooks/use-referral-app-session.ts`, `hooks/use-my-referral-code.ts`, `app/referral.tsx`, `supabase/functions/_shared/request-board-auth.ts`, `supabase/functions/refresh-app-session/index.ts`, `docs/referral-system/test-cases.json`
+- Verification:
+  - `npx eslint app/referral.tsx hooks/use-my-referral-code.ts hooks/use-referral-app-session.ts hooks/use-referral-tree.ts hooks/use-session.tsx lib/request-board-api.ts`
+  - `node scripts/ci/check-governance.mjs`
+
+## 2026-04-16 | Referral Search Contract | signup과 `/referral`의 추천인 검색 계약을 따로 굴려 회원가입 화면만 코드 입력에 고정됨
+- Symptom:
+  - 로그인 후 `/referral`에서는 이름/소속/추천코드 검색으로 추천인을 바꿀 수 있었지만, 비로그인 회원가입 화면은 여전히 `추천 코드 (선택)` direct input만 지원했다.
+  - 사용자 입장에서는 같은 추천인 도메인인데 두 화면의 입력 방식과 안내 문구가 달라 기능이 빠진 것처럼 보였다.
+- Root cause:
+  - 추천인 self-service rollout을 `app/referral.tsx + search-fc-for-referral` 중심으로 진행하면서, 가입 시점 추천인 입력 surface(`app/signup.tsx`)를 같은 contract review 범위에 다시 포함하지 않았다.
+  - 회원가입 검색은 비로그인 path라 별도 trusted search function이 필요했는데, 그 차이를 초기에 explicit contract로 문서화하지 않아 signup은 code-only 상태로 남았다.
+- Why it was missed:
+  - 추천인 기능을 `signup 확정`과 `가입 후 self-service` 두 phase로 나눠 생각하면서, 사용자-visible 입력 계약을 한 surface로 재검토하지 않았다.
+  - 검토 단계에서 안내 문구만 맞는지 본 것이 아니라 기능 parity 자체를 확인했어야 했는데, 실제 runtime path 차이를 뒤늦게 확인했다.
+- Permanent guardrail:
+  - 추천인 입력 surface를 바꿀 때는 `signup`과 `/referral`을 같은 도메인 계약으로 묶어 검토한다. 한쪽만 검색/선택 UI를 갖고 다른 쪽은 code-only로 남겨두지 않는다.
+  - 비로그인 signup path와 app-session self-service path가 다른 경우, auth 차이를 숨기지 말고 별도 trusted function을 명시적으로 두고 문서/테스트 케이스에 둘 다 적는다.
+- Related files:
+  - `app/signup.tsx`, `app/referral.tsx`, `supabase/functions/search-signup-referral/index.ts`, `docs/referral-system/SPEC.md`
+- Verification:
+  - `npm run lint -- app/signup.tsx app/referral.tsx components/ReferralSearchField.tsx`
+  - `npx eslint --rule "import/no-unresolved: off" supabase/functions/search-signup-referral/index.ts`
+
 ## 2026-04-14 | Mobile Exam Applicants | dual FK embed ambiguity를 bare relation으로 읽고, query 실패를 빈 상태로 숨겨 목록 전체가 사라짐
 - Symptom:
   - 가람in 본부장/총무가 `exam-manage`, `exam-manage2`를 열면 시험 신청자가 있는데도 목록이 전혀 보이지 않았다.

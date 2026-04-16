@@ -103,11 +103,11 @@
       "사용자가 초대링크를 클릭한다",
       "스토어로 이동해 앱을 설치한다",
       "첫 실행 후 회원가입 화면으로 진입한다",
-      "추천 정보가 자동 복원되지 않음을 확인한 뒤 추천코드를 수동 입력해 가입을 완료한다"
+      "추천 정보가 자동 복원되지 않음을 확인한 뒤 추천코드를 직접 입력하거나 검색으로 찾아 선택해 가입을 완료한다"
     ],
     "expected": [
       "첫 실행에서 추천 정보가 자동 복원되지 않는다",
-      "회원가입 화면에서 수동 추천코드 입력이 계속 가능하다",
+      "회원가입 화면에서 직접 코드 입력과 검색 선택 fallback이 계속 가능하다",
       "가입 완료 후에는 수동 입력 코드 기준으로 confirmed referral이 생성된다"
     ],
     "evidenceRequired": ["스토어 이동 캡처", "첫 실행 캡처", "서버 로그", "DB 확인"],
@@ -163,6 +163,33 @@
     "expected": ["입력값이 각각 `J`, `AB`, `KCSACZXU`로 1회만 반영된다", "문자가 중복 입력되지 않는다", "입력 중 앱이 추천코드를 검증하더라도 IME 조합을 깨지 않는다"],
     "evidenceRequired": ["실기기 화면 캡처 또는 녹화", "입력 전/후 문자열 기록"],
     "dbAssertions": []
+  },
+  {
+    "id": "RF-CODE-08",
+    "area": "추천코드",
+    "priority": "P1",
+    "platform": ["app", "backend"],
+    "title": "회원가입 화면에서 이름/소속/추천코드 검색으로 추천인을 선택해도 최종 저장은 유효한 추천코드 기준으로 수렴한다",
+    "preconditions": [
+      "활성 추천코드를 가진 inviter 계정이 존재한다",
+      "invitee는 비로그인 상태로 회원가입 화면에 접근할 수 있다"
+    ],
+    "steps": [
+      "회원가입 화면의 추천인 검색 칸에 inviter 이름, 소속 또는 추천코드 일부를 입력한다",
+      "검색 결과에서 추천인을 선택한다",
+      "추천 코드 입력 칸과 inviter 검증 문구를 확인한 뒤 회원가입을 완료한다"
+    ],
+    "expected": [
+      "검색 결과에는 활성 추천코드를 가진 후보만 노출된다",
+      "결과 선택 시 추천 코드 입력 칸이 해당 active code로 채워진다",
+      "최종 추천코드 검증이 통과한다",
+      "가입 완료 후 confirmed referral이 선택한 코드 기준으로 저장된다"
+    ],
+    "evidenceRequired": ["화면 캡처", "서버 로그", "DB 확인"],
+    "dbAssertions": [
+      "confirmed row의 referral_code는 검색 결과에서 선택한 active code와 일치한다",
+      "추천 관계 confirmed row는 1건만 생성된다"
+    ]
   },
   {
     "id": "RF-LINK-04",
@@ -445,22 +472,22 @@
     "area": "추천코드",
     "priority": "P0",
     "platform": ["app", "backend"],
-    "title": "FC/본부장 self-service 추천코드 조회는 현재 runtime hook(`get-my-referral-code`) 기준으로 active code를 반환한다",
-    "preconditions": ["FC 또는 본부장 계정이 appSessionToken을 가진 상태로 로그인되어 있다", "대상 FC가 active referral code를 가지고 있다"],
-    "steps": ["앱에서 FC 또는 본부장 세션으로 `useMyReferralCode` 경로를 실행한다", "`get-my-referral-code` 응답과 화면 표시를 비교한다"],
-    "expected": ["현재 hook이 `get-my-referral-code`를 호출한다", "`Authorization: Bearer <appSessionToken>` 기반 검증이 적용된다", "FC와 본부장 세션 모두 응답으로 active code가 반환된다", "legacy 로컬 세션에 `role=manager`가 남아 있어도 앱 복원 시 `admin + readOnly` UI state로 정규화돼 self-service gate가 유지된다", "현재 추천인 표시는 direct client query가 아니라 같은 trusted 응답의 `recommender` cache를 사용한다"],
+    "title": "FC/본부장 self-service 추천코드 조회는 appSession 만료 시 bridge token으로 자동 복구되고, bridge도 없으면 재로그인을 요구한다",
+    "preconditions": ["FC 또는 본부장 계정이 request_board bridge token을 가진 상태로 로그인되어 있다", "대상 FC가 active referral code를 가지고 있다", "variant A에서는 `appSessionToken`만 만료 또는 삭제하고 bridge token은 유효하게 둔다", "variant B에서는 `appSessionToken`과 bridge token을 모두 제거하거나 만료시킨다"],
+    "steps": ["variant A: 앱에서 FC 또는 본부장 세션으로 `/referral` 또는 `useMyReferralCode` 경로를 연다", "`get-my-referral-code` 첫 호출이 `missing_app_session` 또는 `expired_app_session`으로 응답하면 `refresh-app-session`을 1회 호출한 뒤 원 요청이 자동 재시도되는지 확인한다", "variant B: 두 토큰이 모두 없는 상태에서 다시 같은 화면을 열어 relogin CTA를 확인한다"],
+    "expected": ["현재 hook이 `useReferralAppSession -> get-my-referral-code` 경로를 사용한다", "유효한 bridge token이 있으면 새 `appSessionToken`이 발급되고 같은 화면에서 active code가 반환된다", "FC와 본부장(manager source role) 세션 모두 같은 silent refresh contract를 사용한다", "plain admin/designer bridge token은 `refresh-app-session`에서 `forbidden`으로 거절된다", "bridge token도 없거나 만료되면 generic `인증이 필요합니다` 대신 재로그인 CTA가 노출된다", "현재 추천인 표시는 direct client query가 아니라 같은 trusted 응답의 `recommender` cache를 사용한다"],
     "evidenceRequired": ["네트워크 호출 증적", "서버 로그", "화면 캡처"],
-    "dbAssertions": ["반환된 코드는 해당 FC의 active referral_codes.code 와 일치한다"]
+    "dbAssertions": ["반환된 코드는 해당 FC의 active referral_codes.code 와 일치한다", "조회/refresh path만 실행한 경우 `referral_attributions`와 `referral_events`에는 새 row가 추가되지 않는다"]
   },
   {
     "id": "RF-SELF-02",
     "area": "추천코드",
     "priority": "P0",
     "platform": ["app", "backend"],
-    "title": "FC/본부장 self-service 추천인 변경은 trusted path로 현재 추천인 표시와 attribution/event audit trail을 함께 갱신한다",
-    "preconditions": ["FC 또는 본부장 계정이 appSessionToken을 가진 상태로 로그인되어 있다", "선택 가능한 활성 추천코드 보유 inviter가 존재한다", "추천인 페이지(`/referral`)에 진입할 수 있다"],
-    "steps": ["추천인 페이지에서 이름/소속/추천코드 검색으로 inviter를 선택한다", "저장을 실행한다", "페이지 새로고침 또는 pull-to-refresh 뒤 현재 추천인 표시와 invitee/audit 결과를 확인한다"],
-    "expected": ["추천인 저장은 `update-my-recommender` trusted path로만 수행된다", "저장 성공 시 현재 추천인 표시가 같은 trusted self-service 응답 기준으로 갱신된다", "DB `referral_attributions`는 `manual_entry` / `manual_entry_only` 계약으로 confirmed 또는 overridden 상태를 정리한다", "DB `referral_events`에 `referral_confirmed` audit row가 남는다", "비대상 세션 또는 토큰 누락 상태에서 pull-to-refresh를 해도 spinner가 멈추지 않는 상태로 남지 않는다"],
+    "title": "FC/본부장 self-service 추천인 변경은 appSession 자동 복구 뒤에도 trusted path와 audit trail 계약을 유지한다",
+    "preconditions": ["FC 또는 본부장 계정이 유효한 request_board bridge token으로 로그인되어 있다", "선택 가능한 활성 추천코드 보유 inviter가 존재한다", "추천인 페이지(`/referral`)에 진입할 수 있다", "variant A에서는 `appSessionToken`만 만료 또는 삭제하고 bridge token은 유효하게 둔다"],
+    "steps": ["추천인 페이지에서 이름/소속/추천코드 검색으로 inviter를 선택한다", "`appSessionToken`이 만료된 상태라면 `refresh-app-session` 뒤 `search-fc-for-referral` 또는 `update-my-recommender`가 1회 재시도되는지 확인한다", "저장을 실행한다", "페이지 새로고침 또는 pull-to-refresh 뒤 현재 추천인 표시와 invitee/audit 결과를 확인한다", "bridge token도 없는 상태에서 같은 저장을 시도해 relogin CTA와 spinner 해제를 확인한다"],
+    "expected": ["추천인 검색/저장은 `useReferralAppSession` helper를 통해 current token -> refresh -> 1회 retry 순서로 수행된다", "추천인 저장은 계속 `update-my-recommender` trusted path로만 수행된다", "저장 성공 시 현재 추천인 표시가 같은 trusted self-service 응답 기준으로 갱신된다", "DB `referral_attributions`는 `manual_entry` / `manual_entry_only` 계약으로 confirmed 또는 overridden 상태를 정리한다", "DB `referral_events`에 `referral_confirmed` audit row가 남는다", "bridge token까지 없거나 만료된 상태에서는 무한 spinner/무반응 없이 relogin CTA로 종료된다"],
     "evidenceRequired": ["화면 캡처", "함수 호출 응답", "DB 확인"],
     "dbAssertions": ["대상 invitee의 `fc_profiles.recommender_fc_id`가 선택한 inviter_fc_id로 저장된다", "invitee 기준 confirmed attribution은 최대 1건으로 유지된다", "최근 `referral_confirmed` 이벤트 row의 source는 `manual_entry`이고 metadata.selectionSource는 `manual_entry_only`다"]
   },
@@ -469,10 +496,10 @@
     "area": "추천코드",
     "priority": "P0",
     "platform": ["app", "backend"],
-    "title": "FC/본부장 self-service `/referral`은 direct recommender 1명 카드와 `내가 추천한 사람들` tree를 현재 계약대로 노출한다",
-    "preconditions": ["FC 또는 본부장 계정이 appSessionToken을 가진 상태로 로그인되어 있다", "직접 추천인이 있는 계정 또는 추천인 미등록 빈 상태 계정을 준비할 수 있다", "해당 계정 기준 `fc_profiles.recommender_fc_id`와 descendant 구조화 링크 또는 confirmed attribution fixture를 확인할 수 있다"],
-    "steps": ["앱에서 `/referral` 화면을 연다", "상단 `나를 추천한 사람` 카드가 direct recommender 1명만 보여주는지 확인한다", "하단 `내가 추천한 사람들` tree에서 첫 번째 branch(예: 하기홍)를 펼친다", "그 아래 visible child 중 deeper descendant가 있는 노드(예: 박충희)를 이어서 펼쳐 second expand 동작을 확인한다", "필요 시 tree read 실패 상태에서도 변경 CTA가 유지되는지 확인한다"],
-    "expected": ["상단 카드에는 direct recommender 1명만 표시되고 루트까지의 전체 업라인 경로는 노출되지 않는다", "tree read가 성공했는데 ancestor가 없으면 상단 카드는 빈 상태를 유지하고 stale current recommender fallback을 다시 보여주지 않는다", "direct recommender 카드 값은 `get-referral-tree` 응답의 마지막 ancestor 또는 같은 추천인 구조화 링크와 일치한다", "하단 tree는 구조화 링크와 confirmed evidence를 함께 반영한다", "depth 2 밖의 deeper node를 펼쳐도 subtree-relative depth 때문에 top-level 강조색/스타일이 다시 붙지 않고 실제 중첩 depth와 같은 규칙으로 보인다", "visible expandable child는 background 1단계 prefetch 대상이 될 수 있고, prefetch가 끝난 뒤 이어지는 expand는 중복 요청 없이 즉시 열린다", "tree read 실패 시에도 기존 추천인이 있는 사용자는 같은 화면에서 추천인 변경을 계속 열 수 있다", "Android production build에서 render crash 없이 진입/편집/새로고침이 가능해야 한다"],
+    "title": "FC/본부장 self-service `/referral`은 direct recommender/tree 계약을 유지하면서 세션 만료 상태를 명확히 표면화한다",
+    "preconditions": ["FC 또는 본부장 계정이 로그인되어 있다", "직접 추천인이 있는 계정 또는 추천인 미등록 빈 상태 계정을 준비할 수 있다", "해당 계정 기준 `fc_profiles.recommender_fc_id`와 descendant 구조화 링크 또는 confirmed attribution fixture를 확인할 수 있다", "variant A에서는 `appSessionToken`만 만료 또는 삭제하고 bridge token은 유효하게 둔다", "variant B에서는 bridge token도 제거하거나 만료시킨다"],
+    "steps": ["variant A: 앱에서 `/referral` 화면을 연다", "상단 `나를 추천한 사람` 카드와 하단 `내가 추천한 사람들` tree가 silent refresh 뒤에도 같은 계약으로 렌더되는지 확인한다", "하단 tree에서 첫 번째 branch(예: 하기홍)를 펼친다", "그 아래 visible child 중 deeper descendant가 있는 노드(예: 박충희)를 이어서 펼쳐 second expand/prefetch 동작을 확인한다", "variant B: 두 토큰이 모두 없는 상태에서 다시 `/referral`을 열어 세션 만료 안내와 relogin CTA를 확인한다"],
+    "expected": ["상단 카드에는 direct recommender 1명만 표시되고 루트까지의 전체 업라인 경로는 노출되지 않는다", "silent refresh가 성공하면 tree/direct recommender surface contract는 유지되고 stale current recommender fallback을 다시 보여주지 않는다", "direct recommender 카드 값은 `get-referral-tree` 응답의 마지막 ancestor 또는 같은 추천인 구조화 링크와 일치한다", "하단 tree는 구조화 링크와 confirmed evidence를 함께 반영한다", "depth 2 밖의 deeper node를 펼쳐도 실제 중첩 depth와 같은 규칙으로 보인다", "visible expandable child는 background 1단계 prefetch 대상이 될 수 있고, prefetch가 끝난 뒤 이어지는 expand는 중복 요청 없이 즉시 열린다", "bridge token도 없거나 만료된 경우 generic auth 문구 대신 `세션이 만료되었습니다. 다시 로그인해주세요.` 안내와 relogin CTA가 노출되고, tree error state에서도 CTA가 유지된다", "Android production build에서 render crash 없이 진입/편집/새로고침이 가능해야 한다"],
     "evidenceRequired": ["화면 캡처", "함수 호출 응답", "DB 확인"],
     "dbAssertions": ["직접 추천인 카드에 표시된 대상은 invitee의 `recommender_fc_id` 또는 `get-referral-tree` 응답 마지막 ancestor와 일치한다", "`get-referral-tree` descendants는 caller subtree 범위 안의 하위 관계만 반환한다"]
   }

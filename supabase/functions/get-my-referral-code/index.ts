@@ -2,8 +2,8 @@ import { serve } from 'https://deno.land/std@0.224.0/http/server.ts';
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.45.4';
 import {
   getEnv,
-  getAppSessionTokenFromRequest,
-  parseAppSessionToken,
+  requireAppSessionFromRequest,
+  type AppSessionTokenPayload,
 } from '../_shared/request-board-auth.ts';
 
 // Security: Restrict CORS to specific origins
@@ -52,7 +52,7 @@ async function ensureManagerReferralShadowProfile(managerPhone: string, managerN
   return error;
 }
 
-type SessionPayload = Awaited<ReturnType<typeof parseAppSessionToken>>;
+type SessionPayload = AppSessionTokenPayload;
 
 async function readOptionalJsonBody(req: Request) {
   const raw = await req.text();
@@ -76,7 +76,7 @@ async function resolveSelfReferralCode(params: { session: SessionPayload }) {
 
   const sessionPhone = cleanPhone(session.phone ?? '');
   if (sessionPhone.length !== 11) {
-    return fail('unauthorized', '인증이 필요합니다.');
+    return fail('invalid_app_session', '세션이 유효하지 않습니다. 다시 로그인해주세요.');
   }
 
   let managerAccount: { id: string; name: string | null } | null = null;
@@ -135,7 +135,7 @@ async function resolveSelfReferralCode(params: { session: SessionPayload }) {
   }
 
   if (cleanPhone(String(profile.phone ?? '')) !== sessionPhone) {
-    return fail('unauthorized', '인증이 필요합니다.');
+    return fail('invalid_app_session', '세션이 유효하지 않습니다. 다시 로그인해주세요.');
   }
   const isManagerShadow = profile.is_manager_referral_shadow === true;
   if (profile.signup_completed !== true && !(managerAccount && isManagerShadow)) {
@@ -223,13 +223,9 @@ serve(async (req: Request) => {
   }
 
   // Verify session token from Authorization header
-  const token = getAppSessionTokenFromRequest(req);
-  if (!token) {
-    return fail('unauthorized', '인증이 필요합니다.');
-  }
-  const session = await parseAppSessionToken(token);
-  if (!session) {
-    return fail('unauthorized', '인증이 필요합니다.');
+  const sessionResult = await requireAppSessionFromRequest(req);
+  if (!sessionResult.ok) {
+    return fail(sessionResult.code, sessionResult.message);
   }
 
   const body = await readOptionalJsonBody(req);
@@ -237,5 +233,5 @@ serve(async (req: Request) => {
     return fail('invalid_json', 'Invalid JSON');
   }
 
-  return resolveSelfReferralCode({ session });
+  return resolveSelfReferralCode({ session: sessionResult.session });
 });

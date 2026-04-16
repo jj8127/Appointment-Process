@@ -1,6 +1,10 @@
 import { serve } from 'https://deno.land/std@0.224.0/http/server.ts';
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.45.4';
-import { getAppSessionTokenFromRequest, getEnv, parseAppSessionToken } from '../_shared/request-board-auth.ts';
+import {
+  getEnv,
+  requireAppSessionFromRequest,
+  type AppSessionTokenPayload,
+} from '../_shared/request-board-auth.ts';
 
 const allowedOrigins = (getEnv('ALLOWED_ORIGINS') ?? '').split(',').map(o => o.trim()).filter(Boolean);
 const corsHeaders = {
@@ -30,7 +34,7 @@ function cleanPhone(input: string) {
   return (input ?? '').replace(/[^0-9]/g, '');
 }
 
-type SessionPayload = Awaited<ReturnType<typeof parseAppSessionToken>>;
+type SessionPayload = AppSessionTokenPayload;
 
 async function ensureManagerReferralShadowProfile(managerPhone: string, managerName?: string | null) {
   const { error } = await supabase.rpc('ensure_manager_referral_shadow_profile', {
@@ -98,13 +102,10 @@ serve(async (req: Request) => {
   if (req.method === 'OPTIONS') return new Response('ok', { headers: corsHeaders });
   if (req.method !== 'POST') return fail('method_not_allowed', 'Method not allowed', 405);
 
-  const token = getAppSessionTokenFromRequest(req);
-  if (!token) return fail('unauthorized', '인증이 필요합니다.');
+  const sessionResult = await requireAppSessionFromRequest(req);
+  if (!sessionResult.ok) return fail(sessionResult.code, sessionResult.message);
 
-  const session = await parseAppSessionToken(token);
-  if (!session) return fail('unauthorized', '인증이 필요합니다.');
-
-  const caller = await resolveCallerFcId(session);
+  const caller = await resolveCallerFcId(sessionResult.session);
   if (!caller) return fail('forbidden', '검색할 수 없는 계정입니다.');
 
   // Parse query

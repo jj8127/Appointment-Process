@@ -2,8 +2,8 @@ import { serve } from 'https://deno.land/std@0.224.0/http/server.ts';
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.45.4';
 import {
   getEnv,
-  getAppSessionTokenFromRequest,
-  parseAppSessionToken,
+  requireAppSessionFromRequest,
+  type AppSessionTokenPayload,
 } from '../_shared/request-board-auth.ts';
 
 const allowedOrigins = (getEnv('ALLOWED_ORIGINS') ?? '').split(',').map((origin) => origin.trim()).filter(Boolean);
@@ -26,7 +26,7 @@ if (!serviceKey) {
 
 const supabase = createClient(supabaseUrl, serviceKey);
 
-type SessionPayload = NonNullable<Awaited<ReturnType<typeof parseAppSessionToken>>>;
+type SessionPayload = AppSessionTokenPayload;
 
 type TreeRpcRow = {
   fc_id: string;
@@ -497,7 +497,9 @@ async function loadTreeRows(rootFcId: string, depth: number) {
 async function resolveSelfProfile(session: SessionPayload) {
   const sessionPhone = cleanPhone(session.phone ?? '');
   if (sessionPhone.length !== 11) {
-    return { error: fail('unauthorized', '인증이 필요합니다.', 401) };
+    return {
+      error: fail('invalid_app_session', '세션이 유효하지 않습니다. 다시 로그인해주세요.', 401),
+    };
   }
 
   let managerAccount: { id: string; name: string | null } | null = null;
@@ -584,7 +586,9 @@ async function resolveSelfProfile(session: SessionPayload) {
   }
 
   if (cleanPhone(String(profile.phone ?? '')) !== sessionPhone) {
-    return { error: fail('unauthorized', '인증이 필요합니다.', 401) };
+    return {
+      error: fail('invalid_app_session', '세션이 유효하지 않습니다. 다시 로그인해주세요.', 401),
+    };
   }
 
   const isManagerShadow = profile.is_manager_referral_shadow === true;
@@ -755,15 +759,10 @@ serve(async (req: Request) => {
     return json({ ok: false, code: 'server_misconfigured', message: 'Missing Supabase credentials' }, 500);
   }
 
-  const token = getAppSessionTokenFromRequest(req);
-  if (!token) {
-    return fail('unauthorized', '인증이 필요합니다.', 401);
+  const sessionResult = await requireAppSessionFromRequest(req);
+  if (!sessionResult.ok) {
+    return fail(sessionResult.code, sessionResult.message, sessionResult.status);
   }
 
-  const session = await parseAppSessionToken(token);
-  if (!session) {
-    return fail('unauthorized', '인증이 필요합니다.', 401);
-  }
-
-  return resolveReferralTree(req, session);
+  return resolveReferralTree(req, sessionResult.session);
 });

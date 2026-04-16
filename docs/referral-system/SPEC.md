@@ -1,7 +1,7 @@
 # 추천인 시스템 스펙
 
 - 기준일: `2026-04-01`
-- 상태: `추천코드 운영/가입 확정/동명이인 안전화는 구현됨, 앱 미설치 복원과 일부 runtime 재검증은 미완료`
+- 상태: `추천코드 운영/가입 확정/동명이인 안전화와 self-service referral session silent refresh는 구현됨, 앱 미설치 복원과 일부 runtime 재검증은 미완료`
 - 범위: `가람in` 가입/초대 흐름
 
 ## 1. 목표
@@ -17,8 +17,9 @@
 - `자동 입력 추천코드 + 수동 수정 fallback`을 기본 구조로 채택한다.
 - 초대링크 유입 정보가 있으면 회원가입 화면에 추천코드를 자동 입력한다.
 - 자동 입력은 기본값일 뿐이며, 가입 완료 전에는 사용자가 다른 유효 코드로 수정할 수 있다.
-- 현재 앱 UI는 `추천인 이름`이 아니라 `추천 코드 (선택)` 입력을 사용한다.
-- 추천코드는 입력 시 즉시 대문자로 정규화하고, `validate-referral-code` trusted path로 inviter 정보를 검증한다.
+- 현재 회원가입 화면은 `추천 코드 직접 입력`을 유지하되, `이름/소속/추천 코드 검색`으로도 같은 추천인을 선택할 수 있다.
+- 회원가입 검색은 unauthenticated trusted path `search-signup-referral`로 active code가 있는 후보만 찾고, 최종 선택은 여전히 추천코드 문자열로 수렴한다.
+- 추천코드는 입력 시 즉시 대문자로 정규화하고, 검색 선택 결과도 같은 코드로 채운 뒤 `validate-referral-code` trusted path로 inviter 정보를 검증한다.
 - `validate-referral-code`는 `inviterName`, `inviterPhoneMasked`, `inviterFcId`, `codeId`를 반환한다.
 - 최종 가입 시 서버는 caller가 보낸 추천인 문자열을 신뢰하지 않고, 추천코드 row를 다시 조회해 구조화 inviter identity를 확정한다.
 
@@ -36,7 +37,7 @@
 ### 2.3 우선순위
 
 - 자동 입력된 추천코드는 회원가입 화면의 기본값으로만 사용한다.
-- 자동 입력된 코드가 있고 사용자가 가입 완료 전에 다른 유효 코드를 직접 입력하면 `명시 입력한 추천코드`를 우선한다.
+- 자동 입력된 코드가 있고 사용자가 가입 완료 전에 다른 유효 코드를 직접 입력하거나 검색으로 다시 선택하면 `명시 입력한 추천코드`를 우선한다.
 - 가입 완료 후에는 일반 사용자 경로로 추천인을 변경할 수 없고, 운영 수정이 필요하면 `admin override`로만 처리한다.
 - FC 기본정보 화면의 `recommender` cache는 읽기 전용 표시값으로만 남기고, 일반 사용자 저장 payload에 자유입력 추천인 문자열을 다시 포함하지 않는다.
 
@@ -72,7 +73,7 @@
 
 1. B가 초대링크 또는 유입 정보를 가진 상태로 회원가입 흐름에 진입한다.
 2. 회원가입 화면에 추천코드가 자동 입력된다.
-3. 사용자는 가입 완료 전까지 코드를 유지하거나 다른 유효 코드로 수정할 수 있다.
+3. 사용자는 가입 완료 전까지 코드를 유지하거나 다른 유효 코드로 직접 입력/검색 선택해 수정할 수 있다.
 4. 현재 구현은 pending attribution row를 서버에 저장하지 않고 앱 로컬 pending code만 유지한다.
 5. 가입 완료 시 `set-password` trusted path가 추천 관계를 1건 확정한다.
 
@@ -94,12 +95,12 @@
 
 1. 초대링크 클릭 후 앱이 바로 열리지 않는 경로는 아직 자동 복원 계약이 없다.
 2. 앱 설치 후 첫 실행에서 추천 정보가 자동 복원된다고 가정하지 않는다.
-3. 현재 운영 fallback은 회원가입 화면에서 추천코드를 수동 입력하는 방식이다.
+3. 현재 운영 fallback은 회원가입 화면에서 추천코드를 직접 입력하거나 검색으로 찾아 선택하는 방식이다.
 
 ### 4.4 링크 유실 fallback
 
 1. B가 링크를 눌렀지만 스토어 검색/설치 후 추천 정보가 복원되지 않는다.
-2. 회원가입 화면에서 추천코드를 수동 입력한다.
+2. 회원가입 화면에서 추천코드를 직접 입력하거나 검색으로 찾아 선택한다.
 3. 가입 완료 시 수동 코드 기준으로 확정한다.
 
 ### 4.5 FC/본부장 본인 추천코드 self-service 조회
@@ -127,6 +128,10 @@
 21. self-service로 추천인을 저장하면 같은 화면의 `get-my-referral-code`와 `get-referral-tree`를 함께 다시 불러와, 현재 추천인 표시와 direct recommender 카드가 재진입 없이 즉시 동기화돼야 한다.
 22. `get-referral-tree`가 일시 실패해도 기존 추천인이 있는 사용자는 같은 `/referral` 화면 안에서 추천인 변경 UI를 계속 열 수 있어야 한다. tree 성공 렌더가 유일한 변경 CTA가 되면 안 된다.
 23. `/referral`의 Android 기본 컨테이너는 `KeyboardAwareScrollView` 같은 third-party keyboard-aware wrapper에 의존하지 않는다. 검색 입력이 화면 상단에 있어도 안정적으로 보이도록 일반 `ScrollView` + 명시적 하단 패딩을 우선 사용하고, render-stability를 키보드 자동 스크롤보다 우선한다.
+24. referral self-service는 앱 전체 로그인 세션과 별개 `appSessionToken`을 사용한다. 사용자가 앱 안에서 로그인된 상태여도 이 토큰이 없거나 만료되면 referral trusted path는 자동 복구 또는 재로그인 안내를 수행해야 한다.
+25. 모바일 client는 referral read/write 전에 저장된 `appSessionToken`을 우선 사용하고, 없거나 만료면 저장된 `requestBoardBridgeToken`으로 `refresh-app-session`을 1회 호출해 새 referral `appSessionToken`을 무중단 재발급한다.
+26. `requestBoardBridgeToken`까지 없거나 만료된 경우에는 `/referral`이 generic `인증이 필요합니다.` 대신 `세션이 만료되었습니다. 다시 로그인해주세요.`와 relogin CTA를 보여야 한다.
+27. `refresh-app-session`은 FC와 본부장(manager source role)만 허용한다. plain admin/developer, linked request_board designer, inactive manager, signup 미완료 FC는 새 referral `appSessionToken`을 발급받을 수 없다.
 
 ## 5. 식별자 규칙
 

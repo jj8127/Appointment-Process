@@ -2,8 +2,8 @@ import { serve } from 'https://deno.land/std@0.224.0/http/server.ts';
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.45.4';
 import {
   getEnv,
-  getAppSessionTokenFromRequest,
-  parseAppSessionToken,
+  requireAppSessionFromRequest,
+  type AppSessionTokenPayload,
 } from '../_shared/request-board-auth.ts';
 
 const allowedOrigins = (getEnv('ALLOWED_ORIGINS') ?? '').split(',').map(o => o.trim()).filter(Boolean);
@@ -35,7 +35,7 @@ function cleanPhone(input: string) {
   return (input ?? '').replace(/[^0-9]/g, '');
 }
 
-type SessionPayload = Awaited<ReturnType<typeof parseAppSessionToken>>;
+type SessionPayload = AppSessionTokenPayload;
 type ConfirmedReferralRow = {
   id: string;
   invitee_fc_id: string | null;
@@ -61,7 +61,7 @@ async function resolveSession(session: SessionPayload) {
   }
   const sessionPhone = cleanPhone(session.phone ?? '');
   if (sessionPhone.length !== 11) {
-    return { error: fail('unauthorized', '인증이 필요합니다.') };
+    return { error: fail('invalid_app_session', '세션이 유효하지 않습니다. 다시 로그인해주세요.') };
   }
 
   const { data: adminRow } = await supabase.from('admin_accounts').select('id').eq('phone', sessionPhone).maybeSingle();
@@ -95,7 +95,9 @@ async function resolveSession(session: SessionPayload) {
   const { data: profile, error: profileError } = profileResult;
   if (profileError) return { error: json({ ok: false, code: 'db_error', message: profileError.message }, 500) };
   if (!profile?.id) return { error: fail('not_found', '계정을 찾을 수 없습니다.') };
-  if (cleanPhone(String(profile.phone ?? '')) !== sessionPhone) return { error: fail('unauthorized', '인증이 필요합니다.') };
+  if (cleanPhone(String(profile.phone ?? '')) !== sessionPhone) {
+    return { error: fail('invalid_app_session', '세션이 유효하지 않습니다. 다시 로그인해주세요.') };
+  }
   const isManagerShadow = profile.is_manager_referral_shadow === true;
   if (profile.signup_completed !== true && !(managerAccount && isManagerShadow)) {
     return { error: fail('not_found', '계정을 찾을 수 없습니다.') };
@@ -264,11 +266,8 @@ serve(async (req: Request) => {
   if (req.method === 'OPTIONS') return new Response('ok', { headers: corsHeaders });
   if (req.method !== 'POST') return fail('method_not_allowed', 'Method not allowed', 405);
 
-  const token = getAppSessionTokenFromRequest(req);
-  if (!token) return fail('unauthorized', '인증이 필요합니다.');
-
-  const session = await parseAppSessionToken(token);
-  if (!session) return fail('unauthorized', '인증이 필요합니다.');
+  const sessionResult = await requireAppSessionFromRequest(req);
+  if (!sessionResult.ok) return fail(sessionResult.code, sessionResult.message);
 
   // Parse body
   let code = '';
@@ -287,7 +286,7 @@ serve(async (req: Request) => {
   }
 
   // Resolve self profile
-  const { profile, error: sessionError } = await resolveSession(session);
+  const { profile, error: sessionError } = await resolveSession(sessionResult.session);
   if (sessionError) return sessionError;
 
   // Lookup referral code → inviter

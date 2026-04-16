@@ -137,6 +137,18 @@
       "notes": "코드 수정은 반영했지만, 수정 후 Android 실기기에서 `j -> J`, `ab -> AB` 회귀 확인은 아직 남아 있다."
     },
     {
+      "caseId": "RF-CODE-08",
+      "area": "추천코드",
+      "priority": "P1",
+      "platform": ["app", "backend"],
+      "title": "회원가입 화면에서 이름/소속/추천코드 검색으로 추천인을 선택해도 최종 저장은 유효한 추천코드 기준으로 수렴한다",
+      "status": "NOT_RUN",
+      "owner": "",
+      "executedAt": "",
+      "evidence": [],
+      "notes": "signup 검색 UI와 `search-signup-referral` function은 추가했지만, 비로그인 회원가입 화면에서 이름/소속 검색 -> 선택 -> 가입 완료까지의 on-device/remote DB 검증은 아직 실행하지 않았다."
+    },
+    {
       "caseId": "RF-LINK-04",
       "area": "초대링크",
       "priority": "P1",
@@ -462,58 +474,60 @@
       "area": "추천코드",
       "priority": "P0",
       "platform": ["app", "backend"],
-      "title": "FC/본부장 self-service 추천코드 조회는 현재 runtime hook(`get-my-referral-code`) 기준으로 active code를 반환한다",
+      "title": "FC/본부장 self-service 추천코드 조회는 appSession 만료 시 bridge token으로 자동 복구되고, bridge도 없으면 재로그인을 요구한다",
       "status": "BLOCKED",
       "owner": "Codex",
-      "executedAt": "2026-04-02T00:00:00.000Z",
+      "executedAt": "2026-04-16T00:00:00.000Z",
       "evidence": [
-        "hooks/use-my-referral-code.ts => supabase.functions.invoke('get-my-referral-code')",
-        "hooks/use-session.tsx => legacy stored role='manager' is normalized to admin+readOnly during restore",
-        "app/settings.tsx / app/referral.tsx => manager(readOnly) self-service gate + trusted recommender display path",
-        "supabase/functions/get-my-referral-code/index.ts => session phone/fcId 기반 self lookup + recommender cache response",
-        "supabase/functions/get-fc-referral-code/index.ts => optional phone body must match authenticated session phone"
+        "hooks/use-referral-app-session.ts => current token -> refresh-app-session -> original function retry contract",
+        "hooks/use-my-referral-code.ts => self-service code lookup now runs through the referral app-session helper",
+        "hooks/use-session.tsx => replaceAppSessionToken persists refreshed appSessionToken into memory + storage",
+        "supabase/functions/refresh-app-session/index.ts => bridgeToken 검증 후 fc/manager만 새 appSessionToken 발급",
+        "supabase/functions/_shared/request-board-auth.ts => missing/expired/invalid app session + bridge token detailed parsing",
+        "supabase/functions/get-my-referral-code/index.ts => requireAppSessionFromRequest 기반 self lookup + recommender cache response",
+        "node scripts/ci/check-governance.mjs"
       ],
-      "notes": "저장소 기준 active hook path, legacy manager session normalize, trusted recommender display path는 확인했다. 이번 변경으로 본부장(manager source role)도 self-service 대상에 포함됐지만, 실제 배포 환경에서 FC/본부장 세션으로 active code + recommender 응답까지 확인하는 on-device/live invoke는 아직 남아 있다."
+      "notes": "저장소 기준으로 silent refresh/relogin 분기와 manager 허용 범위는 정리됐지만, 실제 기기에서 `appSessionToken`만 만료된 상태의 자동 복구와 두 토큰 모두 없는 상태의 relogin CTA를 FC/본부장 계정으로 확인한 live evidence는 아직 없다."
     },
     {
       "caseId": "RF-SELF-02",
       "area": "추천코드",
       "priority": "P0",
       "platform": ["app", "backend"],
-      "title": "FC/본부장 self-service 추천인 변경은 trusted path로 현재 추천인 표시와 attribution/event audit trail을 함께 갱신한다",
+      "title": "FC/본부장 self-service 추천인 변경은 appSession 자동 복구 뒤에도 trusted path와 audit trail 계약을 유지한다",
       "status": "BLOCKED",
       "owner": "Codex",
-      "executedAt": "2026-04-04T11:20:00.000Z",
+      "executedAt": "2026-04-16T00:00:00.000Z",
       "evidence": [
-        "supabase/functions/update-my-recommender/index.ts => manual_entry/manual_entry_only contract + referral_events(invitee_fc_id, metadata) alignment",
-        "supabase/functions/get-my-referral-code/index.ts => recommender cache is returned by the trusted self-service response",
-        "app/referral.tsx => direct fc_profiles query 제거 + guarded refresh/try-finally",
-        "npx eslint app/settings.tsx app/referral.tsx hooks/use-my-referral-code.ts hooks/use-session.tsx",
-        "TypeScript transpile parse => supabase/functions/get-my-referral-code/index.ts, supabase/functions/update-my-recommender/index.ts",
-        "supabase functions deploy get-my-referral-code --project-ref ubeginyxaotcamuqpmud",
-        "supabase functions deploy update-my-recommender --project-ref ubeginyxaotcamuqpmud"
+        "app/referral.tsx => search/save flow now shares useReferralAppSession and relogin CTA handling",
+        "hooks/use-referral-app-session.ts => invokeReferralFunction retries once on missing/expired/invalid app session and clears tokens on hard failure",
+        "supabase/functions/search-fc-for-referral/index.ts => requireAppSessionFromRequest + explicit auth codes",
+        "supabase/functions/update-my-recommender/index.ts => manual_entry/manual_entry_only contract + referral_events(invitee_fc_id, metadata) alignment behind explicit app-session auth",
+        "supabase/functions/get-my-referral-code/index.ts => recommender cache is returned by the trusted self-service response after refresh as well",
+        "npx eslint app/referral.tsx hooks/use-my-referral-code.ts hooks/use-referral-app-session.ts hooks/use-session.tsx",
+        "node scripts/ci/check-governance.mjs"
       ],
-      "notes": "스키마/코드/배포 parity와 정적 검증은 완료했지만, 실제 FC/본부장 계정으로 추천인 검색-저장 후 confirmed attribution/event row와 화면 갱신을 한 번에 찍은 live evidence는 아직 없다."
+      "notes": "정적 검증과 코드 경로 정렬은 끝났지만, 실제 FC/본부장 계정에서 `appSessionToken`만 만료된 상태의 검색/저장 1회 재시도 성공과 bridge token까지 없는 상태의 spinner 해제 + relogin CTA를 함께 찍은 live evidence는 아직 없다."
     },
     {
       "caseId": "RF-SELF-03",
       "area": "추천코드",
       "priority": "P0",
       "platform": ["app", "backend"],
-      "title": "FC/본부장 self-service `/referral`은 direct recommender 1명 카드와 `내가 추천한 사람들` tree를 현재 계약대로 노출한다",
+      "title": "FC/본부장 self-service `/referral`은 direct recommender/tree 계약을 유지하면서 세션 만료 상태를 명확히 표면화한다",
       "status": "BLOCKED",
       "owner": "Codex",
-      "executedAt": "2026-04-14T03:30:00.000Z",
+      "executedAt": "2026-04-16T00:00:00.000Z",
       "evidence": [
-        "app/referral.tsx => 상단 surface를 ancestor chain 대신 direct recommender 1명 카드로 축소",
-        "hooks/use-referral-tree.ts => subtree-relative depth를 absolute depth로 정규화하고 background prefetch queue를 추가",
-        "components/ReferralTreeNode.tsx => visual highlight를 render depth 기준으로 계산",
+        "app/referral.tsx => direct recommender 1명 카드 유지 + relogin CTA / tree error fallback 추가",
+        "hooks/use-referral-tree.ts => tree fetch/loadChildrenOf가 referral app-session helper를 통해 silent refresh를 공유",
+        "supabase/functions/get-referral-tree/index.ts => requireAppSessionFromRequest 기반 subtree read",
+        "components/ReferralTreeNode.tsx => existing render-depth highlight contract 유지",
         "lib/referral-tree.ts + lib/__tests__/referral-tree.test.ts => preload/lazy-expand depth 계산과 truncated 판단 helper 검증",
-        "npm run lint -- app/referral.tsx components/ReferralTreeNode.tsx hooks/use-referral-tree.ts lib/referral-tree.ts lib/__tests__/referral-tree.test.ts",
-        "npm test -- --runInBand lib/__tests__/referral-tree.test.ts",
+        "npm run lint -- app/referral.tsx hooks/use-referral-tree.ts lib/request-board-api.ts",
         "node scripts/ci/check-governance.mjs"
       ],
-      "notes": "코드와 문서는 direct recommender 1명 surface + absolute-depth lazy expand 기준으로 정리했고 helper unit test도 추가했지만, 실제 FC/본부장 세션에서 하기홍 -> 박충희 같은 deeper branch가 prefetch 후 더 빠르게 열리는지와 상단 빈 상태/변경 CTA가 함께 유지되는지에 대한 live evidence는 아직 없다."
+      "notes": "코드와 문서는 direct recommender/tree surface 위에 silent refresh와 relogin CTA를 얹는 현재 계약으로 정리했지만, 실제 FC/본부장 세션에서 tree가 refresh 뒤에도 같은 방식으로 열리는지와 두 토큰 모두 없는 상태의 세션 만료 안내/CTA를 on-device로 확인한 live evidence는 아직 없다."
     }
   ]
 }

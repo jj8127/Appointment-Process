@@ -108,9 +108,21 @@
         "app/referral-tree.tsx",
         "hooks/use-my-referral-code.ts",
         "hooks/use-my-invitees.ts",
+        "hooks/use-referral-app-session.ts",
         "hooks/use-referral-tree.ts",
         "components/ReferralAncestorsChain.tsx",
         "components/ReferralTreeNode.tsx"
+      ],
+      "requires_any": [
+        "docs/handbook/data/referral-schema-and-admin-rpcs.md",
+        "docs/handbook/mobile/auth-and-gates.md"
+      ]
+    },
+    {
+      "id": "mobile-referral-search-shared",
+      "severity": "behavior",
+      "prefixes": [
+        "components/ReferralSearchField.tsx"
       ],
       "requires_any": [
         "docs/handbook/data/referral-schema-and-admin-rpcs.md",
@@ -193,6 +205,7 @@
         "supabase/functions/request-signup-otp/",
         "supabase/functions/verify-signup-otp/",
         "supabase/functions/sync-request-board-session/",
+        "supabase/functions/refresh-app-session/",
         "supabase/functions/delete-account/",
         "supabase/functions/_shared/password-reset-account.ts",
         "supabase/functions/_shared/request-board-password-sync.ts",
@@ -247,6 +260,7 @@
         "supabase/functions/get-my-invitees/",
         "supabase/functions/get-referral-tree/",
         "supabase/functions/search-fc-for-referral/",
+        "supabase/functions/refresh-app-session/",
         "supabase/functions/update-my-recommender/"
       ],
       "requires_any": [
@@ -260,6 +274,7 @@
       "severity": "contract",
       "prefixes": [
         "supabase/functions/invite/",
+        "supabase/functions/search-signup-referral/",
         "supabase/functions/validate-referral-code/",
         "supabase/functions/tsconfig.json"
       ],
