@@ -1,6 +1,6 @@
 {
   "meta": {
-    "generatedAt": "2026-04-04T11:20:00.000Z",
+    "generatedAt": "2026-04-17T06:30:00.000Z",
     "source": "docs/referral-system/test-cases.json",
     "note": "status: NOT_RUN | PASS | FAIL | BLOCKED | SKIPPED"
   },
@@ -147,6 +147,18 @@
       "executedAt": "",
       "evidence": [],
       "notes": "signup 검색 UI와 `search-signup-referral` function은 추가했지만, 비로그인 회원가입 화면에서 이름/소속 검색 -> 선택 -> 가입 완료까지의 on-device/remote DB 검증은 아직 실행하지 않았다."
+    },
+    {
+      "caseId": "RF-CODE-09",
+      "area": "추천코드",
+      "priority": "P0",
+      "platform": ["app", "backend"],
+      "title": "eligible FC/본부장은 로그인 성공 시 active 추천코드가 자동 보장되고 기존 코드는 유지된다",
+      "status": "NOT_RUN",
+      "owner": "",
+      "executedAt": "",
+      "evidence": [],
+      "notes": "login-with-password auto-issue와 get-my-referral-code catch-up 코드는 반영했지만, no-code eligible FC login, active manager login, existing-code noop login을 production-like 환경에서 아직 실행하지 않았다."
     },
     {
       "caseId": "RF-LINK-04",

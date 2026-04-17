@@ -7,6 +7,40 @@
 
 ---
 
+## <a id="20260417-login-auto-issue-referral-code"></a> 2026-04-17 | eligible login 시 active 추천코드 auto-issue + self-service catch-up 정렬
+
+**배경**:
+- 사용자 피드백 기준으로 추천인 코드를 쓰려면 로그인 뒤에도 별도 발급 절차가 필요한 것처럼 보였다.
+- 실제 코드 기준으로도 `login-with-password`는 인증과 세션 발급까지만 처리했고, active 추천코드가 없는 eligible FC/본부장은 운영 backfill이나 이후 별도 self-service 조회 전까지 no-code 상태로 남을 수 있었다.
+- `get-my-referral-code` 역시 active code가 없으면 그냥 `null`을 반환해 rollout 이전 계정이나 login-time transient failure를 self-heal하지 못했다.
+
+**조치**:
+- `supabase/functions/_shared/referral-code.ts`
+  - normalized phone, manager shadow ensure, `admin_issue_referral_code(..., p_rotate=false)` wrapper를 공용 helper로 분리했다.
+- `supabase/functions/login-with-password/index.ts`
+  - completed FC login 성공 뒤 active code를 best-effort로 보장하도록 `autoIssueReferralCodeOnLogin(...)`을 추가했다.
+  - manager login은 `ensure_manager_referral_shadow_profile` 뒤 referral shadow profile을 조회해 같은 보장 로직을 적용하게 했다.
+  - provisioning 실패는 warning만 남기고 로그인 자체는 계속 성공시키도록 고정했다.
+- `supabase/functions/get-my-referral-code/index.ts`
+  - active code 조회가 비어 있으면 같은 helper를 1회 실행해 catch-up한 뒤 다시 조회한다.
+  - manager self-service 경로도 helper 기반 manager shadow ensure를 공용화했다.
+- `docs/referral-system/*`, `docs/README.md`, `AGENTS.md`, `.claude/*`, `.codex/harness/*`
+  - "eligible login success = active referral code ready"를 현재 SSOT와 regression set에 추가했다.
+  - `RF-CODE-09`를 새 P0 회귀 케이스로 추가하고 incident/mistake/handoff를 이번 계약 기준으로 갱신했다.
+
+**결과**:
+- completed FC와 active manager는 로그인 성공 뒤 active 추천코드를 별도 운영 개입 없이 바로 쓸 수 있는 구조로 정렬됐다.
+- 기존 active code가 있는 계정은 login-time issuance가 noop으로 끝나 code가 바뀌지 않는다.
+- login-time provisioning이 일시 실패해도 사용자는 로그인 자체를 잃지 않고, current self-service path(`get-my-referral-code`)가 동일 helper로 1회 catch-up한다.
+
+**검증**:
+- 통과: `npx eslint --rule "import/no-unresolved: off" supabase/functions/_shared/referral-code.ts supabase/functions/login-with-password/index.ts supabase/functions/get-my-referral-code/index.ts`
+- 통과: referral JSON parse check (`docs/referral-system/test-cases.json`, `docs/referral-system/TEST_RUN_RESULT.json`)
+- 통과: `node scripts/ci/check-governance.mjs`
+- 미실행: actual eligible FC no-code login, active manager login, existing-code noop login, login-time provisioning failure 후 self-service catch-up live verification
+
+---
+
 ## <a id="20260416-referral-app-session-refresh-and-message-upload-fix"></a> 2026-04-16 | 추천인 app-session silent refresh + GaramLink 첨부 업로드 재인증 정렬
 
 **배경**:

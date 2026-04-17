@@ -1,7 +1,7 @@
 # 추천인 시스템 아키텍처
 
-- 기준일: `2026-04-01`
-- 상태: `추천코드 운영/가입 확정/동명이인 안전화와 referral self-service appSession silent refresh는 구현됨, 앱 미설치 복원과 일부 runtime rollout 재검증은 후속`
+- 기준일: `2026-04-17`
+- 상태: `추천코드 운영/가입 확정/동명이인 안전화, login-time active code auto-issue/catch-up, referral self-service appSession silent refresh는 구현됨. 앱 미설치 복원과 일부 runtime rollout 재검증은 후속`
 
 ## 1. 소유권
 
@@ -69,10 +69,24 @@
   -> confirmed referral 확정
 ```
 
+### 2.5 로그인 성공 뒤 active 추천코드 보장
+
+```text
+completed FC 또는 active manager 로그인 성공
+  -> login-with-password
+  -> manager면 ensure_manager_referral_shadow_profile
+  -> ensureActiveReferralCode(p_rotate=false)
+  -> active code 있으면 noop_active_exists
+  -> 없으면 code_generated
+  -> 로그인 응답은 계속 success
+  -> 이후 get-my-referral-code는 no-code 상태를 1회 catch-up 후 응답
+```
+
 ## 3. 컴포넌트 분리
 
 ### 3.1 App Layer
 
+- 로그인 경로: `hooks/use-login.ts -> login-with-password`
 - 딥링크 수신기: `app/_layout.tsx`
 - pending code 로컬 저장: `lib/referral-deeplink.ts`
 - 회원가입 화면 추천코드 자동 입력 + 가입 전 직접 입력/검색 선택 UI: `app/signup.tsx`
@@ -97,7 +111,9 @@
 - `validate-referral-code` 응답: `inviterName`, `inviterPhoneMasked`, `inviterFcId`, `codeId`
 - 회원가입 비로그인 추천인 검색 API: `search-signup-referral`
 - `search-signup-referral`은 app session 없이 이름/소속/추천 코드 검색을 허용하지만, 응답은 active referral code가 있는 후보의 `name`, `affiliation`, `code`만 반환한다.
+- `login-with-password`는 completed FC login 성공 시 active code를 idempotent하게 보장하고, manager login 성공 시 `ensure_manager_referral_shadow_profile` 뒤 같은 보장 로직을 적용한다.
 - FC/본부장 자기 코드/현재 추천인 cache 조회의 현재 앱 경로: `get-my-referral-code`
+- `get-my-referral-code`는 eligible profile인데 active code가 없으면 `admin_issue_referral_code(..., p_rotate=false)` helper를 1회 실행해 catch-up한 뒤 응답한다. current contract에서 self-service no-code는 forbidden/not_found/runtime failure가 아닌 이상 오래 남아 있으면 안 된다.
 - FC/본부장 자기 invitee 조회의 현재 앱 경로: `get-my-invitees`
 - FC/본부장 자기 추천 관계 트리 조회의 현재 앱 경로: `get-referral-tree`
 - FC/본부장 추천인 검색/저장의 현재 앱 경로: `search-fc-for-referral`, `update-my-recommender`

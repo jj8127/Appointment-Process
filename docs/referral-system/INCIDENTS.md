@@ -7,7 +7,7 @@
 
 ## 2. 현재 상태
 
-- `2026-04-14` 기준 등록된 추천인 이슈는 `15건`이다.
+- `2026-04-17` 기준 등록된 추천인 이슈는 `17건`이다.
 - 런타임 버그뿐 아니라 trust boundary, rollout status, 문서/테스트 drift로 운영 판단을 오도한 경우도 장애성 이력으로 남긴다.
 
 ## 3. 작성 규칙
@@ -46,6 +46,7 @@
 
 | ID | 날짜 | 제목 | linkedCases | 상태 |
 | --- | --- | --- | --- | --- |
+| INC-017 | 2026-04-17 | 로그인 성공 뒤에도 추천코드 발급을 별도 수동 단계로 남겨 eligible FC/본부장이 active code 없이 남음 | `RF-CODE-09`, `RF-SELF-01` | fixed |
 | INC-016 | 2026-04-16 | 로그인 세션과 referral self-service `appSessionToken` 만료를 분리해 로그인돼도 `/referral`에서 다시 인증이 필요해짐 | `RF-SELF-01`, `RF-SELF-02`, `RF-SELF-03` | fixed |
 | INC-015 | 2026-04-14 | depth 2 preload와 subtree-relative lazy expand를 같은 tree contract로 정규화하지 않아 deeper branch가 느리고 스타일도 어긋남 | `RF-SELF-03` | fixed |
 | INC-014 | 2026-04-10 | Android production `/referral` 화면이 keyboard-aware scroll + 다단계 조건부 렌더 조합에서 view hierarchy crash를 냄 | `RF-SELF-03` | fixed |
@@ -62,6 +63,40 @@
 | INC-003 | 2026-03-31 | 동명이인 안전화 후 live hardening gap(`set-password` fallback, override migration, clear audit) | `RF-ADMIN-06`, `RF-SEC-02` | mitigated |
 | INC-002 | 2026-03-31 | 동명이인 추천인 이름 매칭으로 잘못된 코드가 붙을 수 있던 구조 위험 | `RF-DATA-02`, `RF-ADMIN-06` | fixed |
 | INC-001 | 2026-03-31 | Android 추천코드 입력 시 대문자가 중복 입력되던 문제 | `RF-CODE-07` | fixed |
+
+## INC-017 | 2026-04-17 | 로그인 성공 뒤에도 추천코드 발급을 별도 수동 단계로 남겨 eligible FC/본부장이 active code 없이 남음
+
+- symptom:
+  - completed FC나 active manager가 정상 로그인에 성공해도 추천코드가 없는 계정은 그대로 no-code 상태로 남아, 사용자 입장에서는 로그인 뒤에도 추천코드 발급을 위한 추가 절차가 필요한 것처럼 보였다.
+  - 운영 제보 관점에서는 "로그인됐고 인증도 끝났는데 왜 추천인 코드가 바로 안 나오냐"는 형태로 나타났다.
+- impact:
+  - 신규 eligible FC/본부장이 로그인 직후 친구 초대/추천코드 공유를 시작하지 못하고, 운영 backfill이나 별도 self-service 진입에 의존해야 했다.
+  - 로그인 성공과 추천코드 보장 시점이 분리돼 있어 추천인 도메인 계약이 사용자 기대와 어긋났다.
+- trigger:
+  - 2026-04-17 사용자 질문으로 "추천인 코드를 발급해 주려면 추가 과정이 필요한데, 로그인될 때 자동으로 발급돼야 하지 않느냐"는 이슈가 제기됐을 때.
+- rootCause:
+  - `login-with-password`는 인증과 bridge/app session 발급까지만 처리하고, active 추천코드 보장은 `admin_backfill_referral_codes`나 운영 수동 발급, 또는 이후 별도 조회 흐름에 맡겨 두었다.
+  - `get-my-referral-code`도 active code가 비어 있으면 그냥 `null`을 반환해, rollout 이전 계정이나 login-time transient failure를 self-heal하지 못했다.
+- fix:
+  - `supabase/functions/_shared/referral-code.ts`에 manager shadow 보장과 `admin_issue_referral_code(..., p_rotate=false)` 공용 helper를 추가했다.
+  - `login-with-password`가 completed FC login 성공 시 active code를 best-effort로 보장하고, manager login은 `ensure_manager_referral_shadow_profile` 뒤 같은 로직을 적용하게 바꿨다.
+  - 로그인-time provisioning 실패는 warning만 남기고 로그인 응답은 유지하게 했으며, `get-my-referral-code`는 active code가 없을 때 같은 helper를 1회 호출해 catch-up한 뒤 다시 조회하게 바꿨다.
+- linkedCases:
+  - RF-CODE-09
+  - RF-SELF-01
+- evidence:
+  - 코드 변경: `supabase/functions/_shared/referral-code.ts`, `supabase/functions/login-with-password/index.ts`, `supabase/functions/get-my-referral-code/index.ts`
+  - 정적 검증: `npx eslint --rule "import/no-unresolved: off" supabase/functions/_shared/referral-code.ts supabase/functions/login-with-password/index.ts supabase/functions/get-my-referral-code/index.ts`
+  - 거버넌스: `node scripts/ci/check-governance.mjs`
+- reproduction:
+  1. active referral code가 없는 completed FC 또는 active manager 계정을 준비한다.
+  2. `login-with-password`로 정상 로그인한다.
+  3. 기존 구현에서는 로그인은 성공하지만 active 추천코드가 생기지 않고, `get-my-referral-code`가 `code: null`을 반환한다.
+- regressionCheck:
+  - RF-CODE-09로 no-code eligible FC login, active manager login, existing-code noop login을 각각 확인한다.
+  - RF-SELF-01로 login-time provisioning miss가 남아도 self-service catch-up 뒤 code가 보장되는지 확인한다.
+- notes:
+  - 이번 세션에서는 source/lint/governance 기준 정렬만 완료했고, 실제 기기/production-like runtime에서 eligible login variants는 아직 재검증하지 않았다.
 
 ## INC-015 | 2026-04-14 | depth 2 preload와 subtree-relative lazy expand를 같은 tree contract로 정규화하지 않아 deeper branch가 느리고 스타일도 어긋남
 

@@ -26,6 +26,7 @@
   - repo source: `20260401000002_reassert_get_invitee_referral_code_service_role_only.sql` 이후 `get_invitee_referral_code(uuid)`는 `service_role` only
   - runtime rollout 미검증이면 PASS 대신 `NOT_RUN` 또는 `BLOCKED`
 - self-service 조회 문서는 현재 hook 경로 `hooks/use-my-referral-code.ts -> get-my-referral-code`를 기준으로 맞춘다.
+- `RF-CODE-09`는 eligible no-code FC login, active manager login, existing-code noop login을 구분해 남긴다. 로그인 성공과 provisioning success/failure를 같은 결과로 뭉개지 않는다.
 - self-service `RF-SELF-*`는 `appSessionToken`만 만료된 상태(bridge token 유효), 둘 다 만료된 상태(relogin CTA), plain admin/developer/linked designer 비대상 상태를 구분해 기록한다.
 - 관리자 invitee 코드 조회 케이스는 사용자 의미를 `가입 시 사용한 추천코드`로 기록한다. 내부 lookup order를 이유로 `추천인 현재 활성 코드`라고 풀어 쓰지 않는다.
 - `RF-DATA-02`는 inviter가 이후 코드를 rotate해도 confirmed attribution이 있으면 historical signup code가 우선 표시되는지까지 확인해야 PASS다.
@@ -57,6 +58,7 @@
 - `RF-CODE-06` 한 가입자는 최종 추천인 1명만 가짐
 - `RF-CODE-07` Android 추천코드 입력 시 소문자가 대문자 1회로만 정규화되고 중복 문자(`JJ`)가 생기지 않음
 - `RF-CODE-08` 회원가입 화면에서 이름/소속/추천코드 검색으로 추천인을 선택해도 최종 저장은 유효한 추천코드 기준으로 수렴함
+- `RF-CODE-09` eligible FC/본부장은 로그인 성공 시 active 추천코드가 자동 보장되고 기존 코드는 유지됨
 - `RF-SELF-01` FC/본부장 self-service 추천코드 조회는 현재 runtime hook(`get-my-referral-code`) 기준으로 active code를 반환함
 - `RF-SELF-02` FC/본부장 self-service 추천인 변경은 trusted path로 현재 추천인 표시와 attribution/event audit trail을 함께 갱신하고, 저장 직후 같은 화면의 direct recommender/current recommender가 재진입 없이 즉시 갱신됨
 - `RF-SELF-03` FC/본부장 self-service `app/referral.tsx`는 `나를 추천한 사람` 카드에 direct recommender 1명만 노출하고 `내가 추천한 사람들` tree는 attribution과 `recommender_fc_id` 구조화 링크를 함께 반영해야 하며, `depth:2` 초기 로드 뒤 descendant lazy expand가 absolute depth 스타일을 유지하고 1단계 background prefetch로 다음 expand를 보조해야 하며, direct recommender card + subtree drill-down이 caller 자기 서브트리 범위 안에서만 동작하고 tree read 실패 시에도 기존 추천인 사용자는 같은 화면에서 변경 UI를 계속 열 수 있으며 Android production build에서 render crash(`ReactClippingViewManager.addView`, `dispatchGetDisplayList null child`) 없이 진입/편집/새로고침이 가능해야 함
@@ -123,6 +125,7 @@
 - trusted API 경로 케이스는 함수 호출 payload, 응답, service 로그 중 최소 1개를 포함한다.
 - self-service 조회 케이스는 현재 hook 경로(`get-my-referral-code`)와 FC/본부장 공통 응답 계약을 함께 남긴다.
 - self-service 세션 복구 케이스는 `refresh-app-session` 호출 여부, bridge token 유효성, relogin CTA 노출 여부를 함께 남긴다.
+- login auto-issue 케이스는 로그인 전/후 active code count, code 값 유지 여부, manager shadow profile 보장 여부, 로그인 응답 success 유지 여부를 함께 남긴다.
 - self-service invitee 목록 케이스는 `referral_attributions` 개수와 `recommender_fc_id` 구조화 링크 개수를 함께 대조하고, 구조화 링크만 있는 invitee도 목록에 포함되는지 확인한다.
 - self-service tree 케이스는 `get-referral-tree` 응답의 `ancestors`, `descendants`, `truncated`와 node expand 후 후속 요청 결과를 함께 남긴다.
 - depth 2 밖의 deeper node를 펼칠 때는 subtree-relative `node_depth`가 화면 absolute depth로 정규화되어 top-level 강조색이 다시 붙지 않는지, prefetch가 끝난 node는 중복 요청 없이 즉시 열리는지 함께 확인한다.

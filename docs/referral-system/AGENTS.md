@@ -120,6 +120,7 @@
 - 초대링크는 앱 설치 상태 direct deep link prefill과 가입 확정이 이어지지 않으면 완료로 보지 않는다.
 - fallback 규칙이 정의되지 않은 상태에서 추천코드와 링크를 함께 배포하지 않는다.
 - 현재 앱 추천인 화면의 self-service 변경은 FC/본부장 세션에 한해 허용되며, 운영/admin bulk mutate 경로와 분리해 관리한다.
+- 로그인에 성공한 eligible FC/active manager에게 추천코드 발급을 위한 별도 수동 절차를 다시 요구하지 않는다. `login-with-password`는 active code를 idempotent하게 보장하고, `get-my-referral-code`는 legacy/transient miss를 catch-up한 뒤에만 no-code 상태를 남길 수 있다.
 - 관리자 수동 보정 기능을 만들면 감사 로그 없이 배포하지 않는다.
 - 추천인 테이블은 인증 모델이 정리되기 전까지 클라이언트가 직접 조회/쓰기하지 않는다. 모든 읽기/쓰기는 trusted Edge Function 또는 service-role 경로로 제한한다.
 - `public.get_invitee_referral_code(uuid)`의 intended repo contract는 `20260401000002_reassert_get_invitee_referral_code_service_role_only.sql` 이후 `service_role` execute only 다. 새 코드에서 direct RPC 호출을 추가하지 말고 `admin-action:getInviteeReferralCode` 또는 server-only route를 사용한다.

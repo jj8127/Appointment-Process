@@ -6,6 +6,11 @@ import {
   getEnv,
   parseDesignerCompanyNameFromAffiliation,
 } from '../_shared/request-board-auth.ts';
+import {
+  canAutoIssueReferralCodeProfile,
+  ensureActiveReferralCode,
+  ensureManagerReferralShadowProfile,
+} from '../_shared/referral-code.ts';
 import { resolveManagerAffiliation } from '../_shared/manager-affiliation.ts';
 import { syncRequestBoardPassword } from '../_shared/request-board-password-sync.ts';
 
@@ -100,6 +105,55 @@ async function hashPassword(password: string, saltBase64: string) {
     256,
   );
   return toBase64(new Uint8Array(bits));
+}
+
+async function autoIssueReferralCodeOnLogin(params: {
+  profile:
+    | {
+      id: string;
+      phone: string | null;
+      affiliation?: string | null;
+      signup_completed?: boolean | null;
+      is_manager_referral_shadow?: boolean | null;
+    }
+    | null
+    | undefined;
+  actorPhone: string;
+  actorRole: 'fc' | 'manager';
+  actorStaffType?: string | null;
+  reason?: string;
+}) {
+  if (!params.profile?.id) {
+    return;
+  }
+
+  const canIssue = canAutoIssueReferralCodeProfile(params.profile, {
+    allowManagerShadow: params.actorRole === 'manager',
+  });
+  if (!canIssue) {
+    return;
+  }
+
+  const result = await ensureActiveReferralCode({
+    supabase,
+    fcId: params.profile.id,
+    actorPhone: params.actorPhone,
+    actorRole: params.actorRole,
+    actorStaffType: params.actorStaffType ?? null,
+    reason: params.reason ?? 'auto_issue_on_login',
+  });
+
+  if (!result.ok) {
+    console.warn(
+      '[login-with-password] referral code auto-issue failed',
+      JSON.stringify({
+        actorRole: params.actorRole,
+        phone: cleanPhone(params.actorPhone),
+        fcId: params.profile.id,
+        message: result.message,
+      }),
+    );
+  }
 }
 
 serve(async (req: Request) => {
@@ -304,6 +358,33 @@ serve(async (req: Request) => {
       },
     });
 
+    const shadowResult = await ensureManagerReferralShadowProfile(supabase, manager.phone, manager.name);
+    if (!shadowResult.ok) {
+      console.warn(
+        '[login-with-password] manager referral shadow ensure failed',
+        JSON.stringify({ phone: manager.phone, message: shadowResult.message }),
+      );
+    } else {
+      const { data: managerReferralProfile, error: managerReferralProfileError } = await supabase
+        .from('fc_profiles')
+        .select('id, phone, affiliation, signup_completed, is_manager_referral_shadow')
+        .eq('phone', manager.phone)
+        .maybeSingle();
+
+      if (managerReferralProfileError) {
+        console.warn(
+          '[login-with-password] manager referral profile lookup failed',
+          JSON.stringify({ phone: manager.phone, message: managerReferralProfileError.message }),
+        );
+      } else {
+        await autoIssueReferralCodeOnLogin({
+          profile: managerReferralProfile,
+          actorPhone: manager.phone,
+          actorRole: 'manager',
+        });
+      }
+    }
+
     const requestBoardBridgeToken = await createRequestBoardBridgeToken(
       manager.phone,
       'manager',
@@ -323,7 +404,7 @@ serve(async (req: Request) => {
 
   const { data: profile, error: profileError } = await supabase
     .from('fc_profiles')
-    .select('id,name,phone,signup_completed,affiliation')
+    .select('id,name,phone,signup_completed,affiliation,is_manager_referral_shadow')
     .eq('phone', phone)
     .maybeSingle();
 
@@ -408,6 +489,12 @@ serve(async (req: Request) => {
       initiatorRole: 'self',
       syncReason: 'login',
     },
+  });
+
+  await autoIssueReferralCodeOnLogin({
+    profile,
+    actorPhone: profile.phone,
+    actorRole: 'fc',
   });
 
   const requestBoardBridgeToken = await createRequestBoardBridgeToken(

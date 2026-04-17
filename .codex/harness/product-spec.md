@@ -1,31 +1,29 @@
 # Product spec
 
 ## Task summary
-- Repair GaramIn referral self-service so a logged-in FC/manager can silently recover an expired referral `appSessionToken` from the stored request_board bridge token instead of being blocked on `/referral`.
-- Keep referral self-service limited to FC/manager-equivalent users and fall back to an explicit relogin CTA only when both the referral token and the bridge token are unavailable.
-- Align the embedded GaramLink attachment upload client with the request_board auth contract by retrying one 401 via bridge re-login and surfacing server JSON error messages.
+- Remove the extra manual provisioning gap for referral codes by making eligible completed FC and active manager logins auto-guarantee one active referral code.
+- Keep login success resilient: referral-code provisioning must not block authentication, and `get-my-referral-code` must catch up legacy or transient no-code states before surfacing them.
+- Update referral SSOT/test assets/work logs so the current source of truth says `eligible login success = active referral code ready`.
 
 ## User outcomes
-- Logged-in FC/manager users no longer hit a misleading "인증이 필요합니다" state on `/referral` just because the secondary referral token expired.
-- Referral code lookup, inviter search/save, and referral tree reads can recover once automatically when only the referral token expired.
-- GaramLink attachment uploads from `fc-onboarding-app` retry once after request_board auth expiry and show clearer MIME/auth failures when recovery is impossible.
+- Logged-in eligible FC/manager users can share/invite immediately without waiting for admin backfill or a separate issuance step.
+- Existing active codes remain stable across repeated logins; auto-issue is idempotent and non-rotating.
+- If login-time provisioning transiently fails, the user still logs in and the current self-service lookup path repairs the missing code on first use.
 
 ## Implementation shape
-- Add detailed app-session / bridge-token parsing and a new `refresh-app-session` Edge Function that reissues referral `appSessionToken` for `fc`/`manager` only.
-- Introduce a shared client helper (`hooks/use-referral-app-session.ts`) and route referral reads/writes/tree fetches through it.
-- Update referral screens/functions to distinguish `missing`, `expired`, and `invalid` auth states, then map hard failures to a relogin CTA.
-- Keep `rbUploadAttachments()` aligned with `rbFetch()` by doing one bridge-login retry on 401 and preferring server JSON `error/message` text.
-- Update referral SSOT/test assets, handbook notes, work logs, mistake ledger, and harness docs to lock the new split-session recovery contract.
+- Add a shared referral-code helper for normalized phone handling, manager shadow profile ensure, and `admin_issue_referral_code(..., p_rotate=false)` wrapping.
+- Wire `login-with-password` to best-effort auto-issue for completed FC and active manager logins.
+- Change `get-my-referral-code` to run one catch-up issuance attempt when an eligible profile has no active code.
+- Update referral SSOT/test assets/incident log/mistake ledger/harness docs with a new login auto-issue regression case.
 
 ## Key constraints
-- No DB schema migration and no full session-model unification.
-- `refresh-app-session` must not mint referral tokens for plain `admin` or `designer`.
-- Referral writes remain trusted Edge Function paths; the client still must not write referral tables directly.
-- Companion request_board MIME/bucket changes are part of the same rollout; the fc-onboarding client alone cannot fix unsupported upload types.
+- No DB schema migration.
+- Login success must not become coupled to referral-code provisioning success.
+- Existing active codes must not rotate during login; the auto-issue path is `p_rotate=false` only.
+- Plain admin/developer/designer remain outside referral code issuance eligibility.
 
 ## Verification targets
-- `npx eslint app/referral.tsx hooks/use-my-referral-code.ts hooks/use-referral-app-session.ts hooks/use-referral-tree.ts hooks/use-session.tsx lib/request-board-api.ts`
+- `npx eslint --rule "import/no-unresolved: off" supabase/functions/_shared/referral-code.ts supabase/functions/login-with-password/index.ts supabase/functions/get-my-referral-code/index.ts`
 - referral JSON parse check for `docs/referral-system/test-cases.json` and `docs/referral-system/TEST_RUN_RESULT.json`
 - `node scripts/ci/check-governance.mjs`
-- companion checks: `cd E:\hanhwa\request_board && npm run build:server`, `cd E:\hanhwa\request_board && node scripts/ci/check-governance.mjs`
-- follow-up runtime QA: appSession-only expiry recovery, both-token relogin CTA, HEIC/WEBP GaramLink attachment upload
+- follow-up runtime QA: eligible no-code FC login, active manager login, existing-code noop login, login-time miss + self-service catch-up

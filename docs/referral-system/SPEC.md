@@ -1,7 +1,7 @@
 # 추천인 시스템 스펙
 
-- 기준일: `2026-04-01`
-- 상태: `추천코드 운영/가입 확정/동명이인 안전화와 self-service referral session silent refresh는 구현됨, 앱 미설치 복원과 일부 runtime 재검증은 미완료`
+- 기준일: `2026-04-17`
+- 상태: `추천코드 운영/가입 확정/동명이인 안전화, login-time active code auto-issue/catch-up, self-service referral session silent refresh는 구현됨. 앱 미설치 복원과 일부 runtime 재검증은 미완료`
 - 범위: `가람in` 가입/초대 흐름
 
 ## 1. 목표
@@ -32,6 +32,8 @@
 - `set-password` Edge Function이 `referralCode`를 받아 가입 완료 직후 best-effort로 confirmed attribution과 이벤트를 기록한다.
 - `set-password`는 유효한 추천코드가 해석된 경우에만 `fc_profiles.recommender_fc_id`와 `fc_profiles.recommender`를 저장한다.
 - `set-password`는 `fc_credentials.password_set_at`를 먼저 확인한 뒤에만 profile reset/update를 수행한다. 이미 가입이 끝난 FC에 대한 중복 호출이 추천인/온보딩 상태를 지우는 동작은 허용하지 않는다.
+- `login-with-password`는 completed FC 또는 active manager referral shadow profile에 대해 로그인 성공 직후 active 추천코드를 idempotent하게 보장한다. 이미 active code가 있으면 그대로 유지하고, 없을 때만 `p_rotate=false` 기준으로 생성한다.
+- 추천코드 provisioning 실패가 로그인 자체를 깨면 안 된다. 로그인은 계속 성공시키고, 이후 `get-my-referral-code` trusted path가 같은 보장 로직으로 legacy/transient no-code 상태를 catch-up한다.
 - 현재 `set-password`가 남기는 attribution의 `source/capture_source/selection_source`는 deep link 여부와 무관하게 `manual_entry/manual_entry/manual_entry_only`로 정규화된다. 링크 provenance를 DB source에서 복원하는 계약은 아직 없다.
 
 ### 2.3 우선순위
@@ -50,6 +52,7 @@
 - 추천 관계 변경은 관리자 감사 로그 없이는 허용하지 않음
 - 추천코드만 저장하고 추천인 사용자 정보가 없는 고아 상태 금지
 - 추천인 테이블(`referral_codes`, `referral_attributions`, `referral_events`)은 direct client access를 허용하지 않고 trusted server path로만 다룬다.
+- completed FC/active manager가 정상 로그인한 뒤에도 추천코드 생성을 위해 별도 운영 개입이나 추가 인증 단계를 요구하지 않는다.
 - `public.get_invitee_referral_code(uuid)`의 intended repo contract는 migration `20260401000002_reassert_get_invitee_referral_code_service_role_only.sql` 이후 `service_role` execute only 다. 원격 DB가 모두 그 상태인지 확인하지 않았다면 rollout 미검증 상태로 기록하고, 예외 상태를 의도 계약처럼 문서화하지 않는다.
 - FC 삭제/재가입 정리 후에도 추천 attribution/event 감사 흔적은 남아야 한다.
 - 구조화 추천인 식별자의 SSOT는 `referral_code`, `inviter_fc_id`, `fc_profiles.recommender_fc_id`다. `fc_profiles.recommender`는 표시 cache로만 유지한다.
@@ -103,35 +106,44 @@
 2. 회원가입 화면에서 추천코드를 직접 입력하거나 검색으로 찾아 선택한다.
 3. 가입 완료 시 수동 코드 기준으로 확정한다.
 
-### 4.5 FC/본부장 본인 추천코드 self-service 조회
+### 4.5 로그인 성공 시 active 추천코드 보장
+
+1. completed FC 또는 active manager가 `login-with-password`로 로그인에 성공한다.
+2. 본부장 경로는 필요 시 `ensure_manager_referral_shadow_profile(...)`로 referral shadow profile을 먼저 보장한다.
+3. 로그인 함수는 service-role helper로 `admin_issue_referral_code(..., p_rotate=false)`를 호출해 active code를 보장한다.
+4. 이미 active code가 있으면 `noop_active_exists`로 끝나고 코드 값은 바뀌지 않는다.
+5. provisioning이 일시 실패해도 로그인 응답은 유지하며, 이후 self-service current path가 같은 로직으로 catch-up한다.
+
+### 4.6 FC/본부장 본인 추천코드 self-service 조회
 
 1. 현재 앱 hook `useMyReferralCode()`는 `get-my-referral-code` Edge Function을 호출한다.
 2. active self-service 조회는 `Authorization: Bearer <appSessionToken>` 기반으로 세션의 `role(fc|manager)`, `phone`, `fcId`만 사용해 대상 FC를 해석한다.
 3. 본부장 세션은 앱 UI role이 `admin/readOnly`로 보이더라도 app session token source role이 `manager`이면 같은 self-service 경로로 active code / 현재 추천인 cache / invitee / 추천인 검색·저장을 수행할 수 있다.
-4. 추천인 페이지의 현재 추천인 표시는 direct client `fc_profiles` query가 아니라 같은 trusted self-service 응답(`get-my-referral-code`)에서 내려온 `recommender` cache를 사용한다.
-5. legacy 로컬 세션에 `role='manager'`가 저장돼 있어도 앱 복원 단계에서 `admin + readOnly` UI state로 정규화돼 같은 self-service 동선을 유지해야 한다.
-6. `get-fc-referral-code`는 legacy compatibility alias로 저장소에 남아 있어도 `2026-04-02` 기준 current app hook path는 아니다. 이 함수의 optional `phone` body는 세션 전화번호와 일치할 때만 허용된다.
-7. 현재 모바일 기본 surface는 별도의 flat `내가 초대한 사람들` 목록을 렌더링하지 않고, `get-referral-tree` descendants 기반 tree만 사용한다.
-8. `get-my-invitees`가 저장소에 남아 있더라도 현재 `app/referral.tsx` 기본 surface의 source는 아니다. 다만 별도 invitee list/count 지원 경로로 쓰는 경우에는 current structured contract를 따라야 한다.
-9. `get-my-invitees`를 쓰는 보조 경로는 `referral_attributions.inviter_fc_id`만이 아니라 현재 구조화 링크 `fc_profiles.recommender_fc_id`도 함께 합쳐서 invitee를 구성해야 한다.
-10. 구조화 링크만 있고 attribution이 없는 invitee는 보조 self-service 목록에서도 `confirmed`로 표시할 수 있고, invitee 목록은 임의의 `50건` 정적 상한으로 잘라 보이지 않게 하면 안 된다.
-11. 추천 관계 self-service의 현재 모바일 기본 surface는 `app/referral.tsx` 안의 `나를 추천한 사람` 카드 + `내가 추천한 사람들` 섹션이며, 데이터 경로는 `hooks/use-referral-tree.ts -> get-referral-tree -> get_referral_subtree(...)`다.
-12. 이 화면은 상단에서 direct recommender 1명만 보여주고, 하단에서는 `내가 추천한 사람들(subtree drill-down)`만 caller 자기 서브트리 범위 안에서 보여준다. 루트까지의 전체 업라인 경로는 현재 모바일 UI에 노출하지 않는다.
-13. 상단 카드의 direct recommender는 `fc_profiles.recommender_fc_id` 체인의 마지막 노드 기준이다. 따라서 실제 추천인이 active manager shadow profile로 저장된 경우에는 그 manager shadow 노드 1명만 카드에 보여야 한다.
-14. `/referral`의 초기 tree read는 `depth: 2`를 유지해 첫 화면 렌더를 가볍게 가져가고, deeper branch는 descendant lazy expand로 이어간다.
-15. descendant lazy expand는 같은 trusted path를 다시 호출하되, `fcId=self only`가 아니라 `caller subtree membership`이 확인된 descendant root만 허용해야 한다.
-16. lazy expand로 읽어온 subtree의 `node_depth`는 subtree root 기준 상대 depth이므로, 화면 캐시에 합치기 전에 현재 `/referral` root 기준 absolute depth로 정규화해야 한다. tree row 들여쓰기/강조 스타일은 transport `node.depth`가 아니라 현재 렌더 depth 규칙을 따라야 한다.
-17. 사용자가 어떤 branch를 펼치면, 이미 보이는 직속 자식 중 `하위가 더 있는데 아직 direct child가 캐시에 없는 노드`는 백그라운드로 1단계만 순차 prefetch할 수 있다. 이 prefetch는 spinner를 점유하거나 현재 expand를 block하면 안 된다.
-18. 상단 direct recommender 카드는 `get-referral-tree`가 성공했는데 ancestor가 없으면 빈 상태를 그대로 보여야 한다. 이 경우 `get-my-referral-code`의 legacy/current recommender cache를 다시 fallback으로 보여 stale 추천인을 노출하면 안 된다.
-19. 본부장 전용 `PC 브라우저에서 그래프 뷰로 보기`는 보조 링크일 뿐이고, FC에게는 노출하지 않는다. 모바일 기본 surface는 그래프가 아니라 self-service tree/drill-down이다.
-20. `app/referral.tsx`는 별도의 flat `초대 상태 목록`을 더 이상 기본 surface로 렌더링하지 않는다. 현재 모바일 self-service 하위 관계 노출은 `내가 추천한 사람들` tree 섹션 하나로 정리한다.
-21. self-service로 추천인을 저장하면 같은 화면의 `get-my-referral-code`와 `get-referral-tree`를 함께 다시 불러와, 현재 추천인 표시와 direct recommender 카드가 재진입 없이 즉시 동기화돼야 한다.
-22. `get-referral-tree`가 일시 실패해도 기존 추천인이 있는 사용자는 같은 `/referral` 화면 안에서 추천인 변경 UI를 계속 열 수 있어야 한다. tree 성공 렌더가 유일한 변경 CTA가 되면 안 된다.
-23. `/referral`의 Android 기본 컨테이너는 `KeyboardAwareScrollView` 같은 third-party keyboard-aware wrapper에 의존하지 않는다. 검색 입력이 화면 상단에 있어도 안정적으로 보이도록 일반 `ScrollView` + 명시적 하단 패딩을 우선 사용하고, render-stability를 키보드 자동 스크롤보다 우선한다.
-24. referral self-service는 앱 전체 로그인 세션과 별개 `appSessionToken`을 사용한다. 사용자가 앱 안에서 로그인된 상태여도 이 토큰이 없거나 만료되면 referral trusted path는 자동 복구 또는 재로그인 안내를 수행해야 한다.
-25. 모바일 client는 referral read/write 전에 저장된 `appSessionToken`을 우선 사용하고, 없거나 만료면 저장된 `requestBoardBridgeToken`으로 `refresh-app-session`을 1회 호출해 새 referral `appSessionToken`을 무중단 재발급한다.
-26. `requestBoardBridgeToken`까지 없거나 만료된 경우에는 `/referral`이 generic `인증이 필요합니다.` 대신 `세션이 만료되었습니다. 다시 로그인해주세요.`와 relogin CTA를 보여야 한다.
-27. `refresh-app-session`은 FC와 본부장(manager source role)만 허용한다. plain admin/developer, linked request_board designer, inactive manager, signup 미완료 FC는 새 referral `appSessionToken`을 발급받을 수 없다.
+4. `get-my-referral-code`는 eligible profile인데 active code가 비어 있으면 같은 trusted service-role issuance helper를 1회 실행한 뒤 다시 조회한다. rollout 이전 계정이나 login-time transient failure 때문에 로그인 뒤 no-code 상태가 남아도 사용자가 별도 발급 절차를 밟지 않게 하는 것이 현재 계약이다.
+5. 추천인 페이지의 현재 추천인 표시는 direct client `fc_profiles` query가 아니라 같은 trusted self-service 응답(`get-my-referral-code`)에서 내려온 `recommender` cache를 사용한다.
+6. legacy 로컬 세션에 `role='manager'`가 저장돼 있어도 앱 복원 단계에서 `admin + readOnly` UI state로 정규화돼 같은 self-service 동선을 유지해야 한다.
+7. `get-fc-referral-code`는 legacy compatibility alias로 저장소에 남아 있어도 `2026-04-02` 기준 current app hook path는 아니다. 이 함수의 optional `phone` body는 세션 전화번호와 일치할 때만 허용된다.
+8. 현재 모바일 기본 surface는 별도의 flat `내가 초대한 사람들` 목록을 렌더링하지 않고, `get-referral-tree` descendants 기반 tree만 사용한다.
+9. `get-my-invitees`가 저장소에 남아 있더라도 현재 `app/referral.tsx` 기본 surface의 source는 아니다. 다만 별도 invitee list/count 지원 경로로 쓰는 경우에는 current structured contract를 따라야 한다.
+10. `get-my-invitees`를 쓰는 보조 경로는 `referral_attributions.inviter_fc_id`만이 아니라 현재 구조화 링크 `fc_profiles.recommender_fc_id`도 함께 합쳐서 invitee를 구성해야 한다.
+11. 구조화 링크만 있고 attribution이 없는 invitee는 보조 self-service 목록에서도 `confirmed`로 표시할 수 있고, invitee 목록은 임의의 `50건` 정적 상한으로 잘라 보이지 않게 하면 안 된다.
+12. 추천 관계 self-service의 현재 모바일 기본 surface는 `app/referral.tsx` 안의 `나를 추천한 사람` 카드 + `내가 추천한 사람들` 섹션이며, 데이터 경로는 `hooks/use-referral-tree.ts -> get-referral-tree -> get_referral_subtree(...)`다.
+13. 이 화면은 상단에서 direct recommender 1명만 보여주고, 하단에서는 `내가 추천한 사람들(subtree drill-down)`만 caller 자기 서브트리 범위 안에서 보여준다. 루트까지의 전체 업라인 경로는 현재 모바일 UI에 노출하지 않는다.
+14. 상단 카드의 direct recommender는 `fc_profiles.recommender_fc_id` 체인의 마지막 노드 기준이다. 따라서 실제 추천인이 active manager shadow profile로 저장된 경우에는 그 manager shadow 노드 1명만 카드에 보여야 한다.
+15. `/referral`의 초기 tree read는 `depth: 2`를 유지해 첫 화면 렌더를 가볍게 가져가고, deeper branch는 descendant lazy expand로 이어간다.
+16. descendant lazy expand는 같은 trusted path를 다시 호출하되, `fcId=self only`가 아니라 `caller subtree membership`이 확인된 descendant root만 허용해야 한다.
+17. lazy expand로 읽어온 subtree의 `node_depth`는 subtree root 기준 상대 depth이므로, 화면 캐시에 합치기 전에 현재 `/referral` root 기준 absolute depth로 정규화해야 한다. tree row 들여쓰기/강조 스타일은 transport `node.depth`가 아니라 현재 렌더 depth 규칙을 따라야 한다.
+18. 사용자가 어떤 branch를 펼치면, 이미 보이는 직속 자식 중 `하위가 더 있는데 아직 direct child가 캐시에 없는 노드`는 백그라운드로 1단계만 순차 prefetch할 수 있다. 이 prefetch는 spinner를 점유하거나 현재 expand를 block하면 안 된다.
+19. 상단 direct recommender 카드는 `get-referral-tree`가 성공했는데 ancestor가 없으면 빈 상태를 그대로 보여야 한다. 이 경우 `get-my-referral-code`의 legacy/current recommender cache를 다시 fallback으로 보여 stale 추천인을 노출하면 안 된다.
+20. 본부장 전용 `PC 브라우저에서 그래프 뷰로 보기`는 보조 링크일 뿐이고, FC에게는 노출하지 않는다. 모바일 기본 surface는 그래프가 아니라 self-service tree/drill-down이다.
+21. `app/referral.tsx`는 별도의 flat `초대 상태 목록`을 더 이상 기본 surface로 렌더링하지 않는다. 현재 모바일 self-service 하위 관계 노출은 `내가 추천한 사람들` tree 섹션 하나로 정리한다.
+22. self-service로 추천인을 저장하면 같은 화면의 `get-my-referral-code`와 `get-referral-tree`를 함께 다시 불러와, 현재 추천인 표시와 direct recommender 카드가 재진입 없이 즉시 동기화돼야 한다.
+23. `get-referral-tree`가 일시 실패해도 기존 추천인이 있는 사용자는 같은 `/referral` 화면 안에서 추천인 변경 UI를 계속 열 수 있어야 한다. tree 성공 렌더가 유일한 변경 CTA가 되면 안 된다.
+24. `/referral`의 Android 기본 컨테이너는 `KeyboardAwareScrollView` 같은 third-party keyboard-aware wrapper에 의존하지 않는다. 검색 입력이 화면 상단에 있어도 안정적으로 보이도록 일반 `ScrollView` + 명시적 하단 패딩을 우선 사용하고, render-stability를 키보드 자동 스크롤보다 우선한다.
+25. referral self-service는 앱 전체 로그인 세션과 별개 `appSessionToken`을 사용한다. 사용자가 앱 안에서 로그인된 상태여도 이 토큰이 없거나 만료되면 referral trusted path는 자동 복구 또는 재로그인 안내를 수행해야 한다.
+26. 모바일 client는 referral read/write 전에 저장된 `appSessionToken`을 우선 사용하고, 없거나 만료면 저장된 `requestBoardBridgeToken`으로 `refresh-app-session`을 1회 호출해 새 referral `appSessionToken`을 무중단 재발급한다.
+27. `requestBoardBridgeToken`까지 없거나 만료된 경우에는 `/referral`이 generic `인증이 필요합니다.` 대신 `세션이 만료되었습니다. 다시 로그인해주세요.`와 relogin CTA를 보여야 한다.
+28. `refresh-app-session`은 FC와 본부장(manager source role)만 허용한다. plain admin/developer, linked request_board designer, inactive manager, signup 미완료 FC는 새 referral `appSessionToken`을 발급받을 수 없다.
 
 ## 5. 식별자 규칙
 

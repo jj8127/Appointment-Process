@@ -192,6 +192,36 @@
     ]
   },
   {
+    "id": "RF-CODE-09",
+    "area": "추천코드",
+    "priority": "P0",
+    "platform": ["app", "backend"],
+    "title": "eligible FC/본부장은 로그인 성공 시 active 추천코드가 자동 보장되고 기존 코드는 유지된다",
+    "preconditions": [
+      "variant A: signup_completed=true 이고 active referral code가 없는 FC 계정이 존재한다",
+      "variant B: active manager_accounts와 연결된 manager 계정이 존재하고, referral shadow profile은 없거나 active code가 없다",
+      "variant C: 이미 active referral code를 가진 eligible FC 또는 본부장 계정이 존재한다"
+    ],
+    "steps": [
+      "variant A/B에서 `login-with-password`를 호출하거나 앱에서 로그인을 완료한다",
+      "본부장 경로는 login 직후 referral shadow profile과 active code 상태를 확인한다",
+      "로그인 직후 `get-my-referral-code` 또는 DB에서 active code를 확인한다",
+      "variant C에서는 같은 계정으로 다시 로그인해 기존 active code가 바뀌지 않는지 확인한다"
+    ],
+    "expected": [
+      "completed FC 또는 active manager는 로그인 성공 자체로 active referral code를 1건 보장받는다",
+      "본부장 경로는 필요 시 manager referral shadow profile을 보장한 뒤 같은 규칙으로 active code를 가진다",
+      "이미 active code가 있으면 login-time issuance는 noop이며 기존 code가 rotate되지 않는다",
+      "추천코드 provisioning이 일시 실패해도 로그인 응답 자체는 hard fail로 바뀌지 않고, 이후 catch-up은 RF-SELF-01로 검증한다"
+    ],
+    "evidenceRequired": ["로그인 응답", "서버 로그", "DB 확인"],
+    "dbAssertions": [
+      "variant A/B 로그인 후 해당 fc_id 기준 active referral_codes row 수는 1이다",
+      "variant C 로그인 전후 active code 값은 동일하다",
+      "본부장 계정은 필요 시 is_manager_referral_shadow=true fc_profiles row를 가진다"
+    ]
+  },
+  {
     "id": "RF-LINK-04",
     "area": "초대링크",
     "priority": "P1",

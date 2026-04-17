@@ -30,6 +30,25 @@
 - Verification:
 ```
 
+## 2026-04-17 | Referral Code Provisioning Contract | eligible 사용자 추천코드 발급을 운영/backfill 단계로만 보고 로그인 성공 계약에 묶지 않음
+- Symptom:
+  - completed FC나 active manager가 정상 로그인해도 active 추천코드가 없어 바로 공유/초대를 시작하지 못했다.
+  - 사용자 입장에서는 "로그인도 됐는데 왜 추천인 코드 발급을 위해 또 다른 절차가 필요하냐"는 문제로 보였다.
+- Root cause:
+  - `login-with-password`는 인증과 세션 발급만 처리하고, active 추천코드 보장은 관리자 backfill/수동 발급 또는 이후 별도 self-service 조회에 맡겨 두었다.
+  - `get-my-referral-code`도 active code가 비어 있으면 그냥 `null`을 반환해 rollout 이전 계정이나 transient failure를 catch-up하지 않았다.
+- Why it was missed:
+  - 추천인 운영 관점에서 `admin_backfill_referral_codes`가 있으니 신규 로그인 사용자도 eventually code를 갖게 된다고 느슨하게 봤고, "eligible user login success = active code ready"를 별도 P0 계약으로 승격하지 않았다.
+  - 로그인 성공, self-service 조회, 운영 backfill을 한 도메인 lifecycle로 연결해 검토하지 않았다.
+- Permanent guardrail:
+  - 사용자-facing 공유/초대 기능의 prerequisites는 로그인 성공 시점에 보장한다. eligible user가 로그인된 상태에서 추가 운영 개입이나 수동 발급 단계를 다시 밟게 두지 않는다.
+  - provisioning이 인증보다 부가 기능이면 login success와 hard-couple하지 말고, 로그인 성공을 유지한 채 현재 self-service path가 1회 catch-up하도록 설계하고 테스트 케이스를 별도로 둔다.
+- Related files:
+  - `supabase/functions/_shared/referral-code.ts`, `supabase/functions/login-with-password/index.ts`, `supabase/functions/get-my-referral-code/index.ts`, `docs/referral-system/test-cases.json`
+- Verification:
+  - `npx eslint --rule "import/no-unresolved: off" supabase/functions/_shared/referral-code.ts supabase/functions/login-with-password/index.ts supabase/functions/get-my-referral-code/index.ts`
+  - `node scripts/ci/check-governance.mjs`
+
 ## 2026-04-16 | Referral Self-Service Session Contract | 로그인 세션과 referral `appSessionToken`을 별도 상태로 두고 만료 복구를 정의하지 않아 로그인 사용자가 `/referral`에서 다시 인증에 막힘
 - Symptom:
   - 사용자는 이미 `가람in`에 로그인돼 있는데 `/referral` 또는 추천인 저장 시 `인증이 필요합니다`가 뜨고, 추천코드 조회/변경만 막혔다.

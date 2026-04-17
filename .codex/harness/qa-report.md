@@ -2,22 +2,22 @@
 
 ## Summary
 - Status: pass with runtime follow-up
-- Scope: referral self-service session recovery and GaramLink upload auth retry
+- Scope: login-time referral code auto-issue and self-service catch-up
 
 ## Passed checks
-- `npx eslint app/referral.tsx hooks/use-my-referral-code.ts hooks/use-referral-app-session.ts hooks/use-referral-tree.ts hooks/use-session.tsx lib/request-board-api.ts`
+- `npx eslint --rule "import/no-unresolved: off" supabase/functions/_shared/referral-code.ts supabase/functions/login-with-password/index.ts supabase/functions/get-my-referral-code/index.ts`
 - referral JSON parse check for `docs/referral-system/test-cases.json` and `docs/referral-system/TEST_RUN_RESULT.json`
 - `node scripts/ci/check-governance.mjs`
-- `cd E:\hanhwa\request_board && npm run build:server`
-- `cd E:\hanhwa\request_board && node scripts/ci/check-governance.mjs`
 
 ## Findings
-- No static or build-time finding blocked the scoped change set.
-- Referral self-service now has an explicit recovery contract for `appSessionToken` expiry instead of treating every failure as a generic unauthorized state.
-- Embedded GaramLink attachment uploads now share the same one-retry bridge re-auth behavior as `rbFetch()` and can surface clearer server-side MIME/auth errors.
+- No static finding blocked the scoped change set.
+- Eligible login now owns active-code provisioning instead of leaving it as a separate manual/backfill step.
+- Existing active codes remain stable because the login path only uses `admin_issue_referral_code(..., p_rotate=false)`.
+- `get-my-referral-code` now provides one catch-up attempt for rollout-era or transient no-code states.
 - `deno` is not installed in this environment, so Deno-native checks/invokes were not run locally.
 
 ## Remaining verification
-- On-device FC/manager check for `appSessionToken`-only expiry recovery on `/referral`.
-- On-device check that both tokens missing/expired produce the relogin CTA instead of a stuck spinner.
-- Real HEIC/HEIF/WEBP upload verification through the embedded GaramLink messenger flow.
+- Production-like login for a completed FC with no active referral code.
+- Production-like login for an active manager with no referral shadow/code yet.
+- Repeat login for an already-coded eligible user to confirm noop/no-rotate behavior with live evidence.
+- Optional simulation of login-time provisioning failure followed by `get-my-referral-code` catch-up.

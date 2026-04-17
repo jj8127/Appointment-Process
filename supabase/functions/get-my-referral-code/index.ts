@@ -5,6 +5,11 @@ import {
   requireAppSessionFromRequest,
   type AppSessionTokenPayload,
 } from '../_shared/request-board-auth.ts';
+import {
+  cleanPhone,
+  ensureActiveReferralCode,
+  ensureManagerReferralShadowProfile,
+} from '../_shared/referral-code.ts';
 
 // Security: Restrict CORS to specific origins
 const allowedOrigins = (getEnv('ALLOWED_ORIGINS') ?? '').split(',').map(o => o.trim()).filter(Boolean);
@@ -37,19 +42,6 @@ function json(body: Record<string, unknown>, status = 200) {
 
 function fail(code: string, message: string) {
   return json({ ok: false, code, message });
-}
-
-function cleanPhone(input: string) {
-  return (input ?? '').replace(/[^0-9]/g, '');
-}
-
-async function ensureManagerReferralShadowProfile(managerPhone: string, managerName?: string | null) {
-  const { error } = await supabase.rpc('ensure_manager_referral_shadow_profile', {
-    p_manager_phone: managerPhone,
-    p_manager_name: typeof managerName === 'string' && managerName.trim() ? managerName.trim() : null,
-  });
-
-  return error;
 }
 
 type SessionPayload = AppSessionTokenPayload;
@@ -118,9 +110,9 @@ async function resolveSelfReferralCode(params: { session: SessionPayload }) {
     ? await profileQuery.eq('id', sessionFcId).maybeSingle()
     : await profileQuery.eq('phone', sessionPhone).maybeSingle();
   if (!profileResult.data?.id && managerAccount) {
-    const ensureError = await ensureManagerReferralShadowProfile(sessionPhone, managerAccount.name);
-    if (ensureError) {
-      return json({ ok: false, code: 'db_error', message: ensureError.message }, 500);
+    const ensureResult = await ensureManagerReferralShadowProfile(supabase, sessionPhone, managerAccount.name);
+    if (!ensureResult.ok) {
+      return json({ ok: false, code: 'db_error', message: ensureResult.message }, 500);
     }
 
     profileResult = await profileQuery.eq('phone', sessionPhone).maybeSingle();
@@ -147,7 +139,7 @@ async function resolveSelfReferralCode(params: { session: SessionPayload }) {
     return fail('forbidden', '추천 코드를 조회할 수 없는 계정입니다.');
   }
 
-  const { data: referralCode, error: codeError } = await supabase
+  const fetchActiveReferralCode = () => supabase
     .from('referral_codes')
     .select('id, code, created_at')
     .eq('fc_id', profile.id)
@@ -155,8 +147,41 @@ async function resolveSelfReferralCode(params: { session: SessionPayload }) {
     .order('created_at', { ascending: false })
     .limit(1)
     .maybeSingle();
+
+  let { data: referralCode, error: codeError } = await fetchActiveReferralCode();
   if (codeError) {
     return json({ ok: false, code: 'db_error', message: codeError.message }, 500);
+  }
+
+  if (!referralCode) {
+    const ensureResult = await ensureActiveReferralCode({
+      supabase,
+      fcId: profile.id,
+      actorPhone: sessionPhone,
+      actorRole: managerAccount ? 'manager' : 'fc',
+      reason: 'auto_issue_on_self_service_lookup',
+    });
+
+    if (!ensureResult.ok) {
+      return json({ ok: false, code: 'db_error', message: ensureResult.message }, 500);
+    }
+
+    const ensuredCodeResult = await fetchActiveReferralCode();
+    referralCode = ensuredCodeResult.data;
+    codeError = ensuredCodeResult.error;
+    if (codeError) {
+      return json({ ok: false, code: 'db_error', message: codeError.message }, 500);
+    }
+    if (!referralCode) {
+      return json(
+        {
+          ok: false,
+          code: 'db_error',
+          message: '추천 코드를 자동으로 준비하지 못했습니다. 잠시 후 다시 시도해주세요.',
+        },
+        500,
+      );
+    }
   }
 
   const recommenderName = typeof profile.recommender === 'string' && profile.recommender.trim()
@@ -186,18 +211,6 @@ async function resolveSelfReferralCode(params: { session: SessionPayload }) {
     if (aff) recommenderAffiliation = aff;
     const rc = String(codeRes.data?.code ?? '').trim();
     if (rc) recommenderCode = rc;
-  }
-
-  if (!referralCode) {
-    return json({
-      ok: true,
-      code: null,
-      codeId: null,
-      createdAt: null,
-      recommender: recommenderName,
-      recommenderAffiliation,
-      recommenderCode,
-    });
   }
 
   return json({
