@@ -3,6 +3,7 @@ import { Alert, Keyboard } from 'react-native';
 import * as Haptics from 'expo-haptics';
 import { router } from 'expo-router';
 import { useSession } from '@/hooks/use-session';
+import { logger } from '@/lib/logger';
 import { clearRequestBoardState, setAppSessionToken, setBridgeToken } from '@/lib/request-board-api';
 import { normalizeStaffType } from '@/lib/staff-identity';
 import { supabase } from '@/lib/supabase';
@@ -57,6 +58,10 @@ export function useLogin(options?: UseLoginOptions) {
       });
 
       if (error) {
+        logger.warn('[login] login-with-password invoke failed', {
+          phone: digits,
+          error,
+        });
         const errorMessage = error instanceof Error ? error.message : '오류가 발생했습니다. 다시 시도해주세요.';
         Alert.alert('로그인 실패', errorMessage);
         if (options?.onError) {
@@ -66,6 +71,12 @@ export function useLogin(options?: UseLoginOptions) {
       }
 
       if (!data?.ok) {
+        logger.warn('[login] login-with-password rejected', {
+          phone: digits,
+          code: data?.code ?? null,
+          role: data?.role ?? null,
+          message: data?.message ?? null,
+        });
         if (data?.code === 'not_found') {
           Alert.alert('안내', '회원가입이 되어 있지 않은 번호입니다. 회원가입 후 로그인해주세요.');
           if (data?.role !== 'admin' && data?.role !== 'manager') {
@@ -116,10 +127,12 @@ export function useLogin(options?: UseLoginOptions) {
       // Navigate or call custom success handler
       if (options?.onSuccess) {
         options.onSuccess(nextRole);
-      } else {
-        router.replace(isRequestBoardDesigner ? '/request-board' : nextRole === 'admin' ? '/' : '/home-lite');
       }
     } catch (error) {
+      logger.warn('[login] login flow threw', {
+        phone: digits,
+        error,
+      });
       const errorMessage = error instanceof Error ? error.message : '오류가 발생했습니다. 다시 시도해주세요.';
       Alert.alert('로그인 실패', errorMessage);
       if (options?.onError && error instanceof Error) {

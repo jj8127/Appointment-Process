@@ -6,10 +6,10 @@ import { LinearGradient } from 'expo-linear-gradient';
 import * as Notifications from 'expo-notifications';
 import { Stack, router, useFocusEffect, useLocalSearchParams } from 'expo-router';
 import { MotiView } from 'moti';
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
-  ActivityIndicator,
   Alert,
+  AppState,
   BackHandler,
   Dimensions,
   Platform,
@@ -23,6 +23,8 @@ import Animated, { runOnUI, scrollTo as reanimatedScrollTo, useAnimatedRef, useA
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { TourGuideZone, useTourGuideController } from 'rn-tourguide';
 
+import BrandedLoadingSpinner from '@/components/BrandedLoadingSpinner';
+import BrandedLoadingState from '@/components/BrandedLoadingState';
 import { AppTopActionBar } from '@/components/AppTopActionBar';
 import { BottomNavigation } from '@/components/BottomNavigation';
 import { Skeleton } from '@/components/LoadingSkeleton';
@@ -35,6 +37,7 @@ import {
 import { useIdentityStatus } from '@/hooks/use-identity-status';
 import { useSession } from '@/hooks/use-session';
 import { useInAppUpdate } from '@/hooks/useInAppUpdate';
+import { fetchInternalUnreadCount } from '@/lib/internal-chat-api';
 import { logger } from '@/lib/logger';
 import { fetchMobileUnreadNotificationCount } from '@/lib/mobile-unread-notification-count';
 import { resolveNoticeRoute } from '@/lib/notice-route';
@@ -246,20 +249,6 @@ const fetchLatestAdminMessage = async (residentId: string) => {
     logger.debug('[Home] latest admin msg exception', err);
     return null;
   }
-};
-
-const fetchUnreadMessageCount = async (residentId: string) => {
-  if (!residentId) return 0;
-  const { count, error } = await supabase
-    .from('messages')
-    .select('id', { count: 'exact', head: true })
-    .eq('receiver_id', residentId)
-    .eq('is_read', false);
-  if (error) {
-    logger.debug('[Home] unread msg error', error);
-    return 0;
-  }
-  return count ?? 0;
 };
 
 const fetchFcStatus = async (residentId: string) => {
@@ -818,13 +807,22 @@ export default function Home() {
 
   const lifeCompleted = Boolean(myFc?.life_commission_completed || myFc?.appointment_date_life);
   const nonLifeCompleted = Boolean(myFc?.nonlife_commission_completed || myFc?.appointment_date_nonlife);
+  const internalViewerContext = useMemo(
+    () => ({
+      role,
+      residentId,
+      readOnly,
+      staffType,
+      isRequestBoardDesigner,
+    }),
+    [isRequestBoardDesigner, readOnly, residentId, role, staffType],
+  );
 
   // Unread Counts
   const { data: unreadMsgCount = 0, refetch: refetchMsgCount } = useQuery({
-    queryKey: ['unread-msg-count', residentId],
-    queryFn: () => fetchUnreadMessageCount(residentId),
-    enabled: !!residentId,
-    refetchInterval: 5000,
+    queryKey: ['unread-msg-count', role, residentId, readOnly, staffType, isRequestBoardDesigner],
+    queryFn: () => fetchInternalUnreadCount(internalViewerContext),
+    enabled: !!role && !!residentId,
   });
 
   const {
@@ -840,7 +838,6 @@ export default function Home() {
         requestBoardRole,
       }),
     enabled: !!role,
-    refetchInterval: 5000, // Poll every 5s for notifications
   });
 
   useEffect(() => {
@@ -864,6 +861,21 @@ export default function Home() {
       }
     }, [refetchMsgCount, refetchNotifCount, refetchMyFc, residentId, role])
   );
+
+  useEffect(() => {
+    const subscription = AppState.addEventListener('change', (nextState) => {
+      if (nextState !== 'active') return;
+      refetchMsgCount();
+      refetchNotifCount();
+      if (role === 'fc' && residentId) {
+        refetchMyFc?.();
+      }
+    });
+
+    return () => {
+      subscription.remove();
+    };
+  }, [refetchMsgCount, refetchNotifCount, refetchMyFc, residentId, role]);
 
   // Android 뒤로가기 버튼: 앱 종료 확인 다이얼로그
   useFocusEffect(
@@ -1098,8 +1110,12 @@ export default function Home() {
   // Android Crash Fix: Wait for all hooks to be valid, then short-circuit layout
   if (isLoggingOut) {
     return (
-      <View style={{ flex: 1, backgroundColor: '#fff', alignItems: 'center', justifyContent: 'center' }}>
-        <ActivityIndicator color={HANWHA_ORANGE} />
+      <View style={{ flex: 1, backgroundColor: '#fff' }}>
+        <BrandedLoadingState
+          variant="home"
+          title="세션을 정리하고 있어요"
+          subtitle="안전하게 로그아웃하는 중입니다."
+        />
       </View>
     );
   }
@@ -1107,9 +1123,7 @@ export default function Home() {
   if (!hydrated) {
     return (
       <SafeAreaView style={styles.safe} edges={['left', 'right', 'bottom']}>
-        <View style={[styles.container, { alignItems: 'center', justifyContent: 'center', flex: 1 }]}>
-          <ActivityIndicator color={HANWHA_ORANGE} />
-        </View>
+        <BrandedLoadingState variant="home" />
       </SafeAreaView>
     );
   }
@@ -1117,9 +1131,11 @@ export default function Home() {
   if (isRequestBoardDesigner) {
     return (
       <SafeAreaView style={styles.safe} edges={['left', 'right', 'bottom']}>
-        <View style={[styles.container, { alignItems: 'center', justifyContent: 'center', flex: 1 }]}>
-          <ActivityIndicator color={HANWHA_ORANGE} />
-        </View>
+        <BrandedLoadingState
+          variant="home"
+          title="설계요청 화면으로 이동하고 있어요"
+          subtitle="설계매니저 전용 홈을 준비하는 중입니다."
+        />
       </SafeAreaView>
     );
   }
@@ -1283,7 +1299,7 @@ export default function Home() {
                   >
                     <View style={styles.examStatTitleWrap}>
                       <Text style={styles.examStatTitle}>생명/제3보험</Text>
-                      {examStatsLoading && <ActivityIndicator size="small" color={HANWHA_ORANGE} />}
+                      {examStatsLoading && <BrandedLoadingSpinner size="sm" color={HANWHA_ORANGE} />}
                     </View>
                     <View style={styles.examStatChips}>
                       <View style={styles.examStatChip}>
@@ -1304,7 +1320,7 @@ export default function Home() {
                   >
                     <View style={styles.examStatTitleWrap}>
                       <Text style={styles.examStatTitle}>손해보험</Text>
-                      {examStatsLoading && <ActivityIndicator size="small" color={HANWHA_ORANGE} />}
+                      {examStatsLoading && <BrandedLoadingSpinner size="sm" color={HANWHA_ORANGE} />}
                     </View>
                     <View style={styles.examStatChips}>
                       <View style={styles.examStatChip}>

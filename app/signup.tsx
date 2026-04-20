@@ -27,6 +27,10 @@ import { useKeyboardPadding } from '@/hooks/use-keyboard-padding';
 import { consumePendingReferralCode, savePendingReferralCode } from '@/lib/referral-deeplink';
 import { useSession } from '@/hooks/use-session';
 import { safeStorage } from '@/lib/safe-storage';
+import {
+  buildStoredSignupReferral,
+  getSignupReferralSelectionError,
+} from '@/lib/signup-referral';
 import { supabase } from '@/lib/supabase';
 import { COLORS, TYPOGRAPHY, SPACING, RADIUS } from '@/lib/theme';
 import { validatePhone, validateEmail, validateRequired, normalizePhone } from '@/lib/validation';
@@ -55,6 +59,7 @@ const EMAIL_DOMAINS = [
   '직접입력',
 ];
 const CARRIER_OPTIONS = ['SKT', 'KT', 'LGU+', 'SKT 알뜰폰', 'KT 알뜰폰', 'LGU+ 알뜰폰'];
+const REFERRAL_SEARCH_ERROR_MESSAGE = '추천인 검색을 지금 사용할 수 없습니다. 잠시 후 다시 시도해주세요.';
 
 const COMMISSION_OPTIONS: { value: CommissionCompletionStatus; label: string; sub: string }[] = [
   { value: 'none', label: '미완료', sub: '생명/손해 위촉 모두 진행 예정' },
@@ -68,16 +73,14 @@ export default function SignupScreen() {
   const [commissionStatus, setCommissionStatus] = useState<CommissionCompletionStatus>('none');
   const [name, setName] = useState('');
   const [phone, setPhone] = useState('');
-  const [referralCode, setReferralCode] = useState('');
   const [referralStatus, setReferralStatus] = useState<'idle' | 'validating' | 'valid' | 'invalid'>('idle');
   const [referralInviterName, setReferralInviterName] = useState('');
   const [referralInviterFcId, setReferralInviterFcId] = useState<string | null>(null);
-  const [referralCodeSource, setReferralCodeSource] = useState<'none' | 'deeplink' | 'manual'>('none');
   const [referralSearchQuery, setReferralSearchQuery] = useState('');
   const [referralSearchResults, setReferralSearchResults] = useState<ReferralSearchResult[]>([]);
   const [referralSearching, setReferralSearching] = useState(false);
+  const [referralSearchError, setReferralSearchError] = useState<string | null>(null);
   const [selectedReferral, setSelectedReferral] = useState<ReferralSearchResult | null>(null);
-  const referralDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const referralSearchTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [emailLocal, setEmailLocal] = useState('');
   const [emailDomain, setEmailDomain] = useState('');
@@ -93,15 +96,14 @@ export default function SignupScreen() {
   // Refs for keyboard navigation
   const nameRef = useRef<TextInputType>(null);
   const phoneRef = useRef<TextInputType>(null);
-  const recommenderRef = useRef<TextInputType>(null);
+  const referralSearchInputRef = useRef<TextInputType>(null);
   const emailLocalRef = useRef<TextInputType>(null);
   const customDomainRef = useRef<TextInputType>(null);
-  const referralCodeRef = useRef('');
-  const referralCodeSourceRef = useRef<'none' | 'deeplink' | 'manual'>('none');
-  const referralManualEditVersionRef = useRef(0);
+  const referralEditVersionRef = useRef(0);
   const pendingReferralApplyRef = useRef<Promise<void> | null>(null);
   const referralValidationRequestRef = useRef(0);
   const referralSearchRequestRef = useRef(0);
+  const selectedReferralCodeRef = useRef('');
 
   const { scrollToInput } = useKeyboardAware();
 
@@ -155,7 +157,33 @@ export default function SignupScreen() {
       return;
     }
 
+    const referralSelectionError = getSignupReferralSelectionError(
+      referralSearchQuery,
+      selectedReferral,
+    );
+    if (referralSelectionError) {
+      Alert.alert('입력 확인', referralSelectionError);
+      return;
+    }
+    if (selectedReferral && referralStatus === 'validating') {
+      Alert.alert('입력 확인', '선택한 추천인을 확인 중입니다. 잠시 후 다시 시도해주세요.');
+      return;
+    }
+    if (selectedReferral && referralStatus !== 'valid') {
+      Alert.alert(
+        '입력 확인',
+        '선택한 추천인을 확인하지 못했습니다. 다시 검색해 선택하거나 입력값을 지워주세요.',
+      );
+      return;
+    }
+
     const digits = normalizePhone(phone);
+    const storedReferral = buildStoredSignupReferral({
+      selectedReferral,
+      referralStatus,
+      referralInviterName,
+      referralInviterFcId,
+    });
 
     // 중복 계정 체크 (OTP 발송 없이 확인만)
     setChecking(true);
@@ -181,9 +209,7 @@ export default function SignupScreen() {
         affiliation: selectedAffiliation,
         name: name.trim(),
         phone: digits,
-        recommender: referralStatus === 'valid' ? referralInviterName : '',
-        referralCode: referralCode.trim().toUpperCase() || undefined,
-        referralInviterFcId: referralStatus === 'valid' ? referralInviterFcId ?? undefined : undefined,
+        ...storedReferral,
         email: emailValue,
         carrier: carrier.trim(),
         commissionStatus,
@@ -192,10 +218,16 @@ export default function SignupScreen() {
     router.push('/signup-verify');
   };
 
-  const validateReferralCode = useCallback(async (
-    code: string,
-    source: 'none' | 'deeplink' | 'manual' = referralCodeSourceRef.current,
-  ) => {
+  const resetSelectedReferral = useCallback(() => {
+    referralValidationRequestRef.current += 1;
+    selectedReferralCodeRef.current = '';
+    setSelectedReferral(null);
+    setReferralStatus('idle');
+    setReferralInviterName('');
+    setReferralInviterFcId(null);
+  }, []);
+
+  const validateReferralCode = useCallback(async (code: string) => {
     const trimmed = code.trim().toUpperCase();
     const requestId = referralValidationRequestRef.current + 1;
     referralValidationRequestRef.current = requestId;
@@ -212,8 +244,7 @@ export default function SignupScreen() {
       });
       if (
         referralValidationRequestRef.current !== requestId ||
-        referralCodeRef.current.trim().toUpperCase() !== trimmed ||
-        referralCodeSourceRef.current !== source
+        selectedReferralCodeRef.current !== trimmed
       ) {
         return;
       }
@@ -229,45 +260,49 @@ export default function SignupScreen() {
     } catch {
       if (
         referralValidationRequestRef.current !== requestId ||
-        referralCodeRef.current.trim().toUpperCase() !== trimmed ||
-        referralCodeSourceRef.current !== source
+        selectedReferralCodeRef.current !== trimmed
       ) {
         return;
       }
-      setReferralStatus('idle');
+      setReferralStatus('invalid');
       setReferralInviterName('');
       setReferralInviterFcId(null);
     }
   }, []);
 
-  const clearReferralSearchState = useCallback(() => {
+  const clearReferralSearchResults = useCallback(() => {
     referralSearchRequestRef.current += 1;
     if (referralSearchTimerRef.current) {
       clearTimeout(referralSearchTimerRef.current);
       referralSearchTimerRef.current = null;
     }
-    setReferralSearchQuery('');
     setReferralSearchResults([]);
     setReferralSearching(false);
+    setReferralSearchError(null);
   }, []);
+
+  const clearReferralSearchInput = useCallback(() => {
+    clearReferralSearchResults();
+    setReferralSearchQuery('');
+  }, [clearReferralSearchResults]);
 
   const runReferralSearch = useCallback(async (query: string) => {
     const trimmed = query.trim();
     if (trimmed.length < 2) {
-      referralSearchRequestRef.current += 1;
-      setReferralSearchResults([]);
-      setReferralSearching(false);
+      clearReferralSearchResults();
       return;
     }
 
     const requestId = referralSearchRequestRef.current + 1;
     referralSearchRequestRef.current = requestId;
     setReferralSearching(true);
+    setReferralSearchError(null);
 
     try {
       const { data, error } = await supabase.functions.invoke<{
         ok: boolean;
         results?: ReferralSearchResult[];
+        message?: string;
       }>('search-signup-referral', {
         body: { query: trimmed },
       });
@@ -278,31 +313,29 @@ export default function SignupScreen() {
         setReferralSearchResults(data.results ?? []);
       } else {
         setReferralSearchResults([]);
+        setReferralSearchError(data?.message ?? REFERRAL_SEARCH_ERROR_MESSAGE);
       }
     } catch {
       if (requestId === referralSearchRequestRef.current) {
         setReferralSearchResults([]);
+        setReferralSearchError(REFERRAL_SEARCH_ERROR_MESSAGE);
       }
     } finally {
       if (requestId === referralSearchRequestRef.current) {
         setReferralSearching(false);
       }
     }
-  }, []);
+  }, [clearReferralSearchResults]);
 
   const handleReferralSearchChange = (text: string) => {
+    referralEditVersionRef.current += 1;
     setReferralSearchQuery(text);
-    setSelectedReferral(null);
+    resetSelectedReferral();
+    setReferralSearchError(null);
 
-    if (referralSearchTimerRef.current) {
-      clearTimeout(referralSearchTimerRef.current);
-      referralSearchTimerRef.current = null;
-    }
+    clearReferralSearchResults();
 
     if (text.trim().length < 2) {
-      referralSearchRequestRef.current += 1;
-      setReferralSearchResults([]);
-      setReferralSearching(false);
       return;
     }
 
@@ -315,72 +348,27 @@ export default function SignupScreen() {
     const nextCode = String(item.code ?? '').trim().toUpperCase();
     if (!nextCode) return;
 
-    referralManualEditVersionRef.current += 1;
-    referralCodeRef.current = nextCode;
-    referralCodeSourceRef.current = 'manual';
-    setReferralCode(nextCode);
-    setReferralCodeSource('manual');
+    referralEditVersionRef.current += 1;
+    clearReferralSearchResults();
+    selectedReferralCodeRef.current = nextCode;
+    setReferralSearchQuery('');
+    setReferralSearchError(null);
     setReferralStatus('idle');
     setReferralInviterName('');
     setReferralInviterFcId(null);
-    setSelectedReferral(item);
-    recommenderRef.current?.setNativeProps({ text: nextCode });
-
-    if (referralDebounceRef.current) {
-      clearTimeout(referralDebounceRef.current);
-      referralDebounceRef.current = null;
-    }
-
-    clearReferralSearchState();
-    void validateReferralCode(nextCode, 'manual');
+    setSelectedReferral({ ...item, code: nextCode });
+    void validateReferralCode(nextCode);
   };
 
-  const handleClearSelectedReferral = () => {
-    referralManualEditVersionRef.current += 1;
-    referralCodeRef.current = '';
-    referralCodeSourceRef.current = 'manual';
-    setReferralCode('');
-    setReferralCodeSource('manual');
-    setReferralStatus('idle');
-    setReferralInviterName('');
-    setReferralInviterFcId(null);
-    setSelectedReferral(null);
-    recommenderRef.current?.setNativeProps({ text: '' });
-    clearReferralSearchState();
-  };
-
-  const handleReferralCodeChange = (text: string) => {
-    const upper = text.toUpperCase();
-    referralManualEditVersionRef.current += 1;
-    referralCodeRef.current = upper;
-    referralCodeSourceRef.current = 'manual';
-    setReferralCode(upper);
-    setReferralCodeSource('manual');
-    setReferralStatus('idle');
-    setReferralInviterName('');
-    setReferralInviterFcId(null);
-    setSelectedReferral(null);
-    if (referralDebounceRef.current) clearTimeout(referralDebounceRef.current);
-    referralDebounceRef.current = setTimeout(() => validateReferralCode(upper, 'manual'), 400);
-  };
-
-  const handleReferralCodeBlur = () => {
-    if (referralDebounceRef.current) clearTimeout(referralDebounceRef.current);
-    validateReferralCode(referralCodeRef.current, referralCodeSourceRef.current);
-  };
+  const handleClearSelectedReferral = useCallback(() => {
+    referralEditVersionRef.current += 1;
+    clearReferralSearchInput();
+    resetSelectedReferral();
+  }, [clearReferralSearchInput, resetSelectedReferral]);
 
   useEffect(() => () => {
-    if (referralDebounceRef.current) clearTimeout(referralDebounceRef.current);
     if (referralSearchTimerRef.current) clearTimeout(referralSearchTimerRef.current);
   }, []);
-
-  useEffect(() => {
-    referralCodeRef.current = referralCode;
-  }, [referralCode]);
-
-  useEffect(() => {
-    referralCodeSourceRef.current = referralCodeSource;
-  }, [referralCodeSource]);
 
   const handleBack = useCallback(() => {
     router.replace('/login');
@@ -392,32 +380,16 @@ export default function SignupScreen() {
     }
 
     const applyPromise = (async () => {
-      const manualEditVersionAtStart = referralManualEditVersionRef.current;
+      const editVersionAtStart = referralEditVersionRef.current;
       const code = await consumePendingReferralCode();
       const normalizedCode = code?.trim().toUpperCase() ?? '';
       if (!normalizedCode) return;
-      if (referralManualEditVersionRef.current !== manualEditVersionAtStart) return;
-      if (
-        referralCodeSourceRef.current === 'deeplink' &&
-        referralCodeRef.current === normalizedCode
-      ) {
-        return;
-      }
+      if (referralEditVersionRef.current !== editVersionAtStart) return;
 
-      if (referralDebounceRef.current) {
-        clearTimeout(referralDebounceRef.current);
-        referralDebounceRef.current = null;
-      }
-      referralCodeRef.current = normalizedCode;
-      referralCodeSourceRef.current = 'deeplink';
-      setReferralCode(normalizedCode);
-      setReferralCodeSource('deeplink');
-      setReferralInviterName('');
-      setReferralInviterFcId(null);
-      setSelectedReferral(null);
-      clearReferralSearchState();
-      recommenderRef.current?.setNativeProps({ text: normalizedCode });
-      await validateReferralCode(normalizedCode, 'deeplink');
+      clearReferralSearchResults();
+      resetSelectedReferral();
+      setReferralSearchQuery(normalizedCode);
+      await runReferralSearch(normalizedCode);
     })();
 
     pendingReferralApplyRef.current = applyPromise.finally(() => {
@@ -427,7 +399,7 @@ export default function SignupScreen() {
     });
 
     return pendingReferralApplyRef.current;
-  }, [clearReferralSearchState, validateReferralCode]);
+  }, [clearReferralSearchResults, resetSelectedReferral, runReferralSearch]);
 
   useFocusEffect(
     useCallback(() => {
@@ -581,82 +553,76 @@ export default function SignupScreen() {
 
           <View style={styles.field}>
             <Text style={styles.label}>추천인 (선택)</Text>
-            <TextInput
-              ref={recommenderRef}
-              style={styles.input}
-              placeholder="추천 코드 직접 입력 (8자리)"
-              placeholderTextColor={COLORS.text.muted}
-              onChangeText={handleReferralCodeChange}
-              onBlur={handleReferralCodeBlur}
-              autoCapitalize="none"
-              maxLength={8}
+            <ReferralSearchField
+              inputRef={referralSearchInputRef}
+              searchQuery={referralSearchQuery}
+              searching={referralSearching}
+              onChangeText={handleReferralSearchChange}
+              onClear={clearReferralSearchInput}
               returnKeyType="next"
-              onFocus={(e) => handleFocusTarget(e.nativeEvent.target)}
-              onSubmitEditing={() => emailLocalRef.current?.focus()}
-              blurOnSubmit={false}
-              scrollEnabled={false}
+              textInputProps={{
+                onFocus: (e) => handleFocusTarget(e.nativeEvent.target),
+                onSubmitEditing: () => emailLocalRef.current?.focus(),
+                blurOnSubmit: false,
+                scrollEnabled: false,
+              }}
             />
-            {referralStatus === 'validating' && (
-              <Text style={{ fontSize: 12, color: COLORS.text.muted, marginTop: 4 }}>
-                확인 중...
-              </Text>
-            )}
-            {referralStatus === 'valid' && (
-              <Text style={{ fontSize: 12, color: '#16a34a', marginTop: 4 }}>
-                ✓ {referralInviterName}님이 추천하셨어요
-              </Text>
-            )}
-            {referralStatus === 'invalid' && referralCode.length > 0 && (
-              <Text style={{ fontSize: 12, color: COLORS.error, marginTop: 4 }}>
-                유효하지 않은 추천 코드입니다
-              </Text>
-            )}
             <Text style={styles.referralHelperText}>
-              추천 코드를 직접 입력하거나 아래에서 이름, 소속, 추천 코드로 검색해 선택할 수 있어요.
+              추천인 이름, 소속 또는 8자리 추천 코드를 입력한 뒤 검색 결과에서 한 명을 선택해주세요.
             </Text>
-            <View style={styles.referralSearchSection}>
-              <Text style={styles.referralSearchLabel}>추천인 검색</Text>
-              <ReferralSearchField
-                searchQuery={referralSearchQuery}
-                searching={referralSearching}
-                onChangeText={handleReferralSearchChange}
-                onClear={clearReferralSearchState}
-              />
-              {referralSearchQuery.trim().length > 0 && referralSearchQuery.trim().length < 2 && (
-                <Text style={styles.referralSearchHint}>{REFERRAL_SEARCH_MIN_CHARS_HINT}</Text>
-              )}
-              {referralSearchQuery.trim().length >= 2 && !referralSearching && referralSearchResults.length === 0 && (
+            {referralSearchQuery.trim().length > 0 && referralSearchQuery.trim().length < 2 && (
+              <Text style={styles.referralSearchHint}>{REFERRAL_SEARCH_MIN_CHARS_HINT}</Text>
+            )}
+            {referralSearchError && (
+              <Text style={styles.referralSearchError}>{referralSearchError}</Text>
+            )}
+            {referralSearchQuery.trim().length >= 2 &&
+              !referralSearching &&
+              !referralSearchError &&
+              referralSearchResults.length === 0 && (
                 <Text style={styles.referralSearchHint}>{REFERRAL_SEARCH_EMPTY_HINT}</Text>
               )}
-              {referralSearchResults.length > 0 && (
-                <ReferralSearchResultList
-                  results={referralSearchResults}
-                  onSelect={handleReferralSearchSelect}
-                />
-              )}
-              {selectedReferral && (
-                <View style={styles.selectedReferralWrap}>
-                  <View style={styles.selectedReferralInfo}>
-                    <View style={styles.selectedReferralText}>
-                      <Text style={styles.selectedReferralName} numberOfLines={1}>
-                        {selectedReferral.name}
-                      </Text>
-                      <Text style={styles.selectedReferralAffiliation} numberOfLines={1}>
-                        {selectedReferral.affiliation}
-                      </Text>
-                    </View>
-                    <View style={styles.selectedReferralCodeBadge}>
-                      <Text style={styles.selectedReferralCode}>
-                        {selectedReferral.code}
-                      </Text>
-                    </View>
+            {referralSearchResults.length > 0 && (
+              <ReferralSearchResultList
+                results={referralSearchResults}
+                onSelect={handleReferralSearchSelect}
+              />
+            )}
+            {selectedReferral && (
+              <View style={styles.selectedReferralWrap}>
+                <View style={styles.selectedReferralInfo}>
+                  <View style={styles.selectedReferralText}>
+                    <Text style={styles.selectedReferralName} numberOfLines={1}>
+                      {selectedReferral.name}
+                    </Text>
+                    <Text style={styles.selectedReferralAffiliation} numberOfLines={1}>
+                      {selectedReferral.affiliation}
+                    </Text>
                   </View>
-                  <Pressable onPress={handleClearSelectedReferral} hitSlop={8}>
-                    <Text style={styles.selectedReferralClear}>선택 해제</Text>
-                  </Pressable>
+                  <View style={styles.selectedReferralCodeBadge}>
+                    <Text style={styles.selectedReferralCode}>
+                      {selectedReferral.code}
+                    </Text>
+                  </View>
                 </View>
-              )}
-            </View>
+                <Pressable onPress={handleClearSelectedReferral} hitSlop={8}>
+                  <Text style={styles.selectedReferralClear}>선택 해제</Text>
+                </Pressable>
+                {referralStatus === 'validating' && (
+                  <Text style={styles.referralStatusHint}>추천인 정보를 확인 중입니다...</Text>
+                )}
+                {referralStatus === 'valid' && (
+                  <Text style={styles.referralStatusSuccess}>
+                    ✓ {referralInviterName}님이 추천인으로 적용됩니다
+                  </Text>
+                )}
+                {referralStatus === 'invalid' && (
+                  <Text style={styles.referralStatusError}>
+                    선택한 추천인을 확인하지 못했습니다. 다시 검색해 선택해주세요.
+                  </Text>
+                )}
+              </View>
+            )}
           </View>
 
           <View style={styles.field}>
@@ -770,7 +736,7 @@ export default function SignupScreen() {
                   onPress={() => {
                     setCarrier(value);
                     setShowCarrierPicker(false);
-                    setTimeout(() => recommenderRef.current?.focus(), 100);
+                    setTimeout(() => referralSearchInputRef.current?.focus(), 100);
                   }}
                 >
                   <Text style={styles.modalOptionText}>{value}</Text>
@@ -975,6 +941,12 @@ const styles = StyleSheet.create({
     marginTop: 2,
     marginBottom: SPACING.xs,
   },
+  referralSearchError: {
+    fontSize: TYPOGRAPHY.fontSize.xs,
+    color: COLORS.error,
+    marginTop: 2,
+    marginBottom: SPACING.xs,
+  },
   selectedReferralWrap: {
     marginTop: SPACING.xs,
     gap: 6,
@@ -1020,6 +992,19 @@ const styles = StyleSheet.create({
     fontSize: TYPOGRAPHY.fontSize.xs,
     fontWeight: TYPOGRAPHY.fontWeight.bold,
     color: COLORS.primary,
+  },
+  referralStatusHint: {
+    fontSize: TYPOGRAPHY.fontSize.xs,
+    color: COLORS.text.muted,
+  },
+  referralStatusSuccess: {
+    fontSize: TYPOGRAPHY.fontSize.xs,
+    color: '#16a34a',
+  },
+  referralStatusError: {
+    fontSize: TYPOGRAPHY.fontSize.xs,
+    color: COLORS.error,
+    lineHeight: TYPOGRAPHY.lineHeight.relaxed * TYPOGRAPHY.fontSize.xs,
   },
   modalOverlay: {
     flex: 1,

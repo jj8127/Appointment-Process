@@ -14,6 +14,7 @@ import {
   deriveRequestBoardFlags,
   shouldForceRequestBoardRelogin,
 } from '@/lib/request-board-session';
+import { buildPushRegistrationAttemptKey } from '@/lib/push-registration';
 import { safeStorage } from '@/lib/safe-storage';
 import { normalizeStaffType, type StaffType } from '@/lib/staff-identity';
 import { isValidMobilePhone, normalizePhone } from '@/lib/validation';
@@ -103,6 +104,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
   const [requestBoardSyncStatus, setRequestBoardSyncStatus] = useState<RequestBoardSyncStatus>('idle');
   const [requestBoardSyncError, setRequestBoardSyncError] = useState<string | null>(null);
   const requestBoardSyncPromiseRef = useRef<Promise<{ ok: boolean; error?: string; needsRelogin?: boolean }> | null>(null);
+  const lastPushRegistrationKeyRef = useRef<string | null>(null);
 
   const replaceAppSessionToken = useCallback(async (token: string | null) => {
     setAppSessionTokenState(token);
@@ -363,20 +365,32 @@ export function SessionProvider({ children }: { children: ReactNode }) {
   );
 
   useEffect(() => {
-    if (!hydrated) return;
-    if (state.role && state.residentId) {
-      const pushRole: 'admin' | 'fc' =
-        state.requestBoardRole === 'designer'
-          ? 'fc'
-          : (state.role as 'admin' | 'fc');
-      registerPushToken(pushRole, state.residentId, state.displayName);
-    }
+    const pushRegistrationKey = buildPushRegistrationAttemptKey({
+      hydrated,
+      role: state.role,
+      residentId: state.residentId,
+      requestBoardRole: state.requestBoardRole,
+    });
+
+    if (!pushRegistrationKey) return;
+    if (lastPushRegistrationKeyRef.current === pushRegistrationKey) return;
+
+    const pushRole: 'admin' | 'fc' =
+      state.requestBoardRole === 'designer'
+        ? 'fc'
+        : (state.role as 'admin' | 'fc');
+
+    const timer = setTimeout(() => {
+      lastPushRegistrationKeyRef.current = pushRegistrationKey;
+      void registerPushToken(pushRole, state.residentId, state.displayName);
+    }, 1000);
+
+    return () => clearTimeout(timer);
   }, [
     hydrated,
     state.role,
     state.residentId,
     state.displayName,
-    state.isRequestBoardDesigner,
     state.requestBoardRole,
   ]);
 

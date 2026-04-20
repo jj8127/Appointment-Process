@@ -23,6 +23,7 @@ import { useAppPresenceHeartbeat } from '@/hooks/use-app-presence-heartbeat';
 import { useColorScheme } from '@/hooks/use-color-scheme';
 import { SessionProvider } from '@/hooks/use-session';
 import { useInAppUpdate } from '@/hooks/useInAppUpdate';
+import { goBackOrReplace } from '@/lib/back-navigation';
 import { logger } from '@/lib/logger';
 import { savePendingReferralCode } from '@/lib/referral-deeplink';
 import { safeStorage } from '@/lib/safe-storage';
@@ -364,7 +365,21 @@ export default function RootLayout() {
                           <Stack.Screen name="docs-upload" options={{ ...baseHeader, title: '필수 서류 업로드' }} />
                           <Stack.Screen name="exam-apply" options={{ ...baseHeader, title: '생명/제3보험 시험 신청' }} />
                           <Stack.Screen name="exam-apply2" options={{ ...baseHeader, title: '손해보험 시험 신청' }} />
-                          <Stack.Screen name="messenger" options={{ ...baseHeader, title: '메신저' }} />
+                          <Stack.Screen
+                            name="messenger"
+                            options={{
+                              ...baseHeader,
+                              title: '메신저',
+                              headerLeft: () => (
+                                <Pressable
+                                  onPress={() => goBackOrReplace(router, '/')}
+                                  style={{ padding: 8, marginLeft: -8 }}
+                                >
+                                  <Feather name="arrow-left" size={24} color="#000" />
+                                </Pressable>
+                              ),
+                            }}
+                          />
                           <Stack.Screen name="chat" options={{ headerShown: false }} />
                           <Stack.Screen name="settings" options={{ ...baseHeader, title: '설정' }} />
 
@@ -475,7 +490,21 @@ export default function RootLayout() {
                           <Stack.Screen name="docs-upload" options={{ ...baseHeader, title: '필수 서류 업로드' }} />
                           <Stack.Screen name="exam-apply" options={{ ...baseHeader, title: '생명/제3보험 시험 신청' }} />
                           <Stack.Screen name="exam-apply2" options={{ ...baseHeader, title: '손해보험 시험 신청' }} />
-                          <Stack.Screen name="messenger" options={{ ...baseHeader, title: '메신저' }} />
+                          <Stack.Screen
+                            name="messenger"
+                            options={{
+                              ...baseHeader,
+                              title: '메신저',
+                              headerLeft: () => (
+                                <Pressable
+                                  onPress={() => goBackOrReplace(router, '/')}
+                                  style={{ padding: 8, marginLeft: -8 }}
+                                >
+                                  <Feather name="arrow-left" size={24} color="#000" />
+                                </Pressable>
+                              ),
+                            }}
+                          />
                           <Stack.Screen name="chat" options={{ headerShown: false }} />
                           <Stack.Screen name="settings" options={{ ...baseHeader, title: '설정' }} />
 

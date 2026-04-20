@@ -9,7 +9,6 @@ import { useLocalSearchParams, useRouter } from 'expo-router';
 import * as WebBrowser from 'expo-web-browser';
 import { type ReactNode, useCallback, useEffect, useMemo, useState } from 'react';
 import {
-  ActivityIndicator,
   Alert,
   KeyboardAvoidingView,
   LayoutAnimation,
@@ -27,6 +26,7 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
+import BrandedLoadingState from '@/components/BrandedLoadingState';
 import { KeyboardAwareWrapper } from '@/components/KeyboardAwareWrapper';
 import { ListSkeleton } from '@/components/LoadingSkeleton';
 import { useKeyboardPadding } from '@/hooks/use-keyboard-padding';
@@ -2662,9 +2662,7 @@ export default function DashboardScreen() {
   if (!hydrated || !role) {
     return (
       <SafeAreaView style={styles.safe} edges={['left', 'right', 'bottom']}>
-        <View style={[{ alignItems: 'center', justifyContent: 'center', flex: 1 }]}>
-          <ActivityIndicator color={ORANGE} />
-        </View>
+        <BrandedLoadingState variant="dashboard" />
       </SafeAreaView>
     );
   }

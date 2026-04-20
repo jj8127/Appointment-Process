@@ -4,7 +4,6 @@ import * as FileSystem from 'expo-file-system/legacy';
 import { Stack } from 'expo-router';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
-  ActivityIndicator,
   Alert,
   Modal,
   Platform,
@@ -17,6 +16,7 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
+import BrandedLoadingState from '@/components/BrandedLoadingState';
 import { Button } from '@/components/Button';
 import CompactHeader from '@/components/CompactHeader';
 import { ScreenHeader } from '@/components/ScreenHeader';
@@ -389,7 +389,7 @@ export default function HanwhaCommissionScreen() {
         />
 
         {loading ? (
-          <ActivityIndicator color={COLORS.primary} style={{ marginTop: 40 }} />
+          <BrandedLoadingState variant="hanwha-commission" layout="section" />
         ) : (
           <>
             <View style={styles.card}>

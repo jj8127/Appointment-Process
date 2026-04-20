@@ -1,11 +1,33 @@
 import { serve } from 'https://deno.land/std@0.224.0/http/server.ts';
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.45.4';
+import {
+  attachUnreadCountsToContacts,
+  buildInternalChatList,
+  countUnreadBySender,
+  isInternalAffiliation,
+} from '../_shared/internal-chat.ts';
 
 type Payload =
   | { type: 'fc_update'; fc_id: string; message?: string }
   | { type: 'fc_delete'; fc_id: string; message?: string }
   | { type: 'admin_update'; fc_id: string; message?: string }
   | { type: 'chat_targets'; resident_id?: string | null }
+  | {
+      type: 'internal_chat_list';
+      viewer_id?: string | null;
+      viewer_role: 'admin' | 'fc';
+      viewer_staff_type?: 'admin' | 'developer' | null;
+      viewer_read_only?: boolean;
+      viewer_is_request_board_designer?: boolean;
+    }
+  | {
+      type: 'internal_unread_count';
+      viewer_id?: string | null;
+      viewer_role: 'admin' | 'fc';
+      viewer_staff_type?: 'admin' | 'developer' | null;
+      viewer_read_only?: boolean;
+      viewer_is_request_board_designer?: boolean;
+    }
   | {
       type: 'inbox_list';
       role: 'admin' | 'fc';
@@ -109,11 +131,19 @@ type BoardAttachmentRow = {
   sort_order: number;
   created_at: string;
 };
+type InternalChatMessageRow = {
+  sender_id: string | null;
+  receiver_id: string | null;
+  content: string | null;
+  created_at: string | null;
+  is_read: boolean | null;
+};
 
 const EXPO_PUSH_URL = 'https://exp.host/--/api/v2/push/send';
 const BOARD_NOTICE_CATEGORY_SLUG = 'notice';
 const BOARD_NOTICE_ID_PREFIX = 'board_notice:';
 const BOARD_ATTACHMENT_SIGN_EXPIRES_SECONDS = 60 * 60 * 6;
+const ADMIN_CHAT_ID = 'admin';
 const AFFILIATION_OPTIONS = [
   '1본부 서선미',
   '2본부 박성훈',
@@ -618,6 +648,21 @@ async function insertNotificationWithFallback(payload: NotificationInsert) {
   return secondTry.error ?? null;
 }
 
+async function fetchInternalFcProfiles() {
+  const { data, error } = await supabase
+    .from('fc_profiles')
+    .select('id,name,phone,affiliation')
+    .eq('signup_completed', true);
+
+  if (error) throw error;
+  return (data ?? []) as {
+    id: string;
+    name: string | null;
+    phone: string | null;
+    affiliation: string | null;
+  }[];
+}
+
 serve(async (req: Request) => {
   // Preflight
   if (req.method === 'OPTIONS') {
@@ -677,28 +722,149 @@ serve(async (req: Request) => {
     if (developerErr) return err(developerErr.message, 500);
     if (adminErr) return err(adminErr.message, 500);
 
+    const targetSenderIds = Array.from(
+      new Set(
+        [
+          ...((managers ?? []) as { phone?: string | null }[]).map((manager) => sanitize(manager.phone)),
+          ...((developers ?? []) as { phone?: string | null }[]).map((developer) => sanitize(developer.phone)),
+          ADMIN_CHAT_ID,
+        ].filter((value) => value.length > 0),
+      ),
+    );
+
+    let unreadBySender: Record<string, number> = {};
+    if (targetSenderIds.length > 0) {
+      const { data: unreadRows, error: unreadErr } = await supabase
+        .from('messages')
+        .select('sender_id')
+        .eq('receiver_id', residentId)
+        .eq('is_read', false)
+        .in('sender_id', targetSenderIds);
+      if (unreadErr) return err(unreadErr.message, 500);
+      unreadBySender = countUnreadBySender((unreadRows ?? []) as { sender_id?: string | null }[]);
+    }
+
+    const adminUnreadCount = unreadBySender[ADMIN_CHAT_ID] ?? 0;
+
     return ok({
       ok: true,
-      managers: (managers ?? [])
-        .map((manager) => ({
-          name: typeof manager.name === 'string' ? manager.name : '',
-          phone: sanitize(manager.phone),
-        }))
-        .filter((manager) => manager.phone.length > 0),
-      developers: ((developers ?? []) as AdminAccountRow[])
-        .map((developer) => ({
-          name: typeof developer.name === 'string' ? developer.name : '',
-          phone: sanitize(developer.phone),
-        }))
-        .filter((developer) => developer.phone.length > 0),
+      managers: attachUnreadCountsToContacts(
+        (managers ?? [])
+          .map((manager) => ({
+            name: typeof manager.name === 'string' ? manager.name : '',
+            phone: sanitize(manager.phone),
+          }))
+          .filter((manager) => manager.phone.length > 0),
+        unreadBySender,
+      ),
+      developers: attachUnreadCountsToContacts(
+        ((developers ?? []) as AdminAccountRow[])
+          .map((developer) => ({
+            name: typeof developer.name === 'string' ? developer.name : '',
+            phone: sanitize(developer.phone),
+          }))
+          .filter((developer) => developer.phone.length > 0),
+        unreadBySender,
+      ),
       admins: ((admins ?? []) as AdminAccountRow[])
         .map((admin) => ({
           name: typeof admin.name === 'string' ? admin.name : '',
           phone: sanitize(admin.phone),
           staff_type: typeof admin.staff_type === 'string' ? admin.staff_type : null,
+          unread_count: adminUnreadCount,
         }))
         .filter((admin) => admin.phone.length > 0),
+      admin_unread_count: adminUnreadCount,
     });
+  }
+
+  if (body.type === 'internal_chat_list') {
+    const viewerId = String(body.viewer_id ?? '').trim();
+    if (!viewerId) {
+      return err('viewer_id is required', 400);
+    }
+    if (body.viewer_role !== 'admin') {
+      return err('viewer_role is not allowed', 403);
+    }
+
+    try {
+      const [participants, messagesResult] = await Promise.all([
+        fetchInternalFcProfiles(),
+        supabase
+          .from('messages')
+          .select('sender_id,receiver_id,content,created_at,is_read')
+          .or(`sender_id.eq.${viewerId},receiver_id.eq.${viewerId}`)
+          .order('created_at', { ascending: false }),
+      ]);
+
+      if (messagesResult.error) {
+        return err(messagesResult.error.message, 500);
+      }
+
+      const summary = buildInternalChatList({
+        viewerId,
+        participants: participants.map((participant) => ({
+          fc_id: participant.id,
+          name: participant.name,
+          phone: participant.phone,
+          affiliation: participant.affiliation,
+        })),
+        messages: (messagesResult.data ?? []) as InternalChatMessageRow[],
+      });
+
+      return ok({
+        ok: true,
+        items: summary.items,
+        total_unread: summary.totalUnread,
+      });
+    } catch (listErr) {
+      const message = listErr instanceof Error ? listErr.message : 'internal chat list failed';
+      return err(message, 500);
+    }
+  }
+
+  if (body.type === 'internal_unread_count') {
+    const viewerId = String(body.viewer_id ?? '').trim();
+    if (!viewerId) {
+      return err('viewer_id is required', 400);
+    }
+
+    try {
+      const shouldScopeInternalUnread = body.viewer_role === 'admin' || body.viewer_is_request_board_designer === true;
+
+      if (!shouldScopeInternalUnread) {
+        const { count, error } = await supabase
+          .from('messages')
+          .select('id', { count: 'exact', head: true })
+          .eq('receiver_id', viewerId)
+          .eq('is_read', false);
+        if (error) return err(error.message, 500);
+        return ok({ ok: true, count: count ?? 0 });
+      }
+
+      const participants = await fetchInternalFcProfiles();
+      const scopedSenderIds = participants
+        .filter((participant) => isInternalAffiliation(participant.affiliation))
+        .map((participant) => sanitize(participant.phone))
+        .filter((phone) => phone.length > 0);
+
+      if (scopedSenderIds.length === 0) {
+        return ok({ ok: true, count: 0 });
+      }
+
+      const { count, error } = await supabase
+        .from('messages')
+        .select('id', { count: 'exact', head: true })
+        .eq('receiver_id', viewerId)
+        .eq('is_read', false)
+        .in('sender_id', scopedSenderIds);
+      if (error) return err(error.message, 500);
+
+      return ok({ ok: true, count: count ?? 0 });
+    } catch (countErr) {
+      const message = countErr instanceof Error ? countErr.message : 'internal unread count failed';
+      return err(message, 500);
+    }
   }
 
   // 알림센터 목록 조회 (RLS 우회)

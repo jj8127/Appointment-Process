@@ -7,7 +7,6 @@ import { Stack, useFocusEffect, useLocalSearchParams, useRouter } from 'expo-rou
 import { StatusBar } from 'expo-status-bar';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
-  ActivityIndicator,
   AppState,
   Alert,
   Dimensions,
@@ -25,8 +24,13 @@ import {
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
+import BrandedLoadingSpinner from '@/components/BrandedLoadingSpinner';
 import { useKeyboardPadding } from '@/hooks/use-keyboard-padding';
 import { useSession } from '@/hooks/use-session';
+import MessengerLoadingState from '@/components/MessengerLoadingState';
+import { goBackOrReplace } from '@/lib/back-navigation';
+import { fetchFcChatTargets } from '@/lib/internal-chat-api';
+import { getChatTargetPickerHeaderConfig } from '@/lib/chat-navigation';
 import { logger } from '@/lib/logger';
 import {
   aggregatePresence,
@@ -51,7 +55,6 @@ const CHARCOAL = '#111827';
 const MUTED = '#6b7280';
 const SOFT_BG = '#F9FAFB';
 const SCREEN_WIDTH = Dimensions.get('window').width;
-const CHAT_POLL_INTERVAL_MS = 2500;
 const PRESENCE_POLL_INTERVAL_MS = 30_000;
 const CHAT_UPLOAD_BUCKET = 'chat-uploads';
 const FILE_CARD_WIDTH = Math.min(SCREEN_WIDTH * 0.64, 260);
@@ -117,12 +120,14 @@ type FcChatTarget = {
   subtitle: string;
   kind: 'manager' | 'admin' | 'developer';
   presencePhones: string[];
+  unreadCount: number;
 };
 
 type ChatTargetContact = {
   name?: string | null;
   phone?: string | null;
   staff_type?: string | null;
+  unread_count?: number | null;
 };
 
 const sortMessagesDesc = (rows: Message[]) =>
@@ -167,16 +172,6 @@ const areMessagesEqual = (prev: Message[], next: Message[]) => {
   return true;
 };
 
-const areUnreadCountMapsEqual = (
-  prev: Record<string, number>,
-  next: Record<string, number>,
-) => {
-  const prevKeys = Object.keys(prev);
-  const nextKeys = Object.keys(next);
-  if (prevKeys.length !== nextKeys.length) return false;
-  return prevKeys.every((key) => (prev[key] ?? 0) === (next[key] ?? 0));
-};
-
 export default function ChatScreen() {
   const router = useRouter();
   const { role, residentId, displayName, readOnly, logout, staffType } = useSession();
@@ -188,6 +183,7 @@ export default function ChatScreen() {
   const keyboardPadding = useKeyboardPadding();
   const bottomSafeInset = Math.max(insets.bottom, Platform.OS === 'android' ? 20 : 12);
   const pickerListBottomPadding = bottomSafeInset + 24;
+  const targetPickerHeader = getChatTargetPickerHeaderConfig();
   const targetIdValue = Array.isArray(targetId) ? targetId[0] : targetId;
   const targetNameValue = Array.isArray(targetName) ? targetName[0] : targetName;
 
@@ -200,7 +196,6 @@ export default function ChatScreen() {
   const otherId = normalizedTargetId;
   const [resolvedTargetName, setResolvedTargetName] = useState('');
   const [fcTargets, setFcTargets] = useState<FcChatTarget[]>([]);
-  const [targetUnreadCounts, setTargetUnreadCounts] = useState<Record<string, number>>({});
   const [targetsLoading, setTargetsLoading] = useState(false);
   const [targetsError, setTargetsError] = useState<string | null>(null);
   const [presenceByPhone, setPresenceByPhone] = useState<Record<string, AppPresenceSnapshot>>({});
@@ -247,11 +242,6 @@ export default function ChatScreen() {
   const flatListRef = useRef<FlatList>(null);
   const deletedIdsRef = useRef<Set<string>>(new Set());
   const messagesRef = useRef<Message[]>([]);
-  const fcTargetsRef = useRef<FcChatTarget[]>([]);
-
-  useEffect(() => {
-    fcTargetsRef.current = fcTargets;
-  }, [fcTargets]);
 
   const loadPresence = useCallback(async (phones = trackedPresencePhones) => {
     if (phones.length === 0) {
@@ -359,46 +349,6 @@ export default function ChatScreen() {
     return true;
   }, [myId, otherId]);
 
-  const loadTargetUnreadCounts = useCallback(async (targets?: FcChatTarget[]) => {
-    if (role !== 'fc' || !myId) {
-      setTargetUnreadCounts({});
-      return;
-    }
-
-    const targetIds = (targets ?? fcTargetsRef.current)
-      .map((target) => target.id)
-      .filter((targetId) => !!targetId);
-
-    if (targetIds.length === 0) {
-      setTargetUnreadCounts({});
-      return;
-    }
-
-    const { data, error } = await supabase
-      .from('messages')
-      .select('sender_id')
-      .eq('receiver_id', myId)
-      .eq('is_read', false)
-      .in('sender_id', targetIds);
-
-    if (error) {
-      logger.debug('[chat] unread count load failed', { error: error.message, myId });
-      return;
-    }
-
-    const nextCounts = ((data ?? []) as Pick<Message, 'sender_id'>[]).reduce<Record<string, number>>(
-      (acc, row) => {
-        const senderId = String(row.sender_id ?? '').trim();
-        if (!senderId) return acc;
-        acc[senderId] = (acc[senderId] ?? 0) + 1;
-        return acc;
-      },
-      {},
-    );
-
-    setTargetUnreadCounts((prev) => (areUnreadCountMapsEqual(prev, nextCounts) ? prev : nextCounts));
-  }, [myId, role]);
-
   const loadFcTargets = useCallback(async () => {
     if (role !== 'fc') return;
     setTargetsLoading(true);
@@ -410,27 +360,10 @@ export default function ChatScreen() {
         throw new Error(LEGACY_SESSION_ERROR);
       }
 
-      const { data, error } = await supabase.functions.invoke('fc-notify', {
-        body: {
-          type: 'chat_targets',
-          resident_id: residentPhone,
-        },
-      });
-
-      if (error || !data?.ok) {
-        const message = getFcTargetLoadErrorMessage(error?.message ?? data?.message);
-        throw new Error(message);
-      }
-
-      const managers: ChatTargetContact[] = Array.isArray(data.managers)
-        ? (data.managers as ChatTargetContact[])
-        : [];
-      const developers: ChatTargetContact[] = Array.isArray(data.developers)
-        ? (data.developers as ChatTargetContact[])
-        : [];
-      const admins: ChatTargetContact[] = Array.isArray(data.admins)
-        ? (data.admins as ChatTargetContact[])
-        : [];
+      const data = await fetchFcChatTargets(residentPhone);
+      const managers: ChatTargetContact[] = Array.isArray(data.managers) ? data.managers : [];
+      const developers: ChatTargetContact[] = Array.isArray(data.developers) ? data.developers : [];
+      const admins: ChatTargetContact[] = Array.isArray(data.admins) ? data.admins : [];
 
       const managerTargets: FcChatTarget[] = [];
       managers.forEach((manager) => {
@@ -445,6 +378,7 @@ export default function ChatScreen() {
           subtitle: '본부장',
           kind: 'manager',
           presencePhones: [phone],
+          unreadCount: Number((manager as ChatTargetContact & { unread_count?: number }).unread_count ?? 0),
         });
       });
 
@@ -462,12 +396,13 @@ export default function ChatScreen() {
           const phone = sanitizePhone(developer.phone);
           if (!phone || map.has(phone)) return map;
           map.set(phone, {
-            id: phone,
-            label: '개발자',
-            subtitle: '개발자',
-            kind: 'developer' as const,
-            presencePhones: [phone],
-          });
+              id: phone,
+              label: '개발자',
+              subtitle: '개발자',
+              kind: 'developer' as const,
+              presencePhones: [phone],
+              unreadCount: Number((developer as ChatTargetContact & { unread_count?: number }).unread_count ?? 0),
+            });
           return map;
         }, new Map<string, FcChatTarget>()).values(),
       );
@@ -489,11 +424,11 @@ export default function ChatScreen() {
           subtitle: '총무팀',
           kind: 'admin',
           presencePhones: adminPresencePhones,
+          unreadCount: data.adminUnreadCount,
         },
       ];
 
       setFcTargets(nextTargets);
-      void loadTargetUnreadCounts(nextTargets);
     } catch (error) {
       const message = getFcTargetLoadErrorMessage(error instanceof Error ? error.message : null);
       logger.debug('[chat] fc target list load failed', { message });
@@ -501,7 +436,7 @@ export default function ChatScreen() {
     } finally {
       setTargetsLoading(false);
     }
-  }, [loadTargetUnreadCounts, residentId, role]);
+  }, [residentId, role]);
 
   const fetchMessages = useCallback(async () => {
     if (!myId || !otherId) return;
@@ -579,9 +514,6 @@ export default function ChatScreen() {
 
   useEffect(() => {
     if (!myId || !otherId) return;
-    const intervalId = setInterval(() => {
-      void fetchMessages();
-    }, CHAT_POLL_INTERVAL_MS);
 
     const appStateSub = AppState.addEventListener('change', (nextState) => {
       if (nextState === 'active') {
@@ -590,7 +522,6 @@ export default function ChatScreen() {
     });
 
     return () => {
-      clearInterval(intervalId);
       appStateSub.remove();
     };
   }, [fetchMessages, myId, otherId]);
@@ -617,7 +548,7 @@ export default function ChatScreen() {
           filter: `receiver_id=eq.${myId}`,
         },
         () => {
-          void loadTargetUnreadCounts();
+          void loadFcTargets();
         },
       )
       .subscribe();
@@ -625,7 +556,7 @@ export default function ChatScreen() {
     return () => {
       supabase.removeChannel(channel);
     };
-  }, [loadTargetUnreadCounts, myId, role, showFcTargetPicker]);
+  }, [loadFcTargets, myId, role, showFcTargetPicker]);
 
   useEffect(() => {
     if (role !== 'admin') return;
@@ -942,6 +873,10 @@ export default function ChatScreen() {
     router.back();
   };
 
+  const handleTargetPickerBack = useCallback(() => {
+    goBackOrReplace(router, targetPickerHeader.fallbackHref);
+  }, [router, targetPickerHeader.fallbackHref]);
+
   const renderMessageContent = (item: Message, isMe: boolean) => {
     if (item.message_type === 'image' && item.file_url) {
       return (
@@ -1091,10 +1026,10 @@ export default function ChatScreen() {
           ) : null}
         </View>
         <View style={styles.targetMeta}>
-          {(targetUnreadCounts[item.id] ?? 0) > 0 && (
+          {item.unreadCount > 0 && (
             <View style={styles.targetUnreadBadge}>
               <Text style={styles.targetUnreadBadgeText}>
-                {(targetUnreadCounts[item.id] ?? 0) > 99 ? '99+' : targetUnreadCounts[item.id] ?? 0}
+                {item.unreadCount > 99 ? '99+' : item.unreadCount}
               </Text>
             </View>
           )}
@@ -1113,8 +1048,23 @@ export default function ChatScreen() {
     return (
       <View style={styles.container}>
         <StatusBar style="dark" backgroundColor="#fff" />
-        <View style={styles.header}>
-          <Text style={styles.headerTitle}>메신저</Text>
+        <View
+          style={[
+            styles.header,
+            { paddingTop: Math.max(insets.top, 20) + 4 },
+          ]}
+        >
+          {targetPickerHeader.showBackButton ? (
+            <Pressable style={styles.backBtn} onPress={handleTargetPickerBack}>
+              <Feather name="arrow-left" size={22} color={CHARCOAL} />
+            </Pressable>
+          ) : (
+            <View style={styles.backBtn} />
+          )}
+          <View style={styles.headerContent}>
+            <Text style={styles.headerTitle}>{targetPickerHeader.title}</Text>
+          </View>
+          <View style={styles.backBtn} />
         </View>
 
         <View style={styles.targetIntroCard}>
@@ -1125,9 +1075,7 @@ export default function ChatScreen() {
         </View>
 
         {targetsLoading ? (
-          <View style={styles.center}>
-            <ActivityIndicator color={HANWHA_ORANGE} />
-          </View>
+          <MessengerLoadingState variant="targets" />
         ) : targetsError ? (
           <View style={styles.center}>
             <Text style={styles.targetHelperText}>{targetsError}</Text>
@@ -1241,7 +1189,7 @@ export default function ChatScreen() {
                 bottom: 68 + bottomSafeInset + (Platform.OS === 'android' ? keyboardPadding : 0),
               },
             ]}>
-            <ActivityIndicator size="small" color={HANWHA_ORANGE} />
+            <BrandedLoadingSpinner size="sm" color={HANWHA_ORANGE} />
             <Text style={styles.uploadingText}>파일 전송 중...</Text>
             <TouchableOpacity onPress={handleCancelUpload} style={styles.cancelUploadBtn} activeOpacity={0.8}>
               <Ionicons name="close-circle" size={20} color="#666" />
@@ -1289,12 +1237,12 @@ const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: SOFT_BG },
   center: { flex: 1, justifyContent: 'center', alignItems: 'center', paddingHorizontal: 16 },
   header: {
-    minHeight: 56,
+    minHeight: 64,
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'center',
-    paddingHorizontal: 16,
-    paddingVertical: 10,
+    justifyContent: 'space-between',
+    paddingHorizontal: 12,
+    paddingBottom: 12,
     backgroundColor: '#fff',
     borderBottomWidth: 1,
     borderBottomColor: '#F3F4F6',

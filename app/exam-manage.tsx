@@ -3,7 +3,6 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { router } from 'expo-router';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
-  ActivityIndicator,
   Alert,
   Pressable,
   RefreshControl,
@@ -15,6 +14,7 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
+import BrandedLoadingState from '@/components/BrandedLoadingState';
 import { RefreshButton } from '@/components/RefreshButton';
 import { useSession } from '@/hooks/use-session';
 import { deleteExamRegistrationAsAdmin } from '@/lib/exam-admin-api';
@@ -489,7 +489,7 @@ export default function ExamManageLifeScreen() {
           </View>
         </View>
 
-        {isLoading && <ActivityIndicator color={ORANGE} style={{ marginVertical: 20 }} />}
+        {isLoading && <BrandedLoadingState variant="exam-applicants" layout="section" />}
 
         {!isLoading && applicantsError && (
           <View style={styles.emptyState}>

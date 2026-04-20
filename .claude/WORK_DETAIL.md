@@ -7,6 +7,218 @@
 
 ---
 
+## <a id="20260420-android-login-runtime-baseline-and-alert-glyph-hardening"></a> 2026-04-20 | Android 로그인 런타임 baseline 재고정 + 경고 UI SVG glyph 전환
+
+**배경**:
+- 사용자 로그에는 `expo-notifications` network warning과 `FunctionsFetchError`가 반복됐고, 로그인/시험 정보/시험 신청자 정보까지 한꺼번에 실패한다고 보고됐다.
+- direct backend smoke는 계속 성공했기 때문에 처음에는 app post-login flow를 더 의심했지만, emulator를 재기동해 보니 dev client가 stale Metro endpoint(`172.28.4.60:8082`)에 매달린 상태와 DNS resolution 실패가 함께 있었다.
+- 추가로 `AppAlertProvider`/`Toast`/`ErrorBoundary`는 여전히 `@expo/vector-icons/Feather`를 쓰고 있어, 에러 surface가 뜨는 순간 font asset fetch noise를 더할 수 있었다.
+
+**조치**:
+- emulator/runtime baseline 재확인
+  - 현재 emulator shell에서 `google.com`, `ubeginyxaotcamuqpmud.supabase.co`, `ubeginyxaotcamuqpmud.functions.supabase.co`, `requestboard-steel.vercel.app` host resolution을 직접 확인했다.
+  - DNS가 깨진 상태에서는 `unknown host`가 났고, emulator를 `-dns-server 8.8.8.8,1.1.1.1`로 재기동하자 같은 host들이 모두 정상 ping됐다.
+  - stale Metro endpoint blank screen도 확인해, Android dev QA에서 Metro binding을 baseline으로 먼저 확인해야 함을 기록했다.
+- `components/StatusGlyph.tsx`
+  - alert/toast/error fallback에서 공통으로 쓸 수 있는 SVG status glyph를 추가했다.
+  - `info`, `success`, `warning`, `error`를 font icon 없이 `react-native-svg` path/line/circle로 그리도록 만들었다.
+- `components/AppAlertProvider.tsx`, `components/Toast.tsx`, `components/ErrorBoundary.tsx`
+  - `Feather` 기반 status icon을 제거하고 `StatusGlyph`로 교체했다.
+  - 이제 로그인 실패 alert나 runtime error fallback이 뜰 때도 icon font asset fetch에 의존하지 않는다.
+- `hooks/use-login.ts`, `hooks/__tests__/use-login.contract.test.ts`
+  - `login-with-password` invoke error / rejected response / catch path를 `logger.warn`으로 남기게 했다.
+  - 다음 로그인 재현 때는 generic alert만 보지 않고 실제 실패 지점을 JS 로그에서 바로 확인할 수 있다.
+- 계약 테스트 추가
+  - `components/__tests__/StatusGlyph.contract.test.ts`
+  - `components/__tests__/AppAlertProvider.contract.test.ts`
+
+**결과**:
+- 이번 세션의 로그인/불러오기 실패를 유발한 1차 원인은 앱 auth backend가 아니라 emulator DNS/Metro baseline이었다는 점을 확인했다.
+- 경고/오류 UI는 이제 font-backed icon asset에 의존하지 않아, 실제 네트워크 실패와 icon asset noise가 섞이는 문제를 줄였다.
+- `use-login`은 다음부터 generic user-facing alert 뒤에 실제 failure reason을 log로 남겨 재현성이 올라갔다.
+
+**검증**:
+- 통과: `npm test -- --runInBand components/__tests__/BrandedLoadingSpinner.contract.test.ts components/__tests__/StatusGlyph.contract.test.ts components/__tests__/AppAlertProvider.contract.test.ts hooks/__tests__/use-login.contract.test.ts lib/__tests__/session-landing.test.ts lib/__tests__/push-registration.test.ts lib/__tests__/branded-loading-spinner.test.ts`
+- 통과: `npx eslint components/AppAlertProvider.tsx components/Toast.tsx components/ErrorBoundary.tsx components/StatusGlyph.tsx components/__tests__/StatusGlyph.contract.test.ts components/__tests__/AppAlertProvider.contract.test.ts hooks/use-login.ts hooks/__tests__/use-login.contract.test.ts`
+- 통과: emulator relaunch with DNS override followed by successful host resolution
+  - `google.com`
+  - `ubeginyxaotcamuqpmud.supabase.co`
+  - `ubeginyxaotcamuqpmud.functions.supabase.co`
+  - `requestboard-steel.vercel.app`
+
+---
+
+## <a id="20260420-mobile-login-postsuccess-stabilization"></a> 2026-04-20 | 모바일 로그인 post-success 안정화
+
+**배경**:
+- direct `login-with-password` 확인 결과 FC/admin 계정 모두 `ok: true`였고, request_board `bridge-login`도 정상이라 backend auth 경계는 살아 있었다.
+- 그런데 앱에서는 로그인 후에도 실패처럼 보이는 현상이 남았고, 기존 Android 증적에는 `ExpoAsset.downloadAsync`가 `Feather.ttf`를 못 내려받아 login pending 순간에 예외를 낸 흔적이 있었다.
+- 실제 기기 로그에는 `expo-notifications`가 device push token을 서버로 업데이트하다 `Network request failed` 경고를 연속 출력해, 로그인 실패와 후속 side effect가 섞여 보였다.
+
+**조치**:
+- `components/BrandedLoadingSpinner.tsx`, `lib/branded-loading-spinner.ts`
+  - 공용 로더를 `@expo/vector-icons/Feather`에서 `react-native-svg` 기반 asset-free 회전 화살표로 교체했다.
+  - spinner config에 SVG path contract(`viewBox`, `arcPath`, `arrowHeadPath`)를 추가했다.
+- `components/__tests__/BrandedLoadingSpinner.contract.test.ts`, `lib/__tests__/branded-loading-spinner.test.ts`
+  - `BrandedLoadingSpinner` source가 더 이상 `@expo/vector-icons`/`Feather`에 의존하지 않는다는 계약 테스트를 먼저 추가했다.
+  - spinner config가 SVG path 데이터를 반환하는지 failing test로 고정한 뒤 구현을 맞췄다.
+- `lib/session-landing.ts`, `lib/__tests__/session-landing.test.ts`, `app/login.tsx`
+  - 로그인 이후 landing route를 공용 helper로 분리했다.
+  - `LoginScreen`은 session state가 실제로 반영된 뒤 helper를 통해 `/`, `/home-lite`, `/request-board` 중 하나로 이동하도록 정리했다.
+- `hooks/use-login.ts`, `hooks/__tests__/use-login.contract.test.ts`
+  - 로그인 mutation success path에서 eager `router.replace(...)`를 제거했다.
+  - 즉시 landing route로 밀어넣지 않는다는 source contract를 failing test로 추가했다.
+- `lib/push-registration.ts`, `lib/__tests__/push-registration.test.ts`, `hooks/use-session.tsx`
+  - push token 등록 시도 키를 분리해 같은 세션에서 중복 등록 경고가 반복되지 않도록 했다.
+  - push registration은 session 확정 직후 1초 지연 후 한 번만 시도하게 바꿔, login transition과 push side effect를 분리했다.
+
+**결과**:
+- 로그인 버튼 pending UI가 더 이상 font asset download에 의존하지 않아, dev client/runtime에서 `Feather.ttf` 미다운로드 때문에 login flow가 깨질 경로를 제거했다.
+- landing navigation이 session observer(`LoginScreen`) 기준으로만 일어나도록 바뀌어, protected screen의 `!role => /login` 가드와 경쟁하던 eager replace를 없앴다.
+- push token network warning은 아직 네트워크 상태에 따라 발생할 수 있지만, 같은 session에서 로그인 직후 여러 번 반복 시도되는 구조는 줄였다.
+
+**검증**:
+- 통과: `npm test -- --runInBand lib/__tests__/session-landing.test.ts lib/__tests__/push-registration.test.ts hooks/__tests__/use-login.contract.test.ts lib/__tests__/branded-loading-spinner.test.ts components/__tests__/BrandedLoadingSpinner.contract.test.ts`
+- 통과: `npx eslint app/login.tsx hooks/use-login.ts hooks/use-session.tsx lib/session-landing.ts lib/push-registration.ts lib/__tests__/session-landing.test.ts lib/__tests__/push-registration.test.ts hooks/__tests__/use-login.contract.test.ts components/BrandedLoadingSpinner.tsx lib/branded-loading-spinner.ts components/__tests__/BrandedLoadingSpinner.contract.test.ts lib/__tests__/branded-loading-spinner.test.ts`
+- 통과: provided FC/admin credentials로 direct `login-with-password` + request_board `/api/auth/bridge-login` both success
+- 한계: emulator dev client 연결은 여전히 불안정해 최신 JS bundle을 end-to-end 로그인까지 완주 검증하지는 못했다. 최종 on-device fresh login 확인은 사용자 재검증이 필요하다.
+
+---
+
+## <a id="20260420-branded-loading-rollout-app-wide"></a> 2026-04-20 | 공용 branded loading을 앱 전역 `ActivityIndicator` surface로 확장
+
+**배경**:
+- 메신저 진입 화면에는 새 animated loading card를 넣었지만, 같은 세션에서 사용자가 "모두 바꿔"를 요청할 정도로 나머지 화면은 여전히 bare spinner만 남아 있었다.
+- 실제 코드 기준으로도 `app/*`, `components/*` 전반에 full-screen loading, section loading, button pending, search/tree/loading, upload/send spinner가 `ActivityIndicator` 그대로 흩어져 있었다.
+- 이 상태는 도메인별 UX 품질이 들쑥날쑥하고, 새 loading treatment를 공용 컴포넌트가 아니라 messenger 특수 UI처럼 보이게 만들었다.
+
+**조치**:
+- `components/BrandedLoadingState.tsx`, `components/BrandedLoadingSpinner.tsx`, `lib/branded-loading-spinner.ts`, `lib/messenger-loading.ts`
+  - rotating refresh-cw + pulse + dot sequence를 공용 loading primitives로 분리했다.
+  - full-screen/section card와 compact inline spinner를 분리하고, copy contract를 variant map으로 관리하도록 정리했다.
+  - messenger 전용 이름을 유지하던 wrapper(`components/MessengerLoadingState.tsx`)는 generic state card wrapper로 얇게 바꿨다.
+- `lib/__tests__/messenger-loading.test.ts`, `lib/__tests__/branded-loading-spinner.test.ts`
+  - request-board/request review/request code/admin/notifications copy contract와 spinner size contract를 먼저 failing test로 추가한 뒤 구현을 맞췄다.
+- `app/*`
+  - `admin-messenger`, `notifications`, `request-board`, `request-board-messenger`, `request-board-review`, `request-board-requests`, `request-board-fc-codes`
+    - full-screen/section loading과 send/save/create pending spinner를 branded loading으로 교체했다.
+  - `appointment`, `board-detail`, `notice-detail`, `hanwha-commission`, `exam-apply*`, `exam-manage*`, `index`
+    - 기존 center spinner 또는 section spinner를 copy가 있는 branded loading card로 바꿨다.
+  - `login`, `docs-upload`, `referral`, `chat`
+    - button pending / upload overlay spinner를 compact branded spinner로 바꿨다.
+- `components/Button.tsx`, `components/ReferralSearchField.tsx`, `components/ReferralTreeNode.tsx`
+  - 공용 버튼 loading, 추천인 검색 로딩, 트리 lazy-expand 로딩이 모두 같은 compact spinner를 쓰게 정리했다.
+- 추가 확인:
+  - `app/*`, `components/*` 전체에서 `ActivityIndicator` 문자열 검색 결과가 0건이 되도록 마감했다.
+
+**결과**:
+- 메신저에만 먼저 붙었던 loading motion이 앱 전반으로 확장돼, loading 상태가 더 이상 "빈 화면 + 주황 spinner"로 보이지 않는다.
+- full-screen/section loading은 copy가 있는 branded card를 사용하고, 저장/전송/검색/트리 같은 작은 pending state는 compact spinner를 쓰는 2단 계약으로 정리됐다.
+- 향후 로딩 스타일을 조정할 때 touch point가 공용 primitive 4개로 모여 drift 가능성이 줄었다.
+
+**후속 정정**:
+- 같은 날 사용자 QA에서 시험 정보/시험 신청자 정보/로그인 흐름에는 이 card/pulse/dot treatment가 과하다는 피드백이 나왔다.
+- 확인 결과 최근 실수는 auth 로직이 아니라 loading UI rollout 범위를 과장한 것이었고, `BrandedLoadingState`/`BrandedLoadingSpinner`를 로그인 버튼과 같은 `회전하는 refresh-cw 아이콘` 하나만 쓰는 형태로 다시 단순화했다.
+- 제공받은 FC/admin 계정으로 `login-with-password`를 직접 호출한 결과 두 계정 모두 `ok: true`가 반환되어, backend auth path는 정상임을 별도로 확인했다.
+
+**검증**:
+- 통과: `npm test -- --runInBand lib/__tests__/messenger-loading.test.ts lib/__tests__/branded-loading-spinner.test.ts`
+- 통과: `npx eslint app/admin-messenger.tsx app/appointment.tsx app/board-detail.tsx app/chat.tsx app/dashboard.tsx app/docs-upload.tsx app/exam-apply.tsx app/exam-apply2.tsx app/exam-manage.tsx app/exam-manage2.tsx app/hanwha-commission.tsx app/index.tsx app/login.tsx app/notice-detail.tsx app/notifications.tsx app/referral.tsx app/request-board-fc-codes.tsx app/request-board-messenger.tsx app/request-board-requests.tsx app/request-board-review.tsx app/request-board.tsx components/Button.tsx components/BrandedLoadingSpinner.tsx components/BrandedLoadingState.tsx components/MessengerLoadingState.tsx components/ReferralSearchField.tsx components/ReferralTreeNode.tsx lib/branded-loading-spinner.ts lib/messenger-loading.ts lib/__tests__/messenger-loading.test.ts lib/__tests__/branded-loading-spinner.test.ts`
+- 통과: `Get-ChildItem app,components -Recurse -Include *.tsx,*.ts | Select-String 'ActivityIndicator'` 결과 0건
+- 별도 메모: `npx tsc --noEmit --pretty false`는 이번 loading rollout과 무관한 기존 오류(`app/appointment.tsx`, `app/hanwha-commission.tsx`, `app/referral.tsx`, `components/DaumPostcode.tsx`, `hooks/use-my-referral-code.ts`)로 여전히 실패
+
+---
+
+## <a id="20260420-internal-messenger-optimization-pass1"></a> 2026-04-20 | 가람in 내부 메신저 최적화 1차 + 메신저 헤더 뒤로가기 복구
+
+**배경**:
+- 사용자 피드백과 코드 확인 기준으로 가람in 메신저는 관리자 목록이 `FC 목록 + FC별 마지막 메시지 + FC별 unread count`를 각각 다시 읽는 `1 + 2N` 구조였고, 채팅 화면은 realtime과 함께 2.5초 polling을 계속 돌리고 있었다.
+- 홈/메신저 허브/알림 화면도 내부 unread와 notification unread를 화면별로 따로 5초 polling 하거나 focus/app-active/realtime을 중첩해 호출해 네트워크 비용과 체감 지연이 커졌다.
+- Android emulator QA 중에는 `메신저`와 `가람지사 메신저` 상단에 뒤로가기 버튼이 없어 navigation parity가 깨진 것도 확인됐다.
+
+**조치**:
+- `supabase/functions/_shared/internal-chat.ts`, `supabase/functions/fc-notify/index.ts`
+  - 내부 메신저 공용 집계 helper를 추가했다.
+  - `fc-notify`에 `internal_chat_list`, `internal_unread_count`를 추가했다.
+  - `chat_targets` 응답에 대상별 `unread_count`와 admin grouped unread를 포함시켰다.
+- `lib/internal-chat-api.ts`, `lib/__tests__/internal-chat.test.ts`
+  - 앱이 `fc-notify` 집계를 typed helper로만 읽도록 정리했다.
+  - affiliation scope, list ordering, unread aggregation, viewer payload 규칙에 대한 회귀 테스트를 추가했다.
+- `app/admin-messenger.tsx`
+  - 기존 FC/message N+1 조회를 `fetchInternalChatList(...)` 한 번으로 교체했다.
+  - realtime refetch는 현재 viewer와 관련된 메시지 이벤트로만 제한했다.
+  - Android QA에서 확인된 header regression을 닫기 위해 화면 내부 헤더에 뒤로가기 버튼을 추가했다.
+- `app/chat.tsx`
+  - FC 대상 unread 집계를 server aggregate로 교체했다.
+  - 2.5초 polling을 제거하고 `initial load + realtime + app active`만 유지했다.
+- `app/messenger.tsx`, `app/index.tsx`, `app/notifications.tsx`, `app/request-board.tsx`, `lib/system-notification-badge.ts`
+  - 내부 unread는 `fetchInternalUnreadCount(...)` 기반으로 교체했다.
+  - internal unread의 5초 polling을 제거했다.
+  - request_board unread polling은 30초로 낮추고 focus/app-active/manual refresh를 같이 유지했다.
+  - native badge writes는 unread 값이 실제로 달라질 때만 수행하도록 가드했다.
+- `lib/back-navigation.ts`, `lib/__tests__/back-navigation.test.ts`, `app/_layout.tsx`
+  - 스택이 있으면 `back()`, 없으면 fallback route로 `replace()`하는 공용 helper를 추가했다.
+  - `메신저` route header에 이 helper를 연결해 top header back button이 항상 보이도록 했다.
+- Android emulator QA
+  - FC flow와 admin internal-messenger flow 증적을 `.codex/harness/evidence/android-optimization-pass1/`에 수집했다.
+  - 제공받은 developer/admin 계정은 request_board session sync 과정에서 다시 login으로 돌아가는 현상이 있어, plain-admin QA session injection으로 internal messenger admin list/read 동작까지는 검증했다.
+
+**결과**:
+- 내부 메신저 admin list는 client-side `1 + 2N` 구조 대신 server aggregate 한 번으로 목록/last message/unread를 그리게 됐다.
+- 채팅방 전체 재조회 polling이 제거되어 열린 채팅방과 홈/허브 unread refresh가 더 단순한 조건으로 동작한다.
+- Android QA에서 확인된 `메신저`, `가람지사 메신저` 상단 뒤로가기 누락이 공용 fallback helper로 복구됐다.
+- request_board conversation list API가 전체 메시지 history를 읽는 구조는 여전히 남아 있어 2차 최적화 대상으로 유지했다.
+
+**검증**:
+- 통과: `npm test -- --runInBand lib/__tests__/back-navigation.test.ts`
+- 통과: `npm test -- --runInBand lib/__tests__/internal-chat.test.ts lib/__tests__/signup-referral.test.ts`
+- 통과: `npx eslint app/_layout.tsx app/admin-messenger.tsx app/chat.tsx app/messenger.tsx app/index.tsx app/notifications.tsx app/request-board.tsx lib/back-navigation.ts lib/internal-chat-api.ts lib/system-notification-badge.ts lib/__tests__/back-navigation.test.ts`
+- 통과: `npx eslint --rule "import/no-unresolved: off" supabase/functions/fc-notify/index.ts`
+- 통과: `node scripts/ci/check-governance.mjs`
+- 통과: `supabase functions deploy fc-notify --project-ref ubeginyxaotcamuqpmud`
+- 증적: `E:\hanhwa\fc-onboarding-app\.codex\harness\evidence\android-optimization-pass1\home.png`, `messenger-hub.png`, `admin-messenger-deeplink.png`, `admin-chat-open-2.png`, `admin-messenger-after-read.png`, `notifications-admin.png`
+- 미실행: 사용자가 이어서 수행할 실제 계정 수동 QA 전체 세트
+- 별도 메모: `npx tsc --noEmit --pretty false`는 이번 변경과 무관한 기존 오류(`app/appointment.tsx`, `app/hanwha-commission.tsx`, `app/referral.tsx`, `components/DaumPostcode.tsx`, `hooks/use-my-referral-code.ts`)로 인해 여전히 실패
+
+---
+
+## <a id="20260420-signup-referral-single-search-selection"></a> 2026-04-20 | 회원가입 추천인 단일 검색-선택 flow + signup search runtime 복구
+
+**배경**:
+- 사용자 확인 기준으로 회원가입 추천인 입력은 `/referral`과 달리 `추천인` direct input과 `추천인 검색` input이 따로 있었고, pasted 8자리 코드도 결과 선택 없이 바로 검증/저장 경로로 들어갔다.
+- 동시에 name search가 계속 `검색 결과가 없어요`로만 보였는데, 실제 원인은 signup 전용 trusted function `search-signup-referral`이 local source에는 있어도 원격 Supabase project `ubeginyxaotcamuqpmud`에는 배포되지 않은 상태였다.
+- 이 조합 때문에 UI는 검색형으로 보이지만 runtime contract는 `/referral` parity를 충족하지 못했다.
+
+**조치**:
+- `lib/signup-referral.ts`, `lib/__tests__/signup-referral.test.ts`
+  - 회원가입 추천인 저장 payload를 `selectedReferral + validated status` 기준으로만 만들도록 helper를 분리했다.
+  - 입력값이 남아 있는데 검색 결과를 선택하지 않은 경우 진행을 막는 회귀 테스트를 추가했다.
+- `components/ReferralSearchField.tsx`
+  - signup에서도 `/referral`과 같은 공용 검색 입력을 쓸 수 있도록 input ref / 추가 TextInput props를 받을 수 있게 확장했다.
+- `app/signup.tsx`
+  - `추천인` direct code input을 제거하고 단일 search field로 정리했다.
+  - 이름/소속/추천코드 입력은 모두 search query로만 받고, 최종 저장은 검색 결과에서 1명을 선택한 뒤 `validate-referral-code`가 통과한 경우에만 허용되게 바꿨다.
+  - deep link/pending referral code도 direct validate 대신 search query prefill + 결과 선택 flow로 바꿨다.
+  - search function failure는 더 이상 empty result처럼 숨기지 않고 별도 오류 문구로 surface하도록 보강했다.
+- `supabase/functions/search-signup-referral/index.ts`
+  - local function source를 현재 linked project `ubeginyxaotcamuqpmud`에 실제 배포했다.
+- `docs/referral-system/*`, `.claude/*`, `.codex/harness/*`
+  - signup 추천인 계약을 `단일 검색 입력 + 결과 선택 필수` 기준으로 다시 기록했다.
+
+**결과**:
+- 회원가입 추천인 입력은 `/referral`과 같은 검색-선택 UX로 수렴했고, 붙여넣은 8자리 코드도 검색 결과를 한 번 선택해야만 가입 payload에 실린다.
+- signup trusted search path가 원격에도 배포되어 exact code search와 name search가 실제 런타임에서 둘 다 응답한다.
+- search function 장애가 나더라도 사용자는 더 이상 `검색 결과 없음`과 backend failure를 구분 못 하는 상태에 머무르지 않는다.
+
+**검증**:
+- 통과: `npm test -- --runInBand lib/__tests__/signup-referral.test.ts`
+- 통과: `npx eslint app/signup.tsx components/ReferralSearchField.tsx lib/signup-referral.ts lib/__tests__/signup-referral.test.ts`
+- 통과: `supabase functions deploy search-signup-referral --project-ref ubeginyxaotcamuqpmud`
+- 통과: live anon invoke에서 sample code `AEGBUB57`, sample name query `정운` 모두 `search-signup-referral` `200` + result 반환 확인
+- 미실행: 실제 기기에서 회원가입 화면의 pasted 8자리 code selection gate, deep-link prefill 후 selection, `/signup -> /signup-verify` on-device UX 확인
+
+---
+
 ## <a id="20260417-login-auto-issue-referral-code"></a> 2026-04-17 | eligible login 시 active 추천코드 auto-issue + self-service catch-up 정렬
 
 **배경**:

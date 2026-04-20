@@ -4,7 +4,6 @@ import * as FileSystem from 'expo-file-system/legacy';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
-  ActivityIndicator,
   Alert,
   KeyboardAvoidingView,
   Platform,
@@ -17,6 +16,7 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
+import BrandedLoadingSpinner from '@/components/BrandedLoadingSpinner';
 import { Button } from '@/components/Button';
 import { RefreshButton } from '@/components/RefreshButton';
 import { useToast } from '@/components/Toast';
@@ -687,7 +687,7 @@ export default function DocsUploadScreen() {
                       disabled={isUploading || isLocked}
                     >
                       {isUploading ? (
-                        <ActivityIndicator size="small" color={COLORS.primary} />
+                        <BrandedLoadingSpinner size="sm" color={COLORS.primary} />
                       ) : (
                         <>
                           <Feather name="upload" size={16} color={COLORS.primary} />

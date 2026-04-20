@@ -15,7 +15,7 @@
 ## 3. 실행 규칙
 
 - `P0`는 배포 차단 게이트다.
-- 자동 입력이 기본이므로, 자동 입력 성공 케이스와 가입 전 직접 코드 입력/검색 선택 fallback 케이스를 반드시 같이 검증한다.
+- 자동 입력이 기본이므로, 자동 입력 query prefill 성공 케이스와 가입 전 `검색 결과 선택 필수` fallback 케이스를 반드시 같이 검증한다.
 - 한 케이스 실행 전후로 테스트 계정/기기 상태를 초기화하거나, 초기화가 불가능하면 notes에 잔여 상태를 남긴다.
 - PASS라도 화면 증적만으로 끝내지 말고, 가능하면 서버 로그 또는 DB 검증을 함께 남긴다.
 - 추천인 테이블 direct client access는 금지되어 있으므로, confirm/운영 조회 케이스는 trusted Edge Function 또는 server route 호출 증적까지 남긴다.
@@ -32,6 +32,7 @@
 - `RF-DATA-02`는 inviter가 이후 코드를 rotate해도 confirmed attribution이 있으면 historical signup code가 우선 표시되는지까지 확인해야 PASS다.
 - `RF-SEC-03`, `RF-SEC-04`는 `set-password` direct/duplicate 호출 hardening을 검증한다. source review만으로 PASS 처리하지 않는다.
 - `RF-SEC-05`는 FC 기본정보 화면에서 추천인 표시 cache가 읽기 전용인지 확인한다.
+- signup 추천인 입력은 `/referral`과 같은 단일 검색 입력이 기준이다. exact 8자리 코드를 붙여넣어도 결과에서 1명을 선택하지 않으면 PASS 처리하지 않는다.
 - graph 검증은 API smoke와 브라우저 상호작용을 분리해서 남긴다.
   - API smoke: merged edge count, `relationshipState`, unresolved legacy node count
   - 브라우저: node drag, 빈 공간 pan, fit/reset, label 가시성, manager read-only
@@ -57,7 +58,7 @@
 - `RF-CODE-05` 한 추천인이 여러 가입자를 추천 가능
 - `RF-CODE-06` 한 가입자는 최종 추천인 1명만 가짐
 - `RF-CODE-07` Android 추천코드 입력 시 소문자가 대문자 1회로만 정규화되고 중복 문자(`JJ`)가 생기지 않음
-- `RF-CODE-08` 회원가입 화면에서 이름/소속/추천코드 검색으로 추천인을 선택해도 최종 저장은 유효한 추천코드 기준으로 수렴함
+- `RF-CODE-08` 회원가입 화면에서 이름/소속/추천코드 검색으로 추천인을 선택해야만 최종 저장되고, pasted 8자리 코드도 선택 전에는 저장되지 않음
 - `RF-CODE-09` eligible FC/본부장은 로그인 성공 시 active 추천코드가 자동 보장되고 기존 코드는 유지됨
 - `RF-SELF-01` FC/본부장 self-service 추천코드 조회는 현재 runtime hook(`get-my-referral-code`) 기준으로 active code를 반환함
 - `RF-SELF-02` FC/본부장 self-service 추천인 변경은 trusted path로 현재 추천인 표시와 attribution/event audit trail을 함께 갱신하고, 저장 직후 같은 화면의 direct recommender/current recommender가 재진입 없이 즉시 갱신됨
@@ -66,7 +67,7 @@
 ### 5.2 초대링크
 
 - `RF-LINK-01` 앱 설치 상태에서 초대링크 진입 후 자동 추천 확정
-- `RF-LINK-02` 앱 미설치 상태에서는 자동 복원이 없고 직접 코드 입력 또는 검색 선택 fallback이 필요하며, iOS 공유 문구는 direct App Store URL 또는 명시적 검색 안내를 포함함
+- `RF-LINK-02` 앱 미설치 상태에서는 자동 복원이 없고 추천인 검색-선택 fallback이 필요하며, iOS 공유 문구는 direct App Store URL 또는 명시적 검색 안내를 포함함
 - `RF-LINK-03` 링크 자동 추천 후 수동 코드 입력 시 우선순위 적용
 - `RF-LINK-04` 변조/만료 링크 graceful fallback
 
@@ -132,7 +133,7 @@
 - `/referral` 최초 진입이 로그인 세션만 살아 있고 referral `appSessionToken`은 만료된 상태여도, bridge token이 유효하면 조회/저장이 같은 화면에서 자동 복구되는지 확인한다.
 - Android `/referral` 안정성 케이스는 production build에서 첫 진입, edit mode 전환, pull-to-refresh, tree/error 상태 전환을 최소 1회씩 밟고 `null child at index` / `ReactClippingViewManager.addView` 크래시가 없는지 확인한다.
 - 본부장 보조 링크 케이스는 모바일 화면에서 FC 미노출, 본부장 노출, 외부 브라우저 open만 확인하고 graph 자체 사용성 검증은 `RF-ADMIN-07/08`로 분리한다.
-- 추천코드 입력 회귀는 실제 입력 문자열(`j -> J`, `ab -> AB`)과 결과 화면을 함께 남긴다.
+- 추천코드 검색 입력 회귀는 실제 입력 문자열(`j -> J`, `ab -> AB`, exact 8자리 paste`)과 결과 선택 전/후 화면을 함께 남긴다.
 - source repo만 보고 맞춘 계약 정리는 evidence가 아니다. 그런 항목은 notes에 `code review only`로 명시한다.
 
 ## 7. 장애 발생 시 추가 절차

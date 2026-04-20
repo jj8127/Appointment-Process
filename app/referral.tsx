@@ -5,7 +5,6 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import {
-  ActivityIndicator,
   Alert,
   Linking,
   Platform,
@@ -19,6 +18,7 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
+import BrandedLoadingSpinner from '@/components/BrandedLoadingSpinner';
 import { Skeleton } from '@/components/LoadingSkeleton';
 import { ReferralDirectRecommenderCard } from '@/components/ReferralAncestorsChain';
 import {
@@ -580,7 +580,7 @@ export default function ReferralPage() {
                     disabled={!selected.code || saving}
                   >
                     {saving
-                      ? <ActivityIndicator size="small" color="#fff" />
+                      ? <BrandedLoadingSpinner size="sm" color="#fff" />
                       : <Text style={styles.saveBtnText}>저장</Text>
                     }
                   </Pressable>

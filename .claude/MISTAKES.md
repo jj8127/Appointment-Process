@@ -30,6 +30,111 @@
 - Verification:
 ```
 
+## 2026-04-20 | Android Dev QA Network Baseline | backend smoke만 믿고 emulator DNS/Metro 상태를 런타임 전제조건으로 먼저 고정하지 않아 로그인/불러오기 실패를 코드 문제처럼 오진함
+- Symptom:
+  - Android dev client에서 로그인, `latest_notice`, 시험 정보/신청자 정보 등 외부 fetch가 랜덤하게 실패했고, `FunctionsFetchError`와 `expo-notifications` network warning이 연속으로 보였다.
+  - 같은 세션에서 `Loading from 172.28.4.60:8082...` blank screen, `Feather.ttf` asset fetch 실패, generic login failure alert가 뒤섞여 원인 분리가 어려웠다.
+- Root cause:
+  - 실제 1차 원인은 emulator DNS가 깨져 있어 `google.com`, `*.supabase.co`, `*.vercel.app` host resolution이 실패한 상태였다.
+  - 동시에 dev client가 이전 Metro endpoint(`172.28.4.60:8082`)를 요구하는 상태였는데 Metro가 떠 있지 않은 순간도 있어, font asset fetch 실패가 추가로 섞였다.
+  - 나는 backend `login-with-password`/`bridge-login` smoke만 보고 앱 런타임 network baseline을 같은 acceptance criterion으로 묶지 않았다.
+- Why it was missed:
+  - auth backend 정상 여부와 Android emulator runtime 정상 여부를 분리하지 않고, 먼저 backend를 확인한 뒤 client post-login 코드만 의심했다.
+  - emulator에서 host-resolution(`ping google.com`)과 Metro binding 상태를 초기에 확인하지 않아, 환경 문제를 코드 회귀처럼 추적했다.
+- Permanent guardrail:
+  - Android dev QA 시작 전에 `google.com`, Supabase host, request_board host DNS resolution과 active Metro endpoint를 먼저 확인한다.
+  - backend smoke 통과만으로 모바일 로그인 회귀를 닫지 않는다. 최소 1회는 emulator/device에서 실제 fetch contract를 확인한다.
+  - emulator를 재기동할 때 DNS가 흔들리면 `-dns-server 8.8.8.8,1.1.1.1`로 띄우고 그 상태를 QA note에 남긴다.
+- Related files:
+  - `.codex/harness/evidence/android-optimization-pass1/*`, `.codex/harness/qa-report.md`, `.codex/harness/handoff.md`
+- Verification:
+  - emulator relaunch: `emulator.exe -avd codex-api34 -dns-server 8.8.8.8,1.1.1.1`
+  - `adb shell ping -c 1 google.com`
+  - `adb shell ping -c 1 ubeginyxaotcamuqpmud.functions.supabase.co`
+  - `adb shell ping -c 1 requestboard-steel.vercel.app`
+
+## 2026-04-20 | Mobile Login Post-Success Flow | 로그인 성공 직후 공용 로더/라우팅/푸시 등록을 한 번에 붙여 post-login 안정화를 깨뜨림
+- Symptom:
+  - `login-with-password` 자체는 성공하는데도 앱에서 로그인 직후 다시 실패처럼 보이거나, dev build에서는 `ExpoAsset.downloadAsync` / `Feather.ttf` asset 오류가 로그인 버튼 loading 순간에 터졌다.
+  - 실제 기기 로그에서는 `expo-notifications` push token update 경고가 연속으로 찍혀 로그인 실패 원인처럼 보였다.
+- Root cause:
+  - 로그인 성공 직후 가장 먼저 렌더되는 공용 loading spinner를 `@expo/vector-icons/Feather` 기반으로 바꿔, 아직 해당 폰트 asset을 확보하지 못한 dev client/runtime에서 login pending 자체가 예외 트리거가 됐다.
+  - 동시에 `useLogin`이 session state propagation 전에 landing route로 직접 `router.replace(...)`를 호출했고, 홈 계열 화면은 `role`이 아직 반영되기 전이면 `/login`으로 즉시 되돌아가는 보호 effect를 갖고 있어 post-login route race가 생길 수 있었다.
+  - 여기에 push token 등록도 session 확정 직후 바로 시도돼 네트워크 경고가 겹치면서 원인 판별을 더 어렵게 만들었다.
+- Why it was missed:
+  - backend auth 응답이 정상인 것을 확인하고도, "로그인 성공 후 첫 pending UI"와 "session-driven route transition"을 같은 계약으로 다시 보지 않았다.
+  - 공용 primitive 변경을 login surface에 적용하면서 font asset dependency와 protected-route redirect race를 별도 acceptance criterion으로 고정하지 않았다.
+- Permanent guardrail:
+  - 로그인/초기 진입에 걸리는 공용 loading primitive는 font-backed icon이 아니라 asset-free primitive(SVG/ActivityIndicator/native shape)로 둔다.
+  - login mutation은 session state만 갱신하고, landing navigation은 session observer screen이 담당하게 해 protected-route guard와 순서를 맞춘다.
+  - push token 등록 같은 비핵심 side effect는 login success와 같은 frame에서 바로 실행하지 말고, session 확정 뒤 지연/중복방지 key를 둔다.
+- Related files:
+  - `components/BrandedLoadingSpinner.tsx`, `lib/branded-loading-spinner.ts`, `hooks/use-login.ts`, `app/login.tsx`, `hooks/use-session.tsx`, `lib/session-landing.ts`, `lib/push-registration.ts`
+- Verification:
+  - `npm test -- --runInBand components/__tests__/BrandedLoadingSpinner.contract.test.ts lib/__tests__/branded-loading-spinner.test.ts hooks/__tests__/use-login.contract.test.ts lib/__tests__/session-landing.test.ts lib/__tests__/push-registration.test.ts`
+  - direct backend smoke: `login-with-password` + request_board `bridge-login` both succeed for provided FC/admin credentials
+
+## 2026-04-20 | Shared Loading UX Rollout | 메신저에 loading motion을 넣고도 나머지 `ActivityIndicator` surface를 같은 change set에서 바로 감사하지 않아 사용자에게 "왜 여긴 아직도 기본 spinner냐"는 불연속성을 남김
+- Symptom:
+  - 메신저 쪽에는 animated loading card가 보이는데, 홈/시험/설계요청/저장 버튼/추천인 검색 등 다른 화면은 여전히 bare spinner만 보여 UX가 불균일했다.
+  - 사용자가 직접 "모두 바꿔"라고 다시 요청할 정도로 공용 treatment처럼 보이지 않았다.
+- Root cause:
+  - 새 loading treatment를 messenger-specific polish로 먼저 적용했고, `app/*`, `components/*`의 باقي `ActivityIndicator` occurrences를 같은 도메인 rollout 범위로 즉시 승격하지 않았다.
+  - 공용 primitive를 먼저 만들지 않고 screen-by-screen로 시작해, 최초 적용 범위가 자연스럽게 전체 계약으로 이어지지 않았다.
+- Why it was missed:
+  - "새 패턴이 잘 보이는 대표 화면 2곳"에 먼저 넣는 것과 "앱 전역 공용 loading 계약을 바꾸는 것"을 같은 수준의 완료 조건으로 착각했다.
+  - 정적 검색으로 남은 `ActivityIndicator` surface를 세지 않은 상태에서 initial rollout을 사실상 닫았다.
+- Permanent guardrail:
+  - 새 공용 UI treatment를 도입할 때는 대표 화면만 바꾸지 말고, 먼저 codebase-wide occurrence scan으로 적용 대상을 전부 나열한 뒤 rollout 범위를 정한다.
+  - `app/*`, `components/*`에 남은 legacy primitive count(`ActivityIndicator`, old badge, old header 등)를 검색으로 0 또는 intentional-allowlist 상태까지 확인한 뒤에만 "공용 전개 완료"로 본다.
+  - 공용 motion/loading는 screen-specific component가 아니라 shared primitive부터 만들고, wrapper는 그 다음에 둔다.
+- Related files:
+  - `components/BrandedLoadingState.tsx`, `components/BrandedLoadingSpinner.tsx`, `lib/messenger-loading.ts`, `lib/branded-loading-spinner.ts`, `app/*`, `components/*`
+- Verification:
+  - `npm test -- --runInBand lib/__tests__/messenger-loading.test.ts lib/__tests__/branded-loading-spinner.test.ts`
+  - `Get-ChildItem app,components -Recurse -Include *.tsx,*.ts | Select-String 'ActivityIndicator'`
+
+## 2026-04-20 | Mobile Messenger Navigation Parity | 메신저 최적화/QA 중 route header와 screen header를 따로 보다가 두 화면의 뒤로가기 노출 계약을 놓침
+- Symptom:
+  - `메신저` 화면 상단 헤더에 뒤로가기 버튼이 보이지 않았다.
+  - `가람지사 메신저` 화면도 내부 헤더에 뒤로가기 버튼이 없어 상단에서 복귀할 수 없었다.
+- Root cause:
+  - `메신저`는 `app/_layout.tsx`의 Stack header에 의존하고, `가람지사 메신저`는 화면 내부 커스텀 헤더를 쓰는 서로 다른 구조인데, 메신저 최적화 동안 이를 하나의 navigation cluster로 다시 대조하지 않았다.
+  - 특히 `메신저`는 stack back이 없는 진입에서도 back affordance가 필요한데 default header back에만 기대고 있었다.
+- Why it was missed:
+  - 성능 리팩터와 unread 정확도 검증에 집중하면서, top-header navigation parity를 explicit QA 항목으로 고정하지 않았다.
+  - 정적 lint/test는 route header 노출 여부를 직접 잡아주지 못하는데도 화면 QA 이전에 닫으려 했다.
+- Permanent guardrail:
+  - 메신저 도메인 수정 시 `app/_layout.tsx`, `app/messenger.tsx`, `app/admin-messenger.tsx`, `app/chat.tsx`를 하나의 navigation cluster로 보고 header/back parity를 함께 점검한다.
+  - 스택이 없을 수 있는 top-level route는 default back에만 기대지 말고 fallback route를 가진 explicit back action을 둔다.
+  - manual QA checklist에 `상단 헤더 뒤로가기 버튼 보임 + 동작`을 별도 항목으로 넣는다.
+- Related files:
+  - `app/_layout.tsx`, `app/admin-messenger.tsx`, `app/messenger.tsx`, `lib/back-navigation.ts`, `lib/__tests__/back-navigation.test.ts`
+- Verification:
+  - `npm test -- --runInBand lib/__tests__/back-navigation.test.ts`
+  - `npx eslint app/_layout.tsx app/admin-messenger.tsx lib/back-navigation.ts lib/__tests__/back-navigation.test.ts`
+
+## 2026-04-20 | Signup Referral Search Rollout | 회원가입 추천인 검색을 `/referral`과 같은 계약으로 바꾸면서 배포/선택 게이트를 끝까지 닫지 않아 "검색 결과 없음"으로 보이게 둠
+- Symptom:
+  - 회원가입 화면에서 추천인 UI는 검색형처럼 보이는데, 이름 검색이 계속 `검색 결과가 없어요`로만 보였다.
+  - 추천인 입력도 direct code input과 search input이 둘로 갈라져 `/referral`과 다른 사용 경험이 남아 있었다.
+- Root cause:
+  - signup surface가 여전히 `직접 코드 입력 + 보조 검색` 계약에 머물러 있었고, pasted 8자리 코드도 결과 선택 없이 바로 검증/저장 경로로 들어갔다.
+  - 동시에 unauthenticated 검색용 Edge Function `search-signup-referral`은 local source에만 있고 원격 project(`ubeginyxaotcamuqpmud`)에는 배포되지 않아, 클라이언트는 function failure를 empty result처럼 보이게 삼켰다.
+- Why it was missed:
+  - `/referral` parity를 UI/코드 관점으로만 봤고, signup trusted search path의 actual deployment 상태와 empty/error 분리를 같은 acceptance criterion으로 고정하지 않았다.
+  - "검색 입력이 보인다"와 "검색 contract가 실제 런타임에서 동작한다"를 별개로 검증하지 않았다.
+- Permanent guardrail:
+  - signup과 `/referral` 추천인 입력은 같은 도메인 계약으로 보고, 검색형 surface라면 `단일 입력`, `검색 결과 선택 필수`, `typed/pasted code도 selection gate 통과`를 함께 묶어 검토한다.
+  - 새 trusted Edge Function을 client에 연결할 때는 UI 반영만으로 닫지 않는다. 같은 세션에서 `functions list/deploy`와 live invoke까지 확인하고, client는 function failure를 empty state로 숨기지 않는다.
+- Related files:
+  - `app/signup.tsx`, `components/ReferralSearchField.tsx`, `lib/signup-referral.ts`, `lib/__tests__/signup-referral.test.ts`, `supabase/functions/search-signup-referral/index.ts`, `docs/referral-system/SPEC.md`
+- Verification:
+  - `npm test -- --runInBand lib/__tests__/signup-referral.test.ts`
+  - `npx eslint app/signup.tsx components/ReferralSearchField.tsx lib/signup-referral.ts lib/__tests__/signup-referral.test.ts`
+  - `supabase functions deploy search-signup-referral --project-ref ubeginyxaotcamuqpmud`
+  - live anon invoke: exact code query + name query both return `200` results from `search-signup-referral`
+
 ## 2026-04-17 | Referral Code Provisioning Contract | eligible 사용자 추천코드 발급을 운영/backfill 단계로만 보고 로그인 성공 계약에 묶지 않음
 - Symptom:
   - completed FC나 active manager가 정상 로그인해도 active 추천코드가 없어 바로 공유/초대를 시작하지 못했다.

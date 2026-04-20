@@ -1,6 +1,6 @@
+import type { Ref } from 'react';
 import { Feather } from '@expo/vector-icons';
 import {
-  ActivityIndicator,
   Pressable,
   StyleSheet,
   Text,
@@ -9,6 +9,7 @@ import {
   View,
 } from 'react-native';
 
+import BrandedLoadingSpinner from '@/components/BrandedLoadingSpinner';
 import { COLORS, RADIUS } from '@/lib/theme';
 
 export const REFERRAL_SEARCH_PLACEHOLDER = '이름, 소속 또는 추천 코드 입력';
@@ -28,6 +29,11 @@ type ReferralSearchFieldProps = {
   onChangeText: (text: string) => void;
   onClear: () => void;
   returnKeyType?: TextInputProps['returnKeyType'];
+  inputRef?: Ref<TextInput>;
+  textInputProps?: Omit<
+    TextInputProps,
+    'value' | 'onChangeText' | 'placeholder' | 'placeholderTextColor' | 'returnKeyType'
+  >;
 };
 
 type ReferralSearchResultListProps = {
@@ -42,11 +48,14 @@ export function ReferralSearchField({
   onChangeText,
   onClear,
   returnKeyType = 'search',
+  inputRef,
+  textInputProps,
 }: ReferralSearchFieldProps) {
   return (
     <View style={styles.searchInputWrap}>
       <Feather name="search" size={16} color={COLORS.text.muted} />
       <TextInput
+        ref={inputRef}
         style={styles.searchInputField}
         placeholder={REFERRAL_SEARCH_PLACEHOLDER}
         placeholderTextColor={COLORS.text.muted}
@@ -54,9 +63,10 @@ export function ReferralSearchField({
         onChangeText={onChangeText}
         autoCapitalize="none"
         returnKeyType={returnKeyType}
+        {...textInputProps}
       />
       {searching && (
-        <ActivityIndicator size="small" color={COLORS.primary} style={{ marginLeft: 4 }} />
+        <BrandedLoadingSpinner size="sm" color={COLORS.primary} style={{ marginLeft: 4 }} />
       )}
       {searchQuery.length > 0 && !searching && (
         <Pressable onPress={onClear} hitSlop={8}>

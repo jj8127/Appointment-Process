@@ -1,6 +1,7 @@
 import { Feather } from '@expo/vector-icons';
-import { ActivityIndicator, Pressable, StyleSheet, Text, View } from 'react-native';
+import { Pressable, StyleSheet, Text, View } from 'react-native';
 
+import BrandedLoadingSpinner from '@/components/BrandedLoadingSpinner';
 import { COLORS, RADIUS, SPACING } from '@/lib/theme';
 
 export type DescendantNode = {
@@ -70,7 +71,7 @@ export function ReferralTreeNode({
         {/* Chevron / 로딩 / Leaf dot */}
         <View style={styles.chevronWrap}>
           {isLoadingExpand ? (
-            <ActivityIndicator size="small" color={COLORS.primary} style={{ width: 16, height: 16 }} />
+            <BrandedLoadingSpinner size="sm" color={COLORS.primary} />
           ) : hasChildren ? (
             <Feather
               name={expanded ? 'chevron-down' : 'chevron-right'}

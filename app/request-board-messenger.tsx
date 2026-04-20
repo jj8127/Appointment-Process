@@ -8,7 +8,6 @@ import { MotiView } from 'moti';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   AppState,
-  ActivityIndicator,
   Alert,
   FlatList,
   Image,
@@ -25,6 +24,8 @@ import {
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
+import BrandedLoadingSpinner from '@/components/BrandedLoadingSpinner';
+import BrandedLoadingState from '@/components/BrandedLoadingState';
 import { useSession } from '@/hooks/use-session';
 import { logger } from '@/lib/logger';
 import { formatRequestBoardFcDisplayName } from '@/lib/request-board-fc-identity';
@@ -1075,9 +1076,7 @@ export default function RequestBoardMessengerScreen() {
     return (
       <View style={styles.container}>
         <Stack.Screen options={{ headerShown: false }} />
-        <View style={styles.center}>
-          <ActivityIndicator size="large" color={COLORS.primary} />
-        </View>
+        <BrandedLoadingState variant="request-board-messenger" />
       </View>
     );
   }
@@ -1202,9 +1201,12 @@ export default function RequestBoardMessengerScreen() {
           keyboardVerticalOffset={0}
         >
           {msgLoading && messages.length === 0 ? (
-            <View style={styles.center}>
-              <ActivityIndicator color={COLORS.primary} />
-            </View>
+            <BrandedLoadingState
+              variant="request-board-messenger"
+              layout="section"
+              title="대화를 불러오고 있어요"
+              subtitle="메시지와 첨부 파일 상태를 동기화하는 중입니다."
+            />
           ) : messages.length === 0 ? (
             <View style={styles.emptyChatWrap}>
               <Feather name="message-circle" size={36} color={COLORS.gray[200]} />
@@ -1408,7 +1410,7 @@ export default function RequestBoardMessengerScreen() {
               disabled={(!inputText.trim() && pendingFiles.length === 0) || sending}
             >
               {sending ? (
-                <ActivityIndicator color="#fff" size={16} />
+                <BrandedLoadingSpinner color="#fff" size="sm" />
               ) : (
                 <Feather name="send" size={18} color="#fff" />
               )}
@@ -1532,9 +1534,7 @@ export default function RequestBoardMessengerScreen() {
 
       {/* List */}
       {convLoading ? (
-        <View style={styles.center}>
-          <ActivityIndicator size="large" color={COLORS.primary} />
-        </View>
+        <BrandedLoadingState variant="request-board-messenger" />
       ) : sections.length === 0 ? (
         <View style={styles.emptyState}>
           <View style={styles.emptyIcon}>
@@ -1740,7 +1740,7 @@ export default function RequestBoardMessengerScreen() {
                     )}
                     <View style={styles.convBottomRow}>
                       {isCreating ? (
-                        <ActivityIndicator size="small" color={COLORS.primary} />
+                        <BrandedLoadingSpinner size="sm" color={COLORS.primary} />
                       ) : (
                         <View style={styles.startDmRow}>
                           <Feather name="message-circle" size={13} color={COLORS.primary} />

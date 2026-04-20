@@ -8,6 +8,8 @@ type SyncNativeNotificationBadgeOptions = {
   dismissPresentedWhenZero?: boolean;
 };
 
+let lastAppliedBadgeCount: number | null = null;
+
 export async function syncNativeNotificationBadge(
   unreadCount: number,
   options?: SyncNativeNotificationBadgeOptions,
@@ -20,11 +22,19 @@ export async function syncNativeNotificationBadge(
   const normalizedCount = Number.isFinite(unreadCount) && unreadCount > 0
     ? Math.max(0, Math.floor(unreadCount))
     : 0;
+  const shouldSetBadge = lastAppliedBadgeCount !== normalizedCount;
 
-  try {
-    await Notifications.setBadgeCountAsync(normalizedCount);
-  } catch (error) {
-    logger.debug('[notifications] setBadgeCountAsync failed', { context, error });
+  if (!shouldSetBadge && (normalizedCount !== 0 || options?.dismissPresentedWhenZero === false)) {
+    return;
+  }
+
+  if (shouldSetBadge) {
+    try {
+      await Notifications.setBadgeCountAsync(normalizedCount);
+      lastAppliedBadgeCount = normalizedCount;
+    } catch (error) {
+      logger.debug('[notifications] setBadgeCountAsync failed', { context, error });
+    }
   }
 
   if (normalizedCount === 0 && options?.dismissPresentedWhenZero !== false) {

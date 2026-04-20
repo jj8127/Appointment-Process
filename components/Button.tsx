@@ -4,11 +4,11 @@ import {
   TouchableOpacity,
   Text,
   StyleSheet,
-  ActivityIndicator,
   ViewStyle,
   TextStyle,
   View,
 } from 'react-native';
+import BrandedLoadingSpinner from '@/components/BrandedLoadingSpinner';
 import { COLORS, TYPOGRAPHY, SPACING, RADIUS, TOUCH_TARGET, SHADOWS } from '@/lib/theme';
 
 export type ButtonVariant = 'primary' | 'secondary' | 'outline' | 'ghost' | 'danger';
@@ -83,9 +83,9 @@ export function Button({
     >
       <View style={styles.content}>
         {loading && (
-          <ActivityIndicator
+          <BrandedLoadingSpinner
             color={variantStyles.text.color}
-            size="small"
+            size="sm"
             style={styles.loader}
           />
         )}
