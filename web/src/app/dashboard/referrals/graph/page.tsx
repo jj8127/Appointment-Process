@@ -36,10 +36,10 @@ const ReferralGraphCanvas = dynamic<ReferralGraphCanvasProps>(
 );
 
 const STATUS_FILTERS = [
-  { key: 'has_active_code', label: '활성 코드', color: 'orange' },
-  { key: 'code_disabled', label: '비활성', color: 'gray' },
-  { key: 'missing_code', label: '미발급', color: 'gray' },
-  { key: 'legacy_unresolved', label: '레거시 미해결', color: 'yellow' },
+  { key: 'has_active_code', label: '사용 중 코드', color: 'orange' },
+  { key: 'code_disabled', label: '사용 중지', color: 'gray' },
+  { key: 'missing_code', label: '코드 없음', color: 'gray' },
+  { key: 'legacy_unresolved', label: '예전 기록 확인', color: 'yellow' },
 ] as const;
 
 type StatusFilterKey = (typeof STATUS_FILTERS)[number]['key'];
@@ -51,10 +51,10 @@ const PHYSICS_SLIDERS: Array<{
   minLabel: string;
   maxLabel: string;
 }> = [
-  { key: 'centerGravity', label: '중심 장력', description: '그래프가 중심 쪽으로 모이는 힘', minLabel: '자유롭게', maxLabel: '중심으로' },
-  { key: 'repulsion', label: '반발력', description: '노드와 컴포넌트가 서로 밀어내는 힘', minLabel: '가깝게', maxLabel: '멀리' },
-  { key: 'linkStrength', label: '링크 장력', description: '연결된 노드끼리 당기는 힘', minLabel: '느슨하게', maxLabel: '단단하게' },
-  { key: 'linkDistance', label: '링크 거리', description: '연결 노드 사이 목표 거리', minLabel: '짧게', maxLabel: '길게' },
+  { key: 'centerGravity', label: '중심 모임', description: '그래프가 가운데로 모이는 정도', minLabel: '자유롭게', maxLabel: '가운데로' },
+  { key: 'repulsion', label: '반발력', description: '표시들이 서로 밀어내는 정도', minLabel: '가깝게', maxLabel: '멀리' },
+  { key: 'linkStrength', label: '연결 강도', description: '연결된 표시끼리 당기는 정도', minLabel: '느슨하게', maxLabel: '단단하게' },
+  { key: 'linkDistance', label: '연결 거리', description: '연결된 표시 사이 거리', minLabel: '짧게', maxLabel: '길게' },
 ] as const;
 
 const PHYSICS_PRESETS: Array<{
@@ -418,16 +418,16 @@ export default function ReferralGraphPage() {
                   추천인 그래프
                 </Text>
                 <Text size="xs" c="gray.7">
-                  구조화 추천 관계를 중심으로 탐색하고 confirmed attribution은 보조 신호로만 겹쳐 보여줍니다.
+                  추천인으로 연결된 흐름을 먼저 보여주고, 추가로 확인된 연결은 연한 선으로 함께 보여줍니다.
                 </Text>
               </Box>
             </Group>
 
             <Group gap="xs" wrap="nowrap">
               <Button size="xs" variant="light" onClick={() => setFitRequestId((value) => value + 1)}>
-                Fit
+                화면 맞춤
               </Button>
-              <Tooltip label="고정된 노드를 풀고 레이아웃을 다시 정렬합니다." withArrow>
+              <Tooltip label="고정된 항목을 풀고 배치를 다시 정리합니다." withArrow>
                 <Button size="xs" variant="light" onClick={() => setResetLayoutRequestId((value) => value + 1)}>
                   고정 해제
                 </Button>
@@ -491,7 +491,7 @@ export default function ReferralGraphPage() {
               {selectedNodeId ? (
                 <Group gap="xs" wrap="nowrap">
                   <Text size="xs" c="dimmed">
-                    깊이
+                    범위
                   </Text>
                   {[1, 2, 3].map((value) => (
                     <Button
@@ -501,7 +501,7 @@ export default function ReferralGraphPage() {
                       color="orange"
                       onClick={() => setDepthHops(value as 1 | 2 | 3)}
                     >
-                      {value}홉
+                      {value}단계
                     </Button>
                   ))}
                 </Group>
@@ -510,7 +510,7 @@ export default function ReferralGraphPage() {
               <Switch
                 checked={hideIsolatedNodes}
                 onChange={toggleHideIsolatedNodes}
-                label="고립 노드 숨기기"
+                label="연결 없는 사람 숨기기"
                 size="sm"
               />
             </Group>
@@ -518,17 +518,17 @@ export default function ReferralGraphPage() {
             <Group gap="xs" wrap="wrap">
               {effectiveSelectedNodeId ? (
                 <Badge color="orange" variant="light">
-                  선택 노드 {depthHops}홉
+                  선택된 사람 주변 {depthHops}단계
                 </Badge>
               ) : null}
               <Badge color="gray" variant="light">
                 조회 전용
               </Badge>
               <Badge color="gray" variant="light">
-                {visibleNodes.length.toLocaleString('ko-KR')} 노드
+                {visibleNodes.length.toLocaleString('ko-KR')}명
               </Badge>
               <Badge color="gray" variant="light">
-                {visibleEdges.length.toLocaleString('ko-KR')} 엣지
+                {visibleEdges.length.toLocaleString('ko-KR')}개 연결
               </Badge>
             </Group>
           </Group>
@@ -562,7 +562,7 @@ export default function ReferralGraphPage() {
             <Stack align="center" gap="xs">
               <Loader size="lg" color="orange" />
               <Text c="dimmed" size="sm">
-                그래프 캔버스 준비 중...
+                화면 준비 중...
               </Text>
             </Stack>
           </Center>
@@ -570,7 +570,7 @@ export default function ReferralGraphPage() {
           <Center h="100%">
             <Stack align="center" gap="xs">
               <Text c="dimmed" size="sm">
-                현재 필터 조건에 맞는 노드가 없습니다.
+                지금 조건에 맞는 사람이 없습니다.
               </Text>
               <Button size="xs" variant="light" onClick={handleClearSelection}>
                 선택 해제
@@ -593,7 +593,7 @@ export default function ReferralGraphPage() {
           />
         )}
 
-        <Tooltip label="장력 설정" withArrow>
+        <Tooltip label="배치 설정" withArrow>
           <ActionIcon
             variant="filled"
             radius="xl"
@@ -632,17 +632,20 @@ export default function ReferralGraphPage() {
             </Text>
             <Group gap={6} wrap="wrap">
               <Badge color="orange" variant="light">
-                구조화 + 확정
+                추천인 연결 + 확인
               </Badge>
               <Badge color="blue" variant="light">
-                확정 attribution
+                추가 확인
               </Badge>
               <Badge color="gray" variant="light">
-                구조화 링크
+                추천인 연결
               </Badge>
               <Badge color="yellow" variant="light">
-                레거시 미해결
+                예전 기록 확인
               </Badge>
+                  <Badge color="yellow" variant="filled">
+                    본부장
+                  </Badge>
             </Group>
           </Stack>
         </Paper>

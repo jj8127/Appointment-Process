@@ -13,6 +13,7 @@ import type {
 import type { GraphApiResponse, GraphEdge, GraphNode, GraphNodeStatus } from '@/types/referral-graph';
 import { adminSupabase } from '@/lib/admin-supabase';
 import { logger } from '@/lib/logger';
+import { resolveReferralGraphHighlightType } from '@/lib/referral-graph-highlight';
 
 const CODE_EVENT_TYPES = ['code_generated', 'code_rotated', 'code_disabled', 'admin_override_applied'] as const;
 const DEFAULT_PAGE = 1;
@@ -41,6 +42,10 @@ type SearchableRecommenderProfileRow = {
 
 type StaffPhoneRow = {
   phone: string | null;
+};
+
+type ManagerNameRow = {
+  name: string | null;
 };
 
 type ReferralCodeRow = {
@@ -289,6 +294,22 @@ async function fetchExcludedStaffPhones() {
   }
 
   return excluded;
+}
+
+async function fetchManagerNames() {
+  const { data, error } = await adminSupabase
+    .from('manager_accounts')
+    .select('name');
+
+  if (error) {
+    throw error;
+  }
+
+  return new Set(
+    ((data ?? []) as ManagerNameRow[])
+      .map((row) => normalizeName(row.name))
+      .filter(Boolean),
+  );
 }
 
 async function fetchEligibleProfiles() {
@@ -1037,10 +1058,11 @@ function upsertGraphEdge(
 }
 
 export async function getReferralGraphData(session: VerifiedServerSession): Promise<GraphApiResponse> {
-  const [profiles, allProfiles, attributions] = await Promise.all([
+  const [profiles, allProfiles, attributions, managerNames] = await Promise.all([
     fetchEligibleProfiles(),
     fetchFcProfiles(),
     fetchReferralAttributions(),
+    fetchManagerNames(),
   ]);
 
   const fcIds = profiles.map((p) => p.id);
@@ -1116,6 +1138,11 @@ export async function getReferralGraphData(session: VerifiedServerSession): Prom
       nodeStatus,
       isIsolated: (degreeByFc.get(profile.id) ?? 0) === 0,
       hasLegacyUnresolved: legacyUnresolvedSet.has(profile.id),
+      highlightType: resolveReferralGraphHighlightType({
+        name: profile.name,
+        isManagerReferralShadow: profile.is_manager_referral_shadow,
+        managerNames,
+      }),
     };
   });
 

@@ -7,7 +7,7 @@
 
 ## 프로젝트 현황
 - 범위: 최근 1개월 Git 이력 기반 문서화 완료 (`2026-01-12` ~ `2026-02-11`, 총 44 commits)
-- 현재 포커스: 가람in 내부 메신저 최적화 1차 마감, unread 집계/refresh 경로 단순화, request_board 세션 sync 후속 QA
+- 현재 포커스: 추천인 레거시 free-text 정리, exact-unique 자동 연결 batch와 남은 manual review 대상 분리
 - 운영 스택: Expo 앱 + Next.js 웹 + Supabase(Edge Functions/RLS)
 
 ## 주의사항
@@ -20,6 +20,9 @@
 ## 최근 작업
 | 날짜 | 작업 | 핵심 파일 | 상세 |
 |------|------|----------|------|
+| 04-22 | 관리자 웹 추천인 그래프에서 본부장 노드와 `김형수` 노드를 노란색 강조 + 더 큰 반지름으로 표시하고, 드로어/범례에도 같은 강조 규칙을 반영 | `web/src/lib/referral-graph-highlight.ts`, `web/src/lib/admin-referrals.ts`, `web/src/types/referral-graph.ts`, `web/src/components/referrals/ReferralGraphCanvas.tsx`, `web/src/components/referrals/GraphNodeDrawer.tsx`, `web/src/app/dashboard/referrals/graph/page.tsx`, `.claude/WORK_LOG.md`, `.claude/WORK_DETAIL.md` | [→ 상세](WORK_DETAIL.md#20260422-web-referral-graph-manager-highlight) |
+| 04-22 | 레거시 추천인 정리 후 남은 34명에게 `01058006018` 개발자 계정으로 내부 메신저 안내를 보내고, 발송 상태가 붙은 최신 미등록 CSV를 다시 생성 | `scripts/reporting/send-missing-recommender-messages.mjs`, `scripts/reporting/export-missing-recommender-outreach-report.mjs`, `package.json`, `.codex/harness/reports/missing-recommender-message-send-2026-04-22.*`, `.codex/harness/reports/fc-missing-recommender-2026-04-22-outreach.*`, `.claude/WORK_LOG.md`, `.claude/WORK_DETAIL.md`, `.codex/harness/*` | [→ 상세](WORK_DETAIL.md#20260422-missing-recommender-outreach-message-batch) |
+| 04-22 | 레거시 추천인 문자열이 남아 있던 FC 41건을 정책 기준으로 재분류해 exact-unique 7건만 구조화 추천인으로 연결하고, 전화번호 scientific-notation 방지 CSV와 reconcile 보고서를 재생성 | `scripts/reporting/export-missing-recommender-report.mjs`, `scripts/reporting/reconcile-legacy-recommenders.mjs`, `package.json`, `docs/referral-system/TEST_RUN_RESULT.json`, `.codex/harness/reports/*`, `.claude/WORK_LOG.md`, `.claude/WORK_DETAIL.md`, `.codex/harness/*` | [→ 상세](WORK_DETAIL.md#20260422-legacy-recommender-exact-unique-reconciliation) |
 | 04-20 | Android 로그인/불러오기 실패를 다시 추적해 emulator DNS 불량과 stale Metro endpoint가 1차 원인임을 확인했고, 동시에 `AppAlertProvider`/`Toast`/`ErrorBoundary`의 남은 font icon 의존성을 `StatusGlyph` SVG로 치워 런타임 진단 노이즈를 줄임 | `components/StatusGlyph.tsx`, `components/AppAlertProvider.tsx`, `components/Toast.tsx`, `components/ErrorBoundary.tsx`, `hooks/use-login.ts`, `components/__tests__/StatusGlyph.contract.test.ts`, `components/__tests__/AppAlertProvider.contract.test.ts`, `hooks/__tests__/use-login.contract.test.ts`, `.claude/MISTAKES.md`, `.claude/WORK_DETAIL.md`, `.codex/harness/qa-report.md`, `.codex/harness/handoff.md` | [→ 상세](WORK_DETAIL.md#20260420-android-login-runtime-baseline-and-alert-glyph-hardening) |
 | 04-20 | 모바일 로그인 재검토에서 backend auth/bridge는 정상인데 app post-login 흐름이 흔들리는 것을 확인하고, 공용 로더를 asset-free SVG로 바꾸고 `useLogin`의 eager landing replace를 제거했으며 push token 등록도 지연·중복방지 키로 안정화 | `components/BrandedLoadingSpinner.tsx`, `lib/branded-loading-spinner.ts`, `app/login.tsx`, `hooks/use-login.ts`, `hooks/use-session.tsx`, `lib/session-landing.ts`, `lib/push-registration.ts`, `components/__tests__/BrandedLoadingSpinner.contract.test.ts`, `hooks/__tests__/use-login.contract.test.ts`, `lib/__tests__/session-landing.test.ts`, `lib/__tests__/push-registration.test.ts`, `.claude/*`, `.codex/harness/*` | [→ 상세](WORK_DETAIL.md#20260420-mobile-login-postsuccess-stabilization) |
 | 04-20 | 전역 로딩 rollout이 시험/로그인 흐름에 과하다는 QA를 반영해 `BrandedLoadingState`/`BrandedLoadingSpinner`를 로그인 버튼과 같은 단일 회전 화살표 스타일로 다시 단순화하고, 제공 계정 2종의 direct `login-with-password` 성공으로 auth backend 자체는 정상임을 확인 | `components/BrandedLoadingState.tsx`, `components/BrandedLoadingSpinner.tsx`, `.codex/harness/qa-report.md`, `.codex/harness/handoff.md`, `.claude/WORK_DETAIL.md` | [→ 상세](WORK_DETAIL.md#20260420-branded-loading-rollout-app-wide) |

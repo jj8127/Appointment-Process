@@ -30,6 +30,22 @@
 - Verification:
 ```
 
+## 2026-04-22 | Referral Report Export | 전화번호 CSV를 plain number로만 내보내 스프레드시트가 과학적 표기법으로 바꾸는 문제를 놓침
+- Symptom:
+  - `fc-missing-recommender-2026-04-22.csv`를 엑셀/스프레드시트로 열면 `010...` 전화번호가 `1.029E+09` 같은 과학적 표기법으로 보였다.
+- Root cause:
+  - CSV 본문은 raw 숫자 문자열로 맞게 저장됐지만, spreadsheet import/open 동작이 전화번호 열을 숫자로 자동 추론한다는 소비 환경 계약을 export 단계에서 반영하지 않았다.
+- Why it was missed:
+  - 데이터 조회 정확도만 확인하고, 실제 전달 포맷이 사용자의 기본 열기 도구(엑셀/스프레드시트)에서 어떻게 보이는지는 acceptance criterion에 넣지 않았다.
+- Permanent guardrail:
+  - 전화번호/주민번호처럼 앞자리 0이 의미를 갖는 보고서 CSV는 기본 export를 spreadsheet-safe text 형식으로 저장하고, 필요하면 raw CSV를 별도 파일로 같이 만든다.
+  - 보고서 산출물은 생성 직후 첫 몇 줄을 다시 읽어 phone column formatting contract를 확인한다.
+- Related files:
+  - `scripts/reporting/export-missing-recommender-report.mjs`, `.codex/harness/reports/fc-missing-recommender-2026-04-22.csv`
+- Verification:
+  - `npm run report:missing-recommender -- --date=2026-04-22`
+  - `Get-Content .codex\\harness\\reports\\fc-missing-recommender-2026-04-22.csv -TotalCount 5`
+
 ## 2026-04-20 | Android Dev QA Network Baseline | backend smoke만 믿고 emulator DNS/Metro 상태를 런타임 전제조건으로 먼저 고정하지 않아 로그인/불러오기 실패를 코드 문제처럼 오진함
 - Symptom:
   - Android dev client에서 로그인, `latest_notice`, 시험 정보/신청자 정보 등 외부 fetch가 랜덤하게 실패했고, `FunctionsFetchError`와 `expo-notifications` network warning이 연속으로 보였다.

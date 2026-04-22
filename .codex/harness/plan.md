@@ -1,5 +1,21 @@
 # Plan
 
+## Increment 9
+- Goal: send internal messenger reminders to the remaining blocked missing-recommender rows and regenerate the operator list with send status.
+- Outcome: complete.
+- Notes:
+  - Verified that `01058006018` is a `developer` account, so the internal messenger actor id must stay the phone number itself, not `admin`.
+  - Sent `34` internal messages with two variants: `31 missing_candidate`, `3 self_referral`.
+  - Generated `fc-missing-recommender-2026-04-22-outreach.*` with `outreach_required`, `blocked_reason`, and `message_status`.
+
+## Increment 8
+- Goal: classify and reconcile unresolved legacy recommender links with a policy-safe exact-unique batch.
+- Outcome: complete.
+- Notes:
+  - Dry-run classification found `4 ready + 3 needs_code + 31 missing_candidate + 3 self_referral`.
+  - Applied exact-unique reconciliation for 7 invitees after issuing 2 missing inviter codes.
+  - Remaining 34 are intentionally blocked pending manual operator review.
+
 ## Increment 1
 - Goal: move internal messenger list/unread aggregation to shared server helpers and typed mobile clients.
 - Outcome: complete.

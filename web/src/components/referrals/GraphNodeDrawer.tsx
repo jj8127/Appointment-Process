@@ -17,6 +17,7 @@ import {
 } from '@mantine/core';
 import { IconCalendar, IconArrowRight, IconExternalLink, IconUser, IconUsers } from '@tabler/icons-react';
 import { useQuery } from '@tanstack/react-query';
+import { getReferralGraphHighlightLabel } from '@/lib/referral-graph-highlight';
 import type { GraphNode, GraphRelationshipState } from '@/types/referral-graph';
 import type { ReferralAdminDetail } from '@/types/referrals';
 
@@ -38,14 +39,14 @@ function formatDate(isoString: string): string {
 
 function getRelationshipLabel(relationshipState: GraphRelationshipState) {
   if (relationshipState === 'structured_confirmed') {
-    return '구조화 + 확정';
+    return '추천인 연결 + 확인';
   }
 
   if (relationshipState === 'confirmed') {
-    return '확정';
+    return '추가 확인';
   }
 
-  return '구조화';
+  return '추천인 연결';
 }
 
 export type GraphNodeDrawerProps = {
@@ -85,10 +86,10 @@ export function GraphNodeDrawer({
 
   const nodeStatusLabel =
     node?.nodeStatus === 'has_active_code'
-      ? '활성 코드'
+      ? '사용 중 코드'
       : node?.nodeStatus === 'code_disabled'
-        ? '비활성'
-        : '미발급';
+        ? '사용 중지'
+        : '코드 없음';
 
   const nodeStatusColor =
     node?.nodeStatus === 'has_active_code'
@@ -96,6 +97,7 @@ export function GraphNodeDrawer({
       : node?.nodeStatus === 'code_disabled'
         ? 'gray'
         : 'gray';
+  const highlightLabel = getReferralGraphHighlightLabel(node?.highlightType ?? null);
 
   return (
     <Drawer
@@ -113,12 +115,17 @@ export function GraphNodeDrawer({
             </Badge>
             {node.hasLegacyUnresolved ? (
               <Badge color="yellow" variant="dot" size="sm">
-                레거시 미해결
+                예전 기록 확인
+              </Badge>
+            ) : null}
+            {highlightLabel ? (
+              <Badge color="yellow" variant="light" size="sm">
+                {highlightLabel}
               </Badge>
             ) : null}
             {node.isIsolated ? (
               <Badge color="gray" variant="light" size="sm">
-                고립 노드
+                연결 없음
               </Badge>
             ) : null}
           </Group>
@@ -173,6 +180,11 @@ export function GraphNodeDrawer({
             <Badge color="blue" variant="light">
               추천받음 {node.inboundCount}명
             </Badge>
+            {highlightLabel ? (
+              <Badge color="yellow" variant="light">
+                {highlightLabel}
+              </Badge>
+            ) : null}
           </Group>
 
           <Divider />

@@ -1,93 +1,49 @@
 # Current contract
 
 ## Increment
-- Name: Internal messenger optimization pass 1 + header recovery + branded loading rollout + login post-success stabilization
-- Goal: reduce internal messenger/list/unread cost without changing route structure, close the top-header back-button regression surfaced in QA, replace bare spinner-only loading UI across the remaining app surfaces, and stabilize the mobile login handoff after backend auth succeeds.
+- Name: Legacy recommender outreach follow-up
+- Goal: keep the remaining missing-recommender operator list current after the exact-unique batch, and send internal messenger reminders from the requested developer account to the 34 blocked rows.
 
 ## Exact scope
-- Internal messenger aggregation/runtime
-  - `supabase/functions/_shared/internal-chat.ts`
-  - `supabase/functions/fc-notify/index.ts`
-  - `lib/internal-chat-api.ts`
-- Mobile screens
-  - `app/_layout.tsx`
-  - `app/admin-messenger.tsx`
-  - `app/chat.tsx`
-  - `app/messenger.tsx`
-  - `app/index.tsx`
-  - `app/notifications.tsx`
-  - `app/request-board.tsx`
-  - `app/request-board-messenger.tsx`
-  - `app/request-board-review.tsx`
-  - `app/request-board-requests.tsx`
-  - `app/request-board-fc-codes.tsx`
-  - `app/appointment.tsx`
-  - `app/board-detail.tsx`
-  - `app/notice-detail.tsx`
-  - `app/docs-upload.tsx`
-  - `app/login.tsx`
-  - `app/referral.tsx`
-  - `app/exam-apply.tsx`
-  - `app/exam-apply2.tsx`
-  - `app/exam-manage.tsx`
-  - `app/exam-manage2.tsx`
-  - `app/hanwha-commission.tsx`
-- Client utilities/tests
-  - `lib/back-navigation.ts`
-  - `lib/branded-loading-spinner.ts`
-  - `lib/push-registration.ts`
-  - `lib/session-landing.ts`
-  - `lib/system-notification-badge.ts`
-  - `lib/messenger-loading.ts`
-  - `lib/__tests__/back-navigation.test.ts`
-  - `lib/__tests__/branded-loading-spinner.test.ts`
-  - `lib/__tests__/internal-chat.test.ts`
-  - `lib/__tests__/messenger-loading.test.ts`
-  - `lib/__tests__/push-registration.test.ts`
-  - `lib/__tests__/session-landing.test.ts`
-  - `components/BrandedLoadingState.tsx`
-  - `components/BrandedLoadingSpinner.tsx`
-  - `components/Button.tsx`
-  - `components/__tests__/BrandedLoadingSpinner.contract.test.ts`
-  - `components/ReferralSearchField.tsx`
-  - `components/ReferralTreeNode.tsx`
-  - `hooks/__tests__/use-login.contract.test.ts`
-- Documentation/handoff
-  - `.claude/MISTAKES.md`
+- Reporting/ops scripts
+  - `scripts/reporting/export-missing-recommender-report.mjs`
+  - `scripts/reporting/export-missing-recommender-outreach-report.mjs`
+  - `scripts/reporting/reconcile-legacy-recommenders.mjs`
+  - `scripts/reporting/send-missing-recommender-messages.mjs`
+  - `package.json`
+- Referral test and handoff artifacts
+  - `docs/referral-system/TEST_RUN_RESULT.json`
   - `.claude/WORK_LOG.md`
   - `.claude/WORK_DETAIL.md`
-  - `.codex/harness/*`
+  - `.codex/harness/product-spec.md`
+  - `.codex/harness/plan.md`
+  - `.codex/harness/qa-report.md`
+  - `.codex/harness/handoff.md`
+  - `.codex/harness/reports/fc-missing-recommender-2026-04-22-after-link.*`
+  - `.codex/harness/reports/fc-missing-recommender-2026-04-22-outreach.*`
+  - `.codex/harness/reports/legacy-recommender-reconcile-2026-04-22.*`
+  - `.codex/harness/reports/missing-recommender-message-send-2026-04-22.*`
 
 ## Acceptance criteria
-- [x] 관리자 메신저 목록은 client-side `1 + 2N` 메시지 조회 대신 `fc-notify` 집계 1회로 구성된다.
-- [x] `chat_targets`는 대상별 `unread_count`를 반환하고, 채팅 대상 선택기는 row-scan unread 집계를 제거한다.
-- [x] 채팅 화면의 2.5초 polling이 제거되고 `initial load + realtime + app active`로 유지된다.
-- [x] 메신저 허브/홈 내부 unread는 server aggregate 기반으로 갱신되고 5초 polling을 사용하지 않는다.
-- [x] native badge writes는 unread 값이 바뀔 때만 적용된다.
-- [x] `메신저` 상단 헤더는 스택 유무와 관계없이 뒤로가기 버튼을 노출한다.
-- [x] `가람지사 메신저` 화면 내부 헤더는 뒤로가기 버튼을 노출하고, direct entry 시 `/messenger`로 fallback 가능하다.
-- [x] `app/*`, `components/*`에서 bare `ActivityIndicator` 로딩 surface가 제거되고, 공용 branded loading state/spinner로 대체된다.
-- [x] full-screen/section loading은 copy가 있는 animated card를 사용하고, button/input/tree/send/upload loading은 compact animated spinner를 사용한다.
-- [x] login pending spinner는 font asset download에 의존하지 않는다.
-- [x] login mutation success path는 session state propagation 전에 landing route를 직접 replace하지 않는다.
-- [x] push token registration은 같은 session에서 지연·중복방지 키로 제어된다.
+- [x] 레거시 추천인 문자열이 있는 unresolved FC를 정책 SSOT 기준(`자동 연결 가능 / 후보 없음 / 자기추천`)으로 분류한다.
+- [x] exact-unique이며 정책상 허용되는 후보만 구조화 추천인으로 연결한다.
+- [x] exact-unique지만 active code가 없던 inviter는 code를 먼저 보장한 뒤 link를 적용한다.
+- [x] `self_referral` 또는 `missing_candidate` 항목은 자동 적용하지 않는다.
+- [x] apply 결과가 `fc_profiles.recommender_fc_id`와 `admin_override_applied` 이벤트에 남는다.
+- [x] 적용 후 미등록 FC 보고서가 감소한 건수로 다시 생성된다.
+- [x] 남은 34건에는 `01058006018` 개발자 계정 actor id로 내부 메신저 안내 메시지가 저장된다.
+- [x] 최신 운영 목록은 발송 대상 여부와 발송 상태까지 포함한 엑셀용 CSV로 다시 생성된다.
 
 ## Checks run
-- `npm test -- --runInBand lib/__tests__/back-navigation.test.ts`
-- `npm test -- --runInBand lib/__tests__/internal-chat.test.ts lib/__tests__/signup-referral.test.ts`
-- `npx eslint app/_layout.tsx app/admin-messenger.tsx app/chat.tsx app/messenger.tsx app/index.tsx app/notifications.tsx app/request-board.tsx lib/back-navigation.ts lib/internal-chat-api.ts lib/system-notification-badge.ts lib/__tests__/back-navigation.test.ts`
-- `npm test -- --runInBand lib/__tests__/messenger-loading.test.ts lib/__tests__/branded-loading-spinner.test.ts`
-- `npm test -- --runInBand lib/__tests__/session-landing.test.ts lib/__tests__/push-registration.test.ts hooks/__tests__/use-login.contract.test.ts lib/__tests__/branded-loading-spinner.test.ts components/__tests__/BrandedLoadingSpinner.contract.test.ts`
-- `npx eslint app/admin-messenger.tsx app/appointment.tsx app/board-detail.tsx app/chat.tsx app/dashboard.tsx app/docs-upload.tsx app/exam-apply.tsx app/exam-apply2.tsx app/exam-manage.tsx app/exam-manage2.tsx app/hanwha-commission.tsx app/index.tsx app/login.tsx app/notice-detail.tsx app/notifications.tsx app/referral.tsx app/request-board-fc-codes.tsx app/request-board-messenger.tsx app/request-board-requests.tsx app/request-board-review.tsx app/request-board.tsx components/Button.tsx components/BrandedLoadingSpinner.tsx components/BrandedLoadingState.tsx components/MessengerLoadingState.tsx components/ReferralSearchField.tsx components/ReferralTreeNode.tsx lib/branded-loading-spinner.ts lib/messenger-loading.ts lib/__tests__/messenger-loading.test.ts lib/__tests__/branded-loading-spinner.test.ts`
-- `npx eslint app/login.tsx hooks/use-login.ts hooks/use-session.tsx lib/session-landing.ts lib/push-registration.ts lib/__tests__/session-landing.test.ts lib/__tests__/push-registration.test.ts hooks/__tests__/use-login.contract.test.ts components/BrandedLoadingSpinner.tsx lib/branded-loading-spinner.ts components/__tests__/BrandedLoadingSpinner.contract.test.ts lib/__tests__/branded-loading-spinner.test.ts`
-- `npx tsc --noEmit --pretty false` (known pre-existing failures only: `app/appointment.tsx`, `app/hanwha-commission.tsx`, `app/referral.tsx`, `components/DaumPostcode.tsx`, `hooks/use-my-referral-code.ts`)
-- `npx eslint --rule "import/no-unresolved: off" supabase/functions/fc-notify/index.ts`
-- `node scripts/ci/check-governance.mjs`
-- `supabase functions deploy fc-notify --project-ref ubeginyxaotcamuqpmud`
+- `npm run report:legacy-recommenders -- --date=2026-04-22`
+- `npm run report:legacy-recommenders -- --date=2026-04-22 --apply`
+- `npm run report:missing-recommender -- --date=2026-04-22-after-link`
+- `npm run ops:send-missing-recommender-messages -- --date=2026-04-22`
+- `npm run ops:send-missing-recommender-messages -- --date=2026-04-22 --apply`
+- `npm run report:missing-recommender-outreach -- --date=2026-04-22`
 
 ## Rollback / containment
-- If internal unread aggregation regresses, revert `fc-notify` and the paired client helper usage together so list payloads and screen expectations stay aligned.
-- If navigation regression reappears, keep `lib/back-navigation.ts`, `app/_layout.tsx`, and `app/admin-messenger.tsx` in sync; do not fix only one of the two messenger entry surfaces.
-- `request_board` unread/list behavior remains phase-2 scope; do not mix full conversation-list redesign into this pass.
-- If loading treatment needs design tweaks later, keep `components/BrandedLoadingState.tsx`, `components/BrandedLoadingSpinner.tsx`, and `lib/messenger-loading.ts` aligned so the copy/animation contract does not drift by screen.
-- If login still regresses after backend auth succeeds, inspect `components/BrandedLoadingSpinner.tsx`, `app/login.tsx`, `hooks/use-login.ts`, `hooks/use-session.tsx`, `lib/session-landing.ts`, and `lib/push-registration.ts` together before touching server auth.
+- 이 increment는 exact-unique만 자동 적용한다. `missing_candidate`와 `self_referral`을 억지로 연결하는 추가 heuristic은 넣지 않는다.
+- 향후 남은 34건을 정리할 때도 먼저 active candidate exact match를 보지 않고 fuzzy alias를 적용하면 안 된다.
+- 보고서 원본 CSV가 스프레드시트에서 열려 있으면 같은 파일명 overwrite가 `EBUSY`로 실패할 수 있으니, 후속 보고서는 새 suffix로 생성한다.
+- 메시지 발송 스크립트는 같은 날 같은 발신자·같은 수신자·같은 문구가 이미 있으면 다시 넣지 않는다.

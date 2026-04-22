@@ -7,6 +7,133 @@
 
 ---
 
+## <a id="20260422-web-referral-graph-manager-highlight"></a> 2026-04-22 | 관리자 웹 추천인 그래프 본부장/김형수 노드 강조
+
+**배경**:
+- 운영자가 관리자 웹 추천인 그래프에서 본부장 노드와 `김형수` 노드를 한눈에 찾기 어렵다고 요청했다.
+- 기존 그래프는 추천코드 상태와 레거시 미해결 여부만 시각적으로 구분했고, 본부장/운영 예외 노드는 별도 강조가 없었다.
+
+**조치**:
+- `web/src/lib/referral-graph-highlight.ts`
+  - 그래프 강조 규칙을 분리했다.
+  - `manager_accounts.name`과 일치하거나 `is_manager_referral_shadow`인 경우 `manager` 강조로 판정한다.
+  - `김형수`는 별도 `special` 강조로 판정한다.
+  - 강조 노드는 기본 노드보다 더 큰 반지름을 갖도록 공용 radius helper도 같이 분리했다.
+- `web/src/lib/admin-referrals.ts`, `web/src/types/referral-graph.ts`
+  - 그래프 API 응답의 각 노드에 `highlightType`을 추가했다.
+  - `getReferralGraphData()`가 manager name set과 shadow flag를 함께 읽어 노드별 highlight type을 채운다.
+- `web/src/components/referrals/ReferralGraphCanvas.tsx`
+  - 강조 노드는 노란색(`yellow`) fill과 더 큰 반지름으로 렌더링되도록 바꿨다.
+  - 선택된 상태에서도 강조 노드는 노란색 fill을 유지하고, 선택 테두리만 별도로 보이게 했다.
+- `web/src/components/referrals/GraphNodeDrawer.tsx`, `web/src/app/dashboard/referrals/graph/page.tsx`
+  - 상세 드로어에 `본부장 강조` / `예외 강조` badge를 추가했다.
+  - 그래프 하단 범례에도 `본부장/김형수 강조` badge를 추가했다.
+
+**결과**:
+- 관리자 웹 추천인 그래프에서 본부장 노드와 `김형수` 노드가 노란색의 더 큰 원으로 바로 식별된다.
+- 노드를 클릭해 상세를 열어도 왜 강조되는지 드로어 badge로 확인할 수 있다.
+
+**검증**:
+- 통과: `cd web && npm run lint -- src/lib/referral-graph-highlight.ts src/lib/admin-referrals.ts src/components/referrals/ReferralGraphCanvas.tsx src/components/referrals/GraphNodeDrawer.tsx src/app/dashboard/referrals/graph/page.tsx src/types/referral-graph.ts`
+
+---
+
+## <a id="20260422-missing-recommender-outreach-message-batch"></a> 2026-04-22 | 미등록 추천인 차단 34건 내부 메신저 안내 발송
+
+**배경**:
+- exact-unique 정리 이후에도 `missing_candidate 31건 + self_referral 3건`, 총 34건은 자동 추천인 연결이 불가능한 상태로 남았다.
+- 사용자는 알림 row가 아니라 `01058006018` 계정으로 내부 메신저를 보내 달라고 요청했다.
+- 이 계정이 일반 총무인지 개발자인지에 따라 internal messenger actor id가 달라지므로, 앱 runtime 규칙과 같은 식별자를 써야 했다.
+
+**조치**:
+- 발신자 검증
+  - `admin_accounts.phone = 01058006018`를 다시 조회해 `name=개발자`, `staff_type=developer`임을 확인했다.
+  - 가람in 메신저 계약상 `developer`는 `sender_id='admin'`이 아니라 전화번호 actor(`01058006018`)를 써야 하므로, 배치도 같은 규칙으로 맞췄다.
+- `scripts/reporting/send-missing-recommender-messages.mjs`
+  - `legacy-recommender-reconcile-2026-04-22.json`의 blocked list를 읽어 발송 대상을 구성했다.
+  - `missing_candidate`와 `self_referral`에 서로 다른 한국어 안내 문구를 적용했다.
+  - 같은 날 같은 발신자/수신자/문구 메시지가 이미 있으면 재실행 시 중복 발송하지 않도록 dedupe를 넣었다.
+  - 실제 발송은 `messages` 테이블에 `sender_id`, `receiver_id`, `content`, `message_type='text'`로 insert하고, 결과를 markdown/json으로 남겼다.
+- `scripts/reporting/export-missing-recommender-outreach-report.mjs`
+  - 현재 미등록 64건 전체 목록을 다시 읽고
+  - blocked 34건 여부, 차단 사유, 메시지 발송 상태/시각, 발신 계정을 join해 엑셀 친화형 CSV와 raw CSV, markdown 보고서를 생성했다.
+- `package.json`
+  - `ops:send-missing-recommender-messages`
+  - `report:missing-recommender-outreach`
+  - 두 명령을 추가했다.
+
+**결과**:
+- `01058006018` developer actor로 blocked 34건 모두 내부 메신저 발송을 완료했다.
+- 발송 결과는 `31 missing_candidate`, `3 self_referral`, 실패 `0건`이었다.
+- 운영자가 바로 열 수 있는 최신 목록 파일은 `fc-missing-recommender-2026-04-22-outreach.*`로 생성됐고, 각 행에 `outreach_required`, `blocked_reason`, `message_status`, `message_sent_at`가 포함된다.
+
+**검증**:
+- 통과: `npm run ops:send-missing-recommender-messages -- --date=2026-04-22`
+- 통과: `npm run ops:send-missing-recommender-messages -- --date=2026-04-22 --apply`
+- 통과: `npm run report:missing-recommender-outreach -- --date=2026-04-22`
+- 통과: `npx eslint scripts/reporting/send-missing-recommender-messages.mjs scripts/reporting/export-missing-recommender-outreach-report.mjs`
+- DB 확인:
+  - `messages.sender_id = '01058006018'`로 2026-04-22자 신규 메시지 sample 조회 성공
+  - self-referral 3건 모두 별도 문구로 `전송 완료` 확인
+- 증적:
+  - `.codex/harness/reports/missing-recommender-message-send-2026-04-22.md`
+  - `.codex/harness/reports/missing-recommender-message-send-2026-04-22.json`
+  - `.codex/harness/reports/fc-missing-recommender-2026-04-22-outreach.csv`
+
+---
+
+## <a id="20260422-legacy-recommender-exact-unique-reconciliation"></a> 2026-04-22 | 레거시 추천인 exact-unique 정리 + 미등록 FC 보고서 재생성
+
+**배경**:
+- 운영 확인 결과, 구조화 추천인(`recommender_fc_id`)이 비어 있는 FC가 여전히 다수 있었고, 그중 41명은 `fc_profiles.recommender` free-text 추천인 문자열만 남아 있었다.
+- 추천인 문서 SSOT는 레거시 검토 큐를 `자동 연결 가능 / 동명이인 후보 다수 / 후보 없음 / 잘못된 자기추천`으로 분류하고, `안전 자동 정리`는 `exact-unique`만 허용한다.
+- 사용자가 직접 연 CSV는 스프레드시트 자동형변환 때문에 전화번호가 `1.029E+09`처럼 보였으므로, 보고서 export도 spreadsheet-safe 형식으로 다시 정리할 필요가 있었다.
+
+**조치**:
+- `scripts/reporting/export-missing-recommender-report.mjs`
+  - 기본 CSV를 엑셀/스프레드시트 친화형 텍스트 강제(`=\"010...\"`) 포맷으로 저장하도록 유지했다.
+  - raw CSV와 markdown 보고서를 같이 생성해, 사람 전달용과 원시 데이터용을 분리했다.
+- `scripts/reporting/reconcile-legacy-recommenders.mjs`
+  - service-role 기준으로 `fc_profiles`, `referral_codes`, `admin_accounts`를 읽어 eligible profile 집합을 구성했다.
+  - unresolved legacy recommender를 exact name 기준으로 분류해 `ready / needs_code / missing_candidate / self_referral`로 정리했다.
+  - `needs_code`는 inviter profile이 exact-unique이지만 active code가 없는 경우로만 분리했다.
+  - `--apply` 모드에서는:
+    - `admin_issue_referral_code(p_rotate=false)`로 필요한 inviter code를 먼저 보장하고
+    - `admin_apply_recommender_override`로 invitee의 `recommender_fc_id`, confirmed attribution, `admin_override_applied` event를 함께 남겼다.
+  - apply 후 verification 단계에서 대상 invitee의 `fc_profiles`와 최신 referral event를 다시 읽었다.
+- 실제 적용 결과
+  - 초기 분류: `ready 4`, `needs_code 3`, `missing_candidate 31`, `self_referral 3`
+  - 코드 발급: `한태균 -> 33GECSBC`, `이민우 -> MN2H937J`
+  - 추천인 연결 7건:
+    - `신혜주 -> 한태균`
+    - `김난성 -> 한태균`
+    - `임덕건 -> 이민우`
+    - `서정일 -> 이서연`
+    - `김중숙 -> 이상란`
+    - `장수정 -> 이서연`
+    - `고규리 -> 이서연`
+  - 남은 차단: `missing_candidate 31`, `self_referral 3`
+- 보고서 산출물
+  - `legacy-recommender-reconcile-2026-04-22.{md,json}`
+  - `fc-missing-recommender-2026-04-22-after-link.{csv,raw.csv,md}`
+  - 기존 `fc-missing-recommender-2026-04-22.csv`는 사용자가 열어 둔 상태라 `EBUSY`가 발생해 overwrite하지 않고 새 suffix 파일로 생성했다.
+
+**결과**:
+- 운영 정책상 안전한 exact-unique 7건만 구조화 추천인으로 연결했다.
+- 미등록 FC 운영 보고서는 `71명 -> 64명`으로 감소했다.
+- 남은 34건은 이름 기준 exact candidate가 없거나 자기추천이라 자동 연결하지 않았다.
+
+**검증**:
+- 통과: `npm run report:legacy-recommenders -- --date=2026-04-22`
+- 통과: `npm run report:legacy-recommenders -- --date=2026-04-22 --apply`
+- 통과: `npm run report:missing-recommender -- --date=2026-04-22-after-link`
+- 증적:
+  - `.codex/harness/reports/legacy-recommender-reconcile-2026-04-22.md`
+  - `.codex/harness/reports/legacy-recommender-reconcile-2026-04-22.json`
+  - `.codex/harness/reports/fc-missing-recommender-2026-04-22-after-link.csv`
+
+---
+
 ## <a id="20260420-android-login-runtime-baseline-and-alert-glyph-hardening"></a> 2026-04-20 | Android 로그인 런타임 baseline 재고정 + 경고 UI SVG glyph 전환
 
 **배경**:

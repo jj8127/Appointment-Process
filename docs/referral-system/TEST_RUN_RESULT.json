@@ -1,6 +1,6 @@
 {
   "meta": {
-    "generatedAt": "2026-04-17T06:30:00.000Z",
+    "generatedAt": "2026-04-22T06:45:00.000Z",
     "source": "docs/referral-system/test-cases.json",
     "note": "status: NOT_RUN | PASS | FAIL | BLOCKED | SKIPPED"
   },
@@ -9,7 +9,10 @@
       "caseId": "RF-CODE-01",
       "area": "추천코드",
       "priority": "P0",
-      "platform": ["app", "backend"],
+      "platform": [
+        "app",
+        "backend"
+      ],
       "title": "자동 입력된 유효 추천코드로 회원가입 시 추천 관계가 confirmed 된다",
       "status": "BLOCKED",
       "owner": "Codex",
@@ -24,7 +27,10 @@
       "caseId": "RF-CODE-02",
       "area": "추천코드",
       "priority": "P0",
-      "platform": ["app", "backend"],
+      "platform": [
+        "app",
+        "backend"
+      ],
       "title": "무효 또는 비활성 추천코드는 확정되지 않는다",
       "status": "PASS",
       "owner": "Codex",
@@ -38,7 +44,10 @@
       "caseId": "RF-CODE-03",
       "area": "추천코드",
       "priority": "P0",
-      "platform": ["app", "backend"],
+      "platform": [
+        "app",
+        "backend"
+      ],
       "title": "자기추천은 차단된다",
       "status": "NOT_RUN",
       "owner": "",
@@ -50,7 +59,10 @@
       "caseId": "RF-CODE-04",
       "area": "추천코드",
       "priority": "P0",
-      "platform": ["app", "backend"],
+      "platform": [
+        "app",
+        "backend"
+      ],
       "title": "이미 확정된 추천 관계는 다른 코드로 재확정되지 않는다",
       "status": "NOT_RUN",
       "owner": "",
@@ -62,7 +74,10 @@
       "caseId": "RF-LINK-01",
       "area": "초대링크",
       "priority": "P0",
-      "platform": ["app", "backend"],
+      "platform": [
+        "app",
+        "backend"
+      ],
       "title": "앱이 이미 설치된 상태에서 초대링크 진입 시 자동 추천이 확정된다",
       "status": "BLOCKED",
       "owner": "Codex",
@@ -77,7 +92,10 @@
       "caseId": "RF-LINK-02",
       "area": "초대링크",
       "priority": "P0",
-      "platform": ["app", "backend"],
+      "platform": [
+        "app",
+        "backend"
+      ],
       "title": "앱 미설치 상태에서는 자동 복원이 없고 수동 추천코드 fallback이 필요하다",
       "status": "NOT_RUN",
       "owner": "",
@@ -89,7 +107,10 @@
       "caseId": "RF-LINK-03",
       "area": "초대링크",
       "priority": "P0",
-      "platform": ["app", "backend"],
+      "platform": [
+        "app",
+        "backend"
+      ],
       "title": "자동 입력된 링크 추천보다 사용자가 가입 완료 전 직접 입력한 추천코드가 우선한다",
       "status": "NOT_RUN",
       "owner": "",
@@ -101,7 +122,9 @@
       "caseId": "RF-CODE-05",
       "area": "추천코드",
       "priority": "P0",
-      "platform": ["backend"],
+      "platform": [
+        "backend"
+      ],
       "title": "한 추천인은 여러 가입자를 추천할 수 있다",
       "status": "NOT_RUN",
       "owner": "",
@@ -113,7 +136,9 @@
       "caseId": "RF-CODE-06",
       "area": "추천코드",
       "priority": "P0",
-      "platform": ["backend"],
+      "platform": [
+        "backend"
+      ],
       "title": "한 가입자는 최종 추천인 1명만 가진다",
       "status": "NOT_RUN",
       "owner": "",
@@ -125,7 +150,9 @@
       "caseId": "RF-CODE-07",
       "area": "추천코드",
       "priority": "P0",
-      "platform": ["app"],
+      "platform": [
+        "app"
+      ],
       "title": "Android 추천코드 입력 시 소문자가 대문자 1회로만 정규화되고 중복 문자(`JJ`)가 생기지 않는다",
       "status": "BLOCKED",
       "owner": "Codex",
@@ -140,7 +167,10 @@
       "caseId": "RF-CODE-08",
       "area": "추천코드",
       "priority": "P1",
-      "platform": ["app", "backend"],
+      "platform": [
+        "app",
+        "backend"
+      ],
       "title": "회원가입 화면에서 이름/소속/추천코드 검색으로 추천인을 선택해도 최종 저장은 유효한 추천코드 기준으로 수렴한다",
       "status": "NOT_RUN",
       "owner": "",
@@ -152,7 +182,10 @@
       "caseId": "RF-CODE-09",
       "area": "추천코드",
       "priority": "P0",
-      "platform": ["app", "backend"],
+      "platform": [
+        "app",
+        "backend"
+      ],
       "title": "eligible FC/본부장은 로그인 성공 시 active 추천코드가 자동 보장되고 기존 코드는 유지된다",
       "status": "NOT_RUN",
       "owner": "",
@@ -164,7 +197,10 @@
       "caseId": "RF-LINK-04",
       "area": "초대링크",
       "priority": "P1",
-      "platform": ["app", "backend"],
+      "platform": [
+        "app",
+        "backend"
+      ],
       "title": "변조되었거나 만료된 초대링크는 graceful fallback으로 처리된다",
       "status": "NOT_RUN",
       "owner": "",
@@ -176,7 +212,10 @@
       "caseId": "RF-STATE-01",
       "area": "상태복원",
       "priority": "P0",
-      "platform": ["app", "backend"],
+      "platform": [
+        "app",
+        "backend"
+      ],
       "title": "가입 도중 이탈 후 재진입해도 로컬 pending 추천코드가 유지된다",
       "status": "NOT_RUN",
       "owner": "",
@@ -188,7 +227,10 @@
       "caseId": "RF-STATE-02",
       "area": "상태복원",
       "priority": "P1",
-      "platform": ["app", "backend"],
+      "platform": [
+        "app",
+        "backend"
+      ],
       "title": "cold start 또는 background resume에서도 중복 확정 없이 복원된다",
       "status": "NOT_RUN",
       "owner": "",
@@ -200,7 +242,10 @@
       "caseId": "RF-ADMIN-01",
       "area": "운영",
       "priority": "P0",
-      "platform": ["web", "backend"],
+      "platform": [
+        "web",
+        "backend"
+      ],
       "title": "운영자가 추천코드 운영 상태, invitee의 가입 시 사용한 추천코드 표시값, 레거시 추천인 검토 대상을 조회할 수 있다",
       "status": "NOT_RUN",
       "owner": "",
@@ -212,19 +257,28 @@
       "caseId": "RF-ADMIN-02",
       "area": "운영",
       "priority": "P0",
-      "platform": ["web", "backend"],
+      "platform": [
+        "web",
+        "backend"
+      ],
       "title": "운영 override 또는 clear는 감사 로그를 남긴다",
-      "status": "NOT_RUN",
-      "owner": "",
-      "executedAt": "",
-      "evidence": [],
-      "notes": ""
+      "status": "PASS",
+      "owner": "Codex",
+      "executedAt": "2026-04-22T06:43:00.000Z",
+      "evidence": [
+        ".codex/harness/reports/legacy-recommender-reconcile-2026-04-22.json",
+        "admin_apply_recommender_override applied for 7 invitees with admin_override_applied events verified"
+      ],
+      "notes": "Exact-unique legacy recommender batch applied through trusted RPC and verification re-read confirmed admin_override_applied events for the mutated invitees."
     },
     {
       "caseId": "RF-ADMIN-03",
       "area": "운영",
       "priority": "P0",
-      "platform": ["web", "backend"],
+      "platform": [
+        "web",
+        "backend"
+      ],
       "title": "기존 FC/본부장-linked FC 추천코드 백필은 대상만 발급하고 재실행해도 중복 활성 코드가 생기지 않는다",
       "status": "NOT_RUN",
       "owner": "",
@@ -236,7 +290,10 @@
       "caseId": "RF-ADMIN-04",
       "area": "운영",
       "priority": "P0",
-      "platform": ["web", "backend"],
+      "platform": [
+        "web",
+        "backend"
+      ],
       "title": "추천코드 재발급/비활성은 활성 코드와 이벤트 로그를 일관되게 갱신한다",
       "status": "NOT_RUN",
       "owner": "",
@@ -248,7 +305,10 @@
       "caseId": "RF-ADMIN-05",
       "area": "운영",
       "priority": "P0",
-      "platform": ["web", "backend"],
+      "platform": [
+        "web",
+        "backend"
+      ],
       "title": "manager는 추천인 코드 화면과 GET은 조회 가능하지만 mutate UI와 POST 권한은 없다",
       "status": "NOT_RUN",
       "owner": "",
@@ -260,23 +320,28 @@
       "caseId": "RF-ADMIN-06",
       "area": "운영",
       "priority": "P0",
-      "platform": ["web", "backend"],
-      "title": "레거시 추천인 검토 큐에서 구조화 링크가 없는 FC를 계정 선택형으로 연결하고 감사 로그를 남긴다",
-      "status": "NOT_RUN",
-      "owner": "Codex",
-      "executedAt": "2026-04-02T04:40:00.000Z",
-      "evidence": [
-        "supabase migration list => linked remote includes 20260331000005_admin_apply_recommender_override.sql",
-        "supabase db push => 20260401000002 / 20260402000001 applied",
-        "web/src/lib/admin-referrals.ts applyRecommenderSelection -> admin_apply_recommender_override RPC hard dependency remains"
+      "platform": [
+        "web",
+        "backend"
       ],
-      "notes": "migration blocker는 해소됐다. 다만 linked production에서 임의 invitee row를 mutation 테스트 대상으로 쓰지 않았기 때문에 실제 legacy link/override 실행과 감사 로그 확인은 아직 수행하지 않았다."
+      "title": "레거시 추천인 검토 큐에서 구조화 링크가 없는 FC를 계정 선택형으로 연결하고 감사 로그를 남긴다",
+      "status": "PASS",
+      "owner": "Codex",
+      "executedAt": "2026-04-22T06:43:00.000Z",
+      "evidence": [
+        ".codex/harness/reports/legacy-recommender-reconcile-2026-04-22.md",
+        "7 invitees linked via admin_apply_recommender_override after exact-unique classification"
+      ],
+      "notes": "Legacy recommender free-text rows were linked through the trusted override path only for policy-safe exact-unique cases, leaving blocked rows untouched."
     },
     {
       "caseId": "RF-ADMIN-07",
       "area": "운영",
       "priority": "P0",
-      "platform": ["web", "backend"],
+      "platform": [
+        "web",
+        "backend"
+      ],
       "title": "`/dashboard/referrals/graph`는 structured link 기준으로 빈 선 없이 그려지고 manager read-only를 유지한다",
       "status": "PASS",
       "owner": "Codex",
@@ -293,7 +358,9 @@
       "caseId": "RF-ADMIN-08",
       "area": "운영",
       "priority": "P1",
-      "platform": ["web"],
+      "platform": [
+        "web"
+      ],
       "title": "graph canvas는 node drag, 빈 공간 pan, reset, 기본 node name label을 지원한다",
       "status": "BLOCKED",
       "owner": "Codex",
@@ -309,39 +376,45 @@
       "caseId": "RF-ADMIN-09",
       "area": "운영",
       "priority": "P0",
-      "platform": ["web", "backend"],
+      "platform": [
+        "web",
+        "backend"
+      ],
       "title": "레거시 추천인 검토 큐는 자동 연결 가능/동명이인 후보 다수/후보 없음/잘못된 자기추천 상태를 정확히 분류한다",
       "status": "PASS",
       "owner": "Codex",
-      "executedAt": "2026-04-04T12:10:00.000Z",
+      "executedAt": "2026-04-22T06:41:00.000Z",
       "evidence": [
-        "service-role smoke => unresolvedCount 41, summary { self_referral: 3, auto_resolvable: 0, ambiguous: 0, missing_candidate: 38 }",
-        "web/src/lib/admin-referrals.ts buildUnresolvedLegacyItems => self_referral/auto_resolvable/ambiguous/missing_candidate classification",
-        "cd web && npm run lint -- src/lib/admin-referrals.ts src/app/api/admin/referrals/route.ts src/app/dashboard/referrals/page.tsx src/types/referrals.ts"
+        ".codex/harness/reports/legacy-recommender-reconcile-2026-04-22.json",
+        "classification summary: ready 4, needs_code 3, missing_candidate 31, self_referral 3"
       ],
-      "notes": "현재 운영 데이터에는 exact-unique/ambiguous가 0건이라 실제 UI에서 네 상태를 모두 동시에 보지는 못했다. 다만 service-role 집계와 서버 분류 로직, 타입/페이지 경로를 대조해 `self_referral 3건 / missing_candidate 38건`이 일치하는 것을 확인했다."
+      "notes": "Unresolved legacy recommender rows were classified with the same exact-name policy as the referral admin queue. This run produced exact-unique, missing-candidate, and self-referral outcomes; no ambiguous rows were present in the current dataset."
     },
     {
       "caseId": "RF-ADMIN-10",
       "area": "운영",
       "priority": "P0",
-      "platform": ["web", "backend"],
+      "platform": [
+        "web",
+        "backend"
+      ],
       "title": "`안전 자동 정리`는 exact-unique만 구조화하고 자기추천/후보 없음/동명이인은 남긴다",
       "status": "PASS",
       "owner": "Codex",
-      "executedAt": "2026-04-04T12:10:00.000Z",
+      "executedAt": "2026-04-22T06:43:00.000Z",
       "evidence": [
-        "service-role smoke => auto_resolvable 0, self_referral 3, missing_candidate 38, ambiguous 0",
-        "web/src/lib/admin-referrals.ts autoResolveLegacyRecommenders => unresolvedItems.filter(matchStatus === 'auto_resolvable') only",
-        "web/src/app/dashboard/referrals/page.tsx => `안전 자동 정리` button disabled when autoResolvableCount === 0"
+        ".codex/harness/reports/legacy-recommender-reconcile-2026-04-22.md",
+        "post-link missing report: .codex/harness/reports/fc-missing-recommender-2026-04-22-after-link.md"
       ],
-      "notes": "현재 운영 데이터에는 exact-unique 대상이 0건이라 실제 batch mutate를 실행하지 않았다. 대신 서버 함수가 `auto_resolvable`만 대상으로 삼고, UI도 같은 조건에서만 batch를 열도록 고정된 것을 확인했다. self_referral/no-match가 자동 대상에서 제외된 점은 PASS로 판단했다."
+      "notes": "Safe auto-resolve linked only exact-unique rows. Two inviters first received active codes, then 7 invitees were linked; 31 missing-candidate rows and 3 self-referrals were intentionally left untouched."
     },
     {
       "caseId": "RF-OBS-01",
       "area": "관찰성",
       "priority": "P0",
-      "platform": ["backend"],
+      "platform": [
+        "backend"
+      ],
       "title": "현재 persisted runtime 범위 내에서 이벤트 타임라인이 복원 가능하다",
       "status": "NOT_RUN",
       "owner": "",
@@ -353,7 +426,9 @@
       "caseId": "RF-DATA-01",
       "area": "정합성",
       "priority": "P0",
-      "platform": ["backend"],
+      "platform": [
+        "backend"
+      ],
       "title": "invitee orphan row와 invitee 중복 confirmed row가 없고 inviter snapshot이 유지된다",
       "status": "NOT_RUN",
       "owner": "",
@@ -365,7 +440,11 @@
       "caseId": "RF-DATA-02",
       "area": "정합성",
       "priority": "P0",
-      "platform": ["backend", "web", "app"],
+      "platform": [
+        "backend",
+        "web",
+        "app"
+      ],
       "title": "동명이인 이름과 무관하게 invitee 추천코드 조회는 structured attribution 기준으로 historical signup code를 우선한다",
       "status": "PASS",
       "owner": "Codex",
@@ -382,7 +461,9 @@
       "caseId": "RF-HISTORY-01",
       "area": "정합성",
       "priority": "P0",
-      "platform": ["backend"],
+      "platform": [
+        "backend"
+      ],
       "title": "추천인 계정 삭제 후에도 attribution/event snapshot으로 이력이 복원된다",
       "status": "NOT_RUN",
       "owner": "",
@@ -394,7 +475,10 @@
       "caseId": "RF-SEC-01",
       "area": "보안",
       "priority": "P1",
-      "platform": ["app", "backend"],
+      "platform": [
+        "app",
+        "backend"
+      ],
       "title": "반복 무효 입력 또는 링크 변조는 추천 관계를 만들지 않는다",
       "status": "NOT_RUN",
       "owner": "",
@@ -406,7 +490,10 @@
       "caseId": "RF-SEC-02",
       "area": "보안",
       "priority": "P0",
-      "platform": ["app", "backend"],
+      "platform": [
+        "app",
+        "backend"
+      ],
       "title": "direct client access는 차단되고 trusted server path만 추천인 read/write를 수행한다",
       "status": "PASS",
       "owner": "Codex",
@@ -426,7 +513,9 @@
       "caseId": "RF-SEC-03",
       "area": "보안",
       "priority": "P0",
-      "platform": ["backend"],
+      "platform": [
+        "backend"
+      ],
       "title": "`set-password`는 OTP로 검증된 기존 profile 없이 신규 FC를 만들지 않는다",
       "status": "PASS",
       "owner": "Codex",
@@ -442,7 +531,9 @@
       "caseId": "RF-SEC-04",
       "area": "보안",
       "priority": "P0",
-      "platform": ["backend"],
+      "platform": [
+        "backend"
+      ],
       "title": "중복 `set-password` 호출은 `already_set`로 거절되고 기존 추천인/온보딩 상태를 지우지 않는다",
       "status": "PASS",
       "owner": "Codex",
@@ -458,7 +549,10 @@
       "caseId": "RF-SEC-05",
       "area": "보안",
       "priority": "P1",
-      "platform": ["app", "backend"],
+      "platform": [
+        "app",
+        "backend"
+      ],
       "title": "FC 기본정보 화면은 추천인 cache를 읽기 전용으로만 노출하고 일반 사용자 저장으로 덮어쓰지 않는다",
       "status": "BLOCKED",
       "owner": "Codex",
@@ -473,7 +567,11 @@
       "caseId": "RF-INT-01",
       "area": "저장소경계",
       "priority": "P1",
-      "platform": ["app", "web", "backend"],
+      "platform": [
+        "app",
+        "web",
+        "backend"
+      ],
       "title": "request_board는 추천 관계 원본이 없어도 기존 흐름을 깨지 않는다",
       "status": "NOT_RUN",
       "owner": "",
@@ -485,7 +583,10 @@
       "caseId": "RF-SELF-01",
       "area": "추천코드",
       "priority": "P0",
-      "platform": ["app", "backend"],
+      "platform": [
+        "app",
+        "backend"
+      ],
       "title": "FC/본부장 self-service 추천코드 조회는 appSession 만료 시 bridge token으로 자동 복구되고, bridge도 없으면 재로그인을 요구한다",
       "status": "BLOCKED",
       "owner": "Codex",
@@ -505,7 +606,10 @@
       "caseId": "RF-SELF-02",
       "area": "추천코드",
       "priority": "P0",
-      "platform": ["app", "backend"],
+      "platform": [
+        "app",
+        "backend"
+      ],
       "title": "FC/본부장 self-service 추천인 변경은 appSession 자동 복구 뒤에도 trusted path와 audit trail 계약을 유지한다",
       "status": "BLOCKED",
       "owner": "Codex",
@@ -525,7 +629,10 @@
       "caseId": "RF-SELF-03",
       "area": "추천코드",
       "priority": "P0",
-      "platform": ["app", "backend"],
+      "platform": [
+        "app",
+        "backend"
+      ],
       "title": "FC/본부장 self-service `/referral`은 direct recommender/tree 계약을 유지하면서 세션 만료 상태를 명확히 표면화한다",
       "status": "BLOCKED",
       "owner": "Codex",

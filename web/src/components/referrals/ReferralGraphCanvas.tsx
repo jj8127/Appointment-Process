@@ -3,6 +3,7 @@
 import { forceCollide } from 'd3-force';
 import { useCallback, useEffect, useMemo, useRef, useState, type MutableRefObject } from 'react';
 import ForceGraph2D, { type ForceGraphMethods, type LinkObject, type NodeObject } from 'react-force-graph-2d';
+import { getReferralGraphNodeRadius } from '@/lib/referral-graph-highlight';
 import type { GraphEdge, GraphNode, GraphRelationshipState, ReferralGraphPhysicsSettings } from '@/types/referral-graph';
 
 const COLORS = {
@@ -13,6 +14,8 @@ const COLORS = {
   nodeSelected: '#f97316',
   nodeSelectedRing: '#0f172a',
   nodeLegacy: '#ca8a04',
+  nodeHighlight: '#facc15',
+  nodeHighlightShadow: 'rgba(250,204,21,0.4)',
   edgeStructured: 'rgba(100, 116, 139, 0.42)',
   edgeConfirmed: 'rgba(37, 99, 235, 0.5)',
   edgeCombined: 'rgba(234, 88, 12, 0.68)',
@@ -378,7 +381,7 @@ function buildComponentLayout(
 }
 
 function getNodeRadius(node: GraphNode) {
-  return 8 + Math.min(node.referralCount + node.inboundCount, 16) * 0.55;
+  return getReferralGraphNodeRadius(node);
 }
 
 function resolveEffectiveComponentAnchors(
@@ -1251,6 +1254,7 @@ export function ReferralGraphCanvas({
       const visible = isInNeighborhood && (!searchMatchSet || isSearchMatch || isSelected);
       const radius = getNodeRadius(node);
       const isPinned = node.fx != null && node.fy != null;
+      const isHighlighted = node.highlightType != null;
       const showDetailedLabel = isSelected || isSearchMatch || globalScale >= LABEL_ZOOM_THRESHOLD;
       const label = showDetailedLabel && node.activeCode ? `${node.name} · ${node.activeCode}` : node.name;
 
@@ -1258,7 +1262,10 @@ export function ReferralGraphCanvas({
 
       let fillColor: string = COLORS.nodeMissing;
       let shadowColor = 'rgba(148,163,184,0.22)';
-      if (isSelected) {
+      if (isHighlighted) {
+        fillColor = COLORS.nodeHighlight;
+        shadowColor = COLORS.nodeHighlightShadow;
+      } else if (isSelected) {
         fillColor = COLORS.nodeSelected;
         shadowColor = 'rgba(249,115,22,0.38)';
       } else if (node.nodeStatus === 'has_active_code') {
@@ -1269,14 +1276,26 @@ export function ReferralGraphCanvas({
         shadowColor = 'rgba(100,116,139,0.22)';
       }
 
+      if (isSelected && isHighlighted) {
+        shadowColor = 'rgba(250,204,21,0.52)';
+      }
+
       ctx.save();
-      ctx.shadowBlur = isSelected ? 26 : 16;
+      ctx.shadowBlur = isSelected ? 26 : isHighlighted ? 22 : 16;
       ctx.shadowColor = shadowColor;
       ctx.beginPath();
       ctx.arc(node.x, node.y, radius, 0, Math.PI * 2);
       ctx.fillStyle = fillColor;
       ctx.fill();
       ctx.restore();
+
+      if (isHighlighted) {
+        ctx.beginPath();
+        ctx.arc(node.x, node.y, radius, 0, Math.PI * 2);
+        ctx.strokeStyle = COLORS.nodeActive;
+        ctx.lineWidth = 1.6 / Math.max(globalScale, 0.85);
+        ctx.stroke();
+      }
 
       if (node.hasLegacyUnresolved) {
         ctx.beginPath();

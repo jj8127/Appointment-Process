@@ -2,7 +2,7 @@
 
 ## Summary
 - Status: partial pass with user-run manual follow-up pending
-- Scope: internal messenger optimization pass 1, unread aggregation, polling reduction, messenger header back-button recovery, branded loading rollout, mobile login post-success stabilization, and Android emulator runtime baseline repair
+- Scope: internal messenger optimization pass 1, unread aggregation, polling reduction, messenger header back-button recovery, branded loading rollout, mobile login post-success stabilization, Android emulator runtime baseline repair, legacy recommender exact-unique reconciliation, and missing-recommender outreach message batch
 
 ## Passed checks
 - `npm test -- --runInBand lib/__tests__/back-navigation.test.ts`
@@ -15,6 +15,12 @@
 - `npx eslint --rule "import/no-unresolved: off" supabase/functions/fc-notify/index.ts`
 - `node scripts/ci/check-governance.mjs`
 - `supabase functions deploy fc-notify --project-ref ubeginyxaotcamuqpmud`
+- `npm run report:legacy-recommenders -- --date=2026-04-22`
+- `npm run report:legacy-recommenders -- --date=2026-04-22 --apply`
+- `npm run report:missing-recommender -- --date=2026-04-22-after-link`
+- `npm run ops:send-missing-recommender-messages -- --date=2026-04-22`
+- `npm run ops:send-missing-recommender-messages -- --date=2026-04-22 --apply`
+- `npm run report:missing-recommender-outreach -- --date=2026-04-22`
 
 ## Android evidence captured
 - Artifact root: `E:\hanhwa\fc-onboarding-app\.codex\harness\evidence\android-optimization-pass1`
@@ -50,9 +56,17 @@
 - Android emulator login/notice/request fetch failures were traced to broken DNS resolution in the emulator, not a broken auth backend. Relaunching the AVD with `-dns-server 8.8.8.8,1.1.1.1` restored `google.com`, Supabase, and Vercel host resolution.
 - `AppAlertProvider`, `Toast`, and `ErrorBoundary` no longer depend on `Feather` font icons for status glyphs, so runtime failure UI does not add another asset-fetch failure on top of a real network error.
 - `use-login` now logs invoke failures, rejected login responses, and thrown exceptions so the next runtime repro will expose the actual failure class in JS logs.
+- Legacy recommender reconciliation classified 41 unresolved free-text recommender rows into `7 safe-to-link`, `31 missing_candidate`, and `3 self_referral`.
+- Two inviters without active code (`한태균`, `이민우`) received active codes first, then 7 invitees were linked through `admin_apply_recommender_override`.
+- Spreadsheet-safe missing-recommender report decreased from `71` rows to `64` rows after the reconciliation batch.
+- Sender `01058006018` was verified as a `developer` account, so the outreach batch used the phone-number actor id, matching app messenger behavior.
+- Internal messenger outreach inserted `34` message rows for the blocked list (`31 missing_candidate`, `3 self_referral`) with no failures.
+- The latest operator CSV now includes `outreach_required`, `blocked_reason`, `message_status`, and `message_sent_at`.
 
 ## Known observation
 - The provided device log showing repeated `expo-notifications` push-token warnings pointed to a wider emulator network baseline issue, not the auth backend itself. After the DNS override, host resolution recovered, but fresh manual login verification is still required.
+- The original `fc-missing-recommender-2026-04-22.csv` was locked by an open spreadsheet window, so the refreshed post-link report was written to `fc-missing-recommender-2026-04-22-after-link.*` instead of overwriting the open file.
+- The outreach CSV is the newest operator-facing file and supersedes the older post-link CSV when checking who already received an internal reminder.
 
 ## Remaining manual QA
 - Use the FC credentials provided in-thread:

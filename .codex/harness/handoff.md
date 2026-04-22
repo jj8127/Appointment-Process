@@ -14,6 +14,12 @@
 - Delayed and deduplicated push-token registration attempts so login success is not immediately followed by repeated registration retries in the same session.
 - Deployed the updated `fc-notify` function to project `ubeginyxaotcamuqpmud`.
 - Captured Android emulator evidence for FC flow and admin internal-messenger flow under `.codex/harness/evidence/android-optimization-pass1/`.
+- Added spreadsheet-safe reporting for FCs still missing structured recommender links.
+- Added a reusable legacy recommender reconciliation script and applied the policy-safe exact-unique batch on 2026-04-22.
+- Issued active referral codes for `한태균`, `이민우` and linked 7 invitees through `admin_apply_recommender_override`.
+- Captured reconciliation evidence under `.codex/harness/reports/legacy-recommender-reconcile-2026-04-22.{md,json}` and refreshed the missing report to `.codex/harness/reports/fc-missing-recommender-2026-04-22-after-link.*`.
+- Added a reusable internal messenger outreach script for the blocked list and sent `34` reminder messages from the `01058006018` developer account actor.
+- Generated the latest operator file at `.codex/harness/reports/fc-missing-recommender-2026-04-22-outreach.*` with send status columns.
 
 ## Still to do
 - User-run manual QA with the provided FC/admin credentials:
@@ -24,6 +30,11 @@
   - branded loading visual sanity-check on home/messenger/request-board/exam/referral/docs/login surfaces
 - Phase 2 optimization work:
   - request_board conversation list API still scans message history server-side and remains the next major bottleneck
+- Legacy recommender follow-up:
+  - 31 rows remain `missing_candidate`
+  - 3 rows remain `self_referral`
+  - all 34 rows have now received an internal reminder message from `01058006018`
+  - these 34 rows still require manual operator review or additional source-of-truth data before any further mutation
 
 ## Important notes
 - Admin internal-messenger Android validation used a QA-only plain-admin session injection path because the provided developer/admin account currently appears to be cleared by request_board session sync. Credentials are intentionally not stored in repo docs.
@@ -37,6 +48,9 @@
   - `components/DaumPostcode.tsx`
   - `hooks/use-my-referral-code.ts`
 - Existing unrelated local changes, including referral work and `app.json`, were left in place.
+- The spreadsheet-safe report uses `=\"010...\"` style text coercion so Excel/Sheets do not render phones as scientific notation.
+- If the original CSV is open in Excel or another spreadsheet app, regenerating the same filename may fail with `EBUSY`; write a new suffix file instead.
+- Outreach message results live in `.codex/harness/reports/missing-recommender-message-send-2026-04-22.{md,json}` and are deduped by same-day sender/receiver/content.
 - Loading copy/motion now lives in `components/BrandedLoadingState.tsx`, `components/BrandedLoadingSpinner.tsx`, `lib/messenger-loading.ts`, and `lib/branded-loading-spinner.ts`; future visual tweaks should touch those four together.
 - Login landing logic now also depends on `lib/session-landing.ts`, and push-registration throttling lives in `lib/push-registration.ts`; future login regressions should inspect those helpers together with `app/login.tsx`, `hooks/use-login.ts`, and `hooks/use-session.tsx`.
 - Android dev QA should now start with two baseline checks before blaming app code:
