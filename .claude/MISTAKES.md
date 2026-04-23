@@ -30,6 +30,104 @@
 - Verification:
 ```
 
+## 2026-04-23 | Manager FC Visibility Contract | 대상 목록 가시성 규칙만 바꾸고 허브 unread 집계를 옛 기준으로 남겨 숫자/목록이 서로 어긋남
+- Symptom:
+  - 본부장에게 전체 FC를 보이도록 목록 계약을 넓힌 뒤에도, 관리자 웹 메신저 허브 unread badge는 기존 raw `messages` 기준을 계속 써서 보이는 대상 범위와 숫자가 어긋날 수 있었다.
+- Root cause:
+  - “누가 보이는가”와 “누구의 unread를 셀 것인가”가 같은 participant filter를 공유하지 않았다.
+  - 내부 메신저 범위 변경을 모바일 list/unread와 웹 chat list에는 반영했지만, 웹 messenger hub count surface까지 같은 계약으로 묶지 못했다.
+- Why it was missed:
+  - acceptance criterion을 메인 화면(모바일 내부 메신저, 웹 채팅) 중심으로 닫고, 허브 badge 같은 파생 surface를 독립적으로 재점검하지 않았다.
+- Permanent guardrail:
+  - participant scope가 바뀌는 기능은 `목록 + unread badge + 허브 요약 + deep-link 진입`을 하나의 계약 세트로 검토한다.
+  - unread badge는 raw table count를 직접 세기보다, 같은 participant helper/RPC contract를 쓰는 요약 경로를 우선 사용한다.
+- Related files:
+  - `supabase/functions/_shared/internal-chat.ts`
+  - `supabase/functions/fc-notify/index.ts`
+  - `web/src/app/dashboard/chat/page.tsx`
+  - `web/src/app/dashboard/messenger/page.tsx`
+- Verification:
+  - `npm test -- --runInBand lib/__tests__/internal-chat.test.ts`
+  - `cd E:\\hanhwa\\fc-onboarding-app\\web && npm run lint -- src/app/dashboard/chat/page.tsx src/app/dashboard/messenger/page.tsx src/lib/admin-chat-targets.ts src/lib/admin-chat-targets.test.ts`
+  - `cd E:\\hanhwa\\fc-onboarding-app\\web && npx next build`
+
+## 2026-04-23 | Invite-Link Signup Search | exact 추천코드 deeplink를 fuzzy search 경로와 재귀 pending-apply에 그대로 태워 첫 진입 체감과 안정성을 같이 망침
+- Symptom:
+  - 초대링크 exact 8자리 추천코드 진입이 불필요하게 느렸고, signup 화면에서 같은 pending code apply가 중복 예약될 수 있었다.
+  - 사용자는 추천인 코드 검색이 오래 걸리거나 앱이 튕기는 것처럼 느꼈다.
+- Root cause:
+  - `search-signup-referral`이 exact code query도 broad name/affiliation/code 부분검색 경로로 처리했다.
+  - `app/signup.tsx`의 pending apply는 in-flight promise가 있을 때 `finally(() => applyPendingReferralCode())`를 다시 붙여 중복 rerun을 만들 수 있었다.
+- Why it was missed:
+  - signup search rollout 때 “검색 계약이 동작한다”는 것만 닫고, exact 8자리 invite-link query latency와 cold/warm start 중복 apply를 별도 acceptance criterion으로 두지 않았다.
+- Permanent guardrail:
+  - exact 8자리 추천코드 query가 있는 검색 API는 fuzzy search 전에 exact fast path 유무를 먼저 검토한다.
+  - deep-link/pending code auto-apply는 focus/effect 중복 트리거가 있어도 single-flight로만 돌게 만들고, `finally` 재귀 rerun 패턴을 다시 쓰지 않는다.
+- Related files:
+  - `app/signup.tsx`
+  - `lib/signup-referral.ts`
+  - `lib/__tests__/signup-referral.test.ts`
+  - `supabase/functions/search-signup-referral/index.ts`
+  - `supabase/functions/_shared/referral-search.ts`
+  - `supabase/functions/_shared/__tests__/referral-search.test.ts`
+- Verification:
+  - `npm test -- --runInBand lib/__tests__/signup-referral.test.ts`
+  - `npm test -- --runInBand supabase/functions/_shared/__tests__/referral-search.test.ts`
+  - `supabase functions deploy search-signup-referral --project-ref ubeginyxaotcamuqpmud`
+
+## 2026-04-23 | Referral Current-State Contract | current-state와 historical evidence를 둘 다 live 상태처럼 노출해 UI/문서가 내부 저장 구조를 그대로 드러냄
+- Symptom:
+  - 추천인 그래프가 `structured/confirmed/structured_confirmed` 같은 내부 근거 상태를 그대로 드러냈고, self-service/read model도 일부는 structured link, 일부는 attribution/history를 함께 해석하고 있었다.
+  - 운영자 관점에서는 같은 추천 관계가 “현재 상태” 하나가 아니라 여러 색/용어로 갈라져 보였다.
+- Root cause:
+  - current-state와 audit/history를 분리 저장하는 것 자체는 맞았지만, read model/UI에서 그 차이를 감추지 못했다.
+  - 저장 경로도 단일 RPC contract로 묶기 전에 여러 source를 병렬로 업데이트하던 관성이 남아 있었다.
+- Why it was missed:
+  - DB 설계에서 “상태 1개 + 감사 이력”과 “dual-state UI”를 명확히 구분하지 않았다.
+  - 관리자 그래프를 운영자 도구가 아니라 내부 데이터 디버거처럼 취급한 흔적이 남았다.
+- Permanent guardrail:
+  - 추천인 current-state는 `fc_profiles.recommender_*` snapshot만 UI/read model이 사용한다.
+  - `referral_attributions` 같은 historical data는 archive/audit 용도일 뿐, 새 runtime edge/state source로 다시 끌어오지 않는다.
+  - current-state 변경은 모두 `apply_referral_link_state(...)` 같은 단일 RPC로 묶고, 하나라도 실패하면 current-state/event 어느 쪽도 부분 저장하지 않는 계약을 유지한다.
+- Related files:
+  - `supabase/migrations/20260423000001_unify_referral_link_state.sql`
+  - `supabase/functions/_shared/referral-link.ts`
+  - `supabase/functions/set-password/index.ts`
+  - `supabase/functions/update-my-recommender/index.ts`
+  - `web/src/lib/admin-referrals.ts`
+  - `web/src/components/referrals/ReferralGraphCanvas.tsx`
+- Verification:
+  - `node --experimental-strip-types --test E:\\hanhwa\\fc-onboarding-app\\web\\src\\lib\\referral-graph-edges.test.ts`
+  - `cd E:\\hanhwa\\fc-onboarding-app\\web && npm run build`
+  - `cd E:\\hanhwa\\fc-onboarding-app && node scripts/ci/check-governance.mjs`
+
+## 2026-04-22 | Admin Web Vercel Deployment Contract | preview env drift를 production fallback과 silent fallback으로 숨겨 live 서비스와 섞이게 둠
+- Symptom:
+  - 관리자 웹 preview 배포에서 `설계요청 메신저`가 명시적 URL env 없이도 live `requestboard-steel`로 열릴 수 있었다.
+  - web push와 주민번호 조회도 env 누락 시 generic failure 또는 조용한 fallback으로만 보여, preview 배포가 무엇을 검증 중인지 구분하기 어려웠다.
+- Root cause:
+  - 외부 운영 시스템 URL과 보안 env 부재를 “일단 동작하게 하는 fallback”으로 흡수했다.
+  - 그 결과 preview/prod 경계가 코드와 Vercel env 계약에 명시되지 않았고, drift가 사용자-visible 문제로 늦게 드러났다.
+- Why it was missed:
+  - build 통과와 일부 기능 동작만 보고, preview가 live 외부 시스템이나 edge fallback을 암묵적으로 타는지를 acceptance criterion으로 고정하지 않았다.
+  - env가 빠졌을 때 `막아야 하는 기능`과 `살려도 되는 fallback`을 구분하지 않았다.
+- Permanent guardrail:
+  - preview에서 운영 외부 시스템으로 이어지는 URL은 fallback으로 열지 않는다. env가 없으면 명시적으로 비활성화한다.
+  - web push, 주민번호 같은 운영 민감 기능은 missing env를 generic failure로 숨기지 말고, 어떤 env가 빠졌는지 또는 어떤 fallback source를 탔는지 로그/운영 문구에 남긴다.
+  - Vercel env drift를 고칠 때는 코드 가드와 env 변경을 같은 세트로 처리하고, `vercel env ls preview|production` 결과를 검증 증적에 포함한다.
+- Related files:
+  - `web/src/app/dashboard/messenger/page.tsx`
+  - `web/src/lib/request-board-url.ts`
+  - `web/src/components/WebPushRegistrar.tsx`
+  - `web/src/lib/web-push-config.ts`
+  - `web/src/lib/web-push.ts`
+  - `web/src/lib/server-resident-numbers.ts`
+- Verification:
+  - `vercel env ls preview --cwd E:\\hanhwa\\fc-onboarding-app\\web`
+  - `vercel env ls production --cwd E:\\hanhwa\\fc-onboarding-app\\web`
+  - `cd web && npm run lint -- ...`
+  - `cd web && npm run build`
+
 ## 2026-04-22 | Referral Report Export | 전화번호 CSV를 plain number로만 내보내 스프레드시트가 과학적 표기법으로 바꾸는 문제를 놓침
 - Symptom:
   - `fc-missing-recommender-2026-04-22.csv`를 엑셀/스프레드시트로 열면 `010...` 전화번호가 `1.029E+09` 같은 과학적 표기법으로 보였다.
@@ -550,3 +648,11 @@
 - Permanent guardrail: web resident-number 조회는 shared hook/공용 client 또는 공통 secure-row 매핑 규칙으로 통일하고, admin/manager 세션 전화번호 검증과 FC 프로필 phone 연결은 공통 후보(raw/digits/formatted) 규칙을 재사용한다. 같은 종류의 회귀를 고칠 때는 이 파일에 반드시 추가 기록한다.
 - Related files: `web/src/hooks/use-resident-number.ts`, `web/src/lib/resident-number-client.ts`, `web/src/lib/server-session.ts`, `web/src/app/api/admin/resident-numbers/route.ts`, `web/src/app/api/admin/fc/route.ts`, `web/src/app/api/admin/exam-applicants/route.ts`, `web/src/app/dashboard/page.tsx`, `web/src/app/dashboard/profile/[id]/page.tsx`, `web/src/app/dashboard/exam/applicants/page.tsx`
 - Verification: targeted web lint, web production build, governance check
+
+## 2026-04-23 | Referral Graph Single-State | 그래프 런타임 모델을 단일 edge로 바꿔 놓고도 subtitle/범례 copy는 예전 다중 상태 설명을 남겨둠
+- Symptom: 추천인 single-state 구현 뒤에도 `/dashboard/referrals/graph` 상단 설명과 범례에 `추천인 연결 + 확인`, `추가 확인` 같은 old edge-state 문구가 그대로 보여 사용자가 여전히 두세 종류의 live 관계가 있다고 해석할 수 있었다.
+- Root cause: 타입/API/렌더링 로직만 단일화하고, 화면 설명·범례·empty/help copy까지 같은 계약 변경에 포함해야 한다는 확인이 빠졌다.
+- Why it was missed: "edge 색/데이터 shape가 단순해졌으니 끝났다"는 식으로 내부 계약 수정에만 집중했고, 사용자-facing explanation audit를 같은 change set의 acceptance check로 두지 않았다.
+- Permanent guardrail: 상태 모델을 단순화하거나 이름을 바꿀 때는 `types + API + renderer + subtitle/legend/badge/help text`를 한 묶음으로 grep해서 old vocabulary가 남았는지 확인한다. 특히 graph/list/operator surface는 data contract 정리 후 반드시 문구까지 함께 맞춘다.
+- Related files: `web/src/types/referral-graph.ts`, `web/src/lib/referral-graph-edges.ts`, `web/src/components/referrals/ReferralGraphCanvas.tsx`, `web/src/app/dashboard/referrals/graph/page.tsx`
+- Verification: `cd E:\hanhwa\fc-onboarding-app\web && npm run lint -- src/app/dashboard/referrals/graph/page.tsx`, `/dashboard/referrals/graph` 브라우저 smoke

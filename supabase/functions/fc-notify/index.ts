@@ -4,7 +4,7 @@ import {
   attachUnreadCountsToContacts,
   buildInternalChatList,
   countUnreadBySender,
-  isInternalAffiliation,
+  shouldIncludeInternalChatParticipant,
 } from '../_shared/internal-chat.ts';
 
 type Payload =
@@ -801,15 +801,18 @@ serve(async (req: Request) => {
         return err(messagesResult.error.message, 500);
       }
 
+      const chatParticipants = participants.map((participant) => ({
+        fc_id: participant.id,
+        name: participant.name,
+        phone: participant.phone,
+        affiliation: participant.affiliation,
+      }));
+
       const summary = buildInternalChatList({
         viewerId,
-        participants: participants.map((participant) => ({
-          fc_id: participant.id,
-          name: participant.name,
-          phone: participant.phone,
-          affiliation: participant.affiliation,
-        })),
+        participants: chatParticipants,
         messages: (messagesResult.data ?? []) as InternalChatMessageRow[],
+        includeAllCompletedFc: body.viewer_read_only === true,
       });
 
       return ok({
@@ -843,8 +846,18 @@ serve(async (req: Request) => {
       }
 
       const participants = await fetchInternalFcProfiles();
-      const scopedSenderIds = participants
-        .filter((participant) => isInternalAffiliation(participant.affiliation))
+      const chatParticipants = participants.map((participant) => ({
+        fc_id: participant.id,
+        name: participant.name,
+        phone: participant.phone,
+        affiliation: participant.affiliation,
+      }));
+      const scopedSenderIds = chatParticipants
+        .filter((participant) =>
+          shouldIncludeInternalChatParticipant(participant, {
+            includeAllCompletedFc: body.viewer_read_only === true,
+          })
+        )
         .map((participant) => sanitize(participant.phone))
         .filter((phone) => phone.length > 0);
 

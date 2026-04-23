@@ -7,6 +7,248 @@
 
 ---
 
+## <a id="20260423-manager-all-fc-visibility-alignment"></a> 2026-04-23 | 본부장 전체 FC 가시성 정렬
+
+**배경**:
+- 사용자 요청 기준으로 GaramLink는 제외하고, 본부장(read-only admin / web manager)만 `fc-onboarding-app/web`과 가람in 내부 메신저에서 본인 소속과 무관한 전체 완료 FC를 볼 수 있어야 했다.
+- 조사 결과 일반 FC 목록과 시험 목록은 이미 전체 조회였고, 실제 제한은 가람in 내부 메신저 participant 필터와 관리자 웹 채팅 대상 source, 그리고 그에 딸린 unread surface 정합성에 있었다.
+
+**조치**:
+- `supabase/functions/_shared/internal-chat.ts`, `lib/__tests__/internal-chat.test.ts`
+  - `shouldIncludeInternalChatParticipant(...)` helper를 추가했다.
+  - writable admin은 기존 `본부/팀/직할` internal-affiliation 기준을 유지하고, read-only admin만 `includeAllCompletedFc` 옵션으로 전체 완료 FC를 포함하게 분기했다.
+  - `설계매니저` affiliation은 read-only path에서도 계속 제외되도록 고정했다.
+  - 외부 affiliation 완료 FC가 read-only admin 목록에 포함되고, designer row는 제외되는 회귀 테스트를 추가했다.
+- `supabase/functions/fc-notify/index.ts`
+  - `internal_chat_list`와 `internal_unread_count`가 같은 participant helper를 공유하게 바꿨다.
+  - 그래서 본부장 모바일 목록과 unread badge가 같은 대상 집합을 기준으로 움직이게 맞췄다.
+  - 변경 후 `fc-notify`를 project `ubeginyxaotcamuqpmud`에 다시 배포했다.
+- `web/src/lib/admin-chat-targets.ts`, `web/src/lib/admin-chat-targets.test.ts`
+  - 관리자 웹 채팅 좌측 대상 목록을 위한 순수 helper를 추가했다.
+  - 완료 FC만 포함, 설계매니저 제외, 전화번호 정규화, 중복 제거, 최근 대화 우선/무대화 이름순 정렬 계약을 테스트로 고정했다.
+- `web/src/app/dashboard/chat/page.tsx`
+  - 브라우저에서 `fc_profiles`를 직접 읽지 않고 `/api/admin/list`를 source of truth로 쓰도록 바꿨다.
+  - 전체 완료 FC를 웹 채팅 좌측 목록에 항상 보여주고, load 실패 시 인라인 에러 문구를 렌더링하도록 추가했다.
+- `web/src/app/dashboard/messenger/page.tsx`
+  - 독립 검수에서 허브 unread 숫자가 옛 raw `messages` 기준으로 남아 있는 누락을 확인했다.
+  - 내부 unread badge는 이제 `fc-notify internal_unread_count`를 우선 사용하고, 함수 호출 실패 시에만 direct count fallback을 타게 수정했다.
+- `.claude/MISTAKES.md`, `.codex/harness/*`
+  - participant scope를 바꿀 때 목록/허브 badge가 함께 같은 계약을 쓰지 않으면 drift가 생긴다는 실수를 guardrail로 기록했다.
+  - 하니스 문서를 이번 본부장 가시성 과업 기준으로 재정렬했다.
+
+**결과**:
+- 가람in 내부 메신저는 본부장에게 타 본부 FC를 포함한 전체 완료 FC를 보여준다.
+- 관리자 웹 채팅도 전체 완료 FC를 같은 기준으로 보여주고, deep-link 없이 좌측 목록에서 바로 선택 가능하다.
+- 웹 메신저 허브 unread badge까지 같은 participant scope를 사용하게 맞췄다.
+- GaramLink / `request_board` 저장소는 수정하지 않았다.
+
+**검증**:
+- 통과: `npm test -- --runInBand lib/__tests__/internal-chat.test.ts`
+- 통과: `node --experimental-strip-types --test E:\\hanhwa\\fc-onboarding-app\\web\\src\\lib\\admin-chat-targets.test.ts`
+- 통과: `npx eslint --rule "import/no-unresolved: off" supabase/functions/_shared/internal-chat.ts supabase/functions/fc-notify/index.ts lib/__tests__/internal-chat.test.ts`
+- 통과: `cd E:\\hanhwa\\fc-onboarding-app\\web && npm run lint -- src/app/dashboard/chat/page.tsx src/app/dashboard/messenger/page.tsx src/lib/admin-chat-targets.ts src/lib/admin-chat-targets.test.ts`
+- 통과: `cd E:\\hanhwa\\fc-onboarding-app\\web && npx next build`
+- 통과: `cd E:\\hanhwa\\fc-onboarding-app && node scripts/ci/check-governance.mjs`
+- 통과: `cd E:\\hanhwa\\fc-onboarding-app && supabase functions deploy fc-notify --project-ref ubeginyxaotcamuqpmud`
+- 참고:
+  - `npm run build`는 켜져 있던 dev server 때문에 `clean-next` 단계에서 멈춰 `npx next build`로 직접 빌드를 확인했다.
+  - live manual QA는 아직 미실행이다.
+
+---
+
+## <a id="20260423-invite-link-signup-fast-path-and-single-flight"></a> 2026-04-23 | 초대링크 회원가입 exact-code fast path + signup single-flight 안정화
+
+**배경**:
+- 운영 제보 기준으로 `https://garam-invite-.../invite?code=TUZD8M3A` 같은 초대링크로 가람in에 들어가면 추천인 코드를 찾는 시간이 길고, 앱이 튕기는 것처럼 느껴졌다.
+- 조사 결과 exact 8자리 추천코드인데도 `search-signup-referral`이 broad fuzzy search(`fc_profiles name/affiliation + referral_codes ilike`)를 타고 있었고, `app/signup.tsx`의 pending code apply는 같은 in-flight 작업이 있을 때 `finally(() => applyPendingReferralCode())`를 다시 붙여 중복 rerun을 예약할 수 있었다.
+
+**조치**:
+- `lib/signup-referral.ts`, `lib/__tests__/signup-referral.test.ts`
+  - `runSinglePendingReferralApply(...)` helper를 추가했다.
+  - signup pending code apply가 이미 실행 중이면 같은 promise에 join만 하고, 별도 rerun을 예약하지 않는 계약을 테스트 먼저 추가한 뒤 반영했다.
+- `app/signup.tsx`
+  - `pendingReferralApplyRef` 재귀 패턴을 제거하고 single-flight helper를 사용하도록 바꿨다.
+  - focus effect와 `referralNonce` effect가 겹쳐도 같은 pending code search를 한 번만 돌게 정리했다.
+- `supabase/functions/_shared/referral-search.ts`, `supabase/functions/_shared/__tests__/referral-search.test.ts`
+  - 추천인 검색 query 정규화와 exact 8자리 코드 판별 helper를 추가했다.
+  - lowercase/whitespace/혼동문자(`O`, `0`, `I`, `1`) 회귀를 테스트로 고정했다.
+- `supabase/functions/search-signup-referral/index.ts`
+  - exact 8자리 추천코드 query는 `referral_codes.eq(code)` + inviter profile 1건 lookup으로 short-circuit 하도록 수정했다.
+  - fuzzy name/affiliation/부분코드 검색은 exact code가 아닐 때만 실행하게 분리했다.
+  - 변경 후 함수를 project `ubeginyxaotcamuqpmud`에 실제 재배포했다.
+- `docs/referral-system/*`, `.claude/*`, `.codex/harness/*`
+  - invite-link exact-code fast path / signup single-flight 계약, 회귀 케이스 `RF-LINK-05`, 장애 `INC-020`, 반복 실수 guardrail을 같은 변경 세트로 문서화했다.
+
+**결과**:
+- 초대링크 exact 추천코드는 더 이상 broad fuzzy search를 타지 않고 exact active-code lookup으로 바로 처리된다.
+- signup 화면은 같은 pending code apply를 concurrent하게 다시 예약하지 않아, 딥링크 진입 시 불필요한 중복 search/state churn을 줄였다.
+- `search-signup-referral` 서버 변경은 원격에 반영돼 backend exact-code path는 바로 live 상태가 됐다.
+- 앱-side single-flight는 코드에는 반영됐지만, 실제 사용자 체감/크래시 부재는 다음 모바일 배포 또는 OTA 이후 runtime QA가 필요하다.
+
+**검증**:
+- 통과: `npm test -- --runInBand lib/__tests__/signup-referral.test.ts`
+- 통과: `npm test -- --runInBand supabase/functions/_shared/__tests__/referral-search.test.ts`
+- 통과: `npx eslint app/signup.tsx lib/signup-referral.ts lib/__tests__/signup-referral.test.ts`
+- 통과: `npx eslint --rule "import/no-unresolved: off" supabase/functions/search-signup-referral/index.ts supabase/functions/_shared/referral-search.ts supabase/functions/_shared/__tests__/referral-search.test.ts`
+- 통과: `supabase functions deploy search-signup-referral --project-ref ubeginyxaotcamuqpmud`
+- 통과: live invoke `search-signup-referral(query=TUZD8M3A)` => `200 OK`, exact inviter result 반환
+- 미실행:
+  - 실제 기기에서 invite link cold/warm start 진입 후 spinner 중복/크래시 부재 확인
+  - 앱-side single-flight가 반영된 모바일 배포/OTA 후 체감 속도 재측정
+
+---
+
+## <a id="20260423-referral-single-state-rollout-and-copy-alignment"></a> 2026-04-23 | 추천인 단일상태 rollout SQL 반영 및 그래프 copy 정렬
+
+**배경**:
+- 추천인 single-state 구현 자체는 끝났지만, 실제 원격 DB에는 `20260423000001_unify_referral_link_state.sql`이 아직 미적용 상태였고, 관리자 그래프 화면 설명/범례는 여전히 예전 다중 edge 상태 계약을 노출하고 있었다.
+- 사용자는 원격 SQL 적용과 로컬 테스트 준비를 요청했고, 이후 QA는 직접 진행하겠다고 정리했다.
+
+**조치**:
+- `supabase/migrations/20260423000001_unify_referral_link_state.sql`, `supabase/schema.sql`
+  - `supabase db push` 첫 실행에서 backfill CTE `eligible_profiles`가 `name`, `created_at`를 projection하지 않아 `legacy_candidates` 단계에서 `column inviter.name does not exist`로 실패하는 실제 migration bug를 확인했다.
+  - 같은 CTE에 `fp.name`, `fp.created_at`를 추가해 migration source와 `schema.sql`을 같이 보정했다.
+  - 보정 후 `supabase db push`를 재실행해 원격 DB에 rollout을 완료했고, `supabase migration list`로 `20260423000001 | 20260423000001` 정렬을 확인했다.
+- `web/src/app/dashboard/referrals/graph/page.tsx`
+  - 그래프 subtitle을 "현재 추천인 관계만 보여준다"는 단일 edge 계약으로 고쳤다.
+  - 범례에서 더 이상 존재하지 않는 `추천인 연결 + 확인`, `추가 확인` badge를 제거하고 `추천인 연결`, `예전 기록 확인`, `본부장`만 남겼다.
+- `.claude/*`, `.codex/harness/*`
+  - rollout 완료 상태, 남은 user-owned QA, 이번 migration bug와 copy drift 교정을 handoff/QA report/current contract/work log에 반영했다.
+
+**결과**:
+- 추천인 단일상태 migration이 실제 원격 DB까지 적용돼 코드와 DB 계약이 다시 맞춰졌다.
+- migration 실행 중 드러난 backfill SQL 버그(`inviter.name`, `inviter.created_at` projection 누락)를 source에서 제거했다.
+- 관리자 그래프는 data contract뿐 아니라 사용자-facing 설명도 단일 edge 모델에 맞게 정렬됐다.
+- 남은 범위는 사용자가 직접 수행할 runtime QA뿐이다.
+
+**검증**:
+- 통과: `cd E:\\hanhwa\\fc-onboarding-app && supabase db push`
+- 통과: `cd E:\\hanhwa\\fc-onboarding-app && supabase migration list`
+- 통과: `cd E:\\hanhwa\\fc-onboarding-app\\web && npm run lint -- src/app/dashboard/referrals/graph/page.tsx`
+- 통과: `cd E:\\hanhwa\\fc-onboarding-app && git diff --check`
+- 미실행:
+  - 브라우저 기반 관리자 추천인 화면 smoke / graph canvas 확인
+  - signup, self-service save, admin override/clear live QA
+  - 위 항목은 사용자 직접 실행 예정
+
+---
+
+## <a id="20260423-referral-single-state-unification"></a> 2026-04-23 | 추천인 current-state 단일화 및 atomic link-state RPC 정리
+
+**배경**:
+- 운영 피드백 기준으로 추천인은 사용자/운영 화면에서 하나의 현재 상태로 읽혀야 하는데, 기존 구조는 `fc_profiles.recommender_fc_id`와 `confirmed referral_attributions`를 동시에 live source처럼 다루며 그래프/UI에 `structured`, `confirmed`, `structured_confirmed` 구분을 노출하고 있었다.
+- signup/self-service/admin override 경로도 current-state와 audit/history를 별도 단계로 저장해 partial success를 허용할 여지가 있었고, 그 결과 문서/테스트 자산도 dual-state 설명을 계속 끌고 있었다.
+
+**조치**:
+- `supabase/migrations/20260423000001_unify_referral_link_state.sql`, `supabase/schema.sql`
+  - `fc_profiles`에 `recommender_code_id`, `recommender_code`, `recommender_linked_at`, `recommender_link_source` snapshot 컬럼을 추가했다.
+  - secure RPC `apply_referral_link_state(...)`를 추가해 inviter/invitee 검증, self-referral 차단, active code snapshot 결정, `fc_profiles.recommender_*` 원자적 갱신, `referral_events(referral_linked/referral_changed/referral_cleared)` 1건 기록을 한 트랜잭션으로 묶었다.
+  - `admin_apply_recommender_override(...)`는 내부적으로 같은 RPC wrapper를 쓰도록 바꿨다.
+  - `get_invitee_referral_code(uuid)`와 `get_referral_subtree(...)`를 current profile snapshot/structured link 기준으로 재작성했다.
+  - one-time backfill CTE를 넣어 우선순위 `latest confirmed attribution > existing recommender_fc_id > exact-unique legacy recommender text`로 snapshot과 structured link를 정리했다.
+- `supabase/functions/_shared/referral-link.ts`
+  - Edge Function 공용 wrapper를 추가해 signup/self-service/admin path가 같은 RPC 호출 결과를 공유하게 했다.
+- `supabase/functions/set-password/index.ts`
+  - 추천코드 해석 성공 시 `apply_referral_link_state(...)`만 호출하도록 바꾸고, 기존 `captureReferralAttribution` / rejected-attribution 저장 경로를 제거했다.
+  - draft profile reset 시 `recommender_*` snapshot도 함께 초기화한다.
+- `supabase/functions/update-my-recommender/index.ts`, `get-my-invitees/index.ts`, `get-my-referral-code/index.ts`, `get-referral-tree/index.ts`, `request-signup-otp/index.ts`
+  - self-service 저장은 더 이상 `referral_attributions`를 직접 쓰지 않고 current-state RPC만 사용한다.
+  - invitee 목록은 `fc_profiles.recommender_fc_id = me` 기준으로만 읽고 `recommender_linked_at`를 노출한다.
+  - self-service code/current recommender 응답은 `fc_profiles.recommender_code` snapshot을 사용한다.
+  - tree read는 canonical structured link만 따라가며, signup draft reset도 snapshot 필드를 같이 비운다.
+- `web/src/lib/referral-graph-edges.ts`, `web/src/lib/admin-referrals.ts`, `web/src/types/referral-graph.ts`, `web/src/components/referrals/ReferralGraphCanvas.tsx`, `web/src/components/referrals/GraphNodeDrawer.tsx`, `web/src/app/dashboard/referrals/graph/page.tsx`, `web/src/app/dashboard/referrals/page.tsx`
+  - 그래프 edge 모델을 `linked` 단일 상태로 축소하고, edge 생성은 `recommender_fc_id`만 사용하게 바꿨다.
+  - recent event/history surface는 legacy `admin_override_applied`와 함께 신규 `referral_linked/referral_changed/referral_cleared`를 읽도록 확장했다.
+  - graph helper 테스트를 먼저 추가한 뒤 edge dedupe/self-link/unknown parent 무시 규칙을 구현했다.
+- `docs/referral-system/*`, `.claude/*`, `.codex/harness/*`
+  - referral SSOT, 테스트 체크리스트, incident/test asset, current contract/handoff를 새 current-state 모델에 맞게 갱신했다.
+
+**결과**:
+- 추천인 current-state의 live SSOT가 `fc_profiles.recommender_*` snapshot으로 고정됐다.
+- signup/self-service/admin override/clear가 같은 RPC를 통해 current-state와 audit event를 함께 기록하도록 정렬됐다.
+- 관리자 그래프는 더 이상 내부 증거 강도 차이를 edge state로 노출하지 않고 `linked` 단일 관계만 그린다.
+- `referral_attributions`는 archival historical data로만 남고, 새 runtime read/write는 이 table을 current-state source로 다시 사용하지 않는다.
+
+**검증**:
+- 통과: `node --experimental-strip-types --test E:\\hanhwa\\fc-onboarding-app\\web\\src\\lib\\referral-graph-edges.test.ts`
+- 통과: `npx eslint --rule "import/no-unresolved: off" supabase/functions/_shared/referral-link.ts supabase/functions/set-password/index.ts supabase/functions/update-my-recommender/index.ts supabase/functions/get-my-referral-code/index.ts supabase/functions/get-my-invitees/index.ts supabase/functions/get-referral-tree/index.ts supabase/functions/request-signup-otp/index.ts`
+- 통과: `cd E:\\hanhwa\\fc-onboarding-app\\web && npm run lint -- src/lib/admin-referrals.ts src/lib/referral-graph-edges.ts src/lib/referral-graph-edges.test.ts src/components/referrals/ReferralGraphCanvas.tsx src/components/referrals/GraphNodeDrawer.tsx src/app/dashboard/referrals/graph/page.tsx src/app/dashboard/referrals/page.tsx src/app/api/admin/referrals/route.ts src/app/api/admin/fc/route.ts`
+- 통과: `cd E:\\hanhwa\\fc-onboarding-app\\web && npm run build`
+- 통과: `cd E:\\hanhwa\\fc-onboarding-app && node scripts/ci/check-governance.mjs`
+- 통과: `cd E:\\hanhwa\\fc-onboarding-app && git diff --check`
+- 확인: `cd E:\\hanhwa\\fc-onboarding-app && supabase migration list` (`20260423000001_unify_referral_link_state.sql`는 local-only pending)
+- 미실행:
+  - 원격 DB migration apply (`supabase db push`)
+  - 실제 기기/운영 데이터 기준 signup, self-service 저장, admin override/clear live QA
+
+---
+
+## <a id="20260422-web-vercel-deployment-risk-remediation"></a> 2026-04-22 | 관리자 웹 Vercel 배포 리스크 3건 실제 수정
+
+**배경**:
+- Vercel audit 결과 관리자 웹에는 3가지 배포 리스크가 확인됐다.
+  - preview 배포에서 `NEXT_PUBLIC_REQUEST_BOARD_URL`이 없으면 `설계요청 메신저`가 live `requestboard-steel`로 fallback되는 문제
+  - preview 배포에서 web-push env가 없을 때 generic failure처럼 보이는 문제
+  - `FC_IDENTITY_KEY` 부재 시 주민번호 direct decrypt 경로가 조용히 edge fallback으로만 넘어가 운영자가 런타임 상태를 알기 어려운 문제
+- 사용자는 이 3개를 실제 수정안으로 나눠 바로 처리해 달라고 요청했고, 주민번호는 계속 사용자/권한자 화면에서 full-view가 유지되어야 한다고 별도 강조했다.
+
+**조치**:
+- `docs/superpowers/plans/2026-04-22-vercel-deployment-risk-remediation.md`
+  - 3개 리스크를 각각 `preview request_board URL`, `preview web push`, `resident-number runtime` 트랙으로 나눠 remediation plan을 문서로 고정했다.
+- `web/src/lib/request-board-url.ts`, `web/src/app/dashboard/messenger/page.tsx`, `web/src/lib/request-board-url.test.ts`
+  - `설계요청 메신저` URL 해석을 전용 helper로 분리했다.
+  - 이제 `NEXT_PUBLIC_REQUEST_BOARD_URL`이 명시적으로 있을 때만 외부 GaramLink 메신저를 연다.
+  - env가 없으면 버튼을 `연결 필요` 상태로 비활성화하고, `?channel=request-board` deeplink도 `/dashboard/messenger`로 되돌린다.
+  - live fallback은 코드에서 제거하고, 대신 Vercel production env에 `NEXT_PUBLIC_REQUEST_BOARD_URL`을 명시적으로 주입했다.
+- `web/src/lib/web-push-config.ts`, `web/src/components/WebPushRegistrar.tsx`, `web/src/app/dashboard/settings/page.tsx`, `web/src/app/dashboard/page.tsx`, `web/src/lib/web-push.ts`, `web/src/lib/web-push-config.test.ts`
+  - web-push client/server config 상태를 해석하는 공용 helper를 추가했다.
+  - `missing-vapid-key`는 더 이상 generic red error가 아니라 `웹 알림 미설정 배포`로 안내되며, 어떤 env가 필요한지도 같이 보여준다.
+  - 설정 화면의 웹 알림 상태/버튼 라벨/도움말이 config 상태를 반영하도록 바꿨다.
+  - auto registrar는 config가 빠진 preview/local 배포를 명시적인 skipped state로 로그에 남긴다.
+  - server-side VAPID init도 빠진 env 이름을 structured log로 남기도록 바꿨다.
+- `web/src/lib/server-resident-numbers.ts`
+  - 주민번호 full-view contract는 그대로 유지한 채, direct decrypt runtime을 `auto / disabled / report-only`로 해석하는 helper를 넣었다.
+  - direct decrypt 성공은 `healthy`, edge fallback은 `degraded` 상태로 구분하고, `missing_identity_key`, `mode_disabled`, `report_only`, `direct_failed` 이유를 structured log에 남긴다.
+  - edge fallback이 아예 불가능하거나 edge function이 실패할 때는 misconfiguration 원인을 포함한 명시적 error message를 던지게 했다.
+- Vercel env 정리
+  - preview에 다음 web-push env를 추가했다:
+    - `NEXT_PUBLIC_WEB_PUSH_VAPID_PUBLIC_KEY`
+    - `WEB_PUSH_VAPID_PRIVATE_KEY`
+    - `WEB_PUSH_SUBJECT`
+    - `ADMIN_PUSH_SECRET`
+  - production에 `NEXT_PUBLIC_REQUEST_BOARD_URL`을 추가했다.
+  - `FC_IDENTITY_KEY`는 현재 세션에서 사용할 수 있는 안전한 local source를 찾지 못해 Vercel 주입은 하지 않았고, 대신 runtime observability를 강화했다.
+
+**결과**:
+- preview 배포가 env 부재를 이유로 live GaramLink 메신저를 열어 버리는 경로를 차단했다.
+- web-push preview/local 미설정 상태가 generic failure가 아니라 operator-facing config-needed 상태로 보이게 됐다.
+- 주민번호 full-view는 유지되며, direct decrypt와 edge fallback 중 어떤 경로를 탔는지 운영 로그에서 구분할 수 있게 됐다.
+- Vercel env도 같이 정리되어 다음 preview/prod 배포부터 새 계약을 따를 수 있다.
+- admin web 로컬 배포 경로도 확정했다.
+  - 실패 경로: `E:\hanhwa\fc-onboarding-app\web`에서 직접 `vercel deploy`를 실행하면 linked project의 `rootDirectory=web`와 겹쳐 `web\web`를 찾는 오진이 났다.
+  - 성공 경로: 저장소 루트 `E:\hanhwa\fc-onboarding-app`에서 `vercel deploy --yes --archive=tgz --cwd E:\hanhwa\fc-onboarding-app`
+  - 실제 성공 preview:
+    - deployment id: `dpl_DEQhVascXkdkHAkRsNE9AD1Zns2r`
+    - url: `https://admin-1v8o3d70h-jun-jeongs-projects.vercel.app`
+    - inspect alias: `https://adminweb-jj81271000-6050-jun-jeongs-projects.vercel.app`
+  - `vercel curl /auth --deployment https://admin-1v8o3d70h-jun-jeongs-projects.vercel.app --cwd E:\hanhwa\fc-onboarding-app`로 보호 우회 후 로그인 화면 HTML까지 확인했다.
+
+**검증**:
+- 통과: `node --test --experimental-strip-types web/src/lib/web-push-config.test.ts web/src/lib/request-board-url.test.ts`
+- 통과: `cd web && npm run lint -- src/components/WebPushRegistrar.tsx src/app/dashboard/settings/page.tsx src/app/dashboard/page.tsx src/lib/web-push.ts src/lib/web-push-config.ts src/lib/web-push-config.test.ts src/app/dashboard/messenger/page.tsx src/lib/request-board-url.ts src/lib/request-board-url.test.ts src/lib/server-resident-numbers.ts`
+- 통과: `cd web && npm run build`
+- 통과: `vercel env ls preview --cwd E:\\hanhwa\\fc-onboarding-app\\web`
+- 통과: `vercel env ls production --cwd E:\\hanhwa\\fc-onboarding-app\\web`
+- 통과: `vercel pull --yes --environment=production --cwd E:\\hanhwa\\fc-onboarding-app\\web`
+- 통과: `vercel deploy --yes --archive=tgz --cwd E:\\hanhwa\\fc-onboarding-app`
+- 통과: `vercel ls admin_web --cwd E:\\hanhwa\\fc-onboarding-app`
+- 통과: `vercel inspect https://admin-1v8o3d70h-jun-jeongs-projects.vercel.app --cwd E:\\hanhwa\\fc-onboarding-app`
+- 통과: `vercel curl /auth --deployment https://admin-1v8o3d70h-jun-jeongs-projects.vercel.app --cwd E:\\hanhwa\\fc-onboarding-app`
+- 부분 확인:
+  - `vercel build --prod --cwd E:\\hanhwa\\fc-onboarding-app\\web`는 로컬 CLI에서 `spawn C:\\WINDOWS\\system32\\cmd.exe ENOENT`로 실패했다. 배포 계약 자체보다는 현재 로컬 Vercel CLI 런타임 이슈로 분리해 둔다.
+
+---
+
 ## <a id="20260422-web-referral-graph-manager-highlight"></a> 2026-04-22 | 관리자 웹 추천인 그래프 본부장/김형수 노드 강조
 
 **배경**:

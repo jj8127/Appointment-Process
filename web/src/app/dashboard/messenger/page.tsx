@@ -1,6 +1,7 @@
 'use client';
 
 import { useSession } from '@/hooks/use-session';
+import { resolveRequestBoardMessengerConfig } from '@/lib/request-board-url';
 import { getDashboardRoleLabel, getWebStaffChatActorId, isDeveloperSession } from '@/lib/staff-identity';
 import { supabase } from '@/lib/supabase';
 import {
@@ -19,7 +20,7 @@ import {
 import { IconArrowRight, IconExternalLink, IconFileText, IconMessageCircle2, IconUsers } from '@tabler/icons-react';
 import { useQuery } from '@tanstack/react-query';
 import { useRouter, useSearchParams } from 'next/navigation';
-import { useEffect, useMemo } from 'react';
+import { useEffect } from 'react';
 
 const HANWHA_ORANGE = '#f36f21';
 const CHARCOAL = '#111827';
@@ -34,13 +35,9 @@ export default function MessengerHubPage() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const { role, residentId, hydrated, isReadOnly, staffType } = useSession();
-
-  const requestBoardBaseUrl = useMemo(
-    () => (process.env.NEXT_PUBLIC_REQUEST_BOARD_URL || 'https://requestboard-steel.vercel.app').replace(/\/$/, ''),
-    [],
-  );
-
-  const requestBoardMessengerUrl = `${requestBoardBaseUrl}/m/chat`;
+  const requestBoardConfig = resolveRequestBoardMessengerConfig({
+    requestBoardUrl: process.env.NEXT_PUBLIC_REQUEST_BOARD_URL,
+  });
 
   useEffect(() => {
     if (!hydrated || !role) return;
@@ -57,9 +54,14 @@ export default function MessengerHubPage() {
     }
 
     if (channel === 'request-board') {
-      window.location.href = requestBoardMessengerUrl;
+      if (!requestBoardConfig.available) {
+        router.replace('/dashboard/messenger');
+        return;
+      }
+
+      window.location.href = requestBoardConfig.messengerUrl;
     }
-  }, [hydrated, requestBoardMessengerUrl, role, router, searchParams]);
+  }, [hydrated, requestBoardConfig, role, router, searchParams]);
 
   const { data: counts, isLoading, refetch } = useQuery({
     queryKey: ['dashboard-messenger-hub-counts', role, residentId],
@@ -70,13 +72,32 @@ export default function MessengerHubPage() {
           ? getWebStaffChatActorId({ role, residentId, staffType })
           : sanitize(residentId);
 
-      const { count: internalUnreadCount, error: internalUnreadErr } = await supabase
-        .from('messages')
-        .select('id', { count: 'exact', head: true })
-        .eq('receiver_id', myChatId)
-        .eq('is_read', false);
+      const internalViewerRole: 'admin' | 'fc' = role === 'fc' ? 'fc' : 'admin';
+      let internalUnreadCount = 0;
 
-      if (internalUnreadErr) throw internalUnreadErr;
+      const { data: internalUnreadData, error: internalUnreadError } = await supabase.functions.invoke('fc-notify', {
+        body: {
+          type: 'internal_unread_count',
+          viewer_id: myChatId,
+          viewer_role: internalViewerRole,
+          viewer_staff_type: staffType,
+          viewer_read_only: isReadOnly,
+          viewer_is_request_board_designer: false,
+        },
+      });
+
+      if (!internalUnreadError && internalUnreadData?.ok) {
+        internalUnreadCount = Number(internalUnreadData.count ?? 0) || 0;
+      } else {
+        const { count: fallbackCount, error: internalUnreadFallbackErr } = await supabase
+          .from('messages')
+          .select('id', { count: 'exact', head: true })
+          .eq('receiver_id', myChatId)
+          .eq('is_read', false);
+
+        if (internalUnreadFallbackErr) throw internalUnreadFallbackErr;
+        internalUnreadCount = fallbackCount ?? 0;
+      }
 
       const requestBoardRole: 'admin' | 'fc' =
         role === 'manager' || isDeveloperSession({ role, isReadOnly, staffType }) ? 'fc' : 'admin';
@@ -93,7 +114,7 @@ export default function MessengerHubPage() {
 
       if (error || !data?.ok) {
         return {
-          internalUnread: internalUnreadCount ?? 0,
+          internalUnread: internalUnreadCount,
           requestBoardUnread: 0,
         };
       }
@@ -106,7 +127,7 @@ export default function MessengerHubPage() {
       ).length;
 
       return {
-        internalUnread: internalUnreadCount ?? 0,
+        internalUnread: internalUnreadCount,
         requestBoardUnread,
       };
     },
@@ -119,6 +140,12 @@ export default function MessengerHubPage() {
   if (!role) {
     return null;
   }
+
+  const requestBoardDescription = requestBoardConfig.available
+    ? '설계요청 서비스의 메신저 화면으로 이동합니다.'
+    : requestBoardConfig.reason === 'invalid-public-url'
+      ? '설계요청 연결 주소가 올바르지 않아 메신저를 열 수 없습니다.'
+      : '현재 환경에서는 설계요청 메신저 연결이 설정되지 않아 이동할 수 없습니다.';
 
   return (
     <Container size="lg" py="xl">
@@ -194,7 +221,11 @@ export default function MessengerHubPage() {
                     </Text>
                   </div>
                 </Group>
-                {(counts?.requestBoardUnread ?? 0) > 0 && (
+                {!requestBoardConfig.available ? (
+                  <Badge color="gray" size="sm" variant="light">
+                    연결 필요
+                  </Badge>
+                ) : (counts?.requestBoardUnread ?? 0) > 0 && (
                   <Badge color="blue" size="sm" variant="filled">
                     미확인 {counts?.requestBoardUnread}
                   </Badge>
@@ -202,7 +233,7 @@ export default function MessengerHubPage() {
               </Group>
 
               <Text size="sm" c="dimmed">
-                설계요청 서비스의 메신저 화면으로 이동합니다.
+                {requestBoardDescription}
               </Text>
 
               <Button
@@ -210,8 +241,10 @@ export default function MessengerHubPage() {
                 variant="light"
                 leftSection={<IconExternalLink size={16} />}
                 rightSection={<IconArrowRight size={14} />}
+                disabled={!requestBoardConfig.available}
                 onClick={() => {
-                  window.open(requestBoardMessengerUrl, '_blank', 'noopener,noreferrer');
+                  if (!requestBoardConfig.available) return;
+                  window.open(requestBoardConfig.messengerUrl, '_blank', 'noopener,noreferrer');
                 }}
               >
                 설계요청 메신저 열기

@@ -31,6 +31,8 @@ type InternalChatPreview = {
 
 const normalizeWhitespace = (value?: string | null) => (value ?? '').replace(/\s+/g, ' ').trim();
 const sanitizePhone = (value?: string | null) => (value ?? '').replace(/[^0-9]/g, '');
+const isRequestBoardDesignerAffiliation = (value?: string | null) =>
+  normalizeWhitespace(value).includes('설계매니저');
 
 export function isInternalAffiliation(value?: string | null) {
   const normalized = normalizeWhitespace(value).replace(/\s+/g, '');
@@ -41,7 +43,20 @@ export function isInternalAffiliation(value?: string | null) {
   return false;
 }
 
-export function countUnreadBySender(rows: Array<{ sender_id?: string | null }>) {
+export function shouldIncludeInternalChatParticipant(
+  participant: InternalChatParticipantLike,
+  options?: {
+    includeAllCompletedFc?: boolean;
+  },
+) {
+  const phone = sanitizePhone(participant.phone);
+  if (!phone) return false;
+  if (isRequestBoardDesignerAffiliation(participant.affiliation)) return false;
+  if (options?.includeAllCompletedFc) return true;
+  return isInternalAffiliation(participant.affiliation);
+}
+
+export function countUnreadBySender(rows: { sender_id?: string | null }[]) {
   return rows.reduce<Record<string, number>>((acc, row) => {
     const senderId = String(row.sender_id ?? '').trim();
     if (!senderId) return acc;
@@ -56,7 +71,7 @@ export function attachUnreadCountsToContacts<T extends ContactLike>(
   options?: {
     defaultUnreadCount?: number;
   },
-): Array<T & { unread_count: number }> {
+): (T & { unread_count: number })[] {
   const defaultUnreadCount = options?.defaultUnreadCount ?? 0;
 
   return contacts.map((contact) => {
@@ -73,6 +88,7 @@ export function buildInternalChatList(input: {
   viewerId: string;
   participants: InternalChatParticipantLike[];
   messages: InternalChatMessageLike[];
+  includeAllCompletedFc?: boolean;
 }): {
   items: InternalChatPreview[];
   totalUnread: number;
@@ -86,7 +102,13 @@ export function buildInternalChatList(input: {
 
   input.participants.forEach((participant) => {
     const phone = sanitizePhone(participant.phone);
-    if (!phone || !isInternalAffiliation(participant.affiliation)) return;
+    if (
+      !shouldIncludeInternalChatParticipant(participant, {
+        includeAllCompletedFc: input.includeAllCompletedFc === true,
+      })
+    ) {
+      return;
+    }
 
     const displayName = normalizeWhitespace(participant.name) || phone;
     participantMap.set(phone, {

@@ -76,6 +76,58 @@ describe('buildInternalChatList', () => {
       },
     ]);
   });
+
+  test('includes completed external-affiliation FCs for read-only admin scope while still excluding designer rows', () => {
+    const input: Parameters<typeof buildInternalChatList>[0] & { includeAllCompletedFc: boolean } = {
+      viewerId: '01099998888',
+      includeAllCompletedFc: true,
+      participants: [
+        { fc_id: 'fc-1', name: '내부 FC', phone: '010-1111-2222', affiliation: '1본부 서선미' },
+        { fc_id: 'fc-2', name: '완료 외부 FC', phone: '010-3333-4444', affiliation: '외부 조직' },
+        { fc_id: 'fc-3', name: '설계 매니저', phone: '010-5555-6666', affiliation: '농협생명 설계매니저' },
+      ],
+      messages: [
+        {
+          sender_id: '01033334444',
+          receiver_id: '01099998888',
+          content: '외부 완료 FC 메시지',
+          created_at: '2026-04-20T11:00:00.000Z',
+          is_read: false,
+        },
+        {
+          sender_id: '01055556666',
+          receiver_id: '01099998888',
+          content: '설계 매니저 메시지',
+          created_at: '2026-04-20T11:05:00.000Z',
+          is_read: false,
+        },
+      ],
+    };
+
+    const result = buildInternalChatList(input);
+
+    expect(result.totalUnread).toBe(1);
+    expect(result.items).toEqual([
+      {
+        fc_id: 'fc-2',
+        name: '완료 외부 FC',
+        phone: '01033334444',
+        affiliation: '외부 조직',
+        last_message: '외부 완료 FC 메시지',
+        last_time: '2026-04-20T11:00:00.000Z',
+        unread_count: 1,
+      },
+      {
+        fc_id: 'fc-1',
+        name: '내부 FC',
+        phone: '01011112222',
+        affiliation: '1본부 서선미',
+        last_message: null,
+        last_time: null,
+        unread_count: 0,
+      },
+    ]);
+  });
 });
 
 describe('countUnreadBySender', () => {
