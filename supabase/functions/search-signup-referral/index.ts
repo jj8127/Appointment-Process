@@ -2,6 +2,10 @@ import { serve } from 'https://deno.land/std@0.224.0/http/server.ts';
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.45.4';
 
 import { getEnv } from '../_shared/request-board-auth.ts';
+import {
+  isExactReferralCodeQuery,
+  normalizeReferralSearchQuery,
+} from '../_shared/referral-search.ts';
 
 const allowedOrigins = (getEnv('ALLOWED_ORIGINS') ?? '').split(',').map((origin) => origin.trim()).filter(Boolean);
 const corsHeaders = {
@@ -121,8 +125,50 @@ serve(async (req: Request) => {
     return json({ ok: true, results: [] });
   }
 
+  const normalizedQuery = normalizeReferralSearchQuery(query);
   const LIMIT = 10;
   const resultMap = new Map<string, SearchResult>();
+
+  if (isExactReferralCodeQuery(normalizedQuery)) {
+    const { data: exactCodeRow, error: exactCodeError } = await supabase
+      .from('referral_codes')
+      .select('code, fc_id')
+      .eq('code', normalizedQuery)
+      .eq('is_active', true)
+      .maybeSingle();
+
+    if (exactCodeError) {
+      return json({ ok: false, code: 'db_error', message: exactCodeError.message }, 500);
+    }
+
+    if (!exactCodeRow?.fc_id) {
+      return json({ ok: true, results: [] });
+    }
+
+    const { data: exactProfile, error: exactProfileError } = await supabase
+      .from('fc_profiles')
+      .select('id, name, affiliation, signup_completed, is_manager_referral_shadow')
+      .eq('id', exactCodeRow.fc_id)
+      .maybeSingle();
+
+    if (exactProfileError) {
+      return json({ ok: false, code: 'db_error', message: exactProfileError.message }, 500);
+    }
+
+    if (!exactProfile || !isEligibleProfile(exactProfile)) {
+      return json({ ok: true, results: [] });
+    }
+
+    return json({
+      ok: true,
+      results: [{
+        fcId: exactProfile.id,
+        name: exactProfile.name ?? '',
+        affiliation: exactProfile.affiliation ?? '',
+        code: exactCodeRow.code,
+      }],
+    });
+  }
 
   const { data: profileRows, error: profileError } = await supabase
     .from('fc_profiles')
@@ -212,7 +258,7 @@ serve(async (req: Request) => {
   const results = Array.from(resultMap.values())
     .filter((result) => Boolean(result.code))
     .sort((left, right) => {
-      const scoreDiff = scoreResult(left, query) - scoreResult(right, query);
+      const scoreDiff = scoreResult(left, normalizedQuery) - scoreResult(right, normalizedQuery);
       if (scoreDiff !== 0) return scoreDiff;
       return left.name.localeCompare(right.name, 'ko');
     })

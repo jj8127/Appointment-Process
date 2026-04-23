@@ -1,6 +1,6 @@
 {
   "meta": {
-    "generatedAt": "2026-04-22T06:45:00.000Z",
+    "generatedAt": "2026-04-23T06:30:00.000Z",
     "source": "docs/referral-system/test-cases.json",
     "note": "status: NOT_RUN | PASS | FAIL | BLOCKED | SKIPPED"
   },
@@ -117,6 +117,26 @@
       "executedAt": "",
       "evidence": [],
       "notes": ""
+    },
+    {
+      "caseId": "RF-LINK-05",
+      "area": "초대링크",
+      "priority": "P0",
+      "platform": [
+        "app",
+        "backend"
+      ],
+      "title": "앱 설치 상태 exact 8자리 초대링크는 broad search와 중복 pending apply 없이 한 번만 추천인 검색을 수행한다",
+      "status": "BLOCKED",
+      "owner": "Codex",
+      "executedAt": "2026-04-23T06:35:00.000Z",
+      "evidence": [
+        "npm test -- --runInBand lib/__tests__/signup-referral.test.ts",
+        "npm test -- --runInBand supabase/functions/_shared/__tests__/referral-search.test.ts",
+        "supabase functions deploy search-signup-referral --project-ref ubeginyxaotcamuqpmud",
+        "live invoke `search-signup-referral(query=TUZD8M3A)` => 200 OK, exact inviter result returned after deployment"
+      ],
+      "notes": "정확한 8자리 코드 fast path와 signup single-flight는 코드/테스트/원격 function deploy까지 반영했지만, 실제 기기에서 딥링크 진입 후 spinner 중복/크래시 부재를 아직 확인하지 못했다. 온디바이스 invite-link smoke가 남아 있어 BLOCKED로 유지한다."
     },
     {
       "caseId": "RF-CODE-05",
@@ -261,15 +281,15 @@
         "web",
         "backend"
       ],
-      "title": "운영 override 또는 clear는 감사 로그를 남긴다",
-      "status": "PASS",
+      "title": "운영 override 또는 clear는 `referral_changed/referral_cleared` 감사 로그를 남긴다",
+      "status": "BLOCKED",
       "owner": "Codex",
-      "executedAt": "2026-04-22T06:43:00.000Z",
+      "executedAt": "2026-04-23T00:00:00.000Z",
       "evidence": [
-        ".codex/harness/reports/legacy-recommender-reconcile-2026-04-22.json",
-        "admin_apply_recommender_override applied for 7 invitees with admin_override_applied events verified"
+        "supabase/migrations/20260423000001_unify_referral_link_state.sql => apply_referral_link_state writes referral_linked/referral_changed/referral_cleared metadata",
+        "web/src/lib/admin-referrals.ts => recent events surface now accepts referral_linked/referral_changed/referral_cleared"
       ],
-      "notes": "Exact-unique legacy recommender batch applied through trusted RPC and verification re-read confirmed admin_override_applied events for the mutated invitees."
+      "notes": "기존 2026-04-22 PASS는 legacy admin_override_applied 기준 증적이라 새 current-state 계약에는 그대로 재사용할 수 없다. 원격 migration 적용 뒤 실제 override/clear를 다시 실행해 새 event type과 metadata를 확인해야 한다."
     },
     {
       "caseId": "RF-ADMIN-03",
@@ -325,14 +345,14 @@
         "backend"
       ],
       "title": "레거시 추천인 검토 큐에서 구조화 링크가 없는 FC를 계정 선택형으로 연결하고 감사 로그를 남긴다",
-      "status": "PASS",
+      "status": "BLOCKED",
       "owner": "Codex",
-      "executedAt": "2026-04-22T06:43:00.000Z",
+      "executedAt": "2026-04-23T00:00:00.000Z",
       "evidence": [
-        ".codex/harness/reports/legacy-recommender-reconcile-2026-04-22.md",
-        "7 invitees linked via admin_apply_recommender_override after exact-unique classification"
+        "supabase/migrations/20260423000001_unify_referral_link_state.sql => admin_apply_recommender_override now wraps apply_referral_link_state",
+        "docs/referral-system/test-cases.json => RF-ADMIN-06 now expects recommender_code snapshot + referral_linked/referral_changed metadata"
       ],
-      "notes": "Legacy recommender free-text rows were linked through the trusted override path only for policy-safe exact-unique cases, leaving blocked rows untouched."
+      "notes": "기존 2026-04-22 PASS는 legacy override 이벤트 기준 증적이다. 새 contract에서는 linked snapshot(`recommender_code`)과 `referral_linked/referral_changed` metadata를 같이 확인해야 하므로 원격 migration 적용 후 재실행이 필요하다."
     },
     {
       "caseId": "RF-ADMIN-07",
@@ -342,17 +362,15 @@
         "web",
         "backend"
       ],
-      "title": "`/dashboard/referrals/graph`는 structured link 기준으로 빈 선 없이 그려지고 manager read-only를 유지한다",
-      "status": "PASS",
+      "title": "`/dashboard/referrals/graph`는 linked edge 기준으로 빈 선 없이 그려지고 manager read-only를 유지한다",
+      "status": "BLOCKED",
       "owner": "Codex",
-      "executedAt": "2026-04-03T18:40:00.000Z",
+      "executedAt": "2026-04-23T00:00:00.000Z",
       "evidence": [
-        "cd web && npm run lint -- src/app/dashboard/referrals/page.tsx src/app/dashboard/referrals/graph/page.tsx src/components/referrals/ReferralGraphCanvas.tsx src/components/referrals/GraphNodeDrawer.tsx src/lib/admin-referrals.ts src/app/api/admin/referrals/graph/route.ts src/types/referral-graph.ts src/types/d3-force.d.ts",
-        "cd web && npx next build",
-        "service-role smoke => eligible FC 110, merged edges 41, relationshipCounts { structured: 41, confirmed: 0, structured_confirmed: 0 }, unresolved legacy count 57",
-        "code review: graph route allowedRoles ['admin','manager'], graph page exposes no mutate CTA"
+        "node --experimental-strip-types --test E:\\hanhwa\\fc-onboarding-app\\web\\src\\lib\\referral-graph-edges.test.ts",
+        "cd web && npm run lint -- src/lib/admin-referrals.ts src/lib/referral-graph-edges.ts src/lib/referral-graph-edges.test.ts src/components/referrals/ReferralGraphCanvas.tsx src/components/referrals/GraphNodeDrawer.tsx src/app/dashboard/referrals/graph/page.tsx src/app/dashboard/referrals/page.tsx"
       ],
-      "notes": "현재 운영 데이터에서도 structured link 기반 edge가 41건으로 잡혀 graph empty-line 문제가 해소되는 것을 확인했다. manager read-only는 route allowedRoles와 graph UI에서 mutation control 제거를 함께 확인했다."
+      "notes": "소스 기준으로 graph edge 모델은 linked 단일값으로 정리됐지만, 원격 migration 적용 후 실제 graph API 응답에서 relationshipState 미노출과 linked edge count를 다시 확인하지는 않았다."
     },
     {
       "caseId": "RF-ADMIN-08",
@@ -399,14 +417,13 @@
         "backend"
       ],
       "title": "`안전 자동 정리`는 exact-unique만 구조화하고 자기추천/후보 없음/동명이인은 남긴다",
-      "status": "PASS",
+      "status": "BLOCKED",
       "owner": "Codex",
-      "executedAt": "2026-04-22T06:43:00.000Z",
+      "executedAt": "2026-04-23T00:00:00.000Z",
       "evidence": [
-        ".codex/harness/reports/legacy-recommender-reconcile-2026-04-22.md",
-        "post-link missing report: .codex/harness/reports/fc-missing-recommender-2026-04-22-after-link.md"
+        "supabase/migrations/20260423000001_unify_referral_link_state.sql => legacy exact-unique backfill now also fills recommender_code snapshot and emits referral_linked metadata"
       ],
-      "notes": "Safe auto-resolve linked only exact-unique rows. Two inviters first received active codes, then 7 invitees were linked; 31 missing-candidate rows and 3 self-referrals were intentionally left untouched."
+      "notes": "정책 자체는 유지되지만, 기존 2026-04-22 PASS는 구 audit 계약 기준이다. 새 contract에서는 exact-unique auto-resolve가 snapshot(`recommender_code`)과 `referral_linked` metadata까지 남기는지 재확인해야 한다."
     },
     {
       "caseId": "RF-OBS-01",
@@ -415,12 +432,12 @@
       "platform": [
         "backend"
       ],
-      "title": "현재 persisted runtime 범위 내에서 이벤트 타임라인이 복원 가능하다",
+      "title": "현재 persisted runtime 범위 내에서 current-state 변경 이벤트 타임라인이 복원 가능하다",
       "status": "NOT_RUN",
       "owner": "",
       "executedAt": "",
       "evidence": [],
-      "notes": "케이스 기대값은 현재 persisted event 범위로 정정했지만, 그 기준으로 타임라인을 다시 수집/검증하지는 않았다."
+      "notes": "케이스 기대값은 `referral_linked/referral_changed/referral_cleared` 기준으로 정정했지만, 원격 migration 적용 뒤 그 기준으로 타임라인을 다시 수집/검증하지는 않았다."
     },
     {
       "caseId": "RF-DATA-01",
@@ -429,7 +446,7 @@
       "platform": [
         "backend"
       ],
-      "title": "invitee orphan row와 invitee 중복 confirmed row가 없고 inviter snapshot이 유지된다",
+      "title": "current-state snapshot과 audit event가 부분 성공 없이 함께 기록되고 inviter snapshot이 유지된다",
       "status": "NOT_RUN",
       "owner": "",
       "executedAt": "",
@@ -445,17 +462,32 @@
         "web",
         "app"
       ],
-      "title": "동명이인 이름과 무관하게 invitee 추천코드 조회는 structured attribution 기준으로 historical signup code를 우선한다",
+      "title": "동명이인 이름과 무관하게 invitee 추천코드 조회는 profile snapshot만 반환하고 inviter 이후 코드 rotate 영향을 받지 않는다",
+      "status": "BLOCKED",
+      "owner": "Codex",
+      "executedAt": "2026-04-23T00:00:00.000Z",
+      "evidence": [
+        "supabase/migrations/20260423000001_unify_referral_link_state.sql => get_invitee_referral_code(uuid) now returns fc_profiles.recommender_code snapshot only",
+        "docs/referral-system/test-cases.json => RF-DATA-02 expectation updated to profile snapshot contract"
+      ],
+      "notes": "기존 2026-04-02 PASS는 confirmed attribution historical lookup 기준 증적이라 현재 contract와 다르다. 원격 migration 적용 뒤 `fc_profiles.recommender_code` snapshot이 inviter rotate 이후에도 유지되는지 다시 확인해야 한다."
+    },
+    {
+      "caseId": "RF-DATA-03",
+      "area": "정합성",
+      "priority": "P1",
+      "platform": [
+        "backend"
+      ],
+      "title": "`20260423000001_unify_referral_link_state.sql` rollout은 projection 누락 없이 clean apply되고 current-state snapshot backfill을 완료한다",
       "status": "PASS",
       "owner": "Codex",
-      "executedAt": "2026-04-02T06:10:00.000Z",
+      "executedAt": "2026-04-23T05:55:00.000Z",
       "evidence": [
-        "service-role synthetic fixture setup: same-name inviter A/B phones `01099989021`/`01099989022`, invitee phone `01099989023`",
-        "service-role referral_codes active rows => inviter A current active `T5YU6PL7`, same-name inviter B active `N8MB7VC6`",
-        "service-role confirmed attribution snapshot for invitee fc_id `f43a6b8e-5045-4b41-a1ce-10d24666fa9f` => historical code `Q2WX3ER4`",
-        "service-role RPC `get_invitee_referral_code(f43a6b8e-5045-4b41-a1ce-10d24666fa9f)` => `Q2WX3ER4`"
+        "cd E:\\hanhwa\\fc-onboarding-app && supabase db push",
+        "cd E:\\hanhwa\\fc-onboarding-app && supabase migration list => 20260423000001 | 20260423000001"
       ],
-      "notes": "동명이인 inviter 2명을 같은 이름으로 만들고 inviter A 코드를 `Q2WX3ER4 -> T5YU6PL7`로 rotate한 뒤 재검증했다. RPC는 current active code가 아니라 confirmed historical code `Q2WX3ER4`를 반환했다."
+      "notes": "첫 rollout 시 backfill CTE `eligible_profiles`가 `name`/`created_at` projection을 빠뜨려 `column inviter.name does not exist`로 실패했다. migration source와 `schema.sql`을 같은 수정으로 보정한 뒤 재실행해 remote rollout을 완료했다."
     },
     {
       "caseId": "RF-HISTORY-01",
@@ -610,7 +642,7 @@
         "app",
         "backend"
       ],
-      "title": "FC/본부장 self-service 추천인 변경은 appSession 자동 복구 뒤에도 trusted path와 audit trail 계약을 유지한다",
+      "title": "FC/본부장 self-service 추천인 변경은 appSession 자동 복구 뒤에도 current-state snapshot과 audit trail 계약을 유지한다",
       "status": "BLOCKED",
       "owner": "Codex",
       "executedAt": "2026-04-16T00:00:00.000Z",
@@ -618,12 +650,13 @@
         "app/referral.tsx => search/save flow now shares useReferralAppSession and relogin CTA handling",
         "hooks/use-referral-app-session.ts => invokeReferralFunction retries once on missing/expired/invalid app session and clears tokens on hard failure",
         "supabase/functions/search-fc-for-referral/index.ts => requireAppSessionFromRequest + explicit auth codes",
-        "supabase/functions/update-my-recommender/index.ts => manual_entry/manual_entry_only contract + referral_events(invitee_fc_id, metadata) alignment behind explicit app-session auth",
+        "supabase/functions/update-my-recommender/index.ts => apply_referral_link_state 기반 current-state snapshot + referral_events audit write behind explicit app-session auth",
         "supabase/functions/get-my-referral-code/index.ts => recommender cache is returned by the trusted self-service response after refresh as well",
+        "supabase/functions/_shared/referral-link.ts => self-service/admin/signup shared RPC wrapper for atomic referral link writes",
         "npx eslint app/referral.tsx hooks/use-my-referral-code.ts hooks/use-referral-app-session.ts hooks/use-session.tsx",
         "node scripts/ci/check-governance.mjs"
       ],
-      "notes": "정적 검증과 코드 경로 정렬은 끝났지만, 실제 FC/본부장 계정에서 `appSessionToken`만 만료된 상태의 검색/저장 1회 재시도 성공과 bridge token까지 없는 상태의 spinner 해제 + relogin CTA를 함께 찍은 live evidence는 아직 없다."
+      "notes": "정적 검증과 코드 경로 정렬은 끝났지만, 실제 FC/본부장 계정에서 `appSessionToken`만 만료된 상태의 검색/저장 1회 재시도 성공과, 저장 직후 `fc_profiles.recommender_*` snapshot + `referral_events(referral_linked/referral_changed)`가 함께 남는 live evidence는 아직 없다."
     },
     {
       "caseId": "RF-SELF-03",

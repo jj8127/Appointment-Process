@@ -1,6 +1,7 @@
 import {
   buildStoredSignupReferral,
   getSignupReferralSelectionError,
+  runSinglePendingReferralApply,
 } from '../signup-referral';
 
 describe('buildStoredSignupReferral', () => {
@@ -71,5 +72,36 @@ describe('buildStoredSignupReferral', () => {
         code: 'KCSACZXU',
       }),
     ).toBeNull();
+  });
+});
+
+describe('runSinglePendingReferralApply', () => {
+  test('reuses the in-flight pending referral apply instead of queueing a second run', async () => {
+    const state = { promise: null as Promise<void> | null };
+    const control: { resolve: () => void } = {
+      resolve: () => {
+        throw new Error('expected resolver to be assigned');
+      },
+    };
+    const start = jest.fn(
+      () =>
+        new Promise<void>((resolve) => {
+          control.resolve = resolve;
+        }),
+    );
+
+    const firstRun = runSinglePendingReferralApply(state, start);
+    const secondRun = runSinglePendingReferralApply(state, start);
+
+    expect(start).toHaveBeenCalledTimes(1);
+    expect(secondRun).toBe(firstRun);
+
+    control.resolve();
+    await firstRun;
+
+    const thirdRun = runSinglePendingReferralApply(state, async () => {});
+    await thirdRun;
+
+    expect(state.promise).toBeNull();
   });
 });

@@ -7,7 +7,7 @@
 
 ## 2. 현재 상태
 
-- `2026-04-17` 기준 등록된 추천인 이슈는 `17건`이다.
+- `2026-04-23` 기준 등록된 추천인 이슈는 `20건`이다.
 - 런타임 버그뿐 아니라 trust boundary, rollout status, 문서/테스트 drift로 운영 판단을 오도한 경우도 장애성 이력으로 남긴다.
 
 ## 3. 작성 규칙
@@ -46,6 +46,9 @@
 
 | ID | 날짜 | 제목 | linkedCases | 상태 |
 | --- | --- | --- | --- | --- |
+| INC-020 | 2026-04-23 | 초대링크 exact code prefill이 fuzzy search와 중복 pending apply를 함께 타면서 느리고 불안정했음 | `RF-LINK-05` | fixed |
+| INC-019 | 2026-04-23 | 단일상태 migration rollout이 backfill CTE projection 누락으로 실제 원격 적용 단계에서 실패함 | `RF-DATA-03` | fixed |
+| INC-018 | 2026-04-23 | 추천인 current-state를 dual-source로 유지해 부분 성공과 UI 상태 분기가 다시 생길 수 있었음 | `RF-ADMIN-02`, `RF-ADMIN-07`, `RF-DATA-01`, `RF-OBS-01` | fixed |
 | INC-017 | 2026-04-17 | 로그인 성공 뒤에도 추천코드 발급을 별도 수동 단계로 남겨 eligible FC/본부장이 active code 없이 남음 | `RF-CODE-09`, `RF-SELF-01` | fixed |
 | INC-016 | 2026-04-16 | 로그인 세션과 referral self-service `appSessionToken` 만료를 분리해 로그인돼도 `/referral`에서 다시 인증이 필요해짐 | `RF-SELF-01`, `RF-SELF-02`, `RF-SELF-03` | fixed |
 | INC-015 | 2026-04-14 | depth 2 preload와 subtree-relative lazy expand를 같은 tree contract로 정규화하지 않아 deeper branch가 느리고 스타일도 어긋남 | `RF-SELF-03` | fixed |
@@ -63,6 +66,112 @@
 | INC-003 | 2026-03-31 | 동명이인 안전화 후 live hardening gap(`set-password` fallback, override migration, clear audit) | `RF-ADMIN-06`, `RF-SEC-02` | mitigated |
 | INC-002 | 2026-03-31 | 동명이인 추천인 이름 매칭으로 잘못된 코드가 붙을 수 있던 구조 위험 | `RF-DATA-02`, `RF-ADMIN-06` | fixed |
 | INC-001 | 2026-03-31 | Android 추천코드 입력 시 대문자가 중복 입력되던 문제 | `RF-CODE-07` | fixed |
+
+## INC-020 | 2026-04-23 | 초대링크 exact code prefill이 fuzzy search와 중복 pending apply를 함께 타면서 느리고 불안정했음
+
+- symptom:
+  - `https://garam-invite-.../invite?code=TUZD8M3A` 같은 초대링크로 가람in에 진입하면 회원가입 화면 추천인 query 결과가 느리게 뜨고, 사용자 기준으로는 앱이 멈추거나 튕기는 것처럼 보였다.
+  - exact 8자리 추천코드인데도 name/affiliation/code 부분검색 전체 경로를 타고 있었고, signup 화면에서는 같은 pending code 적용이 focus/referralNonce 타이밍에 중복으로 재실행될 수 있었다.
+- impact:
+  - 앱 설치 상태 invite-link 진입의 첫 체감이 느려지고, 추천인 prefill UX가 불안정해졌다.
+  - 같은 딥링크 진입에서 불필요한 중복 search/state update가 들어가면 Android 화면 안정성도 같이 흔들릴 수 있었다.
+- trigger:
+  - 2026-04-23 운영 제보로 “초대링크로 접속하면 추천인 코드를 찾는데 너무 오래 걸리고 앱이 튕긴다”는 보고가 들어왔을 때.
+- rootCause:
+  - `search-signup-referral`이 exact 8자리 code query도 `fc_profiles(name/affiliation)` + `referral_codes ilike(%query%)` + active code attach의 broad fuzzy search 경로로 처리했다.
+  - `app/signup.tsx`의 `applyPendingReferralCode()`는 in-flight promise가 있을 때 `finally(() => applyPendingReferralCode())`를 다시 붙여, 같은 pending code apply를 중복 예약할 수 있었다.
+- fix:
+  - `supabase/functions/_shared/referral-search.ts`를 추가하고, `search-signup-referral`이 exact 8자리 추천코드 query를 `referral_codes.eq(code)` + inviter profile 1건 lookup으로 short-circuit 하도록 바꿨다.
+  - `lib/signup-referral.ts`에 `runSinglePendingReferralApply(...)` single-flight helper를 추가하고, `app/signup.tsx`가 pending code apply를 같은 in-flight promise에 join만 하도록 수정했다.
+  - `search-signup-referral`은 원격 Supabase project `ubeginyxaotcamuqpmud`에 다시 배포했다.
+- linkedCases:
+  - RF-LINK-05
+- evidence:
+  - 테스트: `npm test -- --runInBand lib/__tests__/signup-referral.test.ts`
+  - 테스트: `npm test -- --runInBand supabase/functions/_shared/__tests__/referral-search.test.ts`
+  - 검증: `npx eslint app/signup.tsx lib/signup-referral.ts lib/__tests__/signup-referral.test.ts`
+  - 검증: `npx eslint --rule "import/no-unresolved: off" supabase/functions/search-signup-referral/index.ts supabase/functions/_shared/referral-search.ts supabase/functions/_shared/__tests__/referral-search.test.ts`
+  - 배포: `supabase functions deploy search-signup-referral --project-ref ubeginyxaotcamuqpmud`
+  - live invoke: `search-signup-referral(query=TUZD8M3A)` => `200 OK`, exact inviter result 반환
+- reproduction:
+  1. exact 8자리 추천코드를 포함한 초대링크로 앱 설치 상태의 가람in을 연다.
+  2. 회원가입 화면 추천인 query가 자동 입력될 때 결과가 뜨기까지 기다린다.
+  3. 기존 구현에서는 exact code도 broad fuzzy search를 타고, 같은 진입에서 pending apply가 중복 예약될 수 있다.
+- regressionCheck:
+  - RF-LINK-05로 exact-code fast path와 single-flight pending apply를 함께 확인한다.
+- notes:
+  - 서버 exact-code fast path는 원격에 배포했지만, 앱-side single-flight는 다음 모바일 배포/OTA 전까지 운영 런타임에서 바로 확인되지 않을 수 있다.
+  - shell 기준 live invoke 응답은 정상으로 확인했지만, 실제 초대링크 진입에서의 체감 속도/크래시 부재는 사용자가 직접 QA할 예정이다.
+
+## INC-019 | 2026-04-23 | 단일상태 migration rollout이 backfill CTE projection 누락으로 실제 원격 적용 단계에서 실패함
+
+- symptom:
+  - `supabase db push`로 `20260423000001_unify_referral_link_state.sql`를 linked DB에 적용하는 순간 `column inviter.name does not exist (SQLSTATE 42703)`로 migration이 중단됐다.
+  - 코드와 문서에서는 single-state 계약이 정리된 것처럼 보였지만, 실제 원격 DB는 rollout 실패로 새 RPC/backfill 상태에 도달하지 못했다.
+- impact:
+  - 추천인 single-state 기능이 source repo에서는 완료처럼 보여도 원격 DB에는 미적용 상태가 남아, runtime QA나 운영 배포 판단을 잘못 내릴 수 있었다.
+  - backfill이 실패하면 `fc_profiles.recommender_*` snapshot 정합화와 RPC 배포 판단이 같이 멈춘다.
+- trigger:
+  - 2026-04-23 linked Supabase project에 `supabase db push`를 실행해 실제 rollout을 시도했을 때.
+- rootCause:
+  - migration backfill CTE `eligible_profiles`가 `id`, `normalized_name`만 projection했는데, 후속 `legacy_candidates` CTE가 `inviter.name`, `inviter.created_at`를 참조했다.
+  - source review만으로는 SQL alias/CTE column coverage를 끝까지 검산하지 않았고, 실제 remote apply를 늦게 실행했다.
+- fix:
+  - `eligible_profiles`에 `fp.name`, `fp.created_at`를 추가해 후속 CTE 참조 컬럼을 모두 projection하도록 수정했다.
+  - 같은 수정으로 `supabase/schema.sql`도 맞췄다.
+  - 수정 뒤 `supabase db push`를 재실행하고 `supabase migration list`로 `20260423000001 | 20260423000001` 정렬을 확인했다.
+- linkedCases:
+  - RF-DATA-03
+- evidence:
+  - CLI 실패: `supabase db push` => `ERROR: column inviter.name does not exist (SQLSTATE 42703)`
+  - 코드 변경: `supabase/migrations/20260423000001_unify_referral_link_state.sql`
+  - 코드 변경: `supabase/schema.sql`
+  - CLI 성공: `supabase migration list` => `20260423000001 | 20260423000001`
+- reproduction:
+  1. `eligible_profiles`가 `name`, `created_at`를 projection하지 않은 상태의 migration source를 준비한다.
+  2. linked DB에 `supabase db push`를 실행한다.
+  3. `legacy_candidates` 단계에서 `inviter.name` 참조로 SQLSTATE 42703이 발생한다.
+- regressionCheck:
+  - RF-DATA-03으로 linked DB rollout이 clean apply되고 migration list가 local/remote 정렬되는지 다시 확인한다.
+- notes:
+  - single-state 기능처럼 schema-heavy referral 작업은 source lint/build와 별개로 remote apply까지 끝내야 계약 완료로 본다.
+
+## INC-018 | 2026-04-23 | 추천인 current-state를 dual-source로 유지해 부분 성공과 UI 상태 분기가 다시 생길 수 있었음
+
+- symptom:
+  - 관리자 그래프와 self-service/read path가 `structured`, `confirmed`, `structured_confirmed` 같은 복수 상태를 노출했고, 운영자는 같은 추천 관계를 한 가지 현재 상태가 아니라 근거 조합으로 읽어야 했다.
+  - 추천인 저장 경로는 `fc_profiles.recommender_fc_id`와 `referral_attributions`/`referral_events`를 별개 단계로 다뤄, 한쪽만 성공하는 drift를 허용할 여지가 남아 있었다.
+- impact:
+  - 사용자/운영 관점에서 추천인은 “저장됐거나 실패했거나” 둘 중 하나여야 하는데, 내부 dual-state가 UI와 문서까지 새어 나와 혼란을 만들었다.
+  - 관리자 override/clear나 signup confirm 이후 일부 surface가 다른 source를 읽으면 partial-success가 실제 데이터 drift와 운영 오판으로 이어질 수 있었다.
+- trigger:
+  - 2026-04-23 설계 검토에서 “추천인 상태를 둘로 나눌 이유가 없고, 하나가 실패하면 둘 다 실패한 것으로 처리해야 한다”는 운영 피드백이 다시 제기됐을 때.
+- rootCause:
+  - current-state canonical source와 audit/history를 분리 저장하되, read model과 UI에서 그 차이를 숨기지 못했다.
+  - `set-password`, self-service 변경, 관리자 override가 단일 RPC contract로 묶이지 않아 current-state/snapshot/event의 원자성 보장이 일관되지 않았다.
+- fix:
+  - current-state SSOT를 `fc_profiles.recommender_*` snapshot으로 고정하고, 추천인 변경은 모두 `apply_referral_link_state(...)` RPC로만 처리하도록 정리했다.
+  - 그래프 edge/state를 `linked` 단일 모델로 축소했고, `referral_attributions`는 archival-only historical data로 강등했다.
+  - 관리자 최근 이벤트와 문서/테스트 자산도 `referral_linked/referral_changed/referral_cleared` 기준으로 재정렬했다.
+- linkedCases:
+  - RF-ADMIN-02
+  - RF-ADMIN-07
+  - RF-DATA-01
+  - RF-OBS-01
+- evidence:
+  - 코드 변경: `supabase/migrations/20260423000001_unify_referral_link_state.sql`
+  - 코드 변경: `supabase/functions/_shared/referral-link.ts`
+  - 코드 변경: `supabase/functions/set-password/index.ts`, `supabase/functions/update-my-recommender/index.ts`, `supabase/functions/get-my-invitees/index.ts`, `supabase/functions/get-my-referral-code/index.ts`, `supabase/functions/get-referral-tree/index.ts`
+  - 코드 변경: `web/src/lib/admin-referrals.ts`, `web/src/types/referral-graph.ts`, `web/src/components/referrals/ReferralGraphCanvas.tsx`
+- reproduction:
+  1. dual-state 계약이 남은 그래프/read model에서 같은 추천 관계를 본다.
+  2. current-state source와 confirmed evidence source가 다르면 선 색/표기가 갈라진다.
+  3. 추천인 저장이 둘 중 하나만 성공하면 일부 화면과 운영 문서가 서로 다른 상태를 읽는다.
+- regressionCheck:
+  - RF-ADMIN-07로 그래프가 단일 `linked` edge만 반환하는지 확인한다.
+  - RF-DATA-01로 current-state snapshot과 audit event가 부분 성공 없이 함께 남는지 확인한다.
+- notes:
+  - `referral_attributions` physical table은 v1에서 삭제하지 않고 archive로 남긴다. 신규 runtime read/write가 다시 이 table을 current-state source로 끌어오지 않는지가 후속 검증 포인트다.
 
 ## INC-017 | 2026-04-17 | 로그인 성공 뒤에도 추천코드 발급을 별도 수동 단계로 남겨 eligible FC/본부장이 active code 없이 남음
 

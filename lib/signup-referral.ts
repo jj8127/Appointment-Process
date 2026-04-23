@@ -15,6 +15,10 @@ type StoredSignupReferral = {
   referralInviterFcId?: string;
 };
 
+type PendingReferralApplyState = {
+  promise: Promise<void> | null;
+};
+
 export function buildStoredSignupReferral({
   selectedReferral,
   referralStatus,
@@ -43,4 +47,22 @@ export function getSignupReferralSelectionError(
   }
 
   return '추천인을 적용하려면 검색 결과에서 한 명을 선택하거나 입력값을 지워주세요.';
+}
+
+export function runSinglePendingReferralApply(
+  state: PendingReferralApplyState,
+  start: () => Promise<void>,
+): Promise<void> {
+  if (state.promise) {
+    return state.promise;
+  }
+
+  const promise = start().finally(() => {
+    if (state.promise === promise) {
+      state.promise = null;
+    }
+  });
+
+  state.promise = promise;
+  return promise;
 }

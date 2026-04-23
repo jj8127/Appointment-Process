@@ -30,6 +30,7 @@ import { safeStorage } from '@/lib/safe-storage';
 import {
   buildStoredSignupReferral,
   getSignupReferralSelectionError,
+  runSinglePendingReferralApply,
 } from '@/lib/signup-referral';
 import { supabase } from '@/lib/supabase';
 import { COLORS, TYPOGRAPHY, SPACING, RADIUS } from '@/lib/theme';
@@ -100,7 +101,7 @@ export default function SignupScreen() {
   const emailLocalRef = useRef<TextInputType>(null);
   const customDomainRef = useRef<TextInputType>(null);
   const referralEditVersionRef = useRef(0);
-  const pendingReferralApplyRef = useRef<Promise<void> | null>(null);
+  const pendingReferralApplyStateRef = useRef<{ promise: Promise<void> | null }>({ promise: null });
   const referralValidationRequestRef = useRef(0);
   const referralSearchRequestRef = useRef(0);
   const selectedReferralCodeRef = useRef('');
@@ -375,11 +376,7 @@ export default function SignupScreen() {
   }, []);
 
   const applyPendingReferralCode = useCallback(() => {
-    if (pendingReferralApplyRef.current) {
-      return pendingReferralApplyRef.current.finally(() => applyPendingReferralCode());
-    }
-
-    const applyPromise = (async () => {
+    return runSinglePendingReferralApply(pendingReferralApplyStateRef.current, async () => {
       const editVersionAtStart = referralEditVersionRef.current;
       const code = await consumePendingReferralCode();
       const normalizedCode = code?.trim().toUpperCase() ?? '';
@@ -390,15 +387,7 @@ export default function SignupScreen() {
       resetSelectedReferral();
       setReferralSearchQuery(normalizedCode);
       await runReferralSearch(normalizedCode);
-    })();
-
-    pendingReferralApplyRef.current = applyPromise.finally(() => {
-      if (pendingReferralApplyRef.current === applyPromise) {
-        pendingReferralApplyRef.current = null;
-      }
     });
-
-    return pendingReferralApplyRef.current;
   }, [clearReferralSearchResults, resetSelectedReferral, runReferralSearch]);
 
   useFocusEffect(

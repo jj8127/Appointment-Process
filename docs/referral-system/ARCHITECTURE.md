@@ -1,7 +1,7 @@
 # 추천인 시스템 아키텍처
 
-- 기준일: `2026-04-17`
-- 상태: `추천코드 운영/가입 확정/동명이인 안전화, login-time active code auto-issue/catch-up, referral self-service appSession silent refresh는 구현됨. 앱 미설치 복원과 일부 runtime rollout 재검증은 후속`
+- 기준일: `2026-04-23`
+- 상태: `추천인 current-state는 fc_profiles snapshot + apply_referral_link_state RPC로 단일화됐고, referral_attributions는 archival-only로 강등됐다. 앱 미설치 복원과 일부 runtime rollout 재검증은 후속`
 
 ## 1. 소유권
 
@@ -9,9 +9,10 @@
 
 - 추천코드 마스터
 - 앱 deep link 처리
-- 가입 완료 시 추천 관계 확정
-- 추천 관계/이벤트 로그
+- 가입 완료 시 추천 관계 current-state 확정
+- 추천 관계 snapshot/이벤트 로그
 - 관리자 조회/보정
+- archival historical data(`referral_attributions`)
 
 ### 1.2 request_board가 소유하지 않는 것
 
@@ -33,11 +34,11 @@
   -> validate-referral-code 검증
   -> referralCode + inviterFcId hint를 signup payload에 저장
   -> set-password
-  -> recommender_fc_id/recommender cache 저장
-  -> confirmed referral 확정(best effort)
+  -> apply_referral_link_state
+  -> recommender_fc_id/recommender/recommender_code snapshot + referral_events 1건 저장
 ```
 
-- 현재 attribution row에는 deep link/auto-prefill provenance가 별도 source로 남지 않고 `manual_entry/manual_entry/manual_entry_only` 값으로 정규화된다.
+- current-state는 `fc_profiles`에만 저장되고, 추천 관계 성공 경로는 더 이상 `referral_attributions`를 live write하지 않는다.
 
 ### 2.2 초대링크, 앱 이미 설치됨
 
@@ -47,7 +48,8 @@
   -> app/_layout.tsx가 pending code 저장
   -> 회원가입 화면에 추천코드 자동 입력
   -> set-password
-  -> confirmed referral 확정(best effort)
+  -> apply_referral_link_state
+  -> current-state + referral_events 감사 저장
 ```
 
 ### 2.3 초대링크, 앱 미설치
@@ -64,9 +66,9 @@
 ```text
 스토어 검색/설치 또는 링크 유실
   -> 자동 추천 정보 없음
-  -> 사용자가 추천코드 수동 입력
+  -> 사용자가 이름/소속/추천코드 검색 결과에서 1명 선택
   -> 가입 완료
-  -> confirmed referral 확정
+  -> apply_referral_link_state로 current-state 확정
 ```
 
 ### 2.5 로그인 성공 뒤 active 추천코드 보장
@@ -111,6 +113,7 @@ completed FC 또는 active manager 로그인 성공
 - `validate-referral-code` 응답: `inviterName`, `inviterPhoneMasked`, `inviterFcId`, `codeId`
 - 회원가입 비로그인 추천인 검색 API: `search-signup-referral`
 - `search-signup-referral`은 app session 없이 이름/소속/추천 코드 검색을 허용하지만, 응답은 active referral code가 있는 후보의 `name`, `affiliation`, `code`만 반환한다.
+- exact 8자리 추천코드 query는 `referral_codes.eq(code)` + inviter profile 1건 lookup으로 short-circuit하고, 나머지 query만 이름/소속/부분코드 fuzzy search를 탄다.
 - `login-with-password`는 completed FC login 성공 시 active code를 idempotent하게 보장하고, manager login 성공 시 `ensure_manager_referral_shadow_profile` 뒤 같은 보장 로직을 적용한다.
 - FC/본부장 자기 코드/현재 추천인 cache 조회의 현재 앱 경로: `get-my-referral-code`
 - `get-my-referral-code`는 eligible profile인데 active code가 없으면 `admin_issue_referral_code(..., p_rotate=false)` helper를 1회 실행해 catch-up한 뒤 응답한다. current contract에서 self-service no-code는 forbidden/not_found/runtime failure가 아닌 이상 오래 남아 있으면 안 된다.
@@ -118,6 +121,7 @@ completed FC 또는 active manager 로그인 성공
 - FC/본부장 자기 추천 관계 트리 조회의 현재 앱 경로: `get-referral-tree`
 - FC/본부장 추천인 검색/저장의 현재 앱 경로: `search-fc-for-referral`, `update-my-recommender`
 - FC/본부장 referral self-service 세션 재발급 경로: `refresh-app-session`
+- 추천인 current-state 원자적 write 경로: `apply_referral_link_state(...)`
 - `get-referral-tree`는 service-role RPC `get_referral_subtree(root_fc_id uuid, max_depth int)`를 호출해 ancestor chain + descendant subtree를 한 번에 읽는다.
 - ancestor chain은 `fc_profiles.recommender_fc_id`를 그대로 따르며, recommender가 active manager shadow profile로 저장된 경우에도 그 shadow recommender를 포함한다.
 - descendant lazy expand도 같은 trusted path를 사용하며, Edge Function 인가는 `self subtree membership`을 확인한 descendant `fcId`만 허용해야 한다.
@@ -134,18 +138,23 @@ completed FC 또는 active manager 로그인 성공
   - 모든 쓰기는 service-role 서버 경로만 사용
 - 관리자 추천 관계 그래프 API: `GET /api/admin/referrals/graph`
   - eligible FC node + code 상태를 읽는다
-  - visible edge는 `fc_profiles.recommender_fc_id`를 기본으로 만들고, `confirmed referral_attributions`는 같은 pair edge의 `relationshipState`를 강화하는 용도로만 merge한다
+  - visible edge는 `fc_profiles.recommender_fc_id`만으로 만든다
   - graph route는 read-only이며 mutate path를 열지 않는다
 - 관리자 override API: `admin_apply_recommender_override(...)`
-  - migration `20260331000005_admin_apply_recommender_override.sql`가 원격 적용되기 전에는 웹 배포 금지
+  - 신규 runtime은 내부에서 `apply_referral_link_state(...)` wrapper를 호출한다
+  - migration `20260423000001_unify_referral_link_state.sql`가 원격 적용되기 전에는 웹 배포 금지
 
 ### 3.3 Data Layer
 
 - `referral_codes`
-- `referral_attributions`
 - `referral_events`
 - `fc_profiles.recommender_fc_id`
 - `fc_profiles.recommender`
+- `fc_profiles.recommender_code_id`
+- `fc_profiles.recommender_code`
+- `fc_profiles.recommender_linked_at`
+- `fc_profiles.recommender_link_source`
+- `referral_attributions` (archival-only)
 
 ## 4. 접근 모델
 
@@ -155,6 +164,7 @@ completed FC 또는 active manager 로그인 성공
 - 관리자 웹 추천인 수정도 자유 텍스트가 아니라 서버 검색/선택형 trusted path로만 허용한다.
 - `public.get_invitee_referral_code(uuid)`의 intended repo contract는 migration `20260401000002_reassert_get_invitee_referral_code_service_role_only.sql` 이후 `service_role` execute only 다.
 - 다만 이 리뷰는 원격 DB rollout 상태를 다시 검증하지 않았다. remote drift가 있다면 그것은 배포 상태 문제이지 architecture SSOT가 아니다.
+- 추천인 current-state canonical source는 `fc_profiles.recommender_*` snapshot이고, 감사 trail은 `referral_events`다.
 - FC/본부장 self-service 조회는 `get-my-referral-code` Edge Function을 통해 app session token을 검증한 뒤 active code와 현재 추천인 cache를 함께 읽는다.
 - FC/본부장 self-service tree 조회는 `get-referral-tree` Edge Function을 통해 app session token을 검증한 뒤 caller 자기 서브트리 범위의 ancestor/descendant 정보만 읽는다.
 - stored `requestBoardBridgeToken`은 request_board JWT 재발급뿐 아니라 referral self-service `appSessionToken` silent refresh의 유일한 복구 자격증명이다.
@@ -170,8 +180,9 @@ completed FC 또는 active manager 로그인 성공
 
 1. 앱 로컬 pending state
    - deep link 직후 UI 복원용
+   - `app/signup.tsx`는 pending code apply를 single-flight로 묶어 focus effect와 `referralNonce` effect가 동시에 들어와도 같은 search를 중복 예약하지 않는다
 2. 가입 완료 시 server-side confirm
-   - `set-password`가 confirmed attribution/event를 기록
+   - `set-password`가 `apply_referral_link_state(...)`로 current-state snapshot/event를 기록
 
 서버 pending attribution은 아직 별도 API로 구현되지 않았고, install-referrer/deferred deep link와 함께 후속 단계로 남아 있다.
 
@@ -182,33 +193,32 @@ completed FC 또는 active manager 로그인 성공
 - 회원가입 검색 선택은 `search-signup-referral`이 candidate를 찾더라도 최종 저장 payload를 새 구조로 바꾸지 않고, 선택된 active code를 다시 `referralCode`에 채운 뒤 `validate-referral-code`와 `set-password` 기존 경로를 그대로 사용한다.
 - `set-password`는 OTP path가 미리 만든 `phone_verified=true` profile만 최종 가입으로 승격하며, fresh-number direct call에서는 새 profile/credentials를 만들지 않는다.
 - `set-password`는 `fc_credentials.password_set_at`를 먼저 확인한 뒤에만 profile reset/update를 수행해, 중복 호출이 기존 추천인/온보딩 상태를 지우지 않게 한다.
-- `set-password`는 최종 추천코드 row를 다시 확인하고 `referral_attributions` + `fc_profiles.recommender_fc_id` + `fc_profiles.recommender`를 함께 동기화한다.
+- `set-password`는 최종 추천코드 row를 다시 확인하고 `apply_referral_link_state(...)`로 `fc_profiles.recommender_*` snapshot과 `referral_events`를 원자적으로 동기화한다.
 - caller가 보낸 임의 `recommender` 문자열은 신뢰하지 않는다.
-- 클라이언트는 최종 `referralCode`와 검증 시점 `referralInviterFcId hint`만 전달하고, 실제 attribution/event 쓰기는 서버가 수행한다.
-- 관리자 UI의 `가입 시 사용한 추천코드` 표시값은 현재 `get_invitee_referral_code(uuid)` lookup order로 계산하며, 순서는 아래와 같다.
-  1. 최신 `confirmed referral_attributions.referral_code_id`에 연결된 코드 row
-  2. 최신 `confirmed referral_attributions.referral_code` snapshot
-  3. 최신 `confirmed referral_attributions.inviter_fc_id`의 현재 활성 코드
-  4. `fc_profiles.recommender_fc_id`의 현재 활성 코드
+- 클라이언트는 최종 `referralCode`와 검증 시점 `referralInviterFcId hint`만 전달하고, 실제 current-state/event 쓰기는 서버가 수행한다.
+- 관리자 UI의 `가입 시 사용한 추천코드` 표시값은 현재 `get_invitee_referral_code(uuid)`가 profile snapshot만 사용한다.
+  1. `fc_profiles.recommender_code` snapshot (`recommender_fc_id`가 있을 때만)
+  2. 그 외에는 `null`
 
 ## 7. 삭제 후 이력 보존
 
-- `referral_attributions`는 inviter FK가 삭제돼도 row를 남긴다.
-- inviter 식별은 `inviter_phone`, `inviter_name` snapshot으로 복원한다.
 - `referral_events`도 `referral_code`, `inviter_phone`, `inviter_name` snapshot을 함께 저장해 FK 유실 후에도 당시 맥락을 보존한다.
-- 계정 삭제/재가입 정리 함수는 추천 attribution/event를 hard delete하지 않는다.
+- `referral_attributions` historical row는 archival 용도로 남을 수 있지만 current-state read/write에 다시 연결하지 않는다.
+- 계정 삭제/재가입 정리 함수는 추천 event와 archival attribution을 hard delete하지 않는다.
 
 ## 8. 관찰성 이벤트
 
 현재 repo 기준 persisted event 범위:
 
 - `signup_completed`
-- `referral_confirmed`
 - `referral_rejected`
 - `code_generated`
 - `code_rotated`
 - `code_disabled`
-- `admin_override_applied`
+- `admin_override_applied` (legacy historical rows only)
+- `referral_linked`
+- `referral_changed`
+- `referral_cleared`
 
 현재 runtime contract가 아닌 항목:
 
@@ -221,11 +231,11 @@ completed FC 또는 active manager 로그인 성공
 - `code_entered`
 - `code_validated`
 
-또한 `/dashboard/referrals` 최근 이벤트 패널은 full event stream이 아니라 `code_generated`, `code_rotated`, `code_disabled`, `admin_override_applied`만 보여준다.
+또한 `/dashboard/referrals` 최근 이벤트 패널은 full event stream이 아니라 `code_generated`, `code_rotated`, `code_disabled`, `admin_override_applied`(legacy), `referral_linked`, `referral_changed`, `referral_cleared`만 보여준다.
 
 `/dashboard/referrals/graph`는 별도 read-heavy surface다.
 - node는 eligible FC + code status + legacy unresolved flag를 그린다.
-- edge는 `recommender_fc_id` 기반 structured link를 우선으로 하고, `confirmed` 근거가 있으면 same pair edge의 상태만 `structured_confirmed`로 올린다.
+- edge는 `recommender_fc_id` 기반 단일 `linked` 관계만 사용한다.
 - free-text `recommender`는 graph edge가 아니라 review queue/legacy badge로만 사용한다.
 - layout state는 세션 로컬이며 node drag, 빈 캔버스 pan, fit/reset, 기본 node label 표시를 지원한다.
 

@@ -17,13 +17,13 @@
     "expected": [
       "추천코드 query가 회원가입 화면 추천인 검색 입력에 자동 반영된다",
       "최종 선택 코드 검증이 통과한다",
-      "추천 관계가 confirmed 상태로 저장된다",
-      "현재 구현 기준 source/capture_source/selection_source는 deep link 여부와 무관하게 manual_entry/manual_entry/manual_entry_only 로 정규화된다"
+      "추천 관계 current-state snapshot이 저장된다",
+      "현재 구현 기준 성공 current-state는 `fc_profiles.recommender_*` snapshot + `referral_events(referral_linked)`로 남고, deep link provenance를 별도 source 필드로 저장하지 않는다"
     ],
     "evidenceRequired": ["화면 캡처", "서버 로그", "DB 확인"],
     "dbAssertions": [
-      "추천 관계 테이블에 inviter/invitee/confirmed row가 1건 존재한다",
-      "이벤트 로그에 signup_completed 와 referral_confirmed 가 남는다"
+      "invitee `fc_profiles.recommender_fc_id` / `recommender_code` snapshot이 1건 채워진다",
+      "이벤트 로그에 signup_completed 와 referral_linked 가 남는다"
     ]
   },
   {
@@ -39,12 +39,12 @@
     ],
     "expected": [
       "코드 검증이 실패한다",
-      "confirmed referral row가 생성되지 않는다",
+      "추천 관계 current-state snapshot이 생성되지 않는다",
       "사용자는 코드 수정 또는 제거가 가능하다"
     ],
     "evidenceRequired": ["화면 캡처", "서버 로그"],
     "dbAssertions": [
-      "추천 관계 confirmed row가 생성되지 않는다",
+      "추천 관계 current-state snapshot이 생성되지 않는다",
       "회원가입 완료까지 갔을 때만 referral_rejected 이벤트를 기대하고, validate-referral-code 호출만으로는 이벤트를 기대하지 않는다"
     ]
   },
@@ -66,11 +66,11 @@
     "priority": "P0",
     "platform": ["app", "backend"],
     "title": "이미 확정된 추천 관계는 다른 코드로 재확정되지 않는다",
-    "preconditions": ["invitee에 대해 confirmed 추천 관계가 이미 존재한다", "다른 유효 추천코드가 준비돼 있다"],
+    "preconditions": ["invitee에 대해 current recommender snapshot이 이미 존재한다", "다른 유효 추천코드가 준비돼 있다"],
     "steps": ["invitee가 다른 추천코드로 다시 확정을 시도한다"],
-    "expected": ["새 추천 관계 확정이 차단된다", "기존 confirmed row가 유지된다"],
+    "expected": ["새 추천 관계 확정이 차단된다", "기존 current-state snapshot이 유지된다"],
     "evidenceRequired": ["서버 로그", "DB 확인"],
-    "dbAssertions": ["invitee 기준 confirmed row는 1건만 존재한다"]
+    "dbAssertions": ["invitee 기준 current recommender는 1명만 존재한다"]
   },
   {
     "id": "RF-LINK-01",
@@ -83,12 +83,12 @@
     "expected": [
       "앱이 referral_code 를 로컬 pending storage에 저장한다",
       "회원가입 화면 추천인 검색 입력에 추천코드 query가 자동 반영된다",
-      "가입 완료 후 confirmed referral이 생성된다",
-      "DB source 필드는 invite_link 가 아니라 manual_entry/manual_entry/manual_entry_only 로 남는다"
+      "가입 완료 후 current-state snapshot이 생성된다",
+      "DB에는 invite_link source row가 아니라 `fc_profiles.recommender_*` snapshot + `referral_events(referral_linked)`만 남는다"
     ],
     "evidenceRequired": ["딥링크 진입 캡처", "서버 로그", "DB 확인"],
     "dbAssertions": [
-      "confirmed row가 생성된다",
+      "invitee `fc_profiles.recommender_fc_id` / `recommender_code` snapshot이 생성된다",
       "link_clicked 나 invite_link capture_source 같은 provenance event/field는 현재 계약상 기대하지 않는다"
     ]
   },
@@ -108,12 +108,12 @@
     "expected": [
       "첫 실행에서 추천 정보가 자동 복원되지 않는다",
       "회원가입 화면에서 추천인 검색-선택 fallback이 계속 가능하다",
-      "가입 완료 후에는 사용자가 선택한 추천코드 기준으로 confirmed referral이 생성된다"
+      "가입 완료 후에는 사용자가 선택한 추천코드 기준으로 current-state snapshot이 생성된다"
     ],
     "evidenceRequired": ["스토어 이동 캡처", "첫 실행 캡처", "서버 로그", "DB 확인"],
     "dbAssertions": [
       "landing_session_id 기반 server-side pending attribution row를 기대하지 않는다",
-      "confirmed row는 사용자가 선택한 추천코드 기준으로 생성된다"
+      "current-state snapshot은 사용자가 선택한 추천코드 기준으로 생성된다"
     ]
   },
   {
@@ -126,7 +126,33 @@
     "steps": ["사용자가 회원가입 화면에서 다른 추천코드 또는 이름으로 다시 검색해 다른 후보를 선택한다", "회원가입을 완료한다"],
     "expected": ["최종 확정은 사용자가 마지막으로 선택한 코드 기준으로 저장된다", "링크 기반 자동 입력 query는 최종 우선순위를 갖지 않는다"],
     "evidenceRequired": ["화면 캡처", "서버 로그", "DB 확인"],
-    "dbAssertions": ["confirmed row의 referral_code는 사용자가 다시 선택한 코드다"]
+    "dbAssertions": ["invitee `fc_profiles.recommender_code` snapshot은 사용자가 다시 선택한 코드다"]
+  },
+  {
+    "id": "RF-LINK-05",
+    "area": "초대링크",
+    "priority": "P0",
+    "platform": ["app", "backend"],
+    "title": "앱 설치 상태 exact 8자리 초대링크는 broad search와 중복 pending apply 없이 한 번만 추천인 검색을 수행한다",
+    "preconditions": [
+      "앱이 기기에 설치되어 있다",
+      "exact 8자리 추천코드를 포함한 유효 초대링크가 준비돼 있다",
+      "회원가입 화면 추천인 입력을 사용자가 아직 수정하지 않은 상태다"
+    ],
+    "steps": [
+      "사용자가 초대링크를 연다",
+      "회원가입 화면이 열릴 때 exact code가 추천인 검색 query로 자동 채워지는지 확인한다",
+      "같은 진입에서 추천인 검색 spinner/network call이 중복으로 다시 시작되지 않는지 확인한다",
+      "검색 결과에서 추천인을 선택하거나 결과 렌더링만 관찰한다"
+    ],
+    "expected": [
+      "exact 8자리 code query는 fuzzy name/affiliation search가 아니라 exact active-code lookup으로 처리된다",
+      "회원가입 화면의 pending code apply는 single-flight로 동작해 focus/referralNonce가 겹쳐도 search를 중복 예약하지 않는다",
+      "사용자는 동일 딥링크 진입에서 불필요한 중복 로딩 없이 1회 검색 결과를 본다",
+      "검색 결과는 유효한 inviter 1건으로 수렴하거나, 유효 코드가 아니면 빈 결과/오류로 명확히 끝난다"
+    ],
+    "evidenceRequired": ["화면 캡처 또는 녹화", "네트워크 호출 증적", "서버 로그"],
+    "dbAssertions": []
   },
   {
     "id": "RF-CODE-05",
@@ -136,9 +162,9 @@
     "title": "한 추천인은 여러 가입자를 추천할 수 있다",
     "preconditions": ["같은 inviter에 대해 가입 가능한 invitee가 둘 이상 준비돼 있다"],
     "steps": ["invitee 2명 이상이 같은 inviter의 추천코드로 각각 가입을 완료한다"],
-    "expected": ["같은 inviter에 연결된 confirmed invitee가 여러 건 생성된다", "inviter 기준 추천 수 집계가 정상 동작한다"],
+    "expected": ["같은 inviter에 연결된 current invitee가 여러 건 생성된다", "inviter 기준 추천 수 집계가 정상 동작한다"],
     "evidenceRequired": ["서버 로그", "DB 확인"],
-    "dbAssertions": ["같은 inviter_fc_id 또는 inviter_phone snapshot에 대해 confirmed row가 2건 이상 존재할 수 있다", "중복 제약이 invitee 단위로만 걸려 있다"]
+    "dbAssertions": ["같은 inviter_fc_id에 대해 `fc_profiles.recommender_fc_id = inviter` row가 2건 이상 존재할 수 있다", "중복 제약/현재 상태는 invitee 단위 1명 기준으로만 유지된다"]
   },
   {
     "id": "RF-CODE-06",
@@ -148,9 +174,9 @@
     "title": "한 가입자는 최종 추천인 1명만 가진다",
     "preconditions": ["invitee에 대해 자동 입력 후보 또는 수동 입력 가능한 추천코드가 2개 이상 존재한다"],
     "steps": ["invitee가 가입 완료까지 진행한다", "동일 invitee에 대해 다른 추천인으로 다시 확정 또는 중복 저장을 시도한다"],
-    "expected": ["invitee 기준 최종 confirmed 추천인은 1명만 남는다", "추가 확정 시도는 차단되거나 override 없이 저장되지 않는다"],
+    "expected": ["invitee 기준 최종 current recommender는 1명만 남는다", "추가 확정 시도는 차단되거나 override 없이 저장되지 않는다"],
     "evidenceRequired": ["서버 로그", "DB 확인"],
-    "dbAssertions": ["같은 invitee_fc_id 또는 invitee_phone에 대한 confirmed row 수는 최대 1이다"]
+    "dbAssertions": ["같은 invitee_fc_id에 대한 `fc_profiles.recommender_fc_id` current state는 최대 1이다"]
   },
   {
     "id": "RF-CODE-07",
@@ -185,12 +211,12 @@
       "결과를 선택하지 않으면 진행이 차단된다",
       "결과 선택 시 선택 카드가 해당 active code 기준으로 표시된다",
       "최종 추천코드 검증이 통과한다",
-      "가입 완료 후 confirmed referral이 선택한 코드 기준으로 저장된다"
+      "가입 완료 후 current-state snapshot이 선택한 코드 기준으로 저장된다"
     ],
     "evidenceRequired": ["화면 캡처", "서버 로그", "DB 확인"],
     "dbAssertions": [
-      "confirmed row의 referral_code는 검색 결과에서 선택한 active code와 일치한다",
-      "추천 관계 confirmed row는 1건만 생성된다"
+      "invitee `fc_profiles.recommender_code` snapshot은 검색 결과에서 선택한 active code와 일치한다",
+      "추천 관계 current-state snapshot은 1회만 생성된다"
     ]
   },
   {
@@ -233,7 +259,7 @@
     "steps": ["사용자가 잘못된 초대링크로 진입한다", "회원가입 화면까지 이동한다"],
     "expected": ["앱이 비정상 종료되거나 가입을 막지 않는다", "자동 추천은 확정되지 않는다", "추천코드 수동 입력은 계속 가능하다"],
     "evidenceRequired": ["화면 캡처", "서버 로그"],
-    "dbAssertions": ["confirmed referral row가 생성되지 않는다", "회원가입 완료까지 갔을 때만 referral_rejected 이벤트를 기대한다"]
+    "dbAssertions": ["current-state snapshot이 생성되지 않는다", "회원가입 완료까지 갔을 때만 referral_rejected 이벤트를 기대한다"]
   },
   {
     "id": "RF-STATE-01",
@@ -243,9 +269,9 @@
     "title": "가입 도중 이탈 후 재진입해도 로컬 pending 추천코드가 유지된다",
     "preconditions": ["링크 또는 코드로 로컬 pending 추천코드가 저장된 상태다"],
     "steps": ["회원가입 도중 앱을 종료하거나 다른 화면으로 이탈한다", "앱을 다시 열고 회원가입을 이어서 완료한다"],
-    "expected": ["로컬 pending 추천코드가 유지된다", "최종 confirmed가 같은 추천 정보로 생성된다"],
+    "expected": ["로컬 pending 추천코드가 유지된다", "최종 current-state snapshot이 같은 추천 정보로 생성된다"],
     "evidenceRequired": ["화면 캡처", "서버 로그", "DB 확인"],
-    "dbAssertions": ["server-side pending attribution row를 기대하지 않는다", "confirmed row는 최종 1건이다"]
+    "dbAssertions": ["server-side pending attribution row를 기대하지 않는다", "current-state snapshot은 최종 1건이다"]
   },
   {
     "id": "RF-STATE-02",
@@ -255,9 +281,9 @@
     "title": "cold start 또는 background resume에서도 중복 확정 없이 복원된다",
     "preconditions": ["로컬 pending 추천코드가 저장된 상태다"],
     "steps": ["앱 cold start와 background resume을 각각 실행한다", "최종 회원가입을 완료한다"],
-    "expected": ["회원가입 화면 prefill이 비정상 중복되지 않는다", "confirmed referral이 중복 생성되지 않는다"],
+    "expected": ["회원가입 화면 prefill이 비정상 중복되지 않는다", "current-state snapshot/event가 중복 생성되지 않는다"],
     "evidenceRequired": ["앱 상태 전환 기록", "서버 로그", "DB 확인"],
-    "dbAssertions": ["같은 invitee에 대한 confirmed row는 1건이다", "signup_completed 와 referral_confirmed 는 성공 가입당 1회씩만 남는다"]
+    "dbAssertions": ["같은 invitee에 대한 current recommender는 1명만 유지된다", "signup_completed 와 referral_linked 는 성공 가입당 1회씩만 남는다"]
   },
   {
     "id": "RF-ADMIN-01",
@@ -281,7 +307,7 @@
     "steps": ["운영자가 추천 관계를 override 또는 clear 한다", "사유를 입력한다"],
     "expected": ["추천 관계가 변경된다", "actor, before, after, reason이 감사 로그에 남는다"],
     "evidenceRequired": ["운영 화면 캡처", "서버 로그", "DB 확인"],
-    "dbAssertions": ["admin_override_applied 이벤트가 1건 생성된다", "metadata에 actor/before/after/reason이 남는다"]
+    "dbAssertions": ["referral_changed 또는 referral_cleared 이벤트가 1건 생성된다", "metadata에 actor/before/after/reason과 beforeCode/afterCode가 남는다"]
   },
   {
     "id": "RF-ADMIN-03",
@@ -327,21 +353,21 @@
     "title": "레거시 추천인 검토 큐에서 구조화 링크가 없는 FC를 계정 선택형으로 연결하고 감사 로그를 남긴다",
     "preconditions": ["`recommender` 문자열은 있으나 `recommender_fc_id`가 비어 있는 FC가 존재한다", "연결 가능한 활성 추천코드 보유 FC가 존재한다", "관리자 세션이 준비돼 있다"],
     "steps": ["관리자가 /dashboard/referrals 의 레거시 추천인 검토 큐를 연다", "대상 FC를 선택해 검색형 추천인 선택 UI에서 후보 FC를 고른다", "사유를 입력하고 연결을 저장한다"],
-    "expected": ["자유입력 없이 FC 계정 선택으로만 연결된다", "대상 FC의 `recommender_fc_id`와 `recommender` cache가 함께 갱신된다", "기존 confirmed attribution이 있으면 admin override 기준으로 교체되거나 덮어쓴다", "감사 이벤트가 생성된다"],
+    "expected": ["자유입력 없이 FC 계정 선택으로만 연결된다", "대상 FC의 `recommender_fc_id`와 `recommender` cache가 함께 갱신된다", "대상 FC의 `recommender_code` snapshot도 선택한 inviter 기준으로 갱신된다", "감사 이벤트가 생성된다"],
     "evidenceRequired": ["운영 화면 캡처", "API 응답", "DB 확인"],
-    "dbAssertions": ["대상 FC `recommender_fc_id`가 선택한 inviter_fc_id 로 저장된다", "invitee 기준 confirmed attribution이 1건으로 유지된다", "`admin_override_applied` 이벤트 metadata에 before/after/reason/actor 가 저장된다"]
+    "dbAssertions": ["대상 FC `recommender_fc_id`가 선택한 inviter_fc_id 로 저장된다", "대상 FC `recommender_code` snapshot이 선택한 inviter의 active code와 일치한다", "`referral_linked` 또는 `referral_changed` 이벤트 metadata에 before/after/reason/actor 가 저장된다"]
   },
   {
     "id": "RF-ADMIN-07",
     "area": "운영",
     "priority": "P0",
     "platform": ["web", "backend"],
-    "title": "`/dashboard/referrals/graph`는 structured link 기준으로 빈 선 없이 그려지고 manager read-only를 유지한다",
+    "title": "`/dashboard/referrals/graph`는 linked edge 기준으로 빈 선 없이 그려지고 manager read-only를 유지한다",
     "preconditions": ["eligible FC 사이의 `recommender_fc_id` 구조화 링크가 1건 이상 존재한다", "manager 또는 admin이 그래프를 열 수 있다"],
     "steps": ["graph API 또는 `/dashboard/referrals/graph`를 연다", "node/edge count와 manager read-only 노출 상태를 확인한다"],
-    "expected": ["visible edge는 `recommender_fc_id`를 기본으로 잡는다", "confirmed attribution이 있으면 same pair edge의 상태만 강화되고 중복 edge를 만들지 않는다", "manager는 graph를 볼 수 있지만 mutation CTA는 없다"],
+    "expected": ["visible edge는 `recommender_fc_id`를 기본으로 잡는다", "edge state는 `linked` 단일값만 사용하고 같은 pair에 중복 edge를 만들지 않는다", "manager는 graph를 볼 수 있지만 mutation CTA는 없다"],
     "evidenceRequired": ["API 응답", "화면 캡처 또는 route 응답", "DB 확인"],
-    "dbAssertions": ["structured link가 존재하면 merged edge count는 0이 아니다", "legacy free-text recommender는 graph edge로 추론되지 않는다"]
+    "dbAssertions": ["structured link가 존재하면 linked edge count는 0이 아니다", "legacy free-text recommender는 graph edge로 추론되지 않는다"]
   },
   {
     "id": "RF-ADMIN-08",
@@ -377,17 +403,17 @@
     "steps": ["관리자가 `/dashboard/referrals`에서 `안전 자동 정리`를 실행한다", "응답의 처리 수/건너뜀 수/실패 수를 확인한다", "실행 후 레거시 큐와 `fc_profiles.recommender_fc_id` 변경 결과를 다시 조회한다"],
     "expected": ["exact-unique row만 구조화 링크로 저장된다", "`self_referral`, `missing_candidate`, `ambiguous`는 자동 정리 대상에서 제외된다", "자동 정리 후 대상 row는 미해결 목록에서 사라지거나 상태가 갱신된다", "응답 요약과 실제 DB 반영 건수가 일치한다"],
     "evidenceRequired": ["운영 화면 캡처", "API 응답", "DB 확인"],
-    "dbAssertions": ["자동 정리 대상 row의 `recommender_fc_id`만 채워진다", "자기추천/후보 없음/동명이인 row는 여전히 미해결 상태로 남는다", "`admin_override_applied` 이벤트와 reason metadata가 반영된다"]
+    "dbAssertions": ["자동 정리 대상 row의 `recommender_fc_id`와 `recommender_code` snapshot이 함께 채워진다", "자기추천/후보 없음/동명이인 row는 여전히 미해결 상태로 남는다", "`referral_linked` 이벤트와 reason metadata가 반영된다"]
   },
   {
     "id": "RF-OBS-01",
     "area": "관찰성",
     "priority": "P0",
     "platform": ["backend"],
-    "title": "현재 persisted runtime 범위 내에서 이벤트 타임라인이 복원 가능하다",
+    "title": "현재 persisted runtime 범위 내에서 current-state 변경 이벤트 타임라인이 복원 가능하다",
     "preconditions": ["코드 기반 가입 또는 운영 코드/override 작업이 한 번 이상 실행됐다"],
     "steps": ["운영자 또는 AI가 이벤트 로그를 조회한다"],
-    "expected": ["signup_completed/referral_confirmed/referral_rejected/code lifecycle/admin_override_applied 범위에서는 어느 단계가 실행됐는지 시간순으로 볼 수 있다", "link click/open/pending save 단계는 현재 persisted runtime contract가 아님을 확인한다"],
+    "expected": ["signup_completed/referral_linked/referral_changed/referral_cleared/referral_rejected/code lifecycle/legacy admin_override_applied 범위에서는 어느 단계가 실행됐는지 시간순으로 볼 수 있다", "link click/open/pending save 단계는 현재 persisted runtime contract가 아님을 확인한다"],
     "evidenceRequired": ["로그 조회 결과", "DB 확인"],
     "dbAssertions": ["현재 구현 범위의 persisted event만 시간순으로 조회된다", "link_clicked/app_opened_from_link/pending_attribution_saved 같은 이벤트를 PASS 기대값으로 두지 않는다"]
   },
@@ -396,24 +422,36 @@
     "area": "정합성",
     "priority": "P0",
     "platform": ["backend"],
-    "title": "invitee orphan row와 invitee 중복 confirmed row가 없고 inviter snapshot이 유지된다",
+    "title": "current-state snapshot과 audit event가 부분 성공 없이 함께 기록되고 inviter snapshot이 유지된다",
     "preconditions": ["추천 관련 테스트를 여러 번 실행한 상태다"],
     "steps": ["정합성 SQL을 실행한다"],
-    "expected": ["invitee 없는 고아 row가 없다", "invitee 기준 confirmed row는 최대 1건이다", "inviter FK가 null인 row에도 inviter snapshot이 남아 있다"],
+    "expected": ["current-state snapshot만 바뀌고 event가 빠지거나, event만 생기고 current-state가 비는 partial success가 없다", "invitee 기준 current recommender는 최대 1명이다", "inviter FK가 null이 되더라도 snapshot/event metadata에는 inviter 식별 정보가 남아 있다"],
     "evidenceRequired": ["SQL 결과"],
-    "dbAssertions": ["invitee orphan row count = 0", "duplicate confirmed count = 0", "inviter_fc_id가 null인 row는 inviter_phone snapshot을 가진다"]
+    "dbAssertions": ["`fc_profiles.recommender_fc_id`가 채워진 row 중 `recommender_linked_at` 또는 `recommender_link_source`가 비는 partial snapshot count = 0", "`referral_linked/referral_changed/referral_cleared` event metadata는 before/after recommender/code snapshot을 가진다", "inviter_fc_id가 null이어도 event metadata 또는 profile snapshot에 inviter 식별 정보가 남아 있다"]
   },
   {
     "id": "RF-DATA-02",
     "area": "정합성",
     "priority": "P0",
     "platform": ["backend", "web", "app"],
-    "title": "동명이인 이름과 무관하게 invitee 추천코드 조회는 structured attribution 기준으로 historical signup code를 우선한다",
-    "preconditions": ["동명이인 FC가 둘 이상 존재한다", "invitee의 confirmed attribution이 준비돼 있다", "inviter가 가입 후 새 추천코드로 rotate된 상태를 만들 수 있다"],
-    "steps": ["`get_invitee_referral_code(uuid)`를 service-role 경로로 호출한다", "웹 관리자 상세와 모바일 관리자 상세에서 같은 invitee를 연다", "inviter current active code와 confirmed attribution snapshot을 비교한다"],
-    "expected": ["이름 문자열이 아닌 structured attribution이 기준이 된다", "동명이인 다른 FC의 활성 코드가 섞이지 않는다", "confirmed attribution이 있으면 가입 시 사용한 historical code가 inviter 현재 활성 코드보다 우선한다", "웹/모바일 표시 코드가 동일하다"],
+    "title": "동명이인 이름과 무관하게 invitee 추천코드 조회는 profile snapshot만 반환하고 inviter 이후 코드 rotate 영향을 받지 않는다",
+    "preconditions": ["동명이인 FC가 둘 이상 존재한다", "invitee의 `fc_profiles.recommender_code` snapshot이 준비돼 있다", "inviter가 이후 새 추천코드로 rotate된 상태를 만들 수 있다"],
+    "steps": ["`get_invitee_referral_code(uuid)`를 service-role 경로로 호출한다", "웹 관리자 상세와 모바일 관리자 상세에서 같은 invitee를 연다", "inviter current active code와 invitee profile snapshot을 비교한다"],
+    "expected": ["이름 문자열이 아닌 structured current-state snapshot이 기준이 된다", "동명이인 다른 FC의 활성 코드가 섞이지 않는다", "invitee profile snapshot에 저장된 가입 시 코드가 inviter 현재 활성 코드보다 우선한다", "웹/모바일 표시 코드가 동일하다"],
     "evidenceRequired": ["RPC 결과", "운영 화면 캡처", "DB 확인"],
-    "dbAssertions": ["반환된 코드는 최신 confirmed attribution의 `referral_code_id` row 또는 `referral_code` snapshot과 일치한다", "confirmed attribution이 없을 때만 `recommender_fc_id` 현재 활성 코드 fallback을 허용한다", "이름만 같은 다른 FC의 활성 코드는 반환되지 않는다"]
+    "dbAssertions": ["반환된 코드는 invitee의 `fc_profiles.recommender_code` snapshot과 일치한다", "`fc_profiles.recommender_code` snapshot은 inviter의 현재 active code로 자동 교체되지 않는다", "이름만 같은 다른 FC의 활성 코드는 반환되지 않는다"]
+  },
+  {
+    "id": "RF-DATA-03",
+    "area": "정합성",
+    "priority": "P1",
+    "platform": ["backend"],
+    "title": "`20260423000001_unify_referral_link_state.sql` rollout은 projection 누락 없이 clean apply되고 current-state snapshot backfill을 완료한다",
+    "preconditions": ["linked Supabase project가 연결되어 있다", "단일상태 migration source와 `schema.sql`이 최신 worktree 상태다"],
+    "steps": ["`supabase db push`를 실행한다", "`supabase migration list`로 local/remote 정렬을 확인한다"],
+    "expected": ["migration이 SQL 에러 없이 적용된다", "backfill CTE가 `inviter.name`, `inviter.created_at` 같은 참조 컬럼을 모두 projection해 rollout 중단이 발생하지 않는다", "remote DB가 `20260423000001`까지 적용된 상태로 정렬된다"],
+    "evidenceRequired": ["CLI 출력", "migration list 결과"],
+    "dbAssertions": ["`supabase migration list`에서 `20260423000001 | 20260423000001`가 보인다", "current-state snapshot backfill 단계가 SQLSTATE 42703 같은 column missing 에러 없이 끝난다"]
   },
   {
     "id": "RF-HISTORY-01",
@@ -435,9 +473,9 @@
     "title": "반복 무효 입력 또는 링크 변조는 추천 관계를 만들지 않는다",
     "preconditions": ["무효 코드와 변조 링크가 준비돼 있다"],
     "steps": ["반복적으로 무효 코드를 입력한다", "변조 링크로 여러 번 진입한다"],
-    "expected": ["추천 관계 confirmed row가 생성되지 않는다", "운영자가 문제를 인지할 수 있는 로그는 남는다"],
+    "expected": ["추천 관계 current-state snapshot이 생성되지 않는다", "운영자가 문제를 인지할 수 있는 로그는 남는다"],
     "evidenceRequired": ["서버 로그", "DB 확인"],
-    "dbAssertions": ["confirmed row count 증가가 없다"]
+    "dbAssertions": ["current-state snapshot count 증가가 없다"]
   },
   {
     "id": "RF-SEC-02",
@@ -516,12 +554,12 @@
     "area": "추천코드",
     "priority": "P0",
     "platform": ["app", "backend"],
-    "title": "FC/본부장 self-service 추천인 변경은 appSession 자동 복구 뒤에도 trusted path와 audit trail 계약을 유지한다",
+    "title": "FC/본부장 self-service 추천인 변경은 appSession 자동 복구 뒤에도 current-state snapshot과 audit trail 계약을 유지한다",
     "preconditions": ["FC 또는 본부장 계정이 유효한 request_board bridge token으로 로그인되어 있다", "선택 가능한 활성 추천코드 보유 inviter가 존재한다", "추천인 페이지(`/referral`)에 진입할 수 있다", "variant A에서는 `appSessionToken`만 만료 또는 삭제하고 bridge token은 유효하게 둔다"],
     "steps": ["추천인 페이지에서 이름/소속/추천코드 검색으로 inviter를 선택한다", "`appSessionToken`이 만료된 상태라면 `refresh-app-session` 뒤 `search-fc-for-referral` 또는 `update-my-recommender`가 1회 재시도되는지 확인한다", "저장을 실행한다", "페이지 새로고침 또는 pull-to-refresh 뒤 현재 추천인 표시와 invitee/audit 결과를 확인한다", "bridge token도 없는 상태에서 같은 저장을 시도해 relogin CTA와 spinner 해제를 확인한다"],
-    "expected": ["추천인 검색/저장은 `useReferralAppSession` helper를 통해 current token -> refresh -> 1회 retry 순서로 수행된다", "추천인 저장은 계속 `update-my-recommender` trusted path로만 수행된다", "저장 성공 시 현재 추천인 표시가 같은 trusted self-service 응답 기준으로 갱신된다", "DB `referral_attributions`는 `manual_entry` / `manual_entry_only` 계약으로 confirmed 또는 overridden 상태를 정리한다", "DB `referral_events`에 `referral_confirmed` audit row가 남는다", "bridge token까지 없거나 만료된 상태에서는 무한 spinner/무반응 없이 relogin CTA로 종료된다"],
+    "expected": ["추천인 검색/저장은 `useReferralAppSession` helper를 통해 current token -> refresh -> 1회 retry 순서로 수행된다", "추천인 저장은 계속 `update-my-recommender` trusted path로만 수행된다", "저장 성공 시 현재 추천인 표시가 같은 trusted self-service 응답 기준으로 갱신된다", "DB `fc_profiles.recommender_fc_id`, `recommender_code`, `recommender_linked_at`, `recommender_link_source` snapshot이 함께 갱신된다", "DB `referral_events`에는 `referral_linked` 또는 `referral_changed` audit row가 1건 남는다", "bridge token까지 없거나 만료된 상태에서는 무한 spinner/무반응 없이 relogin CTA로 종료된다"],
     "evidenceRequired": ["화면 캡처", "함수 호출 응답", "DB 확인"],
-    "dbAssertions": ["대상 invitee의 `fc_profiles.recommender_fc_id`가 선택한 inviter_fc_id로 저장된다", "invitee 기준 confirmed attribution은 최대 1건으로 유지된다", "최근 `referral_confirmed` 이벤트 row의 source는 `manual_entry`이고 metadata.selectionSource는 `manual_entry_only`다"]
+    "dbAssertions": ["대상 invitee의 `fc_profiles.recommender_fc_id`가 선택한 inviter_fc_id로 저장된다", "대상 invitee의 `fc_profiles.recommender_code`는 선택한 inviter의 active code snapshot과 일치한다", "최근 `referral_linked` 또는 `referral_changed` 이벤트 row의 source는 `self_service`이고 metadata.beforeRecommenderFcId/afterRecommenderFcId가 current-state 변경과 일치한다"]
   },
   {
     "id": "RF-SELF-03",
@@ -529,9 +567,9 @@
     "priority": "P0",
     "platform": ["app", "backend"],
     "title": "FC/본부장 self-service `/referral`은 direct recommender/tree 계약을 유지하면서 세션 만료 상태를 명확히 표면화한다",
-    "preconditions": ["FC 또는 본부장 계정이 로그인되어 있다", "직접 추천인이 있는 계정 또는 추천인 미등록 빈 상태 계정을 준비할 수 있다", "해당 계정 기준 `fc_profiles.recommender_fc_id`와 descendant 구조화 링크 또는 confirmed attribution fixture를 확인할 수 있다", "variant A에서는 `appSessionToken`만 만료 또는 삭제하고 bridge token은 유효하게 둔다", "variant B에서는 bridge token도 제거하거나 만료시킨다"],
+    "preconditions": ["FC 또는 본부장 계정이 로그인되어 있다", "직접 추천인이 있는 계정 또는 추천인 미등록 빈 상태 계정을 준비할 수 있다", "해당 계정 기준 `fc_profiles.recommender_fc_id`와 descendant 구조화 링크 fixture를 확인할 수 있다", "variant A에서는 `appSessionToken`만 만료 또는 삭제하고 bridge token은 유효하게 둔다", "variant B에서는 bridge token도 제거하거나 만료시킨다"],
     "steps": ["variant A: 앱에서 `/referral` 화면을 연다", "상단 `나를 추천한 사람` 카드와 하단 `내가 추천한 사람들` tree가 silent refresh 뒤에도 같은 계약으로 렌더되는지 확인한다", "하단 tree에서 첫 번째 branch(예: 하기홍)를 펼친다", "그 아래 visible child 중 deeper descendant가 있는 노드(예: 박충희)를 이어서 펼쳐 second expand/prefetch 동작을 확인한다", "variant B: 두 토큰이 모두 없는 상태에서 다시 `/referral`을 열어 세션 만료 안내와 relogin CTA를 확인한다"],
-    "expected": ["상단 카드에는 direct recommender 1명만 표시되고 루트까지의 전체 업라인 경로는 노출되지 않는다", "silent refresh가 성공하면 tree/direct recommender surface contract는 유지되고 stale current recommender fallback을 다시 보여주지 않는다", "direct recommender 카드 값은 `get-referral-tree` 응답의 마지막 ancestor 또는 같은 추천인 구조화 링크와 일치한다", "하단 tree는 구조화 링크와 confirmed evidence를 함께 반영한다", "depth 2 밖의 deeper node를 펼쳐도 실제 중첩 depth와 같은 규칙으로 보인다", "visible expandable child는 background 1단계 prefetch 대상이 될 수 있고, prefetch가 끝난 뒤 이어지는 expand는 중복 요청 없이 즉시 열린다", "bridge token도 없거나 만료된 경우 generic auth 문구 대신 `세션이 만료되었습니다. 다시 로그인해주세요.` 안내와 relogin CTA가 노출되고, tree error state에서도 CTA가 유지된다", "Android production build에서 render crash 없이 진입/편집/새로고침이 가능해야 한다"],
+    "expected": ["상단 카드에는 direct recommender 1명만 표시되고 루트까지의 전체 업라인 경로는 노출되지 않는다", "silent refresh가 성공하면 tree/direct recommender surface contract는 유지되고 stale current recommender fallback을 다시 보여주지 않는다", "direct recommender 카드 값은 `get-referral-tree` 응답의 마지막 ancestor 또는 같은 추천인 구조화 링크와 일치한다", "하단 tree는 canonical `recommender_fc_id` 링크만 반영한다", "depth 2 밖의 deeper node를 펼쳐도 실제 중첩 depth와 같은 규칙으로 보인다", "visible expandable child는 background 1단계 prefetch 대상이 될 수 있고, prefetch가 끝난 뒤 이어지는 expand는 중복 요청 없이 즉시 열린다", "bridge token도 없거나 만료된 경우 generic auth 문구 대신 `세션이 만료되었습니다. 다시 로그인해주세요.` 안내와 relogin CTA가 노출되고, tree error state에서도 CTA가 유지된다", "Android production build에서 render crash 없이 진입/편집/새로고침이 가능해야 한다"],
     "evidenceRequired": ["화면 캡처", "함수 호출 응답", "DB 확인"],
     "dbAssertions": ["직접 추천인 카드에 표시된 대상은 invitee의 `recommender_fc_id` 또는 `get-referral-tree` 응답 마지막 ancestor와 일치한다", "`get-referral-tree` descendants는 caller subtree 범위 안의 하위 관계만 반환한다"]
   }
