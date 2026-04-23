@@ -30,6 +30,28 @@
 - Verification:
 ```
 
+## 2026-04-23 | Governance / Push Diff Range | PR green만 확인하고 push workflow가 보는 마지막 푸시 diff를 같은 기준으로 닫지 않음
+- Symptom:
+  - `pull_request` governance는 green으로 돌아왔는데, 바로 뒤의 `push` governance는 `1084f1b..6e73da6` 범위에서 handbook owner 문서 누락으로 다시 실패했다.
+  - 사용자는 같은 브랜치에서 또 빨간 governance run을 보게 됐다.
+- Root cause:
+  - `path-owner-map` coverage만 고치고 멈췄고, 마지막 커밋에 포함된 referral/admin-web 코드 묶음에 대응하는 owner handbook 문서를 같은 commit에서 업데이트하지 않았다.
+  - 즉 PR 전체 diff와 마지막 push diff가 governance에서 서로 다른 범위라는 점을 검증 루틴에 넣지 않았다.
+- Why it was missed:
+  - `pull_request` run이 green으로 바뀐 순간 closeout이 끝났다고 판단했고, `push` event run 로그를 즉시 다시 확인하지 않았다.
+- Permanent guardrail:
+  - handbook-sensitive 코드가 들어간 commit을 새로 푸시할 때는 `node scripts/ci/check-governance.mjs`만 끝내지 말고, 푸시 후 `gh run list --branch <branch>`에서 최신 `push`와 `pull_request` governance 둘 다 확인한다.
+  - referral/schema/admin-web 같은 owner-mapped 영역을 건드리는 commit은 관련 handbook owner 문서를 같은 commit에 포함시키기 전까지 closeout으로 보고하지 않는다.
+- Related files:
+  - `docs/handbook/data/referral-schema-and-admin-rpcs.md`
+  - `docs/handbook/data/data-model-canon.md`
+  - `docs/handbook/shared/security-and-secret-operations.md`
+  - `docs/handbook/admin-web/dashboard-lifecycle.md`
+  - `.github/workflows/governance-check.yml`
+- Verification:
+  - `gh run view 24821626525 --repo jj8127/Appointment-Process --log-failed`
+  - handbook owner 문서 보강 후 새 push/pull_request governance 재확인
+
 ## 2026-04-23 | Governance / PR Diff Range | 로컬 현재 작업 단위만 보고 PR 전체 diff 기준 governance를 다시 확인하지 않음
 - Symptom:
   - 로컬에서는 방금 만진 파일 위주 검증만 통과한 뒤 커밋/상태 보고를 했는데, GitHub PR governance는 브랜치 전체 diff에서 `path-owner-map` 누락으로 계속 실패했다.

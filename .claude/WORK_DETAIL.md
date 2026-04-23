@@ -7,6 +7,55 @@
 
 ---
 
+## <a id="20260423-push-governance-owner-doc-closeout"></a> 2026-04-23 | push governance owner-doc closeout
+
+**배경**:
+- `feat(referrals): unify referral link state and harden admin web envs` 커밋을 푸시한 뒤, `pull_request` governance는 green이 되었지만 같은 head에 대한 `push` governance가 다시 실패했다.
+- 실패 run `24821626525`의 실제 범위는 `BASE_SHA=1084f1b...`, `HEAD_SHA=6e73da6...`였고, 마지막 commit diff에 handbook owner 문서가 포함되지 않은 것이 원인이었다.
+
+**조치**:
+- `gh run view 24821626525 --repo jj8127/Appointment-Process --log-failed`
+  - 아래 path-owner-map 위반이 handbook owner 문서 누락 때문임을 확인했다.
+    - `components/ReferralTreeNode.tsx`
+    - `supabase/functions/_shared/referral-link.ts`
+    - `supabase/functions/get-my-invitees/index.ts`
+    - `supabase/functions/get-my-referral-code/index.ts`
+    - `supabase/functions/get-referral-tree/index.ts`
+    - `supabase/functions/request-signup-otp/index.ts`
+    - `supabase/functions/set-password/index.ts`
+    - `supabase/functions/update-my-recommender/index.ts`
+    - `supabase/migrations/20260423000001_unify_referral_link_state.sql`
+    - `supabase/schema.sql`
+    - `web/src/app/api/admin/fc/route.ts`
+    - `web/src/app/dashboard/page.tsx`
+    - `web/src/app/api/admin/referrals/route.ts`
+    - `web/src/app/dashboard/referrals/graph/page.tsx`
+    - `web/src/app/dashboard/referrals/page.tsx`
+- owner handbook 보강:
+  - `docs/handbook/data/referral-schema-and-admin-rpcs.md`
+    - 추천인 current-state canonical snapshot, `applyReferralLinkState(...)`, admin graph/ReferralTreeNode contract를 2026-04-23 메모로 추가했다.
+  - `docs/handbook/data/data-model-canon.md`
+    - `20260423000001_unify_referral_link_state.sql`이 추가한 `fc_profiles.recommender_*` 컬럼, `referral_events` enum 확장, `schema.sql` 동기화 규칙을 명시했다.
+  - `docs/handbook/shared/security-and-secret-operations.md`
+    - `request-signup-otp` / `set-password`가 추천인 current-state를 shared helper로만 갱신해야 한다는 계약과 preview-safe web push / request-board URL 운영 규칙을 추가했다.
+  - `docs/handbook/admin-web/dashboard-lifecycle.md`
+    - dashboard/root entry의 web push disabled-state, request-board env gate, resident-number full-view fallback 로그, 추천인 graph의 쉬운 문구/본부장 강조 규칙을 운영 계약으로 추가했다.
+- `.claude/MISTAKES.md`
+  - PR green만 보고 닫지 말고, `push` governance가 보는 마지막 푸시 diff도 확인해야 한다는 새 guardrail을 기록했다.
+
+**결과**:
+- handbook-sensitive 영역의 최근 large commit이 owner handbook 문서와 다시 결합됐다.
+- 이후 `push`와 `pull_request` governance가 서로 다른 diff 범위를 보더라도, 마지막 commit 단위에서 owner 문서 누락으로 다시 막히는 상황을 줄였다.
+
+**검증**:
+- 통과: `gh run view 24821626525 --repo jj8127/Appointment-Process --log-failed`
+- 예정:
+  - handbook 보강 commit push
+  - `gh run list --repo jj8127/Appointment-Process --branch codex/referral-rollout-closeout --limit 5`
+  - 최신 `push` / `pull_request` governance 모두 green 확인
+
+---
+
 ## <a id="20260423-pr-governance-path-owner-map-closeout"></a> 2026-04-23 | PR governance path-owner-map closeout
 
 **배경**:

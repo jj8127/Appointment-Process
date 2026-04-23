@@ -2,7 +2,7 @@ doc_id: FC-ADMIN-DASHBOARD-LIFECYCLE
 owner_repo: fc-onboarding-app
 owner_area: admin-web
 audience: operator, developer
-last_verified: 2026-04-06
+last_verified: 2026-04-23
 source_of_truth: web/src/app/dashboard/page.tsx + web/src/app/dashboard/profile/[id]/page.tsx + web/src/app/api/admin/fc/route.ts + web/src/lib/shared.ts
 
 # Admin Web Playbook: Dashboard Lifecycle
@@ -97,6 +97,14 @@ source_of_truth: web/src/app/dashboard/page.tsx + web/src/app/dashboard/profile/
   - visible edge는 `recommender_fc_id`를 기본 소스로 만들고, `confirmed attribution`은 같은 edge의 상태를 보강하는 보조 신호로만 겹친다.
   - manager는 진입/조회만 가능하고 mutation CTA는 노출하지 않는다.
   - graph는 node drag, 빈 공간 pan, fit/reset, 기본 node label 표시를 지원해야 한다.
+  - 사용자 노출 copy는 기술 용어보다 쉬운 한국어를 우선한다. 범례/설명/버튼은 `추천인 연결`, `예전 기록 확인`, `화면 맞춤`, `본부장` 같은 운영자 친화 문구를 유지한다.
+  - 본부장과 `김형수` 강조 노드는 노란색 fill + 주황색 테두리 + 큰 반지름을 사용한다. 이 강조는 presentation rule이며 edge source를 바꾸지 않는다.
+
+## 2026-04-23 dashboard 운영 메모
+
+- `/dashboard` root는 웹 푸시 설정이 없는 preview-safe 배포에서 등록 실패를 generic error로 숨기지 않고, “이 배포에는 웹 알림 설정이 없습니다” 상태를 보여준다.
+- request-board 메신저 이동은 `NEXT_PUBLIC_REQUEST_BOARD_URL`이 설정된 경우에만 열고, 값이 없거나 잘못된 배포에서 production URL로 fallback하지 않는다.
+- `/api/admin/fc`와 `/dashboard`는 resident-number full-view contract를 계속 trusted server path 기준으로 유지한다. direct decrypt가 빠진 런타임에서는 edge fallback/degraded 상태를 로그로 남기되, 권한 있는 사용자의 full-view 자체를 마스킹 정책으로 바꾸지 않는다.
 
 ## 연관 문서
 

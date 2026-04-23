@@ -2,7 +2,7 @@ doc_id: FC-DATA-MODEL-CANON
 owner_repo: fc-onboarding-app
 owner_area: data
 audience: developer, operator
-last_verified: 2026-04-04
+last_verified: 2026-04-23
 source_of_truth: supabase/schema.sql + supabase/migrations/*
 
 # Data Handbook: Data Model Canon
@@ -74,3 +74,11 @@ source_of_truth: supabase/schema.sql + supabase/migrations/*
 - self-service recommender update도 위 enum 계약을 그대로 따라야 하며, schema와 다른 provenance 문자열을 새로 추가하지 않습니다.
 - `referral_events` canonical 컬럼명은 `invitee_fc_id`, `metadata`입니다. self-service audit write도 이 계약을 따릅니다.
 - mobile referral tree self-service는 direct table/RPC 호출을 열지 않고 `get-referral-tree` Edge Function만 사용합니다. descendant lazy expand는 caller 자기 서브트리 membership이 확인된 `fcId`만 허용해야 합니다.
+
+## 2026-04-23 추천인 링크 current-state canonicalization 메모
+
+- `20260423000001_unify_referral_link_state.sql`은 `fc_profiles`에 `recommender_code_id`, `recommender_code`, `recommender_linked_at`, `recommender_link_source`를 canonical current-state 컬럼으로 추가한다.
+- 같은 migration은 `fc_profiles.recommender_fc_id`와 새 `recommender*` snapshot을 structured referral current state 기준으로 backfill하고, `schema.sql`은 이 컬럼/체크 제약/인덱스를 같은 변경 세트로 반영해야 한다.
+- `recommender_link_source` enum은 `signup | self_service | admin_override | legacy_migration`만 허용한다.
+- `referral_events.event_type` canonical set에는 `referral_linked`, `referral_changed`, `referral_cleared`가 포함되며, `referral_events.source` canonical set에는 `signup`, `self_service`, `legacy_migration`이 추가된다.
+- `public.get_invitee_referral_code(uuid)` canonical 반환값은 이제 invitee-facing current snapshot `fc_profiles.recommender_code`다. historical resolution이 필요하면 별도 admin/read model에서 처리하고, 이 helper 의미를 다시 넓히지 않는다.

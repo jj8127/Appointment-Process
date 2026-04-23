@@ -2,7 +2,7 @@ doc_id: FC-DATA-REFERRAL
 owner_repo: fc-onboarding-app
 owner_area: data
 audience: developer, operator
-last_verified: 2026-04-16
+last_verified: 2026-04-23
 source_of_truth: supabase/schema.sql + supabase/migrations/20260323000001_add_referral_schema.sql + supabase/migrations/20260325000001_add_referral_code_admin_foundation.sql + supabase/migrations/20260404000001_allow_manager_referral_codes.sql
 
 # Data Handbook: Referral Schema And Admin RPCs
@@ -48,6 +48,15 @@ source_of_truth: supabase/schema.sql + supabase/migrations/20260323000001_add_re
 - `20260404000001_allow_manager_referral_codes.sql` 이후 completed manager-linked FC도 referral code issuance/backfill 대상에 포함된다.
 - 추천인 graph/read model은 여전히 read-only이며 manager admin mutate path를 넓히지 않는다.
 - compatibility alias `get-fc-referral-code`는 current app hook path가 아니고, optional `phone` body도 인증된 세션 전화번호와 일치할 때만 허용한다.
+
+## 2026-04-23 추천인 current-state 단일화 메모
+
+- `20260423000001_unify_referral_link_state.sql` 이후 invitee-facing 추천인 current state의 canonical snapshot은 `fc_profiles.recommender_fc_id`, `recommender_code_id`, `recommender_code`, `recommender_linked_at`, `recommender_link_source`다.
+- `recommender_link_source`는 `signup | self_service | admin_override | legacy_migration`만 허용한다. signup/self-service/admin 경로가 새 provenance 문자열을 임의로 만들면 schema drift로 본다.
+- `supabase/functions/_shared/referral-link.ts`의 `applyReferralLinkState(...)`가 signup(`set-password`), self-service(`update-my-recommender`), admin referral mutate path가 공유하는 단일 write helper다. invitee current-state를 바꾸는 경로가 이 helper/RPC를 우회해 `fc_profiles`를 직접 따로 갱신하면 회귀로 본다.
+- `get-my-referral-code`, `get-my-invitees`, `get-referral-tree`, 관리자 `/api/admin/referrals`, 추천인 그래프 edge normalizer는 모두 위 `fc_profiles` snapshot을 current read SSOT로 사용하고, `referral_attributions`는 운영 이력/legacy 보조 데이터로만 취급한다.
+- `public.get_invitee_referral_code(uuid)`는 invitee-facing 현재 스냅샷 `fc_profiles.recommender_code`를 trusted helper로 반환한다.
+- 모바일 `ReferralTreeNode`와 관리자 그래프의 사용자용 문구/강조 색상은 바뀔 수 있어도, visible edge는 계속 `recommender_fc_id` 기반 구조화 링크를 기준으로 읽는다.
 
 ## 문서 주의
 
