@@ -4,7 +4,7 @@ import { forceCollide } from 'd3-force';
 import { useCallback, useEffect, useMemo, useRef, useState, type MutableRefObject } from 'react';
 import ForceGraph2D, { type ForceGraphMethods, type LinkObject, type NodeObject } from 'react-force-graph-2d';
 import { getReferralGraphNodeRadius } from '@/lib/referral-graph-highlight';
-import type { GraphEdge, GraphNode, GraphRelationshipState, ReferralGraphPhysicsSettings } from '@/types/referral-graph';
+import type { GraphEdge, GraphNode, ReferralGraphPhysicsSettings } from '@/types/referral-graph';
 
 const COLORS = {
   background: '#fbfdff',
@@ -16,9 +16,7 @@ const COLORS = {
   nodeLegacy: '#ca8a04',
   nodeHighlight: '#facc15',
   nodeHighlightShadow: 'rgba(250,204,21,0.4)',
-  edgeStructured: 'rgba(100, 116, 139, 0.42)',
-  edgeConfirmed: 'rgba(37, 99, 235, 0.5)',
-  edgeCombined: 'rgba(234, 88, 12, 0.68)',
+  edgeLinked: 'rgba(234, 88, 12, 0.62)',
 } as const;
 
 const LABEL_ZOOM_THRESHOLD = 1.7;
@@ -263,12 +261,12 @@ function resolveGraphPhysics(settings: ReferralGraphPhysicsSettings): GraphPhysi
     nodeSpreadStrength: clamp(0.018 + (repulsionRatio * 0.032) + ((clamp(settings.linkStrength, 0, 100) / 100) * 0.024), 0.02, 0.072),
     spacingXMultiplier: clamp(1.6 + (repulsionRatio * 0.95) - (centerRatio * 0.18), 1.52, 2.45),
     spacingYMultiplier: clamp(1.52 + (repulsionRatio * 0.82) - (centerRatio * 0.14), 1.42, 2.22),
-    structuredLinkDistance: baseLinkDistance + 6,
-    confirmedLinkDistance: baseLinkDistance - 4,
-    combinedLinkDistance: baseLinkDistance - 12,
-    structuredLinkStrength: clamp(baseLinkStrength - 0.04, 0.22, 0.96),
-    confirmedLinkStrength: clamp(baseLinkStrength + 0.04, 0.22, 0.98),
-    combinedLinkStrength: clamp(baseLinkStrength + 0.12, 0.28, 1),
+    structuredLinkDistance: baseLinkDistance - 6,
+    confirmedLinkDistance: baseLinkDistance - 6,
+    combinedLinkDistance: baseLinkDistance - 6,
+    structuredLinkStrength: clamp(baseLinkStrength + 0.08, 0.26, 0.98),
+    confirmedLinkStrength: clamp(baseLinkStrength + 0.08, 0.26, 0.98),
+    combinedLinkStrength: clamp(baseLinkStrength + 0.08, 0.26, 0.98),
   };
 }
 
@@ -677,28 +675,16 @@ function createUserNodeTargetForce(
   return force;
 }
 
-function getEdgeStyle(relationshipState: GraphRelationshipState) {
-  switch (relationshipState) {
-    case 'structured_confirmed':
-      return { color: COLORS.edgeCombined, width: 2.2, dash: null, alpha: 0.82 };
-    case 'confirmed':
-      return { color: COLORS.edgeConfirmed, width: 1.8, dash: [7, 5], alpha: 0.72 };
-    case 'structured':
-    default:
-      return { color: COLORS.edgeStructured, width: 1.6, dash: null, alpha: 0.62 };
-  }
+function getEdgeStyle() {
+  return { color: COLORS.edgeLinked, width: 2, dash: null as number[] | null, alpha: 0.72 };
 }
 
-function getLinkDistance(relationshipState: GraphRelationshipState, physics: GraphPhysicsTuning) {
-  if (relationshipState === 'structured_confirmed') return physics.combinedLinkDistance;
-  if (relationshipState === 'confirmed') return physics.confirmedLinkDistance;
-  return physics.structuredLinkDistance;
+function getLinkDistance(physics: GraphPhysicsTuning) {
+  return physics.combinedLinkDistance;
 }
 
-function getLinkStrength(relationshipState: GraphRelationshipState, physics: GraphPhysicsTuning) {
-  if (relationshipState === 'structured_confirmed') return physics.combinedLinkStrength;
-  if (relationshipState === 'confirmed') return physics.confirmedLinkStrength;
-  return physics.structuredLinkStrength;
+function getLinkStrength(physics: GraphPhysicsTuning) {
+  return physics.combinedLinkStrength;
 }
 
 export type ReferralGraphCanvasProps = {
@@ -963,8 +949,8 @@ export function ReferralGraphCanvas({
     chargeForce?.distanceMax?.(physics.chargeDistanceMax);
 
     const linkForce = fg.d3Force('link') as ConfigurableLinkForce | undefined;
-    linkForce?.distance((link) => getLinkDistance((link as GraphEdge).relationshipState ?? 'structured', physics));
-    linkForce?.strength((link) => getLinkStrength((link as GraphEdge).relationshipState ?? 'structured', physics));
+      linkForce?.distance(() => getLinkDistance(physics));
+      linkForce?.strength(() => getLinkStrength(physics));
     linkForce?.iterations?.(4);
 
     fg.d3Force(
@@ -1365,8 +1351,7 @@ export function ReferralGraphCanvas({
       const tgt = rawLink.target as RuntimeGraphNode | undefined;
       if (!src || !tgt || src.x == null || src.y == null || tgt.x == null || tgt.y == null) return;
 
-      const relationshipState = rawLink.relationshipState ?? 'structured';
-      const edgeStyle = getEdgeStyle(relationshipState);
+      const edgeStyle = getEdgeStyle();
       const isRelevant = !neighborSet || (neighborSet.has(src.id) && neighborSet.has(tgt.id));
       const isSearchRelevant = !searchMatchSet || searchMatchSet.has(src.id) || searchMatchSet.has(tgt.id);
       const alpha = isRelevant && isSearchRelevant ? edgeStyle.alpha : 0.1;

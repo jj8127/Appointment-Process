@@ -18,7 +18,7 @@ import {
 import { IconCalendar, IconArrowRight, IconExternalLink, IconUser, IconUsers } from '@tabler/icons-react';
 import { useQuery } from '@tanstack/react-query';
 import { getReferralGraphHighlightLabel } from '@/lib/referral-graph-highlight';
-import type { GraphNode, GraphRelationshipState } from '@/types/referral-graph';
+import type { GraphNode } from '@/types/referral-graph';
 import type { ReferralAdminDetail } from '@/types/referrals';
 
 const EVENT_LABELS: Record<string, string> = {
@@ -26,6 +26,9 @@ const EVENT_LABELS: Record<string, string> = {
   code_rotated: '코드 교체',
   code_disabled: '코드 비활성화',
   admin_override_applied: '추천인 연결 변경',
+  referral_linked: '추천인 연결',
+  referral_changed: '추천인 연결 변경',
+  referral_cleared: '추천인 연결 해제',
 };
 
 function getEventLabel(eventType: string): string {
@@ -37,18 +40,6 @@ function formatDate(isoString: string): string {
   return `${d.getFullYear()}.${String(d.getMonth() + 1).padStart(2, '0')}.${String(d.getDate()).padStart(2, '0')}`;
 }
 
-function getRelationshipLabel(relationshipState: GraphRelationshipState) {
-  if (relationshipState === 'structured_confirmed') {
-    return '추천인 연결 + 확인';
-  }
-
-  if (relationshipState === 'confirmed') {
-    return '추가 확인';
-  }
-
-  return '추천인 연결';
-}
-
 export type GraphNodeDrawerProps = {
   node: GraphNode | null;
   opened: boolean;
@@ -57,7 +48,6 @@ export type GraphNodeDrawerProps = {
   connectedNodes: Array<{
     node: GraphNode;
     direction: 'outbound' | 'inbound';
-    relationshipState: GraphRelationshipState;
   }>;
 };
 
@@ -244,8 +234,6 @@ export function GraphNodeDrawer({
                       <Text size="sm">{connected.node.name}</Text>
                       <Text size="xs" c="dimmed">
                         {connected.direction === 'outbound' ? '내가 추천' : '나를 추천'}
-                        {' · '}
-                        {getRelationshipLabel(connected.relationshipState)}
                       </Text>
                       <Text size="xs" c="dimmed">
                         {connected.node.affiliation || '소속 미기록'}

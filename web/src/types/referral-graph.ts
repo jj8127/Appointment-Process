@@ -1,5 +1,4 @@
 export type GraphNodeStatus = 'has_active_code' | 'missing_code' | 'code_disabled';
-export type GraphRelationshipState = 'structured' | 'confirmed' | 'structured_confirmed';
 export type GraphNodeHighlightType = 'manager' | 'special';
 
 export type GraphNode = {
@@ -33,7 +32,6 @@ export type GraphEdge = {
   source: string; // inviter_fc_id
   target: string; // invitee_fc_id
   referralCode: string | null;
-  relationshipState: GraphRelationshipState;
 };
 
 export type GraphApiResponse = {

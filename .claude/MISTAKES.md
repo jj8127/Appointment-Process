@@ -30,6 +30,29 @@
 - Verification:
 ```
 
+## 2026-04-23 | Governance / PR Diff Range | 로컬 현재 작업 단위만 보고 PR 전체 diff 기준 governance를 다시 확인하지 않음
+- Symptom:
+  - 로컬에서는 방금 만진 파일 위주 검증만 통과한 뒤 커밋/상태 보고를 했는데, GitHub PR governance는 브랜치 전체 diff에서 `path-owner-map` 누락으로 계속 실패했다.
+  - 특히 `remote HEAD`와 `local unpushed commit`을 분리해서 설명하지 못해, 사용자는 같은 governance 실패를 반복해서 보게 됐다.
+- Root cause:
+  - 검증 대상을 `현재 작업 파일`로 좁혀서 봤고, 실제 CI가 보는 `BASE_SHA...HEAD_SHA` PR diff 범위를 같은 기준으로 재현하지 않았다.
+  - `supabase/functions/_shared/*` helper/test처럼 handbook-sensitive path가 새로 늘었는데, `docs/handbook/path-owner-map.json` coverage를 branch 전체 기준으로 재점검하지 않았다.
+- Why it was missed:
+  - 로컬 `node scripts/ci/check-governance.mjs` 1회 통과만 믿고, CI 로그의 exact failing head SHA와 PR 전체 diff를 다시 비교하지 않았다.
+  - “이번 커밋”과 “이미 브랜치에 남아 있는 미커밋/미푸시 변경”을 같은 검증 세트로 묶어 생각하지 못했다.
+- Permanent guardrail:
+  - governance 이슈를 다룰 때는 항상 `remote failing HEAD`, `local HEAD`, `working tree`를 분리해서 먼저 적는다.
+  - push 전에는 반드시 PR base SHA를 명시해서 같은 range로 governance를 재실행한다.
+  - `supabase/functions/_shared/*` 같은 shared helper를 추가하면 같은 세션에서 `docs/handbook/path-owner-map.json`도 같이 grep 검토한다.
+- Related files:
+  - `scripts/ci/check-governance.mjs`
+  - `docs/handbook/path-owner-map.json`
+  - `.claude/MISTAKES.md`
+- Verification:
+  - `gh run view <run-id> --repo jj8127/Appointment-Process --log`
+  - `git diff --name-only <base-sha>...HEAD`
+  - `$env:BASE_SHA='<base>'; $env:HEAD_SHA=(git rev-parse HEAD); node scripts/ci/check-governance.mjs`
+
 ## 2026-04-23 | Manager FC Visibility Contract | 대상 목록 가시성 규칙만 바꾸고 허브 unread 집계를 옛 기준으로 남겨 숫자/목록이 서로 어긋남
 - Symptom:
   - 본부장에게 전체 FC를 보이도록 목록 계약을 넓힌 뒤에도, 관리자 웹 메신저 허브 unread badge는 기존 raw `messages` 기준을 계속 써서 보이는 대상 범위와 숫자가 어긋날 수 있었다.

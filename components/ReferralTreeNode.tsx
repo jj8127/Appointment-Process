@@ -13,7 +13,7 @@ export type DescendantNode = {
   directInviteeCount: number;
   totalDescendantCount: number;
   depth: number;
-  relationshipSource: 'structured' | 'confirmed' | 'both';
+  relationshipSource: 'linked';
 };
 
 type Props = {

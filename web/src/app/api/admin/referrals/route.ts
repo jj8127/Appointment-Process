@@ -87,13 +87,15 @@ const CLIENT_ERROR_MESSAGES = new Set([
   '추천인 후보 FC를 찾을 수 없습니다.',
   '추천인 변경 사유를 입력해주세요.',
   '활성 추천코드가 있는 FC만 추천인으로 선택할 수 있습니다.',
+  '추천인으로 지정할 수 없는 FC입니다.',
+  '추천인 상태 변경 결과를 확인할 수 없습니다.',
   '자기 자신을 추천인으로 지정할 수 없습니다.',
   '추천 관계 대상 FC 전화번호가 올바르지 않습니다.',
   '추천인 후보 FC 전화번호가 올바르지 않습니다.',
 ]);
 
 const RECOMMENDER_RPC_NOT_READY_MESSAGE =
-  '운영 DB에 추천인 override 함수가 아직 적용되지 않았습니다. migration 20260331000005를 먼저 반영해주세요.';
+  '운영 DB에 추천인 상태 단일화 함수가 아직 적용되지 않았습니다. migration 20260423000001을 먼저 반영해주세요.';
 
 async function getReadSession() {
   return getVerifiedServerSession({ allowedRoles: ['admin', 'manager'], requireActive: true });

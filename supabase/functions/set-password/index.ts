@@ -6,6 +6,7 @@ import {
   normalizeCommissionStatus,
   type CommissionCompletionStatus,
 } from '../_shared/commission.ts';
+import { applyReferralLinkState } from '../_shared/referral-link.ts';
 import { syncRequestBoardPassword } from '../_shared/request-board-password-sync.ts';
 
 type Payload = {
@@ -33,14 +34,6 @@ type ResolvedReferralDetails = {
 type ReferralResolutionResult = {
   resolvedReferral: ResolvedReferralDetails | null;
   rejectionReason: string | null;
-};
-
-type ReferralCaptureResult = {
-  ok: boolean;
-  rejectionReason: string | null;
-  attributionId: string | null;
-  reusedHistoricalConfirmedRow: boolean;
-  warningReasons: string[];
 };
 
 function getEnv(name: string): string | undefined {
@@ -97,10 +90,6 @@ function cleanPhone(input: string) {
 
 function isNormalizedPhone(input: string): boolean {
   return /^[0-9]{11}$/.test(input);
-}
-
-function isUniqueViolation(error: unknown): boolean {
-  return (error as { code?: string } | null)?.code === '23505';
 }
 
 function isMissingColumnError(error: unknown): boolean {
@@ -271,339 +260,6 @@ async function insertReferralEvent(params: {
   }
 }
 
-async function persistRejectedReferralAttribution(params: {
-  resolvedReferral: ResolvedReferralDetails;
-  inviteePhone: string;
-  inviteeFcId: string;
-  rejectionReason: string;
-  supabase: SupabaseClient;
-}): Promise<string | null> {
-  const now = new Date().toISOString();
-  const rejectedPayload = {
-    inviter_fc_id: params.resolvedReferral.inviterFcId,
-    inviter_phone: params.resolvedReferral.inviterPhone,
-    inviter_name: params.resolvedReferral.inviterName,
-    invitee_fc_id: params.inviteeFcId,
-    invitee_phone: params.inviteePhone,
-    referral_code_id: params.resolvedReferral.referralCodeId,
-    referral_code: params.resolvedReferral.referralCode,
-    source: 'manual_entry',
-    capture_source: 'manual_entry',
-    selection_source: 'manual_entry_only',
-    status: 'rejected',
-    rejection_reason: params.rejectionReason,
-    cancelled_at: null,
-    confirmed_at: null,
-  };
-
-  try {
-    const { data: existingRejected, error: existingRejectedError } = await params.supabase
-      .from('referral_attributions')
-      .select('id')
-      .eq('invitee_fc_id', params.inviteeFcId)
-      .eq('invitee_phone', params.inviteePhone)
-      .eq('referral_code', params.resolvedReferral.referralCode)
-      .eq('status', 'rejected')
-      .order('created_at', { ascending: false })
-      .limit(1)
-      .maybeSingle();
-
-    if (existingRejectedError) {
-      console.warn(
-        '[set-password] persistRejectedReferralAttribution: rejected lookup error',
-        existingRejectedError.message,
-      );
-      return null;
-    }
-
-    if (existingRejected?.id) {
-      const { error: updateError } = await params.supabase
-        .from('referral_attributions')
-        .update({
-          ...rejectedPayload,
-          captured_at: now,
-        })
-        .eq('id', existingRejected.id);
-
-      if (updateError) {
-        console.warn(
-          '[set-password] persistRejectedReferralAttribution: rejected update error',
-          updateError.message,
-        );
-        return null;
-      }
-
-      return existingRejected.id;
-    }
-
-    const { data: insertedRejected, error: insertError } = await params.supabase
-      .from('referral_attributions')
-      .insert({
-        ...rejectedPayload,
-        captured_at: now,
-      })
-      .select('id')
-      .maybeSingle();
-
-    if (insertError) {
-      console.warn(
-        '[set-password] persistRejectedReferralAttribution: rejected insert error',
-        insertError.message,
-      );
-      return null;
-    }
-
-    return insertedRejected?.id ?? null;
-  } catch (error) {
-    console.warn(
-      '[set-password] persistRejectedReferralAttribution: unexpected error',
-      error instanceof Error ? error.message : String(error),
-    );
-    return null;
-  }
-}
-
-async function captureReferralAttribution(params: {
-  resolvedReferral: ResolvedReferralDetails;
-  inviteePhone: string;
-  inviteeFcId: string;
-  supabase: SupabaseClient;
-}): Promise<ReferralCaptureResult> {
-  try {
-    const {
-      referralCodeId,
-      referralCode,
-      inviterFcId,
-      inviterPhone,
-      inviterName,
-    } = params.resolvedReferral;
-
-    const now = new Date().toISOString();
-    const confirmedSelect = 'id, invitee_fc_id, confirmed_at, created_at';
-    const { data: confirmedRowsByFc, error: confirmedByFcError } = await params.supabase
-      .from('referral_attributions')
-      .select(confirmedSelect)
-      .eq('status', 'confirmed')
-      .eq('invitee_fc_id', params.inviteeFcId)
-      .order('confirmed_at', { ascending: false })
-      .order('created_at', { ascending: false });
-
-    if (confirmedByFcError) {
-      console.warn(
-        '[set-password] captureReferralAttribution: confirmed-by-fc lookup error',
-        confirmedByFcError.message,
-      );
-      return {
-        ok: false,
-        rejectionReason: 'confirmed_lookup_failed',
-        attributionId: null,
-        reusedHistoricalConfirmedRow: false,
-        warningReasons: [],
-      };
-    }
-
-    const confirmedRows = (confirmedRowsByFc ?? []) as Array<{ id: string; invitee_fc_id: string | null }>;
-    const primaryConfirmed = confirmedRows[0] ?? null;
-    const otherConfirmedIds = primaryConfirmed ? confirmedRows.slice(1).map((row) => row.id) : [];
-    const reusedHistoricalConfirmedRow = confirmedRows.length > 0;
-    const warningReasons: string[] = [];
-    let attributionId = primaryConfirmed?.id ?? null;
-
-    const confirmedPayload = {
-      inviter_fc_id: inviterFcId,
-      inviter_phone: inviterPhone,
-      inviter_name: inviterName,
-      invitee_fc_id: params.inviteeFcId,
-      invitee_phone: params.inviteePhone,
-      referral_code_id: referralCodeId,
-      referral_code: referralCode,
-      source: 'manual_entry',
-      capture_source: 'manual_entry',
-      selection_source: 'manual_entry_only',
-      status: 'confirmed',
-      cancelled_at: null,
-      confirmed_at: now,
-    };
-
-    const overrideDuplicateConfirmed = async (duplicateIds: string[]) => {
-      if (duplicateIds.length === 0) return null;
-      const { error } = await params.supabase
-        .from('referral_attributions')
-        .update({
-          status: 'overridden',
-          source: 'manual_entry',
-          selection_source: 'manual_entry_only',
-          cancelled_at: now,
-        })
-        .in('id', duplicateIds);
-      return error;
-    };
-
-    const updateConfirmedRow = async (attributionRowId: string) => {
-      const { error } = await params.supabase
-        .from('referral_attributions')
-        .update(confirmedPayload)
-        .eq('id', attributionRowId);
-      return error;
-    };
-
-    if (primaryConfirmed) {
-      const attributionError = await updateConfirmedRow(primaryConfirmed.id);
-      if (attributionError) {
-        console.warn('[set-password] captureReferralAttribution: attribution update error', attributionError.message);
-        return {
-          ok: false,
-          rejectionReason: 'attribution_update_failed',
-          attributionId: null,
-          reusedHistoricalConfirmedRow,
-          warningReasons: [],
-        };
-      }
-    } else {
-      const insertPayload = {
-        ...confirmedPayload,
-        captured_at: now,
-      };
-      const { data: attribution, error: attributionError } = await params.supabase
-        .from('referral_attributions')
-        .insert(insertPayload)
-        .select('id')
-        .maybeSingle();
-
-      if (attributionError && !isUniqueViolation(attributionError)) {
-        console.warn('[set-password] captureReferralAttribution: attribution insert error', attributionError.message);
-        return {
-          ok: false,
-          rejectionReason: 'attribution_insert_failed',
-          attributionId: null,
-          reusedHistoricalConfirmedRow: false,
-          warningReasons: [],
-        };
-      }
-
-      if (isUniqueViolation(attributionError)) {
-        const { data: retriedRows, error: retryLookupError } = await params.supabase
-          .from('referral_attributions')
-          .select(confirmedSelect)
-          .eq('status', 'confirmed')
-          .eq('invitee_fc_id', params.inviteeFcId)
-          .order('confirmed_at', { ascending: false })
-          .order('created_at', { ascending: false });
-
-        if (retryLookupError) {
-          console.warn(
-            '[set-password] captureReferralAttribution: retry lookup after unique violation failed',
-            retryLookupError.message,
-          );
-          return {
-            ok: false,
-            rejectionReason: 'confirmed_lookup_failed',
-            attributionId: null,
-            reusedHistoricalConfirmedRow: false,
-            warningReasons: [],
-          };
-        }
-
-        const retryPrimary = ((retriedRows ?? []) as Array<{ id: string }>)[0];
-        if (!retryPrimary?.id) {
-          console.warn(
-            '[set-password] captureReferralAttribution: unique violation without fc-owned confirmed row; check DB uniqueness rollout or concurrent writes',
-          );
-          return {
-            ok: false,
-            rejectionReason: 'attribution_insert_conflict',
-            attributionId: null,
-            reusedHistoricalConfirmedRow: false,
-            warningReasons: ['attribution_insert_conflict'],
-          };
-        }
-
-        const retryError = await updateConfirmedRow(retryPrimary.id);
-        if (retryError) {
-          console.warn(
-            '[set-password] captureReferralAttribution: retry update after unique violation failed',
-            retryError.message,
-          );
-          return {
-            ok: false,
-            rejectionReason: 'attribution_update_failed',
-            attributionId: null,
-            reusedHistoricalConfirmedRow: true,
-            warningReasons: [],
-          };
-        }
-
-        attributionId = retryPrimary.id;
-      } else if (!attribution?.id) {
-        console.warn('[set-password] captureReferralAttribution: attribution insert returned no id');
-        return {
-          ok: false,
-          rejectionReason: 'attribution_insert_missing_id',
-          attributionId: null,
-          reusedHistoricalConfirmedRow: false,
-          warningReasons: [],
-        };
-      } else {
-        attributionId = attribution.id;
-      }
-    }
-
-    const overrideError = await overrideDuplicateConfirmed(otherConfirmedIds);
-    if (overrideError) {
-      console.warn('[set-password] captureReferralAttribution: duplicate override error', overrideError.message);
-      warningReasons.push('duplicate_override_failed');
-    }
-
-    const { error: recommenderError } = await params.supabase
-      .from('fc_profiles')
-      .update({ recommender: inviterName, recommender_fc_id: inviterFcId })
-      .eq('id', params.inviteeFcId);
-
-    if (recommenderError) {
-      console.warn('[set-password] captureReferralAttribution: recommender update error', recommenderError.message);
-      warningReasons.push('recommender_update_failed');
-    }
-
-    await insertReferralEvent({
-      supabase: params.supabase,
-      eventType: 'referral_confirmed',
-      source: 'manual_entry',
-      attributionId,
-      referralCodeId,
-      referralCode,
-      inviterFcId,
-      inviterPhone,
-      inviterName,
-      inviteeFcId: params.inviteeFcId,
-      inviteePhone: params.inviteePhone,
-      metadata: {
-        captureSource: 'set_password_signup',
-        selectionSource: 'manual_entry_only',
-        reusedHistoricalConfirmedRow,
-        warningReasons: warningReasons.length > 0 ? warningReasons : undefined,
-      },
-      logLabel: 'captureReferralAttribution',
-    });
-
-    return {
-      ok: true,
-      rejectionReason: null,
-      attributionId,
-      reusedHistoricalConfirmedRow,
-      warningReasons,
-    };
-  } catch (err) {
-    console.warn('[set-password] captureReferralAttribution: unexpected error', err instanceof Error ? err.message : String(err));
-    return {
-      ok: false,
-      rejectionReason: 'unexpected_capture_error',
-      attributionId: null,
-      reusedHistoricalConfirmedRow: false,
-      warningReasons: [],
-    };
-  }
-}
-
 serve(async (req: Request) => {
   if (req.method === 'OPTIONS') {
     return new Response('ok', { headers: corsHeaders });
@@ -728,6 +384,10 @@ serve(async (req: Request) => {
       address_detail: null,
       recommender: null,
       recommender_fc_id: null,
+      recommender_code_id: null,
+      recommender_code: null,
+      recommender_linked_at: null,
+      recommender_link_source: null,
       resident_id_masked: null,
       resident_id_hash: null,
       identity_completed: false,
@@ -778,6 +438,10 @@ serve(async (req: Request) => {
       status: commissionState.status,
       recommender: null,
       recommender_fc_id: null,
+      recommender_code_id: null,
+      recommender_code: null,
+      recommender_linked_at: null,
+      recommender_link_source: null,
       life_commission_completed: commissionState.lifeCompleted,
       nonlife_commission_completed: commissionState.nonlifeCompleted,
       ...buildWorkflowResetPayload(),
@@ -882,43 +546,28 @@ serve(async (req: Request) => {
   });
 
   if (resolvedReferral && fcId) {
-    const captureResult = await captureReferralAttribution({
-      resolvedReferral,
-      inviteePhone: phone,
-      inviteeFcId: fcId,
+    const applyResult = await applyReferralLinkState({
       supabase,
+      inviteeFcId: fcId,
+      inviterFcId: resolvedReferral.inviterFcId,
+      referralCodeId: resolvedReferral.referralCodeId,
+      referralCode: resolvedReferral.referralCode,
+      source: 'signup',
+      actorPhone: phone,
+      actorRole: 'system',
+      reason: 'set_password_signup',
     });
-    if (!captureResult.ok) {
-      const rejectedAttributionId = captureResult.attributionId
-        ? null
-        : await persistRejectedReferralAttribution({
-            resolvedReferral,
-            inviteePhone: phone,
-            inviteeFcId: fcId,
-            rejectionReason: captureResult.rejectionReason ?? 'capture_failed',
-            supabase,
-          });
 
-      await insertReferralEvent({
-        supabase,
-        eventType: 'referral_rejected',
-        source: 'manual_entry',
-        attributionId: captureResult.attributionId ?? rejectedAttributionId,
-        referralCodeId: resolvedReferral.referralCodeId,
-        referralCode: resolvedReferral.referralCode,
-        inviterFcId: resolvedReferral.inviterFcId,
-        inviterPhone: resolvedReferral.inviterPhone,
-        inviterName: resolvedReferral.inviterName,
-        inviteeFcId: fcId,
-        inviteePhone: phone,
-        metadata: {
-          captureSource: 'set_password_signup',
-          rejectionReason: captureResult.rejectionReason,
-          rejectedAttributionPersisted: Boolean(rejectedAttributionId),
-          warningReasons: captureResult.warningReasons.length > 0 ? captureResult.warningReasons : undefined,
+    if (!applyResult.ok) {
+      console.warn('[set-password] applyReferralLinkState failed', applyResult.message);
+      return json(
+        {
+          ok: false,
+          code: 'referral_link_failed',
+          message: '추천인 연결을 저장하지 못했습니다. 잠시 후 다시 시도해주세요.',
         },
-        logLabel: 'set-password',
-      });
+        500,
+      );
     }
   } else if (referralCode && fcId) {
     await insertReferralEvent({

@@ -35,7 +35,7 @@ type TreeRpcRow = {
   active_code: string | null;
   parent_fc_id: string | null;
   node_depth: number;
-  relationship_source: 'structured' | 'confirmed' | 'both' | 'root' | null;
+  relationship_source: 'linked' | 'root' | null;
   direct_invitee_count: number | null;
   total_descendant_count: number | null;
   is_ancestor: boolean;
@@ -49,7 +49,7 @@ type ProfileRow = {
   is_manager_referral_shadow: boolean | null;
 };
 
-type EdgeSource = 'structured' | 'confirmed' | 'both';
+type EdgeSource = 'linked';
 
 type EdgeRecord = {
   parentFcId: string;
@@ -82,7 +82,7 @@ type ReferralDescendant = {
   code: string | null;
   directInviteeCount: number;
   totalDescendantCount: number;
-  relationshipSource: 'structured' | 'confirmed' | 'both';
+  relationshipSource: 'linked';
 };
 
 function json(body: Record<string, unknown>, status = 200) {
@@ -113,29 +113,6 @@ async function ensureManagerReferralShadowProfile(managerPhone: string, managerN
   });
 
   return error;
-}
-
-function mergeRelationshipSource(
-  current: EdgeSource | undefined,
-  next: 'structured' | 'confirmed',
-): EdgeSource {
-  if (!current) {
-    return next;
-  }
-  if (current === next || current === 'both') {
-    return current;
-  }
-  return 'both';
-}
-
-function combineEdgeSources(current: EdgeSource | undefined, next: EdgeSource): EdgeSource {
-  if (!current) {
-    return next;
-  }
-  if (current === next || current === 'both' || next === 'both') {
-    return current === 'both' ? current : next;
-  }
-  return 'both';
 }
 
 async function fetchProfilesByIds(ids: string[]) {
@@ -193,26 +170,13 @@ async function fetchChildEdges(parentIds: string[]) {
     return [] as EdgeRecord[];
   }
 
-  const [
-    { data: structuredRows, error: structuredError },
-    { data: confirmedRows, error: confirmedError },
-  ] = await Promise.all([
-    supabase
-      .from('fc_profiles')
-      .select('id, recommender_fc_id, is_manager_referral_shadow')
-      .in('recommender_fc_id', uniqueParentIds),
-    supabase
-      .from('referral_attributions')
-      .select('inviter_fc_id, invitee_fc_id')
-      .in('inviter_fc_id', uniqueParentIds)
-      .eq('status', 'confirmed'),
-  ]);
+  const { data: structuredRows, error: structuredError } = await supabase
+    .from('fc_profiles')
+    .select('id, recommender_fc_id, is_manager_referral_shadow')
+    .in('recommender_fc_id', uniqueParentIds);
 
   if (structuredError) {
     throw structuredError;
-  }
-  if (confirmedError) {
-    throw confirmedError;
   }
 
   const edgeMap = new Map<string, EdgeRecord>();
@@ -228,39 +192,10 @@ async function fetchChildEdges(parentIds: string[]) {
     }
 
     const key = `${parentFcId}:${row.id}`;
-    const existing = edgeMap.get(key);
     edgeMap.set(key, {
       parentFcId,
       childFcId: row.id,
-      relationshipSource: mergeRelationshipSource(existing?.relationshipSource, 'structured'),
-    });
-  }
-
-  const confirmedInviteeIds = Array.from(new Set(
-    ((confirmedRows ?? []) as { inviter_fc_id: string | null; invitee_fc_id: string | null }[])
-      .map((row) => row.invitee_fc_id)
-      .filter((id): id is string => Boolean(id)),
-  ));
-  const confirmedProfiles = await fetchProfilesByIds(confirmedInviteeIds);
-
-  for (const row of (confirmedRows ?? []) as { inviter_fc_id: string | null; invitee_fc_id: string | null }[]) {
-    const parentFcId = row.inviter_fc_id ?? null;
-    const childFcId = row.invitee_fc_id ?? null;
-    if (!parentFcId || !childFcId || parentFcId === childFcId) {
-      continue;
-    }
-
-    const childProfile = confirmedProfiles.get(childFcId);
-    if (childProfile?.is_manager_referral_shadow === true) {
-      continue;
-    }
-
-    const key = `${parentFcId}:${childFcId}`;
-    const existing = edgeMap.get(key);
-    edgeMap.set(key, {
-      parentFcId,
-      childFcId,
-      relationshipSource: mergeRelationshipSource(existing?.relationshipSource, 'confirmed'),
+      relationshipSource: 'linked',
     });
   }
 
@@ -328,7 +263,7 @@ async function buildFallbackTreeRows(rootFcId: string, depth: number) {
       active_code: null,
       parent_fc_id: ancestor.recommender_fc_id ?? null,
       node_depth: ancestorDepth,
-      relationship_source: 'structured',
+      relationship_source: 'linked',
       direct_invitee_count: 0,
       total_descendant_count: 0,
       is_ancestor: true,
@@ -356,11 +291,9 @@ async function buildFallbackTreeRows(rootFcId: string, depth: number) {
       if (!childrenByParent.has(edge.parentFcId)) {
         childrenByParent.set(edge.parentFcId, new Map());
       }
-
-      const existingSource = childrenByParent.get(edge.parentFcId)?.get(edge.childFcId);
       childrenByParent
         .get(edge.parentFcId)
-        ?.set(edge.childFcId, combineEdgeSources(existingSource, edge.relationshipSource));
+        ?.set(edge.childFcId, edge.relationshipSource);
     }
 
     const parentIds = edges.map((edge) => edge.childFcId);
@@ -648,12 +581,6 @@ function mapAncestor(row: TreeRpcRow): ReferralAncestor {
 }
 
 function mapDescendant(row: TreeRpcRow): ReferralDescendant {
-  const relationshipSource = row.relationship_source === 'confirmed'
-    ? 'confirmed'
-    : row.relationship_source === 'both'
-      ? 'both'
-      : 'structured';
-
   return {
     fcId: row.fc_id,
     parentFcId: row.parent_fc_id ?? null,
@@ -663,7 +590,7 @@ function mapDescendant(row: TreeRpcRow): ReferralDescendant {
     code: row.active_code ?? null,
     directInviteeCount: Number(row.direct_invitee_count ?? 0),
     totalDescendantCount: Number(row.total_descendant_count ?? 0),
-    relationshipSource,
+    relationshipSource: 'linked',
   };
 }
 

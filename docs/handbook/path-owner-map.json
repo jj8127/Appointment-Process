@@ -228,6 +228,7 @@
       "id": "backend-notifications",
       "severity": "contract",
       "prefixes": [
+        "supabase/functions/_shared/internal-chat.ts",
         "supabase/functions/fc-notify/",
         "web/src/app/api/admin/push/route.ts",
         "web/src/app/api/web-push/subscribe/route.ts",
@@ -255,6 +256,8 @@
       "id": "backend-referral-self-service",
       "severity": "contract",
       "prefixes": [
+        "supabase/functions/_shared/referral-code.ts",
+        "supabase/functions/_shared/referral-link.ts",
         "supabase/functions/get-my-referral-code/",
         "supabase/functions/get-fc-referral-code/",
         "supabase/functions/get-my-invitees/",
@@ -273,6 +276,8 @@
       "id": "backend-referral-signup-and-invite",
       "severity": "contract",
       "prefixes": [
+        "supabase/functions/_shared/__tests__/referral-search.test.ts",
+        "supabase/functions/_shared/referral-search.ts",
         "supabase/functions/invite/",
         "supabase/functions/search-signup-referral/",
         "supabase/functions/validate-referral-code/",

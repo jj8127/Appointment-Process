@@ -75,7 +75,9 @@ function getEventLabel(eventType: string) {
   if (eventType === 'code_generated') return '코드 발급';
   if (eventType === 'code_rotated') return '코드 재발급';
   if (eventType === 'code_disabled') return '코드 비활성';
-  if (eventType === 'admin_override_applied') return '추천인 연결 변경';
+  if (eventType === 'admin_override_applied' || eventType === 'referral_changed') return '추천인 연결 변경';
+  if (eventType === 'referral_linked') return '추천인 연결';
+  if (eventType === 'referral_cleared') return '추천인 연결 해제';
   return eventType;
 }
 

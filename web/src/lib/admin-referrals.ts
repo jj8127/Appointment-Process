@@ -10,12 +10,21 @@ import type {
   ReferralAdminUnresolvedItem,
   RecommenderCandidate,
 } from '@/types/referrals';
-import type { GraphApiResponse, GraphEdge, GraphNode, GraphNodeStatus } from '@/types/referral-graph';
+import type { GraphApiResponse, GraphNode, GraphNodeStatus } from '@/types/referral-graph';
 import { adminSupabase } from '@/lib/admin-supabase';
 import { logger } from '@/lib/logger';
+import { buildReferralGraphEdges } from '@/lib/referral-graph-edges';
 import { resolveReferralGraphHighlightType } from '@/lib/referral-graph-highlight';
 
-const CODE_EVENT_TYPES = ['code_generated', 'code_rotated', 'code_disabled', 'admin_override_applied'] as const;
+const CODE_EVENT_TYPES = [
+  'code_generated',
+  'code_rotated',
+  'code_disabled',
+  'admin_override_applied',
+  'referral_linked',
+  'referral_changed',
+  'referral_cleared',
+] as const;
 const DEFAULT_PAGE = 1;
 const DEFAULT_PAGE_SIZE = 20;
 const MAX_PAGE_SIZE = 100;
@@ -81,21 +90,6 @@ type ReferralCodeMutationResult = Record<string, unknown> & {
   changed?: boolean;
 };
 
-type ReferralAttributionRow = {
-  id: string;
-  inviter_fc_id: string | null;
-  invitee_fc_id: string | null;
-  referral_code: string | null;
-};
-
-type GraphEdgeDraft = {
-  id: string;
-  source: string;
-  target: string;
-  referralCode: string | null;
-  relationshipState: GraphEdge['relationshipState'];
-};
-
 type AdminActorContext = {
   actorPhone: string;
   actorRole: 'admin';
@@ -142,6 +136,7 @@ const DB_ERROR_MESSAGE_MAP = new Map<string, string>([
   ['Active referral code not found', '활성 추천코드가 없습니다.'],
   ['Failed to generate unique referral code after 10 attempts', '추천코드 생성 시 충돌이 반복되어 중단되었습니다.'],
   ['admin_apply_recommender_override_not_ready', '운영 DB에 추천인 override 함수가 아직 적용되지 않았습니다. migration 20260331000005를 먼저 반영해주세요.'],
+  ['apply_referral_link_state_not_ready', '운영 DB에 추천인 상태 단일화 함수가 아직 적용되지 않았습니다. migration 20260423000001을 먼저 반영해주세요.'],
 ]);
 
 function normalizeDigits(value?: string | null) {
@@ -166,6 +161,9 @@ function normalizeRpcResult<T>(value: T | T[] | null): T | null {
 }
 
 function normalizeDbErrorMessage(message: string) {
+  if (message.includes('apply_referral_link_state')) {
+    return DB_ERROR_MESSAGE_MAP.get('apply_referral_link_state_not_ready') ?? message;
+  }
   if (message.includes('admin_apply_recommender_override')) {
     return DB_ERROR_MESSAGE_MAP.get('admin_apply_recommender_override_not_ready') ?? message;
   }
@@ -446,7 +444,7 @@ function buildEventMaps(events: ReferralEventRow[]) {
 
   for (const eventRow of events) {
     const previousInviterFcId =
-      eventRow.event_type === 'admin_override_applied'
+      (eventRow.event_type === 'admin_override_applied' || eventRow.event_type === 'referral_cleared')
       && !eventRow.inviter_fc_id
       && eventRow.metadata
       && typeof eventRow.metadata.beforeRecommenderFcId === 'string'
@@ -682,9 +680,12 @@ export async function applyRecommenderSelection(params: {
     throw new Error('자기 자신을 추천인으로 지정할 수 없습니다.');
   }
 
-  const { data, error } = await adminSupabase.rpc('admin_apply_recommender_override', {
+  const { data, error } = await adminSupabase.rpc('apply_referral_link_state', {
     p_invitee_fc_id: inviteeFcId,
     p_inviter_fc_id: inviterFcId,
+    p_referral_code_id: null,
+    p_referral_code: null,
+    p_source: 'admin_override',
     p_actor_phone: params.actor.actorPhone,
     p_actor_role: params.actor.actorRole,
     p_actor_staff_type: params.actor.actorStaffType,
@@ -988,80 +989,10 @@ export function logReferralBackfillSkip(fcId: string, error: unknown) {
   });
 }
 
-async function fetchReferralAttributions() {
-  const { data, error } = await adminSupabase
-    .from('referral_attributions')
-    .select('id, inviter_fc_id, invitee_fc_id, referral_code')
-    .eq('status', 'confirmed')
-    .not('inviter_fc_id', 'is', null);
-
-  if (error) {
-    throw error;
-  }
-
-  return (data ?? []) as ReferralAttributionRow[];
-}
-
-function getMergedRelationshipState(
-  current: GraphEdgeDraft['relationshipState'] | undefined,
-  next: GraphEdgeDraft['relationshipState'],
-) {
-  if (!current || current === next) {
-    return next;
-  }
-
-  if (current === 'structured_confirmed' || next === 'structured_confirmed') {
-    return 'structured_confirmed';
-  }
-
-  return current === next ? current : 'structured_confirmed';
-}
-
-function upsertGraphEdge(
-  edgeMap: Map<string, GraphEdgeDraft>,
-  profileIdSet: Set<string>,
-  source: string | null,
-  target: string | null,
-  relationshipState: GraphEdgeDraft['relationshipState'],
-  referralCode: string | null,
-  options?: { allowCreate?: boolean },
-) {
-  if (!source || !target) {
-    return;
-  }
-
-  if (!profileIdSet.has(source) || !profileIdSet.has(target)) {
-    return;
-  }
-
-  const id = `${source}__${target}`;
-  const current = edgeMap.get(id);
-  if (!current) {
-    if (options?.allowCreate === false) {
-      return;
-    }
-
-    edgeMap.set(id, {
-      id,
-      source,
-      target,
-      referralCode,
-      relationshipState,
-    });
-    return;
-  }
-
-  current.relationshipState = getMergedRelationshipState(current.relationshipState, relationshipState);
-  if (!current.referralCode && referralCode) {
-    current.referralCode = referralCode;
-  }
-}
-
 export async function getReferralGraphData(session: VerifiedServerSession): Promise<GraphApiResponse> {
-  const [profiles, allProfiles, attributions, managerNames] = await Promise.all([
+  const [profiles, allProfiles, managerNames] = await Promise.all([
     fetchEligibleProfiles(),
     fetchFcProfiles(),
-    fetchReferralAttributions(),
     fetchManagerNames(),
   ]);
 
@@ -1069,33 +1000,9 @@ export async function getReferralGraphData(session: VerifiedServerSession): Prom
   const codes = await fetchReferralCodes(fcIds);
   const { activeCodeByFc, codeHistoryByFc } = buildCodeMaps(codes);
 
-  const profileIdSet = new Set(fcIds);
   const referralCountByFc = new Map<string, number>();
   const inboundCountByFc = new Map<string, number>();
-  const edgeMap = new Map<string, GraphEdgeDraft>();
-
-  for (const profile of allProfiles) {
-    upsertGraphEdge(
-      edgeMap,
-      profileIdSet,
-      profile.recommender_fc_id,
-      profile.id,
-      'structured',
-      null,
-    );
-  }
-
-  for (const row of attributions) {
-    upsertGraphEdge(
-      edgeMap,
-      profileIdSet,
-      row.inviter_fc_id,
-      row.invitee_fc_id,
-      'confirmed',
-      row.referral_code ?? null,
-      { allowCreate: false },
-    );
-  }
+  const edges = buildReferralGraphEdges(allProfiles);
 
   const legacyUnresolvedSet = new Set(
     allProfiles
@@ -1103,13 +1010,13 @@ export async function getReferralGraphData(session: VerifiedServerSession): Prom
       .map((p) => p.id),
   );
 
-  for (const edge of edgeMap.values()) {
+  for (const edge of edges) {
     referralCountByFc.set(edge.source, (referralCountByFc.get(edge.source) ?? 0) + 1);
     inboundCountByFc.set(edge.target, (inboundCountByFc.get(edge.target) ?? 0) + 1);
   }
 
   const degreeByFc = new Map<string, number>();
-  for (const edge of edgeMap.values()) {
+  for (const edge of edges) {
     degreeByFc.set(edge.source, (degreeByFc.get(edge.source) ?? 0) + 1);
     degreeByFc.set(edge.target, (degreeByFc.get(edge.target) ?? 0) + 1);
   }
@@ -1149,7 +1056,7 @@ export async function getReferralGraphData(session: VerifiedServerSession): Prom
   return {
     ok: true,
     nodes,
-    edges: Array.from(edgeMap.values()),
+    edges,
     permissions: {
       canMutate: session.role === 'admin',
     },

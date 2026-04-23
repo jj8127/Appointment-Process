@@ -7,6 +7,44 @@
 
 ---
 
+## <a id="20260423-pr-governance-path-owner-map-closeout"></a> 2026-04-23 | PR governance path-owner-map closeout
+
+**배경**:
+- GitHub PR governance가 `Codex/referral rollout closeout` 브랜치에서 반복 실패했고, 이번에도 사용자가 같은 실수를 지적했다.
+- 실제 CI 로그를 확인하니 실패한 run은 remote head `1084f1b...` 기준이었고, 원인은 현재 작업 파일이 아니라 브랜치 전체 diff에 포함된 handbook-sensitive shared helper/test path의 `path-owner-map` 누락이었다.
+
+**조치**:
+- `gh run view 24821116794 --repo jj8127/Appointment-Process --log`
+  - PR workflow가 실제로 본 `BASE_SHA=0971c803...`, `HEAD_SHA=1084f1b...`를 확인했다.
+  - 실패 메시지가 아래 4개 path-owner-map 누락임을 로그에서 직접 확인했다.
+    - `supabase/functions/_shared/__tests__/referral-search.test.ts`
+    - `supabase/functions/_shared/internal-chat.ts`
+    - `supabase/functions/_shared/referral-code.ts`
+    - `supabase/functions/_shared/referral-search.ts`
+- `docs/handbook/path-owner-map.json`
+  - `backend-notifications` rule에 `supabase/functions/_shared/internal-chat.ts`를 추가했다.
+  - `backend-referral-self-service` rule에 `supabase/functions/_shared/referral-code.ts`, `supabase/functions/_shared/referral-link.ts`를 추가했다.
+  - `backend-referral-signup-and-invite` rule에 `supabase/functions/_shared/referral-search.ts`, `supabase/functions/_shared/__tests__/referral-search.test.ts`를 추가했다.
+- `.claude/MISTAKES.md`
+  - “현재 작업 파일만 보고 PR 전체 diff governance를 다시 확인하지 않은 실수”를 새 항목으로 기록했다.
+- 남아 있던 미커밋 변경
+  - 추천인 single-state 정리, invite-link fast path, Vercel risk remediation, shared helper/test 추가 등 branch에 남아 있던 pending diff를 이번 closeout commit 대상에 포함하도록 정리했다.
+
+**결과**:
+- governance 실패 원인이 “이번 본부장 가시성 변경”이 아니라, 브랜치 전체 diff에 남아 있던 `path-owner-map` coverage 누락임을 정확히 분리했다.
+- handbook-sensitive shared helper/test path가 `path-owner-map`에 편입돼, 같은 류의 helper 추가 시 governance가 다시 같은 이유로 막히지 않게 됐다.
+- 미커밋 상태로 남아 있던 관련 branch 변경들도 함께 정리해 push 가능한 형태로 수습했다.
+
+**검증**:
+- 통과: `gh run view 24821116794 --repo jj8127/Appointment-Process --log`
+- 통과: `git -C E:\\hanhwa\\fc-onboarding-app diff --name-only 0971c803f46eeb9be62bc3451e632b373d5d5fc9...HEAD`
+- 통과: `git -C E:\\hanhwa\\fc-onboarding-app grep -n "supabase/functions/_shared/internal-chat.ts\\|supabase/functions/_shared/referral-code.ts\\|supabase/functions/_shared/referral-search.ts\\|supabase/functions/_shared/__tests__/referral-search.test.ts" -- docs/handbook/path-owner-map.json`
+- 예정:
+  - `BASE_SHA=0971c803...`, `HEAD_SHA=<new-head>`로 governance 재실행
+  - 남은 pending diff commit 후 push, GitHub Actions 재확인
+
+---
+
 ## <a id="20260423-manager-all-fc-visibility-alignment"></a> 2026-04-23 | 본부장 전체 FC 가시성 정렬
 
 **배경**:

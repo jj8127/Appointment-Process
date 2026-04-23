@@ -104,7 +104,7 @@ async function resolveSelfReferralCode(params: { session: SessionPayload }) {
   const sessionFcId = String(session.fcId ?? '').trim();
   const profileQuery = supabase
     .from('fc_profiles')
-    .select('id, phone, affiliation, signup_completed, recommender, recommender_fc_id, is_manager_referral_shadow');
+    .select('id, phone, affiliation, signup_completed, recommender, recommender_fc_id, recommender_code, recommender_linked_at, recommender_link_source, is_manager_referral_shadow');
 
   let profileResult = sessionFcId
     ? await profileQuery.eq('id', sessionFcId).maybeSingle()
@@ -189,28 +189,19 @@ async function resolveSelfReferralCode(params: { session: SessionPayload }) {
     : null;
 
   let recommenderAffiliation: string | null = null;
-  let recommenderCode: string | null = null;
+  let recommenderCode: string | null =
+    typeof profile.recommender_code === 'string' && profile.recommender_code.trim()
+      ? profile.recommender_code.trim()
+      : null;
   const recommenderFcId = String(profile.recommender_fc_id ?? '').trim();
   if (recommenderFcId) {
-    const [profileRes, codeRes] = await Promise.all([
-      supabase
-        .from('fc_profiles')
-        .select('affiliation')
-        .eq('id', recommenderFcId)
-        .maybeSingle(),
-      supabase
-        .from('referral_codes')
-        .select('code')
-        .eq('fc_id', recommenderFcId)
-        .eq('is_active', true)
-        .order('created_at', { ascending: false })
-        .limit(1)
-        .maybeSingle(),
-    ]);
+    const profileRes = await supabase
+      .from('fc_profiles')
+      .select('affiliation')
+      .eq('id', recommenderFcId)
+      .maybeSingle();
     const aff = String(profileRes.data?.affiliation ?? '').trim();
     if (aff) recommenderAffiliation = aff;
-    const rc = String(codeRes.data?.code ?? '').trim();
-    if (rc) recommenderCode = rc;
   }
 
   return json({

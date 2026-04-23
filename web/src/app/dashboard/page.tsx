@@ -72,6 +72,7 @@ import { sendPushNotification } from '../actions';
 import { updateAppointmentAction } from './appointment/actions';
 import { updateDocStatusAction } from './docs/actions';
 import { registerWebPushSubscription } from '@/components/WebPushRegistrar';
+import { getWebPushRegistrationFeedback } from '@/lib/web-push-config';
 
 import { logger } from '../../lib/logger';
 
@@ -1889,28 +1890,11 @@ export default function DashboardPage() {
         return;
       }
 
-      if (result.message === 'unsupported') {
-        notifications.show({
-          title: '지원되지 않음',
-          message: '현재 브라우저는 웹 푸시를 지원하지 않습니다.',
-          color: 'orange',
-        });
-        return;
-      }
-
-      if (result.message === 'permission-not-granted') {
-        notifications.show({
-          title: '알림 권한 필요',
-          message: '브라우저 사이트 설정에서 알림을 허용한 뒤 다시 시도해주세요.',
-          color: 'orange',
-        });
-        return;
-      }
-
+      const feedback = getWebPushRegistrationFeedback(result.message);
       notifications.show({
-        title: '웹 알림 등록 실패',
-        message: result.message ?? '알림 등록 중 오류가 발생했습니다.',
-        color: 'red',
+        title: feedback.title,
+        message: feedback.message,
+        color: feedback.color,
       });
     } catch (err: unknown) {
       const error = err as Error;

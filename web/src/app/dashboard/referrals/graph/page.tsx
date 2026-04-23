@@ -295,7 +295,6 @@ export default function ReferralGraphPage() {
       {
         node: GraphNode;
         direction: 'outbound' | 'inbound';
-        relationshipState: GraphEdge['relationshipState'];
       }
     >();
 
@@ -307,7 +306,6 @@ export default function ReferralGraphPage() {
         related.set(target, {
           node: allNodeMap.get(target)!,
           direction: 'outbound',
-          relationshipState: edge.relationshipState,
         });
       }
 
@@ -315,7 +313,6 @@ export default function ReferralGraphPage() {
         related.set(source, {
           node: allNodeMap.get(source)!,
           direction: 'inbound',
-          relationshipState: edge.relationshipState,
         });
       }
     }
@@ -418,7 +415,7 @@ export default function ReferralGraphPage() {
                   추천인 그래프
                 </Text>
                 <Text size="xs" c="gray.7">
-                  추천인으로 연결된 흐름을 먼저 보여주고, 추가로 확인된 연결은 연한 선으로 함께 보여줍니다.
+                  현재 추천인으로 연결된 관계만 보여줍니다. 예전 `recommender` 문자열만 남은 사람은 노드 경고로 따로 표시합니다.
                 </Text>
               </Box>
             </Group>
@@ -632,12 +629,6 @@ export default function ReferralGraphPage() {
             </Text>
             <Group gap={6} wrap="wrap">
               <Badge color="orange" variant="light">
-                추천인 연결 + 확인
-              </Badge>
-              <Badge color="blue" variant="light">
-                추가 확인
-              </Badge>
-              <Badge color="gray" variant="light">
                 추천인 연결
               </Badge>
               <Badge color="yellow" variant="light">
