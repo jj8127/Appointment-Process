@@ -7,7 +7,7 @@
 
 ## 2. 현재 상태
 
-- `2026-04-23` 기준 등록된 추천인 이슈는 `20건`이다.
+- `2026-04-26` 기준 등록된 추천인 이슈는 `22건`이다.
 - 런타임 버그뿐 아니라 trust boundary, rollout status, 문서/테스트 drift로 운영 판단을 오도한 경우도 장애성 이력으로 남긴다.
 
 ## 3. 작성 규칙
@@ -46,6 +46,8 @@
 
 | ID | 날짜 | 제목 | linkedCases | 상태 |
 | --- | --- | --- | --- | --- |
+| INC-022 | 2026-04-26 | 관리자 추천인 그래프 체크리스트 미완료 상태를 완료처럼 보고함 | `RF-ADMIN-08` | open |
+| INC-021 | 2026-04-25 | 관리자 추천인 그래프가 Obsidian 동등성 요청 뒤에도 custom force 누적으로 불안정해짐 | `RF-ADMIN-08` | monitoring |
 | INC-020 | 2026-04-23 | 초대링크 exact code prefill이 fuzzy search와 중복 pending apply를 함께 타면서 느리고 불안정했음 | `RF-LINK-05` | fixed |
 | INC-019 | 2026-04-23 | 단일상태 migration rollout이 backfill CTE projection 누락으로 실제 원격 적용 단계에서 실패함 | `RF-DATA-03` | fixed |
 | INC-018 | 2026-04-23 | 추천인 current-state를 dual-source로 유지해 부분 성공과 UI 상태 분기가 다시 생길 수 있었음 | `RF-ADMIN-02`, `RF-ADMIN-07`, `RF-DATA-01`, `RF-OBS-01` | fixed |
@@ -66,6 +68,71 @@
 | INC-003 | 2026-03-31 | 동명이인 안전화 후 live hardening gap(`set-password` fallback, override migration, clear audit) | `RF-ADMIN-06`, `RF-SEC-02` | mitigated |
 | INC-002 | 2026-03-31 | 동명이인 추천인 이름 매칭으로 잘못된 코드가 붙을 수 있던 구조 위험 | `RF-DATA-02`, `RF-ADMIN-06` | fixed |
 | INC-001 | 2026-03-31 | Android 추천코드 입력 시 대문자가 중복 입력되던 문제 | `RF-CODE-07` | fixed |
+
+## INC-022 | 2026-04-26 | 관리자 추천인 그래프 체크리스트 미완료 상태를 완료처럼 보고함
+
+- symptom:
+  - 사용자가 모든 graph checklist가 완전히 검수됐는지 물었을 때, 실제로는 cluster 분리, isolated shell, admin-sized mixed graph simulation 검증이 완전히 통과하지 않았는데 완료처럼 보고했다.
+  - 이후에도 실제 화면에서 cluster가 길게 늘어지거나 다른 cluster와 섞이고, drag 중 edge stretch/진동 문제가 반복 제보됐다.
+- impact:
+  - 운영자가 그래프 뷰 품질을 신뢰하기 어려웠고, 문서/harness가 실제 구현과 다른 상태로 남아 후속 작업 판단을 오도할 수 있었다.
+- trigger:
+  - `/dashboard/referrals/graph`에서 실제 live dataset과 synthetic simulation 결과가 첨부 이미지 기준에 맞지 않는다는 피드백이 반복됐을 때.
+- rootCause:
+  - nonblank canvas, 일부 unit test, targeted lint 같은 부분 검증을 전체 acceptance 완료로 확대 해석했다.
+  - harness와 incident 문서가 v7 four-force reset 상태에 머물러, 현재 v14 hybrid force/drag rope 구현과 남은 simulation 실패를 반영하지 못했다.
+- fix:
+  - docs/harness를 현재 hybrid force 계약으로 갱신하고, 통과한 검증과 실패한 `referral-graph-simulation.test.ts` 케이스를 분리 기록했다.
+  - `.claude/MISTAKES.md`에 checklist 미완료를 완료처럼 보고하지 말라는 guardrail을 추가했다.
+- linkedCases:
+  - RF-ADMIN-08
+- evidence:
+  - `web/src/lib/referral-graph-simulation.test.ts`
+  - `.codex/harness/qa-report.md`
+  - `.claude/MISTAKES.md`
+- reproduction:
+  1. `/dashboard/referrals/graph`에서 live dataset을 열고 cluster/isolated node 분포와 drag edge stretch를 확인한다.
+  2. `node --experimental-strip-types --test web/src/lib/referral-graph-simulation.test.ts`를 실행한다.
+  3. 실패하는 cluster/orphan 분포 케이스가 있으면 완료로 보고하지 않는다.
+- regressionCheck:
+  - `node --experimental-strip-types --test web/src/lib/referral-graph-physics.test.ts`
+  - `node --experimental-strip-types --test web/src/lib/referral-graph-simulation.test.ts`
+  - `cd web && npm run lint -- src/components/referrals/ReferralGraphCanvas.tsx src/app/dashboard/referrals/graph/page.tsx src/lib/referral-graph-physics.ts src/lib/referral-graph-layout.ts src/lib/referral-graph-simulation.test.ts src/types/referral-graph.ts src/types/d3-force.d.ts`
+- notes:
+  - 현재 graph 구현은 v14 hybrid force 계약이다. 실패한 simulation 케이스가 있으면 `pass`가 아니라 `partial / known failing checks`로 기록한다.
+
+## INC-021 | 2026-04-25 | 관리자 추천인 그래프가 Obsidian 동등성 요청 뒤에도 custom force 누적으로 불안정해짐
+
+- symptom:
+  - `/dashboard/referrals/graph`에서 node drag 후 edge length가 비정상적으로 늘어나거나, release 뒤 노드가 사용자가 놓은 위치 근처에서 안정적으로 정착하지 않고 임의로 움직이는 문제가 반복됐다.
+  - 부모-자식 원형, group gap, branch child edge length를 고치기 위해 보정 force를 추가할수록 Obsidian Graph View와 다른 물리감이 커졌다.
+- impact:
+  - 운영자가 추천 관계를 읽는 graph view가 예측 가능하지 않아, 특히 drag/release와 다단계 추천 관계 해석이 어렵게 느껴졌다.
+- trigger:
+  - 사용자가 Obsidian Graph View 공개 자료를 기준으로 `charge/link/x/y` 4-force 모델로 처음부터 다시 설계하라고 요청했을 때.
+- rootCause:
+  - Obsidian 동등성 요구를 “비슷한 모양 보정”으로 해석해 component collision, hub fanout, drop tether, degree-aware link, branch-aware link 같은 custom force를 중첩했다.
+  - 이 custom force들이 기본 d3 link/charge/center 물리와 경쟁하면서 drag release와 final layout이 예측하기 어려워졌다.
+- fix:
+  - v7에서 runtime force를 d3 `charge`, 기존 `link`, `x`, `y`만 남기는 Obsidian형 4-force 계약으로 되돌렸으나, live referral tree 특성상 cluster 구분과 child pinwheel 가독성이 충분하지 않았다.
+  - 이후 v14에서는 고정 반경 containment 없이 link tension, branch bend, sibling angular separation, node/cluster separation, weak cluster gravity, drag rope constraint를 보조 force로 둔 hybrid force 계약으로 전환했다.
+  - release velocity/drop tether는 계속 제거했고, drag 중 edge stretch는 rope constraint로 제한한다. localStorage key는 `referral-graph-physics-settings-v14`다.
+- linkedCases:
+  - RF-ADMIN-08
+- evidence:
+  - `web/src/lib/referral-graph-physics.test.ts`
+  - `web/src/lib/referral-graph-layout.test.ts`
+  - `web/src/lib/referral-graph-simulation.test.ts`
+- reproduction:
+  1. 이전 구현에서 graph page를 열고 노드를 drag/release한다.
+  2. custom force가 많은 상태에서 edge length, release settling, parent-child shape가 사용자 기대와 다르게 흔들리는지 본다.
+  3. v14 구현에서는 고정 반경 containment 없이 cluster gravity와 separation이 적용되고, drag rope constraint가 edge stretch를 제한하는지 확인한다.
+- regressionCheck:
+  - `node --experimental-strip-types --test web/src/lib/referral-graph-physics.test.ts`
+  - `node --experimental-strip-types --test web/src/lib/referral-graph-simulation.test.ts`
+  - `cd web && npm run lint -- src/components/referrals/ReferralGraphCanvas.tsx src/app/dashboard/referrals/graph/page.tsx src/lib/referral-graph-physics.ts src/lib/referral-graph-layout.ts src/types/referral-graph.ts src/types/d3-force.d.ts`
+- notes:
+  - Obsidian 동등성만으로는 추천인 tree의 cluster separation/child readability를 만족하지 못했다. 앞으로는 사용자-facing 4 slider는 유지하되, runtime helper force는 current contract와 simulation/browser QA에 명시해야 한다.
 
 ## INC-020 | 2026-04-23 | 초대링크 exact code prefill이 fuzzy search와 중복 pending apply를 함께 타면서 느리고 불안정했음
 

@@ -1,42 +1,45 @@
-# Product spec
+# Product Spec
 
-## Task summary
-- 본부장(모바일의 read-only admin / 웹의 manager)이 `fc-onboarding-app/web`과 가람in 내부 채팅에서 소속과 무관하게 모든 완료 FC를 볼 수 있게 맞춘다.
-- GaramLink(`request_board`)는 이번 범위에서 제외한다.
-- 기존 권한 계약은 유지한다. 본부장은 계속 읽기 전용이며, 설계매니저 계정은 내부 FC 목록에서 제외한다.
+## Task Summary
+- 관리자 웹 `/dashboard/referrals/graph`의 추천인 그래프를 live 운영자가 읽기 쉬운 cluster-oriented force layout으로 유지한다.
+- 기존 `react-force-graph-2d` + `d3-force`, 밝은 관리자 웹 테마, API/DB/response shape는 유지한다.
+- 사용자-facing 설정은 `Center force`, `Repel force`, `Link force`, `Link distance` 네 항목만 노출하되, 추천인 tree 가독성을 위해 runtime helper force를 명시적으로 관리한다.
 
-## User outcomes
-- 본부장은 가람in 내부 메신저 목록에서 본인 소속이 아닌 FC도 함께 볼 수 있다.
-- 관리자 웹 채팅 화면은 관리자/본부장 모두 전체 완료 FC를 같은 기준으로 보고 선택할 수 있다.
-- 총무(admin writable)는 기존 내부 조직 중심 동작을 유지한다.
-- GaramLink 화면이나 API는 이번 변경의 영향을 받지 않는다.
+## User Outcomes
+- 큰 connected cluster는 중앙에 가깝고, 작은 cluster와 isolated node는 주변부에 자연스럽게 분포한다.
+- 같은 추천인 cluster의 노드들은 서로 가까운 읽기 단위로 보이고, 다른 cluster와 edge/label이 섞여 혼동되지 않는다.
+- 부모의 direct children은 부모 주변에서 star/pinwheel 형태로 퍼지고, 자식을 가진 child는 자기 subtree를 펼칠 edge 공간을 받는다.
+- 노드를 드래그할 때 incident edge가 한없이 늘어나지 않고 연결 노드가 함께 따라오며, 잡고 있는 동안 강한 진동이나 중심 snap-back이 없어야 한다.
+- 이름 label, 검색, 필터, 드로어, 화면 맞춤, 배치 초기화, isolated toggle은 유지된다.
 
-## Implementation shape
-- 모바일 / Edge Function
-  - `supabase/functions/_shared/internal-chat.ts`
-    - 참여자 포함 규칙을 공용 helper로 분리한다.
-    - `includeAllCompletedFc` 옵션이 켜진 read-only admin 경로에서는 완료된 비-설계매니저 FC 전체를 포함한다.
-  - `supabase/functions/fc-notify/index.ts`
-    - `internal_chat_list`, `internal_unread_count` 양쪽에 같은 참여자 포함 규칙을 적용한다.
-- 관리자 웹
-  - `web/src/app/dashboard/chat/page.tsx`
-    - 클라이언트가 `fc_profiles`를 직접 읽지 않고 `/api/admin/list`를 사용한다.
-    - 전체 완료 FC 목록을 좌측 채팅 대상 리스트의 source of truth로 사용한다.
-  - `web/src/lib/admin-chat-targets.ts`
-    - 완료 여부, 설계매니저 제외, 전화번호 정규화, 중복 제거, 최근 대화 우선 정렬을 순수 함수로 고정한다.
+## Implementation Shape
+- `web/src/lib/referral-graph-layout.ts`
+  - component 크기순으로 초기 위치를 배치하고 큰 component를 중앙에 가깝게 둔다.
+  - hub direct child는 부모 주변 star/pinwheel seed를 받는다.
+  - isolated node는 과도하게 큰 outer ring을 만들지 않는 제한된 golden-angle seed를 받는다.
+- `web/src/lib/referral-graph-physics.ts`
+  - public slider 값을 d3 charge/link 계수와 helper force 값으로 매핑한다.
+  - dynamic link distance, link tension, branch bend, sibling angular separation, node separation, visual cluster separation, component separation, cluster/component envelope, weak cluster gravity, drag rope constraint를 제공한다.
+  - 금지된 힘: 고정 반경 `radial-containment`, 강제 `isolated-ring`, release velocity injection, drop tether.
+- `web/src/components/referrals/ReferralGraphCanvas.tsx`
+  - 기존 internal link force를 설정하고, helper force들을 명시적으로 등록한다.
+  - `d3AlphaMin={0}`, `cooldownTicks={Infinity}`, `cooldownTime={Infinity}`로 simulation force가 계속 적용되게 한다.
+  - drag 중 pointer 대상 노드만 `fx/fy`로 고정하고, drag rope constraint가 incident edge stretch를 제한한다.
+- `web/src/app/dashboard/referrals/graph/page.tsx`
+  - slider 범위와 persisted storage key `referral-graph-physics-settings-v14`를 관리한다.
 
-## Key constraints
-- GaramLink / `request_board`는 수정하지 않는다.
-- 본부장은 계속 읽기 전용이다. “모든 FC 보기”는 가시성 확대이지 쓰기 권한 확대가 아니다.
-- 설계매니저(`설계매니저` 포함 affiliation)는 내부 채팅 대상에서 계속 제외한다.
-- 기존 deep-link(`targetId`, `targetName`) 열기 동작은 유지한다.
-- 모바일 변경은 실제 앱 반영을 위해 `fc-notify` 배포가 필요하다.
+## Key Constraints
+- API/DB/schema 변경 없음.
+- `GraphApiResponse`, `GraphNode`, `GraphEdge` shape 변경 없음.
+- 이름 label 상시 표시와 기존 강조 presentation rule 유지.
+- docs/QA는 실패한 검증을 pass로 기록하지 않는다.
 
-## Verification targets
-- `npm test -- --runInBand lib/__tests__/internal-chat.test.ts`
-- `node --experimental-strip-types --test E:\\hanhwa\\fc-onboarding-app\\web\\src\\lib\\admin-chat-targets.test.ts`
-- `npx eslint --rule "import/no-unresolved: off" supabase/functions/_shared/internal-chat.ts supabase/functions/fc-notify/index.ts lib/__tests__/internal-chat.test.ts`
-- `cd E:\\hanhwa\\fc-onboarding-app\\web && npm run lint -- src/app/dashboard/chat/page.tsx src/lib/admin-chat-targets.ts src/lib/admin-chat-targets.test.ts`
-- `cd E:\\hanhwa\\fc-onboarding-app\\web && npm run build`
-- `cd E:\\hanhwa\\fc-onboarding-app && node scripts/ci/check-governance.mjs`
-- `cd E:\\hanhwa\\fc-onboarding-app && supabase functions deploy fc-notify --project-ref ubeginyxaotcamuqpmud`
+## Verification Targets
+- Unit/helper:
+  - `node --experimental-strip-types --test web/src/lib/referral-graph-physics.test.ts`
+  - `node --experimental-strip-types --test web/src/lib/referral-graph-simulation.test.ts`
+- Lint:
+  - `cd web && npm run lint -- src/components/referrals/ReferralGraphCanvas.tsx src/app/dashboard/referrals/graph/page.tsx src/lib/referral-graph-physics.ts src/lib/referral-graph-layout.ts src/lib/referral-graph-simulation.test.ts src/types/referral-graph.ts src/types/d3-force.d.ts`
+- Browser QA on `/dashboard/referrals/graph`:
+  - no Next overlay, no console/page error, nonblank canvas
+  - cluster separation, no oversized isolated outer circle, stable drag without long edge stretch

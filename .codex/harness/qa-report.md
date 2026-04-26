@@ -1,31 +1,32 @@
-# QA report
+# QA Report
 
 ## Summary
-- Status: partial-pass
-- Scope: invite-link signup referral prefill slowdown / instability caused by exact-code fuzzy search and duplicate pending apply runs
+- Status: partial
+- Scope: admin referral graph v14 hybrid force layout and documentation closeout.
 
-## Passed checks
-- `npm test -- --runInBand lib/__tests__/signup-referral.test.ts`
-- `npm test -- --runInBand supabase/functions/_shared/__tests__/referral-search.test.ts`
-- `npx eslint app/signup.tsx lib/signup-referral.ts lib/__tests__/signup-referral.test.ts`
-- `npx eslint --rule "import/no-unresolved: off" supabase/functions/search-signup-referral/index.ts supabase/functions/_shared/referral-search.ts supabase/functions/_shared/__tests__/referral-search.test.ts`
-- `git diff --check -- app/signup.tsx lib/signup-referral.ts lib/__tests__/signup-referral.test.ts supabase/functions/search-signup-referral/index.ts supabase/functions/_shared/referral-search.ts supabase/functions/_shared/__tests__/referral-search.test.ts`
-- `supabase functions deploy search-signup-referral --project-ref ubeginyxaotcamuqpmud`
-- live invoke: `search-signup-referral(query=TUZD8M3A)` => `200 OK`, exact inviter result returned
+## Passed Checks
+- `node scripts/ci/check-governance.mjs`
+  - Passed.
+- `node --experimental-strip-types --test web/src/lib/referral-graph-physics.test.ts`
+  - 14 tests passed.
+  - Covers current link distance, separation, bounded cluster gravity, and drag rope helper behavior.
+- `cd web && npm run lint -- src/components/referrals/ReferralGraphCanvas.tsx src/app/dashboard/referrals/graph/page.tsx src/lib/referral-graph-physics.ts src/lib/referral-graph-layout.ts src/lib/referral-graph-simulation.test.ts src/types/referral-graph.ts src/types/d3-force.d.ts`
+  - Passed.
+- `cd web && npm run build`
+  - Passed after stopping the running local Next dev server that blocked `scripts/clean-next.mjs`.
 
-## Findings
-- `search-signup-referral` no longer routes exact 8-character referral code queries through the broad fuzzy search path.
-- `app/signup.tsx` now reuses a single in-flight pending referral apply promise instead of recursively scheduling another run after settle.
-- The backend exact-code fast path is live on project `ubeginyxaotcamuqpmud`.
-- The app-side stability mitigation is code-complete but not yet runtime-verified on a deployed mobile build.
+## Known Failing Check
+- `node --experimental-strip-types --test web/src/lib/referral-graph-simulation.test.ts`
+  - 17 pass, 3 fail in the latest run.
+  - Failing cases:
+    - `referral graph simulation keeps pinwheel clusters separated without global center collapse`
+    - `isolated nodes stay outside connected referral clusters instead of mixing through the center`
+    - `admin-sized mixed graph keeps connected clusters compact and isolated shell modest`
 
-## Gaps / caveats
-- No on-device invite-link QA was run in this increment.
-- The live shell benchmark after deployment still showed edge/network latency in the ~0.64-0.73s range for the exact-code invoke, so the backend fast path removes wasted DB work but does not by itself prove a dramatic end-user speedup.
-- The original crash report did not include a JS message or on-device reproduction in this session, so the app-side single-flight change is a reasoned mitigation tied to the duplicated async path, not a fully reproduced crash proof.
+## Current Product Risks
+- Cluster/orphan distribution simulation is not fully green. Do not report this checklist as complete until those failures pass or the assertions are deliberately updated with a verified new acceptance target.
+- Live browser visuals still need final operator-style verification on `http://localhost:3000/dashboard/referrals/graph` after any additional physics tuning.
+- The current implementation intentionally avoids fixed-radius `radial-containment`; boundedness relies on weak `cluster-gravity` plus cluster/node separation and must not reintroduce a hard circular cage.
 
-## Recommended manual QA
-- Open a valid invite link with an exact 8-character code on a device where GaramIn is already installed.
-- Confirm the signup referral spinner/search runs once and does not visibly restart on the same entry.
-- Confirm the app no longer crashes on cold start and warm start invite-link entry.
-- Complete the existing `RF-LINK-05` runtime evidence set after the next mobile deploy/OTA.
+## Notes
+- This QA report replaces the stale v7 "pass" report. It is intentionally conservative because the user explicitly flagged prior false completion reporting.

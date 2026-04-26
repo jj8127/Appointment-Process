@@ -1,49 +1,49 @@
-# Current contract
+# Current Contract
 
 ## Increment
-- Name: Invite-link signup exact-code fast path and single-flight stabilization
-- Goal: remove the slow and unstable signup referral prefill path triggered by invite links with exact 8-character referral codes.
+- Name: Admin referral graph v14 hybrid force documentation and closeout
+- Goal: align docs, harness, and work logs with the current hybrid graph physics implementation, then commit and push the branch with honest verification status.
 
-## Exact scope
-- App signup flow
-  - `app/signup.tsx`
-  - `lib/signup-referral.ts`
-  - `lib/__tests__/signup-referral.test.ts`
-- Signup search backend
-  - `supabase/functions/search-signup-referral/index.ts`
-  - `supabase/functions/_shared/referral-search.ts`
-  - `supabase/functions/_shared/__tests__/referral-search.test.ts`
-- Referral docs / logs / harness
+## Exact Scope
+- Web graph canvas and helper contract
+  - `web/src/components/referrals/ReferralGraphCanvas.tsx`
+  - `web/src/lib/referral-graph-physics.ts`
+  - `web/src/lib/referral-graph-physics.test.ts`
+  - `web/src/lib/referral-graph-layout.ts`
+  - `web/src/lib/referral-graph-layout.test.ts`
+  - `web/src/lib/referral-graph-simulation.test.ts`
+- Web graph page settings
+  - `web/src/app/dashboard/referrals/graph/page.tsx`
+  - `web/src/types/referral-graph.ts`
+  - `web/src/types/d3-force.d.ts`
+- Referral/admin docs and harness
   - `docs/referral-system/SPEC.md`
-  - `docs/referral-system/ARCHITECTURE.md`
   - `docs/referral-system/TEST_CHECKLIST.md`
   - `docs/referral-system/INCIDENTS.md`
-  - `docs/referral-system/test-cases.json`
-  - `docs/referral-system/TEST_RUN_RESULT.json`
+  - `docs/handbook/admin-web/dashboard-lifecycle.md`
+  - `docs/handbook/admin-web/exam-and-referral-ops.md`
+  - `docs/handbook/data/referral-schema-and-admin-rpcs.md`
+  - `.codex/harness/*`
   - `.claude/MISTAKES.md`
   - `.claude/WORK_LOG.md`
   - `.claude/WORK_DETAIL.md`
-  - `.codex/harness/plan.md`
-  - `.codex/harness/current-contract.md`
-  - `.codex/harness/qa-report.md`
-  - `.codex/harness/handoff.md`
 
-## Acceptance criteria
-- [x] exact 8-character signup referral queries are detected and handled by a dedicated fast path before fuzzy name/affiliation search
-- [x] signup pending referral apply joins an in-flight run instead of queueing recursive reruns
-- [x] failing tests were added first for the exact-code helper and single-flight helper
-- [x] `search-signup-referral` is redeployed to the linked Supabase project after the backend change
-- [ ] invite-link runtime QA on device confirms no duplicate spinner/search and no crash on cold/warm start
+## Acceptance Criteria
+- [x] docs no longer claim the graph is v7 four-force-only.
+- [x] docs describe v14 storage key and current helper forces.
+- [x] docs explicitly ban fixed-radius `radial-containment`, forced `isolated-ring`, drop tether, and release velocity injection.
+- [x] docs record weak cluster gravity as a soft boundedness force, not a fixed circle containment force.
+- [x] docs record drag rope constraint as the edge stretch control while dragging.
+- [ ] all simulation-level cluster/orphan distribution checks pass.
+- [x] passing and failing verification are separated in QA notes.
 
-## Checks run
-- `npm test -- --runInBand lib/__tests__/signup-referral.test.ts`
-- `npm test -- --runInBand supabase/functions/_shared/__tests__/referral-search.test.ts`
-- `npx eslint app/signup.tsx lib/signup-referral.ts lib/__tests__/signup-referral.test.ts`
-- `npx eslint --rule "import/no-unresolved: off" supabase/functions/search-signup-referral/index.ts supabase/functions/_shared/referral-search.ts supabase/functions/_shared/__tests__/referral-search.test.ts`
-- `git diff --check -- app/signup.tsx lib/signup-referral.ts lib/__tests__/signup-referral.test.ts supabase/functions/search-signup-referral/index.ts supabase/functions/_shared/referral-search.ts supabase/functions/_shared/__tests__/referral-search.test.ts`
-- `supabase functions deploy search-signup-referral --project-ref ubeginyxaotcamuqpmud`
-- live invoke: `search-signup-referral(query=TUZD8M3A)` => `200 OK`, exact inviter result
+## Checks To Run Before Push
+- `node scripts/ci/check-governance.mjs`
+- `node --experimental-strip-types --test web/src/lib/referral-graph-physics.test.ts`
+- `node --experimental-strip-types --test web/src/lib/referral-graph-simulation.test.ts`
+- `cd web && npm run lint -- src/components/referrals/ReferralGraphCanvas.tsx src/app/dashboard/referrals/graph/page.tsx src/lib/referral-graph-physics.ts src/lib/referral-graph-layout.ts src/lib/referral-graph-simulation.test.ts src/types/referral-graph.ts src/types/d3-force.d.ts`
 
-## Rollback / containment
-- Backend fast path is already live. If runtime QA finds a regression, prefer containing it in `search-signup-referral` or reverting that single function deployment rather than reopening the old direct-input signup contract.
-- App-side single-flight is not live until the next mobile deploy/OTA. Do not claim the crash is resolved in production until that rollout and user QA are complete.
+## Rollback / Containment
+- API, DB, and response shapes are unchanged.
+- Revert containment is limited to graph helper modules, graph canvas force/drag wiring, graph page physics settings, and matching docs.
+- Existing unrelated dirty worktree changes must stay untouched.

@@ -49,8 +49,8 @@ export type ReferralGraphPhysicsSettings = {
 };
 
 export const DEFAULT_REFERRAL_GRAPH_PHYSICS: ReferralGraphPhysicsSettings = {
-  centerGravity: 56,
-  repulsion: 42,
-  linkStrength: 74,
-  linkDistance: 30,
+  centerGravity: 0.5,
+  repulsion: 10,
+  linkStrength: 1,
+  linkDistance: 250,
 };

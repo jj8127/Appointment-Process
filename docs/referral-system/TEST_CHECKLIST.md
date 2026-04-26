@@ -34,9 +34,10 @@
 - `RF-SEC-03`, `RF-SEC-04`는 `set-password` direct/duplicate 호출 hardening을 검증한다. source review만으로 PASS 처리하지 않는다.
 - `RF-SEC-05`는 FC 기본정보 화면에서 추천인 표시 cache가 읽기 전용인지 확인한다.
 - signup 추천인 입력은 `/referral`과 같은 단일 검색 입력이 기준이다. exact 8자리 코드를 붙여넣어도 결과에서 1명을 선택하지 않으면 PASS 처리하지 않는다.
-- graph 검증은 API smoke와 브라우저 상호작용을 분리해서 남긴다.
+- graph 검증은 API smoke, pure force/layout unit test, 브라우저 상호작용을 분리해서 남긴다.
   - API smoke: linked edge count, `relationshipState` 미노출, unresolved legacy node count
-  - 브라우저: node drag, 빈 공간 pan, fit/reset, label 가시성, manager read-only
+  - Unit: slider 기본값/범위 매핑, dynamic link distance, deterministic component/star/orphan seed, cluster separation/gravity, sibling angular separation, drag rope constraint, self-link/unknown-parent edge 계약, label/highlight 계약
+  - 브라우저: no overlay/no console error, canvas nonblank, 이름 label 상시 가시성, manager read-only, 클러스터 구분, 과도한 외곽 원 없음, drag 중 incident edge stretch 제한, 잡고 있는 동안 진동 없음, release 후 `fx/fy` 해제와 reheat, 빈 공간 pan, fit/reset, isolated toggle, settings slider 저장/복원
 
 ## 4. 권장 실행 순서
 
@@ -92,7 +93,7 @@
 - `RF-ADMIN-05` `manager`는 추천인 코드 화면/GET은 조회 가능하지만 mutate UI와 `POST` 권한은 없음
 - `RF-ADMIN-06` 레거시 추천인 검토 큐에서 구조화 링크가 없는 FC를 계정 선택형으로 연결하고 감사 로그를 남김
 - `RF-ADMIN-07` `/dashboard/referrals/graph`는 structured link 기준으로 빈 선 없이 그려지고 manager read-only를 유지함
-- `RF-ADMIN-08` graph canvas는 node drag, 빈 공간 pan, reset, 기본 node name label을 지원함
+- `RF-ADMIN-08` graph canvas는 사용자 설정을 `Center force/Repel force/Link force/Link distance` 4개로 유지하되, 추천인 트리 가독성을 위해 dynamic link distance, sibling angular separation, cluster/node separation, envelope, weak cluster gravity, drag rope constraint를 사용한다. 금지 항목은 고정 반경 radial containment, isolated ring 강제 배치, drop tether, release velocity 주입이다. drag 중 pointer 대상 노드만 임시 고정하고 incident edge는 목표 길이 초과분을 제한하되 진동하지 않아야 한다. 빈 공간 pan/reset/기본 node name label 상시 표시, manager read-only, isolated toggle, settings slider 저장/복원을 유지하고, 브라우저 QA는 no overlay/no console error와 nonblank canvas를 확인한다.
 - `RF-ADMIN-09` 레거시 추천인 검토 큐는 `자동 연결 가능/동명이인 후보 다수/후보 없음/잘못된 자기추천` 상태를 정확히 분류함
 - `RF-ADMIN-10` `안전 자동 정리`는 exact-unique만 구조화하고 자기추천/후보 없음/동명이인은 남김
 

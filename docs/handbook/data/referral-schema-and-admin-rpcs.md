@@ -2,7 +2,7 @@ doc_id: FC-DATA-REFERRAL
 owner_repo: fc-onboarding-app
 owner_area: data
 audience: developer, operator
-last_verified: 2026-04-23
+last_verified: 2026-04-25
 source_of_truth: supabase/schema.sql + supabase/migrations/20260323000001_add_referral_schema.sql + supabase/migrations/20260325000001_add_referral_code_admin_foundation.sql + supabase/migrations/20260404000001_allow_manager_referral_codes.sql
 
 # Data Handbook: Referral Schema And Admin RPCs
@@ -57,6 +57,15 @@ source_of_truth: supabase/schema.sql + supabase/migrations/20260323000001_add_re
 - `get-my-referral-code`, `get-my-invitees`, `get-referral-tree`, 관리자 `/api/admin/referrals`, 추천인 그래프 edge normalizer는 모두 위 `fc_profiles` snapshot을 current read SSOT로 사용하고, `referral_attributions`는 운영 이력/legacy 보조 데이터로만 취급한다.
 - `public.get_invitee_referral_code(uuid)`는 invitee-facing 현재 스냅샷 `fc_profiles.recommender_code`를 trusted helper로 반환한다.
 - 모바일 `ReferralTreeNode`와 관리자 그래프의 사용자용 문구/강조 색상은 바뀔 수 있어도, visible edge는 계속 `recommender_fc_id` 기반 구조화 링크를 기준으로 읽는다.
+
+## 2026-04-26 관리자 graph layout/physics 메모
+
+- 관리자 `/dashboard/referrals/graph` layout/physics 변경은 API/DB/schema 변경이 아니다.
+- `GraphApiResponse`, `GraphNode`, `GraphEdge` shape는 유지하며, graph helper는 response를 받은 뒤 client-side component/star/orphan seed와 cluster metadata만 계산한다.
+- layout helper는 connected component를 크기순으로 중앙에 가깝게 두고, hub direct child를 부모 주변 star/pinwheel seed로 배치하며, isolated node는 제한된 golden-angle seed로만 분산한다. 이 정보는 API 계약이 아니라 client layout metadata다.
+- runtime은 d3 `charge`와 기존 internal `link` force에 보조 force를 얹는다. 현재 보조 force는 link tension, branch bend, sibling angular separation, node separation, visual cluster separation, component separation, cluster/component envelope, weak cluster gravity, drag rope constraint다.
+- 고정 반경 `radial-containment`, 강제 `isolated-ring`, drop tether, release velocity injection은 현 계약에서 금지한다. 중심 보정은 cluster 단위 약한 gravity로만 유지하고, 노드 수가 늘어날 때 특정 원 안에 강제로 가두면 회귀로 본다.
+- drag 중에는 pointer 대상 노드만 `fx/fy`로 고정하고, 연결 노드는 rope constraint가 incident edge stretch를 제한한다. release 때는 `fx/fy`를 해제하고 simulation을 reheat한다.
 
 ## 문서 주의
 

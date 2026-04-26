@@ -287,7 +287,15 @@
   - edge 상태는 `linked` 단일값만 사용한다. `structured/confirmed/structured_confirmed` 구분은 더 이상 운영 UI에 노출하지 않는다.
   - 레거시 `recommender` free-text는 edge source가 아니다. 구조화 링크가 없으면 graph에서도 unresolved 상태로만 남긴다.
   - graph 안에서는 mutation CTA를 노출하지 않고, 운영 액션은 기존 `/dashboard/referrals` 리스트/상세 화면에 남긴다.
-  - graph layout은 세션 한정이며 node drag, 빈 공간 pan, fit/reset, 기본 node name label 표시를 지원해야 한다.
+  - graph layout은 세션 한정이며 node drag, 빈 공간 pan, fit/reset, 기본 node name label 표시를 지원해야 한다. 이름 라벨은 숨기지 않고 zoom/selection 상태에 따라 투명도와 상세 코드 노출만 조절한다.
+  - layout/physics는 Obsidian Graph View의 읽기 경험을 참고하되, 추천인 트리 특성에 맞춘 hybrid force-directed 배치다. 초기 seed는 deterministic component packing을 사용해 큰 connected component를 중앙에 가깝게 두고, hub direct child는 부모를 원형으로 둘러싸는 star/pinwheel seed를 받으며, isolated node는 과도하게 큰 외곽 원을 만들지 않는 제한된 golden-angle 분포를 사용한다.
+  - `연결 없는 사람 숨기기` switch는 orphan toggle처럼 isolated node만 숨기며, 기본값은 전체 관계 파악을 위해 `false`다.
+  - 사용자 설정은 `Center force`, `Repel force`, `Link force`, `Link distance` 4개만 노출한다. 저장 key는 `referral-graph-physics-settings-v14`이며 기본값은 center `0.5`, repel `10`, link force `1`, link distance `250`이다.
+  - runtime force는 d3 `charge`/기존 `link`를 기본으로 하고, `link-tension`, `branch-bend`, `sibling-angular`, `node-separation`, `visual-cluster-separation`, `component-separation`, `cluster-envelope`, `component-envelope`, `cluster-gravity`, `drag-spring` 보조 force를 사용한다. `x/y center`, `radial-containment`, `isolated-ring`, `drop-tether`, legacy `component-gravity/component-cohesion` 계열은 사용하지 않는다.
+  - 중심 보정은 고정 반경 containment가 아니라 cluster 단위 `cluster-gravity`로만 약하게 적용한다. 현재 기준은 `deadZoneRadius=340`, singleton `520`, `gravityScale=120`, `softening=210`, `strength=0.01`, `maxVelocity=4.5`, `minAlpha=0.002`이며, 가장자리에서 클러스터를 꺼내 보는 drag 상호작용을 막으면 안 된다.
+  - 링크 길이는 degree/child 여부에 따라 동적으로 계산한다. leaf spoke는 짧게 유지하고, child hub 간 bridge는 leaf보다 길지만 비정상적으로 늘어나지 않도록 `link-tension`과 `drag-spring`이 목표 길이를 복원한다.
+  - node drag 중에는 pointer 대상 노드만 임시 `fx/fy`로 고정한다. 직접 연결 경로는 `drag-spring` rope constraint로 목표 길이 초과분을 제한한다. pointer 이벤트에서는 `constraintStrength=1`, `stretchSlack=0`, `velocityDamping=0.85`로 즉시 보정하고, simulation tick에서는 `constraintStrength=0.18`, `stretchSlack=8`, `velocityDamping=0.6`으로 완충해 진동을 줄인다. release 시 `fx/fy`를 해제하고 simulation을 reheat한다.
+  - `배치 초기화`는 runtime position을 지우고 현재 필터 기준 deterministic component/star/orphan seed layout으로 다시 시작한다.
   - manager는 graph page 진입과 조회는 가능하지만 계속 read-only다.
 - `backfill_missing_codes`는 수동 실행형 idempotent batch로만 운영하고, 1회 호출당 최대 100명만 처리한다.
 - 오늘 백필 대상은 `signup_completed=true`, `phone=11자리`, `affiliation`이 `설계매니저` 패턴이 아니고, `admin_accounts` 전화번호와 겹치지 않으며, 활성 추천코드가 없는 `fc_profiles`만이다.

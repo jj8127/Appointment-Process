@@ -2,7 +2,7 @@ doc_id: FC-ADMIN-DASHBOARD-LIFECYCLE
 owner_repo: fc-onboarding-app
 owner_area: admin-web
 audience: operator, developer
-last_verified: 2026-04-23
+last_verified: 2026-04-25
 source_of_truth: web/src/app/dashboard/page.tsx + web/src/app/dashboard/profile/[id]/page.tsx + web/src/app/api/admin/fc/route.ts + web/src/lib/shared.ts
 
 # Admin Web Playbook: Dashboard Lifecycle
@@ -96,7 +96,12 @@ source_of_truth: web/src/app/dashboard/page.tsx + web/src/app/dashboard/profile/
   - 구조화 추천 관계를 읽기 전용 graph로 탐색하는 화면이다.
   - visible edge는 `recommender_fc_id`를 기본 소스로 만들고, `confirmed attribution`은 같은 edge의 상태를 보강하는 보조 신호로만 겹친다.
   - manager는 진입/조회만 가능하고 mutation CTA는 노출하지 않는다.
-  - graph는 node drag, 빈 공간 pan, fit/reset, 기본 node label 표시를 지원해야 한다.
+  - graph는 Obsidian Graph View의 읽기 경험을 참고하되, 추천인 tree 가독성을 위해 hybrid force-directed 계약을 사용한다. 사용자에게 노출되는 조절값은 `Center force`, `Repel force`, `Link force`, `Link distance` 네 항목이며 localStorage key는 `referral-graph-physics-settings-v14`다.
+  - layout seed는 connected component를 크기순으로 중앙에 가깝게 배치하고, hub direct child는 부모를 둘러싼 star/pinwheel 형태로 시작한다. isolated node는 과도하게 큰 outer ring을 만들지 않는 제한된 golden-angle 분포로 시작한다.
+  - runtime은 d3 `charge`와 기존 `link` force를 기반으로 `link-tension`, `branch-bend`, `sibling-angular`, `node-separation`, `visual-cluster-separation`, `component-separation`, `cluster-envelope`, `component-envelope`, `cluster-gravity`, `drag-spring` 보조 force를 사용한다. 고정 반경 `radial-containment`, 강제 `isolated-ring`, release velocity, drop tether는 금지한다.
+  - `cluster-gravity`는 전체를 원 안에 가두는 힘이 아니라 멀어진 cluster를 약하게 되돌리는 보정이다. 현재 중심 보정은 `deadZoneRadius=340`, singleton `520`, `strength=0.01` 수준이며, 사용자가 cluster를 바깥으로 끌어 보는 동작을 막으면 회귀다.
+  - node drag 중에는 pointer 대상 노드만 임시 `fx/fy`로 고정하고, incident edge가 한없이 늘어나지 않도록 drag rope constraint가 연결 노드를 따라오게 한다. release는 `fx/fy` 해제와 simulation reheat를 수행하고 drop tether나 별도 관성 주입은 사용하지 않는다. 일반 상태에서는 이름만 보이고, 선택/검색 상태에서만 추천코드까지 확장한다.
+  - `배치 초기화`는 hard-pin 해제가 아니라 runtime position을 지우고 component/star/orphan seed layout으로 다시 시작하는 동작이다.
   - 사용자 노출 copy는 기술 용어보다 쉬운 한국어를 우선한다. 범례/설명/버튼은 `추천인 연결`, `예전 기록 확인`, `화면 맞춤`, `본부장` 같은 운영자 친화 문구를 유지한다.
   - 본부장과 `김형수` 강조 노드는 노란색 fill + 주황색 테두리 + 큰 반지름을 사용한다. 이 강조는 presentation rule이며 edge source를 바꾸지 않는다.
 

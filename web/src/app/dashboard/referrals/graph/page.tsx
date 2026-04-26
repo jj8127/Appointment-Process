@@ -50,11 +50,14 @@ const PHYSICS_SLIDERS: Array<{
   description: string;
   minLabel: string;
   maxLabel: string;
+  min: number;
+  max: number;
+  step: number;
 }> = [
-  { key: 'centerGravity', label: '중심 모임', description: '그래프가 가운데로 모이는 정도', minLabel: '자유롭게', maxLabel: '가운데로' },
-  { key: 'repulsion', label: '반발력', description: '표시들이 서로 밀어내는 정도', minLabel: '가깝게', maxLabel: '멀리' },
-  { key: 'linkStrength', label: '연결 강도', description: '연결된 표시끼리 당기는 정도', minLabel: '느슨하게', maxLabel: '단단하게' },
-  { key: 'linkDistance', label: '연결 거리', description: '연결된 표시 사이 거리', minLabel: '짧게', maxLabel: '길게' },
+  { key: 'centerGravity', label: 'Center force', description: '그래프를 가운데로 모으는 힘', minLabel: '0', maxLabel: '1', min: 0, max: 1, step: 0.01 },
+  { key: 'repulsion', label: 'Repel force', description: '노드끼리 서로 밀어내는 힘', minLabel: '0', maxLabel: '20', min: 0, max: 20, step: 0.5 },
+  { key: 'linkStrength', label: 'Link force', description: '연결된 노드가 목표 거리로 돌아가는 힘', minLabel: '0', maxLabel: '1', min: 0, max: 1, step: 0.05 },
+  { key: 'linkDistance', label: 'Link distance', description: '연결된 노드 사이의 목표 거리', minLabel: '30px', maxLabel: '500px', min: 30, max: 500, step: 10 },
 ] as const;
 
 const PHYSICS_PRESETS: Array<{
@@ -63,8 +66,8 @@ const PHYSICS_PRESETS: Array<{
   values: ReferralGraphPhysicsSettings;
 }> = [
   { key: 'balanced', label: '균형', values: DEFAULT_REFERRAL_GRAPH_PHYSICS },
-  { key: 'spread', label: '퍼짐', values: { centerGravity: 44, repulsion: 74, linkStrength: 58, linkDistance: 72 } },
-  { key: 'tight', label: '밀집', values: { centerGravity: 72, repulsion: 28, linkStrength: 84, linkDistance: 18 } },
+  { key: 'spread', label: '퍼짐', values: { centerGravity: 0.2, repulsion: 15, linkStrength: 0.7, linkDistance: 350 } },
+  { key: 'tight', label: '밀집', values: { centerGravity: 0.8, repulsion: 5, linkStrength: 1, linkDistance: 100 } },
 ] as const;
 
 function fetchGraphData(): Promise<GraphApiResponse> {
@@ -132,13 +135,13 @@ export default function ReferralGraphPage() {
   const [searchTerm, setSearchTerm] = useState('');
   const deferredSearchTerm = useDeferredValue(searchTerm);
   const [depthHops, setDepthHops] = useState<1 | 2 | 3>(2);
-  const [hideIsolatedNodes, setHideIsolatedNodes] = useState(true);
+  const [hideIsolatedNodes, setHideIsolatedNodes] = useState(false);
   const [enabledStatuses, setEnabledStatuses] = useState<StatusFilterKey[]>(STATUS_FILTERS.map((item) => item.key));
   const [fitRequestId, setFitRequestId] = useState(0);
   const [resetLayoutRequestId, setResetLayoutRequestId] = useState(0);
   const [physicsPanelOpen, setPhysicsPanelOpen] = useState(false);
   const [storedPhysicsSettings, setStoredPhysicsSettings] = useLocalStorage<ReferralGraphPhysicsSettings>({
-    key: 'referral-graph-physics-settings-v1',
+    key: 'referral-graph-physics-settings-v14',
     defaultValue: DEFAULT_REFERRAL_GRAPH_PHYSICS,
     getInitialValueInEffect: true,
   });
@@ -424,9 +427,9 @@ export default function ReferralGraphPage() {
               <Button size="xs" variant="light" onClick={() => setFitRequestId((value) => value + 1)}>
                 화면 맞춤
               </Button>
-              <Tooltip label="고정된 항목을 풀고 배치를 다시 정리합니다." withArrow>
+              <Tooltip label="배치를 초기 원형 구조로 다시 정리합니다." withArrow>
                 <Button size="xs" variant="light" onClick={() => setResetLayoutRequestId((value) => value + 1)}>
-                  고정 해제
+                  배치 초기화
                 </Button>
               </Tooltip>
               <Button
@@ -711,7 +714,9 @@ export default function ReferralGraphPage() {
                               {slider.label}
                             </Text>
                             <Badge variant="light" color="orange">
-                              {physicsSettings[slider.key]}
+                              {Number.isInteger(physicsSettings[slider.key])
+                                ? physicsSettings[slider.key]
+                                : physicsSettings[slider.key].toFixed(2)}
                             </Badge>
                           </Group>
                           <Text size="xs" c="#b6a998">
@@ -721,9 +726,9 @@ export default function ReferralGraphPage() {
                             value={physicsSettings[slider.key]}
                             onChange={(value) => updatePhysicsSetting(slider.key, value)}
                             onChangeEnd={(value) => persistPhysicsSetting(slider.key, value)}
-                            min={0}
-                            max={100}
-                            step={1}
+                            min={slider.min}
+                            max={slider.max}
+                            step={slider.step}
                             color="orange"
                             size="sm"
                             label={(value) => `${value}`}

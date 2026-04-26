@@ -7,6 +7,358 @@
 
 ---
 
+## <a id="20260426-referral-graph-v14-doc-closeout"></a> 2026-04-26 | Referral graph v14 hybrid force documentation closeout
+
+**배경**:
+- 추천인 그래프 작업 중 v7 Obsidian four-force reset 문서가 남아 있었지만, 실제 구현은 이후 사용자 피드백을 반영해 v14 hybrid force 계약으로 바뀌었다.
+- 사용자가 이전 완료 보고가 실제 체크리스트 완수와 맞지 않았다고 지적했고, `web/src/lib/referral-graph-simulation.test.ts`에도 아직 cluster/orphan distribution 실패가 남아 있었다.
+
+**조치**:
+- `docs/referral-system/SPEC.md`, `TEST_CHECKLIST.md`, admin/data handbook을 현재 v14 계약으로 갱신했다.
+- 현재 graph runtime force를 d3 charge/internal link + link tension, branch bend, sibling angular, node/cluster separation, envelope, weak cluster gravity, drag rope constraint로 문서화했다.
+- 고정 반경 `radial-containment`, forced `isolated-ring`, drop tether, release velocity injection 금지를 명시했다.
+- `.codex/harness/*`를 stale pass report에서 partial QA report로 바꾸고, 남은 simulation failure를 기록했다.
+- `docs/referral-system/INCIDENTS.md`에 INC-022를 추가하고, `.claude/MISTAKES.md`에 체크리스트 미완료를 완료처럼 보고한 guardrail을 추가했다.
+
+**결과**:
+- 문서와 harness가 현재 코드의 storage key `referral-graph-physics-settings-v14`, hybrid force list, drag rope constraint, known failing checks와 맞도록 정리됐다.
+- 이후 graph closeout에서 실패한 simulation checklist를 pass로 보고하지 않도록 durable guardrail을 남겼다.
+
+**검증**:
+- 통과: `node scripts/ci/check-governance.mjs`
+- 통과: `node --experimental-strip-types --test web/src/lib/referral-graph-physics.test.ts`
+- 통과: `cd web && npm run lint -- src/components/referrals/ReferralGraphCanvas.tsx src/app/dashboard/referrals/graph/page.tsx src/lib/referral-graph-physics.ts src/lib/referral-graph-layout.ts src/lib/referral-graph-simulation.test.ts src/types/referral-graph.ts src/types/d3-force.d.ts`
+- 통과: `cd web && npm run build`
+- 실패: `node --experimental-strip-types --test web/src/lib/referral-graph-simulation.test.ts`
+  - `referral graph simulation keeps pinwheel clusters separated without global center collapse`
+  - `isolated nodes stay outside connected referral clusters instead of mixing through the center`
+  - `admin-sized mixed graph keeps connected clusters compact and isolated shell modest`
+
+---
+
+## <a id="20260425-referral-graph-obsidian-four-force-reset"></a> 2026-04-25 | Referral graph Obsidian four-force reset
+
+**배경**:
+- 운영 피드백에서 추천인 그래프가 겉보기 수정은 되었지만 Obsidian Graph View처럼 예측 가능하지 않고, drag/release 물리와 다단계 관계 모양이 계속 흔들린다는 점이 반복 확인됐다.
+- Obsidian 공개 자료 기준으로 renderer는 별도일 수 있어도 핵심 사용자-facing force contract는 `Center force`, `Repel force`, `Link force`, `Link distance` 네 값으로 설명되는 단순 force-directed model이어야 한다는 요구가 확정됐다.
+
+**조치**:
+- `web/src/lib/referral-graph-physics.ts`
+  - physics tuning을 `alphaDecay`, `velocityDecay`, `centerStrength`, `chargeStrength`, `linkDistance`, `linkStrength`만 남기도록 단순화했다.
+  - `chargeStrength=-30*repulsion`, `alphaDecay=0.0228`, `velocityDecay=0.4` 계약으로 정리했다.
+  - component collision, hub fanout, degree-aware link config, drop-tether helper를 제거했다.
+- `web/src/lib/referral-graph-layout.ts`
+  - connected component/orphan anchor metadata를 runtime force 입력으로 쓰지 않도록 비우고, deterministic small-disk seed만 제공하게 했다.
+- `web/src/components/referrals/ReferralGraphCanvas.tsx`
+  - runtime d3 force를 `charge`, 기존 internal `link`, `x`, `y`로 제한했다.
+  - 기존 link force를 새로 만들지 않고 `distance/strength/iterations(1)`만 설정해 `node not found` 런타임 오류를 막았다.
+  - `collision`, `isolated-ring`, `component-collision`, `hub-fanout`, `drop-tether` force를 명시적으로 제거했다.
+  - drag release는 `fx/fy` 해제와 simulation reheat만 수행하게 했다.
+- `web/src/app/dashboard/referrals/graph/page.tsx`, `web/src/types/referral-graph.ts`
+  - Obsidian식 slider 범위/기본값으로 정리하고 storage key를 `referral-graph-physics-settings-v7`로 올렸다.
+- referral/admin/data 문서, harness, incident/mistake ledger를 새 4-force 계약으로 갱신했다.
+
+**결과**:
+- 추천인 그래프 물리는 Obsidian 동등성을 해치는 custom force 중첩 없이 네 설정만으로 설명된다.
+- release inertia/drop tether가 사라져 놓은 뒤 임의로 튀는 동작이 줄고, 브라우저에서 runtime overlay 없이 canvas가 렌더링된다.
+
+**검증**:
+- 통과: `node --experimental-strip-types --test web/src/lib/referral-graph-physics.test.ts web/src/lib/referral-graph-layout.test.ts web/src/lib/referral-graph-edges.test.ts web/src/lib/referral-graph-display.test.ts web/src/lib/referral-graph-highlight.test.ts`
+- 통과: `cd web && npm run lint -- src/components/referrals/ReferralGraphCanvas.tsx src/app/dashboard/referrals/graph/page.tsx src/lib/referral-graph-physics.ts src/lib/referral-graph-layout.ts src/types/referral-graph.ts src/types/d3-force.d.ts`
+- 통과: `cd web && npm run build`
+- 통과: Chrome DevTools Protocol browser QA on `http://localhost:3000/dashboard/referrals/graph` with intercepted synthetic graph API, screenshot `.codex/harness/referral-graph-obsidian-v7-browser-qa.png`
+
+---
+
+## <a id="20260425-referral-graph-branch-aware-edge-length"></a> 2026-04-25 | Referral graph branch-aware edge length and settled fit
+
+**배경**:
+- 운영 피드백에서 자식을 가진 자식 노드가 leaf sibling과 같은 edge length로 묶이면서, 중간 부모의 하위 노드 ring이 부모/형제 edge와 섞여 깨져 보이는 문제가 확인됐다.
+- 실제 브라우저 synthetic nested tree QA에서 최초 자동 fit이 너무 이른 시점에 잡혀 안정화 후 graph가 캔버스 하단으로 밀리는 문제도 함께 확인했다.
+
+**조치**:
+- `web/src/lib/referral-graph-physics.ts`
+  - `getReferralGraphLinkForceConfig(...)`가 `sourceOutDegree`, `targetOutDegree`, `sourceInDegree`, `targetInDegree`를 받아 directed hierarchy를 반영하도록 확장했다.
+  - target child가 다시 children을 가진 branch node이면 leaf sibling보다 긴 bridge target distance를 적용해 자기 child ring을 펼칠 공간을 확보한다.
+- `web/src/lib/referral-graph-layout.ts`
+  - 초기 seed에서도 branch child에 bridge bonus를 적용해 leaf child와 같은 반경에 묶이지 않게 했다.
+- `web/src/components/referrals/ReferralGraphCanvas.tsx`
+  - directed in/out degree map을 계산해 edge별 link distance/strength config에 전달했다.
+  - 최초 fit 후 simulation 안정화가 진행된 bounds를 다시 반영하도록 settled fit을 한 번 더 예약했다.
+- `web/src/lib/referral-graph-physics.test.ts`, `web/src/lib/referral-graph-layout.test.ts`
+  - branch child edge가 leaf sibling edge보다 더 긴 bridge를 갖는지 검증하는 regression test를 추가했다.
+  - `root -> branch child -> grandchildren` core force simulation에서 branch bridge와 local child ring이 함께 유지되는지 검증했다.
+- 추천인/admin/data 문서, harness, mistake ledger를 branch-aware edge length 계약으로 갱신했다.
+
+**결과**:
+- 자식을 가진 자식 노드는 leaf sibling과 같은 길이로 눌리지 않고, 자기 하위 ring을 펼칠 bridge 공간을 받는다.
+- 수동 `화면 맞춤` 없이도 nested branch synthetic browser QA에서 node bounds가 캔버스 내부에 들어온다.
+
+**검증**:
+- 통과: `node --experimental-strip-types --test web/src/lib/referral-graph-physics.test.ts`
+- 통과: `node --experimental-strip-types --test web/src/lib/referral-graph-layout.test.ts`
+- 통과: `node --experimental-strip-types --test web/src/lib/referral-graph-interaction.test.ts web/src/lib/referral-graph-physics.test.ts web/src/lib/referral-graph-layout.test.ts web/src/lib/referral-graph-edges.test.ts`
+- 통과: `cd web && npm run lint -- src/components/referrals/ReferralGraphCanvas.tsx src/app/dashboard/referrals/graph/page.tsx src/lib/referral-graph-physics.ts src/lib/referral-graph-interaction.ts src/lib/referral-graph-layout.ts src/types/referral-graph.ts`
+- 통과: Chrome DevTools Protocol synthetic browser QA on `http://localhost:3000/dashboard/referrals/graph` with nested branch graph API, screenshot `.codex/harness/referral-graph-nested-branch-auto-fit-qa.png`
+
+---
+
+## <a id="20260425-referral-graph-core-force-star-redesign"></a> 2026-04-25 | Referral graph core-force parent star redesign
+
+**배경**:
+- 운영 피드백에서 하위 노드 원형 배치가 여전히 요구대로 읽히지 않았고, 단순 parent-ring 보정 force를 추가하는 방식이 Obsidian Graph View의 `center/repel/link/linkDistance` 중심 모델과 맞지 않는다는 점이 확인됐다.
+- 실제 실패 원인은 parent-child link spring 목표 거리가 이름 label이 있는 화면에서 local star radius를 확보하기에 충분하지 않았던 것이다.
+
+**조치**:
+- `web/src/lib/referral-graph-physics.ts`
+  - parent-child 원형을 유지하던 별도 absolute `parent-ring` force를 제거했다.
+  - default link spring distance를 label-readable 반경으로 키우고, hub degree에 따라 spoke target distance를 더 넓혔다.
+  - link strength는 degree-aware로 유지하되 hub link가 너무 약해지지 않도록 완화했고, 기본 link iterations를 강화했다.
+  - component collision gap/strength는 더 compact하게 낮춰 그룹끼리 너무 멀어지지 않게 했다.
+- `web/src/components/referrals/ReferralGraphCanvas.tsx`
+  - d3 simulation에서 `parent-ring` force 등록을 제거했다.
+  - runtime 구조는 link/charge/component anchor/component collision/direct child angular separation/drop tether 중심으로 정리했다.
+- `web/src/lib/referral-graph-layout.ts`
+  - directed child seed ring radius를 이름 label 기준으로 키우되 connected component gap은 compact하게 낮췄다.
+- `web/src/lib/referral-graph-physics.test.ts`
+  - parent-child link spring이 label-readable target distance를 갖는지 검증하는 regression test를 추가했다.
+  - absolute parent-ring tether 없이 core link/charge/angular separation만으로 parent star가 유지되는 simulation test를 추가했다.
+- `web/src/app/dashboard/referrals/graph/page.tsx`
+  - physics localStorage key를 `referral-graph-physics-settings-v6`으로 올려 이전 튜닝값이 새 기본값을 덮지 않게 했다.
+
+**결과**:
+- 부모-자식 원형은 별도 고정 좌표 force가 아니라 d3 link spring 목표 길이와 자식 각도 분산으로 만들어진다.
+- 드래그 중/후에도 link spring이 같은 책임을 유지하므로, 원형 보정과 연결선 고무줄 힘이 서로 충돌하지 않는다.
+
+**검증**:
+- 통과: `node --experimental-strip-types --test web/src/lib/referral-graph-physics.test.ts`
+- 통과: `node --experimental-strip-types --test web/src/lib/referral-graph-layout.test.ts`
+- 통과: `node --experimental-strip-types --test web/src/lib/referral-graph-interaction.test.ts web/src/lib/referral-graph-physics.test.ts web/src/lib/referral-graph-layout.test.ts web/src/lib/referral-graph-edges.test.ts`
+- 통과: `cd web && npm run lint -- src/components/referrals/ReferralGraphCanvas.tsx src/app/dashboard/referrals/graph/page.tsx src/lib/referral-graph-physics.ts src/lib/referral-graph-interaction.ts src/lib/referral-graph-layout.ts src/types/referral-graph.ts`
+
+---
+
+## <a id="20260425-referral-graph-parent-centered-child-rings"></a> 2026-04-25 | Referral graph parent-centered child rings
+
+**배경**:
+- 운영 피드백에서 하위 노드들이 component 중심의 depth ring에만 묶이는 것이 아니라, 각 상위 노드를 원형으로 둘러싸는 별자리 형태가 필요하다는 요구가 확인됐다.
+- 첨부 레퍼런스처럼 local parent-child star cluster가 보여야 다단계 추천 관계를 더 빠르게 읽을 수 있다.
+
+**조치**:
+- `web/src/lib/referral-graph-layout.ts`
+  - directed referral edge 기준 `childrenBySource`, `parentsByTarget`를 layout helper 내부에 추가했다.
+  - component root는 in-component parent가 없는 hierarchy root 후보를 우선하고, 없으면 기존 priority로 fallback한다.
+  - BFS seed에서 directed children을 먼저 방문하고, 각 parent의 direct children을 parent 좌표 기준 원형 ring에 배치한다.
+  - cycle/비정상 연결은 기존 depth fallback으로 처리한다.
+- `web/src/lib/referral-graph-layout.test.ts`
+  - root 아래 nested parent가 있고 그 parent의 하위 노드들이 자기 parent 중심 ring에 놓이는지 검증하는 회귀 테스트를 추가했다.
+
+**결과**:
+- component 내부 초기 배치가 전체 중심 depth ring보다 referral hierarchy를 더 직접 반영한다.
+- direct 하위 노드는 상위 node 주변에서 시작하므로, 시각적으로 parent-child star cluster가 만들어진다.
+
+**검증**:
+- 통과: `node --experimental-strip-types --test web/src/lib/referral-graph-layout.test.ts`
+- 통과: `node --experimental-strip-types --test web/src/lib/referral-graph-interaction.test.ts web/src/lib/referral-graph-physics.test.ts web/src/lib/referral-graph-layout.test.ts web/src/lib/referral-graph-edges.test.ts`
+- 통과: `cd web && npm run lint -- src/components/referrals/ReferralGraphCanvas.tsx src/app/dashboard/referrals/graph/page.tsx src/lib/referral-graph-physics.ts src/lib/referral-graph-interaction.ts src/lib/referral-graph-layout.ts src/types/referral-graph.ts`
+- 통과: `cd web && npm run build`
+- 통과: Playwright synthetic browser QA on `http://localhost:3000/dashboard/referrals/graph` with parent-child ring graph API, screenshot `.codex/harness/referral-graph-child-rings-browser-qa.png`
+
+---
+
+## <a id="20260425-referral-graph-compact-group-spacing"></a> 2026-04-25 | Referral graph compact group spacing
+
+**배경**:
+- 운영 피드백에서 drag 물리는 괜찮아졌지만, connected group들이 서로 너무 멀리 떨어져 한 화면에서 관계를 비교하기 어렵다는 문제가 확인됐다.
+- 목표는 component overlap 방어는 유지하되, 초기 radial seed와 runtime collision이 그룹을 별도 섬처럼 밀어내지 않도록 compact하게 조정하는 것이다.
+
+**조치**:
+- `web/src/lib/referral-graph-layout.ts`
+  - connected component ring step을 줄이고, component anchor gap을 compact하게 낮췄다.
+  - isolated node outer ring도 connected layout 바깥으로 과하게 멀어지지 않도록 gap을 낮췄다.
+- `web/src/lib/referral-graph-physics.ts`
+  - runtime component collision gap과 separation strength를 낮춰 안정화 중 그룹이 필요 이상으로 벌어지지 않게 했다.
+- `web/src/lib/referral-graph-layout.test.ts`, `web/src/lib/referral-graph-physics.test.ts`
+  - connected component가 겹치지 않으면서도 scan 가능한 거리 안에 남는지 검증하는 compact spacing 회귀 테스트를 추가했다.
+- referral spec/checklist, admin handbook, harness를 compact component spacing 계약에 맞췄다.
+
+**결과**:
+- 큰 central component 주변의 작은 connected component들이 더 가까운 ring에 배치된다.
+- runtime collision은 여전히 component envelope overlap을 밀어내지만, 기본 gap이 낮아져 그룹 간 여백이 과하게 벌어지는 현상을 줄인다.
+
+**검증**:
+- 통과: `node --experimental-strip-types --test web/src/lib/referral-graph-layout.test.ts web/src/lib/referral-graph-physics.test.ts`
+- 통과: `node --experimental-strip-types --test web/src/lib/referral-graph-interaction.test.ts web/src/lib/referral-graph-physics.test.ts web/src/lib/referral-graph-layout.test.ts web/src/lib/referral-graph-edges.test.ts`
+
+---
+
+## <a id="20260425-referral-graph-drag-physics-redesign"></a> 2026-04-25 | Referral graph drag physics redesign
+
+**배경**:
+- 운영 피드백에서 추천인 그래프가 겉보기 radial layout은 개선됐지만, drag 중 edge가 비정상적으로 길어지고 release 후 1초 정도 노드가 멋대로 움직이거나 edge가 겹친 채 멈추는 문제가 확인됐다.
+- 이전 구현은 follower 좌표를 직접 옮기고 follower마다 soft anchor를 저장해 d3 force의 link spring이 원래 길이를 복원할 자유도를 잃고 있었다.
+- 목표는 Obsidian Graph View처럼 link/charge/center 물리를 계속 유지하면서, 사용자가 놓은 위치는 짧고 약하게만 기억하는 구조다.
+
+**조치**:
+- `web/src/lib/referral-graph-interaction.ts`
+  - release velocity를 최근 pointer sample에서 clamped `vx/vy`로 계산하도록 바꿨다.
+  - dragged node 1개에만 56 tick decaying drop tether를 만들고, force delta는 additive correction으로만 반환한다.
+  - follower coordinate move는 명시적으로 false인 계약으로 고정했다.
+- `web/src/lib/referral-graph-physics.ts`
+  - Obsidian형 slider mapping, degree-aware link strength/distance, link iterations, component envelope collision, hub fanout force를 분리했다.
+- `web/src/lib/referral-graph-layout.ts`
+  - component 내부 seed를 highest-degree hub 중심 BFS/radial fanout으로 바꿔 hub direct neighbor가 한 방향으로 겹쳐 시작하지 않게 했다.
+- `web/src/components/referrals/ReferralGraphCanvas.tsx`
+  - drag 중 pointer node만 임시 `fx/fy`로 잡고, follower 좌표와 follower anchor 쓰기를 제거했다.
+  - drag 중 simulation을 throttled reheat하고, release 때 `fx/fy` 해제 + clamped velocity + drop tether 생성만 수행한다.
+  - d3 force에 degree-aware link, component collision, hub fanout, drop tether를 등록했다.
+- `web/src/app/dashboard/referrals/graph/page.tsx`
+  - physics storage key를 `referral-graph-physics-settings-v5`로 올렸다.
+- 추천인 spec/checklist, admin/data handbook, harness, mistake ledger를 새 drag physics 계약으로 갱신했다.
+
+**결과**:
+- drag 이벤트가 더 이상 주변 노드 좌표를 직접 소유하지 않고, d3 force가 link length와 주변 반응을 계속 결정한다.
+- release 후에는 hard pin이나 velocity zeroing 대신 최근 움직임만 짧게 반영하고, stale sample은 velocity 0으로 처리된다.
+- component 겹침 방지와 hub 주변 angular spread가 pure force helper로 테스트 가능해졌다.
+
+**검증**:
+- 통과: `node --experimental-strip-types --test web/src/lib/referral-graph-interaction.test.ts web/src/lib/referral-graph-physics.test.ts web/src/lib/referral-graph-layout.test.ts web/src/lib/referral-graph-edges.test.ts`
+- 통과: `cd web && npm run lint -- src/components/referrals/ReferralGraphCanvas.tsx src/app/dashboard/referrals/graph/page.tsx src/lib/referral-graph-physics.ts src/lib/referral-graph-interaction.ts src/lib/referral-graph-layout.ts src/types/referral-graph.ts`
+- 통과: `cd web && npm run build`
+- 통과: Playwright synthetic browser QA on `http://localhost:3000/dashboard/referrals/graph` with dummy admin cookies + intercepted graph API, screenshot `.codex/harness/referral-graph-physics-browser-qa.png`
+- 통과: `git diff --check`
+- 통과: `node scripts/ci/check-governance.mjs`
+
+---
+
+## <a id="20260424-referral-graph-obsidian-radial-layout"></a> 2026-04-24 | Referral graph Obsidian radial layout
+
+**배경**:
+- 관리자 웹 추천인 그래프에서 단일 노드와 작은 component들이 사각 grid처럼 배치되어 전체 관계 구조를 읽기 어려웠다.
+- 사용자는 Obsidian Graph View처럼 큰 연결 그룹은 중앙에 두고, isolated node는 외곽 원형 ring을 만들며, node drag 후에는 hard pin이 아니라 부드러운 물리 반응으로 안정화되는 동작을 요청했다.
+- 후속 확인에서 단순 radial seed만으로는 Obsidian Graph View처럼 읽히지 않았고, 이름 라벨은 제거하지 말아야 한다는 추가 조건이 확인됐다.
+- 추가 운영 피드백에서 중앙 근처 group들이 겹치면 시인성이 떨어지고, drag 중/후 링크가 길게 늘어나며, drag 후 노드가 사용자가 놓은 위치에서 크게 벗어나거나 기존 graph 물리가 죽으면 UX가 불안정하다는 문제가 확인됐다.
+
+**조치**:
+- `web/src/lib/referral-graph-layout.ts`를 새로 분리했다.
+  - visible node/edge 기준 connected component를 탐색한다.
+  - component를 size, edge count, referral/inbound activity, deterministic sort key로 정렬한다.
+  - 큰 connected component는 중앙부터 배정하되 component radius + gap 기준으로 greedy ring/slot을 찾아 anchor envelope가 겹치지 않게 했다.
+  - isolated node는 expanded connected layout 바깥의 외곽 ring에 배정한다.
+  - component 내부 node도 degree/referral/inbound priority 기준으로 deterministic seed position을 만든다.
+- `web/src/lib/referral-graph-layout.test.ts`를 추가했다.
+  - isolated node 외곽 ring
+  - 큰 component 중심 우선
+  - connected component anchor envelope no-overlap
+  - 입력 순서 변화에도 deterministic
+- `web/src/lib/referral-graph-interaction.ts`와 `web/src/lib/referral-graph-interaction.test.ts`를 추가했다.
+  - drag end 좌표를 정확한 manual placement anchor로 저장한다.
+  - release velocity는 전달받아도 0으로 정리해 노드가 놓은 뒤 drift하지 않게 했다.
+  - manual placement force는 기존 d3 velocity를 덮어쓰지 않고 additive correction으로 더한다.
+  - correction은 cap을 둬 drop 위치에서 크게 벗어나는 것만 막고 link/charge/center force는 유지한다.
+  - drag follower shift는 1-hop 이웃을 같은 이동량으로, 2-hop/3-hop 이웃을 점진적으로 같이 이동시켜 링크가 길게 늘어지는 현상을 줄인다.
+- `web/src/lib/referral-graph-display.ts`와 `web/src/lib/referral-graph-display.test.ts`를 추가했다.
+  - 이름 라벨은 overview zoom에서도 visible 상태를 유지한다.
+  - 일반 label은 이름만 표시하고, 선택/검색 label만 추천코드를 함께 보여준다.
+  - hub/highlight label은 더 강한 alpha/font weight를 사용한다.
+- `web/src/lib/referral-graph-highlight.test.ts`를 추가해 일반 node 반지름은 compact하게, hub/highlight node는 과도하지 않게 유지하도록 고정했다.
+- `ReferralGraphCanvas.tsx`
+  - 기존 canvas-local grid layout builder를 제거하고 pure helper 결과를 runtime seed와 force target으로 사용한다.
+  - drag 중에만 `fx/fy`를 쓰고, drag end에서는 `fx/fy`를 해제한 뒤 manual placement anchor와 zero velocity를 함께 반영한다.
+  - drag 중 직접 연결/근접 연결 노드를 follower로 같이 이동시키고, follower의 soft anchor도 새 좌표로 갱신해 관계선 stretch를 줄였다.
+  - component separation force를 강화하고 component gap을 넓혀 중앙/중간 ring group들이 서로 침범하지 않게 했다.
+  - isolated component는 component anchoring/boundary/separation에서 제외하고 별도 isolated ring force로 부드럽게 유지한다.
+  - node radius와 link alpha/thickness를 줄이고, label alpha를 통해 이름은 남기되 과한 코드 label 잉크는 줄였다.
+- `page.tsx` / `referral-graph.ts`
+  - `hideIsolatedNodes` 기본값을 `false`로 바꿨다.
+  - physics storage key를 `referral-graph-physics-settings-v4`로 올렸다.
+  - reset 버튼 copy를 `배치 초기화`로 바꿨다.
+  - 새 기본 physics 값을 radial layout에 맞춰 조정했다.
+- `docs/referral-system/*`, `docs/handbook/admin-web/dashboard-lifecycle.md`, `docs/handbook/admin-web/exam-and-referral-ops.md`, `docs/handbook/data/referral-schema-and-admin-rpcs.md`, `.codex/harness/*`를 새 graph layout/physics 계약에 맞췄다.
+
+**결과**:
+- 관리자 graph는 API/DB/schema 변경 없이 Obsidian형 하이브리드 radial seed layout을 사용한다.
+- connected component는 radius-aware anchor와 runtime separation force를 함께 사용해 그룹끼리 겹치지 않는 방향으로 배치된다.
+- 첫 진입에서 isolated node가 기본 노출되고 외곽 원형 ring으로 배치된다.
+- 이름 라벨은 제거하지 않고, 일반 상태에서는 이름만 표시하며 선택/검색 상태에서만 코드 detail을 더한다.
+- drag release는 hard-pinned node를 남기지 않고, 사용자가 놓은 위치를 soft manual anchor로 존중하며 release velocity를 0으로 꺼서 관성 drift를 막는다.
+- manual placement force는 additive로 동작하므로 놓은 뒤에도 기존 link/charge/center 물리가 유지된다.
+- drag 중 직접 연결된 노드와 가까운 이웃이 같이 움직이고 follower anchor도 갱신돼 링크가 과도하게 길어지지 않는다.
+
+**검증**:
+- 통과: `node --experimental-strip-types --test web/src/lib/referral-graph-layout.test.ts`
+- 통과: `node --experimental-strip-types --test web/src/lib/referral-graph-interaction.test.ts`
+- 통과: `node --experimental-strip-types --test web/src/lib/referral-graph-display.test.ts`
+- 통과: `node --experimental-strip-types --test web/src/lib/referral-graph-highlight.test.ts`
+- 통과: `node --experimental-strip-types --test web/src/lib/referral-graph-edges.test.ts`
+- 통과: `cd web && npm run lint -- src/components/referrals/ReferralGraphCanvas.tsx src/app/dashboard/referrals/graph/page.tsx src/lib/referral-graph-layout.ts src/lib/referral-graph-layout.test.ts src/lib/referral-graph-interaction.ts src/lib/referral-graph-interaction.test.ts src/lib/referral-graph-display.ts src/lib/referral-graph-display.test.ts src/lib/referral-graph-highlight.ts src/lib/referral-graph-highlight.test.ts src/types/referral-graph.ts`
+- 통과: `cd web && npm run build`
+- 통과: `git diff --check`
+- 통과: `node scripts/ci/check-governance.mjs`
+- 통과: production browser smoke on `http://localhost:3000/dashboard/referrals/graph` before the latest drag-link refinement
+  - API smoke 200
+  - canvas pixel check nonblank
+  - isolated hide switch default off
+  - search, fit, drag, reset smoke
+  - node click Drawer smoke
+  - screenshot: `.codex/harness/referral-graph-radial-qa.png`
+  - synthetic visual smoke: `nonBackground=32195`, `orangeNode=3501`, `labelInk=7977`
+  - screenshot: `.codex/harness/referral-graph-obsidian-overview-qa.png`
+  - real graph no-overlap check: `154` nodes, `77` edges, `18` connected components, minimum connected-component envelope margin `20`
+  - screenshot: `.codex/harness/referral-graph-no-overlap-qa.png`
+- 참고: latest drag-link refinement는 unit/lint/build로 재검증했다. 이 환경에서 fresh automated browser drag replay는 사용할 수 없었다.
+
+---
+
+## <a id="20260423-codex-app-local-preview-run-wiring"></a> 2026-04-23 | Codex app local preview run wiring
+
+**배경**:
+- 사용자가 보낸 Codex screenshot-style demo는 native Android/iOS simulator보다 `Codex app Browser + localhost` preview 흐름에 가까웠다.
+- `fc-onboarding-app`는 Expo 앱이지만, 저장소에는 Codex action bar용 local run wiring(`script/build_and_run.sh`, `.codex/environments/environment.toml`)이 없었다.
+
+**조치**:
+- 공식 reference(`codex-expo-run-actions`)를 기준으로 `script/build_and_run.sh`를 추가했다.
+  - 기본 `start`
+  - `--android`
+  - `--web`
+  - `--dev-client`
+  - `--tunnel`
+  - `--export-web`
+  - `--doctor`
+- `.codex/environments/environment.toml`를 추가했다.
+  - `Run`
+  - `Run Android`
+  - `Run Web`
+  - `Expo Doctor`
+- Windows 실행 경로 보정:
+  - `Get-Command bash` 결과가 WSL shim(`C:\Windows\system32\bash.exe`)라서 direct `bash` action은 실패함을 확인했다.
+  - action command를 `C:/Program Files/Git/bin/bash.exe` 절대경로로 바꿨다.
+- Expo non-interactive port 충돌 보정:
+  - 기존 `node` process가 `::`:8081을 점유 중이라 Expo가 `Use port 8082 instead?` prompt에서 멈추는 것을 확인했다.
+  - `script/build_and_run.sh`에 Node 기반 free-port resolver를 추가하고, bind host를 `127.0.0.1`에서 system-wide listen으로 바꿔 IPv6 listener도 감지하게 했다.
+  - `--web` 모드는 screenshot-style localhost flow에 맞추기 위해 `3200`을 우선 포트로 사용하도록 분리했다.
+- 실제 startup smoke:
+  - `C:\Program Files\Git\bin\bash.exe -n ./script/build_and_run.sh`
+  - `C:\Program Files\Git\bin\bash.exe ./script/build_and_run.sh --help`
+  - `C:\Program Files\Git\bin\bash.exe ./script/build_and_run.sh --doctor`
+  - background `C:\Program Files\Git\bin\bash.exe ./script/build_and_run.sh --web`
+  - startup log에서 `Waiting on http://localhost:3200`를 확인했다.
+
+**결과**:
+- 이 저장소는 이제 Codex app action bar에서 Expo local preview를 띄울 수 있는 project-local entrypoint를 갖게 됐다.
+- 사용자가 원한 screenshot-style path는 `Run Web`으로 local URL을 띄운 뒤 Codex `Browser` pane에서 여는 흐름으로 정리됐다.
+- `Run Android`도 함께 wiring되어 있지만, 이번 수정의 핵심 증명 경로는 web/browser preview다.
+
+**검증**:
+- 통과: `C:\Program Files\Git\bin\bash.exe -n ./script/build_and_run.sh`
+- 통과: `C:\Program Files\Git\bin\bash.exe ./script/build_and_run.sh --help`
+- 부분통과: `C:\Program Files\Git\bin\bash.exe ./script/build_and_run.sh --doctor`
+  - 기존 repo dependency/Expo version drift 4건을 보고했지만 wiring 자체를 막지는 않았다.
+- 통과: background `C:\Program Files\Git\bin\bash.exe ./script/build_and_run.sh --web`
+  - `Waiting on http://localhost:3200`
+
+---
+
 ## <a id="20260423-push-governance-owner-doc-closeout"></a> 2026-04-23 | push governance owner-doc closeout
 
 **배경**:

@@ -32,8 +32,9 @@ export function resolveReferralGraphHighlightType(input: {
 }
 
 export function getReferralGraphNodeRadius(node: Pick<GraphNode, 'referralCount' | 'inboundCount' | 'highlightType'>) {
-  const baseRadius = 8 + Math.min(node.referralCount + node.inboundCount, 16) * 0.55;
-  return node.highlightType ? baseRadius + 5.5 : baseRadius;
+  const linkCount = Math.max(0, node.referralCount + node.inboundCount);
+  const baseRadius = 4.6 + Math.min(Math.log1p(linkCount) * 1.85, 5.1);
+  return node.highlightType ? baseRadius + 3.4 : baseRadius;
 }
 
 export function getReferralGraphHighlightLabel(highlightType: GraphNodeHighlightType | null) {
