@@ -2,8 +2,8 @@ doc_id: FC-BACKEND-NOTIFY-PUSH
 owner_repo: fc-onboarding-app
 owner_area: backend
 audience: developer, operator
-last_verified: 2026-03-30
-source_of_truth: supabase/functions/fc-notify/index.ts + web/src/app/actions.ts + web/src/app/api/admin/push/route.ts + web/src/app/api/web-push/subscribe/route.ts
+last_verified: 2026-04-06
+source_of_truth: supabase/functions/fc-notify/index.ts + supabase/functions/board-create/index.ts + web/src/app/actions.ts + web/src/app/api/admin/push/route.ts + web/src/app/api/web-push/subscribe/route.ts
 
 # Backend Runbook: Notifications, Inbox, And Push
 
@@ -26,6 +26,15 @@ source_of_truth: supabase/functions/fc-notify/index.ts + web/src/app/actions.ts 
 - 웹 총무/관리자 경로가 `notifications` row를 직접 insert한 뒤 `sendPushNotification()`을 호출할 때는 helper가 다시 row를 만들지 않도록 `skipNotificationInsert`를 사용합니다.
 - FC 제출 알림(`fc_update`)의 수신자는 `admin_accounts`와 `manager_accounts`를 함께 해석하고, 실제 device token fanout도 `admin`뿐 아니라 `manager` role을 같이 포함해야 합니다.
 - 모바일 홈 unread badge는 checkpoint가 없을 때 `0`으로 초기화하지 않고, 알림센터를 한 번도 열지 않은 사용자에게는 전체 unread를 보여줍니다.
+
+## 2026-04-06 게시판 알림 메모
+
+- 일반 게시판 글 작성은 `board-create`가 inbox row를 직접 저장하는 예외 경로입니다.
+- 이 경로는 row 저장만으로 끝내면 가람in/app/web push가 빠지므로, 같은 change set에서 반드시 `fc-notify` fanout을 함께 호출해야 합니다.
+- direct row insert 이후 `fc-notify`를 다시 부를 때는 `skip_notification_insert=true`를 사용해 중복 알림 row를 만들지 않습니다.
+- 게시판 글 fanout은 최소 두 축이 필요합니다.
+  - `target_role='fc'`: FC 앱 푸시
+  - `target_role='admin'`: admin/manager 앱 푸시 + admin web push callback
 
 ## 2026-03-30 정합성 메모
 

@@ -1,6 +1,7 @@
 import type { SupabaseClient } from 'https://esm.sh/@supabase/supabase-js@2.45.4';
 
 import { resolveManagerAffiliation } from './manager-affiliation.ts';
+import type { RequestBoardPasswordSyncOptions } from './request-board-password-sync.ts';
 import { parseDesignerCompanyNameFromAffiliation } from './request-board-auth.ts';
 
 type AdminAccountRow = {
@@ -56,13 +57,6 @@ export type PasswordResetAccount = {
   resetTokenHash: string | null;
   resetTokenExpiresAt: string | null;
   resetSentAt: string | null;
-};
-
-export type RequestBoardPasswordSyncOptions = {
-  role: 'fc' | 'designer' | 'admin' | 'manager';
-  name?: string | null;
-  companyName?: string | null;
-  affiliation?: string | null;
 };
 
 const normalizeStaffType = (value: unknown): 'admin' | 'developer' =>
@@ -207,7 +201,7 @@ export async function findPasswordResetAccount(
 
 export function buildRequestBoardPasswordSyncOptions(
   account: PasswordResetAccount,
-): RequestBoardPasswordSyncOptions {
+): RequestBoardPasswordSyncOptions | null {
   if (account.kind === 'admin') {
     if (account.staffType === 'developer') {
       return {
@@ -216,10 +210,7 @@ export function buildRequestBoardPasswordSyncOptions(
       };
     }
 
-    return {
-      role: 'admin',
-      name: account.name ?? '',
-    };
+    return null;
   }
 
   if (account.kind === 'manager') {

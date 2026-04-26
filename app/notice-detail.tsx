@@ -3,7 +3,6 @@ import { useQuery } from '@tanstack/react-query';
 import { useLocalSearchParams } from 'expo-router';
 import { useMemo } from 'react';
 import {
-  ActivityIndicator,
   Alert,
   Image,
   Pressable,
@@ -14,6 +13,7 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
+import BrandedLoadingState from '@/components/BrandedLoadingState';
 import { useSession } from '@/hooks/use-session';
 import { openExternalUrl } from '@/lib/open-external-url';
 import { supabase } from '@/lib/supabase';
@@ -123,9 +123,7 @@ export default function NoticeDetailScreen() {
   if (isLoading) {
     return (
       <SafeAreaView style={styles.safe} edges={['left', 'right', 'bottom']}>
-        <View style={styles.center}>
-          <ActivityIndicator color={COLORS.primary} />
-        </View>
+        <BrandedLoadingState variant="detail" />
       </SafeAreaView>
     );
   }

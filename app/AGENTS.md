@@ -16,6 +16,7 @@
 - Register route behavior in `app/_layout.tsx` for header, guards, and transitions.
 - Keep FC workflow transitions aligned with canonical status strings in `types/fc.ts`.
 - Prefer shared UI and wrappers (`components/Button`, `components/FormInput`, `components/KeyboardAwareWrapper`).
+- On Android new architecture/Fabric screens, do not combine `KeyboardAwareWrapper` with `RefreshControl` and large conditional render trees; prefer a plain `ScrollView` with explicit bottom padding so one container owns scrolling.
 - Keep storage/session access through `lib/safe-storage*` and session hooks.
 - Use `router.replace(...)` when preventing back-navigation into auth/progress gates.
 

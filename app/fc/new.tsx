@@ -10,9 +10,11 @@ import {
   findNodeHandle,
   InteractionManager,
   Modal,
+  Platform,
   Pressable,
   RefreshControl,
   ReturnKeyTypeOptions,
+  ScrollView,
   StyleSheet,
   Text,
   TextInput,
@@ -42,7 +44,6 @@ const schema = z.object({
   affiliation: z.string().min(1, '소속을 선택해주세요.'),
   name: z.string().min(1, '이름을 입력해주세요.'),
   phone: z.string().min(8, '휴대폰 번호를 입력해주세요.'),
-  recommender: z.string().min(1, '추천인을 입력해주세요.'),
   email: z.string().email('유효한 이메일을 입력해주세요.'),
   carrier: z.string().min(1, '통신사를 선택해주세요.'),
   address: z.string().min(1, '주소를 입력해주세요.'),
@@ -201,12 +202,12 @@ export default function FcNewScreen() {
   const keyboardPadding = useKeyboardPadding();
   const [existingResidentMasked, setExistingResidentMasked] = useState<string | null>(null);
   const [existingResidentNumberFull, setExistingResidentNumberFull] = useState<string | null>(null);
+  const [existingRecommender, setExistingRecommender] = useState('');
   const [existingAddress, setExistingAddress] = useState('');
   const [existingAddressDetail, setExistingAddressDetail] = useState('');
   const [addressHeight, setAddressHeight] = useState(90);
 
   const phoneRef = useRef<TextInput>(null);
-  const recommenderRef = useRef<TextInput>(null);
   const emailLocalRef = useRef<TextInput>(null);
   const customDomainRef = useRef<TextInput>(null);
   const nameRef = useRef<TextInput>(null); // Added
@@ -220,7 +221,6 @@ export default function FcNewScreen() {
       affiliation: '',
       name: '',
       phone: phoneFromSession ?? '',
-      recommender: '',
       email: '',
       carrier: '',
       address: '',
@@ -303,7 +303,6 @@ export default function FcNewScreen() {
       affiliation: data?.affiliation || signupPayload?.affiliation || '',
       name: data?.name || signupPayload?.name || '',
       phone: data?.phone || signupPayload?.phone || normalizedKey,
-      recommender: data?.recommender || signupPayload?.recommender || '',
       email: data?.email || signupPayload?.email || '',
       carrier: data?.carrier || signupPayload?.carrier || '',
       address: data?.address || '',
@@ -318,7 +317,6 @@ export default function FcNewScreen() {
       affiliation: matchedAffiliation,
       name: merged.name,
       phone: merged.phone,
-      recommender: merged.recommender,
       email: merged.email,
       carrier: merged.carrier,
       address: merged.address,
@@ -328,6 +326,7 @@ export default function FcNewScreen() {
     });
     setSelectedAffiliation(matchedAffiliation);
     setCarrier(merged.carrier);
+    setExistingRecommender(String(data?.recommender ?? '').trim());
     setExistingAddress(merged.address);
     setExistingAddressDetail(merged.addressDetail);
     setExistingResidentMasked(merged.residentMasked);
@@ -378,7 +377,6 @@ export default function FcNewScreen() {
       name: values.name,
       affiliation: values.affiliation,
       phone: phoneDigits,
-      recommender: values.recommender,
       email: values.email,
       carrier: values.carrier,
       career_type: null,
@@ -507,7 +505,6 @@ export default function FcNewScreen() {
         affiliation: '소속',
         name: '이름',
         phone: '휴대폰 번호',
-        recommender: '추천인',
         email: '이메일',
         carrier: '통신사',
         address: '주소',
@@ -533,8 +530,6 @@ export default function FcNewScreen() {
         phoneRef.current?.focus();
       } else if (first === 'email') {
         emailLocalRef.current?.focus();
-      } else if (first === 'recommender') {
-        recommenderRef.current?.focus();
       } else if (first === 'carrier') {
         setShowCarrierPicker(true);
       } else if (first === 'address') {
@@ -598,27 +593,9 @@ export default function FcNewScreen() {
     }
   }, [loadExisting]);
 
-  return (
-    <SafeAreaView style={styles.safe} edges={['left', 'right', 'bottom']}>
-      <Stack.Screen
-        options={{
-          headerShown: true,
-          headerTitle: '',
-          headerShadowVisible: false,
-          headerLeft: () => (
-            <Pressable
-              onPress={handleBack}
-              style={{ padding: 8, marginLeft: -8 }}
-            >
-              <Feather name="arrow-left" size={24} color={CHARCOAL} />
-            </Pressable>
-          ),
-        }}
-      />
-      <KeyboardAwareWrapper
-        contentContainerStyle={[styles.container, { paddingBottom: Math.max(120, keyboardPadding + 40) }]}
-        extraScrollHeight={140}
-        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}>
+  const screenRefreshControl = <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />;
+  const screenContent = (
+    <>
         <ScreenHeader
           title="기본 정보"
           subtitle="입력 후 저장하면 다음 단계로 이동합니다."
@@ -671,7 +648,7 @@ export default function FcNewScreen() {
             errors={formState.errors}
             inputRef={phoneRef}
             returnKeyType="next"
-            onSubmitEditing={() => recommenderRef.current?.focus()}
+            onSubmitEditing={() => setShowCarrierPicker(true)}
             blurOnSubmit={false}
             scrollEnabled={false} // Added
           />
@@ -696,18 +673,13 @@ export default function FcNewScreen() {
               </View>
             </Pressable>
           </View>
-          <FormField
-            control={control}
-            label="추천인"
-            placeholder="추천인 이름"
-            name="recommender"
-            errors={formState.errors}
-            inputRef={recommenderRef}
-            returnKeyType="next"
-            onSubmitEditing={() => emailLocalRef.current?.focus()}
-            blurOnSubmit={false}
-            scrollEnabled={false} // Added
-          />
+          <View style={styles.field}>
+            <Text style={styles.label}>가입 시 저장된 추천인</Text>
+            <View style={styles.readonlyBox}>
+              <Text style={styles.readonlyText}>{existingRecommender || '저장된 추천인 없음'}</Text>
+            </View>
+            <Text style={styles.helperText}>추천인은 가입 완료 후 일반 사용자 경로에서 수정할 수 없습니다.</Text>
+          </View>
           <View style={styles.field}>
             <View style={styles.fieldLabelRow}>
               <Text style={styles.label}>이메일</Text>
@@ -898,7 +870,45 @@ export default function FcNewScreen() {
         >
           {existingTempId ? '수정하기' : '저장하기'}
         </Button>
-      </KeyboardAwareWrapper>
+    </>
+  );
+
+  return (
+    <SafeAreaView style={styles.safe} edges={['left', 'right', 'bottom']}>
+      <Stack.Screen
+        options={{
+          headerShown: true,
+          headerTitle: '',
+          headerShadowVisible: false,
+          headerLeft: () => (
+            <Pressable
+              onPress={handleBack}
+              style={{ padding: 8, marginLeft: -8 }}
+            >
+              <Feather name="arrow-left" size={24} color={CHARCOAL} />
+            </Pressable>
+          ),
+        }}
+      />
+      {Platform.OS === 'android' ? (
+        <ScrollView
+          contentContainerStyle={[styles.container, { paddingBottom: Math.max(120, keyboardPadding + 40) }]}
+          refreshControl={screenRefreshControl}
+          keyboardShouldPersistTaps="handled"
+          keyboardDismissMode="on-drag"
+          showsVerticalScrollIndicator={false}
+        >
+          {screenContent}
+        </ScrollView>
+      ) : (
+        <KeyboardAwareWrapper
+          contentContainerStyle={[styles.container, { paddingBottom: Math.max(120, keyboardPadding + 40) }]}
+          extraScrollHeight={140}
+          refreshControl={screenRefreshControl}
+        >
+          {screenContent}
+        </KeyboardAwareWrapper>
+      )}
 
       <Modal visible={showDomainPicker} transparent animationType="fade">
         <Pressable style={styles.modalOverlay} onPress={() => setShowDomainPicker(false)}>
@@ -938,6 +948,7 @@ export default function FcNewScreen() {
                     setCarrier(option);
                     setValue('carrier', option, { shouldValidate: true });
                     setShowCarrierPicker(false);
+                    setTimeout(() => emailLocalRef.current?.focus(), 100);
                   }}
                 >
                   <Text style={styles.modalOptionText}>{option}</Text>
@@ -1112,6 +1123,20 @@ const styles = StyleSheet.create({
     color: COLORS.text.muted,
     fontSize: TYPOGRAPHY.fontSize.xs + 2,
     marginTop: SPACING.xs
+  },
+  readonlyBox: {
+    borderWidth: 1,
+    borderColor: COLORS.border.light,
+    borderRadius: RADIUS.base + 2,
+    paddingHorizontal: SPACING.sm + 6,
+    paddingVertical: SPACING.sm + 2,
+    backgroundColor: COLORS.gray[50],
+    minHeight: 52,
+    justifyContent: 'center',
+  },
+  readonlyText: {
+    color: COLORS.text.secondary,
+    fontSize: TYPOGRAPHY.fontSize.md,
   },
   input: {
     borderWidth: 1,

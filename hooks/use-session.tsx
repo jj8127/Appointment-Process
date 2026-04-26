@@ -7,12 +7,14 @@ import {
   getStoredAppSessionToken,
   getStoredBridgeToken,
   rbCheckAuth,
+  setAppSessionToken as persistStoredAppSessionToken,
 } from '@/lib/request-board-api';
 import {
   canUseRequestBoardSession,
   deriveRequestBoardFlags,
   shouldForceRequestBoardRelogin,
 } from '@/lib/request-board-session';
+import { buildPushRegistrationAttemptKey } from '@/lib/push-registration';
 import { safeStorage } from '@/lib/safe-storage';
 import { normalizeStaffType, type StaffType } from '@/lib/staff-identity';
 import { isValidMobilePhone, normalizePhone } from '@/lib/validation';
@@ -37,6 +39,7 @@ type SessionContextValue = SessionState & {
   appSessionToken: string | null;
   requestBoardSyncStatus: RequestBoardSyncStatus;
   requestBoardSyncError: string | null;
+  replaceAppSessionToken: (token: string | null) => Promise<void>;
   loginAs: (
     role: Role,
     residentId: string,
@@ -77,18 +80,45 @@ const initialState: SessionState = {
 };
 const STORAGE_KEY = 'fc-onboarding/session';
 
+function normalizeStoredRole(rawRole: unknown, readOnly: boolean): Pick<SessionState, 'role' | 'readOnly'> | null {
+  if (rawRole === 'fc') {
+    return { role: 'fc', readOnly };
+  }
+
+  if (rawRole === 'admin') {
+    return { role: 'admin', readOnly };
+  }
+
+  // Backward compatibility: older manager sessions were persisted as role='manager'.
+  if (rawRole === 'manager') {
+    return { role: 'admin', readOnly: true };
+  }
+
+  return null;
+}
+
 export function SessionProvider({ children }: { children: ReactNode }) {
   const [state, setState] = useState<SessionState>(initialState);
   const [hydrated, setHydrated] = useState(false);
-  const [appSessionToken, setAppSessionToken] = useState<string | null>(null);
+  const [appSessionToken, setAppSessionTokenState] = useState<string | null>(null);
   const [requestBoardSyncStatus, setRequestBoardSyncStatus] = useState<RequestBoardSyncStatus>('idle');
   const [requestBoardSyncError, setRequestBoardSyncError] = useState<string | null>(null);
   const requestBoardSyncPromiseRef = useRef<Promise<{ ok: boolean; error?: string; needsRelogin?: boolean }> | null>(null);
+  const lastPushRegistrationKeyRef = useRef<string | null>(null);
+
+  const replaceAppSessionToken = useCallback(async (token: string | null) => {
+    setAppSessionTokenState(token);
+    try {
+      await persistStoredAppSessionToken(token);
+    } catch (err) {
+      logger.warn('[session] app session token persist failed', err);
+    }
+  }, []);
 
   const clearSessionState = useCallback(async (options?: { clearAppSession?: boolean }) => {
     setState(initialState);
     if (options?.clearAppSession) {
-      setAppSessionToken(null);
+      setAppSessionTokenState(null);
     }
     setRequestBoardSyncStatus('idle');
     setRequestBoardSyncError(null);
@@ -194,27 +224,28 @@ export function SessionProvider({ children }: { children: ReactNode }) {
           const parsed = JSON.parse(raw) as Partial<SessionState> & { appSessionToken?: string | null };
           const rawResidentId = typeof parsed.residentId === 'string' ? parsed.residentId : '';
           const normalizedResidentId = normalizePhone(rawResidentId);
-          if (parsed.role && rawResidentId) {
+          const normalizedRole = normalizeStoredRole(parsed.role, Boolean(parsed.readOnly));
+          if (normalizedRole && rawResidentId) {
             if (!isValidMobilePhone(normalizedResidentId)) {
               logger.warn('[session] dropping legacy session with non-phone residentId');
               await safeStorage.removeItem(STORAGE_KEY);
               await clearRequestBoardState({ clearAppSession: true });
-              setAppSessionToken(null);
-              return;
+               setAppSessionTokenState(null);
+               return;
             }
             const restoredRequestBoardRole =
               parsed.requestBoardRole === 'fc' || parsed.requestBoardRole === 'designer'
                 ? parsed.requestBoardRole
                 : null;
             setState({
-              role: parsed.role,
+              role: normalizedRole.role,
               residentId: normalizedResidentId,
               residentMask: computeMask(normalizedResidentId),
               displayName: parsed.displayName ?? '',
               staffType: normalizeStaffType(parsed.staffType),
-              readOnly: Boolean(parsed.readOnly),
+              readOnly: normalizedRole.readOnly,
               ...deriveRequestBoardFlags(
-                parsed.role,
+                normalizedRole.role,
                 parsed.isRequestBoardDesigner !== undefined && !restoredRequestBoardRole
                   ? (parsed.isRequestBoardDesigner ? 'designer' : null)
                   : restoredRequestBoardRole,
@@ -224,7 +255,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
               typeof parsed.appSessionToken === 'string' && parsed.appSessionToken.trim()
                 ? parsed.appSessionToken
                 : await getStoredAppSessionToken();
-            setAppSessionToken(restoredAppSessionToken ?? null);
+            setAppSessionTokenState(restoredAppSessionToken ?? null);
           }
         }
       } catch (err) {
@@ -290,6 +321,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
       appSessionToken,
       requestBoardSyncStatus,
       requestBoardSyncError,
+      replaceAppSessionToken,
       ensureRequestBoardSession,
       logout: () => {
         void clearSessionState({ clearAppSession: true });
@@ -315,7 +347,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
           isRequestBoardDesigner,
           requestBoardRole,
         });
-        setAppSessionToken(nextAppSessionToken);
+        setAppSessionTokenState(nextAppSessionToken);
         setRequestBoardSyncStatus('idle');
         setRequestBoardSyncError(null);
       },
@@ -325,6 +357,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
       clearSessionState,
       ensureRequestBoardSession,
       hydrated,
+      replaceAppSessionToken,
       requestBoardSyncError,
       requestBoardSyncStatus,
       state,
@@ -332,20 +365,32 @@ export function SessionProvider({ children }: { children: ReactNode }) {
   );
 
   useEffect(() => {
-    if (!hydrated) return;
-    if (state.role && state.residentId) {
-      const pushRole: 'admin' | 'fc' =
-        state.requestBoardRole === 'designer'
-          ? 'fc'
-          : (state.role as 'admin' | 'fc');
-      registerPushToken(pushRole, state.residentId, state.displayName);
-    }
+    const pushRegistrationKey = buildPushRegistrationAttemptKey({
+      hydrated,
+      role: state.role,
+      residentId: state.residentId,
+      requestBoardRole: state.requestBoardRole,
+    });
+
+    if (!pushRegistrationKey) return;
+    if (lastPushRegistrationKeyRef.current === pushRegistrationKey) return;
+
+    const pushRole: 'admin' | 'fc' =
+      state.requestBoardRole === 'designer'
+        ? 'fc'
+        : (state.role as 'admin' | 'fc');
+
+    const timer = setTimeout(() => {
+      lastPushRegistrationKeyRef.current = pushRegistrationKey;
+      void registerPushToken(pushRole, state.residentId, state.displayName);
+    }, 1000);
+
+    return () => clearTimeout(timer);
   }, [
     hydrated,
     state.role,
     state.residentId,
     state.displayName,
-    state.isRequestBoardDesigner,
     state.requestBoardRole,
   ]);
 

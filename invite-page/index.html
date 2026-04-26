@@ -1,0 +1,70 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta http-equiv="X-UA-Compatible" content="IE=edge" />
+  <title>가람in 추천 초대</title>
+  <style>
+    *{box-sizing:border-box;margin:0;padding:0}
+    body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;background:#fff9f5;min-height:100vh;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:2rem 1.5rem;text-align:center}
+    .icon{width:72px;height:72px;background:#f36f21;border-radius:18px;display:flex;align-items:center;justify-content:center;font-size:32px;margin:0 auto 1.25rem;box-shadow:0 4px 16px rgba(243,111,33,.25)}
+    h1{font-size:1.4rem;font-weight:800;color:#111;margin-bottom:.5rem}
+    .sub{font-size:.9rem;color:#6b7280;margin-bottom:1.25rem}
+    .card{background:#fff;border:1.5px solid #f36f21;border-radius:14px;padding:1rem 1.5rem 1.1rem;width:100%;max-width:320px;margin:0 auto 1.5rem}
+    .card-label{font-size:.75rem;color:#9ca3af;font-weight:500;margin-bottom:6px}
+    .code{font-size:1.7rem;font-weight:800;color:#f36f21;letter-spacing:4px}
+    .card-hint{font-size:.75rem;color:#9ca3af;margin-top:6px}
+    .btns{display:flex;flex-direction:column;gap:10px;width:100%;max-width:300px;margin:0 auto}
+    .btn{display:block;padding:.85rem 1.5rem;border-radius:11px;font-weight:600;font-size:.95rem;text-decoration:none;border:none;cursor:pointer;width:100%}
+    .btn-primary{background:#f36f21;color:#fff}
+    .btn-dark{background:#111;color:#fff}
+    footer{color:#d1d5db;font-size:.72rem;margin-top:2rem}
+  </style>
+</head>
+<body>
+  <div class="icon">🎁</div>
+  <h1>가람in 추천 초대</h1>
+  <p class="sub" id="msg">아래 버튼을 눌러 앱을 열어주세요</p>
+
+  <div class="card" id="codeBox" style="display:none">
+    <p class="card-label">추천 코드</p>
+    <p class="code" id="codeVal"></p>
+    <p class="card-hint">앱 가입 시 자동 입력됩니다</p>
+  </div>
+
+  <div class="btns">
+    <a class="btn btn-primary" id="openApp" style="display:none">✏️ 가람in 앱 열기</a>
+    <a class="btn btn-dark" href="https://play.google.com/store/apps/details?id=com.jj8127.Garam_in">📱 안드로이드 (플레이 스토어)</a>
+    <a class="btn btn-dark" href="https://apps.apple.com/search?term=%EA%B0%80%EB%9E%8Ain">🍎 아이폰 (앱 스토어)</a>
+  </div>
+
+  <footer>가람PA지사 · 가람in</footer>
+
+  <script>
+    (function () {
+      function getParam(name) {
+        var q = location.search.slice(1).split('&');
+        for (var i = 0; i < q.length; i++) {
+          var p = q[i].split('=');
+          if (decodeURIComponent(p[0]) === name) return decodeURIComponent(p[1] || '');
+        }
+        return '';
+      }
+
+      var code = getParam('code').toUpperCase().replace(/[^A-Z0-9]/g, '');
+      if (!code) { document.getElementById('msg').textContent = '유효하지 않은 초대 링크입니다.'; return; }
+
+      // 코드 카드 표시
+      document.getElementById('codeBox').style.display = 'block';
+      document.getElementById('codeVal').textContent = code;
+
+      // 앱 열기 버튼 구성
+      var deeplink = 'hanwhafcpass://signup?code=' + encodeURIComponent(code);
+      var btn = document.getElementById('openApp');
+      btn.href = deeplink;
+      btn.style.display = 'block';
+    })();
+  </script>
+</body>
+</html>

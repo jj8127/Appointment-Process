@@ -2,7 +2,7 @@ doc_id: FC-APP-ONBOARDING
 owner_repo: fc-onboarding-app
 owner_area: mobile
 audience: developer, operator
-last_verified: 2026-03-31
+last_verified: 2026-04-14
 source_of_truth: app/index.tsx + app/home-lite.tsx + app/fc/new.tsx + app/consent.tsx + app/docs-upload.tsx + app/hanwha-commission.tsx + app/appointment.tsx + app/exam-apply.tsx + app/exam-apply2.tsx + lib/fc-workflow.ts
 
 # Mobile Playbook: FC Onboarding
@@ -67,9 +67,11 @@ source_of_truth: app/index.tsx + app/home-lite.tsx + app/fc/new.tsx + app/consen
 - 총무는 `allowance_date` 유무와 관계없이 모바일/웹 관리자 화면에서 `입력 완료 / 사전 심사 요청 완료 / 승인 완료 / 미승인`을 진행할 수 있고, 본부장은 같은 화면을 read-only로 본다
 - 파생 라벨은 `allowance_date` 유무를 우선 반영하므로, 날짜가 비어 있으면 관리자 조작 후에도 `FC 수당 동의일 미입력`이 먼저 표시될 수 있다
 - 서류 승인 뒤에는 바로 4단계 `생명/손해 위촉`이 아니라 3단계 `hanwha-commission`(`한화 위촉 URL`)이 열린다
+- 총무가 한화 위촉 탭에 PDF를 첨부하면 FC는 `hanwha-commission` 화면에서 그 파일을 바로 열람/다운로드할 수 있다. 단, 다음 단계(`appointment`) 잠금 해제는 여전히 `한화 승인 + PDF 등록`이 모두 끝난 뒤에만 이뤄진다.
 - 한화 위촉 URL 승인과 PDF 등록이 끝나야 4단계 `appointment`(`생명/손해 위촉`)가 열린다
 - FC 본인 화면에서도 주민번호는 trusted server path로 full-view 조회되며, masked fallback을 새 계약으로 사용하지 않는다
 - 시험 신청 화면은 기존 신청을 복원할 때도 `location_id`가 현재 회차의 지역 목록에 없으면 선택 상태를 복원하지 않고, 다시 지역을 고르게 한다
+- Android new architecture/Fabric에서 `fc/new`, `exam-apply`, `exam-apply2`처럼 `RefreshControl`과 큰 조건부 렌더 tree를 함께 가진 화면은 `KeyboardAwareWrapper`를 primary scroll owner로 쓰지 않는다. Android는 plain `ScrollView` + explicit bottom padding을 쓰고, iOS에서만 기존 keyboard-aware wrapper를 유지한다.
 
 ## FC 홈/다음 단계 동작
 
@@ -87,7 +89,7 @@ source_of_truth: app/index.tsx + app/home-lite.tsx + app/fc/new.tsx + app/consen
 - 동의 제출
 - 파일 업로드/교체
 - 한화 위촉 URL 완료일 제출
-- 한화 승인 PDF 열람
+- 한화 첨부/승인 PDF 열람
 - 생명/손해 위촉 제출
 
 ## 성공 결과

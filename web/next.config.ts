@@ -3,7 +3,7 @@ import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
   reactCompiler: true,
-  transpilePackages: ['..'],
+  transpilePackages: ['..', 'react-force-graph-2d', 'force-graph', 'd3-force'],
   experimental: {
     externalDir: true,
   },

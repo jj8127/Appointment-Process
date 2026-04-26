@@ -4,7 +4,6 @@ import * as FileSystem from 'expo-file-system/legacy';
 import { Stack } from 'expo-router';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
-  ActivityIndicator,
   Alert,
   Modal,
   Platform,
@@ -17,6 +16,7 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
+import BrandedLoadingState from '@/components/BrandedLoadingState';
 import { Button } from '@/components/Button';
 import CompactHeader from '@/components/CompactHeader';
 import { ScreenHeader } from '@/components/ScreenHeader';
@@ -136,7 +136,7 @@ export default function HanwhaCommissionScreen() {
   const rejectReason = trimString(profile?.hanwha_commission_reject_reason);
   const pdfPath = trimString(profile?.hanwha_commission_pdf_path);
   const rawPdfName = trimString(profile?.hanwha_commission_pdf_name);
-const pdfName = rawPdfName ?? '한화 위촉 URL PDF';
+  const pdfName = rawPdfName ?? '한화 위촉 URL PDF';
   const status = profile?.status ?? null;
 
   const isApproved = hasHanwhaApprovalEvidence({
@@ -153,14 +153,14 @@ const pdfName = rawPdfName ?? '한화 위촉 URL PDF';
     !isApproved &&
     !isRejected &&
     Boolean(status === 'hanwha-commission-review' || submittedDate);
-  const hasApprovedPdf =
-    isApproved &&
-    hasHanwhaPdfMetadata({
-      hanwha_commission_pdf_path: pdfPath,
-      hanwha_commission_pdf_name: rawPdfName,
-    });
+  const hasAttachedPdf = hasHanwhaPdfMetadata({
+    hanwha_commission_pdf_path: pdfPath,
+    hanwha_commission_pdf_name: rawPdfName,
+  });
+  const hasApprovedPdf = isApproved && hasAttachedPdf;
   const isPrerequisiteBlocked = !canSubmitHanwha && !isApproved && !isPending;
   const isLocked = isApproved || isPending || isPrerequisiteBlocked;
+  const pdfCardTitle = isApproved ? '승인 PDF' : '첨부 PDF';
 
   const statusTone = useMemo<StatusTone>(() => {
     if (isPrerequisiteBlocked) {
@@ -168,6 +168,9 @@ const pdfName = rawPdfName ?? '한화 위촉 URL PDF';
     }
     if (hasApprovedPdf) {
       return { label: '승인 완료', backgroundColor: '#DCFCE7', color: '#166534' };
+    }
+    if (hasAttachedPdf) {
+      return { label: '파일 도착', backgroundColor: '#DBEAFE', color: '#1D4ED8' };
     }
     if (isApproved) {
       return { label: 'PDF 대기', backgroundColor: '#FEF3C7', color: '#92400E' };
@@ -179,16 +182,18 @@ const pdfName = rawPdfName ?? '한화 위촉 URL PDF';
       return { label: '검토 중', backgroundColor: '#FFF7ED', color: '#C2410C' };
     }
     return { label: '입력 전', backgroundColor: COLORS.gray[100], color: COLORS.text.muted };
-  }, [hasApprovedPdf, isApproved, isPending, isPrerequisiteBlocked, isRejected]);
+  }, [hasApprovedPdf, hasAttachedPdf, isApproved, isPending, isPrerequisiteBlocked, isRejected]);
 
   const statusDescription = useMemo(() => {
     if (isPrerequisiteBlocked) return '서류 승인 후 진행';
     if (hasApprovedPdf) return 'PDF 확인 후 다음 단계';
+    if (hasAttachedPdf && isRejected) return '반려 사유와 첨부 PDF를 확인하세요.';
+    if (hasAttachedPdf) return '첨부 PDF를 먼저 확인할 수 있습니다. 다음 단계는 총무 승인 후 열립니다.';
     if (isApproved) return 'PDF 등록 대기';
     if (isRejected) return '반려 후 재제출';
     if (isPending) return '총무 검토 중';
     return 'URL 진행 후 제출';
-  }, [hasApprovedPdf, isApproved, isPending, isPrerequisiteBlocked, isRejected]);
+  }, [hasApprovedPdf, hasAttachedPdf, isApproved, isPending, isPrerequisiteBlocked, isRejected]);
 
   const handleDateChange = useCallback((event: DateTimePickerEvent, selectedDate?: Date) => {
     if (Platform.OS === 'android') {
@@ -384,7 +389,7 @@ const pdfName = rawPdfName ?? '한화 위촉 URL PDF';
         />
 
         {loading ? (
-          <ActivityIndicator color={COLORS.primary} style={{ marginTop: 40 }} />
+          <BrandedLoadingState variant="hanwha-commission" layout="section" />
         ) : (
           <>
             <View style={styles.card}>
@@ -468,9 +473,9 @@ const pdfName = rawPdfName ?? '한화 위촉 URL PDF';
               >
                 {isApproved ? '승인 완료' : isPending ? '승인 대기 중' : '완료일 제출하기'}
               </Button>
-              {!!pdfPath && <Text style={styles.fileCaption}>{pdfName}</Text>}
+              {hasAttachedPdf && <Text style={styles.fileCaption}>{pdfName}</Text>}
 
-              {hasApprovedPdf && (
+              {hasAttachedPdf && (
                 <Button
                   onPress={openPdf}
                   loading={openingPdf}
@@ -479,7 +484,7 @@ const pdfName = rawPdfName ?? '한화 위촉 URL PDF';
                   fullWidth
                   leftIcon={<Feather name="download" size={18} color={COLORS.primary} />}
                 >
-                  승인 PDF 확인
+                  {pdfCardTitle} 확인
                 </Button>
               )}
             </View>
@@ -490,28 +495,36 @@ const pdfName = rawPdfName ?? '한화 위촉 URL PDF';
                   <Feather name="file-text" size={20} color={COLORS.white} />
                 </View>
                 <View style={styles.heroTextWrap}>
-                  <Text style={styles.sectionTitle}>승인 PDF</Text>
+                  <Text style={styles.sectionTitle}>{pdfCardTitle}</Text>
                   <Text style={styles.sectionDesc}>
-                    {hasApprovedPdf ? '열람 · 다운로드 후 다음 단계' : '총무 승인 후 이곳에 PDF가 도착합니다.'}
+                    {hasApprovedPdf
+                      ? '열람 · 다운로드 후 다음 단계'
+                      : hasAttachedPdf
+                        ? '첨부된 PDF를 확인할 수 있습니다. 다음 단계는 총무 승인 후 열립니다.'
+                        : '총무가 PDF를 첨부하면 여기서 바로 확인할 수 있습니다.'}
                   </Text>
                 </View>
               </View>
 
-              <View style={[styles.pdfDock, hasApprovedPdf ? styles.pdfDockReady : styles.pdfDockPending]}>
+              <View style={[styles.pdfDock, hasAttachedPdf ? styles.pdfDockReady : styles.pdfDockPending]}>
                 <View style={styles.pdfDockMain}>
-                  <View style={[styles.pdfPreviewBadge, hasApprovedPdf ? styles.pdfPreviewBadgeReady : styles.pdfPreviewBadgePending]}>
+                  <View style={[styles.pdfPreviewBadge, hasAttachedPdf ? styles.pdfPreviewBadgeReady : styles.pdfPreviewBadgePending]}>
                     <Feather
-                      name={hasApprovedPdf ? 'file-text' : 'download-cloud'}
+                      name={hasAttachedPdf ? 'file-text' : 'download-cloud'}
                       size={22}
-                      color={hasApprovedPdf ? COLORS.primary : COLORS.text.disabled}
+                      color={hasAttachedPdf ? COLORS.primary : COLORS.text.disabled}
                     />
                   </View>
                   <View style={styles.pdfDockTextWrap}>
                     <Text style={styles.pdfDockTitle}>
-              {hasApprovedPdf ? '한화 위촉 URL 승인 PDF' : 'PDF 도착 대기'}
+                      {hasAttachedPdf ? `한화 위촉 URL ${pdfCardTitle}` : 'PDF 도착 대기'}
                     </Text>
                     <Text style={styles.pdfDockDesc}>
-                      {hasApprovedPdf ? pdfName : '총무가 승인 후 PDF를 등록하면 여기서 바로 확인할 수 있습니다.'}
+                      {hasAttachedPdf
+                        ? isApproved
+                          ? pdfName
+                          : `${pdfName} · 총무 승인 전에는 다음 단계가 열리지 않습니다.`
+                        : '총무가 PDF를 등록하면 여기서 바로 확인할 수 있습니다.'}
                     </Text>
                   </View>
                 </View>
@@ -520,22 +533,22 @@ const pdfName = rawPdfName ?? '한화 위촉 URL PDF';
                   <Button
                     onPress={openPdf}
                     loading={openingPdf}
-                    disabled={!hasApprovedPdf}
-                    variant={hasApprovedPdf ? 'outline' : 'outline'}
+                    disabled={!hasAttachedPdf}
+                    variant="outline"
                     size="md"
                     style={styles.pdfActionBtn}
-                    leftIcon={<Feather name="eye" size={16} color={hasApprovedPdf ? COLORS.primary : COLORS.text.disabled} />}
+                    leftIcon={<Feather name="eye" size={16} color={hasAttachedPdf ? COLORS.primary : COLORS.text.disabled} />}
                   >
                     열람
                   </Button>
                   <Button
                     onPress={downloadPdf}
                     loading={downloadingPdf}
-                    disabled={!hasApprovedPdf}
-                    variant={hasApprovedPdf ? 'secondary' : 'outline'}
+                    disabled={!hasAttachedPdf}
+                    variant={hasAttachedPdf ? 'secondary' : 'outline'}
                     size="md"
                     style={styles.pdfActionBtn}
-                    leftIcon={<Feather name="download" size={16} color={hasApprovedPdf ? COLORS.white : COLORS.text.disabled} />}
+                    leftIcon={<Feather name="download" size={16} color={hasAttachedPdf ? COLORS.white : COLORS.text.disabled} />}
                   >
                     다운로드
                   </Button>

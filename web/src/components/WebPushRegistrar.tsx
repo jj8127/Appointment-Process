@@ -3,8 +3,12 @@
 import { useEffect, useRef } from 'react';
 
 import { useSession } from '@/hooks/use-session';
-
 import { logger } from '@/lib/logger';
+import {
+  getWebPushClientConfigState,
+  getWebPushRegistrationFeedback,
+} from '@/lib/web-push-config';
+
 type BrowserWebPushSubscription = {
   endpoint: string;
   keys?: { p256dh?: string; auth?: string };
@@ -20,14 +24,6 @@ const toUint8Array = (base64Url: string) => {
   }
   return outputArray;
 };
-
-const normalizePublicKey = (value?: string) =>
-  (value ?? '')
-    .trim()
-    .replace(/^['"]+|['"]+$/g, '')
-    .replace(/\\n/g, '')
-    .replace(/\r?\n/g, '')
-    .replace(/\s+/g, '');
 
 export type WebPushPermissionState = NotificationPermission | 'unsupported';
 
@@ -53,9 +49,9 @@ export async function registerWebPushSubscription(
     return { ok: false as const, permission, message: 'missing-session' };
   }
 
-  const publicKey = normalizePublicKey(process.env.NEXT_PUBLIC_WEB_PUSH_VAPID_PUBLIC_KEY);
-  if (!publicKey) {
-    return { ok: false as const, permission, message: 'missing-vapid-key' };
+  const clientConfig = getWebPushClientConfigState(process.env.NEXT_PUBLIC_WEB_PUSH_VAPID_PUBLIC_KEY);
+  if (!clientConfig.isConfigured) {
+    return { ok: false as const, permission, message: clientConfig.reason };
   }
 
   let granted: NotificationPermission = permission;
@@ -79,7 +75,7 @@ export async function registerWebPushSubscription(
   if (!subscription) {
     subscription = (await registration.pushManager.subscribe({
       userVisibleOnly: true,
-      applicationServerKey: toUint8Array(publicKey),
+      applicationServerKey: toUint8Array(clientConfig.publicKey),
     })) as BrowserWebPushSubscription;
   }
 
@@ -118,7 +114,11 @@ export function WebPushRegistrar() {
     const register = async () => {
       const result = await registerWebPushSubscription(role, residentId);
       if (!result.ok && result.message !== 'permission-not-granted' && result.message !== 'unsupported') {
-        logger.warn('[web-push] register failed:', result.message);
+        const feedback = getWebPushRegistrationFeedback(result.message);
+        logger.warn(
+          result.message === 'missing-vapid-key' ? '[web-push] registration skipped' : '[web-push] register failed',
+          { reason: result.message, message: feedback.message },
+        );
       }
     };
 

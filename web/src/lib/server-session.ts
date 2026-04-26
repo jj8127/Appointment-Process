@@ -30,7 +30,7 @@ function formatPhone(digits: string): string {
   return `${digits.slice(0, 3)}-${digits.slice(3, 7)}-${digits.slice(7)}`;
 }
 
-function buildPhoneCandidates(rawResidentId: string, residentDigits: string): string[] {
+export function buildPhoneCandidates(rawResidentId: string, residentDigits: string): string[] {
   const values = new Set<string>();
   const raw = String(rawResidentId ?? '').trim();
   const formatted = formatPhone(residentDigits);

@@ -436,6 +436,17 @@ serve(async (req: Request) => {
   await deleteByResident('device_tokens', 'resident_id');
   await deleteByResident('web_push_subscriptions', 'resident_id');
   await deleteByResident('board_attachments', 'created_by_resident_id');
+  await ignoreMissingTable(
+    residentIds.length <= 1
+      ? await supabase
+          .from('user_presence')
+          .delete()
+          .eq('phone', residentIds[0] ?? '')
+      : await supabase
+          .from('user_presence')
+          .delete()
+          .in('phone', residentIds),
+  );
   await ignoreMissingTableOrColumn(
     residentIds.length <= 1
       ? await supabase
@@ -483,9 +494,69 @@ serve(async (req: Request) => {
           .delete()
           .eq('manager_phone', managerPhone),
       );
+
+      const managerShadowResult = await ignoreMissingTable(
+        await supabase
+          .from('fc_profiles')
+          .select('id')
+          .eq('phone', managerPhone)
+          .eq('is_manager_referral_shadow', true),
+      );
+      const managerShadowIds = ((managerShadowResult.data ?? []) as LinkedProfileRow[]).map((row) => row.id);
+
+      if (managerShadowIds.length > 0) {
+        await ignoreMissingTable(await supabase.from('fc_documents').delete().in('fc_id', managerShadowIds));
+        await ignoreMissingTable(await supabase.from('fc_credentials').delete().in('fc_id', managerShadowIds));
+        await ignoreMissingTable(await supabase.from('fc_identity_secure').delete().in('fc_id', managerShadowIds));
+        await ignoreMissingTable(await supabase.from('exam_registrations').delete().in('fc_id', managerShadowIds));
+        await ignoreMissingTable(await supabase.from('notifications').delete().in('fc_id', managerShadowIds));
+
+        const linkedProfilesResult = await ignoreMissingTable(
+          await supabase.from('profiles').select('id').in('fc_id', managerShadowIds),
+        );
+        const linkedProfileIds = ((linkedProfilesResult.data ?? []) as LinkedProfileRow[]).map((row) => row.id);
+        for (const profileId of linkedProfileIds) {
+          const { error: authDeleteError } = await supabase.auth.admin.deleteUser(profileId);
+          if (authDeleteError) {
+            console.warn('[delete-account] manager shadow auth user delete failed', profileId, authDeleteError.message ?? authDeleteError);
+          }
+        }
+        await ignoreMissingTable(await supabase.from('profiles').delete().in('fc_id', managerShadowIds));
+        await ignoreMissingTable(await supabase.from('fc_profiles').delete().in('id', managerShadowIds));
+      }
     }
     const { error: managerDeleteError } = await supabase.from('manager_accounts').delete().eq('id', roleAccount.id);
     if (managerDeleteError) return err(managerDeleteError.message, 500);
+  }
+
+  if (residentIds.length > 0) {
+    const fcRemainingResult =
+      residentIds.length === 1
+        ? await supabase.from('fc_profiles').select('id', { count: 'exact', head: true }).eq('phone', residentIds[0])
+        : await supabase.from('fc_profiles').select('id', { count: 'exact', head: true }).in('phone', residentIds);
+    if (fcRemainingResult.error) return err(fcRemainingResult.error.message, 500);
+
+    const adminRemainingResult =
+      residentIds.length === 1
+        ? await supabase.from('admin_accounts').select('id', { count: 'exact', head: true }).eq('phone', residentIds[0])
+        : await supabase.from('admin_accounts').select('id', { count: 'exact', head: true }).in('phone', residentIds);
+    if (adminRemainingResult.error) return err(adminRemainingResult.error.message, 500);
+
+    const managerRemainingResult =
+      residentIds.length === 1
+        ? await supabase.from('manager_accounts').select('id', { count: 'exact', head: true }).eq('phone', residentIds[0])
+        : await supabase.from('manager_accounts').select('id', { count: 'exact', head: true }).in('phone', residentIds);
+    if (managerRemainingResult.error) return err(managerRemainingResult.error.message, 500);
+
+    const remainingBlockers = {
+      fc_profiles: fcRemainingResult.count ?? 0,
+      admin_accounts: adminRemainingResult.count ?? 0,
+      manager_accounts: managerRemainingResult.count ?? 0,
+    };
+
+    if (remainingBlockers.fc_profiles > 0 || remainingBlockers.admin_accounts > 0 || remainingBlockers.manager_accounts > 0) {
+      return err(`Account cleanup incomplete: ${JSON.stringify(remainingBlockers)}`, 500);
+    }
   }
 
   return ok({ ok: true, deleted: true, role: resolvedRole });

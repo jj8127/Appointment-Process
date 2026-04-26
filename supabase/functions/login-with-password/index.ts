@@ -6,7 +6,13 @@ import {
   getEnv,
   parseDesignerCompanyNameFromAffiliation,
 } from '../_shared/request-board-auth.ts';
+import {
+  canAutoIssueReferralCodeProfile,
+  ensureActiveReferralCode,
+  ensureManagerReferralShadowProfile,
+} from '../_shared/referral-code.ts';
 import { resolveManagerAffiliation } from '../_shared/manager-affiliation.ts';
+import { syncRequestBoardPassword } from '../_shared/request-board-password-sync.ts';
 
 type Payload = {
   phone: string;
@@ -101,55 +107,52 @@ async function hashPassword(password: string, saltBase64: string) {
   return toBase64(new Uint8Array(bits));
 }
 
-async function syncRequestBoardPassword(
-  phone: string,
-  password: string,
-  options?: {
-    role?: 'fc' | 'designer' | 'admin' | 'manager';
-    name?: string | null;
-    companyName?: string | null;
-    affiliation?: string | null;
-  },
-) {
-  if (!requestBoardPasswordSyncUrl || !requestBoardPasswordSyncToken) return;
+async function autoIssueReferralCodeOnLogin(params: {
+  profile:
+    | {
+      id: string;
+      phone: string | null;
+      affiliation?: string | null;
+      signup_completed?: boolean | null;
+      is_manager_referral_shadow?: boolean | null;
+    }
+    | null
+    | undefined;
+  actorPhone: string;
+  actorRole: 'fc' | 'manager';
+  actorStaffType?: string | null;
+  reason?: string;
+}) {
+  if (!params.profile?.id) {
+    return;
+  }
 
-  const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), requestBoardPasswordSyncTimeoutMs);
-  try {
-    const response = await fetch(requestBoardPasswordSyncUrl, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'x-request-bridge-token': requestBoardPasswordSyncToken,
-      },
-      body: JSON.stringify({
-        phone,
-        password,
-        role: options?.role ?? 'fc',
-        name: options?.name ?? undefined,
-        companyName: options?.companyName ?? undefined,
-        affiliation:
-          options?.role === 'fc' || options?.role === 'manager'
-            ? options?.affiliation ?? undefined
-            : undefined,
+  const canIssue = canAutoIssueReferralCodeProfile(params.profile, {
+    allowManagerShadow: params.actorRole === 'manager',
+  });
+  if (!canIssue) {
+    return;
+  }
+
+  const result = await ensureActiveReferralCode({
+    supabase,
+    fcId: params.profile.id,
+    actorPhone: params.actorPhone,
+    actorRole: params.actorRole,
+    actorStaffType: params.actorStaffType ?? null,
+    reason: params.reason ?? 'auto_issue_on_login',
+  });
+
+  if (!result.ok) {
+    console.warn(
+      '[login-with-password] referral code auto-issue failed',
+      JSON.stringify({
+        actorRole: params.actorRole,
+        phone: cleanPhone(params.actorPhone),
+        fcId: params.profile.id,
+        message: result.message,
       }),
-      signal: controller.signal,
-    });
-
-    if (!response.ok) {
-      const text = await response.text().catch(() => '');
-      console.warn(`[login-with-password] request_board sync failed: ${response.status} ${text.slice(0, 200)}`);
-      return;
-    }
-
-    const json = await response.json().catch(() => ({}));
-    if (!json?.success) {
-      console.warn(`[login-with-password] request_board sync error: ${JSON.stringify(json).slice(0, 200)}`);
-    }
-  } catch (error) {
-    console.warn('[login-with-password] request_board sync error:', error);
-  } finally {
-    clearTimeout(timeout);
+    );
   }
 }
 
@@ -248,10 +251,22 @@ serve(async (req: Request) => {
 
     const requestBoardBridgeRole = staffType === 'developer' ? 'fc' : 'admin';
     const requestBoardRole = staffType === 'developer' ? 'fc' : null;
-    await syncRequestBoardPassword(admin.phone, password, {
-      role: requestBoardBridgeRole,
-      name: staffType === 'developer' ? '개발자' : admin.name ?? '',
-    });
+    if (staffType === 'developer') {
+      await syncRequestBoardPassword({
+        syncUrl: requestBoardPasswordSyncUrl,
+        syncToken: requestBoardPasswordSyncToken,
+        timeoutMs: requestBoardPasswordSyncTimeoutMs,
+        logPrefix: 'login-with-password',
+        phone: admin.phone,
+        password,
+        options: {
+          role: 'fc',
+          name: '개발자',
+          initiatorRole: 'admin',
+          syncReason: 'login',
+        },
+      });
+    }
 
     const requestBoardBridgeToken = await createRequestBoardBridgeToken(admin.phone, requestBoardBridgeRole);
     const appSessionToken = await createAppSessionToken(admin.phone, 'admin', staffType);
@@ -327,11 +342,48 @@ serve(async (req: Request) => {
       .eq('id', manager.id);
 
     const managerAffiliation = resolveManagerAffiliation(manager.name);
-    await syncRequestBoardPassword(manager.phone, password, {
-      role: 'manager',
-      name: manager.name ?? '',
-      affiliation: managerAffiliation,
+    await syncRequestBoardPassword({
+      syncUrl: requestBoardPasswordSyncUrl,
+      syncToken: requestBoardPasswordSyncToken,
+      timeoutMs: requestBoardPasswordSyncTimeoutMs,
+      logPrefix: 'login-with-password',
+      phone: manager.phone,
+      password,
+      options: {
+        role: 'manager',
+        name: manager.name ?? '',
+        affiliation: managerAffiliation,
+        initiatorRole: 'manager',
+        syncReason: 'login',
+      },
     });
+
+    const shadowResult = await ensureManagerReferralShadowProfile(supabase, manager.phone, manager.name);
+    if (!shadowResult.ok) {
+      console.warn(
+        '[login-with-password] manager referral shadow ensure failed',
+        JSON.stringify({ phone: manager.phone, message: shadowResult.message }),
+      );
+    } else {
+      const { data: managerReferralProfile, error: managerReferralProfileError } = await supabase
+        .from('fc_profiles')
+        .select('id, phone, affiliation, signup_completed, is_manager_referral_shadow')
+        .eq('phone', manager.phone)
+        .maybeSingle();
+
+      if (managerReferralProfileError) {
+        console.warn(
+          '[login-with-password] manager referral profile lookup failed',
+          JSON.stringify({ phone: manager.phone, message: managerReferralProfileError.message }),
+        );
+      } else {
+        await autoIssueReferralCodeOnLogin({
+          profile: managerReferralProfile,
+          actorPhone: manager.phone,
+          actorRole: 'manager',
+        });
+      }
+    }
 
     const requestBoardBridgeToken = await createRequestBoardBridgeToken(
       manager.phone,
@@ -352,7 +404,7 @@ serve(async (req: Request) => {
 
   const { data: profile, error: profileError } = await supabase
     .from('fc_profiles')
-    .select('id,name,phone,signup_completed,affiliation')
+    .select('id,name,phone,signup_completed,affiliation,is_manager_referral_shadow')
     .eq('phone', phone)
     .maybeSingle();
 
@@ -422,11 +474,27 @@ serve(async (req: Request) => {
   const designerCompanyName = parseDesignerCompanyNameFromAffiliation(profile.affiliation);
   const requestBoardRole: 'fc' | 'designer' = designerCompanyName ? 'designer' : 'fc';
 
-  await syncRequestBoardPassword(profile.phone, password, {
-    role: requestBoardRole,
-    name: profile.name ?? '',
-    ...(requestBoardRole === 'fc' ? { affiliation: profile.affiliation ?? null } : {}),
-    ...(designerCompanyName ? { companyName: designerCompanyName } : {}),
+  await syncRequestBoardPassword({
+    syncUrl: requestBoardPasswordSyncUrl,
+    syncToken: requestBoardPasswordSyncToken,
+    timeoutMs: requestBoardPasswordSyncTimeoutMs,
+    logPrefix: 'login-with-password',
+    phone: profile.phone,
+    password,
+    options: {
+      role: requestBoardRole,
+      name: profile.name ?? '',
+      ...(requestBoardRole === 'fc' ? { affiliation: profile.affiliation ?? null } : {}),
+      ...(designerCompanyName ? { companyName: designerCompanyName } : {}),
+      initiatorRole: 'self',
+      syncReason: 'login',
+    },
+  });
+
+  await autoIssueReferralCodeOnLogin({
+    profile,
+    actorPhone: profile.phone,
+    actorRole: 'fc',
   });
 
   const requestBoardBridgeToken = await createRequestBoardBridgeToken(

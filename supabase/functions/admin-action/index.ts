@@ -277,7 +277,8 @@ serve(async (req: Request) => {
   }
 
   const normalizedAdminPhone = adminPhone.replace(/[^0-9]/g, '');
-  const allowResidentRead = action === 'getResidentNumbers';
+  const allowManagerRead = action === 'getResidentNumbers' || action === 'getInviteeReferralCode';
+  const allowFcRead = action === 'getResidentNumbers';
   const authHeader = req.headers.get('Authorization') ?? '';
   const isServiceCaller =
     authHeader === `Bearer ${serviceKey}` ||
@@ -287,7 +288,7 @@ serve(async (req: Request) => {
   let trustedRole: 'admin' | 'manager' | 'fc' | null = null;
   let trustedFcId: string | null = null;
 
-  if (allowResidentRead && !isServiceCaller) {
+  if (allowManagerRead && !isServiceCaller) {
     const parsedSession = typeof appSessionToken === 'string' && appSessionToken.trim()
       ? await parseAppSessionToken(appSessionToken)
       : null;
@@ -301,20 +302,22 @@ serve(async (req: Request) => {
       : null;
   }
 
-  const isAdmin = trustedRole === 'admin'
-    ? await verifyAdmin(trustedPhone)
-    : await verifyAdmin(normalizedAdminPhone);
+  const phoneForPrivilegedCheck =
+    allowManagerRead && !isServiceCaller
+      ? trustedPhone
+      : normalizedAdminPhone;
+  const isAdmin = await verifyAdmin(phoneForPrivilegedCheck);
   const isManager =
     !isAdmin &&
-    allowResidentRead &&
+    allowManagerRead &&
     (
       trustedRole === 'manager'
-        ? await verifyManager(trustedPhone)
+        ? await verifyManager(phoneForPrivilegedCheck)
         : isServiceCaller
-          ? await verifyManager(normalizedAdminPhone)
+          ? await verifyManager(phoneForPrivilegedCheck)
           : false
     );
-  const requesterFcIds = !isAdmin && !isManager && allowResidentRead
+  const requesterFcIds = !isAdmin && !isManager && allowFcRead
     ? trustedRole === 'fc'
       ? trustedFcId
         ? [trustedFcId]
@@ -322,14 +325,21 @@ serve(async (req: Request) => {
       : []
     : [];
 
-  if (!isAdmin && !isManager && allowResidentRead && trustedRole === 'fc' && !trustedFcId && requesterFcIds.length !== 1) {
+  if (!isAdmin && !isManager && allowFcRead && trustedRole === 'fc' && !trustedFcId && requesterFcIds.length !== 1) {
     return fail('Unauthorized: FC session scope is ambiguous. Please sign in again.', 403);
   }
-  const isAuthorized = isAdmin || (allowResidentRead && (isManager || requesterFcIds.length > 0));
+  const isAuthorized =
+    isAdmin
+    || (allowManagerRead && isManager)
+    || (allowFcRead && requesterFcIds.length > 0);
 
   if (!isAuthorized) {
     return fail(
-      allowResidentRead ? 'Unauthorized: not an admin, manager, or FC self' : 'Unauthorized: not an admin',
+      allowManagerRead
+        ? allowFcRead
+          ? 'Unauthorized: not an admin, manager, or FC self'
+          : 'Unauthorized: not an admin or manager'
+        : 'Unauthorized: not an admin',
       403,
     );
   }
@@ -399,6 +409,15 @@ serve(async (req: Request) => {
       }
 
       return json({ ok: true, residentNumbers });
+    }
+
+    if (action === 'getInviteeReferralCode') {
+      const { fcId } = payload as { fcId?: string };
+      if (!fcId) return fail('fcId is required');
+      const { data, error } = await supabase
+        .rpc('get_invitee_referral_code', { p_fc_id: fcId });
+      if (error) throw error;
+      return json({ ok: true, referralCode: (data as string | null) ?? null });
     }
 
     // ── updateProfile ──

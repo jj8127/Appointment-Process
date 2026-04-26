@@ -42,6 +42,18 @@ function fail(code: string, message: string) {
   return json({ ok: false, code, message });
 }
 
+function cleanPhone(input: string): string {
+  return String(input ?? '').replace(/[^0-9]/g, '');
+}
+
+function isNormalizedPhone(input: string): boolean {
+  return /^[0-9]{11}$/.test(input);
+}
+
+function isRequestBoardDesignerAffiliation(affiliation: unknown): boolean {
+  return String(affiliation ?? '').includes('설계매니저');
+}
+
 // Rate limiting: IP -> { count, resetAt }
 type RateLimitEntry = { count: number; resetAt: number };
 const rate_limit_store = new Map<string, RateLimitEntry>();
@@ -124,7 +136,7 @@ serve(async (req: Request) => {
   // Fetch inviter profile
   const { data: inviterProfile, error: profileError } = await supabase
     .from('fc_profiles')
-    .select('name, phone')
+    .select('name, phone, signup_completed, affiliation')
     .eq('id', referralCode.fc_id)
     .maybeSingle();
 
@@ -132,8 +144,16 @@ serve(async (req: Request) => {
     return json({ ok: false, code: 'db_error', message: profileError.message }, 500);
   }
 
+  const inviterPhone = cleanPhone(inviterProfile?.phone ?? '');
+  if (!inviterProfile || inviterProfile.signup_completed !== true || !isNormalizedPhone(inviterPhone)) {
+    return json({ ok: true, valid: false, reason: 'not_found' });
+  }
+
+  if (isRequestBoardDesignerAffiliation(inviterProfile.affiliation)) {
+    return json({ ok: true, valid: false, reason: 'not_found' });
+  }
+
   const inviterName = inviterProfile?.name ?? '';
-  const inviterPhone = inviterProfile?.phone ?? '';
   const inviterPhoneMasked = maskPhone(inviterPhone);
 
   return json({
@@ -141,6 +161,7 @@ serve(async (req: Request) => {
     valid: true,
     inviterName,
     inviterPhoneMasked,
+    inviterFcId: referralCode.fc_id,
     codeId: referralCode.id,
   });
 });
