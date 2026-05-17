@@ -7,6 +7,115 @@
 
 ---
 
+## <a id="20260517-insurance-digest-home-notify-and-link-hardening"></a> 2026-05-17 | Insurance digest home notify and link hardening
+
+**배경**:
+- 2026-05-17 보험 브리핑 게시글이 올라간 뒤 본문에 긴 raw URL과 AI 참고용/비자문 문구가 남아 있었다.
+- 가람in에서 게시글 링크를 터치할 때 crash가 보고됐고, 홈 최신 공지에서 게시판 글 상세로 이동한 뒤 X 닫기 시 crash가 보고됐다.
+- 원격 확인 결과 live 게시글은 FC/admin 알림센터 row에도 잡히지 않았고, `latest_notice`도 `insurance-news` 카테고리를 포함하지 않았다.
+
+**조치**:
+- `scripts/ops/post-insurance-digest.mjs`
+  - AI 참고용/비자문 disclaimer append를 제거했다.
+  - visible content에는 긴 raw URL을 붙이지 않고 짧은 출처명 또는 hostname만 붙이도록 바꿨다.
+  - optional `sourceLabels`와 `--source-label`을 추가하고, 본문에 `출처:`가 이미 있으면 source block을 중복 append하지 않게 했다.
+- `supabase/functions/fc-notify/index.ts`
+  - `latest_notice`의 board source에 `보험소식`(`insurance-news`) 카테고리를 포함했다.
+  - Expo push fanout을 100개 단위로 chunk 전송하도록 바꿨다.
+- `app/index.tsx`, `lib/home-latest-notice.ts`
+  - 홈 최신 공지 카드에서 보험소식은 `보험소식: <제목>` 라벨로 표시하게 했다.
+- `lib/notice-route.ts`, `app/board.tsx`
+  - `board_notice:<postId>`는 `/board-detail?postId=...` standalone 상세 화면으로 이동하게 했다.
+  - `/board?postId=` 모달 닫기는 route replace 대신 param clear를 사용해 `beforeRemove`와 충돌하지 않게 했다.
+- `components/LinkifiedSelectableText.tsx`, `lib/external-url.ts`, `lib/open-external-url.ts`
+  - clickable URL 표시를 짧게 줄이고 문장부호를 URL에서 제외했다.
+  - 링크 열기는 외부 브라우저 우선 경로를 쓰고, WebBrowser 실패 시 Linking fallback을 타게 했다.
+- live post `c9abace0-2d5f-4d78-88f8-be750c102048`를 `board-update`로 정리했다.
+- `fc-notify`와 `board-create` Edge Function을 project `ubeginyxaotcamuqpmud`에 배포했다.
+- FC/admin 알림 row를 보강하고, chunking 배포 뒤 FC push를 `skip_notification_insert=true`로 재전송했다.
+- Codex automation prompt를 raw URL 금지, `sourceLabels`, disclaimer 금지 계약으로 갱신했다.
+
+**결과**:
+- live 게시글 본문에는 raw `http(s)` URL과 AI 참고용/비자문 문구가 없다.
+- 홈 `latest_notice`가 `board_notice:c9abace0-2d5f-4d78-88f8-be750c102048`, category `보험소식`을 반환한다.
+- FC/admin 알림센터에는 각각 `board_post` row가 있고 target URL은 `/board-detail?postId=c9abace0-2d5f-4d78-88f8-be750c102048`이다.
+- FC push 재전송은 195개 토큰을 100개 이하 chunk 2개로 나눠 Expo 200 응답을 받았다.
+
+**검증**:
+- 통과: `node --test scripts/ops/post-insurance-digest.test.mjs` (10 tests)
+- 통과: `npm test -- --runTestsByPath lib/__tests__/external-url.test.ts lib/__tests__/notice-route.test.ts lib/__tests__/home-latest-notice.test.ts --runInBand` (11 tests)
+- 통과: `supabase functions deploy fc-notify --project-ref ubeginyxaotcamuqpmud`
+- 통과: `supabase functions deploy board-create --project-ref ubeginyxaotcamuqpmud`
+- 통과: remote `board-detail` content check (`contentHasRawUrl=false`, `contentHasDisclaimer=false`)
+- 통과: remote `fc-notify latest_notice` home surfacing check
+- 통과: remote FC/admin `inbox_list` notification row check
+- 통과: FC push retry returned two successful Expo chunks for 195 FC tokens
+
+---
+
+## <a id="20260517-insurance-digest-manual-post-and-runner-hardening"></a> 2026-05-17 | Insurance digest manual post and automation runner hardening
+
+**배경**:
+- 첫 보험 브리핑 자동화가 2026-05-17 22:43 KST에 digest와 출처를 만들었지만 게시판에 글이 올라오지 않았다.
+- 자동화 세션 로그에서 `pwd` 같은 기본 shell 명령도 `CreateProcessAsUserW failed: 1312`로 실패해, 게시 스크립트 문제가 아니라 Codex Desktop background runner shell 실행 문제임을 확인했다.
+
+**조치**:
+- 자동화가 만든 내용을 더 짧고 쉬운 게시글로 정리해 `.codex-tmp/insurance-digest/2026-05-17.json` payload를 만들었다.
+- `npm run ops:post-insurance-digest -- --input-file .codex-tmp/insurance-digest/2026-05-17.json`로 2026-05-17 브리핑을 수동 게시했다.
+- 같은 명령을 재실행해 동일 제목 중복 게시가 `skipped`로 차단되는 것을 확인했다.
+- Codex automation prompt를 inline `--input-json`이 아니라 `.codex-tmp/insurance-digest/YYYY-MM-DD.json` payload 파일과 `--input-file` 명령을 쓰도록 갱신했다.
+- 자동화 prompt에 shell runner failure가 있으면 게시 성공으로 보고하지 말고 blocker로 보고하도록 명시했다.
+- `.gitignore`에 `.codex-tmp/`를 추가해 automation payload 임시 파일이 Git diff에 잡히지 않게 했다.
+
+**결과**:
+- 2026-05-17 게시글 `보험 이슈 브리핑 2026.05.17`이 `보험소식` 카테고리에 1회 게시됐다.
+- 게시글 ID는 `c9abace0-2d5f-4d78-88f8-be750c102048`이다.
+- 다음 자동화는 payload 파일 기반으로 실행하며, runner가 shell을 실행하지 못하면 업로드로 간주하지 않는다.
+
+**검증**:
+- 통과: `node --test scripts/ops/post-insurance-digest.test.mjs`
+- 통과: `npm run ops:post-insurance-digest -- --input-file .codex-tmp/insurance-digest/2026-05-17.json --dry-run`
+- 통과: `npm run ops:post-insurance-digest -- --input-file .codex-tmp/insurance-digest/2026-05-17.json` (`status: posted`, `postId: c9abace0-2d5f-4d78-88f8-be750c102048`)
+- 통과: 동일 명령 재실행 시 `status: skipped`, `existingPostId: c9abace0-2d5f-4d78-88f8-be750c102048`
+
+---
+
+## <a id="20260516-codex-insurance-digest-pilot"></a> 2026-05-16 | Codex insurance issue digest pilot
+
+**배경**:
+- 가람in 게시판에 Codex가 매일 보험 관련 공개 웹자료를 검색/요약해 하루 1개의 `보험 이슈 브리핑` 게시글을 자동 등록하는 파일럿이 필요했다.
+- 기존 게시판 생성 경로는 `board-create`가 알림함 저장과 `fc-notify` fanout을 함께 담당하므로, 자동화도 직접 DB insert가 아니라 이 경로를 재사용해야 했다.
+
+**조치**:
+- `scripts/ops/post-insurance-digest.mjs`를 추가해 Codex가 만든 digest JSON을 검증하고 `board-create`로 게시하도록 했다.
+- 스크립트는 `보험소식`(`insurance-news`) 카테고리를 `board-categories-list`로 찾고, 없으면 admin actor로 `board-category-create`를 호출해 생성한다.
+- 같은 KST 날짜의 `보험 이슈 브리핑 YYYY.MM.DD` 제목이 이미 있으면 중복 게시를 건너뛴다.
+- `--dry-run`, `--input-json`, `--input-file`, `--title`, `--content`, `--source-url` CLI를 지원하고, npm alias `ops:post-insurance-digest`를 추가했다.
+- process env가 비어 있어도 repo `.env` / `.env.local`의 기존 `NEXT_PUBLIC_` / `EXPO_PUBLIC_` Supabase/admin phone alias를 읽어 실행할 수 있게 했다.
+- 유효한 `http/https` 출처 URL이 최소 1개 없으면 dry-run과 실제 게시 모두 거부하도록 보강했다.
+- `scripts/ops/post-insurance-digest.test.mjs`에 TDD 단위 테스트를 추가했다.
+- `docs/handbook/operations-runbook.md`, `docs/handbook/backend/notifications-inbox-push.md`, `.codex/harness/*`를 파일럿 운영 계약에 맞게 갱신했다.
+- Codex cron automation `daily-insurance-digest-to-garamin-board`를 생성해 `E:\hanhwa\fc-onboarding-app`에서 매일 08:30 KST 파일럿 작업을 실행하도록 등록했다.
+- 자동화 prompt를 갱신해 아주 짧고 쉬운 한국어, 이슈별 출처 필수, 출처 없는 경우 미게시를 명시했다.
+- 원격 `board-categories-list`로 admin actor/function 접근을 확인하고, `보험소식`(`insurance-news`) 카테고리를 생성한 뒤 재조회로 존재를 확인했다.
+
+**결과**:
+- Codex 자동화는 웹 검색/요약만 담당하고, 게시판 카테고리/중복/게시 호출은 repo-local 스크립트가 담당하는 구조가 됐다.
+- 자동 게시도 기존 게시글과 같은 알림함 및 푸시 fanout 계약을 유지한다.
+
+**검증**:
+- RED: `node --test scripts/ops/post-insurance-digest.test.mjs`가 구현 파일 부재(`ERR_MODULE_NOT_FOUND`)로 실패함을 확인했다.
+- RED: 제목 생략 dry-run 경로가 `TypeError: now is not a function`으로 실패하는 회귀 테스트를 추가해 확인했다.
+- RED: repo env alias fallback 테스트가 `loadRuntimeEnv` export 부재로 실패함을 확인했다.
+- RED: 출처 없는 digest가 거부되지 않는 것을 테스트 실패로 확인했다.
+- GREEN: `node --test scripts/ops/post-insurance-digest.test.mjs`
+- 통과: `npm run ops:post-insurance-digest -- --input-json '{"content":"오늘의 핵심 요약\n- 테스트","sourceUrls":["https://example.com"]}' --dry-run`
+- 통과: remote `board-categories-list` read smoke (`ok: true`)
+- 통과: remote category confirmation (`hasInsuranceNews: true`)
+- 통과: `node scripts/ci/check-governance.mjs`
+
+---
+
 ## <a id="20260426-referral-graph-v14-doc-closeout"></a> 2026-04-26 | Referral graph v14 hybrid force documentation closeout
 
 **배경**:

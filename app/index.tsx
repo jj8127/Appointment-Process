@@ -39,6 +39,7 @@ import { useSession } from '@/hooks/use-session';
 import { useInAppUpdate } from '@/hooks/useInAppUpdate';
 import { fetchInternalUnreadCount } from '@/lib/internal-chat-api';
 import { logger } from '@/lib/logger';
+import { formatLatestNoticeLabel } from '@/lib/home-latest-notice';
 import { fetchMobileUnreadNotificationCount } from '@/lib/mobile-unread-notification-count';
 import { resolveNoticeRoute } from '@/lib/notice-route';
 import { openExternalUrl } from '@/lib/open-external-url';
@@ -1196,7 +1197,7 @@ export default function Home() {
                     onPress={handleOpenLatestNotice}>
                     <View style={styles.noticeDot} />
                     <Text style={styles.noticeText} numberOfLines={1}>
-                      {latestNotice?.title ? `공지: ${latestNotice.title}` : '공지: 최신 공지사항을 확인하세요'}
+                      {formatLatestNoticeLabel(latestNotice)}
                     </Text>
                     <Feather name="chevron-right" size={16} color={HANWHA_ORANGE} style={{ marginLeft: 'auto' }} />
                   </Pressable>
@@ -1210,7 +1211,7 @@ export default function Home() {
                 onPress={handleOpenLatestNotice}>
                 <View style={styles.noticeDot} />
                 <Text style={styles.noticeText} numberOfLines={1}>
-                  {latestNotice?.title ? `공지: ${latestNotice.title}` : '공지: 최신 공지사항을 확인하세요'}
+                  {formatLatestNoticeLabel(latestNotice)}
                 </Text>
                 <Feather name="chevron-right" size={16} color={HANWHA_ORANGE} style={{ marginLeft: 'auto' }} />
               </Pressable>

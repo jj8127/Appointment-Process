@@ -1,49 +1,50 @@
 # Current Contract
 
 ## Increment
-- Name: Admin referral graph v14 hybrid force documentation and closeout
-- Goal: align docs, harness, and work logs with the current hybrid graph physics implementation, then commit and push the branch with honest verification status.
+- Name: Codex insurance digest pilot posting, home surfacing, and notification hardening
+- Goal: provide a safe repo-local posting bridge for daily Codex-generated insurance issue digests, surface the posts on GaramIn home, and keep board notification/push behavior stable.
 
 ## Exact Scope
-- Web graph canvas and helper contract
-  - `web/src/components/referrals/ReferralGraphCanvas.tsx`
-  - `web/src/lib/referral-graph-physics.ts`
-  - `web/src/lib/referral-graph-physics.test.ts`
-  - `web/src/lib/referral-graph-layout.ts`
-  - `web/src/lib/referral-graph-layout.test.ts`
-  - `web/src/lib/referral-graph-simulation.test.ts`
-- Web graph page settings
-  - `web/src/app/dashboard/referrals/graph/page.tsx`
-  - `web/src/types/referral-graph.ts`
-  - `web/src/types/d3-force.d.ts`
-- Referral/admin docs and harness
-  - `docs/referral-system/SPEC.md`
-  - `docs/referral-system/TEST_CHECKLIST.md`
-  - `docs/referral-system/INCIDENTS.md`
-  - `docs/handbook/admin-web/dashboard-lifecycle.md`
-  - `docs/handbook/admin-web/exam-and-referral-ops.md`
-  - `docs/handbook/data/referral-schema-and-admin-rpcs.md`
-  - `.codex/harness/*`
-  - `.claude/MISTAKES.md`
-  - `.claude/WORK_LOG.md`
-  - `.claude/WORK_DETAIL.md`
+- Create a Node ESM CLI under `scripts/ops/`.
+- Add focused Node test coverage for parsing, dry-run, category handling, duplicate skip, and posting.
+- Add an npm script alias.
+- Document operational env and notification contract.
+- Create one daily Codex cron automation for `E:\hanhwa\fc-onboarding-app`.
+- Publish the 2026-05-17 digest manually from the same repo script after the automation runner failed to execute shell commands.
+- Update automation instructions to use `--input-file` and to report shell-runner failures as blockers, not uploads.
+- Include `보험소식` board posts in `latest_notice`, route home board notices to `/board-detail`, and avoid the `/board?postId=` modal close crash path.
+- Remove long raw URLs and AI/reference disclaimer copy from visible digest content.
+- Chunk Expo push fanout in `fc-notify` so FC audiences over 100 tokens are accepted.
 
 ## Acceptance Criteria
-- [x] docs no longer claim the graph is v7 four-force-only.
-- [x] docs describe v14 storage key and current helper forces.
-- [x] docs explicitly ban fixed-radius `radial-containment`, forced `isolated-ring`, drop tether, and release velocity injection.
-- [x] docs record weak cluster gravity as a soft boundedness force, not a fixed circle containment force.
-- [x] docs record drag rope constraint as the edge stretch control while dragging.
-- [ ] all simulation-level cluster/orphan distribution checks pass.
-- [x] passing and failing verification are separated in QA notes.
+- [x] Script accepts JSON digest payload and dry-run mode.
+- [x] Script resolves or creates `보험소식` / `insurance-news`.
+- [x] Script skips duplicate same-day `보험 이슈 브리핑 YYYY.MM.DD` titles.
+- [x] Script posts through `board-create`, not direct table insert.
+- [x] Content includes short visible source names and keeps raw URLs out of the board body.
+- [x] Content does not append AI/reference/disclaimer copy.
+- [x] Script rejects digest payloads without at least one valid source URL.
+- [x] Automation prompt requires very short, easy Korean and mandatory sources.
+- [x] Daily Codex automation exists and targets the repo.
+- [x] Automation prompt uses a payload file plus `--input-file` instead of inline JSON.
+- [x] Script can run without explicit process env by loading existing repo env aliases.
+- [x] Remote `보험소식` category exists.
+- [x] 2026-05-17 digest was posted once, duplicate rerun skipped, and the live post was updated to remove raw URLs/disclaimer copy.
+- [x] Home `latest_notice` returns the 2026-05-17 `보험소식` board post.
+- [x] FC/admin notification rows exist for the live post.
+- [x] FC Expo push fanout succeeds in chunks after deployment.
+- [x] Verification commands pass or failures are documented.
 
-## Checks To Run Before Push
+## Checks
+- `node --test scripts/ops/post-insurance-digest.test.mjs`
+- `npm run ops:post-insurance-digest -- --input-json '{"content":"오늘의 핵심 요약\n- 테스트","sourceUrls":["https://example.com"]}' --dry-run`
+- `npm run ops:post-insurance-digest -- --input-file .codex-tmp/insurance-digest/2026-05-17.json --dry-run`
+- `npm run ops:post-insurance-digest -- --input-file .codex-tmp/insurance-digest/2026-05-17.json`
+- `npm test -- --runTestsByPath lib/__tests__/external-url.test.ts lib/__tests__/notice-route.test.ts lib/__tests__/home-latest-notice.test.ts --runInBand`
+- `supabase functions deploy fc-notify --project-ref ubeginyxaotcamuqpmud`
+- `supabase functions deploy board-create --project-ref ubeginyxaotcamuqpmud`
 - `node scripts/ci/check-governance.mjs`
-- `node --experimental-strip-types --test web/src/lib/referral-graph-physics.test.ts`
-- `node --experimental-strip-types --test web/src/lib/referral-graph-simulation.test.ts`
-- `cd web && npm run lint -- src/components/referrals/ReferralGraphCanvas.tsx src/app/dashboard/referrals/graph/page.tsx src/lib/referral-graph-physics.ts src/lib/referral-graph-layout.ts src/lib/referral-graph-simulation.test.ts src/types/referral-graph.ts src/types/d3-force.d.ts`
 
 ## Rollback / Containment
-- API, DB, and response shapes are unchanged.
-- Revert containment is limited to graph helper modules, graph canvas force/drag wiring, graph page physics settings, and matching docs.
-- Existing unrelated dirty worktree changes must stay untouched.
+- Remove the Codex automation if automatic posting should stop.
+- Revert script, tests, package alias, and docs. No schema rollback is needed.

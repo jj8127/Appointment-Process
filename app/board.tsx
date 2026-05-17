@@ -324,7 +324,7 @@ export default function BoardScreen() {
   const closeModal = useCallback(() => {
     setSelectedPost(null);
     if (routePostId) {
-      router.replace('/board');
+      router.setParams({ postId: undefined } as any);
     }
   }, [routePostId, router]);
   const closePreviewImage = useCallback(() => setPreviewImage(null), []);

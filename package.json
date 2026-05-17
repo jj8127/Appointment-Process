@@ -19,6 +19,7 @@
     "report:missing-recommender": "node ./scripts/reporting/export-missing-recommender-report.mjs",
     "report:missing-recommender-outreach": "node ./scripts/reporting/export-missing-recommender-outreach-report.mjs",
     "ops:send-missing-recommender-messages": "node ./scripts/reporting/send-missing-recommender-messages.mjs",
+    "ops:post-insurance-digest": "node ./scripts/ops/post-insurance-digest.mjs",
     "qa:init:integrated": "node ./scripts/testing/init-integrated-test-run.mjs",
     "qa:validate:integrated": "node ./scripts/testing/validate-integrated-test-run.mjs",
     "prepare": "node ./scripts/prepare.js"

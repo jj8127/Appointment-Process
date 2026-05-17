@@ -57,6 +57,7 @@ credentials/
 
 # local codex/mcp settings
 .codex/
+.codex-tmp/
 .claude/settings.local.json
 
 # local tooling checkout

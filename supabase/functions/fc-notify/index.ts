@@ -113,9 +113,11 @@ type NoticeRow = {
 type BoardNoticeCategoryRow = {
   id: string;
   name: string | null;
+  slug: string | null;
 };
 type BoardNoticePostRow = {
   id: string;
+  category_id: string | null;
   title: string;
   content: string;
   created_at: string;
@@ -140,7 +142,8 @@ type InternalChatMessageRow = {
 };
 
 const EXPO_PUSH_URL = 'https://exp.host/--/api/v2/push/send';
-const BOARD_NOTICE_CATEGORY_SLUG = 'notice';
+const EXPO_PUSH_CHUNK_SIZE = 100;
+const BOARD_HOME_CATEGORY_SLUGS = ['notice', 'insurance-news'] as const;
 const BOARD_NOTICE_ID_PREFIX = 'board_notice:';
 const BOARD_ATTACHMENT_SIGN_EXPIRES_SECONDS = 60 * 60 * 6;
 const ADMIN_CHAT_ID = 'admin';
@@ -364,20 +367,40 @@ function isMissingTableError(error: unknown): boolean {
   return code === '42P01';
 }
 
-async function fetchBoardNoticeCategory(): Promise<BoardNoticeCategoryRow | null> {
+async function fetchBoardHomeCategories(): Promise<BoardNoticeCategoryRow[]> {
   const { data, error } = await supabase
     .from('board_categories')
-    .select('id,name')
-    .eq('slug', BOARD_NOTICE_CATEGORY_SLUG)
-    .maybeSingle();
+    .select('id,name,slug')
+    .in('slug', [...BOARD_HOME_CATEGORY_SLUGS]);
 
   if (error) {
-    if (isMissingTableError(error)) return null;
+    if (isMissingTableError(error)) return [];
     throw error;
   }
-  if (!data?.id) return null;
 
-  return data as BoardNoticeCategoryRow;
+  return (data ?? []) as BoardNoticeCategoryRow[];
+}
+
+async function sendExpoPushPayloads(pushPayload: Array<Record<string, unknown>>) {
+  const chunks: Array<{ status: number; ok: boolean; result: unknown }> = [];
+
+  for (let index = 0; index < pushPayload.length; index += EXPO_PUSH_CHUNK_SIZE) {
+    const chunk = pushPayload.slice(index, index + EXPO_PUSH_CHUNK_SIZE);
+    const resp = await fetch(EXPO_PUSH_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(chunk),
+    });
+
+    const result = await resp.json().catch(async () => ({ raw: await resp.text().catch(() => '') }));
+    chunks.push({ status: resp.status, ok: resp.ok, result });
+  }
+
+  if (chunks.length === 1) {
+    return chunks[0].result;
+  }
+
+  return { chunks };
 }
 
 async function createBoardAttachmentSignedUrl(storagePath: string): Promise<string | null> {
@@ -393,13 +416,16 @@ async function createBoardAttachmentSignedUrl(storagePath: string): Promise<stri
 }
 
 async function fetchBoardNoticesWithAttachments(limit = 20): Promise<NoticeRow[]> {
-  const category = await fetchBoardNoticeCategory();
-  if (!category?.id) return [];
+  const categories = await fetchBoardHomeCategories();
+  if (categories.length === 0) return [];
+
+  const categoryById = new Map(categories.map((category) => [category.id, category]));
+  const categoryIds = categories.map((category) => category.id);
 
   const { data: posts, error: postError } = await supabase
     .from('board_posts')
-    .select('id,title,content,created_at')
-    .eq('category_id', category.id)
+    .select('id,category_id,title,content,created_at')
+    .in('category_id', categoryIds)
     .order('created_at', { ascending: false })
     .limit(limit);
 
@@ -426,7 +452,7 @@ async function fetchBoardNoticesWithAttachments(limit = 20): Promise<NoticeRow[]
         id: `${BOARD_NOTICE_ID_PREFIX}${row.id}`,
         title: row.title,
         body: row.content,
-        category: category.name ?? '공지',
+        category: categoryById.get(row.category_id ?? '')?.name ?? '공지',
         created_at: row.created_at,
         images: null,
         files: null,
@@ -473,7 +499,7 @@ async function fetchBoardNoticesWithAttachments(limit = 20): Promise<NoticeRow[]
     id: `${BOARD_NOTICE_ID_PREFIX}${row.id}`,
     title: row.title,
     body: row.content,
-    category: category.name ?? '공지',
+    category: categoryById.get(row.category_id ?? '')?.name ?? '공지',
     created_at: row.created_at,
     images: imageMap.get(row.id) ?? null,
     files: fileMap.get(row.id) ?? null,
@@ -1106,14 +1132,15 @@ serve(async (req: Request) => {
       deletedNotices = count ?? 0;
     }
 
-    // 게시판 공지(카테고리 slug=notice)도 공지 목록에서 삭제 요청 시 함께 삭제
+    // 게시판 홈 노출 카테고리도 공지 목록에서 삭제 요청 시 함께 삭제
     if (boardNoticePostIds.length > 0 && role === 'admin') {
-      const category = await fetchBoardNoticeCategory();
-      if (category?.id) {
+      const categories = await fetchBoardHomeCategories();
+      const categoryIds = categories.map((category) => category.id);
+      if (categoryIds.length > 0) {
         const { data: deletablePosts, error: postErr } = await supabase
           .from('board_posts')
           .select('id')
-          .eq('category_id', category.id)
+          .in('category_id', categoryIds)
           .in('id', boardNoticePostIds);
         if (postErr) return err(postErr.message, 500);
 
@@ -1281,12 +1308,7 @@ serve(async (req: Request) => {
       channelId: 'alerts',
     }));
 
-    const resp = await fetch(EXPO_PUSH_URL, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(pushPayload),
-    });
-    const result = await resp.json();
+    const result = await sendExpoPushPayloads(pushPayload);
 
     return ok({ ok: true, sent: tokens.length, logged: !logError, result, web_push: adminWebPush });
   }
@@ -1417,13 +1439,7 @@ serve(async (req: Request) => {
     channelId: 'alerts',
   }));
 
-  const resp = await fetch(EXPO_PUSH_URL, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(payload),
-  });
-
-  const result = await resp.json();
+  const result = await sendExpoPushPayloads(payload);
 
   return ok({ ok: true, sent: tokens.length, logged: !logError, result, web_push: adminWebPush });
 });

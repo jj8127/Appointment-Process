@@ -2,7 +2,7 @@ doc_id: FC-BACKEND-NOTIFY-PUSH
 owner_repo: fc-onboarding-app
 owner_area: backend
 audience: developer, operator
-last_verified: 2026-04-06
+last_verified: 2026-05-17
 source_of_truth: supabase/functions/fc-notify/index.ts + supabase/functions/board-create/index.ts + web/src/app/actions.ts + web/src/app/api/admin/push/route.ts + web/src/app/api/web-push/subscribe/route.ts
 
 # Backend Runbook: Notifications, Inbox, And Push
@@ -20,6 +20,7 @@ source_of_truth: supabase/functions/fc-notify/index.ts + supabase/functions/boar
 - `fc-notify`가 notification persistence와 push fanout의 중심입니다.
 - admin web push는 `/api/admin/push`와 subscription registry를 통해 보조됩니다.
 - request_board bridge unread는 admin/developer session에서 `requestBoardRole='fc'`일 때 함께 합산될 수 있습니다.
+- Expo push API는 한 요청에 최대 100개 payload만 허용하므로 `fc-notify`는 mobile push payload를 100개 단위로 chunk 전송합니다.
 
 ## 2026-03-28 기준 주의점
 
@@ -35,6 +36,15 @@ source_of_truth: supabase/functions/fc-notify/index.ts + supabase/functions/boar
 - 게시판 글 fanout은 최소 두 축이 필요합니다.
   - `target_role='fc'`: FC 앱 푸시
   - `target_role='admin'`: admin/manager 앱 푸시 + admin web push callback
+
+## 2026-05-16 Codex 보험 브리핑 메모
+
+- Codex 자동 보험 이슈 브리핑은 `scripts/ops/post-insurance-digest.mjs`를 통해 게시합니다.
+- 스크립트는 `보험소식`(`insurance-news`) 카테고리를 확인/생성한 뒤 기존 `board-create` Edge Function으로 게시합니다.
+- 따라서 자동 브리핑도 일반 게시글과 같은 inbox row 저장 및 `fc-notify` fanout 경로를 사용해야 하며, `board_posts` 직접 insert로 우회하지 않습니다.
+- 같은 KST 날짜의 `보험 이슈 브리핑 YYYY.MM.DD` 제목이 이미 있으면 스크립트가 게시를 건너뜁니다.
+- 홈 최신 공지(`latest_notice`)는 게시판 `공지`뿐 아니라 `보험소식` 카테고리 글도 포함합니다.
+- 자동 브리핑 본문에는 긴 원문 URL이나 AI 참고용/비자문 disclaimer를 넣지 않고, 짧은 출처명만 노출합니다.
 
 ## 2026-03-30 정합성 메모
 

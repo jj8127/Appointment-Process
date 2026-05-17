@@ -1,4 +1,9 @@
-import { isHttpUrl, normalizeExternalUrl } from '@/lib/external-url';
+import {
+  formatExternalUrlDisplayText,
+  isHttpUrl,
+  normalizeExternalUrl,
+  stripTrailingUrlPunctuation,
+} from '@/lib/external-url';
 
 describe('external url helpers', () => {
   it('preserves http and https urls', () => {
@@ -9,6 +14,11 @@ describe('external url helpers', () => {
   it('adds https to bare web addresses', () => {
     expect(normalizeExternalUrl('www.youtube.com/playlist?list=123')).toBe('https://www.youtube.com/playlist?list=123');
     expect(normalizeExternalUrl('example.com')).toBe('https://example.com');
+  });
+
+  it('removes trailing sentence punctuation from copied urls', () => {
+    expect(stripTrailingUrlPunctuation('https://example.com/a).')).toBe('https://example.com/a');
+    expect(normalizeExternalUrl('www.example.com/a,')).toBe('https://www.example.com/a');
   });
 
   it('preserves existing non-http schemes', () => {
@@ -22,5 +32,11 @@ describe('external url helpers', () => {
     expect(isHttpUrl('http://example.com')).toBe(true);
     expect(isHttpUrl('file:///storage/emulated/0/test.pdf')).toBe(false);
     expect(isHttpUrl('tel:01012341234')).toBe(false);
+  });
+
+  it('formats long urls into short visible labels', () => {
+    expect(formatExternalUrlDisplayText('https://www.example.com/very/long/path/to/article?utm_source=test', 28)).toBe(
+      'example.com/very/long/pat...',
+    );
   });
 });

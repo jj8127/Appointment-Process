@@ -30,6 +30,59 @@
 - Verification:
 ```
 
+## 2026-05-17 | Insurance Digest Board/Home/Push | live smoke에서 UI/notification 계약까지 확인하지 않음
+- Symptom:
+  - 2026-05-17 보험 브리핑 게시글 본문에 긴 raw URL과 AI 참고용/비자문 문구가 보여 사용자 요구와 맞지 않았다.
+  - 게시글 링크 터치와 홈 최신 공지에서 게시판 상세로 들어간 뒤 X 닫기 crash가 보고됐다.
+  - 첫 live post는 FC/admin 알림 row와 홈 최신 공지 노출이 확인되지 않았고, FC push는 Expo 100개 payload 제한에 걸렸다.
+- Root cause:
+  - 게시 성공/중복 skip만 확인하고, 실제 앱 상세 화면의 link rendering, home route, notification row, Expo push response를 같은 smoke 범위로 묶지 않았다.
+  - `latest_notice`는 `notice` board category만 포함했고 `insurance-news`를 포함하지 않았다.
+  - `board_notice:` route가 `/board?postId=` modal path로 들어가며 modal close의 `router.replace('/board')`가 `beforeRemove` listener와 충돌할 수 있었다.
+  - `fc-notify`는 Expo push payload를 100개 단위로 나누지 않았다.
+- Why it was missed:
+  - 자동 게시 파일럿의 검증 기준이 backend posting script 중심이었고, 모바일 홈/상세 UI와 push transport 제한까지 포함하지 않았다.
+  - 원문 URL을 `sourceUrls` 검증용 데이터와 visible board content로 동시에 취급했다.
+- Permanent guardrail:
+  - 보험 브리핑 live smoke는 `board-detail` content, `latest_notice`, FC/admin `inbox_list`, Expo push result를 모두 확인한다.
+  - visible board content에는 raw URL과 AI 참고용/비자문 disclaimer를 넣지 않는다. 원문 URL은 `sourceUrls` payload에만 둔다.
+  - board notice home routes는 standalone `/board-detail` path를 우선 사용한다.
+  - push fanout 코드는 Expo 100 payload/request 제한을 지켜 chunk 전송한다.
+- Related files:
+  - `scripts/ops/post-insurance-digest.mjs`
+  - `supabase/functions/fc-notify/index.ts`
+  - `app/index.tsx`
+  - `app/board.tsx`
+  - `lib/notice-route.ts`
+  - `components/LinkifiedSelectableText.tsx`
+- Verification:
+  - `node --test scripts/ops/post-insurance-digest.test.mjs`
+  - `npm test -- --runTestsByPath lib/__tests__/external-url.test.ts lib/__tests__/notice-route.test.ts lib/__tests__/home-latest-notice.test.ts --runInBand`
+  - remote `board-detail`, `latest_notice`, `inbox_list`, and chunked FC push retry checks
+
+## 2026-05-17 | Codex Insurance Digest Automation | runner 실패를 게시 성공과 혼동할 수 있는 자동화 계약
+- Symptom:
+  - 첫 보험 브리핑 자동화가 digest와 출처를 만들었지만 게시 스크립트를 실행하지 못해 게시판에는 글이 없었다.
+  - 자동화 결과만 보면 요약문이 생성되어 게시 완료처럼 오해할 수 있었다.
+- Root cause:
+  - Codex Desktop background runner에서 `CreateProcessAsUserW failed: 1312`가 발생해 `pwd`와 게시 스크립트 실행이 모두 실패했다.
+  - 기존 prompt는 inline JSON 명령만 강조했고, shell 실행 실패를 업로드 실패로 명시 보고하라는 guardrail이 약했다.
+- Why it was missed:
+  - 자동화 생성 직후 production smoke posting을 하지 않았고, 첫 background run의 shell 실행 가능성을 별도로 확인하지 않았다.
+  - 게시판 조회 결과와 자동화 세션 로그를 대조하기 전까지 "요약 생성"과 "게시 완료"가 분리되어 있었다.
+- Permanent guardrail:
+  - Codex 게시 자동화는 대형 JSON을 shell inline 인자로 넘기지 말고 `.codex-tmp/` payload 파일 + `--input-file`을 사용한다.
+  - 자동화가 shell runner failure를 만나면 반드시 blocker로 보고하고, 게시 성공으로 표현하지 않는다.
+  - 첫 실행 또는 prompt 변경 뒤에는 게시판 중복-skip 확인까지 포함해 smoke 검증한다.
+- Related files:
+  - `scripts/ops/post-insurance-digest.mjs`
+  - `.codex/harness/qa-report.md`
+  - `.codex/harness/handoff.md`
+  - `docs/handbook/operations-runbook.md`
+- Verification:
+  - `npm run ops:post-insurance-digest -- --input-file .codex-tmp/insurance-digest/2026-05-17.json`
+  - 동일 명령 재실행 시 `status: skipped`
+
 ## 2026-04-26 | Admin Referral Graph | 체크리스트 미완료 상태를 완료처럼 보고함
 - Symptom:
   - 사용자가 추천인 그래프의 모든 체크리스트를 완벽히 검수했는지 확인했을 때, 실제로는 cluster/orphan 분포 simulation이 실패하고 있었는데 완료처럼 응답했다.

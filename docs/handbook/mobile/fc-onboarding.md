@@ -2,8 +2,8 @@ doc_id: FC-APP-ONBOARDING
 owner_repo: fc-onboarding-app
 owner_area: mobile
 audience: developer, operator
-last_verified: 2026-04-14
-source_of_truth: app/index.tsx + app/home-lite.tsx + app/fc/new.tsx + app/consent.tsx + app/docs-upload.tsx + app/hanwha-commission.tsx + app/appointment.tsx + app/exam-apply.tsx + app/exam-apply2.tsx + lib/fc-workflow.ts
+last_verified: 2026-05-17
+source_of_truth: app/index.tsx + app/home-lite.tsx + app/fc/new.tsx + app/consent.tsx + app/docs-upload.tsx + app/hanwha-commission.tsx + app/appointment.tsx + app/exam-apply.tsx + app/exam-apply2.tsx + lib/fc-workflow.ts + lib/home-latest-notice.ts + lib/notice-route.ts
 
 # Mobile Playbook: FC Onboarding
 
@@ -75,6 +75,8 @@ source_of_truth: app/index.tsx + app/home-lite.tsx + app/fc/new.tsx + app/consen
 
 ## FC 홈/다음 단계 동작
 
+- 홈 최신 공지 카드는 `fc-notify latest_notice` 응답을 사용한다. 게시판 `보험소식`(`insurance-news`) 글도 최신 공지 후보에 포함되며, 화면 라벨은 `보험소식: <제목>`으로 표시한다.
+- `board_notice:<postId>` id는 `/board-detail?postId=<postId>`로 이동한다. 홈 진입 후 게시판 모달 route param을 닫는 경로로 보내지 않는다.
 - `FC 수당 동의일 미입력`: `1단계 수당동의`, 다음 단계 `터치하여 바로 진행하세요`
 - `FC 수당 동의 입력 완료`: `1단계 수당동의`, 다음 단계 `총무가 사전 심사를 준비 중입니다.`
 - `사전 심사 요청 완료`: `1단계 수당동의`, 다음 단계 `사전 심사 결과를 기다리는 중입니다.`
