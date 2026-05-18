@@ -7,6 +7,38 @@
 
 ---
 
+## <a id="20260518-insurance-digest-scheduler-fallback-and-notification-constraint"></a> 2026-05-18 | Insurance digest scheduler fallback and notification constraint
+
+**배경**:
+- 2026-05-18 08:30 KST 이후 Codex automation session이나 `.codex-tmp/insurance-digest/2026-05-18.json` payload가 없어, 오늘치 보험 브리핑 자동 게시가 실행되지 않은 것으로 확인했다.
+- 수동 게시 후 `board-create`가 직접 넣어야 하는 FC/admin 알림 row도 비어 있었다.
+
+**조치**:
+- 오늘치 브리핑을 `.codex-tmp/insurance-digest/2026-05-18.json`로 만들고 `npm run ops:post-insurance-digest -- --input-file .codex-tmp/insurance-digest/2026-05-18.json`로 수동 게시했다.
+- `fc-notify latest_notice`가 새 게시글을 반환하는지 확인했다.
+- FC/admin 알림 row가 비어 있어 `fc-notify notify`로 수동 보강했다.
+- 원격 `notifications` debug insert로 `manager` role이 `notifications_recipient_role_check`에 막혀 batch insert 전체가 rollback되는 것을 확인했다.
+- `supabase/migrations/20260518000001_allow_manager_notifications.sql`를 추가하고 remote DB에 적용했다.
+- 적용 후 FC/admin/manager debug notification insert가 성공하는 것을 확인하고 debug rows를 삭제했다.
+- Codex 앱 cron이 다시 빠질 때를 대비해 `scripts/ops/run-insurance-digest-codex.ps1`를 추가하고, Windows Task Scheduler 작업 `GaramIn Insurance Digest Codex Fallback`을 08:35 KST daily로 등록했다.
+
+**결과**:
+- 2026-05-18 게시글 `보험 이슈 브리핑 2026.05.18`은 `보험소식`에 게시됐고 ID는 `bbb63250-c3ee-409b-80bf-139927d675a1`이다.
+- 홈 최신 공지와 FC/admin 알림센터 모두 오늘 게시글을 가리킨다.
+- 이후 `board-create`의 FC/admin/manager notification batch insert는 원격 제약 때문에 rollback되지 않는다.
+- Codex 앱 cron 외에 Codex CLI 기반 로컬 백업 실행기가 매일 08:35 KST에 한 번 더 확인한다.
+
+**검증**:
+- 통과: remote `board-detail` content check (`contentHasRawUrl=false`)
+- 통과: remote `fc-notify latest_notice` returned `board_notice:bbb63250-c3ee-409b-80bf-139927d675a1`
+- 통과: remote FC/admin `inbox_list` includes `board_post` rows targeting `/board-detail?postId=bbb63250-c3ee-409b-80bf-139927d675a1`
+- 통과: pre-migration debug insert reproduced `23514 notifications_recipient_role_check`
+- 통과: `supabase db push --linked --yes`
+- 통과: post-migration FC/admin/manager debug insert and cleanup
+- 통과: `scripts/ops/run-insurance-digest-codex.ps1 -DryRun`
+
+---
+
 ## <a id="20260517-insurance-digest-home-notify-and-link-hardening"></a> 2026-05-17 | Insurance digest home notify and link hardening
 
 **배경**:

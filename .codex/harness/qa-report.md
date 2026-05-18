@@ -1,7 +1,7 @@
 # QA Report
 
 ## Summary
-- Status: passed
+- Status: passed with scheduler risk noted
 - Scope: Codex automatic insurance issue briefing pilot, home surfacing, link/close crash hardening, and notification push recovery.
 
 ## TDD Evidence
@@ -50,8 +50,19 @@
 - Deployment:
   - `supabase functions deploy fc-notify --project-ref ubeginyxaotcamuqpmud`
   - `supabase functions deploy board-create --project-ref ubeginyxaotcamuqpmud`
+- 2026-05-18 recovery:
+  - 08:30 KST Codex app cron had no new session or payload file, so the scheduled post did not happen.
+  - Manual `npm run ops:post-insurance-digest -- --input-file .codex-tmp/insurance-digest/2026-05-18.json` posted `postId: bbb63250-c3ee-409b-80bf-139927d675a1`.
+  - Remote `board-detail` confirmed no raw URL in visible content.
+  - Remote `fc-notify latest_notice` returned `board_notice:bbb63250-c3ee-409b-80bf-139927d675a1`.
+  - Manual `fc-notify notify` repaired FC/admin notification rows and push fanout after direct `board-create` notification rows were missing.
+  - Direct debug insert identified remote constraint drift: `23514 notifications_recipient_role_check` rejected `manager`.
+  - `supabase db push --linked --yes` applied `20260518000001_allow_manager_notifications.sql`.
+  - Direct FC/admin/manager debug notification insert succeeded after migration and the debug rows were deleted.
+  - `scripts/ops/run-insurance-digest-codex.ps1 -DryRun` passed.
+  - Windows Task Scheduler task `GaramIn Insurance Digest Codex Fallback` was registered for 08:35 KST.
 
 ## Known Risks
 - Live posting depends on repo `.env` / `.env.local` staying available or equivalent process env being supplied.
 - Codex search quality depends on automation prompt discipline; low-quality or duplicated web results must be filtered before posting.
-- Scheduled automatic posting still depends on the Codex Desktop background runner being able to execute local shell commands.
+- Codex app scheduled posting still depends on the Codex Desktop background runner starting at the expected local time and being able to execute local shell commands. The Windows Task Scheduler / Codex CLI fallback reduces but does not eliminate this operational risk.

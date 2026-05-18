@@ -17,6 +17,9 @@
 - Routed home board notices to `/board-detail` and changed `/board?postId=` modal closing to clear params instead of replacing the route.
 - Shortened clickable URL display and opened links via the external browser path.
 - Deployed `fc-notify` with Expo push chunking and redeployed `board-create`.
+- Recovered the missing 2026-05-18 digest manually and verified home/latest plus FC/admin inbox rows.
+- Added and applied a migration for the remote `notifications_recipient_role_check` drift that rejected `manager` rows and rolled back the whole `board-create` notification batch.
+- Added `scripts/ops/run-insurance-digest-codex.ps1` and registered the Windows Task Scheduler fallback `GaramIn Insurance Digest Codex Fallback` for 08:35 KST.
 
 ## Verified
 - `node --test scripts/ops/post-insurance-digest.test.mjs`
@@ -34,10 +37,13 @@
 - Remote `fc-notify latest_notice` returned the live `보험소식` board post.
 - Remote FC/admin `inbox_list` each returned the live `board_post` notification row.
 - FC push retry after chunking returned two successful Expo chunks for 195 FC tokens.
+- 2026-05-18 post `bbb63250-c3ee-409b-80bf-139927d675a1` exists, has no raw URL in visible content, is returned by `latest_notice`, and has FC/admin notification rows.
+- Direct debug insert before migration failed with `23514 notifications_recipient_role_check` for `manager`; after migration the same FC/admin/manager debug insert succeeded and was deleted.
+- `scripts/ops/run-insurance-digest-codex.ps1 -DryRun` returned the expected Codex CLI/log paths.
 
 ## Remaining
-- Optional later hardening: add a durable DB-side run log if the pilot graduates from Codex automation to service-owned cron.
-- Next scheduled automatic post still needs observation because the first background runner could not execute shell commands.
+- Optional later hardening: move the digest pipeline to a service-owned scheduler with a durable DB-side run log if the pilot graduates from Codex automation.
+- Next scheduled automatic post still needs observation because the Codex app cron has now both failed shell execution and missed the expected 08:30 KST start once.
 
 ## Resume Steps
 1. Run `node --test scripts/ops/post-insurance-digest.test.mjs`.

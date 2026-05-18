@@ -30,6 +30,32 @@
 - Verification:
 ```
 
+## 2026-05-18 | Insurance Digest Automation | Codex cron 실행 여부와 remote migration drift를 별도로 감시하지 않음
+- Symptom:
+  - 2026-05-18 08:30 KST 보험 브리핑 자동 게시가 다시 실행되지 않아 오늘 게시글이 없었다.
+  - 수동 게시 후에도 `board-create`가 넣어야 하는 알림 row가 비어 있었고, FC/admin 알림은 별도 `fc-notify` 수동 호출로 보강해야 했다.
+- Root cause:
+  - Codex app cron은 오늘 08:30 KST 이후 새 session/payload 흔적이 없어 스케줄 자체가 기대 시간에 시작되지 않았다.
+  - 원격 DB의 `notifications_recipient_role_check`가 아직 `manager`를 허용하지 않아, `board-create`의 FC/admin/manager 3건 batch insert가 `manager` row에서 전부 rollback됐다.
+- Why it was missed:
+  - 자동화 생성/수정 뒤 다음날 "스케줄이 실제로 시작됐는가"를 별도 heartbeat나 OS-level fallback으로 감시하지 않았다.
+  - `schema.sql`에는 `manager` 허용이 반영돼 있었지만 대응 migration이 없어 원격 제약과 local schema가 drift난 것을 live board post smoke 전까지 잡지 못했다.
+- Permanent guardrail:
+  - 보험 브리핑은 09:00 KST 기준으로 게시글, `latest_notice`, FC/admin `inbox_list`를 함께 확인한다.
+  - Codex app cron만 믿지 않고 Windows Task Scheduler / Codex CLI fallback을 08:35 KST에 둔다.
+  - notification role/check constraint 변경은 반드시 migration으로 남기고 remote debug insert로 검증한다.
+- Related files:
+  - `scripts/ops/run-insurance-digest-codex.ps1`
+  - `supabase/migrations/20260518000001_allow_manager_notifications.sql`
+  - `docs/handbook/operations-runbook.md`
+  - `.codex/harness/qa-report.md`
+- Verification:
+  - 2026-05-18 manual post `bbb63250-c3ee-409b-80bf-139927d675a1`
+  - remote `latest_notice` and FC/admin `inbox_list`
+  - `supabase db push --linked --yes`
+  - post-migration direct FC/admin/manager debug insert and cleanup
+  - Windows scheduled task registration and `scripts/ops/run-insurance-digest-codex.ps1 -DryRun`
+
 ## 2026-05-17 | Insurance Digest Board/Home/Push | live smoke에서 UI/notification 계약까지 확인하지 않음
 - Symptom:
   - 2026-05-17 보험 브리핑 게시글 본문에 긴 raw URL과 AI 참고용/비자문 문구가 보여 사용자 요구와 맞지 않았다.
