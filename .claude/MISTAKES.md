@@ -41,8 +41,8 @@
   - 자동화 생성/수정 뒤 다음날 "스케줄이 실제로 시작됐는가"를 별도 heartbeat나 OS-level fallback으로 감시하지 않았다.
   - `schema.sql`에는 `manager` 허용이 반영돼 있었지만 대응 migration이 없어 원격 제약과 local schema가 drift난 것을 live board post smoke 전까지 잡지 못했다.
 - Permanent guardrail:
-  - 보험 브리핑은 09:00 KST 기준으로 게시글, `latest_notice`, FC/admin `inbox_list`를 함께 확인한다.
-  - Codex app cron만 믿지 않고 Windows Task Scheduler / Codex CLI fallback을 08:35 KST에 둔다.
+  - 보험 브리핑은 11:30 KST 기준으로 게시글, `latest_notice`, FC/admin `inbox_list`를 함께 확인한다.
+  - Codex app cron만 믿지 않고 Windows Task Scheduler / Codex CLI fallback을 11:05 KST에 둔다.
   - notification role/check constraint 변경은 반드시 migration으로 남기고 remote debug insert로 검증한다.
 - Related files:
   - `scripts/ops/run-insurance-digest-codex.ps1`
@@ -54,7 +54,7 @@
   - remote `latest_notice` and FC/admin `inbox_list`
   - `supabase db push --linked --yes`
   - post-migration direct FC/admin/manager debug insert and cleanup
-  - Windows scheduled task registration and `scripts/ops/run-insurance-digest-codex.ps1 -DryRun`
+  - Windows scheduled task registration/reschedule and `scripts/ops/run-insurance-digest-codex.ps1 -DryRun`
 
 ## 2026-05-17 | Insurance Digest Board/Home/Push | live smoke에서 UI/notification 계약까지 확인하지 않음
 - Symptom:

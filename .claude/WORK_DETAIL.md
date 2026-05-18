@@ -20,13 +20,13 @@
 - 원격 `notifications` debug insert로 `manager` role이 `notifications_recipient_role_check`에 막혀 batch insert 전체가 rollback되는 것을 확인했다.
 - `supabase/migrations/20260518000001_allow_manager_notifications.sql`를 추가하고 remote DB에 적용했다.
 - 적용 후 FC/admin/manager debug notification insert가 성공하는 것을 확인하고 debug rows를 삭제했다.
-- Codex 앱 cron이 다시 빠질 때를 대비해 `scripts/ops/run-insurance-digest-codex.ps1`를 추가하고, Windows Task Scheduler 작업 `GaramIn Insurance Digest Codex Fallback`을 08:35 KST daily로 등록했다.
+- Codex 앱 cron이 다시 빠질 때를 대비해 `scripts/ops/run-insurance-digest-codex.ps1`를 추가하고, Windows Task Scheduler 작업 `GaramIn Insurance Digest Codex Fallback`을 등록한 뒤 11:05 KST daily로 맞췄다.
 
 **결과**:
 - 2026-05-18 게시글 `보험 이슈 브리핑 2026.05.18`은 `보험소식`에 게시됐고 ID는 `bbb63250-c3ee-409b-80bf-139927d675a1`이다.
 - 홈 최신 공지와 FC/admin 알림센터 모두 오늘 게시글을 가리킨다.
 - 이후 `board-create`의 FC/admin/manager notification batch insert는 원격 제약 때문에 rollback되지 않는다.
-- Codex 앱 cron 외에 Codex CLI 기반 로컬 백업 실행기가 매일 08:35 KST에 한 번 더 확인한다.
+- Codex 앱 cron 외에 Codex CLI 기반 로컬 백업 실행기가 매일 11:05 KST에 한 번 더 확인한다.
 
 **검증**:
 - 통과: remote `board-detail` content check (`contentHasRawUrl=false`)

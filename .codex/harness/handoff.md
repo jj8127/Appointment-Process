@@ -19,7 +19,7 @@
 - Deployed `fc-notify` with Expo push chunking and redeployed `board-create`.
 - Recovered the missing 2026-05-18 digest manually and verified home/latest plus FC/admin inbox rows.
 - Added and applied a migration for the remote `notifications_recipient_role_check` drift that rejected `manager` rows and rolled back the whole `board-create` notification batch.
-- Added `scripts/ops/run-insurance-digest-codex.ps1` and registered the Windows Task Scheduler fallback `GaramIn Insurance Digest Codex Fallback` for 08:35 KST.
+- Added `scripts/ops/run-insurance-digest-codex.ps1` and registered the Windows Task Scheduler fallback `GaramIn Insurance Digest Codex Fallback`, now scheduled for 11:05 KST after the main 11:00 KST Codex automation.
 
 ## Verified
 - `node --test scripts/ops/post-insurance-digest.test.mjs`
@@ -40,6 +40,7 @@
 - 2026-05-18 post `bbb63250-c3ee-409b-80bf-139927d675a1` exists, has no raw URL in visible content, is returned by `latest_notice`, and has FC/admin notification rows.
 - Direct debug insert before migration failed with `23514 notifications_recipient_role_check` for `manager`; after migration the same FC/admin/manager debug insert succeeded and was deleted.
 - `scripts/ops/run-insurance-digest-codex.ps1 -DryRun` returned the expected Codex CLI/log paths.
+- Scheduled task verification returned `StartBoundary: 2026-05-18T11:05:00+09:00`.
 
 ## Remaining
 - Optional later hardening: move the digest pipeline to a service-owned scheduler with a durable DB-side run log if the pilot graduates from Codex automation.

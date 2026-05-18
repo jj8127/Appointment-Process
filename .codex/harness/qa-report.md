@@ -60,7 +60,7 @@
   - `supabase db push --linked --yes` applied `20260518000001_allow_manager_notifications.sql`.
   - Direct FC/admin/manager debug notification insert succeeded after migration and the debug rows were deleted.
   - `scripts/ops/run-insurance-digest-codex.ps1 -DryRun` passed.
-  - Windows Task Scheduler task `GaramIn Insurance Digest Codex Fallback` was registered for 08:35 KST.
+  - Windows Task Scheduler task `GaramIn Insurance Digest Codex Fallback` was registered and then rescheduled for 11:05 KST.
 
 ## Known Risks
 - Live posting depends on repo `.env` / `.env.local` staying available or equivalent process env being supplied.
