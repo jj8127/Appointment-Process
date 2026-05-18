@@ -1,12 +1,12 @@
 import { Feather } from '@expo/vector-icons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as Haptics from 'expo-haptics';
-import { useRouter } from 'expo-router';
+import { useFocusEffect, useRouter } from 'expo-router';
 import { MotiView } from 'moti';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import {
-  ActivityIndicator,
   Alert,
+  AppState,
   FlatList,
   LayoutChangeEvent,
   Pressable,
@@ -18,6 +18,7 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
+import MessengerLoadingState from '@/components/MessengerLoadingState';
 import { RefreshButton } from '@/components/RefreshButton';
 import { useSession } from '@/hooks/use-session';
 import { logger } from '@/lib/logger';
@@ -433,6 +434,25 @@ export default function NotificationsScreen() {
     void load();
   }, [load]);
 
+  useFocusEffect(
+    useCallback(() => {
+      void load();
+      return undefined;
+    }, [load]),
+  );
+
+  useEffect(() => {
+    const subscription = AppState.addEventListener('change', (nextState) => {
+      if (nextState === 'active') {
+        void load();
+      }
+    });
+
+    return () => {
+      subscription.remove();
+    };
+  }, [load]);
+
   const handleRefresh = () => {
     setRefreshing(true);
     void load();
@@ -842,9 +862,7 @@ export default function NotificationsScreen() {
       )}
 
       {loading && !refreshing ? (
-        <View style={styles.center}>
-          <ActivityIndicator color={COLORS.primary} />
-        </View>
+        <MessengerLoadingState variant="notifications" />
       ) : (
         <View
           ref={listContainerRef}

@@ -3,7 +3,6 @@ import { useQuery } from '@tanstack/react-query';
 import { useFocusEffect, useRouter } from 'expo-router';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
-  ActivityIndicator,
   AppState,
   FlatList,
   Pressable,
@@ -15,13 +14,16 @@ import {
 } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 
+import MessengerLoadingState from '@/components/MessengerLoadingState';
 import { useSession } from '@/hooks/use-session';
+import { goBackOrReplace } from '@/lib/back-navigation';
+import {
+  buildInternalChatViewerPayload,
+  fetchInternalChatList,
+  type InternalChatListItem,
+} from '@/lib/internal-chat-api';
 import { logger } from '@/lib/logger';
 import { formatPresenceLabel, getPresenceColor, normalizePresencePhone } from '@/lib/presence';
-import {
-  sanitizePhone,
-} from '@/lib/messenger-participants';
-import { getStaffChatActorId } from '@/lib/staff-identity';
 import { supabase } from '@/lib/supabase';
 import { fetchUserPresence, type AppPresenceSnapshot } from '@/lib/user-presence-api';
 
@@ -42,27 +44,9 @@ const AVATAR_COLORS = [
   '#EF4444',
 ];
 
-type ChatPreview = {
-  fc_id: string;
-  name: string;
-  phone: string;
-  affiliation: string | null;
-  last_message: string | null;
-  last_time: string | null;
-  unread_count: number;
+type ChatPreview = InternalChatListItem & {
   initial: string;
   avatarColor: string;
-};
-
-const normalizeAffiliation = (value?: string | null) => (value ?? '').replace(/\s+/g, '');
-
-const isInternalAffiliation = (value?: string | null) => {
-  const normalized = normalizeAffiliation(value);
-  if (!normalized) return false;
-  if (/\d+본부/.test(normalized)) return true;
-  if (/\d+팀/.test(normalized)) return true;
-  if (normalized.includes('직할')) return true;
-  return false;
 };
 
 const hashColor = (value: string) => {
@@ -82,92 +66,53 @@ export default function AdminMessengerScreen() {
   const [presenceByPhone, setPresenceByPhone] = useState<Record<string, AppPresenceSnapshot>>({});
   const insets = useSafeAreaInsets();
   const canViewFcMessenger = role === 'admin' || isRequestBoardDesigner;
-  const myChatId = isRequestBoardDesigner
-    ? sanitizePhone(residentId)
-    : getStaffChatActorId({ residentId, readOnly, staffType });
+  const viewerContext = useMemo(
+    () => ({
+      role,
+      residentId,
+      readOnly,
+      staffType,
+      isRequestBoardDesigner,
+    }),
+    [isRequestBoardDesigner, readOnly, residentId, role, staffType],
+  );
+  const viewerPayload = useMemo(
+    () => buildInternalChatViewerPayload(viewerContext),
+    [viewerContext],
+  );
+  const myChatId = viewerPayload?.viewer_id ?? '';
 
-  const fetchChatList = async () => {
-    if (!canViewFcMessenger || !myChatId) return [];
-
-    const { data: fcs, error: fcError } = await supabase
-      .from('fc_profiles')
-      .select('id,name,phone,affiliation')
-      .eq('signup_completed', true)
-      .order('name');
-    if (fcError) throw fcError;
-
-    // 가람지사 내부 소통 대상만 노출: 본부/팀 소속 FC(설계 매니저 회사 소속 계정 제외)
-    const scopedFcs = (fcs ?? []).filter(
-      (fc) => !!sanitizePhone(fc.phone) && isInternalAffiliation(fc.affiliation),
-    );
-
-    const previews: ChatPreview[] = [];
-
-    for (const fc of scopedFcs) {
-      const targetPhone = sanitizePhone(fc.phone);
-      if (!targetPhone) continue;
-
-      const { data: lastMsgs, error: lastErr } = await supabase
-        .from('messages')
-        .select('content,created_at,sender_id,is_read')
-        .or(
-          `and(sender_id.eq.${myChatId},receiver_id.eq.${targetPhone}),and(sender_id.eq.${targetPhone},receiver_id.eq.${myChatId})`,
-        )
-        .order('created_at', { ascending: false })
-        .limit(1);
-      if (lastErr) throw lastErr;
-
-      const lastMsg = lastMsgs?.[0];
-
-      const { count, error: countErr } = await supabase
-        .from('messages')
-        .select('*', { count: 'exact', head: true })
-        .eq('sender_id', targetPhone)
-        .eq('receiver_id', myChatId)
-        .eq('is_read', false);
-      if (countErr) throw countErr;
-
-      const displayName = typeof fc.name === 'string' && fc.name.trim().length > 0
-        ? fc.name.trim()
-        : targetPhone;
-
-      previews.push({
-        fc_id: fc.id,
-        name: displayName,
-        phone: targetPhone,
-        affiliation: fc.affiliation ?? null,
-        last_message: lastMsg?.content ?? null,
-        last_time: lastMsg?.created_at ?? null,
-        unread_count: count ?? 0,
-        initial: displayName.charAt(0) || 'F',
-        avatarColor: hashColor(displayName),
-      });
+  const fetchChatList = useCallback(async () => {
+    if (!canViewFcMessenger) {
+      return { items: [], totalUnread: 0 };
     }
-
-    previews.sort((a, b) => {
-      if (!a.last_time) return 1;
-      if (!b.last_time) return -1;
-      return new Date(b.last_time).getTime() - new Date(a.last_time).getTime();
-    });
-
-    return previews;
-  };
+    return fetchInternalChatList(viewerContext);
+  }, [canViewFcMessenger, viewerContext]);
 
   const { data, isLoading, refetch } = useQuery({
     queryKey: ['admin-chat-list', role, residentId, readOnly, staffType, isRequestBoardDesigner],
     queryFn: fetchChatList,
-    enabled: canViewFcMessenger && !!myChatId,
+    enabled: canViewFcMessenger && Boolean(viewerPayload),
   });
+  const items = useMemo(() => data?.items ?? [], [data]);
+  const previews = useMemo<ChatPreview[]>(
+    () => items.map((item) => ({
+      ...item,
+      initial: item.name.charAt(0) || 'F',
+      avatarColor: hashColor(item.name),
+    })),
+    [items],
+  );
 
   const trackedPresencePhones = useMemo(
     () => Array.from(
       new Set(
-        (data ?? [])
+        previews
           .map((item) => normalizePresencePhone(item.phone))
           .filter((phone) => phone.length === 11),
       ),
     ),
-    [data],
+    [previews],
   );
 
   const loadPresence = useCallback(async (phones = trackedPresencePhones) => {
@@ -217,16 +162,24 @@ export default function AdminMessengerScreen() {
 
   useEffect(() => {
     setOptimisticUnreadByPhone({});
-  }, [data]);
+  }, [items]);
 
   useEffect(() => {
-    if (!canViewFcMessenger) return;
+    if (!canViewFcMessenger || !myChatId) return;
     const channel = supabase
       .channel(`admin-chat-list-changes-${myChatId}`)
       .on(
         'postgres_changes',
         { event: '*', schema: 'public', table: 'messages' },
-        () => refetch(),
+        (payload) => {
+          const source = payload.eventType === 'DELETE' ? (payload.old as Record<string, unknown> | null) : (payload.new as Record<string, unknown> | null);
+          const senderId = String(source?.sender_id ?? '').trim();
+          const receiverId = String(source?.receiver_id ?? '').trim();
+          if (senderId !== myChatId && receiverId !== myChatId) {
+            return;
+          }
+          void refetch();
+        },
       )
       .subscribe();
     return () => {
@@ -290,8 +243,12 @@ export default function AdminMessengerScreen() {
     [myChatId, router],
   );
 
+  const handleBackPress = useCallback(() => {
+    goBackOrReplace(router, '/messenger');
+  }, [router]);
+
   const filteredData = useMemo(() => {
-    const source = data ?? [];
+    const source = previews;
     const q = keyword.trim().toLowerCase();
     if (!q) return source;
     return source.filter((item) =>
@@ -299,11 +256,11 @@ export default function AdminMessengerScreen() {
       || item.phone.includes(q)
       || (item.affiliation ?? '').toLowerCase().includes(q),
     );
-  }, [data, keyword]);
+  }, [keyword, previews]);
 
   const totalUnread = useMemo(
-    () => (data ?? []).reduce((sum, item) => sum + getUnreadCount(item), 0),
-    [data, getUnreadCount],
+    () => previews.reduce((sum, item) => sum + getUnreadCount(item), 0),
+    [getUnreadCount, previews],
   );
 
   const renderItem = ({ item }: { item: ChatPreview }) => {
@@ -380,6 +337,9 @@ export default function AdminMessengerScreen() {
     <SafeAreaView style={[styles.safe, { paddingTop: insets.top }]} edges={['left', 'right', 'bottom']}>
       <View style={styles.header}>
         <View style={styles.headerTitleRow}>
+          <Pressable style={styles.backButton} onPress={handleBackPress}>
+            <Feather name="arrow-left" size={22} color={CHARCOAL} />
+          </Pressable>
           <Text style={styles.title}>가람지사 메신저</Text>
           {totalUnread > 0 && (
             <View style={styles.headerBadge}>
@@ -417,9 +377,7 @@ export default function AdminMessengerScreen() {
       </View>
 
       {isLoading ? (
-        <View style={styles.center}>
-          <ActivityIndicator color={HANWHA_ORANGE} />
-        </View>
+        <MessengerLoadingState variant="admin-messenger" />
       ) : (
         <FlatList
           data={filteredData}
@@ -459,6 +417,14 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
   },
   headerTitleRow: { flexDirection: 'row', alignItems: 'center', gap: 8, flexShrink: 1 },
+  backButton: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginLeft: -6,
+  },
   title: { fontSize: 22, fontWeight: '800', color: CHARCOAL },
   headerBadge: {
     minWidth: 20,

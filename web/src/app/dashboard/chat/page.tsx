@@ -7,6 +7,12 @@ import {
     normalizePresencePhone,
     type WebPresenceSnapshot,
 } from '@/lib/presence';
+import {
+    buildAdminChatTargets,
+    type AdminChatConversationSummary,
+    type AdminChatSourceRow,
+    type AdminChatTarget,
+} from '@/lib/admin-chat-targets';
 import { supabase } from '@/lib/supabase';
 import {
     ActionIcon,
@@ -51,14 +57,7 @@ const PRESENCE_POLL_INTERVAL_MS = 30_000;
 const sanitize = (value: string | null | undefined) => String(value ?? '').replace(/[^0-9]/g, '');
 
 // --- Types ---
-type ChatPreview = {
-    fc_id: string;
-    name: string;
-    phone: string;
-    last_message: string | null;
-    last_time: string | null;
-    unread_count: number;
-};
+type ChatPreview = AdminChatTarget;
 
 type Message = {
     id: string;
@@ -103,7 +102,7 @@ const areMessagesEqual = (prev: Message[], next: Message[]) => {
 
 // --- Page Component ---
 export default function ChatPage() {
-    const { role, residentId, staffType } = useSession();
+    const { hydrated, role, residentId, staffType } = useSession();
     const [selectedFc, setSelectedFc] = useState<ChatPreview | null>(null);
     const [keyword, setKeyword] = useState('');
     const [presenceByPhone, setPresenceByPhone] = useState<Record<string, WebPresenceSnapshot>>({});
@@ -123,23 +122,25 @@ export default function ChatPage() {
     );
 
     // --- Left Panel: Chat List Fetching ---
-    const { data: chatList, isLoading: isListLoading, refetch: refetchList } = useQuery({
+    const { data: chatList, error: listError, isLoading: isListLoading, refetch: refetchList } = useQuery({
         queryKey: ['admin-chat-list', role, residentId, staffType],
         queryFn: async () => {
-            // 1. Fetch all FCs (only completed signups)
-            const { data: fcs, error: fcError } = await supabase
-                .from('fc_profiles')
-                .select('id,name,phone')
-                .eq('signup_completed', true)
-                .order('name');
-            if (fcError) throw fcError;
+            const response = await fetch('/api/admin/list', { cache: 'no-store' });
+            const payload = await response.json().catch(() => null);
 
-            const previews: ChatPreview[] = [];
+            if (!response.ok) {
+                const message
+                    = typeof payload?.error === 'string' && payload.error.trim()
+                        ? payload.error
+                        : 'FC 목록을 불러오지 못했습니다.';
+                throw new Error(message);
+            }
 
-            // 2. Loop through FCs to get last message and unread count
-            // Optimized: Fetch unread messages for admin in bulk if possible, but schema implies row checks.
-            // Replicating app logic for consistency (Loop).
-            for (const fc of fcs ?? []) {
+            const fcRows = Array.isArray(payload) ? (payload as AdminChatSourceRow[]) : [];
+            const baseTargets = buildAdminChatTargets(fcRows);
+            const summariesByPhone: Record<string, AdminChatConversationSummary> = {};
+
+            for (const fc of baseTargets) {
                 // Last Message
                 const { data: lastMsgs } = await supabase
                     .from('messages')
@@ -158,31 +159,16 @@ export default function ChatPage() {
                     .eq('receiver_id', myChatId)
                     .eq('is_read', false);
 
-                // Only include if there is at least one message OR unread count > 0? 
-                // Or show all FCs so admin can initiate?
-                // App shows only if last message exists? 
-                // App admin-messanger.tsx logic: fetches all FCs, then gets last message.
-                // It pushes to preview even if last_message is null.
-
-                previews.push({
-                    fc_id: fc.id,
-                    name: fc.name,
-                    phone: fc.phone,
+                summariesByPhone[fc.phone] = {
                     last_message: lastMsg?.content ?? null,
                     last_time: lastMsg?.created_at ?? null,
                     unread_count: count ?? 0,
-                });
+                };
             }
 
-            // Sort by last_time desc
-            previews.sort((a, b) => {
-                if (!a.last_time) return 1;
-                if (!b.last_time) return -1;
-                return new Date(b.last_time).getTime() - new Date(a.last_time).getTime();
-            });
-
-            return previews;
+            return buildAdminChatTargets(fcRows, summariesByPhone);
         },
+        enabled: hydrated && Boolean(role) && Boolean(myChatId),
         refetchInterval: 10000, // Polling list every 10s as backup
     });
 
@@ -317,6 +303,10 @@ export default function ChatPage() {
                         <Stack gap={0}>
                             {isListLoading ? (
                                 <Text p="xl" ta="center" size="sm" c="dimmed">목록을 불러오는 중...</Text>
+                            ) : listError ? (
+                                <Text p="xl" ta="center" size="sm" c="red">
+                                    {listError instanceof Error ? listError.message : '대화 목록을 불러오지 못했습니다.'}
+                                </Text>
                             ) : filteredList.length > 0 ? (
                                 filteredList.map((item) => (
                                     <Box

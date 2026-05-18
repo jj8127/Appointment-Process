@@ -2,7 +2,6 @@ import { Feather } from '@expo/vector-icons';
 import { useFocusEffect, useLocalSearchParams, useRouter } from 'expo-router';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
-  ActivityIndicator,
   AppState,
   Pressable,
   RefreshControl,
@@ -14,9 +13,13 @@ import {
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { useSession } from '@/hooks/use-session';
+import MessengerLoadingState from '@/components/MessengerLoadingState';
+import {
+  buildInternalChatViewerPayload,
+  fetchInternalUnreadCount,
+} from '@/lib/internal-chat-api';
 import { logger } from '@/lib/logger';
-import { sanitizePhone } from '@/lib/messenger-participants';
-import { getAccountRoleLabel, getStaffChatActorId } from '@/lib/staff-identity';
+import { getAccountRoleLabel } from '@/lib/staff-identity';
 import { rbGetUnreadCount } from '@/lib/request-board-api';
 import { supabase } from '@/lib/supabase';
 
@@ -25,7 +28,7 @@ type ChannelQuery = 'garam' | 'request-board' | null;
 const HANWHA_ORANGE = '#f36f21';
 const CHARCOAL = '#111827';
 const MUTED = '#6b7280';
-const HUB_REFRESH_INTERVAL_MS = 5000;
+const REQUEST_BOARD_REFRESH_INTERVAL_MS = 30_000;
 
 function parseChannel(value: string | string[] | undefined): ChannelQuery {
   if (!value) return null;
@@ -34,35 +37,6 @@ function parseChannel(value: string | string[] | undefined): ChannelQuery {
   if (normalized === 'garam') return 'garam';
   if (normalized === 'request-board' || normalized === 'request') return 'request-board';
   return null;
-}
-
-const normalizeAffiliation = (value?: string | null) => (value ?? '').replace(/\s+/g, '');
-
-const isInternalAffiliation = (value?: string | null) => {
-  const normalized = normalizeAffiliation(value);
-  if (!normalized) return false;
-  if (/\d+본부/.test(normalized)) return true;
-  if (/\d+팀/.test(normalized)) return true;
-  if (normalized.includes('직할')) return true;
-  return false;
-};
-
-async function fetchInternalChatSenderIds() {
-  const { data, error } = await supabase
-    .from('fc_profiles')
-    .select('phone,affiliation')
-    .eq('signup_completed', true);
-
-  if (error) throw error;
-
-  return Array.from(
-    new Set(
-      (data ?? [])
-        .filter((item) => isInternalAffiliation(item.affiliation))
-        .map((item) => sanitizePhone(item.phone))
-        .filter((phone) => phone.length > 0),
-    ),
-  );
 }
 
 export default function MessengerHubScreen() {
@@ -77,13 +51,21 @@ export default function MessengerHubScreen() {
   const [internalUnread, setInternalUnread] = useState(0);
   const [requestBoardMessageCount, setRequestBoardMessageCount] = useState(0);
 
-  const myChatId = useMemo(() => {
-    if (role === 'admin') {
-      return getStaffChatActorId({ residentId, readOnly, staffType });
-    }
-    return sanitizePhone(residentId);
-  }, [readOnly, residentId, role, staffType]);
-  const shouldScopeInternalUnread = role === 'admin' || isRequestBoardDesigner;
+  const internalViewerContext = useMemo(
+    () => ({
+      role,
+      residentId,
+      readOnly,
+      staffType,
+      isRequestBoardDesigner,
+    }),
+    [isRequestBoardDesigner, readOnly, residentId, role, staffType],
+  );
+  const internalViewerPayload = useMemo(
+    () => buildInternalChatViewerPayload(internalViewerContext),
+    [internalViewerContext],
+  );
+  const myChatId = internalViewerPayload?.viewer_id ?? '';
 
   const openGaramMessenger = useCallback(() => {
     if (role === 'admin' || isRequestBoardDesigner) {
@@ -98,39 +80,12 @@ export default function MessengerHubScreen() {
   }, [router]);
 
   const loadInternalUnreadCount = useCallback(async () => {
-    if (!role || !myChatId) {
+    if (!role) {
       setInternalUnread(0);
       return 0;
     }
     try {
-      if (shouldScopeInternalUnread) {
-        const scopedSenderIds = await fetchInternalChatSenderIds();
-        if (scopedSenderIds.length === 0) {
-          setInternalUnread(0);
-          return 0;
-        }
-
-        const { count, error } = await supabase
-          .from('messages')
-          .select('id', { count: 'exact', head: true })
-          .eq('receiver_id', myChatId)
-          .eq('is_read', false)
-          .in('sender_id', scopedSenderIds);
-
-        if (error) throw error;
-        const nextCount = count ?? 0;
-        setInternalUnread(nextCount);
-        return nextCount;
-      }
-
-      const { count, error } = await supabase
-        .from('messages')
-        .select('id', { count: 'exact', head: true })
-        .eq('receiver_id', myChatId)
-        .eq('is_read', false);
-
-      if (error) throw error;
-      const nextCount = count ?? 0;
+      const nextCount = await fetchInternalUnreadCount(internalViewerContext);
       setInternalUnread(nextCount);
       return nextCount;
     } catch (err) {
@@ -138,7 +93,7 @@ export default function MessengerHubScreen() {
       setInternalUnread(0);
       return 0;
     }
-  }, [myChatId, role, shouldScopeInternalUnread]);
+  }, [internalViewerContext, role]);
 
   const loadRequestBoardUnreadCount = useCallback(async () => {
     if (!role) {
@@ -201,8 +156,8 @@ export default function MessengerHubScreen() {
       void loadCounts();
 
       const intervalId = setInterval(() => {
-        void loadCounts();
-      }, HUB_REFRESH_INTERVAL_MS);
+        void loadRequestBoardUnreadCount();
+      }, REQUEST_BOARD_REFRESH_INTERVAL_MS);
 
       const appStateSubscription = AppState.addEventListener('change', (nextState) => {
         if (nextState === 'active') {
@@ -235,7 +190,7 @@ export default function MessengerHubScreen() {
           void supabase.removeChannel(messageChannel);
         }
       };
-    }, [hydrated, loadCounts, loadInternalUnreadCount, myChatId, role]),
+    }, [hydrated, loadCounts, loadInternalUnreadCount, loadRequestBoardUnreadCount, myChatId, role]),
   );
 
   useEffect(() => {
@@ -263,15 +218,8 @@ export default function MessengerHubScreen() {
 
   return (
     <SafeAreaView style={styles.safe} edges={['left', 'right', 'bottom']}>
-      <View style={[styles.header, { paddingTop: Math.max(insets.top, 10) }]}>
-        <Text style={styles.headerTitle}>메신저</Text>
-        <Text style={styles.headerSub}>채널을 선택해 바로 대화를 시작하세요.</Text>
-      </View>
-
       {loading ? (
-        <View style={styles.center}>
-          <ActivityIndicator color={HANWHA_ORANGE} />
-        </View>
+        <MessengerLoadingState variant="hub" />
       ) : (
         <ScrollView
           contentContainerStyle={[styles.content, { paddingBottom: Math.max(insets.bottom, 12) + 24 }]}
@@ -341,15 +289,6 @@ export default function MessengerHubScreen() {
 
 const styles = StyleSheet.create({
   safe: { flex: 1, backgroundColor: '#fff' },
-  header: {
-    paddingHorizontal: 20,
-    paddingBottom: 12,
-    borderBottomWidth: 1,
-    borderBottomColor: '#F3F4F6',
-    gap: 4,
-  },
-  headerTitle: { fontSize: 24, fontWeight: '800', color: CHARCOAL },
-  headerSub: { fontSize: 13, color: MUTED },
   center: { flex: 1, alignItems: 'center', justifyContent: 'center' },
   content: {
     paddingHorizontal: 16,

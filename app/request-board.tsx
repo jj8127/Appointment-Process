@@ -4,8 +4,8 @@ import { Stack, useFocusEffect, useRouter } from 'expo-router';
 import { MotiView } from 'moti';
 import { useCallback, useEffect, useState } from 'react';
 import {
-  ActivityIndicator,
   Alert,
+  AppState,
   Dimensions,
   Pressable,
   RefreshControl,
@@ -18,6 +18,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { AppTopActionBar } from '@/components/AppTopActionBar';
 import { BottomNavigation } from '@/components/BottomNavigation';
+import MessengerLoadingState from '@/components/MessengerLoadingState';
 import { useAppLogout } from '@/hooks/use-app-logout';
 import { useSession } from '@/hooks/use-session';
 import { resolveBottomNavActiveKey, resolveBottomNavPreset } from '@/lib/bottom-navigation';
@@ -394,6 +395,18 @@ export default function RequestBoardScreen() {
       }
     }, [hydrated, fetchData]),
   );
+
+  useEffect(() => {
+    const subscription = AppState.addEventListener('change', (nextState) => {
+      if (nextState === 'active' && hydrated) {
+        void fetchData();
+      }
+    });
+
+    return () => {
+      subscription.remove();
+    };
+  }, [fetchData, hydrated]);
 
   const handleRefresh = () => {
     setRefreshing(true);
@@ -806,7 +819,7 @@ export default function RequestBoardScreen() {
 
             {loading ? (
               <View style={styles.loadingWrap}>
-                <ActivityIndicator color={COLORS.primary} />
+                <MessengerLoadingState variant="request-board" layout="section" />
               </View>
             ) : recentNotifs.length === 0 ? (
               <View style={styles.emptyWrap}>

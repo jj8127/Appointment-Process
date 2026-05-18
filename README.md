@@ -26,6 +26,7 @@
 - request_board-linked 설계매니저는 앱 내부 별도 role을 두지 않고 `fc_profiles / fc_credentials`와 `affiliation='<보험사> 설계매니저'` 패턴으로 관리합니다.
 - 현재 앱 DB 기준 request_board-linked 설계매니저 프로필은 `54명`입니다.
 - FC/본부장 affiliation이 request_board로 함께 동기화되어, GaramLink 쪽에서는 `소속 · 이름` 기준으로 노출할 수 있습니다.
+- request_board password sync는 request_board-backed 계정만 대상으로 유지합니다. `manager`와 `developer` subtype은 `fc` 계열로 sync되고, plain `admin`은 GaramLink direct 계정으로 미러링하지 않습니다.
 - `user_presence` 기반 활동 상태와 GaramLink 임베디드 메신저의 optimistic send / unread sync가 반영되어 있습니다.
 
 ## Architecture
@@ -211,6 +212,9 @@ ADMIN_PUSH_SECRET=...
 - 로그인 시 앱 세션 토큰과 request_board 브릿지 토큰을 함께 발급합니다.
 - 세션 복원 시 `sync-request-board-session`으로 GaramLink 세션을 자동 복구합니다.
 - 개발 빌드에서 request_board URL env가 비어 있으면 Expo host 기준으로 로컬 API/Web URL을 자동 해석합니다.
+- `set-password`와 `reset-password`는 request_board-backed 대상만 `/api/auth/sync-password`로 sync합니다.
+- `manager`는 request_board 쪽에서 `fc`로 정규화되고, `developer` subtype도 `fc` mirror만 유지합니다.
+- plain `admin`은 request_board direct 계정으로 sync하지 않으며, `set-admin-password`도 더 이상 request_board admin sync를 시도하지 않습니다.
 
 ## Implementation Guardrails
 

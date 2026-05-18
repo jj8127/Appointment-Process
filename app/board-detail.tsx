@@ -3,7 +3,6 @@ import { useQuery } from '@tanstack/react-query';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useMemo, useState } from 'react';
 import {
-  ActivityIndicator,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -12,6 +11,7 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
+import BrandedLoadingState from '@/components/BrandedLoadingState';
 import { LinkifiedSelectableText } from '@/components/LinkifiedSelectableText';
 import { ImagePreviewModal } from '@/components/ImagePreviewModal';
 import { useSession } from '@/hooks/use-session';
@@ -104,9 +104,7 @@ export default function BoardDetailScreen() {
   if (isLoading) {
     return (
       <SafeAreaView style={styles.safe} edges={['left', 'right', 'bottom']}>
-        <View style={styles.center}>
-          <ActivityIndicator color={COLORS.primary} />
-        </View>
+        <BrandedLoadingState variant="detail" />
       </SafeAreaView>
     );
   }

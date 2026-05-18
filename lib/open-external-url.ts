@@ -7,6 +7,15 @@ type OpenExternalUrlOptions = {
   preferExternalBrowser?: boolean;
 };
 
+async function openWithLinking(normalized: string) {
+  const supported = await Linking.canOpenURL(normalized);
+  if (!supported) {
+    throw new Error(`UNSUPPORTED_URL:${normalized}`);
+  }
+
+  await Linking.openURL(normalized);
+}
+
 export async function openExternalUrl(rawUrl: string, options?: OpenExternalUrlOptions) {
   const normalized = normalizeExternalUrl(rawUrl);
   if (!normalized) {
@@ -14,25 +23,19 @@ export async function openExternalUrl(rawUrl: string, options?: OpenExternalUrlO
   }
 
   if (options?.preferExternalBrowser) {
-    const supported = await Linking.canOpenURL(normalized);
-    if (!supported) {
-      throw new Error(`UNSUPPORTED_URL:${normalized}`);
-    }
-
-    await Linking.openURL(normalized);
+    await openWithLinking(normalized);
     return normalized;
   }
 
   if (isHttpUrl(normalized)) {
-    await WebBrowser.openBrowserAsync(normalized);
+    try {
+      await WebBrowser.openBrowserAsync(normalized);
+    } catch {
+      await openWithLinking(normalized);
+    }
     return normalized;
   }
 
-  const supported = await Linking.canOpenURL(normalized);
-  if (!supported) {
-    throw new Error(`UNSUPPORTED_URL:${normalized}`);
-  }
-
-  await Linking.openURL(normalized);
+  await openWithLinking(normalized);
   return normalized;
 }

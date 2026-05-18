@@ -2,7 +2,7 @@ doc_id: FC-HANDBOOK-OPS-RUNBOOK
 owner_repo: fc-onboarding-app
 owner_area: handbook
 audience: operator
-last_verified: 2026-03-26
+last_verified: 2026-05-18
 source_of_truth: web/src/app/api/* + supabase/functions/* + data/*
 
 # 운영 런북
@@ -15,6 +15,31 @@ source_of_truth: web/src/app/api/* + supabase/functions/* + data/*
 - resident number 조회: [backend/admin-operations-api.md](E:/hanhwa/fc-onboarding-app/docs/handbook/backend/admin-operations-api.md)
 - 알림/푸시/배지: [backend/notifications-inbox-push.md](E:/hanhwa/fc-onboarding-app/docs/handbook/backend/notifications-inbox-push.md)
 - referral 운영: [data/referral-schema-and-admin-rpcs.md](E:/hanhwa/fc-onboarding-app/docs/handbook/data/referral-schema-and-admin-rpcs.md)
+
+## Codex 자동 보험 이슈 브리핑
+
+- 권장 payload 경로: `.codex-tmp/insurance-digest/YYYY-MM-DD.json`
+- 실행 명령: `npm run ops:post-insurance-digest -- --input-file .codex-tmp/insurance-digest/YYYY-MM-DD.json`
+- dry-run: `npm run ops:post-insurance-digest -- --input-file .codex-tmp/insurance-digest/YYYY-MM-DD.json --dry-run`
+- 필수 환경변수:
+  - `SUPABASE_URL`
+  - `SUPABASE_ANON_KEY`
+  - `BOARD_AUTOMATION_ACTOR_ROLE=admin`
+  - `BOARD_AUTOMATION_ACTOR_PHONE`
+  - `BOARD_AUTOMATION_ACTOR_NAME`
+- 스크립트는 위 값이 process env에 없으면 repo `.env` / `.env.local`을 읽고 `NEXT_PUBLIC_SUPABASE_*` 또는 `EXPO_PUBLIC_SUPABASE_*`, `NEXT_PUBLIC_ADMIN_PHONES` 또는 `EXPO_PUBLIC_ADMIN_PHONES`에서 fallback을 구성한다.
+- 게시판 카테고리는 `보험소식`(`insurance-news`)을 사용한다. 없으면 스크립트가 admin actor로 생성한다.
+- 같은 KST 날짜의 `보험 이슈 브리핑 YYYY.MM.DD` 제목이 이미 있으면 게시를 건너뛴다.
+- 게시는 기존 `board-create` Edge Function을 통해 수행하므로 게시판 알림/푸시 fanout 계약을 우회하지 않는다.
+- digest는 아주 짧고 쉬운 문장으로 작성하며, `sourceUrls`에 최소 1개 이상의 `http/https` 출처가 없으면 스크립트가 게시를 거부한다.
+- 게시글 본문에는 긴 원문 URL을 붙이지 않는다. 본문에는 `출처: 금융감독원`, `출처: 데일리안`처럼 짧은 출처명만 쓰고, 원문 URL은 JSON `sourceUrls`에 넣는다.
+- 가능하면 `sourceLabels`도 함께 넣어 짧은 언론사/기관/기사 라벨을 남긴다.
+- 게시글 끝에는 AI 참고용/비자문 고지 문구를 붙이지 않는다.
+- Codex automation runner가 shell 실행 실패를 반환하면 게시 성공으로 간주하지 않는다. 이 경우 정상 로컬 터미널에서 같은 payload 파일로 수동 실행한다.
+- 2026-05-18 기준, Codex 앱 cron이 실행되지 않는 사례가 확인되어 Windows Task Scheduler 백업 작업 `GaramIn Insurance Digest Codex Fallback`을 11:05 KST에 추가한다. 메인 Codex automation은 11:00 KST에 맞춘다.
+- 백업 실행기는 `scripts/ops/run-insurance-digest-codex.ps1`이며, Codex CLI로 같은 게시/검증 절차를 수행한다. 실행 결과는 `.codex-tmp/insurance-digest/codex-cli-YYYY-MM-DD.*`에 남긴다.
+- 11:30 KST 이후에도 오늘 게시글이 없으면 `.codex-tmp/insurance-digest/YYYY-MM-DD.json`을 만들고 위 실행 명령으로 수동 복구한다.
+- 게시 후에는 `board-detail`, `fc-notify latest_notice`, FC/admin `inbox_list`를 모두 확인한다. 특히 알림 row가 비면 `fc-notify notify`로 보강하고 원격 `notifications_recipient_role_check` migration 적용 여부를 확인한다.
 
 ## 필수 점검 순서
 

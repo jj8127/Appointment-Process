@@ -2,7 +2,6 @@ import { Feather } from '@expo/vector-icons';
 import { Stack, useLocalSearchParams, useRouter } from 'expo-router';
 import { type ReactNode, useCallback, useEffect, useState } from 'react';
 import {
-  ActivityIndicator,
   Alert,
   Modal,
   Pressable,
@@ -14,6 +13,8 @@ import {
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
+import BrandedLoadingSpinner from '@/components/BrandedLoadingSpinner';
+import BrandedLoadingState from '@/components/BrandedLoadingState';
 import { BottomNavigation } from '@/components/BottomNavigation';
 import { useSession } from '@/hooks/use-session';
 import { resolveBottomNavActiveKey, resolveBottomNavPreset } from '@/lib/bottom-navigation';
@@ -475,7 +476,7 @@ export default function RequestBoardReviewScreen() {
               disabled={submitting}
             >
               {submitting ? (
-                <ActivityIndicator size="small" color="#fff" />
+                <BrandedLoadingSpinner size="sm" color="#fff" />
               ) : (
                 <>
                   <Feather name="check" size={15} color="#fff" />
@@ -517,8 +518,7 @@ export default function RequestBoardReviewScreen() {
       {/* Body */}
       {loading ? (
         <View style={styles.loadingWrap}>
-          <ActivityIndicator color={COLORS.primary} size="large" />
-          <Text style={styles.loadingText}>불러오는 중...</Text>
+          <BrandedLoadingState variant="request-board-review" layout="section" />
         </View>
       ) : fetchError ? (
         <View style={styles.errorWrap}>
@@ -714,7 +714,7 @@ export default function RequestBoardReviewScreen() {
               disabled={submitting}
             >
               {submitting ? (
-                <ActivityIndicator size="small" color="#fff" />
+                <BrandedLoadingSpinner size="sm" color="#fff" />
               ) : (
                 <Text style={styles.modalConfirmBtnText}>거절하기</Text>
               )}

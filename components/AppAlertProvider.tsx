@@ -1,4 +1,3 @@
-import { Feather } from '@expo/vector-icons';
 import React, { createContext, useCallback, useContext, useEffect, useRef, useState } from 'react';
 import { Alert, Modal, Pressable, StyleSheet, Text, View } from 'react-native';
 import Animated, {
@@ -13,6 +12,7 @@ import Animated, {
 
 import { ALERT_VARIANTS, ANIMATION, COLORS, RADIUS, SPACING, TYPOGRAPHY } from '@/lib/theme';
 import { inferAlertVariantFromTitle, inferUserFacingAlertFallback, toUserFacingAlertMessage } from '@/lib/user-facing-error';
+import StatusGlyph from '@/components/StatusGlyph';
 
 type ButtonStyle = 'default' | 'cancel' | 'destructive';
 type AlertVariant = 'info' | 'success' | 'warning' | 'error';
@@ -135,7 +135,11 @@ function AlertCard({
       <Animated.View style={[styles.card, animatedCardStyle]}>
         {/* Icon */}
         <View style={[styles.iconCircle, { backgroundColor: variant.iconBg }]}>
-          <Feather name={variant.icon as keyof typeof Feather.glyphMap} size={22} color={variant.iconColor} />
+          <StatusGlyph
+            variant={alert.options?.variant ?? 'info'}
+            size={22}
+            color={variant.iconColor}
+          />
         </View>
 
         {/* Title */}

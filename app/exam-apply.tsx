@@ -8,18 +8,20 @@ import { router } from 'expo-router';
 import { AnimatePresence, MotiView } from 'moti';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
-  ActivityIndicator,
   Alert,
   Modal,
   Platform,
   Pressable,
   RefreshControl,
+  ScrollView,
   StyleSheet,
   Text,
   View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
+import BrandedLoadingSpinner from '@/components/BrandedLoadingSpinner';
+import BrandedLoadingState from '@/components/BrandedLoadingState';
 import { KeyboardAwareWrapper } from '@/components/KeyboardAwareWrapper';
 import { RefreshButton } from '@/components/RefreshButton';
 import { useIdentityGate } from '@/hooks/use-identity-gate';
@@ -528,19 +530,17 @@ export default function ExamApplyScreen() {
   if (!hydrated) {
     return (
       <SafeAreaView style={styles.safe} edges={['left', 'right', 'bottom']}>
-        <View style={styles.center}>
-          <ActivityIndicator color={HANWHA_ORANGE} />
-        </View>
+        <BrandedLoadingState variant="exam" />
       </SafeAreaView>
     );
   }
 
-  return (
-    <SafeAreaView style={styles.safe} edges={['left', 'right', 'bottom']}>
-      <KeyboardAwareWrapper
-        contentContainerStyle={styles.container}
-        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}
-      >
+  const screenRefreshControl = (
+    <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
+  );
+
+  const screenContent = (
+    <>
         {/* Header */}
         <View style={styles.header}>
           <View>
@@ -732,7 +732,7 @@ export default function ExamApplyScreen() {
           <View style={styles.section}>
             <Text style={styles.sectionHeader}>📅 시험 일정 선택</Text>
             {isLoading || isFetching ? (
-              <ActivityIndicator color={HANWHA_ORANGE} style={{ marginTop: 20 }} />
+              <BrandedLoadingState variant="exam" layout="section" />
             ) : (
               <View style={styles.listContainer}>
                 {allRounds.map((round, idx) => {
@@ -940,7 +940,9 @@ export default function ExamApplyScreen() {
                   <Text style={styles.submitBtnText}>
                     {isConfirmedForRound ? '시험 접수 완료' : existingForRound ? '신청 내역 수정하기' : '시험 신청하기'}
                   </Text>
-                  {applyMutation.isPending && <ActivityIndicator color="#fff" style={{ marginLeft: 8 }} />}
+                  {applyMutation.isPending && (
+                    <BrandedLoadingSpinner size="sm" color="#fff" style={{ marginLeft: 8 }} />
+                  )}
                 </LinearGradient>
               </Pressable>
             </View>
@@ -986,8 +988,29 @@ export default function ExamApplyScreen() {
             </View>
           </Modal>
         )}
+    </>
+  );
 
-      </KeyboardAwareWrapper>
+  return (
+    <SafeAreaView style={styles.safe} edges={['left', 'right', 'bottom']}>
+      {Platform.OS === 'android' ? (
+        <ScrollView
+          contentContainerStyle={styles.container}
+          refreshControl={screenRefreshControl}
+          showsVerticalScrollIndicator={false}
+          keyboardShouldPersistTaps="handled"
+          keyboardDismissMode="on-drag"
+        >
+          {screenContent}
+        </ScrollView>
+      ) : (
+        <KeyboardAwareWrapper
+          contentContainerStyle={styles.container}
+          refreshControl={screenRefreshControl}
+        >
+          {screenContent}
+        </KeyboardAwareWrapper>
+      )}
     </SafeAreaView>
   );
 }

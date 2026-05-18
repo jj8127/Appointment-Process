@@ -29,6 +29,7 @@ export type FcProfile = {
   affiliation: string;
   phone: string;
   recommender?: string | null;
+  recommender_fc_id?: string | null;
   email?: string | null;
   address?: string | null;
   address_detail?: string | null;

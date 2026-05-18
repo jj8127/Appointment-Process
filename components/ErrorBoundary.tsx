@@ -1,8 +1,8 @@
 import React, { Component, ReactNode } from 'react';
 import { View, Text, StyleSheet, Pressable, ScrollView } from 'react-native';
-import { Feather } from '@expo/vector-icons';
 
 import { logger } from '@/lib/logger';
+import StatusGlyph from '@/components/StatusGlyph';
 
 type Props = {
   children: ReactNode;
@@ -65,7 +65,7 @@ function DefaultErrorFallback({ error, resetError }: FallbackProps) {
     <View style={styles.container}>
       <View style={styles.content}>
         <View style={styles.iconContainer}>
-          <Feather name="alert-circle" size={64} color="#EF4444" />
+          <StatusGlyph variant="error" size={64} color="#EF4444" />
         </View>
 
         <Text style={styles.title}>앗, 문제가 발생했습니다</Text>

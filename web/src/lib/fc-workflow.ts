@@ -116,6 +116,11 @@ export const getCommissionCompletionState = (profile?: WorkflowProfile | null) =
   return { lifeCompleted, nonlifeCompleted, bothCompleted };
 };
 
+export const resolveAppointmentCompletionStatus = (profile?: WorkflowProfile | null): FcProfile['status'] => {
+  const { bothCompleted } = getCommissionCompletionState(profile);
+  return bothCompleted ? 'final-link-sent' : 'appointment-completed';
+};
+
 export const hasAppointmentWorkflowEvidence = (profile?: WorkflowProfile | null) =>
   Boolean(
     profile?.appointment_url ||

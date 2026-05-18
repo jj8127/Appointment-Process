@@ -23,6 +23,7 @@ import { useAppPresenceHeartbeat } from '@/hooks/use-app-presence-heartbeat';
 import { useColorScheme } from '@/hooks/use-color-scheme';
 import { SessionProvider } from '@/hooks/use-session';
 import { useInAppUpdate } from '@/hooks/useInAppUpdate';
+import { goBackOrReplace } from '@/lib/back-navigation';
 import { logger } from '@/lib/logger';
 import { savePendingReferralCode } from '@/lib/referral-deeplink';
 import { safeStorage } from '@/lib/safe-storage';
@@ -112,7 +113,10 @@ export default function RootLayout() {
       const code = extractReferralCode(event.url);
       if (code) {
         savePendingReferralCode(code).then(() => {
-          router.push('/signup');
+          router.replace({
+            pathname: '/signup',
+            params: { referralNonce: `${Date.now()}` },
+          });
         }).catch(() => {});
       }
     });
@@ -161,7 +165,10 @@ export default function RootLayout() {
   }, [fontSources]);
 
   useEffect(() => {
-    if (error) throw error;
+    if (error) {
+      logger.warn('[font] failed to load fonts, continuing without custom fonts', error);
+      setLoaded(true);
+    }
   }, [error]);
 
   useEffect(() => {
@@ -209,26 +216,30 @@ export default function RootLayout() {
       try {
         Notifications = await import('expo-notifications');
         sub = Notifications.addNotificationResponseReceivedListener((response: any) => {
-          const content = response?.notification?.request?.content;
-          const rawUrl = content?.data?.url as string | undefined;
-          const title = `${content?.title ?? ''}`.toLowerCase();
-          const body = `${content?.body ?? ''}`.toLowerCase();
-          const isHanwhaWorkflowNotification =
-            title.includes('한화 위촉 승인') ||
-            title.includes('한화 위촉 반려') ||
-            title.includes('한화 위촉 url 승인') ||
-            title.includes('한화 위촉 url 반려') ||
-            body.includes('한화 위촉이 승인') ||
-            body.includes('한화 위촉이 반려') ||
-            body.includes('한화 위촉 url이 승인') ||
-            body.includes('한화 위촉 url이 반려') ||
-            body.includes('승인 pdf');
-          const nextUrl =
-            isHanwhaWorkflowNotification
-              ? '/hanwha-commission'
-              : rawUrl || '/notifications';
+          try {
+            const content = response?.notification?.request?.content;
+            const rawUrl = content?.data?.url as string | undefined;
+            const title = `${content?.title ?? ''}`.toLowerCase();
+            const body = `${content?.body ?? ''}`.toLowerCase();
+            const isHanwhaWorkflowNotification =
+              title.includes('한화 위촉 승인') ||
+              title.includes('한화 위촉 반려') ||
+              title.includes('한화 위촉 url 승인') ||
+              title.includes('한화 위촉 url 반려') ||
+              body.includes('한화 위촉이 승인') ||
+              body.includes('한화 위촉이 반려') ||
+              body.includes('한화 위촉 url이 승인') ||
+              body.includes('한화 위촉 url이 반려') ||
+              body.includes('승인 pdf');
+            const nextUrl =
+              isHanwhaWorkflowNotification
+                ? '/hanwha-commission'
+                : rawUrl || '/notifications';
 
-          router.push(nextUrl as any);
+            router.push(nextUrl as any);
+          } catch (err) {
+            logger.warn('[push] navigation handler failed', err);
+          }
         });
       } catch (err) {
         logger.warn('push navigation listener failed', err);
@@ -354,7 +365,21 @@ export default function RootLayout() {
                           <Stack.Screen name="docs-upload" options={{ ...baseHeader, title: '필수 서류 업로드' }} />
                           <Stack.Screen name="exam-apply" options={{ ...baseHeader, title: '생명/제3보험 시험 신청' }} />
                           <Stack.Screen name="exam-apply2" options={{ ...baseHeader, title: '손해보험 시험 신청' }} />
-                          <Stack.Screen name="messenger" options={{ ...baseHeader, title: '메신저' }} />
+                          <Stack.Screen
+                            name="messenger"
+                            options={{
+                              ...baseHeader,
+                              title: '메신저',
+                              headerLeft: () => (
+                                <Pressable
+                                  onPress={() => goBackOrReplace(router, '/')}
+                                  style={{ padding: 8, marginLeft: -8 }}
+                                >
+                                  <Feather name="arrow-left" size={24} color="#000" />
+                                </Pressable>
+                              ),
+                            }}
+                          />
                           <Stack.Screen name="chat" options={{ headerShown: false }} />
                           <Stack.Screen name="settings" options={{ ...baseHeader, title: '설정' }} />
 
@@ -374,6 +399,8 @@ export default function RootLayout() {
                           <Stack.Screen name="exam-register2" options={{ ...baseHeader, title: '손해 시험 등록' }} />
                           <Stack.Screen name="exam-manage" options={{ ...baseHeader, title: '생명/제3 신청자 관리' }} />
                           <Stack.Screen name="exam-manage2" options={{ ...baseHeader, title: '손해 신청자 관리' }} />
+                          <Stack.Screen name="referral" options={{ ...baseHeader, title: '추천인 코드' }} />
+                          <Stack.Screen name="referral-tree" options={{ ...baseHeader, title: '추천 관계 전체 보기' }} />
                         </Stack>
 
                         <StatusBar style="dark" backgroundColor="#fff" />
@@ -463,7 +490,21 @@ export default function RootLayout() {
                           <Stack.Screen name="docs-upload" options={{ ...baseHeader, title: '필수 서류 업로드' }} />
                           <Stack.Screen name="exam-apply" options={{ ...baseHeader, title: '생명/제3보험 시험 신청' }} />
                           <Stack.Screen name="exam-apply2" options={{ ...baseHeader, title: '손해보험 시험 신청' }} />
-                          <Stack.Screen name="messenger" options={{ ...baseHeader, title: '메신저' }} />
+                          <Stack.Screen
+                            name="messenger"
+                            options={{
+                              ...baseHeader,
+                              title: '메신저',
+                              headerLeft: () => (
+                                <Pressable
+                                  onPress={() => goBackOrReplace(router, '/')}
+                                  style={{ padding: 8, marginLeft: -8 }}
+                                >
+                                  <Feather name="arrow-left" size={24} color="#000" />
+                                </Pressable>
+                              ),
+                            }}
+                          />
                           <Stack.Screen name="chat" options={{ headerShown: false }} />
                           <Stack.Screen name="settings" options={{ ...baseHeader, title: '설정' }} />
 
@@ -483,6 +524,8 @@ export default function RootLayout() {
                           <Stack.Screen name="exam-register2" options={{ ...baseHeader, title: '손해 시험 등록' }} />
                           <Stack.Screen name="exam-manage" options={{ ...baseHeader, title: '생명/제3 신청자 관리' }} />
                           <Stack.Screen name="exam-manage2" options={{ ...baseHeader, title: '손해 신청자 관리' }} />
+                          <Stack.Screen name="referral" options={{ ...baseHeader, title: '추천인 코드' }} />
+                          <Stack.Screen name="referral-tree" options={{ ...baseHeader, title: '추천 관계 전체 보기' }} />
                         </Stack>
                         <StatusBar style="dark" backgroundColor="#fff" />
                       </>

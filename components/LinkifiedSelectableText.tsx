@@ -2,7 +2,11 @@ import * as Clipboard from 'expo-clipboard';
 import { useMemo } from 'react';
 import { Alert, StyleProp, StyleSheet, Text, TextStyle } from 'react-native';
 
-import { normalizeExternalUrl } from '@/lib/external-url';
+import {
+  formatExternalUrlDisplayText,
+  normalizeExternalUrl,
+  stripTrailingUrlPunctuation,
+} from '@/lib/external-url';
 import { openExternalUrl } from '@/lib/open-external-url';
 
 const URL_PATTERN = /((?:https?:\/\/|www\.)[^\s]+)/gi;
@@ -33,7 +37,14 @@ function splitTextByLinks(input: string): TextSegment[] {
     if (index > cursor) {
       segments.push({ text: input.slice(cursor, index), isLink: false });
     }
-    segments.push({ text: value, isLink: true });
+    const linkText = stripTrailingUrlPunctuation(value);
+    const trailingText = value.slice(linkText.length);
+    if (linkText) {
+      segments.push({ text: linkText, isLink: true });
+    }
+    if (trailingText) {
+      segments.push({ text: trailingText, isLink: false });
+    }
     cursor = index + value.length;
   }
 
@@ -53,16 +64,18 @@ export function LinkifiedSelectableText({
 }: LinkifiedSelectableTextProps) {
   const safeText = text ?? '';
   const segments = useMemo(() => splitTextByLinks(safeText), [safeText]);
+  const hasLinks = segments.some((segment) => segment.isLink);
 
   const handleLinkPress = (rawUrl: string) => {
     const normalized = normalizeExternalUrl(rawUrl);
     if (!normalized) return;
+    const displayText = formatExternalUrlDisplayText(normalized, 56);
 
-    Alert.alert('링크 옵션', normalized, [
+    Alert.alert('링크 옵션', displayText, [
       {
         text: '열기',
         onPress: () => {
-          openExternalUrl(normalized).catch(() => {
+          openExternalUrl(normalized, { preferExternalBrowser: true }).catch(() => {
             Alert.alert('오류', '링크를 열 수 없습니다.');
           });
         },
@@ -89,7 +102,7 @@ export function LinkifiedSelectableText({
   };
 
   return (
-    <Text style={style} numberOfLines={numberOfLines} selectable={selectable}>
+    <Text style={style} numberOfLines={numberOfLines} selectable={selectable && !hasLinks}>
       {segments.map((segment, index) => (
         segment.isLink ? (
           <Text
@@ -98,7 +111,7 @@ export function LinkifiedSelectableText({
             onPress={() => handleLinkPress(segment.text)}
             suppressHighlighting
           >
-            {segment.text}
+            {formatExternalUrlDisplayText(segment.text)}
           </Text>
         ) : (
           <Text key={`text-${index}`}>{segment.text}</Text>

@@ -2,7 +2,7 @@ doc_id: SHARED-DOCUMENTATION-CONTRACT
 owner_repo: fc-onboarding-app
 owner_area: shared-contract
 audience: developer
-last_verified: 2026-03-26
+last_verified: 2026-04-06
 source_of_truth: handbook convention
 
 # Documentation Contract
@@ -57,3 +57,15 @@ source_of_truth: handbook convention
 - handbook sync를 하지 않는 일반 구현 세션에서는 owning 문서 수정을 강제하지 않습니다.
 - handbook sync 세션 또는 handbook를 실제 수정하는 세션에서는 map에 등재된 owning 문서 중 하나를 반드시 같이 수정해야 합니다.
 - 새 코드 영역이 생기면 구현보다 먼저 map부터 보강합니다.
+
+## 실수 기록 원칙
+
+- `.claude/MISTAKES.md`는 반복 가능한 실수와 회귀만 기록하는 전용 문서입니다.
+- 다음 조건 중 하나라도 맞으면 `.claude/MISTAKES.md` 갱신은 의무입니다. 코드 fix와 같은 change set에서 같이 갱신합니다.
+  - 이미 복구했다고 기록한 동작이 다시 깨진 경우
+  - 화면/route/function 간 계약 드리프트가 root cause인 경우
+  - 중복 구현 때문에 한 surface만 고치고 다른 surface가 다시 어긋난 경우
+  - 검증 누락 때문에 같은 종류의 실수가 재발할 수 있는 경우
+  - 현재 세션에서 "우리가 무엇을 잘못 이해했는가/놓쳤는가"가 명확히 드러난 경우
+- `WORK_LOG.md`/`WORK_DETAIL.md`는 "무엇을 바꿨는가"를 남기고, `MISTAKES.md`는 "무슨 실수를 했고 앞으로 어떻게 막을 것인가"만 남깁니다.
+- `MISTAKES.md`에는 신규 기능, 일반 리팩터링, TODO, 단순 완료 보고를 기록하지 않습니다.

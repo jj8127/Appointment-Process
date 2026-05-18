@@ -6,16 +6,18 @@ import { useRouter } from 'next/navigation';
 import { useEffect } from 'react';
 
 export default function Home() {
-    const { hydrated, role } = useSession();
     const router = useRouter();
+    const { hydrated, role } = useSession();
 
     useEffect(() => {
         if (!hydrated) return;
-        if (!role) {
-            router.replace('/auth');
-        } else {
+
+        if (role === 'admin' || role === 'manager') {
             router.replace('/dashboard');
+            return;
         }
+
+        router.replace('/auth');
     }, [hydrated, role, router]);
 
     return (

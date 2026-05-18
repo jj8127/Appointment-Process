@@ -22,6 +22,14 @@ function handbookSyncRequired() {
   return process.argv.includes('--require-handbook-sync') || process.env.REQUIRE_HANDBOOK_SYNC === '1';
 }
 
+function hasDirtyWorktree() {
+  try {
+    return Boolean(run('git status --short'));
+  } catch {
+    return false;
+  }
+}
+
 function listChangedFiles() {
   const base = process.env.BASE_SHA;
   const head = process.env.HEAD_SHA;
@@ -29,6 +37,10 @@ function listChangedFiles() {
   try {
     if (base && head) {
       const out = run(`git diff --name-only --diff-filter=ACMR ${base} ${head}`);
+      return out ? out.split(/\r?\n/).filter(Boolean) : [];
+    }
+    if (hasDirtyWorktree()) {
+      const out = run('git diff --name-only --diff-filter=ACMR');
       return out ? out.split(/\r?\n/).filter(Boolean) : [];
     }
     const out = run('git diff --name-only --diff-filter=ACMR HEAD~1 HEAD');
@@ -126,6 +138,7 @@ function main() {
 
   const requiredDocs = [
     '.claude/PROJECT_GUIDE.md',
+    '.claude/MISTAKES.md',
     '.claude/WORK_LOG.md',
     '.claude/WORK_DETAIL.md',
     'docs/handbook/path-owner-map.json',

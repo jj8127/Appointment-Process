@@ -3,7 +3,6 @@ import { router, useLocalSearchParams } from 'expo-router';
 import { MotiView } from 'moti';
 import { useEffect, useState } from 'react';
 import {
-    ActivityIndicator,
     Image,
     Keyboard,
     Pressable,
@@ -13,11 +12,13 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
+import BrandedLoadingSpinner from '@/components/BrandedLoadingSpinner';
 import { KeyboardAwareWrapper } from '@/components/KeyboardAwareWrapper';
 import { FormInput } from '@/components/FormInput';
 import { useKeyboardPadding } from '@/hooks/use-keyboard-padding';
 import { useSession } from '@/hooks/use-session';
 import { useLogin } from '@/hooks/use-login';
+import { resolveSessionLandingRoute } from '@/lib/session-landing';
 import WebLogo from '../assets/images/login.png';
 import { COLORS, TYPOGRAPHY, SPACING, RADIUS } from '@/lib/theme';
 
@@ -35,12 +36,13 @@ export default function LoginScreen() {
     useEffect(() => {
         if (skipAutoRedirect) return;
         if (!hydrated) return;
-        if (role === 'admin') {
-            router.replace(isRequestBoardDesigner ? '/request-board' : '/');
-            return;
-        }
-        if (role === 'fc' && residentId) {
-            router.replace(isRequestBoardDesigner ? '/request-board' : '/home-lite');
+        const nextRoute = resolveSessionLandingRoute({
+            role,
+            residentId,
+            isRequestBoardDesigner,
+        });
+        if (nextRoute) {
+            router.replace(nextRoute);
         }
     }, [hydrated, isRequestBoardDesigner, residentId, role, skipAutoRedirect]);
 
@@ -125,7 +127,7 @@ export default function LoginScreen() {
                                 disabled={loading}
                             >
                                 {loading ? (
-                                    <ActivityIndicator color="#fff" />
+                                    <BrandedLoadingSpinner size="md" color="#fff" />
                                 ) : (
                                     <Text style={styles.buttonText}>로그인</Text>
                                 )}

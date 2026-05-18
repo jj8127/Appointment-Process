@@ -2,8 +2,8 @@ doc_id: FC-APP-REQUEST-BOARD-BRIDGE
 owner_repo: fc-onboarding-app
 owner_area: mobile
 audience: developer, operator
-last_verified: 2026-03-26
-source_of_truth: app/request-board*.tsx + lib/request-board-api.ts + lib/request-board-session.ts
+last_verified: 2026-04-16
+source_of_truth: app/request-board*.tsx + lib/request-board-api.ts + lib/request-board-session.ts + request_board/server/src/routes/messages.ts
 
 # Mobile Playbook: GaramLink Bridge
 
@@ -37,6 +37,7 @@ source_of_truth: app/request-board*.tsx + lib/request-board-api.ts + lib/request
 ## 쓰는 데이터
 
 - bridge-login / session sync
+- attachment upload (`rbUploadAttachments`) with the same 401 -> bridge-login retry rule
 - message read state
 - request approval/rejection 흐름 위임
 
@@ -44,6 +45,8 @@ source_of_truth: app/request-board*.tsx + lib/request-board-api.ts + lib/request
 
 - bridge secret mismatch
 - requestBoardRole 오판정
+- attachment upload 401인데 retry를 안 태워 generic failure로 끝나는 경로
+- message attachment bucket MIME allowlist가 모바일 이미지(`webp/gif/bmp/heic/heif`)보다 좁아 업로드 단계에서 실패하는 drift
 - unread/badge 합산 불일치
 
 ## 연관 문서

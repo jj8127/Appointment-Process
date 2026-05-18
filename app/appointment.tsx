@@ -2,7 +2,6 @@ import { Feather } from '@expo/vector-icons';
 import DateTimePicker, { DateTimePickerEvent } from '@react-native-community/datetimepicker';
 import { useCallback, useEffect, useState } from 'react';
 import {
-  ActivityIndicator,
   Alert,
   Dimensions,
   FlatList,
@@ -18,6 +17,7 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
+import BrandedLoadingState from '@/components/BrandedLoadingState';
 import { Button } from '@/components/Button';
 import { ScreenHeader } from '@/components/ScreenHeader';
 import { useIdentityGate } from '@/hooks/use-identity-gate';
@@ -388,7 +388,7 @@ export default function AppointmentScreen() {
         />
 
         {loading ? (
-          <ActivityIndicator color={COLORS.primary} style={{ marginTop: 40 }} />
+          <BrandedLoadingState variant="appointment" layout="section" />
         ) : (
           <>
             {insuranceGateLocked ? (

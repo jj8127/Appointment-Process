@@ -1,6 +1,5 @@
 'use client';
 
-import { supabase } from '@/lib/supabase';
 import { isDeveloperSession, type StaffType } from '@/lib/staff-identity';
 import {
   ActionIcon,
@@ -53,6 +52,13 @@ type InboxListResponse = {
   message?: string;
   notifications?: InboxNotificationPayload[];
   notices?: InboxNoticePayload[];
+};
+
+type InboxProxyResponse = {
+  ok?: boolean;
+  status?: number;
+  data?: InboxListResponse;
+  error?: string;
 };
 
 type HeaderNotificationItem = {
@@ -229,19 +235,30 @@ export function DashboardNotificationBell({ role, residentId, staffType = null }
     queryFn: async (): Promise<HeaderNotificationItem[]> => {
       const fetchInbox = async (inboxRole: 'admin' | 'fc') => {
         const inboxResidentId = inboxRole === 'fc' ? sanitize(residentId) : null;
-        const { data, error } = await supabase.functions.invoke<InboxListResponse>('fc-notify', {
-          body: {
+        const response = await fetch('/api/fc-notify', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
             type: 'inbox_list',
             role: inboxRole,
             resident_id: inboxResidentId,
             limit: LIST_LIMIT,
-          },
+          }),
         });
-        if (error) throw error;
-        if (!data?.ok) {
-          throw new Error(data?.message ?? '알림을 불러오지 못했습니다.');
+
+        const payload = (await response.json()) as InboxProxyResponse;
+        if (!response.ok || !payload.ok) {
+          throw new Error(payload.error ?? payload.data?.message ?? '알림을 불러오지 못했습니다.');
         }
-        return data;
+
+        const inbox = payload.data;
+        if (!inbox?.ok) {
+          throw new Error(inbox?.message ?? '알림을 불러오지 못했습니다.');
+        }
+
+        return inbox;
       };
 
       const isDeveloper = isDeveloperSession({ role, staffType });

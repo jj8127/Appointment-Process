@@ -2,7 +2,6 @@ import { Feather } from '@expo/vector-icons';
 import { Stack, useRouter } from 'expo-router';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
-  ActivityIndicator,
   Alert,
   FlatList,
   Keyboard,
@@ -21,6 +20,8 @@ import {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { BottomNavigation } from '@/components/BottomNavigation';
+import BrandedLoadingSpinner from '@/components/BrandedLoadingSpinner';
+import BrandedLoadingState from '@/components/BrandedLoadingState';
 import { useSession } from '@/hooks/use-session';
 import { resolveBottomNavActiveKey, resolveBottomNavPreset } from '@/lib/bottom-navigation';
 import { logger } from '@/lib/logger';
@@ -379,8 +380,7 @@ export default function RequestBoardFcCodesScreen() {
       {/* List */}
       {loading ? (
         <View style={styles.loadingWrap}>
-          <ActivityIndicator color={COLORS.primary} />
-          <Text style={styles.loadingText}>불러오는 중...</Text>
+          <BrandedLoadingState variant="request-board-fc-codes" layout="section" />
         </View>
       ) : filteredCodes.length === 0 ? (
         <View style={styles.emptyWrap}>
@@ -539,7 +539,7 @@ export default function RequestBoardFcCodesScreen() {
                 disabled={saving}
               >
                 {saving ? (
-                  <ActivityIndicator size="small" color="#fff" />
+                  <BrandedLoadingSpinner size="sm" color="#fff" />
                 ) : (
                   <Text style={styles.saveBtnText}>{editingCode ? '수정' : '등록'}</Text>
                 )}

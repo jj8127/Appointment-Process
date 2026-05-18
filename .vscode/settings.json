@@ -8,5 +8,17 @@
   "claude.view.position": "right",
   "deno.enablePaths": ["supabase/functions"],
   "deno.lint": true,
-  "deno.unstable": false
+  "deno.unstable": false,
+  "json.schemas": [
+    {
+      "fileMatch": ["app.json"],
+      "schema": {
+        "type": "object",
+        "properties": {
+          "expo": { "type": "object", "additionalProperties": true }
+        },
+        "additionalProperties": true
+      }
+    }
+  ]
 }

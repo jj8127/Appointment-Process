@@ -1,3 +1,13 @@
+export type RecommenderCandidate = {
+  fcId: string;
+  name: string;
+  affiliation: string;
+  phoneLast4: string | null;
+  activeCode: string | null;
+  label: string;
+  descriptor: string;
+};
+
 export type ReferralAdminListItem = {
   fcId: string;
   name: string;
@@ -40,6 +50,20 @@ export type ReferralAdminSummary = {
   activeCodeCount: number;
   missingCodeCount: number;
   disabledCodeCount: number;
+  unresolvedLegacyCount: number;
+};
+
+export type ReferralAdminUnresolvedItem = {
+  inviteeFcId: string;
+  inviteeName: string;
+  inviteePhone: string;
+  inviteeAffiliation: string;
+  legacyRecommenderName: string;
+  candidateCount: number;
+  candidatePreview: string[];
+  candidateOptions: RecommenderCandidate[];
+  autoResolvableCandidate: RecommenderCandidate | null;
+  matchStatus: 'ambiguous' | 'missing_candidate' | 'auto_resolvable' | 'self_referral';
 };
 
 export type ReferralAdminPermissions = {
@@ -51,6 +75,7 @@ export type ReferralAdminListResponse = {
   summary: ReferralAdminSummary;
   items: ReferralAdminListItem[];
   detail: ReferralAdminDetail | null;
+  unresolvedItems: ReferralAdminUnresolvedItem[];
   permissions: ReferralAdminPermissions;
   page: number;
   pageSize: number;
@@ -60,7 +85,10 @@ export type ReferralAdminListResponse = {
 export type ReferralAdminMutationAction =
   | 'backfill_missing_codes'
   | 'rotate_code'
-  | 'disable_code';
+  | 'disable_code'
+  | 'link_legacy_recommender'
+  | 'clear_legacy_recommender'
+  | 'auto_resolve_legacy_recommenders';
 
 export type ReferralAdminMutationRequest =
   | {
@@ -74,6 +102,28 @@ export type ReferralAdminMutationRequest =
       payload: {
         fcId: string;
         reason: string;
+      };
+    }
+  | {
+      action: 'link_legacy_recommender';
+      payload: {
+        inviteeFcId: string;
+        inviterFcId: string;
+        reason: string;
+      };
+    }
+  | {
+      action: 'clear_legacy_recommender';
+      payload: {
+        inviteeFcId: string;
+        reason: string;
+      };
+    }
+  | {
+      action: 'auto_resolve_legacy_recommenders';
+      payload?: {
+        limit?: number;
+        reason?: string;
       };
     };
 

@@ -2,7 +2,7 @@ doc_id: FC-DATA-MODEL-CANON
 owner_repo: fc-onboarding-app
 owner_area: data
 audience: developer, operator
-last_verified: 2026-03-31
+last_verified: 2026-04-23
 source_of_truth: supabase/schema.sql + supabase/migrations/*
 
 # Data Handbook: Data Model Canon
@@ -62,6 +62,23 @@ source_of_truth: supabase/schema.sql + supabase/migrations/*
 
 - `referral_attributions`는 관리자 전용 RLS 테이블이므로, 모바일 anon 클라이언트는 직접 조회하지 않습니다.
 - `20260331000002_get_invitee_referral_code_fn.sql`은 `public.get_invitee_referral_code(uuid)` `SECURITY DEFINER` 함수를 추가합니다.
-- `20260331000003_fix_get_invitee_referral_code_lookup.sql`은 위 함수를 수정해, 대상 FC의 `recommender` 이름과 일치하는 추천인의 `referral_codes.is_active=true` 코드를 우선 반환하도록 바로잡습니다.
-- 활성 코드가 없을 때만 `invitee_fc_id = p_fc_id`이면서 `status='confirmed'`인 attribution의 `referral_code`를 fallback으로 반환합니다.
-- 권한은 `anon`, `authenticated`, `service_role` execute만 허용하고 `PUBLIC` 기본 execute는 revoke 합니다.
+- `20260331000003_fix_get_invitee_referral_code_lookup.sql`은 위 함수를 이름 문자열이 아니라 `recommender_fc_id`와 structured attribution만 사용하도록 수정합니다.
+- `20260401000002_reassert_get_invitee_referral_code_service_role_only.sql`은 execute grant를 `service_role` only로 다시 고정합니다.
+- `20260402000002_fix_invitee_referral_code_history_priority.sql`은 lookup order를 historical-first로 바꿔, confirmed attribution이 있으면 `referral_code_id -> referral_code snapshot -> inviter active code` 순으로 먼저 읽고 `recommender_fc_id` 현재 활성 코드는 마지막 degraded fallback으로만 사용하게 합니다.
+- `20260410000001_add_referral_subtree_rpc.sql`은 `public.get_referral_subtree(root_fc_id uuid, max_depth int)`를 추가해 root row + ancestor chain + descendant subtree + descendant counts를 `service_role` only trusted read로 반환합니다.
+
+## 2026-04-04 추천인 self-service / manager eligibility 메모
+
+- `20260404000001_allow_manager_referral_codes.sql` 이후 completed manager-linked FC도 referral code issuance/backfill 대상 canonical set에 포함됩니다.
+- `referral_attributions.source`는 `auto_prefill | manual_entry | admin_override`, `selection_source`는 `auto_prefill_kept | auto_prefill_edited | manual_entry_only | admin_override`만 허용합니다.
+- self-service recommender update도 위 enum 계약을 그대로 따라야 하며, schema와 다른 provenance 문자열을 새로 추가하지 않습니다.
+- `referral_events` canonical 컬럼명은 `invitee_fc_id`, `metadata`입니다. self-service audit write도 이 계약을 따릅니다.
+- mobile referral tree self-service는 direct table/RPC 호출을 열지 않고 `get-referral-tree` Edge Function만 사용합니다. descendant lazy expand는 caller 자기 서브트리 membership이 확인된 `fcId`만 허용해야 합니다.
+
+## 2026-04-23 추천인 링크 current-state canonicalization 메모
+
+- `20260423000001_unify_referral_link_state.sql`은 `fc_profiles`에 `recommender_code_id`, `recommender_code`, `recommender_linked_at`, `recommender_link_source`를 canonical current-state 컬럼으로 추가한다.
+- 같은 migration은 `fc_profiles.recommender_fc_id`와 새 `recommender*` snapshot을 structured referral current state 기준으로 backfill하고, `schema.sql`은 이 컬럼/체크 제약/인덱스를 같은 변경 세트로 반영해야 한다.
+- `recommender_link_source` enum은 `signup | self_service | admin_override | legacy_migration`만 허용한다.
+- `referral_events.event_type` canonical set에는 `referral_linked`, `referral_changed`, `referral_cleared`가 포함되며, `referral_events.source` canonical set에는 `signup`, `self_service`, `legacy_migration`이 추가된다.
+- `public.get_invitee_referral_code(uuid)` canonical 반환값은 이제 invitee-facing current snapshot `fc_profiles.recommender_code`다. historical resolution이 필요하면 별도 admin/read model에서 처리하고, 이 helper 의미를 다시 넓히지 않는다.

@@ -7,6 +7,10 @@ import {
   registerWebPushSubscription,
   type WebPushPermissionState,
 } from '@/components/WebPushRegistrar';
+import {
+  getWebPushClientConfigState,
+  getWebPushRegistrationFeedback,
+} from '@/lib/web-push-config';
 import { supabase } from '@/lib/supabase';
 import {
   Button,
@@ -37,6 +41,10 @@ export default function SettingsPage() {
   const [loading, setLoading] = useState(false);
   const [pushLoading, setPushLoading] = useState(false);
   const [pushPermission, setPushPermission] = useState<WebPushPermissionState>('unsupported');
+  const pushConfig = useMemo(
+    () => getWebPushClientConfigState(process.env.NEXT_PUBLIC_WEB_PUSH_VAPID_PUBLIC_KEY),
+    [],
+  );
 
   const deleteRole = role === 'admin' ? 'admin' : role === 'manager' ? 'manager' : role === 'fc' ? 'fc' : null;
   const displayRole = getDashboardRoleLabel({ role, staffType, isReadOnly });
@@ -52,18 +60,28 @@ export default function SettingsPage() {
   }, [hydrated]);
 
   const pushStatusText = useMemo(() => {
+    if (!pushConfig.isConfigured) return pushConfig.statusText;
     if (pushPermission === 'granted') return '알림 허용됨';
     if (pushPermission === 'denied') return '알림 차단됨';
     if (pushPermission === 'default') return '아직 설정되지 않음';
     return '이 브라우저는 웹 푸시를 지원하지 않습니다.';
-  }, [pushPermission]);
+  }, [pushConfig, pushPermission]);
 
   const pushButtonLabel = useMemo(() => {
+    if (!pushConfig.isConfigured) return pushConfig.buttonLabel;
     if (pushPermission === 'granted') return '웹 알림 재등록';
     if (pushPermission === 'denied') return '권한 재확인';
     if (pushPermission === 'default') return '웹 알림 허용';
     return '지원되지 않음';
-  }, [pushPermission]);
+  }, [pushConfig, pushPermission]);
+
+  const pushHelpText = useMemo(() => {
+    if (!pushConfig.isConfigured) return pushConfig.helpText;
+    if (pushPermission === 'denied') {
+      return '브라우저 주소창 사이트 설정에서 알림 권한을 허용해야 수신됩니다.';
+    }
+    return null;
+  }, [pushConfig, pushPermission]);
 
   if (!hydrated) return null;
 
@@ -154,28 +172,11 @@ export default function SettingsPage() {
         return;
       }
 
-      if (result.message === 'unsupported') {
-        notifications.show({
-          title: '지원되지 않음',
-          message: '현재 브라우저에서는 웹 알림을 지원하지 않습니다.',
-          color: 'orange',
-        });
-        return;
-      }
-
-      if (result.message === 'permission-not-granted') {
-        notifications.show({
-          title: '알림 권한 필요',
-          message: '브라우저 사이트 설정에서 알림을 허용한 뒤 다시 시도해주세요.',
-          color: 'orange',
-        });
-        return;
-      }
-
+      const feedback = getWebPushRegistrationFeedback(result.message);
       notifications.show({
-        title: '웹 알림 등록 실패',
-        message: result.message ?? '알 수 없는 오류가 발생했습니다.',
-        color: 'red',
+        title: feedback.title,
+        message: feedback.message,
+        color: feedback.color,
       });
     } catch (err: unknown) {
       const error = err as Error;
@@ -250,14 +251,14 @@ export default function SettingsPage() {
                   variant="light"
                   onClick={handleEnableWebPush}
                   loading={pushLoading}
-                  disabled={pushPermission === 'unsupported'}
+                  disabled={pushPermission === 'unsupported' || !pushConfig.isConfigured}
                 >
                   {pushButtonLabel}
                 </Button>
               </Group>
-              {pushPermission === 'denied' && (
+              {pushHelpText && (
                 <Text size="xs" c="dimmed">
-                  브라우저 주소창 사이트 설정에서 알림 권한을 허용해야 수신됩니다.
+                  {pushHelpText}
                 </Text>
               )}
             </Stack>

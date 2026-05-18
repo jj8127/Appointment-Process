@@ -4,6 +4,8 @@ import { NextResponse } from 'next/server';
 import { adminSupabase } from '@/lib/admin-supabase';
 import { checkRateLimit, SECURITY_HEADERS, validateSession } from '@/lib/csrf';
 import { logger } from '@/lib/logger';
+import { readResidentNumbersWithFallback } from '@/lib/server-resident-numbers';
+import { buildPhoneCandidates } from '@/lib/server-session';
 
 type DeleteBody = {
   registrationId?: string;
@@ -33,59 +35,6 @@ type ProfileRow = {
   affiliation: string | null;
   address: string | null;
 };
-
-function fromBase64(input: string): Uint8Array {
-  return Uint8Array.from(Buffer.from(input, 'base64'));
-}
-
-function toArrayBuffer(bytes: Uint8Array): ArrayBuffer {
-  return bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) as ArrayBuffer;
-}
-
-async function importAesKeyForDecrypt(base64Key: string): Promise<CryptoKey> {
-  const raw = fromBase64(base64Key);
-  return crypto.subtle.importKey('raw', toArrayBuffer(raw), { name: 'AES-GCM' }, false, ['decrypt']);
-}
-
-async function decryptResidentNumber(value: string, key: CryptoKey): Promise<string | null> {
-  const parts = value.split('.');
-  if (parts.length !== 2) return null;
-
-  try {
-    const iv = fromBase64(parts[0]);
-    const cipher = fromBase64(parts[1]);
-    const plain = await crypto.subtle.decrypt(
-      { name: 'AES-GCM', iv: toArrayBuffer(iv) },
-      key,
-      toArrayBuffer(cipher),
-    );
-    const digits = Buffer.from(plain).toString('utf8').replace(/[^0-9]/g, '');
-    return digits.length === 13 ? `${digits.slice(0, 6)}-${digits.slice(6)}` : null;
-  } catch {
-    return null;
-  }
-}
-
-function formatPhone(digits: string): string {
-  if (!digits) return '';
-  if (digits.length <= 3) return digits;
-  if (digits.length <= 7) return `${digits.slice(0, 3)}-${digits.slice(3)}`;
-  return `${digits.slice(0, 3)}-${digits.slice(3, 7)}-${digits.slice(7)}`;
-}
-
-function buildPhoneCandidates(value: string | null | undefined): string[] {
-  const raw = String(value ?? '').trim();
-  const digits = raw.replace(/[^0-9]/g, '');
-  const values = new Set<string>();
-
-  if (raw) values.add(raw);
-  if (digits) values.add(digits);
-
-  const formatted = formatPhone(digits);
-  if (formatted) values.add(formatted);
-
-  return Array.from(values).filter(Boolean);
-}
 
 async function getAdminSession() {
   const cookieStore = await cookies();
@@ -126,7 +75,10 @@ async function getReadSession() {
 }
 
 async function verifyStaffSession(role: 'admin' | 'manager', residentId: string) {
-  const staffPhoneCandidates = buildPhoneCandidates(residentId);
+  const staffPhoneCandidates = buildPhoneCandidates(
+    String(residentId ?? '').trim(),
+    String(residentId ?? '').replace(/[^0-9]/g, ''),
+  );
   const accountTable = role === 'manager' ? 'manager_accounts' : 'admin_accounts';
   const { data, error } = await adminSupabase
     .from(accountTable)
@@ -143,45 +95,7 @@ async function verifyStaffSession(role: 'admin' | 'manager', residentId: string)
   return Boolean(data?.id);
 }
 
-async function readResidentNumbers(fcIds: string[]): Promise<Record<string, string | null>> {
-  if (fcIds.length === 0) {
-    return {};
-  }
-
-  const identityKey = process.env.FC_IDENTITY_KEY;
-  if (!identityKey) {
-    return Object.fromEntries(fcIds.map((fcId) => [fcId, null]));
-  }
-
-  const key = await importAesKeyForDecrypt(identityKey);
-  const residentNumbers: Record<string, string | null> = Object.fromEntries(fcIds.map((fcId) => [fcId, null]));
-  const chunkSize = 100;
-
-  for (let i = 0; i < fcIds.length; i += chunkSize) {
-    const chunk = fcIds.slice(i, i + chunkSize);
-    const { data: rows, error } = await adminSupabase
-      .from('fc_identity_secure')
-      .select('fc_id,resident_number_encrypted')
-      .in('fc_id', chunk);
-
-    if (error) {
-      throw error;
-    }
-
-    for (const row of rows ?? []) {
-      const fcId = String(row.fc_id ?? '').trim();
-      const encrypted = typeof row.resident_number_encrypted === 'string'
-        ? row.resident_number_encrypted
-        : '';
-      if (!fcId || !encrypted) continue;
-      residentNumbers[fcId] = await decryptResidentNumber(encrypted, key);
-    }
-  }
-
-  return residentNumbers;
-}
-
-async function listApplicants() {
+async function listApplicants(staffPhone: string) {
   const { data, error } = await adminSupabase
     .from('exam_registrations')
     .select(`
@@ -211,8 +125,15 @@ async function listApplicants() {
     fee_paid_date: row.fee_paid_date ?? null,
   }));
 
-  const phones = Array.from(new Set(base.map((item) => item.resident_id).filter(Boolean)));
-  if (phones.length === 0) {
+  const phoneCandidates = Array.from(
+    new Set(
+      base.flatMap((item) =>
+        buildPhoneCandidates(String(item.resident_id ?? '').trim(), String(item.resident_id ?? '').replace(/[^0-9]/g, '')),
+      ),
+    ),
+  ).filter(Boolean);
+
+  if (phoneCandidates.length === 0) {
     return [];
   }
 
@@ -220,19 +141,34 @@ async function listApplicants() {
     .from('fc_profiles')
     .select('id,phone,name,affiliation,address')
     .eq('signup_completed', true)
-    .in('phone', phones);
+    .in('phone', phoneCandidates);
 
   if (profileError) {
     throw profileError;
   }
 
   const profileRows = (profiles ?? []) as ProfileRow[];
-  const profileMap = new Map(profileRows.map((profile) => [profile.phone, profile]));
+  const profileMap = new Map<string, ProfileRow>();
+  for (const profile of profileRows) {
+    const candidates = buildPhoneCandidates(profile.phone, String(profile.phone ?? '').replace(/[^0-9]/g, ''));
+    for (const candidate of candidates) {
+      profileMap.set(candidate, profile);
+    }
+  }
   const fcIds = Array.from(new Set(profileRows.map((profile) => profile.id).filter(Boolean)));
-  const residentNumbersByFcId = await readResidentNumbers(fcIds);
+  const residentNumbersByFcId = await readResidentNumbersWithFallback({
+    fcIds,
+    staffPhone,
+    logPrefix: '[api/admin/exam-applicants]',
+  });
 
   return base.map((item) => {
-    const profile = profileMap.get(item.resident_id);
+    const profile = buildPhoneCandidates(
+      String(item.resident_id ?? '').trim(),
+      String(item.resident_id ?? '').replace(/[^0-9]/g, ''),
+    )
+      .map((candidate) => profileMap.get(candidate))
+      .find(Boolean);
     const fullResidentNumber = profile?.id ? residentNumbersByFcId[profile.id] : null;
     return {
       ...item,
@@ -268,7 +204,7 @@ export async function GET() {
       return NextResponse.json({ error: 'Forbidden' }, { status: 403, headers: SECURITY_HEADERS });
     }
 
-    const applicants = await listApplicants();
+    const applicants = await listApplicants(readCheck.session.residentId.replace(/[^0-9]/g, ''));
     return NextResponse.json({ ok: true, applicants }, { headers: SECURITY_HEADERS });
   } catch (err: unknown) {
     logger.error('[api/admin/exam-applicants] list failed', err);
