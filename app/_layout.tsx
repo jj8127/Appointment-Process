@@ -27,6 +27,7 @@ import { goBackOrReplace } from '@/lib/back-navigation';
 import { logger } from '@/lib/logger';
 import { savePendingReferralCode } from '@/lib/referral-deeplink';
 import { safeStorage } from '@/lib/safe-storage';
+import { withSentryRoot } from '@/lib/sentry';
 
 import {
   AntDesign,
@@ -84,7 +85,7 @@ function PresenceBootstrap() {
   return null;
 }
 
-export default function RootLayout() {
+function RootLayout() {
   const isWeb = Platform.OS === 'web';
   const enableTourGuide = Platform.OS === 'android';
 
@@ -541,3 +542,5 @@ export default function RootLayout() {
     </ErrorBoundary>
   );
 }
+
+export default withSentryRoot(RootLayout);

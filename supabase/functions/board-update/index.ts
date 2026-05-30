@@ -1,5 +1,5 @@
 import { serve } from 'https://deno.land/std@0.224.0/http/server.ts';
-import { buildCorsHeaders, json, parseJson, requireActor, requireRole, supabase , dbError } from '../_shared/board.ts';
+import { buildCorsHeaders, json, parseJson, requireActor, requireRole, supabase, dbError } from '../_shared/board.ts';
 
 type Payload = {
   actor?: {
@@ -13,6 +13,83 @@ type Payload = {
   content?: string;
   attachmentOrder?: string[];
 };
+
+type BoardPushTargetRole = 'admin' | 'fc';
+
+function getEnv(name: string): string | undefined {
+  const g: any = globalThis as any;
+  if (g?.Deno?.env?.get) return g.Deno.env.get(name);
+  if (g?.process?.env) return g.process.env[name];
+  return undefined;
+}
+
+async function insertNotificationsWithFallback(rows: Array<Record<string, unknown>>) {
+  const firstTry = await supabase.from('notifications').insert(rows);
+  if (!firstTry.error) return null;
+
+  const missingTargetColumn =
+    firstTry.error.code === '42703' || String(firstTry.error.message ?? '').includes('target_url');
+  if (!missingTargetColumn) return firstTry.error;
+
+  const fallbackRows = rows.map(({ target_url: _ignored, ...row }) => row);
+  const secondTry = await supabase.from('notifications').insert(fallbackRows);
+  return secondTry.error ?? null;
+}
+
+async function sendBoardPush(targetRole: BoardPushTargetRole, title: string, body: string, url: string) {
+  const supabaseUrl = getEnv('SUPABASE_URL')?.trim();
+  const serviceKey = getEnv('SUPABASE_SERVICE_ROLE_KEY')?.trim();
+  if (!supabaseUrl || !serviceKey) {
+    console.warn('[board-update] push skipped: missing SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY');
+    return;
+  }
+
+  const endpoint = `${supabaseUrl.replace(/\/+$/, '')}/functions/v1/fc-notify`;
+  try {
+    const response = await fetch(endpoint, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${serviceKey}`,
+        apikey: serviceKey,
+      },
+      body: JSON.stringify({
+        type: 'notify',
+        target_role: targetRole,
+        target_id: null,
+        title,
+        body,
+        category: 'board_post',
+        url,
+        skip_notification_insert: true,
+      }),
+    });
+
+    const raw = await response.text().catch(() => '');
+    if (!response.ok) {
+      console.warn('[board-update] push fanout failed', {
+        targetRole,
+        status: response.status,
+        body: raw.slice(0, 300),
+      });
+      return;
+    }
+
+    try {
+      const parsed = raw ? JSON.parse(raw) as { ok?: boolean; message?: string } : null;
+      if (parsed?.ok === false) {
+        console.warn('[board-update] push fanout returned not ok', {
+          targetRole,
+          message: parsed.message ?? 'unknown',
+        });
+      }
+    } catch {
+      // Ignore non-JSON success bodies; transport success is enough for best-effort push.
+    }
+  } catch (error) {
+    console.warn('[board-update] push fanout network error', { targetRole, error });
+  }
+}
 
 serve(async (req: Request) => {
   const origin = req.headers.get('origin') ?? undefined;
@@ -39,7 +116,7 @@ serve(async (req: Request) => {
 
   const { data: post, error: postError } = await supabase
     .from('board_posts')
-    .select('id,author_role,author_resident_id')
+    .select('id,author_role,author_resident_id,title')
     .eq('id', postId)
     .maybeSingle();
 
@@ -118,6 +195,48 @@ serve(async (req: Request) => {
       }
     }
   }
+
+  const updatedTitle = typeof body.title === 'string' && body.title.trim()
+    ? body.title.trim()
+    : String(post.title ?? '게시글');
+  const notificationTitle = '게시글 수정';
+  const targetUrl = `/board-detail?postId=${postId}`;
+  const notificationRows = [
+    {
+      recipient_role: 'fc',
+      resident_id: null,
+      title: notificationTitle,
+      body: updatedTitle,
+      category: 'board_post',
+      target_url: targetUrl,
+    },
+    {
+      recipient_role: 'admin',
+      resident_id: null,
+      title: notificationTitle,
+      body: updatedTitle,
+      category: 'board_post',
+      target_url: targetUrl,
+    },
+    {
+      recipient_role: 'manager',
+      resident_id: null,
+      title: notificationTitle,
+      body: updatedTitle,
+      category: 'board_post',
+      target_url: targetUrl,
+    },
+  ];
+
+  const notificationError = await insertNotificationsWithFallback(notificationRows);
+  if (notificationError) {
+    console.warn('[board-update] notifications insert failed', notificationError.message);
+  }
+
+  await Promise.all([
+    sendBoardPush('fc', notificationTitle, updatedTitle, targetUrl),
+    sendBoardPush('admin', notificationTitle, updatedTitle, targetUrl),
+  ]);
 
   return json({ ok: true }, 200, origin);
 });

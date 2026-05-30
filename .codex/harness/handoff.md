@@ -20,9 +20,13 @@
 - Recovered the missing 2026-05-18 digest manually and verified home/latest plus FC/admin inbox rows.
 - Added and applied a migration for the remote `notifications_recipient_role_check` drift that rejected `manager` rows and rolled back the whole `board-create` notification batch.
 - Added `scripts/ops/run-insurance-digest-codex.ps1` and registered the Windows Task Scheduler fallback `GaramIn Insurance Digest Codex Fallback`, now scheduled for 11:05 KST after the main 11:00 KST Codex automation.
+- Renamed the active insurance briefing title/default actor label to `보험소식 브리핑`.
+- Repaired the existing 2026-05-17 through 2026-05-21 insurance posts so title prefix and author name both show `보험소식 브리핑`.
+- Added `board-update` notification row creation plus FC/admin push fanout so edited board posts notify readers like new board posts.
 
 ## Verified
 - `node --test scripts/ops/post-insurance-digest.test.mjs`
+- `npm test -- --runTestsByPath supabase/functions/__tests__/board-update-notification.contract.test.ts --runInBand`
 - `npm run ops:post-insurance-digest -- --input-json '{"content":"오늘의 핵심 요약\n- 테스트","sourceUrls":["https://example.com"]}' --dry-run`
 - `node scripts/ci/check-governance.mjs`
 - Remote `board-categories-list` smoke returned `ok: true`.
@@ -41,10 +45,14 @@
 - Direct debug insert before migration failed with `23514 notifications_recipient_role_check` for `manager`; after migration the same FC/admin/manager debug insert succeeded and was deleted.
 - `scripts/ops/run-insurance-digest-codex.ps1 -DryRun` returned the expected Codex CLI/log paths.
 - Scheduled task verification returned `StartBoundary: 2026-05-18T11:05:00+09:00`.
+- Codex cron TOML and Windows fallback prompt now require `보험소식 브리핑 YYYY.MM.DD`.
+- Remote `board-list` confirms the latest five insurance posts use `보험소식 브리핑`.
+- `supabase functions deploy board-update --project-ref ubeginyxaotcamuqpmud`
 
 ## Remaining
 - Optional later hardening: move the digest pipeline to a service-owned scheduler with a durable DB-side run log if the pilot graduates from Codex automation.
 - Next scheduled automatic post still needs observation because the Codex app cron has now both failed shell execution and missed the expected 08:30 KST start once.
+- Live edited-post push depends on the deployed Edge Function environment retaining `SUPABASE_URL` and `SUPABASE_SERVICE_ROLE_KEY`.
 
 ## Resume Steps
 1. Run `node --test scripts/ops/post-insurance-digest.test.mjs`.

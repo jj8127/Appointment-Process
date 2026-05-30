@@ -30,6 +30,95 @@
 - Verification:
 ```
 
+## 2026-05-26 | Insurance Digest Automation | WindowsApps PowerShell 버전 경로를 예약 작업에 고정함
+- Symptom:
+  - 2026-05-22 이후 `보험소식 브리핑` 자동화 산출물과 게시글이 생성되지 않았다.
+  - Windows Task Scheduler는 2026-05-26 11:05 KST에 실행을 시도했지만 `LastTaskResult=2147942402`로 실패했다.
+- Root cause:
+  - 예약 작업 action이 `C:\Program Files\WindowsApps\Microsoft.PowerShell_7.6.1.0_x64__8wekyb3d8bbwe\pwsh.exe`처럼 특정 PowerShell Store package 버전 경로를 직접 가리켰다.
+  - 로컬 PowerShell이 7.6.2로 업데이트되면서 7.6.1 경로가 사라졌고, Task Scheduler가 스크립트 시작 전 `file not found`로 종료했다.
+- Why it was missed:
+  - 2026-05-19에 `pwsh.exe` 사용만 가드레일로 남기고, WindowsApps의 versioned package path가 업데이트 때 사라진다는 점을 별도 acceptance로 고정하지 않았다.
+  - 예약 작업 등록 뒤 다음 날 실제 `LastRunTime`, `LastTaskResult`, `.codex-tmp/insurance-digest/YYYY-MM-DD.*`, DB 게시글까지 묶어서 확인하지 않았다.
+- Permanent guardrail:
+  - Task Scheduler action에는 WindowsApps versioned package path를 저장하지 않는다. 사용자별 alias(`%LOCALAPPDATA%\Microsoft\WindowsApps\pwsh.exe`)나 별도 안정 wrapper 경로만 사용한다.
+  - PowerShell/Codex/Windows 업데이트 후에는 `Test-Path`로 action executable을 확인하고, `-DryRun`과 수동 trigger를 같이 실행한다.
+  - 자동화 성공 보고 전에는 Task Scheduler 결과, 당일 artifact 생성, 당일 board post 존재를 모두 확인한다.
+- Related files:
+  - `scripts/ops/run-insurance-digest-codex.ps1`
+  - `.codex-tmp/insurance-digest/*`
+  - Windows Task Scheduler `GaramIn Insurance Digest Codex Fallback`
+  - `.claude/MISTAKES.md`
+- Verification:
+  - Before fix: `LastTaskResult=2147942402`, old `pwsh.exe` path `Test-Path=False`
+  - Updated action: `C:\Users\jj812\AppData\Local\Microsoft\WindowsApps\pwsh.exe`
+  - `run-insurance-digest-codex.ps1 -DryRun` succeeded through the new executable and resolved `codex.cmd`
+
+## 2026-05-22 | Board Create Notifications | 로컬 최신 board-create를 배포하지 않아 자동 게시 push fanout이 빠짐
+- Symptom:
+  - 2026-05-22 보험소식 브리핑은 자동 게시됐고 알림센터 row도 생성됐지만 앱 push 알림이 오지 않았다.
+- Root cause:
+  - 원격 `board-create` Edge Function 배포본이 로컬 최신 코드와 달랐다.
+  - 라이브 DB에 생성된 notification title이 로컬 코드의 `새 게시글`이 아니라 이전 배포본의 `New board post`로 저장되어, 원격 함수가 `fc-notify` push fanout 연결 전 코드였음이 확인됐다.
+- Why it was missed:
+  - 로컬 코드와 테스트만 보고 `board-create` fanout이 운영에 적용됐다고 판단했고, 실제 원격 함수 배포본의 행위까지 smoke하지 않았다.
+- Permanent guardrail:
+  - board notification/fanout 수정 후에는 반드시 해당 Edge Function을 배포하고, 라이브 게시글 1건 기준으로 `notifications.target_url`, notification title, FC/admin push fanout 결과를 함께 확인한다.
+  - 이미 게시된 보험 브리핑의 push 재발송은 `fc-notify`에 `skip_notification_insert: true`를 넣어 알림센터 row 중복 없이 수행한다.
+- Related files:
+  - `supabase/functions/board-create/index.ts`
+  - `supabase/functions/fc-notify/index.ts`
+  - `.claude/MISTAKES.md`
+- Verification:
+  - live DB: `보험소식 브리핑 2026.05.22` post `163d9aae-395f-4ba4-af3c-7d6d9535ec16`와 FC/admin/manager notification rows 확인
+  - `supabase functions deploy board-create --project-ref ubeginyxaotcamuqpmud`
+  - manual `fc-notify` push retry with `skip_notification_insert: true`: FC 195 tokens ok, admin/manager 69 tokens ok, admin web push 3 sent / 0 failed
+
+## 2026-05-21 | Board Update Notifications | 게시글 생성과 수정의 알림 계약을 따로 관리함
+- Symptom:
+  - 게시판 글을 수정해도 FC/admin 알림센터 row와 push fanout이 발생하지 않았다.
+- Root cause:
+  - `board-create`에는 notification row insert와 `fc-notify` fanout이 있었지만, `board-update`는 게시글 수정만 하고 알림 경로가 없었다.
+- Why it was missed:
+  - 게시글 알림 검증이 신규 작성 경로 중심이었고, 수정 경로가 같은 독자 알림 계약을 가져야 한다는 contract test가 없었다.
+- Permanent guardrail:
+  - board write function을 추가하거나 바꿀 때는 inbox row persistence, `fc-notify` push fanout, `/board-detail?postId=...` target URL을 함께 검증한다.
+  - `board-update` fanout 존재를 고정하는 contract test를 유지한다.
+- Related files:
+  - `supabase/functions/board-update/index.ts`
+  - `supabase/functions/__tests__/board-update-notification.contract.test.ts`
+  - `docs/handbook/backend/notifications-inbox-push.md`
+  - `docs/handbook/backend/board-api-and-notice-model.md`
+- Verification:
+  - `npm test -- --runTestsByPath supabase/functions/__tests__/board-update-notification.contract.test.ts --runInBand`
+  - `supabase functions deploy board-update --project-ref ubeginyxaotcamuqpmud`
+
+## 2026-05-19 | Insurance Digest Automation | Windows fallback를 실제 Task Scheduler 환경과 Codex CLI 버전에 맞춰 검증하지 않음
+- Symptom:
+  - PC가 켜져 있었는데도 2026-05-19 11:05 KST Windows fallback이 `LastTaskResult=1`로 실패했고 보험 브리핑이 자동 게시되지 않았다.
+  - 수동 재실행 중에도 기존 작업은 `powershell.exe`가 UTF-8 한글 prompt를 깨뜨리고, Codex CLI 실행이 오래 `Running`으로 남을 수 있었다.
+- Root cause:
+  - `run-insurance-digest-codex.ps1`가 현재 Codex CLI `0.101.0`에 없는 `--search` 플래그를 계속 넘겼다.
+  - Task Scheduler action이 Windows PowerShell 5.x(`powershell.exe`)라 UTF-8 BOM 없는 `.ps1`의 한글 prompt를 ANSI로 읽었다.
+  - 이미 같은 날짜 게시글이 있어도 중복 확인을 Codex prompt에 맡겨 불필요하게 Codex CLI를 띄웠다.
+- Why it was missed:
+  - `-DryRun`만 확인하고 실제 Task Scheduler action의 실행 파일, encoding, unsupported CLI flag를 함께 smoke하지 않았다.
+  - Codex app cron과 Windows fallback을 같은 성공 기준으로 검증하지 않고, "예약 등록됨"을 "게시 경로 검증됨"으로 과대 해석했다.
+- Permanent guardrail:
+  - Windows 예약 작업은 `pwsh.exe`로 실행하고, script 상단에서 UTF-8 output encoding을 명시한다.
+  - Codex CLI 플래그는 `codex exec --help` 기준으로 smoke하고, unsupported flag가 있으면 fallback 등록 전 제거한다.
+  - 같은 날짜 글 존재 여부는 AI 실행 전 Node precheck(`--check-existing`)로 먼저 확인해, 이미 게시된 날에는 Codex를 띄우지 않는다.
+- Related files:
+  - `scripts/ops/run-insurance-digest-codex.ps1`
+  - `scripts/ops/post-insurance-digest.mjs`
+  - `scripts/ops/post-insurance-digest.test.mjs`
+  - `.claude/MISTAKES.md`
+- Verification:
+  - `codex exec --help`
+  - `node --test scripts/ops/post-insurance-digest.test.mjs`
+  - `npm run ops:post-insurance-digest -- --check-existing`
+  - Windows Task Scheduler manual run returned `LastTaskResult=0` with `precheck-2026-05-19.json`
+
 ## 2026-05-18 | Insurance Digest Automation | Codex cron 실행 여부와 remote migration drift를 별도로 감시하지 않음
 - Symptom:
   - 2026-05-18 08:30 KST 보험 브리핑 자동 게시가 다시 실행되지 않아 오늘 게시글이 없었다.

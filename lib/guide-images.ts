@@ -8,6 +8,7 @@ export const AGREEMENT_GUIDE_IMAGES = [
   require('../assets/images/guides/agreement/07.jpg'),
   require('../assets/images/guides/agreement/08.jpg'),
   require('../assets/images/guides/agreement/09.jpg'),
+  require('../assets/images/guides/agreement/10.jpg'),
 ] as const;
 
 export const APPOINTMENT_GUIDE_IMAGES = [

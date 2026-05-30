@@ -1,21 +1,27 @@
 # QA Report
 
 ## Summary
-- Status: passed with scheduler risk noted
-- Scope: Codex automatic insurance issue briefing pilot, home surfacing, link/close crash hardening, and notification push recovery.
+- Status: passed with scheduler/deployment risk noted
+- Scope: Codex automatic insurance briefing pilot, home surfacing, link/close crash hardening, notification push recovery, board-update notification fanout, and briefing title rename.
 
 ## TDD Evidence
 - RED:
+  - `npm test -- --runTestsByPath supabase/functions/__tests__/board-update-notification.contract.test.ts --runInBand`
+  - Failed before `board-update` had notification row insertion or `fc-notify` push fanout.
   - `node --test scripts/ops/post-insurance-digest.test.mjs`
   - Failed with `ERR_MODULE_NOT_FOUND` before `scripts/ops/post-insurance-digest.mjs` existed.
   - After dry-run exposed an omitted-title bug, a focused test failed with `TypeError: now is not a function`.
 - GREEN:
+  - `npm test -- --runTestsByPath supabase/functions/__tests__/board-update-notification.contract.test.ts --runInBand`
+  - 1 test passed.
   - `node --test scripts/ops/post-insurance-digest.test.mjs`
-  - 10 tests passed.
+  - 12 tests passed.
 
 ## Passed Checks
 - `node --test scripts/ops/post-insurance-digest.test.mjs`
-  - 10 tests passed.
+  - 12 tests passed.
+- `npm test -- --runTestsByPath supabase/functions/__tests__/board-update-notification.contract.test.ts --runInBand`
+  - 1 suite passed, 1 test passed.
 - `npm test -- --runTestsByPath lib/__tests__/external-url.test.ts lib/__tests__/notice-route.test.ts lib/__tests__/home-latest-notice.test.ts --runInBand`
   - 3 suites passed, 11 tests passed.
 - `npm run ops:post-insurance-digest -- --input-json '{"content":"오늘의 핵심 요약\n- 테스트","sourceUrls":["https://example.com"]}' --dry-run`
@@ -61,8 +67,14 @@
   - Direct FC/admin/manager debug notification insert succeeded after migration and the debug rows were deleted.
   - `scripts/ops/run-insurance-digest-codex.ps1 -DryRun` passed.
   - Windows Task Scheduler task `GaramIn Insurance Digest Codex Fallback` was registered and then rescheduled for 11:05 KST.
+- 2026-05-21 update:
+  - `board-update` now mirrors board notification behavior with FC/admin/manager inbox rows and FC/admin push fanout using `skip_notification_insert=true`.
+  - Insurance digest title/default actor label changed to `보험소식 브리핑`, and both Codex cron prompt and Windows fallback prompt now require `보험소식 브리핑 YYYY.MM.DD`.
+  - `supabase functions deploy board-update --project-ref ubeginyxaotcamuqpmud` completed successfully.
+  - Remote `board-list` confirmed 2026-05-17 through 2026-05-21 insurance posts now show `보험소식 브리핑` for both title prefix and author name.
 
 ## Known Risks
 - Live posting depends on repo `.env` / `.env.local` staying available or equivalent process env being supplied.
 - Codex search quality depends on automation prompt discipline; low-quality or duplicated web results must be filtered before posting.
 - Codex app scheduled posting still depends on the Codex Desktop background runner starting at the expected local time and being able to execute local shell commands. The Windows Task Scheduler / Codex CLI fallback reduces but does not eliminate this operational risk.
+- Live edited-post notification behavior depends on `SUPABASE_URL` and `SUPABASE_SERVICE_ROLE_KEY` being present in the deployed Edge Function environment.

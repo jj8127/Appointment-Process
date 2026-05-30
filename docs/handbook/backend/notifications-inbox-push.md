@@ -2,8 +2,8 @@ doc_id: FC-BACKEND-NOTIFY-PUSH
 owner_repo: fc-onboarding-app
 owner_area: backend
 audience: developer, operator
-last_verified: 2026-05-17
-source_of_truth: supabase/functions/fc-notify/index.ts + supabase/functions/board-create/index.ts + web/src/app/actions.ts + web/src/app/api/admin/push/route.ts + web/src/app/api/web-push/subscribe/route.ts
+last_verified: 2026-05-21
+source_of_truth: supabase/functions/fc-notify/index.ts + supabase/functions/board-create/index.ts + supabase/functions/board-update/index.ts + web/src/app/actions.ts + web/src/app/api/admin/push/route.ts + web/src/app/api/web-push/subscribe/route.ts
 
 # Backend Runbook: Notifications, Inbox, And Push
 
@@ -31,6 +31,7 @@ source_of_truth: supabase/functions/fc-notify/index.ts + supabase/functions/boar
 ## 2026-04-06 게시판 알림 메모
 
 - 일반 게시판 글 작성은 `board-create`가 inbox row를 직접 저장하는 예외 경로입니다.
+- 일반 게시판 글 수정은 `board-update`가 같은 board post target URL로 inbox row와 `fc-notify` push fanout을 함께 보냅니다.
 - 이 경로는 row 저장만으로 끝내면 가람in/app/web push가 빠지므로, 같은 change set에서 반드시 `fc-notify` fanout을 함께 호출해야 합니다.
 - direct row insert 이후 `fc-notify`를 다시 부를 때는 `skip_notification_insert=true`를 사용해 중복 알림 row를 만들지 않습니다.
 - 게시판 글 fanout은 최소 두 축이 필요합니다.
@@ -39,10 +40,10 @@ source_of_truth: supabase/functions/fc-notify/index.ts + supabase/functions/boar
 
 ## 2026-05-16 Codex 보험 브리핑 메모
 
-- Codex 자동 보험 이슈 브리핑은 `scripts/ops/post-insurance-digest.mjs`를 통해 게시합니다.
+- Codex 자동 보험소식 브리핑은 `scripts/ops/post-insurance-digest.mjs`를 통해 게시합니다.
 - 스크립트는 `보험소식`(`insurance-news`) 카테고리를 확인/생성한 뒤 기존 `board-create` Edge Function으로 게시합니다.
 - 따라서 자동 브리핑도 일반 게시글과 같은 inbox row 저장 및 `fc-notify` fanout 경로를 사용해야 하며, `board_posts` 직접 insert로 우회하지 않습니다.
-- 같은 KST 날짜의 `보험 이슈 브리핑 YYYY.MM.DD` 제목이 이미 있으면 스크립트가 게시를 건너뜁니다.
+- 같은 KST 날짜의 `보험소식 브리핑 YYYY.MM.DD` 제목이 이미 있으면 스크립트가 게시를 건너뜁니다.
 - 홈 최신 공지(`latest_notice`)는 게시판 `공지`뿐 아니라 `보험소식` 카테고리 글도 포함합니다.
 - 자동 브리핑 본문에는 긴 원문 URL이나 AI 참고용/비자문 disclaimer를 넣지 않고, 짧은 출처명만 노출합니다.
 

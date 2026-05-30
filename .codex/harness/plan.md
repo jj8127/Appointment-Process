@@ -45,3 +45,5 @@
 - The repo script owns validation, category resolution, duplicate prevention, and `board-create` posting.
 - Visible digest content uses short source names, not raw URLs or AI/reference disclaimer copy.
 - Existing board notification/push fanout remains the source of truth, with Expo push chunked at 100 payloads/request.
+- Board create and board update paths both need inbox row persistence plus `fc-notify` push fanout.
+- Current briefing title contract is `보험소식 브리핑 YYYY.MM.DD`.

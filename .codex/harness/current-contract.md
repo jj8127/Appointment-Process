@@ -13,15 +13,17 @@
 - Publish the 2026-05-17 digest manually from the same repo script after the automation runner failed to execute shell commands.
 - Update automation instructions to use `--input-file` and to report shell-runner failures as blockers, not uploads.
 - Add a local Windows Task Scheduler / Codex CLI fallback because the 2026-05-18 Codex app cron did not start.
+- Rename the automated briefing title and default actor label to `보험소식 브리핑`.
 - Include `보험소식` board posts in `latest_notice`, route home board notices to `/board-detail`, and avoid the `/board?postId=` modal close crash path.
 - Remove long raw URLs and AI/reference disclaimer copy from visible digest content.
 - Chunk Expo push fanout in `fc-notify` so FC audiences over 100 tokens are accepted.
+- Add `board-update` inbox row and push fanout so edited board posts notify FC/admin audiences too.
 - Apply the missing remote `notifications_recipient_role_check` migration so `manager` notification rows do not roll back FC/admin board notification inserts.
 
 ## Acceptance Criteria
 - [x] Script accepts JSON digest payload and dry-run mode.
 - [x] Script resolves or creates `보험소식` / `insurance-news`.
-- [x] Script skips duplicate same-day `보험 이슈 브리핑 YYYY.MM.DD` titles.
+- [x] Script skips duplicate same-day `보험소식 브리핑 YYYY.MM.DD` titles.
 - [x] Script posts through `board-create`, not direct table insert.
 - [x] Content includes short visible source names and keeps raw URLs out of the board body.
 - [x] Content does not append AI/reference/disclaimer copy.
@@ -37,7 +39,10 @@
 - [x] FC/admin notification rows exist for the live post.
 - [x] Remote notification role constraint allows `manager`, so `board-create` notification batch insert can keep FC/admin rows.
 - [x] Codex app automation is scheduled for 11:00 KST and Windows Task Scheduler fallback exists for 11:05 KST.
+- [x] Codex app automation and Windows fallback prompt require `보험소식 브리핑 YYYY.MM.DD`.
+- [x] Existing 2026-05-17 through 2026-05-21 insurance posts show `보험소식 브리핑` as title prefix and author name.
 - [x] FC Expo push fanout succeeds in chunks after deployment.
+- [x] `board-update` has notification row creation and FC/admin push fanout after successful edits.
 - [x] Verification commands pass or failures are documented.
 
 ## Checks
@@ -46,6 +51,7 @@
 - `npm run ops:post-insurance-digest -- --input-file .codex-tmp/insurance-digest/2026-05-17.json --dry-run`
 - `npm run ops:post-insurance-digest -- --input-file .codex-tmp/insurance-digest/2026-05-17.json`
 - `npm test -- --runTestsByPath lib/__tests__/external-url.test.ts lib/__tests__/notice-route.test.ts lib/__tests__/home-latest-notice.test.ts --runInBand`
+- `npm test -- --runTestsByPath supabase/functions/__tests__/board-update-notification.contract.test.ts --runInBand`
 - `supabase functions deploy fc-notify --project-ref ubeginyxaotcamuqpmud`
 - `supabase functions deploy board-create --project-ref ubeginyxaotcamuqpmud`
 - `node scripts/ci/check-governance.mjs`

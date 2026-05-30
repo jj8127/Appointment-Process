@@ -2,6 +2,7 @@ import React, { Component, ReactNode } from 'react';
 import { View, Text, StyleSheet, Pressable, ScrollView } from 'react-native';
 
 import { logger } from '@/lib/logger';
+import { captureSentryException } from '@/lib/sentry-monitor';
 import StatusGlyph from '@/components/StatusGlyph';
 
 type Props = {
@@ -26,8 +27,10 @@ export class ErrorBoundary extends Component<Props, State> {
   }
 
   componentDidCatch(error: Error, errorInfo: React.ErrorInfo) {
-    // Log error to monitoring service (e.g., Sentry)
     logger.error('ErrorBoundary caught', { error, errorInfo });
+    captureSentryException(error, {
+      componentStack: errorInfo.componentStack,
+    });
 
     if (this.props.onError) {
       this.props.onError(error, errorInfo);

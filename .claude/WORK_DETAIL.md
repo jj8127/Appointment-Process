@@ -7,6 +7,35 @@
 
 ---
 
+## <a id="20260521-board-update-notification-and-insurance-briefing-title"></a> 2026-05-21 | Board update notification and insurance briefing title
+
+**배경**:
+- 게시판 글을 수정해도 알림이 오지 않는 문제가 보고됐다.
+- 보험 자동 브리핑의 노출/작성자 문구가 `보험소식 자동 브리핑`으로 보여, 사용자가 원하는 `보험소식 브리핑`과 달랐다.
+
+**조치**:
+- `supabase/functions/board-update/index.ts`에 FC/admin/manager inbox row 생성과 FC/admin `fc-notify` push fanout을 추가했다.
+- `board-update` fanout은 `board-create`와 같은 `/board-detail?postId=...` target URL과 `skip_notification_insert=true` 계약을 사용한다.
+- `scripts/ops/post-insurance-digest.mjs`의 제목 prefix와 기본 automation actor label을 `보험소식 브리핑`으로 바꿨다.
+- Codex cron automation TOML과 Windows fallback prompt가 `보험소식 브리핑 YYYY.MM.DD`를 쓰도록 갱신했다.
+- 원격 `보험소식` 최근 게시글 5건의 기존 제목/작성자명도 알림 폭주를 피하기 위해 service-role 보정으로 `보험소식 브리핑`으로 정리했다.
+- 게시판 알림/운영 문서와 harness를 현재 계약에 맞게 갱신했다.
+- `supabase/functions/__tests__/board-*` 계약 테스트 경로를 `backend-board` path-owner-map에 편입했다.
+
+**결과**:
+- 새 보험 브리핑 제목은 `보험소식 브리핑 YYYY.MM.DD` 형식으로 생성된다.
+- 게시글 수정 성공 후에도 새 게시글 작성과 같은 알림센터/푸시 경로가 실행된다.
+
+**검증**:
+- RED 확인: `npm test -- --runTestsByPath supabase/functions/__tests__/board-update-notification.contract.test.ts --runInBand`
+- 통과: `npm test -- --runTestsByPath supabase/functions/__tests__/board-update-notification.contract.test.ts --runInBand`
+- 통과: `node --test scripts/ops/post-insurance-digest.test.mjs`
+- 통과: `supabase functions deploy board-update --project-ref ubeginyxaotcamuqpmud`
+- 통과: 원격 `board-list`에서 2026-05-17~2026-05-21 보험소식 글 title/authorName이 `보험소식 브리핑`으로 표시됨을 확인
+- 통과: `node scripts/ci/check-governance.mjs`
+
+---
+
 ## <a id="20260518-insurance-digest-scheduler-fallback-and-notification-constraint"></a> 2026-05-18 | Insurance digest scheduler fallback and notification constraint
 
 **배경**:
@@ -23,7 +52,7 @@
 - Codex 앱 cron이 다시 빠질 때를 대비해 `scripts/ops/run-insurance-digest-codex.ps1`를 추가하고, Windows Task Scheduler 작업 `GaramIn Insurance Digest Codex Fallback`을 등록한 뒤 11:05 KST daily로 맞췄다.
 
 **결과**:
-- 2026-05-18 게시글 `보험 이슈 브리핑 2026.05.18`은 `보험소식`에 게시됐고 ID는 `bbb63250-c3ee-409b-80bf-139927d675a1`이다.
+- 2026-05-18 게시글 `보험소식 브리핑 2026.05.18`은 `보험소식`에 게시됐고 ID는 `bbb63250-c3ee-409b-80bf-139927d675a1`이다.
 - 홈 최신 공지와 FC/admin 알림센터 모두 오늘 게시글을 가리킨다.
 - 이후 `board-create`의 FC/admin/manager notification batch insert는 원격 제약 때문에 rollback되지 않는다.
 - Codex 앱 cron 외에 Codex CLI 기반 로컬 백업 실행기가 매일 11:05 KST에 한 번 더 확인한다.
@@ -100,7 +129,7 @@
 - `.gitignore`에 `.codex-tmp/`를 추가해 automation payload 임시 파일이 Git diff에 잡히지 않게 했다.
 
 **결과**:
-- 2026-05-17 게시글 `보험 이슈 브리핑 2026.05.17`이 `보험소식` 카테고리에 1회 게시됐다.
+- 2026-05-17 게시글 `보험소식 브리핑 2026.05.17`이 `보험소식` 카테고리에 1회 게시됐다.
 - 게시글 ID는 `c9abace0-2d5f-4d78-88f8-be750c102048`이다.
 - 다음 자동화는 payload 파일 기반으로 실행하며, runner가 shell을 실행하지 못하면 업로드로 간주하지 않는다.
 
@@ -115,13 +144,13 @@
 ## <a id="20260516-codex-insurance-digest-pilot"></a> 2026-05-16 | Codex insurance issue digest pilot
 
 **배경**:
-- 가람in 게시판에 Codex가 매일 보험 관련 공개 웹자료를 검색/요약해 하루 1개의 `보험 이슈 브리핑` 게시글을 자동 등록하는 파일럿이 필요했다.
+- 가람in 게시판에 Codex가 매일 보험 관련 공개 웹자료를 검색/요약해 하루 1개의 `보험소식 브리핑` 게시글을 자동 등록하는 파일럿이 필요했다.
 - 기존 게시판 생성 경로는 `board-create`가 알림함 저장과 `fc-notify` fanout을 함께 담당하므로, 자동화도 직접 DB insert가 아니라 이 경로를 재사용해야 했다.
 
 **조치**:
 - `scripts/ops/post-insurance-digest.mjs`를 추가해 Codex가 만든 digest JSON을 검증하고 `board-create`로 게시하도록 했다.
 - 스크립트는 `보험소식`(`insurance-news`) 카테고리를 `board-categories-list`로 찾고, 없으면 admin actor로 `board-category-create`를 호출해 생성한다.
-- 같은 KST 날짜의 `보험 이슈 브리핑 YYYY.MM.DD` 제목이 이미 있으면 중복 게시를 건너뛴다.
+- 같은 KST 날짜의 `보험소식 브리핑 YYYY.MM.DD` 제목이 이미 있으면 중복 게시를 건너뛴다.
 - `--dry-run`, `--input-json`, `--input-file`, `--title`, `--content`, `--source-url` CLI를 지원하고, npm alias `ops:post-insurance-digest`를 추가했다.
 - process env가 비어 있어도 repo `.env` / `.env.local`의 기존 `NEXT_PUBLIC_` / `EXPO_PUBLIC_` Supabase/admin phone alias를 읽어 실행할 수 있게 했다.
 - 유효한 `http/https` 출처 URL이 최소 1개 없으면 dry-run과 실제 게시 모두 거부하도록 보강했다.

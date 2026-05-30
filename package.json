@@ -34,6 +34,7 @@
     "@react-navigation/bottom-tabs": "^7.4.0",
     "@react-navigation/elements": "^2.6.3",
     "@react-navigation/native": "^7.1.8",
+    "@sentry/react-native": "^8.11.1",
     "@supabase/supabase-js": "^2.84.0",
     "@tanstack/react-query": "^5.90.10",
     "expo": "~54.0.25",

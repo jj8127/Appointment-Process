@@ -6,6 +6,7 @@ import test from 'node:test';
 
 import {
   buildDigestTitle,
+  createInsuranceDigestStatusRunner,
   createPostInsuranceDigestRunner,
   formatDigestContent,
   loadRuntimeEnv,
@@ -48,14 +49,21 @@ function createFetchRecorder(responses) {
 test('parseArgs accepts inline JSON input and dry-run flag', () => {
   const parsed = parseArgs([
     '--input-json',
-    '{"title":"보험 이슈 브리핑 2026.05.16","content":"본문","sourceUrls":["https://example.com/a"]}',
+    '{"title":"보험소식 브리핑 2026.05.16","content":"본문","sourceUrls":["https://example.com/a"]}',
     '--dry-run',
   ]);
 
   assert.equal(parsed.dryRun, true);
-  assert.equal(parsed.digest.title, '보험 이슈 브리핑 2026.05.16');
+  assert.equal(parsed.digest.title, '보험소식 브리핑 2026.05.16');
   assert.equal(parsed.digest.content, '본문');
   assert.deepEqual(parsed.digest.sourceUrls, ['https://example.com/a']);
+});
+
+test('parseArgs accepts check-existing flag', () => {
+  const parsed = parseArgs(['--check-existing', '--title', '보험소식 브리핑 2026.05.16']);
+
+  assert.equal(parsed.checkExisting, true);
+  assert.equal(parsed.digest.title, '보험소식 브리핑 2026.05.16');
 });
 
 test('formatDigestContent appends short source labels without raw url or disclaimer copy', () => {
@@ -100,7 +108,7 @@ test('dry-run validates payload without calling Supabase', async () => {
 
   assert.equal(result.status, 'dry-run');
   assert.equal(calls.length, 0);
-  assert.equal(result.payload.title, '보험 이슈 브리핑 2026.05.16');
+  assert.equal(result.payload.title, '보험소식 브리핑 2026.05.16');
   assert.equal(result.payload.categorySlug, 'insurance-news');
 });
 
@@ -118,7 +126,7 @@ test('runner builds default KST digest title when title is omitted', async () =>
   });
 
   assert.equal(result.status, 'dry-run');
-  assert.equal(result.payload.title, '보험 이슈 브리핑 2026.05.16');
+  assert.equal(result.payload.title, '보험소식 브리핑 2026.05.16');
 });
 
 test('runner rejects digest without at least one source url', async () => {
@@ -192,7 +200,7 @@ test('runner uses existing insurance-news category and posts digest', async () =
   const result = await runner({
     env: actorEnv,
     digest: {
-      title: '보험 이슈 브리핑 2026.05.16',
+      title: '보험소식 브리핑 2026.05.16',
       content: '오늘의 핵심 요약\n- 테스트',
       sourceUrls: ['https://example.com/a'],
     },
@@ -219,7 +227,7 @@ test('runner creates insurance-news category when missing', async () => {
   const result = await runner({
     env: actorEnv,
     digest: {
-      title: '보험 이슈 브리핑 2026.05.16',
+      title: '보험소식 브리핑 2026.05.16',
       content: '오늘의 핵심 요약\n- 테스트',
       sourceUrls: ['https://example.com/a'],
     },
@@ -249,7 +257,7 @@ test('runner skips when same-day digest already exists', async () => {
           items: [
             {
               id: 'post-existing',
-              title: '보험 이슈 브리핑 2026.05.16',
+              title: '보험소식 브리핑 2026.05.16',
               categoryId: 'cat-existing',
             },
           ],
@@ -262,13 +270,47 @@ test('runner skips when same-day digest already exists', async () => {
   const result = await runner({
     env: actorEnv,
     digest: {
-      title: '보험 이슈 브리핑 2026.05.16',
+      title: '보험소식 브리핑 2026.05.16',
       content: '오늘의 핵심 요약\n- 테스트',
       sourceUrls: ['https://example.com/a'],
     },
   });
 
   assert.equal(result.status, 'skipped');
+  assert.equal(result.existingPostId, 'post-existing');
+  assert.equal(calls.length, 2);
+});
+
+test('status runner reports existing same-day digest without posting', async () => {
+  const { calls, fetchImpl } = createFetchRecorder([
+    {
+      body: {
+        ok: true,
+        data: [
+          { id: 'cat-existing', name: '보험소식', slug: 'insurance-news', sortOrder: 5, isActive: true },
+        ],
+      },
+    },
+    {
+      body: {
+        ok: true,
+        data: {
+          items: [
+            {
+              id: 'post-existing',
+              title: '보험소식 브리핑 2026.05.16',
+              categoryId: 'cat-existing',
+            },
+          ],
+        },
+      },
+    },
+  ]);
+  const runner = createInsuranceDigestStatusRunner({ fetchImpl, now: () => new Date('2026-05-16T00:00:00Z') });
+
+  const result = await runner({ env: actorEnv });
+
+  assert.equal(result.status, 'exists');
   assert.equal(result.existingPostId, 'post-existing');
   assert.equal(calls.length, 2);
 });

@@ -245,7 +245,8 @@
       "id": "backend-board",
       "severity": "behavior",
       "prefixes": [
-        "supabase/functions/board-"
+        "supabase/functions/board-",
+        "supabase/functions/__tests__/board-"
       ],
       "requires_any": [
         "docs/handbook/backend/board-api-and-notice-model.md",

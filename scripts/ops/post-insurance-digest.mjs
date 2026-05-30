@@ -7,7 +7,7 @@ import { fileURLToPath } from 'node:url';
 const CATEGORY_NAME = '보험소식';
 const CATEGORY_SLUG = 'insurance-news';
 const CATEGORY_SORT_ORDER = 5;
-const TITLE_PREFIX = '보험 이슈 브리핑';
+const TITLE_PREFIX = '보험소식 브리핑';
 
 export function getKstDateParts(date = new Date()) {
   const parts = new Intl.DateTimeFormat('en-CA', {
@@ -129,7 +129,7 @@ function deriveRuntimeEnv(env) {
   derived.BOARD_AUTOMATION_ACTOR_PHONE ||= firstCsvValue(
     derived.NEXT_PUBLIC_ADMIN_PHONES || derived.EXPO_PUBLIC_ADMIN_PHONES,
   );
-  derived.BOARD_AUTOMATION_ACTOR_NAME ||= '보험소식 자동 브리핑';
+  derived.BOARD_AUTOMATION_ACTOR_NAME ||= '보험소식 브리핑';
   return derived;
 }
 
@@ -147,6 +147,7 @@ export async function loadRuntimeEnv({ cwd = process.cwd(), baseEnv = process.en
 export function parseArgs(argv = process.argv.slice(2)) {
   const parsed = {
     dryRun: false,
+    checkExisting: false,
     digest: {},
   };
 
@@ -162,6 +163,8 @@ export function parseArgs(argv = process.argv.slice(2)) {
 
     if (arg === '--dry-run') {
       parsed.dryRun = true;
+    } else if (arg === '--check-existing') {
+      parsed.checkExisting = true;
     } else if (arg === '--input-json') {
       parsed.digest = {
         ...parsed.digest,
@@ -212,7 +215,7 @@ function getSupabaseConfig(env) {
 function buildActor(env) {
   const role = String(env.BOARD_AUTOMATION_ACTOR_ROLE ?? 'admin').trim();
   const residentId = String(env.BOARD_AUTOMATION_ACTOR_PHONE ?? '').replace(/[^0-9]/g, '');
-  const displayName = String(env.BOARD_AUTOMATION_ACTOR_NAME ?? '보험소식 자동 브리핑').trim();
+  const displayName = String(env.BOARD_AUTOMATION_ACTOR_NAME ?? '보험소식 브리핑').trim();
 
   if (!['admin', 'manager'].includes(role)) {
     throw new Error('BOARD_AUTOMATION_ACTOR_ROLE must be admin or manager.');
@@ -278,6 +281,69 @@ async function invokeFunction({ fetchImpl, config, name, body }) {
   }
 
   return payload?.data;
+}
+
+export function createInsuranceDigestStatusRunner({ fetchImpl = globalThis.fetch, now = () => new Date() } = {}) {
+  if (typeof fetchImpl !== 'function') {
+    throw new Error('A fetch implementation is required.');
+  }
+
+  return async function checkInsuranceDigestStatus({ env = process.env, digest = {} } = {}) {
+    const title = String(digest.title ?? buildDigestTitle(now())).trim();
+    if (!title) {
+      throw new Error('Digest title is required.');
+    }
+    if (!title.startsWith(TITLE_PREFIX)) {
+      throw new Error(`Digest title must start with "${TITLE_PREFIX}".`);
+    }
+
+    const actor = buildActor(env);
+    const config = getSupabaseConfig(env);
+    const categories = await invokeFunction({
+      fetchImpl,
+      config,
+      name: 'board-categories-list',
+      body: { actor },
+    });
+
+    const categoryId = categories?.find?.((category) => category.slug === CATEGORY_SLUG)?.id;
+    if (!categoryId) {
+      return {
+        status: 'missing',
+        reason: 'insurance-news category not found',
+        title,
+      };
+    }
+
+    const list = await invokeFunction({
+      fetchImpl,
+      config,
+      name: 'board-list',
+      body: {
+        actor,
+        categoryId,
+        sort: 'created',
+        order: 'desc',
+        limit: 50,
+      },
+    });
+
+    const existingPost = list?.items?.find?.((item) => item.title === title);
+    if (existingPost?.id) {
+      return {
+        status: 'exists',
+        categoryId,
+        existingPostId: existingPost.id,
+        title,
+      };
+    }
+
+    return {
+      status: 'missing',
+      categoryId,
+      title,
+    };
+  };
 }
 
 export function createPostInsuranceDigestRunner({ fetchImpl = globalThis.fetch, now = () => new Date() } = {}) {
@@ -377,8 +443,18 @@ export function createPostInsuranceDigestRunner({ fetchImpl = globalThis.fetch, 
 async function main() {
   const parsed = parseArgs();
   const digest = await readDigestFromCli(parsed);
-  const runner = createPostInsuranceDigestRunner();
   const env = await loadRuntimeEnv();
+  if (parsed.checkExisting) {
+    const runner = createInsuranceDigestStatusRunner();
+    const result = await runner({ env, digest });
+    console.log(JSON.stringify(result, null, 2));
+    if (result.status !== 'exists') {
+      process.exitCode = 2;
+    }
+    return;
+  }
+
+  const runner = createPostInsuranceDigestRunner();
   const result = await runner({
     env,
     digest,

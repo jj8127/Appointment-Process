@@ -16,7 +16,7 @@ source_of_truth: web/src/app/api/* + supabase/functions/* + data/*
 - 알림/푸시/배지: [backend/notifications-inbox-push.md](E:/hanhwa/fc-onboarding-app/docs/handbook/backend/notifications-inbox-push.md)
 - referral 운영: [data/referral-schema-and-admin-rpcs.md](E:/hanhwa/fc-onboarding-app/docs/handbook/data/referral-schema-and-admin-rpcs.md)
 
-## Codex 자동 보험 이슈 브리핑
+## Codex 자동 보험소식 브리핑
 
 - 권장 payload 경로: `.codex-tmp/insurance-digest/YYYY-MM-DD.json`
 - 실행 명령: `npm run ops:post-insurance-digest -- --input-file .codex-tmp/insurance-digest/YYYY-MM-DD.json`
@@ -29,7 +29,7 @@ source_of_truth: web/src/app/api/* + supabase/functions/* + data/*
   - `BOARD_AUTOMATION_ACTOR_NAME`
 - 스크립트는 위 값이 process env에 없으면 repo `.env` / `.env.local`을 읽고 `NEXT_PUBLIC_SUPABASE_*` 또는 `EXPO_PUBLIC_SUPABASE_*`, `NEXT_PUBLIC_ADMIN_PHONES` 또는 `EXPO_PUBLIC_ADMIN_PHONES`에서 fallback을 구성한다.
 - 게시판 카테고리는 `보험소식`(`insurance-news`)을 사용한다. 없으면 스크립트가 admin actor로 생성한다.
-- 같은 KST 날짜의 `보험 이슈 브리핑 YYYY.MM.DD` 제목이 이미 있으면 게시를 건너뛴다.
+- 같은 KST 날짜의 `보험소식 브리핑 YYYY.MM.DD` 제목이 이미 있으면 게시를 건너뛴다.
 - 게시는 기존 `board-create` Edge Function을 통해 수행하므로 게시판 알림/푸시 fanout 계약을 우회하지 않는다.
 - digest는 아주 짧고 쉬운 문장으로 작성하며, `sourceUrls`에 최소 1개 이상의 `http/https` 출처가 없으면 스크립트가 게시를 거부한다.
 - 게시글 본문에는 긴 원문 URL을 붙이지 않는다. 본문에는 `출처: 금융감독원`, `출처: 데일리안`처럼 짧은 출처명만 쓰고, 원문 URL은 JSON `sourceUrls`에 넣는다.
