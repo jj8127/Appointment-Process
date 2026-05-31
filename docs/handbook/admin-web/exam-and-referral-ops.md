@@ -24,6 +24,7 @@ source_of_truth: web/src/app/dashboard/exam/* + web/src/app/admin/exams/* + web/
 - resident number/full view는 운영 역할(admin/manager/developer) 기준으로 읽을 수 있고, `manager`는 모든 쓰기 액션이 비활성
 - `/api/admin/exam-applicants` 는 `exam_registrations.resident_id` 와 `fc_profiles.phone` 를 raw/digits/hyphenated 후보로 매칭한 뒤 `fc_identity_secure` 에서 full resident number를 읽는다.
 - `/dashboard/exam/applicants` 에서 주민등록번호 열이 일괄 `주민번호 조회 실패` 로 보이면 우선 `exam_registrations.resident_id` 와 `fc_profiles.phone` 포맷 drift, 그다음 `fc_identity_secure` 누락을 확인한다.
+- 2026-05-30 기준 `/api/admin/exam-applicants` enrichment는 `web/src/lib/exam-applicant-resident-number-enrichment.ts`가 row defaults, phone candidate matching, `fcIds` de-dupe, full resident-number merge, `주민번호 조회 실패` fallback literal을 고정한다.
 
 ## 추천인 운영
 

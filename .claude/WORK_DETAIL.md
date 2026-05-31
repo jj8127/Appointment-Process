@@ -7,6 +7,648 @@
 
 ---
 
+## <a id="20260531-coverage-generated-artifact-hygiene"></a> 2026-05-31 | Coverage generated artifact hygiene
+
+**배경**:
+- `npm run test:coverage -- --runInBand` 검증 후 Jest generated output인 `coverage/`가 untracked 상태로 남았다.
+- `package.json`의 `test:coverage=jest --coverage`가 해당 디렉터리를 생성하지만, `.gitignore`에는 `coverage/` 규칙이 없어 장기 refactor 중 `git status` noise가 발생했다.
+
+**조치**:
+- `.gitignore`에 `coverage/`를 추가했다.
+- `.vercelignore`에 `coverage`를 추가해 local Vercel upload에도 coverage output이 섞이지 않게 했다.
+- `coverage/`가 tracked source가 아님을 `git ls-files -- coverage`로 확인하고, resolved path가 `E:\hanhwa\fc-onboarding-app\coverage`임을 검증한 뒤 현재 untracked generated directory만 제거했다.
+- production source, tests, package scripts, dependencies, lockfiles, env, schema/migration, Supabase functions, request_board files, route behavior, PII/auth/session, notification fanout, `dist/`, `web/.next`, deployment build settings는 변경하지 않았다.
+
+**검증**:
+- 사전 확인: `git ls-files -- coverage` 결과 tracked file 없음.
+- 사전 확인: `git status --short --untracked-files=all -- coverage`가 generated coverage files를 untracked로 표시.
+- 사전 확인: `git check-ignore -v coverage` ignore match 없음.
+- 삭제 guard: `E:\hanhwa\fc-onboarding-app\coverage` 내부 104 files / 3,966,709 bytes 확인 후 제거.
+- 통과: `git check-ignore -v --no-index -- coverage/foo` -> `.gitignore:72:coverage/`
+- 통과: `Test-Path coverage` -> `False`
+- 통과: `git status --short --untracked-files=all -- coverage` -> output 없음
+- 통과: `node scripts\ci\check-governance.mjs`
+- 통과: `git diff --check` (CRLF normalization warnings only)
+
+**리스크/후속**:
+- 이번 increment는 generated artifact hygiene만 수행해 runtime/manual 검증 대상은 없다.
+- broader goal의 device/simulator, authenticated flow, live bridge/password-sync, push/badge/deep-link, Supabase remote migration parity 검증은 계속 별도 외부 확인 대상으로 남는다.
+- 새 반복 실수, 회귀, 운영 contract drift는 발견되지 않아 `.claude/MISTAKES.md`는 갱신하지 않았다.
+
+## <a id="20260531-root-typescript-noemit-alignment"></a> 2026-05-31 | Root TypeScript noEmit alignment
+
+**배경**:
+- 오늘 로컬 검증 중 공식 lint/test/build는 통과했지만 추가 안전 게이트인 root `npx tsc --noEmit`가 실패했다.
+- 실패 범위는 appointment submit response typing, Hanwha commission workflow input typing/style helper, referral app-session error narrowing, Daum postcode WebView event typing, nullable referral-code response typing으로 국소화됐다.
+- 장기 cleanup/refactor를 계속하려면 root TypeScript noEmit도 회귀 감지 신호로 쓸 수 있어야 하므로 Increment 24 contract를 먼저 작성했다.
+
+**조치**:
+- `app/appointment.tsx`와 `app/hanwha-commission.tsx`의 Edge Function invoke response type에 런타임에서 이미 읽던 `message` 필드를 반영했다.
+- `app/hanwha-commission.tsx`의 workflow helper 입력을 기존 `FcStatus`와 저장 date string 계약에 맞추고, 참조 중이던 짧은 날짜 표시 helper와 compact hero styles를 정의했다.
+- `hooks/use-referral-app-session.ts`의 relogin error 판별을 `ReferralAppSessionError` type guard로 유지하고, nullable `code` 응답을 classification 단계에서 `undefined`로 정규화했다.
+- `components/DaumPostcode.tsx`는 설치된 `react-native-webview` 타입 surface에 맞춰 event type import를 정렬하고, 현재 타입에서 거부되는 `useWebKit` prop을 제거했다.
+- `docs/handbook/mobile/auth-and-gates.md`에 referral self-service app-session 오류 분류와 nullable response code 계약을 owner 문서로 보강했다.
+- route/auth/session/PII/schema/env/dependency/lockfile/push/request_board bridge/deployment 설정은 변경하지 않았다.
+
+**검증**:
+- RED 확인: `npx tsc --noEmit`
+  - 구현 전 localized TypeScript blockers로 실패.
+- 통과: `npx tsc --noEmit`
+- 통과: `npm run lint`
+- 통과: `npm test -- --runInBand`
+  - 29 suites / 185 tests.
+- 통과: direct Node characterization command
+  - 22 files / 107 tests.
+  - 기존 `MODULE_TYPELESS_PACKAGE_JSON` warning만 표시.
+- 통과: `npm run build`
+  - 기존 Expo/Sentry/static export warning만 표시.
+- 통과: `cd web; npm run lint`
+- 통과: `cd web; npm run build`
+  - 기존 baseline-browser-mapping 및 OpenTelemetry `import-in-the-middle` warning만 표시.
+- 통과: Expo static export smoke on port 19006
+  - `/=200`, port clear after stop.
+- 통과: no-redirect local Next production smoke on port 3100
+  - `/reset-password=200`
+  - `/dashboard=307 location=/auth`
+  - port clear after stop.
+- 통과: `node scripts/ci/check-governance.mjs`
+- 통과: `git diff --check`
+  - CRLF normalization warning만 표시.
+
+**남은 외부 확인**:
+- Daum postcode WebView 실제 기기/시뮬레이터 상호작용.
+- approved backend target에서 appointment/Hanwha commission submit flow.
+- authenticated role-specific browser QA, live bridge/password-sync, push/badge/deep-link, Supabase remote migration parity.
+
+## <a id="20260531-admin-web-reset-password-public-route-guard"></a> 2026-05-31 | Admin web reset-password public route guard
+
+**배경**:
+- 장기 cleanup/refactor 검증 중 `web` production smoke를 redirect 미추적으로 다시 확인하자 `/reset-password`가 307로 `/auth`에 redirect되는 것을 확인했다.
+- `web/src/app/auth/page.tsx`는 비밀번호 변경 버튼에서 `/reset-password`로 이동하고, `web/src/app/reset-password/page.tsx`는 비로그인 password reset/request form이다.
+- `web/middleware.ts`의 public path list에는 `/reset-password`가 없어 protected-route branch로 떨어졌다.
+- 이전 harness에는 `/reset-password: 200`이 기록돼 있었으나 redirect status/Location이 고정되지 않은 smoke는 public-route 계약을 증명하기에 약했다.
+
+**조치**:
+- Increment 23 `Admin Web Reset Password Public Route Guard` contract를 작성했다.
+- TDD RED로 `web/src/lib/admin-web-public-paths.test.ts`를 먼저 추가하고, helper 부재 실패를 확인했다.
+- `web/src/lib/admin-web-public-paths.ts`를 추가해 `/auth`, `/invite`, `/reset-password`, `/favicon.ico`, `/manifest.json` public path를 한 곳에서 관리하게 했다.
+- `web/middleware.ts`가 local duplicated public list 대신 `isAdminWebPublicPath`를 사용하도록 변경했다.
+- login/dashboard/admin/manager read-only/cookie-first session restore/Supabase reset function/env/schema/request_board/PII/push/mobile 동작은 변경하지 않았다.
+- redirect-following smoke drift는 반복 가능한 검증 실수라 `.claude/MISTAKES.md`에 기록했다.
+
+**검증**:
+- RED 확인: `node --experimental-strip-types --test web/src/lib/admin-web-public-paths.test.ts`
+  - 구현 전 `admin-web-public-paths.ts` 부재로 실패.
+- 통과: `node --experimental-strip-types --test web/src/lib/admin-web-public-paths.test.ts`
+  - 3 tests passed.
+- 통과: `node --experimental-strip-types --test web/src/lib/admin-web-public-paths.test.ts web/src/lib/client-session-restore.test.node.ts web/src/lib/request-board-url.test.ts web/src/lib/web-push-config.test.ts`
+  - 13 tests passed.
+- 통과: `cd web; npm run lint`
+- 통과: `cd web; npm run build`
+  - 기존 `baseline-browser-mapping` 및 OpenTelemetry `import-in-the-middle` warning만 표시.
+- 통과: no-redirect local Next production smoke on port 3100
+  - `/reset-password=200`
+  - `/auth=200`
+  - `/dashboard=307 location=/auth`
+  - port 3100 clear after smoke.
+
+## <a id="20260531-empty-legacy-export-directory-cleanup"></a> 2026-05-31 | Empty legacy export directory cleanup
+
+**배경**:
+- 장기 cleanup/refactor Goal을 이어가며 `fc-onboarding-app`의 ignored/generated artifact 상태를 재점검했다.
+- `dist-web/`와 `dist-web-new/`는 각각 2025-12-15 timestamp의 오래된 local Expo web export directory였고, 파일은 없고 빈 하위 디렉터리만 남아 있었다.
+- `git ls-files -- dist-web dist-web-new` 결과 tracked 파일이 없고, `git check-ignore -v -- dist-web dist-web-new dist-web/foo dist-web-new/foo`는 `.gitignore`의 기존 ignore rule을 반환했다.
+- current root Expo export output은 `dist/`, admin web build output은 `web/.next`이므로 둘은 이번 cleanup 대상이 아니다.
+
+**조치**:
+- `current-contract.md`에 Increment 22 scope/acceptance/rollback/verification 기준을 먼저 작성했다.
+- 삭제 전 `Resolve-Path`로 대상이 정확히 `E:\hanhwa\fc-onboarding-app\dist-web`와 `E:\hanhwa\fc-onboarding-app\dist-web-new`인지 확인했다.
+- 두 대상 모두 repo 내부, ignored, untracked, file count 0임을 확인한 뒤 `dist-web/`와 `dist-web-new/`만 제거했다.
+- `dist/`, `web/.next`, `.vercel`, `web/.vercel`, `.codex-tmp`, `supabase/.temp`는 건드리지 않았다.
+- production source/config/env/schema/dependency/lockfile/route/UI/PII/auth/bridge/notification behavior는 변경하지 않았다.
+
+**검증**:
+- 통과: pre-delete target guard
+  - resolved target: `E:\hanhwa\fc-onboarding-app\dist-web`
+  - resolved target: `E:\hanhwa\fc-onboarding-app\dist-web-new`
+  - `git ls-files -- dist-web dist-web-new` 결과 없음
+  - 두 target 모두 file count 0
+  - `git check-ignore -v -- dist-web dist-web-new` -> `.gitignore:9:dist-web/`, `.gitignore:10:dist-web-new/`
+- 통과: post-delete artifact check
+  - `Test-Path dist-web=False`
+  - `Test-Path dist-web-new=False`
+  - `git status --short --untracked-files=all -- dist-web dist-web-new` 결과 없음
+  - `git check-ignore -v --no-index -- dist-web/foo dist-web-new/foo` -> existing ignore rules
+- 통과: `node scripts/ci/check-governance.mjs`
+- 통과: `git diff --check` (CRLF normalization warning만 표시)
+- `.claude/MISTAKES.md`는 갱신하지 않았다. 이미 generated/local-only guardrail이 있고, 새 반복 실수/회귀/검증 누락은 발견되지 않았다.
+
+---
+
+## <a id="20260530-legacy-generated-artifact-cleanup"></a> 2026-05-30 | Legacy generated artifact cleanup
+
+**배경**:
+- 장기 cleanup/refactor Goal을 이어가며, 새 runtime refactor 전에 evidence-based local/generated artifact 정리를 진행했다.
+- `dist-web-new2/`는 현재 약 3.91 MB로 존재했지만 `.gitignore`와 `.vercelignore` 대상이었고, `git ls-files`에 tracked source가 없었다.
+- `AGENTS.md`와 과거 `WORK_DETAIL`은 2026-02-11 cleanup에서 `dist-web-new2/*`를 제거했다고 기록하고 있어, 이번 존재 상태는 stale generated artifact 재유입으로 판단했다.
+
+**조치**:
+- `current-contract.md`에 Increment 21 scope/acceptance/rollback/verification 기준을 먼저 작성했다.
+- 삭제 전 `Resolve-Path`로 대상이 정확히 `E:\hanhwa\fc-onboarding-app\dist-web-new2`인지 확인했다.
+- `git ls-files -- dist-web-new2`가 비어 있고 `git check-ignore -v -- dist-web-new2`가 `.gitignore:11:dist-web-new2/`를 반환하는 것을 확인한 뒤, `dist-web-new2/`만 제거했다.
+- `dist/`, `dist-web/`, `dist-web-new/`, `web/.next`, `.vercel`, `web/.vercel`, `.codex-tmp`, `supabase/.temp`는 건드리지 않았다.
+- production source/config/env/schema/dependency/lockfile/route/UI/PII/auth/bridge/notification behavior는 변경하지 않았다.
+
+**검증**:
+- 통과: pre-delete target guard
+  - resolved target: `E:\hanhwa\fc-onboarding-app\dist-web-new2`
+  - `git ls-files -- dist-web-new2` 결과 없음
+  - `git check-ignore -v -- dist-web-new2` -> `.gitignore:11:dist-web-new2/`
+- 통과: post-delete artifact check
+  - `Test-Path dist-web-new2=False`
+  - `git ls-files -- dist-web-new2=<none>`
+  - `git status --short --untracked-files=all -- dist-web-new2=<none>`
+  - `git check-ignore -v --no-index -- dist-web-new2/foo` -> `.gitignore:11:dist-web-new2/`
+- 통과: `node scripts/ci/check-governance.mjs`
+- 통과: `git diff --check` (CRLF normalization warning만 표시)
+- `.claude/MISTAKES.md`는 갱신하지 않았다. 이미 generated/local-only guardrail이 있고, 새 반복 실수/회귀/검증 누락은 발견되지 않았다.
+
+---
+
+## <a id="20260530-verification-debt-alignment"></a> 2026-05-30 | Verification debt alignment
+
+**배경**:
+- 사용자가 오늘 진행한 수정들이 실제로 정상작동하는지 물었고, 가능한 로컬 자동 검증을 모두 재실행했다.
+- `web/src/lib/referral-graph-simulation.test.ts`는 cluster separation / isolated shell / admin-sized mixed graph 케이스 3개가 재현 가능하게 실패했다.
+- `npm run test:coverage -- --runInBand`는 exit 0이었지만 TSX JSX/Babel coverage collection error와 `hooks/use-my-referral-code.ts` 타입 collection error를 출력해 깨끗한 검증 신호가 아니었다.
+
+**조치**:
+- `ReferralGraphCanvas.tsx`와 같은 force 파라미터를 쓰는 simulation test helper에서 connected component 간격을 줄이고 connected cluster gravity를 강화했다.
+- singleton/isolated node는 더 약한 center pull을 쓰도록 조정해 connected cluster 내부로 섞이지 않게 했다.
+- `jest.config.js`에 `coverageProvider: 'v8'`를 추가해 Increment 19의 root Jest/direct Node split을 유지하면서 coverage collection 오류를 제거했다.
+- 검증 중 생성된 `coverage/`는 repo 내부 경로임을 확인한 뒤 제거했다.
+- PII/auth/schema/bridge/request_board contract, env, dependency, lockfile, Supabase migration, route behavior는 변경하지 않았다.
+
+**검증**:
+- 통과: `node --experimental-strip-types --test .\web\src\lib\referral-graph-simulation.test.ts` (20/20, 기존 MODULE_TYPELESS_PACKAGE_JSON warning only)
+- 통과: adjacent graph direct Node command (`referral-graph-layout/physics/edges/display/highlight/interaction`) (34/34, 기존 module-type warning only)
+- 통과: full direct Node characterization command (`web/src/lib/*.test.ts`, `*.test.node.ts`, request-board password-sync shared test) (104/104, 기존 module-type warning only)
+- 통과: `npm test -- --runInBand` (29 suites / 185 tests)
+- 통과: `npm run test:coverage -- --runInBand` (29 suites / 185 tests, 이전 coverage collection errors 없음)
+- 통과: `npm run lint`
+- 통과: `npm run build` (기존 Sentry native config / Expo notifications web listener / API route export warning만 표시)
+- 통과: `cd web; npm run lint`
+- 통과: `cd web; npm run build` (기존 baseline-browser-mapping / OpenTelemetry import-in-the-middle warning만 표시)
+- 통과: `node scripts/ci/check-governance.mjs`
+- 통과: `git diff --check` (CRLF normalization warning만 표시)
+- 통과: `cd web; npm run start -- -p 3010` 기반 HTTP smoke:
+  - `/auth` 200
+  - `/dashboard` 307 -> `/auth`
+  - `/dashboard/referrals/graph` 307 -> `/auth`
+  - 테스트 서버 종료 및 3010 포트 clear 확인
+- 남은 수동/외부 검증: 인증된 브라우저에서 `/dashboard/referrals/graph` node drag/pan/reset/label/cluster 시각 QA, live Supabase/request_board bridge/password-sync smoke, 실제 push/badge, remote migration parity.
+
+---
+
+## <a id="20260530-root-jest-harness-alignment"></a> 2026-05-30 | Root Jest harness alignment
+
+**배경**:
+- Increment 19는 production 동작 변경 없이 root Jest 검증 하네스를 정합화하는 복구 작업이다.
+- 이전 `npm test` 재시도는 Windows `os error 1450` / `시스템 리소스가 부족하기 때문에 요청한 서비스를 완성할 수 없습니다`로 중단됐고, 이는 test assertion failure가 아니라 local resource execution failure로 분류했다.
+- root Jest가 direct `node:test` TypeScript characterization 파일을 수집하면서 TS5097 `.ts` import path 오류가 섞였고, `lib/__tests__/referral-tree.test.ts`는 현재 `DescendantNode.relationshipSource` 계약과 fixture 값이 맞지 않았다.
+
+**조치**:
+- `jest.config.js`의 `testPathIgnorePatterns`가 direct Node test 경로만 제외하도록 유지했다:
+  - `<rootDir>/web/src/lib/.*\\.test\\.ts$`
+  - `<rootDir>/supabase/functions/_shared/__tests__/request-board-password-sync\\.test\\.ts$`
+- `lib/__tests__/referral-tree.test.ts` fixture의 `relationshipSource`를 현재 계약인 `linked`로 정렬했다.
+- `.codex/harness/qa-report.md`와 `.codex/harness/handoff.md`에 1450 중단을 `resource execution failure / retry pending`으로 기록한 뒤 resource-conscious retry를 수행했다.
+- production source behavior, schema, env/secrets, package versions, lockfile, Supabase migration, UI, route contract, Increment 20 work는 변경하지 않았다.
+
+**검증**:
+- 확인: `git status --short --branch`
+- 확인: `git diff --stat`
+- 확인: `git diff -- jest.config.js lib/__tests__/referral-tree.test.ts .codex/harness/current-contract.md`
+- 통과: `npm test -- --runTestsByPath lib/__tests__/referral-tree.test.ts --runInBand` (1 suite / 3 tests)
+- 통과: `node --experimental-strip-types --test web/src/lib/resident-number-route-handler.test.ts web/src/lib/referral-graph-physics.test.ts supabase/functions/_shared/__tests__/request-board-password-sync.test.ts` (30 tests, existing MODULE_TYPELESS_PACKAGE_JSON warning only)
+- 통과: `npm test -- --runInBand` (29 suites / 185 tests, `os error 1450` 재발 없음)
+- 통과: `npm run lint`
+- 통과: `npm run build` (Expo export; 기존 Sentry native config / Expo notifications web listener / API route export warning만 표시)
+- 통과: `cd web; npm run lint`
+- 통과: `cd web; npm run build` (기존 baseline-browser-mapping / OpenTelemetry import-in-the-middle warning만 표시)
+- 통과: `node scripts/ci/check-governance.mjs`
+- 통과: `git diff --check` (CRLF normalization warning만 표시)
+- 확인: `git status --short --branch`로 누적 dirty state와 Increment 19 변경을 검토
+
+---
+
+## <a id="20260530-request-board-password-sync-fetch-characterization"></a> 2026-05-30 | Request board password-sync fetch characterization
+
+**배경**:
+- Increment 17에서 request_board password-sync outbound body shape는 고정했지만, `syncRequestBoardPassword`의 skip/fetch/header/timeout/warning/response parsing/error behavior는 inline side effect라 테스트하기 어려웠다.
+- cross-repo bridge/password-sync drift는 AGENTS/handoff의 고위험 영역이므로, 실제 URL/token/네트워크 없이 fetch behavior를 characterization할 수 있는 dependency-injected seam을 추가했다.
+
+**조치**:
+- `supabase/functions/_shared/request-board-password-sync.ts`에 `syncRequestBoardPasswordWithDeps`를 export했다.
+- production `syncRequestBoardPassword`는 global `fetch`, `AbortController`, `setTimeout`, `clearTimeout`, `console.warn`을 주입해 같은 실행 경로를 사용한다.
+- 테스트로 다음 계약을 고정했다:
+  - `syncUrl` 또는 `syncToken` 누락 시 fetch/timer/warn side effect 없이 skip
+  - send path의 `POST`, `Content-Type`, `x-request-bridge-token`, JSON body, abort signal, timeout scheduling, timeout cleanup
+  - non-2xx response warning text/status/body 200자 truncation
+  - HTTP ok이지만 `success: true`가 아닌 JSON body warning
+  - fetch throw warning과 non-throwing behavior
+- body shape, env/secret, caller role 결정, request_board inbound API, schema/migration, UI는 변경하지 않았다.
+
+**검증**:
+- RED 확인: `node --experimental-strip-types --test supabase/functions/_shared/__tests__/request-board-password-sync.test.ts` -> missing export `syncRequestBoardPasswordWithDeps`
+- 통과: `node --experimental-strip-types --test supabase/functions/_shared/__tests__/request-board-password-sync.test.ts` (10 tests pass; Node module-type warning only)
+- 통과: `node scripts/ci/check-governance.mjs`
+- 통과: `git diff --check` (CRLF normalization warning만 표시)
+- 확인: `git status --short --branch`로 goal 누적 변경과 새 password-sync injected helper/test 변경을 검토
+- 보류: `npm test`, `npm run build`, `npm run lint`, web build, live `/api/auth/sync-password` smoke. 이번 increment는 Supabase Edge Function shared helper seam과 direct Node test만 변경했고, root Jest는 기존 harness/type 이슈가 문서화되어 있다.
+
+---
+
+## <a id="20260530-request-board-password-sync-body-characterization"></a> 2026-05-30 | Request board password-sync body characterization
+
+**배경**:
+- `request_board` inbound `/api/auth/sync-password` 기존 사용자 update 계약을 고정한 뒤, fc-onboarding outbound body builder는 `supabase/functions/_shared/request-board-password-sync.ts` 내부 private helper로 남아 있었다.
+- cross-repo bridge/password-sync drift는 AGENTS/handoff의 고위험 영역이므로, fetch/secret/env/caller role 결정을 바꾸지 않고 request body shape만 먼저 characterization했다.
+
+**조치**:
+- 기존 `buildRequestBody`를 `buildRequestBoardPasswordSyncBody` export로 승격하고, `syncRequestBoardPassword`는 같은 helper를 사용하도록 이름만 정리했다.
+- FC/manager role은 affiliation을 포함하고, designer role은 affiliation을 제외하면서 companyName을 유지하는 현재 outbound body 계약을 테스트로 고정했다.
+- developer FC mirror처럼 name만 있는 body, blank optional field omission, optional value no-trim behavior를 고정했다.
+- 새 shared test path를 `docs/handbook/path-owner-map.json`의 `backend-auth-bridge` owner rule에 추가했다.
+- path-owner-map 변경으로 governance owner-doc sync가 현재 누적 변경 domain 전체에 적용되어, 필요한 handbook owner docs(`cross-repo-bridge-contract`, `notifications-inbox-push`, `exam-and-referral-ops`, `identity-and-pii`, `dashboard-lifecycle`)를 같은 change set에서 보강했다.
+- fetch method/header/token/timeout/warning/response parsing, env/secret, caller role 결정, Supabase access, schema/migration, UI는 변경하지 않았다.
+
+**검증**:
+- RED 확인: `node --experimental-strip-types --test supabase/functions/_shared/__tests__/request-board-password-sync.test.ts` -> missing export `buildRequestBoardPasswordSyncBody`
+- 통과: `node --experimental-strip-types --test supabase/functions/_shared/__tests__/request-board-password-sync.test.ts` (5 tests pass; Node module-type warning only)
+- 통과: `node scripts/ci/check-governance.mjs`
+  - 중간 결과: path-owner-map 변경 직후 1회 실패했고, handbook owner docs를 갱신한 뒤 재실행에서 통과
+- 통과: `git diff --check` (CRLF normalization warning만 표시)
+- 확인: `git status --short --branch`로 goal 누적 변경과 새 shared test/helper/path-owner-map 변경을 검토
+- 보류: `npm test`, `npm run build`, `npm run lint`, web build, live `/api/auth/sync-password` smoke. 이번 increment는 Supabase Edge Function shared pure body builder와 direct Node test만 변경했고, root Jest는 기존 harness/type 이슈가 문서화되어 있다.
+
+---
+
+## <a id="20260530-client-session-restore-characterization"></a> 2026-05-30 | Client session restore characterization
+
+**배경**:
+- `web/src/hooks/use-session.tsx`가 cookie-first restore 선택, 주민번호/전화번호식 resident id mask formatting, manager read-only 계산을 inline으로 들고 있었다.
+- AGENTS/handoff가 cookie-first web session restore와 manager read-only를 고위험 계약으로 기록하고 있어, 대형 dashboard/session cleanup 전에 pure helper와 characterization test로 먼저 고정했다.
+
+**조치**:
+- `web/src/lib/client-session-restore.ts`를 추가해 `resolveClientSessionRestore`, `formatSessionResidentMask`, `isClientSessionReadOnly`를 pure helper로 분리했다.
+- `web/src/hooks/use-session.tsx`는 cookie/session parsing, localStorage obfuscation/persist, hydration, login/logout, cookie writes를 유지하면서 위 세 계산만 helper에 위임한다.
+- cookie session이 유효할 때 localStorage를 읽지 않는 기존 short-circuit restore 동작을 유지했다.
+- server session validation, middleware, dashboard authorization, manager write-protection UI, Supabase access, env/config/schema/dependencies/UI layout은 변경하지 않았다.
+
+**검증**:
+- RED 확인: `node --experimental-strip-types --test web/src/lib/client-session-restore.test.node.ts`가 missing helper module로 실패
+- 통과: `node --experimental-strip-types --test web/src/lib/client-session-restore.test.node.ts` (4 tests pass)
+- 통과: `node --experimental-strip-types --test web/src/lib/resident-number-display.test.node.ts web/src/lib/phone-candidates.test.ts web/src/lib/resident-number-route-request.test.ts web/src/lib/resident-number-route-handler.test.ts web/src/lib/resident-number-edge-executor.test.ts web/src/lib/resident-number-edge-response.test.ts web/src/lib/resident-number-edge-fallback.test.ts web/src/lib/resident-number-runtime.test.ts web/src/lib/exam-applicant-resident-number-enrichment.test.node.ts` (29 tests pass)
+- 통과: `cd web; npm run lint -- src/hooks/use-session.tsx src/lib/client-session-restore.ts src/lib/client-session-restore.test.node.ts`
+- 통과: `cd web; npm run build`
+- 통과: `npm run lint`
+- 통과: `node scripts/ci/check-governance.mjs`
+- 통과: `git diff --check` (CRLF normalization warning만 표시)
+- 확인: `git status --short --branch`로 goal 누적 변경과 untracked helper/test 파일을 검토
+- 미실행: root `npm test`, root `npm run build`, browser/runtime auth smoke. 이번 변경은 web client pure session helper/hook delegation에 한정된다.
+
+---
+
+## <a id="20260530-resident-number-birth-date-display-characterization"></a> 2026-05-30 | Resident-number birth-date display characterization
+
+**배경**:
+- `/dashboard` 모달은 `useResidentNumber().birthDateDisplay`를 사용하지만, `/dashboard/profile/[id]`는 `residentNumberDisplay`에서 생년월일을 다시 파싱하는 local `getBirthDate`를 갖고 있었다.
+- 두 화면은 같은 admin/manager resident-number full-view surface이므로, dashboard/profile 간 표시 계산이 드리프트되지 않도록 순수 helper와 characterization test로 먼저 고정했다.
+
+**조치**:
+- `web/src/lib/resident-number-display.ts`를 추가해 `formatResidentNumberBirthDateDisplay`를 pure helper로 분리했다.
+- `web/src/hooks/use-resident-number.ts`는 기존 fetch/query/loading/error display 계약을 유지하고, `birthDateDisplay` 계산만 새 helper에 위임한다.
+- `web/src/app/dashboard/profile/[id]/page.tsx`는 local `getBirthDate`를 제거하고 hook-provided `birthDateDisplay`를 사용한다.
+- resident-number route/API, direct decrypt, edge fallback, session/auth, manager read-only, profile form submit, layout, env/config/schema/dependencies는 변경하지 않았다.
+
+**검증**:
+- RED 확인: `node --experimental-strip-types --test web/src/lib/resident-number-display.test.node.ts`가 missing helper module로 실패
+- 통과: `node --experimental-strip-types --test web/src/lib/resident-number-display.test.node.ts` (3 tests pass)
+- 통과: `node --experimental-strip-types --test web/src/lib/phone-candidates.test.ts web/src/lib/resident-number-route-request.test.ts web/src/lib/resident-number-route-handler.test.ts web/src/lib/resident-number-edge-executor.test.ts web/src/lib/resident-number-edge-response.test.ts web/src/lib/resident-number-edge-fallback.test.ts web/src/lib/resident-number-runtime.test.ts web/src/lib/exam-applicant-resident-number-enrichment.test.node.ts` (26 tests pass)
+- 통과: `cd web; npm run lint -- src/hooks/use-resident-number.ts src/lib/resident-number-display.ts src/lib/resident-number-display.test.node.ts src/app/dashboard/profile/[id]/page.tsx`
+- 통과: `cd web; npm run build`
+- 통과: `npm run lint`
+- 통과: `node scripts/ci/check-governance.mjs`
+- 통과: `git diff --check` (CRLF normalization warning만 표시)
+- 확인: `git status --short --branch`로 goal 누적 변경과 untracked helper/test 파일을 검토
+- 미실행: root `npm test`, root `npm run build`, browser/runtime PII smoke. 이번 변경은 web client display helper/hook/profile duplicate formatting removal에 한정된다.
+
+---
+
+## <a id="20260530-exam-applicant-resident-number-enrichment-characterization"></a> 2026-05-30 | Exam-applicant resident-number enrichment characterization
+
+**배경**:
+- `/api/admin/resident-numbers` branch sequencing까지 characterization한 뒤에도 `GET /api/admin/exam-applicants`는 시험 신청 row 기본값, profile phone candidate matching, resident-number `fcIds` derivation, full resident-number merge를 route 안에서 inline으로 처리하고 있었다.
+- 시험 신청자 목록은 admin/manager trusted PII full-view 경로이므로 cleanup/refactor 전에 누락 profile, null resident-number, raw/digits/hyphenated phone alias 계약을 먼저 고정해야 한다.
+
+**조치**:
+- `web/src/lib/exam-applicant-resident-number-enrichment.ts`를 추가해 시험 신청 row 기본값 생성, profile query phone candidates, profile alias map/`fcIds` plan, resident-number enrichment를 pure helper로 분리했다.
+- `web/src/app/api/admin/exam-applicants/route.ts`는 기존 Supabase query, admin/manager read access, admin-only write/delete, staff verification, rate limits, `readResidentNumbersWithFallback` staff phone/log prefix를 유지하고 mapping/enrichment만 helper에 위임한다.
+- `web/src/lib/exam-applicant-resident-number-enrichment.test.node.ts`를 추가해 base defaults, phone candidate aliases, `fcIds` de-dupe, full resident-number replacement, missing profile fallback, null resident-number fallback literal을 characterization했다.
+- 직접 Node 테스트 파일은 root Jest 수집과 Next typecheck 제외를 동시에 만족하도록 `*.test.node.ts` 이름을 사용했다.
+- session/auth/rate-limit, direct decrypt, edge fallback, env/config/schema/UI/dependencies는 변경하지 않았다.
+
+**검증**:
+- RED 확인: `node --experimental-strip-types --test web/src/lib/exam-applicant-resident-number-enrichment.test.ts`가 missing helper module로 실패
+- 통과: `node --experimental-strip-types --test web/src/lib/exam-applicant-resident-number-enrichment.test.node.ts` (2 tests pass)
+- 통과: `node --experimental-strip-types --test web/src/lib/phone-candidates.test.ts web/src/lib/resident-number-route-request.test.ts web/src/lib/resident-number-route-handler.test.ts web/src/lib/resident-number-edge-executor.test.ts web/src/lib/resident-number-edge-response.test.ts web/src/lib/resident-number-edge-fallback.test.ts web/src/lib/resident-number-runtime.test.ts` (24 tests pass)
+- 통과: `cd web; npm run lint -- src/app/api/admin/exam-applicants/route.ts src/lib/exam-applicant-resident-number-enrichment.ts src/lib/exam-applicant-resident-number-enrichment.test.node.ts`
+- 통과: `cd web; npm run build`
+- 통과: `npm run lint`
+- 실패(기존 test harness 문제): `npm test`는 18 suites failed / 28 passed / 46 total. 남은 실패는 기존 web direct Node `.test.ts` 파일의 TS5097, `web/src/lib/referral-graph-simulation.test.ts`의 `d3-force` type/implicit-any, `lib/__tests__/referral-tree.test.ts`의 `relationshipSource` type mismatch다. 새 `exam-applicant...test.node.ts`는 실패 목록에 없다.
+- 통과: `npm run build`
+- 통과: `node scripts/ci/check-governance.mjs`
+- 통과: `git diff --check` (CRLF normalization warning만 표시)
+- 확인: `git status --short --branch`로 goal 누적 변경과 untracked helper/test 파일을 검토
+
+---
+
+## <a id="20260530-resident-number-route-branch-characterization"></a> 2026-05-30 | Resident-number route branch characterization
+
+**배경**:
+- Increment 4-9에서 주민번호 trusted path의 phone candidate, direct decrypt mode, edge fallback request/response/execution, `fcIds` normalization은 characterization했지만, `/api/admin/resident-numbers` route의 branch sequencing은 여전히 inline이었다.
+- session rejection, rate-limit, JSON parsing, empty-list short-circuit, read success/failure 순서가 향후 cleanup 중 바뀌면 PII endpoint의 auth/rate-limit/진단 계약이 드리프트될 수 있다.
+
+**조치**:
+- `web/src/lib/resident-number-route-handler.ts`를 추가해 route branch sequencing을 dependency-injected helper로 분리했다.
+- `web/src/app/api/admin/resident-numbers/route.ts`는 기존 `SECURITY_HEADERS`, session options, rate-limit constants/key, `readResidentNumbersWithFallback` options를 그대로 주입한다.
+- `web/src/lib/resident-number-route-handler.test.ts`를 추가해 session failure, rate-limit failure, invalid JSON, empty `fcIds`, successful read, read failure를 characterization했다.
+- session verification internals, rate-limit implementation, resident-number read behavior, direct decrypt, edge fallback, env/config/schema/UI는 변경하지 않았다.
+
+**검증**:
+- RED 확인: `node --experimental-strip-types --test web/src/lib/resident-number-route-handler.test.ts`가 missing helper module로 실패
+- 통과: `node --experimental-strip-types --test web/src/lib/resident-number-route-handler.test.ts` (6 tests pass)
+- 통과: `node --experimental-strip-types --test web/src/lib/resident-number-route-request.test.ts web/src/lib/resident-number-edge-executor.test.ts web/src/lib/resident-number-edge-response.test.ts web/src/lib/resident-number-edge-fallback.test.ts web/src/lib/resident-number-runtime.test.ts web/src/lib/phone-candidates.test.ts` (18 tests pass)
+- 통과: `cd web; npm run lint -- src/app/api/admin/resident-numbers/route.ts src/lib/resident-number-route-handler.ts src/lib/resident-number-route-handler.test.ts src/lib/resident-number-route-request.ts`
+- 통과: `cd web; npm run build`
+- 통과: `node scripts/ci/check-governance.mjs`
+- 통과: `git diff --check` (CRLF normalization warning만 표시)
+- 확인: `git status --short --branch`로 goal 누적 변경과 untracked helper/test 파일을 검토
+
+---
+
+## <a id="20260530-mobile-unread-async-orchestration-characterization"></a> 2026-05-30 | Mobile unread async orchestration characterization
+
+**배경**:
+- Increment 10/11에서 GaramLink unread checkpoint key와 bridge plan/body/total은 characterization했지만, `fetchMobileUnreadNotificationCount`의 비동기 orchestration은 여전히 inline이었다.
+- checkpoint read, `fc-notify` invoke, optional request_board unread fetch, catch/log fallback 순서가 향후 cleanup/refactor 중 바뀌면 unread badge/홈/알림센터 count가 어긋날 수 있다.
+
+**조치**:
+- `lib/mobile-unread-notification-count-plan.ts`에 dependency-injected `fetchMobileUnreadNotificationCountWithDeps` helper를 추가했다.
+- helper는 role-less short-circuit, non-initializing checkpoint read, `fc-notify` body 생성, optional request_board unread fetch, warning/zero fallback을 현재 계약대로 수행한다.
+- `lib/mobile-unread-notification-count.ts`는 기존 `getNotificationCheckpoint`, `supabase.functions.invoke('fc-notify')`, `rbGetNotificationUnreadCount`, `logger.warn`를 그대로 주입한다.
+- AsyncStorage checkpoint persistence, Supabase function target/body shape, request_board API behavior, native badge, UI, env/config/schema는 변경하지 않았다.
+
+**검증**:
+- RED 확인: `npx jest lib/__tests__/mobile-unread-notification-count-plan.test.ts --runInBand`가 `fetchMobileUnreadNotificationCountWithDeps` 미export TypeScript 오류로 실패
+- 통과: `npx jest lib/__tests__/mobile-unread-notification-count-plan.test.ts --runInBand` (11 tests pass)
+- 통과: `npx jest lib/__tests__/notification-checkpoint.test.ts lib/__tests__/push-registration.test.ts lib/__tests__/request-board-session.test.ts --runInBand` (8 tests pass)
+- 통과: `npm run lint -- lib/mobile-unread-notification-count.ts lib/mobile-unread-notification-count-plan.ts lib/__tests__/mobile-unread-notification-count-plan.test.ts`
+- 통과: `node scripts/ci/check-governance.mjs`
+- 통과: `git diff --check` (CRLF normalization warning만 표시)
+- 확인: `git status --short --branch`로 goal 누적 변경과 untracked helper/test 파일을 검토
+
+---
+
+## <a id="20260530-mobile-bridge-unread-plan-characterization"></a> 2026-05-30 | Mobile bridge unread plan characterization
+
+**배경**:
+- `lib/mobile-unread-notification-count.ts`는 가람in unread count와 GaramLink live unread count를 합산하는 핵심 bridge 경계다.
+- 기존 코드에는 request_board 접근 판정, `fc-notify`의 `exclude_request_board_categories` flag, 최종 total 합산이 inline으로 남아 있어 이후 cleanup/refactor 때 double count 또는 누락 위험이 있었다.
+- Increment 10에서 checkpoint key scope를 먼저 고정했으므로, 다음 작은 단위로 bridge unread plan/body/total 계약을 순수 helper로 분리했다.
+
+**조치**:
+- `lib/mobile-unread-notification-count-plan.ts`를 추가해 bridge plan, `fc-notify` body, total 합산을 pure helper로 분리했다.
+- `lib/mobile-unread-notification-count.ts`는 기존 AsyncStorage checkpoint read, Supabase `fc-notify` invoke, request_board unread API 호출, catch/log fallback을 그대로 유지하고 pure helper에만 위임한다.
+- `lib/__tests__/mobile-unread-notification-count-plan.test.ts`를 추가해 role-less short-circuit, FC/requestBoardRole FC·designer live unread 포함, internal admin 제외, `fc-notify` body shape, total 합산을 characterization했다.
+- role-less session에 stale requestBoardRole이 있어도 live request_board unread plan을 노출하지 않도록 추가 RED/GREEN으로 고정했다.
+- 네트워크 호출, 세션/토큰, checkpoint storage, native badge, UI, env/config/schema는 변경하지 않았다.
+
+**검증**:
+- RED 확인: `npx jest lib/__tests__/mobile-unread-notification-count-plan.test.ts --runInBand`가 helper 미존재로 `Cannot find module` 실패
+- 추가 RED/GREEN: role-less + stale `requestBoardRole='fc'`가 처음에는 `includeLiveRequestBoardUnread: true`로 실패했고, helper 보정 후 통과
+- 통과: `npx jest lib/__tests__/mobile-unread-notification-count-plan.test.ts --runInBand` (6 tests pass)
+- 통과: `npx jest lib/__tests__/notification-checkpoint.test.ts lib/__tests__/push-registration.test.ts lib/__tests__/request-board-session.test.ts --runInBand` (8 tests pass)
+- 통과: `npm run lint -- lib/mobile-unread-notification-count.ts lib/mobile-unread-notification-count-plan.ts lib/__tests__/mobile-unread-notification-count-plan.test.ts`
+- 통과: `node scripts/ci/check-governance.mjs`
+- 통과: `git diff --check` (CRLF normalization warning만 표시)
+- 확인: `git status --short --branch`로 goal 누적 변경과 untracked helper/test 파일을 검토
+
+---
+
+## <a id="20260530-mobile-unread-checkpoint-characterization"></a> 2026-05-30 | Mobile unread checkpoint key characterization
+
+**배경**:
+- GaramLink bridge unread 집계는 `lib/mobile-unread-notification-count.ts`에서 가람in unread checkpoint를 읽은 뒤 request_board live unread count를 합산한다.
+- `AGENTS.md`는 unread checkpoint key가 `role + residentId + requestBoardRole` 사용자별 scope를 가져야 한다고 명시한다.
+- `lib/notification-checkpoint.ts`의 key builder는 inline/private 상태라 FC/designer bridge role isolation이 테스트로 고정되어 있지 않았다.
+
+**조치**:
+- `lib/notification-checkpoint.ts`의 기존 `buildNotificationCheckpointKey` 구현을 변경 없이 export했다.
+- `lib/__tests__/notification-checkpoint.test.ts`를 추가해 `guest/global/none` default, resident id trim, `requestBoardRole='fc'`와 `'designer'` key 분리를 characterization했다.
+- AsyncStorage checkpoint read/write, checkpoint 초기화 날짜, unread network fetch, request_board API 호출, Supabase function 호출, native badge, UI, env/config/schema는 변경하지 않았다.
+
+**검증**:
+- RED 확인: `npx jest lib/__tests__/notification-checkpoint.test.ts --runInBand`가 `buildNotificationCheckpointKey` 미export TypeScript 오류로 실패
+- 통과: `npx jest lib/__tests__/notification-checkpoint.test.ts --runInBand` (2 tests pass)
+- 통과: `npx jest lib/__tests__/push-registration.test.ts lib/__tests__/request-board-session.test.ts --runInBand` (6 tests pass)
+- 통과: `npm run lint -- lib/notification-checkpoint.ts lib/__tests__/notification-checkpoint.test.ts`
+- 통과: `node scripts/ci/check-governance.mjs`
+- 통과: `git diff --check` (CRLF normalization warning만 표시)
+- 확인: `git status --short --branch`로 goal 누적 변경과 untracked helper/test 파일을 검토
+
+---
+
+## <a id="20260530-resident-number-route-fcids-characterization"></a> 2026-05-30 | Resident-number route fcIds normalization characterization
+
+**배경**:
+- 관리자 웹 `/api/admin/resident-numbers` route는 PII full-view trusted path의 route-level entrypoint인데, `body.fcIds` 정규화가 route 안에 inline으로 남아 있었다.
+- Increments 4-8에서 phone candidate, direct decrypt mode, edge fallback request/response/execution은 characterization했지만, route request parsing은 아직 테스트로 고정되지 않았다.
+- resident-number route drift는 `.claude/MISTAKES.md`에 반복 가드레일이 있으므로, 큰 route/UI 정리 전에 요청 정규화 계약부터 분리했다.
+
+**조치**:
+- `web/src/lib/resident-number-route-request.ts`를 추가해 `fcIds` 정규화를 pure helper로 분리했다.
+- `web/src/app/api/admin/resident-numbers/route.ts`는 기존 session check, rate limit, invalid JSON, empty-list response, `readResidentNumbersWithFallback` 호출을 그대로 유지하고 normalization만 helper에 위임한다.
+- `web/src/lib/resident-number-route-request.test.ts`를 추가해 non-array, nullish, whitespace trim, blank filtering, numeric coercion, duplicate removal, first-seen order preservation을 characterization했다.
+- 권한, rate limit, direct decrypt, edge fallback, env/config/schema, UI는 변경하지 않았다.
+
+**검증**:
+- RED 확인: `node --experimental-strip-types --test web/src/lib/resident-number-route-request.test.ts`가 helper 미존재로 `ERR_MODULE_NOT_FOUND` 실패
+- 통과: `node --experimental-strip-types --test web/src/lib/resident-number-route-request.test.ts` (1 test pass; Node module-type warning only)
+- 통과: `node --experimental-strip-types --test web/src/lib/resident-number-edge-executor.test.ts web/src/lib/resident-number-edge-response.test.ts web/src/lib/resident-number-edge-fallback.test.ts web/src/lib/resident-number-runtime.test.ts web/src/lib/phone-candidates.test.ts` (17 tests pass; Node module-type warning only)
+- 통과: `npm run lint -- src/app/api/admin/resident-numbers/route.ts src/lib/resident-number-route-request.ts src/lib/resident-number-route-request.test.ts` from `web/`
+- 통과: `npm run build` from `web/` (baseline-browser-mapping/opentelemetry warning only)
+- 통과: `node scripts/ci/check-governance.mjs`
+- 통과: `git diff --check` (CRLF normalization warning만 표시)
+- 확인: `git status --short --branch`로 goal 누적 변경과 untracked helper/test 파일을 검토
+
+---
+
+## <a id="20260530-resident-number-edge-executor-characterization"></a> 2026-05-30 | Resident-number edge fallback executor characterization
+
+**배경**:
+- 관리자 웹 주민번호 full-view trusted path의 edge fallback은 direct decrypt가 degraded일 때 `admin-action:getResidentNumbers` fetch 실행, missing env 진단, 실패 응답 로그, thrown error prefix를 함께 책임지고 있었다.
+- request shape와 response parsing은 이미 순수 helper로 characterization됐지만, 실행부가 inline으로 남아 있어 route-level 테스트나 cleanup 전에 drift 위험이 남아 있었다.
+- 특히 missing `NEXT_PUBLIC_SUPABASE_URL` / `SUPABASE_SERVICE_ROLE_KEY`, failed response `status`/`body`, 서버 제공 failure message 우선순위는 운영 진단 계약이므로 보존해야 한다.
+
+**조치**:
+- `web/src/lib/resident-number-edge-executor.ts`를 추가해 fallback fetch 실행부를 dependency-injected helper로 분리했다.
+- `web/src/lib/server-resident-numbers.ts`는 기존 env trim, direct fallback description, runtime details, logger를 넘기고 helper에 위임한다.
+- `web/src/lib/resident-number-edge-executor.test.ts`를 추가해 성공 응답, missing env, failed response server message, invalid JSON/default message를 characterization했다.
+- production source에 `.ts` 확장자 import를 넣으면 Next.js TypeScript build가 실패한다는 반복 가능 실수를 `.claude/MISTAKES.md`에 기록하고, executor가 request/response helper를 의존성으로 받도록 보정했다.
+- direct decrypt, request shape, response validation, 권한 검증, UI, env/config/schema는 변경하지 않았다.
+
+**검증**:
+- RED 확인: `node --experimental-strip-types --test web/src/lib/resident-number-edge-executor.test.ts`가 helper 미존재로 `ERR_MODULE_NOT_FOUND` 실패
+- 통과: `node --experimental-strip-types --test web/src/lib/resident-number-edge-executor.test.ts` (4 tests pass; Node module-type warning only)
+- 통과: `node --experimental-strip-types --test web/src/lib/resident-number-edge-response.test.ts web/src/lib/resident-number-edge-fallback.test.ts web/src/lib/resident-number-runtime.test.ts web/src/lib/phone-candidates.test.ts` (13 tests pass; Node module-type warning only)
+- 통과: `npm run lint -- src/lib/server-resident-numbers.ts src/lib/resident-number-edge-executor.ts src/lib/resident-number-edge-executor.test.ts src/lib/resident-number-edge-response.ts src/lib/resident-number-edge-fallback.ts src/lib/resident-number-runtime.ts src/lib/phone-candidates.ts` from `web/`
+- 실패 후 수정/통과: `npm run build` from `web/` (초기 `.ts` production import 오류 재현 후 dependency-injection 보정, 이후 build pass; baseline-browser-mapping/opentelemetry warning only)
+- 통과: `node scripts/ci/check-governance.mjs`
+
+---
+
+## <a id="20260530-resident-number-edge-response-characterization"></a> 2026-05-30 | Resident-number edge fallback response characterization
+
+**배경**:
+- 관리자 웹 주민번호 full-view trusted path의 edge fallback은 `admin-action:getResidentNumbers` 응답이 `resp.ok && data.ok === true && residentNumbers object`일 때만 성공으로 본다.
+- 실패 메시지는 기존 코드에서 `data.message`, `data.error`, 기본 `Edge Function failed` 순으로 선택됐다.
+- 이후 route-level fallback 테스트나 cleanup 전에 이 response contract를 순수 helper로 고정했다.
+
+**조치**:
+- `web/src/lib/resident-number-edge-response.ts`를 추가해 fallback response validation과 failure message 선택을 순수 helper로 분리했다.
+- `web/src/lib/server-resident-numbers.ts`는 새 helper 결과로 기존 log context와 thrown error prefix를 유지한다.
+- `web/src/lib/resident-number-edge-response.test.ts`를 추가해 성공 body, malformed success, non-ok HTTP, message/error/default 우선순위를 characterization했다.
+- fetch 실행, request shape, direct decrypt, 권한 검증, UI, env/config/schema는 변경하지 않았다.
+
+**검증**:
+- RED 확인: `node --experimental-strip-types --test web/src/lib/resident-number-edge-response.test.ts`가 helper 미존재로 `ERR_MODULE_NOT_FOUND` 실패
+- 통과: `node --experimental-strip-types --test web/src/lib/resident-number-edge-response.test.ts` (4 tests pass; Node module-type warning only)
+- 통과: `node --experimental-strip-types --test web/src/lib/resident-number-edge-fallback.test.ts web/src/lib/resident-number-runtime.test.ts web/src/lib/phone-candidates.test.ts` (9 tests pass; Node module-type warning only)
+- 통과: `npm run lint -- src/lib/server-resident-numbers.ts src/lib/resident-number-edge-response.ts src/lib/resident-number-edge-response.test.ts src/lib/resident-number-edge-fallback.ts src/lib/resident-number-runtime.ts src/lib/phone-candidates.ts` from `web/`
+- 통과: `node --experimental-strip-types --test web/src/lib/resident-number-edge-response.test.ts web/src/lib/resident-number-edge-fallback.test.ts web/src/lib/resident-number-runtime.test.ts web/src/lib/phone-candidates.test.ts` (13 tests pass; Node module-type warning only)
+- 통과: `npm run lint -- src/lib/server-resident-numbers.ts src/lib/resident-number-edge-response.ts src/lib/resident-number-edge-response.test.ts src/lib/resident-number-edge-fallback.ts src/lib/resident-number-edge-fallback.test.ts src/lib/resident-number-runtime.ts src/lib/resident-number-runtime.test.ts src/lib/server-session.ts src/lib/phone-candidates.ts src/lib/phone-candidates.test.ts` from `web/`
+- 통과: `node scripts/ci/check-governance.mjs`
+
+---
+
+## <a id="20260530-resident-number-edge-fallback-request-characterization"></a> 2026-05-30 | Resident-number edge fallback request characterization
+
+**배경**:
+- 관리자 웹 주민번호 full-view trusted path는 direct decrypt가 unavailable/degraded일 때 Supabase `admin-action:getResidentNumbers` edge fallback을 호출한다.
+- fallback request의 URL, service-role headers, action name, payload shape가 drift나면 권한 있는 사용자의 full-view 경로가 깨질 수 있다.
+- route-level fetch mocking 전에 요청 shape를 순수 helper로 고정해 이후 cleanup/refactor의 안전망을 넓혔다.
+
+**조치**:
+- `web/src/lib/resident-number-edge-fallback.ts`를 추가해 admin-action resident-number fallback request 생성을 순수 helper로 분리했다.
+- `web/src/lib/server-resident-numbers.ts`는 새 helper가 만든 `url/init`로 `fetch`를 호출하도록 정리했다.
+- `web/src/lib/resident-number-edge-fallback.test.ts`를 추가해 URL, method, service-role headers, JSON body를 characterization했다.
+- trailing slash 정규화, fetch 실행/응답 파싱, direct decrypt, 권한 검증, UI, env/config/schema는 변경하지 않았다.
+
+**검증**:
+- RED 확인: `node --experimental-strip-types --test web/src/lib/resident-number-edge-fallback.test.ts`가 helper 미존재로 `ERR_MODULE_NOT_FOUND` 실패
+- 통과: `node --experimental-strip-types --test web/src/lib/resident-number-edge-fallback.test.ts` (2 tests pass; Node module-type warning only)
+- 통과: `node --experimental-strip-types --test web/src/lib/resident-number-runtime.test.ts` (4 tests pass; Node module-type warning only)
+- 통과: `npm run lint -- src/lib/server-resident-numbers.ts src/lib/resident-number-edge-fallback.ts src/lib/resident-number-edge-fallback.test.ts` from `web/`
+- 통과: `node --experimental-strip-types --test web/src/lib/resident-number-edge-fallback.test.ts web/src/lib/resident-number-runtime.test.ts web/src/lib/phone-candidates.test.ts` (9 tests pass; Node module-type warning only)
+- 통과: `npm run lint -- src/lib/server-resident-numbers.ts src/lib/resident-number-edge-fallback.ts src/lib/resident-number-edge-fallback.test.ts src/lib/resident-number-runtime.ts src/lib/resident-number-runtime.test.ts src/lib/server-session.ts src/lib/phone-candidates.ts src/lib/phone-candidates.test.ts` from `web/`
+- 통과: `node scripts/ci/check-governance.mjs`
+
+---
+
+## <a id="20260530-resident-number-runtime-mode-characterization"></a> 2026-05-30 | Resident-number runtime mode characterization
+
+**배경**:
+- 관리자 웹 주민번호 full-view trusted path는 `FC_IDENTITY_DIRECT_DECRYPT_MODE`에 따라 direct decrypt를 쓰거나 edge fallback으로 degraded 동작한다.
+- 운영 문서는 direct decrypt가 빠진 런타임에서도 권한 있는 사용자의 full-view 자체를 masking 정책으로 바꾸지 말고 fallback/degraded 상태를 로그로 남기라고 규정한다.
+- 더 큰 PII cleanup/refactor 전에 env mode parsing을 테스트 가능한 순수 경계로 고정할 필요가 있었다.
+
+**조치**:
+- `web/src/lib/resident-number-runtime.ts`를 추가해 `FC_IDENTITY_DIRECT_DECRYPT_MODE` normalization을 순수 helper로 분리했다.
+- `web/src/lib/server-resident-numbers.ts`는 새 helper를 사용하되, invalid mode warning과 기존 fallback decision은 유지했다.
+- `web/src/lib/resident-number-runtime.test.ts`를 추가해 empty/auto/enabled, disabled/off, report/report-only, invalid default-to-auto 동작을 characterization했다.
+- direct decrypt, edge fallback fetch, 권한 검증, UI, env 이름, schema/config는 변경하지 않았다.
+
+**검증**:
+- RED 확인: `node --experimental-strip-types --test web/src/lib/resident-number-runtime.test.ts`가 helper 미존재로 `ERR_MODULE_NOT_FOUND` 실패
+- 통과: `node --experimental-strip-types --test web/src/lib/resident-number-runtime.test.ts` (4 tests pass; Node module-type warning only)
+- 통과: `npm run lint -- src/lib/server-resident-numbers.ts src/lib/resident-number-runtime.ts src/lib/resident-number-runtime.test.ts` from `web/`
+- 통과: `rg -n "resolveResidentNumberDirectDecryptMode|DirectDecryptMode|FC_IDENTITY_DIRECT_DECRYPT_MODE|resident-number-runtime" web/src/lib web/src/app/api/admin`
+- 통과: `node scripts/ci/check-governance.mjs`
+
+---
+
+## <a id="20260530-pii-phone-candidate-characterization"></a> 2026-05-30 | PII trusted-path phone candidate characterization
+
+**배경**:
+- 주민번호 full-view trusted path는 관리자/본부장 세션의 `session_resident`가 raw, digits-only, hyphenated 중 어떤 형태로 저장돼도 같은 계정/FC를 찾는 계약에 의존한다.
+- `docs/handbook/shared/security-and-secret-operations.md`는 digits-only 단정을 regression으로 본다고 명시한다.
+- 기존 `buildPhoneCandidates`는 `web/src/lib/server-session.ts`에 있었고 `/api/admin/fc`, `/api/admin/exam-applicants`가 같은 helper를 통해 PII 조회 관련 matching을 공유한다.
+
+**조치**:
+- `buildPhoneCandidates`와 전화번호 formatting을 `web/src/lib/phone-candidates.ts` 순수 helper로 분리했다.
+- `web/src/lib/server-session.ts`는 기존 import 경로 호환을 위해 `buildPhoneCandidates`를 계속 re-export한다.
+- `web/src/lib/phone-candidates.test.ts`를 추가해 hyphenated raw, digits-only raw, partial/non-full phone 후보 생성을 characterization했다.
+- 주민번호 read, direct decrypt/edge fallback, 권한 검증, UI, env/config는 변경하지 않았다.
+
+**검증**:
+- RED 확인: `node --experimental-strip-types --test web/src/lib/phone-candidates.test.ts`가 helper 미존재로 `ERR_MODULE_NOT_FOUND` 실패
+- 통과: `node --experimental-strip-types --test web/src/lib/phone-candidates.test.ts` (3 tests pass; Node module-type warning only)
+- 통과: `npm run lint -- src/lib/server-session.ts src/lib/phone-candidates.ts src/lib/phone-candidates.test.ts` from `web/`
+- 통과: `node scripts/ci/check-governance.mjs`
+
+---
+
+## <a id="20260530-generated-output-deployment-docs"></a> 2026-05-30 | Generated Expo web output and deployment docs drift
+
+**배경**:
+- 장기 cleanup/refactor inventory에서 ignored `dist/`가 unused/dead asset 후보로 분류됐다.
+- 확인 결과 `dist/`는 git에 tracked source로 포함되지 않지만, root `npm run build`가 만드는 Expo web static export 산출물이고 배포 문서가 이를 운영 산출물로 언급한다.
+- 기존 배포 문서와 agent/명령 문서에는 관리자 웹 Vercel 배포와 Expo static export 배포가 섞이고, 과거 `dist/web` 표현이 남아 있어 generated output을 source처럼 오해할 위험이 있었다.
+
+**조치**:
+- `docs/deployment/DEPLOYMENT.md`에서 관리자 웹 배포는 현재 root `vercel.json`의 Next.js `web/` build 경로로 정리했다.
+- Expo web static export는 ignored generated output인 `dist/`를 매번 새로 빌드해 별도 정적 배포가 필요할 때만 쓰도록 명시했다.
+- `docs/guides/COMMANDS.md`, `docs/guides/명령어 모음집.txt`, `CLAUDE.md`도 admin web Vercel 배포와 Expo static export를 분리했다.
+- `dist/` 삭제는 하지 않았다. 현재 증거상 source cleanup이 아니라 local generated output cleanup 후보이므로 보류했다.
+
+**검증**:
+- 통과: `git ls-files dist`
+- 통과: `git status --ignored --short -- dist`
+- 통과: `rg -n --glob '!dist/**' --glob '!node_modules/**' "vercel deploy dist|dist/web|dist-web|expo export -p web|expo export --platform web" ...`
+- 통과: `node scripts/ci/check-governance.mjs`
+
+---
+
+## <a id="20260530-cleanup-doc-drift"></a> 2026-05-30 | Cleanup doc drift: linked designer profile count
+
+**배경**:
+- 장기 cleanup/refactor inventory에서 `README.md`와 `AGENTS.md`의 request_board-linked 설계매니저 프로필 수치가 서로 다른 stale docs 후보로 분류됐다.
+- `README.md` 상단은 `AGENTS.md`를 source of truth로 지정하고 있었지만, Current Snapshot에는 과거 수치 `54명`이 남아 있었다.
+- `AGENTS.md`의 현재 운영 계약은 같은 항목을 `59명`으로 기록한다.
+
+**조치**:
+- `README.md`의 request_board-linked 설계매니저 프로필 수치를 `59명`으로 맞췄다.
+- 이 변경은 repo 문서 SSOT 정합화이며, 별도의 live DB 조회 결과로 새 수치를 주장하지 않는다.
+- cleanup harness의 current contract / plan / QA / handoff를 이 increment 기준으로 갱신했다.
+
+**검증**:
+- 통과: `rg -n -C 3 "request_board-linked 설계매니저 프로필|현재 앱 DB 기준" README.md AGENTS.md`
+- 통과: `node scripts/ci/check-governance.mjs`
+
+---
+
 ## <a id="20260521-board-update-notification-and-insurance-briefing-title"></a> 2026-05-21 | Board update notification and insurance briefing title
 
 **배경**:

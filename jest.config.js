@@ -1,6 +1,7 @@
 module.exports = {
   preset: 'ts-jest',
   testEnvironment: 'node',
+  coverageProvider: 'v8',
   modulePathIgnorePatterns: [
     '<rootDir>/web/.next/',
     '<rootDir>/web/out/',
@@ -8,6 +9,8 @@ module.exports = {
   testPathIgnorePatterns: [
     '/node_modules/',
     '<rootDir>/web/.next/',
+    '<rootDir>/web/src/lib/.*\\.test\\.ts$',
+    '<rootDir>/supabase/functions/_shared/__tests__/request-board-password-sync\\.test\\.ts$',
   ],
   watchPathIgnorePatterns: [
     '<rootDir>/web/.next/',

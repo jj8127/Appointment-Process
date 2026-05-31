@@ -3,13 +3,8 @@
 import { useQuery } from '@tanstack/react-query';
 
 import { useSession } from '@/hooks/use-session';
+import { formatResidentNumberBirthDateDisplay } from '@/lib/resident-number-display';
 import { fetchResidentNumberFull } from '@/lib/resident-number-client';
-
-function getBirthDate(residentNumber?: string | null) {
-  const digits = String(residentNumber ?? '').replace(/\D/g, '');
-  if (digits.length < 6) return '-';
-  return `${digits.slice(0, 2)}.${digits.slice(2, 4)}.${digits.slice(4, 6)}`;
-}
 
 type UseResidentNumberOptions = {
   fcId?: string | null;
@@ -38,6 +33,6 @@ export function useResidentNumber({ fcId, enabled = true }: UseResidentNumberOpt
     residentNumberDisplay: query.isFetching
       ? '주민번호 조회 중...'
       : (query.data ?? (query.error instanceof Error ? query.error.message : '주민번호 조회 실패')),
-    birthDateDisplay: getBirthDate(query.data ?? null),
+    birthDateDisplay: formatResidentNumberBirthDateDisplay(query.data ?? null),
   };
 }

@@ -21,7 +21,39 @@ type SyncRequestParams = {
   options: RequestBoardPasswordSyncOptions;
 };
 
-const buildRequestBody = (
+type PasswordSyncFetchResponse = {
+  ok: boolean;
+  status: number;
+  text: () => Promise<string>;
+  json: () => Promise<unknown>;
+};
+
+type PasswordSyncFetchInit = {
+  method: 'POST';
+  headers: Record<string, string>;
+  body: string;
+  signal: AbortSignal;
+};
+
+type PasswordSyncFetch = (
+  input: string,
+  init: PasswordSyncFetchInit,
+) => Promise<PasswordSyncFetchResponse>;
+
+type PasswordSyncAbortController = {
+  signal: AbortSignal;
+  abort: () => void;
+};
+
+type PasswordSyncDeps = {
+  fetchImpl: PasswordSyncFetch;
+  createAbortController: () => PasswordSyncAbortController;
+  setTimeoutImpl: (handler: () => void, timeoutMs: number) => unknown;
+  clearTimeoutImpl: (handle: unknown) => void;
+  warn: (...args: unknown[]) => void;
+};
+
+export const buildRequestBoardPasswordSyncBody = (
   phone: string,
   password: string,
   options: RequestBoardPasswordSyncOptions,
@@ -40,7 +72,7 @@ const buildRequestBody = (
   ...(options.syncReason ? { syncReason: options.syncReason } : {}),
 });
 
-export async function syncRequestBoardPassword({
+export async function syncRequestBoardPasswordWithDeps({
   syncUrl,
   syncToken,
   timeoutMs,
@@ -48,35 +80,51 @@ export async function syncRequestBoardPassword({
   phone,
   password,
   options,
-}: SyncRequestParams) {
+}: SyncRequestParams, {
+  fetchImpl,
+  createAbortController,
+  setTimeoutImpl,
+  clearTimeoutImpl,
+  warn,
+}: PasswordSyncDeps) {
   if (!syncUrl || !syncToken) return;
 
-  const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), timeoutMs);
+  const controller = createAbortController();
+  const timeout = setTimeoutImpl(() => controller.abort(), timeoutMs);
   try {
-    const response = await fetch(syncUrl, {
+    const response = await fetchImpl(syncUrl, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
         'x-request-bridge-token': syncToken,
       },
-      body: JSON.stringify(buildRequestBody(phone, password, options)),
+      body: JSON.stringify(buildRequestBoardPasswordSyncBody(phone, password, options)),
       signal: controller.signal,
     });
 
     if (!response.ok) {
       const text = await response.text().catch(() => '');
-      console.warn(`[${logPrefix}] request_board sync failed: ${response.status} ${text.slice(0, 200)}`);
+      warn(`[${logPrefix}] request_board sync failed: ${response.status} ${text.slice(0, 200)}`);
       return;
     }
 
     const json = await response.json().catch(() => ({}));
-    if (!json?.success) {
-      console.warn(`[${logPrefix}] request_board sync error: ${JSON.stringify(json).slice(0, 200)}`);
+    if (!(typeof json === 'object' && json !== null && 'success' in json && json.success === true)) {
+      warn(`[${logPrefix}] request_board sync error: ${JSON.stringify(json).slice(0, 200)}`);
     }
   } catch (error) {
-    console.warn(`[${logPrefix}] request_board sync error:`, error);
+    warn(`[${logPrefix}] request_board sync error:`, error);
   } finally {
-    clearTimeout(timeout);
+    clearTimeoutImpl(timeout);
   }
+}
+
+export async function syncRequestBoardPassword(params: SyncRequestParams) {
+  return syncRequestBoardPasswordWithDeps(params, {
+    fetchImpl: (input, init) => fetch(input, init),
+    createAbortController: () => new AbortController(),
+    setTimeoutImpl: (handler, timeoutMs) => setTimeout(handler, timeoutMs),
+    clearTimeoutImpl: (handle) => clearTimeout(handle as ReturnType<typeof setTimeout>),
+    warn: (...args) => console.warn(...args),
+  });
 }

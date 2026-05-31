@@ -5,6 +5,7 @@ dist
 dist-web
 dist-web-new
 dist-web-new2
+coverage
 android
 ios
 .expo

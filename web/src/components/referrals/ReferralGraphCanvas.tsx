@@ -607,7 +607,7 @@ export function ReferralGraphCanvas({
       createReferralGraphNodeSeparationForce<RuntimeGraphNode>({
         activeDraggedNodeIdRef: draggedNodeIdRef,
         crossClusterDistance: 126,
-        crossComponentDistance: 146,
+        crossComponentDistance: 118,
         maxVelocity: 18,
         minDistance: 50,
         nodeClusterIndex: componentLayout.nodeClusterIndex,
@@ -643,26 +643,26 @@ export function ReferralGraphCanvas({
       createReferralGraphClusterSeparationForce<RuntimeGraphNode>({
         activeDraggedNodeIdRef: draggedNodeIdRef,
         clusterRadii: componentLayout.componentRadii,
-        gap: 92,
+        gap: 54,
         maxVelocity: 16,
         nodeClusterIndex: componentLayout.nodeComponentIndex,
         softening: 92,
-        strength: 0.07,
+        strength: 0.035,
       }),
     );
     fg.d3Force(
       'cluster-gravity',
       createReferralGraphClusterGravityForce<RuntimeGraphNode>({
         activeDraggedNodeIdRef: draggedNodeIdRef,
-        deadZoneRadius: 340,
+        deadZoneRadius: 250,
         gravityScale: 120,
-        maxVelocity: 4.5,
+        maxVelocity: 12,
         minAlpha: 0.002,
         nodeClusterIndex: gravityNodeClusterIndex,
-        singletonDeadZoneRadius: 520,
-        singletonStrengthFactor: 0.6,
+        singletonDeadZoneRadius: 590,
+        singletonStrengthFactor: 0.06,
         softening: 210,
-        strength: 0.01,
+        strength: 0.035,
       }),
     );
     fg.d3Force(

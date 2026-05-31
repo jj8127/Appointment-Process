@@ -188,6 +188,7 @@ export default function AppointmentScreen() {
       const { data, error } = await supabase.functions.invoke<{
         ok: boolean;
         data?: { id?: string; name?: string };
+        message?: string;
         error?: string;
       }>('fc-submit-appointment', {
         body: {

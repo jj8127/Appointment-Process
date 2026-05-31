@@ -101,6 +101,7 @@ supabase secrets list --project-ref <project-ref>
 - 내부 메신저(`app/chat.tsx`)와 GaramLink 임베디드 메신저(`app/request-board-messenger.tsx`)는 전송 시작 시 optimistic 버블/대화 preview를 먼저 반영하고, 알림 호출/전체 메시지 재조회는 background로 분리해 짧은 메시지 체감 지연을 줄이도록 보강됐다.
 - `설계 요청` 메인(`app/request-board.tsx`)은 `실시간 메신저` 바로가기를 `의뢰 현황` 아래 핵심 액션 영역으로 이동했고, `최근 활동` 탭은 Alert 대신 메신저/의뢰목록/알림센터로 직접 이동하도록 정리해 탭 동선을 단순화했다.
 - GaramLink 의뢰 상세(`app/request-board-review.tsx`)는 request_board의 고객 `운전구분` 필드를 읽어 legacy `예/아니요`와 신규 12종 구분(`안함`, `승용차/승합차/화물차/이륜자동차` 영업용/자가용, `건설기계`, `농기계`, `기타`)을 그대로 노출하도록 확장됐다.
+- 2026-05-31 기준 Jest `coverage/` output은 generated local state로 취급하며 `.gitignore`와 `.vercelignore`에서 제외한다. coverage evidence가 필요하면 `npm run test:coverage -- --runInBand`로 재생성하고, 생성 산출물 자체를 source/diff 근거로 커밋하지 않는다.
 - 관리자 웹 FC 상세의 `관리자 메모` 저장 실패 원인은 2026-03-18 기준 `fc_profiles.admin_memo` schema drift(운영 DB 미적용)로 확인됐고, 이를 보정하는 migration `20260318000001_add_fc_profile_admin_memo.sql`이 추가됐다. 메모 저장은 해당 migration이 적용된 DB에서만 정상 동작한다.
 - iPhone 본등록/기본정보 수정 주소 검색은 2026-03-18 기준 postcode WebView 허용 host를 `*.map.daum.net`, `*.map.kakao.com`, `*.daumcdn.net`으로 넓히고, 주소 선택 뒤 모달 종료 후 `상세주소` 포커스를 넘기도록 handoff를 보강했다.
 - 모바일 공통 `AppAlertProvider`는 기술적인 에러 원문(`Edge Function`, `non-2xx`, 권한/네트워크/중복 관련 영문 문구)을 사용자용 한국어 경고/오류 알림으로 정규화하고, 본등록 주민번호 입력 오류는 즉시 `입력 확인` 알림으로 안내하도록 보강됐다.

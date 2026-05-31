@@ -1,13 +1,15 @@
 import { adminSupabase } from '@/lib/admin-supabase';
 import { logger } from '@/lib/logger';
+import { readResidentNumbersFromEdgeFallback } from '@/lib/resident-number-edge-executor';
+import { buildResidentNumberEdgeFallbackRequest } from '@/lib/resident-number-edge-fallback';
+import { parseResidentNumberEdgeFallbackResponse } from '@/lib/resident-number-edge-response';
+import {
+  type DirectDecryptMode,
+  type DirectFallbackReason,
+  resolveResidentNumberDirectDecryptMode,
+} from '@/lib/resident-number-runtime';
 
 type ResidentNumberMap = Record<string, string | null>;
-type DirectDecryptMode = 'auto' | 'disabled' | 'report-only';
-type DirectFallbackReason =
-  | 'missing_identity_key'
-  | 'mode_disabled'
-  | 'report_only'
-  | 'direct_failed';
 
 type DirectReadOutcome =
   | {
@@ -28,10 +30,6 @@ type DirectReadOutcome =
     };
 
 const loggedResidentNumberRuntimeStates = new Set<string>();
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return Boolean(value) && typeof value === 'object' && !Array.isArray(value);
-}
 
 function logResidentNumberRuntimeOnce(
   level: 'warn' | 'error',
@@ -69,29 +67,20 @@ function toErrorDetails(error: unknown): Record<string, string | undefined> | un
 // explicit for Vercel runtimes that want report-only or edge-only behavior.
 function resolveDirectDecryptMode(logPrefix: string): DirectDecryptMode {
   const rawMode = process.env.FC_IDENTITY_DIRECT_DECRYPT_MODE;
-  const normalizedMode = String(rawMode ?? '').trim().toLowerCase();
+  const resolution = resolveResidentNumberDirectDecryptMode(rawMode);
 
-  if (!normalizedMode || normalizedMode === 'auto' || normalizedMode === 'enabled') {
-    return 'auto';
+  if (resolution.invalidConfiguredValue !== null) {
+    logResidentNumberRuntimeOnce(
+      'warn',
+      `${logPrefix} invalid FC_IDENTITY_DIRECT_DECRYPT_MODE; defaulting to auto`,
+      {
+        configuredValue: rawMode ?? null,
+        allowedValues: ['auto', 'disabled', 'report-only'],
+      },
+    );
   }
 
-  if (normalizedMode === 'disabled' || normalizedMode === 'off') {
-    return 'disabled';
-  }
-
-  if (normalizedMode === 'report' || normalizedMode === 'report-only') {
-    return 'report-only';
-  }
-
-  logResidentNumberRuntimeOnce(
-    'warn',
-    `${logPrefix} invalid FC_IDENTITY_DIRECT_DECRYPT_MODE; defaulting to auto`,
-    {
-      configuredValue: rawMode ?? null,
-      allowedValues: ['auto', 'disabled', 'report-only'],
-    },
-  );
-  return 'auto';
+  return resolution.directMode;
 }
 
 function fromBase64(input: string): Uint8Array {
@@ -289,55 +278,16 @@ export async function readResidentNumbersWithFallback({
 
   const supabaseUrl = String(process.env.NEXT_PUBLIC_SUPABASE_URL ?? '').trim();
   const serviceKey = String(process.env.SUPABASE_SERVICE_ROLE_KEY ?? '').trim();
-  if (!supabaseUrl || !serviceKey) {
-    const missingEnv = [
-      !supabaseUrl ? 'NEXT_PUBLIC_SUPABASE_URL' : null,
-      !serviceKey ? 'SUPABASE_SERVICE_ROLE_KEY' : null,
-    ].filter(Boolean);
-    const message = `Resident-number runtime misconfigured: ${getDirectFallbackDescription(directRead.reason)} and edge fallback is unavailable (${missingEnv.join(', ')})`;
-    logger.error(`${logPrefix} edge fallback unavailable`, {
-      ...runtimeDetails,
-      missingEnv,
-    });
-    throw new Error(message);
-  }
-
-  const resp = await fetch(`${supabaseUrl}/functions/v1/admin-action`, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      apikey: serviceKey,
-      Authorization: `Bearer ${serviceKey}`,
-    },
-    body: JSON.stringify({
-      adminPhone: staffPhone,
-      action: 'getResidentNumbers',
-      payload: { fcIds },
-    }),
+  return readResidentNumbersFromEdgeFallback({
+    fcIds,
+    staffPhone,
+    supabaseUrl,
+    serviceKey,
+    directFallbackDescription: getDirectFallbackDescription(directRead.reason),
+    runtimeDetails,
+    logPrefix,
+    logError: (message, details) => logger.error(message, details),
+    buildRequest: buildResidentNumberEdgeFallbackRequest,
+    parseResponse: parseResidentNumberEdgeFallbackResponse,
   });
-
-  const data: unknown = await resp.json().catch(() => null);
-  const isOk =
-    resp.ok &&
-    isRecord(data) &&
-    data.ok === true &&
-    isRecord(data.residentNumbers);
-
-  if (!isOk) {
-    logger.error(`${logPrefix} resident-number edge function failed`, {
-      ...runtimeDetails,
-      status: resp.status,
-      body: data,
-    });
-
-    let msg = 'Edge Function failed';
-    if (isRecord(data)) {
-      if (typeof data.message === 'string') msg = data.message;
-      else if (typeof data.error === 'string') msg = data.error;
-    }
-
-    throw new Error(`Resident-number edge fallback failed after ${getDirectFallbackDescription(directRead.reason)}: ${msg}`);
-  }
-
-  return (data as Record<string, unknown>).residentNumbers as Record<string, string | null>;
 }

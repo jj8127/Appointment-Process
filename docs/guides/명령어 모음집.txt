@@ -28,14 +28,20 @@ codex에서 사용 가능한 도구 목록 보기
 2. 도구 찾기
     list_mcp_tools
 
-vercel에 등록하기
-1. 배포하고자 하는 루트 디렉토리로 이동
-2. vercel과 연동
-    vercel link
-3. 웹 빌드 생성
-    npx expo export -p web
-4. 배포
+관리자 웹 Vercel 배포
+1. 저장소 루트에서 admin_web 프로젝트와 연동
+    vercel link --project admin_web
+2. 루트 vercel.json 기준으로 배포
+    vercel deploy --prod --archive=tgz
+
+Expo Web 정적 배포가 필요할 때
+1. 정적 export 생성
+    npm run build
+2. appointmentprocess 프로젝트와 연동
+    vercel link --project appointmentprocess
+3. freshly generated dist를 배포
     vercel deploy dist --prod
+주의: dist/는 생성물이며 source처럼 커밋하거나 오래된 checkout 산출물로 배포 여부를 판단하지 않는다.
 
 앱 데이터 초기화
     adb uninstall com.jj8127.Garam_in

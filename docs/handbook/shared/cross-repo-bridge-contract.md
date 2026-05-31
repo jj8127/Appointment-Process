@@ -43,6 +43,14 @@ source_of_truth: supabase/functions/_shared/request-board-auth.ts + supabase/fun
 - `requestBoardRole`
 - `users.affiliation` / app affiliation source
 
+## 2026-05-30 characterization 메모
+
+- `supabase/functions/_shared/request-board-password-sync.ts`의 outbound body builder는 `buildRequestBoardPasswordSyncBody`로 직접 characterization한다.
+- body builder는 `phone`, `password`, `role`을 항상 보내고, truthy `name`/`companyName`/`initiatorRole`/`syncReason`만 추가한다.
+- `affiliation`은 `fc`와 `manager` role에서만 포함한다. linked designer mirror는 `companyName`을 보내고 `affiliation`은 request_board direct designer payload에서 제외한다.
+- 이 helper는 값 trim/normalization을 하지 않는다. caller가 정한 phone/password/name/company/affiliation 값을 그대로 request_board sync body로 전달하는 것이 현재 계약이다.
+- 관리자 웹 session restore는 cookie-first가 우선이다. 유효한 cookie session이 있으면 localStorage snapshot이 drift되어도 먼저 읽어 복원하지 않는다.
+
 ## 관련 문서
 
 - [security-and-secret-operations.md](E:/hanhwa/fc-onboarding-app/docs/handbook/shared/security-and-secret-operations.md)

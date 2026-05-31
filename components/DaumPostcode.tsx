@@ -2,14 +2,16 @@ import type { JSOptions, OnCompleteParams } from '@actbase/react-daum-postcode/l
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Alert, Linking, StyleSheet, Text, View, type StyleProp, type ViewStyle } from 'react-native';
 import WebView, {
-  type WebViewErrorEvent,
-  type WebViewHttpErrorEvent,
-  type WebViewNavigation,
   type WebViewMessageEvent,
-  type WebViewNavigationEvent,
-  type WebViewOpenWindowEvent,
+  type WebViewNavigation,
 } from 'react-native-webview';
-import type { ShouldStartLoadRequest } from 'react-native-webview/lib/WebViewTypes';
+import type {
+  ShouldStartLoadRequest,
+  WebViewErrorEvent,
+  WebViewHttpErrorEvent,
+  WebViewNavigationEvent,
+  WebViewOpenWindowEvent,
+} from 'react-native-webview/lib/WebViewTypes';
 
 import { shouldStayInDaumPostcodeWebView } from '@/lib/daum-postcode';
 import { logger } from '@/lib/logger';
@@ -283,7 +285,7 @@ export function DaumPostcode({
     });
   }, [updateDebugLine]);
 
-  const handleLoadEnd = useCallback(({ nativeEvent }: WebViewNavigationEvent) => {
+  const handleLoadEnd = useCallback(({ nativeEvent }: WebViewNavigationEvent | WebViewErrorEvent) => {
     updateDebugLine('loadEnd', { url: nativeEvent.url });
     logger.debug('[postcode] loadEnd', {
       url: nativeEvent.url,
@@ -349,7 +351,6 @@ export function DaumPostcode({
         mixedContentMode="compatibility"
         androidLayerType="hardware"
         renderToHardwareTextureAndroid
-        useWebKit
       />
     </View>
   );

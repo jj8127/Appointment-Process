@@ -69,6 +69,7 @@ Claude-Code-Usage-Monitor/
 # Test and temp files
 .testsprite_tests
 testsprite_tests/
+coverage/
 nul
 supabase/.temp/
 

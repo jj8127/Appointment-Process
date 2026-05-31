@@ -1,11 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 
-const PUBLIC_PATHS = ['/auth', '/invite', '/favicon.ico', '/manifest.json'];
-const SESSION_COOKIE_NAMES = ['session_role', 'session_resident', 'session_display', 'session_staff_type'] as const;
+import { isAdminWebPublicPath } from './src/lib/admin-web-public-paths';
 
-function isPublicPath(pathname: string) {
-  return PUBLIC_PATHS.some((p) => pathname === p || pathname.startsWith(`${p}/`));
-}
+const SESSION_COOKIE_NAMES = ['session_role', 'session_resident', 'session_display', 'session_staff_type'] as const;
 
 function clearSessionCookies(response: NextResponse) {
   for (const cookieName of SESSION_COOKIE_NAMES) {
@@ -56,7 +53,7 @@ export function middleware(request: NextRequest) {
     return NextResponse.next();
   }
 
-  if (isPublicPath(pathname)) {
+  if (isAdminWebPublicPath(pathname)) {
     return NextResponse.next();
   }
 

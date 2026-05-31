@@ -80,6 +80,8 @@ source_of_truth: app/login.tsx + app/signup*.tsx + app/reset-password.tsx + app/
 - legacy 로컬 세션에 과거 `role='manager'` payload가 남아 있어도 restore 단계에서 현재 앱 권한모델인 `admin + readOnly`로 정규화해야 합니다. 그렇지 않으면 본부장용 읽기 전용 화면과 referral self-service gate가 재로그인 전까지 어긋날 수 있습니다.
 - referral self-service gate의 실제 모바일 surface는 `app/referral.tsx`다. FC 또는 `admin + readOnly` 본부장만 열고, plain admin/developer와 request_board designer는 같은 trusted path를 공유하지 않는다.
 - referral self-service는 로그인 화면 상태와 별개 `appSessionToken`을 쓴다. `/referral` 진입 시 현재 token이 없거나 만료되면 `hooks/use-referral-app-session.ts -> refresh-app-session`이 저장된 bridge token으로 1회 silent refresh를 시도하고, bridge token까지 없거나 만료면 relogin CTA를 보여야 한다.
+- `hooks/use-referral-app-session.ts`는 referral self-service app-session 오류 분류의 SSOT다. `isReferralReloginError`는 `ReferralAppSessionError`의 `needsRelogin`을 좁히는 type guard로 유지하고, relogin 대상 code 집합을 넓히거나 줄이면 `/referral` CTA 계약도 함께 검증해야 한다.
+- referral function 실패 응답의 `code`는 문자열, `null`, 또는 누락 상태일 수 있다. 클라이언트는 error classification 때 `null`을 `undefined`로 정규화하되, 사용자 표시 message fallback은 기존 `message -> fallback` 순서를 유지한다.
 - `/referral` 상단은 더 이상 루트까지의 추천인 업라인 chain을 모두 보여주지 않고, direct recommender 1명 카드만 노출한다. 사용자가 입력한 추천코드 기준 사람 한 명만 보이는 것이 현재 UI 계약이다.
 - `app/referral.tsx`의 descendant lazy expand는 같은 `appSessionToken`으로 descendant `fcId`를 다시 조회하므로, 서버 인가도 `self only`가 아니라 `self subtree membership`을 검증해야 화면 contract와 맞는다. `app/referral-tree.tsx`는 legacy 진입을 `/referral`로 보내는 compatibility redirect만 유지한다.
 - 본부장 전용 desktop graph shortcut은 모바일 self-service의 보조 링크일 뿐이며, FC에게는 노출하지 않는다.

@@ -59,3 +59,10 @@ source_of_truth: supabase/functions/fc-notify/index.ts + supabase/functions/boar
 - web push identity row를 권한 원천으로 오해하지 않음
 - badge 숫자와 앱 unread는 동기화 주기가 다를 수 있음
 - bridge notification이 앱 한쪽에만 보이면 request_board fanout부터 추적
+
+## 2026-05-30 unread characterization 메모
+
+- 모바일 unread 집계는 checkpoint 기반 fc-onboarding unread와 live request_board unread를 분리해 계산한다.
+- checkpoint key는 `role + residentId + requestBoardRole` scope를 유지해야 하며, request_board FC/designer bridge 사용자가 같은 checkpoint를 공유하면 회귀다.
+- live request_board unread를 포함하는 경우에만 `fc-notify` body의 request_board category 제외 플래그도 같이 유지한다.
+- polling/orchestration 경로는 checkpoint를 새로 초기화하지 않고, request_board unread fetch 실패 시 `[mobile-unread-count] fetch failed`를 남긴 뒤 `0` fallback을 유지한다.

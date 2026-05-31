@@ -27,6 +27,7 @@ import { useSession } from '@/hooks/use-session';
 import { openExternalUrl } from '@/lib/open-external-url';
 import { supabase } from '@/lib/supabase';
 import { COLORS, RADIUS, SHADOWS, SPACING, TYPOGRAPHY } from '@/lib/theme';
+import type { FcStatus } from '@/types/fc';
 
 const BUCKET = 'fc-documents';
 const weekdays = ['일', '월', '화', '수', '목', '금', '토'];
@@ -34,13 +35,16 @@ const weekdays = ['일', '월', '화', '수', '목', '금', '토'];
 const formatKoreanDate = (date: Date) =>
   `${date.getFullYear()}년 ${date.getMonth() + 1}월 ${date.getDate()}일 (${weekdays[date.getDay()]})`;
 
+const formatShortKoreanDate = (date: Date) =>
+  `${date.getFullYear()}.${String(date.getMonth() + 1).padStart(2, '0')}.${String(date.getDate()).padStart(2, '0')}`;
+
 const toYMD = (date: Date) =>
   `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
 
 type HanwhaProfile = {
   id?: string | null;
   name?: string | null;
-  status?: string | null;
+  status?: FcStatus | null;
   hanwha_commission_date_sub?: string | null;
   hanwha_commission_date?: string | null;
   hanwha_commission_reject_reason?: string | null;
@@ -129,10 +133,6 @@ export default function HanwhaCommissionScreen() {
     () => (profile?.hanwha_commission_date_sub ? new Date(profile.hanwha_commission_date_sub) : null),
     [profile?.hanwha_commission_date_sub],
   );
-  const approvedDate = useMemo(
-    () => (profile?.hanwha_commission_date ? new Date(profile.hanwha_commission_date) : null),
-    [profile?.hanwha_commission_date],
-  );
   const rejectReason = trimString(profile?.hanwha_commission_reject_reason);
   const pdfPath = trimString(profile?.hanwha_commission_pdf_path);
   const rawPdfName = trimString(profile?.hanwha_commission_pdf_name);
@@ -140,8 +140,8 @@ export default function HanwhaCommissionScreen() {
   const status = profile?.status ?? null;
 
   const isApproved = hasHanwhaApprovalEvidence({
-    status,
-    hanwha_commission_date: approvedDate,
+    status: status ?? undefined,
+    hanwha_commission_date: profile?.hanwha_commission_date ?? null,
   });
   const canSubmitHanwha = Boolean(
     status === 'docs-approved' ||
@@ -223,6 +223,7 @@ export default function HanwhaCommissionScreen() {
       const { data, error } = await supabase.functions.invoke<{
         ok?: boolean;
         data?: { id?: string; name?: string };
+        message?: string;
         error?: string;
       }>('fc-submit-hanwha-commission', {
         body: {
@@ -232,7 +233,7 @@ export default function HanwhaCommissionScreen() {
       });
 
       if (error) {
-      const message = await resolveFunctionInvokeErrorMessage(error, '한화 위촉 URL 정보를 저장하지 못했습니다.');
+        const message = await resolveFunctionInvokeErrorMessage(error, '한화 위촉 URL 정보를 저장하지 못했습니다.');
         throw new Error(message);
       }
       if (!data?.ok) {
@@ -247,7 +248,7 @@ export default function HanwhaCommissionScreen() {
           body: {
             type: 'fc_update',
             fc_id: data.data.id,
-          message: `${data.data.name ?? ''}님이 한화 위촉 URL 완료를 보고했습니다. (입력일: ${ymd})`,
+            message: `${data.data.name ?? ''}님이 한화 위촉 URL 완료를 보고했습니다. (입력일: ${ymd})`,
             url: '/dashboard',
           },
         })
@@ -627,6 +628,25 @@ const styles = StyleSheet.create({
     padding: SPACING.lg,
     gap: SPACING.base,
     ...SHADOWS.base,
+  },
+  compactHero: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: SPACING.sm,
+  },
+  heroIconWrap: {
+    width: 40,
+    height: 40,
+    borderRadius: 14,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  heroIconWrapSolid: {
+    backgroundColor: COLORS.primary,
+  },
+  heroTextWrap: {
+    flex: 1,
+    gap: 4,
   },
   summaryHeader: {
     flexDirection: 'row',

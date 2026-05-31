@@ -14,7 +14,7 @@ const createNode = (overrides: Partial<DescendantNode> = {}): DescendantNode => 
   directInviteeCount: 0,
   totalDescendantCount: 0,
   depth: 1,
-  relationshipSource: 'structured',
+  relationshipSource: 'linked',
   ...overrides,
 });
 

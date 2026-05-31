@@ -155,7 +155,7 @@ function addReferralForces(
     .force('node-separation', createReferralGraphNodeSeparationForce<SimNode>({
       activeDraggedNodeIdRef: options.activeDraggedNodeIdRef,
       crossClusterDistance: 126,
-      crossComponentDistance: 146,
+      crossComponentDistance: 118,
       maxVelocity: 18,
       minDistance: 50,
       nodeClusterIndex: layout.nodeClusterIndex,
@@ -182,23 +182,23 @@ function addReferralForces(
     .force('component-separation', createReferralGraphClusterSeparationForce<SimNode>({
       activeDraggedNodeIdRef: options.activeDraggedNodeIdRef,
       clusterRadii: layout.componentRadii,
-      gap: 92,
+      gap: 54,
       maxVelocity: 16,
       nodeClusterIndex: layout.nodeComponentIndex,
       softening: 92,
-      strength: 0.07,
+      strength: 0.035,
     }))
     .force('cluster-gravity', createReferralGraphClusterGravityForce<SimNode>({
       activeDraggedNodeIdRef: options.activeDraggedNodeIdRef,
-      deadZoneRadius: 340,
+      deadZoneRadius: 250,
       gravityScale: 120,
-      maxVelocity: 4.5,
+      maxVelocity: 12,
       minAlpha: 0.002,
       nodeClusterIndex: gravityNodeClusterIndex,
-      singletonDeadZoneRadius: 520,
-      singletonStrengthFactor: 0.6,
+      singletonDeadZoneRadius: 590,
+      singletonStrengthFactor: 0.06,
       softening: 210,
-      strength: 0.01,
+      strength: 0.035,
     }))
     .force('component-envelope', createReferralGraphComponentEnvelopeForce<SimNode>({
       activeDraggedNodeIdRef: options.activeDraggedNodeIdRef,

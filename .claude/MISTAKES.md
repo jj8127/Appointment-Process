@@ -30,6 +30,73 @@
 - Verification:
 ```
 
+## 2026-05-31 | Admin Web Route Smoke | redirect-following smoke로 public route 보호 회귀를 놓침
+- Symptom:
+  - harness에는 `/reset-password` production smoke가 200으로 기록돼 있었지만, redirect를 따르지 않는 현재 smoke에서는 `/reset-password`가 307로 `/auth`에 redirect됐다.
+  - 비밀번호 변경 화면은 `/auth`에서 진입하는 public flow인데 middleware public path에 포함되지 않아 비로그인 사용자가 직접 열 수 없었다.
+- Root cause:
+  - `web/middleware.ts`의 public route list가 `/auth`, `/invite`, favicon/manifest만 포함하고 `/reset-password`를 빠뜨렸다.
+  - 이전 HTTP smoke가 redirect follow 여부를 명확히 고정하지 않아 최종 `/auth` 200을 `/reset-password` 200처럼 기록할 수 있었다.
+- Why it was missed:
+  - route accessibility smoke에서 redirect status와 `Location` header를 따로 확인하지 않았다.
+  - password reset이 auth page에서 출발하지만 비로그인 public route여야 한다는 계약을 middleware-level characterization으로 고정하지 않았다.
+- Permanent guardrail:
+  - protected/public route smoke는 redirect를 따르지 않고 status + `Location`을 함께 기록한다.
+  - admin web public paths는 shared helper와 direct Node characterization test로 관리한다.
+  - password reset, invite, auth처럼 비로그인 entrypoint인 route는 middleware public-path 테스트에 포함한다.
+- Related files:
+  - `web/middleware.ts`
+  - `web/src/lib/admin-web-public-paths.ts`
+  - `web/src/lib/admin-web-public-paths.test.ts`
+  - `.codex/harness/current-contract.md`
+- Verification:
+  - RED: `node --experimental-strip-types --test web/src/lib/admin-web-public-paths.test.ts` failed before helper implementation with `ERR_MODULE_NOT_FOUND`.
+  - GREEN: the same test passed after helper implementation.
+  - No-redirect production smoke after fix: `/reset-password=200`, `/auth=200`, `/dashboard=307 location=/auth`.
+
+## 2026-05-30 | Coverage Verification | exit 0만 보고 coverage 수집 오류를 놓칠 수 있음
+- Symptom:
+  - `npm run test:coverage -- --runInBand`가 exit 0으로 끝났지만, 출력에는 TSX JSX/Babel coverage collection error와 `hooks/use-my-referral-code.ts` 타입 collection error가 함께 있었다.
+  - exit code만 보면 coverage가 정상이라고 오판할 수 있었다.
+- Root cause:
+  - root Jest는 Expo/Babel test transform으로 통과하지만 coverage collection은 별도 instrumentation 경로를 타며, 기존 provider가 일부 TSX/TS source를 깨끗하게 수집하지 못했다.
+- Why it was missed:
+  - 검증 명령 성공 여부를 exit code 중심으로만 보려는 습관이 있었고, coverage output의 collection errors를 별도 실패 신호로 취급하지 않았다.
+- Permanent guardrail:
+  - coverage 명령은 exit code뿐 아니라 output의 `Failed to collect coverage`, parser/type error, skipped instrumentation warning까지 읽고 기록한다.
+  - `npm run test:coverage -- --runInBand`는 V8 coverage provider 유지 여부까지 함께 확인한다.
+- Related files:
+  - `jest.config.js`
+  - `.codex/harness/current-contract.md`
+  - `.codex/harness/qa-report.md`
+  - `.claude/MISTAKES.md`
+- Verification:
+  - Before fix: `npm run test:coverage -- --runInBand` exited 0 but emitted coverage collection errors.
+  - After fix: `coverageProvider: 'v8'` added to `jest.config.js`.
+  - After fix: `npm run test:coverage -- --runInBand` passed 29 suites / 185 tests with no prior coverage collection errors.
+
+## 2026-05-30 | Next.js Web Build | Production source에 `.ts` 확장자 상대 import를 사용함
+- Symptom:
+  - `web` build가 TypeScript 단계에서 `An import path can only end with a '.ts' extension when 'allowImportingTsExtensions' is enabled` 오류로 실패했다.
+  - 실패 지점은 새 production helper `web/src/lib/resident-number-edge-executor.ts`의 `./resident-number-edge-fallback.ts` / `./resident-number-edge-response.ts` import였다.
+- Root cause:
+  - Node `--experimental-strip-types` 기반 characterization test는 test 파일에서 `.ts` 확장자 import가 필요하지만, 같은 패턴을 production source에 적용하면 Next.js/TypeScript build 규칙과 충돌한다.
+- Why it was missed:
+  - 대상 lint와 direct Node tests만 먼저 통과했고, production source import 경로가 TypeScript build에서 별도로 검증된다는 차이를 build 실행 전까지 확인하지 못했다.
+- Permanent guardrail:
+  - `.ts` 확장자 import는 direct Node test 파일에만 사용한다.
+  - Production source는 extensionless/alias import를 유지하거나, Node test compatibility가 필요하면 production helper가 의존성을 주입받도록 분리한다.
+  - 새 production helper가 다른 TS helper를 import할 때는 targeted lint만으로 마감하지 말고 가능한 범위에서 `web` build 또는 typecheck를 함께 실행한다.
+- Related files:
+  - `web/src/lib/resident-number-edge-executor.ts`
+  - `web/src/lib/resident-number-edge-executor.test.ts`
+  - `web/src/lib/server-resident-numbers.ts`
+  - `.claude/MISTAKES.md`
+- Verification:
+  - Before fix: `cd web; npm run build` failed at `resident-number-edge-executor.ts` `.ts` import path.
+  - After fix: executor receives request/response helpers as dependencies; `server-resident-numbers.ts` injects existing helpers through production-safe imports.
+  - After fix: `cd web; npm run build` passed.
+
 ## 2026-05-26 | Insurance Digest Automation | WindowsApps PowerShell 버전 경로를 예약 작업에 고정함
 - Symptom:
   - 2026-05-22 이후 `보험소식 브리핑` 자동화 산출물과 게시글이 생성되지 않았다.

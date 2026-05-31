@@ -3,6 +3,11 @@
 import { useRouter } from 'next/navigation';
 import { createContext, ReactNode, useContext, useEffect, useMemo, useState } from 'react';
 
+import {
+    formatSessionResidentMask,
+    isClientSessionReadOnly,
+    resolveClientSessionRestore,
+} from '@/lib/client-session-restore';
 import { logger } from '@/lib/logger';
 import { normalizeStaffType, type StaffType } from '@/lib/staff-identity';
 type Role = 'admin' | 'manager' | 'fc' | null;
@@ -31,14 +36,6 @@ const COOKIE_STAFF_TYPE = 'session_staff_type';
 function isRole(value: unknown): value is Exclude<Role, null> {
     return value === 'admin' || value === 'manager' || value === 'fc';
 }
-
-const computeMask = (raw: string) => {
-    const digits = raw.replace(/[^0-9]/g, '');
-    if (!digits) return '';
-    if (digits.length <= 3) return digits;
-    if (digits.length <= 7) return `${digits.slice(0, 3)}-${digits.slice(3)}`;
-    return `${digits.slice(0, 3)}-${digits.slice(3, 7)}-${digits.slice(7)}`;
-};
 
 const initialState: SessionState = { role: null, residentId: '', residentMask: '', displayName: '', staffType: null };
 const STORAGE_KEY = 'fc-onboarding/session';
@@ -90,7 +87,7 @@ function readSessionFromCookies(): SessionState | null {
     return {
         role,
         residentId,
-        residentMask: computeMask(residentId),
+        residentMask: formatSessionResidentMask(residentId),
         displayName: parseCookie(COOKIE_DISPLAY),
         staffType: normalizeStaffType(parseCookie(COOKIE_STAFF_TYPE)),
     };
@@ -106,7 +103,7 @@ function readSessionFromStorage(): SessionState | null {
         return {
             role: parsed.role,
             residentId: parsed.residentId,
-            residentMask: computeMask(parsed.residentId),
+            residentMask: formatSessionResidentMask(parsed.residentId),
             displayName: parsed.displayName ?? '',
             staffType: normalizeStaffType(parsed.staffType),
         };
@@ -141,7 +138,11 @@ export function SessionProvider({ children }: { children: ReactNode }) {
             try {
                 // Middleware uses cookies as the server-side session source of truth.
                 // Restore that snapshot first so protected routes and client state stay aligned.
-                const snapshot = readSessionFromCookies() ?? readSessionFromStorage();
+                const cookieSession = readSessionFromCookies();
+                const snapshot = resolveClientSessionRestore({
+                    cookieSession,
+                    storageSession: cookieSession ? null : readSessionFromStorage(),
+                });
                 if (snapshot) {
                     setState(snapshot);
                     writeCookies(snapshot);
@@ -192,9 +193,15 @@ export function SessionProvider({ children }: { children: ReactNode }) {
         () => ({
             ...state,
             hydrated,
-            isReadOnly: state.role === 'manager', // manager는 읽기 전용
+            isReadOnly: isClientSessionReadOnly(state.role), // manager는 읽기 전용
             loginAs: (role, residentId, displayName = '', staffType = null) => {
-                setState({ role, residentId, residentMask: computeMask(residentId), displayName, staffType });
+                setState({
+                    role,
+                    residentId,
+                    residentMask: formatSessionResidentMask(residentId),
+                    displayName,
+                    staffType,
+                });
                 writeCookies({
                     role,
                     residentId,

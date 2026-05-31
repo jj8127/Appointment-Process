@@ -8,7 +8,7 @@ type NotificationCheckpointScope = {
 
 const NOTIFICATION_CHECKPOINT_KEY_PREFIX = 'lastNotificationCheckTime';
 
-const buildNotificationCheckpointKey = ({
+export const buildNotificationCheckpointKey = ({
   role,
   residentId,
   requestBoardRole,

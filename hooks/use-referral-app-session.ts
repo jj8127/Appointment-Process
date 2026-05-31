@@ -104,7 +104,7 @@ async function toReferralAppSessionError(error: unknown, fallback: string) {
   );
 }
 
-export function isReferralReloginError(error: unknown): boolean {
+export function isReferralReloginError(error: unknown): error is ReferralAppSessionError {
   return error instanceof ReferralAppSessionError && error.needsRelogin;
 }
 
@@ -192,7 +192,7 @@ export function useReferralAppSession() {
   }, [appSessionToken, refreshReferralAppSession, replaceAppSessionToken]);
 
   const invokeReferralFunction = useCallback(async <
-    TResponse extends { ok?: boolean; code?: string; message?: string },
+    TResponse extends { ok?: boolean; code?: string | null; message?: string | null },
   >(
     functionName: string,
     options: {
@@ -214,11 +214,12 @@ export function useReferralAppSession() {
       }
 
       if (!data?.ok) {
+        const failureCode = data?.code ?? undefined;
         throw new ReferralAppSessionError(
-          toUserFacingSessionMessage(data?.code, data?.message ?? options.fallbackMessage),
+          toUserFacingSessionMessage(failureCode, data?.message ?? options.fallbackMessage),
           {
-            code: data?.code,
-            needsRelogin: isReloginCode(data?.code),
+            code: failureCode,
+            needsRelogin: isReloginCode(failureCode),
           },
         );
       }

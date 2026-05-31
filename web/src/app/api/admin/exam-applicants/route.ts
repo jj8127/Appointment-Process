@@ -3,6 +3,14 @@ import { NextResponse } from 'next/server';
 
 import { adminSupabase } from '@/lib/admin-supabase';
 import { checkRateLimit, SECURITY_HEADERS, validateSession } from '@/lib/csrf';
+import {
+  buildExamApplicantBaseRows,
+  buildExamApplicantPhoneCandidates,
+  buildExamApplicantProfileMatchPlan,
+  enrichExamApplicantsWithResidentNumbers,
+  type ExamApplicantProfileRow,
+  type ExamRegistrationRow,
+} from '@/lib/exam-applicant-resident-number-enrichment';
 import { logger } from '@/lib/logger';
 import { readResidentNumbersWithFallback } from '@/lib/server-resident-numbers';
 import { buildPhoneCandidates } from '@/lib/server-session';
@@ -14,26 +22,6 @@ type DeleteBody = {
 type UpdateBody = {
   registrationId?: string;
   isConfirmed?: boolean;
-};
-
-type ExamRegistrationRow = {
-  id: string;
-  status: string;
-  created_at: string;
-  resident_id: string;
-  is_confirmed: boolean;
-  is_third_exam?: boolean | null;
-  fee_paid_date?: string | null;
-  exam_locations?: { location_name?: string | null } | null;
-  exam_rounds?: { round_label?: string | null; exam_date?: string | null; exam_type?: string | null } | null;
-};
-
-type ProfileRow = {
-  id: string;
-  phone: string;
-  name: string | null;
-  affiliation: string | null;
-  address: string | null;
 };
 
 async function getAdminSession() {
@@ -111,27 +99,8 @@ async function listApplicants(staffPhone: string) {
   }
 
   const rows = (data ?? []) as ExamRegistrationRow[];
-  const base = rows.map((row) => ({
-    id: row.id,
-    status: row.status,
-    created_at: row.created_at,
-    resident_id: row.resident_id,
-    is_confirmed: row.is_confirmed,
-    is_third_exam: row.is_third_exam ?? false,
-    location_name: row.exam_locations?.location_name || '미정',
-    round_label: row.exam_rounds?.round_label || '-',
-    exam_date: row.exam_rounds?.exam_date ?? null,
-    exam_type: row.exam_rounds?.exam_type ?? null,
-    fee_paid_date: row.fee_paid_date ?? null,
-  }));
-
-  const phoneCandidates = Array.from(
-    new Set(
-      base.flatMap((item) =>
-        buildPhoneCandidates(String(item.resident_id ?? '').trim(), String(item.resident_id ?? '').replace(/[^0-9]/g, '')),
-      ),
-    ),
-  ).filter(Boolean);
+  const base = buildExamApplicantBaseRows(rows);
+  const phoneCandidates = buildExamApplicantPhoneCandidates(base, buildPhoneCandidates);
 
   if (phoneCandidates.length === 0) {
     return [];
@@ -147,37 +116,19 @@ async function listApplicants(staffPhone: string) {
     throw profileError;
   }
 
-  const profileRows = (profiles ?? []) as ProfileRow[];
-  const profileMap = new Map<string, ProfileRow>();
-  for (const profile of profileRows) {
-    const candidates = buildPhoneCandidates(profile.phone, String(profile.phone ?? '').replace(/[^0-9]/g, ''));
-    for (const candidate of candidates) {
-      profileMap.set(candidate, profile);
-    }
-  }
-  const fcIds = Array.from(new Set(profileRows.map((profile) => profile.id).filter(Boolean)));
+  const profileRows = (profiles ?? []) as ExamApplicantProfileRow[];
+  const profileMatchPlan = buildExamApplicantProfileMatchPlan(profileRows, buildPhoneCandidates);
   const residentNumbersByFcId = await readResidentNumbersWithFallback({
-    fcIds,
+    fcIds: profileMatchPlan.fcIds,
     staffPhone,
     logPrefix: '[api/admin/exam-applicants]',
   });
 
-  return base.map((item) => {
-    const profile = buildPhoneCandidates(
-      String(item.resident_id ?? '').trim(),
-      String(item.resident_id ?? '').replace(/[^0-9]/g, ''),
-    )
-      .map((candidate) => profileMap.get(candidate))
-      .find(Boolean);
-    const fullResidentNumber = profile?.id ? residentNumbersByFcId[profile.id] : null;
-    return {
-      ...item,
-      name: profile?.name ?? '이름없음',
-      phone: profile?.phone ?? item.resident_id,
-      affiliation: profile?.affiliation ?? '-',
-      address: profile?.address ?? '-',
-      resident_id: fullResidentNumber ?? '주민번호 조회 실패',
-    };
+  return enrichExamApplicantsWithResidentNumbers({
+    applicants: base,
+    profileByCandidate: profileMatchPlan.profileByCandidate,
+    residentNumbersByFcId,
+    buildPhoneCandidates,
   });
 }
 

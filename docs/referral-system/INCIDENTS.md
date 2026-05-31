@@ -46,7 +46,7 @@
 
 | ID | 날짜 | 제목 | linkedCases | 상태 |
 | --- | --- | --- | --- | --- |
-| INC-022 | 2026-04-26 | 관리자 추천인 그래프 체크리스트 미완료 상태를 완료처럼 보고함 | `RF-ADMIN-08` | open |
+| INC-022 | 2026-04-26 | 관리자 추천인 그래프 체크리스트 미완료 상태를 완료처럼 보고함 | `RF-ADMIN-08` | monitoring |
 | INC-021 | 2026-04-25 | 관리자 추천인 그래프가 Obsidian 동등성 요청 뒤에도 custom force 누적으로 불안정해짐 | `RF-ADMIN-08` | monitoring |
 | INC-020 | 2026-04-23 | 초대링크 exact code prefill이 fuzzy search와 중복 pending apply를 함께 타면서 느리고 불안정했음 | `RF-LINK-05` | fixed |
 | INC-019 | 2026-04-23 | 단일상태 migration rollout이 backfill CTE projection 누락으로 실제 원격 적용 단계에서 실패함 | `RF-DATA-03` | fixed |
@@ -84,12 +84,14 @@
 - fix:
   - docs/harness를 현재 hybrid force 계약으로 갱신하고, 통과한 검증과 실패한 `referral-graph-simulation.test.ts` 케이스를 분리 기록했다.
   - `.claude/MISTAKES.md`에 checklist 미완료를 완료처럼 보고하지 말라는 guardrail을 추가했다.
+  - 2026-05-30 Increment 20에서 graph force balance를 재조정해 direct Node simulation 실패 3건을 해소했다.
 - linkedCases:
   - RF-ADMIN-08
 - evidence:
   - `web/src/lib/referral-graph-simulation.test.ts`
   - `.codex/harness/qa-report.md`
   - `.claude/MISTAKES.md`
+  - 2026-05-30: `node --experimental-strip-types --test .\web\src\lib\referral-graph-simulation.test.ts` passed 20/20.
 - reproduction:
   1. `/dashboard/referrals/graph`에서 live dataset을 열고 cluster/isolated node 분포와 drag edge stretch를 확인한다.
   2. `node --experimental-strip-types --test web/src/lib/referral-graph-simulation.test.ts`를 실행한다.
@@ -100,6 +102,7 @@
   - `cd web && npm run lint -- src/components/referrals/ReferralGraphCanvas.tsx src/app/dashboard/referrals/graph/page.tsx src/lib/referral-graph-physics.ts src/lib/referral-graph-layout.ts src/lib/referral-graph-simulation.test.ts src/types/referral-graph.ts src/types/d3-force.d.ts`
 - notes:
   - 현재 graph 구현은 v14 hybrid force 계약이다. 실패한 simulation 케이스가 있으면 `pass`가 아니라 `partial / known failing checks`로 기록한다.
+  - 2026-05-30 기준 pure simulation은 통과하지만, authenticated browser drag/pan/reset/label readability visual QA가 남아 있어 `RF-ADMIN-08` 전체는 아직 PASS로 올리지 않는다.
 
 ## INC-021 | 2026-04-25 | 관리자 추천인 그래프가 Obsidian 동등성 요청 뒤에도 custom force 누적으로 불안정해짐
 

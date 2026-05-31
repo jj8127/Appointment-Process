@@ -24,7 +24,7 @@
 - `manager`는 앱/웹 전반에서 읽기 전용 역할을 유지합니다.
 - `developer`는 앱 권한은 총무와 같지만 표기와 request_board 브릿지 정체성은 별도 처리됩니다.
 - request_board-linked 설계매니저는 앱 내부 별도 role을 두지 않고 `fc_profiles / fc_credentials`와 `affiliation='<보험사> 설계매니저'` 패턴으로 관리합니다.
-- 현재 앱 DB 기준 request_board-linked 설계매니저 프로필은 `54명`입니다.
+- 현재 앱 DB 기준 request_board-linked 설계매니저 프로필은 `59명`입니다.
 - FC/본부장 affiliation이 request_board로 함께 동기화되어, GaramLink 쪽에서는 `소속 · 이름` 기준으로 노출할 수 있습니다.
 - request_board password sync는 request_board-backed 계정만 대상으로 유지합니다. `manager`와 `developer` subtype은 `fc` 계열로 sync되고, plain `admin`은 GaramLink direct 계정으로 미러링하지 않습니다.
 - `user_presence` 기반 활동 상태와 GaramLink 임베디드 메신저의 optimistic send / unread sync가 반영되어 있습니다.

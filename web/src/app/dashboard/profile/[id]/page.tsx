@@ -172,7 +172,7 @@ export default function FcProfilePage({ params }: { params: Promise<{ id: string
 
     const recommenderDisplay = getRecommenderDisplay(profile);
 
-    const { residentNumberDisplay } = useResidentNumber({ fcId });
+    const { residentNumberDisplay, birthDateDisplay } = useResidentNumber({ fcId });
 
     // Sync Form with Data
     useEffect(() => {
@@ -339,14 +339,6 @@ export default function FcProfilePage({ params }: { params: Promise<{ id: string
         setIsEditing(false);
     }, [form, profile]);
 
-    const getBirthDate = (residentNum: string | null) => {
-        if (!residentNum) return '-';
-        const digits = residentNum.replace(/\D/g, '');
-        if (digits.length < 6) return '-';
-        const prefix = digits.substring(0, 6);
-        return `${prefix.substring(0, 2)}.${prefix.substring(2, 4)}.${prefix.substring(4, 6)}`;
-    };
-
     useEffect(() => {
         if (!canEdit && isEditing) {
             handleCancelEdit();
@@ -483,7 +475,7 @@ export default function FcProfilePage({ params }: { params: Promise<{ id: string
                                             readOnly
                                             value={residentNumberDisplay || '-'}
                                         />
-                                        <Text size="xs" c="dimmed" mt={4}>생년월일: {getBirthDate(residentNumberDisplay)}</Text>
+                                        <Text size="xs" c="dimmed" mt={4}>생년월일: {birthDateDisplay}</Text>
                                     </Grid.Col>
                                     <Grid.Col span={6}>
                                         <TextInput

@@ -1,61 +1,105 @@
-# Current Contract
+# Current Contract: Increment 25 Coverage Generated Artifact Hygiene
 
-## Increment
-- Name: Codex insurance digest pilot posting, home surfacing, and notification hardening
-- Goal: provide a safe repo-local posting bridge for daily Codex-generated insurance issue digests, surface the posts on GaramIn home, and keep board notification/push behavior stable.
+Status: completed on 2026-05-31
 
-## Exact Scope
-- Create a Node ESM CLI under `scripts/ops/`.
-- Add focused Node test coverage for parsing, dry-run, category handling, duplicate skip, and posting.
-- Add an npm script alias.
-- Document operational env and notification contract.
-- Create one daily Codex cron automation for `E:\hanhwa\fc-onboarding-app`.
-- Publish the 2026-05-17 digest manually from the same repo script after the automation runner failed to execute shell commands.
-- Update automation instructions to use `--input-file` and to report shell-runner failures as blockers, not uploads.
-- Add a local Windows Task Scheduler / Codex CLI fallback because the 2026-05-18 Codex app cron did not start.
-- Rename the automated briefing title and default actor label to `보험소식 브리핑`.
-- Include `보험소식` board posts in `latest_notice`, route home board notices to `/board-detail`, and avoid the `/board?postId=` modal close crash path.
-- Remove long raw URLs and AI/reference disclaimer copy from visible digest content.
-- Chunk Expo push fanout in `fc-notify` so FC audiences over 100 tokens are accepted.
-- Add `board-update` inbox row and push fanout so edited board posts notify FC/admin audiences too.
-- Apply the missing remote `notifications_recipient_role_check` migration so `manager` notification rows do not roll back FC/admin board notification inserts.
+## Goal
+
+Keep the `fc-onboarding-app` workspace cleaner for long-running refactor work by treating Jest coverage output as generated local state, not source. This prevents future `npm run test:coverage` runs from polluting `git status` with untracked `coverage/` files.
+
+## Evidence
+
+- Current `git status --short --untracked-files=all -- coverage` reports many untracked files under `coverage/`.
+- `git ls-files -- coverage` returns no tracked files.
+- `package.json` defines `test:coverage=jest --coverage`, which writes Jest coverage output to `coverage/`.
+- `coverage/` currently contains generated reports such as `lcov-report/`, `clover.xml`, `coverage-final.json`, and `lcov.info`.
+- `git check-ignore -v coverage` currently reports no match, so the generated directory is not ignored.
+- Previous harness notes record coverage output as generated local state and distinguish it from production source.
+
+## Scope
+
+- Add `coverage/` to the root `.gitignore`.
+- Add `coverage` / `coverage/` to `.vercelignore` so local Vercel uploads do not include regenerated coverage output.
+- Remove only the current untracked generated `coverage/` directory after verifying the resolved absolute path is inside `E:\hanhwa\fc-onboarding-app`.
+- Update harness and work logs for this increment.
+
+## Explicit Non-Scope
+
+- Do not change production source, tests, package scripts, dependencies, lockfiles, env files, schema/migrations, Supabase functions, request_board files, route behavior, PII/auth/session behavior, notification fanout, generated `dist/`, admin web `.next`, or deployment build settings.
+- Do not delete tracked files.
+- Do not infer that coverage quality changed; this increment is only generated artifact hygiene.
+- Do not run device, authenticated, live Supabase, Vercel remote, bridge/password-sync, or push checks.
+
+## Files Likely Touched
+
+- `.gitignore`
+- `.vercelignore`
+- `.codex/harness/current-contract.md`
+- `.codex/harness/plan.md`
+- `.codex/harness/product-spec.md`
+- `.codex/harness/qa-report.md`
+- `.codex/harness/handoff.md`
+- `.claude/WORK_DETAIL.md`
+- `.claude/WORK_LOG.md`
+- `.claude/MISTAKES.md` only if a repeatable mistake, regression, contract drift, or missed verification appears
 
 ## Acceptance Criteria
-- [x] Script accepts JSON digest payload and dry-run mode.
-- [x] Script resolves or creates `보험소식` / `insurance-news`.
-- [x] Script skips duplicate same-day `보험소식 브리핑 YYYY.MM.DD` titles.
-- [x] Script posts through `board-create`, not direct table insert.
-- [x] Content includes short visible source names and keeps raw URLs out of the board body.
-- [x] Content does not append AI/reference/disclaimer copy.
-- [x] Script rejects digest payloads without at least one valid source URL.
-- [x] Automation prompt requires very short, easy Korean and mandatory sources.
-- [x] Daily Codex automation exists and targets the repo.
-- [x] Automation prompt uses a payload file plus `--input-file` instead of inline JSON.
-- [x] Script can run without explicit process env by loading existing repo env aliases.
-- [x] Remote `보험소식` category exists.
-- [x] 2026-05-17 digest was posted once, duplicate rerun skipped, and the live post was updated to remove raw URLs/disclaimer copy.
-- [x] 2026-05-18 digest was manually recovered after the scheduled cron did not run.
-- [x] Home `latest_notice` returns the 2026-05-17 `보험소식` board post.
-- [x] FC/admin notification rows exist for the live post.
-- [x] Remote notification role constraint allows `manager`, so `board-create` notification batch insert can keep FC/admin rows.
-- [x] Codex app automation is scheduled for 11:00 KST and Windows Task Scheduler fallback exists for 11:05 KST.
-- [x] Codex app automation and Windows fallback prompt require `보험소식 브리핑 YYYY.MM.DD`.
-- [x] Existing 2026-05-17 through 2026-05-21 insurance posts show `보험소식 브리핑` as title prefix and author name.
-- [x] FC Expo push fanout succeeds in chunks after deployment.
-- [x] `board-update` has notification row creation and FC/admin push fanout after successful edits.
-- [x] Verification commands pass or failures are documented.
 
-## Checks
-- `node --test scripts/ops/post-insurance-digest.test.mjs`
-- `npm run ops:post-insurance-digest -- --input-json '{"content":"오늘의 핵심 요약\n- 테스트","sourceUrls":["https://example.com"]}' --dry-run`
-- `npm run ops:post-insurance-digest -- --input-file .codex-tmp/insurance-digest/2026-05-17.json --dry-run`
-- `npm run ops:post-insurance-digest -- --input-file .codex-tmp/insurance-digest/2026-05-17.json`
-- `npm test -- --runTestsByPath lib/__tests__/external-url.test.ts lib/__tests__/notice-route.test.ts lib/__tests__/home-latest-notice.test.ts --runInBand`
-- `npm test -- --runTestsByPath supabase/functions/__tests__/board-update-notification.contract.test.ts --runInBand`
-- `supabase functions deploy fc-notify --project-ref ubeginyxaotcamuqpmud`
-- `supabase functions deploy board-create --project-ref ubeginyxaotcamuqpmud`
-- `node scripts/ci/check-governance.mjs`
+- `coverage/` is explicitly ignored by `.gitignore`.
+- Vercel local upload ignore rules also exclude coverage output.
+- `git ls-files -- coverage` remains empty.
+- Current `coverage/` generated directory is removed only after path verification.
+- `Test-Path coverage` returns `False` after removal.
+- `git status --short --untracked-files=all -- coverage` returns no untracked coverage files after cleanup.
+- `git check-ignore -v --no-index -- coverage/foo` maps future coverage output to `.gitignore`.
+- No production source, runtime config, package script, dependency, lockfile, env, schema, PII/auth/session, bridge, notification, or UI behavior changes.
+- Harness/work docs record evidence and deferred checks.
 
-## Rollback / Containment
-- Remove the Codex automation if automatic posting should stop.
-- Revert script, tests, package alias, and docs. No schema rollback is needed.
+## Required Checks
+
+1. Pre-change evidence:
+   - `git ls-files -- coverage`
+   - `git status --short --untracked-files=all -- coverage`
+   - `git check-ignore -v coverage`
+   - resolved absolute path and file count/bytes for `coverage/`
+2. Post-change checks:
+   - `git check-ignore -v --no-index -- coverage/foo`
+   - `Test-Path coverage`
+   - `git status --short --untracked-files=all -- coverage`
+   - `git status --ignored --short -- coverage`
+   - `node scripts/ci/check-governance.mjs`
+   - `git diff --check`
+   - `git diff -- .gitignore .vercelignore .codex/harness/current-contract.md`
+
+## Verification Results
+
+- Pre-change evidence:
+  - `git ls-files -- coverage` returned no tracked files.
+  - `git status --short --untracked-files=all -- coverage` listed generated untracked coverage files.
+  - `git check-ignore -v coverage` had no match before `.gitignore` was updated.
+  - Resolved coverage path was `E:\hanhwa\fc-onboarding-app\coverage`, inside the repo, with 104 generated files and 3,966,709 bytes.
+- Implementation:
+  - Added `coverage/` to `.gitignore`.
+  - Added `coverage` to `.vercelignore`.
+  - Removed only verified untracked `E:\hanhwa\fc-onboarding-app\coverage`.
+- Passed after implementation:
+  - `git check-ignore -v --no-index -- coverage/foo` maps to `.gitignore:72:coverage/`.
+  - `Test-Path coverage` returned `False`.
+  - `git status --short --untracked-files=all -- coverage` returned no untracked coverage files.
+  - `node scripts\ci\check-governance.mjs`.
+  - `git diff --check` exited 0 with CRLF normalization warnings only.
+  - `git diff -- .gitignore .vercelignore .codex/harness/current-contract.md` reviewed the scoped diff.
+
+## Rollback Notes
+
+- If the ignore rules are unwanted, remove only the new `coverage` entries from `.gitignore` and `.vercelignore`.
+- Do not restore deleted `coverage/`; it is generated by `npm run test:coverage -- --runInBand` when needed.
+- Do not revert unrelated accumulated dirty state.
+
+## Tool / Skill Decisions
+
+- Superpowers: used `using-superpowers`, `writing-plans`, and `verification-before-completion`; `dispatching-parallel-agents` considered but not used because this is one local generated-artifact hygiene increment.
+- `hanhwa-session-grounding`: used for cross-repo orientation.
+- `long-running-app-harness`: used; this contract is the increment boundary.
+- Sequential Thinking: considered and attempted through MCP, but the tool failed with `Transport closed`; continue with explicit local contract discipline.
+- context7: considered but not used; no framework/library/API documentation lookup is needed for ignore rules and generated artifact cleanup.
+- Simplifier/simplify: considered but not used because `SIMPLIFIER_BASE_URL` and `SIMPLIFIER_TOKEN` are not safely configured.
