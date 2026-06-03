@@ -20,6 +20,10 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { KeyboardAwareWrapper } from '@/components/KeyboardAwareWrapper';
 import { RefreshButton } from '@/components/RefreshButton';
 import { useSession } from '@/hooks/use-session';
+import {
+  buildExamRoundLocationRows,
+  hasExamRoundLocationsForSave,
+} from '@/lib/exam-round-location-payload';
 import { supabase } from '@/lib/supabase';
 import { ExamRoundWithLocations, formatDate } from '@/types/exam';
 
@@ -241,6 +245,11 @@ export default function ExamRegisterScreen() {
     [rounds],
   );
 
+  const selectedRound = useMemo(
+    () => sortedRounds.find((r) => r.id === selectedRoundId) ?? null,
+    [sortedRounds, selectedRoundId],
+  );
+
   // 폼 열릴 때 슬라이드-인 애니메이션
   useEffect(() => {
     if (showForm) {
@@ -284,10 +293,15 @@ export default function ExamRegisterScreen() {
         throw new Error('수정할 시험 차수가 선택되지 않았습니다.');
       }
 
-      const locationRows = draftLocations.map((loc) => ({
-        location_name: loc.name,
-        sort_order: loc.order,
-      }));
+      const locationRows = buildExamRoundLocationRows({
+        draftLocations,
+        pendingLocationName: locationInput,
+        pendingLocationOrder: locationOrder,
+      });
+      const existingLocationCount = mode === 'update' ? (selectedRound?.locations?.length ?? 0) : 0;
+      if (!hasExamRoundLocationsForSave(existingLocationCount, locationRows)) {
+        throw new Error('응시 지역을 1개 이상 입력해주세요.');
+      }
 
       const result = await adminAction(residentId ?? '', 'upsertExamRound', {
         roundId: mode === 'update' ? selectedRoundId : null,
@@ -421,11 +435,6 @@ export default function ExamRegisterScreen() {
       setShowForm(true);
     }
   };
-
-  const selectedRound = useMemo(
-    () => sortedRounds.find((r) => r.id === selectedRoundId) ?? null,
-    [sortedRounds, selectedRoundId],
-  );
 
   const screenContent = (
     <ScrollView

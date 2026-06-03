@@ -13,6 +13,7 @@ import {
   hasHanwhaApprovedPdf,
   resolveAppointmentCompletionStatus,
 } from '@/lib/fc-workflow';
+import { normalizeFcDocumentStoragePath } from '@/lib/admin-fc-doc-storage';
 import { validateSession } from '@/lib/csrf';
 import { logger } from '@/lib/logger';
 import { buildPhoneCandidates } from '@/lib/server-session';
@@ -862,10 +863,11 @@ export async function POST(req: Request) {
 
     if (action === 'signDoc') {
       const { path } = payload as { path?: string };
-      if (!path) return badRequest('path is required');
+      const normalizedPath = normalizeFcDocumentStoragePath(path);
+      if (!normalizedPath) return badRequest('path is required');
       const { data, error } = await adminSupabase.storage
         .from('fc-documents')
-        .createSignedUrl(path, 60);
+        .createSignedUrl(normalizedPath, 60);
       if (error || !data?.signedUrl) {
         throw error ?? new Error('Signed URL creation failed');
       }

@@ -52,6 +52,11 @@ import { useEffect, useMemo, useRef, useState, useTransition } from 'react';
 
 import { useSession } from '@/hooks/use-session';
 import { useResidentNumber } from '@/hooks/use-resident-number';
+import {
+  closePendingAdminFileWindow,
+  navigatePendingAdminFileWindow,
+  openPendingAdminFileWindow,
+} from '@/lib/admin-file-open';
 import { supabase } from '@/lib/supabase';
 import type { FCDocument, FCProfileWithDocuments } from '@/types/dashboard';
 import type { CommissionCompletionStatus, FcProfile, FcStatus } from '@/types/fc';
@@ -1144,18 +1149,40 @@ export default function DashboardPage() {
   };
 
   const handleOpenDoc = async (path: string) => {
-    if (!path) return;
-    const resp = await fetch('/api/admin/fc', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ action: 'signDoc', payload: { path } }),
-    });
-    const data = await resp.json().catch(() => null);
-    if (!resp.ok || !data?.signedUrl) {
-      notifications.show({ title: '실패', message: '파일을 찾을 수 없습니다.', color: 'red' });
-      return;
+    const normalizedPath = trimValue(path);
+    if (!normalizedPath) return;
+
+    let popup: Window | null = null;
+    try {
+      popup = openPendingAdminFileWindow((url, target) => window.open(url, target)) as Window | null;
+      if (!popup) {
+        notifications.show({
+          title: '실패',
+          message: '브라우저 팝업이 차단되어 파일을 열 수 없습니다. 팝업 차단을 해제하고 다시 시도해주세요.',
+          color: 'red',
+        });
+        return;
+      }
+
+      const resp = await fetch('/api/admin/fc', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'signDoc', payload: { path: normalizedPath } }),
+      });
+      const data = await resp.json().catch(() => null);
+      const signedUrl = typeof data?.signedUrl === 'string' ? data.signedUrl : '';
+      if (!resp.ok || !signedUrl) {
+        closePendingAdminFileWindow(popup);
+        popup = null;
+        notifications.show({ title: '실패', message: '파일을 찾을 수 없습니다.', color: 'red' });
+        return;
+      }
+
+      navigatePendingAdminFileWindow(popup, signedUrl);
+    } catch {
+      closePendingAdminFileWindow(popup);
+      notifications.show({ title: '실패', message: '파일을 열 수 없습니다.', color: 'red' });
     }
-    window.open(data.signedUrl, '_blank');
   };
 
   const persistHanwhaPdfMetadata = async (nextPath: string, nextName: string) => {
@@ -2301,7 +2328,7 @@ export default function DashboardPage() {
                     return (
                       <Box>
                         <Text size="xs" fw={700} c="dimmed" mb={6}>
-                          상태 흐름
+                          현재 진행 단계
                         </Text>
                         <SimpleGrid cols={{ base: 1, sm: 2, lg: 5 }} spacing="sm">
                           {ALLOWANCE_FLOW_CARDS.map((step) => {
@@ -2440,10 +2467,10 @@ export default function DashboardPage() {
                         <>
                           <Paper withBorder radius="lg" p="md">
                             <Text fw={600} size="sm" mb="xs">
-                              관리자 조작
+                              수당동의 관리
                             </Text>
                             <Text size="xs" c="dimmed" mb="md">
-                              상태 흐름을 확인한 뒤, 아래 조작으로 trusted path 상태를 저장합니다.
+                              화면에서 현재 진행 단계를 확인한 뒤, 아래에서 상태를 저장하거나 변경하세요.
                             </Text>
 
                             {isReadOnly ? (
@@ -2462,7 +2489,7 @@ export default function DashboardPage() {
                             <SimpleGrid cols={{ base: 1, md: 2 }} spacing="md">
                               <Stack gap="sm">
                                 <DateInput
-                                  label="동의일(Actual)"
+                                  label="동의일"
                                   value={allowanceDateInput}
                                   onChange={handleAllowanceDateChange}
                                   placeholder="YYYY-MM-DD"

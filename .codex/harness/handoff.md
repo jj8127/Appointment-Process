@@ -1,5 +1,113 @@
 # Handoff: Evidence-Based Cleanup / Refactor Program
 
+## Increment 28: Admin Dashboard Operator Copy And File Open Fix
+
+Status: completed locally on 2026-06-03.
+
+What changed:
+
+- Admin dashboard FC detail allowance tab no longer shows the reported `trusted path` sentence.
+- User-facing labels were changed from developer/implementation wording to operator-facing Korean: `현재 진행 단계`, `수당동의 관리`, `동의일`.
+- `web/src/app/dashboard/page.tsx` now opens a pending tab synchronously when `열기` is clicked, then navigates it after the admin API returns the signed URL.
+- `web/src/app/api/admin/fc/route.ts` now normalizes FC document storage inputs before calling `createSignedUrl`.
+- Added focused tests for FC document path normalization and pending-tab open behavior.
+
+What did not change:
+
+- No schema/migration, Supabase bucket, RLS, Edge Function body, session/auth, manager read-only rule, request_board bridge, mobile route, env/secrets, dependency, or lockfile change.
+- Private `fc-documents` file access still goes through `/api/admin/fc` `signDoc`.
+
+Evidence and verification:
+
+- RED storage/open tests failed before helpers existed.
+- GREEN direct Node tests passed, 9 tests.
+- Exact source search for `trusted path`, `상태 흐름`, and `동의일(Actual)` returned no matches.
+- Targeted web lint passed.
+- `SENTRY_AUTH_TOKEN='' npm run build` in `web/` passed with existing transitive dependency/data-age warnings only.
+
+Next resume step:
+
+- Run deployed admin dashboard smoke for `열기` against real uploaded FC files and Hanwha PDFs.
+- If popup blockers are enabled, confirm the user sees the explicit popup-block notification.
+
+## Increment 27: Mobile Exam Round Registration/Delete Hotfix
+
+Status: completed locally on 2026-06-03.
+
+What changed:
+
+- Added `lib/exam-round-location-payload.ts` and focused tests for mobile exam location save payloads.
+- `app/exam-register.tsx` and `app/exam-register2.tsx` now include the currently typed pending location when saving a round.
+- New saves now require at least one existing or new location; updates with existing locations still work without forcing a duplicate location.
+- Location rows are trimmed, blank-filtered, first-seen deduped, and assigned finite numeric sort orders before being sent to `admin-action`.
+
+What did not change:
+
+- No Supabase schema/migration, Edge Function action body, RLS, admin web, env/secrets, dependency/lockfile, request_board, push/notification fanout, or unrelated mobile UI behavior was changed.
+- The existing `admin-action` trusted create/update/delete route remains the write path.
+- Sentry issue `REACT-NATIVE-3` was not resolved; production still needs a fixed app release.
+
+Evidence and verification:
+
+- Live temporary `admin-action` smoke passed for `upsertExamRound` and `deleteExamRound`, including row verification and cleanup.
+- Sentry still shows `REACT-NATIVE-3` on `fc-onboarding-app@3.1.12`, matching the already-local AppAlert delete confirmation crash fix.
+- RED `npm test -- --runTestsByPath lib/__tests__/exam-round-location-payload.test.ts --runInBand` failed before implementation due missing helper.
+- GREEN location helper test passed, 1 suite / 5 tests.
+- GREEN AppAlertProvider contract test passed, 1 suite / 4 tests.
+- Combined targeted tests passed, 2 suites / 9 tests.
+- Targeted lint passed for the two screens and new helper/test.
+- Full `npm test -- --runInBand` passed, 30 suites / 193 tests.
+- Full `npm run lint` passed.
+- `node scripts/ci/check-governance.mjs` passed.
+- `git diff --check` passed with CRLF normalization warnings only.
+
+Next resume step:
+
+- Prepare/deploy a fixed Android release before telling operations the delete crash is resolved in production.
+- After release, run a device admin smoke for create/update/delete and check Sentry for new `REACT-NATIVE-3` events.
+
+## Increment 26: Sentry AppAlert runOnJS Crash
+
+Status: completed on 2026-06-01.
+
+What changed:
+
+- Fixed Sentry issue `REACT-NATIVE-3` by changing `AppAlertProvider` to pass only a serializable button index through Reanimated `runOnJS`.
+- Added `components/app-alert-utils.ts` for JS-side alert button lookup and callable `onPress` guarding.
+- Extended `components/__tests__/AppAlertProvider.contract.test.ts` so this crash pattern cannot return unnoticed.
+- Clarified Sentry token roles in workspace/repo docs: `SENTRY_READ_AUTH_TOKEN` is for Sentry API reads, while `SENTRY_AUTH_TOKEN` is upload/release/source-map only.
+
+What did not change:
+
+- No app route, schema/migration, Supabase function, env/secrets, dependency, lockfile, request_board bridge, push/notification fanout, admin web, or broader alert visual behavior was changed.
+- Existing `app.json` version dirty state was pre-existing/user-owned and was preserved.
+- Sentry issue state was not manually resolved.
+- Local secret files were not edited or printed.
+
+Verification:
+
+- RED targeted AppAlertProvider contract failed before implementation.
+- GREEN `npm test -- --runTestsByPath components/__tests__/AppAlertProvider.contract.test.ts --runInBand`: passed, 1 suite / 4 tests.
+- `npm run lint`: passed.
+- `npm test -- --runInBand`: passed, 29 suites / 188 tests.
+- `SENTRY_AUTH_TOKEN='' npm run build`: passed with existing Expo/Sentry/web export warnings only.
+- `node scripts/ci/check-governance.mjs`: passed.
+- `git diff --check`: passed with CRLF normalization warnings only.
+
+Next resume step:
+
+- After deployment, check Sentry `REACT-NATIVE-3` for new events on the fixed release.
+- Separate follow-up: address the Sentry native prebuild/source-map warning. The current export still reports that native Sentry config is missing from the prebuilt Android project.
+
+Skill/tool state:
+
+- `hanhwa-session-grounding`: used.
+- `long-running-app-harness`: used.
+- Superpowers: `systematic-debugging`, `test-driven-development`, and `verification-before-completion` used.
+- context7: used for Sentry and React Native/Sentry Expo documentation checks.
+- Sequential Thinking: used for issue triage and fix ordering.
+- Simplifier/simplify: considered, not used because safe env is absent.
+
 ## Increment 25: Coverage Generated Artifact Hygiene
 
 Status: completed on 2026-05-31.

@@ -11,6 +11,99 @@
 - Update this harness on every increment.
 - Update `.claude/MISTAKES.md` in the same change set if a repeatable mistake, regression, contract drift, or missed verification is discovered.
 
+## Current Sentry Snapshot: 2026-06-01
+
+Status: active Sentry repair increment completed. Increment 26 fixes Sentry issue `REACT-NATIVE-3` by changing `AppAlertProvider` so Reanimated `runOnJS` receives only a serializable button index and JS resolves/calls the button action with a `typeof onPress === 'function'` guard. This is a narrow production crash fix, not a broad alert redesign or native Sentry source-map/prebuild repair.
+
+## Current Mobile Exam Snapshot: 2026-06-03
+
+Status: hotfix increment completed locally. User reported Garam in secretary/admin exam round registration failure and delete-button crash. Live `admin-action` smoke for temporary exam round create/delete passed, so the backend trusted write path is not the immediate blocker. Sentry still reports `REACT-NATIVE-3` on release `fc-onboarding-app@3.1.12`, matching the AppAlert delete confirmation crash fixed locally in Increment 26 but not yet proven deployed. Mobile registration screens had a separate payload drift: they saved only committed `draftLocations`, ignored the pending location input, and allowed zero-location new rounds.
+
+## Current Admin Web Snapshot: 2026-06-03
+
+Status: admin dashboard copy/open hotfix completed locally. User reported developer-facing copy in the secretary/admin FC detail modal and non-working uploaded-file `열기` buttons. The copy issue was the allowance tab showing implementation wording (`trusted path`, `상태 흐름`, `Actual`). The file-open issue had two parts: client code opened the window only after awaiting signed URL fetch, and server signing expected raw object keys even when stored values arrived as Supabase storage URLs or relative storage paths.
+
+## Increment 28: Admin Dashboard Operator Copy And File Open Fix
+
+Status: completed
+
+Scope:
+
+- Replace user-facing admin dashboard implementation wording with operator-facing Korean.
+- Keep code comments/logs/internal identifiers out of scope unless they render to users.
+- Keep private file access server-mediated through `/api/admin/fc` `signDoc`.
+- Normalize FC document storage inputs before signed URL creation.
+- Open the pending file tab synchronously on click, then navigate after the signed URL returns.
+
+Verification:
+
+- RED: `node --experimental-strip-types --test src/lib/admin-fc-doc-storage.test.ts` failed before helper implementation with missing module.
+- RED: `node --experimental-strip-types --test src/lib/admin-file-open.test.ts` failed before helper implementation with missing module.
+- GREEN: `node --experimental-strip-types --test src/lib/admin-fc-doc-storage.test.ts src/lib/admin-file-open.test.ts` passed, 9 tests.
+- Search for exact user-facing bad terms `trusted path`, `상태 흐름`, `동의일(Actual)` returned no matches.
+- Targeted web lint passed.
+- `cd web; SENTRY_AUTH_TOKEN='' npm run build` passed with existing warnings only.
+- `node scripts/ci/check-governance.mjs` passed.
+- `git diff --check` passed with CRLF normalization warnings only.
+
+Deferred:
+
+- Deployed admin dashboard smoke against real uploaded FC docs and browser popup-block settings.
+
+## Increment 27: Mobile Exam Round Registration/Delete Hotfix
+
+Status: completed
+
+Scope:
+
+- Add a pure exam-round location payload helper with contract coverage.
+- Include pending location input in save payload for both `app/exam-register.tsx` and `app/exam-register2.tsx`.
+- Require at least one existing or new location before save.
+- Preserve trusted `admin-action` create/update/delete paths and manager read-only behavior.
+- Reconfirm the existing AppAlert runOnJS/callable guard contract for delete confirmation crash protection.
+
+Verification:
+
+- RED: `npm test -- --runTestsByPath lib/__tests__/exam-round-location-payload.test.ts --runInBand` failed before helper implementation with missing module.
+- GREEN: `npm test -- --runTestsByPath lib/__tests__/exam-round-location-payload.test.ts --runInBand` passed, 1 suite / 5 tests.
+- GREEN: `npm test -- --runTestsByPath components/__tests__/AppAlertProvider.contract.test.ts --runInBand` passed, 1 suite / 4 tests.
+- `npm run lint -- app/exam-register.tsx app/exam-register2.tsx lib/exam-round-location-payload.ts lib/__tests__/exam-round-location-payload.test.ts`: passed after fixing one syntax regression caught by lint.
+- `npm test -- --runInBand`: passed, 30 suites / 193 tests.
+- `npm run lint`: passed.
+- `node scripts/ci/check-governance.mjs`: passed.
+- `git diff --check`: passed with CRLF normalization warnings only.
+
+Deferred:
+
+- Fixed Android release and device-level create/delete smoke are required before claiming production delete crash resolution.
+
+## Increment 26: Sentry AppAlert runOnJS Crash
+
+Status: completed
+
+Scope:
+
+- Queried Sentry org `hanhwa-lifelab` project `react-native` and identified unresolved fatal issue `REACT-NATIVE-3`.
+- Mapped the minified Android Hermes frame using a local Expo Android source-map export because Sentry had `js_no_source` for release `fc-onboarding-app@3.1.12`.
+- Changed `AppAlertProvider` to pass a button index through `runOnJS`, resolve the button on the JS side, and call `onPress` only when it is a function.
+- Added `components/app-alert-utils.ts` and focused contract tests.
+- Added token-role guardrails so future Sentry issue/event reads use `SENTRY_READ_AUTH_TOKEN`, not the upload-only `SENTRY_AUTH_TOKEN`.
+
+Verification:
+
+- RED: targeted AppAlertProvider contract failed before implementation because helper/contract did not exist.
+- GREEN: `npm test -- --runTestsByPath components/__tests__/AppAlertProvider.contract.test.ts --runInBand` passed, 1 suite / 4 tests.
+- `npm run lint`: passed.
+- `npm test -- --runInBand`: passed, 29 suites / 188 tests.
+- `SENTRY_AUTH_TOKEN='' npm run build`: passed with existing Expo/Sentry/web export warnings only.
+- `node scripts/ci/check-governance.mjs`: passed.
+- `git diff --check`: passed with CRLF normalization warnings only.
+
+Deferred:
+
+- Do not mark `REACT-NATIVE-3` resolved until the fixed Android release is deployed and Sentry events stop.
+- The existing Sentry native prebuild/source-map warning remains a separate observability/config follow-up.
+
 ## Current Reconciliation Snapshot: 2026-05-31
 
 Status: active. Increment 25 is completed after classifying Jest `coverage/` as generated local state, adding ignore rules, and removing the current untracked generated coverage directory. The increment did not change production source, tests, package scripts, dependencies, lockfiles, env, schema, routes, PII/auth/session behavior, notification fanout, or request_board bridge contracts.

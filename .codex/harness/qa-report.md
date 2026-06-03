@@ -1,5 +1,145 @@
 # QA Report: Increment 1 Harness / Inventory
 
+## Increment 28 Verification: Admin Dashboard Operator Copy And File Open Fix
+
+Date: 2026-06-03
+
+### Scope
+
+- Removed developer/internal wording from the admin dashboard FC detail allowance tab.
+- Replaced `상태 흐름`, the reported `trusted path` guidance sentence, `관리자 조작`, and `동의일(Actual)` with operator-facing Korean labels.
+- Fixed admin dashboard document `열기` by opening a pending tab synchronously, then navigating it after `/api/admin/fc` returns a signed URL.
+- Kept `fc-documents` private file access server-mediated through `/api/admin/fc` `signDoc`.
+- Normalized raw object keys, accidental bucket-prefixed keys, full signed/public storage URLs, and relative Supabase storage paths before calling `createSignedUrl`.
+
+### Evidence
+
+- Subagent A fixed the copy first, but the later file-open patch reverted those text edits; coordinator verification caught the exact terms still present and reapplied the copy cleanup.
+- The previous file-open flow awaited `fetch('/api/admin/fc')` before `window.open`, which can trigger browser popup blocking.
+- The first placeholder-tab patch used `noopener,noreferrer`; because that can intentionally return a null window reference, the final helper opens the blank tab without features, then clears `opener` manually before navigation.
+- The previous server `signDoc` path passed incoming values directly to `createSignedUrl`, so full Supabase storage URLs or relative `/storage/v1/object/...` paths could fail instead of resolving to object keys.
+
+### Commands
+
+- RED: `node --experimental-strip-types --test src/lib/admin-fc-doc-storage.test.ts`
+  - Failed before implementation because `admin-fc-doc-storage.ts` did not exist.
+- RED: `node --experimental-strip-types --test src/lib/admin-file-open.test.ts`
+  - Failed before implementation because `admin-file-open.ts` did not exist.
+- GREEN: `node --experimental-strip-types --test src/lib/admin-fc-doc-storage.test.ts src/lib/admin-file-open.test.ts`
+  - Passed, 9 tests.
+- Passed: `Get-ChildItem web/src -Recurse -Include *.tsx,*.ts | Select-String -Pattern 'trusted path','상태 흐름','동의일\\(Actual\\)'`
+  - No matches.
+- Passed: `cd web; npm run lint -- src/app/dashboard/page.tsx src/app/api/admin/fc/route.ts src/lib/admin-fc-doc-storage.ts src/lib/admin-fc-doc-storage.test.ts src/lib/admin-file-open.ts src/lib/admin-file-open.test.ts`.
+- Passed: `cd web; SENTRY_AUTH_TOKEN='' npm run build`.
+  - Existing warnings only: old `baseline-browser-mapping` data and transitive OpenTelemetry `import-in-the-middle` version mismatch warnings.
+- Passed: `node scripts/ci/check-governance.mjs`.
+- Passed: `git diff --check`.
+  - CRLF normalization warnings only.
+
+### Manual / External Checks Still Required
+
+- In the deployed admin dashboard, click `열기` for uploaded FC docs stored as raw object keys, full signed/public storage URLs, and relative storage paths.
+- Check one browser with popup blocking enabled; expected behavior is an explicit popup-block notification rather than a silent no-op.
+
+### QA Judgment
+
+- Local code, tests, lint, and production build pass.
+- The reported developer-facing sentence no longer exists in admin web source.
+- File opening is now covered for both browser user-activation timing and server-side storage path normalization.
+
+## Increment 27 Verification: Mobile Exam Round Registration/Delete Hotfix
+
+Date: 2026-06-03
+
+### Scope
+
+- Investigated mobile Garam in admin exam round registration and deletion failures.
+- Confirmed the trusted `admin-action` backend path can create and delete a temporary exam round/location in the live environment.
+- Fixed mobile life/nonlife exam registration screens so a pending typed location is included when saving.
+- Added minimum-location validation before save while preserving existing update behavior for rounds that already have locations.
+- Reconfirmed the existing AppAlert runOnJS/callable guard test that protects delete confirmation actions locally.
+
+### Evidence
+
+- Live temporary `upsertExamRound` returned 200/`ok: true`, produced one round and one location, then `deleteExamRound` returned 200/`ok: true` and left zero test round/location rows after cleanup.
+- Sentry `REACT-NATIVE-3` remains unresolved on release `fc-onboarding-app@3.1.12`, dist `45`, with latest observed event on 2026-06-03 04:59:59 UTC. This aligns with the delete-button crash report and means production still needs the fixed release.
+- The mobile save code previously built `locations` only from `draftLocations`, so typed-but-not-added location input was omitted.
+- The mobile save code did not enforce the web/admin expectation that an exam round has at least one location.
+
+### Commands
+
+- RED: `npm test -- --runTestsByPath lib/__tests__/exam-round-location-payload.test.ts --runInBand`
+  - Failed before implementation because `lib/exam-round-location-payload.ts` did not exist.
+- GREEN: `npm test -- --runTestsByPath lib/__tests__/exam-round-location-payload.test.ts --runInBand`
+  - Passed, 1 suite / 5 tests.
+- GREEN: `npm test -- --runTestsByPath components/__tests__/AppAlertProvider.contract.test.ts --runInBand`
+  - Passed, 1 suite / 4 tests.
+- Passed: `npm test -- --runTestsByPath lib/__tests__/exam-round-location-payload.test.ts components/__tests__/AppAlertProvider.contract.test.ts --runInBand`
+  - 2 suites / 9 tests.
+- Passed: `npm run lint -- app/exam-register.tsx app/exam-register2.tsx lib/exam-round-location-payload.ts lib/__tests__/exam-round-location-payload.test.ts`.
+- Passed: `npm test -- --runInBand`.
+  - 30 suites / 193 tests.
+- Passed: `npm run lint`.
+- Passed: `node scripts/ci/check-governance.mjs`.
+- Passed: `git diff --check`.
+  - CRLF normalization warnings only.
+
+### Manual / External Checks Still Required
+
+- Deploy a fixed Android release before claiming the delete crash is resolved in production.
+- Real device admin smoke for creating a life/nonlife exam with only a typed pending location, updating an existing round, and deleting a round after the next release candidate.
+
+### QA Judgment
+
+- The backend create/delete path is healthy based on live smoke.
+- The mobile registration payload drift is fixed and covered by focused unit tests.
+- The delete crash is locally covered by the existing AppAlert contract, but production confirmation is release-gated.
+
+## Increment 26 Verification: Sentry AppAlert runOnJS Crash
+
+Date: 2026-06-01
+
+### Scope
+
+- Fixed Sentry `REACT-NATIVE-3` fatal Android Hermes crash in the custom app alert provider.
+- `runOnJS(onButtonPress)` now receives only a serializable button index.
+- Alert button objects are resolved on the JS side, and `onPress` is invoked only when it is callable.
+- Sentry token docs/env examples now distinguish `SENTRY_READ_AUTH_TOKEN` for read-only API investigation from `SENTRY_AUTH_TOKEN` for upload/release/source-map work.
+- No app route, schema/migration, env/secrets, package/lockfile, request_board bridge, push/notification fanout, admin web, or broader visual behavior was changed.
+
+### Evidence
+
+- Sentry issue `REACT-NATIVE-3` reported `TypeError: Object is not a function`, 38 events / 20 users, release `fc-onboarding-app@3.1.12`, dist `45`.
+- Latest event had `js_no_source`, so local Android Hermes source-map export was used for mapping.
+- The mapped frame landed in `components/AppAlertProvider.tsx` near alert button callback handling after the animated close.
+- The previous implementation sent a function-bearing alert button object through Reanimated `runOnJS` and then called truthy `button.onPress`.
+
+### Commands
+
+- RED: `npm test -- --runTestsByPath components/__tests__/AppAlertProvider.contract.test.ts --runInBand`
+  - Failed before implementation because the new helper/contract did not exist.
+- GREEN: `npm test -- --runTestsByPath components/__tests__/AppAlertProvider.contract.test.ts --runInBand`
+  - Passed, 1 suite / 4 tests.
+- Passed: `npm run lint`.
+- Passed: `npm test -- --runInBand`.
+  - 29 suites / 188 tests.
+- Passed: `SENTRY_AUTH_TOKEN='' npm run build`.
+  - Existing warnings only: Sentry native prebuild config missing, Expo notifications web listener limitation, and API route export skipped because `web.output` is not `server`.
+- Passed: `node scripts/ci/check-governance.mjs`.
+- Passed: `git diff --check`.
+  - CRLF normalization warnings only.
+
+### Manual / External Checks Still Required
+
+- Deploy a fixed Android release and verify `REACT-NATIVE-3` stops receiving new events.
+- Handle the Sentry native prebuild/source-map warning in a separate native config increment before relying on future mobile source mapping.
+- Real-device alert button tap regression remains useful for the next release candidate.
+
+### QA Judgment
+
+- The local root cause is fixed and covered by a narrow contract test.
+- Sentry production confirmation is pending deployment, not local code verification.
+
 ## Increment 25 Verification: Coverage Generated Artifact Hygiene
 
 Date: 2026-05-31

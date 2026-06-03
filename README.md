@@ -177,6 +177,22 @@ ADMIN_PUSH_SECRET=...
 NEXT_PUBLIC_REQUEST_BOARD_URL=...
 ```
 
+### Sentry Observability
+
+```bash
+EXPO_PUBLIC_SENTRY_DSN=...
+EXPO_PUBLIC_SENTRY_ENVIRONMENT=production
+EXPO_PUBLIC_SENTRY_RELEASE=...
+SENTRY_AUTH_TOKEN=...
+SENTRY_READ_AUTH_TOKEN=...
+SENTRY_ORG=hanhwa-lifelab
+SENTRY_PROJECT=react-native
+```
+
+- `SENTRY_AUTH_TOKEN`은 Expo/Next release, source-map upload용 secret입니다. Sentry issue/event 조회 fallback으로 사용하지 않습니다.
+- Sentry API 조회(organization/project/issue/event/release/artifact)는 `SENTRY_READ_AUTH_TOKEN`만 사용합니다.
+- local verification build에서 source-map upload나 release 상태 변경을 피하려면 해당 command에서 `SENTRY_AUTH_TOKEN`을 비우고 실행합니다.
+
 ### Supabase Edge Function Secrets
 
 ```bash

@@ -7,6 +7,133 @@
 
 ---
 
+## <a id="20260603-admin-dashboard-copy-and-file-open-fix"></a> 2026-06-03 | Admin dashboard copy and file-open fix
+
+**배경**:
+- 총무 관리자 페이지 FC 상세에 `상태 흐름을 확인한 뒤, 아래 조작으로 trusted path 상태를 저장합니다.` 같은 개발자용 문구가 노출된다는 운영 보고가 있었다.
+- 같은 화면에서 FC가 업로드한 파일의 `열기` 버튼이 동작하지 않는다는 보고가 있었다.
+- 문구 정리와 파일 열기를 각각 서브에이전트에 위임했지만, 파일 열기 담당 변경이 먼저 반영된 문구 정리를 되돌린 상태를 coordinator 검색 검증에서 확인했다.
+
+**조치**:
+- FC 상세 수당동의 영역의 표시 문구를 운영자용 한국어로 정리했다: `현재 진행 단계`, `수당동의 관리`, `동의일`.
+- `web/src/lib/admin-fc-doc-storage.ts`를 추가해 raw object key, `fc-documents/` prefix, full signed/public Supabase storage URL, relative `/storage/v1/object/...` path를 `fc-documents` object key로 정규화했다.
+- `/api/admin/fc` `signDoc`는 정규화된 object key만 `createSignedUrl`에 전달하도록 변경했다.
+- `web/src/lib/admin-file-open.ts`를 추가해 `열기` 클릭 시 빈 창을 즉시 열고, signed URL 응답 후 해당 창을 이동시키도록 분리했다.
+- placeholder 창에는 `noopener,noreferrer`를 넘기지 않고 참조를 받은 뒤 `opener`를 수동으로 끊어, 브라우저가 창 참조를 `null`로 반환하는 회귀를 피했다.
+- Supabase schema/migration, bucket, RLS, Edge Function, auth/session, manager read-only, request_board, mobile, env/secrets, dependency/lockfile는 변경하지 않았다.
+
+**검증**:
+- RED 확인: `node --experimental-strip-types --test src/lib/admin-fc-doc-storage.test.ts`
+  - helper 구현 전 module 없음으로 실패.
+- RED 확인: `node --experimental-strip-types --test src/lib/admin-file-open.test.ts`
+  - helper 구현 전 module 없음으로 실패.
+- 통과: `node --experimental-strip-types --test src/lib/admin-fc-doc-storage.test.ts src/lib/admin-file-open.test.ts`
+  - 9 tests.
+- 통과: `Get-ChildItem web/src -Recurse -Include *.tsx,*.ts | Select-String -Pattern 'trusted path','상태 흐름','동의일\\(Actual\\)'`
+  - no matches.
+- 통과: `cd web; npm run lint -- src/app/dashboard/page.tsx src/app/api/admin/fc/route.ts src/lib/admin-fc-doc-storage.ts src/lib/admin-fc-doc-storage.test.ts src/lib/admin-file-open.ts src/lib/admin-file-open.test.ts`
+- 통과: `cd web; SENTRY_AUTH_TOKEN='' npm run build`
+  - 기존 `baseline-browser-mapping` age warning과 transitive OpenTelemetry `import-in-the-middle` version mismatch warning만 표시.
+- 통과: `node scripts/ci/check-governance.mjs`
+- 통과: `git diff --check`
+  - CRLF normalization warnings only.
+
+**리스크/후속**:
+- 운영 배포 후 실제 업로드 파일(raw object key/full storage URL/relative storage path)과 한화 PDF에서 `열기`를 smoke해야 한다.
+- 팝업 차단이 켜진 브라우저에서는 silent no-op이 아니라 안내 알림이 뜨는지 확인해야 한다.
+
+## <a id="20260603-mobile-exam-round-registration-delete-hotfix"></a> 2026-06-03 | Mobile exam round registration/delete hotfix
+
+**배경**:
+- 총무가 가람in 모바일에서 시험을 새로 등록하지 못하고, 기존 시험 삭제 버튼을 누르면 앱이 튕긴다는 운영 보고가 있었다.
+- 라이브 `admin-action` 임시 smoke에서 `upsertExamRound`와 `deleteExamRound`가 모두 성공해 서버 trusted write path 자체는 정상으로 확인했다.
+- Sentry `REACT-NATIVE-3`은 release `fc-onboarding-app@3.1.12`, dist `45`에서 2026-06-03에도 새 이벤트가 있어, 삭제 튕김은 Increment 26의 AppAlert runOnJS fix가 아직 운영 배포로 확인되지 않은 상태와 일치했다.
+- 신규 등록 쪽은 모바일 화면이 `draftLocations`만 payload로 보내고 입력칸에 남아 있는 pending 지역을 누락하며, 지역 0개 신규 저장도 허용하는 별도 화면 계약 drift를 확인했다.
+
+**조치**:
+- `lib/exam-round-location-payload.ts`를 추가해 시험 지역 payload 정규화 규칙을 분리했다.
+- committed draft locations와 pending location input을 함께 저장 payload에 포함하고, trim/blank filter/first-seen dedupe/finite sort order default를 적용했다.
+- `app/exam-register.tsx`와 `app/exam-register2.tsx`가 해당 helper를 사용하도록 연결했다.
+- 신규 저장은 최소 1개 지역을 요구하고, 기존 지역이 있는 update는 중복 지역 추가 없이 저장 가능하게 유지했다.
+- AppAlert delete confirmation crash 방어는 기존 `components/__tests__/AppAlertProvider.contract.test.ts`로 재확인했다.
+- Supabase schema/migration, Edge Function, admin web, request_board, notification fanout, env/secrets, dependency/lockfile는 변경하지 않았다.
+
+**검증**:
+- RED 확인: `npm test -- --runTestsByPath lib/__tests__/exam-round-location-payload.test.ts --runInBand`
+  - helper 구현 전 module 없음으로 실패.
+- 통과: `npm test -- --runTestsByPath lib/__tests__/exam-round-location-payload.test.ts --runInBand`
+  - 1 suite / 5 tests.
+- 통과: `npm test -- --runTestsByPath components/__tests__/AppAlertProvider.contract.test.ts --runInBand`
+  - 1 suite / 4 tests.
+- 통과: `npm test -- --runTestsByPath lib/__tests__/exam-round-location-payload.test.ts components/__tests__/AppAlertProvider.contract.test.ts --runInBand`
+  - 2 suites / 9 tests.
+- 통과: `npm run lint -- app/exam-register.tsx app/exam-register2.tsx lib/exam-round-location-payload.ts lib/__tests__/exam-round-location-payload.test.ts`
+- 통과: `npm test -- --runInBand`
+  - 30 suites / 193 tests.
+- 통과: `npm run lint`
+- 통과: `node scripts/ci/check-governance.mjs`
+- 통과: `git diff --check`
+  - CRLF normalization warnings only.
+
+**리스크/후속**:
+- 삭제 튕김은 로컬 코드와 테스트로 방어되어 있지만, 운영 3.1.12에서 계속 이벤트가 관측되므로 fixed Android release 배포 전까지 production 해결로 말하면 안 된다.
+- 다음 release candidate에서 실제 기기/에뮬레이터로 생명/손해 시험 신규 등록, 기존 수정, 삭제를 smoke해야 한다.
+
+## <a id="20260601-sentry-token-role-guardrail"></a> 2026-06-01 | Sentry token role guardrail
+
+**배경**:
+- Sentry issue/project 조회를 시작할 때 upload/release용 `SENTRY_AUTH_TOKEN`을 먼저 잡아 read API 권한 부족으로 실패했다.
+- 실제 조회에는 `SENTRY_READ_AUTH_TOKEN`이 필요했고, 다른 AI 세션도 같은 변수명 혼동을 반복할 수 있다는 요청이 있었다.
+
+**조치**:
+- workspace 상위 `E:\hanhwa\AGENTS.md`에 Sentry API 조회는 `SENTRY_READ_AUTH_TOKEN`만 사용하고 `SENTRY_AUTH_TOKEN`으로 fallback하지 말라는 규칙을 추가했다.
+- `.env.example`에 `SENTRY_READ_AUTH_TOKEN`을 추가하고, `SENTRY_AUTH_TOKEN`은 release/source-map upload 전용이라고 주석으로 분리했다.
+- `README.md`의 Sentry 운영 섹션에 조회용/업로드용 토큰 역할과 local verification build에서 upload를 끄는 방법을 추가했다.
+- 같은 반복 실수를 `.claude/MISTAKES.md`에 기록했다.
+- secret 값이 들어 있는 local `.env.local` 파일은 읽거나 수정하지 않았다.
+
+**검증**:
+- 통과: `node scripts/ci/check-governance.mjs`
+- 통과: `git diff --check`
+  - CRLF normalization warnings only.
+
+**리스크/후속**:
+- 기존 local secret 파일의 실제 값은 유지했다.
+- 향후 Sentry 조회 자동화가 필요하면 `SENTRY_READ_AUTH_TOKEN`만 읽는 전용 script를 추가할 수 있다.
+
+## <a id="20260601-sentry-appalert-runonjs-crash"></a> 2026-06-01 | Sentry AppAlert runOnJS crash
+
+**배경**:
+- Sentry org `hanhwa-lifelab`, project `react-native`에서 `REACT-NATIVE-3` fatal `TypeError: Object is not a function`가 보고됐다.
+- 조사 시점 기준 38 events / 20 users, release `fc-onboarding-app@3.1.12`, dist `45`였고 Android Hermes 이벤트에 `js_no_source`가 붙어 있었다.
+- 로컬 Expo Android Hermes source-map export로 minified frame을 매핑해 `components/AppAlertProvider.tsx`의 alert button callback 처리 부근을 원인 후보로 확정했다.
+
+**조치**:
+- `AppAlertProvider`가 Reanimated `runOnJS`로 alert button 객체 전체를 넘기던 흐름을 primitive button index 전달로 바꿨다.
+- JS side에서 current alert의 button list를 index로 다시 resolve하고, `typeof onPress === 'function'`일 때만 action을 호출하도록 `components/app-alert-utils.ts`를 추가했다.
+- `components/__tests__/AppAlertProvider.contract.test.ts`에 runOnJS payload 계약, button index lookup, callable guard 계약을 추가했다.
+- Sentry native prebuild/source-map warning은 Android generated native files를 건드릴 수 있어 이번 crash fix scope에서는 문서화만 하고 별도 follow-up으로 남겼다.
+- app route, schema/migration, Supabase function, env/secrets, package/lockfile, request_board bridge, push/notification fanout, admin web, broader alert visual behavior는 변경하지 않았다.
+
+**검증**:
+- RED 확인: `npm test -- --runTestsByPath components/__tests__/AppAlertProvider.contract.test.ts --runInBand`
+  - 구현 전 helper/contract 부재로 실패.
+- 통과: `npm test -- --runTestsByPath components/__tests__/AppAlertProvider.contract.test.ts --runInBand`
+  - 1 suite / 4 tests.
+- 통과: `npm run lint`
+- 통과: `npm test -- --runInBand`
+  - 29 suites / 188 tests.
+- 통과: `SENTRY_AUTH_TOKEN='' npm run build`
+  - 기존 Sentry native prebuild config missing, Expo notifications web listener limitation, API route export warning만 표시.
+- 통과: `node scripts/ci/check-governance.mjs`
+- 통과: `git diff --check`
+  - CRLF normalization warnings only.
+
+**리스크/후속**:
+- fixed Android release 배포 전까지 Sentry production recurrence는 확정할 수 없다.
+- `REACT-NATIVE-3`은 배포 후 새 이벤트가 멈추는지 확인한 뒤에만 resolved 처리한다.
+- 기존 Sentry native prebuild/source-map warning은 별도 native config increment로 다뤄야 한다.
+
 ## <a id="20260531-coverage-generated-artifact-hygiene"></a> 2026-05-31 | Coverage generated artifact hygiene
 
 **배경**:

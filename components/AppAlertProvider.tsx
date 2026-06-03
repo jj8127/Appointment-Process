@@ -13,15 +13,13 @@ import Animated, {
 import { ALERT_VARIANTS, ANIMATION, COLORS, RADIUS, SPACING, TYPOGRAPHY } from '@/lib/theme';
 import { inferAlertVariantFromTitle, inferUserFacingAlertFallback, toUserFacingAlertMessage } from '@/lib/user-facing-error';
 import StatusGlyph from '@/components/StatusGlyph';
+import {
+  hasCallableAlertAction,
+  resolveAlertButtonByIndex,
+  type AppAlertButton,
+} from '@/components/app-alert-utils';
 
-type ButtonStyle = 'default' | 'cancel' | 'destructive';
 type AlertVariant = 'info' | 'success' | 'warning' | 'error';
-
-type AppAlertButton = {
-  text?: string;
-  onPress?: () => void;
-  style?: ButtonStyle;
-};
 
 type AppAlertOptions = {
   cancelable?: boolean;
@@ -87,11 +85,9 @@ const AnimatedPressable = Animated.createAnimatedComponent(Pressable);
 function AlertCard({
   alert,
   onButtonPress,
-  onBackdropPress,
 }: {
   alert: AppAlert;
-  onButtonPress: (button?: AppAlertButton) => void;
-  onBackdropPress: () => void;
+  onButtonPress: (buttonIndex?: number) => void;
 }) {
   const scale = useSharedValue(0.9);
   const opacity = useSharedValue(0);
@@ -109,11 +105,11 @@ function AlertCard({
   }));
 
   const handleClose = useCallback(
-    (button?: AppAlertButton) => {
+    (buttonIndex?: number) => {
       scale.value = withTiming(0.9, { duration: ANIMATION.duration.fast });
       opacity.value = withTiming(0, { duration: ANIMATION.duration.fast }, (finished) => {
         if (finished) {
-          runOnJS(onButtonPress)(button);
+          runOnJS(onButtonPress)(buttonIndex);
         }
       });
     },
@@ -125,8 +121,8 @@ function AlertCard({
       style={styles.backdrop}
       onPress={() => {
         if (alert.options?.cancelable) {
-          const cancelButton = alert.buttons.find((b) => b.style === 'cancel');
-          handleClose(cancelButton);
+          const cancelButtonIndex = alert.buttons.findIndex((button) => button.style === 'cancel');
+          handleClose(cancelButtonIndex >= 0 ? cancelButtonIndex : undefined);
         }
       }}
       entering={FadeIn.duration(ANIMATION.duration.fast)}
@@ -166,7 +162,7 @@ function AlertCard({
                   isStacked ? styles.buttonFull : styles.buttonCompact,
                   pressed && styles.buttonPressed,
                 ]}
-                onPress={() => handleClose(button)}
+                onPress={() => handleClose(index)}
               >
                 <Text style={buttonStyle.text}>{button.text ?? '확인'}</Text>
               </Pressable>
@@ -201,13 +197,14 @@ export function AppAlertProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   const handleButtonPress = useCallback(
-    (button?: AppAlertButton) => {
-      if (button?.onPress) {
+    (buttonIndex?: number) => {
+      const button = resolveAlertButtonByIndex(currentAlert?.buttons ?? [], buttonIndex);
+      if (hasCallableAlertAction(button)) {
         button.onPress();
       }
       dismissAlert();
     },
-    [dismissAlert],
+    [currentAlert?.buttons, dismissAlert],
   );
 
   useEffect(() => {
@@ -226,8 +223,9 @@ export function AppAlertProvider({ children }: { children: React.ReactNode }) {
 
   const handleBackdropPress = useCallback(() => {
     if (!currentAlert?.options?.cancelable) return;
-    const cancelButton = currentAlert?.buttons.find((button) => button.style === 'cancel');
-    if (cancelButton?.onPress) {
+    const cancelButtonIndex = currentAlert.buttons.findIndex((button) => button.style === 'cancel');
+    const cancelButton = resolveAlertButtonByIndex(currentAlert.buttons, cancelButtonIndex);
+    if (hasCallableAlertAction(cancelButton)) {
       cancelButton.onPress();
     }
     dismissAlert();
@@ -238,7 +236,7 @@ export function AppAlertProvider({ children }: { children: React.ReactNode }) {
       {children}
       <Modal visible={!!currentAlert} transparent statusBarTranslucent onRequestClose={handleBackdropPress}>
         {currentAlert && (
-          <AlertCard alert={currentAlert} onButtonPress={handleButtonPress} onBackdropPress={handleBackdropPress} />
+          <AlertCard alert={currentAlert} onButtonPress={handleButtonPress} />
         )}
       </Modal>
     </AlertContext.Provider>

@@ -30,6 +30,111 @@
 - Verification:
 ```
 
+## 2026-06-03 | Admin Web Parallel Fix | 서브에이전트 변경이 같은 파일의 문구 수정분을 되돌림
+- Symptom:
+  - 문구 정리 담당 서브에이전트가 `trusted path` 사용자 노출 문구를 고쳤다고 보고했지만, 파일 열기 담당 변경 이후 `web/src/app/dashboard/page.tsx`에 같은 문장이 다시 남아 있었다.
+- Root cause:
+  - 두 서브에이전트가 같은 대시보드 파일을 독립적으로 수정했고, 후속 파일 열기 patch가 선행 copy cleanup diff를 되돌렸다.
+- Why it was missed:
+  - 병렬 위임 결과를 그대로 신뢰하면 각 에이전트의 개별 diff만 맞고 통합 diff에서는 한쪽 변경이 사라지는 상태를 놓칠 수 있다.
+- Permanent guardrail:
+  - 병렬/서브에이전트 작업이 같은 파일을 건드리면 coordinator가 최종 통합 diff와 exact regression search를 다시 수행한다.
+  - 사용자-visible 문구 이슈는 최종 source search가 비어야 완료로 본다.
+- Related files:
+  - `web/src/app/dashboard/page.tsx`
+  - `.codex/harness/qa-report.md`
+- Verification:
+  - `Get-ChildItem web/src -Recurse -Include *.tsx,*.ts | Select-String -Pattern 'trusted path','상태 흐름','동의일\\(Actual\\)'`
+
+## 2026-06-03 | Admin Web File Open | noopener placeholder 창으로 signed URL 이동 대상 참조를 잃음
+- Symptom:
+  - 업로드 파일 `열기` 복구 patch가 async fetch 전 빈 창을 열도록 바꿨지만, `window.open('', '_blank', 'noopener,noreferrer')`를 사용하면 브라우저가 새 창 참조를 `null`로 반환할 수 있어 팝업 차단으로 오진하거나 이동 대상이 사라질 수 있었다.
+- Root cause:
+  - 팝업 차단 회피를 위해 사용자 클릭 시점에 창을 열어야 하는 요구와 `noopener` feature가 창 참조를 끊는 브라우저 동작을 함께 고려하지 않았다.
+- Why it was missed:
+  - 단순히 "async 전에 window.open"만 확인했고, returned window reference가 유지되는지에 대한 계약 테스트가 없었다.
+- Permanent guardrail:
+  - signed URL처럼 async 준비가 필요한 파일 열기는 클릭 시점에 pending tab을 열고, 참조를 받은 뒤 `opener`를 수동으로 끊고, async 성공 시 그 창을 이동시킨다.
+  - 해당 계약은 `web/src/lib/admin-file-open.test.ts`로 고정한다.
+- Related files:
+  - `web/src/lib/admin-file-open.ts`
+  - `web/src/lib/admin-file-open.test.ts`
+  - `web/src/app/dashboard/page.tsx`
+- Verification:
+  - RED: `node --experimental-strip-types --test src/lib/admin-file-open.test.ts`
+  - GREEN: `node --experimental-strip-types --test src/lib/admin-file-open.test.ts`
+
+## 2026-06-03 | Mobile Exam Registration | 입력 중인 시험 지역을 저장 payload에서 누락함
+- Symptom:
+  - 총무가 가람in 모바일 시험 일정 화면에서 신규 시험을 등록하려 할 때 등록이 안 된 것처럼 보였다.
+  - 화면에서 지역명을 입력해도 `지역 추가`를 따로 누르지 않으면 저장 payload에 지역이 포함되지 않았고, 신규 시험을 지역 0개로 저장할 수 있었다.
+- Root cause:
+  - `app/exam-register.tsx`와 `app/exam-register2.tsx`가 `locations` payload를 committed `draftLocations`에서만 만들었다.
+  - 입력칸의 pending `locationInput`은 저장 시점에 합쳐지지 않았고, 모바일에는 웹/관리자 경로와 같은 최소 1개 지역 validation이 없었다.
+- Why it was missed:
+  - 모바일 화면의 "입력 후 바로 저장" 흐름을 별도 계약 테스트로 고정하지 않았다.
+  - 기존 검증은 `admin-action` create/delete 가능 여부나 이미 추가된 draft location 중심이라, typed-but-not-added 지역 누락을 잡지 못했다.
+- Permanent guardrail:
+  - 시험 일정 저장 payload는 committed draft locations와 pending location input을 함께 normalize해서 만든다.
+  - 신규 시험 저장은 최소 1개 기존/신규 지역을 요구한다.
+  - 생명/손해 시험 등록 화면은 같은 helper/contract test를 공유해 payload drift를 막는다.
+- Related files:
+  - `app/exam-register.tsx`
+  - `app/exam-register2.tsx`
+  - `lib/exam-round-location-payload.ts`
+  - `lib/__tests__/exam-round-location-payload.test.ts`
+- Verification:
+  - RED: `npm test -- --runTestsByPath lib/__tests__/exam-round-location-payload.test.ts --runInBand` failed before helper implementation.
+  - GREEN: `npm test -- --runTestsByPath lib/__tests__/exam-round-location-payload.test.ts --runInBand`
+  - `npm run lint -- app/exam-register.tsx app/exam-register2.tsx lib/exam-round-location-payload.ts lib/__tests__/exam-round-location-payload.test.ts`
+  - `npm test -- --runInBand`
+  - `npm run lint`
+  - `node scripts/ci/check-governance.mjs`
+
+## 2026-06-01 | Sentry Token Operations | 조회용 토큰 대신 upload token을 먼저 사용함
+- Symptom:
+  - Sentry issue/project 조회를 시작할 때 `SENTRY_AUTH_TOKEN`을 먼저 사용해 org/project read API 권한 부족으로 실패했다.
+  - 다른 AI 세션도 같은 변수명 혼동을 반복할 수 있다.
+- Root cause:
+  - `SENTRY_AUTH_TOKEN`은 release/source-map upload 목적이고, Sentry API 조회에는 `SENTRY_READ_AUTH_TOKEN`이 필요하지만 workspace 지침과 env example에 역할 구분이 충분히 고정되어 있지 않았다.
+- Why it was missed:
+  - Sentry SDK/build plugin 관례상 `SENTRY_AUTH_TOKEN` 이름이 눈에 먼저 띄었고, read-only investigation token을 우선해야 한다는 guardrail이 문서화되어 있지 않았다.
+- Permanent guardrail:
+  - Sentry API 조회는 `SENTRY_READ_AUTH_TOKEN`만 사용한다.
+  - `SENTRY_AUTH_TOKEN`은 upload/release/source-map 용도로만 취급하고 read fallback으로 쓰지 않는다.
+  - local verification build는 필요 시 `SENTRY_AUTH_TOKEN=''`로 upload를 끈다.
+- Related files:
+  - `E:\hanhwa\AGENTS.md`
+  - `.env.example`
+  - `README.md`
+- Verification:
+  - `node scripts/ci/check-governance.mjs`
+  - `git diff --check`
+
+## 2026-06-01 | Mobile Alert Actions | runOnJS에 함수 포함 버튼 객체를 넘겨 Alert 버튼 탭 crash
+- Symptom:
+  - Sentry `REACT-NATIVE-3`에서 Android Hermes fatal `TypeError: Object is not a function`이 38 events / 20 users로 보고됐다.
+  - 최신 이벤트는 release `fc-onboarding-app@3.1.12`, dist `45`였고, alert modal 내부 touch 직후에 발생했다.
+- Root cause:
+  - `AppAlertProvider`가 Reanimated `runOnJS(onButtonPress)`로 `onPress` 함수를 포함할 수 있는 alert button 객체 전체를 넘겼다.
+  - JS 복귀 후에는 `button.onPress` truthiness만 보고 호출해, worklet 경계를 지나며 non-callable로 변한 값도 함수처럼 호출할 수 있었다.
+- Why it was missed:
+  - 기존 AppAlertProvider 계약 테스트는 아이콘 asset 회귀만 확인했고, runOnJS payload serializability와 callable guard는 고정하지 않았다.
+  - Sentry 이벤트에 `js_no_source`가 떠 실제 source frame 확인이 늦어졌다.
+- Permanent guardrail:
+  - Reanimated `runOnJS`에는 primitive id/index 같은 serializable payload만 넘기고, 함수/객체 해석은 JS side에서 다시 한다.
+  - alert action 호출은 항상 `typeof onPress === 'function'`으로 가드한다.
+  - AppAlertProvider 계약 테스트에 runOnJS index payload와 callable guard를 유지한다.
+- Related files:
+  - `components/AppAlertProvider.tsx`
+  - `components/app-alert-utils.ts`
+  - `components/__tests__/AppAlertProvider.contract.test.ts`
+- Verification:
+  - `npm test -- --runTestsByPath components/__tests__/AppAlertProvider.contract.test.ts --runInBand`
+  - `npm run lint`
+  - `npm test -- --runInBand`
+  - `SENTRY_AUTH_TOKEN='' npm run build`
+
 ## 2026-05-31 | Admin Web Route Smoke | redirect-following smoke로 public route 보호 회귀를 놓침
 - Symptom:
   - harness에는 `/reset-password` production smoke가 200으로 기록돼 있었지만, redirect를 따르지 않는 현재 smoke에서는 `/reset-password`가 307로 `/auth`에 redirect됐다.
