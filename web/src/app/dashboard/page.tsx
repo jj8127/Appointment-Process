@@ -54,7 +54,7 @@ import { useSession } from '@/hooks/use-session';
 import { useResidentNumber } from '@/hooks/use-resident-number';
 import {
   closePendingAdminFileWindow,
-  navigatePendingAdminFileWindow,
+  navigateAdminFileWindowOrCurrentTab,
   openPendingAdminFileWindow,
 } from '@/lib/admin-file-open';
 import { supabase } from '@/lib/supabase';
@@ -1155,14 +1155,6 @@ export default function DashboardPage() {
     let popup: Window | null = null;
     try {
       popup = openPendingAdminFileWindow((url, target) => window.open(url, target)) as Window | null;
-      if (!popup) {
-        notifications.show({
-          title: '실패',
-          message: '브라우저 팝업이 차단되어 파일을 열 수 없습니다. 팝업 차단을 해제하고 다시 시도해주세요.',
-          color: 'red',
-        });
-        return;
-      }
 
       const resp = await fetch('/api/admin/fc', {
         method: 'POST',
@@ -1178,7 +1170,7 @@ export default function DashboardPage() {
         return;
       }
 
-      navigatePendingAdminFileWindow(popup, signedUrl);
+      navigateAdminFileWindowOrCurrentTab(popup, signedUrl, (url) => window.location.assign(url));
     } catch {
       closePendingAdminFileWindow(popup);
       notifications.show({ title: '실패', message: '파일을 열 수 없습니다.', color: 'red' });

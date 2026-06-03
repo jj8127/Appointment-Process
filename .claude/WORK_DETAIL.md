@@ -7,6 +7,30 @@
 
 ---
 
+## <a id="20260603-admin-file-open-popup-block-fallback"></a> 2026-06-03 | Admin file open popup-block fallback
+
+**배경**:
+- 관리자 웹 production 배포 후에도 총무 화면에서 FC 업로드 파일 `열기`를 누르면 `브라우저 팝업이 차단되어 파일을 열 수 없습니다` 알림이 뜬다는 제보가 있었다.
+- 이전 수정은 click 시점에 pending popup을 열도록 바꿨지만, 브라우저/환경이 `window.open` 자체를 `null`로 거절하면 signed URL 발급 전 return했다.
+
+**조치**:
+- `web/src/lib/admin-file-open.ts`에 `navigateAdminFileWindowOrCurrentTab`을 추가했다.
+- popup이 열리면 기존처럼 signed URL을 popup에 할당한다.
+- popup이 차단되면 `/api/admin/fc` `signDoc`는 계속 호출하고, signed URL을 받은 뒤 현재 탭을 해당 파일 URL로 이동시킨다.
+- 즉시 실패 알림을 제거해, 팝업 차단 환경에서도 파일을 열 수 있게 했다.
+
+**검증**:
+- RED 확인: `node --experimental-strip-types --test src/lib/admin-file-open.test.ts`
+  - `navigateAdminFileWindowOrCurrentTab` export 없음으로 실패.
+- 통과: `node --experimental-strip-types --test src/lib/admin-file-open.test.ts src/lib/admin-fc-doc-storage.test.ts`
+  - 10 tests.
+- 통과: `cd web; npm run lint -- src/lib/admin-file-open.ts src/lib/admin-file-open.test.ts src/app/dashboard/page.tsx src/app/api/admin/fc/route.ts src/lib/admin-fc-doc-storage.ts src/lib/admin-fc-doc-storage.test.ts`
+- 통과: `cd web; SENTRY_AUTH_TOKEN='' npm run build`
+  - 기존 `baseline-browser-mapping` age warning과 transitive OpenTelemetry `import-in-the-middle` version mismatch warning만 표시.
+
+**리스크/후속**:
+- 팝업이 차단된 브라우저에서는 새 탭 대신 현재 관리자 탭이 파일 URL로 이동한다. 사용자는 브라우저 뒤로가기로 대시보드에 복귀할 수 있다.
+
 ## <a id="20260603-admin-dashboard-copy-and-file-open-fix"></a> 2026-06-03 | Admin dashboard copy and file-open fix
 
 **배경**:

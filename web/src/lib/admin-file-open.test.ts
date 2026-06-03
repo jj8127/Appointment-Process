@@ -3,6 +3,7 @@ import test from 'node:test';
 
 import {
   closePendingAdminFileWindow,
+  navigateAdminFileWindowOrCurrentTab,
   navigatePendingAdminFileWindow,
   openPendingAdminFileWindow,
 } from './admin-file-open.ts';
@@ -38,6 +39,19 @@ test('navigates the pending file window to the signed URL', () => {
   navigatePendingAdminFileWindow(opened, 'https://example.supabase.co/signed');
 
   assert.deepEqual(assigned, ['https://example.supabase.co/signed']);
+});
+
+test('falls back to the current tab when a popup blocker prevents opening a pending file window', () => {
+  const currentTabAssignments: string[] = [];
+
+  const target = navigateAdminFileWindowOrCurrentTab(
+    null,
+    'https://example.supabase.co/signed',
+    (url) => currentTabAssignments.push(url),
+  );
+
+  assert.equal(target, 'current-tab');
+  assert.deepEqual(currentTabAssignments, ['https://example.supabase.co/signed']);
 });
 
 test('closes a pending file window on signing failure', () => {

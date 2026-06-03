@@ -29,6 +29,20 @@ export function navigatePendingAdminFileWindow(popup: PendingAdminFileWindow, si
   popup.location.assign(signedUrl);
 }
 
+export function navigateAdminFileWindowOrCurrentTab(
+  popup: PendingAdminFileWindow | null,
+  signedUrl: string,
+  navigateCurrentTab: (url: string) => void,
+): 'popup' | 'current-tab' {
+  if (popup) {
+    navigatePendingAdminFileWindow(popup, signedUrl);
+    return 'popup';
+  }
+
+  navigateCurrentTab(signedUrl);
+  return 'current-tab';
+}
+
 export function closePendingAdminFileWindow(popup: PendingAdminFileWindow | null) {
   if (popup && !popup.closed) {
     popup.close();

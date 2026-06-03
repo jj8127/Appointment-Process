@@ -20,6 +20,7 @@
 ## 최근 작업
 | 날짜 | 작업 | 핵심 파일 | 상세 |
 |------|------|----------|------|
+| 06-03 | 관리자 웹 업로드 파일 `열기`가 팝업 차단 환경에서 중단되던 문제를 signed URL 발급 후 현재 탭 fallback으로 복구 | `web/src/app/dashboard/page.tsx`, `web/src/lib/admin-file-open.ts`, `web/src/lib/admin-file-open.test.ts`, `.claude/MISTAKES.md` | [→ 상세](WORK_DETAIL.md#20260603-admin-file-open-popup-block-fallback) |
 | 06-03 | 총무 관리자 대시보드 FC 상세의 개발자용 문구를 운영자용 문구로 정리하고, 업로드 파일 `열기`를 signed URL 경로 정규화와 동기 팝업 열기로 복구 | `web/src/app/dashboard/page.tsx`, `web/src/app/api/admin/fc/route.ts`, `web/src/lib/admin-fc-doc-storage.ts`, `web/src/lib/admin-file-open.ts`, `.claude/MISTAKES.md`, `.codex/harness/*` | [→ 상세](WORK_DETAIL.md#20260603-admin-dashboard-copy-and-file-open-fix) |
 | 06-03 | 모바일 시험 일정 신규 등록에서 입력 중인 지역을 저장 payload에 포함하고 지역 0개 저장을 차단했으며, 삭제 튕김은 AppAlert fix 배포 필요 상태로 분리 확인 | `app/exam-register.tsx`, `app/exam-register2.tsx`, `lib/exam-round-location-payload.ts`, `lib/__tests__/exam-round-location-payload.test.ts`, `.claude/MISTAKES.md`, `.codex/harness/*` | [→ 상세](WORK_DETAIL.md#20260603-mobile-exam-round-registration-delete-hotfix) |
 | 06-01 | Sentry 조회/업로드 토큰 역할을 분리해 다른 AI가 upload token으로 issue API를 조회하지 않도록 guardrail을 추가 | `E:\hanhwa\AGENTS.md`, `.env.example`, `README.md`, `.claude/MISTAKES.md`, `.codex/harness/*` | [→ 상세](WORK_DETAIL.md#20260601-sentry-token-role-guardrail) |

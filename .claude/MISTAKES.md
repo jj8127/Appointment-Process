@@ -30,6 +30,27 @@
 - Verification:
 ```
 
+## 2026-06-03 | Admin Web File Open | 팝업 차단 시 signed URL 발급 전 중단함
+- Symptom:
+  - 관리자 웹 배포 후 총무가 FC 업로드 파일 `열기`를 눌렀을 때 `브라우저 팝업이 차단되어 파일을 열 수 없습니다` 알림이 떴고 파일이 열리지 않았다.
+- Root cause:
+  - `handleOpenDoc`가 `window.open` 결과가 `null`이면 즉시 실패 알림을 띄우고 return했다.
+  - 이 때문에 브라우저/환경이 새 창을 막는 경우에도 `/api/admin/fc` `signDoc`를 호출하지 않아 같은 탭 fallback으로 파일을 열 기회가 없었다.
+- Why it was missed:
+  - 이전 테스트는 pending popup이 열리는 정상 경로와 실패 시 close만 고정했고, popup 자체가 차단된 뒤 signed URL을 현재 탭으로 여는 fallback 계약을 포함하지 않았다.
+- Permanent guardrail:
+  - async signed URL 파일 열기는 popup이 열리면 popup을 이동시키고, popup이 차단되면 signed URL 발급 후 현재 탭을 이동시킨다.
+  - `web/src/lib/admin-file-open.test.ts`에 popup-block fallback 계약을 유지한다.
+- Related files:
+  - `web/src/app/dashboard/page.tsx`
+  - `web/src/lib/admin-file-open.ts`
+  - `web/src/lib/admin-file-open.test.ts`
+- Verification:
+  - RED: `node --experimental-strip-types --test src/lib/admin-file-open.test.ts`
+  - GREEN: `node --experimental-strip-types --test src/lib/admin-file-open.test.ts src/lib/admin-fc-doc-storage.test.ts`
+  - `cd web; npm run lint -- src/lib/admin-file-open.ts src/lib/admin-file-open.test.ts src/app/dashboard/page.tsx src/app/api/admin/fc/route.ts src/lib/admin-fc-doc-storage.ts src/lib/admin-fc-doc-storage.test.ts`
+  - `cd web; SENTRY_AUTH_TOKEN='' npm run build`
+
 ## 2026-06-03 | Admin Web Parallel Fix | 서브에이전트 변경이 같은 파일의 문구 수정분을 되돌림
 - Symptom:
   - 문구 정리 담당 서브에이전트가 `trusted path` 사용자 노출 문구를 고쳤다고 보고했지만, 파일 열기 담당 변경 이후 `web/src/app/dashboard/page.tsx`에 같은 문장이 다시 남아 있었다.
