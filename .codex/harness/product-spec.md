@@ -258,3 +258,10 @@ All hypotheses require later proof before deletion or refactor.
 - `고객관리`는 별도 신규 시스템이 아니라 기존 설계 요청 작성 플로우의 `1. 고객` 화면으로 들어가는 entrypoint다.
 - 기존 `새 설계 요청` 진입은 깨지지 않아야 하며, 설계매니저 세션에는 FC 고객관리/작성 진입을 열지 않는다.
 - 이번 increment는 모바일 홈/작성 진입 helper/test에 한정하고, request_board 서버/API나 관리자 웹은 변경하지 않는다.
+
+## Increment 29 Product Decisions
+
+- 본부장은 시험 신청도 가능해야 하지만, 기존 시험 목록과 시험 명단 조회 기능을 잃으면 안 된다.
+- 본부장 시험 홈은 FC 신청 전용 화면이 아니라 `시험 관리/신청` 화면이다.
+- 본부장 시험 홈은 기존 시험 일정/신청자 관리 카드와 생명/손해 시험 신청 카드를 함께 제공한다.
+- 본부장은 read-only 관리자로 유지되므로 시험 일정 편집/삭제 같은 쓰기 액션은 기존 화면의 `readOnly` guard에 따라 막힌다.

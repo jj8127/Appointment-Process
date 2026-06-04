@@ -144,7 +144,10 @@ const quickLinksFcBase: QuickLink[] = [
   { href: '/messenger', title: '메신저', description: '총무/설계매니저와 대화' },
 ];
 
-const quickLinksManagerExam: QuickLink[] = quickLinksFcBase.slice(0, 2);
+const quickLinksManagerExam: QuickLink[] = [
+  ...quickLinksAdminExam,
+  ...quickLinksFcBase.slice(0, 2),
+];
 
 const fcHomeSteps = [
   { key: 'consent', label: '보증 보험 동의', fullLabel: '보증 보험 동의' },
@@ -443,7 +446,8 @@ export default function Home() {
 
   const examHomeSurface = resolveExamHomeSurface({ role, readOnly, adminHomeTab });
   const isAdminExam = examHomeSurface === 'admin-management';
-  const isManagerExam = role === 'admin' && readOnly === true && examHomeSurface === 'fc-apply';
+  const isManagerExam = examHomeSurface === 'manager-management';
+  const showsExamManagementHome = isAdminExam || isManagerExam;
   const bottomNavPreset = resolveBottomNavPreset(
     { role, readOnly, hydrated, isRequestBoardDesigner },
     { adminHomeTab },
@@ -776,7 +780,7 @@ export default function Home() {
   } = useQuery({
     queryKey: ['exam-stats'],
     queryFn: fetchExamStats,
-    enabled: isAdminExam,
+    enabled: showsExamManagementHome,
   });
   const {
     data: latestAdminMsg,
@@ -1208,11 +1212,11 @@ export default function Home() {
           {role === 'admin' && (
             <View style={styles.homeTitleWrap}>
               <Text style={styles.homeTitle}>
-                {adminHomeTab === 'exam' ? (isManagerExam ? '시험 신청' : '시험') : '위촉'}
+                {adminHomeTab === 'exam' ? '시험' : '위촉'}
               </Text>
               <Text style={styles.homeSubtitleText}>
                 {isManagerExam
-                  ? '시험 일정과 응시 지역을 확인하고 접수할 수 있어요.'
+                  ? '시험 일정과 신청자 명단을 확인하고 직접 시험도 접수할 수 있어요.'
                   : adminHomeTab === 'exam'
                   ? '시험 일정 등록과 신청자 관리 메뉴를 모았습니다.'
                   : '위촉/서류 진행 현황과 주요 업무를 확인하세요.'}
@@ -1335,11 +1339,13 @@ export default function Home() {
             transition={{ type: 'timing', duration: 600, delay: 200 }}
           >
             {role === 'admin' ? (
-              isAdminExam ? (
+              showsExamManagementHome ? (
                 <View style={styles.examSummaryCard}>
                   <View style={styles.cardHeader}>
                     <Text style={styles.sectionTitle}>시험 관리 요약</Text>
-                    <Text style={styles.sectionHint}>등록 · 신청자 메뉴만 모았습니다</Text>
+                    <Text style={styles.sectionHint}>
+                      {isManagerExam ? '신청자 현황을 확인하고 필요한 시험을 접수하세요' : '등록 · 신청자 메뉴만 모았습니다'}
+                    </Text>
                   </View>
                   <Pressable
                     style={({ pressed }) => [styles.examStatRow, pressed && styles.pressedOpacity]}
@@ -1384,7 +1390,7 @@ export default function Home() {
                     </View>
                   </Pressable>
                 </View>
-              ) : isManagerExam ? null : (
+              ) : (
                 <View style={styles.metricsCard}>
                   <View style={styles.cardHeader}>
                     <Text style={styles.sectionTitle}>현황 요약</Text>
@@ -1840,16 +1846,16 @@ export default function Home() {
 
           <View style={styles.linksSection}>
             <Text style={styles.sectionTitle}>
-              {role === 'admin' && isAdminExam
+              {role === 'admin' && isManagerExam
+                ? '시험 관리/신청 바로가기'
+                : role === 'admin' && isAdminExam
                 ? '시험 관리 바로가기'
-                : isManagerExam
-                ? '시험 신청 바로가기'
                 : '바로가기'}
             </Text>
-            {role === 'admin' && (isAdminExam || isManagerExam) ? (
+            {role === 'admin' && showsExamManagementHome ? (
               <Text style={styles.sectionHint}>
                 {isManagerExam
-                  ? 'FC와 같은 시험 신청 메뉴를 모았습니다'
+                  ? '기존 시험 목록·신청자 명단에 시험 신청 메뉴를 추가했습니다'
                   : '시험 등록/신청자 관련 메뉴를 모았습니다'}
               </Text>
             ) : null}

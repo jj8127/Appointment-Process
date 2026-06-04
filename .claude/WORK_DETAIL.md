@@ -9565,3 +9565,31 @@
 - 최신 patch 후 direct browser screenshot은 사용자가 localhost를 reload한 뒤 확인해야 한다.
 
 ---
+
+## <a id="20260604-manager-exam-management-plus-apply"></a> 2026-06-04 | 본부장 시험 관리 조회 유지 + 시험 신청 추가
+
+**작업 내용**:
+- 본부장(read-only admin) 시험 탭을 신청 전용 FC surface로 바꾸면서 기존 시험 목록/신청자 명단 조회가 사라진 회귀를 수정했다.
+- `lib/exam-role.ts`의 본부장 시험 홈 surface를 `manager-management`로 분리해, FC와 같은 시험 신청 권한은 유지하되 홈 화면은 관리 조회와 신청을 함께 보여주도록 했다.
+- 본부장 시험 홈 quick link를 기존 시험 일정/신청자 관리 링크 4개와 생명/손해 시험 신청 링크 2개로 구성했다.
+- 본부장 시험 홈의 요약 카드와 문구를 `시험 관리/신청` 기준으로 바꿔 신청자 현황 확인과 직접 접수를 모두 표현했다.
+- `.claude/MISTAKES.md`의 잘못된 guardrail을 바로잡아, 본부장 시험 탭은 신청 전용이 아니라 기존 관리 조회 유지 + 신청 추가라는 계약을 남겼다.
+
+**핵심 파일**:
+- `app/index.tsx`
+- `lib/exam-role.ts`
+- `lib/__tests__/exam-role.test.ts`
+- `.claude/MISTAKES.md`
+- `.codex/harness/product-spec.md`
+
+**검증**:
+- `npx jest lib\__tests__\exam-role.test.ts --runInBand`
+- `npx eslint app\index.tsx lib\exam-role.ts lib\__tests__\exam-role.test.ts`
+- `npx tsc --noEmit --pretty false`
+- `node scripts\ci\check-governance.mjs`
+- targeted `git diff --check`
+
+**미실행**:
+- 실제 본부장 계정으로 Android 시험 탭을 터치하며 확인하는 검증은 사용자가 직접 폰 조작 테스트를 나중에 하기로 했기 때문에 보류했다.
+
+---

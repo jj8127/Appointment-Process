@@ -1362,10 +1362,10 @@
 - Related files: `supabase/functions/search-fc-for-referral/index.ts`, `supabase/functions/search-signup-referral/index.ts`, `supabase/functions/_shared/referral-search.ts`, `components/ReferralSearchField.tsx`
 - Verification: `npx jest supabase\functions\_shared\__tests__\referral-search.test.ts lib\__tests__\signup-referral.test.ts --runInBand`, `npx tsc --noEmit --pretty false`, `npx eslint components\ReferralSearchField.tsx app\referral.tsx app\signup.tsx`, deployed Edge Functions, live smoke `서선미` returned exactly one result with an active code.
 
-## 2026-06-04 | Manager Exam Surface | 본부장 시험 탭을 admin 관리 화면으로 취급
-- Symptom: 본부장으로 가람in에 로그인해 시험 탭을 보면 FC가 보는 시험 신청 화면이 아니라 시험 일정 등록/신청자 관리 중심 화면으로 노출됐고, `/exam-apply*` 화면도 `role !== 'fc'` gate로 막혔다.
-- Root cause: 모바일 본부장 세션은 `role='admin' + readOnly=true`로 정규화되는데, 홈 시험 탭과 시험 신청 route gate가 본부장 self-service를 FC-equivalent로 분기하지 않았다.
-- Why it was missed: manager read-only는 admin 관리 surface에서만 검증했고, 본부장 self-service 화면은 FC와 동일해야 한다는 계약을 시험 화면 테스트로 고정하지 않았다.
-- Permanent guardrail: 시험 신청은 `role='fc'` 또는 `role='admin' && readOnly=true`가 사용할 수 있어야 한다. 쓰기 가능한 총무 admin만 시험 관리 surface를 본다. 역할 분기는 `lib/exam-role.ts` 같은 shared helper를 통해 테스트로 고정한다.
+## 2026-06-04 | Manager Exam Surface | 본부장 시험 홈을 신청 전용 화면으로 바꾸며 기존 관리 조회 링크를 제거
+- Symptom: 본부장으로 가람in에 로그인해 시험 탭을 보면 기존 시험 목록/신청자 명단 조회 동선이 사라지고 생명/손해 시험 신청 링크만 남았다.
+- Root cause: 모바일 본부장 세션은 `role='admin' + readOnly=true`로 정규화되는데, "본부장도 시험 신청 가능" 요구를 "본부장은 FC 신청 surface만 본다"로 잘못 해석했다. 홈 quick link도 기존 시험 관리 링크를 재사용하지 않고 FC 신청 링크만 사용했다.
+- Why it was missed: 본부장은 read-only 관리 조회와 FC-equivalent 신청을 동시에 가져야 하는 복합 권한인데, 역할 테스트는 신청 허용 여부만 고정했고 기존 시험 목록/신청자 명단 유지 여부를 같이 확인하지 않았다.
+- Permanent guardrail: 본부장 시험 홈은 `manager-management` surface로 분리한다. 기존 시험 목록/신청자 명단 조회 링크는 유지하고, `/exam-apply`, `/exam-apply2` 신청 링크를 추가한다. 시험 신청 route gate는 `role='fc'` 또는 `role='admin' && readOnly=true`를 허용한다.
 - Related files: `app/index.tsx`, `app/exam-apply.tsx`, `app/exam-apply2.tsx`, `lib/exam-role.ts`, `lib/__tests__/exam-role.test.ts`
-- Verification: `npx jest lib\__tests__\exam-role.test.ts --runInBand`, `npx eslint app\index.tsx app\exam-apply.tsx app\exam-apply2.tsx lib\exam-role.ts lib\__tests__\exam-role.test.ts`, `npx tsc --noEmit --pretty false`, targeted `git diff --check`.
+- Verification: `npx jest lib\__tests__\exam-role.test.ts --runInBand`, `npx eslint app\index.tsx lib\exam-role.ts lib\__tests__\exam-role.test.ts`, `npx tsc --noEmit --pretty false`, targeted `git diff --check`.

@@ -14,7 +14,8 @@ describe('exam role contract', () => {
     expect(resolveExamHomeSurface({ role: 'admin', readOnly: false, adminHomeTab: 'exam' })).toBe('admin-management');
   });
 
-  test('uses FC apply surface for manager exam home tab', () => {
-    expect(resolveExamHomeSurface({ role: 'admin', readOnly: true, adminHomeTab: 'exam' })).toBe('fc-apply');
+  test('keeps manager exam home on management surface while allowing exam application', () => {
+    expect(resolveExamHomeSurface({ role: 'admin', readOnly: true, adminHomeTab: 'exam' })).toBe('manager-management');
+    expect(canUseFcExamApply({ role: 'admin', readOnly: true })).toBe(true);
   });
 });
