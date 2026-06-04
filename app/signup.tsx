@@ -28,6 +28,7 @@ import { consumePendingReferralCode, savePendingReferralCode } from '@/lib/refer
 import { useSession } from '@/hooks/use-session';
 import { safeStorage } from '@/lib/safe-storage';
 import {
+  buildPendingSignupReferralSelection,
   buildStoredSignupReferral,
   getSignupReferralSelectionError,
   runSinglePendingReferralApply,
@@ -261,7 +262,20 @@ export default function SignupScreen() {
       } else {
         setReferralStatus('valid');
         setReferralInviterName(data.inviterName ?? '');
-        setReferralInviterFcId(typeof data.inviterFcId === 'string' ? data.inviterFcId : null);
+        const inviterFcId = typeof data.inviterFcId === 'string' ? data.inviterFcId : null;
+        setReferralInviterFcId(inviterFcId);
+        setSelectedReferral((current) => {
+          const currentCode = String(current?.code ?? '').trim().toUpperCase();
+          if (!current || currentCode !== trimmed) {
+            return current;
+          }
+          return {
+            ...current,
+            fcId: inviterFcId ?? current.fcId,
+            name: data.inviterName ?? current.name,
+            code: trimmed,
+          };
+        });
       }
     } catch {
       if (
@@ -387,13 +401,18 @@ export default function SignupScreen() {
       const normalizedCode = code?.trim().toUpperCase() ?? '';
       if (!normalizedCode) return;
       if (referralEditVersionRef.current !== editVersionAtStart) return;
+      const pendingSelection = buildPendingSignupReferralSelection(normalizedCode);
+      if (!pendingSelection) return;
 
       clearReferralSearchResults();
       resetSelectedReferral();
-      setReferralSearchQuery(normalizedCode);
-      await runReferralSearch(normalizedCode);
+      selectedReferralCodeRef.current = pendingSelection.code ?? '';
+      setReferralSearchQuery('');
+      setReferralSearchError(null);
+      setSelectedReferral(pendingSelection);
+      await validateReferralCode(pendingSelection.code ?? normalizedCode);
     });
-  }, [clearReferralSearchResults, resetSelectedReferral, runReferralSearch]);
+  }, [clearReferralSearchResults, resetSelectedReferral, validateReferralCode]);
 
   useFocusEffect(
     useCallback(() => {
@@ -559,7 +578,7 @@ export default function SignupScreen() {
               }}
             />
             <Text style={styles.referralHelperText}>
-              추천인 이름, 소속 또는 8자리 추천 코드를 입력한 뒤 검색 결과에서 한 명을 선택해주세요.
+              추천인 이름을 입력한 뒤 검색 결과에서 한 명을 선택해주세요.
             </Text>
             {referralSearchQuery.trim().length > 0 && referralSearchQuery.trim().length < 2 && (
               <Text style={styles.referralSearchHint}>{REFERRAL_SEARCH_MIN_CHARS_HINT}</Text>

@@ -703,3 +703,100 @@ Keep the `fc-onboarding-app` workspace cleaner for long-running refactor work by
 - `node scripts/ci/check-governance.mjs`
 - `git diff --check`
 - For `request_board`, run its repo build/checks before commit because this conversation also contains GaramLink changes.
+
+## Increment 25 Contract - Mobile Customer Management Entry
+
+### Scope
+
+- Add a mobile FC `고객관리` action card in the GaramLink home action list.
+- Navigate that card to `/request-board-create` with explicit query params for the customer-management entry.
+- Resolve the query in `app/request-board-create.tsx` through a small helper so the screen starts at `1. 고객`.
+- Preserve the existing create-flow permission gate and default `/request-board-create` behavior.
+
+### Exclusions
+
+- No request_board API/server changes.
+- No admin web changes.
+- No customer CRUD behavior changes beyond exposing the existing customer select/register screen.
+- No edits to 설계매니저 action ownership.
+
+### Acceptance Criteria
+
+- FC users see `고객관리` in the action area with `실시간 메신저`, `의뢰 목록 · 검토`, and `설계코드 관리`.
+- Tapping `고객관리` enters `request-board-create` at the `customer` step.
+- Existing `새 설계 요청` route remains a customer-first create flow.
+- Designer request-board sessions remain blocked from the FC create/customer-management screen.
+
+### Required Checks
+
+- RED then GREEN: `npx jest lib\__tests__\request-board-create-flow.test.ts --runInBand`
+- `npx tsc --noEmit`
+- `npm run lint -- app\request-board.tsx app\request-board-create.tsx lib\request-board-create-flow.ts lib\__tests__\request-board-create-flow.test.ts`
+
+## Increment 26 Contract - Admin Web Errors, Modal Stage Targeting, Exam Schedule Notify/Sort
+
+### Scope
+
+- Reduce admin web graph API errors caused by stale FC route cookies without a signed `fc_graph_session`.
+- Ensure the dashboard `관리` button opens the modal tab matching the row's current workflow step.
+- Sort exam schedule list rows by exam date, with exam-date-missing rows sorted by registration deadline.
+- Send exam schedule create/update notifications through the shared `fc-notify` mobile fanout contract.
+
+### Exclusions
+
+- No native app build.
+- No direct phone UI smoke.
+- No historical Vercel log guarantee from CLI 48.12.0, which only supports live deployment log streaming.
+- No change to the broader FC graph downline authorization contract beyond stale-cookie route gating.
+
+### Acceptance Criteria
+
+- FC admin-web route access requires `fc_graph_session` whenever `role=fc` is present, including `/` and `/auth` entry points.
+- Clearing a stale FC route state also clears the graph-session cookie.
+- Dashboard modal default tab maps `calcStep(profile)` as `2 -> docs`, `3 -> hanwha`, `>=4 -> appointment`.
+- Exam schedule rows use `sortExamRoundsByExamDateThenDeadline`.
+- Exam schedule notification payload uses `type: notify`, `target_role: fc`, `target_id: null`, `category: exam_round`, and the correct mobile target URL.
+
+### Required Checks
+
+- `node --test src/lib/admin-web-route-access.test.ts src/lib/exam-round-sort.test.ts src/lib/exam-round-notification.test.ts`
+- `cd web; npm run lint`
+- targeted `git diff --check`
+- `cd web; SENTRY_AUTH_TOKEN='' npm run build` when the local Next dev server can be stopped.
+
+## Increment 27 Contract - Referral Graph Real-Data Layout Stability
+
+### Scope
+
+- Fix the admin referral graph layout where the Kim Hyungsoo root fanout rendered as long, uniform spokes.
+- Reduce actual node/label crowding by restoring an explicit collision force in production graph physics.
+- Keep drag/link behavior stable by using the same force constants in production and simulation tests.
+- Add a real Supabase data regression test that exercises the current 185-node/102-edge admin graph instead of only synthetic fixtures.
+- Bump both canvas layout memory and graph physics localStorage versions to `v16` so stale browser settings do not override the new spacing defaults.
+- Draw high-fanout root spokes as quieter background links, then draw branch-local links above them to reduce visible edge overlap without destabilizing node physics.
+- Keep static layout anchors aged out after the first stabilization window, but keep manual drag/drop targets alive for later same-session drag releases.
+
+### Exclusions
+
+- No data mutation.
+- No graph authorization/session changes.
+- No mobile native build.
+- No forced shutdown of the active local Next dev server.
+
+### Acceptance Criteria
+
+- Actual Supabase graph test runs with `RUN_REFERRAL_GRAPH_REALDATA_TEST=1` and passes on current production data.
+- Actual graph metrics stay bounded: node minimum center distance >= 26px, max edge <= 360px, disjoint edge crossings <= 24.
+- Actual visual edge-overlap severity stays <= 2.4 using production link alpha/width style weights.
+- Kim Hyungsoo direct spokes are pinned separately: sample >= 8, max <= 360px, p90 <= 345px.
+- Same-session drag release remains covered: `layout-memory` must not globally shut off manual drag/drop targets after `maxTicks`.
+- Synthetic layout/physics/simulation tests continue to pass.
+- Reloading the graph page uses `referral-graph-physics-settings-v16` defaults instead of stale `v15` browser settings.
+
+### Required Checks
+
+- `node --test src/lib/referral-graph-layout.test.ts`
+- `node --test src/lib/referral-graph-physics.test.ts`
+- `node --test src/lib/referral-graph-simulation.test.ts`
+- `RUN_REFERRAL_GRAPH_REALDATA_TEST=1 node --test src/lib/referral-graph-realdata.test.ts`
+- targeted web ESLint and `git diff --check`

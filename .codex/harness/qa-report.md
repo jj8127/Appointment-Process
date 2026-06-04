@@ -2379,3 +2379,154 @@ Reason: user explicitly deferred direct phone manipulation and asked to continue
   - GaramLink production root returned HTTP 200.
   - Admin web production root returned HTTP 401 as an auth-protected surface.
 - Expo/EAS native app build was not run per user instruction.
+
+## Increment 25 Verification
+
+### Scope
+
+- 모바일 가람Link 홈 FC 액션 목록의 `고객관리` 카드.
+- `/request-board-create` entry query helper and initial customer-step wiring.
+- Existing FC create permission gate and designer block.
+
+### Commands
+
+- RED observed: `npx jest lib\__tests__\request-board-create-flow.test.ts --runInBand` failed because the new route/query helpers were not exported yet.
+- Passed: `npx jest lib\__tests__\request-board-create-flow.test.ts --runInBand` (1 suite / 6 tests).
+- Passed: `npx tsc --noEmit`.
+- Passed: `npm run lint -- app\request-board.tsx app\request-board-create.tsx lib\request-board-create-flow.ts lib\__tests__\request-board-create-flow.test.ts`.
+- Passed: `git diff --check -- app\request-board.tsx app\request-board-create.tsx lib\request-board-create-flow.ts lib\__tests__\request-board-create-flow.test.ts` with CRLF normalization warnings only.
+
+### Not Run
+
+- Android/iOS interactive touch smoke for the new card.
+
+Reason: user requested a narrow mobile entrypoint change while other workers are editing adjacent GaramLink/admin files; this pass used focused code and contract verification only.
+
+### QA Judgment
+
+- The helper contract pins `고객관리` to `/request-board-create?entry=customer&source=customer-management`.
+- The create screen initializes from the normalized entry query without changing later internal customer/new-customer/compose transitions.
+- Existing dirty changes in `app/request-board.tsx` and `app/request-board-create.tsx` remain present and should be reviewed in the final integrated diff before commit.
+
+## Increment 26 Verification
+
+### Scope
+
+- Admin web stale FC graph session route gating.
+- Dashboard `관리` modal default tab alignment.
+- Exam schedule sort helper.
+- Exam schedule mobile notification payload contract.
+
+### Commands
+
+- Passed: `node --test src/lib/admin-web-route-access.test.ts src/lib/exam-round-sort.test.ts src/lib/exam-round-notification.test.ts` (10 tests).
+- Passed: `npm run lint` in `web/`.
+- Passed: targeted `git diff --check` for admin route access, dashboard modal, exam schedule, and mobile customer-management files (CRLF normalization warnings only).
+- Passed earlier in this increment: `node --test src/lib/admin-web-route-access.test.ts src/lib/exam-round-sort.test.ts` before the notification helper was added.
+
+### Not Run
+
+- `cd web; SENTRY_AUTH_TOKEN='' npm run build`.
+
+Reason: a local Next dev server is active for `web/`, and `scripts/clean-next.mjs` refuses to clean `.next` while that server is running. I did not stop the user's active localhost session.
+
+### QA Judgment
+
+- Code-level and lint verification is green for the patched admin web and exam schedule contracts.
+- The Vercel error graph was not backed by historical log samples because local Vercel CLI 48.12.0 does not support the documented historical `--since` flow. The stale FC session path remains the strongest local code-backed root cause and is now route-gated before the API can repeatedly emit 401.
+- Direct production/browser smoke should be run after deployment or after the current local dev server can be safely restarted.
+
+## Increment 27 Verification
+
+### Scope
+
+- Referral graph layout/physics for the current real Supabase admin graph.
+- Kim Hyungsoo root fanout and nested manager branch spacing.
+- Runtime stale-setting guard by moving graph physics storage to `referral-graph-physics-settings-v16`.
+- Same-session drag stability after the first static anchor stabilization window.
+
+### Commands
+
+- Passed: `node --test src/lib/referral-graph-physics.test.ts` (22 tests), including `createReferralGraphLayoutMemoryForce keeps manual drag targets alive after static anchors age out`.
+- Passed: `node --test src/lib/referral-graph-link-style.test.ts src/lib/referral-graph-layout.test.ts src/lib/referral-graph-physics.test.ts src/lib/referral-graph-simulation.test.ts` (64 tests).
+- Passed: `$env:RUN_REFERRAL_GRAPH_REALDATA_TEST='1'; node --test src/lib/referral-graph-realdata.test.ts`.
+- Actual data metrics from the real Supabase graph with production-equivalent collision radius and link style weighting: `nodes=185`, `edges=102`, `ticks=720`, `crossings=21`, `crossingVisualSeverity=2.1996748800000003`, `minDistance=55.982026074127816`, `maxEdge=336.92733821448934`, `kimHyeongsuDirectMax=336.92733821448934`, `kimHyeongsuDirectP90=336.3234930681594`.
+- Passed: `npm run lint -- src\app\dashboard\referrals\graph\page.tsx src\components\referrals\ReferralGraphCanvas.tsx src\lib\referral-graph-link-style.ts src\lib\referral-graph-link-style.test.ts src\lib\referral-graph-layout.ts src\lib\referral-graph-layout.test.ts src\lib\referral-graph-physics.ts src\lib\referral-graph-physics.test.ts src\lib\referral-graph-simulation.test.ts src\lib\referral-graph-realdata.test.ts`.
+- Passed: targeted graph `git diff --check` previously; final full `git diff --check` is still required after this documentation update.
+
+### Not Run
+
+- `npm run build` in `web/`.
+- Direct browser/phone visual traversal after the latest graph patch.
+
+Reason: the active local Next dev server is being used for the user's localhost browser session, and `npm run build` runs `scripts/clean-next.mjs` before build. I did not stop or disturb that session.
+
+### Known Verification Debt
+
+- `npx tsc --noEmit --project tsconfig.json` fails before useful production type assertions because the repo's node test files import `.ts` extensions without `allowImportingTsExtensions`; this affects existing tests and the new real-data test. The targeted lint and node test commands remain the current executable proof for this graph increment.
+
+### QA Judgment
+
+- Actual-data graph metrics are now pinned with the same force stack and production collision radius, and the Kim Hyungsoo root case has explicit direct-spoke assertions.
+- Dense root leaf spokes are now capped by the real-data contract; the previous 400px-class Kim Hyungsoo direct spokes no longer pass the test.
+- Root-spoke rendering is now tested separately: high-fanout root direct links render as background edges, branch-local edges render above them, and selected root spokes regain focus styling.
+- Static layout anchors now age out after the first stabilization window, while manual drag/drop targets remain active for later same-session drags; this directly addresses the independent evaluator finding about `maxTicks=260`.
+- Browser reload should use the new `v16` physics defaults because both canvas layout version and page-level localStorage key have been bumped.
+- Final visual acceptance still requires a browser reload/screenshot check when the user can confirm the active localhost view after the patch. Edge-crossing zero was not achieved by force tuning; the regression contract now prevents worsening beyond the current real-data baseline.
+
+## Increment 28 Verification
+
+### Scope
+
+- 가람in 추천인 검색을 이름-only 검색으로 고정.
+- `서선미` 같은 활성 설계매니저가 검색될 때 `manager_accounts` 기준으로 추천인 shadow profile/referral code를 보강.
+- 추천인 검색 UI 문구에서 소속/추천코드 검색 안내 제거.
+
+### Commands
+
+- Passed: `npx jest supabase\functions\_shared\__tests__\referral-search.test.ts --runInBand`.
+- Passed: `npx jest supabase\functions\_shared\__tests__\referral-search.test.ts lib\__tests__\signup-referral.test.ts --runInBand` (2 suites / 13 tests).
+- Passed: `npx eslint components\ReferralSearchField.tsx app\referral.tsx app\signup.tsx`.
+- Passed: `npx tsc --noEmit --pretty false`.
+- Deployed: `npx supabase functions deploy search-fc-for-referral --project-ref ubeginyxaotcamuqpmud --use-api`.
+- Deployed: `npx supabase functions deploy search-signup-referral --project-ref ubeginyxaotcamuqpmud --use-api`.
+- Passed live smoke: `search-signup-referral` with query `서선미` returned HTTP 200, `ok: true`, exactly one result named `서선미`, and `hasCode: true`.
+
+### Not Run
+
+- Authenticated `search-fc-for-referral` function invocation with a real app session token.
+
+Reason: the current shell does not hold a user app-session token. The deployed FC search function shares the same name-only helper and manager backfill logic as the live-smoked signup search path.
+
+### QA Judgment
+
+- The production signup referral search now confirms the critical `서선미` case.
+- Manual app UI check should reload the current 가람in session and search `서선미`; expected result is only `서선미`, not 산하 FCs whose affiliation contains `서선미`.
+
+## Increment 29 Verification
+
+### Scope
+
+- 본부장(`role=admin`, `readOnly=true`) 시험 탭을 FC 시험 신청 surface와 동일하게 변경.
+- 생명/제3보험 및 손해보험 시험 신청 route gate에서 본부장 접근 허용.
+- 쓰기 가능한 총무 admin은 기존 시험 관리 surface 유지.
+
+### Commands
+
+- RED observed: `npx jest lib\__tests__\exam-role.test.ts --runInBand` failed because `lib/exam-role.ts` did not exist.
+- Passed: `npx jest lib\__tests__\exam-role.test.ts --runInBand` (1 suite / 3 tests).
+- Passed: `npx eslint app\index.tsx app\exam-apply.tsx app\exam-apply2.tsx lib\exam-role.ts lib\__tests__\exam-role.test.ts`.
+- Passed: `npx tsc --noEmit --pretty false`.
+- Passed: targeted `git diff --check` with CRLF normalization warnings only.
+
+### Not Run
+
+- Direct Android UI tap-through and live exam registration submission.
+
+Reason: user previously deferred direct phone manipulation; this pass verified code-level gates and role contract only.
+
+### QA Judgment
+
+- 본부장 시험 탭 now resolves to FC apply quick links: `/exam-apply`, `/exam-apply2`.
+- `/exam-apply` and `/exam-apply2` now enable round/application queries for FC and read-only manager sessions.
+- Writable admin remains on management links and summary cards.

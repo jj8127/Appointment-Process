@@ -1305,3 +1305,67 @@
 - Permanent guardrail: 완료 설계의 FC decision 버튼은 `!isRequestBoardDesigner && needsReview` 조건에서만 렌더링한다. 설계매니저 화면은 같은 상태를 `FC 검토 대기`로만 표시하고, 역할별 Android UI 확인 또는 그에 준하는 명시적 회귀 테스트를 남긴다.
 - Related files: `app/request-board-review.tsx`, `lib/__tests__/request-board-review-role.contract.test.ts`
 - Verification: `npx jest lib\__tests__\request-board-api-contract.test.ts lib\__tests__\request-board-mobile-products.test.ts lib\__tests__\request-board-review-role.contract.test.ts lib\__tests__\request-board-session.test.ts --runInBand`, `npx tsc --noEmit`, `npm run lint -- app\request-board-review.tsx lib\__tests__\request-board-review-role.contract.test.ts`, FC Android detail screenshot `.codex/harness/ui-qa/android-fc-review-detail-buttons-after-role-patch.png`; 설계매니저 Android visual pass는 사용자 지시로 보류하고 사용자 세션/임시 request_board 데이터는 복구 및 삭제했다.
+
+## 2026-06-04 | Request Board Bottom Sheet | 완료 CTA를 Android 시스템 내비게이션 바와 겹치게 배치
+- Symptom: 설계매니저 선택 바텀시트에 `1명 선택 완료` 버튼을 추가했지만 SM_S942N 화면에서 버튼 하단이 Android 시스템 내비게이션 바와 겹쳤다.
+- Root cause: Modal 바텀시트 footer를 추가하면서 `useSafeAreaInsets().bottom`만 믿었고, Android edge-to-edge/에뮬레이터 환경에서 bottom inset이 `0`으로 들어오는 경우를 위한 충분한 fallback padding을 두지 않았다.
+- Why it was missed: 버튼 존재/비활성 상태만 테스트하고, Android 하단 시스템 영역과의 충돌을 별도 계약으로 고정하지 않았다.
+- Permanent guardrail: 모바일 바텀시트/고정 footer CTA를 추가할 때는 `safe-area bottom + 여유 여백`뿐 아니라 Android inset 0 fallback 최소 여백도 helper/test로 고정한다. 키보드가 열린 상태는 별도 분기로 과한 footer 여백을 주지 않는다.
+- Related files: `app/request-board-create.tsx`, `lib/request-board-designer-selection.ts`, `lib/__tests__/request-board-designer-selection.test.ts`
+- Verification: `npx jest lib\__tests__\request-board-designer-selection.test.ts --runInBand`, `npx tsc --noEmit`, `npm run lint -- app\request-board-create.tsx lib\request-board-designer-selection.ts lib\__tests__\request-board-designer-selection.test.ts`
+
+## 2026-06-04 | Referral Invite Deep Link | 공유 링크와 회원가입 자동 적용 계약을 분리해서 추천 코드가 수동 입력처럼 남음
+- Symptom: 추천인 코드 공유하기가 invite landing URL 대신 plain 추천 코드와 store link 중심으로 공유됐고, 앱 실행 후 회원가입으로 들어와도 추천 코드가 실제 선택/적용 상태가 되지 않을 수 있었다.
+- Root cause: `EXPO_PUBLIC_INVITE_BASE_URL`이 없을 때 production invite page 기본값을 쓰지 않았고, pending deep-link code를 검색어로만 넣어 search result 선택 계약과 충돌시켰다.
+- Why it was missed: 공유 문구 테스트와 회원가입 pending-code 상태 테스트가 분리되어 있지 않아, landing page URL 생성과 signup selected-referral 적용을 end-to-end 계약으로 고정하지 못했다.
+- Permanent guardrail: invite/deep-link 기능은 `공유 URL -> landing query -> custom scheme -> pending storage -> signup selected state -> server validation -> persisted referralCode`를 한 흐름으로 테스트한다. 초대 링크 코드는 검색어가 아니라 선택된 추천인 placeholder로 먼저 적용하고 검증 결과로 보강한다.
+- Related files: `app/referral.tsx`, `app/signup.tsx`, `lib/referral-share.ts`, `lib/signup-referral.ts`
+- Verification: `npx jest lib\__tests__\referral-share.test.ts lib\__tests__\signup-referral.test.ts --runInBand`, focused Expo lint
+
+## 2026-06-04 | Exam Schedule Notifications | 시험 일정 알림을 `fc-notify` 대신 직접 Expo push로 보내려 함
+- Symptom: 총무가 관리자 웹에서 시험 일정을 등록/수정해도 FC 모바일 알림이 안정적으로 도착하지 않는다고 보고됐다.
+- Root cause: `web/src/app/dashboard/exam/schedule/actions.ts`가 shared notification contract인 `fc-notify`를 쓰지 않고 `notifications` direct insert, `device_tokens` direct query, Expo push direct send를 자체 구현했다.
+- Why it was missed: 기존 게시판/알림 경로에서 이미 `notifications` row만 직접 쓰면 push fanout이 빠진다는 실수가 있었는데, 시험 일정 관리 server action을 같은 알림 계약 점검 대상으로 묶지 않았다.
+- Permanent guardrail: 새 FC 대상 알림 소스는 `fc-notify` `type: notify` payload를 통해 inbox insert와 Expo fanout을 함께 처리한다. 직접 `notifications` insert 또는 direct Expo push block을 만들면 같은 변경 세트에서 helper/test로 예외 이유를 고정해야 한다.
+- Related files: `web/src/app/dashboard/exam/schedule/actions.ts`, `web/src/lib/exam-round-notification.ts`, `web/src/lib/exam-round-notification.test.ts`, `supabase/functions/fc-notify/index.ts`
+- Verification: `node --test src/lib/exam-round-notification.test.ts`, `cd web && npm run lint`
+
+## 2026-06-04 | Admin Web FC Graph Session | FC용 관리자 웹 진입과 graph API 인증 계약을 다르게 둠
+- Symptom: 관리자 웹 운영 error 비율이 관측됐고, FC graph page가 열려도 `/api/admin/referrals/graph`에서 `Invalid FC graph session` 401을 반복할 수 있는 경로가 확인됐다.
+- Root cause: route gate/proxy는 JS-readable `session_role=fc`와 `session_resident`만 보고 graph page 진입을 허용했지만, graph API는 signed HttpOnly `fc_graph_session`까지 요구했다.
+- Why it was missed: FC 관리자 웹 접근을 "페이지 제한"과 "API 스코프" 문제로 나누어 구현하면서, route gate와 API가 동일한 signed-session prerequisite을 요구하는지 확인하지 않았다.
+- Permanent guardrail: 일반 FC에게 admin web surface를 열 때는 route gate, layout, API 모두 같은 signed/HttpOnly session prerequisite을 공유해야 한다. JS-readable role cookie는 화면 힌트로만 쓰고, stale cookie가 감지되면 관련 session cookies를 모두 지운다.
+- Related files: `web/src/lib/admin-web-route-access.ts`, `web/src/lib/admin-web-proxy-handler.ts`, `web/src/lib/server-session.ts`, `web/src/app/api/admin/referrals/graph/route.ts`
+- Verification: `node --test src/lib/admin-web-route-access.test.ts`, `cd web && npm run lint`
+
+## 2026-06-04 | Referral Graph Real Data QA | 합성 그래프만 보고 김형수형 허브 fanout 회귀를 놓침
+- Symptom: 추천인 그래프에서 김형수 밑 직속 노드들이 긴 원형 spoke처럼 일정하게 멀리 떨어지고, 실제 화면에서는 노드/라벨이 서로 붙어 보였다.
+- Root cause: `referral-graph-layout`/`referral-graph-physics` 테스트가 synthetic pinwheel fixture 중심이라 실제 운영 데이터의 `김형수 -> 다수 직속 leaf` 구조를 그대로 검증하지 않았다. 또한 `dense fanout should lengthen spokes`류 assertion이 긴 원형 배치를 오히려 정당화했다.
+- Why it was missed: 교차 수, 노드 최소거리, 최대 edge 길이를 실제 Supabase 그래프 payload로 계측하지 않았고, synthetic fixture의 상한/하한을 실제 화면 UX와 분리해서 유지했다.
+- Permanent guardrail: 추천인 그래프 layout/physics 변경은 synthetic tests만으로 완료하지 않는다. `RUN_REFERRAL_GRAPH_REALDATA_TEST=1 node --test src/lib/referral-graph-realdata.test.ts`를 실제 Supabase 데이터로 실행해 `node count`, `edge count`, `edge crossing count`, `minimum node distance`, `max edge length`를 함께 확인한다. 긴 fanout 회귀를 막기 위해 leaf spoke 상한과 collision force를 production/test helper 양쪽에 같은 값으로 유지한다.
+- Related files: `web/src/lib/referral-graph-realdata.test.ts`, `web/src/lib/referral-graph-layout.ts`, `web/src/lib/referral-graph-physics.ts`, `web/src/components/referrals/ReferralGraphCanvas.tsx`
+- Verification: `node --test src/lib/referral-graph-layout.test.ts src/lib/referral-graph-physics.test.ts src/lib/referral-graph-simulation.test.ts`; `RUN_REFERRAL_GRAPH_REALDATA_TEST=1 node --test src/lib/referral-graph-realdata.test.ts`
+
+## 2026-06-04 | Referral Graph Drag Session | static anchor maxTicks를 manual drag target에도 적용함
+- Symptom: 실제 화면에서 초기 안정화가 끝난 뒤 같은 그래프 세션에서 노드를 다시 드래그하면, release 후 manual drop target 보정이 첫 드래그와 다르게 약해지거나 꺼질 수 있었다.
+- Root cause: `createReferralGraphLayoutMemoryForce`가 `tickCount > maxTicks`이면 force 전체를 `return`했다. 이 값은 force 인스턴스 생애주기에 묶이므로 static anchor memory뿐 아니라 이후 드래그에서 새로 생기는 `manualNodeTargetsRef`까지 비활성화했다.
+- Why it was missed: 테스트가 force 인스턴스를 새로 만들어 안정화 지표만 검증했고, 오래 열린 실제 UI 세션에서 `d3ReheatSimulation()`만 호출되는 드래그/릴리즈 경로를 별도로 고정하지 않았다.
+- Permanent guardrail: static layout anchor aging과 manual drag/drop target은 같은 force 안에서도 별도 계약이다. `maxTicks`는 static anchor strength만 0으로 감쇠해야 하며, manual targets are live state and must continue after reheats. 해당 회귀는 `createReferralGraphLayoutMemoryForce keeps manual drag targets alive after static anchors age out`로 고정한다.
+- Related files: `web/src/lib/referral-graph-physics.ts`, `web/src/lib/referral-graph-physics.test.ts`, `web/src/components/referrals/ReferralGraphCanvas.tsx`
+- Verification: `node --test src/lib/referral-graph-physics.test.ts`; `RUN_REFERRAL_GRAPH_REALDATA_TEST=1 node --test src/lib/referral-graph-realdata.test.ts`
+
+## 2026-06-04 | Referral Search Contract | 추천인 검색을 이름이 아닌 소속/코드 fuzzy 검색까지 허용
+- Symptom: 가람in 추천인 검색에서 `서선미`가 본인 검색 결과로 안정적으로 뜨지 않거나, `1본부 서선미`처럼 소속에 서선미가 들어간 산하 인원이 함께 노출됐다.
+- Root cause: `search-fc-for-referral`과 `search-signup-referral`이 `fc_profiles.name`뿐 아니라 `affiliation`과 `referral_codes.code`까지 fuzzy 검색했다. 또한 활성 설계매니저가 추천인용 shadow profile/referral code를 아직 갖지 않은 경우 `manager_accounts` 기준으로 보강하는 경로가 없었다.
+- Why it was missed: 초대 링크/추천코드 검증과 수동 추천인 검색을 같은 검색 UX로 묶었고, “본부장 이름은 이름 필드만 비교한다”는 계약 테스트가 없었다.
+- Permanent guardrail: 수동 추천인 검색 입력창은 `name ilike`만 사용한다. 소속/하위 조직/추천코드 fuzzy 검색은 허용하지 않는다. 추천코드는 딥링크/저장 검증처럼 별도 명시 경로에서만 처리한다. 활성 설계매니저 이름이 검색되면 `manager_accounts`에서 shadow profile과 active referral code를 보강한다.
+- Related files: `supabase/functions/search-fc-for-referral/index.ts`, `supabase/functions/search-signup-referral/index.ts`, `supabase/functions/_shared/referral-search.ts`, `components/ReferralSearchField.tsx`
+- Verification: `npx jest supabase\functions\_shared\__tests__\referral-search.test.ts lib\__tests__\signup-referral.test.ts --runInBand`, `npx tsc --noEmit --pretty false`, `npx eslint components\ReferralSearchField.tsx app\referral.tsx app\signup.tsx`, deployed Edge Functions, live smoke `서선미` returned exactly one result with an active code.
+
+## 2026-06-04 | Manager Exam Surface | 본부장 시험 탭을 admin 관리 화면으로 취급
+- Symptom: 본부장으로 가람in에 로그인해 시험 탭을 보면 FC가 보는 시험 신청 화면이 아니라 시험 일정 등록/신청자 관리 중심 화면으로 노출됐고, `/exam-apply*` 화면도 `role !== 'fc'` gate로 막혔다.
+- Root cause: 모바일 본부장 세션은 `role='admin' + readOnly=true`로 정규화되는데, 홈 시험 탭과 시험 신청 route gate가 본부장 self-service를 FC-equivalent로 분기하지 않았다.
+- Why it was missed: manager read-only는 admin 관리 surface에서만 검증했고, 본부장 self-service 화면은 FC와 동일해야 한다는 계약을 시험 화면 테스트로 고정하지 않았다.
+- Permanent guardrail: 시험 신청은 `role='fc'` 또는 `role='admin' && readOnly=true`가 사용할 수 있어야 한다. 쓰기 가능한 총무 admin만 시험 관리 surface를 본다. 역할 분기는 `lib/exam-role.ts` 같은 shared helper를 통해 테스트로 고정한다.
+- Related files: `app/index.tsx`, `app/exam-apply.tsx`, `app/exam-apply2.tsx`, `lib/exam-role.ts`, `lib/__tests__/exam-role.test.ts`
+- Verification: `npx jest lib\__tests__\exam-role.test.ts --runInBand`, `npx eslint app\index.tsx app\exam-apply.tsx app\exam-apply2.tsx lib\exam-role.ts lib\__tests__\exam-role.test.ts`, `npx tsc --noEmit --pretty false`, targeted `git diff --check`.

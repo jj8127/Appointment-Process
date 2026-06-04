@@ -907,3 +907,103 @@ npm test -- --runInBand
 - Explicitly not done:
   - No Expo/EAS/native app build.
   - Direct SM_S942N traversal remains deferred by user instruction.
+
+## Increment 25 Handoff
+
+- Implemented:
+  - Added `고객관리` to the mobile GaramLink FC action list.
+  - Added `getRequestBoardCustomerManagementRoute()` and `resolveRequestBoardCreateInitialStep()` in `lib/request-board-create-flow.ts`.
+  - Wired `app/request-board-create.tsx` to initialize from `entry` query params, so customer-management opens at `1. 고객`.
+- Verification passed:
+  - RED then GREEN focused Jest for `lib/__tests__/request-board-create-flow.test.ts`.
+  - `npx tsc --noEmit`.
+  - targeted Expo lint for the touched app/helper/test files.
+  - targeted `git diff --check`.
+- Not done:
+  - No device/browser smoke.
+  - No request_board server/API/admin web changes.
+  - No new `MISTAKES.md` item because no repeated mistake/regression was found.
+- Resume note:
+  - Before commit, review the integrated diff because `app/request-board.tsx` and `app/request-board-create.tsx` already contain pre-existing dirty changes from adjacent work.
+
+## Increment 26 Handoff
+
+- Implemented:
+  - `관리` button modal default tab now follows `calcStep(profile)` so `2단계 문서제출` opens `서류 관리`.
+  - Admin web route access now requires raw presence of `fc_graph_session` for FC route sessions before allowing graph access. Stale FC cookies are cleared, including the graph session cookie.
+  - Exam schedule list uses `sortExamRoundsByExamDateThenDeadline`.
+  - Exam schedule notification now calls Supabase Edge Function `fc-notify` via `adminSupabase.functions.invoke` instead of local direct Expo push.
+  - `exam-round-notification` helper/test pins the `fc-notify` broadcast payload and target URLs.
+- Verification passed:
+  - `node --test src/lib/admin-web-route-access.test.ts src/lib/exam-round-sort.test.ts src/lib/exam-round-notification.test.ts`.
+  - `cd web; npm run lint`.
+  - targeted `git diff --check`.
+- Not done:
+  - `cd web; SENTRY_AUTH_TOKEN='' npm run build` because a local Next dev server is active and `clean-next.mjs` refuses to delete `.next` while it is running.
+  - Historical Vercel log sample collection because local Vercel CLI requires a deployment argument and only streams current logs; `vercel logs <deployment> --json` timed out without useful samples.
+- Resume note:
+  - If deployment is needed, either stop the local dev server and run the web build first, or let Vercel cloud build after reviewing the integrated diff.
+  - After deploy, smoke `/dashboard/referrals/graph` with a valid FC web login and create/update one exam schedule to verify an `exam_round` inbox row plus push fanout.
+
+## Increment 27 Handoff
+
+- Implemented:
+  - Bounded Kim Hyungsoo-style root fanout by making branch-bridge distance depend on the local child branch instead of using the root's full child count for every first-level edge.
+  - Added production `forceCollide` and aligned simulation tests to the same collision/link-tension/component-cohesion constants.
+  - Added label occupancy suppression so low-priority labels do not draw over already placed labels.
+  - Added node-vs-label suppression so non-selected/non-search labels do not draw across other nodes.
+  - Added `referral-graph-link-style` helper so high-fanout root direct spokes render as quieter background links, while branch-local links render above them.
+  - Added `web/src/lib/referral-graph-realdata.test.ts`, gated by `RUN_REFERRAL_GRAPH_REALDATA_TEST=1`, to fetch current Supabase data and run the production-equivalent force stack.
+  - The real-data test now uses the same dynamic collision radius as production, separately asserts Kim Hyungsoo direct spoke bounds, and tracks visual edge-overlap severity from production link alpha/width weights.
+  - Bumped `ReferralGraphCanvas` layout version to `obsidian-pinwheel-v16` and graph page physics storage key to `referral-graph-physics-settings-v16`.
+  - Added weighted root child placement and capped static layout-memory influence so the real graph does not drift back into long uniform root spokes after long stabilization.
+  - Capped dense root leaf-spoke distances so Kim Hyungsoo-style direct leaves no longer settle as 400px-class uniform spokes.
+  - Fixed the evaluator-found drag-session issue: static anchor memory ages out after `maxTicks`, but manual drag/drop targets keep working in the same force instance after later drags.
+- Verification passed:
+  - `node --test src/lib/referral-graph-physics.test.ts` (22 tests, including the same-session manual target regression).
+  - `node --test src/lib/referral-graph-link-style.test.ts src/lib/referral-graph-layout.test.ts src/lib/referral-graph-physics.test.ts src/lib/referral-graph-simulation.test.ts` (64 tests).
+  - `$env:RUN_REFERRAL_GRAPH_REALDATA_TEST='1'; node --test src/lib/referral-graph-realdata.test.ts`.
+  - Actual graph metrics: 185 nodes, 102 edges, 21 crossings, visual overlap severity 2.20, 55.98px minimum center distance, 336.93px maximum edge, Kim Hyungsoo direct p90 336.32px.
+  - Targeted web ESLint for graph page/canvas/layout/physics tests.
+  - Targeted `git diff --check` before the final documentation refresh; rerun it before final commit.
+- Not done:
+  - No `web` build because the build script cleans `.next` and the user's local Next dev server is active.
+  - No direct browser screenshot after the latest patch; ask the user to reload localhost and inspect the graph with the `v15` default settings.
+- Resume note:
+  - If the graph still appears too sparse around 김형수 after reload, inspect whether the UI is using the `퍼짐` preset or a custom draft physics setting. The storage key should now reset defaults, so a post-reload issue is likely a true layout constant issue, not stale localStorage.
+  - If the user requires literal zero edge crossings, stop tuning force constants and plan a separate deterministic tree/radial-tree layout mode. Two force-tuning/layout-sector hypotheses were tested against real data and increased crossings.
+
+## Increment 28 Handoff
+
+- Implemented:
+  - `search-fc-for-referral` now searches `fc_profiles.name` only and no longer fuzzy-searches affiliation or referral code.
+  - `search-signup-referral` now follows the same name-only contract.
+  - Both search functions look up active `manager_accounts.name` matches and backfill the manager referral shadow profile plus active referral code before returning results.
+  - Referral search UI copy now says to search by 추천인 이름 only.
+- Verification passed:
+  - `npx jest supabase\functions\_shared\__tests__\referral-search.test.ts lib\__tests__\signup-referral.test.ts --runInBand`.
+  - `npx eslint components\ReferralSearchField.tsx app\referral.tsx app\signup.tsx`.
+  - `npx tsc --noEmit --pretty false`.
+  - Supabase function deployments for `search-fc-for-referral` and `search-signup-referral`.
+  - Live smoke against `search-signup-referral`: query `서선미` returned exactly one result, `서선미`, with an active referral code.
+- Not done:
+  - No authenticated FC referral search invocation because no app-session token was available in shell.
+- Resume note:
+  - In the app, reload and search `서선미` from the 추천인 search field. Expected: only `서선미` appears. Users under `1본부 서선미` must not appear unless their own `name` contains the query.
+
+## Increment 29 Handoff
+
+- Implemented:
+  - Added `lib/exam-role.ts` to define the FC-equivalent exam role contract.
+  - Home 시험 tab now sends 본부장(read-only admin) to FC-style exam application quick links, not admin exam management links.
+  - `/exam-apply` and `/exam-apply2` now allow 본부장 sessions and enable the same round/my-application queries as FC sessions.
+  - Writable 총무 admin remains on exam management summary and management links.
+- Verification passed:
+  - RED then GREEN `npx jest lib\__tests__\exam-role.test.ts --runInBand`.
+  - `npx eslint app\index.tsx app\exam-apply.tsx app\exam-apply2.tsx lib\exam-role.ts lib\__tests__\exam-role.test.ts`.
+  - `npx tsc --noEmit --pretty false`.
+  - Targeted `git diff --check`.
+- Not done:
+  - No direct Android UI tap-through or live exam submission.
+- Resume note:
+  - In a 본부장 login session, open the bottom `시험` tab. Expected links are `생명/제3 시험 신청` and `손해 시험 신청`, both entering the FC-style application screens.

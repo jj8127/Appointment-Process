@@ -24,6 +24,10 @@ import { useSession } from '@/hooks/use-session';
 import { logger } from '@/lib/logger';
 import { fetchMobileUnreadNotificationCount } from '@/lib/mobile-unread-notification-count';
 import { setNotificationCheckpointNow } from '@/lib/notification-checkpoint';
+import {
+  normalizeNotificationTargetUrl,
+  resolveRequestBoardNotificationRoute,
+} from '@/lib/notification-route';
 import { resolveNoticeRoute } from '@/lib/notice-route';
 import { supabase } from '@/lib/supabase';
 import { syncNativeNotificationBadge } from '@/lib/system-notification-badge';
@@ -601,26 +605,6 @@ export default function NotificationsScreen() {
     }
   };
 
-  const normalizeTargetUrl = (url: string): string => {
-    const trimmed = url.trim();
-    if (!trimmed) return '/notifications';
-    if (trimmed.startsWith('http://') || trimmed.startsWith('https://')) {
-      const match = trimmed.match(/^https?:\/\/[^/]+(\/.*)?$/i);
-      return normalizeTargetUrl(match?.[1] ?? '/notifications');
-    }
-
-    if (trimmed.startsWith('/dashboard/notifications')) return '/notice';
-    if (trimmed.startsWith('/dashboard/chat')) return '/messenger?channel=garam';
-    if (trimmed === '/admin-messenger') return '/messenger?channel=garam';
-    if (trimmed === '/chat') return '/messenger?channel=garam';
-    if (trimmed === '/request-board-messenger') return '/messenger?channel=request-board';
-    if (trimmed.startsWith('/board?')) return trimmed.replace('/board?', '/board-detail?');
-    if (trimmed.startsWith('/exam/apply2')) return '/exam-apply2';
-    if (trimmed.startsWith('/exam/apply')) return '/exam-apply';
-    if (trimmed.startsWith('/dashboard')) return '/dashboard';
-    return trimmed;
-  };
-
   const getOriginLabel = (item: Notice): string => {
     if (item.origin === 'request_board') return '설계요청';
     return '온보딩앱';
@@ -648,11 +632,10 @@ export default function NotificationsScreen() {
     }
 
     if (item.origin === 'request_board') {
-      const category = (item.category ?? '').trim().toLowerCase();
-      if (category === 'request_board_message') {
-        return '/messenger?channel=request-board';
-      }
-      return '/request-board';
+      return resolveRequestBoardNotificationRoute({
+        category: item.category,
+        targetUrl: item.targetUrl,
+      });
     }
 
     const lowerTitle = item.title?.toLowerCase?.() ?? '';
@@ -670,7 +653,7 @@ export default function NotificationsScreen() {
     }
 
     if (item.targetUrl) {
-      return normalizeTargetUrl(item.targetUrl);
+      return normalizeNotificationTargetUrl(item.targetUrl);
     }
 
     const category = (item.category ?? '').toLowerCase();

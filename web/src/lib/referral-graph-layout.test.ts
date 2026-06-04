@@ -41,6 +41,78 @@ function angleDelta(left: number, right: number) {
   return delta > Math.PI ? (Math.PI * 2) - delta : delta;
 }
 
+function segmentCross(ax: number, ay: number, bx: number, by: number, cx: number, cy: number) {
+  return ((bx - ax) * (cy - ay)) - ((by - ay) * (cx - ax));
+}
+
+function pointOnSegment(px: number, py: number, ax: number, ay: number, bx: number, by: number) {
+  const epsilon = 1e-6;
+  return (
+    px >= Math.min(ax, bx) - epsilon
+    && px <= Math.max(ax, bx) + epsilon
+    && py >= Math.min(ay, by) - epsilon
+    && py <= Math.max(ay, by) + epsilon
+    && Math.abs(segmentCross(ax, ay, bx, by, px, py)) <= epsilon
+  );
+}
+
+function disjointSegmentsIntersect(
+  left: GraphEdge,
+  right: GraphEdge,
+  positions: Map<string, { x: number; y: number }>,
+) {
+  if (
+    left.source === right.source
+    || left.source === right.target
+    || left.target === right.source
+    || left.target === right.target
+  ) {
+    return false;
+  }
+
+  const leftSource = positions.get(left.source);
+  const leftTarget = positions.get(left.target);
+  const rightSource = positions.get(right.source);
+  const rightTarget = positions.get(right.target);
+  assert.ok(leftSource && leftTarget && rightSource && rightTarget, 'missing edge endpoint position');
+
+  const ax = leftSource.x;
+  const ay = leftSource.y;
+  const bx = leftTarget.x;
+  const by = leftTarget.y;
+  const cx = rightSource.x;
+  const cy = rightSource.y;
+  const dx = rightTarget.x;
+  const dy = rightTarget.y;
+  const epsilon = 1e-6;
+  const abC = segmentCross(ax, ay, bx, by, cx, cy);
+  const abD = segmentCross(ax, ay, bx, by, dx, dy);
+  const cdA = segmentCross(cx, cy, dx, dy, ax, ay);
+  const cdB = segmentCross(cx, cy, dx, dy, bx, by);
+
+  if (Math.abs(abC) <= epsilon && pointOnSegment(cx, cy, ax, ay, bx, by)) return true;
+  if (Math.abs(abD) <= epsilon && pointOnSegment(dx, dy, ax, ay, bx, by)) return true;
+  if (Math.abs(cdA) <= epsilon && pointOnSegment(ax, ay, cx, cy, dx, dy)) return true;
+  if (Math.abs(cdB) <= epsilon && pointOnSegment(bx, by, cx, cy, dx, dy)) return true;
+
+  return (
+    ((abC > epsilon && abD < -epsilon) || (abC < -epsilon && abD > epsilon))
+    && ((cdA > epsilon && cdB < -epsilon) || (cdA < -epsilon && cdB > epsilon))
+  );
+}
+
+function countDisjointEdgeCrossings(edges: GraphEdge[], positions: Map<string, { x: number; y: number }>) {
+  let crossings = 0;
+  for (let leftIndex = 0; leftIndex < edges.length; leftIndex += 1) {
+    for (let rightIndex = leftIndex + 1; rightIndex < edges.length; rightIndex += 1) {
+      if (disjointSegmentsIntersect(edges[leftIndex], edges[rightIndex], positions)) {
+        crossings += 1;
+      }
+    }
+  }
+  return crossings;
+}
+
 test('buildReferralGraphLayout places isolated nodes on an outer orbit', () => {
   const isolatedNodes = Array.from({ length: 32 }, (_, index) => makeNode(`isolated-${index}`));
   const connectedNodes = [
@@ -70,6 +142,35 @@ test('buildReferralGraphLayout places isolated nodes on an outer orbit', () => {
       `isolated node should start outside connected clusters, got ${JSON.stringify(position)}`,
     );
   }
+});
+
+test('buildReferralGraphLayout gives root hub branches non-crossing initial wedges', () => {
+  const childHubIds = Array.from({ length: 8 }, (_, index) => `branch-${index}`);
+  const rootLeafIds = Array.from({ length: 10 }, (_, index) => `root-leaf-${index}`);
+  const branchLeafIds = childHubIds.flatMap((hubId) => (
+    Array.from({ length: 4 }, (_, index) => `${hubId}-leaf-${index}`)
+  ));
+  const nodes = [
+    makeNode('root'),
+    ...childHubIds.map((id) => makeNode(id)),
+    ...rootLeafIds.map((id) => makeNode(id)),
+    ...branchLeafIds.map((id) => makeNode(id)),
+  ];
+  const edges = [
+    ...childHubIds.map((id) => makeEdge('root', id)),
+    ...rootLeafIds.map((id) => makeEdge('root', id)),
+    ...childHubIds.flatMap((hubId) => (
+      Array.from({ length: 4 }, (_, index) => makeEdge(hubId, `${hubId}-leaf-${index}`))
+    )),
+  ];
+
+  const layout = buildReferralGraphLayout(nodes, edges);
+
+  assert.equal(
+    countDisjointEdgeCrossings(edges, layout.nodeAnchorPositions),
+    0,
+    'root branch seed layout should not cross direct root spokes with branch-local edges',
+  );
 });
 
 test('buildReferralGraphLayout exposes component metadata for non-overlap checks', () => {
@@ -137,7 +238,7 @@ test('buildReferralGraphLayout fans hub children around their parent', () => {
       const position = layout.nodeAnchorPositions.get(id);
       assert.ok(position, `missing child position for ${id}`);
       const distance = Math.hypot(position.x - hubPosition.x, position.y - hubPosition.y);
-      assert.ok(distance >= 60 && distance <= 105, `child ${id} should sit on hub orbit, got ${distance}`);
+      assert.ok(distance >= 150 && distance <= 250, `child ${id} should sit on a readable hub orbit, got ${distance}`);
       return Math.atan2(position.y - hubPosition.y, position.x - hubPosition.x);
     })
     .sort((left, right) => left - right);
@@ -147,6 +248,60 @@ test('buildReferralGraphLayout fans hub children around their parent', () => {
     return next - angle;
   });
   assert.ok(Math.min(...gaps) > 0.45, `hub children should not collapse into one side, gaps=${gaps.join(',')}`);
+});
+
+test('buildReferralGraphLayout gives crowded hubs a wider initial child orbit', () => {
+  const childIds = Array.from({ length: 18 }, (_, index) => `leaf-${index}`);
+  const nodes = [
+    makeNode('hub'),
+    ...childIds.map((id) => makeNode(id)),
+  ];
+  const edges = childIds.map((id) => makeEdge('hub', id));
+  const layout = buildReferralGraphLayout(nodes, edges);
+  const hubPosition = layout.nodeAnchorPositions.get('hub');
+  assert.ok(hubPosition, 'missing hub position');
+
+  const childDistances = childIds.map((id) => {
+    const position = layout.nodeAnchorPositions.get(id);
+    assert.ok(position, `missing child position for ${id}`);
+    return Math.hypot(position.x - hubPosition.x, position.y - hubPosition.y);
+  });
+
+  assert.ok(
+    Math.min(...childDistances) >= 180,
+    `crowded hub children need a wider orbit, distances=${childDistances.join(',')}`,
+  );
+  assert.ok(
+    Math.max(...childDistances) <= 480,
+    `crowded hub orbit should stay bounded, distances=${childDistances.join(',')}`,
+  );
+  assert.ok(
+    Math.max(...childDistances) - Math.min(...childDistances) >= 40,
+    `crowded hub children should use staggered edge lengths, distances=${childDistances.join(',')}`,
+  );
+});
+
+test('buildReferralGraphLayout lengthens the child orbit when minimum spacing cannot fit', () => {
+  const childIds = Array.from({ length: 28 }, (_, index) => `leaf-${index}`);
+  const nodes = [
+    makeNode('hub'),
+    ...childIds.map((id) => makeNode(id)),
+  ];
+  const edges = childIds.map((id) => makeEdge('hub', id));
+  const layout = buildReferralGraphLayout(nodes, edges);
+  const hubPosition = layout.nodeAnchorPositions.get('hub');
+  assert.ok(hubPosition, 'missing hub position');
+
+  const childDistances = childIds.map((id) => {
+    const position = layout.nodeAnchorPositions.get(id);
+    assert.ok(position, `missing child position for ${id}`);
+    return Math.hypot(position.x - hubPosition.x, position.y - hubPosition.y);
+  });
+
+  assert.ok(
+    Math.min(...childDistances) >= 330,
+    `very crowded hub should lengthen edge/orbit radius to preserve node spacing, distances=${childDistances.join(',')}`,
+  );
 });
 
 test('buildReferralGraphLayout keeps the dominant hub central and satellite hubs separated', () => {
@@ -182,8 +337,46 @@ test('buildReferralGraphLayout keeps the dominant hub central and satellite hubs
       satelliteDistance >= 105,
       `satellite hub ${satelliteId} should start away from dominant hub`,
     );
-    assert.ok(satelliteDistance <= 155, `satellite hub ${satelliteId} should not create an abnormal long edge, got ${satelliteDistance}`);
+    assert.ok(satelliteDistance <= 280, `satellite hub ${satelliteId} should not create an abnormal long edge, got ${satelliteDistance}`);
   }
+});
+
+test('buildReferralGraphLayout gives first-level child hubs varied compact branch lengths', () => {
+  const childHubIds = Array.from({ length: 12 }, (_, index) => `child-hub-${index}`);
+  const nodes = [
+    makeNode('root'),
+    ...childHubIds.map((id) => makeNode(id)),
+    ...childHubIds.flatMap((hubId) => [
+      makeNode(`${hubId}-leaf-a`),
+      makeNode(`${hubId}-leaf-b`),
+    ]),
+  ];
+  const edges = [
+    ...childHubIds.map((id) => makeEdge('root', id)),
+    ...childHubIds.flatMap((hubId) => [
+      makeEdge(hubId, `${hubId}-leaf-a`),
+      makeEdge(hubId, `${hubId}-leaf-b`),
+    ]),
+  ];
+
+  const layout = buildReferralGraphLayout(nodes, edges);
+  const root = layout.nodeAnchorPositions.get('root');
+  assert.ok(root, 'missing root position');
+
+  const childHubDistances = childHubIds.map((hubId) => {
+    const position = layout.nodeAnchorPositions.get(hubId);
+    assert.ok(position, `missing child hub position for ${hubId}`);
+    return Math.hypot(position.x - root.x, position.y - root.y);
+  });
+
+  assert.ok(
+    Math.max(...childHubDistances) - Math.min(...childHubDistances) >= 28,
+    `first-level child hubs should not sit on one identical radial ring: ${childHubDistances.join(',')}`,
+  );
+  assert.ok(
+    Math.max(...childHubDistances) <= 360,
+    `first-level child hubs should stay visually connected to the root, got ${childHubDistances.join(',')}`,
+  );
 });
 
 test('buildReferralGraphLayout treats a child with descendants as its own radial branch', () => {
@@ -217,13 +410,13 @@ test('buildReferralGraphLayout treats a child with descendants as its own radial
   const grandchildRootDistance = Math.hypot(grandchild.x - root.x, grandchild.y - root.y);
 
   assert.ok(directLeafDistance <= 160, `direct leaf should remain on root leaf orbit, got ${directLeafDistance}`);
-  assert.ok(branchDistance >= 65, `child with descendants should become a branch hub, got ${branchDistance}`);
-  assert.ok(branchDistance <= 105, `child with descendants should not create an abnormal long edge, got ${branchDistance}`);
+  assert.ok(branchDistance >= 250, `child with descendants should become a visible branch hub, got ${branchDistance}`);
+  assert.ok(branchDistance <= 340, `child with descendants should remain connected to root, got ${branchDistance}`);
   assert.ok(grandchildBranchDistance <= 160, `grandchild should orbit branch child, got ${grandchildBranchDistance}`);
   assert.ok(grandchildBranchDistance < grandchildRootDistance, 'grandchild should be closer to its branch parent than to root');
 });
 
-test('buildReferralGraphLayout keeps multi-level hub bridges near their parent hubs', () => {
+test('buildReferralGraphLayout keeps multi-level hub bridges near parents while extending outward', () => {
   const nodes = [
     makeNode('root'),
     makeNode('hub-a'),
@@ -251,10 +444,84 @@ test('buildReferralGraphLayout keeps multi-level hub bridges near their parent h
   const rootToHubB = Math.hypot(hubB.x - root.x, hubB.y - root.y);
   const turnAngle = angleDelta(angleBetween(root, hubA), angleBetween(hubA, hubB));
 
-  assert.ok(rootToHubA >= 65 && rootToHubA <= 105, `root->hub-a bridge length should be compact, got ${rootToHubA}`);
-  assert.ok(hubAToHubB >= 145 && hubAToHubB <= 175, `hub-a->hub-b bridge length should be compact, got ${hubAToHubB}`);
-  assert.ok(turnAngle >= 0.55, `nested hubs should bend instead of forming a straight chain, got ${turnAngle}`);
+  assert.ok(rootToHubA >= 250 && rootToHubA <= 340, `root->hub-a bridge length should reserve branch space, got ${rootToHubA}`);
+  assert.ok(hubAToHubB >= 185 && hubAToHubB <= 235, `hub-a->hub-b bridge length should reserve branch space, got ${hubAToHubB}`);
+  assert.ok(turnAngle <= 0.55, `nested hubs should stay in the outward branch lane instead of circling, got ${turnAngle}`);
+  assert.ok(rootToHubB > rootToHubA + 110, `nested hub should extend farther from root than its parent: ${rootToHubA} -> ${rootToHubB}`);
   assert.ok(hubAToHubB < rootToHubB, 'nested hub should stay closer to its direct parent than to the component root');
+});
+
+test('buildReferralGraphLayout expands deep branch hubs outward by layer instead of wrapping them around the parent', () => {
+  const nodes = [
+    makeNode('root'),
+    makeNode('hub-a'),
+    makeNode('hub-b'),
+    makeNode('hub-c'),
+    ...Array.from({ length: 3 }, (_, index) => makeNode(`hub-a-leaf-${index}`)),
+    ...Array.from({ length: 3 }, (_, index) => makeNode(`hub-b-leaf-${index}`)),
+    ...Array.from({ length: 3 }, (_, index) => makeNode(`hub-c-leaf-${index}`)),
+  ];
+  const edges = [
+    makeEdge('root', 'hub-a'),
+    makeEdge('hub-a', 'hub-b'),
+    makeEdge('hub-b', 'hub-c'),
+    ...Array.from({ length: 3 }, (_, index) => makeEdge('hub-a', `hub-a-leaf-${index}`)),
+    ...Array.from({ length: 3 }, (_, index) => makeEdge('hub-b', `hub-b-leaf-${index}`)),
+    ...Array.from({ length: 3 }, (_, index) => makeEdge('hub-c', `hub-c-leaf-${index}`)),
+  ];
+
+  const layout = buildReferralGraphLayout(nodes, edges);
+  const root = layout.nodeAnchorPositions.get('root');
+  const hubA = layout.nodeAnchorPositions.get('hub-a');
+  const hubB = layout.nodeAnchorPositions.get('hub-b');
+  const hubC = layout.nodeAnchorPositions.get('hub-c');
+  assert.ok(root, 'missing root position');
+  assert.ok(hubA, 'missing hub-a position');
+  assert.ok(hubB, 'missing hub-b position');
+  assert.ok(hubC, 'missing hub-c position');
+
+  const rootToHubA = Math.hypot(hubA.x - root.x, hubA.y - root.y);
+  const rootToHubB = Math.hypot(hubB.x - root.x, hubB.y - root.y);
+  const rootToHubC = Math.hypot(hubC.x - root.x, hubC.y - root.y);
+  const firstTurn = angleDelta(angleBetween(root, hubA), angleBetween(hubA, hubB));
+  const secondTurn = angleDelta(angleBetween(hubA, hubB), angleBetween(hubB, hubC));
+
+  assert.ok(rootToHubB > rootToHubA + 110, `second layer should extend outward: ${rootToHubA} -> ${rootToHubB}`);
+  assert.ok(rootToHubC > rootToHubB + 110, `third layer should extend outward: ${rootToHubB} -> ${rootToHubC}`);
+  assert.ok(firstTurn <= 0.55, `second layer should stay in the branch forward cone instead of circling, got ${firstTurn}`);
+  assert.ok(secondTurn <= 0.55, `third layer should stay in the branch forward cone instead of circling, got ${secondTurn}`);
+});
+
+test('buildReferralGraphLayout keeps branch leaves as short side fans while hubs form the long branch', () => {
+  const nodes = [
+    makeNode('root'),
+    makeNode('hub-a'),
+    makeNode('hub-b'),
+    ...Array.from({ length: 5 }, (_, index) => makeNode(`hub-a-leaf-${index}`)),
+    makeNode('hub-b-leaf'),
+  ];
+  const edges = [
+    makeEdge('root', 'hub-a'),
+    makeEdge('hub-a', 'hub-b'),
+    ...Array.from({ length: 5 }, (_, index) => makeEdge('hub-a', `hub-a-leaf-${index}`)),
+    makeEdge('hub-b', 'hub-b-leaf'),
+  ];
+
+  const layout = buildReferralGraphLayout(nodes, edges);
+  const hubA = layout.nodeAnchorPositions.get('hub-a');
+  const hubB = layout.nodeAnchorPositions.get('hub-b');
+  assert.ok(hubA, 'missing hub-a position');
+  assert.ok(hubB, 'missing hub-b position');
+
+  const branchLength = Math.hypot(hubB.x - hubA.x, hubB.y - hubA.y);
+  const leafDistances = Array.from({ length: 5 }, (_, index) => {
+    const leaf = layout.nodeAnchorPositions.get(`hub-a-leaf-${index}`);
+    assert.ok(leaf, `missing leaf ${index}`);
+    return Math.hypot(leaf.x - hubA.x, leaf.y - hubA.y);
+  });
+
+  assert.ok(branchLength >= 185, `child hub should form the long branch, got ${branchLength}`);
+  assert.ok(Math.max(...leafDistances) <= branchLength * 0.72, `branch leaves should stay as short local fans: branch=${branchLength}, leaves=${leafDistances.join(',')}`);
 });
 
 test('buildReferralGraphLayout keeps the directed source root central even when child hubs have more leaves', () => {

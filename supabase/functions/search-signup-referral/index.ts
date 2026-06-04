@@ -3,9 +3,11 @@ import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.45.4';
 
 import { getEnv } from '../_shared/request-board-auth.ts';
 import {
-  isExactReferralCodeQuery,
-  normalizeReferralSearchQuery,
-} from '../_shared/referral-search.ts';
+  cleanPhone,
+  ensureActiveReferralCode,
+  ensureManagerReferralShadowProfile,
+} from '../_shared/referral-code.ts';
+import { buildReferralNameSearchPattern } from '../_shared/referral-search.ts';
 
 const allowedOrigins = (getEnv('ALLOWED_ORIGINS') ?? '').split(',').map((origin) => origin.trim()).filter(Boolean);
 const corsHeaders = {
@@ -83,19 +85,6 @@ function isEligibleProfile(profile: {
   return !String(profile.affiliation ?? '').includes('설계매니저');
 }
 
-function scoreResult(result: SearchResult, query: string) {
-  const q = query.toLowerCase();
-  const code = String(result.code ?? '').toLowerCase();
-  const name = result.name.toLowerCase();
-  const affiliation = result.affiliation.toLowerCase();
-
-  if (code === q) return 0;
-  if (name.includes(q)) return 1;
-  if (affiliation.includes(q)) return 2;
-  if (code.includes(q)) return 3;
-  return 4;
-}
-
 serve(async (req: Request) => {
   if (req.method === 'OPTIONS') {
     return new Response('ok', { headers: corsHeaders });
@@ -125,63 +114,18 @@ serve(async (req: Request) => {
     return json({ ok: true, results: [] });
   }
 
-  const normalizedQuery = normalizeReferralSearchQuery(query);
   const LIMIT = 10;
   const resultMap = new Map<string, SearchResult>();
+  const nameSearchPattern = buildReferralNameSearchPattern(query);
 
-  if (isExactReferralCodeQuery(normalizedQuery)) {
-    const { data: exactCodeRow, error: exactCodeError } = await supabase
-      .from('referral_codes')
-      .select('code, fc_id')
-      .eq('code', normalizedQuery)
-      .eq('is_active', true)
-      .maybeSingle();
-
-    if (exactCodeError) {
-      return json({ ok: false, code: 'db_error', message: exactCodeError.message }, 500);
-    }
-
-    if (!exactCodeRow?.fc_id) {
-      return json({ ok: true, results: [] });
-    }
-
-    const { data: exactProfile, error: exactProfileError } = await supabase
-      .from('fc_profiles')
-      .select('id, name, affiliation, signup_completed, is_manager_referral_shadow')
-      .eq('id', exactCodeRow.fc_id)
-      .maybeSingle();
-
-    if (exactProfileError) {
-      return json({ ok: false, code: 'db_error', message: exactProfileError.message }, 500);
-    }
-
-    if (!exactProfile || !isEligibleProfile(exactProfile)) {
-      return json({ ok: true, results: [] });
-    }
-
-    return json({
-      ok: true,
-      results: [{
-        fcId: exactProfile.id,
-        name: exactProfile.name ?? '',
-        affiliation: exactProfile.affiliation ?? '',
-        code: exactCodeRow.code,
-      }],
-    });
-  }
-
-  const { data: profileRows, error: profileError } = await supabase
-    .from('fc_profiles')
-    .select('id, name, affiliation, signup_completed, is_manager_referral_shadow')
-    .or(`name.ilike.%${query}%,affiliation.ilike.%${query}%`)
-    .limit(LIMIT);
-
-  if (profileError) {
-    return json({ ok: false, code: 'db_error', message: profileError.message }, 500);
-  }
-
-  for (const profile of profileRows ?? []) {
-    if (!isEligibleProfile(profile)) continue;
+  const addProfileResult = (profile: {
+    id: string;
+    name?: string | null;
+    affiliation?: string | null;
+    signup_completed?: boolean | null;
+    is_manager_referral_shadow?: boolean | null;
+  }) => {
+    if (!isEligibleProfile(profile)) return;
 
     resultMap.set(profile.id, {
       fcId: profile.id,
@@ -189,42 +133,48 @@ serve(async (req: Request) => {
       affiliation: profile.affiliation ?? '',
       code: null,
     });
-  }
+  };
 
-  const { data: codeRows, error: codeError } = await supabase
-    .from('referral_codes')
-    .select('code, fc_id')
-    .ilike('code', `%${query}%`)
-    .eq('is_active', true)
+  const { data: profileRows, error: profileError } = await supabase
+    .from('fc_profiles')
+    .select('id, name, affiliation, signup_completed, is_manager_referral_shadow')
+    .ilike('name', nameSearchPattern)
     .limit(LIMIT);
 
-  if (codeError) {
-    return json({ ok: false, code: 'db_error', message: codeError.message }, 500);
+  if (profileError) {
+    return json({ ok: false, code: 'db_error', message: profileError.message }, 500);
   }
 
-  const missingFcIds = (codeRows ?? [])
-    .map((row) => row.fc_id as string)
-    .filter((fcId) => fcId && !resultMap.has(fcId));
+  for (const profile of profileRows ?? []) {
+    addProfileResult(profile);
+  }
 
-  if (missingFcIds.length > 0) {
-    const { data: extraProfiles, error: extraProfilesError } = await supabase
+  const { data: managerRows, error: managerError } = await supabase
+    .from('manager_accounts')
+    .select('phone, name')
+    .eq('active', true)
+    .ilike('name', nameSearchPattern)
+    .limit(LIMIT);
+
+  if (managerError) {
+    return json({ ok: false, code: 'db_error', message: managerError.message }, 500);
+  }
+
+  for (const manager of managerRows ?? []) {
+    const managerPhone = cleanPhone(manager.phone ?? '');
+    if (managerPhone.length !== 11) continue;
+
+    const ensureResult = await ensureManagerReferralShadowProfile(supabase, managerPhone, manager.name);
+    if (!ensureResult.ok) continue;
+
+    const { data: managerProfile } = await supabase
       .from('fc_profiles')
       .select('id, name, affiliation, signup_completed, is_manager_referral_shadow')
-      .in('id', missingFcIds);
+      .eq('phone', managerPhone)
+      .maybeSingle();
 
-    if (extraProfilesError) {
-      return json({ ok: false, code: 'db_error', message: extraProfilesError.message }, 500);
-    }
-
-    for (const profile of extraProfiles ?? []) {
-      if (!isEligibleProfile(profile)) continue;
-
-      resultMap.set(profile.id, {
-        fcId: profile.id,
-        name: profile.name ?? '',
-        affiliation: profile.affiliation ?? '',
-        code: null,
-      });
+    if (managerProfile?.id) {
+      addProfileResult(managerProfile);
     }
   }
 
@@ -232,6 +182,15 @@ serve(async (req: Request) => {
   if (allFcIds.length === 0) {
     return json({ ok: true, results: [] });
   }
+
+  await Promise.allSettled(
+    allFcIds.map((fcId) => ensureActiveReferralCode({
+      supabase,
+      fcId,
+      actorRole: 'system',
+      reason: 'auto_issue_on_signup_referral_search',
+    })),
+  );
 
   const { data: activeCodes, error: activeCodesError } = await supabase
     .from('referral_codes')
@@ -257,11 +216,7 @@ serve(async (req: Request) => {
 
   const results = Array.from(resultMap.values())
     .filter((result) => Boolean(result.code))
-    .sort((left, right) => {
-      const scoreDiff = scoreResult(left, normalizedQuery) - scoreResult(right, normalizedQuery);
-      if (scoreDiff !== 0) return scoreDiff;
-      return left.name.localeCompare(right.name, 'ko');
-    })
+    .sort((left, right) => left.name.localeCompare(right.name, 'ko'))
     .slice(0, LIMIT);
 
   return json({ ok: true, results });

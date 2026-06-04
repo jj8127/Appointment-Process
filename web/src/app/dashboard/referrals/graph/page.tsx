@@ -10,6 +10,7 @@ import { useQuery } from '@tanstack/react-query';
 
 import type { ReferralGraphCanvasProps } from '@/components/referrals/ReferralGraphCanvas';
 import { GraphNodeDrawer } from '@/components/referrals/GraphNodeDrawer';
+import { useSession } from '@/hooks/use-session';
 import {
   DEFAULT_REFERRAL_GRAPH_PHYSICS,
   type GraphApiResponse,
@@ -120,9 +121,11 @@ function bfsNeighborhood(startId: string, adjacency: Map<string, Set<string>>, h
 }
 
 export default function ReferralGraphPage() {
+  const { hydrated, isReadOnly, residentId, role, staffType } = useSession();
   const graphQuery = useQuery({
-    queryKey: ['referral-graph'],
+    queryKey: ['referral-graph', role, residentId, isReadOnly, staffType],
     queryFn: fetchGraphData,
+    enabled: hydrated,
     staleTime: 2 * 60 * 1000,
   });
 
@@ -146,7 +149,7 @@ export default function ReferralGraphPage() {
   const [resetLayoutRequestId, setResetLayoutRequestId] = useState(0);
   const [physicsPanelOpen, setPhysicsPanelOpen] = useState(false);
   const [storedPhysicsSettings, setStoredPhysicsSettings] = useLocalStorage<ReferralGraphPhysicsSettings>({
-    key: 'referral-graph-physics-settings-v14',
+    key: 'referral-graph-physics-settings-v16',
     defaultValue: DEFAULT_REFERRAL_GRAPH_PHYSICS,
     getInitialValueInEffect: true,
   });

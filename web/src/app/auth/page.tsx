@@ -1,6 +1,7 @@
 'use client';
 
 import { useSession } from '@/hooks/use-session';
+import { resolveAdminWebLoginRole } from '@/lib/admin-web-login-role';
 import { logger } from '@/lib/logger';
 import { normalizeStaffType } from '@/lib/staff-identity';
 import {
@@ -156,7 +157,16 @@ export default function AuthPage() {
                 return;
             }
 
-            const nextRole = data.role === 'admin' ? 'admin' : data.role === 'manager' ? 'manager' : 'fc';
+            const nextRole = resolveAdminWebLoginRole(data.role);
+            if (!nextRole) {
+                notifications.show({
+                    title: '로그인 실패',
+                    message: '계정 권한 정보를 확인할 수 없습니다.',
+                    color: 'red',
+                });
+                setLoading(false);
+                return;
+            }
             loginAs(nextRole, data.residentId ?? digits, data.displayName ?? '', normalizeStaffType(data.staffType));
             router.replace(nextRole === 'fc' ? '/dashboard/referrals/graph' : '/dashboard');
         } catch (err: unknown) {

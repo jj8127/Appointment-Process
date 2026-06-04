@@ -1,6 +1,6 @@
 import { Feather } from '@expo/vector-icons';
 import * as DocumentPicker from 'expo-document-picker';
-import { Stack, useFocusEffect, useRouter } from 'expo-router';
+import { Stack, useFocusEffect, useLocalSearchParams, useRouter } from 'expo-router';
 import { MotiView } from 'moti';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
@@ -9,6 +9,7 @@ import {
   BackHandler,
   Keyboard,
   Modal,
+  Platform,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -29,6 +30,16 @@ import { BottomNavigation } from '@/components/BottomNavigation';
 import { useSession } from '@/hooks/use-session';
 import { resolveBottomNavActiveKey, resolveBottomNavPreset } from '@/lib/bottom-navigation';
 import { logger } from '@/lib/logger';
+import {
+  getDesignerSelectionConfirmState,
+  getDesignerSelectionFooterBottomPadding,
+} from '@/lib/request-board-designer-selection';
+import {
+  canCreateRequestBoardRequest,
+  resolveRequestBoardCreateInitialStep,
+  resolveRequestBoardCreateBackTarget,
+  resolveRequestBoardCreateVisibleSteps,
+} from '@/lib/request-board-create-flow';
 import {
   rbCreateRequest,
   rbGetCustomers,
@@ -214,6 +225,7 @@ function DesignerBottomSheet({
   onToggleDesigner: (designerId: number) => void;
   onClose: () => void;
 }) {
+  const insets = useSafeAreaInsets();
   const translateY = useSharedValue(0);
   const [designerSearch, setDesignerSearch] = useState('');
   const [keyboardHeight, setKeyboardHeight] = useState(0);
@@ -292,6 +304,13 @@ function DesignerBottomSheet({
     transform: [{ translateY: translateY.value }],
   }));
 
+  const confirmState = getDesignerSelectionConfirmState(selectedDesignerIds.length);
+
+  const completeSelection = useCallback(() => {
+    if (confirmState.disabled) return;
+    closeWithAnimation();
+  }, [closeWithAnimation, confirmState.disabled]);
+
   const keyboardAwareSheetStyle = keyboardHeight > 0
     ? {
         marginBottom: Math.max(0, keyboardHeight - 10),
@@ -336,6 +355,7 @@ function DesignerBottomSheet({
               ) : null}
             </View>
             <ScrollView
+              style={styles.sheetScroll}
               showsVerticalScrollIndicator={false}
               keyboardShouldPersistTaps="handled"
               contentContainerStyle={styles.sheetList}
@@ -387,6 +407,31 @@ function DesignerBottomSheet({
                 );
               })}
             </ScrollView>
+            <View
+              style={[
+                styles.sheetFooter,
+                {
+                  paddingBottom: getDesignerSelectionFooterBottomPadding(insets.bottom, {
+                    keyboardVisible: keyboardHeight > 0,
+                    minimumPadding: Platform.OS === 'android' ? 72 : 20,
+                  }),
+                },
+              ]}
+            >
+              <Pressable
+                style={({ pressed }) => [
+                  styles.sheetDoneButton,
+                  confirmState.disabled && styles.disabledButton,
+                  pressed && !confirmState.disabled && { opacity: 0.9 },
+                ]}
+                onPress={completeSelection}
+                disabled={confirmState.disabled}
+                accessibilityRole="button"
+                accessibilityState={{ disabled: confirmState.disabled }}
+              >
+                <Text style={styles.sheetDoneButtonText}>{confirmState.label}</Text>
+              </Pressable>
+            </View>
           </Animated.View>
         </GestureDetector>
       </View>
@@ -396,16 +441,18 @@ function DesignerBottomSheet({
 
 export default function RequestBoardCreateScreen() {
   const router = useRouter();
+  const { entry, source } = useLocalSearchParams<{ entry?: string | string[]; source?: string | string[] }>();
   const insets = useSafeAreaInsets();
   const {
     role,
     readOnly,
     hydrated,
     isRequestBoardDesigner,
+    requestBoardRole,
     ensureRequestBoardSession,
   } = useSession();
 
-  const [step, setStep] = useState<StepKey>('customer');
+  const [step, setStep] = useState<StepKey>(() => resolveRequestBoardCreateInitialStep(entry));
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
   const [customers, setCustomers] = useState<RbCustomerProfile[]>([]);
@@ -424,6 +471,7 @@ export default function RequestBoardCreateScreen() {
   const [sheetVisible, setSheetVisible] = useState(false);
   const [sentRequestId, setSentRequestId] = useState<number | null>(null);
   const [composeDraftKey, setComposeDraftKey] = useState(0);
+  const visibleSteps = resolveRequestBoardCreateVisibleSteps(entry, source);
 
   const navPreset = resolveBottomNavPreset({
     role,
@@ -432,9 +480,18 @@ export default function RequestBoardCreateScreen() {
     isRequestBoardDesigner,
   });
   const navActiveKey = resolveBottomNavActiveKey(navPreset, 'request-board');
+  const canUseCreateFlow = canCreateRequestBoardRequest({
+    role,
+    requestBoardRole,
+    isRequestBoardDesigner,
+  });
 
   const loadData = useCallback(async () => {
     if (!hydrated) return;
+    if (!canUseCreateFlow) {
+      setLoading(false);
+      return;
+    }
     try {
       setLoading(true);
       const sync = await ensureRequestBoardSession();
@@ -462,11 +519,16 @@ export default function RequestBoardCreateScreen() {
     } finally {
       setLoading(false);
     }
-  }, [ensureRequestBoardSession, hydrated]);
+  }, [canUseCreateFlow, ensureRequestBoardSession, hydrated]);
 
   useEffect(() => {
     void loadData();
   }, [loadData]);
+
+  useEffect(() => {
+    if (!hydrated || canUseCreateFlow) return;
+    router.replace('/request-board' as any);
+  }, [canUseCreateFlow, hydrated, router]);
 
   const sortedCustomers = useMemo(() => {
     const keyword = search.trim().toLowerCase();
@@ -514,23 +576,16 @@ export default function RequestBoardCreateScreen() {
   };
 
   const handleBack = useCallback(() => {
-    if (step === 'customer') {
+    const target = resolveRequestBoardCreateBackTarget(step, composeEntryStep);
+    if (target.type === 'back') {
       router.back();
       return;
     }
-    if (step === 'newCustomer') {
-      setStep('customer');
+    if (target.type === 'replace') {
+      router.replace(target.path as any);
       return;
     }
-    if (step === 'compose') {
-      setStep(composeEntryStep);
-      return;
-    }
-    if (step === 'sent') {
-      setStep('compose');
-      return;
-    }
-    router.back();
+    setStep(target.step);
   }, [composeEntryStep, router, step]);
 
   useFocusEffect(
@@ -1043,11 +1098,13 @@ export default function RequestBoardCreateScreen() {
         topInset={insets.top}
       />
 
-      <View style={styles.stepRow}>
-        {(['customer', 'newCustomer', 'compose', 'sent'] as StepKey[]).map((item) => (
-          <StepPill key={item} step={item} activeStep={step} />
-        ))}
-      </View>
+      {visibleSteps.length > 0 ? (
+        <View style={styles.stepRow}>
+          {visibleSteps.map((item) => (
+            <StepPill key={item} step={item} activeStep={step} />
+          ))}
+        </View>
+      ) : null}
 
       {loading ? (
         <View style={styles.loading}>
@@ -1619,9 +1676,30 @@ const styles = StyleSheet.create({
     fontSize: TYPOGRAPHY.fontSize.sm,
     paddingVertical: SPACING.sm,
   },
+  sheetScroll: {
+    flex: 1,
+  },
   sheetList: {
     gap: SPACING.sm,
     paddingBottom: SPACING.lg,
+  },
+  sheetFooter: {
+    borderTopWidth: 1,
+    borderTopColor: COLORS.border.light,
+    paddingTop: SPACING.md,
+    backgroundColor: '#fff',
+  },
+  sheetDoneButton: {
+    minHeight: 52,
+    borderRadius: RADIUS.md,
+    backgroundColor: COLORS.primary,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  sheetDoneButtonText: {
+    color: '#fff',
+    fontSize: TYPOGRAPHY.fontSize.md,
+    fontWeight: '800',
   },
   sheetEmptyState: {
     minHeight: 94,

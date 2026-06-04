@@ -1,8 +1,8 @@
 'use server';
 
 import { adminSupabase } from '@/lib/admin-supabase';
+import { buildExamRoundNotificationPayload } from '@/lib/exam-round-notification';
 import { logger } from '@/lib/logger';
-const EXPO_PUSH_URL = 'https://exp.host/--/api/v2/push/send';
 
 type DeleteRoundState = {
     success: boolean;
@@ -34,51 +34,21 @@ const errorMessage = (err: unknown, fallback: string) => {
 };
 
 async function notifyExamRoundChanged(title: string, body: string, examType: 'life' | 'nonlife') {
-    const targetUrl = examType === 'nonlife' ? '/exam-apply2' : '/exam-apply';
-    const { error: notifError } = await adminSupabase.from('notifications').insert({
-        title,
-        body,
-        category: 'exam_round',
-        target_url: targetUrl,
-        recipient_role: 'fc',
-        resident_id: null,
+    const { data, error } = await adminSupabase.functions.invoke('fc-notify', {
+        body: buildExamRoundNotificationPayload({
+            title,
+            body,
+            examType,
+        }),
     });
-    if (notifError) {
-        logger.warn('[saveExamRound] notifications insert failed', notifError);
-    }
 
-    const { data: tokens, error: tokenError } = await adminSupabase
-        .from('device_tokens')
-        .select('expo_push_token')
-        .eq('role', 'fc');
-    if (tokenError) {
-        logger.warn('[saveExamRound] token query failed', tokenError);
+    if (error) {
+        logger.warn('[saveExamRound] fc-notify invoke failed', error);
         return;
     }
 
-    const payload = (tokens ?? [])
-        .map((t: { expo_push_token: string | null }) => t.expo_push_token)
-        .filter((token): token is string => Boolean(token))
-        .map((token) => ({
-            to: token,
-            title,
-            body,
-            data: { type: 'exam_round', url: targetUrl },
-            sound: 'default',
-            priority: 'high',
-            channelId: 'alerts',
-        }));
-
-    if (!payload.length) return;
-
-    try {
-        await fetch(EXPO_PUSH_URL, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(payload),
-        });
-    } catch (err) {
-        logger.warn('[saveExamRound] expo push failed', err);
+    if (!data?.ok) {
+        logger.warn('[saveExamRound] fc-notify returned failure', data);
     }
 }
 

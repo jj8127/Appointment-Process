@@ -1,8 +1,24 @@
 import {
+  buildPendingSignupReferralSelection,
   buildStoredSignupReferral,
   getSignupReferralSelectionError,
   runSinglePendingReferralApply,
 } from '../signup-referral';
+
+describe('buildPendingSignupReferralSelection', () => {
+  test('turns an invite link code into a selected referral placeholder', () => {
+    expect(buildPendingSignupReferralSelection(' ltvz-wttw ')).toEqual({
+      fcId: 'pending:LTVZWTTW',
+      name: '추천 코드 LTVZWTTW',
+      affiliation: '초대 링크로 입력됨',
+      code: 'LTVZWTTW',
+    });
+  });
+
+  test('ignores empty pending referral codes', () => {
+    expect(buildPendingSignupReferralSelection('  ')).toBeNull();
+  });
+});
 
 describe('buildStoredSignupReferral', () => {
   test('does not persist a pasted referral code until the user selects a search result', () => {

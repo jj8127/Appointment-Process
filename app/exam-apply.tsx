@@ -25,6 +25,7 @@ import { KeyboardAwareWrapper } from '@/components/KeyboardAwareWrapper';
 import { RefreshButton } from '@/components/RefreshButton';
 import { useIdentityGate } from '@/hooks/use-identity-gate';
 import { useSession } from '@/hooks/use-session';
+import { canUseFcExamApply } from '@/lib/exam-role';
 import { logger } from '@/lib/logger';
 import { supabase } from '@/lib/supabase';
 import { ExamRoundWithLocations, formatDate } from '@/types/exam';
@@ -213,8 +214,9 @@ function getExamRegistrationErrorMessage(error: unknown) {
 }
 
 export default function ExamApplyScreen() {
-  const { role, residentId, displayName, hydrated } = useSession();
+  const { role, residentId, displayName, hydrated, readOnly } = useSession();
   useIdentityGate({ nextPath: '/exam-apply' });
+  const canApplyExam = canUseFcExamApply({ role, readOnly });
 
   const [selectedRoundId, setSelectedRoundId] = useState<string | null>(null);
   const [selectedLocationId, setSelectedLocationId] = useState<string | null>(null);
@@ -234,11 +236,11 @@ export default function ExamApplyScreen() {
       router.replace('/login');
       return;
     }
-    if (role !== 'fc') {
-      Alert.alert('접근 불가', '시험 신청은 FC만 사용할 수 있습니다.');
+    if (!canApplyExam) {
+      Alert.alert('접근 불가', '시험 신청은 FC와 본부장만 사용할 수 있습니다.');
       router.replace('/');
     }
-  }, [role, hydrated]);
+  }, [canApplyExam, role, hydrated]);
 
   const {
     data: rounds,
@@ -248,7 +250,7 @@ export default function ExamApplyScreen() {
   } = useQuery({
     queryKey: ['exam-rounds-for-apply', 'life'],
     queryFn: fetchRounds,
-    enabled: role === 'fc',
+    enabled: canApplyExam,
   });
 
   const allRounds = useMemo(() => rounds ?? [], [rounds]);
@@ -273,7 +275,7 @@ export default function ExamApplyScreen() {
 
   const { data: myApplies = [], refetch: refetchMyApply } = useQuery<MyExamApply[]>({
     queryKey: ['my-exam-apply-life', residentId],
-    enabled: role === 'fc' && !!residentId,
+    enabled: canApplyExam && !!residentId,
     queryFn: async (): Promise<MyExamApply[]> => {
       const { data, error } = await supabase
         .from('exam_registrations')

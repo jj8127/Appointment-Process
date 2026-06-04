@@ -10,6 +10,7 @@ type RouteAccessInput = {
   pathname: string;
   role: AdminWebSessionRole;
   hasSession: boolean;
+  hasFcGraphSession?: boolean;
 };
 
 function isStaffRole(role: AdminWebSessionRole) {
@@ -24,10 +25,15 @@ export function resolveAdminWebRouteAccess({
   pathname,
   role,
   hasSession,
+  hasFcGraphSession = true,
 }: RouteAccessInput): AdminWebRouteDecision {
   const staffRole = isStaffRole(role);
   const fcRole = isFcRole(role);
   const recognizedRole = staffRole || fcRole;
+
+  if (fcRole && !hasFcGraphSession) {
+    return { type: 'redirect', pathname: '/auth', clearSession: true };
+  }
 
   if (pathname === '/') {
     if (staffRole) {

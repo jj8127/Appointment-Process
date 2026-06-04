@@ -11,6 +11,8 @@ export type ReferralGraphComponentLayout = {
   componentSizes: Map<number, number>;
   clusterAnchors: Map<number, GraphLayoutPoint>;
   clusterRadii: Map<number, number>;
+  directedChildCounts: Map<string, number>;
+  directedSubtreeSizes: Map<string, number>;
   nodeComponentIndex: Map<string, number>;
   nodeClusterIndex: Map<string, number>;
   nodeAnchorPositions: Map<string, GraphLayoutPoint>;
@@ -22,16 +24,31 @@ const OUTER_ORPHAN_RING_RADIUS = 360;
 const SIMPLE_COMPONENT_RADIUS = 68;
 const DEFAULT_LAYOUT_LINK_DISTANCE = 250;
 const COMPONENT_GAP = 32;
+const REFERRAL_GRAPH_MIN_NODE_DISTANCE = 112;
 
 type LinkDistanceResolver = (
   sourceDegree: number,
   targetDegree: number,
   baseDistance: number,
-  options?: { sourceHasChildren?: boolean; targetHasChildren?: boolean },
+  options?: ReferralGraphLinkDistanceOptions,
 ) => number;
+
+type ReferralGraphLinkDistanceOptions = {
+  sourceHasChildren?: boolean;
+  targetHasChildren?: boolean;
+  sourceChildCount?: number;
+  targetChildCount?: number;
+  sourceSubtreeSize?: number;
+  targetSubtreeSize?: number;
+  graphNodeCount?: number;
+};
 
 function clamp(value: number, min: number, max: number) {
   return Math.min(max, Math.max(min, value));
+}
+
+function getReferralGraphMinimumNodeDistance(graphNodeCount = 0) {
+  return Math.round(REFERRAL_GRAPH_MIN_NODE_DISTANCE + clamp((Math.max(0, graphNodeCount) - 90) * 0.14, 0, 28));
 }
 
 const defaultLinkDistanceResolver: LinkDistanceResolver = (
@@ -45,41 +62,77 @@ const defaultLinkDistanceResolver: LinkDistanceResolver = (
   const clampedBase = clamp(baseDistance, 30, 500);
   const isBranchBridge = Boolean(options.sourceHasChildren && options.targetHasChildren);
   const isLeafSpoke = Boolean(options.sourceHasChildren) !== Boolean(options.targetHasChildren);
+  const sourceChildCount = Math.max(0, options.sourceChildCount ?? 0);
+  const targetChildCount = Math.max(0, options.targetChildCount ?? 0);
+  const maxChildCount = Math.max(sourceChildCount, targetChildCount);
+  const localBranchChildCount = isBranchBridge ? targetChildCount : maxChildCount;
+  const sourceSubtreeSize = Math.max(1, options.sourceSubtreeSize ?? 1);
+  const targetSubtreeSize = Math.max(1, options.targetSubtreeSize ?? 1);
+  const maxSubtreeSize = Math.max(sourceSubtreeSize, targetSubtreeSize);
+  const localBranchSubtreeSize = isBranchBridge ? targetSubtreeSize : maxSubtreeSize;
+  const graphNodeCount = Math.max(0, options.graphNodeCount ?? 0);
+  const minimumNodeDistance = getReferralGraphMinimumNodeDistance(graphNodeCount);
+  const densityBonus = graphNodeCount > 90 ? clamp((graphNodeCount - 90) * 0.22, 0, 48) : 0;
+  let resolvedDistance: number;
 
   if (isBranchBridge) {
     if (maxDegree <= 2) {
-      return Math.round(clamp(clampedBase * 0.29, 68, 82));
+      resolvedDistance = clamp(clampedBase * 0.29, 68, 82);
+    } else if (minDegree <= 2) {
+      resolvedDistance = clamp(clampedBase * 0.38, 86, 108);
+    } else if (minDegree <= 3) {
+      resolvedDistance = clamp(clampedBase * 0.5, 112, 142);
+    } else {
+      resolvedDistance = clamp(clampedBase * 0.62, 145, 172);
     }
-
-    if (minDegree <= 2) {
-      return Math.round(clamp(clampedBase * 0.38, 86, 108));
-    }
-
-    if (minDegree <= 3) {
-      return Math.round(clamp(clampedBase * 0.5, 112, 142));
-    }
-
-    return Math.round(clamp(clampedBase * 0.62, 145, 172));
+  } else if (isLeafSpoke || (minDegree <= 1 && maxDegree >= 3)) {
+    resolvedDistance = clamp(clampedBase * 0.36, 82, 105);
+  } else if (minDegree <= 2 && maxDegree >= 3) {
+    resolvedDistance = clamp(clampedBase * 0.44, 92, 135);
+  } else if (minDegree >= 3 && maxDegree >= 3) {
+    resolvedDistance = clamp(clampedBase * 0.82, 155, 245);
+  } else {
+    resolvedDistance = clampedBase;
   }
 
-  if (isLeafSpoke) {
-    return Math.round(clamp(clampedBase * 0.36, 82, 105));
+  if (isBranchBridge && sourceChildCount >= 8 && localBranchChildCount < 5) {
+    const sourceFanoutBridgeDistance = 144 + (Math.sqrt(sourceChildCount) * 10) + (densityBonus * 0.36);
+    resolvedDistance = Math.max(resolvedDistance, clamp(sourceFanoutBridgeDistance, 150, 230));
   }
 
-  if (minDegree <= 1 && maxDegree >= 3) {
-    return Math.round(clamp(clampedBase * 0.36, 82, 105));
+  if (localBranchChildCount >= 6) {
+    const labelSlotWidth = isBranchBridge ? 84 : 64;
+    const fanoutDistance = ((localBranchChildCount * labelSlotWidth) / (Math.PI * 2)) + 72 + densityBonus;
+    const fanoutArc = isBranchBridge ? Math.PI * 1.25 : Math.PI * 1.92;
+    const spacingDistance = ((localBranchChildCount * minimumNodeDistance * (isBranchBridge ? 1.14 : 1.08)) / fanoutArc)
+      + (isBranchBridge ? 72 : 62)
+      + (densityBonus * 0.68);
+    resolvedDistance = Math.max(
+      resolvedDistance,
+      clamp(Math.max(fanoutDistance, spacingDistance), 132, isBranchBridge ? 460 : 405),
+    );
   }
 
-  if (minDegree <= 2 && maxDegree >= 3) {
-    return Math.round(clamp(clampedBase * 0.44, 92, 135));
+  if (isBranchBridge && localBranchSubtreeSize >= 5 && localBranchChildCount >= 4) {
+    const subtreeDistance = localBranchChildCount >= 6
+      ? 184
+        + (Math.sqrt(localBranchSubtreeSize) * 19)
+        + (localBranchChildCount * 7)
+        + (densityBonus * 0.7)
+      : 158
+        + (Math.sqrt(localBranchSubtreeSize) * 13)
+        + (localBranchChildCount * 6)
+        + (densityBonus * 0.36);
+    resolvedDistance = Math.max(resolvedDistance, clamp(subtreeDistance, 205, 360));
   }
 
-  if (minDegree >= 3 && maxDegree >= 3) {
-    return Math.round(clamp(clampedBase * 0.82, 155, 245));
-  }
-
-  return clampedBase;
+  return Math.round(resolvedDistance);
 };
+
+function normalizeAngle(angle: number) {
+  const fullCircle = Math.PI * 2;
+  return ((angle % fullCircle) + fullCircle) % fullCircle;
+}
 
 function hashString(value: string) {
   let hash = 2166136261;
@@ -106,11 +159,66 @@ function getStableAngle(id: string) {
   return randomUnitFromHash(hashString(`${id}:angle`)) * Math.PI * 2;
 }
 
-function getBranchBendAngle(hubId: string, childHubCount: number) {
-  const direction = randomUnitFromHash(hashString(`${hubId}:branch-bend-direction`)) >= 0.5 ? 1 : -1;
-  const variance = randomUnitFromHash(hashString(`${hubId}:branch-bend-variance`)) * 0.18;
-  const baseBend = childHubCount === 1 ? 0.78 : 0.48;
-  return direction * (baseBend + variance);
+function getLayeredBranchAngleOffset(nodeId: string, index: number, siblingCount: number, sectorArc: number) {
+  if (siblingCount <= 1) {
+    return (randomUnitFromHash(hashString(`${nodeId}:layered-branch-angle`)) - 0.5) * Math.min(0.24, sectorArc * 0.28);
+  }
+
+  const slot = sectorArc / Math.max(1, siblingCount - 1);
+  const centeredIndex = index - ((siblingCount - 1) / 2);
+  const jitter = (randomUnitFromHash(hashString(`${nodeId}:layered-branch-angle`)) - 0.5) * Math.min(0.16, slot * 0.18);
+  return (centeredIndex * slot) + jitter;
+}
+
+function getBranchLeafFanRadius(baseRadius: number, siblingCount: number) {
+  if (siblingCount <= 0) {
+    return baseRadius;
+  }
+
+  return clamp(baseRadius * 0.58, 88, siblingCount >= 6 ? 124 : 116);
+}
+
+function getSiblingRadialOffset(nodeId: string, index: number, siblingCount: number) {
+  if (siblingCount < 8) {
+    return (randomUnitFromHash(hashString(`${nodeId}:child-r`)) - 0.5) * 16;
+  }
+
+  const ringStep = siblingCount >= 16 ? 24 : 18;
+  const ringCount = siblingCount >= 18 ? 3 : 2;
+  const ringIndex = index % ringCount;
+  const centeredRing = ringIndex - ((ringCount - 1) / 2);
+  const hashJitter = (randomUnitFromHash(hashString(`${nodeId}:child-r`)) - 0.5) * 12;
+  return (centeredRing * ringStep) + hashJitter;
+}
+
+function getBranchHubRadialOffset(
+  nodeId: string,
+  index: number,
+  siblingHubCount: number,
+  childCount: number,
+  subtreeSize: number,
+) {
+  if (siblingHubCount < 4) {
+    return 0;
+  }
+
+  const ringCount = siblingHubCount >= 10 ? 3 : 2;
+  const ringIndex = index % ringCount;
+  const centeredRing = ringIndex - ((ringCount - 1) / 2);
+  const ringStep = siblingHubCount >= 10 ? 42 : 34;
+  const childWeightOffset = clamp((Math.sqrt(Math.max(1, subtreeSize)) - 2) * 5, -10, 34);
+  const localFanoutOffset = clamp(childCount * 3, 0, 24);
+  const hashJitter = (randomUnitFromHash(hashString(`${nodeId}:branch-hub-r`)) - 0.5) * 12;
+  return (centeredRing * ringStep) + childWeightOffset + localFanoutOffset + hashJitter;
+}
+
+function getBranchHubAngleOffset(nodeId: string, siblingHubCount: number) {
+  if (siblingHubCount < 5) {
+    return 0;
+  }
+
+  const slotAngle = (Math.PI * 2) / siblingHubCount;
+  return (randomUnitFromHash(hashString(`${nodeId}:branch-hub-angle`)) - 0.5) * slotAngle * 0.32;
 }
 
 function pointOnCircle(center: GraphLayoutPoint, radius: number, angle: number): GraphLayoutPoint {
@@ -178,6 +286,41 @@ function buildDirectedParentCounts(nodes: GraphNode[], edges: GraphEdge[]) {
   return parentCounts;
 }
 
+function buildDirectedSubtreeSizes(nodes: GraphNode[], directedChildren: Map<string, Set<string>>) {
+  const nodeIds = new Set(nodes.map((node) => node.id));
+  const memo = new Map<string, number>();
+
+  const visit = (nodeId: string, path: Set<string>): number => {
+    if (!nodeIds.has(nodeId)) {
+      return 0;
+    }
+
+    const memoized = memo.get(nodeId);
+    if (memoized != null) {
+      return memoized;
+    }
+
+    if (path.has(nodeId)) {
+      return 0;
+    }
+
+    const nextPath = new Set(path);
+    nextPath.add(nodeId);
+    let size = 1;
+    for (const childId of directedChildren.get(nodeId) ?? []) {
+      size += visit(childId, nextPath);
+    }
+    memo.set(nodeId, size);
+    return size;
+  };
+
+  for (const nodeId of nodeIds) {
+    visit(nodeId, new Set());
+  }
+
+  return memo;
+}
+
 function getComponents(nodes: GraphNode[], adjacency: Map<string, Set<string>>) {
   const nodeIds = [...nodes.map((node) => node.id)].sort(compareIds);
   const visited = new Set<string>();
@@ -215,16 +358,32 @@ function getComponentScore(component: string[], degreeByNodeId: Map<string, numb
   return (component.length * 10) + (degreeSum * 3) + (maxDegree * 8);
 }
 
-function getComponentVisualRadius(component: string[], degreeByNodeId: Map<string, number>) {
+function getComponentVisualRadius(
+  component: string[],
+  degreeByNodeId: Map<string, number>,
+  directedChildren: Map<string, Set<string>>,
+  graphNodeCount: number,
+) {
   const hubCount = component.filter((nodeId) => (degreeByNodeId.get(nodeId) ?? 0) >= 3).length;
   const maxDegree = component.reduce((max, nodeId) => Math.max(max, degreeByNodeId.get(nodeId) ?? 0), 0);
+  const maxChildCount = component.reduce((max, nodeId) => Math.max(max, directedChildren.get(nodeId)?.size ?? 0), 0);
 
   if (hubCount > 1) {
-    return Math.min(340, 112 + (hubCount * 14) + (Math.sqrt(component.length) * 8));
+    return Math.min(520, 132 + (hubCount * 18) + (Math.sqrt(component.length) * 16) + (maxChildCount * 4));
   }
 
   if (maxDegree >= 3) {
-    return Math.min(132, getChildOrbitRadius(maxDegree, DEFAULT_LAYOUT_LINK_DISTANCE, defaultLinkDistanceResolver) + 42);
+    return Math.min(
+      360,
+      getChildOrbitRadius(
+        maxDegree,
+        maxChildCount,
+        DEFAULT_LAYOUT_LINK_DISTANCE,
+        defaultLinkDistanceResolver,
+        true,
+        graphNodeCount,
+      ) + 64,
+    );
   }
 
   return Math.max(54, 54 + component.length * 5);
@@ -342,13 +501,20 @@ function buildVisualClusterMetadata(
 
 function getChildOrbitRadius(
   parentDegree: number,
+  parentChildCount: number,
   baseLinkDistance: number,
   linkDistanceResolver: LinkDistanceResolver,
   parentHasChildren = true,
+  graphNodeCount = 0,
 ) {
-  return linkDistanceResolver(1, parentDegree, baseLinkDistance, {
+  return linkDistanceResolver(parentDegree, 1, baseLinkDistance, {
     sourceHasChildren: parentHasChildren,
     targetHasChildren: false,
+    sourceChildCount: parentChildCount,
+    targetChildCount: 0,
+    sourceSubtreeSize: Math.max(1, parentChildCount + 1),
+    targetSubtreeSize: 1,
+    graphNodeCount,
   });
 }
 
@@ -413,8 +579,8 @@ function placeOrphans(
 ) {
   const sorted = [...orphanIds].sort(compareIds);
   const densityRadius = 260 + Math.sqrt(sorted.length) * 14;
-  const resolvedOuterRadius = clamp(Math.max(outerRadius, densityRadius), 320, 480);
-  const innerRadius = Math.max(440, resolvedOuterRadius * 0.66);
+  const resolvedOuterRadius = clamp(Math.max(outerRadius, densityRadius), 480, 920);
+  const innerRadius = Math.min(resolvedOuterRadius - 24, Math.max(580, resolvedOuterRadius * 0.8));
 
   sorted.forEach((nodeId, index) => {
     const radialUnit = randomUnitFromHash(hashString(`${nodeId}:orphan-r`));
@@ -446,9 +612,11 @@ function placeHubComponent(
   adjacency: Map<string, Set<string>>,
   directedChildren: Map<string, Set<string>>,
   directedParentCounts: Map<string, number>,
+  directedSubtreeSizes: Map<string, number>,
   degreeByNodeId: Map<string, number>,
   nodeAnchorPositions: Map<string, GraphLayoutPoint>,
   baseLinkDistance: number,
+  graphNodeCount: number,
   linkDistanceResolver: LinkDistanceResolver,
 ) {
   const hubs = component
@@ -494,6 +662,8 @@ function placeHubComponent(
     hubPosition: GraphLayoutPoint,
     childIds: string[],
     incomingAngle: number | null = null,
+    reserveChildHubSector = false,
+    incomingSectorArc: number | null = null,
   ) => {
     const sortedChildren = [...childIds].sort((left, right) => {
       const degreeDelta = (degreeByNodeId.get(right) ?? 0) - (degreeByNodeId.get(left) ?? 0);
@@ -502,21 +672,118 @@ function placeHubComponent(
 
     const radius = getChildOrbitRadius(
       degreeByNodeId.get(hubId) ?? sortedChildren.length,
+      directedChildren.get(hubId)?.size ?? sortedChildren.length,
       baseLinkDistance,
       linkDistanceResolver,
       hasDirectedChildren(hubId, directedChildren),
+      graphNodeCount,
     );
-    const baseAngle = incomingAngle == null ? getStableAngle(hubId) : incomingAngle;
+    const hasIncomingBranch = incomingAngle != null;
+    const fanoutArc = hasIncomingBranch
+      ? reserveChildHubSector
+        ? sortedChildren.length >= 6
+          ? Math.PI * 0.52
+          : Math.PI * 0.42
+        : sortedChildren.length >= 6
+          ? Math.PI * 0.62
+          : Math.PI * 0.5
+      : Math.PI * 2;
+    const resolvedFanoutArc = incomingSectorArc == null
+      ? fanoutArc
+      : Math.min(fanoutArc, Math.max(Math.PI * 0.28, incomingSectorArc * 0.72));
+    const baseAngle = hasIncomingBranch
+      ? normalizeAngle((incomingAngle as number) - (resolvedFanoutArc / 2))
+      : getStableAngle(hubId);
 
     sortedChildren.forEach((nodeId, index) => {
-      const angle = baseAngle + (Math.PI * 2 * index / Math.max(1, sortedChildren.length));
-      const childRadius = radius + (randomUnitFromHash(hashString(`${nodeId}:child-r`)) - 0.5) * 16;
+      const denominator = hasIncomingBranch ? Math.max(1, sortedChildren.length - 1) : Math.max(1, sortedChildren.length);
+      const angle = baseAngle + (resolvedFanoutArc * index / denominator);
+      const branchLeafRadius = hasIncomingBranch ? getBranchLeafFanRadius(radius, sortedChildren.length) : radius;
+      const childRadius = branchLeafRadius + getSiblingRadialOffset(nodeId, index, sortedChildren.length);
       nodeAnchorPositions.set(nodeId, pointOnCircle(hubPosition, childRadius, angle));
       placed.add(nodeId);
     });
   };
 
-  const placeBranch = (hubId: string, hubPosition: GraphLayoutPoint, incomingAngle: number | null) => {
+  const getDirectChildWeight = (childId: string) => {
+    const childCount = directedChildren.get(childId)?.size ?? 0;
+    const subtreeSize = directedSubtreeSizes.get(childId) ?? 1;
+    if (hubSet.has(childId)) {
+      return 2.2 + Math.sqrt(Math.max(1, subtreeSize)) + (Math.sqrt(childCount) * 0.9);
+    }
+
+    return 1;
+  };
+
+  const placeWeightedRootChildren = (
+    hubId: string,
+    hubPosition: GraphLayoutPoint,
+    childHubIds: string[],
+    childLeafIds: string[],
+  ) => {
+    const directChildIds = [...childHubIds, ...childLeafIds].sort(sortByGraphWeight);
+    const weights = directChildIds.map(getDirectChildWeight);
+    const totalWeight = weights.reduce((sum, value) => sum + value, 0) || 1;
+    const rootArc = Math.PI * 2;
+    let cursor = getStableAngle(hubId) - Math.PI;
+
+    directChildIds.forEach((childId, index) => {
+      const span = rootArc * weights[index] / totalWeight;
+      const angle = cursor + (span / 2);
+      cursor += span;
+
+      if (hubSet.has(childId)) {
+        const childHubIndex = childHubIds.indexOf(childId);
+        const radius = linkDistanceResolver(
+          degreeByNodeId.get(hubId) ?? 1,
+          degreeByNodeId.get(childId) ?? 1,
+          baseLinkDistance,
+          {
+            sourceHasChildren: hasDirectedChildren(hubId, directedChildren),
+            targetHasChildren: hasDirectedChildren(childId, directedChildren),
+            sourceChildCount: directedChildren.get(hubId)?.size ?? 0,
+            targetChildCount: directedChildren.get(childId)?.size ?? 0,
+            sourceSubtreeSize: directedSubtreeSizes.get(hubId) ?? 1,
+            targetSubtreeSize: directedSubtreeSizes.get(childId) ?? 1,
+            graphNodeCount,
+          },
+        );
+        const childHubOffset = getBranchHubRadialOffset(
+          childId,
+          Math.max(0, childHubIndex),
+          childHubIds.length,
+          directedChildren.get(childId)?.size ?? 0,
+          directedSubtreeSizes.get(childId) ?? 1,
+        );
+        const childHubRadius = Math.max(
+          260,
+          Math.max(280, radius) + (childHubOffset * 0.54),
+        );
+        const childHubPosition = pointOnCircle(hubPosition, childHubRadius, angle);
+        placeBranch(childId, childHubPosition, angle, span);
+        return;
+      }
+
+      const radius = getChildOrbitRadius(
+        degreeByNodeId.get(hubId) ?? directChildIds.length,
+        directedChildren.get(hubId)?.size ?? directChildIds.length,
+        baseLinkDistance,
+        linkDistanceResolver,
+        hasDirectedChildren(hubId, directedChildren),
+        graphNodeCount,
+      );
+      const childRadius = radius + getSiblingRadialOffset(childId, index, directChildIds.length);
+      nodeAnchorPositions.set(childId, pointOnCircle(hubPosition, childRadius, angle));
+      placed.add(childId);
+    });
+  };
+
+  const placeBranch = (
+    hubId: string,
+    hubPosition: GraphLayoutPoint,
+    incomingAngle: number | null,
+    incomingSectorArc: number | null = null,
+  ) => {
     nodeAnchorPositions.set(hubId, hubPosition);
     placed.add(hubId);
 
@@ -526,18 +793,32 @@ function placeHubComponent(
     const childHubIds = directedChildIds.filter((childId) => hubSet.has(childId));
     const childLeafIds = directedChildIds.filter((childId) => !hubSet.has(childId));
 
-    placeChildLeaves(hubId, hubPosition, childLeafIds, incomingAngle);
+    if (incomingAngle == null && childHubIds.length > 0) {
+      placeWeightedRootChildren(hubId, hubPosition, childHubIds, childLeafIds);
+      return;
+    }
+
+    placeChildLeaves(hubId, hubPosition, childLeafIds, incomingAngle, childHubIds.length > 0, incomingSectorArc);
 
     if (childHubIds.length === 0) {
       return;
     }
 
-    const baseAngle = incomingAngle == null
-      ? getStableAngle(hubId)
-      : incomingAngle + getBranchBendAngle(hubId, childHubIds.length);
-
     childHubIds.forEach((childHubId, index) => {
-      const angle = baseAngle + (Math.PI * 2 * index / childHubIds.length);
+      const forwardSectorArc = incomingAngle == null
+        ? Math.PI * 2
+        : Math.min(
+          Math.PI * 0.92,
+          Math.max(Math.PI * 0.28, (incomingSectorArc ?? Math.PI * 0.92) * 0.58),
+        );
+      const baseAngle = incomingAngle == null
+        ? getStableAngle(hubId) + (childLeafIds.length > 0 ? Math.PI * 0.82 : 0)
+        : incomingAngle;
+      const angle = incomingAngle == null
+        ? baseAngle
+          + (Math.PI * 2 * index / childHubIds.length)
+          + getBranchHubAngleOffset(childHubId, childHubIds.length)
+        : baseAngle + getLayeredBranchAngleOffset(childHubId, index, childHubIds.length, forwardSectorArc);
       const radius = linkDistanceResolver(
         degreeByNodeId.get(hubId) ?? 1,
         degreeByNodeId.get(childHubId) ?? 1,
@@ -545,10 +826,25 @@ function placeHubComponent(
         {
           sourceHasChildren: hasDirectedChildren(hubId, directedChildren),
           targetHasChildren: hasDirectedChildren(childHubId, directedChildren),
+          sourceChildCount: directedChildren.get(hubId)?.size ?? 0,
+          targetChildCount: directedChildren.get(childHubId)?.size ?? 0,
+          sourceSubtreeSize: directedSubtreeSizes.get(hubId) ?? 1,
+          targetSubtreeSize: directedSubtreeSizes.get(childHubId) ?? 1,
+          graphNodeCount,
         },
       );
-      const childHubPosition = pointOnCircle(hubPosition, radius, angle);
-      placeBranch(childHubId, childHubPosition, angle);
+      const childHubRadius = Math.max(
+        incomingAngle == null ? 96 : 185,
+        radius + getBranchHubRadialOffset(
+          childHubId,
+          index,
+          childHubIds.length,
+          directedChildren.get(childHubId)?.size ?? 0,
+          directedSubtreeSizes.get(childHubId) ?? 1,
+        ),
+      );
+      const childHubPosition = pointOnCircle(hubPosition, childHubRadius, angle);
+      placeBranch(childHubId, childHubPosition, angle, incomingSectorArc == null ? null : incomingSectorArc / Math.max(1, childHubIds.length));
     });
   };
 
@@ -563,6 +859,11 @@ function placeHubComponent(
       {
         sourceHasChildren: hasDirectedChildren(rootHub, directedChildren),
         targetHasChildren: hasDirectedChildren(hubId, directedChildren),
+        sourceChildCount: directedChildren.get(rootHub)?.size ?? 0,
+        targetChildCount: directedChildren.get(hubId)?.size ?? 0,
+        sourceSubtreeSize: directedSubtreeSizes.get(rootHub) ?? 1,
+        targetSubtreeSize: directedSubtreeSizes.get(hubId) ?? 1,
+        graphNodeCount,
       },
     );
     const angle = getStableAngle(rootHub) + (Math.PI * 2 * index / Math.max(1, unplacedHubs.length));
@@ -612,6 +913,10 @@ export function buildReferralGraphLayout(
   const adjacency = buildAdjacency(nodes, edges);
   const directedChildren = buildDirectedChildren(nodes, edges);
   const directedParentCounts = buildDirectedParentCounts(nodes, edges);
+  const directedSubtreeSizes = buildDirectedSubtreeSizes(nodes, directedChildren);
+  const directedChildCounts = new Map(
+    [...directedChildren.entries()].map(([nodeId, childIds]) => [nodeId, childIds.size]),
+  );
   const degreeByNodeId = new Map<string, number>();
 
   for (const node of nodes) {
@@ -631,12 +936,14 @@ export function buildReferralGraphLayout(
   const componentSizes = new Map<number, number>();
   const nodeComponentIndex = new Map<string, number>();
   const nodeOrderInComponent = new Map<string, number>();
-  const connectedComponentRadii = connectedComponents.map((component) => getComponentVisualRadius(component, degreeByNodeId));
+  const connectedComponentRadii = connectedComponents.map((component) =>
+    getComponentVisualRadius(component, degreeByNodeId, directedChildren, nodes.length),
+  );
   const connectedComponentCenters = buildPackedComponentCenters(connectedComponents, connectedComponentRadii);
 
   connectedComponents.forEach((component, index) => {
     const center = connectedComponentCenters[index] ?? { x: 0, y: 0 };
-    const radius = connectedComponentRadii[index] ?? getComponentVisualRadius(component, degreeByNodeId);
+    const radius = connectedComponentRadii[index] ?? getComponentVisualRadius(component, degreeByNodeId, directedChildren, nodes.length);
     componentAnchors.set(index, center);
     componentRadii.set(index, radius);
     componentSizes.set(index, component.length);
@@ -651,9 +958,11 @@ export function buildReferralGraphLayout(
       adjacency,
       directedChildren,
       directedParentCounts,
+      directedSubtreeSizes,
       degreeByNodeId,
       nodeAnchorPositions,
       baseLinkDistance,
+      nodes.length,
       linkDistanceResolver,
     );
   });
@@ -666,7 +975,7 @@ export function buildReferralGraphLayout(
   placeOrphans(
     orphanComponents.map((component) => component[0]),
     nodeAnchorPositions,
-    Math.max(OUTER_ORPHAN_RING_RADIUS, Math.min(520, maxComponentExtent + 96)),
+    Math.max(OUTER_ORPHAN_RING_RADIUS, Math.min(760, maxComponentExtent + 150)),
   );
 
   const {
@@ -688,6 +997,8 @@ export function buildReferralGraphLayout(
     componentAnchors,
     componentRadii,
     componentSizes,
+    directedChildCounts,
+    directedSubtreeSizes,
     nodeClusterIndex,
     nodeComponentIndex,
     nodeAnchorPositions,

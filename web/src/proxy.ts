@@ -1,8 +1,8 @@
 import type { NextRequest } from 'next/server';
 
-import { handleAdminWebProxyRequest } from './src/lib/admin-web-proxy-handler';
+import { handleAdminWebProxyRequest } from './lib/admin-web-proxy-handler';
 
-export function middleware(request: NextRequest) {
+export function proxy(request: NextRequest) {
   return handleAdminWebProxyRequest(request);
 }
 

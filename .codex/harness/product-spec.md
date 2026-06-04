@@ -251,3 +251,10 @@ All hypotheses require later proof before deletion or refactor.
 - Date-field wording is exact: `보증보험 조회 동의일`.
 - Generic step wording may continue to use `보증 보험 동의` where it describes the overall workflow step rather than the date field.
 - Admin referral graph colors are global status semantics, with yellow reserved for the viewer/current highlighted role node rather than a status bucket.
+
+## Increment 25 Product Decisions
+
+- 모바일 가람Link 홈의 FC 액션 목록에 `고객관리` 진입을 추가한다.
+- `고객관리`는 별도 신규 시스템이 아니라 기존 설계 요청 작성 플로우의 `1. 고객` 화면으로 들어가는 entrypoint다.
+- 기존 `새 설계 요청` 진입은 깨지지 않아야 하며, 설계매니저 세션에는 FC 고객관리/작성 진입을 열지 않는다.
+- 이번 increment는 모바일 홈/작성 진입 helper/test에 한정하고, request_board 서버/API나 관리자 웹은 변경하지 않는다.

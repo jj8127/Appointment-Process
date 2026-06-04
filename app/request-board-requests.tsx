@@ -18,6 +18,11 @@ import { useSession } from '@/hooks/use-session';
 import { resolveBottomNavActiveKey, resolveBottomNavPreset } from '@/lib/bottom-navigation';
 import { logger } from '@/lib/logger';
 import { rbGetRequestList, type RbRequestListItem } from '@/lib/request-board-api';
+import {
+  getRequestBoardPrimaryStatus,
+  requestBoardListHasBucket,
+  type RequestBoardListFilterKey,
+} from '@/lib/request-board-list-filters';
 import { COLORS, RADIUS, SHADOWS, SPACING, TYPOGRAPHY } from '@/lib/theme';
 
 /* ─── Helpers ─── */
@@ -34,13 +39,6 @@ const getProductNames = (req: RbRequestListItem): string => {
     .filter(Boolean) as string[];
   return names.length > 0 ? names.join(', ') : '종목 없음';
 };
-
-type FilterKey = 'all' | 'pending' | 'in_progress' | 'completed' | 'cancelled' | 'review_pending';
-
-const hasPendingReview = (req: RbRequestListItem) =>
-  (req.request_designers ?? []).some(
-    (d) => d.status === 'completed' && (d.fc_decision === 'pending' || d.fc_decision == null),
-  );
 
 const getFcDecisionMeta = (req: RbRequestListItem) => {
   const assignments = req.request_designers ?? [];
@@ -93,7 +91,7 @@ export default function RequestBoardRequestsScreen() {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [fetchError, setFetchError] = useState<string | null>(null);
-  const [activeFilter, setActiveFilter] = useState<FilterKey>('all');
+  const [activeFilter, setActiveFilter] = useState<RequestBoardListFilterKey>('all');
 
   useEffect(() => {
     const rawFilter = Array.isArray(filter) ? filter[0] : filter;
@@ -151,57 +149,38 @@ export default function RequestBoardRequestsScreen() {
 
   /* ─── Derived ─── */
   const reviewPendingCount = useMemo(
-    () => requests.filter(hasPendingReview).length,
-    [requests],
+    () => requests.filter((r) => requestBoardListHasBucket(r, 'review_pending', isRequestBoardDesigner)).length,
+    [isRequestBoardDesigner, requests],
   );
   const pendingCount = useMemo(
-    () => requests.filter((r) => r.status === 'pending').length,
-    [requests],
+    () => requests.filter((r) => requestBoardListHasBucket(r, 'pending', isRequestBoardDesigner)).length,
+    [isRequestBoardDesigner, requests],
   );
   const inProgressCount = useMemo(
-    () => requests.filter((r) => r.status === 'in_progress').length,
-    [requests],
+    () => requests.filter((r) => requestBoardListHasBucket(r, 'in_progress', isRequestBoardDesigner)).length,
+    [isRequestBoardDesigner, requests],
   );
   const completedCount = useMemo(
-    () => requests.filter((r) => r.status === 'completed').length,
-    [requests],
+    () => requests.filter((r) => requestBoardListHasBucket(r, 'completed', isRequestBoardDesigner)).length,
+    [isRequestBoardDesigner, requests],
   );
   const cancelledCount = useMemo(
-    () => requests.filter((r) => r.status === 'cancelled').length,
-    [requests],
+    () => requests.filter((r) => requestBoardListHasBucket(r, 'cancelled', isRequestBoardDesigner)).length,
+    [isRequestBoardDesigner, requests],
   );
   const countedTotal = useMemo(
-    () => pendingCount + inProgressCount + completedCount + cancelledCount,
-    [pendingCount, inProgressCount, completedCount, cancelledCount],
+    () => requests.filter((r) => requestBoardListHasBucket(r, 'all', isRequestBoardDesigner)).length,
+    [isRequestBoardDesigner, requests],
   );
 
   const filteredRequests = useMemo(() => {
     const sorted = [...requests].sort(
       (a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime(),
     );
-    switch (activeFilter) {
-      case 'pending':
-        return sorted.filter((r) => r.status === 'pending');
-      case 'review_pending':
-        return sorted.filter(hasPendingReview);
-      case 'in_progress':
-        return sorted.filter((r) => r.status === 'in_progress');
-      case 'completed':
-        return sorted.filter((r) => r.status === 'completed');
-      case 'cancelled':
-        return sorted.filter((r) => r.status === 'cancelled');
-      default:
-        return sorted.filter(
-          (r) =>
-            r.status === 'pending' ||
-            r.status === 'in_progress' ||
-            r.status === 'completed' ||
-            r.status === 'cancelled',
-        );
-    }
-  }, [requests, activeFilter]);
+    return sorted.filter((r) => requestBoardListHasBucket(r, activeFilter, isRequestBoardDesigner));
+  }, [activeFilter, isRequestBoardDesigner, requests]);
 
-  const FILTERS: { key: FilterKey; label: string; count?: number }[] = [
+  const FILTERS: { key: RequestBoardListFilterKey; label: string; count?: number }[] = [
     { key: 'all', label: '전체', count: countedTotal },
     { key: 'pending', label: '수락 대기', count: pendingCount },
     { key: 'in_progress', label: '진행중', count: inProgressCount },
@@ -212,9 +191,10 @@ export default function RequestBoardRequestsScreen() {
 
   /* ─── Render ─── */
   const renderItem = ({ item }: { item: RbRequestListItem }) => {
-    const isPendingReview = hasPendingReview(item);
-    const statusInfo = REQUEST_STATUS_LABEL[item.status] ?? {
-      label: item.status,
+    const isPendingReview = requestBoardListHasBucket(item, 'review_pending', isRequestBoardDesigner);
+    const primaryStatus = getRequestBoardPrimaryStatus(item, isRequestBoardDesigner);
+    const statusInfo = REQUEST_STATUS_LABEL[primaryStatus] ?? {
+      label: primaryStatus,
       color: COLORS.gray[500],
       bg: COLORS.gray[100],
     };

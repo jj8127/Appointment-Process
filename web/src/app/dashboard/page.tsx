@@ -357,6 +357,11 @@ const getHanwhaStageDescription = (
 };
 
 const getDefaultModalTab = (profile: FCProfileWithDocuments): string => {
+  const workflowStep = calcStep(profile);
+  if (workflowStep === 2) return 'docs';
+  if (workflowStep === 3) return 'hanwha';
+  if (workflowStep >= 4) return 'appointment';
+
   if (canOpenInsuranceStage(profile)) {
     return 'appointment';
   }

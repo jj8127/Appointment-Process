@@ -19,6 +19,21 @@ type PendingReferralApplyState = {
   promise: Promise<void> | null;
 };
 
+export function buildPendingSignupReferralSelection(code: string): ReferralSearchResult | null {
+  const normalizedCode = String(code ?? '').trim().toUpperCase().replace(/[^A-Z0-9]/g, '');
+
+  if (!normalizedCode) {
+    return null;
+  }
+
+  return {
+    fcId: `pending:${normalizedCode}`,
+    name: `추천 코드 ${normalizedCode}`,
+    affiliation: '초대 링크로 입력됨',
+    code: normalizedCode,
+  };
+}
+
 export function buildStoredSignupReferral({
   selectedReferral,
   referralStatus,

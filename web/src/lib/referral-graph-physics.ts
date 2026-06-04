@@ -14,8 +14,24 @@ export type ReferralGraphPhysicsTuning = {
   layoutMemoryStrength: number;
 };
 
+export type ReferralGraphLinkDistanceOptions = {
+  sourceHasChildren?: boolean;
+  targetHasChildren?: boolean;
+  sourceChildCount?: number;
+  targetChildCount?: number;
+  sourceSubtreeSize?: number;
+  targetSubtreeSize?: number;
+  graphNodeCount?: number;
+};
+
+export const REFERRAL_GRAPH_MIN_NODE_DISTANCE = 112;
+
 function clamp(value: number, min: number, max: number) {
   return Math.min(max, Math.max(min, value));
+}
+
+export function getReferralGraphMinimumNodeDistance(graphNodeCount = 0) {
+  return Math.round(REFERRAL_GRAPH_MIN_NODE_DISTANCE + clamp((Math.max(0, graphNodeCount) - 90) * 0.14, 0, 28));
 }
 
 function hashString(value: string) {
@@ -43,6 +59,9 @@ export type ReferralGraphLayoutMemoryTarget = {
 };
 
 export type ReferralGraphLayoutMemoryForceOptions = {
+  activeDraggedNodeIdRef?: {
+    current: string | null;
+  };
   maxTicks?: number;
   manualNodeTargetsRef?: {
     current: Map<string, ReferralGraphLayoutMemoryTarget>;
@@ -79,47 +98,80 @@ export function getReferralGraphLinkDistance(
   sourceDegree: number,
   targetDegree: number,
   baseDistance: number,
-  options: { sourceHasChildren?: boolean; targetHasChildren?: boolean } = {},
+  options: ReferralGraphLinkDistanceOptions = {},
 ) {
   const minDegree = Math.min(sourceDegree, targetDegree);
   const maxDegree = Math.max(sourceDegree, targetDegree);
   const clampedBase = clamp(baseDistance, 30, 500);
   const isBranchBridge = Boolean(options.sourceHasChildren && options.targetHasChildren);
   const isLeafSpoke = Boolean(options.sourceHasChildren) !== Boolean(options.targetHasChildren);
+  const sourceChildCount = Math.max(0, options.sourceChildCount ?? 0);
+  const targetChildCount = Math.max(0, options.targetChildCount ?? 0);
+  const maxChildCount = Math.max(sourceChildCount, targetChildCount);
+  const localBranchChildCount = isBranchBridge ? targetChildCount : maxChildCount;
+  const sourceSubtreeSize = Math.max(1, options.sourceSubtreeSize ?? 1);
+  const targetSubtreeSize = Math.max(1, options.targetSubtreeSize ?? 1);
+  const maxSubtreeSize = Math.max(sourceSubtreeSize, targetSubtreeSize);
+  const localBranchSubtreeSize = isBranchBridge ? targetSubtreeSize : maxSubtreeSize;
+  const graphNodeCount = Math.max(0, options.graphNodeCount ?? 0);
+  const minimumNodeDistance = getReferralGraphMinimumNodeDistance(graphNodeCount);
+  const densityBonus = graphNodeCount > 90
+    ? clamp((graphNodeCount - 90) * 0.22, 0, 48)
+    : 0;
+  let resolvedDistance: number;
 
   if (isBranchBridge) {
     if (maxDegree <= 2) {
-      return Math.round(clamp(clampedBase * 0.29, 68, 82));
+      resolvedDistance = clamp(clampedBase * 0.29, 68, 82);
+    } else if (minDegree <= 2) {
+      resolvedDistance = clamp(clampedBase * 0.38, 86, 108);
+    } else if (minDegree <= 3) {
+      resolvedDistance = clamp(clampedBase * 0.5, 112, 142);
+    } else {
+      resolvedDistance = clamp(clampedBase * 0.62, 145, 172);
     }
-
-    if (minDegree <= 2) {
-      return Math.round(clamp(clampedBase * 0.38, 86, 108));
-    }
-
-    if (minDegree <= 3) {
-      return Math.round(clamp(clampedBase * 0.5, 112, 142));
-    }
-
-    return Math.round(clamp(clampedBase * 0.62, 145, 172));
+  } else if (isLeafSpoke || (minDegree <= 1 && maxDegree >= 3)) {
+    resolvedDistance = clamp(clampedBase * 0.36, 82, 105);
+  } else if (minDegree <= 2 && maxDegree >= 3) {
+    resolvedDistance = clamp(clampedBase * 0.44, 92, 135);
+  } else if (minDegree >= 3 && maxDegree >= 3) {
+    resolvedDistance = clamp(clampedBase * 0.82, 155, 245);
+  } else {
+    resolvedDistance = clampedBase;
   }
 
-  if (isLeafSpoke) {
-    return Math.round(clamp(clampedBase * 0.36, 82, 105));
+  if (isBranchBridge && sourceChildCount >= 8 && localBranchChildCount < 5) {
+    const sourceFanoutBridgeDistance = 144 + (Math.sqrt(sourceChildCount) * 10) + (densityBonus * 0.36);
+    resolvedDistance = Math.max(resolvedDistance, clamp(sourceFanoutBridgeDistance, 150, 230));
   }
 
-  if (minDegree <= 1 && maxDegree >= 3) {
-    return Math.round(clamp(clampedBase * 0.36, 82, 105));
+  if (localBranchChildCount >= 6) {
+    const labelSlotWidth = isBranchBridge ? 84 : 64;
+    const fanoutDistance = ((localBranchChildCount * labelSlotWidth) / (Math.PI * 2)) + 72 + densityBonus;
+    const fanoutArc = isBranchBridge ? Math.PI * 1.25 : Math.PI * 1.92;
+    const spacingDistance = ((localBranchChildCount * minimumNodeDistance * (isBranchBridge ? 1.14 : 1.08)) / fanoutArc)
+      + (isBranchBridge ? 72 : 62)
+      + (densityBonus * 0.68);
+    resolvedDistance = Math.max(
+      resolvedDistance,
+      clamp(Math.max(fanoutDistance, spacingDistance), 132, isBranchBridge ? 340 : 330),
+    );
   }
 
-  if (minDegree <= 2 && maxDegree >= 3) {
-    return Math.round(clamp(clampedBase * 0.44, 92, 135));
+  if (isBranchBridge && localBranchSubtreeSize >= 5 && localBranchChildCount >= 4) {
+    const subtreeDistance = localBranchChildCount >= 6
+      ? 184
+        + (Math.sqrt(localBranchSubtreeSize) * 19)
+        + (localBranchChildCount * 7)
+        + (densityBonus * 0.7)
+      : 158
+        + (Math.sqrt(localBranchSubtreeSize) * 13)
+        + (localBranchChildCount * 6)
+        + (densityBonus * 0.36);
+    resolvedDistance = Math.max(resolvedDistance, clamp(subtreeDistance, 205, 320));
   }
 
-  if (minDegree >= 3 && maxDegree >= 3) {
-    return Math.round(clamp(clampedBase * 0.82, 155, 245));
-  }
-
-  return clampedBase;
+  return Math.round(resolvedDistance);
 }
 
 function getLinkEndpointId<T extends ReferralGraphLayoutMemoryNode>(value: string | T) {
@@ -136,10 +188,12 @@ export type ReferralGraphDragSpringOptions = {
   childCountByNodeId: Map<string, number>;
   constraintStrength?: number;
   degreeByNodeId: Map<string, number>;
+  graphNodeCount?: number;
   maxVelocity?: number;
   preventStretch?: boolean;
   stretchSlack?: number;
   strength?: number;
+  subtreeSizeByNodeId?: Map<string, number>;
   velocityDamping?: number;
 };
 
@@ -150,8 +204,10 @@ export type ReferralGraphLinkTensionOptions = {
   baseLinkDistance: number;
   childCountByNodeId: Map<string, number>;
   degreeByNodeId: Map<string, number>;
+  graphNodeCount?: number;
   maxVelocity?: number;
   strength?: number;
+  subtreeSizeByNodeId?: Map<string, number>;
   thresholdMultiplier?: number;
 };
 
@@ -212,6 +268,7 @@ export type ReferralGraphBranchBendOptions = {
   degreeByNodeId: Map<string, number>;
   links: Array<ReferralGraphDragSpringLink<ReferralGraphLayoutMemoryNode>>;
   maxVelocity?: number;
+  minAlpha?: number;
   strength?: number;
 };
 
@@ -221,7 +278,31 @@ export type ReferralGraphSiblingAngularOptions = {
   strength?: number;
 };
 
+export type ReferralGraphEdgeCrossingOptions = {
+  activeDraggedNodeIdRef?: {
+    current: string | null;
+  };
+  links: Array<ReferralGraphDragSpringLink<ReferralGraphLayoutMemoryNode>>;
+  maxPairs?: number;
+  maxVelocity?: number;
+  minDistance?: number;
+  strength?: number;
+  suppressedNodeIdsRef?: {
+    current: Set<string>;
+  };
+};
+
 export type ReferralGraphComponentEnvelopeOptions = {
+  activeDraggedNodeIdRef?: {
+    current: string | null;
+  };
+  componentRadii: Map<number, number>;
+  maxVelocity?: number;
+  nodeComponentIndex: Map<string, number>;
+  strength?: number;
+};
+
+export type ReferralGraphComponentCohesionOptions = {
   activeDraggedNodeIdRef?: {
     current: string | null;
   };
@@ -292,6 +373,11 @@ export function applyReferralGraphDragSpring<T extends ReferralGraphLayoutMemory
           {
             sourceHasChildren: (options.childCountByNodeId.get(sourceId) ?? 0) > 0,
             targetHasChildren: (options.childCountByNodeId.get(targetId) ?? 0) > 0,
+            sourceChildCount: options.childCountByNodeId.get(sourceId) ?? 0,
+            targetChildCount: options.childCountByNodeId.get(targetId) ?? 0,
+            sourceSubtreeSize: options.subtreeSizeByNodeId?.get(sourceId) ?? 1,
+            targetSubtreeSize: options.subtreeSizeByNodeId?.get(targetId) ?? 1,
+            graphNodeCount: options.graphNodeCount,
           },
         );
 
@@ -361,6 +447,11 @@ export function applyReferralGraphDragSpring<T extends ReferralGraphLayoutMemory
       {
         sourceHasChildren: (options.childCountByNodeId.get(sourceId) ?? 0) > 0,
         targetHasChildren: (options.childCountByNodeId.get(targetId) ?? 0) > 0,
+        sourceChildCount: options.childCountByNodeId.get(sourceId) ?? 0,
+        targetChildCount: options.childCountByNodeId.get(targetId) ?? 0,
+        sourceSubtreeSize: options.subtreeSizeByNodeId?.get(sourceId) ?? 1,
+        targetSubtreeSize: options.subtreeSizeByNodeId?.get(targetId) ?? 1,
+        graphNodeCount: options.graphNodeCount,
       },
     );
     const excess = distance - targetDistance;
@@ -450,6 +541,11 @@ export function createReferralGraphLinkTensionForce<T extends ReferralGraphLayou
         {
           sourceHasChildren: (options.childCountByNodeId.get(sourceId) ?? 0) > 0,
           targetHasChildren: (options.childCountByNodeId.get(targetId) ?? 0) > 0,
+          sourceChildCount: options.childCountByNodeId.get(sourceId) ?? 0,
+          targetChildCount: options.childCountByNodeId.get(targetId) ?? 0,
+          sourceSubtreeSize: options.subtreeSizeByNodeId?.get(sourceId) ?? 1,
+          targetSubtreeSize: options.subtreeSizeByNodeId?.get(targetId) ?? 1,
+          graphNodeCount: options.graphNodeCount,
         },
       );
 
@@ -501,8 +597,9 @@ export function createReferralGraphBranchBendForce<T extends ReferralGraphLayout
   let directedSingleChildByNodeId = new Map<string, string>();
 
   const force = ((alpha: number) => {
-    const strength = clamp((options.strength ?? 0.18) * alpha, 0, 0.3);
-    const maxVelocity = clamp(options.maxVelocity ?? 12, 1, 24);
+    const effectiveAlpha = Math.max(alpha, clamp(options.minAlpha ?? 0, 0, 0.08));
+    const strength = clamp((options.strength ?? 0.18) * effectiveAlpha, 0, 0.42);
+    const maxVelocity = clamp(options.maxVelocity ?? 12, 1, 30);
     if (strength <= 0) {
       return;
     }
@@ -631,8 +728,8 @@ export function createReferralGraphSiblingAngularForce<T extends ReferralGraphLa
   let childrenByParentId = new Map<string, string[]>();
 
   const force = ((alpha: number) => {
-    const strength = clamp((options.strength ?? 0.16) * alpha, 0, 0.28);
-    const maxVelocity = clamp(options.maxVelocity ?? 9, 1, 18);
+    const strength = clamp((options.strength ?? 0.24) * alpha, 0, 0.52);
+    const maxVelocity = clamp(options.maxVelocity ?? 13, 1, 32);
     if (strength <= 0) {
       return;
     }
@@ -682,7 +779,7 @@ export function createReferralGraphSiblingAngularForce<T extends ReferralGraphLa
         continue;
       }
 
-      const targetGap = Math.min(Math.PI * 0.9, (Math.PI * 2 / children.length) * 0.78);
+      const targetGap = Math.min(Math.PI * 0.95, (Math.PI * 2 / children.length) * 1.02);
       for (let index = 0; index < children.length; index += 1) {
         const current = children[index];
         const next = children[(index + 1) % children.length];
@@ -694,7 +791,7 @@ export function createReferralGraphSiblingAngularForce<T extends ReferralGraphLa
 
         const velocity = Math.min(
           maxVelocity,
-          (targetGap - gap) * Math.min(90, (current.distance + next.distance) * 0.5) * strength * 0.18,
+          (targetGap - gap) * Math.min(136, (current.distance + next.distance) * 0.5) * strength * 0.3,
         );
         const currentTangentX = -Math.sin(current.angle);
         const currentTangentY = Math.cos(current.angle);
@@ -730,6 +827,281 @@ export function createReferralGraphSiblingAngularForce<T extends ReferralGraphLa
         [...childIds].sort(),
       ]),
     );
+  };
+
+  return force;
+}
+
+type PositionedReferralGraphEdge<T extends ReferralGraphLayoutMemoryNode> = {
+  key: string;
+  source: T;
+  sourceId: string;
+  target: T;
+  targetId: string;
+};
+
+function getPositionedReferralGraphEdge<T extends ReferralGraphLayoutMemoryNode>(
+  link: ReferralGraphDragSpringLink<T>,
+  nodesById: Map<string, T>,
+): PositionedReferralGraphEdge<T> | null {
+  const sourceId = getLinkEndpointId(link.source);
+  const targetId = getLinkEndpointId(link.target);
+  const source = nodesById.get(sourceId);
+  const target = nodesById.get(targetId);
+
+  if (
+    !source
+    || !target
+    || sourceId === targetId
+    || !hasFiniteCoordinate(source.x)
+    || !hasFiniteCoordinate(source.y)
+    || !hasFiniteCoordinate(target.x)
+    || !hasFiniteCoordinate(target.y)
+  ) {
+    return null;
+  }
+
+  return {
+    key: `${sourceId}->${targetId}`,
+    source,
+    sourceId,
+    target,
+    targetId,
+  };
+}
+
+function referralGraphEdgesShareEndpoint<T extends ReferralGraphLayoutMemoryNode>(
+  left: PositionedReferralGraphEdge<T>,
+  right: PositionedReferralGraphEdge<T>,
+) {
+  return (
+    left.sourceId === right.sourceId
+    || left.sourceId === right.targetId
+    || left.targetId === right.sourceId
+    || left.targetId === right.targetId
+  );
+}
+
+function referralGraphSegmentCross(
+  ax: number,
+  ay: number,
+  bx: number,
+  by: number,
+  cx: number,
+  cy: number,
+) {
+  return ((bx - ax) * (cy - ay)) - ((by - ay) * (cx - ax));
+}
+
+function referralGraphPointOnSegment(
+  px: number,
+  py: number,
+  ax: number,
+  ay: number,
+  bx: number,
+  by: number,
+) {
+  const epsilon = 1e-6;
+  return (
+    px >= Math.min(ax, bx) - epsilon
+    && px <= Math.max(ax, bx) + epsilon
+    && py >= Math.min(ay, by) - epsilon
+    && py <= Math.max(ay, by) + epsilon
+    && Math.abs(referralGraphSegmentCross(ax, ay, bx, by, px, py)) <= epsilon
+  );
+}
+
+function referralGraphSegmentsIntersect<T extends ReferralGraphLayoutMemoryNode>(
+  left: PositionedReferralGraphEdge<T>,
+  right: PositionedReferralGraphEdge<T>,
+) {
+  const ax = left.source.x!;
+  const ay = left.source.y!;
+  const bx = left.target.x!;
+  const by = left.target.y!;
+  const cx = right.source.x!;
+  const cy = right.source.y!;
+  const dx = right.target.x!;
+  const dy = right.target.y!;
+  const epsilon = 1e-6;
+  const abC = referralGraphSegmentCross(ax, ay, bx, by, cx, cy);
+  const abD = referralGraphSegmentCross(ax, ay, bx, by, dx, dy);
+  const cdA = referralGraphSegmentCross(cx, cy, dx, dy, ax, ay);
+  const cdB = referralGraphSegmentCross(cx, cy, dx, dy, bx, by);
+
+  if (Math.abs(abC) <= epsilon && referralGraphPointOnSegment(cx, cy, ax, ay, bx, by)) {
+    return true;
+  }
+  if (Math.abs(abD) <= epsilon && referralGraphPointOnSegment(dx, dy, ax, ay, bx, by)) {
+    return true;
+  }
+  if (Math.abs(cdA) <= epsilon && referralGraphPointOnSegment(ax, ay, cx, cy, dx, dy)) {
+    return true;
+  }
+  if (Math.abs(cdB) <= epsilon && referralGraphPointOnSegment(bx, by, cx, cy, dx, dy)) {
+    return true;
+  }
+
+  return (
+    ((abC > epsilon && abD < -epsilon) || (abC < -epsilon && abD > epsilon))
+    && ((cdA > epsilon && cdB < -epsilon) || (cdA < -epsilon && cdB > epsilon))
+  );
+}
+
+function referralGraphPointToSegmentDistance(
+  px: number,
+  py: number,
+  ax: number,
+  ay: number,
+  bx: number,
+  by: number,
+) {
+  const dx = bx - ax;
+  const dy = by - ay;
+  const lengthSquared = (dx * dx) + (dy * dy);
+  if (lengthSquared <= 1e-6) {
+    return Math.hypot(px - ax, py - ay);
+  }
+
+  const ratio = clamp((((px - ax) * dx) + ((py - ay) * dy)) / lengthSquared, 0, 1);
+  const projectedX = ax + (ratio * dx);
+  const projectedY = ay + (ratio * dy);
+  return Math.hypot(px - projectedX, py - projectedY);
+}
+
+function referralGraphSegmentDistance<T extends ReferralGraphLayoutMemoryNode>(
+  left: PositionedReferralGraphEdge<T>,
+  right: PositionedReferralGraphEdge<T>,
+) {
+  if (referralGraphSegmentsIntersect(left, right)) {
+    return 0;
+  }
+
+  const ax = left.source.x!;
+  const ay = left.source.y!;
+  const bx = left.target.x!;
+  const by = left.target.y!;
+  const cx = right.source.x!;
+  const cy = right.source.y!;
+  const dx = right.target.x!;
+  const dy = right.target.y!;
+
+  return Math.min(
+    referralGraphPointToSegmentDistance(ax, ay, cx, cy, dx, dy),
+    referralGraphPointToSegmentDistance(bx, by, cx, cy, dx, dy),
+    referralGraphPointToSegmentDistance(cx, cy, ax, ay, bx, by),
+    referralGraphPointToSegmentDistance(dx, dy, ax, ay, bx, by),
+  );
+}
+
+function addReferralGraphEdgeVelocity(
+  node: ReferralGraphLayoutMemoryNode,
+  dx: number,
+  dy: number,
+) {
+  if (node.fx != null || node.fy != null) {
+    return;
+  }
+
+  node.vx = (node.vx ?? 0) + dx;
+  node.vy = (node.vy ?? 0) + dy;
+}
+
+export function createReferralGraphEdgeCrossingForce<T extends ReferralGraphLayoutMemoryNode>(
+  options: ReferralGraphEdgeCrossingOptions,
+): { (alpha: number): void; initialize: (nodes: T[]) => void } {
+  let nodesById = new Map<string, T>();
+
+  const force = ((alpha: number) => {
+    const strength = clamp((options.strength ?? 0.12) * alpha, 0, 0.34);
+    const maxVelocity = clamp(options.maxVelocity ?? 7, 1, 18);
+    const minDistance = Math.max(4, options.minDistance ?? 18);
+    const maxPairs = Math.max(100, options.maxPairs ?? 3600);
+    if (strength <= 0 || options.links.length < 2) {
+      return;
+    }
+
+    const suppressedNodeIds = options.suppressedNodeIdsRef?.current ?? new Set<string>();
+    const activeDraggedNodeId = options.activeDraggedNodeIdRef?.current;
+    const positionedEdges = options.links
+      .map((link) => getPositionedReferralGraphEdge(link as ReferralGraphDragSpringLink<T>, nodesById))
+      .filter((edge): edge is PositionedReferralGraphEdge<T> => edge != null)
+      .filter((edge) => (
+        edge.sourceId !== activeDraggedNodeId
+        && edge.targetId !== activeDraggedNodeId
+        && !suppressedNodeIds.has(edge.sourceId)
+        && !suppressedNodeIds.has(edge.targetId)
+      ));
+
+    let checkedPairCount = 0;
+    for (let leftIndex = 0; leftIndex < positionedEdges.length; leftIndex += 1) {
+      const left = positionedEdges[leftIndex];
+      const leftDx = left.target.x! - left.source.x!;
+      const leftDy = left.target.y! - left.source.y!;
+      const leftLength = Math.hypot(leftDx, leftDy);
+      if (leftLength < 1e-6) {
+        continue;
+      }
+
+      for (let rightIndex = leftIndex + 1; rightIndex < positionedEdges.length; rightIndex += 1) {
+        if (checkedPairCount >= maxPairs) {
+          return;
+        }
+        checkedPairCount += 1;
+
+        const right = positionedEdges[rightIndex];
+        if (referralGraphEdgesShareEndpoint(left, right)) {
+          continue;
+        }
+
+        const rightDx = right.target.x! - right.source.x!;
+        const rightDy = right.target.y! - right.source.y!;
+        const rightLength = Math.hypot(rightDx, rightDy);
+        if (rightLength < 1e-6) {
+          continue;
+        }
+
+        const intersects = referralGraphSegmentsIntersect(left, right);
+        const distance = intersects ? 0 : referralGraphSegmentDistance(left, right);
+        if (!intersects && distance >= minDistance) {
+          continue;
+        }
+
+        const leftNormalX = -leftDy / leftLength;
+        const leftNormalY = leftDx / leftLength;
+        const rightNormalX = -rightDy / rightLength;
+        const rightNormalY = rightDx / rightLength;
+        const leftMidpointX = (left.source.x! + left.target.x!) * 0.5;
+        const leftMidpointY = (left.source.y! + left.target.y!) * 0.5;
+        const rightMidpointX = (right.source.x! + right.target.x!) * 0.5;
+        const rightMidpointY = (right.source.y! + right.target.y!) * 0.5;
+        const deterministicSide = (hashString(`${left.key}:${right.key}:edge-crossing`) % 2 === 0 ? 1 : -1);
+        const midpointDot = ((rightMidpointX - leftMidpointX) * leftNormalX)
+          + ((rightMidpointY - leftMidpointY) * leftNormalY);
+        const side = intersects
+          ? deterministicSide
+          : midpointDot < -1e-6
+          ? -1
+          : midpointDot > 1e-6
+            ? 1
+            : deterministicSide;
+        const penetration = Math.max(0, minDistance - distance);
+        const crossingBonus = intersects ? minDistance * 0.55 : 0;
+        const velocity = Math.min(maxVelocity, (penetration + crossingBonus) * strength);
+        if (velocity <= 0) {
+          continue;
+        }
+
+        addReferralGraphEdgeVelocity(left.source, leftNormalX * side * velocity, leftNormalY * side * velocity);
+        addReferralGraphEdgeVelocity(left.target, leftNormalX * side * velocity, leftNormalY * side * velocity);
+        addReferralGraphEdgeVelocity(right.source, -rightNormalX * side * velocity, -rightNormalY * side * velocity);
+        addReferralGraphEdgeVelocity(right.target, -rightNormalX * side * velocity, -rightNormalY * side * velocity);
+      }
+    }
+  }) as unknown as { (alpha: number): void; initialize: (nodes: T[]) => void };
+
+  force.initialize = (nodes: T[]) => {
+    nodesById = new Map(nodes.map((node) => [node.id, node]));
   };
 
   return force;
@@ -1194,6 +1566,88 @@ export function createReferralGraphComponentEnvelopeForce<T extends ReferralGrap
   return force;
 }
 
+export function createReferralGraphComponentCohesionForce<T extends ReferralGraphLayoutMemoryNode>(
+  options: ReferralGraphComponentCohesionOptions,
+): { (alpha: number): void; initialize: (nodes: T[]) => void } {
+  let nodes: T[] = [];
+
+  const force = ((alpha: number) => {
+    const strength = clamp((options.strength ?? 0.12) * alpha, 0, 0.32);
+    const maxVelocity = clamp(options.maxVelocity ?? 10, 1, 24);
+    if (strength <= 0 || nodes.length <= 1) {
+      return;
+    }
+
+    const componentCenters = new Map<number, { x: number; y: number; count: number }>();
+    const suppressedComponentIndex = options.activeDraggedNodeIdRef?.current
+      ? options.nodeComponentIndex.get(options.activeDraggedNodeIdRef.current)
+      : undefined;
+
+    for (const node of nodes) {
+      if (!hasFiniteCoordinate(node.x) || !hasFiniteCoordinate(node.y)) {
+        continue;
+      }
+
+      const componentIndex = options.nodeComponentIndex.get(node.id);
+      if (componentIndex == null || componentIndex === suppressedComponentIndex) {
+        continue;
+      }
+
+      const center = componentCenters.get(componentIndex) ?? { x: 0, y: 0, count: 0 };
+      center.x += node.x;
+      center.y += node.y;
+      center.count += 1;
+      componentCenters.set(componentIndex, center);
+    }
+
+    for (const center of componentCenters.values()) {
+      center.x /= center.count;
+      center.y /= center.count;
+    }
+
+    for (const node of nodes) {
+      if (
+        node.fx != null
+        || node.fy != null
+        || !hasFiniteCoordinate(node.x)
+        || !hasFiniteCoordinate(node.y)
+      ) {
+        continue;
+      }
+
+      const componentIndex = options.nodeComponentIndex.get(node.id);
+      if (componentIndex == null || componentIndex === suppressedComponentIndex) {
+        continue;
+      }
+
+      const center = componentCenters.get(componentIndex);
+      if (!center || center.count <= 1) {
+        continue;
+      }
+
+      const componentRadius = options.componentRadii.get(componentIndex) ?? 140;
+      const cohesionDeadZone = Math.max(72, Math.min(260, componentRadius * 0.58));
+      const dx = center.x - node.x;
+      const dy = center.y - node.y;
+      const distance = Math.hypot(dx, dy) || 1;
+      const excessDistance = distance - cohesionDeadZone;
+      if (excessDistance <= 0) {
+        continue;
+      }
+
+      const velocity = Math.min(maxVelocity, excessDistance * strength);
+      node.vx = (node.vx ?? 0) + (dx / distance) * velocity;
+      node.vy = (node.vy ?? 0) + (dy / distance) * velocity;
+    }
+  }) as unknown as { (alpha: number): void; initialize: (nodes: T[]) => void };
+
+  force.initialize = (initialNodes: T[]) => {
+    nodes = initialNodes;
+  };
+
+  return force;
+}
+
 export function createReferralGraphLayoutMemoryForce<T extends ReferralGraphLayoutMemoryNode>(
   targets: Map<string, ReferralGraphLayoutMemoryTarget>,
   strength: number,
@@ -1205,9 +1659,13 @@ export function createReferralGraphLayoutMemoryForce<T extends ReferralGraphLayo
   const force = (() => {
     tickCount += 1;
     const maxTicks = options.maxTicks ?? Number.POSITIVE_INFINITY;
-    if (tickCount > maxTicks) {
-      return;
-    }
+    const anchorAgeRatio = maxTicks === Number.POSITIVE_INFINITY
+      ? 1
+      : clamp(1 - (tickCount / maxTicks), 0, 1);
+
+    const activeDraggedComponent = options.activeDraggedNodeIdRef?.current && options.nodeComponentIndex
+      ? options.nodeComponentIndex.get(options.activeDraggedNodeIdRef.current)
+      : undefined;
 
     for (const node of nodes) {
       const manualTarget = options.manualNodeTargetsRef?.current.get(node.id);
@@ -1220,11 +1678,20 @@ export function createReferralGraphLayoutMemoryForce<T extends ReferralGraphLayo
         continue;
       }
 
-      const ageRatio = maxTicks === Number.POSITIVE_INFINITY
-        ? 1
-        : clamp(1 - (tickCount / maxTicks), 0, 1);
+      if (!manualTarget && anchorAgeRatio <= 0) {
+        continue;
+      }
+
+      if (
+        !manualTarget
+        && activeDraggedComponent != null
+        && options.nodeComponentIndex?.get(node.id) === activeDraggedComponent
+      ) {
+        continue;
+      }
+
       const effectiveStrength = clamp(
-        manualTarget ? strength * 0.35 : strength * ageRatio,
+        manualTarget ? strength * 0.35 : strength * anchorAgeRatio,
         0,
         manualTarget ? 0.035 : 0.08,
       );

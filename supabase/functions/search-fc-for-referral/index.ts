@@ -5,6 +5,8 @@ import {
   requireAppSessionFromRequest,
   type AppSessionTokenPayload,
 } from '../_shared/request-board-auth.ts';
+import { ensureActiveReferralCode } from '../_shared/referral-code.ts';
+import { buildReferralNameSearchPattern } from '../_shared/referral-search.ts';
 
 const allowedOrigins = (getEnv('ALLOWED_ORIGINS') ?? '').split(',').map(o => o.trim()).filter(Boolean);
 const corsHeaders = {
@@ -98,6 +100,18 @@ export type SearchResult = {
   code: string | null;
 };
 
+function isEligibleProfile(profile: {
+  signup_completed?: boolean | null;
+  is_manager_referral_shadow?: boolean | null;
+  affiliation?: string | null;
+}) {
+  if (profile.signup_completed !== true && profile.is_manager_referral_shadow !== true) {
+    return false;
+  }
+
+  return !String(profile.affiliation ?? '').includes('설계매니저');
+}
+
 serve(async (req: Request) => {
   if (req.method === 'OPTIONS') return new Response('ok', { headers: corsHeaders });
   if (req.method !== 'POST') return fail('method_not_allowed', 'Method not allowed', 405);
@@ -126,12 +140,31 @@ serve(async (req: Request) => {
 
   const LIMIT = 10;
   const resultMap = new Map<string, SearchResult>();
+  const nameSearchPattern = buildReferralNameSearchPattern(query);
 
-  // ── Query 1: search fc_profiles by name or affiliation ──
+  const addProfileResult = (profile: {
+    id: string;
+    name?: string | null;
+    affiliation?: string | null;
+    signup_completed?: boolean | null;
+    is_manager_referral_shadow?: boolean | null;
+  }) => {
+    if (profile.id === caller.fcId) return;
+    if (!isEligibleProfile(profile)) return;
+
+    resultMap.set(profile.id, {
+      fcId: profile.id,
+      name: profile.name ?? '',
+      affiliation: profile.affiliation ?? '',
+      code: null,
+    });
+  };
+
+  // ── Query 1: search fc_profiles by name only ──
   const { data: profileRows, error: profileError } = await supabase
     .from('fc_profiles')
     .select('id, name, affiliation, signup_completed, is_manager_referral_shadow')
-    .or(`name.ilike.%${query}%,affiliation.ilike.%${query}%`)
+    .ilike('name', nameSearchPattern)
     .neq('id', caller.fcId)        // exclude self
     .not('affiliation', 'ilike', '%설계매니저%')
     .limit(LIMIT);
@@ -141,58 +174,53 @@ serve(async (req: Request) => {
   }
 
   for (const p of profileRows ?? []) {
-    if (p.signup_completed !== true && p.is_manager_referral_shadow !== true) continue;
-    resultMap.set(p.id, {
-      fcId: p.id,
-      name: p.name ?? '',
-      affiliation: p.affiliation ?? '',
-      code: null,
-    });
+    addProfileResult(p);
   }
 
-  // ── Query 2: search referral_codes by code ──
-  const { data: codeRows, error: codeError } = await supabase
-    .from('referral_codes')
-    .select('code, fc_id')
-    .ilike('code', `%${query}%`)
-    .eq('is_active', true)
-    .neq('fc_id', caller.fcId)     // exclude self
+  // ── Query 2: search active manager_accounts by name only and backfill referral shadow/profile code ──
+  const { data: managerRows, error: managerError } = await supabase
+    .from('manager_accounts')
+    .select('phone, name')
+    .eq('active', true)
+    .ilike('name', nameSearchPattern)
     .limit(LIMIT);
 
-  if (codeError) {
-    return json({ ok: false, code: 'db_error', message: codeError.message }, 500);
+  if (managerError) {
+    return json({ ok: false, code: 'db_error', message: managerError.message }, 500);
   }
 
-  // Collect fc_ids from code search that are not yet in the map
-  const missingFcIds = (codeRows ?? [])
-    .map(r => r.fc_id as string)
-    .filter(id => id && !resultMap.has(id));
+  for (const manager of managerRows ?? []) {
+    const managerPhone = cleanPhone(manager.phone ?? '');
+    if (managerPhone.length !== 11) continue;
 
-  if (missingFcIds.length > 0) {
-    const { data: extraProfiles, error: extraError } = await supabase
+    const ensureError = await ensureManagerReferralShadowProfile(managerPhone, manager.name);
+    if (ensureError) continue;
+
+    const { data: managerProfile } = await supabase
       .from('fc_profiles')
       .select('id, name, affiliation, signup_completed, is_manager_referral_shadow')
-      .in('id', missingFcIds)
-      .not('affiliation', 'ilike', '%설계매니저%');
+      .eq('phone', managerPhone)
+      .maybeSingle();
 
-    if (!extraError) {
-      for (const p of extraProfiles ?? []) {
-        if (p.signup_completed !== true && p.is_manager_referral_shadow !== true) continue;
-        if (!resultMap.has(p.id)) {
-          resultMap.set(p.id, {
-            fcId: p.id,
-            name: p.name ?? '',
-            affiliation: p.affiliation ?? '',
-            code: null,
-          });
-        }
-      }
+    if (managerProfile?.id) {
+      addProfileResult(managerProfile);
     }
   }
 
-  // ── Attach active referral codes to all results ──
+  // ── Ensure and attach active referral codes to all results ──
   const allFcIds = Array.from(resultMap.keys());
   if (allFcIds.length > 0) {
+    const actorRole = sessionResult.session.role === 'manager' ? 'manager' : 'fc';
+    await Promise.allSettled(
+      allFcIds.map((fcId) => ensureActiveReferralCode({
+        supabase,
+        fcId,
+        actorPhone: caller.phone,
+        actorRole,
+        reason: 'auto_issue_on_referral_search',
+      })),
+    );
+
     const { data: activeCodes } = await supabase
       .from('referral_codes')
       .select('fc_id, code')
@@ -211,15 +239,8 @@ serve(async (req: Request) => {
     }
   }
 
-  // ── Sort: name match first, then affiliation match, then code match ──
-  const q = query.toLowerCase();
   const results = Array.from(resultMap.values())
-    .sort((a, b) => {
-      const aName = a.name.toLowerCase().includes(q) ? 0 : a.affiliation.toLowerCase().includes(q) ? 1 : 2;
-      const bName = b.name.toLowerCase().includes(q) ? 0 : b.affiliation.toLowerCase().includes(q) ? 1 : 2;
-      if (aName !== bName) return aName - bName;
-      return a.name.localeCompare(b.name, 'ko');
-    })
+    .sort((a, b) => a.name.localeCompare(b.name, 'ko'))
     .slice(0, LIMIT);
 
   return json({ ok: true, results });

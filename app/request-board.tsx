@@ -32,6 +32,7 @@ import {
   type RbRequestListItem,
   type RbRequestSummary,
 } from '@/lib/request-board-api';
+import { getRequestBoardCustomerManagementRoute } from '@/lib/request-board-create-flow';
 import { getRequestBoardWebBaseUrl } from '@/lib/request-board-url';
 import { supabase } from '@/lib/supabase';
 import { syncNativeNotificationBadge } from '@/lib/system-notification-badge';
@@ -510,6 +511,10 @@ export default function RequestBoardScreen() {
 
   const openCreateRequest = () => {
     router.push('/request-board-create' as any);
+  };
+
+  const openCustomerManagement = () => {
+    router.push(getRequestBoardCustomerManagementRoute() as any);
   };
 
   const handleDesignerAccept = async (request: RbRequestListItem) => {
@@ -1084,6 +1089,20 @@ export default function RequestBoardScreen() {
               <View style={{ height: SPACING.sm }} />
               <Pressable
                 style={({ pressed }) => [styles.codeManageCard, pressed && { opacity: 0.7 }]}
+                onPress={openCustomerManagement}
+              >
+                <View style={[styles.codeManageIcon, { backgroundColor: '#DBEAFE' }]}>
+                  <Feather name="users" size={20} color="#2563EB" />
+                </View>
+                <View style={styles.codeManageText}>
+                  <Text style={styles.codeManageTitle}>고객관리</Text>
+                  <Text style={styles.codeManageDesc}>고객 선택 및 신규 등록 화면으로 이동</Text>
+                </View>
+                <Feather name="chevron-right" size={18} color={COLORS.gray[400]} />
+              </Pressable>
+              <View style={{ height: SPACING.sm }} />
+              <Pressable
+                style={({ pressed }) => [styles.codeManageCard, pressed && { opacity: 0.7 }]}
                 onPress={openFcCodes}
               >
                 <View style={styles.codeManageIcon}>
@@ -1235,7 +1254,7 @@ export default function RequestBoardScreen() {
                 <View style={styles.infoCardText}>
                   <Text style={styles.infoCardTitle}>개인정보 보호</Text>
                   <Text style={styles.infoCardDesc}>
-                    고객 주민번호는 암호화 저장되며{'\n'}마스킹 처리되어 표시됩니다
+                    고객 주민번호는 암호화 저장되며{'\n'}설계 업무 화면에서만 전체 표시됩니다
                   </Text>
                 </View>
               </View>

@@ -839,13 +839,13 @@ export type RbCreateRequestPayload = {
   requestDetails?: string;
   productIds: number[];
   designerIds: number[];
-  designerCodeSelections?: Array<{
+  designerCodeSelections?: {
     designerId: number;
     companyName?: string | null;
     fcCodeName?: string | null;
     fcCodeValue?: string | null;
     fcCompanyCodeId?: number | null;
-  }>;
+  }[];
 };
 
 export type RbRequestAttachmentInput = {
@@ -1178,10 +1178,10 @@ export async function rbUploadRequestAttachments(
   designerId: number,
   payload: {
     files: RbRequestUploadFile[];
-    metadata: Array<{
+    metadata: {
       description?: string | null;
       expiryDate?: string | null;
-    }>;
+    }[];
     requestDesignerId?: number;
   },
   allowRetry = true,

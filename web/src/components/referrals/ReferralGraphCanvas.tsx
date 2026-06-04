@@ -1,6 +1,6 @@
 'use client';
 
-import { forceManyBody, type ForceLink } from 'd3-force';
+import { forceCollide, forceManyBody, type ForceLink } from 'd3-force';
 import { useCallback, useEffect, useMemo, useRef, useState, type MutableRefObject } from 'react';
 import ForceGraph2D, { type ForceGraphMethods, type LinkObject, type NodeObject } from 'react-force-graph-2d';
 import {
@@ -9,6 +9,7 @@ import {
 } from '@/lib/referral-graph-layout';
 import { getReferralGraphLabelPresentation } from '@/lib/referral-graph-display';
 import { getReferralGraphNodeRadius } from '@/lib/referral-graph-highlight';
+import { getReferralGraphLinkStyle, sortReferralGraphLinksForRendering } from '@/lib/referral-graph-link-style';
 import {
   buildReferralGraphAdjacency,
   getReferralGraphConnectedNodeIds,
@@ -16,13 +17,17 @@ import {
 import {
   applyReferralGraphDragSpring,
   createReferralGraphBranchBendForce,
+  createReferralGraphComponentCohesionForce,
   createReferralGraphComponentEnvelopeForce,
   createReferralGraphClusterGravityForce,
   createReferralGraphClusterSeparationForce,
   createReferralGraphDragSpringForce,
+  createReferralGraphEdgeCrossingForce,
+  createReferralGraphLayoutMemoryForce,
   createReferralGraphLinkTensionForce,
   createReferralGraphNodeSeparationForce,
   createReferralGraphSiblingAngularForce,
+  getReferralGraphMinimumNodeDistance,
   getReferralGraphLinkDistance,
   resolveReferralGraphPhysics,
 } from '@/lib/referral-graph-physics';
@@ -50,7 +55,7 @@ const NODE_HIT_SLOP = 6;
 const FIT_PADDING = 56;
 const FIT_READY_SPAN_THRESHOLD = 24;
 const MAX_FIT_RETRY_FRAMES = 48;
-const LAYOUT_VERSION = 'obsidian-pinwheel-v14';
+const LAYOUT_VERSION = 'obsidian-pinwheel-v16';
 
 type RuntimeGraphNode = GraphNode & {
   x?: number;
@@ -84,6 +89,12 @@ type ConfigurableLinkForce = ForceLink<FGNode, FGLink>;
 type LinkForceAccessors = {
   distance: () => (link: FGLink, index: number, links: FGLink[]) => number;
   strength: () => (link: FGLink, index: number, links: FGLink[]) => number;
+};
+type LabelOccupancyRect = {
+  x1: number;
+  y1: number;
+  x2: number;
+  y2: number;
 };
 type ReferralGraphDebugWindow = Window & {
   __referralGraphPhysicsDebug?: {
@@ -226,8 +237,15 @@ function getNodeRadius(node: GraphNode) {
   return getReferralGraphNodeRadius(node);
 }
 
-function getEdgeStyle() {
-  return { color: COLORS.edgeLinked, width: 1.05, dash: null as number[] | null, alpha: 0.5 };
+function rectsOverlap(left: LabelOccupancyRect, right: LabelOccupancyRect) {
+  return left.x1 < right.x2 && left.x2 > right.x1 && left.y1 < right.y2 && left.y2 > right.y1;
+}
+
+function rectIntersectsNode(rect: LabelOccupancyRect, node: GraphNode & { x: number; y: number }, padding = 5) {
+  const radius = getNodeRadius(node) + padding;
+  const closestX = Math.max(rect.x1, Math.min(node.x, rect.x2));
+  const closestY = Math.max(rect.y1, Math.min(node.y, rect.y2));
+  return Math.hypot(node.x - closestX, node.y - closestY) < radius;
 }
 
 export type ReferralGraphCanvasProps = {
@@ -274,6 +292,7 @@ export function ReferralGraphCanvas({
   const fitRetryRef = useRef<number | null>(null);
   const settledFitTimerRef = useRef<number | null>(null);
   const panMomentumFrameRef = useRef<number | null>(null);
+  const labelOccupancyRef = useRef<LabelOccupancyRect[]>([]);
   const [graphReadyTick, setGraphReadyTick] = useState(0);
   const [graphData, setGraphData] = useState<{ nodes: RuntimeGraphNode[]; links: GraphEdge[] }>({
     nodes: [],
@@ -358,9 +377,12 @@ export function ReferralGraphCanvas({
       }
     }
 
+    const nodesById = new Map(nodesCopy.map((node) => [node.id, node as GraphNode]));
+    const sortedLinks = sortReferralGraphLinksForRendering(edges.map((edge) => ({ ...edge })), nodesById);
+
     setGraphData({
       nodes: nodesCopy,
-      links: edges.map((edge) => ({ ...edge })),
+      links: sortedLinks,
     });
   }, [componentLayout, edges, nodes, resetLayoutRequestId]);
 
@@ -543,11 +565,16 @@ export function ReferralGraphCanvas({
         {
           sourceHasChildren: (graphChildCountByNodeId.get(source) ?? 0) > 0,
           targetHasChildren: (graphChildCountByNodeId.get(target) ?? 0) > 0,
+          sourceChildCount: graphChildCountByNodeId.get(source) ?? 0,
+          targetChildCount: graphChildCountByNodeId.get(target) ?? 0,
+          sourceSubtreeSize: componentLayout.directedSubtreeSizes.get(source) ?? 1,
+          targetSubtreeSize: componentLayout.directedSubtreeSizes.get(target) ?? 1,
+          graphNodeCount: graphData.nodes.length,
         },
       );
     });
     linkForce.strength(getDegreeAwareLinkStrength);
-    linkForce.iterations(4);
+    linkForce.iterations(5);
 
     if (process.env.NODE_ENV === 'development') {
       const linksForDebug = graphData.links as unknown as FGLink[];
@@ -579,9 +606,11 @@ export function ReferralGraphCanvas({
           baseLinkDistance: physics.linkDistance,
           childCountByNodeId: graphChildCountByNodeId,
           degreeByNodeId: graphDegreeByNodeId,
-          maxVelocity: 32,
-          strength: 0.64,
-          thresholdMultiplier: 1,
+          graphNodeCount: graphData.nodes.length,
+          maxVelocity: 38,
+          strength: 0.82,
+          subtreeSizeByNodeId: componentLayout.directedSubtreeSizes,
+          thresholdMultiplier: 0.98,
         },
       ),
     );
@@ -591,31 +620,63 @@ export function ReferralGraphCanvas({
         childCountByNodeId: graphChildCountByNodeId,
         degreeByNodeId: graphDegreeByNodeId,
         links: graphData.links,
-        maxVelocity: 16,
-        strength: 0.28,
+        maxVelocity: 20,
+        strength: 0.42,
       }),
     );
     fg.d3Force(
       'sibling-angular',
       createReferralGraphSiblingAngularForce<RuntimeGraphNode>({
         links: graphData.links,
-        maxVelocity: 14,
-        strength: 0.34,
+        maxVelocity: 24,
+        strength: 0.58,
       }),
     );
-    fg.d3Force('layout-memory', null);
+    fg.d3Force(
+      'edge-crossing',
+      createReferralGraphEdgeCrossingForce<RuntimeGraphNode>({
+        activeDraggedNodeIdRef: draggedNodeIdRef,
+        links: graphData.links,
+        maxPairs: 6200,
+        maxVelocity: 10,
+        minDistance: 26,
+        strength: 0.2,
+        suppressedNodeIdsRef: dragMemorySuppressedNodeIdsRef,
+      }),
+    );
+    fg.d3Force(
+      'layout-memory',
+      createReferralGraphLayoutMemoryForce<RuntimeGraphNode>(
+        componentLayout.nodeAnchorPositions,
+        Math.max(0.042, physics.layoutMemoryStrength * 0.58),
+        {
+          activeDraggedNodeIdRef: draggedNodeIdRef,
+          maxTicks: 260,
+          manualNodeTargetsRef: userMovedNodeTargetsRef,
+          nodeComponentIndex: componentLayout.nodeComponentIndex,
+          suppressedNodeIdsRef: dragMemorySuppressedNodeIdsRef,
+        },
+      ),
+    );
     fg.d3Force(
       'node-separation',
       createReferralGraphNodeSeparationForce<RuntimeGraphNode>({
         activeDraggedNodeIdRef: draggedNodeIdRef,
-        crossClusterDistance: 126,
-        crossComponentDistance: 118,
-        maxVelocity: 18,
-        minDistance: 50,
+        crossClusterDistance: 154,
+        crossComponentDistance: 150,
+        maxVelocity: 22,
+        minDistance: getReferralGraphMinimumNodeDistance(graphData.nodes.length),
         nodeClusterIndex: componentLayout.nodeClusterIndex,
         nodeComponentIndex: componentLayout.nodeComponentIndex,
-        strength: 0.24,
+        strength: 0.31,
       }),
+    );
+    fg.d3Force(
+      'collision',
+      forceCollide<FGNode>()
+        .radius((node) => Math.max(28, getNodeRadius(node as GraphNode) + 20))
+        .strength(0.48)
+        .iterations(2),
     );
     fg.d3Force(
       'cluster-envelope',
@@ -661,8 +722,8 @@ export function ReferralGraphCanvas({
         maxVelocity: 12,
         minAlpha: 0.002,
         nodeClusterIndex: gravityNodeClusterIndex,
-        singletonDeadZoneRadius: 590,
-        singletonStrengthFactor: 0.06,
+        singletonDeadZoneRadius: 700,
+        singletonStrengthFactor: 0.12,
         softening: 210,
         strength: 0.035,
       }),
@@ -675,6 +736,16 @@ export function ReferralGraphCanvas({
         maxVelocity: 16,
         nodeComponentIndex: componentLayout.nodeComponentIndex,
         strength: 0.14,
+      }),
+    );
+    fg.d3Force(
+      'component-cohesion',
+      createReferralGraphComponentCohesionForce<RuntimeGraphNode>({
+        activeDraggedNodeIdRef: draggedNodeIdRef,
+        componentRadii: componentLayout.componentRadii,
+        maxVelocity: 12,
+        nodeComponentIndex: componentLayout.nodeComponentIndex,
+        strength: 0.135,
       }),
     );
     fg.d3Force('radial-containment', null);
@@ -690,20 +761,20 @@ export function ReferralGraphCanvas({
           childCountByNodeId: graphChildCountByNodeId,
           constraintStrength: 0.18,
           degreeByNodeId: graphDegreeByNodeId,
+          graphNodeCount: graphData.nodes.length,
           maxVelocity: 90,
           preventStretch: true,
           stretchSlack: 8,
           strength: 0.9,
+          subtreeSizeByNodeId: componentLayout.directedSubtreeSizes,
           velocityDamping: 0.6,
         },
       ),
     );
 
     fg.d3Force('center', null);
-    fg.d3Force('collision', null);
     fg.d3Force('cluster-separation', null);
     fg.d3Force('cluster-repulsion', null);
-    fg.d3Force('component-cohesion', null);
     fg.d3Force('cluster-cohesion', null);
     fg.d3Force('cluster-collision', null);
     fg.d3Force('component-collision', null);
@@ -1069,18 +1140,46 @@ export function ReferralGraphCanvas({
         ctx.textAlign = 'center';
         ctx.textBaseline = 'top';
         const labelY = node.y + radius + 7 / Math.max(globalScale, 0.9);
+        const labelWidth = ctx.measureText(label).width;
+        const labelHeight = fontSize * 1.22;
+        const labelPaddingX = 5 / Math.max(globalScale, 0.9);
+        const labelPaddingY = 3 / Math.max(globalScale, 0.9);
+        const labelRect = {
+          x1: node.x - (labelWidth / 2) - labelPaddingX,
+          y1: labelY - labelPaddingY,
+          x2: node.x + (labelWidth / 2) + labelPaddingX,
+          y2: labelY + labelHeight + labelPaddingY,
+        };
+        const isPriorityLabel = isSelected || isSearchMatch;
+        const collidesWithPlacedLabel = labelOccupancyRef.current.some((rect) => rectsOverlap(rect, labelRect));
+        let collidesWithNode = false;
+        if (!isPriorityLabel) {
+          for (const otherNode of runtimeNodeMapRef.current.values()) {
+            if (otherNode.id === node.id || !hasRenderableNodePosition(otherNode)) {
+              continue;
+            }
+            if (rectIntersectsNode(labelRect, otherNode)) {
+              collidesWithNode = true;
+              break;
+            }
+          }
+        }
+        const shouldDrawLabel = isPriorityLabel || (!collidesWithPlacedLabel && !collidesWithNode);
 
-        ctx.save();
-        ctx.globalAlpha *= labelPresentation.alpha;
-        ctx.shadowBlur = 5 / Math.max(globalScale, 0.9);
-        ctx.shadowColor = 'rgba(255, 255, 255, 0.72)';
-        ctx.lineWidth = 2.6 / Math.max(globalScale, 0.9);
-        ctx.strokeStyle = 'rgba(248, 250, 252, 0.88)';
-        ctx.strokeText(label, node.x, labelY);
-        ctx.shadowBlur = 0;
-        ctx.fillStyle = '#1f2937';
-        ctx.fillText(label, node.x, labelY);
-        ctx.restore();
+        if (shouldDrawLabel) {
+          labelOccupancyRef.current.push(labelRect);
+          ctx.save();
+          ctx.globalAlpha *= labelPresentation.alpha;
+          ctx.shadowBlur = 5 / Math.max(globalScale, 0.9);
+          ctx.shadowColor = 'rgba(255, 255, 255, 0.72)';
+          ctx.lineWidth = 2.6 / Math.max(globalScale, 0.9);
+          ctx.strokeStyle = 'rgba(248, 250, 252, 0.88)';
+          ctx.strokeText(label, node.x, labelY);
+          ctx.shadowBlur = 0;
+          ctx.fillStyle = '#1f2937';
+          ctx.fillText(label, node.x, labelY);
+          ctx.restore();
+        }
       }
 
       ctx.globalAlpha = 1;
@@ -1104,21 +1203,17 @@ export function ReferralGraphCanvas({
       const tgt = rawLink.target as RuntimeGraphNode | undefined;
       if (!src || !tgt || src.x == null || src.y == null || tgt.x == null || tgt.y == null) return;
 
-      const edgeStyle = getEdgeStyle();
       const isRelevant = !neighborSet || (neighborSet.has(src.id) && neighborSet.has(tgt.id));
       const isSearchRelevant = !searchMatchSet || searchMatchSet.has(src.id) || searchMatchSet.has(tgt.id);
       const isSelectionEdge = selectedNodeId != null && (src.id === selectedNodeId || tgt.id === selectedNodeId);
-      const alpha = isSelectionEdge ? 0.82 : isRelevant && isSearchRelevant ? edgeStyle.alpha : 0.08;
+      const edgeStyle = getReferralGraphLinkStyle(src, tgt, { isSelectionEdge });
+      const alpha = isRelevant && isSearchRelevant ? edgeStyle.alpha : 0.08;
 
       ctx.save();
       ctx.globalAlpha = alpha;
-      ctx.strokeStyle = isSelectionEdge ? COLORS.edgeFocused : edgeStyle.color;
-      ctx.lineWidth = (isSelectionEdge ? edgeStyle.width * 1.7 : edgeStyle.width) / Math.max(globalScale, 0.72);
-      if (edgeStyle.dash) {
-        ctx.setLineDash(edgeStyle.dash.map((value) => value / Math.max(globalScale, 0.85)));
-      } else {
-        ctx.setLineDash([]);
-      }
+      ctx.strokeStyle = isSelectionEdge ? COLORS.edgeFocused : COLORS.edgeLinked;
+      ctx.lineWidth = edgeStyle.width / Math.max(globalScale, 0.72);
+      ctx.setLineDash([]);
 
       ctx.beginPath();
       ctx.moveTo(src.x, src.y);
@@ -1161,10 +1256,12 @@ export function ReferralGraphCanvas({
         childCountByNodeId: graphChildCountByNodeId,
         constraintStrength: 1,
         degreeByNodeId: graphDegreeByNodeId,
+        graphNodeCount: graphData.nodes.length,
         maxVelocity: 90,
         preventStretch: true,
         stretchSlack: 0,
         strength: 0.9,
+        subtreeSizeByNodeId: componentLayout.directedSubtreeSizes,
         velocityDamping: 0.85,
       });
 
@@ -1174,7 +1271,7 @@ export function ReferralGraphCanvas({
         graphRef.current?.d3ReheatSimulation();
       }
     }
-  }, [adjacency, cancelPanMomentum, graphChildCountByNodeId, graphData.links, graphDegreeByNodeId, physics.linkDistance]);
+  }, [adjacency, cancelPanMomentum, componentLayout.directedSubtreeSizes, graphChildCountByNodeId, graphData.links, graphData.nodes.length, graphDegreeByNodeId, physics.linkDistance]);
 
   const handleNodeDragEnd = useCallback((rawNode: FGNode) => {
     const node = rawNode as RuntimeGraphNode;
@@ -1215,6 +1312,10 @@ export function ReferralGraphCanvas({
     [searchMatchSet, selectedNodeId],
   );
 
+  const handleRenderFramePre = useCallback(() => {
+    labelOccupancyRef.current = [];
+  }, []);
+
   return (
     <div ref={containerRef} style={{ width, height, touchAction: 'none' }}>
       <ForceGraph2D
@@ -1226,6 +1327,7 @@ export function ReferralGraphCanvas({
         nodeCanvasObject={nodeCanvasObject}
         nodePointerAreaPaint={nodePointerAreaPaint}
         nodeCanvasObjectMode={() => 'replace'}
+        onRenderFramePre={handleRenderFramePre}
         linkCanvasObject={linkCanvasObject}
         linkCanvasObjectMode={() => 'replace'}
         linkDirectionalArrowLength={4}

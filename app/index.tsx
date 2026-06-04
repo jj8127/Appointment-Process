@@ -29,6 +29,7 @@ import { AppTopActionBar } from '@/components/AppTopActionBar';
 import { BottomNavigation } from '@/components/BottomNavigation';
 import { Skeleton } from '@/components/LoadingSkeleton';
 import { resolveBottomNavActiveKey, resolveBottomNavPreset } from '@/lib/bottom-navigation';
+import { resolveExamHomeSurface } from '@/lib/exam-role';
 import {
   calcAdminWorkflowStep,
   calcFcHomeWorkflowStep,
@@ -142,6 +143,8 @@ const quickLinksFcBase: QuickLink[] = [
   { href: '/docs-upload', title: '서류 업로드', description: '필수 서류 제출' },
   { href: '/messenger', title: '메신저', description: '총무/설계매니저와 대화' },
 ];
+
+const quickLinksManagerExam: QuickLink[] = quickLinksFcBase.slice(0, 2);
 
 const fcHomeSteps = [
   { key: 'consent', label: '보증 보험 동의', fullLabel: '보증 보험 동의' },
@@ -438,7 +441,9 @@ export default function Home() {
   const [isLoggingOut, setIsLoggingOut] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
 
-  const isAdminExam = role === 'admin' && adminHomeTab === 'exam';
+  const examHomeSurface = resolveExamHomeSurface({ role, readOnly, adminHomeTab });
+  const isAdminExam = examHomeSurface === 'admin-management';
+  const isManagerExam = role === 'admin' && readOnly === true && examHomeSurface === 'fc-apply';
   const bottomNavPreset = resolveBottomNavPreset(
     { role, readOnly, hydrated, isRequestBoardDesigner },
     { adminHomeTab },
@@ -771,7 +776,7 @@ export default function Home() {
   } = useQuery({
     queryKey: ['exam-stats'],
     queryFn: fetchExamStats,
-    enabled: role === 'admin',
+    enabled: isAdminExam,
   });
   const {
     data: latestAdminMsg,
@@ -816,7 +821,9 @@ export default function Home() {
   const adminQuickLinks = adminHomeTab === 'exam' ? quickLinksAdminExam : quickLinksAdminOnboarding;
   const quickLinks =
     role === 'admin'
-      ? readOnly && canUseReferralSelfService
+      ? isManagerExam
+        ? quickLinksManagerExam
+        : readOnly && canUseReferralSelfService
         ? [...adminQuickLinks, managerReferralLink]
         : adminQuickLinks
       : buildFcQuickLinks(myFc as FcProfile | null | undefined);
@@ -1200,9 +1207,13 @@ export default function Home() {
 
           {role === 'admin' && (
             <View style={styles.homeTitleWrap}>
-              <Text style={styles.homeTitle}>{adminHomeTab === 'exam' ? '시험' : '위촉'}</Text>
+              <Text style={styles.homeTitle}>
+                {adminHomeTab === 'exam' ? (isManagerExam ? '시험 신청' : '시험') : '위촉'}
+              </Text>
               <Text style={styles.homeSubtitleText}>
-                {adminHomeTab === 'exam'
+                {isManagerExam
+                  ? '시험 일정과 응시 지역을 확인하고 접수할 수 있어요.'
+                  : adminHomeTab === 'exam'
                   ? '시험 일정 등록과 신청자 관리 메뉴를 모았습니다.'
                   : '위촉/서류 진행 현황과 주요 업무를 확인하세요.'}
               </Text>
@@ -1373,7 +1384,7 @@ export default function Home() {
                     </View>
                   </Pressable>
                 </View>
-              ) : (
+              ) : isManagerExam ? null : (
                 <View style={styles.metricsCard}>
                   <View style={styles.cardHeader}>
                     <Text style={styles.sectionTitle}>현황 요약</Text>
@@ -1829,10 +1840,18 @@ export default function Home() {
 
           <View style={styles.linksSection}>
             <Text style={styles.sectionTitle}>
-              {role === 'admin' && isAdminExam ? '시험 관리 바로가기' : '바로가기'}
+              {role === 'admin' && isAdminExam
+                ? '시험 관리 바로가기'
+                : isManagerExam
+                ? '시험 신청 바로가기'
+                : '바로가기'}
             </Text>
-            {role === 'admin' && isAdminExam ? (
-              <Text style={styles.sectionHint}>시험 등록/신청자 관련 메뉴를 모았습니다</Text>
+            {role === 'admin' && (isAdminExam || isManagerExam) ? (
+              <Text style={styles.sectionHint}>
+                {isManagerExam
+                  ? 'FC와 같은 시험 신청 메뉴를 모았습니다'
+                  : '시험 등록/신청자 관련 메뉴를 모았습니다'}
+              </Text>
             ) : null}
           </View>
 

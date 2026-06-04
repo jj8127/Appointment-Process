@@ -56,6 +56,48 @@ describe('resolveAdminWebRouteAccess', () => {
     );
   });
 
+  it('requires FC graph session cookie for FC routes', () => {
+    assert.deepEqual(
+      resolveAdminWebRouteAccess({
+        pathname: '/',
+        role: 'fc',
+        hasSession: true,
+        hasFcGraphSession: false,
+      }),
+      { type: 'redirect', pathname: '/auth', clearSession: true },
+    );
+
+    assert.deepEqual(
+      resolveAdminWebRouteAccess({
+        pathname: '/auth',
+        role: 'fc',
+        hasSession: true,
+        hasFcGraphSession: false,
+      }),
+      { type: 'redirect', pathname: '/auth', clearSession: true },
+    );
+
+    assert.deepEqual(
+      resolveAdminWebRouteAccess({
+        pathname: '/dashboard/referrals',
+        role: 'fc',
+        hasSession: true,
+        hasFcGraphSession: false,
+      }),
+      { type: 'redirect', pathname: '/auth', clearSession: true },
+    );
+
+    assert.deepEqual(
+      resolveAdminWebRouteAccess({
+        pathname: FC_GRAPH_DASHBOARD_PATH,
+        role: 'fc',
+        hasSession: true,
+        hasFcGraphSession: false,
+      }),
+      { type: 'redirect', pathname: '/auth', clearSession: true },
+    );
+  });
+
   it('keeps staff dashboard behavior unchanged', () => {
     assert.deepEqual(
       resolveAdminWebRouteAccess({

@@ -154,7 +154,7 @@ supabase secrets list --project-ref <project-ref>
   - 수동 `Pressable` 하단바 구현/화면별 role ternary 복붙을 금지한다.
 - Mapping invariants
   - `hydrated=false`이면 네비게이션을 렌더링하지 않는다(`null` preset).
-  - `isRequestBoardDesigner=true`가 항상 최우선(`request-board-designer`).
+  - `isRequestBoardDesigner=true`는 `role=admin`이 아닌 세션에서 `request-board-designer` 프리셋을 사용한다. `role=admin` 세션은 stale designer flag가 있어도 아래 admin/manager 규칙을 우선한다.
   - `role=admin && readOnly=true`는 항상 `manager` 프리셋으로 고정.
   - `role=admin && readOnly=false`만 `admin-onboarding/admin-exam` 프리셋을 사용.
 - Required tab sets (고정)

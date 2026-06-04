@@ -7,6 +7,56 @@
 
 ---
 
+## <a id="20260604-admin-web-graph-session-and-exam-schedule-fixes"></a> 2026-06-04 | Admin web graph session and exam schedule fixes
+
+**배경**:
+- 관리자 웹 운영 지표에서 error 비율이 관측됐고, 최근 FC에게 관리자 웹 추천인 그래프를 제한 공개한 경로가 의심됐다.
+- FC 리스트의 `관리` 버튼은 목록 행이 `2단계 문서제출`로 표시되어도 모달 기본 탭이 다른 단계로 열릴 수 있었다.
+- 시험 일정 관리에서는 신규 등록/수정 후 모바일 알림이 안정적으로 도착하지 않는다는 보고가 있었다.
+- 시험 일정 목록은 시험일 기준 정렬이 아니라 `미정`/과거 일정이 뒤섞여 보였다.
+
+**조치**:
+- FC web graph 접근은 JS-readable session cookie만으로 통과하지 않고, signed HttpOnly `fc_graph_session` 쿠키가 있을 때만 route gate를 통과하도록 `admin-web-route-access`와 proxy handler를 보강했다.
+- stale FC cookie가 `/auth` 또는 `/dashboard/referrals/graph`에 들어오면 세션 쿠키를 지우고 `/auth`로 돌려 API 401 반복을 줄이도록 했다.
+- FC 관리 모달 기본 탭을 `status` 문자열만 보지 않고 `calcStep(profile)` 기준으로 `docs`/`hanwha`/`appointment`에 맞췄다.
+- 시험 일정 목록 정렬 helper를 추가해 시험일 있는 일정은 시험일 오름차순, 시험일이 없는 일정은 그 뒤에서 접수 마감일 오름차순으로 정렬한다.
+- 시험 일정 저장 알림은 직접 `notifications` insert/Expo push를 하지 않고 `fc-notify`의 `type: notify`, `target_role: fc` 브로드캐스트 payload를 사용하도록 바꿨다.
+- `exam-round-notification` helper/test를 추가해 life/nonlife target URL과 `fc-notify` payload 계약을 고정했다.
+
+**검증**:
+- 통과: `node --test src/lib/admin-web-route-access.test.ts src/lib/exam-round-sort.test.ts src/lib/exam-round-notification.test.ts`
+- 통과: `npm run lint` in `web/`
+- 통과: `git diff --check` targeted files (CRLF normalization warnings only)
+- 보류: `web` production build는 현재 같은 폴더의 Next dev server가 실행 중이라 `scripts/clean-next.mjs`가 `.next` 정리를 차단했다. 사용자 로컬 브라우저 세션을 끊지 않기 위해 dev server를 종료하지 않았다.
+
+**리스크/후속**:
+- Vercel CLI 48.12.0은 historical `vercel logs --since`를 지원하지 않아 과거 error sample을 직접 회수하지 못했다. 최신 production deployment는 확인했지만 runtime log stream은 타임아웃 전 유의미한 로그를 반환하지 않았다.
+- `fc-notify` Edge Function 자체가 운영에 배포되어 있어야 시험 일정 알림 fanout이 실제 기기까지 도달한다.
+
+## <a id="20260604-garamlink-mobile-customer-management-entry"></a> 2026-06-04 | GaramLink mobile customer management entry
+
+**배경**:
+- 모바일 가람Link 홈의 FC 액션 목록에서 고객 선택/등록 화면으로 바로 들어가는 `고객관리` 동선이 필요했다.
+- 요구 동선은 별도 고객관리 시스템이 아니라 기존 설계 요청 작성 플로우의 `1. 고객` 화면을 첫 화면으로 여는 방식이다.
+
+**조치**:
+- `lib/request-board-create-flow.ts`에 고객관리 route builder와 create-flow entry query normalization helper를 추가했다.
+- `app/request-board.tsx`의 FC action list에 `고객관리` 카드를 추가하고 `/request-board-create?entry=customer&source=customer-management`로 이동하게 했다.
+- `app/request-board-create.tsx`가 `entry` query를 읽어 초기 step을 계산하도록 연결했다.
+- 기존 `/request-board-create` 새 설계 요청 진입과 설계매니저 차단 조건은 유지했다.
+
+**검증**:
+- RED 확인: `npx jest lib\__tests__\request-board-create-flow.test.ts --runInBand`가 helper export 누락으로 실패.
+- 통과: `npx jest lib\__tests__\request-board-create-flow.test.ts --runInBand`
+- 통과: `npx tsc --noEmit`
+- 통과: `npm run lint -- app\request-board.tsx app\request-board-create.tsx lib\request-board-create-flow.ts lib\__tests__\request-board-create-flow.test.ts`
+- 통과: `git diff --check -- app\request-board.tsx app\request-board-create.tsx lib\request-board-create-flow.ts lib\__tests__\request-board-create-flow.test.ts`
+
+**리스크/후속**:
+- 실제 Android/iOS 터치 smoke는 이번 pass에서 실행하지 않았다.
+- 작업 트리에 `app/request-board.tsx`와 `app/request-board-create.tsx`의 선행 미커밋 변경이 존재하므로, 최종 커밋 전 통합 diff에서 다른 작업자 변경과 함께 재검토가 필요하다.
+- 이번 세션에서 반복 가능한 실수/회귀는 새로 확인되지 않아 `MISTAKES.md`는 갱신하지 않았다.
+
 ## <a id="20260604-orange-cta-black-rendering-guard"></a> 2026-06-04 | Orange CTA black rendering guard
 
 **배경**:
@@ -9474,5 +9524,44 @@
 - web lint/build
 - request_board build/checks because this conversation also contains GaramLink changes
 - commit/push only if verification has no unresolved failures
+
+---
+
+## <a id="20260604-referral-graph-realdata-layout-stability"></a> 2026-06-04 | 추천인 그래프 실제 데이터 레이아웃 안정화
+
+**작업 내용**:
+- 김형수처럼 direct child가 많은 루트에서 모든 1단계 branch edge가 동일하게 길어지던 원인을 수정했다.
+- branch bridge 거리 계산을 root 전체 fanout이 아니라 target branch의 local child/subtree 크기 중심으로 바꿨다.
+- production canvas에 `forceCollide`를 복구하고, node separation/link tension/component cohesion 상수를 simulation test와 맞췄다.
+- 저우선순위 label은 이미 배치된 label rect 또는 다른 node와 겹치면 그리지 않도록 label/node occupancy guard를 추가했다.
+- 실제 교차 30개 중 20개가 김형수 direct spoke와 관련됨을 확인하고, root direct spoke를 background link로 낮추며 branch-local edge를 위에 그리는 link-style helper를 추가했다.
+- 실제 Supabase graph를 읽는 gated regression test를 추가했다. 현재 데이터 기준 185 nodes / 102 edges를 사용한다.
+- 실제 데이터 테스트의 collision radius를 production canvas와 맞추고, 김형수 direct spoke max/p90 및 visual edge-overlap severity assertion을 추가했다.
+- stale browser state 방지를 위해 canvas layout version과 graph physics localStorage key를 모두 `v15`로 올렸다.
+
+**핵심 파일**:
+- `web/src/app/dashboard/referrals/graph/page.tsx`
+- `web/src/components/referrals/ReferralGraphCanvas.tsx`
+- `web/src/lib/referral-graph-layout.ts`
+- `web/src/lib/referral-graph-layout.test.ts`
+- `web/src/lib/referral-graph-physics.ts`
+- `web/src/lib/referral-graph-physics.test.ts`
+- `web/src/lib/referral-graph-simulation.test.ts`
+- `web/src/lib/referral-graph-realdata.test.ts`
+- `.claude/MISTAKES.md`
+- `.codex/harness/current-contract.md`
+- `.codex/harness/qa-report.md`
+- `.codex/harness/handoff.md`
+
+**검증**:
+- `node --test src/lib/referral-graph-link-style.test.ts src/lib/referral-graph-layout.test.ts src/lib/referral-graph-physics.test.ts src/lib/referral-graph-simulation.test.ts`
+- `$env:RUN_REFERRAL_GRAPH_REALDATA_TEST='1'; node --test src/lib/referral-graph-realdata.test.ts`
+- 실제 데이터 metric: `nodes=185`, `edges=102`, `ticks=720`, `crossings=30`, `crossingVisualSeverity=4.546713600000002`, `minDistance=51.74718723544263`, `maxEdge=424.7236579407478`, `kimHyeongsuDirectP90=414.3267779881878`
+- graph 관련 targeted ESLint 통과
+- targeted `git diff --check` 통과(CRLF normalization warning only)
+
+**미실행**:
+- `web` build는 active local Next dev server를 건드릴 수 있어 보류했다.
+- 최신 patch 후 direct browser screenshot은 사용자가 localhost를 reload한 뒤 확인해야 한다.
 
 ---

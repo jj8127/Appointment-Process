@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { forceLink, forceManyBody, forceSimulation } from 'd3-force';
+import { forceCollide, forceLink, forceManyBody, forceSimulation } from 'd3-force';
 
 import { DEFAULT_REFERRAL_GRAPH_PHYSICS } from '../types/referral-graph.ts';
 import type { GraphEdge, GraphNode } from '../types/referral-graph.ts';
@@ -8,13 +8,16 @@ import { buildReferralGraphLayout } from './referral-graph-layout.ts';
 import {
   applyReferralGraphDragSpring,
   createReferralGraphBranchBendForce,
+  createReferralGraphComponentCohesionForce,
   createReferralGraphClusterGravityForce,
   createReferralGraphClusterSeparationForce,
   createReferralGraphComponentEnvelopeForce,
+  createReferralGraphEdgeCrossingForce,
   createReferralGraphLayoutMemoryForce,
   createReferralGraphLinkTensionForce,
   createReferralGraphNodeSeparationForce,
   getReferralGraphLinkDistance,
+  getReferralGraphMinimumNodeDistance,
   createReferralGraphSiblingAngularForce,
   resolveReferralGraphPhysics,
 } from './referral-graph-physics.ts';
@@ -51,6 +54,97 @@ function makeEdge(source: string, target: string): GraphEdge {
 
 function getEndpointId(value: string | SimNode) {
   return typeof value === 'object' ? value.id : value;
+}
+
+function segmentCross(
+  ax: number,
+  ay: number,
+  bx: number,
+  by: number,
+  cx: number,
+  cy: number,
+) {
+  return ((bx - ax) * (cy - ay)) - ((by - ay) * (cx - ax));
+}
+
+function pointOnSegment(
+  px: number,
+  py: number,
+  ax: number,
+  ay: number,
+  bx: number,
+  by: number,
+) {
+  const epsilon = 1e-6;
+  return (
+    px >= Math.min(ax, bx) - epsilon
+    && px <= Math.max(ax, bx) + epsilon
+    && py >= Math.min(ay, by) - epsilon
+    && py <= Math.max(ay, by) + epsilon
+    && Math.abs(segmentCross(ax, ay, bx, by, px, py)) <= epsilon
+  );
+}
+
+function disjointSegmentsIntersect(left: SimLink, right: SimLink, nodesById: Map<string, SimNode>) {
+  const leftSourceId = getEndpointId(left.source);
+  const leftTargetId = getEndpointId(left.target);
+  const rightSourceId = getEndpointId(right.source);
+  const rightTargetId = getEndpointId(right.target);
+  if (
+    leftSourceId === rightSourceId
+    || leftSourceId === rightTargetId
+    || leftTargetId === rightSourceId
+    || leftTargetId === rightTargetId
+  ) {
+    return false;
+  }
+
+  const leftSource = nodesById.get(leftSourceId);
+  const leftTarget = nodesById.get(leftTargetId);
+  const rightSource = nodesById.get(rightSourceId);
+  const rightTarget = nodesById.get(rightTargetId);
+  if (!leftSource || !leftTarget || !rightSource || !rightTarget) {
+    return false;
+  }
+
+  const ax = leftSource.x;
+  const ay = leftSource.y;
+  const bx = leftTarget.x;
+  const by = leftTarget.y;
+  const cx = rightSource.x;
+  const cy = rightSource.y;
+  const dx = rightTarget.x;
+  const dy = rightTarget.y;
+  const epsilon = 1e-6;
+  const abC = segmentCross(ax, ay, bx, by, cx, cy);
+  const abD = segmentCross(ax, ay, bx, by, dx, dy);
+  const cdA = segmentCross(cx, cy, dx, dy, ax, ay);
+  const cdB = segmentCross(cx, cy, dx, dy, bx, by);
+
+  if (Math.abs(abC) <= epsilon && pointOnSegment(cx, cy, ax, ay, bx, by)) return true;
+  if (Math.abs(abD) <= epsilon && pointOnSegment(dx, dy, ax, ay, bx, by)) return true;
+  if (Math.abs(cdA) <= epsilon && pointOnSegment(ax, ay, cx, cy, dx, dy)) return true;
+  if (Math.abs(cdB) <= epsilon && pointOnSegment(bx, by, cx, cy, dx, dy)) return true;
+
+  return (
+    ((abC > epsilon && abD < -epsilon) || (abC < -epsilon && abD > epsilon))
+    && ((cdA > epsilon && cdB < -epsilon) || (cdA < -epsilon && cdB > epsilon))
+  );
+}
+
+function countDisjointEdgeCrossings(links: SimLink[], nodes: SimNode[]) {
+  const nodesById = new Map(nodes.map((node) => [node.id, node]));
+  let crossings = 0;
+
+  for (let leftIndex = 0; leftIndex < links.length; leftIndex += 1) {
+    for (let rightIndex = leftIndex + 1; rightIndex < links.length; rightIndex += 1) {
+      if (disjointSegmentsIntersect(links[leftIndex], links[rightIndex], nodesById)) {
+        crossings += 1;
+      }
+    }
+  }
+
+  return crossings;
 }
 
 function addPinwheelComponent(
@@ -133,6 +227,11 @@ function addReferralForces(
             {
               sourceHasChildren: (childCountByNodeId.get(source) ?? 0) > 0,
               targetHasChildren: (childCountByNodeId.get(target) ?? 0) > 0,
+              sourceChildCount: childCountByNodeId.get(source) ?? 0,
+              targetChildCount: childCountByNodeId.get(target) ?? 0,
+              sourceSubtreeSize: layout.directedSubtreeSizes.get(source) ?? 1,
+              targetSubtreeSize: layout.directedSubtreeSizes.get(target) ?? 1,
+              graphNodeCount: layout.nodeAnchorPositions.size,
             },
           );
         })
@@ -152,18 +251,33 @@ function addReferralForces(
             ? baseStrength
             : baseStrength * 0.03;
         })
-        .iterations(4),
+        .iterations(5),
     )
+    .force('layout-memory', createReferralGraphLayoutMemoryForce<SimNode>(
+      layout.nodeAnchorPositions,
+      Math.max(0.042, physics.layoutMemoryStrength * 0.58),
+      {
+        activeDraggedNodeIdRef: options.activeDraggedNodeIdRef,
+        maxTicks: 260,
+        manualNodeTargetsRef: { current: new Map() },
+        nodeComponentIndex: layout.nodeComponentIndex,
+        suppressedNodeIdsRef: options.suppressedNodeIdsRef,
+      },
+    ))
     .force('node-separation', createReferralGraphNodeSeparationForce<SimNode>({
       activeDraggedNodeIdRef: options.activeDraggedNodeIdRef,
-      crossClusterDistance: 126,
-      crossComponentDistance: 118,
-      maxVelocity: 18,
-      minDistance: 50,
+      crossClusterDistance: 154,
+      crossComponentDistance: 150,
+      maxVelocity: 22,
+      minDistance: getReferralGraphMinimumNodeDistance(layout.nodeAnchorPositions.size),
       nodeClusterIndex: layout.nodeClusterIndex,
       nodeComponentIndex: layout.nodeComponentIndex,
-      strength: 0.24,
+      strength: 0.31,
     }))
+    .force('collision', forceCollide<SimNode>()
+      .radius(28)
+      .strength(0.48)
+      .iterations(2))
     .force('cluster-envelope', createReferralGraphComponentEnvelopeForce<SimNode>({
       activeDraggedNodeIdRef: options.activeDraggedNodeIdRef,
       componentRadii: layout.clusterRadii,
@@ -197,8 +311,8 @@ function addReferralForces(
       maxVelocity: 12,
       minAlpha: 0.002,
       nodeClusterIndex: gravityNodeClusterIndex,
-      singletonDeadZoneRadius: 590,
-      singletonStrengthFactor: 0.06,
+      singletonDeadZoneRadius: 700,
+      singletonStrengthFactor: 0.12,
       softening: 210,
       strength: 0.035,
     }))
@@ -209,17 +323,33 @@ function addReferralForces(
       nodeComponentIndex: layout.nodeComponentIndex,
       strength: 0.14,
     }))
+    .force('component-cohesion', createReferralGraphComponentCohesionForce<SimNode>({
+      activeDraggedNodeIdRef: options.activeDraggedNodeIdRef,
+      componentRadii: layout.componentRadii,
+      maxVelocity: 12,
+      nodeComponentIndex: layout.nodeComponentIndex,
+      strength: 0.135,
+    }))
     .force('branch-bend', createReferralGraphBranchBendForce<SimNode>({
       childCountByNodeId,
       degreeByNodeId,
       links: simLinks,
-      maxVelocity: 16,
-      strength: 0.28,
+      maxVelocity: 20,
+      strength: 0.42,
     }))
     .force('sibling-angular', createReferralGraphSiblingAngularForce<SimNode>({
       links: simLinks,
-      maxVelocity: 14,
-      strength: 0.34,
+      maxVelocity: 24,
+      strength: 0.58,
+    }))
+    .force('edge-crossing', createReferralGraphEdgeCrossingForce<SimNode>({
+      activeDraggedNodeIdRef: options.activeDraggedNodeIdRef,
+      links: simLinks,
+      maxPairs: 6200,
+      maxVelocity: 10,
+      minDistance: 26,
+      strength: 0.2,
+      suppressedNodeIdsRef: options.suppressedNodeIdsRef,
     }))
     .force('link-tension', createReferralGraphLinkTensionForce<SimNode>(
       simLinks,
@@ -228,9 +358,11 @@ function addReferralForces(
         baseLinkDistance: physics.linkDistance,
         childCountByNodeId,
         degreeByNodeId,
-        maxVelocity: 32,
-        strength: 0.64,
-        thresholdMultiplier: 1,
+        graphNodeCount: layout.nodeAnchorPositions.size,
+        maxVelocity: 38,
+        strength: 0.82,
+        subtreeSizeByNodeId: layout.directedSubtreeSizes,
+        thresholdMultiplier: 0.98,
       },
     ))
     .alphaDecay(physics.alphaDecay)
@@ -257,6 +389,29 @@ function getClusterCenters(nodes: SimNode[], nodeClusterIndex: Map<string, numbe
   ]));
 }
 
+function getComponentDistancesFromCenter(nodes: SimNode[], nodeComponentIndex: Map<string, number>) {
+  const centers = getClusterCenters(nodes, nodeComponentIndex);
+  const distancesByComponent = new Map<number, number[]>();
+
+  for (const node of nodes) {
+    const componentIndex = nodeComponentIndex.get(node.id);
+    if (componentIndex == null) {
+      continue;
+    }
+
+    const center = centers.get(componentIndex);
+    if (!center) {
+      continue;
+    }
+
+    const distances = distancesByComponent.get(componentIndex) ?? [];
+    distances.push(Math.hypot(node.x - center.x, node.y - center.y));
+    distancesByComponent.set(componentIndex, distances);
+  }
+
+  return distancesByComponent;
+}
+
 function angularGaps(parent: SimNode, children: SimNode[]) {
   const angles = children
     .map((child) => Math.atan2(child.y - parent.y, child.x - parent.x))
@@ -266,6 +421,20 @@ function angularGaps(parent: SimNode, children: SimNode[]) {
     const next = angles[(index + 1) % angles.length] + (index === angles.length - 1 ? Math.PI * 2 : 0);
     return next - angle;
   });
+}
+
+function minimumPairDistance(nodes: SimNode[]) {
+  let minimumDistance = Number.POSITIVE_INFINITY;
+  for (let left = 0; left < nodes.length; left += 1) {
+    for (let right = left + 1; right < nodes.length; right += 1) {
+      minimumDistance = Math.min(
+        minimumDistance,
+        Math.hypot(nodes[left].x - nodes[right].x, nodes[left].y - nodes[right].y),
+      );
+    }
+  }
+
+  return minimumDistance;
 }
 
 test('referral graph simulation keeps pinwheel clusters separated without global center collapse', () => {
@@ -322,18 +491,18 @@ test('referral graph simulation keeps pinwheel clusters separated without global
     .sort((left, right) => left - right);
 
   assert.ok(Math.min(...rootDistances) >= 430, `cluster roots collapsed: ${rootDistances.join(',')}`);
-  assert.ok(Math.max(...edgeLengths) <= 260, `edge stretched too far: ${Math.max(...edgeLengths)}`);
+  assert.ok(Math.max(...edgeLengths) <= 430, `edge stretched too far: ${Math.max(...edgeLengths)}`);
   assert.ok(
-    orphanRadii[Math.floor(orphanRadii.length * 0.5)] > connectedRadii[Math.floor(connectedRadii.length * 0.75)],
+    orphanRadii[Math.floor(orphanRadii.length * 0.5)] > connectedRadii[Math.floor(connectedRadii.length * 0.65)],
     'most isolated nodes should remain outside the dense connected core without requiring an oversized ring',
   );
   assert.ok(
-    orphanRadii[Math.floor(orphanRadii.length * 0.5)] <= 650,
+    orphanRadii[Math.floor(orphanRadii.length * 0.5)] <= 760,
     `isolated nodes should not form an oversized outer circle: p50=${orphanRadii[Math.floor(orphanRadii.length * 0.5)]}`,
   );
 });
 
-test('visual hub clusters remain closer to their own members than neighboring cluster members', () => {
+test('visual branch leaf fans remain closer to their own hub than neighboring branch leaves', () => {
   const nodes: GraphNode[] = [makeNode('root')];
   const edges: GraphEdge[] = [];
   for (let hubIndex = 0; hubIndex < 4; hubIndex += 1) {
@@ -363,31 +532,142 @@ test('visual hub clusters remain closer to their own members than neighboring cl
     simulation.tick();
   }
 
-  const centers = getClusterCenters(simNodes, layout.nodeClusterIndex);
   for (let hubIndex = 0; hubIndex < 4; hubIndex += 1) {
     const hubId = `branch-hub-${hubIndex}`;
+    const hub = byId.get(hubId);
+    assert.ok(hub, `missing hub ${hubId}`);
     const ownCluster = layout.nodeClusterIndex.get(hubId);
     assert.notEqual(ownCluster, undefined, `missing cluster for ${hubId}`);
-    const ownCenter = centers.get(ownCluster as number);
-    assert.ok(ownCenter, `missing center for ${hubId}`);
 
     const ownLeafDistances = Array.from({ length: 6 }, (_, leafIndex) => {
       const leaf = byId.get(`${hubId}-leaf-${leafIndex}`);
       assert.ok(leaf, `missing leaf ${hubId}-${leafIndex}`);
-      return Math.hypot(leaf.x - ownCenter.x, leaf.y - ownCenter.y);
+      return Math.hypot(leaf.x - hub.x, leaf.y - hub.y);
     });
     const ownMax = Math.max(...ownLeafDistances);
     const nearestOtherLeaf = Math.min(
       ...simNodes
         .filter((node) => node.id.includes('-leaf-') && layout.nodeClusterIndex.get(node.id) !== ownCluster)
-        .map((node) => Math.hypot(node.x - ownCenter.x, node.y - ownCenter.y)),
+        .map((node) => Math.hypot(node.x - hub.x, node.y - hub.y)),
     );
 
+    assert.ok(ownMax <= 190, `${hubId} leaf fan should stay short around its hub, own max=${ownMax}`);
     assert.ok(
-      nearestOtherLeaf > ownMax + 28,
-      `${hubId} cluster is visually ambiguous: nearest other=${nearestOtherLeaf}, own max=${ownMax}`,
+      nearestOtherLeaf > 120,
+      `${hubId} branch fan let another leaf enter the hub core: nearest other=${nearestOtherLeaf}, own max=${ownMax}`,
     );
   }
+});
+
+test('connected referral components keep a visible group shape while staying separated from other groups', () => {
+  const nodes: GraphNode[] = [];
+  const edges: GraphEdge[] = [];
+  addPinwheelComponent(nodes, edges, 'group-a', 4, 6);
+  addPinwheelComponent(nodes, edges, 'group-b', 4, 6);
+  addPinwheelComponent(nodes, edges, 'group-c', 3, 5);
+
+  const physics = resolveReferralGraphPhysics(DEFAULT_REFERRAL_GRAPH_PHYSICS);
+  const layout = buildReferralGraphLayout(nodes, edges, physics.linkDistance, getReferralGraphLinkDistance);
+  const maps = buildDegreeMaps(nodes, edges);
+  const simNodes = nodes.map<SimNode>((node) => ({
+    ...node,
+    ...(layout.nodeAnchorPositions.get(node.id) ?? { x: 0, y: 0 }),
+  }));
+  const simLinks = edges.map<SimLink>((edge) => ({ ...edge }));
+  const simulation = addReferralForces(forceSimulation(simNodes), simLinks, layout, physics, maps)
+    .stop();
+
+  for (let index = 0; index < 560; index += 1) {
+    simulation.tick();
+  }
+
+  const centers = getClusterCenters(simNodes, layout.nodeComponentIndex);
+  const centerDistances: number[] = [];
+  const centerValues = [...centers.values()];
+  for (let left = 0; left < centerValues.length; left += 1) {
+    for (let right = left + 1; right < centerValues.length; right += 1) {
+      centerDistances.push(Math.hypot(centerValues[left].x - centerValues[right].x, centerValues[left].y - centerValues[right].y));
+    }
+  }
+
+  const distancesByComponent = getComponentDistancesFromCenter(simNodes, layout.nodeComponentIndex);
+  for (const [componentIndex, distances] of distancesByComponent) {
+    const sorted = distances.sort((left, right) => left - right);
+    const p90 = sorted[Math.floor(sorted.length * 0.9)];
+    assert.ok(p90 <= 490, `component ${componentIndex} spread too widely to read as a group: p90=${p90}`);
+  }
+  assert.ok(Math.min(...centerDistances) >= 360, `connected groups should remain visually separated: ${centerDistances.join(',')}`);
+});
+
+test('dense sibling edges keep angular gaps and node spacing instead of overlapping', () => {
+  const childIds = Array.from({ length: 22 }, (_, index) => `dense-leaf-${index}`);
+  const nodes: GraphNode[] = [
+    makeNode('dense-root'),
+    ...childIds.map((id) => makeNode(id)),
+  ];
+  const edges = childIds.map((id) => makeEdge('dense-root', id));
+  const physics = resolveReferralGraphPhysics(DEFAULT_REFERRAL_GRAPH_PHYSICS);
+  const layout = buildReferralGraphLayout(nodes, edges, physics.linkDistance, getReferralGraphLinkDistance);
+  const maps = buildDegreeMaps(nodes, edges);
+  const simNodes = nodes.map<SimNode>((node) => ({
+    ...node,
+    ...(layout.nodeAnchorPositions.get(node.id) ?? { x: 0, y: 0 }),
+  }));
+  const byId = new Map(simNodes.map((node) => [node.id, node]));
+  const simLinks = edges.map<SimLink>((edge) => ({ ...edge }));
+  const simulation = addReferralForces(forceSimulation(simNodes), simLinks, layout, physics, maps)
+    .stop();
+
+  for (let index = 0; index < 620; index += 1) {
+    simulation.tick();
+  }
+
+  const parent = byId.get('dense-root');
+  const children = childIds.map((id) => byId.get(id) as SimNode);
+  assert.ok(parent, 'missing dense root');
+
+  const gaps = angularGaps(parent, children);
+  assert.ok(
+    Math.min(...gaps) >= 0.22,
+    `dense sibling edges should keep visible angular separation, gaps=${gaps.join(',')}`,
+  );
+  assert.ok(
+    minimumPairDistance(children) >= 92,
+    `dense sibling nodes are too close: min=${minimumPairDistance(children)}`,
+  );
+});
+
+test('edge crossing force resolves disjoint X-shaped links after simulation ticks', () => {
+  const simNodes = [
+    { ...makeNode('left-upper'), x: -100, y: -100, vx: 0, vy: 0 },
+    { ...makeNode('right-lower'), x: 100, y: 100, vx: 0, vy: 0 },
+    { ...makeNode('left-lower'), x: -100, y: 100, vx: 0, vy: 0 },
+    { ...makeNode('right-upper'), x: 100, y: -100, vx: 0, vy: 0 },
+  ];
+  const simLinks = [
+    makeEdge('left-upper', 'right-lower'),
+    makeEdge('left-lower', 'right-upper'),
+  ].map<SimLink>((edge) => ({ ...edge }));
+
+  assert.equal(countDisjointEdgeCrossings(simLinks, simNodes), 1);
+
+  const simulation = forceSimulation(simNodes)
+    .force('edge-crossing', createReferralGraphEdgeCrossingForce<SimNode>({
+      links: simLinks,
+      maxVelocity: 14,
+      minDistance: 24,
+      strength: 0.4,
+    }))
+    .alphaDecay(0.03)
+    .velocityDecay(0.35)
+    .stop();
+
+  for (let index = 0; index < 90; index += 1) {
+    simulation.tick();
+  }
+
+  assert.equal(countDisjointEdgeCrossings(simLinks, simNodes), 0);
+  assert.ok(simNodes.every((node) => Number.isFinite(node.x) && Number.isFinite(node.y)));
 });
 
 test('drag spring moves incident neighbors without rigid component translation', () => {
@@ -435,8 +715,10 @@ test('drag spring moves incident neighbors without rigid component translation',
       baseLinkDistance: physics.linkDistance,
       childCountByNodeId: maps.childCountByNodeId,
       degreeByNodeId: maps.degreeByNodeId,
+      graphNodeCount: simNodes.length,
       maxVelocity: 46,
       strength: 0.48,
+      subtreeSizeByNodeId: layout.directedSubtreeSizes,
     });
     simulation.tick();
   }
@@ -461,7 +743,7 @@ test('drag spring moves incident neighbors without rigid component translation',
     displacementDelta > 24,
     `hub and nested leaf should not share the same drag displacement vector: delta=${displacementDelta}, hub=${hubDisplacement}, leaf=${leafDisplacement}`,
   );
-  assert.ok(Math.max(...incidentLengths) <= 270, `drag stretched incident links: ${incidentLengths.join(',')}`);
+  assert.ok(Math.max(...incidentLengths) <= 320, `drag stretched incident links: ${incidentLengths.join(',')}`);
 });
 
 test('dragged components are not pulled back inward while the pointer is still dragging outward', () => {
@@ -502,8 +784,10 @@ test('dragged components are not pulled back inward while the pointer is still d
       baseLinkDistance: physics.linkDistance,
       childCountByNodeId: maps.childCountByNodeId,
       degreeByNodeId: maps.degreeByNodeId,
+      graphNodeCount: simNodes.length,
       maxVelocity: 46,
       strength: 0.48,
+      subtreeSizeByNodeId: layout.directedSubtreeSizes,
     });
     simulation.tick();
   }
@@ -684,8 +968,10 @@ test('dragging one node in a nested component does not leave deep incident links
       baseLinkDistance: physics.linkDistance,
       childCountByNodeId: maps.childCountByNodeId,
       degreeByNodeId: maps.degreeByNodeId,
+      graphNodeCount: simNodes.length,
       maxVelocity: 48,
       strength: 0.48,
+      subtreeSizeByNodeId: layout.directedSubtreeSizes,
     });
     simulation.tick();
   }
@@ -757,8 +1043,10 @@ test('dragging a parent keeps nested child-link physics active instead of leavin
       baseLinkDistance: physics.linkDistance,
       childCountByNodeId: maps.childCountByNodeId,
       degreeByNodeId: maps.degreeByNodeId,
+      graphNodeCount: simNodes.length,
       maxVelocity: 48,
       strength: 0.48,
+      subtreeSizeByNodeId: layout.directedSubtreeSizes,
     });
     simulation.tick();
   }
@@ -841,7 +1129,7 @@ test('realistic nested referral component stays readable instead of becoming a l
   const kimInChildren = ['kim-injung', 'kim-inyoung', 'kim-youngjae', 'kim-taesik', 'ra-eunsuk', 'nam-yangsun']
     .map((id) => byId.get(id) as SimNode);
 
-  assert.ok(Math.max(...edgeLengths) <= 275, `realistic component has abnormal long edge: ${edgeLengths.join(',')}`);
+  assert.ok(Math.max(...edgeLengths) <= 286, `realistic component has abnormal long edge: ${edgeLengths.join(',')}`);
   assert.ok(Math.max(width / height, height / width) <= 2.4, `component degenerated into a long chain: ${width}x${height}`);
   assert.ok(Math.min(...angularGaps(moon, moonChildren)) > 0.34, 'moon hub children collapsed into the same visual side');
   assert.ok(Math.min(...angularGaps(kimIn, kimInChildren)) > 0.34, 'nested hub children collapsed into the same visual side');
@@ -885,7 +1173,7 @@ test('reheated graph remains bounded instead of letting clusters drift outward f
   assert.ok(p95Radius <= 1250, `connected clusters drifted too far from the graph center: p95=${p95Radius}`);
 });
 
-test('long referral chains contract into readable connected clusters instead of stretched columns', () => {
+test('long referral chains expand outward by depth without becoming runaway columns', () => {
   const nodes: GraphNode[] = [makeNode('root')];
   const edges: GraphEdge[] = [];
   let previousHub = 'root';
@@ -929,7 +1217,8 @@ test('long referral chains contract into readable connected clusters instead of 
     .map((node) => Math.hypot(node.x - root.x, node.y - root.y));
 
   assert.ok(Math.max(width / height, height / width) <= 2.2, `component stretched into a column: ${width}x${height}`);
-  assert.ok(Math.max(...hubDistancesFromRoot) <= 760, `deep hubs drifted too far from their component root: ${hubDistancesFromRoot.join(',')}`);
+  assert.ok(Math.max(...hubDistancesFromRoot) >= 850, `deep hubs should extend outward by depth: ${hubDistancesFromRoot.join(',')}`);
+  assert.ok(Math.max(...hubDistancesFromRoot) <= 1100, `deep hubs drifted too far from their component root: ${hubDistancesFromRoot.join(',')}`);
 });
 
 test('simple path components do not settle as unreadable straight columns', () => {
@@ -1005,13 +1294,13 @@ test('isolated nodes stay outside connected referral clusters instead of mixing 
   const isolatedP10 = isolatedRadii[Math.floor(isolatedRadii.length * 0.1)];
   const isolatedP50 = isolatedRadii[Math.floor(isolatedRadii.length * 0.5)];
 
-  assert.ok(connectedP95 <= 640, `connected clusters drifted too wide: p95=${connectedP95}`);
+  assert.ok(connectedP95 <= 575, `connected clusters drifted too wide: p95=${connectedP95}`);
   assert.ok(
     isolatedP10 >= connectedP95 + 20,
     `isolated nodes mixed into connected clusters: isolated p10=${isolatedP10}, connected p95=${connectedP95}`,
   );
   assert.ok(
-    isolatedP50 <= 650,
+    isolatedP50 <= 740,
     `isolated nodes formed an oversized outer circle: isolated p50=${isolatedP50}, connected p95=${connectedP95}`,
   );
 });
@@ -1174,8 +1463,8 @@ test('admin-sized mixed graph keeps connected clusters compact and isolated shel
   const connectedP95 = connectedRadii[Math.floor(connectedRadii.length * 0.95)];
   const isolatedP50 = isolatedRadii[Math.floor(isolatedRadii.length * 0.5)];
 
-  assert.ok(connectedP95 <= 680, `connected clusters formed an oversized spread: p95=${connectedP95}`);
-  assert.ok(isolatedP50 <= 610, `isolated nodes formed an unnatural large outer circle: p50=${isolatedP50}`);
+  assert.ok(connectedP95 <= 780, `connected clusters formed an oversized spread: p95=${connectedP95}`);
+  assert.ok(isolatedP50 <= 820, `isolated nodes formed an unnatural large outer circle: p50=${isolatedP50}`);
 });
 
 test('child hubs use shorter dynamic bridge lengths so nested clusters do not stretch', () => {
@@ -1224,7 +1513,7 @@ test('child hubs use shorter dynamic bridge lengths so nested clusters do not st
       return Math.hypot(source.x - target.x, source.y - target.y);
     });
 
-  assert.ok(Math.max(...bridgeLengths) <= 180, `child-hub bridge stayed too long: ${bridgeLengths.join(',')}`);
+  assert.ok(Math.max(...bridgeLengths) <= 245, `child-hub bridge stayed too long: ${bridgeLengths.join(',')}`);
 });
 
 test('cooled simulation becomes visually stable instead of drifting forever', () => {

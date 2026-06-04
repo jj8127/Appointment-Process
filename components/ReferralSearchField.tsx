@@ -12,8 +12,8 @@ import {
 import BrandedLoadingSpinner from '@/components/BrandedLoadingSpinner';
 import { COLORS, RADIUS } from '@/lib/theme';
 
-export const REFERRAL_SEARCH_PLACEHOLDER = '이름, 소속 또는 추천 코드 입력';
-export const REFERRAL_SEARCH_MIN_CHARS_HINT = '2글자 이상 입력하면 검색돼요';
+export const REFERRAL_SEARCH_PLACEHOLDER = '추천인 이름 입력';
+export const REFERRAL_SEARCH_MIN_CHARS_HINT = '이름 2글자 이상 입력하면 검색돼요';
 export const REFERRAL_SEARCH_EMPTY_HINT = '검색 결과가 없어요';
 
 export type ReferralSearchResult = {

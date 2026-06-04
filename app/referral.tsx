@@ -34,43 +34,19 @@ import { isReferralReloginError, useReferralAppSession } from '@/hooks/use-refer
 import { useReferralTree } from '@/hooks/use-referral-tree';
 import { useSession } from '@/hooks/use-session';
 import { consumePendingReferralCode } from '@/lib/referral-deeplink';
+import { buildReferralShareText } from '@/lib/referral-share';
 import { COLORS, RADIUS, SHADOWS, SPACING } from '@/lib/theme';
 
-const PLAY_STORE_URL = 'https://play.google.com/store/apps/details?id=com.jj8127.Garam_in';
 const APP_STORE_URL = (process.env.EXPO_PUBLIC_APP_STORE_URL ?? '').trim();
 const INVITE_BASE_URL = process.env.EXPO_PUBLIC_INVITE_BASE_URL ?? '';
 const ADMIN_WEB_URL = (process.env.EXPO_PUBLIC_ADMIN_WEB_URL ?? '').replace(/\/$/, '');
 
 function buildShareText(code: string): string {
-  const iosInstallLine = APP_STORE_URL
-    ? `iOS: ${APP_STORE_URL}`
-    : 'iOS: App Store에서 "가람in" 검색';
-
-  if (INVITE_BASE_URL) {
-    const inviteUrl = `${INVITE_BASE_URL}/invite?code=${code}`;
-    return [
-      '가람in에서 보험 위촉을 함께 시작해요!',
-      '',
-      '아래 링크를 눌러 가입하세요 (추천 코드 자동 입력):',
-      inviteUrl,
-      '',
-      '앱이 없으시면:',
-      `Android: ${PLAY_STORE_URL}`,
-      iosInstallLine,
-    ].join('\n');
-  }
-  // INVITE_BASE_URL 미설정 시: 커스텀 스킴은 메신저에서 링크로 인식되지 않으므로
-  // 스토어 링크(HTTPS)를 사용하고 코드를 텍스트로 안내
-  return [
-    '가람in에서 보험 위촉을 함께 시작해요!',
-    '',
-    `추천 코드: ${code}`,
-    '',
-    '가입 시 위 코드를 입력하면 추천인으로 연결됩니다.',
-    '',
-    `Android: ${PLAY_STORE_URL}`,
-    iosInstallLine,
-  ].join('\n');
+  return buildReferralShareText({
+    code,
+    inviteBaseUrl: INVITE_BASE_URL,
+    appStoreUrl: APP_STORE_URL,
+  });
 }
 
 export default function ReferralPage() {
@@ -503,7 +479,7 @@ export default function ReferralPage() {
 
               {/* 검색 입력 */}
               <Text style={styles.inputLabel}>
-                이름, 소속 또는 추천 코드로 {currentRecommender ? '변경' : '등록'}
+                추천인 이름으로 {currentRecommender ? '변경' : '등록'}
               </Text>
 
               {/* 선택된 항목이 없을 때 → 검색 입력창 */}

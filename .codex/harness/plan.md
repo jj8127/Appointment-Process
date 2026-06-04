@@ -1305,3 +1305,10 @@ Verification:
    - Web lint/build.
    - request_board checks because GaramLink files are also dirty from this conversation.
 6. Commit and push only if verification has no unresolved failures.
+
+## Increment 25 Plan
+
+1. Characterize the customer-management route/query contract in `lib/request-board-create-flow.ts`.
+2. Wire `app/request-board-create.tsx` to read the entry query and initialize on the resolved first step.
+3. Add a `고객관리` card to the FC action list in `app/request-board.tsx`, next to 의뢰 목록/설계코드 관리.
+4. Verify with the focused Jest test, TypeScript, and targeted Expo lint for the touched mobile files.
