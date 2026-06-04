@@ -2290,6 +2290,7 @@ Reason: this increment was implemented and build-verified in the web codebase. A
   - FC approval/rejection buttons visible screenshot: `.codex/harness/ui-qa/android-fc-review-detail-buttons-after-role-patch.png`
 - request_board cleanup:
   - temporary request `1069`, related request rows, and temporary users `498`, `499` deleted.
+  - second temporary visual-QA request `1070`, related request rows, and temporary users `503`, `504` deleted after user deferred direct phone testing.
   - local temporary token/session files removed from `.codex/harness/ui-qa`.
 - User device session restore:
   - Android AsyncStorage DB was restored to the original FC session.
@@ -2298,7 +2299,9 @@ Reason: this increment was implemented and build-verified in the web codebase. A
 ### Commands
 
 - Passed: `npx jest lib\__tests__\request-board-review-role.contract.test.ts --runInBand`.
+- Passed: `npx jest lib\__tests__\request-board-api-contract.test.ts lib\__tests__\request-board-mobile-products.test.ts lib\__tests__\request-board-review-role.contract.test.ts lib\__tests__\request-board-session.test.ts --runInBand` (4 suites / 11 tests).
 - Passed: `npx tsc --noEmit`.
+- Passed: `npm run lint -- app\request-board-review.tsx lib\__tests__\request-board-review-role.contract.test.ts`.
 - Passed in worktree: `npx jest lib\__tests__\request-board-review-role.contract.test.ts --runInBand`.
 - Passed in worktree: `npx tsc --noEmit`.
 - Android ADB operations:
@@ -2310,13 +2313,13 @@ Reason: this increment was implemented and build-verified in the web codebase. A
 
 - 설계매니저 Android visual pass after the final patch.
 
-Reason: SM_S942N entered Android security bouncer/lockscreen during the temporary designer-session verification. ADB wake/swipe/dismiss-keyguard attempts did not unlock it. The app session was restored and temporary request_board data was cleaned up before stopping.
+Reason: SM_S942N initially entered Android security bouncer/lockscreen during the temporary designer-session verification. After the device became available, the user asked to defer direct phone manipulation/testing. The app session was restored and all temporary request_board data was cleaned up before stopping phone work.
 
 ### QA Judgment
 
 - Code and contract tests now enforce that completed-design FC approval/rejection belongs to FC, not 설계매니저.
 - FC UI still shows the expected approval/rejection actions.
-- 설계매니저 UI still needs one final real-device screenshot after the device is unlocked to close the user's "all UI buttons directly tested" requirement.
+- 설계매니저 UI still needs one final real-device screenshot when direct phone testing resumes to close the user's "all UI buttons directly tested" requirement.
 
 ## Increment 24 Verification
 
@@ -2353,3 +2356,26 @@ Reason: user explicitly deferred direct phone manipulation and asked to continue
 
 - Non-phone verification is green for the modified 가람in app, admin web, schema contract, and graph logic.
 - Direct Android UI traversal remains a deferred validation item, not a currently closed QA item.
+
+### Deployment
+
+- Supabase migrations pushed to linked project `ubeginyxaotcamuqpmud`; remote history includes:
+  - `20260603000002_add_fc_license_statuses.sql`
+  - `20260604000001_add_dawichok_url_sent_signal.sql`
+  - `20260604000002_add_garam_pick_board_category.sql`
+  - `20260604000003_default_manager_recommender_kim_hyeongsu.sql`
+- Supabase Edge Functions deployed with `npx supabase functions deploy <name> --project-ref ubeginyxaotcamuqpmud --use-api`:
+  - `admin-action` v18
+  - `fc-consent` v11
+  - `fc-notify` v70
+  - `fc-submit-appointment` v10
+  - `fc-submit-hanwha-commission` v2
+  - `request-signup-otp` v38
+  - `set-password` v48
+- Vercel production deploys:
+  - admin web `admin_web`: `dpl_2r9vvmMouHndrrA8HU6kFfQ7E7da`, status `Ready`, URL `https://admin-7n810v0ch-jun-jeongs-projects.vercel.app`, aliases `https://adminweb-red.vercel.app`, `https://adminweb-jun-jeongs-projects.vercel.app`.
+  - GaramLink `request_board`: `dpl_8WCpGhuDPRKrkhRnavWzybmqczJD`, status `Ready`, URL `https://requestboard-bxahmgjjg-jun-jeongs-projects.vercel.app`, aliases `https://requestboard-steel.vercel.app`, `https://requestboard-jun-jeongs-projects.vercel.app`.
+- Runtime smoke:
+  - GaramLink production root returned HTTP 200.
+  - Admin web production root returned HTTP 401 as an auth-protected surface.
+- Expo/EAS native app build was not run per user instruction.

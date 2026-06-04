@@ -876,13 +876,34 @@ npm test -- --runInBand
   - `lib/__tests__/request-board-review-role.contract.test.ts`로 이 역할 계약을 static contract로 고정.
 - Verification passed:
   - `npx jest lib\__tests__\request-board-review-role.contract.test.ts --runInBand`
+  - `npx jest lib\__tests__\request-board-api-contract.test.ts lib\__tests__\request-board-mobile-products.test.ts lib\__tests__\request-board-review-role.contract.test.ts lib\__tests__\request-board-session.test.ts --runInBand`
   - `npx tsc --noEmit`
+  - `npm run lint -- app\request-board-review.tsx lib\__tests__\request-board-review-role.contract.test.ts`
   - same two checks in worktree `C:\Users\jj812\.config\superpowers\worktrees\fc-onboarding-app\garamin-request-board-mobile-v1`
   - FC Android UI path on SM_S942N reached review detail and confirmed `거절`/`승인` are still visible for FC.
 - Cleanup:
-  - Temporary request_board request `1069` and users `498`, `499` deleted.
+  - Temporary request_board requests `1069`, `1070` and users `498`, `499`, `503`, `504` deleted.
   - Android app storage restored to original FC session.
   - Local temporary session/token DB files removed.
 - Still needed:
-  - Unlock SM_S942N and run one 설계매니저 Android visual pass for the completed-design detail screen.
+  - When direct phone testing resumes, run one 설계매니저 Android visual pass for the completed-design detail screen.
   - Expected result: `FC 검토 대기` visible, no `거절`/`승인` buttons on the 설계매니저 surface.
+
+## Increment 24 Deployment Handoff
+
+- Code commits already pushed:
+  - `fc-onboarding-app` branch `codex/referral-rollout-closeout`, commit `24c8b13`.
+  - `request_board` branch `codex/fix-requestform-mobile-actions`, commit `925d1c8`.
+- Supabase linked project `ubeginyxaotcamuqpmud` updated:
+  - migrations `20260603000002`, `20260604000001`, `20260604000002`, `20260604000003` are present in remote migration history.
+  - deployed functions: `admin-action`, `fc-consent`, `fc-notify`, `fc-submit-appointment`, `fc-submit-hanwha-commission`, `request-signup-otp`, `set-password`.
+  - `_shared/commission.ts` changes are bundled through the deployed dependent functions.
+- Vercel production deployments:
+  - admin web `admin_web`: `https://adminweb-red.vercel.app` and deployment URL `https://admin-7n810v0ch-jun-jeongs-projects.vercel.app`, status `Ready`.
+  - GaramLink `request_board`: `https://requestboard-steel.vercel.app` and deployment URL `https://requestboard-bxahmgjjg-jun-jeongs-projects.vercel.app`, status `Ready`.
+- Smoke:
+  - `request_board` production root responded HTTP 200.
+  - admin web production root responded HTTP 401, consistent with auth protection.
+- Explicitly not done:
+  - No Expo/EAS/native app build.
+  - Direct SM_S942N traversal remains deferred by user instruction.
