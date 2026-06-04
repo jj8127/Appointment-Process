@@ -18,10 +18,13 @@ type Payload = {
   affiliation?: string;
   email?: string;
   carrier?: string;
+  license_statuses?: unknown;
   commissionStatus?: CommissionCompletionStatus | string;
   referralCode?: string;
   referralInviterFcId?: string;
 };
+
+type LicenseStatus = 'third' | 'life' | 'nonlife' | 'none';
 
 type ResolvedReferralDetails = {
   referralCodeId: string;
@@ -65,6 +68,14 @@ if (!serviceKey) {
 
 const supabase = createClient(supabaseUrl, serviceKey);
 const encoder = new TextEncoder();
+const LICENSE_STATUS_NONE: LicenseStatus = 'none';
+const LICENSE_STATUS_OPTIONS = ['third', 'life', 'nonlife', LICENSE_STATUS_NONE] as const;
+const LICENSE_STATUS_LABEL_TO_VALUE: Record<string, LicenseStatus> = {
+  '제3 보험': 'third',
+  '생명 보험': 'life',
+  '손해 보험': 'nonlife',
+  없음: 'none',
+};
 const requestBoardPasswordSyncUrl = (getEnv('REQUEST_BOARD_PASSWORD_SYNC_URL') ?? '').trim();
 const requestBoardPasswordSyncToken = (getEnv('REQUEST_BOARD_PASSWORD_SYNC_TOKEN') ?? '').trim();
 const requestBoardPasswordSyncTimeoutRaw = Number((getEnv('REQUEST_BOARD_PASSWORD_SYNC_TIMEOUT_MS') ?? '5000').trim());
@@ -98,10 +109,62 @@ function isMissingColumnError(error: unknown): boolean {
   return (
     code === '42703' ||
     message.includes('column') ||
+    message.includes('license_statuses') ||
     message.includes('life_commission_completed') ||
     message.includes('nonlife_commission_completed') ||
     message.includes('hanwha_commission')
   );
+}
+
+function isLicenseStatus(input: unknown): input is LicenseStatus {
+  return LICENSE_STATUS_OPTIONS.includes(input as LicenseStatus);
+}
+
+function normalizeLicenseStatuses(input: unknown): LicenseStatus[] {
+  const rawValues = Array.isArray(input) ? input : typeof input === 'string' ? [input] : [];
+  const selected = new Set(
+    rawValues
+      .map((value) => {
+        if (isLicenseStatus(value)) return value;
+        if (typeof value === 'string') return LICENSE_STATUS_LABEL_TO_VALUE[value.trim()];
+        return undefined;
+      })
+      .filter(isLicenseStatus),
+  );
+  const concreteStatuses = LICENSE_STATUS_OPTIONS.filter(
+    (status) => status !== LICENSE_STATUS_NONE && selected.has(status),
+  );
+  return concreteStatuses.length > 0 ? concreteStatuses : [LICENSE_STATUS_NONE];
+}
+
+function mapLegacyCommissionStatusToLicenseStatuses(input?: string | null): LicenseStatus[] {
+  switch (normalizeCommissionStatus(input ?? undefined)) {
+    case 'life_only':
+      return ['life'];
+    case 'nonlife_only':
+      return ['nonlife'];
+    case 'both':
+      return ['life', 'nonlife'];
+    case 'none':
+    default:
+      return [LICENSE_STATUS_NONE];
+  }
+}
+
+function resolveLicenseStatuses(input: unknown, legacyCommissionStatus?: string | null): LicenseStatus[] {
+  if (input === undefined || input === null) {
+    return mapLegacyCommissionStatusToLicenseStatuses(legacyCommissionStatus);
+  }
+  return normalizeLicenseStatuses(input);
+}
+
+function mapLicenseStatusesToCommissionStatus(input: LicenseStatus[]): CommissionCompletionStatus {
+  const hasLife = input.includes('life');
+  const hasNonlife = input.includes('nonlife');
+  if (hasLife && hasNonlife) return 'both';
+  if (hasLife) return 'life_only';
+  if (hasNonlife) return 'nonlife_only';
+  return 'none';
 }
 
 function toBase64(bytes: Uint8Array) {
@@ -336,7 +399,8 @@ serve(async (req: Request) => {
   const profileAffiliation = (body.affiliation ?? '').trim();
   const profileEmail = (body.email ?? '').trim();
   const profileCarrier = (body.carrier ?? '').trim();
-  const commissionStatus = normalizeCommissionStatus(body.commissionStatus);
+  const licenseStatuses = resolveLicenseStatuses(body.license_statuses, body.commissionStatus);
+  const commissionStatus = mapLicenseStatusesToCommissionStatus(licenseStatuses);
   const commissionState = mapCommissionToProfileState(commissionStatus);
   const referralCode = (body.referralCode ?? '').trim().toUpperCase();
   const referralInviterFcId = (body.referralInviterFcId ?? '').trim() || null;
@@ -376,6 +440,7 @@ serve(async (req: Request) => {
     // Update profile with signup form data (in case profile was created by OTP with empty fields)
     // Also reset any stale PII fields that may have been left over from a previously completed profile
     const updatePayload: Record<string, unknown> = {
+      license_statuses: licenseStatuses,
       status: commissionState.status,
       life_commission_completed: commissionState.lifeCompleted,
       nonlife_commission_completed: commissionState.nonlifeCompleted,
@@ -406,6 +471,7 @@ serve(async (req: Request) => {
       let updateResult = await supabase.from('fc_profiles').update(updatePayload).eq('id', fcId);
       if (updateResult.error && isMissingColumnError(updateResult.error)) {
         const fallbackPayload = { ...updatePayload };
+        delete fallbackPayload.license_statuses;
         delete fallbackPayload.life_commission_completed;
         delete fallbackPayload.nonlife_commission_completed;
         delete fallbackPayload.appointment_schedule_life;
@@ -435,6 +501,7 @@ serve(async (req: Request) => {
     }
   } else {
     const statusOnlyPayload: Record<string, unknown> = {
+      license_statuses: licenseStatuses,
       status: commissionState.status,
       recommender: null,
       recommender_fc_id: null,
@@ -449,6 +516,7 @@ serve(async (req: Request) => {
     let statusUpdateResult = await supabase.from('fc_profiles').update(statusOnlyPayload).eq('id', fcId);
     if (statusUpdateResult.error && isMissingColumnError(statusUpdateResult.error)) {
       const fallbackPayload = { ...statusOnlyPayload };
+      delete fallbackPayload.license_statuses;
       delete fallbackPayload.life_commission_completed;
       delete fallbackPayload.nonlife_commission_completed;
       delete fallbackPayload.appointment_schedule_life;

@@ -49,6 +49,8 @@ export function buildWorkflowResetPayload(): Record<string, unknown> {
     hanwha_commission_reject_reason: null,
     hanwha_commission_pdf_path: null,
     hanwha_commission_pdf_name: null,
+    dawichok_url_sent_at: null,
+    dawichok_url_sent_by: null,
   };
 }
 

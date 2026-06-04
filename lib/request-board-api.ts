@@ -756,6 +756,113 @@ export type RbDesigner = {
   designer_products?: { product_id: number; insurance_products: { id: number; name: string; icon?: string } }[];
 };
 
+export type RbInsuranceProduct = {
+  id: number;
+  name: string;
+  icon?: string | null;
+  display_order?: number | null;
+  product_code?: string | null;
+  product_group?: string | null;
+};
+
+export type RbCustomerProfile = {
+  id: number;
+  name: string;
+  gender: 'male' | 'female';
+  birthDate: string;
+  phone: string;
+  ssn: string;
+  hasSeparatePolicyholder: boolean;
+  policyholderName?: string;
+  policyholderSsn?: string;
+  policyholderPhone?: string;
+  policyholderCarrier?: string;
+  policyholderAddress?: string;
+  carrier?: string;
+  job?: string;
+  drivingStatus?: string;
+  income?: string;
+  address?: string;
+  email?: string;
+  height?: string;
+  weight?: string;
+  referrer?: string;
+  insuranceQualifications?: {
+    property: boolean;
+    life: boolean;
+    third: boolean;
+  };
+  recentHospitalVisit?: string;
+  currentMedication?: string;
+  hospitalizationHistory?: string;
+  majorDiseases?: string;
+  requestDetails?: string;
+  createdAt?: string;
+  updatedAt?: string;
+};
+
+export type RbSaveCustomerPayload = Omit<RbCustomerProfile, 'id' | 'createdAt' | 'updatedAt'> & {
+  id?: number;
+};
+
+export type RbCreateRequestPayload = {
+  customerName: string;
+  customerSsn: string;
+  customerGender?: string;
+  customerBirthDate?: string;
+  customerPhone?: string;
+  customerCarrier?: string;
+  customerAddress?: string;
+  customerJob?: string;
+  customerDrivingStatus?: string;
+  customerIncome?: string;
+  customerEmail?: string;
+  customerHeight?: string;
+  customerWeight?: string;
+  customerReferrer?: string;
+  hasSeparatePolicyholder?: boolean;
+  policyholderName?: string;
+  policyholderSsn?: string;
+  policyholderPhone?: string;
+  policyholderCarrier?: string;
+  policyholderAddress?: string;
+  insuranceQualifications?: {
+    property: boolean;
+    life: boolean;
+    third: boolean;
+  };
+  recentHospitalVisit?: string;
+  currentMedication?: string;
+  recentHospitalization?: string;
+  hospitalizationHistory?: string;
+  majorDiseases?: string;
+  requestDetails?: string;
+  productIds: number[];
+  designerIds: number[];
+  designerCodeSelections?: Array<{
+    designerId: number;
+    companyName?: string | null;
+    fcCodeName?: string | null;
+    fcCodeValue?: string | null;
+    fcCompanyCodeId?: number | null;
+  }>;
+};
+
+export type RbRequestAttachmentInput = {
+  fileName: string;
+  fileType: string;
+  fileSize: number;
+  fileUrl: string;
+  description?: string | null;
+  expiryDate?: string | null;
+};
+
+export type RbRequestUploadFile = {
+  uri: string;
+  name: string;
+  type: string;
+};
+
 export async function rbGetDesigners(search?: string): Promise<RbDesigner[]> {
   const params = new URLSearchParams({ limit: '100' });
   if (search) params.set('search', search);
@@ -766,6 +873,29 @@ export async function rbGetDesigners(search?: string): Promise<RbDesigner[]> {
   }
   logger.warn('[rb-api] designers failed:', res.error);
   return [];
+}
+
+export async function rbGetProducts(): Promise<RbInsuranceProduct[]> {
+  const res = await rbFetch<RbInsuranceProduct[]>('/api/designers/products/list');
+  if (res.success && Array.isArray(res.data)) return res.data;
+  logger.warn('[rb-api] products failed:', res.error);
+  return [];
+}
+
+export async function rbGetCustomers(): Promise<RbCustomerProfile[]> {
+  const res = await rbFetch<RbCustomerProfile[]>('/api/customers');
+  if (res.success && Array.isArray(res.data)) return res.data;
+  logger.warn('[rb-api] customers failed:', res.error);
+  return [];
+}
+
+export async function rbSaveCustomer(
+  payload: RbSaveCustomerPayload,
+): Promise<{ success: boolean; data?: RbCustomerProfile; error?: string }> {
+  return rbFetch<RbCustomerProfile>('/api/customers', {
+    method: 'POST',
+    body: JSON.stringify(payload),
+  });
 }
 
 export type RbDirectMessageUser = {
@@ -960,6 +1090,15 @@ export type RbRequestDetail = {
   request_designers?: RbDesignerAssignment[];
 };
 
+export async function rbCreateRequest(
+  payload: RbCreateRequestPayload,
+): Promise<{ success: boolean; data?: RbRequestDetail; error?: string }> {
+  return rbFetch<RbRequestDetail>('/api/requests', {
+    method: 'POST',
+    body: JSON.stringify(payload),
+  });
+}
+
 export async function rbGetRequestList(): Promise<RbRequestListItem[]> {
   const res = await rbFetch<unknown>('/api/requests?limit=100&page=1&ssnView=full');
   if (!res.success || res.data == null) return [];
@@ -995,6 +1134,120 @@ export async function rbRejectDesign(
   });
 }
 
+export async function rbAcceptRequest(
+  requestId: number,
+  designerId: number,
+  requestDesignerId?: number,
+): Promise<{ success: boolean; data?: RbDesignerAssignment; error?: string; message?: string }> {
+  return rbFetch<RbDesignerAssignment>(`/api/requests/${requestId}/designers/${designerId}/accept`, {
+    method: 'POST',
+    body: JSON.stringify({ requestDesignerId }),
+  });
+}
+
+export async function rbRejectRequest(
+  requestId: number,
+  designerId: number,
+  reason?: string,
+  requestDesignerId?: number,
+): Promise<{ success: boolean; data?: RbDesignerAssignment; error?: string; message?: string }> {
+  return rbFetch<RbDesignerAssignment>(`/api/requests/${requestId}/designers/${designerId}/reject`, {
+    method: 'POST',
+    body: JSON.stringify({ reason, requestDesignerId }),
+  });
+}
+
+export async function rbCompleteRequest(
+  requestId: number,
+  designerId: number,
+  payload?: {
+    designUrl?: string;
+    completionNote?: string;
+    attachments?: RbRequestAttachmentInput[];
+    requestDesignerId?: number;
+  },
+): Promise<{ success: boolean; data?: RbDesignerAssignment; error?: string; message?: string }> {
+  return rbFetch<RbDesignerAssignment>(`/api/requests/${requestId}/designers/${designerId}/complete`, {
+    method: 'POST',
+    body: JSON.stringify(payload ?? {}),
+  });
+}
+
+export async function rbUploadRequestAttachments(
+  requestId: number,
+  designerId: number,
+  payload: {
+    files: RbRequestUploadFile[];
+    metadata: Array<{
+      description?: string | null;
+      expiryDate?: string | null;
+    }>;
+    requestDesignerId?: number;
+  },
+  allowRetry = true,
+): Promise<{ success: boolean; data?: RbRequestAttachmentFull[]; error?: string }> {
+  const token = await getStoredToken();
+  const buildFormData = () => {
+    const formData = new FormData();
+
+    payload.files.forEach((file) => {
+      formData.append('files', {
+        uri: file.uri,
+        name: file.name,
+        type: file.type,
+      } as any);
+    });
+    formData.append('metadata', JSON.stringify(payload.metadata));
+    if (payload.requestDesignerId) {
+      formData.append('requestDesignerId', String(payload.requestDesignerId));
+    }
+
+    return formData;
+  };
+
+  try {
+    const res = await fetchWithTimeout(
+      `${BASE_URL}/api/requests/${requestId}/designers/${designerId}/attachments`,
+      {
+        method: 'POST',
+        headers: {
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        },
+        body: buildFormData(),
+      },
+    );
+
+    if (res.status === 401) {
+      if (allowRetry) {
+        const relogin = await bridgeLogin();
+        if (relogin.success) {
+          return rbUploadRequestAttachments(requestId, designerId, payload, false);
+        }
+      }
+      await clearAuth();
+      return { success: false, error: '인증이 만료되었습니다. 앱에서 다시 로그인해주세요.' };
+    }
+
+    if (!res.ok) {
+      const errorMessage = await extractUploadErrorMessage(
+        res,
+        `첨부파일 업로드 실패 (${res.status})`,
+      );
+      logger.warn(`[rb-api] request attachment upload failed: HTTP ${res.status}`, errorMessage);
+      return { success: false, error: errorMessage };
+    }
+
+    const json = await res.json();
+    if (json.success && Array.isArray(json.data)) {
+      return { success: true, data: json.data };
+    }
+    return { success: false, error: json.error ?? json.message ?? '첨부파일 업로드 실패' };
+  } catch (err) {
+    logger.warn('[rb-api] request attachment upload error', err);
+    return { success: false, error: '첨부파일 업로드에 실패했습니다.' };
+  }
+}
+
 export async function rbGetRequests(): Promise<RbRequestSummary[]> {
   const res = await rbFetch<unknown>('/api/requests?limit=500&page=1&ssnView=full');
   if (!res.success || res.data == null) return [];
@@ -1009,6 +1262,7 @@ export async function rbGetRequests(): Promise<RbRequestSummary[]> {
 export type RbFcCode = {
   id: number;
   insurer_name: string;
+  code_name?: string | null;
   code_value: string;
   is_active?: boolean;
   updated_at: string;

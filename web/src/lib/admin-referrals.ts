@@ -1,6 +1,6 @@
 import 'server-only';
 
-import type { VerifiedServerSession } from '@/lib/server-session';
+import { buildPhoneCandidates, type VerifiedServerSession } from '@/lib/server-session';
 import type {
   ReferralAdminCodeHistoryItem,
   ReferralAdminDetail,
@@ -13,8 +13,10 @@ import type {
 import type { GraphApiResponse, GraphNode, GraphNodeStatus } from '@/types/referral-graph';
 import { adminSupabase } from '@/lib/admin-supabase';
 import { logger } from '@/lib/logger';
+import { getCommissionCompletionState } from '@/lib/fc-workflow';
 import { buildReferralGraphEdges } from '@/lib/referral-graph-edges';
 import { resolveReferralGraphHighlightType } from '@/lib/referral-graph-highlight';
+import { collectReferralDownlineScopeIds } from '@/lib/referral-graph-scope';
 
 const CODE_EVENT_TYPES = [
   'code_generated',
@@ -38,6 +40,10 @@ type EligibleProfileRow = {
   phone: string | null;
   affiliation: string | null;
   signup_completed: boolean | null;
+  appointment_date_life?: string | null;
+  appointment_date_nonlife?: string | null;
+  life_commission_completed?: boolean | null;
+  nonlife_commission_completed?: boolean | null;
   is_manager_referral_shadow?: boolean | null;
 };
 
@@ -89,6 +95,15 @@ type ReferralEventRow = {
 type ReferralCodeMutationResult = Record<string, unknown> & {
   changed?: boolean;
 };
+
+export class ReferralGraphAccessError extends Error {
+  status = 403;
+
+  constructor(message = '추천인 그래프 조회 권한이 없습니다.') {
+    super(message);
+    this.name = 'ReferralGraphAccessError';
+  }
+}
 
 type AdminActorContext = {
   actorPhone: string;
@@ -227,7 +242,6 @@ function toRecommenderCandidate(
 
 function isEligibleProfile(profile: EligibleProfileRow) {
   return (
-    (profile.signup_completed === true || profile.is_manager_referral_shadow === true) &&
     /^\d{11}$/.test(normalizeDigits(profile.phone)) &&
     !String(profile.affiliation ?? '').includes('설계매니저')
   );
@@ -314,8 +328,7 @@ async function fetchEligibleProfiles() {
   const [{ data, error }, excludedStaffPhones] = await Promise.all([
     adminSupabase
       .from('fc_profiles')
-      .select('id,name,phone,affiliation,signup_completed,is_manager_referral_shadow')
-      .or('signup_completed.eq.true,is_manager_referral_shadow.eq.true')
+      .select('id,name,phone,affiliation,signup_completed,appointment_date_life,appointment_date_nonlife,life_commission_completed,nonlife_commission_completed,is_manager_referral_shadow')
       .order('created_at', { ascending: false }),
     fetchExcludedStaffPhones(),
   ]);
@@ -360,7 +373,6 @@ async function fetchFcProfiles() {
     adminSupabase
       .from('fc_profiles')
       .select('id,name,phone,affiliation,recommender,recommender_fc_id,signup_completed,is_manager_referral_shadow')
-      .or('signup_completed.eq.true,is_manager_referral_shadow.eq.true')
       .order('created_at', { ascending: false }),
     fetchExcludedStaffPhones(),
   ]);
@@ -370,7 +382,6 @@ async function fetchFcProfiles() {
   }
 
   return ((data ?? []) as Array<FcProfileRow & { signup_completed?: boolean | null }>)
-    .filter((row) => row.signup_completed === true || row.is_manager_referral_shadow === true)
     .filter((row) => !String(row.affiliation ?? '').includes('설계매니저'))
     .filter((row) => !excludedStaffPhones.has(normalizeDigits(row.phone)))
     .map((row) => ({
@@ -382,6 +393,34 @@ async function fetchFcProfiles() {
       recommender_fc_id: row.recommender_fc_id,
       is_manager_referral_shadow: row.is_manager_referral_shadow,
     }));
+}
+
+async function resolveFcGraphRootId(session: VerifiedServerSession) {
+  if (session.role !== 'fc') {
+    return null;
+  }
+
+  const phoneCandidates = buildPhoneCandidates(session.residentId, session.residentDigits);
+  const { data, error } = await adminSupabase
+    .from('fc_profiles')
+    .select('id,phone,affiliation,signup_completed,is_manager_referral_shadow')
+    .in('phone', phoneCandidates)
+    .maybeSingle();
+
+  if (error) {
+    throw error;
+  }
+
+  if (
+    !data?.id
+    || data.signup_completed !== true
+    || data.is_manager_referral_shadow === true
+    || String(data.affiliation ?? '').includes('설계매니저')
+  ) {
+    throw new ReferralGraphAccessError();
+  }
+
+  return data.id as string;
 }
 
 async function fetchReferralCodes(fcIds: string[]) {
@@ -990,40 +1029,58 @@ export function logReferralBackfillSkip(fcId: string, error: unknown) {
 }
 
 export async function getReferralGraphData(session: VerifiedServerSession): Promise<GraphApiResponse> {
+  const isFcGraphViewer = session.role === 'fc';
   const [profiles, allProfiles, managerNames] = await Promise.all([
     fetchEligibleProfiles(),
     fetchFcProfiles(),
     fetchManagerNames(),
   ]);
+  const rootFcId = await resolveFcGraphRootId(session);
+  const allEdges = buildReferralGraphEdges(allProfiles);
+  const scopedIds = rootFcId ? collectReferralDownlineScopeIds(rootFcId, allEdges) : null;
+  const scopedProfiles = scopedIds ? profiles.filter((profile) => scopedIds.has(profile.id)) : profiles;
+  const scopedAllProfiles = scopedIds ? allProfiles.filter((profile) => scopedIds.has(profile.id)) : allProfiles;
+  const scopedEdges = scopedIds
+    ? allEdges.filter((edge) => scopedIds.has(edge.source) && scopedIds.has(edge.target))
+    : allEdges;
 
-  const fcIds = profiles.map((p) => p.id);
+  if (rootFcId && !scopedProfiles.some((profile) => profile.id === rootFcId)) {
+    throw new ReferralGraphAccessError();
+  }
+
+  const fcIds = scopedProfiles.map((p) => p.id);
   const codes = await fetchReferralCodes(fcIds);
   const { activeCodeByFc, codeHistoryByFc } = buildCodeMaps(codes);
 
   const referralCountByFc = new Map<string, number>();
   const inboundCountByFc = new Map<string, number>();
-  const edges = buildReferralGraphEdges(allProfiles);
 
   const legacyUnresolvedSet = new Set(
-    allProfiles
+    scopedAllProfiles
       .filter((p) => normalizeName(p.recommender) && !p.recommender_fc_id)
       .map((p) => p.id),
   );
 
-  for (const edge of edges) {
+  for (const edge of scopedEdges) {
     referralCountByFc.set(edge.source, (referralCountByFc.get(edge.source) ?? 0) + 1);
     inboundCountByFc.set(edge.target, (inboundCountByFc.get(edge.target) ?? 0) + 1);
   }
 
   const degreeByFc = new Map<string, number>();
-  for (const edge of edges) {
+  for (const edge of scopedEdges) {
     degreeByFc.set(edge.source, (degreeByFc.get(edge.source) ?? 0) + 1);
     degreeByFc.set(edge.target, (degreeByFc.get(edge.target) ?? 0) + 1);
   }
 
-  const nodes: GraphNode[] = profiles.map((profile) => {
+  const nodes: GraphNode[] = scopedProfiles.map((profile) => {
     const activeCodeRow = activeCodeByFc.get(profile.id) ?? null;
     const codeHistory = codeHistoryByFc.get(profile.id) ?? [];
+    const { bothCompleted } = getCommissionCompletionState({
+      appointment_date_life: profile.appointment_date_life,
+      appointment_date_nonlife: profile.appointment_date_nonlife,
+      life_commission_completed: profile.life_commission_completed,
+      nonlife_commission_completed: profile.nonlife_commission_completed,
+    });
 
     let nodeStatus: GraphNodeStatus;
     if (activeCodeRow?.is_active) {
@@ -1037,28 +1094,37 @@ export async function getReferralGraphData(session: VerifiedServerSession): Prom
     return {
       id: profile.id,
       name: profile.name,
-      phone: profile.phone ?? '',
+      phone: isFcGraphViewer ? '' : profile.phone ?? '',
       affiliation: profile.affiliation ?? '',
       activeCode: activeCodeRow?.code ?? null,
       referralCount: referralCountByFc.get(profile.id) ?? 0,
       inboundCount: inboundCountByFc.get(profile.id) ?? 0,
       nodeStatus,
       isIsolated: (degreeByFc.get(profile.id) ?? 0) === 0,
-      hasLegacyUnresolved: legacyUnresolvedSet.has(profile.id),
-      highlightType: resolveReferralGraphHighlightType({
-        name: profile.name,
-        isManagerReferralShadow: profile.is_manager_referral_shadow,
-        managerNames,
-      }),
+      signupCompleted: profile.signup_completed === true,
+      allCommissionsCompleted: bothCompleted,
+      hasLegacyUnresolved: isFcGraphViewer ? false : legacyUnresolvedSet.has(profile.id),
+      highlightType: isFcGraphViewer
+        ? profile.id === rootFcId
+          ? 'viewer'
+          : null
+        : resolveReferralGraphHighlightType({
+          name: profile.name,
+          isManagerReferralShadow: profile.is_manager_referral_shadow,
+          managerNames,
+        }),
     };
   });
 
   return {
     ok: true,
     nodes,
-    edges,
+    edges: scopedEdges,
     permissions: {
       canMutate: session.role === 'admin',
+      scope: session.role === 'fc' ? 'downline' : 'all',
+      viewerRole: session.role,
+      rootFcId,
     },
   };
 }

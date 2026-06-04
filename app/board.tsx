@@ -83,6 +83,9 @@ const getCategoryTheme = (categoryName: string) => {
   if (normalized.includes('교육')) {
     return { backgroundColor: '#EFF6FF', borderColor: '#BFDBFE', textColor: '#1D4ED8' };
   }
+  if (normalized.includes('가람') || normalized.includes('pick')) {
+    return { backgroundColor: '#FDF2F8', borderColor: '#FBCFE8', textColor: '#BE185D' };
+  }
   if (normalized.includes('서류')) {
     return { backgroundColor: '#ECFDF5', borderColor: '#A7F3D0', textColor: '#047857' };
   }

@@ -67,7 +67,7 @@ create policy "exam_registrations anon delete"
   using (auth.role() = 'anon');
 
 -- ============================
--- 4. fc_profiles SELECT (FC 프로필 조회 - 수당 동의 상태 확인용)
+-- 4. fc_profiles SELECT (FC 프로필 조회 - 보증 보험 동의 상태 확인용)
 -- ============================
 drop policy if exists "fc_profiles select" on public.fc_profiles;
 create policy "fc_profiles select"

@@ -54,9 +54,9 @@ const SHORTCUT_TOUR_TEXTS = [
   '생명/제3보험 시험 일정을 확인하고 접수할 수 있어요.',
   '손해보험 시험 접수 메뉴예요.',
   '이름, 소속, 주소 등 기본 정보를 관리해요.',
-  '수당 지급을 위한 약관 동의 상태를 확인해요.',
+  '보증 보험 동의 상태를 확인해요.',
   '필수 서류를 업로드하고 상태를 확인해요.',
-  '한화 위촉 URL 진행 단계예요.',
+  '다위촉 URL 진행 단계예요.',
   '생명/손해 위촉 진행 단계예요.',
   '총무/설계매니저와 대화할 수 있어요.',
   '추천인 코드를 확인하고 친구를 초대할 수 있어요.',
@@ -118,9 +118,9 @@ const CARD_SHADOW = {
 type QuickLink = { href: string; title: string; description: string; stepKey?: StepKey };
 
 const quickLinksAdminOnboarding: QuickLink[] = [
-  { href: '/dashboard', stepKey: 'step1', title: '수당 동의 안내', description: '수당 동의 검토 대상 FC' },
+  { href: '/dashboard', stepKey: 'step1', title: '보증 보험 동의 안내', description: '보증 보험 동의 검토 대상 FC' },
   { href: '/dashboard', stepKey: 'step2', title: '서류 안내/검토', description: '제출해야 할 서류 관리' },
-  { href: '/dashboard', stepKey: 'step3', title: '한화 위촉 URL', description: '한화 위촉 URL 승인 및 PDF 등록' },
+  { href: '/dashboard', stepKey: 'step3', title: '다위촉 URL', description: '다위촉 서류 발송 알림 관리' },
   { href: '/dashboard', stepKey: 'step4', title: '생명/손해 위촉', description: '생명/손해 위촉 진행 확인' },
   { href: '/dashboard', stepKey: 'step5', title: '완료 관리', description: '최종 완료 현황' },
   { href: '/admin-board', title: '게시판 작성', description: '정보 게시판 글쓰기' },
@@ -138,24 +138,35 @@ const quickLinksFcBase: QuickLink[] = [
   { href: '/exam-apply', title: '생명/제3 시험 신청', description: '시험 접수하기' },
   { href: '/exam-apply2', title: '손해 시험 신청', description: '시험 접수하기' },
   { href: '/fc/new', title: '기본 정보', description: '인적사항 수정' },
-  { href: '/consent', title: '수당 동의', description: '약관 동의 관리' },
+  { href: '/consent', title: '보증 보험 동의', description: '약관 동의 관리' },
   { href: '/docs-upload', title: '서류 업로드', description: '필수 서류 제출' },
   { href: '/messenger', title: '메신저', description: '총무/설계매니저와 대화' },
 ];
 
 const fcHomeSteps = [
-  { key: 'consent', label: '수당동의', fullLabel: '수당동의' },
+  { key: 'consent', label: '보증 보험 동의', fullLabel: '보증 보험 동의' },
   { key: 'docs', label: '문서제출', fullLabel: '문서제출' },
-  { key: 'hanwha', label: '한화 위촉 URL', fullLabel: '한화 위촉 URL' },
+  { key: 'hanwha', label: '다위촉 URL', fullLabel: '다위촉 URL' },
   { key: 'url', label: '생명/손해 위촉', fullLabel: '생명/손해 위촉' },
   { key: 'final', label: '완료', fullLabel: '완료' },
 ];
 
+const FC_STAGE_YOUTUBE_PLACEHOLDERS: Record<
+  'consent' | 'docs' | 'hanwha' | 'url' | 'final',
+  { url: string | null; pendingMessage: string }
+> = {
+  consent: { url: null, pendingMessage: '보증 보험 동의 영상은 준비 중입니다.' },
+  docs: { url: null, pendingMessage: '문서제출 영상은 준비 중입니다.' },
+  hanwha: { url: null, pendingMessage: '다위촉 URL 영상은 준비 중입니다.' },
+  url: { url: null, pendingMessage: '생명/손해 위촉 영상은 준비 중입니다.' },
+  final: { url: null, pendingMessage: '완료 단계 영상은 준비 중입니다.' },
+};
+
 const buildFcQuickLinks = (profile?: FcProfile | null): QuickLink[] => {
   const hanwhaLink: QuickLink = {
     href: '/hanwha-commission',
-    title: '한화 위촉 URL',
-    description: '한화라이프랩 위촉 진행',
+    title: '다위촉 URL',
+    description: '다위촉 진행',
   };
   const insuranceLink: QuickLink = {
     href: '/appointment',
@@ -195,9 +206,9 @@ const fetchCounts = async (role: 'admin' | 'fc' | null, residentId: string): Pro
 };
 
 const ADMIN_METRIC_CONFIG: { label: string; key: StepKey }[] = [
-  { label: '1단계 수당동의', key: 'step1' },
+  { label: '1단계 보증 보험 동의', key: 'step1' },
   { label: '2단계 문서제출', key: 'step2' },
-  { label: '3단계 한화 위촉 URL', key: 'step3' },
+  { label: '3단계 다위촉 URL', key: 'step3' },
   { label: '4단계 생명/손해 위촉', key: 'step4' },
   { label: '5단계 완료', key: 'step5' },
 ];
@@ -364,7 +375,7 @@ const getLinkIcon = (href: string) => {
   if (href.includes('status=step0')) return 'user-plus'; // 사전등록
   if (href.includes('status=step1')) return 'user-plus'; // 회원가입 관리
   if (href.includes('status=step2')) return 'check-square'; // 서류 안내/검토
-  if (href.includes('status=step3')) return 'file-text'; // 한화 위촉 URL
+  if (href.includes('status=step3')) return 'file-text'; // 다위촉 URL
   if (href.includes('status=step4')) return 'link'; // 생명/손해 위촉
   if (href.includes('status=step5')) return 'award'; // 완료 관리
 
@@ -377,9 +388,9 @@ const getLinkIcon = (href: string) => {
   // FC 메뉴
   if (href.includes('fc/new')) return 'user'; // 기본 정보
   if (href.includes('exam-apply')) return 'edit-3'; // 시험 신청
-  if (href.includes('consent')) return 'check-circle'; // 수당 동의
+  if (href.includes('consent')) return 'check-circle'; // 보증 보험 동의
   if (href.includes('docs-upload')) return 'upload-cloud'; // 서류 업로드
-  if (href.includes('hanwha-commission')) return 'file-text'; // 한화 위촉 URL
+  if (href.includes('hanwha-commission')) return 'file-text'; // 다위촉 URL
   if (href.includes('appointment')) return 'smartphone'; // 위촉
   if (href.includes('messenger')) return 'message-circle'; // 메신저
   if (href.includes('chat')) return 'message-circle'; // 1:1 문의
@@ -783,6 +794,20 @@ export default function Home() {
         : nextAction.key === 'hanwha'
           ? '/hanwha-commission'
           : '/appointment');
+  const currentStepYoutube = FC_STAGE_YOUTUBE_PLACEHOLDERS[nextAction.key];
+  const hasCurrentStepYoutubeUrl = Boolean(currentStepYoutube?.url);
+  const openCurrentStepYoutube = useCallback(async () => {
+    if (!currentStepYoutube?.url) {
+      Alert.alert('준비 중', currentStepYoutube?.pendingMessage ?? `${nextAction.title} 영상은 준비 중입니다.`);
+      return;
+    }
+
+    try {
+      await openExternalUrl(currentStepYoutube.url);
+    } catch {
+      Alert.alert('오류', '단계별 영상을 열 수 없습니다.');
+    }
+  }, [currentStepYoutube?.pendingMessage, currentStepYoutube?.url, nextAction.title]);
   const managerReferralLink: QuickLink = {
     href: '/referral',
     title: '추천인 코드',
@@ -796,6 +821,13 @@ export default function Home() {
         : adminQuickLinks
       : buildFcQuickLinks(myFc as FcProfile | null | undefined);
   const profileName = typeof myFc?.name === 'string' ? myFc.name.trim() : '';
+  const tempIdValue = typeof myFc?.temp_id === 'string' ? myFc.temp_id.trim() : '';
+  const hasTempId = tempIdValue.length > 0;
+  const tempIdBadgeLabel = statusLoading
+    ? '임시사번 확인 중'
+    : hasTempId
+      ? `임시사번 ${tempIdValue}`
+      : '임시사번 미발급';
   const homeHeaderTitle = buildWelcomeTitle({
     role,
     readOnly,
@@ -1226,59 +1258,63 @@ export default function Home() {
               transition={{ type: 'spring', delay: 180 }}
               style={{ marginBottom: 10 }}
             >
-              <Pressable
-                onPress={startFcTour}
-                accessibilityRole="button"
-                accessibilityLabel="앱 사용 가이드 시작"
-                style={({ pressed }) => [
-                  styles.guideCardNew,
-                  pressed && styles.guideCardNewPressed,
-                ]}
-              >
-                {/* Left icon */}
-                <View style={styles.guideIconWrapNew}>
-                  <LinearGradient
-                    colors={['#fff7ed', '#ffffff']}
-                    start={{ x: 0, y: 0 }}
-                    end={{ x: 1, y: 1 }}
-                    style={styles.guideIconGradientNew}
-                  >
-                    <Feather name="play" size={16} color={HANWHA_ORANGE} style={{ marginLeft: 1 }} />
-                  </LinearGradient>
-                </View>
+              <View style={styles.guideCardNew}>
+                <Pressable
+                  onPress={startFcTour}
+                  accessibilityRole="button"
+                  accessibilityLabel="앱 사용 가이드 시작"
+                  style={({ pressed }) => [
+                    styles.guideMainActionNew,
+                    pressed && styles.guideCardNewPressed,
+                  ]}
+                >
+                  <View style={styles.guideIconWrapNew}>
+                    <LinearGradient
+                      colors={['#fff7ed', '#ffffff']}
+                      start={{ x: 0, y: 0 }}
+                      end={{ x: 1, y: 1 }}
+                      style={styles.guideIconGradientNew}
+                    >
+                      <Feather name="play" size={16} color={HANWHA_ORANGE} style={{ marginLeft: 1 }} />
+                    </LinearGradient>
+                  </View>
 
-                {/* Text */}
-                <View style={styles.guideTextWrapNew}>
-                  <View style={styles.guideBadgeRowNew}>
-                    <View style={styles.guideBadgeNew}>
-                      <Text style={styles.guideBadgeTextNew}>GUIDE</Text>
+                  <View style={styles.guideTextWrapNew}>
+                    <View style={styles.guideBadgeRowNew}>
+                      <View style={styles.guideBadgeNew}>
+                        <Text style={styles.guideBadgeTextNew}>GUIDE</Text>
+                      </View>
+                      <Text style={styles.guideBadgeHintNew}>처음 오셨나요?</Text>
                     </View>
-                    <Text style={styles.guideBadgeHintNew}>처음 오셨나요?</Text>
+
+                    <Text style={styles.guideTitleNew} numberOfLines={1}>
+                      앱 사용법 안내 시작하기
+                    </Text>
                   </View>
 
-                  <Text style={styles.guideTitleNew} numberOfLines={1}>
-                    앱 사용법 안내 시작하기
-                  </Text>
-                </View>
-
-                {/* CTA: 투어 시작 + 유튜브 */}
-                <View style={styles.guideCtaNew}>
-                  <View style={styles.guideCtaChipNew}>
-                    <Text style={styles.guideCtaTextNew}>시작</Text>
-                    <Feather name="chevron-right" size={16} color="#fff" />
+                  <View style={styles.guideCtaNew}>
+                    <View style={styles.guideCtaChipNew}>
+                      <Text style={styles.guideCtaTextNew}>시작</Text>
+                      <Feather name="chevron-right" size={16} color="#fff" />
+                    </View>
                   </View>
-                  <Pressable
-                    onPress={openHomeYoutube}
-                    accessibilityRole="button"
-                    accessibilityLabel="유튜브 가이드 영상 보기"
-                    style={({ pressed }) => [styles.youtubeIconBtnNew, pressed && { opacity: 0.7 }]}
-                    hitSlop={6}
-                  >
-                    <Feather name="youtube" size={16} color="#EF4444" />
-                    <Text style={styles.youtubeIconBtnTextNew}>영상</Text>
-                  </Pressable>
-                </View>
-              </Pressable>
+                </Pressable>
+                <Pressable
+                  onPress={openHomeYoutube}
+                  accessibilityRole="button"
+                  accessibilityLabel="유튜브 가이드 영상 보기"
+                  style={({ pressed }) => [styles.youtubeGuideActionNew, pressed && styles.pressedOpacity]}
+                >
+                  <View style={styles.youtubeGuideIconNew}>
+                    <Feather name="youtube" size={20} color="#DC2626" />
+                  </View>
+                  <View style={styles.youtubeGuideTextWrapNew}>
+                    <Text style={styles.youtubeGuideTitleNew}>유튜브 영상 가이드 보기</Text>
+                    <Text style={styles.youtubeGuideSubTextNew}>화면 설명을 영상으로 바로 확인하세요</Text>
+                  </View>
+                  <Feather name="external-link" size={16} color="#DC2626" />
+                </Pressable>
+              </View>
             </AndroidSafeMotiView>
           )}
 
@@ -1379,7 +1415,30 @@ export default function Home() {
                         <View style={{ width: '100%' }}>
                           <View style={styles.cardHeader} collapsable={false}>
                             <Text style={styles.sectionTitle}>내 진행 상황</Text>
-                            <Text style={styles.progressMeta}>Step {currentStep}/5</Text>
+                            <View style={styles.progressHeaderActions}>
+                              <View
+                                style={[
+                                  styles.tempIdBadge,
+                                  hasTempId ? styles.tempIdBadgeIssued : styles.tempIdBadgeMissing,
+                                ]}
+                              >
+                                <Feather
+                                  name={hasTempId ? 'hash' : 'alert-circle'}
+                                  size={12}
+                                  color={hasTempId ? '#166534' : '#9A3412'}
+                                />
+                                <Text
+                                  style={[
+                                    styles.tempIdBadgeText,
+                                    hasTempId ? styles.tempIdBadgeTextIssued : styles.tempIdBadgeTextMissing,
+                                  ]}
+                                  numberOfLines={1}
+                                >
+                                  {tempIdBadgeLabel}
+                                </Text>
+                              </View>
+                              <Text style={styles.progressMeta}>Step {currentStep}/5</Text>
+                            </View>
                           </View>
                           {statusLoading ? (
                             <View style={{ marginVertical: 20 }}>
@@ -1457,12 +1516,7 @@ export default function Home() {
                             pressed && styles.pressedScale,
                           ]}
                         >
-                          <LinearGradient
-                            colors={['#f36f21', '#fabc3c']}
-                            start={{ x: 0, y: 0 }}
-                            end={{ x: 1, y: 1 }}
-                            style={styles.premiumStepCard}
-                          >
+                          <View style={styles.premiumStepCard}>
                             <View style={styles.premiumStepContent}>
                               <View style={styles.premiumStepHeader}>
                                 <View style={styles.premiumStepBadge}>
@@ -1481,10 +1535,55 @@ export default function Home() {
                             </View>
                             <View style={styles.premiumStepDeco1} />
                             <View style={styles.premiumStepDeco2} />
-                          </LinearGradient>
+                          </View>
                         </Pressable>
                       </TourGuideZone>
                     </View>
+                    <Pressable
+                      onPress={openCurrentStepYoutube}
+                      accessibilityRole="button"
+                      accessibilityLabel={`${nextAction.title} 유튜브 가이드`}
+                      accessibilityHint={
+                        hasCurrentStepYoutubeUrl
+                          ? '현재 단계 영상 가이드를 엽니다.'
+                          : '현재 단계 영상이 준비 중임을 안내합니다.'
+                      }
+                      style={({ pressed }) => [
+                        styles.stepYoutubeButton,
+                        !hasCurrentStepYoutubeUrl && styles.stepYoutubeButtonPending,
+                        pressed && styles.pressedOpacity,
+                      ]}
+                    >
+                      <View
+                        style={[
+                          styles.stepYoutubeIcon,
+                          !hasCurrentStepYoutubeUrl && styles.stepYoutubeIconPending,
+                        ]}
+                      >
+                        <Feather
+                          name="youtube"
+                          size={18}
+                          color={hasCurrentStepYoutubeUrl ? '#DC2626' : '#9CA3AF'}
+                        />
+                      </View>
+                      <Text
+                        style={[
+                          styles.stepYoutubeTitle,
+                          !hasCurrentStepYoutubeUrl && styles.stepYoutubeTitlePending,
+                        ]}
+                      >
+                        영상
+                      </Text>
+                      <Text
+                        style={[
+                          styles.stepYoutubeStatus,
+                          !hasCurrentStepYoutubeUrl && styles.stepYoutubeStatusPending,
+                        ]}
+                        numberOfLines={1}
+                      >
+                        {hasCurrentStepYoutubeUrl ? '보기' : '준비 중'}
+                      </Text>
+                    </Pressable>
                   </View>
                 </View>
               </View>
@@ -1553,13 +1652,8 @@ export default function Home() {
                       { flex: 1 },
                       pressed && styles.pressedScale,
                     ]}
-                  >
-                    <LinearGradient
-                      colors={['#f36f21', '#fabc3c']}
-                      start={{ x: 0, y: 0 }}
-                      end={{ x: 1, y: 1 }}
-                      style={styles.premiumStepCard}
                     >
+                    <View style={styles.premiumStepCard}>
                       <View style={styles.premiumStepContent}>
                         <View style={styles.premiumStepHeader}>
                           <View style={styles.premiumStepBadge}>
@@ -1578,7 +1672,52 @@ export default function Home() {
                       </View>
                       <View style={styles.premiumStepDeco1} />
                       <View style={styles.premiumStepDeco2} />
-                    </LinearGradient>
+                    </View>
+                  </Pressable>
+                  <Pressable
+                    onPress={openCurrentStepYoutube}
+                    accessibilityRole="button"
+                    accessibilityLabel={`${nextAction.title} 유튜브 가이드`}
+                    accessibilityHint={
+                      hasCurrentStepYoutubeUrl
+                        ? '현재 단계 영상 가이드를 엽니다.'
+                        : '현재 단계 영상이 준비 중임을 안내합니다.'
+                    }
+                    style={({ pressed }) => [
+                      styles.stepYoutubeButton,
+                      !hasCurrentStepYoutubeUrl && styles.stepYoutubeButtonPending,
+                      pressed && styles.pressedOpacity,
+                    ]}
+                  >
+                    <View
+                      style={[
+                        styles.stepYoutubeIcon,
+                        !hasCurrentStepYoutubeUrl && styles.stepYoutubeIconPending,
+                      ]}
+                    >
+                      <Feather
+                        name="youtube"
+                        size={18}
+                        color={hasCurrentStepYoutubeUrl ? '#DC2626' : '#9CA3AF'}
+                      />
+                    </View>
+                    <Text
+                      style={[
+                        styles.stepYoutubeTitle,
+                        !hasCurrentStepYoutubeUrl && styles.stepYoutubeTitlePending,
+                      ]}
+                    >
+                      영상
+                    </Text>
+                    <Text
+                      style={[
+                        styles.stepYoutubeStatus,
+                        !hasCurrentStepYoutubeUrl && styles.stepYoutubeStatusPending,
+                      ]}
+                      numberOfLines={1}
+                    >
+                      {hasCurrentStepYoutubeUrl ? '보기' : '준비 중'}
+                    </Text>
                   </Pressable>
                 </View>
               </View>
@@ -1591,12 +1730,7 @@ export default function Home() {
               {role === 'admin' ? (
                 <AndroidSafeMotiView from={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} transition={{ type: 'spring', delay: 100 }}>
                   <Pressable onPress={() => handlePressLink('/dashboard', 'step4')}>
-                    <LinearGradient
-                      colors={['#f36f21', '#fabc3c']}
-                      start={{ x: 0, y: 0 }}
-                      end={{ x: 1, y: 1 }}
-                      style={styles.ctaCard}
-                    >
+                    <View style={styles.ctaCard}>
                       <View style={styles.ctaContent}>
                         <View style={[styles.ctaBadge, { backgroundColor: 'rgba(255,255,255,0.15)' }]}>
                           <Text style={styles.ctaBadgeText}>관리자 할 일</Text>
@@ -1610,7 +1744,7 @@ export default function Home() {
                         <Feather name="file-text" size={24} color="#fff" />
                       </View>
                       <View style={styles.ctaDecoCircle} />
-                    </LinearGradient>
+                    </View>
                   </Pressable>
                 </AndroidSafeMotiView>
               ) : isFc ? (
@@ -1621,12 +1755,7 @@ export default function Home() {
                     borderRadius={24}>
                     <AndroidSafeMotiView from={{ opacity: 0, translateY: 10 }} animate={{ opacity: 1, translateY: 0 }} transition={{ type: 'spring', delay: 100 }}>
                       <Pressable onPress={() => handlePressLink('/messenger')}>
-                        <LinearGradient
-                          colors={['#f36f21', '#fabc3c']}
-                          start={{ x: 0, y: 0 }}
-                          end={{ x: 1, y: 1 }}
-                          style={styles.ctaCard}
-                        >
+                        <View style={styles.ctaCard}>
                           <View style={styles.ctaContent}>
                             <View style={styles.ctaBadge}>
                               <Text style={styles.ctaBadgeText}>메신저</Text>
@@ -1665,7 +1794,7 @@ export default function Home() {
                             )}
                           </View>
                           <View style={styles.ctaDecoCircle} />
-                        </LinearGradient>
+                        </View>
                       </Pressable>
                     </AndroidSafeMotiView>
                   </TourGuideZone>
@@ -1673,12 +1802,7 @@ export default function Home() {
               ) : (
                 <AndroidSafeMotiView from={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} transition={{ type: 'spring', delay: 100 }}>
                   <Pressable onPress={() => handlePressLink('/messenger')}>
-                    <LinearGradient
-                      colors={['#f36f21', '#fabc3c']}
-                      start={{ x: 0, y: 0 }}
-                      end={{ x: 1, y: 1 }}
-                      style={styles.ctaCard}
-                    >
+                    <View style={styles.ctaCard}>
                       <View style={styles.ctaContent}>
                         <View style={styles.ctaBadge}>
                           <Text style={styles.ctaBadgeText}>메신저</Text>
@@ -1696,7 +1820,7 @@ export default function Home() {
                         <Feather name="message-circle" size={24} color={HANWHA_ORANGE} />
                       </View>
                       <View style={styles.ctaDecoCircle} />
-                    </LinearGradient>
+                    </View>
                   </Pressable>
                 </AndroidSafeMotiView>
               )}
@@ -1720,49 +1844,63 @@ export default function Home() {
               transition={{ type: 'spring', delay: 180 }}
               style={{ marginBottom: 20 }}
             >
-              <Pressable
-                onPress={startShortcutGuide}
-                accessibilityRole="button"
-                accessibilityLabel="바로가기 사용법 설명 듣기"
-                style={({ pressed }) => [
-                  styles.guideCardNew,
-                  pressed && styles.guideCardNewPressed,
-                ]}
-              >
-                {/* Left icon */}
-                <View style={styles.guideIconWrapNew}>
-                  <LinearGradient
-                    colors={['#fff7ed', '#ffffff']}
-                    start={{ x: 0, y: 0 }}
-                    end={{ x: 1, y: 1 }}
-                    style={styles.guideIconGradientNew}
-                  >
-                    <Feather name="play" size={16} color={HANWHA_ORANGE} style={{ marginLeft: 1 }} />
-                  </LinearGradient>
-                </View>
+              <View style={styles.guideCardNew}>
+                <Pressable
+                  onPress={startShortcutGuide}
+                  accessibilityRole="button"
+                  accessibilityLabel="바로가기 사용법 설명 듣기"
+                  style={({ pressed }) => [
+                    styles.guideMainActionNew,
+                    pressed && styles.guideCardNewPressed,
+                  ]}
+                >
+                  <View style={styles.guideIconWrapNew}>
+                    <LinearGradient
+                      colors={['#fff7ed', '#ffffff']}
+                      start={{ x: 0, y: 0 }}
+                      end={{ x: 1, y: 1 }}
+                      style={styles.guideIconGradientNew}
+                    >
+                      <Feather name="play" size={16} color={HANWHA_ORANGE} style={{ marginLeft: 1 }} />
+                    </LinearGradient>
+                  </View>
 
-                {/* Text */}
-                <View style={styles.guideTextWrapNew}>
-                  <View style={styles.guideBadgeRowNew}>
-                    <View style={styles.guideBadgeNew}>
-                      <Text style={styles.guideBadgeTextNew}>SHORTCUT</Text>
+                  <View style={styles.guideTextWrapNew}>
+                    <View style={styles.guideBadgeRowNew}>
+                      <View style={styles.guideBadgeNew}>
+                        <Text style={styles.guideBadgeTextNew}>SHORTCUT</Text>
+                      </View>
+                      <Text style={styles.guideBadgeHintNew}>기능이 궁금한가요?</Text>
                     </View>
-                    <Text style={styles.guideBadgeHintNew}>기능이 궁금한가요?</Text>
+
+                    <Text style={styles.guideTitleNew} numberOfLines={1}>
+                      바로가기 사용법 설명 듣기
+                    </Text>
                   </View>
 
-                  <Text style={styles.guideTitleNew} numberOfLines={1}>
-                    바로가기 사용법 설명 듣기
-                  </Text>
-                </View>
-
-                {/* CTA */}
-                <View style={styles.guideCtaNew}>
-                  <View style={styles.guideCtaChipNew}>
-                    <Text style={styles.guideCtaTextNew}>시작</Text>
-                    <Feather name="chevron-right" size={16} color="#fff" />
+                  <View style={styles.guideCtaNew}>
+                    <View style={styles.guideCtaChipNew}>
+                      <Text style={styles.guideCtaTextNew}>시작</Text>
+                      <Feather name="chevron-right" size={16} color="#fff" />
+                    </View>
                   </View>
-                </View>
-              </Pressable>
+                </Pressable>
+                <Pressable
+                  onPress={openHomeYoutube}
+                  accessibilityRole="button"
+                  accessibilityLabel="유튜브 바로가기 영상 보기"
+                  style={({ pressed }) => [styles.youtubeGuideActionNew, pressed && styles.pressedOpacity]}
+                >
+                  <View style={styles.youtubeGuideIconNew}>
+                    <Feather name="youtube" size={20} color="#DC2626" />
+                  </View>
+                  <View style={styles.youtubeGuideTextWrapNew}>
+                    <Text style={styles.youtubeGuideTitleNew}>바로가기 영상 가이드 보기</Text>
+                    <Text style={styles.youtubeGuideSubTextNew}>메뉴별 이동 방법을 영상으로 확인하세요</Text>
+                  </View>
+                  <Feather name="external-link" size={16} color="#DC2626" />
+                </Pressable>
+              </View>
             </AndroidSafeMotiView>
           )}
           <View style={styles.actionGrid}>
@@ -1908,6 +2046,7 @@ const styles = StyleSheet.create({
     marginBottom: 16,
     position: 'relative',
     overflow: 'hidden',
+    backgroundColor: HANWHA_ORANGE,
   },
   ctaContent: { zIndex: 1 },
   ctaBadge: {
@@ -2062,6 +2201,37 @@ const styles = StyleSheet.create({
     ...CARD_SHADOW,
   },
   progressMeta: { fontSize: 15, fontWeight: '700', color: HANWHA_ORANGE }, // 13 -> 15
+  progressHeaderActions: {
+    alignItems: 'flex-end',
+    gap: 6,
+    flexShrink: 1,
+    maxWidth: '60%',
+  },
+  tempIdBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    maxWidth: '100%',
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 999,
+    borderWidth: 1,
+  },
+  tempIdBadgeIssued: {
+    backgroundColor: '#ECFDF5',
+    borderColor: '#BBF7D0',
+  },
+  tempIdBadgeMissing: {
+    backgroundColor: '#FFF7ED',
+    borderColor: '#FED7AA',
+  },
+  tempIdBadgeText: {
+    flexShrink: 1,
+    fontSize: 12,
+    fontWeight: '800',
+  },
+  tempIdBadgeTextIssued: { color: '#166534' },
+  tempIdBadgeTextMissing: { color: '#9A3412' },
   statusRow: { flexDirection: 'row', marginBottom: 20, alignItems: 'center' },
   statusItem: { flex: 1, alignItems: 'center' },
   statusLabel: { fontSize: 14, color: TEXT_MUTED, marginBottom: 6 }, // 12 -> 14
@@ -2083,6 +2253,49 @@ const styles = StyleSheet.create({
     paddingTop: 16,
     borderTopWidth: 1,
     borderTopColor: '#F3F4F6',
+  },
+  stepYoutubeButton: {
+    width: 92,
+    borderRadius: 18,
+    paddingHorizontal: 10,
+    paddingVertical: 12,
+    borderWidth: 1,
+    borderColor: '#FCA5A5',
+    backgroundColor: '#FEF2F2',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 4,
+  },
+  stepYoutubeButtonPending: {
+    borderColor: '#E5E7EB',
+    backgroundColor: '#F9FAFB',
+  },
+  stepYoutubeIcon: {
+    width: 34,
+    height: 34,
+    borderRadius: 17,
+    backgroundColor: '#FFFFFF',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  stepYoutubeIconPending: {
+    backgroundColor: '#F3F4F6',
+  },
+  stepYoutubeTitle: {
+    fontSize: 13,
+    fontWeight: '800',
+    color: '#991B1B',
+  },
+  stepYoutubeTitlePending: {
+    color: '#6B7280',
+  },
+  stepYoutubeStatus: {
+    fontSize: 11,
+    fontWeight: '700',
+    color: '#B91C1C',
+  },
+  stepYoutubeStatusPending: {
+    color: '#9CA3AF',
   },
   glancePill: {
     flex: 1,
@@ -2179,6 +2392,7 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.25,
     shadowRadius: 12,
     elevation: 8,
+    backgroundColor: HANWHA_ORANGE,
   },
   premiumStepContent: {
     zIndex: 10,
@@ -2214,7 +2428,7 @@ const styles = StyleSheet.create({
     fontWeight: '800',
     color: '#fff',
     marginBottom: 4,
-    letterSpacing: -0.5,
+    letterSpacing: 0,
   },
   premiumStepSub: {
     fontSize: 14,
@@ -2293,16 +2507,20 @@ const styles = StyleSheet.create({
     borderRadius: 18,
     paddingVertical: 14,
     paddingHorizontal: 14,
-    flexDirection: 'row',
-    alignItems: 'center',
     backgroundColor: '#fff',
     borderWidth: 1,
     borderColor: '#F1F5F9', // Slate-100 느낌
+    gap: 10,
     shadowColor: '#000',
     shadowOpacity: 0.06,
     shadowRadius: 16,
     shadowOffset: { width: 0, height: 8 },
     elevation: 4,
+  },
+
+  guideMainActionNew: {
+    flexDirection: 'row',
+    alignItems: 'center',
   },
 
   guideCardNewPressed: {
@@ -2351,7 +2569,7 @@ const styles = StyleSheet.create({
     color: '#9A3412', // Orange-900
     fontSize: 11,
     fontWeight: '800',
-    letterSpacing: 0.6,
+    letterSpacing: 0,
   },
 
   guideBadgeHintNew: {
@@ -2364,7 +2582,7 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: '800',
     color: CHARCOAL,
-    letterSpacing: -0.2,
+    letterSpacing: 0,
     marginBottom: 2,
   },
 
@@ -2381,22 +2599,43 @@ const styles = StyleSheet.create({
     gap: 8,
   },
 
-  youtubeIconBtnNew: {
+  youtubeGuideActionNew: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 6,
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-    borderRadius: 999,
-    backgroundColor: '#FEF2F2',
+    gap: 10,
+    borderRadius: 14,
     borderWidth: 1,
-    borderColor: '#FEE2E2',
+    borderColor: '#FCA5A5',
+    backgroundColor: '#FEF2F2',
+    paddingHorizontal: 12,
+    paddingVertical: 10,
   },
 
-  youtubeIconBtnTextNew: {
-    fontSize: 13,
+  youtubeGuideIconNew: {
+    width: 34,
+    height: 34,
+    borderRadius: 17,
+    backgroundColor: '#FFFFFF',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+
+  youtubeGuideTextWrapNew: {
+    flex: 1,
+    minWidth: 0,
+  },
+
+  youtubeGuideTitleNew: {
+    fontSize: 14,
     fontWeight: '800',
-    color: '#EF4444',
+    color: '#991B1B',
+    marginBottom: 2,
+  },
+
+  youtubeGuideSubTextNew: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: '#B91C1C',
   },
 
   guideCtaChipNew: {

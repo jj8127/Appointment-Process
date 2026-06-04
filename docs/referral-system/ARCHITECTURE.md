@@ -77,6 +77,7 @@
 completed FC 또는 active manager 로그인 성공
   -> login-with-password
   -> manager면 ensure_manager_referral_shadow_profile
+  -> manager fc profile은 link_manager_profile_to_default_recommender로 김형수(01094272550) 기본 추천인 연결
   -> ensureActiveReferralCode(p_rotate=false)
   -> active code 있으면 noop_active_exists
   -> 없으면 code_generated
@@ -115,6 +116,8 @@ completed FC 또는 active manager 로그인 성공
 - `search-signup-referral`은 app session 없이 이름/소속/추천 코드 검색을 허용하지만, 응답은 active referral code가 있는 후보의 `name`, `affiliation`, `code`만 반환한다.
 - exact 8자리 추천코드 query는 `referral_codes.eq(code)` + inviter profile 1건 lookup으로 short-circuit하고, 나머지 query만 이름/소속/부분코드 fuzzy search를 탄다.
 - `login-with-password`는 completed FC login 성공 시 active code를 idempotent하게 보장하고, manager login 성공 시 `ensure_manager_referral_shadow_profile` 뒤 같은 보장 로직을 적용한다.
+- `ensure_manager_referral_shadow_profile`은 active manager profile을 만든/갱신한 뒤 `link_manager_profile_to_default_recommender`를 호출해 김형수(`01094272550`)의 active referral code로 `fc_profiles.recommender_*` snapshot을 보정한다.
+- `link_manager_profile_to_default_recommender`는 김형수 프로필과 active code가 있으면 `apply_referral_link_state(..., source='admin_override')`를 통해 current-state와 `referral_events`를 갱신하고, 김형수 본인은 자기추천으로 연결하지 않는다.
 - FC/본부장 자기 코드/현재 추천인 cache 조회의 현재 앱 경로: `get-my-referral-code`
 - `get-my-referral-code`는 eligible profile인데 active code가 없으면 `admin_issue_referral_code(..., p_rotate=false)` helper를 1회 실행해 catch-up한 뒤 응답한다. current contract에서 self-service no-code는 forbidden/not_found/runtime failure가 아닌 이상 오래 남아 있으면 안 된다.
 - FC/본부장 자기 invitee 조회의 현재 앱 경로: `get-my-invitees`

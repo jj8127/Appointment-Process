@@ -3,7 +3,6 @@
 import { useSession } from '@/hooks/use-session';
 import { logger } from '@/lib/logger';
 import { normalizeStaffType } from '@/lib/staff-identity';
-import { supabase } from '@/lib/supabase';
 import {
     Button,
     Container,
@@ -63,7 +62,7 @@ function resolveLoginErrorMessage(error: unknown) {
 }
 
 export default function AuthPage() {
-    const { loginAs, logout, role, residentId, hydrated } = useSession();
+    const { loginAs, role, residentId, hydrated } = useSession();
     const [phoneInput, setPhoneInput] = useState('');
     const [passwordInput, setPasswordInput] = useState('');
     const [loading, setLoading] = useState(false);
@@ -76,14 +75,14 @@ export default function AuthPage() {
 
     useEffect(() => {
         if (!hydrated) return;
-        if (role === 'admin' || role === 'manager') {
-            router.replace('/dashboard');
+        if (role === 'fc' && residentId) {
+            router.replace('/dashboard/referrals/graph');
             return;
         }
-        if (role === 'fc' && residentId) {
-            logout({ redirectTo: null });
+        if (role === 'admin' || role === 'manager') {
+            router.replace('/dashboard');
         }
-    }, [hydrated, logout, residentId, role, router]);
+    }, [hydrated, residentId, role, router]);
 
     const handleLogin = async () => {
         const code = phoneInput.trim();
@@ -120,10 +119,15 @@ export default function AuthPage() {
                 return;
             }
 
-            const { data, error } = await supabase.functions.invoke('login-with-password', {
-                body: { phone: digits, password: passwordInput.trim() },
+            const loginResponse = await fetch('/api/auth/login', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ phone: digits, password: passwordInput.trim() }),
             });
-            if (error) throw error;
+            const data = await loginResponse.json();
+            if (!loginResponse.ok && !data?.message) {
+                throw new Error('로그인 요청을 처리하지 못했습니다.');
+            }
             if (!data?.ok) {
                 if (data?.code === 'not_found' && data?.role !== 'admin') {
                     notifications.show({
@@ -153,18 +157,8 @@ export default function AuthPage() {
             }
 
             const nextRole = data.role === 'admin' ? 'admin' : data.role === 'manager' ? 'manager' : 'fc';
-            if (nextRole === 'fc') {
-                notifications.show({
-                    title: '웹 로그인 제한',
-                    message: 'FC 계정은 관리자 웹이 아니라 FC 앱에서 이용해주세요.',
-                    color: 'orange',
-                });
-                setLoading(false);
-                return;
-            }
-
             loginAs(nextRole, data.residentId ?? digits, data.displayName ?? '', normalizeStaffType(data.staffType));
-            router.replace('/dashboard');
+            router.replace(nextRole === 'fc' ? '/dashboard/referrals/graph' : '/dashboard');
         } catch (err: unknown) {
             const loginError = resolveLoginErrorMessage(err);
 
@@ -257,9 +251,9 @@ export default function AuthPage() {
                                 로그인
                             </Title>
                             <Text c="dimmed" size="sm" style={{ lineHeight: 1.6 }}>
-                                관리자/매니저 계정으로 로그인해주세요.
+                                관리자/본부장/FC 계정으로 로그인해주세요.
                                 <br />
-                                FC 계정은 모바일 앱에서 이용합니다.
+                                FC 계정은 추천인 그래프만 이용할 수 있습니다.
                             </Text>
                         </Box>
 

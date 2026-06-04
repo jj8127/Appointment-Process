@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 
+import { resolveAdminWebRouteAccess } from './src/lib/admin-web-route-access';
 import { isAdminWebPublicPath } from './src/lib/admin-web-public-paths';
 
 const SESSION_COOKIE_NAMES = ['session_role', 'session_resident', 'session_display', 'session_staff_type'] as const;
@@ -9,6 +10,17 @@ function clearSessionCookies(response: NextResponse) {
     response.cookies.set(cookieName, '', { path: '/', maxAge: 0 });
   }
   return response;
+}
+
+function applyRouteDecision(request: NextRequest, decision: ReturnType<typeof resolveAdminWebRouteAccess>) {
+  if (decision.type === 'allow') {
+    return NextResponse.next();
+  }
+
+  const url = request.nextUrl.clone();
+  url.pathname = decision.pathname;
+  const response = NextResponse.redirect(url);
+  return decision.clearSession ? clearSessionCookies(response) : response;
 }
 
 export function middleware(request: NextRequest) {
@@ -30,55 +42,22 @@ export function middleware(request: NextRequest) {
   const role = request.cookies.get('session_role')?.value;
   const residentId = request.cookies.get('session_resident')?.value;
   const hasSession = Boolean(role && residentId);
-  const isStaffRole = role === 'admin' || role === 'manager';
 
-  if (pathname === '/') {
-    const url = request.nextUrl.clone();
-    url.pathname = isStaffRole ? '/dashboard' : '/auth';
-    if (hasSession && !isStaffRole) {
-      return clearSessionCookies(NextResponse.redirect(url));
-    }
-    return NextResponse.redirect(url);
-  }
-
-  if (pathname === '/auth') {
-    if (isStaffRole) {
-      const url = request.nextUrl.clone();
-      url.pathname = '/dashboard';
-      return NextResponse.redirect(url);
-    }
-    if (hasSession && !isStaffRole) {
-      return clearSessionCookies(NextResponse.next());
-    }
-    return NextResponse.next();
+  if (pathname === '/' || pathname === '/auth') {
+    return applyRouteDecision(
+      request,
+      resolveAdminWebRouteAccess({ pathname, role, hasSession }),
+    );
   }
 
   if (isAdminWebPublicPath(pathname)) {
     return NextResponse.next();
   }
 
-  // Block access to protected pages if no session info
-  if (!role || !residentId) {
-    const url = request.nextUrl.clone();
-    url.pathname = '/auth';
-    return NextResponse.redirect(url);
-  }
-
-  // This web app is admin/manager-only. Clear stale FC cookies before redirecting.
-  if (!isStaffRole) {
-    const url = request.nextUrl.clone();
-    url.pathname = '/auth';
-    return clearSessionCookies(NextResponse.redirect(url));
-  }
-
-  // /admin 경로는 admin role만 허용
-  if (pathname.startsWith('/admin') && role !== 'admin') {
-    const url = request.nextUrl.clone();
-    url.pathname = '/auth';
-    return NextResponse.redirect(url);
-  }
-
-  return NextResponse.next();
+  return applyRouteDecision(
+    request,
+    resolveAdminWebRouteAccess({ pathname, role, hasSession }),
+  );
 }
 
 export const config = {

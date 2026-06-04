@@ -70,6 +70,8 @@ source_of_truth: app/login.tsx + app/signup*.tsx + app/reset-password.tsx + app/
 ## 구현 주의
 
 - `request-signup-otp`와 `set-password`는 인증 화면 로직이지만, 가입 중 프로필 재초기화와 shared commission helper를 함께 통과합니다.
+- 회원가입의 자격증 보유 현황은 `license_statuses text[]`에 코드값 `third`, `life`, `nonlife`, `none`으로 저장한다. `none`은 배타 선택이며, 다른 자격증을 고르면 자동 해제되어야 한다.
+- `set-password`는 `license_statuses`를 검증/정규화해 저장하고, 기존 온보딩 분기 호환을 위해 생명/손해 legacy completion flag도 계속 계산한다.
 - `app/signup.tsx`의 추천인 영역은 direct 8자리 코드 입력을 유지하되, 비로그인 trusted lookup `search-signup-referral`로 이름/소속/추천 코드 검색도 지원합니다. 다만 최종 signup payload는 새 구조를 만들지 않고 기존 `referralCode` + `referralInviterFcId`로 유지해야 합니다.
 - 회원가입 검색 결과를 선택해도 최종 검증은 항상 `validate-referral-code`를 다시 거친 뒤 `set-password`로 넘어가야 합니다. 검색 결과를 inviter 문자열 자체로 저장하거나 `set-password`에 별도 검색 결과 객체를 넘기면 안 됩니다.
 - `signup-verify` / `signup-password`의 CTA는 키보드가 열린 상태에서도 first tap에 동작해야 합니다. OTP/비밀번호 단계 버튼은 필요 시 `Keyboard.dismiss()`를 먼저 호출하고, 인증 코드 입력은 `onSubmitEditing`으로도 같은 submit 경로를 타야 합니다.

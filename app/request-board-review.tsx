@@ -1,4 +1,5 @@
 import { Feather } from '@expo/vector-icons';
+import * as DocumentPicker from 'expo-document-picker';
 import { Stack, useLocalSearchParams, useRouter } from 'expo-router';
 import { type ReactNode, useCallback, useEffect, useState } from 'react';
 import {
@@ -24,10 +25,13 @@ import { openExternalUrl } from '@/lib/open-external-url';
 import { formatRequestBoardDrivingStatus } from '@/lib/request-board-driving-status';
 import {
   rbApproveDesign,
+  rbCompleteRequest,
   rbGetRequestDetail,
   rbRejectDesign,
+  rbUploadRequestAttachments,
   type RbDesignerAssignment,
   type RbRequestDetail,
+  type RbRequestUploadFile,
 } from '@/lib/request-board-api';
 import { COLORS, RADIUS, SHADOWS, SPACING, TYPOGRAPHY } from '@/lib/theme';
 import { safeDecodeFileName } from '@/lib/validation';
@@ -266,6 +270,78 @@ export default function RequestBoardReviewScreen() {
     }
   };
 
+  const handleDesignerAttachmentUpload = async (assignment: RbDesignerAssignment) => {
+    if (!requestId) return;
+    try {
+      const result = await DocumentPicker.getDocumentAsync({
+        multiple: true,
+        copyToCacheDirectory: true,
+      });
+      if (result.canceled || result.assets.length === 0) return;
+
+      const files: RbRequestUploadFile[] = result.assets.map((asset) => ({
+        uri: asset.uri,
+        name: asset.name,
+        type: asset.mimeType ?? 'application/octet-stream',
+        size: asset.size ?? 0,
+      }));
+
+      setSubmitting(true);
+      const res = await rbUploadRequestAttachments(requestId, assignment.designer_id, {
+        files,
+        metadata: files.map(() => ({ description: '설계 완료 첨부' })),
+        requestDesignerId: assignment.id,
+      });
+
+      if (res.success) {
+        Alert.alert('첨부 완료', '설계 파일을 첨부했습니다.');
+        await fetchData();
+      } else {
+        Alert.alert('첨부 실패', res.error ?? '첨부파일 업로드에 실패했습니다.');
+      }
+    } catch (err) {
+      logger.warn('[review] designer attachment upload failed', err);
+      Alert.alert('첨부 실패', '첨부파일 업로드 중 오류가 발생했습니다.');
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  const handleDesignerComplete = (assignment: RbDesignerAssignment) => {
+    if (!requestId) return;
+    Alert.alert(
+      '설계 완료 처리',
+      'FC가 검토할 수 있도록 이 의뢰를 완료 상태로 전환합니다.',
+      [
+        { text: '취소', style: 'cancel' },
+        {
+          text: '완료 처리',
+          style: 'default',
+          onPress: async () => {
+            setSubmitting(true);
+            try {
+              const res = await rbCompleteRequest(requestId, assignment.designer_id, {
+                completionNote: '가람in 모바일에서 완료 처리',
+                requestDesignerId: assignment.id,
+              });
+              if (res.success) {
+                Alert.alert('완료 처리됨', '의뢰가 완료 상태로 전환되었습니다.');
+                await fetchData();
+              } else {
+                Alert.alert('완료 실패', res.error ?? '완료 처리 중 오류가 발생했습니다.');
+              }
+            } catch (err) {
+              logger.warn('[review] designer complete failed', err);
+              Alert.alert('완료 실패', '완료 처리 중 오류가 발생했습니다.');
+            } finally {
+              setSubmitting(false);
+            }
+          },
+        },
+      ],
+    );
+  };
+
   const navPreset = resolveBottomNavPreset({ role, readOnly, hydrated, isRequestBoardDesigner });
   const navActiveKey = resolveBottomNavActiveKey(navPreset, 'request-board');
 
@@ -280,9 +356,11 @@ export default function RequestBoardReviewScreen() {
     const designerName = assignment.designers?.users?.name ?? '설계 매니저';
     const companyName = assignment.designers?.company_name;
     const isCompleted = assignment.status === 'completed';
+    const canManageAsDesigner = isRequestBoardDesigner && assignment.status === 'accepted';
     const needsReview =
       isCompleted &&
       (assignment.fc_decision === 'pending' || assignment.fc_decision == null);
+    const canReviewAsFc = !isRequestBoardDesigner && needsReview;
     const fcDecided = assignment.fc_decision === 'accepted' || assignment.fc_decision === 'rejected';
     const attachments = assignment.request_attachments ?? [];
     const assignmentCode = [assignment.fc_code_name, assignment.fc_code_value]
@@ -293,7 +371,7 @@ export default function RequestBoardReviewScreen() {
     return (
       <View
         key={assignment.id}
-        style={[styles.assignmentCard, needsReview && styles.assignmentCardHighlight]}
+        style={[styles.assignmentCard, canReviewAsFc && styles.assignmentCardHighlight]}
       >
         {/* Designer Info (설계매니저 계정에서는 본인 프로필 노출 생략) */}
         {isRequestBoardDesigner ? (
@@ -381,7 +459,7 @@ export default function RequestBoardReviewScreen() {
         ) : null}
 
         {/* Attachments */}
-        {isCompleted && attachments.length > 0 && (
+        {attachments.length > 0 && (
           <View style={styles.attachmentsWrap}>
             <Text style={styles.attachmentsTitle}>
               <Feather name="paperclip" size={11} color={COLORS.gray[600]} /> 첨부 파일 ({attachments.length})
@@ -414,6 +492,41 @@ export default function RequestBoardReviewScreen() {
           <View style={styles.noFilesRow}>
             <Feather name="paperclip" size={13} color={COLORS.gray[300]} />
             <Text style={styles.noFilesText}>첨부 파일 없음</Text>
+          </View>
+        )}
+
+        {canManageAsDesigner && (
+          <View style={styles.designerManageBtns}>
+            <Pressable
+              style={({ pressed }) => [
+                styles.attachmentBtn,
+                pressed && { opacity: 0.8 },
+                submitting && { opacity: 0.5 },
+              ]}
+              onPress={() => handleDesignerAttachmentUpload(assignment)}
+              disabled={submitting}
+            >
+              <Feather name="paperclip" size={15} color={COLORS.primary} />
+              <Text style={styles.attachmentBtnText}>첨부 추가</Text>
+            </Pressable>
+            <Pressable
+              style={({ pressed }) => [
+                styles.completeBtn,
+                pressed && { opacity: 0.8 },
+                submitting && { opacity: 0.5 },
+              ]}
+              onPress={() => handleDesignerComplete(assignment)}
+              disabled={submitting}
+            >
+              {submitting ? (
+                <BrandedLoadingSpinner size="sm" color="#fff" />
+              ) : (
+                <>
+                  <Feather name="check" size={15} color="#fff" />
+                  <Text style={styles.completeBtnText}>완료 처리</Text>
+                </>
+              )}
+            </Pressable>
           </View>
         )}
 
@@ -451,8 +564,20 @@ export default function RequestBoardReviewScreen() {
           </View>
         )}
 
+        {isRequestBoardDesigner && needsReview && (
+          <View style={[styles.fcDecisionRow, styles.fcDecisionWaiting]}>
+            <Feather name="clock" size={13} color="#B45309" />
+            <View style={{ flex: 1 }}>
+              <Text style={[styles.fcDecisionLabel, { color: '#B45309' }]}>FC 검토 대기</Text>
+              <Text style={styles.fcDecisionReason}>
+                완료된 설계는 FC 검토 화면에서 처리됩니다.
+              </Text>
+            </View>
+          </View>
+        )}
+
         {/* Approve / Reject Buttons */}
-        {needsReview && (
+        {canReviewAsFc && (
           <View style={styles.decisionBtns}>
             <Pressable
               style={({ pressed }) => [
@@ -1100,6 +1225,47 @@ const styles = StyleSheet.create({
     fontSize: TYPOGRAPHY.fontSize.xs,
     color: COLORS.gray[300],
   },
+  designerManageBtns: {
+    flexDirection: 'row',
+    gap: SPACING.sm,
+    marginTop: SPACING.sm,
+    paddingTop: SPACING.sm,
+    borderTopWidth: 1,
+    borderTopColor: COLORS.gray[100],
+  },
+  attachmentBtn: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 4,
+    paddingVertical: 10,
+    borderRadius: RADIUS.md,
+    borderWidth: 1.5,
+    borderColor: COLORS.primary,
+    backgroundColor: COLORS.primaryPale,
+  },
+  attachmentBtnText: {
+    fontSize: TYPOGRAPHY.fontSize.sm,
+    fontWeight: '700' as const,
+    color: COLORS.primary,
+  },
+  completeBtn: {
+    flex: 1.2,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 4,
+    paddingVertical: 10,
+    borderRadius: RADIUS.md,
+    backgroundColor: COLORS.primary,
+    ...SHADOWS.sm,
+  },
+  completeBtnText: {
+    fontSize: TYPOGRAPHY.fontSize.sm,
+    fontWeight: '700' as const,
+    color: '#fff',
+  },
 
   /* FC Decision */
   fcDecisionRow: {
@@ -1115,6 +1281,9 @@ const styles = StyleSheet.create({
   },
   fcDecisionRejected: {
     backgroundColor: '#FEE2E2',
+  },
+  fcDecisionWaiting: {
+    backgroundColor: '#FFFBEB',
   },
   fcDecisionLabel: {
     fontSize: TYPOGRAPHY.fontSize.sm,

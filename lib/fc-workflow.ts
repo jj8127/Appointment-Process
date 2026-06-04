@@ -84,7 +84,7 @@ export const getApprovedDocumentState = (profile?: WorkflowProfile | null) => {
   const docs = profile?.fc_documents ?? [];
   const allSubmitted =
     docs.length > 0 && docs.every((doc) => doc.storage_path && doc.storage_path !== 'deleted');
-  const allApproved = allSubmitted && docs.every((doc) => doc.status === 'approved');
+  const allApproved = docs.length > 0 && docs.every((doc) => doc.status === 'approved');
 
   return { docs, allSubmitted, allApproved };
 };
@@ -105,10 +105,10 @@ export const getAllowanceDisplayState = (
   }
 
   if (!profile?.allowance_date) {
-    return { key: 'missing', label: 'FC 수당 동의일 미입력', color: 'gray' };
+    return { key: 'missing', label: 'FC 보증보험 조회 동의일 미입력', color: 'gray' };
   }
 
-  return { key: 'entered', label: 'FC 수당 동의 입력 완료', color: 'orange' };
+  return { key: 'entered', label: 'FC 보증 보험 동의 입력 완료', color: 'orange' };
 };
 
 export const hasAllowancePassed = (
@@ -160,6 +160,10 @@ export const hasHanwhaApprovalEvidence = (
 export const hasHanwhaApprovedPdf = (
   profile?: WorkflowProfile | null,
 ) => hasHanwhaApprovalEvidence(profile) && hasHanwhaPdfMetadata(profile);
+
+export const hasDawichokDocumentsSent = (
+  profile?: WorkflowProfile | null,
+) => hasHanwhaApprovedPdf(profile);
 
 export const hasUrlStageAccess = (
   profile?: WorkflowProfile | null,
@@ -267,7 +271,7 @@ export const getFcHomeNextAction = (profile?: WorkflowProfile | null): FcHomeNex
       step,
       key,
       route: '/consent',
-      title: '수당동의',
+      title: '보증 보험 동의',
       subtitle: '터치하여 바로 진행하세요',
       disabled: false,
     };
@@ -280,7 +284,7 @@ export const getFcHomeNextAction = (profile?: WorkflowProfile | null): FcHomeNex
         step,
         key,
         route: '/consent',
-        title: '수당동의',
+        title: '보증 보험 동의',
         subtitle: '총무가 임시사번을 발급중입니다. 기다려주세요.',
         disabled: false,
       };
@@ -290,7 +294,7 @@ export const getFcHomeNextAction = (profile?: WorkflowProfile | null): FcHomeNex
         step,
         key,
         route: '/consent',
-        title: '수당동의',
+        title: '보증 보험 동의',
         subtitle: '반려 사유를 확인하고 다시 입력하세요',
         disabled: false,
       };
@@ -300,7 +304,7 @@ export const getFcHomeNextAction = (profile?: WorkflowProfile | null): FcHomeNex
         step,
         key,
         route: '/consent',
-        title: '수당동의',
+        title: '보증 보험 동의',
         subtitle: '사전 심사 결과를 기다리는 중입니다.',
         disabled: false,
       };
@@ -310,7 +314,7 @@ export const getFcHomeNextAction = (profile?: WorkflowProfile | null): FcHomeNex
         step,
         key,
         route: '/consent',
-        title: '수당동의',
+        title: '보증 보험 동의',
         subtitle: '총무가 사전 심사를 준비 중입니다.',
         disabled: false,
       };
@@ -319,7 +323,7 @@ export const getFcHomeNextAction = (profile?: WorkflowProfile | null): FcHomeNex
       step,
       key,
       route: '/consent',
-      title: '수당동의',
+      title: '보증 보험 동의',
       subtitle: '터치하여 바로 진행하세요',
       disabled: false,
     };
@@ -347,7 +351,7 @@ export const getFcHomeNextAction = (profile?: WorkflowProfile | null): FcHomeNex
         disabled: false,
       };
     }
-    if (!docs.allSubmitted) {
+    if (!docs.allSubmitted && !docs.allApproved) {
       return {
         step,
         key,
@@ -379,8 +383,8 @@ export const getFcHomeNextAction = (profile?: WorkflowProfile | null): FcHomeNex
         step,
         key,
         route: '/hanwha-commission',
-        title: '한화 위촉 URL',
-        subtitle: '반려 사유를 확인하고 개인 메신저 URL에서 다시 진행한 뒤 재제출하세요.',
+        title: '다위촉 URL',
+        subtitle: '반려 사유를 확인하고 다위촉 URL에서 다시 진행한 뒤 재제출하세요.',
         disabled: false,
       };
     }
@@ -389,8 +393,8 @@ export const getFcHomeNextAction = (profile?: WorkflowProfile | null): FcHomeNex
         step,
         key,
         route: '/hanwha-commission',
-        title: '한화 위촉 URL',
-        subtitle: '총무가 가람in으로 승인 PDF를 전달 중입니다. 기다려주세요.',
+        title: '다위촉 URL',
+        subtitle: '총무가 가람in으로 다위촉 URL PDF를 전달 중입니다. 기다려주세요.',
         disabled: false,
       };
     }
@@ -399,7 +403,7 @@ export const getFcHomeNextAction = (profile?: WorkflowProfile | null): FcHomeNex
         step,
         key,
         route: '/hanwha-commission',
-        title: '한화 위촉 URL',
+        title: '다위촉 URL',
         subtitle: '총무가 위촉 여부를 검토중입니다.',
         disabled: false,
       };
@@ -408,8 +412,8 @@ export const getFcHomeNextAction = (profile?: WorkflowProfile | null): FcHomeNex
       step,
       key,
       route: '/hanwha-commission',
-      title: '한화 위촉 URL',
-      subtitle: '한화라이프랩 위촉 진행',
+      title: '다위촉 URL',
+      subtitle: '다위촉 URL 진행',
       disabled: false,
     };
   }
@@ -425,7 +429,7 @@ export const getFcHomeNextAction = (profile?: WorkflowProfile | null): FcHomeNex
         key,
         route: '/appointment',
         title: '생명/손해 위촉',
-        subtitle: '한화 위촉 URL 승인 PDF 확인 후 진행할 수 있습니다.',
+        subtitle: '다위촉 URL 승인 PDF 확인 후 진행할 수 있습니다.',
         disabled: false,
       };
     }

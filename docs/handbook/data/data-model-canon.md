@@ -43,15 +43,15 @@ source_of_truth: supabase/schema.sql + supabase/migrations/*
 - `fc_profiles.life_commission_completed`
 - `fc_profiles.nonlife_commission_completed`
 
-## 2026-03-30 수당동의 보조 필드 메모
+## 2026-03-30 보증 보험 동의 보조 필드 메모
 
-- `allowance_prescreen_requested_at`은 수당동의 단계 내부에서 `FC 수당 동의 입력 완료`와 `사전 심사 요청 완료`를 구분하는 전용 보조 필드입니다.
+- `allowance_prescreen_requested_at`은 보증 보험 동의 단계 내부에서 `FC 보증 보험 동의 입력 완료`와 `사전 심사 요청 완료`를 구분하는 전용 보조 필드입니다.
 - top-level status는 그대로 `allowance-pending / allowance-consented`를 유지하고, 앱/웹 라벨 helper가 `allowance_date`, `allowance_prescreen_requested_at`, `allowance_reject_reason` 조합으로 파생 표시를 계산합니다.
 - `20260330000001_add_allowance_prescreen_requested_at.sql`은 위 컬럼을 추가합니다.
-- `20260330000002_relax_allowance_flow_requires_date.sql`은 수당동의 제약식을 다시 적용하면서, `allowance_date`가 비어 있는 행의 `allowance_prescreen_requested_at`, `allowance_reject_reason`, 잘못된 `allowance-consented` 상태를 정리합니다.
-- 결과적으로 총무는 trusted 경로에서 `allowance_date` 유무와 관계없이 수당동의 단계를 조작할 수 있지만, 파생 라벨은 여전히 `allowance_date` 존재 여부를 우선 반영합니다.
+- `20260330000002_relax_allowance_flow_requires_date.sql`은 보증 보험 동의 제약식을 다시 적용하면서, `allowance_date`가 비어 있는 행의 `allowance_prescreen_requested_at`, `allowance_reject_reason`, 잘못된 `allowance-consented` 상태를 정리합니다.
+- 결과적으로 총무는 trusted 경로에서 `allowance_date`가 있어야 보증 보험 동의 입력 완료/사전 심사/승인 단계를 조작할 수 있으며, 파생 라벨도 `allowance_date` 존재 여부를 우선 반영합니다.
 
-## 2026-03-31 시험 신청 회차-지역 무결성 메모
+## 2026-03-31 시험 신청 회차-지역 무과성 메모
 
 - `exam_registrations.round_id`와 `exam_registrations.location_id`는 각각만 FK로 보지 않고, 같은 row에서 동일 회차를 가리켜야 합니다.
 - `20260331000001_enforce_exam_registration_location_round_match.sql`은 `exam_locations (id, round_id)` 복합 unique 제약과 `exam_registrations (location_id, round_id) -> exam_locations (id, round_id)` 복합 FK를 추가합니다.

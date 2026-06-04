@@ -114,9 +114,11 @@
 
 1. completed FC 또는 active manager가 `login-with-password`로 로그인에 성공한다.
 2. 본부장 경로는 필요 시 `ensure_manager_referral_shadow_profile(...)`로 referral shadow profile을 먼저 보장한다.
-3. 로그인 함수는 service-role helper로 `admin_issue_referral_code(..., p_rotate=false)`를 호출해 active code를 보장한다.
-4. 이미 active code가 있으면 `noop_active_exists`로 끝나고 코드 값은 바뀌지 않는다.
-5. provisioning이 일시 실패해도 로그인 응답은 유지하며, 이후 self-service current path가 같은 로직으로 catch-up한다.
+3. `ensure_manager_referral_shadow_profile(...)`은 본부장 fc profile을 만들거나 갱신한 뒤 `link_manager_profile_to_default_recommender(...)`로 김형수(`01094272550`)를 기본 추천인으로 연결한다.
+4. 기본 추천인 연결은 `fc_profiles.recommender_*` current-state와 `referral_events` 감사 이력을 남겨야 하며, 김형수 본인과의 자기추천은 `self_link_blocked`로 차단한다.
+5. 로그인 함수는 service-role helper로 `admin_issue_referral_code(..., p_rotate=false)`를 호출해 active code를 보장한다.
+6. 이미 active code가 있으면 `noop_active_exists`로 끝나고 코드 값은 바뀌지 않는다.
+7. provisioning이 일시 실패해도 로그인 응답은 유지하며, 이후 self-service current path가 같은 로직으로 catch-up한다.
 
 ### 4.6 FC/본부장 본인 추천코드 self-service 조회
 

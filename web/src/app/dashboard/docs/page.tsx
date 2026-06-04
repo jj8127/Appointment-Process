@@ -39,7 +39,6 @@ import { useMemo, useState } from 'react';
 import { StatusToggle } from '@/components/StatusToggle';
 import { useSession } from '@/hooks/use-session';
 import { supabase } from '@/lib/supabase';
-import { sendPushNotification } from '../../actions';
 
 import { logger } from '@/lib/logger';
 // App Design Tokens
@@ -89,13 +88,19 @@ const STATUS_MAP: Record<string, string> = {
     deleted: '삭제됨',
 };
 
-const hasUploadedDocument = (doc: DocumentRow) => {
-    const storagePath = String(doc.storage_path ?? '').trim();
+const NO_FILE_APPROVAL_NOTE = '총무 수동 승인: 파일 미제출';
+
+const hasStoragePath = (value: string | null | undefined) => {
+    const storagePath = String(value ?? '').trim();
     return Boolean(storagePath && storagePath !== 'deleted');
 };
 
+const isNoFileDoc = (doc: DocumentRow) => {
+    return !hasStoragePath(doc.storage_path);
+};
+
 const isPendingReviewDocument = (doc: DocumentRow) =>
-    hasUploadedDocument(doc) && ['pending', 'submitted'].includes(doc.status);
+    ['pending', 'submitted'].includes(doc.status);
 
 export default function DocumentsPage() {
     const queryClient = useQueryClient();
@@ -127,20 +132,15 @@ export default function DocumentsPage() {
         },
     });
 
-    const uploadedDocuments = useMemo(
-        () => (documents ?? []).filter(hasUploadedDocument),
-        [documents]
-    );
-
     const pendingReviewCount = useMemo(
-        () => uploadedDocuments.filter(isPendingReviewDocument).length,
-        [uploadedDocuments]
+        () => (documents ?? []).filter(isPendingReviewDocument).length,
+        [documents]
     );
 
     // Filter Logic
     const filteredDocs = useMemo(() => {
         const normalizedSearch = searchValue.trim().toLowerCase();
-        let docs = uploadedDocuments;
+        let docs = documents ?? [];
 
         if (activeTab === 'pending') {
             docs = docs.filter(isPendingReviewDocument);
@@ -165,99 +165,46 @@ export default function DocumentsPage() {
         }
 
         return docs;
-    }, [uploadedDocuments, activeTab, searchValue]);
-
-    // --- Auto Advance Logic ---
-    const checkAutoAdvance = async (fcId: string, phone: string) => {
-        // Check if there are any documents for this FC that are NOT approved (and not deleted)
-        const { data: pendingDocs, error } = await supabase
-            .from('fc_documents')
-            .select('id')
-            .eq('fc_id', fcId)
-            .in('status', ['pending', 'submitted', 'rejected']);
-
-        if (error) {
-            logger.error('AutoAdvance Check Error:', error);
-            return;
-        }
-
-        if (pendingDocs.length === 0) {
-            // All cleared! Update FC Status
-            const { error: updateError } = await supabase
-                .from('fc_profiles')
-                .update({ status: 'docs-approved' })
-                .eq('id', fcId);
-
-            if (!updateError) {
-                notifications.show({ title: '자동 승인', message: '모든 서류가 승인되어 한화 위촉 단계로 넘어갑니다.', color: 'blue' });
-                // Send Push
-                const title = '서류 검토 완료';
-                const body = '모든 서류가 승인되었습니다. 한화 위촉 단계로 진행해주세요.';
-                await supabase.from('notifications').insert({
-                    title, body, target_url: '/hanwha-commission', recipient_role: 'fc', resident_id: phone
-                });
-                await sendPushNotification(phone, { title, body, data: { url: '/hanwha-commission' }, skipNotificationInsert: true });
-            }
-        }
-    };
+    }, [documents, activeTab, searchValue]);
 
     // Mutations
     const updateStatusMutation = useMutation({
         mutationFn: async ({ doc, status, reason }: { doc: DocumentRow; status: string; reason?: string }) => {
-            const reviewerNote =
-                status === 'rejected' ? (reason ?? '').trim() || null : status === 'approved' ? null : undefined;
-            const { error } = await supabase
-                .from('fc_documents')
-                .update({
-                    status,
-                    ...(reviewerNote !== undefined ? { reviewer_note: reviewerNote } : {}),
-                })
-                .eq('id', doc.id);
-
-            if (error) throw error;
-
-            let title = '서류 결과 안내';
-            let body = `제출하신 [${doc.doc_type}] 서류가 처리되었습니다.`;
-
-            if (status === 'approved') {
-                title = '서류 승인 완료';
-                body = `제출하신 [${doc.doc_type}] 서류가 승인되었습니다.`;
-            } else if (status === 'rejected') {
-                title = '서류 반려 안내';
-                body = `제출하신 [${doc.doc_type}] 서류가 반려되었습니다.\n사유: ${reason}`;
+            const response = await fetch('/api/admin/fc', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    action: 'updateDocStatus',
+                    payload: {
+                        fcId: doc.fc_id,
+                        docType: doc.doc_type,
+                        status,
+                        reviewerNote: reason,
+                        phone: doc.fc_profiles?.phone,
+                    },
+                }),
+            });
+            const result = await response.json().catch(() => null);
+            if (!response.ok || !result?.ok) {
+                const message = result?.error ?? '상태 변경에 실패했습니다.';
+                throw new Error(String(message));
             }
-
-            if (status === 'rejected' && doc.fc_id) {
-                await supabase.from('fc_profiles').update({ status: 'docs-pending' }).eq('id', doc.fc_id);
-            }
-            if (doc.fc_profiles?.phone) {
-                await supabase.from('notifications').insert({
-                    title,
-                    body,
-                    target_url: '/docs-upload',
-                    recipient_role: 'fc',
-                    resident_id: doc.fc_profiles.phone,
-                    category: '서류',
-                });
-                await sendPushNotification(doc.fc_profiles.phone, { title, body, data: { url: '/docs-upload' }, skipNotificationInsert: true });
-            }
-            // Return doc for context
-            return doc;
+            return {
+                doc,
+                allApproved: Boolean(result?.allApproved),
+            };
         },
         onSuccess: (updatedDoc) => {
             notifications.show({
                 title: '처리 완료',
-                message: '상태가 변경되었습니다.',
+                message: updatedDoc.allApproved
+                    ? '모든 서류가 승인되어 다위촉 단계로 넘어갑니다.'
+                    : '상태가 변경되었습니다.',
                 color: 'green',
             });
             queryClient.invalidateQueries({ queryKey: ['documents-list'] });
             closeReject();
             closePreview();
-
-            // Trigger Auto Advance Check
-            if (updatedDoc?.fc_id && updatedDoc.fc_profiles?.phone) {
-                checkAutoAdvance(updatedDoc.fc_id, updatedDoc.fc_profiles.phone);
-            }
         },
         onError: (err: unknown) => {
             const msg = err instanceof Error ? err.message : '처리 중 오류가 발생했습니다.';
@@ -275,10 +222,11 @@ export default function DocumentsPage() {
         setSignedUrl(null);
         openPreview();
 
-        if (doc.storage_path) {
+        const storagePath = String(doc.storage_path ?? '').trim();
+        if (storagePath && storagePath !== 'deleted') {
             const { data, error } = await supabase.storage
                 .from('fc-documents')
-                .createSignedUrl(doc.storage_path, 3600);
+                .createSignedUrl(storagePath, 3600);
             if (data?.signedUrl) {
                 setSignedUrl(data.signedUrl);
             } else {
@@ -307,11 +255,19 @@ export default function DocumentsPage() {
     };
 
     const handleApprove = (doc: DocumentRow) => {
+        const noFileDoc = isNoFileDoc(doc);
+        const message = noFileDoc
+            ? `[${doc.doc_type}] 문서는 파일이 미제출입니다. "총무 수동 승인: 파일 미제출" 사유로 승인하시겠습니까?`
+            : `[${doc.doc_type}] 문서를 승인하시겠습니까?`;
         showConfirm({
             title: '서류 승인',
-            message: `'${doc.doc_type}' 문서를 승인하시겠습니까?`,
+            message,
             onConfirm: () => {
-                updateStatusMutation.mutate({ doc, status: 'approved' });
+                updateStatusMutation.mutate({
+                    doc,
+                    status: 'approved',
+                    reason: noFileDoc ? NO_FILE_APPROVAL_NOTE : undefined,
+                });
             },
         });
     };
@@ -363,11 +319,11 @@ export default function DocumentsPage() {
             <Table.Td>
                 <Text
                     size="sm"
-                    c={HANWHA_ORANGE}
+                    c={hasStoragePath(doc.storage_path) ? HANWHA_ORANGE : MUTED}
                     style={{ cursor: 'pointer', fontWeight: 500 }}
                     onClick={() => handlePreview(doc)}
                 >
-                    {doc.file_name || '파일 확인'}
+                    {hasStoragePath(doc.storage_path) ? (doc.file_name || '파일 확인') : '미제출'}
                 </Text>
             </Table.Td>
             <Table.Td>
@@ -428,7 +384,7 @@ export default function DocumentsPage() {
             <Group justify="space-between" mb="lg" align="flex-end">
                 <div>
                     <Title order={2} c={CHARCOAL}>서류 통합 관리</Title>
-                    <Text c={MUTED} size="sm" mt={4}>제출된 서류를 검토하고, 승인된 FC를 한화 위촉 단계로 넘깁니다.</Text>
+                    <Text c={MUTED} size="sm" mt={4}>요청 서류를 검토하고, 승인된 FC를 다위촉 단계로 넘깁니다.</Text>
                 </div>
                 <Button variant="light" color="gray" leftSection={<IconRefresh size={16} />} onClick={() => queryClient.invalidateQueries({ queryKey: ['documents-list'] })}>
                     새로고침
@@ -453,8 +409,8 @@ export default function DocumentsPage() {
                                 },
                             }}
                         />
-                        <Text size="xs" c={MUTED} fw={500}>
-                            업로드된 서류 {filteredDocs.length}건
+                <Text size="xs" c={MUTED} fw={500}>
+                            서류 {filteredDocs.length}건
                         </Text>
                     </Group>
 
@@ -566,13 +522,18 @@ export default function DocumentsPage() {
                             <div>
                                 <Text fw={700} c={CHARCOAL} size="lg">{selectedDoc.fc_profiles?.name}님 제출</Text>
                                 <Text size="xs" c="dimmed">제출일: {dayjs(selectedDoc.created_at).format('YYYY-MM-DD HH:mm:ss')}</Text>
+                                {isNoFileDoc(selectedDoc) ? (
+                                    <Text size="xs" c="orange">
+                                        파일 미제출
+                                    </Text>
+                                ) : null}
                             </div>
                             <Badge size="lg" color={getStatusColor(selectedDoc.status)} variant="filled">
                                 {STATUS_MAP[selectedDoc.status] || selectedDoc.status}
                             </Badge>
                         </Group>
 
-                        <Box
+        <Box
                             style={{
                                 width: '100%',
                                 minHeight: 500,
@@ -608,6 +569,10 @@ export default function DocumentsPage() {
                                         </Button>
                                     </Stack>
                                 )
+                            ) : isNoFileDoc(selectedDoc) ? (
+                                <Text c="dimmed" size="lg">
+                                    파일이 아직 업로드되지 않았습니다.
+                                </Text>
                             ) : (
                                 <LoadingOverlay visible={true} />
                             )}

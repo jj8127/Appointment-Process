@@ -126,6 +126,6 @@ serve(async (req: Request) => {
       data: updated ?? { id: profile.id, name: profile.name ?? '' },
     });
   } catch (err: any) {
-    return fail(err?.message ?? '한화 위촉 정보를 저장하지 못했습니다.', 500);
+    return fail(err?.message ?? '다위촉 정보를 저장하지 못했습니다.', 500);
   }
 });

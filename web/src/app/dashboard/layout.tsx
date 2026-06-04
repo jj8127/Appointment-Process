@@ -39,32 +39,41 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   const router = useRouter();
   const pathname = usePathname();
   const { role, logout, hydrated, displayName, residentMask, residentId, staffType, isReadOnly } = useSession();
+  const isFcSession = role === 'fc';
 
   const roleLabel = getDashboardRoleLabel({ role, staffType, isReadOnly });
   const subLabel = getDashboardRoleSubLabel({ role, staffType, isReadOnly }) ?? (residentMask || '전화번호 미등록');
   const userInitial = displayName?.trim()?.[0] ?? roleLabel[0] ?? 'F';
 
   const navItems: NavItem[] = useMemo(
-    () => [
-      { label: '홈', icon: IconHome, href: '/dashboard' },
-      { label: '문서 관리', icon: IconFileText, href: '/dashboard/docs' },
+    () => {
+      if (role === 'fc') {
+        return [
+          { label: '추천인 그래프', icon: IconKey, href: '/dashboard/referrals/graph' },
+        ];
+      }
+
+      return [
+        { label: '홈', icon: IconHome, href: '/dashboard' },
+        { label: '문서 관리', icon: IconFileText, href: '/dashboard/docs' },
         { label: '생명/손해 위촉', icon: IconLink, href: '/dashboard/appointment' },
-      {
-        label: '추천인 코드',
-        icon: IconKey,
-        href: '/dashboard/referrals',
-        children: [
-          { label: '리스트', href: '/dashboard/referrals' },
-          { label: '그래프', href: '/dashboard/referrals/graph' },
-        ],
-      },
-      { label: '게시판', icon: IconNews, href: '/dashboard/board' },
-      { label: '메신저', icon: IconMessage, href: '/dashboard/messenger' },
-      { label: '에이전트 룸', icon: IconUsers, href: '/dashboard/agent-room' },
-      { label: '시험 일정', icon: IconCalendarEvent, href: '/dashboard/exam/schedule' },
-      { label: '시험 신청자', icon: IconUsers, href: '/dashboard/exam/applicants' },
-    ],
-    [],
+        {
+          label: '추천인 코드',
+          icon: IconKey,
+          href: '/dashboard/referrals',
+          children: [
+            { label: '리스트', href: '/dashboard/referrals' },
+            { label: '그래프', href: '/dashboard/referrals/graph' },
+          ],
+        },
+        { label: '게시판', icon: IconNews, href: '/dashboard/board' },
+        { label: '메신저', icon: IconMessage, href: '/dashboard/messenger' },
+        { label: '에이전트 룸', icon: IconUsers, href: '/dashboard/agent-room' },
+        { label: '시험 일정', icon: IconCalendarEvent, href: '/dashboard/exam/schedule' },
+        { label: '시험 신청자', icon: IconUsers, href: '/dashboard/exam/applicants' },
+      ];
+    },
+    [role],
   );
 
   useEffect(() => {
@@ -76,7 +85,14 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
     };
   }, []);
 
-  if (!hydrated || (role !== 'admin' && role !== 'manager')) {
+  useEffect(() => {
+    if (!hydrated || role !== 'fc') return;
+    if (pathname !== '/dashboard/referrals/graph') {
+      router.replace('/dashboard/referrals/graph');
+    }
+  }, [hydrated, pathname, role, router]);
+
+  if (!hydrated || (role !== 'admin' && role !== 'manager' && role !== 'fc')) {
     return null;
   }
 
@@ -113,12 +129,14 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
           <Group wrap="nowrap">
             <Burger opened={opened} onClick={toggle} hiddenFrom="sm" size="sm" />
             <Text fw={800} size="lg">
-              FC 온보딩 웹
+              {isFcSession ? 'FC 추천인 그래프' : 'FC 온보딩 웹'}
             </Text>
           </Group>
 
           <Group gap="sm" wrap="nowrap">
-            <DashboardNotificationBell role={role} residentId={residentId} staffType={staffType} />
+            {!isFcSession ? (
+              <DashboardNotificationBell role={role} residentId={residentId} staffType={staffType} />
+            ) : null}
 
             <Menu shadow="md" width={220} position="bottom-end">
               <Menu.Target>
@@ -139,12 +157,14 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
                 </UnstyledButton>
               </Menu.Target>
               <Menu.Dropdown>
-                <Menu.Item
-                  leftSection={<IconSettings size={16} stroke={1.6} />}
-                  onClick={() => router.push('/dashboard/settings')}
-                >
-                  설정
-                </Menu.Item>
+                {!isFcSession ? (
+                  <Menu.Item
+                    leftSection={<IconSettings size={16} stroke={1.6} />}
+                    onClick={() => router.push('/dashboard/settings')}
+                  >
+                    설정
+                  </Menu.Item>
+                ) : null}
                 <Menu.Item
                   color="red"
                   leftSection={<IconLogout size={16} stroke={1.6} />}

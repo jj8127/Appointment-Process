@@ -22,6 +22,7 @@ export type DocumentType = string;
 export type RequiredDocType = DocumentType;
 
 export type CommissionCompletionStatus = 'none' | 'life_only' | 'nonlife_only' | 'both';
+export type LicenseStatus = 'third' | 'life' | 'nonlife' | 'none';
 
 export type FcProfile = {
   id: string;
@@ -47,6 +48,8 @@ export type FcProfile = {
   hanwha_commission_reject_reason?: string | null;
   hanwha_commission_pdf_path?: string | null;
   hanwha_commission_pdf_name?: string | null;
+  dawichok_url_sent_at?: string | null;
+  dawichok_url_sent_by?: string | null;
   appointment_url?: string | null;
   appointment_date?: string | null;
   appointment_schedule_life?: string | null;
@@ -57,6 +60,7 @@ export type FcProfile = {
   appointment_date_nonlife_sub?: string | null;
   appointment_reject_reason_life?: string | null;
   appointment_reject_reason_nonlife?: string | null;
+  license_statuses?: LicenseStatus[] | null;
   life_commission_completed?: boolean | null;
   nonlife_commission_completed?: boolean | null;
   status: FcStatus;

@@ -50,6 +50,8 @@ type HanwhaProfile = {
   hanwha_commission_reject_reason?: string | null;
   hanwha_commission_pdf_path?: string | null;
   hanwha_commission_pdf_name?: string | null;
+  dawichok_url_sent_at?: string | null;
+  dawichok_url_sent_by?: string | null;
 };
 
 type StatusTone = {
@@ -102,7 +104,7 @@ export default function HanwhaCommissionScreen() {
     const { data, error } = await supabase
       .from('fc_profiles')
       .select(
-        'id,name,status,hanwha_commission_date_sub,hanwha_commission_date,hanwha_commission_reject_reason,hanwha_commission_pdf_path,hanwha_commission_pdf_name',
+        'id,name,status,hanwha_commission_date_sub,hanwha_commission_date,hanwha_commission_reject_reason,hanwha_commission_pdf_path,hanwha_commission_pdf_name,dawichok_url_sent_at,dawichok_url_sent_by',
       )
       .eq('phone', cleanPhone)
       .maybeSingle();
@@ -136,7 +138,8 @@ export default function HanwhaCommissionScreen() {
   const rejectReason = trimString(profile?.hanwha_commission_reject_reason);
   const pdfPath = trimString(profile?.hanwha_commission_pdf_path);
   const rawPdfName = trimString(profile?.hanwha_commission_pdf_name);
-  const pdfName = rawPdfName ?? '한화 위촉 URL PDF';
+  const pdfName = rawPdfName ?? '다위촉 URL PDF';
+  const hasDawichokUrlSent = Boolean(trimString(profile?.dawichok_url_sent_at));
   const status = profile?.status ?? null;
 
   const isApproved = hasHanwhaApprovalEvidence({
@@ -186,10 +189,10 @@ export default function HanwhaCommissionScreen() {
 
   const statusDescription = useMemo(() => {
     if (isPrerequisiteBlocked) return '서류 승인 후 진행';
-    if (hasApprovedPdf) return 'PDF 확인 후 다음 단계';
+    if (hasApprovedPdf) return '첨부 PDF 확인 가능';
     if (hasAttachedPdf && isRejected) return '반려 사유와 첨부 PDF를 확인하세요.';
-    if (hasAttachedPdf) return '첨부 PDF를 먼저 확인할 수 있습니다. 다음 단계는 총무 승인 후 열립니다.';
-    if (isApproved) return 'PDF 등록 대기';
+    if (hasAttachedPdf) return '첨부 PDF를 먼저 확인할 수 있습니다.';
+    if (isApproved) return '첨부 자료 등록 대기';
     if (isRejected) return '반려 후 재제출';
     if (isPending) return '총무 검토 중';
     return 'URL 진행 후 제출';
@@ -206,7 +209,7 @@ export default function HanwhaCommissionScreen() {
   const submitDate = useCallback(async () => {
     if (!residentId) return;
     if (!displayDate) {
-    Alert.alert('날짜 선택', '한화 위촉 URL 완료일을 선택해주세요.');
+      Alert.alert('날짜 선택', '다위촉 URL 완료일을 선택해주세요.');
       return;
     }
 
@@ -233,11 +236,11 @@ export default function HanwhaCommissionScreen() {
       });
 
       if (error) {
-        const message = await resolveFunctionInvokeErrorMessage(error, '한화 위촉 URL 정보를 저장하지 못했습니다.');
+        const message = await resolveFunctionInvokeErrorMessage(error, '다위촉 URL 정보를 저장하지 못했습니다.');
         throw new Error(message);
       }
       if (!data?.ok) {
-        throw new Error(data?.message ?? data?.error ?? '한화 위촉 URL 정보를 저장하지 못했습니다.');
+        throw new Error(data?.message ?? data?.error ?? '다위촉 URL 정보를 저장하지 못했습니다.');
       }
       if (!data?.data?.id) {
         throw new Error('업데이트된 데이터가 없습니다. (전화번호 불일치 가능성)');
@@ -248,16 +251,16 @@ export default function HanwhaCommissionScreen() {
           body: {
             type: 'fc_update',
             fc_id: data.data.id,
-            message: `${data.data.name ?? ''}님이 한화 위촉 URL 완료를 보고했습니다. (입력일: ${ymd})`,
+            message: `${data.data.name ?? ''}님이 다위촉 URL 완료를 보고했습니다. (입력일: ${ymd})`,
             url: '/dashboard',
           },
         })
         .catch(() => undefined);
 
-      Alert.alert('제출 완료', '한화 위촉 URL 완료일이 제출되었습니다.\n총무 승인 후 PDF가 제공됩니다.');
+      Alert.alert('제출 완료', '다위촉 URL 완료일이 제출되었습니다.\n총무 검토 후 다음 안내를 기다려주세요.');
       await load();
     } catch (error: any) {
-      Alert.alert('저장 실패', error?.message ?? '한화 위촉 URL 정보를 저장하지 못했습니다.');
+      Alert.alert('저장 실패', error?.message ?? '다위촉 URL 정보를 저장하지 못했습니다.');
     } finally {
       setSaving(false);
     }
@@ -265,7 +268,7 @@ export default function HanwhaCommissionScreen() {
 
   const resolvePdfUrl = useCallback(async () => {
     if (!pdfPath) {
-    throw new Error('열 수 있는 한화 위촉 URL PDF가 없습니다.');
+    throw new Error('열 수 있는 다위촉 URL PDF가 없습니다.');
     }
     const { data, error } = await supabase.storage.from(BUCKET).createSignedUrl(pdfPath, 300);
     if (error || !data?.signedUrl) {
@@ -276,7 +279,7 @@ export default function HanwhaCommissionScreen() {
 
   const openPdf = useCallback(async () => {
     if (!pdfPath) {
-      Alert.alert('PDF 없음', '열 수 있는 한화 위촉 URL PDF가 없습니다.');
+      Alert.alert('PDF 없음', '열 수 있는 다위촉 URL PDF가 없습니다.');
       return;
     }
 
@@ -285,7 +288,7 @@ export default function HanwhaCommissionScreen() {
       const signedUrl = await resolvePdfUrl();
       await openExternalUrl(signedUrl);
     } catch (error: any) {
-      Alert.alert('PDF 열기 실패', error?.message ?? '한화 위촉 URL PDF를 열지 못했습니다.');
+      Alert.alert('PDF 열기 실패', error?.message ?? '다위촉 URL PDF를 열지 못했습니다.');
     } finally {
       setOpeningPdf(false);
     }
@@ -293,7 +296,7 @@ export default function HanwhaCommissionScreen() {
 
   const downloadPdf = useCallback(async () => {
     if (!pdfPath) {
-      Alert.alert('PDF 없음', '다운로드할 한화 위촉 URL PDF가 없습니다.');
+      Alert.alert('PDF 없음', '다운로드할 다위촉 URL PDF가 없습니다.');
       return;
     }
 
@@ -344,7 +347,7 @@ export default function HanwhaCommissionScreen() {
 
       Alert.alert('다운로드 완료', `${safeName} 파일을 저장했습니다.`);
     } catch (error: any) {
-      Alert.alert('PDF 다운로드 실패', error?.message ?? '한화 위촉 URL PDF를 다운로드하지 못했습니다.');
+      Alert.alert('PDF 다운로드 실패', error?.message ?? '다위촉 URL PDF를 다운로드하지 못했습니다.');
     } finally {
       setDownloadingPdf(false);
     }
@@ -374,7 +377,7 @@ export default function HanwhaCommissionScreen() {
       <Stack.Screen
         options={{
           headerShown: true,
-      title: '한화 위촉 URL',
+          title: '다위촉 URL',
           header: (props) => <CompactHeader {...props} />,
         }}
       />
@@ -385,8 +388,8 @@ export default function HanwhaCommissionScreen() {
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}
       >
         <ScreenHeader
-      title="한화 위촉 URL"
-          subtitle="URL · 완료일 · 승인 PDF"
+          title="다위촉 URL"
+          subtitle="URL · 완료일 · 첨부 PDF"
         />
 
         {loading ? (
@@ -395,15 +398,25 @@ export default function HanwhaCommissionScreen() {
           <>
             <View style={styles.card}>
               <View style={styles.summaryHeader}>
-        <Text style={styles.sectionTitle}>한화 위촉 URL 검토</Text>
+                <Text style={styles.sectionTitle}>다위촉 URL 검토</Text>
                 <View style={[styles.statusBadge, { backgroundColor: statusTone.backgroundColor }]}>
                   <Text style={[styles.statusBadgeText, { color: statusTone.color }]}>{statusTone.label}</Text>
                 </View>
               </View>
               <Text style={styles.sectionDesc}>{statusDescription}</Text>
+              {!isPrerequisiteBlocked && (
+                <View style={styles.statusHintRow}>
+                  <Feather name="message-circle" size={16} color={COLORS.primary} />
+                  <Text style={styles.statusHintText}>
+                    {hasDawichokUrlSent
+                      ? '카카오톡으로 전송된 다위촉 URL을 진행해 주세요.'
+                      : '총무가 카카오톡으로 다위촉 URL을 보내면 진행 후 완료일을 입력해 주세요.'}
+                  </Text>
+                </View>
+              )}
               {isPrerequisiteBlocked && (
                 <Text style={[styles.sectionDesc, { color: COLORS.text.muted, marginTop: 4 }]}>
-                  서류 승인 후 총무가 URL을 안내합니다.
+                  서류 승인 후 총무가 다위촉 URL을 안내합니다.
                 </Text>
               )}
               {!!rejectReason && (
@@ -414,7 +427,7 @@ export default function HanwhaCommissionScreen() {
               )}
 
               <View style={styles.inputGroup}>
-            <Text style={styles.label}>한화 위촉 URL 완료일</Text>
+                <Text style={styles.label}>다위촉 URL 완료일</Text>
                 {Platform.OS === 'web' ? (
                   <View style={styles.webDateWrapper}>
                     <View style={[styles.dateInput, isLocked && styles.disabledInput]}>
@@ -499,9 +512,9 @@ export default function HanwhaCommissionScreen() {
                   <Text style={styles.sectionTitle}>{pdfCardTitle}</Text>
                   <Text style={styles.sectionDesc}>
                     {hasApprovedPdf
-                      ? '열람 · 다운로드 후 다음 단계'
+                      ? '열람 · 다운로드 가능'
                       : hasAttachedPdf
-                        ? '첨부된 PDF를 확인할 수 있습니다. 다음 단계는 총무 승인 후 열립니다.'
+                        ? '첨부된 PDF를 확인할 수 있습니다.'
                         : '총무가 PDF를 첨부하면 여기서 바로 확인할 수 있습니다.'}
                   </Text>
                 </View>
@@ -518,13 +531,13 @@ export default function HanwhaCommissionScreen() {
                   </View>
                   <View style={styles.pdfDockTextWrap}>
                     <Text style={styles.pdfDockTitle}>
-                      {hasAttachedPdf ? `한화 위촉 URL ${pdfCardTitle}` : 'PDF 도착 대기'}
+                      {hasAttachedPdf ? `다위촉 URL ${pdfCardTitle}` : 'PDF 도착 대기'}
                     </Text>
                     <Text style={styles.pdfDockDesc}>
                       {hasAttachedPdf
                         ? isApproved
                           ? pdfName
-                          : `${pdfName} · 총무 승인 전에는 다음 단계가 열리지 않습니다.`
+                          : `${pdfName} · 필요하면 바로 열어볼 수 있습니다.`
                         : '총무가 PDF를 등록하면 여기서 바로 확인할 수 있습니다.'}
                     </Text>
                   </View>

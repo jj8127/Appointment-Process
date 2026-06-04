@@ -1,4 +1,160 @@
+﻿# Increment 34: Orange CTA Black Rendering Guard
+
+Status: completed locally on 2026-06-04
+
+Implementation order:
+
+1. Completed: confirmed the reported black home cards were the large orange CTA/step surfaces.
+2. Completed: replaced the home next-step and messenger CTA orange `LinearGradient` wrappers with plain `View` surfaces using explicit orange backgrounds.
+3. Completed: removed the same orange `LinearGradient` risk from legacy life/nonlife exam submit buttons and referral-code card without changing data flow.
+4. Completed: normalized touched home letter spacing to `0` to match current UI constraints.
+5. Completed: ran focused mobile lint, web board lint/build, request_board client build, and governance checks.
+
+Parallel owners:
+
+- Coordinator: focused UI patch, verification, harness updates.
+- Huygens subagent: prior cross-repo investigation for the GaramLink customer surface.
+
+Out of scope:
+
+- Exam application runtime changes.
+- Toss/proxy exam work.
+- Referral tree logic changes.
+
+---
+
+# Increment 33: Board Garam Pick Category
+
+Status: completed locally on 2026-06-04
+
+Implementation order:
+
+1. Completed: add `가람 Pick` to `board_categories` schema seed and forward migration.
+2. Completed: add a distinct badge color for mobile board, mobile admin board management, and admin web board.
+3. Completed: update board category docs and harness notes.
+4. Completed: run focused fc-onboarding lint/web build/governance checks.
+
+Parallel owners:
+
+- Coordinator: schema/migration/docs/harness, final verification.
+- Huygens subagent: confirmed the GaramLink customer surface belongs to `request_board`, not `fc-onboarding-app`.
+
+Out of scope:
+
+- Board permission changes.
+- Board notification fanout changes.
+- Notice preview/legacy notice model changes.
+
+---
+
+# Increment 32: Dawichok URL Sent Signal And Referral Graph Completion Legend
+
+Status: completed locally on 2026-06-04
+
+Implementation order:
+
+1. Completed: used existing graph and workflow explorer results to isolate the Dawichok URL signal and referral graph surfaces.
+2. Completed: added `dawichok_url_sent_at/by` schema contract, migration, mobile admin action, web admin action, and FC Dawichok page guidance.
+3. Completed: added reset handling so Dawichok URL sent state is cleared when document workflow is downgraded.
+4. Completed: added graph-node completion state, green completed-node rendering, drawer badge, visible-count summary, and clearer legend copy.
+5. Completed: incorporated evaluator findings for FC copy gating, reset drift, visible count, and yellow-marker legend semantics.
+6. Completed: ran focused graph tests, full root tests, root/web lint, web build, governance, and diff checks.
+
+Parallel owners:
+
+- Coordinator: schema/API/mobile/web integration, harness notes, final verification.
+- Explorer subagent Newton: referral graph data/rendering surface investigation.
+- Evaluator subagent Cicero: Dawichok signal and referral graph consistency review.
+
+Out of scope:
+
+- Toss virtual-account/proxy exam runtime.
+- Headquarters-scoped secretary filtering.
+- Dawichok PDF upload removal.
+- Real Kakao template/send integration for the URL signal beyond existing in-app/push notification path.
+
+---
+
+# Increment 31: GaramIn Operations UX And Workflow Fixes
+
+Status: completed locally on 2026-06-03
+
+Implementation order:
+
+1. Completed: dispatched disjoint workers for exam registration, signup/consent, document review, home CTA/video, and manager resident-number display.
+2. Completed: integrated worker patches and removed deferred Toss/Kakao/scope/dawichok-sent leftovers from active runtime.
+3. Completed: replaced user-facing `보증 보험 동의` wording in touched app/web/docs paths with `보증 보험 동의`.
+4. Completed: fixed evaluator blockers for document approval bypass, FC no-file approved document rendering, and admin consent temp-id sequencing.
+5. Completed: ran focused and full verification, then updated QA/handoff/work logs with exact evidence.
+
+Parallel owners:
+
+- Coordinator: harness, schema/doc integration, cross-cutting copy audit, final verification.
+- Mobile Exam worker: `app/exam-register.tsx`, `app/exam-register2.tsx`.
+- Signup/Consent worker: `app/signup.tsx`, `app/consent.tsx`, signup persistence/types.
+- Docs/Admin worker: admin document review surfaces and doc status sync.
+- UI/YouTube worker: `app/index.tsx`, `app/home-lite.tsx`, orange fallback CTA fixes.
+- Resident Number worker: manager full resident-number display path.
+- Evaluators: visual UX review and workflow/security review.
+
+Out of scope:
+
+- Toss virtual-account/proxy exam runtime.
+- Headquarters-scoped secretary filtering.
+- Internal `allowance_*` status/column renames.
+
+---
+
+# Increment 30: Mobile Exam Runtime Rollback
+
+Status: completed locally
+
+Scope:
+
+- Restore life/nonlife mobile exam application screens to the legacy manual `응시료 납입일` flow.
+- Keep `fee_paid_date` as the active mobile runtime payment field.
+- Remove active mobile calls to `exam-application-submit`.
+- Remove active mobile proxy applicant selection and virtual-account cards.
+- Remove deployable Toss exam function entrypoints while leaving deferred contract material available.
+- Do not edit Dawichok PDF or admin-scope sections.
+
+Verification:
+
+- Passed: mobile screens have no removed Toss/proxy runtime term matches.
+- Passed: manual date picker and `fee_paid_date` writes remain in both mobile screens.
+- Passed: deleted function entrypoints are absent on disk.
+- Passed: targeted mobile lint.
+- Passed: deferred payment contract test.
+
+---
+
 # Plan: Evidence-Based Cleanup / Refactor Program
+
+## Increment 29: GaramIn Nine-Item Operations Upgrade
+
+Status: in progress
+
+Implementation order:
+
+1. Lock the additive DB contract for Dawichok sent signals, headquarters scopes, notification delivery audit, per-registration Toss payments, and proxy exam application metadata.
+2. Add focused characterization tests for workflow label/gate behavior, per-registration payment mapping, and admin scope filtering.
+3. Implement low-risk mobile home UX changes in parallel with schema/function work.
+4. Implement Dawichok copy and gate changes while preserving internal `hanwha_*` compatibility.
+5. Implement trusted exam application/payment functions before changing mobile exam writers.
+6. Implement admin web display/API changes for payment state, Dawichok send action, and scoped visibility.
+7. Implement Kakao delivery as a non-blocking downstream notification channel.
+8. Run full verification, update QA/handoff artifacts, and record any new mistake-ledger guardrails.
+
+Parallel owners:
+
+- Coordinator: schema contract, harness, integration, final verification.
+- Mobile home worker: plan items 1-3 only.
+- Workflow worker: Dawichok label/gate behavior.
+- Supabase worker: additive schema and Edge Functions.
+- Admin web worker: secretary/admin UI/API surfaces.
+- Security auditor: read-only review of auth/RLS/payment/Kakao risks.
+
+---
 
 ## Operating Rules
 
@@ -1129,3 +1285,23 @@ Verification:
 - Web: `cd web; npm run lint; npm run build`
 - Runtime/browser/API checks as appropriate for touched surfaces.
 - Any skipped verification must be recorded in `qa-report.md`.
+
+## Increment 22 Plan
+
+1. Implement 김형수 default recommender for all active 본부장 profiles:
+   - Add Supabase migration.
+   - Sync `schema.sql`.
+   - Add static regression coverage and referral-system docs.
+2. Normalize exact date wording:
+   - Replace exposed legacy date wording with `보증보험 조회 동의일`.
+   - Preserve internal `allowance_*` identifiers.
+3. Integrate graph legend/color change:
+   - Use circular legend swatches.
+   - Apply global node color conditions for completed, current viewer/manager highlight, registered, pre-registration-only.
+4. Record deferred items:
+   - Toss/proxy exam, KakaoTalk provider, dedicated 다위촉 guide images.
+5. Verify:
+   - Root Jest/lint/governance.
+   - Web lint/build.
+   - request_board checks because GaramLink files are also dirty from this conversation.
+6. Commit and push only if verification has no unresolved failures.

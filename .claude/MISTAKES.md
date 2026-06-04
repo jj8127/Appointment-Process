@@ -30,6 +30,34 @@
 - Verification:
 ```
 
+## 2026-06-03 | GaramIn Payment / Subagent Integration | 계획 계약과 실제 live path가 어긋남
+- Symptom:
+  - 가상계좌 v2 계획은 응시자별 토스 회전식 계좌, stored idempotency, `DEPOSIT_CALLBACK` source of truth, 요청 내부 중복 응시자 차단을 요구했지만 초기 통합 diff에는 발급 idempotency 저장 컬럼이 없고 webhook이 event type과 무관하게 상태를 반영했으며, 중복 차단은 순수 helper/test에만 있고 live submit flow에는 없었다.
+  - 모바일 시험 신청 드롭다운도 같은 회차에 여러 응시자가 있을 때 응시자/본인·대리/입금상태를 구분하지 못했다.
+- Root cause:
+  - 병렬 subagent가 schema, service, mobile UI를 독립적으로 구현했고 coordinator가 초반에는 각 slice의 개별 통과 결과를 계약 전체의 통과로 취급했다.
+  - 결제 source-of-truth 조건과 다중 응시자 UX 조건이 live function/UI 경로에서 끝까지 검증되지 않았다.
+- Why it was missed:
+  - 순수 contract test가 있었지만 실제 `submitExamApplications`/`handleExamPaymentWebhook` 경로가 그 helper를 사용하는지까지 보지 않았다.
+  - selector label처럼 "카드 상세에는 정보가 있음"과 "선택 전에도 구분 가능함"을 별도 UX acceptance로 분리하지 않았다.
+- Permanent guardrail:
+  - PG/webhook 변경은 schema column, service payload, webhook gate, idempotent side effect, live submit preflight를 한 체크리스트로 검증한다.
+  - 병렬 subagent 결과는 최종 evaluator에게 current diff 기준으로 재검토시키고, 실패 findings를 해결하기 전 완료로 말하지 않는다.
+  - 다중 row/account UI는 카드 상세뿐 아니라 선택 목록 자체에서 대상자를 식별할 수 있어야 한다.
+- Related files:
+  - `supabase/functions/_shared/exam-payment-service.ts`
+  - `supabase/functions/_shared/exam-payment.ts`
+  - `supabase/migrations/20260603000001_garamin_ops_upgrade.sql`
+  - `supabase/schema.sql`
+  - `app/exam-apply.tsx`
+  - `app/exam-apply2.tsx`
+- Verification:
+  - `node --experimental-strip-types --test supabase\functions\_shared\__tests__\exam-payment.test.ts`
+  - `node --test supabase\functions\__tests__\exam-payment-schema.contract.test.ts`
+  - `npm run lint -- app\exam-apply.tsx app\exam-apply2.tsx app\index.tsx app\home-lite.tsx app\appointment.tsx app\hanwha-commission.tsx app\dashboard.tsx app\docs-upload.tsx app\_layout.tsx lib\fc-workflow.ts`
+  - `cd web; npm run lint`
+  - `cd web; SENTRY_AUTH_TOKEN='' npm run build`
+
 ## 2026-06-03 | Admin Web File Open | 팝업 차단 시 signed URL 발급 전 중단함
 - Symptom:
   - 관리자 웹 배포 후 총무가 FC 업로드 파일 `열기`를 눌렀을 때 `브라우저 팝업이 차단되어 파일을 열 수 없습니다` 알림이 떴고 파일이 열리지 않았다.
@@ -1119,7 +1147,7 @@
 - Verification: `gh run view 24032520698 --repo jj8127/Appointment-Process --json attempt,headSha,conclusion,url`, `gh run view 24032713335 --repo jj8127/Appointment-Process --json attempt,headSha,conclusion,url`, `gh pr view 1 --repo jj8127/Appointment-Process --json body,updatedAt`
 
 ## 2026-04-06 | Dashboard KPI / Workflow Summary | 상단 카드 집계를 raw status shortcut으로 두어 화면 라벨과 실제 의미가 어긋남
-- Symptom: 대시보드 상단 카드가 `총 인원`을 사실상 가입 완료 FC 전체 수로 보여주면서 `활성 FC 현황`이라 표기했고, `수당동의 대기`와 `서류검토 대기`도 workflow helper가 아닌 raw `status` shortcut 기준이라 운영자가 보는 의미와 숫자가 완전히 일치하지 않았다.
+- Symptom: 대시보드 상단 카드가 `총 인원`을 사실상 가입 완료 FC 전체 수로 보여주면서 `활성 FC 현황`이라 표기했고, `보증 보험 동의 대기`와 `서류검토 대기`도 workflow helper가 아닌 raw `status` shortcut 기준이라 운영자가 보는 의미와 숫자가 완전히 일치하지 않았다.
 - Root cause: 목록/모달/배지에서는 `calcStep`, `getAllowanceDisplayState`, `getDocProgress` 같은 파생 workflow helper를 쓰는데, 상단 KPI 카드만 `fcs.length`, `allowance-pending`, `docs-pending|docs-submitted` 같은 단순 status 집계로 남겨 두었다.
 - Why it was missed: 카드 숫자가 대략 그럴듯하게 움직였고, 세부 모달/배지 로직을 먼저 고치면서 summary card는 "단순 카운터"로 취급했다.
 - Permanent guardrail: 대시보드 KPI는 raw status shortcut을 직접 세지 않는다. 카드 문구와 숫자가 workflow 단계 의미를 공유해야 할 때는 list badge와 같은 helper(`calcStep`, `getAllowanceDisplayState`, `getDocProgress`)를 재사용하고, 문구가 helper 의미와 다르면 copy도 같이 수정한다.
@@ -1150,10 +1178,10 @@
 - Related files: `web/src/app/page.tsx`, `web/src/hooks/use-session.tsx`, `web/src/app/auth/page.tsx`, `web/src/app/dashboard/layout.tsx`
 - Verification: `http://localhost:3000` headless browser redirect 확인, `cd E:\hanhwa\fc-onboarding-app\web && npm run lint -- src/app/page.tsx`, `cd E:\hanhwa\fc-onboarding-app\web && npx next build`
 
-## 2026-04-06 | Admin Web Workflow Tabs | 수당 동의에만 있던 direct-input 계약을 생명/손해 위촉 완료일에는 맞추지 않아 운영 입력 흐름이 탭마다 갈라짐
-- Symptom: 총무는 `수당 동의` 탭에서는 `동의일(Actual)`을 trusted path로 직접 저장할 수 있었지만, `생명/손해 위촉` 탭에서는 같은 종류의 실제 완료일을 `승인 완료` 흐름에 기대어 우회적으로만 처리해야 했다.
+## 2026-04-06 | Admin Web Workflow Tabs | 보증 보험 동의에만 있던 direct-input 계약을 생명/손해 위촉 완료일에는 맞추지 않아 운영 입력 흐름이 탭마다 갈라짐
+- Symptom: 총무는 `보증 보험 동의` 탭에서는 `동의일(Actual)`을 trusted path로 직접 저장할 수 있었지만, `생명/손해 위촉` 탭에서는 같은 종류의 실제 완료일을 `승인 완료` 흐름에 기대어 우회적으로만 처리해야 했다.
 - Root cause: dashboard workflow tab을 단계별로 따로 보강하면서 `실제 날짜 직접입력 + trusted save route + status normalization + list invalidation` 계약을 allowance에만 만들고 appointment에는 parity 체크를 하지 않았다.
-- Why it was missed: 기존 appointment tab에 `승인 완료` 버튼이 이미 있다는 이유로 "총무도 입력 가능하다"라고 간주했고, 수당 동의에서 분리한 direct-input 패턴을 다른 workflow tab에도 적용해야 하는지까지 대조하지 않았다.
+- Why it was missed: 기존 appointment tab에 `승인 완료` 버튼이 이미 있다는 이유로 "총무도 입력 가능하다"라고 간주했고, 보증 보험 동의에서 분리한 direct-input 패턴을 다른 workflow tab에도 적용해야 하는지까지 대조하지 않았다.
 - Permanent guardrail: admin workflow tab에 `Actual` 날짜 입력이 있으면 allowance, hanwha, appointment를 같은 4축으로 비교한다. `직접 저장 버튼`, `trusted route action`, `status normalization`, `dashboard-list/detail invalidation` 중 하나라도 빠지면 parity drift로 본다.
 - Related files: `web/src/app/dashboard/page.tsx`, `web/src/app/api/admin/fc/route.ts`, `web/src/lib/fc-workflow.ts`, `docs/handbook/admin-web/dashboard-lifecycle.md`
 - Verification: `cd E:\hanhwa\fc-onboarding-app\web && npm run lint -- src/app/dashboard/page.tsx src/app/api/admin/fc/route.ts src/lib/fc-workflow.ts`, `cd E:\hanhwa\fc-onboarding-app\web && npx next build`, `cd E:\hanhwa\fc-onboarding-app && node scripts/ci/check-governance.mjs`
@@ -1253,3 +1281,27 @@
 - Permanent guardrail: force-graph drag에서 pointer 대상 노드 외에는 좌표를 직접 쓰지 않는다. drag 중에는 대상 노드만 임시 `fx/fy`로 잡고 simulation을 reheat한다. release는 `fx/fy` 해제, recent sample 기반 clamped velocity 주입, dragged node 1개짜리 decaying drop tether만 허용한다. component/hub/drop 보정 force는 모두 `vx/vy += delta` 방식이어야 한다.
 - Related files: `web/src/components/referrals/ReferralGraphCanvas.tsx`, `web/src/lib/referral-graph-interaction.ts`, `web/src/lib/referral-graph-physics.ts`, `web/src/lib/referral-graph-layout.ts`
 - Verification: `node --experimental-strip-types --test web/src/lib/referral-graph-interaction.test.ts web/src/lib/referral-graph-physics.test.ts web/src/lib/referral-graph-layout.test.ts web/src/lib/referral-graph-edges.test.ts`, targeted web lint, `cd web && npm run build`, Playwright synthetic browser QA screenshot `.codex/harness/referral-graph-physics-browser-qa.png`, `node scripts/ci/check-governance.mjs`
+
+## 2026-06-04 | Mobile Theme | 시스템 다크 테마를 허용해 로그인/CTA 배경이 검정으로 보임
+- Symptom: SM_S942N 실기기에서 로그인 화면과 일부 홈 CTA/card 영역이 의도한 흰색/주황색 톤 대신 검정 배경처럼 보였다.
+- Root cause: `app.json`이 `userInterfaceStyle: automatic`이고 root navigation이 `DarkTheme`를 시스템 색상에 따라 적용했다. 로그인 화면도 native gradient가 늦게 붙거나 실패할 때 fallback `backgroundColor`가 없어 Android dark base가 그대로 드러날 수 있었다.
+- Why it was missed: 색상 회귀를 개별 버튼/카드 스타일 문제로만 보고, Expo system UI + React Navigation theme + screen fallback background를 같은 acceptance로 묶지 않았다. 실기기 dark-mode screenshot 확인을 완료 조건에 두지 않아 같은 증상이 반복됐다.
+- Permanent guardrail: 가람in 모바일은 별도 dark theme 구현 전까지 light-only 계약이다. `app.json`, root `ThemeProvider`, `NavigationBar`, screen/container fallback background를 함께 고정하고, UI 색상 회귀 수정 뒤에는 SM_S942N 또는 Android target에서 해당 화면 스크린샷을 반드시 확인한다.
+- Related files: `app.json`, `app/_layout.tsx`, `app/login.tsx`
+- Verification: `npm run lint -- app/_layout.tsx app/login.tsx`, `npx expo config --type public`, `npx expo run:android --device SM_S942N`, ADB screenshot `.codex/harness/evidence/kim-referral-auth/login-after-color-fix.png`
+
+## 2026-06-04 | Admin Web FC Access | JS로 쓰는 웹 세션 쿠키를 그대로 FC 권한 근거로 쓰려 해 impersonation 위험을 만들 뻔함
+- Symptom: 관리자 웹 추천인 그래프를 FC에게 열면서 `session_role=fc`, `session_resident=<전화번호>` 쿠키만 있으면 그래프 API allowlist를 통과할 수 있는 구조가 될 수 있었다.
+- Root cause: 기존 admin web 세션이 client-side cookie/localStorage를 표시 상태와 서버 세션 힌트로 동시에 사용한다는 점을 충분히 분리하지 않았다. FC처럼 일반 사용자에게 웹 표면을 열 때는 "역할 쿠키 + DB에 전화번호 존재"가 인증 증명이 될 수 없는데, route containment와 graph downline scope만 먼저 구현했다.
+- Why it was missed: staff-only 관리자 웹에서는 기존 쿠키 모델의 위험이 덜 드러났고, 새 FC 접근 요구를 "권한 스코프" 문제로만 봤다. 보안 subagent가 수동 쿠키 조작 공격 경로를 지적한 뒤에야 signed/HttpOnly 세션을 별도 추가했다.
+- Permanent guardrail: admin web에 FC 또는 외부 사용자를 추가할 때는 JS-readable session cookie를 인증 근거로 쓰지 않는다. public login/API handoff에서 서버가 검증한 signed/HttpOnly cookie를 발급하고, protected API는 그 서명 세션을 다시 확인한다. UI 메뉴 제한은 server route/API authorization 이후의 보조 수단으로만 취급한다.
+- Related files: `web/src/lib/fc-graph-session.ts`, `web/src/lib/server-session.ts`, `web/src/app/api/auth/login/route.ts`, `web/middleware.ts`, `web/src/lib/admin-referrals.ts`
+- Verification: `node --test web/src/lib/admin-web-route-access.test.ts web/src/lib/referral-graph-scope.test.ts web/src/lib/fc-graph-session.test.ts`, targeted web lint, `cd web; SENTRY_AUTH_TOKEN='' npm run build`
+
+## 2026-06-04 | Request Board Role Actions | 설계 완료 후 FC 승인/거절 액션을 설계매니저 화면에 노출
+- Symptom: 설계매니저의 의뢰 상세 화면에서 설계 완료된 항목에 `거절`/`승인` 버튼이 표시됐다.
+- Root cause: 완료된 assignment의 `fc_decision=pending` 상태를 FC 검토 조건과 설계매니저 관리 조건에 함께 재사용하면서, 액션 렌더링에 명시적인 역할 gate가 부족했다.
+- Why it was missed: `request-board-review` 화면이 FC 검토와 설계매니저 상세/관리 surface를 공유하는데도, 완료 설계 이후의 액션 소유권을 역할별 테스트로 고정하지 않았다.
+- Permanent guardrail: 완료 설계의 FC decision 버튼은 `!isRequestBoardDesigner && needsReview` 조건에서만 렌더링한다. 설계매니저 화면은 같은 상태를 `FC 검토 대기`로만 표시하고, 역할별 Android UI 확인 또는 그에 준하는 명시적 회귀 테스트를 남긴다.
+- Related files: `app/request-board-review.tsx`, `lib/__tests__/request-board-review-role.contract.test.ts`
+- Verification: `npx jest lib\__tests__\request-board-review-role.contract.test.ts --runInBand`, `npx tsc --noEmit`, FC Android detail screenshot `.codex/harness/ui-qa/android-fc-review-detail-buttons-after-role-patch.png`; 설계매니저 Android visual pass는 기기 보안 잠금으로 보류하고 사용자 세션/임시 request_board 데이터는 복구 및 삭제했다.

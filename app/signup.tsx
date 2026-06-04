@@ -32,10 +32,18 @@ import {
   getSignupReferralSelectionError,
   runSinglePendingReferralApply,
 } from '@/lib/signup-referral';
+import {
+  LICENSE_STATUS_NONE,
+  LICENSE_STATUS_LABELS,
+  LICENSE_STATUS_OPTIONS,
+  mapLicenseStatusesToCommissionStatus,
+  normalizeLicenseStatuses,
+  toggleLicenseStatus,
+} from '@/lib/license-statuses';
 import { supabase } from '@/lib/supabase';
 import { COLORS, TYPOGRAPHY, SPACING, RADIUS } from '@/lib/theme';
 import { validatePhone, validateEmail, validateRequired, normalizePhone } from '@/lib/validation';
-import type { CommissionCompletionStatus } from '@/types/fc';
+import type { LicenseStatus } from '@/types/fc';
 
 const STORAGE_KEY = 'fc-onboarding/signup';
 
@@ -62,16 +70,9 @@ const EMAIL_DOMAINS = [
 const CARRIER_OPTIONS = ['SKT', 'KT', 'LGU+', 'SKT 알뜰폰', 'KT 알뜰폰', 'LGU+ 알뜰폰'];
 const REFERRAL_SEARCH_ERROR_MESSAGE = '추천인 검색을 지금 사용할 수 없습니다. 잠시 후 다시 시도해주세요.';
 
-const COMMISSION_OPTIONS: { value: CommissionCompletionStatus; label: string; sub: string }[] = [
-  { value: 'none', label: '미완료', sub: '생명/손해 위촉 모두 진행 예정' },
-  { value: 'life_only', label: '생명 완료', sub: '생명 완료, 손해 위촉 진행 예정' },
-  { value: 'nonlife_only', label: '손해 완료', sub: '손해 완료, 생명 위촉 진행 예정' },
-  { value: 'both', label: '모두 완료', sub: '생명/손해 위촉 모두 완료' },
-];
-
 export default function SignupScreen() {
   const [selectedAffiliation, setSelectedAffiliation] = useState('');
-  const [commissionStatus, setCommissionStatus] = useState<CommissionCompletionStatus>('none');
+  const [licenseStatuses, setLicenseStatuses] = useState<LicenseStatus[]>([LICENSE_STATUS_NONE]);
   const [name, setName] = useState('');
   const [phone, setPhone] = useState('');
   const [referralStatus, setReferralStatus] = useState<'idle' | 'validating' | 'valid' | 'invalid'>('idle');
@@ -89,6 +90,7 @@ export default function SignupScreen() {
   const [carrier, setCarrier] = useState('');
   const [showDomainPicker, setShowDomainPicker] = useState(false);
   const [showCarrierPicker, setShowCarrierPicker] = useState(false);
+  const [showLicensePicker, setShowLicensePicker] = useState(false);
   const [checking, setChecking] = useState(false);
   const keyboardPadding = useKeyboardPadding();
   const { referralNonce } = useLocalSearchParams<{ referralNonce?: string }>();
@@ -152,12 +154,6 @@ export default function SignupScreen() {
       return;
     }
 
-    const commissionValidation = validateRequired(commissionStatus, '위촉 상태');
-    if (!commissionValidation.isValid) {
-      Alert.alert('입력 확인', commissionValidation.error);
-      return;
-    }
-
     const referralSelectionError = getSignupReferralSelectionError(
       referralSearchQuery,
       selectedReferral,
@@ -185,6 +181,8 @@ export default function SignupScreen() {
       referralInviterName,
       referralInviterFcId,
     });
+    const normalizedLicenseStatuses = normalizeLicenseStatuses(licenseStatuses);
+    const commissionStatus = mapLicenseStatusesToCommissionStatus(normalizedLicenseStatuses);
 
     // 중복 계정 체크 (OTP 발송 없이 확인만)
     setChecking(true);
@@ -213,11 +211,18 @@ export default function SignupScreen() {
         ...storedReferral,
         email: emailValue,
         carrier: carrier.trim(),
+        license_statuses: normalizedLicenseStatuses,
         commissionStatus,
       }),
     );
     router.push('/signup-verify');
   };
+
+  const handleLicenseStatusToggle = (status: LicenseStatus) => {
+    setLicenseStatuses((current) => toggleLicenseStatus(current, status));
+  };
+  const normalizedLicenseStatusView = normalizeLicenseStatuses(licenseStatuses);
+  const licenseStatusSummary = normalizedLicenseStatusView.map((status) => LICENSE_STATUS_LABELS[status]).join(', ');
 
   const resetSelectedReferral = useCallback(() => {
     referralValidationRequestRef.current += 1;
@@ -482,22 +487,19 @@ export default function SignupScreen() {
           </View>
 
           <View style={styles.field}>
-            <Text style={styles.label}>현재 위촉 상태</Text>
-            <View style={styles.commissionBox}>
-              {COMMISSION_OPTIONS.map((opt) => {
-                const active = commissionStatus === opt.value;
-                return (
-                  <Pressable
-                    key={opt.value}
-                    style={[styles.commissionItem, active && styles.commissionItemActive]}
-                    onPress={() => setCommissionStatus(opt.value)}
-                  >
-                    <Text style={[styles.commissionLabel, active && styles.commissionLabelActive]}>{opt.label}</Text>
-                    <Text style={[styles.commissionSub, active && styles.commissionSubActive]}>{opt.sub}</Text>
-                  </Pressable>
-                );
-              })}
-            </View>
+            <Text style={styles.label}>자격증 보유 현황</Text>
+            <Pressable style={styles.licenseSelectBox} onPress={() => setShowLicensePicker(true)}>
+              <Text
+                style={[
+                  styles.licenseSelectText,
+                  normalizedLicenseStatusView.includes(LICENSE_STATUS_NONE) && styles.licenseSelectPlaceholder,
+                ]}
+                numberOfLines={2}
+              >
+                {licenseStatusSummary}
+              </Text>
+              <Feather name="chevron-down" size={20} color={COLORS.text.secondary} />
+            </Pressable>
           </View>
         </View>
 
@@ -685,6 +687,34 @@ export default function SignupScreen() {
         </Pressable>
       </KeyboardAwareWrapper>
 
+      <Modal visible={showLicensePicker} transparent animationType="fade">
+        <Pressable style={styles.modalOverlay} onPress={() => setShowLicensePicker(false)}>
+          <Pressable style={styles.modalCard} onPress={(e) => e.stopPropagation()}>
+            <Text style={styles.modalTitle}>자격증 보유 현황</Text>
+            <View style={styles.modalOptions}>
+              {LICENSE_STATUS_OPTIONS.map((status) => {
+                const active = normalizeLicenseStatuses(licenseStatuses).includes(status);
+                return (
+                  <Pressable
+                    key={status}
+                    style={[styles.modalOption, active && styles.modalOptionActive]}
+                    onPress={() => handleLicenseStatusToggle(status)}
+                  >
+                    <Text style={[styles.modalOptionText, active && styles.modalOptionTextActive]}>
+                      {LICENSE_STATUS_LABELS[status]}
+                    </Text>
+                    {active ? <Feather name="check" size={18} color={COLORS.primary} /> : null}
+                  </Pressable>
+                );
+              })}
+            </View>
+            <Pressable style={styles.modalCancel} onPress={() => setShowLicensePicker(false)}>
+              <Text style={styles.modalCancelText}>완료</Text>
+            </Pressable>
+          </Pressable>
+        </Pressable>
+      </Modal>
+
       <Modal visible={showDomainPicker} transparent animationType="fade">
         <Pressable style={styles.modalOverlay} onPress={() => setShowDomainPicker(false)}>
           <Pressable style={styles.modalCard} onPress={(e) => e.stopPropagation()}>
@@ -774,36 +804,27 @@ const styles = StyleSheet.create({
   affiliationActive: { borderColor: COLORS.primary, backgroundColor: COLORS.primaryPale },
   affiliationText: { color: COLORS.text.primary, fontSize: TYPOGRAPHY.fontSize.md },
   affiliationTextActive: { color: COLORS.primary, fontWeight: TYPOGRAPHY.fontWeight.bold },
-  commissionBox: {
-    gap: SPACING.xs,
-  },
-  commissionItem: {
+  licenseSelectBox: {
+    minHeight: 52,
     borderWidth: 1,
     borderColor: COLORS.border.light,
     borderRadius: RADIUS.base,
     backgroundColor: COLORS.white,
+    paddingHorizontal: 14,
     paddingVertical: 10,
-    paddingHorizontal: 12,
-    gap: 2,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: SPACING.sm,
   },
-  commissionItemActive: {
-    borderColor: COLORS.primary,
-    backgroundColor: COLORS.primaryPale,
-  },
-  commissionLabel: {
+  licenseSelectText: {
+    flex: 1,
     color: COLORS.text.primary,
-    fontSize: TYPOGRAPHY.fontSize.sm,
-    fontWeight: TYPOGRAPHY.fontWeight.bold,
+    fontSize: TYPOGRAPHY.fontSize.md,
+    fontWeight: TYPOGRAPHY.fontWeight.semibold,
   },
-  commissionLabelActive: {
-    color: COLORS.primary,
-  },
-  commissionSub: {
+  licenseSelectPlaceholder: {
     color: COLORS.text.secondary,
-    fontSize: TYPOGRAPHY.fontSize.xs,
-  },
-  commissionSubActive: {
-    color: COLORS.primary,
   },
   field: { gap: 6 },
   label: { fontWeight: TYPOGRAPHY.fontWeight.bold, color: COLORS.text.primary, fontSize: TYPOGRAPHY.fontSize.md },
@@ -1016,8 +1037,15 @@ const styles = StyleSheet.create({
     paddingHorizontal: SPACING.sm,
     borderRadius: RADIUS.base,
     backgroundColor: COLORS.background.secondary,
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
+  modalOptionActive: {
+    backgroundColor: COLORS.primaryPale,
   },
   modalOptionText: { fontSize: TYPOGRAPHY.fontSize.sm, fontWeight: TYPOGRAPHY.fontWeight.semibold, color: COLORS.text.primary },
+  modalOptionTextActive: { color: COLORS.primary, fontWeight: TYPOGRAPHY.fontWeight.extrabold },
   modalCancel: {
     marginTop: SPACING.md,
     paddingVertical: 10,

@@ -33,6 +33,8 @@ function makeNode(id: string, isIsolated = false): GraphNode {
     inboundCount: 0,
     nodeStatus: 'has_active_code',
     isIsolated,
+    signupCompleted: true,
+    allCommissionsCompleted: false,
     hasLegacyUnresolved: false,
     highlightType: null,
   };

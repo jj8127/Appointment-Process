@@ -1,3 +1,275 @@
+﻿# Current Contract: Increment 34 - Orange CTA Black Rendering Guard
+
+Status: completed locally on 2026-06-04
+
+## Goal
+
+Stop the repeatedly reported Android behavior where GaramIn orange CTA/card surfaces render as black.
+
+## Scope
+
+- Use plain `View` surfaces with explicit orange backgrounds for the large FC home next-step card and messenger CTA cards.
+- Apply the same orange-surface guard to legacy life/nonlife exam submit buttons and the referral-code card.
+- Keep the small non-CTA guide icon gradients where they are white/light decorative surfaces.
+- Keep existing exam application, referral, board, and notification behavior unchanged.
+
+## Explicit Non-Scope
+
+- Do not change Toss/proxy exam runtime status or revive deferred payment work.
+- Do not change board category data or referral graph logic.
+- Do not perform broad style refactors beyond the repeated black-surface pattern.
+
+## Acceptance Criteria
+
+- Home `다음 단계` and `통합 메신저 열기` cards no longer depend on orange `LinearGradient`.
+- Exam submit buttons and referral-code card no longer depend on orange `LinearGradient`.
+- Targeted mobile lint passes for touched mobile surfaces.
+
+## Verification Plan
+
+- Passed: `npm run lint -- app/index.tsx app/exam-apply.tsx app/exam-apply2.tsx app/referral.tsx app/board.tsx app/admin-board-manage.tsx`.
+- Passed: `cd web; npm run lint -- src/app/dashboard/board/page.tsx`.
+- Passed: `cd web; SENTRY_AUTH_TOKEN='' npm run build`.
+- Passed: `node scripts\ci\check-governance.mjs`.
+
+---
+
+# Current Contract: Increment 33 - Board Garam Pick Category
+
+Status: completed locally on 2026-06-04
+
+## Goal
+
+Add `가람 Pick` as a selectable board post category across GaramIn app and admin surfaces.
+
+## Scope
+
+- Add schema seed and forward migration for `board_categories` row `name='가람 Pick'`, `slug='garam-pick'`.
+- Let existing category-list/create/update board APIs continue to drive category selection dynamically.
+- Add distinct badge theme for `가람 Pick` in mobile board, mobile admin board management, and admin web board.
+- Update board requirements/runbook docs.
+
+## Explicit Non-Scope
+
+- Do not change board RLS, permissions, authorship, comments, reactions, attachments, or notifications.
+- Do not change `공지`/legacy notice preview behavior.
+- Do not add hard-coded category IDs in clients.
+
+## Acceptance Criteria
+
+- New installs and migrated DBs have an active `가람 Pick` category.
+- Admin web board category select can show `가람 Pick` via existing category fetch.
+- Mobile board/admin board badges for `가람 Pick` are visually distinct and not gray fallback.
+
+## Verification Plan
+
+- Passed: focused root/mobile lint for touched board/home/exam/referral app files.
+- Passed: admin web board lint.
+- Passed: admin web production build with `SENTRY_AUTH_TOKEN=''`.
+- Passed: governance check.
+
+---
+
+# Current Contract: Increment 32 - Dawichok URL Sent Signal And Referral Graph Completion Legend
+
+Status: completed locally on 2026-06-04
+
+## Goal
+
+Add an explicit secretary/admin signal that the Dawichok URL was sent, show FCs the Kakao-delivered URL instruction only after that signal exists, and make the admin referral graph easier to read by coloring all-commission-complete FCs and clarifying the legend.
+
+## Scope
+
+- Add `dawichok_url_sent_at` and `dawichok_url_sent_by` to the FC profile contract.
+- Add mobile admin, web admin, and Edge Function actions for `markDawichokUrlSent`.
+- Notify the FC through the existing in-app/push path with `다위촉 URL 안내`.
+- Show `카카오톡으로 전송된 다위촉 URL을 진행해 주세요.` on the FC Dawichok page only when the sent signal exists.
+- Clear Dawichok URL sent state on document-workflow downgrade/reset paths.
+- Add referral graph `allCommissionsCompleted` node state from life/nonlife completion or appointment dates.
+- Render all-commission-complete graph nodes in a distinct green color and show the same state in the drawer.
+- Make the graph summary and legend describe visible completion count and actual color/ring semantics.
+
+## Explicit Non-Scope
+
+- Do not reactivate Toss Payments virtual-account runtime or proxy exam applications.
+- Do not add headquarters-scoped secretary filtering.
+- Do not remove or alter the Dawichok PDF upload legacy path in this increment.
+- Do not add real Kakao template provider integration; this increment uses the existing notification path and stores the sent signal.
+- Do not change referral graph physics or edge construction.
+
+## Acceptance Criteria
+
+- Secretary/admin users can mark that the Dawichok URL was sent from mobile admin and web admin surfaces.
+- The sent timestamp is visible in FC detail/admin Dawichok contexts.
+- FC Dawichok guidance uses the exact Kakao URL instruction only after `dawichok_url_sent_at` exists.
+- Downgrading back to docs-pending clears stale Dawichok URL sent state.
+- All-commission-complete graph nodes are visually distinguishable by color only.
+- The graph legend explains green completed nodes, orange referral-code nodes, yellow highlight/legacy-outline markers, and gray inactive/no-code nodes in operator-friendly terms.
+- Completion count reflects currently visible nodes after search/filter, not the full graph.
+
+## Verification Plan
+
+- Passed: focused node tests for referral graph layout and simulation.
+- Passed: `npm test -- --runInBand`.
+- Passed: `npm run lint`.
+- Passed: `cd web; npm run lint`.
+- Passed: `cd web; SENTRY_AUTH_TOKEN='' npm run build`.
+- Passed: `node scripts/ci/check-governance.mjs`.
+- Passed: `git diff --check` with CRLF normalization warnings only.
+
+---
+
+# Current Contract: Increment 31 - GaramIn Operations UX And Workflow Fixes
+
+Status: completed locally on 2026-06-03
+
+## Goal
+
+Implement the new nine-item GaramIn improvement set with parallel workers while keeping deferred Toss virtual-account/proxy exam application work and headquarters-scoped secretary access out of this increment.
+
+## Scope
+
+- Fix mobile admin life/nonlife exam round registration UX so `시험 추가` opens the lower create form and `수정` opens the lower edit form.
+- Change signup user-facing `현재 위촉 상태` to multi-select `자격증 보유 현황`, add `license_statuses`, and keep existing commission-completion fields compatible.
+- Rename user-facing `보증 보험 동의` copy to `보증 보험 동의` while keeping internal `allowance_*` schema/status names.
+- Require and visually emphasize the FC guarantee-insurance consent date; prevent admin approval/prescreen transitions without a valid date.
+- Allow secretary/admin document approval or rejection for requested document rows even when no file was uploaded, and auto-advance based on all requested docs being approved.
+- Add stage-level YouTube placeholder controls beside the next-step action and keep existing guide video actions.
+- Harden orange CTA/card surfaces against black fallback rendering.
+- Show full resident registration numbers to manager/headquarters read-only sessions through trusted resident-number paths without masked fallback.
+
+## Explicit Non-Scope
+
+- Do not reactivate Toss Payments virtual-account runtime, proxy exam applications, or deleted/deferred exam payment functions.
+- Do not add headquarters-scoped secretary filtering; all secretary/admin visibility remains broad unless already enforced elsewhere by existing code.
+- Do not rename internal `allowance_*` or workflow status values.
+- Do not weaken FC self-scope for resident-number reads.
+
+## Acceptance Criteria
+
+- Life and nonlife mobile exam schedule screens visibly scroll/focus to the form after `시험 추가` and row `수정`.
+- Signup supports `제3 보험`, `생명 보험`, `손해 보험`, `없음` with exclusive `없음` behavior and persists normalized `license_statuses`.
+- No user-facing mobile/web text in touched paths still uses the legacy allowance-consent wording; internal identifiers may remain.
+- FC and admin paths reject guarantee-insurance approval/prescreen without a valid date.
+- A requested no-file document can be manually approved/rejected by an admin, and an FC can advance when every requested doc is approved.
+- Home next-step UI has a YouTube placeholder button and orange CTAs retain explicit non-black fallback backgrounds.
+- Manager expanded FC details show full resident number or an explicit failure/missing state, never the masked value.
+- Admin/web status changes cannot force `docs-approved` unless every requested doc row is approved.
+- Admin/web guarantee-insurance date and approval paths require an issued `temp_id`, matching the FC path sequencing.
+
+## Verification Plan
+
+- Passed: focused tests for license selection, workflow/doc progression, and commission contracts.
+- Passed: targeted mobile/web lint for touched files.
+- Passed: `npm test -- --runInBand`.
+- Passed: `npm run lint`.
+- Passed: `cd web; npm run lint`.
+- Passed: `cd web; SENTRY_AUTH_TOKEN='' npm run build` with existing dependency/data-age warnings only.
+- Passed: `node scripts/ci/check-governance.mjs`.
+- Passed: `git diff --check` with CRLF normalization warnings only.
+
+---
+
+# Current Contract: Increment 30 - Mobile Exam Runtime Rollback
+
+Status: completed locally on 2026-06-03
+
+## Goal
+
+Rollback the MOBILE EXAM / Toss runtime activation while preserving the per-examinee Toss design as deferred contract material.
+
+## Scope
+
+- Restore `app/exam-apply.tsx` and `app/exam-apply2.tsx` to the legacy FC flow where the FC enters `응시료 납입일`.
+- Keep mobile writes on direct `exam_registrations` insert/update with `fee_paid_date`.
+- Remove mobile runtime dependency on `exam-application-submit`.
+- Remove mobile proxy applicant selector UI and per-examinee virtual-account cards.
+- Remove newly added deployable exam payment Edge Function entrypoints so they are not active runtime.
+- Leave pure payment contract/test material dormant as future/deferred design evidence.
+- Update only exam/Toss-related harness notes; do not edit Dawichok PDF or admin-scope sections.
+
+## Explicit Non-Scope
+
+- Do not touch Dawichok PDF files, admin scope routes, schema/migrations, admin web routes, notification functions, or unrelated mobile screens.
+- Do not revert unrelated dirty worktree changes from other workers.
+- Do not delete deferred contract documentation.
+
+## Acceptance Criteria
+
+- Mobile life/nonlife exam apply screens show the manual `응시료 납입 일자` section and require a selected date.
+- Successful submit writes `fee_paid_date: toYmd(feePaidDate)` to `exam_registrations` on both insert and update.
+- Mobile life/nonlife screens contain no `exam-application-submit`, proxy applicant selector, payment join, or virtual-account UI references.
+- The four newly added deployable function entrypoints are absent on disk: `exam-application-submit`, `exam-payment-issue`, `exam-payment-webhook`, and `exam-payment-expire`.
+- Deferred `lib/exam-registration-payment-contract.ts` remains non-runtime: no app/web/function production code imports it.
+
+## Verification Plan
+
+- Search the two mobile screens for Toss/proxy runtime strings and confirm no matches.
+- Search the two mobile screens for `fee_paid_date` and manual date UI.
+- Confirm the four function index files no longer exist.
+- Run targeted mobile lint for `app/exam-apply.tsx` and `app/exam-apply2.tsx`.
+- Run the deferred payment contract test if left present.
+
+---
+
+# Current Contract: Increment 29 - GaramIn Nine-Item Operations Upgrade
+
+Status: completed locally on 2026-06-03
+
+## Goal
+
+Implement the requested nine GaramIn improvements across mobile, admin web, Supabase schema, and Edge Functions while preserving existing FC workflow status names, manager read-only behavior, trusted admin write paths, and legacy exam-payment display.
+
+## Scope
+
+- Make FC home YouTube guidance more visible, show temporary employee number status beside `내 진행 상황`, and keep orange CTAs orange.
+- Rename user-facing `3단계 한화 위촉 URL` copy to `3단계 다위촉 URL`.
+- Replace the current step-3 admin PDF upload dependency with a secretary/admin `다위촉 서류 발송 알림` signal that unlocks the next appointment step.
+- Add KakaoTalk delivery as a downstream channel for selected existing notification events.
+- Add per-registration Toss Payments rotating virtual-account contracts for exam registrations.
+- Allow one FC to apply for existing GaramIn FCs while preserving `exam_registrations.resident_id` as the examinee identifier.
+- Add headquarters/admin scope schema and server-side enforcement hooks so scoped secretaries see only their headquarters data.
+
+## Payment Contract
+
+- Payment matching is always one registration to one rotating Toss virtual account.
+- A multi-person proxy application may create an audit group, but money is never matched at group level.
+- `DEPOSIT_CALLBACK` with a valid Toss secret is the only new source of truth for paid status.
+- `fee_paid_date` remains legacy read-only display data for old rows and is not written by new mobile flows.
+- Secretary/admin `접수 확정` remains a separate manual step from payment status.
+
+## Explicit Non-Scope
+
+- Do not rename internal `hanwha_*` route, status, or DB column names in this increment.
+- Do not delete existing Hanwha/Dawichok PDF storage objects or columns.
+- Do not store Toss or Kakao secrets in source.
+- Do not make manager sessions writable.
+- Do not introduce arbitrary external-person exam registration in v1; proxy application targets existing GaramIn FCs only.
+
+## Acceptance Criteria
+
+- FC home shows a larger visible video action and a temp-id/missing-temp-id badge without changing workflow progression.
+- Step-3 user-facing copy says `다위촉 URL`; no user-facing `3단계 한화 위촉 URL` remains in app/web/docs touched by this work.
+- Appointment gate can unlock after admin sends Dawichok documents without requiring PDF metadata.
+- New exam applications create one payment/order/account row per examinee registration.
+- A Toss webhook for one `orderId` updates exactly one registration payment.
+- Admin exam applicant UI can show payment state separately from `접수 확정`, while legacy `fee_paid_date` rows still render.
+- Scoped admin data access is enforced server-side in the implemented routes.
+- Existing notification/inbox/push behavior continues even if Kakao delivery fails.
+
+## Verification Plan
+
+- Add focused unit/contract tests before production code where practical for workflow labels/gates, payment mapping/idempotency, legacy payment display, and scope filtering.
+- Run targeted tests for changed helpers/functions.
+- Run `npm test -- --runInBand`.
+- Run `npm run lint`.
+- Run `cd web; npm run lint`.
+- Run `cd web; npm run build`.
+- Run `node scripts/ci/check-governance.mjs`.
+- Run `git diff --check`.
+
+---
+
 # Current Contract: Increment 28 - Admin Dashboard Operator Copy And File Open Fix
 
 Status: completed on 2026-06-03
@@ -346,3 +618,88 @@ Keep the `fc-onboarding-app` workspace cleaner for long-running refactor work by
 - Sequential Thinking: considered and attempted through MCP, but the tool failed with `Transport closed`; continue with explicit local contract discipline.
 - context7: considered but not used; no framework/library/API documentation lookup is needed for ignore rules and generated artifact cleanup.
 - Simplifier/simplify: considered but not used because `SIMPLIFIER_BASE_URL` and `SIMPLIFIER_TOKEN` are not safely configured.
+
+## Increment 21 Contract - FC 관리자 웹 추천인 그래프 제한 접근
+
+### Scope
+
+- Allow FC users to log in to the admin web only for `/dashboard/referrals/graph`.
+- Keep staff behavior unchanged for admin and manager sessions.
+- Server-scope FC graph data to the viewer's own referral downline, matching the mobile referral page's "self + descendants" business boundary.
+- Prevent direct graph API access through manually edited JS-readable cookies by requiring a signed, HttpOnly `fc_graph_session` minted by server-side password login.
+- Hide staff-only graph affordances for FC mode: full nav, back-to-list link, node detail fetch, phone display, code history, event history, and list deep-link.
+
+### Files Touched In This Increment
+
+- `web/middleware.ts`
+- `web/src/app/auth/page.tsx`
+- `web/src/app/api/auth/login/route.ts`
+- `web/src/app/api/auth/logout/route.ts`
+- `web/src/app/api/admin/referrals/graph/route.ts`
+- `web/src/app/dashboard/layout.tsx`
+- `web/src/app/dashboard/referrals/graph/page.tsx`
+- `web/src/components/referrals/GraphNodeDrawer.tsx`
+- `web/src/lib/admin-referrals.ts`
+- `web/src/lib/server-session.ts`
+- `web/src/lib/admin-web-route-access.ts`
+- `web/src/lib/fc-graph-session.ts`
+- `web/src/lib/referral-graph-scope.ts`
+- matching direct Node tests
+- `.claude/MISTAKES.md`, `.codex/harness/*`
+
+### Acceptance Criteria
+
+- FC login succeeds through web auth and lands on `/dashboard/referrals/graph`.
+- FC sessions are redirected to the graph page from `/`, `/auth`, and any other dashboard route.
+- FC cannot call `/api/admin/referrals/graph` unless the signed `fc_graph_session` cookie is present and bound to the same phone.
+- FC graph API returns only the viewer node and descendants reachable by `recommender_fc_id` edges; sibling/unrelated/upline nodes are excluded.
+- FC graph UI has only graph navigation and does not fetch `/api/admin/referrals` on node click.
+- Admin and manager graph/list behavior remains unchanged.
+
+### Verification Results
+
+- Passed: `node --test web\src\lib\admin-web-route-access.test.ts web\src\lib\referral-graph-scope.test.ts web\src\lib\fc-graph-session.test.ts` (7 tests).
+- Passed: targeted web lint for the changed auth, middleware-adjacent helpers, graph API, graph page, drawer, layout, and server session files.
+- Passed: `cd web; SENTRY_AUTH_TOKEN='' npm run build`.
+- Build warnings were existing dependency/baseline warnings, not compile/type failures.
+
+## Increment 22 Contract - Manager Default Recommender, Exact Consent Date Term, Graph Legend Colors
+
+### Scope
+
+- Set every active 본부장/manager fc profile to use 김형수(`01094272550`) as the default recommender.
+- Keep referral current-state in `fc_profiles.recommender_*` and audit changes through `referral_events`; do not create self-referral for 김형수.
+- Correct the exposed date field term from legacy allowance-date wording to exact `보증보험 조회 동의일`.
+- Update admin referral graph legend/color semantics:
+  - green: 생명/손해 위촉 모두 완료
+  - yellow: current viewer highlight, or 본부장 highlight in 총무 view
+  - orange: 본등록 완료
+  - gray: 사전등록까지만 한 사람
+  - legend swatches are plain circular nodes, not pills with text inside.
+- Record deferred meeting items outside this scope.
+
+### Exclusions / Deferred
+
+- Toss virtual-account/proxy exam runtime remains deferred.
+- Actual KakaoTalk provider/AlimTalk integration remains deferred.
+- Dedicated 다위촉 guide image assets remain deferred unless already supplied.
+- Full remote DB migration application is not claimed without deployment logs.
+
+### Acceptance Criteria
+
+- New migration and `schema.sql` define `link_manager_profile_to_default_recommender`.
+- `ensure_manager_referral_shadow_profile` calls that helper on existing shadow, existing completed manager profile, and newly created shadow rows.
+- Migration includes a backfill pass for active `manager_accounts`.
+- User-facing date labels/errors in touched app/web/functions/docs say `보증보험 조회 동의일`.
+- Referral docs and static tests pin the new 김형수 default-manager recommender contract.
+- Graph UI matches the requested legend node shape and global color conditions.
+
+### Required Checks
+
+- `npm test -- --runInBand`
+- `npm run lint`
+- `cd web; npm run lint`
+- `cd web; SENTRY_AUTH_TOKEN='' npm run build`
+- `node scripts/ci/check-governance.mjs`
+- `git diff --check`
+- For `request_board`, run its repo build/checks before commit because this conversation also contains GaramLink changes.

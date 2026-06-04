@@ -73,7 +73,7 @@ const LOADING_COPY: Record<
     subtitle: '생명·손해 위촉 진행 상태를 확인하는 중입니다.',
   },
   'hanwha-commission': {
-    title: '한화 위촉 정보를 불러오고 있어요',
+    title: '다위촉 정보를 불러오고 있어요',
     subtitle: 'URL 상태와 제출 자료를 정리하는 중입니다.',
   },
   exam: {

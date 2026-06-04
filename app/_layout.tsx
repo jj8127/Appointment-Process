@@ -1,4 +1,4 @@
-import { DarkTheme, DefaultTheme, ThemeProvider } from '@react-navigation/native';
+import { DefaultTheme, ThemeProvider } from '@react-navigation/native';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import * as Linking from 'expo-linking';
 import * as NavigationBar from 'expo-navigation-bar';
@@ -20,7 +20,6 @@ import { ErrorBoundary } from '@/components/ErrorBoundary';
 import FcTourTooltip from '@/components/FcTourTooltip';
 import { ToastProvider } from '@/components/Toast';
 import { useAppPresenceHeartbeat } from '@/hooks/use-app-presence-heartbeat';
-import { useColorScheme } from '@/hooks/use-color-scheme';
 import { SessionProvider } from '@/hooks/use-session';
 import { useInAppUpdate } from '@/hooks/useInAppUpdate';
 import { goBackOrReplace } from '@/lib/back-navigation';
@@ -64,6 +63,20 @@ const baseHeader = {
 } as const;
 
 const ALERTS_CHANNEL_ID = 'alerts';
+
+const GARAMIN_LIGHT_THEME = {
+  ...DefaultTheme,
+  dark: false,
+  colors: {
+    ...DefaultTheme.colors,
+    primary: '#f36f21',
+    background: '#ffffff',
+    card: '#ffffff',
+    text: '#111827',
+    border: '#e5e7eb',
+    notification: '#f36f21',
+  },
+};
 
 // Notification handler (banner/list 지원)
 if (Platform.OS !== 'web') {
@@ -148,9 +161,6 @@ function RootLayout() {
   const [showSplash, setShowSplash] = useState(true);
   const [error, setError] = useState<Error | null>(null);
 
-  const colorScheme = useColorScheme();
-  const isDark = colorScheme === 'dark';
-
   useEffect(() => {
     let isMounted = true;
     loadAsync(fontSources)
@@ -202,12 +212,12 @@ function RootLayout() {
         const channels = await Notifications.getNotificationChannelsAsync();
         logger.debug('[notifications] android channels', { channels });
         await NavigationBar.setVisibilityAsync('visible');
-        await NavigationBar.setStyle(isDark ? 'light' : 'dark');
+        await NavigationBar.setStyle('dark');
       } catch (err) {
         logger.warn('NavigationBar/Notification setup failed', err);
       }
     })();
-  }, [isDark]);
+  }, []);
 
   // Push 알림 탭 시 앱 내부 화면으로 이동
   useEffect(() => {
@@ -223,14 +233,18 @@ function RootLayout() {
             const title = `${content?.title ?? ''}`.toLowerCase();
             const body = `${content?.body ?? ''}`.toLowerCase();
             const isHanwhaWorkflowNotification =
-              title.includes('한화 위촉 승인') ||
-              title.includes('한화 위촉 반려') ||
-              title.includes('한화 위촉 url 승인') ||
-              title.includes('한화 위촉 url 반려') ||
-              body.includes('한화 위촉이 승인') ||
-              body.includes('한화 위촉이 반려') ||
-              body.includes('한화 위촉 url이 승인') ||
-              body.includes('한화 위촉 url이 반려') ||
+              title.includes('다위촉 승인') ||
+              title.includes('다위촉 반려') ||
+              title.includes('다위촉 URL 승인') ||
+              title.includes('다위촉 URL 반려') ||
+              title.includes('다위촉 url') ||
+              title.includes('다위촉 서류') ||
+              body.includes('다위촉이 승인') ||
+              body.includes('다위촉이 반려') ||
+              body.includes('다위촉 URL이 승인') ||
+              body.includes('다위촉 URL이 반려') ||
+              body.includes('다위촉 url') ||
+              body.includes('다위촉 서류') ||
               body.includes('승인 pdf');
             const nextUrl =
               isHanwhaWorkflowNotification
@@ -257,14 +271,14 @@ function RootLayout() {
 
   return (
     <ErrorBoundary>
-      <GestureHandlerRootView style={{ flex: 1, position: 'relative' }}>
+      <GestureHandlerRootView style={{ flex: 1, position: 'relative', backgroundColor: '#ffffff' }}>
         <SafeAreaProvider>
           <QueryClientProvider client={queryClient}>
             <SessionProvider>
               <PresenceBootstrap />
               <AppAlertProvider>
                 <ToastProvider>
-                  <ThemeProvider value={colorScheme === 'dark' ? DarkTheme : DefaultTheme}>
+                  <ThemeProvider value={GARAMIN_LIGHT_THEME}>
                     {enableTourGuide ? (
                       <TourGuideProvider
                         borderRadius={16}
@@ -362,7 +376,7 @@ function RootLayout() {
                               ),
                             }}
                           />
-                          <Stack.Screen name="consent" options={{ ...baseHeader, title: '수당 지급 동의서' }} />
+                          <Stack.Screen name="consent" options={{ ...baseHeader, title: '보증 보험 동의' }} />
                           <Stack.Screen name="docs-upload" options={{ ...baseHeader, title: '필수 서류 업로드' }} />
                           <Stack.Screen name="exam-apply" options={{ ...baseHeader, title: '생명/제3보험 시험 신청' }} />
                           <Stack.Screen name="exam-apply2" options={{ ...baseHeader, title: '손해보험 시험 신청' }} />
@@ -391,6 +405,7 @@ function RootLayout() {
                           <Stack.Screen name="notice-detail" options={{ ...baseHeader, title: '공지 상세' }} />
                           <Stack.Screen name="board-detail" options={{ ...baseHeader, title: '게시글 상세' }} />
                           <Stack.Screen name="request-board" options={{ ...baseHeader, title: '설계 요청' }} />
+                          <Stack.Screen name="request-board-create" options={{ ...baseHeader, title: '설계 요청 작성' }} />
 
                           <Stack.Screen name="request-board-messenger" options={{ ...baseHeader, title: '설계요청 메신저' }} />
                           <Stack.Screen name="admin-notice" options={{ ...baseHeader, title: '공지 등록' }} />
@@ -487,7 +502,7 @@ function RootLayout() {
                           <Stack.Screen name="apply-gate" options={{ ...baseHeader, title: '추가 정보 입력 안내' }} />
                           <Stack.Screen name="identity" options={{ ...baseHeader, title: '신원 확인' }} />
                           <Stack.Screen name="fc/new" options={{ ...baseHeader, title: '기본 정보' }} />
-                          <Stack.Screen name="consent" options={{ ...baseHeader, title: '수당 지급 동의서' }} />
+                          <Stack.Screen name="consent" options={{ ...baseHeader, title: '보증 보험 동의' }} />
                           <Stack.Screen name="docs-upload" options={{ ...baseHeader, title: '필수 서류 업로드' }} />
                           <Stack.Screen name="exam-apply" options={{ ...baseHeader, title: '생명/제3보험 시험 신청' }} />
                           <Stack.Screen name="exam-apply2" options={{ ...baseHeader, title: '손해보험 시험 신청' }} />
@@ -516,6 +531,7 @@ function RootLayout() {
                           <Stack.Screen name="notice-detail" options={{ ...baseHeader, title: '공지 상세' }} />
                           <Stack.Screen name="board-detail" options={{ ...baseHeader, title: '게시글 상세' }} />
                           <Stack.Screen name="request-board" options={{ ...baseHeader, title: '설계 요청' }} />
+                          <Stack.Screen name="request-board-create" options={{ ...baseHeader, title: '설계 요청 작성' }} />
 
                           <Stack.Screen name="request-board-messenger" options={{ ...baseHeader, title: '설계요청 메신저' }} />
                           <Stack.Screen name="admin-notice" options={{ ...baseHeader, title: '공지 등록' }} />

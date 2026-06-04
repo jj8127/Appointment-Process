@@ -12,6 +12,8 @@ type UpdateDocStatusState = {
     error?: string;
 };
 
+const NO_FILE_APPROVAL_NOTE = '총무 수동 승인: 파일 미제출';
+
 function buildDocWorkflowResetPayload() {
     return {
         hanwha_commission_date_sub: null,
@@ -59,10 +61,37 @@ export async function updateDocStatusAction(
     }
 
     const { fcId, phone, docType, status, reason } = payload;
+    const trimmedReason = String(reason ?? '').trim();
+
+    if (status === 'rejected' && !trimmedReason) {
+        return { success: false, error: '반려 사유를 입력해주세요.' };
+    }
+
+    const { data: currentDoc, error: currentDocError } = await adminSupabase
+        .from('fc_documents')
+        .select('storage_path')
+        .eq('fc_id', fcId)
+        .eq('doc_type', docType)
+        .maybeSingle();
+
+    if (currentDocError) {
+        return { success: false, error: currentDocError.message };
+    }
+    if (!currentDoc) {
+        return { success: false, error: '문서 요청 row를 찾을 수 없습니다.' };
+    }
+
+    const hasFile = Boolean(currentDoc?.storage_path && currentDoc.storage_path !== 'deleted');
 
     // 1. Update individual document status
     const reviewerNote =
-        status === 'rejected' ? (reason ?? '').trim() || null : status === 'approved' ? null : undefined;
+        status === 'rejected'
+            ? trimmedReason
+            : status === 'approved' && !hasFile
+                ? NO_FILE_APPROVAL_NOTE
+                : status === 'approved'
+                    ? null
+                    : undefined;
     const { error: updateError } = await adminSupabase
         .from('fc_documents')
         .update({
@@ -89,10 +118,7 @@ export async function updateDocStatusAction(
     }
 
     const docs = allDocs ?? [];
-    const allSubmitted =
-        docs.length > 0 &&
-        docs.every((d) => d.storage_path && d.storage_path !== 'deleted');
-    const allApproved = allSubmitted && docs.every((d) => d.status === 'approved');
+    const allApproved = docs.length > 0 && docs.every((d) => d.status === 'approved');
 
     const { error: profileError } = await adminSupabase
         .from('fc_profiles')
@@ -111,10 +137,10 @@ export async function updateDocStatusAction(
     }
 
     if (status === 'approved' && allApproved) {
-        message = '모든 서류가 승인되어 한화 위촉 단계로 자동 전환되었습니다.';
+        message = '모든 서류가 승인되어 다위촉 URL 단계로 자동 전환되었습니다.';
 
         const title = '서류 검토 완료';
-        const body = '모든 서류가 승인되었습니다. 한화 위촉 단계로 진행해주세요.';
+        const body = '모든 서류가 승인되었습니다. 다위촉 URL 단계로 진행해주세요.';
 
         await adminSupabase.from('notifications').insert({
             title,

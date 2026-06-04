@@ -120,11 +120,11 @@ export default function AllowanceConsentScreen() {
 
   const submit = async () => {
     if (!tempId) {
-      Alert.alert('임시사번 필요', '임시사번이 발급된 후 수당 동의일을 입력할 수 있습니다.');
+      Alert.alert('임시사번 필요', '임시사번이 발급된 후 보증보험 조회 동의일을 입력할 수 있습니다.');
       return;
     }
     if (!selectedDate) {
-      Alert.alert('입력 확인', '수당 동의일을 선택해주세요.');
+      Alert.alert('입력 확인', '보증보험 조회 동의일을 선택해주세요.');
       return;
     }
     const phone = (residentId ?? '').replace(/[^0-9]/g, '');
@@ -153,12 +153,12 @@ export default function AllowanceConsentScreen() {
           body: {
             type: 'fc_update',
             fc_id: data.profile.id,
-            message: `${data.profile.name ?? ''}님이 수당동의일을 입력했습니다.`,
+            message: `${data.profile.name ?? ''}님이 보증보험 조회 동의일을 입력했습니다.`,
           },
         })
         .catch(() => { });
 
-      Alert.alert('저장 완료', '수당 동의일이 제출되었습니다. 총무가 사전 심사를 준비할 예정입니다.');
+      Alert.alert('저장 완료', '보증보험 조회 동의일이 제출되었습니다. 총무가 사전 심사를 준비할 예정입니다.');
       router.replace('/');
     } catch (err: any) {
       Alert.alert('저장 실패', err?.message ?? '정보를 저장하지 못했습니다.');
@@ -234,7 +234,7 @@ export default function AllowanceConsentScreen() {
           }
         >
           <ScreenHeader
-            title="수당 동의 가이드"
+            title="보증 보험 동의 가이드"
             subtitle="서울보증보험 사이트에서 진행해주세요."
             style={styles.header}
           />
@@ -296,7 +296,7 @@ export default function AllowanceConsentScreen() {
           <View style={styles.formSection}>
             <Text style={styles.sectionTitle}>동의 정보 입력</Text>
             <Text style={styles.sectionDesc}>
-              동의 완료 후 날짜를 입력해주세요. 총무 승인 후에는 수정할 수 없습니다.
+              보증 보험 동의 완료 후 날짜를 입력해주세요. 총무 승인 후에는 수정할 수 없습니다.
             </Text>
             {!!rejectReason && (
               <View style={styles.rejectBox}>
@@ -358,9 +358,15 @@ export default function AllowanceConsentScreen() {
             </View>
 
             <View style={styles.inputGroup}>
-              <Text style={styles.label}>수당동의일</Text>
+              <Text style={[styles.label, styles.dateLabel, isApproved && styles.dateLabelDisabled]}>
+                보증보험 조회 동의일
+              </Text>
               <Pressable
-                style={[styles.dateInput, isApproved && styles.buttonDisabled]}
+                style={[
+                  styles.dateInput,
+                  styles.dateInputEmphasis,
+                  isApproved && styles.dateInputApprovedDisabled,
+                ]}
                 disabled={isApproved}
                 onPress={() => {
                   if (isApproved) return;
@@ -368,10 +374,14 @@ export default function AllowanceConsentScreen() {
                   setShowPicker(true);
                 }}
               >
-                <Text style={[styles.dateText, !selectedDate && styles.dateTextPlaceholder]}>
+                <Text style={[
+                  styles.dateText,
+                  !selectedDate && styles.dateTextPlaceholder,
+                  isApproved && styles.dateTextDisabled,
+                ]}>
                   {selectedDate ? formatKoreanDate(selectedDate) : '날짜를 선택해주세요'}
                 </Text>
-                <Feather name="calendar" size={18} color={COLORS.text.secondary} />
+                <Feather name="calendar" size={18} color={isApproved ? COLORS.text.secondary : COLORS.primary} />
               </Pressable>
               {showPicker && Platform.OS !== 'ios' && (
                 <DateTimePicker
@@ -600,6 +610,13 @@ const styles = StyleSheet.create({
     color: COLORS.text.primary,
     marginBottom: SPACING.sm
   },
+  dateLabel: {
+    color: COLORS.primary,
+    fontWeight: TYPOGRAPHY.fontWeight.extrabold,
+  },
+  dateLabelDisabled: {
+    color: COLORS.text.secondary,
+  },
   dateInput: {
     height: 48,
     backgroundColor: COLORS.background.secondary,
@@ -611,11 +628,22 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'space-between',
   },
+  dateInputEmphasis: {
+    backgroundColor: '#FFF4EC',
+    borderColor: COLORS.primary,
+    borderWidth: 2,
+  },
+  dateInputApprovedDisabled: {
+    backgroundColor: COLORS.background.secondary,
+    borderColor: COLORS.border.light,
+    borderWidth: 1,
+  },
   dateText: {
     fontSize: TYPOGRAPHY.fontSize.md,
     color: COLORS.text.primary
   },
   dateTextPlaceholder: { color: COLORS.text.disabled },
+  dateTextDisabled: { color: COLORS.text.secondary },
 
   buttonPressed: { opacity: 0.9 },
   buttonDisabled: { backgroundColor: COLORS.text.muted },

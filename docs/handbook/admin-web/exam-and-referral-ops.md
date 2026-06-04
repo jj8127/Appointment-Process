@@ -2,7 +2,7 @@ doc_id: FC-ADMIN-EXAM-REFERRAL
 owner_repo: fc-onboarding-app
 owner_area: admin-web
 audience: operator, developer
-last_verified: 2026-04-25
+last_verified: 2026-06-04
 source_of_truth: web/src/app/dashboard/exam/* + web/src/app/admin/exams/* + web/src/app/dashboard/referrals/page.tsx + web/src/app/dashboard/referrals/graph/page.tsx + web/src/app/api/admin/referrals/route.ts
 
 # Admin Web Playbook: Exam And Referral Ops
@@ -34,6 +34,8 @@ source_of_truth: web/src/app/dashboard/exam/* + web/src/app/admin/exams/* + web/
 - manager는 read-only
 - `/dashboard/referrals/graph`는 구조화 추천 관계를 읽기 전용으로 탐색한다.
 - 그래프 edge는 `fc_profiles.recommender_fc_id` 기반 current-state를 기준으로 그리고, graph 안에서 mutation CTA를 열지 않는다.
+- 그래프 노드는 `life_commission_completed`/`appointment_date_life`와 `nonlife_commission_completed`/`appointment_date_nonlife`가 모두 완료 evidence일 때 초록색으로 표시한다. 초록은 추천코드 상태를 바꾸지 않는 별도 위촉 완료 강조색이다.
+- 그래프 범례는 색상 기준으로 읽는다: 초록=생명·손해 위촉 모두 완료, 주황=추천코드 사용 중, 노랑 표시=본부장 강조 또는 예전 기록 확인 테두리, 회색=추천코드 없음/중지.
 - Obsidian Graph View를 참고하되 추천인 tree 가독성에 맞춘 hybrid layout 계약을 유지한다. runtime은 d3 `charge`와 기존 `link`에 link tension, branch bend, sibling angular separation, node/cluster separation, weak cluster gravity, drag rope constraint를 보조 force로 더한다.
 - 초기 seed는 component 크기순 중앙 배치, hub child star/pinwheel, 제한된 isolated golden-angle 분포를 제공한다. isolated node 기본 노출과 toggle은 UI 필터 계약이며, runtime에서 강제 outer ring force를 쓰지 않는다.
 - node drag는 pointer 대상 노드만 임시 `fx/fy`로 고정하되 incident edge가 길게 늘어지지 않도록 연결 노드가 rope constraint로 따라온다. release는 `fx/fy` hard pin 해제와 simulation reheat를 수행하고, release velocity나 decaying drop tether를 주입하지 않는다.

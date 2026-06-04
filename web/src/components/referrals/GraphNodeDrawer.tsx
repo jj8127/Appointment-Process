@@ -45,6 +45,7 @@ export type GraphNodeDrawerProps = {
   opened: boolean;
   onClose: () => void;
   onSelectNode: (fcId: string) => void;
+  allowAdminDetail?: boolean;
   connectedNodes: Array<{
     node: GraphNode;
     direction: 'outbound' | 'inbound';
@@ -63,30 +64,20 @@ export function GraphNodeDrawer({
   opened,
   onClose,
   onSelectNode,
+  allowAdminDetail = true,
   connectedNodes,
 }: GraphNodeDrawerProps) {
   const detailQuery = useQuery({
     queryKey: ['referral-graph-detail', node?.id],
     queryFn: () => fetchNodeDetail(node!.id),
-    enabled: opened && node != null,
+    enabled: allowAdminDetail && opened && node != null,
     staleTime: 60 * 1000,
   });
 
   const detail = detailQuery.data;
 
-  const nodeStatusLabel =
-    node?.nodeStatus === 'has_active_code'
-      ? '사용 중 코드'
-      : node?.nodeStatus === 'code_disabled'
-        ? '사용 중지'
-        : '코드 없음';
-
-  const nodeStatusColor =
-    node?.nodeStatus === 'has_active_code'
-      ? 'orange'
-      : node?.nodeStatus === 'code_disabled'
-        ? 'gray'
-        : 'gray';
+  const nodeStatusLabel = node?.signupCompleted ? '본등록 완료' : '사전등록';
+  const nodeStatusColor = node?.signupCompleted ? 'orange' : 'gray';
   const highlightLabel = getReferralGraphHighlightLabel(node?.highlightType ?? null);
 
   return (
@@ -103,6 +94,11 @@ export function GraphNodeDrawer({
             <Badge color={nodeStatusColor} variant="light" size="sm">
               {nodeStatusLabel}
             </Badge>
+            {node.allCommissionsCompleted ? (
+              <Badge color="teal" variant="filled" size="sm">
+                모든 위촉 완료
+              </Badge>
+            ) : null}
             {node.hasLegacyUnresolved ? (
               <Badge color="yellow" variant="dot" size="sm">
                 예전 기록 확인
@@ -128,14 +124,14 @@ export function GraphNodeDrawer({
       overlayProps={{ opacity: 0.08, color: '#94a3b8' }}
       scrollAreaComponent={ScrollArea.Autosize}
     >
-      {!node ? null : detailQuery.isLoading ? (
+      {!node ? null : allowAdminDetail && detailQuery.isLoading ? (
         <Stack align="center" py="xl">
           <Loader size="sm" color="orange" />
           <Text c="dimmed" size="sm">
             불러오는 중...
           </Text>
         </Stack>
-      ) : detailQuery.isError ? (
+      ) : allowAdminDetail && detailQuery.isError ? (
         <Stack align="center" py="xl" gap="xs">
           <Text c="dimmed" size="sm">
             상세 정보를 불러올 수 없습니다.
@@ -148,19 +144,23 @@ export function GraphNodeDrawer({
               <Text size="sm" c="dimmed">
                 {node.affiliation || '소속 미기록'}
               </Text>
-              <Text size="xs" c="dimmed">
-                {node.phone || '전화번호 미기록'}
-              </Text>
+              {allowAdminDetail ? (
+                <Text size="xs" c="dimmed">
+                  {node.phone || '전화번호 미기록'}
+                </Text>
+              ) : null}
             </Box>
-            <Button
-              component={Link}
-              href={`/dashboard/referrals?fcId=${encodeURIComponent(node.id)}`}
-              variant="light"
-              size="xs"
-              leftSection={<IconExternalLink size={14} />}
-            >
-              목록에서 보기
-            </Button>
+            {allowAdminDetail ? (
+              <Button
+                component={Link}
+                href={`/dashboard/referrals?fcId=${encodeURIComponent(node.id)}`}
+                variant="light"
+                size="xs"
+                leftSection={<IconExternalLink size={14} />}
+              >
+                목록에서 보기
+              </Button>
+            ) : null}
           </Group>
 
           <Group gap="xs" wrap="wrap">
@@ -170,6 +170,11 @@ export function GraphNodeDrawer({
             <Badge color="blue" variant="light">
               추천받음 {node.inboundCount}명
             </Badge>
+            {node.allCommissionsCompleted ? (
+              <Badge color="teal" variant="filled">
+                모든 위촉 완료
+              </Badge>
+            ) : null}
             {highlightLabel ? (
               <Badge color="yellow" variant="light">
                 {highlightLabel}
@@ -183,14 +188,16 @@ export function GraphNodeDrawer({
             <Text size="xs" c="dimmed" tt="uppercase" fw={600}>
               현재 코드
             </Text>
-            {detail?.currentCode ? (
+            {detail?.currentCode || node.activeCode ? (
               <>
                 <Code style={{ fontSize: 20, letterSpacing: 2 }}>
-                  {detail.currentCode.code}
+                  {detail?.currentCode?.code ?? node.activeCode}
                 </Code>
-                <Text size="xs" c="dimmed">
-                  발급일: {formatDate(detail.currentCode.createdAt)}
-                </Text>
+                {detail?.currentCode ? (
+                  <Text size="xs" c="dimmed">
+                    발급일: {formatDate(detail.currentCode.createdAt)}
+                  </Text>
+                ) : null}
               </>
             ) : (
               <Text size="sm" c="dimmed">
@@ -199,7 +206,7 @@ export function GraphNodeDrawer({
             )}
           </Stack>
 
-          {detail && detail.codeHistory.length > 0 ? (
+          {allowAdminDetail && detail && detail.codeHistory.length > 0 ? (
             <>
               <Divider />
               <Stack gap="xs">
@@ -253,7 +260,7 @@ export function GraphNodeDrawer({
             </>
           ) : null}
 
-          {detail && detail.recentEvents.length > 0 ? (
+          {allowAdminDetail && detail && detail.recentEvents.length > 0 ? (
             <>
               <Divider />
               <Stack gap="xs">

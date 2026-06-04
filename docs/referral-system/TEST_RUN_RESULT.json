@@ -614,6 +614,25 @@
       "notes": ""
     },
     {
+      "caseId": "RF-CODE-10",
+      "area": "추천코드",
+      "priority": "P0",
+      "platform": [
+        "backend"
+      ],
+      "title": "active 본부장 profile은 김형수를 기본 추천인으로 가진다",
+      "status": "BLOCKED",
+      "owner": "Codex",
+      "executedAt": "2026-06-04T00:00:00.000Z",
+      "evidence": [
+        "supabase/migrations/20260604000003_default_manager_recommender_kim_hyeongsu.sql",
+        "supabase/schema.sql",
+        "lib/__tests__/manager-default-recommender-contract.test.ts",
+        "npm test -- --runTestsByPath lib\\__tests__\\manager-default-recommender-contract.test.ts lib\\__tests__\\workflow-step-regression.test.ts --runInBand"
+      ],
+      "notes": "source migration/static contract는 통과했지만, 원격 DB migration 적용과 active manager row 대상 backfill 확인은 아직 실행하지 않아 live PASS로 처리하지 않는다."
+    },
+    {
       "caseId": "RF-SELF-01",
       "area": "추천코드",
       "priority": "P0",

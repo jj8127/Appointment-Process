@@ -210,6 +210,11 @@ export function SessionProvider({ children }: { children: ReactNode }) {
                 });
             },
             logout: (options) => {
+                if (typeof window !== 'undefined') {
+                    void fetch('/api/auth/logout', { method: 'POST', keepalive: true }).catch((error) => {
+                        logger.warn('Server logout failed', error);
+                    });
+                }
                 setState(initialState);
                 localStorage.removeItem(STORAGE_KEY);
                 writeCookies(null);

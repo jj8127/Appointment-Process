@@ -19,7 +19,7 @@ import { useKeyboardPadding } from '@/hooks/use-keyboard-padding';
 import { safeStorage } from '@/lib/safe-storage';
 import { supabase } from '@/lib/supabase';
 import { COLORS, TYPOGRAPHY, SPACING, RADIUS } from '@/lib/theme';
-import type { CommissionCompletionStatus } from '@/types/fc';
+import type { CommissionCompletionStatus, LicenseStatus } from '@/types/fc';
 
 const STORAGE_KEY = 'fc-onboarding/signup';
 
@@ -30,6 +30,7 @@ type SignupPayload = {
   email: string;
   phone: string;
   carrier: string;
+  license_statuses?: LicenseStatus[];
   commissionStatus?: CommissionCompletionStatus;
   phoneVerified?: boolean;
   referralCode?: string;

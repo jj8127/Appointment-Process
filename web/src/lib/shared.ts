@@ -32,16 +32,16 @@ type AdminWorkflowProfile = NonNullable<Parameters<typeof calcAdminWorkflowStep>
 export const STATUS_LABELS: Record<FcProfile['status'] | string, string> = {
   draft: '임시사번 미발급',
   'temp-id-issued': '임시사번 발급 완료',
-  'allowance-pending': '수당동의 대기',
+  'allowance-pending': '보증 보험 동의 대기',
   'allowance-consented': '승인 완료',
   'docs-requested': '필수 서류 요청',
   'docs-pending': '서류 대기',
   'docs-submitted': '서류 제출됨',
   'docs-rejected': '서류 반려',
-  'docs-approved': '한화 위촉 URL 대기',
-  'hanwha-commission-review': '한화 위촉 URL 검토 중',
-  'hanwha-commission-rejected': '한화 위촉 URL 반려',
-  'hanwha-commission-approved': '한화 위촉 URL 승인 완료',
+  'docs-approved': '다위촉 URL 대기',
+  'hanwha-commission-review': '다위촉 URL 검토 중',
+  'hanwha-commission-rejected': '다위촉 URL 반려',
+  'hanwha-commission-approved': '다위촉 URL 승인 완료',
   'appointment-completed': '생명/손해 위촉 진행 중',
   'final-link-sent': '완료',
 };
@@ -64,18 +64,18 @@ const STATUS_COLORS: Partial<Record<FcProfile['status'], WorkflowColor>> = {
 };
 
 export const STEP_LABELS: Record<WorkflowStepKey, string> = {
-  step1: '1단계 수당동의',
+  step1: '1단계 보증 보험 동의',
   step2: '2단계 문서제출',
-  step3: '3단계 한화 위촉 URL',
+  step3: '3단계 다위촉 URL',
   step4: '4단계 생명/손해 위촉',
   step5: '5단계 완료',
 };
 
 export const ADMIN_STEP_LABELS: Record<AdminWorkflowStepKey, string> = {
   step0: '0단계 사전등록',
-  step1: '1단계 수당동의',
+  step1: '1단계 보증 보험 동의',
   step2: '2단계 문서제출',
-  step3: '3단계 한화 위촉 URL',
+  step3: '3단계 다위촉 URL',
   step4: '4단계 생명/손해 위촉',
   step5: '5단계 완료',
 };
@@ -182,15 +182,14 @@ export const getDocProgress = (profile?: WorkflowProfile | null) => {
     return { key: 'rejected' as DocProgressKey, label: '반려', color: 'red' as WorkflowColor };
   }
 
+  const allApproved = docs.every((doc) => doc.status === 'approved');
+  if (allApproved) {
+    return { key: 'approved' as DocProgressKey, label: '모든 서류 승인', color: 'green' as WorkflowColor };
+  }
+
   const uploaded = docs.filter((doc) => doc.storage_path && doc.storage_path !== 'deleted');
   if (!uploaded.length) {
     return { key: 'requested' as DocProgressKey, label: '요청 완료', color: 'blue' as WorkflowColor };
-  }
-
-  const allApproved =
-    uploaded.length === docs.length && uploaded.every((doc) => doc.status === 'approved');
-  if (allApproved) {
-    return { key: 'approved' as DocProgressKey, label: '모든 서류 승인', color: 'green' as WorkflowColor };
   }
 
   return { key: 'in-progress' as DocProgressKey, label: '제출 중', color: 'orange' as WorkflowColor };
@@ -299,10 +298,10 @@ export const getSummaryStatus = (profile?: WorkflowProfile | null): StatusDispla
 
   if (step === 3) {
     const hanwha = getHanwhaProgress(profile);
-    if (hanwha.key === 'ready') return { label: '한화 위촉 URL 대기', color: 'blue' };
-    if (hanwha.key === 'review') return { label: '한화 위촉 URL 검토 중', color: 'orange' };
-    if (hanwha.key === 'rejected') return { label: '한화 위촉 URL 반려', color: 'red' };
-    return { label: '한화 위촉 URL 승인 완료 (PDF 대기)', color: 'orange' };
+    if (hanwha.key === 'ready') return { label: '다위촉 URL 대기', color: 'blue' };
+    if (hanwha.key === 'review') return { label: '다위촉 URL 검토 중', color: 'orange' };
+    if (hanwha.key === 'rejected') return { label: '다위촉 URL 반려', color: 'red' };
+    return { label: '다위촉 URL 승인 완료', color: 'orange' };
   }
 
   const life = getAppointmentProgress(profile, 'life');

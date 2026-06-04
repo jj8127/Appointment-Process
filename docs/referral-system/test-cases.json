@@ -538,6 +538,18 @@
     "dbAssertions": ["추천인 미구현 상태에서도 request_board 관련 오류 로그가 없다"]
   },
   {
+    "id": "RF-CODE-10",
+    "area": "추천코드",
+    "priority": "P0",
+    "platform": ["backend"],
+    "title": "active 본부장 profile은 김형수를 기본 추천인으로 가진다",
+    "preconditions": ["김형수(`01094272550`) FC profile과 active referral code가 존재한다", "active manager_accounts row가 하나 이상 존재한다"],
+    "steps": ["`ensure_manager_referral_shadow_profile(phone, name)`을 active manager 계정에 대해 호출한다", "기존 active manager profile에 대해 migration backfill helper를 호출한다", "김형수 본인 계정이 active manager인 경우 self-link 결과를 확인한다"],
+    "expected": ["본부장 fc profile의 `recommender_fc_id`가 김형수 profile id로 저장된다", "`recommender_code`는 김형수 active referral code snapshot이다", "변경 이력은 `referral_events`에 `admin_override` source로 남는다", "김형수 본인은 자기추천으로 연결되지 않고 `self_link_blocked`로 스킵된다"],
+    "evidenceRequired": ["migration 적용 로그", "DB 확인", "함수 호출 응답"],
+    "dbAssertions": ["김형수 본인을 제외한 active manager phone의 fc_profiles row는 김형수 profile id를 `recommender_fc_id`로 가진다", "각 대상 row의 `recommender_link_source`는 `admin_override`다", "김형수 본인 row에는 self recommender edge가 없다"]
+  },
+  {
     "id": "RF-SELF-01",
     "area": "추천코드",
     "priority": "P0",

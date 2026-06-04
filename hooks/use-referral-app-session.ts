@@ -6,6 +6,10 @@ import {
   getStoredAppSessionToken,
   getStoredBridgeToken,
 } from '@/lib/request-board-api';
+import {
+  normalizeReferralFunctionFailure,
+  toUserFacingReferralSessionMessage,
+} from '@/lib/referral-session-error';
 import { supabase } from '@/lib/supabase';
 
 import { useSession } from './use-session';
@@ -23,29 +27,11 @@ type RefreshAppSessionResponse = {
   role?: 'fc' | 'manager';
 };
 
-const REL_LOGIN_ERROR_CODES = new Set([
-  'missing_app_session',
-  'expired_app_session',
-  'invalid_app_session',
-  'missing_bridge_token',
-  'invalid_bridge_token',
-  'expired_bridge_token',
-]);
-
 const SESSION_REFRESHABLE_CODES = new Set([
   'missing_app_session',
   'expired_app_session',
   'invalid_app_session',
 ]);
-
-const SESSION_ERROR_MESSAGE_BY_CODE: Record<string, string> = {
-  missing_app_session: '추천인 기능을 사용하려면 다시 로그인해주세요.',
-  expired_app_session: '세션이 만료되었습니다. 다시 로그인해주세요.',
-  invalid_app_session: '세션이 유효하지 않습니다. 다시 로그인해주세요.',
-  missing_bridge_token: '세션이 만료되었습니다. 다시 로그인해주세요.',
-  invalid_bridge_token: '세션이 유효하지 않습니다. 다시 로그인해주세요.',
-  expired_bridge_token: '세션이 만료되었습니다. 다시 로그인해주세요.',
-};
 
 export class ReferralAppSessionError extends Error {
   code?: string;
@@ -71,36 +57,39 @@ async function extractFunctionFailurePayload(response: Response): Promise<Referr
   }
 }
 
-function isReloginCode(code?: string) {
-  return Boolean(code && REL_LOGIN_ERROR_CODES.has(code));
-}
-
-function toUserFacingSessionMessage(code: string | undefined, fallback: string) {
-  if (code && SESSION_ERROR_MESSAGE_BY_CODE[code]) {
-    return SESSION_ERROR_MESSAGE_BY_CODE[code];
-  }
-  return fallback;
-}
-
 async function toReferralAppSessionError(error: unknown, fallback: string) {
   if (error instanceof ReferralAppSessionError) {
     return error;
   }
 
   if (!error || typeof error !== 'object' || !('context' in error)) {
-    return new ReferralAppSessionError(fallback);
+    const normalized = normalizeReferralFunctionFailure(
+      { message: error instanceof Error ? error.message : undefined },
+      fallback,
+    );
+    return new ReferralAppSessionError(normalized.message, {
+      code: normalized.code,
+      needsRelogin: normalized.needsRelogin,
+    });
   }
 
   const response = (error as { context?: unknown }).context;
   if (!(response instanceof Response)) {
-    return new ReferralAppSessionError(fallback);
+    const normalized = normalizeReferralFunctionFailure(
+      { message: error instanceof Error ? error.message : undefined },
+      fallback,
+    );
+    return new ReferralAppSessionError(normalized.message, {
+      code: normalized.code,
+      needsRelogin: normalized.needsRelogin,
+    });
   }
 
   const payload = await extractFunctionFailurePayload(response);
-  const code = payload.code;
+  const normalized = normalizeReferralFunctionFailure(payload, fallback);
   return new ReferralAppSessionError(
-    toUserFacingSessionMessage(code, payload.message ?? fallback),
-    { code, needsRelogin: isReloginCode(code) },
+    normalized.message,
+    { code: normalized.code, needsRelogin: normalized.needsRelogin },
   );
 }
 
@@ -127,7 +116,7 @@ export function useReferralAppSession() {
       if (!bridgeToken) {
         await clearReferralSession();
         throw new ReferralAppSessionError(
-          toUserFacingSessionMessage('missing_bridge_token', '세션이 만료되었습니다. 다시 로그인해주세요.'),
+          toUserFacingReferralSessionMessage('missing_bridge_token', '세션이 만료되었습니다. 다시 로그인해주세요.'),
           { code: 'missing_bridge_token', needsRelogin: true },
         );
       }
@@ -149,9 +138,10 @@ export function useReferralAppSession() {
         }
 
         if (!data?.ok || !data.appSessionToken) {
+          const normalized = normalizeReferralFunctionFailure(data ?? {}, '세션을 복구하지 못했습니다.');
           const nextError = new ReferralAppSessionError(
-            toUserFacingSessionMessage(data?.code, data?.message ?? '세션을 복구하지 못했습니다.'),
-            { code: data?.code, needsRelogin: isReloginCode(data?.code) },
+            normalized.message,
+            { code: normalized.code, needsRelogin: normalized.needsRelogin },
           );
           if (nextError.needsRelogin) {
             await clearReferralSession();
@@ -214,12 +204,12 @@ export function useReferralAppSession() {
       }
 
       if (!data?.ok) {
-        const failureCode = data?.code ?? undefined;
+        const normalized = normalizeReferralFunctionFailure(data ?? {}, options.fallbackMessage);
         throw new ReferralAppSessionError(
-          toUserFacingSessionMessage(failureCode, data?.message ?? options.fallbackMessage),
+          normalized.message,
           {
-            code: failureCode,
-            needsRelogin: isReloginCode(failureCode),
+            code: normalized.code,
+            needsRelogin: normalized.needsRelogin,
           },
         );
       }

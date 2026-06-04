@@ -15,6 +15,8 @@ function makeNode(id: string, overrides: Partial<GraphNode> = {}): GraphNode {
     inboundCount: 0,
     nodeStatus: 'has_active_code',
     isIsolated: true,
+    signupCompleted: true,
+    allCommissionsCompleted: false,
     hasLegacyUnresolved: false,
     highlightType: null,
     ...overrides,

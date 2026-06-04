@@ -1,7 +1,6 @@
 import { Feather } from '@expo/vector-icons';
 import * as Clipboard from 'expo-clipboard';
 import * as Haptics from 'expo-haptics';
-import { LinearGradient } from 'expo-linear-gradient';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import {
@@ -360,12 +359,7 @@ export default function ReferralPage() {
           ) : (
             <>
         {/* ── 내 추천 코드 카드 ── */}
-        <LinearGradient
-          colors={['#f36f21', '#fabc3c']}
-          start={{ x: 0, y: 0 }}
-          end={{ x: 1, y: 1 }}
-          style={styles.codeCard}
-        >
+        <View style={styles.codeCard}>
           <View style={styles.deco1} />
           <View style={styles.deco2} />
           <View style={styles.codeCardInner}>
@@ -433,7 +427,7 @@ export default function ReferralPage() {
               </View>
             ) : null}
           </View>
-        </LinearGradient>
+        </View>
 
         {/* ── 추천인 등록/변경 카드 ── */}
         {showRecommenderCard && (
@@ -733,7 +727,7 @@ const styles = StyleSheet.create({
   pageContent: { flexGrow: 1 },
 
   // 내 코드 카드
-  codeCard: { borderRadius: RADIUS.xl, padding: SPACING.lg, marginBottom: SPACING.base, overflow: 'hidden', position: 'relative', ...SHADOWS.lg },
+  codeCard: { borderRadius: RADIUS.xl, padding: SPACING.lg, marginBottom: SPACING.base, overflow: 'hidden', position: 'relative', backgroundColor: COLORS.primary, ...SHADOWS.lg },
   deco1: { position: 'absolute', top: -30, right: -30, width: 120, height: 120, borderRadius: 60, backgroundColor: 'rgba(255,255,255,0.1)' },
   deco2: { position: 'absolute', bottom: -20, left: -20, width: 80, height: 80, borderRadius: 40, backgroundColor: 'rgba(255,255,255,0.08)' },
   codeCardInner: { zIndex: 1 },

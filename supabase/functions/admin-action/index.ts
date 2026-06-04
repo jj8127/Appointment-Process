@@ -32,6 +32,14 @@ if (!serviceKey) throw new Error('Missing SUPABASE_SERVICE_ROLE_KEY');
 const supabase = createClient(supabaseUrl, serviceKey);
 
 const textDecoder = new TextDecoder();
+const DAWICHOK_URL_SIGNAL_STATUSES = new Set([
+  'docs-approved',
+  'hanwha-commission-review',
+  'hanwha-commission-rejected',
+  'hanwha-commission-approved',
+  'appointment-completed',
+  'final-link-sent',
+]);
 
 function json(body: Record<string, unknown>, status = 200) {
   return new Response(JSON.stringify(body), {
@@ -183,6 +191,20 @@ function isAllowanceFlowMutation(status: string, extra?: Record<string, unknown>
   );
 }
 
+function requiresAllowanceDate(status: string, extra?: Record<string, unknown>) {
+  if (status === 'allowance-consented') {
+    return true;
+  }
+  if (status !== 'allowance-pending' || !extra) {
+    return false;
+  }
+  const hasRejectReason = String(extra.allowance_reject_reason ?? '').trim().length > 0;
+  const hasDateField = Object.prototype.hasOwnProperty.call(extra, 'allowance_date');
+  const hasPrescreenRequest = Object.prototype.hasOwnProperty.call(extra, 'allowance_prescreen_requested_at')
+    && Boolean(extra.allowance_prescreen_requested_at);
+  return !hasRejectReason && (hasDateField || hasPrescreenRequest);
+}
+
 function formatPhone(digits: string): string {
   if (!digits) return '';
   if (digits.length <= 3) return digits;
@@ -230,10 +252,7 @@ async function syncProfileAfterDocMutation(fcId: string) {
   if (fetchError) throw fetchError;
 
   const docs = allDocs ?? [];
-  const allSubmitted =
-    docs.length > 0 &&
-    docs.every((doc) => doc.storage_path && doc.storage_path !== 'deleted');
-  const allApproved = allSubmitted && docs.every((doc) => doc.status === 'approved');
+  const allApproved = docs.length > 0 && docs.every((doc) => doc.status === 'approved');
 
   if (allApproved) {
     const { error: profileError } = await supabase
@@ -254,6 +273,17 @@ async function syncProfileAfterDocMutation(fcId: string) {
   if (profileError) throw profileError;
 
   return { allApproved: false };
+}
+
+async function areAllRequestedDocsApproved(fcId: string) {
+  const { data: docs, error } = await supabase
+    .from('fc_documents')
+    .select('status')
+    .eq('fc_id', fcId);
+  if (error) throw error;
+
+  const requestedDocs = docs ?? [];
+  return requestedDocs.length > 0 && requestedDocs.every((doc) => doc.status === 'approved');
 }
 
 serve(async (req: Request) => {
@@ -442,19 +472,37 @@ serve(async (req: Request) => {
       if (isAllowanceFlowMutation(status, nextExtra)) {
         const { data: currentProfile, error: profileError } = await supabase
           .from('fc_profiles')
-          .select('allowance_date')
+          .select('allowance_date,temp_id')
           .eq('id', fcId)
           .maybeSingle();
         if (profileError) throw profileError;
 
+        if (!String(currentProfile?.temp_id ?? '').trim() && requiresAllowanceDate(status, nextExtra)) {
+          return fail('임시사번 발급 후 보증 보험 동의를 진행할 수 있습니다.');
+        }
+
         const normalizedAllowanceDate = String(nextExtra?.allowance_date ?? currentProfile?.allowance_date ?? '').trim();
+        if (!normalizedAllowanceDate && requiresAllowanceDate(status, nextExtra)) {
+          return fail('보증보험 조회 동의일을 먼저 입력해주세요.');
+        }
         if (normalizedAllowanceDate && !isValidYmd(normalizedAllowanceDate)) {
-          return fail('유효한 수당 동의일을 입력해주세요.');
+          return fail('유효한 보증보험 조회 동의일을 입력해주세요.');
         }
 
         nextExtra = {
           ...(nextExtra ?? {}),
           allowance_date: normalizedAllowanceDate || null,
+        };
+      }
+
+      if (status === 'docs-approved' && !(await areAllRequestedDocsApproved(fcId))) {
+        return fail('모든 요청 서류가 승인된 뒤에만 다위촉 URL 단계로 넘길 수 있습니다.');
+      }
+
+      if (status === 'docs-pending') {
+        nextExtra = {
+          ...(nextExtra ?? {}),
+          ...buildDocWorkflowResetPayload(),
         };
       }
 
@@ -477,15 +525,19 @@ serve(async (req: Request) => {
         return fail('fcId and allowanceDate are required');
       }
       if (!isValidYmd(normalizedAllowanceDate)) {
-        return fail('Invalid allowance date.');
+        return fail('유효한 보증보험 조회 동의일을 입력해주세요.');
       }
 
       const { data: profile, error: profileError } = await supabase
         .from('fc_profiles')
-        .select('status')
+        .select('status,temp_id')
         .eq('id', fcId)
         .maybeSingle();
       if (profileError) throw profileError;
+      if (!profile) return fail('Profile not found.', 404);
+      if (!String(profile.temp_id ?? '').trim()) {
+        return fail('임시사번 발급 후 보증보험 조회 동의일을 저장할 수 있습니다.');
+      }
 
       const nextStatus = resolveAllowanceStatus(profile.status);
       const { error: updateError } = await supabase
@@ -543,6 +595,40 @@ serve(async (req: Request) => {
       return json({ ok: true, hanwha_commission_date_sub: normalizedSubmittedDate, status: nextStatus });
     }
 
+    // ── markDawichokUrlSent ──
+    if (action === 'markDawichokUrlSent') {
+      const { fcId } = payload as { fcId?: string };
+      if (!fcId) return fail('fcId is required');
+
+      const { data: profile, error: profileError } = await supabase
+        .from('fc_profiles')
+        .select('status')
+        .eq('id', fcId)
+        .maybeSingle();
+      if (profileError) throw profileError;
+      if (!profile) return fail('Profile not found.', 404);
+      if (!DAWICHOK_URL_SIGNAL_STATUSES.has(String(profile.status ?? ''))) {
+        return fail('서류 승인 후에만 다위촉 URL 발송 신호를 보낼 수 있습니다.');
+      }
+
+      const sentAt = new Date().toISOString();
+      const sentBy = normalizedAdminPhone;
+      const { error: updateError } = await supabase
+        .from('fc_profiles')
+        .update({
+          dawichok_url_sent_at: sentAt,
+          dawichok_url_sent_by: sentBy,
+        })
+        .eq('id', fcId);
+      if (updateError) throw updateError;
+
+      return json({
+        ok: true,
+        dawichok_url_sent_at: sentAt,
+        dawichok_url_sent_by: sentBy,
+      });
+    }
+
     // ── updateHanwhaCommission ──
     if (action === 'updateHanwhaCommission') {
       const { fcId, decision, rejectReason, pdfPath, pdfName, submittedDate } = payload as {
@@ -586,7 +672,7 @@ serve(async (req: Request) => {
         const nextPdfPath = trimOrNull(pdfPath) ?? trimOrNull(profile.hanwha_commission_pdf_path);
         const nextPdfName = trimOrNull(pdfName) ?? trimOrNull(profile.hanwha_commission_pdf_name);
         if (!hasHanwhaPdfMetadata({ hanwha_commission_pdf_path: nextPdfPath, hanwha_commission_pdf_name: nextPdfName })) {
-          return fail('Hanwha PDF path and name are required for approval.', 409);
+          return fail('Dawichok URL PDF path and name are required for approval.', 409);
         }
 
         const updatePayload: Record<string, unknown> = {
@@ -642,7 +728,7 @@ serve(async (req: Request) => {
       if (!profile) return fail('Profile not found.', 404);
       if (!canSubmitInsuranceCommission(profile)) {
         return fail(
-          'Hanwha approval and PDF file are required before updating insurance commission dates.',
+          'Dawichok URL approval and PDF file are required before updating insurance commission dates.',
           409,
         );
       }
@@ -707,7 +793,7 @@ serve(async (req: Request) => {
       if (!profile) return fail('Profile not found.', 404);
       if (!hasExistingInsuranceStageActivity(profile) && !canSubmitInsuranceCommission(profile)) {
         return fail(
-          'Hanwha approval and PDF file are required before updating insurance schedule.',
+          'Dawichok URL approval and PDF file are required before updating insurance schedule.',
           409,
         );
       }
@@ -791,9 +877,30 @@ serve(async (req: Request) => {
         reviewerNote?: string | null;
       };
       if (!fcId || !docType || !status) return fail('fcId, docType, and status are required');
+      if (!['pending', 'approved', 'rejected'].includes(status)) return fail('status must be pending, approved, or rejected');
+      if (status === 'rejected' && !String(reviewerNote ?? '').trim()) {
+        return fail('Reject reason is required.');
+      }
 
+      const { data: doc, error: docError } = await supabase
+        .from('fc_documents')
+        .select('storage_path')
+        .eq('fc_id', fcId)
+        .eq('doc_type', docType)
+        .maybeSingle();
+      if (docError) throw docError;
+      if (!doc) return fail('Document row not found');
+
+      const isNoFileDoc = !doc.storage_path || doc.storage_path === 'deleted';
+      const normalizedReviewerNote = String(reviewerNote ?? '').trim();
       const updatePayload: Record<string, any> = { status };
-      if (reviewerNote !== undefined) updatePayload.reviewer_note = reviewerNote;
+      if (normalizedReviewerNote) {
+        updatePayload.reviewer_note = normalizedReviewerNote;
+      } else if (status === 'approved' && isNoFileDoc) {
+        updatePayload.reviewer_note = '총무 수동 승인: 파일 미제출';
+      } else if (status === 'pending') {
+        updatePayload.reviewer_note = null;
+      }
       const { error } = await supabase
         .from('fc_documents')
         .update(updatePayload)

@@ -24,8 +24,10 @@ type AdminAction =
   | 'updateStatus'
   | 'updateAllowanceDate'
   | 'updateHanwhaSubmissionDate'
+  | 'markDawichokUrlSent'
   | 'updateAppointmentDate'
   | 'updateDocsRequest'
+  | 'updateDocStatus'
   | 'deleteDocFile'
   | 'createHanwhaPdfUploadUrl'
   | 'deleteHanwhaPdf'
@@ -66,6 +68,11 @@ type SessionSuccessResult<T> = {
   session: T;
 };
 
+type AffiliationScope = {
+  restricted: boolean;
+  prefixes: string[];
+};
+
 type AdminRequest = {
   action: AdminAction;
   payload: Record<string, unknown>;
@@ -73,6 +80,14 @@ type AdminRequest = {
 
 const RECOMMENDER_RPC_NOT_READY_MESSAGE =
   '운영 DB에 추천인 상태 단일화 함수가 아직 적용되지 않았습니다. migration 20260423000001을 먼저 반영해주세요.';
+const DAWICHOK_URL_SIGNAL_STATUSES = new Set([
+  'docs-approved',
+  'hanwha-commission-review',
+  'hanwha-commission-rejected',
+  'hanwha-commission-approved',
+  'appointment-completed',
+  'final-link-sent',
+]);
 
 async function getValidatedCookieSession(): Promise<SessionErrorResult | SessionSuccessResult<CookieSession>> {
   const cookieStore = await cookies();
@@ -202,10 +217,51 @@ function isAllowanceFlowMutation(status: string, extra?: Record<string, unknown>
   );
 }
 
+function requiresAllowanceDate(status: string, extra?: Record<string, unknown>) {
+  if (status === 'allowance-consented') {
+    return true;
+  }
+  if (status !== 'allowance-pending' || !extra) {
+    return false;
+  }
+  const hasRejectReason = String(extra.allowance_reject_reason ?? '').trim().length > 0;
+  const hasDateField = Object.prototype.hasOwnProperty.call(extra, 'allowance_date');
+  const hasPrescreenRequest = Object.prototype.hasOwnProperty.call(extra, 'allowance_prescreen_requested_at')
+    && Boolean(extra.allowance_prescreen_requested_at);
+  return !hasRejectReason && (hasDateField || hasPrescreenRequest);
+}
+
 function isValidYmd(value: string): boolean {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
   const parsed = new Date(`${value}T00:00:00`);
   return !Number.isNaN(parsed.getTime());
+}
+
+const isAffiliationAllowed = (scope: AffiliationScope, affiliation?: string | null) => {
+  if (!scope.restricted) return true;
+  const candidate = String(affiliation ?? '').trim();
+  if (!candidate) return false;
+  return scope.prefixes.some((prefix) => candidate === prefix || candidate.startsWith(`${prefix} `));
+};
+
+async function loadAffiliationScope(session: AdminSession | ManagerSession): Promise<AffiliationScope> {
+  void session;
+  return { restricted: false, prefixes: [] };
+}
+
+async function requireFcProfileScope(session: AdminSession | ManagerSession, fcId: string) {
+  const scope = await loadAffiliationScope(session);
+  if (!scope.restricted) return null;
+
+  const { data: profile, error } = await adminSupabase
+    .from('fc_profiles')
+    .select('affiliation')
+    .eq('id', fcId)
+    .maybeSingle();
+
+  if (error) throw error;
+  if (profile && isAffiliationAllowed(scope, profile.affiliation)) return null;
+  return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
 }
 
 function resolveAllowanceStatus(currentStatus: string | null | undefined): string {
@@ -215,13 +271,6 @@ function resolveAllowanceStatus(currentStatus: string | null | undefined): strin
   return currentStatus;
 }
 
-function sanitizeFileName(fileName: string): string {
-  const normalized = fileName.trim().replace(/[^a-zA-Z0-9._-]+/g, '-');
-  const collapsed = normalized.replace(/-+/g, '-').replace(/^-|-$/g, '');
-  const ensuredPdf = collapsed.toLowerCase().endsWith('.pdf') ? collapsed : `${collapsed || 'hanwha-commission'}.pdf`;
-  return ensuredPdf;
-}
-
 function buildDocWorkflowResetPayload() {
   return {
     hanwha_commission_date_sub: null,
@@ -229,6 +278,8 @@ function buildDocWorkflowResetPayload() {
     hanwha_commission_reject_reason: null,
     hanwha_commission_pdf_path: null,
     hanwha_commission_pdf_name: null,
+    dawichok_url_sent_at: null,
+    dawichok_url_sent_by: null,
     appointment_url: null,
     appointment_date: null,
     appointment_schedule_life: null,
@@ -244,6 +295,13 @@ function buildDocWorkflowResetPayload() {
   };
 }
 
+const NO_FILE_APPROVAL_NOTE = '총무 수동 승인: 파일 미제출';
+
+const isNoFileDoc = (storagePath: string | null | undefined) => {
+  const normalizedPath = String(storagePath ?? '').trim();
+  return !normalizedPath || normalizedPath === 'deleted';
+};
+
 async function syncProfileAfterDocMutation(fcId: string) {
   const { data: docs, error: docsError } = await adminSupabase
     .from('fc_documents')
@@ -252,9 +310,7 @@ async function syncProfileAfterDocMutation(fcId: string) {
   if (docsError) throw docsError;
 
   const allDocs = docs ?? [];
-  const allSubmitted =
-    allDocs.length > 0 && allDocs.every((doc) => doc.storage_path && doc.storage_path !== 'deleted');
-  const allApproved = allSubmitted && allDocs.every((doc) => doc.status === 'approved');
+  const allApproved = allDocs.length > 0 && allDocs.every((doc) => doc.status === 'approved');
 
   const { error: profileError } = await adminSupabase
     .from('fc_profiles')
@@ -270,6 +326,17 @@ async function syncProfileAfterDocMutation(fcId: string) {
   if (profileError) throw profileError;
 
   return { allApproved };
+}
+
+async function areAllRequestedDocsApproved(fcId: string) {
+  const { data: docs, error } = await adminSupabase
+    .from('fc_documents')
+    .select('status')
+    .eq('fc_id', fcId);
+  if (error) throw error;
+
+  const requestedDocs = docs ?? [];
+  return requestedDocs.length > 0 && requestedDocs.every((doc) => doc.status === 'approved');
 }
 
 export async function POST(req: Request) {
@@ -292,9 +359,79 @@ export async function POST(req: Request) {
   }
 
   try {
+    if (action === 'createHanwhaPdfUploadUrl' || action === 'deleteHanwhaPdf') {
+      const { fcId, fileName } = payload as {
+        fcId?: string;
+        fileName?: string;
+      };
+      if (!fcId || !fileName) {
+        return badRequest('fcId and fileName are required');
+      }
+
+      const scopeError = await requireFcProfileScope(sessionCheck.session, fcId);
+      if (scopeError) return scopeError;
+
+      if (action === 'createHanwhaPdfUploadUrl') {
+        const resolvedFileName = String(fileName).trim() || 'dawichok-url.pdf';
+        const safeFileName = resolvedFileName
+          .replace(/[\\/:*?"<>|\r\n]+/g, '_')
+          .replace(/\s+/g, ' ')
+          .trim();
+        const normalizedFileName =
+          safeFileName.toLowerCase().endsWith('.pdf') ? safeFileName : `${safeFileName}.pdf`;
+        const storagePath = `hanwha-url-pdf/${fcId}/${dayjs().format('YYYYMMDD-HHmmss')}-${Math.floor(
+          Math.random() * 1e9,
+        )}-${normalizedFileName}`;
+
+        const { data: uploadData, error: uploadError } = await adminSupabase.storage
+          .from('fc-documents')
+          .createSignedUploadUrl(storagePath, { upsert: true });
+        if (uploadError) throw uploadError;
+        if (!uploadData?.signedUrl) {
+          return badRequest('서명 URL을 생성할 수 없습니다.');
+        }
+
+        return NextResponse.json({
+          ok: true,
+          uploadUrl: uploadData.signedUrl,
+          storagePath: uploadData.path ?? storagePath,
+          fileName: normalizedFileName,
+        });
+      }
+
+      const { data: profile, error: profileError } = await adminSupabase
+        .from('fc_profiles')
+        .select('hanwha_commission_pdf_path')
+        .eq('id', fcId)
+        .maybeSingle();
+      if (profileError) throw profileError;
+      const storedPath = normalizeFcDocumentStoragePath(profile?.hanwha_commission_pdf_path);
+      if (!storedPath) {
+        return badRequest('삭제할 다위촉 URL 파일이 없습니다.');
+      }
+
+      const { error: deleteError } = await adminSupabase.storage
+        .from('fc-documents')
+        .remove([storedPath]);
+      if (deleteError) throw deleteError;
+
+      const { error: updateError } = await adminSupabase
+        .from('fc_profiles')
+        .update({
+          hanwha_commission_pdf_path: null,
+          hanwha_commission_pdf_name: null,
+        })
+        .eq('id', fcId);
+      if (updateError) throw updateError;
+
+      return NextResponse.json({ ok: true });
+    }
+
     if (action === 'getProfile') {
       const { fcId } = payload as { fcId?: string };
       if (!fcId) return badRequest('fcId is required');
+      const scopeError = await requireFcProfileScope(sessionCheck.session, fcId);
+      if (scopeError) return scopeError;
 
       const { data, error } = await adminSupabase
         .from('fc_profiles')
@@ -316,6 +453,8 @@ export async function POST(req: Request) {
         phone?: string;
       };
       if (!fcId || !data) return badRequest('fcId and data are required');
+      const scopeError = await requireFcProfileScope(adminSession, fcId);
+      if (scopeError) return scopeError;
 
       const updateData = { ...data };
       const hasStructuredRecommender = Object.prototype.hasOwnProperty.call(updateData, 'recommenderFcId');
@@ -426,19 +565,28 @@ export async function POST(req: Request) {
         phone?: string;
       };
       if (!fcId || !status) return badRequest('fcId and status are required');
+      const scopeError = await requireFcProfileScope(sessionCheck.session, fcId);
+      if (scopeError) return scopeError;
       let extra = rawExtra;
 
       if (isAllowanceFlowMutation(status, extra)) {
         const { data: currentProfile, error: profileError } = await adminSupabase
           .from('fc_profiles')
-          .select('allowance_date')
+          .select('allowance_date,temp_id')
           .eq('id', fcId)
           .maybeSingle();
         if (profileError) throw profileError;
 
+        if (!String(currentProfile?.temp_id ?? '').trim() && requiresAllowanceDate(status, extra)) {
+          return badRequest('임시사번 발급 후 보증 보험 동의를 진행할 수 있습니다.');
+        }
+
         const normalizedAllowanceDate = String(extra?.allowance_date ?? currentProfile?.allowance_date ?? '').trim();
+        if (!normalizedAllowanceDate && requiresAllowanceDate(status, extra)) {
+          return badRequest('보증보험 조회 동의일을 먼저 입력해주세요.');
+        }
         if (normalizedAllowanceDate && !isValidYmd(normalizedAllowanceDate)) {
-          return badRequest('유효한 수당 동의일을 입력해주세요.');
+          return badRequest('유효한 보증보험 조회 동의일을 입력해주세요.');
         }
 
         extra = {
@@ -450,19 +598,14 @@ export async function POST(req: Request) {
       if (status === 'hanwha-commission-approved') {
         const approvedDate = String(extra?.hanwha_commission_date ?? dayjs().format('YYYY-MM-DD')).trim();
         const submittedDate = String(extra?.hanwha_commission_date_sub ?? '').trim();
-        const pdfPath = String(extra?.hanwha_commission_pdf_path ?? '').trim();
-        const pdfName = String(extra?.hanwha_commission_pdf_name ?? '').trim();
 
         if (!approvedDate || !isValidYmd(approvedDate)) {
-          return badRequest('한화 위촉 URL 승인일이 필요합니다.');
+          return badRequest('다위촉 URL 처리일이 필요합니다.');
         }
         extra = {
           ...(extra ?? {}),
           hanwha_commission_date: approvedDate,
         };
-        if (!pdfPath || !pdfName) {
-          return badRequest('한화 위촉 URL PDF가 등록된 뒤에만 승인할 수 있습니다.');
-        }
 
         const { data: currentProfile, error: profileError } = await adminSupabase
           .from('fc_profiles')
@@ -472,11 +615,22 @@ export async function POST(req: Request) {
         if (profileError) throw profileError;
         const effectiveSubmittedDate = submittedDate || String(currentProfile?.hanwha_commission_date_sub ?? '').trim();
         if (!effectiveSubmittedDate || !isValidYmd(effectiveSubmittedDate)) {
-          return badRequest('한화 위촉 URL 완료일을 입력해주세요.');
+          return badRequest('다위촉 URL 완료일을 입력해주세요.');
         }
         extra = {
           ...(extra ?? {}),
           hanwha_commission_date_sub: effectiveSubmittedDate,
+        };
+      }
+
+      if (status === 'docs-approved' && !(await areAllRequestedDocsApproved(fcId))) {
+        return badRequest('모든 요청 서류가 승인된 뒤에만 다위촉 URL 단계로 넘길 수 있습니다.');
+      }
+
+      if (status === 'docs-pending') {
+        extra = {
+          ...(extra ?? {}),
+          ...buildDocWorkflowResetPayload(),
         };
       }
 
@@ -525,15 +679,20 @@ export async function POST(req: Request) {
       };
       const normalizedAllowanceDate = String(allowanceDate ?? '').trim();
       if (!fcId || !normalizedAllowanceDate) return badRequest('fcId and allowanceDate are required');
-      if (!isValidYmd(normalizedAllowanceDate)) return badRequest('유효한 수당 동의일을 입력해주세요.');
+      const scopeError = await requireFcProfileScope(sessionCheck.session, fcId);
+      if (scopeError) return scopeError;
+      if (!isValidYmd(normalizedAllowanceDate)) return badRequest('유효한 보증보험 조회 동의일을 입력해주세요.');
 
       const { data: profile, error: profileError } = await adminSupabase
         .from('fc_profiles')
-        .select('status')
+        .select('status,temp_id')
         .eq('id', fcId)
         .maybeSingle();
       if (profileError) throw profileError;
       if (!profile) return badRequest('FC profile not found');
+      if (!String(profile.temp_id ?? '').trim()) {
+        return badRequest('임시사번 발급 후 보증보험 조회 동의일을 저장할 수 있습니다.');
+      }
 
       const nextStatus = resolveAllowanceStatus(profile.status);
       const { error: updateError } = await adminSupabase
@@ -561,7 +720,9 @@ export async function POST(req: Request) {
       };
       const normalizedSubmittedDate = String(submittedDate ?? '').trim();
       if (!fcId || !normalizedSubmittedDate) return badRequest('fcId and submittedDate are required');
-      if (!isValidYmd(normalizedSubmittedDate)) return badRequest('유효한 한화 위촉 URL 완료일을 입력해주세요.');
+      const scopeError = await requireFcProfileScope(sessionCheck.session, fcId);
+      if (scopeError) return scopeError;
+      if (!isValidYmd(normalizedSubmittedDate)) return badRequest('유효한 다위촉 URL 완료일을 입력해주세요.');
 
       const { data: profile, error: profileError } = await adminSupabase
         .from('fc_profiles')
@@ -594,6 +755,64 @@ export async function POST(req: Request) {
       });
     }
 
+    if (action === 'markDawichokUrlSent') {
+      const { fcId } = payload as { fcId?: string };
+      if (!fcId) return badRequest('fcId is required');
+      const scopeError = await requireFcProfileScope(sessionCheck.session, fcId);
+      if (scopeError) return scopeError;
+
+      const { data: profile, error: profileError } = await adminSupabase
+        .from('fc_profiles')
+        .select('status,phone')
+        .eq('id', fcId)
+        .maybeSingle();
+      if (profileError) throw profileError;
+      if (!profile) return NextResponse.json({ error: 'FC profile not found' }, { status: 404 });
+      if (!DAWICHOK_URL_SIGNAL_STATUSES.has(String(profile.status ?? ''))) {
+        return badRequest('서류 승인 후에만 다위촉 URL 발송 신호를 보낼 수 있습니다.');
+      }
+
+      const sentAt = new Date().toISOString();
+      const sentBy = sessionCheck.session.residentDigits;
+      const { error: updateError } = await adminSupabase
+        .from('fc_profiles')
+        .update({
+          dawichok_url_sent_at: sentAt,
+          dawichok_url_sent_by: sentBy,
+        })
+        .eq('id', fcId);
+      if (updateError) throw updateError;
+
+      const phone = String(profile.phone ?? '').trim();
+      if (phone) {
+        const title = '다위촉 URL 안내';
+        const msg = '카카오톡으로 전송된 다위촉 URL을 진행해 주세요.';
+        const url = '/hanwha-commission';
+        try {
+          await adminSupabase.from('notifications').insert({
+            title,
+            body: msg,
+            target_url: url,
+            recipient_role: 'fc',
+            resident_id: phone,
+          });
+          await sendPushNotification(phone, { title, body: msg, data: { url }, skipNotificationInsert: true });
+        } catch (notifyError) {
+          logger.warn('[api/admin/fc] Dawichok URL signal notification failed', {
+            fcId,
+            phone,
+            error: notifyError instanceof Error ? notifyError.message : String(notifyError),
+          });
+        }
+      }
+
+      return NextResponse.json({
+        ok: true,
+        dawichok_url_sent_at: sentAt,
+        dawichok_url_sent_by: sentBy,
+      });
+    }
+
     if (action === 'updateAppointmentDate') {
       const { fcId, category, appointmentDate } = payload as {
         fcId?: string;
@@ -604,6 +823,8 @@ export async function POST(req: Request) {
       if (!fcId || !category || !normalizedAppointmentDate) {
         return badRequest('FC, 위촉 구분, 위촉 완료일이 모두 필요합니다.');
       }
+      const scopeError = await requireFcProfileScope(sessionCheck.session, fcId);
+      if (scopeError) return scopeError;
       if (!['life', 'nonlife'].includes(category)) {
         return badRequest('유효한 위촉 구분이 필요합니다.');
       }
@@ -635,7 +856,7 @@ export async function POST(req: Request) {
       if (!profile) return badRequest('FC profile not found');
       const appointmentProfile = profile as Parameters<typeof resolveAppointmentCompletionStatus>[0];
       if (!hasAppointmentWorkflowEvidence(appointmentProfile) && !hasHanwhaApprovedPdf(appointmentProfile)) {
-        return badRequest('한화 위촉 URL 승인과 PDF 등록이 끝난 뒤에만 생명/손해 위촉 단계를 진행할 수 있습니다.');
+        return badRequest('다위촉 URL 승인 후 PDF가 등록되어야 생명/손해 위촉 단계를 진행할 수 있습니다.');
       }
 
       const nextProfile =
@@ -685,6 +906,8 @@ export async function POST(req: Request) {
         phone?: string;
       };
       if (!fcId || !Array.isArray(types)) return badRequest('fcId and types are required');
+      const scopeError = await requireFcProfileScope(sessionCheck.session, fcId);
+      if (scopeError) return scopeError;
 
       const nextTypes = types ?? [];
       const normalizedDeadline = deadline ? dayjs(deadline).format('YYYY-MM-DD') : null;
@@ -788,6 +1011,97 @@ export async function POST(req: Request) {
       return NextResponse.json({ ok: true });
     }
 
+    if (action === 'updateDocStatus') {
+      const { fcId, docType, status, reviewerNote, phone } = payload as {
+        fcId?: string;
+        docType?: string;
+        status?: string;
+        reviewerNote?: string | null;
+        phone?: string;
+      };
+      if (!fcId || !docType || !status) return badRequest('fcId, docType, and status are required');
+      const normalizedStatus = String(status).trim();
+      if (!['pending', 'approved', 'rejected'].includes(normalizedStatus)) {
+        return badRequest('status must be pending, approved, or rejected');
+      }
+      const scopeError = await requireFcProfileScope(sessionCheck.session, fcId);
+      if (scopeError) return scopeError;
+
+      const { data: doc, error: docError } = await adminSupabase
+        .from('fc_documents')
+        .select('storage_path')
+        .eq('fc_id', fcId)
+        .eq('doc_type', docType)
+        .maybeSingle();
+      if (docError) throw docError;
+      if (!doc) return badRequest('Document row not found');
+
+      const noteForNoFile =
+        normalizedStatus === 'approved' && isNoFileDoc(doc.storage_path)
+          ? NO_FILE_APPROVAL_NOTE
+          : null;
+      const trimmedReviewerNote = typeof reviewerNote === 'string' ? reviewerNote.trim() : '';
+
+      if (normalizedStatus === 'rejected' && !trimmedReviewerNote) {
+        return badRequest('반려 사유를 입력해주세요.');
+      }
+
+      const updatePayload: Record<string, unknown> = { status: normalizedStatus };
+      if (trimmedReviewerNote) {
+        updatePayload.reviewer_note = trimmedReviewerNote;
+      } else if (normalizedStatus === 'approved' && noteForNoFile) {
+        updatePayload.reviewer_note = noteForNoFile;
+      } else if (normalizedStatus === 'rejected') {
+        updatePayload.reviewer_note = null;
+      } else if (normalizedStatus === 'pending') {
+        updatePayload.reviewer_note = null;
+      }
+
+      const { error: updateErr } = await adminSupabase
+        .from('fc_documents')
+        .update(updatePayload)
+        .eq('fc_id', fcId)
+        .eq('doc_type', docType);
+      if (updateErr) throw updateErr;
+
+      const { allApproved } = await syncProfileAfterDocMutation(fcId);
+
+      if (normalizedStatus === 'rejected' && phone) {
+        const title = '서류 반려 안내';
+        const reasonText = trimmedReviewerNote || '사유 없음';
+        const body = `제출하신 [${docType}] 서류가 반려되었습니다.\n사유: ${reasonText}`;
+        await adminSupabase.from('notifications').insert({
+          title,
+          body,
+          target_url: '/docs-upload',
+          recipient_role: 'fc',
+          resident_id: phone,
+          category: '서류',
+        });
+        await sendPushNotification(phone, { title, body, data: { url: '/docs-upload' }, skipNotificationInsert: true });
+      }
+
+      if (allApproved && phone) {
+        const title = '서류 검토 완료';
+        const body = '모든 서류가 승인되었습니다. 다위촉 단계로 진행해주세요.';
+        await adminSupabase.from('notifications').insert({
+          title,
+          body,
+          target_url: '/hanwha-commission',
+          recipient_role: 'fc',
+          resident_id: phone,
+        });
+        await sendPushNotification(phone, {
+          title,
+          body,
+          data: { url: '/hanwha-commission' },
+          skipNotificationInsert: true,
+        });
+      }
+
+      return NextResponse.json({ ok: true, allApproved });
+    }
+
     if (action === 'deleteDocFile') {
       const { fcId, docType, storagePath } = payload as {
         fcId?: string;
@@ -795,6 +1109,8 @@ export async function POST(req: Request) {
         storagePath?: string;
       };
       if (!fcId || !docType || !storagePath) return badRequest('fcId, docType, storagePath are required');
+      const scopeError = await requireFcProfileScope(sessionCheck.session, fcId);
+      if (scopeError) return scopeError;
 
       const { error: storageErr } = await adminSupabase.storage
         .from('fc-documents')
@@ -809,54 +1125,6 @@ export async function POST(req: Request) {
       if (updateErr) throw updateErr;
 
       await syncProfileAfterDocMutation(fcId);
-
-      return NextResponse.json({ ok: true });
-    }
-
-    if (action === 'createHanwhaPdfUploadUrl') {
-      const { fcId, fileName } = payload as {
-        fcId?: string;
-        fileName?: string;
-      };
-      if (!fcId || !fileName) return badRequest('fcId and fileName are required');
-
-      const safeName = sanitizeFileName(fileName);
-      const storagePath = `${fcId}/hanwha-commission/${Date.now()}-${safeName}`;
-      const { data, error } = await adminSupabase.storage
-        .from('fc-documents')
-        .createSignedUploadUrl(storagePath, { upsert: true });
-      if (error || !data?.signedUrl || !data?.token) {
-        throw error ?? new Error('Signed upload URL creation failed');
-      }
-
-      return NextResponse.json({
-        ok: true,
-        path: storagePath,
-        signedUrl: data.signedUrl,
-        token: data.token,
-      });
-    }
-
-    if (action === 'deleteHanwhaPdf') {
-      const { fcId, storagePath } = payload as {
-        fcId?: string;
-        storagePath?: string;
-      };
-      if (!fcId || !storagePath) return badRequest('fcId and storagePath are required');
-
-      const { error: storageErr } = await adminSupabase.storage
-        .from('fc-documents')
-        .remove([storagePath]);
-      if (storageErr) throw storageErr;
-
-      const { error: updateErr } = await adminSupabase
-        .from('fc_profiles')
-        .update({
-          hanwha_commission_pdf_path: null,
-          hanwha_commission_pdf_name: null,
-        })
-        .eq('id', fcId);
-      if (updateErr) throw updateErr;
 
       return NextResponse.json({ ok: true });
     }
@@ -898,6 +1166,8 @@ export async function POST(req: Request) {
     if (action === 'getReferralCode' || action === 'getInviteeReferralCode') {
       const { fcId } = payload as { fcId?: string };
       if (!fcId) return badRequest('fcId is required');
+      const scopeError = await requireFcProfileScope(sessionCheck.session, fcId);
+      if (scopeError) return scopeError;
 
       const { data, error } = await adminSupabase.rpc('get_invitee_referral_code', {
         p_fc_id: fcId,

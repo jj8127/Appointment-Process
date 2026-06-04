@@ -1,4 +1,4 @@
-# Database Schema Contract
+﻿# Database Schema Contract
 
 > 이 문서는 DB 스키마의 "계약"입니다.
 > DB 변경 시 이 문서를 먼저 업데이트하고, ADR을 작성하세요.
@@ -28,7 +28,7 @@ FC 사용자의 메인 프로필 테이블
 | status | text | NOT NULL | 상태값 (아래 참조) |
 | identity_completed | boolean | DEFAULT false | 신원확인 완료 여부 |
 | phone_verified | boolean | DEFAULT false | 전화번호 인증 여부 |
-| allowance_date | date | - | 수당 동의일 |
+| allowance_date | date | - | 보증보험 조회 동의일 |
 | appointment_date_life | date | - | 생명보험 위촉일 |
 | appointment_date_nonlife | date | - | 손해보험 위촉일 |
 | docs_deadline_at | timestamptz | - | 서류 마감일 |
@@ -40,8 +40,8 @@ FC 사용자의 메인 프로필 테이블
 type FcStatus =
   | 'draft'                    // 초안 (가입 직후)
   | 'temp-id-issued'          // 임시사번 발급됨
-  | 'allowance-pending'       // 수당 동의 대기
-  | 'allowance-consented'     // 수당 동의 완료
+  | 'allowance-pending'       // 보증 보험 동의 대기
+  | 'allowance-consented'     // 보증 보험 동의 완료
   | 'docs-requested'          // 서류 요청됨
   | 'docs-pending'            // 서류 제출 대기
   | 'docs-submitted'          // 서류 제출됨

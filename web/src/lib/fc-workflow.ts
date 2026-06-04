@@ -73,7 +73,7 @@ export const getApprovedDocumentState = (profile?: WorkflowProfile | null) => {
   const docs = profile?.fc_documents ?? [];
   const allSubmitted =
     docs.length > 0 && docs.every((doc) => doc.storage_path && doc.storage_path !== 'deleted');
-  const allApproved = allSubmitted && docs.every((doc) => doc.status === 'approved');
+  const allApproved = docs.length > 0 && docs.every((doc) => doc.status === 'approved');
 
   return { docs, allSubmitted, allApproved };
 };
@@ -90,14 +90,14 @@ export const getAllowanceDisplayState = (
   }
 
   if (!profile?.allowance_date) {
-    return { key: 'missing', label: 'FC 수당 동의일 미입력', color: 'gray' };
+    return { key: 'missing', label: 'FC 보증보험 조회 동의일 미입력', color: 'gray' };
   }
 
   if (profile.allowance_prescreen_requested_at) {
     return { key: 'prescreen', label: '사전 심사 요청 완료', color: 'blue' };
   }
 
-  return { key: 'entered', label: 'FC 수당 동의 입력 완료', color: 'orange' };
+  return { key: 'entered', label: 'FC 보증 보험 동의 입력 완료', color: 'orange' };
 };
 
 export const hasAllowancePassed = (profile?: WorkflowProfile | null) => {
@@ -145,6 +145,9 @@ export const hasHanwhaApprovalEvidence = (profile?: WorkflowProfile | null) =>
 
 export const hasHanwhaApprovedPdf = (profile?: WorkflowProfile | null) =>
   hasHanwhaApprovalEvidence(profile) && hasHanwhaPdfMetadata(profile);
+
+export const hasDawichokDocumentsSent = (profile?: WorkflowProfile | null) =>
+  hasHanwhaApprovedPdf(profile);
 
 export const hasUrlStageAccess = (profile?: WorkflowProfile | null) => {
   if (!profile) return false;

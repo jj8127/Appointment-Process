@@ -50,6 +50,12 @@ source_of_truth: app/exam-apply*.tsx + app/exam-register*.tsx + app/exam-manage*
 - `exam-apply`, `exam-apply2`는 `응시료 납입 계좌` 복사 버튼을 제공
 - Android new architecture/Fabric에서는 `exam-apply*`, `exam-register*`의 main scroll ownership을 plain `ScrollView` 하나로 유지한다. `KeyboardAwareWrapper + RefreshControl + 큰 조건부 렌더` 조합은 `/referral` crash family와 같은 mount instability를 만들 수 있으므로 Android에서는 쓰지 않는다.
 
+## 2026-06-03 관리자 시험 등록 메모
+
+- `exam-register`, `exam-register2`의 `시험 추가` 버튼은 create mode로 하단 입력 폼을 열고 자동 스크롤해야 한다.
+- 각 시험 row의 `수정` 버튼은 해당 row를 edit mode로 선택한 뒤 같은 하단 폼 위치로 이동해야 한다.
+- 생명/손해 시험 등록 화면은 add/edit scroll helper와 폼 ownership을 같은 패턴으로 유지해 한쪽 화면만 동작하는 drift를 만들지 않는다.
+
 ## 연관 문서
 
 - [../admin-web/exam-and-referral-ops.md](E:/hanhwa/fc-onboarding-app/docs/handbook/admin-web/exam-and-referral-ops.md)

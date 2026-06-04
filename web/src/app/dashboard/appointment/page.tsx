@@ -265,21 +265,21 @@ export default function AppointmentPage() {
 
   const getHanwhaStatus = useCallback((fc: FcProfile) => {
     if (fc.status === 'docs-approved') {
-      return { label: '한화 위촉 URL 대기', color: 'blue' };
+      return { label: '다위촉 URL 대기', color: 'blue' };
     }
     if (fc.status === 'hanwha-commission-review') {
-      return { label: '한화 위촉 URL 검토 중', color: 'orange' };
+      return { label: '다위촉 URL 검토 중', color: 'orange' };
     }
     if (fc.status === 'hanwha-commission-rejected') {
-      return { label: '한화 위촉 URL 반려', color: 'red' };
+      return { label: '다위촉 URL 반려', color: 'red' };
     }
     if (fc.status === 'hanwha-commission-approved') {
       return hasHanwhaApprovedPdf(fc)
-        ? { label: '한화 위촉 URL 승인 / PDF 완료', color: 'teal' }
-        : { label: '한화 위촉 URL 승인 / PDF 대기', color: 'yellow' };
+        ? { label: '다위촉 URL 승인 / PDF 완료', color: 'teal' }
+        : { label: '다위촉 URL 승인 / PDF 대기', color: 'yellow' };
     }
     if (fc.status === 'appointment-completed' || fc.status === 'final-link-sent') {
-      return { label: '한화 위촉 URL 승인 완료', color: 'teal' };
+      return { label: '다위촉 URL 승인 완료', color: 'teal' };
     }
     return { label: '사전 단계', color: 'gray' };
   }, []);
@@ -406,8 +406,8 @@ export default function AppointmentPage() {
   const executeAction = (fc: FcProfile, type: 'schedule' | 'confirm' | 'reject', category: 'life' | 'nonlife') => {
     if (!canManageInsuranceStage(fc)) {
       notifications.show({
-        title: '한화 위촉 URL 대기',
-        message: '한화 위촉 URL 승인과 PDF 등록이 끝난 뒤에만 생명/손해 위촉 단계를 진행할 수 있습니다.',
+        title: '다위촉 URL 대기',
+        message: '다위촉 URL 승인과 PDF 등록이 끝난 뒤에만 생명/손해 위촉 단계를 진행할 수 있습니다.',
         color: 'orange',
       });
       return;
@@ -518,7 +518,7 @@ export default function AppointmentPage() {
       <Stack gap="xs">
         {!insuranceStageOpen && (
             <Text size="xs" c="dimmed">
-              한화 위촉 URL 승인과 PDF 등록이 완료되면 생명/손해 위촉 단계를 진행할 수 있습니다.
+              다위촉 URL 승인과 PDF 등록이 완료되면 생명/손해 위촉 단계를 진행할 수 있습니다.
             </Text>
         )}
         {isLegacyException && (
@@ -659,7 +659,7 @@ export default function AppointmentPage() {
           <div>
               <Title order={2} c={CHARCOAL}>생명/손해 위촉 심사 및 확정</Title>
               <Text c={MUTED} size="sm" mt={4}>
-            한화 위촉 URL 승인과 PDF 등록이 끝난 FC만 생명/손해 위촉 단계를 진행할 수 있습니다. 기존 보험 위촉 이력이 남아 있는 레거시 행만 예외로 유지됩니다.
+            다위촉 URL 승인과 PDF 등록이 끝난 FC만 생명/손해 위촉 단계를 진행할 수 있습니다. 기존 보험 위촉 이력이 남아 있는 레거시 행만 예외로 유지됩니다.
               </Text>
           </div>
           <Group>
@@ -683,7 +683,7 @@ export default function AppointmentPage() {
               <Table.Thead bg="#F9FAFB">
                 <Table.Tr>
                   {renderHeader('FC 정보 (이름)', 'name')}
-              {renderHeader('한화 위촉 URL', 'hanwha')}
+              {renderHeader('다위촉 URL', 'hanwha')}
                   {renderHeader('생명보험 위촉 (Life)', 'life')}
                   {renderHeader('손해보험 위촉 (Non-Life)', 'nonlife')}
                   {renderHeader('상태', 'status')}

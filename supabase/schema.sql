@@ -1,4 +1,4 @@
--- Supabase 스키마/정책 정의
+﻿-- Supabase 스키마/정책 정의
 -- Supabase SQL Editor나 supabase CLI로 실행하세요.
 -- governance sync marker: 2026-03-28 (migration 20260328000001_add_hanwha_commission_contract.sql)
 
@@ -35,6 +35,8 @@ create table if not exists public.fc_profiles (
   hanwha_commission_reject_reason text,
   hanwha_commission_pdf_path text,
   hanwha_commission_pdf_name text,
+  dawichok_url_sent_at timestamptz,
+  dawichok_url_sent_by text,
   appointment_url text,
   appointment_date date,
   appointment_schedule_life text,
@@ -47,6 +49,7 @@ create table if not exists public.fc_profiles (
   appointment_reject_reason_nonlife text,
   life_commission_completed boolean not null default false,
   nonlife_commission_completed boolean not null default false,
+  license_statuses text[],
   status text not null default 'draft',
   identity_completed boolean not null default false,
   signup_completed boolean not null default false,
@@ -78,6 +81,8 @@ alter table public.fc_profiles
 alter table public.fc_profiles
   add column if not exists nonlife_commission_completed boolean not null default false;
 alter table public.fc_profiles
+  add column if not exists license_statuses text[];
+alter table public.fc_profiles
   add column if not exists admin_memo text;
 alter table public.fc_profiles
   add column if not exists allowance_prescreen_requested_at timestamp with time zone;
@@ -85,7 +90,7 @@ alter table public.fc_profiles
   add column if not exists is_manager_referral_shadow boolean not null default false;
 
 comment on column public.fc_profiles.allowance_prescreen_requested_at is
-  '총무가 수당동의 사전 심사를 실제로 요청한 시각';
+  '총무가 보증 보험 동의 사전 심사를 실제로 요청한 시각';
 
 create table if not exists public.fc_identity_secure (
   id uuid primary key default gen_random_uuid(),
@@ -985,6 +990,160 @@ begin
 end;
 $$;
 
+create or replace function public.link_manager_profile_to_default_recommender(
+  p_manager_fc_id uuid,
+  p_actor_phone text default null,
+  p_reason text default 'default_manager_recommender_kim_hyeongsu'
+) returns jsonb
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  target_fc public.fc_profiles%rowtype;
+  default_fc public.fc_profiles%rowtype;
+  active_code public.referral_codes%rowtype;
+  normalized_actor_phone text := nullif(regexp_replace(coalesce(p_actor_phone, ''), '[^0-9]', '', 'g'), '');
+  target_phone text;
+  target_is_active_manager boolean := false;
+  issue_result jsonb;
+begin
+  if p_manager_fc_id is null then
+    raise exception 'manager fc id is required';
+  end if;
+
+  select *
+    into target_fc
+  from public.fc_profiles
+  where id = p_manager_fc_id
+  for update;
+
+  if not found then
+    raise exception 'manager fc profile not found';
+  end if;
+
+  target_phone := regexp_replace(coalesce(target_fc.phone, ''), '[^0-9]', '', 'g');
+
+  select exists (
+    select 1
+    from public.manager_accounts manager_row
+    where manager_row.phone = target_phone
+      and manager_row.active = true
+  )
+  into target_is_active_manager;
+
+  if target_is_active_manager is not true and target_fc.is_manager_referral_shadow is not true then
+    return jsonb_build_object(
+      'ok', true,
+      'changed', false,
+      'skipped', 'target_not_active_manager'
+    );
+  end if;
+
+  select *
+    into default_fc
+  from public.fc_profiles
+  where regexp_replace(coalesce(phone, ''), '[^0-9]', '', 'g') = '01094272550'
+    and nullif(trim(coalesce(name, '')), '') = '김형수'
+    and (signup_completed = true or is_manager_referral_shadow = true)
+    and public.is_request_board_designer_affiliation(affiliation) is not true
+  order by signup_completed desc, created_at asc, id asc
+  limit 1
+  for update;
+
+  if not found then
+    return jsonb_build_object(
+      'ok', true,
+      'changed', false,
+      'skipped', 'default_recommender_not_found'
+    );
+  end if;
+
+  if default_fc.id = target_fc.id then
+    return jsonb_build_object(
+      'ok', true,
+      'changed', false,
+      'skipped', 'self_link_blocked'
+    );
+  end if;
+
+  select *
+    into active_code
+  from public.referral_codes
+  where fc_id = default_fc.id
+    and is_active = true
+  order by created_at desc, id desc
+  limit 1
+  for update;
+
+  if not found then
+    begin
+      issue_result := public.admin_issue_referral_code(
+        default_fc.id,
+        coalesce(normalized_actor_phone, '01094272550'),
+        'admin',
+        'admin',
+        'default_manager_recommender_kim_hyeongsu',
+        false
+      );
+    exception when others then
+      return jsonb_build_object(
+        'ok', true,
+        'changed', false,
+        'skipped', 'default_recommender_code_unavailable',
+        'error', sqlerrm
+      );
+    end;
+
+    select *
+      into active_code
+    from public.referral_codes
+    where fc_id = default_fc.id
+      and is_active = true
+    order by created_at desc, id desc
+    limit 1
+    for update;
+  end if;
+
+  if not found then
+    return jsonb_build_object(
+      'ok', true,
+      'changed', false,
+      'skipped', 'default_recommender_code_missing'
+    );
+  end if;
+
+  begin
+    return public.apply_referral_link_state(
+      p_invitee_fc_id => target_fc.id,
+      p_inviter_fc_id => default_fc.id,
+      p_referral_code_id => active_code.id,
+      p_referral_code => active_code.code,
+      p_source => 'admin_override',
+      p_actor_phone => coalesce(normalized_actor_phone, '01094272550'),
+      p_actor_role => 'admin',
+      p_actor_staff_type => 'admin',
+      p_reason => coalesce(nullif(trim(coalesce(p_reason, '')), ''), 'default_manager_recommender_kim_hyeongsu')
+    );
+  exception when others then
+    return jsonb_build_object(
+      'ok', true,
+      'changed', false,
+      'skipped', 'default_recommender_apply_failed',
+      'error', sqlerrm
+    );
+  end;
+end;
+$$;
+
+revoke all on function public.link_manager_profile_to_default_recommender(uuid, text, text) from public;
+revoke all on function public.link_manager_profile_to_default_recommender(uuid, text, text) from anon;
+revoke all on function public.link_manager_profile_to_default_recommender(uuid, text, text) from authenticated;
+grant execute on function public.link_manager_profile_to_default_recommender(uuid, text, text) to service_role;
+
+comment on function public.link_manager_profile_to_default_recommender(uuid, text, text)
+  is 'Attach an active manager fc_profiles row to 김형수(01094272550) as default recommender. Service-role only; self-link is blocked.';
+
 create or replace function public.ensure_manager_referral_shadow_profile(
   p_manager_phone text,
   p_manager_name text default null
@@ -1039,11 +1198,23 @@ begin
       returning *
       into existing_profile;
 
+      perform public.link_manager_profile_to_default_recommender(
+        existing_profile.id,
+        normalized_phone,
+        'manager_shadow_refresh'
+      );
+
       return existing_profile.id;
     end if;
 
     if existing_profile.signup_completed = true
        and not public.is_request_board_designer_affiliation(existing_profile.affiliation) then
+      perform public.link_manager_profile_to_default_recommender(
+        existing_profile.id,
+        normalized_phone,
+        'manager_profile_refresh'
+      );
+
       return existing_profile.id;
     end if;
 
@@ -1073,6 +1244,12 @@ begin
   returning *
   into existing_profile;
 
+  perform public.link_manager_profile_to_default_recommender(
+    existing_profile.id,
+    normalized_phone,
+    'manager_shadow_created'
+  );
+
   return existing_profile.id;
 end;
 $$;
@@ -1083,7 +1260,7 @@ revoke all on function public.ensure_manager_referral_shadow_profile(text, text)
 grant execute on function public.ensure_manager_referral_shadow_profile(text, text) to service_role;
 
 comment on function public.ensure_manager_referral_shadow_profile(text, text)
-  is 'Create or refresh the referral-only fc_profiles shadow row for an active manager_accounts identity. Execute grant is service_role only.';
+  is 'Create or refresh the referral-only fc_profiles shadow row for an active manager_accounts identity, then attach it to 김형수 as default recommender. Execute grant is service_role only.';
 
 create or replace function public.admin_issue_referral_code(
   p_fc_id uuid,
@@ -2224,6 +2401,12 @@ alter table public.fc_profiles
   add column if not exists hanwha_commission_pdf_name text;
 
 alter table public.fc_profiles
+  add column if not exists dawichok_url_sent_at timestamptz;
+
+alter table public.fc_profiles
+  add column if not exists dawichok_url_sent_by text;
+
+alter table public.fc_profiles
   add column if not exists appointment_schedule_life text;
 
 alter table public.fc_profiles
@@ -2261,6 +2444,12 @@ comment on column public.fc_profiles.hanwha_commission_pdf_path is
 
 comment on column public.fc_profiles.hanwha_commission_pdf_name is
   'Original file name for the Hanwha commission PDF used to gate review/approval.';
+
+comment on column public.fc_profiles.dawichok_url_sent_at is
+  'Timestamp when an admin marked the Dawichok URL as sent to the FC.';
+
+comment on column public.fc_profiles.dawichok_url_sent_by is
+  'Admin phone or resident identifier that marked the Dawichok URL as sent.';
 
 alter table public.fc_profiles
   drop column if exists resident_number;
@@ -2634,7 +2823,8 @@ values
   ('공지','notice',1),
   ('교육','education',2),
   ('일반','general',3),
-  ('서류','documents',4)
+  ('서류','documents',4),
+  ('가람 Pick','garam-pick',5)
 on conflict (slug) do nothing;
 
 -- RLS 활성화 (서비스 롤 전용 접근)
@@ -3690,6 +3880,7 @@ revoke all on function public.stale_user_presence(text, text, timestamptz) from 
 revoke all on function public.get_user_presence(text[]) from public, anon, authenticated;
 revoke all on function public.generate_referral_code_candidate() from public, anon, authenticated;
 revoke all on function public.is_request_board_designer_affiliation(text) from public, anon, authenticated;
+revoke all on function public.link_manager_profile_to_default_recommender(uuid, text, text) from public, anon, authenticated;
 revoke all on function public.admin_issue_referral_code(uuid, text, text, text, text, boolean) from public, anon, authenticated;
 revoke all on function public.admin_disable_referral_code(uuid, text, text, text, text) from public, anon, authenticated;
 revoke all on function public.admin_backfill_referral_codes(integer, text, text, text, text) from public, anon, authenticated;
@@ -3705,6 +3896,7 @@ grant execute on function public.generate_referral_code_candidate() to service_r
 grant execute on function public.get_invitee_referral_code(uuid) to service_role;
 grant execute on function public.get_referral_subtree(uuid, int) to service_role;
 grant execute on function public.is_request_board_designer_affiliation(text) to service_role;
+grant execute on function public.link_manager_profile_to_default_recommender(uuid, text, text) to service_role;
 grant execute on function public.admin_issue_referral_code(uuid, text, text, text, text, boolean) to service_role;
 grant execute on function public.admin_disable_referral_code(uuid, text, text, text, text) to service_role;
 grant execute on function public.admin_backfill_referral_codes(integer, text, text, text, text) to service_role;

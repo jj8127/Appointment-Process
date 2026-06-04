@@ -1,4 +1,238 @@
+﻿# Increment 34 Verification: Orange CTA Black Rendering Guard
+
+Date: 2026-06-04
+
+### Scope
+
+- Replaced large home orange CTA/step `LinearGradient` surfaces with plain `View` backgrounds.
+- Replaced legacy mobile exam submit orange gradients and the referral-code orange gradient card with explicit `backgroundColor` surfaces.
+- Kept the legacy exam application flow and referral data behavior unchanged.
+- Normalized touched home letter spacing to `0`.
+
+### Commands
+
+- Passed: `npm run lint -- app/index.tsx app/exam-apply.tsx app/exam-apply2.tsx app/referral.tsx app/board.tsx app/admin-board-manage.tsx`.
+- Passed: `cd web; npm run lint -- src/app/dashboard/board/page.tsx`.
+- Passed: `cd web; SENTRY_AUTH_TOKEN='' npm run build`.
+  - Existing warnings only: old `baseline-browser-mapping` data and transitive OpenTelemetry `import-in-the-middle` version mismatch.
+- Passed: `node scripts\ci\check-governance.mjs`.
+
+### QA Judgment
+
+- Focused lint and admin web build are green for the touched surfaces.
+- Android emulator screenshot verification remains an external follow-up because no runtime server/emulator smoke was run in this pass.
+
+---
+
+# Increment 33 Verification: Board Garam Pick Category
+
+Date: 2026-06-04
+
+### Scope
+
+- Added `가람 Pick` to board category seed and migration.
+- Added `가람 Pick` badge color handling in mobile board, mobile admin board management, and admin web board.
+- Updated board category docs.
+
+### Commands
+
+- Passed: `npm run lint -- app/index.tsx app/exam-apply.tsx app/exam-apply2.tsx app/referral.tsx app/board.tsx app/admin-board-manage.tsx`.
+- Passed: `cd web; npm run lint -- src/app/dashboard/board/page.tsx`.
+- Passed: `cd web; SENTRY_AUTH_TOKEN='' npm run build`.
+  - Existing warnings only: old `baseline-browser-mapping` data and transitive OpenTelemetry `import-in-the-middle` version mismatch.
+- Passed: `node scripts\ci\check-governance.mjs`.
+
+### QA Judgment
+
+- Local focused lint, admin web lint/build, and governance checks passed.
+- Runtime migration application for `가람 Pick` remains deployment work.
+
+---
+
+# Increment 32 Verification: Dawichok URL Sent Signal And Referral Graph Completion Legend
+
+Date: 2026-06-04
+
+### Scope
+
+- Added a Dawichok URL sent signal across schema, migration, mobile admin, web admin, and Edge Function action paths.
+- Added FC Dawichok page guidance so the exact Kakao URL copy is shown only after the sent signal exists.
+- Added reset handling so stale Dawichok URL sent timestamps are cleared on document-workflow downgrade.
+- Added referral graph all-commission-complete node state, green node rendering, drawer badge, visible completion count, and clearer legend copy.
+- Kept deferred Toss virtual-account/proxy exam runtime, headquarters-scoped secretary filtering, and Dawichok PDF-removal work out of this increment.
+
+### Commands
+
+- Passed: `node --test src\lib\referral-graph-layout.test.ts src\lib\referral-graph-simulation.test.ts`
+  - 31 tests.
+- Passed: `npm run lint`.
+- Passed: `cd web; npm run lint`.
+- Passed: `git diff --check`.
+  - CRLF normalization warnings only.
+- Passed: `npm test -- --runInBand`.
+  - 31 suites / 199 tests.
+- Passed: `cd web; SENTRY_AUTH_TOKEN='' npm run build`.
+  - Existing warnings only: old `baseline-browser-mapping` data and transitive OpenTelemetry `import-in-the-middle` version mismatch.
+- Passed: `node scripts\ci\check-governance.mjs`.
+
+### Subagent / Evaluator Findings Resolved
+
+- FC Dawichok page initially showed the exact Kakao URL instruction without checking the sent signal. It now gates that copy on `dawichok_url_sent_at`.
+- Dawichok URL sent fields were initially not cleared on workflow reset. Shared/mobile/web reset paths now clear `dawichok_url_sent_at/by`.
+- Referral graph completion badge initially counted all nodes. It now counts visible nodes after search/filter.
+- Graph legend initially described yellow as a fill state. It now describes yellow as a highlight/legacy-outline marker, matching the canvas behavior.
+
+### QA Judgment
+
+- Automated local verification is green for focused graph tests, app tests, root lint, web lint, web build, governance, and diff whitespace.
+- Runtime mobile screenshots/admin smoke and real Kakao delivery remain external follow-up checks after deployment/secrets.
+
+---
+
+# Increment 31 Verification: GaramIn Operations UX And Workflow Fixes
+
+Date: 2026-06-03
+
+### Scope
+
+- Implemented the current nine-item GaramIn operations fix set while keeping Toss virtual accounts/proxy exam application and headquarters-scoped secretary filtering deferred.
+- Fixed mobile admin life/nonlife exam registration add/edit so the lower form opens and scrolls into view.
+- Added signup `자격증 보유 현황` multi-select with exclusive `없음`, persisted as `license_statuses`.
+- Replaced user-facing `보증 보험 동의` copy in touched surfaces with `보증 보험 동의`, and required a valid date for FC/admin progression.
+
+## Increment 22 QA Notes
+
+- Pending full verification.
+- Planned checks:
+  - root Jest/lint/governance
+  - web lint/build
+  - request_board build/checks for GaramLink dirty changes
+  - graph diff review from subagent `Pasteur`
+- Deferred runtime checks are explicitly not claimed complete:
+  - Toss/proxy exam runtime
+  - real Kakao provider integration
+  - dedicated 다위촉 guide image asset review
+  - exhaustive SM_S942N onboarding/exam walkthrough
+- Expanded document review so requested no-file document rows can be approved/rejected and all-approved status can advance the FC.
+- Added next-step YouTube placeholder controls and orange CTA fallbacks.
+- Added manager/headquarters full 주민번호 display through trusted resident-number read paths.
+
+### Commands
+
+- Passed: `npm test -- --runTestsByPath lib\__tests__\license-statuses.test.ts lib\__tests__\workflow-step-regression.test.ts lib\__tests__\commission.test.ts --runInBand`
+  - 3 suites / 38 tests.
+- Passed: `npm test -- --runInBand`
+  - 31 suites / 199 tests.
+- Passed: `npm run lint`.
+- Passed: `cd web; npm run lint`.
+- Passed: `cd web; SENTRY_AUTH_TOKEN='' npm run build`.
+  - Existing warnings only: old `baseline-browser-mapping` data and transitive OpenTelemetry `import-in-the-middle` version mismatch.
+- Passed: `node scripts/ci/check-governance.mjs`.
+- Passed: `git diff --check`.
+  - CRLF normalization warnings only.
+
+### Evaluator Findings Resolved
+
+- Blocked direct `docs-approved` status writes unless every requested `fc_documents` row is approved.
+- Preserved no-file approved document status on the FC mobile docs screen instead of rewriting it to pending.
+- Enforced temp-id sequencing for admin/web guarantee-insurance date save, prescreen, and approval paths.
+- Reopened the read-only manager quick action to the exam applicant page while keeping write actions disabled.
+
+### QA Judgment
+
+- Automated local verification is green for app tests, app lint, web lint, web build, governance, and diff whitespace.
+- Runtime device screenshots and deployed admin smoke remain external follow-up checks.
+
+---
+
+# Increment 30 Verification: Mobile Exam Runtime Rollback
+
+Date: 2026-06-03
+
+### Scope
+
+- Roll back active mobile exam application behavior from Toss/proxy runtime to the legacy manual `응시료 납입일` flow.
+- Remove active mobile dependency on `exam-application-submit`.
+- Remove deployable exam payment function entrypoints.
+- Keep the pure Toss/per-examinee contract as deferred, non-runtime material.
+- Do not edit Dawichok PDF or admin-scope sections.
+
+### Commands
+
+- Passed: `Select-String -Path 'app\exam-apply.tsx','app\exam-apply2.tsx' -Pattern 'exam-application-submit','submitted_by_resident_id','submitted_for','fc_profiles\(','가상계좌','대리 신청','신청 대상'`
+  - No matches.
+- Passed: `Select-String -Path 'app\exam-apply.tsx','app\exam-apply2.tsx' -Pattern 'fee_paid_date','응시료 납입 일자','DateTimePicker','Clipboard'`
+  - Confirmed manual date picker, static account copy, and `fee_paid_date` insert/update paths.
+- Passed: `Test-Path` checks for:
+  - `supabase\functions\exam-application-submit\index.ts=False`
+  - `supabase\functions\exam-payment-expire\index.ts=False`
+  - `supabase\functions\exam-payment-issue\index.ts=False`
+  - `supabase\functions\exam-payment-webhook\index.ts=False`
+- Passed: production import search for `exam-registration-payment-contract`
+  - No app/web/function production imports.
+- Passed: `npm run lint -- app/exam-apply.tsx app/exam-apply2.tsx`.
+- Passed: `npm test -- --runTestsByPath lib/__tests__/exam-registration-payment-contract.test.ts --runInBand`
+  - 1 suite / 3 tests.
+- Passed: scoped `git diff --check`
+  - CRLF normalization warnings only.
+
+### QA Judgment
+
+- Mobile life/nonlife exam apply runtime is back to the legacy `fee_paid_date` flow.
+- Toss/proxy payment material remains deferred and non-runtime.
+- No Dawichok PDF or admin-scope sections were edited in this increment.
+
+---
+
 # QA Report: Increment 1 Harness / Inventory
+
+## Increment 29 Verification: GaramIn Nine-Item Operations Upgrade v2
+
+Date: 2026-06-03
+
+### Scope
+
+- Implemented all nine requested GaramIn changes across mobile, admin web, Supabase schema/functions, and notification delivery logging.
+- Kept internal `hanwha_*` compatibility names while changing user-facing copy to `다위촉 URL`.
+- Replaced the admin Dawichok PDF upload dependency with a `다위촉 서류 발송 알림` signal.
+- Implemented Toss Payments per-examinee rotating virtual-account contract: one registration/payment/order/account per examinee, stored `toss_idempotency_key`, `DEPOSIT_CALLBACK` gate, stored `toss_secret` validation, and webhook event idempotency.
+- Added FC proxy exam application for existing GaramIn FCs only.
+- Added server-side admin affiliation scope checks in the implemented admin exam/profile routes.
+
+### Subagent Findings Resolved
+
+- Mobile evaluator failed proxy account selection because same-round rows were only labeled by round/date. Fixed selector labels to include examinee, self/proxy, exam round, and payment status.
+- Supabase evaluator failed payment contract for missing persisted idempotency, missing `DEPOSIT_CALLBACK` production gate, and duplicate-examinee protection not being in the live submit path. Added `toss_idempotency_key`, webhook event gating/idempotency, and submit preflight duplicate rejection.
+- Admin web evaluator flagged leftover Dawichok PDF upload API branches and scope gaps. Removed dead upload/delete branches after the 410 guard and added FC profile scope checks.
+- Admin web evaluator also flagged `fee_paid_date`/`수동 납입일`; this is intentionally kept as legacy display per the plan, not a failure.
+
+### Commands
+
+- Passed: `npm test -- --runTestsByPath lib\__tests__\workflow-step-regression.test.ts lib\__tests__\exam-registration-payment-contract.test.ts lib\__tests__\admin-scope.test.ts --runInBand`
+  - 3 suites / 30 tests.
+- Passed: `node --experimental-strip-types --test supabase\functions\_shared\__tests__\exam-payment.test.ts`
+  - 4 tests; existing Node module-type warning only.
+- Passed: `node --test supabase\functions\__tests__\exam-payment-schema.contract.test.ts`
+  - 1 test; existing Node module-type warning only.
+- Passed: `npm run lint -- app\exam-apply.tsx app\exam-apply2.tsx app\index.tsx app\home-lite.tsx app\appointment.tsx app\hanwha-commission.tsx app\dashboard.tsx app\docs-upload.tsx app\_layout.tsx lib\fc-workflow.ts`.
+- Passed: `SENTRY_AUTH_TOKEN='' npm run build`.
+  - Existing Sentry prebuild warning, Expo notification web warning, and static API route export warning remain.
+- Passed: `cd web; npm run lint`.
+- Passed: `cd web; SENTRY_AUTH_TOKEN='' npm run build`.
+  - Existing `baseline-browser-mapping` age warnings and transitive OpenTelemetry `import-in-the-middle` version mismatch warnings remain.
+
+### Manual / External Checks Still Required
+
+- Apply migration `20260603000001_garamin_ops_upgrade.sql` in Supabase and deploy new Edge Functions.
+- Run Toss Payments sandbox for virtual-account issue, deposit callback, duplicate webhook replay, expiration job, and one multi-examinee proxy application.
+- Run Kakao dry-run or sandbox send for Dawichok/exam/message allowlisted categories.
+- Run mobile device visual smoke for FC home YouTube/temp-id badge, same-round multi-account selector labels, and Dawichok appointment unlock.
+
+### QA Judgment
+
+- Local automated checks pass for the changed app, web, schema, and pure contract surfaces.
+- The required v2 payment contract is now represented in schema and live server code, not only in helper tests.
+- Completion is local/source-level only until remote Supabase migration, Toss sandbox, Kakao delivery, and device runtime checks are executed.
 
 ## Increment 28 Verification: Admin Dashboard Operator Copy And File Open Fix
 
@@ -1923,3 +2157,199 @@ Reason: increment 18 changes only a Supabase Edge Function shared sync helper se
 - `syncRequestBoardPassword` remains the production wrapper and still uses global fetch/timer/AbortController/console dependencies.
 - This is a behavior-preserving safety increment; it does not claim full runtime cross-repo password sync, live secret alignment, or request_board API smoke coverage yet.
 - No mistake-ledger update is required for this increment because no new regression, repeated mistake, contract drift, or missed verification was introduced.
+
+## Increment 20 Verification
+
+### Scope
+
+- Reproduced the reported 김형수 추천인 auth issue at the server contract layer and confirmed 김형수 profile/referral data exists.
+- Deployed current Supabase Edge Functions for the referral app-session contract:
+  - `refresh-app-session`
+  - `login-with-password`
+  - `sync-request-board-session`
+  - `get-my-referral-code`
+  - `get-referral-tree`
+  - `search-fc-for-referral`
+  - `update-my-recommender`
+  - `get-my-invitees`
+- Added client normalization for stale deployed referral functions returning `code: "unauthorized"`.
+- Tightened that normalization after security evaluator feedback so message-only auth-like failures do not clear local sessions.
+- Fixed the repeated mobile black-theme regression by forcing the app to light theme and adding login fallback background colors.
+
+### Evidence
+
+- Direct remote function check for 김형수 app-session:
+  - `refresh-app-session`: `ok: true`, role `fc`, app-session token issued.
+  - `get-my-referral-code`: `ok: true`.
+  - `get-referral-tree`: `ok: true`, root name `김형수`, descendant count `17`.
+- Context7 confirmed Expo/React Native can force light UI through `userInterfaceStyle` and explicit background/theme configuration.
+- ADB confirmed SM_S942N was initially on a different FC session, then a temporary 김형수 app/bridge/request_board session was injected for UI verification and restored afterward.
+- 김형수 `/referral` UI verification passed:
+  - `내 추천 코드` shows a real code.
+  - 김형수 name/affiliation and 하위 count render.
+  - `내가 추천한 사람들` list renders.
+  - The reported `인증이 필요합니다` / `추천 관계 정보를 가져오지 못했어요` failure state is absent.
+  - screenshot evidence: `.codex/harness/evidence/kim-referral-auth/kim-referral-final.png`.
+- ADB confirmed after the color fix:
+  - latest debug APK built/installed successfully with `npx expo run:android --device SM_S942N`
+  - login route rendered without black background
+  - screenshot evidence: `.codex/harness/evidence/kim-referral-auth/login-after-color-fix.png`
+  - restored home route renders the next-step CTA in orange
+  - screenshot evidence: `.codex/harness/evidence/kim-referral-auth/home-after-final-restore.png`
+  - device was returned to the restored existing session flow after the screenshots.
+
+### Commands
+
+- Passed: `npm test -- --runTestsByPath lib\__tests__\referral-session-error.test.ts --runInBand` (3 tests).
+- Passed: `npm run lint -- hooks/use-referral-app-session.ts hooks/use-my-invitees.ts lib/referral-session-error.ts app/referral.tsx`.
+- Passed: `npm run lint -- app/_layout.tsx app/login.tsx`.
+- Passed: `npx expo config --type public`; public config now reports `userInterfaceStyle: "light"` and Android `backgroundColor: "#ffffff"`.
+- Passed: `npx expo run:android --device SM_S942N`; Gradle build/install succeeded. CLI noted port 8081 was already in use and skipped starting a new dev server.
+
+### Not Run
+
+- Full root `npm test -- --runInBand`.
+- Full root `npm run lint`.
+- Full root `npm run build`.
+- Web lint/build.
+
+Reason: this increment targeted referral auth fallback, function deployment, and the urgent mobile color regression. Broader accumulated worktree validation remains part of the larger goal and should not be implied by this focused pass.
+
+### QA Judgment
+
+- The original 김형수 referral server-side failure was a stale deployed Edge Function contract and is fixed at the remote function layer.
+- The client no longer treats broad message-only errors as session-clearing auth failures.
+- The reported login black-background regression is fixed on SM_S942N in the latest installed debug app.
+- Exact 김형수 in-app referral screen verification passed through a temporary session injection and the original device session was restored afterward.
+
+## Increment 21 Verification
+
+### Scope
+
+- Implemented FC access to the admin web referral graph only.
+- Added a server-issued signed/HttpOnly FC graph session cookie so JS-readable `session_role/session_resident` cookies alone cannot authorize FC graph API data.
+- Scoped `/api/admin/referrals/graph` for FC viewers to self + reachable descendants only.
+- Reduced FC graph UI to graph-only navigation and disabled staff-only node detail/list routes.
+
+### Evidence
+
+- Security subagent flagged the spoofing risk in the existing JS-readable admin web session model before exposure to FC users.
+- Added `fc_graph_session` signing and verification:
+  - web login API mints it only after `login-with-password` succeeds and the FC profile id resolves.
+  - `getVerifiedServerSession` rejects FC API sessions without a valid signed cookie bound to the same phone.
+- Added route decision helper and tests:
+  - FC is allowed on `/dashboard/referrals/graph`.
+  - FC is redirected to graph from other dashboard routes.
+  - staff `/admin` behavior remains admin-only.
+- Added graph scope helper and tests:
+  - root and descendants included.
+  - unrelated/sibling branches excluded.
+  - cycles do not leak unrelated nodes.
+- Added FC graph session tests:
+  - signed payload verifies.
+  - tampered, mismatched resident, and expired values fail.
+
+### Commands
+
+- Passed: `node --test web\src\lib\admin-web-route-access.test.ts web\src\lib\referral-graph-scope.test.ts web\src\lib\fc-graph-session.test.ts`.
+- Passed: `cd web; npm run lint -- src\lib\admin-web-route-access.ts src\lib\admin-web-route-access.test.ts src\lib\referral-graph-scope.ts src\lib\referral-graph-scope.test.ts src\lib\fc-graph-session.ts src\lib\fc-graph-session.test.ts src\lib\server-session.ts src\lib\admin-referrals.ts src\types\referral-graph.ts src\app\api\auth\login\route.ts src\app\api\auth\logout\route.ts src\app\api\admin\referrals\graph\route.ts src\app\auth\page.tsx src\app\dashboard\layout.tsx src\app\dashboard\referrals\graph\page.tsx src\components\referrals\GraphNodeDrawer.tsx`.
+- Passed: `cd web; SENTRY_AUTH_TOKEN='' npm run build`.
+
+### Not Run
+
+- Live browser login as a real FC account.
+- Direct HTTP smoke proving `/api/admin/referrals/graph` rejects forged cookies and accepts signed cookies against the running server.
+- Full root `npm test -- --runInBand` and full root `npm run lint`.
+
+Reason: this increment was implemented and build-verified in the web codebase. A live FC credential/session is still needed for end-to-end browser verification.
+
+### QA Judgment
+
+- The server-side graph data leak risk is addressed for FC sessions by both signed-session verification and downline scoping.
+- Graph-only containment is enforced in middleware and UI; other admin APIs remain admin/manager gated.
+- This does not close the broader user-requested SM_S942N full onboarding/exam UI verification goal.
+
+## Increment 23 Verification
+
+### Scope
+
+- Fixed `request-board-review` role ownership for completed design decisions.
+- FC can still approve/reject completed designs.
+- 설계매니저는 완료한 설계에 대해 FC 전용 `거절`/`승인` 결정을 할 수 없고, `FC 검토 대기` 상태만 본다.
+
+### Evidence
+
+- Source gate changed to `canReviewAsFc = !isRequestBoardDesigner && needsReview`.
+- Assignment highlight and decision buttons now depend on `canReviewAsFc`, not raw `needsReview`.
+- Designer-completed pending state renders `FC 검토 대기` explanatory status instead of FC decision buttons.
+- Added static role contract test: `lib/__tests__/request-board-review-role.contract.test.ts`.
+- FC Android UI pass on SM_S942N:
+  - request-board home screenshot: `.codex/harness/ui-qa/android-fc-request-board-after-role-patch.png`
+  - FC review list screenshot: `.codex/harness/ui-qa/android-fc-review-list-after-role-patch.png`
+  - FC review detail screenshot: `.codex/harness/ui-qa/android-fc-review-detail-after-role-patch.png`
+  - FC approval/rejection buttons visible screenshot: `.codex/harness/ui-qa/android-fc-review-detail-buttons-after-role-patch.png`
+- request_board cleanup:
+  - temporary request `1069`, related request rows, and temporary users `498`, `499` deleted.
+  - local temporary token/session files removed from `.codex/harness/ui-qa`.
+- User device session restore:
+  - Android AsyncStorage DB was restored to the original FC session.
+  - local post-restore DB check confirmed `requestBoardRole` returned to `fc` and `isRequestBoardDesigner` returned to `false`.
+
+### Commands
+
+- Passed: `npx jest lib\__tests__\request-board-review-role.contract.test.ts --runInBand`.
+- Passed: `npx tsc --noEmit`.
+- Passed in worktree: `npx jest lib\__tests__\request-board-review-role.contract.test.ts --runInBand`.
+- Passed in worktree: `npx tsc --noEmit`.
+- Android ADB operations:
+  - `adb reverse tcp:8082 tcp:8082`
+  - Expo dev client launched with `http://127.0.0.1:8082`
+  - FC review flow navigated by touch and captured by `adb exec-out screencap -p`.
+
+### Not Run
+
+- 설계매니저 Android visual pass after the final patch.
+
+Reason: SM_S942N entered Android security bouncer/lockscreen during the temporary designer-session verification. ADB wake/swipe/dismiss-keyguard attempts did not unlock it. The app session was restored and temporary request_board data was cleaned up before stopping.
+
+### QA Judgment
+
+- Code and contract tests now enforce that completed-design FC approval/rejection belongs to FC, not 설계매니저.
+- FC UI still shows the expected approval/rejection actions.
+- 설계매니저 UI still needs one final real-device screenshot after the device is unlocked to close the user's "all UI buttons directly tested" requirement.
+
+## Increment 24 Verification
+
+### Scope
+
+- 본부장 기본 추천인을 김형수(`01094272550`)로 연결하는 migration/schema contract.
+- 사용자 노출 날짜 용어를 정확히 `보증보험 조회 동의일`로 정리.
+- 추천인 그래프 범례/색상 조건을 회의 기준으로 정리:
+  - 노랑: 총무 view에서는 본부장, 팀장/FC view에서는 현재 사용자.
+  - 주황: 본등록 완료.
+  - 회색: 사전등록까지만 한 사람.
+  - 초록: 생명/손해 위촉 모두 완료.
+
+### Commands
+
+- Passed: `npm test -- --runTestsByPath lib\__tests__\manager-default-recommender-contract.test.ts lib\__tests__\workflow-step-regression.test.ts --runInBand`.
+- Passed: `node --test web\src\lib\referral-graph-highlight.test.ts web\src\lib\referral-graph-layout.test.ts web\src\lib\referral-graph-simulation.test.ts web\src\lib\referral-graph-scope.test.ts`.
+- Passed: `NODE_OPTIONS='--max-old-space-size=4096' npm test -- --runInBand`.
+- Passed: `NODE_OPTIONS='--max-old-space-size=4096' npm run lint`.
+- Passed: `NODE_OPTIONS='--max-old-space-size=4096' npm run build`.
+- Passed: `cd web; NODE_OPTIONS='--max-old-space-size=4096' npm run lint`.
+- Passed: `cd web; SENTRY_AUTH_TOKEN='' NODE_OPTIONS='--max-old-space-size=4096' npm run build`.
+- Passed: `node scripts/ci/check-governance.mjs`.
+- Passed: `git diff --check` with CRLF normalization warnings only.
+- Passed: `git grep` checks found no remaining `수당동의`, `수당 동의`, `수당 지급 동의서`, `보증 보험 동의일`, or `보증보험 동의일` user-facing terms.
+
+### Not Run
+
+- SM_S942N full direct touch traversal of onboarding/exam flows.
+
+Reason: user explicitly deferred direct phone manipulation and asked to continue with all non-phone tests first.
+
+### QA Judgment
+
+- Non-phone verification is green for the modified 가람in app, admin web, schema contract, and graph logic.
+- Direct Android UI traversal remains a deferred validation item, not a currently closed QA item.

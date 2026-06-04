@@ -1,4 +1,65 @@
+# Completed Increment 34: Orange CTA Black Rendering Guard
+
+The latest implementation hardens repeatedly reported Android black-surface rendering on GaramIn orange CTA/card surfaces. The home next-step and messenger CTA cards now use plain `View` surfaces with explicit `backgroundColor: HANWHA_ORANGE` instead of orange `LinearGradient`, and the same guard was applied to legacy mobile exam submit buttons and the referral-code card without changing their business flows.
+
+This increment does not change exam application data flow, payment behavior, referral tree behavior, or board category behavior.
+
+---
+
+# Completed Increment 33: Board Garam Pick Category
+
+The current implementation adds `가람 Pick` as a first-class board post category. It is seeded in schema and forward migration, appears through the existing dynamic board category APIs, and has a distinct badge color in mobile board, mobile admin board management, and admin web board views.
+
+This increment does not change board permissions, notification fanout, notice/legacy-notice behavior, or attachment/comment/reaction contracts.
+
+---
+
+# Completed Increment 32: Dawichok URL Sent Signal And Referral Graph Completion Legend
+
+The current completed implementation adds an explicit Dawichok URL sent signal and makes the referral graph legend easier to understand.
+
+The Dawichok signal records `dawichok_url_sent_at/by`, gives secretary/admin users a `다위촉 URL 발송` action in mobile and web admin surfaces, and notifies the FC through the existing in-app/push path. FCs only see the exact copy `카카오톡으로 전송된 다위촉 URL을 진행해 주세요.` after that signal exists. Workflow downgrade/reset paths clear the signal so stale sent state is not shown.
+
+The referral graph now computes `allCommissionsCompleted` from life/nonlife completion state, colors completed nodes green, shows the same state in the drawer, counts visible completed nodes after search/filter, and explains the color/ring legend in operator-friendly terms.
+
+This increment explicitly excludes Toss virtual-account/proxy exam runtime, headquarters-scoped secretary filtering, Dawichok PDF removal, graph physics changes, and real Kakao provider/template integration.
+
+---
+
+# Completed Increment 31: GaramIn Operations UX And Workflow Fixes
+
+The previous implementation addressed nine urgent GaramIn improvements across mobile admin exam registration, signup certificate capture, guarantee-insurance consent copy/date validation, document review, home CTA/video affordances, and manager full resident-number display.
+
+That increment explicitly excluded the deferred Toss virtual-account/proxy exam application runtime and headquarters-scoped secretary filtering. Existing internal `allowance_*` schema/status names remain for compatibility, while user-facing copy changed to `보증 보험 동의`.
+
+---
+
+# Active Increment 30: Mobile Exam Runtime Rollback
+
+The active mobile exam application behavior is the legacy FC flow: the FC directly enters `응시료 납입일`, and the mobile screens write/read `fee_paid_date` through `exam_registrations`.
+
+The Toss/per-examinee virtual-account and proxy-application design is deferred. Its pure contract material can remain for later planning, but it must not be active mobile UI or deployable exam-payment runtime in this increment.
+
+This increment is limited to exam/Toss runtime rollback notes and does not change Dawichok PDF or admin-scope sections.
+
+---
+
 # Product Spec: Evidence-Based Cleanup / Refactor Program
+
+## Active Increment 29: GaramIn Nine-Item Operations Upgrade
+
+The current active implementation upgrades GaramIn FC operations across mobile, admin web, and Supabase:
+
+- FC home guidance and temp-id visibility.
+- Dawichok terminology and secretary document-sent workflow.
+- KakaoTalk delivery as a non-blocking extension of current notification events.
+- Toss Payments rotating virtual accounts, one account per exam registration/examinee.
+- Proxy exam applications for existing GaramIn FCs with submitter/examinee separation.
+- Headquarters-scoped secretary/admin visibility with server-side enforcement.
+
+The most important product constraint is payment traceability: when one FC applies for multiple examinees, each examinee registration receives its own Toss order and rotating virtual account. Grouping may exist only for UI/audit; payment matching stays per registration.
+
+---
 
 ## Goal
 
@@ -175,3 +236,18 @@ All hypotheses require later proof before deletion or refactor.
 - No deletion of code, docs, assets, generated output, dependencies, lockfiles, or configuration.
 - No schema, migration, env, secret, notification, or auth behavior changes.
 - No git history rewriting or destructive commands.
+
+## Current Deferred Meeting Items
+
+- 시험 대리 신청 + Toss Payments 회전식 가상계좌: deferred by user; current runtime should stay on the previous fee-date flow until resumed.
+- KakaoTalk/AlimTalk real provider integration: not complete; inbox/push copy and internal notification work exist, but provider credentials/adapter rollout remains.
+- Dedicated 다위촉 guide image assets: pending supplied assets and final placement.
+- Full on-device traversal of every onboarding/exam workflow on SM_S942N: still required before claiming full UI completion.
+
+## Increment 22 Product Decisions
+
+- All active 본부장/manager profiles should default to 김형수(`01094272550`) as recommender through trusted server/database paths.
+- 김형수 self-referral remains invalid; if 김형수 is also a manager, his own row must not point to itself.
+- Date-field wording is exact: `보증보험 조회 동의일`.
+- Generic step wording may continue to use `보증 보험 동의` where it describes the overall workflow step rather than the date field.
+- Admin referral graph colors are global status semantics, with yellow reserved for the viewer/current highlighted role node rather than a status bucket.

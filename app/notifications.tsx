@@ -659,10 +659,10 @@ export default function NotificationsScreen() {
     const lowerBody = item.body?.toLowerCase?.() ?? '';
 
     const isHanwhaWorkflowNotification =
-      lowerTitle.includes('한화 위촉 승인') ||
-      lowerTitle.includes('한화 위촉 반려') ||
-      lowerBody.includes('한화 위촉이 승인') ||
-      lowerBody.includes('한화 위촉이 반려') ||
+      lowerTitle.includes('다위촉 승인') ||
+      lowerTitle.includes('다위촉 반려') ||
+      lowerBody.includes('다위촉이 승인') ||
+      lowerBody.includes('다위촉이 반려') ||
       lowerBody.includes('승인 pdf');
 
     if (isHanwhaWorkflowNotification) {

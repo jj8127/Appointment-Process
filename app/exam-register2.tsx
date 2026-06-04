@@ -6,6 +6,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Alert,
   Animated,
+  LayoutChangeEvent,
   Platform,
   Pressable,
   RefreshControl,
@@ -188,8 +189,11 @@ export default function ExamRegisterScreen() {
   const isEditMode = Boolean(selectedRoundId);
 
   // 애니메이션 값
+  const scrollViewRef = useRef<ScrollView | null>(null);
+  const formOffsetYRef = useRef(0);
   const formOpacity = useRef(new Animated.Value(0)).current;
   const formTranslateY = useRef(new Animated.Value(24)).current;
+  const [pendingFormScroll, setPendingFormScroll] = useState(false);
 
   useEffect(() => {
     if (role !== 'admin') {
@@ -273,11 +277,45 @@ export default function ExamRegisterScreen() {
 
   // 폼 닫기 (슬라이드-아웃 후 unmount)
   const closeFormWithAnim = useCallback(() => {
+    setPendingFormScroll(false);
     Animated.parallel([
       Animated.timing(formOpacity, { toValue: 0, duration: 200, useNativeDriver: true }),
       Animated.timing(formTranslateY, { toValue: -12, duration: 200, useNativeDriver: true }),
     ]).start(() => setShowForm(false));
   }, [formOpacity, formTranslateY]);
+
+  const scrollToForm = useCallback(() => {
+    scrollViewRef.current?.scrollTo({
+      y: Math.max(formOffsetYRef.current - 12, 0),
+      animated: true,
+    });
+  }, []);
+
+  const requestFormScroll = useCallback(() => {
+    setPendingFormScroll(true);
+  }, []);
+
+  const handleFormLayout = useCallback(
+    (event: LayoutChangeEvent) => {
+      formOffsetYRef.current = event.nativeEvent.layout.y;
+      if (pendingFormScroll && formOffsetYRef.current > 0) {
+        requestAnimationFrame(() => {
+          scrollToForm();
+          setPendingFormScroll(false);
+        });
+      }
+    },
+    [pendingFormScroll, scrollToForm],
+  );
+
+  useEffect(() => {
+    if (!showForm || !pendingFormScroll || formOffsetYRef.current <= 0) return;
+    const timer = setTimeout(() => {
+      scrollToForm();
+      setPendingFormScroll(false);
+    }, 100);
+    return () => clearTimeout(timer);
+  }, [pendingFormScroll, scrollToForm, showForm]);
 
   const saveRound = useMutation({
     mutationFn: async (mode: 'create' | 'update') => {
@@ -414,6 +452,7 @@ export default function ExamRegisterScreen() {
     if (!showForm) {
       setShowForm(true);
     }
+    requestFormScroll();
   };
 
   const handleSelectRound = (round: ExamRoundWithLocations) => {
@@ -434,10 +473,12 @@ export default function ExamRegisterScreen() {
     if (!showForm) {
       setShowForm(true);
     }
+    requestFormScroll();
   };
 
   const screenContent = (
     <ScrollView
+      ref={scrollViewRef}
       contentContainerStyle={styles.container}
       refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}
       keyboardShouldPersistTaps="handled"
@@ -562,6 +603,7 @@ export default function ExamRegisterScreen() {
           {/* 입력 폼 (애니메이션 슬라이드) */}
           {showForm && (
             <Animated.View
+              onLayout={handleFormLayout}
               style={{
                 opacity: formOpacity,
                 transform: [{ translateY: formTranslateY }],

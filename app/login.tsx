@@ -54,7 +54,7 @@ export default function LoginScreen() {
         <View style={styles.container}>
             <LinearGradient
                 colors={['#ffffff', '#fff1e6']}
-                style={StyleSheet.absoluteFill}
+                style={[StyleSheet.absoluteFill, styles.gradientFallback]}
                 start={{ x: 0, y: 0 }}
                 end={{ x: 1, y: 1 }}
             />
@@ -157,6 +157,10 @@ export default function LoginScreen() {
 const styles = StyleSheet.create({
     container: {
         flex: 1,
+        backgroundColor: COLORS.background.primary,
+    },
+    gradientFallback: {
+        backgroundColor: COLORS.background.primary,
     },
     safe: {
         flex: 1,

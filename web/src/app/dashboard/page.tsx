@@ -48,7 +48,7 @@ import {
 } from '@tabler/icons-react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import dayjs from 'dayjs';
-import { useEffect, useMemo, useRef, useState, useTransition } from 'react';
+import { ChangeEvent, MouseEvent, useEffect, useMemo, useRef, useState, useTransition } from 'react';
 
 import { useSession } from '@/hooks/use-session';
 import { useResidentNumber } from '@/hooks/use-resident-number';
@@ -57,13 +57,16 @@ import {
   navigateAdminFileWindowOrCurrentTab,
   openPendingAdminFileWindow,
 } from '@/lib/admin-file-open';
-import { supabase } from '@/lib/supabase';
 import type { FCDocument, FCProfileWithDocuments } from '@/types/dashboard';
 import type { CommissionCompletionStatus, FcProfile, FcStatus } from '@/types/fc';
 import { notifications } from '@mantine/notifications';
 import { useRouter } from 'next/navigation';
 import { StatusToggle } from '../../components/StatusToggle';
-import { getAllowanceDisplayState, type AllowanceDisplayKey } from '../../lib/fc-workflow';
+import {
+  getAllowanceDisplayState,
+  hasHanwhaApprovedPdf,
+  type AllowanceDisplayKey,
+} from '../../lib/fc-workflow';
 import {
   ADMIN_STEP_LABELS,
   calcStep,
@@ -113,22 +116,6 @@ const isHanwhaApproved = (
   profile: Pick<FCProfileWithDocuments, 'status' | 'hanwha_commission_date'>,
 ) => Boolean(profile.hanwha_commission_date || HANWHA_APPROVED_STATUSES.includes(profile.status));
 
-const hasHanwhaApprovedPdf = (
-  profile: Pick<
-    FCProfileWithDocuments,
-    'status' | 'hanwha_commission_date' | 'hanwha_commission_pdf_path' | 'hanwha_commission_pdf_name'
-  >,
-) =>
-  Boolean(
-    isHanwhaApproved(profile) &&
-    trimValue(profile.hanwha_commission_pdf_path) &&
-    trimValue(profile.hanwha_commission_pdf_name),
-  );
-
-const hasHanwhaPdfAttachment = (
-  profile: Pick<FCProfileWithDocuments, 'hanwha_commission_pdf_path' | 'hanwha_commission_pdf_name'>,
-) => Boolean(trimValue(profile.hanwha_commission_pdf_path) && trimValue(profile.hanwha_commission_pdf_name));
-
 const buildCommissionProfileUpdate = (
   profile: FCProfileWithDocuments | null,
   commission: CommissionCompletionStatus,
@@ -153,9 +140,7 @@ const buildCommissionProfileUpdate = (
 
   const docs = profile.fc_documents ?? [];
   const uploadedDocs = docs.filter((doc) => doc.storage_path && doc.storage_path !== 'deleted');
-  const allSubmitted =
-    docs.length > 0 && docs.every((doc) => doc.storage_path && doc.storage_path !== 'deleted');
-  const allApproved = allSubmitted && docs.every((doc) => doc.status === 'approved');
+  const allApproved = docs.length > 0 && docs.every((doc) => doc.status === 'approved');
   const hasAppointmentActivity = Boolean(
     profile.appointment_schedule_life ||
     profile.appointment_schedule_nonlife ||
@@ -264,8 +249,8 @@ const canOpenInsuranceStage = (
     | 'appointment_reject_reason_nonlife'
     | 'appointment_date_life'
     | 'appointment_date_nonlife'
-    | 'life_commission_completed'
-    | 'nonlife_commission_completed'
+  | 'life_commission_completed'
+  | 'nonlife_commission_completed'
   >,
 ) => hasInsuranceStageActivity(profile) || hasHanwhaApprovedPdf(profile);
 
@@ -276,6 +261,8 @@ const buildDocWorkflowResetProfileFields = () => ({
   hanwha_commission_reject_reason: null,
   hanwha_commission_pdf_path: null,
   hanwha_commission_pdf_name: null,
+  dawichok_url_sent_at: null,
+  dawichok_url_sent_by: null,
   appointment_url: null,
   appointment_date: null,
   appointment_schedule_life: null,
@@ -334,21 +321,17 @@ const getHanwhaStageStatus = (
   >,
 ) => {
   const hasSubmittedDate = Boolean(trimValue(profile.hanwha_commission_date_sub));
-  const hasPdfAttachment = hasHanwhaPdfAttachment(profile);
 
   if (isHanwhaApproved(profile)) {
-    return { label: 'FC 전송 완료', color: 'teal' as const };
+    return { label: '다위촉 URL 승인 완료', color: 'teal' as const };
   }
   if (!hasSubmittedDate) {
-    return { label: '한화 위촉 URL 대기', color: 'blue' as const };
-  }
-  if (!hasPdfAttachment) {
-    return { label: '승인 PDF 업로드 필요', color: 'yellow' as const };
+    return { label: '다위촉 URL 대기', color: 'blue' as const };
   }
   if (profile.status === 'hanwha-commission-rejected') {
-    return { label: 'FC 전송 승인 필요', color: 'red' as const };
+    return { label: '다위촉 URL 반려', color: 'red' as const };
   }
-  return { label: 'FC 전송 승인 필요', color: 'orange' as const };
+  return { label: '다위촉 URL 승인 필요', color: 'orange' as const };
 };
 
 const getHanwhaStageDescription = (
@@ -363,18 +346,14 @@ const getHanwhaStageDescription = (
   >,
 ) => {
   const hasSubmittedDate = Boolean(trimValue(profile.hanwha_commission_date_sub));
-  const hasPdfAttachment = hasHanwhaPdfAttachment(profile);
 
   if (isHanwhaApproved(profile)) {
-    return 'FC에게 승인 PDF 전달이 완료되었습니다.';
+    return '다위촉 URL 승인이 끝났고 FC에게 PDF 등록 완료 알림이 전달됩니다.';
   }
   if (!hasSubmittedDate) {
     return '1. 완료일을 먼저 저장해주세요.';
   }
-  if (!hasPdfAttachment) {
-    return '2. 승인 PDF를 업로드해주세요.';
-  }
-  return '3. 마지막으로 승인 완료를 눌러야 FC 앱에 PDF가 전달됩니다.';
+  return '3단계 다위촉 URL 완료일이 저장되었습니다. 다위촉 URL PDF를 업로드해 승인을 완료해주세요.';
 };
 
 const getDefaultModalTab = (profile: FCProfileWithDocuments): string => {
@@ -418,8 +397,9 @@ export default function DashboardPage() {
   const [docsDeadlineInput, setDocsDeadlineInput] = useState<Date | null>(null);
   const [allowanceDateInput, setAllowanceDateInput] = useState<Date | null>(null);
   const [hanwhaSubmittedDateInput, setHanwhaSubmittedDateInput] = useState<Date | null>(null);
-  const [isHanwhaPdfPending, setIsHanwhaPdfPending] = useState(false);
-  const hanwhaPdfInputRef = useRef<HTMLInputElement | null>(null);
+  const hanwhaPdfUploadInputRef = useRef<HTMLInputElement | null>(null);
+  const [isHanwhaPdfUploading, setIsHanwhaPdfUploading] = useState(false);
+  const [isHanwhaPdfDeleting, setIsHanwhaPdfDeleting] = useState(false);
   const handleDocsDeadlineChange = (value: string | null) => {
     if (!value) {
       setDocsDeadlineInput(null);
@@ -522,8 +502,8 @@ export default function DashboardPage() {
       if (rejectTarget.kind === 'allowance') {
         await updateStatusMutation.mutateAsync({
           status: 'allowance-pending',
-          title: '수당동의 반려',
-          msg: `수당 동의가 반려되었습니다.\n사유: ${reason}`,
+          title: '보증 보험 동의 반려',
+          msg: `보증 보험 동의가 반려되었습니다.\n사유: ${reason}`,
           extra: {
             allowance_date: selectedFc.allowance_date ?? null,
             allowance_prescreen_requested_at: null,
@@ -542,8 +522,8 @@ export default function DashboardPage() {
       if (rejectTarget.kind === 'hanwha') {
         await updateStatusMutation.mutateAsync({
           status: 'hanwha-commission-rejected',
-          title: '한화 위촉 URL 반려',
-          msg: `한화 위촉 URL이 반려되었습니다.\n사유: ${reason}`,
+          title: '다위촉 URL 반려',
+          msg: `다위촉 URL이 반려되었습니다.\n사유: ${reason}`,
           extra: {
             hanwha_commission_date: null,
             hanwha_commission_reject_reason: reason,
@@ -604,7 +584,11 @@ export default function DashboardPage() {
         if (!['appointment-completed', 'final-link-sent'].includes(selectedFc.status)) {
           nextProfileStatus = 'docs-pending';
         }
-        updateSelectedFc({ fc_documents: nextDocs, status: nextProfileStatus });
+        updateSelectedFc(
+          nextProfileStatus === 'docs-pending'
+            ? { ...buildDocWorkflowResetProfileFields(), fc_documents: nextDocs }
+            : { fc_documents: nextDocs, status: nextProfileStatus },
+        );
         notifications.show({ title: '반려 완료', message: '서류가 반려되었습니다.', color: 'green' });
         queryClient.invalidateQueries({ queryKey: ['dashboard-list'] });
       }
@@ -833,7 +817,7 @@ export default function DashboardPage() {
   const updateAllowanceDateMutation = useMutation({
     mutationFn: async () => {
       if (!selectedFc || !allowanceDateInput) {
-        throw new Error('수당 동의일을 선택해주세요.');
+        throw new Error('보증보험 조회 동의일을 선택해주세요.');
       }
       const normalizedAllowanceDate = dayjs(allowanceDateInput).format('YYYY-MM-DD');
       const resp = await fetch('/api/admin/fc', {
@@ -853,7 +837,7 @@ export default function DashboardPage() {
           data && typeof data === 'object' && 'error' in data
             ? String((data as { error?: string }).error || '')
             : '';
-        throw new Error(message || '수당 동의일 저장 실패');
+        throw new Error(message || '보증보험 조회 동의일 저장 실패');
       }
 
       const payload = data as { allowance_date?: string; status?: FcStatus } | null;
@@ -869,7 +853,7 @@ export default function DashboardPage() {
         allowance_reject_reason: null,
         status,
       });
-      notifications.show({ title: '저장 완료', message: '수당 동의일이 저장되었습니다.', color: 'green' });
+      notifications.show({ title: '저장 완료', message: '보증보험 조회 동의일이 저장되었습니다.', color: 'green' });
       queryClient.invalidateQueries({ queryKey: ['dashboard-list'] });
     },
     onError: (err: Error) => notifications.show({ title: '오류', message: err.message, color: 'red' }),
@@ -1014,7 +998,7 @@ export default function DashboardPage() {
   const updateHanwhaSubmissionDateMutation = useMutation({
     mutationFn: async () => {
       if (!selectedFc || !hanwhaSubmittedDateInput) {
-        throw new Error('한화 위촉 URL 완료일을 입력해주세요.');
+        throw new Error('다위촉 URL 완료일을 입력해주세요.');
       }
       const normalizedSubmittedDate = dayjs(hanwhaSubmittedDateInput).format('YYYY-MM-DD');
       const resp = await fetch('/api/admin/fc', {
@@ -1034,7 +1018,7 @@ export default function DashboardPage() {
           data && typeof data === 'object' && 'error' in data
             ? String((data as { error?: string }).error || '')
             : '';
-        throw new Error(message || '한화 위촉 URL 완료일 저장 실패');
+        throw new Error(message || '다위촉 URL 완료일 저장 실패');
       }
       return {
         submittedDate: normalizedSubmittedDate,
@@ -1047,7 +1031,52 @@ export default function DashboardPage() {
         hanwha_commission_reject_reason: null,
         ...(result.status ? { status: result.status } : {}),
       });
-      notifications.show({ title: '저장 완료', message: '한화 위촉 URL 완료일이 저장되었습니다.', color: 'green' });
+      notifications.show({ title: '저장 완료', message: '다위촉 URL 완료일이 저장되었습니다.', color: 'green' });
+      queryClient.invalidateQueries({ queryKey: ['dashboard-list'] });
+    },
+    onError: (err: Error) => {
+      notifications.show({ title: '오류', message: err.message, color: 'red' });
+    },
+  });
+
+  const markDawichokUrlSentMutation = useMutation({
+    mutationFn: async () => {
+      if (!selectedFc) {
+        throw new Error('FC 정보를 찾을 수 없습니다.');
+      }
+      const resp = await fetch('/api/admin/fc', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          action: 'markDawichokUrlSent',
+          payload: {
+            fcId: selectedFc.id,
+          },
+        }),
+      });
+      const data = await resp.json().catch(() => null);
+      if (!resp.ok) {
+        const message =
+          data && typeof data === 'object' && 'error' in data
+            ? String((data as { error?: string }).error || '')
+            : '';
+        throw new Error(message || '다위촉 URL 발송 신호 처리 실패');
+      }
+      return {
+        sentAt: typeof data?.dawichok_url_sent_at === 'string' ? data.dawichok_url_sent_at : new Date().toISOString(),
+        sentBy: typeof data?.dawichok_url_sent_by === 'string' ? data.dawichok_url_sent_by : null,
+      };
+    },
+    onSuccess: ({ sentAt, sentBy }) => {
+      updateSelectedFc({
+        dawichok_url_sent_at: sentAt,
+        dawichok_url_sent_by: sentBy,
+      });
+      notifications.show({
+        title: '발송 신호 완료',
+        message: 'FC에게 다위촉 URL 진행 안내를 보냈습니다.',
+        color: 'green',
+      });
       queryClient.invalidateQueries({ queryKey: ['dashboard-list'] });
     },
     onError: (err: Error) => {
@@ -1177,57 +1206,29 @@ export default function DashboardPage() {
     }
   };
 
-  const persistHanwhaPdfMetadata = async (nextPath: string, nextName: string) => {
-    if (!selectedFc) return;
-
-    const extra: Record<string, string | null> = {
-      hanwha_commission_pdf_path: nextPath,
-      hanwha_commission_pdf_name: nextName,
-    };
-    if (selectedFc.status === 'hanwha-commission-approved') {
-      extra.hanwha_commission_date = trimValue(selectedFc.hanwha_commission_date) || dayjs().format('YYYY-MM-DD');
-      extra.hanwha_commission_reject_reason = null;
-    }
-
-    const resp = await fetch('/api/admin/fc', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        action: 'updateStatus',
-        payload: {
-          fcId: selectedFc.id,
-          status: selectedFc.status,
-          msg: '',
-          extra,
-          phone: selectedFc.phone,
-        },
-      }),
-    });
-    const data = await resp.json().catch(() => null);
-    if (!resp.ok) {
-      const message =
-        data && typeof data === 'object' && 'error' in data
-          ? String((data as { error?: string }).error || '')
-          : '';
-      throw new Error(message || '한화 PDF 메타데이터 저장 실패');
-    }
-
-    updateSelectedFc(extra);
-  };
-
-  const handleHanwhaPdfFileChange = async (event: React.ChangeEvent<HTMLInputElement>) => {
-    const file = event.currentTarget.files?.[0];
+  const handleHanwhaPdfInputChange = async (event: ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0] ?? null;
     event.currentTarget.value = '';
+
     if (!selectedFc || !file) return;
-    if (isReadOnly) return;
-    if (file.type && file.type !== 'application/pdf') {
-      notifications.show({ title: '업로드 실패', message: 'PDF 파일만 업로드할 수 있습니다.', color: 'red' });
+    const submittedDate = hanwhaSubmittedDateInput ? dayjs(hanwhaSubmittedDateInput).format('YYYY-MM-DD') : '';
+    if (!submittedDate) {
+      notifications.show({
+        title: '승인 불가',
+        message: '다위촉 URL 완료일을 먼저 저장해주세요.',
+        color: 'red',
+      });
       return;
     }
 
-    setIsHanwhaPdfPending(true);
+    if (file.type && file.type !== 'application/pdf') {
+      notifications.show({ title: '파일 형식', message: 'PDF 파일만 업로드 가능합니다.', color: 'red' });
+      return;
+    }
+
+    setIsHanwhaPdfUploading(true);
     try {
-      const resp = await fetch('/api/admin/fc', {
+      const createResp = await fetch('/api/admin/fc', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -1238,122 +1239,110 @@ export default function DashboardPage() {
           },
         }),
       });
-      const data = (await resp.json().catch(() => null)) as
-        | { ok?: boolean; path?: string; token?: string; error?: string }
-        | null;
-      if (!resp.ok || !data?.path || !data?.token) {
-        throw new Error(data?.error || '한화 PDF 업로드 준비에 실패했습니다.');
+      const createData = await createResp.json().catch(() => null);
+      if (!createResp.ok || !createData?.uploadUrl) {
+        const message =
+          createData && typeof createData === 'object' && 'error' in createData
+            ? String((createData as { error?: string }).error || '')
+            : '';
+        throw new Error(message || '다위촉 URL PDF 업로드 URL 생성 실패');
       }
 
-      const { error: uploadError } = await supabase.storage
-        .from('fc-documents')
-        .uploadToSignedUrl(data.path, data.token, file, {
-          upsert: true,
-          contentType: file.type || 'application/pdf',
-        });
-      if (uploadError) {
-        throw uploadError;
+      const uploadResp = await fetch(String(createData.uploadUrl), {
+        method: 'PUT',
+        headers: { 'Content-Type': file.type || 'application/pdf' },
+        body: file,
+      });
+      if (!uploadResp.ok) {
+        throw new Error('다위촉 URL PDF 업로드에 실패했습니다.');
       }
 
-      await persistHanwhaPdfMetadata(data.path, file.name);
-      notifications.show({ title: '업로드 완료', message: '한화 위촉 URL PDF를 저장했습니다.', color: 'green' });
+      await updateStatusMutation.mutateAsync({
+        status: 'hanwha-commission-approved',
+        title: '다위촉 URL 승인',
+        msg: '다위촉 URL PDF가 등록되어 생명/손해 위촉 단계로 진행할 수 있습니다.',
+        extra: {
+          hanwha_commission_date: dayjs().format('YYYY-MM-DD'),
+          hanwha_commission_date_sub: submittedDate,
+          hanwha_commission_reject_reason: null,
+          hanwha_commission_pdf_path: createData.storagePath,
+          hanwha_commission_pdf_name: createData.fileName ?? file.name,
+        },
+      });
+      notifications.show({ title: '승인 완료', message: '다위촉 URL PDF가 업로드되어 승인되었습니다.', color: 'green' });
+      queryClient.invalidateQueries({ queryKey: ['dashboard-list'] });
     } catch (err: unknown) {
       const error = err as Error;
-      notifications.show({
-        title: '업로드 실패',
-        message: error?.message ?? '한화 위촉 URL PDF 업로드 중 오류가 발생했습니다.',
-        color: 'red',
-      });
+      notifications.show({ title: '오류', message: error?.message ?? '다위촉 URL PDF 업로드 실패', color: 'red' });
     } finally {
-      setIsHanwhaPdfPending(false);
+      setIsHanwhaPdfUploading(false);
     }
   };
 
-  const handleDeleteHanwhaPdf = async () => {
-    if (!selectedFc || !selectedFc.hanwha_commission_pdf_path) return;
-    showConfirm({
-      title: '한화 PDF 삭제',
-      message: '등록된 한화 위촉 URL PDF를 삭제할까요? 생명/손해 위촉 단계가 다시 잠길 수 있습니다.',
-      confirmLabel: '삭제',
-      color: 'red',
-      onConfirm: async () => {
-        setIsHanwhaPdfPending(true);
-        try {
-          const resp = await fetch('/api/admin/fc', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              action: 'deleteHanwhaPdf',
-              payload: {
-                fcId: selectedFc.id,
-                storagePath: selectedFc.hanwha_commission_pdf_path,
-              },
-            }),
-          });
-          const data = await resp.json().catch(() => null);
-          if (!resp.ok) {
-            const message =
-              data && typeof data === 'object' && 'error' in data
-                ? String((data as { error?: string }).error || '')
-                : '';
-            throw new Error(message || '한화 PDF 삭제 실패');
-          }
-
-          updateSelectedFc({
-            hanwha_commission_pdf_path: null,
-            hanwha_commission_pdf_name: null,
-          });
-          notifications.show({ title: '삭제 완료', message: '한화 위촉 URL PDF를 삭제했습니다.', color: 'gray' });
-        } catch (err: unknown) {
-          const error = err as Error;
-          notifications.show({ title: '삭제 실패', message: error?.message ?? '한화 PDF 삭제 실패', color: 'red' });
-        } finally {
-          setIsHanwhaPdfPending(false);
-        }
-      },
-    });
-  };
-
-  const handleApproveHanwha = () => {
+  const triggerHanwhaPdfUpload = () => {
     if (!selectedFc) return;
     const submittedDate = hanwhaSubmittedDateInput ? dayjs(hanwhaSubmittedDateInput).format('YYYY-MM-DD') : '';
     if (!submittedDate) {
       notifications.show({
         title: '승인 불가',
-        message: '한화 위촉 URL 완료일을 입력해주세요.',
+        message: '다위촉 URL 완료일을 먼저 저장해주세요.',
         color: 'red',
       });
       return;
     }
-    if (!selectedFc.hanwha_commission_pdf_path || !selectedFc.hanwha_commission_pdf_name) {
-      notifications.show({
-        title: 'PDF 필요',
-        message: '한화 위촉 URL PDF 등록 후에만 승인할 수 있습니다.',
-        color: 'yellow',
-      });
+    if (isReadOnly) return;
+    hanwhaPdfUploadInputRef.current?.click();
+  };
+
+  const handleDeleteHanwhaPdf = () => {
+    if (!selectedFc) return;
+    if (!selectedFc.hanwha_commission_pdf_path) {
+      notifications.show({ title: '삭제 불가', message: '삭제할 다위촉 URL PDF가 없습니다.', color: 'orange' });
       return;
     }
-
     showConfirm({
-      title: '한화 위촉 URL 승인',
-      message: '한화 위촉 URL을 승인하고 FC가 승인 PDF를 확인할 수 있게 할까요?',
-      confirmLabel: '승인',
-      color: 'blue',
-      onConfirm: () =>
-        updateStatusMutation.mutate({
-          status: 'hanwha-commission-approved',
-          title: '한화 위촉 URL 승인',
-          msg: '한화 위촉 URL이 승인되었습니다. 승인 PDF를 확인해주세요.',
-          extra: {
-            hanwha_commission_date: dayjs().format('YYYY-MM-DD'),
-            hanwha_commission_date_sub: submittedDate,
-            hanwha_commission_reject_reason: null,
-            hanwha_commission_pdf_path: selectedFc.hanwha_commission_pdf_path ?? null,
-            hanwha_commission_pdf_name: selectedFc.hanwha_commission_pdf_name ?? null,
-          },
-        }),
+      title: '다위촉 URL PDF 삭제',
+      message: '현재 등록된 다위촉 URL PDF를 삭제하시겠습니까?',
+      confirmLabel: '삭제',
+      color: 'red',
+      onConfirm: async () => {
+        setIsHanwhaPdfDeleting(true);
+        try {
+          const deleteResp = await fetch('/api/admin/fc', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ action: 'deleteHanwhaPdf', payload: { fcId: selectedFc.id } }),
+          });
+          const deleteData = await deleteResp.json().catch(() => null);
+          if (!deleteResp.ok) {
+            const message =
+              deleteData && typeof deleteData === 'object' && 'error' in deleteData
+                ? String((deleteData as { error?: string }).error || '')
+                : '';
+            throw new Error(message || '다위촉 URL PDF 삭제 실패');
+          }
+
+          updateSelectedFc({
+            hanwha_commission_pdf_path: null,
+            hanwha_commission_pdf_name: null,
+            status:
+              selectedFc.status === 'appointment-completed' || selectedFc.status === 'final-link-sent'
+                ? selectedFc.status
+                : 'hanwha-commission-review',
+          });
+          queryClient.invalidateQueries({ queryKey: ['dashboard-list'] });
+          notifications.show({ title: '삭제 완료', message: '다위촉 URL PDF가 삭제되었습니다.', color: 'green' });
+        } catch (err: unknown) {
+          const error = err as Error;
+          notifications.show({ title: '오류', message: error?.message ?? '다위촉 URL PDF 삭제 실패', color: 'red' });
+        } finally {
+          setIsHanwhaPdfDeleting(false);
+        }
+      },
     });
   };
+
+  const handleApproveHanwha = () => triggerHanwhaPdfUpload();
 
   const handleDeleteDocFile = async (doc: FCDocument) => {
     if (!selectedFc) return;
@@ -1418,14 +1407,14 @@ export default function DashboardPage() {
     });
   };
 
-  const handleAppointmentAction = (e: React.MouseEvent, type: 'schedule' | 'confirm', category: 'life' | 'nonlife') => {
+  const handleAppointmentAction = (e: MouseEvent, type: 'schedule' | 'confirm', category: 'life' | 'nonlife') => {
     e.stopPropagation();
     if (!selectedFc) return;
 
     if (!canOpenInsuranceStage(selectedFc)) {
       notifications.show({
-        title: '한화 위촉 URL 대기',
-        message: '한화 위촉 URL 승인과 PDF 등록이 끝난 뒤에만 생명/손해 위촉 단계를 진행할 수 있습니다.',
+        title: '다위촉 URL 승인 대기',
+        message: '다위촉 URL PDF가 등록되어야 생명/손해 위촉 단계를 진행할 수 있습니다.',
         color: 'orange',
       });
       return;
@@ -1745,11 +1734,7 @@ export default function DashboardPage() {
           const submittedDocs = docs.filter((d: FCDocument) => d.storage_path && d.storage_path !== 'deleted').length;
           const approvedDocs = docs.filter((d: FCDocument) => d.status === 'approved').length;
           const pendingDocs = docs.filter(
-            (d: FCDocument) =>
-              d.storage_path &&
-              d.storage_path !== 'deleted' &&
-              d.status !== 'approved' &&
-              d.status !== 'rejected',
+            (d: FCDocument) => d.status !== 'approved' && d.status !== 'rejected',
           ).length;
           const rejectedDocs = docs.filter((d: FCDocument) => d.status === 'rejected').length;
           const showDocGrid =
@@ -2062,7 +2047,7 @@ export default function DashboardPage() {
 
           <Card padding="lg" radius="md" withBorder shadow="sm" bg="white">
             <Group justify="space-between" mb="xs">
-              <Text c="dimmed" tt="uppercase" fw={700} size="xs" style={{ letterSpacing: '0.5px' }}>수당동의 승인 대기</Text>
+              <Text c="dimmed" tt="uppercase" fw={700} size="xs" style={{ letterSpacing: '0.5px' }}>보증 보험 동의 승인 대기</Text>
               <ThemeIcon variant="light" color="orange" radius="md" size="lg">
                 <IconCheck size={22} stroke={1.5} />
               </ThemeIcon>
@@ -2106,7 +2091,7 @@ export default function DashboardPage() {
               </div>
             </Group>
             <Group gap="xs">
-              <Button variant="white" color={isReadOnly ? "gray" : "dark"} size="xs" leftSection={<IconUser size={14} />} onClick={() => router.push('/dashboard/exam/applicants')} disabled={isReadOnly}>
+              <Button variant="white" color="dark" size="xs" leftSection={<IconUser size={14} />} onClick={() => router.push('/dashboard/exam/applicants')}>
                 시험 신청자 관리
               </Button>
               <Button variant="white" color={isReadOnly ? "gray" : "dark"} size="xs" leftSection={<IconCalendar size={14} />} onClick={() => router.push('/dashboard/exam/schedule')} disabled={isReadOnly}>
@@ -2279,7 +2264,7 @@ export default function DashboardPage() {
                   leftSection={<IconEdit size={16} />}
                   style={{ flex: '1 1 0', minWidth: 0, justifyContent: 'center', whiteSpace: 'nowrap' }}
                 >
-                  수당 동의
+                  보증 보험 동의
                 </Tabs.Tab>
                 <Tabs.Tab
                   value="docs"
@@ -2293,7 +2278,7 @@ export default function DashboardPage() {
                   leftSection={<IconCalendar size={16} />}
                   style={{ flex: '1 1 0', minWidth: 0, justifyContent: 'center', whiteSpace: 'nowrap' }}
                 >
-                  한화 위촉
+                  다위촉
                 </Tabs.Tab>
                 <Tabs.Tab
                   value="appointment"
@@ -2304,14 +2289,6 @@ export default function DashboardPage() {
                 </Tabs.Tab>
 
               </Tabs.List>
-              <input
-                ref={hanwhaPdfInputRef}
-                type="file"
-                accept="application/pdf"
-                style={{ display: 'none' }}
-                onChange={handleHanwhaPdfFileChange}
-              />
-
               <Tabs.Panel value="info">
                 <Stack gap="md">
                   {(() => {
@@ -2386,7 +2363,7 @@ export default function DashboardPage() {
                         onClick={() => {
                           showConfirm({
                             title: '조회중 단계로 되돌리기',
-                            message: '임시사번과 수당 동의일을 비우고 조회중(임시사번 미입력) 단계로 되돌릴까요?',
+                            message: '임시사번과 보증보험 조회 동의일을 비우고 조회중(임시사번 미입력) 단계로 되돌릴까요?',
                             confirmLabel: '되돌리기',
                             color: 'orange',
                             onConfirm: () => resetToLookupMutation.mutate(),
@@ -2419,6 +2396,10 @@ export default function DashboardPage() {
                   <Box mt="md">
                     {(() => {
                       const allowanceDisplay = getAllowanceDisplayState(selectedFc);
+                      const effectiveAllowanceDate = allowanceDateInput
+                        ? dayjs(allowanceDateInput).format('YYYY-MM-DD')
+                        : selectedFc.allowance_date ?? null;
+                      const hasTempIdForAllowance = Boolean(String(selectedFc.temp_id ?? '').trim());
                       const allowanceStateButtons = [
                         {
                           key: 'prescreen',
@@ -2431,6 +2412,7 @@ export default function DashboardPage() {
                               title: '사전 심사 요청',
                               msg: '사전 심사 요청을 보냈습니다.',
                               extra: {
+                                allowance_date: effectiveAllowanceDate,
                                 allowance_prescreen_requested_at: new Date().toISOString(),
                                 allowance_reject_reason: null,
                               },
@@ -2444,26 +2426,52 @@ export default function DashboardPage() {
                           onClick: () =>
                             updateStatusMutation.mutate({
                               status: 'allowance-consented',
-                              title: '수당동의 승인',
-                              msg: '수당 동의가 승인되었습니다. 서류 제출 단계로 진행해주세요.',
+                              title: '보증 보험 동의 승인',
+                              msg: '보증 보험 동의가 승인되었습니다. 서류 제출 단계로 진행해주세요.',
                               extra: {
+                                allowance_date: effectiveAllowanceDate,
                                 allowance_reject_reason: null,
                               },
                             }),
                         },
                       ] as const;
+                      const hasAllowanceDateForAction = Boolean(effectiveAllowanceDate);
                       const allowanceStateDisabled =
-                        isReadOnly || updateStatusMutation.isPending;
+                        isReadOnly || updateStatusMutation.isPending || !hasTempIdForAllowance || !hasAllowanceDateForAction;
 
                       return (
                         <>
                           <Paper withBorder radius="lg" p="md">
                             <Text fw={600} size="sm" mb="xs">
-                              수당동의 관리
+                              보증 보험 동의 관리
                             </Text>
                             <Text size="xs" c="dimmed" mb="md">
                               화면에서 현재 진행 단계를 확인한 뒤, 아래에서 상태를 저장하거나 변경하세요.
                             </Text>
+                            {!hasTempIdForAllowance ? (
+                              <Alert
+                                mb="md"
+                                color="red"
+                                radius="md"
+                                icon={<IconInfoCircle size={16} />}
+                              >
+                                <Text size="sm">
+                                  임시사번 발급 후 보증보험 조회 동의일 저장과 승인 처리를 진행할 수 있습니다.
+                                </Text>
+                              </Alert>
+                            ) : null}
+                            {!hasAllowanceDateForAction ? (
+                              <Alert
+                                mb="md"
+                                color="orange"
+                                radius="md"
+                                icon={<IconInfoCircle size={16} />}
+                              >
+                                <Text size="sm">
+                                  보증보험 조회 동의일을 입력해야 사전 심사 요청과 승인 완료를 저장할 수 있습니다.
+                                </Text>
+                              </Alert>
+                            ) : null}
 
                             {isReadOnly ? (
                               <Alert
@@ -2481,12 +2489,12 @@ export default function DashboardPage() {
                             <SimpleGrid cols={{ base: 1, md: 2 }} spacing="md">
                               <Stack gap="sm">
                                 <DateInput
-                                  label="동의일"
+                                  label="보증보험 조회 동의일"
                                   value={allowanceDateInput}
                                   onChange={handleAllowanceDateChange}
                                   placeholder="YYYY-MM-DD"
                                   valueFormat="YYYY-MM-DD"
-                                  disabled={isReadOnly}
+                                  disabled={isReadOnly || !hasTempIdForAllowance}
                                   clearable={false}
                                   radius="md"
                                   size="md"
@@ -2494,7 +2502,7 @@ export default function DashboardPage() {
                                   previousIcon={<IconChevronLeft size={16} />}
                                   nextIcon={<IconChevronRight size={16} />}
                                   popoverProps={{ withinPortal: true, shadow: 'md', position: 'bottom-start' }}
-                                  styles={getModalDateInputStyles(isReadOnly)}
+                                  styles={getModalDateInputStyles(isReadOnly || !hasTempIdForAllowance)}
                                 />
                                 <Button
                                   fullWidth
@@ -2504,9 +2512,9 @@ export default function DashboardPage() {
                                   leftSection={<IconDeviceFloppy size={16} />}
                                   onClick={() => updateAllowanceDateMutation.mutate()}
                                   loading={updateAllowanceDateMutation.isPending}
-                                  disabled={isReadOnly || !allowanceDateInput}
+                                  disabled={isReadOnly || !hasTempIdForAllowance || !allowanceDateInput}
                                 >
-                                  수당 동의일 저장
+                                  보증보험 조회 동의일 저장
                                 </Button>
                               </Stack>
 
@@ -2612,13 +2620,13 @@ export default function DashboardPage() {
                   <Card withBorder radius="md" p="sm" bg="gray.0">
                     <Group justify="space-between" mb="xs">
                       <Text fw={600} size="sm">
-                        제출된 서류 ({selectedFc.fc_documents?.filter((d: FCDocument) => d.storage_path && d.storage_path !== 'deleted').length || 0}건)
+                        요청 서류 ({selectedFc.fc_documents?.length || 0}건)
                       </Text>
                     </Group>
-                    {selectedFc.fc_documents?.filter((d: FCDocument) => d.storage_path && d.storage_path !== 'deleted').length ? (
+                    {selectedFc.fc_documents?.length ? (
                       <Stack gap={8}>
-                        {selectedFc.fc_documents?.filter((d: FCDocument) => d.storage_path && d.storage_path !== 'deleted').map((d: FCDocument, idx: number) => {
-                          const isSubmitted = d.storage_path && d.storage_path.length > 0;
+                        {selectedFc.fc_documents.map((d: FCDocument, idx: number) => {
+                          const isSubmitted = Boolean(d.storage_path && d.storage_path !== 'deleted');
                           return (
                             <Card
                               key={idx}
@@ -2697,29 +2705,29 @@ export default function DashboardPage() {
                                         if (nextStatus === 'approved') {
                                           showConfirm({
                                             title: '서류 승인',
-                                            message: '문서를 승인하시겠습니까?',
+                                            message: isSubmitted
+                                              ? '문서를 승인하시겠습니까?'
+                                              : '파일이 미제출된 문서입니다. 총무 수동 승인으로 처리하시겠습니까?',
                                             confirmLabel: '승인',
                                             color: 'blue',
                                             onConfirm: async () => {
+                                              const manualApprovalNote = isSubmitted ? null : '총무 수동 승인: 파일 미제출';
                                               const res = await updateDocStatusAction({ success: false }, {
                                                 fcId: selectedFc.id,
                                                 phone: selectedFc.phone,
                                                 docType: d.doc_type,
                                                 status: nextStatus,
-                                                reason: null,
+                                                reason: manualApprovalNote,
                                               });
                                               if (res.success) {
                                                 notifications.show({ title: '승인', message: res.message, color: 'green' });
                                                 const nextDocs = (selectedFc.fc_documents || []).map((doc: FCDocument) =>
-                                                  doc.doc_type === d.doc_type ? { ...doc, status: nextStatus, reviewer_note: null } : doc
+                                                  doc.doc_type === d.doc_type
+                                                    ? { ...doc, status: nextStatus, reviewer_note: manualApprovalNote }
+                                                    : doc
                                                 );
-                                                const allSubmitted =
-                                                  nextDocs.length > 0 &&
-                                                  nextDocs.every(
-                                                    (doc: FCDocument) => doc.storage_path && doc.storage_path !== 'deleted',
-                                                  );
                                                 const allApproved =
-                                                  allSubmitted && nextDocs.every((doc: FCDocument) => doc.status === 'approved');
+                                                  nextDocs.length > 0 && nextDocs.every((doc: FCDocument) => doc.status === 'approved');
                                                 let nextProfileStatus = selectedFc.status;
                                                 if (!DOCS_STAGE_LOCK_STATUSES.includes(selectedFc.status)) {
                                                   if (allApproved) {
@@ -2728,7 +2736,11 @@ export default function DashboardPage() {
                                                     nextProfileStatus = 'docs-pending';
                                                   }
                                                 }
-                                                updateSelectedFc({ fc_documents: nextDocs, status: nextProfileStatus });
+                                                updateSelectedFc(
+                                                  nextProfileStatus === 'docs-pending'
+                                                    ? { ...buildDocWorkflowResetProfileFields(), fc_documents: nextDocs }
+                                                    : { fc_documents: nextDocs, status: nextProfileStatus },
+                                                );
                                                 queryClient.invalidateQueries({ queryKey: ['dashboard-list'] });
                                               } else {
                                                 notifications.show({ title: '오류', message: res.error, color: 'red' });
@@ -2750,7 +2762,7 @@ export default function DashboardPage() {
                                         variant="light"
                                         color={isReadOnly ? "gray" : "red"}
                                         size="input-xs"
-                                        disabled={isReadOnly}
+                                        disabled={isReadOnly || !isSubmitted}
                                         onClick={() => handleDeleteDocFile(d)}
                                       >
                                         <IconTrash size={16} />
@@ -2905,7 +2917,7 @@ export default function DashboardPage() {
                         updateStatusMutation.mutate({
                           status: 'docs-approved',
                           title: '서류 검토 완료',
-                          msg: '서류 검토가 완료되었습니다. 한화 위촉 URL 단계로 진행해주세요.',
+                          msg: '서류 검토가 완료되었습니다. 다위촉 URL 단계로 진행해주세요.',
                         });
                         return;
                       }
@@ -2915,7 +2927,11 @@ export default function DashboardPage() {
                         confirmLabel: '취소',
                         color: 'orange',
                         onConfirm: () => {
-                          updateStatusMutation.mutate({ status: 'docs-pending', msg: '' });
+                          updateStatusMutation.mutate({
+                            status: 'docs-pending',
+                            msg: '',
+                            extra: buildDocWorkflowResetProfileFields(),
+                          });
                         },
                       });
                     }}
@@ -2941,10 +2957,10 @@ export default function DashboardPage() {
                         radius="md"
                       >
                         <Text fw={700} size="sm" mb={4}>
-                          {hanwhaStatus?.label ?? '한화 위촉 URL 대기'}
+                          {hanwhaStatus?.label ?? '다위촉 URL 대기'}
                         </Text>
                         <Text size="xs">
-                          {hanwhaDescription ?? '서류 승인이 끝나면 한화 위촉 URL 관리 단계가 열립니다.'}
+                          {hanwhaDescription ?? '서류 승인이 끝나면 다위촉 URL 관리 단계가 열립니다.'}
                         </Text>
                       </Alert>
                     );
@@ -2952,7 +2968,7 @@ export default function DashboardPage() {
 
                   <Box mt="md">
                     <Group justify="space-between" mb="xs">
-                      <Text fw={600} size="sm">한화 위촉 URL 검토</Text>
+                      <Text fw={600} size="sm">다위촉 URL 검토</Text>
                       <Badge
                         variant="light"
                         color={selectedFc.hanwha_commission_date_sub ? 'green' : 'gray'}
@@ -2962,7 +2978,7 @@ export default function DashboardPage() {
                       </Badge>
                     </Group>
                     <DateInput
-                      label="완료일(한화 위촉 URL)"
+                      label="완료일(다위촉 URL)"
                       value={hanwhaSubmittedDateInput}
                       onChange={handleHanwhaSubmittedDateChange}
                       placeholder="YYYY-MM-DD"
@@ -2989,159 +3005,111 @@ export default function DashboardPage() {
                     >
                       완료일 저장
                     </Button>
+                    <Card withBorder radius="md" p="sm" mt="sm" bg={selectedFc.dawichok_url_sent_at ? 'teal.0' : 'orange.0'}>
+                      <Group justify="space-between" gap="xs" mb={4}>
+                        <Text size="xs" fw={700} c={selectedFc.dawichok_url_sent_at ? 'teal' : 'orange'}>
+                          다위촉 URL 발송 안내
+                        </Text>
+                        <Badge
+                          size="sm"
+                          color={selectedFc.dawichok_url_sent_at ? 'teal' : 'gray'}
+                          variant="light"
+                        >
+                          {selectedFc.dawichok_url_sent_at ? '발송됨' : '미발송'}
+                        </Badge>
+                      </Group>
+                      <Text size="xs" c="dimmed">
+                        FC에게 “카카오톡으로 전송된 다위촉 URL을 진행해 주세요.” 알림을 보냅니다.
+                      </Text>
+                      {selectedFc.dawichok_url_sent_at ? (
+                        <Text size="xs" c="dimmed" mt={4}>
+                          최근 발송: {dayjs(selectedFc.dawichok_url_sent_at).format('YYYY-MM-DD HH:mm')}
+                        </Text>
+                      ) : null}
+                      <Button
+                        fullWidth
+                        mt="xs"
+                        size="xs"
+                        color={isReadOnly ? 'gray' : 'teal'}
+                        variant="filled"
+                        leftSection={<IconSend size={14} />}
+                        onClick={() => markDawichokUrlSentMutation.mutate()}
+                        loading={markDawichokUrlSentMutation.isPending}
+                        disabled={isReadOnly || markDawichokUrlSentMutation.isPending}
+                      >
+                        {selectedFc.dawichok_url_sent_at ? 'URL 발송 알림 다시 보내기' : 'URL 발송 알림'}
+                      </Button>
+                    </Card>
+                    <input
+                      ref={hanwhaPdfUploadInputRef}
+                      type="file"
+                      accept="application/pdf"
+                      style={{ display: 'none' }}
+                      onChange={handleHanwhaPdfInputChange}
+                    />
                     <Divider my="sm" />
                     <Box
                       p="sm"
                       style={{
                         borderRadius: 12,
-                        border: `1px solid ${
-                          hasHanwhaPdfAttachment(selectedFc) && !isHanwhaApproved(selectedFc) ? '#FED7AA' : '#E5E7EB'
-                        }`,
-                        backgroundColor:
-                          hasHanwhaPdfAttachment(selectedFc) && !isHanwhaApproved(selectedFc) ? '#FFF7ED' : '#F9FAFB',
+                        border: `1px solid ${hasHanwhaApprovedPdf(selectedFc) ? '#12b886' : '#FFD8A8'}`,
+                        backgroundColor: hasHanwhaApprovedPdf(selectedFc) ? '#F0FDF4' : '#FFF7ED',
                       }}
                     >
                       <Group justify="space-between" mb={4}>
-                        <Text
-                          size="xs"
-                          fw={700}
-                          c={hasHanwhaPdfAttachment(selectedFc) && !isHanwhaApproved(selectedFc) ? 'orange.8' : 'dimmed'}
-                        >
-                          FC 전송 승인
+                        <Text size="xs" fw={700} c={hasHanwhaApprovedPdf(selectedFc) ? 'teal' : 'orange'}>
+                          다위촉 URL PDF
                         </Text>
-                        {hasHanwhaPdfAttachment(selectedFc) && !isHanwhaApproved(selectedFc) ? (
-                          <Badge size="sm" color="orange" variant="light">
-                            마지막 승인 필요
-                          </Badge>
-                        ) : null}
+                        <Badge size="sm" color={hasHanwhaApprovedPdf(selectedFc) ? 'teal' : 'orange'} variant="light">
+                          {hasHanwhaApprovedPdf(selectedFc) ? '승인 완료' : '승인 대기'}
+                        </Badge>
                       </Group>
-                      <Text size="xs" c="dimmed" mb="xs">
-                        PDF 업로드만으로는 FC에게 보이지 않습니다. 승인 완료를 눌러야 전송됩니다.
-                      </Text>
-                      <StatusToggle
-                        value={selectedFc.status === 'hanwha-commission-approved' ? 'approved' : 'pending'}
-                        onChange={(val) => {
-                          if (val === 'approved') {
-                            handleApproveHanwha();
-                            return;
-                          }
-                          openRejectModal({ kind: 'hanwha' });
-                        }}
-                        labelPending="FC 미전송"
-                        labelApproved="FC 전송 완료"
-                        showNeutralForPending
-                        allowPendingPress
-                        readOnly={isReadOnly || updateStatusMutation.isPending}
-                        isManagerMode={isReadOnly}
-                      />
-                    </Box>
-                    <Card
-                      mt="sm"
-                      radius="md"
-                      withBorder
-                      shadow="sm"
-                      p={0}
-                      style={{
-                        overflow: 'hidden',
-                        borderColor:
-                          selectedFc.status === 'hanwha-commission-approved'
-                            ? '#12b886'
-                            : selectedFc.hanwha_commission_pdf_path
-                              ? '#339af0'
-                              : '#CED4DA',
-                        borderWidth: 1,
-                      }}
-                    >
-                      <Group justify="space-between" p="sm" wrap="nowrap">
-                        <Group gap="sm" wrap="nowrap" style={{ flex: 1, minWidth: 0 }}>
-                          <ThemeIcon
-                            variant="light"
-                            size="lg"
-                            color={
-                              selectedFc.status === 'hanwha-commission-approved'
-                                ? 'teal'
-                                : selectedFc.hanwha_commission_pdf_path
-                                  ? 'blue'
-                                  : 'gray'
-                            }
-                          >
-                            {selectedFc.status === 'hanwha-commission-approved' ? (
-                              <IconCheck size={20} />
-                            ) : (
-                              <IconFileText size={20} />
-                            )}
-                          </ThemeIcon>
-                          <div style={{ minWidth: 0, flex: 1 }}>
-                            <Text size="sm" fw={700}>
-                              승인 PDF
-                            </Text>
-                            <Text size="xs" c="dimmed" truncate>
-                              {selectedFc.hanwha_commission_pdf_name || '아직 업로드되지 않았습니다.'}
-                            </Text>
-                            <Badge
-                              size="sm"
-                              variant="dot"
-                              color={
-                                selectedFc.status === 'hanwha-commission-approved'
-                                  ? 'teal'
-                                  : selectedFc.hanwha_commission_pdf_path
-                                    ? 'blue'
-                                    : 'gray'
-                              }
-                              mt={4}
-                            >
-                              {selectedFc.status === 'hanwha-commission-approved'
-                                ? 'FC 전송 완료'
-                                : selectedFc.hanwha_commission_pdf_path
-                                  ? 'PDF 업로드 완료'
-                                  : '미등록'}
-                            </Badge>
-                          </div>
-                        </Group>
-                        <Group gap={4} wrap="nowrap">
+                      {!!selectedFc.hanwha_commission_pdf_name ? (
+                        <Text size="xs" c="dimmed" mb="xs">
+                          등록 파일: {selectedFc.hanwha_commission_pdf_name}
+                        </Text>
+                      ) : (
+                        <Text size="xs" c="dimmed" mb="xs">
+                          등록된 다위촉 URL PDF가 없습니다.
+                        </Text>
+                      )}
+                      <Group gap="xs">
+                        {!!selectedFc.hanwha_commission_pdf_path && (
                           <Button
-                            variant="light"
-                            color={isReadOnly ? 'gray' : 'orange'}
                             size="xs"
-                            disabled={isReadOnly}
-                            loading={isHanwhaPdfPending}
-                            onClick={() => hanwhaPdfInputRef.current?.click()}
+                            color="blue"
+                            variant="light"
+                            onClick={() => handleOpenDoc(selectedFc.hanwha_commission_pdf_path!)}
                           >
-                            {selectedFc.hanwha_commission_pdf_path ? '교체' : '업로드'}
+                            다위촉 URL PDF 보기
                           </Button>
-                          {selectedFc.hanwha_commission_pdf_path ? (
-                            <>
-                              <Button
-                                variant="default"
-                                size="xs"
-                                onClick={() => handleOpenDoc(selectedFc.hanwha_commission_pdf_path ?? '')}
-                              >
-                                열기
-                              </Button>
-                              <Divider orientation="vertical" />
-                            </>
-                          ) : null}
-                          <Tooltip label="삭제">
-                            <ActionIcon
-                              variant="light"
-                              color={isReadOnly ? 'gray' : 'red'}
-                              size="input-xs"
-                              disabled={isReadOnly || !selectedFc.hanwha_commission_pdf_path || isHanwhaPdfPending}
-                              onClick={handleDeleteHanwhaPdf}
-                            >
-                              <IconTrash size={16} />
-                            </ActionIcon>
-                          </Tooltip>
-                        </Group>
+                        )}
+                        {!!selectedFc.hanwha_commission_pdf_path && (
+                          <Button
+                            size="xs"
+                            color="red"
+                            variant="light"
+                            loading={isHanwhaPdfDeleting}
+                            onClick={handleDeleteHanwhaPdf}
+                            disabled={isReadOnly || isHanwhaPdfDeleting}
+                          >
+                            PDF 삭제
+                          </Button>
+                        )}
                       </Group>
-                    </Card>
-                    {hasHanwhaPdfAttachment(selectedFc) && !isHanwhaApproved(selectedFc) ? (
-                      <Alert mt="sm" color="orange" icon={<IconInfoCircle size={16} />} radius="md">
-                        <Text size="xs">
-                          아직 FC 앱에는 보이지 않습니다. 오른쪽 위 상태를 승인 완료로 바꿔주세요.
-                        </Text>
-                      </Alert>
-                    ) : null}
+                      <Button
+                        mt="xs"
+                        fullWidth
+                        size="xs"
+                        color={isReadOnly ? 'gray' : 'teal'}
+                        variant="light"
+                        loading={isHanwhaPdfUploading}
+                        disabled={isReadOnly || isHanwhaPdfUploading || !hanwhaSubmittedDateInput}
+                        onClick={handleApproveHanwha}
+                      >
+                        다위촉 URL PDF 업로드 및 승인
+                      </Button>
+                    </Box>
                     {!!selectedFc.hanwha_commission_reject_reason && (
                       <Textarea
                         mt="sm"
@@ -3213,7 +3181,7 @@ export default function DashboardPage() {
                         생명/손해 위촉 관리 잠금
                       </Text>
                         <Text size="xs">
-                          한화 위촉 URL 승인과 PDF 등록이 완료되어야 생명/손해 위촉 관리 탭을 열 수 있습니다.
+                          다위촉 URL PDF가 승인되어야 생명/손해 위촉 관리 탭을 열 수 있습니다.
                         </Text>
                     </Alert>
                   )}
@@ -3231,9 +3199,9 @@ export default function DashboardPage() {
         title={
           <Text fw={700}>
             {rejectTarget?.kind === 'allowance'
-              ? '수당동의 반려 사유'
+              ? '보증 보험 동의 반려 사유'
               : rejectTarget?.kind === 'hanwha'
-                ? '한화 위촉 URL 반려 사유'
+                ? '다위촉 URL 반려 사유'
               : rejectTarget?.kind === 'appointment'
                 ? '생명/손해 위촉 반려 사유'
                 : '서류 반려 사유'}

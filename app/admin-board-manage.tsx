@@ -104,6 +104,9 @@ const getCategoryTheme = (categoryName: string) => {
   if (normalized === '교육') {
     return { backgroundColor: '#eff6ff', borderColor: '#bfdbfe', textColor: '#1d4ed8' };
   }
+  if (normalized === '가람 pick' || normalized === 'garam pick' || normalized === 'garam-pick') {
+    return { backgroundColor: '#fdf2f8', borderColor: '#fbcfe8', textColor: '#be185d' };
+  }
   if (normalized === '서류') {
     return { backgroundColor: '#f0fdf4', borderColor: '#bbf7d0', textColor: '#166534' };
   }

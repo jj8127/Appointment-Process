@@ -84,7 +84,7 @@ serve(async (req: Request) => {
 
   const allowanceDate = (body.allowance_date ?? '').trim();
   if (!allowanceDate || !isValidYmd(allowanceDate)) {
-    return json({ ok: false, message: 'Invalid allowance date.' }, 400);
+    return json({ ok: false, message: '유효한 보증보험 조회 동의일을 입력해주세요.' }, 400);
   }
 
   const { data: profile, error: profileError } = await supabase
@@ -100,7 +100,7 @@ serve(async (req: Request) => {
     return json({ ok: false, message: 'Profile not found.' }, 404);
   }
   if (!profile?.temp_id) {
-    return json({ ok: false, message: '임시사번이 발급된 후 수당 동의일을 입력할 수 있습니다.' });
+    return json({ ok: false, message: '임시사번이 발급된 후 보증보험 조회 동의일을 입력할 수 있습니다.' });
   }
 
   const { data: updated, error: updateError } = await supabase
@@ -119,7 +119,7 @@ serve(async (req: Request) => {
     return json({ ok: false, message: updateError.message }, 500);
   }
   if (!updated?.id) {
-    return json({ ok: false, message: 'Failed to save allowance date.' }, 500);
+    return json({ ok: false, message: '보증보험 조회 동의일을 저장하지 못했습니다.' }, 500);
   }
 
   return json({

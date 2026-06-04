@@ -3,7 +3,6 @@ import DateTimePicker, { type DateTimePickerEvent } from '@react-native-communit
 import { useMutation, useQuery } from '@tanstack/react-query';
 import * as Clipboard from 'expo-clipboard';
 import * as Haptics from 'expo-haptics';
-import { LinearGradient } from 'expo-linear-gradient';
 import { router } from 'expo-router';
 import { AnimatePresence, MotiView } from 'moti';
 import { useCallback, useEffect, useMemo, useState } from 'react';
@@ -927,15 +926,13 @@ export default function ExamApplyScreen() {
                 }
                 style={({ pressed }) => [styles.submitBtnWrapper, pressed && styles.pressedScale]}
               >
-                <LinearGradient
-                  colors={
+                <View
+                  style={[
+                    styles.submitBtn,
                     isConfirmedForRound || !selectedRoundId || !selectedLocationId || !feePaidDate
-                      ? ['#d1d5db', '#9ca3af']
-                      : [HANWHA_ORANGE, '#fb923c']
-                  }
-                  start={{ x: 0, y: 0 }}
-                  end={{ x: 1, y: 0 }}
-                  style={styles.submitBtn}
+                      ? styles.submitBtnDisabled
+                      : styles.submitBtnActive,
+                  ]}
                 >
                   <Text style={styles.submitBtnText}>
                     {isConfirmedForRound ? '시험 접수 완료' : existingForRound ? '신청 내역 수정하기' : '시험 신청하기'}
@@ -943,7 +940,7 @@ export default function ExamApplyScreen() {
                   {applyMutation.isPending && (
                     <BrandedLoadingSpinner size="sm" color="#fff" style={{ marginLeft: 8 }} />
                   )}
-                </LinearGradient>
+                </View>
               </Pressable>
             </View>
           </View>
@@ -1246,6 +1243,8 @@ const styles = StyleSheet.create({
   actionButtons: { gap: 12 },
   submitBtnWrapper: { borderRadius: 14, overflow: 'hidden', ...CARD_SHADOW },
   submitBtn: { paddingVertical: 18, alignItems: 'center', justifyContent: 'center', flexDirection: 'row' }, // 16 -> 18
+  submitBtnActive: { backgroundColor: HANWHA_ORANGE },
+  submitBtnDisabled: { backgroundColor: '#9ca3af' },
   submitBtnText: { color: '#fff', fontSize: 18, fontWeight: '800' }, // 16 -> 18
   cancelBtn: { paddingVertical: 14, alignItems: 'center' },
   cancelBtnText: { color: '#ef4444', fontSize: 16, fontWeight: '600', textDecorationLine: 'underline' }, // 14 -> 16

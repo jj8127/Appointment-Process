@@ -1,4 +1,4 @@
-# 작업 상세 로그 (Work Detail)
+﻿# 작업 상세 로그 (Work Detail)
 
 > **상세 이력 누적 파일**입니다.  
 > 최근 1개월 Git 이력(`2026-01-12` ~ `2026-02-11`, 총 44 commits)을 기준으로 재구성했습니다.
@@ -6,6 +6,121 @@
 > 요약 인덱스는 [WORK_LOG.md](WORK_LOG.md)를 확인하세요.
 
 ---
+
+## <a id="20260604-orange-cta-black-rendering-guard"></a> 2026-06-04 | Orange CTA black rendering guard
+
+**배경**:
+- Android 환경에서 FC 홈의 오렌지 CTA/카드가 검정색으로 렌더링되는 현상이 반복 제보됐다.
+- 같은 위험 패턴인 오렌지 `LinearGradient`가 시험 신청 submit 버튼과 추천 코드 카드에도 남아 있었다.
+
+**조치**:
+- 홈 `다음 단계` 카드와 `통합 메신저 열기` CTA 카드를 오렌지 `LinearGradient` 대신 명시적 `backgroundColor`가 있는 `View`로 교체했다.
+- 생명/손해 시험 신청 submit 버튼의 오렌지 gradient를 제거하고 active/disabled 단색 배경 style로 분리했다.
+- 추천 코드 카드의 오렌지 gradient를 제거하고 단색 primary 배경으로 교체했다.
+- 홈에서 수정한 텍스트의 `letterSpacing`을 `0`으로 정리했다.
+
+**검증**:
+- 통과: `npm run lint -- app/index.tsx app/exam-apply.tsx app/exam-apply2.tsx app/referral.tsx app/board.tsx app/admin-board-manage.tsx`
+- 통과: `cd web; npm run lint -- src/app/dashboard/board/page.tsx`
+- 통과: `cd web; SENTRY_AUTH_TOKEN='' npm run build`
+  - 기존 `baseline-browser-mapping` age warning과 transitive OpenTelemetry `import-in-the-middle` version mismatch warning만 표시.
+- 통과: `node scripts\ci\check-governance.mjs`
+
+**리스크/후속**:
+- Android emulator screenshot smoke는 이번 pass에서 실행하지 않았다.
+- 시험 신청/추천 로직은 변경하지 않았고 표면 렌더링만 조정했다.
+
+## <a id="20260604-board-garam-pick-category"></a> 2026-06-04 | Board Garam Pick category
+
+**배경**:
+- 게시글 글 종류에 `가람 Pick`을 추가해야 했다.
+- 게시판 카테고리는 DB seed와 category-list Edge Function을 통해 동적으로 노출되므로 신규 운영 DB와 기존 운영 DB 모두를 위한 migration이 필요했다.
+
+**조치**:
+- `board_categories` 기본 seed에 `가람 Pick` / `garam-pick`을 추가했다.
+- 운영 반영용 migration `20260604000002_add_garam_pick_board_category.sql`을 추가했다.
+- 모바일 게시판, 모바일 관리자 게시판 관리, 관리자 웹 게시판에서 `가람 Pick` badge가 gray fallback으로 보이지 않도록 별도 색상을 추가했다.
+- 게시판 요구사항과 backend board runbook의 기본 카테고리 설명을 갱신했다.
+
+**검증**:
+- 통과: `npm run lint -- app/index.tsx app/exam-apply.tsx app/exam-apply2.tsx app/referral.tsx app/board.tsx app/admin-board-manage.tsx`
+- 통과: `cd web; npm run lint -- src/app/dashboard/board/page.tsx`
+- 통과: `cd web; SENTRY_AUTH_TOKEN='' npm run build`
+  - 기존 `baseline-browser-mapping` age warning과 transitive OpenTelemetry `import-in-the-middle` version mismatch warning만 표시.
+- 통과: `node scripts\ci\check-governance.mjs`
+
+**리스크/후속**:
+- 운영 DB에는 migration 적용이 필요하다.
+- 권한, 알림 fanout, legacy notice 미리보기 계약은 변경하지 않았다.
+
+## <a id="20260604-dawichok-url-signal-and-referral-graph-legend"></a> 2026-06-04 | Dawichok URL signal and referral graph legend
+
+**배경**:
+- 총무가 다위촉 단계에서 `다위촉 URL 보냈다`라는 신호를 남길 수 있어야 했다.
+- FC가 보는 다위촉 페이지에는 실제 발송 신호가 있을 때 `카카오톡으로 전송된 다위촉 URL을 진행해 주세요.` 안내가 보여야 했다.
+- 관리자 추천인 그래프에서는 모든 위촉이 완료된 FC를 색만 다르게 표시하고, 범례도 운영자가 바로 이해할 수 있게 정리해야 했다.
+
+**조치**:
+- `dawichok_url_sent_at`, `dawichok_url_sent_by`를 schema/types/migration에 추가했다.
+- 모바일 총무 화면, 웹 총무 대시보드, `/api/admin/fc`, `supabase/functions/admin-action`에 `markDawichokUrlSent` 경로를 추가했다.
+- 해당 액션은 발송 시각/담당자 id를 저장하고 기존 알림 경로로 FC에게 `다위촉 URL 안내` 알림을 보낸다.
+- FC 다위촉 페이지는 발송 신호가 있을 때만 요청 문구를 보여주고, 신호가 없을 때는 중립적인 대기 안내를 보여준다.
+- 문서 단계로 되돌아가는 reset/downgrade 경로는 stale `다위촉 URL 발송됨` 상태가 남지 않도록 sent fields를 함께 지운다.
+- 추천인 그래프 node에 `allCommissionsCompleted`를 추가하고, 생명/손해 위촉이 모두 완료된 FC를 녹색으로 표시했다.
+- 그래프 drawer에 `모든 위촉 완료` badge를 추가하고, visible node 기준 완료자 수와 쉬운 범례 문구를 추가했다.
+- evaluator subagent가 지적한 FC 안내문 gating, reset 누락, visible count, 노란색 marker 설명 drift를 수정했다.
+
+**검증**:
+- 통과: `node --test src\lib\referral-graph-layout.test.ts src\lib\referral-graph-simulation.test.ts`
+  - 31 tests.
+- 통과: `npm test -- --runInBand`
+  - 31 suites / 199 tests.
+- 통과: `npm run lint`
+- 통과: `cd web; npm run lint`
+- 통과: `cd web; SENTRY_AUTH_TOKEN='' npm run build`
+  - 기존 `baseline-browser-mapping` age warning과 transitive OpenTelemetry `import-in-the-middle` version mismatch warning만 표시.
+- 통과: `node scripts\ci\check-governance.mjs`
+- 통과: `git diff --check`
+  - CRLF normalization warnings only.
+
+**리스크/후속**:
+- 실제 카카오톡 템플릿/발송 provider 연동은 이번 증분 범위가 아니며, 현재는 기존 in-app/push 알림 경로를 사용한다.
+- 운영 DB에는 `20260604000001_add_dawichok_url_sent_signal.sql` migration 적용이 필요하다.
+- 모바일/웹 실제 화면 smoke와 Kakao 실발송 검증은 배포/시크릿 준비 후 진행해야 한다.
+
+## <a id="20260603-garamin-nine-item-upgrade-v2"></a> 2026-06-03 | GaramIn nine-item upgrade v2
+
+**배경**:
+- FC 홈의 영상 안내/임시사번 표시, 다위촉 문구와 PDF 업로드 제거, 주요 알림 카카오 연계, 시험 수동 입금일 제거와 토스페이먼츠 회전식 가상계좌, 타인 시험 신청, 본부별 총무 scope를 한 세트로 구현해야 했다.
+- 시험 결제는 응시자 1명당 registration/payment/order/가상계좌 1개가 고정 정책이며, `fee_paid_date`는 legacy 표시 전용이어야 했다.
+
+**조치**:
+- FC 홈의 YouTube 안내 버튼을 더 크게 노출하고 `내 진행 상황` 옆 임시사번 badge를 추가했다.
+- 사용자-facing `3단계 한화 위촉 URL` 문구를 `3단계 다위촉 URL`로 정리하고, 총무 PDF 업로드 UI/branch를 `다위촉 서류 발송 알림` 액션으로 대체했다.
+- `dawichok_documents_sent_at/by`, `org_units`, `admin_account_scopes`, `notification_deliveries`, `exam_application_groups`, `exam_registration_payments`, `payment_events`를 schema/migration에 추가했다.
+- 모바일 시험 신청은 기존 FC 검색/선택으로 다중 대리 신청을 만들고, 서버는 응시자별 registration/payment/order/account를 각각 만든다.
+- 토스 가상계좌 발급은 `toss_idempotency_key`를 저장하고, webhook은 `DEPOSIT_CALLBACK` + stored `toss_secret` + webhook event key idempotency를 통과한 `DONE`만 결제 완료로 처리한다.
+- 총무 웹 시험 신청자 목록은 payment 상태와 `접수 확정`을 분리하고, `fee_paid_date` legacy row는 `수동 납입일`로만 표시한다.
+- `/api/admin/exam-applicants`와 `/api/admin/fc`의 FC별 read/mutate 경로에 본부 scope guard를 적용했다.
+- `fc-notify` 뒤에 카카오 delivery adapter/delivery log를 추가하되, 기존 inbox/push 흐름은 계속 source of truth로 유지했다.
+
+**검증**:
+- 통과: `npm test -- --runTestsByPath lib\__tests__\workflow-step-regression.test.ts lib\__tests__\exam-registration-payment-contract.test.ts lib\__tests__\admin-scope.test.ts --runInBand`
+  - 3 suites / 30 tests.
+- 통과: `node --experimental-strip-types --test supabase\functions\_shared\__tests__\exam-payment.test.ts`
+  - 4 tests.
+- 통과: `node --test supabase\functions\__tests__\exam-payment-schema.contract.test.ts`
+  - 1 test.
+- 통과: `npm run lint -- app\exam-apply.tsx app\exam-apply2.tsx app\index.tsx app\home-lite.tsx app\appointment.tsx app\hanwha-commission.tsx app\dashboard.tsx app\docs-upload.tsx app\_layout.tsx lib\fc-workflow.ts`
+- 통과: `SENTRY_AUTH_TOKEN='' npm run build`
+  - Expo web export completed; existing Sentry prebuild warning and Expo web notification warning remain.
+- 통과: `cd web; npm run lint`
+- 통과: `cd web; SENTRY_AUTH_TOKEN='' npm run build`
+  - Existing `baseline-browser-mapping` age warnings and transitive OpenTelemetry `import-in-the-middle` version mismatch warnings remain.
+
+**리스크/후속**:
+- 실제 토스 sandbox 가상계좌 발급/입금 webhook 재전송, 카카오 실발송 또는 dry-run, 모바일 기기 visual smoke는 원격 시크릿/외부 계정 준비 후 실행해야 한다.
+- `fc-notify`/`admin-action`의 공개 service-role proxy 구조는 기존 보안 debt다. 이번 변경은 새 결제 write path를 app session/internal secret으로 제한했지만, 전체 auth hardening은 별도 increment가 필요하다.
 
 ## <a id="20260603-admin-file-open-popup-block-fallback"></a> 2026-06-03 | Admin file open popup-block fallback
 
@@ -39,7 +154,7 @@
 - 문구 정리와 파일 열기를 각각 서브에이전트에 위임했지만, 파일 열기 담당 변경이 먼저 반영된 문구 정리를 되돌린 상태를 coordinator 검색 검증에서 확인했다.
 
 **조치**:
-- FC 상세 수당동의 영역의 표시 문구를 운영자용 한국어로 정리했다: `현재 진행 단계`, `수당동의 관리`, `동의일`.
+- FC 상세 보증 보험 동의 영역의 표시 문구를 운영자용 한국어로 정리했다: `현재 진행 단계`, `보증 보험 동의 관리`, `동의일`.
 - `web/src/lib/admin-fc-doc-storage.ts`를 추가해 raw object key, `fc-documents/` prefix, full signed/public Supabase storage URL, relative `/storage/v1/object/...` path를 `fc-documents` object key로 정규화했다.
 - `/api/admin/fc` `signDoc`는 정규화된 object key만 `createSignedUrl`에 전달하도록 변경했다.
 - `web/src/lib/admin-file-open.ts`를 추가해 `열기` 클릭 시 빈 창을 즉시 열고, signed URL 응답 후 해당 창을 이동시키도록 분리했다.
@@ -2544,14 +2659,14 @@
 ## <a id="20260406-dashboard-kpi-workflow-summary-alignment"></a> 2026-04-06 | 대시보드 상단 KPI 카드를 workflow helper 기준으로 재정렬
 
 **배경**:
-- 사용자가 `/dashboard` 상단 카드(`총 인원`, `수당동의 대기`, `서류검토 대기`)의 숫자가 실제로 정상인지 질의했다.
+- 사용자가 `/dashboard` 상단 카드(`총 인원`, `보증 보험 동의 대기`, `서류검토 대기`)의 숫자가 실제로 정상인지 질의했다.
 - 코드 확인 결과 카드 값은 `/api/admin/list` 응답을 프론트에서 직접 세고 있었지만, 모달/배지와 달리 `calcStep`, `getAllowanceDisplayState`, `getDocProgress` 같은 workflow helper를 쓰지 않고 raw `status` shortcut에 묶여 있었다.
 - 그 결과 숫자는 갱신되더라도 카드 문구와 운영 의미가 완전히 일치하지 않았다.
 
 **조치**:
 - `web/src/app/dashboard/page.tsx`
   - 상단 KPI 집계를 helper 기반으로 다시 계산하도록 변경했다.
-  - `수당동의 승인 대기`는 workflow step 1 + allowance display `entered/prescreen`만 집계한다.
+  - `보증 보험 동의 승인 대기`는 workflow step 1 + allowance display `entered/prescreen`만 집계한다.
   - `서류검토 대기`는 workflow step 2 + doc progress `in-progress`만 집계한다.
   - `총 인원` 보조 문구는 실제 집계 의미에 맞게 `가입 완료 FC 현황`으로 바꿨다.
 - `docs/handbook/admin-web/dashboard-lifecycle.md`
@@ -2680,7 +2795,7 @@
 ## <a id="20260406-web-appointment-direct-input-parity"></a> 2026-04-06 | 웹 생명/손해 위촉 완료일 총무 직접 저장 경로 추가
 
 **배경**:
-- 수당 동의는 이미 총무가 직접 `동의일(Actual)`을 입력해 trusted `/api/admin/fc` 경로로 저장할 수 있었지만, 생명/손해 위촉 완료일은 아직 `updateAppointmentAction`의 schedule/confirm 흐름에만 묶여 있었다.
+- 보증 보험 동의는 이미 총무가 직접 `동의일(Actual)`을 입력해 trusted `/api/admin/fc` 경로로 저장할 수 있었지만, 생명/손해 위촉 완료일은 아직 `updateAppointmentAction`의 schedule/confirm 흐름에만 묶여 있었다.
 - 사용자 요구는 FC가 입력하는 위촉 완료일 화면에 총무 직접입력을 추가하되, 기존 schedule/confirm/reject 흐름은 그대로 두는 것이었다.
 - 상태 합성은 `appointment_date_life` / `appointment_date_nonlife` 와 commission flag를 기준으로 `appointment-completed` 또는 `final-link-sent`로 정렬돼야 했다.
 
@@ -3321,27 +3436,27 @@
 
 ---
 
-## <a id="20260402-web-allowance-status-ux-refresh"></a> 2026-04-02 | 웹 FC 상세 모달 수당동의 status-first UX 정리
+## <a id="20260402-web-allowance-status-ux-refresh"></a> 2026-04-02 | 웹 FC 상세 모달 보증 보험 동의 status-first UX 정리
 
 **배경**:
-- 운영 화면 기준 `web/src/app/dashboard/page.tsx`의 FC 상세 모달 `수당 동의` 탭은 날짜 입력기와 상태 칩/버튼이 느슨하게 나열돼 있어, 현재 수당동의 상태가 무엇인지 한눈에 판단하기 어려웠다.
+- 운영 화면 기준 `web/src/app/dashboard/page.tsx`의 FC 상세 모달 `보증 보험 동의` 탭은 날짜 입력기와 상태 칩/버튼이 느슨하게 나열돼 있어, 현재 보증 보험 동의 상태가 무엇인지 한눈에 판단하기 어려웠다.
 - allowance 상태 계약 자체는 이미 `allowance_date`, `allowance_prescreen_requested_at`, `allowance_reject_reason`, `status` 조합으로 정리돼 있었지만, UI가 이 파생 상태를 충분히 강조하지 못했다.
-- 특히 `FC 수당 동의일 미입력 / 입력 완료 / 사전 심사 요청 / 승인 완료 / 미승인` 중 어디에 있는지와 다음 조치가 무엇인지가 즉시 보이지 않는 점이 운영 혼선을 만들었다.
+- 특히 `FC 보증보험 조회 동의일 미입력 / 입력 완료 / 사전 심사 요청 / 승인 완료 / 미승인` 중 어디에 있는지와 다음 조치가 무엇인지가 즉시 보이지 않는 점이 운영 혼선을 만들었다.
 
 **조치**:
 - `web/src/app/dashboard/page.tsx`
-  - `수당 동의` 탭 최상단에 상태 흐름 카드를 올려 `임시사번`보다 먼저 현재 수당 동의 단계를 읽을 수 있게 재배치했다.
+  - `보증 보험 동의` 탭 최상단에 상태 흐름 카드를 올려 `임시사번`보다 먼저 현재 보증 보험 동의 단계를 읽을 수 있게 재배치했다.
   - 상태 흐름은 5개 파생 상태(`미입력`, `입력 완료`, `사전 심사`, `승인 완료`, `미승인`)를 별도 카드로 보여 주고, 현재 단계만 연한 주황색 배경과 `현재` 배지로 강조하도록 정리했다.
-  - 초기 시안에 넣었던 상단 `현재 수당 동의 상태` 요약 카드는 제거해 정보 중복을 줄였다.
-  - 하단 `관리자 조작` 영역은 좌측 `동의일(Actual)` + `수당 동의일 저장`, 우측 `사전 심사 요청 하기` + `승인 완료/미승인` 토글의 2행 그리드로 다시 묶었다.
+  - 초기 시안에 넣었던 상단 `현재 보증 보험 동의 상태` 요약 카드는 제거해 정보 중복을 줄였다.
+  - 하단 `관리자 조작` 영역은 좌측 `동의일(Actual)` + `보증보험 조회 동의일 저장`, 우측 `사전 심사 요청 하기` + `승인 완료/미승인` 토글의 2행 그리드로 다시 묶었다.
   - 기존 `입력 완료` 버튼은 제거했고, 승인/미승인은 다른 화면에서 쓰는 `StatusToggle`을 그대로 재사용해 조작 패턴을 통일했다.
   - `사전 심사 요청 완료` 문구는 실제 액션 의미에 맞춰 `사전 심사 요청 하기`로 바꾸고, 우측 열의 라벨 높이를 맞춰 좌우 row가 같은 기준선에 오도록 정렬했다.
   - manager read-only 세션에서는 안내 Alert와 disabled controls로 조회 전용임을 명시했다.
 - `docs/handbook/admin-web/dashboard-lifecycle.md`
-  - 수당동의 탭의 source-of-truth 표시 구조가 `상태 흐름 상단 배치 + 관리자 조작 영역`이라는 점과 버튼 계약(`사전 심사 요청 하기`, 승인 토글)을 handbook에 반영했다.
+  - 보증 보험 동의 탭의 source-of-truth 표시 구조가 `상태 흐름 상단 배치 + 관리자 조작 영역`이라는 점과 버튼 계약(`사전 심사 요청 하기`, 승인 토글)을 handbook에 반영했다.
 
 **결과**:
-- 총무/본부장은 `수당 동의` 탭을 열자마자 현재 단계가 무엇인지 상단 상태 흐름에서 바로 읽을 수 있다.
+- 총무/본부장은 `보증 보험 동의` 탭을 열자마자 현재 단계가 무엇인지 상단 상태 흐름에서 바로 읽을 수 있다.
 - allowance 파생 상태 계약은 유지한 채, 조작 구조와 현재 단계 강조만 더 명확하게 정리했다.
 - 기존 `/api/admin/fc` trusted mutation 경로와 manager read-only 경계는 그대로 유지된다.
 
@@ -3352,7 +3467,7 @@
 - `node scripts/ci/check-governance.mjs`
 
 **남은 확인**:
-- 관리자/본부장 세션에서 FC 상세 모달 `수당 동의` 탭을 실제로 열어 상단 상태 흐름 강조색과 좌우 버튼 row 정렬을 시각 확인하면 된다.
+- 관리자/본부장 세션에서 FC 상세 모달 `보증 보험 동의` 탭을 실제로 열어 상단 상태 흐름 강조색과 좌우 버튼 row 정렬을 시각 확인하면 된다.
 
 ---
 
@@ -4234,10 +4349,10 @@
 
 ---
 
-## <a id="20260331-allowance-migration-order-fix"></a> 2026-03-31 | allowance migration 순서를 고쳐 웹 수당동의 반려 500 복구
+## <a id="20260331-allowance-migration-order-fix"></a> 2026-03-31 | allowance migration 순서를 고쳐 웹 보증 보험 동의 반려 500 복구
 
 **배경**:
-- `web/src/app/api/admin/fc/route.ts`의 수당동의 반려 경로는 `allowance_prescreen_requested_at` 컬럼을 포함해 `allowance-pending` 상태를 저장한다.
+- `web/src/app/api/admin/fc/route.ts`의 보증 보험 동의 반려 경로는 `allowance_prescreen_requested_at` 컬럼을 포함해 `allowance-pending` 상태를 저장한다.
 - 실제 원격 Supabase에는 `20260330000001_add_allowance_prescreen_requested_at.sql`, `20260330000002_relax_allowance_flow_requires_date.sql`가 적용되지 않아, 반려 버튼 클릭 시 `PGRST204: Could not find the 'allowance_prescreen_requested_at' column` 500이 발생했다.
 - 원인을 따라가 보니 첫 번째 migration이 기존 불량 데이터를 정리하기 전에 check constraint를 먼저 추가하고 있어서 `supabase db push` 자체가 중간에서 실패하고 있었다.
 
@@ -4252,7 +4367,7 @@
 
 **결과**:
 - 연결된 Supabase 원격 DB가 이제 `allowance_prescreen_requested_at` 컬럼을 인식한다.
-- 웹 관리자에서 수당동의 반려 같은 allowance 상태 조작 POST가 더 이상 500으로 떨어지지 않는다.
+- 웹 관리자에서 보증 보험 동의 반려 같은 allowance 상태 조작 POST가 더 이상 500으로 떨어지지 않는다.
 - 문제는 Edge Function 미배포가 아니라 DB migration 미적용 + migration 순서 오류였다.
 
 **검증**:
@@ -4325,7 +4440,7 @@
 
 **배경**:
 - FC 상세 관리 모달의 상단 탭이 긴 라벨과 `grow` 레이아웃 때문에 두 줄로 밀리면서, 마지막 탭이 별도 전체폭 버튼처럼 보였다.
-- 사용자는 `수당 동의 / 서류 관리 / 한화 위촉 / 생명/손해 위촉` 4개 탭이 반드시 같은 행에서 페이지 버튼처럼 보여야 한다고 요청했다.
+- 사용자는 `보증 보험 동의 / 서류 관리 / 한화 위촉 / 생명/손해 위촉` 4개 탭이 반드시 같은 행에서 페이지 버튼처럼 보여야 한다고 요청했다.
 
 **조치**:
 - `web/src/app/dashboard/page.tsx`의 모달 탭 리스트에서 `grow`를 제거하고, nowrap 가로 레이아웃으로 고정했다.
@@ -4337,29 +4452,29 @@
 
 ---
 
-## <a id="20260330-allowance-prescreen-doc-sync"></a> 2026-03-30 | 수당동의 파생 상태와 단계명 변경을 handbook/작업로그에 동기화
+## <a id="20260330-allowance-prescreen-doc-sync"></a> 2026-03-30 | 보증 보험 동의 파생 상태와 단계명 변경을 handbook/작업로그에 동기화
 
 **배경**:
-- 수당동의 단계는 더 이상 `allowance-pending = 검토중`으로 단순 표현할 수 없고, FC 입력 완료와 총무의 사전 심사 요청 완료를 분리해서 설명해야 한다.
-- 현재 화면/코드 설계는 `allowance_prescreen_requested_at`을 통해 수당동의 단계 내부 진행 상태를 나누는 방향으로 바뀌고 있어, handbook과 운영 로그가 이 계약을 그대로 따라가야 했다.
+- 보증 보험 동의 단계는 더 이상 `allowance-pending = 검토중`으로 단순 표현할 수 없고, FC 입력 완료와 총무의 사전 심사 요청 완료를 분리해서 설명해야 한다.
+- 현재 화면/코드 설계는 `allowance_prescreen_requested_at`을 통해 보증 보험 동의 단계 내부 진행 상태를 나누는 방향으로 바뀌고 있어, handbook과 운영 로그가 이 계약을 그대로 따라가야 했다.
 - 동시에 단계명도 `3단계 한화 위촉 URL`, `4단계 생명/손해 위촉`으로 정리해야 앱/웹/운영 문서가 같은 용어를 쓴다.
 
 **조치**:
 - `docs/handbook/workflow-state-matrix.md`
-  - `allowance-pending` 내부 파생 상태를 `FC 수당 동의일 미입력 -> FC 수당 동의 입력 완료 -> 사전 심사 요청 완료 -> 승인 완료/미승인`으로 명시했다.
+  - `allowance-pending` 내부 파생 상태를 `FC 보증보험 조회 동의일 미입력 -> FC 보증 보험 동의 입력 완료 -> 사전 심사 요청 완료 -> 승인 완료/미승인`으로 명시했다.
   - `allowance_prescreen_requested_at`의 의미와 reset 규칙을 추가했다.
   - `docs-approved` 이후 단계명을 `3단계 한화 위촉 URL`, `4단계 생명/손해 위촉`으로 다시 적었다.
 - `docs/handbook/mobile/fc-onboarding.md`
-  - 모바일 단계 정의와 FC 홈/다음 단계 문구를 새 수당동의 파생 상태 기준으로 정리했다.
-  - FC가 수당 동의일을 다시 저장하면 `allowance_prescreen_requested_at`과 반려 사유가 초기화된다는 동작을 문서화했다.
+  - 모바일 단계 정의와 FC 홈/다음 단계 문구를 새 보증 보험 동의 파생 상태 기준으로 정리했다.
+  - FC가 보증보험 조회 동의일을 다시 저장하면 `allowance_prescreen_requested_at`과 반려 사유가 초기화된다는 동작을 문서화했다.
 - `docs/handbook/button-action-matrix.md`
-  - FC의 수당동의 저장 액션이 `allowance_prescreen_requested_at=null`, `allowance_reject_reason=null`을 함께 쓰는 계약으로 정리했다.
-  - 총무 수당동의 단계 조작(`입력 완료 / 사전 심사 요청 완료 / 승인 완료 / 미승인`) 전용 액션 행을 추가했다.
+  - FC의 보증 보험 동의 저장 액션이 `allowance_prescreen_requested_at=null`, `allowance_reject_reason=null`을 함께 쓰는 계약으로 정리했다.
+  - 총무 보증 보험 동의 단계 조작(`입력 완료 / 사전 심사 요청 완료 / 승인 완료 / 미승인`) 전용 액션 행을 추가했다.
 - `.claude/WORK_LOG.md`
   - 이번 handbook 동기화를 최근 작업에 추가했다.
 
 **결과**:
-- handbook과 운영 로그 기준으로는 이제 수당동의 단계가 `allowance_date`와 `allowance_prescreen_requested_at` 조합으로 파생 표현된다는 점이 명확해졌다.
+- handbook과 운영 로그 기준으로는 이제 보증 보험 동의 단계가 `allowance_date`와 `allowance_prescreen_requested_at` 조합으로 파생 표현된다는 점이 명확해졌다.
 - 단계명도 `한화 위촉 URL`과 `생명/손해 위촉`으로 통일됐다.
 
 **메모**:
@@ -4407,7 +4522,7 @@
 ## <a id="20260328-hanwha-commission-workflow-overhaul"></a> 2026-03-28 | 한화 위촉 URL 단계를 온보딩 플로우에 정식 편입하고 앱/웹/백엔드 상태 계산을 공통 helper로 수렴
 
 **배경**:
-- 기존 온보딩 플로우는 `수당동의 -> 서류제출 -> 생명/손해 위촉` 전제를 깔고 있어, 새 정책인 `3단계 한화 위촉 URL 승인 + PDF 전달 후 4단계 생명/손해 위촉 진행`을 정확히 반영하지 못했다.
+- 기존 온보딩 플로우는 `보증 보험 동의 -> 서류제출 -> 생명/손해 위촉` 전제를 깔고 있어, 새 정책인 `3단계 한화 위촉 URL 승인 + PDF 전달 후 4단계 생명/손해 위촉 진행`을 정확히 반영하지 못했다.
 - 앱 홈, 앱 관리자 대시보드, 웹 공용 helper가 각자 다른 단계 계산을 가지고 있어 같은 FC를 봐도 단계/다음 단계/관리자 필터가 어긋날 수 있었다.
 - 문서 삭제/반려나 한화 재제출 뒤에도 stale PDF/기존 위촉 증거가 남아 다음 단계가 열릴 위험이 있어, 서버 쪽 reset 규칙을 함께 재정비해야 했다.
 
@@ -4430,7 +4545,7 @@
   - `supabase/functions/request-signup-otp/index.ts`
   - `supabase/functions/set-password/index.ts`
   - `supabase/functions/fc-notify/index.ts`
-  - 한화 반려/재제출 시 stale PDF 메타데이터를 비우고, 문서 invalidation 시 downstream 한화/위촉 URL 필드도 reset되도록 정리했다.
+  - 다위촉 반려/재제출 시 stale PDF 메타데이터를 비우고, 문서 invalidation 시 downstream 한화/위촉 URL 필드도 reset되도록 정리했다.
 - 앱 화면을 새 단계에 맞춰 개편했다.
   - `app/index.tsx`: 내 진행 상황, 다음 단계, 바로가기를 새 단계 기준으로 재계산
   - `app/hanwha-commission.tsx`: FC 전용 한화 위촉 제출 화면 추가
@@ -4440,7 +4555,7 @@
 - 웹 관리자 모달을 4탭 구조로 확장했다.
   - `web/src/app/dashboard/page.tsx`
   - `web/src/app/api/admin/fc/route.ts`
-  - 탭 순서를 `수당 동의 / 서류 관리 / 한화 위촉 관리 / 생명/손해 위촉 관리`로 재구성
+  - 탭 순서를 `보증 보험 동의 / 서류 관리 / 한화 위촉 관리 / 생명/손해 위촉 관리`로 재구성
   - 한화 PDF 업로드/다운로드/삭제와 승인/반려를 모달 안에서 처리하도록 확장
   - 생명/손해 위촉 탭은 더 이상 클릭 자체를 막지 않고, 준비되지 않은 경우 안내 패널만 표시하게 조정
 - 웹 helper/운영 화면을 동기화했다.
@@ -4452,9 +4567,9 @@
   - `web/src/app/dashboard/layout.tsx`
 
 **결과**:
-- FC/총무/본부장이 앱과 웹 어디서 보더라도 `1 수당동의 -> 2 문서제출 -> 3 한화 위촉 URL -> 4 생명/손해 위촉 -> 5 완료`를 같은 기준으로 본다.
+- FC/총무/본부장이 앱과 웹 어디서 보더라도 `1 보증 보험 동의 -> 2 문서제출 -> 3 한화 위촉 URL -> 4 생명/손해 위촉 -> 5 완료`를 같은 기준으로 본다.
 - 한화 승인과 PDF 전달이 끝나기 전에는 4단계 `생명/손해 위촉`이 열리지 않는다.
-- 문서 삭제/반려와 한화 반려/재제출 이후 stale 메타데이터가 다음 단계 증거로 남지 않도록 reset 규칙을 통일했다.
+- 문서 삭제/반려와 다위촉 반려/재제출 이후 stale 메타데이터가 다음 단계 증거로 남지 않도록 reset 규칙을 통일했다.
 
 **검증**:
 - `npx eslint app/dashboard.tsx app/docs-upload.tsx app/appointment.tsx app/index.tsx lib/fc-workflow.ts lib/__tests__/workflow-step-regression.test.ts`
@@ -4553,11 +4668,11 @@
 - `scripts/ci/check-governance.mjs`
 - `.github/pull_request_template.md`
 
-## <a id="20260327-manager-visibility-consent-ux"></a> 2026-03-27 | 본부장 read-only 정보 노출과 가람in 수당동의 UX 보강
+## <a id="20260327-manager-visibility-consent-ux"></a> 2026-03-27 | 본부장 read-only 정보 노출과 가람in 보증 보험 동의 UX 보강
 
 **배경**:
 - 본부장(read-only manager) 계정은 “수정만 안 되고 보이는 정보는 모두 보여야 한다”는 운영 원칙과 달리, 일부 상세 화면에서 주민번호·추천인·시험 신청자 정보가 빠져 있었다.
-- 수당동의 단계는 `allowance-pending` 상태 안에서도 `날짜 미입력 = 대기`, `날짜 입력 후 승인 전 = 검토 중`을 구분해야 했지만 웹 공용 라벨이 이를 한 번에 다루지 못했다.
+- 보증 보험 동의 단계는 `allowance-pending` 상태 안에서도 `날짜 미입력 = 대기`, `날짜 입력 후 승인 전 = 검토 중`을 구분해야 했지만 웹 공용 라벨이 이를 한 번에 다루지 못했다.
 - 가람in FC 화면에서는 임시사번을 바로 복사할 수 없었고, `서울보증보험 바로가기`도 외부 브라우저 대신 앱 내부에서 열려 UX 제약이 있었다.
 
 **조치**:
@@ -4566,13 +4681,13 @@
 - `web/src/app/dashboard/exam/applicants/page.tsx`
   - 시험 신청자 관리 목록에서도 본부장이 full resident number를 읽어 올 수 있게 맞췄다.
 - `web/src/lib/shared.ts`, `lib/__tests__/workflow-step-regression.test.ts`
-  - `allowance-pending + allowance_date 있음`이면 `수당동의 검토 중`, 날짜가 없으면 `수당동의 대기`로 나누고 회귀 테스트를 추가했다.
+  - `allowance-pending + allowance_date 있음`이면 `보증 보험 동의 검토 중`, 날짜가 없으면 `보증 보험 동의 대기`로 나누고 회귀 테스트를 추가했다.
 - `app/consent.tsx`, `lib/open-external-url.ts`
   - 임시사번 복사 버튼을 추가하고, `서울보증보험 바로가기`는 외부 브라우저 선호 옵션으로 열리도록 공통 helper를 확장했다.
 
 **로직 검토**:
 - 본부장은 여전히 read-only 세션이므로 편집 권한이 생기지 않는다. 이번 변경은 읽기/표시 경로만 넓히는 성격이다.
-- 수당동의 상태는 `status` 값만으로 고정 라벨을 찍지 않고 `allowance_date`와 함께 파생 표시해야 운영 의미와 맞는다.
+- 보증 보험 동의 상태는 `status` 값만으로 고정 라벨을 찍지 않고 `allowance_date`와 함께 파생 표시해야 운영 의미와 맞는다.
 
 **검증**:
 - `cd web && npm run lint -- src/app/dashboard/page.tsx "src/app/dashboard/profile/[id]/page.tsx" src/app/dashboard/exam/applicants/page.tsx src/lib/shared.ts`
@@ -4619,17 +4734,17 @@
 
 **메모**:
 - `admin-action` Deno 함수는 로컬에 `deno` 실행 환경이 없어 별도 타입체크는 수행하지 못했다. 대신 변경 범위는 권한 분기와 manager lookup 추가로 제한했다.
-## <a id="20260327-web-dashboard-manager-list-and-allowance-pending-fix"></a> 2026-03-27 | 웹 대시보드 본부장 목록 조회 복구 + 수당동의 대기 라벨 정정
+## <a id="20260327-web-dashboard-manager-list-and-allowance-pending-fix"></a> 2026-03-27 | 웹 대시보드 본부장 목록 조회 복구 + 보증 보험 동의 대기 라벨 정정
 
 **배경**:
-- 총무 웹에서 수당동의 반려를 처리해도 FC 현재 상태가 `수당동의 검토 중`으로 남아, 실제 기대 상태인 `수당동의 대기`와 어긋나 있었다.
+- 총무 웹에서 보증 보험 동의 반려를 처리해도 FC 현재 상태가 `보증 보험 동의 검토 중`으로 남아, 실제 기대 상태인 `보증 보험 동의 대기`와 어긋나 있었다.
 - 같은 시점에 본부장(read-only manager) 계정으로 웹 홈 대시보드에 들어가면 FC 목록이 비어 `조건에 맞는 데이터가 없습니다.`만 보이는 운영 이슈가 재현됐다.
 - 확인 결과 UI는 이미 read-only 모드로 설계되어 있었지만 `/api/admin/list` route가 `admin`만 허용하고 있어 manager 세션은 403으로 막히고 있었다.
 
 **조치**:
 - `web/src/lib/shared.ts`
-  - `STATUS_LABELS['allowance-pending']`를 `수당동의 대기`로 정정했다.
-  - `getSummaryStatus()`에서 `allowance-pending` 요약 라벨/색상을 fallback과 동일한 `수당동의 대기 / gray`로 맞췄다.
+  - `STATUS_LABELS['allowance-pending']`를 `보증 보험 동의 대기`로 정정했다.
+  - `getSummaryStatus()`에서 `allowance-pending` 요약 라벨/색상을 fallback과 동일한 `보증 보험 동의 대기 / gray`로 맞췄다.
 - `web/src/app/api/admin/list/route.ts`
   - 세션 검증에서 `manager`도 read-only 조회 역할로 허용해, 본부장 계정이 관리자 홈과 동일한 FC 목록 API를 읽을 수 있게 했다.
 - `web/src/app/dashboard/page.tsx`
@@ -4650,7 +4765,7 @@
 
 **배경**:
 - 운영에서 FC 상세 관리 모달의 `임시사번`을 잘못 입력한 뒤, 다시 `조회중` 단계로 돌리고 싶다는 요청이 있었다.
-- 기존 화면은 `임시사번` 수정만 가능했고, 상태를 `draft(임시사번 미발급)`로 되돌리거나 수당 동의일을 초기화하는 전용 동작이 없어 이전 단계 복귀가 어려웠다.
+- 기존 화면은 `임시사번` 수정만 가능했고, 상태를 `draft(임시사번 미발급)`로 되돌리거나 보증보험 조회 동의일을 초기화하는 전용 동작이 없어 이전 단계 복귀가 어려웠다.
 
 **조치**:
 - `web/src/app/dashboard/page.tsx`
@@ -5070,11 +5185,11 @@
 - `login-with-password` 직접 호출 검증:
   - 제공된 개발자 계정으로 Edge Function 응답 `ok=true, role=admin, staffType=developer` 확인
 
-## <a id="20260318-admin-allowance-date-direct-input"></a> 2026-03-18 | 총무가 모바일/웹에서 FC 수당 동의일 직접 입력 지원
+## <a id="20260318-admin-allowance-date-direct-input"></a> 2026-03-18 | 총무가 모바일/웹에서 FC 보증보험 조회 동의일 직접 입력 지원
 
 **배경**:
-- 기존 가람in 수당동의 흐름은 FC가 `app/consent.tsx`에서만 `allowance_date`를 직접 제출할 수 있었고, 총무는 입력 여부를 확인한 뒤 승인/반려만 할 수 있었다.
-- 운영 요청에 따라 총무도 FC 대신 수당 동의일을 직접 입력할 수 있어야 했고, 이 기능이 모바일 총무 대시보드와 `fc-onboarding-app/web` 관리자 대시보드 양쪽에서 동일하게 동작해야 했다.
+- 기존 가람in 보증 보험 동의 흐름은 FC가 `app/consent.tsx`에서만 `allowance_date`를 직접 제출할 수 있었고, 총무는 입력 여부를 확인한 뒤 승인/반려만 할 수 있었다.
+- 운영 요청에 따라 총무도 FC 대신 보증보험 조회 동의일을 직접 입력할 수 있어야 했고, 이 기능이 모바일 총무 대시보드와 `fc-onboarding-app/web` 관리자 대시보드 양쪽에서 동일하게 동작해야 했다.
 - FC 자가입력과 같은 안전장치를 유지하기 위해, 총무 직접 입력도 `temp_id` 선행 조건과 `allowance-pending` 상태 규칙을 공유해야 했다.
 
 **조치**:
@@ -5085,13 +5200,13 @@
 - `web/src/app/api/admin/fc/route.ts`
   - 웹 관리자 대시보드용 서버 경로에도 같은 `updateAllowanceDate` 액션과 검증/상태 보정 로직을 추가했다.
 - `app/dashboard.tsx`
-  - 총무 모바일 카드의 `1단계: 정보 등록 및 수당동의` 섹션에 수당 동의일 날짜 선택기와 `동의일 저장` 버튼을 추가했다.
+  - 총무 모바일 카드의 `1단계: 정보 등록 및 보증 보험 동의` 섹션에 보증보험 조회 동의일 날짜 선택기와 `동의일 저장` 버튼을 추가했다.
   - Android는 인라인 `DateTimePicker`, iOS는 별도 모달 picker로 입력하게 했고, 반려 시 로컬 입력값도 함께 비우도록 정리했다.
 - `web/src/app/dashboard/page.tsx`
-  - 웹 관리자 `수당 동의` 탭의 `수당 동의 검토` 영역에 편집 가능한 날짜 입력기와 `수당 동의일 저장` 버튼을 추가했다.
+  - 웹 관리자 `보증 보험 동의` 탭의 `보증 보험 동의 검토` 영역에 편집 가능한 날짜 입력기와 `보증보험 조회 동의일 저장` 버튼을 추가했다.
   - 저장 성공 시 모달 로컬 상태(`allowance_date`, `status`, `temp_id/career_type` 변경분)가 즉시 반영되도록 보강했다.
 - `.claude/PROJECT_GUIDE.md`
-  - 총무 직접 입력 시 지켜야 하는 수당 동의일 정책(`temp_id` 선행, `allowance-pending` 정렬)을 문서에 추가했다.
+  - 총무 직접 입력 시 지켜야 하는 보증보험 조회 동의일 정책(`temp_id` 선행, `allowance-pending` 정렬)을 문서에 추가했다.
 
 **검증**:
 - `npx eslint app/dashboard.tsx`
@@ -5674,14 +5789,14 @@
 ## <a id="20260313-web-signup-commission-complete-step-align"></a> 2026-03-13 | 관리자 웹 완료 판정을 가입 시 위촉 완료 규칙에 다시 정렬
 
 **배경**:
-- 관리자 웹 단계 계산을 보수적으로 조정하면서, `temp_id + 수당동의 + 승인서류`가 모두 없으면 완료로 보지 않도록 바뀌었다.
+- 관리자 웹 단계 계산을 보수적으로 조정하면서, `temp_id + 보증 보험 동의 + 승인서류`가 모두 없으면 완료로 보지 않도록 바뀌었다.
 - 하지만 Garamin 가입 시 `현재 위촉 상태`를 함께 받는 도메인 규칙상, 가입자가 생명/손해 위촉을 모두 이미 완료했다고 입력한 경우에는 별도 위촉 진행 대상이 아니다.
 - 이 케이스는 `set-password`에서 `life_commission_completed=true`, `nonlife_commission_completed=true`, `status='final-link-sent'`로 저장되며, 최근 웹 로직은 이를 `0단계 사전등록` + `임시사번 미발급`으로 잘못 내리고 있었다.
 
 **조치**:
 - `web/src/lib/shared.ts`
   - 완료 판정을 모바일과 다시 맞춰 `status='final-link-sent'` 또는 양쪽 commission 완료 플래그가 모두 true면 완료 단계로 보도록 복원했다.
-  - 다만 가입 시 곧바로 위촉 완료로 들어온 계정은 일반 최종 완료와 구분할 수 있도록, 신원/임시사번/수당동의/서류/일정 흔적이 없는 pure signup 완료 케이스를 `가입 시 위촉 완료` 요약 라벨로 표시하도록 분기했다.
+  - 다만 가입 시 곧바로 위촉 완료로 들어온 계정은 일반 최종 완료와 구분할 수 있도록, 신원/임시사번/보증 보험 동의/서류/일정 흔적이 없는 pure signup 완료 케이스를 `가입 시 위촉 완료` 요약 라벨로 표시하도록 분기했다.
   - `getAdminStep`는 `rawStep === 5`를 먼저 처리하도록 바꿔, identity가 비어 있어도 완료 계정이 `0단계 사전등록`으로 내려가지 않게 정리했다.
 
 **검증**:
@@ -5718,7 +5833,7 @@
   - 제출 서류 이력은 잘못된 `resident_id` 재조회 쿼리를 제거하고, 이미 로드된 `profile.fc_documents` 관계 데이터를 그대로 사용하도록 수정했다.
   - 프로필 상세 로딩 실패 시 `FC 정보를 찾을 수 없습니다` 대신 명시적인 상세 로드 실패 문구를 보여주도록 보강했다.
 - `web/src/lib/shared.ts`
-  - 완료 단계 판정 전용 helper를 추가해, 최종 완료는 `신원정보 + temp_id + 수당동의 통과 + 승인된 서류 + 양쪽 commission 완료` 근거가 모두 있을 때만 성립하도록 보수화했다.
+  - 완료 단계 판정 전용 helper를 추가해, 최종 완료는 `신원정보 + temp_id + 보증 보험 동의 통과 + 승인된 서류 + 양쪽 commission 완료` 근거가 모두 있을 때만 성립하도록 보수화했다.
   - `calcStep`, `getAdminStep`, `getSummaryStatus`가 같은 전제 조건을 공유하도록 맞춰, 상세 페이지와 관리자 대시보드 단계/요약 표시가 같은 기준을 쓰게 했다.
 
 **검증**:
@@ -6289,17 +6404,17 @@
 
 ---
 
-## <a id="20260311-guide-images"></a> 2026-03-11 | 수당동의/위촉 가이드 이미지 자산 경로 정리
+## <a id="20260311-guide-images"></a> 2026-03-11 | 보증 보험 동의/위촉 가이드 이미지 자산 경로 정리
 
 **배경**:
-- `app/consent.tsx`의 수당동의 가이드 이미지가 실제 앱에서 보이지 않는 이슈 확인.
+- `app/consent.tsx`의 보증 보험 동의 가이드 이미지가 실제 앱에서 보이지 않는 이슈 확인.
 - 가이드 이미지가 프로젝트 루트 별도 폴더(`agreement_imag`, `appointment_img`)를 직접 `require()`하는 구조였고, 네이티브 빌드 자산 번들링 경로로는 불안정했다.
 - 동일 패턴이 `app/appointment.tsx`에도 있어 이후 같은 문제가 재발할 가능성이 있었다.
 
 **조치**:
 - `assets/images/guides/agreement/*.jpg`, `assets/images/guides/appointment/*.jpg`로 가이드 이미지를 복제해 앱 번들 기준 경로로 정리.
 - `lib/guide-images.ts` 추가:
-  - 수당동의/위촉 가이드 이미지 배열을 한 곳에서 관리.
+  - 보증 보험 동의/위촉 가이드 이미지 배열을 한 곳에서 관리.
 - `app/consent.tsx`
   - 기존 `../agreement_imag/*.jpg` 직접 참조 제거.
   - `AGREEMENT_GUIDE_IMAGES` import로 교체.
@@ -6346,10 +6461,10 @@
 
 ---
 
-## <a id="20260310-ios-datepicker"></a> 2026-03-10 | iOS 수당동의 화면 달력 DateTimePicker 렌더링 버그 수정
+## <a id="20260310-ios-datepicker"></a> 2026-03-10 | iOS 보증 보험 동의 화면 달력 DateTimePicker 렌더링 버그 수정
 
 **배경**:
-- 배포된 앱에서 수당동의(`consent.tsx`) 화면의 날짜 선택 달력이 iOS에서 빈 화면으로 나타나는 버그 발생.
+- 배포된 앱에서 보증 보험 동의(`consent.tsx`) 화면의 날짜 선택 달력이 iOS에서 빈 화면으로 나타나는 버그 발생.
 - `transparent` Modal 안에서 `display="spinner"` 사용 시 iOS 15+ 환경에서 UIPickerView가 렌더링되지 않는 네이티브 버그.
 
 **조치**:
@@ -6403,7 +6518,7 @@
 
 **조치**:
 - `app/dashboard.tsx`
-  - 총무 위촉 상태 저장 시 플래그만 바꾸지 않고, 현재 FC의 실제 진행 이력(서류/수당동의/위촉 일정·제출·확정)을 바탕으로 복구 대상 `status`를 계산하는 `buildCommissionProfileUpdate()` 헬퍼를 추가.
+  - 총무 위촉 상태 저장 시 플래그만 바꾸지 않고, 현재 FC의 실제 진행 이력(서류/보증 보험 동의/위촉 일정·제출·확정)을 바탕으로 복구 대상 `status`를 계산하는 `buildCommissionProfileUpdate()` 헬퍼를 추가.
   - `both`는 `final-link-sent`로 승격하고, `final-link-sent` 해제 시에는 무조건 `draft`가 아니라 `appointment-completed` / `docs-approved` / `docs-submitted` / `docs-requested` / `allowance-consented` / `temp-id-issued` / `draft` 중 적절한 하한 상태로 복구.
   - 대시보드 재조회 후 위촉 상태 프리필은 서버 최신값이 우선하도록 병합 순서를 수정.
 - `web/src/app/dashboard/page.tsx`
@@ -6546,7 +6661,7 @@
   - `app/board.tsx`, `app/admin-board.tsx`, `app/admin-board-manage.tsx`, `app/board-detail.tsx` 게시판 첨부 열기
   - `app/notice.tsx`, `app/notice-detail.tsx` 공지 첨부/이미지 열기
   - `app/request-board-review.tsx` 설계 첨부 열기
-  - `app/consent.tsx` 수당동의 안내 사이트
+  - `app/consent.tsx` 보증 보험 동의 안내 사이트
   - `app/docs-upload.tsx` 업로드한 문서 열기
 - `lib/__tests__/external-url.test.ts`
   - HTTP(S)/bare domain/비HTTP 스킴 정규화 규칙과 브라우저 분기 기준 테스트 추가.
@@ -6674,14 +6789,14 @@
 
 **Commit**: `d641015`  
 **배경**:
-- 시험신청 화면에서 수당동의 검토 오버레이가 UX 동선을 과도하게 차단.
+- 시험신청 화면에서 보증 보험 동의 검토 오버레이가 UX 동선을 과도하게 차단.
 - 시험신청 화면의 프로필 재조회 경로가 중복되어 새로고침 비용이 불필요하게 증가.
 
 **조치**:
 - `app/exam-apply.tsx`, `app/exam-apply2.tsx`
-  - 수당동의 상태 재조회 쿼리 제거.
+  - 보증 보험 동의 상태 재조회 쿼리 제거.
   - 새로고침 시 라운드/내신청 조회만 유지.
-  - 수당동의 검토 오버레이 및 관련 스타일 제거.
+  - 보증 보험 동의 검토 오버레이 및 관련 스타일 제거.
 - `components/SplashAnimation.tsx`
   - 미사용 상수 정리.
 
@@ -7445,7 +7560,7 @@
   - manager login-with-password -> request_board(fc role) 로그인 -> 설계코드 CRUD 확인
   - manager의 `admin-action` write 시 403 확인
 - 총무 실행기: `node scripts/testing/run-admin-blocked-cli.mjs` 통과
-  - FC 수당동의 제출 -> 총무 승인 -> 총무 반려 -> FC 재제출 상태 전이 확인
+  - FC 보증 보험 동의 제출 -> 총무 승인 -> 총무 반려 -> FC 재제출 상태 전이 확인
 - 설계매니저 실행기: `node scripts/testing/run-designer-blocked-cli.mjs` 통과
   - 의뢰 거절/수락/완료(첨부 포함), FC 승인/거절까지 전이 확인
 - 통합 검증:
@@ -7636,7 +7751,7 @@
 **작업 내용**:
 - 문제 정리:
   - 회원가입에서 `life_only`/`nonlife_only`를 선택하면 `status=appointment-completed`로 저장되어 FC 홈이 즉시 4단계로 점프
-  - 동일 상태값을 근거로 수당동의/서류 승인 UI 일부가 조기 잠금되어, 실제로 필요한 1단계부터의 진행 흐름과 불일치
+  - 동일 상태값을 근거로 보증 보험 동의/서류 승인 UI 일부가 조기 잠금되어, 실제로 필요한 1단계부터의 진행 흐름과 불일치
 - 수정:
   - `set-password`의 위촉 상태 매핑 분리/공유화
     - 신규 공유 모듈: `supabase/functions/_shared/commission.ts`
@@ -7644,7 +7759,7 @@
     - `both`만 `final-link-sent` 유지
   - 단계 계산 로직 정렬
     - 모바일 홈(`app/index.tsx`), 모바일 관리자(`app/dashboard.tsx`), 웹 공용(`web/src/lib/shared.ts`)을 동일 우선순위로 정렬
-    - 우선순위: `final/both 완료` -> `신원 완료` -> `수당동의` -> `서류` -> `위촉`
+    - 우선순위: `final/both 완료` -> `신원 완료` -> `보증 보험 동의` -> `서류` -> `위촉`
     - 한쪽 위촉 완료 플래그만으로 4단계 점프하지 않도록 수정
   - 위촉 확정 상태 전환 보정
     - `admin-action`/웹 서버액션/웹 대시보드 낙관적 상태 갱신에서
@@ -8619,10 +8734,10 @@
 
 ---
 
-## <a id="20260219-2"></a> 2026-02-19 | 수당동의 임시사번 선검증 및 계정 중복 차단 강화
+## <a id="20260219-2"></a> 2026-02-19 | 보증 보험 동의 임시사번 선검증 및 계정 중복 차단 강화
 
 **작업 내용**:
-- 수당 동의 입력 시 임시사번(`temp_id`)이 없는 FC를 서버/클라이언트에서 선차단하도록 보강:
+- 보증 보험 동의 입력 시 임시사번(`temp_id`)이 없는 FC를 서버/클라이언트에서 선차단하도록 보강:
   - `fc-consent`에서 `temp_id`를 조회하고 미발급 시 실패 응답 반환
   - 모바일 `app/consent.tsx` 제출 전 임시사번 존재 여부를 확인하고 안내 알림 후 중단
 - 비밀번호 설정 시 전화번호 중복 계정 차단 강화:
@@ -8640,7 +8755,7 @@
 - `.claude/settings.json`
 
 **검증**:
-- 변경 파일 diff 검토로 수당 동의 선검증/중복 차단 로직 반영 확인
+- 변경 파일 diff 검토로 보증 보험 동의 선검증/중복 차단 로직 반영 확인
 - 문서 거버넌스 규칙(`WORK_LOG` + `WORK_DETAIL` 동시 갱신) 충족 확인
 
 ---
@@ -8856,7 +8971,7 @@
 
 ---
 
-## <a id="20260211-8"></a> 2026-02-11 | 임시번호 발급 알림 탭 시 수당 동의 페이지 이동 보정
+## <a id="20260211-8"></a> 2026-02-11 | 임시번호 발급 알림 탭 시 보증 보험 동의 페이지 이동 보정
 
 **작업 내용**:
 - 알림센터 라우팅 fallback에서 `임시번호/임시사번` 키워드 분기를 추가
@@ -9114,7 +9229,7 @@
 
 **Commit**: `1d3b6b6`  
 **작업 내용**:
-- 수당 동의 및 대시보드 액션 관련 웹 서버 액션/알림 처리 보정
+- 보증 보험 동의 및 대시보드 액션 관련 웹 서버 액션/알림 처리 보정
 - 앱 홈/동의 플로우와 웹 액션의 상태 동기화 강화
 
 **핵심 파일**:
@@ -9323,3 +9438,41 @@
 - `docs/guides/COMMANDS.md`
 - `docs/guides/SMS_TESTING.md`
 - `test-sms.js`
+## <a id="20260604-manager-default-recommender-and-exact-consent-date-term"></a> 2026-06-04 | 본부장 기본 추천인 김형수 고정 + 정확한 보증보험 조회 동의일 용어
+
+**작업 내용**:
+- 회의 후 확인된 미반영 항목 두 가지를 우선 처리했다.
+- 모든 active 본부장/manager fc profile이 김형수(`01094272550`)를 기본 추천인으로 갖도록 Supabase migration과 `schema.sql`을 추가/동기화했다.
+- `link_manager_profile_to_default_recommender` helper는 김형수 active referral code를 찾아 `apply_referral_link_state(..., source='admin_override')`로 `fc_profiles.recommender_*` current-state와 `referral_events`를 갱신한다.
+- `ensure_manager_referral_shadow_profile`은 기존 shadow, 기존 completed manager profile, 신규 shadow 생성 시 모두 기본 추천인 보정을 호출한다.
+- migration은 기존 active `manager_accounts`를 한 번 순회해 shadow/profile을 보장하고 김형수 기본 추천인을 backfill한다.
+- 김형수 본인과의 자기추천은 `self_link_blocked`로 스킵한다.
+- 사용자-facing 날짜 문구를 정확한 회의 용어인 `보증보험 조회 동의일`로 정정했다. 내부 `allowance_*` 컬럼/status 이름은 DB 호환을 위해 유지한다.
+- 추천인 graph 범례/색상 요구를 subagent에 병렬 위임해 원형 node swatch 범례와 색 조건(초록 완료, 노랑 현재 viewer/본부장 highlight, 주황 본등록 완료, 회색 사전등록)을 반영했다.
+- 남은 후속 안건(Toss/대리시험, Kakao provider, 다위촉 전용 guide image, 전체 SM_S942N UI traversal)은 `.codex/harness/*`에 deferred로 기록했다.
+
+**핵심 파일**:
+- `supabase/migrations/20260604000003_default_manager_recommender_kim_hyeongsu.sql`
+- `supabase/schema.sql`
+- `lib/__tests__/manager-default-recommender-contract.test.ts`
+- `app/consent.tsx`
+- `app/dashboard.tsx`
+- `supabase/functions/admin-action/index.ts`
+- `supabase/functions/fc-consent/index.ts`
+- `web/src/app/api/admin/fc/route.ts`
+- `web/src/app/dashboard/page.tsx`
+- `web/src/app/dashboard/referrals/graph/page.tsx`
+- `web/src/components/referrals/ReferralGraphCanvas.tsx`
+- `docs/referral-system/SPEC.md`
+- `docs/referral-system/ARCHITECTURE.md`
+- `docs/referral-system/TEST_CHECKLIST.md`
+- `docs/referral-system/test-cases.json`
+- `docs/referral-system/TEST_RUN_RESULT.json`
+
+**검증 계획**:
+- root Jest/lint/governance
+- web lint/build
+- request_board build/checks because this conversation also contains GaramLink changes
+- commit/push only if verification has no unresolved failures
+
+---

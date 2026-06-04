@@ -1,7 +1,5 @@
 import type { GraphNode, GraphNodeHighlightType } from '@/types/referral-graph';
 
-export const SPECIAL_REFERRAL_GRAPH_HIGHLIGHT_NAMES = new Set(['김형수']);
-
 function normalizeName(value?: string | null) {
   return String(value ?? '').replace(/\s+/g, ' ').trim();
 }
@@ -14,10 +12,6 @@ export function resolveReferralGraphHighlightType(input: {
   const normalizedName = normalizeName(input.name);
   if (!normalizedName) {
     return null;
-  }
-
-  if (SPECIAL_REFERRAL_GRAPH_HIGHLIGHT_NAMES.has(normalizedName)) {
-    return 'special';
   }
 
   if (input.isManagerReferralShadow === true) {
@@ -42,8 +36,8 @@ export function getReferralGraphHighlightLabel(highlightType: GraphNodeHighlight
     return '본부장 표시';
   }
 
-  if (highlightType === 'special') {
-    return '김형수 표시';
+  if (highlightType === 'viewer') {
+    return '현재 사용자';
   }
 
   return null;

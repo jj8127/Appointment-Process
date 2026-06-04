@@ -2,6 +2,7 @@ import { cookies } from 'next/headers';
 
 import { adminSupabase } from '@/lib/admin-supabase';
 import { validateSession } from '@/lib/csrf';
+import { FC_GRAPH_SESSION_COOKIE, verifyFcGraphSessionValue } from '@/lib/fc-graph-session';
 import { logger } from '@/lib/logger';
 import { buildPhoneCandidates } from '@/lib/phone-candidates';
 
@@ -102,6 +103,16 @@ export async function getVerifiedServerSession(options: SessionCheckOptions): Pr
   const phoneCandidates = buildPhoneCandidates(session.residentId, residentDigits);
 
   try {
+    if (session.role === 'fc') {
+      const fcGraphSession = verifyFcGraphSessionValue(
+        cookieStore.get(FC_GRAPH_SESSION_COOKIE)?.value,
+        { expectedResidentDigits: residentDigits },
+      );
+      if (!fcGraphSession) {
+        return { ok: false, status: 401, error: 'Invalid FC graph session' };
+      }
+    }
+
     const verified = await verifyRecord(
       session.role,
       phoneCandidates,
@@ -128,5 +139,25 @@ export async function getVerifiedServerSession(options: SessionCheckOptions): Pr
     });
     return { ok: false, status: 403, error: 'Forbidden' };
   }
+}
+
+export async function getVerifiedAdminSession(
+  options?: Omit<SessionCheckOptions, 'allowedRoles'>,
+): Promise<SessionCheckResult> {
+  return getVerifiedServerSession({
+    allowedRoles: ['admin'],
+    requireActive: true,
+    ...(options ?? {}),
+  });
+}
+
+export async function getVerifiedReadOnlyAdminSession(
+  options?: Omit<SessionCheckOptions, 'allowedRoles'>,
+): Promise<SessionCheckResult> {
+  return getVerifiedServerSession({
+    allowedRoles: ['admin', 'manager'],
+    requireActive: true,
+    ...(options ?? {}),
+  });
 }
 

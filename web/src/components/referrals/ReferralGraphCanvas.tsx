@@ -33,6 +33,8 @@ const COLORS = {
   nodeActive: '#ea580c',
   nodeMissing: '#94a3b8',
   nodeDisabled: '#64748b',
+  nodeCompleted: '#0f9f6e',
+  nodeCompletedShadow: 'rgba(15,159,110,0.34)',
   nodeSelected: '#f97316',
   nodeSelectedRing: '#0f172a',
   nodeLegacy: '#ca8a04',
@@ -984,6 +986,7 @@ export function ReferralGraphCanvas({
       const radius = getNodeRadius(node);
       const isPinned = node.fx != null && node.fy != null;
       const isHighlighted = node.highlightType != null;
+      const isCompleted = node.allCommissionsCompleted === true;
       const linkCount = node.referralCount + node.inboundCount;
       const labelPresentation = getReferralGraphLabelPresentation({
         globalScale,
@@ -1001,15 +1004,12 @@ export function ReferralGraphCanvas({
       if (isHighlighted) {
         fillColor = COLORS.nodeHighlight;
         shadowColor = COLORS.nodeHighlightShadow;
-      } else if (isSelected) {
-        fillColor = COLORS.nodeSelected;
-        shadowColor = 'rgba(249,115,22,0.38)';
-      } else if (node.nodeStatus === 'has_active_code') {
+      } else if (isCompleted) {
+        fillColor = COLORS.nodeCompleted;
+        shadowColor = COLORS.nodeCompletedShadow;
+      } else if (node.signupCompleted) {
         fillColor = COLORS.nodeActive;
         shadowColor = 'rgba(234,88,12,0.26)';
-      } else if (node.nodeStatus === 'code_disabled') {
-        fillColor = COLORS.nodeDisabled;
-        shadowColor = 'rgba(100,116,139,0.22)';
       }
 
       if (isSelected && isHighlighted) {
@@ -1028,7 +1028,7 @@ export function ReferralGraphCanvas({
       if (isHighlighted) {
         ctx.beginPath();
         ctx.arc(node.x, node.y, radius, 0, Math.PI * 2);
-        ctx.strokeStyle = COLORS.nodeActive;
+        ctx.strokeStyle = COLORS.nodeHighlight;
         ctx.lineWidth = 1.6 / Math.max(globalScale, 0.85);
         ctx.stroke();
       }

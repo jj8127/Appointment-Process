@@ -21,7 +21,7 @@ import { safeStorage } from '@/lib/safe-storage';
 import { supabase } from '@/lib/supabase';
 import { COLORS, RADIUS, SPACING, TYPOGRAPHY } from '@/lib/theme';
 import { validatePassword } from '@/lib/validation';
-import type { CommissionCompletionStatus } from '@/types/fc';
+import type { CommissionCompletionStatus, LicenseStatus } from '@/types/fc';
 
 const STORAGE_KEY = 'fc-onboarding/signup';
 
@@ -32,6 +32,7 @@ type SignupPayload = {
   email: string;
   phone: string;
   carrier: string;
+  license_statuses?: LicenseStatus[];
   commissionStatus?: CommissionCompletionStatus;
   phoneVerified?: boolean;
   referralCode?: string;
@@ -118,6 +119,7 @@ export default function SignupPasswordScreen() {
           recommender: payload.recommender,
           email: payload.email,
           carrier: payload.carrier,
+          license_statuses: payload.license_statuses,
           commissionStatus: payload.commissionStatus ?? 'none',
           referralCode: payload.referralCode || undefined,
           referralInviterFcId: payload.referralInviterFcId || undefined,

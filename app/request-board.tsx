@@ -2,7 +2,7 @@ import { Feather } from '@expo/vector-icons';
 import * as Clipboard from 'expo-clipboard';
 import { Stack, useFocusEffect, useRouter } from 'expo-router';
 import { MotiView } from 'moti';
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   Alert,
   AppState,
@@ -26,8 +26,9 @@ import { logger } from '@/lib/logger';
 import { fetchMobileUnreadNotificationCount } from '@/lib/mobile-unread-notification-count';
 import { openExternalUrl } from '@/lib/open-external-url';
 import {
+  rbAcceptRequest,
   rbGetRequestList,
-  rbGetRequests,
+  rbRejectRequest,
   type RbRequestListItem,
   type RbRequestSummary,
 } from '@/lib/request-board-api';
@@ -249,6 +250,47 @@ function computeReqStats(
   return { total, pending, reviewPending: 0, inProgress, completed, completedThisMonth, avgDays };
 }
 
+const normalizeRequestStatus = (raw?: string | null) => {
+  const status = String(raw ?? '').trim().toLowerCase();
+  if (status === 'in-progress' || status === 'inprogress') return 'in_progress';
+  return status;
+};
+
+const getRequestProductNames = (request: RbRequestListItem) => {
+  const names = (request.request_products ?? [])
+    .map((item) => item.insurance_products?.name)
+    .filter(Boolean) as string[];
+  return names.length > 0 ? names.join(', ') : '종목 없음';
+};
+
+const getActionableAssignment = (request: RbRequestListItem) => {
+  const assignments = request.request_designers ?? [];
+  return (
+    assignments.find((assignment) => assignment.status === 'pending') ??
+    assignments.find((assignment) => assignment.status === 'accepted') ??
+    assignments.find((assignment) => assignment.status === 'completed') ??
+    assignments[0] ??
+    null
+  );
+};
+
+const getDesignerRequestStatusMeta = (status?: string | null) => {
+  const normalized = normalizeRequestStatus(status);
+  if (normalized === 'pending') {
+    return { label: '수락 대기', color: '#B45309', bg: '#FEF3C7' };
+  }
+  if (normalized === 'accepted' || normalized === 'in_progress') {
+    return { label: '진행중', color: '#2563EB', bg: '#EFF6FF' };
+  }
+  if (normalized === 'completed') {
+    return { label: '완료', color: '#059669', bg: '#ECFDF5' };
+  }
+  if (normalized === 'rejected') {
+    return { label: '거절', color: '#DC2626', bg: '#FEE2E2' };
+  }
+  return { label: normalized || '상태 없음', color: COLORS.gray[600], bg: COLORS.gray[100] };
+};
+
 /* ─── Component ─── */
 
 export default function RequestBoardScreen() {
@@ -270,6 +312,8 @@ export default function RequestBoardScreen() {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [reqStats, setReqStats] = useState<ReqStats>(DEFAULT_REQ_STATS);
+  const [designerRequests, setDesignerRequests] = useState<RbRequestListItem[]>([]);
+  const [designerActionKey, setDesignerActionKey] = useState<string | null>(null);
   const [unreadNotifCount, setUnreadNotifCount] = useState(0);
   const [requestBoardAccessError, setRequestBoardAccessError] = useState<string | null>(null);
   const homeHeaderTitle = buildWelcomeTitle({
@@ -366,9 +410,8 @@ export default function RequestBoardScreen() {
             throw new Error(sync.error ?? '가람Link 세션 동기화에 실패했습니다.');
           }
 
-          const requests = isRequestBoardDesigner
-            ? await rbGetRequests()
-            : await rbGetRequestList();
+          const requests = await rbGetRequestList();
+          setDesignerRequests(isRequestBoardDesigner ? requests : []);
           const computed = computeReqStats(requests, !!isRequestBoardDesigner);
           setReqStats({ loaded: true, ...computed });
         } catch (err) {
@@ -414,6 +457,24 @@ export default function RequestBoardScreen() {
   };
 
   const recentNotifs = notifications.slice(0, 3);
+  const designerQuickRequests = useMemo(
+    () =>
+      designerRequests
+        .map((request) => ({ request, assignment: getActionableAssignment(request) }))
+        .filter(({ assignment }) => {
+          const status = normalizeRequestStatus(assignment?.status);
+          return status === 'pending' || status === 'accepted';
+        })
+        .sort((a, b) => {
+          const aStatus = normalizeRequestStatus(a.assignment?.status);
+          const bStatus = normalizeRequestStatus(b.assignment?.status);
+          if (aStatus === 'pending' && bStatus !== 'pending') return -1;
+          if (aStatus !== 'pending' && bStatus === 'pending') return 1;
+          return new Date(b.request.created_at).getTime() - new Date(a.request.created_at).getTime();
+        })
+        .slice(0, 3),
+    [designerRequests],
+  );
 
   /* ─── Actions ─── */
   const openYoutube = async () => {
@@ -438,6 +499,81 @@ export default function RequestBoardScreen() {
       pathname: '/request-board-requests' as any,
       params: { filter },
     } as any);
+  };
+
+  const openRequestDetail = (requestId: number) => {
+    router.push({
+      pathname: '/request-board-review' as any,
+      params: { id: String(requestId) },
+    } as any);
+  };
+
+  const openCreateRequest = () => {
+    router.push('/request-board-create' as any);
+  };
+
+  const handleDesignerAccept = async (request: RbRequestListItem) => {
+    const assignment = getActionableAssignment(request);
+    if (!assignment || assignment.status !== 'pending') {
+      Alert.alert('처리 불가', '수락할 수 있는 배정을 찾지 못했습니다.');
+      return;
+    }
+
+    const actionKey = `${request.id}:${assignment.id}:accept`;
+    try {
+      setDesignerActionKey(actionKey);
+      const result = await rbAcceptRequest(request.id, assignment.designer_id, assignment.id);
+      if (!result.success) {
+        throw new Error(result.error ?? result.message ?? '수락 처리에 실패했습니다.');
+      }
+      await fetchData();
+    } catch (err) {
+      logger.warn('[request-board] designer accept failed', err);
+      Alert.alert('수락 실패', err instanceof Error ? err.message : '수락 처리에 실패했습니다.');
+    } finally {
+      setDesignerActionKey(null);
+    }
+  };
+
+  const handleDesignerReject = async (request: RbRequestListItem) => {
+    const assignment = getActionableAssignment(request);
+    if (!assignment || (assignment.status !== 'pending' && assignment.status !== 'accepted')) {
+      Alert.alert('처리 불가', '거절할 수 있는 배정을 찾지 못했습니다.');
+      return;
+    }
+
+    const actionKey = `${request.id}:${assignment.id}:reject`;
+    try {
+      setDesignerActionKey(actionKey);
+      const result = await rbRejectRequest(
+        request.id,
+        assignment.designer_id,
+        '모바일에서 거절 처리',
+        assignment.id,
+      );
+      if (!result.success) {
+        throw new Error(result.error ?? result.message ?? '거절 처리에 실패했습니다.');
+      }
+      await fetchData();
+    } catch (err) {
+      logger.warn('[request-board] designer reject failed', err);
+      Alert.alert('거절 실패', err instanceof Error ? err.message : '거절 처리에 실패했습니다.');
+    } finally {
+      setDesignerActionKey(null);
+    }
+  };
+
+  const confirmDesignerReject = (request: RbRequestListItem) => {
+    Alert.alert('의뢰 거절', `${request.customer_name} 고객 의뢰를 거절하시겠습니까?`, [
+      { text: '취소', style: 'cancel' },
+      {
+        text: '거절',
+        style: 'destructive',
+        onPress: () => {
+          void handleDesignerReject(request);
+        },
+      },
+    ]);
   };
 
   const openNotifications = () => {
@@ -564,6 +700,30 @@ export default function RequestBoardScreen() {
             </Pressable>
           </View>
         </MotiView>
+
+        {isRbFcUser && (
+          <MotiView
+            from={{ opacity: 0, translateY: 12 }}
+            animate={{ opacity: 1, translateY: 0 }}
+            transition={{ type: 'timing', duration: 400, delay: 60 }}
+          >
+            <View style={styles.section}>
+              <Pressable
+                style={({ pressed }) => [styles.codeManageCard, pressed && { opacity: 0.7 }]}
+                onPress={openCreateRequest}
+              >
+                <View style={[styles.codeManageIcon, { backgroundColor: '#FFF1E6' }]}>
+                  <Feather name="plus" size={20} color={COLORS.primary} />
+                </View>
+                <View style={styles.codeManageText}>
+                  <Text style={styles.codeManageTitle}>새 설계 요청</Text>
+                  <Text style={styles.codeManageDesc}>고객 기준으로 요청을 작성합니다</Text>
+                </View>
+                <Feather name="chevron-right" size={18} color={COLORS.gray[400]} />
+              </Pressable>
+            </View>
+          </MotiView>
+        )}
 
         {/* Request Stats */}
         {showStats && (
@@ -730,6 +890,144 @@ export default function RequestBoardScreen() {
                   </>
                 )}
               </View>
+            </View>
+          </MotiView>
+        )}
+
+        {showStats && isRequestBoardDesigner && (
+          <MotiView
+            from={{ opacity: 0, translateY: 12 }}
+            animate={{ opacity: 1, translateY: 0 }}
+            transition={{ type: 'timing', duration: 400, delay: 88 }}
+          >
+            <View style={styles.section}>
+              <Pressable
+                style={({ pressed }) => [
+                  styles.designerProgressCard,
+                  pressed && styles.designerProgressCardPressed,
+                ]}
+                onPress={() => openRequests('in_progress')}
+              >
+                <View style={styles.designerProgressIcon}>
+                  <Feather name="tool" size={20} color="#fff" />
+                </View>
+                <View style={styles.designerProgressText}>
+                  <Text style={styles.designerProgressTitle}>설계 진행</Text>
+                  <Text style={styles.designerProgressDesc}>첨부 / 완료 처리</Text>
+                </View>
+                <View style={styles.designerProgressCount}>
+                  <Text style={styles.designerProgressCountText}>{reqStats.inProgress}건</Text>
+                </View>
+                <Feather name="chevron-right" size={18} color="#fff" />
+              </Pressable>
+            </View>
+          </MotiView>
+        )}
+
+        {showStats && isRequestBoardDesigner && (
+          <MotiView
+            from={{ opacity: 0, translateY: 12 }}
+            animate={{ opacity: 1, translateY: 0 }}
+            transition={{ type: 'timing', duration: 400, delay: 90 }}
+          >
+            <View style={styles.section}>
+              <View style={styles.sectionHeader}>
+                <Text style={styles.sectionTitle}>처리할 의뢰</Text>
+                <Pressable onPress={() => openRequests('pending')}>
+                  <Text style={styles.seeAll}>전체보기</Text>
+                </Pressable>
+              </View>
+              {designerQuickRequests.length === 0 ? (
+                <View style={styles.managerQuickEmpty}>
+                  <Feather name="check-circle" size={20} color={COLORS.success} />
+                  <Text style={styles.managerQuickEmptyText}>수락 대기 또는 진행중 의뢰가 없습니다</Text>
+                </View>
+              ) : (
+                <View style={styles.managerQuickList}>
+                  {designerQuickRequests.map(({ request, assignment }) => {
+                    const status = normalizeRequestStatus(assignment?.status);
+                    const meta = getDesignerRequestStatusMeta(status);
+                    const acceptActionKey = `${request.id}:${assignment?.id}:accept`;
+                    const rejectActionKey = `${request.id}:${assignment?.id}:reject`;
+                    const actionBusy =
+                      designerActionKey === acceptActionKey || designerActionKey === rejectActionKey;
+
+                    return (
+                      <View key={`${request.id}-${assignment?.id ?? 'assignment'}`} style={styles.managerQuickCard}>
+                        <View style={styles.managerQuickTop}>
+                          <View style={styles.managerQuickTitleWrap}>
+                            <Text style={styles.managerQuickTitle} numberOfLines={1}>
+                              {request.customer_name} 고객 설계
+                            </Text>
+                            <Text style={styles.managerQuickMeta} numberOfLines={1}>
+                              {getRequestProductNames(request)} · {formatRelativeTime(request.created_at)}
+                            </Text>
+                          </View>
+                          <View style={[styles.managerStatusPill, { backgroundColor: meta.bg }]}>
+                            <Text style={[styles.managerStatusText, { color: meta.color }]}>
+                              {meta.label}
+                            </Text>
+                          </View>
+                        </View>
+                        <View style={styles.managerQuickActions}>
+                          <Pressable
+                            style={({ pressed }) => [
+                              styles.managerActionButton,
+                              pressed && { opacity: 0.78 },
+                            ]}
+                            onPress={() => openRequestDetail(request.id)}
+                            disabled={actionBusy}
+                          >
+                            <Text style={styles.managerActionText}>조회</Text>
+                          </Pressable>
+                          <Pressable
+                            style={({ pressed }) => [
+                              styles.managerActionButton,
+                              styles.managerRejectButton,
+                              pressed && { opacity: 0.78 },
+                              actionBusy && { opacity: 0.5 },
+                            ]}
+                            onPress={() => confirmDesignerReject(request)}
+                            disabled={actionBusy}
+                          >
+                            <Text style={styles.managerRejectText}>
+                              {designerActionKey === rejectActionKey ? '처리중' : '거절'}
+                            </Text>
+                          </Pressable>
+                          {status === 'pending' ? (
+                            <Pressable
+                              style={({ pressed }) => [
+                                styles.managerActionButton,
+                                styles.managerAcceptButton,
+                                pressed && { opacity: 0.78 },
+                                actionBusy && { opacity: 0.5 },
+                              ]}
+                              onPress={() => handleDesignerAccept(request)}
+                              disabled={actionBusy}
+                            >
+                              <Text style={styles.managerAcceptText}>
+                                {designerActionKey === acceptActionKey ? '처리중' : '수락'}
+                              </Text>
+                            </Pressable>
+                          ) : (
+                            <Pressable
+                              style={({ pressed }) => [
+                                styles.managerActionButton,
+                                styles.managerAcceptButton,
+                                pressed && { opacity: 0.78 },
+                              ]}
+                              onPress={() => openRequestDetail(request.id)}
+                              disabled={actionBusy}
+                            >
+                              <Text style={styles.managerAcceptText}>관리</Text>
+                            </Pressable>
+                          )}
+                        </View>
+                      </View>
+                    );
+                  })}
+                </View>
+              )}
             </View>
           </MotiView>
         )}
@@ -1306,6 +1604,152 @@ const styles = StyleSheet.create({
     color: COLORS.text.muted,
     marginTop: 2,
   },
+  designerProgressCard: {
+    minHeight: 78,
+    borderRadius: RADIUS.lg,
+    paddingHorizontal: SPACING.base,
+    paddingVertical: SPACING.md,
+    backgroundColor: COLORS.primary,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: SPACING.md,
+    ...SHADOWS.md,
+  },
+  designerProgressCardPressed: {
+    opacity: 0.86,
+    transform: [{ scale: 0.995 }],
+  },
+  designerProgressIcon: {
+    width: 44,
+    height: 44,
+    borderRadius: 14,
+    backgroundColor: 'rgba(255,255,255,0.2)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  designerProgressText: {
+    flex: 1,
+    minWidth: 0,
+  },
+  designerProgressTitle: {
+    fontSize: TYPOGRAPHY.fontSize.lg,
+    fontWeight: '800' as const,
+    color: '#fff',
+  },
+  designerProgressDesc: {
+    marginTop: 3,
+    fontSize: TYPOGRAPHY.fontSize.sm,
+    color: 'rgba(255,255,255,0.86)',
+  },
+  designerProgressCount: {
+    minWidth: 48,
+    height: 32,
+    borderRadius: 16,
+    paddingHorizontal: SPACING.sm,
+    backgroundColor: '#fff',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  designerProgressCountText: {
+    fontSize: TYPOGRAPHY.fontSize.sm,
+    fontWeight: '800' as const,
+    color: COLORS.primary,
+  },
+
+  /* Designer Quick Actions */
+  managerQuickList: {
+    gap: SPACING.sm,
+  },
+  managerQuickCard: {
+    backgroundColor: '#fff',
+    borderRadius: RADIUS.md,
+    padding: SPACING.base,
+    borderWidth: 1,
+    borderColor: COLORS.border.light,
+    ...SHADOWS.sm,
+  },
+  managerQuickTop: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: SPACING.sm,
+  },
+  managerQuickTitleWrap: {
+    flex: 1,
+    minWidth: 0,
+  },
+  managerQuickTitle: {
+    fontSize: TYPOGRAPHY.fontSize.base,
+    fontWeight: '800' as const,
+    color: COLORS.gray[900],
+  },
+  managerQuickMeta: {
+    marginTop: 3,
+    fontSize: TYPOGRAPHY.fontSize.sm,
+    color: COLORS.text.secondary,
+  },
+  managerStatusPill: {
+    borderRadius: RADIUS.full,
+    paddingHorizontal: SPACING.sm,
+    paddingVertical: 5,
+  },
+  managerStatusText: {
+    fontSize: TYPOGRAPHY.fontSize.xs,
+    fontWeight: '800' as const,
+  },
+  managerQuickActions: {
+    flexDirection: 'row',
+    gap: SPACING.sm,
+    marginTop: SPACING.md,
+  },
+  managerActionButton: {
+    flex: 1,
+    minHeight: 44,
+    borderRadius: RADIUS.md,
+    backgroundColor: COLORS.gray[100],
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: SPACING.sm,
+  },
+  managerActionText: {
+    fontSize: TYPOGRAPHY.fontSize.sm,
+    fontWeight: '800' as const,
+    color: COLORS.gray[800],
+  },
+  managerRejectButton: {
+    borderWidth: 1,
+    borderColor: '#FCA5A5',
+    backgroundColor: '#FEF2F2',
+  },
+  managerRejectText: {
+    fontSize: TYPOGRAPHY.fontSize.sm,
+    fontWeight: '800' as const,
+    color: '#DC2626',
+  },
+  managerAcceptButton: {
+    backgroundColor: COLORS.primary,
+  },
+  managerAcceptText: {
+    fontSize: TYPOGRAPHY.fontSize.sm,
+    fontWeight: '800' as const,
+    color: '#fff',
+  },
+  managerQuickEmpty: {
+    minHeight: 60,
+    borderRadius: RADIUS.md,
+    borderWidth: 1,
+    borderColor: COLORS.border.light,
+    backgroundColor: '#fff',
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: SPACING.sm,
+    paddingHorizontal: SPACING.base,
+  },
+  managerQuickEmptyText: {
+    fontSize: TYPOGRAPHY.fontSize.sm,
+    color: COLORS.text.secondary,
+    fontWeight: '700' as const,
+  },
 
   /* Code Management Card */
   codeManageCard: {
@@ -1318,6 +1762,34 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: COLORS.border.light,
     ...SHADOWS.sm,
+  },
+  createRequestCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: COLORS.primary,
+    borderRadius: RADIUS.md,
+    padding: SPACING.base,
+    gap: SPACING.md,
+    minHeight: 74,
+    ...SHADOWS.base,
+  },
+  createRequestIcon: {
+    width: 40,
+    height: 40,
+    borderRadius: 12,
+    backgroundColor: 'rgba(255,255,255,0.2)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  createRequestTitle: {
+    fontSize: TYPOGRAPHY.fontSize.base,
+    fontWeight: '800' as const,
+    color: '#fff',
+  },
+  createRequestDesc: {
+    fontSize: TYPOGRAPHY.fontSize.sm,
+    color: 'rgba(255,255,255,0.86)',
+    marginTop: 1,
   },
   codeManageIcon: {
     width: 40,

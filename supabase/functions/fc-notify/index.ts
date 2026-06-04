@@ -548,7 +548,7 @@ function getTargetUrl(role: 'admin' | 'fc', payload: Payload, message: string, f
     return '/notifications';
   }
 
-  if (msg.includes('수당동의')) return '/dashboard';
+  if (msg.includes('보증 보험 동의')) return '/dashboard';
   if (msg.includes('한화')) return '/dashboard';
   if (msg.includes('업로드') || msg.includes('제출') || msg.includes('서류')) return `/docs-upload?userId=${fcId}`;
   return '/notifications';
@@ -559,7 +559,7 @@ function buildTitle(fcName: string | null, payload: Payload, message?: string) {
   const msg = (message ?? '').toLowerCase();
 
   if (payload.type === 'admin_update') {
-    if (msg.includes('한화')) return '한화 위촉 안내';
+    if (msg.includes('한화')) return '다위촉 안내';
     if (msg.includes('보험 위촉')) return '생명/손해 위촉 안내';
     if (msg.includes('위촉')) return '생명/손해 위촉 안내';
     if (msg.includes('temp')) return `${name}의 임시번호 안내`;
@@ -572,7 +572,7 @@ function buildTitle(fcName: string | null, payload: Payload, message?: string) {
     return `${name} ${docName} 삭제`;
   }
   if (payload.type === 'fc_update') {
-    if (msg.includes('한화')) return `${name} 한화 위촉 제출`;
+    if (msg.includes('한화')) return `${name} 다위촉 제출`;
     if (msg.includes('기본') || msg.includes('정보')) return `${name} 기본 정보 업데이트`;
     if (msg.includes('temp')) return `${name}의 임시번호 안내`;
     if (msg.includes('서류') || msg.includes('업로드') || msg.includes('upload')) {

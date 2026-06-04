@@ -36,9 +36,9 @@ const ReferralGraphCanvas = dynamic<ReferralGraphCanvasProps>(
 );
 
 const STATUS_FILTERS = [
-  { key: 'has_active_code', label: '사용 중 코드', color: 'orange' },
-  { key: 'code_disabled', label: '사용 중지', color: 'gray' },
-  { key: 'missing_code', label: '코드 없음', color: 'gray' },
+  { key: 'has_active_code', label: '추천코드 있음', color: 'orange' },
+  { key: 'code_disabled', label: '추천코드 중지', color: 'gray' },
+  { key: 'missing_code', label: '추천코드 없음', color: 'gray' },
   { key: 'legacy_unresolved', label: '예전 기록 확인', color: 'yellow' },
 ] as const;
 
@@ -127,6 +127,11 @@ export default function ReferralGraphPage() {
   });
 
   const graphData = graphQuery.data;
+  const isDownlineScope = graphData?.permissions.scope === 'downline';
+  const allowAdminDetail = graphData?.permissions.scope !== 'downline';
+  const highlightLegendLabel = graphData?.permissions.viewerRole === 'fc'
+    ? '현재 로그인한 FC'
+    : '본부장 강조';
   const allNodes = useMemo(() => graphData?.nodes ?? [], [graphData]);
   const allEdges = useMemo(() => graphData?.edges ?? [], [graphData]);
 
@@ -271,6 +276,10 @@ export default function ReferralGraphPage() {
 
     return baseVisibleNodes.filter((node) => focusNodeIds.has(node.id));
   }, [baseVisibleNodes, focusNodeIds]);
+  const visibleCompletedCommissionCount = useMemo(
+    () => visibleNodes.filter((node) => node.allCommissionsCompleted).length,
+    [visibleNodes],
+  );
 
   const visibleNodeIdSet = useMemo(() => new Set(visibleNodes.map((node) => node.id)), [visibleNodes]);
 
@@ -401,24 +410,28 @@ export default function ReferralGraphPage() {
         <Stack gap="sm">
           <Group justify="space-between" wrap="nowrap" align="center">
             <Group gap="xs" wrap="nowrap">
-              <Tooltip label="리스트로 돌아가기" withArrow>
-                <ActionIcon
-                  component={Link}
-                  href="/dashboard/referrals"
-                  variant="subtle"
-                  color="gray"
-                  size="sm"
-                >
-                  <IconArrowLeft size={16} />
-                </ActionIcon>
-              </Tooltip>
+              {!isDownlineScope ? (
+                <Tooltip label="리스트로 돌아가기" withArrow>
+                  <ActionIcon
+                    component={Link}
+                    href="/dashboard/referrals"
+                    variant="subtle"
+                    color="gray"
+                    size="sm"
+                  >
+                    <IconArrowLeft size={16} />
+                  </ActionIcon>
+                </Tooltip>
+              ) : null}
 
               <Box>
                 <Text size="sm" fw={700} c="dark.8">
                   추천인 그래프
                 </Text>
                 <Text size="xs" c="gray.7">
-                  현재 추천인으로 연결된 관계만 보여줍니다. 예전 `recommender` 문자열만 남은 사람은 노드 경고로 따로 표시합니다.
+                  {isDownlineScope
+                    ? '내 추천 관계 하위 조직만 보여줍니다.'
+                    : '현재 추천인으로 연결된 관계만 보여줍니다. 예전 `recommender` 문자열만 남은 사람은 노드 경고로 따로 표시합니다.'}
                 </Text>
               </Box>
             </Group>
@@ -522,10 +535,13 @@ export default function ReferralGraphPage() {
                 </Badge>
               ) : null}
               <Badge color="gray" variant="light">
-                조회 전용
+                {isDownlineScope ? 'FC 전용 범위' : '조회 전용'}
               </Badge>
               <Badge color="gray" variant="light">
                 {visibleNodes.length.toLocaleString('ko-KR')}명
+              </Badge>
+              <Badge color="teal" variant="filled">
+                모든 위촉 완료 {visibleCompletedCommissionCount.toLocaleString('ko-KR')}명
               </Badge>
               <Badge color="gray" variant="light">
                 {visibleEdges.length.toLocaleString('ko-KR')}개 연결
@@ -626,21 +642,68 @@ export default function ReferralGraphPage() {
             boxShadow: '0 18px 36px rgba(15, 23, 42, 0.08)',
           }}
         >
-          <Stack gap={4}>
+          <Stack gap={6}>
             <Text size="xs" fw={700} c="dark.7">
-              범례
+              색상 범례
             </Text>
-            <Group gap={6} wrap="wrap">
-              <Badge color="orange" variant="light">
-                추천인 연결
-              </Badge>
-              <Badge color="yellow" variant="light">
-                예전 기록 확인
-              </Badge>
-                  <Badge color="yellow" variant="filled">
-                    본부장
-                  </Badge>
-            </Group>
+            <Stack gap={4}>
+              <Group gap={6} wrap="nowrap">
+                <Box
+                  style={{
+                    width: 12,
+                    height: 12,
+                    borderRadius: '999px',
+                    flexShrink: 0,
+                    background: '#0f9f6e',
+                  }}
+                />
+                <Text size="xs" c="gray.7">
+                  생명·손해 위촉 모두 완료
+                </Text>
+              </Group>
+              <Group gap={6} wrap="nowrap">
+                <Box
+                  style={{
+                    width: 12,
+                    height: 12,
+                    borderRadius: '999px',
+                    flexShrink: 0,
+                    background: '#ea580c',
+                  }}
+                />
+                <Text size="xs" c="gray.7">
+                  본등록 완료
+                </Text>
+              </Group>
+              <Group gap={6} wrap="nowrap">
+                <Box
+                  style={{
+                    width: 12,
+                    height: 12,
+                    borderRadius: '999px',
+                    flexShrink: 0,
+                    background: '#facc15',
+                  }}
+                />
+                <Text size="xs" c="gray.7">
+                  {highlightLegendLabel}
+                </Text>
+              </Group>
+              <Group gap={6} wrap="nowrap">
+                <Box
+                  style={{
+                    width: 12,
+                    height: 12,
+                    borderRadius: '999px',
+                    flexShrink: 0,
+                    background: '#94a3b8',
+                  }}
+                />
+                <Text size="xs" c="gray.7">
+                  사전등록까지만 한 사람
+                </Text>
+              </Group>
+            </Stack>
           </Stack>
         </Paper>
 
@@ -767,6 +830,7 @@ export default function ReferralGraphPage() {
           setSelectedNodeId(fcId);
           openDrawer();
         }}
+        allowAdminDetail={allowAdminDetail}
         connectedNodes={connectedNodes}
       />
     </Box>

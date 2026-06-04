@@ -1,5 +1,5 @@
 export type GraphNodeStatus = 'has_active_code' | 'missing_code' | 'code_disabled';
-export type GraphNodeHighlightType = 'manager' | 'special';
+export type GraphNodeHighlightType = 'manager' | 'viewer';
 
 export type GraphNode = {
   id: string;
@@ -13,6 +13,10 @@ export type GraphNode = {
   inboundCount: number;
   nodeStatus: GraphNodeStatus;
   isIsolated: boolean;
+  /** 본등록 완료 여부 */
+  signupCompleted: boolean;
+  /** 생명/손해 위촉이 모두 완료된 경우 */
+  allCommissionsCompleted: boolean;
   /** recommender 텍스트만 있고 recommender_fc_id 없는 경우 */
   hasLegacyUnresolved: boolean;
   /** 본부장/운영 예외처럼 그래프에서 강조해야 하는 노드 */
@@ -38,7 +42,12 @@ export type GraphApiResponse = {
   ok: true;
   nodes: GraphNode[];
   edges: GraphEdge[];
-  permissions: { canMutate: boolean };
+  permissions: {
+    canMutate: boolean;
+    scope: 'all' | 'downline';
+    viewerRole: 'admin' | 'manager' | 'fc';
+    rootFcId: string | null;
+  };
 };
 
 export type ReferralGraphPhysicsSettings = {

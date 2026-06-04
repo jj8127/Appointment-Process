@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { getReferralGraphNodeRadius } from './referral-graph-highlight.ts';
+import { getReferralGraphNodeRadius, resolveReferralGraphHighlightType } from './referral-graph-highlight.ts';
 
 test('getReferralGraphNodeRadius keeps low-importance nodes compact for overview readability', () => {
   const radius = getReferralGraphNodeRadius({
@@ -27,4 +27,24 @@ test('getReferralGraphNodeRadius gives hubs visual weight without oversized dots
 
   assert.ok(hubRadius > isolatedRadius);
   assert.ok(hubRadius <= 10.5, `expected bounded hub size, got ${hubRadius}`);
+});
+
+test('resolveReferralGraphHighlightType highlights managers, not Kim Hyeongsu by name alone', () => {
+  assert.equal(
+    resolveReferralGraphHighlightType({
+      name: '김형수',
+      isManagerReferralShadow: false,
+      managerNames: new Set<string>(),
+    }),
+    null,
+  );
+
+  assert.equal(
+    resolveReferralGraphHighlightType({
+      name: '1본부장',
+      isManagerReferralShadow: false,
+      managerNames: new Set(['1본부장']),
+    }),
+    'manager',
+  );
 });

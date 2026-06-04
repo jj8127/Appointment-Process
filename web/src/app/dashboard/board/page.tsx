@@ -127,6 +127,7 @@ const MAX_ATTACHMENTS = 20;
 const resolveCategoryBadgeColor = (categoryName: string): string => {
   if (categoryName === '공지') return 'orange';
   if (categoryName === '교육') return 'blue';
+  if (categoryName === '가람 Pick') return 'pink';
   if (categoryName === '서류') return 'green';
   return 'gray';
 };

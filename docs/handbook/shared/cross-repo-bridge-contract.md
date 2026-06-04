@@ -51,6 +51,11 @@ source_of_truth: supabase/functions/_shared/request-board-auth.ts + supabase/fun
 - 이 helper는 값 trim/normalization을 하지 않는다. caller가 정한 phone/password/name/company/affiliation 값을 그대로 request_board sync body로 전달하는 것이 현재 계약이다.
 - 관리자 웹 session restore는 cookie-first가 우선이다. 유효한 cookie session이 있으면 localStorage snapshot이 drift되어도 먼저 읽어 복원하지 않는다.
 
+## 2026-06-03 관리자 세션 헬퍼 메모
+
+- `web/src/lib/server-session.ts`는 admin-only mutation 경로와 manager 포함 read-only 경로를 분리하기 위해 `getVerifiedAdminSession()`과 `getVerifiedReadOnlyAdminSession()` wrapper를 제공한다.
+- 본부장/manager read-only 경로는 주민번호 full-view 같은 trusted read를 허용할 수 있지만, 쓰기 API는 계속 admin-only helper를 사용해야 한다.
+
 ## 관련 문서
 
 - [security-and-secret-operations.md](E:/hanhwa/fc-onboarding-app/docs/handbook/shared/security-and-secret-operations.md)
