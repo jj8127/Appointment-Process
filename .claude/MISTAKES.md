@@ -30,6 +30,22 @@
 - Verification:
 ```
 
+## 2026-06-05 | Referral Graph | realdata 검증 입력과 production 입력 drift
+- Symptom:
+  - 실제 데이터 graph test가 production canvas와 다르게 link-distance resolver에 endpoint id를 넘기지 않아 crossing/edge-length 지표가 runtime 경로와 어긋날 수 있었다.
+- Root cause:
+  - 테스트 helper가 link object의 source/target 값만 넘겼고, production에서 추가로 쓰는 `sourceId`/`targetId` metadata shape를 복제하지 않았다.
+- Why it was missed:
+  - layout helper의 기본값이 동작해 테스트 자체는 실행됐고, production 입력 shape와 test 입력 shape를 비교하는 guard가 없었다.
+- Permanent guardrail:
+  - graph realdata simulation은 production canvas와 동일한 link metadata object를 넘기고, drag 후 crossing/min-distance/max-edge metrics를 함께 검증한다.
+- Related files:
+  - `web/src/lib/referral-graph-realdata.test.ts`
+  - `web/src/components/referrals/ReferralGraphCanvas.tsx`
+  - `web/src/lib/referral-graph-physics.ts`
+- Verification:
+  - `RUN_REFERRAL_GRAPH_REALDATA_TEST=1 LOG_REFERRAL_GRAPH_CROSSINGS=1 node --test src/lib/referral-graph-realdata.test.ts`
+
 ## 2026-06-03 | GaramIn Payment / Subagent Integration | 계획 계약과 실제 live path가 어긋남
 - Symptom:
   - 가상계좌 v2 계획은 응시자별 토스 회전식 계좌, stored idempotency, `DEPOSIT_CALLBACK` source of truth, 요청 내부 중복 응시자 차단을 요구했지만 초기 통합 diff에는 발급 idempotency 저장 컬럼이 없고 webhook이 event type과 무관하게 상태를 반영했으며, 중복 차단은 순수 helper/test에만 있고 live submit flow에는 없었다.

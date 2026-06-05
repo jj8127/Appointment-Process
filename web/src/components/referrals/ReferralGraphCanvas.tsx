@@ -12,7 +12,6 @@ import { getReferralGraphNodeRadius } from '@/lib/referral-graph-highlight';
 import { getReferralGraphLinkStyle, sortReferralGraphLinksForRendering } from '@/lib/referral-graph-link-style';
 import {
   buildReferralGraphAdjacency,
-  getReferralGraphConnectedNodeIds,
 } from '@/lib/referral-graph-interaction';
 import {
   applyReferralGraphDragSpring,
@@ -29,7 +28,9 @@ import {
   createReferralGraphSiblingAngularForce,
   getReferralGraphMinimumNodeDistance,
   getReferralGraphLinkDistance,
+  isReferralGraphMeaningfulDrag,
   resolveReferralGraphPhysics,
+  type ReferralGraphDragTranslation,
 } from '@/lib/referral-graph-physics';
 import type { GraphEdge, GraphNode, ReferralGraphPhysicsSettings } from '@/types/referral-graph';
 
@@ -225,10 +226,6 @@ function bfsNeighborhood(startId: string, adj: Map<string, Set<string>>, hops: n
   return visited;
 }
 
-function getDragAffectedNodeIds(nodeId: string, adj: Map<string, Set<string>>) {
-  return getReferralGraphConnectedNodeIds(nodeId, adj);
-}
-
 function clamp(value: number, min: number, max: number) {
   return Math.min(max, Math.max(min, value));
 }
@@ -287,7 +284,6 @@ export function ReferralGraphCanvas({
   const userMovedNodeIdsRef = useRef(new Set<string>());
   const userMovedNodeTargetsRef = useRef(new Map<string, GraphLayoutPoint>());
   const dragMemorySuppressedNodeIdsRef = useRef(new Set<string>());
-  const lastDragReheatAtRef = useRef(0);
   const lastResetRequestRef = useRef(resetLayoutRequestId);
   const fitRetryRef = useRef<number | null>(null);
   const settledFitTimerRef = useRef<number | null>(null);
@@ -564,7 +560,9 @@ export function ReferralGraphCanvas({
         physics.linkDistance,
         {
           sourceHasChildren: (graphChildCountByNodeId.get(source) ?? 0) > 0,
+          sourceId: source,
           targetHasChildren: (graphChildCountByNodeId.get(target) ?? 0) > 0,
+          targetId: target,
           sourceChildCount: graphChildCountByNodeId.get(source) ?? 0,
           targetChildCount: graphChildCountByNodeId.get(target) ?? 0,
           sourceSubtreeSize: componentLayout.directedSubtreeSizes.get(source) ?? 1,
@@ -625,33 +623,14 @@ export function ReferralGraphCanvas({
       }),
     );
     fg.d3Force(
-      'sibling-angular',
-      createReferralGraphSiblingAngularForce<RuntimeGraphNode>({
-        links: graphData.links,
-        maxVelocity: 24,
-        strength: 0.58,
-      }),
-    );
-    fg.d3Force(
-      'edge-crossing',
-      createReferralGraphEdgeCrossingForce<RuntimeGraphNode>({
-        activeDraggedNodeIdRef: draggedNodeIdRef,
-        links: graphData.links,
-        maxPairs: 6200,
-        maxVelocity: 10,
-        minDistance: 26,
-        strength: 0.2,
-        suppressedNodeIdsRef: dragMemorySuppressedNodeIdsRef,
-      }),
-    );
-    fg.d3Force(
       'layout-memory',
       createReferralGraphLayoutMemoryForce<RuntimeGraphNode>(
         componentLayout.nodeAnchorPositions,
         Math.max(0.042, physics.layoutMemoryStrength * 0.58),
         {
           activeDraggedNodeIdRef: draggedNodeIdRef,
-          maxTicks: 260,
+          maxTicks: 900,
+          minimumAnchorRatio: 0.45,
           manualNodeTargetsRef: userMovedNodeTargetsRef,
           nodeComponentIndex: componentLayout.nodeComponentIndex,
           suppressedNodeIdsRef: dragMemorySuppressedNodeIdsRef,
@@ -674,9 +653,9 @@ export function ReferralGraphCanvas({
     fg.d3Force(
       'collision',
       forceCollide<FGNode>()
-        .radius((node) => Math.max(28, getNodeRadius(node as GraphNode) + 20))
-        .strength(0.48)
-        .iterations(2),
+        .radius((node) => Math.max(48, getNodeRadius(node as GraphNode) + 32))
+        .strength(0.55)
+        .iterations(3),
     );
     fg.d3Force(
       'cluster-envelope',
@@ -746,6 +725,30 @@ export function ReferralGraphCanvas({
         maxVelocity: 12,
         nodeComponentIndex: componentLayout.nodeComponentIndex,
         strength: 0.135,
+      }),
+    );
+    fg.d3Force(
+      'sibling-angular',
+      createReferralGraphSiblingAngularForce<RuntimeGraphNode>({
+        anchorPositions: componentLayout.nodeAnchorPositions,
+        links: graphData.links,
+        maxVelocity: 58,
+        strength: 0.88,
+      }),
+    );
+    fg.d3Force(
+      'edge-crossing',
+      createReferralGraphEdgeCrossingForce<RuntimeGraphNode>({
+        activeDraggedNodeIdRef: draggedNodeIdRef,
+        anchorCorrectionStrength: 0.045,
+        anchorPositions: componentLayout.nodeAnchorPositions,
+        links: graphData.links,
+        maxPairs: 6200,
+        maxVelocity: 14,
+        minAlpha: 0.006,
+        minDistance: 34,
+        strength: 0.34,
+        suppressedNodeIdsRef: dragMemorySuppressedNodeIdsRef,
       }),
     );
     fg.d3Force('radial-containment', null);
@@ -1232,10 +1235,9 @@ export function ReferralGraphCanvas({
     [onNodeClick],
   );
 
-  const handleNodeDrag = useCallback((rawNode: FGNode) => {
+  const handleNodeDrag = useCallback((rawNode: FGNode, translate?: ReferralGraphDragTranslation) => {
     cancelPanMomentum();
     const node = rawNode as RuntimeGraphNode;
-    const wasDragging = nodeDragActiveRef.current;
     nodeDragActiveRef.current = true;
     draggedNodeIdRef.current = node.id;
     viewportInteractionRef.current = true;
@@ -1243,52 +1245,44 @@ export function ReferralGraphCanvas({
     if (node.x != null && node.y != null) {
       node.fx = node.x;
       node.fy = node.y;
-      const affectedNodeIds = getDragAffectedNodeIds(node.id, adjacency);
-      for (const affectedNodeId of affectedNodeIds) {
-        userMovedNodeTargetsRef.current.delete(affectedNodeId);
+      if (!isReferralGraphMeaningfulDrag(translate)) {
+        return;
       }
+
+      userMovedNodeTargetsRef.current.delete(node.id);
       dragMemorySuppressedNodeIdsRef.current = new Set([
         ...userMovedNodeIdsRef.current,
-        ...affectedNodeIds,
+        node.id,
       ]);
       applyReferralGraphDragSpring(node, runtimeNodeMapRef.current, graphData.links, {
         baseLinkDistance: physics.linkDistance,
         childCountByNodeId: graphChildCountByNodeId,
-        constraintStrength: 1,
+        constraintStrength: 0.42,
         degreeByNodeId: graphDegreeByNodeId,
         graphNodeCount: graphData.nodes.length,
-        maxVelocity: 90,
+        maxVelocity: 42,
         preventStretch: true,
-        stretchSlack: 0,
-        strength: 0.9,
+        stretchSlack: 18,
+        strength: 0.52,
         subtreeSizeByNodeId: componentLayout.directedSubtreeSizes,
-        velocityDamping: 0.85,
+        velocityDamping: 0.76,
       });
-
-      const now = Date.now();
-      if (!wasDragging || now - lastDragReheatAtRef.current > 80) {
-        lastDragReheatAtRef.current = now;
-        graphRef.current?.d3ReheatSimulation();
-      }
     }
-  }, [adjacency, cancelPanMomentum, componentLayout.directedSubtreeSizes, graphChildCountByNodeId, graphData.links, graphData.nodes.length, graphDegreeByNodeId, physics.linkDistance]);
+  }, [cancelPanMomentum, componentLayout.directedSubtreeSizes, graphChildCountByNodeId, graphData.links, graphData.nodes.length, graphDegreeByNodeId, physics.linkDistance]);
 
-  const handleNodeDragEnd = useCallback((rawNode: FGNode) => {
+  const handleNodeDragEnd = useCallback((rawNode: FGNode, translate?: ReferralGraphDragTranslation) => {
     const node = rawNode as RuntimeGraphNode;
     if (node.x != null && node.y != null) {
       node.fx = undefined;
       node.fy = undefined;
-      graphRef.current?.d3ReheatSimulation();
     }
 
     nodeDragActiveRef.current = false;
     draggedNodeIdRef.current = null;
-    const affectedNodeIds = getDragAffectedNodeIds(node.id, adjacency);
-    for (const affectedNodeId of affectedNodeIds) {
-      userMovedNodeIdsRef.current.add(affectedNodeId);
-      userMovedNodeTargetsRef.current.delete(affectedNodeId);
-    }
-    if (node.x != null && node.y != null) {
+    const isMeaningfulDrag = isReferralGraphMeaningfulDrag(translate);
+    if (isMeaningfulDrag && node.x != null && node.y != null) {
+      userMovedNodeIdsRef.current.add(node.id);
+      userMovedNodeTargetsRef.current.delete(node.id);
       userMovedNodeTargetsRef.current.set(node.id, {
         x: node.x,
         y: node.y,
@@ -1301,7 +1295,7 @@ export function ReferralGraphCanvas({
     if (container instanceof HTMLDivElement) {
       container.style.cursor = 'grab';
     }
-  }, [adjacency]);
+  }, []);
 
   const nodeLabel = useCallback(
     (rawNode: FGNode) => {

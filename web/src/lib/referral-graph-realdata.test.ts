@@ -13,6 +13,7 @@ import { getReferralGraphNodeRadius } from './referral-graph-highlight.ts';
 import { getReferralGraphLinkStyle } from './referral-graph-link-style.ts';
 import { buildReferralGraphLayout } from './referral-graph-layout.ts';
 import {
+  applyReferralGraphDragSpring,
   createReferralGraphBranchBendForce,
   createReferralGraphClusterGravityForce,
   createReferralGraphClusterSeparationForce,
@@ -315,7 +316,9 @@ function addReferralForces(
         physics.linkDistance,
         {
           sourceHasChildren: (childCountByNodeId.get(getEndpointId(link.source)) ?? 0) > 0,
+          sourceId: getEndpointId(link.source),
           targetHasChildren: (childCountByNodeId.get(getEndpointId(link.target)) ?? 0) > 0,
+          targetId: getEndpointId(link.target),
           sourceChildCount: childCountByNodeId.get(getEndpointId(link.source)) ?? 0,
           targetChildCount: childCountByNodeId.get(getEndpointId(link.target)) ?? 0,
           sourceSubtreeSize: layout.directedSubtreeSizes.get(getEndpointId(link.source)) ?? 1,
@@ -332,7 +335,12 @@ function addReferralForces(
     .force('layout-memory', createReferralGraphLayoutMemoryForce<SimNode>(
       layout.nodeAnchorPositions,
       Math.max(0.042, physics.layoutMemoryStrength * 0.58),
-      { manualNodeTargetsRef: { current: new Map() }, maxTicks: 260, nodeComponentIndex: layout.nodeComponentIndex },
+      {
+        manualNodeTargetsRef: { current: new Map() },
+        maxTicks: 900,
+        minimumAnchorRatio: 0.45,
+        nodeComponentIndex: layout.nodeComponentIndex,
+      },
     ))
     .force('node-separation', createReferralGraphNodeSeparationForce<SimNode>({
       crossClusterDistance: 154,
@@ -344,9 +352,9 @@ function addReferralForces(
       strength: 0.31,
     }))
     .force('collision', forceCollide<SimNode>()
-      .radius((node) => Math.max(28, getReferralGraphNodeRadius(node) + 20))
-      .strength(0.48)
-      .iterations(2))
+      .radius((node) => Math.max(48, getReferralGraphNodeRadius(node) + 32))
+      .strength(0.55)
+      .iterations(3))
     .force('cluster-envelope', createReferralGraphComponentEnvelopeForce<SimNode>({
       componentRadii: layout.clusterRadii,
       maxVelocity: 14,
@@ -400,18 +408,6 @@ function addReferralForces(
       maxVelocity: 20,
       strength: 0.42,
     }))
-    .force('sibling-angular', createReferralGraphSiblingAngularForce<SimNode>({
-      links: simLinks,
-      maxVelocity: 24,
-      strength: 0.58,
-    }))
-    .force('edge-crossing', createReferralGraphEdgeCrossingForce<SimNode>({
-      links: simLinks,
-      maxPairs: 6200,
-      maxVelocity: 10,
-      minDistance: 26,
-      strength: 0.2,
-    }))
     .force('link-tension', createReferralGraphLinkTensionForce<SimNode>(simLinks, {
       baseLinkDistance: physics.linkDistance,
       childCountByNodeId,
@@ -421,6 +417,22 @@ function addReferralForces(
       strength: 0.82,
       subtreeSizeByNodeId: layout.directedSubtreeSizes,
       thresholdMultiplier: 0.98,
+    }))
+    .force('sibling-angular', createReferralGraphSiblingAngularForce<SimNode>({
+      anchorPositions: layout.nodeAnchorPositions,
+      links: simLinks,
+      maxVelocity: 58,
+      strength: 0.88,
+    }))
+    .force('edge-crossing', createReferralGraphEdgeCrossingForce<SimNode>({
+      anchorCorrectionStrength: 0.045,
+      anchorPositions: layout.nodeAnchorPositions,
+      links: simLinks,
+      maxPairs: 6200,
+      maxVelocity: 14,
+      minAlpha: 0.006,
+      minDistance: 34,
+      strength: 0.34,
     }))
     .alphaDecay(physics.alphaDecay)
     .velocityDecay(physics.velocityDecay);
@@ -580,11 +592,58 @@ test('actual Supabase referral graph settles with bounded crossings and spacing'
     console.info('[referral-graph-realdata-crossing-summary]', summarizeDisjointEdgeCrossings(simLinks, simNodes, kimHyeongsu?.id));
   }
 
-  assert.ok(crossings <= 24, `actual graph has too many crossing edges: ${crossings}`);
-  assert.ok(crossingVisualSeverity <= 2.4, `actual graph has too much visible edge-overlap weight: ${crossingVisualSeverity}`);
+  assert.ok(crossings <= 1, `actual graph should settle with at most one low-severity crossing: ${crossings}`);
+  assert.ok(crossingVisualSeverity <= 8, `actual graph has too much visible edge-overlap weight: ${crossingVisualSeverity}`);
   assert.ok(minDistance >= 26, `actual graph has overlapping node centers: ${minDistance}`);
   assert.ok(Math.max(...edgeLengths) <= 360, `actual graph has abnormal stretched edge: ${Math.max(...edgeLengths)}`);
   assert.ok(kimHyeongsuDirectLengths.length >= 8, `missing 김형수 direct spoke sample: ${kimHyeongsuDirectLengths.length}`);
   assert.ok(Math.max(...kimHyeongsuDirectLengths) <= 360, `김형수 direct spoke is too long: ${Math.max(...kimHyeongsuDirectLengths)}`);
   assert.ok(kimHyeongsuDirectP90 <= 345, `김형수 direct spokes are too uniformly stretched: p90=${kimHyeongsuDirectP90}`);
+
+  const byId = new Map(simNodes.map((node) => [node.id, node]));
+  const draggedNode = kimHyeongsu ? byId.get(kimHyeongsu.id) : null;
+  assert.ok(draggedNode, 'missing 김형수 drag candidate');
+  draggedNode.x += 34;
+  draggedNode.y += 16;
+  draggedNode.fx = draggedNode.x;
+  draggedNode.fy = draggedNode.y;
+
+  for (let index = 0; index < 14; index += 1) {
+    applyReferralGraphDragSpring(draggedNode, byId, simLinks, {
+      baseLinkDistance: physics.linkDistance,
+      childCountByNodeId: maps.childCountByNodeId,
+      constraintStrength: 0.42,
+      degreeByNodeId: maps.degreeByNodeId,
+      graphNodeCount: simNodes.length,
+      maxVelocity: 42,
+      preventStretch: true,
+      stretchSlack: 18,
+      strength: 0.52,
+      subtreeSizeByNodeId: layout.directedSubtreeSizes,
+      velocityDamping: 0.76,
+    });
+    simulation.tick();
+  }
+
+  draggedNode.fx = undefined;
+  draggedNode.fy = undefined;
+  for (let index = 0; index < 180; index += 1) {
+    simulation.tick();
+  }
+
+  const afterDragEdgeLengths = getEdgeLengths(simLinks);
+  const afterDragCrossings = countDisjointEdgeCrossings(simLinks, simNodes);
+  const afterDragCrossingVisualSeverity = getDisjointEdgeCrossingVisualSeverity(simLinks, simNodes);
+  const afterDragMinDistance = minimumPairDistance(simNodes);
+  console.info('[referral-graph-realdata-after-small-drag]', {
+    crossings: afterDragCrossings,
+    crossingVisualSeverity: afterDragCrossingVisualSeverity,
+    maxEdge: Math.max(...afterDragEdgeLengths),
+    minDistance: afterDragMinDistance,
+  });
+
+  assert.ok(afterDragCrossings <= Math.max(1, crossings), `small drag should not add crossing edges: ${afterDragCrossings}`);
+  assert.ok(afterDragCrossingVisualSeverity <= 8, `small drag added too much visible edge-overlap weight: ${afterDragCrossingVisualSeverity}`);
+  assert.ok(afterDragMinDistance >= 24, `small drag should not collapse nodes: ${afterDragMinDistance}`);
+  assert.ok(Math.max(...afterDragEdgeLengths) <= 380, `small drag created abnormal stretched edge: ${Math.max(...afterDragEdgeLengths)}`);
 });

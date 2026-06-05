@@ -7,6 +7,27 @@
 
 ---
 
+
+## <a id="20260605-referral-graph-realdata-zero-crossing-closeout"></a> 2026-06-05 | Referral graph realdata zero-crossing closeout
+
+**배경**:
+- 추천인 그래프의 실제 데이터 배치에서 노드/엣지 겹침과 drag 후 비정상적으로 길어지는 edge가 반복 보고됐다.
+- production canvas와 realdata 검증 helper가 link-distance 입력 shape를 다르게 넘기는 drift가 있어 테스트 지표가 실제 경로를 정확히 대변하지 못할 수 있었다.
+
+**조치**:
+- production/test link-distance 호출 모두에 `sourceId`/`targetId`를 넘기도록 맞춰 실제 데이터 시뮬레이션 계약을 고정했다.
+- drag 중 component bulk translation과 alpha 재가열을 제거하고, 작은 drag는 의미 있는 drag로 처리하지 않도록 안정화했다.
+- branch/leaf distance, sibling angular force, edge crossing force, link style 테스트를 보강해 직선 edge와 최소 간격 기준을 유지하도록 했다.
+
+**검증**:
+- 통과: `node --test src/lib/referral-graph-layout.test.ts src/lib/referral-graph-physics.test.ts src/lib/referral-graph-link-style.test.ts src/lib/referral-graph-simulation.test.ts`
+- 통과: `RUN_REFERRAL_GRAPH_REALDATA_TEST=1 LOG_REFERRAL_GRAPH_CROSSINGS=1 node --test src/lib/referral-graph-realdata.test.ts`
+- 통과: targeted graph lint
+- 통과: `SENTRY_AUTH_TOKEN='' npm run build` in `web/`
+
+**리스크/후속**:
+- 실제 운영 데이터가 더 커지면 전체 force graph 대신 선택 subtree/layout mode가 필요할 수 있다. 현재 commit은 현 실제 데이터 기준 zero-crossing과 drag 안정성 회귀 방어에 집중했다.
+
 ## <a id="20260604-admin-web-graph-session-and-exam-schedule-fixes"></a> 2026-06-04 | Admin web graph session and exam schedule fixes
 
 **배경**:

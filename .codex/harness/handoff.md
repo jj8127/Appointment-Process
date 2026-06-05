@@ -1007,3 +1007,9 @@ npm test -- --runInBand
   - No direct Android UI tap-through or live exam submission.
 - Resume note:
   - In a 본부장 login session, open the bottom `시험` tab. Expected links are `생명/제3 시험 신청` and `손해 시험 신청`, both entering the FC-style application screens.
+
+## Increment 41 - Referral Graph Realdata Closeout
+
+- Graph-only commit scope: referral graph canvas, graph layout/physics/link-style helpers, and graph tests.
+- Key correction: realdata tests now pass `sourceId`/`targetId` into the same link-distance path used by production.
+- Keep unrelated dirty app/web/request-board changes out of this graph commit.

@@ -23,40 +23,32 @@ function makeNode(id: string, overrides: Partial<GraphNode> = {}): GraphNode {
   };
 }
 
-test('root hub direct spokes render as quieter background edges', () => {
+test('regular graph edges render with one consistent visible style', () => {
   const root = makeNode('root', { referralCount: 24 });
-  const leaf = makeNode('leaf', { inboundCount: 1 });
-
-  const style = getReferralGraphLinkStyle(root, leaf);
-
-  assert.equal(style.layer, 'background');
-  assert.ok(style.alpha < 0.36, `root spoke should be visually quieter: ${style.alpha}`);
-  assert.ok(style.width < 1, `root spoke should be thinner: ${style.width}`);
-});
-
-test('branch-local edges render above root spokes for group readability', () => {
+  const rootLeaf = makeNode('root-leaf', { inboundCount: 1 });
   const branch = makeNode('branch', { inboundCount: 1, referralCount: 4 });
-  const leaf = makeNode('leaf');
+  const branchLeaf = makeNode('branch-leaf');
 
-  const style = getReferralGraphLinkStyle(branch, leaf);
+  const rootSpokeStyle = getReferralGraphLinkStyle(root, rootLeaf);
+  const branchStyle = getReferralGraphLinkStyle(branch, branchLeaf);
 
-  assert.equal(style.layer, 'foreground');
-  assert.ok(style.alpha >= 0.46, `branch edge should remain readable: ${style.alpha}`);
-  assert.ok(style.width >= 1, `branch edge should remain normal width: ${style.width}`);
+  assert.deepEqual(rootSpokeStyle, branchStyle);
+  assert.equal(rootSpokeStyle.layer, 'foreground');
+  assert.ok(rootSpokeStyle.alpha >= 0.6, `edge should be visible, got alpha=${rootSpokeStyle.alpha}`);
+  assert.ok(rootSpokeStyle.width >= 1.15, `edge should be visible, got width=${rootSpokeStyle.width}`);
 });
 
-test('selected root spokes regain focus styling', () => {
+test('selected edges keep the same stroke color and width contract as regular edges', () => {
   const root = makeNode('root', { referralCount: 24 });
   const leaf = makeNode('leaf');
 
-  const style = getReferralGraphLinkStyle(root, leaf, { isSelectionEdge: true });
+  const regularStyle = getReferralGraphLinkStyle(root, leaf);
+  const selectedStyle = getReferralGraphLinkStyle(root, leaf, { isSelectionEdge: true });
 
-  assert.equal(style.layer, 'foreground');
-  assert.ok(style.alpha >= 0.78, `selected edge should be prominent: ${style.alpha}`);
-  assert.ok(style.width > 1.3, `selected edge should be thicker: ${style.width}`);
+  assert.deepEqual(selectedStyle, regularStyle);
 });
 
-test('render sort draws root spokes before branch-local edges', () => {
+test('render sort is deterministic when every edge uses the same layer', () => {
   const root = makeNode('root', { referralCount: 24 });
   const branch = makeNode('branch', { inboundCount: 1, referralCount: 4 });
   const leaf = makeNode('leaf', { inboundCount: 1 });
@@ -67,5 +59,5 @@ test('render sort draws root spokes before branch-local edges', () => {
     { id: 'root__branch', referralCode: null, source: 'root', target: 'branch' },
   ], nodesById);
 
-  assert.deepEqual(sorted.map((edge) => edge.id), ['root__branch', 'branch__leaf']);
+  assert.deepEqual(sorted.map((edge) => edge.id), ['branch__leaf', 'root__branch']);
 });

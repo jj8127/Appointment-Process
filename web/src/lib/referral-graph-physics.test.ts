@@ -14,6 +14,7 @@ import {
   createReferralGraphSiblingAngularForce,
   getReferralGraphLinkDistance,
   getReferralGraphMinimumNodeDistance,
+  isReferralGraphMeaningfulDrag,
   resolveReferralGraphPhysics,
 } from './referral-graph-physics.ts';
 
@@ -119,32 +120,32 @@ test('createReferralGraphLayoutMemoryForce keeps manual drag targets alive after
 test('getReferralGraphLinkDistance gives short leaf spokes and long hub bridges', () => {
   const baseDistance = 250;
 
-  assert.equal(getReferralGraphLinkDistance(1, 12, baseDistance), 90);
-  assert.equal(getReferralGraphLinkDistance(2, 8, baseDistance), 110);
+  assert.ok(getReferralGraphLinkDistance(1, 12, baseDistance) <= 135);
+  assert.ok(getReferralGraphLinkDistance(2, 8, baseDistance) <= 135);
   assert.equal(getReferralGraphLinkDistance(7, 10, baseDistance), 205);
-  assert.equal(getReferralGraphLinkDistance(3, 2, baseDistance, {
+  assert.ok(getReferralGraphLinkDistance(3, 2, baseDistance, {
     sourceHasChildren: true,
     targetHasChildren: true,
-  }), 95);
-  assert.equal(getReferralGraphLinkDistance(6, 3, baseDistance, {
+  }) >= 220);
+  assert.ok(getReferralGraphLinkDistance(6, 3, baseDistance, {
     sourceHasChildren: true,
     targetHasChildren: true,
-  }), 125);
-  assert.equal(getReferralGraphLinkDistance(6, 6, baseDistance, {
+  }) >= 220);
+  assert.ok(getReferralGraphLinkDistance(6, 6, baseDistance, {
     sourceHasChildren: true,
     targetHasChildren: true,
-  }), 155);
-  assert.equal(getReferralGraphLinkDistance(2, 2, baseDistance, {
+  }) >= 220);
+  assert.ok(getReferralGraphLinkDistance(2, 2, baseDistance, {
     sourceHasChildren: true,
     targetHasChildren: true,
-  }), 73);
-  assert.equal(getReferralGraphLinkDistance(2, 1, baseDistance, {
+  }) >= 220);
+  assert.ok(getReferralGraphLinkDistance(2, 1, baseDistance, {
     sourceHasChildren: true,
     targetHasChildren: false,
-  }), 90);
+  }) <= 135);
 });
 
-test('getReferralGraphLinkDistance expands crowded hub spokes by child fanout', () => {
+test('getReferralGraphLinkDistance keeps sparse leaves short and lengthens crowded leaf fans only as needed', () => {
   const baseDistance = 250;
 
   const sparseSpoke = getReferralGraphLinkDistance(8, 1, baseDistance, {
@@ -160,9 +161,34 @@ test('getReferralGraphLinkDistance expands crowded hub spokes by child fanout', 
     graphNodeCount: 180,
   });
 
-  assert.ok(sparseSpoke < crowdedSpoke, `crowded hub should use longer spokes: ${sparseSpoke} vs ${crowdedSpoke}`);
-  assert.ok(crowdedSpoke >= 330, `crowded hub spoke should reserve generous label/node space, got ${crowdedSpoke}`);
-  assert.ok(crowdedSpoke <= 520, `crowded hub spoke should stay bounded, got ${crowdedSpoke}`);
+  assert.ok(sparseSpoke <= 150, `sparse terminal leaf spoke should remain short, got ${sparseSpoke}`);
+  assert.ok(crowdedSpoke >= 250, `crowded terminal leaf spoke should reserve fan space, got ${crowdedSpoke}`);
+  assert.ok(crowdedSpoke <= 285, `crowded terminal leaf spoke should stay below branch bridge lengths, got ${crowdedSpoke}`);
+});
+
+test('getReferralGraphLinkDistance staggers terminal leaf lengths by link id within a short range', () => {
+  const baseDistance = 250;
+  const distances = Array.from({ length: 12 }, (_, index) => getReferralGraphLinkDistance(12, 1, baseDistance, {
+    sourceHasChildren: true,
+    sourceChildCount: 12,
+    sourceId: 'hub',
+    targetHasChildren: false,
+    targetId: `leaf-${index}`,
+    graphNodeCount: 185,
+  }));
+  const repeated = getReferralGraphLinkDistance(12, 1, baseDistance, {
+    sourceHasChildren: true,
+    sourceChildCount: 12,
+    sourceId: 'hub',
+    targetHasChildren: false,
+    targetId: 'leaf-0',
+    graphNodeCount: 185,
+  });
+
+  assert.equal(distances[0], repeated, 'terminal leaf jitter must be stable for the same link id');
+  assert.ok(Math.max(...distances) <= 285, `terminal leaf jitter should stay bounded, got ${distances.join(',')}`);
+  assert.ok(Math.min(...distances) >= 220, `crowded terminal leaf jitter should reserve space outside the hub, got ${distances.join(',')}`);
+  assert.ok(Math.max(...distances) - Math.min(...distances) >= 18, `terminal leaves should have slightly varied lengths, got ${distances.join(',')}`);
 });
 
 test('getReferralGraphMinimumNodeDistance grows enough for admin-sized graphs', () => {
@@ -170,25 +196,27 @@ test('getReferralGraphMinimumNodeDistance grows enough for admin-sized graphs', 
   assert.ok(getReferralGraphMinimumNodeDistance(180) >= 124);
 });
 
-test('getReferralGraphLinkDistance grows spokes when minimum node spacing cannot fit on the ring', () => {
+test('getReferralGraphLinkDistance grows child-hub bridges when minimum node spacing needs it', () => {
   const baseDistance = 250;
 
-  const moderateFanout = getReferralGraphLinkDistance(12, 1, baseDistance, {
+  const moderateFanout = getReferralGraphLinkDistance(12, 3, baseDistance, {
     sourceHasChildren: true,
-    targetHasChildren: false,
+    targetHasChildren: true,
     sourceChildCount: 12,
+    targetChildCount: 3,
     graphNodeCount: 80,
   });
-  const denseFanout = getReferralGraphLinkDistance(28, 1, baseDistance, {
+  const denseFanout = getReferralGraphLinkDistance(28, 10, baseDistance, {
     sourceHasChildren: true,
-    targetHasChildren: false,
+    targetHasChildren: true,
     sourceChildCount: 28,
+    targetChildCount: 10,
     graphNodeCount: 180,
   });
 
-  assert.ok(denseFanout > moderateFanout, `dense fanout should expand beyond moderate fanout: ${denseFanout} <= ${moderateFanout}`);
-  assert.ok(denseFanout >= 320, `dense fanout should still reserve node spacing, got ${denseFanout}`);
-  assert.ok(denseFanout <= 340, `dense fanout should stay bounded instead of creating a long ring, got ${denseFanout}`);
+  assert.ok(denseFanout > moderateFanout, `dense child-hub bridge should expand beyond moderate bridge: ${denseFanout} <= ${moderateFanout}`);
+  assert.ok(denseFanout >= 340, `dense child-hub bridge should reserve node spacing, got ${denseFanout}`);
+  assert.ok(denseFanout <= 360, `dense child-hub bridge should stay bounded, got ${denseFanout}`);
 });
 
 test('getReferralGraphLinkDistance gives subtree hubs more bridge space than leaf spokes', () => {
@@ -214,6 +242,32 @@ test('getReferralGraphLinkDistance gives subtree hubs more bridge space than lea
   assert.ok(hubBridge >= 205, `subtree hub bridge should reserve branch space, got ${hubBridge}`);
 });
 
+test('getReferralGraphLinkDistance keeps crowded terminal leaf edges shorter than child-hub edges', () => {
+  const baseDistance = 250;
+  const terminalLeaf = getReferralGraphLinkDistance(12, 1, baseDistance, {
+    sourceHasChildren: true,
+    targetHasChildren: false,
+    sourceChildCount: 12,
+    targetChildCount: 0,
+    sourceSubtreeSize: 34,
+    targetSubtreeSize: 1,
+    graphNodeCount: 185,
+  });
+  const childHub = getReferralGraphLinkDistance(12, 2, baseDistance, {
+    sourceHasChildren: true,
+    targetHasChildren: true,
+    sourceChildCount: 12,
+    targetChildCount: 1,
+    sourceSubtreeSize: 34,
+    targetSubtreeSize: 4,
+    graphNodeCount: 185,
+  });
+
+  assert.ok(terminalLeaf <= 285, `terminal leaf should stay bounded, got ${terminalLeaf}`);
+  assert.ok(childHub >= 220, `child hub should have enough bridge space, got ${childHub}`);
+  assert.ok(childHub >= terminalLeaf + 35, `child hub edge should be visibly longer: hub=${childHub}, leaf=${terminalLeaf}`);
+});
+
 test('getReferralGraphLinkDistance lengthens crowded branch bridges only when local fanout needs it', () => {
   const baseDistance = 250;
 
@@ -234,7 +288,7 @@ test('getReferralGraphLinkDistance lengthens crowded branch bridges only when lo
     graphNodeCount: 180,
   });
 
-  assert.ok(sparseBridge <= 155, `sparse branch bridge should remain compact, got ${sparseBridge}`);
+  assert.ok(sparseBridge >= 220, `sparse branch bridge should still be longer than terminal leaves, got ${sparseBridge}`);
   assert.ok(crowdedBridge >= 320, `crowded branch bridge should reserve space, got ${crowdedBridge}`);
 });
 
@@ -273,15 +327,69 @@ test('drag spring can prevent stretched edges along the dragged chain', () => {
   const middleToLeaf = Math.hypot(middle.x - leaf.x, middle.y - leaf.y);
   const rootTargetDistance = getReferralGraphLinkDistance(1, 2, baseDistance, {
     sourceHasChildren: true,
+    sourceId: 'root',
     targetHasChildren: true,
+    targetId: 'middle',
+    sourceChildCount: 1,
+    targetChildCount: 1,
   });
   const leafTargetDistance = getReferralGraphLinkDistance(2, 1, baseDistance, {
     sourceHasChildren: true,
+    sourceChildCount: 1,
+    sourceId: 'middle',
     targetHasChildren: false,
+    targetChildCount: 0,
+    targetId: 'leaf',
   });
 
   assert.ok(rootToMiddle <= rootTargetDistance + 0.001, `root edge stretched to ${rootToMiddle}`);
   assert.ok(middleToLeaf <= leafTargetDistance + 0.001, `leaf edge stretched to ${middleToLeaf}`);
+});
+
+test('drag spring does not propagate slight drags into unrelated deep stretched links', () => {
+  const baseDistance = 250;
+  const nodes = new Map([
+    ['root', { id: 'root', x: 20, y: 0, vx: 0, vy: 0, fx: 20, fy: 0 }],
+    ['middle', { id: 'middle', x: 200, y: 0, vx: 0, vy: 0 }],
+    ['leaf', { id: 'leaf', x: 620, y: 0, vx: 0, vy: 0 }],
+  ]);
+  const links = [
+    { source: 'root', target: 'middle' },
+    { source: 'middle', target: 'leaf' },
+  ];
+  const degreeByNodeId = new Map([
+    ['root', 1],
+    ['middle', 2],
+    ['leaf', 1],
+  ]);
+  const childCountByNodeId = new Map([
+    ['root', 1],
+    ['middle', 1],
+    ['leaf', 0],
+  ]);
+
+  applyReferralGraphDragSpring(nodes.get('root')!, nodes, links, {
+    baseLinkDistance: baseDistance,
+    childCountByNodeId,
+    constraintStrength: 1,
+    degreeByNodeId,
+    preventStretch: true,
+    stretchSlack: 0,
+  });
+
+  const middle = nodes.get('middle')!;
+  const leaf = nodes.get('leaf')!;
+
+  assert.equal(middle.x, 200);
+  assert.equal(leaf.x, 620);
+});
+
+test('isReferralGraphMeaningfulDrag ignores grab-only and tiny drag gestures', () => {
+  assert.equal(isReferralGraphMeaningfulDrag(undefined), false);
+  assert.equal(isReferralGraphMeaningfulDrag({ x: 0, y: 0 }), false);
+  assert.equal(isReferralGraphMeaningfulDrag({ x: 2, y: 3 }), false);
+  assert.equal(isReferralGraphMeaningfulDrag({ x: 7, y: 4 }), true);
+  assert.equal(isReferralGraphMeaningfulDrag({ x: -9, y: 0 }), true);
 });
 
 test('createReferralGraphClusterSeparationForce pushes overlapping visual clusters apart', () => {

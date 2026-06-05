@@ -2530,3 +2530,10 @@ Reason: user previously deferred direct phone manipulation; this pass verified c
 - 본부장 시험 탭 now resolves to FC apply quick links: `/exam-apply`, `/exam-apply2`.
 - `/exam-apply` and `/exam-apply2` now enable round/application queries for FC and read-only manager sessions.
 - Writable admin remains on management links and summary cards.
+
+## Increment 41 - Referral Graph Realdata Closeout
+
+- Graph unit suite passed: `node --test src/lib/referral-graph-layout.test.ts src/lib/referral-graph-physics.test.ts src/lib/referral-graph-link-style.test.ts src/lib/referral-graph-simulation.test.ts`.
+- Realdata suite passed: `RUN_REFERRAL_GRAPH_REALDATA_TEST=1 LOG_REFERRAL_GRAPH_CROSSINGS=1 node --test src/lib/referral-graph-realdata.test.ts` with 187 nodes, 103 edges, 0 crossings, min distance above 93px, and stable small-drag metrics.
+- Targeted graph lint passed.
+- Web production build passed with Sentry upload disabled; only existing OpenTelemetry/Turbopack warnings remained.

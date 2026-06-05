@@ -12,42 +12,21 @@ type ReferralGraphLinkStyleOptions = {
   isSelectionEdge?: boolean;
 };
 
-const ROOT_SPOKE_CHILD_THRESHOLD = 12;
-
-export function isReferralGraphRootSpoke(source: GraphNode, target: GraphNode) {
-  return (
-    source.inboundCount === 0
-    && source.referralCount >= ROOT_SPOKE_CHILD_THRESHOLD
-    && target.inboundCount >= 1
-  );
-}
+const UNIFORM_LINK_STYLE: ReferralGraphLinkStyle = {
+  alpha: 0.64,
+  layer: 'foreground',
+  width: 1.2,
+};
 
 export function getReferralGraphLinkStyle(
   source: GraphNode,
   target: GraphNode,
   options: ReferralGraphLinkStyleOptions = {},
 ): ReferralGraphLinkStyle {
-  if (options.isSelectionEdge) {
-    return {
-      alpha: 0.86,
-      layer: 'foreground',
-      width: 1.82,
-    };
-  }
-
-  if (isReferralGraphRootSpoke(source, target)) {
-    return {
-      alpha: 0.2,
-      layer: 'background',
-      width: 0.62,
-    };
-  }
-
-  return {
-    alpha: 0.52,
-    layer: 'foreground',
-    width: 1.08,
-  };
+  void source;
+  void target;
+  void options;
+  return UNIFORM_LINK_STYLE;
 }
 
 export function getReferralGraphLinkLayerRank(layer: ReferralGraphLinkRenderLayer) {
