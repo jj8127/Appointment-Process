@@ -17,6 +17,12 @@
 - ⚠️ 상태값(`types/fc.ts`)과 화면 분기 조건은 반드시 함께 수정
 - ⚠️ 스키마 변경은 `schema.sql` + `migrations/*.sql` 동시 관리
 
+## 2026-06-05
+
+| 날짜 | 작업 | 주요 파일 | 상세 |
+|---|---|---|---|
+| 06-05 | admin_web preview가 Next 16 middleware packaging 단계에서 `.next/server/middleware.js.nft.json`을 찾다 실패한 원인을 확인하고 `middleware.ts`를 `proxy.ts` convention으로 마이그레이션 | `web/proxy.ts`, `web/middleware.ts`, `.claude/MISTAKES.md`, `.claude/WORK_DETAIL.md` | [→ 상세](WORK_DETAIL.md#20260605-admin-web-next16-proxy-vercel-fix) |
+
 ## 최근 작업
 | 날짜 | 작업 | 핵심 파일 | 상세 |
 |------|------|----------|------|

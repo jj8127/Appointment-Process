@@ -1411,6 +1411,15 @@
 - Related files: `app/referral.tsx`, `app/signup.tsx`, `lib/referral-share.ts`, `lib/signup-referral.ts`
 - Verification: `npx jest lib\__tests__\referral-share.test.ts lib\__tests__\signup-referral.test.ts --runInBand`, focused Expo lint
 
+## 2026-06-05 | Admin Web Next 16 Proxy | Vercel packaging에서 deprecated middleware output을 기대
+- Symptom: Vercel `admin_web` preview가 build 막바지에 `ENOENT: no such file or directory, open '/vercel/path1/.next/server/middleware.js.nft.json'`로 실패했다.
+- Root cause: `web`이 Next.js 16인데 route boundary 파일을 여전히 `middleware.ts` + `export function middleware`로 유지했다. Next 16 convention은 `proxy.ts` + `export function proxy`이고, Vercel packaging 단계가 middleware nft output을 찾으며 실패했다.
+- Why it was missed: 로컬 `npm run build`만으로는 Vercel packaging 단계의 missing nft file을 재현하지 못했고, Next 16 migration convention을 preview 배포 검증 항목에 넣지 않았다.
+- Permanent guardrail: Next.js 16 admin web에서 route gate/proxy boundary는 `web/proxy.ts`와 `export function proxy`를 사용한다. Vercel 배포 실패를 닫기 전에는 `vercel inspect <deployment> --logs`로 원격 packaging 오류를 확인하고, 가능하면 `npx vercel build`까지 로컬에서 실행한다.
+- Related files: `web/proxy.ts`, `web/middleware.ts`
+- Verification: `cd web; SENTRY_AUTH_TOKEN='' npm run build`, `cd web; npm run lint`, `node scripts/ci/check-governance.mjs`; remote failure evidence from `vercel inspect <deployment> --logs`.
+- Local Vercel CLI note: `npx vercel build` inside `web` can double-apply `rootDirectory=web` and fail with local Windows `cmd.exe ENOENT`; do not treat that as the same failure as Vercel remote `middleware.js.nft.json`.
+
 ## 2026-06-04 | Exam Schedule Notifications | 시험 일정 알림을 `fc-notify` 대신 직접 Expo push로 보내려 함
 - Symptom: 총무가 관리자 웹에서 시험 일정을 등록/수정해도 FC 모바일 알림이 안정적으로 도착하지 않는다고 보고됐다.
 - Root cause: `web/src/app/dashboard/exam/schedule/actions.ts`가 shared notification contract인 `fc-notify`를 쓰지 않고 `notifications` direct insert, `device_tokens` direct query, Expo push direct send를 자체 구현했다.

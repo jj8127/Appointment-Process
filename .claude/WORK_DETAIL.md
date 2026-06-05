@@ -7,6 +7,30 @@
 
 ---
 
+## <a id="20260605-admin-web-next16-proxy-vercel-fix"></a> 2026-06-05 | admin_web Next 16 proxy Vercel fix
+
+**배경**:
+- Vercel `admin_web` preview가 branch `codex/referral-rollout-closeout`, commit `b94b39a`에서 실패했다.
+- Vercel build log의 실제 오류는 `Error: ENOENT: no such file or directory, open '/vercel/path1/.next/server/middleware.js.nft.json'`였다.
+- 로컬 `web` build/lint는 통과했지만, Vercel packaging 단계에서 Next 16 middleware output convention과 맞지 않아 실패했다.
+
+**조치**:
+- Next.js 16 문서 기준으로 deprecated `web/middleware.ts`를 `web/proxy.ts`로 옮기고 exported function을 `middleware`에서 `proxy`로 변경했다.
+- 기존 `handleAdminWebProxyRequest` handler와 matcher 계약은 그대로 유지했다.
+
+**검증**:
+- 통과: `cd web; SENTRY_AUTH_TOKEN='' npm run build`
+- 통과: `cd web; npm run lint`
+- 통과: `node scripts/ci/check-governance.mjs`
+- 확인: `vercel inspect admin-k2pv6b9bq-jun-jeongs-projects.vercel.app --logs`로 원격 실패 원인이 `middleware.js.nft.json` 누락임을 확인했다.
+
+**미실행/제약**:
+- `cd web; npx vercel build --scope team_vBI5EHfDQ4dRPKOzgsYTunsG`는 로컬 Windows CLI에서 linked project의 `rootDirectory=web`를 다시 적용해 `web\web`을 찾고 `spawn C:\WINDOWS\system32\cmd.exe ENOENT`로 중단됐다. 이는 원격 실패 로그의 `middleware.js.nft.json`와 다른 로컬 CLI 실행 제약이다.
+- 최종 확인은 이 커밋 push 후 Vercel preview 재배포 로그로 수행한다.
+
+**운영 메모**:
+- Next 16에서는 middleware filename/export migration 여부까지 Vercel preview 검증에 포함해야 한다.
+
 ## <a id="20260605-referral-graph-realdata-zero-crossing-closeout"></a> 2026-06-05 | Referral graph realdata zero-crossing closeout
 
 **배경**:
