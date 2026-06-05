@@ -2,7 +2,7 @@ doc_id: FC-BACKEND-NOTIFY-PUSH
 owner_repo: fc-onboarding-app
 owner_area: backend
 audience: developer, operator
-last_verified: 2026-05-21
+last_verified: 2026-06-05
 source_of_truth: supabase/functions/fc-notify/index.ts + supabase/functions/board-create/index.ts + supabase/functions/board-update/index.ts + web/src/app/actions.ts + web/src/app/api/admin/push/route.ts + web/src/app/api/web-push/subscribe/route.ts
 
 # Backend Runbook: Notifications, Inbox, And Push
@@ -20,6 +20,7 @@ source_of_truth: supabase/functions/fc-notify/index.ts + supabase/functions/boar
 - `fc-notify`가 notification persistence와 push fanout의 중심입니다.
 - admin web push는 `/api/admin/push`와 subscription registry를 통해 보조됩니다.
 - request_board bridge unread는 admin/developer session에서 `requestBoardRole='fc'`일 때 함께 합산될 수 있습니다.
+- 설계매니저 가람in 모바일 push/unread는 request_board 관련 알림과 본인에게 직접 온 내부 채팅 알림으로 제한합니다. 게시판, 공지, 시험, FC 온보딩 broadcast는 manager 모바일 토큰으로 fanout하지 않습니다.
 - Expo push API는 한 요청에 최대 100개 payload만 허용하므로 `fc-notify`는 mobile push payload를 100개 단위로 chunk 전송합니다.
 - 2026-06-03 현재 카카오톡 delivery adapter는 활성 계약이 아니다. `fc-notify`는 inbox row와 app/web push를 유지하되 `notification_deliveries` 같은 별도 Kakao audit table에 쓰지 않는다.
 - 사용자-facing 알림 제목/분기 문구는 `보증 보험 동의`, `다위촉` 명칭을 사용한다. 내부 `allowance_*`, `hanwha_*` identifier는 기존 DB 호환 때문에 유지될 수 있다.
@@ -40,13 +41,13 @@ source_of_truth: supabase/functions/fc-notify/index.ts + supabase/functions/boar
   - `target_role='fc'`: FC 앱 푸시
   - `target_role='admin'`: admin/manager 앱 푸시 + admin web push callback
 
-## 2026-05-16 Codex 보험 브리핑 메모
+## 2026-06-05 Codex 보험 브리핑 메모
 
 - Codex 자동 보험소식 브리핑은 `scripts/ops/post-insurance-digest.mjs`를 통해 게시합니다.
-- 스크립트는 `보험소식`(`insurance-news`) 카테고리를 확인/생성한 뒤 기존 `board-create` Edge Function으로 게시합니다.
+- 스크립트는 게시판 고정 4종 중 `일반`(`general`) 카테고리를 확인/생성한 뒤 기존 `board-create` Edge Function으로 게시합니다.
 - 따라서 자동 브리핑도 일반 게시글과 같은 inbox row 저장 및 `fc-notify` fanout 경로를 사용해야 하며, `board_posts` 직접 insert로 우회하지 않습니다.
 - 같은 KST 날짜의 `보험소식 브리핑 YYYY.MM.DD` 제목이 이미 있으면 스크립트가 게시를 건너뜁니다.
-- 홈 최신 공지(`latest_notice`)는 게시판 `공지`뿐 아니라 `보험소식` 카테고리 글도 포함합니다.
+- 홈 최신 공지(`latest_notice`)는 게시판 `공지`와 `가람pick` 카테고리 글만 포함합니다. 자동 보험 브리핑은 `일반` 게시글이므로 홈 최신 공지 후보로 취급하지 않습니다.
 - 자동 브리핑 본문에는 긴 원문 URL이나 AI 참고용/비자문 disclaimer를 넣지 않고, 짧은 출처명만 노출합니다.
 
 ## 2026-03-30 정합성 메모
@@ -68,3 +69,10 @@ source_of_truth: supabase/functions/fc-notify/index.ts + supabase/functions/boar
 - checkpoint key는 `role + residentId + requestBoardRole` scope를 유지해야 하며, request_board FC/designer bridge 사용자가 같은 checkpoint를 공유하면 회귀다.
 - live request_board unread를 포함하는 경우에만 `fc-notify` body의 request_board category 제외 플래그도 같이 유지한다.
 - polling/orchestration 경로는 checkpoint를 새로 초기화하지 않고, request_board unread fetch 실패 시 `[mobile-unread-count] fetch failed`를 남긴 뒤 `0` fallback을 유지한다.
+
+## 2026-06-05 설계매니저 모바일 알림 제한 메모
+
+- request_board 디자이너 세션의 Expo token은 `device_tokens.role='manager'`로 저장한다. `fc` role로 저장하면 FC 전체 대상 공지/시험 broadcast를 같이 받을 수 있다.
+- `fc-notify`는 토큰 query에서 `role`을 함께 읽고, manager token은 `request_board_*` category 또는 `category='message'` + 구체적인 `target_id`가 있는 직접 채팅일 때만 유지한다.
+- 설계매니저 unread badge는 fc-onboarding unread를 더하지 않고 live request_board unread만 사용한다.
+- 게시판/공지/시험 알림을 추가하거나 수정할 때는 `supabase/functions/_shared/notification-delivery-policy.ts`와 `lib/mobile-unread-notification-count-plan.ts` 테스트를 함께 확인한다.

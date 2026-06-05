@@ -46,6 +46,7 @@ type WorkflowProfile = Partial<
     | 'appointment_reject_reason_nonlife'
     | 'life_commission_completed'
     | 'nonlife_commission_completed'
+    | 'signup_completed'
     | 'fc_documents'
   >
 >;
@@ -71,6 +72,10 @@ export const ALLOWANCE_PASSED_STATUSES: FcProfile['status'][] = [
 ];
 
 export const hasText = (value?: string | null) => Boolean(String(value ?? '').trim());
+
+export const canOpenFcProfileRegistration = (
+  profile?: WorkflowProfile | null,
+) => profile?.signup_completed === true;
 
 export const hasIdentityInfo = (
   profile?: WorkflowProfile | null,

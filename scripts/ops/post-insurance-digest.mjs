@@ -4,9 +4,9 @@ import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-const CATEGORY_NAME = '보험소식';
-const CATEGORY_SLUG = 'insurance-news';
-const CATEGORY_SORT_ORDER = 5;
+const CATEGORY_NAME = '일반';
+const CATEGORY_SLUG = 'general';
+const CATEGORY_SORT_ORDER = 3;
 const TITLE_PREFIX = '보험소식 브리핑';
 
 export function getKstDateParts(date = new Date()) {
@@ -310,7 +310,7 @@ export function createInsuranceDigestStatusRunner({ fetchImpl = globalThis.fetch
     if (!categoryId) {
       return {
         status: 'missing',
-        reason: 'insurance-news category not found',
+        reason: 'general category not found',
         title,
       };
     }
@@ -393,7 +393,7 @@ export function createPostInsuranceDigestRunner({ fetchImpl = globalThis.fetch, 
     }
 
     if (!categoryId) {
-      throw new Error('Unable to resolve insurance news board category.');
+      throw new Error('Unable to resolve general board category.');
     }
 
     const list = await invokeFunction({

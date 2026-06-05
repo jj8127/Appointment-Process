@@ -7,26 +7,67 @@
 
 ---
 
-
 ## <a id="20260605-referral-graph-realdata-zero-crossing-closeout"></a> 2026-06-05 | Referral graph realdata zero-crossing closeout
 
 **배경**:
-- 추천인 그래프의 실제 데이터 배치에서 노드/엣지 겹침과 drag 후 비정상적으로 길어지는 edge가 반복 보고됐다.
-- production canvas와 realdata 검증 helper가 link-distance 입력 shape를 다르게 넘기는 drift가 있어 테스트 지표가 실제 경로를 정확히 대변하지 못할 수 있었다.
+- 추천인 그래프는 실제 운영 데이터에서 노드/edge가 늘어날 때 edge 교차, 비정상 edge 길이, drag 후 simulation 재가열 문제가 반복적으로 보고됐다.
+- 커밋 전 실제 Supabase 데이터 테스트에서 production Canvas와 realdata test helper의 link-distance 입력 계약이 달라져 교차 수치가 왜곡될 수 있음을 확인했다.
 
 **조치**:
-- production/test link-distance 호출 모두에 `sourceId`/`targetId`를 넘기도록 맞춰 실제 데이터 시뮬레이션 계약을 고정했다.
-- drag 중 component bulk translation과 alpha 재가열을 제거하고, 작은 drag는 의미 있는 drag로 처리하지 않도록 안정화했다.
-- branch/leaf distance, sibling angular force, edge crossing force, link style 테스트를 보강해 직선 edge와 최소 간격 기준을 유지하도록 했다.
+- `ReferralGraphCanvas`는 root 원형 분배를 제거한 branch/trunk seed layout, child-hub 장거리 bridge, terminal leaf 단거리 staggered spoke, uniform visible edge style을 유지한다.
+- drag 중 connected component 전체를 manual target으로 저장하지 않고, 의미 있는 drag가 발생한 노드만 manual target으로 유지한다.
+- drag/dragEnd에서 `d3ReheatSimulation()`을 호출하지 않아 작은 grab/drag가 전체 그래프를 불안정하게 만들지 않도록 했다.
+- `web/src/lib/referral-graph-realdata.test.ts`의 forceLink distance resolver에 production과 동일하게 `sourceId`/`targetId`를 전달해 ID 기반 branch/leaf distance jitter 계약을 맞췄다.
+- 재발 방지를 위해 `.claude/MISTAKES.md`에 realdata test와 production force 입력 drift를 기록했다.
 
 **검증**:
 - 통과: `node --test src/lib/referral-graph-layout.test.ts src/lib/referral-graph-physics.test.ts src/lib/referral-graph-link-style.test.ts src/lib/referral-graph-simulation.test.ts`
-- 통과: `RUN_REFERRAL_GRAPH_REALDATA_TEST=1 LOG_REFERRAL_GRAPH_CROSSINGS=1 node --test src/lib/referral-graph-realdata.test.ts`
-- 통과: targeted graph lint
-- 통과: `SENTRY_AUTH_TOKEN='' npm run build` in `web/`
+  - 74 tests.
+- 통과: `$env:RUN_REFERRAL_GRAPH_REALDATA_TEST='1'; $env:LOG_REFERRAL_GRAPH_CROSSINGS='1'; node --test src/lib/referral-graph-realdata.test.ts`
+  - 실제 데이터: `nodes=187`, `edges=103`, `ticks=720`, `crossings=0`, `crossingVisualSeverity=0`, `minDistance=93.5111142938502`, `maxEdge=356.8236876917514`.
+  - small drag 후: `crossings=0`, `crossingVisualSeverity=0`, `minDistance=94.16019229644823`, `maxEdge=347.37987294054545`.
+- 통과: `cd web; npm run lint -- src\components\referrals\ReferralGraphCanvas.tsx src\lib\referral-graph-link-style.ts src\lib\referral-graph-link-style.test.ts src\lib\referral-graph-layout.ts src\lib\referral-graph-layout.test.ts src\lib\referral-graph-physics.ts src\lib\referral-graph-physics.test.ts src\lib\referral-graph-simulation.test.ts src\lib\referral-graph-realdata.test.ts`
+- 통과: `cd web; SENTRY_AUTH_TOKEN='' npm run build`
+  - 기존 `baseline-browser-mapping` age warning과 transitive OpenTelemetry `import-in-the-middle` version mismatch warning만 표시.
 
 **리스크/후속**:
-- 실제 운영 데이터가 더 커지면 전체 force graph 대신 선택 subtree/layout mode가 필요할 수 있다. 현재 commit은 현 실제 데이터 기준 zero-crossing과 drag 안정성 회귀 방어에 집중했다.
+- 이 항목은 그래프 레이아웃/physics/test closeout이다. 직접 브라우저/폰 시각 QA는 이번 커밋 전 자동 검증 범위에 포함하지 않았다.
+
+## <a id="20260605-board-four-category-alignment"></a> 2026-06-05 | Board four category alignment
+
+**배경**:
+- 가람in 게시판 글 종류를 `공지`, `교육 일정`, `일반`, `가람pick` 4종으로만 보이게 정리해야 했다.
+- 기존 기준에는 `교육`, `서류`, `가람 Pick`, 운영 자동 브리핑용 `보험소식`/`insurance-news` 경로가 남아 있었다.
+
+**조치**:
+- `board_categories` 기본 seed를 4종으로 정리하고, 운영 반영용 migration `20260605000001_set_board_categories_to_four_types.sql`을 추가했다.
+- 기존 slug `education`, `garam-pick`, `notice`, `general`은 유지해 기존 글 참조와 클라이언트 category id 흐름을 깨지 않게 했다.
+- legacy `insurance-news` 글과 나머지 legacy category 글은 `일반`으로 재배치한 뒤 old category를 inactive 처리하도록 했다.
+- `board-categories-list`는 관리자 포함 모든 역할에 allowlist 4종 active category만 내려주게 해, old inactive category가 작성/필터 UI에 다시 보이지 않도록 했다.
+- `board-category-create/update`, `board-create/update`도 shared canonical category allowlist를 사용하게 해 API 경유로 임의 카테고리가 다시 생성되거나 게시글에 연결되지 않도록 했다.
+- 모바일 게시판/모바일 관리자 게시판/관리자 웹 게시판의 badge 색상 매핑을 `교육 일정`, `가람pick` 이름에서도 동작하게 했다.
+- 보험 브리핑 자동 게시 스크립트는 `일반` 기준으로 유지하고, `fc-notify latest_notice`의 홈 노출 후보는 게시판 공지/가람pick 기준으로 정리했다.
+- 게시판 요구사항/운영 런북/알림 런북 문서를 새 4종 기준으로 갱신했다.
+- 카테고리 contract drift를 막기 위해 `board-category-contract.test.ts`를 추가했다.
+
+**검증**:
+- 통과: `node --test scripts/ops/post-insurance-digest.test.mjs`
+  - 12 tests.
+- 통과: `npm test -- --runTestsByPath lib\__tests__\board-category-contract.test.ts lib\__tests__\home-latest-notice.test.ts --runInBand`
+  - 8 tests.
+- 통과: `npm run lint -- app\board.tsx app\admin-board-manage.tsx scripts\ops\post-insurance-digest.mjs`
+- 통과: `cd web; npm run lint -- src\app\dashboard\board\page.tsx`
+- 통과: `npx tsc --noEmit --pretty false`
+- 통과: `node scripts\ci\check-governance.mjs`
+- 통과: targeted `git diff --check`
+  - LF/CRLF working-copy warnings only.
+- 보류: Deno Edge Function static check
+  - 로컬에 `deno`가 설치되어 있지 않고, Expo ESLint는 `https://deno.land/*`, `https://esm.sh/*` import를 해석하지 못해 Edge Function 파일에는 적용할 수 없다.
+
+**리스크/후속**:
+- 운영 DB에는 새 migration 적용이 필요하고, 이미 등록된 `insurance-news`/보험소식 게시글은 `일반`으로 보정해야 한다.
+- Deno Edge Function static check는 로컬 도구 부재 때문에 별도 런타임 smoke/deploy 확인으로 보강한다.
+- `MISTAKES.md`에 `insurance-news`를 `가람pick`으로 잘못 재배치한 category contract drift를 기록했다.
 
 ## <a id="20260604-admin-web-graph-session-and-exam-schedule-fixes"></a> 2026-06-04 | Admin web graph session and exam schedule fixes
 

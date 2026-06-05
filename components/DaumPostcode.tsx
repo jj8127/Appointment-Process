@@ -1,6 +1,6 @@
 import type { JSOptions, OnCompleteParams } from '@actbase/react-daum-postcode/lib/types';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Alert, Linking, StyleSheet, Text, View, type StyleProp, type ViewStyle } from 'react-native';
+import { Linking, StyleSheet, Text, View, type StyleProp, type ViewStyle } from 'react-native';
 import WebView, {
   type WebViewMessageEvent,
   type WebViewNavigation,
@@ -13,7 +13,10 @@ import type {
   WebViewOpenWindowEvent,
 } from 'react-native-webview/lib/WebViewTypes';
 
-import { shouldStayInDaumPostcodeWebView } from '@/lib/daum-postcode';
+import {
+  shouldEnableDaumPostcodeDebugUi,
+  shouldStayInDaumPostcodeWebView,
+} from '@/lib/daum-postcode';
 import { logger } from '@/lib/logger';
 
 const DEFAULT_JS_OPTIONS: JSOptions = {
@@ -140,7 +143,9 @@ true;
 `;
 
 const DEBUG_MESSAGE_PREFIX = '__postcode_debug__:';
-const POSTCODE_DEBUG_EXTERNAL_BLOCK = typeof __DEV__ !== 'undefined' && __DEV__;
+const POSTCODE_DEBUG_UI_ENABLED = shouldEnableDaumPostcodeDebugUi(
+  process.env.EXPO_PUBLIC_POSTCODE_DEBUG_UI,
+);
 
 type DaumPostcodeProps = {
   jsOptions?: JSOptions;
@@ -179,11 +184,6 @@ export function DaumPostcode({
     (source: 'shouldStartLoad' | 'openWindow', url: string) => {
       updateDebugLine(`external:${source}`, { url });
 
-      if (POSTCODE_DEBUG_EXTERNAL_BLOCK) {
-        Alert.alert('postcode external open blocked', `${source}\n${url}`);
-        return;
-      }
-
       void Linking.openURL(url);
     },
     [updateDebugLine],
@@ -191,10 +191,6 @@ export function DaumPostcode({
 
   useEffect(() => {
     updateDebugLine('mounted');
-
-    if (POSTCODE_DEBUG_EXTERNAL_BLOCK) {
-      Alert.alert('postcode debug mounted', 'DaumPostcode component rendered');
-    }
   }, [updateDebugLine]);
 
   const handleMessage = useCallback(
@@ -327,7 +323,7 @@ export function DaumPostcode({
 
   return (
     <View style={style}>
-      {POSTCODE_DEBUG_EXTERNAL_BLOCK ? (
+      {POSTCODE_DEBUG_UI_ENABLED ? (
         <View style={styles.debugBanner} pointerEvents="none">
           <Text style={styles.debugBannerText} numberOfLines={2}>
             {lastDebugLine}

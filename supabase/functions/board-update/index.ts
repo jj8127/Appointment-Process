@@ -1,5 +1,6 @@
 import { serve } from 'https://deno.land/std@0.224.0/http/server.ts';
 import { buildCorsHeaders, json, parseJson, requireActor, requireRole, supabase, dbError } from '../_shared/board.ts';
+import { isCanonicalBoardCategorySlug } from '../_shared/board-categories.ts';
 
 type Payload = {
   actor?: {
@@ -135,7 +136,22 @@ serve(async (req: Request) => {
   }
 
   const payload: Record<string, unknown> = {};
-  if (body.categoryId) payload.category_id = body.categoryId;
+  if (body.categoryId) {
+    const { data: category, error: categoryError } = await supabase
+      .from('board_categories')
+      .select('id,is_active,slug')
+      .eq('id', body.categoryId)
+      .maybeSingle();
+
+    if (categoryError) {
+      return dbError(categoryError, origin);
+    }
+    if (!category?.id || category.is_active !== true || !isCanonicalBoardCategorySlug(category.slug)) {
+      return json({ ok: false, code: 'invalid_category', message: 'category not found or inactive' }, 400, origin);
+    }
+
+    payload.category_id = body.categoryId;
+  }
   if (body.title !== undefined) payload.title = body.title.trim();
   if (body.content !== undefined) payload.content = body.content.trim();
   const attachmentOrder = Array.isArray(body.attachmentOrder) ? body.attachmentOrder.filter(Boolean) : null;

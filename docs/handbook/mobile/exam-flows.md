@@ -56,6 +56,12 @@ source_of_truth: app/exam-apply*.tsx + app/exam-register*.tsx + app/exam-manage*
 - 각 시험 row의 `수정` 버튼은 해당 row를 edit mode로 선택한 뒤 같은 하단 폼 위치로 이동해야 한다.
 - 생명/손해 시험 등록 화면은 add/edit scroll helper와 폼 ownership을 같은 패턴으로 유지해 한쪽 화면만 동작하는 drift를 만들지 않는다.
 
+## 2026-06-05 FC 시험 신청 메모
+
+- `exam-apply`, `exam-apply2`의 신청 CTA는 필수값이 비었을 때 단순 비활성 처리로 끝내지 않고 `getMissingExamApplicationFields` 결과를 alert로 보여준다.
+- 화면 문구는 `응시료 납입 안내`로 통일하며, 응시료 안내 표시는 `lib/exam-fees.ts`의 단일 계약을 따른다.
+- 생명보험/손해보험/제3보험 단독 및 생명+제3, 손해+제3 조합의 응시료는 모두 2만원으로 안내한다.
+
 ## 연관 문서
 
 - [../admin-web/exam-and-referral-ops.md](E:/hanhwa/fc-onboarding-app/docs/handbook/admin-web/exam-and-referral-ops.md)

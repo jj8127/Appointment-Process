@@ -5,7 +5,11 @@ import {
   getStatusLabel,
   getSummaryStatus,
 } from '../../web/src/lib/shared';
-import { getAllowanceDisplayState, getFcHomeNextAction } from '../fc-workflow';
+import {
+  canOpenFcProfileRegistration,
+  getAllowanceDisplayState,
+  getFcHomeNextAction,
+} from '../fc-workflow';
 import type { FcProfile } from '../../web/src/types/fc';
 
 const approvedDocs: FcProfile['fc_documents'] = [
@@ -238,6 +242,13 @@ describe('workflow step regression', () => {
 
     expect(calcStep(row)).toBe(5);
     expect(getSummaryStatus(row).label).toBe('가입 시 위촉 완료');
+  });
+
+  test('fc profile registration opens only after preregistration is completed', () => {
+    expect(canOpenFcProfileRegistration(null)).toBe(false);
+    expect(canOpenFcProfileRegistration(profile({ signup_completed: false }) as any)).toBe(false);
+    expect(canOpenFcProfileRegistration(profile({ signup_completed: null }) as any)).toBe(false);
+    expect(canOpenFcProfileRegistration(profile({ signup_completed: true }) as any)).toBe(true);
   });
 
   test('fc home still opens docs page until admin requests documents', () => {

@@ -2,12 +2,13 @@ import { Feather } from '@expo/vector-icons';
 import * as DocumentPicker from 'expo-document-picker';
 import { Stack, useFocusEffect, useLocalSearchParams, useRouter } from 'expo-router';
 import { MotiView } from 'moti';
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type RefObject } from 'react';
 import {
   ActivityIndicator,
   Alert,
   BackHandler,
   Keyboard,
+  KeyboardAvoidingView,
   Modal,
   Platform,
   Pressable,
@@ -15,6 +16,8 @@ import {
   StyleSheet,
   Text,
   TextInput,
+  type KeyboardTypeOptions,
+  type ReturnKeyTypeOptions,
   View,
 } from 'react-native';
 import { Gesture, GestureDetector } from 'react-native-gesture-handler';
@@ -34,6 +37,15 @@ import {
   getDesignerSelectionConfirmState,
   getDesignerSelectionFooterBottomPadding,
 } from '@/lib/request-board-designer-selection';
+import {
+  formatRequestBoardCustomerBirthDateInput,
+  formatRequestBoardCustomerPhoneInput,
+  formatRequestBoardCustomerSsnInput,
+  isCompleteRequestBoardCustomerBirthDate,
+  isCompleteRequestBoardCustomerPhone,
+  isCompleteRequestBoardCustomerSsn,
+} from '@/lib/request-board-customer-input';
+import { REQUEST_BOARD_DRIVING_STATUS_OPTIONS } from '@/lib/request-board-driving-status';
 import {
   canCreateRequestBoardRequest,
   resolveRequestBoardCreateInitialStep,
@@ -184,18 +196,31 @@ function Field({
   placeholder,
   multiline = false,
   keyboardType,
+  inputRef,
+  returnKeyType,
+  onSubmitEditing,
+  maxLength,
+  autoCapitalize,
+  autoCorrect,
 }: {
   label: string;
   value: string;
   onChangeText: (value: string) => void;
   placeholder?: string;
   multiline?: boolean;
-  keyboardType?: 'default' | 'number-pad' | 'email-address' | 'phone-pad';
+  keyboardType?: KeyboardTypeOptions;
+  inputRef?: RefObject<TextInput | null>;
+  returnKeyType?: ReturnKeyTypeOptions;
+  onSubmitEditing?: () => void;
+  maxLength?: number;
+  autoCapitalize?: 'none' | 'sentences' | 'words' | 'characters';
+  autoCorrect?: boolean;
 }) {
   return (
     <View style={styles.field}>
       <Text style={styles.fieldLabel}>{label}</Text>
       <TextInput
+        ref={inputRef}
         style={[styles.input, multiline && styles.textarea]}
         value={value}
         onChangeText={onChangeText}
@@ -203,6 +228,13 @@ function Field({
         placeholderTextColor={COLORS.gray[400]}
         multiline={multiline}
         keyboardType={keyboardType}
+        returnKeyType={returnKeyType}
+        onSubmitEditing={onSubmitEditing}
+        blurOnSubmit={multiline ? Boolean(onSubmitEditing) : returnKeyType === 'done'}
+        maxLength={maxLength}
+        autoCapitalize={autoCapitalize}
+        autoCorrect={autoCorrect}
+        scrollEnabled={false}
       />
     </View>
   );
@@ -471,7 +503,21 @@ export default function RequestBoardCreateScreen() {
   const [sheetVisible, setSheetVisible] = useState(false);
   const [sentRequestId, setSentRequestId] = useState<number | null>(null);
   const [composeDraftKey, setComposeDraftKey] = useState(0);
+  const [screenKeyboardHeight, setScreenKeyboardHeight] = useState(0);
   const visibleSteps = resolveRequestBoardCreateVisibleSteps(entry, source);
+  const customerNameInputRef = useRef<TextInput>(null);
+  const birthDateInputRef = useRef<TextInput>(null);
+  const phoneInputRef = useRef<TextInput>(null);
+  const ssnInputRef = useRef<TextInput>(null);
+  const jobInputRef = useRef<TextInput>(null);
+  const incomeInputRef = useRef<TextInput>(null);
+  const heightInputRef = useRef<TextInput>(null);
+  const weightInputRef = useRef<TextInput>(null);
+  const addressInputRef = useRef<TextInput>(null);
+  const emailInputRef = useRef<TextInput>(null);
+  const recentHospitalVisitInputRef = useRef<TextInput>(null);
+  const hospitalizationHistoryInputRef = useRef<TextInput>(null);
+  const majorDiseasesInputRef = useRef<TextInput>(null);
 
   const navPreset = resolveBottomNavPreset({
     role,
@@ -530,6 +576,20 @@ export default function RequestBoardCreateScreen() {
     router.replace('/request-board' as any);
   }, [canUseCreateFlow, hydrated, router]);
 
+  useEffect(() => {
+    const showSubscription = Keyboard.addListener('keyboardDidShow', (event) => {
+      setScreenKeyboardHeight(event.endCoordinates.height);
+    });
+    const hideSubscription = Keyboard.addListener('keyboardDidHide', () => {
+      setScreenKeyboardHeight(0);
+    });
+
+    return () => {
+      showSubscription.remove();
+      hideSubscription.remove();
+    };
+  }, []);
+
   const sortedCustomers = useMemo(() => {
     const keyword = search.trim().toLowerCase();
     return [...customers]
@@ -574,6 +634,36 @@ export default function RequestBoardCreateScreen() {
   ) => {
     setNewCustomer((prev) => ({ ...prev, [key]: value }));
   };
+
+  const focusNextInput = useCallback((inputRef: RefObject<TextInput | null>) => {
+    requestAnimationFrame(() => {
+      inputRef.current?.focus();
+    });
+  }, []);
+
+  const updateBirthDateField = useCallback((value: string) => {
+    const formatted = formatRequestBoardCustomerBirthDateInput(value);
+    updateCustomerField('birthDate', formatted);
+    if (isCompleteRequestBoardCustomerBirthDate(formatted)) {
+      focusNextInput(phoneInputRef);
+    }
+  }, [focusNextInput]);
+
+  const updatePhoneField = useCallback((value: string) => {
+    const formatted = formatRequestBoardCustomerPhoneInput(value);
+    updateCustomerField('phone', formatted);
+    if (isCompleteRequestBoardCustomerPhone(formatted)) {
+      focusNextInput(ssnInputRef);
+    }
+  }, [focusNextInput]);
+
+  const updateSsnField = useCallback((value: string) => {
+    const formatted = formatRequestBoardCustomerSsnInput(value);
+    updateCustomerField('ssn', formatted);
+    if (isCompleteRequestBoardCustomerSsn(formatted)) {
+      focusNextInput(jobInputRef);
+    }
+  }, [focusNextInput]);
 
   const handleBack = useCallback(() => {
     const target = resolveRequestBoardCreateBackTarget(step, composeEntryStep);
@@ -850,12 +940,50 @@ export default function RequestBoardCreateScreen() {
     <View style={styles.formCard}>
       <Text style={styles.formTitle}>기본 정보</Text>
       <View style={styles.twoColumn}>
-        <Field label="이름" value={newCustomer.name} onChangeText={(value) => updateCustomerField('name', value)} />
-        <Field label="생년월일" value={newCustomer.birthDate} onChangeText={(value) => updateCustomerField('birthDate', value)} placeholder="YYYY-MM-DD" />
+        <Field
+          label="이름"
+          value={newCustomer.name}
+          onChangeText={(value) => updateCustomerField('name', value)}
+          placeholder="홍길동"
+          inputRef={customerNameInputRef}
+          returnKeyType="next"
+          onSubmitEditing={() => focusNextInput(birthDateInputRef)}
+        />
+        <Field
+          label="생년월일"
+          value={newCustomer.birthDate}
+          onChangeText={updateBirthDateField}
+          placeholder="1990-01-01"
+          keyboardType="number-pad"
+          maxLength={10}
+          inputRef={birthDateInputRef}
+          returnKeyType="next"
+          onSubmitEditing={() => focusNextInput(phoneInputRef)}
+        />
       </View>
       <View style={styles.twoColumn}>
-        <Field label="연락처" value={newCustomer.phone} onChangeText={(value) => updateCustomerField('phone', value)} keyboardType="phone-pad" />
-        <Field label="주민번호" value={newCustomer.ssn} onChangeText={(value) => updateCustomerField('ssn', value)} placeholder="전체 입력" keyboardType="number-pad" />
+        <Field
+          label="연락처"
+          value={newCustomer.phone}
+          onChangeText={updatePhoneField}
+          placeholder="010-1234-1234"
+          keyboardType="phone-pad"
+          maxLength={13}
+          inputRef={phoneInputRef}
+          returnKeyType="next"
+          onSubmitEditing={() => focusNextInput(ssnInputRef)}
+        />
+        <Field
+          label="주민번호"
+          value={newCustomer.ssn}
+          onChangeText={updateSsnField}
+          placeholder="900101-1234567"
+          keyboardType="number-pad"
+          maxLength={14}
+          inputRef={ssnInputRef}
+          returnKeyType="next"
+          onSubmitEditing={() => focusNextInput(jobInputRef)}
+        />
       </View>
       <View style={styles.genderRow}>
         {(['male', 'female'] as const).map((gender) => (
@@ -872,18 +1000,120 @@ export default function RequestBoardCreateScreen() {
       </View>
       <Text style={styles.formTitle}>설계 참고 정보</Text>
       <View style={styles.twoColumn}>
-        <Field label="직업" value={newCustomer.job ?? ''} onChangeText={(value) => updateCustomerField('job', value)} />
-        <Field label="소득" value={newCustomer.income ?? ''} onChangeText={(value) => updateCustomerField('income', value)} />
+        <Field
+          label="직업"
+          value={newCustomer.job ?? ''}
+          onChangeText={(value) => updateCustomerField('job', value)}
+          placeholder="회사원"
+          inputRef={jobInputRef}
+          returnKeyType="next"
+          onSubmitEditing={() => focusNextInput(incomeInputRef)}
+        />
+        <Field
+          label="소득"
+          value={newCustomer.income ?? ''}
+          onChangeText={(value) => updateCustomerField('income', value)}
+          placeholder="월 300만원"
+          inputRef={incomeInputRef}
+          returnKeyType="next"
+          onSubmitEditing={() => focusNextInput(heightInputRef)}
+        />
+      </View>
+      <View style={styles.field}>
+        <Text style={styles.fieldLabel}>운전 구분</Text>
+        <View style={styles.drivingStatusGrid}>
+          {REQUEST_BOARD_DRIVING_STATUS_OPTIONS.map((option) => {
+            const active = newCustomer.drivingStatus === option.value;
+            return (
+              <Pressable
+                key={option.value}
+                style={({ pressed }) => [
+                  styles.drivingStatusChip,
+                  active && styles.drivingStatusChipActive,
+                  pressed && { opacity: 0.85 },
+                ]}
+                onPress={() => updateCustomerField('drivingStatus', option.value)}
+              >
+                <Text style={[styles.drivingStatusText, active && styles.drivingStatusTextActive]}>
+                  {option.label}
+                </Text>
+              </Pressable>
+            );
+          })}
+        </View>
       </View>
       <View style={styles.twoColumn}>
-        <Field label="키(cm)" value={newCustomer.height ?? ''} onChangeText={(value) => updateCustomerField('height', value)} keyboardType="number-pad" />
-        <Field label="몸무게(kg)" value={newCustomer.weight ?? ''} onChangeText={(value) => updateCustomerField('weight', value)} keyboardType="number-pad" />
+        <Field
+          label="키(cm)"
+          value={newCustomer.height ?? ''}
+          onChangeText={(value) => updateCustomerField('height', value)}
+          placeholder="170"
+          keyboardType="number-pad"
+          inputRef={heightInputRef}
+          returnKeyType="next"
+          onSubmitEditing={() => focusNextInput(weightInputRef)}
+        />
+        <Field
+          label="몸무게(kg)"
+          value={newCustomer.weight ?? ''}
+          onChangeText={(value) => updateCustomerField('weight', value)}
+          placeholder="65"
+          keyboardType="number-pad"
+          inputRef={weightInputRef}
+          returnKeyType="next"
+          onSubmitEditing={() => focusNextInput(addressInputRef)}
+        />
       </View>
-      <Field label="주소" value={newCustomer.address ?? ''} onChangeText={(value) => updateCustomerField('address', value)} />
-      <Field label="이메일" value={newCustomer.email ?? ''} onChangeText={(value) => updateCustomerField('email', value)} keyboardType="email-address" />
-      <Field label="최근 병원 진료" value={newCustomer.recentHospitalVisit ?? ''} onChangeText={(value) => updateCustomerField('recentHospitalVisit', value)} multiline />
-      <Field label="약 복용/입원/수술 이력" value={newCustomer.hospitalizationHistory ?? ''} onChangeText={(value) => updateCustomerField('hospitalizationHistory', value)} multiline />
-      <Field label="주요 질병" value={newCustomer.majorDiseases ?? ''} onChangeText={(value) => updateCustomerField('majorDiseases', value)} multiline />
+      <Field
+        label="주소"
+        value={newCustomer.address ?? ''}
+        onChangeText={(value) => updateCustomerField('address', value)}
+        placeholder="서울시 강남구 테헤란로 123"
+        inputRef={addressInputRef}
+        returnKeyType="next"
+        onSubmitEditing={() => focusNextInput(emailInputRef)}
+      />
+      <Field
+        label="이메일"
+        value={newCustomer.email ?? ''}
+        onChangeText={(value) => updateCustomerField('email', value)}
+        placeholder="customer@example.com"
+        keyboardType="email-address"
+        autoCapitalize="none"
+        autoCorrect={false}
+        inputRef={emailInputRef}
+        returnKeyType="next"
+        onSubmitEditing={() => focusNextInput(recentHospitalVisitInputRef)}
+      />
+      <Field
+        label="최근 병원 진료"
+        value={newCustomer.recentHospitalVisit ?? ''}
+        onChangeText={(value) => updateCustomerField('recentHospitalVisit', value)}
+        placeholder="최근 3개월 내 진료 내용"
+        inputRef={recentHospitalVisitInputRef}
+        returnKeyType="next"
+        onSubmitEditing={() => focusNextInput(hospitalizationHistoryInputRef)}
+        multiline
+      />
+      <Field
+        label="약 복용/입원/수술 이력"
+        value={newCustomer.hospitalizationHistory ?? ''}
+        onChangeText={(value) => updateCustomerField('hospitalizationHistory', value)}
+        placeholder="입원, 수술, 약 복용 이력"
+        inputRef={hospitalizationHistoryInputRef}
+        returnKeyType="next"
+        onSubmitEditing={() => focusNextInput(majorDiseasesInputRef)}
+        multiline
+      />
+      <Field
+        label="주요 질병"
+        value={newCustomer.majorDiseases ?? ''}
+        onChangeText={(value) => updateCustomerField('majorDiseases', value)}
+        placeholder="고혈압, 당뇨 등 주요 질병"
+        inputRef={majorDiseasesInputRef}
+        returnKeyType="done"
+        multiline
+      />
       <View style={styles.fixedActionSpacer} />
       <View style={[styles.fixedActions, { paddingBottom: Math.max(insets.bottom, 12) }]}>
         <Pressable
@@ -1112,21 +1342,36 @@ export default function RequestBoardCreateScreen() {
           <Text style={styles.loadingText}>설계 요청 데이터를 불러오는 중입니다</Text>
         </View>
       ) : (
-        <ScrollView
-          showsVerticalScrollIndicator={false}
-          contentContainerStyle={[styles.scrollContent, { paddingBottom: step === 'sent' ? 110 + insets.bottom : 150 + insets.bottom }]}
+        <KeyboardAvoidingView
+          style={styles.contentArea}
+          behavior={Platform.OS === 'ios' ? 'padding' : undefined}
         >
-          <MotiView
-            from={{ opacity: 0, translateY: 10 }}
-            animate={{ opacity: 1, translateY: 0 }}
-            transition={{ type: 'timing', duration: 260 }}
+          <ScrollView
+            showsVerticalScrollIndicator={false}
+            keyboardShouldPersistTaps="always"
+            keyboardDismissMode="none"
+            contentContainerStyle={[
+              styles.scrollContent,
+              {
+                paddingBottom: Math.max(
+                  step === 'sent' ? 110 + insets.bottom : 150 + insets.bottom,
+                  screenKeyboardHeight + 96 + insets.bottom,
+                ),
+              },
+            ]}
           >
-            {step === 'customer' && renderCustomerStep()}
-            {step === 'newCustomer' && renderNewCustomerStep()}
-            {step === 'compose' && renderComposeStep()}
-            {step === 'sent' && renderSentStep()}
-          </MotiView>
-        </ScrollView>
+            <MotiView
+              from={{ opacity: 0, translateY: 10 }}
+              animate={{ opacity: 1, translateY: 0 }}
+              transition={{ type: 'timing', duration: 260 }}
+            >
+              {step === 'customer' && renderCustomerStep()}
+              {step === 'newCustomer' && renderNewCustomerStep()}
+              {step === 'compose' && renderComposeStep()}
+              {step === 'sent' && renderSentStep()}
+            </MotiView>
+          </ScrollView>
+        </KeyboardAvoidingView>
       )}
 
       <DesignerBottomSheet
@@ -1152,6 +1397,9 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: COLORS.gray[50],
+  },
+  contentArea: {
+    flex: 1,
   },
   header: {
     paddingHorizontal: SPACING.base,
@@ -1407,6 +1655,34 @@ const styles = StyleSheet.create({
     fontWeight: '800',
   },
   genderTextActive: {
+    color: COLORS.primary,
+  },
+  drivingStatusGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: SPACING.sm,
+  },
+  drivingStatusChip: {
+    minHeight: 42,
+    borderRadius: RADIUS.full,
+    borderWidth: 1,
+    borderColor: COLORS.border.light,
+    backgroundColor: '#fff',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: SPACING.md,
+    paddingVertical: 8,
+  },
+  drivingStatusChipActive: {
+    borderColor: COLORS.primary,
+    backgroundColor: COLORS.primaryPale,
+  },
+  drivingStatusText: {
+    color: COLORS.gray[700],
+    fontSize: TYPOGRAPHY.fontSize.sm,
+    fontWeight: '800',
+  },
+  drivingStatusTextActive: {
     color: COLORS.primary,
   },
   summaryCard: {

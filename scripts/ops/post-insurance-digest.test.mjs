@@ -109,7 +109,8 @@ test('dry-run validates payload without calling Supabase', async () => {
   assert.equal(result.status, 'dry-run');
   assert.equal(calls.length, 0);
   assert.equal(result.payload.title, '보험소식 브리핑 2026.05.16');
-  assert.equal(result.payload.categorySlug, 'insurance-news');
+  assert.equal(result.payload.categoryName, '일반');
+  assert.equal(result.payload.categorySlug, 'general');
 });
 
 test('runner builds default KST digest title when title is omitted', async () => {
@@ -182,13 +183,13 @@ test('loadRuntimeEnv reads repo env aliases and derives automation actor phone',
   }
 });
 
-test('runner uses existing insurance-news category and posts digest', async () => {
+test('runner uses existing general category and posts digest', async () => {
   const { calls, fetchImpl } = createFetchRecorder([
     {
       body: {
         ok: true,
         data: [
-          { id: 'cat-existing', name: '보험소식', slug: 'insurance-news', sortOrder: 5, isActive: true },
+          { id: 'cat-existing', name: '일반', slug: 'general', sortOrder: 3, isActive: true },
         ],
       },
     },
@@ -215,9 +216,9 @@ test('runner uses existing insurance-news category and posts digest', async () =
   assert.equal(calls[2].body.categoryId, 'cat-existing');
 });
 
-test('runner creates insurance-news category when missing', async () => {
+test('runner creates general category when missing', async () => {
   const { calls, fetchImpl } = createFetchRecorder([
-    { body: { ok: true, data: [{ id: 'cat-general', name: '일반', slug: 'general', isActive: true }] } },
+    { body: { ok: true, data: [{ id: 'cat-pick', name: '가람Pick', slug: 'garam-pick', isActive: true }] } },
     { body: { ok: true, data: { id: 'cat-created' } } },
     { body: { ok: true, data: { items: [] } } },
     { body: { ok: true, data: { id: 'post-2' } } },
@@ -236,8 +237,9 @@ test('runner creates insurance-news category when missing', async () => {
   assert.equal(result.status, 'posted');
   assert.equal(result.categoryId, 'cat-created');
   assert.match(calls[1].url, /board-category-create$/);
-  assert.equal(calls[1].body.name, '보험소식');
-  assert.equal(calls[1].body.slug, 'insurance-news');
+  assert.equal(calls[1].body.name, '일반');
+  assert.equal(calls[1].body.slug, 'general');
+  assert.equal(calls[1].body.sortOrder, 3);
 });
 
 test('runner skips when same-day digest already exists', async () => {
@@ -246,7 +248,7 @@ test('runner skips when same-day digest already exists', async () => {
       body: {
         ok: true,
         data: [
-          { id: 'cat-existing', name: '보험소식', slug: 'insurance-news', sortOrder: 5, isActive: true },
+          { id: 'cat-existing', name: '일반', slug: 'general', sortOrder: 3, isActive: true },
         ],
       },
     },
@@ -287,7 +289,7 @@ test('status runner reports existing same-day digest without posting', async () 
       body: {
         ok: true,
         data: [
-          { id: 'cat-existing', name: '보험소식', slug: 'insurance-news', sortOrder: 5, isActive: true },
+          { id: 'cat-existing', name: '일반', slug: 'general', sortOrder: 3, isActive: true },
         ],
       },
     },

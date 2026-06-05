@@ -6,6 +6,7 @@ import {
   countUnreadBySender,
   shouldIncludeInternalChatParticipant,
 } from '../_shared/internal-chat.ts';
+import { filterManagerTokensForNotification } from '../_shared/notification-delivery-policy.ts';
 
 type Payload =
   | { type: 'fc_update'; fc_id: string; message?: string }
@@ -42,6 +43,8 @@ type Payload =
       since?: string | null;
       include_request_board_fc?: boolean;
       exclude_request_board_categories?: boolean;
+      include_notices?: boolean;
+      only_request_board_categories?: boolean;
     }
   | {
       type: 'inbox_delete';
@@ -80,7 +83,12 @@ type Payload =
       skip_notification_insert?: boolean;
     };
 
-type TokenRow = { expo_push_token: string; resident_id: string | null; display_name: string | null };
+type TokenRow = {
+  expo_push_token: string;
+  resident_id: string | null;
+  display_name: string | null;
+  role?: string | null;
+};
 type FcRow = {
   id: string;
   name: string | null;
@@ -143,7 +151,7 @@ type InternalChatMessageRow = {
 
 const EXPO_PUSH_URL = 'https://exp.host/--/api/v2/push/send';
 const EXPO_PUSH_CHUNK_SIZE = 100;
-const BOARD_HOME_CATEGORY_SLUGS = ['notice', 'insurance-news'] as const;
+const BOARD_HOME_CATEGORY_SLUGS = ['notice', 'garam-pick'] as const;
 const BOARD_NOTICE_ID_PREFIX = 'board_notice:';
 const BOARD_ATTACHMENT_SIGN_EXPIRES_SECONDS = 60 * 60 * 6;
 const ADMIN_CHAT_ID = 'admin';
@@ -1009,6 +1017,8 @@ serve(async (req: Request) => {
     const residentId = sanitize(body.resident_id);
     const includeRequestBoardFc = role === 'admin' && residentId.length > 0 && body.include_request_board_fc === true;
     const excludeRequestBoardCategories = body.exclude_request_board_categories === true;
+    const includeNotices = body.include_notices === true;
+    const onlyRequestBoardCategories = body.only_request_board_categories === true;
 
     const sinceDate = body.since ? new Date(body.since) : new Date(0);
     const sinceIso = Number.isNaN(sinceDate.getTime()) ? new Date(0).toISOString() : sinceDate.toISOString();
@@ -1033,7 +1043,9 @@ serve(async (req: Request) => {
           }
         }
 
-        if (excludeRequestBoardCategories) {
+        if (onlyRequestBoardCategories) {
+          countQuery = countQuery.ilike('category', `${REQUEST_BOARD_CATEGORY_PREFIX}%`);
+        } else if (excludeRequestBoardCategories) {
           countQuery = countQuery.not('category', 'ilike', `${REQUEST_BOARD_CATEGORY_PREFIX}%`);
         }
 
@@ -1056,7 +1068,17 @@ serve(async (req: Request) => {
       requestBoardFcCount = count ?? 0;
     }
 
-    return ok({ ok: true, count: (primaryCount ?? 0) + requestBoardFcCount });
+    let noticeCount = 0;
+    if (includeNotices && !onlyRequestBoardCategories) {
+      const notices = await fetchUnifiedNotices(200).catch((error) => {
+        if (isMissingTableError(error)) return [] as NoticeRow[];
+        throw error;
+      });
+      const sinceTime = new Date(sinceIso).getTime();
+      noticeCount = notices.filter((notice) => new Date(String(notice.created_at ?? 0)).getTime() > sinceTime).length;
+    }
+
+    return ok({ ok: true, count: (primaryCount ?? 0) + requestBoardFcCount + noticeCount });
   }
 
   // 알림센터 선택 항목 삭제 (RLS 우회)
@@ -1248,24 +1270,25 @@ serve(async (req: Request) => {
       // target_id 지정 시 role과 무관하게 같은 번호의 모든 토큰(fc/admin/manager)을 대상으로 발송
       const { data, error } = await supabase
         .from('device_tokens')
-        .select('expo_push_token,resident_id,display_name')
+        .select('expo_push_token,resident_id,display_name,role')
         .eq('resident_id', target_id);
       if (!error && data) tokens = data;
     } else {
       if (target_role === 'admin') {
         const { data, error } = await supabase
           .from('device_tokens')
-          .select('expo_push_token,resident_id,display_name')
+          .select('expo_push_token,resident_id,display_name,role')
           .in('role', ['admin', 'manager']);
         if (!error && data) tokens = data;
       } else {
         const { data, error } = await supabase
           .from('device_tokens')
-          .select('expo_push_token,resident_id,display_name')
+          .select('expo_push_token,resident_id,display_name,role')
           .eq('role', 'fc');
         if (!error && data) tokens = data;
       }
     }
+    tokens = filterManagerTokensForNotification(tokens, { category, targetId: target_id });
     tokens = dedupeTokens(tokens);
 
     const logError = skipNotificationInsert
@@ -1353,7 +1376,7 @@ serve(async (req: Request) => {
     if (recipientResidentIds.length > 0) {
       const { data, error } = await supabase
         .from('device_tokens')
-        .select('expo_push_token,resident_id,display_name')
+        .select('expo_push_token,resident_id,display_name,role')
         .in('resident_id', recipientResidentIds);
       if (error) {
         console.warn('[fc-notify] device token load failed', error.message);
@@ -1396,7 +1419,7 @@ serve(async (req: Request) => {
     if (!targetResidentId) return err('FC phone number not found', 400);
     const { data, error } = await supabase
       .from('device_tokens')
-      .select('expo_push_token,resident_id,display_name')
+      .select('expo_push_token,resident_id,display_name,role')
       .eq('resident_id', targetResidentId);
     if (!error && data) tokens = data;
 
@@ -1411,6 +1434,7 @@ serve(async (req: Request) => {
     });
   }
 
+  tokens = filterManagerTokensForNotification(tokens, { category: (body as any).type, targetId: targetResidentId });
   tokens = dedupeTokens(tokens);
   if (logError) console.warn('notifications insert failed', logError.message);
 

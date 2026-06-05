@@ -6,7 +6,7 @@ import { supabase } from './supabase';
 
 let handlerSet = false;
 
-export async function registerPushToken(role: 'admin' | 'fc', residentId: string, displayName: string) {
+export async function registerPushToken(role: 'admin' | 'fc' | 'manager', residentId: string, displayName: string) {
   try {
     if (Platform.OS === 'web') return;
     logger.debug('registerPushToken start', { role, residentId });

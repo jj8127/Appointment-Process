@@ -1,6 +1,11 @@
 const HTTP_URL_PREFIX = /^https?:\/\//i;
 const SAFE_IN_WEBVIEW_PREFIXES = [/^about:/i, /^javascript:/i, /^data:/i, /^blob:/i];
 
+export function shouldEnableDaumPostcodeDebugUi(value?: string | null): boolean {
+  const normalized = String(value ?? '').trim().toLowerCase();
+  return normalized === '1' || normalized === 'true';
+}
+
 export function shouldStayInDaumPostcodeWebView(url?: string | null): boolean {
   const trimmedUrl = (url ?? '').trim();
 

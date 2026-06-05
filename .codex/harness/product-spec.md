@@ -1,3 +1,13 @@
+# Completed Increment 35: Request Board Designer Notification Scope
+
+The current implementation narrows GaramIn request-board designer mobile notifications to the product scope the user requested: 설계요청 관련 알림 and the designer's own direct chat notifications only.
+
+Request-board designer push tokens are registered as `manager`, `fc-notify` filters manager mobile tokens by category/target, and designer unread count uses live request_board unread only. Board, notice, exam, and FC-onboarding broadcast alerts should not reach the request-board designer mobile surface after the app/function changes are deployed and the device refreshes its token.
+
+This increment does not change FC/admin notification delivery, request_board API behavior, board/exam authoring flows, or referral graph work.
+
+---
+
 # Completed Increment 34: Orange CTA Black Rendering Guard
 
 The latest implementation hardens repeatedly reported Android black-surface rendering on GaramIn orange CTA/card surfaces. The home next-step and messenger CTA cards now use plain `View` surfaces with explicit `backgroundColor: HANWHA_ORANGE` instead of orange `LinearGradient`, and the same guard was applied to legacy mobile exam submit buttons and the referral-code card without changing their business flows.
@@ -265,3 +275,11 @@ All hypotheses require later proof before deletion or refactor.
 - 본부장 시험 홈은 FC 신청 전용 화면이 아니라 `시험 관리/신청` 화면이다.
 - 본부장 시험 홈은 기존 시험 일정/신청자 관리 카드와 생명/손해 시험 신청 카드를 함께 제공한다.
 - 본부장은 read-only 관리자로 유지되므로 시험 일정 편집/삭제 같은 쓰기 액션은 기존 화면의 `readOnly` guard에 따라 막힌다.
+
+## Increment 30 Product Decisions
+
+- 추천인 그래프는 root 주변 원형 분배를 기본 모양으로 쓰지 않는다.
+- 사용자가 그린 스케치처럼 연결된 그룹은 길게 뻗는 branch/trunk 느낌이어야 하며, 자식 허브는 부모로부터 충분히 긴 엣지를 갖는다.
+- 자식이 없는 terminal 노드는 부모 주변에 짧게 배치하되, crowded fan에서는 엣지 길이를 조금씩 다르게 해서 노드가 겹치지 않게 한다.
+- 엣지는 직선으로 유지하고, 색/굵기/alpha가 엣지마다 달라지는 의미 없는 구분은 하지 않는다.
+- 실제 운영 데이터 기준 검증을 우선한다. 합성 fixture에서 좋아 보여도 `RUN_REFERRAL_GRAPH_REALDATA_TEST=1` 실제 Supabase graph 지표가 나빠지면 완료로 보지 않는다.

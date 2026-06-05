@@ -53,17 +53,14 @@
       }
 
       var code = getParam('code').toUpperCase().replace(/[^A-Z0-9]/g, '');
-      if (!code) { document.getElementById('msg').textContent = '유효하지 않은 초대 링크입니다.'; return; }
+      if (!code) { document.getElementById('msg').textContent = '유효하지 않은 링크입니다.'; return; }
 
-      // 코드 카드 표시
       document.getElementById('codeBox').style.display = 'block';
       document.getElementById('codeVal').textContent = code;
 
-      // 앱 열기 버튼 구성
-      var deeplink = 'hanwhafcpass://signup?code=' + encodeURIComponent(code);
-      var btn = document.getElementById('openApp');
-      btn.href = deeplink;
-      btn.style.display = 'block';
+      var openAppButton = document.getElementById('openApp');
+      openAppButton.href = 'hanwhafcpass://signup?code=' + encodeURIComponent(code);
+      openAppButton.style.display = 'block';
     })();
   </script>
 </body>

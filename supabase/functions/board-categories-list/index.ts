@@ -1,5 +1,6 @@
 import { serve } from 'https://deno.land/std@0.224.0/http/server.ts';
 import { buildCorsHeaders, json, parseJson, requireActor, supabase , dbError } from '../_shared/board.ts';
+import { CANONICAL_BOARD_CATEGORY_SLUGS } from '../_shared/board-categories.ts';
 
 type Payload = {
   actor?: {
@@ -25,15 +26,13 @@ serve(async (req: Request) => {
   const actorCheck = await requireActor(body, origin);
   if (!actorCheck.ok) return actorCheck.response;
 
-  let query = supabase
+  const query = supabase
     .from('board_categories')
     .select('id,name,slug,sort_order,is_active')
+    .eq('is_active', true)
+    .in('slug', [...CANONICAL_BOARD_CATEGORY_SLUGS])
     .order('sort_order', { ascending: true })
     .order('created_at', { ascending: true });
-
-  if (actorCheck.actor.role !== 'admin') {
-    query = query.eq('is_active', true);
-  }
 
   const { data, error } = await query;
   if (error) {

@@ -17,7 +17,7 @@ source_of_truth: supabase/functions/board-* + web/src/app/api/admin/notices/rout
 
 - board API는 Edge Function 중심입니다.
 - 공지는 legacy `notices`와 board `notice` category가 공존합니다.
-- 기본 board category seed에는 `공지`, `교육`, `일반`, `서류`, `가람 Pick`이 포함됩니다.
+- 기본 board category seed에는 `공지`, `교육 일정`, `일반`, `가람pick` 4종만 포함됩니다.
 - `latest_notice`는 board notice를 우선 사용합니다.
 - attachment metadata와 object 삭제 실패가 완전히 같지 않을 수 있습니다.
 

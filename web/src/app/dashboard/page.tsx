@@ -1316,7 +1316,13 @@ export default function DashboardPage() {
           const deleteResp = await fetch('/api/admin/fc', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ action: 'deleteHanwhaPdf', payload: { fcId: selectedFc.id } }),
+            body: JSON.stringify({
+              action: 'deleteHanwhaPdf',
+              payload: {
+                fcId: selectedFc.id,
+                fileName: selectedFc.hanwha_commission_pdf_name ?? undefined,
+              },
+            }),
           });
           const deleteData = await deleteResp.json().catch(() => null);
           if (!deleteResp.ok) {

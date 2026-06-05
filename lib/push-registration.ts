@@ -18,6 +18,6 @@ export function buildPushRegistrationAttemptKey({
     return null;
   }
 
-  const pushRole = requestBoardRole === 'designer' ? 'fc' : role;
+  const pushRole = requestBoardRole === 'designer' ? 'manager' : role;
   return `${pushRole}:${residentId}:${requestBoardRole ?? 'none'}`;
 }

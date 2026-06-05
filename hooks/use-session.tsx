@@ -375,9 +375,9 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     if (!pushRegistrationKey) return;
     if (lastPushRegistrationKeyRef.current === pushRegistrationKey) return;
 
-    const pushRole: 'admin' | 'fc' =
+    const pushRole: 'admin' | 'fc' | 'manager' =
       state.requestBoardRole === 'designer'
-        ? 'fc'
+        ? 'manager'
         : (state.role as 'admin' | 'fc');
 
     const timer = setTimeout(() => {

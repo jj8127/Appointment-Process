@@ -26,6 +26,11 @@ import { RefreshButton } from '@/components/RefreshButton';
 import { useIdentityGate } from '@/hooks/use-identity-gate';
 import { useSession } from '@/hooks/use-session';
 import { canUseFcExamApply } from '@/lib/exam-role';
+import {
+  formatMissingExamApplicationFields,
+  getMissingExamApplicationFields,
+} from '@/lib/exam-application-validation';
+import { LIFE_EXAM_FEE_ROWS } from '@/lib/exam-fees';
 import { logger } from '@/lib/logger';
 import { supabase } from '@/lib/supabase';
 import { ExamRoundWithLocations, formatDate } from '@/types/exam';
@@ -369,11 +374,18 @@ export default function ExamApplyScreen() {
       if (!residentId) {
         throw new Error('본인 식별 정보가 없습니다. 다시 로그인한 뒤 이용해주세요.');
       }
-      if (!selectedRoundId || !selectedLocationId) {
-        throw new Error('시험 일정과 응시 지역을 모두 선택해주세요.');
+      const missingMessage = formatMissingExamApplicationFields(getMissingExamApplicationFields({
+        feePaidDate,
+        selectedRoundId,
+        selectedLocationId,
+        hasSelectedSubject: wantsLife || wantsThird,
+      }));
+      if (missingMessage) {
+        throw new Error(missingMessage);
       }
-      if (!feePaidDate) {
-        throw new Error('응시료 납입 일자를 입력해주세요.');
+      const paidDate = feePaidDate;
+      if (!paidDate) {
+        throw new Error('응시료 납입 일자를 선택해주세요.');
       }
 
       if (isConfirmedForRound) {
@@ -410,7 +422,7 @@ export default function ExamApplyScreen() {
             status: 'applied',
             is_confirmed: false,
             is_third_exam: wantsThird,
-            fee_paid_date: toYmd(feePaidDate),
+            fee_paid_date: toYmd(paidDate),
           })
           .eq('id', existingForRound.id);
 
@@ -424,7 +436,7 @@ export default function ExamApplyScreen() {
           status: 'applied',
           is_confirmed: false,
           is_third_exam: wantsThird,
-          fee_paid_date: toYmd(feePaidDate),
+          fee_paid_date: toYmd(paidDate),
         });
 
         if (error) throw error;
@@ -528,6 +540,31 @@ export default function ExamApplyScreen() {
     setSelectedLocationId(id);
   };
 
+  const handleApplyPress = () => {
+    if (applyMutation.isPending) return;
+    if (isConfirmedForRound) {
+      Alert.alert('알림', lockMessage);
+      return;
+    }
+    if (isSelectedRoundClosed) {
+      Alert.alert('알림', '마감된 일정입니다. 다른 시험 일정을 선택해주세요.');
+      return;
+    }
+
+    const missingMessage = formatMissingExamApplicationFields(getMissingExamApplicationFields({
+      feePaidDate,
+      selectedRoundId,
+      selectedLocationId,
+      hasSelectedSubject: wantsLife || wantsThird,
+    }));
+    if (missingMessage) {
+      Alert.alert('입력 확인', missingMessage);
+      return;
+    }
+
+    applyMutation.mutate();
+  };
+
   if (!hydrated) {
     return (
       <SafeAreaView style={styles.safe} edges={['left', 'right', 'bottom']}>
@@ -556,7 +593,7 @@ export default function ExamApplyScreen() {
         </View>
 
         <View style={styles.section}>
-          <Text style={styles.sectionHeader}>📅 응시료 납입 일자</Text>
+          <Text style={styles.sectionHeader}>📅 응시료 납입 안내</Text>
           <Text style={styles.inputHint}>응시료 미입금 시 시험 접수 불가능하며, 납입한 접수비는 반환되지 않습니다.</Text>
           <View style={styles.accountCard}>
             <View style={styles.accountHeaderRow}>
@@ -573,6 +610,18 @@ export default function ExamApplyScreen() {
               </Pressable>
             </View>
             <Text style={styles.accountValue}>{LIFE_EXAM_FEE_ACCOUNT}</Text>
+          </View>
+          <View style={styles.feeCard}>
+            <View style={styles.feeHeaderRow}>
+              <Feather name="info" size={14} color={HANWHA_ORANGE} />
+              <Text style={styles.feeTitle}>응시료 안내</Text>
+            </View>
+            {LIFE_EXAM_FEE_ROWS.map((item) => (
+              <View key={item.label} style={styles.feeRow}>
+                <Text style={styles.feeLabel}>{item.label}</Text>
+                <Text style={styles.feeAmount}>{item.amount}</Text>
+              </View>
+            ))}
           </View>
           <Pressable
             style={styles.dateInput}
@@ -907,31 +956,14 @@ export default function ExamApplyScreen() {
 
             <View style={styles.actionButtons}>
               <Pressable
-                onPress={() => {
-                  if (isConfirmedForRound) {
-                    Alert.alert('알림', lockMessage);
-                    return;
-                  }
-                  if (!wantsLife && !wantsThird) {
-                    Alert.alert('알림', '응시할 과목을 한 개 이상 선택해주세요.');
-                    return;
-                  }
-                  applyMutation.mutate();
-                }}
-                disabled={
-                  applyMutation.isPending ||
-                  !selectedRoundId ||
-                  !selectedLocationId ||
-                  !feePaidDate ||
-                  isSelectedRoundClosed ||
-                  isConfirmedForRound
-                }
+                onPress={handleApplyPress}
+                disabled={applyMutation.isPending}
                 style={({ pressed }) => [styles.submitBtnWrapper, pressed && styles.pressedScale]}
               >
                 <View
                   style={[
                     styles.submitBtn,
-                    isConfirmedForRound || !selectedRoundId || !selectedLocationId || !feePaidDate
+                    applyMutation.isPending || isConfirmedForRound
                       ? styles.submitBtnDisabled
                       : styles.submitBtnActive,
                   ]}
@@ -1199,6 +1231,43 @@ const styles = StyleSheet.create({
   accountCopyChipLabel: {
     fontSize: 12,
     fontWeight: '700',
+    color: HANWHA_ORANGE,
+  },
+  feeCard: {
+    backgroundColor: '#ffffff',
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: BORDER,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    marginBottom: 12,
+    gap: 8,
+  },
+  feeHeaderRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
+  feeTitle: {
+    fontSize: 13,
+    fontWeight: '800',
+    color: CHARCOAL,
+  },
+  feeRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 12,
+  },
+  feeLabel: {
+    flex: 1,
+    fontSize: 14,
+    fontWeight: '600',
+    color: MUTED,
+  },
+  feeAmount: {
+    fontSize: 15,
+    fontWeight: '800',
     color: HANWHA_ORANGE,
   },
   dateInput: {

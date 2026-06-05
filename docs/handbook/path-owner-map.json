@@ -230,7 +230,10 @@
       "severity": "contract",
       "prefixes": [
         "supabase/functions/_shared/internal-chat.ts",
+        "supabase/functions/_shared/notification-delivery-policy.ts",
+        "supabase/functions/_shared/__tests__/notification-delivery-policy.test.ts",
         "supabase/functions/fc-notify/",
+        "supabase/functions/__tests__/fc-notify-",
         "web/src/app/api/admin/push/route.ts",
         "web/src/app/api/web-push/subscribe/route.ts",
         "lib/mobile-unread-notification-count.ts",
@@ -247,6 +250,7 @@
       "severity": "behavior",
       "prefixes": [
         "supabase/functions/board-",
+        "supabase/functions/_shared/board-categories.ts",
         "supabase/functions/__tests__/board-"
       ],
       "requires_any": [

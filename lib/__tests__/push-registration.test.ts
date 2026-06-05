@@ -21,7 +21,7 @@ describe('buildPushRegistrationAttemptKey', () => {
     ).toBeNull();
   });
 
-  it('uses fc push scope for request-board designers', () => {
+  it('uses manager push scope for request-board designers', () => {
     expect(
       buildPushRegistrationAttemptKey({
         hydrated: true,
@@ -29,7 +29,7 @@ describe('buildPushRegistrationAttemptKey', () => {
         residentId: '01051078127',
         requestBoardRole: 'designer',
       }),
-    ).toBe('fc:01051078127:designer');
+    ).toBe('manager:01051078127:designer');
   });
 
   it('keeps admin scope for internal admin sessions', () => {

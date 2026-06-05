@@ -144,9 +144,12 @@ export default function RequestBoardFcCodesScreen() {
 
   const filteredCompanyNames = useMemo(() => {
     const kw = formInsurerName.trim().toLowerCase();
-    const src = companyNames.filter((n) => n.trim().length > 0);
-    if (!kw) return src.slice(0, 6);
-    return src.filter((n) => n.toLowerCase().includes(kw)).slice(0, 6);
+    const src = companyNames
+      .map((n) => n.trim())
+      .filter((n) => n.length > 0)
+      .sort((a, b) => a.localeCompare(b));
+    if (!kw) return src;
+    return src.filter((n) => n.toLowerCase().includes(kw));
   }, [companyNames, formInsurerName]);
 
   const existingForInsurer = useMemo(() => {
@@ -443,7 +446,7 @@ export default function RequestBoardFcCodesScreen() {
               </Pressable>
             </View>
 
-            <ScrollView style={styles.modalBody} keyboardShouldPersistTaps="handled">
+            <ScrollView style={styles.modalBody} keyboardShouldPersistTaps="always">
               {formError && (
                 <View style={styles.formErrorBox}>
                   <Feather name="alert-circle" size={14} color={COLORS.error} />
@@ -470,7 +473,12 @@ export default function RequestBoardFcCodesScreen() {
                   autoCorrect={false}
                 />
                 {showSuggestions && filteredCompanyNames.length > 0 && (
-                  <View style={styles.suggestionsList}>
+                  <ScrollView
+                    style={styles.suggestionsList}
+                    nestedScrollEnabled
+                    keyboardShouldPersistTaps="always"
+                    showsVerticalScrollIndicator
+                  >
                     {filteredCompanyNames.map((name) => (
                       <TouchableOpacity
                         key={name}
@@ -499,7 +507,7 @@ export default function RequestBoardFcCodesScreen() {
                         )}
                       </TouchableOpacity>
                     ))}
-                  </View>
+                  </ScrollView>
                 )}
                 {!editingCode && existingForInsurer && (
                   <Text style={styles.fieldHint}>
@@ -1014,6 +1022,7 @@ const styles = StyleSheet.create({
   /* Inline suggestions */
   suggestionsList: {
     marginTop: 4,
+    maxHeight: 300,
     borderWidth: 1,
     borderColor: COLORS.border.light,
     borderRadius: RADIUS.md,

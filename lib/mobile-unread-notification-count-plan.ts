@@ -15,6 +15,9 @@ type ResolveMobileUnreadBridgePlanOptions = {
 type MobileUnreadBridgePlan = {
   shouldFetch: boolean;
   includeLiveRequestBoardUnread: boolean;
+  includeRequestBoardFcInbox: boolean;
+  includeNoticeUnread: boolean;
+  onlyRequestBoardCategories: boolean;
 };
 
 export const resolveMobileUnreadBridgePlan = ({
@@ -22,10 +25,13 @@ export const resolveMobileUnreadBridgePlan = ({
   requestBoardRole = null,
 }: ResolveMobileUnreadBridgePlanOptions): MobileUnreadBridgePlan => {
   const shouldFetch = role !== null;
+  const isRequestBoardDesigner = requestBoardRole === 'designer';
   return {
     shouldFetch,
-    includeLiveRequestBoardUnread: shouldFetch
-      && (role === 'fc' || requestBoardRole === 'fc' || requestBoardRole === 'designer'),
+    includeLiveRequestBoardUnread: false,
+    includeRequestBoardFcInbox: shouldFetch && role === 'admin' && requestBoardRole === 'fc',
+    includeNoticeUnread: shouldFetch && !isRequestBoardDesigner,
+    onlyRequestBoardCategories: shouldFetch && isRequestBoardDesigner,
   };
 };
 
@@ -34,6 +40,9 @@ type BuildMobileUnreadFcNotifyBodyOptions = {
   residentId?: string | null;
   sinceIso: string;
   includeLiveRequestBoardUnread: boolean;
+  includeRequestBoardFcInbox: boolean;
+  includeNoticeUnread: boolean;
+  onlyRequestBoardCategories: boolean;
 };
 
 export const buildMobileUnreadFcNotifyBody = ({
@@ -41,12 +50,18 @@ export const buildMobileUnreadFcNotifyBody = ({
   residentId,
   sinceIso,
   includeLiveRequestBoardUnread,
+  includeRequestBoardFcInbox,
+  includeNoticeUnread,
+  onlyRequestBoardCategories,
 }: BuildMobileUnreadFcNotifyBodyOptions) => ({
   type: 'inbox_unread_count',
   role,
   resident_id: residentId ?? null,
   since: sinceIso,
   exclude_request_board_categories: includeLiveRequestBoardUnread,
+  include_request_board_fc: includeRequestBoardFcInbox,
+  include_notices: includeNoticeUnread,
+  only_request_board_categories: onlyRequestBoardCategories,
 });
 
 type CombineMobileUnreadCountsOptions = {
@@ -106,6 +121,9 @@ export const fetchMobileUnreadNotificationCountWithDeps = async ({
         residentId,
         sinceIso: lastCheckDate.toISOString(),
         includeLiveRequestBoardUnread: bridgePlan.includeLiveRequestBoardUnread,
+        includeRequestBoardFcInbox: bridgePlan.includeRequestBoardFcInbox,
+        includeNoticeUnread: bridgePlan.includeNoticeUnread,
+        onlyRequestBoardCategories: bridgePlan.onlyRequestBoardCategories,
       }),
     );
 

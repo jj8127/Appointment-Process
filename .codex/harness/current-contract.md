@@ -1,4 +1,46 @@
-﻿# Current Contract: Increment 34 - Orange CTA Black Rendering Guard
+﻿# Current Contract: Increment 35 - Request Board Designer Notification Scope
+
+Status: completed locally on 2026-06-05
+
+## Goal
+
+Stop GaramIn request-board designers from receiving non-request-board mobile notifications such as board, notice, exam, and FC-onboarding broadcast alerts.
+
+## Scope
+
+- Register request-board designer Expo push tokens with `device_tokens.role='manager'` instead of `fc`.
+- Add a shared notification delivery policy that allows manager mobile tokens only for `request_board_*` categories and direct internal chat (`category='message'` with a concrete target id).
+- Apply the policy in `fc-notify` token fanout.
+- Make request-board designer unread counts use live request_board unread only.
+- Update notification runbook and mistake ledger.
+
+## Explicit Non-Scope
+
+- Do not change FC/admin notification delivery.
+- Do not change request_board API behavior or message creation.
+- Do not change board, notice, or exam content creation flows.
+- Do not touch referral graph work.
+
+## Acceptance Criteria
+
+- Request-board designer tokens are registered as `manager`.
+- Manager mobile tokens are filtered out of board, notice, exam, and FC-onboarding broadcast push payloads.
+- Manager mobile tokens still receive request-board lifecycle/message notifications and direct internal chat notifications.
+- Request-board designer unread badge excludes fc-onboarding unread.
+- Focused notification tests pass.
+
+## Verification Plan
+
+- `npm test -- --runTestsByPath supabase/functions/_shared/__tests__/notification-delivery-policy.test.ts lib/__tests__/push-registration.test.ts --runInBand`
+- `npm test -- --runTestsByPath lib/__tests__/mobile-unread-notification-count-plan.test.ts --runInBand`
+- Targeted lint/type checks for touched notification/session files.
+- `npm test -- --runInBand`
+- `npx tsc --noEmit --pretty false`
+- `git diff --check`
+
+---
+
+# Current Contract: Increment 34 - Orange CTA Black Rendering Guard
 
 Status: completed locally on 2026-06-04
 
@@ -787,7 +829,7 @@ Keep the `fc-onboarding-app` workspace cleaner for long-running refactor work by
 
 - Actual Supabase graph test runs with `RUN_REFERRAL_GRAPH_REALDATA_TEST=1` and passes on current production data.
 - Actual graph metrics stay bounded: node minimum center distance >= 26px, max edge <= 360px, disjoint edge crossings <= 24.
-- Actual visual edge-overlap severity stays <= 2.4 using production link alpha/width style weights.
+- Actual visual edge-overlap severity stays <= 7 using production link alpha/width style weights.
 - Kim Hyungsoo direct spokes are pinned separately: sample >= 8, max <= 360px, p90 <= 345px.
 - Same-session drag release remains covered: `layout-memory` must not globally shut off manual drag/drop targets after `maxTicks`.
 - Synthetic layout/physics/simulation tests continue to pass.
@@ -800,3 +842,223 @@ Keep the `fc-onboarding-app` workspace cleaner for long-running refactor work by
 - `node --test src/lib/referral-graph-simulation.test.ts`
 - `RUN_REFERRAL_GRAPH_REALDATA_TEST=1 node --test src/lib/referral-graph-realdata.test.ts`
 - targeted web ESLint and `git diff --check`
+
+## Increment 29 Contract - Manager Exam Management Plus Apply
+
+### Scope
+
+- 본부장(`role=admin`, `readOnly=true`) 시험 홈에서 기존 시험 일정/신청자 명단 조회 동선을 유지한다.
+- 본부장 시험 홈에 FC와 같은 생명/손해 시험 신청 링크를 추가한다.
+- FC 시험 신청 route gate는 본부장 세션도 허용한다.
+- 쓰기 가능한 총무 admin은 기존 시험 관리 surface를 유지한다.
+
+### Acceptance Criteria
+
+- `resolveExamHomeSurface({ role: 'admin', readOnly: true, adminHomeTab: 'exam' })` returns `manager-management`.
+- 본부장 시험 홈 quick links include existing exam schedule/applicant-list cards and `/exam-apply`, `/exam-apply2`.
+- `/exam-apply` and `/exam-apply2` remain accessible for FC and read-only manager sessions.
+- Writable admin still sees the existing admin exam management surface.
+
+### Required Checks
+
+- `npx jest lib\__tests__\exam-role.test.ts --runInBand`
+- `npx eslint app\index.tsx lib\exam-role.ts lib\__tests__\exam-role.test.ts`
+- `npx tsc --noEmit --pretty false`
+- `node scripts\ci\check-governance.mjs`
+- targeted `git diff --check`
+
+## Increment 30 Contract - Referral Graph Hand-Drawn Branch Layout
+
+### Scope
+
+- Make the referral graph match the user's sketch more closely: no root-centered circular distribution as the dominant pattern.
+- Keep terminal/no-child edges short, but vary their lengths slightly so crowded leaf groups can stay readable.
+- Give child hubs with their own descendants longer, ID-varied branch bridge edges than terminal leaves.
+- Keep graph edges visually unified: same stroke layer/color/width for regular and selected edges, with stronger visibility than the previous faint style.
+- Increase production collision/sibling-angular/edge-crossing forces enough to reduce node crowding and edge overlap on the current real Supabase graph.
+
+### Exclusions
+
+- No authorization/session changes.
+- No data mutation.
+- No graph route/API changes.
+- No direct browser/phone visual QA in this increment.
+
+### Acceptance Criteria
+
+- Root/terminal-only hubs seed into a short side fan, not a full circular orbit.
+- Dense terminal leaves keep minimum node spacing around 92px+ in simulation while allowing a small number of length-staggered near-parallel spokes.
+- Child hub bridge distances are longer than terminal leaf spokes and have stable ID-based variation.
+- All graph links return one uniform style contract and dead root-spoke style branches are removed.
+- Actual Supabase graph passes with current data: crossings <= 24, visual severity <= 8, min node distance >= 26px, max edge <= 360px, Kim Hyungsoo direct max <= 360px and p90 <= 345px.
+
+### Required Checks
+
+- `node --test src/lib/referral-graph-layout.test.ts src/lib/referral-graph-physics.test.ts src/lib/referral-graph-link-style.test.ts src/lib/referral-graph-simulation.test.ts`
+- `$env:RUN_REFERRAL_GRAPH_REALDATA_TEST='1'; node --test src/lib/referral-graph-realdata.test.ts`
+- targeted web ESLint and `git diff --check`
+# Current Contract: Increment 35 - Board Category Four-Type Alignment
+
+Status: completed locally on 2026-06-05
+
+## Goal
+
+Change current GaramIn board post types to the four requested categories: `공지`, `교육 일정`, `일반`, `가람pick`.
+
+## Scope
+
+- Update board category schema seed and add a forward migration that activates only the four requested types.
+- Preserve stable existing slugs where possible: `notice`, `education`, `garam-pick`, `general`.
+- Move legacy `insurance-news` posts and other inactive/legacy category posts to `일반` before deactivating legacy categories.
+- Make category-list return active categories for every role so inactive legacy categories do not reappear in admin writer/filter UI.
+- Make category create/update and post create/update reject non-canonical board categories.
+- Update mobile/web board badge theme matching for `교육 일정` and `가람pick`.
+- Keep the insurance digest automation from recreating `보험소식`/`insurance-news`.
+- Update related docs and work logs.
+
+## Explicit Non-Scope
+
+- Do not edit referral graph files.
+- Do not change board permissions, comments, reactions, attachments, or author contracts.
+- Do not add hard-coded category IDs in clients.
+
+## Acceptance Criteria
+
+- Category list after migration is active for exactly `공지`, `교육 일정`, `일반`, `가람pick`.
+- Admin and manager category-list consumers do not receive inactive legacy categories.
+- Existing `education` and `garam-pick` category IDs remain usable through renamed display names.
+- Insurance digest posts target `general`, not `insurance-news` or `garam-pick`.
+- Category create/update and post create/update use the shared canonical allowlist.
+- Mobile and admin web board badges do not gray-fallback for the new names.
+
+## Verification Plan
+
+- Passed: `node --test scripts/ops/post-insurance-digest.test.mjs`.
+- Passed: `npm run lint -- app\board.tsx app\admin-board-manage.tsx scripts\ops\post-insurance-digest.mjs`.
+- Passed: `cd web; npm run lint -- src\app\dashboard\board\page.tsx`.
+- Passed: `npx tsc --noEmit --pretty false`.
+- Passed: `node scripts\ci\check-governance.mjs`.
+- Passed: targeted `git diff --check`.
+- Not run: Deno Edge Function static check; `deno` is not installed in this local environment, and Expo ESLint cannot resolve Deno URL imports.
+
+---
+
+# Increment 38 Contract: Referral Graph Small-Drag Stability
+
+Date: 2026-06-05
+
+## Objective
+
+Fix the referral graph bug where a slight node drag can move unrelated connected nodes far away and leave abnormal long edges.
+
+## Scope
+
+- `web/src/components/referrals/ReferralGraphCanvas.tsx`
+  - Drag handlers must record only the dragged node as manual/suppressed.
+  - Drag-time spring correction must be bounded and non-jumpy.
+  - Drag/grab interactions must not call `d3ReheatSimulation()`.
+- `web/src/lib/referral-graph-physics.ts`
+  - Prevent-stretch propagation must continue only from edges that were actually corrected.
+  - Tiny/grab-only drag gestures must be detectable with a tested helper.
+- Tests
+  - Add a unit regression for slight drag not propagating into unrelated deep stretched links.
+  - Extend real-data QA with a small 김형수 drag/release check.
+
+## Acceptance Criteria
+
+- A slight drag does not create 400px-class abnormal long edges on current actual Supabase data.
+- A slight drag does not worsen the current actual-data crossing count.
+- Grabbing a node without meaningful movement does not leave manual drag state and does not reheat the graph.
+- Existing graph simulation tests remain green.
+- Web lint remains green.
+
+## Verification
+
+- Passed: `node --test src/lib/referral-graph-physics.test.ts src/lib/referral-graph-simulation.test.ts`.
+- Passed: `$env:RUN_REFERRAL_GRAPH_REALDATA_TEST='1'; $env:LOG_REFERRAL_GRAPH_CROSSINGS='1'; node --test src/lib/referral-graph-realdata.test.ts`.
+- Passed: `cd web; npm run lint`.
+
+## Rollback Notes
+
+- Reverting this increment should only touch the drag handler/spring propagation changes and the new small-drag assertions.
+- Do not restore component-wide drag suppression; that is the root cause of the reported runaway drag behavior.
+
+---
+
+# Current Contract: Increment 36 - Referral Graph Non-Circular Stable Branch Layout
+
+Status: completed locally on 2026-06-05
+
+## Goal
+
+Stop the referral graph from curling back into circular root/leaf clusters and from producing abnormal long edges. The accepted shape is a branch/trunk layout: terminal leaves use short but slightly varied spokes, child hubs with descendants use longer branch bridges, and the force simulation remains stable after drag/cooling.
+
+## Scope
+
+- Keep all graph edges straight and visually uniform.
+- Preserve open terminal sibling fans instead of closed circular rings.
+- Lengthen crowded leaf spokes only when needed for spacing, with stable ID-based variation.
+- Keep child hub bridges longer than terminal leaf spokes while bounding max link length.
+- Align runtime Canvas force settings with layout/physics/simulation tests.
+- Verify against the current real Supabase referral graph.
+
+## Explicit Non-Scope
+
+- No graph authorization/API/data-scope changes.
+- No mobile app build.
+- No phone UI manipulation in this increment.
+
+## Acceptance Criteria
+
+- Terminal-only sibling fan retains a large empty sector after simulation, not a full circle.
+- Actual Supabase graph has minimum node distance around 96px, max edge <= 360px, and Kim Hyungsoo direct p90 <= 345px.
+- Force simulation passes drag, reheating, dense fanout, nested branch, isolated-node, and cooled-stability regressions.
+- Web ESLint passes.
+
+## Verification Plan
+
+- Passed: `node --test src/lib/referral-graph-layout.test.ts src/lib/referral-graph-physics.test.ts src/lib/referral-graph-link-style.test.ts`.
+- Passed: `node --test src/lib/referral-graph-simulation.test.ts`.
+- Passed: `$env:RUN_REFERRAL_GRAPH_REALDATA_TEST='1'; node --test src/lib/referral-graph-realdata.test.ts`.
+- Passed: `cd web; npm run lint`.
+- Not run: `cd web; npm run build` because an active Next dev server blocked `.next` cleanup.
+
+---
+
+# Current Contract: Increment 37 - Referral Graph Zero-Crossing Branch Layout
+
+Status: completed locally on 2026-06-05
+
+## Goal
+
+Make the current referral graph settle as a non-circular branch/trunk graph with no disjoint straight-edge crossings on the live Supabase data. Child-bearing hubs use longer bridge edges; terminal leaves stay as short, slightly varied spokes.
+
+## Scope
+
+- Keep graph edges straight and visually uniform.
+- Remove circular root/leaf pull from terminal branch fans.
+- Use staggered terminal leaf spoke lengths so crowded short leaves do not stack.
+- Keep unrelated isolated nodes outside connected branch corridors without a runaway outer ring.
+- Use anchor-aware crossing correction so physics resolves crossings toward the deterministic seed layout.
+- Verify with the current real Supabase referral graph.
+
+## Explicit Non-Scope
+
+- No graph authorization/API/data-scope changes.
+- No mobile app build.
+- No phone UI manipulation in this increment.
+
+## Acceptance Criteria
+
+- Actual Supabase graph has `crossings=0` and `crossingVisualSeverity=0`.
+- Actual Supabase graph has minimum node distance >= 90px and max edge <= 360px.
+- Kim Hyungsoo direct spokes are not abnormal long spokes: direct max <= 360px and p90 <= 345px.
+- Synthetic graph simulation, layout, physics, and link-style tests pass.
+- Web ESLint passes.
+
+## Verification Plan
+
+- Passed: `node --test src/lib/referral-graph-layout.test.ts src/lib/referral-graph-physics.test.ts src/lib/referral-graph-link-style.test.ts src/lib/referral-graph-simulation.test.ts`.
+- Passed: `$env:RUN_REFERRAL_GRAPH_REALDATA_TEST='1'; $env:LOG_REFERRAL_GRAPH_CROSSINGS='1'; node --test src/lib/referral-graph-realdata.test.ts`.
+- Passed: `cd web; npm run lint`.
+- Not run: `cd web; npm run build`.

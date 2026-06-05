@@ -1,5 +1,6 @@
 import { serve } from 'https://deno.land/std@0.224.0/http/server.ts';
 import { buildCorsHeaders, json, parseJson, requireActor, requireRole, supabase , dbError } from '../_shared/board.ts';
+import { resolveCanonicalBoardCategory } from '../_shared/board-categories.ts';
 
 type Payload = {
   actor?: {
@@ -36,15 +37,48 @@ serve(async (req: Request) => {
     return json({ ok: false, code: 'invalid_payload', message: 'id is required' }, 400, origin);
   }
 
-  const payload: Record<string, unknown> = {};
-  if (body.name !== undefined) payload.name = body.name.trim();
-  if (body.slug !== undefined) payload.slug = body.slug.trim();
-  if (body.sortOrder !== undefined) payload.sort_order = body.sortOrder;
-  if (body.isActive !== undefined) payload.is_active = body.isActive;
-
-  if (Object.keys(payload).length === 0) {
+  if (
+    body.name === undefined
+    && body.slug === undefined
+    && body.sortOrder === undefined
+    && body.isActive === undefined
+  ) {
     return json({ ok: false, code: 'invalid_payload', message: 'no fields to update' }, 400, origin);
   }
+
+  const { data: currentCategory, error: currentCategoryError } = await supabase
+    .from('board_categories')
+    .select('id,slug')
+    .eq('id', body.id)
+    .maybeSingle();
+
+  if (currentCategoryError) {
+    return dbError(currentCategoryError, origin);
+  }
+  if (!currentCategory?.id) {
+    return json({ ok: false, code: 'not_found', message: 'category not found' }, 404, origin);
+  }
+
+  const canonicalCategory = resolveCanonicalBoardCategory({
+    slug: body.slug ?? currentCategory.slug,
+    name: body.name,
+  });
+  if (!canonicalCategory) {
+    return json({ ok: false, code: 'invalid_category', message: 'board category must be one of the canonical four types' }, 400, origin);
+  }
+  if (body.sortOrder !== undefined && body.sortOrder !== canonicalCategory.sortOrder) {
+    return json({ ok: false, code: 'invalid_category', message: 'canonical board category sortOrder cannot be changed' }, 400, origin);
+  }
+  if (body.isActive === false) {
+    return json({ ok: false, code: 'invalid_category', message: 'canonical board categories must stay active' }, 400, origin);
+  }
+
+  const payload: Record<string, unknown> = {
+    name: canonicalCategory.name,
+    slug: canonicalCategory.slug,
+    sort_order: canonicalCategory.sortOrder,
+    is_active: true,
+  };
 
   const { error } = await supabase
     .from('board_categories')

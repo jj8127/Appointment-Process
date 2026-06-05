@@ -68,6 +68,7 @@ source_of_truth: web/src/app/dashboard/page.tsx + web/src/app/dashboard/profile/
 - 다위촉 탭은 `완료일(FC 제출)` 확인, 승인 PDF 업로드/삭제, `FC 미전송 / FC 전송 완료` 조작을 담당하며 별도 `관리자 승인일` 입력 UI는 없습니다.
 - 승인 PDF 카드의 `PDF 업로드 완료`와 승인 토글의 `FC 전송 완료`는 같은 의미가 아닙니다. 총무는 PDF를 올린 뒤에도 마지막으로 `FC 전송 완료`를 눌러야 FC 앱에서 파일을 받을 수 있습니다.
 - 다위촉 PDF가 첨부되면 FC 앱 `hanwha-commission` 화면에서 상태가 `검토 중` 또는 `반려`여도 파일 자체는 열람/다운로드할 수 있습니다. 다만 생명/손해 위촉 단계 잠금 해제는 계속 `다위촉 승인 + PDF 등록` 기준입니다.
+- 다위촉 PDF 삭제 payload는 업로드 payload와 다르다. `deleteHanwhaPdf`는 `fcId`만 요구하고, `fileName`은 업로드 URL 생성에서만 필요하므로 `web/src/lib/admin-hanwha-pdf-payload.ts` helper 계약을 유지한다.
 - 생명/손해 위촉 탭은 `생명 위촉 완료`, `손해 위촉 완료` 플래그를 독립 토글로 저장할 수 있고, 둘 다 꺼진 상태는 별도 버튼 없이 미완료로 본다.
 - 3단계 라벨은 `다위촉 URL`, 4단계 라벨은 `생명/손해 위촉`으로 통일합니다.
 - FC 삭제는 별도 파괴적 작업

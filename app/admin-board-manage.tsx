@@ -98,17 +98,14 @@ const getInitial = (value?: string | null) => {
 
 const getCategoryTheme = (categoryName: string) => {
   const normalized = categoryName.trim().toLowerCase();
-  if (normalized === '공지') {
+  if (normalized.includes('공지')) {
     return { backgroundColor: '#fff7ed', borderColor: '#fed7aa', textColor: '#c2410c' };
   }
-  if (normalized === '교육') {
+  if (normalized.includes('교육')) {
     return { backgroundColor: '#eff6ff', borderColor: '#bfdbfe', textColor: '#1d4ed8' };
   }
-  if (normalized === '가람 pick' || normalized === 'garam pick' || normalized === 'garam-pick') {
+  if (normalized.includes('가람') || normalized.includes('pick')) {
     return { backgroundColor: '#fdf2f8', borderColor: '#fbcfe8', textColor: '#be185d' };
-  }
-  if (normalized === '서류') {
-    return { backgroundColor: '#f0fdf4', borderColor: '#bbf7d0', textColor: '#166534' };
   }
   return { backgroundColor: '#f3f4f6', borderColor: '#e5e7eb', textColor: '#374151' };
 };

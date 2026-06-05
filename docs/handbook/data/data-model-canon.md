@@ -22,6 +22,12 @@ source_of_truth: supabase/schema.sql + supabase/migrations/*
 - `manager_accounts`
 - docs/board/notification/presence/referral 관련 테이블
 
+## 2026-06-05 게시판 글 종류 canonical 메모
+
+- `board_categories`의 현재 가람in 게시판 글 종류는 `공지`, `교육 일정`, `일반`, `가람pick` 4종입니다.
+- stable slug는 각각 `notice`, `education`, `general`, `garam-pick`을 유지합니다.
+- `20260605000001_set_board_categories_to_four_types.sql`은 legacy `insurance-news`와 그 외 legacy category 게시글을 `general`로 재배치한 뒤 old category를 inactive 처리합니다.
+
 ## 온보딩 상태 핵심 컬럼
 
 - `fc_profiles.status`

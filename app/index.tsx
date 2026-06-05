@@ -33,6 +33,7 @@ import { resolveExamHomeSurface } from '@/lib/exam-role';
 import {
   calcAdminWorkflowStep,
   calcFcHomeWorkflowStep,
+  canOpenFcProfileRegistration,
   getFcHomeNextAction,
 } from '@/lib/fc-workflow';
 import { useIdentityStatus } from '@/hooks/use-identity-status';
@@ -42,7 +43,7 @@ import { fetchInternalUnreadCount } from '@/lib/internal-chat-api';
 import { logger } from '@/lib/logger';
 import { formatLatestNoticeLabel } from '@/lib/home-latest-notice';
 import { fetchMobileUnreadNotificationCount } from '@/lib/mobile-unread-notification-count';
-import { resolveNoticeRoute } from '@/lib/notice-route';
+import { resolveHomeLatestNoticeRoute } from '@/lib/notice-route';
 import { openExternalUrl } from '@/lib/open-external-url';
 import { supabase } from '@/lib/supabase';
 import { syncNativeNotificationBadge } from '@/lib/system-notification-badge';
@@ -185,7 +186,17 @@ const buildFcQuickLinks = (profile?: FcProfile | null): QuickLink[] => {
     title: '추천인 코드',
     description: '친구 초대 및 현황 확인',
   };
-  return [...quickLinksFcBase.slice(0, 5), hanwhaLink, insuranceLink, quickLinksFcBase[5], referralLink];
+  const workflowLinks = canOpenFcProfileRegistration(profile)
+    ? quickLinksFcBase.slice(0, 5)
+    : [
+        quickLinksFcBase[0],
+        quickLinksFcBase[1],
+        { href: '/signup', title: '사전등록', description: '회원가입 정보를 먼저 완료' },
+        quickLinksFcBase[3],
+        quickLinksFcBase[4],
+      ];
+
+  return [...workflowLinks, hanwhaLink, insuranceLink, quickLinksFcBase[5], referralLink];
 };
 
 const fetchCounts = async (role: 'admin' | 'fc' | null, residentId: string): Promise<CountsResult> => {
@@ -308,6 +319,7 @@ const fetchFcStatus = async (residentId: string) => {
     address: null,
     identity_completed: false,
     is_tour_seen: false,
+    signup_completed: false,
     fc_documents: [],
   };
 };
@@ -771,6 +783,9 @@ export default function Home() {
   } = useQuery({
     queryKey: ['latest-notice'],
     queryFn: fetchLatestNotice,
+    staleTime: 0,
+    refetchOnMount: 'always',
+    refetchOnReconnect: true,
   });
 
   const {
@@ -900,10 +915,11 @@ export default function Home() {
     useCallback(() => {
       refetchMsgCount();
       refetchNotifCount();
+      refetchLatestNotice?.();
       if (role === 'fc' && residentId) {
         refetchMyFc?.();
       }
-    }, [refetchMsgCount, refetchNotifCount, refetchMyFc, residentId, role])
+    }, [refetchMsgCount, refetchNotifCount, refetchLatestNotice, refetchMyFc, residentId, role])
   );
 
   useEffect(() => {
@@ -911,6 +927,7 @@ export default function Home() {
       if (nextState !== 'active') return;
       refetchMsgCount();
       refetchNotifCount();
+      refetchLatestNotice?.();
       if (role === 'fc' && residentId) {
         refetchMyFc?.();
       }
@@ -919,7 +936,7 @@ export default function Home() {
     return () => {
       subscription.remove();
     };
-  }, [refetchMsgCount, refetchNotifCount, refetchMyFc, residentId, role]);
+  }, [refetchMsgCount, refetchNotifCount, refetchLatestNotice, refetchMyFc, residentId, role]);
 
   // Android 뒤로가기 버튼: 앱 종료 확인 다이얼로그
   useFocusEffect(
@@ -1064,6 +1081,11 @@ export default function Home() {
       return;
     }
     if (href === '/fc/new') {
+      if (role === 'fc' && !canOpenFcProfileRegistration(myFc as FcProfile | null | undefined)) {
+        Alert.alert('사전등록 필요', '본등록은 사전등록을 완료한 뒤 진행할 수 있습니다.');
+        router.push('/signup');
+        return;
+      }
       router.push({ pathname: '/fc/new', params: { from: 'home' } } as any);
       return;
     }
@@ -1072,7 +1094,7 @@ export default function Home() {
 
   const handleOpenLatestNotice = () => {
     Haptics.selectionAsync();
-    const route = resolveNoticeRoute(latestNotice?.id ?? null);
+    const route = resolveHomeLatestNoticeRoute(latestNotice?.id ?? null);
     if (route) {
       router.push(route as any);
       return;
@@ -1237,7 +1259,7 @@ export default function Home() {
               <AndroidSafeMotiView from={{ opacity: 0, translateY: -10 }} animate={{ opacity: 1, translateY: 0 }} transition={{ type: 'timing', duration: 500 }}>
                 <TourGuideZone
                   zone={1}
-                  text="여기서 최신 공지를 확인해요. 눌러서 상세로 이동할 수 있어요."
+                  text="여기서 최신 공지와 가람Pick을 확인해요. 눌러서 상세로 이동할 수 있어요."
                   borderRadius={12}>
                   <Pressable
                     style={({ pressed }) => [styles.notice, pressed && styles.pressedOpacity]}

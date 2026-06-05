@@ -1,4 +1,38 @@
-﻿# Increment 34: Orange CTA Black Rendering Guard
+﻿# Increment 35: Request Board Designer Notification Scope
+
+Status: completed locally on 2026-06-05.
+
+What changed:
+
+- Request-board designer Expo push tokens now use `manager` scope instead of `fc` scope.
+- `fc-notify` now reads token `role` and filters manager mobile tokens to request-board notifications or direct internal chat only.
+- Request-board designer unread badge now uses live request_board unread only, avoiding fc-onboarding/board/exam count noise.
+- Notification runbook and mistake ledger now document the manager-mobile scope contract.
+
+Expected active behavior after this increment:
+
+- 설계매니저 가람in에는 설계 요청 관련 알림과 본인에게 직접 온 채팅 알림만 도착해야 한다.
+- 게시판, 공지, 시험, FC 온보딩 broadcast는 설계매니저 모바일 push/unread에 포함되지 않아야 한다.
+
+Deferred:
+
+- Runtime push verification on a physical device after function/app deployment.
+- Cleanup of older Expo tokens already stored as `fc` until those devices log in and refresh token scope.
+
+Evidence so far:
+
+- `npm test -- --runTestsByPath supabase/functions/_shared/__tests__/notification-delivery-policy.test.ts lib/__tests__/push-registration.test.ts --runInBand` passed.
+- `npm test -- --runTestsByPath lib/__tests__/mobile-unread-notification-count-plan.test.ts --runInBand` passed.
+- Combined focused tests passed.
+- Targeted lint for touched mobile/helper files passed.
+- `fc-notify` lint passed with `import/no-unresolved` disabled for Deno remote imports; only pre-existing `Array<T>` style warnings remain.
+- `npx tsc --noEmit --pretty false` passed.
+- `npm test -- --runInBand` passed.
+- `git diff --check` passed with CRLF normalization warnings only.
+
+---
+
+# Increment 34: Orange CTA Black Rendering Guard
 
 Status: completed locally on 2026-06-04.
 
@@ -963,12 +997,12 @@ npm test -- --runInBand
   - `node --test src/lib/referral-graph-physics.test.ts` (22 tests, including the same-session manual target regression).
   - `node --test src/lib/referral-graph-link-style.test.ts src/lib/referral-graph-layout.test.ts src/lib/referral-graph-physics.test.ts src/lib/referral-graph-simulation.test.ts` (64 tests).
   - `$env:RUN_REFERRAL_GRAPH_REALDATA_TEST='1'; node --test src/lib/referral-graph-realdata.test.ts`.
-  - Actual graph metrics: 185 nodes, 102 edges, 21 crossings, visual overlap severity 2.20, 55.98px minimum center distance, 336.93px maximum edge, Kim Hyungsoo direct p90 336.32px.
+  - Actual graph metrics: 185 nodes, 102 edges, 11 crossings, visual overlap severity 6.16, 55.98px minimum center distance, 335.31px maximum edge, Kim Hyungsoo direct p90 334.45px.
   - Targeted web ESLint for graph page/canvas/layout/physics tests.
   - Targeted `git diff --check` before the final documentation refresh; rerun it before final commit.
 - Not done:
   - No `web` build because the build script cleans `.next` and the user's local Next dev server is active.
-  - No direct browser screenshot after the latest patch; ask the user to reload localhost and inspect the graph with the `v15` default settings.
+  - No direct browser screenshot after the latest patch; ask the user to reload localhost and inspect the graph with the `v16` default settings.
 - Resume note:
   - If the graph still appears too sparse around 김형수 after reload, inspect whether the UI is using the `퍼짐` preset or a custom draft physics setting. The storage key should now reset defaults, so a post-reload issue is likely a true layout constant issue, not stale localStorage.
   - If the user requires literal zero edge crossings, stop tuning force constants and plan a separate deterministic tree/radial-tree layout mode. Two force-tuning/layout-sector hypotheses were tested against real data and increased crossings.
@@ -995,7 +1029,7 @@ npm test -- --runInBand
 
 - Implemented:
   - Added `lib/exam-role.ts` to define the FC-equivalent exam role contract.
-  - Home 시험 tab now sends 본부장(read-only admin) to FC-style exam application quick links, not admin exam management links.
+  - Home 시험 tab now keeps 본부장(read-only admin) on a `manager-management` surface: existing exam schedule/applicant-list links remain visible, and FC-style exam application links are added.
   - `/exam-apply` and `/exam-apply2` now allow 본부장 sessions and enable the same round/my-application queries as FC sessions.
   - Writable 총무 admin remains on exam management summary and management links.
 - Verification passed:
@@ -1003,13 +1037,184 @@ npm test -- --runInBand
   - `npx eslint app\index.tsx app\exam-apply.tsx app\exam-apply2.tsx lib\exam-role.ts lib\__tests__\exam-role.test.ts`.
   - `npx tsc --noEmit --pretty false`.
   - Targeted `git diff --check`.
+- Follow-up correction:
+  - User caught that the first pass removed existing 본부장 exam management links.
+  - Corrected expectation: 본부장 sees `생명보험/제3보험 시험`, `손해보험 시험`, `생명/제3 신청자`, `손해 신청자`, plus `생명/제3 시험 신청`, `손해 시험 신청`.
+  - Re-ran `npx jest lib\__tests__\exam-role.test.ts --runInBand` and `npx eslint app\index.tsx lib\exam-role.ts lib\__tests__\exam-role.test.ts`.
 - Not done:
   - No direct Android UI tap-through or live exam submission.
 - Resume note:
-  - In a 본부장 login session, open the bottom `시험` tab. Expected links are `생명/제3 시험 신청` and `손해 시험 신청`, both entering the FC-style application screens.
+  - In a 본부장 login session, open the bottom `시험` tab. Expected: existing exam schedule/applicant-list cards are still present, and the two exam application cards are additionally present.
 
-## Increment 41 - Referral Graph Realdata Closeout
+## Increment 30 Handoff
 
-- Graph-only commit scope: referral graph canvas, graph layout/physics/link-style helpers, and graph tests.
-- Key correction: realdata tests now pass `sourceId`/`targetId` into the same link-distance path used by production.
-- Keep unrelated dirty app/web/request-board changes out of this graph commit.
+- Implemented:
+  - Removed stale root-spoke link-style branching; graph links now use one uniform, more visible style.
+  - Reworked terminal-only hub placement from a full circle into a short non-circular side fan with staggered leaf lengths.
+  - Added deterministic ID-based branch-bridge length jitter so child hubs with descendants do not form identical-length spokes.
+  - Aligned layout and physics branch distance formulas so live force simulation does not pull branch hubs back into older compact/circular assumptions.
+  - Increased Canvas/test collision radius to keep dense nodes apart, and strengthened sibling-angular/edge-crossing forces within the stable range found by real-data testing.
+- Verification passed:
+  - `node --test src/lib/referral-graph-layout.test.ts src/lib/referral-graph-physics.test.ts src/lib/referral-graph-link-style.test.ts src/lib/referral-graph-simulation.test.ts` (69 tests).
+  - `$env:RUN_REFERRAL_GRAPH_REALDATA_TEST='1'; node --test src/lib/referral-graph-realdata.test.ts`.
+  - Actual graph metrics: 185 nodes, 102 edges, 13 crossings, visual severity 7.67, 95.94px minimum node distance, 346.67px maximum edge, Kim Hyungsoo direct p90 302.71px.
+- Not done:
+  - No direct browser/phone visual QA after this latest layout patch.
+  - No production web build in this increment.
+- Resume note:
+  - Ask the user to reload `/dashboard/referrals/graph`; the expected shape is branch/trunk-like, with terminal leaf spokes short and slightly varied, child hubs on longer branches, and uniformly visible straight edges.
+  - If the user still wants fewer crossings than the current 13 real-data crossings, do not keep raising edge-crossing force constants blindly. A stronger setting was tested and made real data worse; the next step should be a deterministic tree/branch layout mode rather than more force tuning.
+# Increment 35: Board Category Four-Type Alignment
+
+Status: completed locally on 2026-06-05.
+
+What changed:
+
+- Board category seed and forward migration now target the four requested GaramIn board post types: `공지`, `교육일정`, `가람Pick`, `일반`.
+- Existing `education`, `garam-pick`, `notice`, and `general` slugs are retained.
+- Legacy `insurance-news` posts are reassigned to `가람Pick`; other legacy category posts are reassigned to `일반` before old categories are deactivated.
+- Category-list returns active categories for every role, so inactive legacy categories do not show in admin writer/filter UI.
+- Insurance digest automation now posts into `가람Pick`/`garam-pick` instead of recreating `보험소식`/`insurance-news`.
+- Board badge color mapping was updated for mobile app, mobile admin board management, and admin web board.
+
+Deferred:
+
+- Runtime DB migration application/deployment remains external to local edits.
+- Board permissions, comments, attachments, reactions, and graph files are unchanged.
+
+Evidence:
+
+- `node --test scripts/ops/post-insurance-digest.test.mjs` passed, 12 tests.
+- `npm run lint -- app\board.tsx app\admin-board-manage.tsx scripts\ops\post-insurance-digest.mjs` passed.
+- `cd web; npm run lint -- src\app\dashboard\board\page.tsx` passed.
+- `npx tsc --noEmit --pretty false` passed.
+- `node scripts\ci\check-governance.mjs` passed.
+- Targeted `git diff --check` passed with line-ending warnings only.
+- Deno Edge Function static check was not run because `deno` is not installed locally; Expo lint cannot resolve Deno URL imports.
+
+---
+
+## Increment 36 Handoff
+
+- Implemented:
+  - Runtime graph sibling-angular force now preserves anchor-relative open fans instead of reintroducing circular sibling spacing.
+  - Crowded terminal leaf spokes are lengthened only when fanout needs spacing, and use stable ID-based length jitter.
+  - Child hubs with descendants keep visibly longer branch bridges than terminal leaves, with bounded max edge lengths.
+  - Simulation tests were updated from old compact/circular assumptions to the current branch/trunk acceptance: open fan, no overlap, bounded edge, stable drag/cooling.
+- Verification passed:
+  - `node --test src/lib/referral-graph-physics.test.ts src/lib/referral-graph-layout.test.ts src/lib/referral-graph-link-style.test.ts`.
+  - `node --test src/lib/referral-graph-simulation.test.ts`.
+  - `$env:RUN_REFERRAL_GRAPH_REALDATA_TEST='1'; node --test src/lib/referral-graph-realdata.test.ts`.
+  - `cd web; npm run lint`.
+- Real-data metrics:
+  - 186 nodes, 101 edges, 3 crossings, visual severity 1.769472.
+  - Minimum node distance 95.96px.
+  - Maximum edge 333.20px.
+  - Kim Hyungsoo direct p90 326.31px.
+- Not done:
+  - `cd web; npm run build` did not run because the active Next dev server blocked `.next` cleanup.
+  - No direct browser screenshot or phone manipulation in this increment.
+- Resume note:
+  - Reload `/dashboard/referrals/graph` in the active browser. Expected: terminal/no-child nodes no longer force a closed ring, child hubs branch farther outward than leaf-only nodes, and the actual graph should not show 400px-class abnormal spokes.
+
+---
+
+## Increment 37 Handoff
+
+- Implemented:
+  - Tightened incoming branch leaf fans so terminal leaves do not form local circular clusters.
+  - Reordered branch leaf spoke radii so adjacent terminal leaves use visibly different lengths.
+  - Added anchor-aware edge crossing correction; straight edges now separate toward the deterministic non-crossing seed layout.
+  - Capped isolated-node shell placement to keep unrelated nodes outside connected branches without creating a huge outer ring.
+  - Kept Canvas, synthetic simulation, and real-data force settings aligned.
+- Verification passed:
+  - `node --test src/lib/referral-graph-layout.test.ts src/lib/referral-graph-physics.test.ts src/lib/referral-graph-link-style.test.ts src/lib/referral-graph-simulation.test.ts` (72 tests).
+  - `$env:RUN_REFERRAL_GRAPH_REALDATA_TEST='1'; $env:LOG_REFERRAL_GRAPH_CROSSINGS='1'; node --test src/lib/referral-graph-realdata.test.ts`.
+  - `cd web; npm run lint`.
+- Real-data metrics:
+  - 186 nodes, 101 edges, 0 crossings, visual severity 0.
+  - Minimum node distance 93.75px.
+  - Maximum edge 345.02px.
+  - Kim Hyungsoo direct max 270.68px, p90 269.46px.
+- Not done:
+  - No production web build.
+  - No browser screenshot QA after this final patch.
+- Resume note:
+  - Reload `/dashboard/referrals/graph`. Expected: no straight-edge crossings on the current data set, no root circular pull, child-bearing hubs on longer branches, and terminal/no-child leaves as short staggered spokes.
+
+---
+
+## Increment 38 Handoff
+
+- Implemented:
+  - `applyReferralGraphDragSpring(... preventStretch)` now propagates only through edges that actually exceeded the allowed stretch distance and were corrected.
+  - `ReferralGraphCanvas` drag handlers no longer mark the entire connected component as manually moved/suppressed after one node drag.
+  - Drag-time immediate spring correction is less aggressive (`constraintStrength=0.42`, `stretchSlack=18`, `maxVelocity=42`) to avoid sudden whole-branch jumps.
+  - Drag and drag-end handlers no longer call `d3ReheatSimulation()`, so grabbing a node does not restart the whole settled force simulation.
+  - `isReferralGraphMeaningfulDrag()` ignores grab-only/tiny movement before storing manual drag targets.
+  - Real-data QA now simulates a small 김형수 drag/release after initial settle.
+- Verification passed:
+  - `node --test src/lib/referral-graph-physics.test.ts src/lib/referral-graph-simulation.test.ts` (49 tests).
+  - `$env:RUN_REFERRAL_GRAPH_REALDATA_TEST='1'; $env:LOG_REFERRAL_GRAPH_CROSSINGS='1'; node --test src/lib/referral-graph-realdata.test.ts`.
+  - `cd web; npm run lint`.
+  - Targeted `git diff --check`.
+- Real-data metrics:
+  - Current data is 187 nodes / 102 edges.
+  - Before drag: 1 low-severity crossing, max edge 345.37px, min node distance 76.68px.
+  - After small drag: 1 low-severity crossing, max edge 345.87px, min node distance 77.40px.
+- Remaining note:
+  - The drag runaway/abnormal long-edge issue is fixed in tests. The updated data still has one small pre-existing crossing before drag; if absolute zero crossing is required again, treat that as a deterministic layout follow-up rather than raising force constants blindly.
+
+---
+
+## Increment 39 Handoff
+
+- Implemented:
+  - GaramLink 설계요청 신규 고객 등록 fields now use keyboard next/done navigation.
+  - 생년월일 auto-formats to `YYYY-MM-DD`.
+  - 연락처 auto-formats to `010-1234-1234`.
+  - 주민번호 auto-formats to `900101-1234567`.
+  - Input placeholders now show gray examples for each field.
+- Verification passed:
+  - `npm test -- --runTestsByPath lib/__tests__/request-board-customer-input.test.ts --runInBand`.
+  - `npx eslint app/request-board-create.tsx lib/request-board-customer-input.ts lib/__tests__/request-board-customer-input.test.ts`.
+  - `npx tsc --noEmit --pretty false`.
+  - `git diff --check -- app/request-board-create.tsx lib/request-board-customer-input.ts lib/__tests__/request-board-customer-input.test.ts`.
+- Not done:
+  - No ADB/phone UI manipulation in this increment.
+
+---
+
+## Increment 41 Handoff
+
+- Implemented:
+  - Rechecked and finalized the referral graph layout/physics file set for commit.
+  - Realdata regression helper now passes `sourceId`/`targetId` to `getReferralGraphLinkDistance`, matching production Canvas and preserving ID-based branch/leaf distance jitter.
+  - No production edge-crossing force increase was needed; the production/test input drift was the cause of the failing realdata check.
+- Verification passed:
+  - `node --test src/lib/referral-graph-layout.test.ts src/lib/referral-graph-physics.test.ts src/lib/referral-graph-link-style.test.ts src/lib/referral-graph-simulation.test.ts` (74 tests).
+  - `$env:RUN_REFERRAL_GRAPH_REALDATA_TEST='1'; $env:LOG_REFERRAL_GRAPH_CROSSINGS='1'; node --test src/lib/referral-graph-realdata.test.ts`.
+  - Targeted graph ESLint.
+  - `cd web; SENTRY_AUTH_TOKEN='' npm run build`.
+- Real-data metrics:
+  - Current data is 187 nodes / 103 edges.
+  - Before drag: 0 crossings, visual severity 0, max edge 356.82px, min node distance 93.51px.
+  - After small drag: 0 crossings, visual severity 0, max edge 347.38px, min node distance 94.16px.
+- Not done:
+  - No direct browser/phone visual QA in this closeout.
+
+---
+
+## Increment 40 Handoff
+
+- Implemented:
+  - Added visible `운전 구분` selection chips to GaramLink 설계요청 신규 고객 등록.
+  - Exported `REQUEST_BOARD_DRIVING_STATUS_OPTIONS` from `lib/request-board-driving-status.ts` so registration and review share the same codes/labels.
+  - Added keyboard-open scroll behavior to `app/request-board-create.tsx`: handled taps, drag dismissal, dynamic keyboard bottom padding, and non-scrollable TextInputs so the parent ScrollView can move.
+- Verification passed:
+  - `npm test -- --runTestsByPath lib/__tests__/request-board-driving-status.test.ts lib/__tests__/request-board-customer-input.test.ts --runInBand`.
+  - `npx eslint app/request-board-create.tsx lib/request-board-driving-status.ts lib/__tests__/request-board-driving-status.test.ts lib/request-board-customer-input.ts lib/__tests__/request-board-customer-input.test.ts`.
+  - `npx tsc --noEmit --pretty false`.
+  - `git diff --check -- app/request-board-create.tsx lib/request-board-driving-status.ts lib/__tests__/request-board-driving-status.test.ts lib/request-board-customer-input.ts lib/__tests__/request-board-customer-input.test.ts`.
+- Not done:
+  - No ADB/phone UI manipulation in this increment.

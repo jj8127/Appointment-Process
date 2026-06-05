@@ -1,4 +1,29 @@
-﻿# Increment 34: Orange CTA Black Rendering Guard
+﻿# Increment 35: Request Board Designer Notification Scope
+
+Status: completed locally on 2026-06-05
+
+Implementation order:
+
+1. Completed: identified that request-board designer mobile push can be polluted by FC/admin broadcast token scopes.
+2. Completed: added manager mobile delivery policy tests for request_board, direct chat, board/notice/exam exclusions.
+3. Completed: changed request-board designer push token scope from `fc` to `manager`.
+4. Completed: applied manager-token filtering in `fc-notify`.
+5. Completed: changed designer unread count to request_board live unread only.
+6. Completed: ran focused tests, targeted lint, full TypeScript, full Jest, and diff whitespace checks.
+
+Parallel owners:
+
+- Coordinator: policy, mobile session registration, `fc-notify`, unread orchestration, docs, verification.
+
+Out of scope:
+
+- FC/admin notification delivery changes.
+- request_board backend API changes.
+- Referral graph work.
+
+---
+
+# Increment 34: Orange CTA Black Rendering Guard
 
 Status: completed locally on 2026-06-04
 

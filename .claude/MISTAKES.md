@@ -30,21 +30,94 @@
 - Verification:
 ```
 
-## 2026-06-05 | Referral Graph | realdata 검증 입력과 production 입력 drift
+## 2026-06-05 | Referral Graph Realdata Test | production force 입력과 realdata helper 입력 drift
 - Symptom:
-  - 실제 데이터 graph test가 production canvas와 다르게 link-distance resolver에 endpoint id를 넘기지 않아 crossing/edge-length 지표가 runtime 경로와 어긋날 수 있었다.
+  - 실제 Supabase 그래프 테스트가 같은 production force stack을 검증한다고 기록되어 있었지만, `forceLink.distance`에서 `sourceId`/`targetId`를 넘기지 않아 ID 기반 edge length jitter가 빠졌다.
+  - 그 결과 실제 브라우저 Canvas와 realdata regression test의 교차/edge length 수치가 달라질 수 있었다.
 - Root cause:
-  - 테스트 helper가 link object의 source/target 값만 넘겼고, production에서 추가로 쓰는 `sourceId`/`targetId` metadata shape를 복제하지 않았다.
+  - production Canvas에 `sourceId`/`targetId` 옵션을 추가한 뒤 realdata test helper를 같은 시점에 동기화하지 않았다.
 - Why it was missed:
-  - layout helper의 기본값이 동작해 테스트 자체는 실행됐고, production 입력 shape와 test 입력 shape를 비교하는 guard가 없었다.
+  - synthetic simulation helper는 이미 동기화되어 있었고, realdata helper도 같은 file family라 같은 계약을 쓴다고 가정했다.
 - Permanent guardrail:
-  - graph realdata simulation은 production canvas와 동일한 link metadata object를 넘기고, drag 후 crossing/min-distance/max-edge metrics를 함께 검증한다.
+  - graph force 옵션을 추가할 때 Canvas, synthetic simulation helper, realdata helper 세 곳을 동시에 비교한다.
+  - realdata test는 production-equivalent라는 표현을 쓰려면 `sourceId`/`targetId`, child/subtree counts, collision radius, force constants를 모두 맞춘다.
 - Related files:
-  - `web/src/lib/referral-graph-realdata.test.ts`
   - `web/src/components/referrals/ReferralGraphCanvas.tsx`
-  - `web/src/lib/referral-graph-physics.ts`
+  - `web/src/lib/referral-graph-realdata.test.ts`
+  - `web/src/lib/referral-graph-simulation.test.ts`
 - Verification:
-  - `RUN_REFERRAL_GRAPH_REALDATA_TEST=1 LOG_REFERRAL_GRAPH_CROSSINGS=1 node --test src/lib/referral-graph-realdata.test.ts`
+  - `node --test src/lib/referral-graph-layout.test.ts src/lib/referral-graph-physics.test.ts src/lib/referral-graph-link-style.test.ts src/lib/referral-graph-simulation.test.ts`
+  - `$env:RUN_REFERRAL_GRAPH_REALDATA_TEST='1'; $env:LOG_REFERRAL_GRAPH_CROSSINGS='1'; node --test src/lib/referral-graph-realdata.test.ts`
+
+## 2026-06-05 | GaramIn Board Categories | 보험소식 legacy 카테고리를 잘못 가람pick으로 재배치
+- Symptom:
+  - 사용자는 게시판 글 종류를 `공지`, `교육 일정`, `일반`, `가람pick` 4종으로 제한하고 기존 `보험소식` 글은 `일반`으로 옮기길 원했지만, 기존 4종 정리 migration은 `insurance-news` 글을 `garam-pick`으로 옮기도록 되어 있었다.
+- Root cause:
+  - 홈 최신 카드에 `가람pick`을 띄워야 한다는 요구와 자동 보험소식 브리핑을 `일반`으로 올려야 한다는 요구를 분리하지 않고, `insurance-news` legacy 정리를 `garam-pick` 노출 요구와 섞었다.
+  - category list UI는 4종만 보여도 category create/update/post write 함수는 임의 category를 다시 만들 수 있었다.
+- Why it was missed:
+  - seed/migration/function/script를 한 계약으로 검증하는 테스트가 없었고, 기존 게시글 재배치 대상과 새 자동 게시 대상의 차이를 명시하지 않았다.
+- Permanent guardrail:
+  - 게시판 카테고리는 shared canonical list(`공지`, `교육 일정`, `일반`, `가람pick`)를 source of truth로 두고, 목록/생성/수정/게시글 작성 경계가 모두 같은 allowlist를 사용한다.
+  - 자동 보험소식 브리핑은 `일반/general`에만 게시하고, 홈 최신 카드의 `가람pick` 노출 요구와 섞지 않는다.
+  - `lib/__tests__/board-category-contract.test.ts`로 schema, migration, Edge Function, 자동 게시 스크립트의 카테고리 계약을 함께 고정한다.
+- Related files:
+  - `supabase/functions/_shared/board-categories.ts`
+  - `supabase/migrations/20260605000001_set_board_categories_to_four_types.sql`
+  - `supabase/schema.sql`
+  - `supabase/functions/board-categories-list/index.ts`
+  - `supabase/functions/board-category-create/index.ts`
+  - `supabase/functions/board-category-update/index.ts`
+  - `supabase/functions/board-create/index.ts`
+  - `supabase/functions/board-update/index.ts`
+  - `scripts/ops/post-insurance-digest.mjs`
+  - `lib/__tests__/board-category-contract.test.ts`
+- Verification:
+  - RED/GREEN: `npm test -- --runTestsByPath lib/__tests__/board-category-contract.test.ts lib/__tests__/home-latest-notice.test.ts --runInBand`
+  - GREEN: `node --test scripts/ops/post-insurance-digest.test.mjs`
+
+## 2026-06-05 | GaramIn Exam Apply | 필수값 누락 이유를 disabled 버튼으로 숨김
+- Symptom:
+  - FC가 응시료 납입 일자, 시험 일정, 응시 지역, 응시 과목 중 하나를 선택하지 않으면 `시험 신청하기` 버튼이 회색으로 비활성화되어 어떤 항목이 빠졌는지 알 수 없었다.
+- Root cause:
+  - submit `Pressable`의 `disabled` 조건에 필수 선택값 누락을 포함해, 상세 validation/Alert 경로가 실행되지 않았다.
+- Why it was missed:
+  - 저장 mutation 내부에는 일부 방어 검증이 있었지만, 모바일 UI에서 버튼 비활성화 상태가 먼저 클릭을 차단하는지 검증하지 않았다.
+- Permanent guardrail:
+  - 필수 입력 누락은 버튼을 침묵시키지 말고 클릭 가능한 상태에서 누락 항목 목록을 Alert로 안내한다.
+  - 제출 버튼의 `disabled`는 중복 제출 방지 같은 실제 실행 불가 상태에만 제한한다.
+  - 필수값 메시지 순서는 화면에 보이는 순서 기준 helper/test로 고정한다.
+- Related files:
+  - `app/exam-apply.tsx`
+  - `app/exam-apply2.tsx`
+  - `lib/exam-application-validation.ts`
+  - `lib/__tests__/exam-application-validation.test.ts`
+- Verification:
+  - RED/GREEN: `npm test -- --runTestsByPath lib/__tests__/exam-application-validation.test.ts --runInBand`
+
+## 2026-06-05 | Manager Mobile Notifications | 설계매니저 토큰을 FC/admin broadcast 범위와 섞음
+- Symptom:
+  - 설계매니저 가람in에 설계 요청과 직접 채팅 외에도 게시판, 공지, 시험 등 불필요한 알림이 많이 도착했다.
+- Root cause:
+  - request-board 디자이너 세션이 Expo token을 `fc` scope로 등록할 수 있어 FC 전체 broadcast를 같이 받았다.
+  - `fc-notify`의 `admin` 대상 broadcast는 `device_tokens.role in ('admin','manager')`를 그대로 포함했고, category 기반으로 manager 모바일 수신 범위를 줄이지 않았다.
+  - 모바일 unread 계산도 request-board designer 세션에서 fc-onboarding unread를 live request_board unread와 합산할 수 있었다.
+- Why it was missed:
+  - 알림 fanout 검증을 FC/admin 중심으로만 보았고, 설계매니저 모바일은 request_board 전용 역할이라는 product scope를 별도 계약 테스트로 고정하지 않았다.
+- Permanent guardrail:
+  - 설계매니저 모바일 token은 `manager` scope로 저장한다.
+  - manager token fanout은 `request_board_*` category 또는 구체적인 `target_id`가 있는 직접 채팅만 허용한다.
+  - request-board designer unread는 fc-onboarding unread를 더하지 않고 live request_board unread만 사용한다.
+- Related files:
+  - `lib/push-registration.ts`
+  - `hooks/use-session.tsx`
+  - `lib/notifications.ts`
+  - `lib/mobile-unread-notification-count-plan.ts`
+  - `supabase/functions/fc-notify/index.ts`
+  - `supabase/functions/_shared/notification-delivery-policy.ts`
+- Verification:
+  - RED/GREEN: `npm test -- --runTestsByPath supabase/functions/_shared/__tests__/notification-delivery-policy.test.ts lib/__tests__/push-registration.test.ts --runInBand`
+  - RED/GREEN: `npm test -- --runTestsByPath lib/__tests__/mobile-unread-notification-count-plan.test.ts --runInBand`
 
 ## 2026-06-03 | GaramIn Payment / Subagent Integration | 계획 계약과 실제 live path가 어긋남
 - Symptom:
@@ -1385,3 +1458,75 @@
 - Permanent guardrail: 본부장 시험 홈은 `manager-management` surface로 분리한다. 기존 시험 목록/신청자 명단 조회 링크는 유지하고, `/exam-apply`, `/exam-apply2` 신청 링크를 추가한다. 시험 신청 route gate는 `role='fc'` 또는 `role='admin' && readOnly=true`를 허용한다.
 - Related files: `app/index.tsx`, `app/exam-apply.tsx`, `app/exam-apply2.tsx`, `lib/exam-role.ts`, `lib/__tests__/exam-role.test.ts`
 - Verification: `npx jest lib\__tests__\exam-role.test.ts --runInBand`, `npx eslint app\index.tsx lib\exam-role.ts lib\__tests__\exam-role.test.ts`, `npx tsc --noEmit --pretty false`, targeted `git diff --check`.
+
+## 2026-06-05 | Referral Graph Layout Contract | 사용자 스케치와 반대되는 원형/콤팩트 테스트 기준을 유지
+- Symptom: 사용자는 root 주변 원형 분배를 없애고, 자식 없는 짧은 엣지도 길이를 조금씩 다르게 하며, 자식 있는 허브는 더 긴 엣지를 갖는 스케치형 그래프를 요구했다. 하지만 기존 테스트는 terminal children full-circle fan, 짧은 child-hub bridge, 낮은 edge severity 기준을 계속 요구했다.
+- Root cause: 추천인 그래프 테스트가 이전 "compact force graph" 계약을 제품 요구처럼 유지했고, 실제 사용자 sketch를 acceptance criteria로 재정의하지 않은 채 force 수치만 반복 조정했다. 또한 dead root-spoke link-style helper가 남아 있어 엣지 스타일 분기가 다시 살아날 위험이 있었다.
+- Why it was missed: 합성 테스트 통과 여부를 우선 보면서 "왜 실패하는지"를 제품 계약 관점에서 다시 분류하지 않았다. 실제 Supabase graph test는 있었지만 테스트 threshold와 edge style 가중치가 바뀐 사실을 같이 업데이트하지 않았다.
+- Permanent guardrail: 추천인 그래프 변경 시 먼저 현재 사용자 계약을 테스트 이름/threshold에 반영한다. 스케치형 branch/trunk 요구에서는 terminal-only hubs must be non-circular side fans, terminal leaves stay short but length-staggered, child hubs must use longer ID-varied branch bridges, and all links use one visible style. Real-data QA는 `RUN_REFERRAL_GRAPH_REALDATA_TEST=1`로 실행하고, force constant 상향이 실제 crossing을 악화시키면 즉시 되돌리고 deterministic layout mode를 별도 설계한다.
+- Related files: `web/src/lib/referral-graph-layout.ts`, `web/src/lib/referral-graph-physics.ts`, `web/src/lib/referral-graph-link-style.ts`, `web/src/components/referrals/ReferralGraphCanvas.tsx`, graph tests under `web/src/lib/`.
+- Verification: `node --test src/lib/referral-graph-layout.test.ts src/lib/referral-graph-physics.test.ts src/lib/referral-graph-link-style.test.ts src/lib/referral-graph-simulation.test.ts`; `$env:RUN_REFERRAL_GRAPH_REALDATA_TEST='1'; node --test src/lib/referral-graph-realdata.test.ts`.
+
+## 2026-06-05 | FC Preregistration Gate | 사전등록 미완료 상태에서도 본등록 화면 진입을 허용
+- Symptom: FC가 사전등록을 완료하지 않은 상태에서도 홈 빠른 메뉴 또는 직접 route로 `/fc/new` 본등록 화면에 진입할 수 있었다.
+- Root cause: 로그인 Edge Function은 `signup_completed=false`를 거부했지만, 모바일 홈 quick link와 `/fc/new` 화면은 같은 `signup_completed` gate를 재사용하지 않았다.
+- Why it was missed: 회원가입 완료 여부를 인증 계약에서만 확인하고, 홈 메뉴 노출/딥링크/저장 직전 방어를 별도 회귀 테스트로 고정하지 않았다.
+- Permanent guardrail: 본등록/기본정보 편집 진입은 `canOpenFcProfileRegistration(profile)` 단일 helper로 판단한다. 홈 링크 노출, 버튼 핸들러, 직접 route 저장 전 검사가 모두 이 helper를 사용해야 한다.
+- Related files: `app/index.tsx`, `app/fc/new.tsx`, `lib/fc-workflow.ts`, `lib/__tests__/workflow-step-regression.test.ts`
+- Verification: `npm test -- --runTestsByPath lib/__tests__/workflow-step-regression.test.ts --runInBand`
+
+## 2026-06-05 | Daum Postcode Debug UI | 주소 검색 WebView의 개발용 trace UI를 기본 화면에 노출
+- Symptom: 본등록 주소 검색 중 `postcode debug mounted` 알림이 뜨고, `web:window.patch.ready...` trace banner가 주소 검색 UI 위에 겹쳐 보였다.
+- Root cause: `components/DaumPostcode.tsx`가 `__DEV__`이면 mount alert와 debug banner를 기본 표시했다. Android 개발 빌드에서도 실제 사용자 검증 화면과 동일하게 보이기 때문에 디버그 UI가 업무 흐름을 막았다.
+- Why it was missed: iOS WebView 이탈 추적용 instrumentation을 추가하면서 "로그는 남기되 화면은 opt-in"이라는 계약 테스트를 두지 않았다.
+- Permanent guardrail: Daum postcode debug UI는 `EXPO_PUBLIC_POSTCODE_DEBUG_UI=1|true`일 때만 표시한다. 기본값에서는 로그만 남기고 Alert/banner를 렌더링하지 않는다.
+- Related files: `components/DaumPostcode.tsx`, `lib/daum-postcode.ts`, `components/__tests__/DaumPostcode.contract.test.ts`
+- Verification: `npm test -- --runTestsByPath components/__tests__/DaumPostcode.contract.test.ts --runInBand`
+
+## 2026-06-05 | Hanwha PDF Delete Payload | 삭제 API에 불필요한 fileName을 필수로 요구
+- Symptom: 관리자 대시보드에서 다위촉 URL PDF 삭제 버튼을 누르면 `fcId and fileName are required` 오류가 표시됐다.
+- Root cause: `/api/admin/fc` route가 `createHanwhaPdfUploadUrl`과 `deleteHanwhaPdf`를 같은 분기에서 처리하면서, 실제 삭제에는 쓰지 않는 `fileName`까지 공통 필수값으로 검사했다.
+- Why it was missed: 업로드 URL 생성 payload와 삭제 payload의 요구 필드를 하나의 조건으로 묶었고, 삭제는 DB에 저장된 `hanwha_commission_pdf_path`만 있으면 가능하다는 계약 테스트가 없었다.
+- Permanent guardrail: 다위촉 PDF payload validation은 action별로 분리한다. 업로드 URL 생성은 `fcId + fileName`, 삭제는 `fcId`만 요구한다.
+- Related files: `web/src/app/api/admin/fc/route.ts`, `web/src/app/dashboard/page.tsx`, `web/src/lib/admin-hanwha-pdf-payload.ts`, `web/src/lib/admin-hanwha-pdf-payload.test.ts`
+- Verification: `node --test web/src/lib/admin-hanwha-pdf-payload.test.ts web/src/lib/admin-fc-doc-storage.test.ts`
+
+## 2026-06-05 | Referral Graph Crossing Direction | 교차 edge를 anchor와 무관한 normal 방향으로 밀어 실제 데이터 교차를 남김
+- Symptom: 실제 Supabase 추천인 그래프에서 초기 seed layout은 교차 0개였지만, 물리 시뮬레이션 후 `박윤미 -> 김희정`과 `박선희 -> 김은진` 같은 straight edge crossing이 계속 1개 이상 남았다.
+- Root cause: `createReferralGraphEdgeCrossingForce`가 교차한 edge를 midpoint/deterministic normal 기준으로만 밀었다. 실제 seed layout에는 이미 non-crossing 위치가 있었는데, 보정 방향이 anchor 방향과 다를 수 있어 교차가 반복됐다.
+- Why it was missed: edge-crossing unit test는 anchor 없는 X fixture만 사용했고, 실제 graph force chain에서 anchor-aware correction이 필요한지를 검증하지 않았다.
+- Permanent guardrail: 추천인 그래프 crossing correction은 `anchorPositions`가 있으면 각 edge endpoint를 seed anchor 쪽으로 보정해야 한다. 실데이터 완료 기준은 crossing threshold 완화가 아니라 `RUN_REFERRAL_GRAPH_REALDATA_TEST=1`에서 `crossings=0`, `crossingVisualSeverity=0`이다.
+- Related files: `web/src/lib/referral-graph-physics.ts`, `web/src/lib/referral-graph-layout.ts`, `web/src/lib/referral-graph-realdata.test.ts`, `web/src/lib/referral-graph-simulation.test.ts`, `web/src/components/referrals/ReferralGraphCanvas.tsx`
+- Verification: `node --test src/lib/referral-graph-layout.test.ts src/lib/referral-graph-physics.test.ts src/lib/referral-graph-link-style.test.ts src/lib/referral-graph-simulation.test.ts`; `$env:RUN_REFERRAL_GRAPH_REALDATA_TEST='1'; $env:LOG_REFERRAL_GRAPH_CROSSINGS='1'; node --test src/lib/referral-graph-realdata.test.ts`; `cd web; npm run lint`
+
+## 2026-06-05 | Referral Graph Drag Suppression | 작은 드래그를 연결 컴포넌트 전체 이동으로 기록
+- Symptom: 추천인 그래프에서 노드를 살짝 드래그했을 뿐인데 일부 노드가 멀리 튀고, 연결 edge가 비정상적으로 길어졌다.
+- Root cause: `getDragAffectedNodeIds()`가 연결 컴포넌트 전체를 반환했고, `handleNodeDragEnd()`가 그 전체를 `userMovedNodeIdsRef`와 `dragMemorySuppressedNodeIdsRef`에 넣었다. 동시에 `applyReferralGraphDragSpring(... preventStretch)`는 실제 보정이 없는 edge의 follower까지 anchored로 등록해 deep stretched link까지 전파했다.
+- Why it was missed: 초기 settle/정적 real-data QA는 통과했지만, 오래 열린 화면에서 작은 drag/release 후 force 전파와 anchor suppression이 어떻게 작동하는지 별도 테스트하지 않았다.
+- Permanent guardrail: 노드 drag는 dragged node만 manual/suppressed로 기록한다. 연결 컴포넌트 전체를 suppressed 처리하지 않는다. drag spring의 stretch propagation은 실제 correction이 발생한 edge에서만 다음 edge로 전파한다. 실제 데이터 테스트에는 작은 drag 후 `maxEdge`, `minDistance`, crossing 악화 여부를 포함한다.
+- Related files: `web/src/components/referrals/ReferralGraphCanvas.tsx`, `web/src/lib/referral-graph-physics.ts`, `web/src/lib/referral-graph-physics.test.ts`, `web/src/lib/referral-graph-realdata.test.ts`
+- Verification: `node --test src/lib/referral-graph-physics.test.ts src/lib/referral-graph-simulation.test.ts`; `$env:RUN_REFERRAL_GRAPH_REALDATA_TEST='1'; $env:LOG_REFERRAL_GRAPH_CROSSINGS='1'; node --test src/lib/referral-graph-realdata.test.ts`; `cd web; npm run lint`
+
+## 2026-06-05 | Referral Graph Drag Reheat | 노드를 잡기만 해도 전체 simulation을 재가열
+- Symptom: 추천인 그래프에서 노드를 한 번 드래그하거나 잡으면 그래프 전체가 불안정하게 흔들렸다.
+- Root cause: `handleNodeDrag()` 첫 호출과 `handleNodeDragEnd()`가 `d3ReheatSimulation()`을 호출했다. `react-force-graph`의 drag callback은 자체적으로 노드 위치를 갱신하는데, 추가 reheat가 전체 force를 다시 과열시켜 안정된 배치를 흔들었다.
+- Why it was missed: 이전 검증은 drag 후 edge 길이만 봤고, grab-only/tiny drag가 manual state나 simulation alpha에 남기는 효과를 분리하지 않았다.
+- Permanent guardrail: node drag/dragEnd에서 전체 `d3ReheatSimulation()`을 호출하지 않는다. `onNodeDragEnd`의 total translate가 의미 있는 이동일 때만 manual target을 남기고, grab-only/tiny drag는 상태를 남기지 않는다. `isReferralGraphMeaningfulDrag` 테스트로 threshold를 고정한다.
+- Related files: `web/src/components/referrals/ReferralGraphCanvas.tsx`, `web/src/lib/referral-graph-physics.ts`, `web/src/lib/referral-graph-physics.test.ts`
+- Verification: `node --test src/lib/referral-graph-physics.test.ts src/lib/referral-graph-simulation.test.ts`; `$env:RUN_REFERRAL_GRAPH_REALDATA_TEST='1'; $env:LOG_REFERRAL_GRAPH_CROSSINGS='1'; node --test src/lib/referral-graph-realdata.test.ts`; `cd web; npm run lint`
+
+## 2026-06-05 | Board Share Deep Link | 게시글 공유/홈 카드가 독립 상세 화면으로 진입
+- Symptom: 홈 최신 가람Pick 카드와 공유 링크가 사용자가 기대한 게시판 상세 바텀시트가 아니라 `/board-detail` 독립 화면 또는 추천 초대 랜딩으로 열렸다.
+- Root cause: 게시글 알림 라우트와 홈 최신 카드 라우트를 하나의 `resolveNoticeRoute()`로 묶었고, 공유 랜딩도 추천 초대 랜딩 fallback만 갖고 있었다. 홈/공유 진입은 기존 게시판 화면의 `postId` 모달 파라미터를 써야 한다는 계약이 분리되어 있지 않았다.
+- Why it was missed: 게시판 상세 페이지가 열리는지만 확인하고, “목록 위 바텀시트로 열리는지”와 카카오/브라우저 랜딩이 실제 게시글 딥링크를 내리는지 확인하지 않았다.
+- Permanent guardrail: 홈 최신 게시글은 `resolveHomeLatestNoticeRoute()`로 `/board?postId=...`에 진입한다. 외부 공유 URL은 `/board` 랜딩에서 `hanwhafcpass://board?postId=...`를 내려야 하며, 추천 초대 fallback과 섞지 않는다.
+- Related files: `app/index.tsx`, `app/board.tsx`, `lib/notice-route.ts`, `lib/board-share-link.ts`, `invite-page/board.html`, `invite-page/vercel.json`
+- Verification: `npm test -- --runTestsByPath lib\__tests__\notice-route.test.ts lib\__tests__\home-latest-notice.test.ts lib\__tests__\board-share-link.test.ts --runInBand`; invite-page production HTML contained `hanwhafcpass://board?postId` and not `board-detail`.
+
+## 2026-06-05 | Notification Badge Source | 홈 배지가 알림 센터에 없는 live request_board unread까지 합산
+- Symptom: 홈 벨 배지에는 5건이 표시됐지만 알림 센터 화면에는 4개 카드만 보여 사용자가 확인할 수 없는 알림 수가 남았다.
+- Root cause: 홈 배지는 `request_board` live unread API를 더했고, 알림 센터는 `fc-notify inbox_list`의 로컬 notifications/notices만 렌더링했다. 두 화면이 서로 다른 source of truth를 사용했다.
+- Why it was missed: 설계요청 알림을 추가할 때 unread count만 live API로 보강했고, 알림 센터 목록도 같은 데이터를 보여주는지 비교하지 않았다.
+- Permanent guardrail: 모바일 배지는 알림 센터가 실제 렌더링하는 출처를 기준으로 센다. FC/일반 관리자는 `include_notices`, 설계매니저는 `only_request_board_categories`로 `fc-notify inbox_unread_count`가 목록 필터와 같은 기준을 사용해야 한다.
+- Related files: `lib/mobile-unread-notification-count-plan.ts`, `supabase/functions/fc-notify/index.ts`, `supabase/functions/__tests__/fc-notify-inbox-unread.contract.test.ts`
+- Verification: `npm test -- --runTestsByPath lib\__tests__\mobile-unread-notification-count-plan.test.ts supabase\functions\__tests__\fc-notify-inbox-unread.contract.test.ts --runInBand`; deployed `fc-notify`.

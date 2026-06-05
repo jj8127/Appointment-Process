@@ -2821,11 +2821,15 @@ for each row execute function public.set_updated_at();
 insert into public.board_categories (name, slug, sort_order)
 values
   ('공지','notice',1),
-  ('교육','education',2),
+  ('교육 일정','education',2),
   ('일반','general',3),
-  ('서류','documents',4),
-  ('가람 Pick','garam-pick',5)
-on conflict (slug) do nothing;
+  ('가람pick','garam-pick',4)
+on conflict (slug) do update
+set
+  name = excluded.name,
+  sort_order = excluded.sort_order,
+  is_active = true,
+  updated_at = now();
 
 -- RLS 활성화 (서비스 롤 전용 접근)
 alter table public.board_categories enable row level security;

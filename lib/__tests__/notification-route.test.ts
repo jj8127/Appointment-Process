@@ -13,6 +13,12 @@ describe('notification route helpers', () => {
     );
   });
 
+  it('normalizes legacy board modal URLs to the standalone board detail route', () => {
+    expect(normalizeNotificationTargetUrl('/board?postId=post-123')).toBe(
+      '/board-detail?postId=post-123',
+    );
+  });
+
   it('routes request-board messages to the request-board messenger', () => {
     expect(resolveRequestBoardNotificationRoute({
       category: 'request_board_message',

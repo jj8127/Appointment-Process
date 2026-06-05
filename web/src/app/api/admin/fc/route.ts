@@ -14,6 +14,7 @@ import {
   resolveAppointmentCompletionStatus,
 } from '@/lib/fc-workflow';
 import { normalizeFcDocumentStoragePath } from '@/lib/admin-fc-doc-storage';
+import { validateHanwhaPdfPayload } from '@/lib/admin-hanwha-pdf-payload';
 import { validateSession } from '@/lib/csrf';
 import { logger } from '@/lib/logger';
 import { buildPhoneCandidates } from '@/lib/server-session';
@@ -360,13 +361,11 @@ export async function POST(req: Request) {
 
   try {
     if (action === 'createHanwhaPdfUploadUrl' || action === 'deleteHanwhaPdf') {
-      const { fcId, fileName } = payload as {
-        fcId?: string;
-        fileName?: string;
-      };
-      if (!fcId || !fileName) {
-        return badRequest('fcId and fileName are required');
+      const validatedPayload = validateHanwhaPdfPayload(action, payload);
+      if (!validatedPayload.ok) {
+        return badRequest(validatedPayload.error);
       }
+      const { fcId, fileName } = validatedPayload;
 
       const scopeError = await requireFcProfileScope(sessionCheck.session, fcId);
       if (scopeError) return scopeError;

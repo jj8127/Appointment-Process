@@ -29,6 +29,7 @@ import { KeyboardAwareWrapper, useKeyboardAware } from '@/components/KeyboardAwa
 import { ScreenHeader } from '@/components/ScreenHeader';
 import { useKeyboardPadding } from '@/hooks/use-keyboard-padding';
 import { useSession } from '@/hooks/use-session';
+import { canOpenFcProfileRegistration } from '@/lib/fc-workflow';
 import { logger } from '@/lib/logger';
 import { safeStorage } from '@/lib/safe-storage';
 import { extractFunctionErrorMessage, mapStoreIdentityErrorMessage, toResidentInputAlertMessage } from '@/lib/store-identity-error';
@@ -214,6 +215,7 @@ export default function FcNewScreen() {
   const residentFrontRef = useRef<TextInput>(null);
   const residentBackRef = useRef<TextInput>(null);
   const addressDetailRef = useRef<TextInput>(null);
+  const registrationGateAlertShown = useRef(false);
 
   const { control, handleSubmit, setValue, reset, formState } = useForm<FormValues>({
     resolver: zodResolver(schema),
@@ -273,11 +275,19 @@ export default function FcNewScreen() {
       new Set([normalizedKey, formatPhone(normalizedKey)].filter(Boolean)),
     );
     const query = phoneCandidates.length > 1
-      ? supabase.from('fc_profiles').select('id,affiliation,name,phone,recommender,email,career_type,temp_id,carrier,address,address_detail,resident_id_masked').in('phone', phoneCandidates)
-      : supabase.from('fc_profiles').select('id,affiliation,name,phone,recommender,email,career_type,temp_id,carrier,address,address_detail,resident_id_masked').eq('phone', phoneCandidates[0]);
+      ? supabase.from('fc_profiles').select('id,affiliation,name,phone,recommender,email,career_type,temp_id,carrier,address,address_detail,resident_id_masked,signup_completed').in('phone', phoneCandidates)
+      : supabase.from('fc_profiles').select('id,affiliation,name,phone,recommender,email,career_type,temp_id,carrier,address,address_detail,resident_id_masked,signup_completed').eq('phone', phoneCandidates[0]);
     const { data, error } = await query.maybeSingle();
     if (error) {
       logger.warn('FC load failed', error.message);
+      return;
+    }
+    if (role === 'fc' && !canOpenFcProfileRegistration(data)) {
+      if (!registrationGateAlertShown.current) {
+        registrationGateAlertShown.current = true;
+        Alert.alert('사전등록 필요', '본등록은 사전등록을 완료한 뒤 진행할 수 있습니다.');
+      }
+      router.replace('/signup');
       return;
     }
     logger.debug('[fc/new] loadExisting: DB data', { data });
@@ -359,7 +369,7 @@ export default function FcNewScreen() {
       }
     }
     setExistingTempId(merged.temp_id);
-  }, [appSessionToken, phoneFromSession, reset]);
+  }, [appSessionToken, phoneFromSession, reset, role]);
 
   useEffect(() => {
     loadExisting();
@@ -373,6 +383,22 @@ export default function FcNewScreen() {
     setSubmitting(true);
 
     const phoneDigits = values.phone.replace(/[^0-9]/g, '');
+    if (role === 'fc') {
+      const phoneCandidates = Array.from(
+        new Set([phoneDigits, formatPhone(phoneDigits)].filter(Boolean)),
+      );
+      const registrationQuery = phoneCandidates.length > 1
+        ? supabase.from('fc_profiles').select('signup_completed').in('phone', phoneCandidates)
+        : supabase.from('fc_profiles').select('signup_completed').eq('phone', phoneCandidates[0]);
+      const { data: registration, error: registrationError } = await registrationQuery.maybeSingle();
+      if (registrationError || !canOpenFcProfileRegistration(registration)) {
+        setSubmitting(false);
+        Alert.alert('사전등록 필요', '본등록은 사전등록을 완료한 뒤 진행할 수 있습니다.');
+        router.replace('/signup');
+        return;
+      }
+    }
+
     const basePayload = {
       name: values.name,
       affiliation: values.affiliation,

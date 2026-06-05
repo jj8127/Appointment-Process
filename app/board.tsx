@@ -12,6 +12,7 @@ import {
   Pressable,
   RefreshControl,
   ScrollView,
+  Share,
   StyleSheet,
   Text,
   TextInput,
@@ -38,6 +39,7 @@ import { LinkifiedSelectableText } from '@/components/LinkifiedSelectableText';
 import { CardSkeleton } from '@/components/LoadingSkeleton';
 import { DEFAULT_REACTIONS, ReactionPicker } from '@/components/ReactionPicker';
 import { useAppLogout } from '@/hooks/use-app-logout';
+import { buildBoardPostShareContent } from '@/lib/board-share-link';
 import { resolveBottomNavActiveKey, resolveBottomNavPreset } from '@/lib/bottom-navigation';
 import { useKeyboardPadding } from '@/hooks/use-keyboard-padding';
 import { useSession } from '@/hooks/use-session';
@@ -67,6 +69,8 @@ const HANWHA_ORANGE = '#f36f21';
 const CHARCOAL = '#111827';
 const TEXT_MUTED = '#6b7280';
 const BORDER = '#e5e7eb';
+const BOARD_SHARE_BASE_URL = process.env.EXPO_PUBLIC_GARAMIN_SHARE_BASE_URL
+  ?? process.env.EXPO_PUBLIC_INVITE_BASE_URL;
 const CARD_SHADOW = {
   shadowColor: '#000',
   shadowOpacity: 0.04,
@@ -85,9 +89,6 @@ const getCategoryTheme = (categoryName: string) => {
   }
   if (normalized.includes('가람') || normalized.includes('pick')) {
     return { backgroundColor: '#FDF2F8', borderColor: '#FBCFE8', textColor: '#BE185D' };
-  }
-  if (normalized.includes('서류')) {
-    return { backgroundColor: '#ECFDF5', borderColor: '#A7F3D0', textColor: '#047857' };
   }
   return { backgroundColor: '#F3F4F6', borderColor: '#E5E7EB', textColor: '#4B5563' };
 };
@@ -966,6 +967,26 @@ export default function BoardScreen() {
     appLogout();
   };
 
+  const handleSharePost = useCallback(async (post?: { id?: string | null; title?: string | null } | null) => {
+    const postIdValue = safeText(post?.id).trim();
+    if (!postIdValue) {
+      Alert.alert('오류', '공유할 게시글 정보를 찾을 수 없습니다.');
+      return;
+    }
+
+    try {
+      const shareContent = buildBoardPostShareContent({
+        postId: postIdValue,
+        title: post?.title,
+        shareBaseUrl: BOARD_SHARE_BASE_URL,
+      });
+      await Share.share(shareContent);
+    } catch (error) {
+      logBoardError('share', error);
+      Alert.alert('오류', '게시글 공유 링크를 만들 수 없습니다.');
+    }
+  }, []);
+
   useEffect(() => {
     const unsubscribe = navigation.addListener('beforeRemove', (event) => {
       if (!selectedPost) return;
@@ -1145,6 +1166,18 @@ export default function BoardScreen() {
                       <Text style={styles.date}>{new Date(post.createdAt).toLocaleDateString('ko-KR')}</Text>
                     </View>
                   </View>
+                  <Pressable
+                    accessibilityRole="button"
+                    accessibilityLabel="게시글 공유"
+                    hitSlop={8}
+                    style={({ pressed }) => [styles.iconActionButton, pressed && { opacity: 0.65 }]}
+                    onPress={(event) => {
+                      event.stopPropagation();
+                      handleSharePost(post);
+                    }}
+                  >
+                    <Feather name="share-2" size={17} color={TEXT_MUTED} />
+                  </Pressable>
                 </View>
 
                 {/* 게시글 내용 */}
@@ -1243,9 +1276,26 @@ export default function BoardScreen() {
               <GestureDetector gesture={modalPanGesture}>
                 <View style={[styles.modalHeader, { paddingTop: modalHeaderPaddingTop }]}>
                   <Text style={styles.modalTitle}>게시글 상세</Text>
-                  <Pressable onPress={animateCloseModal}>
-                    <Feather name="x" size={24} color={CHARCOAL} />
-                  </Pressable>
+                  <View style={styles.modalHeaderActions}>
+                    <Pressable
+                      accessibilityRole="button"
+                      accessibilityLabel="게시글 공유"
+                      hitSlop={8}
+                      style={({ pressed }) => [styles.modalIconButton, pressed && { opacity: 0.65 }]}
+                      onPress={() => handleSharePost(modalPost)}
+                    >
+                      <Feather name="share-2" size={21} color={TEXT_MUTED} />
+                    </Pressable>
+                    <Pressable
+                      accessibilityRole="button"
+                      accessibilityLabel="게시글 상세 닫기"
+                      hitSlop={8}
+                      style={({ pressed }) => [styles.modalIconButton, pressed && { opacity: 0.65 }]}
+                      onPress={animateCloseModal}
+                    >
+                      <Feather name="x" size={24} color={CHARCOAL} />
+                    </Pressable>
+                  </View>
                 </View>
               </GestureDetector>
 
@@ -1394,7 +1444,7 @@ export default function BoardScreen() {
 
               </KeyboardAwareWrapper>
               {/* 댓글 작성 */}
-              <View style={[styles.commentBar, { paddingBottom: Math.max(insets.bottom, 12) + keyboardPadding }]}>
+              <View style={[styles.commentBar, { paddingBottom: Math.max(insets.bottom + 16, 28) + keyboardPadding }]}>
                 {replyTarget && (
                   <View style={styles.replyBanner}>
                     <Text style={styles.replyBannerText}>{replyTarget.authorName}님에게 답글</Text>
@@ -1602,6 +1652,16 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     marginBottom: 12,
   },
+  iconActionButton: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: '#F9FAFB',
+    borderWidth: 1,
+    borderColor: BORDER,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
   authorBadge: { flexDirection: 'row', alignItems: 'center', gap: 10 },
   avatar: {
     width: 40,
@@ -1746,6 +1806,19 @@ const styles = StyleSheet.create({
     borderBottomWidth: 1,
     borderBottomColor: BORDER,
     backgroundColor: '#fff',
+  },
+  modalHeaderActions: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  modalIconButton: {
+    width: 38,
+    height: 38,
+    borderRadius: 19,
+    backgroundColor: '#F9FAFB',
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   modalTitle: { fontSize: 18, fontWeight: '700', color: CHARCOAL },
   modalBody: { paddingHorizontal: 24, paddingVertical: 14 },

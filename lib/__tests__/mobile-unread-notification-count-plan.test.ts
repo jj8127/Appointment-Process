@@ -23,6 +23,9 @@ describe('resolveMobileUnreadBridgePlan', () => {
     ).toEqual({
       shouldFetch: false,
       includeLiveRequestBoardUnread: false,
+      includeRequestBoardFcInbox: false,
+      includeNoticeUnread: false,
+      onlyRequestBoardCategories: false,
     });
 
     expect(
@@ -33,30 +36,51 @@ describe('resolveMobileUnreadBridgePlan', () => {
     ).toEqual({
       shouldFetch: false,
       includeLiveRequestBoardUnread: false,
+      includeRequestBoardFcInbox: false,
+      includeNoticeUnread: false,
+      onlyRequestBoardCategories: false,
     });
   });
 
-  it('includes live request_board unread for FC and bridged request_board roles', () => {
+  it('uses fc-notify as the single count source for visible inbox items', () => {
     expect(
       resolveMobileUnreadBridgePlan({
         role: 'fc',
         requestBoardRole: null,
-      }).includeLiveRequestBoardUnread,
-    ).toBe(true);
+      }),
+    ).toEqual({
+      shouldFetch: true,
+      includeLiveRequestBoardUnread: false,
+      includeRequestBoardFcInbox: false,
+      includeNoticeUnread: true,
+      onlyRequestBoardCategories: false,
+    });
 
     expect(
       resolveMobileUnreadBridgePlan({
         role: 'admin',
         requestBoardRole: 'fc',
-      }).includeLiveRequestBoardUnread,
-    ).toBe(true);
+      }),
+    ).toEqual({
+      shouldFetch: true,
+      includeLiveRequestBoardUnread: false,
+      includeRequestBoardFcInbox: true,
+      includeNoticeUnread: true,
+      onlyRequestBoardCategories: false,
+    });
 
     expect(
       resolveMobileUnreadBridgePlan({
         role: 'admin',
         requestBoardRole: 'designer',
-      }).includeLiveRequestBoardUnread,
-    ).toBe(true);
+      }),
+    ).toEqual({
+      shouldFetch: true,
+      includeLiveRequestBoardUnread: false,
+      includeRequestBoardFcInbox: false,
+      includeNoticeUnread: false,
+      onlyRequestBoardCategories: true,
+    });
   });
 
   it('keeps internal admin sessions on fc-onboarding unread only', () => {
@@ -68,6 +92,9 @@ describe('resolveMobileUnreadBridgePlan', () => {
     ).toEqual({
       shouldFetch: true,
       includeLiveRequestBoardUnread: false,
+      includeRequestBoardFcInbox: false,
+      includeNoticeUnread: true,
+      onlyRequestBoardCategories: false,
     });
   });
 });
@@ -80,6 +107,9 @@ describe('buildMobileUnreadFcNotifyBody', () => {
         residentId: undefined,
         sinceIso: '2026-05-30T00:00:00.000Z',
         includeLiveRequestBoardUnread: true,
+        includeRequestBoardFcInbox: true,
+        includeNoticeUnread: false,
+        onlyRequestBoardCategories: false,
       }),
     ).toEqual({
       type: 'inbox_unread_count',
@@ -87,6 +117,9 @@ describe('buildMobileUnreadFcNotifyBody', () => {
       resident_id: null,
       since: '2026-05-30T00:00:00.000Z',
       exclude_request_board_categories: true,
+      include_request_board_fc: true,
+      include_notices: false,
+      only_request_board_categories: false,
     });
 
     expect(
@@ -95,6 +128,9 @@ describe('buildMobileUnreadFcNotifyBody', () => {
         residentId: '01051078127',
         sinceIso: '2026-05-30T00:00:00.000Z',
         includeLiveRequestBoardUnread: false,
+        includeRequestBoardFcInbox: false,
+        includeNoticeUnread: true,
+        onlyRequestBoardCategories: false,
       }),
     ).toEqual({
       type: 'inbox_unread_count',
@@ -102,6 +138,9 @@ describe('buildMobileUnreadFcNotifyBody', () => {
       resident_id: '01051078127',
       since: '2026-05-30T00:00:00.000Z',
       exclude_request_board_categories: false,
+      include_request_board_fc: false,
+      include_notices: true,
+      only_request_board_categories: false,
     });
   });
 });
@@ -154,7 +193,7 @@ describe('fetchMobileUnreadNotificationCountWithDeps', () => {
     expect(deps.warn).not.toHaveBeenCalled();
   });
 
-  it('fetches checkpoint, fc-notify, and live request_board unread for FC sessions', async () => {
+  it('fetches checkpoint and fc-notify for FC sessions without adding hidden live request_board unread', async () => {
     const deps = makeUnreadDeps();
 
     await expect(
@@ -163,7 +202,7 @@ describe('fetchMobileUnreadNotificationCountWithDeps', () => {
         residentId: '01051078127',
         requestBoardRole: null,
       }, deps),
-    ).resolves.toBe(7);
+    ).resolves.toBe(3);
 
     expect(deps.getNotificationCheckpoint).toHaveBeenCalledWith(
       {
@@ -178,9 +217,12 @@ describe('fetchMobileUnreadNotificationCountWithDeps', () => {
       role: 'fc',
       resident_id: '01051078127',
       since: '2026-05-30T00:00:00.000Z',
-      exclude_request_board_categories: true,
+      exclude_request_board_categories: false,
+      include_request_board_fc: false,
+      include_notices: true,
+      only_request_board_categories: false,
     });
-    expect(deps.getRequestBoardUnreadCount).toHaveBeenCalledTimes(1);
+    expect(deps.getRequestBoardUnreadCount).not.toHaveBeenCalled();
     expect(deps.warn).not.toHaveBeenCalled();
   });
 
@@ -201,6 +243,33 @@ describe('fetchMobileUnreadNotificationCountWithDeps', () => {
       resident_id: null,
       since: '2026-05-30T00:00:00.000Z',
       exclude_request_board_categories: false,
+      include_request_board_fc: false,
+      include_notices: true,
+      only_request_board_categories: false,
+    });
+    expect(deps.getRequestBoardUnreadCount).not.toHaveBeenCalled();
+  });
+
+  it('asks fc-notify to include the bridged FC request-board inbox for admin bridge sessions', async () => {
+    const deps = makeUnreadDeps({ invokeFcNotify: jest.fn(async () => ({ data: { ok: true, count: 5 }, error: null })) });
+
+    await expect(
+      fetchMobileUnreadNotificationCountWithDeps({
+        role: 'admin',
+        residentId: '01051078127',
+        requestBoardRole: 'fc',
+      }, deps),
+    ).resolves.toBe(5);
+
+    expect(deps.invokeFcNotify).toHaveBeenCalledWith({
+      type: 'inbox_unread_count',
+      role: 'admin',
+      resident_id: '01051078127',
+      since: '2026-05-30T00:00:00.000Z',
+      exclude_request_board_categories: false,
+      include_request_board_fc: true,
+      include_notices: true,
+      only_request_board_categories: false,
     });
     expect(deps.getRequestBoardUnreadCount).not.toHaveBeenCalled();
   });
@@ -225,11 +294,9 @@ describe('fetchMobileUnreadNotificationCountWithDeps', () => {
     );
   });
 
-  it('returns zero and logs the current warning when live request_board unread fails', async () => {
+  it('returns zero and logs the current warning when designer fc-notify count fails', async () => {
     const deps = makeUnreadDeps({
-      getRequestBoardUnreadCount: jest.fn(async () => {
-        throw new Error('request_board unread down');
-      }),
+      invokeFcNotify: jest.fn(async () => ({ data: null, error: new Error('designer inbox down') })),
     });
 
     await expect(
@@ -242,7 +309,34 @@ describe('fetchMobileUnreadNotificationCountWithDeps', () => {
 
     expect(deps.warn).toHaveBeenCalledWith(
       '[mobile-unread-count] fetch failed',
-      expect.objectContaining({ message: 'request_board unread down' }),
+      expect.objectContaining({ message: 'designer inbox down' }),
     );
+  });
+
+  it('counts only visible request_board category notifications for request-board designer sessions', async () => {
+    const deps = makeUnreadDeps({
+      invokeFcNotify: jest.fn(async () => ({ data: { ok: true, count: 4 }, error: null })),
+      getRequestBoardUnreadCount: jest.fn(async () => 99),
+    });
+
+    await expect(
+      fetchMobileUnreadNotificationCountWithDeps({
+        role: 'fc',
+        residentId: '01051078127',
+        requestBoardRole: 'designer',
+      }, deps),
+    ).resolves.toBe(4);
+
+    expect(deps.invokeFcNotify).toHaveBeenCalledWith({
+      type: 'inbox_unread_count',
+      role: 'fc',
+      resident_id: '01051078127',
+      since: '2026-05-30T00:00:00.000Z',
+      exclude_request_board_categories: false,
+      include_request_board_fc: false,
+      include_notices: false,
+      only_request_board_categories: true,
+    });
+    expect(deps.getRequestBoardUnreadCount).not.toHaveBeenCalled();
   });
 });
