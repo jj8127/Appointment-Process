@@ -21,6 +21,7 @@
 - 캔버스의 실제 원, 라벨 충돌 판정, pointer hit area, d3 collision force가 모두 같은 descendant-aware radius를 사용하게 했다.
 - 그래프 범례에 `크기: 하위 전체 조직 수`를 추가하고, drawer badge에 `하위 전체 N명`을 표시한다.
 - production deploy 시 local generated output upload가 커지는 것을 막기 위해 root `.vercelignore`에 nested `node_modules`, `.next`, `.vercel`, `dist`, `coverage`, `.expo`, `.env*` 제외 패턴을 보강했다.
+- Vercel project rootDirectory가 `web`인 CLI 경로에서도 같은 문제가 반복되어 `web/.vercelignore`를 추가했다.
 
 **검증**:
 - RED 확인: `node --test web/src/lib/referral-graph-descendants.test.ts`가 helper 구현 전 missing module로 실패.
@@ -35,7 +36,7 @@
 - 캡쳐: `.codex/harness/referral-graph-descendant-size.png`
 - 통과: `git diff --check`
   - LF/CRLF working-copy warnings only.
-- 배포 준비: 첫 `vercel deploy --prod`는 로컬 generated output까지 업로드되어 파일 수 제한/대용량 archive 오류가 발생했고, `.vercelignore` 보강 뒤 재시도 대상으로 분리했다.
+- 배포 준비: 첫 `vercel deploy --prod`는 로컬 generated output까지 업로드되어 파일 수 제한/대용량 archive 오류가 발생했고, root `.vercelignore`만으로는 rootDirectory=`web` 업로드 필터가 바뀌지 않아 `web/.vercelignore`까지 추가했다.
 
 **미실행/제약**:
 - `cd web; npx tsc --noEmit --pretty false`는 기존 Node test 파일들의 `.ts` extension import 설정과 existing `d3-force` test type export 문제로 실패한다. 이번 변경의 production compile은 Next build TypeScript 단계에서 검증했다.

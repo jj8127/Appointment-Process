@@ -21,7 +21,7 @@
 
 | 날짜 | 작업 | 주요 파일 | 상세 |
 |---|---|---|---|
-| 06-07 | 관리자 웹 추천인 그래프 노드 크기를 전체 하위 조직 수 기준으로 기본 적용하고 실데이터 캡쳐/회귀 검증까지 완료 | `web/src/app/dashboard/referrals/graph/page.tsx`, `web/src/components/referrals/ReferralGraphCanvas.tsx`, `web/src/components/referrals/GraphNodeDrawer.tsx`, `web/src/lib/referral-graph-descendants.ts`, `web/src/lib/referral-graph-highlight.ts`, `.vercelignore` | [→ 상세](WORK_DETAIL.md#20260607-referral-graph-descendant-sized-nodes) |
+| 06-07 | 관리자 웹 추천인 그래프 노드 크기를 전체 하위 조직 수 기준으로 기본 적용하고 실데이터 캡쳐/회귀 검증까지 완료 | `web/src/app/dashboard/referrals/graph/page.tsx`, `web/src/components/referrals/ReferralGraphCanvas.tsx`, `web/src/components/referrals/GraphNodeDrawer.tsx`, `web/src/lib/referral-graph-descendants.ts`, `web/src/lib/referral-graph-highlight.ts`, `.vercelignore`, `web/.vercelignore` | [→ 상세](WORK_DETAIL.md#20260607-referral-graph-descendant-sized-nodes) |
 
 ## 2026-06-05
 
@@ -32,7 +32,7 @@
 ## 최근 작업
 | 날짜 | 작업 | 핵심 파일 | 상세 |
 |------|------|----------|------|
-| 06-07 | 관리자 웹 추천인 그래프 노드 크기를 전체 하위 조직 수 기준으로 기본 적용하고 실데이터 캡쳐/회귀 검증까지 완료 | `web/src/app/dashboard/referrals/graph/page.tsx`, `web/src/components/referrals/ReferralGraphCanvas.tsx`, `web/src/components/referrals/GraphNodeDrawer.tsx`, `web/src/lib/referral-graph-descendants.ts`, `web/src/lib/referral-graph-highlight.ts`, `.vercelignore` | [→ 상세](WORK_DETAIL.md#20260607-referral-graph-descendant-sized-nodes) |
+| 06-07 | 관리자 웹 추천인 그래프 노드 크기를 전체 하위 조직 수 기준으로 기본 적용하고 실데이터 캡쳐/회귀 검증까지 완료 | `web/src/app/dashboard/referrals/graph/page.tsx`, `web/src/components/referrals/ReferralGraphCanvas.tsx`, `web/src/components/referrals/GraphNodeDrawer.tsx`, `web/src/lib/referral-graph-descendants.ts`, `web/src/lib/referral-graph-highlight.ts`, `.vercelignore`, `web/.vercelignore` | [→ 상세](WORK_DETAIL.md#20260607-referral-graph-descendant-sized-nodes) |
 | 06-05 | 추천인 그래프의 실제 데이터 레이아웃/drag 안정성을 재검증하고 production/test link-distance 입력 drift를 수정 | `web/src/components/referrals/ReferralGraphCanvas.tsx`, `web/src/lib/referral-graph-layout.ts`, `web/src/lib/referral-graph-physics.ts`, `web/src/lib/referral-graph-realdata.test.ts`, `web/src/lib/referral-graph-simulation.test.ts`, `.claude/MISTAKES.md` | [→ 상세](WORK_DETAIL.md#20260605-referral-graph-realdata-zero-crossing-closeout) |
 | 06-05 | 가람in 게시판 글 종류를 `공지/교육 일정/일반/가람pick` 4종으로 정리하고 보험 브리핑 자동 게시와 기존 보험소식 글을 `일반`으로 통합 | `supabase/schema.sql`, `supabase/migrations/20260605000001_set_board_categories_to_four_types.sql`, `supabase/functions/board-categories-list/index.ts`, `app/board.tsx`, `app/admin-board-manage.tsx`, `web/src/app/dashboard/board/page.tsx`, `scripts/ops/post-insurance-digest.mjs` | [→ 상세](WORK_DETAIL.md#20260605-board-four-category-alignment) |
 | 06-04 | 본부장 시험 탭에서 기존 시험 목록/신청자 명단 조회를 유지하고 생명/손해 시험 신청 링크를 추가 | `app/index.tsx`, `lib/exam-role.ts`, `lib/__tests__/exam-role.test.ts`, `.claude/MISTAKES.md`, `.codex/harness/*` | [→ 상세](WORK_DETAIL.md#20260604-manager-exam-management-plus-apply) |
