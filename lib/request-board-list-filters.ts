@@ -58,7 +58,7 @@ const getAssignmentStatusBucket = (
 const hasPendingFcReview = (request: RequestBoardListItemLike) =>
   (request.request_designers ?? []).some((assignment) => {
     const decision = normalize(assignment.fc_decision);
-    return getAssignmentStatusBucket(assignment) === 'completed'
+    return normalize(assignment.status) === 'completed'
       && (decision === '' || decision === 'pending');
   });
 

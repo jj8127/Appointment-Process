@@ -1274,12 +1274,134 @@ Evidence:
 
 - RED/GREEN route and icon contract tests passed.
 - Sentry sanitizer coverage was re-run with the new breadcrumb path.
-- Targeted ESLint and root TypeScript checks passed.
+- Request-board API contract, targeted ESLint, root TypeScript, governance, and `git diff --check` passed.
 - Governance and `git diff --check` passed.
 
 Known notes:
 
 - Today's Sentry issue still cannot be mapped to an exact minified source line without release source maps; this change improves route-level breadcrumbs and guards the suspected entry flow.
 - No EAS mobile build/deploy or direct Android screenshot was run in this commit.
+
+---
+
+## Increment 43 Handoff
+
+Status: completed locally on 2026-06-07.
+
+What changed:
+
+- Added `getDesignerRequestDetailActions()` to gate request-detail designer response controls.
+- `app/request-board-review.tsx` now shows `의뢰 거절` and `의뢰 수락` when a 설계매니저 opens a pending assignment.
+- Detail accept calls `rbAcceptRequest(requestId, designerId, requestDesignerId)`.
+- Detail reject calls `rbRejectRequest(requestId, designerId, reason, requestDesignerId)`. Increment 44 replaced the temporary hardcoded reason with a typed reason modal.
+- Existing FC approval/rejection for completed designs remains unchanged.
+
+Evidence:
+
+- RED/GREEN request detail designer action tests passed.
+- Targeted ESLint and root TypeScript checks passed.
+
+Known notes:
+
+- No backend endpoint changes were needed.
+- No direct Android screenshot was captured in this increment.
+- This change is not committed or pushed.
+
+---
+
+## Increment 44 Handoff
+
+Status: completed locally on 2026-06-07.
+
+What changed:
+
+- `normalizeDesignerRejectReason()` now trims 설계매니저 rejection reasons and blocks blank submissions.
+- Request detail `의뢰 거절` opens a reason-entry modal and passes that typed reason to `rbRejectRequest`.
+- Home `처리할 의뢰` quick-card rejection uses the same reason-entry requirement instead of a hardcoded mobile reason.
+- `review_pending` list bucketing now requires exact `assignment.status === 'completed'` plus pending/null FC decision, so designer-rejected assignments no longer remain as FC `검토 대기`.
+
+Evidence:
+
+- RED/GREEN focused regression tests passed.
+- API contract test passed with the new UI contract tests.
+- Targeted ESLint and root TypeScript checks passed.
+- Governance and `git diff --check` passed; diff check reported CRLF normalization warnings only.
+
+Known notes:
+
+- Backend endpoints were unchanged.
+- No direct Android emulator screenshot was captured.
+- This change is not committed or pushed.
+
+---
+
+## Increment 45 Handoff
+
+Status: completed locally on 2026-06-07.
+
+What changed:
+
+- Rejection reason bottom sheets in `app/request-board-review.tsx` and `app/request-board.tsx` now render inside `KeyboardAvoidingView`.
+- iOS uses `padding` behavior and Android uses `height` behavior through `process.env.EXPO_OS`.
+- Modal overlay changed to absolute fill, while the keyboard avoiding container keeps the sheet aligned to the bottom.
+
+Evidence:
+
+- RED/GREEN keyboard avoidance UI contract tests passed.
+- Targeted ESLint and root TypeScript checks passed.
+- Request-board regression suite, governance, and `git diff --check` passed. Diff check reported CRLF normalization warnings only.
+
+Known notes:
+
+- No Android emulator screenshot was captured.
+- This change is not committed or pushed.
+
+---
+
+## Increment 46 Handoff
+
+Status: completed locally on 2026-06-07.
+
+What changed:
+
+- Added `getDesignerRejectionSummary()` to extract the first non-empty rejection reason from rejected designer assignments.
+- Request list cards now show a compact red-tinted rejection reason box below the status/date/action row.
+- Long reasons are preserved in helper output but displayed as two lines in the list via `numberOfLines={2}`.
+- Existing detail screen remains the full reason view.
+
+Evidence:
+
+- RED/GREEN helper and UI contract tests passed.
+- Request-board regression suite passed.
+- Targeted ESLint and root TypeScript checks passed.
+- Governance and `git diff --check` passed; diff check reported CRLF normalization warnings only.
+
+Known notes:
+
+- No Android screenshot was captured.
+- This change is not committed or pushed.
+
+---
+
+## Increment 47 Handoff
+
+Status: completed locally on 2026-06-07.
+
+What changed:
+
+- Confirmed the prior list UI did not show in the user screenshot because list items can have `status === 'rejected'` without `rejection_reason`.
+- Added `requestNeedsDesignerRejectionReasonHydration()` and `mergeDesignerRejectionReasonFromDetail()`.
+- `app/request-board-requests.tsx` now calls `rbGetRequestDetail(request.id)` for rejected requests missing reasons and merges the detail reason into the list item.
+- Added `rejection_reason` to the mobile list assignment type.
+
+Evidence:
+
+- RED/GREEN hydration tests passed.
+- Request-board regression suite, targeted ESLint, TypeScript, governance, and `git diff --check` passed.
+
+Known notes:
+
+- ADB did not list the emulator/device during verification, so no runtime screenshot was captured.
+- This change is not committed or pushed.
 
 ---

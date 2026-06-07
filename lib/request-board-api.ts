@@ -1033,6 +1033,7 @@ export type RbRequestListItem = {
     status: string;
     fc_decision: 'pending' | 'accepted' | 'rejected' | null;
     completed_at?: string | null;
+    rejection_reason?: string | null;
     designers?: {
       id: number;
       company_name: string | null;

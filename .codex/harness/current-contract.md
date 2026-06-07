@@ -1166,3 +1166,204 @@ Prevent the mobile home "필수 정보 입력 시작" path from drifting away fr
 - `git diff --check`.
 
 ---
+
+# Current Contract: Increment 43 - Designer Request Detail Accept/Reject
+
+Status: completed locally on 2026-06-07
+
+## Goal
+
+Let a GaramLink 설계매니저 accept or reject an assigned request directly from the mobile request detail screen when the assignment is still waiting for acceptance.
+
+## Scope
+
+- Add request-detail action availability logic for designer-side pending assignments.
+- Render "의뢰 거절" and "의뢰 수락" controls in `app/request-board-review.tsx` only for `isRequestBoardDesigner && assignment.status === 'pending'`.
+- Wire detail actions to existing `rbRejectRequest` and `rbAcceptRequest` API wrappers with the current assignment id.
+- Refresh detail data after success and show user-facing failure alerts.
+- Keep existing FC completed-design approval/rejection controls unchanged.
+
+## Explicit Non-Scope
+
+- Do not change request_board backend endpoints or status strings.
+- Do not add FC-side accept/reject behavior for pending assignments.
+- Do not redesign the request detail page layout beyond the new action row.
+- Do not commit or push unless explicitly requested.
+
+## Acceptance Criteria
+
+- Pending designer assignments show accept and reject buttons in detail view for 설계매니저 sessions.
+- Non-designer sessions and non-pending assignments do not show those buttons.
+- Accept uses `/accept` via `rbAcceptRequest(requestId, designerId, requestDesignerId)`.
+- Reject uses `/reject` via `rbRejectRequest(requestId, designerId, reason, requestDesignerId)`.
+- Existing FC completed-design approve/reject controls remain gated by `!isRequestBoardDesigner && needsReview`.
+- Focused tests, targeted ESLint, TypeScript, governance, and diff hygiene pass.
+
+## Verification Plan
+
+- RED/GREEN: `npm test -- --runTestsByPath lib/__tests__/request-board-review-actions.test.ts lib/__tests__/request-board-review-role.contract.test.ts --runInBand`.
+- `npx eslint app/request-board-review.tsx lib/request-board-review-actions.ts lib/__tests__/request-board-review-actions.test.ts lib/__tests__/request-board-review-role.contract.test.ts`.
+- `npx tsc --noEmit --pretty false`.
+- `node scripts/ci/check-governance.mjs`.
+- `git diff --check`.
+
+---
+
+# Current Contract: Increment 44 - Designer Reject Reason and Review Bucket Fix
+
+Status: completed locally on 2026-06-07
+
+## Goal
+
+Prevent 설계매니저 request rejection from using a hardcoded mobile reason, and prevent designer-rejected assignments from being shown to FC as actionable `검토 대기`.
+
+## Scope
+
+- Require a typed rejection reason before 설계매니저 `/reject` calls from both request detail and the home quick request card.
+- Keep the existing FC completed-design rejection modal unchanged.
+- Narrow `review_pending` list bucketing to assignments that are actually `completed` and still awaiting FC decision.
+- Add regression tests for reason normalization, detail/home UI contracts, and rejected-assignment list bucketing.
+- Record the implementation mistake in `.claude/MISTAKES.md`.
+
+## Explicit Non-Scope
+
+- Do not change request_board backend endpoints or stored status strings.
+- Do not add a new FC-side status filter category.
+- Do not commit or push unless explicitly requested.
+
+## Acceptance Criteria
+
+- 설계매니저 cannot reject from detail or home quick card with a blank reason.
+- The entered reason is passed to `rbRejectRequest(requestId, designerId, reason, requestDesignerId)`.
+- No source path uses the hardcoded mobile rejection reason strings.
+- `status === 'rejected'` assignments do not enter `review_pending`.
+- Focused tests, targeted ESLint, TypeScript, governance, and diff hygiene pass.
+
+## Verification Plan
+
+- RED/GREEN: `npm test -- --runTestsByPath lib/__tests__/request-board-review-actions.test.ts lib/__tests__/request-board-list-filters.test.ts lib/__tests__/request-board-review-role.contract.test.ts lib/__tests__/request-board-mobile-ui-contract.test.ts --runInBand`.
+- `npm test -- --runTestsByPath lib/__tests__/request-board-review-actions.test.ts lib/__tests__/request-board-list-filters.test.ts lib/__tests__/request-board-review-role.contract.test.ts lib/__tests__/request-board-mobile-ui-contract.test.ts lib/__tests__/request-board-api-contract.test.ts --runInBand`.
+- `npx eslint app/request-board.tsx app/request-board-review.tsx lib/request-board-review-actions.ts lib/request-board-list-filters.ts lib/__tests__/request-board-review-actions.test.ts lib/__tests__/request-board-list-filters.test.ts lib/__tests__/request-board-review-role.contract.test.ts lib/__tests__/request-board-mobile-ui-contract.test.ts`.
+- `npx tsc --noEmit --pretty false`.
+- `node scripts/ci/check-governance.mjs`.
+- `git diff --check`.
+
+---
+
+# Current Contract: Increment 45 - Reject Reason Modal Keyboard Avoidance
+
+Status: completed locally on 2026-06-07
+
+## Goal
+
+Keep request-board rejection reason input UI visible when the Android/iOS soft keyboard opens.
+
+## Scope
+
+- Wrap request-board rejection reason modals in `KeyboardAvoidingView`.
+- Cover detail 설계매니저 request rejection, detail FC design rejection, and home quick-card request rejection.
+- Preserve existing modal copy, reason validation, and API behavior.
+- Add static UI contract tests for keyboard avoidance.
+
+## Explicit Non-Scope
+
+- Do not redesign modal visual layout beyond keyboard avoidance.
+- Do not change reject API payloads or status behavior.
+- Do not commit or push unless explicitly requested.
+
+## Acceptance Criteria
+
+- Rejection reason modal content is placed in a keyboard avoiding container.
+- Android uses height adjustment and iOS uses padding adjustment.
+- Existing rejection reason contracts still pass.
+- Focused tests, targeted ESLint, TypeScript, governance, and diff hygiene pass.
+
+## Verification Plan
+
+- RED/GREEN: `npm test -- --runTestsByPath lib/__tests__/request-board-review-role.contract.test.ts lib/__tests__/request-board-mobile-ui-contract.test.ts --runInBand`.
+- `npx eslint app/request-board.tsx app/request-board-review.tsx lib/__tests__/request-board-review-role.contract.test.ts lib/__tests__/request-board-mobile-ui-contract.test.ts`.
+- `npx tsc --noEmit --pretty false`.
+- `node scripts/ci/check-governance.mjs`.
+- `git diff --check`.
+
+---
+
+# Current Contract: Increment 46 - List Rejection Reason Summary
+
+Status: completed locally on 2026-06-07
+
+## Goal
+
+Show 설계매니저 rejection reasons in the FC request list stage without making long reasons dominate the card layout.
+
+## Scope
+
+- Extract the first non-empty `rejection_reason` from rejected designer assignments.
+- Render a compact rejection reason summary on request list cards.
+- Limit long reason text to two visible lines in the list.
+- Keep full reason visibility in the existing detail screen.
+- Add helper and UI contract tests.
+
+## Explicit Non-Scope
+
+- Do not add a new status filter.
+- Do not change backend payloads or stored reason text.
+- Do not redesign the whole request list card.
+- Do not commit or push unless explicitly requested.
+
+## Acceptance Criteria
+
+- Rejected designer assignments with a typed reason show a reason summary on the list card.
+- Blank reasons do not render an empty reason box.
+- Long reasons are not truncated in data helpers but are capped to two rendered lines in the list UI.
+- Existing rejection reason, review-pending, API, lint, TypeScript, governance, and diff hygiene checks pass.
+
+## Verification Plan
+
+- RED/GREEN: `npm test -- --runTestsByPath lib/__tests__/request-board-rejection-summary.test.ts lib/__tests__/request-board-mobile-ui-contract.test.ts --runInBand`.
+- `npm test -- --runTestsByPath lib/__tests__/request-board-rejection-summary.test.ts lib/__tests__/request-board-review-actions.test.ts lib/__tests__/request-board-list-filters.test.ts lib/__tests__/request-board-review-role.contract.test.ts lib/__tests__/request-board-mobile-ui-contract.test.ts lib/__tests__/request-board-api-contract.test.ts --runInBand`.
+- `npx eslint app/request-board-requests.tsx app/request-board.tsx app/request-board-review.tsx lib/request-board-rejection-summary.ts lib/request-board-review-actions.ts lib/request-board-list-filters.ts lib/__tests__/request-board-rejection-summary.test.ts lib/__tests__/request-board-review-actions.test.ts lib/__tests__/request-board-list-filters.test.ts lib/__tests__/request-board-review-role.contract.test.ts lib/__tests__/request-board-mobile-ui-contract.test.ts`.
+- `npx tsc --noEmit --pretty false`.
+- `node scripts/ci/check-governance.mjs`.
+- `git diff --check`.
+
+---
+
+# Current Contract: Increment 47 - List Rejection Reason Hydration
+
+Status: completed locally on 2026-06-07
+
+## Goal
+
+Make the request-list rejection reason summary work against actual list responses that include `status === 'rejected'` but omit `rejection_reason`.
+
+## Scope
+
+- Detect rejected list assignments that are missing `rejection_reason`.
+- Fetch request detail for only those requests and merge matching assignment rejection reasons back into the list item.
+- Preserve list rendering when detail hydration fails for an item.
+- Extend tests to prove the hydration helper and request-list fetch contract exist.
+
+## Explicit Non-Scope
+
+- Do not change backend endpoints.
+- Do not fetch details for every list item when no rejected reason is missing.
+- Do not commit or push unless explicitly requested.
+
+## Acceptance Criteria
+
+- Rejected list items missing reason are hydrated from `rbGetRequestDetail`.
+- Assignment merge matches by request-designer id first, then designer id.
+- The list card reason summary uses hydrated reasons.
+- Request-board regression tests, lint, TypeScript, governance, and diff hygiene pass.
+
+## Verification Plan
+
+- RED/GREEN: `npm test -- --runTestsByPath lib/__tests__/request-board-rejection-summary.test.ts lib/__tests__/request-board-mobile-ui-contract.test.ts --runInBand`.
+- `npm test -- --runTestsByPath lib/__tests__/request-board-rejection-summary.test.ts lib/__tests__/request-board-review-actions.test.ts lib/__tests__/request-board-list-filters.test.ts lib/__tests__/request-board-review-role.contract.test.ts lib/__tests__/request-board-mobile-ui-contract.test.ts lib/__tests__/request-board-api-contract.test.ts --runInBand`.
+- `npx eslint app/request-board-requests.tsx app/request-board.tsx app/request-board-review.tsx lib/request-board-rejection-summary.ts lib/request-board-api.ts lib/request-board-review-actions.ts lib/request-board-list-filters.ts lib/__tests__/request-board-rejection-summary.test.ts lib/__tests__/request-board-review-actions.test.ts lib/__tests__/request-board-list-filters.test.ts lib/__tests__/request-board-review-role.contract.test.ts lib/__tests__/request-board-mobile-ui-contract.test.ts`.
+- `npx tsc --noEmit --pretty false`.
+- `node scripts/ci/check-governance.mjs`.
+- `git diff --check`.
+
+---

@@ -17,12 +17,21 @@ import { BottomNavigation } from '@/components/BottomNavigation';
 import { useSession } from '@/hooks/use-session';
 import { resolveBottomNavActiveKey, resolveBottomNavPreset } from '@/lib/bottom-navigation';
 import { logger } from '@/lib/logger';
-import { rbGetRequestList, type RbRequestListItem } from '@/lib/request-board-api';
+import {
+  rbGetRequestDetail,
+  rbGetRequestList,
+  type RbRequestListItem,
+} from '@/lib/request-board-api';
 import {
   getRequestBoardPrimaryStatus,
   requestBoardListHasBucket,
   type RequestBoardListFilterKey,
 } from '@/lib/request-board-list-filters';
+import {
+  getDesignerRejectionSummary,
+  mergeDesignerRejectionReasonFromDetail,
+  requestNeedsDesignerRejectionReasonHydration,
+} from '@/lib/request-board-rejection-summary';
 import { COLORS, RADIUS, SHADOWS, SPACING, TYPOGRAPHY } from '@/lib/theme';
 
 /* ─── Helpers ─── */
@@ -79,6 +88,33 @@ const REQUEST_STATUS_LABEL: Record<string, { label: string; color: string; bg: s
   cancelled: { label: '취소', color: COLORS.gray[500], bg: COLORS.gray[100] },
 };
 
+const hydrateDesignerRejectionReasons = async (
+  listItems: RbRequestListItem[],
+): Promise<RbRequestListItem[]> => {
+  const targets = listItems.filter(requestNeedsDesignerRejectionReasonHydration);
+  if (targets.length === 0) {
+    return listItems;
+  }
+
+  const detailResults = await Promise.allSettled(
+    targets.map(async (request) => {
+      const detail = await rbGetRequestDetail(request.id);
+      return { requestId: request.id, detail };
+    }),
+  );
+
+  const detailsByRequestId = new Map<number, Awaited<ReturnType<typeof rbGetRequestDetail>>>();
+  for (const result of detailResults) {
+    if (result.status === 'fulfilled') {
+      detailsByRequestId.set(result.value.requestId, result.value.detail);
+    }
+  }
+
+  return listItems.map((request) =>
+    mergeDesignerRejectionReasonFromDetail(request, detailsByRequestId.get(request.id)),
+  );
+};
+
 /* ─── Component ─── */
 
 export default function RequestBoardRequestsScreen() {
@@ -123,7 +159,8 @@ export default function RequestBoardRequestsScreen() {
       }
 
       const data = await rbGetRequestList();
-      setRequests(data);
+      const hydratedData = await hydrateDesignerRejectionReasons(data);
+      setRequests(hydratedData);
     } catch (err) {
       logger.warn('[requests] fetch failed', err);
       setFetchError(
@@ -200,6 +237,7 @@ export default function RequestBoardRequestsScreen() {
     };
     const requestId = Number(item.id ?? (item as any).request_id ?? 0);
     const fcDecisionMeta = getFcDecisionMeta(item);
+    const designerRejectionSummary = getDesignerRejectionSummary(item);
 
     return (
       <Pressable
@@ -258,6 +296,19 @@ export default function RequestBoardRequestsScreen() {
             <Feather name="chevron-right" size={11} color={COLORS.primary} />
           </View>
         </View>
+        {designerRejectionSummary ? (
+          <View style={styles.rejectionReasonBox}>
+            <View style={styles.rejectionReasonHeader}>
+              <Feather name="message-square" size={11} color="#DC2626" />
+              <Text style={styles.rejectionReasonLabel}>
+                {designerRejectionSummary.label}
+              </Text>
+            </View>
+            <Text style={styles.rejectionReasonText} numberOfLines={2}>
+              {designerRejectionSummary.reason}
+            </Text>
+          </View>
+        ) : null}
       </Pressable>
     );
   };
@@ -658,5 +709,30 @@ const styles = StyleSheet.create({
   cardMetaText: {
     fontSize: TYPOGRAPHY.fontSize.xs,
     color: COLORS.gray[500],
+  },
+  rejectionReasonBox: {
+    marginTop: SPACING.sm,
+    paddingHorizontal: SPACING.sm,
+    paddingVertical: 8,
+    borderRadius: RADIUS.md,
+    borderWidth: 1,
+    borderColor: '#FECACA',
+    backgroundColor: '#FEF2F2',
+  },
+  rejectionReasonHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    marginBottom: 3,
+  },
+  rejectionReasonLabel: {
+    fontSize: TYPOGRAPHY.fontSize.xs,
+    fontWeight: '700' as const,
+    color: '#DC2626',
+  },
+  rejectionReasonText: {
+    fontSize: TYPOGRAPHY.fontSize.xs,
+    lineHeight: 17,
+    color: COLORS.gray[700],
   },
 });

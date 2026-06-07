@@ -7,6 +7,157 @@
 
 ---
 
+## <a id="20260607-request-board-list-rejection-reason-hydration"></a> 2026-06-07 | Request board list rejection reason hydration
+
+**배경**:
+- 실제 화면에서 `설계 거절` 상태는 보였지만, 목록 카드의 거절 사유 박스가 보이지 않았다.
+- 직접 확인 결과 `app/request-board-requests.tsx`는 사유 박스를 렌더링하도록 되어 있었지만, `rbGetRequestList()`의 `RbRequestListItem.request_designers` 타입/목록 응답 계약에는 `rejection_reason`이 포함되어 있지 않았다.
+- 즉 UI 적용만으로는 부족했고, 목록 응답에 사유가 빠진 실제 데이터 경로에서 사유를 보강해야 했다.
+
+**조치**:
+- `RbRequestListItem.request_designers[]`에 `rejection_reason?: string | null`을 추가했다.
+- `requestNeedsDesignerRejectionReasonHydration()`을 추가해 `status === 'rejected'`인데 목록 항목에 사유가 없는 요청을 감지한다.
+- `mergeDesignerRejectionReasonFromDetail()`을 추가해 상세 API의 `request_designers`에서 같은 assignment id/designer id의 `rejection_reason`을 목록 항목에 병합한다.
+- `app/request-board-requests.tsx`의 `fetchData()`에서 `rbGetRequestList()` 이후 필요한 항목만 `rbGetRequestDetail(request.id)`로 보강한 뒤 `setRequests()` 하도록 수정했다.
+- 상세 API 조회 실패는 목록 전체 실패로 만들지 않고, 해당 항목은 원래 목록 데이터 그대로 유지한다.
+- 실제 ADB 화면 캡처를 시도했지만 `adb devices`가 기기 목록을 출력하지 않아 런타임 캡처 검증은 수행하지 못했다.
+
+**검증**:
+- RED 확인: `npm test -- --runTestsByPath lib/__tests__/request-board-rejection-summary.test.ts lib/__tests__/request-board-mobile-ui-contract.test.ts --runInBand`가 hydration helper/export 및 request list 상세 보강 contract 부재로 실패.
+- 통과: `npm test -- --runTestsByPath lib/__tests__/request-board-rejection-summary.test.ts lib/__tests__/request-board-mobile-ui-contract.test.ts --runInBand`
+- 통과: `npm test -- --runTestsByPath lib/__tests__/request-board-rejection-summary.test.ts lib/__tests__/request-board-review-actions.test.ts lib/__tests__/request-board-list-filters.test.ts lib/__tests__/request-board-review-role.contract.test.ts lib/__tests__/request-board-mobile-ui-contract.test.ts lib/__tests__/request-board-api-contract.test.ts --runInBand`
+- 통과: `npx eslint app/request-board-requests.tsx app/request-board.tsx app/request-board-review.tsx lib/request-board-rejection-summary.ts lib/request-board-api.ts lib/request-board-review-actions.ts lib/request-board-list-filters.ts lib/__tests__/request-board-rejection-summary.test.ts lib/__tests__/request-board-review-actions.test.ts lib/__tests__/request-board-list-filters.test.ts lib/__tests__/request-board-review-role.contract.test.ts lib/__tests__/request-board-mobile-ui-contract.test.ts`
+- 통과: `npx tsc --noEmit --pretty false`
+- 통과: `node scripts/ci/check-governance.mjs`
+- 통과: `git diff --check` (CRLF normalization warning only)
+
+**미실행/제약**:
+- ADB가 기기 목록을 반환하지 않아 Android emulator screenshot은 수행하지 못했다.
+- 커밋/푸시는 사용자 요청이 없어 수행하지 않았다.
+
+---
+
+## <a id="20260607-request-board-list-rejection-reason-summary"></a> 2026-06-07 | Request board list rejection reason summary
+
+**배경**:
+- FC 의뢰 목록 카드에서 설계매니저가 거절한 건은 `설계 거절` 상태만 보이고, 어떤 사유로 거절됐는지 목록 단계에서 바로 확인할 수 없었다.
+- 긴 거절 사유를 그대로 펼치면 카드 높이가 과도하게 늘어나고 필터 목록 스캔성이 떨어질 수 있었다.
+
+**조치**:
+- `lib/request-board-rejection-summary.ts`를 추가해 `status === 'rejected'` 배정 중 실제 `rejection_reason`이 있는 첫 항목을 목록 표시용 summary로 추출한다.
+- `app/request-board-requests.tsx` 카드 하단에 옅은 빨간 사유 박스를 추가했다.
+- 사유 라벨은 설계매니저 이름이 있으면 `김설계 거절 사유`, 없으면 `거절 사유`로 표시한다.
+- 긴 사유는 목록 카드에서 `numberOfLines={2}`로 2줄까지만 표시하고 말줄임 처리한다. 전체 사유는 상세 화면의 기존 배정 메타에서 확인한다.
+- 사유가 공백이거나 거절 상태가 아니면 사유 박스를 렌더링하지 않는다.
+
+**검증**:
+- RED 확인: `npm test -- --runTestsByPath lib/__tests__/request-board-rejection-summary.test.ts lib/__tests__/request-board-mobile-ui-contract.test.ts --runInBand`가 helper module/UI contract 부재로 실패.
+- 통과: `npm test -- --runTestsByPath lib/__tests__/request-board-rejection-summary.test.ts lib/__tests__/request-board-mobile-ui-contract.test.ts --runInBand`
+- 통과: `npm test -- --runTestsByPath lib/__tests__/request-board-rejection-summary.test.ts lib/__tests__/request-board-review-actions.test.ts lib/__tests__/request-board-list-filters.test.ts lib/__tests__/request-board-review-role.contract.test.ts lib/__tests__/request-board-mobile-ui-contract.test.ts lib/__tests__/request-board-api-contract.test.ts --runInBand`
+- 통과: `npx eslint app/request-board-requests.tsx app/request-board.tsx app/request-board-review.tsx lib/request-board-rejection-summary.ts lib/request-board-review-actions.ts lib/request-board-list-filters.ts lib/__tests__/request-board-rejection-summary.test.ts lib/__tests__/request-board-review-actions.test.ts lib/__tests__/request-board-list-filters.test.ts lib/__tests__/request-board-review-role.contract.test.ts lib/__tests__/request-board-mobile-ui-contract.test.ts`
+- 통과: `npx tsc --noEmit --pretty false`
+- 통과: `node scripts/ci/check-governance.mjs`
+- 통과: `git diff --check` (CRLF normalization warning only)
+
+**미실행/제약**:
+- 실제 Android 목록 화면 캡쳐는 수행하지 않았다.
+- 커밋/푸시는 사용자 요청이 없어 수행하지 않았다.
+
+---
+
+## <a id="20260607-request-board-reject-modal-keyboard-avoidance"></a> 2026-06-07 | Request board reject modal keyboard avoidance
+
+**배경**:
+- Android에서 설계요청 거절 사유를 작성하려고 키보드를 열면, 새로 추가한 하단 사유 입력 모달이 키보드에 가려져 입력 UI와 버튼을 볼 수 없었다.
+- 상세 화면의 설계매니저 의뢰 거절 모달, FC 설계 거절 모달, 홈 `처리할 의뢰` 빠른 카드 거절 모달이 모두 일반 `Modal` 하단 시트 구조라 키보드 회피 컨테이너가 없었다.
+
+**조치**:
+- `app/request-board-review.tsx`의 설계매니저 의뢰 거절 모달과 FC 설계 거절 모달을 `KeyboardAvoidingView`로 감쌌다.
+- `app/request-board.tsx`의 홈 빠른 카드 의뢰 거절 모달도 `KeyboardAvoidingView`로 감쌌다.
+- `behavior={process.env.EXPO_OS === 'ios' ? 'padding' : 'height'}`를 사용해 iOS/Android 양쪽에서 하단 시트가 키보드 위로 올라오도록 했다.
+- overlay는 absolute fill로 바꾸고, keyboard avoiding container는 `justifyContent: 'flex-end'`로 유지해 기존 바텀시트 배치를 보존했다.
+- 상세/홈 static UI contract 테스트에 keyboard avoidance 계약을 추가했다.
+- `.claude/MISTAKES.md`에 입력 모달 키보드 회피 누락을 기록했다.
+
+**검증**:
+- RED 확인: `npm test -- --runTestsByPath lib/__tests__/request-board-review-role.contract.test.ts lib/__tests__/request-board-mobile-ui-contract.test.ts --runInBand`가 `KeyboardAvoidingView` contract 부재로 실패.
+- 통과: `npm test -- --runTestsByPath lib/__tests__/request-board-review-role.contract.test.ts lib/__tests__/request-board-mobile-ui-contract.test.ts --runInBand`
+- 통과: `npm test -- --runTestsByPath lib/__tests__/request-board-review-actions.test.ts lib/__tests__/request-board-list-filters.test.ts lib/__tests__/request-board-review-role.contract.test.ts lib/__tests__/request-board-mobile-ui-contract.test.ts lib/__tests__/request-board-api-contract.test.ts --runInBand`
+- 통과: `npx eslint app/request-board.tsx app/request-board-review.tsx lib/__tests__/request-board-review-role.contract.test.ts lib/__tests__/request-board-mobile-ui-contract.test.ts`
+- 통과: `npx tsc --noEmit --pretty false`
+- 통과: `node scripts/ci/check-governance.mjs`
+- 통과: `git diff --check` (CRLF normalization warning only)
+
+**미실행/제약**:
+- Android emulator에서 실제 키보드 입력 캡쳐는 수행하지 않았다.
+- 커밋/푸시는 사용자 요청이 없어 수행하지 않았다.
+
+---
+
+## <a id="20260607-request-board-designer-reject-reason-review-bucket"></a> 2026-06-07 | Request board designer reject reason and FC review bucket fix
+
+**배경**:
+- 설계매니저가 의뢰를 거절할 때 별도 사유 입력 없이 모바일 기본 문구가 저장되는 경로가 있었다.
+- 설계매니저가 거절한 배정은 FC 목록에서 `검토 대기`로 잡혀, FC가 처리할 수 없는 상태로 계속 남는 회귀가 있었다.
+
+**조치**:
+- `normalizeDesignerRejectReason()`을 추가해 설계매니저 거절 사유가 공백이면 API를 호출하지 않도록 고정했다.
+- `app/request-board-review.tsx` 상세 화면의 `의뢰 거절` 버튼을 별도 사유 입력 모달로 연결하고, 입력한 사유를 `rbRejectRequest(requestId, designerId, reason, requestDesignerId)`에 전달한다.
+- `app/request-board.tsx` 홈 `처리할 의뢰` 빠른 카드의 거절도 같은 사유 입력 모달을 사용하도록 보정했다.
+- FC 목록의 `review_pending` 판정은 `assignment.status === 'completed' && fc_decision pending/null`일 때만 true가 되도록 좁혔다. `status === 'rejected'`는 더 이상 검토대기 버킷에 들어가지 않는다.
+- 회귀 방지를 위해 상세 UI contract, 홈 quick card contract, 목록 필터 테스트를 추가했다.
+- `.claude/MISTAKES.md`에 거절 사유 하드코딩과 `rejected`/`completed` 버킷 혼동을 기록했다.
+
+**검증**:
+- RED 확인: `npm test -- --runTestsByPath lib/__tests__/request-board-review-actions.test.ts lib/__tests__/request-board-list-filters.test.ts lib/__tests__/request-board-review-role.contract.test.ts lib/__tests__/request-board-mobile-ui-contract.test.ts --runInBand`가 helper 부재, UI contract 부재, `rejected` review bucket 오분류로 실패.
+- 통과: `npm test -- --runTestsByPath lib/__tests__/request-board-review-actions.test.ts lib/__tests__/request-board-list-filters.test.ts lib/__tests__/request-board-review-role.contract.test.ts lib/__tests__/request-board-mobile-ui-contract.test.ts --runInBand`
+- 통과: `npm test -- --runTestsByPath lib/__tests__/request-board-review-actions.test.ts lib/__tests__/request-board-list-filters.test.ts lib/__tests__/request-board-review-role.contract.test.ts lib/__tests__/request-board-mobile-ui-contract.test.ts lib/__tests__/request-board-api-contract.test.ts --runInBand`
+- 통과: `npx eslint app/request-board.tsx app/request-board-review.tsx lib/request-board-review-actions.ts lib/request-board-list-filters.ts lib/__tests__/request-board-review-actions.test.ts lib/__tests__/request-board-list-filters.test.ts lib/__tests__/request-board-review-role.contract.test.ts lib/__tests__/request-board-mobile-ui-contract.test.ts`
+- 통과: `npx tsc --noEmit --pretty false`
+- 통과: `node scripts/ci/check-governance.mjs`
+- 통과: `git diff --check` (CRLF normalization warning only)
+
+**미실행/제약**:
+- Backend endpoint 변경은 없었다.
+- Android emulator에서 실제 모달 터치 캡쳐는 수행하지 않았다.
+- 커밋/푸시는 사용자 요청이 없어 수행하지 않았다.
+
+**운영 메모**:
+- FC가 볼 목록에서는 설계매니저 거절 건이 `검토 대기`로 남지 않고 `설계 거절` 메타로 분리된다.
+- FC의 완료 설계 승인/거절 모달은 기존대로 유지된다.
+
+---
+
+## <a id="20260607-request-board-detail-designer-accept-reject"></a> 2026-06-07 | Request board detail designer accept/reject
+
+**배경**:
+- 설계매니저가 모바일 `의뢰 상세` 화면에 들어왔을 때, 카드 상태는 `수락 대기`로 보이지만 상세 화면 안에서 바로 수락/거절할 수 있는 버튼이 없었다.
+- 설계요청 홈의 `처리할 의뢰` 카드에는 이미 `rbAcceptRequest`/`rbRejectRequest` 기반 수락/거절 동선이 있었고, 상세 화면은 조회/첨부/완료 처리와 FC 설계 승인/거절만 연결되어 있었다.
+
+**조치**:
+- `lib/request-board-review-actions.ts`를 추가해 설계매니저 상세 액션 노출 조건을 `isRequestBoardDesigner && assignment.status === 'pending'`으로 고정했다.
+- `app/request-board-review.tsx`에서 pending 배정 카드에 `의뢰 거절`, `의뢰 수락` 버튼을 렌더링한다.
+- 수락은 기존 `rbAcceptRequest(requestId, designerId, requestDesignerId)` API wrapper를 호출한다.
+- 거절은 기존 `rbRejectRequest(requestId, designerId, reason, requestDesignerId)` API wrapper를 호출한다. 이후 `20260607-request-board-designer-reject-reason-review-bucket`에서 하드코딩 사유 대신 사유 입력 모달로 보정했다.
+- 성공 시 상세 데이터를 다시 불러오고, 실패 시 사용자용 Alert를 표시한다.
+- 기존 completed design FC 승인/거절 버튼은 `!isRequestBoardDesigner && needsReview` 조건을 유지했다.
+
+**검증**:
+- RED 확인: `npm test -- --runTestsByPath lib/__tests__/request-board-review-actions.test.ts lib/__tests__/request-board-review-role.contract.test.ts --runInBand`가 helper module/button contract 부재로 실패.
+- 통과: `npm test -- --runTestsByPath lib/__tests__/request-board-review-actions.test.ts lib/__tests__/request-board-review-role.contract.test.ts --runInBand`
+- 통과: `npm test -- --runTestsByPath lib/__tests__/request-board-review-actions.test.ts lib/__tests__/request-board-review-role.contract.test.ts lib/__tests__/request-board-api-contract.test.ts --runInBand`
+- 통과: `npx eslint app/request-board-review.tsx lib/request-board-review-actions.ts lib/__tests__/request-board-review-actions.test.ts lib/__tests__/request-board-review-role.contract.test.ts`
+- 통과: `npx tsc --noEmit --pretty false`
+- 통과: `node scripts/ci/check-governance.mjs`
+- 통과: `git diff --check`
+
+**미실행/제약**:
+- request_board backend endpoint 변경은 없었다.
+- Android 실기기 캡쳐와 EAS 빌드는 수행하지 않았다.
+
+**운영 메모**:
+- 상세 화면의 새 버튼은 설계매니저 pending 배정에서만 보인다. 진행중/완료/거절/취소 상태 또는 FC 화면에서는 노출되지 않는다.
+
 ## <a id="20260607-home-entry-guide-icon-sentry-guard"></a> 2026-06-07 | Home entry Sentry guard and guide icon color
 
 **배경**:

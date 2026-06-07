@@ -4,6 +4,7 @@ import { Stack, useLocalSearchParams, useRouter } from 'expo-router';
 import { type ReactNode, useCallback, useEffect, useState } from 'react';
 import {
   Alert,
+  KeyboardAvoidingView,
   Modal,
   Pressable,
   ScrollView,
@@ -24,16 +25,22 @@ import { formatRequestBoardFcDisplayName } from '@/lib/request-board-fc-identity
 import { openExternalUrl } from '@/lib/open-external-url';
 import { formatRequestBoardDrivingStatus } from '@/lib/request-board-driving-status';
 import {
+  rbAcceptRequest,
   rbApproveDesign,
   rbCompleteRequest,
   rbGetRequestDetail,
   rbRejectDesign,
+  rbRejectRequest,
   rbUploadRequestAttachments,
   type RbDesignerAssignment,
   type RbRequestDetail,
   type RbRequestUploadFile,
 } from '@/lib/request-board-api';
 import { COLORS, RADIUS, SHADOWS, SPACING, TYPOGRAPHY } from '@/lib/theme';
+import {
+  getDesignerRequestDetailActions,
+  normalizeDesignerRejectReason,
+} from '@/lib/request-board-review-actions';
 import { safeDecodeFileName } from '@/lib/validation';
 
 /* ─── Helpers ─── */
@@ -139,6 +146,11 @@ function InfoSection({ title, children }: { title: string; children: ReactNode }
   );
 }
 
+type DesignerRejectTarget = {
+  designerId: number;
+  assignmentId: number;
+};
+
 /* ─── Component ─── */
 
 export default function RequestBoardReviewScreen() {
@@ -156,6 +168,11 @@ export default function RequestBoardReviewScreen() {
   const [rejectModalVisible, setRejectModalVisible] = useState(false);
   const [rejectTargetId, setRejectTargetId] = useState<number | null>(null);
   const [rejectReason, setRejectReason] = useState('');
+
+  /* Designer request reject modal */
+  const [designerRejectModalVisible, setDesignerRejectModalVisible] = useState(false);
+  const [designerRejectTarget, setDesignerRejectTarget] = useState<DesignerRejectTarget | null>(null);
+  const [designerRejectReason, setDesignerRejectReason] = useState('');
 
   const requestId = id ? parseInt(id, 10) : null;
 
@@ -261,6 +278,91 @@ export default function RequestBoardReviewScreen() {
     }
   };
 
+  const handleDesignerAcceptRequest = (assignment: RbDesignerAssignment) => {
+    if (!requestId) return;
+    if (assignment.status !== 'pending') {
+      Alert.alert('처리 불가', '수락할 수 있는 의뢰가 아닙니다.');
+      return;
+    }
+
+    Alert.alert('의뢰 수락', '이 의뢰를 수락하고 설계를 진행하시겠습니까?', [
+      { text: '취소', style: 'cancel' },
+      {
+        text: '수락',
+        style: 'default',
+        onPress: async () => {
+          setSubmitting(true);
+          try {
+            const res = await rbAcceptRequest(requestId, assignment.designer_id, assignment.id);
+            if (res.success) {
+              Alert.alert('수락 완료', '의뢰를 수락했습니다.');
+              await fetchData();
+            } else {
+              Alert.alert('수락 실패', res.error ?? res.message ?? '수락 처리 중 오류가 발생했습니다.');
+            }
+          } catch (err) {
+            logger.warn('[review] designer accept request failed', err);
+            Alert.alert('수락 실패', '수락 처리 중 오류가 발생했습니다.');
+          } finally {
+            setSubmitting(false);
+          }
+        },
+      },
+    ]);
+  };
+
+  const resetDesignerRejectModal = () => {
+    setDesignerRejectModalVisible(false);
+    setDesignerRejectTarget(null);
+    setDesignerRejectReason('');
+  };
+
+  const handleDesignerRejectOpen = (assignment: RbDesignerAssignment) => {
+    if (!requestId) return;
+    if (assignment.status !== 'pending') {
+      Alert.alert('처리 불가', '거절할 수 있는 의뢰가 아닙니다.');
+      return;
+    }
+
+    setDesignerRejectTarget({
+      designerId: assignment.designer_id,
+      assignmentId: assignment.id,
+    });
+    setDesignerRejectReason('');
+    setDesignerRejectModalVisible(true);
+  };
+
+  const handleDesignerRejectConfirm = async () => {
+    if (!requestId || !designerRejectTarget) return;
+    const trimmedReason = normalizeDesignerRejectReason(designerRejectReason);
+    if (!trimmedReason) {
+      Alert.alert('거절 사유 필요', '거절 사유를 입력해주세요.');
+      return;
+    }
+
+    setSubmitting(true);
+    try {
+      const res = await rbRejectRequest(
+        requestId,
+        designerRejectTarget.designerId,
+        trimmedReason,
+        designerRejectTarget.assignmentId,
+      );
+      if (res.success) {
+        resetDesignerRejectModal();
+        Alert.alert('거절 완료', '의뢰를 거절했습니다.');
+        await fetchData();
+      } else {
+        Alert.alert('거절 실패', res.error ?? res.message ?? '거절 처리 중 오류가 발생했습니다.');
+      }
+    } catch (err) {
+      logger.warn('[review] designer reject request failed', err);
+      Alert.alert('거절 실패', '거절 처리 중 오류가 발생했습니다.');
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
   const handleOpenFile = async (fileUrl: string) => {
     try {
       await openExternalUrl(fileUrl);
@@ -356,6 +458,10 @@ export default function RequestBoardReviewScreen() {
     const designerName = assignment.designers?.users?.name ?? '설계 매니저';
     const companyName = assignment.designers?.company_name;
     const isCompleted = assignment.status === 'completed';
+    const designerActions = getDesignerRequestDetailActions({
+      isRequestBoardDesigner,
+      assignmentStatus: assignment.status,
+    });
     const canManageAsDesigner = isRequestBoardDesigner && assignment.status === 'accepted';
     const needsReview =
       isCompleted &&
@@ -492,6 +598,45 @@ export default function RequestBoardReviewScreen() {
           <View style={styles.noFilesRow}>
             <Feather name="paperclip" size={13} color={COLORS.gray[300]} />
             <Text style={styles.noFilesText}>첨부 파일 없음</Text>
+          </View>
+        )}
+
+        {designerActions.canRespond && (
+          <View style={styles.decisionBtns}>
+            <Pressable
+              style={({ pressed }) => [
+                styles.rejectBtn,
+                pressed && { opacity: 0.8 },
+                submitting && { opacity: 0.5 },
+              ]}
+              onPress={() => handleDesignerRejectOpen(assignment)}
+              disabled={submitting || !designerActions.canReject}
+              accessibilityRole="button"
+              accessibilityLabel="의뢰 거절"
+            >
+              <Feather name="x" size={15} color="#DC2626" />
+              <Text style={styles.rejectBtnText}>의뢰 거절</Text>
+            </Pressable>
+            <Pressable
+              style={({ pressed }) => [
+                styles.approveBtn,
+                pressed && { opacity: 0.8 },
+                submitting && { opacity: 0.5 },
+              ]}
+              onPress={() => handleDesignerAcceptRequest(assignment)}
+              disabled={submitting || !designerActions.canAccept}
+              accessibilityRole="button"
+              accessibilityLabel="의뢰 수락"
+            >
+              {submitting ? (
+                <BrandedLoadingSpinner size="sm" color="#fff" />
+              ) : (
+                <>
+                  <Feather name="check" size={15} color="#fff" />
+                  <Text style={styles.approveBtnText}>의뢰 수락</Text>
+                </>
+              )}
+            </Pressable>
           </View>
         )}
 
@@ -794,58 +939,122 @@ export default function RequestBoardReviewScreen() {
         bottomInset={insets.bottom}
       />
 
-      {/* Reject Modal */}
+      {/* Designer Reject Modal */}
+      <Modal
+        visible={designerRejectModalVisible}
+        transparent
+        animationType="slide"
+        onRequestClose={resetDesignerRejectModal}
+      >
+        <KeyboardAvoidingView
+          style={styles.modalKeyboardAvoidingView}
+          behavior={process.env.EXPO_OS === 'ios' ? 'padding' : 'height'}
+        >
+          <Pressable
+            style={styles.modalOverlay}
+            onPress={resetDesignerRejectModal}
+          />
+          <View style={[styles.modalSheet, { paddingBottom: Math.max(insets.bottom, 16) + 8 }]}>
+            <View style={styles.modalHandle} />
+            <Text style={styles.modalTitle}>의뢰 거절 사유</Text>
+            <Text style={styles.modalDesc}>설계 요청을 거절하는 이유를 입력해주세요.</Text>
+            <TextInput
+              style={styles.reasonInput}
+              value={designerRejectReason}
+              onChangeText={setDesignerRejectReason}
+              placeholder="예: 인수 기준 부적합, 상품 설계 불가 등"
+              placeholderTextColor={COLORS.text.muted}
+              multiline
+              numberOfLines={3}
+              maxLength={200}
+              autoFocus
+            />
+            <Text style={styles.charCount}>{designerRejectReason.length}/200</Text>
+            <View style={styles.modalBtns}>
+              <Pressable
+                style={({ pressed }) => [styles.modalCancelBtn, pressed && { opacity: 0.7 }]}
+                onPress={resetDesignerRejectModal}
+                disabled={submitting}
+              >
+                <Text style={styles.modalCancelBtnText}>취소</Text>
+              </Pressable>
+              <Pressable
+                style={({ pressed }) => [
+                  styles.modalConfirmBtn,
+                  pressed && { opacity: 0.8 },
+                  submitting && { opacity: 0.5 },
+                ]}
+                onPress={handleDesignerRejectConfirm}
+                disabled={submitting}
+              >
+                {submitting ? (
+                  <BrandedLoadingSpinner size="sm" color="#fff" />
+                ) : (
+                  <Text style={styles.modalConfirmBtnText}>거절하기</Text>
+                )}
+              </Pressable>
+            </View>
+          </View>
+        </KeyboardAvoidingView>
+      </Modal>
+
+      {/* FC Reject Modal */}
       <Modal
         visible={rejectModalVisible}
         transparent
         animationType="slide"
         onRequestClose={() => setRejectModalVisible(false)}
       >
-        <Pressable
-          style={styles.modalOverlay}
-          onPress={() => setRejectModalVisible(false)}
-        />
-        <View style={[styles.modalSheet, { paddingBottom: Math.max(insets.bottom, 16) + 8 }]}>
-          <View style={styles.modalHandle} />
-          <Text style={styles.modalTitle}>설계 거절</Text>
-          <Text style={styles.modalDesc}>거절 사유를 입력해주세요. (필수)</Text>
-          <TextInput
-            style={styles.reasonInput}
-            value={rejectReason}
-            onChangeText={setRejectReason}
-            placeholder="예: 보험료 계산 오류, 설계 내용 불일치 등"
-            placeholderTextColor={COLORS.text.muted}
-            multiline
-            numberOfLines={3}
-            maxLength={200}
-            autoFocus
+        <KeyboardAvoidingView
+          style={styles.modalKeyboardAvoidingView}
+          behavior={process.env.EXPO_OS === 'ios' ? 'padding' : 'height'}
+        >
+          <Pressable
+            style={styles.modalOverlay}
+            onPress={() => setRejectModalVisible(false)}
           />
-          <Text style={styles.charCount}>{rejectReason.length}/200</Text>
-          <View style={styles.modalBtns}>
-            <Pressable
-              style={({ pressed }) => [styles.modalCancelBtn, pressed && { opacity: 0.7 }]}
-              onPress={() => setRejectModalVisible(false)}
-              disabled={submitting}
-            >
-              <Text style={styles.modalCancelBtnText}>취소</Text>
-            </Pressable>
-            <Pressable
-              style={({ pressed }) => [
-                styles.modalConfirmBtn,
-                pressed && { opacity: 0.8 },
-                submitting && { opacity: 0.5 },
-              ]}
-              onPress={handleRejectConfirm}
-              disabled={submitting}
-            >
-              {submitting ? (
-                <BrandedLoadingSpinner size="sm" color="#fff" />
-              ) : (
-                <Text style={styles.modalConfirmBtnText}>거절하기</Text>
-              )}
-            </Pressable>
+          <View style={[styles.modalSheet, { paddingBottom: Math.max(insets.bottom, 16) + 8 }]}>
+            <View style={styles.modalHandle} />
+            <Text style={styles.modalTitle}>설계 거절</Text>
+            <Text style={styles.modalDesc}>거절 사유를 입력해주세요. (필수)</Text>
+            <TextInput
+              style={styles.reasonInput}
+              value={rejectReason}
+              onChangeText={setRejectReason}
+              placeholder="예: 보험료 계산 오류, 설계 내용 불일치 등"
+              placeholderTextColor={COLORS.text.muted}
+              multiline
+              numberOfLines={3}
+              maxLength={200}
+              autoFocus
+            />
+            <Text style={styles.charCount}>{rejectReason.length}/200</Text>
+            <View style={styles.modalBtns}>
+              <Pressable
+                style={({ pressed }) => [styles.modalCancelBtn, pressed && { opacity: 0.7 }]}
+                onPress={() => setRejectModalVisible(false)}
+                disabled={submitting}
+              >
+                <Text style={styles.modalCancelBtnText}>취소</Text>
+              </Pressable>
+              <Pressable
+                style={({ pressed }) => [
+                  styles.modalConfirmBtn,
+                  pressed && { opacity: 0.8 },
+                  submitting && { opacity: 0.5 },
+                ]}
+                onPress={handleRejectConfirm}
+                disabled={submitting}
+              >
+                {submitting ? (
+                  <BrandedLoadingSpinner size="sm" color="#fff" />
+                ) : (
+                  <Text style={styles.modalConfirmBtnText}>거절하기</Text>
+                )}
+              </Pressable>
+            </View>
           </View>
-        </View>
+        </KeyboardAvoidingView>
       </Modal>
     </View>
   );
@@ -1344,8 +1553,12 @@ const styles = StyleSheet.create({
   },
 
   /* Reject Modal */
-  modalOverlay: {
+  modalKeyboardAvoidingView: {
     flex: 1,
+    justifyContent: 'flex-end',
+  },
+  modalOverlay: {
+    ...StyleSheet.absoluteFillObject,
     backgroundColor: 'rgba(0,0,0,0.4)',
   },
   modalSheet: {

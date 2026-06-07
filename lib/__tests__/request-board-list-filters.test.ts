@@ -37,4 +37,16 @@ describe('request board list filters', () => {
       new Set(['completed', 'review_pending']),
     );
   });
+
+  it('does not keep designer-rejected assignments stuck in the FC review bucket', () => {
+    const request = {
+      status: 'completed',
+      request_designers: [{ status: 'rejected', fc_decision: null }],
+    };
+
+    expect(requestBoardListHasBucket(request, 'review_pending', false)).toBe(false);
+    expect(requestBoardListHasBucket(request, 'review_pending', true)).toBe(false);
+    expect(getRequestBoardListBuckets(request, false).has('review_pending')).toBe(false);
+    expect(getRequestBoardListBuckets(request, true).has('review_pending')).toBe(false);
+  });
 });

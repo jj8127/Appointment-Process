@@ -7,11 +7,14 @@ import {
   Alert,
   AppState,
   Dimensions,
+  KeyboardAvoidingView,
+  Modal,
   Pressable,
   RefreshControl,
   ScrollView,
   StyleSheet,
   Text,
+  TextInput,
   View,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -33,6 +36,7 @@ import {
   type RbRequestSummary,
 } from '@/lib/request-board-api';
 import { getRequestBoardCustomerManagementRoute } from '@/lib/request-board-create-flow';
+import { normalizeDesignerRejectReason } from '@/lib/request-board-review-actions';
 import { getRequestBoardWebBaseUrl } from '@/lib/request-board-url';
 import { supabase } from '@/lib/supabase';
 import { syncNativeNotificationBadge } from '@/lib/system-notification-badge';
@@ -117,6 +121,13 @@ type ReqStats = {
 };
 
 type RequestListFilter = 'all' | 'pending' | 'in_progress' | 'completed' | 'cancelled' | 'review_pending';
+
+type DesignerRejectTarget = {
+  requestId: number;
+  designerId: number;
+  assignmentId: number;
+  customerName: string;
+};
 
 const DEFAULT_REQ_STATS: ReqStats = {
   loaded: false,
@@ -315,6 +326,9 @@ export default function RequestBoardScreen() {
   const [reqStats, setReqStats] = useState<ReqStats>(DEFAULT_REQ_STATS);
   const [designerRequests, setDesignerRequests] = useState<RbRequestListItem[]>([]);
   const [designerActionKey, setDesignerActionKey] = useState<string | null>(null);
+  const [designerRejectTarget, setDesignerRejectTarget] = useState<DesignerRejectTarget | null>(null);
+  const [designerRejectReason, setDesignerRejectReason] = useState('');
+  const [designerRejectModalVisible, setDesignerRejectModalVisible] = useState(false);
   const [unreadNotifCount, setUnreadNotifCount] = useState(0);
   const [requestBoardAccessError, setRequestBoardAccessError] = useState<string | null>(null);
   const homeHeaderTitle = buildWelcomeTitle({
@@ -540,25 +554,50 @@ export default function RequestBoardScreen() {
     }
   };
 
-  const handleDesignerReject = async (request: RbRequestListItem) => {
+  const resetDesignerRejectModal = () => {
+    setDesignerRejectModalVisible(false);
+    setDesignerRejectTarget(null);
+    setDesignerRejectReason('');
+  };
+
+  const handleDesignerRejectOpen = (request: RbRequestListItem) => {
     const assignment = getActionableAssignment(request);
     if (!assignment || (assignment.status !== 'pending' && assignment.status !== 'accepted')) {
       Alert.alert('처리 불가', '거절할 수 있는 배정을 찾지 못했습니다.');
       return;
     }
 
-    const actionKey = `${request.id}:${assignment.id}:reject`;
+    setDesignerRejectTarget({
+      requestId: request.id,
+      designerId: assignment.designer_id,
+      assignmentId: assignment.id,
+      customerName: request.customer_name,
+    });
+    setDesignerRejectReason('');
+    setDesignerRejectModalVisible(true);
+  };
+
+  const handleDesignerRejectConfirm = async () => {
+    if (!designerRejectTarget) return;
+    const trimmedReason = normalizeDesignerRejectReason(designerRejectReason);
+    if (!trimmedReason) {
+      Alert.alert('거절 사유 필요', '거절 사유를 입력해주세요.');
+      return;
+    }
+
+    const actionKey = `${designerRejectTarget.requestId}:${designerRejectTarget.assignmentId}:reject`;
     try {
       setDesignerActionKey(actionKey);
       const result = await rbRejectRequest(
-        request.id,
-        assignment.designer_id,
-        '모바일에서 거절 처리',
-        assignment.id,
+        designerRejectTarget.requestId,
+        designerRejectTarget.designerId,
+        trimmedReason,
+        designerRejectTarget.assignmentId,
       );
       if (!result.success) {
         throw new Error(result.error ?? result.message ?? '거절 처리에 실패했습니다.');
       }
+      resetDesignerRejectModal();
       await fetchData();
     } catch (err) {
       logger.warn('[request-board] designer reject failed', err);
@@ -566,19 +605,6 @@ export default function RequestBoardScreen() {
     } finally {
       setDesignerActionKey(null);
     }
-  };
-
-  const confirmDesignerReject = (request: RbRequestListItem) => {
-    Alert.alert('의뢰 거절', `${request.customer_name} 고객 의뢰를 거절하시겠습니까?`, [
-      { text: '취소', style: 'cancel' },
-      {
-        text: '거절',
-        style: 'destructive',
-        onPress: () => {
-          void handleDesignerReject(request);
-        },
-      },
-    ]);
   };
 
   const openNotifications = () => {
@@ -992,7 +1018,7 @@ export default function RequestBoardScreen() {
                               pressed && { opacity: 0.78 },
                               actionBusy && { opacity: 0.5 },
                             ]}
-                            onPress={() => confirmDesignerReject(request)}
+                            onPress={() => handleDesignerRejectOpen(request)}
                             disabled={actionBusy}
                           >
                             <Text style={styles.managerRejectText}>
@@ -1277,6 +1303,64 @@ export default function RequestBoardScreen() {
         activeKey={navActiveKey}
         bottomInset={insets.bottom}
       />
+
+      <Modal
+        visible={designerRejectModalVisible}
+        transparent
+        animationType="slide"
+        onRequestClose={resetDesignerRejectModal}
+      >
+        <KeyboardAvoidingView
+          style={styles.modalKeyboardAvoidingView}
+          behavior={process.env.EXPO_OS === 'ios' ? 'padding' : 'height'}
+        >
+          <Pressable
+            style={styles.modalOverlay}
+            onPress={resetDesignerRejectModal}
+          />
+          <View style={[styles.modalSheet, { paddingBottom: Math.max(insets.bottom, 16) + 8 }]}>
+            <View style={styles.modalHandle} />
+            <Text style={styles.modalTitle}>의뢰 거절 사유</Text>
+            <Text style={styles.modalDesc}>
+              {designerRejectTarget?.customerName ?? '고객'} 고객 의뢰를 거절하는 이유를 입력해주세요.
+            </Text>
+            <TextInput
+              style={styles.reasonInput}
+              value={designerRejectReason}
+              onChangeText={setDesignerRejectReason}
+              placeholder="예: 인수 기준 부적합, 상품 설계 불가 등"
+              placeholderTextColor={COLORS.text.muted}
+              multiline
+              numberOfLines={3}
+              maxLength={200}
+              autoFocus
+            />
+            <Text style={styles.charCount}>{designerRejectReason.length}/200</Text>
+            <View style={styles.modalBtns}>
+              <Pressable
+                style={({ pressed }) => [styles.modalCancelBtn, pressed && { opacity: 0.7 }]}
+                onPress={resetDesignerRejectModal}
+                disabled={designerActionKey != null}
+              >
+                <Text style={styles.modalCancelBtnText}>취소</Text>
+              </Pressable>
+              <Pressable
+                style={({ pressed }) => [
+                  styles.modalConfirmBtn,
+                  pressed && { opacity: 0.8 },
+                  designerActionKey != null && { opacity: 0.5 },
+                ]}
+                onPress={handleDesignerRejectConfirm}
+                disabled={designerActionKey != null}
+              >
+                <Text style={styles.modalConfirmBtnText}>
+                  {designerActionKey != null ? '처리중' : '거절하기'}
+                </Text>
+              </Pressable>
+            </View>
+          </View>
+        </KeyboardAvoidingView>
+      </Modal>
     </View>
   );
 }
@@ -1768,6 +1852,92 @@ const styles = StyleSheet.create({
     fontSize: TYPOGRAPHY.fontSize.sm,
     color: COLORS.text.secondary,
     fontWeight: '700' as const,
+  },
+
+  /* Designer Reject Modal */
+  modalKeyboardAvoidingView: {
+    flex: 1,
+    justifyContent: 'flex-end',
+  },
+  modalOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: 'rgba(0,0,0,0.4)',
+  },
+  modalSheet: {
+    backgroundColor: '#fff',
+    borderTopLeftRadius: 20,
+    borderTopRightRadius: 20,
+    paddingHorizontal: SPACING.lg,
+    paddingTop: SPACING.md,
+    ...SHADOWS.lg,
+  },
+  modalHandle: {
+    width: 40,
+    height: 4,
+    borderRadius: 2,
+    backgroundColor: COLORS.gray[200],
+    alignSelf: 'center',
+    marginBottom: SPACING.md,
+  },
+  modalTitle: {
+    fontSize: TYPOGRAPHY.fontSize.lg,
+    fontWeight: '800' as const,
+    color: COLORS.gray[900],
+    marginBottom: 4,
+  },
+  modalDesc: {
+    fontSize: TYPOGRAPHY.fontSize.sm,
+    color: COLORS.text.muted,
+    marginBottom: SPACING.md,
+  },
+  reasonInput: {
+    borderWidth: 1,
+    borderColor: COLORS.border.medium,
+    borderRadius: RADIUS.md,
+    padding: SPACING.md,
+    fontSize: TYPOGRAPHY.fontSize.base,
+    color: COLORS.gray[900],
+    minHeight: 80,
+    textAlignVertical: 'top',
+    backgroundColor: COLORS.gray[50],
+  },
+  charCount: {
+    fontSize: TYPOGRAPHY.fontSize.xs,
+    color: COLORS.text.muted,
+    textAlign: 'right',
+    marginTop: 4,
+    marginBottom: SPACING.md,
+  },
+  modalBtns: {
+    flexDirection: 'row',
+    gap: SPACING.sm,
+  },
+  modalCancelBtn: {
+    flex: 1,
+    paddingVertical: 12,
+    borderRadius: RADIUS.md,
+    borderWidth: 1,
+    borderColor: COLORS.border.medium,
+    alignItems: 'center',
+  },
+  modalCancelBtnText: {
+    fontSize: TYPOGRAPHY.fontSize.base,
+    fontWeight: '600' as const,
+    color: COLORS.gray[700],
+  },
+  modalConfirmBtn: {
+    flex: 2,
+    paddingVertical: 12,
+    borderRadius: RADIUS.md,
+    backgroundColor: '#DC2626',
+    alignItems: 'center',
+    justifyContent: 'center',
+    ...SHADOWS.sm,
+  },
+  modalConfirmBtnText: {
+    fontSize: TYPOGRAPHY.fontSize.base,
+    fontWeight: '700' as const,
+    color: '#fff',
   },
 
   /* Code Management Card */

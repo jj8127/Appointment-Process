@@ -1356,3 +1356,105 @@ Out of scope:
 - Broad graph physics redesign.
 
 ---
+
+# Increment 43: Designer Request Detail Accept/Reject
+
+Status: in progress on 2026-06-07
+
+Implementation order:
+
+1. Add RED tests for designer pending-action availability and request detail UI contract.
+2. Add a small helper for designer detail action visibility.
+3. Wire `app/request-board-review.tsx` to existing `rbAcceptRequest`/`rbRejectRequest`.
+4. Re-run focused tests, lint, TypeScript, governance, and diff hygiene.
+5. Update QA/handoff docs with exact evidence.
+
+Out of scope:
+
+- Backend endpoint changes.
+- Broad request detail redesign.
+- Commit/push unless requested.
+
+---
+
+# Increment 44: Designer Reject Reason and FC Review Bucket Fix
+
+Status: completed locally on 2026-06-07
+
+Implementation order:
+
+1. Add RED tests proving blank designer rejection reasons are invalid and rejected assignments are not FC review pending.
+2. Add shared rejection reason normalization.
+3. Replace detail and home quick-card hardcoded designer rejection reasons with reason-entry modals.
+4. Narrow `review_pending` list bucketing to exact completed assignments awaiting FC decision.
+5. Update mistake ledger and harness/work logs.
+6. Verify focused tests, API contract, targeted lint, TypeScript, governance, and diff hygiene.
+
+Out of scope:
+
+- Backend endpoint/status changes.
+- New FC status category UI.
+- Commit/push unless requested.
+
+---
+
+# Increment 45: Reject Reason Modal Keyboard Avoidance
+
+Status: completed locally on 2026-06-07
+
+Implementation order:
+
+1. Add RED static UI contract tests that require keyboard avoiding containers for reject reason modals.
+2. Wrap request-board detail and home reject reason modals with `KeyboardAvoidingView`.
+3. Preserve bottom-sheet layout by using a flex-end keyboard avoiding container and absolute overlay.
+4. Re-run focused tests, targeted lint, TypeScript, governance, and diff hygiene.
+5. Update mistake ledger and harness/work logs.
+
+Out of scope:
+
+- API/status changes.
+- Broad modal redesign.
+- Commit/push unless requested.
+
+---
+
+# Increment 46: List Rejection Reason Summary
+
+Status: completed locally on 2026-06-07
+
+Implementation order:
+
+1. Add RED helper tests for extracting designer rejection summaries and preserving long reason text.
+2. Add RED request-list UI contract for visible reason summary and two-line display cap.
+3. Implement `getDesignerRejectionSummary()`.
+4. Render compact rejection reason box in `app/request-board-requests.tsx`.
+5. Verify focused tests, request-board regression suite, targeted lint, TypeScript, governance, and diff hygiene.
+
+Out of scope:
+
+- Backend changes.
+- New filters/statuses.
+- Broad card redesign.
+- Commit/push unless requested.
+
+---
+
+# Increment 47: List Rejection Reason Hydration
+
+Status: completed locally on 2026-06-07
+
+Implementation order:
+
+1. Confirm why the visible list still lacks reason: list response type does not include `rejection_reason`.
+2. Add RED tests for missing-reason hydration detection and detail merge.
+3. Fetch request detail only for rejected list items missing a reason.
+4. Merge detail `rejection_reason` into the list item before rendering.
+5. Re-run request-board regression tests, targeted lint, TypeScript, governance, and diff hygiene.
+
+Out of scope:
+
+- Backend changes.
+- Broad list fetch redesign.
+- Commit/push unless requested.
+
+---

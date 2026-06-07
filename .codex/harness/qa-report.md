@@ -2896,3 +2896,139 @@ Date: 2026-06-07
 - No direct Android device screenshot was captured in this increment.
 
 ---
+
+# Increment 43 Verification: Designer Request Detail Accept/Reject
+
+Date: 2026-06-07
+
+### Scope
+
+- Added a focused helper for request detail designer action visibility.
+- Rendered `의뢰 거절` and `의뢰 수락` controls for 설계매니저 sessions only when the assignment status is `pending`.
+- Wired detail accept/reject to existing GaramLink mobile API wrappers with `requestDesignerId`.
+- Kept existing FC completed-design approval/rejection controls gated by `!isRequestBoardDesigner && needsReview`.
+
+### Commands
+
+- RED confirmed: `npm test -- --runTestsByPath lib/__tests__/request-board-review-actions.test.ts lib/__tests__/request-board-review-role.contract.test.ts --runInBand` failed before implementation because the helper module and detail buttons were missing.
+- Passed: `npm test -- --runTestsByPath lib/__tests__/request-board-review-actions.test.ts lib/__tests__/request-board-review-role.contract.test.ts --runInBand`.
+- Passed: `npm test -- --runTestsByPath lib/__tests__/request-board-review-actions.test.ts lib/__tests__/request-board-review-role.contract.test.ts lib/__tests__/request-board-api-contract.test.ts --runInBand`.
+- Passed: `npx eslint app/request-board-review.tsx lib/request-board-review-actions.ts lib/__tests__/request-board-review-actions.test.ts lib/__tests__/request-board-review-role.contract.test.ts`.
+- Passed: `npx tsc --noEmit --pretty false`.
+- Passed: `node scripts/ci/check-governance.mjs`.
+- Passed: `git diff --check`.
+
+### QA Judgment
+
+- Pass. Pending designer assignments now expose request-level accept/reject actions in the detail screen without broadening FC review controls.
+- No direct Android device screenshot was captured in this increment.
+
+---
+
+# Increment 44 Verification: Designer Reject Reason and Review Bucket Fix
+
+Date: 2026-06-07
+
+### Scope
+
+- Required typed rejection reasons for 설계매니저 request rejection in detail and home quick-card flows.
+- Prevented `status === 'rejected'` assignments from entering the FC `review_pending` bucket.
+- Added regression coverage for reason normalization, detail/home UI contracts, and list filter bucketing.
+
+### Commands
+
+- RED confirmed: `npm test -- --runTestsByPath lib/__tests__/request-board-review-actions.test.ts lib/__tests__/request-board-list-filters.test.ts lib/__tests__/request-board-review-role.contract.test.ts lib/__tests__/request-board-mobile-ui-contract.test.ts --runInBand` failed before implementation because the helper/UI contracts were missing and rejected assignments still entered `review_pending`.
+- Passed: `npm test -- --runTestsByPath lib/__tests__/request-board-review-actions.test.ts lib/__tests__/request-board-list-filters.test.ts lib/__tests__/request-board-review-role.contract.test.ts lib/__tests__/request-board-mobile-ui-contract.test.ts --runInBand`.
+- Passed: `npm test -- --runTestsByPath lib/__tests__/request-board-review-actions.test.ts lib/__tests__/request-board-list-filters.test.ts lib/__tests__/request-board-review-role.contract.test.ts lib/__tests__/request-board-mobile-ui-contract.test.ts lib/__tests__/request-board-api-contract.test.ts --runInBand`.
+- Passed: `npx eslint app/request-board.tsx app/request-board-review.tsx lib/request-board-review-actions.ts lib/request-board-list-filters.ts lib/__tests__/request-board-review-actions.test.ts lib/__tests__/request-board-list-filters.test.ts lib/__tests__/request-board-review-role.contract.test.ts lib/__tests__/request-board-mobile-ui-contract.test.ts`.
+- Passed: `npx tsc --noEmit --pretty false`.
+- Passed: `node scripts/ci/check-governance.mjs`.
+- Passed: `git diff --check` with CRLF normalization warnings only.
+
+### QA Judgment
+
+- Pass. Functional regression, API contract, lint, TypeScript, governance, and diff hygiene checks pass.
+- No direct Android emulator screenshot was captured in this increment.
+
+---
+
+# Increment 45 Verification: Reject Reason Modal Keyboard Avoidance
+
+Date: 2026-06-07
+
+### Scope
+
+- Added keyboard avoidance to request-board rejection reason bottom sheets.
+- Covered detail 설계매니저 request rejection, detail FC design rejection, and home quick-card request rejection.
+- Added static UI contracts so future rejection reason modals keep keyboard avoidance.
+
+### Commands
+
+- RED confirmed: `npm test -- --runTestsByPath lib/__tests__/request-board-review-role.contract.test.ts lib/__tests__/request-board-mobile-ui-contract.test.ts --runInBand` failed before implementation because `KeyboardAvoidingView` was missing.
+- Passed: `npm test -- --runTestsByPath lib/__tests__/request-board-review-role.contract.test.ts lib/__tests__/request-board-mobile-ui-contract.test.ts --runInBand`.
+- Passed: `npm test -- --runTestsByPath lib/__tests__/request-board-review-actions.test.ts lib/__tests__/request-board-list-filters.test.ts lib/__tests__/request-board-review-role.contract.test.ts lib/__tests__/request-board-mobile-ui-contract.test.ts lib/__tests__/request-board-api-contract.test.ts --runInBand`.
+- Passed: `npx eslint app/request-board.tsx app/request-board-review.tsx lib/__tests__/request-board-review-role.contract.test.ts lib/__tests__/request-board-mobile-ui-contract.test.ts`.
+- Passed: `npx tsc --noEmit --pretty false`.
+- Passed: `node scripts/ci/check-governance.mjs`.
+- Passed: `git diff --check` with CRLF normalization warnings only.
+
+### QA Judgment
+
+- Pass. Focused keyboard avoidance contract, request-board regression tests, lint, TypeScript, governance, and diff hygiene checks pass.
+- No direct Android emulator screenshot was captured.
+
+---
+
+# Increment 46 Verification: List Rejection Reason Summary
+
+Date: 2026-06-07
+
+### Scope
+
+- Added a request-list designer rejection summary helper.
+- Rendered a compact rejection reason box in FC request list cards when a rejected assignment has a reason.
+- Capped long reason text to two rendered lines in the list while preserving the full reason for detail view.
+
+### Commands
+
+- RED confirmed: `npm test -- --runTestsByPath lib/__tests__/request-board-rejection-summary.test.ts lib/__tests__/request-board-mobile-ui-contract.test.ts --runInBand` failed before implementation because the helper module and list UI contract were missing.
+- Passed: `npm test -- --runTestsByPath lib/__tests__/request-board-rejection-summary.test.ts lib/__tests__/request-board-mobile-ui-contract.test.ts --runInBand`.
+- Passed: `npm test -- --runTestsByPath lib/__tests__/request-board-rejection-summary.test.ts lib/__tests__/request-board-review-actions.test.ts lib/__tests__/request-board-list-filters.test.ts lib/__tests__/request-board-review-role.contract.test.ts lib/__tests__/request-board-mobile-ui-contract.test.ts lib/__tests__/request-board-api-contract.test.ts --runInBand`.
+- Passed: `npx eslint app/request-board-requests.tsx app/request-board.tsx app/request-board-review.tsx lib/request-board-rejection-summary.ts lib/request-board-review-actions.ts lib/request-board-list-filters.ts lib/__tests__/request-board-rejection-summary.test.ts lib/__tests__/request-board-review-actions.test.ts lib/__tests__/request-board-list-filters.test.ts lib/__tests__/request-board-review-role.contract.test.ts lib/__tests__/request-board-mobile-ui-contract.test.ts`.
+- Passed: `npx tsc --noEmit --pretty false`.
+- Passed: `node scripts/ci/check-governance.mjs`.
+- Passed: `git diff --check` with CRLF normalization warnings only.
+
+### QA Judgment
+
+- Pass. Focused reason-summary tests, request-board regression suite, lint, TypeScript, governance, and diff hygiene checks pass.
+- No direct Android screenshot was captured.
+
+---
+
+# Increment 47 Verification: List Rejection Reason Hydration
+
+Date: 2026-06-07
+
+### Scope
+
+- Confirmed the list card UI existed but actual request list responses can omit `rejection_reason`.
+- Added hydration detection and detail-to-list assignment merge helpers.
+- `request-board-requests` now fetches details only for rejected list items missing a reason and merges the reason before rendering.
+
+### Commands
+
+- RED confirmed: `npm test -- --runTestsByPath lib/__tests__/request-board-rejection-summary.test.ts lib/__tests__/request-board-mobile-ui-contract.test.ts --runInBand` failed before implementation because hydration helper exports and request-list detail hydration contract were missing.
+- Passed: `npm test -- --runTestsByPath lib/__tests__/request-board-rejection-summary.test.ts lib/__tests__/request-board-mobile-ui-contract.test.ts --runInBand`.
+- Passed: `npm test -- --runTestsByPath lib/__tests__/request-board-rejection-summary.test.ts lib/__tests__/request-board-review-actions.test.ts lib/__tests__/request-board-list-filters.test.ts lib/__tests__/request-board-review-role.contract.test.ts lib/__tests__/request-board-mobile-ui-contract.test.ts lib/__tests__/request-board-api-contract.test.ts --runInBand`.
+- Passed: `npx eslint app/request-board-requests.tsx app/request-board.tsx app/request-board-review.tsx lib/request-board-rejection-summary.ts lib/request-board-api.ts lib/request-board-review-actions.ts lib/request-board-list-filters.ts lib/__tests__/request-board-rejection-summary.test.ts lib/__tests__/request-board-review-actions.test.ts lib/__tests__/request-board-list-filters.test.ts lib/__tests__/request-board-review-role.contract.test.ts lib/__tests__/request-board-mobile-ui-contract.test.ts`.
+- Passed: `npx tsc --noEmit --pretty false`.
+- Passed: `node scripts/ci/check-governance.mjs`.
+- Passed: `git diff --check` with CRLF normalization warnings only.
+
+### QA Judgment
+
+- Pass. The list now has a runtime path to populate rejection reasons even when the list endpoint omits them.
+- ADB did not return device listings, so no Android screenshot was captured.
+
+---

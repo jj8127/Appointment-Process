@@ -1604,3 +1604,27 @@
 - Permanent guardrail: 모바일 배지는 알림 센터가 실제 렌더링하는 출처를 기준으로 센다. FC/일반 관리자는 `include_notices`, 설계매니저는 `only_request_board_categories`로 `fc-notify inbox_unread_count`가 목록 필터와 같은 기준을 사용해야 한다.
 - Related files: `lib/mobile-unread-notification-count-plan.ts`, `supabase/functions/fc-notify/index.ts`, `supabase/functions/__tests__/fc-notify-inbox-unread.contract.test.ts`
 - Verification: `npm test -- --runTestsByPath lib\__tests__\mobile-unread-notification-count-plan.test.ts supabase\functions\__tests__\fc-notify-inbox-unread.contract.test.ts --runInBand`; deployed `fc-notify`.
+
+## 2026-06-07 | Request Board Designer Reject | 거절 사유를 하드코딩하고 `rejected`를 FC 검토대기로 분류
+- Symptom: 설계매니저가 의뢰를 거절해도 모바일 기본 문구가 사유로 저장됐고, FC 목록에서는 해당 건이 `검토 대기`로 남아 FC가 처리할 수 없는 상태가 됐다.
+- Root cause: 신규 상세 거절 흐름이 `rbRejectRequest` reason에 임시 문자열을 직접 전달했다. 동시에 목록 필터의 `hasPendingFcReview()`가 `getAssignmentStatusBucket()` 결과를 사용해 `rejected`를 `completed`와 같은 버킷으로 본 뒤 FC 미결정 조건을 적용했다.
+- Why it was missed: 설계매니저 거절 사유 UX와 FC 목록 상태 전이를 같은 회귀 세트로 테스트하지 않았다. pending 버튼 노출만 검증하고, 거절 후 FC가 보는 bucket/meta를 검증하지 않았다.
+- Permanent guardrail: request_board 거절 기능은 반드시 사용자 입력 사유를 요구하고, blank reason을 API 호출 전에 차단한다. FC `review_pending`은 exact `assignment.status === 'completed'`인 배정만 포함해야 하며, `rejected`를 bucket helper로 우회 판정하지 않는다.
+- Related files: `app/request-board.tsx`, `app/request-board-review.tsx`, `lib/request-board-list-filters.ts`, `lib/request-board-review-actions.ts`
+- Verification: `npm test -- --runTestsByPath lib\__tests__\request-board-review-actions.test.ts lib\__tests__\request-board-list-filters.test.ts lib\__tests__\request-board-review-role.contract.test.ts lib\__tests__\request-board-mobile-ui-contract.test.ts lib\__tests__\request-board-api-contract.test.ts --runInBand`; targeted ESLint; `npx tsc --noEmit --pretty false`
+
+## 2026-06-07 | Request Board Reject Modal Keyboard | 입력 바텀시트를 키보드 회피 없이 추가
+- Symptom: Android에서 거절 사유 입력을 시작하면 키보드가 올라오며 하단 사유 입력 모달과 버튼이 가려졌다.
+- Root cause: 새 request_board 거절 사유 모달을 일반 `Modal` 하단 시트로 추가하면서 `KeyboardAvoidingView`를 감싸지 않았다. 기존 입력 화면의 keyboard avoidance 패턴을 새 모달 UI contract에 포함하지 않았다.
+- Why it was missed: 사유 입력 기능과 API payload를 우선 검증했지만, Android soft keyboard가 열린 상태의 레이아웃을 테스트/캡처하지 않았다.
+- Permanent guardrail: 모바일 하단 입력 모달은 `KeyboardAvoidingView` 또는 동등한 keyboard avoidance contract를 가져야 한다. static UI contract에는 `KeyboardAvoidingView`와 platform-specific behavior를 포함하고, 가능하면 Android keyboard-open screenshot을 추가한다.
+- Related files: `app/request-board.tsx`, `app/request-board-review.tsx`, `lib/__tests__/request-board-review-role.contract.test.ts`, `lib/__tests__/request-board-mobile-ui-contract.test.ts`
+- Verification: `npm test -- --runTestsByPath lib\__tests__\request-board-review-role.contract.test.ts lib\__tests__\request-board-mobile-ui-contract.test.ts --runInBand`; targeted ESLint; `npx tsc --noEmit --pretty false`
+
+## 2026-06-07 | Request Board List Reason | UI만 추가하고 목록 응답의 사유 누락을 확인하지 않음
+- Symptom: 목록 카드에 거절 사유 박스 UI를 추가했지만 실제 화면에서는 `설계 거절`만 보이고 사유가 보이지 않았다.
+- Root cause: `RbRequestListItem.request_designers[]` 목록 계약에는 `rejection_reason`이 없었고, 실제 목록 응답도 거절 상태만 주는 경로가 있었다. UI helper는 `rejection_reason`을 필요로 했지만 목록 fetch에서 상세 API로 보강하지 않았다.
+- Why it was missed: 테스트 fixture에 `rejection_reason`을 직접 넣어 UI 표시만 확인했고, 실제 list endpoint shape가 detail endpoint보다 얕을 수 있다는 데이터 계약을 검증하지 않았다.
+- Permanent guardrail: 목록에서 상세 전용 필드를 표시할 때는 list endpoint가 해당 필드를 제공하는지 확인한다. 제공하지 않으면 detail hydration, endpoint 확장, 또는 UI fallback 중 하나를 테스트로 고정해야 한다.
+- Related files: `app/request-board-requests.tsx`, `lib/request-board-rejection-summary.ts`, `lib/request-board-api.ts`
+- Verification: `npm test -- --runTestsByPath lib\__tests__\request-board-rejection-summary.test.ts lib\__tests__\request-board-mobile-ui-contract.test.ts --runInBand`; request-board regression suite; targeted ESLint; `npx tsc --noEmit --pretty false`
