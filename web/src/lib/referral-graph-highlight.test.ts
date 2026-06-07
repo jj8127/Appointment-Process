@@ -47,7 +47,7 @@ test('getReferralGraphNodeRadius uses descendant count when provided', () => {
   assert.ok(branchRadius > leafRadius, `expected descendant branch to be larger than leaf, got ${branchRadius}`);
 });
 
-test('getReferralGraphNodeRadius caps descendant-scaled hubs and keeps highlight boost additive', () => {
+test('getReferralGraphNodeRadius caps descendant-scaled hubs without highlight size boost', () => {
   const hubRadius = getReferralGraphNodeRadius({
     referralCount: 0,
     inboundCount: 0,
@@ -62,7 +62,27 @@ test('getReferralGraphNodeRadius caps descendant-scaled hubs and keeps highlight
   });
 
   assert.ok(hubRadius <= 14.2, `expected capped descendant hub size, got ${hubRadius}`);
-  assert.ok(Math.abs((highlightedHubRadius - hubRadius) - 3.4) < 0.001);
+  assert.equal(highlightedHubRadius, hubRadius);
+});
+
+test('getReferralGraphNodeRadius keeps larger descendant nodes visually larger than highlighted smaller branches', () => {
+  const kimHyeongsuRadius = getReferralGraphNodeRadius({
+    referralCount: 17,
+    inboundCount: 0,
+    descendantCount: 76,
+    highlightType: null,
+  });
+  const managerBranchRadius = getReferralGraphNodeRadius({
+    referralCount: 1,
+    inboundCount: 1,
+    descendantCount: 18,
+    highlightType: 'manager',
+  });
+
+  assert.ok(
+    kimHyeongsuRadius > managerBranchRadius,
+    `expected Kim Hyeongsu-size node to be largest, got ${kimHyeongsuRadius} <= ${managerBranchRadius}`,
+  );
 });
 
 test('resolveReferralGraphHighlightType highlights managers, not Kim Hyeongsu by name alone', () => {

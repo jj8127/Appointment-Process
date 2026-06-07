@@ -1242,3 +1242,19 @@ Known notes:
 - `npx tsc --noEmit` is not the repo's clean web typecheck signal today because existing test files import `.ts` extensions without `allowImportingTsExtensions`; `next build` TypeScript passed.
 
 ---
+# Increment 37: Referral Graph Descendant Highlight Radius Correction
+
+Status: completed locally on 2026-06-07.
+
+What changed:
+
+- Descendant-count node sizing no longer adds `highlightType` radius boost.
+- 본부장/manager 강조 remains visible through color/stroke/shadow, while size represents downstream organization count only.
+- Added radius ordering coverage for a Kim Hyeongsu-like dominant descendant node versus a highlighted smaller branch.
+
+Evidence:
+
+- RED/GREEN radius test confirmed the original issue and fix.
+- Focused descendant/radius, layout/simulation, real-data graph, lint, and production build checks passed.
+
+---

@@ -18,6 +18,7 @@
 - descendant count는 자기 자신을 제외하고, missing endpoint와 self-cycle을 무시하며, mutual cycle에서도 무한 순회를 피한다.
 - `/dashboard/referrals/graph` 페이지가 full graph 기준 descendant map을 만들고, 현재 필터/검색/선택 단계와 무관한 크기 기준으로 `ReferralGraphCanvas`와 `GraphNodeDrawer`에 전달한다.
 - `getReferralGraphNodeRadius`는 descendant count가 제공되면 capped logarithmic scale을 사용한다. direct count fallback은 유지해 기존 호출부와 테스트를 깨지 않게 했다.
+- 후속 보정으로 descendant count mode에서는 본부장/manager highlight 반경 보너스를 제거했다. 노드 크기는 하위 조직 규모만 표현하고, 본부장 강조는 색/테두리/shadow로만 표시한다.
 - 캔버스의 실제 원, 라벨 충돌 판정, pointer hit area, d3 collision force가 모두 같은 descendant-aware radius를 사용하게 했다.
 - 그래프 범례에 `크기: 하위 전체 조직 수`를 추가하고, drawer badge에 `하위 전체 N명`을 표시한다.
 - production deploy 시 local generated output upload가 커지는 것을 막기 위해 root `.vercelignore`에 nested `node_modules`, `.next`, `.vercel`, `dist`, `coverage`, `.expo`, `.env*` 제외 패턴을 보강했다.
@@ -26,6 +27,7 @@
 **검증**:
 - RED 확인: `node --test web/src/lib/referral-graph-descendants.test.ts`가 helper 구현 전 missing module로 실패.
 - RED 확인: `node --test web/src/lib/referral-graph-highlight.test.ts`가 radius 구현 전 descendant leaf가 direct-degree 기준으로 커져 실패.
+- RED 확인: `node --test web/src/lib/referral-graph-highlight.test.ts`가 후속 보정 전 highlighted 작은 branch가 `김형수 descendant=76` 노드보다 커지는 ordering failure로 실패.
 - 통과: `node --test web/src/lib/referral-graph-descendants.test.ts web/src/lib/referral-graph-highlight.test.ts`
 - 통과: `node --test web/src/lib/referral-graph-layout.test.ts web/src/lib/referral-graph-simulation.test.ts`
 - 통과: `cd web; npm run lint`
@@ -43,6 +45,7 @@
 
 **운영 메모**:
 - 크기 기준은 full graph descendant count이므로, 상태 필터/검색/선택 focus가 바뀌어도 화면에 남은 노드의 규모 기준은 실제 전체 하위 조직 기준으로 유지된다.
+- 실제 운영 데이터 기준 `김형수 descendantCount=76`이 1등이다. 본부장 highlighted node가 더 커 보이면 highlight radius boost가 다시 들어간 회귀로 본다.
 - 백엔드 graph API 응답 스키마는 변경하지 않았다.
 
 ## <a id="20260605-admin-web-next16-proxy-vercel-fix"></a> 2026-06-05 | admin_web Next 16 proxy Vercel fix

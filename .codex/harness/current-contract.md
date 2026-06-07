@@ -1102,3 +1102,26 @@ Make admin referral graph node size reflect total downstream organization size b
 - `git diff --check`
 
 ---
+# Current Contract: Increment 37 - Referral Graph Descendant Highlight Radius Correction
+
+Status: completed locally on 2026-06-07
+
+## Goal
+
+Ensure descendant-sized referral graph nodes use node size only for total downstream organization size, so 김형수 remains the largest node when he has the largest descendant count.
+
+## Scope
+
+- Remove highlight radius boost when `descendantCount` is provided.
+- Keep highlight visual treatment through existing color/stroke/shadow.
+- Add regression coverage for dominant unhighlighted descendant node versus highlighted smaller branch.
+
+## Verification Plan
+
+- `node --test web/src/lib/referral-graph-highlight.test.ts web/src/lib/referral-graph-descendants.test.ts`
+- `node --test web/src/lib/referral-graph-layout.test.ts web/src/lib/referral-graph-simulation.test.ts`
+- `RUN_REFERRAL_GRAPH_REALDATA_TEST=1 node --test web/src/lib/referral-graph-realdata.test.ts`
+- `cd web; npm run lint`
+- `cd web; SENTRY_AUTH_TOKEN='' npm run build`
+
+---

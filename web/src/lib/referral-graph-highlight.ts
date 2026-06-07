@@ -37,6 +37,10 @@ export function getReferralGraphNodeRadius(node: ReferralGraphRadiusNode) {
   const baseRadius = hasDescendantCount
     ? 4.6 + Math.min(Math.log1p(scaleCount) * 2.15, 9.4)
     : 4.6 + Math.min(Math.log1p(scaleCount) * 1.85, 5.1);
+  if (hasDescendantCount) {
+    return baseRadius;
+  }
+
   return node.highlightType ? baseRadius + 3.4 : baseRadius;
 }
 

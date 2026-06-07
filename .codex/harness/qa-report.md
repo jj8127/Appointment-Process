@@ -2844,3 +2844,27 @@ Date: 2026-06-07
 - Pass. The graph now renders against live data with descendant-sized nodes and a size legend, while focused radius/descendant tests, graph simulation tests, real-data graph QA, lint, and production build pass.
 
 ---
+# Increment 37 Verification: Referral Graph Descendant Highlight Radius Correction
+
+Date: 2026-06-07
+
+### Scope
+
+- Removed highlight radius boost from descendant-count sizing mode so node size means downstream organization size only.
+- Added a regression test proving a Kim Hyeongsu-like node with 76 descendants is larger than a highlighted smaller branch.
+- Kept legacy direct-degree radius fallback behavior for callers without `descendantCount`.
+
+### Commands
+
+- RED confirmed: `node --test web/src/lib/referral-graph-highlight.test.ts` failed before implementation because highlighted smaller branches could outrank the dominant descendant node.
+- Passed: `node --test web/src/lib/referral-graph-highlight.test.ts web/src/lib/referral-graph-descendants.test.ts`.
+- Passed: `node --test web/src/lib/referral-graph-layout.test.ts web/src/lib/referral-graph-simulation.test.ts`.
+- Passed: `RUN_REFERRAL_GRAPH_REALDATA_TEST=1 node --test web/src/lib/referral-graph-realdata.test.ts`.
+- Passed: `cd web; npm run lint`.
+- Passed: `cd web; SENTRY_AUTH_TOKEN='' npm run build`.
+
+### QA Judgment
+
+- Pass. Production graph data has `김형수 descendantCount=76` as the top descendant node, and radius ordering now follows descendant count rather than highlight state.
+
+---

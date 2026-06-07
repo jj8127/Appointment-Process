@@ -30,6 +30,29 @@
 - Verification:
 ```
 
+## 2026-06-07 | Referral Graph Node Size | highlight radius boost가 descendant size 의미를 오염
+- Symptom:
+  - 전체 하위 조직 수 기준이면 `김형수` 노드가 가장 커야 하는데, 화면에서는 노란 본부장 강조 노드가 비슷하거나 더 커 보였다.
+  - 실제 graph API 데이터에서는 `김형수 descendantCount=76`으로 1등이고, 다음 노드는 `18` 수준이었다.
+- Root cause:
+  - `getReferralGraphNodeRadius`가 descendantCount를 받는 새 sizing mode에서도 기존 `highlightType ? +3.4px` 반경 보너스를 계속 적용했다.
+  - 본부장 강조는 색/테두리 의미인데, 크기 의미까지 바꿔 "노드 크기 = 하위 조직 규모" 계약을 깨뜨렸다.
+- Why it was missed:
+  - 새 테스트가 descendant count 증가/캡만 검증했고, highlighted smaller branch와 unhighlighted dominant root의 상대 크기 순서를 고정하지 않았다.
+  - 브라우저 캡쳐에서 김형수 실제 데이터 순위와 canvas radius 순위를 함께 비교하지 않았다.
+- Permanent guardrail:
+  - descendantCount가 제공되는 graph size mode에서는 반경이 descendant count로만 결정되어야 한다. Highlight/manager/viewer 의미는 fill/stroke/shadow/label로 표현하고 radius boost를 더하지 않는다.
+  - 추천인 그래프 크기 변경 시 실제 데이터 상위 descendant 노드와 highlighted smaller branch의 radius ordering 테스트를 추가한다.
+- Related files:
+  - `web/src/lib/referral-graph-highlight.ts`
+  - `web/src/lib/referral-graph-highlight.test.ts`
+- Verification:
+  - `node --test web/src/lib/referral-graph-highlight.test.ts web/src/lib/referral-graph-descendants.test.ts`
+  - `node --test web/src/lib/referral-graph-layout.test.ts web/src/lib/referral-graph-simulation.test.ts`
+  - `RUN_REFERRAL_GRAPH_REALDATA_TEST=1 node --test web/src/lib/referral-graph-realdata.test.ts`
+  - `cd web; npm run lint`
+  - `cd web; SENTRY_AUTH_TOKEN='' npm run build`
+
 ## 2026-06-05 | Referral Graph Realdata Test | production force 입력과 realdata helper 입력 drift
 - Symptom:
   - 실제 Supabase 그래프 테스트가 같은 production force stack을 검증한다고 기록되어 있었지만, `forceLink.distance`에서 `sourceId`/`targetId`를 넘기지 않아 ID 기반 edge length jitter가 빠졌다.
