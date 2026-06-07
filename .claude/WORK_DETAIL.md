@@ -7,6 +7,41 @@
 
 ---
 
+## <a id="20260607-referral-graph-descendant-sized-nodes"></a> 2026-06-07 | Referral graph descendant-sized nodes
+
+**배경**:
+- 관리자 웹 추천인 그래프에서 각 노드가 보유한 전체 하위 조직 규모를 시각적으로 바로 파악하고 싶다는 요청이 있었다.
+- 기존 노드 반경은 direct outbound/inbound 연결 수 기반이라, 하위 조직이 깊은 노드와 단순 direct hub의 차이를 충분히 보여주지 못했다.
+
+**조치**:
+- `web/src/lib/referral-graph-descendants.ts`를 추가해 전체 `allNodes/allEdges` 기준 directed descendant count를 계산한다.
+- descendant count는 자기 자신을 제외하고, missing endpoint와 self-cycle을 무시하며, mutual cycle에서도 무한 순회를 피한다.
+- `/dashboard/referrals/graph` 페이지가 full graph 기준 descendant map을 만들고, 현재 필터/검색/선택 단계와 무관한 크기 기준으로 `ReferralGraphCanvas`와 `GraphNodeDrawer`에 전달한다.
+- `getReferralGraphNodeRadius`는 descendant count가 제공되면 capped logarithmic scale을 사용한다. direct count fallback은 유지해 기존 호출부와 테스트를 깨지 않게 했다.
+- 캔버스의 실제 원, 라벨 충돌 판정, pointer hit area, d3 collision force가 모두 같은 descendant-aware radius를 사용하게 했다.
+- 그래프 범례에 `크기: 하위 전체 조직 수`를 추가하고, drawer badge에 `하위 전체 N명`을 표시한다.
+
+**검증**:
+- RED 확인: `node --test web/src/lib/referral-graph-descendants.test.ts`가 helper 구현 전 missing module로 실패.
+- RED 확인: `node --test web/src/lib/referral-graph-highlight.test.ts`가 radius 구현 전 descendant leaf가 direct-degree 기준으로 커져 실패.
+- 통과: `node --test web/src/lib/referral-graph-descendants.test.ts web/src/lib/referral-graph-highlight.test.ts`
+- 통과: `node --test web/src/lib/referral-graph-layout.test.ts web/src/lib/referral-graph-simulation.test.ts`
+- 통과: `cd web; npm run lint`
+- 통과: `cd web; SENTRY_AUTH_TOKEN='' npm run build`
+- 통과: `$env:RUN_REFERRAL_GRAPH_REALDATA_TEST='1'; node --test web/src/lib/referral-graph-realdata.test.ts`
+  - 실제 데이터: `nodes=192`, `edges=108`, `crossings=0`, `crossingVisualSeverity=0`.
+- 통과: local dev browser smoke에서 `/dashboard/referrals/graph` 200, graph API 200.
+- 캡쳐: `.codex/harness/referral-graph-descendant-size.png`
+- 통과: `git diff --check`
+  - LF/CRLF working-copy warnings only.
+
+**미실행/제약**:
+- `cd web; npx tsc --noEmit --pretty false`는 기존 Node test 파일들의 `.ts` extension import 설정과 existing `d3-force` test type export 문제로 실패한다. 이번 변경의 production compile은 Next build TypeScript 단계에서 검증했다.
+
+**운영 메모**:
+- 크기 기준은 full graph descendant count이므로, 상태 필터/검색/선택 focus가 바뀌어도 화면에 남은 노드의 규모 기준은 실제 전체 하위 조직 기준으로 유지된다.
+- 백엔드 graph API 응답 스키마는 변경하지 않았다.
+
 ## <a id="20260605-admin-web-next16-proxy-vercel-fix"></a> 2026-06-05 | admin_web Next 16 proxy Vercel fix
 
 **배경**:

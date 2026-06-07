@@ -2815,3 +2815,32 @@ Date: 2026-06-05
 ### Not Run
 
 - No direct phone UI test in this increment.
+# Increment 36 Verification: Referral Graph Descendant-Sized Nodes
+
+Date: 2026-06-07
+
+### Scope
+
+- Planned: compute full-graph directed descendant counts for admin referral graph node sizing.
+- Planned: apply capped logarithmic descendant-aware radii to canvas drawing, hit areas, and collision.
+- Planned: expose selected node descendant count in the drawer and legend.
+
+### Commands
+
+- RED confirmed: `node --test web/src/lib/referral-graph-descendants.test.ts` failed before helper implementation with missing module.
+- RED confirmed: `node --test web/src/lib/referral-graph-highlight.test.ts` failed before radius implementation because descendant leaf radius was still direct-degree sized.
+- Passed: `node --test web/src/lib/referral-graph-descendants.test.ts web/src/lib/referral-graph-highlight.test.ts`.
+- Passed: `node --test web/src/lib/referral-graph-layout.test.ts web/src/lib/referral-graph-simulation.test.ts`.
+- Passed: `cd web; npm run lint`.
+- Browser smoke passed: local dev server returned graph page 200 and graph API 200 with 192 nodes / 108 edges.
+- Screenshot captured: `.codex/harness/referral-graph-descendant-size.png`.
+- Passed: `cd web; SENTRY_AUTH_TOKEN='' npm run build`.
+- Passed: `RUN_REFERRAL_GRAPH_REALDATA_TEST=1 node --test web/src/lib/referral-graph-realdata.test.ts`.
+- Passed: `git diff --check` with CRLF normalization warnings only.
+- Not used as pass/fail: `cd web; npx tsc --noEmit --pretty false` still fails on existing test `.ts` extension imports and existing `d3-force` test type exports; production build TypeScript passed.
+
+### QA Judgment
+
+- Pass. The graph now renders against live data with descendant-sized nodes and a size legend, while focused radius/descendant tests, graph simulation tests, real-data graph QA, lint, and production build pass.
+
+---

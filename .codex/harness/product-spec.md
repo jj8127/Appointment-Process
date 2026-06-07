@@ -1,3 +1,13 @@
+# Completed Increment 36: Referral Graph Descendant-Sized Nodes
+
+Admin referral graph nodes should now communicate total downstream organization size by default. A node's visual radius is based on all directed descendants in the full graph, excluding itself, not only its direct referral and inbound counts. The scale is capped logarithmic so large hubs stand out without covering labels, links, or nearby nodes.
+
+This increment keeps `/api/admin/referrals/graph` unchanged. The client computes descendant counts from the full `allNodes/allEdges` graph and passes them into the canvas and drawer. Filters, search, selected-neighborhood depth, and "hide isolated" change which nodes are visible, but they do not change a visible node's size basis.
+
+Out of scope: backend schema/API changes, new user toggles, graph mutation behavior, and broad physics redesign.
+
+---
+
 # Completed Increment 35: Request Board Designer Notification Scope
 
 The current implementation narrows GaramIn request-board designer mobile notifications to the product scope the user requested: 설계요청 관련 알림 and the designer's own direct chat notifications only.

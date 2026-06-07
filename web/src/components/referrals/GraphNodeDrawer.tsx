@@ -46,6 +46,7 @@ export type GraphNodeDrawerProps = {
   onClose: () => void;
   onSelectNode: (fcId: string) => void;
   allowAdminDetail?: boolean;
+  descendantCount?: number;
   connectedNodes: Array<{
     node: GraphNode;
     direction: 'outbound' | 'inbound';
@@ -65,6 +66,7 @@ export function GraphNodeDrawer({
   onClose,
   onSelectNode,
   allowAdminDetail = true,
+  descendantCount = 0,
   connectedNodes,
 }: GraphNodeDrawerProps) {
   const detailQuery = useQuery({
@@ -169,6 +171,9 @@ export function GraphNodeDrawer({
             </Badge>
             <Badge color="blue" variant="light">
               추천받음 {node.inboundCount}명
+            </Badge>
+            <Badge color="grape" variant="light">
+              하위 전체 {descendantCount.toLocaleString('ko-KR')}명
             </Badge>
             {node.allCommissionsCompleted ? (
               <Badge color="teal" variant="filled">

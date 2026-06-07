@@ -230,16 +230,26 @@ function clamp(value: number, min: number, max: number) {
   return Math.min(max, Math.max(min, value));
 }
 
-function getNodeRadius(node: GraphNode) {
-  return getReferralGraphNodeRadius(node);
+function getNodeRadius(node: GraphNode, descendantCountByNodeId?: ReadonlyMap<string, number>) {
+  return getReferralGraphNodeRadius({
+    referralCount: node.referralCount,
+    inboundCount: node.inboundCount,
+    highlightType: node.highlightType,
+    descendantCount: descendantCountByNodeId?.get(node.id) ?? null,
+  });
 }
 
 function rectsOverlap(left: LabelOccupancyRect, right: LabelOccupancyRect) {
   return left.x1 < right.x2 && left.x2 > right.x1 && left.y1 < right.y2 && left.y2 > right.y1;
 }
 
-function rectIntersectsNode(rect: LabelOccupancyRect, node: GraphNode & { x: number; y: number }, padding = 5) {
-  const radius = getNodeRadius(node) + padding;
+function rectIntersectsNode(
+  rect: LabelOccupancyRect,
+  node: GraphNode & { x: number; y: number },
+  descendantCountByNodeId: ReadonlyMap<string, number>,
+  padding = 5,
+) {
+  const radius = getNodeRadius(node, descendantCountByNodeId) + padding;
   const closestX = Math.max(rect.x1, Math.min(node.x, rect.x2));
   const closestY = Math.max(rect.y1, Math.min(node.y, rect.y2));
   return Math.hypot(node.x - closestX, node.y - closestY) < radius;
@@ -251,6 +261,7 @@ export type ReferralGraphCanvasProps = {
   selectedNodeId: string | null;
   searchTerm: string;
   depthHops: 1 | 2 | 3;
+  descendantCountByNodeId: ReadonlyMap<string, number>;
   fitRequestId: number;
   resetLayoutRequestId: number;
   physicsSettings: ReferralGraphPhysicsSettings;
@@ -265,6 +276,7 @@ export function ReferralGraphCanvas({
   selectedNodeId,
   searchTerm,
   depthHops,
+  descendantCountByNodeId,
   fitRequestId,
   resetLayoutRequestId,
   physicsSettings,
@@ -653,7 +665,7 @@ export function ReferralGraphCanvas({
     fg.d3Force(
       'collision',
       forceCollide<FGNode>()
-        .radius((node) => Math.max(48, getNodeRadius(node as GraphNode) + 32))
+        .radius((node) => Math.max(48, getNodeRadius(node as GraphNode, descendantCountByNodeId) + 32))
         .strength(0.55)
         .iterations(3),
     );
@@ -787,7 +799,7 @@ export function ReferralGraphCanvas({
     fg.d3Force('sibling-separation', null);
     fg.d3Force('drop-tether', null);
     fg.d3ReheatSimulation();
-  }, [componentLayout, graphChildCountByNodeId, graphData.links, graphData.nodes, graphDegreeByNodeId, graphReadyTick, gravityNodeClusterIndex, height, physics, width]);
+  }, [componentLayout, descendantCountByNodeId, graphChildCountByNodeId, graphData.links, graphData.nodes, graphDegreeByNodeId, graphReadyTick, gravityNodeClusterIndex, height, physics, width]);
 
   useEffect(() => {
     hasFitOnceRef.current = false;
@@ -838,7 +850,7 @@ export function ReferralGraphCanvas({
 
     for (const node of runtimeNodeMapRef.current.values()) {
       if (!hasRenderableNodePosition(node)) continue;
-      const radius = getNodeRadius(node) + NODE_HIT_SLOP;
+      const radius = getNodeRadius(node, descendantCountByNodeId) + NODE_HIT_SLOP;
       const dx = node.x - graphX;
       const dy = node.y - graphY;
       if ((dx * dx) + (dy * dy) <= radius * radius) {
@@ -847,7 +859,7 @@ export function ReferralGraphCanvas({
     }
 
     return false;
-  }, []);
+  }, [descendantCountByNodeId]);
 
   useEffect(() => {
     const fg = graphRef.current;
@@ -1057,7 +1069,7 @@ export function ReferralGraphCanvas({
       const isSearchMatch = searchMatchSet ? searchMatchSet.has(node.id) : false;
       const isInNeighborhood = neighborSet ? neighborSet.has(node.id) : true;
       const visible = isInNeighborhood && (!searchMatchSet || isSearchMatch || isSelected);
-      const radius = getNodeRadius(node);
+      const radius = getNodeRadius(node, descendantCountByNodeId);
       const isPinned = node.fx != null && node.fy != null;
       const isHighlighted = node.highlightType != null;
       const isCompleted = node.allCommissionsCompleted === true;
@@ -1161,7 +1173,7 @@ export function ReferralGraphCanvas({
             if (otherNode.id === node.id || !hasRenderableNodePosition(otherNode)) {
               continue;
             }
-            if (rectIntersectsNode(labelRect, otherNode)) {
+            if (rectIntersectsNode(labelRect, otherNode, descendantCountByNodeId)) {
               collidesWithNode = true;
               break;
             }
@@ -1187,7 +1199,7 @@ export function ReferralGraphCanvas({
 
       ctx.globalAlpha = 1;
     },
-    [neighborSet, searchMatchSet, selectedNodeId],
+    [descendantCountByNodeId, neighborSet, searchMatchSet, selectedNodeId],
   );
 
   const nodePointerAreaPaint = useCallback((rawNode: FGNode, paintColor: string, ctx: CanvasRenderingContext2D) => {
@@ -1196,9 +1208,9 @@ export function ReferralGraphCanvas({
 
     ctx.fillStyle = paintColor;
     ctx.beginPath();
-    ctx.arc(node.x, node.y, getNodeRadius(node) + NODE_HIT_SLOP, 0, Math.PI * 2);
+    ctx.arc(node.x, node.y, getNodeRadius(node, descendantCountByNodeId) + NODE_HIT_SLOP, 0, Math.PI * 2);
     ctx.fill();
-  }, []);
+  }, [descendantCountByNodeId]);
 
   const linkCanvasObject = useCallback(
     (rawLink: FGLink, ctx: CanvasRenderingContext2D, globalScale: number) => {

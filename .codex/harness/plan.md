@@ -1337,3 +1337,22 @@ Verification:
 2. Wire `app/request-board-create.tsx` to read the entry query and initialize on the resolved first step.
 3. Add a `고객관리` card to the FC action list in `app/request-board.tsx`, next to 의뢰 목록/설계코드 관리.
 4. Verify with the focused Jest test, TypeScript, and targeted Expo lint for the touched mobile files.
+# Increment 36: Referral Graph Descendant-Sized Nodes
+
+Status: completed locally on 2026-06-07
+
+Implementation order:
+
+1. Completed: added a pure descendant-count helper and RED tests for chain, branching, cycles, and missing endpoints.
+2. Completed: extended node radius tests so descendant count, cap, and highlight behavior are explicit.
+3. Completed: passed full-graph descendant counts from the graph page into the canvas and drawer.
+4. Completed: updated canvas radius/collision/hitbox usage to use descendant-aware sizing by default.
+5. Completed: added drawer and legend copy for "하위 전체" count and ran focused graph verification.
+
+Out of scope:
+
+- Referral graph API response changes.
+- A UI toggle for old/new sizing.
+- Broad graph physics redesign.
+
+---

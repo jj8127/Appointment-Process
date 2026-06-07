@@ -11,6 +11,7 @@ import { useQuery } from '@tanstack/react-query';
 import type { ReferralGraphCanvasProps } from '@/components/referrals/ReferralGraphCanvas';
 import { GraphNodeDrawer } from '@/components/referrals/GraphNodeDrawer';
 import { useSession } from '@/hooks/use-session';
+import { buildReferralGraphDescendantCountMap } from '@/lib/referral-graph-descendants';
 import {
   DEFAULT_REFERRAL_GRAPH_PHYSICS,
   type GraphApiResponse,
@@ -137,6 +138,10 @@ export default function ReferralGraphPage() {
     : '본부장 강조';
   const allNodes = useMemo(() => graphData?.nodes ?? [], [graphData]);
   const allEdges = useMemo(() => graphData?.edges ?? [], [graphData]);
+  const descendantCountByNodeId = useMemo(
+    () => buildReferralGraphDescendantCountMap(allNodes, allEdges),
+    [allEdges, allNodes],
+  );
 
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
   const [drawerOpen, { open: openDrawer, close: closeDrawer }] = useDisclosure(false);
@@ -603,6 +608,7 @@ export default function ReferralGraphPage() {
             selectedNodeId={effectiveSelectedNodeId}
             searchTerm={deferredSearchTerm}
             depthHops={depthHops}
+            descendantCountByNodeId={descendantCountByNodeId}
             fitRequestId={fitRequestId}
             resetLayoutRequestId={resetLayoutRequestId}
             physicsSettings={appliedPhysicsSettings}
@@ -690,6 +696,37 @@ export default function ReferralGraphPage() {
                 />
                 <Text size="xs" c="gray.7">
                   {highlightLegendLabel}
+                </Text>
+              </Group>
+              <Group gap={6} wrap="nowrap">
+                <Group gap={2} wrap="nowrap" style={{ flexShrink: 0 }}>
+                  <Box
+                    style={{
+                      width: 8,
+                      height: 8,
+                      borderRadius: '999px',
+                      background: '#64748b',
+                    }}
+                  />
+                  <Box
+                    style={{
+                      width: 12,
+                      height: 12,
+                      borderRadius: '999px',
+                      background: '#64748b',
+                    }}
+                  />
+                  <Box
+                    style={{
+                      width: 16,
+                      height: 16,
+                      borderRadius: '999px',
+                      background: '#64748b',
+                    }}
+                  />
+                </Group>
+                <Text size="xs" c="gray.7">
+                  크기: 하위 전체 조직 수
                 </Text>
               </Group>
               <Group gap={6} wrap="nowrap">
@@ -835,6 +872,7 @@ export default function ReferralGraphPage() {
         }}
         allowAdminDetail={allowAdminDetail}
         connectedNodes={connectedNodes}
+        descendantCount={effectiveSelectedNodeId ? descendantCountByNodeId.get(effectiveSelectedNodeId) ?? 0 : 0}
       />
     </Box>
   );

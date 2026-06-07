@@ -1218,3 +1218,27 @@ Evidence:
   - `git diff --check -- app/request-board-create.tsx lib/request-board-driving-status.ts lib/__tests__/request-board-driving-status.test.ts lib/request-board-customer-input.ts lib/__tests__/request-board-customer-input.test.ts`.
 - Not done:
   - No ADB/phone UI manipulation in this increment.
+# Increment 36: Referral Graph Descendant-Sized Nodes
+
+Status: completed locally on 2026-06-07.
+
+What changed:
+
+- Admin referral graph node radius will use full-graph directed descendant count by default.
+- The backend graph API remains unchanged; the web graph page computes counts from `allNodes/allEdges`.
+- Drawer and legend copy will expose the size basis.
+
+Evidence:
+
+- RED/GREEN descendant helper and radius tests passed.
+- Existing graph layout/simulation tests passed.
+- Web lint and `SENTRY_AUTH_TOKEN='' npm run build` passed.
+- Live graph API smoke returned 192 nodes / 108 edges.
+- Browser screenshot captured at `.codex/harness/referral-graph-descendant-size.png`.
+- Real-data graph regression passed with crossings 0 and crossingVisualSeverity 0.
+
+Known notes:
+
+- `npx tsc --noEmit` is not the repo's clean web typecheck signal today because existing test files import `.ts` extensions without `allowImportingTsExtensions`; `next build` TypeScript passed.
+
+---

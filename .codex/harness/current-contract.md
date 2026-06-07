@@ -1062,3 +1062,43 @@ Make the current referral graph settle as a non-circular branch/trunk graph with
 - Passed: `$env:RUN_REFERRAL_GRAPH_REALDATA_TEST='1'; $env:LOG_REFERRAL_GRAPH_CROSSINGS='1'; node --test src/lib/referral-graph-realdata.test.ts`.
 - Passed: `cd web; npm run lint`.
 - Not run: `cd web; npm run build`.
+# Current Contract: Increment 36 - Referral Graph Descendant-Sized Nodes
+
+Status: completed locally on 2026-06-07
+
+## Goal
+
+Make admin referral graph node size reflect total downstream organization size by default.
+
+## Scope
+
+- Compute directed descendant counts from the full graph in the web admin graph page.
+- Keep descendant counts independent from search/status/focus visibility filters.
+- Use capped logarithmic descendant-aware radius in the canvas.
+- Keep drawing, label collision, pointer hit area, and force collision on the same radius source.
+- Show the selected node's total descendant count in the drawer and add concise legend copy.
+- Add focused tests for descendant counting and radius behavior.
+
+## Explicit Non-Scope
+
+- Do not change `/api/admin/referrals/graph` response shape.
+- Do not add a toggle or localStorage setting.
+- Do not redesign graph layout/force systems beyond consuming the new radius.
+- Do not change referral edge semantics.
+
+## Acceptance Criteria
+
+- Chain, branching, cycle, and missing-endpoint descendant helper tests pass.
+- Radius tests show larger descendant counts produce larger capped radii, leaf nodes stay compact, and highlight boost remains.
+- A visible node keeps the same size basis even when filters/search hide descendants.
+- Drawer displays `하위 전체 N명` for selected nodes.
+- Focused graph tests and lint pass, or any pre-existing failure is documented.
+
+## Verification Plan
+
+- `node --test web/src/lib/referral-graph-descendants.test.ts web/src/lib/referral-graph-highlight.test.ts`
+- `node --test web/src/lib/referral-graph-layout.test.ts web/src/lib/referral-graph-simulation.test.ts`
+- `cd web; npm run lint`
+- `git diff --check`
+
+---
