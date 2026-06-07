@@ -2,7 +2,6 @@ import { Feather } from '@expo/vector-icons';
 import { useQuery } from '@tanstack/react-query';
 import Constants from 'expo-constants';
 import * as Haptics from 'expo-haptics';
-import { LinearGradient } from 'expo-linear-gradient';
 import * as Notifications from 'expo-notifications';
 import { Stack, router, useFocusEffect, useLocalSearchParams } from 'expo-router';
 import { MotiView } from 'moti';
@@ -45,6 +44,12 @@ import { formatLatestNoticeLabel } from '@/lib/home-latest-notice';
 import { fetchMobileUnreadNotificationCount } from '@/lib/mobile-unread-notification-count';
 import { resolveHomeLatestNoticeRoute } from '@/lib/notice-route';
 import { openExternalUrl } from '@/lib/open-external-url';
+import {
+  HOME_GUIDE_ICON_BACKGROUND,
+  HOME_GUIDE_ICON_BORDER,
+  HOME_GUIDE_ICON_FOREGROUND,
+  HOME_GUIDE_ICON_SHADOW,
+} from '@/lib/home-guide-ui';
 import { supabase } from '@/lib/supabase';
 import { syncNativeNotificationBadge } from '@/lib/system-notification-badge';
 import { buildWelcomeTitle } from '@/lib/welcome-title';
@@ -1306,14 +1311,9 @@ export default function Home() {
                   ]}
                 >
                   <View style={styles.guideIconWrapNew}>
-                    <LinearGradient
-                      colors={['#fff7ed', '#ffffff']}
-                      start={{ x: 0, y: 0 }}
-                      end={{ x: 1, y: 1 }}
-                      style={styles.guideIconGradientNew}
-                    >
-                      <Feather name="play" size={16} color={HANWHA_ORANGE} style={{ marginLeft: 1 }} />
-                    </LinearGradient>
+                    <View style={styles.guideIconBadgeNew}>
+                      <Feather name="play" size={16} color={HOME_GUIDE_ICON_FOREGROUND} style={{ marginLeft: 1 }} />
+                    </View>
                   </View>
 
                   <View style={styles.guideTextWrapNew}>
@@ -1902,14 +1902,9 @@ export default function Home() {
                   ]}
                 >
                   <View style={styles.guideIconWrapNew}>
-                    <LinearGradient
-                      colors={['#fff7ed', '#ffffff']}
-                      start={{ x: 0, y: 0 }}
-                      end={{ x: 1, y: 1 }}
-                      style={styles.guideIconGradientNew}
-                    >
-                      <Feather name="play" size={16} color={HANWHA_ORANGE} style={{ marginLeft: 1 }} />
-                    </LinearGradient>
+                    <View style={styles.guideIconBadgeNew}>
+                      <Feather name="play" size={16} color={HOME_GUIDE_ICON_FOREGROUND} style={{ marginLeft: 1 }} />
+                    </View>
                   </View>
 
                   <View style={styles.guideTextWrapNew}>
@@ -2582,13 +2577,19 @@ const styles = StyleSheet.create({
     marginRight: 12,
   },
 
-  guideIconGradientNew: {
+  guideIconBadgeNew: {
     flex: 1,
     borderRadius: 22,
     alignItems: 'center',
     justifyContent: 'center',
     borderWidth: 1,
-    borderColor: '#FFEDD5', // Orange-100
+    borderColor: HOME_GUIDE_ICON_BORDER,
+    backgroundColor: HOME_GUIDE_ICON_BACKGROUND,
+    shadowColor: HOME_GUIDE_ICON_SHADOW,
+    shadowOpacity: 0.22,
+    shadowRadius: 8,
+    shadowOffset: { width: 0, height: 4 },
+    elevation: 3,
   },
 
   guideTextWrapNew: {

@@ -7,7 +7,9 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { useSession } from '@/hooks/use-session';
 import { useAppLogout } from '@/hooks/use-app-logout';
 import { useIdentityStatus } from '@/hooks/use-identity-status';
+import { HOME_LITE_PRIMARY_ACTION_ROUTE, buildHomeEntryBreadcrumb } from '@/lib/home-entry-flow';
 import { openExternalUrl } from '@/lib/open-external-url';
+import { addSentryBreadcrumb } from '@/lib/sentry-monitor';
 import { COLORS, TYPOGRAPHY, SPACING, RADIUS } from '@/lib/theme';
 
 const YOUTUBE_URL = 'https://youtube.com/playlist?list=PLF5rd5c2rE9xy-VsAdwq4NEUsJQtKD7Qd&si=vKx4TDq6ww9ZgKiT';
@@ -32,6 +34,10 @@ export default function HomeLiteScreen() {
   const { role, hydrated, displayName, isRequestBoardDesigner } = useSession();
   const appLogout = useAppLogout();
   const { data, isLoading } = useIdentityStatus();
+  const startRequiredInfo = useCallback(() => {
+    addSentryBreadcrumb(buildHomeEntryBreadcrumb('home-lite.primary-required-info'));
+    router.push(HOME_LITE_PRIMARY_ACTION_ROUTE);
+  }, []);
   const openYoutubeGuide = useCallback(async () => {
     try {
       await openExternalUrl(YOUTUBE_URL);
@@ -109,8 +115,9 @@ export default function HomeLiteScreen() {
           <View style={styles.heroActions}>
             <Pressable
               style={styles.primaryButton}
-              onPress={() => router.push('/apply-gate')}
+              onPress={startRequiredInfo}
               testID="home-lite-apply-start"
+              accessibilityRole="button"
               accessibilityLabel="필수 정보 입력 시작"
             >
               <Text style={styles.primaryButtonText}>필수 정보 입력 시작</Text>

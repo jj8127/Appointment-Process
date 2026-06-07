@@ -7,6 +7,39 @@
 
 ---
 
+## <a id="20260607-home-entry-guide-icon-sentry-guard"></a> 2026-06-07 | Home entry Sentry guard and guide icon color
+
+**배경**:
+- Sentry `react-native` 프로젝트에서 2026-06-07 KST에 반복된 unresolved `TypeError: Object is not a function`은 source map 부재로 정확한 함수명을 복원할 수 없었다.
+- 최신 이벤트 breadcrumb는 `home-lite` 화면의 `필수 정보 입력 시작` 주변 동작과 일치했지만, 화면/route 계약을 고정하는 테스트와 Sentry route breadcrumb가 부족했다.
+- 모바일 홈의 `앱 사용법 안내 시작하기` 왼쪽 play badge가 다시 검정색 원으로 보였고, 해당 영역은 작은 `LinearGradient` surface에 주황 아이콘만 얹는 구조였다.
+
+**조치**:
+- `lib/home-entry-flow.ts`를 추가해 `home-lite` primary action route를 `/apply-gate` 상수로 고정했다.
+- `apply-gate`의 `next` 값을 안전한 내부 path로만 정규화하고, 외부 URL/protocol-relative/multi-value 값은 `/`로 fallback한다.
+- `home-lite.primary-required-info`, `apply-gate.start-identity`, `apply-gate.return-home`, `apply-gate.forward-completed` navigation breadcrumb를 Sentry에 남길 수 있도록 `sentry-monitor`에 breadcrumb hook을 추가했다.
+- breadcrumb payload는 action/screen/safe next만 포함하고, 전화번호 같은 raw PII는 route helper에서 포함하지 않는다.
+- `lib/home-guide-ui.ts`를 추가해 guide badge 색상 계약을 주황 background/흰색 foreground로 고정했다.
+- `app/index.tsx`의 guide/shortcut play badge에서 `LinearGradient`를 제거하고, 명시적 주황색 `View` badge와 흰색 play icon으로 변경했다.
+- 재발 방지를 위해 `.claude/MISTAKES.md`에 home entry 관측성 부족과 guide badge gradient fallback 회귀를 기록했다.
+
+**검증**:
+- RED 확인: `npm test -- --runTestsByPath lib/__tests__/home-entry-flow.test.ts lib/__tests__/home-guide-ui.test.ts --runInBand`가 helper 구현 전 missing module로 실패.
+- 통과: `npm test -- --runTestsByPath lib/__tests__/home-entry-flow.test.ts lib/__tests__/home-guide-ui.test.ts --runInBand`
+- 통과: `npm test -- --runTestsByPath lib/__tests__/home-entry-flow.test.ts lib/__tests__/home-guide-ui.test.ts lib/__tests__/sentry-sanitize.test.ts --runInBand`
+- 통과: `npx eslint app/home-lite.tsx app/apply-gate.tsx app/index.tsx lib/home-entry-flow.ts lib/home-guide-ui.ts lib/sentry-monitor.ts lib/sentry.ts lib/__tests__/home-entry-flow.test.ts lib/__tests__/home-guide-ui.test.ts`
+- 통과: `npx tsc --noEmit --pretty false`
+- 통과: `node scripts/ci/check-governance.mjs`
+- 통과: `git diff --check`
+
+**미실행/제약**:
+- Sentry release source map upload/release mutation은 수행하지 않았다.
+- EAS 모바일 빌드/배포와 Android 실기기 캡쳐는 수행하지 않았다.
+
+**운영 메모**:
+- 현재 home-lite 필수 입력 시작 경로는 `/apply-gate`로 확인되었고, 이제 테스트로 고정됐다.
+- 다음에 같은 Sentry fatal이 재발하면 breadcrumb에서 `home-lite.primary-required-info` 또는 `apply-gate.start-identity`가 남아 동작 단위를 바로 구분할 수 있다.
+
 ## <a id="20260607-referral-graph-descendant-sized-nodes"></a> 2026-06-07 | Referral graph descendant-sized nodes
 
 **배경**:

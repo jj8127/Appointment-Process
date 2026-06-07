@@ -3,7 +3,7 @@ import type { ComponentType } from 'react';
 import * as Sentry from '@sentry/react-native';
 
 import { sanitizeSentryContext, sanitizeSentryEvent } from '@/lib/sentry-sanitize';
-import { setSentryCaptureException } from '@/lib/sentry-monitor';
+import { setSentryAddBreadcrumb, setSentryCaptureException } from '@/lib/sentry-monitor';
 
 const dsn = process.env.EXPO_PUBLIC_SENTRY_DSN?.trim();
 const environment =
@@ -42,8 +42,12 @@ if (dsn) {
       extra: context ? (sanitizeSentryContext(context) as Record<string, unknown>) : undefined,
     });
   });
+  setSentryAddBreadcrumb((breadcrumb) => {
+    Sentry.addBreadcrumb(sanitizeSentryContext(breadcrumb) as Parameters<typeof Sentry.addBreadcrumb>[0]);
+  });
 } else {
   setSentryCaptureException(null);
+  setSentryAddBreadcrumb(null);
 }
 
 export const withSentryRoot = <T extends ComponentType<Record<string, never>>>(component: T): T => {

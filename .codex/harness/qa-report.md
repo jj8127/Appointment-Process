@@ -2868,3 +2868,31 @@ Date: 2026-06-07
 - Pass. Production graph data has `김형수 descendantCount=76` as the top descendant node, and radius ordering now follows descendant count rather than highlight state.
 
 ---
+
+# Increment 42 Verification: Home Entry Guard and Guide Icon Color
+
+Date: 2026-06-07
+
+### Scope
+
+- Confirmed the home-lite "필수 정보 입력 시작" route is already `/apply-gate` and added a pure route contract so it cannot silently drift.
+- Added safe `next` normalization for apply-gate redirects and identity handoff.
+- Added Sentry navigation breadcrumbs for home-lite/apply-gate entry steps.
+- Replaced the guide card's small gradient play badge with a static orange badge and white play icon to avoid Android black fallback rendering.
+
+### Commands
+
+- RED confirmed: `npm test -- --runTestsByPath lib/__tests__/home-entry-flow.test.ts lib/__tests__/home-guide-ui.test.ts --runInBand` failed before implementation because the new contract modules did not exist.
+- Passed: `npm test -- --runTestsByPath lib/__tests__/home-entry-flow.test.ts lib/__tests__/home-guide-ui.test.ts --runInBand`.
+- Passed: `npm test -- --runTestsByPath lib/__tests__/home-entry-flow.test.ts lib/__tests__/home-guide-ui.test.ts lib/__tests__/sentry-sanitize.test.ts --runInBand`.
+- Passed: `npx eslint app/home-lite.tsx app/apply-gate.tsx app/index.tsx lib/home-entry-flow.ts lib/home-guide-ui.ts lib/sentry-monitor.ts lib/sentry.ts lib/__tests__/home-entry-flow.test.ts lib/__tests__/home-guide-ui.test.ts`.
+- Passed: `npx tsc --noEmit --pretty false`.
+- Passed: `node scripts/ci/check-governance.mjs`.
+- Passed: `git diff --check`.
+
+### QA Judgment
+
+- Pass. The suspected home entry route is now a tested contract, apply-gate no longer forwards unsafe next values, and the guide badge no longer depends on the gradient surface that can render black.
+- No direct Android device screenshot was captured in this increment.
+
+---

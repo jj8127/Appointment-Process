@@ -30,6 +30,48 @@
 - Verification:
 ```
 
+## 2026-06-07 | Home Guide Badge | small gradient badge가 Android에서 다시 검정색으로 렌더링
+- Symptom:
+  - 모바일 홈 `앱 사용법 안내 시작하기` 왼쪽 play badge가 주황색 UI가 아니라 검정 원으로 보였다.
+- Root cause:
+  - 이전 오렌지 CTA 보강 이후에도 guide badge는 작은 `LinearGradient` surface에 주황 icon만 얹는 별도 구현으로 남아 있었다.
+  - Android native rendering fallback에서 이 작은 gradient surface가 검정색으로 보일 수 있었다.
+- Why it was missed:
+  - 오렌지 CTA 회귀 방지 범위가 주요 CTA/card에 집중됐고, guide/shortcut play badge의 별도 gradient 구현을 같은 계약으로 묶지 않았다.
+- Permanent guardrail:
+  - 작은 핵심 action badge는 gradient에 의존하지 말고 `home-guide-ui` 색상 계약의 static orange background와 white foreground를 사용한다.
+  - guide badge 색상 계약은 `lib/__tests__/home-guide-ui.test.ts`로 고정한다.
+- Related files:
+  - `app/index.tsx`
+  - `lib/home-guide-ui.ts`
+  - `lib/__tests__/home-guide-ui.test.ts`
+- Verification:
+  - `npm test -- --runTestsByPath lib/__tests__/home-guide-ui.test.ts --runInBand`
+  - `npx eslint app/home-lite.tsx app/apply-gate.tsx app/index.tsx lib/home-entry-flow.ts lib/home-guide-ui.ts lib/sentry-monitor.ts lib/sentry.ts lib/__tests__/home-entry-flow.test.ts lib/__tests__/home-guide-ui.test.ts`
+
+## 2026-06-07 | Home Entry Sentry Investigation | source map/breadcrumb 부족으로 crash 동작 단위만 추정 가능
+- Symptom:
+  - Sentry unresolved `TypeError: Object is not a function`의 최신 이벤트가 `home-lite` 화면 touch와 일치했지만, release source map이 없어 minified function을 복원할 수 없었다.
+  - breadcrumb도 route-level action을 남기지 않아 `필수 정보 입력 시작` 이후 어느 단계에서 crash가 났는지 확정하기 어려웠다.
+- Root cause:
+  - `home-lite` primary CTA와 `apply-gate` identity handoff가 inline route push로 흩어져 있었고, Sentry breadcrumb 계약이 없었다.
+  - `apply-gate` `next` 값도 직접 string check로 처리해 외부/비정상 값 fallback 계약이 테스트로 고정되지 않았다.
+- Why it was missed:
+  - 이전 수정은 화면 route가 `/apply-gate`인지 확인하는 데 집중했고, production crash 재조사에 필요한 breadcrumb와 route helper test를 함께 추가하지 않았다.
+- Permanent guardrail:
+  - home-lite/apply-gate entry flow는 `home-entry-flow` helper를 source of truth로 사용한다.
+  - route-level Sentry breadcrumb에는 action/screen/safe next만 남기고 PII는 포함하지 않는다.
+  - `lib/__tests__/home-entry-flow.test.ts`로 `/apply-gate` route와 safe next fallback을 고정한다.
+- Related files:
+  - `app/home-lite.tsx`
+  - `app/apply-gate.tsx`
+  - `lib/home-entry-flow.ts`
+  - `lib/sentry-monitor.ts`
+  - `lib/sentry.ts`
+- Verification:
+  - `npm test -- --runTestsByPath lib/__tests__/home-entry-flow.test.ts lib/__tests__/sentry-sanitize.test.ts --runInBand`
+  - `npx tsc --noEmit --pretty false`
+
 ## 2026-06-07 | Referral Graph Node Size | highlight radius boost가 descendant size 의미를 오염
 - Symptom:
   - 전체 하위 조직 수 기준이면 `김형수` 노드가 가장 커야 하는데, 화면에서는 노란 본부장 강조 노드가 비슷하거나 더 커 보였다.

@@ -21,6 +21,7 @@
 
 | 날짜 | 작업 | 주요 파일 | 상세 |
 |---|---|---|---|
+| 06-07 | 홈 필수 정보 입력 경로를 `/apply-gate` 계약으로 고정하고 Sentry breadcrumb/guide play badge 주황색 회귀 방지를 추가 | `app/home-lite.tsx`, `app/apply-gate.tsx`, `app/index.tsx`, `lib/home-entry-flow.ts`, `lib/home-guide-ui.ts`, `lib/sentry-monitor.ts` | [→ 상세](WORK_DETAIL.md#20260607-home-entry-guide-icon-sentry-guard) |
 | 06-07 | 추천인 그래프 descendant sizing에서 본부장 highlight 반경 보너스를 제거해 김형수처럼 실제 하위 조직 수 1등 노드가 가장 크게 보이도록 보정 | `web/src/lib/referral-graph-highlight.ts`, `web/src/lib/referral-graph-highlight.test.ts`, `.claude/MISTAKES.md` | [→ 상세](WORK_DETAIL.md#20260607-referral-graph-descendant-sized-nodes) |
 | 06-07 | 관리자 웹 추천인 그래프 노드 크기를 전체 하위 조직 수 기준으로 기본 적용하고 실데이터 캡쳐/회귀 검증까지 완료 | `web/src/app/dashboard/referrals/graph/page.tsx`, `web/src/components/referrals/ReferralGraphCanvas.tsx`, `web/src/components/referrals/GraphNodeDrawer.tsx`, `web/src/lib/referral-graph-descendants.ts`, `web/src/lib/referral-graph-highlight.ts`, `.vercelignore`, `web/.vercelignore` | [→ 상세](WORK_DETAIL.md#20260607-referral-graph-descendant-sized-nodes) |
 
@@ -33,6 +34,7 @@
 ## 최근 작업
 | 날짜 | 작업 | 핵심 파일 | 상세 |
 |------|------|----------|------|
+| 06-07 | 홈 필수 정보 입력 경로를 `/apply-gate` 계약으로 고정하고 Sentry breadcrumb/guide play badge 주황색 회귀 방지를 추가 | `app/home-lite.tsx`, `app/apply-gate.tsx`, `app/index.tsx`, `lib/home-entry-flow.ts`, `lib/home-guide-ui.ts`, `lib/sentry-monitor.ts` | [→ 상세](WORK_DETAIL.md#20260607-home-entry-guide-icon-sentry-guard) |
 | 06-07 | 추천인 그래프 descendant sizing에서 본부장 highlight 반경 보너스를 제거해 김형수처럼 실제 하위 조직 수 1등 노드가 가장 크게 보이도록 보정 | `web/src/lib/referral-graph-highlight.ts`, `web/src/lib/referral-graph-highlight.test.ts`, `.claude/MISTAKES.md` | [→ 상세](WORK_DETAIL.md#20260607-referral-graph-descendant-sized-nodes) |
 | 06-07 | 관리자 웹 추천인 그래프 노드 크기를 전체 하위 조직 수 기준으로 기본 적용하고 실데이터 캡쳐/회귀 검증까지 완료 | `web/src/app/dashboard/referrals/graph/page.tsx`, `web/src/components/referrals/ReferralGraphCanvas.tsx`, `web/src/components/referrals/GraphNodeDrawer.tsx`, `web/src/lib/referral-graph-descendants.ts`, `web/src/lib/referral-graph-highlight.ts`, `.vercelignore`, `web/.vercelignore` | [→ 상세](WORK_DETAIL.md#20260607-referral-graph-descendant-sized-nodes) |
 | 06-05 | 추천인 그래프의 실제 데이터 레이아웃/drag 안정성을 재검증하고 production/test link-distance 입력 drift를 수정 | `web/src/components/referrals/ReferralGraphCanvas.tsx`, `web/src/lib/referral-graph-layout.ts`, `web/src/lib/referral-graph-physics.ts`, `web/src/lib/referral-graph-realdata.test.ts`, `web/src/lib/referral-graph-simulation.test.ts`, `.claude/MISTAKES.md` | [→ 상세](WORK_DETAIL.md#20260605-referral-graph-realdata-zero-crossing-closeout) |

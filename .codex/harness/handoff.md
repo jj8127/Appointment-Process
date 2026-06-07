@@ -1258,3 +1258,28 @@ Evidence:
 - Focused descendant/radius, layout/simulation, real-data graph, lint, and production build checks passed.
 
 ---
+
+## Increment 42 Handoff
+
+Status: completed locally on 2026-06-07.
+
+What changed:
+
+- `home-lite` primary required-info CTA now uses `HOME_LITE_PRIMARY_ACTION_ROUTE` so the route contract is fixed at `/apply-gate`.
+- `apply-gate` normalizes `next` before redirecting or handing off to `/identity`.
+- Home entry/apply-gate actions now add sanitized Sentry breadcrumbs for future crash investigation.
+- The home guide/shortcut play badge now uses a static orange background and white icon instead of a tiny gradient surface that can fall back to black on Android.
+
+Evidence:
+
+- RED/GREEN route and icon contract tests passed.
+- Sentry sanitizer coverage was re-run with the new breadcrumb path.
+- Targeted ESLint and root TypeScript checks passed.
+- Governance and `git diff --check` passed.
+
+Known notes:
+
+- Today's Sentry issue still cannot be mapped to an exact minified source line without release source maps; this change improves route-level breadcrumbs and guards the suspected entry flow.
+- No EAS mobile build/deploy or direct Android screenshot was run in this commit.
+
+---

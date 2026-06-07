@@ -1125,3 +1125,44 @@ Ensure descendant-sized referral graph nodes use node size only for total downst
 - `cd web; SENTRY_AUTH_TOKEN='' npm run build`
 
 ---
+
+# Current Contract: Increment 42 - Home Entry Guard and Guide Icon Color
+
+Status: completed locally on 2026-06-07
+
+## Goal
+
+Prevent the mobile home "필수 정보 입력 시작" path from drifting away from the apply gate, improve Sentry breadcrumbs for that flow, and fix the guide play badge that rendered black on Android.
+
+## Scope
+
+- Keep the home-lite primary CTA route as `/apply-gate`.
+- Normalize `apply-gate` `next` params so only safe internal paths are forwarded.
+- Add Sentry breadcrumbs for home-lite/apply-gate navigation without storing raw phone or resident data.
+- Replace the guide card play badge's small gradient surface with an explicit static orange badge and white icon.
+- Add focused regression tests for the route contract and icon color contract.
+
+## Explicit Non-Scope
+
+- Do not change identity form fields or submission behavior.
+- Do not upload Sentry source maps or mutate Sentry releases in this commit.
+- Do not run an EAS mobile build/deploy in this commit.
+
+## Acceptance Criteria
+
+- `home-lite` primary action remains `/apply-gate`.
+- `apply-gate` forwards only normalized internal `next` routes.
+- Sentry breadcrumbs identify `home-lite.primary-required-info` and `apply-gate.start-identity`.
+- The guide play icon badge has a static orange background and no black fallback in its visual contract.
+- Focused tests, targeted ESLint, TypeScript, and governance checks pass.
+
+## Verification Plan
+
+- RED/GREEN: `npm test -- --runTestsByPath lib/__tests__/home-entry-flow.test.ts lib/__tests__/home-guide-ui.test.ts --runInBand`.
+- `npm test -- --runTestsByPath lib/__tests__/home-entry-flow.test.ts lib/__tests__/home-guide-ui.test.ts lib/__tests__/sentry-sanitize.test.ts --runInBand`.
+- `npx eslint app/home-lite.tsx app/apply-gate.tsx app/index.tsx lib/home-entry-flow.ts lib/home-guide-ui.ts lib/sentry-monitor.ts lib/sentry.ts lib/__tests__/home-entry-flow.test.ts lib/__tests__/home-guide-ui.test.ts`.
+- `npx tsc --noEmit --pretty false`.
+- `node scripts/ci/check-governance.mjs`.
+- `git diff --check`.
+
+---
