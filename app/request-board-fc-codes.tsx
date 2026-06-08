@@ -33,6 +33,7 @@ import {
   rbUpdateFcCode,
   type RbFcCode,
 } from '@/lib/request-board-api';
+import { toRequestBoardSessionErrorMessage } from '@/lib/request-board-session-error';
 import { COLORS, RADIUS, SHADOWS, SPACING, TYPOGRAPHY } from '@/lib/theme';
 
 /* ─── Helpers ─── */
@@ -99,7 +100,9 @@ export default function RequestBoardFcCodesScreen() {
       setCompanyNames(namesData);
     } catch (err) {
       logger.warn('[fc-codes] fetch failed', err);
-      setFetchError('데이터를 불러오는데 실패했습니다. 가람Link에 로그인 상태를 확인해주세요.');
+      setFetchError(
+        toRequestBoardSessionErrorMessage(err, '설계코드 데이터를 불러오지 못했습니다.'),
+      );
     } finally {
       setLoading(false);
       setRefreshing(false);
@@ -209,7 +212,7 @@ export default function RequestBoardFcCodesScreen() {
       closeEditModal();
       await fetchData();
     } catch (err) {
-      setFormError(err instanceof Error ? err.message : '저장에 실패했습니다.');
+      setFormError(toRequestBoardSessionErrorMessage(err, '저장에 실패했습니다.'));
     } finally {
       setSaving(false);
     }
@@ -227,7 +230,7 @@ export default function RequestBoardFcCodesScreen() {
       setDeleteTarget(null);
       await fetchData();
     } catch (err) {
-      const msg = err instanceof Error ? err.message : '삭제에 실패했습니다.';
+      const msg = toRequestBoardSessionErrorMessage(err, '삭제에 실패했습니다.');
       Alert.alert('오류', msg);
     }
   };

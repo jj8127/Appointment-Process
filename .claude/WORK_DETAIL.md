@@ -7,6 +7,247 @@
 
 ---
 
+## <a id="20260608-admin-exam-legacy-apply-route-redirect"></a> 2026-06-08 | Admin exam legacy apply route redirect
+
+**배경**:
+- 시험 등록자 명단 순서가 아직 안 바뀌었다는 후속 제보가 들어와 운영 alias와 실제 route 산출물을 다시 확인했다.
+- 운영 `/dashboard/exam/applicants`와 `/admin/exams/[id]` chunk는 새 `EXAM_APPLICANT_EXPORT_COLUMNS` 순서를 포함하고 있었다.
+- 추가 source 검색에서 legacy `/exam/apply` route가 `이름/연락처/소속/주소/고사장/신청일시/...` 구 테이블을 그대로 렌더링하고 있음을 확인했다.
+
+**조치**:
+- `web/src/app/exam/apply/page.tsx`를 구 테이블 구현에서 canonical `/dashboard/exam/applicants` redirect로 교체했다.
+- `web/src/lib/exam-applicant-list-display.test.ts`에 legacy route가 구 테이블을 렌더링하지 않고 canonical 화면으로 redirect해야 한다는 회귀 테스트를 추가했다.
+- `.claude/MISTAKES.md`의 시험 응시자 명단 실수 항목을 legacy route까지 포함하도록 갱신했다.
+
+**검증**:
+- 운영 확인: `https://adminweb-red.vercel.app` alias가 `dpl_YTzySA4BAT9YtCqfyA7Ekq79W5Cn` production Ready 배포를 가리킴.
+- 운영 API 확인: staff 쿠키 기반 `GET /api/admin/exam-applicants`가 200과 응시자 데이터를 반환.
+- 운영 chunk 확인: `/dashboard/exam/applicants`, `/admin/exams/[id]` route chunk가 `응시자 이름`, `시험응시 과목`, `생명보험 응시일자`, `응시료 입금` 새 컬럼 순서를 포함하고 `신청일시`/`연락처` 구 신호를 포함하지 않음.
+- RED 확인: `node --test web/src/lib/exam-applicant-list-display.test.ts`가 legacy `/exam/apply` redirect 부재로 실패.
+- 통과: `node --test web/src/lib/exam-applicant-list-display.test.ts`
+- 통과: `cd web; npx eslint src\app\exam\apply\page.tsx src\lib\exam-applicant-list-display.test.ts src\app\admin\exams\[id]\page.tsx src\app\dashboard\exam\applicants\page.tsx`
+- 제약 확인: `cd web; npx tsc --noEmit --pretty false`는 기존 test `.ts` extension import 설정 문제로 실패하며 이번 변경과 무관.
+- 통과: `cd web; SENTRY_AUTH_TOKEN='' npm run build`
+- 배포: `vercel --prod --yes --archive=tgz --scope jun-jeongs-projects`
+- 확인: `vercel inspect https://admin-m71a2lq31-jun-jeongs-projects.vercel.app --scope jun-jeongs-projects` status `Ready`, deployment id `dpl_4VCaMiP94MkH2ZnhdFMoWvsfaXNm`, alias `https://adminweb-red.vercel.app`
+- 운영 redirect 확인: staff 쿠키 기준 `GET https://adminweb-red.vercel.app/exam/apply`가 `307 Location: /dashboard/exam/applicants` 반환.
+- 운영 chunk 확인: 새 배포의 `/dashboard/exam/applicants` chunk `a006eb184144c9f1.js`와 `/admin/exams/[id]` chunk `950b200c4af1290b.js`가 새 컬럼을 포함하고 `신청일시`/`연락처` 구 신호를 포함하지 않음.
+
+**미실행/제약**:
+- 실제 브라우저 UI screenshot은 `agent-browser`/Playwright 미설치로 수행하지 못했고, 운영 HTML/API/chunk 검증으로 대체했다.
+
+---
+
+## <a id="20260608-board-product-recommendation-policy-category"></a> 2026-06-08 | Board product recommendation and policy categories
+
+**배경**:
+- 사용자가 게시판 카테고리의 `가람pick` 표시명을 `상품추천`으로 바꾸고, 새 `시책` 카테고리를 추가하길 요청했다.
+- 게시판 카테고리는 DB `board_categories`, schema seed, migration, Edge Function shared allowlist, 게시글 생성/수정 검증, 앱/웹 badge 색상이 함께 맞아야 한다.
+
+**조치**:
+- `garam-pick` slug는 기존 글 참조와 홈 최신 카드 후보를 깨지 않도록 유지하고, 표시명만 `상품추천`으로 변경했다.
+- 새 canonical category `시책` / `policy` / sort order `5`를 추가했다.
+- `supabase/schema.sql`과 migration `20260608000001_update_board_categories_product_recommendation_policy.sql`을 추가했다.
+- 운영 DB에 20260605/20260608 게시판 카테고리 migration을 적용했다.
+- `supabase/functions/_shared/board-categories.ts`의 canonical list를 5종으로 갱신했다.
+- `board-categories-list`, `board-category-create`, `board-category-update`, `board-create`, `board-update` Edge Function을 배포했다.
+- 홈 최신 게시글 라벨은 `상품추천`과 legacy `가람 Pick` 모두 `상품추천:`으로 표시되게 했다.
+- 모바일 FC 게시판, 모바일 총무/본부장 게시판 관리, 관리자 웹 게시판의 badge 색상 분기에 `상품추천`과 `시책`을 추가했다.
+- 게시판 요구사항 문서와 운영 런북의 현재 글 종류 수를 5종으로 갱신했다.
+
+**검증**:
+- RED 확인: `npm test -- --runTestsByPath lib\__tests__\board-category-contract.test.ts lib\__tests__\home-latest-notice.test.ts --runInBand`가 새 migration 부재와 `상품추천` 라벨 미지원으로 실패.
+- 통과: `npm test -- --runTestsByPath lib\__tests__\board-category-contract.test.ts lib\__tests__\home-latest-notice.test.ts --runInBand`
+- 통과: `npx eslint app\board.tsx app\admin-board-manage.tsx lib\home-latest-notice.ts lib\__tests__\board-category-contract.test.ts lib\__tests__\home-latest-notice.test.ts`
+- 통과: `cd web; npx eslint src\app\dashboard\board\page.tsx`
+- 통과: `npx tsc --noEmit --pretty false`
+- 통과: `cd web; SENTRY_AUTH_TOKEN='' npm run build`
+- DB 적용: `supabase db push --linked --yes`
+- 확인: `supabase migration list --linked`에서 `20260605000001`, `20260608000001` 원격 적용 확인
+- Edge Function 배포:
+  - `supabase functions deploy board-categories-list --project-ref ubeginyxaotcamuqpmud`
+  - `supabase functions deploy board-category-create --project-ref ubeginyxaotcamuqpmud`
+  - `supabase functions deploy board-category-update --project-ref ubeginyxaotcamuqpmud`
+  - `supabase functions deploy board-create --project-ref ubeginyxaotcamuqpmud`
+  - `supabase functions deploy board-update --project-ref ubeginyxaotcamuqpmud`
+- 관리자 웹 배포: `vercel --prod --yes --archive=tgz --scope jun-jeongs-projects`
+- 확인: `vercel inspect https://admin-4idj3ety7-jun-jeongs-projects.vercel.app --scope jun-jeongs-projects` status `Ready`, deployment id `dpl_YTzySA4BAT9YtCqfyA7Ekq79W5Cn`, alias `https://adminweb-red.vercel.app`
+
+**미실행/제약**:
+- 실제 로그인 세션으로 모바일/웹 게시판 카테고리 dropdown/chip을 캡처하는 수동 검증은 수행하지 않았다.
+- 모바일 앱 badge 색상 보강은 앱 코드에 반영됐지만, 이미 설치된 앱은 다음 앱 배포/OTA 전까지 서버에서 내려오는 새 카테고리를 표시하되 새 색상 코드가 적용되지 않을 수 있다.
+
+---
+
+## <a id="20260608-admin-exam-round-applicant-column-parity"></a> 2026-06-08 | Admin exam round applicant column parity
+
+**배경**:
+- 시험 응시자 명단 컬럼 순서 변경이 배포됐는데도 현장에서는 순서가 그대로라는 제보가 들어왔다.
+- 확인 결과 `/dashboard/exam/applicants` 전역 시험자 명단은 엑셀 샘플 순서로 바뀌었지만, 시험 일정 상세에서 여는 `/admin/exams/[id]` 회차별 `응시자 관리` 화면은 별도 구현으로 남아 있었다.
+- 회차별 화면은 직접 Supabase client 조회를 사용했고, 주민번호 full-view enrichment와 `신규신청/재신청` 계산도 공유하지 않았다.
+
+**조치**:
+- `web/src/app/admin/exams/[id]/page.tsx`를 `/api/admin/exam-applicants?roundId=...` 조회로 전환했다.
+- 회차별 화면 테이블 헤더와 행 렌더링을 `EXAM_APPLICANT_EXPORT_COLUMNS`와 `getExamApplicantCellValue()` 기반으로 바꿨다.
+- `/api/admin/exam-applicants`가 `roundId` query parameter를 받아 회차별 목록을 반환하도록 확장했다.
+- `roundId`가 있어도 전체 이력에서 `신규신청/재신청`을 먼저 계산한 뒤 해당 회차만 필터링하도록 `round_id`를 base row에 보존했다.
+- 회차별 화면의 접수 상태 변경은 클라이언트 직접 DB update 대신 기존 서버 PATCH API를 사용하도록 정리했다.
+- `.claude/MISTAKES.md`에 전역/회차별 화면 중복 구현 누락을 기록했다.
+
+**검증**:
+- RED 확인: `node --test web/src/lib/exam-applicant-list-display.test.ts`가 회차별 화면의 `EXAM_APPLICANT_EXPORT_COLUMNS` 부재로 실패.
+- 통과: `node --test web/src/lib/exam-applicant-list-display.test.ts web/src/lib/exam-applicant-resident-number-enrichment.test.node.ts`
+- 통과: `cd web; npm run lint`
+- 첫 빌드 중단: `cd web; SENTRY_AUTH_TOKEN='' npm run build`는 로컬 Next dev 서버가 `.next`를 잡고 있어 clean 단계에서 중단.
+- 정리: `cd web; node scripts/kill-next-dev.mjs`
+- 통과: `cd web; SENTRY_AUTH_TOKEN='' npm run build`
+- 배포: `vercel --prod --yes --archive=tgz --scope jun-jeongs-projects`
+- 확인: `vercel inspect https://admin-ddbf9l6z0-jun-jeongs-projects.vercel.app --scope jun-jeongs-projects` status `Ready`, deployment id `dpl_9NQGpnqAuPZEXd9c1eC1jHEEBSCt`, alias `https://adminweb-red.vercel.app`
+
+**미실행/제약**:
+- 보호된 라이브 화면을 인증 세션으로 직접 캡처하는 검증은 수행하지 않았다.
+- 현장 브라우저가 이전 static chunk를 들고 있으면 강력 새로고침 또는 재로그인이 필요할 수 있다.
+
+---
+
+## <a id="20260608-home-guide-play-badge-black-fallback"></a> 2026-06-08 | Home guide play badge black fallback
+
+**배경**:
+- 사용자 스크린샷에서 홈 `앱 사용법 안내 시작하기` 카드 왼쪽 play 배지가 일부 Android 기기에서 검정 원으로 보였다.
+- 기존 `home-guide-ui` 색상 계약은 오렌지 배경을 가리키고 있었지만, 실제 `app/index.tsx` 렌더링은 `Feather name="play"` vector icon과 shadow/elevation이 있는 원형 badge를 유지하고 있었다.
+
+**조치**:
+- `app/index.tsx`의 FC guide card와 shortcut guide card에서 `Feather name="play"`를 제거했다.
+- play 표시는 `styles.guidePlayTriangle` native border triangle로 대체했다.
+- `guideIconBadgeNew`의 `shadowOpacity`, `shadowRadius`, `shadowOffset`, `elevation`을 0으로 내려 작은 원형 surface의 Android 검정 합성 경로를 제거했다.
+- `lib/__tests__/home-guide-ui.test.ts`에 source-level regression test를 추가해 `Feather name="play"`와 elevated guide badge가 재도입되지 않게 했다.
+- `.claude/MISTAKES.md`에 색상 상수만 테스트하고 실제 렌더링 경로를 놓친 회귀를 기록했다.
+
+**검증**:
+- RED 확인: `npm test -- --runTestsByPath lib/__tests__/home-guide-ui.test.ts --runInBand`가 `styles.guidePlayTriangle` 부재와 `Feather name="play"` 잔존으로 실패.
+- 통과: `npm test -- --runTestsByPath lib/__tests__/home-guide-ui.test.ts --runInBand`
+- 통과: `npx eslint app/index.tsx lib/home-guide-ui.ts lib/__tests__/home-guide-ui.test.ts`
+- 통과: `npx tsc --noEmit --pretty false`
+
+**미실행/제약**:
+- 실제 Android 기기/에뮬레이터 스크린샷 검증은 아직 수행하지 않았다.
+- 앱 배포/OTA 업데이트는 이 단계에서 수행하지 않았다.
+
+---
+
+## <a id="20260608-admin-exam-applicant-workbook-columns"></a> 2026-06-08 | Admin exam applicant workbook columns
+
+**배경**:
+- 사용자가 관리자 웹 시험자 명단 컬럼 순서를 첨부한 엑셀 샘플과 맞추길 요청했다.
+- 확정한 순서는 `소속`, `응시자 이름`, `주민등록번호(전체)`, `주소`, `전화번호`, `시험응시 과목`, `시험 신청 구분`, 생명/손해 응시일자·고사장, `제3보험 포함 여부`, `응시료 입금`이다.
+- `접수 상태`와 삭제 `관리`는 엑셀에는 없지만 관리자 화면 업무에 필요하므로 화면 오른쪽 전용 컬럼으로 유지하기로 했다.
+
+**조치**:
+- `web/src/lib/exam-applicant-list-display.ts`를 추가해 화면/CSV 공용 컬럼 정의와 표시값 helper를 만들었다.
+- `web/src/lib/exam-applicant-resident-number-enrichment.ts`에 `applyExamApplicantApplicationTypes()`를 추가해 같은 FC/같은 시험 과목의 이후 신청을 `재신청`으로 계산한다.
+- `/api/admin/exam-applicants`가 계산된 `application_type`을 응답에 포함하도록 했다.
+- `/dashboard/exam/applicants`의 테이블 헤더, 필터 옵션, 행 렌더링, CSV 다운로드를 공용 컬럼 정의 기반으로 정렬했다.
+- CSV에서는 주민번호/전화번호를 기존처럼 엑셀 텍스트 수식 형태로 보존한다.
+- Vercel production 배포를 완료했다.
+
+**검증**:
+- RED 확인: focused node test가 display module/export 및 application-type 구현 전 실패.
+- 통과: `node --test web/src/lib/exam-applicant-resident-number-enrichment.test.node.ts web/src/lib/exam-applicant-list-display.test.ts`
+- 통과: `cd web; npm run lint`
+- 통과: `cd web; SENTRY_AUTH_TOKEN='' npm run build`
+- 배포: `vercel --prod --yes --archive=tgz`
+- 확인: `vercel inspect https://admin-2d69j0gvd-jun-jeongs-projects.vercel.app` status `Ready`, alias `https://adminweb-red.vercel.app`
+
+**미실행/제약**:
+- 라이브 보호 페이지는 인증 세션 없이 직접 화면 캡처까지는 하지 않았다.
+- 첫 Vercel deploy는 `web\web` rootDirectory 문제로 실패했고, 루트 deploy는 파일 수 제한으로 실패해 `--archive=tgz`로 성공했다.
+
+---
+
+## <a id="20260608-referral-share-copy-parity"></a> 2026-06-08 | Referral share copy parity
+
+**배경**:
+- 사용자가 업데이트한 추천코드 공유 문구는 `가람in에서 보험 위촉을 함께 시작해요!`로 시작하고 `https://garam-invite.vercel.app/?code=<CODE>`와 Android/iOS 설치 안내를 포함한다.
+- 운영 제보상 같은 계정의 추천코드를 공유해도 일부 휴대폰/진입점에서는 예전 문구(`가람in 앱 가입 시 추천 코드를 입력해주세요!`, `앱 열기 링크: hanwhafcpass://signup?...`)가 나갔다.
+- 코드 확인 결과 `/referral`은 `lib/referral-share.ts`의 새 공유 문구 builder를 사용했지만, `/settings`의 `내 추천 코드` 공유 버튼은 예전 문구를 `app/settings.tsx`에서 직접 조립하고 있었다.
+
+**조치**:
+- `app/settings.tsx`의 `handleShareReferralCode()`를 `buildReferralShareText()`로 통일했다.
+- `EXPO_PUBLIC_INVITE_BASE_URL`, `EXPO_PUBLIC_APP_STORE_URL` env 처리도 `/referral` 화면과 같은 방식으로 맞췄다.
+- `lib/__tests__/referral-share.test.ts`에 `/settings`가 공용 builder를 사용하고 예전 direct deep-link 문구를 포함하지 않는 source-level regression test를 추가했다.
+- `docs/referral-system/SPEC.md`, `TEST_CHECKLIST.md`, `test-cases.json`, `TEST_RUN_RESULT.json`, `INCIDENTS.md`에 `RF-LINK-06`/`INC-023`로 공유 문구 parity 계약과 장애 이력을 기록했다.
+- `.claude/MISTAKES.md`에 추천코드 공유 문구 중복 구현 drift를 기록했다.
+
+**검증**:
+- RED 확인: `npm test -- --runTestsByPath lib/__tests__/referral-share.test.ts --runInBand`가 `app/settings.tsx`에 `buildReferralShareText`가 없고 예전 문구가 남아 있어 실패.
+- 통과: `npm test -- --runTestsByPath lib/__tests__/referral-share.test.ts --runInBand`
+
+**미실행/제약**:
+- 실제 Android/iOS 공유 시트 캡처는 수행하지 않았다.
+- 운영 기기에 이미 설치된 구버전 binary/OTA cache 여부는 별도 배포/기기 확인이 필요하다.
+- 커밋/푸시는 사용자 요청이 없어 수행하지 않았다.
+
+---
+
+## <a id="20260608-admin-board-category-filter-parity"></a> 2026-06-08 | Admin board category filter parity
+
+**배경**:
+- 총무/본부장이 가람in 하단 탭의 `게시판`으로 들어가면 FC 게시판과 달리 글 종류 필터(`전체`, `공지`, `교육 일정`, `일반`)와 정렬 버튼이 보이지 않았다.
+- 하단 탭 확인 결과 FC는 `/board`, 총무/본부장은 `/admin-board-manage`로 진입한다.
+- `/board`는 `selectedCategoryId`, `sortOption`, `searchQuery`를 `fetchBoardList()` 파라미터에 연결했지만, `/admin-board-manage`는 카테고리 목록을 fetch하면서도 필터 UI와 목록 요청 파라미터 연결이 빠져 있었다.
+
+**조치**:
+- `lib/board-list-query.ts`를 추가해 게시판 목록 query key, fetch params, 정렬 라벨을 공용 계약으로 분리했다.
+- `app/board.tsx`가 기존 동작을 유지하면서 새 helper의 query key/params/정렬 라벨을 사용하도록 정렬했다.
+- `app/admin-board-manage.tsx`에 FC 게시판과 같은 카테고리 chip row와 정렬 버튼/메뉴를 추가했다.
+- 총무(`admin`)와 본부장(read-only admin -> board actor `manager`) 모두 선택한 카테고리와 정렬 기준이 `fetchBoardList()`에 반영되도록 했다.
+- 검색 입력은 FC 게시판처럼 입력값과 제출된 검색어를 분리하고 clear 버튼을 추가해 검색 상태를 지울 수 있게 했다.
+- `docs/handbook/mobile/messenger-and-content.md`에 `board`/`admin-board-manage` 필터 UI parity를 회귀 기준으로 기록했다.
+- governance가 pre-existing dirty `app/request-board*.tsx` 변경의 owner doc 갱신을 요구해 `docs/handbook/mobile/request-board-bridge.md`에도 기존 설계요청 세션 오류 정규화 계약을 기록했다.
+- `.claude/MISTAKES.md`에 같은 게시판 목록 계약이 두 화면에서 갈라진 문제를 기록했다.
+
+**검증**:
+- RED 확인: `npm test -- --runTestsByPath lib/__tests__/board-list-query.test.ts --runInBand`가 helper module 부재로 실패.
+- 통과: `npm test -- --runTestsByPath lib/__tests__/board-list-query.test.ts --runInBand`
+- 통과: `npx eslint app/board.tsx app/admin-board-manage.tsx lib/board-list-query.ts lib/__tests__/board-list-query.test.ts`
+- 통과: `npx tsc --noEmit --pretty false`
+- 통과: `npm test -- --runTestsByPath lib/__tests__/board-list-query.test.ts lib/__tests__/board-category-contract.test.ts --runInBand`
+- 통과: `node scripts/ci/check-governance.mjs`
+- 통과: `git diff --check` (CRLF normalization warnings only)
+
+**미실행/제약**:
+- 실제 Android/iOS 화면 캡처는 아직 수행하지 않았다.
+- 커밋/푸시는 사용자 요청이 없어 수행하지 않았다.
+
+---
+
+## <a id="20260608-request-board-session-error-copy"></a> 2026-06-08 | Request board session error copy normalization
+
+**배경**:
+- 김태희 본부장이 설계 요청의 고객 선택 화면에 들어갈 때 `데이터 로드 실패` Alert가 표시됐다.
+- 코드 확인 결과 `app/request-board-create.tsx`의 초기 데이터 로드 전에 `ensureRequestBoardSession()`이 실패하면 같은 Alert 제목으로 노출됐다.
+- `Edge Function returned a non-2xx status code`, `invalid_session_token`, `브릿지 로그인 실패`, `인증이 만료되었습니다` 같은 가람Link 세션/브릿지 실패가 화면별 일반 실패 문구로 흩어져 있었다.
+
+**조치**:
+- `lib/request-board-session-error.ts`를 추가해 가람Link 세션/브릿지 실패를 한 문구로 정규화했다.
+- 사용자 안내 문구: `가람Link 연동 세션이 만료되었거나 연결 정보가 갱신되지 않았습니다. 앱에서 다시 로그인한 뒤 설계요청을 다시 열어주세요.`
+- `request-board-create`, `request-board-fc-codes`, `request-board-requests`, `request-board-review`, `request-board`, `request-board-messenger`의 Alert/오류 배너 경로에 헬퍼를 적용했다.
+- `총무 계정은 가람Link 요청 주체가 아닙니다.` 같은 명시적 역할 안내는 재로그인 안내로 덮어쓰지 않도록 예외를 두었다.
+- `.claude/MISTAKES.md`에 화면별 일반 문구로 세션 실패 원인이 가려진 문제를 기록했다.
+
+**검증**:
+- RED 확인: `npm test -- --runTestsByPath lib/__tests__/request-board-session-error.test.ts --runInBand`가 helper module 부재로 실패.
+- 통과: `npm test -- --runTestsByPath lib/__tests__/request-board-session-error.test.ts --runInBand`
+- 통과: `npm test -- --runTestsByPath lib/__tests__/request-board-session-error.test.ts lib/__tests__/request-board-session.test.ts lib/__tests__/user-facing-error.test.ts --runInBand`
+- 통과: `npx eslint app/request-board-create.tsx app/request-board-fc-codes.tsx app/request-board-requests.tsx app/request-board-review.tsx app/request-board.tsx app/request-board-messenger.tsx lib/request-board-session-error.ts lib/__tests__/request-board-session-error.test.ts`
+- 통과: `npx tsc --noEmit --pretty false`
+
+**미실행/제약**:
+- 실제 김태희 본부장 기기에서 재로그인 후 재시도는 수행하지 않았다.
+- 커밋/푸시는 사용자 요청이 없어 수행하지 않았다.
+
+---
+
 ## <a id="20260607-request-board-list-rejection-reason-hydration"></a> 2026-06-07 | Request board list rejection reason hydration
 
 **배경**:

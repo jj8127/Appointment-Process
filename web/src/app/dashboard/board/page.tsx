@@ -128,7 +128,8 @@ const resolveCategoryBadgeColor = (categoryName: string): string => {
   const normalized = categoryName.trim().toLowerCase();
   if (normalized.includes('공지')) return 'orange';
   if (normalized.includes('교육')) return 'blue';
-  if (normalized.includes('가람') || normalized.includes('pick')) return 'pink';
+  if (normalized.includes('상품') || normalized.includes('추천') || normalized.includes('가람') || normalized.includes('pick')) return 'pink';
+  if (normalized.includes('시책')) return 'violet';
   return 'gray';
 };
 

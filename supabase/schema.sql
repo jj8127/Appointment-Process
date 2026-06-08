@@ -2823,7 +2823,8 @@ values
   ('공지','notice',1),
   ('교육 일정','education',2),
   ('일반','general',3),
-  ('가람pick','garam-pick',4)
+  ('상품추천','garam-pick',4),
+  ('시책','policy',5)
 on conflict (slug) do update
 set
   name = excluded.name,

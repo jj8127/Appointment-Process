@@ -74,6 +74,7 @@
 - `RF-LINK-03` 링크 자동 추천 후 수동 코드 입력 시 우선순위 적용
 - `RF-LINK-05` 초대링크 exact code prefill은 broad search/중복 apply 없이 한 번만 빠르게 처리
 - `RF-LINK-04` 변조/만료 링크 graceful fallback
+- `RF-LINK-06` `/referral`과 `/settings`의 추천코드 공유 문구는 같은 HTTPS invite URL 문구를 사용하고 예전 direct deep-link 공유 문구를 노출하지 않음
 
 수동 실행 예시:
 

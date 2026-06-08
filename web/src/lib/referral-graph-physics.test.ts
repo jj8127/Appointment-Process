@@ -90,7 +90,7 @@ test('applyReferralGraphLayoutMemory skips fixed or unpositioned nodes', () => {
   assert.deepEqual(missing, { id: 'missing', vx: 0, vy: 0 });
 });
 
-test('createReferralGraphLayoutMemoryForce keeps manual drag targets alive after static anchors age out', () => {
+test('createReferralGraphLayoutMemoryForce lets static and manual anchors fully expire after initial settling', () => {
   const anchor = { id: 'anchor', x: 0, y: 0, vx: 0, vy: 0 };
   const manual = { id: 'manual', x: 0, y: 0, vx: 0, vy: 0 };
   const manualTargetsRef = { current: new Map([['manual', { x: 100, y: 0 }]]) };
@@ -113,7 +113,7 @@ test('createReferralGraphLayoutMemoryForce keeps manual drag targets alive after
 
   assert.equal(anchor.vx, 0);
   assert.equal(anchor.vy, 0);
-  assert.ok(manual.vx > 0, `manual drag target should still pull after maxTicks, got ${manual.vx}`);
+  assert.equal(manual.vx, 0);
   assert.equal(manual.vy, 0);
 });
 
@@ -292,7 +292,7 @@ test('getReferralGraphLinkDistance lengthens crowded branch bridges only when lo
   assert.ok(crowdedBridge >= 320, `crowded branch bridge should reserve space, got ${crowdedBridge}`);
 });
 
-test('drag spring can prevent stretched edges along the dragged chain', () => {
+test('drag spring does not directly reposition connected nodes while a node is dragged', () => {
   const baseDistance = 250;
   const nodes = new Map([
     ['root', { id: 'root', x: 500, y: 0, vx: 0, vy: 0, fx: 500, fy: 0 }],
@@ -323,27 +323,13 @@ test('drag spring can prevent stretched edges along the dragged chain', () => {
   const root = nodes.get('root')!;
   const middle = nodes.get('middle')!;
   const leaf = nodes.get('leaf')!;
-  const rootToMiddle = Math.hypot(root.x - middle.x, root.y - middle.y);
-  const middleToLeaf = Math.hypot(middle.x - leaf.x, middle.y - leaf.y);
-  const rootTargetDistance = getReferralGraphLinkDistance(1, 2, baseDistance, {
-    sourceHasChildren: true,
-    sourceId: 'root',
-    targetHasChildren: true,
-    targetId: 'middle',
-    sourceChildCount: 1,
-    targetChildCount: 1,
-  });
-  const leafTargetDistance = getReferralGraphLinkDistance(2, 1, baseDistance, {
-    sourceHasChildren: true,
-    sourceChildCount: 1,
-    sourceId: 'middle',
-    targetHasChildren: false,
-    targetChildCount: 0,
-    targetId: 'leaf',
-  });
 
-  assert.ok(rootToMiddle <= rootTargetDistance + 0.001, `root edge stretched to ${rootToMiddle}`);
-  assert.ok(middleToLeaf <= leafTargetDistance + 0.001, `leaf edge stretched to ${middleToLeaf}`);
+  assert.equal(root.x, 500);
+  assert.equal(root.y, 0);
+  assert.equal(middle.x, 0);
+  assert.equal(middle.y, 0);
+  assert.equal(leaf.x, -160);
+  assert.equal(leaf.y, 0);
 });
 
 test('drag spring does not propagate slight drags into unrelated deep stretched links', () => {

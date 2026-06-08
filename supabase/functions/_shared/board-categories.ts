@@ -2,7 +2,8 @@ export const CANONICAL_BOARD_CATEGORIES = [
   { name: '공지', slug: 'notice', sortOrder: 1 },
   { name: '교육 일정', slug: 'education', sortOrder: 2 },
   { name: '일반', slug: 'general', sortOrder: 3 },
-  { name: '가람pick', slug: 'garam-pick', sortOrder: 4 },
+  { name: '상품추천', slug: 'garam-pick', sortOrder: 4 },
+  { name: '시책', slug: 'policy', sortOrder: 5 },
 ] as const;
 
 export const CANONICAL_BOARD_CATEGORY_SLUGS = CANONICAL_BOARD_CATEGORIES.map((category) => category.slug);

@@ -4,6 +4,7 @@ import { NextResponse } from 'next/server';
 import { adminSupabase } from '@/lib/admin-supabase';
 import { checkRateLimit, SECURITY_HEADERS, validateSession } from '@/lib/csrf';
 import {
+  applyExamApplicantApplicationTypes,
   buildExamApplicantBaseRows,
   buildExamApplicantPhoneCandidates,
   buildExamApplicantProfileMatchPlan,
@@ -83,11 +84,11 @@ async function verifyStaffSession(role: 'admin' | 'manager', residentId: string)
   return Boolean(data?.id);
 }
 
-async function listApplicants(staffPhone: string) {
+async function listApplicants(staffPhone: string, roundId?: string) {
   const { data, error } = await adminSupabase
     .from('exam_registrations')
     .select(`
-      id, status, created_at, resident_id, is_confirmed, is_third_exam, fee_paid_date,
+      id, status, created_at, round_id, resident_id, is_confirmed, is_third_exam, fee_paid_date,
       exam_locations!exam_registrations_location_round_fkey ( location_name ),
       exam_rounds ( round_label, exam_date, exam_type )
     `)
@@ -99,7 +100,8 @@ async function listApplicants(staffPhone: string) {
   }
 
   const rows = (data ?? []) as ExamRegistrationRow[];
-  const base = buildExamApplicantBaseRows(rows);
+  const allBase = applyExamApplicantApplicationTypes(buildExamApplicantBaseRows(rows));
+  const base = roundId ? allBase.filter((row) => row.round_id === roundId) : allBase;
   const phoneCandidates = buildExamApplicantPhoneCandidates(base, buildPhoneCandidates);
 
   if (phoneCandidates.length === 0) {
@@ -132,7 +134,7 @@ async function listApplicants(staffPhone: string) {
   });
 }
 
-export async function GET() {
+export async function GET(req: Request) {
   const readCheck = await getReadSession();
   if (!readCheck.ok) {
     return NextResponse.json(
@@ -147,6 +149,8 @@ export async function GET() {
   }
 
   try {
+    const url = new URL(req.url);
+    const roundId = url.searchParams.get('roundId')?.trim() || undefined;
     const isAuthorized = await verifyStaffSession(
       readCheck.session.role as 'admin' | 'manager',
       readCheck.session.residentId,
@@ -155,7 +159,7 @@ export async function GET() {
       return NextResponse.json({ error: 'Forbidden' }, { status: 403, headers: SECURITY_HEADERS });
     }
 
-    const applicants = await listApplicants(readCheck.session.residentId.replace(/[^0-9]/g, ''));
+    const applicants = await listApplicants(readCheck.session.residentId.replace(/[^0-9]/g, ''), roundId);
     return NextResponse.json({ ok: true, applicants }, { headers: SECURITY_HEADERS });
   } catch (err: unknown) {
     logger.error('[api/admin/exam-applicants] list failed', err);

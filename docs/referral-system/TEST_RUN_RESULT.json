@@ -139,6 +139,23 @@
       "notes": "정확한 8자리 코드 fast path와 signup single-flight는 코드/테스트/원격 function deploy까지 반영했지만, 실제 기기에서 딥링크 진입 후 spinner 중복/크래시 부재를 아직 확인하지 못했다. 온디바이스 invite-link smoke가 남아 있어 BLOCKED로 유지한다."
     },
     {
+      "caseId": "RF-LINK-06",
+      "area": "초대링크",
+      "priority": "P1",
+      "platform": [
+        "app"
+      ],
+      "title": "추천코드 공유 진입점은 같은 HTTPS invite URL 문구를 사용하고 direct deep-link 공유 문구를 노출하지 않는다",
+      "status": "PASS",
+      "owner": "Codex",
+      "executedAt": "2026-06-08T03:10:00.000Z",
+      "evidence": [
+        "RED: npm test -- --runTestsByPath lib/__tests__/referral-share.test.ts --runInBand failed because app/settings.tsx did not contain buildReferralShareText and still contained old direct deep-link copy",
+        "GREEN: npm test -- --runTestsByPath lib/__tests__/referral-share.test.ts --runInBand passed 4/4"
+      ],
+      "notes": "Source-level regression coverage verifies `/settings` now uses the same shared referral share copy as `/referral`. Device share-sheet visual capture was not run."
+    },
+    {
       "caseId": "RF-CODE-05",
       "area": "추천코드",
       "priority": "P0",

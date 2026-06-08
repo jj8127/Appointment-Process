@@ -155,6 +155,29 @@
     "dbAssertions": []
   },
   {
+    "id": "RF-LINK-06",
+    "area": "초대링크",
+    "priority": "P1",
+    "platform": ["app"],
+    "title": "추천코드 공유 진입점은 같은 HTTPS invite URL 문구를 사용하고 direct deep-link 공유 문구를 노출하지 않는다",
+    "preconditions": [
+      "활성 추천코드를 가진 FC 또는 본부장 계정이 있다",
+      "`/referral`과 `/settings`의 공유 버튼이 모두 접근 가능한 앱 빌드다"
+    ],
+    "steps": [
+      "`/referral` 화면에서 내 추천코드 공유 문구를 확인한다",
+      "`/settings` 화면의 내 추천 코드 카드에서 공유 문구를 확인한다",
+      "두 문구가 같은 `lib/referral-share.ts` builder 계약을 따르는지 확인한다"
+    ],
+    "expected": [
+      "두 공유 문구 모두 `https://garam-invite.vercel.app/?code=<CODE>` 또는 env로 지정된 HTTPS invite URL을 포함한다",
+      "두 공유 문구 모두 Android 설치 링크와 iOS 설치 fallback을 포함한다",
+      "공유 문구에는 `앱 열기 링크: hanwhafcpass://signup?code=`나 `가람in 앱 가입 시 추천 코드를 입력해주세요!` 예전 문구가 남지 않는다"
+    ],
+    "evidenceRequired": ["자동화 테스트 출력", "필요 시 기기 공유 시트 캡처"],
+    "dbAssertions": []
+  },
+  {
     "id": "RF-CODE-05",
     "area": "추천코드",
     "priority": "P0",

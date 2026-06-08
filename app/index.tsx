@@ -1312,7 +1312,7 @@ export default function Home() {
                 >
                   <View style={styles.guideIconWrapNew}>
                     <View style={styles.guideIconBadgeNew}>
-                      <Feather name="play" size={16} color={HOME_GUIDE_ICON_FOREGROUND} style={{ marginLeft: 1 }} />
+                      <View style={styles.guidePlayTriangle} />
                     </View>
                   </View>
 
@@ -1903,7 +1903,7 @@ export default function Home() {
                 >
                   <View style={styles.guideIconWrapNew}>
                     <View style={styles.guideIconBadgeNew}>
-                      <Feather name="play" size={16} color={HOME_GUIDE_ICON_FOREGROUND} style={{ marginLeft: 1 }} />
+                      <View style={styles.guidePlayTriangle} />
                     </View>
                   </View>
 
@@ -2575,10 +2575,14 @@ const styles = StyleSheet.create({
     height: 44,
     borderRadius: 22,
     marginRight: 12,
+    backgroundColor: HOME_GUIDE_ICON_BACKGROUND,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
 
   guideIconBadgeNew: {
     flex: 1,
+    width: '100%',
     borderRadius: 22,
     alignItems: 'center',
     justifyContent: 'center',
@@ -2586,10 +2590,22 @@ const styles = StyleSheet.create({
     borderColor: HOME_GUIDE_ICON_BORDER,
     backgroundColor: HOME_GUIDE_ICON_BACKGROUND,
     shadowColor: HOME_GUIDE_ICON_SHADOW,
-    shadowOpacity: 0.22,
-    shadowRadius: 8,
-    shadowOffset: { width: 0, height: 4 },
-    elevation: 3,
+    shadowOpacity: 0,
+    shadowRadius: 0,
+    shadowOffset: { width: 0, height: 0 },
+    elevation: 0,
+  },
+
+  guidePlayTriangle: {
+    width: 0,
+    height: 0,
+    marginLeft: 2,
+    borderTopWidth: 7,
+    borderBottomWidth: 7,
+    borderLeftWidth: 10,
+    borderTopColor: 'transparent',
+    borderBottomColor: 'transparent',
+    borderLeftColor: HOME_GUIDE_ICON_FOREGROUND,
   },
 
   guideTextWrapNew: {

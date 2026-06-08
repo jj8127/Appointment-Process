@@ -9,6 +9,12 @@ node_modules
 **/.env.*
 .next
 **/.next
+.gradle
+**/.gradle
+.gradle-home
+**/.gradle-home
+.codex-tmp
+**/.codex-tmp
 dist
 **/dist
 dist-web

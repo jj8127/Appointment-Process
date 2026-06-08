@@ -37,6 +37,7 @@ import {
 } from '@/lib/request-board-api';
 import { getRequestBoardCustomerManagementRoute } from '@/lib/request-board-create-flow';
 import { normalizeDesignerRejectReason } from '@/lib/request-board-review-actions';
+import { toRequestBoardSessionErrorMessage } from '@/lib/request-board-session-error';
 import { getRequestBoardWebBaseUrl } from '@/lib/request-board-url';
 import { supabase } from '@/lib/supabase';
 import { syncNativeNotificationBadge } from '@/lib/system-notification-badge';
@@ -432,7 +433,7 @@ export default function RequestBoardScreen() {
         } catch (err) {
           logger.warn('request-board stats fetch failed', err);
           setRequestBoardAccessError(
-            err instanceof Error ? err.message : '가람Link 세션 동기화에 실패했습니다.',
+            toRequestBoardSessionErrorMessage(err, '가람Link 의뢰 현황을 불러오지 못했습니다.'),
           );
         }
       })(),
@@ -548,7 +549,7 @@ export default function RequestBoardScreen() {
       await fetchData();
     } catch (err) {
       logger.warn('[request-board] designer accept failed', err);
-      Alert.alert('수락 실패', err instanceof Error ? err.message : '수락 처리에 실패했습니다.');
+      Alert.alert('수락 실패', toRequestBoardSessionErrorMessage(err, '수락 처리에 실패했습니다.'));
     } finally {
       setDesignerActionKey(null);
     }
@@ -601,7 +602,7 @@ export default function RequestBoardScreen() {
       await fetchData();
     } catch (err) {
       logger.warn('[request-board] designer reject failed', err);
-      Alert.alert('거절 실패', err instanceof Error ? err.message : '거절 처리에 실패했습니다.');
+      Alert.alert('거절 실패', toRequestBoardSessionErrorMessage(err, '거절 처리에 실패했습니다.'));
     } finally {
       setDesignerActionKey(null);
     }

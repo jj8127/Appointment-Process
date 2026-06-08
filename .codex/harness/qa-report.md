@@ -1,4 +1,55 @@
-﻿# Increment 35 Verification: Request Board Designer Notification Scope
+﻿# Increment 55 Verification: Admin Exam Legacy Apply Route Redirect
+
+Date: 2026-06-08
+
+### Scope
+
+- Confirmed production `/dashboard/exam/applicants` and `/admin/exams/[id]` chunks already contain the workbook-order applicant columns.
+- Removed the stale legacy `/exam/apply` applicant table by redirecting it to `/dashboard/exam/applicants`.
+- Added a source-level regression test so `/exam/apply` cannot reintroduce the old `이름/연락처/신청일시` table.
+
+### Commands
+
+- RED: `node --test web/src/lib/exam-applicant-list-display.test.ts` failed on missing `/exam/apply` redirect.
+- Passed: `node --test web/src/lib/exam-applicant-list-display.test.ts`.
+- Passed: `cd web; npx eslint src\app\exam\apply\page.tsx src\lib\exam-applicant-list-display.test.ts src\app\admin\exams\[id]\page.tsx src\app\dashboard\exam\applicants\page.tsx`.
+- Existing issue: `cd web; npx tsc --noEmit --pretty false` fails on pre-existing `.ts` extension imports in test files.
+- Passed: `cd web; SENTRY_AUTH_TOKEN='' npm run build`.
+- Deployed: `vercel --prod --yes --archive=tgz --scope jun-jeongs-projects` from repo root.
+- Ready: `vercel inspect https://admin-m71a2lq31-jun-jeongs-projects.vercel.app --scope jun-jeongs-projects`, deployment id `dpl_4VCaMiP94MkH2ZnhdFMoWvsfaXNm`, alias `https://adminweb-red.vercel.app`.
+- Passed live: `GET /exam/apply` with staff cookie returned `307 Location: /dashboard/exam/applicants`.
+- Passed live: `/dashboard/exam/applicants` and `/admin/exams/[id]` chunks include new applicant columns and exclude old `신청일시`/`연락처` signals.
+
+### QA Judgment
+
+- The remaining stale admin-web applicant-list implementation was identified and removed from the route surface.
+- Browser screenshot verification was not available because neither Playwright nor `agent-browser` is installed; production HTML/API/chunk checks were used instead.
+
+---
+
+# Increment 56 Verification: Exam Applicant Top Exam Filters
+
+Date: 2026-06-08
+
+### Scope
+
+- Added top-level `시험 종류` and `시험 회차` filters to the canonical admin/manager applicant list.
+- Added shared helper functions for subject option generation, round option generation, round labels, and round-filter validity.
+- Kept `/admin/exams/[id]`, API shape, approval/delete mutations, stats, and CSV export contracts unchanged except that stats/export now use the narrowed `filteredRows`.
+
+### Commands
+
+- Passed: `node --test web/src/lib/exam-applicant-list-display.test.ts`.
+- Passed: `cd web; npm run lint -- src/app/dashboard/exam/applicants/page.tsx src/lib/exam-applicant-list-display.ts src/lib/exam-applicant-list-display.test.ts`.
+
+### QA Judgment
+
+- Focused helper coverage protects the requested filter behavior.
+- No browser runtime smoke is claimed in this local pass.
+
+---
+
+# Increment 35 Verification: Request Board Designer Notification Scope
 
 Date: 2026-06-05
 
@@ -3030,5 +3081,228 @@ Date: 2026-06-07
 
 - Pass. The list now has a runtime path to populate rejection reasons even when the list endpoint omits them.
 - ADB did not return device listings, so no Android screenshot was captured.
+
+---
+
+# Increment 48 Verification: Request Board Session Error Copy
+
+Date: 2026-06-08
+
+### Scope
+
+- Added a shared request-board session/bridge error copy helper.
+- Mapped technical Edge Function, app-session, bridge-login, and auth-expired failures to a single GaramLink re-login guidance message.
+- Applied the helper to request-board create, FC codes, list, detail/review, home stats/actions, and messenger auth/upload error surfaces.
+- Kept explicit role-not-applicable messages from being rewritten as re-login guidance.
+
+### Commands
+
+- RED confirmed: `npm test -- --runTestsByPath lib/__tests__/request-board-session-error.test.ts --runInBand` failed before implementation because the helper module was missing.
+- Passed: `npm test -- --runTestsByPath lib/__tests__/request-board-session-error.test.ts --runInBand`.
+- Passed: `npm test -- --runTestsByPath lib/__tests__/request-board-session-error.test.ts lib/__tests__/request-board-session.test.ts lib/__tests__/user-facing-error.test.ts --runInBand`.
+- Passed: `npx eslint app/request-board-create.tsx app/request-board-fc-codes.tsx app/request-board-requests.tsx app/request-board-review.tsx app/request-board.tsx app/request-board-messenger.tsx lib/request-board-session-error.ts lib/__tests__/request-board-session-error.test.ts`.
+- Passed: `npx tsc --noEmit --pretty false`.
+
+### QA Judgment
+
+- Pass. The relevant request-board Alert/error-banner surfaces now normalize session/bridge failures before display.
+- Real-device re-login validation for 김태희 본부장 was not performed.
+
+---
+# Increment 49 Verification: Admin Board Category Filter Parity
+
+Date: 2026-06-08
+
+### Scope
+
+- Added a shared board list query helper for category/sort/search query keys and fetch params.
+- Rewired FC `/board` to use the helper while preserving its existing filters.
+- Added the same category chip row, sort button/menu, submitted search input, and clear action to `/admin-board-manage`.
+- Updated handbook/work logs/mistake ledger/harness notes.
+
+### Commands
+
+- RED confirmed: `npm test -- --runTestsByPath lib/__tests__/board-list-query.test.ts --runInBand` failed before implementation because `@/lib/board-list-query` did not exist.
+- Passed: `npm test -- --runTestsByPath lib/__tests__/board-list-query.test.ts --runInBand`.
+- Passed: `npx eslint app/board.tsx app/admin-board-manage.tsx lib/board-list-query.ts lib/__tests__/board-list-query.test.ts`.
+- Passed: `npx tsc --noEmit --pretty false`.
+
+### Additional Commands
+
+- Passed: `npm test -- --runTestsByPath lib/__tests__/board-list-query.test.ts lib/__tests__/board-category-contract.test.ts --runInBand`.
+- Passed after adding the existing request-board owner doc update required by pre-existing dirty `app/request-board*.tsx` files: `node scripts/ci/check-governance.mjs`.
+- Passed: `git diff --check`.
+  - CRLF normalization warnings only.
+- No direct Android/iOS screenshot has been captured.
+
+### QA Judgment
+
+- Pass. The focused RED/GREEN contract, category contract regression, targeted ESLint, root TypeScript, governance, and diff hygiene checks passed.
+
+---
+
+# Increment 50 Verification: Referral Share Copy Parity
+
+Date: 2026-06-08
+
+### Scope
+
+- Added a regression test that checks `/settings` uses the shared referral share-copy helper.
+- Rewired `app/settings.tsx` to use `buildReferralShareText()` with the same invite/app-store env inputs as `/referral`.
+- Updated referral-system SPEC, checklist, test case/result assets, incident log, work logs, mistake ledger, and harness notes.
+
+### Commands
+
+- RED confirmed: `npm test -- --runTestsByPath lib/__tests__/referral-share.test.ts --runInBand` failed before implementation because `app/settings.tsx` did not contain `buildReferralShareText` and still contained the old direct deep-link copy.
+- Passed: `npm test -- --runTestsByPath lib/__tests__/referral-share.test.ts --runInBand` (4/4 tests).
+- Passed: `npx eslint app/settings.tsx lib/referral-share.ts lib/__tests__/referral-share.test.ts`.
+- Passed: `npx tsc --noEmit --pretty false`.
+- Passed: `node -e "JSON.parse(require('fs').readFileSync('docs/referral-system/test-cases.json','utf8')); JSON.parse(require('fs').readFileSync('docs/referral-system/TEST_RUN_RESULT.json','utf8')); console.log('referral docs json ok')"`.
+- Passed: `node scripts/ci/check-governance.mjs`.
+- Passed: `git diff --check`.
+  - CRLF normalization warnings only.
+
+### QA Judgment
+
+- Pass for source-level referral share copy parity. `/settings` no longer carries the old user-facing direct deep-link share text.
+- Real Android/iOS share sheet screenshots were not captured, and deployed device version/OTA cache state was not verified.
+
+---
+# Increment 51 Verification: Admin Dashboard Signup Date And Table Alignment
+
+Date: 2026-06-08
+
+### Scope
+
+- Added `web/src/lib/dashboard-table-display.ts` and focused tests.
+- `/api/admin/list` now joins `fc_credentials(password_set_at)` and emits `signup_completed_at`.
+- Admin web dashboard table now includes `가입일`.
+- Header/cell alignment is centered for compact table columns, including `관리`.
+- Deployed `admin_web` to Vercel production.
+
+### Commands
+
+- RED expected failure: `node --test src/lib/dashboard-table-display.test.ts` failed with `ERR_MODULE_NOT_FOUND` before helper implementation.
+- Passed: `node --test src/lib/dashboard-table-display.test.ts`.
+- Passed: `npx eslint src/app/dashboard/page.tsx src/app/api/admin/list/route.ts src/lib/dashboard-table-display.ts src/lib/dashboard-table-display.test.ts src/types/dashboard.ts`.
+- Passed: `SENTRY_AUTH_TOKEN='' npm run build` from `web`.
+  - Existing warnings only: stale `baseline-browser-mapping` data and transitive OpenTelemetry `import-in-the-middle` version mismatch.
+- Deployment attempt from `web` failed because Vercel project rootDirectory is `web`, causing `web/web`.
+- Deployment attempt from repo root failed on Vercel file count limit and was retried with archive upload.
+- Passed/deployed: `npx vercel --prod --yes --archive=tgz`.
+- Passed: `npx vercel inspect https://admin-c6hwcs14a-jun-jeongs-projects.vercel.app`.
+  - `target=production`, `status=Ready`, deployment id `dpl_81tXwvhRVFUC6wQx4mjJUpcHsUyr`.
+
+### QA Judgment
+
+- Automated focused tests, lint, local production build, remote Vercel build, and production readiness inspection passed.
+- Authenticated visual smoke on the production dashboard was not run in this pass.
+
+---
+
+# Increment 52 Verification: Admin Exam Applicant Workbook Columns
+
+Date: 2026-06-08
+
+### Scope
+
+- Added `web/src/lib/exam-applicant-list-display.ts` as the shared table/export column and cell-value contract.
+- Added `application_type` calculation for `/api/admin/exam-applicants`.
+- Reworked `/dashboard/exam/applicants` so table headers, filters, rows, and CSV download use the same ordered data columns.
+- Preserved screen-only `접수 상태` and delete `관리` controls at the far right.
+
+### Commands
+
+- RED observed: focused node tests failed before the new display module/export and application-type implementation existed.
+- Passed: `node --test web/src/lib/exam-applicant-resident-number-enrichment.test.node.ts web/src/lib/exam-applicant-list-display.test.ts`.
+- Passed: `cd web; npm run lint`.
+- Passed: `cd web; SENTRY_AUTH_TOKEN='' npm run build`.
+  - Existing warnings only: old `baseline-browser-mapping` data and transitive OpenTelemetry `import-in-the-middle` version mismatch.
+- Deployed: `vercel --prod --yes --archive=tgz`.
+- Passed: `vercel inspect https://admin-2d69j0gvd-jun-jeongs-projects.vercel.app` returned `status Ready`.
+
+### QA Judgment
+
+- Focused regression tests, lint, and production build are green for the changed admin web paths.
+- Production deployment is live at `https://admin-2d69j0gvd-jun-jeongs-projects.vercel.app` and aliased to `https://adminweb-red.vercel.app`.
+- Authenticated visual inspection of the live applicant table remains a manual follow-up because the page is protected.
+
+---
+
+# Increment 53 Verification: Round-Specific Exam Applicant Column Parity
+
+Date: 2026-06-08
+
+### Scope
+
+- Investigated why users still saw the old 시험 응시자 column order.
+- Confirmed `/admin/exams/[id]` was a second applicant-list surface with legacy columns.
+- Added a source-level regression guard for the per-round page.
+- Extended `/api/admin/exam-applicants` with `roundId`.
+- Rewired `/admin/exams/[id]` to the shared API and shared workbook column contract.
+- Deployed `admin_web` to Vercel production again.
+
+### Commands
+
+- RED confirmed: `node --test web/src/lib/exam-applicant-list-display.test.ts` failed because `/admin/exams/[id]/page.tsx` did not use `EXAM_APPLICANT_EXPORT_COLUMNS`.
+- Passed: `node --test web/src/lib/exam-applicant-list-display.test.ts web/src/lib/exam-applicant-resident-number-enrichment.test.node.ts` (6/6 tests).
+- Passed: `cd web; npm run lint`.
+- Build blocked by local dev server: `cd web; SENTRY_AUTH_TOKEN='' npm run build`.
+- Cleared local dev server: `cd web; node scripts/kill-next-dev.mjs`.
+- Passed: `cd web; SENTRY_AUTH_TOKEN='' npm run build`.
+  - Existing warnings only: stale `baseline-browser-mapping` data and transitive OpenTelemetry `import-in-the-middle` version mismatch.
+- Deployed: `vercel --prod --yes --archive=tgz --scope jun-jeongs-projects`.
+- Passed: `vercel inspect https://admin-ddbf9l6z0-jun-jeongs-projects.vercel.app --scope jun-jeongs-projects`.
+  - `target=production`, `status=Ready`, deployment id `dpl_9NQGpnqAuPZEXd9c1eC1jHEEBSCt`.
+  - Aliases include `https://adminweb-red.vercel.app`.
+
+### QA Judgment
+
+- Pass for the discovered route gap: both global and per-round applicant-list surfaces now share the workbook column contract.
+- Authenticated visual inspection of the protected production per-round page was not run in this pass.
+
+---
+
+# Increment 54 Verification: Board Product Recommendation And Policy Categories
+
+Date: 2026-06-08
+
+### Scope
+
+- Changed visible board category name from `가람pick` to `상품추천`.
+- Preserved slug `garam-pick`.
+- Added new category `시책` with slug `policy` and sort order `5`.
+- Updated schema seed, forward migration, shared Edge Function canonical list, board write boundaries, home latest label formatting, and app/web badge colors.
+- Applied DB migrations, deployed impacted Supabase Edge Functions, and deployed admin web.
+
+### Commands
+
+- RED confirmed: `npm test -- --runTestsByPath lib\__tests__\board-category-contract.test.ts lib\__tests__\home-latest-notice.test.ts --runInBand` failed for missing migration and missing `상품추천` label support.
+- Passed: `npm test -- --runTestsByPath lib\__tests__\board-category-contract.test.ts lib\__tests__\home-latest-notice.test.ts --runInBand` (9/9 tests).
+- Passed: `npx eslint app\board.tsx app\admin-board-manage.tsx lib\home-latest-notice.ts lib\__tests__\board-category-contract.test.ts lib\__tests__\home-latest-notice.test.ts`.
+- Passed: `cd web; npx eslint src\app\dashboard\board\page.tsx`.
+- Passed: `npx tsc --noEmit --pretty false`.
+- Passed: `cd web; SENTRY_AUTH_TOKEN='' npm run build`.
+  - Existing warnings only: stale `baseline-browser-mapping` data and transitive OpenTelemetry `import-in-the-middle` version mismatch.
+- Applied: `supabase db push --linked --yes`.
+  - Applied `20260605000001_set_board_categories_to_four_types.sql`.
+  - Applied `20260608000001_update_board_categories_product_recommendation_policy.sql`.
+- Confirmed: `supabase migration list --linked` shows `20260605000001` and `20260608000001` on remote.
+- Deployed Supabase Edge Functions:
+  - `board-categories-list`
+  - `board-category-create`
+  - `board-category-update`
+  - `board-create`
+  - `board-update`
+- Deployed admin web: `vercel --prod --yes --archive=tgz --scope jun-jeongs-projects`.
+- Passed: `vercel inspect https://admin-4idj3ety7-jun-jeongs-projects.vercel.app --scope jun-jeongs-projects`.
+  - `target=production`, `status=Ready`, deployment id `dpl_YTzySA4BAT9YtCqfyA7Ekq79W5Cn`.
+  - Aliases include `https://adminweb-red.vercel.app`.
+
+### QA Judgment
+
+- Pass for source, DB migration, Edge Function deployment, and admin web deployment.
+- Protected/live app UI category picker was not manually screenshotted in this pass.
+- Mobile installed apps may need the next app/OTA update for the new non-gray badge color code, but the server-provided category list and board write allowlist are live.
 
 ---

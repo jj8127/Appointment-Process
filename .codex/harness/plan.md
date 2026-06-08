@@ -1,4 +1,25 @@
-﻿# Increment 35: Request Board Designer Notification Scope
+﻿# Increment 55: Admin Exam Legacy Apply Route Redirect
+
+Status: completed and deployed on 2026-06-08
+
+Implementation order:
+
+1. Completed: checked production alias and canonical applicant route chunks.
+2. Completed: found stale legacy `/exam/apply` table implementation.
+3. Completed: added RED test for legacy route redirect.
+4. Completed: replaced `/exam/apply` table with redirect to `/dashboard/exam/applicants`.
+5. Completed: ran focused tests, targeted lint, and web production build.
+6. Completed: deployed admin web production and verified live `/exam/apply` redirect.
+
+Out of scope:
+
+- New applicant columns.
+- DB/schema/function changes.
+- Mobile exam application changes.
+
+---
+
+# Increment 35: Request Board Designer Notification Scope
 
 Status: completed locally on 2026-06-05
 
@@ -1456,5 +1477,156 @@ Out of scope:
 - Backend changes.
 - Broad list fetch redesign.
 - Commit/push unless requested.
+
+---
+
+# Increment 48: Request Board Session Error Copy
+
+Status: completed locally on 2026-06-08
+
+Implementation order:
+
+1. Add RED tests for request_board session/bridge error copy normalization.
+2. Implement `lib/request-board-session-error.ts`.
+3. Apply the helper to request-board create, FC code management, request list, detail/review, home stats/actions, and messenger auth/upload error surfaces.
+4. Update mistake ledger and work logs.
+5. Verify focused tests, targeted lint, TypeScript, and governance.
+
+Out of scope:
+
+- Re-login button or navigation action.
+- Backend session/token/secret changes.
+- Commit/push unless requested.
+
+---
+# Increment 49: Admin Board Category Filter Parity
+
+Status: completed locally on 2026-06-08
+
+Implementation order:
+
+1. Completed: confirmed FC bottom nav routes to `/board`, while admin/manager bottom nav routes to `/admin-board-manage`.
+2. Completed: added a RED board list query contract test for category/sort/search query key and params.
+3. Completed: added `lib/board-list-query.ts` for shared list query keys, fetch params, and sort labels.
+4. Completed: rewired `app/board.tsx` to use the shared helper without changing visible FC behavior.
+5. Completed: added category chips, sort menu, submitted-search input, and clear action to `app/admin-board-manage.tsx`.
+6. Completed: updated handbook, work logs, mistake ledger, and harness notes.
+
+Out of scope:
+
+- Board write permission changes.
+- Manager write access changes.
+- Category seed/migration changes.
+- Board comments, reactions, attachments, notifications, and admin web board changes.
+- Commit/push unless requested.
+
+---
+
+# Increment 50: Referral Share Copy Parity
+
+Status: completed locally on 2026-06-08
+
+Implementation order:
+
+1. Completed: traced referral share copy paths and confirmed `/referral` uses `lib/referral-share.ts` while `/settings` still hardcoded the old direct deep-link copy.
+2. Completed: added a RED source-level regression test to `lib/__tests__/referral-share.test.ts`.
+3. Completed: rewired `app/settings.tsx` to use `buildReferralShareText()` with the same invite/app-store env handling as `/referral`.
+4. Completed: updated referral SPEC, test checklist, test case/result assets, incident log, work logs, mistake ledger, and harness notes.
+
+Out of scope:
+
+- Referral attribution or recommender persistence changes.
+- Deep-link parsing or invite landing page routing changes.
+- Store install restoration/deferred deep link changes.
+- Backend referral table/function changes.
+- Commit/push unless requested.
+
+---
+# Increment 51: Admin Dashboard Signup Date And Table Alignment
+
+Status: completed and deployed on 2026-06-08
+
+Implementation order:
+
+1. Completed: confirmed `/dashboard` uses `/api/admin/list` and `FCProfile.created_at` already exists while signup completion is best represented by `fc_credentials.password_set_at`.
+2. Completed: added a focused table-display contract test before implementation.
+3. Completed: added `dashboard-table-display` helper for signup-date normalization, date formatting, and 8-column table count.
+4. Completed: joined `fc_credentials(password_set_at)` in `/api/admin/list` and returned `signup_completed_at` without leaking credential rows.
+5. Completed: added the `가입일` column and centered compact table cells/headers, including the `관리` header and row buttons.
+6. Completed: ran focused test/lint/build and deployed `admin_web` to Vercel production.
+
+Out of scope:
+
+- No schema migration.
+- No FC signup flow or password write change.
+- No mobile UI change.
+- No admin mutation or manager permission change.
+
+---
+# Increment 52: Admin Exam Applicant Workbook Columns
+
+Status: completed and deployed to production on 2026-06-08
+
+Implementation order:
+
+1. Completed: locked the confirmed workbook-style data column order in a shared display helper.
+2. Completed: added RED/GREEN tests for column order, display values, and `신규신청/재신청` calculation.
+3. Completed: changed `/api/admin/exam-applicants` to compute `application_type` from same-applicant/same-subject history.
+4. Completed: changed `/dashboard/exam/applicants` table, filters, and CSV download to use the shared column contract.
+5. Completed: preserved screen-only `접수 상태` and delete `관리` controls at the far right, with manager read-only disabled states unchanged.
+6. Completed: ran focused tests, web lint, web production build, and Vercel production deployment.
+
+Out of scope:
+
+- Exam registration write behavior.
+- Resident-number trusted retrieval path.
+- Manager read-only authorization changes.
+- Supabase schema or migration changes.
+- Mobile exam application screens.
+
+---
+
+# Increment 53: Round-Specific Exam Applicant Column Parity
+
+Status: completed and deployed to production on 2026-06-08
+
+Implementation order:
+
+1. Completed: investigated the "order unchanged" report and confirmed the previous deployment changed `/dashboard/exam/applicants`, but `/admin/exams/[id]` still used the legacy per-round table.
+2. Completed: added a RED source-level regression test requiring the per-round page to use `EXAM_APPLICANT_EXPORT_COLUMNS`, `getExamApplicantCellValue()`, and `roundId`.
+3. Completed: extended `/api/admin/exam-applicants` with `roundId` filtering while preserving whole-history `신규신청/재신청` calculation.
+4. Completed: rewired `/admin/exams/[id]` to use the shared API and shared column contract, with server PATCH for reception status changes.
+5. Completed: ran focused tests, web lint, local production build, and Vercel production deployment.
+
+Out of scope:
+
+- No schema migration.
+- No mobile exam screen change.
+- No new write capability for managers.
+- No changes to exam registration submission behavior.
+- No authenticated browser screenshot in this pass.
+
+---
+
+# Increment 54: Board Product Recommendation And Policy Categories
+
+Status: completed, DB/functions applied, and admin web deployed on 2026-06-08
+
+Implementation order:
+
+1. Completed: confirmed board categories are controlled by schema seed, migrations, `_shared/board-categories.ts`, category list/write Edge Functions, app/web badge helpers, and home latest label formatting.
+2. Completed: updated board category contract tests first and observed RED for missing migration plus missing `상품추천` label support.
+3. Completed: changed `garam-pick` display name from `가람pick` to `상품추천` while preserving the slug.
+4. Completed: added `시책` / `policy` / sort order `5` to schema, migration, and canonical Edge Function list.
+5. Completed: updated mobile/web badge color logic and home latest label formatting.
+6. Completed: ran focused tests, app/web lint, root typecheck, and web production build.
+7. Completed: applied Supabase DB migrations, deployed impacted Edge Functions, and deployed admin web production.
+
+Out of scope:
+
+- No board permission changes.
+- No board notification fanout changes.
+- No automatic insurance digest category change; it remains `일반/general`.
+- No mobile binary/OTA deployment in this pass.
 
 ---

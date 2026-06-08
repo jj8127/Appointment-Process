@@ -2,8 +2,8 @@ doc_id: FC-ADMIN-DASHBOARD-LIFECYCLE
 owner_repo: fc-onboarding-app
 owner_area: admin-web
 audience: operator, developer
-last_verified: 2026-04-25
-source_of_truth: web/src/app/dashboard/page.tsx + web/src/app/dashboard/profile/[id]/page.tsx + web/src/app/api/admin/fc/route.ts + web/src/lib/shared.ts
+last_verified: 2026-06-08
+source_of_truth: web/src/app/dashboard/page.tsx + web/src/app/dashboard/profile/[id]/page.tsx + web/src/app/api/admin/fc/route.ts + web/src/app/api/admin/list/route.ts + web/src/lib/dashboard-table-display.ts + web/src/lib/shared.ts
 
 # Admin Web Playbook: Dashboard Lifecycle
 
@@ -60,6 +60,7 @@ source_of_truth: web/src/app/dashboard/page.tsx + web/src/app/dashboard/profile/
 - FC 상세 모달과 `/dashboard/profile/[id]`는 `추천인` 아래에 invitee의 `가입 시 사용한 추천코드`를 함께 표시한다. confirmed attribution의 historical code가 우선이고, 그것이 없을 때만 inviter 현재 활성 코드 또는 구조화 링크 fallback을 사용하며, 모두 없으면 `-`로 유지한다.
 - temp-id, allowance, docs, hanwha, appointment, commission flag가 서로 상태 합성에 영향
 - 대시보드 상단 KPI 카드는 별도 summary table이 아니라 `/api/admin/list`로 받은 FC 배열을 client에서 다시 집계한다. `총 인원`은 디자이너를 제외한 `signup_completed` FC 수이며 하단 문구는 `가입 완료 FC 현황`으로 맞춘다.
+- `/dashboard` FC 목록 테이블 컬럼은 `web/src/lib/dashboard-table-display.ts`의 `DASHBOARD_FC_LIST_COLUMNS`를 기준으로 렌더링한다. `가입일`은 `/api/admin/list`가 `fc_credentials.password_set_at`을 우선 사용하고 없으면 `created_at`으로 보정한 `signup_completed_at`을 내려준다.
 - `보증 보험 동의 승인 대기` 카드는 raw `status === allowance-pending` 전체가 아니라, workflow step 1에 있으면서 `getAllowanceDisplayState` 기준 `entered` 또는 `prescreen` 상태인 FC만 센다. 반려(`rejected`)나 미입력(`missing`)은 `승인 필요`로 보지 않는다.
 - `서류검토 대기` 카드는 workflow step 2에 있으면서 `getDocProgress`가 `in-progress`인 FC만 센다. 즉 실제 업로드가 있어 검토가 필요한 건만 포함하고, `docs-requested`(업로드 전)나 `rejected`(재제출 대기)는 제외한다.
 - 보증 보험 동의 탭은 상단 `상태 흐름`을 `임시사번`보다 먼저 배치해 현재 파생 상태를 먼저 읽게 하고, 현재 카드만 연한 주황색으로 강조한다.

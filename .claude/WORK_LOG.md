@@ -17,6 +17,19 @@
 - ⚠️ 상태값(`types/fc.ts`)과 화면 분기 조건은 반드시 함께 수정
 - ⚠️ 스키마 변경은 `schema.sql` + `migrations/*.sql` 동시 관리
 
+## 2026-06-08
+
+| 날짜 | 작업 | 주요 파일 | 상세 |
+|---|---|---|---|
+| 06-08 | legacy `/exam/apply` 응시자 관리 페이지가 예전 컬럼 순서를 렌더링하던 중복 route를 canonical 시험 신청자 관리 화면으로 redirect 처리하고 재배포 | `web/src/app/exam/apply/page.tsx`, `web/src/lib/exam-applicant-list-display.test.ts`, `.claude/MISTAKES.md` | [→ 상세](WORK_DETAIL.md#20260608-admin-exam-legacy-apply-route-redirect) |
+| 06-08 | 게시판 카테고리 `가람pick` 표시명을 `상품추천`으로 변경하고 `시책` 카테고리를 추가해 DB/Edge Function/admin web까지 배포 | `supabase/schema.sql`, `supabase/migrations/20260608000001_update_board_categories_product_recommendation_policy.sql`, `supabase/functions/_shared/board-categories.ts`, `app/board.tsx`, `app/admin-board-manage.tsx`, `web/src/app/dashboard/board/page.tsx` | [→ 상세](WORK_DETAIL.md#20260608-board-product-recommendation-policy-category) |
+| 06-08 | 회차별 `응시자 관리` 화면도 시험자 명단 엑셀 컬럼 순서를 쓰도록 서버 API/공용 컬럼 계약으로 통일하고 production 재배포 | `web/src/app/admin/exams/[id]/page.tsx`, `web/src/app/api/admin/exam-applicants/route.ts`, `web/src/lib/exam-applicant-list-display.ts`, `.claude/MISTAKES.md` | [→ 상세](WORK_DETAIL.md#20260608-admin-exam-round-applicant-column-parity) |
+| 06-08 | 홈 `앱 사용법 안내 시작하기` play 배지의 Android 검정 원 회귀를 vector/elevation 제거로 차단 | `app/index.tsx`, `lib/home-guide-ui.ts`, `lib/__tests__/home-guide-ui.test.ts`, `.claude/MISTAKES.md` | [→ 상세](WORK_DETAIL.md#20260608-home-guide-play-badge-black-fallback) |
+| 06-08 | 관리자 웹 시험자 명단 컬럼을 엑셀 샘플 순서로 정렬하고 `신규신청/재신청` 계산, CSV 다운로드, production 배포까지 완료 | `web/src/app/dashboard/exam/applicants/page.tsx`, `web/src/app/api/admin/exam-applicants/route.ts`, `web/src/lib/exam-applicant-list-display.ts` | [→ 상세](WORK_DETAIL.md#20260608-admin-exam-applicant-workbook-columns) |
+| 06-08 | 추천코드 공유 문구가 `/referral`과 `/settings`에서 다르게 나가던 문제를 공용 HTTPS invite 문구 builder로 통일 | `app/settings.tsx`, `lib/referral-share.ts`, `lib/__tests__/referral-share.test.ts`, `docs/referral-system/*`, `.claude/MISTAKES.md` | [→ 상세](WORK_DETAIL.md#20260608-referral-share-copy-parity) |
+| 06-08 | 총무/본부장 게시판 관리 화면에도 FC 게시판과 같은 글 종류 필터와 정렬 버튼을 노출하고 목록 요청에 연결 | `app/admin-board-manage.tsx`, `app/board.tsx`, `lib/board-list-query.ts`, `docs/handbook/mobile/messenger-and-content.md`, `.claude/MISTAKES.md` | [→ 상세](WORK_DETAIL.md#20260608-admin-board-category-filter-parity) |
+| 06-08 | 가람Link 세션/브릿지 실패가 `데이터 로드 실패` 같은 일반 문구로 보이지 않도록 설계요청 관련 Alert/오류 배너 안내를 재로그인 안내로 정규화 | `lib/request-board-session-error.ts`, `app/request-board*.tsx`, `docs/handbook/mobile/request-board-bridge.md`, `.claude/MISTAKES.md` | [→ 상세](WORK_DETAIL.md#20260608-request-board-session-error-copy) |
+
 ## 2026-06-07
 
 | 날짜 | 작업 | 주요 파일 | 상세 |
@@ -39,6 +52,10 @@
 ## 최근 작업
 | 날짜 | 작업 | 핵심 파일 | 상세 |
 |------|------|----------|------|
+| 06-08 | 홈 `앱 사용법 안내 시작하기` play 배지의 Android 검정 원 회귀를 vector/elevation 제거로 차단 | `app/index.tsx`, `lib/home-guide-ui.ts`, `lib/__tests__/home-guide-ui.test.ts`, `.claude/MISTAKES.md` | [→ 상세](WORK_DETAIL.md#20260608-home-guide-play-badge-black-fallback) |
+| 06-08 | 관리자 웹 시험자 명단 컬럼을 엑셀 샘플 순서로 정렬하고 `신규신청/재신청` 계산, CSV 다운로드, production 배포까지 완료 | `web/src/app/dashboard/exam/applicants/page.tsx`, `web/src/app/api/admin/exam-applicants/route.ts`, `web/src/lib/exam-applicant-list-display.ts` | [→ 상세](WORK_DETAIL.md#20260608-admin-exam-applicant-workbook-columns) |
+| 06-08 | 추천코드 공유 문구가 `/referral`과 `/settings`에서 다르게 나가던 문제를 공용 HTTPS invite 문구 builder로 통일 | `app/settings.tsx`, `lib/referral-share.ts`, `lib/__tests__/referral-share.test.ts`, `docs/referral-system/*`, `.claude/MISTAKES.md` | [→ 상세](WORK_DETAIL.md#20260608-referral-share-copy-parity) |
+| 06-08 | 총무/본부장 게시판 관리 화면에도 FC 게시판과 같은 글 종류 필터와 정렬 버튼을 노출하고 목록 요청에 연결 | `app/admin-board-manage.tsx`, `app/board.tsx`, `lib/board-list-query.ts`, `docs/handbook/mobile/messenger-and-content.md`, `.claude/MISTAKES.md` | [→ 상세](WORK_DETAIL.md#20260608-admin-board-category-filter-parity) |
 | 06-07 | 설계요청 목록 응답에 거절 사유가 빠질 때 상세 API로 보강해 목록 카드 사유 표시가 실제 데이터에서도 동작하도록 수정 | `app/request-board-requests.tsx`, `lib/request-board-rejection-summary.ts`, `lib/request-board-api.ts`, `.claude/MISTAKES.md` | [→ 상세](WORK_DETAIL.md#20260607-request-board-list-rejection-reason-hydration) |
 | 06-07 | 설계요청 목록 카드에 설계매니저 거절 사유 요약을 표시하고 긴 사유는 2줄 말줄임으로 제한 | `app/request-board-requests.tsx`, `lib/request-board-rejection-summary.ts`, `lib/__tests__/request-board-rejection-summary.test.ts`, `lib/__tests__/request-board-mobile-ui-contract.test.ts` | [→ 상세](WORK_DETAIL.md#20260607-request-board-list-rejection-reason-summary) |
 | 06-07 | 설계요청 거절 사유 입력 모달이 Android 키보드에 가려지는 문제를 키보드 회피 바텀시트로 수정 | `app/request-board.tsx`, `app/request-board-review.tsx`, `lib/__tests__/request-board-review-role.contract.test.ts`, `lib/__tests__/request-board-mobile-ui-contract.test.ts`, `.claude/MISTAKES.md` | [→ 상세](WORK_DETAIL.md#20260607-request-board-reject-modal-keyboard-avoidance) |

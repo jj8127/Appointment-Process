@@ -41,6 +41,7 @@ import {
   getDesignerRequestDetailActions,
   normalizeDesignerRejectReason,
 } from '@/lib/request-board-review-actions';
+import { toRequestBoardSessionErrorMessage } from '@/lib/request-board-session-error';
 import { safeDecodeFileName } from '@/lib/validation';
 
 /* ─── Helpers ─── */
@@ -198,9 +199,7 @@ export default function RequestBoardReviewScreen() {
     } catch (err) {
       logger.warn('[review] fetch failed', err);
       setFetchError(
-        err instanceof Error && err.message
-          ? err.message
-          : '의뢰 정보를 불러오는데 실패했습니다.',
+        toRequestBoardSessionErrorMessage(err, '의뢰 정보를 불러오는데 실패했습니다.'),
       );
     } finally {
       setLoading(false);
@@ -233,11 +232,14 @@ export default function RequestBoardReviewScreen() {
                 Alert.alert('승인 완료', '설계가 승인되었습니다.');
                 await fetchData();
               } else {
-                Alert.alert('오류', res.error ?? '승인 처리 중 오류가 발생했습니다.');
+                Alert.alert(
+                  '오류',
+                  toRequestBoardSessionErrorMessage(res.error, '승인 처리 중 오류가 발생했습니다.'),
+                );
               }
             } catch (err) {
               logger.warn('[review] approve failed', err);
-              Alert.alert('오류', '승인 처리 중 오류가 발생했습니다.');
+              Alert.alert('오류', toRequestBoardSessionErrorMessage(err, '승인 처리 중 오류가 발생했습니다.'));
             } finally {
               setSubmitting(false);
             }
@@ -268,11 +270,11 @@ export default function RequestBoardReviewScreen() {
         Alert.alert('거절 완료', '설계가 거절되었습니다.');
         await fetchData();
       } else {
-        Alert.alert('오류', res.error ?? '거절 처리 중 오류가 발생했습니다.');
+        Alert.alert('오류', toRequestBoardSessionErrorMessage(res.error, '거절 처리 중 오류가 발생했습니다.'));
       }
     } catch (err) {
       logger.warn('[review] reject failed', err);
-      Alert.alert('오류', '거절 처리 중 오류가 발생했습니다.');
+      Alert.alert('오류', toRequestBoardSessionErrorMessage(err, '거절 처리 중 오류가 발생했습니다.'));
     } finally {
       setSubmitting(false);
     }
@@ -298,11 +300,14 @@ export default function RequestBoardReviewScreen() {
               Alert.alert('수락 완료', '의뢰를 수락했습니다.');
               await fetchData();
             } else {
-              Alert.alert('수락 실패', res.error ?? res.message ?? '수락 처리 중 오류가 발생했습니다.');
+              Alert.alert(
+                '수락 실패',
+                toRequestBoardSessionErrorMessage(res.error ?? res.message, '수락 처리 중 오류가 발생했습니다.'),
+              );
             }
           } catch (err) {
             logger.warn('[review] designer accept request failed', err);
-            Alert.alert('수락 실패', '수락 처리 중 오류가 발생했습니다.');
+            Alert.alert('수락 실패', toRequestBoardSessionErrorMessage(err, '수락 처리 중 오류가 발생했습니다.'));
           } finally {
             setSubmitting(false);
           }
@@ -353,11 +358,14 @@ export default function RequestBoardReviewScreen() {
         Alert.alert('거절 완료', '의뢰를 거절했습니다.');
         await fetchData();
       } else {
-        Alert.alert('거절 실패', res.error ?? res.message ?? '거절 처리 중 오류가 발생했습니다.');
+        Alert.alert(
+          '거절 실패',
+          toRequestBoardSessionErrorMessage(res.error ?? res.message, '거절 처리 중 오류가 발생했습니다.'),
+        );
       }
     } catch (err) {
       logger.warn('[review] designer reject request failed', err);
-      Alert.alert('거절 실패', '거절 처리 중 오류가 발생했습니다.');
+      Alert.alert('거절 실패', toRequestBoardSessionErrorMessage(err, '거절 처리 중 오류가 발생했습니다.'));
     } finally {
       setSubmitting(false);
     }
@@ -399,11 +407,11 @@ export default function RequestBoardReviewScreen() {
         Alert.alert('첨부 완료', '설계 파일을 첨부했습니다.');
         await fetchData();
       } else {
-        Alert.alert('첨부 실패', res.error ?? '첨부파일 업로드에 실패했습니다.');
+        Alert.alert('첨부 실패', toRequestBoardSessionErrorMessage(res.error, '첨부파일 업로드에 실패했습니다.'));
       }
     } catch (err) {
       logger.warn('[review] designer attachment upload failed', err);
-      Alert.alert('첨부 실패', '첨부파일 업로드 중 오류가 발생했습니다.');
+      Alert.alert('첨부 실패', toRequestBoardSessionErrorMessage(err, '첨부파일 업로드 중 오류가 발생했습니다.'));
     } finally {
       setSubmitting(false);
     }
@@ -430,11 +438,14 @@ export default function RequestBoardReviewScreen() {
                 Alert.alert('완료 처리됨', '의뢰가 완료 상태로 전환되었습니다.');
                 await fetchData();
               } else {
-                Alert.alert('완료 실패', res.error ?? '완료 처리 중 오류가 발생했습니다.');
+                Alert.alert(
+                  '완료 실패',
+                  toRequestBoardSessionErrorMessage(res.error, '완료 처리 중 오류가 발생했습니다.'),
+                );
               }
             } catch (err) {
               logger.warn('[review] designer complete failed', err);
-              Alert.alert('완료 실패', '완료 처리 중 오류가 발생했습니다.');
+              Alert.alert('완료 실패', toRequestBoardSessionErrorMessage(err, '완료 처리 중 오류가 발생했습니다.'));
             } finally {
               setSubmitting(false);
             }

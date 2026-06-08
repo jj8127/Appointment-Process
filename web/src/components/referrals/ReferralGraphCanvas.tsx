@@ -14,13 +14,11 @@ import {
   buildReferralGraphAdjacency,
 } from '@/lib/referral-graph-interaction';
 import {
-  applyReferralGraphDragSpring,
   createReferralGraphBranchBendForce,
   createReferralGraphComponentCohesionForce,
   createReferralGraphComponentEnvelopeForce,
   createReferralGraphClusterGravityForce,
   createReferralGraphClusterSeparationForce,
-  createReferralGraphDragSpringForce,
   createReferralGraphEdgeCrossingForce,
   createReferralGraphLayoutMemoryForce,
   createReferralGraphLinkTensionForce,
@@ -638,11 +636,11 @@ export function ReferralGraphCanvas({
       'layout-memory',
       createReferralGraphLayoutMemoryForce<RuntimeGraphNode>(
         componentLayout.nodeAnchorPositions,
-        Math.max(0.042, physics.layoutMemoryStrength * 0.58),
+        Math.min(0.04, Math.max(0.014, physics.layoutMemoryStrength * 0.24)),
         {
           activeDraggedNodeIdRef: draggedNodeIdRef,
-          maxTicks: 900,
-          minimumAnchorRatio: 0.45,
+          maxTicks: 180,
+          minimumAnchorRatio: 0,
           manualNodeTargetsRef: userMovedNodeTargetsRef,
           nodeComponentIndex: componentLayout.nodeComponentIndex,
           suppressedNodeIdsRef: dragMemorySuppressedNodeIdsRef,
@@ -765,27 +763,7 @@ export function ReferralGraphCanvas({
     );
     fg.d3Force('radial-containment', null);
     fg.d3Force('isolated-ring', null);
-    fg.d3Force(
-      'drag-spring',
-      createReferralGraphDragSpringForce<RuntimeGraphNode>(
-        draggedNodeIdRef,
-        runtimeNodeMapRef,
-        graphData.links,
-        {
-          baseLinkDistance: physics.linkDistance,
-          childCountByNodeId: graphChildCountByNodeId,
-          constraintStrength: 0.18,
-          degreeByNodeId: graphDegreeByNodeId,
-          graphNodeCount: graphData.nodes.length,
-          maxVelocity: 90,
-          preventStretch: true,
-          stretchSlack: 8,
-          strength: 0.9,
-          subtreeSizeByNodeId: componentLayout.directedSubtreeSizes,
-          velocityDamping: 0.6,
-        },
-      ),
-    );
+    fg.d3Force('drag-spring', null);
 
     fg.d3Force('center', null);
     fg.d3Force('cluster-separation', null);
@@ -1266,21 +1244,8 @@ export function ReferralGraphCanvas({
         ...userMovedNodeIdsRef.current,
         node.id,
       ]);
-      applyReferralGraphDragSpring(node, runtimeNodeMapRef.current, graphData.links, {
-        baseLinkDistance: physics.linkDistance,
-        childCountByNodeId: graphChildCountByNodeId,
-        constraintStrength: 0.42,
-        degreeByNodeId: graphDegreeByNodeId,
-        graphNodeCount: graphData.nodes.length,
-        maxVelocity: 42,
-        preventStretch: true,
-        stretchSlack: 18,
-        strength: 0.52,
-        subtreeSizeByNodeId: componentLayout.directedSubtreeSizes,
-        velocityDamping: 0.76,
-      });
     }
-  }, [cancelPanMomentum, componentLayout.directedSubtreeSizes, graphChildCountByNodeId, graphData.links, graphData.nodes.length, graphDegreeByNodeId, physics.linkDistance]);
+  }, [cancelPanMomentum]);
 
   const handleNodeDragEnd = useCallback((rawNode: FGNode, translate?: ReferralGraphDragTranslation) => {
     const node = rawNode as RuntimeGraphNode;

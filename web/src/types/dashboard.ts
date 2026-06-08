@@ -30,6 +30,7 @@ export interface FCProfileWithDocuments extends FcProfile {
   fc_documents?: FCDocument[];
   appointment_date_life_sub?: string | null;
   appointment_date_nonlife_sub?: string | null;
+  signup_completed_at?: string | null;
   step?: number; // Calculated workflow step (1-5)
   adminStep?: number; // Admin view step (0-4)
 }

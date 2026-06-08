@@ -397,91 +397,6 @@ export function applyReferralGraphDragSpring<T extends ReferralGraphLayoutMemory
   }
 
   if (options.preventStretch) {
-    const anchoredNodeIds = new Set<string>([draggedNode.id]);
-    const constraintStrength = clamp(options.constraintStrength ?? 1, 0, 1);
-    const stretchSlack = Math.max(0, options.stretchSlack ?? 0);
-    const velocityDamping = clamp(options.velocityDamping ?? (0.15 + constraintStrength * 0.55), 0, 0.95);
-    const maxPasses = Math.min(Math.max(nodesById.size, 1), 96);
-
-    for (let passIndex = 0; passIndex < maxPasses; passIndex += 1) {
-      let movedFollower = false;
-
-      for (const link of links) {
-        const sourceId = getLinkEndpointId(link.source);
-        const targetId = getLinkEndpointId(link.target);
-        const sourceAnchored = anchoredNodeIds.has(sourceId);
-        const targetAnchored = anchoredNodeIds.has(targetId);
-
-        if (sourceAnchored === targetAnchored) {
-          continue;
-        }
-
-        const anchorId = sourceAnchored ? sourceId : targetId;
-        const followerId = sourceAnchored ? targetId : sourceId;
-        const anchor = nodesById.get(anchorId);
-        const follower = nodesById.get(followerId);
-
-        if (
-          !anchor
-          || !follower
-          || follower.fx != null
-          || follower.fy != null
-          || !hasFiniteCoordinate(anchor.x)
-          || !hasFiniteCoordinate(anchor.y)
-          || !hasFiniteCoordinate(follower.x)
-          || !hasFiniteCoordinate(follower.y)
-        ) {
-          continue;
-        }
-
-        const dx = anchor.x - follower.x;
-        const dy = anchor.y - follower.y;
-        const distance = Math.hypot(dx, dy) || 1;
-        const targetDistance = getReferralGraphLinkDistance(
-          options.degreeByNodeId.get(sourceId) ?? 1,
-          options.degreeByNodeId.get(targetId) ?? 1,
-          options.baseLinkDistance,
-          {
-            sourceHasChildren: (options.childCountByNodeId.get(sourceId) ?? 0) > 0,
-            sourceId,
-            targetHasChildren: (options.childCountByNodeId.get(targetId) ?? 0) > 0,
-            targetId,
-            sourceChildCount: options.childCountByNodeId.get(sourceId) ?? 0,
-            targetChildCount: options.childCountByNodeId.get(targetId) ?? 0,
-            sourceSubtreeSize: options.subtreeSizeByNodeId?.get(sourceId) ?? 1,
-            targetSubtreeSize: options.subtreeSizeByNodeId?.get(targetId) ?? 1,
-            graphNodeCount: options.graphNodeCount,
-          },
-        );
-
-        const allowedDistance = targetDistance + stretchSlack;
-        if (distance <= allowedDistance) {
-          continue;
-        }
-
-        const unitX = dx / distance;
-        const unitY = dy / distance;
-        const correctedDistance = distance - (distance - allowedDistance) * constraintStrength;
-        follower.x = anchor.x - unitX * correctedDistance;
-        follower.y = anchor.y - unitY * correctedDistance;
-
-        const velocityX = follower.vx ?? 0;
-        const velocityY = follower.vy ?? 0;
-        const velocityTowardAnchor = velocityX * unitX + velocityY * unitY;
-        const radialVelocityX = velocityTowardAnchor < 0 ? unitX * velocityTowardAnchor : 0;
-        const radialVelocityY = velocityTowardAnchor < 0 ? unitY * velocityTowardAnchor : 0;
-        follower.vx = (velocityX - radialVelocityX) * (1 - velocityDamping);
-        follower.vy = (velocityY - radialVelocityY) * (1 - velocityDamping);
-
-        anchoredNodeIds.add(followerId);
-        movedFollower = true;
-      }
-
-      if (!movedFollower) {
-        break;
-      }
-    }
-
     return;
   }
 
@@ -1934,7 +1849,7 @@ export function createReferralGraphLayoutMemoryForce<T extends ReferralGraphLayo
         continue;
       }
 
-      if (!manualTarget && anchorAgeRatio <= 0) {
+      if (anchorAgeRatio <= 0) {
         continue;
       }
 
@@ -1947,9 +1862,9 @@ export function createReferralGraphLayoutMemoryForce<T extends ReferralGraphLayo
       }
 
       const effectiveStrength = clamp(
-        manualTarget ? strength * 0.35 : strength * anchorAgeRatio,
+        (manualTarget ? strength * 0.28 : strength) * anchorAgeRatio,
         0,
-        manualTarget ? 0.035 : 0.08,
+        manualTarget ? 0.024 : 0.08,
       );
       if (effectiveStrength <= 0) {
         continue;

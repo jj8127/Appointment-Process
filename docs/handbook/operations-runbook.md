@@ -28,7 +28,7 @@ source_of_truth: web/src/app/api/* + supabase/functions/* + data/*
   - `BOARD_AUTOMATION_ACTOR_PHONE`
   - `BOARD_AUTOMATION_ACTOR_NAME`
 - 스크립트는 위 값이 process env에 없으면 repo `.env` / `.env.local`을 읽고 `NEXT_PUBLIC_SUPABASE_*` 또는 `EXPO_PUBLIC_SUPABASE_*`, `NEXT_PUBLIC_ADMIN_PHONES` 또는 `EXPO_PUBLIC_ADMIN_PHONES`에서 fallback을 구성한다.
-- 게시판 글 종류는 고정 4종 중 `일반`(`general`)을 사용한다. 없으면 스크립트가 admin actor로 생성한다.
+- 게시판 글 종류는 고정 5종 중 `일반`(`general`)을 사용한다. 없으면 스크립트가 admin actor로 생성한다.
 - 정기 자동화는 매주 월요일에 지난주 월요일~일요일(KST) 보험 이슈를 정리해 게시한다.
 - 같은 KST 날짜의 `보험소식 브리핑 YYYY.MM.DD` 제목이 이미 있으면 게시를 건너뛴다.
 - 게시는 기존 `board-create` Edge Function을 통해 수행하므로 게시판 알림/푸시 fanout 계약을 우회하지 않는다.

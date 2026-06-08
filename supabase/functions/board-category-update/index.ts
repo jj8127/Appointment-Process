@@ -64,7 +64,7 @@ serve(async (req: Request) => {
     name: body.name,
   });
   if (!canonicalCategory) {
-    return json({ ok: false, code: 'invalid_category', message: 'board category must be one of the canonical four types' }, 400, origin);
+    return json({ ok: false, code: 'invalid_category', message: 'board category must be one of the canonical categories' }, 400, origin);
   }
   if (body.sortOrder !== undefined && body.sortOrder !== canonicalCategory.sortOrder) {
     return json({ ok: false, code: 'invalid_category', message: 'canonical board category sortOrder cannot be changed' }, 400, origin);

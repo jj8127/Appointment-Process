@@ -36,6 +36,7 @@ source_of_truth: app/messenger.tsx + app/chat.tsx + app/board*.tsx + app/notice*
 
 - internal unread와 GaramLink unread가 함께 보일 수 있음
 - 게시판 공지는 legacy notice와 board notice가 동시에 존재할 수 있음
+- `board`와 `admin-board-manage` 목록은 같은 게시글 종류 필터(`전체`, `공지`, `교육 일정`, `일반`, `가람pick`)와 정렬 옵션을 제공해야 하며, 총무/본부장 화면에서 필터 UI가 빠지면 회귀로 본다.
 - optimistic send가 적용된 화면과 아닌 화면을 혼동하지 않음
 
 ## 연관 문서

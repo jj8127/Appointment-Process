@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 
 import {
+  applyExamApplicantApplicationTypes,
   buildExamApplicantBaseRows,
   buildExamApplicantPhoneCandidates,
   buildExamApplicantProfileMatchPlan,
@@ -15,6 +16,7 @@ test('exam applicant base rows keep current response defaults', () => {
       id: 'reg-1',
       status: 'applied',
       created_at: '2026-05-01T00:00:00.000Z',
+      round_id: null,
       resident_id: '01012345678',
       is_confirmed: false,
       is_third_exam: null,
@@ -26,6 +28,7 @@ test('exam applicant base rows keep current response defaults', () => {
       id: 'reg-2',
       status: 'confirmed',
       created_at: '2026-05-02T00:00:00.000Z',
+      round_id: 'round-2',
       resident_id: '010-9999-0000',
       is_confirmed: true,
       is_third_exam: true,
@@ -44,9 +47,11 @@ test('exam applicant base rows keep current response defaults', () => {
       id: 'reg-1',
       status: 'applied',
       created_at: '2026-05-01T00:00:00.000Z',
+      round_id: null,
       resident_id: '01012345678',
       is_confirmed: false,
       is_third_exam: false,
+      application_type: '신규신청',
       location_name: '미정',
       round_label: '-',
       exam_date: null,
@@ -57,9 +62,11 @@ test('exam applicant base rows keep current response defaults', () => {
       id: 'reg-2',
       status: 'confirmed',
       created_at: '2026-05-02T00:00:00.000Z',
+      round_id: 'round-2',
       resident_id: '010-9999-0000',
       is_confirmed: true,
       is_third_exam: true,
+      application_type: '신규신청',
       location_name: '서울',
       round_label: '1차',
       exam_date: '2026-06-01',
@@ -67,6 +74,67 @@ test('exam applicant base rows keep current response defaults', () => {
       fee_paid_date: '2026-05-03',
     },
   ]);
+});
+
+test('exam applicant application type marks later same-subject registration as re-application', () => {
+  const rows = buildExamApplicantBaseRows([
+    {
+      id: 'reg-new-life',
+      status: 'applied',
+      created_at: '2026-06-01T00:00:00.000Z',
+      resident_id: '01012345678',
+      is_confirmed: false,
+      is_third_exam: false,
+      fee_paid_date: null,
+      exam_locations: { location_name: '서울' },
+      exam_rounds: { round_label: '공통 7차', exam_date: '2026-06-17', exam_type: 'life' },
+    },
+    {
+      id: 'reg-retry-life',
+      status: 'applied',
+      created_at: '2026-06-02T00:00:00.000Z',
+      resident_id: '010-1234-5678',
+      is_confirmed: false,
+      is_third_exam: false,
+      fee_paid_date: null,
+      exam_locations: { location_name: '부산' },
+      exam_rounds: { round_label: '공통 8차', exam_date: '2026-06-18', exam_type: 'life' },
+    },
+    {
+      id: 'reg-new-life-third',
+      status: 'applied',
+      created_at: '2026-06-03T00:00:00.000Z',
+      resident_id: '01012345678',
+      is_confirmed: false,
+      is_third_exam: true,
+      fee_paid_date: null,
+      exam_locations: { location_name: '서울' },
+      exam_rounds: { round_label: '공통 9차', exam_date: '2026-06-19', exam_type: 'life' },
+    },
+    {
+      id: 'reg-new-nonlife',
+      status: 'applied',
+      created_at: '2026-06-04T00:00:00.000Z',
+      resident_id: '01012345678',
+      is_confirmed: false,
+      is_third_exam: false,
+      fee_paid_date: null,
+      exam_locations: { location_name: '서울' },
+      exam_rounds: { round_label: '손해 1차', exam_date: '2026-06-20', exam_type: 'nonlife' },
+    },
+  ]);
+
+  const withTypes = applyExamApplicantApplicationTypes(rows);
+
+  assert.deepStrictEqual(
+    withTypes.map((row) => [row.id, row.application_type]),
+    [
+      ['reg-new-life', '신규신청'],
+      ['reg-retry-life', '재신청'],
+      ['reg-new-life-third', '신규신청'],
+      ['reg-new-nonlife', '신규신청'],
+    ],
+  );
 });
 
 test('exam applicant profile lookup uses current phone candidate aliases and de-dupes reads', () => {

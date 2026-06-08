@@ -8,11 +8,18 @@ describe('formatLatestNoticeLabel', () => {
     })).toBe('보험소식: 보험소식 브리핑 2026.05.17');
   });
 
-  it('uses GaramPick category label for GaramPick board posts', () => {
+  it('uses product recommendation label for product recommendation board posts', () => {
+    expect(formatLatestNoticeLabel({
+      title: '뇌혈관 진단비 판매 플랜(26.06.05)',
+      category: '상품추천',
+    })).toBe('상품추천: 뇌혈관 진단비 판매 플랜(26.06.05)');
+  });
+
+  it('maps legacy GaramPick category label to product recommendation copy', () => {
     expect(formatLatestNoticeLabel({
       title: '뇌혈관 진단비 판매 플랜(26.06.05)',
       category: '가람 Pick',
-    })).toBe('가람pick: 뇌혈관 진단비 판매 플랜(26.06.05)');
+    })).toBe('상품추천: 뇌혈관 진단비 판매 플랜(26.06.05)');
   });
 
   it('falls back to notice label for regular notices', () => {

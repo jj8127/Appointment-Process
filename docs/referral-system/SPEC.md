@@ -92,6 +92,7 @@
 5. 회원가입 화면이 pending code를 1회 소비해 추천인 검색 입력 query로 자동 채우고 결과를 조회한다.
 6. 가입 완료 시 `set-password`가 추천 관계를 확정한다.
 7. 공유 메시지는 `EXPO_PUBLIC_INVITE_BASE_URL`가 있으면 HTTPS invite URL을 포함하고, iOS 설치 fallback은 `EXPO_PUBLIC_APP_STORE_URL`가 설정된 경우 direct App Store URL을 사용한다. 값이 없으면 `App Store에서 "가람in" 검색` 안내로 degrade한다.
+8. 앱의 모든 추천코드 공유 진입점(`/referral`, `/settings`)은 `lib/referral-share.ts`의 동일한 공유 문구 builder를 사용해야 한다. 사용자에게 공유되는 문구에는 direct `hanwhafcpass://signup?...` 링크를 직접 노출하지 않고 HTTPS invite URL을 노출한다.
 
 - 현재 앱 deep link 계약은 `hanwhafcpass://signup?code=<referral_code>`다.
 - cold start에서는 pending code만 저장하고, warm start에서만 `/signup` 이동을 추가로 수행한다.

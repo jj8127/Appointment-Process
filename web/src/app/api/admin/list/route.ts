@@ -1,5 +1,6 @@
 import { adminSupabase } from '@/lib/admin-supabase';
 import { validateSession } from '@/lib/csrf';
+import { normalizeDashboardFcListRow } from '@/lib/dashboard-table-display';
 import { logger } from '@/lib/logger';
 import { cookies } from 'next/headers';
 import { NextResponse } from 'next/server';
@@ -85,7 +86,7 @@ export async function GET() {
     try {
         const { data, error } = await adminSupabase
             .from('fc_profiles')
-            .select('*, appointment_date_life_sub, appointment_date_nonlife_sub, fc_documents(doc_type,storage_path,file_name,status,reviewer_note)')
+            .select('*, appointment_date_life_sub, appointment_date_nonlife_sub, fc_credentials(password_set_at), fc_documents(doc_type,storage_path,file_name,status,reviewer_note)')
             .eq('signup_completed', true)
             .order('created_at', { ascending: false });
 
@@ -97,7 +98,7 @@ export async function GET() {
                 return !affiliation.includes(DESIGNER_MARKER);
             })
             .map((row) => ({
-                ...row,
+                ...normalizeDashboardFcListRow(row),
                 affiliation: normalizeAffiliationLabel(row?.affiliation),
             }));
 

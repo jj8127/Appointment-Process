@@ -1,4 +1,54 @@
-﻿# Increment 35: Request Board Designer Notification Scope
+﻿# Increment 55: Admin Exam Legacy Apply Route Redirect
+
+Status: completed and deployed on 2026-06-08.
+
+What changed:
+
+- Legacy admin web `/exam/apply` no longer renders the stale applicant table.
+- It redirects to the canonical `/dashboard/exam/applicants` screen, which uses the workbook-order applicant column contract.
+- `web/src/lib/exam-applicant-list-display.test.ts` now guards the legacy route against reintroducing the old `이름/연락처/신청일시` table.
+
+Evidence:
+
+- Production pre-fix check showed `/dashboard/exam/applicants` and `/admin/exams/[id]` route chunks already used the new columns.
+- Production pre-fix check found the stale source in `web/src/app/exam/apply/page.tsx`.
+- RED/GREEN: `node --test web/src/lib/exam-applicant-list-display.test.ts`.
+- Targeted web ESLint passed.
+- `cd web; SENTRY_AUTH_TOKEN='' npm run build` passed.
+- `cd web; npx tsc --noEmit --pretty false` has existing test `.ts` import failures unrelated to this change.
+- Vercel production deploy is Ready at `https://admin-m71a2lq31-jun-jeongs-projects.vercel.app`, alias `https://adminweb-red.vercel.app`.
+- Post-deploy `/exam/apply` check returns `307 Location: /dashboard/exam/applicants`.
+- Post-deploy canonical chunks for `/dashboard/exam/applicants` and `/admin/exams/[id]` contain the new columns and not the old `신청일시`/`연락처` signals.
+
+Next:
+
+- No remaining work for this increment.
+
+---
+
+# Increment 56: Exam Applicant Top Exam Filters
+
+Status: completed locally on 2026-06-08.
+
+What changed:
+
+- `/dashboard/exam/applicants` now has top-level `시험 종류` and `시험 회차` filters above the stats/cards.
+- Subject options are generated from the current applicant rows, and round options narrow to the selected subject.
+- Invalid round selections fall back to `전체` when the subject/data no longer contains that round.
+- Filtered stats and CSV export continue to use `filteredRows`.
+
+Evidence:
+
+- `node --test web/src/lib/exam-applicant-list-display.test.ts` passed.
+- `cd web; npm run lint -- src/app/dashboard/exam/applicants/page.tsx src/lib/exam-applicant-list-display.ts src/lib/exam-applicant-list-display.test.ts` passed.
+
+Next:
+
+- Runtime browser smoke with 총무 and 본부장 sessions remains a deployment/manual QA follow-up.
+
+---
+
+# Increment 35: Request Board Designer Notification Scope
 
 Status: completed locally on 2026-06-05.
 
@@ -1403,5 +1453,229 @@ Known notes:
 
 - ADB did not list the emulator/device during verification, so no runtime screenshot was captured.
 - This change is not committed or pushed.
+
+---
+
+## Increment 48 Handoff
+
+Status: completed locally on 2026-06-08.
+
+What changed:
+
+- Added `lib/request-board-session-error.ts` and tests for GaramLink session/bridge error copy normalization.
+- Request-board create, FC code management, request list, detail/review, home stats/actions, and messenger auth/upload error surfaces now pass session/bridge failures through the helper.
+- The user-facing message is: `가람Link 연동 세션이 만료되었거나 연결 정보가 갱신되지 않았습니다. 앱에서 다시 로그인한 뒤 설계요청을 다시 열어주세요.`
+- Role-not-applicable messages stay specific and are not rewritten as re-login guidance.
+
+Evidence:
+
+- RED/GREEN session error copy test passed.
+- Focused request-board session/user-facing error tests passed.
+- Targeted ESLint and root TypeScript checks passed.
+
+Known notes:
+
+- No re-login button was added by request.
+- No live 김태희 본부장 device validation was performed.
+- This change is not committed or pushed.
+
+---
+# Increment 49: Admin Board Category Filter Parity
+
+Status: completed locally on 2026-06-08.
+
+What changed:
+
+- `lib/board-list-query.ts` now owns board list query keys, fetch params, and sort labels.
+- `app/board.tsx` uses the shared helper for its existing FC category/sort/search list query.
+- `app/admin-board-manage.tsx` now shows the same category filter row and sort menu as FC board users.
+- Admin and manager actors now pass selected `categoryId`, `sort`, and submitted `search` into `fetchBoardList`.
+- `docs/handbook/mobile/messenger-and-content.md`, `.claude/WORK_LOG.md`, `.claude/WORK_DETAIL.md`, and `.claude/MISTAKES.md` record the board filter parity contract.
+
+Evidence:
+
+- RED/GREEN board list query helper test passed after failing for missing helper.
+- Targeted ESLint passed for touched app/helper/test files.
+- `npx tsc --noEmit --pretty false` passed.
+- Combined board helper/category contract tests passed.
+- `node scripts/ci/check-governance.mjs` passed after adding the existing request-board owner doc update required by pre-existing dirty request-board files.
+- `git diff --check` passed with CRLF normalization warnings only.
+
+Known notes:
+
+- No phone screenshot was captured.
+- Board write permissions and category schema/migration were intentionally unchanged.
+- This change is not committed or pushed.
+
+Next resume step:
+
+- If device access is available, open `/admin-board-manage` as a 총무 and 본부장 and confirm the row shows `전체`, category chips, and the sort button below search.
+
+---
+
+# Increment 50: Referral Share Copy Parity
+
+Status: completed locally on 2026-06-08.
+
+What changed:
+
+- Root cause: `/referral` used `lib/referral-share.ts`, but `/settings` still hardcoded the old direct `hanwhafcpass://signup?...` share text.
+- `app/settings.tsx` now calls `buildReferralShareText()` with the same invite/app-store env inputs as `/referral`.
+- `lib/__tests__/referral-share.test.ts` now fails if `/settings` drifts back to old copy or stops using the shared helper.
+- Referral docs now include `RF-LINK-06` and `INC-023`; `.claude/MISTAKES.md` records the duplicate-copy mistake.
+
+Evidence:
+
+- RED/GREEN referral share test passed after failing for `/settings` helper drift.
+- Targeted ESLint passed for touched app/helper/test files.
+- `npx tsc --noEmit --pretty false` passed.
+- Referral docs JSON parse check passed.
+- `node scripts/ci/check-governance.mjs` passed.
+- `git diff --check` passed with CRLF normalization warnings only.
+
+Known notes:
+
+- No phone share-sheet screenshot was captured.
+- This code fix cannot update devices still running an older binary/OTA cache until they receive the new build/update.
+- This change is not committed or pushed.
+
+Next resume step:
+
+- If device access is available, share the same referral code from both `/referral` and `/settings` and confirm both messages start with `가람in에서 보험 위촉을 함께 시작해요!` and include the HTTPS invite URL.
+
+---
+# Increment 51: Admin Dashboard Signup Date And Table Alignment
+
+Status: completed and deployed to Vercel production on 2026-06-08.
+
+What changed:
+
+- Admin web dashboard FC list now shows `가입일`.
+- `/api/admin/list` joins `fc_credentials(password_set_at)` and exposes `signup_completed_at`, falling back to `fc_profiles.created_at` for legacy rows.
+- Table header metadata is centralized in `web/src/lib/dashboard-table-display.ts`.
+- Compact table columns are center-aligned, including the `관리` header and row manage buttons.
+
+Deployment:
+
+- Production URL: `https://admin-c6hwcs14a-jun-jeongs-projects.vercel.app`
+- Production aliases include `https://adminweb-red.vercel.app`.
+- Vercel inspect: deployment `dpl_81tXwvhRVFUC6wQx4mjJUpcHsUyr`, `status=Ready`, `target=production`.
+
+Evidence:
+
+- `node --test src/lib/dashboard-table-display.test.ts` passed.
+- Focused web lint passed.
+- `SENTRY_AUTH_TOKEN='' npm run build` passed locally.
+- `npx vercel --prod --yes --archive=tgz` completed.
+- `npx vercel inspect https://admin-c6hwcs14a-jun-jeongs-projects.vercel.app` reported Ready.
+
+Deferred:
+
+- Authenticated visual smoke of the production dashboard after login.
+
+---
+
+# Increment 52: Admin Exam Applicant Workbook Columns
+
+Status: completed and production deployed on 2026-06-08.
+
+What changed:
+
+- Admin web 시험자 명단 data columns now follow the confirmed workbook-style order on screen and in CSV downloads.
+- `접수 상태` and delete `관리` stay as screen-only controls at the far right.
+- `/api/admin/exam-applicants` now returns `application_type`, computed as `신규신청` or `재신청` from same applicant plus same subject history.
+- Life/nonlife 응시일자 and 고사장 values are split into dedicated columns.
+- `응시료 입금` shows `입금` when `fee_paid_date` exists and `미입금` otherwise.
+
+Evidence:
+
+- Focused node tests passed: 5 tests.
+- `cd web; npm run lint` passed.
+- `cd web; SENTRY_AUTH_TOKEN='' npm run build` passed with existing dependency/data-age warnings only.
+- Vercel production deployment Ready:
+  - `https://admin-2d69j0gvd-jun-jeongs-projects.vercel.app`
+  - alias `https://adminweb-red.vercel.app`
+
+Known risks / not yet verified:
+
+- The protected live page was not visually inspected with an authenticated admin browser session in this pass.
+- The Vercel CLI upload needed `--archive=tgz` from the repo root because direct root upload exceeded file-count limits and web-local deploy resolved `web/web`.
+
+Next resume step:
+
+- Log in to `https://adminweb-red.vercel.app`, open `/dashboard/exam/applicants`, and verify the table headers and CSV download against the workbook sample.
+
+---
+
+# Increment 53: Round-Specific Exam Applicant Column Parity
+
+Status: completed and production deployed on 2026-06-08.
+
+What changed:
+
+- The user report was valid: the previous deployment changed `/dashboard/exam/applicants`, but `/admin/exams/[id]` still showed the legacy per-round applicant columns.
+- `/admin/exams/[id]` now reads `/api/admin/exam-applicants?roundId=...`.
+- The per-round table now renders `EXAM_APPLICANT_EXPORT_COLUMNS` in the workbook order and uses `getExamApplicantCellValue()`.
+- `/api/admin/exam-applicants` keeps `round_id` through base-row mapping, calculates `신규신청/재신청` from whole history, then filters to the requested round.
+- Per-round reception status changes now go through the same server PATCH API as the global list.
+- `.claude/MISTAKES.md` records the missed duplicate surface.
+
+Evidence:
+
+- RED/GREEN focused tests passed: 6 tests.
+- `cd web; npm run lint` passed.
+- `cd web; SENTRY_AUTH_TOKEN='' npm run build` passed after stopping local Next dev server.
+- Vercel production deployment Ready:
+  - `https://admin-ddbf9l6z0-jun-jeongs-projects.vercel.app`
+  - alias `https://adminweb-red.vercel.app`
+  - deployment id `dpl_9NQGpnqAuPZEXd9c1eC1jHEEBSCt`
+
+Known risks / not yet verified:
+
+- Authenticated visual smoke of `/admin/exams/<roundId>` on production was not run.
+- A user with a stale browser chunk may need hard refresh or relogin.
+
+Next resume step:
+
+- Log in to `https://adminweb-red.vercel.app`, open a specific exam round's `응시자 관리`, and verify the header order starts `소속 / 응시자 이름 / 주민등록번호(전체) / 주소 / 전화번호`.
+
+---
+
+# Increment 54: Board Product Recommendation And Policy Categories
+
+Status: completed, DB/functions applied, and admin web deployed on 2026-06-08.
+
+What changed:
+
+- Board categories are now `공지`, `교육 일정`, `일반`, `상품추천`, `시책`.
+- Existing `garam-pick` slug remains in place, but its display name is now `상품추천`.
+- New category `시책` uses slug `policy` and sort order `5`.
+- `supabase/schema.sql` and migration `20260608000001_update_board_categories_product_recommendation_policy.sql` define the new canonical state.
+- `_shared/board-categories.ts` now exposes the five-category canonical list.
+- Board category list/create/update and board create/update Edge Functions were deployed with the new shared category list.
+- Home latest labels show `상품추천:` for both new `상품추천` and legacy `가람 Pick` category names.
+- Mobile board/admin-board and admin web board badge helpers know `상품추천` and `시책`.
+- Admin web production is deployed at `https://admin-4idj3ety7-jun-jeongs-projects.vercel.app`, alias `https://adminweb-red.vercel.app`, deployment `dpl_YTzySA4BAT9YtCqfyA7Ekq79W5Cn`.
+
+Evidence:
+
+- Focused RED/GREEN category tests passed: 9 tests.
+- Targeted app ESLint passed.
+- Targeted web ESLint passed.
+- Root `tsc --noEmit` passed.
+- Web production build passed.
+- Supabase DB push applied `20260605000001` and `20260608000001`.
+- `supabase migration list --linked` shows both migrations applied remotely.
+- Deployed Edge Functions: `board-categories-list`, `board-category-create`, `board-category-update`, `board-create`, `board-update`.
+- Vercel inspect reported Ready for the new admin web production deployment.
+
+Known risks / not yet verified:
+
+- No authenticated mobile/web screenshot of the category picker was captured.
+- Installed mobile apps may show server-provided category names immediately, but the new badge color logic needs the next app/OTA update to be visible on devices that have not refreshed code.
+
+Next resume step:
+
+- Open the mobile board and admin web board category selector with a logged-in account and confirm the order `공지 / 교육 일정 / 일반 / 상품추천 / 시책`.
 
 ---

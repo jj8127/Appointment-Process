@@ -32,6 +32,7 @@ import {
   mergeDesignerRejectionReasonFromDetail,
   requestNeedsDesignerRejectionReasonHydration,
 } from '@/lib/request-board-rejection-summary';
+import { toRequestBoardSessionErrorMessage } from '@/lib/request-board-session-error';
 import { COLORS, RADIUS, SHADOWS, SPACING, TYPOGRAPHY } from '@/lib/theme';
 
 /* ─── Helpers ─── */
@@ -164,9 +165,7 @@ export default function RequestBoardRequestsScreen() {
     } catch (err) {
       logger.warn('[requests] fetch failed', err);
       setFetchError(
-        err instanceof Error && err.message
-          ? err.message
-          : '의뢰 목록을 불러오는데 실패했습니다.',
+        toRequestBoardSessionErrorMessage(err, '의뢰 목록을 불러오는데 실패했습니다.'),
       );
     } finally {
       setLoading(false);

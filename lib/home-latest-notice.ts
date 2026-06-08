@@ -11,8 +11,10 @@ export function formatLatestNoticeLabel(notice?: LatestNoticeLabelInput | null):
 
   const category = String(notice?.category ?? '').trim();
   const normalizedCategory = category.replace(/\s+/g, '').toLowerCase();
-  const prefix = normalizedCategory.includes('가람pick')
-    ? '가람pick'
+  const prefix = normalizedCategory.includes('상품추천') || normalizedCategory.includes('가람pick')
+    ? '상품추천'
+    : normalizedCategory.includes('시책')
+      ? '시책'
     : category.includes('보험')
       ? '보험소식'
       : '공지';

@@ -2,7 +2,7 @@ doc_id: FC-DATA-MODEL-CANON
 owner_repo: fc-onboarding-app
 owner_area: data
 audience: developer, operator
-last_verified: 2026-04-23
+last_verified: 2026-06-08
 source_of_truth: supabase/schema.sql + supabase/migrations/*
 
 # Data Handbook: Data Model Canon
@@ -24,9 +24,10 @@ source_of_truth: supabase/schema.sql + supabase/migrations/*
 
 ## 2026-06-05 게시판 글 종류 canonical 메모
 
-- `board_categories`의 현재 가람in 게시판 글 종류는 `공지`, `교육 일정`, `일반`, `가람pick` 4종입니다.
-- stable slug는 각각 `notice`, `education`, `general`, `garam-pick`을 유지합니다.
+- `board_categories`의 현재 가람in 게시판 글 종류는 `공지`, `교육 일정`, `일반`, `상품추천`, `시책` 5종입니다.
+- stable slug는 각각 `notice`, `education`, `general`, `garam-pick`, `policy`를 유지합니다.
 - `20260605000001_set_board_categories_to_four_types.sql`은 legacy `insurance-news`와 그 외 legacy category 게시글을 `general`로 재배치한 뒤 old category를 inactive 처리합니다.
+- `20260608000001_update_board_categories_product_recommendation_policy.sql`은 `garam-pick` 표시명을 `상품추천`으로 맞추고 `policy`/`시책` canonical row를 추가합니다. `schema.sql` seed도 같은 5종 snapshot을 유지해야 합니다.
 
 ## 온보딩 상태 핵심 컬럼
 

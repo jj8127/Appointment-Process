@@ -46,7 +46,6 @@ import { useSession } from '@/hooks/use-session';
 import {
   BoardDetail,
   BoardListItem,
-  BoardListParams,
   buildBoardActor,
   createBoardComment,
   deleteBoardComment,
@@ -59,6 +58,12 @@ import {
   toggleCommentLike,
   updateBoardComment
 } from '@/lib/board-api';
+import {
+  BOARD_LIST_SORT_LABELS,
+  BoardListSortOption,
+  buildBoardListParams,
+  buildBoardListQueryKey,
+} from '@/lib/board-list-query';
 import { openExternalUrl } from '@/lib/open-external-url';
 import { getBoardAuthorRoleLabel, getBoardRoleBadgeStyle } from '@/lib/staff-identity';
 import { ANIMATION } from '@/lib/theme';
@@ -87,8 +92,11 @@ const getCategoryTheme = (categoryName: string) => {
   if (normalized.includes('교육')) {
     return { backgroundColor: '#EFF6FF', borderColor: '#BFDBFE', textColor: '#1D4ED8' };
   }
-  if (normalized.includes('가람') || normalized.includes('pick')) {
+  if (normalized.includes('상품') || normalized.includes('추천') || normalized.includes('가람') || normalized.includes('pick')) {
     return { backgroundColor: '#FDF2F8', borderColor: '#FBCFE8', textColor: '#BE185D' };
+  }
+  if (normalized.includes('시책')) {
+    return { backgroundColor: '#EEF2FF', borderColor: '#C7D2FE', textColor: '#4338CA' };
   }
   return { backgroundColor: '#F3F4F6', borderColor: '#E5E7EB', textColor: '#4B5563' };
 };
@@ -294,7 +302,7 @@ export default function BoardScreen() {
   const [searchQuery, setSearchQuery] = useState('');
   const [searchInput, setSearchInput] = useState('');
   const [selectedCategoryId, setSelectedCategoryId] = useState<string | null>(null);
-  const [sortOption, setSortOption] = useState<BoardListParams['sort']>('created');
+  const [sortOption, setSortOption] = useState<BoardListSortOption>('created');
   const [showSortMenu, setShowSortMenu] = useState(false);
   const [editingCommentId, setEditingCommentId] = useState<string | null>(null);
   const [editingCommentText, setEditingCommentText] = useState('');
@@ -312,14 +320,6 @@ export default function BoardScreen() {
     if (typeof value !== 'string') return '';
     return value.trim();
   }, [postId]);
-
-  // 정렬 옵션 레이블
-  const sortLabels: Record<NonNullable<BoardListParams['sort']>, string> = {
-    created: '최신순',
-    latest: '업데이트순',
-    comments: '댓글많은순',
-    reactions: '반응많은순',
-  };
 
   // Scroll animation for bottom nav
   const lastScrollY = useSharedValue(0);
@@ -410,15 +410,16 @@ export default function BoardScreen() {
   });
 
   const { data: listData, isLoading, isError, refetch } = useQuery({
-    queryKey: ['board-posts', actor?.role, actor?.residentId, selectedCategoryId, sortOption, searchQuery],
+    queryKey: buildBoardListQueryKey({
+      actorRole: actor?.role,
+      residentId: actor?.residentId,
+      selectedCategoryId,
+      sortOption,
+      searchQuery,
+    }),
     queryFn: () => {
       if (!actor) return Promise.resolve({ items: [], nextCursor: null });
-      return fetchBoardList(actor, {
-        limit: 20,
-        categoryId: selectedCategoryId ?? undefined,
-        sort: sortOption,
-        search: searchQuery || undefined,
-      });
+      return fetchBoardList(actor, buildBoardListParams({ selectedCategoryId, sortOption, searchQuery }));
     },
     enabled: !!actor,
   });
@@ -1080,7 +1081,7 @@ export default function BoardScreen() {
             onPress={() => setShowSortMenu(!showSortMenu)}
           >
             <Feather name="sliders" size={16} color={CHARCOAL} />
-            <Text style={styles.sortButtonText}>{sortLabels[sortOption ?? 'created']}</Text>
+            <Text style={styles.sortButtonText}>{BOARD_LIST_SORT_LABELS[sortOption]}</Text>
             <Feather name="chevron-down" size={14} color={TEXT_MUTED} />
           </Pressable>
         </View>
@@ -1088,7 +1089,7 @@ export default function BoardScreen() {
         {/* 정렬 메뉴 */}
         {showSortMenu && (
           <View style={styles.sortMenu}>
-            {(Object.entries(sortLabels) as [NonNullable<BoardListParams['sort']>, string][]).map(([key, label]) => (
+            {(Object.entries(BOARD_LIST_SORT_LABELS) as [BoardListSortOption, string][]).map(([key, label]) => (
               <Pressable
                 key={key}
                 style={[styles.sortMenuItem, sortOption === key && styles.sortMenuItemActive]}

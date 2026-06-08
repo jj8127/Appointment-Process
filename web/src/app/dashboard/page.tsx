@@ -80,6 +80,11 @@ import { sendPushNotification } from '../actions';
 import { updateAppointmentAction } from './appointment/actions';
 import { updateDocStatusAction } from './docs/actions';
 import { registerWebPushSubscription } from '@/components/WebPushRegistrar';
+import {
+  DASHBOARD_FC_LIST_COLUMN_COUNT,
+  DASHBOARD_FC_LIST_COLUMNS,
+  formatDashboardSignupDate,
+} from '@/lib/dashboard-table-display';
 import { getWebPushRegistrationFeedback } from '@/lib/web-push-config';
 
 import { logger } from '../../lib/logger';
@@ -1709,13 +1714,26 @@ export default function DashboardPage() {
           </div>
         </Group>
       </Table.Td>
-      <Table.Td>{fc.phone}</Table.Td>
-      <Table.Td>{fc.affiliation || '-'}</Table.Td>
-      <Table.Td>
+      <Table.Td ta="center">
+        <Text size="sm" fw={600} c="dark.7">
+          {fc.phone}
+        </Text>
+      </Table.Td>
+      <Table.Td ta="center">
+        <Text size="sm" fw={600} c="dark.7">
+          {formatDashboardSignupDate(fc.signup_completed_at ?? fc.created_at)}
+        </Text>
+      </Table.Td>
+      <Table.Td ta="center">
+        <Text size="sm" fw={600} c="dark.7">
+          {fc.affiliation || '-'}
+        </Text>
+      </Table.Td>
+      <Table.Td ta="center">
         {(fc.appointment_date_life || fc.appointment_date_nonlife) ? (
-          <Stack gap={4}>
+          <Stack gap={4} align="center">
             {fc.appointment_date_life && (
-              <Group gap={6}>
+              <Group gap={6} justify="center">
                 <Badge variant="light" color="orange" size="xs">생명</Badge>
                 <Text size="sm" fw={700} c="dark.8">
                   {dayjs(fc.appointment_date_life).format('YYYY-MM-DD')}
@@ -1723,7 +1741,7 @@ export default function DashboardPage() {
               </Group>
             )}
             {fc.appointment_date_nonlife && (
-              <Group gap={6}>
+              <Group gap={6} justify="center">
                 <Badge variant="light" color="blue" size="xs">손해</Badge>
                 <Text size="sm" fw={700} c="dark.8">
                   {dayjs(fc.appointment_date_nonlife).format('YYYY-MM-DD')}
@@ -1735,7 +1753,7 @@ export default function DashboardPage() {
           <Text size="xs" c="dimmed">-</Text>
         )}
       </Table.Td>
-      <Table.Td>
+      <Table.Td ta="center">
         {(() => {
           const workflowStep = fc.step ?? calcStep(fc);
           const hanwha = workflowStep >= 3 ? getHanwhaStageStatus(fc) : null;
@@ -1754,7 +1772,7 @@ export default function DashboardPage() {
             summary.label !== '서류 제출 대기';
 
           return (
-            <Stack gap={6}>
+            <Stack gap={6} align="center">
               {!showDocGrid &&
                 (() => {
                   if (hanwha) {
@@ -1798,7 +1816,7 @@ export default function DashboardPage() {
                   </SimpleGrid>
                 </Box>
               )}
-              <Group gap={6} wrap="wrap">
+              <Group gap={6} wrap="wrap" justify="center">
                 {((workflowStep) >= 4 || getAppointmentProgress(fc, 'life').key === 'approved') &&
                   (() => {
                     const life = getAppointmentProgress(fc, 'life');
@@ -1826,7 +1844,7 @@ export default function DashboardPage() {
           );
         })()}
       </Table.Td>
-      <Table.Td>
+      <Table.Td ta="center">
         {/* Updated Badge to use getAdminStep */}
         {(() => {
           const adminStepDisplay = getAdminStepDisplay(fc);
@@ -1849,7 +1867,7 @@ export default function DashboardPage() {
           );
         })()}
       </Table.Td>
-      <Table.Td>
+      <Table.Td ta="center">
         <Button
           variant="light"
           color="blue"
@@ -2169,13 +2187,15 @@ export default function DashboardPage() {
               <Table verticalSpacing="sm" highlightOnHover striped withTableBorder>
                 <Table.Thead bg="gray.0" style={{ position: 'sticky', top: 0, zIndex: 1 }}>
                   <Table.Tr>
-                    <Table.Th w={200}>FC 정보</Table.Th>
-                    <Table.Th w={100}>연락처</Table.Th>
-                    <Table.Th w={140}>소속</Table.Th>
-                      <Table.Th w={150}>생명/손해 위촉 완료일</Table.Th>
-                    <Table.Th w={200}>현재 상태</Table.Th>
-                    <Table.Th w={120}>진행 단계</Table.Th>
-                    <Table.Th w={90} ta="center">관리</Table.Th>
+                    {DASHBOARD_FC_LIST_COLUMNS.map((column) => (
+                      <Table.Th
+                        key={column.key}
+                        w={column.width}
+                        ta={column.align === 'center' ? 'center' : undefined}
+                      >
+                        {column.label}
+                      </Table.Th>
+                    ))}
                   </Table.Tr>
                 </Table.Thead>
                 <Table.Tbody>
@@ -2183,7 +2203,7 @@ export default function DashboardPage() {
                     rows
                   ) : (
                     <Table.Tr>
-                      <Table.Td colSpan={7} align="center" py={80}>
+                      <Table.Td colSpan={DASHBOARD_FC_LIST_COLUMN_COUNT} align="center" py={80}>
                         <Stack align="center" gap="xs">
                           <ThemeIcon size={60} radius="xl" color="gray" variant="light">
                             <IconSearch size={30} />

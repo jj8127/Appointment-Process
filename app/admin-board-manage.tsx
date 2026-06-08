@@ -11,6 +11,7 @@ import {
   Image,
   Pressable,
   RefreshControl,
+  ScrollView,
   StyleSheet,
   Text,
   TextInput,
@@ -63,6 +64,12 @@ import {
   toggleBoardReaction,
   toggleCommentLike,
 } from '@/lib/board-api';
+import {
+  BOARD_LIST_SORT_LABELS,
+  BoardListSortOption,
+  buildBoardListParams,
+  buildBoardListQueryKey,
+} from '@/lib/board-list-query';
 
 const HANWHA_ORANGE = '#f36f21';
 const CHARCOAL = '#111827';
@@ -104,8 +111,11 @@ const getCategoryTheme = (categoryName: string) => {
   if (normalized.includes('교육')) {
     return { backgroundColor: '#eff6ff', borderColor: '#bfdbfe', textColor: '#1d4ed8' };
   }
-  if (normalized.includes('가람') || normalized.includes('pick')) {
+  if (normalized.includes('상품') || normalized.includes('추천') || normalized.includes('가람') || normalized.includes('pick')) {
     return { backgroundColor: '#fdf2f8', borderColor: '#fbcfe8', textColor: '#be185d' };
+  }
+  if (normalized.includes('시책')) {
+    return { backgroundColor: '#eef2ff', borderColor: '#c7d2fe', textColor: '#4338ca' };
   }
   return { backgroundColor: '#f3f4f6', borderColor: '#e5e7eb', textColor: '#374151' };
 };
@@ -267,6 +277,10 @@ export default function AdminBoardManageScreen() {
   const [previewImage, setPreviewImage] = useState<PreviewModalState | null>(null);
   const [commentText, setCommentText] = useState('');
   const [searchQuery, setSearchQuery] = useState('');
+  const [searchInput, setSearchInput] = useState('');
+  const [selectedCategoryId, setSelectedCategoryId] = useState<string | null>(null);
+  const [sortOption, setSortOption] = useState<BoardListSortOption>('created');
+  const [showSortMenu, setShowSortMenu] = useState(false);
   const [showActionSheet, setShowActionSheet] = useState(false);
   const [editingCommentId, setEditingCommentId] = useState<string | null>(null);
   const [editingCommentText, setEditingCommentText] = useState('');
@@ -377,10 +391,16 @@ export default function AdminBoardManageScreen() {
 
   // Queries
   const { data: listData, isLoading, isError, refetch } = useQuery({
-    queryKey: ['board-posts', actor?.role, actor?.residentId],
+    queryKey: buildBoardListQueryKey({
+      actorRole: actor?.role,
+      residentId: actor?.residentId,
+      selectedCategoryId,
+      sortOption,
+      searchQuery,
+    }),
     queryFn: () => {
       if (!actor) return Promise.resolve({ items: [], nextCursor: null });
-      return fetchBoardList(actor, { limit: 20 });
+      return fetchBoardList(actor, buildBoardListParams({ selectedCategoryId, sortOption, searchQuery }));
     },
     enabled: !!actor,
   });
@@ -1011,10 +1031,74 @@ export default function AdminBoardManageScreen() {
             style={styles.searchInput}
             placeholder="게시글 검색..."
             placeholderTextColor={TEXT_MUTED}
-            value={searchQuery}
-            onChangeText={setSearchQuery}
+            value={searchInput}
+            onChangeText={setSearchInput}
+            onSubmitEditing={() => setSearchQuery(searchInput)}
+            returnKeyType="search"
           />
+          {searchInput.length > 0 && (
+            <Pressable
+              onPress={() => {
+                setSearchInput('');
+                setSearchQuery('');
+              }}
+              style={styles.searchClear}
+            >
+              <Feather name="x" size={16} color={TEXT_MUTED} />
+            </Pressable>
+          )}
         </View>
+
+        {/* 카테고리 필터 & 정렬 */}
+        <View style={[styles.filterRow, selectedPost && styles.searchContainerHidden]} pointerEvents={selectedPost ? 'none' : 'auto'}>
+          <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.categoryChips}>
+            <Pressable
+              style={[styles.categoryChip, !selectedCategoryId && styles.categoryChipActive]}
+              onPress={() => setSelectedCategoryId(null)}
+            >
+              <Text style={[styles.categoryChipText, !selectedCategoryId && styles.categoryChipTextActive]}>전체</Text>
+            </Pressable>
+            {categories.map((cat) => (
+              <Pressable
+                key={cat.id}
+                style={[styles.categoryChip, selectedCategoryId === cat.id && styles.categoryChipActive]}
+                onPress={() => setSelectedCategoryId(cat.id)}
+              >
+                <Text style={[styles.categoryChipText, selectedCategoryId === cat.id && styles.categoryChipTextActive]}>
+                  {cat.name}
+                </Text>
+              </Pressable>
+            ))}
+          </ScrollView>
+          <Pressable
+            style={styles.sortButton}
+            onPress={() => setShowSortMenu(!showSortMenu)}
+          >
+            <Feather name="sliders" size={16} color={CHARCOAL} />
+            <Text style={styles.sortButtonText}>{BOARD_LIST_SORT_LABELS[sortOption]}</Text>
+            <Feather name="chevron-down" size={14} color={TEXT_MUTED} />
+          </Pressable>
+        </View>
+
+        {showSortMenu && (
+          <View style={styles.sortMenu}>
+            {(Object.entries(BOARD_LIST_SORT_LABELS) as [BoardListSortOption, string][]).map(([key, label]) => (
+              <Pressable
+                key={key}
+                style={[styles.sortMenuItem, sortOption === key && styles.sortMenuItemActive]}
+                onPress={() => {
+                  setSortOption(key);
+                  setShowSortMenu(false);
+                }}
+              >
+                <Text style={[styles.sortMenuItemText, sortOption === key && styles.sortMenuItemTextActive]}>
+                  {label}
+                </Text>
+                {sortOption === key && <Feather name="check" size={16} color={HANWHA_ORANGE} />}
+              </Pressable>
+            ))}
+          </View>
+        )}
 
         <View style={styles.container}>
           {isLoading && !refreshing && (
@@ -1518,13 +1602,99 @@ const styles = StyleSheet.create({
     flex: 1,
     height: 44,
     paddingLeft: 40,
-    paddingRight: 16,
+    paddingRight: 40,
     backgroundColor: '#F9FAFB',
     borderRadius: 12,
     borderWidth: 1,
     borderColor: BORDER,
     fontSize: 15,
     color: CHARCOAL,
+  },
+  searchClear: {
+    position: 'absolute',
+    right: 36,
+    padding: 4,
+  },
+  filterRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+    backgroundColor: '#fff',
+    borderBottomWidth: 1,
+    borderBottomColor: '#f5f5f5',
+    gap: 8,
+  },
+  categoryChips: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    paddingRight: 8,
+  },
+  categoryChip: {
+    paddingHorizontal: 14,
+    paddingVertical: 6,
+    borderRadius: 16,
+    backgroundColor: '#f3f4f6',
+    borderWidth: 1,
+    borderColor: '#e5e7eb',
+  },
+  categoryChipActive: {
+    backgroundColor: HANWHA_ORANGE,
+    borderColor: HANWHA_ORANGE,
+  },
+  categoryChipText: {
+    fontSize: 13,
+    fontWeight: '500',
+    color: TEXT_MUTED,
+  },
+  categoryChipTextActive: {
+    color: '#fff',
+  },
+  sortButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 8,
+    backgroundColor: '#f9fafb',
+    borderWidth: 1,
+    borderColor: BORDER,
+  },
+  sortButtonText: {
+    fontSize: 13,
+    fontWeight: '500',
+    color: CHARCOAL,
+  },
+  sortMenu: {
+    marginHorizontal: 16,
+    marginBottom: 8,
+    backgroundColor: '#fff',
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: BORDER,
+    ...CARD_SHADOW,
+  },
+  sortMenuItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: '#f5f5f5',
+  },
+  sortMenuItemActive: {
+    backgroundColor: '#fef3eb',
+  },
+  sortMenuItemText: {
+    fontSize: 14,
+    color: CHARCOAL,
+  },
+  sortMenuItemTextActive: {
+    color: HANWHA_ORANGE,
+    fontWeight: '600',
   },
   container: { padding: 24, gap: 16, paddingTop: 16 },
   card: {

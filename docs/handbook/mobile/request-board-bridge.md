@@ -48,6 +48,13 @@ source_of_truth: app/request-board*.tsx + lib/request-board-api.ts + lib/request
 - attachment upload 401인데 retry를 안 태워 generic failure로 끝나는 경로
 - message attachment bucket MIME allowlist가 모바일 이미지(`webp/gif/bmp/heic/heif`)보다 좁아 업로드 단계에서 실패하는 drift
 - unread/badge 합산 불일치
+- 가람Link 세션/브릿지 실패는 화면별 `데이터 로드 실패` 같은 일반 문구로 숨기지 않고, 앱 재로그인 후 설계요청 재진입 안내로 정규화한다.
+
+## 2026-06-08 모바일 설계요청 세션 오류 메모
+
+- `ensureRequestBoardSession()` 실패, bridge-login 실패, request_board API 인증 만료는 `lib/request-board-session-error.ts`를 통해 같은 사용자 안내로 표시한다.
+- 명시적인 역할 제한이나 계정 상태 안내는 세션 만료 안내로 덮어쓰지 않는다.
+- 안내 문구만 정규화하며, 자동 로그아웃/라우팅이나 재로그인 버튼은 별도 제품 결정 없이는 추가하지 않는다.
 
 ## 2026-06-05 모바일 설계요청 메모
 

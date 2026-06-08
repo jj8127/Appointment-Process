@@ -1,4 +1,79 @@
-﻿# Current Contract: Increment 35 - Request Board Designer Notification Scope
+﻿# Current Contract: Increment 55 - Admin Exam Legacy Apply Route Redirect
+
+Status: completed and deployed on 2026-06-08
+
+## Goal
+
+Ensure no admin-web exam applicant route can still show the old `이름/연락처/신청일시` applicant table after the workbook-column rollout.
+
+## Scope
+
+- Verify the current production alias and route chunks for the canonical applicant list surfaces.
+- Redirect legacy `/exam/apply` to `/dashboard/exam/applicants`.
+- Add source-level regression coverage for the legacy route.
+- Update mistake and handoff records.
+
+## Explicit Non-Scope
+
+- Do not change exam registration data writes.
+- Do not change the canonical applicant column order.
+- Do not change Supabase schema or Edge Functions.
+- Do not add new navigation items.
+
+## Acceptance Criteria
+
+- `/dashboard/exam/applicants` and `/admin/exams/[id]` continue to use `EXAM_APPLICANT_EXPORT_COLUMNS`.
+- `/exam/apply` no longer renders a table or direct Supabase query.
+- Tests fail before and pass after the legacy route redirect.
+- Web build passes before deployment.
+
+## Verification Plan
+
+- `node --test web/src/lib/exam-applicant-list-display.test.ts`
+- `cd web; npx eslint src\app\exam\apply\page.tsx src\lib\exam-applicant-list-display.test.ts src\app\admin\exams\[id]\page.tsx src\app\dashboard\exam\applicants\page.tsx`
+- `cd web; SENTRY_AUTH_TOKEN='' npm run build`
+- Vercel production deploy and inspect passed: `https://admin-m71a2lq31-jun-jeongs-projects.vercel.app`.
+- Post-deploy HTTP check passed: `/exam/apply` returns `307 Location: /dashboard/exam/applicants`; canonical route chunks contain new columns and no old signals.
+
+---
+
+# Current Contract: Increment 56 - Exam Applicant Top Exam Filters
+
+Status: completed locally on 2026-06-08
+
+## Goal
+
+Let admin and manager users narrow the canonical exam applicant list by exam subject and round before using the existing table filters.
+
+## Scope
+
+- Add top-level `시험 종류` and `시험 회차` filters to `/dashboard/exam/applicants`.
+- Build filter options from the existing applicant API response; do not change API or DB shape.
+- Keep affiliation quick filters, table header filters, stats, CSV export, and read-only manager restrictions intact.
+- Add pure helper coverage for subject/round option generation and invalid round reset behavior.
+
+## Explicit Non-Scope
+
+- Do not change `/admin/exams/[id]`; it is already round-scoped.
+- Do not change exam registration writes or approval/delete permissions.
+- Do not deploy.
+
+## Acceptance Criteria
+
+- Subject filter only shows subject options present in the current rows.
+- Round filter options narrow when a subject is selected.
+- Changing subject invalidates an incompatible round selection back to `전체`.
+- Filtered stats and CSV export use the narrowed list.
+- Targeted helper tests and web lint pass.
+
+## Verification Plan
+
+- `node --test web/src/lib/exam-applicant-list-display.test.ts`
+- `cd web; npm run lint -- src/app/dashboard/exam/applicants/page.tsx src/lib/exam-applicant-list-display.ts src/lib/exam-applicant-list-display.test.ts`
+
+---
+
+# Current Contract: Increment 35 - Request Board Designer Notification Scope
 
 Status: completed locally on 2026-06-05
 
@@ -37,6 +112,44 @@ Stop GaramIn request-board designers from receiving non-request-board mobile not
 - `npm test -- --runInBand`
 - `npx tsc --noEmit --pretty false`
 - `git diff --check`
+
+---
+
+# Current Contract: Increment 48 - Request Board Session Error Copy
+
+Status: completed locally on 2026-06-08
+
+## Goal
+
+Make GaramLink session/bridge failures tell users to re-login instead of showing generic data-load or processing failure copy.
+
+## Scope
+
+- Add a shared request-board session error copy helper.
+- Map technical Edge Function, app-session, bridge-login, and auth-expired request_board failures to one user-facing guidance message.
+- Apply the helper to request-board create, FC codes, request list, request detail/review, home stats/actions, and messenger auth/upload surfaces.
+- Preserve explicit role/account-state guidance such as plain-admin non-applicability.
+
+## Explicit Non-Scope
+
+- Do not add a re-login button.
+- Do not change request_board API/session mechanics.
+- Do not change backend Edge Functions or secrets.
+- Do not commit or push unless explicitly requested.
+
+## Acceptance Criteria
+
+- `Edge Function returned a non-2xx status code`, `invalid_session_token`, and bridge-login failures map to the same GaramLink re-login guidance.
+- Role-not-applicable messages are not rewritten as re-login guidance.
+- Request-board Alert/error-banner paths use the helper before displaying session/bridge-related errors.
+- Focused tests, targeted lint, and TypeScript pass.
+
+## Verification Plan
+
+- RED/GREEN: `npm test -- --runTestsByPath lib/__tests__/request-board-session-error.test.ts --runInBand`.
+- `npm test -- --runTestsByPath lib/__tests__/request-board-session-error.test.ts lib/__tests__/request-board-session.test.ts lib/__tests__/user-facing-error.test.ts --runInBand`.
+- `npx eslint app/request-board-create.tsx app/request-board-fc-codes.tsx app/request-board-requests.tsx app/request-board-review.tsx app/request-board.tsx app/request-board-messenger.tsx lib/request-board-session-error.ts lib/__tests__/request-board-session-error.test.ts`.
+- `npx tsc --noEmit --pretty false`.
 
 ---
 
@@ -1365,5 +1478,258 @@ Make the request-list rejection reason summary work against actual list response
 - `npx tsc --noEmit --pretty false`.
 - `node scripts/ci/check-governance.mjs`.
 - `git diff --check`.
+
+---
+# Current Contract: Increment 49 - Admin Board Category Filter Parity
+
+Status: completed locally on 2026-06-08
+
+## Goal
+
+Show the same GaramIn board post type filters and sort controls on the secretary/admin and head-manager/manager mobile board management screen that FC users already see on `/board`.
+
+## Scope
+
+- Add a shared board list query helper for query keys, fetch params, and sort labels.
+- Keep FC `/board` behavior aligned to the shared helper.
+- Add category filter chips and sort controls to `/admin-board-manage`.
+- Ensure admin and manager actors pass selected `categoryId`, `sort`, and submitted `search` to `fetchBoardList`.
+- Update handbook/work logs/mistake ledger/harness notes.
+
+## Explicit Non-Scope
+
+- Do not change board write permissions.
+- Do not make manager write actions broader.
+- Do not change board category schema, migrations, or Edge Function allowlists.
+- Do not change comments, reactions, attachments, notification fanout, or admin web board.
+- Do not commit or push unless explicitly requested.
+
+## Acceptance Criteria
+
+- `/admin-board-manage` renders `전체` plus active board categories from `fetchBoardCategories`.
+- Selecting a category changes the board list query key and passes `categoryId` to `fetchBoardList`.
+- Selecting a sort option changes the board list query key and passes `sort` to `fetchBoardList`.
+- FC `/board` and admin/manager `/admin-board-manage` share the same sort labels and list params contract.
+- Focused tests, targeted lint, TypeScript, governance, and diff hygiene pass or failures are documented.
+
+## Verification Plan
+
+- RED/GREEN: `npm test -- --runTestsByPath lib/__tests__/board-list-query.test.ts --runInBand`.
+- `npx eslint app/board.tsx app/admin-board-manage.tsx lib/board-list-query.ts lib/__tests__/board-list-query.test.ts`.
+- `npx tsc --noEmit --pretty false`.
+- `node scripts/ci/check-governance.mjs`.
+- `git diff --check`.
+
+---
+
+# Current Contract: Increment 50 - Referral Share Copy Parity
+
+Status: completed locally on 2026-06-08
+
+## Goal
+
+Ensure GaramIn referral-code share copy is identical from `/referral` and `/settings`, using the updated HTTPS invite URL message instead of the old direct app-scheme text.
+
+## Scope
+
+- Add regression coverage that catches old `/settings` share-copy drift.
+- Update `app/settings.tsx` to use `buildReferralShareText()` from `lib/referral-share.ts`.
+- Keep `/referral` behavior unchanged.
+- Update referral-system SPEC/checklist/test-result/incident docs plus work logs and mistake ledger.
+
+## Explicit Non-Scope
+
+- Do not change referral relationship persistence, validation, or self-service mutation behavior.
+- Do not change invite landing page routing or deep-link parser contracts.
+- Do not add deferred deep-link/store install restoration.
+- Do not change backend Edge Functions or database schema.
+- Do not commit or push unless explicitly requested.
+
+## Acceptance Criteria
+
+- `app/settings.tsx` imports and uses `buildReferralShareText()`.
+- `app/settings.tsx` no longer contains old direct deep-link share copy.
+- `lib/__tests__/referral-share.test.ts` verifies the `/settings` source contract.
+- Referral-system docs include `RF-LINK-06` and incident `INC-023`.
+- Focused tests, targeted lint, TypeScript, governance, and diff hygiene pass or failures are documented.
+
+## Verification Plan
+
+- RED/GREEN: `npm test -- --runTestsByPath lib/__tests__/referral-share.test.ts --runInBand`.
+- `npx eslint app/settings.tsx lib/referral-share.ts lib/__tests__/referral-share.test.ts`.
+- `npx tsc --noEmit --pretty false`.
+- `node scripts/ci/check-governance.mjs`.
+- `git diff --check`.
+
+---
+# Current Contract: Increment 51 - Admin Dashboard Signup Date And Table Alignment
+
+Status: completed and deployed on 2026-06-08
+
+## Goal
+
+Show FC signup dates in the admin dashboard list and align table headers/cells, especially the `관리` header and manage buttons, to the same column centerline.
+
+## Scope
+
+- Add focused tests for dashboard signup-date formatting and table column count.
+- Normalize `/api/admin/list` rows with `signup_completed_at` from `fc_credentials.password_set_at`, falling back to `fc_profiles.created_at`.
+- Add a `가입일` column to `web/src/app/dashboard/page.tsx`.
+- Center compact list cells and header labels while preserving the FC identity cell's left-readable layout.
+- Deploy admin web after verification.
+
+## Explicit Non-Scope
+
+- Do not change signup completion writes or schema.
+- Do not expose credential hashes/salts to the client.
+- Do not change write actions or manager read-only permissions.
+- Do not edit mobile dashboard surfaces.
+
+## Acceptance Criteria
+
+- The main admin FC table has 8 columns including `가입일`.
+- Signup date displays as `YYYY-MM-DD` or `-`.
+- `관리` header and each row's `관리` button are centered in their column.
+- Focused test, focused lint, web production build, and Vercel production deploy succeed.
+
+## Verification Plan
+
+- RED/GREEN: `node --test src/lib/dashboard-table-display.test.ts`.
+- `npx eslint src/app/dashboard/page.tsx src/app/api/admin/list/route.ts src/lib/dashboard-table-display.ts src/lib/dashboard-table-display.test.ts src/types/dashboard.ts`.
+- `SENTRY_AUTH_TOKEN='' npm run build` from `web`.
+- `npx vercel --prod --yes --archive=tgz` from repo root.
+- `npx vercel inspect <deployment-url>`.
+
+---
+
+# Current Contract: Increment 52 - Admin Exam Applicant Workbook Columns
+
+Status: completed and deployed to production on 2026-06-08
+
+## Goal
+
+Match the admin web 시험자 명단 table and CSV download to the confirmed workbook-style column order while keeping admin-only row controls available on screen.
+
+## Scope
+
+- Add a shared exam applicant display/export column contract.
+- Make table filters, row rendering, and CSV download use the same data column order.
+- Add `application_type` to the exam applicant API response.
+- Compute `신규신청/재신청` from same applicant plus same subject history.
+- Keep `접수 상태` and delete `관리` as screen-only right-side controls.
+
+## Explicit Non-Scope
+
+- Do not change exam application submission or update behavior.
+- Do not change resident-number storage or trusted read path.
+- Do not add schema/migration work.
+- Do not enable manager write actions.
+- Do not change mobile exam screens.
+
+## Acceptance Criteria
+
+- Data columns appear in the confirmed order from `소속` through `응시료 입금`.
+- CSV download uses the same data column order and excludes screen-only controls.
+- Same-subject repeated applications display `재신청`; first applications display `신규신청`.
+- Life and nonlife date/location columns split values into their respective columns.
+- Manager read-only controls stay disabled.
+
+## Verification Plan
+
+- Passed: `node --test web/src/lib/exam-applicant-resident-number-enrichment.test.node.ts web/src/lib/exam-applicant-list-display.test.ts`.
+- Passed: `cd web; npm run lint`.
+- Passed: `cd web; SENTRY_AUTH_TOKEN='' npm run build`.
+- Passed: Vercel production deploy and inspect Ready.
+
+---
+
+# Current Contract: Increment 53 - Round-Specific Exam Applicant Column Parity
+
+Status: completed and deployed to production on 2026-06-08
+
+## Goal
+
+Make the per-round admin `응시자 관리` page show the same workbook-style 시험자 명단 data columns as the global applicant list, because users may enter applicant lists through either route.
+
+## Scope
+
+- Verify the reported unchanged order against local routes and production deployment state.
+- Add a regression guard that `/admin/exams/[id]` uses the shared applicant column contract.
+- Extend `/api/admin/exam-applicants` to accept `roundId`.
+- Preserve `신규신청/재신청` calculation from full application history before round filtering.
+- Rewire `/admin/exams/[id]` to read via the server API and render `EXAM_APPLICANT_EXPORT_COLUMNS`.
+- Keep reception status controls available for admin users.
+- Redeploy admin web production and inspect readiness.
+
+## Explicit Non-Scope
+
+- No database schema or migration changes.
+- No FC/mobile exam application behavior changes.
+- No manager write enablement.
+- No changes to resident-number storage/decryption policy.
+
+## Acceptance Criteria
+
+- `/admin/exams/[id]` data columns start with `소속`, `응시자 이름`, `주민등록번호(전체)`, `주소`, `전화번호`.
+- The per-round page uses `EXAM_APPLICANT_EXPORT_COLUMNS` and `getExamApplicantCellValue()`.
+- The API supports `/api/admin/exam-applicants?roundId=<id>`.
+- Reapplication type remains based on whole-history same applicant plus same subject calculation.
+- Focused tests, web lint, production build, Vercel deploy, and Vercel inspect pass.
+
+## Verification Plan
+
+- RED/GREEN: `node --test web/src/lib/exam-applicant-list-display.test.ts web/src/lib/exam-applicant-resident-number-enrichment.test.node.ts`.
+- `cd web && npm run lint`.
+- `cd web && SENTRY_AUTH_TOKEN='' npm run build`.
+- `vercel --prod --yes --archive=tgz --scope jun-jeongs-projects`.
+- `vercel inspect https://admin-ddbf9l6z0-jun-jeongs-projects.vercel.app --scope jun-jeongs-projects`.
+
+---
+
+# Current Contract: Increment 54 - Board Product Recommendation And Policy Categories
+
+Status: completed, DB/functions applied, and admin web deployed on 2026-06-08
+
+## Goal
+
+Change the visible board category `가람pick` to `상품추천` and add a new `시책` category across the live GaramIn board category contract.
+
+## Scope
+
+- Preserve existing `garam-pick` slug and category references while changing the display name to `상품추천`.
+- Add canonical category `시책` with slug `policy` and sort order `5`.
+- Update schema seed and add forward migration.
+- Update shared Edge Function category allowlist and impacted write boundaries.
+- Update mobile/web category badge fallback logic.
+- Update home latest notice label formatting.
+- Apply Supabase migrations and deploy impacted Edge Functions.
+- Deploy admin web because the admin board badge color helper changed.
+
+## Explicit Non-Scope
+
+- No permission changes.
+- No notification fanout changes.
+- No automatic insurance digest category change.
+- No mobile binary/OTA deployment.
+
+## Acceptance Criteria
+
+- Active categories are `공지`, `교육 일정`, `일반`, `상품추천`, `시책`.
+- `garam-pick` remains the slug for `상품추천`.
+- `policy` is accepted by category list and board create/update boundaries.
+- Home latest label maps both `상품추천` and legacy `가람 Pick` to `상품추천:`.
+- Focused tests, lint, root typecheck, web build, DB push, function deploys, and Vercel inspect succeed.
+
+## Verification Plan
+
+- RED/GREEN: `npm test -- --runTestsByPath lib\__tests__\board-category-contract.test.ts lib\__tests__\home-latest-notice.test.ts --runInBand`.
+- `npx eslint app\board.tsx app\admin-board-manage.tsx lib\home-latest-notice.ts lib\__tests__\board-category-contract.test.ts lib\__tests__\home-latest-notice.test.ts`.
+- `cd web && npx eslint src\app\dashboard\board\page.tsx`.
+- `npx tsc --noEmit --pretty false`.
+- `cd web && SENTRY_AUTH_TOKEN='' npm run build`.
+- `supabase db push --linked --yes`.
+- Deploy `board-categories-list`, `board-category-create`, `board-category-update`, `board-create`, `board-update`.
+- `vercel --prod --yes --archive=tgz --scope jun-jeongs-projects`.
+- `vercel inspect https://admin-4idj3ety7-jun-jeongs-projects.vercel.app --scope jun-jeongs-projects`.
 
 ---

@@ -12,9 +12,13 @@ import { useBottomNavAnimation } from '@/hooks/use-bottom-nav-animation';
 import { useMyReferralCode } from '@/hooks/use-my-referral-code';
 import { useSession } from '@/hooks/use-session';
 import { resolveBottomNavActiveKey, resolveBottomNavPreset } from '@/lib/bottom-navigation';
+import { buildReferralShareText } from '@/lib/referral-share';
 import { getAccountRoleLabel } from '@/lib/staff-identity';
 import { supabase } from '@/lib/supabase';
 import { COLORS, TYPOGRAPHY, SPACING, RADIUS } from '@/lib/theme';
+
+const APP_STORE_URL = (process.env.EXPO_PUBLIC_APP_STORE_URL ?? '').trim();
+const INVITE_BASE_URL = process.env.EXPO_PUBLIC_INVITE_BASE_URL ?? '';
 
 export default function SettingsScreen() {
   const { role, residentId, residentMask, displayName, logout, isRequestBoardDesigner, readOnly, hydrated, staffType, appSessionToken } = useSession();
@@ -84,12 +88,11 @@ export default function SettingsScreen() {
 
     try {
       await Share.share({
-        message:
-          `가람in 앱 가입 시 추천 코드를 입력해주세요!\n\n` +
-          `추천 코드: ${myReferralCode}\n` +
-          `앱 열기 링크: hanwhafcpass://signup?code=${myReferralCode}\n\n` +
-          `일부 메신저에서는 앱 열기 링크가 바로 동작하지 않을 수 있습니다.\n` +
-          `앱이 열리지 않으면 가람in 앱 회원가입 화면에서 추천 코드를 직접 입력해주세요.`,
+        message: buildReferralShareText({
+          code: myReferralCode,
+          inviteBaseUrl: INVITE_BASE_URL,
+          appStoreUrl: APP_STORE_URL,
+        }),
       });
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : '추천 코드를 공유하지 못했습니다.';

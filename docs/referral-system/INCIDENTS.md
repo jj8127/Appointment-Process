@@ -7,7 +7,7 @@
 
 ## 2. 현재 상태
 
-- `2026-04-26` 기준 등록된 추천인 이슈는 `22건`이다.
+- `2026-06-08` 기준 등록된 추천인 이슈는 `23건`이다.
 - 런타임 버그뿐 아니라 trust boundary, rollout status, 문서/테스트 drift로 운영 판단을 오도한 경우도 장애성 이력으로 남긴다.
 
 ## 3. 작성 규칙
@@ -46,6 +46,7 @@
 
 | ID | 날짜 | 제목 | linkedCases | 상태 |
 | --- | --- | --- | --- | --- |
+| INC-023 | 2026-06-08 | 설정 화면 추천코드 공유가 예전 direct deep-link 문구를 계속 사용함 | `RF-LINK-06` | fixed |
 | INC-022 | 2026-04-26 | 관리자 추천인 그래프 체크리스트 미완료 상태를 완료처럼 보고함 | `RF-ADMIN-08` | monitoring |
 | INC-021 | 2026-04-25 | 관리자 추천인 그래프가 Obsidian 동등성 요청 뒤에도 custom force 누적으로 불안정해짐 | `RF-ADMIN-08` | monitoring |
 | INC-020 | 2026-04-23 | 초대링크 exact code prefill이 fuzzy search와 중복 pending apply를 함께 타면서 느리고 불안정했음 | `RF-LINK-05` | fixed |
@@ -68,6 +69,34 @@
 | INC-003 | 2026-03-31 | 동명이인 안전화 후 live hardening gap(`set-password` fallback, override migration, clear audit) | `RF-ADMIN-06`, `RF-SEC-02` | mitigated |
 | INC-002 | 2026-03-31 | 동명이인 추천인 이름 매칭으로 잘못된 코드가 붙을 수 있던 구조 위험 | `RF-DATA-02`, `RF-ADMIN-06` | fixed |
 | INC-001 | 2026-03-31 | Android 추천코드 입력 시 대문자가 중복 입력되던 문제 | `RF-CODE-07` | fixed |
+
+## INC-023 | 2026-06-08 | 설정 화면 추천코드 공유가 예전 direct deep-link 문구를 계속 사용함
+
+- symptom:
+  - 같은 계정의 추천코드를 공유했는데 일부 기기/진입점에서는 새 문구(`가람in에서 보험 위촉을 함께 시작해요!`, HTTPS invite URL, 앱 설치 링크)가 나가고, 일부에서는 예전 문구(`가람in 앱 가입 시 추천 코드를 입력해주세요!`, `앱 열기 링크: hanwhafcpass://signup?...`)가 나갔다.
+- impact:
+  - 사용자가 같은 추천코드를 공유해도 수신자가 보는 가입 안내가 달라졌고, direct deep link가 막히는 메신저에서는 예전 문구가 더 불안정하게 보일 수 있었다.
+- trigger:
+  - 앱 업데이트 후 같은 계정의 추천코드 공유 문구가 휴대폰마다 1번/2번으로 다르다는 운영 제보.
+- rootCause:
+  - `/referral` 화면은 `lib/referral-share.ts`의 새 HTTPS invite 공유 문구 builder를 사용했지만, `/settings` 화면은 예전 direct deep-link 중심 공유 문구를 `app/settings.tsx`에 직접 하드코딩하고 있었다.
+  - 기기별 앱 업데이트 문제가 아니라 공유 버튼 진입점별 구현 drift였다. 단, 실제 운영 기기에는 구버전 binary/OTA cache가 남아 있을 수도 있어 배포 후 기기별 앱 버전 확인은 별도 운영 확인이 필요하다.
+- fix:
+  - `app/settings.tsx`의 공유 handler를 `buildReferralShareText()`로 통일했다.
+  - `lib/__tests__/referral-share.test.ts`에 `/settings` 화면이 공용 builder를 사용하고 예전 direct deep-link 문구를 포함하지 않는 source-level regression test를 추가했다.
+- linkedCases:
+  - RF-LINK-06
+- evidence:
+  - RED: `npm test -- --runTestsByPath lib/__tests__/referral-share.test.ts --runInBand` failed because `app/settings.tsx` did not contain `buildReferralShareText` and still contained old copy.
+  - GREEN: `npm test -- --runTestsByPath lib/__tests__/referral-share.test.ts --runInBand` passed 4/4.
+- reproduction:
+  1. 구 수정 전 앱에서 `/settings`의 `내 추천 코드` 카드에서 `공유하기`를 누른다.
+  2. 공유 메시지에 `가람in 앱 가입 시 추천 코드를 입력해주세요!`와 `앱 열기 링크: hanwhafcpass://signup?...`가 포함되는지 확인한다.
+  3. `/referral` 화면의 공유 문구와 비교해 서로 다른 공유 문구가 나가는지 확인한다.
+- regressionCheck:
+  - `npm test -- --runTestsByPath lib/__tests__/referral-share.test.ts --runInBand`
+- notes:
+  - 수정 후 공유 문구는 HTTPS invite URL을 기준으로 통일한다. direct app scheme은 landing page와 앱 내부 deep link 계약으로 유지하되, 사용자 공유 텍스트에 직접 노출하지 않는다.
 
 ## INC-022 | 2026-04-26 | 관리자 추천인 그래프 체크리스트 미완료 상태를 완료처럼 보고함
 

@@ -30,6 +30,124 @@
 - Verification:
 ```
 
+## 2026-06-08 | Admin Exam Applicant Columns | 전역 명단만 바꾸고 다른 응시자 명단 route를 누락
+- Symptom:
+  - 관리자 웹 시험 응시자 목록 순서를 엑셀 샘플과 맞춰 배포했는데, 현장에서는 순서가 그대로라는 제보가 들어왔다.
+  - 실제로 `/dashboard/exam/applicants`는 새 순서였지만, 회차별 `/admin/exams/[id]` `응시자 관리` 화면은 여전히 `이름/연락처/소속/주소/고사장/신청일시/접수 상태` 순서를 사용했다.
+  - 후속 확인에서 legacy `/exam/apply` route도 같은 구 테이블을 그대로 렌더링하고 있어, 오래된 링크/캐시/알림 진입 시 여전히 바뀌지 않은 화면처럼 보일 수 있었다.
+- Root cause:
+  - 같은 업무 목록이 전역 시험자 명단과 회차별 응시자 관리 화면에 중복 구현되어 있었다.
+  - 전역 화면만 `EXAM_APPLICANT_EXPORT_COLUMNS` 공용 컬럼 계약으로 바꾸고, 회차별 화면과 legacy `/exam/apply`는 직접 Supabase 조회와 별도 테이블 렌더링으로 남겨뒀다.
+- Why it was missed:
+  - 최초 검증 범위를 `/dashboard/exam/applicants`와 CSV 다운로드에 한정했고, 시험 일정 상세에서 진입하는 `/admin/exams/[id]` 경로를 같은 업무 surface로 묶어 확인하지 않았다.
+  - 후속 검증도 route 검색을 `admin/exams` 계열에 집중했고, `/exam/apply`처럼 메뉴에서 직접 노출되지 않는 legacy route의 stale UI를 놓쳤다.
+- Permanent guardrail:
+  - 시험 응시자 data column order는 `web/src/lib/exam-applicant-list-display.ts`의 `EXAM_APPLICANT_EXPORT_COLUMNS`만 사용한다.
+  - 전역 명단과 회차별 명단 모두 source-level regression test로 공용 컬럼 계약 사용을 확인한다.
+  - legacy `/exam/apply`는 구 테이블을 렌더링하지 않고 canonical `/dashboard/exam/applicants`로 redirect한다.
+  - 회차별 조회도 `/api/admin/exam-applicants?roundId=...` 서버 API를 사용해 주민번호 trusted path와 `신규신청/재신청` 계산을 공유한다.
+- Related files:
+  - `web/src/app/exam/apply/page.tsx`
+  - `web/src/app/admin/exams/[id]/page.tsx`
+  - `web/src/app/api/admin/exam-applicants/route.ts`
+  - `web/src/lib/exam-applicant-list-display.ts`
+  - `web/src/lib/exam-applicant-list-display.test.ts`
+  - `web/src/lib/exam-applicant-resident-number-enrichment.ts`
+- Verification:
+  - RED/GREEN: `node --test web/src/lib/exam-applicant-list-display.test.ts web/src/lib/exam-applicant-resident-number-enrichment.test.node.ts`
+  - `cd web && npm run lint`
+  - `cd web && SENTRY_AUTH_TOKEN='' npm run build`
+  - `vercel --prod --yes --archive=tgz --scope jun-jeongs-projects`
+  - `vercel inspect https://admin-ddbf9l6z0-jun-jeongs-projects.vercel.app --scope jun-jeongs-projects`
+  - Follow-up RED/GREEN: `node --test web/src/lib/exam-applicant-list-display.test.ts` caught and fixed legacy `/exam/apply`.
+  - Follow-up deploy: `vercel inspect https://admin-m71a2lq31-jun-jeongs-projects.vercel.app --scope jun-jeongs-projects` status `Ready`; live `/exam/apply` returns `307 Location: /dashboard/exam/applicants`.
+
+## 2026-06-08 | Home Guide Badge | 색상 상수만 고정하고 실제 vector/elevation 검정 합성 경로를 남김
+- Symptom:
+  - 홈 `앱 사용법 안내 시작하기` 카드의 왼쪽 play 배지가 일부 Android 기기에서 여전히 검정 원으로 보였다.
+- Root cause:
+  - `home-guide-ui` 색상 상수는 오렌지로 고정했지만, 실제 렌더링은 `Feather name="play"` vector icon과 원형 `View`의 shadow/elevation 조합을 계속 사용했다.
+  - Android native 합성에서 작은 원형/elevated surface가 검정으로 보이는 기존 실패 경로가 남아 있었다.
+- Why it was missed:
+  - 기존 테스트가 색상 상수만 검증했고, 실제 `app/index.tsx` 렌더링 source가 vector icon/elevation을 쓰는지는 고정하지 않았다.
+- Permanent guardrail:
+  - 홈 가이드 play 배지는 vector icon 대신 native border triangle을 사용한다.
+  - 작은 core action badge는 shadow/elevation을 0으로 두고, source-level test로 `Feather name="play"` 재도입을 막는다.
+- Related files:
+  - `app/index.tsx`
+  - `lib/home-guide-ui.ts`
+  - `lib/__tests__/home-guide-ui.test.ts`
+- Verification:
+  - RED/GREEN: `npm test -- --runTestsByPath lib/__tests__/home-guide-ui.test.ts --runInBand`
+  - `npx eslint app/index.tsx lib/home-guide-ui.ts lib/__tests__/home-guide-ui.test.ts`
+  - `npx tsc --noEmit --pretty false`
+
+## 2026-06-08 | Referral Share Copy | 설정 화면에 예전 추천코드 공유 문구를 하드코딩한 채로 둠
+- Symptom:
+  - 같은 계정의 추천코드를 공유해도 일부 기기/진입점에서는 새 HTTPS invite 문구가 나가고, 일부에서는 예전 `가람in 앱 가입 시 추천 코드를 입력해주세요!` / `앱 열기 링크: hanwhafcpass://signup?...` 문구가 나갔다.
+- Root cause:
+  - `/referral`은 `lib/referral-share.ts`의 `buildReferralShareText()`를 사용했지만, `/settings`의 `handleShareReferralCode()`는 예전 문구를 직접 조립했다.
+- Why it was missed:
+  - 공유 문구 업데이트 때 추천인 self-service 화면만 확인하고, 설정 화면의 `내 추천 코드` 카드 공유 버튼을 같은 계약으로 묶는 테스트가 없었다.
+- Permanent guardrail:
+  - 추천코드 공유 문구는 `lib/referral-share.ts`만 사용한다.
+  - 새 공유 진입점을 추가하면 `lib/__tests__/referral-share.test.ts`에 source-level contract를 추가해 예전 direct deep-link 문구가 남지 않게 한다.
+- Related files:
+  - `app/settings.tsx`
+  - `app/referral.tsx`
+  - `lib/referral-share.ts`
+  - `lib/__tests__/referral-share.test.ts`
+  - `docs/referral-system/INCIDENTS.md`
+- Verification:
+  - RED/GREEN: `npm test -- --runTestsByPath lib/__tests__/referral-share.test.ts --runInBand`
+
+## 2026-06-08 | GaramIn Board Filters | FC 게시판 필터만 유지하고 총무/본부장 관리 화면을 누락
+- Symptom:
+  - 총무/본부장이 가람in `게시판` 탭(`/admin-board-manage`)에 들어가면 FC 게시판(`/board`)에는 있는 글 종류 필터와 정렬 버튼이 보이지 않았다.
+- Root cause:
+  - FC 게시판은 `selectedCategoryId`/`sortOption`을 UI와 `fetchBoardList()` 파라미터에 연결했지만, 관리 게시판은 별도 구현으로 남아 목록 query가 `{ limit: 20 }`만 전달했다.
+  - 관리 게시판은 `fetchBoardCategories()`를 이미 호출하면서도 그 데이터를 필터 UI로 렌더링하지 않았다.
+- Why it was missed:
+  - 2026-06-05 게시판 4종 카테고리 정렬 때 데이터/카테고리 allowlist 계약은 검증했지만, FC 목록 화면과 총무/본부장 목록 화면의 필터 UI parity를 별도 계약으로 고정하지 않았다.
+- Permanent guardrail:
+  - 게시판 목록 query key/params/정렬 라벨은 `lib/board-list-query.ts` 공용 helper를 사용한다.
+  - `board`와 `admin-board-manage`는 같은 카테고리 필터와 정렬 옵션을 제공해야 하며, 본부장(read-only manager actor)도 조회 필터는 사용할 수 있어야 한다.
+- Related files:
+  - `lib/board-list-query.ts`
+  - `lib/__tests__/board-list-query.test.ts`
+  - `app/board.tsx`
+  - `app/admin-board-manage.tsx`
+  - `docs/handbook/mobile/messenger-and-content.md`
+- Verification:
+  - RED/GREEN: `npm test -- --runTestsByPath lib/__tests__/board-list-query.test.ts --runInBand`
+  - `npx eslint app/board.tsx app/admin-board-manage.tsx lib/board-list-query.ts lib/__tests__/board-list-query.test.ts`
+  - `npx tsc --noEmit --pretty false`
+
+## 2026-06-08 | Request Board Session Errors | 가람Link 세션 실패를 화면별 일반 실패 문구로 표시
+- Symptom:
+  - 본부장이 설계 요청 고객 선택 화면에 들어갈 때 실제 원인은 가람Link 세션/브릿지 실패였지만, 화면에는 `데이터 로드 실패`와 일반 처리 실패 문구가 표시됐다.
+- Root cause:
+  - `ensureRequestBoardSession()` 실패와 request_board API 401/bridge 실패가 화면별 Alert/오류 배너에서 각자 처리됐다.
+  - `Edge Function returned a non-2xx status code` 같은 기술 메시지는 전역 Alert 정규화로 더 일반적인 문구가 되어, 재로그인이 필요한 상황임을 알 수 없었다.
+- Why it was missed:
+  - request_board 세션 복구 경로는 여러 화면에서 재사용되지만, 사용자-facing copy는 공통 helper 없이 화면별 fallback에 의존했다.
+- Permanent guardrail:
+  - 가람Link 세션/브릿지 실패 문구는 `lib/request-board-session-error.ts`를 통해 정규화한다.
+  - 새 request_board 화면에서 `ensureRequestBoardSession()` 또는 request_board API 인증 실패를 사용자에게 보여줄 때 이 helper를 사용한다.
+  - 명시적 역할/계정 상태 안내는 재로그인 안내로 덮어쓰지 않는다.
+- Related files:
+  - `lib/request-board-session-error.ts`
+  - `app/request-board-create.tsx`
+  - `app/request-board-fc-codes.tsx`
+  - `app/request-board-requests.tsx`
+  - `app/request-board-review.tsx`
+  - `app/request-board.tsx`
+  - `app/request-board-messenger.tsx`
+- Verification:
+  - `npm test -- --runTestsByPath lib/__tests__/request-board-session-error.test.ts lib/__tests__/request-board-session.test.ts lib/__tests__/user-facing-error.test.ts --runInBand`
+  - `npx eslint app/request-board-create.tsx app/request-board-fc-codes.tsx app/request-board-requests.tsx app/request-board-review.tsx app/request-board.tsx app/request-board-messenger.tsx lib/request-board-session-error.ts lib/__tests__/request-board-session-error.test.ts`
+  - `npx tsc --noEmit --pretty false`
+
 ## 2026-06-07 | Home Guide Badge | small gradient badge가 Android에서 다시 검정색으로 렌더링
 - Symptom:
   - 모바일 홈 `앱 사용법 안내 시작하기` 왼쪽 play badge가 주황색 UI가 아니라 검정 원으로 보였다.
@@ -123,8 +241,8 @@
 - Why it was missed:
   - seed/migration/function/script를 한 계약으로 검증하는 테스트가 없었고, 기존 게시글 재배치 대상과 새 자동 게시 대상의 차이를 명시하지 않았다.
 - Permanent guardrail:
-  - 게시판 카테고리는 shared canonical list(`공지`, `교육 일정`, `일반`, `가람pick`)를 source of truth로 두고, 목록/생성/수정/게시글 작성 경계가 모두 같은 allowlist를 사용한다.
-  - 자동 보험소식 브리핑은 `일반/general`에만 게시하고, 홈 최신 카드의 `가람pick` 노출 요구와 섞지 않는다.
+  - 게시판 카테고리는 shared canonical list(`공지`, `교육 일정`, `일반`, `상품추천`, `시책`)를 source of truth로 두고, 목록/생성/수정/게시글 작성 경계가 모두 같은 allowlist를 사용한다.
+  - 자동 보험소식 브리핑은 `일반/general`에만 게시하고, 홈 최신 카드의 `상품추천` 노출 요구와 섞지 않는다.
   - `lib/__tests__/board-category-contract.test.ts`로 schema, migration, Edge Function, 자동 게시 스크립트의 카테고리 계약을 함께 고정한다.
 - Related files:
   - `supabase/functions/_shared/board-categories.ts`
@@ -1628,3 +1746,11 @@
 - Permanent guardrail: 목록에서 상세 전용 필드를 표시할 때는 list endpoint가 해당 필드를 제공하는지 확인한다. 제공하지 않으면 detail hydration, endpoint 확장, 또는 UI fallback 중 하나를 테스트로 고정해야 한다.
 - Related files: `app/request-board-requests.tsx`, `lib/request-board-rejection-summary.ts`, `lib/request-board-api.ts`
 - Verification: `npm test -- --runTestsByPath lib\__tests__\request-board-rejection-summary.test.ts lib\__tests__\request-board-mobile-ui-contract.test.ts --runInBand`; request-board regression suite; targeted ESLint; `npx tsc --noEmit --pretty false`
+
+## 2026-06-08 | Referral Graph Drag Physics | 드래그 중 연결 노드와 초기 원형 anchor를 계속 당김
+- Symptom: 추천인 그래프에서 `최경집` 같은 노드를 살짝 옮기면 연결 노드와 edge가 같이 끌려가고, 시간이 지나도 초기 원형 배치를 유지하려는 힘 때문에 그래프가 비정상적으로 흔들렸다.
+- Root cause: 드래그 중 `applyReferralGraphDragSpring(... preventStretch)`가 연결 체인의 follower `x/y`를 직접 수정했고, `drag-spring` force도 같은 보정을 계속 실행했다. `layout-memory`는 `minimumAnchorRatio: 0.45`와 수동 target 유지로 초기 anchor 힘이 오래 남았다.
+- Why it was missed: 기존 테스트는 edge stretch 감소를 우선해 follower 직접 이동을 정답으로 봤고, 사용자가 잡은 노드만 움직여야 한다는 UX 계약을 고정하지 않았다.
+- Permanent guardrail: 드래그 중에는 dragged node만 직접 이동한다. 연결 노드는 drag spring으로 `x/y`를 직접 수정하지 않고, 초기 layout-memory는 약하게 시작한 뒤 `maxTicks` 이후 완전히 꺼져야 한다.
+- Related files: `web/src/components/referrals/ReferralGraphCanvas.tsx`, `web/src/lib/referral-graph-physics.ts`, `web/src/lib/referral-graph-physics.test.ts`
+- Verification: `node --test web/src/lib/referral-graph-physics.test.ts`; `node --test web/src/lib/referral-graph-display.test.ts web/src/lib/referral-graph-edges.test.ts web/src/lib/referral-graph-highlight.test.ts web/src/lib/referral-graph-interaction.test.ts web/src/lib/referral-graph-layout.test.ts web/src/lib/referral-graph-link-style.test.ts web/src/lib/referral-graph-physics.test.ts web/src/lib/referral-graph-scope.test.ts web/src/lib/referral-graph-simulation.test.ts`; `cd web && npx eslint src/components/referrals/ReferralGraphCanvas.tsx src/lib/referral-graph-physics.ts src/lib/referral-graph-physics.test.ts`

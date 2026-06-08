@@ -50,6 +50,7 @@ import {
   rbSendMessage,
   rbUploadAttachments,
 } from '@/lib/request-board-api';
+import { toRequestBoardSessionErrorMessage } from '@/lib/request-board-session-error';
 import { COLORS, RADIUS, SHADOWS, SPACING, TYPOGRAPHY } from '@/lib/theme';
 
 /* ─── Types ─── */
@@ -329,11 +330,16 @@ export default function RequestBoardMessengerScreen() {
     if (!sync.ok) {
       setRbUser(null);
       setAuthState('error');
-      setAuthError(sync.error ?? requestBoardSyncError ?? '가람Link 계정 연결에 실패했습니다.');
+      setAuthError(
+        toRequestBoardSessionErrorMessage(
+          sync.error ?? requestBoardSyncError,
+          '가람Link 계정 연결에 실패했습니다.',
+        ),
+      );
       return;
     }
 
-    const { authenticated, user } = await rbCheckAuth();
+    const { authenticated, user, error: authError } = await rbCheckAuth();
     if (authenticated && user) {
       setRbUser(user);
       setAuthState('ready');
@@ -343,7 +349,10 @@ export default function RequestBoardMessengerScreen() {
     setRbUser(null);
     setAuthState('error');
     setAuthError(
-      requestBoardSyncError ?? '가람Link 계정 연결에 실패했습니다. 앱에서 다시 로그인한 뒤 시도해주세요.',
+      toRequestBoardSessionErrorMessage(
+        authError ?? requestBoardSyncError,
+        '가람Link 계정 연결에 실패했습니다. 앱에서 다시 로그인한 뒤 시도해주세요.',
+      ),
     );
   }, [ensureRequestBoardSession, requestBoardSyncError]);
 
@@ -906,7 +915,10 @@ export default function RequestBoardMessengerScreen() {
           files.map((f) => ({ uri: f.uri, name: f.name, type: f.type })),
         );
         if (!uploadRes.success || !uploadRes.data) {
-          Alert.alert('업로드 실패', uploadRes.error ?? '파일 업로드에 실패했습니다.');
+          Alert.alert(
+            '업로드 실패',
+            toRequestBoardSessionErrorMessage(uploadRes.error, '파일 업로드에 실패했습니다.'),
+          );
           setInputText(text);
           setPendingFiles(files);
           setSending(false);

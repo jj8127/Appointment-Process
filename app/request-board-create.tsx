@@ -73,6 +73,7 @@ import {
   mapRequestBoardProductsToMobileCatalog,
   type MobileRequestProduct,
 } from '@/lib/request-board-mobile-products';
+import { toRequestBoardSessionErrorMessage } from '@/lib/request-board-session-error';
 import { COLORS, RADIUS, SHADOWS, SPACING, TYPOGRAPHY } from '@/lib/theme';
 
 type StepKey = 'customer' | 'newCustomer' | 'compose' | 'sent';
@@ -560,7 +561,7 @@ export default function RequestBoardCreateScreen() {
       logger.warn('[request-board-create] load failed', err);
       Alert.alert(
         '데이터 로드 실패',
-        err instanceof Error ? err.message : '설계 요청 데이터를 불러오지 못했습니다.',
+        toRequestBoardSessionErrorMessage(err, '설계 요청 데이터를 불러오지 못했습니다.'),
       );
     } finally {
       setLoading(false);
@@ -727,7 +728,10 @@ export default function RequestBoardCreateScreen() {
       setStep('compose');
     } catch (err) {
       logger.warn('[request-board-create] save customer failed', err);
-      Alert.alert('고객 등록 실패', err instanceof Error ? err.message : '고객 등록에 실패했습니다.');
+      Alert.alert(
+        '고객 등록 실패',
+        toRequestBoardSessionErrorMessage(err, '고객 등록에 실패했습니다.'),
+      );
     } finally {
       setSubmitting(false);
     }
@@ -864,14 +868,20 @@ export default function RequestBoardCreateScreen() {
             ),
           );
         } else if (!upload.success) {
-          Alert.alert('첨부 전송 보류', upload.error ?? '요청은 생성됐지만 첨부 전송에 실패했습니다.');
+          Alert.alert(
+            '첨부 전송 보류',
+            toRequestBoardSessionErrorMessage(upload.error, '요청은 생성됐지만 첨부 전송에 실패했습니다.'),
+          );
         }
       }
 
       setStep('sent');
     } catch (err) {
       logger.warn('[request-board-create] submit failed', err);
-      Alert.alert('전송 실패', err instanceof Error ? err.message : '설계 요청을 보내지 못했습니다.');
+      Alert.alert(
+        '전송 실패',
+        toRequestBoardSessionErrorMessage(err, '설계 요청을 보내지 못했습니다.'),
+      );
     } finally {
       setSubmitting(false);
     }
