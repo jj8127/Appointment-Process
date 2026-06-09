@@ -2006,3 +2006,30 @@ Next resume step:
 - If the user still sees instability, capture the specific node name and drag path. The debug hook can now measure that exact path in screen pixels instead of relying on screenshots alone.
 
 ---
+# Increment 60: Request Board FC Code Focus Refresh
+
+Status: implemented and locally verified on 2026-06-09.
+
+What changed:
+
+- `app/request-board-create.tsx` now refreshes `rbGetDesigners()` and `rbGetFcCodes()` whenever the create screen regains focus after the initial data load.
+- The refresh keeps the user's in-progress customer/request/attachment draft intact.
+- `lib/__tests__/request-board-create-code-refresh.test.ts` guards the focus refresh contract.
+- `docs/handbook/mobile/request-board-bridge.md`, `.claude/MISTAKES.md`, `.claude/WORK_DETAIL.md`, and `.claude/WORK_LOG.md` document the stale-code regression.
+
+Evidence:
+
+- Production DB/API probe showed `01012341234` already has active `테스트 회사 / 430`, and the test manager company is also `테스트 회사`.
+- Targeted Jest and ESLint passed for the changed app/test files.
+- Account `01019820519` was updated and login-verified separately in Supabase.
+
+Known risks / not yet verified:
+
+- The exact phone-device flow has not been rerun on a rebuilt/reloaded dev client after this patch.
+- The installed app will still show the old behavior until the local bundle is reloaded or a new build carrying this change is installed.
+
+Next resume step:
+
+- Reload the Expo/dev-client bundle, open 설계요청 작성 as `01012341234`, register or confirm `테스트 회사` in 설계코드 관리, return to the create screen, and verify `테스트 매니저` no longer shows `FC 코드 필요`.
+
+---

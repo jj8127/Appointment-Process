@@ -133,8 +133,25 @@ const PRODUCT_ICON: Record<string, keyof typeof Feather.glyphMap> = {
   연금보험: 'calendar',
 };
 
-const normalizeCompany = (value?: string | null) =>
-  String(value ?? '').replace(/\s+/g, '').toLowerCase();
+const normalizeCompany = (value?: string | null) => {
+  const normalized = String(value ?? '')
+    .replace(/\s+/g, '')
+    .replace(/손해보험/g, '손보')
+    .replace(/생명보험/g, '생명')
+    .replace(/보험주식회사/g, '보험')
+    .replace(/주식회사/g, '')
+    .trim()
+    .toLowerCase();
+
+  if (normalized === '라이나') {
+    return '라이나생명';
+  }
+  if (normalized === '미래에셋생명') {
+    return '미래에셋';
+  }
+
+  return normalized;
+};
 
 const formatPhone = (value?: string | null) => {
   const digits = String(value ?? '').replace(/\D/g, '');
@@ -519,6 +536,7 @@ export default function RequestBoardCreateScreen() {
   const recentHospitalVisitInputRef = useRef<TextInput>(null);
   const hospitalizationHistoryInputRef = useRef<TextInput>(null);
   const majorDiseasesInputRef = useRef<TextInput>(null);
+  const hasLoadedInitialRequestDataRef = useRef(false);
 
   const navPreset = resolveBottomNavPreset({
     role,
@@ -557,6 +575,7 @@ export default function RequestBoardCreateScreen() {
       setProducts(mapRequestBoardProductsToMobileCatalog(productRows).products);
       setDesigners(designerRows);
       setFcCodes(codeRows);
+      hasLoadedInitialRequestDataRef.current = true;
     } catch (err) {
       logger.warn('[request-board-create] load failed', err);
       Alert.alert(
@@ -571,6 +590,40 @@ export default function RequestBoardCreateScreen() {
   useEffect(() => {
     void loadData();
   }, [loadData]);
+
+  useFocusEffect(
+    useCallback(() => {
+      let isActive = true;
+
+      const refreshDesignerCodeData = async () => {
+        if (!hydrated || !canUseCreateFlow || !hasLoadedInitialRequestDataRef.current) return;
+
+        try {
+          const sync = await ensureRequestBoardSession();
+          if (!sync.ok) {
+            throw new Error(sync.error ?? '가람Link 세션 동기화에 실패했습니다.');
+          }
+
+          const [designerRows, codeRows] = await Promise.all([
+            rbGetDesigners(),
+            rbGetFcCodes(),
+          ]);
+
+          if (!isActive) return;
+          setDesigners(designerRows);
+          setFcCodes(codeRows);
+        } catch (err) {
+          logger.warn('[request-board-create] focus refresh failed', err);
+        }
+      };
+
+      void refreshDesignerCodeData();
+
+      return () => {
+        isActive = false;
+      };
+    }, [canUseCreateFlow, ensureRequestBoardSession, hydrated]),
+  );
 
   useEffect(() => {
     if (!hydrated || canUseCreateFlow) return;

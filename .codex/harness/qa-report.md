@@ -3613,3 +3613,35 @@ Date: 2026-06-09
 - The live check directly covers the user-reported failure mode: while the pointer is down, the selected hub tracks the pointer, its child branch moves with it, unrelated areas stay visually stable, and the dropped hub remains close to the release point after settling.
 
 ---
+# Increment 60 Verification: Request Board FC Code Focus Refresh
+
+Date: 2026-06-09
+
+### Scope
+
+- Investigated why FC `01012341234` still saw `FC 코드 필요` after registering a `테스트 회사` design code.
+- Confirmed production request_board data/API already returns the needed code and test designer company data.
+- Fixed the mobile create screen stale-state path by refreshing designers and FC codes on focus after the initial load.
+- Preserved customer/request/attachment draft state during focus refresh.
+- Added source-level regression coverage and updated mobile request-board docs.
+
+### Commands
+
+- Passed production DB/API probe:
+  - FC `01012341234` maps to request_board user id `513`.
+  - `fc_company_codes` includes active `테스트 회사 / 430`.
+  - test designer `테스트 매니저` is active with company `테스트 회사`.
+  - `/api/fc-codes` returned 32 codes with a short-lived FC JWT.
+  - `/api/designers?limit=100` returned the test designer, and the mobile company-normalization logic matches `테스트 회사`.
+- Passed: `npm test -- --runInBand lib/__tests__/request-board-create-code-refresh.test.ts`.
+- Passed: `npx eslint app/request-board-create.tsx lib/__tests__/request-board-create-code-refresh.test.ts`.
+- Passed: `git diff --check -- app/request-board-create.tsx lib/__tests__/request-board-create-code-refresh.test.ts docs/handbook/mobile/request-board-bridge.md .claude/MISTAKES.md .claude/WORK_DETAIL.md .claude/WORK_LOG.md .codex/harness/current-contract.md .codex/harness/qa-report.md .codex/harness/handoff.md .codex/harness/plan.md`.
+- Blocked by unrelated dirty worktree: `node scripts/ci/check-governance.mjs` failed on pre-existing `app/referral.tsx` requiring referral handbook sync.
+
+### QA Judgment
+
+- The user-entered `테스트 회사` code is valid in production data; this was a mobile stale-reference-data issue, not a missing user action.
+- The fix targets the exact navigation pattern: register/update code, return to a still-mounted request creation screen, then select/submit without restarting the app.
+- Device runtime QA is still useful after the next dev-client reload because the current installed bundle may not include this local patch.
+
+---

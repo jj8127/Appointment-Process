@@ -7,6 +7,52 @@
 
 ---
 
+## <a id="20260609-request-board-fc-code-focus-refresh"></a> 2026-06-09 | Request board FC code focus refresh
+
+**배경**:
+- FC가 `설계코드 관리`에서 `테스트 회사` 코드를 등록한 뒤 의뢰 작성 화면으로 돌아와도 설계매니저 sheet와 제출 검증에서 `FC 코드 필요`가 계속 표시됐다.
+- 운영 GaramLink DB와 `/api/fc-codes`는 `01012341234` user id `513`에 `테스트 회사 / 430` 코드를 정상 반환했고, 테스트 매니저 회사명도 `테스트 회사`로 일치했다.
+
+**조치**:
+- `request-board-create`가 최초 로드 후 화면 focus 복귀 시 `rbGetDesigners()`와 `rbGetFcCodes()`를 재조회하도록 보강했다.
+- 작성 중인 고객/요청/첨부 상태는 유지하고, stale 가능성이 있는 설계매니저/FC코드 목록만 갱신한다.
+- 코드 관리 후 의뢰 작성 화면의 focus refresh 계약을 source-level Jest 테스트로 고정했다.
+
+**핵심 파일**:
+- `app/request-board-create.tsx`
+- `lib/__tests__/request-board-create-code-refresh.test.ts`
+- `.claude/MISTAKES.md`
+
+**검증**:
+- 운영 DB/API 확인: `010-1234-1234` FC user id `513`의 `fc_company_codes`에 `테스트 회사 / 430` 존재.
+- 운영 API 확인: short-lived FC JWT로 `/api/fc-codes` 32건 반환, `/api/designers?limit=100`에서 테스트 매니저 반환, 모바일 매칭 로직상 `테스트 회사` 코드 매칭 성공.
+- 통과: `npm test -- --runInBand lib/__tests__/request-board-create-code-refresh.test.ts`
+- 통과: `npx eslint app/request-board-create.tsx lib/__tests__/request-board-create-code-refresh.test.ts`
+- 통과: `git diff --check -- app/request-board-create.tsx lib/__tests__/request-board-create-code-refresh.test.ts .claude/MISTAKES.md .claude/WORK_DETAIL.md .claude/WORK_LOG.md`
+
+## <a id="20260609-mobile-referral-graph-link-button"></a> 2026-06-09 | Mobile referral graph link button
+
+**배경**:
+- 가람in 앱 추천인 페이지에서 웹 추천인 그래프 뷰로 바로 이동할 수 있는 버튼이 필요했다.
+- 기존 구현은 본부장 세션에서만 하단에 그래프 링크를 보여줬고, FC 추천인 페이지에서는 웹 그래프 뷰로 갈 수 있는 명확한 진입점이 없었다.
+
+**조치**:
+- `buildReferralGraphWebUrl` helper를 추가해 `EXPO_PUBLIC_ADMIN_WEB_URL` 기반 그래프 URL을 안전하게 만든다.
+- 추천 코드 카드 바로 아래에 `추천인 그래프 뷰로 보기` 버튼을 추가했다.
+- 버튼은 FC와 본부장 모두에게 보이며, env URL이 없으면 렌더링하지 않는다.
+- 기존 본부장 전용 하단 그래프 링크는 중복을 피하기 위해 제거했다.
+
+**핵심 파일**:
+- `app/referral.tsx`
+- `lib/referral-graph-link.ts`
+- `lib/__tests__/referral-graph-link.test.ts`
+
+**검증**:
+- RED 확인: `npm test -- --runInBand lib/__tests__/referral-graph-link.test.ts` failed before helper existed.
+- 통과: `npm test -- --runInBand lib/__tests__/referral-graph-link.test.ts`
+- 통과: `npx eslint app/referral.tsx lib/referral-graph-link.ts lib/__tests__/referral-graph-link.test.ts`
+- 통과: `git diff --check -- app/referral.tsx lib/referral-graph-link.ts lib/__tests__/referral-graph-link.test.ts`
+
 ## <a id="20260609-referral-graph-responsive-page"></a> 2026-06-09 | Referral graph responsive page
 
 **배경**:

@@ -2,7 +2,7 @@ doc_id: FC-APP-REQUEST-BOARD-BRIDGE
 owner_repo: fc-onboarding-app
 owner_area: mobile
 audience: developer, operator
-last_verified: 2026-04-16
+last_verified: 2026-06-09
 source_of_truth: app/request-board*.tsx + lib/request-board-api.ts + lib/request-board-session.ts + request_board/server/src/routes/messages.ts
 
 # Mobile Playbook: GaramLink Bridge
@@ -55,6 +55,12 @@ source_of_truth: app/request-board*.tsx + lib/request-board-api.ts + lib/request
 - `ensureRequestBoardSession()` 실패, bridge-login 실패, request_board API 인증 만료는 `lib/request-board-session-error.ts`를 통해 같은 사용자 안내로 표시한다.
 - 명시적인 역할 제한이나 계정 상태 안내는 세션 만료 안내로 덮어쓰지 않는다.
 - 안내 문구만 정규화하며, 자동 로그아웃/라우팅이나 재로그인 버튼은 별도 제품 결정 없이는 추가하지 않는다.
+
+## 2026-06-09 모바일 설계코드 focus refresh 메모
+
+- `request-board-create`는 최초 데이터 로드 이후 화면 focus 복귀 시 `rbGetDesigners()`와 `rbGetFcCodes()`를 다시 호출한다.
+- `/request-board-fc-codes`에서 회사별 설계코드를 등록/수정한 뒤 작성 화면으로 돌아온 경우, 고객/요청/첨부 draft는 유지하고 설계매니저/FC 코드 목록만 갱신해야 한다.
+- 설계매니저 sheet의 `FC 코드 필요` 표시는 현재 FC 코드 목록과 설계매니저 회사명이 매칭되지 않을 때만 보여야 하며, 운영 API가 코드를 반환하는데 stale local state 때문에 막히면 회귀다.
 
 ## 2026-06-05 모바일 설계요청 메모
 

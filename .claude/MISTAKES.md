@@ -30,6 +30,28 @@
 - Verification:
 ```
 
+## 2026-06-09 | Request Board FC Codes | 코드 관리 후 의뢰 작성 화면의 코드 목록을 갱신하지 않음
+- Symptom:
+  - FC가 `설계코드 관리`에서 `테스트 회사` 코드를 등록했는데도, 의뢰 작성의 설계매니저 선택 sheet와 제출 전 검증에서 계속 `FC 코드 필요` / `설계코드 필요`가 표시됐다.
+  - 운영 DB와 `/api/fc-codes`는 해당 FC의 `테스트 회사` 코드를 정상 반환했고, 설계매니저 회사명도 같은 `테스트 회사`였다.
+- Root cause:
+  - `app/request-board-create.tsx`가 최초 mount 때 `rbGetFcCodes()` 결과를 state에 저장한 뒤, `/request-board-fc-codes`에서 코드를 추가하고 돌아온 focus 시점에 다시 조회하지 않았다.
+  - 작성 화면이 navigation stack에 살아 있어서 stale `fcCodes` state가 유지됐다.
+- Why it was missed:
+  - 설계코드 등록 화면 저장 성공만 확인했고, 작성 화면으로 돌아와 기존 draft가 stale state 없이 제출 가능한지는 같은 flow로 검증하지 않았다.
+- Permanent guardrail:
+  - 설계요청 작성 화면은 초기 로드 후 focus 복귀 시 `rbGetDesigners()`와 `rbGetFcCodes()`를 재조회한다.
+  - 작성 중인 고객/요청/첨부 draft는 유지하되, 설계매니저/코드 목록만 refresh한다.
+  - source-level regression test로 focus refresh 경로를 고정한다.
+- Related files:
+  - `app/request-board-create.tsx`
+  - `app/request-board-fc-codes.tsx`
+  - `lib/request-board-api.ts`
+  - `lib/__tests__/request-board-create-code-refresh.test.ts`
+- Verification:
+  - `npm test -- --runInBand lib/__tests__/request-board-create-code-refresh.test.ts`
+  - `npx eslint app/request-board-create.tsx lib/__tests__/request-board-create-code-refresh.test.ts`
+
 ## 2026-06-08 | Referral Graph Edge Length | 자식 수가 적은 체인을 길게, 많은 허브를 짧게 만드는 반대 결과
 - Symptom:
   - 사용자가 요구한 방향은 자식이 적은 릴레이 체인은 짧게 유지하고, 자식이 많은 부모 노드는 더 긴 엣지로 공간을 확보하는 것이었다.

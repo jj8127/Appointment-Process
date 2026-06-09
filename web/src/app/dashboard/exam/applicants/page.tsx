@@ -637,6 +637,16 @@ export default function ExamApplicantsPage() {
             );
         }
 
+        if (column.key === 'application_created_at') {
+            return (
+                <Table.Td key={column.key} ta="center">
+                    <Text size="sm" c={value === '-' ? 'dimmed' : undefined} ta="center">
+                        {value}
+                    </Text>
+                </Table.Td>
+            );
+        }
+
         if (column.key === 'third_exam') {
             return (
                 <Table.Td key={column.key}>

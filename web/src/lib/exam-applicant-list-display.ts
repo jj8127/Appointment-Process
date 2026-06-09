@@ -1,6 +1,7 @@
 export type ExamApplicantApplicationType = '신규신청' | '재신청';
 
 export type ExamApplicantListItem = {
+  created_at?: string | null;
   round_id?: string | null;
   affiliation: string;
   name: string;
@@ -28,6 +29,7 @@ export type ExamApplicantExportColumnKey =
   | 'resident_id'
   | 'address'
   | 'phone'
+  | 'application_created_at'
   | 'subject_display'
   | 'application_type'
   | 'life_exam_date'
@@ -49,6 +51,7 @@ export const EXAM_APPLICANT_EXPORT_COLUMNS: ExamApplicantExportColumn[] = [
   { key: 'resident_id', title: '주민등록번호(전체)', minWidth: 150 },
   { key: 'address', title: '주소', minWidth: 420 },
   { key: 'phone', title: '전화번호', minWidth: 130 },
+  { key: 'application_created_at', title: '시험 신청일', minWidth: 140 },
   { key: 'subject_display', title: '시험응시 과목', minWidth: 180 },
   { key: 'application_type', title: '시험 신청 구분', minWidth: 150 },
   { key: 'life_exam_date', title: '생명보험 응시일자', minWidth: 150 },
@@ -253,6 +256,12 @@ export function formatExamApplicantFeePaidDate(item: Pick<ExamApplicantListItem,
   return match ? `${match[1]}-${match[2]}-${match[3]}` : '-';
 }
 
+export function formatExamApplicantCreatedAt(item: Pick<ExamApplicantListItem, 'created_at'>): string {
+  const value = item.created_at ?? '';
+  const match = value.match(/^(\d{4})-(\d{2})-(\d{2})/);
+  return match ? `${match[1]}-${match[2]}-${match[3]}` : '-';
+}
+
 export function getExamApplicantCellValue(
   item: ExamApplicantListItem,
   key: ExamApplicantExportColumnKey,
@@ -271,6 +280,8 @@ export function getExamApplicantCellValue(
       return item.address || '-';
     case 'phone':
       return item.phone || '-';
+    case 'application_created_at':
+      return formatExamApplicantCreatedAt(item);
     case 'subject_display':
       return formatExamApplicantSubject(item);
     case 'application_type':

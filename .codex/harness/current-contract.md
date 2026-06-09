@@ -2142,3 +2142,43 @@ Validate the actual browser graph, not only the simulation harness, for the repo
 - `git diff --check`
 
 ---
+# Current Contract: Increment 60 - Request Board FC Code Focus Refresh
+
+Status: implemented and locally verified on 2026-06-09
+
+## Goal
+
+Stop GaramIn mobile design requests from incorrectly blocking a valid FC after they register a company design code and return to the request creation screen.
+
+## Scope
+
+- Confirm production GaramLink DB/API state for FC `01012341234`, test designer, and `테스트 회사` code matching.
+- Keep the existing FC-code validation contract: selected designers require a matching active FC company code.
+- Refresh only designer/code reference data when `request-board-create` regains focus after initial load.
+- Preserve in-progress customer/request/attachment draft state.
+- Add regression coverage and update mobile/request-board documentation.
+
+## Explicit Non-Scope
+
+- Do not change request_board schema or API contract.
+- Do not weaken company-code validation.
+- Do not alter design request submission payloads.
+- Do not run EAS build.
+
+## Acceptance Criteria
+
+- `01012341234` has an active `테스트 회사` FC code in production data, and the test designer company is also `테스트 회사`.
+- The create screen re-fetches `rbGetDesigners()` and `rbGetFcCodes()` on focus after initial load.
+- Returning from `설계코드 관리` can clear stale `FC 코드 필요` state without remounting the app.
+- Focus refresh failures are logged without erasing the user's draft.
+- Targeted Jest, ESLint, diff whitespace, and governance checks pass.
+
+## Verification Plan
+
+- Production DB/API probe for FC code and designer-company matching.
+- `npm test -- --runInBand lib/__tests__/request-board-create-code-refresh.test.ts`
+- `npx eslint app/request-board-create.tsx lib/__tests__/request-board-create-code-refresh.test.ts`
+- `git diff --check -- app/request-board-create.tsx lib/__tests__/request-board-create-code-refresh.test.ts docs/handbook/mobile/request-board-bridge.md .claude/MISTAKES.md .claude/WORK_DETAIL.md .claude/WORK_LOG.md .codex/harness/current-contract.md .codex/harness/qa-report.md .codex/harness/handoff.md .codex/harness/plan.md`
+- `node scripts/ci/check-governance.mjs`
+
+---

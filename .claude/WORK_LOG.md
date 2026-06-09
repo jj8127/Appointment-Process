@@ -21,6 +21,8 @@
 
 | 날짜 | 작업 | 주요 파일 | 상세 |
 |---|---|---|---|
+| 06-09 | 설계코드 관리에서 코드를 추가한 뒤 의뢰 작성 화면이 stale FC 코드 목록을 계속 써서 `FC 코드 필요`로 막히던 문제를 focus refresh로 수정 | `app/request-board-create.tsx`, `lib/__tests__/request-board-create-code-refresh.test.ts`, `.claude/MISTAKES.md` | [→ 상세](WORK_DETAIL.md#20260609-request-board-fc-code-focus-refresh) |
+| 06-09 | 가람in 추천인 페이지에서 FC/본부장이 웹 추천인 그래프 뷰로 바로 이동할 수 있는 버튼을 추가 | `app/referral.tsx`, `lib/referral-graph-link.ts`, `lib/__tests__/referral-graph-link.test.ts` | [→ 상세](WORK_DETAIL.md#20260609-mobile-referral-graph-link-button) |
 | 06-09 | 추천인 그래프 뷰만 모바일/태블릿/데스크톱 반응형으로 조정하고, 툴바/범례/설정 패널이 좁은 화면에서 겹치지 않도록 변경 | `web/src/app/dashboard/referrals/graph/page.tsx`, `web/src/lib/referral-graph-responsive.ts`, `web/src/lib/referral-graph-responsive.test.ts` | [→ 상세](WORK_DETAIL.md#20260609-referral-graph-responsive-page) |
 | 06-09 | 추천인 그래프 드래그 안정화: active drag force 억제, directed descendant follower, live CDP 검증까지 완료 | `web/src/components/referrals/ReferralGraphCanvas.tsx`, `web/src/lib/referral-graph-*.ts`, `docs/referral-system/*`, `.codex/harness/*`, `.claude/MISTAKES.md` | [→ 상세](WORK_DETAIL.md#20260609-referral-graph-drag-stability-live-qa) |
 

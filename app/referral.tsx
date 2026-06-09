@@ -34,12 +34,14 @@ import { isReferralReloginError, useReferralAppSession } from '@/hooks/use-refer
 import { useReferralTree } from '@/hooks/use-referral-tree';
 import { useSession } from '@/hooks/use-session';
 import { consumePendingReferralCode } from '@/lib/referral-deeplink';
+import { buildReferralGraphWebUrl } from '@/lib/referral-graph-link';
 import { buildReferralShareText } from '@/lib/referral-share';
 import { COLORS, RADIUS, SHADOWS, SPACING } from '@/lib/theme';
 
 const APP_STORE_URL = (process.env.EXPO_PUBLIC_APP_STORE_URL ?? '').trim();
 const INVITE_BASE_URL = process.env.EXPO_PUBLIC_INVITE_BASE_URL ?? '';
 const ADMIN_WEB_URL = (process.env.EXPO_PUBLIC_ADMIN_WEB_URL ?? '').replace(/\/$/, '');
+const REFERRAL_GRAPH_WEB_URL = buildReferralGraphWebUrl(ADMIN_WEB_URL);
 
 function buildShareText(code: string): string {
   return buildReferralShareText({
@@ -234,6 +236,11 @@ export default function ReferralPage() {
     } catch { /* cancelled */ }
   };
 
+  const handleOpenGraphView = useCallback(() => {
+    if (!REFERRAL_GRAPH_WEB_URL) return;
+    void Linking.openURL(REFERRAL_GRAPH_WEB_URL);
+  }, []);
+
   const handleRefresh = async () => {
     setRefreshing(true);
     try {
@@ -404,6 +411,26 @@ export default function ReferralPage() {
             ) : null}
           </View>
         </View>
+
+        {REFERRAL_GRAPH_WEB_URL ? (
+          <Pressable
+            style={({ pressed }) => [styles.graphLinkCard, pressed && { opacity: 0.7 }]}
+            onPress={handleOpenGraphView}
+            accessibilityRole="link"
+            accessibilityLabel="추천인 그래프 뷰 열기"
+          >
+            <View style={styles.graphLinkIconWrap}>
+              <Feather name="git-branch" size={18} color={COLORS.primary} />
+            </View>
+            <View style={styles.graphLinkTextWrap}>
+              <Text style={styles.graphLinkTitle}>추천인 그래프 뷰로 보기</Text>
+              <Text style={styles.graphLinkDesc}>
+                {isManager ? '관리자 웹 그래프 화면을 바로 엽니다' : '내 추천 조직을 웹 그래프로 확인합니다'}
+              </Text>
+            </View>
+            <Feather name="external-link" size={15} color={COLORS.gray[400]} />
+          </Pressable>
+        ) : null}
 
         {/* ── 추천인 등록/변경 카드 ── */}
         {showRecommenderCard && (
@@ -668,23 +695,6 @@ export default function ReferralPage() {
               )}
             </View>
 
-            {isManager && !!ADMIN_WEB_URL && (
-              <Pressable
-                style={({ pressed }) => [styles.graphLinkCard, pressed && { opacity: 0.7 }]}
-                onPress={() => Linking.openURL(`${ADMIN_WEB_URL}/dashboard/referrals/graph`)}
-                accessibilityRole="link"
-                accessibilityLabel="PC 브라우저에서 관리자 그래프 뷰 열기"
-              >
-                <View style={styles.graphLinkIconWrap}>
-                  <Feather name="share-2" size={18} color={COLORS.primary} />
-                </View>
-                <View style={styles.graphLinkTextWrap}>
-                  <Text style={styles.graphLinkTitle}>PC 브라우저에서 그래프 뷰로 보기</Text>
-                  <Text style={styles.graphLinkDesc}>모바일에서는 표시가 다를 수 있습니다</Text>
-                </View>
-                <Feather name="external-link" size={15} color={COLORS.gray[400]} />
-              </Pressable>
-            )}
             <View style={styles.bottomContentSpacer} />
           </>
         ) : null}
@@ -958,8 +968,8 @@ const styles = StyleSheet.create({
     backgroundColor: COLORS.background.primary,
     borderRadius: RADIUS.xl,
     padding: SPACING.base,
-    marginTop: SPACING.lg,
-    marginBottom: SPACING.sm,
+    marginTop: 0,
+    marginBottom: SPACING.base,
     borderWidth: 1,
     borderColor: COLORS.border.light,
     ...SHADOWS.sm,

@@ -1630,3 +1630,23 @@ Out of scope:
 - No mobile binary/OTA deployment in this pass.
 
 ---
+# Increment 60: Request Board FC Code Focus Refresh
+
+Status: implemented locally on 2026-06-09
+
+Implementation order:
+
+1. Completed: changed GaramIn admin account id from `00019820519` to `01019820519` and verified old id rejection/new id login.
+2. Completed: confirmed request_board production DB/API has `01012341234` -> active `테스트 회사 / 430`.
+3. Completed: confirmed test designer company is also `테스트 회사`, so validation should pass.
+4. Completed: added focus refresh for designers and FC codes in `request-board-create`.
+5. Completed: added source-level regression coverage.
+6. In progress: finish harness/docs/governance verification and close subagent.
+
+Out of scope:
+
+- request_board API/schema changes.
+- EAS build.
+- Committing unrelated pre-existing referral graph/mobile changes.
+
+---

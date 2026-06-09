@@ -14,6 +14,7 @@ test('exam applicant list display columns follow the confirmed admin workbook or
       '주민등록번호(전체)',
       '주소',
       '전화번호',
+      '시험 신청일',
       '시험응시 과목',
       '시험 신청 구분',
       '생명보험 응시일자',
@@ -24,6 +25,64 @@ test('exam applicant list display columns follow the confirmed admin workbook or
       '응시료 입금 날짜',
     ],
   );
+
+  assert.equal(
+    mod.EXAM_APPLICANT_EXPORT_COLUMNS.map((column) => column.key).at(5),
+    'application_created_at',
+  );
+});
+
+test('시험 신청일 column uses date-only formatter', async () => {
+  const mod = await import('./exam-applicant-list-display.ts').catch(() => null);
+
+  assert.ok(mod, 'exam applicant list display module should exist');
+
+  const createdAtColumn = mod.EXAM_APPLICANT_EXPORT_COLUMNS.find(
+    (column) => column.key === 'application_created_at',
+  );
+
+  assert.ok(createdAtColumn, 'application_created_at column should exist');
+  assert.equal(createdAtColumn.title, '시험 신청일');
+
+  const value = mod.getExamApplicantCellValue(
+    {
+      round_id: 'life-1',
+      affiliation: '영업본부',
+      name: '홍길동',
+      resident_id: '900101-1234567',
+      address: '서울시',
+      phone: '010-1111-2222',
+      created_at: '2026-06-01T09:00:00.000Z',
+      status: 'applied',
+      is_confirmed: true,
+      is_third_exam: false,
+    } as unknown as Parameters<typeof mod.getExamApplicantCellValue>[0],
+    'application_created_at',
+  );
+
+  assert.equal(value, '2026-06-01');
+
+  const sources = [
+    readFileSync('web/src/app/dashboard/exam/applicants/page.tsx', 'utf8'),
+    readFileSync('web/src/app/admin/exams/[id]/page.tsx', 'utf8'),
+  ];
+
+  for (const source of sources) {
+    assert.match(
+      source,
+      /column\.key === 'application_created_at'[\s\S]{0,160}<Table\.Td key=\{column\.key\} ta="center">/,
+    );
+    assert.match(
+      source,
+      /column\.key === 'application_created_at'[\s\S]{0,240}<Text size="sm" c=\{value === '-' \? 'dimmed' : undefined\} ta="center">/,
+    );
+  }
+});
+
+test('exam applicant fee paid column remains last', async () => {
+  const mod = await import('./exam-applicant-list-display.ts').catch(() => null);
+
+  assert.ok(mod, 'exam applicant list display module should exist');
 
   assert.equal(
     mod.EXAM_APPLICANT_EXPORT_COLUMNS.at(-1)?.key,
