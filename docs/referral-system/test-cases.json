@@ -397,11 +397,11 @@
     "area": "운영",
     "priority": "P1",
     "platform": ["web"],
-    "title": "graph canvas는 node drag, 빈 공간 pan, reset, 기본 node name label을 지원한다",
-    "preconditions": ["그래프에 node와 edge가 표시된다"],
-    "steps": ["node를 drag해 위치를 바꾼다", "빈 공간을 drag해 viewport를 이동한다", "`Reset`을 눌러 layout을 다시 정렬한다", "기본 상태에서 node 이름이 보이는지 확인한다"],
-    "expected": ["node drag가 hit area와 일치하게 동작한다", "빈 공간 drag로 canvas를 pan할 수 있다", "reset 뒤 graph가 다시 모여 readable cluster를 만든다", "이름 라벨이 기본적으로 보이고 선택/검색/확대 시 추가 정보가 붙는다"],
-    "evidenceRequired": ["브라우저 화면 녹화 또는 캡처"],
+    "title": "graph canvas는 node drag, 빈 공간 pan, reset, 기본 node name label, active drag branch stability를 지원한다",
+    "preconditions": ["그래프에 node와 edge가 표시된다", "directed descendant가 있는 hub node가 존재한다"],
+    "steps": ["hub node를 drag해 위치를 바꾼다", "drag 중 dragged node와 descendant branch 움직임을 screen pixel 기준으로 측정한다", "빈 공간을 drag해 viewport를 이동한다", "`Reset`을 눌러 layout을 다시 정렬한다", "기본 상태에서 node 이름이 보이는지 확인한다"],
+    "expected": ["node drag가 hit area와 일치하게 동작한다", "directed descendants는 branch가 찢어지지 않을 만큼 따라오고 unrelated graph는 크게 재배치되지 않는다", "release 후 dragged node가 놓은 위치 근처에서 settle된다", "빈 공간 drag로 canvas를 pan할 수 있다", "reset 뒤 graph가 다시 모여 readable cluster를 만든다", "이름 라벨이 기본적으로 보이고 선택/검색/확대 시 추가 정보가 붙는다"],
+    "evidenceRequired": ["브라우저 화면 녹화 또는 캡처", "screen/client pixel drag metric"],
     "dbAssertions": []
   },
   {

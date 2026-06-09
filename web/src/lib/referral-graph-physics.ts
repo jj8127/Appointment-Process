@@ -1,6 +1,8 @@
 import type { ReferralGraphPhysicsSettings } from '../types/referral-graph.ts';
 
 const GOLDEN_ANGLE_FALLBACK = Math.PI * (3 - Math.sqrt(5));
+const REFERRAL_GRAPH_ACTIVE_DRAG_FORCE_SCALE = 0.04;
+const REFERRAL_GRAPH_ACTIVE_DRAG_MAX_VELOCITY_SCALE = 0.08;
 
 export type ReferralGraphPhysicsTuning = {
   alphaDecay: number;
@@ -32,9 +34,34 @@ export type ReferralGraphLinkDistanceOptions = {
 };
 
 export const REFERRAL_GRAPH_MIN_NODE_DISTANCE = 112;
+export const REFERRAL_GRAPH_ENGINE_COOLDOWN = {
+  alphaMin: 0.018,
+  cooldownTicks: 360,
+  cooldownTimeMs: 8000,
+} as const;
 
 function clamp(value: number, min: number, max: number) {
   return Math.min(max, Math.max(min, value));
+}
+
+function hasActiveReferralGraphDrag(options: { activeDraggedNodeIdRef?: { current: string | null } }) {
+  return Boolean(options.activeDraggedNodeIdRef?.current);
+}
+
+function scaleReferralGraphActiveDragStrength(
+  strength: number,
+  options: { activeDraggedNodeIdRef?: { current: string | null } },
+  scale = REFERRAL_GRAPH_ACTIVE_DRAG_FORCE_SCALE,
+) {
+  return hasActiveReferralGraphDrag(options) ? strength * scale : strength;
+}
+
+function scaleReferralGraphActiveDragMaxVelocity(
+  maxVelocity: number,
+  options: { activeDraggedNodeIdRef?: { current: string | null } },
+  scale = REFERRAL_GRAPH_ACTIVE_DRAG_MAX_VELOCITY_SCALE,
+) {
+  return hasActiveReferralGraphDrag(options) ? maxVelocity * scale : maxVelocity;
 }
 
 export function getReferralGraphMinimumNodeDistance(graphNodeCount = 0) {
@@ -166,27 +193,44 @@ export function getReferralGraphLinkDistance(
   const maxSubtreeSize = Math.max(sourceSubtreeSize, targetSubtreeSize);
   const localBranchSubtreeSize = isBranchBridge ? targetSubtreeSize : maxSubtreeSize;
   const graphNodeCount = Math.max(0, options.graphNodeCount ?? 0);
-  const minimumNodeDistance = getReferralGraphMinimumNodeDistance(graphNodeCount);
   const densityBonus = graphNodeCount > 90
     ? clamp((graphNodeCount - 90) * 0.22, 0, 48)
     : 0;
+  const hasExplicitBranchShape = options.targetChildCount != null || options.targetSubtreeSize != null;
+  const isSparseBranchBridge = isBranchBridge
+    && hasExplicitBranchShape
+    && sourceChildCount <= 2
+    && localBranchChildCount <= 1;
   let resolvedDistance: number;
 
   if (isBranchBridge) {
     const branchBridgeJitter = getBranchBridgeDistanceJitter(options);
-    resolvedDistance = clamp(
-      225
-        + (Math.sqrt(localBranchSubtreeSize) * 8)
-        + (localBranchChildCount * 6)
-        + (densityBonus * 0.42)
-        + branchBridgeJitter,
-      220,
-      380,
-    );
+    resolvedDistance = isSparseBranchBridge
+      ? clamp(
+        205
+          + (Math.sqrt(localBranchSubtreeSize) * 3)
+          + (localBranchChildCount * 6)
+          + (densityBonus * 0.15)
+          + (branchBridgeJitter * 0.35),
+        210,
+        230,
+      )
+      : clamp(
+        240
+          + (Math.sqrt(localBranchSubtreeSize) * 11)
+          + (localBranchChildCount * 9.4)
+          + (Math.sqrt(localBranchChildCount) * 3.5)
+          + (densityBonus * 0.45)
+          + branchBridgeJitter,
+        250,
+        430,
+      );
   } else if (isLeafSpoke || (minDegree <= 1 && maxDegree >= 3)) {
     const terminalLeafJitter = isLeafSpoke ? getTerminalLeafDistanceJitter(options) : 0;
-    const crowdedLeafDistance = isLeafSpoke && sourceChildCount >= 8
-      ? 132 + (sourceChildCount * 7) + (Math.sqrt(Math.max(1, graphNodeCount)) * 2.4)
+    const crowdedLeafDistance = isLeafSpoke
+      ? 112
+        + (Math.pow(Math.max(0, sourceChildCount - 2), 0.82) * 20)
+        + (Math.sqrt(Math.max(1, graphNodeCount)) * 2.2)
       : 0;
     resolvedDistance = clamp(
       Math.max(
@@ -195,7 +239,7 @@ export function getReferralGraphLinkDistance(
         crowdedLeafDistance + terminalLeafJitter,
       ),
       118,
-      285,
+      300,
     );
   } else if (minDegree <= 2 && maxDegree >= 3) {
     resolvedDistance = clamp(clampedBase * 0.44, 92, 135);
@@ -205,35 +249,31 @@ export function getReferralGraphLinkDistance(
     resolvedDistance = clampedBase;
   }
 
-  if (isBranchBridge && sourceChildCount >= 8 && localBranchChildCount < 5) {
-    const sourceFanoutBridgeDistance = 230 + (Math.sqrt(sourceChildCount) * 12) + (densityBonus * 0.48);
-    resolvedDistance = Math.max(resolvedDistance, clamp(sourceFanoutBridgeDistance, 290, 340));
-  }
-
-  if (isBranchBridge && localBranchChildCount >= 6) {
-    const labelSlotWidth = 84;
-    const fanoutDistance = ((localBranchChildCount * labelSlotWidth) / (Math.PI * 2)) + 72 + densityBonus;
-    const fanoutArc = Math.PI * 1.25;
-    const spacingDistance = ((localBranchChildCount * minimumNodeDistance * 1.14) / fanoutArc)
-      + 72
-      + (densityBonus * 0.68);
-    resolvedDistance = Math.max(
-      resolvedDistance,
-      clamp(Math.max(fanoutDistance, spacingDistance), 300, 360),
+  if (isBranchBridge && !isSparseBranchBridge) {
+    const sourcePressure = Math.max(0, Math.sqrt(sourceChildCount) - Math.sqrt(localBranchChildCount + 1));
+    const sourceBridgeSubtreePressure = Math.max(
+      0,
+      Math.sqrt(localBranchSubtreeSize) - Math.sqrt(localBranchChildCount + 1),
     );
+    const sourceFanoutBridgeDistance = 248
+      + (sourcePressure * 16)
+      + (sourceBridgeSubtreePressure * 16)
+      + (Math.sqrt(localBranchChildCount) * 9)
+      + (densityBonus * 0.35);
+    resolvedDistance = Math.max(resolvedDistance, clamp(sourceFanoutBridgeDistance, 250, 400));
   }
 
-  if (isBranchBridge && localBranchSubtreeSize >= 5 && localBranchChildCount >= 4) {
-    const subtreeDistance = localBranchChildCount >= 6
-      ? 184
-        + (Math.sqrt(localBranchSubtreeSize) * 19)
-        + (localBranchChildCount * 7)
-        + (densityBonus * 0.7)
-      : 158
-        + (Math.sqrt(localBranchSubtreeSize) * 13)
-        + (localBranchChildCount * 6)
-        + (densityBonus * 0.36);
-    resolvedDistance = Math.max(resolvedDistance, clamp(subtreeDistance, 205, 350));
+  if (isBranchBridge && !isSparseBranchBridge) {
+    const subtreePressure = Math.max(
+      0,
+      Math.sqrt(localBranchSubtreeSize) - Math.sqrt(Math.max(1, localBranchChildCount + 1)),
+    );
+    const fanoutPressure = Math.sqrt(localBranchChildCount);
+    const subtreeDistance = 226
+      + (fanoutPressure * 24)
+      + (subtreePressure * 28)
+      + (densityBonus * 0.45);
+    resolvedDistance = Math.max(resolvedDistance, clamp(subtreeDistance, 250, 430));
   }
 
   return Math.round(resolvedDistance);
@@ -272,6 +312,9 @@ export type ReferralGraphLinkTensionOptions = {
   graphNodeCount?: number;
   maxVelocity?: number;
   strength?: number;
+  suppressedNodeIdsRef?: {
+    current: Set<string>;
+  };
   subtreeSizeByNodeId?: Map<string, number>;
   thresholdMultiplier?: number;
 };
@@ -329,21 +372,33 @@ export type ReferralGraphNodeSeparationOptions = {
 };
 
 export type ReferralGraphBranchBendOptions = {
+  activeDraggedNodeIdRef?: {
+    current: string | null;
+  };
   childCountByNodeId: Map<string, number>;
   degreeByNodeId: Map<string, number>;
   links: Array<ReferralGraphDragSpringLink<ReferralGraphLayoutMemoryNode>>;
   maxVelocity?: number;
   minAlpha?: number;
   strength?: number;
+  suppressedNodeIdsRef?: {
+    current: Set<string>;
+  };
 };
 
 export type ReferralGraphSiblingAngularOptions = {
+  activeDraggedNodeIdRef?: {
+    current: string | null;
+  };
   anchorPositions?: Map<string, ReferralGraphLayoutMemoryTarget>;
   links: Array<ReferralGraphDragSpringLink<ReferralGraphLayoutMemoryNode>>;
   minAlpha?: number;
   maxVelocity?: number;
   minOpenGap?: number;
   strength?: number;
+  suppressedNodeIdsRef?: {
+    current: Set<string>;
+  };
 };
 
 export type ReferralGraphEdgeCrossingOptions = {
@@ -494,6 +549,30 @@ function resolveLinkedNode<T extends ReferralGraphLayoutMemoryNode>(
   return typeof value === 'object' ? value : nodesById.get(value);
 }
 
+function isActiveDragSuppressedNode(
+  nodeId: string | undefined,
+  activeDraggedNodeId: string | null | undefined,
+  suppressedNodeIds: Set<string> | undefined,
+) {
+  if (!nodeId || !activeDraggedNodeId) {
+    return false;
+  }
+
+  return nodeId === activeDraggedNodeId || Boolean(suppressedNodeIds?.has(nodeId));
+}
+
+function hasActiveDragSuppressedEndpoint(
+  sourceId: string,
+  targetId: string,
+  activeDraggedNodeId: string | null | undefined,
+  suppressedNodeIds: Set<string> | undefined,
+) {
+  return (
+    isActiveDragSuppressedNode(sourceId, activeDraggedNodeId, suppressedNodeIds)
+    || isActiveDragSuppressedNode(targetId, activeDraggedNodeId, suppressedNodeIds)
+  );
+}
+
 export function createReferralGraphLinkTensionForce<T extends ReferralGraphLayoutMemoryNode>(
   links: Array<ReferralGraphDragSpringLink<T>>,
   options: ReferralGraphLinkTensionOptions,
@@ -501,14 +580,25 @@ export function createReferralGraphLinkTensionForce<T extends ReferralGraphLayou
   let nodesById = new Map<string, T>();
 
   const force = ((alpha: number) => {
-    const strength = clamp(options.strength ?? 0.3, 0, 0.7) * alpha;
-    const maxVelocity = clamp(options.maxVelocity ?? 22, 1, 48);
+    const strength = scaleReferralGraphActiveDragStrength(
+      clamp(options.strength ?? 0.3, 0, 0.7) * alpha,
+      options,
+    );
+    const maxVelocity = scaleReferralGraphActiveDragMaxVelocity(
+      clamp(options.maxVelocity ?? 22, 1, 48),
+      options,
+    );
     const thresholdMultiplier = clamp(options.thresholdMultiplier ?? 1.06, 0.82, 2.5);
 
     for (const link of links) {
       const sourceId = getLinkEndpointId(link.source);
       const targetId = getLinkEndpointId(link.target);
       const activeDraggedNodeId = options.activeDraggedNodeIdRef?.current;
+      const suppressedNodeIds = options.suppressedNodeIdsRef?.current;
+      if (hasActiveDragSuppressedEndpoint(sourceId, targetId, activeDraggedNodeId, suppressedNodeIds)) {
+        continue;
+      }
+
       const source = resolveLinkedNode(link.source, nodesById);
       const target = resolveLinkedNode(link.target, nodesById);
 
@@ -553,11 +643,7 @@ export function createReferralGraphLinkTensionForce<T extends ReferralGraphLayou
         continue;
       }
 
-      const dragStrengthFactor = activeDraggedNodeId
-        ? sourceId === activeDraggedNodeId || targetId === activeDraggedNodeId
-          ? 1
-          : 0.24
-        : 1;
+      const dragStrengthFactor = activeDraggedNodeId ? 0.24 : 1;
       const velocity = Math.min(maxVelocity, (distance - targetDistance) * strength * dragStrengthFactor);
       const unitX = dx / distance;
       const unitY = dy / distance;
@@ -592,14 +678,25 @@ export function createReferralGraphBranchBendForce<T extends ReferralGraphLayout
 
   const force = ((alpha: number) => {
     const effectiveAlpha = Math.max(alpha, clamp(options.minAlpha ?? 0, 0, 0.08));
-    const strength = clamp((options.strength ?? 0.18) * effectiveAlpha, 0, 0.42);
-    const maxVelocity = clamp(options.maxVelocity ?? 12, 1, 30);
+    const strength = scaleReferralGraphActiveDragStrength(
+      clamp((options.strength ?? 0.18) * effectiveAlpha, 0, 0.42),
+      options,
+    );
+    const maxVelocity = scaleReferralGraphActiveDragMaxVelocity(
+      clamp(options.maxVelocity ?? 12, 1, 30),
+      options,
+    );
     if (strength <= 0) {
       return;
     }
+    const activeDraggedNodeId = options.activeDraggedNodeIdRef?.current;
+    const suppressedNodeIds = options.suppressedNodeIdsRef?.current;
 
     for (const [nodeId, neighborIds] of adjacency) {
       if (neighborIds.length !== 2) {
+        continue;
+      }
+      if (isActiveDragSuppressedNode(nodeId, activeDraggedNodeId, suppressedNodeIds)) {
         continue;
       }
 
@@ -613,6 +710,13 @@ export function createReferralGraphBranchBendForce<T extends ReferralGraphLayout
       const node = nodesById.get(nodeId);
       const child = childId ? nodesById.get(childId) : undefined;
       const parentId = childId ? neighborIds.find((neighborId) => neighborId !== childId) : undefined;
+      if (
+        isActiveDragSuppressedNode(parentId, activeDraggedNodeId, suppressedNodeIds)
+        || isActiveDragSuppressedNode(childId, activeDraggedNodeId, suppressedNodeIds)
+      ) {
+        continue;
+      }
+
       const parent = parentId ? nodesById.get(parentId) : undefined;
       const left = parent;
       const right = child;
@@ -722,15 +826,30 @@ export function createReferralGraphSiblingAngularForce<T extends ReferralGraphLa
   let childrenByParentId = new Map<string, string[]>();
 
   const force = ((alpha: number) => {
-    const effectiveAlpha = Math.max(alpha, clamp(options.minAlpha ?? 0, 0, 0.08));
-    const strength = clamp((options.strength ?? 0.3) * effectiveAlpha, 0, 0.95);
-    const maxVelocity = clamp(options.maxVelocity ?? 16, 1, 80);
-    if (strength <= 0) {
+    if (hasActiveReferralGraphDrag(options)) {
       return;
     }
 
+    const effectiveAlpha = Math.max(alpha, clamp(options.minAlpha ?? 0, 0, 0.08));
+    const strength = scaleReferralGraphActiveDragStrength(
+      clamp((options.strength ?? 0.3) * effectiveAlpha, 0, 0.95),
+      options,
+    );
+    const maxVelocity = scaleReferralGraphActiveDragMaxVelocity(
+      clamp(options.maxVelocity ?? 16, 1, 80),
+      options,
+    );
+    if (strength <= 0) {
+      return;
+    }
+    const activeDraggedNodeId = options.activeDraggedNodeIdRef?.current;
+    const suppressedNodeIds = options.suppressedNodeIdsRef?.current;
+
     for (const [parentId, childIds] of childrenByParentId) {
       if (childIds.length < 2) {
+        continue;
+      }
+      if (isActiveDragSuppressedNode(parentId, activeDraggedNodeId, suppressedNodeIds)) {
         continue;
       }
 
@@ -744,6 +863,10 @@ export function createReferralGraphSiblingAngularForce<T extends ReferralGraphLa
       const parentAnchor = options.anchorPositions?.get(parentId);
       const children = childIds
         .map((childId) => {
+          if (isActiveDragSuppressedNode(childId, activeDraggedNodeId, suppressedNodeIds)) {
+            return null;
+          }
+
           const child = nodesById.get(childId);
           if (
             !child
@@ -1161,9 +1284,19 @@ export function createReferralGraphEdgeCrossingForce<T extends ReferralGraphLayo
   let nodesById = new Map<string, T>();
 
   const force = ((alpha: number) => {
+    if (hasActiveReferralGraphDrag(options)) {
+      return;
+    }
+
     const effectiveAlpha = Math.max(alpha, clamp(options.minAlpha ?? 0, 0, 0.025));
-    const strength = clamp((options.strength ?? 0.12) * effectiveAlpha, 0, 0.34);
-    const maxVelocity = clamp(options.maxVelocity ?? 7, 1, 18);
+    const strength = scaleReferralGraphActiveDragStrength(
+      clamp((options.strength ?? 0.12) * effectiveAlpha, 0, 0.34),
+      options,
+    );
+    const maxVelocity = scaleReferralGraphActiveDragMaxVelocity(
+      clamp(options.maxVelocity ?? 7, 1, 18),
+      options,
+    );
     const minDistance = Math.max(4, options.minDistance ?? 18);
     const maxPairs = Math.max(100, options.maxPairs ?? 3600);
     if (strength <= 0 || options.links.length < 2) {
@@ -1278,8 +1411,14 @@ export function createReferralGraphClusterSeparationForce<T extends ReferralGrap
   let nodes: T[] = [];
 
   const force = ((alpha: number) => {
-    const strength = clamp((options.strength ?? 0.045) * alpha, 0, 0.12);
-    const maxVelocity = clamp(options.maxVelocity ?? 10, 1, 28);
+    const strength = scaleReferralGraphActiveDragStrength(
+      clamp((options.strength ?? 0.045) * alpha, 0, 0.12),
+      options,
+    );
+    const maxVelocity = scaleReferralGraphActiveDragMaxVelocity(
+      clamp(options.maxVelocity ?? 10, 1, 28),
+      options,
+    );
     const softening = Math.max(1, options.softening ?? 70);
     if (strength <= 0 || nodes.length <= 1) {
       return;
@@ -1409,10 +1548,16 @@ export function createReferralGraphClusterGravityForce<T extends ReferralGraphLa
 
   const force = ((alpha: number) => {
     const effectiveAlpha = Math.max(alpha, clamp(options.minAlpha ?? 0, 0, 0.18));
-    const strength = clamp((options.strength ?? 0.065) * effectiveAlpha, 0, 0.3);
+    const strength = scaleReferralGraphActiveDragStrength(
+      clamp((options.strength ?? 0.065) * effectiveAlpha, 0, 0.3),
+      options,
+    );
     const deadZoneRadius = Math.max(0, options.deadZoneRadius ?? 0);
     const gravityScale = clamp(options.gravityScale ?? 160, 1, 380);
-    const maxVelocity = clamp(options.maxVelocity ?? 12, 1, 28);
+    const maxVelocity = scaleReferralGraphActiveDragMaxVelocity(
+      clamp(options.maxVelocity ?? 12, 1, 28),
+      options,
+    );
     const singletonStrengthFactor = clamp(options.singletonStrengthFactor ?? 1, 0, 1);
     const singletonDeadZoneRadius = Math.max(deadZoneRadius, options.singletonDeadZoneRadius ?? deadZoneRadius);
     const softening = Math.max(1, options.softening ?? 180);
@@ -1517,8 +1662,16 @@ export function createReferralGraphNodeSeparationForce<T extends ReferralGraphLa
   let nodes: T[] = [];
 
   const force = ((alpha: number) => {
-    const strength = clamp((options.strength ?? 0.16) * alpha, 0, 0.34);
-    const maxVelocity = clamp(options.maxVelocity ?? 14, 1, 32);
+    const strength = scaleReferralGraphActiveDragStrength(
+      clamp((options.strength ?? 0.16) * alpha, 0, 0.34),
+      options,
+      0.06,
+    );
+    const maxVelocity = scaleReferralGraphActiveDragMaxVelocity(
+      clamp(options.maxVelocity ?? 14, 1, 32),
+      options,
+      0.1,
+    );
     if (strength <= 0 || nodes.length <= 1) {
       return;
     }
@@ -1653,8 +1806,14 @@ export function createReferralGraphComponentEnvelopeForce<T extends ReferralGrap
   let nodes: T[] = [];
 
   const force = ((alpha: number) => {
-    const strength = clamp((options.strength ?? 0.075) * alpha, 0, 0.18);
-    const maxVelocity = clamp(options.maxVelocity ?? 14, 1, 32);
+    const strength = scaleReferralGraphActiveDragStrength(
+      clamp((options.strength ?? 0.075) * alpha, 0, 0.18),
+      options,
+    );
+    const maxVelocity = scaleReferralGraphActiveDragMaxVelocity(
+      clamp(options.maxVelocity ?? 14, 1, 32),
+      options,
+    );
     if (strength <= 0 || nodes.length <= 1) {
       return;
     }
@@ -1737,8 +1896,14 @@ export function createReferralGraphComponentCohesionForce<T extends ReferralGrap
   let nodes: T[] = [];
 
   const force = ((alpha: number) => {
-    const strength = clamp((options.strength ?? 0.12) * alpha, 0, 0.32);
-    const maxVelocity = clamp(options.maxVelocity ?? 10, 1, 24);
+    const strength = scaleReferralGraphActiveDragStrength(
+      clamp((options.strength ?? 0.12) * alpha, 0, 0.32),
+      options,
+    );
+    const maxVelocity = scaleReferralGraphActiveDragMaxVelocity(
+      clamp(options.maxVelocity ?? 10, 1, 24),
+      options,
+    );
     if (strength <= 0 || nodes.length <= 1) {
       return;
     }
@@ -1849,7 +2014,7 @@ export function createReferralGraphLayoutMemoryForce<T extends ReferralGraphLayo
         continue;
       }
 
-      if (anchorAgeRatio <= 0) {
+      if (!manualTarget && anchorAgeRatio <= 0) {
         continue;
       }
 
@@ -1861,10 +2026,13 @@ export function createReferralGraphLayoutMemoryForce<T extends ReferralGraphLayo
         continue;
       }
 
+      const activeDragScale = hasActiveReferralGraphDrag(options)
+        ? REFERRAL_GRAPH_ACTIVE_DRAG_FORCE_SCALE
+        : 1;
       const effectiveStrength = clamp(
-        (manualTarget ? strength * 0.28 : strength) * anchorAgeRatio,
+        (manualTarget ? strength * 1.15 : strength * anchorAgeRatio) * activeDragScale,
         0,
-        manualTarget ? 0.024 : 0.08,
+        manualTarget ? 0.075 : 0.08,
       );
       if (effectiveStrength <= 0) {
         continue;
@@ -1892,7 +2060,7 @@ export function resolveReferralGraphPhysics(settings: ReferralGraphPhysicsSettin
 
   return {
     alphaDecay: 0.012,
-    velocityDecay: 0.4,
+    velocityDecay: 0.55,
     centerStrength: 0,
     chargeStrength: -3 * clamp(settings.repulsion, 0, 20),
     chargeDistanceMin: 12,

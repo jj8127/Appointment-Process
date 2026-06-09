@@ -3,13 +3,16 @@ import test from 'node:test';
 
 import { DEFAULT_REFERRAL_GRAPH_PHYSICS } from '../types/referral-graph.ts';
 import {
+  REFERRAL_GRAPH_ENGINE_COOLDOWN,
   applyReferralGraphDragSpring,
   applyReferralGraphLayoutMemory,
   createReferralGraphComponentCohesionForce,
   createReferralGraphEdgeCrossingForce,
   createReferralGraphClusterGravityForce,
   createReferralGraphClusterSeparationForce,
+  createReferralGraphBranchBendForce,
   createReferralGraphLayoutMemoryForce,
+  createReferralGraphLinkTensionForce,
   createReferralGraphNodeSeparationForce,
   createReferralGraphSiblingAngularForce,
   getReferralGraphLinkDistance,
@@ -21,7 +24,7 @@ import {
 test('resolveReferralGraphPhysics maps defaults to Obsidian-style d3 force settings', () => {
   assert.deepEqual(resolveReferralGraphPhysics(DEFAULT_REFERRAL_GRAPH_PHYSICS), {
     alphaDecay: 0.012,
-    velocityDecay: 0.4,
+    velocityDecay: 0.55,
     centerStrength: 0,
     chargeStrength: -30,
     chargeDistanceMin: 12,
@@ -40,7 +43,7 @@ test('resolveReferralGraphPhysics clamps the four public Obsidian slider ranges'
     linkDistance: 10,
   }), {
     alphaDecay: 0.012,
-    velocityDecay: 0.4,
+    velocityDecay: 0.55,
     centerStrength: 0,
     chargeStrength: -0,
     chargeDistanceMin: 12,
@@ -57,7 +60,7 @@ test('resolveReferralGraphPhysics clamps the four public Obsidian slider ranges'
     linkDistance: 999,
   }), {
     alphaDecay: 0.012,
-    velocityDecay: 0.4,
+    velocityDecay: 0.55,
     centerStrength: 0,
     chargeStrength: -60,
     chargeDistanceMin: 12,
@@ -65,6 +68,14 @@ test('resolveReferralGraphPhysics clamps the four public Obsidian slider ranges'
     linkDistance: 500,
     linkStrength: 1,
     layoutMemoryStrength: 0.16,
+  });
+});
+
+test('REFERRAL_GRAPH_ENGINE_COOLDOWN stops the force engine after a bounded settle window', () => {
+  assert.deepEqual(REFERRAL_GRAPH_ENGINE_COOLDOWN, {
+    alphaMin: 0.018,
+    cooldownTicks: 360,
+    cooldownTimeMs: 8000,
   });
 });
 
@@ -90,7 +101,7 @@ test('applyReferralGraphLayoutMemory skips fixed or unpositioned nodes', () => {
   assert.deepEqual(missing, { id: 'missing', vx: 0, vy: 0 });
 });
 
-test('createReferralGraphLayoutMemoryForce lets static and manual anchors fully expire after initial settling', () => {
+test('createReferralGraphLayoutMemoryForce lets static anchors expire while manual drag targets stay active', () => {
   const anchor = { id: 'anchor', x: 0, y: 0, vx: 0, vy: 0 };
   const manual = { id: 'manual', x: 0, y: 0, vx: 0, vy: 0 };
   const manualTargetsRef = { current: new Map([['manual', { x: 100, y: 0 }]]) };
@@ -113,7 +124,7 @@ test('createReferralGraphLayoutMemoryForce lets static and manual anchors fully 
 
   assert.equal(anchor.vx, 0);
   assert.equal(anchor.vy, 0);
-  assert.equal(manual.vx, 0);
+  assert.ok(manual.vx > 0, `manual target should keep pulling toward user drop position, got ${manual.vx}`);
   assert.equal(manual.vy, 0);
 });
 
@@ -126,19 +137,19 @@ test('getReferralGraphLinkDistance gives short leaf spokes and long hub bridges'
   assert.ok(getReferralGraphLinkDistance(3, 2, baseDistance, {
     sourceHasChildren: true,
     targetHasChildren: true,
-  }) >= 220);
+  }) >= 250);
   assert.ok(getReferralGraphLinkDistance(6, 3, baseDistance, {
     sourceHasChildren: true,
     targetHasChildren: true,
-  }) >= 220);
+  }) >= 250);
   assert.ok(getReferralGraphLinkDistance(6, 6, baseDistance, {
     sourceHasChildren: true,
     targetHasChildren: true,
-  }) >= 220);
+  }) >= 250);
   assert.ok(getReferralGraphLinkDistance(2, 2, baseDistance, {
     sourceHasChildren: true,
     targetHasChildren: true,
-  }) >= 220);
+  }) >= 250);
   assert.ok(getReferralGraphLinkDistance(2, 1, baseDistance, {
     sourceHasChildren: true,
     targetHasChildren: false,
@@ -163,7 +174,7 @@ test('getReferralGraphLinkDistance keeps sparse leaves short and lengthens crowd
 
   assert.ok(sparseSpoke <= 150, `sparse terminal leaf spoke should remain short, got ${sparseSpoke}`);
   assert.ok(crowdedSpoke >= 250, `crowded terminal leaf spoke should reserve fan space, got ${crowdedSpoke}`);
-  assert.ok(crowdedSpoke <= 285, `crowded terminal leaf spoke should stay below branch bridge lengths, got ${crowdedSpoke}`);
+  assert.ok(crowdedSpoke <= 300, `crowded terminal leaf spoke should stay bounded, got ${crowdedSpoke}`);
 });
 
 test('getReferralGraphLinkDistance staggers terminal leaf lengths by link id within a short range', () => {
@@ -186,7 +197,7 @@ test('getReferralGraphLinkDistance staggers terminal leaf lengths by link id wit
   });
 
   assert.equal(distances[0], repeated, 'terminal leaf jitter must be stable for the same link id');
-  assert.ok(Math.max(...distances) <= 285, `terminal leaf jitter should stay bounded, got ${distances.join(',')}`);
+  assert.ok(Math.max(...distances) <= 300, `terminal leaf jitter should stay bounded, got ${distances.join(',')}`);
   assert.ok(Math.min(...distances) >= 220, `crowded terminal leaf jitter should reserve space outside the hub, got ${distances.join(',')}`);
   assert.ok(Math.max(...distances) - Math.min(...distances) >= 18, `terminal leaves should have slightly varied lengths, got ${distances.join(',')}`);
 });
@@ -215,8 +226,8 @@ test('getReferralGraphLinkDistance grows child-hub bridges when minimum node spa
   });
 
   assert.ok(denseFanout > moderateFanout, `dense child-hub bridge should expand beyond moderate bridge: ${denseFanout} <= ${moderateFanout}`);
-  assert.ok(denseFanout >= 340, `dense child-hub bridge should reserve node spacing, got ${denseFanout}`);
-  assert.ok(denseFanout <= 360, `dense child-hub bridge should stay bounded, got ${denseFanout}`);
+  assert.ok(denseFanout >= 365, `dense child-hub bridge should reserve node spacing, got ${denseFanout}`);
+  assert.ok(denseFanout <= 410, `dense child-hub bridge should stay bounded, got ${denseFanout}`);
 });
 
 test('getReferralGraphLinkDistance gives subtree hubs more bridge space than leaf spokes', () => {
@@ -239,7 +250,7 @@ test('getReferralGraphLinkDistance gives subtree hubs more bridge space than lea
   });
 
   assert.ok(hubBridge > leafSpoke, `subtree hub bridge should be longer than leaf spoke: ${hubBridge} <= ${leafSpoke}`);
-  assert.ok(hubBridge >= 205, `subtree hub bridge should reserve branch space, got ${hubBridge}`);
+  assert.ok(hubBridge >= 235, `subtree hub bridge should reserve branch space, got ${hubBridge}`);
 });
 
 test('getReferralGraphLinkDistance keeps crowded terminal leaf edges shorter than child-hub edges', () => {
@@ -263,9 +274,102 @@ test('getReferralGraphLinkDistance keeps crowded terminal leaf edges shorter tha
     graphNodeCount: 185,
   });
 
-  assert.ok(terminalLeaf <= 285, `terminal leaf should stay bounded, got ${terminalLeaf}`);
-  assert.ok(childHub >= 220, `child hub should have enough bridge space, got ${childHub}`);
-  assert.ok(childHub >= terminalLeaf + 35, `child hub edge should be visibly longer: hub=${childHub}, leaf=${terminalLeaf}`);
+  assert.ok(terminalLeaf <= 300, `terminal leaf should stay bounded, got ${terminalLeaf}`);
+  assert.ok(childHub >= 250, `child hub should have enough bridge space, got ${childHub}`);
+  assert.ok(childHub >= terminalLeaf + 25, `child hub edge should be visibly longer: hub=${childHub}, leaf=${terminalLeaf}`);
+});
+
+test('getReferralGraphLinkDistance keeps sparse chain bridges modest while star leaves stay readable', () => {
+  const baseDistance = 250;
+
+  const sparseChainBridge = getReferralGraphLinkDistance(2, 2, baseDistance, {
+    sourceHasChildren: true,
+    targetHasChildren: true,
+    sourceChildCount: 1,
+    targetChildCount: 1,
+    sourceSubtreeSize: 4,
+    targetSubtreeSize: 2,
+    graphNodeCount: 120,
+  });
+  const starLeafSpoke = getReferralGraphLinkDistance(8, 1, baseDistance, {
+    sourceHasChildren: true,
+    targetHasChildren: false,
+    sourceChildCount: 8,
+    sourceSubtreeSize: 9,
+    targetSubtreeSize: 1,
+    graphNodeCount: 120,
+  });
+
+  assert.ok(sparseChainBridge <= 230, `sparse chain bridge should not stretch into a long strand, got ${sparseChainBridge}`);
+  assert.ok(starLeafSpoke >= 165, `star leaf spokes should not collapse into the hub, got ${starLeafSpoke}`);
+  assert.ok(starLeafSpoke >= sparseChainBridge, `high-fanout leaf spokes should not be shorter than sparse chains: bridge=${sparseChainBridge}, leaf=${starLeafSpoke}`);
+});
+
+test('getReferralGraphLinkDistance keeps one-child relay chains shorter than high-fanout leaf spokes', () => {
+  const baseDistance = 250;
+
+  const relayBridge = getReferralGraphLinkDistance(2, 2, baseDistance, {
+    sourceHasChildren: true,
+    targetHasChildren: true,
+    sourceChildCount: 1,
+    targetChildCount: 1,
+    sourceSubtreeSize: 9,
+    targetSubtreeSize: 8,
+    graphNodeCount: 120,
+  });
+  const highFanoutLeafSpoke = getReferralGraphLinkDistance(12, 1, baseDistance, {
+    sourceHasChildren: true,
+    targetHasChildren: false,
+    sourceChildCount: 12,
+    sourceSubtreeSize: 13,
+    targetSubtreeSize: 1,
+    graphNodeCount: 120,
+  });
+
+  assert.ok(relayBridge <= 230, `one-child relay chains should stay compact even with deeper descendants, got ${relayBridge}`);
+  assert.ok(
+    highFanoutLeafSpoke >= relayBridge + 20,
+    `many-child hubs should get longer child spokes than sparse chains: chain=${relayBridge}, fanout=${highFanoutLeafSpoke}`,
+  );
+});
+
+test('getReferralGraphLinkDistance scales child-hub branch length smoothly with fanout', () => {
+  const baseDistance = 250;
+
+  const childCounts = [1, 2, 4, 6, 8, 10, 12];
+  const distances = childCounts.map((childCount) => getReferralGraphLinkDistance(
+    Math.max(3, childCount + 1),
+    Math.max(2, childCount + 1),
+    baseDistance,
+    {
+      sourceHasChildren: true,
+      targetHasChildren: true,
+      sourceChildCount: 3,
+      targetChildCount: childCount,
+      sourceSubtreeSize: 12 + childCount,
+      targetSubtreeSize: Math.max(2, childCount * 2),
+      graphNodeCount: 120,
+    },
+  ));
+
+  for (let index = 1; index < distances.length; index += 1) {
+    assert.ok(
+      distances[index] >= distances[index - 1],
+      `branch distance should grow with fanout: counts=${childCounts.join(',')} distances=${distances.join(',')}`,
+    );
+    assert.ok(
+      distances[index] - distances[index - 1] <= 44,
+      `branch distance should grow smoothly without threshold jumps: counts=${childCounts.join(',')} distances=${distances.join(',')}`,
+    );
+  }
+
+  assert.ok(distances[0] <= 285, `low-fanout branch should remain compact, got ${distances[0]}`);
+  const longestDistance = distances[distances.length - 1];
+  assert.ok(
+    longestDistance >= distances[0] * 1.45,
+    `high-fanout branch should naturally outrun sparse branch: ${distances.join(',')}`,
+  );
+  assert.ok(longestDistance <= 455, `high-fanout branch should stay bounded, got ${longestDistance}`);
 });
 
 test('getReferralGraphLinkDistance lengthens crowded branch bridges only when local fanout needs it', () => {
@@ -288,8 +392,8 @@ test('getReferralGraphLinkDistance lengthens crowded branch bridges only when lo
     graphNodeCount: 180,
   });
 
-  assert.ok(sparseBridge >= 220, `sparse branch bridge should still be longer than terminal leaves, got ${sparseBridge}`);
-  assert.ok(crowdedBridge >= 320, `crowded branch bridge should reserve space, got ${crowdedBridge}`);
+  assert.ok(sparseBridge >= 250, `sparse branch bridge should still be longer than terminal leaves, got ${sparseBridge}`);
+  assert.ok(crowdedBridge >= 350, `crowded branch bridge should reserve space, got ${crowdedBridge}`);
 });
 
 test('drag spring does not directly reposition connected nodes while a node is dragged', () => {
@@ -640,4 +744,102 @@ test('createReferralGraphSiblingAngularForce pushes children apart around the sa
 
   assert.ok(upper.vy > 0, `upper child should rotate away upward, got ${upper.vy}`);
   assert.ok(lower.vy < 0, `lower child should rotate away downward, got ${lower.vy}`);
+});
+
+test('createReferralGraphLinkTensionForce skips active drag branch links', () => {
+  const parent = { id: 'parent', x: 0, y: 0, vx: 0, vy: 0 };
+  const child = { id: 'child', x: 320, y: 0, vx: 0, vy: 0 };
+  const otherA = { id: 'other-a', x: 0, y: 160, vx: 0, vy: 0 };
+  const otherB = { id: 'other-b', x: 320, y: 160, vx: 0, vy: 0 };
+  const force = createReferralGraphLinkTensionForce([
+    { source: 'parent', target: 'child' },
+    { source: 'other-a', target: 'other-b' },
+  ], {
+    activeDraggedNodeIdRef: { current: 'parent' },
+    baseLinkDistance: 80,
+    childCountByNodeId: new Map([
+      ['parent', 1],
+      ['child', 0],
+      ['other-a', 1],
+      ['other-b', 0],
+    ]),
+    degreeByNodeId: new Map([
+      ['parent', 1],
+      ['child', 1],
+      ['other-a', 1],
+      ['other-b', 1],
+    ]),
+    maxVelocity: 20,
+    strength: 0.6,
+    suppressedNodeIdsRef: { current: new Set(['child']) },
+    thresholdMultiplier: 0.9,
+  });
+
+  force.initialize([parent, child, otherA, otherB]);
+  force(1);
+
+  assert.equal(parent.vx, 0);
+  assert.equal(child.vx, 0);
+  assert.ok(otherA.vx > 0, `unrelated stretched edge should still relax, got ${otherA.vx}`);
+  assert.ok(otherB.vx < 0, `unrelated stretched edge should still relax, got ${otherB.vx}`);
+});
+
+test('createReferralGraphBranchBendForce skips active drag branch nodes', () => {
+  const root = { id: 'root', x: -120, y: 0, vx: 0, vy: 0 };
+  const middle = { id: 'middle', x: 0, y: 0, vx: 0, vy: 0 };
+  const child = { id: 'child', x: 120, y: 0, vx: 0, vy: 0 };
+  const force = createReferralGraphBranchBendForce({
+    activeDraggedNodeIdRef: { current: 'root' },
+    childCountByNodeId: new Map([
+      ['root', 1],
+      ['middle', 1],
+      ['child', 0],
+    ]),
+    degreeByNodeId: new Map([
+      ['root', 1],
+      ['middle', 2],
+      ['child', 1],
+    ]),
+    links: [
+      { source: 'root', target: 'middle' },
+      { source: 'middle', target: 'child' },
+    ],
+    maxVelocity: 20,
+    strength: 0.4,
+    suppressedNodeIdsRef: { current: new Set(['middle', 'child']) },
+  });
+
+  force.initialize([root, middle, child]);
+  force(1);
+
+  assert.equal(root.vx, 0);
+  assert.equal(root.vy, 0);
+  assert.equal(middle.vx, 0);
+  assert.equal(middle.vy, 0);
+  assert.equal(child.vx, 0);
+  assert.equal(child.vy, 0);
+});
+
+test('createReferralGraphSiblingAngularForce skips active drag branch nodes', () => {
+  const parent = { id: 'parent', x: 0, y: 0, vx: 0, vy: 0 };
+  const upper = { id: 'upper', x: 80, y: 2, vx: 0, vy: 0 };
+  const lower = { id: 'lower', x: 80, y: -2, vx: 0, vy: 0 };
+  const force = createReferralGraphSiblingAngularForce({
+    activeDraggedNodeIdRef: { current: 'parent' },
+    links: [
+      { source: 'parent', target: 'upper' },
+      { source: 'parent', target: 'lower' },
+    ],
+    strength: 0.28,
+    maxVelocity: 14,
+    suppressedNodeIdsRef: { current: new Set(['upper', 'lower']) },
+  });
+
+  force.initialize([parent, upper, lower]);
+  force(1);
+
+  assert.equal(upper.vx, 0);
+  assert.equal(upper.vy, 0);
+  assert.equal(lower.vx, 0);
+  assert.equal(lower.vy, 0);
 });

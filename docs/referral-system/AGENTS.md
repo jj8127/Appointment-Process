@@ -113,6 +113,7 @@
 - 장애가 한 번이라도 발생하면 해당 시나리오는 반드시 고정 케이스로 승격한다.
 - 같은 장애를 두 번 재현했다면, 사람 의존 체크리스트만 두지 말고 가능한 범위에서 자동 검증 절차를 추가한다.
 - 자동화가 아직 불가능한 케이스도 `어떤 준비가 있어야 자동화되는지`를 notes에 남긴다.
+- graph drag 안정성은 simulation graph unit만으로 판정하지 않는다. 실제 브라우저 검증은 pointer 거리, follower 이동, unrelated drift, release 후 거리 같은 screen/client pixel 지표와 screenshot 증적을 함께 남긴다.
 
 ## 6. Implementation Bar
 

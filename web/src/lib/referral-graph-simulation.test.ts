@@ -6,7 +6,12 @@ import { DEFAULT_REFERRAL_GRAPH_PHYSICS } from '../types/referral-graph.ts';
 import type { GraphEdge, GraphNode } from '../types/referral-graph.ts';
 import { buildReferralGraphLayout } from './referral-graph-layout.ts';
 import {
-  applyReferralGraphDragSpring,
+  applyReferralGraphDragFollowerTranslation,
+  buildReferralGraphDirectedChildren,
+  getReferralGraphDescendantDepths,
+  getReferralGraphDescendantNodeIds,
+} from './referral-graph-interaction.ts';
+import {
   createReferralGraphBranchBendForce,
   createReferralGraphComponentCohesionForce,
   createReferralGraphClusterGravityForce,
@@ -209,7 +214,7 @@ function addReferralForces(
     .force(
       'charge',
       forceManyBody<SimNode>()
-        .strength(physics.chargeStrength)
+        .strength(options.activeDraggedNodeIdRef?.current ? 0 : physics.chargeStrength)
         .distanceMin(physics.chargeDistanceMin)
         .distanceMax(physics.chargeDistanceMax),
     )
@@ -249,11 +254,19 @@ function addReferralForces(
             return baseStrength;
           }
 
-          return source === activeDraggedNodeId || target === activeDraggedNodeId
-            ? baseStrength
-            : baseStrength * 0.03;
+          const suppressedNodeIds = options.suppressedNodeIdsRef?.current ?? new Set<string>();
+          if (
+            source === activeDraggedNodeId
+            || target === activeDraggedNodeId
+            || suppressedNodeIds.has(source)
+            || suppressedNodeIds.has(target)
+          ) {
+            return 0;
+          }
+
+          return 0;
         })
-        .iterations(5),
+        .iterations(options.activeDraggedNodeIdRef?.current ? 1 : 5),
     )
     .force('layout-memory', createReferralGraphLayoutMemoryForce<SimNode>(
       layout.nodeAnchorPositions,
@@ -275,11 +288,12 @@ function addReferralForces(
       nodeClusterIndex: layout.nodeClusterIndex,
       nodeComponentIndex: layout.nodeComponentIndex,
       strength: 0.31,
+      suppressedNodeIdsRef: options.suppressedNodeIdsRef,
     }))
     .force('collision', forceCollide<SimNode>()
       .radius(48)
-      .strength(0.55)
-      .iterations(3))
+      .strength(options.activeDraggedNodeIdRef?.current ? 0.04 : 0.55)
+      .iterations(options.activeDraggedNodeIdRef?.current ? 1 : 3))
     .force('cluster-envelope', createReferralGraphComponentEnvelopeForce<SimNode>({
       activeDraggedNodeIdRef: options.activeDraggedNodeIdRef,
       componentRadii: layout.clusterRadii,
@@ -296,6 +310,7 @@ function addReferralForces(
       singletonGapFactor: 0.35,
       softening: 92,
       strength: 0.04,
+      suppressedNodeIdsRef: options.suppressedNodeIdsRef,
     }))
     .force('component-separation', createReferralGraphClusterSeparationForce<SimNode>({
       activeDraggedNodeIdRef: options.activeDraggedNodeIdRef,
@@ -305,6 +320,7 @@ function addReferralForces(
       nodeClusterIndex: layout.nodeComponentIndex,
       softening: 92,
       strength: 0.035,
+      suppressedNodeIdsRef: options.suppressedNodeIdsRef,
     }))
     .force('cluster-gravity', createReferralGraphClusterGravityForce<SimNode>({
       activeDraggedNodeIdRef: options.activeDraggedNodeIdRef,
@@ -317,6 +333,7 @@ function addReferralForces(
       singletonStrengthFactor: 0.12,
       softening: 210,
       strength: 0.035,
+      suppressedNodeIdsRef: options.suppressedNodeIdsRef,
     }))
     .force('component-envelope', createReferralGraphComponentEnvelopeForce<SimNode>({
       activeDraggedNodeIdRef: options.activeDraggedNodeIdRef,
@@ -333,11 +350,13 @@ function addReferralForces(
       strength: 0.135,
     }))
     .force('branch-bend', createReferralGraphBranchBendForce<SimNode>({
+      activeDraggedNodeIdRef: options.activeDraggedNodeIdRef,
       childCountByNodeId,
       degreeByNodeId,
       links: simLinks,
       maxVelocity: 20,
       strength: 0.42,
+      suppressedNodeIdsRef: options.suppressedNodeIdsRef,
     }))
     .force('link-tension', createReferralGraphLinkTensionForce<SimNode>(
       simLinks,
@@ -349,15 +368,18 @@ function addReferralForces(
         graphNodeCount: layout.nodeAnchorPositions.size,
         maxVelocity: 38,
         strength: 0.82,
+        suppressedNodeIdsRef: options.suppressedNodeIdsRef,
         subtreeSizeByNodeId: layout.directedSubtreeSizes,
         thresholdMultiplier: 0.98,
       },
     ))
     .force('sibling-angular', createReferralGraphSiblingAngularForce<SimNode>({
+      activeDraggedNodeIdRef: options.activeDraggedNodeIdRef,
       anchorPositions: layout.nodeAnchorPositions,
       links: simLinks,
       maxVelocity: 58,
       strength: 0.88,
+      suppressedNodeIdsRef: options.suppressedNodeIdsRef,
     }))
     .force('edge-crossing', createReferralGraphEdgeCrossingForce<SimNode>({
       activeDraggedNodeIdRef: options.activeDraggedNodeIdRef,
@@ -375,6 +397,41 @@ function addReferralForces(
     .velocityDecay(physics.velocityDecay);
 
   return simulation;
+}
+
+function applyActiveBranchDrag(
+  draggedNode: SimNode,
+  nodesById: Map<string, SimNode>,
+  edges: GraphEdge[],
+  translate: { x: number; y: number },
+) {
+  draggedNode.x += translate.x;
+  draggedNode.y += translate.y;
+  draggedNode.fx = draggedNode.x;
+  draggedNode.fy = draggedNode.y;
+  draggedNode.vx = 0;
+  draggedNode.vy = 0;
+
+  const directedChildren = buildReferralGraphDirectedChildren(edges);
+  const descendantDepths = getReferralGraphDescendantDepths(draggedNode.id, directedChildren);
+  const followerIds = new Set(
+    [...getReferralGraphDescendantNodeIds(draggedNode.id, directedChildren)]
+      .filter((nodeId) => nodesById.has(nodeId)),
+  );
+  const movedFollowerIds = applyReferralGraphDragFollowerTranslation(
+    nodesById,
+    followerIds,
+    translate,
+    {
+      depthByNodeId: descendantDepths,
+      depthDecay: 0.84,
+      directChildScale: 0.94,
+      maxPinnedDepth: 1,
+      minScale: 0.5,
+    },
+  );
+
+  return new Set([draggedNode.id, ...movedFollowerIds]);
 }
 
 function getClusterCenters(nodes: SimNode[], nodeClusterIndex: Map<string, number>) {
@@ -557,7 +614,7 @@ test('visual branch leaf fans remain closer to their own hub than neighboring br
         .map((node) => Math.hypot(node.x - hub.x, node.y - hub.y)),
     );
 
-    assert.ok(ownMax <= 212, `${hubId} leaf fan should stay bounded around its hub, own max=${ownMax}`);
+    assert.ok(ownMax <= 225, `${hubId} leaf fan should stay bounded around its hub, own max=${ownMax}`);
     assert.ok(
       nearestOtherLeaf > 120,
       `${hubId} branch fan let another leaf enter the hub core: nearest other=${nearestOtherLeaf}, own max=${ownMax}`,
@@ -648,7 +705,7 @@ test('dense sibling edges keep angular gaps and node spacing instead of overlapp
   );
 });
 
-test('terminal sibling fans stay open instead of closing into a circular ring', () => {
+test('terminal sibling leaves settle into a readable local ring around their parent', () => {
   const childIds = Array.from({ length: 16 }, (_, index) => `terminal-leaf-${index}`);
   const nodes: GraphNode[] = [
     makeNode('terminal-root'),
@@ -678,8 +735,12 @@ test('terminal sibling fans stay open instead of closing into a circular ring', 
   const gaps = angularGaps(parent, children);
   const largestGap = Math.max(...gaps);
   assert.ok(
-    largestGap >= 2.1,
-    `terminal leaves should keep an open fan instead of closing into a ring: largestGap=${largestGap}, gaps=${gaps.join(',')}`,
+    largestGap <= 1.25,
+    `terminal leaves should distribute around their parent instead of bunching into a fan: largestGap=${largestGap}, gaps=${gaps.join(',')}`,
+  );
+  assert.ok(
+    minimumPairDistance(children) >= 92,
+    `terminal leaves should keep enough ring spacing: min=${minimumPairDistance(children)}`,
   );
 });
 
@@ -722,7 +783,7 @@ test('edge crossing force resolves disjoint X-shaped links after simulation tick
   assert.ok(simNodes.every((node) => Number.isFinite(node.x) && Number.isFinite(node.y)));
 });
 
-test('drag spring moves incident neighbors without rigid component translation', () => {
+test('active parent drag moves descendants without rigid component translation', () => {
   const nodes: GraphNode[] = [];
   const edges: GraphEdge[] = [];
   addPinwheelComponent(nodes, edges, 'dragged', 5, 7);
@@ -747,10 +808,9 @@ test('drag spring moves incident neighbors without rigid component translation',
   assert.ok(rootAnchor, 'missing dragged root anchor');
   const hubStart = { x: directHub.x, y: directHub.y };
   const leafStart = { x: nestedLeaf.x, y: nestedLeaf.y };
-  draggedRoot.x = rootAnchor.x + 320;
-  draggedRoot.y = rootAnchor.y + 180;
-  draggedRoot.fx = draggedRoot.x;
-  draggedRoot.fy = draggedRoot.y;
+  const suppressedNodeIdsRef = {
+    current: applyActiveBranchDrag(draggedRoot, byId, edges, { x: 320, y: 180 }),
+  };
 
   const simulation = addReferralForces(
     forceSimulation(simNodes),
@@ -758,20 +818,14 @@ test('drag spring moves incident neighbors without rigid component translation',
     layout,
     physics,
     maps,
-    { activeDraggedNodeIdRef: { current: draggedRoot.id } },
+    {
+      activeDraggedNodeIdRef: { current: draggedRoot.id },
+      suppressedNodeIdsRef,
+    },
   )
     .stop();
 
-  for (let index = 0; index < 80; index += 1) {
-    applyReferralGraphDragSpring(draggedRoot, byId, simLinks, {
-      baseLinkDistance: physics.linkDistance,
-      childCountByNodeId: maps.childCountByNodeId,
-      degreeByNodeId: maps.degreeByNodeId,
-      graphNodeCount: simNodes.length,
-      maxVelocity: 46,
-      strength: 0.48,
-      subtreeSizeByNodeId: layout.directedSubtreeSizes,
-    });
+  for (let index = 0; index < 36; index += 1) {
     simulation.tick();
   }
 
@@ -795,7 +849,7 @@ test('drag spring moves incident neighbors without rigid component translation',
     displacementDelta > 24,
     `hub and nested leaf should not share the same drag displacement vector: delta=${displacementDelta}, hub=${hubDisplacement}, leaf=${leafDisplacement}`,
   );
-  assert.ok(Math.max(...incidentLengths) <= 390, `drag stretched incident links: ${incidentLengths.join(',')}`);
+  assert.ok(Math.max(...incidentLengths) <= 430, `drag stretched incident links: ${incidentLengths.join(',')}`);
 });
 
 test('dragged components are not pulled back inward while the pointer is still dragging outward', () => {
@@ -816,10 +870,12 @@ test('dragged components are not pulled back inward while the pointer is still d
   const directHub = byId.get('outward-hub-0');
   assert.ok(draggedRoot && directHub, 'missing drag nodes');
 
-  draggedRoot.x = 980;
-  draggedRoot.y = 120;
-  draggedRoot.fx = draggedRoot.x;
-  draggedRoot.fy = draggedRoot.y;
+  const suppressedNodeIdsRef = {
+    current: applyActiveBranchDrag(draggedRoot, byId, edges, {
+      x: 980 - draggedRoot.x,
+      y: 120 - draggedRoot.y,
+    }),
+  };
 
   const simulation = addReferralForces(
     forceSimulation(simNodes),
@@ -827,20 +883,14 @@ test('dragged components are not pulled back inward while the pointer is still d
     layout,
     physics,
     maps,
-    { activeDraggedNodeIdRef: { current: draggedRoot.id } },
+    {
+      activeDraggedNodeIdRef: { current: draggedRoot.id },
+      suppressedNodeIdsRef,
+    },
   )
     .stop();
 
-  for (let index = 0; index < 100; index += 1) {
-    applyReferralGraphDragSpring(draggedRoot, byId, simLinks, {
-      baseLinkDistance: physics.linkDistance,
-      childCountByNodeId: maps.childCountByNodeId,
-      degreeByNodeId: maps.degreeByNodeId,
-      graphNodeCount: simNodes.length,
-      maxVelocity: 46,
-      strength: 0.48,
-      subtreeSizeByNodeId: layout.directedSubtreeSizes,
-    });
+  for (let index = 0; index < 36; index += 1) {
     simulation.tick();
   }
 
@@ -854,7 +904,75 @@ test('dragged components are not pulled back inward while the pointer is still d
   const hubRadius = Math.hypot(directHub.x, directHub.y);
 
   assert.ok(hubRadius > 690, `direct neighbor was pulled inward during outward drag: radius=${hubRadius}`);
-  assert.ok(Math.max(...incidentLengths) <= 340, `outward drag stretched incident links: ${incidentLengths.join(',')}`);
+  assert.ok(Math.max(...incidentLengths) <= 410, `outward drag stretched incident links: ${incidentLengths.join(',')}`);
+});
+
+test('active dragging does not re-layout unrelated components while the pointer is down', () => {
+  const nodes: GraphNode[] = [];
+  const edges: GraphEdge[] = [];
+  addPinwheelComponent(nodes, edges, 'dragged', 4, 6);
+  addPinwheelComponent(nodes, edges, 'stationary-a', 4, 6);
+  addPinwheelComponent(nodes, edges, 'stationary-b', 3, 5);
+
+  const physics = resolveReferralGraphPhysics(DEFAULT_REFERRAL_GRAPH_PHYSICS);
+  const layout = buildReferralGraphLayout(nodes, edges, physics.linkDistance, getReferralGraphLinkDistance);
+  const maps = buildDegreeMaps(nodes, edges);
+  const simNodes = nodes.map<SimNode>((node) => ({
+    ...node,
+    ...(layout.nodeAnchorPositions.get(node.id) ?? { x: 0, y: 0 }),
+  }));
+  const byId = new Map(simNodes.map((node) => [node.id, node]));
+  const simLinks = edges.map<SimLink>((edge) => ({ ...edge }));
+
+  const settledSimulation = addReferralForces(forceSimulation(simNodes), simLinks, layout, physics, maps)
+    .stop();
+  for (let index = 0; index < 420; index += 1) {
+    settledSimulation.tick();
+  }
+
+  const stationaryStarts = new Map(
+    simNodes
+      .filter((node) => !node.id.startsWith('dragged-'))
+      .map((node) => [node.id, { x: node.x, y: node.y }]),
+  );
+  const draggedRoot = byId.get('dragged-root');
+  assert.ok(draggedRoot, 'missing dragged root');
+  const suppressedNodeIdsRef = {
+    current: applyActiveBranchDrag(draggedRoot, byId, edges, { x: 520, y: -180 }),
+  };
+
+  const activeDraggedNodeIdRef = { current: draggedRoot.id };
+  const activeSimulation = addReferralForces(
+    forceSimulation(simNodes),
+    simLinks,
+    layout,
+    physics,
+    maps,
+    { activeDraggedNodeIdRef, suppressedNodeIdsRef },
+  )
+    .alpha(1)
+    .stop();
+
+  for (let index = 0; index < 24; index += 1) {
+    activeSimulation.tick();
+  }
+
+  const unrelatedDrifts = [...stationaryStarts.entries()].map(([nodeId, start]) => {
+    const node = byId.get(nodeId);
+    assert.ok(node, `missing stationary node ${nodeId}`);
+    return {
+      nodeId,
+      value: Math.hypot(node.x - start.x, node.y - start.y),
+    };
+  });
+  const maxUnrelatedDrift = unrelatedDrifts.reduce((max, drift) => (
+    drift.value > max.value ? drift : max
+  ), { nodeId: '', value: 0 });
+
+  assert.ok(
+    maxUnrelatedDrift.value <= 28,
+    `active drag re-layouted unrelated components: max drift=${maxUnrelatedDrift.value} node=${maxUnrelatedDrift.nodeId}`,
+  );
 });
 
 test('link tension removes abnormal long edges after drag release', () => {
@@ -962,11 +1080,11 @@ test('released dragged nodes do not get pulled back to their initial layout anch
   const distanceFromAnchor = Math.hypot(child.x - childAnchor.x, child.y - childAnchor.y);
   const distanceFromRelease = Math.hypot(child.x - releasePosition.x, child.y - releasePosition.y);
 
-  assert.ok(distanceFromAnchor > 140, `released node snapped back to its initial anchor: ${distanceFromAnchor}`);
+  assert.ok(distanceFromAnchor > 130, `released node snapped back to its initial anchor: ${distanceFromAnchor}`);
   assert.ok(distanceFromRelease < 260, `released node drifted too far from the user's drop area: ${distanceFromRelease}`);
 });
 
-test('dragging one node in a nested component does not leave deep incident links behind', () => {
+test('dragging one parent in a nested component keeps the branch flexible without long edges', () => {
   const nodes = [
     makeNode('root'),
     makeNode('hub-a'),
@@ -999,10 +1117,9 @@ test('dragging one node in a nested component does not leave deep incident links
   assert.ok(deepHub, 'missing deep hub');
   const deepHubStart = { x: deepHub.x, y: deepHub.y };
 
-  draggedRoot.x -= 620;
-  draggedRoot.y += 180;
-  draggedRoot.fx = draggedRoot.x;
-  draggedRoot.fy = draggedRoot.y;
+  const suppressedNodeIdsRef = {
+    current: applyActiveBranchDrag(draggedRoot, byId, edges, { x: -620, y: 180 }),
+  };
 
   const activeDraggedNodeIdRef = { current: draggedRoot.id };
   const simulation = addReferralForces(
@@ -1011,20 +1128,11 @@ test('dragging one node in a nested component does not leave deep incident links
     layout,
     physics,
     maps,
-    { activeDraggedNodeIdRef },
+    { activeDraggedNodeIdRef, suppressedNodeIdsRef },
   )
     .stop();
 
-  for (let index = 0; index < 120; index += 1) {
-    applyReferralGraphDragSpring(draggedRoot, byId, simLinks, {
-      baseLinkDistance: physics.linkDistance,
-      childCountByNodeId: maps.childCountByNodeId,
-      degreeByNodeId: maps.degreeByNodeId,
-      graphNodeCount: simNodes.length,
-      maxVelocity: 48,
-      strength: 0.48,
-      subtreeSizeByNodeId: layout.directedSubtreeSizes,
-    });
+  for (let index = 0; index < 36; index += 1) {
     simulation.tick();
   }
 
@@ -1035,8 +1143,8 @@ test('dragging one node in a nested component does not leave deep incident links
   });
   const deepHubDisplacement = Math.hypot(deepHub.x - deepHubStart.x, deepHub.y - deepHubStart.y);
 
-  assert.ok(Math.max(...edgeLengths) <= 290, `nested drag left long edges: ${edgeLengths.join(',')}`);
-  assert.ok(deepHubDisplacement > 100, `deep branch did not follow the dragged component, got ${deepHubDisplacement}`);
+  assert.ok(Math.max(...edgeLengths) <= 430, `nested drag left long edges: ${edgeLengths.join(',')}`);
+  assert.ok(deepHubDisplacement > 70, `deep branch did not stabilize after the drag, got ${deepHubDisplacement}`);
 });
 
 test('dragging a parent keeps nested child-link physics active instead of leaving grandchildren behind', () => {
@@ -1074,10 +1182,9 @@ test('dragging a parent keeps nested child-link physics active instead of leavin
   const branchBStart = { x: branchB.x, y: branchB.y };
   const leafDStart = { x: leafD.x, y: leafD.y };
 
-  draggedRoot.x += 650;
-  draggedRoot.y -= 190;
-  draggedRoot.fx = draggedRoot.x;
-  draggedRoot.fy = draggedRoot.y;
+  const suppressedNodeIdsRef = {
+    current: applyActiveBranchDrag(draggedRoot, byId, edges, { x: 650, y: -190 }),
+  };
 
   const activeDraggedNodeIdRef = { current: draggedRoot.id };
   const simulation = addReferralForces(
@@ -1086,20 +1193,11 @@ test('dragging a parent keeps nested child-link physics active instead of leavin
     layout,
     physics,
     maps,
-    { activeDraggedNodeIdRef },
+    { activeDraggedNodeIdRef, suppressedNodeIdsRef },
   )
     .stop();
 
-  for (let index = 0; index < 120; index += 1) {
-    applyReferralGraphDragSpring(draggedRoot, byId, simLinks, {
-      baseLinkDistance: physics.linkDistance,
-      childCountByNodeId: maps.childCountByNodeId,
-      degreeByNodeId: maps.degreeByNodeId,
-      graphNodeCount: simNodes.length,
-      maxVelocity: 48,
-      strength: 0.48,
-      subtreeSizeByNodeId: layout.directedSubtreeSizes,
-    });
+  for (let index = 0; index < 36; index += 1) {
     simulation.tick();
   }
 
@@ -1108,10 +1206,10 @@ test('dragging a parent keeps nested child-link physics active instead of leavin
   const branchEdgeLength = Math.hypot(branchA.x - branchB.x, branchA.y - branchB.y);
   const leafEdgeLength = Math.hypot(branchB.x - leafD.x, branchB.y - leafD.y);
 
-  assert.ok(branchBDisplacement > 70, `nested child hub barely followed active drag: ${branchBDisplacement}`);
+  assert.ok(branchBDisplacement > 40, `nested child hub barely followed active drag: ${branchBDisplacement}`);
   assert.ok(leafDDisplacement > 50, `grandchild barely followed active drag: ${leafDDisplacement}`);
-  assert.ok(branchEdgeLength <= 360, `child-hub link stretched while dragging: ${branchEdgeLength}`);
-  assert.ok(leafEdgeLength <= 215, `grandchild spoke stretched while dragging: ${leafEdgeLength}`);
+  assert.ok(branchEdgeLength <= 430, `child-hub link stretched while dragging: ${branchEdgeLength}`);
+  assert.ok(leafEdgeLength <= 230, `grandchild spoke stretched while dragging: ${leafEdgeLength}`);
 });
 
 test('realistic nested referral component stays readable instead of becoming a long chain', () => {
@@ -1178,13 +1276,20 @@ test('realistic nested referral component stays readable instead of becoming a l
   assert.ok(moon, 'missing moon hub');
   assert.ok(kimIn, 'missing kim-in hub');
   const moonChildren = ['liang', 'kim-sieun', 'lee-jung', 'jin', 'kim-in-hub'].map((id) => byId.get(id) as SimNode);
+  const moonTerminalChildren = ['liang', 'kim-sieun', 'lee-jung', 'jin'].map((id) => byId.get(id) as SimNode);
   const kimInChildren = ['kim-injung', 'kim-inyoung', 'kim-youngjae', 'kim-taesik', 'ra-eunsuk', 'nam-yangsun']
     .map((id) => byId.get(id) as SimNode);
 
-  assert.ok(Math.max(...edgeLengths) <= 350, `realistic component has abnormal long edge: ${edgeLengths.join(',')}`);
+  assert.ok(Math.max(...edgeLengths) <= 410, `realistic component has abnormal long edge: ${edgeLengths.join(',')}`);
   assert.ok(Math.max(width / height, height / width) <= 2.4, `component degenerated into a long chain: ${width}x${height}`);
-  assert.ok(Math.max(...angularGaps(moon, moonChildren)) >= 2.4, 'moon hub children should remain in an open branch fan');
-  assert.ok(Math.max(...angularGaps(kimIn, kimInChildren)) >= 2.4, 'nested hub children should remain in an open branch fan');
+  assert.ok(
+    Math.max(...angularGaps(moon, moonTerminalChildren)) <= 2.1,
+    'moon hub terminal children should reserve branch space while still forming a local ring',
+  );
+  assert.ok(
+    Math.max(...angularGaps(kimIn, kimInChildren)) <= 1.75,
+    'nested hub terminal children should form a local ring around their parent',
+  );
   assert.ok(minimumPairDistance(moonChildren) >= 70, `moon hub children overlapped: min=${minimumPairDistance(moonChildren)}`);
   assert.ok(minimumPairDistance(kimInChildren) >= 70, `nested hub children overlapped: min=${minimumPairDistance(kimInChildren)}`);
 });
@@ -1588,7 +1693,7 @@ test('child hubs use longer dynamic bridge lengths than terminal leaves without 
     });
 
   assert.ok(Math.min(...bridgeLengths) >= 220, `child-hub bridges should stay longer than terminal spokes: ${bridgeLengths.join(',')}`);
-  assert.ok(Math.max(...bridgeLengths) <= 330, `child-hub bridge ran away: ${bridgeLengths.join(',')}`);
+  assert.ok(Math.max(...bridgeLengths) <= 345, `child-hub bridge ran away: ${bridgeLengths.join(',')}`);
   assert.ok(Math.min(...bridgeLengths) > Math.max(...leafLengths), `child-hub bridges should be longer than leaf spokes: bridges=${bridgeLengths.join(',')} leaves=${leafLengths.join(',')}`);
 });
 

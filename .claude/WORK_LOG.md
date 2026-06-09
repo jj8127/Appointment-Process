@@ -17,6 +17,12 @@
 - ⚠️ 상태값(`types/fc.ts`)과 화면 분기 조건은 반드시 함께 수정
 - ⚠️ 스키마 변경은 `schema.sql` + `migrations/*.sql` 동시 관리
 
+## 2026-06-09
+
+| 날짜 | 작업 | 주요 파일 | 상세 |
+|---|---|---|---|
+| 06-09 | 추천인 그래프 드래그 안정화: active drag force 억제, directed descendant follower, live CDP 검증까지 완료 | `web/src/components/referrals/ReferralGraphCanvas.tsx`, `web/src/lib/referral-graph-*.ts`, `docs/referral-system/*`, `.codex/harness/*`, `.claude/MISTAKES.md` | [→ 상세](WORK_DETAIL.md#20260609-referral-graph-drag-stability-live-qa) |
+
 ## 2026-06-08
 
 | 날짜 | 작업 | 주요 파일 | 상세 |

@@ -7,6 +7,58 @@
 
 ---
 
+## <a id="20260609-referral-graph-drag-stability-live-qa"></a> 2026-06-09 | Referral graph drag stability live QA
+
+**배경**:
+- 추천인 그래프에서 부모/hub node를 드래그할 때 자식 branch가 찢어지거나, 무관한 graph component까지 흔들리고, 놓은 뒤 사용자가 놓은 위치에서 벗어나는 문제가 반복 보고됐다.
+- 이전 자동 simulation 검증만으로는 실제 브라우저 drag feel을 충분히 대변하지 못했다.
+
+**조치**:
+- active drag 중 base link/charge/collision 및 custom layout force가 사용자 입력과 싸우지 않도록 force mode를 `drag`/`settle`로 분리했다.
+- 부모/hub drag에서는 directed descendant만 depth-damped follower로 따라오게 하고, ancestor/sibling/unrelated node는 active drag 대상에서 제외했다.
+- pointer-down 중 `sibling-angular`, `edge-crossing`, cluster/component separation 계열 force를 pause/dampen해 unrelated graph re-layout을 막았다.
+- release 후에는 settle force를 복구하되, 사용자가 놓은 위치 근처에서 부드럽게 안정화되도록 manual target을 유지했다.
+- 개발 환경 전용 `window.__referralGraphDebug` hook을 추가해 실제 canvas node 좌표와 graph/screen coordinate 변환을 읽을 수 있게 했다. production build에서는 노출되지 않는다.
+- 추천인 문서의 graph layout/drag 계약과 `RF-ADMIN-08` 테스트 결과를 최신 구현/검증 기준으로 갱신했다.
+
+**핵심 파일**:
+- `web/src/components/referrals/ReferralGraphCanvas.tsx`
+- `web/src/lib/referral-graph-interaction.ts`
+- `web/src/lib/referral-graph-interaction.test.ts`
+- `web/src/lib/referral-graph-layout.ts`
+- `web/src/lib/referral-graph-layout.test.ts`
+- `web/src/lib/referral-graph-physics.ts`
+- `web/src/lib/referral-graph-physics.test.ts`
+- `web/src/lib/referral-graph-simulation.test.ts`
+- `docs/referral-system/AGENTS.md`
+- `docs/referral-system/SPEC.md`
+- `docs/referral-system/TEST_CHECKLIST.md`
+- `docs/referral-system/test-cases.json`
+- `docs/referral-system/TEST_RUN_RESULT.json`
+- `docs/referral-system/INCIDENTS.md`
+- `.codex/harness/current-contract.md`
+- `.codex/harness/qa-report.md`
+- `.codex/harness/handoff.md`
+- `.claude/MISTAKES.md`
+
+**검증**:
+- RED/GREEN: `node --test web/src/lib/referral-graph-interaction.test.ts --test-name-pattern "development visual QA"`
+- 통과: `node --test web/src/lib/referral-graph-interaction.test.ts web/src/lib/referral-graph-physics.test.ts web/src/lib/referral-graph-layout.test.ts web/src/lib/referral-graph-simulation.test.ts web/src/lib/referral-graph-display.test.ts web/src/lib/referral-graph-edges.test.ts web/src/lib/referral-graph-highlight.test.ts web/src/lib/referral-graph-link-style.test.ts web/src/lib/referral-graph-scope.test.ts` (107/107)
+- 통과: `cd web; npm run lint -- src/components/referrals/ReferralGraphCanvas.tsx src/lib/referral-graph-interaction.test.ts src/lib/referral-graph-physics.ts src/lib/referral-graph-simulation.test.ts`
+- 통과: `cd web; SENTRY_AUTH_TOKEN='' npx next build`
+- 통과: `git diff --check` (Windows line-ending warning only)
+- live CDP 검증: 실제 admin graph API payload 202 nodes / 114 edges에서 최대 hub `김형수` drag.
+  - drag 중 pointer 거리: 0.477px
+  - follower count: 76
+  - unrelated active-drag drift: 14.088px
+  - settle 후 release point 거리: 9.66px
+- 증적: `.codex/harness/referral-graph-live-before.png`, `.codex/harness/referral-graph-live-during.png`, `.codex/harness/referral-graph-live-after.png`, `.codex/harness/referral-graph-live-settled.png`
+
+**미실행/제약**:
+- 실제 사용자가 직접 브라우저/디바이스에서 느끼는 주관적 체감 검증은 별도 피드백으로 받을 수 있다. 이번 변경은 자동 테스트, production build, 실제 브라우저 CDP drag 지표와 screenshot으로 검증했다.
+
+---
+
 ## <a id="20260608-admin-exam-legacy-apply-route-redirect"></a> 2026-06-08 | Admin exam legacy apply route redirect
 
 **배경**:

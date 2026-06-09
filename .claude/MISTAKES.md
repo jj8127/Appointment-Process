@@ -30,6 +30,34 @@
 - Verification:
 ```
 
+## 2026-06-08 | Referral Graph Edge Length | 자식 수가 적은 체인을 길게, 많은 허브를 짧게 만드는 반대 결과
+- Symptom:
+  - 사용자가 요구한 방향은 자식이 적은 릴레이 체인은 짧게 유지하고, 자식이 많은 부모 노드는 더 긴 엣지로 공간을 확보하는 것이었다.
+  - 실제 화면에서는 반대로 자식이 적은 세로 체인 엣지가 비정상적으로 길어지고, 자식이 많은 허브 주변 엣지는 짧아져 노드가 뭉쳤다.
+- Root cause:
+  - 엣지 길이 판단에서 `targetHasChildren`/subtree 존재 여부를 너무 크게 반영해, 직접 자식 수가 적은 릴레이 체인도 긴 branch로 취급했다.
+  - 말단 leaf spoke는 terminal이라는 이유로 과하게 짧게 유지되어, 실제 공간이 필요한 high-fanout 부모의 자식들이 충분히 밀려나지 않았다.
+  - fanout 증가는 일부 구간에서 fixed threshold 중심으로 처리되어 자연스러운 연속 스케일이 아니었다.
+- Why it was missed:
+  - 테스트가 “자식 있는 노드는 terminal leaf보다 길어야 한다”는 넓은 조건만 검증했고, “직접 자식 수가 적은 체인 vs 직접 자식 수가 많은 허브”의 상대 길이를 고정하지 않았다.
+  - 실제 스크린샷에서 sparse vertical chain과 crowded hub를 동시에 비교하는 시각 QA를 자동화하지 않았다.
+- Permanent guardrail:
+  - 추천인 그래프 엣지 길이는 직접 자식 수, local subtree pressure, density를 연속 수식으로 반영한다.
+  - sparse branch 여부는 깊은 subtree 존재가 아니라 직접 자식 수 기준으로 판단한다.
+  - high-fanout leaf spoke와 child-hub branch는 직접 자식 수가 커질수록 길어져야 하며, one-child relay chain보다 짧아지면 안 된다.
+  - `referral-graph-physics.test.ts`와 `referral-graph-layout.test.ts`에 sparse chain, crowded hub, smooth fanout scaling 회귀 테스트를 유지한다.
+- Related files:
+  - `web/src/lib/referral-graph-physics.ts`
+  - `web/src/lib/referral-graph-physics.test.ts`
+  - `web/src/lib/referral-graph-layout.ts`
+  - `web/src/lib/referral-graph-layout.test.ts`
+  - `web/src/lib/referral-graph-simulation.test.ts`
+- Verification:
+  - `node --test web/src/lib/referral-graph-physics.test.ts`
+  - `node --test web/src/lib/referral-graph-layout.test.ts`
+  - `node --test web/src/lib/referral-graph-display.test.ts web/src/lib/referral-graph-edges.test.ts web/src/lib/referral-graph-highlight.test.ts web/src/lib/referral-graph-interaction.test.ts web/src/lib/referral-graph-layout.test.ts web/src/lib/referral-graph-link-style.test.ts web/src/lib/referral-graph-physics.test.ts web/src/lib/referral-graph-scope.test.ts web/src/lib/referral-graph-simulation.test.ts`
+  - `cd web; npm run lint -- src/components/referrals/ReferralGraphCanvas.tsx src/lib/referral-graph-layout.ts src/lib/referral-graph-layout.test.ts src/lib/referral-graph-physics.ts src/lib/referral-graph-physics.test.ts src/lib/referral-graph-simulation.test.ts`
+
 ## 2026-06-08 | Admin Exam Applicant Columns | 전역 명단만 바꾸고 다른 응시자 명단 route를 누락
 - Symptom:
   - 관리자 웹 시험 응시자 목록 순서를 엑셀 샘플과 맞춰 배포했는데, 현장에서는 순서가 그대로라는 제보가 들어왔다.
@@ -1749,8 +1777,64 @@
 
 ## 2026-06-08 | Referral Graph Drag Physics | 드래그 중 연결 노드와 초기 원형 anchor를 계속 당김
 - Symptom: 추천인 그래프에서 `최경집` 같은 노드를 살짝 옮기면 연결 노드와 edge가 같이 끌려가고, 시간이 지나도 초기 원형 배치를 유지하려는 힘 때문에 그래프가 비정상적으로 흔들렸다.
-- Root cause: 드래그 중 `applyReferralGraphDragSpring(... preventStretch)`가 연결 체인의 follower `x/y`를 직접 수정했고, `drag-spring` force도 같은 보정을 계속 실행했다. `layout-memory`는 `minimumAnchorRatio: 0.45`와 수동 target 유지로 초기 anchor 힘이 오래 남았다.
-- Why it was missed: 기존 테스트는 edge stretch 감소를 우선해 follower 직접 이동을 정답으로 봤고, 사용자가 잡은 노드만 움직여야 한다는 UX 계약을 고정하지 않았다.
-- Permanent guardrail: 드래그 중에는 dragged node만 직접 이동한다. 연결 노드는 drag spring으로 `x/y`를 직접 수정하지 않고, 초기 layout-memory는 약하게 시작한 뒤 `maxTicks` 이후 완전히 꺼져야 한다.
+- Root cause: 드래그 중 연결 노드 보정과 초기 anchor 계약이 섞였다. 또 `cooldownTicks={Infinity}`, `cooldownTime={Infinity}`, `d3AlphaMin={0}`로 force engine이 계속 살아 있었고, 예전 테스트는 터미널 자식을 부모 주변 원형 링이 아니라 한쪽 부채꼴로 모으는 것을 정답으로 봤다.
+- Why it was missed: 기존 테스트는 edge stretch 감소를 우선해 follower 직접 이동을 정답으로 봤고, 사용자가 잡은 노드만 움직여야 한다는 UX 계약과 “자식 없는 노드는 부모 주변 링, 자식 있는 노드는 긴 가지” 레이아웃 계약을 고정하지 않았다. 이후 보정에서도 `targetHasChildren`을 거의 모두 긴 브랜치로 처리해 sparse chain은 비정상적으로 길어지고, 8개 안팎 star leaf spoke는 너무 짧은 상태를 테스트가 놓쳤다.
+- Permanent guardrail: 드래그 중 연결 컴포넌트 전체를 직접 이동하지 않는다. 다만 사용자가 부모/허브를 옮길 때 visible branch가 찢어지지 않아야 하는 UX 계약에서는 directed descendants만 follower로 같은 delta를 적용하고, ancestor/sibling/unrelated node는 제외한다. 터미널 자식은 부모 주변 local ring으로 배치하고, child hub edge는 terminal leaf spoke보다 명확히 길게 유지한다. 단, `targetChildCount <= 1`이고 작은 subtree인 sparse branch는 긴 가지 규칙에서 제외해 bounded compact edge로 유지하며, 8개 이상 star leaf ring은 최소 반경을 별도 검증한다. ForceGraph2D는 finite cooldown/positive alphaMin을 사용하고, 긴 branch bridge도 bounded simulation 테스트로 검증한다.
+- Related files: `web/src/components/referrals/ReferralGraphCanvas.tsx`, `web/src/lib/referral-graph-layout.ts`, `web/src/lib/referral-graph-layout.test.ts`, `web/src/lib/referral-graph-physics.ts`, `web/src/lib/referral-graph-physics.test.ts`, `web/src/lib/referral-graph-simulation.test.ts`
+- Verification: `node --test web/src/lib/referral-graph-physics.test.ts`; `node --test web/src/lib/referral-graph-layout.test.ts`; `node --test web/src/lib/referral-graph-simulation.test.ts`; `node --test web/src/lib/referral-graph-display.test.ts web/src/lib/referral-graph-edges.test.ts web/src/lib/referral-graph-highlight.test.ts web/src/lib/referral-graph-interaction.test.ts web/src/lib/referral-graph-layout.test.ts web/src/lib/referral-graph-link-style.test.ts web/src/lib/referral-graph-physics.test.ts web/src/lib/referral-graph-scope.test.ts web/src/lib/referral-graph-simulation.test.ts`; `cd web && npm run lint -- src/components/referrals/ReferralGraphCanvas.tsx src/lib/referral-graph-layout.ts src/lib/referral-graph-layout.test.ts src/lib/referral-graph-physics.ts src/lib/referral-graph-physics.test.ts src/lib/referral-graph-simulation.test.ts`
+
+## 2026-06-08 | Referral Graph Directed Drag Followers | 부모 드래그 시 자식 branch가 남아 edge가 찢어짐
+- Symptom: `최경집` 같은 부모/허브 노드를 드래그하면 부모만 움직이고 직속 자식들이 제자리에 남아, edge가 화면을 길게 가로지르며 그래프가 깨져 보였다.
+- Root cause: 이전 drag 안정화에서 "연결 노드를 끌지 말라"는 요구를 연결 컴포넌트 전체 전파 금지와 directed child branch preservation으로 나누지 않았다. 그 결과 parent drag에도 descendants follower 처리가 없어 visible branch가 분리됐다.
+- Why it was missed: helper 테스트는 drag spring 전파 금지만 검증했고, `ReferralGraphCanvas`의 실제 `onNodeDrag`가 directed descendants를 같은 delta로 이동시키는지 고정하지 않았다.
+- Permanent guardrail: parent/hub drag는 directed descendants만 follower로 이동시킨다. ancestor, sibling, unrelated node는 follower에서 제외하고, follower는 active drag 중 `fx/fy`로 고정한 뒤 release 시 manual target으로 저장한다. Canvas wiring을 source-level regression으로 고정한다.
+- Related files: `web/src/components/referrals/ReferralGraphCanvas.tsx`, `web/src/lib/referral-graph-interaction.ts`, `web/src/lib/referral-graph-interaction.test.ts`
+- Verification: `node --test web/src/lib/referral-graph-interaction.test.ts`; full referral graph lib suite; targeted web ESLint; `cd web && SENTRY_AUTH_TOKEN='' npx next build`
+
+## 2026-06-08 | Referral Graph Rigid Drag Followers | 큰 하위조직을 하나의 고정 물체처럼 이동시킴
+- Symptom: 김형수처럼 큰 하위조직이 있는 노드 그룹을 움직이면 전체 descendant subtree가 하나의 딱딱한 물체처럼 움직이고, 놓은 뒤에는 사용자가 놓은 위치가 아니라 다른 위치로 밀렸다.
+- Root cause: directed descendants follower 보정이 모든 descendant에 같은 delta와 `fx/fy` pin을 적용했다. 동시에 manual drop target이 static anchor aging에 같이 묶여 있어 초기 anchor가 만료되면 사용자가 놓은 위치를 잡아주는 힘도 꺼졌다. `onNodeDrag`에서 매 tick `d3ReheatSimulation()`을 호출해 전체 그래프를 과하게 다시 흔든 점도 증상을 키웠다.
+- Why it was missed: "자식 branch가 따라와야 한다"는 회귀만 테스트했고, 큰 subtree가 depth별로 유연하게 따라와야 한다는 조건과 manual target 생존 조건을 함께 검증하지 않았다.
+- Permanent guardrail: large hub drag는 depth-damped follower translation을 사용한다. Direct children may be pinned during active drag, but deeper descendants must not all be fixed with the same rigid delta. Manual user drop targets must outlive static anchor expiration. Do not call `d3ReheatSimulation()` on every `onNodeDrag` tick.
+- Related files: `web/src/components/referrals/ReferralGraphCanvas.tsx`, `web/src/lib/referral-graph-interaction.ts`, `web/src/lib/referral-graph-interaction.test.ts`, `web/src/lib/referral-graph-physics.ts`, `web/src/lib/referral-graph-physics.test.ts`
+- Verification: `node --test web/src/lib/referral-graph-interaction.test.ts web/src/lib/referral-graph-physics.test.ts`; full referral graph lib suite; targeted web ESLint; `cd web && SENTRY_AUTH_TOKEN='' npx next build`
+
+## 2026-06-08 | Referral Graph Active Drag Force Conflict | 드래그 중 안정화 force가 사용자 입력과 싸움
+- Symptom: 드래그 중 물리법칙이 깨진 것처럼 branch가 흔들리고, 연결 노드와 edge가 불안정하게 반응했다.
+- Root cause: depth-damped followers를 도입했지만 `branch-bend`, `sibling-angular`, custom `link-tension`, base d3 link force가 active dragged branch를 계속 보정했다. 드래그 중에는 이 force들이 레이아웃 정리가 아니라 사용자가 잡은 branch와 반대 방향으로 작동했다.
+- Why it was missed: follower 이동/릴리즈 테스트는 있었지만, active drag 중 각 force가 dragged/suppressed branch에 velocity를 추가하지 않는지 테스트하지 않았다. 기본 d3 link force도 drag 중 별도 약화 모드가 필요하다는 점을 확인하지 않았다.
+- Permanent guardrail: active drag 동안 dragged node와 directed followers는 custom branch/link correction에서 suppressed로 취급한다. `link-tension`, `branch-bend`, `sibling-angular`는 active/suppressed branch를 건너뛰고, base d3 link force는 meaningful drag 동안 약한 drag mode로 전환했다가 release 시 settle mode로 복구한다.
 - Related files: `web/src/components/referrals/ReferralGraphCanvas.tsx`, `web/src/lib/referral-graph-physics.ts`, `web/src/lib/referral-graph-physics.test.ts`
-- Verification: `node --test web/src/lib/referral-graph-physics.test.ts`; `node --test web/src/lib/referral-graph-display.test.ts web/src/lib/referral-graph-edges.test.ts web/src/lib/referral-graph-highlight.test.ts web/src/lib/referral-graph-interaction.test.ts web/src/lib/referral-graph-layout.test.ts web/src/lib/referral-graph-link-style.test.ts web/src/lib/referral-graph-physics.test.ts web/src/lib/referral-graph-scope.test.ts web/src/lib/referral-graph-simulation.test.ts`; `cd web && npx eslint src/components/referrals/ReferralGraphCanvas.tsx src/lib/referral-graph-physics.ts src/lib/referral-graph-physics.test.ts`
+- Verification: `node --test web/src/lib/referral-graph-physics.test.ts web/src/lib/referral-graph-interaction.test.ts`; full referral graph lib suite; targeted web ESLint; `cd web && SENTRY_AUTH_TOKEN='' npx next build`
+
+## 2026-06-09 | Referral Graph Simulation Harness Drift | 런타임과 다른 drag 모델을 테스트함
+- Symptom: 드래그 중 branch가 찢어지거나 흔들리는 보고를 받은 뒤에도, simulation 테스트 일부는 실제 Canvas drag 동작이 아니라 예전 drag-spring 보정 모델을 기준으로 통과/실패했다.
+- Root cause: `referral-graph-simulation.test.ts`가 `ReferralGraphCanvas`의 active drag 계약을 복제하지 않았다. 실제 런타임은 dragged node 직접 이동, directed follower translation, active branch suppression, drag-mode base link force를 함께 사용하지만, 테스트 harness는 old drag spring과 normal link force에 가까운 조건으로 검증했다.
+- Why it was missed: physics helper 단위 테스트와 Canvas source-level wiring 테스트는 있었지만, 통합 simulation harness가 같은 active-drag 상태 machine을 쓰는지 확인하지 않았다. 그 결과 테스트가 실제 사용자 drag feel과 다른 힘의 조합을 검증했다.
+- Permanent guardrail: 추천인 그래프 drag simulation은 반드시 Canvas active drag contract를 따라야 한다. Parent/hub drag 테스트는 `applyReferralGraphDragFollowerTranslation`과 suppressed branch set을 사용하고, active drag 중 d3 link strength/iterations도 Canvas drag mode와 같은 값으로 설정한다. Drag-spring helper는 runtime에서 사용하지 않는 모델이면 active drag acceptance 기준으로 쓰지 않는다.
+- Related files: `web/src/components/referrals/ReferralGraphCanvas.tsx`, `web/src/lib/referral-graph-interaction.ts`, `web/src/lib/referral-graph-simulation.test.ts`
+- Verification: `node --test web/src/lib/referral-graph-interaction.test.ts web/src/lib/referral-graph-physics.test.ts web/src/lib/referral-graph-simulation.test.ts`; full referral graph lib suite; targeted web ESLint; `cd web && SENTRY_AUTH_TOKEN='' npx next build`; `git diff --check`
+
+## 2026-06-09 | Referral Graph ForceGraph Reheat | 라이브러리 node drag reheat를 고려하지 않음
+- Symptom: 앱 코드에서 `d3ReheatSimulation()` 호출을 제거했는데도, 사용자는 드래그 중 물리 힘이 다시 과하게 살아나 그래프가 불안정하다고 느꼈다.
+- Root cause: `force-graph`는 `enableNodeDrag`가 켜진 상태에서 노드를 드래그하면 simulation을 reheat한다. 앱 코드의 명시적 reheat 호출만 찾고, 라이브러리 내부 drag reheat 계약을 같이 고려하지 않았다.
+- Why it was missed: 문서 확인 없이 "컴포넌트에서 직접 reheat를 호출하지 않으니 active drag는 충분히 안정적"이라고 판단했다. 기존 suppression은 custom/link force 중심이어서 reheated `charge`/`collision`이 드래그 중 다시 움직임을 키울 수 있다는 점을 테스트하지 않았다.
+- Permanent guardrail: React Force Graph node drag를 사용할 때는 library-level reheat를 전제로 설계한다. Active drag mode에서는 base link뿐 아니라 charge/collision처럼 reheat-sensitive force도 낮추고, release에서 settle mode로 복구한다. Simulation harness도 drag mode charge/collision 값을 runtime과 동일하게 유지한다.
+- Related files: `web/src/components/referrals/ReferralGraphCanvas.tsx`, `web/src/lib/referral-graph-interaction.test.ts`, `web/src/lib/referral-graph-simulation.test.ts`
+- Verification: RED/GREEN `node --test web/src/lib/referral-graph-interaction.test.ts`; `node --test web/src/lib/referral-graph-interaction.test.ts web/src/lib/referral-graph-physics.test.ts web/src/lib/referral-graph-simulation.test.ts`; full referral graph lib suite; targeted web ESLint; `cd web && SENTRY_AUTH_TOKEN='' npx next build`; `git diff --check`
+
+## 2026-06-09 | Referral Graph Active Drag Global Reflow | 드래그 중 무관한 컴포넌트를 재배치
+- Symptom: 한 노드를 드래그하는 동안 사용자가 잡지 않은 주변 그래프까지 물리법칙이 깨진 것처럼 흔들리고 재배치됐다.
+- Root cause: ForceGraph drag reheat에 대응해 charge/collision은 낮췄지만, `sibling-angular`, `edge-crossing`, cluster/component separation/gravity/cohesion 같은 커스텀 정렬 force가 높은 alpha에서 계속 작동했다. 특히 직접 위치를 보정하는 force가 unrelated leaf ring까지 움직였다.
+- Why it was missed: 기존 테스트는 active branch edge length와 release 후 안정성만 봤고, pointer-down 상태에서 unrelated component가 얼마나 움직이는지 측정하지 않았다.
+- Permanent guardrail: active drag regression은 settled graph에서 한 component만 드래그한 뒤 unrelated node max drift를 제한해야 한다. Pointer-down 동안에는 global layout 정렬 force를 pause/dampen하고, 사용자가 잡은 branch는 directed follower translation으로만 유지한다. Global 정렬은 release 후 settle mode에서 재개한다.
+- Related files: `web/src/components/referrals/ReferralGraphCanvas.tsx`, `web/src/lib/referral-graph-physics.ts`, `web/src/lib/referral-graph-simulation.test.ts`
+- Verification: RED/GREEN `node --test web/src/lib/referral-graph-simulation.test.ts --test-name-pattern "active dragging does not re-layout unrelated components"`; focused graph suite; full referral graph lib suite; targeted web ESLint.
+
+## 2026-06-09 | Referral Graph Visual QA Metric | 그래프 좌표 drift를 화면 안정성으로 오해
+- Symptom: live CDP drag validation initially looked like a failure because the dragged hub moved dozens of graph units after release, even though the visual movement on screen was small.
+- Root cause: Graph coordinates are zoom-dependent simulation units. At the current zoom level, a large graph-unit delta translated to a small client-pixel movement, so raw graph-unit thresholds exaggerated perceived instability.
+- Why it was missed: Automated simulation tests used graph-space numbers appropriately, but live browser UX validation reused that instinct instead of measuring what the user actually sees on the screen.
+- Permanent guardrail: Live visual QA for referral graph drag must use screen/client pixels as the primary metric. Graph-unit measurements can be kept as secondary diagnostics, but pass/fail should be based on pointer distance, unrelated screen drift, follower screen movement, and post-release screen distance.
+- Related files: `web/src/components/referrals/ReferralGraphCanvas.tsx`, `web/src/lib/referral-graph-interaction.test.ts`
+- Verification: RED/GREEN dev-hook test; full referral graph suite; targeted ESLint; `cd web && SENTRY_AUTH_TOKEN='' npx next build`; live CDP drag verification with screenshots.

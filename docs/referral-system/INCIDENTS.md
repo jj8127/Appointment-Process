@@ -854,3 +854,44 @@
   - RF-ADMIN-03으로 본부장-linked completed FC를 포함한 backfill idempotency를 다시 확인한다.
 - notes:
   - 이번 세션에서는 코드/문서/스키마 계약까지 정리했다. 실제 원격 DB migration 적용 뒤 본부장 실계정 기준의 on-device 검증은 별도로 남아 있다.
+
+## INC-011 | 2026-06-09 | 추천인 그래프 hub drag 중 branch 찢어짐/전역 흔들림
+
+- symptom:
+  - 김형수/최경집처럼 하위 node가 있는 hub를 드래그할 때 자식 node가 따라오지 않아 edge가 길게 찢어지거나, 반대로 큰 하위조직이 하나의 딱딱한 물체처럼 움직였다.
+  - 드래그 중 무관한 graph 영역까지 흔들리고, release 후 사용자가 놓은 위치가 아니라 다른 곳으로 밀리는 증상이 반복됐다.
+- impact:
+  - 운영자가 추천인 조직 구조를 눈으로 확인하고 node를 살짝 정리하는 작업이 불안정했다.
+  - 실제 graph가 깨진 것처럼 보여 추천인 관계 데이터 자체가 잘못된 것처럼 오해될 수 있었다.
+- trigger:
+  - 실제 admin graph에서 큰 hub node를 마우스 drag하거나 drag 후 release했을 때.
+- rootCause:
+  - ForceGraph node drag가 내부적으로 simulation을 reheat하는데, active drag 중에도 charge/collision/custom layout force가 계속 작동했다.
+  - 기존 follower 보정은 descendant branch 보존과 rigid subtree 이동을 제대로 분리하지 못했다.
+  - 자동 simulation은 graph unit 중심이어서 실제 화면에서 보이는 screen/client pixel 안정성을 충분히 검증하지 못했다.
+- fix:
+  - active drag force mode를 추가해 drag 중 base link, charge, collision, global layout force를 낮추거나 중지했다.
+  - dragged hub의 directed descendant만 depth-damped follower로 이동시키고 ancestor/sibling/unrelated node는 제외했다.
+  - release 후 settle mode를 복구하되 manual target을 유지해 놓은 위치 근처에서 안정화되게 했다.
+  - 개발 전용 `window.__referralGraphDebug` hook으로 live browser screen-pixel metric을 측정할 수 있게 했다.
+- linkedCases:
+  - RF-ADMIN-08
+- evidence:
+  - 코드 변경: `web/src/components/referrals/ReferralGraphCanvas.tsx`
+  - 코드 변경: `web/src/lib/referral-graph-interaction.ts`
+  - 코드 변경: `web/src/lib/referral-graph-physics.ts`
+  - 코드 변경: `web/src/lib/referral-graph-simulation.test.ts`
+  - 증적: `.codex/harness/referral-graph-live-before.png`
+  - 증적: `.codex/harness/referral-graph-live-during.png`
+  - 증적: `.codex/harness/referral-graph-live-after.png`
+  - 증적: `.codex/harness/referral-graph-live-settled.png`
+- reproduction:
+  1. 관리자 웹에서 `/dashboard/referrals/graph`를 연다.
+  2. direct descendant가 많은 hub node를 선택해 긴 거리로 drag한다.
+  3. drag 중 child branch가 찢어지거나 unrelated node가 크게 움직이는지 확인한다.
+  4. release 후 node가 놓은 위치 근처에 남는지 확인한다.
+- regressionCheck:
+  - `RF-ADMIN-08`로 live CDP drag QA를 수행한다.
+  - source-level regression은 active drag force mode, directed follower, unrelated component drift 테스트로 고정한다.
+- notes:
+  - live visual QA의 primary metric은 graph unit이 아니라 screen/client pixel이다.

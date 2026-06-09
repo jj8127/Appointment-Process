@@ -37,6 +37,160 @@ Ensure no admin-web exam applicant route can still show the old `이름/연락�
 
 ---
 
+# Current Contract: Increment 59 - Referral Graph Elastic Drag And Drop Targets
+
+Status: implemented and locally verified on 2026-06-08
+
+## Goal
+
+Fix the overcorrection from directed drag followers: large organizations such as 김형수's group must not move like one rigid object, and after release the dragged node/near branch must stay near the user's drop position instead of drifting to an unexpected location.
+
+## Scope
+
+- Track directed descendant depth during drag.
+- Apply depth-damped follower translation so direct children follow strongly and deeper descendants follow less.
+- Pin only direct follower children during active drag; deeper descendants remain flexible.
+- Remove the per-drag `d3ReheatSimulation()` call from `onNodeDrag`.
+- Keep manual user drop targets alive after static layout anchors expire.
+- Store manual drop targets for the dragged node and direct followers, while deeper descendants can settle naturally.
+
+## Explicit Non-Scope
+
+- Do not change graph API/data.
+- Do not change node colors, labels, filters, or drawer behavior.
+- Do not deploy in this pass.
+
+## Acceptance Criteria
+
+- Dragging a large hub branch no longer translates the entire descendant subtree as one fixed plate.
+- Child structure still follows enough to avoid torn long edges.
+- Releasing the dragged node does not snap it back to an initial anchor or a random force-settled point.
+- Static initial anchors can expire, but user manual drop targets stay active.
+- Full referral graph test suite, targeted lint, and web production build pass.
+
+## Verification Plan
+
+- `node --test web/src/lib/referral-graph-interaction.test.ts web/src/lib/referral-graph-physics.test.ts`.
+- Full referral graph lib suite.
+- `cd web && npm run lint -- src/components/referrals/ReferralGraphCanvas.tsx src/lib/referral-graph-interaction.ts src/lib/referral-graph-interaction.test.ts src/lib/referral-graph-physics.ts src/lib/referral-graph-physics.test.ts`.
+- `cd web && SENTRY_AUTH_TOKEN='' npx next build`.
+
+---
+
+# Current Contract: Increment 58 - Referral Graph Directed Drag Followers
+
+Status: implemented and locally verified on 2026-06-08
+
+## Goal
+
+Fix the runtime drag contract so moving a parent or hub does not tear the visible referral structure apart. The dragged node should carry its directed descendant branch with it, while ancestors, siblings, and unrelated components remain independent.
+
+## Scope
+
+- Add directed child adjacency for drag follower selection.
+- Move only directed descendants during `onNodeDrag` using the force-graph per-callback translate delta.
+- Pin followers during the active drag with `fx/fy` so edges do not stretch away from the dragged parent.
+- Release follower pins at drag end and store their dropped positions as manual layout targets.
+- Keep unrelated ancestors/siblings out of follower movement and suppression sets.
+- Add regression coverage for descendant selection, follower translation, release targets, and `ReferralGraphCanvas` wiring.
+
+## Explicit Non-Scope
+
+- Do not change graph API shape or referral data.
+- Do not change node colors, labels, filters, or drawer behavior.
+- Do not deploy in this pass.
+
+## Acceptance Criteria
+
+- Dragging a parent with children moves the visible child branch along with the parent instead of leaving long stretched edges.
+- Dragging a child branch does not pull its ancestor or sibling branch.
+- Follower nodes do not stay permanently pinned after release.
+- Drop positions for dragged node and followers survive subsequent layout memory stabilization.
+- Full referral graph test suite, targeted lint, and web production build pass.
+
+## Verification Plan
+
+- `node --test web/src/lib/referral-graph-interaction.test.ts`.
+- Full referral graph lib suite.
+- `cd web && npm run lint -- src/components/referrals/ReferralGraphCanvas.tsx src/lib/referral-graph-interaction.ts src/lib/referral-graph-interaction.test.ts`.
+- `cd web && SENTRY_AUTH_TOKEN='' npx next build`.
+
+---
+
+# Current Contract: Increment 57 - Referral Graph Fanout Proportional Edges
+
+Status: implemented and locally verified on 2026-06-08
+
+## Goal
+
+Correct the referral graph edge-length contract so sparse relay branches stay compact while parents with many direct children reserve longer spokes/branch distance.
+
+## Scope
+
+- Replace the earlier hard-threshold fanout handling with continuous child-count/subtree formulas.
+- Keep one-child relay chains short even when they belong to a deeper branch.
+- Lengthen edges from high-fanout parents by formula, including terminal leaf spokes from crowded hubs.
+- Keep ordinary terminal hubs bounded with centered rings while branch-side fanouts expand outward.
+- Add regression tests that compare sparse relay chains against high-fanout hubs and verify smooth fanout scaling.
+
+## Explicit Non-Scope
+
+- Do not change graph API shape or referral data.
+- Do not change node colors, labels, filters, or drawer behavior.
+- Do not deploy.
+
+## Acceptance Criteria
+
+- A parent with few direct children must not create the very long chain shown in the user screenshot.
+- A parent with many direct children must not keep the short cramped spokes shown in the user screenshot.
+- Edge length must scale smoothly from direct child count and local subtree pressure, not jump from a single fixed threshold.
+- Drag stabilization remains bounded and does not reintroduce persistent global circular pull.
+- Focused and full referral graph test suites pass.
+
+## Verification Plan
+
+- `node --test web/src/lib/referral-graph-physics.test.ts`.
+- `node --test web/src/lib/referral-graph-layout.test.ts`.
+- Full referral graph lib suite.
+- `cd web && npm run lint -- src/components/referrals/ReferralGraphCanvas.tsx src/lib/referral-graph-layout.ts src/lib/referral-graph-layout.test.ts src/lib/referral-graph-physics.ts src/lib/referral-graph-physics.test.ts src/lib/referral-graph-simulation.test.ts`.
+
+---
+
+# Current Contract: Increment 55 - Referral Graph Child Ring And Long Branches
+
+Status: implemented and locally verified on 2026-06-08
+
+## Goal
+
+Stabilize the referral graph after node drag and make parent/child structure visually readable:
+leaf nodes form local rings around their parent, while child hubs extend outward on longer branch edges.
+
+## Scope
+
+- Terminal child nodes are placed around their parent instead of one-sided fans.
+- Child hubs use longer parent edges than terminal leaves.
+- Crowded child-hub branches reserve more distance, bounded by simulation tests to avoid runaway columns.
+- Drag no longer relies on infinite simulation cooling or persistent global circular force.
+- ForceGraph2D uses finite cooldown and positive alpha minimum.
+
+## Acceptance Criteria
+
+- Dragging one node does not directly drag the whole connected component.
+- Terminal leaves stay in readable local rings with spacing.
+- Child hubs visibly extend farther from the parent than terminal leaves.
+- Dense/nested/realistic graph simulations remain bounded and do not degenerate into long chains.
+- Focused graph tests and targeted web lint pass.
+
+## Verification Plan
+
+- `node --test web/src/lib/referral-graph-physics.test.ts`.
+- `node --test web/src/lib/referral-graph-layout.test.ts`.
+- `node --test web/src/lib/referral-graph-simulation.test.ts`.
+- Full referral graph lib suite.
+- `cd web && npm run lint -- src/components/referrals/ReferralGraphCanvas.tsx src/lib/referral-graph-layout.ts src/lib/referral-graph-layout.test.ts src/lib/referral-graph-physics.ts src/lib/referral-graph-physics.test.ts src/lib/referral-graph-simulation.test.ts`.
+
+---
+
 # Current Contract: Increment 56 - Exam Applicant Top Exam Filters
 
 Status: completed locally on 2026-06-08
@@ -1731,5 +1885,213 @@ Change the visible board category `가람pick` to `상품추천` and add a new `
 - Deploy `board-categories-list`, `board-category-create`, `board-category-update`, `board-create`, `board-update`.
 - `vercel --prod --yes --archive=tgz --scope jun-jeongs-projects`.
 - `vercel inspect https://admin-4idj3ety7-jun-jeongs-projects.vercel.app --scope jun-jeongs-projects`.
+
+---
+
+# Current Contract: Increment 60 - Referral Graph Active Drag Force Suppression
+
+Status: implemented and locally verified on 2026-06-08; pending user visual validation
+
+## Goal
+
+Stop physics forces from fighting the user's pointer while dragging a referral graph branch.
+
+## Scope
+
+- Treat the actively dragged node and its directed drag followers as suppressed during active drag.
+- Skip custom `link-tension` on any edge touching the active dragged/suppressed branch.
+- Skip `branch-bend` and `sibling-angular` corrections for active dragged/suppressed parents, relays, and children.
+- Pass the same suppressed branch set into separation/gravity forces that already support suppression.
+- Temporarily weaken the base d3 link force during meaningful drag and restore it on drag end.
+- Keep the existing depth-damped follower behavior from Increment 59.
+
+## Explicit Non-Scope
+
+- No data/API/schema changes.
+- No referral graph visual styling changes.
+- No deployment in this increment.
+
+## Acceptance Criteria
+
+- Active drag branch nodes do not receive velocity from `link-tension`, `branch-bend`, or `sibling-angular`.
+- Unrelated stretched edges can still relax while a branch is being dragged.
+- Base link force switches to drag mode only after meaningful drag, not simple grab/click.
+- Graph focused tests, full graph suite, targeted lint, and web build pass.
+
+## Verification Plan
+
+- `node --test web/src/lib/referral-graph-physics.test.ts web/src/lib/referral-graph-interaction.test.ts`
+- Full referral graph lib suite.
+- `cd web && npm run lint -- src/components/referrals/ReferralGraphCanvas.tsx src/lib/referral-graph-physics.ts src/lib/referral-graph-physics.test.ts src/lib/referral-graph-interaction.ts src/lib/referral-graph-interaction.test.ts`
+- `cd web && SENTRY_AUTH_TOKEN='' npx next build`
+
+---
+
+# Current Contract: Increment 61 - Referral Graph Active Drag Simulation Parity
+
+Status: implemented and locally verified on 2026-06-09; pending user visual validation
+
+## Goal
+
+Make the automated referral graph drag simulation match the actual Canvas drag behavior so regressions in branch tearing, drag vibration, and post-drop instability are caught by tests that exercise the same contract as production code.
+
+## Scope
+
+- Replace obsolete drag-spring-based active drag simulation expectations with the runtime contract:
+  - move the dragged node by the pointer delta,
+  - move directed descendants with depth-damped follower translation,
+  - suppress the dragged branch from active-drag force correction,
+  - keep unrelated nodes out of the direct drag translation.
+- Tune active follower translation so direct children stay visually attached while deeper descendants remain flexible.
+- Mirror Canvas active-drag link-force behavior in the simulation harness:
+  - zero link strength for dragged/suppressed branch edges during active drag,
+  - very weak link strength for unrelated edges during active drag,
+  - normal settle strength and iterations after release.
+- Keep active-drag checks focused on behavior, not fixed pixel-perfect positions.
+
+## Explicit Non-Scope
+
+- No data/API/schema changes.
+- No new graph visual styling.
+- No production deployment in this increment.
+
+## Acceptance Criteria
+
+- Active parent drag tests show descendants follow without the whole component becoming one rigid object.
+- Dragged branch links do not stretch into abnormal long edges during active drag.
+- Release-time physics can still settle the graph without pulling a user-dropped branch back to the initial layout anchor.
+- Full referral graph lib suite, targeted ESLint, production build, and `git diff --check` pass.
+
+## Verification Plan
+
+- `node --test web/src/lib/referral-graph-interaction.test.ts web/src/lib/referral-graph-physics.test.ts web/src/lib/referral-graph-simulation.test.ts`
+- Full referral graph lib suite.
+- `cd web && npm run lint -- src/components/referrals/ReferralGraphCanvas.tsx src/lib/referral-graph-interaction.ts src/lib/referral-graph-interaction.test.ts src/lib/referral-graph-physics.ts src/lib/referral-graph-physics.test.ts src/lib/referral-graph-simulation.test.ts`
+- `cd web && SENTRY_AUTH_TOKEN='' npx next build`
+- `git diff --check`
+
+---
+
+# Current Contract: Increment 62 - Referral Graph Drag Reheat Damping
+
+Status: implemented and locally verified on 2026-06-09; pending user visual validation
+
+## Goal
+
+Prevent React Force Graph's built-in node-drag reheat from making the graph feel physically unstable while the user is actively dragging a branch.
+
+## Scope
+
+- Use Context7-confirmed `force-graph` behavior that `enableNodeDrag` reheats simulation during node drag as the root-cause input.
+- Add an active drag force mode on `ReferralGraphCanvas`.
+- During active drag:
+  - keep branch link force in drag mode,
+  - set d3 `charge` strength to `0`,
+  - reduce d3 `collision` strength to `0.04`,
+  - reduce d3 `collision` iterations to `1`.
+- On drag end, restore settle-mode link force, charge, collision strength, and collision iterations.
+- Mirror the same charge/collision active-drag contract in simulation tests.
+
+## Explicit Non-Scope
+
+- No data/API/schema changes.
+- No full manual browser/device drag validation in this increment.
+- No deployment in this increment.
+
+## Acceptance Criteria
+
+- Source-level test proves `ReferralGraphCanvas` lowers charge/collision while active dragging and restores settle mode on release.
+- Simulation harness uses the same active-drag charge/collision settings as runtime.
+- Full referral graph lib suite, targeted ESLint, production build, and `git diff --check` pass.
+
+## Verification Plan
+
+- RED/GREEN: `node --test web/src/lib/referral-graph-interaction.test.ts`
+- `node --test web/src/lib/referral-graph-interaction.test.ts web/src/lib/referral-graph-physics.test.ts web/src/lib/referral-graph-simulation.test.ts`
+- Full referral graph lib suite.
+- `cd web && npm run lint -- src/components/referrals/ReferralGraphCanvas.tsx src/lib/referral-graph-interaction.ts src/lib/referral-graph-interaction.test.ts src/lib/referral-graph-physics.ts src/lib/referral-graph-physics.test.ts src/lib/referral-graph-simulation.test.ts`
+- `cd web && SENTRY_AUTH_TOKEN='' npx next build`
+- `git diff --check`
+
+---
+
+# Current Contract: Increment 63 - Referral Graph Active Drag Global Reflow Guard
+
+Status: implemented and locally verified on 2026-06-09; pending user visual validation
+
+## Goal
+
+Stop unrelated graph components from re-layouting while the user is actively dragging one referral branch.
+
+## Scope
+
+- Add a simulation regression that settles multiple components, starts active drag on one component, and fails if unrelated components drift more than a small bound while the pointer is down.
+- During active drag:
+  - make base d3 link force fully inactive instead of weakly active,
+  - scale custom layout forces down through shared active-drag damping,
+  - disable direct-position correction forces (`sibling-angular`, `edge-crossing`) until release.
+- Keep directed descendant follower behavior and release-time settling intact.
+
+## Explicit Non-Scope
+
+- No data/API/schema changes.
+- No visual style changes.
+- No deployment in this increment.
+
+## Acceptance Criteria
+
+- RED test reproduces unrelated component drift during active drag.
+- The new active-drag drift regression passes with max unrelated drift bounded.
+- Existing branch-following, long-edge, cooldown, layout, and graph display tests continue to pass.
+- Targeted ESLint and production web build pass.
+
+## Verification Plan
+
+- RED/GREEN: `node --test web/src/lib/referral-graph-simulation.test.ts --test-name-pattern "active dragging does not re-layout unrelated components"`
+- `node --test web/src/lib/referral-graph-interaction.test.ts web/src/lib/referral-graph-physics.test.ts web/src/lib/referral-graph-simulation.test.ts`
+- Full referral graph lib suite.
+- `cd web && npm run lint -- src/components/referrals/ReferralGraphCanvas.tsx src/lib/referral-graph-physics.ts src/lib/referral-graph-simulation.test.ts`
+- `cd web && SENTRY_AUTH_TOKEN='' npx next build`
+- `git diff --check`
+
+---
+
+# Current Contract: Increment 64 - Referral Graph Live CDP Drag Stability Verification
+
+Status: implemented and live-verified on 2026-06-09
+
+## Goal
+
+Validate the actual browser graph, not only the simulation harness, for the reported failure where active dragging visually breaks graph physics.
+
+## Scope
+
+- Add a development-only `window.__referralGraphDebug` hook in `ReferralGraphCanvas` for live QA.
+- Expose read-only runtime node coordinates and graph/screen coordinate conversion helpers only when `NODE_ENV !== "production"`.
+- Use the real referral graph API payload in local Next dev, then drag the largest detected hub (`김형수`) through Chrome DevTools Protocol.
+- Measure screen-space stability while the pointer is down and after release.
+
+## Explicit Non-Scope
+
+- No production debug hook exposure.
+- No data/API/schema changes.
+- No deployment in this increment.
+
+## Acceptance Criteria
+
+- The dragged hub stays under the pointer while active drag is in progress.
+- Directed descendants move with the dragged hub instead of leaving long torn edges behind.
+- Unrelated graph areas do not re-layout aggressively while the pointer is down.
+- After release, the dragged hub remains near the release point and settles softly.
+- Full referral graph suite, targeted ESLint, production web build, and diff hygiene pass after the debug hook.
+
+## Verification Plan
+
+- RED/GREEN: `node --test web/src/lib/referral-graph-interaction.test.ts --test-name-pattern "development visual QA"`
+- Full referral graph lib suite.
+- Targeted ESLint for graph component/interactions/physics/simulation files.
+- `cd web && SENTRY_AUTH_TOKEN='' npx next build`
+- Live CDP drag verification against `http://localhost:3111/admin/referrals`
+- `git diff --check`
 
 ---

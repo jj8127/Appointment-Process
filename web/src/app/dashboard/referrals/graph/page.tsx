@@ -3,7 +3,7 @@
 import dynamic from 'next/dynamic';
 import Link from 'next/link';
 import { ActionIcon, Badge, Box, Button, Center, Group, Loader, Paper, ScrollArea, Slider, Stack, Switch, Text, TextInput, Tooltip } from '@mantine/core';
-import { useDisclosure, useLocalStorage } from '@mantine/hooks';
+import { useDisclosure, useLocalStorage, useViewportSize } from '@mantine/hooks';
 import { IconAdjustmentsHorizontal, IconArrowLeft, IconFocus2, IconRefresh, IconSearch, IconSettings, IconX } from '@tabler/icons-react';
 import { useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
@@ -12,6 +12,7 @@ import type { ReferralGraphCanvasProps } from '@/components/referrals/ReferralGr
 import { GraphNodeDrawer } from '@/components/referrals/GraphNodeDrawer';
 import { useSession } from '@/hooks/use-session';
 import { buildReferralGraphDescendantCountMap } from '@/lib/referral-graph-descendants';
+import { getReferralGraphResponsiveLayout } from '@/lib/referral-graph-responsive';
 import {
   DEFAULT_REFERRAL_GRAPH_PHYSICS,
   type GraphApiResponse,
@@ -161,6 +162,11 @@ export default function ReferralGraphPage() {
   const [draftPhysicsSettings, setDraftPhysicsSettings] = useState<ReferralGraphPhysicsSettings | null>(null);
   const physicsSettings = draftPhysicsSettings ?? storedPhysicsSettings;
   const [appliedPhysicsSettings, setAppliedPhysicsSettings] = useState<ReferralGraphPhysicsSettings>(DEFAULT_REFERRAL_GRAPH_PHYSICS);
+  const { width: viewportWidth } = useViewportSize();
+  const responsiveLayout = useMemo(
+    () => getReferralGraphResponsiveLayout(viewportWidth),
+    [viewportWidth],
+  );
 
   const containerRef = useRef<HTMLDivElement>(null);
   const resizeFrameRef = useRef(0);
@@ -399,16 +405,17 @@ export default function ReferralGraphPage() {
   return (
     <Box
       style={{
-        height: 'calc(100vh - 64px)',
+        height: responsiveLayout.mode === 'mobile' ? 'auto' : responsiveLayout.shellHeight,
+        minHeight: responsiveLayout.shellHeight,
         display: 'flex',
         flexDirection: 'column',
         background: 'linear-gradient(180deg, #f8fafc 0%, #eef2f7 100%)',
-        overflow: 'hidden',
+        overflow: responsiveLayout.mode === 'mobile' ? 'visible' : 'hidden',
       }}
     >
       <Box
-        px="md"
-        py="sm"
+        px={responsiveLayout.mode === 'mobile' ? 'sm' : 'md'}
+        py={responsiveLayout.mode === 'mobile' ? 'xs' : 'sm'}
         style={{
           background: 'rgba(255, 255, 255, 0.94)',
           borderBottom: '1px solid #dbe4ee',
@@ -416,8 +423,15 @@ export default function ReferralGraphPage() {
         }}
       >
         <Stack gap="sm">
-          <Group justify="space-between" wrap="nowrap" align="center">
-            <Group gap="xs" wrap="nowrap">
+          <Group justify="space-between" wrap={responsiveLayout.headerStacked ? 'wrap' : 'nowrap'} align="center">
+            <Group
+              gap="xs"
+              wrap="nowrap"
+              style={{
+                minWidth: 0,
+                flex: responsiveLayout.headerStacked ? '1 1 100%' : '1 1 auto',
+              }}
+            >
               {!isDownlineScope ? (
                 <Tooltip label="리스트로 돌아가기" withArrow>
                   <ActionIcon
@@ -437,20 +451,32 @@ export default function ReferralGraphPage() {
                   추천인 그래프
                 </Text>
                 <Text size="xs" c="gray.7">
-                  {isDownlineScope
-                    ? '내 추천 관계 하위 조직만 보여줍니다.'
-                    : '현재 추천인으로 연결된 관계만 보여줍니다. 예전 `recommender` 문자열만 남은 사람은 노드 경고로 따로 표시합니다.'}
+                  {responsiveLayout.showLongDescription
+                    ? isDownlineScope
+                      ? '내 추천 관계 하위 조직만 보여줍니다.'
+                      : '현재 추천인으로 연결된 관계만 보여줍니다. 예전 `recommender` 문자열만 남은 사람은 노드 경고로 따로 표시합니다.'
+                    : isDownlineScope
+                      ? '내 하위 조직만 표시'
+                      : '추천 관계만 표시'}
                 </Text>
               </Box>
             </Group>
 
-            <Group gap="xs" wrap="nowrap">
+            <Group
+              gap="xs"
+              wrap="nowrap"
+              style={{
+                width: responsiveLayout.controlsScrollable ? '100%' : undefined,
+                overflowX: responsiveLayout.controlsScrollable ? 'auto' : undefined,
+                paddingBottom: responsiveLayout.controlsScrollable ? 2 : undefined,
+              }}
+            >
               <Button size="xs" variant="light" onClick={() => setFitRequestId((value) => value + 1)}>
-                화면 맞춤
+                {responsiveLayout.mode === 'mobile' ? '맞춤' : '화면 맞춤'}
               </Button>
               <Tooltip label="배치를 초기 원형 구조로 다시 정리합니다." withArrow>
                 <Button size="xs" variant="light" onClick={() => setResetLayoutRequestId((value) => value + 1)}>
-                  배치 초기화
+                  {responsiveLayout.mode === 'mobile' ? '초기화' : '배치 초기화'}
                 </Button>
               </Tooltip>
               <Button
@@ -475,7 +501,17 @@ export default function ReferralGraphPage() {
           </Group>
 
           <Group justify="space-between" wrap="wrap" align="center">
-            <Group gap="xs" wrap="wrap">
+            <Group
+              gap="xs"
+              wrap={responsiveLayout.controlsScrollable ? 'nowrap' : 'wrap'}
+              style={{
+                flex: '1 1 auto',
+                minWidth: 0,
+                width: responsiveLayout.controlsScrollable ? '100%' : undefined,
+                overflowX: responsiveLayout.controlsScrollable ? 'auto' : undefined,
+                paddingBottom: responsiveLayout.controlsScrollable ? 2 : undefined,
+              }}
+            >
               <TextInput
                 placeholder="이름·소속·코드 검색"
                 size="xs"
@@ -490,9 +526,13 @@ export default function ReferralGraphPage() {
                   ) : null
                 }
                 styles={{ input: { background: '#ffffff', color: '#0f172a', borderColor: '#cbd5e1' } }}
+                style={{
+                  flex: responsiveLayout.controlsScrollable ? '0 0 240px' : '0 1 280px',
+                  minWidth: responsiveLayout.controlsScrollable ? 240 : 220,
+                }}
               />
 
-              <Group gap="xs" wrap="wrap">
+              <Group gap="xs" wrap="nowrap" style={{ flexShrink: 0 }}>
                 {STATUS_FILTERS.map((item) => {
                   const active = enabledStatusSet.has(item.key);
                   return (
@@ -510,7 +550,7 @@ export default function ReferralGraphPage() {
               </Group>
 
               {selectedNodeId ? (
-                <Group gap="xs" wrap="nowrap">
+                <Group gap="xs" wrap="nowrap" style={{ flexShrink: 0 }}>
                   <Text size="xs" c="dimmed">
                     범위
                   </Text>
@@ -533,10 +573,19 @@ export default function ReferralGraphPage() {
                 onChange={toggleHideIsolatedNodes}
                 label="연결 없는 사람 숨기기"
                 size="sm"
+                style={{ flexShrink: 0 }}
               />
             </Group>
 
-            <Group gap="xs" wrap="wrap">
+            <Group
+              gap="xs"
+              wrap={responsiveLayout.statsScrollable ? 'nowrap' : 'wrap'}
+              style={{
+                width: responsiveLayout.statsScrollable ? '100%' : undefined,
+                overflowX: responsiveLayout.statsScrollable ? 'auto' : undefined,
+                paddingBottom: responsiveLayout.statsScrollable ? 2 : undefined,
+              }}
+            >
               {effectiveSelectedNodeId ? (
                 <Badge color="orange" variant="light">
                   선택된 사람 주변 {depthHops}단계
@@ -560,7 +609,15 @@ export default function ReferralGraphPage() {
         </Stack>
       </Box>
 
-      <Box ref={containerRef} style={{ flex: 1, position: 'relative', overflow: 'hidden' }}>
+      <Box
+        ref={containerRef}
+        style={{
+          flex: 1,
+          position: 'relative',
+          overflow: 'hidden',
+          minHeight: responsiveLayout.canvasMinHeight,
+        }}
+      >
         {graphQuery.isLoading ? (
           <Center h="100%">
             <Stack align="center" gap="xs">
@@ -627,8 +684,8 @@ export default function ReferralGraphPage() {
             onClick={() => setPhysicsPanelOpen((current) => !current)}
             style={{
               position: 'absolute',
-              right: 16,
-              top: 16,
+              right: responsiveLayout.mode === 'mobile' ? 8 : 16,
+              top: responsiveLayout.mode === 'mobile' ? 8 : 16,
               zIndex: 4,
               boxShadow: '0 12px 24px rgba(15, 23, 42, 0.18)',
             }}
@@ -643,8 +700,10 @@ export default function ReferralGraphPage() {
           p="sm"
           style={{
             position: 'absolute',
-            left: 16,
-            bottom: 16,
+            left: responsiveLayout.legendPlacement === 'bottom-strip' ? 8 : 16,
+            right: responsiveLayout.legendPlacement === 'bottom-strip' ? 8 : undefined,
+            bottom: responsiveLayout.legendPlacement === 'bottom-strip' ? 8 : 16,
+            maxWidth: responsiveLayout.legendPlacement === 'bottom-strip' ? 'calc(100% - 16px)' : 360,
             background: 'rgba(255, 255, 255, 0.94)',
             borderColor: '#dbe4ee',
             pointerEvents: 'none',
@@ -655,7 +714,7 @@ export default function ReferralGraphPage() {
             <Text size="xs" fw={700} c="dark.7">
               색상 범례
             </Text>
-            <Stack gap={4}>
+            <Group gap={responsiveLayout.legendPlacement === 'bottom-strip' ? 'sm' : 4} wrap="wrap">
               <Group gap={6} wrap="nowrap">
                 <Box
                   style={{
@@ -743,7 +802,7 @@ export default function ReferralGraphPage() {
                   사전등록까지만 한 사람
                 </Text>
               </Group>
-            </Stack>
+            </Group>
           </Stack>
         </Paper>
 
@@ -754,10 +813,12 @@ export default function ReferralGraphPage() {
             p={0}
             style={{
               position: 'absolute',
-              right: 16,
-              top: 64,
-              bottom: 16,
-              width: 340,
+              left: responsiveLayout.physicsPanelPlacement === 'bottom-sheet' ? 8 : undefined,
+              right: responsiveLayout.physicsPanelPlacement === 'bottom-sheet' ? 8 : 16,
+              top: responsiveLayout.physicsPanelPlacement === 'bottom-sheet' ? undefined : 64,
+              bottom: responsiveLayout.physicsPanelPlacement === 'bottom-sheet' ? 8 : 16,
+              width: responsiveLayout.physicsPanelPlacement === 'bottom-sheet' ? 'auto' : responsiveLayout.physicsPanelWidth,
+              maxHeight: responsiveLayout.physicsPanelPlacement === 'bottom-sheet' ? 'min(62dvh, 480px)' : undefined,
               zIndex: 4,
               background: '#3c362f',
               borderColor: '#5f564c',

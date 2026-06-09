@@ -26,6 +26,125 @@ Next:
 
 ---
 
+# Increment 59: Referral Graph Elastic Drag And Drop Targets
+
+Status: implemented and locally verified on 2026-06-08.
+
+What changed:
+
+- Large descendant groups no longer receive one identical rigid translation while dragging a hub.
+- Drag followers now have directed descendant depths: direct children follow strongly, deeper descendants follow with a smaller damped delta.
+- Only direct follower children are temporarily pinned with `fx/fy`; deeper descendants can flex while still moving with the branch.
+- `onNodeDrag` no longer calls `d3ReheatSimulation()` on every drag tick.
+- Manual user drop targets stay active even after initial layout anchors age out.
+- Drag release zeroes the dragged node velocity and keeps manual targets for the dragged node plus direct followers.
+
+Evidence:
+
+- RED/GREEN focused tests passed: interaction + physics 36/36.
+- Full referral graph lib suite passed: 101/101.
+- Targeted web ESLint passed.
+- `cd web; SENTRY_AUTH_TOKEN='' npx next build` passed with existing dependency/data-age warnings only.
+
+Known risks / not yet verified:
+
+- The exact 김형수 group drag was not visually tested in a browser/device session in this environment.
+- If the visual still feels too rigid, tune `directChildScale`, `depthDecay`, and `minScale` in `ReferralGraphCanvas` rather than returning to full-subtree rigid pinning.
+
+Next resume step:
+
+- Open the admin referral graph, drag 김형수 or a similarly large hub, and confirm: direct children follow, deeper branches flex, siblings/ancestors do not jump, and the dragged node remains near the drop location.
+
+---
+
+# Increment 58: Referral Graph Directed Drag Followers
+
+Status: implemented and locally verified on 2026-06-08.
+
+What changed:
+
+- Parent/hub dragging now carries the node's directed descendant branch instead of moving only the grabbed node and stretching edges.
+- `web/src/lib/referral-graph-interaction.ts` now exposes directed child adjacency, descendant traversal, follower translation, and follower release helpers.
+- `ReferralGraphCanvas` computes directed descendants at drag start, translates those followers with the same force-graph drag delta, pins them during drag, then releases and records their dropped positions as manual layout targets.
+- Ancestors, siblings, and unrelated components are not moved by the follower path.
+- `web/src/lib/referral-graph-interaction.test.ts` now guards both helper behavior and Canvas wiring.
+
+Evidence:
+
+- `node --test web/src/lib/referral-graph-interaction.test.ts` passed, 4/4.
+- Full referral graph lib suite passed, 99/99.
+- Targeted web ESLint passed for the changed canvas/interaction files.
+- `cd web; SENTRY_AUTH_TOKEN='' npx next build` passed with existing dependency/data-age warnings only.
+
+Known risks / not yet verified:
+
+- No live browser drag screenshot was captured because neither Playwright nor `agent-browser` is installed in this environment.
+- The next manual check should open the admin referral graph, drag a parent/hub such as `최경집`, and confirm directed children follow while siblings/ancestors do not.
+
+Next resume step:
+
+- Run manual browser/device drag QA on the exact user-reported area and adjust only if the visual still shows tearing, persistent jitter, or unexpected sibling movement.
+
+---
+
+# Increment 57: Referral Graph Fanout Proportional Edges
+
+Status: implemented and locally verified on 2026-06-08.
+
+What changed:
+
+- Sparse one-child relay branches now stay compact even when they are part of a deeper branch.
+- High-fanout parents now get longer terminal spokes and branch distances by continuous formulas based on child count/subtree pressure.
+- The graph no longer uses a simple “child exists” or fixed “8 children” style threshold for the main edge-length behavior.
+- Ordinary terminal hubs keep bounded local rings, while crowded branch-side fanouts expand outward to claim space.
+- Tests now guard the exact user-reported inversion: low-fanout chain edges must not be longer than high-fanout hub spokes.
+
+Evidence:
+
+- `node --test web/src/lib/referral-graph-physics.test.ts` passed.
+- `node --test web/src/lib/referral-graph-layout.test.ts` passed.
+- Full referral graph lib suite passed: 96/96.
+- Targeted graph lint passed for the changed canvas/layout/physics/test files.
+
+Known risks / not yet verified:
+
+- No fresh browser screenshot was captured after this fanout-proportional correction.
+- Runtime visual QA should compare the same sparse vertical chain and high-fanout hub areas from the latest user screenshots.
+
+Next resume step:
+
+- Open the admin referral graph and confirm that sparse chains such as the vertical relay no longer stretch across the canvas, while crowded hubs such as `문주화`/`김인경` visibly reserve more radial space.
+
+---
+
+# Increment 55: Referral Graph Child Ring And Long Branches
+
+Status: implemented and locally verified on 2026-06-08.
+
+What changed:
+
+- Terminal child nodes now arrange around their parent as local rings.
+- Child hubs now use visibly longer branch edges than terminal leaves.
+- Crowded branch hubs reserve more spacing, with bounded caps to avoid runaway columns.
+- ForceGraph2D no longer runs with infinite cooldown and zero alpha minimum.
+- Layout memory is finite and used for initial stabilization rather than permanent global pull.
+
+Evidence:
+
+- Referral graph focused tests passed: physics 27/27, layout 21/21, simulation 24/24.
+- Referral graph full lib suite passed: 90/90.
+- Targeted `web` lint passed for the changed graph files.
+
+Known risks / not yet verified:
+
+- No fresh browser screenshot was captured after the longer child-hub branch adjustment.
+
+Next resume step:
+
+- Open the admin referral graph, drag a hub/leaf lightly, and visually confirm only the grabbed node moves directly while child-hub branches remain longer and terminal children ring their parent.
+
+---
+
 # Increment 56: Exam Applicant Top Exam Filters
 
 Status: completed locally on 2026-06-08.
@@ -1677,5 +1796,180 @@ Known risks / not yet verified:
 Next resume step:
 
 - Open the mobile board and admin web board category selector with a logged-in account and confirm the order `공지 / 교육 일정 / 일반 / 상품추천 / 시책`.
+
+---
+
+# Increment 60: Referral Graph Active Drag Force Suppression
+
+Status: implemented and locally verified on 2026-06-08; pending user visual validation.
+
+What changed:
+
+- Active drag now suppresses the dragged node and directed drag followers across custom branch physics.
+- `link-tension` skips any edge touching the active dragged/suppressed branch, while unrelated stretched edges can still relax.
+- `branch-bend` and `sibling-angular` skip active dragged/suppressed parents, relay nodes, and children.
+- Supported separation/gravity forces receive the same suppressed branch set.
+- The base d3 link force switches to weak drag mode after meaningful drag and restores settle mode on drag end.
+
+Evidence:
+
+- RED/GREEN focused physics/interaction tests passed: 39/39.
+- Full referral graph lib suite passed: 104/104.
+- Targeted web ESLint passed.
+- `cd web; SENTRY_AUTH_TOKEN='' npx next build` passed.
+
+Known risks / not yet verified:
+
+- Manual visual validation in the live graph viewport is still required. The source-level contract now guards against the force conflicts identified in this pass, but the user should still drag a large hub such as 김형수/최경집 to confirm the perceived feel.
+
+Next resume step:
+
+- Open the referral graph, drag a parent/hub branch, and verify the branch follows without tearing while the whole graph no longer vibrates during the drag.
+
+---
+
+# Increment 61: Referral Graph Active Drag Simulation Parity
+
+Status: implemented and locally verified on 2026-06-09; pending user visual validation.
+
+What changed:
+
+- The simulation tests now match the actual Canvas drag contract instead of the old drag-spring helper.
+- Active drag moves the dragged node directly, moves only directed descendants with depth damping, and excludes ancestors/siblings/unrelated nodes from direct movement.
+- Direct children follow more strongly during active drag so parent/child edges do not visibly tear, while deeper descendants still move flexibly instead of as one rigid object.
+- The simulation harness now mirrors Canvas drag-mode d3 link force behavior:
+  - dragged/suppressed branch edges use zero link strength during active drag,
+  - unrelated edges use very weak link strength during active drag,
+  - settle strength and iterations return after drag release.
+- `.claude/MISTAKES.md` records the harness drift so future graph changes do not validate against a different drag model than production.
+
+Evidence:
+
+- Full referral graph lib suite passed: 104/104.
+- Targeted web ESLint passed for graph component/interaction/physics/simulation files.
+- `cd web; SENTRY_AUTH_TOKEN='' npx next build` passed with existing dependency/data-age warnings only.
+- `git diff --check` passed with Windows line-ending warnings only.
+
+Known risks / not yet verified:
+
+- Manual visual validation in the live graph viewport is still required. Automated checks prove the source-level contract, but the user should still drag a large hub such as 김형수/최경집 and confirm the perceived feel.
+- `app.json` remains dirty from an unrelated prior change and was not touched for this graph increment.
+
+Next resume step:
+
+- Open the referral graph and drag a large parent/hub branch. Confirm direct children stay attached during drag, deeper descendants flex instead of tearing, and the branch remains near the dropped position after release.
+
+---
+
+# Increment 62: Referral Graph Drag Reheat Damping
+
+Status: implemented and locally verified on 2026-06-09; pending user visual validation.
+
+What changed:
+
+- Context7 documentation confirmed `force-graph` reheats the simulation whenever node dragging is enabled and a node is dragged.
+- `ReferralGraphCanvas` now has `configureActiveDragForceMode()`:
+  - drag mode keeps branch link force weak,
+  - sets d3 charge to `0`,
+  - lowers collision to `0.04` with `1` iteration,
+  - restores settle-mode link/charge/collision settings on drag end.
+- `handleNodeDrag()` switches to drag force mode only after a meaningful drag.
+- `handleNodeDragEnd()` restores settle force mode.
+- `referral-graph-simulation.test.ts` mirrors the same active-drag charge/collision damping so automated simulation does not drift from runtime behavior again.
+- `.claude/MISTAKES.md` records the missed library-level reheat behavior.
+
+Evidence:
+
+- RED confirmed before implementation: `node --test web/src/lib/referral-graph-interaction.test.ts` failed for missing active drag force mode.
+- Focused interaction test passed: 7/7.
+- Focused interaction/physics/simulation suite passed: 64/64.
+- Full referral graph lib suite passed: 105/105.
+- Targeted web ESLint passed.
+- `cd web; SENTRY_AUTH_TOKEN='' npx next build` passed with existing dependency/data-age warnings only.
+- `git diff --check` passed with Windows line-ending warnings only.
+
+Known risks / not yet verified:
+
+- Manual live graph drag validation is still required. The automated checks now cover the likely source of drag-time instability, but the perceived feel must be confirmed by dragging large hubs in the actual screen.
+- `app.json` remains dirty from an unrelated version change and was not touched for this graph increment.
+
+Next resume step:
+
+- Open the referral graph and drag a large parent/hub branch. During drag, confirm the surrounding graph no longer vibrates/reflows aggressively, direct children stay attached, and release settles softly without pulling the branch away from the drop point.
+
+---
+
+# Increment 63: Referral Graph Active Drag Global Reflow Guard
+
+Status: implemented and locally verified on 2026-06-09; pending user visual validation.
+
+What changed:
+
+- Added a regression test for the exact failure mode where one active drag causes unrelated components to re-layout while the pointer is down.
+- The test first failed with unrelated component drift of `160.416px`.
+- Active drag now treats pointer movement as the primary interaction:
+  - base d3 link force is disabled during active drag,
+  - custom layout force strength and max velocity are heavily damped,
+  - `sibling-angular` and `edge-crossing` direct-position corrections are paused until release.
+- Directed descendant follower movement still keeps children attached to a dragged parent/hub.
+- Normal settle forces resume on drag release.
+
+Evidence:
+
+- RED/GREEN active drag reflow regression passed.
+- Focused graph interaction/physics/simulation suite passed: 65/65.
+- Full referral graph lib suite passed: 106/106.
+- Targeted ESLint passed for graph component/physics/simulation files.
+- `cd web; SENTRY_AUTH_TOKEN='' npx next build` passed with existing dependency/data-age warnings only.
+- `git diff --check` passed with Windows line-ending warnings only.
+
+Known risks / not yet verified:
+
+- Manual live graph drag validation is still required. This change specifically limits unrelated component drift during active drag, but the actual feel must still be checked in the browser/device graph.
+- `app.json` remains dirty from an unrelated version change and was not touched for this graph increment.
+
+Next resume step:
+
+- Open the referral graph and drag a large hub. While the pointer is down, unrelated groups should stay visually still; on release, the dragged branch should settle softly near the drop point.
+
+---
+
+# Increment 64: Referral Graph Live CDP Drag Stability Verification
+
+Status: implemented and live-verified on 2026-06-09.
+
+What changed:
+
+- `ReferralGraphCanvas` now exposes a development-only `window.__referralGraphDebug` object for visual QA.
+- The hook exposes runtime snapshots and graph/screen coordinate helpers in development only; production keeps the hook disabled.
+- Live CDP validation loaded the real admin referral graph and dragged the largest hub (`김형수`) across the canvas.
+- The validation measured screen-space movement instead of raw graph coordinates, because perceived drag stability is a viewport/client-pixel issue.
+
+Evidence:
+
+- RED/GREEN dev-hook test passed.
+- Full referral graph lib suite passed: 107/107.
+- Targeted ESLint passed.
+- `cd web; SENTRY_AUTH_TOKEN='' npx next build` passed with existing dependency/data-age warnings only.
+- `git diff --check` passed with Windows line-ending warnings only.
+- Live CDP drag metrics:
+  - dragged hub stayed within 0.477px of the pointer during active drag,
+  - 76 directed followers moved with the hub,
+  - unrelated active-drag drift stayed bounded at 14.088px,
+  - settled hub finished 9.66px from the release point.
+- Screenshot evidence:
+  - `E:\hanhwa\fc-onboarding-app\.codex\harness\referral-graph-live-before.png`
+  - `E:\hanhwa\fc-onboarding-app\.codex\harness\referral-graph-live-during.png`
+  - `E:\hanhwa\fc-onboarding-app\.codex\harness\referral-graph-live-after.png`
+  - `E:\hanhwa\fc-onboarding-app\.codex\harness\referral-graph-live-settled.png`
+
+Known risks / notes:
+
+- Human device validation can still provide subjective feel feedback, but the previously missing live browser evidence is now covered.
+- `app.json` remains dirty from an unrelated prior change and was not touched for this graph increment.
+
+Next resume step:
+
+- If the user still sees instability, capture the specific node name and drag path. The debug hook can now measure that exact path in screen pixels instead of relying on screenshots alone.
 
 ---

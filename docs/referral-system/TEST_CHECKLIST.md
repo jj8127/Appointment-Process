@@ -95,7 +95,7 @@
 - `RF-ADMIN-05` `manager`는 추천인 코드 화면/GET은 조회 가능하지만 mutate UI와 `POST` 권한은 없음
 - `RF-ADMIN-06` 레거시 추천인 검토 큐에서 구조화 링크가 없는 FC를 계정 선택형으로 연결하고 감사 로그를 남김
 - `RF-ADMIN-07` `/dashboard/referrals/graph`는 structured link 기준으로 빈 선 없이 그려지고 manager read-only를 유지함
-- `RF-ADMIN-08` graph canvas는 사용자 설정을 `Center force/Repel force/Link force/Link distance` 4개로 유지하되, 추천인 트리 가독성을 위해 dynamic link distance, sibling angular separation, cluster/node separation, envelope, weak cluster gravity, drag rope constraint를 사용한다. 금지 항목은 고정 반경 radial containment, isolated ring 강제 배치, drop tether, release velocity 주입이다. drag 중 pointer 대상 노드만 임시 고정하고 incident edge는 목표 길이 초과분을 제한하되 진동하지 않아야 한다. 빈 공간 pan/reset/기본 node name label 상시 표시, manager read-only, isolated toggle, settings slider 저장/복원을 유지하고, 브라우저 QA는 no overlay/no console error와 nonblank canvas를 확인한다.
+- `RF-ADMIN-08` graph canvas는 사용자 설정을 `Center force/Repel force/Link force/Link distance` 4개로 유지하되, 추천인 트리 가독성을 위해 dynamic link distance, sibling angular separation, cluster/node separation, envelope, weak cluster gravity, active drag force suppression, directed descendant follower를 사용한다. 금지 항목은 고정 반경 radial containment, isolated ring 강제 배치, drop tether, release velocity 주입, active drag 중 global re-layout이다. parent/hub drag 중 dragged node는 pointer를 따라가고 directed descendant branch는 찢어지지 않아야 하며 unrelated graph는 screen pixel 기준으로 안정적이어야 한다. 빈 공간 pan/reset/기본 node name label 상시 표시, manager read-only, isolated toggle, settings slider 저장/복원을 유지하고, 브라우저 QA는 no overlay/no console error와 nonblank canvas, pointer/follower/unrelated drift screen-pixel 지표를 확인한다.
 - `RF-ADMIN-09` 레거시 추천인 검토 큐는 `자동 연결 가능/동명이인 후보 다수/후보 없음/잘못된 자기추천` 상태를 정확히 분류함
 - `RF-ADMIN-10` `안전 자동 정리`는 exact-unique만 구조화하고 자기추천/후보 없음/동명이인은 남김
 

@@ -396,18 +396,22 @@
       "platform": [
         "web"
       ],
-      "title": "graph canvas는 node drag, 빈 공간 pan, reset, 기본 node name label을 지원한다",
-      "status": "BLOCKED",
+      "title": "graph canvas는 node drag, 빈 공간 pan, reset, 기본 node name label, active drag branch stability를 지원한다",
+      "status": "PASS",
       "owner": "Codex",
-      "executedAt": "2026-05-30T00:00:00.000Z",
+      "executedAt": "2026-06-09T00:00:00.000Z",
       "evidence": [
-        "cd web && npm run lint -- src/components/referrals/ReferralGraphCanvas.tsx src/app/dashboard/referrals/graph/page.tsx",
-        "cd web && npx next build",
-        "code review: nodePointerAreaPaint + enableNodeDrag + enablePanInteraction + fit/reset + 기본 node name label",
-        "node --experimental-strip-types --test .\\web\\src\\lib\\referral-graph-simulation.test.ts => 20/20 pass",
-        "local next start smoke: /auth 200, /dashboard/referrals/graph unauthenticated 307 -> /auth"
+        "node --test web/src/lib/referral-graph-interaction.test.ts --test-name-pattern \"development visual QA\"",
+        "node --test web/src/lib/referral-graph-interaction.test.ts web/src/lib/referral-graph-physics.test.ts web/src/lib/referral-graph-layout.test.ts web/src/lib/referral-graph-simulation.test.ts web/src/lib/referral-graph-display.test.ts web/src/lib/referral-graph-edges.test.ts web/src/lib/referral-graph-highlight.test.ts web/src/lib/referral-graph-link-style.test.ts web/src/lib/referral-graph-scope.test.ts => 107/107 pass",
+        "cd web; npm run lint -- src/components/referrals/ReferralGraphCanvas.tsx src/lib/referral-graph-interaction.test.ts src/lib/referral-graph-physics.ts src/lib/referral-graph-simulation.test.ts",
+        "cd web; SENTRY_AUTH_TOKEN='' npx next build",
+        "live CDP drag QA: real graph payload 202 nodes / 114 edges, dragged hub 김형수, followerCount=76, pointerDistance=0.477px, unrelatedDrift=14.088px, settledReleaseDistance=9.66px",
+        ".codex/harness/referral-graph-live-before.png",
+        ".codex/harness/referral-graph-live-during.png",
+        ".codex/harness/referral-graph-live-after.png",
+        ".codex/harness/referral-graph-live-settled.png"
       ],
-      "notes": "2026-05-30에 pure simulation과 unauthenticated HTTP smoke는 통과했지만, 실제 인증된 브라우저에서 node drag/empty-space pan/reset 후 cluster 재형성 체감과 label readability는 아직 시각 증적을 남기지 못했으므로 BLOCKED를 유지한다."
+      "notes": "2026-06-09에 실제 인증 admin graph를 local Next dev에서 열고 Chrome DevTools Protocol로 큰 hub를 드래그해 screen/client pixel 기준으로 검증했다. Drag 중 pointer 추적, directed follower 이동, unrelated drift 억제, release 후 근접 settle을 확인했다."
     },
     {
       "caseId": "RF-ADMIN-09",
