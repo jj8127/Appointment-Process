@@ -1895,6 +1895,39 @@ Known risks / not yet verified:
 
 Next resume step:
 
+- For the responsive graph page increment, open `/dashboard/referrals/graph` at mobile, tablet, and desktop widths. Confirm header controls scroll horizontally only inside their rows, the canvas keeps visible height, the legend moves to a bottom strip on mobile, and the physics panel opens as a bottom sheet.
+
+---
+
+# Increment 65: Referral Graph Responsive Page
+
+Status: implemented and locally verified on 2026-06-09.
+
+What changed:
+
+- Added `web/src/lib/referral-graph-responsive.ts` and tests for 390px, 820px, and 1280px layout modes.
+- Updated `web/src/app/dashboard/referrals/graph/page.tsx` only:
+  - mobile header stacks and shortens the description,
+  - action/filter/stat rows use controlled horizontal scrolling,
+  - graph canvas gets a mobile minimum height,
+  - legend changes to a compact bottom strip,
+  - physics panel changes to a bottom-sheet layout.
+
+Evidence:
+
+- Responsive helper test passed: 3/3.
+- Full referral graph lib suite passed: 107/107.
+- Targeted ESLint passed.
+- `cd web; SENTRY_AUTH_TOKEN='' npx next build` passed with existing dependency/data-age warnings only.
+
+Known risks / notes:
+
+- Browser screenshot automation was not available in this session and Playwright is not installed in the repo.
+- Manual visual QA should still check `/dashboard/referrals/graph` at mobile/tablet/desktop widths.
+- Existing graph physics/layout dirty changes were preserved and not reverted.
+
+Next resume step:
+
 - Open the referral graph and drag a large parent/hub branch. During drag, confirm the surrounding graph no longer vibrates/reflows aggressively, direct children stay attached, and release settles softly without pulling the branch away from the drop point.
 
 ---

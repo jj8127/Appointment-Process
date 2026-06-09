@@ -3512,6 +3512,29 @@ Date: 2026-06-09
 
 ---
 
+# Increment 65 Verification: Referral Graph Responsive Page
+
+Date: 2026-06-09
+
+### Scope
+
+- Added `getReferralGraphResponsiveLayout` with explicit mobile/tablet/desktop layout contracts.
+- Updated only the referral graph page surface so mobile widths use stacked/scrollable controls, compact copy, a bottom-strip legend, a bottom-sheet physics panel, and a minimum canvas height.
+- Kept graph physics/layout calculations unchanged.
+
+### Commands
+
+- Passed: `node --test web/src/lib/referral-graph-responsive.test.ts` (3/3 tests).
+- Passed: full referral graph lib suite (107/107 tests).
+- Passed: targeted ESLint for graph page/helper/canvas/interaction files.
+- Passed: `cd web; SENTRY_AUTH_TOKEN='' npx next build`.
+  - Existing warnings only: stale `baseline-browser-mapping` data and transitive OpenTelemetry `import-in-the-middle` version mismatch.
+
+### QA Judgment
+
+- Pass for responsive layout contract, graph regression tests, lint, and production build.
+- No browser screenshot automation was available in the current toolset and Playwright is not installed in the repo, so final visual confirmation should be done manually in desktop/tablet/mobile widths.
+
 # Increment 63 Verification: Referral Graph Active Drag Global Reflow Guard
 
 Date: 2026-06-09

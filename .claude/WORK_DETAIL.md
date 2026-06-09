@@ -7,6 +7,32 @@
 
 ---
 
+## <a id="20260609-referral-graph-responsive-page"></a> 2026-06-09 | Referral graph responsive page
+
+**배경**:
+- 추천인 그래프 뷰가 desktop 기준의 `nowrap` 헤더, 고정 폭 설정 패널, 고정 위치 범례를 사용해 모바일/좁은 웹 화면에서 컨트롤과 캔버스가 겹칠 수 있었다.
+- 이번 범위는 그래프 뷰 페이지 하나로 제한하고, graph physics/layout 변경은 건드리지 않는 것이 목표였다.
+
+**조치**:
+- `getReferralGraphResponsiveLayout` helper를 추가해 mobile/tablet/desktop 배치 계약을 테스트로 고정했다.
+- `/dashboard/referrals/graph` 페이지에서 viewport width를 읽어 mobile에서는 헤더 액션/필터/통계 badge를 가로 스크롤 가능한 compact toolbar로 바꿨다.
+- 모바일에서는 긴 설명을 짧게 줄이고, 캔버스에 최소 높이를 부여해 컨트롤 때문에 그래프 영역이 0에 가깝게 줄지 않도록 했다.
+- 범례는 모바일에서 bottom strip으로 전환하고, 장력 설정 패널은 모바일 bottom-sheet 형태로 전환했다.
+
+**핵심 파일**:
+- `web/src/app/dashboard/referrals/graph/page.tsx`
+- `web/src/lib/referral-graph-responsive.ts`
+- `web/src/lib/referral-graph-responsive.test.ts`
+
+**검증**:
+- 통과: `node --test web/src/lib/referral-graph-responsive.test.ts` (3/3)
+- 통과: full referral graph lib suite, 107/107 tests.
+- 통과: targeted ESLint for graph page/helper/canvas/interaction files.
+- 통과: `cd web; SENTRY_AUTH_TOKEN='' npx next build`
+
+**리스크/후속**:
+- Playwright가 repo에 설치되어 있지 않고 별도 브라우저 자동화 도구가 현재 노출되지 않아, 이번 증분은 자동 스크린샷 검증 없이 테스트/lint/build/source review로 마무리했다.
+
 ## <a id="20260609-referral-graph-drag-stability-live-qa"></a> 2026-06-09 | Referral graph drag stability live QA
 
 **배경**:

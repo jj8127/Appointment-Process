@@ -2015,6 +2015,53 @@ Prevent React Force Graph's built-in node-drag reheat from making the graph feel
 
 ---
 
+# Current Contract: Increment 65 - Referral Graph Responsive Page
+
+Status: implemented and locally verified on 2026-06-09
+
+## Goal
+
+Make only the referral graph view page responsive across mobile, tablet, and desktop web widths.
+
+## Scope
+
+- Keep the graph physics/layout implementation unchanged.
+- Add a small responsive layout helper with test coverage for mobile/tablet/desktop contracts.
+- Update `/dashboard/referrals/graph` so the header, action toolbar, filters, status badges, legend, canvas minimum height, and physics panel adapt on narrow screens.
+- Mobile behavior:
+  - stack the header,
+  - shorten the description,
+  - make actions/filters/stats horizontally scrollable,
+  - keep a minimum graph canvas height,
+  - show legend as a compact bottom strip,
+  - show physics settings as a bottom sheet.
+
+## Explicit Non-Scope
+
+- No referral graph physics changes.
+- No API/data/auth/schema changes.
+- No mobile app changes.
+- No deployment in this increment.
+
+## Acceptance Criteria
+
+- Responsive helper tests pass for 390px, 820px, and 1280px widths.
+- Graph page compiles in production build.
+- Existing referral graph interaction/layout/physics tests remain green.
+- Targeted ESLint passes for touched graph page/helper files.
+- The change does not introduce fixed-width UI that can force mobile horizontal page overflow outside intentionally scrollable control rows.
+
+## Verification Plan
+
+- RED/GREEN: `node --test src/lib/referral-graph-responsive.test.ts`
+- `node --test web/src/lib/referral-graph-responsive.test.ts`
+- Full referral graph lib suite.
+- `cd web && npm run lint -- src/components/referrals/ReferralGraphCanvas.tsx src/lib/referral-graph-interaction.ts src/lib/referral-graph-interaction.test.ts src/lib/referral-graph-physics.ts src/lib/referral-graph-physics.test.ts src/lib/referral-graph-layout.ts src/lib/referral-graph-layout.test.ts src/lib/referral-graph-simulation.test.ts src/lib/referral-graph-responsive.ts src/lib/referral-graph-responsive.test.ts`
+- `cd web && SENTRY_AUTH_TOKEN='' npx next build`
+- `git diff --check`
+
+---
+
 # Current Contract: Increment 63 - Referral Graph Active Drag Global Reflow Guard
 
 Status: implemented and locally verified on 2026-06-09; pending user visual validation
