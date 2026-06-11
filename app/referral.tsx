@@ -40,7 +40,8 @@ import { COLORS, RADIUS, SHADOWS, SPACING } from '@/lib/theme';
 
 const APP_STORE_URL = (process.env.EXPO_PUBLIC_APP_STORE_URL ?? '').trim();
 const INVITE_BASE_URL = process.env.EXPO_PUBLIC_INVITE_BASE_URL ?? '';
-const ADMIN_WEB_URL = (process.env.EXPO_PUBLIC_ADMIN_WEB_URL ?? '').replace(/\/$/, '');
+const DEFAULT_ADMIN_WEB_URL = 'https://adminweb-red.vercel.app';
+const ADMIN_WEB_URL = (process.env.EXPO_PUBLIC_ADMIN_WEB_URL ?? DEFAULT_ADMIN_WEB_URL).replace(/\/$/, '');
 const REFERRAL_GRAPH_WEB_URL = buildReferralGraphWebUrl(ADMIN_WEB_URL);
 
 function buildShareText(code: string): string {
@@ -55,7 +56,6 @@ export default function ReferralPage() {
   const router = useRouter();
   const { role, readOnly, isRequestBoardDesigner } = useSession();
   const { invokeReferralFunction } = useReferralAppSession();
-  const isManager = role === 'admin' && readOnly === true;
   const canUseReferralSelfService =
     !isRequestBoardDesigner && (role === 'fc' || (role === 'admin' && readOnly));
   const {
@@ -237,8 +237,13 @@ export default function ReferralPage() {
   };
 
   const handleOpenGraphView = useCallback(() => {
-    if (!REFERRAL_GRAPH_WEB_URL) return;
-    void Linking.openURL(REFERRAL_GRAPH_WEB_URL);
+    if (!REFERRAL_GRAPH_WEB_URL) {
+      Alert.alert('페이지를 열 수 없습니다', '관리자 웹 주소가 설정되지 않았습니다.');
+      return;
+    }
+    void Linking.openURL(REFERRAL_GRAPH_WEB_URL).catch(() => {
+      Alert.alert('페이지를 열 수 없습니다', '관리자 웹 추천 관계 화면을 열지 못했습니다.');
+    });
   }, []);
 
   const handleRefresh = async () => {
@@ -412,25 +417,21 @@ export default function ReferralPage() {
           </View>
         </View>
 
-        {REFERRAL_GRAPH_WEB_URL ? (
-          <Pressable
-            style={({ pressed }) => [styles.graphLinkCard, pressed && { opacity: 0.7 }]}
-            onPress={handleOpenGraphView}
-            accessibilityRole="link"
-            accessibilityLabel="추천인 그래프 뷰 열기"
-          >
-            <View style={styles.graphLinkIconWrap}>
-              <Feather name="git-branch" size={18} color={COLORS.primary} />
-            </View>
-            <View style={styles.graphLinkTextWrap}>
-              <Text style={styles.graphLinkTitle}>추천인 그래프 뷰로 보기</Text>
-              <Text style={styles.graphLinkDesc}>
-                {isManager ? '관리자 웹 그래프 화면을 바로 엽니다' : '내 추천 조직을 웹 그래프로 확인합니다'}
-              </Text>
-            </View>
-            <Feather name="external-link" size={15} color={COLORS.gray[400]} />
-          </Pressable>
-        ) : null}
+        <Pressable
+          style={({ pressed }) => [styles.graphLinkCard, pressed && { opacity: 0.7 }]}
+          onPress={handleOpenGraphView}
+          accessibilityRole="link"
+          accessibilityLabel="관리자 웹에서 추천 관계 보기"
+        >
+          <View style={styles.graphLinkIconWrap}>
+            <Feather name="users" size={18} color={COLORS.primary} />
+          </View>
+          <View style={styles.graphLinkTextWrap}>
+            <Text style={styles.graphLinkTitle}>관리자 웹에서 추천 관계 보기</Text>
+            <Text style={styles.graphLinkDesc}>추천인과 하위 연결을 한눈에 확인합니다</Text>
+          </View>
+          <Feather name="external-link" size={15} color={COLORS.gray[400]} />
+        </Pressable>
 
         {/* ── 추천인 등록/변경 카드 ── */}
         {showRecommenderCard && (
@@ -960,7 +961,7 @@ const styles = StyleSheet.create({
   saveBtnPressed: { opacity: 0.85 },
   saveBtnText: { fontSize: 15, fontWeight: '700', color: '#fff' },
 
-  // 본부장 그래프 링크
+  // 관리자 웹 추천 관계 링크
   graphLinkCard: {
     flexDirection: 'row',
     alignItems: 'center',

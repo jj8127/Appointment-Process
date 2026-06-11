@@ -167,6 +167,7 @@ export default function ReferralGraphPage() {
     () => getReferralGraphResponsiveLayout(viewportWidth),
     [viewportWidth],
   );
+  const isMobileGraph = responsiveLayout.mode === 'mobile';
 
   const containerRef = useRef<HTMLDivElement>(null);
   const resizeFrameRef = useRef(0);
@@ -405,31 +406,37 @@ export default function ReferralGraphPage() {
   return (
     <Box
       style={{
-        height: responsiveLayout.mode === 'mobile' ? 'auto' : responsiveLayout.shellHeight,
+        height: isMobileGraph ? 'auto' : responsiveLayout.shellHeight,
         minHeight: responsiveLayout.shellHeight,
         display: 'flex',
         flexDirection: 'column',
         background: 'linear-gradient(180deg, #f8fafc 0%, #eef2f7 100%)',
-        overflow: responsiveLayout.mode === 'mobile' ? 'visible' : 'hidden',
+        overflow: isMobileGraph ? 'visible' : 'hidden',
       }}
     >
       <Box
-        px={responsiveLayout.mode === 'mobile' ? 'sm' : 'md'}
-        py={responsiveLayout.mode === 'mobile' ? 'xs' : 'sm'}
+        px={isMobileGraph ? 'md' : 'md'}
+        py={isMobileGraph ? 'sm' : 'sm'}
         style={{
           background: 'rgba(255, 255, 255, 0.94)',
           borderBottom: '1px solid #dbe4ee',
           flexShrink: 0,
         }}
       >
-        <Stack gap="sm">
-          <Group justify="space-between" wrap={responsiveLayout.headerStacked ? 'wrap' : 'nowrap'} align="center">
+        <Stack gap={isMobileGraph ? 'xs' : 'sm'}>
+          <Group
+            justify="space-between"
+            wrap={responsiveLayout.headerStacked ? 'wrap' : 'nowrap'}
+            align="center"
+            style={{ rowGap: isMobileGraph ? 8 : undefined }}
+          >
             <Group
               gap="xs"
               wrap="nowrap"
               style={{
                 minWidth: 0,
                 flex: responsiveLayout.headerStacked ? '1 1 100%' : '1 1 auto',
+                width: responsiveLayout.headerStacked ? '100%' : undefined,
               }}
             >
               {!isDownlineScope ? (
@@ -446,11 +453,16 @@ export default function ReferralGraphPage() {
                 </Tooltip>
               ) : null}
 
-              <Box>
-                <Text size="sm" fw={700} c="dark.8">
-                  추천인 그래프
+              <Box style={{ flex: 1, minWidth: 0 }}>
+                <Text
+                  size={isMobileGraph ? 'lg' : 'sm'}
+                  fw={isMobileGraph ? 800 : 700}
+                  c="dark.8"
+                  style={{ lineHeight: 1.18, whiteSpace: 'nowrap' }}
+                >
+                  {isMobileGraph ? '추천 관계 보기' : '추천인 그래프'}
                 </Text>
-                <Text size="xs" c="gray.7">
+                <Text size={isMobileGraph ? 'sm' : 'xs'} c="gray.7" style={{ lineHeight: 1.35 }}>
                   {responsiveLayout.showLongDescription
                     ? isDownlineScope
                       ? '내 추천 관계 하위 조직만 보여줍니다.'
@@ -471,20 +483,31 @@ export default function ReferralGraphPage() {
                 paddingBottom: responsiveLayout.controlsScrollable ? 2 : undefined,
               }}
             >
-              <Button size="xs" variant="light" onClick={() => setFitRequestId((value) => value + 1)}>
-                {responsiveLayout.mode === 'mobile' ? '맞춤' : '화면 맞춤'}
+              <Button
+                size={isMobileGraph ? 'compact-sm' : 'xs'}
+                variant="light"
+                onClick={() => setFitRequestId((value) => value + 1)}
+                styles={{ root: { flex: '0 0 auto' } }}
+              >
+                {isMobileGraph ? '화면 맞춤' : '화면 맞춤'}
               </Button>
               <Tooltip label="배치를 초기 원형 구조로 다시 정리합니다." withArrow>
-                <Button size="xs" variant="light" onClick={() => setResetLayoutRequestId((value) => value + 1)}>
-                  {responsiveLayout.mode === 'mobile' ? '초기화' : '배치 초기화'}
+                <Button
+                  size={isMobileGraph ? 'compact-sm' : 'xs'}
+                  variant="light"
+                  onClick={() => setResetLayoutRequestId((value) => value + 1)}
+                  styles={{ root: { flex: '0 0 auto' } }}
+                >
+                  {isMobileGraph ? '배치 초기화' : '배치 초기화'}
                 </Button>
               </Tooltip>
               <Button
-                size="xs"
+                size={isMobileGraph ? 'compact-sm' : 'xs'}
                 variant="subtle"
                 leftSection={<IconFocus2 size={14} />}
                 onClick={handleClearSelection}
                 disabled={!selectedNodeId}
+                styles={{ root: { flex: '0 0 auto' } }}
               >
                 선택 해제
               </Button>
@@ -514,7 +537,7 @@ export default function ReferralGraphPage() {
             >
               <TextInput
                 placeholder="이름·소속·코드 검색"
-                size="xs"
+                size={isMobileGraph ? 'sm' : 'xs'}
                 value={searchTerm}
                 onChange={(event) => setSearchTerm(event.currentTarget.value)}
                 leftSection={<IconSearch size={14} />}
@@ -527,21 +550,31 @@ export default function ReferralGraphPage() {
                 }
                 styles={{ input: { background: '#ffffff', color: '#0f172a', borderColor: '#cbd5e1' } }}
                 style={{
-                  flex: responsiveLayout.controlsScrollable ? '0 0 240px' : '0 1 280px',
-                  minWidth: responsiveLayout.controlsScrollable ? 240 : 220,
+                  flex: isMobileGraph ? '1 0 100%' : responsiveLayout.controlsScrollable ? '0 0 240px' : '0 1 280px',
+                  minWidth: isMobileGraph ? 0 : responsiveLayout.controlsScrollable ? 240 : 220,
                 }}
               />
 
-              <Group gap="xs" wrap="nowrap" style={{ flexShrink: 0 }}>
+              <Group
+                gap={isMobileGraph ? 6 : 'xs'}
+                wrap="nowrap"
+                style={{
+                  flexShrink: 0,
+                  width: isMobileGraph ? '100%' : undefined,
+                  overflowX: isMobileGraph ? 'auto' : undefined,
+                  paddingBottom: isMobileGraph ? 2 : undefined,
+                }}
+              >
                 {STATUS_FILTERS.map((item) => {
                   const active = enabledStatusSet.has(item.key);
                   return (
                     <Button
                       key={item.key}
-                      size="xs"
+                      size={isMobileGraph ? 'compact-sm' : 'xs'}
                       variant={active ? 'filled' : 'default'}
                       color={item.color}
                       onClick={() => toggleStatus(item.key)}
+                      styles={{ root: { flex: '0 0 auto' } }}
                     >
                       {item.label}
                     </Button>
@@ -573,7 +606,7 @@ export default function ReferralGraphPage() {
                 onChange={toggleHideIsolatedNodes}
                 label="연결 없는 사람 숨기기"
                 size="sm"
-                style={{ flexShrink: 0 }}
+                style={{ flexShrink: 0, width: isMobileGraph ? '100%' : undefined }}
               />
             </Group>
 
@@ -587,20 +620,20 @@ export default function ReferralGraphPage() {
               }}
             >
               {effectiveSelectedNodeId ? (
-                <Badge color="orange" variant="light">
+                <Badge color="orange" variant="light" style={{ flex: '0 0 auto' }}>
                   선택된 사람 주변 {depthHops}단계
                 </Badge>
               ) : null}
-              <Badge color="gray" variant="light">
+              <Badge color="gray" variant="light" style={{ flex: '0 0 auto' }}>
                 {isDownlineScope ? 'FC 전용 범위' : '조회 전용'}
               </Badge>
-              <Badge color="gray" variant="light">
+              <Badge color="gray" variant="light" style={{ flex: '0 0 auto' }}>
                 {visibleNodes.length.toLocaleString('ko-KR')}명
               </Badge>
-              <Badge color="teal" variant="filled">
+              <Badge color="teal" variant="filled" style={{ flex: '0 0 auto' }}>
                 모든 위촉 완료 {visibleCompletedCommissionCount.toLocaleString('ko-KR')}명
               </Badge>
-              <Badge color="gray" variant="light">
+              <Badge color="gray" variant="light" style={{ flex: '0 0 auto' }}>
                 {visibleEdges.length.toLocaleString('ko-KR')}개 연결
               </Badge>
             </Group>
@@ -684,8 +717,8 @@ export default function ReferralGraphPage() {
             onClick={() => setPhysicsPanelOpen((current) => !current)}
             style={{
               position: 'absolute',
-              right: responsiveLayout.mode === 'mobile' ? 8 : 16,
-              top: responsiveLayout.mode === 'mobile' ? 8 : 16,
+              right: isMobileGraph ? 12 : 16,
+              top: isMobileGraph ? 12 : 16,
               zIndex: 4,
               boxShadow: '0 12px 24px rgba(15, 23, 42, 0.18)',
             }}
@@ -697,24 +730,33 @@ export default function ReferralGraphPage() {
         <Paper
           withBorder
           radius="md"
-          p="sm"
+          p={isMobileGraph ? 8 : 'sm'}
           style={{
             position: 'absolute',
             left: responsiveLayout.legendPlacement === 'bottom-strip' ? 8 : 16,
             right: responsiveLayout.legendPlacement === 'bottom-strip' ? 8 : undefined,
             bottom: responsiveLayout.legendPlacement === 'bottom-strip' ? 8 : 16,
             maxWidth: responsiveLayout.legendPlacement === 'bottom-strip' ? 'calc(100% - 16px)' : 360,
+            maxHeight: isMobileGraph ? 86 : undefined,
             background: 'rgba(255, 255, 255, 0.94)',
             borderColor: '#dbe4ee',
-            pointerEvents: 'none',
+            pointerEvents: isMobileGraph ? 'auto' : 'none',
             boxShadow: '0 18px 36px rgba(15, 23, 42, 0.08)',
+            overflow: 'hidden',
           }}
         >
-          <Stack gap={6}>
-            <Text size="xs" fw={700} c="dark.7">
-              색상 범례
+          <Stack gap={isMobileGraph ? 4 : 6}>
+            <Text size="xs" fw={700} c="dark.7" style={{ flexShrink: 0 }}>
+              {isMobileGraph ? '범례' : '색상 범례'}
             </Text>
-            <Group gap={responsiveLayout.legendPlacement === 'bottom-strip' ? 'sm' : 4} wrap="wrap">
+            <Group
+              gap={responsiveLayout.legendPlacement === 'bottom-strip' ? 'sm' : 4}
+              wrap={isMobileGraph ? 'nowrap' : 'wrap'}
+              style={{
+                overflowX: isMobileGraph ? 'auto' : undefined,
+                paddingBottom: isMobileGraph ? 2 : undefined,
+              }}
+            >
               <Group gap={6} wrap="nowrap">
                 <Box
                   style={{
@@ -726,7 +768,7 @@ export default function ReferralGraphPage() {
                   }}
                 />
                 <Text size="xs" c="gray.7">
-                  생명·손해 위촉 모두 완료
+                  {isMobileGraph ? '위촉 완료' : '생명·손해 위촉 모두 완료'}
                 </Text>
               </Group>
               <Group gap={6} wrap="nowrap">
@@ -754,7 +796,7 @@ export default function ReferralGraphPage() {
                   }}
                 />
                 <Text size="xs" c="gray.7">
-                  {highlightLegendLabel}
+                  {isMobileGraph ? '현재 사용자' : highlightLegendLabel}
                 </Text>
               </Group>
               <Group gap={6} wrap="nowrap">
@@ -785,7 +827,7 @@ export default function ReferralGraphPage() {
                   />
                 </Group>
                 <Text size="xs" c="gray.7">
-                  크기: 하위 전체 조직 수
+                  {isMobileGraph ? '크기=하위 수' : '크기: 하위 전체 조직 수'}
                 </Text>
               </Group>
               <Group gap={6} wrap="nowrap">
@@ -799,7 +841,7 @@ export default function ReferralGraphPage() {
                   }}
                 />
                 <Text size="xs" c="gray.7">
-                  사전등록까지만 한 사람
+                  {isMobileGraph ? '사전등록' : '사전등록까지만 한 사람'}
                 </Text>
               </Group>
             </Group>

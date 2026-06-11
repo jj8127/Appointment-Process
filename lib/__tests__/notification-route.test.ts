@@ -26,6 +26,14 @@ describe('notification route helpers', () => {
     })).toBe('/messenger?channel=request-board');
   });
 
+  it('routes group chat messages to the group chat screen', () => {
+    expect(resolveRequestBoardNotificationRoute({
+      category: 'group_chat_message',
+      targetUrl: '/notifications',
+    })).toBe('/group-chat');
+    expect(normalizeNotificationTargetUrl('/group-chat')).toBe('/group-chat');
+  });
+
   it('honors concrete request-board target URLs instead of collapsing to the request-board home', () => {
     expect(resolveRequestBoardNotificationRoute({
       category: 'request_board_completed',

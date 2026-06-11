@@ -1860,3 +1860,35 @@
 - Permanent guardrail: Live visual QA for referral graph drag must use screen/client pixels as the primary metric. Graph-unit measurements can be kept as secondary diagnostics, but pass/fail should be based on pointer distance, unrelated screen drift, follower screen movement, and post-release screen distance.
 - Related files: `web/src/components/referrals/ReferralGraphCanvas.tsx`, `web/src/lib/referral-graph-interaction.test.ts`
 - Verification: RED/GREEN dev-hook test; full referral graph suite; targeted ESLint; `cd web && SENTRY_AUTH_TOKEN='' npx next build`; live CDP drag verification with screenshots.
+
+## 2026-06-10 | Group Chat Worktree Visibility | 배포 작업트리와 실행 앱 작업트리를 혼동
+- Symptom: 단톡방 Edge Function과 migration을 배포했지만, 에뮬레이터의 `메신저` 화면에는 `가람PA 단톡방` 카드가 보이지 않았다.
+- Root cause: 단톡방 UI 코드는 superpowers worktree(`garamin-group-chat-v1`)에만 있었고, 실제 Metro/에뮬레이터는 `E:\hanhwa\fc-onboarding-app` 원본 작업트리를 실행 중이었다.
+- Why it was missed: 서버 배포와 로컬 검증은 worktree 기준으로 완료했지만, 사용자가 보고 있는 런타임 작업트리가 어디인지 확인하지 않고 UI 노출을 설명했다.
+- Permanent guardrail: 앱 UI가 안 보인다는 피드백을 받으면 먼저 `git -C <running-app> branch/status`와 해당 파일 존재 여부를 확인한다. 서버 배포 완료와 모바일 런타임 반영은 별도 체크로 다룬다.
+- Related files: `app/messenger.tsx`, `app/group-chat.tsx`, `app/_layout.tsx`
+- Verification: focused group chat Jest suite, targeted ESLint, `npx tsc --noEmit --pretty false`, `supabase functions deploy group-chat --project-ref ubeginyxaotcamuqpmud --use-api`
+
+## 2026-06-10 | Group Chat Message Unread Badges | 방 단위 unread만 만들고 메시지별 unread 표시를 누락
+- Symptom: 가람PA 단톡방에서 카카오톡처럼 각 메시지를 몇 명이 읽지 않았는지 표시되지 않았다.
+- Root cause: `group_chat_bootstrap`은 현재 사용자의 방 전체 `unread_count`만 계산했고, 각 `group_chat_messages` row에는 수신자별 읽음 상태를 반영한 `unread_count`를 직렬화하지 않았다. 모바일 말풍선도 메시지 단위 unread 메타 영역이 없었다.
+- Why it was missed: 단톡방 허브 badge와 알림 unread만 테스트했고, 카카오톡식 발신 메시지별 미확인 인원 수를 별도 계약으로 고정하지 않았다.
+- Permanent guardrail: 채팅 기능은 방 전체 unread와 메시지별 unread를 별도 계약으로 테스트한다. 메시지별 unread는 자동 참여 멤버, 발신자 제외, `group_chat_reads.last_read_at >= message.created_at` 조건을 기준으로 계산한다.
+- Related files: `supabase/functions/group-chat/index.ts`, `supabase/functions/_shared/group-chat.ts`, `lib/group-chat-contract.ts`, `app/group-chat.tsx`
+- Verification: `npm test -- --runTestsByPath lib/__tests__/group-chat-api.test.ts lib/__tests__/group-chat-contract.test.ts lib/__tests__/group-chat-mobile-source.test.ts lib/__tests__/notification-route.test.ts lib/__tests__/messenger-loading.test.ts --runInBand`; `npx eslint app/group-chat.tsx lib/group-chat-api.ts lib/group-chat-contract.ts lib/__tests__/group-chat-contract.test.ts lib/__tests__/group-chat-mobile-source.test.ts`; `npx tsc --noEmit --pretty false`; `supabase functions deploy group-chat --project-ref ubeginyxaotcamuqpmud --use-api`
+
+## 2026-06-10 | Group Chat Attachment Interaction | 첨부 말풍선의 실제 터치/전송 체감 검증 누락
+- Symptom: 사진 말풍선은 롱프레스 액션이 열리지 않았고, 메시지/파일/사진 전송 후 말풍선이 늦게 나타났다.
+- Root cause: 이미지/파일 내용을 개별 touchable로 감싸 parent message `Pressable`의 long-press를 가로막았다. 또한 텍스트와 첨부 모두 서버 응답 또는 업로드 완료 후에만 `applyMessages`를 호출해 네트워크 지연이 그대로 UI 지연으로 보였다.
+- Why it was missed: source-level action wiring은 확인했지만 실제 말풍선 content 안의 중첩 touch target과 optimistic send UX를 별도 회귀 조건으로 고정하지 않았다.
+- Permanent guardrail: 채팅 말풍선 내부 이미지/파일은 parent bubble이 tap/long-press를 소유하게 한다. 전송 UI는 텍스트/이미지/파일 모두 local optimistic message를 먼저 삽입하고, 서버 완료 시 persisted message로 교체하는 계약을 테스트한다.
+- Related files: `app/group-chat.tsx`, `lib/group-chat-api.ts`, `lib/__tests__/group-chat-mobile-source.test.ts`
+- Verification: `npm test -- --runTestsByPath lib/__tests__/group-chat-api.test.ts lib/__tests__/group-chat-contract.test.ts lib/__tests__/group-chat-mobile-source.test.ts --runInBand`; `npx eslint app/group-chat.tsx lib/group-chat-api.ts lib/__tests__/group-chat-mobile-source.test.ts`; `npx tsc --noEmit --pretty false`
+
+## 2026-06-11 | Referral Graph Mobile Pinch Zoom | 모바일 그래프 확대/축소 검증 누락
+- Symptom: 핸드폰에서 관리자 웹 추천 관계 보기 그래프가 두 손가락 확대/축소를 받지 않았다.
+- Root cause: 데스크톱 wheel/pan 안정화를 위해 `ForceGraph2D`의 `enableZoomInteraction`/`enablePanInteraction`을 false로 끄고, 별도 수동 wheel/pointer pan만 구현했다. 이 수동 구현은 모바일 pinch gesture를 처리하지 않았다.
+- Why it was missed: 모바일 반응형 UI는 확인했지만 graph viewport interaction을 데스크톱 wheel 기준으로만 고정했고, touch/coarse pointer 환경의 native pinch/pan 계약을 테스트하지 않았다.
+- Permanent guardrail: 그래프 viewport interaction은 데스크톱 mouse/wheel과 모바일 coarse pointer를 분리한다. 모바일은 `react-force-graph` native zoom/pan을 사용하고, desktop-only 수동 handler는 touch pointer를 잡지 않아야 한다.
+- Related files: `web/src/components/referrals/ReferralGraphCanvas.tsx`, `web/src/lib/referral-graph-interaction.test.ts`
+- Verification: `node --experimental-strip-types --test web/src/lib/referral-graph-interaction.test.ts`; `cd web && npm run lint -- src/components/referrals/ReferralGraphCanvas.tsx src/lib/referral-graph-interaction.test.ts`; `cd web && SENTRY_AUTH_TOKEN='' npm run build`; Vercel production deploy.

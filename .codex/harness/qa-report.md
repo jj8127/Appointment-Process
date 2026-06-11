@@ -3613,6 +3613,60 @@ Date: 2026-06-09
 - The live check directly covers the user-reported failure mode: while the pointer is down, the selected hub tracks the pointer, its child branch moves with it, unrelated areas stay visually stable, and the dropped hub remains close to the release point after settling.
 
 ---
+# Increment 65 Verification: Group Chat Optimistic Attachment Send
+
+Date: 2026-06-10
+
+### Scope
+
+- Fixed group chat perceived send delay by inserting optimistic local messages before network completion.
+- Image/file messages now appear immediately with a local URI, then swap to the uploaded public URL and finally to the server message.
+- Added a visible file download/open affordance inside file bubbles while preserving the existing orange outgoing bubble style.
+- Preserved pending local messages across periodic bootstrap refreshes.
+
+### Commands
+
+- Passed: `npm test -- --runTestsByPath lib/__tests__/group-chat-mobile-source.test.ts --runInBand` (9/9).
+- Passed: `npx eslint app/group-chat.tsx lib/group-chat-api.ts lib/__tests__/group-chat-mobile-source.test.ts`.
+- Passed: `npx tsc --noEmit --pretty false`.
+- Passed: `git diff --check -- app/group-chat.tsx lib/group-chat-api.ts lib/__tests__/group-chat-mobile-source.test.ts`.
+- Passed: `npm test -- --runTestsByPath lib/__tests__/group-chat-api.test.ts lib/__tests__/group-chat-contract.test.ts lib/__tests__/group-chat-mobile-source.test.ts --runInBand` (22/22).
+
+### QA Judgment
+
+- Pass for source-level optimistic send wiring, API compatibility, lint, and type checks.
+- Device manual QA is still required for actual attachment upload timing, local URI preview behavior on Android, and tap-to-open after upload replacement.
+
+---
+# Increment 61 Verification: Group Chat Message Actions
+
+Date: 2026-06-10
+
+### Scope
+
+- Added KakaoTalk-like group chat bubble layout with unread count/time next to the bubble.
+- Added reply target preview and `reply_to_message_id` send contract.
+- Added reaction storage and summary chips.
+- Added own-message soft-delete.
+- Applied Supabase migration and redeployed the `group-chat` Edge Function.
+
+### Commands
+
+- RED confirmed: group chat API/contract/mobile source tests failed before implementation because reply/reaction/delete contracts and source wiring did not exist.
+- Passed after implementation: `npm test -- --runTestsByPath lib/__tests__/group-chat-api.test.ts lib/__tests__/group-chat-contract.test.ts lib/__tests__/group-chat-mobile-source.test.ts --runInBand` (20/20).
+- Passed: `npx tsc --noEmit --pretty false`.
+- Passed: `npx eslint app/group-chat.tsx lib/group-chat-api.ts lib/group-chat-contract.ts lib/__tests__/group-chat-api.test.ts lib/__tests__/group-chat-contract.test.ts lib/__tests__/group-chat-mobile-source.test.ts`.
+- Passed: `npm test -- --runTestsByPath lib/__tests__/group-chat-api.test.ts lib/__tests__/group-chat-contract.test.ts lib/__tests__/group-chat-mobile-source.test.ts lib/__tests__/notification-route.test.ts lib/__tests__/messenger-loading.test.ts --runInBand` (35/35).
+- Applied: `supabase db push --linked --yes`.
+- Deployed: `supabase functions deploy group-chat --project-ref ubeginyxaotcamuqpmud --use-api`; function list shows `group-chat` version 5 updated at `2026-06-10 09:34:56` UTC.
+- Passed: `git diff --check` with Windows line-ending warnings only.
+
+### QA Judgment
+
+- Pass for source/API/type/lint/server deployment checks.
+- Device manual QA remains required for long-press ergonomics, keyboard/input spacing with reply target, and cross-account reaction refresh timing.
+
+---
 # Increment 60 Verification: Request Board FC Code Focus Refresh
 
 Date: 2026-06-09

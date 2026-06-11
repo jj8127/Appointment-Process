@@ -177,6 +177,16 @@ test('ReferralGraphCanvas lowers reheat-sensitive forces during active drag', ()
   assert.match(source, /collisionForce[\s\S]+\.iterations\(mode === 'drag' \? 1 : 3\)/);
 });
 
+test('ReferralGraphCanvas leaves mobile pinch zoom and pan to the graph renderer', () => {
+  const source = readFileSync('web/src/components/referrals/ReferralGraphCanvas.tsx', 'utf8');
+
+  assert.match(source, /window\.matchMedia\('\(hover: none\), \(pointer: coarse\)'\)/);
+  assert.match(source, /enableZoomInteraction=\{useNativeViewportInteraction\}/);
+  assert.match(source, /enablePanInteraction=\{useNativeViewportInteraction\}/);
+  assert.match(source, /if \(useNativeViewportInteraction \|\| event\.pointerType !== 'mouse'\) return;/);
+  assert.match(source, /const handleWheel = \(event: WheelEvent\) => \{\s*if \(useNativeViewportInteraction\) return;/);
+});
+
 test('ReferralGraphCanvas exposes graph runtime coordinates only for development visual QA', () => {
   const source = readFileSync('web/src/components/referrals/ReferralGraphCanvas.tsx', 'utf8');
 

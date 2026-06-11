@@ -360,6 +360,7 @@ export function ReferralGraphCanvas({
   const panMomentumFrameRef = useRef<number | null>(null);
   const labelOccupancyRef = useRef<LabelOccupancyRect[]>([]);
   const [graphReadyTick, setGraphReadyTick] = useState(0);
+  const [useNativeViewportInteraction, setUseNativeViewportInteraction] = useState(false);
   const [graphData, setGraphData] = useState<{ nodes: RuntimeGraphNode[]; links: GraphEdge[] }>({
     nodes: [],
     links: [],
@@ -405,6 +406,27 @@ export function ReferralGraphCanvas({
       cancelled = true;
       window.cancelAnimationFrame(rafId);
     };
+  }, []);
+
+  useEffect(() => {
+    if (typeof window === 'undefined' || typeof window.matchMedia !== 'function') {
+      return undefined;
+    }
+
+    const query = window.matchMedia('(hover: none), (pointer: coarse)');
+    const updateNativeViewportInteraction = () => {
+      setUseNativeViewportInteraction(query.matches);
+    };
+
+    updateNativeViewportInteraction();
+
+    if (typeof query.addEventListener === 'function') {
+      query.addEventListener('change', updateNativeViewportInteraction);
+      return () => query.removeEventListener('change', updateNativeViewportInteraction);
+    }
+
+    query.addListener(updateNativeViewportInteraction);
+    return () => query.removeListener(updateNativeViewportInteraction);
   }, []);
 
   useEffect(() => {
@@ -1118,6 +1140,7 @@ export function ReferralGraphCanvas({
     };
 
     const handlePointerDown = (event: PointerEvent) => {
+      if (useNativeViewportInteraction || event.pointerType !== 'mouse') return;
       if (event.button !== 0 || nodeDragActiveRef.current) return;
 
       cancelPanMomentum();
@@ -1192,6 +1215,7 @@ export function ReferralGraphCanvas({
     };
 
     const handleWheel = (event: WheelEvent) => {
+      if (useNativeViewportInteraction) return;
       cancelPanMomentum();
       const point = getCanvasPoint(event, container);
       const before = fg.screen2GraphCoords(point.x, point.y);
@@ -1247,7 +1271,7 @@ export function ReferralGraphCanvas({
       container.removeEventListener('pointercancel', handlePointerUp, true);
       container.removeEventListener('wheel', handleWheel, true);
     };
-  }, [cancelPanMomentum, getCanvasPoint, graphData.nodes.length, graphReadyTick, isPointerOnNode, width, height]);
+  }, [cancelPanMomentum, getCanvasPoint, graphData.nodes.length, graphReadyTick, isPointerOnNode, useNativeViewportInteraction, width, height]);
 
   const nodeCanvasObject = useCallback(
     (rawNode: FGNode, ctx: CanvasRenderingContext2D, globalScale: number) => {
@@ -1570,8 +1594,8 @@ export function ReferralGraphCanvas({
         onNodeDrag={handleNodeDrag}
         onNodeDragEnd={handleNodeDragEnd}
         enableNodeDrag
-        enableZoomInteraction={false}
-        enablePanInteraction={false}
+        enableZoomInteraction={useNativeViewportInteraction}
+        enablePanInteraction={useNativeViewportInteraction}
         enablePointerInteraction
         minZoom={MIN_ZOOM}
         maxZoom={MAX_ZOOM}

@@ -7,6 +7,90 @@
 
 ---
 
+## <a id="20260611-group-chat-v1"></a> 2026-06-11 | 가람PA 단톡방 v1
+
+**배경**:
+- 가람in 내부 메신저에 본등록 FC, 본부장, 총무가 자동 참여하는 단체 단톡방이 필요했다.
+- 카카오톡식 핵심 UX인 실시간 메시지, 첨부, 읽지 않은 인원 수, 답장/감정/삭제, 개인별 음소거를 v1 범위로 구현했다.
+
+**조치**:
+- `/group-chat` 화면을 추가하고 `messenger` 허브에서 `가람PA 단톡방` 카드로 진입하도록 연결했다.
+- `group-chat` Supabase Edge Function과 전용 migration을 추가해 방/메시지/읽음/개인설정/감정/삭제를 `group_chat_*` 테이블로 분리했다.
+- 자동 참여 대상은 본등록 FC, active 본부장, active 총무로 계산하고 request_board 설계매니저 및 developer subtype은 제외했다.
+- 메시지별 미확인 인원 수를 발신자 말풍선 옆에 표시하고, 사진/파일도 parent bubble long-press 액션을 받도록 정리했다.
+- 텍스트/사진/파일 전송은 optimistic message를 먼저 삽입하고 서버 응답으로 교체해 체감 지연을 줄였다.
+- 파일 말풍선에 바로 다운로드/열기 버튼을 추가했다.
+
+**핵심 파일**:
+- `app/group-chat.tsx`
+- `app/messenger.tsx`
+- `app/_layout.tsx`
+- `app/notifications.tsx`
+- `lib/group-chat-api.ts`
+- `lib/group-chat-contract.ts`
+- `lib/__tests__/group-chat-api.test.ts`
+- `lib/__tests__/group-chat-contract.test.ts`
+- `lib/__tests__/group-chat-mobile-source.test.ts`
+- `supabase/functions/group-chat/index.ts`
+- `supabase/functions/_shared/group-chat.ts`
+- `supabase/migrations/20260610000001_add_group_chat_tables.sql`
+- `supabase/migrations/20260610093000_extend_group_chat_message_actions.sql`
+
+**검증**:
+- `npm test -- --runTestsByPath lib/__tests__/group-chat-api.test.ts lib/__tests__/group-chat-contract.test.ts lib/__tests__/group-chat-mobile-source.test.ts --runInBand`
+- `npx eslint app/group-chat.tsx lib/group-chat-api.ts lib/__tests__/group-chat-mobile-source.test.ts`
+- `npx tsc --noEmit --pretty false`
+
+**후속/주의**:
+- 실제 FC/본부장/총무 3계정 Android foreground/background 푸시 수신과 음소거 푸시 제외는 런타임 QA로 계속 확인해야 한다.
+
+## <a id="20260611-referral-graph-admin-link"></a> 2026-06-11 | 추천인 페이지 관리자 웹 추천 관계 버튼
+
+**배경**:
+- 가람in 추천인 코드 페이지에서 FC와 본부장이 관리자 웹의 추천 관계 그래프를 바로 볼 수 있어야 했다.
+- 기존에는 환경변수 `EXPO_PUBLIC_ADMIN_WEB_URL`이 없으면 버튼 URL을 만들 수 없어 운영 앱에서 안내 알림이 뜰 수 있었다.
+
+**조치**:
+- 추천인 페이지의 그래프 진입 버튼을 FC/본부장 모두에게 보이도록 정리했다.
+- admin web URL 기본값을 `https://adminweb-red.vercel.app`로 두어 env 누락 시에도 운영 그래프 페이지로 이동하게 했다.
+- 버튼 문구를 `관리자 웹에서 추천 관계 보기`로 바꿔 graph view라는 내부 용어를 피했다.
+
+**핵심 파일**:
+- `app/referral.tsx`
+- `lib/__tests__/referral-graph-link.test.ts`
+
+**검증**:
+- `npm test -- --runTestsByPath lib/__tests__/referral-graph-link.test.ts --runInBand`
+- `npx eslint app/referral.tsx lib/__tests__/referral-graph-link.test.ts`
+- `npx tsc --noEmit --pretty false`
+
+## <a id="20260611-referral-graph-mobile-viewport"></a> 2026-06-11 | 관리자 웹 추천 관계 그래프 모바일 viewport
+
+**배경**:
+- 관리자 웹 추천 관계 그래프는 데스크톱 UI 중심으로 구성되어 핸드폰 브라우저에서 헤더/필터/범례가 좁게 보이고, 그래프 확대/축소가 동작하지 않았다.
+- 데스크톱 화면의 기존 UI는 유지하면서 모바일에서만 별도 compact 배치를 적용해야 했다.
+
+**조치**:
+- `getReferralGraphResponsiveLayout`를 기준으로 모바일에서는 제목/툴바/검색/필터/통계 badge/범례를 compact하게 배치했다.
+- 모바일 제목은 `추천 관계 보기`로 바꾸고, 데스크톱은 기존 `추천인 그래프`를 유지했다.
+- 모바일에서는 `ForceGraph2D` native zoom/pan을 켜고, 데스크톱 수동 wheel/pan handler는 touch pointer를 잡지 않도록 분리했다.
+- 모바일 pinch zoom/pan 계약을 source-level regression test로 고정했다.
+
+**핵심 파일**:
+- `web/src/app/dashboard/referrals/graph/page.tsx`
+- `web/src/components/referrals/ReferralGraphCanvas.tsx`
+- `web/src/lib/referral-graph-responsive.ts`
+- `web/src/lib/referral-graph-responsive.test.ts`
+- `web/src/lib/referral-graph-interaction.test.ts`
+- `.claude/MISTAKES.md`
+
+**검증**:
+- `node --experimental-strip-types --test web/src/lib/referral-graph-responsive.test.ts`
+- `node --experimental-strip-types --test web/src/lib/referral-graph-interaction.test.ts`
+- `cd web && npm run lint -- src/app/dashboard/referrals/graph/page.tsx src/components/referrals/ReferralGraphCanvas.tsx src/lib/referral-graph-responsive.ts src/lib/referral-graph-responsive.test.ts src/lib/referral-graph-interaction.test.ts`
+- `cd web && SENTRY_AUTH_TOKEN='' npm run build`
+- Vercel production 배포 확인: `adminweb-red.vercel.app` alias가 새 Ready deployment를 가리킴.
+
 ## <a id="20260609-request-board-fc-code-focus-refresh"></a> 2026-06-09 | Request board FC code focus refresh
 
 **배경**:

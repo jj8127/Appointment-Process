@@ -10,6 +10,7 @@ export function normalizeNotificationTargetUrl(url?: string | null): string {
   if (trimmed.startsWith('/dashboard/chat')) return '/messenger?channel=garam';
   if (trimmed === '/admin-messenger') return '/messenger?channel=garam';
   if (trimmed === '/chat') return '/messenger?channel=garam';
+  if (trimmed === '/group-chat') return '/group-chat';
   if (trimmed === '/request-board-messenger') return '/messenger?channel=request-board';
   if (trimmed.startsWith('/board?')) return trimmed.replace('/board?', '/board-detail?');
   if (trimmed.startsWith('/exam/apply2')) return '/exam-apply2';
@@ -32,6 +33,9 @@ export function resolveRequestBoardNotificationRoute(input: {
 
   if (category === 'request_board_message') {
     return '/messenger?channel=request-board';
+  }
+  if (category === 'group_chat_message') {
+    return '/group-chat';
   }
 
   const target = normalizeNotificationTargetUrl(input.targetUrl);

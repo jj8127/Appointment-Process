@@ -658,6 +658,9 @@ export default function NotificationsScreen() {
 
     const category = (item.category ?? '').toLowerCase();
 
+    if (category === 'group_chat_message') {
+      return '/group-chat';
+    }
     if (category.includes('message') || lowerTitle.includes('메시지') || lowerBody.includes('메시지')) {
       return '/messenger?channel=garam';
     }

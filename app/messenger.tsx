@@ -18,17 +18,19 @@ import {
   buildInternalChatViewerPayload,
   fetchInternalUnreadCount,
 } from '@/lib/internal-chat-api';
+import { groupChatBootstrap, type GroupChatMessage } from '@/lib/group-chat-api';
 import { logger } from '@/lib/logger';
 import { getAccountRoleLabel } from '@/lib/staff-identity';
 import { rbGetUnreadCount } from '@/lib/request-board-api';
 import { supabase } from '@/lib/supabase';
 
-type ChannelQuery = 'garam' | 'request-board' | null;
+type ChannelQuery = 'garam' | 'request-board' | 'group-chat' | null;
 
 const HANWHA_ORANGE = '#f36f21';
 const CHARCOAL = '#111827';
 const MUTED = '#6b7280';
 const REQUEST_BOARD_REFRESH_INTERVAL_MS = 30_000;
+const GROUP_CHAT_PREVIEW_LIMIT = 1;
 
 function parseChannel(value: string | string[] | undefined): ChannelQuery {
   if (!value) return null;
@@ -36,7 +38,15 @@ function parseChannel(value: string | string[] | undefined): ChannelQuery {
   const normalized = raw.trim().toLowerCase();
   if (normalized === 'garam') return 'garam';
   if (normalized === 'request-board' || normalized === 'request') return 'request-board';
+  if (normalized === 'group-chat' || normalized === 'group') return 'group-chat';
   return null;
+}
+
+function getGroupChatPreview(message: GroupChatMessage | null): string {
+  if (!message) return '본등록 FC, 본부장, 총무가 함께 참여';
+  if (message.message_type === 'image') return `${message.sender_name ?? '사용자'}: 사진`;
+  if (message.message_type === 'file') return `${message.sender_name ?? '사용자'}: ${message.file_name ?? '파일'}`;
+  return `${message.sender_name ?? '사용자'}: ${message.content}`;
 }
 
 export default function MessengerHubScreen() {
@@ -49,6 +59,9 @@ export default function MessengerHubScreen() {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [internalUnread, setInternalUnread] = useState(0);
+  const [groupChatUnread, setGroupChatUnread] = useState(0);
+  const [groupChatPreview, setGroupChatPreview] = useState('본등록 FC, 본부장, 총무가 함께 참여');
+  const [groupChatMemberCount, setGroupChatMemberCount] = useState(0);
   const [requestBoardMessageCount, setRequestBoardMessageCount] = useState(0);
 
   const internalViewerContext = useMemo(
@@ -66,6 +79,8 @@ export default function MessengerHubScreen() {
     [internalViewerContext],
   );
   const myChatId = internalViewerPayload?.viewer_id ?? '';
+  const canUseGroupChat = !isRequestBoardDesigner
+    && (role === 'fc' || (role === 'admin' && (readOnly || staffType !== 'developer')));
 
   const openGaramMessenger = useCallback(() => {
     if (role === 'admin' || isRequestBoardDesigner) {
@@ -77,6 +92,10 @@ export default function MessengerHubScreen() {
 
   const openRequestBoardMessenger = useCallback(() => {
     router.push('/request-board-messenger' as never);
+  }, [router]);
+
+  const openGroupChat = useCallback(() => {
+    router.push('/group-chat');
   }, [router]);
 
   const loadInternalUnreadCount = useCallback(async () => {
@@ -112,9 +131,35 @@ export default function MessengerHubScreen() {
     }
   }, [role]);
 
+  const loadGroupChatSummary = useCallback(async () => {
+    if (!role || !canUseGroupChat) {
+      setGroupChatUnread(0);
+      setGroupChatPreview('본등록 FC, 본부장, 총무가 함께 참여');
+      setGroupChatMemberCount(0);
+      return 0;
+    }
+
+    try {
+      const summary = await groupChatBootstrap(GROUP_CHAT_PREVIEW_LIMIT);
+      setGroupChatUnread(summary.unread_count);
+      setGroupChatPreview(getGroupChatPreview(summary.last_message));
+      setGroupChatMemberCount(summary.member_count);
+      return summary.unread_count;
+    } catch (err) {
+      logger.debug('[messenger-hub] group chat summary load failed', err);
+      setGroupChatUnread(0);
+      setGroupChatPreview('단톡방 정보를 불러오지 못했습니다');
+      setGroupChatMemberCount(0);
+      return 0;
+    }
+  }, [canUseGroupChat, role]);
+
   const loadCounts = useCallback(async () => {
     if (!role) {
       setInternalUnread(0);
+      setGroupChatUnread(0);
+      setGroupChatPreview('본등록 FC, 본부장, 총무가 함께 참여');
+      setGroupChatMemberCount(0);
       setRequestBoardMessageCount(0);
       setLoading(false);
       setRefreshing(false);
@@ -124,17 +169,19 @@ export default function MessengerHubScreen() {
     try {
       await Promise.all([
         loadInternalUnreadCount(),
+        loadGroupChatSummary(),
         loadRequestBoardUnreadCount(),
       ]);
     } catch (err) {
       logger.debug('[messenger-hub] count load failed', err);
       setInternalUnread(0);
+      setGroupChatUnread(0);
       setRequestBoardMessageCount(0);
     } finally {
       setLoading(false);
       setRefreshing(false);
     }
-  }, [loadInternalUnreadCount, loadRequestBoardUnreadCount, role]);
+  }, [loadGroupChatSummary, loadInternalUnreadCount, loadRequestBoardUnreadCount, role]);
 
   const handleRefresh = useCallback(async () => {
     setRefreshing(true);
@@ -157,6 +204,7 @@ export default function MessengerHubScreen() {
 
       const intervalId = setInterval(() => {
         void loadRequestBoardUnreadCount();
+        void loadGroupChatSummary();
       }, REQUEST_BOARD_REFRESH_INTERVAL_MS);
 
       const appStateSubscription = AppState.addEventListener('change', (nextState) => {
@@ -190,7 +238,7 @@ export default function MessengerHubScreen() {
           void supabase.removeChannel(messageChannel);
         }
       };
-    }, [hydrated, loadCounts, loadInternalUnreadCount, loadRequestBoardUnreadCount, myChatId, role]),
+    }, [hydrated, loadCounts, loadGroupChatSummary, loadInternalUnreadCount, loadRequestBoardUnreadCount, myChatId, role]),
   );
 
   useEffect(() => {
@@ -203,8 +251,12 @@ export default function MessengerHubScreen() {
       openGaramMessenger();
       return;
     }
+    if (requestedChannel === 'group-chat' && canUseGroupChat) {
+      openGroupChat();
+      return;
+    }
     openRequestBoardMessenger();
-  }, [channel, hydrated, openGaramMessenger, openRequestBoardMessenger, role]);
+  }, [canUseGroupChat, channel, hydrated, openGaramMessenger, openGroupChat, openRequestBoardMessenger, role]);
 
   const garamDescription = isRequestBoardDesigner
     ? '설계 매니저 화면에서 모든 FC와 1:1 대화'
@@ -251,6 +303,32 @@ export default function MessengerHubScreen() {
             </View>
             <Feather name="chevron-right" size={18} color="#9CA3AF" />
           </Pressable>
+
+          {canUseGroupChat && (
+            <Pressable
+              style={({ pressed }) => [styles.channelCard, pressed && { opacity: 0.88 }]}
+              onPress={openGroupChat}
+            >
+              <View style={[styles.channelIconWrap, { backgroundColor: '#FFF7ED' }]}>
+                <Feather name="message-circle" size={22} color={HANWHA_ORANGE} />
+              </View>
+              <View style={styles.channelBody}>
+                <View style={styles.channelHeadRow}>
+                  <Text style={styles.channelTitle}>가람PA 단톡방</Text>
+                  {groupChatUnread > 0 && (
+                    <View style={styles.badge}>
+                      <Text style={styles.badgeText}>{groupChatUnread > 99 ? '99+' : groupChatUnread}</Text>
+                    </View>
+                  )}
+                </View>
+                <Text style={styles.channelDesc} numberOfLines={1}>{groupChatPreview}</Text>
+                {groupChatMemberCount > 0 && (
+                  <Text style={styles.helperLine}>{groupChatMemberCount.toLocaleString('ko-KR')}명 참여</Text>
+                )}
+              </View>
+              <Feather name="chevron-right" size={18} color="#9CA3AF" />
+            </Pressable>
+          )}
 
           <Pressable
             style={({ pressed }) => [styles.channelCard, pressed && { opacity: 0.88 }]}

@@ -2,6 +2,7 @@ export type MessengerLoadingVariant =
   | 'hub'
   | 'targets'
   | 'admin-messenger'
+  | 'group-chat'
   | 'notifications'
   | 'request-board-messenger'
   | 'request-board'
@@ -31,6 +32,10 @@ const LOADING_COPY: Record<
   'admin-messenger': {
     title: '가람지사 메신저를 불러오고 있어요',
     subtitle: '대화 목록과 읽지 않은 메시지를 정리하는 중입니다.',
+  },
+  'group-chat': {
+    title: '가람PA 단톡방을 불러오고 있어요',
+    subtitle: '최근 메시지와 읽음 상태를 동기화하는 중입니다.',
   },
   notifications: {
     title: '알림을 불러오고 있어요',

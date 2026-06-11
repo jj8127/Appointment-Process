@@ -395,6 +395,7 @@ function RootLayout() {
                               ),
                             }}
                           />
+                          <Stack.Screen name="group-chat" options={{ headerShown: false }} />
                           <Stack.Screen name="chat" options={{ headerShown: false }} />
                           <Stack.Screen name="settings" options={{ ...baseHeader, title: '설정' }} />
 
@@ -521,6 +522,7 @@ function RootLayout() {
                               ),
                             }}
                           />
+                          <Stack.Screen name="group-chat" options={{ headerShown: false }} />
                           <Stack.Screen name="chat" options={{ headerShown: false }} />
                           <Stack.Screen name="settings" options={{ ...baseHeader, title: '설정' }} />
 

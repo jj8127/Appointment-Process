@@ -22,6 +22,13 @@ describe('getMessengerLoadingContent', () => {
     });
   });
 
+  it('returns user-facing copy for group chat loading', () => {
+    expect(getMessengerLoadingContent('group-chat')).toEqual({
+      title: '가람PA 단톡방을 불러오고 있어요',
+      subtitle: '최근 메시지와 읽음 상태를 동기화하는 중입니다.',
+    });
+  });
+
   it('returns user-facing copy for notifications loading', () => {
     expect(getMessengerLoadingContent('notifications')).toEqual({
       title: '알림을 불러오고 있어요',

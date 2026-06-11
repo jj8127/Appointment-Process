@@ -24,8 +24,8 @@ export function getReferralGraphResponsiveLayout(viewportWidth: number | null | 
   if (width < 640) {
     return {
       mode: 'mobile',
-      shellHeight: 'calc(100dvh - 64px - 32px)',
-      canvasMinHeight: 360,
+      shellHeight: 'calc(100dvh - 64px)',
+      canvasMinHeight: 520,
       headerStacked: true,
       showLongDescription: false,
       controlsScrollable: true,

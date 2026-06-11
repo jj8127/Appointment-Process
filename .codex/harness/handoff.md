@@ -2006,6 +2006,48 @@ Next resume step:
 - If the user still sees instability, capture the specific node name and drag path. The debug hook can now measure that exact path in screen pixels instead of relying on screenshots alone.
 
 ---
+# Increment 65: Group Chat Reply Reaction Delete Actions
+
+Status: implemented and deployed on 2026-06-10. Follow-up UI latency fix implemented locally on 2026-06-10.
+
+What changed:
+
+- `app/group-chat.tsx` now uses a KakaoTalk-like bubble row: unread count and time sit beside the bubble, my messages use a yellow bubble, and other messages use white.
+- Long-pressing a message opens actions for reply, reaction, and own-message delete.
+- Reply targets show above the input and are sent as `reply_to_message_id`.
+- Reactions are stored per user and summarized as compact chips under each message.
+- Delete is soft-delete only: the message remains in the chat as `삭제된 메시지입니다.` so replies/read state are not broken.
+- Supabase migration `20260610093000_extend_group_chat_message_actions.sql` added reply/delete columns and `group_chat_reactions`.
+- `group-chat` Edge Function deployed as version 5.
+- Text messages are inserted optimistically before the server response, then replaced by the persisted message.
+- Image/file messages are inserted immediately with the local URI, then updated to the uploaded public URL and replaced by the persisted message.
+- File message bubbles now include a visible download/open icon button while keeping the outgoing orange bubble style.
+
+Evidence:
+
+- RED confirmed with failing tests for missing API builders, missing reaction summary contract, and missing mobile action wiring.
+- Passed: `npm test -- --runTestsByPath lib/__tests__/group-chat-api.test.ts lib/__tests__/group-chat-contract.test.ts lib/__tests__/group-chat-mobile-source.test.ts --runInBand` (20/20).
+- Passed: `npx tsc --noEmit --pretty false`.
+- Passed: targeted ESLint for `app/group-chat.tsx`, group chat API/contract, and tests.
+- Passed: related group chat suite `npm test -- --runTestsByPath lib/__tests__/group-chat-api.test.ts lib/__tests__/group-chat-contract.test.ts lib/__tests__/group-chat-mobile-source.test.ts lib/__tests__/notification-route.test.ts lib/__tests__/messenger-loading.test.ts --runInBand` (35/35).
+- Passed after optimistic-send follow-up: `npm test -- --runTestsByPath lib/__tests__/group-chat-api.test.ts lib/__tests__/group-chat-contract.test.ts lib/__tests__/group-chat-mobile-source.test.ts --runInBand` (22/22).
+- Passed after optimistic-send follow-up: `npx eslint app/group-chat.tsx lib/group-chat-api.ts lib/__tests__/group-chat-mobile-source.test.ts`.
+- Passed after optimistic-send follow-up: `npx tsc --noEmit --pretty false`.
+- `supabase db push --linked --yes` applied the new migration.
+- `supabase functions deploy group-chat --project-ref ubeginyxaotcamuqpmud --use-api` deployed version 5.
+- `git diff --check` passed with Windows line-ending warnings only.
+
+Known risks / not yet verified:
+
+- Device-level manual QA has not yet been run after reloading the Android dev client bundle.
+- Attachment optimistic UI still needs phone QA for local URI preview, upload failure state, and tap-to-open/download after URL replacement.
+- Reactions update immediately for the current user; other users will see reaction changes on the existing periodic refresh rather than instant realtime reaction subscription.
+
+Next resume step:
+
+- Reload the app bundle, enter `메신저 > 가람PA 단톡방`, send text/image/file messages, confirm they appear immediately, tap file bubbles to open/download, long-press image/file/text bubbles, verify reply/reaction/delete, and confirm a second account sees unread/reaction/delete state after refresh.
+
+---
 # Increment 60: Request Board FC Code Focus Refresh
 
 Status: implemented and locally verified on 2026-06-09.
