@@ -246,6 +246,19 @@
       ]
     },
     {
+      "id": "backend-group-chat",
+      "severity": "contract",
+      "prefixes": [
+        "supabase/functions/_shared/group-chat.ts",
+        "supabase/functions/group-chat/"
+      ],
+      "requires_any": [
+        "docs/handbook/mobile/messenger-and-content.md",
+        "docs/handbook/backend/notifications-inbox-push.md",
+        "docs/handbook/data/data-model-canon.md"
+      ]
+    },
+    {
       "id": "backend-board",
       "severity": "behavior",
       "prefixes": [
