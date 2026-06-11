@@ -21,6 +21,7 @@
 
 | 날짜 | 작업 | 주요 파일 | 상세 |
 |---|---|---|---|
+| 06-11 | 가람PA 단톡방 개발자 계정 노출/참여 조건 보정: 모바일 메신저 카드와 Edge Function 멤버십에서 active developer admin 포함 | `app/messenger.tsx`, `lib/group-chat-contract.ts`, `supabase/functions/_shared/group-chat.ts` | [→ 상세](WORK_DETAIL.md#20260611-group-chat-developer-eligibility) |
 | 06-11 | 가람PA 단톡방 v1 추가: 메신저 허브 진입, 그룹 채팅 화면, Supabase Edge Function/migration, 메시지별 미확인 수/답장/감정/삭제/첨부 optimistic UX 구현 | `app/group-chat.tsx`, `app/messenger.tsx`, `lib/group-chat-api.ts`, `lib/group-chat-contract.ts`, `supabase/functions/group-chat/*`, `supabase/migrations/*group_chat*.sql` | [→ 상세](WORK_DETAIL.md#20260611-group-chat-v1) |
 | 06-11 | 추천인 페이지에서 관리자 웹 추천 관계 보기 버튼을 FC/본부장 모두에게 노출하고 기본 admin web URL fallback을 추가 | `app/referral.tsx`, `lib/__tests__/referral-graph-link.test.ts` | [→ 상세](WORK_DETAIL.md#20260611-referral-graph-admin-link) |
 | 06-11 | 관리자 웹 추천 관계 그래프를 모바일 화면에서 시인성 좋게 조정하고, 핸드폰 pinch zoom/pan을 native graph interaction으로 복구 | `web/src/app/dashboard/referrals/graph/page.tsx`, `web/src/components/referrals/ReferralGraphCanvas.tsx`, `web/src/lib/referral-graph-responsive.ts`, `web/src/lib/referral-graph-interaction.test.ts` | [→ 상세](WORK_DETAIL.md#20260611-referral-graph-mobile-viewport) |

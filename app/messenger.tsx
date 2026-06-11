@@ -43,7 +43,7 @@ function parseChannel(value: string | string[] | undefined): ChannelQuery {
 }
 
 function getGroupChatPreview(message: GroupChatMessage | null): string {
-  if (!message) return '본등록 FC, 본부장, 총무가 함께 참여';
+  if (!message) return '본등록 FC, 본부장, 총무, 개발자가 함께 참여';
   if (message.message_type === 'image') return `${message.sender_name ?? '사용자'}: 사진`;
   if (message.message_type === 'file') return `${message.sender_name ?? '사용자'}: ${message.file_name ?? '파일'}`;
   return `${message.sender_name ?? '사용자'}: ${message.content}`;
@@ -60,7 +60,7 @@ export default function MessengerHubScreen() {
   const [refreshing, setRefreshing] = useState(false);
   const [internalUnread, setInternalUnread] = useState(0);
   const [groupChatUnread, setGroupChatUnread] = useState(0);
-  const [groupChatPreview, setGroupChatPreview] = useState('본등록 FC, 본부장, 총무가 함께 참여');
+  const [groupChatPreview, setGroupChatPreview] = useState('본등록 FC, 본부장, 총무, 개발자가 함께 참여');
   const [groupChatMemberCount, setGroupChatMemberCount] = useState(0);
   const [requestBoardMessageCount, setRequestBoardMessageCount] = useState(0);
 
@@ -79,8 +79,7 @@ export default function MessengerHubScreen() {
     [internalViewerContext],
   );
   const myChatId = internalViewerPayload?.viewer_id ?? '';
-  const canUseGroupChat = !isRequestBoardDesigner
-    && (role === 'fc' || (role === 'admin' && (readOnly || staffType !== 'developer')));
+  const canUseGroupChat = !isRequestBoardDesigner && (role === 'fc' || role === 'admin');
 
   const openGaramMessenger = useCallback(() => {
     if (role === 'admin' || isRequestBoardDesigner) {
@@ -134,7 +133,7 @@ export default function MessengerHubScreen() {
   const loadGroupChatSummary = useCallback(async () => {
     if (!role || !canUseGroupChat) {
       setGroupChatUnread(0);
-      setGroupChatPreview('본등록 FC, 본부장, 총무가 함께 참여');
+      setGroupChatPreview('본등록 FC, 본부장, 총무, 개발자가 함께 참여');
       setGroupChatMemberCount(0);
       return 0;
     }
@@ -158,7 +157,7 @@ export default function MessengerHubScreen() {
     if (!role) {
       setInternalUnread(0);
       setGroupChatUnread(0);
-      setGroupChatPreview('본등록 FC, 본부장, 총무가 함께 참여');
+      setGroupChatPreview('본등록 FC, 본부장, 총무, 개발자가 함께 참여');
       setGroupChatMemberCount(0);
       setRequestBoardMessageCount(0);
       setLoading(false);

@@ -10,7 +10,7 @@ import {
 } from '../group-chat-contract';
 
 describe('group chat member eligibility', () => {
-  test('includes completed FCs, active managers, and active admins', () => {
+  test('includes completed FCs, active managers, active admins, and active developers', () => {
     expect(
       isEligibleGroupChatMember({
         kind: 'fc',
@@ -34,6 +34,15 @@ describe('group chat member eligibility', () => {
         phone: '010-5555-6666',
         active: true,
         staff_type: 'admin',
+      }),
+    ).toBe(true);
+
+    expect(
+      isEligibleGroupChatMember({
+        kind: 'admin',
+        phone: '010-1212-3434',
+        active: true,
+        staff_type: 'developer',
       }),
     ).toBe(true);
   });
@@ -62,15 +71,6 @@ describe('group chat member eligibility', () => {
         phone: '010-5555-6666',
         active: false,
         staff_type: 'admin',
-      }),
-    ).toBe(false);
-
-    expect(
-      isEligibleGroupChatMember({
-        kind: 'admin',
-        phone: '010-1212-3434',
-        active: true,
-        staff_type: 'developer',
       }),
     ).toBe(false);
 

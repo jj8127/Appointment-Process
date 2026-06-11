@@ -1892,3 +1892,11 @@
 - Permanent guardrail: 그래프 viewport interaction은 데스크톱 mouse/wheel과 모바일 coarse pointer를 분리한다. 모바일은 `react-force-graph` native zoom/pan을 사용하고, desktop-only 수동 handler는 touch pointer를 잡지 않아야 한다.
 - Related files: `web/src/components/referrals/ReferralGraphCanvas.tsx`, `web/src/lib/referral-graph-interaction.test.ts`
 - Verification: `node --experimental-strip-types --test web/src/lib/referral-graph-interaction.test.ts`; `cd web && npm run lint -- src/components/referrals/ReferralGraphCanvas.tsx src/lib/referral-graph-interaction.test.ts`; `cd web && SENTRY_AUTH_TOKEN='' npm run build`; Vercel production deploy.
+
+## 2026-06-11 | Group Chat Developer Eligibility Drift | 문구와 실제 참여 조건 불일치
+- Symptom: 개발자 계정으로 가람in `메신저` 화면에 들어가면 `가람PA 단톡방` 카드가 보이지 않았다.
+- Root cause: 단톡방 UI 문구와 기획 범위는 `FC, 본부장, 총무, 개발자` 참여였지만, 모바일 허브 `canUseGroupChat`과 Edge Function 공통 eligibility에서 `staff_type='developer'` admin을 제외했다.
+- Why it was missed: 단톡방 v1 테스트는 FC/본부장/총무와 설계매니저 제외만 고정했고, developer subtype이 총무 권한과 동일하게 내부 단톡방에 포함되어야 한다는 계약을 별도 회귀로 두지 않았다.
+- Permanent guardrail: `admin_accounts.staff_type='developer'`는 앱 권한이 총무와 동일하므로 내부 운영 단톡방 eligibility에서 제외하지 않는다. 단톡방 참여 계약은 모바일 표시 조건과 Edge Function 서버 eligibility를 같은 테스트에서 검증한다.
+- Related files: `app/messenger.tsx`, `lib/group-chat-contract.ts`, `lib/__tests__/group-chat-contract.test.ts`, `lib/__tests__/group-chat-mobile-source.test.ts`, `supabase/functions/_shared/group-chat.ts`
+- Verification: RED/GREEN `npm test -- --runTestsByPath lib/__tests__/group-chat-contract.test.ts lib/__tests__/group-chat-mobile-source.test.ts --runInBand`; focused group chat Jest suite

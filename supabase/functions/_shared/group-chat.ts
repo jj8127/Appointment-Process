@@ -77,7 +77,7 @@ export function isEligibleGroupChatMember(member: GroupChatMemberInput) {
   }
 
   if (member.kind === 'admin') {
-    return member.active === true && member.staff_type !== 'developer';
+    return member.active === true;
   }
 
   return member.active === true;

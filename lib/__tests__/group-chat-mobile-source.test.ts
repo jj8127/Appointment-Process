@@ -15,6 +15,7 @@ describe('group chat mobile wiring', () => {
     expect(source).toContain("router.push('/group-chat')");
     expect(source).toContain('groupChatBootstrap');
     expect(source).toContain('canUseGroupChat &&');
+    expect(source).not.toContain("staffType !== 'developer'");
   });
 
   it('registers the group chat route in the Expo stack', () => {

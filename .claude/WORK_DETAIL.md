@@ -7,16 +7,42 @@
 
 ---
 
+## <a id="20260611-group-chat-developer-eligibility"></a> 2026-06-11 | 가람PA 단톡방 개발자 계정 참여 보정
+
+**배경**:
+- 개발자 계정으로 로그인했을 때 `메신저` 화면에 `가람PA 단톡방` 카드가 보이지 않았다.
+- 단톡방 v1 운영 범위는 본등록 FC, 본부장, 총무, 개발자가 함께 참여하는 내부 단톡방이다.
+
+**조치**:
+- 모바일 메신저 허브의 `canUseGroupChat` 조건에서 `staffType !== 'developer'` 제외 조건을 제거해 active 개발자 admin도 단톡방 카드를 볼 수 있게 했다.
+- `lib/group-chat-contract.ts`와 Supabase Edge Function 공통 helper의 admin eligibility를 `active === true`로 통일했다.
+- 기본 preview 문구도 `본등록 FC, 본부장, 총무, 개발자가 함께 참여`로 정정했다.
+- 개발자 admin이 단톡방 멤버로 포함되고 모바일 소스에 developer 제외 조건이 남지 않는 회귀 테스트를 추가했다.
+
+**핵심 파일**:
+- `app/messenger.tsx`
+- `lib/group-chat-contract.ts`
+- `lib/__tests__/group-chat-contract.test.ts`
+- `lib/__tests__/group-chat-mobile-source.test.ts`
+- `supabase/functions/_shared/group-chat.ts`
+
+**검증**:
+- RED/GREEN `npm test -- --runTestsByPath lib/__tests__/group-chat-contract.test.ts lib/__tests__/group-chat-mobile-source.test.ts --runInBand`
+- `npm test -- --runTestsByPath lib/__tests__/group-chat-api.test.ts lib/__tests__/group-chat-contract.test.ts lib/__tests__/group-chat-mobile-source.test.ts --runInBand`
+
+**후속/주의**:
+- 운영 반영에는 `group-chat` Edge Function 재배포가 필요하다.
+
 ## <a id="20260611-group-chat-v1"></a> 2026-06-11 | 가람PA 단톡방 v1
 
 **배경**:
-- 가람in 내부 메신저에 본등록 FC, 본부장, 총무가 자동 참여하는 단체 단톡방이 필요했다.
+- 가람in 내부 메신저에 본등록 FC, 본부장, 총무, 개발자가 자동 참여하는 단체 단톡방이 필요했다.
 - 카카오톡식 핵심 UX인 실시간 메시지, 첨부, 읽지 않은 인원 수, 답장/감정/삭제, 개인별 음소거를 v1 범위로 구현했다.
 
 **조치**:
 - `/group-chat` 화면을 추가하고 `messenger` 허브에서 `가람PA 단톡방` 카드로 진입하도록 연결했다.
 - `group-chat` Supabase Edge Function과 전용 migration을 추가해 방/메시지/읽음/개인설정/감정/삭제를 `group_chat_*` 테이블로 분리했다.
-- 자동 참여 대상은 본등록 FC, active 본부장, active 총무로 계산하고 request_board 설계매니저 및 developer subtype은 제외했다.
+- 자동 참여 대상은 본등록 FC, active 본부장, active 총무, active 개발자로 계산하고 request_board 설계매니저는 제외했다.
 - 메시지별 미확인 인원 수를 발신자 말풍선 옆에 표시하고, 사진/파일도 parent bubble long-press 액션을 받도록 정리했다.
 - 텍스트/사진/파일 전송은 optimistic message를 먼저 삽입하고 서버 응답으로 교체해 체감 지연을 줄였다.
 - 파일 말풍선에 바로 다운로드/열기 버튼을 추가했다.
