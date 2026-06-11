@@ -13,6 +13,7 @@ import Animated, {
 
 import { ALERT_VARIANTS, ANIMATION, COLORS, RADIUS, SPACING, TYPOGRAPHY } from '@/lib/theme';
 import { inferAlertVariantFromTitle, inferUserFacingAlertFallback, toUserFacingAlertMessage } from '@/lib/user-facing-error';
+import { invokeAlertButtonByIndex, resolveAlertButtonIndex } from './app-alert-utils';
 
 type ButtonStyle = 'default' | 'cancel' | 'destructive';
 type AlertVariant = 'info' | 'success' | 'warning' | 'error';
@@ -90,7 +91,7 @@ function AlertCard({
   onBackdropPress,
 }: {
   alert: AppAlert;
-  onButtonPress: (button?: AppAlertButton) => void;
+  onButtonPress: (buttonIndex: number) => void;
   onBackdropPress: () => void;
 }) {
   const scale = useSharedValue(0.9);
@@ -109,11 +110,11 @@ function AlertCard({
   }));
 
   const handleClose = useCallback(
-    (button?: AppAlertButton) => {
+    (buttonIndex: number) => {
       scale.value = withTiming(0.9, { duration: ANIMATION.duration.fast });
       opacity.value = withTiming(0, { duration: ANIMATION.duration.fast }, (finished) => {
         if (finished) {
-          runOnJS(onButtonPress)(button);
+          runOnJS(onButtonPress)(buttonIndex);
         }
       });
     },
@@ -126,7 +127,7 @@ function AlertCard({
       onPress={() => {
         if (alert.options?.cancelable) {
           const cancelButton = alert.buttons.find((b) => b.style === 'cancel');
-          handleClose(cancelButton);
+          handleClose(resolveAlertButtonIndex(alert.buttons, cancelButton));
         }
       }}
       entering={FadeIn.duration(ANIMATION.duration.fast)}
@@ -162,7 +163,7 @@ function AlertCard({
                   isStacked ? styles.buttonFull : styles.buttonCompact,
                   pressed && styles.buttonPressed,
                 ]}
-                onPress={() => handleClose(button)}
+                onPress={() => handleClose(index)}
               >
                 <Text style={buttonStyle.text}>{button.text ?? '확인'}</Text>
               </Pressable>
@@ -197,13 +198,15 @@ export function AppAlertProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   const handleButtonPress = useCallback(
-    (button?: AppAlertButton) => {
-      if (button?.onPress) {
-        button.onPress();
+    (buttonIndex: number) => {
+      if (!currentAlert) {
+        dismissAlert();
+        return;
       }
-      dismissAlert();
+
+      invokeAlertButtonByIndex(currentAlert.buttons, buttonIndex, dismissAlert);
     },
-    [dismissAlert],
+    [currentAlert, dismissAlert],
   );
 
   useEffect(() => {

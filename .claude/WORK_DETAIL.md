@@ -7,6 +7,29 @@
 
 ---
 
+## <a id="20260611-sentry-appalert-runonjs-guard"></a> 2026-06-11 | Sentry AppAlert runOnJS callback guard
+
+**Agent**: Codex (GPT-5)
+
+**작업 내용**:
+- 배경:
+  - Daily Sentry triage candidate `122054204` (`REACT-NATIVE-3`) reported high-volume `TypeError: Object is not a function` events in the React Native project.
+  - The latest Sentry payload did not expose source-mapped frames, but issue metadata matched the known AppAlert/Reanimated `runOnJS` button callback pattern.
+  - `origin/main` still passed the full alert button object, including a possible function property, through `runOnJS(onButtonPress)(button)`.
+- 수정:
+  - `components/app-alert-utils.ts`를 추가해 alert button object를 UI thread boundary 전에 primitive index로 변환한다.
+  - `components/AppAlertProvider.tsx`는 `runOnJS`에 button object 대신 number index만 전달하고, JS thread에서 `invokeAlertButtonByIndex`로 callback을 callable guard 후 실행한다.
+  - `components/__tests__/app-alert-utils.test.ts`를 추가해 primitive index 변환과 non-callable `onPress` 무시/dismiss 동작을 고정했다.
+- Sentry 후보 분류:
+  - Fixed: `122054204` (`https://hanhwa-lifelab.sentry.io/issues/122054204/`)
+  - Skipped/documented: `125804605`/`125804270`/`124605865`/`126039968` native graphics/runtime low-count Android view errors without app frames; `124827154`/`124827157` historical `HOME_CTA_GRADIENT`/ErrorBoundary pair not present in current source; `126283379` single board `post not found` API error; `125972933` single app hang without actionable JS stack.
+
+**검증**:
+- RED: `npx jest components/__tests__/app-alert-utils.test.ts --runInBand` failed before helper implementation because `components/app-alert-utils` did not exist.
+- GREEN: `npx jest components/__tests__/app-alert-utils.test.ts --runInBand` passed after implementation.
+- `npm run lint -- components/AppAlertProvider.tsx components/app-alert-utils.ts components/__tests__/app-alert-utils.test.ts` passed.
+- `npm run lint` passed.
+
 ## <a id="20260331-referral-phase2-deeplink-inline-display"></a> 2026-03-31 | 추천인 Phase 2 딥링크/가입 확정 경로 정리 + 관리자 inline 코드 표시
 
 **배경**:
