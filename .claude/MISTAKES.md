@@ -1924,3 +1924,11 @@
 - Permanent guardrail: 앱 전체 기본 배경은 `DEFAULT_SCREEN_BACKGROUND` 같은 단일 상수로 루트/테마/Stack/baseHeader/StatusBar/Android NavigationBar에 모두 연결한다. 전역 navigation background source test가 이 연결 중 하나라도 빠지면 실패해야 한다.
 - Related files: `app/_layout.tsx`, `lib/__tests__/navigation-background-source.test.ts`
 - Verification: RED/GREEN `npm test -- --runInBand lib/__tests__/navigation-background-source.test.ts`; `npm test -- --runInBand lib/__tests__/navigation-background-source.test.ts lib/__tests__/signup-background-source.test.ts`
+
+## 2026-06-12 | EAS Update Config Drift | OTA 발행 가능 여부를 서버 배포처럼 단순 취급
+- Symptom: 단톡방 알림 앱 JS 반영을 위해 EAS Update를 실행하자 CLI가 `expo-updates`, `updates.url`, `runtimeVersion`을 자동 설치/설정했다.
+- Root cause: 현재 repo의 app config/package에는 OTA 설정이 추적되어 있지 않았지만, 이전 EAS update branch 이력만 보고 JS update가 항상 즉시 적용될 수 있다고 판단할 수 있었다.
+- Why it was missed: 서버 Edge Function 배포와 앱 JS OTA 반영을 구분했지만, "현재 native binary가 expo-updates를 포함하고 동일 runtime을 바라보는가"를 먼저 확인하지 않았다.
+- Permanent guardrail: EAS Update를 발행하기 전에는 `app.json`의 `updates.url`, `runtimeVersion`, `package.json`의 `expo-updates`, 최신 build runtime/channel 또는 branch를 확인한다. CLI가 auto-config를 만들면 repo에 추적하고, 기존 설치 앱이 해당 runtime을 받을 수 있는지 명확히 보고한다.
+- Related files: `app.json`, `package.json`, `package-lock.json`
+- Verification: `npx eas-cli@latest update --branch production --message "fix: group chat notifications and UI background hardening" --non-interactive`

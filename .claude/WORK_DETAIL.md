@@ -7,6 +7,34 @@
 
 ---
 
+## <a id="20260612-group-chat-server-js-deploy"></a> 2026-06-12 | 단톡방 알림 서버/앱 JS 반영
+
+**배경**:
+- 단톡방 알림 수정은 Supabase Edge Function 서버 로직과 모바일 JS bundle의 push token 등록 로직이 함께 반영되어야 한다.
+- 새 native build 없이 반영하려면 EAS Update가 production runtime에 발행되어야 한다.
+
+**조치**:
+- `group-chat` Edge Function을 Supabase project `ubeginyxaotcamuqpmud`에 재배포했다.
+- EAS Update를 `production` branch에 발행했다.
+  - Update group ID: `07bd777c-a2ae-4e52-ad82-cc121ecd12e6`
+  - Android update ID: `019eba9e-db93-767e-90d7-9ef89fb3306a`
+  - iOS update ID: `019eba9e-db93-7b33-aec9-b60b4e699467`
+  - Runtime version: `4.0.4`
+- EAS CLI가 OTA 설정을 보강하면서 `expo-updates`, `runtimeVersion: { policy: "appVersion" }`, `updates.url`을 repo에 추가했다. 이 설정을 추적해 향후 native build가 같은 update 체계를 유지하도록 했다.
+
+**핵심 파일**:
+- `app.json`
+- `package.json`
+- `package-lock.json`
+
+**검증**:
+- `supabase functions deploy group-chat --project-ref ubeginyxaotcamuqpmud`
+- `npx eas-cli@latest update --branch production --message "fix: group chat notifications and UI background hardening" --non-interactive`
+
+**후속/주의**:
+- 현재 OTA는 runtime `4.0.4`용이다. 이미 설치된 앱이 `expo-updates`와 같은 runtime으로 빌드되어 있어야 자동으로 받는다.
+- `expo-updates` 설정이 이번에 repo에 추가됐으므로, 이 설정 이전에 배포된 native binary는 OTA 수신 대상이 아닐 수 있다.
+
 ## <a id="20260612-global-navigation-background"></a> 2026-06-12 | 앱 전역 UI 배경색 회귀 방지
 
 **배경**:

@@ -3747,3 +3747,25 @@ Date: 2026-06-12
 - Device visual QA remains required after dev-client reload because native transition/surface rendering is platform-dependent.
 
 ---
+
+# Increment 68 Verification: Group Chat Server And JS Deployment
+
+Date: 2026-06-12
+
+### Scope
+
+- Deployed the server-side group chat notification logic.
+- Published the app-side JavaScript bundle that includes push token registration and UI/background fixes.
+- Captured the repo config drift caused by first-class EAS Update setup.
+
+### Commands
+
+- Passed: `supabase functions deploy group-chat --project-ref ubeginyxaotcamuqpmud`.
+- Passed: `npx eas-cli@latest update --branch production --message "fix: group chat notifications and UI background hardening" --non-interactive`.
+
+### QA Judgment
+
+- Pass for server deploy and EAS update publication.
+- Runtime QA still requires launching an installed app with runtime `4.0.4` and confirming it fetches update group `07bd777c-a2ae-4e52-ad82-cc121ecd12e6`.
+
+---

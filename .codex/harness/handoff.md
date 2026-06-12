@@ -2132,3 +2132,31 @@ Next resume step:
 - Reload the app bundle and move through login/signup, home, messenger/group-chat, request-board, and board modal flows while watching status/navigation bar and transition backgrounds.
 
 ---
+
+# Increment 68: Group Chat Server And JS Deployment
+
+Status: deployed on 2026-06-12; repo config changes pending verification/commit.
+
+What changed:
+
+- Supabase `group-chat` Edge Function was redeployed to project `ubeginyxaotcamuqpmud`.
+- EAS Update was published to the `production` branch for runtime `4.0.4`.
+- EAS CLI installed/configured `expo-updates`, `updates.url`, and appVersion runtime policy so future native builds keep receiving OTA updates.
+
+Deployment evidence:
+
+- Supabase: `supabase functions deploy group-chat --project-ref ubeginyxaotcamuqpmud`.
+- EAS update group: `07bd777c-a2ae-4e52-ad82-cc121ecd12e6`.
+- Android update: `019eba9e-db93-767e-90d7-9ef89fb3306a`.
+- iOS update: `019eba9e-db93-7b33-aec9-b60b4e699467`.
+
+Known risks / not yet verified:
+
+- Existing installed apps only receive this OTA if their native binary includes `expo-updates` and matches runtime `4.0.4`.
+- Apps built before the newly tracked OTA config may need a native rebuild before they can receive future EAS Updates.
+
+Next resume step:
+
+- Verify the package/app config changes, run governance checks, commit/push the `expo-updates` config, then test an installed runtime `4.0.4` client launch/update path.
+
+---
