@@ -453,15 +453,16 @@ export default function SignupScreen() {
   }, [applyPendingReferralCode, referralNonce, hydrated, role]);
 
   return (
-    <SafeAreaView style={styles.safe} edges={['left', 'right', 'bottom']}>
+    <View style={styles.container}>
       <LinearGradient
         colors={['#ffffff', '#fff1e6']}
-        style={StyleSheet.absoluteFill}
+        style={[StyleSheet.absoluteFill, styles.gradientFallback]}
         start={{ x: 0, y: 0 }}
         end={{ x: 1, y: 1 }}
       />
+      <SafeAreaView style={styles.safe} edges={['left', 'right', 'bottom']}>
       <KeyboardAwareWrapper
-        contentContainerStyle={[styles.container, { paddingBottom: Math.max(160, keyboardPadding + 120) }]}
+        contentContainerStyle={[styles.scrollContent, { paddingBottom: Math.max(160, keyboardPadding + 120) }]}
         extraScrollHeight={220}
         keyboardDismissMode="on-drag"
       >
@@ -705,6 +706,7 @@ export default function SignupScreen() {
           <Text style={styles.linkButtonText}>이미 계정이 있어요</Text>
         </Pressable>
       </KeyboardAwareWrapper>
+      </SafeAreaView>
 
       <Modal visible={showLicensePicker} transparent animationType="fade">
         <Pressable style={styles.modalOverlay} onPress={() => setShowLicensePicker(false)}>
@@ -787,13 +789,15 @@ export default function SignupScreen() {
           </Pressable>
         </Pressable>
       </Modal>
-    </SafeAreaView>
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
-  safe: { flex: 1, backgroundColor: COLORS.white },
-  container: { padding: SPACING.lg, gap: SPACING.lg },
+  container: { flex: 1, backgroundColor: COLORS.primaryPale },
+  gradientFallback: { backgroundColor: COLORS.primaryPale },
+  safe: { flex: 1 },
+  scrollContent: { padding: SPACING.lg, gap: SPACING.lg },
   hero: { gap: SPACING.sm, paddingVertical: SPACING.sm },
   heroEyebrow: { color: COLORS.primary, fontWeight: TYPOGRAPHY.fontWeight.bold, fontSize: TYPOGRAPHY.fontSize.base },
   title: { fontSize: TYPOGRAPHY.fontSize['3xl'], fontWeight: TYPOGRAPHY.fontWeight.extrabold, color: COLORS.text.primary, lineHeight: 34 },

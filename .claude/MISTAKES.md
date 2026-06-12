@@ -1908,3 +1908,11 @@
 - Permanent guardrail: group chat push는 모바일 토큰 등록 범위, Edge fanout role filtering, 설계매니저 제외 정책을 각각 테스트한다. request_board 설계매니저는 내부 단톡방 멤버가 아니며 `group_chat_message` 푸시를 받지 않아야 한다.
 - Related files: `app/index.tsx`, `lib/push-registration.ts`, `supabase/functions/group-chat/index.ts`, `lib/__tests__/push-registration.test.ts`, `lib/__tests__/group-chat-edge-source.test.ts`
 - Verification: `npm test -- --runInBand lib/__tests__/push-registration.test.ts lib/__tests__/group-chat-mobile-source.test.ts lib/__tests__/group-chat-edge-source.test.ts`; `npx tsc --noEmit --pretty false`; `npm run lint`; `supabase functions deploy group-chat --project-ref ubeginyxaotcamuqpmud`
+
+## 2026-06-12 | Signup Transition Background Fallback | 화면 contentStyle과 root fallback을 같이 고정하지 않음
+- Symptom: 회원가입 페이지에서 다음 가입 단계로 이동할 때 화면 배경이 순간적으로 검정색으로 바뀌었다.
+- Root cause: 가입 화면은 gradient를 렌더하지만 Stack scene `contentStyle`과 일부 화면 root fallback이 명시되지 않았다. 특히 `signup.tsx`는 `SafeAreaView`가 최상위라 gradient/render timing 또는 native transition 중 기본 배경색이 노출될 수 있었다.
+- Why it was missed: 화면 자체의 정상 렌더만 확인했고, native Stack 전환 중 scene 배경과 gradient fallback이 같은 색으로 고정되는지 테스트하지 않았다.
+- Permanent guardrail: gradient 기반 auth/signup 화면은 Stack `contentStyle`, root container background, `LinearGradient` fallback style을 모두 같은 밝은 배경으로 고정한다. 가입 단계는 source-level regression test로 검정색 fallback 재도입을 막는다.
+- Related files: `app/_layout.tsx`, `app/signup.tsx`, `app/signup-verify.tsx`, `app/signup-password.tsx`, `app/reset-password.tsx`, `lib/__tests__/signup-background-source.test.ts`
+- Verification: RED/GREEN `npm test -- --runInBand lib/__tests__/signup-background-source.test.ts`; `npx tsc --noEmit --pretty false`; `npm run lint`; `git diff --check`

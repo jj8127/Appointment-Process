@@ -159,7 +159,7 @@ export default function SignupVerifyScreen() {
     <View style={styles.container}>
       <LinearGradient
         colors={['#ffffff', '#fff1e6']}
-        style={StyleSheet.absoluteFill}
+        style={[StyleSheet.absoluteFill, styles.gradientFallback]}
         start={{ x: 0, y: 0 }}
         end={{ x: 1, y: 1 }}
       />
@@ -241,6 +241,10 @@ export default function SignupVerifyScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
+    backgroundColor: COLORS.primaryPale,
+  },
+  gradientFallback: {
+    backgroundColor: COLORS.primaryPale,
   },
   safe: {
     flex: 1,

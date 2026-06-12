@@ -62,6 +62,12 @@ const baseHeader = {
   header: (props: any) => <CompactHeader {...props} />,
 } as const;
 
+const AUTH_GRADIENT_BACKGROUND = '#fff1e6';
+const authHeader = {
+  ...baseHeader,
+  contentStyle: { backgroundColor: AUTH_GRADIENT_BACKGROUND },
+} as const;
+
 const ALERTS_CHANNEL_ID = 'alerts';
 
 const GARAMIN_LIGHT_THEME = {
@@ -317,7 +323,7 @@ function RootLayout() {
                           <Stack.Screen
                             name="signup"
                             options={{
-                              ...baseHeader,
+                              ...authHeader,
                               title: '회원가입',
                               headerLeft: () => (
                                 <Pressable onPress={() => router.replace('/login')} style={{ padding: 8, marginLeft: -8 }}>
@@ -329,7 +335,7 @@ function RootLayout() {
                           <Stack.Screen
                             name="reset-password"
                             options={{
-                              ...baseHeader,
+                              ...authHeader,
                               title: '비밀번호 재설정',
                               headerLeft: () => (
                                 <Pressable onPress={() => router.replace('/login')} style={{ padding: 8, marginLeft: -8 }}>
@@ -341,7 +347,7 @@ function RootLayout() {
                           <Stack.Screen
                             name="signup-verify"
                             options={{
-                              ...baseHeader,
+                              ...authHeader,
                               title: '휴대폰 인증',
                               headerLeft: () => (
                                 <Pressable onPress={() => router.replace('/signup')} style={{ padding: 8, marginLeft: -8 }}>
@@ -353,7 +359,7 @@ function RootLayout() {
                           <Stack.Screen
                             name="signup-password"
                             options={{
-                              ...baseHeader,
+                              ...authHeader,
                               title: '비밀번호 설정',
                               headerLeft: () => (
                                 <Pressable onPress={() => router.replace('/signup-verify')} style={{ padding: 8, marginLeft: -8 }}>
@@ -455,7 +461,7 @@ function RootLayout() {
                           <Stack.Screen
                             name="signup"
                             options={{
-                              ...baseHeader,
+                              ...authHeader,
                               title: '회원가입',
                               headerLeft: () => (
                                 <Pressable onPress={() => router.replace('/login')} style={{ padding: 8, marginLeft: -8 }}>
@@ -467,7 +473,7 @@ function RootLayout() {
                           <Stack.Screen
                             name="reset-password"
                             options={{
-                              ...baseHeader,
+                              ...authHeader,
                               title: '비밀번호 재설정',
                               headerLeft: () => (
                                 <Pressable onPress={() => router.replace('/login')} style={{ padding: 8, marginLeft: -8 }}>
@@ -479,7 +485,7 @@ function RootLayout() {
                           <Stack.Screen
                             name="signup-verify"
                             options={{
-                              ...baseHeader,
+                              ...authHeader,
                               title: '휴대폰 인증',
                               headerLeft: () => (
                                 <Pressable onPress={() => router.replace('/signup')} style={{ padding: 8, marginLeft: -8 }}>
@@ -491,7 +497,7 @@ function RootLayout() {
                           <Stack.Screen
                             name="signup-password"
                             options={{
-                              ...baseHeader,
+                              ...authHeader,
                               title: '비밀번호 설정',
                               headerLeft: () => (
                                 <Pressable onPress={() => router.replace('/signup-verify')} style={{ padding: 8, marginLeft: -8 }}>

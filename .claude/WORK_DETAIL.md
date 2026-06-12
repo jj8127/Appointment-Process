@@ -7,6 +7,35 @@
 
 ---
 
+## <a id="20260612-signup-transition-background"></a> 2026-06-12 | 회원가입 플로우 전환 배경색 고정
+
+**배경**:
+- 회원가입 페이지에서 다른 가입 단계로 이동할 때 화면 배경이 순간적으로 검정색으로 바뀌는 회귀가 있었다.
+- 가입 화면은 흰색→연한 주황 gradient를 쓰므로, native Stack 전환 배경과 화면 root fallback도 같은 계열로 고정되어야 한다.
+
+**조치**:
+- `app/_layout.tsx`에 `AUTH_GRADIENT_BACKGROUND`와 `authHeader`를 추가하고, `signup`, `signup-verify`, `signup-password`, `reset-password` 화면의 Stack `contentStyle`을 연한 주황 배경으로 고정했다.
+- `signup.tsx`의 최상위 구조를 다른 가입 단계와 맞춰 root `View` + absolute gradient + `SafeAreaView` 구조로 정리했다.
+- `signup.tsx`, `signup-verify.tsx`, `signup-password.tsx`, `reset-password.tsx`에 root `backgroundColor`와 `gradientFallback`을 추가해 gradient 렌더 전/전환 중에도 검정색 기본 배경이 드러나지 않게 했다.
+- source-level 회귀 테스트 `signup-background-source.test.ts`를 추가했다.
+
+**핵심 파일**:
+- `app/_layout.tsx`
+- `app/signup.tsx`
+- `app/signup-verify.tsx`
+- `app/signup-password.tsx`
+- `app/reset-password.tsx`
+- `lib/__tests__/signup-background-source.test.ts`
+
+**검증**:
+- RED/GREEN `npm test -- --runInBand lib/__tests__/signup-background-source.test.ts`
+- `npx tsc --noEmit --pretty false`
+- `npm run lint`
+- `git diff --check`
+
+**후속/주의**:
+- 실제 단말 전환 애니메이션은 dev-client reload 후 확인하면 된다.
+
 ## <a id="20260612-group-chat-notification-linkify"></a> 2026-06-12 | 가람PA 단톡방 알림/URL 링크 표시 보정
 
 **배경**:
