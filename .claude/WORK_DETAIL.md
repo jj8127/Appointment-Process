@@ -7,6 +7,31 @@
 
 ---
 
+## <a id="20260612-global-navigation-background"></a> 2026-06-12 | 앱 전역 UI 배경색 회귀 방지
+
+**배경**:
+- 회원가입 전환 배경을 고친 뒤에도 다른 화면에서 같은 종류의 색상 깜빡임이 재발할 수 있는지 점검했다.
+- React Navigation/Expo 문서 기준으로 화면 전환 중 보이는 scene 배경은 Stack `contentStyle`, Android 하단 navigation bar는 `expo-navigation-bar` 설정에 의해 별도로 결정된다.
+
+**조치**:
+- `app/_layout.tsx`에 `DEFAULT_SCREEN_BACKGROUND`를 추가하고 루트 `GestureHandlerRootView`, React Navigation theme `background/card`, `baseHeader.contentStyle`, 두 Stack의 `screenOptions.contentStyle`, `StatusBar`, Android `NavigationBar.setBackgroundColorAsync`가 모두 같은 밝은 배경을 사용하도록 고정했다.
+- 가입 화면용 `AUTH_GRADIENT_BACKGROUND`는 유지해 auth flow의 연한 주황 fallback과 일반 화면의 흰색 fallback을 분리했다.
+- 앱/컴포넌트 전체에서 명시적인 검정/투명 배경 사용을 스캔했다. 검정 계열은 이미지 프리뷰/모달 딤/주소검색 오버레이 등 의도된 overlay에 집중되어 있고, 일반 화면 전환 배경 후보는 전역 fallback으로 막았다.
+- `navigation-background-source.test.ts`를 추가해 전역 surface 중 하나라도 빠지면 테스트가 실패하게 했다.
+
+**핵심 파일**:
+- `app/_layout.tsx`
+- `lib/__tests__/navigation-background-source.test.ts`
+- `.claude/MISTAKES.md`
+
+**검증**:
+- RED/GREEN `npm test -- --runInBand lib/__tests__/navigation-background-source.test.ts`
+- `npm test -- --runInBand lib/__tests__/navigation-background-source.test.ts lib/__tests__/signup-background-source.test.ts`
+
+**후속/주의**:
+- 화면별 카드/버튼 색상은 각 UI 목적에 따라 유지했다. 전환 중 검정색 노출 방지는 전역 navigation/root/native bar fallback에서 담당한다.
+- 실제 단말 애니메이션 확인은 dev-client reload 후 진행한다.
+
 ## <a id="20260612-signup-transition-background"></a> 2026-06-12 | 회원가입 플로우 전환 배경색 고정
 
 **배경**:

@@ -21,6 +21,7 @@
 
 | 날짜 | 작업 | 주요 파일 | 상세 |
 |---|---|---|---|
+| 06-12 | 앱 전역 UI 배경색 회귀 방지: 루트/테마/Stack/baseHeader/StatusBar/Android NavigationBar를 단일 밝은 배경 상수로 고정하고 source-level guard 추가 | `app/_layout.tsx`, `lib/__tests__/navigation-background-source.test.ts`, `.claude/MISTAKES.md` | [→ 상세](WORK_DETAIL.md#20260612-global-navigation-background) |
 | 06-12 | 회원가입 플로우 화면 전환 중 배경이 검정색으로 보이는 회귀 방지: Stack contentStyle, 루트 fallback, gradient fallback을 가입 단계 전체에 고정 | `app/_layout.tsx`, `app/signup.tsx`, `app/signup-verify.tsx`, `app/signup-password.tsx`, `app/reset-password.tsx` | [→ 상세](WORK_DETAIL.md#20260612-signup-transition-background) |
 | 06-12 | 가람PA 단톡방 푸시 미수신 보정 및 메신저 URL 링크화: FC/본부장/총무/개발자 모바일 토큰 등록, 설계매니저 단톡방 푸시 제외, 채팅 URL 파란 밑줄/탭 이동 적용 | `app/index.tsx`, `app/group-chat.tsx`, `app/chat.tsx`, `components/LinkifiedSelectableText.tsx`, `lib/push-registration.ts`, `supabase/functions/group-chat/index.ts` | [→ 상세](WORK_DETAIL.md#20260612-group-chat-notification-linkify) |
 

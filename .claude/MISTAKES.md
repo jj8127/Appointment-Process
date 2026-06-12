@@ -1916,3 +1916,11 @@
 - Permanent guardrail: gradient 기반 auth/signup 화면은 Stack `contentStyle`, root container background, `LinearGradient` fallback style을 모두 같은 밝은 배경으로 고정한다. 가입 단계는 source-level regression test로 검정색 fallback 재도입을 막는다.
 - Related files: `app/_layout.tsx`, `app/signup.tsx`, `app/signup-verify.tsx`, `app/signup-password.tsx`, `app/reset-password.tsx`, `lib/__tests__/signup-background-source.test.ts`
 - Verification: RED/GREEN `npm test -- --runInBand lib/__tests__/signup-background-source.test.ts`; `npx tsc --noEmit --pretty false`; `npm run lint`; `git diff --check`
+
+## 2026-06-12 | App-Wide Navigation Background Fallback | 화면별 배경만 보고 전역 scene 배경을 놓침
+- Symptom: 가입 화면을 고쳐도 다른 헤더/헤더 없는 화면에서 전환 중 UI 배경색이 또 바뀔 수 있다는 위험이 남아 있었다.
+- Root cause: `app/_layout.tsx`의 전역 Stack `screenOptions`는 `headerShown: false`만 지정했고, `baseHeader`, React Navigation theme, root container, StatusBar, Android NavigationBar가 하나의 밝은 background contract로 묶여 있지 않았다.
+- Why it was missed: 개별 화면 root style과 정상 렌더만 확인했고, React Navigation scene container와 Android native navigation bar가 별도 surface라는 점을 전역 회귀 조건으로 두지 않았다.
+- Permanent guardrail: 앱 전체 기본 배경은 `DEFAULT_SCREEN_BACKGROUND` 같은 단일 상수로 루트/테마/Stack/baseHeader/StatusBar/Android NavigationBar에 모두 연결한다. 전역 navigation background source test가 이 연결 중 하나라도 빠지면 실패해야 한다.
+- Related files: `app/_layout.tsx`, `lib/__tests__/navigation-background-source.test.ts`
+- Verification: RED/GREEN `npm test -- --runInBand lib/__tests__/navigation-background-source.test.ts`; `npm test -- --runInBand lib/__tests__/navigation-background-source.test.ts lib/__tests__/signup-background-source.test.ts`

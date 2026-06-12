@@ -3724,3 +3724,26 @@ Date: 2026-06-12
 - Device runtime QA remains required for foreground/background push banners and platform URL opening.
 
 ---
+
+# Increment 67 Verification: App-Wide UI Background Hardening
+
+Date: 2026-06-12
+
+### Scope
+
+- Investigated recurring mobile UI color changes after the signup transition background fix.
+- Confirmed the remaining systemic risk was not ordinary card/button color, but navigation/root/native surface fallback: Stack scene background, custom-header scene background, app theme background, StatusBar, and Android NavigationBar.
+- Added a global default background contract and source-level regression coverage.
+
+### Commands
+
+- RED confirmed: `npm test -- --runInBand lib/__tests__/navigation-background-source.test.ts` failed while `_layout.tsx` had no `DEFAULT_SCREEN_BACKGROUND`, no global Stack `contentStyle`, and no Android NavigationBar background color.
+- Passed: `npm test -- --runInBand lib/__tests__/navigation-background-source.test.ts lib/__tests__/signup-background-source.test.ts`.
+- Source scan: searched `app`, `components`, and `lib` for black/transparent background usage. Remaining dark backgrounds are modal dim/preview overlays, not general scene backgrounds.
+
+### QA Judgment
+
+- Pass for source-level prevention of the known recurrence class.
+- Device visual QA remains required after dev-client reload because native transition/surface rendering is platform-dependent.
+
+---

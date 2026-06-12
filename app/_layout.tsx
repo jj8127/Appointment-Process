@@ -57,15 +57,23 @@ const queryClient = new QueryClient({
 // Disable native screen optimization to avoid Android drawing-order crash
 enableScreens(false);
 
+const DEFAULT_SCREEN_BACKGROUND = '#ffffff';
+const AUTH_GRADIENT_BACKGROUND = '#fff1e6';
+
 const baseHeader = {
   headerShown: true,
   header: (props: any) => <CompactHeader {...props} />,
+  contentStyle: { backgroundColor: DEFAULT_SCREEN_BACKGROUND },
 } as const;
 
-const AUTH_GRADIENT_BACKGROUND = '#fff1e6';
 const authHeader = {
   ...baseHeader,
   contentStyle: { backgroundColor: AUTH_GRADIENT_BACKGROUND },
+} as const;
+
+const defaultStackScreenOptions = {
+  headerShown: false,
+  contentStyle: { backgroundColor: DEFAULT_SCREEN_BACKGROUND },
 } as const;
 
 const ALERTS_CHANNEL_ID = 'alerts';
@@ -76,8 +84,8 @@ const GARAMIN_LIGHT_THEME = {
   colors: {
     ...DefaultTheme.colors,
     primary: '#f36f21',
-    background: '#ffffff',
-    card: '#ffffff',
+    background: DEFAULT_SCREEN_BACKGROUND,
+    card: DEFAULT_SCREEN_BACKGROUND,
     text: '#111827',
     border: '#e5e7eb',
     notification: '#f36f21',
@@ -218,6 +226,7 @@ function RootLayout() {
         const channels = await Notifications.getNotificationChannelsAsync();
         logger.debug('[notifications] android channels', { channels });
         await NavigationBar.setVisibilityAsync('visible');
+        await NavigationBar.setBackgroundColorAsync(DEFAULT_SCREEN_BACKGROUND);
         await NavigationBar.setStyle('dark');
       } catch (err) {
         logger.warn('NavigationBar/Notification setup failed', err);
@@ -277,7 +286,7 @@ function RootLayout() {
 
   return (
     <ErrorBoundary>
-      <GestureHandlerRootView style={{ flex: 1, position: 'relative', backgroundColor: '#ffffff' }}>
+      <GestureHandlerRootView style={{ flex: 1, position: 'relative', backgroundColor: DEFAULT_SCREEN_BACKGROUND }}>
         <SafeAreaProvider>
           <QueryClientProvider client={queryClient}>
             <SessionProvider>
@@ -294,9 +303,7 @@ function RootLayout() {
                         verticalOffset={0}>
                         <Stack
                           initialRouteName="login"
-                          screenOptions={{
-                            headerShown: false,
-                          }}>
+                          screenOptions={defaultStackScreenOptions}>
                           <Stack.Screen name="index" options={{ ...baseHeader, title: '홈' }} />
                           <Stack.Screen
                             name="home-lite"
@@ -426,15 +433,13 @@ function RootLayout() {
                           <Stack.Screen name="referral-tree" options={{ ...baseHeader, title: '추천 관계 전체 보기' }} />
                         </Stack>
 
-                        <StatusBar style="dark" backgroundColor="#fff" />
+                        <StatusBar style="dark" backgroundColor={DEFAULT_SCREEN_BACKGROUND} />
                       </TourGuideProvider>
                     ) : (
                       <>
                         <Stack
                           initialRouteName="login"
-                          screenOptions={{
-                            headerShown: false,
-                          }}>
+                          screenOptions={defaultStackScreenOptions}>
                           <Stack.Screen name="index" options={{ ...baseHeader, title: '홈' }} />
                           <Stack.Screen
                             name="home-lite"
@@ -552,7 +557,7 @@ function RootLayout() {
                           <Stack.Screen name="referral" options={{ ...baseHeader, title: '추천인 코드' }} />
                           <Stack.Screen name="referral-tree" options={{ ...baseHeader, title: '추천 관계 전체 보기' }} />
                         </Stack>
-                        <StatusBar style="dark" backgroundColor="#fff" />
+                        <StatusBar style="dark" backgroundColor={DEFAULT_SCREEN_BACKGROUND} />
                       </>
                     )}
                   </ThemeProvider>

@@ -2105,3 +2105,30 @@ Next resume step:
 - Reload the dev client, login as FC/본부장/총무/개발자, send a group-chat message from another account, and verify push banner/count behavior. Login as request_board 설계매니저 and confirm no group-chat push appears.
 
 ---
+
+# Increment 67: App-Wide UI Background Hardening
+
+Status: implemented and source-verified on 2026-06-12.
+
+What changed:
+
+- `app/_layout.tsx` now defines `DEFAULT_SCREEN_BACKGROUND` and applies it to root container, React Navigation theme background/card, `baseHeader.contentStyle`, both Stack `screenOptions.contentStyle`, `StatusBar`, and Android `NavigationBar.setBackgroundColorAsync`.
+- Auth/signup gradient background remains separate as `AUTH_GRADIENT_BACKGROUND`.
+- `lib/__tests__/navigation-background-source.test.ts` prevents losing the global surface fallback again.
+- `.claude/MISTAKES.md`, `.claude/WORK_LOG.md`, and `.claude/WORK_DETAIL.md` document the app-wide color flicker guardrail.
+
+Evidence:
+
+- RED confirmed: `npm test -- --runInBand lib/__tests__/navigation-background-source.test.ts` failed before `_layout.tsx` global background wiring.
+- Passed: `npm test -- --runInBand lib/__tests__/navigation-background-source.test.ts lib/__tests__/signup-background-source.test.ts`.
+- Source scan found dark backgrounds only in intended dim/preview overlays, not as general screen transition surfaces.
+
+Known risks / not yet verified:
+
+- Android dev-client runtime animation still needs a reload and quick navigation pass to visually confirm no black flash on physical/emulator device.
+
+Next resume step:
+
+- Reload the app bundle and move through login/signup, home, messenger/group-chat, request-board, and board modal flows while watching status/navigation bar and transition backgrounds.
+
+---
