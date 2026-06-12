@@ -1932,3 +1932,11 @@
 - Permanent guardrail: EAS Update를 발행하기 전에는 `app.json`의 `updates.url`, `runtimeVersion`, `package.json`의 `expo-updates`, 최신 build runtime/channel 또는 branch를 확인한다. CLI가 auto-config를 만들면 repo에 추적하고, 기존 설치 앱이 해당 runtime을 받을 수 있는지 명확히 보고한다.
 - Related files: `app.json`, `package.json`, `package-lock.json`
 - Verification: `npx eas-cli@latest update --branch production --message "fix: group chat notifications and UI background hardening" --non-interactive`
+
+## 2026-06-12 | Native Build Approval And Version Gate | 비용 발생 build 명령 승인/버전 규칙 누락
+- Symptom: 운영 배포 요청을 처리할 때 native build와 OTA update의 차이, 앱 버전 상향 필요성, 비용 발생 가능성을 충분히 분리해 확인하지 않았다.
+- Root cause: `eas build` 계열 명령은 유료 native artifact를 만들 수 있고 `app.json` visible version 상향이 선행돼야 하는데, 배포 요청을 서버/OTA/native build로 먼저 쪼개 승인받는 절차를 문서화하지 않았다.
+- Why it was missed: "배포"라는 표현을 배포 수단별 위험도로 나누지 않고, EAS 관련 명령을 모두 같은 운영 작업으로 취급했다.
+- Permanent guardrail: `eas build`, `npm run eas:build:*`, store submit 등 native build/submit 명령은 현재 대화에서 명시 승인을 받기 전에는 실행하지 않는다. 승인받아도 먼저 `app.json` 앱 버전을 올리고, platform/profile/current version/proposed version/실행 명령을 보고한 뒤 진행한다.
+- Related files: `AGENTS.md`, `.claude/MISTAKES.md`
+- Verification: Documentation guardrail only.

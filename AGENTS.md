@@ -48,6 +48,13 @@ npm test
 npm run test:coverage
 ```
 
+### Release Safety Contract
+- `eas build`, `npm run eas:build:android`, `npm run eas:build:ios`, store submit, or any command that can create a paid/native build must never be run without explicit user approval in the current conversation.
+- Before any approved native build, check `app.json` and bump the visible Expo app version first. Do not reuse the previous app version for a new native build.
+- Report the planned platform, build profile, current app version, proposed new app version, and expected cost-impacting command before asking for approval.
+- `eas update` is not the same as `eas build`, but it still changes production runtime behavior. Confirm the target branch/runtime and whether the installed native binary can receive the update before publishing.
+- If the user asks for deployment ambiguously, clarify whether they want server-only deploy, EAS Update/OTA, or a new native EAS build. Do not infer native build approval from a generic "배포" request.
+
 ```bash
 # Admin web
 cd web
