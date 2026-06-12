@@ -25,6 +25,7 @@ import {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import BrandedLoadingSpinner from '@/components/BrandedLoadingSpinner';
+import { LinkifiedSelectableText } from '@/components/LinkifiedSelectableText';
 import { useKeyboardPadding } from '@/hooks/use-keyboard-padding';
 import { useSession } from '@/hooks/use-session';
 import MessengerLoadingState from '@/components/MessengerLoadingState';
@@ -919,14 +920,16 @@ export default function ChatScreen() {
     }
 
     return (
-      <Text
+      <LinkifiedSelectableText
+        text={item.content}
         style={[
           styles.msgText,
           isMe ? styles.msgTextMe : styles.msgTextOther,
           { textAlign: 'left', width: '100%' },
-        ]}>
-        {item.content}
-      </Text>
+        ]}
+        linkStyle={styles.msgLinkText}
+        linkPressBehavior="open"
+      />
     );
   };
 
@@ -1373,6 +1376,7 @@ const styles = StyleSheet.create({
   msgText: { fontSize: 15, lineHeight: 22, flexWrap: 'wrap', flexShrink: 1, width: '100%' },
   msgTextMe: { color: '#ffffff', fontWeight: '500' },
   msgTextOther: { color: CHARCOAL },
+  msgLinkText: { color: '#2563EB', textDecorationLine: 'underline', fontWeight: '700' },
   timeText: { fontSize: 11, color: '#9CA3AF', marginBottom: 2, minWidth: 30 },
   inputWrapper: {
     backgroundColor: '#fff',

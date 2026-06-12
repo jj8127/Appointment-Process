@@ -22,6 +22,7 @@ type LinkifiedSelectableTextProps = {
   linkStyle?: StyleProp<TextStyle>;
   numberOfLines?: number;
   selectable?: boolean;
+  linkPressBehavior?: 'options' | 'open';
 };
 
 function splitTextByLinks(input: string): TextSegment[] {
@@ -61,6 +62,7 @@ export function LinkifiedSelectableText({
   linkStyle,
   numberOfLines,
   selectable = true,
+  linkPressBehavior = 'options',
 }: LinkifiedSelectableTextProps) {
   const safeText = text ?? '';
   const segments = useMemo(() => splitTextByLinks(safeText), [safeText]);
@@ -69,6 +71,14 @@ export function LinkifiedSelectableText({
   const handleLinkPress = (rawUrl: string) => {
     const normalized = normalizeExternalUrl(rawUrl);
     if (!normalized) return;
+
+    if (linkPressBehavior === 'open') {
+      openExternalUrl(normalized, { preferExternalBrowser: true }).catch(() => {
+        Alert.alert('오류', '링크를 열 수 없습니다.');
+      });
+      return;
+    }
+
     const displayText = formatExternalUrlDisplayText(normalized, 56);
 
     Alert.alert('링크 옵션', displayText, [

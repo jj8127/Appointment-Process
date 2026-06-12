@@ -3699,3 +3699,28 @@ Date: 2026-06-09
 - Device runtime QA is still useful after the next dev-client reload because the current installed bundle may not include this local patch.
 
 ---
+
+# Increment 66 Verification: Group Chat Push And Linkified URLs
+
+Date: 2026-06-12
+
+### Scope
+
+- Fixed mobile push token registration so group chat push can reach FC/admin-class app sessions.
+- Kept request_board designer tokens on manager scope and filtered them out of `group_chat_message` push fanout.
+- Rendered URLs in group chat and direct messenger as blue underlined tappable links.
+- Redeployed the `group-chat` Edge Function.
+
+### Commands
+
+- Passed: `npm test -- --runInBand lib/__tests__/push-registration.test.ts lib/__tests__/group-chat-mobile-source.test.ts lib/__tests__/group-chat-edge-source.test.ts` (19/19).
+- Passed: `npx tsc --noEmit --pretty false`.
+- Passed: `npm run lint`.
+- Deployed: `supabase functions deploy group-chat --project-ref ubeginyxaotcamuqpmud`.
+
+### QA Judgment
+
+- Pass for source/API/type/lint/server deployment checks.
+- Device runtime QA remains required for foreground/background push banners and platform URL opening.
+
+---

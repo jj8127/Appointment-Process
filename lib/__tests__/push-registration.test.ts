@@ -1,4 +1,7 @@
-import { buildPushRegistrationAttemptKey } from '@/lib/push-registration';
+import {
+  buildPushRegistrationAttemptKey,
+  resolvePushRegistrationDeviceRole,
+} from '@/lib/push-registration';
 
 describe('buildPushRegistrationAttemptKey', () => {
   it('returns null until the session is hydrated and identified', () => {
@@ -41,5 +44,18 @@ describe('buildPushRegistrationAttemptKey', () => {
         requestBoardRole: 'fc',
       }),
     ).toBe('admin:01058006018:fc');
+  });
+});
+
+describe('resolvePushRegistrationDeviceRole', () => {
+  it('registers FC and admin mobile sessions for push tokens', () => {
+    expect(resolvePushRegistrationDeviceRole({ role: 'fc', requestBoardRole: null })).toBe('fc');
+    expect(resolvePushRegistrationDeviceRole({ role: 'admin', requestBoardRole: null })).toBe('admin');
+    expect(resolvePushRegistrationDeviceRole({ role: 'admin', requestBoardRole: 'fc' })).toBe('admin');
+  });
+
+  it('keeps request-board designers on the manager token scope', () => {
+    expect(resolvePushRegistrationDeviceRole({ role: 'fc', requestBoardRole: 'designer' })).toBe('manager');
+    expect(resolvePushRegistrationDeviceRole({ role: 'admin', requestBoardRole: 'designer' })).toBe('manager');
   });
 });

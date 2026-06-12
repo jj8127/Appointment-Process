@@ -45,6 +45,10 @@ import { fetchMobileUnreadNotificationCount } from '@/lib/mobile-unread-notifica
 import { resolveHomeLatestNoticeRoute } from '@/lib/notice-route';
 import { openExternalUrl } from '@/lib/open-external-url';
 import {
+  buildPushRegistrationAttemptKey,
+  resolvePushRegistrationDeviceRole,
+} from '@/lib/push-registration';
+import {
   HOME_GUIDE_ICON_BACKGROUND,
   HOME_GUIDE_ICON_BORDER,
   HOME_GUIDE_ICON_FOREGROUND,
@@ -561,6 +565,7 @@ export default function Home() {
   const zoneScrollTargets = useRef<Record<number, number>>({});
   const shortcutZoneRefs = useRef<(View | null)[]>([]);
   const shortcutScrollTargets = useRef<Record<number, number>>({});
+  const pushRegistrationAttemptRef = useRef<string | null>(null);
 
   // 투어 시작 시 zone 위치를 미리 캐시 (스크롤 전 측정)
   const cacheZonePositions = useCallback(() => {
@@ -990,13 +995,22 @@ export default function Home() {
   // 기본정보는 회원가입 시 이미 저장되므로 강제 리다이렉트 제거
   // 사용자가 홈 화면의 "기본 정보" 버튼을 눌러 자발적으로 편집 가능
 
-  // FC 푸시 토큰 등록 (배너 알림 수신용)
+  // 모바일 푸시 토큰 등록 (배너 알림 수신용)
   const PUSH_CHANNEL_ID = 'alerts';
 
   useEffect(() => {
     let active = true;
     (async () => {
-      if (role !== 'fc' || !residentId) return;
+      const attemptKey = buildPushRegistrationAttemptKey({
+        hydrated,
+        role,
+        residentId,
+        requestBoardRole,
+      });
+      const pushRole = resolvePushRegistrationDeviceRole({ role, requestBoardRole });
+      if (!attemptKey || !residentId || !pushRole) return;
+      if (pushRegistrationAttemptRef.current === attemptKey) return;
+
       try {
         const { status } = await Notifications.requestPermissionsAsync();
         if (status !== 'granted') {
@@ -1017,21 +1031,25 @@ export default function Home() {
           projectId: Constants.expoConfig?.extra?.eas?.projectId,
         });
         if (!active || !token) return;
+        if (pushRegistrationAttemptRef.current === attemptKey) return;
+        pushRegistrationAttemptRef.current = attemptKey;
 
         // 디바이스 중복 방지: 기존 토큰 제거 후 upsert (unique constraint 대응)
         await supabase.from('device_tokens').delete().eq('expo_push_token', token);
         const { error } = await supabase
           .from('device_tokens')
           .upsert(
-            { resident_id: residentId, role: 'fc', expo_push_token: token },
+            { resident_id: residentId, role: pushRole, expo_push_token: token },
             { onConflict: 'expo_push_token' }
           );
         if (error) {
+          pushRegistrationAttemptRef.current = null;
           logger.debug('[push] upsert error', error.message ?? error);
         } else {
-          logger.debug('[push] fc token saved', { residentId, token });
+          logger.debug('[push] token saved', { residentId, role: pushRole, token });
         }
       } catch (e: unknown) {
+        pushRegistrationAttemptRef.current = null;
         const error = e as { message?: string };
         logger.debug('[push] exception', error?.message ?? e);
       }
@@ -1039,7 +1057,7 @@ export default function Home() {
     return () => {
       active = false;
     };
-  }, [role, residentId]);
+  }, [hydrated, role, residentId, requestBoardRole]);
 
   const handleLogout = () => {
     Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);

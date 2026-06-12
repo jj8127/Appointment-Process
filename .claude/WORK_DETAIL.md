@@ -7,6 +7,40 @@
 
 ---
 
+## <a id="20260612-group-chat-notification-linkify"></a> 2026-06-12 | 가람PA 단톡방 알림/URL 링크 표시 보정
+
+**배경**:
+- 단톡방 메시지가 올라와도 모바일 푸시 알림이 보이지 않았다.
+- 설계 매니저에게는 단톡방 알림이 가지 않아야 한다.
+- 메신저 메시지 안의 인터넷 링크가 카카오톡처럼 파란색 밑줄 텍스트로 표시되고, 탭하면 이동해야 했다.
+
+**조치**:
+- 홈 진입 시 Expo push token 등록 대상을 FC 전용에서 FC/본부장/총무/개발자 모바일 세션으로 확장했다.
+- request_board 설계매니저 세션은 기존처럼 `manager` token scope로 등록하고, `group-chat` Edge Function에서 `filterManagerTokensForNotification` 정책을 적용해 `group_chat_message` 푸시를 제외했다.
+- `group-chat` Edge Function의 token 조회에 `role`을 포함하고, Expo push payload에 `priority: 'high'`와 `channelId: 'alerts'`를 명시했다.
+- 단톡방과 1:1 메신저 텍스트에 `LinkifiedSelectableText`를 적용해 URL을 파란색 밑줄로 표시하고, 탭 시 외부 브라우저/앱 링크로 바로 열리도록 했다.
+
+**핵심 파일**:
+- `app/index.tsx`
+- `app/group-chat.tsx`
+- `app/chat.tsx`
+- `components/LinkifiedSelectableText.tsx`
+- `lib/push-registration.ts`
+- `lib/__tests__/push-registration.test.ts`
+- `lib/__tests__/group-chat-mobile-source.test.ts`
+- `lib/__tests__/group-chat-edge-source.test.ts`
+- `supabase/functions/group-chat/index.ts`
+
+**검증**:
+- `npm test -- --runInBand lib/__tests__/push-registration.test.ts lib/__tests__/group-chat-mobile-source.test.ts lib/__tests__/group-chat-edge-source.test.ts`
+- `npx tsc --noEmit --pretty false`
+- `npm run lint`
+- `supabase functions deploy group-chat --project-ref ubeginyxaotcamuqpmud`
+
+**후속/주의**:
+- 앱 코드 변경은 Metro/dev-client reload 또는 앱 배포 후 단말에 반영된다.
+- 실제 foreground/background 푸시 수신과 URL 탭 이동은 단말에서 한 번 더 확인해야 한다.
+
 ## <a id="20260611-group-chat-developer-eligibility"></a> 2026-06-11 | 가람PA 단톡방 개발자 계정 참여 보정
 
 **배경**:

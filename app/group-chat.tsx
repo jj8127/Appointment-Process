@@ -26,6 +26,7 @@ import {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import BrandedLoadingSpinner from '@/components/BrandedLoadingSpinner';
+import { LinkifiedSelectableText } from '@/components/LinkifiedSelectableText';
 import MessengerLoadingState from '@/components/MessengerLoadingState';
 import { useKeyboardPadding } from '@/hooks/use-keyboard-padding';
 import {
@@ -654,7 +655,14 @@ export default function GroupChatScreen() {
       );
     }
 
-    return <Text style={[styles.msgText, isMe ? styles.msgTextMe : styles.msgTextOther]}>{item.content}</Text>;
+    return (
+      <LinkifiedSelectableText
+        text={item.content}
+        style={[styles.msgText, isMe ? styles.msgTextMe : styles.msgTextOther]}
+        linkStyle={styles.msgLinkText}
+        linkPressBehavior="open"
+      />
+    );
   }, []);
 
   const renderItem = useCallback(({ item }: { item: GroupChatMessage }) => {
@@ -1025,6 +1033,7 @@ const styles = StyleSheet.create({
   msgText: { fontSize: 15, lineHeight: 22, flexWrap: 'wrap' },
   msgTextMe: { color: '#fff', fontWeight: '500' },
   msgTextOther: { color: CHARCOAL },
+  msgLinkText: { color: '#2563EB', textDecorationLine: 'underline', fontWeight: '700' },
   messageSideMeta: { minWidth: 44, paddingBottom: 2 },
   messageSideMetaMe: { alignItems: 'flex-end' },
   messageSideMetaOther: { alignItems: 'flex-start' },

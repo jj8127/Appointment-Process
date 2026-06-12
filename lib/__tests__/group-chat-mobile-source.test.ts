@@ -37,6 +37,20 @@ describe('group chat mobile wiring', () => {
     expect(source).toContain('supabase.removeChannel(channel)');
   });
 
+  it('renders internet URLs as tappable, underlined links in group chat messages', () => {
+    const source = readAppFile('group-chat.tsx');
+
+    expect(source).toContain('LinkifiedSelectableText');
+    expect(source).toContain('msgLinkText');
+  });
+
+  it('keeps direct messenger text linkified too', () => {
+    const source = readAppFile('chat.tsx');
+
+    expect(source).toContain('LinkifiedSelectableText');
+    expect(source).toContain('msgLinkText');
+  });
+
   it('shows KakaoTalk-style unread recipient counts on sent messages', () => {
     const source = readAppFile('group-chat.tsx');
 
@@ -92,5 +106,18 @@ describe('group chat mobile wiring', () => {
 
     expect(source).toContain("category === 'group_chat_message'");
     expect(source).toContain("return '/group-chat'");
+  });
+
+  it('registers push tokens from mobile admin sessions too', () => {
+    const source = readAppFile('index.tsx');
+    const pushRegistrationSection = source.slice(
+      source.indexOf('모바일 푸시 토큰 등록'),
+      source.indexOf('const handleLogout'),
+    );
+
+    expect(pushRegistrationSection).toContain('resolvePushRegistrationDeviceRole');
+    expect(pushRegistrationSection).toContain('buildPushRegistrationAttemptKey');
+    expect(pushRegistrationSection).toContain('role: pushRole');
+    expect(pushRegistrationSection).not.toContain("if (role !== 'fc' || !residentId) return;");
   });
 });

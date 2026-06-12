@@ -1,5 +1,6 @@
 type PushRegistrationRole = 'admin' | 'fc' | null;
 type PushRegistrationRequestBoardRole = 'fc' | 'designer' | null;
+export type PushRegistrationDeviceRole = 'admin' | 'fc' | 'manager';
 
 type BuildPushRegistrationAttemptKeyInput = {
   hydrated: boolean;
@@ -18,6 +19,17 @@ export function buildPushRegistrationAttemptKey({
     return null;
   }
 
-  const pushRole = requestBoardRole === 'designer' ? 'manager' : role;
+  const pushRole = resolvePushRegistrationDeviceRole({ role, requestBoardRole });
+  if (!pushRole) return null;
+
   return `${pushRole}:${residentId}:${requestBoardRole ?? 'none'}`;
+}
+
+export function resolvePushRegistrationDeviceRole(input: {
+  role: PushRegistrationRole;
+  requestBoardRole: PushRegistrationRequestBoardRole;
+}): PushRegistrationDeviceRole | null {
+  if (!input.role) return null;
+  if (input.requestBoardRole === 'designer') return 'manager';
+  return input.role;
 }

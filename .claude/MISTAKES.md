@@ -1900,3 +1900,11 @@
 - Permanent guardrail: `admin_accounts.staff_type='developer'`는 앱 권한이 총무와 동일하므로 내부 운영 단톡방 eligibility에서 제외하지 않는다. 단톡방 참여 계약은 모바일 표시 조건과 Edge Function 서버 eligibility를 같은 테스트에서 검증한다.
 - Related files: `app/messenger.tsx`, `lib/group-chat-contract.ts`, `lib/__tests__/group-chat-contract.test.ts`, `lib/__tests__/group-chat-mobile-source.test.ts`, `supabase/functions/_shared/group-chat.ts`
 - Verification: RED/GREEN `npm test -- --runTestsByPath lib/__tests__/group-chat-contract.test.ts lib/__tests__/group-chat-mobile-source.test.ts --runInBand`; focused group chat Jest suite
+
+## 2026-06-12 | Group Chat Push Scope Split | 참여 가능 계정과 푸시 대상 계정을 같은 것으로 봄
+- Symptom: 단톡방 메시지가 올라와도 일부 모바일 세션에서 푸시가 보이지 않았고, 반대로 설계매니저에게는 단톡방 알림이 가지 않아야 하는 정책이 source test로 고정되지 않았다.
+- Root cause: 모바일 Expo push token 등록이 FC 전용 조건으로 묶여 있어 본부장/총무/개발자 세션은 `device_tokens`에 저장되지 않았다. 또한 group-chat Edge Function은 token role을 조회하지 않아 shared manager-notification policy를 적용할 수 없었다.
+- Why it was missed: 단톡방 참여 eligibility와 방 unread는 테스트했지만, "누가 방에 참여하는가"와 "누구의 디바이스 토큰에 푸시를 보내는가"를 별도 계약으로 검증하지 않았다.
+- Permanent guardrail: group chat push는 모바일 토큰 등록 범위, Edge fanout role filtering, 설계매니저 제외 정책을 각각 테스트한다. request_board 설계매니저는 내부 단톡방 멤버가 아니며 `group_chat_message` 푸시를 받지 않아야 한다.
+- Related files: `app/index.tsx`, `lib/push-registration.ts`, `supabase/functions/group-chat/index.ts`, `lib/__tests__/push-registration.test.ts`, `lib/__tests__/group-chat-edge-source.test.ts`
+- Verification: `npm test -- --runInBand lib/__tests__/push-registration.test.ts lib/__tests__/group-chat-mobile-source.test.ts lib/__tests__/group-chat-edge-source.test.ts`; `npx tsc --noEmit --pretty false`; `npm run lint`; `supabase functions deploy group-chat --project-ref ubeginyxaotcamuqpmud`

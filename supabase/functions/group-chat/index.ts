@@ -5,6 +5,7 @@ import {
   requireAppSessionFromRequest,
   type AppSessionTokenPayload,
 } from '../_shared/request-board-auth.ts';
+import { filterManagerTokensForNotification } from '../_shared/notification-delivery-policy.ts';
 import {
   buildGroupChatActor,
   buildGroupChatAppointmentLabel,
@@ -96,6 +97,7 @@ type ReadStateRow = {
 type DeviceTokenRow = {
   expo_push_token: string;
   resident_id: string | null;
+  role?: string | null;
 };
 
 const EXPO_PUSH_URL = 'https://exp.host/--/api/v2/push/send';
@@ -597,7 +599,7 @@ async function notifyRecipients(input: {
   const recipientPhones = Array.from(new Set(recipients.map((member) => member.phone)));
   const { data: tokenRows, error: tokenError } = await supabase
     .from('device_tokens')
-    .select('expo_push_token,resident_id')
+    .select('expo_push_token,resident_id,role')
     .in('resident_id', recipientPhones);
   if (tokenError) {
     console.warn('[group-chat] token query failed', tokenError.message);
@@ -605,11 +607,16 @@ async function notifyRecipients(input: {
   }
 
   const allowedPhones = new Set(recipientPhones);
-  const pushPayload = ((tokenRows ?? []) as DeviceTokenRow[])
-    .filter((row) => row.expo_push_token && allowedPhones.has(sanitizeGroupChatPhone(row.resident_id)))
+  const allowedTokenRows = filterManagerTokensForNotification(
+    ((tokenRows ?? []) as DeviceTokenRow[])
+      .filter((row) => row.expo_push_token && allowedPhones.has(sanitizeGroupChatPhone(row.resident_id))),
+    { category: GROUP_CHAT_NOTIFICATION_CATEGORY, targetId: null },
+  );
+  const pushPayload = allowedTokenRows
     .map((row) => ({
       to: row.expo_push_token,
       sound: 'default',
+      priority: 'high',
       channelId: 'alerts',
       title: GROUP_CHAT_ROOM_TITLE,
       body: `${input.sender.name ?? '사용자'}: ${buildGroupChatPreview(input.message)}`,

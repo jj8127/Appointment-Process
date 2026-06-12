@@ -2075,3 +2075,33 @@ Next resume step:
 - Reload the Expo/dev-client bundle, open 설계요청 작성 as `01012341234`, register or confirm `테스트 회사` in 설계코드 관리, return to the create screen, and verify `테스트 매니저` no longer shows `FC 코드 필요`.
 
 ---
+
+# Increment 66: Group Chat Push And Linkified URLs
+
+Status: implemented, tested, and Edge Function deployed on 2026-06-12.
+
+What changed:
+
+- `app/index.tsx` now registers Expo push tokens for mobile FC/admin sessions, including 본부장/총무/개발자, instead of FC-only.
+- request_board designer sessions remain registered as `manager` tokens.
+- `group-chat` Edge Function now selects token `role`, applies shared manager notification policy, and therefore excludes 설계매니저 tokens from `group_chat_message` push fanout.
+- Group chat push payloads use the `alerts` channel and high priority.
+- `app/group-chat.tsx` and `app/chat.tsx` now render URL text with `LinkifiedSelectableText` as blue, underlined links that open on tap.
+
+Evidence:
+
+- Passed: `npm test -- --runInBand lib/__tests__/push-registration.test.ts lib/__tests__/group-chat-mobile-source.test.ts lib/__tests__/group-chat-edge-source.test.ts` (19/19).
+- Passed: `npx tsc --noEmit --pretty false`.
+- Passed: `npm run lint`.
+- Deployed: `supabase functions deploy group-chat --project-ref ubeginyxaotcamuqpmud`.
+
+Known risks / not yet verified:
+
+- Device-level foreground/background push display still needs Android QA after the app bundle is reloaded.
+- URL tap opening should be verified on device because external app/browser handling is platform-dependent.
+
+Next resume step:
+
+- Reload the dev client, login as FC/본부장/총무/개발자, send a group-chat message from another account, and verify push banner/count behavior. Login as request_board 설계매니저 and confirm no group-chat push appears.
+
+---

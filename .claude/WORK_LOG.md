@@ -17,6 +17,12 @@
 - ⚠️ 상태값(`types/fc.ts`)과 화면 분기 조건은 반드시 함께 수정
 - ⚠️ 스키마 변경은 `schema.sql` + `migrations/*.sql` 동시 관리
 
+## 2026-06-12
+
+| 날짜 | 작업 | 주요 파일 | 상세 |
+|---|---|---|---|
+| 06-12 | 가람PA 단톡방 푸시 미수신 보정 및 메신저 URL 링크화: FC/본부장/총무/개발자 모바일 토큰 등록, 설계매니저 단톡방 푸시 제외, 채팅 URL 파란 밑줄/탭 이동 적용 | `app/index.tsx`, `app/group-chat.tsx`, `app/chat.tsx`, `components/LinkifiedSelectableText.tsx`, `lib/push-registration.ts`, `supabase/functions/group-chat/index.ts` | [→ 상세](WORK_DETAIL.md#20260612-group-chat-notification-linkify) |
+
 ## 2026-06-11
 
 | 날짜 | 작업 | 주요 파일 | 상세 |
