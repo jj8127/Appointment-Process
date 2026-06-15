@@ -54,6 +54,11 @@ export type GroupChatReactionLike = {
   reaction?: string | null;
 };
 
+export type GroupChatSendPermissionLike = {
+  actor_id?: string | null;
+  can_send_messages?: boolean | null;
+};
+
 export const GROUP_CHAT_ROOM_SLUG = 'garampa-default';
 export const GROUP_CHAT_ROOM_TITLE = '가람PA 단톡방';
 export const GROUP_CHAT_NOTIFICATION_CATEGORY = 'group_chat_message';
@@ -61,6 +66,12 @@ export const GROUP_CHAT_TARGET_URL = '/group-chat';
 
 export const sanitizeGroupChatPhone = (value?: string | null) => String(value ?? '').replace(/[^0-9]/g, '');
 export const normalizeGroupChatText = (value?: string | null) => String(value ?? '').replace(/\s+/g, ' ').trim();
+export const normalizeGroupChatMessageContent = (value?: string | null) =>
+  String(value ?? '')
+    .replace(/\r\n?/g, '\n')
+    .replace(/[ \t]+\n/g, '\n')
+    .replace(/\n[ \t]+/g, '\n')
+    .trim();
 
 export function isRequestBoardDesignerAffiliation(value?: string | null) {
   return normalizeGroupChatText(value).replace(/\s+/g, '').includes('설계매니저');
@@ -110,6 +121,20 @@ export function buildGroupChatActor(input: {
     phone,
     name: normalizeGroupChatText(input.name) || null,
   };
+}
+
+export function canGroupChatActorSendMessages(input: {
+  actor?: GroupChatActor | null;
+  permissions?: GroupChatSendPermissionLike[] | null;
+}) {
+  const actor = input.actor ?? null;
+  if (!actor?.id) return false;
+  if (actor.role !== 'fc') return true;
+
+  const actorId = normalizeGroupChatText(actor.id);
+  return (input.permissions ?? []).some((row) =>
+    normalizeGroupChatText(row.actor_id) === actorId && row.can_send_messages === true,
+  );
 }
 
 export function computeGroupChatUnreadCount(input: {

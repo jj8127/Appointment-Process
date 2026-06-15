@@ -378,6 +378,127 @@ alter table public.notifications
 alter table public.notifications
   add constraint notifications_recipient_role_check check (recipient_role in ('admin','fc','manager'));
 
+create table if not exists public.group_chat_rooms (
+  id uuid primary key default gen_random_uuid(),
+  slug text not null unique,
+  title text not null,
+  is_active boolean not null default true,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
+create table if not exists public.group_chat_messages (
+  id uuid primary key default gen_random_uuid(),
+  room_id uuid not null references public.group_chat_rooms(id) on delete cascade,
+  sender_actor_id text not null,
+  sender_role text not null check (sender_role in ('fc', 'manager', 'admin')),
+  sender_phone text not null,
+  sender_name text,
+  content text not null default '',
+  message_type text not null default 'text' check (message_type in ('text', 'image', 'file')),
+  file_url text,
+  file_name text,
+  file_size bigint,
+  created_at timestamptz not null default now(),
+  reply_to_message_id uuid references public.group_chat_messages(id) on delete set null,
+  reply_to_sender_name text,
+  reply_to_content text,
+  deleted_at timestamptz,
+  deleted_by_actor_id text,
+  check (
+    char_length(trim(content)) > 0
+    or (message_type in ('image', 'file') and file_url is not null)
+  )
+);
+
+create table if not exists public.group_chat_reads (
+  room_id uuid not null references public.group_chat_rooms(id) on delete cascade,
+  actor_id text not null,
+  last_read_at timestamptz not null default now(),
+  last_read_message_id uuid references public.group_chat_messages(id) on delete set null,
+  updated_at timestamptz not null default now(),
+  primary key (room_id, actor_id)
+);
+
+create table if not exists public.group_chat_preferences (
+  room_id uuid not null references public.group_chat_rooms(id) on delete cascade,
+  actor_id text not null,
+  muted boolean not null default false,
+  updated_at timestamptz not null default now(),
+  primary key (room_id, actor_id)
+);
+
+create table if not exists public.group_chat_reactions (
+  room_id uuid not null references public.group_chat_rooms(id) on delete cascade,
+  message_id uuid not null references public.group_chat_messages(id) on delete cascade,
+  actor_id text not null,
+  actor_role text not null check (actor_role in ('fc', 'manager', 'admin')),
+  reaction text not null check (char_length(reaction) between 1 and 16),
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+  primary key (room_id, message_id, actor_id)
+);
+
+create table if not exists public.group_chat_member_send_permissions (
+  room_id uuid not null references public.group_chat_rooms(id) on delete cascade,
+  actor_id text not null,
+  can_send_messages boolean not null default false,
+  updated_by_actor_id text,
+  updated_by_role text check (updated_by_role in ('manager', 'admin')),
+  updated_at timestamptz not null default now(),
+  primary key (room_id, actor_id),
+  check (actor_id like 'fc:%')
+);
+
+create table if not exists public.group_chat_notices (
+  room_id uuid primary key references public.group_chat_rooms(id) on delete cascade,
+  message_id uuid not null references public.group_chat_messages(id) on delete cascade,
+  created_by_actor_id text not null,
+  created_by_role text not null check (created_by_role in ('manager', 'admin')),
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
+create index if not exists idx_group_chat_messages_room_created
+  on public.group_chat_messages (room_id, created_at desc);
+
+create index if not exists idx_group_chat_messages_sender_created
+  on public.group_chat_messages (sender_actor_id, created_at desc);
+
+create index if not exists idx_group_chat_messages_reply
+  on public.group_chat_messages (reply_to_message_id);
+
+create index if not exists idx_group_chat_messages_deleted
+  on public.group_chat_messages (room_id, deleted_at);
+
+create index if not exists idx_group_chat_reads_actor
+  on public.group_chat_reads (actor_id);
+
+create index if not exists idx_group_chat_preferences_actor
+  on public.group_chat_preferences (actor_id);
+
+create index if not exists idx_group_chat_reactions_message
+  on public.group_chat_reactions (message_id);
+
+create index if not exists idx_group_chat_reactions_actor
+  on public.group_chat_reactions (actor_id);
+
+create index if not exists idx_group_chat_member_send_permissions_actor
+  on public.group_chat_member_send_permissions (actor_id);
+
+create index if not exists idx_group_chat_member_send_permissions_room_enabled
+  on public.group_chat_member_send_permissions (room_id, can_send_messages);
+
+create index if not exists idx_group_chat_notices_message
+  on public.group_chat_notices (message_id);
+
+insert into public.group_chat_rooms (slug, title, is_active)
+values ('garampa-default', '가람PA 단톡방', true)
+on conflict (slug) do update
+set title = excluded.title,
+    is_active = true,
+    updated_at = now();
+
 create table if not exists public.notices (
   id uuid primary key default gen_random_uuid(),
   title text not null,
@@ -546,6 +667,13 @@ alter table public.affiliation_manager_mappings enable row level security;
 alter table public.profiles enable row level security;
 alter table public.web_push_subscriptions enable row level security;
 alter table public.notifications enable row level security;
+alter table public.group_chat_rooms enable row level security;
+alter table public.group_chat_messages enable row level security;
+alter table public.group_chat_reads enable row level security;
+alter table public.group_chat_preferences enable row level security;
+alter table public.group_chat_reactions enable row level security;
+alter table public.group_chat_member_send_permissions enable row level security;
+alter table public.group_chat_notices enable row level security;
 alter table public.notices enable row level security;
 alter table public.exam_rounds enable row level security;
 alter table public.exam_locations enable row level security;
@@ -2026,6 +2154,50 @@ create policy "notifications insert"
   on public.notifications
   for insert
   with check (public.is_admin());
+
+drop policy if exists "group_chat_rooms service role" on public.group_chat_rooms;
+create policy "group_chat_rooms service role"
+  on public.group_chat_rooms for all
+  using (auth.role() = 'service_role')
+  with check (auth.role() = 'service_role');
+
+drop policy if exists "group_chat_messages service role" on public.group_chat_messages;
+create policy "group_chat_messages service role"
+  on public.group_chat_messages for all
+  using (auth.role() = 'service_role')
+  with check (auth.role() = 'service_role');
+
+drop policy if exists "group_chat_reads service role" on public.group_chat_reads;
+create policy "group_chat_reads service role"
+  on public.group_chat_reads for all
+  using (auth.role() = 'service_role')
+  with check (auth.role() = 'service_role');
+
+drop policy if exists "group_chat_preferences service role" on public.group_chat_preferences;
+create policy "group_chat_preferences service role"
+  on public.group_chat_preferences for all
+  using (auth.role() = 'service_role')
+  with check (auth.role() = 'service_role');
+
+drop policy if exists "group_chat_reactions service role" on public.group_chat_reactions;
+create policy "group_chat_reactions service role"
+  on public.group_chat_reactions for all
+  using (auth.role() = 'service_role')
+  with check (auth.role() = 'service_role');
+
+drop policy if exists "group_chat_member_send_permissions service role"
+  on public.group_chat_member_send_permissions;
+create policy "group_chat_member_send_permissions service role"
+  on public.group_chat_member_send_permissions for all
+  using (auth.role() = 'service_role')
+  with check (auth.role() = 'service_role');
+
+drop policy if exists "group_chat_notices service role"
+  on public.group_chat_notices;
+create policy "group_chat_notices service role"
+  on public.group_chat_notices for all
+  using (auth.role() = 'service_role')
+  with check (auth.role() = 'service_role');
 
 drop policy if exists "device_tokens select policy" on public.device_tokens;
 create policy "device_tokens select policy"

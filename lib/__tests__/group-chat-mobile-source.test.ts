@@ -2,9 +2,14 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 
 const appRoot = join(__dirname, '..', '..', 'app');
+const componentRoot = join(__dirname, '..', '..', 'components');
 
 function readAppFile(fileName: string) {
   return readFileSync(join(appRoot, fileName), 'utf8');
+}
+
+function readComponentFile(fileName: string) {
+  return readFileSync(join(componentRoot, fileName), 'utf8');
 }
 
 describe('group chat mobile wiring', () => {
@@ -77,6 +82,51 @@ describe('group chat mobile wiring', () => {
     expect(source).toContain('삭제');
   });
 
+  it('renders a KakaoTalk-style message action menu with copy, select-copy, and notice actions', () => {
+    const source = readAppFile('group-chat.tsx');
+
+    expect(source).toContain("import * as Clipboard from 'expo-clipboard'");
+    expect(source).toContain('Clipboard.setStringAsync');
+    expect(source).toContain('selectCopyMessage');
+    expect(source).toContain('<Text selectable style={styles.selectCopyText}>');
+    expect(source).toContain('actionMenuBackdrop');
+    expect(source).toContain('actionMenu');
+    expect(source).toContain('복사');
+    expect(source).toContain('선택 복사');
+    expect(source).toContain('공지');
+    expect(source).toContain('공지 해제');
+    expect(source).toContain('groupChatSetNotice');
+    expect(source).toContain('groupChatClearNotice');
+    expect(source).toContain('canManageNotice && actionMessage');
+  });
+
+  it('prevents native text selection from intercepting message long press', () => {
+    const source = readAppFile('group-chat.tsx');
+    const linkifiedSource = readComponentFile('LinkifiedSelectableText.tsx');
+    const messageContentSection = source.slice(
+      source.indexOf('<LinkifiedSelectableText'),
+      source.indexOf('const renderItem'),
+    );
+
+    expect(messageContentSection).toContain('selectable={false}');
+    expect(linkifiedSource).toContain('const textSelectable = selectable && !hasLinks');
+    expect(linkifiedSource).toContain('const nonSelectableStyle = textSelectable ? undefined : styles.nonSelectableText');
+    expect(linkifiedSource).toContain('selectable={textSelectable}');
+    expect(linkifiedSource).toContain('selectable={false}');
+    expect(linkifiedSource).toContain("userSelect: 'none'");
+    expect(source).toContain('<Text selectable style={styles.selectCopyText}>');
+  });
+
+  it('renders the current group chat notice as a fixed top banner', () => {
+    const source = readAppFile('group-chat.tsx');
+
+    expect(source).toContain('const [notice, setNotice]');
+    expect(source).toContain('setNotice(data.notice ?? null)');
+    expect(source).toContain('noticeBanner');
+    expect(source).toContain('notice.message');
+    expect(source).toContain('handleNoticeClear');
+  });
+
   it('keeps the outgoing group chat bubble on the GaramIn orange style', () => {
     const source = readAppFile('group-chat.tsx');
 
@@ -99,6 +149,48 @@ describe('group chat mobile wiring', () => {
     expect(source).toContain('appointment_label');
     expect(source).toContain('headquarters');
     expect(source).toContain('memberSearch');
+  });
+
+  it('keeps the member list search visible above the keyboard', () => {
+    const source = readAppFile('group-chat.tsx');
+
+    expect(source).toContain('memberSheetKeyboardAvoider');
+    expect(source).toContain("behavior={Platform.OS === 'ios' ? 'padding' : 'height'}");
+    expect(source).toContain('memberList: { flexShrink: 1');
+  });
+
+  it('lets staff toggle FC group chat send permission from the member list', () => {
+    const source = readAppFile('group-chat.tsx');
+
+    expect(source).toContain('Switch');
+    expect(source).toContain('groupChatSetMemberSendPermission');
+    expect(source).toContain('can_send_messages');
+    expect(source).toContain('handleMemberSendPermissionToggle');
+    expect(source).toContain('sendPermissionNotice');
+    expect(source).toContain("'허용' : '금지'");
+    expect(source).toContain('검색 결과가 없습니다.');
+  });
+
+  it('keeps member search and send-permission toggles responsive with virtualized memoized rows', () => {
+    const source = readAppFile('group-chat.tsx');
+
+    expect(source).toContain('useDeferredValue');
+    expect(source).toContain('SearchableGroupChatMember');
+    expect(source).toContain('const MemberListRow = memo');
+    expect(source).toContain('const searchableMembers = useMemo');
+    expect(source).toContain('renderItem={renderMemberItem}');
+    expect(source).toContain('initialNumToRender={18}');
+    expect(source).toContain('removeClippedSubviews={Platform.OS ===');
+  });
+
+  it('keeps staff group chat input enabled regardless of per-FC send permission', () => {
+    const source = readAppFile('group-chat.tsx');
+
+    expect(source).toContain('function isStaffGroupChatActor');
+    expect(source).toContain("actor?.role === 'manager' || actor?.role === 'admin'");
+    expect(source).toContain('function resolveCanSendMessages');
+    expect(source).toContain('isStaffGroupChatActor(actor) || canSendMessages === true');
+    expect(source).toContain('setCanSendMessages(resolveCanSendMessages(data.actor, data.can_send_messages))');
   });
 
   it('routes group chat notifications to the group chat screen', () => {

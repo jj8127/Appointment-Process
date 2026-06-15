@@ -59,6 +59,7 @@ credentials/
 .codex/
 .codex-tmp/
 .claude/settings.local.json
+.idea/
 
 # local tooling checkout
 Claude-Code-Usage-Monitor/

@@ -9,6 +9,7 @@ import { filterManagerTokensForNotification } from '../_shared/notification-deli
 import {
   buildGroupChatActor,
   buildGroupChatAppointmentLabel,
+  canGroupChatActorSendMessages,
   computeGroupChatMessageUnreadCounts,
   buildGroupChatPreview,
   GROUP_CHAT_NOTIFICATION_CATEGORY,
@@ -16,6 +17,7 @@ import {
   GROUP_CHAT_ROOM_TITLE,
   GROUP_CHAT_TARGET_URL,
   isEligibleGroupChatMember,
+  normalizeGroupChatMessageContent,
   normalizeGroupChatText,
   sanitizeGroupChatPhone,
   shouldFanoutGroupChatPush,
@@ -40,7 +42,10 @@ type Payload =
   | { type: 'group_chat_mark_read'; message_id?: string | null }
   | { type: 'group_chat_preferences'; muted?: boolean | null }
   | { type: 'group_chat_reaction_set'; message_id?: string | null; reaction?: string | null }
-  | { type: 'group_chat_delete'; message_id?: string | null };
+  | { type: 'group_chat_delete'; message_id?: string | null }
+  | { type: 'group_chat_member_send_permission'; target_actor_id?: string | null; can_send_messages?: boolean | null }
+  | { type: 'group_chat_notice_set'; message_id?: string | null }
+  | { type: 'group_chat_notice_clear' };
 
 type RoomRow = {
   id: string;
@@ -76,6 +81,7 @@ type GroupChatMember = {
   name: string | null;
   headquarters: string | null;
   appointment_label: string;
+  can_send_messages: boolean;
 };
 
 type PreferenceRow = {
@@ -92,6 +98,20 @@ type ReactionRow = {
 type ReadStateRow = {
   actor_id: string;
   last_read_at: string | null;
+};
+
+type SendPermissionRow = {
+  actor_id: string;
+  can_send_messages: boolean | null;
+};
+
+type NoticeRow = {
+  room_id: string;
+  message_id: string;
+  created_by_actor_id: string;
+  created_by_role: GroupChatRole;
+  created_at: string;
+  updated_at: string;
 };
 
 type DeviceTokenRow = {
@@ -188,6 +208,22 @@ function serializeMessage(
     deleted_at: row.deleted_at,
     deleted_by_actor_id: row.deleted_by_actor_id,
     reactions,
+  };
+}
+
+function serializeNotice(
+  row: NoticeRow,
+  message: MessageRow,
+  reactions: ReturnType<typeof summarizeGroupChatReactions> = [],
+) {
+  return {
+    room_id: row.room_id,
+    message_id: row.message_id,
+    created_by_actor_id: row.created_by_actor_id,
+    created_by_role: row.created_by_role,
+    created_at: row.created_at,
+    updated_at: row.updated_at,
+    message: serializeMessage(message, 0, reactions),
   };
 }
 
@@ -334,6 +370,7 @@ async function listEligibleMembers(): Promise<GroupChatMember[]> {
           appointment_date_life: row.appointment_date_life,
           appointment_date_nonlife: row.appointment_date_nonlife,
         }),
+        can_send_messages: false,
       });
     }
   });
@@ -349,6 +386,7 @@ async function listEligibleMembers(): Promise<GroupChatMember[]> {
         name: actor.name,
         headquarters: '본부장',
         appointment_label: '활성',
+        can_send_messages: true,
       });
     }
   });
@@ -364,6 +402,7 @@ async function listEligibleMembers(): Promise<GroupChatMember[]> {
         name: actor.name,
         headquarters: '총무',
         appointment_label: '활성',
+        can_send_messages: true,
       });
     }
   });
@@ -373,6 +412,103 @@ async function listEligibleMembers(): Promise<GroupChatMember[]> {
     if (!deduped.has(member.actor_id)) deduped.set(member.actor_id, member);
   });
   return Array.from(deduped.values());
+}
+
+async function getEligibleFcMemberByActorId(actorId: string): Promise<GroupChatMember | null> {
+  const phone = sanitizeGroupChatPhone(actorId.replace(/^fc:/, ''));
+  if (!phone) return null;
+
+  const { data, error } = await supabase
+    .from('fc_profiles')
+    .select('name,phone,affiliation,signup_completed,is_manager_referral_shadow,life_commission_completed,nonlife_commission_completed,appointment_date_life,appointment_date_nonlife')
+    .eq('phone', phone)
+    .maybeSingle();
+  if (error) throw error;
+
+  if (!data || !isEligibleGroupChatMember({
+    kind: 'fc',
+    phone: data.phone,
+    signup_completed: data.signup_completed,
+    affiliation: data.affiliation,
+    is_manager_referral_shadow: data.is_manager_referral_shadow,
+  })) {
+    return null;
+  }
+
+  const actor = buildGroupChatActor({ role: 'fc', phone: data.phone, name: data.name });
+  if (!actor || actor.id !== actorId) return null;
+
+  return {
+    actor_id: actor.id,
+    role: actor.role,
+    phone: actor.phone,
+    name: actor.name,
+    headquarters: normalizeGroupChatText(data.affiliation) || null,
+    appointment_label: buildGroupChatAppointmentLabel({
+      kind: 'fc',
+      phone: data.phone,
+      signup_completed: data.signup_completed,
+      affiliation: data.affiliation,
+      is_manager_referral_shadow: data.is_manager_referral_shadow,
+      life_commission_completed: data.life_commission_completed,
+      nonlife_commission_completed: data.nonlife_commission_completed,
+      appointment_date_life: data.appointment_date_life,
+      appointment_date_nonlife: data.appointment_date_nonlife,
+    }),
+    can_send_messages: false,
+  };
+}
+
+async function listSendPermissions(roomId: string): Promise<SendPermissionRow[]> {
+  const { data, error } = await supabase
+    .from('group_chat_member_send_permissions')
+    .select('actor_id,can_send_messages')
+    .eq('room_id', roomId);
+  if (error) throw error;
+  return (data ?? []) as SendPermissionRow[];
+}
+
+function applySendPermissionsToMembers(
+  members: GroupChatMember[],
+  permissions: SendPermissionRow[],
+): GroupChatMember[] {
+  const canSendByActorId = new Map(
+    permissions.map((row) => [normalizeGroupChatText(row.actor_id), row.can_send_messages === true]),
+  );
+
+  return members.map((member) => {
+    if (member.role !== 'fc') {
+      return { ...member, can_send_messages: true };
+    }
+    return {
+      ...member,
+      can_send_messages: canSendByActorId.get(member.actor_id) === true,
+    };
+  });
+}
+
+async function listEligibleMembersWithSendPermissions(roomId: string) {
+  const [members, permissions] = await Promise.all([
+    listEligibleMembers(),
+    listSendPermissions(roomId),
+  ]);
+  return applySendPermissionsToMembers(members, permissions);
+}
+
+async function canActorSendMessages(roomId: string, actor: GroupChatActor) {
+  if (canGroupChatActorSendMessages({ actor, permissions: [] })) return true;
+
+  const { data, error } = await supabase
+    .from('group_chat_member_send_permissions')
+    .select('can_send_messages')
+    .eq('room_id', roomId)
+    .eq('actor_id', actor.id)
+    .maybeSingle();
+  if (error) throw error;
+  return canGroupChatActorSendMessages({
+    actor,
+    permissions: data ? [{ actor_id: actor.id, can_send_messages: data.can_send_messages }] : [],
+  });
 }
 
 async function fetchMessages(roomId: string, limit = DEFAULT_MESSAGE_LIMIT): Promise<MessageRow[]> {
@@ -631,12 +767,13 @@ async function notifyRecipients(input: {
 
 async function handleBootstrap(actor: GroupChatActor, payload: Extract<Payload, { type: 'group_chat_bootstrap' }>, origin?: string | null) {
   const room = await ensureRoom();
-  const [members, messages, readState, readStates, muted] = await Promise.all([
-    listEligibleMembers(),
+  const [members, messages, readState, readStates, muted, notice] = await Promise.all([
+    listEligibleMembersWithSendPermissions(room.id),
     fetchMessages(room.id, payload.limit ?? DEFAULT_MESSAGE_LIMIT),
     getReadState(room.id, actor.id),
     listReadStates(room.id),
     getMuted(room.id, actor.id),
+    getCurrentNotice(room.id, actor.id),
   ]);
 
   const unreadCount = await countUnread(room.id, actor.id, readState?.last_read_at ?? null);
@@ -648,6 +785,8 @@ async function handleBootstrap(actor: GroupChatActor, payload: Extract<Payload, 
     messages,
   });
   const lastMessage = messages[0] ?? null;
+  const canSendMessages = actor.role !== 'fc'
+    || members.find((member) => member.actor_id === actor.id)?.can_send_messages === true;
 
   return json({
     ok: true,
@@ -657,11 +796,13 @@ async function handleBootstrap(actor: GroupChatActor, payload: Extract<Payload, 
       title: room.title,
     },
     actor,
+    can_send_messages: canSendMessages,
     member_count: members.length,
     members,
     muted,
     unread_count: unreadCount,
     last_read_at: readState?.last_read_at ?? null,
+    notice,
     last_message: lastMessage
       ? serializeMessage(
         lastMessage,
@@ -681,8 +822,13 @@ async function handleBootstrap(actor: GroupChatActor, payload: Extract<Payload, 
 
 async function handleSend(actor: GroupChatActor, payload: Extract<Payload, { type: 'group_chat_send' }>, origin?: string | null) {
   const room = await ensureRoom();
+  const canSendMessages = await canActorSendMessages(room.id, actor);
+  if (!canSendMessages) {
+    return fail('send_forbidden', '채팅 권한이 꺼져 있어요. 총무 또는 본부장에게 문의해주세요.', 403, origin);
+  }
+
   const messageType = payload.message_type === 'image' || payload.message_type === 'file' ? payload.message_type : 'text';
-  const content = normalizeGroupChatText(payload.content);
+  const content = normalizeGroupChatMessageContent(payload.content);
   const fileUrl = normalizeGroupChatText(payload.file_url);
   const fileName = normalizeGroupChatText(payload.file_name);
   const fileSize = Number(payload.file_size ?? 0);
@@ -748,6 +894,50 @@ async function handlePreferences(actor: GroupChatActor, payload: Extract<Payload
   return json({ ok: true, muted }, 200, origin);
 }
 
+async function handleMemberSendPermission(
+  actor: GroupChatActor,
+  payload: Extract<Payload, { type: 'group_chat_member_send_permission' }>,
+  origin?: string | null,
+) {
+  if (actor.role === 'fc') {
+    return fail('forbidden', '채팅 권한은 총무, 본부장, 개발자만 변경할 수 있습니다.', 403, origin);
+  }
+
+  const room = await ensureRoom();
+  const targetActorId = normalizeGroupChatText(payload.target_actor_id);
+  if (!targetActorId || !targetActorId.startsWith('fc:')) {
+    return fail('invalid_payload', 'FC 참여자를 선택해주세요.', 400, origin);
+  }
+
+  const targetMember = await getEligibleFcMemberByActorId(targetActorId);
+  if (!targetMember) {
+    return fail('not_found', 'FC 참여자를 찾지 못했습니다.', 404, origin);
+  }
+
+  const canSendMessages = payload.can_send_messages === true;
+  const { data, error } = await supabase
+    .from('group_chat_member_send_permissions')
+    .upsert({
+      room_id: room.id,
+      actor_id: targetActorId,
+      can_send_messages: canSendMessages,
+      updated_by_actor_id: actor.id,
+      updated_by_role: actor.role,
+      updated_at: new Date().toISOString(),
+    }, { onConflict: 'room_id,actor_id' })
+    .select('actor_id,can_send_messages')
+    .single();
+  if (error) return dbError(error, origin);
+
+  return json({
+    ok: true,
+    member: {
+      ...targetMember,
+      can_send_messages: data?.can_send_messages === true,
+    },
+  }, 200, origin);
+}
+
 async function getMessageInRoom(roomId: string, messageId?: string | null) {
   const safeMessageId = normalizeGroupChatText(messageId);
   if (!safeMessageId) return null;
@@ -760,6 +950,102 @@ async function getMessageInRoom(roomId: string, messageId?: string | null) {
     .maybeSingle();
   if (error) throw error;
   return data as MessageRow | null;
+}
+
+async function getNoticeRow(roomId: string) {
+  const { data, error } = await supabase
+    .from('group_chat_notices')
+    .select('room_id,message_id,created_by_actor_id,created_by_role,created_at,updated_at')
+    .eq('room_id', roomId)
+    .maybeSingle();
+  if (error) throw error;
+  return data as NoticeRow | null;
+}
+
+async function clearNoticeForMessage(roomId: string, messageId: string) {
+  const { error } = await supabase
+    .from('group_chat_notices')
+    .delete()
+    .eq('room_id', roomId)
+    .eq('message_id', messageId);
+  if (error) throw error;
+}
+
+async function getCurrentNotice(roomId: string, viewerActorId: string) {
+  const notice = await getNoticeRow(roomId);
+  if (!notice?.message_id) return null;
+
+  const message = await getMessageInRoom(roomId, notice.message_id);
+  if (!message?.id || message.deleted_at) {
+    await clearNoticeForMessage(roomId, notice.message_id);
+    return null;
+  }
+
+  const reactions = await listReactions(roomId, [message.id]);
+  return serializeNotice(
+    notice,
+    message,
+    summarizeGroupChatReactions({
+      viewerActorId,
+      reactions,
+    }),
+  );
+}
+
+async function handleNoticeSet(actor: GroupChatActor, payload: Extract<Payload, { type: 'group_chat_notice_set' }>, origin?: string | null) {
+  if (actor.role === 'fc') {
+    return fail('forbidden', '공지는 총무, 본부장, 개발자만 등록할 수 있습니다.', 403, origin);
+  }
+
+  const room = await ensureRoom();
+  const message = await getMessageInRoom(room.id, payload.message_id);
+  if (!message?.id) return fail('not_found', '메시지를 찾을 수 없습니다.', 404, origin);
+  if (message.deleted_at) {
+    return fail('invalid_payload', '삭제된 메시지는 공지로 등록할 수 없습니다.', 400, origin);
+  }
+
+  const now = new Date().toISOString();
+  const { data, error } = await supabase
+    .from('group_chat_notices')
+    .upsert({
+      room_id: room.id,
+      message_id: message.id,
+      created_by_actor_id: actor.id,
+      created_by_role: actor.role,
+      created_at: now,
+      updated_at: now,
+    }, { onConflict: 'room_id' })
+    .select('room_id,message_id,created_by_actor_id,created_by_role,created_at,updated_at')
+    .single();
+  if (error) return dbError(error, origin);
+
+  const reactions = await listReactions(room.id, [message.id]);
+  return json({
+    ok: true,
+    notice: serializeNotice(
+      data as NoticeRow,
+      message,
+      summarizeGroupChatReactions({
+        viewerActorId: actor.id,
+        reactions,
+      }),
+    ),
+  }, 200, origin);
+}
+
+async function handleNoticeClear(actor: GroupChatActor, origin?: string | null) {
+  if (actor.role === 'fc') {
+    return fail('forbidden', '공지는 총무, 본부장, 개발자만 해제할 수 있습니다.', 403, origin);
+  }
+
+  const room = await ensureRoom();
+  const { error } = await supabase
+    .from('group_chat_notices')
+    .delete()
+    .eq('room_id', room.id);
+  if (error) return dbError(error, origin);
+
+  return json({ ok: true, notice: null }, 200, origin);
 }
 
 async function handleReactionSet(actor: GroupChatActor, payload: Extract<Payload, { type: 'group_chat_reaction_set' }>, origin?: string | null) {
@@ -821,6 +1107,7 @@ async function handleDelete(actor: GroupChatActor, payload: Extract<Payload, { t
   if (error) return dbError(error, origin);
 
   const reactions = await listReactions(room.id, [message.id]);
+  await clearNoticeForMessage(room.id, message.id);
   return json({
     ok: true,
     message: serializeMessage(
@@ -874,6 +1161,15 @@ serve(async (req: Request) => {
     }
     if (payload.type === 'group_chat_delete') {
       return await handleDelete(actorResult.actor, payload, origin);
+    }
+    if (payload.type === 'group_chat_member_send_permission') {
+      return await handleMemberSendPermission(actorResult.actor, payload, origin);
+    }
+    if (payload.type === 'group_chat_notice_set') {
+      return await handleNoticeSet(actorResult.actor, payload, origin);
+    }
+    if (payload.type === 'group_chat_notice_clear') {
+      return await handleNoticeClear(actorResult.actor, origin);
     }
 
     return fail('invalid_type', 'Unknown group chat action', 400, origin);

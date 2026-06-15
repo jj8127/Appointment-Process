@@ -1,4 +1,5 @@
 import { Feather, Ionicons } from '@expo/vector-icons';
+import * as Clipboard from 'expo-clipboard';
 import * as DocumentPicker from 'expo-document-picker';
 import * as FileSystem from 'expo-file-system/legacy';
 import * as Haptics from 'expo-haptics';
@@ -6,7 +7,7 @@ import { Image } from 'expo-image';
 import * as ImagePicker from 'expo-image-picker';
 import { Stack, useFocusEffect, useRouter } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { memo, useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Alert,
   AppState,
@@ -18,6 +19,7 @@ import {
   Pressable,
   RefreshControl,
   StyleSheet,
+  Switch,
   Text,
   TextInput,
   TouchableOpacity,
@@ -31,15 +33,19 @@ import MessengerLoadingState from '@/components/MessengerLoadingState';
 import { useKeyboardPadding } from '@/hooks/use-keyboard-padding';
 import {
   groupChatBootstrap,
+  groupChatClearNotice,
   groupChatDeleteMessage,
   groupChatMarkRead,
   groupChatSend,
   groupChatSetMuted,
+  groupChatSetMemberSendPermission,
+  groupChatSetNotice,
   groupChatSetReaction,
   type GroupChatActor,
   type GroupChatMember,
   type GroupChatMessage,
   type GroupChatMessageType,
+  type GroupChatNotice,
   type GroupChatRoom,
 } from '@/lib/group-chat-api';
 import { logger } from '@/lib/logger';
@@ -63,11 +69,30 @@ type OptimisticMessageInput = {
   fileSize?: number | null;
 };
 
+type SearchableGroupChatMember = GroupChatMember & {
+  search_key: string;
+};
+
+type MemberListRowProps = {
+  member: GroupChatMember;
+  canManageMemberSendPermissions: boolean;
+  permissionUpdating: boolean;
+  onToggle: (member: GroupChatMember, nextCanSend: boolean) => void;
+};
+
 const roleLabel: Record<string, string> = {
   fc: 'FC',
   manager: '본부장',
   admin: '총무',
 };
+
+function isStaffGroupChatActor(actor?: GroupChatActor | null) {
+  return actor?.role === 'manager' || actor?.role === 'admin';
+}
+
+function resolveCanSendMessages(actor: GroupChatActor | null | undefined, canSendMessages?: boolean | null) {
+  return isStaffGroupChatActor(actor) || canSendMessages === true;
+}
 
 type MemberStatusTone = 'complete' | 'partial' | 'pending' | 'active';
 
@@ -94,6 +119,10 @@ function getInitial(name?: string | null) {
   return normalized ? normalized.charAt(0) : '가';
 }
 
+function normalizeMemberSearch(value?: string | null) {
+  return String(value ?? '').replace(/\s+/g, '').trim().toLowerCase();
+}
+
 function formatTime(iso: string) {
   const date = new Date(iso);
   return date.toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit' });
@@ -114,6 +143,67 @@ function getReplyLabel(message?: GroupChatMessage | null) {
   return message.content;
 }
 
+function getMessageCopyText(message?: GroupChatMessage | null) {
+  if (!message || message.deleted_at) return '';
+  if (message.message_type === 'file') return safeDecodeFileName(message.file_name) || message.content;
+  return message.content;
+}
+
+const MemberListRow = memo(function MemberListRow({
+  member,
+  canManageMemberSendPermissions,
+  permissionUpdating,
+  onToggle,
+}: MemberListRowProps) {
+  const statusTone = getMemberStatusTone(member);
+  const canManageSendPermission = canManageMemberSendPermissions && member.role === 'fc';
+  const handleSwitchChange = useCallback((nextValue: boolean) => {
+    onToggle(member, nextValue);
+  }, [member, onToggle]);
+
+  return (
+    <View style={styles.memberRow}>
+      <View style={styles.memberAvatar}>
+        <Text style={styles.memberAvatarText}>{getInitial(member.name)}</Text>
+      </View>
+      <View style={styles.memberBody}>
+        <View style={styles.memberNameRow}>
+          <Text style={styles.memberName} numberOfLines={1}>{member.name ?? '이름 없음'}</Text>
+          <Text style={styles.memberRole}>{roleLabel[member.role] ?? '사용자'}</Text>
+        </View>
+        <Text style={styles.memberMeta} numberOfLines={1}>{member.headquarters ?? '본부 미지정'}</Text>
+      </View>
+      <View style={styles.memberTrailing}>
+        <View style={[styles.memberStatusBadge, styles[`memberStatus_${statusTone}`]]}>
+          <Text style={[styles.memberStatusText, styles[`memberStatusText_${statusTone}`]]}>
+            {member.appointment_label}
+          </Text>
+        </View>
+        {canManageSendPermission && (
+          <View style={styles.memberPermissionRow}>
+            <Text
+              style={[
+                styles.memberPermissionText,
+                member.can_send_messages && styles.memberPermissionTextOn,
+              ]}
+            >
+              {member.can_send_messages ? '허용' : '금지'}
+            </Text>
+            <Switch
+              value={member.can_send_messages === true}
+              disabled={permissionUpdating}
+              onValueChange={handleSwitchChange}
+              trackColor={{ false: '#E5E7EB', true: '#FED7AA' }}
+              thumbColor={member.can_send_messages ? HANWHA_ORANGE : '#F9FAFB'}
+              ios_backgroundColor="#E5E7EB"
+            />
+          </View>
+        )}
+      </View>
+    </View>
+  );
+});
+
 export default function GroupChatScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
@@ -132,14 +222,22 @@ export default function GroupChatScreen() {
   const [memberListVisible, setMemberListVisible] = useState(false);
   const [memberSearch, setMemberSearch] = useState('');
   const [muted, setMuted] = useState(false);
+  const [canSendMessages, setCanSendMessages] = useState(false);
+  const [notice, setNotice] = useState<GroupChatNotice | null>(null);
   const [messages, setMessages] = useState<GroupChatMessage[]>([]);
   const [text, setText] = useState('');
   const [uploading, setUploading] = useState(false);
   const [replyTarget, setReplyTarget] = useState<GroupChatMessage | null>(null);
   const [actionMessage, setActionMessage] = useState<GroupChatMessage | null>(null);
+  const [selectCopyMessage, setSelectCopyMessage] = useState<GroupChatMessage | null>(null);
+  const [noticeUpdating, setNoticeUpdating] = useState(false);
+  const [permissionUpdatingIds, setPermissionUpdatingIds] = useState<Set<string>>(() => new Set());
 
   const bottomSafeInset = Math.max(insets.bottom, Platform.OS === 'android' ? 20 : 12);
   const roomTitle = room?.title ?? '가람PA 단톡방';
+  const canManageMemberSendPermissions = isStaffGroupChatActor(actor);
+  const canManageNotice = isStaffGroupChatActor(actor);
+  const deferredMemberSearch = useDeferredValue(memberSearch);
 
   const applyMessages = useCallback((nextRows: GroupChatMessage[]) => {
     const sorted = sortMessagesDesc(dedupeMessages(nextRows));
@@ -166,6 +264,8 @@ export default function GroupChatScreen() {
       setMemberCount(data.member_count);
       setMembers(data.members ?? []);
       setMuted(data.muted);
+      setCanSendMessages(resolveCanSendMessages(data.actor, data.can_send_messages));
+      setNotice(data.notice ?? null);
       const localMessages = messagesRef.current.filter((message) => message.id.startsWith('local-'));
       applyMessages([...data.messages, ...localMessages]);
       const topMessageId = data.messages[0]?.id ?? null;
@@ -246,20 +346,24 @@ export default function GroupChatScreen() {
     void load();
   }, [load]);
 
-  const filteredMembers = useMemo(() => {
-    const keyword = memberSearch.replace(/\s+/g, '').trim().toLowerCase();
-    const rows = [...members].sort((left, right) => {
+  const searchableMembers = useMemo<SearchableGroupChatMember[]>(() => {
+    return [...members].sort((left, right) => {
       const roleOrder = { manager: 0, admin: 1, fc: 2 } as const;
       const leftOrder = roleOrder[left.role] ?? 9;
       const rightOrder = roleOrder[right.role] ?? 9;
       if (leftOrder !== rightOrder) return leftOrder - rightOrder;
       return String(left.name ?? '').localeCompare(String(right.name ?? ''), 'ko-KR');
-    });
-    if (!keyword) return rows;
-    return rows.filter((member) =>
-      String(member.name ?? '').replace(/\s+/g, '').toLowerCase().includes(keyword),
-    );
-  }, [memberSearch, members]);
+    }).map((member) => ({
+      ...member,
+      search_key: normalizeMemberSearch(`${member.name ?? ''} ${member.headquarters ?? ''} ${member.phone ?? ''}`),
+    }));
+  }, [members]);
+
+  const filteredMembers = useMemo(() => {
+    const keyword = normalizeMemberSearch(deferredMemberSearch);
+    if (!keyword) return searchableMembers;
+    return searchableMembers.filter((member) => member.search_key.includes(keyword));
+  }, [deferredMemberSearch, searchableMembers]);
 
   const openMemberList = useCallback(() => {
     setMemberSearch('');
@@ -280,6 +384,10 @@ export default function GroupChatScreen() {
   const canDeleteMessage = useCallback((message?: GroupChatMessage | null) =>
     Boolean(message?.id && !message.deleted_at && message.sender_actor_id === actor?.id), [actor?.id]);
 
+  const showSendPermissionAlert = useCallback(() => {
+    Alert.alert('채팅 권한이 꺼져 있어요', '총무 또는 본부장에게 문의해주세요.');
+  }, []);
+
   const handleReplyAction = useCallback(() => {
     if (!actionMessage || actionMessage.deleted_at) {
       setActionMessage(null);
@@ -288,6 +396,72 @@ export default function GroupChatScreen() {
     setReplyTarget(actionMessage);
     setActionMessage(null);
   }, [actionMessage]);
+
+  const handleCopyAction = useCallback(async () => {
+    const copyText = getMessageCopyText(actionMessage);
+    setActionMessage(null);
+    if (!copyText) {
+      Alert.alert('복사할 수 없어요', '복사할 메시지 내용이 없습니다.');
+      return;
+    }
+    try {
+      await Clipboard.setStringAsync(copyText);
+      Alert.alert('복사 완료', '메시지를 복사했어요.');
+    } catch (error) {
+      logger.warn('[group-chat] copy failed', error);
+      Alert.alert('복사 실패', '메시지를 복사하지 못했습니다.');
+    }
+  }, [actionMessage]);
+
+  const handleSelectCopyAction = useCallback(() => {
+    const message = actionMessage;
+    setActionMessage(null);
+    if (!getMessageCopyText(message)) {
+      Alert.alert('선택 복사할 수 없어요', '선택 복사할 메시지 내용이 없습니다.');
+      return;
+    }
+    setSelectCopyMessage(message);
+  }, [actionMessage]);
+
+  const handleNoticeAction = useCallback(async () => {
+    const message = actionMessage;
+    if (!message || !canManageNotice || message.deleted_at || message.id.startsWith('local-') || message.send_status) {
+      setActionMessage(null);
+      return;
+    }
+
+    const shouldClear = notice?.message_id === message.id;
+    setActionMessage(null);
+    setNoticeUpdating(true);
+    try {
+      if (shouldClear) {
+        await groupChatClearNotice();
+        setNotice(null);
+      } else {
+        const result = await groupChatSetNotice(message.id);
+        setNotice(result.notice);
+      }
+    } catch (error) {
+      logger.warn('[group-chat] notice update failed', error);
+      Alert.alert('공지 변경 실패', error instanceof Error ? error.message : '공지를 변경하지 못했습니다.');
+    } finally {
+      setNoticeUpdating(false);
+    }
+  }, [actionMessage, canManageNotice, notice?.message_id]);
+
+  const handleNoticeClear = useCallback(async () => {
+    if (!canManageNotice || !notice) return;
+    setNoticeUpdating(true);
+    try {
+      await groupChatClearNotice();
+      setNotice(null);
+    } catch (error) {
+      logger.warn('[group-chat] notice clear failed', error);
+      Alert.alert('공지 해제 실패', error instanceof Error ? error.message : '공지를 해제하지 못했습니다.');
+    } finally {
+      setNoticeUpdating(false);
+    }
+  }, [canManageNotice, notice]);
 
   const handleReactionAction = useCallback(async (message: GroupChatMessage, reaction: string) => {
     setActionMessage(null);
@@ -314,6 +488,7 @@ export default function GroupChatScreen() {
           void groupChatDeleteMessage(message.id)
             .then((result) => {
               updateMessage(message.id, result.message);
+              if (notice?.message_id === message.id) setNotice(null);
             })
             .catch((error) => {
               logger.warn('[group-chat] delete failed', error);
@@ -322,7 +497,7 @@ export default function GroupChatScreen() {
         },
       },
     ]);
-  }, [actionMessage, canDeleteMessage, updateMessage]);
+  }, [actionMessage, canDeleteMessage, notice?.message_id, updateMessage]);
 
   const handleMessagePress = useCallback((message: GroupChatMessage) => {
     if (message.deleted_at) return;
@@ -395,6 +570,11 @@ export default function GroupChatScreen() {
     messageType: GroupChatMessageType = 'text',
     fileData?: { url: string; name?: string | null; size?: number | null },
   ) => {
+    if (!canSendMessages) {
+      showSendPermissionAlert();
+      return;
+    }
+
     const optimisticMessage = buildOptimisticMessage({
       content,
       messageType,
@@ -417,15 +597,19 @@ export default function GroupChatScreen() {
       fileSize: fileData?.size,
       replyToMessageId: optimisticMessage.reply_to_message_id,
     });
-  }, [applyMessages, buildOptimisticMessage, sendOptimisticToServer]);
+  }, [applyMessages, buildOptimisticMessage, canSendMessages, sendOptimisticToServer, showSendPermissionAlert]);
 
   const handleSendText = useCallback(() => {
     const nextText = text.trim();
     if (!nextText) return;
+    if (!canSendMessages) {
+      showSendPermissionAlert();
+      return;
+    }
     setText('');
     isUploadCancelled.current = false;
     void sendPayload(nextText, 'text');
-  }, [sendPayload, text]);
+  }, [canSendMessages, sendPayload, showSendPermissionAlert, text]);
 
   const uploadToSupabase = useCallback(async (uri: string, fileType: string) => {
     try {
@@ -478,6 +662,11 @@ export default function GroupChatScreen() {
   }, []);
 
   const pickImage = useCallback(async () => {
+    if (!canSendMessages) {
+      showSendPermissionAlert();
+      return;
+    }
+
     if (Platform.OS === 'ios') {
       const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
       if (status !== 'granted') {
@@ -528,9 +717,14 @@ export default function GroupChatScreen() {
         replyToMessageId: optimisticMessage.reply_to_message_id,
       });
     }
-  }, [applyMessages, buildOptimisticMessage, removeMessage, sendOptimisticToServer, updateMessage, uploadToSupabase]);
+  }, [applyMessages, buildOptimisticMessage, canSendMessages, removeMessage, sendOptimisticToServer, showSendPermissionAlert, updateMessage, uploadToSupabase]);
 
   const pickDocument = useCallback(async () => {
+    if (!canSendMessages) {
+      showSendPermissionAlert();
+      return;
+    }
+
     if (pickingRef.current) return;
     pickingRef.current = true;
     try {
@@ -579,15 +773,20 @@ export default function GroupChatScreen() {
     } finally {
       pickingRef.current = false;
     }
-  }, [applyMessages, buildOptimisticMessage, removeMessage, sendOptimisticToServer, updateMessage, uploadToSupabase]);
+  }, [applyMessages, buildOptimisticMessage, canSendMessages, removeMessage, sendOptimisticToServer, showSendPermissionAlert, updateMessage, uploadToSupabase]);
 
   const handleAttachment = useCallback(() => {
+    if (!canSendMessages) {
+      showSendPermissionAlert();
+      return;
+    }
+
     Alert.alert('파일 전송', '어떤 파일을 보내시겠습니까?', [
       { text: '사진 보관함', onPress: pickImage },
       { text: '문서 (PDF 등)', onPress: pickDocument },
       { text: '취소', style: 'cancel' },
     ]);
-  }, [pickDocument, pickImage]);
+  }, [canSendMessages, pickDocument, pickImage, showSendPermissionAlert]);
 
   const handleCancelUpload = useCallback(() => {
     isUploadCancelled.current = true;
@@ -605,6 +804,51 @@ export default function GroupChatScreen() {
       Alert.alert('설정 실패', '알림 설정을 저장하지 못했습니다.');
     }
   }, [muted]);
+
+  const handleMemberSendPermissionToggle = useCallback(async (member: GroupChatMember, nextCanSend: boolean) => {
+    if (!canManageMemberSendPermissions || member.role !== 'fc') return;
+
+    const previousCanSend = member.can_send_messages === true;
+    setPermissionUpdatingIds((prev) => {
+      const next = new Set(prev);
+      next.add(member.actor_id);
+      return next;
+    });
+    setMembers((prev) => prev.map((row) =>
+      row.actor_id === member.actor_id ? { ...row, can_send_messages: nextCanSend } : row,
+    ));
+
+    try {
+      const result = await groupChatSetMemberSendPermission(member.actor_id, nextCanSend);
+      setMembers((prev) => prev.map((row) =>
+        row.actor_id === result.member.actor_id ? { ...row, ...result.member } : row,
+      ));
+      if (result.member.actor_id === actor?.id) {
+        setCanSendMessages(resolveCanSendMessages(actor, result.member.can_send_messages));
+      }
+    } catch (error) {
+      setMembers((prev) => prev.map((row) =>
+        row.actor_id === member.actor_id ? { ...row, can_send_messages: previousCanSend } : row,
+      ));
+      logger.warn('[group-chat] member send permission update failed', error);
+      Alert.alert('권한 변경 실패', '채팅 권한을 저장하지 못했습니다.');
+    } finally {
+      setPermissionUpdatingIds((prev) => {
+        const next = new Set(prev);
+        next.delete(member.actor_id);
+        return next;
+      });
+    }
+  }, [actor, canManageMemberSendPermissions]);
+
+  const renderMemberItem = useCallback(({ item }: { item: SearchableGroupChatMember }) => (
+    <MemberListRow
+      member={item}
+      canManageMemberSendPermissions={canManageMemberSendPermissions}
+      permissionUpdating={permissionUpdatingIds.has(item.actor_id)}
+      onToggle={handleMemberSendPermissionToggle}
+    />
+  ), [canManageMemberSendPermissions, handleMemberSendPermissionToggle, permissionUpdatingIds]);
 
   const renderReplyPreview = useCallback((item: GroupChatMessage, isMe: boolean) => {
     if (!item.reply_to_message_id) return null;
@@ -661,6 +905,7 @@ export default function GroupChatScreen() {
         style={[styles.msgText, isMe ? styles.msgTextMe : styles.msgTextOther]}
         linkStyle={styles.msgLinkText}
         linkPressBehavior="open"
+        selectable={false}
       />
     );
   }, []);
@@ -754,6 +999,34 @@ export default function GroupChatScreen() {
         </View>
       </View>
 
+      {notice && (
+        <Pressable
+          style={styles.noticeBanner}
+          onPress={() => setSelectCopyMessage(notice.message)}
+        >
+          <View style={styles.noticeIconBox}>
+            <Feather name="volume-2" size={16} color={HANWHA_ORANGE} />
+          </View>
+          <View style={styles.noticeBody}>
+            <Text style={styles.noticeLabel}>공지</Text>
+            <Text style={styles.noticeText} numberOfLines={2}>{getReplyLabel(notice.message)}</Text>
+          </View>
+          {canManageNotice && (
+            <Pressable
+              style={styles.noticeClearButton}
+              disabled={noticeUpdating}
+              onPress={(event) => {
+                event.stopPropagation();
+                void handleNoticeClear();
+              }}
+              hitSlop={8}
+            >
+              <Feather name="x" size={18} color={MUTED} />
+            </Pressable>
+          )}
+        </Pressable>
+      )}
+
       {loading ? (
         <MessengerLoadingState variant="group-chat" />
       ) : (
@@ -821,24 +1094,36 @@ export default function GroupChatScreen() {
                     </Pressable>
                   </View>
                 )}
+                {!canSendMessages && (
+                  <View style={styles.sendPermissionNotice}>
+                    <Feather name="lock" size={16} color="#92400E" />
+                    <Text style={styles.sendPermissionNoticeText}>채팅 권한이 꺼져 있어요</Text>
+                  </View>
+                )}
                 <View style={styles.inputContainer}>
-              <TouchableOpacity onPress={handleAttachment} style={styles.attachBtn} activeOpacity={0.7}>
+              <TouchableOpacity
+                onPress={handleAttachment}
+                style={[styles.attachBtn, !canSendMessages && styles.attachBtnDisabled]}
+                activeOpacity={0.7}
+                disabled={!canSendMessages}
+              >
                 <Feather name="paperclip" size={22} color="#9CA3AF" />
               </TouchableOpacity>
               <TextInput
-                style={styles.input}
+                style={[styles.input, !canSendMessages && styles.inputDisabled]}
                 value={text}
                 onChangeText={setText}
-                placeholder="메시지를 입력하세요"
+                placeholder={canSendMessages ? '메시지를 입력하세요' : '총무 또는 본부장이 채팅을 허용하면 입력할 수 있어요'}
                 placeholderTextColor={MUTED}
                 multiline
+                editable={canSendMessages}
                 textAlignVertical="center"
                 scrollEnabled={false}
               />
               <Pressable
                 onPress={handleSendText}
-                style={[styles.sendBtn, !text.trim() && styles.sendBtnDisabled]}
-                disabled={!text.trim()}
+                style={[styles.sendBtn, (!canSendMessages || !text.trim()) && styles.sendBtnDisabled]}
+                disabled={!canSendMessages || !text.trim()}
               >
                 <Feather name="arrow-up" size={20} color="#fff" />
               </Pressable>
@@ -853,7 +1138,11 @@ export default function GroupChatScreen() {
         animationType="slide"
         onRequestClose={() => setMemberListVisible(false)}
       >
-        <View style={styles.memberSheetBackdrop}>
+        <KeyboardAvoidingView
+          style={styles.memberSheetKeyboardAvoider}
+          behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+        >
+          <View style={styles.memberSheetBackdrop}>
           <Pressable style={StyleSheet.absoluteFill} onPress={() => setMemberListVisible(false)} />
           <View style={[styles.memberSheet, { paddingBottom: Math.max(insets.bottom, 16) + 16 }]}>
             <View style={styles.sheetHandle} />
@@ -891,28 +1180,13 @@ export default function GroupChatScreen() {
               keyboardShouldPersistTaps="handled"
               style={styles.memberList}
               contentContainerStyle={styles.memberListContent}
-              renderItem={({ item }) => {
-                const statusTone = getMemberStatusTone(item);
-                return (
-                  <View style={styles.memberRow}>
-                    <View style={styles.memberAvatar}>
-                      <Text style={styles.memberAvatarText}>{getInitial(item.name)}</Text>
-                    </View>
-                    <View style={styles.memberBody}>
-                      <View style={styles.memberNameRow}>
-                        <Text style={styles.memberName} numberOfLines={1}>{item.name ?? '이름 없음'}</Text>
-                        <Text style={styles.memberRole}>{roleLabel[item.role] ?? '사용자'}</Text>
-                      </View>
-                      <Text style={styles.memberMeta} numberOfLines={1}>{item.headquarters ?? '본부 미지정'}</Text>
-                    </View>
-                    <View style={[styles.memberStatusBadge, styles[`memberStatus_${statusTone}`]]}>
-                      <Text style={[styles.memberStatusText, styles[`memberStatusText_${statusTone}`]]}>
-                        {item.appointment_label}
-                      </Text>
-                    </View>
-                  </View>
-                );
-              }}
+              renderItem={renderMemberItem}
+              extraData={permissionUpdatingIds}
+              initialNumToRender={18}
+              maxToRenderPerBatch={18}
+              updateCellsBatchingPeriod={32}
+              windowSize={7}
+              removeClippedSubviews={Platform.OS === 'android'}
               ListEmptyComponent={
                 <View style={styles.memberEmpty}>
                   <Feather name="search" size={24} color="#D1D5DB" />
@@ -921,7 +1195,8 @@ export default function GroupChatScreen() {
               }
             />
           </View>
-        </View>
+          </View>
+        </KeyboardAvoidingView>
       </Modal>
 
       <Modal
@@ -930,9 +1205,9 @@ export default function GroupChatScreen() {
         animationType="fade"
         onRequestClose={closeMessageActions}
       >
-        <View style={styles.actionSheetBackdrop}>
+        <View style={styles.actionMenuBackdrop}>
           <Pressable style={StyleSheet.absoluteFill} onPress={closeMessageActions} />
-          <View style={[styles.actionSheet, { paddingBottom: Math.max(insets.bottom, 16) + 14 }]}>
+          <View style={styles.actionMenu}>
             <View style={styles.sheetHandle} />
             <Text style={styles.actionSheetTitle}>메시지 작업</Text>
             <Text style={styles.actionSheetPreview} numberOfLines={2}>
@@ -952,10 +1227,33 @@ export default function GroupChatScreen() {
               ))}
             </View>
 
+            {!actionMessage?.deleted_at && (
+              <>
+                <Pressable style={styles.actionButton} onPress={handleCopyAction}>
+                  <Feather name="copy" size={18} color="#F9FAFB" />
+                  <Text style={styles.actionButtonText}>복사</Text>
+                </Pressable>
+
+                <Pressable style={styles.actionButton} onPress={handleSelectCopyAction}>
+                  <Feather name="type" size={18} color="#F9FAFB" />
+                  <Text style={styles.actionButtonText}>선택 복사</Text>
+                </Pressable>
+              </>
+            )}
+
             <Pressable style={styles.actionButton} onPress={handleReplyAction}>
-              <Feather name="corner-up-left" size={18} color={CHARCOAL} />
+              <Feather name="corner-up-left" size={18} color="#F9FAFB" />
               <Text style={styles.actionButtonText}>답장</Text>
             </Pressable>
+
+            {canManageNotice && actionMessage && !actionMessage.deleted_at && !actionMessage.id.startsWith('local-') && !actionMessage.send_status && (
+              <Pressable style={styles.actionButton} disabled={noticeUpdating} onPress={handleNoticeAction}>
+                <Feather name="volume-2" size={18} color="#F9FAFB" />
+                <Text style={styles.actionButtonText}>
+                  {notice?.message_id === actionMessage.id ? '공지 해제' : '공지'}
+                </Text>
+              </Pressable>
+            )}
 
             {canDeleteMessage(actionMessage) && (
               <Pressable style={[styles.actionButton, styles.actionButtonDanger]} onPress={handleDeleteAction}>
@@ -963,6 +1261,29 @@ export default function GroupChatScreen() {
                 <Text style={[styles.actionButtonText, styles.actionButtonTextDanger]}>삭제</Text>
               </Pressable>
             )}
+          </View>
+        </View>
+      </Modal>
+
+      <Modal
+        visible={Boolean(selectCopyMessage)}
+        transparent
+        animationType="slide"
+        onRequestClose={() => setSelectCopyMessage(null)}
+      >
+        <View style={styles.selectCopyBackdrop}>
+          <Pressable style={StyleSheet.absoluteFill} onPress={() => setSelectCopyMessage(null)} />
+          <View style={[styles.selectCopySheet, { paddingBottom: Math.max(insets.bottom, 16) + 18 }]}>
+            <View style={styles.sheetHandle} />
+            <View style={styles.selectCopyHeader}>
+              <Text style={styles.selectCopyTitle}>선택 복사</Text>
+              <Pressable style={styles.selectCopyCloseButton} onPress={() => setSelectCopyMessage(null)}>
+                <Feather name="x" size={20} color={CHARCOAL} />
+              </Pressable>
+            </View>
+            <Text selectable style={styles.selectCopyText}>
+              {getMessageCopyText(selectCopyMessage)}
+            </Text>
           </View>
         </View>
       </Modal>
@@ -993,6 +1314,38 @@ const styles = StyleSheet.create({
   headerCenter: { flex: 1, alignItems: 'center', justifyContent: 'center', minWidth: 0 },
   headerTitle: { fontSize: 18, fontWeight: '800', color: CHARCOAL },
   headerSubtitle: { marginTop: 3, fontSize: 12, color: MUTED, fontWeight: '600' },
+  noticeBanner: {
+    minHeight: 58,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    paddingHorizontal: 14,
+    paddingVertical: 9,
+    backgroundColor: '#FFF7ED',
+    borderBottomWidth: 1,
+    borderBottomColor: '#FED7AA',
+  },
+  noticeIconBox: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#FFEDD5',
+  },
+  noticeBody: { flex: 1, minWidth: 0 },
+  noticeLabel: { fontSize: 11, fontWeight: '900', color: HANWHA_ORANGE },
+  noticeText: { marginTop: 2, fontSize: 13, lineHeight: 18, color: CHARCOAL, fontWeight: '700' },
+  noticeClearButton: {
+    width: 34,
+    height: 34,
+    borderRadius: 17,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#fff',
+    borderWidth: 1,
+    borderColor: '#FED7AA',
+  },
   list: { flex: 1 },
   listContent: { paddingVertical: 20, paddingHorizontal: 16, gap: 12, flexGrow: 1 },
   msgRow: { flexDirection: 'row', marginBottom: 12, width: '100%' },
@@ -1153,6 +1506,19 @@ const styles = StyleSheet.create({
   replyTargetName: { fontSize: 12, fontWeight: '900', color: HANWHA_ORANGE },
   replyTargetText: { marginTop: 2, fontSize: 13, color: CHARCOAL },
   inputContainer: { flexDirection: 'row', alignItems: 'flex-end', gap: 8 },
+  sendPermissionNotice: {
+    minHeight: 36,
+    marginBottom: 10,
+    borderRadius: 12,
+    backgroundColor: '#FEF3C7',
+    borderWidth: 1,
+    borderColor: '#FDE68A',
+    paddingHorizontal: 12,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  sendPermissionNoticeText: { flex: 1, fontSize: 13, fontWeight: '800', color: '#92400E' },
   attachBtn: {
     width: 40,
     height: 40,
@@ -1161,6 +1527,7 @@ const styles = StyleSheet.create({
     borderRadius: 20,
     backgroundColor: '#F3F4F6',
   },
+  attachBtnDisabled: { opacity: 0.45 },
   input: {
     flex: 1,
     minHeight: 40,
@@ -1173,6 +1540,10 @@ const styles = StyleSheet.create({
     paddingVertical: 9,
     fontSize: 15,
     color: CHARCOAL,
+  },
+  inputDisabled: {
+    backgroundColor: '#F3F4F6',
+    color: MUTED,
   },
   sendBtn: {
     width: 40,
@@ -1205,6 +1576,27 @@ const styles = StyleSheet.create({
   uploadingText: { flex: 1, fontSize: 13, fontWeight: '700', color: CHARCOAL },
   cancelUploadBtn: { flexDirection: 'row', alignItems: 'center', gap: 4 },
   cancelUploadText: { fontSize: 12, fontWeight: '700', color: '#666' },
+  actionMenuBackdrop: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 22,
+    backgroundColor: 'rgba(0, 0, 0, 0.55)',
+  },
+  actionMenu: {
+    width: '100%',
+    maxWidth: 360,
+    borderRadius: 22,
+    backgroundColor: '#202124',
+    paddingHorizontal: 18,
+    paddingTop: 12,
+    paddingBottom: 16,
+    shadowColor: '#000',
+    shadowOpacity: 0.24,
+    shadowRadius: 18,
+    shadowOffset: { width: 0, height: 10 },
+    elevation: 10,
+  },
   actionSheetBackdrop: {
     flex: 1,
     justifyContent: 'flex-end',
@@ -1217,42 +1609,84 @@ const styles = StyleSheet.create({
     paddingHorizontal: 20,
     paddingTop: 10,
   },
-  actionSheetTitle: { fontSize: 20, fontWeight: '900', color: CHARCOAL },
-  actionSheetPreview: { marginTop: 8, fontSize: 14, lineHeight: 20, color: MUTED },
-  reactionPickerLabel: { marginTop: 18, fontSize: 13, fontWeight: '900', color: CHARCOAL },
-  reactionPickerRow: { marginTop: 10, flexDirection: 'row', gap: 8 },
+  actionSheetTitle: { fontSize: 16, fontWeight: '900', color: '#F9FAFB' },
+  actionSheetPreview: { marginTop: 8, fontSize: 13, lineHeight: 19, color: '#D1D5DB' },
+  reactionPickerLabel: { marginTop: 16, fontSize: 12, fontWeight: '900', color: '#D1D5DB' },
+  reactionPickerRow: { marginTop: 10, flexDirection: 'row', justifyContent: 'space-between', gap: 6 },
   reactionPickerButton: {
-    width: 44,
-    height: 44,
-    borderRadius: 22,
+    width: 42,
+    height: 42,
+    borderRadius: 21,
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: '#F9FAFB',
-    borderWidth: 1,
-    borderColor: '#E5E7EB',
+    backgroundColor: '#2F3136',
   },
   reactionPickerText: { fontSize: 22 },
   actionButton: {
-    minHeight: 52,
-    marginTop: 12,
-    borderRadius: 16,
-    backgroundColor: '#F9FAFB',
+    minHeight: 50,
+    borderRadius: 10,
+    backgroundColor: 'transparent',
     flexDirection: 'row',
     alignItems: 'center',
     gap: 10,
-    paddingHorizontal: 14,
+    paddingHorizontal: 8,
   },
-  actionButtonDanger: { backgroundColor: '#FEF2F2' },
-  actionButtonText: { fontSize: 15, fontWeight: '900', color: CHARCOAL },
+  actionButtonDanger: { backgroundColor: 'transparent' },
+  actionButtonText: { fontSize: 17, fontWeight: '800', color: '#F9FAFB' },
   actionButtonTextDanger: { color: '#DC2626' },
+  selectCopyBackdrop: {
+    flex: 1,
+    justifyContent: 'flex-end',
+    backgroundColor: 'rgba(17, 24, 39, 0.45)',
+  },
+  selectCopySheet: {
+    maxHeight: '72%',
+    borderTopLeftRadius: 28,
+    borderTopRightRadius: 28,
+    backgroundColor: '#fff',
+    paddingHorizontal: 20,
+    paddingTop: 10,
+  },
+  selectCopyHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 12,
+    marginBottom: 14,
+  },
+  selectCopyTitle: { fontSize: 20, fontWeight: '900', color: CHARCOAL },
+  selectCopyCloseButton: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#F3F4F6',
+  },
+  selectCopyText: {
+    borderRadius: 16,
+    backgroundColor: '#F9FAFB',
+    borderWidth: 1,
+    borderColor: '#E5E7EB',
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    fontSize: 16,
+    lineHeight: 24,
+    color: CHARCOAL,
+  },
+  memberSheetKeyboardAvoider: {
+    flex: 1,
+  },
   memberSheetBackdrop: {
     flex: 1,
     justifyContent: 'flex-end',
     backgroundColor: 'rgba(17, 24, 39, 0.45)',
   },
   memberSheet: {
+    width: '100%',
     maxHeight: '82%',
     minHeight: 360,
+    flexShrink: 1,
     borderTopLeftRadius: 28,
     borderTopRightRadius: 28,
     backgroundColor: '#fff',
@@ -1296,7 +1730,7 @@ const styles = StyleSheet.create({
     backgroundColor: '#F9FAFB',
   },
   memberSearchInput: { flex: 1, fontSize: 16, color: CHARCOAL, paddingVertical: 0 },
-  memberList: { marginTop: 12 },
+  memberList: { flexShrink: 1, marginTop: 12 },
   memberListContent: { paddingBottom: 12 },
   memberRow: {
     minHeight: 70,
@@ -1332,6 +1766,11 @@ const styles = StyleSheet.create({
     color: MUTED,
   },
   memberMeta: { marginTop: 4, fontSize: 13, color: MUTED },
+  memberTrailing: {
+    alignItems: 'flex-end',
+    justifyContent: 'center',
+    gap: 6,
+  },
   memberStatusBadge: {
     borderRadius: 999,
     paddingHorizontal: 9,
@@ -1346,6 +1785,14 @@ const styles = StyleSheet.create({
   memberStatusText_partial: { color: '#EA580C' },
   memberStatusText_pending: { color: MUTED },
   memberStatusText_active: { color: '#2563EB' },
+  memberPermissionRow: {
+    minHeight: 28,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
+  memberPermissionText: { minWidth: 28, textAlign: 'right', fontSize: 11, fontWeight: '900', color: MUTED },
+  memberPermissionTextOn: { color: HANWHA_ORANGE },
   memberEmpty: {
     minHeight: 180,
     alignItems: 'center',

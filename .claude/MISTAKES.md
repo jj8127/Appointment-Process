@@ -1940,3 +1940,19 @@
 - Permanent guardrail: `eas build`, `npm run eas:build:*`, store submit 등 native build/submit 명령은 현재 대화에서 명시 승인을 받기 전에는 실행하지 않는다. 승인받아도 먼저 `app.json` 앱 버전을 올리고, platform/profile/current version/proposed version/실행 명령을 보고한 뒤 진행한다.
 - Related files: `AGENTS.md`, `.claude/MISTAKES.md`
 - Verification: Documentation guardrail only.
+
+## 2026-06-12 | In-App Update Platform Options | iOS 업데이트 프롬프트에 Android 옵션을 넘김
+- Symptom: iOS 앱 업데이트 안내가 App Store로 확실히 연결되는지 코드만 보고 보장할 수 없었다.
+- Root cause: `useInAppUpdate.ts` 공통 hook이 iOS에서 사용되면서 Android 전용 `IAUUpdateKind.IMMEDIATE`/`updateType`을 `sp-react-native-in-app-updates.startUpdate`에 넘겼다. 라이브러리의 iOS 계약은 `title`, `message`, `buttonUpgradeText`, `buttonCancelText`, `country` 같은 iOS 전용 옵션이다.
+- Why it was missed: Android와 iOS의 업데이트 API가 같은 라이브러리 이름 아래에 있어도 start options 계약이 다르다는 점을 플랫폼별 source test로 고정하지 않았다.
+- Permanent guardrail: native platform hook은 `.android.ts`/`.ios.ts`로 분리하고, iOS 업데이트 hook에는 `IAUUpdateKind`나 `updateType`이 들어가지 않는 계약 테스트를 둔다. App Store/Play Store 업데이트는 실제 스토어 배포 환경에서 별도 QA해야 한다.
+- Related files: `hooks/useInAppUpdate.ts`, `hooks/useInAppUpdate.ios.ts`, `hooks/useInAppUpdate.android.ts`, `hooks/__tests__/use-in-app-update.contract.test.ts`
+- Verification: RED/GREEN `npm test -- hooks/__tests__/use-in-app-update.contract.test.ts --runInBand`; `npx eslint hooks/useInAppUpdate.ts hooks/useInAppUpdate.ios.ts hooks/useInAppUpdate.android.ts hooks/__tests__/use-in-app-update.contract.test.ts`; `npx tsc --noEmit --pretty false`
+
+## 2026-06-14 | Group Chat Schema Canon Drift | migrations only, schema.sql missing
+- Symptom: `group_chat_rooms`, `group_chat_messages`, `group_chat_reads`, `group_chat_preferences`, and `group_chat_reactions` existed in migrations but were missing from `supabase/schema.sql`.
+- Root cause: Group chat was shipped through migrations and Edge Function work without updating the canonical schema file in the same change set.
+- Why it was missed: Runtime/source tests covered mobile and Edge Function behavior, but no check fixed the group-chat tables in schema canon.
+- Permanent guardrail: Every group-chat DB change must update both a migration and `supabase/schema.sql`, including service-role RLS policies.
+- Related files: `supabase/schema.sql`, `supabase/migrations/20260614000001_add_group_chat_send_permissions.sql`
+- Verification: `npm test -- --runTestsByPath lib/__tests__/group-chat-api.test.ts lib/__tests__/group-chat-contract.test.ts lib/__tests__/group-chat-mobile-source.test.ts lib/__tests__/group-chat-edge-source.test.ts --runInBand`; `npx eslint app/group-chat.tsx lib/group-chat-api.ts lib/group-chat-contract.ts lib/__tests__/group-chat-api.test.ts lib/__tests__/group-chat-contract.test.ts lib/__tests__/group-chat-mobile-source.test.ts lib/__tests__/group-chat-edge-source.test.ts`; `npx tsc --noEmit --pretty false`; `git diff --check`

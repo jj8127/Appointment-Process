@@ -4,7 +4,6 @@ import { MotiView } from 'moti';
 import { useEffect, useState } from 'react';
 import {
     Image,
-    Keyboard,
     Pressable,
     StyleSheet,
     Text,
@@ -122,7 +121,6 @@ export default function LoginScreen() {
                                     pressed && styles.buttonPressed,
                                     loading && styles.buttonDisabled,
                                 ]}
-                                onPressIn={() => Keyboard.dismiss()}
                                 onPress={handleLogin}
                                 disabled={loading}
                             >

@@ -2,6 +2,9 @@ import {
   buildGroupChatBootstrapBody,
   buildGroupChatDeleteBody,
   buildGroupChatMarkReadBody,
+  buildGroupChatMemberSendPermissionBody,
+  buildGroupChatNoticeClearBody,
+  buildGroupChatNoticeSetBody,
   buildGroupChatPreferencesBody,
   buildGroupChatReactionBody,
   buildGroupChatSendBody,
@@ -69,6 +72,14 @@ describe('group chat API payload builders', () => {
     });
   });
 
+  test('preserves multiline text in send bodies', () => {
+    expect(buildGroupChatSendBody({ content: '첫 줄\n둘째 줄' })).toEqual({
+      type: 'group_chat_send',
+      content: '첫 줄\n둘째 줄',
+      message_type: 'text',
+    });
+  });
+
   test('builds reaction and delete bodies', () => {
     expect(buildGroupChatReactionBody('message-1', '👍')).toEqual({
       type: 'group_chat_reaction_set',
@@ -86,6 +97,25 @@ describe('group chat API payload builders', () => {
     expect(buildGroupChatPreferencesBody(true)).toEqual({
       type: 'group_chat_preferences',
       muted: true,
+    });
+  });
+
+  test('builds member send permission body', () => {
+    expect(buildGroupChatMemberSendPermissionBody('fc:01011112222', true)).toEqual({
+      type: 'group_chat_member_send_permission',
+      target_actor_id: 'fc:01011112222',
+      can_send_messages: true,
+    });
+  });
+
+  test('builds notice set and clear bodies', () => {
+    expect(buildGroupChatNoticeSetBody('message-1')).toEqual({
+      type: 'group_chat_notice_set',
+      message_id: 'message-1',
+    });
+
+    expect(buildGroupChatNoticeClearBody()).toEqual({
+      type: 'group_chat_notice_clear',
     });
   });
 });

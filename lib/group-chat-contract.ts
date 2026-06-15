@@ -54,8 +54,21 @@ export type GroupChatReactionLike = {
   reaction?: string | null;
 };
 
+export type GroupChatSendPermissionLike = {
+  actor_id?: string | null;
+  can_send_messages?: boolean | null;
+};
+
 const sanitizePhone = (value?: string | null) => String(value ?? '').replace(/[^0-9]/g, '');
 const normalizeText = (value?: string | null) => String(value ?? '').replace(/\s+/g, ' ').trim();
+
+export function normalizeGroupChatMessageContent(value?: string | null) {
+  return String(value ?? '')
+    .replace(/\r\n?/g, '\n')
+    .replace(/[ \t]+\n/g, '\n')
+    .replace(/\n[ \t]+/g, '\n')
+    .trim();
+}
 
 export function isRequestBoardDesignerAffiliation(value?: string | null) {
   return normalizeText(value).replace(/\s+/g, '').includes('설계매니저');
@@ -105,6 +118,20 @@ export function buildGroupChatActor(input: {
     phone,
     name: normalizeText(input.name) || null,
   };
+}
+
+export function canGroupChatActorSendMessages(input: {
+  actor?: GroupChatActor | null;
+  permissions?: GroupChatSendPermissionLike[] | null;
+}) {
+  const actor = input.actor ?? null;
+  if (!actor?.id) return false;
+  if (actor.role !== 'fc') return true;
+
+  const actorId = normalizeText(actor.id);
+  return (input.permissions ?? []).some((row) =>
+    normalizeText(row.actor_id) === actorId && row.can_send_messages === true,
+  );
 }
 
 export function computeGroupChatUnreadCount(input: {

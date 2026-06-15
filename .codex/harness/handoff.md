@@ -26,6 +26,35 @@ Next:
 
 ---
 
+# Increment 69: Group Chat Responsiveness, Native Selection Block, Tool Setup, Login Tap Fix
+
+Status: implemented and source-verified on 2026-06-15.
+
+What changed:
+
+- Group-chat member search and FC send-permission toggles were optimized with deferred search, precomputed searchable member rows, memoized member rows, and a lighter Edge Function permission lookup.
+- Group-chat message long press now keeps Android native text selection from intercepting the custom Kakao-style menu by disabling selection on nested link/text fragments and applying `userSelect: 'none'` when selection is disabled.
+- Login no longer dismisses the keyboard on `onPressIn`; the login button submits through `onPress` even while the keyboard is open.
+- Superpowers was installed/enabled as a Codex plugin, and `sequential-thinking` plus `context7` were added as global MCP servers.
+
+Evidence:
+
+- Passed: `npm test -- --runTestsByPath lib/__tests__/group-chat-api.test.ts lib/__tests__/group-chat-contract.test.ts lib/__tests__/group-chat-mobile-source.test.ts lib/__tests__/group-chat-edge-source.test.ts lib/__tests__/login-mobile-source.test.ts --runInBand`.
+- Passed: `npx eslint app/group-chat.tsx app/login.tsx components/LinkifiedSelectableText.tsx lib/__tests__/group-chat-mobile-source.test.ts lib/__tests__/login-mobile-source.test.ts`.
+- Passed: `npx tsc --noEmit --pretty false`.
+- Confirmed: `codex plugin list` reports `superpowers@openai-curated` installed/enabled; `codex mcp list` reports `context7` and `sequential-thinking` enabled.
+
+Known risks / not yet verified:
+
+- Current Codex sessions may need a restart before newly installed Superpowers/context7/Sequential Thinking tools appear as callable in-session tools.
+- Android runtime QA still needs one reload to confirm long-press opens only the custom menu and login submits on the first tap with the keyboard visible.
+
+Next resume step:
+
+- Reload the Android dev client, verify the group-chat long-press menu on messages with and without links, and test login from a focused password field with the keyboard open.
+
+---
+
 # Increment 59: Referral Graph Elastic Drag And Drop Targets
 
 Status: implemented and locally verified on 2026-06-08.

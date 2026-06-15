@@ -18,6 +18,7 @@ export type GroupChatMember = {
   name: string | null;
   headquarters: string | null;
   appointment_label: string;
+  can_send_messages: boolean;
 };
 
 export type GroupChatRoom = {
@@ -30,6 +31,16 @@ export type GroupChatReactionSummary = {
   reaction: string;
   count: number;
   reacted_by_me: boolean;
+};
+
+export type GroupChatNotice = {
+  room_id: string;
+  message_id: string;
+  created_by_actor_id: string;
+  created_by_role: GroupChatRole;
+  created_at: string;
+  updated_at: string;
+  message: GroupChatMessage;
 };
 
 export type GroupChatMessage = {
@@ -58,6 +69,7 @@ export type GroupChatMessage = {
 export type GroupChatBootstrapResponse = {
   room: GroupChatRoom;
   actor: GroupChatActor;
+  can_send_messages: boolean;
   member_count: number;
   members: GroupChatMember[];
   muted: boolean;
@@ -65,6 +77,7 @@ export type GroupChatBootstrapResponse = {
   last_read_at: string | null;
   last_message: GroupChatMessage | null;
   messages: GroupChatMessage[];
+  notice: GroupChatNotice | null;
 };
 
 type GroupChatSuccess = {
@@ -132,6 +145,27 @@ export function buildGroupChatDeleteBody(messageId: string) {
   };
 }
 
+export function buildGroupChatMemberSendPermissionBody(targetActorId: string, canSendMessages: boolean) {
+  return {
+    type: 'group_chat_member_send_permission' as const,
+    target_actor_id: targetActorId,
+    can_send_messages: canSendMessages,
+  };
+}
+
+export function buildGroupChatNoticeSetBody(messageId: string) {
+  return {
+    type: 'group_chat_notice_set' as const,
+    message_id: messageId,
+  };
+}
+
+export function buildGroupChatNoticeClearBody() {
+  return {
+    type: 'group_chat_notice_clear' as const,
+  };
+}
+
 async function invokeGroupChat<T>(body: Record<string, unknown>): Promise<T> {
   const appSessionToken = await getStoredAppSessionToken();
   if (!appSessionToken) {
@@ -177,4 +211,18 @@ export async function groupChatSetReaction(messageId: string, reaction: string |
 
 export async function groupChatDeleteMessage(messageId: string) {
   return invokeGroupChat<{ message: GroupChatMessage }>(buildGroupChatDeleteBody(messageId));
+}
+
+export async function groupChatSetMemberSendPermission(targetActorId: string, canSendMessages: boolean) {
+  return invokeGroupChat<{ member: GroupChatMember }>(
+    buildGroupChatMemberSendPermissionBody(targetActorId, canSendMessages),
+  );
+}
+
+export async function groupChatSetNotice(messageId: string) {
+  return invokeGroupChat<{ notice: GroupChatNotice }>(buildGroupChatNoticeSetBody(messageId));
+}
+
+export async function groupChatClearNotice() {
+  return invokeGroupChat<{ notice: null }>(buildGroupChatNoticeClearBody());
 }

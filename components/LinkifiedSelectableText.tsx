@@ -67,6 +67,8 @@ export function LinkifiedSelectableText({
   const safeText = text ?? '';
   const segments = useMemo(() => splitTextByLinks(safeText), [safeText]);
   const hasLinks = segments.some((segment) => segment.isLink);
+  const textSelectable = selectable && !hasLinks;
+  const nonSelectableStyle = textSelectable ? undefined : styles.nonSelectableText;
 
   const handleLinkPress = (rawUrl: string) => {
     const normalized = normalizeExternalUrl(rawUrl);
@@ -112,19 +114,22 @@ export function LinkifiedSelectableText({
   };
 
   return (
-    <Text style={style} numberOfLines={numberOfLines} selectable={selectable && !hasLinks}>
+    <Text style={[style, nonSelectableStyle]} numberOfLines={numberOfLines} selectable={textSelectable}>
       {segments.map((segment, index) => (
         segment.isLink ? (
           <Text
             key={`link-${index}`}
-            style={[styles.linkText, linkStyle]}
+            style={[styles.linkText, linkStyle, nonSelectableStyle]}
             onPress={() => handleLinkPress(segment.text)}
+            selectable={false}
             suppressHighlighting
           >
             {formatExternalUrlDisplayText(segment.text)}
           </Text>
         ) : (
-          <Text key={`text-${index}`}>{segment.text}</Text>
+          <Text key={`text-${index}`} style={nonSelectableStyle} selectable={textSelectable}>
+            {segment.text}
+          </Text>
         )
       ))}
     </Text>
@@ -135,5 +140,8 @@ const styles = StyleSheet.create({
   linkText: {
     color: '#2563eb',
     textDecorationLine: 'underline',
+  },
+  nonSelectableText: {
+    userSelect: 'none',
   },
 });
