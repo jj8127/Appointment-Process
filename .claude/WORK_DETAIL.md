@@ -7,6 +7,152 @@
 
 ---
 
+## <a id="20260616-plugin-routing-contract"></a> 2026-06-16 | Plugin routing contract
+
+**배경**:
+- Sentry, GitHub, Supabase, Vercel 같은 외부 서비스 작업은 가능한 경우 Codex plugin/app/skill을 우선 사용해야 한다는 운영 규칙을 고정할 필요가 있었다.
+- 앞으로 새 외부 프로그램을 다룰 때도 사용 가능한 plugin/connector가 있는지 먼저 확인하고, exact match가 있으면 설치 요청 후 plugin 경로로 작업해야 한다.
+
+**조치**:
+- workspace 상위 `D:\hanhwa\AGENTS.md`에 plugin routing rule을 추가했다.
+- repo `AGENTS.md`에 `Plugin Routing Contract` 섹션을 추가했다.
+- Sentry 작업은 Sentry plugin과 `SENTRY_READ_AUTH_TOKEN` read-only 규칙을 함께 사용하도록 명시했다.
+- GitHub, Supabase, Vercel 작업은 각각 해당 plugin 우선 사용으로 명시했다.
+
+**검증**:
+- `node scripts/ci/check-governance.mjs`
+- `git diff --check`
+
+**후속/주의**:
+- 특정 외부 서비스 plugin이 아직 설치되어 있지 않으면 임의 대체 구현을 먼저 만들지 말고, exact plugin/connector 후보를 찾아 설치 요청을 우선한다.
+
+---
+
+## <a id="20260616-insurance-digest-sentry-repair-automation"></a> 2026-06-16 | 보험 브리핑 및 Sentry PR 자동화
+
+**배경**:
+- 매주 월요일 11:00 KST에 전주 보험 관련 이슈를 가람in 게시판 `일반/general`에 `보험소식 브리핑 YYYY.MM.DD` 형식으로 올리는 자동화가 필요했다.
+- 매일 11:00 KST에 Sentry production unresolved fatal/error를 보고, 안전하게 수정 가능한 1건은 draft PR까지 여는 자동화가 필요했다.
+- 기존 guardrail에 따라 Sentry 조회는 `SENTRY_READ_AUTH_TOKEN`만 사용해야 하고, `SENTRY_AUTH_TOKEN`은 release/source-map upload 용도로만 남겨야 한다.
+
+**조치**:
+- `scripts/ops/sentry-daily-triage.mjs`를 추가해 Sentry org issue list, issue detail, issue events를 GET으로 조회하고 draft PR 메타데이터를 생성하게 했다.
+- `scripts/ops/sentry-daily-triage.test.mjs`를 추가해 read-token-only 동작, dry-run 무네트워크, fatal 우선순위, branch/title/body 계약을 고정했다.
+- 실제 Sentry API 테스트 중 issue detail/events endpoint가 최신 공식 경로와 달라 401 `Invalid token`을 반환하는 것을 확인하고, `GET /api/0/organizations/{org}/issues/{issue_id}/` 및 `/events/` 경로로 수정했다.
+- 실제 Sentry 조직 프로젝트 목록을 재확인해 `garamin-web`이 Next.js 프로젝트로 생성되었음을 확인했다. triage 기본 프로젝트와 daily automation prompt를 원래 범위인 `react-native`, `garamin-web`으로 갱신했다.
+- `package.json`에 `ops:sentry-triage`를 추가했다.
+- `docs/handbook/operations-runbook.md`에 weekly insurance digest와 daily Sentry repair PR 운영 계약, preflight exit 의미, 11:30 KST 게시/알림 확인 절차, 배포/native build/Sentry resolve 금지 규칙을 추가했다.
+- `.env.local`에 보험 브리핑 전용 actor role/phone/name을 설정했다. 비밀번호는 이 게시 경로에서 쓰지 않으므로 저장하지 않았다.
+- Codex cron automation 2개를 등록했다.
+  - `weekly-insurance-digest-to-garamin-board`: local, `DTSTART;TZID=Asia/Seoul:20260622T110000`, weekly Monday.
+  - `daily-sentry-repair-pr`: worktree, `DTSTART;TZID=Asia/Seoul:20260617T110000`, daily, prompt에서 `origin/main` 기반 repair branch를 요구.
+
+**검증**:
+- RED 확인: `node --test scripts/ops/sentry-daily-triage.test.mjs`가 helper 파일 부재로 `ERR_MODULE_NOT_FOUND` 실패.
+- 통과: `node --test scripts/ops/sentry-daily-triage.test.mjs` (6/6).
+- 통과: `node --test scripts/ops/post-insurance-digest.test.mjs` (12/12).
+- 통과: `npm run ops:sentry-triage -- --dry-run`.
+  - 초기 결과: `hasReadToken=false`, `usesUploadTokenFallback=false`, projects `react-native`, `garamin-web`.
+  - `garamin-web` 생성 확인 후 결과: projects `react-native`, `garamin-web`.
+- 통과: `powershell -ExecutionPolicy Bypass -File scripts\ops\run-insurance-digest-codex.ps1 -DryRun`.
+- 운영 blocker 확인: `npm run ops:post-insurance-digest -- --check-existing`는 현재 env의 actor로 `admin account not found`를 반환했다.
+- actor env 설정 후 통과: `npm run ops:post-insurance-digest -- --check-existing`가 category/list 접근을 통과하고 same-day `status: missing`을 반환했다.
+- live smoke 통과: `.codex-tmp/insurance-digest/live-test-2026-06-16.json`으로 실제 테스트 게시글 1건을 생성했다. 결과 post id는 `cec0757d-db4e-4898-8f79-6f08f0e61a75`.
+- live smoke 통과: 재실행한 `--check-existing`이 같은 post id로 `status: exists`를 반환했다.
+- live smoke 통과: `board-detail`이 해당 post id/title을 로드했고, `notifications`에는 `/board-detail?postId=cec0757d-db4e-4898-8f79-6f08f0e61a75` target row 3개가 생성됐으며 admin/FC inbox 조회에서도 target URL이 확인됐다.
+- live Sentry 조회 통과: `npm run ops:sentry-triage -- --project react-native --project garamin-web`가 production unresolved 이슈 조회 경로를 통과했다.
+- `REACT-NATIVE-3`은 Sentry가 `Source code was not found`를 반환했고 release가 `fc-onboarding-app@3.1.12`라 안전한 코드 수정 대상으로 보지 않았다.
+- 다음 수정 가능한 후보 `REACT-NATIVE-C` (`[Home] latest admin msg error`)를 조사해 optional home-card fetch 실패가 `logger.error`로 Sentry에 캡처되는 것을 확인했다.
+- 별도 worktree `.codex-tmp/worktrees/sentry-daily-20260616-react-native-c`에서 branch `codex/sentry-daily-20260616-react-native-c`를 `origin/main` 기준으로 생성하고 draft PR #3을 열었다: https://github.com/jj8127/Appointment-Process/pull/3
+- PR #3 검증:
+  - 통과: `npm test -- --runInBand lib/__tests__/home-latest-admin-message-source.test.ts`.
+  - 통과: `npm run lint`.
+  - 통과: `git diff --check -- app/index.tsx lib/__tests__/home-latest-admin-message-source.test.ts`.
+  - 통과: `SENTRY_AUTH_TOKEN='' npm run build` with local public env values loaded for the isolated worktree.
+  - 실패(기존 `origin/main` baseline): `npx tsc --noEmit --pretty false`가 이 PR과 무관한 기존 type errors에서 실패했다.
+- 자동화 TOML 확인:
+  - `C:\Users\jj812\.codex\automations\weekly-insurance-digest-to-garamin-board\automation.toml`
+  - `C:\Users\jj812\.codex\automations\daily-sentry-repair-pr\automation.toml`
+
+**후속/주의**:
+- 보험 게시 자동화 actor는 local `.env.local`에 설정되어 있으며, 테스트 게시글 1건은 실제 운영 게시판/알림에 남아 있다.
+- Sentry 자동화가 실제 조회/PR 생성까지 진행되려면 automation 환경에 `SENTRY_READ_AUTH_TOKEN`이 있어야 한다. 2026-06-16 재확인 기준 root `.env.local`에는 `SENTRY_PROJECTS=react-native,garamin-web`와 read token key가 있다.
+- 이번 작업은 native build, EAS Update, production deploy, Sentry issue resolve/status mutation을 수행하지 않았다.
+
+## <a id="20260616-auth-login-ui-regression-guard"></a> 2026-06-16 | Auth login UI regression guard
+
+**배경**:
+- Android 로그인 화면에서 투명 로고 뒤의 전체 배경이 검정으로 보이고, 키보드가 올라온 상태에서 로그인 CTA를 눌러도 로그인/키보드 dismiss가 모두 동작하지 않는 회귀가 보고됐다.
+- 이전 검정 표면 hardening은 홈 CTA와 가입 화면 전환 일부에 집중되어 있었고, 로그인 진입 화면의 full-screen gradient와 raw CTA press contract가 남아 있었다.
+
+**조치**:
+- subagent 2개를 병렬로 사용해 색상 회귀 후보와 키보드/터치 회귀 후보를 분리 조사했다.
+- `app/login.tsx`의 full-screen `expo-linear-gradient`를 제거하고 `AUTH_SCREEN_BACKGROUND` + `styles.authBackground`의 명시적 light surface로 교체했다.
+- `signup`, `signup-verify`, `signup-password`, `reset-password`도 같은 auth 배경 계약으로 맞춰 full-screen native gradient 후보를 제거했다.
+- 로그인 CTA를 raw `Pressable`에서 shared `Button`으로 바꾸고 `dismissKeyboardOnPress`를 켜서 Android 키보드가 열린 상태에서도 first tap이 버튼으로 전달되고 keyboard dismiss도 실행되도록 했다.
+- `components/Button.tsx`의 `style`/`textStyle` 타입을 `StyleProp`으로 넓혀 배열 스타일을 안전하게 받도록 했다.
+- `android/app/src/main/res/values-night/colors.xml`의 splash background를 흰색으로 바꿔 night mode 전환 표면이 검정으로 보이는 후보를 제거했다.
+- `docs/handbook/mobile/auth-and-gates.md`와 `.claude/MISTAKES.md`에 이번 회귀 원인과 guardrail을 기록했다.
+
+**핵심 파일**:
+- `app/login.tsx`
+- `app/signup.tsx`
+- `app/signup-verify.tsx`
+- `app/signup-password.tsx`
+- `app/reset-password.tsx`
+- `app/_layout.tsx`
+- `components/Button.tsx`
+- `android/app/src/main/res/values-night/colors.xml`
+- `lib/__tests__/login-mobile-source.test.ts`
+- `lib/__tests__/signup-background-source.test.ts`
+- `lib/__tests__/navigation-background-source.test.ts`
+- `components/__tests__/Button.contract.test.ts`
+- `docs/handbook/mobile/auth-and-gates.md`
+
+**검증**:
+- 통과: `npm test -- --runInBand lib/__tests__/login-mobile-source.test.ts lib/__tests__/signup-background-source.test.ts lib/__tests__/navigation-background-source.test.ts components/__tests__/Button.contract.test.ts` (11/11).
+- 통과: `npm run lint`.
+- 통과: `npx tsc --noEmit --pretty false`.
+- 통과: `git diff --check`.
+- 통과: `SENTRY_AUTH_TOKEN='' npm run build`.
+- 통과: `node scripts/ci/check-governance.mjs`.
+- 통과: `npm test -- --runInBand --testPathIgnorePatterns=.codex-tmp --testPathIgnorePatterns=web --testPathIgnorePatterns=supabase` (65 suites / 365 tests).
+
+**미실행/제약**:
+- 전체 `npm test -- --runInBand`는 repo root Jest가 `.codex-tmp` worktree와 `web/`/`supabase` Node/ESM 전용 테스트까지 같이 수집해 기존 TS 설정 오류로 실패했다. 모바일 앱 범위는 위 명령으로 분리해 통과했다.
+- 실제 Android 기기 visual smoke는 이 로컬 세션에서 실행하지 못했다. native night splash 변경은 설치 빌드/재빌드 후 확인해야 한다.
+
+## <a id="20260616-board-push-deeplink-route-normalization"></a> 2026-06-16 | Board push deeplink route normalization
+
+**배경**:
+- 게시판 등록 알림을 핸드폰에서 탭하면 게시글 상세가 아니라 엉뚱한 페이지로 이동하는 문제가 보고됐다.
+- `board-create`는 canonical `/board-detail?postId=...`를 만들고 있었지만, 모바일 push response handler는 raw `content.data.url`을 그대로 `router.push()`하고 있어 admin/web URL variant가 들어오면 모바일 route 계약을 우회했다.
+
+**조치**:
+- `lib/notification-route.ts`에 `resolvePushNotificationRoute()`를 추가해 native push tap도 알림센터와 같은 route normalizer를 쓰게 했다.
+- `/dashboard/board?postId=...` 및 absolute admin web URL의 `/dashboard/board?postId=...`를 모바일 `/board-detail?postId=...`로 정규화했다.
+- `app/_layout.tsx`의 Expo notification response listener가 raw URL 대신 `resolvePushNotificationRoute()`를 사용하도록 변경했다.
+- 앱이 닫힌 상태에서 알림을 탭한 경우도 처리하도록 `getLastNotificationResponse()`/fallback async response를 읽는다.
+- `docs/handbook/backend/notifications-inbox-push.md`와 `.claude/MISTAKES.md`에 push/inbox/web URL route normalization 계약을 기록했다.
+
+**핵심 파일**:
+- `app/_layout.tsx`
+- `lib/notification-route.ts`
+- `lib/__tests__/notification-route.test.ts`
+- `docs/handbook/backend/notifications-inbox-push.md`
+- `.claude/MISTAKES.md`
+
+**검증**:
+- RED: `npm test -- --runInBand lib/__tests__/notification-route.test.ts`가 `resolvePushNotificationRoute` 미존재로 실패.
+- GREEN: `npm test -- --runInBand lib/__tests__/notification-route.test.ts` (7/7).
+- 통과: `npm test -- --runInBand lib/__tests__/notification-route.test.ts lib/__tests__/notice-route.test.ts lib/__tests__/mobile-unread-notification-count-plan.test.ts` (25/25).
+- 통과: `npx eslint app\_layout.tsx lib\notification-route.ts lib\__tests__\notification-route.test.ts`.
+- 통과: `npx tsc --noEmit --pretty false`.
+- 통과: `node scripts\ci\check-governance.mjs`.
+
+**미실행/제약**:
+- 실제 휴대폰 push tap smoke는 로컬에서 실행하지 못했다. 변경은 JS route handler라 앱 reload/EAS Update 후 확인 가능하다.
+
 ## <a id="20260612-group-chat-server-js-deploy"></a> 2026-06-12 | 단톡방 알림 서버/앱 JS 반영
 
 **배경**:

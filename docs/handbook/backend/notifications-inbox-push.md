@@ -2,7 +2,7 @@ doc_id: FC-BACKEND-NOTIFY-PUSH
 owner_repo: fc-onboarding-app
 owner_area: backend
 audience: developer, operator
-last_verified: 2026-06-05
+last_verified: 2026-06-16
 source_of_truth: supabase/functions/fc-notify/index.ts + supabase/functions/board-create/index.ts + supabase/functions/board-update/index.ts + web/src/app/actions.ts + web/src/app/api/admin/push/route.ts + web/src/app/api/web-push/subscribe/route.ts
 
 # Backend Runbook: Notifications, Inbox, And Push
@@ -24,6 +24,7 @@ source_of_truth: supabase/functions/fc-notify/index.ts + supabase/functions/boar
 - Expo push API는 한 요청에 최대 100개 payload만 허용하므로 `fc-notify`는 mobile push payload를 100개 단위로 chunk 전송합니다.
 - 2026-06-03 현재 카카오톡 delivery adapter는 활성 계약이 아니다. `fc-notify`는 inbox row와 app/web push를 유지하되 `notification_deliveries` 같은 별도 Kakao audit table에 쓰지 않는다.
 - 사용자-facing 알림 제목/분기 문구는 `보증 보험 동의`, `다위촉` 명칭을 사용한다. 내부 `allowance_*`, `hanwha_*` identifier는 기존 DB 호환 때문에 유지될 수 있다.
+- 모바일 푸시 탭, 알림센터 row 탭, admin web push URL은 모두 `lib/notification-route.ts`의 route normalizer를 거쳐야 합니다. 게시판 글 URL은 `/board?postId=...`가 canonical mobile target이며, 이 경로가 게시판 화면의 상세 모달을 엽니다. legacy `/board-detail?postId=...` 및 admin web `/dashboard/board?postId=...`는 같은 모달 진입점으로 정규화합니다.
 
 ## 2026-03-28 기준 주의점
 
@@ -40,6 +41,7 @@ source_of_truth: supabase/functions/fc-notify/index.ts + supabase/functions/boar
 - 게시판 글 fanout은 최소 두 축이 필요합니다.
   - `target_role='fc'`: FC 앱 푸시
   - `target_role='admin'`: admin/manager 앱 푸시 + admin web push callback
+- 2026-06-16 기준, push data 또는 inbox row에 web/admin URL 형태(`/dashboard/board?postId=...`)나 legacy mobile URL(`/board-detail?postId=...`)이 들어와도 모바일은 `lib/notification-route.ts`에서 `/board?postId=...`로 변환해야 합니다. `app/_layout.tsx`에서 raw `content.data.url`을 직접 `router.push()`하지 않습니다.
 
 ## 2026-06-05 Codex 보험 브리핑 메모
 

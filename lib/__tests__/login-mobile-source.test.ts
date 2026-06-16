@@ -10,16 +10,34 @@ function readAppFile(fileName: string) {
 describe('login mobile keyboard behavior', () => {
   it('keeps the login button tappable while the keyboard is open', () => {
     const source = readAppFile('login.tsx');
-    const loginButtonStart = source.indexOf('styles.button,');
+    const loginButtonStart = source.indexOf('<Button');
     const loginButtonBlock = source.slice(
       loginButtonStart,
-      source.indexOf('</Pressable>', loginButtonStart),
+      source.indexOf('</Button>', loginButtonStart),
     );
 
     expect(source).toContain('keyboardShouldPersistTaps="always"');
     expect(loginButtonBlock).toContain('onPress={handleLogin}');
-    expect(loginButtonBlock).not.toContain('onPressIn');
+    expect(loginButtonBlock).toContain('submitOnPressIn');
+    expect(loginButtonBlock).toContain('dismissKeyboardOnPress');
+    expect(loginButtonBlock).not.toContain('dismissKeyboardOnPress={false}');
     expect(source).not.toContain('Keyboard.dismiss()');
     expect(source).not.toContain('    Keyboard,');
+  });
+
+  it('uses the shared touchable Button for the login CTA instead of a raw Pressable', () => {
+    const source = readAppFile('login.tsx');
+    const loginButtonStart = source.indexOf('<Button');
+    const loginButtonBlock = source.slice(
+      loginButtonStart,
+      source.indexOf('</Button>', loginButtonStart),
+    );
+
+    expect(source).toContain("import { Button } from '@/components/Button';");
+    expect(loginButtonBlock).toContain('<Button');
+    expect(loginButtonBlock).toContain('onPress={handleLogin}');
+    expect(loginButtonBlock).toContain('loading={loading}');
+    expect(loginButtonBlock).toContain('disabled={loading}');
+    expect(loginButtonBlock).not.toContain('<Pressable');
   });
 });

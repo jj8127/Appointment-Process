@@ -1197,7 +1197,11 @@ export default function BoardScreen() {
                           },
                         ]}
                       >
-                        <Text style={[styles.categoryBadgeText, { color: categoryTheme.textColor }]}>
+                        <Text
+                          style={[styles.categoryBadgeText, { color: categoryTheme.textColor }]}
+                          numberOfLines={1}
+                          ellipsizeMode="tail"
+                        >
                           {categoryName}
                         </Text>
                       </View>
@@ -1310,9 +1314,11 @@ export default function BoardScreen() {
                   <View style={styles.avatar}>
                     <Text style={styles.avatarText}>{getInitial(modalPost?.authorName)}</Text>
                   </View>
-                  <View style={{ flex: 1 }}>
-                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-                      <Text style={styles.authorName}>{safeText(modalPost?.authorName)}</Text>
+                  <View style={styles.detailAuthorInfo}>
+                    <View style={styles.detailAuthorBadgeRow}>
+                      <Text style={[styles.authorName, styles.detailAuthorName]} numberOfLines={1}>
+                        {safeText(modalPost?.authorName)}
+                      </Text>
                       <View style={[styles.roleBadge, { backgroundColor: getBoardRoleBadgeStyle(modalPost?.authorRole ?? 'manager').backgroundColor }]}>
                         <Text style={[styles.roleText, { color: getBoardRoleBadgeStyle(modalPost?.authorRole ?? 'manager').color }]}>
                           {getBoardAuthorRoleLabel(modalPost?.authorRole ?? 'manager')}
@@ -1325,13 +1331,18 @@ export default function BoardScreen() {
                           <View
                             style={[
                               styles.categoryBadge,
+                              styles.categoryBadgeInline,
                               {
                                 backgroundColor: categoryTheme.backgroundColor,
                                 borderColor: categoryTheme.borderColor,
                               },
                             ]}
                           >
-                            <Text style={[styles.categoryBadgeText, { color: categoryTheme.textColor }]}>
+                            <Text
+                              style={[styles.categoryBadgeText, { color: categoryTheme.textColor }]}
+                              numberOfLines={1}
+                              ellipsizeMode="tail"
+                            >
                               {categoryName}
                             </Text>
                           </View>
@@ -1630,15 +1641,24 @@ const styles = StyleSheet.create({
     alignSelf: 'flex-start',
     borderWidth: 1,
     borderRadius: 999,
-    paddingHorizontal: 9,
-    paddingVertical: 3,
+    minHeight: 26,
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    alignItems: 'center',
+    justifyContent: 'center',
     marginBottom: 8,
+    maxWidth: '100%',
   },
   categoryBadgeInline: {
     marginBottom: 0,
     flexShrink: 0,
   },
-  categoryBadgeText: { fontSize: 11, fontWeight: '700' },
+  categoryBadgeText: {
+    fontSize: 11,
+    lineHeight: 14,
+    fontWeight: '700',
+    includeFontPadding: false,
+  },
   card: {
     backgroundColor: '#fff',
     borderRadius: 16,
@@ -1664,6 +1684,17 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   authorBadge: { flexDirection: 'row', alignItems: 'center', gap: 10 },
+  detailAuthorInfo: { flex: 1, minWidth: 0 },
+  detailAuthorBadgeRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flexWrap: 'wrap',
+    gap: 6,
+  },
+  detailAuthorName: {
+    flexShrink: 1,
+    maxWidth: '100%',
+  },
   avatar: {
     width: 40,
     height: 40,
@@ -1675,11 +1706,19 @@ const styles = StyleSheet.create({
   avatarText: { color: '#fff', fontSize: 16, fontWeight: '700' },
   authorName: { fontSize: 14, fontWeight: '600', color: CHARCOAL },
   roleBadge: {
-    paddingHorizontal: 8,
-    paddingVertical: 2,
-    borderRadius: 8,
+    minHeight: 26,
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 999,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
-  roleText: { fontSize: 11, fontWeight: '600' },
+  roleText: {
+    fontSize: 11,
+    lineHeight: 14,
+    fontWeight: '700',
+    includeFontPadding: false,
+  },
   date: { fontSize: 12, color: TEXT_MUTED, marginTop: 2 },
   titleRow: {
     flexDirection: 'row',

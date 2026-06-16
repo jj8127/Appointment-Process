@@ -2,6 +2,14 @@
 
 ## Project Context & Operations
 
+### Plugin Routing Contract
+- Before working with an external service or product, check whether a matching Codex plugin/app/skill exists and use it when available.
+- Sentry tasks must use the Sentry plugin. Keep using `SENTRY_READ_AUTH_TOKEN` for reads and never fall back to `SENTRY_AUTH_TOKEN`.
+- GitHub tasks, including PR inspection/creation, review comments, CI checks, and repository operations, must use the GitHub plugin when available.
+- Supabase tasks, including database, auth, storage, migrations, Edge Functions, logs, and project config, must use the Supabase plugin when available.
+- Vercel tasks, including deployments, env vars, logs, domains, cron jobs, and framework docs, must use the Vercel plugin when available.
+- For any other external program or service, search for a matching plugin/connector before using raw CLI, direct HTTP, or browser-only workflows. If an exact plugin/connector exists but is not installed, request installation before proceeding.
+
 ### Business Goal
 - Build and operate a dual-platform FC onboarding system for insurance agents.
 - Keep FC onboarding workflow and admin operations consistent across mobile app, admin web, and backend services.

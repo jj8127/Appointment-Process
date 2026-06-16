@@ -30,6 +30,6 @@ describe('navigation background fallbacks', () => {
         '  contentStyle: { backgroundColor: DEFAULT_SCREEN_BACKGROUND },\n' +
         '} as const;',
     );
-    expect(layoutSource).toContain('contentStyle: { backgroundColor: AUTH_GRADIENT_BACKGROUND }');
+    expect(layoutSource).toContain('contentStyle: { backgroundColor: AUTH_SCREEN_BACKGROUND }');
   });
 });

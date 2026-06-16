@@ -2,7 +2,7 @@ doc_id: FC-APP-AUTH-GATES
 owner_repo: fc-onboarding-app
 owner_area: mobile
 audience: developer, operator
-last_verified: 2026-06-09
+last_verified: 2026-06-16
 source_of_truth: app/login.tsx + app/signup*.tsx + app/reset-password.tsx + app/apply-gate.tsx + app/identity.tsx + hooks/use-session.tsx
 
 # Mobile Playbook: Auth And Gates
@@ -94,3 +94,11 @@ source_of_truth: app/login.tsx + app/signup*.tsx + app/reset-password.tsx + app/
 
 - [../shared/cross-repo-bridge-contract.md](E:/hanhwa/fc-onboarding-app/docs/handbook/shared/cross-repo-bridge-contract.md)
 - [../shared/security-and-secret-operations.md](E:/hanhwa/fc-onboarding-app/docs/handbook/shared/security-and-secret-operations.md)
+
+## 2026-06-16 auth UI regression guard
+
+- Auth entry screens (`login`, `signup`, `signup-verify`, `signup-password`, `reset-password`) must not use a full-screen `expo-linear-gradient` layer for the root background. On Android, this class of native/transparent surface has previously fallen back to black behind transparent assets such as `assets/images/login.png`.
+- These auth screens must keep a plain light root surface with `AUTH_SCREEN_BACKGROUND` and `styles.authBackground`, currently `COLORS.primaryPale`.
+- Login must keep `KeyboardAwareWrapper` with `keyboardShouldPersistTaps="always"` and the primary login CTA must use the shared `Button` with `dismissKeyboardOnPress`. Do not replace it with a raw `Pressable` unless the same keyboard-open tap contract is explicitly re-tested.
+- Android night splash background must stay light as well; a black night splash can make auth transitions look like another UI color regression.
+- Regression coverage lives in `lib/__tests__/login-mobile-source.test.ts`, `lib/__tests__/signup-background-source.test.ts`, `lib/__tests__/navigation-background-source.test.ts`, and `components/__tests__/Button.contract.test.ts`.

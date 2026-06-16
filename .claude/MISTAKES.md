@@ -30,6 +30,93 @@
 - Verification:
 ```
 
+## 2026-06-16 | Board Push Deep Link | Push tap bypassed mobile route normalization
+- Symptom:
+  - When a board post notification arrived on a phone, tapping the push notification did not consistently open the board post detail screen.
+  - URLs shaped like admin/web board targets could collapse to a generic dashboard route instead of `/board-detail?postId=...`.
+- Root cause:
+  - `app/_layout.tsx` pushed raw `content.data.url` from Expo notification responses directly into `router.push()`.
+  - `lib/notification-route.ts` normalized legacy `/board?postId=...`, but did not normalize admin web `/dashboard/board?postId=...` to the mobile standalone board detail route.
+  - The push tap path and the in-app notification inbox path used different route logic.
+- Why it was missed:
+  - Existing checks verified that `board-create` and `board-update` stored `/board-detail?postId=...`, but did not cover web/admin URL variants reaching mobile push payloads.
+  - Tests focused on inbox route normalization, not the native push response handler in `_layout`.
+- Permanent guardrail:
+  - Mobile push taps, notification-center taps, and web/admin notification URLs must all pass through `lib/notification-route.ts`.
+  - Board post notification targets must resolve to `/board-detail?postId=...` for mobile, including `/board?postId=...`, `/dashboard/board?postId=...`, and absolute admin web URLs with that path.
+  - Do not call `router.push(content.data.url)` directly from native notification handlers.
+- Related files:
+  - `app/_layout.tsx`
+  - `lib/notification-route.ts`
+  - `lib/__tests__/notification-route.test.ts`
+  - `docs/handbook/backend/notifications-inbox-push.md`
+- Verification:
+  - RED: `npm test -- --runInBand lib/__tests__/notification-route.test.ts` failed before `resolvePushNotificationRoute` existed.
+  - GREEN: `npm test -- --runInBand lib/__tests__/notification-route.test.ts`
+
+## 2026-06-16 | Auth Login Background | Full-screen auth gradient left as an Android dark-fallback risk
+- Symptom:
+  - The Android login screen rendered the top/background area as black behind the transparent `가람in` logo instead of the expected light GaramIn auth surface.
+  - The login form card, inputs, and CTA still rendered with their intended light/orange styling, which made the regression look like a split shell/background failure rather than a full theme change.
+- Root cause:
+  - `app/login.tsx` still paints the auth backdrop with a full-screen `expo-linear-gradient` (`colors={['#ffffff', '#fff1e6']}`).
+  - This repo already has a documented Android rendering class where gradient-backed orange/light surfaces can fall back to black; the transparent login logo then exposes that black surface directly.
+  - Global shell candidates (`app/_layout.tsx`, `app.json`, Android nav/status bar config) were already pinned to light backgrounds, so the remaining black surface came from the login screen's own gradient layer.
+- Why it was missed:
+  - Earlier Android black-rendering hardening removed gradient usage from several CTA/card surfaces, but auth-entry backgrounds were left on the older `LinearGradient` pattern.
+  - The login logo asset was easy to misread as the source because it is mostly transparent and only shows the bad background through it at runtime.
+- Permanent guardrail:
+  - Do not use `LinearGradient` for full-screen mobile auth backgrounds on Android in this repo; use an explicit solid light background (`COLORS.primaryPale`/`#fff1e6`) or another non-gradient fallback-first treatment.
+  - When auditing Android dark/black regressions, inspect transparent assets and the surface behind them before replacing image files.
+  - Auth-entry source tests should lock the absence of full-screen gradient-only background contracts on `/login` the same way navigation/signup tests lock light fallbacks elsewhere.
+- Related files:
+  - `app/login.tsx`
+  - `lib/__tests__/signup-background-source.test.ts`
+  - `lib/__tests__/navigation-background-source.test.ts`
+- Verification:
+  - Confirmed `assets/images/login.png` is mostly transparent, so the screenshot's black area was not baked into the logo.
+  - Confirmed `app/_layout.tsx` and `app.json` already pin app-level backgrounds, StatusBar, and NavigationBar to light colors.
+  - Traced the remaining black-capable surface to the full-screen `LinearGradient` in `app/login.tsx`.
+
+## 2026-06-16 | Board Automation Actor | Public admin-phone fallback treated as posting authority
+- Symptom:
+  - The weekly insurance digest preflight returned `admin account not found` even though the fallback phone came from the public admin phone list.
+- Root cause:
+  - `post-insurance-digest` can derive `BOARD_AUTOMATION_ACTOR_PHONE` from public app admin-phone env values, but the board Edge Functions authorize against active rows in `admin_accounts` or `manager_accounts`.
+  - The public admin-phone list can contain values that do not map to an active board actor.
+- Why it was missed:
+  - Dry-run payload validation and public admin-phone presence were treated as enough evidence before checking the live `board-categories-list`/`board-list` path.
+- Permanent guardrail:
+  - Weekly board automation must explicitly configure `BOARD_AUTOMATION_ACTOR_ROLE`, `BOARD_AUTOMATION_ACTOR_PHONE`, and `BOARD_AUTOMATION_ACTOR_NAME`.
+  - Treat `admin account not found` as a hard blocker and do not post or claim upload success.
+  - Validate actor access with `npm run ops:post-insurance-digest -- --check-existing` before research/posting.
+- Related files:
+  - `scripts/ops/post-insurance-digest.mjs`
+  - `docs/handbook/operations-runbook.md`
+  - `.env.local`
+- Verification:
+  - Reproduced blocker with the stale fallback.
+  - Set an explicit active admin actor and confirmed preflight reached `status: missing`.
+  - Posted one live test board post and verified `board-detail`, notification rows, and inbox target URL.
+
+## 2026-06-16 | Sentry Daily Triage | Issue detail/events endpoint drift
+- Symptom:
+  - Sentry organization issue list succeeded with the read-only token, but issue detail/events fetches failed with `Invalid token`.
+- Root cause:
+  - The helper used legacy `/api/0/issues/{issue_id}/...` paths while the current official API documents organization-scoped paths under `/api/0/organizations/{org}/issues/{issue_id}/...`.
+- Why it was missed:
+  - Unit tests verified that detail/events were called, but encoded the same stale URL shape instead of matching the official docs.
+- Permanent guardrail:
+  - Tests must assert the organization-scoped detail/events URL shape.
+  - If list succeeds but detail/events return auth-shaped errors, verify endpoint shape before changing token scopes.
+- Related files:
+  - `scripts/ops/sentry-daily-triage.mjs`
+  - `scripts/ops/sentry-daily-triage.test.mjs`
+- Verification:
+  - Reproduced `Invalid token` on the stale endpoint.
+  - Updated helper and tests to organization-scoped paths.
+  - Live triage then retrieved issue detail and events successfully.
+
 ## 2026-06-09 | Request Board FC Codes | 코드 관리 후 의뢰 작성 화면의 코드 목록을 갱신하지 않음
 - Symptom:
   - FC가 `설계코드 관리`에서 `테스트 회사` 코드를 등록했는데도, 의뢰 작성의 설계매니저 선택 sheet와 제출 전 검증에서 계속 `FC 코드 필요` / `설계코드 필요`가 표시됐다.
@@ -1956,3 +2043,27 @@
 - Permanent guardrail: Every group-chat DB change must update both a migration and `supabase/schema.sql`, including service-role RLS policies.
 - Related files: `supabase/schema.sql`, `supabase/migrations/20260614000001_add_group_chat_send_permissions.sql`
 - Verification: `npm test -- --runTestsByPath lib/__tests__/group-chat-api.test.ts lib/__tests__/group-chat-contract.test.ts lib/__tests__/group-chat-mobile-source.test.ts lib/__tests__/group-chat-edge-source.test.ts --runInBand`; `npx eslint app/group-chat.tsx lib/group-chat-api.ts lib/group-chat-contract.ts lib/__tests__/group-chat-api.test.ts lib/__tests__/group-chat-contract.test.ts lib/__tests__/group-chat-mobile-source.test.ts lib/__tests__/group-chat-edge-source.test.ts`; `npx tsc --noEmit --pretty false`; `git diff --check`
+
+## 2026-06-16 | Board Detail Badge Layout Drift | list badge margin reused inline
+- Symptom: Board detail modal author metadata badges rendered with mismatched heights/alignment, and the category badge could leave a small stray line/dot in the author row.
+- Root cause: `categoryBadge` carried list/title-row `marginBottom` into the inline detail author row, while `roleBadge` and `categoryBadge` used different padding and text line-height contracts.
+- Why it was missed: Existing category tests covered labels and data contracts, not the mobile detail metadata row geometry shared by `app/board.tsx` and `app/admin-board-manage.tsx`.
+- Permanent guardrail: Detail author metadata must use `detailAuthorBadgeRow`; role/category badges share `minHeight` and text `lineHeight`; inline category badges must apply `categoryBadgeInline` to remove list-only bottom margin.
+- Related files: `app/board.tsx`, `app/admin-board-manage.tsx`, `lib/__tests__/board-detail-badge-layout.test.ts`
+- Verification: RED/GREEN `npm test -- --runInBand lib/__tests__/board-detail-badge-layout.test.ts`; `npx eslint app\board.tsx app\admin-board-manage.tsx lib\__tests__\board-detail-badge-layout.test.ts`; `npx tsc --noEmit --pretty false`; `git diff --check`
+
+## 2026-06-16 | Board Push Route Regression | standalone detail mistaken for canonical detail
+- Symptom: Tapping a board-post push opened the old standalone `board-detail` screen instead of the normal board detail modal.
+- Root cause: The notification normalizer treated `/board-detail?postId=...` as the canonical mobile target, while the real in-app detail UX is `app/board.tsx` opened with `/board?postId=...`.
+- Why it was missed: The previous route tests asserted the wrong target and did not verify what the screen actually looked like after navigation.
+- Permanent guardrail: Board-post push, inbox, notice, and Edge Function targets must use `/board?postId=...`; `/board-detail?postId=...` is legacy input only and must redirect/normalize to the board modal route.
+- Related files: `lib/notification-route.ts`, `lib/notice-route.ts`, `app/board-detail.tsx`, `supabase/functions/board-create/index.ts`, `supabase/functions/board-update/index.ts`, `supabase/functions/board-comment-create/index.ts`, `supabase/functions/board-comment-like-toggle/index.ts`
+- Verification: RED/GREEN `npm test -- --runInBand lib/__tests__/notification-route.test.ts lib/__tests__/notice-route.test.ts lib/__tests__/board-detail-route-source.test.ts`; RED/GREEN `npm test -- --runInBand supabase/functions/__tests__/board-update-notification.contract.test.ts supabase/functions/__tests__/board-notification-target.contract.test.ts`
+
+## 2026-06-16 | Auth Button Keyboard Dismiss Regression | onPressIn cancelled final press
+- Symptom: On Android auth screens, tapping the login button while the keyboard was open showed the pressed visual state and dismissed the keyboard, but did not run the login action.
+- Root cause: Android delivered the button's press-in visual state while the keyboard was open, but the surrounding keyboard/scroll responder could still cancel the final `onPress` callback. Moving keyboard dismiss after `onPress` was not enough because the final press callback itself was the unreliable part.
+- Why it was missed: The previous source test only proved that `dismissKeyboardOnPress` existed and that `Keyboard.dismiss()` happened after `onPress`; it did not cover the observed native path where press-in fires but final `onPress` does not.
+- Permanent guardrail: Keyboard-sensitive auth CTAs that must submit while the keyboard is open should opt into `submitOnPressIn`; the shared `Button` must guard against duplicate submit when both press-in and final `onPress` arrive. Do not put keyboard-dismiss-only behavior on press-in.
+- Related files: `components/Button.tsx`, `components/__tests__/Button.contract.test.ts`, `lib/__tests__/login-mobile-source.test.ts`
+- Verification: RED/GREEN `npm test -- --runInBand components/__tests__/Button.contract.test.ts lib/__tests__/login-mobile-source.test.ts`; `npx eslint components\Button.tsx components\__tests__\Button.contract.test.ts lib\__tests__\login-mobile-source.test.ts app\login.tsx`; `npx tsc --noEmit --pretty false`; Android device tap test with keyboard open showed the login button entering loading state and the login/session flow starting.

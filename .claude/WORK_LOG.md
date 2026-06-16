@@ -17,6 +17,17 @@
 - ⚠️ 상태값(`types/fc.ts`)과 화면 분기 조건은 반드시 함께 수정
 - ⚠️ 스키마 변경은 `schema.sql` + `migrations/*.sql` 동시 관리
 
+## 2026-06-16
+
+| 날짜 | 작업 | 주요 파일 | 상세 |
+|---|---|---|---|
+| 06-16 | 게시판 푸시 알림 탭이 게시글 상세 대신 엉뚱한 화면으로 가던 딥링크 정규화 회귀 수정 | `app/_layout.tsx`, `lib/notification-route.ts`, `lib/__tests__/notification-route.test.ts`, `docs/handbook/backend/notifications-inbox-push.md` | [-> 상세](WORK_DETAIL.md#20260616-board-push-deeplink-route-normalization) |
+| 06-16 | 로그인 화면 Android 검정 배경/키보드 오픈 상태 CTA 미동작 회귀를 auth 화면 전체 배경 계약과 shared Button 계약으로 차단 | `app/login.tsx`, `app/signup*.tsx`, `app/reset-password.tsx`, `components/Button.tsx`, `docs/handbook/mobile/auth-and-gates.md` | [-> 상세](WORK_DETAIL.md#20260616-auth-login-ui-regression-guard) |
+| 06-16 | 외부 서비스 작업 시 Sentry/GitHub/Supabase/Vercel 등 해당 Codex plugin 우선 사용 규칙 추가 | `D:\hanhwa\AGENTS.md`, `AGENTS.md` | [-> 상세](WORK_DETAIL.md#20260616-plugin-routing-contract) |
+| 06-16 | Sentry read-only token으로 실제 production 이슈를 조회하고 `REACT-NATIVE-C` draft PR #3 생성 | `scripts/ops/sentry-daily-triage.mjs`, `scripts/ops/sentry-daily-triage.test.mjs`, `docs/handbook/operations-runbook.md`, `.codex/harness/*` | [-> 상세](WORK_DETAIL.md#20260616-insurance-digest-sentry-repair-automation) |
+| 06-16 | 보험 브리핑 전용 actor env를 설정하고 실제 테스트 게시글 1건을 게시/상세/inbox까지 검증 | `.env.local`, `.codex/harness/qa-report.md`, `.codex/harness/handoff.md` | [-> 상세](WORK_DETAIL.md#20260616-insurance-digest-sentry-repair-automation) |
+| 06-16 | 매주 월요일 보험소식 브리핑 Codex cron과 매일 Sentry 이슈 수정 draft PR cron을 등록하고 Sentry read-token 전용 triage helper를 추가 | `scripts/ops/sentry-daily-triage.mjs`, `scripts/ops/sentry-daily-triage.test.mjs`, `docs/handbook/operations-runbook.md`, `.codex/harness/*` | [→ 상세](WORK_DETAIL.md#20260616-insurance-digest-sentry-repair-automation) |
+
 ## 2026-06-12
 
 | 날짜 | 작업 | 주요 파일 | 상세 |

@@ -1650,3 +1650,45 @@ Out of scope:
 - Committing unrelated pre-existing referral graph/mobile changes.
 
 ---
+## 2026-06-16 | Automation Increment Plan
+
+1. Add a focused Sentry daily triage helper with unit tests for read-token-only behavior, organization issue/event API URL construction, candidate selection, and draft PR metadata.
+2. Update `package.json` with `ops:sentry-triage`.
+3. Update operations runbook and harness notes with weekly insurance digest timing, actor preflight, daily Sentry repair scope, PR rules, and blocked secret behavior.
+4. Create Codex cron automations:
+   - `weekly-insurance-digest-to-garamin-board`, local cwd `D:\hanhwa\fc-onboarding-app`, weekly Monday 11:00 KST.
+   - `daily-sentry-repair-pr`, worktree cwd `D:\hanhwa\fc-onboarding-app`, daily 11:00 KST.
+5. Verify focused node tests, dry-runs, git diff hygiene, and document any live-environment blockers.
+
+---
+## 2026-06-16 | Auth Login UI Regression Guard Plan
+
+1. Completed: used parallel subagents for visual/background regression candidates and login keyboard/touch regression candidates.
+2. Completed: replaced auth full-screen native gradient backgrounds with explicit light `AUTH_SCREEN_BACKGROUND` surfaces.
+3. Completed: changed login CTA from raw `Pressable` to shared `Button` with `dismissKeyboardOnPress`.
+4. Completed: added/updated source regression tests for auth background, login keyboard tap contract, navigation background, and shared Button keyboard dismissal.
+5. Completed: updated mobile auth handbook, mistake ledger, and harness notes.
+6. Completed: ran focused tests, mobile app test suite, lint, typecheck, build, governance, and diff whitespace checks.
+
+Out of scope:
+
+- Auth API/session behavior.
+- Native build/EAS update/production deploy.
+- Manual Android device screenshot smoke in this local pass.
+
+---
+## 2026-06-16 | Board Push Deep Link Normalization Plan
+
+1. Completed: traced board-create notification row and push fanout target URL.
+2. Completed: found native push response handler bypassing `lib/notification-route.ts` and pushing raw URL.
+3. Completed: added RED test for board push URLs shaped as legacy `/board?postId=...` and admin web `/dashboard/board?postId=...`.
+4. Completed: added `resolvePushNotificationRoute()` and dashboard-board URL normalization.
+5. Completed: rewired `app/_layout.tsx` push response handling, including last notification response for cold-start taps.
+6. Completed: updated notification runbook, mistake ledger, work log, and harness notes.
+7. Completed: ran focused notification tests, targeted lint, typecheck, and governance.
+
+Out of scope:
+
+- Supabase schema or Edge Function fanout changes.
+- Production deploy/EAS Update.
+- Physical-device push tap smoke.

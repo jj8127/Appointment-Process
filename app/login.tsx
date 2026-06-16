@@ -1,4 +1,3 @@
-import { LinearGradient } from 'expo-linear-gradient';
 import { router, useLocalSearchParams } from 'expo-router';
 import { MotiView } from 'moti';
 import { useEffect, useState } from 'react';
@@ -11,7 +10,7 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
-import BrandedLoadingSpinner from '@/components/BrandedLoadingSpinner';
+import { Button } from '@/components/Button';
 import { KeyboardAwareWrapper } from '@/components/KeyboardAwareWrapper';
 import { FormInput } from '@/components/FormInput';
 import { useKeyboardPadding } from '@/hooks/use-keyboard-padding';
@@ -20,6 +19,8 @@ import { useLogin } from '@/hooks/use-login';
 import { resolveSessionLandingRoute } from '@/lib/session-landing';
 import WebLogo from '../assets/images/login.png';
 import { COLORS, TYPOGRAPHY, SPACING, RADIUS } from '@/lib/theme';
+
+const AUTH_SCREEN_BACKGROUND = COLORS.primaryPale;
 
 export default function LoginScreen() {
     const { skipAuto } = useLocalSearchParams<{ skipAuto?: string }>();
@@ -51,12 +52,7 @@ export default function LoginScreen() {
 
     return (
         <View style={styles.container}>
-            <LinearGradient
-                colors={['#ffffff', '#fff1e6']}
-                style={[StyleSheet.absoluteFill, styles.gradientFallback]}
-                start={{ x: 0, y: 0 }}
-                end={{ x: 1, y: 1 }}
-            />
+            <View style={styles.authBackground} pointerEvents="none" />
 
             <SafeAreaView style={styles.safe} edges={['left', 'right', 'bottom']}>
                 <KeyboardAwareWrapper
@@ -83,53 +79,48 @@ export default function LoginScreen() {
                         >
                             <View style={styles.headerSection}>
                                 <Text style={styles.title}>로그인</Text>
-                            <Text style={styles.subtitle}>
-                                관리자는 지정된 번호 + 비밀번호{'\n'}FC는 휴대폰 번호 + 비밀번호로 로그인해주세요.
-                            </Text>
-                        </View>
+                                <Text style={styles.subtitle}>
+                                    관리자는 지정된 번호 + 비밀번호{'\n'}FC는 휴대폰 번호 + 비밀번호로 로그인해주세요.
+                                </Text>
+                            </View>
 
-                        <FormInput
-                            label="휴대폰 번호"
-                            placeholder="번호 입력 (- 없이 숫자만)"
-                            value={phoneInput}
-                            onChangeText={setPhoneInput}
-                            autoCapitalize="none"
-                            keyboardType="number-pad"
-                            returnKeyType="next"
-                            onSubmitEditing={handleLogin}
-                            editable={!loading}
-                            containerStyle={styles.inputContainer}
-                        />
+                            <FormInput
+                                label="휴대폰 번호"
+                                placeholder="번호 입력 (- 없이 숫자만)"
+                                value={phoneInput}
+                                onChangeText={setPhoneInput}
+                                autoCapitalize="none"
+                                keyboardType="number-pad"
+                                returnKeyType="next"
+                                onSubmitEditing={handleLogin}
+                                editable={!loading}
+                                containerStyle={styles.inputContainer}
+                            />
 
-                        <FormInput
-                            label="비밀번호"
-                            variant="password"
-                            placeholder="8자 이상, 영문+숫자+특수문자"
-                            value={passwordInput}
-                            onChangeText={setPasswordInput}
-                            autoCapitalize="none"
-                            returnKeyType="done"
-                            onSubmitEditing={handleLogin}
-                            editable={!loading}
-                            containerStyle={styles.inputContainer}
-                        />
+                            <FormInput
+                                label="비밀번호"
+                                variant="password"
+                                placeholder="8자 이상, 영문+숫자+특수문자"
+                                value={passwordInput}
+                                onChangeText={setPasswordInput}
+                                autoCapitalize="none"
+                                returnKeyType="done"
+                                onSubmitEditing={handleLogin}
+                                editable={!loading}
+                                containerStyle={styles.inputContainer}
+                            />
 
-
-                            <Pressable
-                                style={({ pressed }) => [
-                                    styles.button,
-                                    pressed && styles.buttonPressed,
-                                    loading && styles.buttonDisabled,
-                                ]}
+                            <Button
+                                style={[styles.button, loading && styles.buttonDisabled]}
+                                textStyle={styles.buttonText}
                                 onPress={handleLogin}
                                 disabled={loading}
+                                loading={loading}
+                                submitOnPressIn
+                                dismissKeyboardOnPress
                             >
-                                {loading ? (
-                                    <BrandedLoadingSpinner size="md" color="#fff" />
-                                ) : (
-                                    <Text style={styles.buttonText}>로그인</Text>
-                                )}
-                            </Pressable>
+                                {loading ? '' : '로그인'}
+                            </Button>
 
                             <Pressable
                                 style={({ pressed }) => [styles.linkButton, pressed && styles.backButtonPressed]}
@@ -155,10 +146,15 @@ export default function LoginScreen() {
 const styles = StyleSheet.create({
     container: {
         flex: 1,
-        backgroundColor: COLORS.background.primary,
+        backgroundColor: AUTH_SCREEN_BACKGROUND,
     },
-    gradientFallback: {
-        backgroundColor: COLORS.background.primary,
+    authBackground: {
+        position: 'absolute',
+        top: 0,
+        right: 0,
+        bottom: 0,
+        left: 0,
+        backgroundColor: AUTH_SCREEN_BACKGROUND,
     },
     safe: {
         flex: 1,
@@ -236,10 +232,6 @@ const styles = StyleSheet.create({
         shadowOpacity: 0.3,
         shadowRadius: 8,
         elevation: 4,
-    },
-    buttonPressed: {
-        backgroundColor: COLORS.primaryDark,
-        transform: [{ scale: 0.98 }],
     },
     buttonDisabled: {
         backgroundColor: COLORS.primaryLight,

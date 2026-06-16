@@ -1,6 +1,5 @@
 import { Feather } from '@expo/vector-icons';
 import { router, useFocusEffect, useLocalSearchParams } from 'expo-router';
-import { LinearGradient } from 'expo-linear-gradient';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Alert,
@@ -45,6 +44,8 @@ import { supabase } from '@/lib/supabase';
 import { COLORS, TYPOGRAPHY, SPACING, RADIUS } from '@/lib/theme';
 import { validatePhone, validateEmail, validateRequired, normalizePhone } from '@/lib/validation';
 import type { LicenseStatus } from '@/types/fc';
+
+const AUTH_SCREEN_BACKGROUND = COLORS.primaryPale;
 
 const STORAGE_KEY = 'fc-onboarding/signup';
 
@@ -454,12 +455,7 @@ export default function SignupScreen() {
 
   return (
     <View style={styles.container}>
-      <LinearGradient
-        colors={['#ffffff', '#fff1e6']}
-        style={[StyleSheet.absoluteFill, styles.gradientFallback]}
-        start={{ x: 0, y: 0 }}
-        end={{ x: 1, y: 1 }}
-      />
+      <View style={styles.authBackground} pointerEvents="none" />
       <SafeAreaView style={styles.safe} edges={['left', 'right', 'bottom']}>
       <KeyboardAwareWrapper
         contentContainerStyle={[styles.scrollContent, { paddingBottom: Math.max(160, keyboardPadding + 120) }]}
@@ -794,8 +790,15 @@ export default function SignupScreen() {
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: COLORS.primaryPale },
-  gradientFallback: { backgroundColor: COLORS.primaryPale },
+  container: { flex: 1, backgroundColor: AUTH_SCREEN_BACKGROUND },
+  authBackground: {
+    position: 'absolute',
+    top: 0,
+    right: 0,
+    bottom: 0,
+    left: 0,
+    backgroundColor: AUTH_SCREEN_BACKGROUND,
+  },
   safe: { flex: 1 },
   scrollContent: { padding: SPACING.lg, gap: SPACING.lg },
   hero: { gap: SPACING.sm, paddingVertical: SPACING.sm },

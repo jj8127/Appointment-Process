@@ -147,7 +147,7 @@ serve(async (req: Request) => {
   }
 
   const notificationTitle = '새 게시글';
-  const targetUrl = `/board-detail?postId=${data.id}`;
+  const targetUrl = `/board?postId=${data.id}`;
   const notificationRows = [
     {
       recipient_role: 'fc',

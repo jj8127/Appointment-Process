@@ -81,7 +81,7 @@ serve(async (req: Request) => {
         title: 'New comment like',
         body: comment.content?.slice(0, 120) ?? '',
         category: 'board_comment_like',
-        target_url: `/board-detail?postId=${comment.post_id}`,
+        target_url: `/board?postId=${comment.post_id}`,
       });
     }
   }

@@ -357,3 +357,9 @@ All hypotheses require later proof before deletion or refactor.
 - 기존 `garam-pick` slug는 게시글 참조와 홈 최신 카드 후보를 깨지 않도록 유지하고, 사용자 표시명만 `상품추천`으로 바꾼다.
 - 새 `시책` 카테고리 slug는 `policy`, sort order는 `5`다.
 - 카테고리 목록/생성/수정/게시글 생성/게시글 수정 경계는 모두 shared canonical list를 source of truth로 사용한다.
+## 2026-06-16 | Weekly Insurance Digest And Daily Sentry Repair Automation
+
+- Goal: Run two Codex cron automations in KST: a weekly Monday 11:00 insurance digest post, and a daily 11:00 Sentry repair loop that opens a draft PR for one fixable production issue.
+- Insurance digest scope: reuse `scripts/ops/post-insurance-digest.mjs`, keep posts in `general`, keep title format `보험소식 브리핑 YYYY.MM.DD`, require source URLs in JSON, and stop on actor/category preflight failure.
+- Sentry scope: inspect `hanhwa-lifelab` production unresolved fatal/error issues for `react-native` and `garamin-web`, using only `SENTRY_READ_AUTH_TOKEN`; never use `SENTRY_AUTH_TOKEN` as a read fallback and never auto-resolve Sentry issues. `garamin-web` was created on 2026-06-16 as the Next.js web project.
+- PR scope: Sentry automation may change code/tests/docs in an isolated worktree and open a draft PR, but must not run native builds, EAS Update, production deploys, or Sentry status mutations.

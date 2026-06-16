@@ -12,7 +12,12 @@ export function normalizeNotificationTargetUrl(url?: string | null): string {
   if (trimmed === '/chat') return '/messenger?channel=garam';
   if (trimmed === '/group-chat') return '/group-chat';
   if (trimmed === '/request-board-messenger') return '/messenger?channel=request-board';
-  if (trimmed.startsWith('/board?')) return trimmed.replace('/board?', '/board-detail?');
+  if (trimmed.startsWith('/board?')) return trimmed;
+  if (trimmed.startsWith('/board-detail?')) return trimmed.replace('/board-detail?', '/board?');
+  if (trimmed.startsWith('/dashboard/board?')) {
+    return trimmed.replace('/dashboard/board?', '/board?');
+  }
+  if (trimmed === '/dashboard/board' || trimmed === '/dashboard/board/') return '/board';
   if (trimmed.startsWith('/exam/apply2')) return '/exam-apply2';
   if (trimmed.startsWith('/exam/apply')) return '/exam-apply';
   if (trimmed.startsWith('/dashboard')) return '/dashboard';
@@ -61,4 +66,58 @@ export function resolveRequestBoardNotificationRoute(input: {
   }
 
   return '/request-board';
+}
+
+function lowerString(value: unknown): string {
+  return String(value ?? '').toLowerCase();
+}
+
+function isHanwhaWorkflowNotification(input: { title?: unknown; body?: unknown }) {
+  const title = lowerString(input.title);
+  const body = lowerString(input.body);
+
+  return (
+    title.includes('다위촉 승인') ||
+    title.includes('다위촉 반려') ||
+    title.includes('다위촉 url 승인') ||
+    title.includes('다위촉 url 반려') ||
+    title.includes('다위촉url') ||
+    title.includes('다위촉 서류') ||
+    body.includes('다위촉이 승인') ||
+    body.includes('다위촉이 반려') ||
+    body.includes('다위촉 url이 승인') ||
+    body.includes('다위촉 url이 반려') ||
+    body.includes('다위촉url') ||
+    body.includes('다위촉 서류') ||
+    body.includes('승인 pdf')
+  );
+}
+
+export function resolvePushNotificationRoute(content?: {
+  title?: unknown;
+  body?: unknown;
+  data?: Record<string, unknown> | null;
+} | null): string {
+  const data = content?.data ?? {};
+  const rawUrl = typeof data.url === 'string' ? data.url : undefined;
+  const category =
+    typeof data.type === 'string'
+      ? data.type
+      : typeof data.category === 'string'
+        ? data.category
+        : undefined;
+
+  if (isHanwhaWorkflowNotification({ title: content?.title, body: content?.body })) {
+    return '/hanwha-commission';
+  }
+
+  const normalizedCategory = String(category ?? '').trim().toLowerCase();
+  if (normalizedCategory.startsWith('request_board_') || normalizedCategory === 'group_chat_message') {
+    return resolveRequestBoardNotificationRoute({
+      category: normalizedCategory,
+      targetUrl: rawUrl,
+    });
+  }
+
+  return normalizeNotificationTargetUrl(rawUrl);
 }

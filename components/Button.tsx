@@ -1,6 +1,7 @@
 import React from 'react';
 import {
   Keyboard,
+  StyleProp,
   TouchableOpacity,
   Text,
   StyleSheet,
@@ -25,13 +26,14 @@ export interface ButtonProps {
   disabled?: boolean;
   loading?: boolean;
   dismissKeyboardOnPress?: boolean;
+  submitOnPressIn?: boolean;
 
   // Styling
   variant?: ButtonVariant;
   size?: ButtonSize;
   fullWidth?: boolean;
-  style?: ViewStyle;
-  textStyle?: TextStyle;
+  style?: StyleProp<ViewStyle>;
+  textStyle?: StyleProp<TextStyle>;
 
   // Accessibility
   accessibilityLabel?: string;
@@ -46,6 +48,7 @@ export function Button({
   disabled = false,
   loading = false,
   dismissKeyboardOnPress = false,
+  submitOnPressIn = false,
   variant = 'primary',
   size = 'md',
   fullWidth = false,
@@ -62,10 +65,33 @@ export function Button({
   // Get size styles
   const sizeStyles = getSizeStyles(size);
 
+  const pressInHandledRef = React.useRef(false);
+
+  const invokePress = () => {
+    onPress?.();
+    if (dismissKeyboardOnPress) {
+      Keyboard.dismiss();
+    }
+  };
+
+  const handlePressIn = () => {
+    if (!submitOnPressIn) return;
+    pressInHandledRef.current = true;
+    invokePress();
+  };
+
+  const handlePress = () => {
+    if (submitOnPressIn && pressInHandledRef.current) {
+      pressInHandledRef.current = false;
+      return;
+    }
+    invokePress();
+  };
+
   return (
     <TouchableOpacity
-      onPressIn={dismissKeyboardOnPress ? () => Keyboard.dismiss() : undefined}
-      onPress={onPress}
+      onPress={handlePress}
+      onPressIn={handlePressIn}
       disabled={isDisabled}
       activeOpacity={0.7}
       accessibilityRole="button"

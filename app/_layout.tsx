@@ -24,6 +24,7 @@ import { SessionProvider } from '@/hooks/use-session';
 import { useInAppUpdate } from '@/hooks/useInAppUpdate';
 import { goBackOrReplace } from '@/lib/back-navigation';
 import { logger } from '@/lib/logger';
+import { resolvePushNotificationRoute } from '@/lib/notification-route';
 import { savePendingReferralCode } from '@/lib/referral-deeplink';
 import { safeStorage } from '@/lib/safe-storage';
 import { withSentryRoot } from '@/lib/sentry';
@@ -58,7 +59,7 @@ const queryClient = new QueryClient({
 enableScreens(false);
 
 const DEFAULT_SCREEN_BACKGROUND = '#ffffff';
-const AUTH_GRADIENT_BACKGROUND = '#fff1e6';
+const AUTH_SCREEN_BACKGROUND = '#fff1e6';
 
 const baseHeader = {
   headerShown: true,
@@ -68,7 +69,7 @@ const baseHeader = {
 
 const authHeader = {
   ...baseHeader,
-  contentStyle: { backgroundColor: AUTH_GRADIENT_BACKGROUND },
+  contentStyle: { backgroundColor: AUTH_SCREEN_BACKGROUND },
 } as const;
 
 const defaultStackScreenOptions = {
@@ -234,39 +235,46 @@ function RootLayout() {
     })();
   }, []);
 
-  // Push 알림 탭 시 앱 내부 화면으로 이동
+  // Push notification taps should deep-link through the same mobile route normalizer as the inbox.
   useEffect(() => {
     let sub: any;
     let Notifications: any;
+    const handledResponseIds = new Set<string>();
+
+    const handleNotificationResponse = (response: any) => {
+      const notification = response?.notification;
+      const request = notification?.request;
+      const responseId =
+        request?.identifier
+        ?? response?.actionIdentifier
+        ?? JSON.stringify(request?.content?.data ?? {});
+
+      if (responseId && handledResponseIds.has(responseId)) return;
+      if (responseId) handledResponseIds.add(responseId);
+
+      const nextUrl = resolvePushNotificationRoute(request?.content);
+      router.push(nextUrl as any);
+    };
+
     (async () => {
       try {
         Notifications = await import('expo-notifications');
+        const initialResponse =
+          typeof Notifications.getLastNotificationResponse === 'function'
+            ? Notifications.getLastNotificationResponse()
+            : null;
+        if (initialResponse?.notification) {
+          handleNotificationResponse(initialResponse);
+        } else if (typeof Notifications.getLastNotificationResponseAsync === 'function') {
+          const asyncInitialResponse = await Notifications.getLastNotificationResponseAsync();
+          if (asyncInitialResponse?.notification) {
+            handleNotificationResponse(asyncInitialResponse);
+          }
+        }
+
         sub = Notifications.addNotificationResponseReceivedListener((response: any) => {
           try {
-            const content = response?.notification?.request?.content;
-            const rawUrl = content?.data?.url as string | undefined;
-            const title = `${content?.title ?? ''}`.toLowerCase();
-            const body = `${content?.body ?? ''}`.toLowerCase();
-            const isHanwhaWorkflowNotification =
-              title.includes('다위촉 승인') ||
-              title.includes('다위촉 반려') ||
-              title.includes('다위촉 URL 승인') ||
-              title.includes('다위촉 URL 반려') ||
-              title.includes('다위촉 url') ||
-              title.includes('다위촉 서류') ||
-              body.includes('다위촉이 승인') ||
-              body.includes('다위촉이 반려') ||
-              body.includes('다위촉 URL이 승인') ||
-              body.includes('다위촉 URL이 반려') ||
-              body.includes('다위촉 url') ||
-              body.includes('다위촉 서류') ||
-              body.includes('승인 pdf');
-            const nextUrl =
-              isHanwhaWorkflowNotification
-                ? '/hanwha-commission'
-                : rawUrl || '/notifications';
-
-            router.push(nextUrl as any);
+            handleNotificationResponse(response);
           } catch (err) {
             logger.warn('[push] navigation handler failed', err);
           }

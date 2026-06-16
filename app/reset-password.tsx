@@ -1,4 +1,3 @@
-import { LinearGradient } from 'expo-linear-gradient';
 import { router } from 'expo-router';
 import { MotiView } from 'moti';
 import { useState } from 'react';
@@ -20,6 +19,8 @@ import { supabase } from '@/lib/supabase';
 import { logger } from '@/lib/logger';
 import { COLORS, TYPOGRAPHY, SPACING, RADIUS } from '@/lib/theme';
 import { validatePhone, validatePassword, normalizePhone } from '@/lib/validation';
+
+const AUTH_SCREEN_BACKGROUND = COLORS.primaryPale;
 
 export default function ResetPasswordScreen() {
   const { logout } = useSession();
@@ -142,12 +143,7 @@ export default function ResetPasswordScreen() {
 
   return (
     <View style={styles.container}>
-      <LinearGradient
-        colors={['#ffffff', '#fff1e6']}
-        style={[StyleSheet.absoluteFill, styles.gradientFallback]}
-        start={{ x: 0, y: 0 }}
-        end={{ x: 1, y: 1 }}
-      />
+      <View style={styles.authBackground} pointerEvents="none" />
       <SafeAreaView style={styles.safe} edges={['left', 'right', 'bottom']}>
         <KeyboardAwareWrapper
           contentContainerStyle={[styles.scrollContent, { paddingBottom: Math.max(40, keyboardPadding + 40) }]}
@@ -175,14 +171,15 @@ export default function ResetPasswordScreen() {
                 containerStyle={styles.inputContainer}
               />
 
-              <Button
-                onPress={handleRequest}
-                disabled={loading}
-                variant="outline"
-                size="md"
-                fullWidth
-                style={styles.subButton}
-              >
+                  <Button
+                    onPress={handleRequest}
+                    disabled={loading}
+                    variant="outline"
+                    size="md"
+                    fullWidth
+                    dismissKeyboardOnPress
+                    style={styles.subButton}
+                  >
                 {requested ? '인증 코드 다시 받기' : '인증 코드 받기'}
               </Button>
 
@@ -207,14 +204,15 @@ export default function ResetPasswordScreen() {
                 containerStyle={styles.inputContainer}
               />
 
-              <Button
-                onPress={handleReset}
-                disabled={loading}
-                loading={loading}
-                variant="primary"
-                size="lg"
-                fullWidth
-              >
+                  <Button
+                    onPress={handleReset}
+                    disabled={loading}
+                    loading={loading}
+                    variant="primary"
+                    size="lg"
+                    fullWidth
+                    dismissKeyboardOnPress
+                  >
                 비밀번호 변경
               </Button>
             </MotiView>
@@ -228,10 +226,15 @@ export default function ResetPasswordScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: COLORS.primaryPale,
+    backgroundColor: AUTH_SCREEN_BACKGROUND,
   },
-  gradientFallback: {
-    backgroundColor: COLORS.primaryPale,
+  authBackground: {
+    position: 'absolute',
+    top: 0,
+    right: 0,
+    bottom: 0,
+    left: 0,
+    backgroundColor: AUTH_SCREEN_BACKGROUND,
   },
   safe: {
     flex: 1,

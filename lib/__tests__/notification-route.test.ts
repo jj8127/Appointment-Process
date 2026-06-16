@@ -1,5 +1,6 @@
 import {
   normalizeNotificationTargetUrl,
+  resolvePushNotificationRoute,
   resolveRequestBoardNotificationRoute,
 } from '@/lib/notification-route';
 
@@ -13,10 +14,39 @@ describe('notification route helpers', () => {
     );
   });
 
-  it('normalizes legacy board modal URLs to the standalone board detail route', () => {
+  it('normalizes board detail URLs to the board modal entry route', () => {
     expect(normalizeNotificationTargetUrl('/board?postId=post-123')).toBe(
-      '/board-detail?postId=post-123',
+      '/board?postId=post-123',
     );
+    expect(normalizeNotificationTargetUrl('/board-detail?postId=post-123')).toBe(
+      '/board?postId=post-123',
+    );
+    expect(normalizeNotificationTargetUrl('/dashboard/board?postId=post-123')).toBe(
+      '/board?postId=post-123',
+    );
+    expect(normalizeNotificationTargetUrl('https://admin.example.com/dashboard/board?postId=post-123')).toBe(
+      '/board?postId=post-123',
+    );
+  });
+
+  it('routes push notification taps for board posts to the board modal entry route', () => {
+    expect(resolvePushNotificationRoute({
+      title: '새 게시글',
+      body: '보험소식 브리핑',
+      data: {
+        type: 'board_post',
+        url: 'https://admin.example.com/dashboard/board?postId=post-123',
+      },
+    })).toBe('/board?postId=post-123');
+
+    expect(resolvePushNotificationRoute({
+      title: '새 게시글',
+      body: '보험소식 브리핑',
+      data: {
+        type: 'board_post',
+        url: '/board-detail?postId=post-456',
+      },
+    })).toBe('/board?postId=post-456');
   });
 
   it('routes request-board messages to the request-board messenger', () => {

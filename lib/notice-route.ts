@@ -16,7 +16,7 @@ export function resolveNoticeRoute(noticeId?: string | null): string | null {
   if (trimmedNoticeId.startsWith(BOARD_NOTICE_ID_PREFIX)) {
     const postId = extractBoardPostId(trimmedNoticeId);
     if (!postId) return '/board';
-    return `/board-detail?postId=${encodeURIComponent(postId)}`;
+    return `/board?postId=${encodeURIComponent(postId)}`;
   }
 
   return `/notice-detail?id=${encodeURIComponent(trimmedNoticeId)}`;

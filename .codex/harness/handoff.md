@@ -2189,3 +2189,90 @@ Next resume step:
 - Verify the package/app config changes, run governance checks, commit/push the `expo-updates` config, then test an installed runtime `4.0.4` client launch/update path.
 
 ---
+---
+
+# Increment 69: Insurance Digest And Sentry Repair Automations
+
+Status: implemented and locally verified on 2026-06-16; insurance live smoke passed, Sentry live lookup passed, and one Sentry draft PR was opened.
+
+What changed:
+
+- Added `scripts/ops/sentry-daily-triage.mjs` and `scripts/ops/sentry-daily-triage.test.mjs`.
+- Added `npm run ops:sentry-triage`.
+- Updated `docs/handbook/operations-runbook.md` with weekly insurance digest and daily Sentry repair PR operations.
+- Registered Codex automations:
+  - `weekly-insurance-digest-to-garamin-board`: local, weekly Monday 11:00 KST, first run 2026-06-22.
+  - `daily-sentry-repair-pr`: worktree, daily 11:00 KST, first run 2026-06-17.
+
+Evidence:
+
+- RED confirmed: Sentry helper test failed before implementation with `ERR_MODULE_NOT_FOUND`.
+- Passed: `node --test scripts/ops/sentry-daily-triage.test.mjs`.
+- Passed: `node --test scripts/ops/post-insurance-digest.test.mjs`.
+- Passed: `npm run ops:sentry-triage -- --dry-run`.
+- Passed: `scripts/ops/run-insurance-digest-codex.ps1 -DryRun`.
+- Passed: active-admin insurance probe without posting. With a process-injected active admin actor, dry-run payload had the expected title/category/source-label shape and no raw URL in content; live category/list preflight returned `status: missing`, proving the board access path works when the actor env is correct.
+- Passed: selected dedicated board actor was configured in local `.env.local`; password was not stored or used.
+- Passed: one real board test post was created: `cec0757d-db4e-4898-8f79-6f08f0e61a75`.
+- Passed: post-create verification loaded `board-detail`, found 3 notification rows for `/board-detail?postId=cec0757d-db4e-4898-8f79-6f08f0e61a75`, and found the same target URL in admin/FC inbox responses.
+- Passed: read-only Sentry token live lookup reached org/projects/issues. `garamin-web` now exists as a Next.js project in team `hanhwa-lifelab`.
+- Passed: fixed Sentry helper detail/events endpoint shape to match official organization-scoped API paths.
+- Passed: daily automation prompt was updated to use `react-native` and `garamin-web`.
+- Passed: draft PR #3 opened for `REACT-NATIVE-C`: https://github.com/jj8127/Appointment-Process/pull/3
+- PR #3 verification: targeted Jest, lint, targeted diff-check, and `SENTRY_AUTH_TOKEN='' npm run build` passed. `npx tsc --noEmit --pretty false` failed on unrelated `origin/main` baseline type errors.
+- Passed: automation TOML probe for active status, KST 11:00 schedules, Monday/daily rules, local/worktree execution, `origin/main`, read-token-only Sentry rule, and no Sentry resolve/status mutation.
+- Passed: `npm run lint`.
+- Passed: `npx tsc --noEmit --pretty false`.
+- Passed: `node scripts/ci/check-governance.mjs`.
+- Passed: `git diff --check` with CRLF normalization warnings only.
+- Automation TOML files exist under `C:\Users\jj812\.codex\automations\`.
+
+Known status:
+
+- Root `.env.local` currently has `SENTRY_PROJECTS=react-native,garamin-web` and `SENTRY_READ_AUTH_TOKEN` present locally.
+
+Next resume step:
+
+- Keep `SENTRY_READ_AUTH_TOKEN` available to the automation environment, then run `npm run ops:sentry-triage -- --dry-run` and `npm run ops:sentry-triage` after any token/project permission change.
+
+---
+## 2026-06-16 | Auth Login UI Regression Guard Handoff
+
+Done:
+
+- Login screen background now uses `AUTH_SCREEN_BACKGROUND` and no longer imports or renders full-screen `LinearGradient`.
+- Signup, signup verify, signup password, and reset password auth screens use the same explicit light background contract.
+- Login CTA uses shared `Button` with `dismissKeyboardOnPress`, so first tap while the keyboard is open is routed to the CTA and dismisses the keyboard.
+- Android night splash background is light instead of black.
+- Regression tests cover login keyboard/touch contract, auth background contract, navigation auth background naming, and Button keyboard dismissal.
+
+Verification:
+
+- Focused auth tests passed.
+- Mobile app Jest scope passed with `web`, `supabase`, and `.codex-tmp` ignored.
+- Lint, typecheck, build, governance, and diff-check passed.
+
+Known limitation:
+
+- Unfiltered root Jest still fails because it collects existing unrelated `.codex-tmp` worktree tests and `web`/`supabase` tests whose TS/ESM config does not match the root Jest runner.
+- No native Android device screenshot/touch smoke was run in this local pass.
+
+---
+## 2026-06-16 | Board Push Deep Link Handoff
+
+Done:
+
+- `lib/notification-route.ts` now normalizes `/dashboard/board?postId=...` and absolute admin web board URLs to `/board-detail?postId=...`.
+- `resolvePushNotificationRoute()` centralizes native push tap routing, including board posts, request-board messages, group chat, and existing 다위촉 special routing.
+- `app/_layout.tsx` no longer pushes raw push payload URLs and now also handles last notification response for cold-start taps.
+- Notification runbook and mistake ledger were updated.
+
+Verification:
+
+- Focused notification route tests passed.
+- Related notification tests passed.
+- Targeted ESLint, TypeScript, and governance checks passed.
+
+Known limitation:
+
+- No physical device push tap smoke was run in this local pass.

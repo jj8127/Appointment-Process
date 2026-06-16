@@ -77,7 +77,7 @@ source_of_truth: app/index.tsx + app/home-lite.tsx + app/fc/new.tsx + app/consen
 ## FC 홈/다음 단계 동작
 
 - 홈 최신 공지 카드는 `fc-notify latest_notice` 응답을 사용한다. 게시판 `가람pick`(`garam-pick`) 글도 최신 공지 후보에 포함된다.
-- `board_notice:<postId>` id는 `/board-detail?postId=<postId>`로 이동한다. 홈 진입 후 게시판 모달 route param을 닫는 경로로 보내지 않는다.
+- `board_notice:<postId>` id는 `/board?postId=<postId>`로 이동해 게시판 상세 모달을 연다. 홈 진입 후 게시판 모달 route param을 닫는 경로로 보내지 않는다.
 - `FC 보증보험 조회 동의일 미입력`: `1단계 보증 보험 동의`, 다음 단계 `터치하여 바로 진행하세요`
 - `FC 보증 보험 동의 입력 완료`: `1단계 보증 보험 동의`, 다음 단계 `총무가 사전 심사를 준비 중입니다.`
 - `사전 심사 요청 완료`: `1단계 보증 보험 동의`, 다음 단계 `사전 심사 결과를 기다리는 중입니다.`

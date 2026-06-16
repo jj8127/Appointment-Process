@@ -3769,3 +3769,102 @@ Date: 2026-06-12
 - Runtime QA still requires launching an installed app with runtime `4.0.4` and confirming it fetches update group `07bd777c-a2ae-4e52-ad82-cc121ecd12e6`.
 
 ---
+---
+
+# Increment 69 Verification: Insurance Digest And Sentry Repair Automations
+
+Date: 2026-06-16
+
+### Scope
+
+- Added Sentry daily triage helper and tests.
+- Registered weekly insurance digest Codex cron and daily Sentry repair PR Codex cron.
+- Updated operations runbook and harness state.
+
+### Commands
+
+- RED confirmed: `node --test scripts/ops/sentry-daily-triage.test.mjs` failed with `ERR_MODULE_NOT_FOUND` before the helper existed.
+- Passed: `node --test scripts/ops/sentry-daily-triage.test.mjs` (6/6).
+- Passed: `node --test scripts/ops/post-insurance-digest.test.mjs` (12/12).
+- Passed: `npm run ops:sentry-triage -- --dry-run`; reported `hasReadToken=false` and `usesUploadTokenFallback=false`.
+- Passed: `powershell -ExecutionPolicy Bypass -File scripts\ops\run-insurance-digest-codex.ps1 -DryRun`.
+- Passed: non-posting insurance probe with a process-injected active admin actor; payload dry-run produced title `보험소식 브리핑 2026.06.16`, category `general`, no raw URL in content, and visible source label only. The same actor reached the live board category/list functions and returned `status: missing` for the same-day title.
+- Passed: configured the selected dedicated board actor in local `.env.local`; no password was stored.
+- Passed: live insurance board smoke test posted one test post, then `--check-existing` returned `status: exists` for post id `cec0757d-db4e-4898-8f79-6f08f0e61a75`.
+- Passed: `board-detail` loaded the same post id/title; `notifications` had 3 rows for `/board-detail?postId=cec0757d-db4e-4898-8f79-6f08f0e61a75`; admin/FC inbox responses contained the same target URL.
+- Passed: automation TOML probe confirmed both automations are present, active, KST 11:00, and use the intended local/worktree execution modes.
+- Blocked as expected for live Sentry triage without dry-run: `npm run ops:sentry-triage` returned missing `SENTRY_READ_AUTH_TOKEN` and did not fall back to `SENTRY_AUTH_TOKEN`.
+- Passed: after adding a read-only token, live Sentry API access was verified for org/project/issues. `garamin-web` is now present as a Next.js project, and daily triage scope is `react-native`, `garamin-web`.
+- Fixed and verified: issue detail/events API paths now use official organization-scoped endpoints. The stale endpoint produced `Invalid token`; the corrected endpoint retrieved details/events.
+- Passed: live triage found `REACT-NATIVE-3`, but it was skipped as unsafe to fix because Sentry reported `Source code was not found` on old release `fc-onboarding-app@3.1.12`.
+- Passed: created draft PR #3 for fixable `REACT-NATIVE-C`: https://github.com/jj8127/Appointment-Process/pull/3
+- PR #3 verification: targeted Jest passed, lint passed, targeted diff-check passed, `SENTRY_AUTH_TOKEN='' npm run build` passed after loading local public env values. `npx tsc --noEmit --pretty false` failed on unrelated `origin/main` baseline type errors.
+- Passed: `npm run lint`.
+- Passed: `npx tsc --noEmit --pretty false`.
+- Passed: `node scripts/ci/check-governance.mjs`.
+- Passed: `git diff --check` with CRLF normalization warnings only.
+- Blocked as expected for live board preflight: `npm run ops:post-insurance-digest -- --check-existing` returned `admin account not found`.
+- Automation files present:
+  - `C:\Users\jj812\.codex\automations\weekly-insurance-digest-to-garamin-board\automation.toml`
+  - `C:\Users\jj812\.codex\automations\daily-sentry-repair-pr\automation.toml`
+
+### QA Judgment
+
+- Pass for local helper behavior, read-token guardrail, dry-run behavior, and automation registration.
+- Pass for lint, typecheck, governance, and diff whitespace checks.
+- Live insurance posting path is verified with the selected dedicated actor. The test post remains in the board.
+- Live Sentry repair was verified and draft PR creation succeeded. The root `.env.local` currently has `SENTRY_READ_AUTH_TOKEN` present; keep the same secret available to the scheduled automation environment.
+
+---
+# Increment 70 Verification: Auth Login UI Regression Guard
+
+Date: 2026-06-16
+
+### Scope
+
+- Removed full-screen native gradient backgrounds from auth entry screens that can expose black Android fallback behind transparent assets.
+- Fixed login keyboard-open CTA behavior by using the shared `Button` with explicit keyboard dismissal on press-in.
+- Extended source-level regression tests so login/signup/reset auth screens cannot silently reintroduce the same background or touch contract.
+- Updated mobile auth handbook and mistake ledger.
+
+### Commands
+
+- Passed: `npm test -- --runInBand lib/__tests__/login-mobile-source.test.ts lib/__tests__/signup-background-source.test.ts lib/__tests__/navigation-background-source.test.ts components/__tests__/Button.contract.test.ts` (11/11).
+- Passed: `npm run lint`.
+- Passed: `npx tsc --noEmit --pretty false`.
+- Passed: `git diff --check`.
+- Passed: `SENTRY_AUTH_TOKEN='' npm run build`.
+- Passed: `node scripts/ci/check-governance.mjs`.
+- Passed: `npm test -- --runInBand --testPathIgnorePatterns=.codex-tmp --testPathIgnorePatterns=web --testPathIgnorePatterns=supabase` (65 suites / 365 tests).
+- Existing root test harness limitation: unfiltered `npm test -- --runInBand` fails because Jest also collects `.codex-tmp` worktree tests and `web`/`supabase` Node/ESM tests with known TS config mismatches.
+
+### QA Judgment
+
+- Pass for source-level fix, mobile app test scope, lint, typecheck, web export build, governance, and diff hygiene.
+- Manual Android visual/touch QA is still required after reloading/rebuilding the installed app. The night splash color change needs a native rebuild to be visible.
+
+---
+# Increment 71 Verification: Board Push Deep Link Normalization
+
+Date: 2026-06-16
+
+### Scope
+
+- Fixed mobile push notification taps so board-post notifications use the same route normalization as the in-app notification center.
+- Added support for admin web board URLs (`/dashboard/board?postId=...`) and absolute admin web URLs resolving to mobile `/board-detail?postId=...`.
+- Added cold-start notification response handling in the root layout.
+- Updated notification runbook and mistake ledger.
+
+### Commands
+
+- RED confirmed: `npm test -- --runInBand lib/__tests__/notification-route.test.ts` failed before `resolvePushNotificationRoute` existed.
+- Passed: `npm test -- --runInBand lib/__tests__/notification-route.test.ts` (7/7).
+- Passed: `npm test -- --runInBand lib/__tests__/notification-route.test.ts lib/__tests__/notice-route.test.ts lib/__tests__/mobile-unread-notification-count-plan.test.ts` (25/25).
+- Passed: `npx eslint app\_layout.tsx lib\notification-route.ts lib\__tests__\notification-route.test.ts`.
+- Passed: `npx tsc --noEmit --pretty false`.
+- Passed: `node scripts\ci\check-governance.mjs`.
+
+### QA Judgment
+
+- Pass for source route normalization, focused notification tests, lint, typecheck, and governance.
+- Real device push-tap verification remains a runtime follow-up after the updated JS bundle is loaded.

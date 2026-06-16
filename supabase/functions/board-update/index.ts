@@ -216,7 +216,7 @@ serve(async (req: Request) => {
     ? body.title.trim()
     : String(post.title ?? '게시글');
   const notificationTitle = '게시글 수정';
-  const targetUrl = `/board-detail?postId=${postId}`;
+  const targetUrl = `/board?postId=${postId}`;
   const notificationRows = [
     {
       recipient_role: 'fc',

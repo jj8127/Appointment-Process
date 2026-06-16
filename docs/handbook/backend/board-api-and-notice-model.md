@@ -30,7 +30,7 @@ source_of_truth: supabase/functions/board-* + web/src/app/api/admin/notices/rout
 ## 2026-04-06 운영 메모
 
 - 일반 게시판 글 작성은 `board-create`가 게시글 저장과 inbox row insert를 담당합니다.
-- 일반 게시판 글 수정은 `board-update`가 게시글 수정 후 같은 `/board-detail?postId=...` target으로 inbox row insert와 push fanout을 담당합니다.
+- 일반 게시판 글 수정은 `board-update`가 게시글 수정 후 같은 `/board?postId=...` target으로 inbox row insert와 push fanout을 담당합니다.
 - 다만 push/web-push fanout의 SSOT는 계속 `fc-notify`이므로, `board-create`가 직접 `notifications` row를 넣는 경우에도 같은 요청 흐름에서 `fc-notify`를 다시 호출해야 합니다.
 - 이때 중복 inbox row를 막기 위해 `fc-notify`에는 `skip_notification_insert=true`를 함께 전달합니다.
 

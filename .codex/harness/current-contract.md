@@ -2182,3 +2182,46 @@ Stop GaramIn mobile design requests from incorrectly blocking a valid FC after t
 - `node scripts/ci/check-governance.mjs`
 
 ---
+## 2026-06-16 | Current Contract: Insurance Digest And Sentry Repair Automation
+
+Acceptance criteria:
+- `scripts/ops/sentry-daily-triage.mjs` exists, has no write/mutation Sentry API calls, defaults to org `hanhwa-lifelab` and projects `react-native,garamin-web`, and refuses real triage without `SENTRY_READ_AUTH_TOKEN`.
+- `SENTRY_AUTH_TOKEN` is never used as a read fallback.
+- `npm run ops:sentry-triage -- --dry-run` exits without network calls and reports whether the read token is configured.
+- `node --test scripts/ops/sentry-daily-triage.test.mjs` and `node --test scripts/ops/post-insurance-digest.test.mjs` pass.
+- Operations runbook documents Monday 11:00 KST insurance posting, actor preflight failure behavior, daily 11:00 KST Sentry PR automation, no Sentry resolve/deploy/native-build rule, and 11:30 KST insurance post/inbox verification.
+- Two Codex automations are registered with the requested names, cwds, execution environments, schedules, and prompts.
+
+Containment:
+- Do not modify `app.json`; it is an existing unrelated dirty change.
+- Do not run EAS build/update, production deploy, or Sentry issue mutation.
+- If live env lacks Sentry read token or board actor is invalid, report blocker rather than masking it as success.
+
+---
+## 2026-06-16 | Current Contract: Auth Login UI Regression Guard
+
+Acceptance criteria:
+- `login`, `signup`, `signup-verify`, `signup-password`, and `reset-password` use a plain `AUTH_SCREEN_BACKGROUND` + `styles.authBackground` light root surface rather than full-screen `expo-linear-gradient`.
+- Login keeps `KeyboardAwareWrapper` with `keyboardShouldPersistTaps="always"`.
+- Login primary CTA uses shared `Button` with `dismissKeyboardOnPress`, `onPress={handleLogin}`, `loading={loading}`, and `disabled={loading}`.
+- Shared `Button` preserves the optional `dismissKeyboardOnPress` press-in keyboard dismissal contract.
+- Android night splash background is not black.
+
+Containment:
+- Do not change auth backend/session behavior.
+- Do not change signup/reset payloads or Supabase function contracts.
+- Do not run native build, EAS Update, or production deploy in this local fix.
+
+---
+## 2026-06-16 | Current Contract: Board Push Deep Link Normalization
+
+Acceptance criteria:
+- Board notification targets resolve to `/board-detail?postId=...` on mobile.
+- `normalizeNotificationTargetUrl()` handles `/board?postId=...`, `/dashboard/board?postId=...`, and absolute admin web URLs with `/dashboard/board?postId=...`.
+- Native Expo push response handling in `app/_layout.tsx` uses `resolvePushNotificationRoute()` instead of raw `content.data.url`.
+- Cold-start notification taps are handled via last notification response lookup.
+- Request-board and group-chat notification routing remains unchanged.
+
+Containment:
+- Do not change board creation/update payloads, notification DB schema, or Supabase fanout behavior.
+- Do not deploy or resend existing notifications in this local fix.
