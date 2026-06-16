@@ -9,6 +9,7 @@
 - Supabase tasks, including database, auth, storage, migrations, Edge Functions, logs, and project config, must use the Supabase plugin when available.
 - Vercel tasks, including deployments, env vars, logs, domains, cron jobs, and framework docs, must use the Vercel plugin when available.
 - For any other external program or service, search for a matching plugin/connector before using raw CLI, direct HTTP, or browser-only workflows. If an exact plugin/connector exists but is not installed, request installation before proceeding.
+- Every final answer must include a short `도구/스킬 검토` note that states whether Superpowers, Sequential Thinking, and context7 were used or only reviewed, with a brief reason. This disclosure is required even for small Q&A, status updates that resolve a request, commits/pushes, and tasks where none of the three tools were ultimately used.
 
 ### Business Goal
 - Build and operate a dual-platform FC onboarding system for insurance agents.

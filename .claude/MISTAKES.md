@@ -2067,3 +2067,11 @@
 - Permanent guardrail: Keyboard-sensitive auth CTAs that must submit while the keyboard is open should opt into `submitOnPressIn`; the shared `Button` must guard against duplicate submit when both press-in and final `onPress` arrive. Do not put keyboard-dismiss-only behavior on press-in.
 - Related files: `components/Button.tsx`, `components/__tests__/Button.contract.test.ts`, `lib/__tests__/login-mobile-source.test.ts`
 - Verification: RED/GREEN `npm test -- --runInBand components/__tests__/Button.contract.test.ts lib/__tests__/login-mobile-source.test.ts`; `npx eslint components\Button.tsx components\__tests__\Button.contract.test.ts lib\__tests__\login-mobile-source.test.ts app\login.tsx`; `npx tsc --noEmit --pretty false`; Android device tap test with keyboard open showed the login button entering loading state and the login/session flow starting.
+
+## 2026-06-16 | Tool Review Disclosure Omission | final answers skipped required disclosure
+- Symptom: Final answers did not consistently state whether Superpowers, Sequential Thinking, and context7 were considered or used, even though the workspace instruction required that review for every task.
+- Root cause: The instruction said to consider the tools, but did not separately force a visible final-answer disclosure. The agent performed some checks internally and used Superpowers in parts of the work, then failed to report the review status.
+- Why it was missed: Verification focused on code/test outcomes and Git state, not on response-contract compliance.
+- Permanent guardrail: Every final answer in the Hanhwa workspace must include a short `도구/스킬 검토` note naming Superpowers, Sequential Thinking, and context7 as used, reviewed only, unavailable, or not applicable, with a brief reason.
+- Related files: `D:\hanhwa\AGENTS.md`, `AGENTS.md`, `.claude/MISTAKES.md`
+- Verification: Added an explicit final-answer disclosure rule to both `D:\hanhwa\AGENTS.md` and repo `AGENTS.md`.
