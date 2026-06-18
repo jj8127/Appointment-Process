@@ -2223,10 +2223,10 @@
 - Related files: `.claude/WORK_LOG.md`, `.claude/WORK_DETAIL.md`, `scripts/ci/check-governance.mjs`, `scripts/ci/pre-push-governance.mjs`, `scripts/ci/install-governance-hook.mjs`
 - Verification: Gmail alert was traced to GitHub Actions run `27747659856`; this fix adds the missing work log/detail pair, installs the local pre-push governance hook, and verifies old bad push diffs fail locally while repaired push diffs pass.
 
-## 2026-06-18 | Branded Loading Icon Drift | request-board create kept raw ActivityIndicator
-- Symptom: The GaramIn request-board create flow still showed the default React Native loading icon in submit buttons and initial data loading, while the rest of the app had moved to the `새 설계 요청` branded loading animation.
-- Root cause: `app/request-board-create.tsx` was introduced with direct `ActivityIndicator` usage and no app-wide contract preventing raw loading icons from being reintroduced.
-- Why it was missed: Existing loading tests verified the shared spinner component itself, but did not scan consuming app screens for direct `ActivityIndicator` imports/usages.
-- Permanent guardrail: App and component source must use `BrandedLoadingSpinner` for inline/button loading and `BrandedLoadingState` for screen/section loading. `lib/__tests__/branded-loading-usage-contract.test.ts` must fail if `ActivityIndicator` appears again under `app/` or `components/`.
-- Related files: `app/request-board-create.tsx`, `components/BrandedLoadingSpinner.tsx`, `components/BrandedLoadingState.tsx`, `lib/__tests__/branded-loading-usage-contract.test.ts`
-- Verification: RED/GREEN `npx jest lib/__tests__/branded-loading-usage-contract.test.ts --runInBand`; `rg -n "ActivityIndicator" app components hooks lib -g "*.tsx" -g "*.ts"` leaves only the contract test string.
+## 2026-06-18 | Branded Loading UI Drift | narrowed audit to ActivityIndicator and missed skeleton/text loaders
+- Symptom: The GaramIn request-board create flow still showed the default React Native loading icon, and after fixing that, broader review found many other loading UIs still using skeleton placeholders or text labels such as `불러오는 중...`, `저장중...`, `삭제중...`, `파일 전송 중...`, and `확인 중...`.
+- Root cause: The first contract only scanned direct `ActivityIndicator` usage, even though the user asked for every loading UI to match the `새 설계 요청` branded loading animation.
+- Why it was missed: The audit treated "loading icon" too literally and did not count skeletons, text-only pending labels, upload overlays, and local button labels as loading UI surfaces.
+- Permanent guardrail: App and component source must use `BrandedLoadingSpinner` for inline/button/loading-overlay states and `BrandedLoadingState` for screen/section loading. `lib/__tests__/branded-loading-usage-contract.test.ts` must fail if `ActivityIndicator`, `LoadingSkeleton`/`Skeleton` placeholders, or approved legacy text loading labels appear again under `app/` or `components/`.
+- Related files: `app/*.tsx`, `components/LoadingSkeleton.tsx`, `components/BrandedLoadingSpinner.tsx`, `components/BrandedLoadingState.tsx`, `lib/__tests__/branded-loading-usage-contract.test.ts`
+- Verification: RED/GREEN `npx jest lib/__tests__/branded-loading-usage-contract.test.ts --runInBand`; scoped `rg` over app/components for legacy loading patterns returns 0 matches.

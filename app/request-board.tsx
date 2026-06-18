@@ -20,6 +20,7 @@ import {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { AppTopActionBar } from '@/components/AppTopActionBar';
+import BrandedLoadingSpinner from '@/components/BrandedLoadingSpinner';
 import { BottomNavigation } from '@/components/BottomNavigation';
 import MessengerLoadingState from '@/components/MessengerLoadingState';
 import { useAppLogout } from '@/hooks/use-app-logout';
@@ -917,9 +918,11 @@ export default function RequestBoardScreen() {
                             onPress={() => handleDesignerRejectOpen(request)}
                             disabled={actionBusy}
                           >
-                            <Text style={styles.managerRejectText}>
-                              {designerActionKey === rejectActionKey ? '처리중' : '거절'}
-                            </Text>
+                            {designerActionKey === rejectActionKey ? (
+                              <BrandedLoadingSpinner size="sm" color={COLORS.error} />
+                            ) : (
+                              <Text style={styles.managerRejectText}>거절</Text>
+                            )}
                           </Pressable>
                           {status === 'pending' ? (
                             <Pressable
@@ -932,9 +935,11 @@ export default function RequestBoardScreen() {
                               onPress={() => handleDesignerAccept(request)}
                               disabled={actionBusy}
                             >
-                              <Text style={styles.managerAcceptText}>
-                                {designerActionKey === acceptActionKey ? '처리중' : '수락'}
-                              </Text>
+                              {designerActionKey === acceptActionKey ? (
+                                <BrandedLoadingSpinner size="sm" color="#fff" />
+                              ) : (
+                                <Text style={styles.managerAcceptText}>수락</Text>
+                              )}
                             </Pressable>
                           ) : (
                             <Pressable
@@ -1249,9 +1254,11 @@ export default function RequestBoardScreen() {
                 onPress={handleDesignerRejectConfirm}
                 disabled={designerActionKey != null}
               >
-                <Text style={styles.modalConfirmBtnText}>
-                  {designerActionKey != null ? '처리중' : '거절하기'}
-                </Text>
+                {designerActionKey != null ? (
+                  <BrandedLoadingSpinner size="sm" color="#fff" />
+                ) : (
+                  <Text style={styles.modalConfirmBtnText}>거절하기</Text>
+                )}
               </Pressable>
             </View>
           </View>

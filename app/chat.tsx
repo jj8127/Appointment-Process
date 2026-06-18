@@ -1193,7 +1193,6 @@ export default function ChatScreen() {
               },
             ]}>
             <BrandedLoadingSpinner size="sm" color={HANWHA_ORANGE} />
-            <Text style={styles.uploadingText}>파일 전송 중...</Text>
             <TouchableOpacity onPress={handleCancelUpload} style={styles.cancelUploadBtn} activeOpacity={0.8}>
               <Ionicons name="close-circle" size={20} color="#666" />
               <Text style={styles.cancelUploadText}>취소</Text>
@@ -1486,7 +1485,6 @@ const styles = StyleSheet.create({
     borderTopWidth: 1,
     borderTopColor: '#eee',
   },
-  uploadingText: { fontSize: 13, color: HANWHA_ORANGE, fontWeight: '600' },
   cancelUploadBtn: {
     flexDirection: 'row',
     alignItems: 'center',

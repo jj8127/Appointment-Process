@@ -32,11 +32,11 @@ import Animated, {
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { AppTopActionBar } from '@/components/AppTopActionBar';
+import BrandedLoadingState from '@/components/BrandedLoadingState';
 import { BottomNavigation } from '@/components/BottomNavigation';
 import { KeyboardAwareWrapper } from '@/components/KeyboardAwareWrapper';
 import { ImagePreviewModal } from '@/components/ImagePreviewModal';
 import { LinkifiedSelectableText } from '@/components/LinkifiedSelectableText';
-import { CardSkeleton } from '@/components/LoadingSkeleton';
 import { DEFAULT_REACTIONS, ReactionPicker } from '@/components/ReactionPicker';
 import { useAppLogout } from '@/hooks/use-app-logout';
 import { buildBoardPostShareContent } from '@/lib/board-share-link';
@@ -1108,13 +1108,7 @@ export default function BoardScreen() {
         )}
 
         <View style={styles.container}>
-          {isLoading && !refreshing && (
-            <>
-              <CardSkeleton showHeader lines={3} />
-              <CardSkeleton showHeader lines={4} />
-              <CardSkeleton showHeader lines={3} />
-            </>
-          )}
+          {isLoading && !refreshing && <BrandedLoadingState variant="detail" layout="section" />}
 
           {isError && (
             <View style={styles.emptyBox}>

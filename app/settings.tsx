@@ -6,6 +6,7 @@ import * as Clipboard from 'expo-clipboard';
 import Animated from 'react-native-reanimated';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 
+import BrandedLoadingSpinner from '@/components/BrandedLoadingSpinner';
 import { BottomNavigation } from '@/components/BottomNavigation';
 import { useAppLogout } from '@/hooks/use-app-logout';
 import { useBottomNavAnimation } from '@/hooks/use-bottom-nav-animation';
@@ -147,7 +148,7 @@ export default function SettingsScreen() {
             {!appSessionToken ? (
               <Text style={styles.sectionText}>추천 코드를 확인하려면 다시 로그인해주세요.</Text>
             ) : codeLoading ? (
-              <Text style={styles.value}>불러오는 중...</Text>
+              <BrandedLoadingSpinner size="sm" color={COLORS.primary} />
             ) : referralCodeError ? (
               <Text style={styles.sectionText}>
                 {referralCodeError instanceof Error
@@ -194,8 +195,14 @@ export default function SettingsScreen() {
             testID="settings-delete-account"
             accessibilityLabel="계정 삭제"
           >
-            <Feather name="trash-2" size={16} color={COLORS.white} />
-            <Text style={styles.deleteText}>{deleting ? '삭제 중...' : '계정 삭제'}</Text>
+            {deleting ? (
+              <BrandedLoadingSpinner size="sm" color={COLORS.white} />
+            ) : (
+              <>
+                <Feather name="trash-2" size={16} color={COLORS.white} />
+                <Text style={styles.deleteText}>계정 삭제</Text>
+              </>
+            )}
           </Pressable>
         </View>
 
@@ -229,7 +236,11 @@ export default function SettingsScreen() {
                 onPress={confirmDelete}
                 disabled={deleting}
               >
-                <Text style={styles.modalDeleteText}>{deleting ? '삭제 중...' : '삭제'}</Text>
+                {deleting ? (
+                  <BrandedLoadingSpinner size="sm" color={COLORS.white} />
+                ) : (
+                  <Text style={styles.modalDeleteText}>삭제</Text>
+                )}
               </Pressable>
             </View>
           </View>

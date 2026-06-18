@@ -32,8 +32,8 @@ import Animated, {
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Gesture, GestureDetector } from 'react-native-gesture-handler';
 
-import { CardSkeleton } from '@/components/LoadingSkeleton';
 import { AppTopActionBar } from '@/components/AppTopActionBar';
+import BrandedLoadingState from '@/components/BrandedLoadingState';
 import { BottomNavigation } from '@/components/BottomNavigation';
 import { ImagePreviewModal } from '@/components/ImagePreviewModal';
 import { KeyboardAwareWrapper } from '@/components/KeyboardAwareWrapper';
@@ -1101,13 +1101,7 @@ export default function AdminBoardManageScreen() {
         )}
 
         <View style={styles.container}>
-          {isLoading && !refreshing && (
-            <>
-              <CardSkeleton showHeader lines={3} />
-              <CardSkeleton showHeader lines={4} />
-              <CardSkeleton showHeader lines={3} />
-            </>
-          )}
+          {isLoading && !refreshing && <BrandedLoadingState variant="detail" layout="section" />}
 
           {isError && (
             <View style={styles.emptyBox}>
