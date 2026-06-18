@@ -7,41 +7,6 @@
 
 ---
 
-## <a id="20260618-branded-loading-icon-unification"></a> 2026-06-18 | Branded loading icon unification
-
-**배경**:
-- 사용자가 가람in 앱의 모든 로딩 아이콘을 `새 설계 요청` 진입 때 보이는 브랜드 로딩 애니메이션으로 통일해 달라고 요청했다.
-- 검색 결과 대부분의 화면은 이미 `BrandedLoadingSpinner`/`BrandedLoadingState`를 사용했지만, `app/request-board-create.tsx`에는 React Native 기본 `ActivityIndicator`가 버튼 로딩 2곳과 화면 로딩 1곳에 남아 있었다.
-
-**조치**:
-- 설계요청 작성 화면의 신규 고객 저장 버튼과 설계 요청 전송 버튼에서 기본 `ActivityIndicator`를 `BrandedLoadingSpinner size="sm"`로 교체했다.
-- 설계요청 작성 화면 초기 데이터 로딩 상태를 `BrandedLoadingState variant="request-board" layout="section"`으로 교체해 request-board 브랜드 로딩 애니메이션과 맞췄다.
-- `app/`와 `components/` 소스에서 `ActivityIndicator`가 다시 직접 쓰이면 실패하는 `lib/__tests__/branded-loading-usage-contract.test.ts` 계약 테스트를 추가했다.
-
-**핵심 파일**:
-- `app/request-board-create.tsx`
-- `lib/__tests__/branded-loading-usage-contract.test.ts`
-- `.claude/WORK_LOG.md`
-- `.claude/WORK_DETAIL.md`
-- `.claude/MISTAKES.md`
-
-**검증**:
-- RED: `npx jest lib/__tests__/branded-loading-usage-contract.test.ts --runInBand` 실패, offender `app\request-board-create.tsx`
-- GREEN: `npx jest lib/__tests__/branded-loading-usage-contract.test.ts --runInBand`
-- `npx jest --runInBand --runTestsByPath lib/__tests__/branded-loading-usage-contract.test.ts lib/__tests__/branded-loading-spinner.test.ts components/__tests__/BrandedLoadingSpinner.contract.test.ts lib/__tests__/request-board-mobile-ui-contract.test.ts`
-- `npx eslint app/request-board-create.tsx lib/__tests__/branded-loading-usage-contract.test.ts`
-- `npx tsc --noEmit --pretty false`
-- PowerShell: `$env:SENTRY_AUTH_TOKEN=''; npm run build`
-- `npm test -- --runInBand` (77 suites, 418 tests)
-- `node scripts/ci/check-governance.mjs`
-- `git diff --check`
-- `rg -n "ActivityIndicator" app components hooks lib -g "*.tsx" -g "*.ts"` 결과는 신규 계약 테스트 내부 문자열만 남음
-
-**후속/주의**:
-- 앞으로 로딩 아이콘이 필요한 화면/버튼에서는 `ActivityIndicator`를 직접 import하지 말고 `BrandedLoadingSpinner`, 화면/섹션 로딩은 `BrandedLoadingState`를 사용한다.
-
----
-
 ## <a id="20260618-request-board-designer-flow-hardening"></a> 2026-06-18 | Request-board designer flow hardening
 
 **배경**:
