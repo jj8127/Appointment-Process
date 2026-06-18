@@ -2222,3 +2222,11 @@
 - Permanent guardrail: Before any push that includes code-path changes, the local pre-push hook must run `scripts/ci/pre-push-governance.mjs`, which checks the exact remote SHA to local SHA push diff. If the hook is missing, run `npm run governance:install-hook` before pushing. Treat `.claude/WORK_LOG.md` and `.claude/WORK_DETAIL.md` as required release metadata, not optional handoff notes.
 - Related files: `.claude/WORK_LOG.md`, `.claude/WORK_DETAIL.md`, `scripts/ci/check-governance.mjs`, `scripts/ci/pre-push-governance.mjs`, `scripts/ci/install-governance-hook.mjs`
 - Verification: Gmail alert was traced to GitHub Actions run `27747659856`; this fix adds the missing work log/detail pair, installs the local pre-push governance hook, and verifies old bad push diffs fail locally while repaired push diffs pass.
+
+## 2026-06-18 | Branded Loading Icon Drift | request-board create kept raw ActivityIndicator
+- Symptom: The GaramIn request-board create flow still showed the default React Native loading icon in submit buttons and initial data loading, while the rest of the app had moved to the `새 설계 요청` branded loading animation.
+- Root cause: `app/request-board-create.tsx` was introduced with direct `ActivityIndicator` usage and no app-wide contract preventing raw loading icons from being reintroduced.
+- Why it was missed: Existing loading tests verified the shared spinner component itself, but did not scan consuming app screens for direct `ActivityIndicator` imports/usages.
+- Permanent guardrail: App and component source must use `BrandedLoadingSpinner` for inline/button loading and `BrandedLoadingState` for screen/section loading. `lib/__tests__/branded-loading-usage-contract.test.ts` must fail if `ActivityIndicator` appears again under `app/` or `components/`.
+- Related files: `app/request-board-create.tsx`, `components/BrandedLoadingSpinner.tsx`, `components/BrandedLoadingState.tsx`, `lib/__tests__/branded-loading-usage-contract.test.ts`
+- Verification: RED/GREEN `npx jest lib/__tests__/branded-loading-usage-contract.test.ts --runInBand`; `rg -n "ActivityIndicator" app components hooks lib -g "*.tsx" -g "*.ts"` leaves only the contract test string.

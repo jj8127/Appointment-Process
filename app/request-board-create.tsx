@@ -13,7 +13,6 @@ import {
   type RefObject,
 } from 'react';
 import {
-  ActivityIndicator,
   Alert,
   BackHandler,
   Keyboard,
@@ -38,6 +37,8 @@ import Animated, {
 } from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
+import BrandedLoadingSpinner from '@/components/BrandedLoadingSpinner';
+import BrandedLoadingState from '@/components/BrandedLoadingState';
 import { useSession } from '@/hooks/use-session';
 import { logger } from '@/lib/logger';
 import {
@@ -1595,7 +1596,7 @@ export default function RequestBoardCreateScreen() {
           onPress={saveNewCustomer}
           disabled={submitting}
         >
-          {submitting ? <ActivityIndicator color="#fff" /> : <Text style={styles.ctaText}>고객 등록 후 선택</Text>}
+          {submitting ? <BrandedLoadingSpinner size="sm" color="#fff" /> : <Text style={styles.ctaText}>고객 등록 후 선택</Text>}
         </Pressable>
       </View>
     </View>
@@ -1746,7 +1747,7 @@ export default function RequestBoardCreateScreen() {
             onPress={submitRequest}
             disabled={!canSubmit || submitting}
           >
-            {submitting ? <ActivityIndicator color="#fff" /> : <Text style={styles.ctaText}>설계 요청 보내기</Text>}
+            {submitting ? <BrandedLoadingSpinner size="sm" color="#fff" /> : <Text style={styles.ctaText}>설계 요청 보내기</Text>}
           </Pressable>
         </View>
       </>
@@ -1808,10 +1809,7 @@ export default function RequestBoardCreateScreen() {
       ) : null}
 
       {loading ? (
-        <View style={styles.loading}>
-          <ActivityIndicator color={COLORS.primary} size="large" />
-          <Text style={styles.loadingText}>설계 요청 데이터를 불러오는 중입니다</Text>
-        </View>
+        <BrandedLoadingState variant="request-board" layout="section" />
       ) : (
         <KeyboardAvoidingView
           style={styles.contentArea}
@@ -1919,16 +1917,6 @@ const styles = StyleSheet.create({
   scrollContent: {
     paddingHorizontal: SPACING.base,
     paddingTop: SPACING.md,
-  },
-  loading: {
-    flex: 1,
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: SPACING.md,
-  },
-  loadingText: {
-    color: COLORS.gray[600],
-    fontSize: TYPOGRAPHY.fontSize.sm,
   },
   searchCard: {
     minHeight: 54,
