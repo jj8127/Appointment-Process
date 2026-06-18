@@ -978,6 +978,9 @@ export type RbRequestSummary = {
   processingDays?: number;
   processing_days?: number;
   customer_name?: string;
+  has_separate_policyholder?: boolean | null;
+  policyholder_name?: string | null;
+  customer_display_name?: string | null;
   request_designers?: { status: string; fc_decision?: string | null }[];
 };
 
@@ -1022,6 +1025,9 @@ export type RbRequestListItem = {
   id: number;
   status: string;
   customer_name: string;
+  has_separate_policyholder?: boolean | null;
+  policyholder_name?: string | null;
+  customer_display_name?: string | null;
   created_at: string;
   request_products?: {
     product_id: number;
@@ -1047,6 +1053,12 @@ export type RbRequestDetail = {
   status: string;
   customer_name: string;
   customer_ssn?: string | null;
+  has_separate_policyholder?: boolean | null;
+  policyholder_name?: string | null;
+  policyholder_ssn?: string | null;
+  policyholder_phone?: string | null;
+  policyholder_carrier?: string | null;
+  policyholder_address?: string | null;
   customer_gender?: string | null;
   customer_phone?: string | null;
   customer_birth_date?: string | null;

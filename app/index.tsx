@@ -39,6 +39,7 @@ import { useIdentityStatus } from '@/hooks/use-identity-status';
 import { useSession } from '@/hooks/use-session';
 import { useInAppUpdate } from '@/hooks/useInAppUpdate';
 import { fetchInternalUnreadCount } from '@/lib/internal-chat-api';
+import { formatLicenseStatuses } from '@/lib/license-statuses';
 import { logger } from '@/lib/logger';
 import { formatLatestNoticeLabel } from '@/lib/home-latest-notice';
 import { fetchMobileUnreadNotificationCount } from '@/lib/mobile-unread-notification-count';
@@ -215,7 +216,7 @@ const fetchCounts = async (role: 'admin' | 'fc' | null, residentId: string): Pro
 
   const { data, error } = await supabase
     .from('fc_profiles')
-    .select('name,affiliation,resident_id_masked,email,address,identity_completed,allowance_date,allowance_prescreen_requested_at,allowance_reject_reason,status,hanwha_commission_date,hanwha_commission_pdf_path,hanwha_commission_pdf_name,appointment_date_life,appointment_date_nonlife,appointment_date_life_sub,appointment_date_nonlife_sub,life_commission_completed,nonlife_commission_completed,fc_documents(doc_type,storage_path,status)');
+    .select('name,affiliation,resident_id_masked,email,address,identity_completed,license_statuses,allowance_date,allowance_prescreen_requested_at,allowance_reject_reason,status,hanwha_commission_date,hanwha_commission_pdf_path,hanwha_commission_pdf_name,appointment_date_life,appointment_date_nonlife,appointment_date_life_sub,appointment_date_nonlife_sub,life_commission_completed,nonlife_commission_completed,fc_documents(doc_type,storage_path,status)');
   if (error) throw error;
 
   const steps: StepCounts = { ...EMPTY_STEP_COUNTS };
@@ -293,7 +294,7 @@ const fetchFcStatus = async (residentId: string) => {
   const { data, error } = await supabase
     .from('fc_profiles')
     .select(
-      'id,name,affiliation,phone,status,temp_id,allowance_date,allowance_prescreen_requested_at,allowance_reject_reason,hanwha_commission_date_sub,hanwha_commission_date,hanwha_commission_reject_reason,hanwha_commission_pdf_path,hanwha_commission_pdf_name,appointment_url,appointment_date,appointment_schedule_life,appointment_schedule_nonlife,appointment_date_life,appointment_date_nonlife,appointment_date_life_sub,appointment_date_nonlife_sub,life_commission_completed,nonlife_commission_completed,resident_id_masked,email,address,identity_completed,is_tour_seen,signup_completed,fc_documents(doc_type,storage_path,status)',
+      'id,name,affiliation,phone,status,temp_id,license_statuses,allowance_date,allowance_prescreen_requested_at,allowance_reject_reason,hanwha_commission_date_sub,hanwha_commission_date,hanwha_commission_reject_reason,hanwha_commission_pdf_path,hanwha_commission_pdf_name,appointment_url,appointment_date,appointment_schedule_life,appointment_schedule_nonlife,appointment_date_life,appointment_date_nonlife,appointment_date_life_sub,appointment_date_nonlife_sub,life_commission_completed,nonlife_commission_completed,resident_id_masked,email,address,identity_completed,is_tour_seen,signup_completed,fc_documents(doc_type,storage_path,status)',
     )
     .eq('phone', residentId)
     .maybeSingle();
@@ -304,6 +305,7 @@ const fetchFcStatus = async (residentId: string) => {
     affiliation: '',
     status: 'draft',
     temp_id: null,
+    license_statuses: null,
     allowance_date: null,
     allowance_prescreen_requested_at: null,
     allowance_reject_reason: null,
@@ -876,6 +878,7 @@ export default function Home() {
 
   const lifeCompleted = Boolean(myFc?.life_commission_completed || myFc?.appointment_date_life);
   const nonLifeCompleted = Boolean(myFc?.nonlife_commission_completed || myFc?.appointment_date_nonlife);
+  const licenseStatusDisplay = myFc ? formatLicenseStatuses(myFc.license_statuses) : formatLicenseStatuses(null);
   const internalViewerContext = useMemo(
     () => ({
       role,
@@ -1524,6 +1527,9 @@ export default function Home() {
                                 </View>
                               </View>
                               <Text style={styles.statusSummaryText}>위촉 완료 {completedCommissionCount}/2</Text>
+                              <Text style={styles.licenseSummaryText}>
+                                자격증 보유 현황: {licenseStatusDisplay}
+                              </Text>
                               {/* 진행 단계 (기존 Stepper) */}
                               <View style={[styles.stepContainer, { marginTop: 8 }]}>
                                 {fcHomeSteps.map((step, index) => {
@@ -1676,6 +1682,9 @@ export default function Home() {
                       </View>
                     </View>
                     <Text style={styles.statusSummaryText}>위촉 완료 {completedCommissionCount}/2</Text>
+                    <Text style={styles.licenseSummaryText}>
+                      자격증 보유 현황: {licenseStatusDisplay}
+                    </Text>
                     <View style={styles.stepContainer}>
                       {fcHomeSteps.map((step, index) => {
                         const stepNum = index + 1;
@@ -2305,6 +2314,14 @@ const styles = StyleSheet.create({
     color: TEXT_MUTED,
     fontSize: 13,
     fontWeight: '600',
+  },
+  licenseSummaryText: {
+    marginTop: -4,
+    marginBottom: 12,
+    textAlign: 'center',
+    color: CHARCOAL,
+    fontSize: 13,
+    fontWeight: '700',
   },
   glanceRow: {
     flexDirection: 'row',

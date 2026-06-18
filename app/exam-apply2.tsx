@@ -168,12 +168,18 @@ const toDate = (value?: string | null) => {
   return d;
 };
 
+const formatFeePaidDate = (value?: string | null) => {
+  const paidDate = toDate(value);
+  return paidDate ? formatKoreanDate(paidDate) : '-';
+};
+
 type MyExamApply = {
   id: string;
   round_id: string;
   location_id: string;
   status: string;
   is_third_exam?: boolean | null;
+  fee_paid_date?: string | null;
   created_at: string;
   exam_rounds?: { exam_date: string; round_label: string | null } | null;
   exam_locations?: { location_name: string } | null;
@@ -278,7 +284,7 @@ export default function ExamApplyScreen() {
       const { data, error } = await supabase
         .from('exam_registrations')
         .select(
-          'id, round_id, location_id, status, is_confirmed, is_third_exam, created_at, exam_rounds!inner(exam_date, round_label, exam_type), exam_locations(location_name)',
+          'id, round_id, location_id, status, is_confirmed, is_third_exam, fee_paid_date, created_at, exam_rounds!inner(exam_date, round_label, exam_type), exam_locations(location_name)',
         )
         .eq('resident_id', residentId)
         .eq('exam_rounds.exam_type', 'nonlife')
@@ -331,15 +337,18 @@ export default function ExamApplyScreen() {
   useEffect(() => {
     if (existingForRound) {
       if (existingForRound.is_third_exam != null) setWantsThird(!!existingForRound.is_third_exam);
+      const restoredFeePaidDate = toDate(existingForRound.fee_paid_date);
+      setFeePaidDate(restoredFeePaidDate);
+      setTempFeePaidDate(restoredFeePaidDate);
       setSelectedLocationId(
         isLocationInRound(selectedRound, existingForRound.location_id) ? existingForRound.location_id : null,
       );
     } else {
       setSelectedLocationId(null);
       setWantsThird(false);
+      setFeePaidDate(null);
+      setTempFeePaidDate(null);
     }
-    setFeePaidDate(null);
-    setTempFeePaidDate(null);
   }, [existingForRound, selectedRound]);
 
   const onRefresh = useCallback(async () => {
@@ -724,6 +733,12 @@ export default function ExamApplyScreen() {
                       <Text style={styles.statusLabel}>신청 과목</Text>
                       <Text style={styles.statusValue}>
                         {currentApply.is_third_exam ? '손해, 제3' : '손해'}
+                      </Text>
+                    </View>
+                    <View style={styles.statusRow}>
+                      <Text style={styles.statusLabel}>응시료 납입일</Text>
+                      <Text style={styles.statusValue}>
+                        {formatFeePaidDate(currentApply.fee_paid_date)}
                       </Text>
                     </View>
                     <View style={styles.statusRow}>

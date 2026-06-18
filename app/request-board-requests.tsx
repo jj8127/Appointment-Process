@@ -27,6 +27,7 @@ import {
   requestBoardListHasBucket,
   type RequestBoardListFilterKey,
 } from '@/lib/request-board-list-filters';
+import { formatRequestBoardCustomerDisplayName } from '@/lib/request-board-policyholder-display';
 import {
   getDesignerRejectionSummary,
   mergeDesignerRejectionReasonFromDetail,
@@ -237,6 +238,13 @@ export default function RequestBoardRequestsScreen() {
     const requestId = Number(item.id ?? (item as any).request_id ?? 0);
     const fcDecisionMeta = getFcDecisionMeta(item);
     const designerRejectionSummary = getDesignerRejectionSummary(item);
+    const customerDisplayName =
+      String(item.customer_display_name ?? '').trim() ||
+      formatRequestBoardCustomerDisplayName({
+        customerName: item.customer_name,
+        hasSeparatePolicyholder: item.has_separate_policyholder,
+        policyholderName: item.policyholder_name,
+      });
 
     return (
       <Pressable
@@ -257,7 +265,7 @@ export default function RequestBoardRequestsScreen() {
         <View style={styles.cardTop}>
           <View style={styles.cardTitleRow}>
             <Text style={styles.customerName} numberOfLines={1}>
-              {item.customer_name}
+              {customerDisplayName}
             </Text>
             <View style={styles.badgeColumn}>
               {isPendingReview && (

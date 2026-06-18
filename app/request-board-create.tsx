@@ -41,9 +41,11 @@ import {
   formatRequestBoardCustomerBirthDateInput,
   formatRequestBoardCustomerPhoneInput,
   formatRequestBoardCustomerSsnInput,
+  formatRequestBoardThreeDigitNumberInput,
   isCompleteRequestBoardCustomerBirthDate,
   isCompleteRequestBoardCustomerPhone,
   isCompleteRequestBoardCustomerSsn,
+  isValidRequestBoardCustomerBirthDate,
 } from '@/lib/request-board-customer-input';
 import { REQUEST_BOARD_DRIVING_STATUS_OPTIONS } from '@/lib/request-board-driving-status';
 import {
@@ -90,6 +92,11 @@ const EMPTY_CUSTOMER: RbSaveCustomerPayload = {
   phone: '',
   ssn: '',
   hasSeparatePolicyholder: false,
+  policyholderName: '',
+  policyholderSsn: '',
+  policyholderPhone: '',
+  policyholderCarrier: '',
+  policyholderAddress: '',
   carrier: '',
   address: '',
   job: '',
@@ -121,6 +128,14 @@ const REQUEST_TEMPLATES: Record<string, string> = {
   실비보험: '현재 실손 보장 상태를 확인하고 전환 또는 보완이 가능한지 검토 요청드립니다.',
   연금보험: '은퇴 목표 시점과 납입 가능 금액 기준으로 연금 수령 구조 설계를 요청드립니다.',
 };
+
+const REQUEST_BOARD_CARRIER_OPTIONS = ['SKT', 'KT', 'LG U+', '알뜰폰'];
+
+const INSURANCE_QUALIFICATION_OPTIONS = [
+  { key: 'property', label: '손해보험' },
+  { key: 'life', label: '생명보험' },
+  { key: 'third', label: '제3보험' },
+] as const;
 
 const PRODUCT_ICON: Record<string, keyof typeof Feather.glyphMap> = {
   종신보험: 'shield',
@@ -519,7 +534,7 @@ export default function RequestBoardCreateScreen() {
   const [requestText, setRequestText] = useState('');
   const [attachments, setAttachments] = useState<PickedAttachment[]>([]);
   const [sheetVisible, setSheetVisible] = useState(false);
-  const [sentRequestId, setSentRequestId] = useState<number | null>(null);
+  const [sentRequestIds, setSentRequestIds] = useState<number[]>([]);
   const [composeDraftKey, setComposeDraftKey] = useState(0);
   const [screenKeyboardHeight, setScreenKeyboardHeight] = useState(0);
   const visibleSteps = resolveRequestBoardCreateVisibleSteps(entry, source);
@@ -527,12 +542,18 @@ export default function RequestBoardCreateScreen() {
   const birthDateInputRef = useRef<TextInput>(null);
   const phoneInputRef = useRef<TextInput>(null);
   const ssnInputRef = useRef<TextInput>(null);
+  const policyholderNameInputRef = useRef<TextInput>(null);
+  const policyholderSsnInputRef = useRef<TextInput>(null);
+  const policyholderPhoneInputRef = useRef<TextInput>(null);
+  const policyholderAddressInputRef = useRef<TextInput>(null);
   const jobInputRef = useRef<TextInput>(null);
   const incomeInputRef = useRef<TextInput>(null);
   const heightInputRef = useRef<TextInput>(null);
   const weightInputRef = useRef<TextInput>(null);
   const addressInputRef = useRef<TextInput>(null);
   const emailInputRef = useRef<TextInput>(null);
+  const referrerInputRef = useRef<TextInput>(null);
+  const currentMedicationInputRef = useRef<TextInput>(null);
   const recentHospitalVisitInputRef = useRef<TextInput>(null);
   const hospitalizationHistoryInputRef = useRef<TextInput>(null);
   const majorDiseasesInputRef = useRef<TextInput>(null);
@@ -672,9 +693,10 @@ export default function RequestBoardCreateScreen() {
     [products, selectedProductIds],
   );
 
-  const availableTemplates = selectedProductNames.length > 0
+  const availableTemplates = (selectedProductNames.length > 0
     ? selectedProductNames
-    : [...GARMIN_REQUEST_PRODUCT_NAMES];
+    : [...GARMIN_REQUEST_PRODUCT_NAMES]
+  ).filter((productName) => REQUEST_TEMPLATES[productName]);
 
   const canSubmit =
     !!selectedCustomer &&
@@ -715,9 +737,63 @@ export default function RequestBoardCreateScreen() {
     const formatted = formatRequestBoardCustomerSsnInput(value);
     updateCustomerField('ssn', formatted);
     if (isCompleteRequestBoardCustomerSsn(formatted)) {
-      focusNextInput(jobInputRef);
+      focusNextInput(newCustomer.hasSeparatePolicyholder ? policyholderNameInputRef : jobInputRef);
+    }
+  }, [focusNextInput, newCustomer.hasSeparatePolicyholder]);
+
+  const setHasSeparatePolicyholder = (value: boolean) => {
+    setNewCustomer((prev) => ({
+      ...prev,
+      hasSeparatePolicyholder: value,
+      policyholderName: value ? prev.policyholderName : '',
+      policyholderSsn: value ? prev.policyholderSsn : '',
+      policyholderPhone: value ? prev.policyholderPhone : '',
+      policyholderCarrier: value ? prev.policyholderCarrier : '',
+      policyholderAddress: value ? prev.policyholderAddress : '',
+    }));
+  };
+
+  const updatePolicyholderSsnField = useCallback((value: string) => {
+    const formatted = formatRequestBoardCustomerSsnInput(value);
+    updateCustomerField('policyholderSsn', formatted);
+    if (isCompleteRequestBoardCustomerSsn(formatted)) {
+      focusNextInput(policyholderPhoneInputRef);
     }
   }, [focusNextInput]);
+
+  const updatePolicyholderPhoneField = useCallback((value: string) => {
+    const formatted = formatRequestBoardCustomerPhoneInput(value);
+    updateCustomerField('policyholderPhone', formatted);
+    if (isCompleteRequestBoardCustomerPhone(formatted)) {
+      focusNextInput(policyholderAddressInputRef);
+    }
+  }, [focusNextInput]);
+
+  const updateHeightField = useCallback((value: string) => {
+    const formatted = formatRequestBoardThreeDigitNumberInput(value);
+    updateCustomerField('height', formatted);
+    if (formatted.length === 3) {
+      focusNextInput(weightInputRef);
+    }
+  }, [focusNextInput]);
+
+  const updateWeightField = useCallback((value: string) => {
+    updateCustomerField('weight', formatRequestBoardThreeDigitNumberInput(value));
+  }, []);
+
+  const toggleInsuranceQualification = (
+    key: keyof NonNullable<RbSaveCustomerPayload['insuranceQualifications']>,
+  ) => {
+    setNewCustomer((prev) => ({
+      ...prev,
+      insuranceQualifications: {
+        property: Boolean(prev.insuranceQualifications?.property),
+        life: Boolean(prev.insuranceQualifications?.life),
+        third: Boolean(prev.insuranceQualifications?.third),
+        [key]: !prev.insuranceQualifications?.[key],
+      },
+    }));
+  };
 
   const handleBack = useCallback(() => {
     const target = resolveRequestBoardCreateBackTarget(step, composeEntryStep);
@@ -751,7 +827,7 @@ export default function RequestBoardCreateScreen() {
     setSelectedDesignerIds([]);
     setRequestText('');
     setAttachments([]);
-    setSentRequestId(null);
+    setSentRequestIds([]);
     setComposeDraftKey((value) => value + 1);
     setComposeEntryStep('customer');
     setStep('compose');
@@ -759,7 +835,34 @@ export default function RequestBoardCreateScreen() {
 
   const saveNewCustomer = async () => {
     if (!newCustomer.name.trim() || !newCustomer.birthDate.trim() || !newCustomer.phone.trim()) {
-      Alert.alert('필수 정보 확인', '이름, 생년월일, 연락처는 필수입니다.');
+      Alert.alert('필수 정보 확인', '피보험자 이름, 생년월일, 연락처는 필수입니다.');
+      return;
+    }
+
+    if (!isValidRequestBoardCustomerBirthDate(newCustomer.birthDate)) {
+      Alert.alert('생년월일 확인', '생년월일은 YYYY-MM-DD 형식으로 정확히 입력해주세요.');
+      return;
+    }
+
+    if (!String(newCustomer.drivingStatus ?? '').trim()) {
+      Alert.alert('운전구분 확인', '운전구분을 선택해주세요.');
+      return;
+    }
+
+    if (
+      newCustomer.hasSeparatePolicyholder &&
+      [
+        newCustomer.policyholderName,
+        newCustomer.policyholderSsn,
+        newCustomer.policyholderPhone,
+        newCustomer.policyholderCarrier,
+        newCustomer.policyholderAddress,
+      ].some((value) => !String(value ?? '').trim())
+    ) {
+      Alert.alert(
+        '계약자 정보 확인',
+        '계약자와 피보험자가 다를 경우 계약자 이름, 주민번호, 휴대폰번호, 통신사, 주소를 모두 입력해주세요.',
+      );
       return;
     }
 
@@ -775,7 +878,7 @@ export default function RequestBoardCreateScreen() {
       setSelectedDesignerIds([]);
       setRequestText('');
       setAttachments([]);
-      setSentRequestId(null);
+      setSentRequestIds([]);
       setComposeDraftKey((value) => value + 1);
       setComposeEntryStep('newCustomer');
       setStep('compose');
@@ -840,6 +943,14 @@ export default function RequestBoardCreateScreen() {
       Alert.alert('요청 정보 확인', '보험 상품, 설계매니저, 요청 내용을 모두 입력해주세요.');
       return;
     }
+    const drivingStatus = String(selectedCustomer.drivingStatus ?? '').trim();
+    if (!drivingStatus) {
+      Alert.alert(
+        '운전구분 확인',
+        '운전구분을 먼저 입력해주세요. 기존 고객 정보에서 운전구분을 수정한 뒤 다시 요청해주세요.',
+      );
+      return;
+    }
 
     const designerCodeSelections = selectedDesigners.map((designer) => {
       const code = findFcCodeForDesigner(designer, fcCodes);
@@ -864,53 +975,73 @@ export default function RequestBoardCreateScreen() {
       );
       return;
     }
+    const designerCodeSelectionByDesignerId = new Map(
+      designerCodeSelections.map((selection) => [selection.designerId, selection]),
+    );
+    const requestJobs = selectedProductIds.flatMap((productId) =>
+      selectedDesigners.map((designer) => ({
+        productId,
+        designer,
+        designerCodeSelection: designerCodeSelectionByDesignerId.get(designer.id)!,
+      })),
+    );
 
     try {
       setSubmitting(true);
-      const created = await rbCreateRequest({
-        customerName: selectedCustomer.name,
-        customerSsn: selectedCustomer.ssn,
-        customerGender: selectedCustomer.gender,
-        customerBirthDate: selectedCustomer.birthDate,
-        customerPhone: selectedCustomer.phone,
-        customerCarrier: selectedCustomer.carrier,
-        customerAddress: selectedCustomer.address,
-        customerJob: selectedCustomer.job,
-        customerDrivingStatus: selectedCustomer.drivingStatus,
-        customerIncome: selectedCustomer.income,
-        customerEmail: selectedCustomer.email,
-        customerHeight: selectedCustomer.height,
-        customerWeight: selectedCustomer.weight,
-        customerReferrer: selectedCustomer.referrer,
-        hasSeparatePolicyholder: selectedCustomer.hasSeparatePolicyholder,
-        policyholderName: selectedCustomer.policyholderName,
-        policyholderSsn: selectedCustomer.policyholderSsn,
-        policyholderPhone: selectedCustomer.policyholderPhone,
-        policyholderCarrier: selectedCustomer.policyholderCarrier,
-        policyholderAddress: selectedCustomer.policyholderAddress,
-        insuranceQualifications: selectedCustomer.insuranceQualifications,
-        recentHospitalVisit: selectedCustomer.recentHospitalVisit,
-        currentMedication: selectedCustomer.currentMedication,
-        recentHospitalization: selectedCustomer.hospitalizationHistory,
-        hospitalizationHistory: selectedCustomer.hospitalizationHistory,
-        majorDiseases: selectedCustomer.majorDiseases,
-        requestDetails: requestText.trim(),
-        productIds: selectedProductIds,
-        designerIds: selectedDesignerIds,
-        designerCodeSelections,
-      });
+      const createdResults = await Promise.all(
+        requestJobs.map(({ productId, designer, designerCodeSelection }) =>
+          rbCreateRequest({
+            customerName: selectedCustomer.name,
+            customerSsn: selectedCustomer.ssn,
+            customerGender: selectedCustomer.gender,
+            customerBirthDate: selectedCustomer.birthDate,
+            customerPhone: selectedCustomer.phone,
+            customerCarrier: selectedCustomer.carrier,
+            customerAddress: selectedCustomer.address,
+            customerJob: selectedCustomer.job,
+            customerDrivingStatus: drivingStatus,
+            customerIncome: selectedCustomer.income,
+            customerEmail: selectedCustomer.email,
+            customerHeight: selectedCustomer.height,
+            customerWeight: selectedCustomer.weight,
+            customerReferrer: selectedCustomer.referrer,
+            hasSeparatePolicyholder: selectedCustomer.hasSeparatePolicyholder,
+            policyholderName: selectedCustomer.policyholderName,
+            policyholderSsn: selectedCustomer.policyholderSsn,
+            policyholderPhone: selectedCustomer.policyholderPhone,
+            policyholderCarrier: selectedCustomer.policyholderCarrier,
+            policyholderAddress: selectedCustomer.policyholderAddress,
+            insuranceQualifications: selectedCustomer.insuranceQualifications,
+            recentHospitalVisit: selectedCustomer.recentHospitalVisit,
+            currentMedication: selectedCustomer.currentMedication,
+            recentHospitalization: selectedCustomer.hospitalizationHistory,
+            hospitalizationHistory: selectedCustomer.hospitalizationHistory,
+            majorDiseases: selectedCustomer.majorDiseases,
+            requestDetails: requestText.trim(),
+            productIds: [productId],
+            designerIds: [designer.id],
+            designerCodeSelections: [designerCodeSelection],
+          }),
+        ),
+      );
 
-      if (!created.success || !created.data) {
-        throw new Error(created.error ?? '설계 요청을 보내지 못했습니다.');
+      const failedRequest = createdResults.find((result) => !result.success || !result.data);
+      if (failedRequest) {
+        throw new Error(failedRequest.error ?? '설계 요청을 보내지 못했습니다.');
       }
 
-      setSentRequestId(created.data.id);
+      const createdRequestIds = createdResults.map((result) => result.data!.id);
+      setSentRequestIds(createdRequestIds);
 
       if (attachments.length > 0) {
         const upload = await rbUploadAttachments(attachments);
         if (upload.success && upload.data && upload.data.length > 0) {
-          const detail = await rbGetRequestDetail(created.data.id);
-          const assignments = detail?.request_designers ?? [];
+          const detailResults = await Promise.allSettled(
+            createdRequestIds.map((requestId) => rbGetRequestDetail(requestId)),
+          );
+          const assignments = detailResults.flatMap((result) =>
+            result.status === 'fulfilled' ? (result.value?.request_designers ?? []) : [],
+          );
           await Promise.allSettled(
             assignments.map((assignment) =>
               rbSendMessage(
@@ -1004,7 +1135,7 @@ export default function RequestBoardCreateScreen() {
       <Text style={styles.formTitle}>기본 정보</Text>
       <View style={styles.twoColumn}>
         <Field
-          label="이름"
+          label="피보험자 이름"
           value={newCustomer.name}
           onChangeText={(value) => updateCustomerField('name', value)}
           placeholder="홍길동"
@@ -1061,6 +1192,129 @@ export default function RequestBoardCreateScreen() {
           </Pressable>
         ))}
       </View>
+      <View style={styles.field}>
+        <Text style={styles.fieldLabel}>피보험자 통신사</Text>
+        <View style={styles.carrierGrid}>
+          {REQUEST_BOARD_CARRIER_OPTIONS.map((carrier) => {
+            const active = newCustomer.carrier === carrier;
+            return (
+              <Pressable
+                key={carrier}
+                style={({ pressed }) => [
+                  styles.carrierButton,
+                  active && styles.carrierButtonActive,
+                  pressed && { opacity: 0.85 },
+                ]}
+                onPress={() => updateCustomerField('carrier', carrier)}
+                accessibilityRole="button"
+                accessibilityState={{ selected: active }}
+              >
+                <Text style={[styles.carrierText, active && styles.carrierTextActive]}>
+                  {carrier}
+                </Text>
+              </Pressable>
+            );
+          })}
+        </View>
+      </View>
+      <Pressable
+        style={({ pressed }) => [
+          styles.policyholderToggle,
+          newCustomer.hasSeparatePolicyholder && styles.policyholderToggleActive,
+          pressed && { opacity: 0.9 },
+        ]}
+        onPress={() => setHasSeparatePolicyholder(!newCustomer.hasSeparatePolicyholder)}
+        accessibilityRole="checkbox"
+        accessibilityState={{ checked: newCustomer.hasSeparatePolicyholder }}
+      >
+        <View
+          style={[
+            styles.policyholderCheck,
+            newCustomer.hasSeparatePolicyholder && styles.policyholderCheckActive,
+          ]}
+        >
+          {newCustomer.hasSeparatePolicyholder ? <Feather name="check" size={16} color="#fff" /> : null}
+        </View>
+        <View style={styles.policyholderToggleCopy}>
+          <Text style={styles.policyholderToggleTitle}>계약자 피보험자 다름</Text>
+          <Text style={styles.policyholderToggleHint}>
+            피보험자는 위 기본 정보로 저장하고 계약자 정보를 별도로 입력합니다.
+          </Text>
+        </View>
+      </Pressable>
+      {newCustomer.hasSeparatePolicyholder ? (
+        <View style={styles.policyholderPanel}>
+          <Text style={styles.policyholderPanelTitle}>계약자 정보</Text>
+          <Text style={styles.policyholderPanelHint}>
+            계약자와 피보험자가 다를 경우 계약자 정보를 모두 입력해주세요.
+          </Text>
+          <Field
+            label="계약자 이름"
+            value={newCustomer.policyholderName ?? ''}
+            onChangeText={(value) => updateCustomerField('policyholderName', value)}
+            placeholder="계약자 이름"
+            inputRef={policyholderNameInputRef}
+            returnKeyType="next"
+            onSubmitEditing={() => focusNextInput(policyholderSsnInputRef)}
+          />
+          <Field
+            label="계약자 주민번호"
+            value={newCustomer.policyholderSsn ?? ''}
+            onChangeText={updatePolicyholderSsnField}
+            placeholder="900101-1234567"
+            keyboardType="number-pad"
+            maxLength={14}
+            inputRef={policyholderSsnInputRef}
+            returnKeyType="next"
+            onSubmitEditing={() => focusNextInput(policyholderPhoneInputRef)}
+          />
+          <Field
+            label="계약자 휴대폰번호"
+            value={newCustomer.policyholderPhone ?? ''}
+            onChangeText={updatePolicyholderPhoneField}
+            placeholder="010-1234-1234"
+            keyboardType="phone-pad"
+            maxLength={13}
+            inputRef={policyholderPhoneInputRef}
+            returnKeyType="next"
+            onSubmitEditing={() => focusNextInput(policyholderAddressInputRef)}
+          />
+          <View style={styles.field}>
+            <Text style={styles.fieldLabel}>계약자 통신사</Text>
+            <View style={styles.carrierGrid}>
+              {REQUEST_BOARD_CARRIER_OPTIONS.map((carrier) => {
+                const active = newCustomer.policyholderCarrier === carrier;
+                return (
+                  <Pressable
+                    key={carrier}
+                    style={({ pressed }) => [
+                      styles.carrierButton,
+                      active && styles.carrierButtonActive,
+                      pressed && { opacity: 0.85 },
+                    ]}
+                    onPress={() => updateCustomerField('policyholderCarrier', carrier)}
+                    accessibilityRole="button"
+                    accessibilityState={{ selected: active }}
+                  >
+                    <Text style={[styles.carrierText, active && styles.carrierTextActive]}>
+                      {carrier}
+                    </Text>
+                  </Pressable>
+                );
+              })}
+            </View>
+          </View>
+          <Field
+            label="계약자 주소"
+            value={newCustomer.policyholderAddress ?? ''}
+            onChangeText={(value) => updateCustomerField('policyholderAddress', value)}
+            placeholder="서울시 강남구 테헤란로 123"
+            inputRef={policyholderAddressInputRef}
+            returnKeyType="next"
+            onSubmitEditing={() => focusNextInput(jobInputRef)}
+          />
+        </View>
+      ) : null}
       <Text style={styles.formTitle}>설계 참고 정보</Text>
       <View style={styles.twoColumn}>
         <Field
@@ -1105,13 +1359,39 @@ export default function RequestBoardCreateScreen() {
           })}
         </View>
       </View>
+      <View style={styles.field}>
+        <Text style={styles.fieldLabel}>보험 자격</Text>
+        <View style={styles.qualificationGrid}>
+          {INSURANCE_QUALIFICATION_OPTIONS.map((option) => {
+            const active = Boolean(newCustomer.insuranceQualifications?.[option.key]);
+            return (
+              <Pressable
+                key={option.key}
+                style={({ pressed }) => [
+                  styles.qualificationChip,
+                  active && styles.qualificationChipActive,
+                  pressed && { opacity: 0.85 },
+                ]}
+                onPress={() => toggleInsuranceQualification(option.key)}
+                accessibilityRole="checkbox"
+                accessibilityState={{ checked: active }}
+              >
+                <Text style={[styles.qualificationText, active && styles.qualificationTextActive]}>
+                  {option.label}
+                </Text>
+              </Pressable>
+            );
+          })}
+        </View>
+      </View>
       <View style={styles.twoColumn}>
         <Field
           label="키(cm)"
           value={newCustomer.height ?? ''}
-          onChangeText={(value) => updateCustomerField('height', value)}
+          onChangeText={updateHeightField}
           placeholder="170"
           keyboardType="number-pad"
+          maxLength={3}
           inputRef={heightInputRef}
           returnKeyType="next"
           onSubmitEditing={() => focusNextInput(weightInputRef)}
@@ -1119,9 +1399,10 @@ export default function RequestBoardCreateScreen() {
         <Field
           label="몸무게(kg)"
           value={newCustomer.weight ?? ''}
-          onChangeText={(value) => updateCustomerField('weight', value)}
+          onChangeText={updateWeightField}
           placeholder="65"
           keyboardType="number-pad"
+          maxLength={3}
           inputRef={weightInputRef}
           returnKeyType="next"
           onSubmitEditing={() => focusNextInput(addressInputRef)}
@@ -1146,7 +1427,26 @@ export default function RequestBoardCreateScreen() {
         autoCorrect={false}
         inputRef={emailInputRef}
         returnKeyType="next"
+        onSubmitEditing={() => focusNextInput(referrerInputRef)}
+      />
+      <Field
+        label="소개자"
+        value={newCustomer.referrer ?? ''}
+        onChangeText={(value) => updateCustomerField('referrer', value)}
+        placeholder="소개자 이름"
+        inputRef={referrerInputRef}
+        returnKeyType="next"
+        onSubmitEditing={() => focusNextInput(currentMedicationInputRef)}
+      />
+      <Field
+        label="고혈압 당뇨 고지혈 약 드시나요?"
+        value={newCustomer.currentMedication ?? ''}
+        onChangeText={(value) => updateCustomerField('currentMedication', value)}
+        placeholder="예: 고혈압약 복용 중 / 해당 없음"
+        inputRef={currentMedicationInputRef}
+        returnKeyType="next"
         onSubmitEditing={() => focusNextInput(recentHospitalVisitInputRef)}
+        multiline
       />
       <Field
         label="최근 병원 진료"
@@ -1159,10 +1459,10 @@ export default function RequestBoardCreateScreen() {
         multiline
       />
       <Field
-        label="약 복용/입원/수술 이력"
+        label="최근 5년 이내 입원/수술 및 7일 이상 치료 이력"
         value={newCustomer.hospitalizationHistory ?? ''}
         onChangeText={(value) => updateCustomerField('hospitalizationHistory', value)}
-        placeholder="입원, 수술, 약 복용 이력"
+        placeholder="입원, 수술, 7일 이상 치료 이력"
         inputRef={hospitalizationHistoryInputRef}
         returnKeyType="next"
         onSubmitEditing={() => focusNextInput(majorDiseasesInputRef)}
@@ -1370,7 +1670,11 @@ export default function RequestBoardCreateScreen() {
       <Pressable style={styles.ctaOutline} onPress={() => router.replace('/request-board' as any)}>
         <Text style={styles.ctaOutlineText}>설계요청 홈</Text>
       </Pressable>
-      {sentRequestId ? <Text style={styles.sentRequestId}>요청번호 #{sentRequestId}</Text> : null}
+      {sentRequestIds.length > 0 ? (
+        <Text style={styles.sentRequestId}>
+          요청번호 {sentRequestIds.map((requestId) => `#${requestId}`).join(', ')}
+        </Text>
+      ) : null}
     </View>
   );
 
@@ -1718,6 +2022,124 @@ const styles = StyleSheet.create({
     fontWeight: '800',
   },
   genderTextActive: {
+    color: COLORS.primary,
+  },
+  policyholderToggle: {
+    minHeight: 72,
+    borderRadius: RADIUS.md,
+    borderWidth: 1,
+    borderColor: COLORS.border.light,
+    backgroundColor: '#fff',
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: SPACING.md,
+    padding: SPACING.base,
+  },
+  policyholderToggleActive: {
+    borderColor: COLORS.primary,
+    backgroundColor: COLORS.primaryPale,
+  },
+  policyholderCheck: {
+    width: 24,
+    height: 24,
+    borderRadius: 6,
+    borderWidth: 1,
+    borderColor: COLORS.border.medium,
+    backgroundColor: '#fff',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  policyholderCheckActive: {
+    borderColor: COLORS.primary,
+    backgroundColor: COLORS.primary,
+  },
+  policyholderToggleCopy: {
+    flex: 1,
+    gap: 4,
+  },
+  policyholderToggleTitle: {
+    color: COLORS.gray[900],
+    fontSize: TYPOGRAPHY.fontSize.md,
+    fontWeight: '800',
+  },
+  policyholderToggleHint: {
+    color: COLORS.gray[600],
+    fontSize: TYPOGRAPHY.fontSize.xs,
+    lineHeight: 18,
+  },
+  policyholderPanel: {
+    borderRadius: RADIUS.md,
+    borderWidth: 1,
+    borderColor: COLORS.border.light,
+    backgroundColor: COLORS.gray[50],
+    padding: SPACING.base,
+    gap: SPACING.md,
+  },
+  policyholderPanelTitle: {
+    color: COLORS.gray[900],
+    fontSize: TYPOGRAPHY.fontSize.md,
+    fontWeight: '800',
+  },
+  policyholderPanelHint: {
+    color: COLORS.gray[600],
+    fontSize: TYPOGRAPHY.fontSize.sm,
+    lineHeight: 20,
+  },
+  carrierGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: SPACING.sm,
+  },
+  carrierButton: {
+    width: '48%',
+    minHeight: 42,
+    borderRadius: RADIUS.md,
+    borderWidth: 1,
+    borderColor: COLORS.border.light,
+    backgroundColor: '#fff',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: SPACING.sm,
+  },
+  carrierButtonActive: {
+    borderColor: COLORS.primary,
+    backgroundColor: COLORS.primaryPale,
+  },
+  carrierText: {
+    color: COLORS.gray[700],
+    fontSize: TYPOGRAPHY.fontSize.sm,
+    fontWeight: '800',
+    textAlign: 'center',
+  },
+  carrierTextActive: {
+    color: COLORS.primary,
+  },
+  qualificationGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: SPACING.sm,
+  },
+  qualificationChip: {
+    minHeight: 42,
+    borderRadius: RADIUS.full,
+    borderWidth: 1,
+    borderColor: COLORS.border.light,
+    backgroundColor: '#fff',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: SPACING.md,
+    paddingVertical: 8,
+  },
+  qualificationChipActive: {
+    borderColor: COLORS.primary,
+    backgroundColor: COLORS.primaryPale,
+  },
+  qualificationText: {
+    color: COLORS.gray[700],
+    fontSize: TYPOGRAPHY.fontSize.sm,
+    fontWeight: '800',
+  },
+  qualificationTextActive: {
     color: COLORS.primary,
   },
   drivingStatusGrid: {

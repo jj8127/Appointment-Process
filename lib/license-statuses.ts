@@ -45,6 +45,12 @@ export function normalizeLicenseStatuses(input: unknown): LicenseStatus[] {
   return concreteStatuses.length > 0 ? concreteStatuses : [LICENSE_STATUS_NONE];
 }
 
+export function formatLicenseStatuses(input: unknown): string {
+  return normalizeLicenseStatuses(input)
+    .map((status) => LICENSE_STATUS_LABELS[status])
+    .join(', ');
+}
+
 export function toggleLicenseStatus(current: unknown, next: LicenseStatus): LicenseStatus[] {
   if (next === LICENSE_STATUS_NONE) return [LICENSE_STATUS_NONE];
 

@@ -1,7 +1,5 @@
 export const REQUEST_BOARD_DRIVING_STATUS_OPTIONS = [
   { value: 'none', label: '안함' },
-  { value: 'yes', label: '예' },
-  { value: 'no', label: '아니요' },
   { value: 'passenger_business', label: '승용차(영업용)' },
   { value: 'passenger_private', label: '승용차(자가용)' },
   { value: 'van_business', label: '승합차(영업용)' },
@@ -16,7 +14,11 @@ export const REQUEST_BOARD_DRIVING_STATUS_OPTIONS = [
 ] as const;
 
 const DRIVING_STATUS_LABEL_MAP = new Map<string, string>(
-  REQUEST_BOARD_DRIVING_STATUS_OPTIONS.map((option) => [option.value, option.label]),
+  [
+    ...REQUEST_BOARD_DRIVING_STATUS_OPTIONS.map((option) => [option.value, option.label] as const),
+    ['yes', '예'] as const,
+    ['no', '아니요'] as const,
+  ],
 );
 
 export const formatRequestBoardDrivingStatus = (value?: string | null): string =>

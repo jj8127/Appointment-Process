@@ -24,11 +24,13 @@ export const getDesignerRequestDetailActions = ({
   isRequestBoardDesigner,
   assignmentStatus,
 }: DesignerRequestDetailActionInput): DesignerRequestDetailActions => {
-  const canRespond = isRequestBoardDesigner && normalizeStatus(assignmentStatus) === 'pending';
+  const status = normalizeStatus(assignmentStatus);
+  const canAccept = isRequestBoardDesigner && status === 'pending';
+  const canReject = isRequestBoardDesigner && (status === 'pending' || status === 'accepted');
 
   return {
-    canRespond,
-    canAccept: canRespond,
-    canReject: canRespond,
+    canRespond: canAccept || canReject,
+    canAccept,
+    canReject,
   };
 };

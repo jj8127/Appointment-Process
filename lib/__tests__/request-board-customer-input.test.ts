@@ -1,10 +1,12 @@
 import {
   formatRequestBoardCustomerBirthDateInput,
+  formatRequestBoardThreeDigitNumberInput,
   formatRequestBoardCustomerPhoneInput,
   formatRequestBoardCustomerSsnInput,
   isCompleteRequestBoardCustomerBirthDate,
   isCompleteRequestBoardCustomerPhone,
   isCompleteRequestBoardCustomerSsn,
+  isValidRequestBoardCustomerBirthDate,
 } from '@/lib/request-board-customer-input';
 
 describe('request board customer input helpers', () => {
@@ -22,6 +24,23 @@ describe('request board customer input helpers', () => {
   it('detects complete birth date input from eight digits', () => {
     expect(isCompleteRequestBoardCustomerBirthDate('1990-12-3')).toBe(false);
     expect(isCompleteRequestBoardCustomerBirthDate('1990-12-31')).toBe(true);
+  });
+
+  it('validates birth dates semantically instead of accepting any eight digits', () => {
+    expect(isValidRequestBoardCustomerBirthDate('1990-12-31')).toBe(true);
+    expect(isValidRequestBoardCustomerBirthDate('1990-02-29')).toBe(false);
+    expect(isValidRequestBoardCustomerBirthDate('1991-02-29')).toBe(false);
+    expect(isValidRequestBoardCustomerBirthDate('1990-13-01')).toBe(false);
+    expect(isValidRequestBoardCustomerBirthDate('1990-00-01')).toBe(false);
+    expect(isValidRequestBoardCustomerBirthDate('1990-12-32')).toBe(false);
+    expect(isValidRequestBoardCustomerBirthDate('1990-12-3')).toBe(false);
+  });
+
+  it('normalizes height and weight to three numeric digits', () => {
+    expect(formatRequestBoardThreeDigitNumberInput('')).toBe('');
+    expect(formatRequestBoardThreeDigitNumberInput('17a')).toBe('17');
+    expect(formatRequestBoardThreeDigitNumberInput('170cm')).toBe('170');
+    expect(formatRequestBoardThreeDigitNumberInput('1700')).toBe('170');
   });
 
   it('formats phone input with automatic hyphens while typing', () => {

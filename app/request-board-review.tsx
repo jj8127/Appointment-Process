@@ -152,6 +152,13 @@ type DesignerRejectTarget = {
   assignmentId: number;
 };
 
+type AttachmentUploadDraft = {
+  assignment: RbDesignerAssignment;
+  files: RbRequestUploadFile[];
+  descriptions: string[];
+  expiryDates: string[];
+};
+
 /* ─── Component ─── */
 
 export default function RequestBoardReviewScreen() {
@@ -174,6 +181,7 @@ export default function RequestBoardReviewScreen() {
   const [designerRejectModalVisible, setDesignerRejectModalVisible] = useState(false);
   const [designerRejectTarget, setDesignerRejectTarget] = useState<DesignerRejectTarget | null>(null);
   const [designerRejectReason, setDesignerRejectReason] = useState('');
+  const [attachmentUploadDraft, setAttachmentUploadDraft] = useState<AttachmentUploadDraft | null>(null);
 
   const requestId = id ? parseInt(id, 10) : null;
 
@@ -324,7 +332,7 @@ export default function RequestBoardReviewScreen() {
 
   const handleDesignerRejectOpen = (assignment: RbDesignerAssignment) => {
     if (!requestId) return;
-    if (assignment.status !== 'pending') {
+    if (assignment.status !== 'pending' && assignment.status !== 'accepted') {
       Alert.alert('처리 불가', '거절할 수 있는 의뢰가 아닙니다.');
       return;
     }
@@ -396,14 +404,69 @@ export default function RequestBoardReviewScreen() {
         size: asset.size ?? 0,
       }));
 
+      setAttachmentUploadDraft({
+        assignment,
+        files,
+        descriptions: files.map((file) => safeDecodeFileName(file.name)),
+        expiryDates: files.map(() => ''),
+      });
+    } catch (err) {
+      logger.warn('[review] designer attachment pick failed', err);
+      Alert.alert('첨부 실패', toRequestBoardSessionErrorMessage(err, '첨부파일 선택 중 오류가 발생했습니다.'));
+    }
+  };
+
+  const resetAttachmentUploadDraft = () => {
+    setAttachmentUploadDraft(null);
+  };
+
+  const updateAttachmentUploadDescription = (index: number, value: string) => {
+    setAttachmentUploadDraft((prev) => {
+      if (!prev) return prev;
+      const descriptions = [...prev.descriptions];
+      descriptions[index] = value;
+      return { ...prev, descriptions };
+    });
+  };
+
+  const updateAttachmentUploadExpiryDate = (index: number, value: string) => {
+    setAttachmentUploadDraft((prev) => {
+      if (!prev) return prev;
+      const expiryDates = [...prev.expiryDates];
+      expiryDates[index] = value;
+      return { ...prev, expiryDates };
+    });
+  };
+
+  const handleDesignerAttachmentUploadConfirm = async () => {
+    if (!requestId || !attachmentUploadDraft) return;
+
+    const invalidExpiryDate = attachmentUploadDraft.expiryDates.find((value) => {
+      const expiryDate = value.trim();
+      return expiryDate.length > 0 && !/^\d{4}-\d{2}-\d{2}$/.test(expiryDate);
+    });
+    if (invalidExpiryDate) {
+      Alert.alert('만료일 확인', '만료일은 YYYY-MM-DD 형식으로 입력해주세요.');
+      return;
+    }
+
+    const { assignment, files } = attachmentUploadDraft;
+    const metadata = files.map((_, index) => {
+      const description = attachmentUploadDraft.descriptions[index]?.trim() ?? '';
+      const expiryDate = attachmentUploadDraft.expiryDates[index]?.trim() ?? '';
+      return { description: description || null, expiryDate: expiryDate || null };
+    });
+
+    try {
       setSubmitting(true);
       const res = await rbUploadRequestAttachments(requestId, assignment.designer_id, {
         files,
-        metadata: files.map(() => ({ description: '설계 완료 첨부' })),
+        metadata,
         requestDesignerId: assignment.id,
       });
 
       if (res.success) {
+        resetAttachmentUploadDraft();
         Alert.alert('첨부 완료', '설계 파일을 첨부했습니다.');
         await fetchData();
       } else {
@@ -594,7 +657,11 @@ export default function RequestBoardReviewScreen() {
                   <Text style={styles.fileName} numberOfLines={1}>{safeDecodeFileName(file.file_name)}</Text>
                   <Text style={styles.fileMeta}>
                     {formatFileSize(file.file_size)} · {formatDate(file.created_at)}
+                    {file.description ? ` · ${file.description}` : ''}
                   </Text>
+                  {file.expiry_date ? (
+                    <Text style={styles.fileMeta}>만료일 {formatDate(file.expiry_date)}</Text>
+                  ) : null}
                 </View>
                 <View style={styles.fileOpenBtn}>
                   <Feather name="external-link" size={14} color={COLORS.primary} />
@@ -612,42 +679,46 @@ export default function RequestBoardReviewScreen() {
           </View>
         )}
 
-        {designerActions.canRespond && (
+        {(designerActions.canReject || designerActions.canAccept) && (
           <View style={styles.decisionBtns}>
-            <Pressable
-              style={({ pressed }) => [
-                styles.rejectBtn,
-                pressed && { opacity: 0.8 },
-                submitting && { opacity: 0.5 },
-              ]}
-              onPress={() => handleDesignerRejectOpen(assignment)}
-              disabled={submitting || !designerActions.canReject}
-              accessibilityRole="button"
-              accessibilityLabel="의뢰 거절"
-            >
-              <Feather name="x" size={15} color="#DC2626" />
-              <Text style={styles.rejectBtnText}>의뢰 거절</Text>
-            </Pressable>
-            <Pressable
-              style={({ pressed }) => [
-                styles.approveBtn,
-                pressed && { opacity: 0.8 },
-                submitting && { opacity: 0.5 },
-              ]}
-              onPress={() => handleDesignerAcceptRequest(assignment)}
-              disabled={submitting || !designerActions.canAccept}
-              accessibilityRole="button"
-              accessibilityLabel="의뢰 수락"
-            >
-              {submitting ? (
-                <BrandedLoadingSpinner size="sm" color="#fff" />
-              ) : (
-                <>
-                  <Feather name="check" size={15} color="#fff" />
-                  <Text style={styles.approveBtnText}>의뢰 수락</Text>
-                </>
-              )}
-            </Pressable>
+            {designerActions.canReject ? (
+              <Pressable
+                style={({ pressed }) => [
+                  styles.rejectBtn,
+                  pressed && { opacity: 0.8 },
+                  submitting && { opacity: 0.5 },
+                ]}
+                onPress={() => handleDesignerRejectOpen(assignment)}
+                disabled={submitting}
+                accessibilityRole="button"
+                accessibilityLabel="의뢰 거절"
+              >
+                <Feather name="x" size={15} color="#DC2626" />
+                <Text style={styles.rejectBtnText}>의뢰 거절</Text>
+              </Pressable>
+            ) : null}
+            {designerActions.canAccept ? (
+              <Pressable
+                style={({ pressed }) => [
+                  styles.approveBtn,
+                  pressed && { opacity: 0.8 },
+                  submitting && { opacity: 0.5 },
+                ]}
+                onPress={() => handleDesignerAcceptRequest(assignment)}
+                disabled={submitting}
+                accessibilityRole="button"
+                accessibilityLabel="의뢰 수락"
+              >
+                {submitting ? (
+                  <BrandedLoadingSpinner size="sm" color="#fff" />
+                ) : (
+                  <>
+                    <Feather name="check" size={15} color="#fff" />
+                    <Text style={styles.approveBtnText}>의뢰 수락</Text>
+                  </>
+                )}
+              </Pressable>
+            ) : null}
           </View>
         )}
 
@@ -847,10 +918,21 @@ export default function RequestBoardReviewScreen() {
               { label: '소개자', value: formatNullable(detail.customer_referrer) },
               { label: '보험 자격', value: formatInsuranceQualifications(detail.insurance_qualifications), fullWidth: true },
             ];
+            const policyholderFields = detail.has_separate_policyholder
+              ? [
+                  { label: '이름', value: formatNullable(detail.policyholder_name) },
+                  { label: '주민번호', value: formatSsn(detail.policyholder_ssn) },
+                  { label: '연락처', value: formatPhone(detail.policyholder_phone) },
+                  { label: '통신사', value: formatNullable(detail.policyholder_carrier) },
+                  { label: '주소', value: formatNullable(detail.policyholder_address), fullWidth: true },
+                ]
+              : [
+                  { label: '계약자', value: '피보험자와 동일', fullWidth: true },
+                ];
             const healthFields = [
               { label: '고혈압 당뇨 고지혈 약 드시나요?', value: formatNullable(detail.current_medication) },
               { label: '3개월이내 병원 진료 받은 내용 있으신가요?', value: formatNullable(detail.recent_hospital_visit) },
-              { label: '5년이내 입원이나 수술 있으셨나요?', value: formatNullable(detail.recent_hospitalization) },
+              { label: '최근 5년 이내 입원/수술 및 7일 이상 치료 이력', value: formatNullable(detail.recent_hospitalization) },
               { label: '중대질환 (암,뇌,심,간질환) 있으신가요?', value: formatNullable(detail.major_diseases) },
             ];
             const paymentFields = [
@@ -906,6 +988,16 @@ export default function RequestBoardReviewScreen() {
                 />
               ))}
             </InfoSection>
+            <InfoSection title="계약자 정보">
+              {policyholderFields.map((field) => (
+                <InfoField
+                  key={field.label}
+                  label={field.label}
+                  value={field.value}
+                  fullWidth={field.fullWidth}
+                />
+              ))}
+            </InfoSection>
             <InfoSection title="건강 정보">
               {healthFields.map((field) => (
                 <InfoField key={field.label} label={field.label} value={field.value} />
@@ -949,6 +1041,87 @@ export default function RequestBoardReviewScreen() {
         activeKey={navActiveKey}
         bottomInset={insets.bottom}
       />
+
+      {/* Attachment Metadata Modal */}
+      <Modal
+        visible={attachmentUploadDraft != null}
+        transparent
+        animationType="slide"
+        onRequestClose={resetAttachmentUploadDraft}
+      >
+        <KeyboardAvoidingView
+          style={styles.modalKeyboardAvoidingView}
+          behavior={process.env.EXPO_OS === 'ios' ? 'padding' : 'height'}
+        >
+          <Pressable
+            style={styles.modalOverlay}
+            onPress={resetAttachmentUploadDraft}
+          />
+          <View
+            style={[
+              styles.modalSheet,
+              styles.attachmentModalSheet,
+              { paddingBottom: Math.max(insets.bottom, 16) + 8 },
+            ]}
+          >
+            <View style={styles.modalHandle} />
+            <Text style={styles.modalTitle}>첨부 정보</Text>
+            <Text style={styles.modalDesc}>파일별 설명과 만료일을 확인해주세요.</Text>
+            <ScrollView
+              style={styles.attachmentDraftScroll}
+              contentContainerStyle={styles.attachmentDraftList}
+              keyboardShouldPersistTaps="handled"
+            >
+              {attachmentUploadDraft?.files.map((file, index) => (
+                <View key={`${file.name}-${index}`} style={styles.attachmentDraftItem}>
+                  <Text style={styles.attachmentDraftFileName} numberOfLines={1}>
+                    {safeDecodeFileName(file.name)}
+                  </Text>
+                  <TextInput
+                    style={styles.attachmentDraftInput}
+                    value={attachmentUploadDraft.descriptions[index] ?? ''}
+                    onChangeText={(value) => updateAttachmentUploadDescription(index, value)}
+                    placeholder="첨부 설명"
+                    placeholderTextColor={COLORS.text.muted}
+                  />
+                  <TextInput
+                    style={styles.attachmentDraftInput}
+                    value={attachmentUploadDraft.expiryDates[index] ?? ''}
+                    onChangeText={(value) => updateAttachmentUploadExpiryDate(index, value)}
+                    placeholder="만료일 YYYY-MM-DD"
+                    placeholderTextColor={COLORS.text.muted}
+                    autoCapitalize="none"
+                  />
+                </View>
+              ))}
+            </ScrollView>
+            <View style={styles.modalBtns}>
+              <Pressable
+                style={({ pressed }) => [styles.modalCancelBtn, pressed && { opacity: 0.7 }]}
+                onPress={resetAttachmentUploadDraft}
+                disabled={submitting}
+              >
+                <Text style={styles.modalCancelBtnText}>취소</Text>
+              </Pressable>
+              <Pressable
+                style={({ pressed }) => [
+                  styles.modalConfirmBtn,
+                  pressed && { opacity: 0.8 },
+                  submitting && { opacity: 0.5 },
+                ]}
+                onPress={handleDesignerAttachmentUploadConfirm}
+                disabled={submitting}
+              >
+                {submitting ? (
+                  <BrandedLoadingSpinner size="sm" color="#fff" />
+                ) : (
+                  <Text style={styles.modalConfirmBtnText}>업로드</Text>
+                )}
+              </Pressable>
+            </View>
+          </View>
+        </KeyboardAvoidingView>
+      </Modal>
 
       {/* Designer Reject Modal */}
       <Modal
@@ -1415,6 +1588,40 @@ const styles = StyleSheet.create({
     fontSize: TYPOGRAPHY.fontSize.xs,
     color: COLORS.text.muted,
     marginTop: 1,
+  },
+  attachmentModalSheet: {
+    maxHeight: '82%',
+  },
+  attachmentDraftScroll: {
+    maxHeight: 360,
+    marginBottom: SPACING.md,
+  },
+  attachmentDraftList: {
+    gap: SPACING.sm,
+    paddingBottom: SPACING.sm,
+  },
+  attachmentDraftItem: {
+    borderWidth: 1,
+    borderColor: COLORS.border.light,
+    borderRadius: RADIUS.md,
+    backgroundColor: COLORS.gray[50],
+    padding: SPACING.sm,
+    gap: SPACING.sm,
+  },
+  attachmentDraftFileName: {
+    fontSize: TYPOGRAPHY.fontSize.sm,
+    fontWeight: '700' as const,
+    color: COLORS.gray[800],
+  },
+  attachmentDraftInput: {
+    borderWidth: 1,
+    borderColor: COLORS.border.medium,
+    borderRadius: RADIUS.md,
+    paddingHorizontal: SPACING.sm,
+    paddingVertical: 10,
+    fontSize: TYPOGRAPHY.fontSize.sm,
+    color: COLORS.gray[900],
+    backgroundColor: '#fff',
   },
   fileOpenBtn: {
     flexDirection: 'row',

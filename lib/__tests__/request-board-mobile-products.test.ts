@@ -5,7 +5,7 @@ import {
 } from '@/lib/request-board-mobile-products';
 
 describe('request board mobile product catalog', () => {
-  it('keeps GaramIn request creation limited to the latest eight GaramLink categories', () => {
+  it('keeps the preferred GaramLink categories first for GaramIn request creation', () => {
     expect(GARMIN_REQUEST_PRODUCT_NAMES).toEqual([
       '종신보험',
       '건강보험',
@@ -23,10 +23,10 @@ describe('request board mobile product catalog', () => {
     expect(resolveMobileRequestProductName('실손보험')).toBe('실비보험');
     expect(resolveMobileRequestProductName('저축보험')).toBe('연금보험');
     expect(resolveMobileRequestProductName('저축/연금 보험')).toBe('연금보험');
-    expect(resolveMobileRequestProductName('암보험')).toBeNull();
+    expect(resolveMobileRequestProductName('암보험')).toBe('암보험');
   });
 
-  it('deduplicates API products by mobile display name and preserves canonical product ids', () => {
+  it('deduplicates API products by mobile display name while preserving additional canonical products', () => {
     const model = mapRequestBoardProductsToMobileCatalog([
       { id: 8, name: '종신보험', icon: 'life' },
       { id: 6, name: '건강보험', icon: 'health' },
@@ -42,6 +42,7 @@ describe('request board mobile product catalog', () => {
       [6, '건강보험'],
       [2, '실비보험'],
       [30, '연금보험'],
+      [99, '암보험'],
     ]);
     expect(model.productIdAliasMap).toEqual({
       2: 2,
@@ -50,6 +51,7 @@ describe('request board mobile product catalog', () => {
       20: 30,
       21: 2,
       30: 30,
+      99: 99,
     });
   });
 });

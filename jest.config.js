@@ -3,16 +3,19 @@ module.exports = {
   testEnvironment: 'node',
   coverageProvider: 'v8',
   modulePathIgnorePatterns: [
+    '<rootDir>/.codex-tmp/',
     '<rootDir>/web/.next/',
     '<rootDir>/web/out/',
   ],
   testPathIgnorePatterns: [
     '/node_modules/',
+    '<rootDir>/.codex-tmp/',
     '<rootDir>/web/.next/',
     '<rootDir>/web/src/lib/.*\\.test\\.ts$',
     '<rootDir>/supabase/functions/_shared/__tests__/request-board-password-sync\\.test\\.ts$',
   ],
   watchPathIgnorePatterns: [
+    '<rootDir>/.codex-tmp/',
     '<rootDir>/web/.next/',
     '<rootDir>/web/out/',
   ],

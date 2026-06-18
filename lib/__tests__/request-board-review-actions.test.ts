@@ -17,18 +17,24 @@ describe('request board review designer actions', () => {
     });
   });
 
-  it('hides designer response buttons for non-designers and non-pending assignments', () => {
-    expect(
-      getDesignerRequestDetailActions({
-        isRequestBoardDesigner: false,
-        assignmentStatus: 'pending',
-      }).canRespond,
-    ).toBe(false);
-
+  it('keeps reject available for accepted assignments but prevents duplicate accept', () => {
     expect(
       getDesignerRequestDetailActions({
         isRequestBoardDesigner: true,
         assignmentStatus: 'accepted',
+      }),
+    ).toEqual({
+      canRespond: true,
+      canAccept: false,
+      canReject: true,
+    });
+  });
+
+  it('hides designer response buttons for non-designers and closed assignments', () => {
+    expect(
+      getDesignerRequestDetailActions({
+        isRequestBoardDesigner: false,
+        assignmentStatus: 'pending',
       }).canRespond,
     ).toBe(false);
 

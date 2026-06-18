@@ -36,6 +36,7 @@ import {
   type RbRequestSummary,
 } from '@/lib/request-board-api';
 import { getRequestBoardCustomerManagementRoute } from '@/lib/request-board-create-flow';
+import { formatRequestBoardCustomerDisplayName } from '@/lib/request-board-policyholder-display';
 import { normalizeDesignerRejectReason } from '@/lib/request-board-review-actions';
 import { toRequestBoardSessionErrorMessage } from '@/lib/request-board-session-error';
 import { getRequestBoardWebBaseUrl } from '@/lib/request-board-url';
@@ -572,7 +573,12 @@ export default function RequestBoardScreen() {
       requestId: request.id,
       designerId: assignment.designer_id,
       assignmentId: assignment.id,
-      customerName: request.customer_name,
+      customerName: String(request.customer_display_name ?? '').trim() ||
+        formatRequestBoardCustomerDisplayName({
+          customerName: request.customer_name,
+          hasSeparatePolicyholder: request.has_separate_policyholder,
+          policyholderName: request.policyholder_name,
+        }),
     });
     setDesignerRejectReason('');
     setDesignerRejectModalVisible(true);
@@ -983,13 +989,20 @@ export default function RequestBoardScreen() {
                     const rejectActionKey = `${request.id}:${assignment?.id}:reject`;
                     const actionBusy =
                       designerActionKey === acceptActionKey || designerActionKey === rejectActionKey;
+                    const customerDisplayName =
+                      String(request.customer_display_name ?? '').trim() ||
+                      formatRequestBoardCustomerDisplayName({
+                        customerName: request.customer_name,
+                        hasSeparatePolicyholder: request.has_separate_policyholder,
+                        policyholderName: request.policyholder_name,
+                      });
 
                     return (
                       <View key={`${request.id}-${assignment?.id ?? 'assignment'}`} style={styles.managerQuickCard}>
                         <View style={styles.managerQuickTop}>
                           <View style={styles.managerQuickTitleWrap}>
                             <Text style={styles.managerQuickTitle} numberOfLines={1}>
-                              {request.customer_name} 고객 설계
+                              {customerDisplayName} 고객 설계
                             </Text>
                             <Text style={styles.managerQuickMeta} numberOfLines={1}>
                               {getRequestProductNames(request)} · {formatRelativeTime(request.created_at)}

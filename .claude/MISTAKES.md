@@ -30,6 +30,43 @@
 - Verification:
 ```
 
+## 2026-06-18 | GaramIn Cross-Flow Request Board Parity | mobile contracts drifted from GaramLink and saved data
+- Symptom:
+  - GaramIn request creation bundled multiple selected products/designers into one request instead of GaramLink's one product-designer cell per request.
+  - Mobile product mapping hid canonical request products outside the preferred eight categories.
+  - Existing customers could still submit without canonical driving status, accepted designer assignments could not be rejected from detail, list/home cards did not show separate policyholder context, attachment description/expiry metadata was not visible or enterable, and health disclosure wording drifted.
+  - Separate exam/sign-up data (`fee_paid_date`, `license_statuses`) was saved but not selected/restored/displayed in app surfaces.
+- Root cause:
+  - Mobile screens carried API payload fields without a field-by-field parity contract against GaramLink web, request detail data, and existing saved FC/exam records.
+  - Source tests covered isolated regressions, not the complete cross-screen contract for request creation, review, list cards, and profile/exam follow-up displays.
+- Why it was missed:
+  - Multi-select UI was interpreted as a single aggregate mobile request even though the web canonical flow creates per-cell requests.
+  - Optional-looking fields were forwarded or stored, so source review could miss that users could not enter, revalidate, or see them later.
+- Permanent guardrail:
+  - GaramIn request-board mobile must keep source-contract tests for one request per product-designer cell, dynamic product preservation, existing-customer driving-status revalidation, accepted-assignment reject actions, policyholder-aware compact labels, attachment description/expiry display and upload metadata, and health disclosure wording.
+  - Saved exam/profile fields that affect user follow-up must be selected, restored, and displayed in the same change set where they are saved.
+- Related files:
+  - `app/request-board-create.tsx`
+  - `app/request-board-review.tsx`
+  - `app/request-board-requests.tsx`
+  - `app/request-board.tsx`
+  - `app/exam-apply.tsx`
+  - `app/exam-apply2.tsx`
+  - `app/index.tsx`
+  - `app/dashboard.tsx`
+  - `lib/request-board-mobile-products.ts`
+  - `lib/request-board-policyholder-display.ts`
+  - `lib/request-board-review-actions.ts`
+  - `lib/license-statuses.ts`
+  - `lib/__tests__/request-board-mobile-ui-contract.test.ts`
+  - `lib/__tests__/request-board-mobile-products.test.ts`
+  - `lib/__tests__/request-board-review-actions.test.ts`
+  - `lib/__tests__/request-board-policyholder-display.test.ts`
+  - `lib/__tests__/exam-license-source-contract.test.ts`
+- Verification:
+  - RED/GREEN request-board mobile contract tests and exam/license source contract tests.
+  - Final verification must include focused Jest suites, ESLint for touched files, TypeScript, and diff check.
+
 ## 2026-06-16 | Board Push Deep Link | Push tap bypassed mobile route normalization
 - Symptom:
   - When a board post notification arrived on a phone, tapping the push notification did not consistently open the board post detail screen.
@@ -2075,3 +2112,19 @@
 - Permanent guardrail: Every final answer in the Hanhwa workspace must include a short `도구/스킬 검토` note naming Superpowers, Sequential Thinking, and context7 as used, reviewed only, unavailable, or not applicable, with a brief reason.
 - Related files: `D:\hanhwa\AGENTS.md`, `AGENTS.md`, `.claude/MISTAKES.md`
 - Verification: Added an explicit final-answer disclosure rule to both `D:\hanhwa\AGENTS.md` and repo `AGENTS.md`.
+
+## 2026-06-18 | GaramIn Request Board Policyholder UI Drift | API contract fields existed without mobile inputs
+- Symptom: In the GaramIn app FC design-request flow, selecting `계약자 피보험자 다름` left no place to enter the separate contractor/policyholder information.
+- Root cause: Commit `24c8b13054e19d4c4284eaeab12f78f570eca37a` (`2026-06-04 12:35:35 +0900`, `feat: update garamin ops workflows`) introduced `app/request-board-create.tsx` with `hasSeparatePolicyholder` and policyholder payload forwarding, but the mobile `신규 고객 등록` UI and save validation did not expose `policyholderName`, `policyholderSsn`, `policyholderPhone`, `policyholderCarrier`, or `policyholderAddress`.
+- Why it was missed: The 2026-06-04 work treated the request-board create screen as existing customer select/register exposure and verified route/flow behavior, while no source-level parity test checked that user-enterable `RbSaveCustomerPayload` fields were rendered and validated in GaramIn mobile.
+- Permanent guardrail: When `RbSaveCustomerPayload` or `RbCreateRequestPayload` adds or carries a user-enterable field, the GaramIn mobile screen must include matching UI, state binding, and validation, and `lib/__tests__/request-board-mobile-ui-contract.test.ts` must assert the visible labels and bindings. Separate contractor/policyholder fields are specifically locked by this contract test.
+- Related files: `app/request-board-create.tsx`, `lib/request-board-api.ts`, `lib/__tests__/request-board-mobile-ui-contract.test.ts`
+- Verification: RED/GREEN `npm test -- --runInBand lib/__tests__/request-board-mobile-ui-contract.test.ts`; final lint/type/diff verification must include this entry's related files.
+
+## 2026-06-18 | GaramIn Request Board Customer Field Parity Drift | mobile form lagged behind GaramLink web contract
+- Symptom: After restoring separate contractor inputs, broader review found GaramIn mobile still omitted or weakened other customer fields that GaramLink web and the request-board API contract used: semantic birth-date validation, required canonical driving status, insured carrier, referrer, insurance qualifications, current medication, body-metric normalization, and policyholder detail display on review.
+- Root cause: The mobile request-create screen copied the request/customer payload shape but did not keep a field-by-field parity contract with GaramLink `CustomerFormPanel` and request detail displays.
+- Why it was missed: Tests locked isolated UI regressions, not the whole user-enterable customer payload surface. Optional-looking fields were initialized and forwarded, so source review could mistake them for supported even when there was no mobile input or display path.
+- Permanent guardrail: Any GaramLink customer/request field that is user-enterable, forwarded in `RbSaveCustomerPayload`/`RbCreateRequestPayload`, or displayed in request detail must have a GaramIn source-contract test asserting mobile input/display/validation parity. Canonical option values such as driving status and carrier must be tested separately from legacy display aliases.
+- Related files: `app/request-board-create.tsx`, `app/request-board-review.tsx`, `lib/request-board-api.ts`, `lib/request-board-customer-input.ts`, `lib/request-board-driving-status.ts`, `lib/__tests__/request-board-mobile-ui-contract.test.ts`, `lib/__tests__/request-board-customer-input.test.ts`, `lib/__tests__/request-board-driving-status.test.ts`, `lib/__tests__/request-board-api-contract.test.ts`
+- Verification: RED/GREEN request-board parity tests, `npx.cmd eslint ...`, `npx.cmd tsc --noEmit --pretty false`, and final `git diff --check`.

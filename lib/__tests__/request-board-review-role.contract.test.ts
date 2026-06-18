@@ -14,7 +14,9 @@ describe('request-board review role contract', () => {
     expect(source).toContain('const designerActions = getDesignerRequestDetailActions({');
     expect(source).toContain('isRequestBoardDesigner,');
     expect(source).toContain('assignmentStatus: assignment.status,');
-    expect(source).toContain('{designerActions.canRespond && (');
+    expect(source).toContain('{(designerActions.canReject || designerActions.canAccept) && (');
+    expect(source).toContain('{designerActions.canReject ? (');
+    expect(source).toContain('{designerActions.canAccept ? (');
     expect(source).toContain('handleDesignerRejectOpen(assignment)');
     expect(source).toContain('handleDesignerRejectConfirm');
     expect(source).toContain('normalizeDesignerRejectReason(designerRejectReason)');

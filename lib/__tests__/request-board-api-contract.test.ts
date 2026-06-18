@@ -36,4 +36,20 @@ describe('request board mobile API wrapper contract', () => {
     expect(source).toContain('fcCompanyCodeId?: number | null');
     expect(source).toContain('code_name?: string | null');
   });
+
+  it('keeps separate policyholder fields in create payloads and request detail reads', () => {
+    expect(source).toContain('hasSeparatePolicyholder?: boolean');
+    expect(source).toContain('policyholderName?: string');
+    expect(source).toContain('policyholderSsn?: string');
+    expect(source).toContain('policyholderPhone?: string');
+    expect(source).toContain('policyholderCarrier?: string');
+    expect(source).toContain('policyholderAddress?: string');
+
+    expect(source).toContain('has_separate_policyholder?: boolean | null');
+    expect(source).toContain('policyholder_name?: string | null');
+    expect(source).toContain('policyholder_ssn?: string | null');
+    expect(source).toContain('policyholder_phone?: string | null');
+    expect(source).toContain('policyholder_carrier?: string | null');
+    expect(source).toContain('policyholder_address?: string | null');
+  });
 });

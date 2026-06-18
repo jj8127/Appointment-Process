@@ -39,6 +39,7 @@ import {
   hasHanwhaApprovedPdf as hasHanwhaApprovedPdfEvidence,
 } from '@/lib/fc-workflow';
 import { useSession } from '@/hooks/use-session';
+import { formatLicenseStatuses } from '@/lib/license-statuses';
 import { logger } from '@/lib/logger';
 import { supabase } from '@/lib/supabase';
 import { FcProfile } from '@/types/fc';
@@ -284,6 +285,7 @@ type FcRow = {
   appointment_date_nonlife_sub?: string | null;
   appointment_reject_reason_life?: string | null;
   appointment_reject_reason_nonlife?: string | null;
+  license_statuses?: FcProfile['license_statuses'];
   life_commission_completed?: boolean | null;
   nonlife_commission_completed?: boolean | null;
   fc_documents?: { doc_type: string; storage_path: string | null; file_name: string | null; status: string | null }[];
@@ -379,7 +381,7 @@ const fetchFcs = async (
   let query = supabase
     .from('fc_profiles')
       .select(
-        'id,name,affiliation,phone,recommender,recommender_fc_id,temp_id,status,allowance_date,allowance_prescreen_requested_at,allowance_reject_reason,appointment_url,appointment_date,docs_deadline_at,hanwha_commission_date_sub,hanwha_commission_date,hanwha_commission_reject_reason,hanwha_commission_pdf_path,hanwha_commission_pdf_name,dawichok_url_sent_at,dawichok_url_sent_by,appointment_schedule_life,appointment_schedule_nonlife,appointment_date_life,appointment_date_nonlife,appointment_date_life_sub,appointment_date_nonlife_sub,appointment_reject_reason_life,appointment_reject_reason_nonlife,resident_id_masked,identity_completed,career_type,email,address,address_detail,life_commission_completed,nonlife_commission_completed,fc_documents(doc_type,storage_path,file_name,status)',
+        'id,name,affiliation,phone,recommender,recommender_fc_id,temp_id,status,allowance_date,allowance_prescreen_requested_at,allowance_reject_reason,appointment_url,appointment_date,docs_deadline_at,hanwha_commission_date_sub,hanwha_commission_date,hanwha_commission_reject_reason,hanwha_commission_pdf_path,hanwha_commission_pdf_name,dawichok_url_sent_at,dawichok_url_sent_by,appointment_schedule_life,appointment_schedule_nonlife,appointment_date_life,appointment_date_nonlife,appointment_date_life_sub,appointment_date_nonlife_sub,appointment_reject_reason_life,appointment_reject_reason_nonlife,resident_id_masked,identity_completed,career_type,license_statuses,email,address,address_detail,life_commission_completed,nonlife_commission_completed,fc_documents(doc_type,storage_path,file_name,status)',
       )
     .order('created_at', { ascending: false });
 
@@ -3434,6 +3436,7 @@ export default function DashboardScreen() {
                       <DetailRow label="주민번호" value={residentNumberDisplay} />
                       <DetailRow label="임시번호" value={tempDisplay} />
                       <DetailRow label="보증 보험 동의" value={allowanceDisplay} />
+                      <DetailRow label="자격증 보유 현황" value={formatLicenseStatuses(fc.license_statuses)} />
                       <DetailRow label="다위촉 URL 제출" value={fc.hanwha_commission_date_sub ?? '미입력'} />
                       <DetailRow
                         label="다위촉 URL 발송"

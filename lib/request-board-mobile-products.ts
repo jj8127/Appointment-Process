@@ -36,6 +36,7 @@ const configAliasKeys = (config: MobileProductConfig) =>
 
 export const resolveMobileRequestProductName = (name: string): string | null => {
   const normalized = normalizeProductName(name);
+  if (!normalized) return null;
 
   for (const config of MOBILE_PRODUCT_CONFIG) {
     const aliases = configAliasKeys(config);
@@ -44,7 +45,7 @@ export const resolveMobileRequestProductName = (name: string): string | null => 
     }
   }
 
-  return null;
+  return name.trim();
 };
 
 const resolveAliasRank = (displayName: string, sourceName: string): number => {
@@ -61,6 +62,7 @@ export const mapRequestBoardProductsToMobileCatalog = (
 ): { products: MobileRequestProduct[]; productIdAliasMap: Record<number, number> } => {
   const grouped = new Map<string, RequestBoardProductSource[]>();
   const productIdAliasMap: Record<number, number> = {};
+  const preferredDisplayNames = new Set(MOBILE_PRODUCT_CONFIG.map((config) => config.name));
 
   products.forEach((product) => {
     const displayName = resolveMobileRequestProductName(product.name);
@@ -70,13 +72,15 @@ export const mapRequestBoardProductsToMobileCatalog = (
     grouped.set(displayName, current);
   });
 
-  const mobileProducts = MOBILE_PRODUCT_CONFIG.flatMap((config) => {
-    const group = grouped.get(config.name) ?? [];
-    if (group.length === 0) return [];
+  const buildMobileProduct = (
+    displayName: string,
+    group: RequestBoardProductSource[],
+  ): MobileRequestProduct | null => {
+    if (group.length === 0) return null;
 
     const canonical = [...group].sort((a, b) => {
-      const aliasRankA = resolveAliasRank(config.name, a.name);
-      const aliasRankB = resolveAliasRank(config.name, b.name);
+      const aliasRankA = resolveAliasRank(displayName, a.name);
+      const aliasRankB = resolveAliasRank(displayName, b.name);
       if (aliasRankA !== aliasRankB) return aliasRankA - aliasRankB;
       return a.id - b.id;
     })[0];
@@ -85,12 +89,23 @@ export const mapRequestBoardProductsToMobileCatalog = (
       productIdAliasMap[product.id] = canonical.id;
     });
 
-    return [{
+    return {
       id: canonical.id,
-      name: config.name,
+      name: displayName,
       icon: canonical.icon,
-    }];
+    };
+  };
+
+  const preferredProducts = MOBILE_PRODUCT_CONFIG.flatMap((config) => {
+    const product = buildMobileProduct(config.name, grouped.get(config.name) ?? []);
+    return product ? [product] : [];
   });
 
-  return { products: mobileProducts, productIdAliasMap };
+  const additionalProducts = Array.from(grouped.entries()).flatMap(([displayName, group]) => {
+    if (preferredDisplayNames.has(displayName)) return [];
+    const product = buildMobileProduct(displayName, group);
+    return product ? [product] : [];
+  });
+
+  return { products: [...preferredProducts, ...additionalProducts], productIdAliasMap };
 };
