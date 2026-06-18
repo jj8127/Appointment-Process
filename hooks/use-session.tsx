@@ -306,13 +306,13 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     void ensureRequestBoardSession().then((result) => {
       if (cancelled || !result.needsRelogin) return;
       logger.warn('[session] request_board session requires re-login');
-      void clearSessionState({ clearAppSession: true });
+      void clearRequestBoardState({ clearAppSession: false });
     });
 
     return () => {
       cancelled = true;
     };
-  }, [clearSessionState, ensureRequestBoardSession, hydrated, state.readOnly, state.role, state.residentId, state.staffType]);
+  }, [ensureRequestBoardSession, hydrated, state.readOnly, state.role, state.residentId, state.staffType]);
 
   const value = useMemo<SessionContextValue>(
     () => ({

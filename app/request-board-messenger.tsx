@@ -1492,7 +1492,7 @@ export default function RequestBoardMessengerScreen() {
 
   if (filteredDirectoryUsers.length > 0) {
     sections.push({
-      title: rbUser?.role === 'designer' ? 'FC 목록' : '설계사 목록',
+      title: rbUser?.role === 'designer' ? 'FC 목록' : '설계매니저 목록',
       data: filteredDirectoryUsers.map((user) => ({ kind: 'directory' as const, data: user })),
     });
   }

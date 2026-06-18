@@ -33,9 +33,12 @@ import {
   rbGetRequestList,
   rbRejectRequest,
   type RbRequestListItem,
-  type RbRequestSummary,
 } from '@/lib/request-board-api';
 import { getRequestBoardCustomerManagementRoute } from '@/lib/request-board-create-flow';
+import {
+  computeRequestBoardHomeStats,
+  type RequestBoardHomeStats,
+} from '@/lib/request-board-home-stats';
 import { canUseRequestBoardAsFc } from '@/lib/request-board-permissions';
 import { formatRequestBoardCustomerDisplayName } from '@/lib/request-board-policyholder-display';
 import { normalizeDesignerRejectReason } from '@/lib/request-board-review-actions';
@@ -110,17 +113,8 @@ const formatRelativeTime = (dateStr: string): string => {
 
 /* ─── Types ─── */
 
-type ReqStats = {
+type ReqStats = RequestBoardHomeStats & {
   loaded: boolean;
-  // FC view
-  total: number;
-  pending: number;
-  reviewPending: number;
-  inProgress: number;
-  completed: number;
-  // Designer view
-  completedThisMonth: number;
-  avgDays: number;
 };
 
 type RequestListFilter = 'all' | 'pending' | 'in_progress' | 'completed' | 'cancelled' | 'review_pending';
@@ -144,126 +138,6 @@ const DEFAULT_REQ_STATS: ReqStats = {
 };
 
 /* ─── Helpers ─── */
-
-function computeReqStats(
-  requests: (RbRequestSummary | RbRequestListItem)[],
-  isDesigner: boolean,
-): Omit<ReqStats, 'loaded'> {
-  const normalizeStatus = (raw?: string | null): string => {
-    const status = String(raw ?? '').trim().toLowerCase();
-    if (!status) return '';
-    if (status === 'accepted' || status === 'in-progress' || status === 'inprogress') {
-      return 'in_progress';
-    }
-    return status;
-  };
-  const countUniqueProducts = (request: RbRequestSummary | RbRequestListItem): number => {
-    if (!('request_products' in request) || !request.request_products) return 0;
-    const ids = new Set(
-      request.request_products
-        .map((rp) => String(rp.product_id ?? '').trim())
-        .filter((id) => id.length > 0),
-    );
-    return ids.size;
-  };
-
-  const assignmentStatusToBucket = (status: string): 'pending' | 'in_progress' | 'completed' | null => {
-    if (status === 'pending') return 'pending';
-    if (status === 'accepted' || status === 'in_progress') return 'in_progress';
-    if (status === 'completed') return 'completed';
-    return null;
-  };
-
-  // FC/본부장/총무 뷰는 가람Link Matrix와 동일하게 배정 상태(request_designers)로 집계한다.
-  if (!isDesigner) {
-    let pending = 0;
-    let reviewPending = 0;
-    let inProgress = 0;
-    let completed = 0;
-    let cancelled = 0;
-
-    requests.forEach((request) => {
-      const productCount = countUniqueProducts(request);
-      if (productCount <= 0) return;
-
-      const assignments = request.request_designers ?? [];
-      assignments.forEach((assignment) => {
-        const status = normalizeStatus(assignment.status);
-        if (status === 'rejected') return;
-        if (status === 'cancelled') {
-          cancelled += productCount;
-          return;
-        }
-        if (
-          status === 'completed'
-          && (assignment.fc_decision === 'pending' || assignment.fc_decision == null)
-        ) {
-          reviewPending += productCount;
-        }
-        const bucket = assignmentStatusToBucket(status);
-        if (!bucket) return;
-        if (bucket === 'pending') pending += productCount;
-        if (bucket === 'in_progress') inProgress += productCount;
-        if (bucket === 'completed') completed += productCount;
-      });
-    });
-
-    const total = pending + inProgress + completed + cancelled;
-    return {
-      total,
-      pending,
-      reviewPending,
-      inProgress,
-      completed,
-      completedThisMonth: completed,
-      avgDays: 0,
-    };
-  }
-
-  // 설계매니저 뷰는 배정 상태(assignmentStatus)를 우선 사용
-  const getStatus = (r: RbRequestSummary) =>
-    normalizeStatus(isDesigner ? (r.assignmentStatus ?? r.status ?? '') : (r.status ?? r.assignmentStatus ?? ''));
-  const getCompletedAt = (request: RbRequestSummary | RbRequestListItem) =>
-    'completedAt' in request
-      ? request.completedAt
-      : ('completed_at' in request ? request.completed_at : null);
-  const getProcessingDays = (request: RbRequestSummary | RbRequestListItem) =>
-    'processingDays' in request
-      ? request.processingDays
-      : ('processing_days' in request ? request.processing_days : 0);
-
-  const now = new Date();
-
-  const pending = requests.filter((r) => getStatus(r) === 'pending').length;
-  const inProgress = requests.filter((r) => getStatus(r) === 'in_progress').length;
-  const completedAll = requests.filter((r) => getStatus(r) === 'completed');
-  const cancelled = requests.filter((r) => getStatus(r) === 'cancelled').length;
-  const completed = completedAll.length;
-  const total = pending + inProgress + completed + cancelled;
-
-  const completedThisMonth = completedAll.filter((r) => {
-    const d = new Date(getCompletedAt(r) ?? '');
-    return (
-      !isNaN(d.getTime()) &&
-      d.getFullYear() === now.getFullYear() &&
-      d.getMonth() === now.getMonth()
-    );
-  }).length;
-
-  const avgDays =
-    completedAll.length > 0
-      ? Math.round(
-          (completedAll.reduce(
-            (s, r) => s + Number(getProcessingDays(r) ?? 0),
-            0,
-          ) /
-            completedAll.length) *
-            10,
-        ) / 10
-      : 0;
-
-  return { total, pending, reviewPending: 0, inProgress, completed, completedThisMonth, avgDays };
-}
 
 const normalizeRequestStatus = (raw?: string | null) => {
   const status = String(raw ?? '').trim().toLowerCase();
@@ -437,7 +311,7 @@ export default function RequestBoardScreen() {
 
           const requests = await rbGetRequestList();
           setDesignerRequests(isRequestBoardDesigner ? requests : []);
-          const computed = computeReqStats(requests, !!isRequestBoardDesigner);
+          const computed = computeRequestBoardHomeStats(requests, !!isRequestBoardDesigner);
           setReqStats({ loaded: true, ...computed });
         } catch (err) {
           logger.warn('request-board stats fetch failed', err);

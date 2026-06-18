@@ -2,7 +2,16 @@ import { Feather } from '@expo/vector-icons';
 import * as DocumentPicker from 'expo-document-picker';
 import { Stack, useFocusEffect, useLocalSearchParams, useRouter } from 'expo-router';
 import { MotiView } from 'moti';
-import { useCallback, useEffect, useMemo, useRef, useState, type RefObject } from 'react';
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type CSSProperties,
+  type KeyboardEvent,
+  type RefObject,
+} from 'react';
 import {
   ActivityIndicator,
   Alert,
@@ -115,6 +124,19 @@ const EMPTY_CUSTOMER: RbSaveCustomerPayload = {
     third: false,
   },
 };
+
+const buildSeparatePolicyholderState = (
+  prev: RbSaveCustomerPayload,
+  value: boolean,
+): RbSaveCustomerPayload => ({
+  ...prev,
+  hasSeparatePolicyholder: value,
+  policyholderName: value ? prev.policyholderName : '',
+  policyholderSsn: value ? prev.policyholderSsn : '',
+  policyholderPhone: value ? prev.policyholderPhone : '',
+  policyholderCarrier: value ? prev.policyholderCarrier : '',
+  policyholderAddress: value ? prev.policyholderAddress : '',
+});
 
 const REQUEST_TEMPLATES: Record<string, string> = {
   종신보험: '기존 종신보험 증권 기준으로 사망보장, 납입기간, 특약 구성을 비교한 설계안을 요청드립니다.',
@@ -558,6 +580,7 @@ export default function RequestBoardCreateScreen() {
   const majorDiseasesInputRef = useRef<TextInput>(null);
   const hasLoadedInitialRequestDataRef = useRef(false);
   const policyholderToggleHandledRef = useRef(false);
+  const policyholderToggleReleaseTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const canUseCreateFlow = canCreateRequestBoardRequest({
     role,
@@ -736,26 +759,18 @@ export default function RequestBoardCreateScreen() {
     }
   }, [focusNextInput, newCustomer.hasSeparatePolicyholder]);
 
-  const setHasSeparatePolicyholder = (value: boolean) => {
-    setNewCustomer((prev) => ({
-      ...prev,
-      hasSeparatePolicyholder: value,
-      policyholderName: value ? prev.policyholderName : '',
-      policyholderSsn: value ? prev.policyholderSsn : '',
-      policyholderPhone: value ? prev.policyholderPhone : '',
-      policyholderCarrier: value ? prev.policyholderCarrier : '',
-      policyholderAddress: value ? prev.policyholderAddress : '',
-    }));
-  };
-
   const toggleSeparatePolicyholder = useCallback(() => {
     if (policyholderToggleHandledRef.current) return;
     policyholderToggleHandledRef.current = true;
-    setHasSeparatePolicyholder(!newCustomer.hasSeparatePolicyholder);
-    requestAnimationFrame(() => {
+    setNewCustomer((prev) => buildSeparatePolicyholderState(prev, !prev.hasSeparatePolicyholder));
+    if (policyholderToggleReleaseTimerRef.current) {
+      clearTimeout(policyholderToggleReleaseTimerRef.current);
+    }
+    policyholderToggleReleaseTimerRef.current = setTimeout(() => {
       policyholderToggleHandledRef.current = false;
-    });
-  }, [newCustomer.hasSeparatePolicyholder]);
+      policyholderToggleReleaseTimerRef.current = null;
+    }, 1000);
+  }, []);
 
   const updatePolicyholderSsnField = useCallback((value: string) => {
     const formatted = formatRequestBoardCustomerSsnInput(value);
@@ -1270,33 +1285,67 @@ export default function RequestBoardCreateScreen() {
           })}
         </View>
       </View>
-      <Pressable
-        style={({ pressed }) => [
-          styles.policyholderToggle,
-          newCustomer.hasSeparatePolicyholder && styles.policyholderToggleActive,
-          pressed && { opacity: 0.9 },
-        ]}
-        onPressIn={toggleSeparatePolicyholder}
-        onPress={toggleSeparatePolicyholder}
-        accessibilityRole="button"
-        accessibilityLabel="계약자 피보험자 다름"
-        accessibilityState={{ selected: newCustomer.hasSeparatePolicyholder }}
-      >
-        <View
-          style={[
-            styles.policyholderCheck,
-            newCustomer.hasSeparatePolicyholder && styles.policyholderCheckActive,
-          ]}
+      {Platform.OS === 'web' ? (
+        <div
+          role="button"
+          tabIndex={0}
+          aria-label="계약자 피보험자 다름"
+          aria-pressed={newCustomer.hasSeparatePolicyholder}
+          {...({ onClick: toggleSeparatePolicyholder } as { onClick: () => void })}
+          onKeyDown={(event: KeyboardEvent<HTMLDivElement>) => {
+            if (event.key !== 'Enter' && event.key !== ' ') return;
+            event.preventDefault();
+            toggleSeparatePolicyholder();
+          }}
+          style={StyleSheet.flatten([
+            styles.policyholderToggle,
+            newCustomer.hasSeparatePolicyholder && styles.policyholderToggleActive,
+          ]) as CSSProperties}
         >
-          {newCustomer.hasSeparatePolicyholder ? <Feather name="check" size={16} color="#fff" /> : null}
-        </View>
-        <View style={styles.policyholderToggleCopy}>
-          <Text style={styles.policyholderToggleTitle}>계약자 피보험자 다름</Text>
-          <Text style={styles.policyholderToggleHint}>
-            피보험자는 위 기본 정보로 저장하고 계약자 정보를 별도로 입력합니다.
-          </Text>
-        </View>
-      </Pressable>
+          <View
+            style={[
+              styles.policyholderCheck,
+              newCustomer.hasSeparatePolicyholder && styles.policyholderCheckActive,
+            ]}
+          >
+            {newCustomer.hasSeparatePolicyholder ? <Feather name="check" size={16} color="#fff" /> : null}
+          </View>
+          <View style={styles.policyholderToggleCopy}>
+            <Text style={styles.policyholderToggleTitle}>계약자 피보험자 다름</Text>
+            <Text style={styles.policyholderToggleHint}>
+              피보험자는 위 기본 정보로 저장하고 계약자 정보를 별도로 입력합니다.
+            </Text>
+          </View>
+        </div>
+      ) : (
+        <Pressable
+          style={({ pressed }) => [
+            styles.policyholderToggle,
+            newCustomer.hasSeparatePolicyholder && styles.policyholderToggleActive,
+            pressed && { opacity: 0.9 },
+          ]}
+          onPressIn={toggleSeparatePolicyholder}
+          onPress={toggleSeparatePolicyholder}
+          accessibilityRole="button"
+          accessibilityLabel="계약자 피보험자 다름"
+          accessibilityState={{ selected: newCustomer.hasSeparatePolicyholder }}
+        >
+          <View
+            style={[
+              styles.policyholderCheck,
+              newCustomer.hasSeparatePolicyholder && styles.policyholderCheckActive,
+            ]}
+          >
+            {newCustomer.hasSeparatePolicyholder ? <Feather name="check" size={16} color="#fff" /> : null}
+          </View>
+          <View style={styles.policyholderToggleCopy}>
+            <Text style={styles.policyholderToggleTitle}>계약자 피보험자 다름</Text>
+            <Text style={styles.policyholderToggleHint}>
+              피보험자는 위 기본 정보로 저장하고 계약자 정보를 별도로 입력합니다.
+            </Text>
+          </View>
+        </Pressable>
+      )}
       {newCustomer.hasSeparatePolicyholder ? (
         <View style={styles.policyholderPanel}>
           <Text style={styles.policyholderPanelTitle}>계약자 정보</Text>

@@ -2169,3 +2169,48 @@
 - Permanent guardrail: Wrapped option groups such as carriers, driving status, and insurance qualifications must use a non-flex stacked wrapper. `request-board-mobile-ui-contract.test.ts` must keep asserting that these groups use `styles.stackedField`, and that `stackedField` does not contain `flex: 1`.
 - Related files: `app/request-board-create.tsx`, `lib/__tests__/request-board-mobile-ui-contract.test.ts`
 - Verification: RED/GREEN `npm test -- --runInBand lib/__tests__/request-board-mobile-ui-contract.test.ts`; browser DOM measurement and screenshot of `/request-board-create` confirmed the driving chips end before the insurance qualification label begins.
+
+## 2026-06-18 | GaramIn Request Board Designer Contract Drift | 설계매니저 홈/세션/문구 계약이 화면별로 달라짐
+- Symptom:
+  - 홈 통계의 `완료` 카운트가 목록 필터의 `완료` 버킷과 달리 `rejected` 배정을 제외했다.
+  - request_board 재인증이 필요한 경우 GaramIn 전체 세션까지 로그아웃할 수 있었다.
+  - 설계요청 메신저 목록은 다른 화면의 `설계매니저` 용어 대신 `설계사 목록`을 사용했다.
+- Root cause:
+  - 홈 통계는 `request-board-list-filters` 버킷 계약과 별도 내부 함수로 유지됐다.
+  - request_board 브릿지 세션 실패와 GaramIn 앱 세션 실패를 같은 로그아웃 경로로 처리했다.
+  - 설계매니저 용어 SSOT가 화면 계약 테스트에 포함되지 않았다.
+- Why it was missed:
+  - 이전 검증은 FC 생성/고객등록 흐름과 상세 권한 버튼에 집중했고, 설계매니저 홈/메신저/자동 세션 복구 경로를 같은 묶음으로 대조하지 않았다.
+- Permanent guardrail:
+  - request-board 홈 통계는 테스트 가능한 shared helper로 유지하고, `rejected` 같은 버킷 매핑 변경은 홈 통계 테스트와 목록 필터 테스트를 함께 갱신한다.
+  - request_board `needsRelogin`은 request_board 토큰만 정리하고 GaramIn 앱 세션은 보존한다.
+  - 설계요청 화면에서 설계자 표기는 `설계매니저`로 고정하고 source contract test로 보호한다.
+- Related files:
+  - `app/request-board.tsx`
+  - `app/request-board-messenger.tsx`
+  - `hooks/use-session.tsx`
+  - `lib/request-board-home-stats.ts`
+  - `lib/__tests__/request-board-home-stats.test.ts`
+  - `lib/__tests__/request-board-mobile-ui-contract.test.ts`
+- Verification:
+  - RED/GREEN `npm test -- --runTestsByPath lib/__tests__/request-board-home-stats.test.ts`
+  - RED/GREEN `npm test -- --runTestsByPath lib/__tests__/request-board-mobile-ui-contract.test.ts`
+
+## 2026-06-18 | GaramIn Request Board Separate Contractor Toggle Drift | Pressable 이벤트가 웹 UI에서 토글을 안정적으로 열지 못함
+- Symptom:
+  - `계약자 피보험자 다름` 컨트롤은 화면에 보였지만, in-app browser UI 검증에서 클릭 후에도 계약자 입력 패널이 열리지 않았다.
+- Root cause:
+  - React Native Web `Pressable`의 `onPressIn`/`onPress` 이벤트가 같은 클릭에서 중복 또는 누락될 수 있는데, 중복 방지 플래그를 `requestAnimationFrame`에서 너무 빨리 해제했다.
+  - 웹 UI 검증 표면에서는 Pressable 클릭 경로가 안정적이지 않았는데도 별도 DOM button/key 경로를 두지 않았다.
+- Why it was missed:
+  - 이전 source contract는 라벨과 필드 존재만 확인했고, 토글 이벤트가 실제로 패널을 여는 UI 단계 검증이 부족했다.
+- Permanent guardrail:
+  - `계약자 피보험자 다름`은 native Pressable 경로와 web `role=button` keyboard/click 경로를 모두 유지한다.
+  - 같은 클릭에서 `onPressIn`, `onPress`, web click이 중복으로 들어와도 1초 동안 한 번만 토글되도록 가드한다.
+  - UI 검증에서는 토글 후 `계약자 이름`, `계약자 주민번호`, `계약자 휴대폰번호`가 실제 DOM/스크린샷에 나타나는지 확인한다.
+- Related files:
+  - `app/request-board-create.tsx`
+  - `lib/__tests__/request-board-mobile-ui-contract.test.ts`
+- Verification:
+  - RED/GREEN `npm test -- --runTestsByPath lib/__tests__/request-board-mobile-ui-contract.test.ts`
+  - In-app browser: `/request-board-create?entry=newCustomer` loads without `데이터 로드 실패`; keyboard activation of the toggle shows the separate contractor inputs.

@@ -1692,3 +1692,20 @@ Out of scope:
 - Supabase schema or Edge Function fanout changes.
 - Production deploy/EAS Update.
 - Physical-device push tap smoke.
+
+---
+## 2026-06-18 | GaramIn Request Board Designer-Side Audit Follow-Up
+
+1. Completed: audited designer home/list/detail/messenger/session boundaries with a parallel workflow guardian subagent.
+2. Completed: extracted request-board home stats into `lib/request-board-home-stats.ts` and aligned `rejected` with the completed list bucket.
+3. Completed: prevented request_board `needsRelogin` from clearing the whole GaramIn app session.
+4. Completed: normalized request-board messenger wording to `설계매니저 목록`.
+5. Completed: found during in-app browser UI smoke that the separate-contractor toggle still did not open reliably on web click paths.
+6. Completed: added a web `role=button` path and longer duplicate-event guard for the separate-contractor toggle.
+7. Completed: added RED/GREEN tests for home stats, session auto-reauth, messenger wording, and the toggle event guard.
+8. In progress: run integrated focused tests, type/lint/build/UI smoke, then commit/push.
+
+Out of scope:
+
+- Native EAS build or store submission.
+- Changing request_board database schema.

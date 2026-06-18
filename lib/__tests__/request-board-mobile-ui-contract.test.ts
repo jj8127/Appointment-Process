@@ -7,6 +7,8 @@ describe('request-board mobile UI contracts', () => {
   const fcCodesSource = readFileSync(join(process.cwd(), 'app/request-board-fc-codes.tsx'), 'utf8');
   const createSource = readFileSync(join(process.cwd(), 'app/request-board-create.tsx'), 'utf8');
   const reviewSource = readFileSync(join(process.cwd(), 'app/request-board-review.tsx'), 'utf8');
+  const messengerSource = readFileSync(join(process.cwd(), 'app/request-board-messenger.tsx'), 'utf8');
+  const sessionSource = readFileSync(join(process.cwd(), 'hooks/use-session.tsx'), 'utf8');
 
   it('keeps the 설계코드 회사명 suggestions scrollable instead of limiting them to six rows', () => {
     const filteredCompanyNamesBlock = fcCodesSource.slice(
@@ -65,6 +67,7 @@ describe('request-board mobile UI contracts', () => {
     expect(newCustomerBlock).toContain('toggleSeparatePolicyholder');
     expect(newCustomerBlock).toContain('onPressIn={toggleSeparatePolicyholder}');
     expect(newCustomerBlock).toContain('onPress={toggleSeparatePolicyholder}');
+    expect(newCustomerBlock).toContain('onClick: toggleSeparatePolicyholder');
     expect(newCustomerBlock).toContain('accessibilityLabel="계약자 피보험자 다름"');
     expect(newCustomerBlock).toContain('accessibilityState={{ selected: newCustomer.hasSeparatePolicyholder }}');
     expect(newCustomerBlock).toContain('계약자 이름');
@@ -85,6 +88,18 @@ describe('request-board mobile UI contracts', () => {
     expect(saveNewCustomerBlock).toContain('newCustomer.policyholderPhone');
     expect(saveNewCustomerBlock).toContain('newCustomer.policyholderCarrier');
     expect(saveNewCustomerBlock).toContain('newCustomer.policyholderAddress');
+  });
+
+  it('keeps the separate contractor toggle from double-toggling on press-in plus press', () => {
+    const toggleBlock = createSource.slice(
+      createSource.indexOf('const toggleSeparatePolicyholder = useCallback'),
+      createSource.indexOf('const updatePolicyholderSsnField'),
+    );
+
+    expect(toggleBlock).toContain('policyholderToggleReleaseTimerRef');
+    expect(toggleBlock).toContain('setTimeout');
+    expect(toggleBlock).toContain('}, 1000);');
+    expect(toggleBlock).not.toContain('requestAnimationFrame');
   });
 
   it('requires complete phone and resident-number inputs before saving new customers', () => {
@@ -161,6 +176,20 @@ describe('request-board mobile UI contracts', () => {
     expect(homeSource).toContain('의뢰 거절 사유');
     expect(homeSource).toContain('designerRejectTarget');
     expect(homeSource).not.toContain('모바일에서 거절 처리');
+  });
+
+  it('does not log out the whole GaramIn session when only request-board reauthentication is needed', () => {
+    const autoSyncStart = sessionSource.indexOf('void ensureRequestBoardSession().then');
+    const autoSyncEnd = sessionSource.indexOf('return () => {', autoSyncStart);
+    const autoSyncBlock = sessionSource.slice(autoSyncStart, autoSyncEnd);
+
+    expect(autoSyncBlock).toContain('clearRequestBoardState({ clearAppSession: false })');
+    expect(autoSyncBlock).not.toContain('clearSessionState({ clearAppSession: true })');
+  });
+
+  it('uses 설계매니저 wording consistently in the request-board messenger list', () => {
+    expect(messengerSource).toContain("rbUser?.role === 'designer' ? 'FC 목록' : '설계매니저 목록'");
+    expect(messengerSource).not.toContain('설계사 목록');
   });
 
   it('keeps the home quick-card rejection reason modal above the soft keyboard', () => {
