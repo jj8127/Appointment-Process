@@ -30,6 +30,42 @@
 - Verification:
 ```
 
+## 2026-06-18 | Request Board Policyholder Toggle | Web-only raw div did not open the policyholder fields
+- Symptom:
+  - During UI verification, the "계약자 피보험자 다름" control was visible in the web request-board create flow but activating the web-only raw `div` path did not reveal the contractor/policyholder fields.
+- Root cause:
+  - The screen split the same control into a raw DOM `div` for web and a React Native `Pressable` for native, so the web path was not covered by the same press behavior as the app path.
+- Why it was missed:
+  - The source contract only checked that `onClick` text existed, not that web and native shared one reliable `Pressable` control path.
+- Permanent guardrail:
+  - Keep the separate contractor toggle on one `Pressable` with `onPress={toggleSeparatePolicyholder}` for React Native and React Native Web.
+  - `lib/__tests__/request-board-mobile-ui-contract.test.ts` must fail if this control reintroduces a web-only raw `<div>`, `onClick` branch, or `onPressIn` duplicate-toggle path.
+- Related files:
+  - `app/request-board-create.tsx`
+  - `lib/__tests__/request-board-mobile-ui-contract.test.ts`
+- Verification:
+  - RED/GREEN: `npm test -- --runTestsByPath lib/__tests__/request-board-mobile-ui-contract.test.ts --runInBand`.
+
+## 2026-06-18 | Loading UI Source of Truth | Reversed the requested loading baseline
+- Symptom:
+  - The requested change was to make other loading UI follow the "새 설계 요청" loading animation, but the first implementation changed the request-board create baseline itself and then pushed other surfaces toward the custom branded SVG spinner.
+- Root cause:
+  - I treated the existing shared `BrandedLoadingSpinner` as the source of truth instead of first preserving the user-named source UI in `app/request-board-create.tsx`.
+- Why it was missed:
+  - The previous guardrail only blocked `ActivityIndicator` usage, which encoded the wrong direction and made the regression look intentional.
+- Permanent guardrail:
+  - `components/BrandedLoadingSpinner.tsx` must use React Native `ActivityIndicator` as the shared spinner baseline, matching the original request-board create loading behavior.
+  - `components/__tests__/BrandedLoadingSpinner.contract.test.ts` must fail if the shared spinner returns to `react-native-svg`, `Animated`, or icon/font-based loading.
+  - Do not replace the user-named source UI before confirming the source of truth.
+- Related files:
+  - `app/request-board-create.tsx`
+  - `components/BrandedLoadingSpinner.tsx`
+  - `lib/branded-loading-spinner.ts`
+  - `components/__tests__/BrandedLoadingSpinner.contract.test.ts`
+  - `lib/__tests__/branded-loading-spinner.test.ts`
+- Verification:
+  - RED/GREEN: `npm test -- --runTestsByPath components/__tests__/BrandedLoadingSpinner.contract.test.ts lib/__tests__/branded-loading-spinner.test.ts --runInBand`.
+
 ## 2026-06-18 | GaramIn Request Board Full-Flow Audit | UI, role, session, and PII contracts drifted across surfaces
 - Symptom:
   - New-customer request creation could hide or make hard to reach lower form fields behind the global bottom navigation, and the separate policyholder toggle needed stronger UI coverage after "계약자 피보험자 다름" regressions.

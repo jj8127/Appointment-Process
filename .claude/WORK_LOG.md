@@ -21,6 +21,7 @@
 
 | 날짜 | 작업 | 주요 파일 | 상세 |
 |---|---|---|---|
+| 06-18 | 로딩 UI 기준 반전 적용을 되돌리고 `새 설계 요청` 네이티브 로딩을 공용 스피너 기준으로 고정, 별도 계약자 토글 web 경로 재수정 | `app/request-board-create.tsx`, `components/BrandedLoadingSpinner.tsx`, `lib/branded-loading-spinner.ts`, `components/__tests__/BrandedLoadingSpinner.contract.test.ts`, `lib/__tests__/branded-loading-spinner.test.ts`, `lib/__tests__/request-board-mobile-ui-contract.test.ts`, `.claude/MISTAKES.md` | [→ 상세](WORK_DETAIL.md#20260618-loading-ui-source-of-truth-correction) |
 | 06-18 | 가람in 설계요청 작성/설계매니저 흐름 회귀 수정 및 Governance Check 작업기록 누락/pre-push 재발 방지 보강 | `app/request-board-create.tsx`, `app/request-board.tsx`, `hooks/use-session.tsx`, `lib/request-board-home-stats.ts`, `scripts/ci/pre-push-governance.mjs`, `.claude/WORK_LOG.md`, `.claude/WORK_DETAIL.md` | [→ 상세](WORK_DETAIL.md#20260618-request-board-designer-flow-hardening) |
 
 ## 2026-06-16

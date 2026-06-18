@@ -65,9 +65,7 @@ describe('request-board mobile UI contracts', () => {
     expect(newCustomerBlock).toContain('계약자 피보험자 다름');
     expect(newCustomerBlock).toContain('newCustomer.hasSeparatePolicyholder');
     expect(newCustomerBlock).toContain('toggleSeparatePolicyholder');
-    expect(newCustomerBlock).toContain('onPressIn={toggleSeparatePolicyholder}');
     expect(newCustomerBlock).toContain('onPress={toggleSeparatePolicyholder}');
-    expect(newCustomerBlock).toContain('onClick: toggleSeparatePolicyholder');
     expect(newCustomerBlock).toContain('accessibilityLabel="계약자 피보험자 다름"');
     expect(newCustomerBlock).toContain('accessibilityState={{ selected: newCustomer.hasSeparatePolicyholder }}');
     expect(newCustomerBlock).toContain('계약자 이름');
@@ -90,15 +88,24 @@ describe('request-board mobile UI contracts', () => {
     expect(saveNewCustomerBlock).toContain('newCustomer.policyholderAddress');
   });
 
-  it('keeps the separate contractor toggle from double-toggling on press-in plus press', () => {
+  it('keeps the separate contractor toggle on one React Native Web Pressable path', () => {
     const toggleBlock = createSource.slice(
       createSource.indexOf('const toggleSeparatePolicyholder = useCallback'),
       createSource.indexOf('const updatePolicyholderSsnField'),
     );
+    const newCustomerBlock = createSource.slice(
+      createSource.indexOf('const renderNewCustomerStep = () => ('),
+      createSource.indexOf('const renderComposeStep = () => {'),
+    );
 
-    expect(toggleBlock).toContain('policyholderToggleReleaseTimerRef');
-    expect(toggleBlock).toContain('setTimeout');
-    expect(toggleBlock).toContain('}, 1000);');
+    expect(newCustomerBlock).toContain('<Pressable');
+    expect(newCustomerBlock).toContain('onPress={toggleSeparatePolicyholder}');
+    expect(newCustomerBlock).not.toContain("Platform.OS === 'web' ? (");
+    expect(newCustomerBlock).not.toContain('<div');
+    expect(newCustomerBlock).not.toContain('onClick: toggleSeparatePolicyholder');
+    expect(newCustomerBlock).not.toContain('onPressIn={toggleSeparatePolicyholder}');
+    expect(toggleBlock).not.toContain('policyholderToggleHandledRef');
+    expect(toggleBlock).not.toContain('policyholderToggleReleaseTimerRef');
     expect(toggleBlock).not.toContain('requestAnimationFrame');
   });
 

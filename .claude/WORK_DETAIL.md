@@ -7,6 +7,51 @@
 
 ---
 
+## <a id="20260618-loading-ui-source-of-truth-correction"></a> 2026-06-18 | Loading UI source-of-truth correction
+
+**배경**:
+- 사용자가 "새 설계 요청"을 눌렀을 때 보이는 로딩 애니메이션을 다른 로딩 UI의 기준으로 지정했으나, 이전 변경에서는 공용 `BrandedLoadingSpinner`의 SVG 회전 아이콘을 기준으로 삼아 반대로 적용했다.
+- 잘못된 방향의 두 커밋을 되돌리고, `app/request-board-create.tsx`의 원래 `ActivityIndicator` 기반 로딩을 보존한 상태에서 공용 스피너가 그 기준을 따르도록 다시 고정해야 했다.
+
+**조치**:
+- `Revert "fix: unify app loading ui"`와 `Revert "fix: standardize branded loading indicators"`로 잘못된 광범위 로딩 UI 변경과 request-board create 기준 변경을 되돌렸다.
+- `components/BrandedLoadingSpinner.tsx`를 `react-native-svg`/`Animated` 기반 회전 아이콘에서 React Native `ActivityIndicator` 래퍼로 바꿨다.
+- `lib/branded-loading-spinner.ts`의 설정을 vector path/획 두께가 아니라 native indicator size와 wrapper size만 반환하도록 단순화했다.
+- `components/__tests__/BrandedLoadingSpinner.contract.test.ts`가 `ActivityIndicator` 사용을 요구하고 `react-native-svg`, `Animated`, icon/font 기반 로딩을 금지하도록 바꿨다.
+- UI 확인 중 `계약자 피보험자 다름` web 전용 raw `div` 경로가 실제 입력 경로와 어긋날 수 있음을 확인하고, web/native 모두 단일 `Pressable onPress` 경로를 쓰도록 되돌렸다.
+- `lib/__tests__/request-board-mobile-ui-contract.test.ts`가 해당 토글에 web-only raw `<div>`, `onClick` branch, `onPressIn` 중복 토글 경로가 다시 들어오면 실패하도록 갱신했다.
+- `.claude/MISTAKES.md`에 이번 방향 반전 실수와 영구 guardrail을 기록했다.
+
+**핵심 파일**:
+- `app/request-board-create.tsx`
+- `components/BrandedLoadingSpinner.tsx`
+- `lib/branded-loading-spinner.ts`
+- `components/__tests__/BrandedLoadingSpinner.contract.test.ts`
+- `lib/__tests__/branded-loading-spinner.test.ts`
+- `lib/__tests__/request-board-mobile-ui-contract.test.ts`
+- `.claude/MISTAKES.md`
+- `.claude/WORK_LOG.md`
+- `.claude/WORK_DETAIL.md`
+
+**검증**:
+- RED 확인: `npm test -- --runTestsByPath components/__tests__/BrandedLoadingSpinner.contract.test.ts lib/__tests__/branded-loading-spinner.test.ts --runInBand`가 기존 SVG/Animated 구현 때문에 실패했다.
+- GREEN 확인: 같은 targeted Jest가 `ActivityIndicator` 기반 수정 후 통과했다.
+- RED/GREEN 확인: `npm test -- --runTestsByPath lib/__tests__/request-board-mobile-ui-contract.test.ts --runInBand`가 web-only raw `div` 토글 경로 때문에 실패한 뒤, 단일 `Pressable` 경로 수정 후 통과했다.
+- 통과: `npm test -- --runTestsByPath components/__tests__/BrandedLoadingSpinner.contract.test.ts lib/__tests__/branded-loading-spinner.test.ts lib/__tests__/request-board-mobile-ui-contract.test.ts --runInBand`.
+- 통과: `npm test -- --runInBand`.
+- 통과: `npm run lint`.
+- 통과: `npx tsc --noEmit --pretty false`.
+- 통과: `SENTRY_AUTH_TOKEN='' npm run build`.
+- 통과: `node scripts/ci/check-governance.mjs`.
+- 통과: `git diff --check`.
+- UI 확인: `http://localhost:8091/request-board-create?entry=newCustomer`와 `/request-board-fc-codes`를 in-app browser에서 열어 화면 렌더링과 새 콘솔 error 없음까지 확인했다. 단, 현재 Windows 환경에는 Xcode/iOS Simulator의 `xcrun`이 없어 iOS simulator 실행은 불가했다.
+
+**후속/주의**:
+- 사용자가 특정 화면의 UI를 기준으로 지정하면 그 화면을 먼저 보존하고, 공용 컴포넌트 또는 다른 화면이 그 기준을 따르게 해야 한다.
+- "모든 로딩 UI" 같은 광범위 변경은 기준 UI의 시각/동작을 잠그는 테스트 없이 확장하지 않는다.
+
+---
+
 ## <a id="20260618-request-board-designer-flow-hardening"></a> 2026-06-18 | Request-board designer flow hardening
 
 **배경**:
