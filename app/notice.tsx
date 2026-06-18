@@ -16,8 +16,8 @@ import {
 import Animated from 'react-native-reanimated';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 
-import BrandedLoadingState from '@/components/BrandedLoadingState';
 import { BottomNavigation } from '@/components/BottomNavigation';
+import { CardSkeleton } from '@/components/LoadingSkeleton';
 import { RefreshButton } from '@/components/RefreshButton';
 import { useBottomNavAnimation } from '@/hooks/use-bottom-nav-animation';
 import { useSession } from '@/hooks/use-session';
@@ -191,7 +191,13 @@ export default function NoticeScreen() {
         onScroll={scrollHandler}
         scrollEventThrottle={16}
       >
-        {isLoading && !refreshing && <BrandedLoadingState variant="detail" layout="section" />}
+        {isLoading && !refreshing && (
+          <>
+            <CardSkeleton showHeader lines={4} />
+            <CardSkeleton showHeader lines={3} />
+            <CardSkeleton showHeader lines={5} />
+          </>
+        )}
 
         {isError && (
           <View style={styles.emptyBox}>

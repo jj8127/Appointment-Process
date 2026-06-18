@@ -920,7 +920,7 @@ export default function GroupChatScreen() {
         {showUnreadCount && (
           <Text style={styles.messageUnreadCount}>{unreadCount > 99 ? '99+' : unreadCount}</Text>
         )}
-        {item.send_status === 'sending' && <BrandedLoadingSpinner size="sm" color={HANWHA_ORANGE} />}
+        {item.send_status === 'sending' && <Text style={styles.messageSendStatus}>전송중</Text>}
         {item.send_status === 'failed' && <Text style={[styles.messageSendStatus, styles.messageSendStatusFailed]}>실패</Text>}
         <Text style={styles.timeText}>{formatTime(item.created_at)}</Text>
       </View>
@@ -1064,6 +1064,7 @@ export default function GroupChatScreen() {
               ]}
             >
               <BrandedLoadingSpinner size="sm" color={HANWHA_ORANGE} />
+              <Text style={styles.uploadingText}>파일 전송 중...</Text>
               <TouchableOpacity onPress={handleCancelUpload} style={styles.cancelUploadBtn} activeOpacity={0.8}>
                 <Ionicons name="close-circle" size={20} color="#666" />
                 <Text style={styles.cancelUploadText}>취소</Text>
@@ -1572,6 +1573,7 @@ const styles = StyleSheet.create({
     shadowOffset: { width: 0, height: 6 },
     elevation: 4,
   },
+  uploadingText: { flex: 1, fontSize: 13, fontWeight: '700', color: CHARCOAL },
   cancelUploadBtn: { flexDirection: 'row', alignItems: 'center', gap: 4 },
   cancelUploadText: { fontSize: 12, fontWeight: '700', color: '#666' },
   actionMenuBackdrop: {

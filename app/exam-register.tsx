@@ -18,8 +18,6 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
-import BrandedLoadingSpinner from '@/components/BrandedLoadingSpinner';
-import BrandedLoadingState from '@/components/BrandedLoadingState';
 import { KeyboardAwareWrapper } from '@/components/KeyboardAwareWrapper';
 import { RefreshButton } from '@/components/RefreshButton';
 import { useSession } from '@/hooks/use-session';
@@ -128,7 +126,6 @@ type RoundedButtonProps = {
   variant?: 'primary' | 'secondary' | 'danger';
   disabled?: boolean;
   fullWidth?: boolean;
-  loading?: boolean;
 };
 
 function RoundedButton({
@@ -137,7 +134,6 @@ function RoundedButton({
   variant = 'primary',
   disabled,
   fullWidth = true,
-  loading = false,
 }: RoundedButtonProps) {
   const variantStyle =
     variant === 'primary'
@@ -156,20 +152,16 @@ function RoundedButton({
   return (
     <Pressable
       onPress={onPress}
-      disabled={disabled || loading}
+      disabled={disabled}
       style={({ pressed }) => [
         styles.btnBase,
         variantStyle,
         fullWidth && styles.btnFullWidth,
-        (disabled || loading) && styles.btnDisabled,
-        pressed && !disabled && !loading && styles.btnPressed,
+        disabled && styles.btnDisabled,
+        pressed && !disabled && styles.btnPressed,
       ]}
     >
-      {loading ? (
-        <BrandedLoadingSpinner size="sm" color={variant === 'primary' ? '#fff' : ORANGE} />
-      ) : (
-        <Text style={textStyle}>{label}</Text>
-      )}
+      <Text style={textStyle}>{label}</Text>
     </Pressable>
   );
 }
@@ -524,7 +516,9 @@ export default function ExamRegisterScreen() {
             </View>
 
             {isLoading || isFetching ? (
-              <BrandedLoadingState variant="exam" layout="section" />
+              <View style={styles.emptyState}>
+                <Text style={styles.emptyCaption}>불러오는 중...</Text>
+              </View>
             ) : !sortedRounds.length ? (
               <View style={styles.emptyState}>
                 <Feather name="calendar" size={38} color="#D1D5DB" />
@@ -793,13 +787,12 @@ export default function ExamRegisterScreen() {
                 <View style={[styles.row, { marginTop: 16 }]}>
                   <View style={{ flex: 1 }}>
                     <RoundedButton
-                      label={selectedRoundId ? '일정 업데이트' : '일정 저장'}
+                      label={saveRound.isPending ? '저장 중...' : (selectedRoundId ? '일정 업데이트' : '일정 저장')}
                       onPress={() =>
                         saveRound.mutate(selectedRoundId ? 'update' : 'create')
                       }
                       variant="primary"
                       disabled={!canEdit || saveRound.isPending}
-                      loading={saveRound.isPending}
                     />
                   </View>
                   <View style={{ width: 12 }} />

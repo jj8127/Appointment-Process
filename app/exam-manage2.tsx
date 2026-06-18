@@ -14,7 +14,6 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
-import BrandedLoadingSpinner from '@/components/BrandedLoadingSpinner';
 import BrandedLoadingState from '@/components/BrandedLoadingState';
 import { RefreshButton } from '@/components/RefreshButton';
 import { useSession } from '@/hooks/use-session';
@@ -410,14 +409,8 @@ export default function ExamManageNonlifeScreen() {
                 (!canEdit || isDeleting || toggleMutation.isPending) && { opacity: 0.6 },
               ]}
             >
-              {isDeleting ? (
-                <BrandedLoadingSpinner size="sm" color="#dc2626" />
-              ) : (
-                <>
-                  <Feather name="trash-2" size={14} color="#dc2626" />
-                  <Text style={styles.deleteButtonText}>삭제</Text>
-                </>
-              )}
+              <Feather name="trash-2" size={14} color="#dc2626" />
+              <Text style={styles.deleteButtonText}>{isDeleting ? '삭제 중' : '삭제'}</Text>
             </Pressable>
           </View>
         </View>

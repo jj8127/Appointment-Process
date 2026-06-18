@@ -26,9 +26,9 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
-import BrandedLoadingSpinner from '@/components/BrandedLoadingSpinner';
 import BrandedLoadingState from '@/components/BrandedLoadingState';
 import { KeyboardAwareWrapper } from '@/components/KeyboardAwareWrapper';
+import { ListSkeleton } from '@/components/LoadingSkeleton';
 import { useKeyboardPadding } from '@/hooks/use-keyboard-padding';
 import {
   calcAdminWorkflowStep as resolveAdminWorkflowStep,
@@ -1698,13 +1698,9 @@ export default function DashboardScreen() {
                   }
                   disabled={!canEdit || updateTemp.isPending}
                 >
-                  {updateTemp.isPending ? (
-                    <BrandedLoadingSpinner size="sm" color="#fff" />
-                  ) : (
-                    <Text style={styles.saveBtnText}>
-                      {hasSavedTemp && currentTemp === fc.temp_id ? '수정' : '저장'}
-                    </Text>
-                  )}
+                  <Text style={styles.saveBtnText}>
+                    {updateTemp.isPending ? '저장중...' : hasSavedTemp && currentTemp === fc.temp_id ? '수정' : '저장'}
+                  </Text>
                 </Pressable>
               </View>
 
@@ -1750,11 +1746,9 @@ export default function DashboardScreen() {
                   onPress={() => updateAllowanceDate.mutate({ id: fc.id, allowanceDate: currentAllowance })}
                   disabled={!canEdit || !currentAllowance || updateAllowanceDate.isPending}
                 >
-                  {updateAllowanceDate.isPending ? (
-                    <BrandedLoadingSpinner size="sm" color="#fff" />
-                  ) : (
-                    <Text style={styles.saveBtnText}>동의일 저장</Text>
-                  )}
+                  <Text style={styles.saveBtnText}>
+                    {updateAllowanceDate.isPending ? '저장중...' : '동의일 저장'}
+                  </Text>
                 </Pressable>
               </View>
               {Platform.OS !== 'ios' && allowancePickerId === fc.id && (
@@ -1939,11 +1933,9 @@ export default function DashboardScreen() {
                     }
                     disabled={!canEdit || updateDocReqs.isPending}
                   >
-                    {updateDocReqs.isPending ? (
-                      <BrandedLoadingSpinner size="sm" color={ORANGE} />
-                    ) : (
-                      <Text style={styles.docSaveButtonText}>요청 저장</Text>
-                    )}
+                    <Text style={styles.docSaveButtonText}>
+                      {updateDocReqs.isPending ? '저장중...' : '요청 저장'}
+                    </Text>
                   </Pressable>
                 </View>
 
@@ -2216,11 +2208,9 @@ export default function DashboardScreen() {
                 }
                 disabled={!canEdit || !currentHanwhaSubmitted || updateHanwhaSubmissionDate.isPending}
               >
-                {updateHanwhaSubmissionDate.isPending ? (
-                  <BrandedLoadingSpinner size="sm" color="#fff" />
-                ) : (
-                  <Text style={styles.saveBtnText}>완료일 저장</Text>
-                )}
+                <Text style={styles.saveBtnText}>
+                  {updateHanwhaSubmissionDate.isPending ? '저장중...' : '완료일 저장'}
+                </Text>
               </Pressable>
             </View>
             {Platform.OS !== 'ios' && hanwhaSubmissionPickerId === fc.id && (
@@ -2262,16 +2252,14 @@ export default function DashboardScreen() {
                 onPress={() => markDawichokUrlSent.mutate({ fc })}
                 disabled={!canEdit || markDawichokUrlSent.isPending}
               >
-                {markDawichokUrlSent.isPending ? (
-                  <BrandedLoadingSpinner size="sm" color="#fff" />
-                ) : (
-                  <>
-                    <Feather name="send" size={16} color="#fff" />
-                    <Text style={styles.actionButtonText}>
-                      {fc.dawichok_url_sent_at ? 'URL 발송 알림 다시 보내기' : 'URL 발송 알림'}
-                    </Text>
-                  </>
-                )}
+                <Feather name="send" size={16} color="#fff" />
+                <Text style={styles.actionButtonText}>
+                  {markDawichokUrlSent.isPending
+                    ? '발송 알림중...'
+                    : fc.dawichok_url_sent_at
+                      ? 'URL 발송 알림 다시 보내기'
+                      : 'URL 발송 알림'}
+                </Text>
               </Pressable>
             </View>
 
@@ -2285,16 +2273,10 @@ export default function DashboardScreen() {
                 onPress={() => pickHanwhaPdf(fc)}
                 disabled={!canEdit || hanwhaPdfUploadingId === fc.id}
               >
-                {hanwhaPdfUploadingId === fc.id ? (
-                  <BrandedLoadingSpinner size="sm" color={CHARCOAL} />
-                ) : (
-                  <>
-                    <Feather name="upload" size={16} color={CHARCOAL} />
-                    <Text style={styles.actionButtonTextSecondary}>
-                      {hanwhaPdfPath ? 'PDF 변경' : 'PDF 선택'}
-                    </Text>
-                  </>
-                )}
+                <Feather name="upload" size={16} color={CHARCOAL} />
+                <Text style={styles.actionButtonTextSecondary}>
+                  {hanwhaPdfUploadingId === fc.id ? 'PDF 업로드중...' : hanwhaPdfPath ? 'PDF 변경' : 'PDF 선택'}
+                </Text>
               </Pressable>
               <Pressable
                 style={[styles.actionButtonSecondary, !hanwhaPdfPath && styles.actionButtonDisabled]}
@@ -2332,14 +2314,10 @@ export default function DashboardScreen() {
                 }}
                 disabled={!canEdit || updateHanwhaCommission.isPending || !currentHanwhaSubmitted || !hanwhaPdfPath || !hanwhaPdfName}
               >
-                {updateHanwhaCommission.isPending ? (
-                  <BrandedLoadingSpinner size="sm" color="#fff" />
-                ) : (
-                  <>
-                    <Feather name="check" size={16} color="#fff" />
-                    <Text style={styles.actionButtonText}>다위촉 URL 승인</Text>
-                  </>
-                )}
+                <Feather name="check" size={16} color="#fff" />
+                <Text style={styles.actionButtonText}>
+                  {updateHanwhaCommission.isPending ? '처리중...' : '다위촉 URL 승인'}
+                </Text>
               </Pressable>
               <Pressable
                 style={[styles.deleteButton, (!canEdit || updateHanwhaCommission.isPending || !currentHanwhaSubmitted) && { opacity: 0.5 }]}
@@ -2638,14 +2616,8 @@ export default function DashboardScreen() {
               onPress={() => handleDeleteRequest(fc)}
               disabled={deleteFc.isPending}
             >
-              {deleteFc.isPending ? (
-                <BrandedLoadingSpinner size="sm" color="#b91c1c" />
-              ) : (
-                <>
-                  <Feather name="trash-2" size={16} color="#b91c1c" />
-                  <Text style={styles.deleteText}>FC 정보 삭제</Text>
-                </>
-              )}
+              <Feather name="trash-2" size={16} color="#b91c1c" />
+              <Text style={styles.deleteText}>{deleteFc.isPending ? '삭제중...' : 'FC 정보 삭제'}</Text>
             </Pressable>
           </View>,
         );
@@ -2683,6 +2655,7 @@ export default function DashboardScreen() {
                 {(() => {
                   const currentTemp = tempInputs[fc.id] ?? fc.temp_id ?? '';
                   const hasSavedTemp = currentTemp.trim().length > 0;
+                  const buttonLabel = updateTemp.isPending ? '저장중...' : hasSavedTemp ? '수정' : '저장';
                   return (
                     <Pressable
                       style={[styles.saveBtn, updateTemp.isPending && styles.actionButtonDisabled]}
@@ -2697,11 +2670,7 @@ export default function DashboardScreen() {
                       }
                       disabled={updateTemp.isPending}
                     >
-                      {updateTemp.isPending ? (
-                        <BrandedLoadingSpinner size="sm" color="#fff" />
-                      ) : (
-                        <Text style={styles.saveBtnText}>{hasSavedTemp ? '수정' : '저장'}</Text>
-                      )}
+                      <Text style={styles.saveBtnText}>{buttonLabel}</Text>
                     </Pressable>
                   );
                 })()}
@@ -2723,13 +2692,9 @@ export default function DashboardScreen() {
                     }
                     disabled={updateDocReqs.isPending}
                   >
-                    {updateDocReqs.isPending ? (
-                      <BrandedLoadingSpinner size="sm" color={ORANGE} />
-                    ) : (
-                      <Text style={{ color: ORANGE, fontWeight: '700', fontSize: 13 }}>
-                        적용 저장
-                      </Text>
-                    )}
+                    <Text style={{ color: ORANGE, fontWeight: '700', fontSize: 13 }}>
+                      {updateDocReqs.isPending ? '저장중...' : '적용 저장'}
+                    </Text>
                   </Pressable>
                 </View>
                 <View style={{ flexDirection: 'row', gap: 8, alignItems: 'center', marginBottom: 8 }}>
@@ -3412,7 +3377,7 @@ export default function DashboardScreen() {
         </View>
 
         <View style={styles.listContent}>
-          {isLoading && <BrandedLoadingState variant="dashboard" layout="section" />}
+          {isLoading && <ListSkeleton count={5} itemHeight={100} />}
           {isError && <Text style={{ color: '#dc2626', marginBottom: 8 }}>데이터를 불러오지 못했습니다.</Text>}
           {!isLoading && rows.length === 0 && (
             <View style={styles.emptyState}>
@@ -3427,10 +3392,9 @@ export default function DashboardScreen() {
             const allowanceDisplay = fc.allowance_date ?? '없음';
             const affiliationDisplay = normalizeAffiliationLabel(fc.affiliation) || '-';
             const residentNumberEntry = residentNumberEntries[fc.id];
-            const residentNumberLoading = !residentNumberEntry || residentNumberEntry.status === 'loading';
             const residentNumberDisplay =
-              residentNumberLoading
-                ? undefined
+              !residentNumberEntry || residentNumberEntry.status === 'loading'
+                ? '조회 중...'
                 : residentNumberEntry.status === 'error'
                   ? '조회 실패'
                   : (residentNumberEntry.value ?? '미등록');
@@ -3469,11 +3433,7 @@ export default function DashboardScreen() {
                   <View style={styles.listBody}>
                     <View style={styles.cardSection}>
                       <Text style={styles.cardTitle}>기본 정보</Text>
-                      <DetailRow
-                        label="주민번호"
-                        value={residentNumberDisplay}
-                        valueNode={residentNumberLoading ? <BrandedLoadingSpinner size="sm" color={ORANGE} /> : undefined}
-                      />
+                      <DetailRow label="주민번호" value={residentNumberDisplay} />
                       <DetailRow label="임시번호" value={tempDisplay} />
                       <DetailRow label="보증 보험 동의" value={allowanceDisplay} />
                       <DetailRow label="자격증 보유 현황" value={formatLicenseStatuses(fc.license_statuses)} />

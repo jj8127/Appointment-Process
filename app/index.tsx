@@ -26,6 +26,7 @@ import BrandedLoadingSpinner from '@/components/BrandedLoadingSpinner';
 import BrandedLoadingState from '@/components/BrandedLoadingState';
 import { AppTopActionBar } from '@/components/AppTopActionBar';
 import { BottomNavigation } from '@/components/BottomNavigation';
+import { Skeleton } from '@/components/LoadingSkeleton';
 import { resolveBottomNavActiveKey, resolveBottomNavPreset } from '@/lib/bottom-navigation';
 import { resolveExamHomeSurface } from '@/lib/exam-role';
 import {
@@ -860,9 +861,11 @@ export default function Home() {
   const profileName = typeof myFc?.name === 'string' ? myFc.name.trim() : '';
   const tempIdValue = typeof myFc?.temp_id === 'string' ? myFc.temp_id.trim() : '';
   const hasTempId = tempIdValue.length > 0;
-  const tempIdBadgeLabel = hasTempId
-    ? `임시사번 ${tempIdValue}`
-    : '임시사번 미발급';
+  const tempIdBadgeLabel = statusLoading
+    ? '임시사번 확인 중'
+    : hasTempId
+      ? `임시사번 ${tempIdValue}`
+      : '임시사번 미발급';
   const homeHeaderTitle = buildWelcomeTitle({
     role,
     readOnly,
@@ -1437,7 +1440,12 @@ export default function Home() {
                   </View>
                   <View style={styles.metricsGrid}>
                     {isLoading ? (
-                      <BrandedLoadingState variant="home" layout="section" />
+                      <>
+                        <Skeleton width="48%" height={90} />
+                        <Skeleton width="48%" height={90} />
+                        <Skeleton width="48%" height={90} />
+                        <Skeleton width="48%" height={90} />
+                      </>
                     ) : counts ? (
                       <>
                         {ADMIN_METRIC_CONFIG.map((metric) => (
@@ -1479,28 +1487,27 @@ export default function Home() {
                                   size={12}
                                   color={hasTempId ? '#166534' : '#9A3412'}
                                 />
-                                {statusLoading ? (
-                                  <BrandedLoadingSpinner
-                                    size="sm"
-                                    color={hasTempId ? '#166534' : '#9A3412'}
-                                  />
-                                ) : (
-                                  <Text
-                                    style={[
-                                      styles.tempIdBadgeText,
-                                      hasTempId ? styles.tempIdBadgeTextIssued : styles.tempIdBadgeTextMissing,
-                                    ]}
-                                    numberOfLines={1}
-                                  >
-                                    {tempIdBadgeLabel}
-                                  </Text>
-                                )}
+                                <Text
+                                  style={[
+                                    styles.tempIdBadgeText,
+                                    hasTempId ? styles.tempIdBadgeTextIssued : styles.tempIdBadgeTextMissing,
+                                  ]}
+                                  numberOfLines={1}
+                                >
+                                  {tempIdBadgeLabel}
+                                </Text>
                               </View>
                               <Text style={styles.progressMeta}>Step {currentStep}/5</Text>
                             </View>
                           </View>
                           {statusLoading ? (
-                            <BrandedLoadingState variant="home" layout="section" />
+                            <View style={{ marginVertical: 20 }}>
+                              <Skeleton width="100%" height={60} style={{ marginBottom: 12 }} />
+                              <View style={{ flexDirection: 'row', gap: 8 }}>
+                                <Skeleton width="48%" height={80} />
+                                <Skeleton width="48%" height={80} />
+                              </View>
+                            </View>
                           ) : (
                             <>
                               {/* 위촉 상태 배지 행 */}
@@ -1650,7 +1657,13 @@ export default function Home() {
                   <Text style={styles.progressMeta}>Step {currentStep}/5</Text>
                 </View>
                 {statusLoading ? (
-                  <BrandedLoadingState variant="home" layout="section" />
+                  <View style={{ marginVertical: 20 }}>
+                    <Skeleton width="100%" height={60} style={{ marginBottom: 12 }} />
+                    <View style={{ flexDirection: 'row', gap: 8 }}>
+                      <Skeleton width="48%" height={80} />
+                      <Skeleton width="48%" height={80} />
+                    </View>
+                  </View>
                 ) : (
                   <>
                     <View style={styles.statusRow}>
@@ -1788,13 +1801,9 @@ export default function Home() {
                         <View style={[styles.ctaBadge, { backgroundColor: 'rgba(255,255,255,0.15)' }]}>
                           <Text style={styles.ctaBadgeText}>관리자 할 일</Text>
                         </View>
-                        {isLoading ? (
-                          <BrandedLoadingSpinner size="sm" color="#fff" />
-                        ) : (
-                          <Text style={styles.ctaTitle}>
-                            {`서류 대기 ${counts?.steps?.step4 ?? 0}건`}
-                          </Text>
-                        )}
+                        <Text style={styles.ctaTitle}>
+                          {isLoading ? '현황 조회 중...' : `서류 대기 ${counts?.steps?.step4 ?? 0}건`}
+                        </Text>
                         <Text style={styles.ctaSub}>승인을 기다리는 FC 서류를 검토해주세요.</Text>
                       </View>
                       <View style={[styles.ctaIconCircle, { backgroundColor: 'rgba(255,255,255,0.1)' }]}>
@@ -1818,15 +1827,13 @@ export default function Home() {
                               <Text style={styles.ctaBadgeText}>메신저</Text>
                             </View>
                             <Text style={styles.ctaTitle}>통합 메신저 열기</Text>
-                            {latestAdminMsgLoading ? (
-                              <BrandedLoadingSpinner size="sm" color={HANWHA_ORANGE} />
-                            ) : (
-                              <Text style={styles.ctaSub} numberOfLines={2}>
-                                {latestAdminMsg?.content
+                            <Text style={styles.ctaSub} numberOfLines={2}>
+                              {latestAdminMsgLoading
+                                ? '메시지 불러오는 중...'
+                                : latestAdminMsg?.content
                                   ? latestAdminMsg.content
                                   : '최근 총무팀 메시지를 확인하세요.'}
-                              </Text>
-                            )}
+                            </Text>
                           </View>
                           <View style={styles.ctaIconCircle}>
                             <Feather name="message-circle" size={24} color={HANWHA_ORANGE} />
@@ -1867,15 +1874,13 @@ export default function Home() {
                           <Text style={styles.ctaBadgeText}>메신저</Text>
                         </View>
                         <Text style={styles.ctaTitle}>통합 메신저 열기</Text>
-                        {latestAdminMsgLoading ? (
-                          <BrandedLoadingSpinner size="sm" color={HANWHA_ORANGE} />
-                        ) : (
-                          <Text style={styles.ctaSub} numberOfLines={2}>
-                            {latestAdminMsg?.content
+                        <Text style={styles.ctaSub} numberOfLines={2}>
+                          {latestAdminMsgLoading
+                            ? '메시지 불러오는 중...'
+                            : latestAdminMsg?.content
                               ? latestAdminMsg.content
                               : '최근 총무팀 메시지를 확인하세요.'}
-                          </Text>
-                        )}
+                        </Text>
                       </View>
                       <View style={styles.ctaIconCircle}>
                         <Feather name="message-circle" size={24} color={HANWHA_ORANGE} />

@@ -21,7 +21,7 @@
 
 | 날짜 | 작업 | 주요 파일 | 상세 |
 |---|---|---|---|
-| 06-18 | 가람in 앱 전역 로딩 UI를 새 설계 요청 브랜드 로딩 애니메이션으로 통일하고 skeleton/text/button 로딩 재유입 계약 테스트 추가 | `app/*.tsx`, `components/LoadingSkeleton.tsx`, `lib/__tests__/branded-loading-usage-contract.test.ts`, `.claude/MISTAKES.md` | [→ 상세](WORK_DETAIL.md#20260618-branded-loading-icon-unification) |
+| 06-18 | 가람in 로딩 아이콘을 새 설계 요청 브랜드 로딩 애니메이션으로 통일하고 원시 `ActivityIndicator` 재유입 계약 테스트 추가 | `app/request-board-create.tsx`, `lib/__tests__/branded-loading-usage-contract.test.ts`, `.claude/MISTAKES.md` | [→ 상세](WORK_DETAIL.md#20260618-branded-loading-icon-unification) |
 | 06-18 | 가람in 설계요청 작성/설계매니저 흐름 회귀 수정 및 Governance Check 작업기록 누락/pre-push 재발 방지 보강 | `app/request-board-create.tsx`, `app/request-board.tsx`, `hooks/use-session.tsx`, `lib/request-board-home-stats.ts`, `scripts/ci/pre-push-governance.mjs`, `.claude/WORK_LOG.md`, `.claude/WORK_DETAIL.md` | [→ 상세](WORK_DETAIL.md#20260618-request-board-designer-flow-hardening) |
 
 ## 2026-06-16

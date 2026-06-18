@@ -18,7 +18,6 @@ import {
 import DraggableFlatList, { RenderItemParams } from 'react-native-draggable-flatlist';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
-import BrandedLoadingSpinner from '@/components/BrandedLoadingSpinner';
 import { Button } from '@/components/Button';
 import { FormInput } from '@/components/FormInput';
 import { KeyboardAwareWrapper } from '@/components/KeyboardAwareWrapper';
@@ -514,7 +513,7 @@ export default function AdminBoardScreen() {
             <Text style={styles.label}>카테고리</Text>
             <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.categoryRow}>
               {categories.length === 0 && (
-                <BrandedLoadingSpinner size="sm" color={HANWHA_ORANGE} />
+                <Text style={styles.categoryEmpty}>카테고리를 불러오는 중입니다.</Text>
               )}
               {categories.map((category) => {
                 const isSelected = category.id === categoryId;

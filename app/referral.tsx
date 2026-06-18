@@ -18,7 +18,7 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import BrandedLoadingSpinner from '@/components/BrandedLoadingSpinner';
-import BrandedLoadingState from '@/components/BrandedLoadingState';
+import { Skeleton } from '@/components/LoadingSkeleton';
 import { ReferralDirectRecommenderCard } from '@/components/ReferralAncestorsChain';
 import {
   REFERRAL_SEARCH_EMPTY_HINT,
@@ -354,7 +354,7 @@ export default function ReferralPage() {
             <Text style={styles.codeCardLabel}>내 추천 코드</Text>
             {referralLoading ? (
               <View style={{ marginVertical: 12 }}>
-                <BrandedLoadingSpinner size="md" color="#fff" />
+                <Skeleton width={180} height={40} borderRadius={8} />
               </View>
             ) : referralInfoError ? (
               <>
@@ -447,7 +447,7 @@ export default function ReferralPage() {
 
           {/* 로딩 중 */}
           {referralLoading && (
-            <BrandedLoadingSpinner size="sm" color={COLORS.primary} style={{ marginBottom: SPACING.md }} />
+            <Skeleton width="60%" height={20} borderRadius={4} style={{ marginBottom: SPACING.md }} />
           )}
 
           {/* 오류 */}
@@ -606,7 +606,15 @@ export default function ReferralPage() {
         )}
 
         {referralTreeLoading ? (
-          <BrandedLoadingState variant="home" layout="section" />
+          <View style={styles.treeSkeletonWrap}>
+            <Skeleton width="100%" height={84} borderRadius={RADIUS.xl} style={{ marginBottom: SPACING.base }} />
+            <Skeleton width="48%" height={18} borderRadius={RADIUS.sm} style={{ marginBottom: SPACING.sm }} />
+            <Skeleton width="100%" height={60} borderRadius={RADIUS.lg} style={{ marginBottom: 8 }} />
+            <Skeleton width="82%" height={60} borderRadius={RADIUS.lg} style={{ marginBottom: SPACING.lg }} />
+            <Skeleton width="48%" height={18} borderRadius={RADIUS.sm} style={{ marginBottom: SPACING.sm }} />
+            <Skeleton width="100%" height={52} borderRadius={RADIUS.lg} style={{ marginBottom: 6 }} />
+            <Skeleton width="100%" height={52} borderRadius={RADIUS.lg} />
+          </View>
         ) : referralTreeError ? (
           <View style={styles.treeErrorState}>
             <View style={styles.treeErrorIconWrap}>
@@ -744,6 +752,7 @@ const styles = StyleSheet.create({
   codeMetaStatNum: { fontSize: 20, fontWeight: '800', color: COLORS.white },
   codeMetaStatLabel: { fontSize: 10, color: 'rgba(255,255,255,0.75)', marginTop: 2 },
 
+  treeSkeletonWrap: { marginBottom: SPACING.base },
   treeErrorState: {
     alignItems: 'center',
     backgroundColor: COLORS.background.primary,

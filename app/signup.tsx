@@ -14,7 +14,6 @@ import {
 import type { TextInput as TextInputType } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
-import BrandedLoadingSpinner from '@/components/BrandedLoadingSpinner';
 import { KeyboardAwareWrapper, useKeyboardAware } from '@/components/KeyboardAwareWrapper';
 import {
   REFERRAL_SEARCH_EMPTY_HINT,
@@ -617,7 +616,7 @@ export default function SignupScreen() {
                   <Text style={styles.selectedReferralClear}>선택 해제</Text>
                 </Pressable>
                 {referralStatus === 'validating' && (
-                  <BrandedLoadingSpinner size="sm" color={COLORS.primary} />
+                  <Text style={styles.referralStatusHint}>추천인 정보를 확인 중입니다...</Text>
                 )}
                 {referralStatus === 'valid' && (
                   <Text style={styles.referralStatusSuccess}>
@@ -696,11 +695,7 @@ export default function SignupScreen() {
         </View>
 
         <Pressable style={[styles.primaryButton, checking && { opacity: 0.6 }]} onPress={handleNext} disabled={checking}>
-          {checking ? (
-            <BrandedLoadingSpinner size="sm" color="#fff" />
-          ) : (
-            <Text style={styles.primaryButtonText}>비밀번호 설정으로 이동</Text>
-          )}
+          <Text style={styles.primaryButtonText}>{checking ? '확인 중...' : '비밀번호 설정으로 이동'}</Text>
         </Pressable>
 
         <Pressable style={styles.linkButton} onPress={() => router.replace('/login')}>

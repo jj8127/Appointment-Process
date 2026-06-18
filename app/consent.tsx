@@ -20,7 +20,6 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
-import BrandedLoadingSpinner from '@/components/BrandedLoadingSpinner';
 import { Button } from '@/components/Button';
 import { FormInput } from '@/components/FormInput';
 import { ScreenHeader } from '@/components/ScreenHeader';
@@ -310,18 +309,14 @@ export default function AllowanceConsentScreen() {
               <View style={styles.careerBadge}>
                 <Text style={styles.careerBadgeLabel}>지원 유형</Text>
               </View>
-              {careerType ? (
-                <>
-                  <Text style={styles.careerMainText}>{careerType}</Text>
-                  <Text style={styles.careerSubText}>
-                    {careerType === '신입'
-                      ? '신입 유형으로 등록되었습니다.'
-                      : '경력 유형으로 등록되었습니다.'}
-                  </Text>
-                </>
-              ) : (
-                <BrandedLoadingSpinner size="sm" color={COLORS.primary} />
-              )}
+              <Text style={styles.careerMainText}>{careerType || '조회중'}</Text>
+              <Text style={styles.careerSubText}>
+                {careerType === '신입'
+                  ? '신입 유형으로 등록되었습니다.'
+                  : careerType === '경력'
+                    ? '경력 유형으로 등록되었습니다.'
+                    : '총무가 경력 여부를 조회중입니다.'}
+              </Text>
             </View>
 
             <View style={styles.inputGroup}>

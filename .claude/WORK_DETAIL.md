@@ -7,35 +7,19 @@
 
 ---
 
-## <a id="20260618-branded-loading-icon-unification"></a> 2026-06-18 | Branded loading UI unification
+## <a id="20260618-branded-loading-icon-unification"></a> 2026-06-18 | Branded loading icon unification
 
 **배경**:
 - 사용자가 가람in 앱의 모든 로딩 아이콘을 `새 설계 요청` 진입 때 보이는 브랜드 로딩 애니메이션으로 통일해 달라고 요청했다.
 - 검색 결과 대부분의 화면은 이미 `BrandedLoadingSpinner`/`BrandedLoadingState`를 사용했지만, `app/request-board-create.tsx`에는 React Native 기본 `ActivityIndicator`가 버튼 로딩 2곳과 화면 로딩 1곳에 남아 있었다.
-- 후속 지적 후 범위를 다시 넓혀 보니 `LoadingSkeleton` 계열, `불러오는 중...`/`저장중...`/`삭제중...` 같은 텍스트형 로딩, 대시보드/회원가입/시험/설정/채팅 화면의 버튼형 로딩도 브랜드 애니메이션으로 통일되지 않은 채 남아 있었다.
 
 **조치**:
 - 설계요청 작성 화면의 신규 고객 저장 버튼과 설계 요청 전송 버튼에서 기본 `ActivityIndicator`를 `BrandedLoadingSpinner size="sm"`로 교체했다.
 - 설계요청 작성 화면 초기 데이터 로딩 상태를 `BrandedLoadingState variant="request-board" layout="section"`으로 교체해 request-board 브랜드 로딩 애니메이션과 맞췄다.
-- 게시판/공지/대시보드/홈/추천/시험 등록 화면의 skeleton 로딩을 `BrandedLoadingState` 또는 `BrandedLoadingSpinner`로 교체하고, 더 이상 쓰지 않는 `components/LoadingSkeleton.tsx`를 제거했다.
-- 회원가입 추천인 확인, 설정 추천코드 조회/계정 삭제, 시험 신청 삭제, 채팅 업로드, 그룹 채팅 전송중, 대시보드 저장/발송/처리/삭제 버튼의 텍스트형 로딩을 `BrandedLoadingSpinner`로 교체했다.
-- `app/`와 `components/` 소스에서 `ActivityIndicator`, `LoadingSkeleton` 계열, 대표 텍스트형 로딩 문구가 다시 쓰이면 실패하는 `lib/__tests__/branded-loading-usage-contract.test.ts` 계약 테스트를 추가했다.
-- 병렬 subagent 3개로 게시판/공지, 홈/대시보드/추천/설정/채팅, 시험/auth/request-board 화면군을 나눠 감사했고, 발견된 누락 항목을 본 패치에 반영했다.
+- `app/`와 `components/` 소스에서 `ActivityIndicator`가 다시 직접 쓰이면 실패하는 `lib/__tests__/branded-loading-usage-contract.test.ts` 계약 테스트를 추가했다.
 
 **핵심 파일**:
-- `app/admin-board*.tsx`
-- `app/board.tsx`
-- `app/chat.tsx`
-- `app/dashboard.tsx`
-- `app/exam-*.tsx`
-- `app/group-chat.tsx`
-- `app/index.tsx`
-- `app/notice.tsx`
-- `app/referral.tsx`
 - `app/request-board-create.tsx`
-- `app/settings.tsx`
-- `app/signup.tsx`
-- `components/LoadingSkeleton.tsx`
 - `lib/__tests__/branded-loading-usage-contract.test.ts`
 - `.claude/WORK_LOG.md`
 - `.claude/WORK_DETAIL.md`
@@ -44,19 +28,17 @@
 **검증**:
 - RED: `npx jest lib/__tests__/branded-loading-usage-contract.test.ts --runInBand` 실패, offender `app\request-board-create.tsx`
 - GREEN: `npx jest lib/__tests__/branded-loading-usage-contract.test.ts --runInBand`
-- RED 후 범위 확장: `npx jest lib/__tests__/branded-loading-usage-contract.test.ts --runInBand` 실패, offenders `LoadingSkeleton`, `Skeleton`, `불러오는 중...`, `저장중...`, `삭제중...`, `파일 전송 중...` 등
-- GREEN 후 재검증: `npx jest lib/__tests__/branded-loading-usage-contract.test.ts --runInBand`
 - `npx jest --runInBand --runTestsByPath lib/__tests__/branded-loading-usage-contract.test.ts lib/__tests__/branded-loading-spinner.test.ts components/__tests__/BrandedLoadingSpinner.contract.test.ts lib/__tests__/request-board-mobile-ui-contract.test.ts`
-- `npx eslint app/admin-board-manage.tsx app/admin-board.tsx app/board.tsx app/chat.tsx app/consent.tsx app/dashboard.tsx app/exam-manage.tsx app/exam-manage2.tsx app/exam-register.tsx app/exam-register2.tsx app/group-chat.tsx app/index.tsx app/notice.tsx app/referral.tsx app/request-board.tsx app/settings.tsx app/signup.tsx lib/__tests__/branded-loading-usage-contract.test.ts`
+- `npx eslint app/request-board-create.tsx lib/__tests__/branded-loading-usage-contract.test.ts`
 - `npx tsc --noEmit --pretty false`
 - PowerShell: `$env:SENTRY_AUTH_TOKEN=''; npm run build`
 - `npm test -- --runInBand` (77 suites, 418 tests)
 - `node scripts/ci/check-governance.mjs`
 - `git diff --check`
-- `rg` 금지 패턴 검색 결과 0건
+- `rg -n "ActivityIndicator" app components hooks lib -g "*.tsx" -g "*.ts"` 결과는 신규 계약 테스트 내부 문자열만 남음
 
 **후속/주의**:
-- 앞으로 로딩 아이콘/placeholder/텍스트형 pending 상태가 필요한 화면/버튼에서는 `ActivityIndicator`, skeleton placeholder, `...중` 텍스트 단독 표현을 쓰지 말고 `BrandedLoadingSpinner`, 화면/섹션 로딩은 `BrandedLoadingState`를 사용한다.
+- 앞으로 로딩 아이콘이 필요한 화면/버튼에서는 `ActivityIndicator`를 직접 import하지 말고 `BrandedLoadingSpinner`, 화면/섹션 로딩은 `BrandedLoadingState`를 사용한다.
 
 ---
 
