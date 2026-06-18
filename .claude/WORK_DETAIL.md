@@ -19,6 +19,8 @@
 - request_board 재인증 필요 상태가 가람in 전체 세션 로그아웃으로 번지지 않도록 request_board 상태만 정리하게 바꿨다.
 - 설계요청 메신저 목록 문구를 `설계매니저 목록`으로 고정했다.
 - Governance Check 요구사항에 맞춰 이번 코드 변경의 작업 요약과 상세 기록을 `.claude/WORK_LOG.md`/`.claude/WORK_DETAIL.md`에 추가했다.
+- 반복되는 push 후 Governance 실패를 push 전 로컬 실패로 바꾸기 위해 `scripts/ci/pre-push-governance.mjs`와 `scripts/ci/install-governance-hook.mjs`를 추가했다.
+- 현재 repo의 `.git/hooks/pre-push`에 governance hook을 설치해 앞으로 같은 브랜치 push diff에서 작업 로그가 빠지면 GitHub에 올라가기 전에 중단되도록 했다.
 
 **핵심 파일**:
 - `app/request-board-create.tsx`
@@ -28,6 +30,9 @@
 - `lib/request-board-home-stats.ts`
 - `lib/__tests__/request-board-home-stats.test.ts`
 - `lib/__tests__/request-board-mobile-ui-contract.test.ts`
+- `scripts/ci/pre-push-governance.mjs`
+- `scripts/ci/install-governance-hook.mjs`
+- `package.json`
 - `.claude/WORK_LOG.md`
 - `.claude/WORK_DETAIL.md`
 - `.claude/MISTAKES.md`
@@ -38,9 +43,11 @@
 - `npx tsc --noEmit --pretty false`
 - `npm run build`
 - `node scripts/ci/check-governance.mjs`
+- synthetic old bad push diff failed through `node scripts/ci/pre-push-governance.mjs`
+- current repair push diff passed through `node scripts/ci/pre-push-governance.mjs`
 
 **후속/주의**:
-- 코드 경로를 건드리는 모든 커밋은 push 전에 `node scripts/ci/check-governance.mjs`를 실행하고, `.claude/WORK_LOG.md`와 `.claude/WORK_DETAIL.md`가 같은 커밋에 포함됐는지 확인해야 한다.
+- 코드 경로를 건드리는 모든 커밋은 push 전에 로컬 pre-push hook 또는 `npm run governance:pre-push`로 `node scripts/ci/check-governance.mjs`를 실행하고, `.claude/WORK_LOG.md`와 `.claude/WORK_DETAIL.md`가 같은 push diff에 포함됐는지 확인해야 한다.
 - iOS Simulator는 Windows 환경에서 `xcrun`이 없어 실행하지 못했고, Expo web/in-app browser 경로로 대체 검증했다.
 
 ---

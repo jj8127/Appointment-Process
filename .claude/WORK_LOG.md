@@ -21,7 +21,7 @@
 
 | 날짜 | 작업 | 주요 파일 | 상세 |
 |---|---|---|---|
-| 06-18 | 가람in 설계요청 작성/설계매니저 흐름 회귀 수정 및 Governance Check 작업기록 누락 보강 | `app/request-board-create.tsx`, `app/request-board.tsx`, `hooks/use-session.tsx`, `lib/request-board-home-stats.ts`, `.claude/WORK_LOG.md`, `.claude/WORK_DETAIL.md` | [→ 상세](WORK_DETAIL.md#20260618-request-board-designer-flow-hardening) |
+| 06-18 | 가람in 설계요청 작성/설계매니저 흐름 회귀 수정 및 Governance Check 작업기록 누락/pre-push 재발 방지 보강 | `app/request-board-create.tsx`, `app/request-board.tsx`, `hooks/use-session.tsx`, `lib/request-board-home-stats.ts`, `scripts/ci/pre-push-governance.mjs`, `.claude/WORK_LOG.md`, `.claude/WORK_DETAIL.md` | [→ 상세](WORK_DETAIL.md#20260618-request-board-designer-flow-hardening) |
 
 ## 2026-06-16
 

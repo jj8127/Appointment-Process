@@ -23,6 +23,8 @@
     "ops:sentry-triage": "node ./scripts/ops/sentry-daily-triage.mjs",
     "qa:init:integrated": "node ./scripts/testing/init-integrated-test-run.mjs",
     "qa:validate:integrated": "node ./scripts/testing/validate-integrated-test-run.mjs",
+    "governance:install-hook": "node ./scripts/ci/install-governance-hook.mjs",
+    "governance:pre-push": "node ./scripts/ci/pre-push-governance.mjs",
     "prepare": "node ./scripts/prepare.js"
   },
   "dependencies": {
