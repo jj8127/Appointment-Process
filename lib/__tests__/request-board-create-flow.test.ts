@@ -23,6 +23,18 @@ describe('request board create flow', () => {
     })).toBe(false);
   });
 
+  it('blocks read-only admin-derived FC bridge sessions from write-only create actions', () => {
+    const readOnlyAdminBridgeFcSession = {
+      role: 'admin',
+      readOnly: true,
+      staffType: null,
+      requestBoardRole: 'fc',
+      isRequestBoardDesigner: false,
+    } as const;
+
+    expect(canCreateRequestBoardRequest(readOnlyAdminBridgeFcSession)).toBe(false);
+  });
+
   it('returns to the previous step while composing', () => {
     expect(resolveRequestBoardCreateBackTarget('compose', 'newCustomer')).toEqual({
       type: 'step',

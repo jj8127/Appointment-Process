@@ -40,7 +40,9 @@ describe('request-board review role contract', () => {
   });
 
   it('renders completed-design approval controls only for FC reviewers', () => {
-    expect(source).toContain('const canReviewAsFc = !isRequestBoardDesigner && needsReview;');
+    expect(source).toContain('canMakeRequestBoardFcDecision({');
+    expect(source).toContain('requestBoardRole,');
+    expect(source).toContain('}) && needsReview;');
     expect(source).toContain('style={[styles.assignmentCard, canReviewAsFc && styles.assignmentCardHighlight]}');
     expect(source).toContain('{canReviewAsFc && (');
     expect(source).toContain('{isRequestBoardDesigner && needsReview && (');

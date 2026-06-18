@@ -36,6 +36,7 @@ import {
   type RbRequestSummary,
 } from '@/lib/request-board-api';
 import { getRequestBoardCustomerManagementRoute } from '@/lib/request-board-create-flow';
+import { canUseRequestBoardAsFc } from '@/lib/request-board-permissions';
 import { formatRequestBoardCustomerDisplayName } from '@/lib/request-board-policyholder-display';
 import { normalizeDesignerRejectReason } from '@/lib/request-board-review-actions';
 import { toRequestBoardSessionErrorMessage } from '@/lib/request-board-session-error';
@@ -352,9 +353,16 @@ export default function RequestBoardScreen() {
 
   // 설계 매니저가 아니면서 request_board를 FC로 사용하는 모든 사용자
   // (FC 역할 + 본부장/manager 브릿지 계정이 FC로 매핑된 경우)
-  const isRbFcUser =
+  const hasRequestBoardFcReadAccess =
     !isRequestBoardDesigner && (!!requestBoardRole || role === 'fc');
-  const showStats = reqStats.loaded && (isRbFcUser || !!isRequestBoardDesigner);
+  const canUseFcWriteActions = canUseRequestBoardAsFc({
+    role,
+    readOnly,
+    staffType,
+    requestBoardRole,
+    isRequestBoardDesigner,
+  });
+  const showStats = reqStats.loaded && (hasRequestBoardFcReadAccess || !!isRequestBoardDesigner);
   const includeRequestBoardFcInbox = role === 'admin' && requestBoardRole === 'fc';
 
   useEffect(() => {
@@ -420,7 +428,7 @@ export default function RequestBoardScreen() {
       // Request stats from request_board API (FC, 본부장, 총무 and Designer views)
       (async () => {
         // skip if user has no request_board access at all
-        if (!isRequestBoardDesigner && !requestBoardRole && role !== 'fc') return;
+        if (!isRequestBoardDesigner && !hasRequestBoardFcReadAccess) return;
         try {
           const sync = await ensureRequestBoardSession();
           if (!sync.ok) {
@@ -442,7 +450,7 @@ export default function RequestBoardScreen() {
 
     setLoading(false);
     setRefreshing(false);
-  }, [ensureRequestBoardSession, includeRequestBoardFcInbox, isRequestBoardDesigner, requestBoardRole, residentId, role]);
+  }, [ensureRequestBoardSession, hasRequestBoardFcReadAccess, includeRequestBoardFcInbox, isRequestBoardDesigner, requestBoardRole, residentId, role]);
 
   useEffect(() => {
     if (hydrated) fetchData();
@@ -739,7 +747,7 @@ export default function RequestBoardScreen() {
           </View>
         </MotiView>
 
-        {isRbFcUser && (
+        {canUseFcWriteActions && (
           <MotiView
             from={{ opacity: 0, translateY: 12 }}
             animate={{ opacity: 1, translateY: 0 }}
@@ -1106,7 +1114,7 @@ export default function RequestBoardScreen() {
         )}
 
         {/* FC Links */}
-        {isRbFcUser && (
+        {canUseFcWriteActions && (
           <MotiView
             from={{ opacity: 0, translateY: 12 }}
             animate={{ opacity: 1, translateY: 0 }}

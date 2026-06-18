@@ -29,9 +29,7 @@ import Animated, {
 } from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
-import { BottomNavigation } from '@/components/BottomNavigation';
 import { useSession } from '@/hooks/use-session';
-import { resolveBottomNavActiveKey, resolveBottomNavPreset } from '@/lib/bottom-navigation';
 import { logger } from '@/lib/logger';
 import {
   getDesignerSelectionConfirmState,
@@ -511,6 +509,7 @@ export default function RequestBoardCreateScreen() {
   const {
     role,
     readOnly,
+    staffType,
     hydrated,
     isRequestBoardDesigner,
     requestBoardRole,
@@ -558,16 +557,12 @@ export default function RequestBoardCreateScreen() {
   const hospitalizationHistoryInputRef = useRef<TextInput>(null);
   const majorDiseasesInputRef = useRef<TextInput>(null);
   const hasLoadedInitialRequestDataRef = useRef(false);
+  const policyholderToggleHandledRef = useRef(false);
 
-  const navPreset = resolveBottomNavPreset({
-    role,
-    readOnly,
-    hydrated,
-    isRequestBoardDesigner,
-  });
-  const navActiveKey = resolveBottomNavActiveKey(navPreset, 'request-board');
   const canUseCreateFlow = canCreateRequestBoardRequest({
     role,
+    readOnly,
+    staffType,
     requestBoardRole,
     isRequestBoardDesigner,
   });
@@ -753,6 +748,15 @@ export default function RequestBoardCreateScreen() {
     }));
   };
 
+  const toggleSeparatePolicyholder = useCallback(() => {
+    if (policyholderToggleHandledRef.current) return;
+    policyholderToggleHandledRef.current = true;
+    setHasSeparatePolicyholder(!newCustomer.hasSeparatePolicyholder);
+    requestAnimationFrame(() => {
+      policyholderToggleHandledRef.current = false;
+    });
+  }, [newCustomer.hasSeparatePolicyholder]);
+
   const updatePolicyholderSsnField = useCallback((value: string) => {
     const formatted = formatRequestBoardCustomerSsnInput(value);
     updateCustomerField('policyholderSsn', formatted);
@@ -844,6 +848,16 @@ export default function RequestBoardCreateScreen() {
       return;
     }
 
+    if (!isCompleteRequestBoardCustomerPhone(newCustomer.phone)) {
+      Alert.alert('연락처 확인', '피보험자 연락처를 11자리로 입력해주세요.');
+      return;
+    }
+
+    if (!isCompleteRequestBoardCustomerSsn(newCustomer.ssn)) {
+      Alert.alert('주민번호 확인', '피보험자 주민번호 13자리를 모두 입력해주세요.');
+      return;
+    }
+
     if (!String(newCustomer.drivingStatus ?? '').trim()) {
       Alert.alert('운전구분 확인', '운전구분을 선택해주세요.');
       return;
@@ -863,6 +877,22 @@ export default function RequestBoardCreateScreen() {
         '계약자 정보 확인',
         '계약자와 피보험자가 다를 경우 계약자 이름, 주민번호, 휴대폰번호, 통신사, 주소를 모두 입력해주세요.',
       );
+      return;
+    }
+
+    if (
+      newCustomer.hasSeparatePolicyholder &&
+      !isCompleteRequestBoardCustomerSsn(newCustomer.policyholderSsn ?? '')
+    ) {
+      Alert.alert('계약자 주민번호 확인', '계약자 주민번호 13자리를 모두 입력해주세요.');
+      return;
+    }
+
+    if (
+      newCustomer.hasSeparatePolicyholder &&
+      !isCompleteRequestBoardCustomerPhone(newCustomer.policyholderPhone ?? '')
+    ) {
+      Alert.alert('계약자 연락처 확인', '계약자 휴대폰번호를 11자리로 입력해주세요.');
       return;
     }
 
@@ -988,9 +1018,9 @@ export default function RequestBoardCreateScreen() {
 
     try {
       setSubmitting(true);
-      const createdResults = await Promise.all(
-        requestJobs.map(({ productId, designer, designerCodeSelection }) =>
-          rbCreateRequest({
+      const settledRequestResults = await Promise.allSettled(
+        requestJobs.map(({ productId, designer, designerCodeSelection }) => {
+          const payload = {
             customerName: selectedCustomer.name,
             customerSsn: selectedCustomer.ssn,
             customerGender: selectedCustomer.gender,
@@ -1021,17 +1051,40 @@ export default function RequestBoardCreateScreen() {
             productIds: [productId],
             designerIds: [designer.id],
             designerCodeSelections: [designerCodeSelection],
-          }),
-        ),
+          };
+          return rbCreateRequest(payload);
+        }),
       );
 
-      const failedRequest = createdResults.find((result) => !result.success || !result.data);
-      if (failedRequest) {
-        throw new Error(failedRequest.error ?? '설계 요청을 보내지 못했습니다.');
+      const fulfilledRequests = settledRequestResults
+        .filter(
+          (result): result is PromiseFulfilledResult<Awaited<ReturnType<typeof rbCreateRequest>>> =>
+            result.status === 'fulfilled' && result.value.success && Boolean(result.value.data),
+        )
+        .map((result) => result.value);
+      const failedRequests = settledRequestResults.flatMap((result) => {
+        if (result.status === 'rejected') {
+          return [result.reason instanceof Error ? result.reason.message : String(result.reason ?? '')];
+        }
+        if (!result.value.success || !result.value.data) {
+          return [result.value.error ?? '설계 요청을 보내지 못했습니다.'];
+        }
+        return [];
+      });
+
+      if (fulfilledRequests.length === 0) {
+        throw new Error(failedRequests[0] || '설계 요청을 보내지 못했습니다.');
       }
 
-      const createdRequestIds = createdResults.map((result) => result.data!.id);
+      const createdRequestIds = fulfilledRequests.map((result) => result.data!.id);
       setSentRequestIds(createdRequestIds);
+
+      if (failedRequests.length > 0) {
+        Alert.alert(
+          '일부 설계요청만 전송되었습니다',
+          `${createdRequestIds.length}건은 전송되었고 ${failedRequests.length}건은 실패했습니다. 성공한 의뢰는 중복 방지를 위해 완료 화면에서 확인해주세요.`,
+        );
+      }
 
       if (attachments.length > 0) {
         const upload = await rbUploadAttachments(attachments);
@@ -1223,9 +1276,11 @@ export default function RequestBoardCreateScreen() {
           newCustomer.hasSeparatePolicyholder && styles.policyholderToggleActive,
           pressed && { opacity: 0.9 },
         ]}
-        onPress={() => setHasSeparatePolicyholder(!newCustomer.hasSeparatePolicyholder)}
-        accessibilityRole="checkbox"
-        accessibilityState={{ checked: newCustomer.hasSeparatePolicyholder }}
+        onPressIn={toggleSeparatePolicyholder}
+        onPress={toggleSeparatePolicyholder}
+        accessibilityRole="button"
+        accessibilityLabel="계약자 피보험자 다름"
+        accessibilityState={{ selected: newCustomer.hasSeparatePolicyholder }}
       >
         <View
           style={[
@@ -1619,13 +1674,13 @@ export default function RequestBoardCreateScreen() {
             </Pressable>
           </View>
           <Pressable style={styles.managerPicker} onPress={() => setSheetVisible(true)}>
-            <View>
-              <Text style={styles.managerPickerTitle}>
+            <View style={styles.managerPickerCopy}>
+              <Text style={styles.managerPickerTitle} numberOfLines={1}>
                 {selectedDesigners.length > 0
                   ? selectedDesigners.map(getDesignerName).join(', ')
                   : '설계매니저 선택'}
               </Text>
-              <Text style={styles.managerPickerMeta}>
+              <Text style={styles.managerPickerMeta} numberOfLines={2}>
                 {selectedDesigners.length > 0
                   ? `${selectedDesigners.length}명 · ${getProductSummary(products, selectedProductIds)}`
                   : '회사별 FC 코드가 등록된 매니저를 선택하세요'}
@@ -1658,11 +1713,11 @@ export default function RequestBoardCreateScreen() {
       <Text style={styles.sentDesc}>담당 설계매니저가 수락하면 진행 상태와 메신저가 열립니다.</Text>
       <View style={styles.sentSummary}>
         <Text style={styles.sentLabel}>고객</Text>
-        <Text style={styles.sentValue}>{selectedCustomer?.name ?? '-'}</Text>
+        <Text style={styles.sentValue} numberOfLines={2}>{selectedCustomer?.name ?? '-'}</Text>
         <Text style={styles.sentLabel}>상품</Text>
-        <Text style={styles.sentValue}>{getProductSummary(products, selectedProductIds)}</Text>
+        <Text style={styles.sentValue} numberOfLines={2}>{getProductSummary(products, selectedProductIds)}</Text>
         <Text style={styles.sentLabel}>매니저</Text>
-        <Text style={styles.sentValue}>{selectedDesigners.map(getDesignerName).join(', ')}</Text>
+        <Text style={styles.sentValue} numberOfLines={2}>{selectedDesigners.map(getDesignerName).join(', ')}</Text>
       </View>
       <Pressable style={styles.cta} onPress={() => router.replace('/request-board-requests' as any)}>
         <Text style={styles.ctaText}>진행중인 의뢰 보기</Text>
@@ -1749,12 +1804,6 @@ export default function RequestBoardCreateScreen() {
         fcCodes={fcCodes}
         onToggleDesigner={toggleDesigner}
         onClose={() => setSheetVisible(false)}
-      />
-
-      <BottomNavigation
-        preset={navPreset ?? undefined}
-        activeKey={navActiveKey}
-        bottomInset={insets.bottom}
       />
     </View>
   );
@@ -2325,6 +2374,10 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     gap: SPACING.md,
     padding: SPACING.md,
+  },
+  managerPickerCopy: {
+    flex: 1,
+    minWidth: 0,
   },
   managerPickerTitle: {
     color: COLORS.gray[900],

@@ -30,6 +30,39 @@
 - Verification:
 ```
 
+## 2026-06-18 | GaramIn Request Board Full-Flow Audit | UI, role, session, and PII contracts drifted across surfaces
+- Symptom:
+  - New-customer request creation could hide or make hard to reach lower form fields behind the global bottom navigation, and the separate policyholder toggle needed stronger UI coverage after "계약자 피보험자 다름" regressions.
+  - Request-list filters overflowed narrow phones; FC code management still used a clipped table-like mobile layout; review metadata used fixed two-column fields that could overflow with long FC/code values.
+  - Read-only/admin-derived request_board bridge sessions could reach FC write/final-decision surfaces because screens trusted `requestBoardRole` without checking the app role/read-only boundary.
+  - request_board access-denied bridge errors could be interpreted as full GaramIn re-login conditions, and server SSN responses defaulted to full view unless callers explicitly asked for masking.
+- Root cause:
+  - Request-board screens implemented local UI/permission decisions independently instead of sharing a write-permission helper and mobile layout contracts.
+  - Data-safety defaults lived in request_board routes/API wrappers without a source-level contract requiring explicit `ssnView=full` for full resident-number reads.
+- Why it was missed:
+  - Prior checks focused on the individual missing policyholder fields and happy-path create/review flows, not all request-board steps at narrow mobile sizes.
+  - Role tests covered designer-vs-FC detail actions but not read-only/admin-derived bridge sessions.
+- Permanent guardrail:
+  - Keep request-board mobile source-contract tests for no global bottom nav on the create wizard, complete customer input validation, policyholder toggle controls, horizontal request filters, card-based FC codes, constrained manager summaries, and full-width review metadata.
+  - Gate all FC write actions through `request-board-permissions` instead of raw `requestBoardRole` checks.
+  - Mobile must opt into full SSN reads with `ssnView=full`; request_board server defaults must stay masked.
+- Related files:
+  - `app/request-board-create.tsx`
+  - `app/request-board.tsx`
+  - `app/request-board-review.tsx`
+  - `app/request-board-requests.tsx`
+  - `app/request-board-fc-codes.tsx`
+  - `lib/request-board-permissions.ts`
+  - `lib/request-board-api.ts`
+  - `lib/__tests__/request-board-mobile-ui-contract.test.ts`
+  - `lib/__tests__/request-board-create-flow.test.ts`
+  - `lib/__tests__/request-board-api-contract.test.ts`
+  - `lib/__tests__/request-board-review-role.contract.test.ts`
+  - `request_board/server/src/lib/requestPii.ts`
+  - `request_board/server/src/routes/customers.ts`
+- Verification:
+  - RED/GREEN targeted request-board Jest suites, full mobile Jest suite, targeted ESLint, mobile TypeScript, request_board server build, Expo web export, and browser viewport checks at 442x907 and 320x568.
+
 ## 2026-06-18 | GaramIn Cross-Flow Request Board Parity | mobile contracts drifted from GaramLink and saved data
 - Symptom:
   - GaramIn request creation bundled multiple selected products/designers into one request instead of GaramLink's one product-designer cell per request.

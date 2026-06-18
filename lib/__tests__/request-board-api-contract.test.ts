@@ -5,7 +5,7 @@ describe('request board mobile API wrapper contract', () => {
 
   it('exposes FC-side customer, product, and request creation wrappers', () => {
     expect(source).toContain('export async function rbGetCustomers');
-    expect(source).toContain("rbFetch<RbCustomerProfile[]>('/api/customers')");
+    expect(source).toContain("rbFetch<RbCustomerProfile[]>('/api/customers?ssnView=full')");
     expect(source).toContain('export async function rbSaveCustomer');
     expect(source).toContain("rbFetch<RbCustomerProfile>('/api/customers'");
     expect(source).toContain('export async function rbGetProducts');
@@ -30,6 +30,18 @@ describe('request board mobile API wrapper contract', () => {
     expect(source).toContain('/api/requests/${id}?ssnView=full');
   });
 
+  it('does not turn request-board access-denied bridge errors into full GaramIn re-login', () => {
+    const authBlock = source.slice(
+      source.indexOf('export async function rbCheckAuth'),
+      source.indexOf('/* ─── Conversations'),
+    );
+
+    expect(authBlock).toContain('REQUEST_BOARD_APP_RELOGIN_ERROR_CODES');
+    expect(authBlock).not.toContain("bridged.errorCode === 'request_board_not_applicable'");
+    expect(authBlock).not.toContain("bridged.errorCode === 'inactive_account'");
+    expect(authBlock).not.toContain("bridged.errorCode === 'not_completed'");
+  });
+
   it('uses the server field names for per-designer FC code selections', () => {
     expect(source).toContain('fcCodeName?: string | null');
     expect(source).toContain('fcCodeValue?: string | null');
@@ -51,5 +63,12 @@ describe('request board mobile API wrapper contract', () => {
     expect(source).toContain('policyholder_phone?: string | null');
     expect(source).toContain('policyholder_carrier?: string | null');
     expect(source).toContain('policyholder_address?: string | null');
+  });
+
+  it('keeps the hospitalization field alias explicit across customer and request payloads', () => {
+    expect(source).toContain('recentHospitalization?: string');
+    expect(source).toContain('hospitalizationHistory?: string');
+    expect(source).toContain('recentHospitalization: payload.recentHospitalization');
+    expect(source).toContain('hospitalizationHistory: payload.hospitalizationHistory');
   });
 });

@@ -6,6 +6,7 @@ import {
   FlatList,
   Pressable,
   RefreshControl,
+  ScrollView,
   StyleSheet,
   Text,
   View,
@@ -378,7 +379,12 @@ export default function RequestBoardRequestsScreen() {
         </View>
 
         {/* Filter tabs */}
-        <View style={styles.filterTabs}>
+        <ScrollView
+          style={styles.filterTabs}
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          contentContainerStyle={styles.filterTabsContent}
+        >
           {FILTERS.map((f) => (
             <Pressable
               key={f.key}
@@ -414,7 +420,7 @@ export default function RequestBoardRequestsScreen() {
               )}
             </Pressable>
           ))}
-        </View>
+        </ScrollView>
       </View>
 
       {/* Error */}
@@ -552,8 +558,13 @@ const styles = StyleSheet.create({
 
   /* Filter tabs */
   filterTabs: {
+    marginHorizontal: -SPACING.base,
+  },
+  filterTabsContent: {
     flexDirection: 'row',
     gap: SPACING.xs,
+    paddingHorizontal: SPACING.base,
+    paddingRight: SPACING.base * 2,
   },
   filterTab: {
     flexDirection: 'row',

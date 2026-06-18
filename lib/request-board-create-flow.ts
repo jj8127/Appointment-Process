@@ -1,15 +1,14 @@
+import {
+  canUseRequestBoardAsFc,
+  type RequestBoardPermissionInput,
+} from './request-board-permissions';
+
 export type RequestBoardCreateStep = 'customer' | 'newCustomer' | 'compose' | 'sent';
 export type RequestBoardCreateEntryStep = Extract<RequestBoardCreateStep, 'customer' | 'newCustomer'>;
 export type RequestBoardCreateEntryParam = string | string[] | null | undefined;
 export type RequestBoardCreateSourceParam = string | string[] | null | undefined;
 
 const REQUEST_CREATE_STEPS: RequestBoardCreateStep[] = ['customer', 'newCustomer', 'compose', 'sent'];
-
-type CreatePermissionInput = {
-  role?: 'admin' | 'fc' | null;
-  requestBoardRole?: 'fc' | 'designer' | null;
-  isRequestBoardDesigner?: boolean;
-};
 
 export type RequestBoardCreateBackTarget =
   | { type: 'back' }
@@ -46,14 +45,18 @@ export function resolveRequestBoardCreateVisibleSteps(
 
 export function canCreateRequestBoardRequest({
   role,
+  readOnly,
+  staffType,
   requestBoardRole,
   isRequestBoardDesigner,
-}: CreatePermissionInput) {
-  if (isRequestBoardDesigner || requestBoardRole === 'designer') {
-    return false;
-  }
-
-  return role === 'fc' || requestBoardRole === 'fc';
+}: RequestBoardPermissionInput) {
+  return canUseRequestBoardAsFc({
+    role,
+    readOnly,
+    staffType,
+    requestBoardRole,
+    isRequestBoardDesigner,
+  });
 }
 
 export function resolveRequestBoardCreateBackTarget(

@@ -25,6 +25,7 @@ import BrandedLoadingState from '@/components/BrandedLoadingState';
 import { useSession } from '@/hooks/use-session';
 import { resolveBottomNavActiveKey, resolveBottomNavPreset } from '@/lib/bottom-navigation';
 import { logger } from '@/lib/logger';
+import { canManageRequestBoardFcCodes } from '@/lib/request-board-permissions';
 import {
   rbCreateFcCode,
   rbDeleteFcCode,
@@ -55,7 +56,15 @@ const formatDate = (value: string) => {
 export default function RequestBoardFcCodesScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
-  const { role, readOnly, hydrated, isRequestBoardDesigner, ensureRequestBoardSession } = useSession();
+  const {
+    role,
+    readOnly,
+    staffType,
+    hydrated,
+    isRequestBoardDesigner,
+    requestBoardRole,
+    ensureRequestBoardSession,
+  } = useSession();
 
   const [codes, setCodes] = useState<RbFcCode[]>([]);
   const [companyNames, setCompanyNames] = useState<string[]>([]);
@@ -82,9 +91,22 @@ export default function RequestBoardFcCodesScreen() {
 
   // Missing companies panel
   const [missingPanelVisible, setMissingPanelVisible] = useState(false);
+  const canManageCodes = canManageRequestBoardFcCodes({
+    role,
+    readOnly,
+    staffType,
+    requestBoardRole,
+    isRequestBoardDesigner,
+  });
 
   /* ─── Fetch ─── */
   const fetchData = useCallback(async () => {
+    if (!canManageCodes) {
+      setFetchError('설계코드 관리는 FC 계정에서만 사용할 수 있습니다.');
+      setLoading(false);
+      setRefreshing(false);
+      return;
+    }
     setFetchError(null);
     try {
       const sync = await ensureRequestBoardSession();
@@ -107,11 +129,16 @@ export default function RequestBoardFcCodesScreen() {
       setLoading(false);
       setRefreshing(false);
     }
-  }, [ensureRequestBoardSession]);
+  }, [canManageCodes, ensureRequestBoardSession]);
 
   useEffect(() => {
     fetchData();
   }, [fetchData]);
+
+  useEffect(() => {
+    if (!hydrated || canManageCodes) return;
+    router.replace('/request-board' as any);
+  }, [canManageCodes, hydrated, router]);
 
   const handleRefresh = () => {
     setRefreshing(true);
@@ -238,11 +265,13 @@ export default function RequestBoardFcCodesScreen() {
   /* ─── Render ─── */
 
   const renderItem = ({ item }: { item: RbFcCode }) => (
-    <View style={styles.codeRow}>
-      <View style={styles.codeRowMain}>
-        <Text style={styles.codeInsurer} numberOfLines={1}>{item.insurer_name}</Text>
-        <Text style={styles.codeValue}>{item.code_value}</Text>
+    <View style={styles.codeCard}>
+      <View style={styles.codeCardHeader}>
+        <Text style={styles.codeInsurer} numberOfLines={2}>{item.insurer_name}</Text>
         <Text style={styles.codeDate}>{formatDate(item.updated_at)}</Text>
+      </View>
+      <View style={styles.codeValuePill}>
+        <Text style={styles.codeValue} numberOfLines={1}>{item.code_value}</Text>
       </View>
       <View style={styles.codeRowActions}>
         <Pressable
@@ -289,8 +318,13 @@ export default function RequestBoardFcCodesScreen() {
             <Text style={styles.headerSub}>회사별 설계코드를 등록하고 관리합니다</Text>
           </View>
           <Pressable
-            style={({ pressed }) => [styles.addBtn, pressed && { opacity: 0.8 }]}
+            style={({ pressed }) => [
+              styles.addBtn,
+              !canManageCodes && { opacity: 0.5 },
+              pressed && canManageCodes && { opacity: 0.8 },
+            ]}
             onPress={openAdd}
+            disabled={!canManageCodes}
           >
             <Feather name="plus" size={16} color="#fff" />
             <Text style={styles.addBtnText}>추가</Text>
@@ -401,29 +435,20 @@ export default function RequestBoardFcCodesScreen() {
           </Text>
         </View>
       ) : (
-        <>
-          {/* Table header */}
-          <View style={styles.tableHeader}>
-            <Text style={[styles.tableHeaderCell, { flex: 2 }]}>회사명</Text>
-            <Text style={[styles.tableHeaderCell, { flex: 1.4 }]}>코드값</Text>
-            <Text style={[styles.tableHeaderCell, { flex: 1.2 }]}>수정일</Text>
-            <Text style={[styles.tableHeaderCell, { width: 80, textAlign: 'right' }]}>액션</Text>
-          </View>
-          <FlatList
-            data={filteredCodes}
-            keyExtractor={(item) => String(item.id)}
-            renderItem={renderItem}
-            contentContainerStyle={{ paddingBottom: 80 + insets.bottom }}
-            refreshControl={
-              <RefreshControl
-                refreshing={refreshing}
-                onRefresh={handleRefresh}
-                tintColor={COLORS.primary}
-              />
-            }
-            ItemSeparatorComponent={() => <View style={styles.separator} />}
-          />
-        </>
+        <FlatList
+          data={filteredCodes}
+          keyExtractor={(item) => String(item.id)}
+          renderItem={renderItem}
+          contentContainerStyle={[styles.codeListContent, { paddingBottom: 80 + insets.bottom }]}
+          refreshControl={
+            <RefreshControl
+              refreshing={refreshing}
+              onRefresh={handleRefresh}
+              tintColor={COLORS.primary}
+            />
+          }
+          ItemSeparatorComponent={() => <View style={styles.separator} />}
+        />
       )}
 
       {/* Add/Edit Modal */}
@@ -813,51 +838,51 @@ const styles = StyleSheet.create({
     textAlign: 'center',
   },
 
-  /* Table */
-  tableHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
+  codeListContent: {
     paddingHorizontal: SPACING.base,
-    paddingVertical: SPACING.sm,
-    backgroundColor: COLORS.gray[50],
-    borderBottomWidth: 1,
-    borderBottomColor: COLORS.border.light,
+    paddingTop: SPACING.sm,
   },
-  tableHeaderCell: {
-    fontSize: TYPOGRAPHY.fontSize.xs,
-    fontWeight: '600' as const,
-    color: COLORS.gray[500],
-  },
-
-  /* Code row */
-  codeRow: {
+  codeCard: {
     backgroundColor: '#fff',
-    paddingHorizontal: SPACING.base,
-    paddingVertical: SPACING.sm,
+    borderRadius: RADIUS.md,
+    borderWidth: 1,
+    borderColor: COLORS.border.light,
+    paddingHorizontal: SPACING.md,
+    paddingVertical: SPACING.md,
+    ...SHADOWS.sm,
   },
-  codeRowMain: {
+  codeCardHeader: {
     flexDirection: 'row',
-    alignItems: 'center',
-    marginBottom: 6,
+    alignItems: 'flex-start',
+    gap: SPACING.sm,
+    marginBottom: SPACING.sm,
   },
   codeInsurer: {
-    flex: 2,
+    flex: 1,
+    minWidth: 0,
     fontSize: TYPOGRAPHY.fontSize.sm,
-    fontWeight: '600' as const,
+    fontWeight: '800' as const,
     color: COLORS.gray[800],
-    paddingRight: 4,
+  },
+  codeDate: {
+    fontSize: TYPOGRAPHY.fontSize.xs,
+    color: COLORS.text.muted,
+    flexShrink: 0,
+  },
+  codeValuePill: {
+    alignSelf: 'flex-start',
+    maxWidth: '100%',
+    borderRadius: RADIUS.sm,
+    backgroundColor: COLORS.gray[100],
+    paddingHorizontal: SPACING.sm,
+    paddingVertical: 6,
+    marginBottom: SPACING.sm,
   },
   codeValue: {
-    flex: 1.4,
     fontSize: TYPOGRAPHY.fontSize.sm,
     fontFamily: Platform.OS === 'ios' ? 'Courier' : 'monospace',
     color: COLORS.gray[700],
-    paddingRight: 4,
-  },
-  codeDate: {
-    flex: 1.2,
-    fontSize: TYPOGRAPHY.fontSize.xs,
-    color: COLORS.text.muted,
+    fontWeight: '700' as const,
   },
   codeRowActions: {
     flexDirection: 'row',
@@ -880,9 +905,7 @@ const styles = StyleSheet.create({
     fontWeight: '600' as const,
   },
   separator: {
-    height: StyleSheet.hairlineWidth,
-    backgroundColor: COLORS.border.light,
-    marginHorizontal: SPACING.base,
+    height: SPACING.sm,
   },
 
   /* Modal overlay */

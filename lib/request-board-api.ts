@@ -14,6 +14,11 @@ const STORAGE_KEY_TOKEN = 'rb_jwt_token';
 const STORAGE_KEY_USER = 'rb_user';
 const STORAGE_KEY_BRIDGE_TOKEN = 'rb_bridge_token';
 const STORAGE_KEY_APP_SESSION_TOKEN = 'rb_app_session_token';
+const REQUEST_BOARD_APP_RELOGIN_ERROR_CODES = new Set([
+  'missing_session_token',
+  'invalid_session_token',
+  'invalid_bridge_token',
+]);
 
 /* ─── Types ─── */
 
@@ -523,14 +528,9 @@ export async function rbCheckAuth(): Promise<{
     return {
       authenticated: false,
       error: bridged.error,
-      needsRelogin: bridged.errorCode === 'missing_session_token'
-        || bridged.errorCode === 'invalid_session_token'
-        || bridged.errorCode === 'invalid_bridge_token'
-        || bridged.errorCode === 'request_board_not_applicable'
-        || bridged.errorCode === 'not_found'
-        || bridged.errorCode === 'inactive_account'
-        || bridged.errorCode === 'not_completed'
-        || bridged.errorCode === 'bridge_refresh_failed',
+      needsRelogin: bridged.errorCode
+        ? REQUEST_BOARD_APP_RELOGIN_ERROR_CODES.has(bridged.errorCode)
+        : false,
     };
   }
 
@@ -883,7 +883,7 @@ export async function rbGetProducts(): Promise<RbInsuranceProduct[]> {
 }
 
 export async function rbGetCustomers(): Promise<RbCustomerProfile[]> {
-  const res = await rbFetch<RbCustomerProfile[]>('/api/customers');
+  const res = await rbFetch<RbCustomerProfile[]>('/api/customers?ssnView=full');
   if (res.success && Array.isArray(res.data)) return res.data;
   logger.warn('[rb-api] customers failed:', res.error);
   return [];
@@ -1106,9 +1106,20 @@ export type RbRequestDetail = {
 export async function rbCreateRequest(
   payload: RbCreateRequestPayload,
 ): Promise<{ success: boolean; data?: RbRequestDetail; error?: string }> {
+  const requestPayload: RbCreateRequestPayload = {
+    ...payload,
+    recentHospitalization: payload.recentHospitalization,
+    hospitalizationHistory: payload.hospitalizationHistory,
+  };
+  if (!requestPayload.recentHospitalization && payload.hospitalizationHistory) {
+    requestPayload.recentHospitalization = payload.hospitalizationHistory;
+  }
+  if (!requestPayload.hospitalizationHistory && payload.recentHospitalization) {
+    requestPayload.hospitalizationHistory = payload.recentHospitalization;
+  }
   return rbFetch<RbRequestDetail>('/api/requests', {
     method: 'POST',
-    body: JSON.stringify(payload),
+    body: JSON.stringify(requestPayload),
   });
 }
 

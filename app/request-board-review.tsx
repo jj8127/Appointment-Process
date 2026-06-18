@@ -24,6 +24,7 @@ import { logger } from '@/lib/logger';
 import { formatRequestBoardFcDisplayName } from '@/lib/request-board-fc-identity';
 import { openExternalUrl } from '@/lib/open-external-url';
 import { formatRequestBoardDrivingStatus } from '@/lib/request-board-driving-status';
+import { canMakeRequestBoardFcDecision } from '@/lib/request-board-permissions';
 import {
   rbAcceptRequest,
   rbApproveDesign,
@@ -130,10 +131,11 @@ function StatusBadge({ status, label, color, bg }: { status: string; label: stri
 }
 
 function InfoField({ label, value, fullWidth = false }: { label: string; value: string; fullWidth?: boolean }) {
+  const valueLineLimit = fullWidth ? undefined : 3;
   return (
     <View style={[styles.infoField, fullWidth && styles.infoFieldFull]}>
       <Text style={styles.infoFieldLabel}>{label}</Text>
-      <Text style={styles.infoFieldValue}>{value}</Text>
+      <Text style={styles.infoFieldValue} numberOfLines={valueLineLimit}>{value}</Text>
     </View>
   );
 }
@@ -165,7 +167,15 @@ export default function RequestBoardReviewScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const { id } = useLocalSearchParams<{ id: string }>();
-  const { role, readOnly, hydrated, isRequestBoardDesigner, ensureRequestBoardSession } = useSession();
+  const {
+    role,
+    readOnly,
+    staffType,
+    hydrated,
+    isRequestBoardDesigner,
+    requestBoardRole,
+    ensureRequestBoardSession,
+  } = useSession();
 
   const [detail, setDetail] = useState<RbRequestDetail | null>(null);
   const [loading, setLoading] = useState(true);
@@ -540,7 +550,13 @@ export default function RequestBoardReviewScreen() {
     const needsReview =
       isCompleted &&
       (assignment.fc_decision === 'pending' || assignment.fc_decision == null);
-    const canReviewAsFc = !isRequestBoardDesigner && needsReview;
+    const canReviewAsFc = canMakeRequestBoardFcDecision({
+      role,
+      readOnly,
+      staffType,
+      requestBoardRole,
+      isRequestBoardDesigner,
+    }) && needsReview;
     const fcDecided = assignment.fc_decision === 'accepted' || assignment.fc_decision === 'rejected';
     const attachments = assignment.request_attachments ?? [];
     const assignmentCode = [assignment.fc_code_name, assignment.fc_code_value]
@@ -1363,7 +1379,8 @@ const styles = StyleSheet.create({
     gap: SPACING.sm,
   },
   infoField: {
-    width: '48%',
+    width: '100%',
+    minWidth: 0,
     borderWidth: 1,
     borderColor: COLORS.gray[100],
     borderRadius: RADIUS.md,
@@ -1383,6 +1400,7 @@ const styles = StyleSheet.create({
     fontSize: TYPOGRAPHY.fontSize.sm,
     color: COLORS.gray[900],
     fontWeight: '600' as const,
+    lineHeight: 20,
   },
 
   /* Section */

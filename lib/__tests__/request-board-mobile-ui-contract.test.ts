@@ -30,6 +30,14 @@ describe('request-board mobile UI contracts', () => {
     expect(mainScrollBlock).not.toContain('keyboardDismissMode="on-drag"');
   });
 
+  it('keeps the create wizard free of the global bottom navigation that can cover form fields', () => {
+    expect(createSource).not.toContain("import { BottomNavigation }");
+    expect(createSource).not.toContain('<BottomNavigation');
+    expect(createSource).not.toContain('resolveBottomNavActiveKey');
+    expect(createSource).not.toContain('resolveBottomNavPreset');
+    expect(createSource).toContain('screenKeyboardHeight + 96 + insets.bottom');
+  });
+
   it('keeps separate contractor fields visible and validated in the GaramIn new-customer form', () => {
     const emptyCustomerBlock = createSource.slice(
       createSource.indexOf('const EMPTY_CUSTOMER'),
@@ -54,7 +62,11 @@ describe('request-board mobile UI contracts', () => {
     expect(newCustomerBlock).toContain('피보험자 이름');
     expect(newCustomerBlock).toContain('계약자 피보험자 다름');
     expect(newCustomerBlock).toContain('newCustomer.hasSeparatePolicyholder');
-    expect(newCustomerBlock).toContain('setHasSeparatePolicyholder(!newCustomer.hasSeparatePolicyholder)');
+    expect(newCustomerBlock).toContain('toggleSeparatePolicyholder');
+    expect(newCustomerBlock).toContain('onPressIn={toggleSeparatePolicyholder}');
+    expect(newCustomerBlock).toContain('onPress={toggleSeparatePolicyholder}');
+    expect(newCustomerBlock).toContain('accessibilityLabel="계약자 피보험자 다름"');
+    expect(newCustomerBlock).toContain('accessibilityState={{ selected: newCustomer.hasSeparatePolicyholder }}');
     expect(newCustomerBlock).toContain('계약자 이름');
     expect(newCustomerBlock).toContain("updateCustomerField('policyholderName', value)");
     expect(newCustomerBlock).toContain('계약자 주민번호');
@@ -73,6 +85,18 @@ describe('request-board mobile UI contracts', () => {
     expect(saveNewCustomerBlock).toContain('newCustomer.policyholderPhone');
     expect(saveNewCustomerBlock).toContain('newCustomer.policyholderCarrier');
     expect(saveNewCustomerBlock).toContain('newCustomer.policyholderAddress');
+  });
+
+  it('requires complete phone and resident-number inputs before saving new customers', () => {
+    const saveNewCustomerBlock = createSource.slice(
+      createSource.indexOf('const saveNewCustomer = async () => {'),
+      createSource.indexOf('const toggleProduct = (product: MobileRequestProduct) => {'),
+    );
+
+    expect(saveNewCustomerBlock).toContain('isCompleteRequestBoardCustomerPhone(newCustomer.phone)');
+    expect(saveNewCustomerBlock).toContain('isCompleteRequestBoardCustomerSsn(newCustomer.ssn)');
+    expect(saveNewCustomerBlock).toContain("isCompleteRequestBoardCustomerPhone(newCustomer.policyholderPhone ?? '')");
+    expect(saveNewCustomerBlock).toContain("isCompleteRequestBoardCustomerSsn(newCustomer.policyholderSsn ?? '')");
   });
 
   it('keeps GaramIn customer-profile payload fields enterable and validated in the new-customer form', () => {
@@ -170,6 +194,19 @@ describe('request-board mobile UI contracts', () => {
     expect(submitRequestBlock).not.toContain('designerIds: selectedDesignerIds');
   });
 
+  it('handles partial multi-request creation without inviting duplicate retry submissions', () => {
+    const submitRequestBlock = createSource.slice(
+      createSource.indexOf('const submitRequest = async () => {'),
+      createSource.indexOf('const renderCustomerStep = () => ('),
+    );
+
+    expect(submitRequestBlock).toContain('Promise.allSettled');
+    expect(submitRequestBlock).toContain('fulfilledRequests');
+    expect(submitRequestBlock).toContain('failedRequests');
+    expect(submitRequestBlock).toContain('일부 설계요청만 전송되었습니다');
+    expect(submitRequestBlock).not.toContain('const createdResults = await Promise.all(');
+  });
+
   it('blocks existing customers without driving status before creating a GaramIn request', () => {
     const submitRequestBlock = createSource.slice(
       createSource.indexOf('const submitRequest = async () => {'),
@@ -185,6 +222,42 @@ describe('request-board mobile UI contracts', () => {
     expect(requestsSource).toContain('customerDisplayName');
     expect(homeSource).toContain('formatRequestBoardCustomerDisplayName');
     expect(homeSource).toContain('customerDisplayName');
+  });
+
+  it('keeps request list filters horizontally scrollable on narrow phones', () => {
+    const filterTabsBlock = requestsSource.slice(
+      requestsSource.indexOf('<ScrollView'),
+      requestsSource.indexOf('{/* Error */}'),
+    );
+
+    expect(filterTabsBlock).toContain('<ScrollView');
+    expect(filterTabsBlock).toContain('horizontal');
+    expect(filterTabsBlock).toContain('showsHorizontalScrollIndicator={false}');
+    expect(requestsSource).toContain('filterTabsContent');
+  });
+
+  it('renders FC code rows as mobile cards instead of a clipped multi-column table', () => {
+    expect(fcCodesSource).not.toContain('styles.tableHeader');
+    expect(fcCodesSource).not.toContain('tableHeaderCell');
+    expect(fcCodesSource).toContain('styles.codeCard');
+    expect(fcCodesSource).toContain('styles.codeCardHeader');
+    expect(fcCodesSource).toContain('styles.codeValuePill');
+    expect(fcCodesSource).toContain('numberOfLines={2}>{item.insurer_name}');
+  });
+
+  it('keeps long designer picker names and sent summaries constrained', () => {
+    expect(createSource).toContain('styles.managerPickerCopy');
+    expect(createSource).toContain('numberOfLines={1}');
+    expect(createSource).toContain('numberOfLines={2}>{selectedDesigners.map(getDesignerName).join');
+  });
+
+  it('lets long review metadata wrap inside full-width fields', () => {
+    expect(reviewSource).not.toContain("width: '48%'");
+    expect(reviewSource).toContain("width: '100%'");
+    expect(reviewSource).toContain('const valueLineLimit = fullWidth ? undefined : 3;');
+    expect(reviewSource).toContain('numberOfLines={valueLineLimit}');
+    expect(reviewSource).toContain('요청 FC');
+    expect(reviewSource).toContain('FC 코드');
   });
 
   it('shows attachment description and expiry date on the GaramIn review screen', () => {
