@@ -103,6 +103,23 @@ describe('request-board mobile UI contracts', () => {
     expect(newCustomerBlock).toContain('updateWeightField');
   });
 
+  it('keeps wrapped new-customer option groups out of the two-column flex field layout', () => {
+    const newCustomerBlock = createSource.slice(
+      createSource.indexOf('const renderNewCustomerStep = () => ('),
+      createSource.indexOf('const renderComposeStep = () => {'),
+    );
+
+    expect(createSource).toContain('stackedField:');
+    expect((newCustomerBlock.match(/style=\{styles\.stackedField\}/g) ?? []).length).toBeGreaterThanOrEqual(4);
+
+    const stackedFieldBlock = createSource.slice(
+      createSource.indexOf('stackedField:'),
+      createSource.indexOf('fieldLabel:'),
+    );
+    expect(stackedFieldBlock).toContain('gap: 6');
+    expect(stackedFieldBlock).not.toContain('flex: 1');
+  });
+
   it('shows separate contractor details on the GaramIn request review screen', () => {
     expect(reviewSource).toContain('has_separate_policyholder');
     expect(reviewSource).toContain('policyholder_name');

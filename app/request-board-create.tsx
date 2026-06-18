@@ -1192,7 +1192,7 @@ export default function RequestBoardCreateScreen() {
           </Pressable>
         ))}
       </View>
-      <View style={styles.field}>
+      <View style={styles.stackedField}>
         <Text style={styles.fieldLabel}>피보험자 통신사</Text>
         <View style={styles.carrierGrid}>
           {REQUEST_BOARD_CARRIER_OPTIONS.map((carrier) => {
@@ -1279,7 +1279,7 @@ export default function RequestBoardCreateScreen() {
             returnKeyType="next"
             onSubmitEditing={() => focusNextInput(policyholderAddressInputRef)}
           />
-          <View style={styles.field}>
+          <View style={styles.stackedField}>
             <Text style={styles.fieldLabel}>계약자 통신사</Text>
             <View style={styles.carrierGrid}>
               {REQUEST_BOARD_CARRIER_OPTIONS.map((carrier) => {
@@ -1336,7 +1336,7 @@ export default function RequestBoardCreateScreen() {
           onSubmitEditing={() => focusNextInput(heightInputRef)}
         />
       </View>
-      <View style={styles.field}>
+      <View style={styles.stackedField}>
         <Text style={styles.fieldLabel}>운전 구분</Text>
         <View style={styles.drivingStatusGrid}>
           {REQUEST_BOARD_DRIVING_STATUS_OPTIONS.map((option) => {
@@ -1359,7 +1359,7 @@ export default function RequestBoardCreateScreen() {
           })}
         </View>
       </View>
-      <View style={styles.field}>
+      <View style={styles.stackedField}>
         <Text style={styles.fieldLabel}>보험 자격</Text>
         <View style={styles.qualificationGrid}>
           {INSURANCE_QUALIFICATION_OPTIONS.map((option) => {
@@ -1977,6 +1977,9 @@ const styles = StyleSheet.create({
   },
   field: {
     flex: 1,
+    gap: 6,
+  },
+  stackedField: {
     gap: 6,
   },
   fieldLabel: {
