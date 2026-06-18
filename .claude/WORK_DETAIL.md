@@ -7,6 +7,44 @@
 
 ---
 
+## <a id="20260618-request-board-designer-flow-hardening"></a> 2026-06-18 | Request-board designer flow hardening
+
+**배경**:
+- Gmail GitHub 알림에서 `Run failed: Governance Check`가 반복적으로 도착했고, Actions 로그 확인 결과 코드 변경 커밋에 `.claude/WORK_LOG.md`와 `.claude/WORK_DETAIL.md`가 함께 갱신되지 않아 push 이벤트가 실패했다.
+- 같은 작업 묶음에서 가람in FC 설계요청 작성 화면의 별도 계약자/피보험자 입력, 설계매니저 홈 통계, request_board 브리지 세션 정리, 설계요청 메신저 문구도 함께 보강했다.
+
+**조치**:
+- 설계요청 작성 화면에서 별도 계약자/피보험자 토글이 web/native 양쪽에서 안정적으로 열리도록 web role button 경로와 중복 토글 guard를 추가했다.
+- 설계매니저 홈 통계를 `lib/request-board-home-stats.ts` shared helper로 분리해 목록 필터와 동일하게 `rejected` 배정을 완료 버킷에 포함했다.
+- request_board 재인증 필요 상태가 가람in 전체 세션 로그아웃으로 번지지 않도록 request_board 상태만 정리하게 바꿨다.
+- 설계요청 메신저 목록 문구를 `설계매니저 목록`으로 고정했다.
+- Governance Check 요구사항에 맞춰 이번 코드 변경의 작업 요약과 상세 기록을 `.claude/WORK_LOG.md`/`.claude/WORK_DETAIL.md`에 추가했다.
+
+**핵심 파일**:
+- `app/request-board-create.tsx`
+- `app/request-board.tsx`
+- `app/request-board-messenger.tsx`
+- `hooks/use-session.tsx`
+- `lib/request-board-home-stats.ts`
+- `lib/__tests__/request-board-home-stats.test.ts`
+- `lib/__tests__/request-board-mobile-ui-contract.test.ts`
+- `.claude/WORK_LOG.md`
+- `.claude/WORK_DETAIL.md`
+- `.claude/MISTAKES.md`
+
+**검증**:
+- `npm test -- --runTestsByPath lib/__tests__/request-board-home-stats.test.ts lib/__tests__/request-board-mobile-ui-contract.test.ts lib/__tests__/request-board-review-actions.test.ts lib/__tests__/request-board-review-role.contract.test.ts lib/__tests__/request-board-list-filters.test.ts`
+- `npx eslint app/request-board-create.tsx app/request-board.tsx app/request-board-messenger.tsx hooks/use-session.tsx lib/request-board-home-stats.ts lib/__tests__/request-board-home-stats.test.ts lib/__tests__/request-board-mobile-ui-contract.test.ts`
+- `npx tsc --noEmit --pretty false`
+- `npm run build`
+- `node scripts/ci/check-governance.mjs`
+
+**후속/주의**:
+- 코드 경로를 건드리는 모든 커밋은 push 전에 `node scripts/ci/check-governance.mjs`를 실행하고, `.claude/WORK_LOG.md`와 `.claude/WORK_DETAIL.md`가 같은 커밋에 포함됐는지 확인해야 한다.
+- iOS Simulator는 Windows 환경에서 `xcrun`이 없어 실행하지 못했고, Expo web/in-app browser 경로로 대체 검증했다.
+
+---
+
 ## <a id="20260616-plugin-routing-contract"></a> 2026-06-16 | Plugin routing contract
 
 **배경**:

@@ -2214,3 +2214,11 @@
 - Verification:
   - RED/GREEN `npm test -- --runTestsByPath lib/__tests__/request-board-mobile-ui-contract.test.ts`
   - In-app browser: `/request-board-create?entry=newCustomer` loads without `데이터 로드 실패`; keyboard activation of the toggle shows the separate contractor inputs.
+
+## 2026-06-18 | Governance Work Log Omission | push run failed after code commits
+- Symptom: Gmail reported repeated `Run failed: Governance Check` messages immediately after pushing request-board fixes. GitHub Actions logs showed `Code changed but WORK_LOG.md and WORK_DETAIL.md were not both updated.`
+- Root cause: The implementation commits updated code, tests, harness notes, and mistake ledgers, but skipped the repo-required `.claude/WORK_LOG.md` and `.claude/WORK_DETAIL.md` pair.
+- Why it was missed: Local verification covered Jest, ESLint, TypeScript, Expo export, server build, and `git diff --check`, but did not run `node scripts/ci/check-governance.mjs` before commit in the fc app repo.
+- Permanent guardrail: Before any push that includes code-path changes, run `node scripts/ci/check-governance.mjs` and confirm both `.claude/WORK_LOG.md` and `.claude/WORK_DETAIL.md` are staged in the same commit. Treat these docs as required release metadata, not optional handoff notes.
+- Related files: `.claude/WORK_LOG.md`, `.claude/WORK_DETAIL.md`, `scripts/ci/check-governance.mjs`
+- Verification: Gmail alert was traced to GitHub Actions run `27747659856`; this fix adds the missing work log/detail pair and reruns local governance before push.
