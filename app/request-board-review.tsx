@@ -13,11 +13,13 @@ import {
   TextInput,
   View,
 } from 'react-native';
+import Animated from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import BrandedLoadingSpinner from '@/components/BrandedLoadingSpinner';
 import BrandedLoadingState from '@/components/BrandedLoadingState';
 import { BottomNavigation } from '@/components/BottomNavigation';
+import { useBottomNavAnimation } from '@/hooks/use-bottom-nav-animation';
 import { useSession } from '@/hooks/use-session';
 import { resolveBottomNavActiveKey, resolveBottomNavPreset } from '@/lib/bottom-navigation';
 import { logger } from '@/lib/logger';
@@ -25,6 +27,7 @@ import { formatRequestBoardFcDisplayName } from '@/lib/request-board-fc-identity
 import { openExternalUrl } from '@/lib/open-external-url';
 import { formatRequestBoardDrivingStatus } from '@/lib/request-board-driving-status';
 import { canMakeRequestBoardFcDecision } from '@/lib/request-board-permissions';
+import { formatRequestBoardCustomerDisplayName } from '@/lib/request-board-policyholder-display';
 import {
   rbAcceptRequest,
   rbApproveDesign,
@@ -70,6 +73,13 @@ const formatSsn = (value?: string | null) => {
 const formatNullable = (value?: string | null) => {
   const normalized = String(value ?? '').trim();
   return normalized || '-';
+};
+
+const formatDesignCodeDisplay = (codeValue?: unknown, fallbackName?: unknown): string | null => {
+  const value = String(codeValue ?? '').trim();
+  if (value) return value;
+  const fallback = String(fallbackName ?? '').trim();
+  return fallback || null;
 };
 
 const formatGender = (value?: string | null) => {
@@ -120,6 +130,21 @@ const formatInsuranceQualifications = (value?: RbRequestDetail['insurance_qualif
   return labels.length > 0 ? labels.join(', ') : '-';
 };
 
+const getPolicyholderSummary = (detail: RbRequestDetail): string => {
+  const name = formatNullable(detail.policyholder_name);
+  const phone = formatPhone(detail.policyholder_phone);
+  const carrier = formatNullable(detail.policyholder_carrier);
+  const address = formatNullable(detail.policyholder_address);
+  const parts = [
+    name !== '-' ? `계약자: ${name}` : '계약자: 이름 미입력',
+    phone !== '-' ? phone : null,
+    carrier !== '-' ? carrier : null,
+    address !== '-' ? address : null,
+  ].filter((value): value is string => Boolean(value));
+
+  return parts.length > 0 ? parts.join(' · ') : '계약자: 정보 확인 필요';
+};
+
 /* ─── Sub-components ─── */
 
 function StatusBadge({ status, label, color, bg }: { status: string; label: string; color: string; bg: string }) {
@@ -166,6 +191,7 @@ type AttachmentUploadDraft = {
 export default function RequestBoardReviewScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
+  const { scrollHandler, animatedStyle } = useBottomNavAnimation();
   const { id } = useLocalSearchParams<{ id: string }>();
   const {
     role,
@@ -559,10 +585,7 @@ export default function RequestBoardReviewScreen() {
     }) && needsReview;
     const fcDecided = assignment.fc_decision === 'accepted' || assignment.fc_decision === 'rejected';
     const attachments = assignment.request_attachments ?? [];
-    const assignmentCode = [assignment.fc_code_name, assignment.fc_code_value]
-      .map((value) => String(value ?? '').trim())
-      .filter((value) => value.length > 0)
-      .join(' / ');
+    const assignmentCode = formatDesignCodeDisplay(assignment.fc_code_value, assignment.fc_code_name);
 
     return (
       <View
@@ -618,7 +641,7 @@ export default function RequestBoardReviewScreen() {
             {assignmentCode ? (
               <View style={styles.assignmentMetaNote}>
                 <Feather name="hash" size={12} color={COLORS.primary} />
-                <Text style={styles.assignmentMetaText}>설계코드 {assignmentCode}</Text>
+                <Text style={styles.assignmentMetaText}>설계 코드: {assignmentCode}</Text>
               </View>
             ) : null}
             {assignment.status === 'rejected' && assignment.rejection_reason ? (
@@ -897,25 +920,39 @@ export default function RequestBoardReviewScreen() {
           </Pressable>
         </View>
       ) : detail ? (
-        <ScrollView
+        <Animated.ScrollView
           contentContainerStyle={[styles.scrollContent, { paddingBottom: 80 + insets.bottom }]}
           showsVerticalScrollIndicator={false}
+          onScroll={scrollHandler}
+          scrollEventThrottle={16}
         >
           {(() => {
+            const hasSeparatePolicyholder = Boolean(detail.has_separate_policyholder);
+            const customerDisplayName = formatRequestBoardCustomerDisplayName({
+              customerName: detail.customer_name,
+              hasSeparatePolicyholder: detail.has_separate_policyholder,
+              policyholderName: detail.policyholder_name,
+            });
+            const policyholderSummary = getPolicyholderSummary(detail);
+            const rawRequestFcName = String(detail.fc?.name ?? '').trim();
+            const requestFcName = rawRequestFcName
+              ? formatRequestBoardFcDisplayName(detail.fc?.name, detail.fc?.affiliation)
+              : null;
+            const requestFcPhone = formatPhone(detail.fc?.phone);
+            const requestDesignCode = formatDesignCodeDisplay(detail.fc_code_value, detail.fc_code_name);
+            const requestFcSummary = [
+              requestFcName ? `요청 FC: ${requestFcName}` : null,
+              requestDesignCode ? `설계 코드: ${requestDesignCode}` : null,
+              requestFcPhone !== '-' ? `전화번호: ${requestFcPhone}` : null,
+            ]
+              .filter(Boolean)
+              .join(' · ');
             const requestFields = [
               { label: '요청일', value: formatDate(detail.created_at) },
-              { label: '고객명', value: formatNullable(detail.customer_name) },
-              {
-                label: '요청 FC',
-                value: `${formatRequestBoardFcDisplayName(detail.fc?.name ?? '-', detail.fc?.affiliation)} (${formatPhone(detail.fc?.phone)})`,
-              },
-              {
-                label: 'FC 코드',
-                value: [detail.fc_code_name, detail.fc_code_value]
-                  .map((value) => String(value ?? '').trim())
-                  .filter((value) => value.length > 0)
-                  .join(' / ') || '-',
-              },
+              { label: '고객명', value: customerDisplayName },
+              { label: '요청 FC', value: requestFcName ?? '-' },
+              { label: '전화번호', value: requestFcPhone },
+              { label: '설계 코드', value: requestDesignCode ?? '-' },
               { label: '요청 상품', value: getProductNames(detail), fullWidth: true },
             ];
             const customerFields = [
@@ -978,6 +1015,24 @@ export default function RequestBoardReviewScreen() {
                 })()}
               </View>
               <Text style={styles.infoProducts}>{getProductNames(detail)}</Text>
+              {hasSeparatePolicyholder ? (
+                <View style={styles.policyholderSummary}>
+                  <View style={styles.policyholderSummaryBadge}>
+                    <Text style={styles.policyholderSummaryBadgeText}>계약자 다름</Text>
+                  </View>
+                  <Text style={styles.policyholderSummaryText} numberOfLines={2}>
+                    {policyholderSummary}
+                  </Text>
+                </View>
+              ) : null}
+              {requestFcSummary ? (
+                <View style={styles.requestFcSummary}>
+                  <Feather name="user" size={13} color={COLORS.primary} />
+                  <Text style={styles.requestFcSummaryText} numberOfLines={2}>
+                    {requestFcSummary}
+                  </Text>
+                </View>
+              ) : null}
             </View>
             <InfoSection title="의뢰 정보">
               {requestFields.map((field) => (
@@ -1004,16 +1059,6 @@ export default function RequestBoardReviewScreen() {
                 />
               ))}
             </InfoSection>
-            <InfoSection title="계약자 정보">
-              {policyholderFields.map((field) => (
-                <InfoField
-                  key={field.label}
-                  label={field.label}
-                  value={field.value}
-                  fullWidth={field.fullWidth}
-                />
-              ))}
-            </InfoSection>
             <InfoSection title="건강 정보">
               {healthFields.map((field) => (
                 <InfoField key={field.label} label={field.label} value={field.value} />
@@ -1032,6 +1077,23 @@ export default function RequestBoardReviewScreen() {
               </InfoSection>
             ) : null}
           </View>
+          {hasSeparatePolicyholder ? (
+            <>
+              <Text style={styles.sectionTitle}>계약자 정보</Text>
+              <View style={styles.infoCard}>
+                <View style={styles.infoGrid}>
+                  {policyholderFields.map((field) => (
+                    <InfoField
+                      key={field.label}
+                      label={field.label}
+                      value={field.value}
+                      fullWidth={field.fullWidth}
+                    />
+                  ))}
+                </View>
+              </View>
+            </>
+          ) : null}
               </>
             );
           })()}
@@ -1049,12 +1111,13 @@ export default function RequestBoardReviewScreen() {
           ) : (
             (detail.request_designers ?? []).map(renderAssignment)
           )}
-        </ScrollView>
+        </Animated.ScrollView>
       ) : null}
 
       <BottomNavigation
         preset={navPreset ?? undefined}
         activeKey={navActiveKey}
+        animatedStyle={animatedStyle}
         bottomInset={insets.bottom}
       />
 
@@ -1363,6 +1426,58 @@ const styles = StyleSheet.create({
   infoProducts: {
     fontSize: TYPOGRAPHY.fontSize.sm,
     color: COLORS.text.muted,
+  },
+  policyholderSummary: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flexWrap: 'wrap',
+    gap: 6,
+    marginTop: SPACING.xs,
+    paddingHorizontal: SPACING.sm,
+    paddingVertical: SPACING.xs,
+    borderWidth: 1,
+    borderColor: '#FED7AA',
+    borderRadius: RADIUS.md,
+    backgroundColor: '#FFF7ED',
+  },
+  policyholderSummaryBadge: {
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 12,
+    backgroundColor: '#EA580C',
+  },
+  policyholderSummaryBadgeText: {
+    fontSize: TYPOGRAPHY.fontSize.xs,
+    fontWeight: '800' as const,
+    color: '#fff',
+  },
+  policyholderSummaryText: {
+    flex: 1,
+    minWidth: 180,
+    fontSize: TYPOGRAPHY.fontSize.xs,
+    fontWeight: '700' as const,
+    color: '#9A3412',
+    lineHeight: 18,
+  },
+  requestFcSummary: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: 6,
+    marginTop: SPACING.xs,
+    paddingHorizontal: SPACING.sm,
+    paddingVertical: SPACING.xs,
+    borderWidth: 1,
+    borderColor: '#BFDBFE',
+    borderRadius: RADIUS.md,
+    backgroundColor: '#EFF6FF',
+  },
+  requestFcSummaryText: {
+    flex: 1,
+    minWidth: 0,
+    fontSize: TYPOGRAPHY.fontSize.xs,
+    fontWeight: '800' as const,
+    color: COLORS.primary,
+    lineHeight: 18,
   },
   infoSection: {
     marginTop: SPACING.md,

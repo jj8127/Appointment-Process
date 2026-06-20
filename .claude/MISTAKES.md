@@ -30,6 +30,23 @@
 - Verification:
 ```
 
+## 2026-06-20 | Request Board Review Detail | JSX block move exposed a compile overlay
+- Symptom:
+  - While moving request-detail `계약자 정보` and FC requester summary, the in-app browser showed `Failed to compile` around `app/request-board-review.tsx` because a duplicated JSX tail/closing block briefly remained in the file.
+- Root cause:
+  - A large JSX section was edited with string/range replacement after `apply_patch` and the Windows sandbox helper failed, and the intermediate structure was not compiled before the browser hot-reloaded it.
+- Why it was missed:
+  - I treated a local source slice as enough evidence after the edit instead of immediately running `npx eslint`/`npx tsc --noEmit` before returning attention to browser feedback.
+- Permanent guardrail:
+  - For request-board JSX moves, especially when using fallback PowerShell edits, run a syntax gate (`npx eslint <changed tsx>` or `npx tsc --noEmit`) immediately after each structural JSX move before considering the UI ready for browser refresh.
+  - Prefer smaller JSX component extractions or line-based edits over broad string/range replacement when `apply_patch` is unavailable.
+- Related files:
+  - `app/request-board-review.tsx`
+  - `.codex/harness/qa-report.md`
+- Verification:
+  - Passed: `npx eslint app/request-board-review.tsx app/request-board.tsx app/request-board-requests.tsx lib/request-board-api.ts lib/__tests__/request-board-mobile-ui-contract.test.ts lib/__tests__/request-board-api-contract.test.ts`.
+  - Passed: `npx tsc --noEmit`.
+  - Passed: `npm test -- --runInBand lib/__tests__/request-board-mobile-ui-contract.test.ts lib/__tests__/request-board-api-contract.test.ts`.
 ## 2026-06-18 | Request Board Policyholder Toggle | Web-only raw div did not open the policyholder fields
 - Symptom:
   - During UI verification, the "계약자 피보험자 다름" control was visible in the web request-board create flow but activating the web-only raw `div` path did not reveal the contractor/policyholder fields.
@@ -2258,3 +2275,71 @@
 - Permanent guardrail: Before any push that includes code-path changes, the local pre-push hook must run `scripts/ci/pre-push-governance.mjs`, which checks the exact remote SHA to local SHA push diff. If the hook is missing, run `npm run governance:install-hook` before pushing. Treat `.claude/WORK_LOG.md` and `.claude/WORK_DETAIL.md` as required release metadata, not optional handoff notes.
 - Related files: `.claude/WORK_LOG.md`, `.claude/WORK_DETAIL.md`, `scripts/ci/check-governance.mjs`, `scripts/ci/pre-push-governance.mjs`, `scripts/ci/install-governance-hook.mjs`
 - Verification: Gmail alert was traced to GitHub Actions run `27747659856`; this fix adds the missing work log/detail pair, installs the local pre-push governance hook, and verifies old bad push diffs fail locally while repaired push diffs pass.
+
+## 2026-06-19 | Role E2E Evidence Capture Leakage | full UI/log dumps exposed sensitive payload classes
+- Symptom: During role-based E2E investigation, full browser/body/console inspection paths exposed sensitive identifier or token classes from request_board/admin_web/mobile logs. The final artifacts were sanitized, but the capture method itself was unsafe.
+- Root cause: The QA harness used broad page text/console capture while exploring unfamiliar UI state. Several product surfaces also log large payloads or sensitive runtime fields, so even "just inspect the page/log" can collect data that must not be persisted.
+- Why it was missed: Earlier runtime checks optimized for speed and completeness instead of applying a strict evidence-minimization contract before the first UI dump.
+- Permanent guardrail: E2E evidence must capture only masked account labels, route/API status, role, permission, and aggregate counts. Do not dump full page body text, browser storage, HARs, screenshots of PII screens, signed URLs, JWT/bridge/app-session values, push tokens, resident numbers/SSNs, or unfiltered console payloads. Add an evidence scanner before storing `.codex/harness` artifacts when a run touches auth, request_board, documents, chat, referral, or push flows.
+- Related files: `.codex/harness/qa-report.md`, `.codex/harness/handoff.md`, `docs/testing/INTEGRATED_TEST_RUN_RESULT.json`, `docs/referral-system/TEST_RUN_RESULT.json`
+- Verification: Current 2026-06-19 result files use masked labels and sanitized status/evidence notes only; raw sensitive values are intentionally omitted.
+
+## 2026-06-20 | GaramIn Customer Management Web QA Drift | stacked card actions and wrong local request_board API default
+- Symptom:
+  - In Expo web customer-management, `요청 작성`, `수정`, and `삭제` were stacked vertically on the right side of each customer card, causing excessive height and awkward whitespace.
+  - `/request-board` web QA showed `서버에 연결할 수 없습니다` because local Expo web was bundled against production request_board or an incorrect local API port.
+- Root cause:
+  - The customer card treated all three actions as equal full text buttons in a vertical side rail instead of separating one primary action from compact secondary actions.
+  - GaramIn local request_board URL derivation used API port `3000`, while request_board server development defaults to `3001`.
+- Why it was missed:
+  - Source contracts covered action existence but not action density or horizontal layout.
+  - Local web QA started Expo on fallback port `8082`, but the request_board local API/web routing contract was not checked before opening the browser.
+- Permanent guardrail:
+  - Customer-management cards must keep `요청 작성` as a primary card action and keep `수정`/`삭제` as compact secondary actions in a horizontal action row.
+  - GaramIn local request_board API defaults must stay aligned with request_board server port `3001`, with source contract coverage.
+- Related files:
+  - `app/request-board-create.tsx`
+  - `lib/request-board-url.ts`
+  - `lib/__tests__/request-board-mobile-ui-contract.test.ts`
+  - `lib/__tests__/request-board-api-contract.test.ts`
+- Verification:
+  - RED/GREEN `npm test -- --runInBand lib/__tests__/request-board-mobile-ui-contract.test.ts`
+  - `npm test -- --runInBand lib/__tests__/request-board-mobile-ui-contract.test.ts lib/__tests__/request-board-api-contract.test.ts`
+  - `npx eslint app/request-board-create.tsx lib/request-board-api.ts lib/request-board-url.ts lib/__tests__/request-board-mobile-ui-contract.test.ts lib/__tests__/request-board-api-contract.test.ts`
+  - `npx tsc --noEmit`
+
+## 2026-06-20 | Customer Form Textarea Spacing | multiline Field labels crowded against previous textarea
+- Symptom:
+  - In GaramIn customer registration/edit web view, the `최근 병원 진료` label appeared visually attached to the previous textarea border.
+- Root cause:
+  - The shared `Field` wrapper used the same compact vertical spacing for one-line inputs and multiline textarea inputs. A textarea's larger box needs extra bottom spacing before the next label.
+- Why it was missed:
+  - Source contracts covered field presence and validation but not spacing between consecutive multiline health fields.
+- Permanent guardrail:
+  - Multiline `Field` instances must apply `styles.multilineField` with bottom spacing, while one-line fields keep the compact base `styles.field` spacing.
+- Related files:
+  - `app/request-board-create.tsx`
+  - `lib/__tests__/request-board-mobile-ui-contract.test.ts`
+- Verification:
+  - RED/GREEN `npm test -- --runInBand lib/__tests__/request-board-mobile-ui-contract.test.ts`
+  - `npx eslint app/request-board-create.tsx lib/__tests__/request-board-mobile-ui-contract.test.ts`
+
+## 2026-06-20 | Customer Carrier MVNO Collapse | 알뜰폰 saved without network identity
+- Symptom:
+  - GaramIn customer registration/edit only offered `알뜰폰`, so users could not distinguish 알뜰폰 SKT, 알뜰폰 KT, or 알뜰폰 LG U+.
+- Root cause:
+  - The mobile customer form carrier option list collapsed all MVNO carriers into one label, losing the underlying network information needed for customer records.
+- Why it was missed:
+  - Source contracts checked carrier field persistence but not the completeness of the carrier option taxonomy.
+- Permanent guardrail:
+  - Customer carrier options must include network-specific MVNO labels: `알뜰폰 SKT`, `알뜰폰 KT`, and `알뜰폰 LG U+`. Do not reintroduce a generic-only `알뜰폰` option for customer records.
+- Related files:
+  - `app/request-board-create.tsx`
+  - `lib/__tests__/request-board-mobile-ui-contract.test.ts`
+- Verification:
+  - RED/GREEN `npm test -- --runInBand lib/__tests__/request-board-mobile-ui-contract.test.ts`
+## 2026-06-20 | Customer Selection Actions | delete was limited to customer-management
+- Symptom: `/request-board-create` normal customer selection showed `선택` and `수정`, but not `삭제`, even though the user expected the same saved-customer management action there.
+- Root cause: The delete button render was gated by `isCustomerManagement`; the delete handler itself already handled selected-customer cleanup safely.
+- Fix: Render the delete action in both normal customer selection and customer-management cards, while keeping customer-management's primary action as `요청 작성` and normal flow's primary action as `선택`.
+- Guardrail: `request-board-mobile-ui-contract.test.ts` now asserts the delete action is not gated by `isCustomerManagement` and that separate-policyholder summaries use explicit colon labels across list/detail surfaces.

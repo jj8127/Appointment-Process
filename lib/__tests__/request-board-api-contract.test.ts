@@ -14,6 +14,21 @@ describe('request board mobile API wrapper contract', () => {
     expect(source).toContain("rbFetch<RbRequestDetail>('/api/requests'");
   });
 
+  it('keeps mobile customer update/delete aligned with GaramLink customer endpoints', () => {
+    expect(source).toContain('export type RbSaveCustomerPayload');
+    expect(source).toContain('id?: number;');
+    expect(source).toContain('export async function rbDeleteCustomer');
+    expect(source).toContain('`/api/customers/${id}`');
+    expect(source).toContain("method: 'DELETE'");
+  });
+
+  it('keeps local GaramLink API development port aligned with the request_board server', () => {
+    const urlSource = readFileSync('lib/request-board-url.ts', 'utf8');
+
+    expect(urlSource).toContain("const REQUEST_BOARD_DEV_API_PORT = '3001'");
+    expect(urlSource).toContain("const REQUEST_BOARD_DEV_WEB_PORT = '5173'");
+  });
+
   it('exposes designer-side direct action wrappers against current GaramLink endpoints', () => {
     expect(source).toContain('export async function rbAcceptRequest');
     expect(source).toContain("`/api/requests/${requestId}/designers/${designerId}/accept`");
@@ -47,6 +62,18 @@ describe('request board mobile API wrapper contract', () => {
     expect(source).toContain('fcCodeValue?: string | null');
     expect(source).toContain('fcCompanyCodeId?: number | null');
     expect(source).toContain('code_name?: string | null');
+  });
+  it('keeps FC code snapshots available on request list items', () => {
+    const listItemBlock = source.slice(
+      source.indexOf('export type RbRequestListItem'),
+      source.indexOf('export type RbRequestDetail'),
+    );
+
+    expect(listItemBlock).toContain('fc_code_name?: string | null');
+    expect(listItemBlock).toContain('fc_code_value?: string | null');
+    expect(listItemBlock).toContain('fc?: {');
+    expect(listItemBlock).toContain('phone?: string | null');
+    expect(listItemBlock).toContain('fc_company_code_id?: number | null');
   });
 
   it('keeps separate policyholder fields in create payloads and request detail reads', () => {

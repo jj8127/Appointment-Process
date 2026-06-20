@@ -1,4 +1,4 @@
-﻿# 작업 로그
+# 작업 로그
 
 > AI Agent는 매 세션 시작 시 이 파일을 먼저 읽고, 작업 시작 전에 최신 앵커를 확인하세요.
 > 상세 이력: [WORK_DETAIL.md](WORK_DETAIL.md)
@@ -17,6 +17,11 @@
 - ⚠️ 상태값(`types/fc.ts`)과 화면 분기 조건은 반드시 함께 수정
 - ⚠️ 스키마 변경은 `schema.sql` + `migrations/*.sql` 동시 관리
 
+## 2026-06-20
+
+| 날짜 | 작업 | 주요 파일 | 상세 |
+|---|---|---|---|
+| 06-20 | 가람in 고객관리 수정/삭제, 계약자 분리/FC 식별 정보 표시, 설계요청 하단 네비 동작/상세 UI 정리 | `app/request-board-create.tsx`, `app/request-board.tsx`, `app/request-board-requests.tsx`, `app/request-board-review.tsx`, `app/request-board-fc-codes.tsx`, `lib/request-board-api.ts` | [→ 상세](WORK_DETAIL.md#20260620-request-board-customer-fc-identity-polish) |
 ## 2026-06-18
 
 | 날짜 | 작업 | 주요 파일 | 상세 |

@@ -1,4 +1,4 @@
-﻿# Increment 55: Admin Exam Legacy Apply Route Redirect
+# Increment 55: Admin Exam Legacy Apply Route Redirect
 
 Status: completed and deployed on 2026-06-08
 
@@ -1709,3 +1709,125 @@ Out of scope:
 
 - Native EAS build or store submission.
 - Changing request_board database schema.
+# Active Investigation Plan: Role-Based E2E Audit 2026-06-19
+
+Status: in progress
+
+Execution order:
+
+1. Completed: inspect dirty worktree, mistake ledgers, available env files, Android SDK/AVD state, and QA scripts without printing secrets.
+2. In progress: refresh harness artifacts and initialize integrated/referral run-result files for a new 2026-06-19 run.
+3. Pending: prepare four Android AVD roles (`Hanhwa_FC`, `Hanhwa_Manager`, `Hanhwa_Admin`, `Hanhwa_Designer`) and reuse or build a development-client APK.
+4. Pending: start `expo start --dev-client`, admin web Next dev server, and request_board server/client dev servers, recording actual URLs/ports.
+5. Pending: run automated checks first, then role-oriented UI/runtime checks where the environment permits.
+6. Pending: mark all integrated and referral cases with PASS/FAIL/BLOCKED/SKIPPED, run integrated-result validation, and record defects/optimization candidates.
+
+Parallel role tracks:
+
+- FC: signup/onboarding, appointment state, request creation, approve/reject decision, board, chat, referral code/link.
+- Headquarters manager: read-only boundary, own board content, request_board `fc` bridge behavior, design codes, referral participation.
+- Secretary/admin: Android operations plus `admin_web` dashboard/docs/appointment/exam/board/notifications/messenger/settings/referrals.
+- Design manager: request_board login, accept/reject/complete/attach, FC decision confirmation, chat/PWA/mobile two-tab behavior.
+
+Out of scope for this investigation:
+
+- Production deployment, store release, OTA update, or schema mutation.
+- Fixing defects discovered during QA, unless the user requests a follow-up fix pass.
+- Raw PII/secret capture in logs or artifacts.
+
+---
+
+# Active Investigation Result: Role-Based E2E Audit 2026-06-19
+
+Status: runtime execution complete for current credentials; follow-up fix/data pass required.
+
+Completed execution order:
+
+1. Completed: inspected dirty worktree, mistake ledgers, available env files, Android SDK/AVD state, and QA scripts without printing secrets.
+2. Completed: refreshed harness artifacts and initialized integrated/referral run-result files.
+3. Completed: prepared and launched four Android AVD roles (`Hanhwa_FC`, `Hanhwa_Manager`, `Hanhwa_Admin`, `Hanhwa_Designer`).
+4. Completed with workaround: EAS local Android build is unsupported on Windows, so an x86_64 debug APK was built with Gradle and installed on all four AVDs.
+5. Completed: started Expo, admin_web, request_board server, and request_board client dev servers; runtime ports were 8081, 3000, 3001, and 5173.
+6. Completed: ran automated checks for app, admin_web, and request_board.
+7. Completed: ran role-oriented UI/API runtime checks for FC, manager, design manager, and admin_web boundary behavior.
+8. Completed: marked all integrated and referral cases with PASS/FAIL/BLOCKED/SKIPPED and ran integrated-result validation.
+9. Completed: recorded defects and optimization candidates in QA/handoff artifacts.
+
+Current result summary:
+
+- Integrated result: PASS 17, FAIL 3, BLOCKED 28, SKIPPED 4; `npm run qa:validate:integrated` returned OK.
+- Referral result: PASS 9, FAIL 3, BLOCKED 29, SKIPPED 1; no NOT_RUN rows remain.
+- Newly reduced blockers: RB-02 address-copy/guide UI, RB-08 FC/manager design-code lifecycle, and RF-ADMIN-08 graph drag/reset/canvas evidence.
+- Primary blockers: supplied developer/admin candidate password for masked account `***6018` fails login, and destructive flows require disposable isolated accounts.
+- Primary confirmed failures: admin_web manager referral list GET 500 from oversized referral query/header overflow, sensitive runtime payload classes appearing in logs/UI evidence paths, and insufficient token/PII redaction for safe E2E evidence capture.
+
+Next execution order:
+
+1. Get the correct developer/admin password for masked account `***6018`, or explicit permission to reset/create a disposable developer admin actor.
+2. Create disposable FC/manager/designer records for signup, referral mutation, board mutation, and delete cases.
+3. Fix or ticket the confirmed defects before allowing screenshot/HAR/body-dump evidence.
+4. Re-run only the BLOCKED/SKIPPED cases, then revalidate integrated/referral result files.
+
+---
+
+# Increment Plan: GaramIn Customer Management Edit/Delete 2026-06-20
+
+Status: implemented locally.
+
+Execution order:
+
+1. Completed: added focused RED contract tests for mobile customer-management actions and API delete compatibility.
+2. Completed: added the mobile `rbDeleteCustomer()` wrapper for the existing GaramLink `DELETE /api/customers/:id` contract.
+3. Completed: reused the mobile customer form for edit mode, preserving existing customer profile fields and `id` in the save payload.
+4. Completed: separated customer-management card actions (`요청 작성`, `수정`, `삭제`) from the normal request-selection flow.
+5. Completed: merged saved customer rows and removed deleted rows locally without a full customer-list refetch.
+6. Completed: ran focused Jest, targeted ESLint, and TypeScript verification.
+
+Out of scope:
+
+- No new backend API or schema migration.
+- No request_board server/client behavior change.
+- No destructive runtime QA against real saved customers.
+
+---
+
+# Increment: Customer Management Action Density And Local API 2026-06-20
+
+Status: implemented locally.
+
+Changes:
+
+- Reworked GaramIn customer-management cards from a right-side vertical action stack to a compact bottom action row.
+- Kept `요청 작성` as the primary action and changed `수정`/`삭제` into compact icon+label secondary actions.
+- Corrected GaramIn local request_board API derivation from port `3000` to request_board server port `3001`.
+- Restarted Expo web on `http://localhost:8082` with local request_board API `http://localhost:3001`.
+
+Verification:
+
+- RED/GREEN: `npm test -- --runInBand lib/__tests__/request-board-mobile-ui-contract.test.ts`.
+- Passed: `npm test -- --runInBand lib/__tests__/request-board-mobile-ui-contract.test.ts lib/__tests__/request-board-api-contract.test.ts` (37/37).
+- Passed: `npx eslint app/request-board-create.tsx lib/request-board-api.ts lib/request-board-url.ts lib/__tests__/request-board-mobile-ui-contract.test.ts lib/__tests__/request-board-api-contract.test.ts`.
+- Passed: `npx tsc --noEmit`.
+
+Runtime note:
+
+- Browser automation could not attach because the local browser tool failed with a Windows permission error, so user-side refresh/visual confirmation remains the final visual check.
+---
+
+# Increment Plan: Request Board FC Identity and Contractor Detail Split 2026-06-20
+
+Status: completed locally.
+
+Execution order:
+
+1. Completed: confirmed request list/detail API already exposes FC code snapshots and added mobile list typing for nested `fc` requester identity.
+2. Completed: changed home quick-request cards to show requesting FC name, design code value, and phone without the company-name/code combined label.
+3. Completed: changed request-list cards to show the same FC contact summary and kept decision status in the lower metadata row.
+4. Completed: changed request detail to show requesting FC summary and request metadata labels `요청 FC`, `전화번호`, and `설계 코드`.
+5. Completed: moved request-detail `계약자 정보` into a separate section/card after `건강 정보` and before `설계 진행`.
+6. Completed: deleted the exact unreferenced `?????` company-name test data from Supabase and verified zero active question-mark-only names remain.
+7. Completed: updated contract tests and reran Jest, ESLint, and TypeScript.
+
+Follow-up:
+
+- User may refresh the in-app browser if it still shows the stale compile overlay from before the JSX fix.

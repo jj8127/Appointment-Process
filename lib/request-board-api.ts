@@ -898,6 +898,11 @@ export async function rbSaveCustomer(
   });
 }
 
+export async function rbDeleteCustomer(
+  id: number,
+): Promise<{ success: boolean; error?: string }> {
+  return rbFetch<undefined>(`/api/customers/${id}`, { method: 'DELETE' });
+}
 export type RbDirectMessageUser = {
   id: number;
   name: string;
@@ -1028,6 +1033,15 @@ export type RbRequestListItem = {
   has_separate_policyholder?: boolean | null;
   policyholder_name?: string | null;
   customer_display_name?: string | null;
+  fc_code_name?: string | null;
+  fc_code_value?: string | null;
+  fc?: {
+    id: number;
+    name: string;
+    email?: string | null;
+    phone?: string | null;
+    affiliation?: string | null;
+  } | null;
   created_at: string;
   request_products?: {
     product_id: number;
@@ -1037,6 +1051,9 @@ export type RbRequestListItem = {
     id: number;
     designer_id: number;
     status: string;
+    fc_company_code_id?: number | null;
+    fc_code_name?: string | null;
+    fc_code_value?: string | null;
     fc_decision: 'pending' | 'accepted' | 'rejected' | null;
     completed_at?: string | null;
     rejection_reason?: string | null;

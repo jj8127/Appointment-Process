@@ -61,6 +61,7 @@ import {
 } from '@/lib/request-board-create-flow';
 import {
   rbCreateRequest,
+  rbDeleteCustomer,
   rbGetCustomers,
   rbGetDesigners,
   rbGetFcCodes,
@@ -136,6 +137,53 @@ const buildSeparatePolicyholderState = (
   policyholderAddress: value ? prev.policyholderAddress : '',
 });
 
+const createEmptyCustomerPayload = (): RbSaveCustomerPayload => ({
+  ...EMPTY_CUSTOMER,
+  insuranceQualifications: {
+    property: false,
+    life: false,
+    third: false,
+  },
+});
+
+const mapCustomerProfileToSavePayload = (customer: RbCustomerProfile): RbSaveCustomerPayload => ({
+  id: customer.id,
+  name: customer.name,
+  gender: customer.gender,
+  birthDate: customer.birthDate,
+  phone: customer.phone,
+  ssn: customer.ssn,
+  hasSeparatePolicyholder: Boolean(customer.hasSeparatePolicyholder),
+  policyholderName: customer.policyholderName ?? '',
+  policyholderSsn: customer.policyholderSsn ?? '',
+  policyholderPhone: customer.policyholderPhone ?? '',
+  policyholderCarrier: customer.policyholderCarrier ?? '',
+  policyholderAddress: customer.policyholderAddress ?? '',
+  carrier: customer.carrier ?? '',
+  address: customer.address ?? '',
+  job: customer.job ?? '',
+  drivingStatus: customer.drivingStatus ?? '',
+  income: customer.income ?? '',
+  email: customer.email ?? '',
+  height: customer.height ?? '',
+  weight: customer.weight ?? '',
+  referrer: customer.referrer ?? '',
+  recentHospitalVisit: customer.recentHospitalVisit ?? '',
+  currentMedication: customer.currentMedication ?? '',
+  hospitalizationHistory: customer.hospitalizationHistory ?? '',
+  majorDiseases: customer.majorDiseases ?? '',
+  requestDetails: customer.requestDetails ?? '',
+  insuranceQualifications: {
+    property: Boolean(customer.insuranceQualifications?.property),
+    life: Boolean(customer.insuranceQualifications?.life),
+    third: Boolean(customer.insuranceQualifications?.third),
+  },
+});
+
+const mergeCustomerIntoList = (
+  customers: RbCustomerProfile[],
+  customer: RbCustomerProfile,
+): RbCustomerProfile[] => [customer, ...customers.filter((item) => item.id !== customer.id)];
 const REQUEST_TEMPLATES: Record<string, string> = {
   종신보험: '기존 종신보험 증권 기준으로 사망보장, 납입기간, 특약 구성을 비교한 설계안을 요청드립니다.',
   건강보험: '현재 건강 상태와 기존 보장을 기준으로 주요 진단비와 수술비 보완 설계를 요청드립니다.',
@@ -147,7 +195,7 @@ const REQUEST_TEMPLATES: Record<string, string> = {
   연금보험: '은퇴 목표 시점과 납입 가능 금액 기준으로 연금 수령 구조 설계를 요청드립니다.',
 };
 
-const REQUEST_BOARD_CARRIER_OPTIONS = ['SKT', 'KT', 'LG U+', '알뜰폰'];
+const REQUEST_BOARD_CARRIER_OPTIONS = ['SKT', 'KT', 'LG U+', '알뜰폰 SKT', '알뜰폰 KT', '알뜰폰 LG U+'];
 
 const INSURANCE_QUALIFICATION_OPTIONS = [
   { key: 'property', label: '손해보험' },
@@ -253,6 +301,7 @@ function Field({
   maxLength,
   autoCapitalize,
   autoCorrect,
+  grow = false,
 }: {
   label: string;
   value: string;
@@ -266,10 +315,11 @@ function Field({
   maxLength?: number;
   autoCapitalize?: 'none' | 'sentences' | 'words' | 'characters';
   autoCorrect?: boolean;
+  grow?: boolean;
 }) {
   return (
-    <View style={styles.field}>
-      <Text style={styles.fieldLabel}>{label}</Text>
+    <View style={[styles.field, grow && styles.fieldGrow, multiline && styles.multilineField]}>
+      <Text style={[styles.fieldLabel, multiline && styles.multilineFieldLabel]}>{label}</Text>
       <TextInput
         ref={inputRef}
         style={[styles.input, multiline && styles.textarea]}
@@ -544,7 +594,9 @@ export default function RequestBoardCreateScreen() {
   const [designers, setDesigners] = useState<RbDesigner[]>([]);
   const [fcCodes, setFcCodes] = useState<RbFcCode[]>([]);
   const [selectedCustomer, setSelectedCustomer] = useState<RbCustomerProfile | null>(null);
-  const [newCustomer, setNewCustomer] = useState<RbSaveCustomerPayload>(EMPTY_CUSTOMER);
+  const [newCustomer, setNewCustomer] = useState<RbSaveCustomerPayload>(() => createEmptyCustomerPayload());
+  const [editingCustomerId, setEditingCustomerId] = useState<number | null>(null);
+  const [deletingCustomerId, setDeletingCustomerId] = useState<number | null>(null);
   const [search, setSearch] = useState('');
   const [sortMode, setSortMode] = useState<SortMode>('created');
   const [composeEntryStep, setComposeEntryStep] = useState<Extract<StepKey, 'customer' | 'newCustomer'>>('customer');
@@ -557,6 +609,8 @@ export default function RequestBoardCreateScreen() {
   const [composeDraftKey, setComposeDraftKey] = useState(0);
   const [screenKeyboardHeight, setScreenKeyboardHeight] = useState(0);
   const visibleSteps = resolveRequestBoardCreateVisibleSteps(entry, source);
+  const sourceValue = Array.isArray(source) ? source[0] : source;
+  const isCustomerManagement = sourceValue === 'customer-management';
   const customerNameInputRef = useRef<TextInput>(null);
   const birthDateInputRef = useRef<TextInput>(null);
   const phoneInputRef = useRef<TextInput>(null);
@@ -827,6 +881,27 @@ export default function RequestBoardCreateScreen() {
     }, [handleBack, step]),
   );
 
+  const resetCustomerForm = useCallback(() => {
+    setEditingCustomerId(null);
+    setNewCustomer(createEmptyCustomerPayload());
+  }, []);
+
+  const openNewCustomerForm = () => {
+    resetCustomerForm();
+    setStep('newCustomer');
+  };
+
+  const openEditCustomer = (customer: RbCustomerProfile) => {
+    setEditingCustomerId(customer.id);
+    setNewCustomer(mapCustomerProfileToSavePayload(customer));
+    setStep('newCustomer');
+  };
+
+  const cancelCustomerForm = () => {
+    resetCustomerForm();
+    setStep('customer');
+  };
+
   const selectCustomer = (customer: RbCustomerProfile) => {
     setSelectedCustomer(customer);
     setSelectedProductIds([]);
@@ -839,6 +914,48 @@ export default function RequestBoardCreateScreen() {
     setStep('compose');
   };
 
+  const deleteCustomer = async (customer: RbCustomerProfile) => {
+    if (deletingCustomerId === customer.id) return;
+    try {
+      setDeletingCustomerId(customer.id);
+      const result = await rbDeleteCustomer(customer.id);
+      if (!result.success) {
+        throw new Error(result.error ?? '고객 삭제에 실패했습니다.');
+      }
+      setCustomers((prev) => prev.filter((item) => item.id !== customer.id));
+      if (selectedCustomer?.id === customer.id) {
+        setSelectedCustomer(null);
+      }
+      if (editingCustomerId === customer.id) {
+        resetCustomerForm();
+        setStep('customer');
+      }
+    } catch (err) {
+      logger.warn('[request-board-create] delete customer failed', err);
+      Alert.alert(
+        '고객 삭제 실패',
+        toRequestBoardSessionErrorMessage(err, '고객 삭제에 실패했습니다.'),
+      );
+    } finally {
+      setDeletingCustomerId(null);
+    }
+  };
+
+  const confirmDeleteCustomer = (customer: RbCustomerProfile) => {
+    if (deletingCustomerId) return;
+    Alert.alert(
+      '고객 삭제',
+      `"${customer.name}" 고객을 삭제할까요?\n이미 전송된 설계요청 이력은 삭제되지 않습니다.`,
+      [
+        { text: '취소', style: 'cancel' },
+        {
+          text: '삭제',
+          style: 'destructive',
+          onPress: () => void deleteCustomer(customer),
+        },
+      ],
+    );
+  };
   const saveNewCustomer = async () => {
     if (!newCustomer.name.trim() || !newCustomer.birthDate.trim() || !newCustomer.phone.trim()) {
       Alert.alert('필수 정보 확인', '피보험자 이름, 생년월일, 연락처는 필수입니다.');
@@ -902,9 +1019,9 @@ export default function RequestBoardCreateScreen() {
       setSubmitting(true);
       const result = await rbSaveCustomer(newCustomer);
       if (!result.success || !result.data) {
-        throw new Error(result.error ?? '고객 등록에 실패했습니다.');
+        throw new Error(result.error ?? (editingCustomerId ? '고객 정보 저장에 실패했습니다.' : '고객 등록에 실패했습니다.'));
       }
-      setCustomers((prev) => [result.data!, ...prev.filter((item) => item.id !== result.data!.id)]);
+      setCustomers((prev) => mergeCustomerIntoList(prev, result.data!));
       setSelectedCustomer(result.data);
       setSelectedProductIds([]);
       setSelectedDesignerIds([]);
@@ -912,19 +1029,30 @@ export default function RequestBoardCreateScreen() {
       setAttachments([]);
       setSentRequestIds([]);
       setComposeDraftKey((value) => value + 1);
-      setComposeEntryStep('newCustomer');
+      setComposeEntryStep(editingCustomerId ? 'customer' : 'newCustomer');
+
+      if (isCustomerManagement) {
+        resetCustomerForm();
+        setStep('customer');
+        return;
+      }
+
+      setEditingCustomerId(null);
+      setNewCustomer(createEmptyCustomerPayload());
       setStep('compose');
     } catch (err) {
       logger.warn('[request-board-create] save customer failed', err);
       Alert.alert(
-        '고객 등록 실패',
-        toRequestBoardSessionErrorMessage(err, '고객 등록에 실패했습니다.'),
+        editingCustomerId ? '고객 정보 저장 실패' : '고객 등록 실패',
+        toRequestBoardSessionErrorMessage(
+          err,
+          editingCustomerId ? '고객 정보 저장에 실패했습니다.' : '고객 등록에 실패했습니다.',
+        ),
       );
     } finally {
       setSubmitting(false);
     }
   };
-
   const toggleProduct = (product: MobileRequestProduct) => {
     setSelectedProductIds((prev) => {
       const exists = prev.includes(product.id);
@@ -1158,38 +1286,108 @@ export default function RequestBoardCreateScreen() {
       </View>
       <View style={styles.sectionHeader}>
         <Text style={styles.sectionTitle}>고객</Text>
-        <Pressable onPress={() => setStep('newCustomer')} hitSlop={8}>
+        <Pressable onPress={openNewCustomerForm} hitSlop={8}>
           <Text style={styles.linkText}>신규 등록</Text>
         </Pressable>
       </View>
       <View style={styles.cardList}>
-        {sortedCustomers.map((customer) => (
-          <Pressable
-            key={customer.id}
-            style={({ pressed }) => [styles.customerCard, pressed && { opacity: 0.85 }]}
-            onPress={() => selectCustomer(customer)}
-          >
-            <View style={styles.customerInfo}>
-              <Text style={styles.customerName}>{customer.name}</Text>
-              <Text style={styles.customerMeta}>
-                {customer.birthDate} · {customer.gender === 'female' ? '여' : '남'} · {formatPhone(customer.phone)}
-              </Text>
-              <Text style={styles.customerMeta}>주민번호 {customer.ssn || '미입력'}</Text>
-            </View>
-            <View style={styles.smallButton}>
-              <Text style={styles.smallButtonText}>선택</Text>
-            </View>
-          </Pressable>
-        ))}
+        {sortedCustomers.map((customer) => {
+          const deleting = deletingCustomerId === customer.id;
+          const policyholderSummary = [
+            `계약자: ${customer.policyholderName || '미입력'}`,
+            formatPhone(customer.policyholderPhone),
+            customer.policyholderCarrier,
+          ].filter(Boolean).join(' · ');
+          return (
+            <Pressable
+              key={customer.id}
+              style={({ pressed }) => [styles.customerCard, pressed && { opacity: 0.85 }]}
+              onPress={() => (isCustomerManagement ? undefined : selectCustomer(customer))}
+            >
+              <View style={styles.customerCardBody}>
+                <View style={styles.customerInfo}>
+                  <Text style={styles.customerName}>{customer.name}</Text>
+                  <Text style={styles.customerMeta}>
+                    {customer.birthDate} · {customer.gender === 'female' ? '여' : '남'} · {formatPhone(customer.phone)}
+                  </Text>
+                  <Text style={styles.customerMeta}>주민번호 {customer.ssn || '미입력'}</Text>
+                  {customer.hasSeparatePolicyholder ? (
+                    <View style={styles.customerPolicyholderRow}>
+                      <Text style={styles.customerPolicyholderBadge} numberOfLines={1}>계약자 다름</Text>
+                      <Text style={styles.customerPolicyholderText} numberOfLines={1}>
+                        {policyholderSummary}
+                      </Text>
+                    </View>
+                  ) : null}
+                </View>
+              </View>
+              <View style={styles.customerActionRow}>
+                {isCustomerManagement ? (
+                  <Pressable
+                    accessibilityRole="button"
+                    style={({ pressed }) => [
+                      styles.customerPrimaryAction,
+                      pressed && { opacity: 0.9 },
+                    ]}
+                    onPress={() => selectCustomer(customer)}
+                  >
+                    <Feather name="file-plus" size={16} color="#fff" />
+                    <Text style={styles.customerPrimaryActionText} numberOfLines={1}>요청 작성</Text>
+                  </Pressable>
+                ) : (
+                  <View style={[styles.customerPrimaryAction, styles.customerSelectIndicator]}>
+                    <Feather name="check" size={16} color={COLORS.primary} />
+                    <Text style={[styles.customerPrimaryActionText, styles.customerSelectIndicatorText]} numberOfLines={1}>선택</Text>
+                  </View>
+                )}
+                <View style={styles.customerSecondaryActions}>
+                  <Pressable
+                    accessibilityRole="button"
+                    accessibilityLabel={`${customer.name} 고객 정보 수정`}
+                    style={({ pressed }) => [
+                      styles.customerSecondaryAction,
+                      pressed && { opacity: 0.85 },
+                    ]}
+                    onPress={() => openEditCustomer(customer)}
+                    disabled={deleting}
+                  >
+                    <Feather name="edit-3" size={15} color={COLORS.gray[700]} />
+                    <Text style={styles.customerSecondaryActionText} numberOfLines={1}>수정</Text>
+                  </Pressable>
+                  <Pressable
+                    accessibilityRole="button"
+                    accessibilityLabel={`${customer.name} 고객 삭제`}
+                    style={({ pressed }) => [
+                      styles.customerSecondaryAction,
+                      styles.customerDangerAction,
+                      deleting && styles.disabledButton,
+                      pressed && !deleting && { opacity: 0.85 },
+                    ]}
+                    onPress={() => confirmDeleteCustomer(customer)}
+                    disabled={deleting}
+                  >
+                    {deleting ? (
+                      <ActivityIndicator color={COLORS.error} size="small" />
+                    ) : (
+                      <>
+                        <Feather name="trash-2" size={15} color={COLORS.error} />
+                        <Text style={[styles.customerSecondaryActionText, styles.customerDangerActionText]} numberOfLines={1}>삭제</Text>
+                      </>
+                    )}
+                  </Pressable>
+                </View>
+              </View>            </Pressable>
+          );
+        })}
       </View>
     </>
   );
-
   const renderNewCustomerStep = () => (
     <View style={styles.formCard}>
-      <Text style={styles.formTitle}>기본 정보</Text>
+      <Text style={styles.formTitle}>{editingCustomerId ? '고객 정보 수정' : '기본 정보'}</Text>
       <View style={styles.twoColumn}>
         <Field
+          grow
           label="피보험자 이름"
           value={newCustomer.name}
           onChangeText={(value) => updateCustomerField('name', value)}
@@ -1199,6 +1397,7 @@ export default function RequestBoardCreateScreen() {
           onSubmitEditing={() => focusNextInput(birthDateInputRef)}
         />
         <Field
+          grow
           label="생년월일"
           value={newCustomer.birthDate}
           onChangeText={updateBirthDateField}
@@ -1212,6 +1411,7 @@ export default function RequestBoardCreateScreen() {
       </View>
       <View style={styles.twoColumn}>
         <Field
+          grow
           label="연락처"
           value={newCustomer.phone}
           onChangeText={updatePhoneField}
@@ -1223,6 +1423,7 @@ export default function RequestBoardCreateScreen() {
           onSubmitEditing={() => focusNextInput(ssnInputRef)}
         />
         <Field
+          grow
           label="주민번호"
           value={newCustomer.ssn}
           onChangeText={updateSsnField}
@@ -1374,6 +1575,7 @@ export default function RequestBoardCreateScreen() {
       <Text style={styles.formTitle}>설계 참고 정보</Text>
       <View style={styles.twoColumn}>
         <Field
+          grow
           label="직업"
           value={newCustomer.job ?? ''}
           onChangeText={(value) => updateCustomerField('job', value)}
@@ -1383,6 +1585,7 @@ export default function RequestBoardCreateScreen() {
           onSubmitEditing={() => focusNextInput(incomeInputRef)}
         />
         <Field
+          grow
           label="소득"
           value={newCustomer.income ?? ''}
           onChangeText={(value) => updateCustomerField('income', value)}
@@ -1442,6 +1645,7 @@ export default function RequestBoardCreateScreen() {
       </View>
       <View style={styles.twoColumn}>
         <Field
+          grow
           label="키(cm)"
           value={newCustomer.height ?? ''}
           onChangeText={updateHeightField}
@@ -1453,6 +1657,7 @@ export default function RequestBoardCreateScreen() {
           onSubmitEditing={() => focusNextInput(weightInputRef)}
         />
         <Field
+          grow
           label="몸무게(kg)"
           value={newCustomer.weight ?? ''}
           onChangeText={updateWeightField}
@@ -1537,7 +1742,7 @@ export default function RequestBoardCreateScreen() {
       <View style={[styles.fixedActions, { paddingBottom: Math.max(insets.bottom, 12) }]}>
         <Pressable
           style={[styles.ctaOutline, submitting && styles.disabledButton]}
-          onPress={() => setStep('customer')}
+          onPress={cancelCustomerForm}
           disabled={submitting}
         >
           <Text style={styles.ctaOutlineText}>취소</Text>
@@ -1547,7 +1752,13 @@ export default function RequestBoardCreateScreen() {
           onPress={saveNewCustomer}
           disabled={submitting}
         >
-          {submitting ? <ActivityIndicator color="#fff" /> : <Text style={styles.ctaText}>고객 등록 후 선택</Text>}
+          {submitting ? (
+            <ActivityIndicator color="#fff" />
+          ) : (
+            <Text style={styles.ctaText}>
+              {editingCustomerId ? '고객 정보 저장' : isCustomerManagement ? '고객 등록' : '고객 등록 후 선택'}
+            </Text>
+          )}
         </Pressable>
       </View>
     </View>
@@ -1739,8 +1950,10 @@ export default function RequestBoardCreateScreen() {
       <Stack.Screen options={{ headerShown: false }} />
       <PageHeader
         title={
-          step === 'customer'
-            ? '고객 선택'
+          step === 'customer' && isCustomerManagement
+            ? '고객관리'
+            : step === 'customer'
+              ? '고객 선택'
             : step === 'newCustomer'
               ? '신규 고객 등록'
               : step === 'sent'
@@ -1973,20 +2186,24 @@ const styles = StyleSheet.create({
     gap: SPACING.md,
   },
   customerCard: {
-    minHeight: 86,
+    minHeight: 122,
     borderRadius: RADIUS.lg,
     backgroundColor: '#fff',
     borderWidth: 1,
     borderColor: COLORS.border.light,
+    padding: SPACING.base,
+    gap: SPACING.sm,
+    ...SHADOWS.sm,
+  },
+  customerCardBody: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    padding: SPACING.base,
     gap: SPACING.md,
-    ...SHADOWS.sm,
   },
   customerInfo: {
     flex: 1,
+    minWidth: 0,
     gap: 3,
   },
   customerName: {
@@ -1998,19 +2215,94 @@ const styles = StyleSheet.create({
     fontSize: TYPOGRAPHY.fontSize.sm,
     color: COLORS.gray[600],
   },
-  smallButton: {
-    minWidth: 58,
-    minHeight: 42,
+  customerPolicyholderRow: {
+    marginTop: 3,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    minWidth: 0,
+  },
+  customerPolicyholderBadge: {
+    borderRadius: RADIUS.full,
+    borderWidth: 1,
+    borderColor: COLORS.warning.border,
+    backgroundColor: COLORS.warning.light,
+    color: COLORS.warning.dark,
+    fontSize: TYPOGRAPHY.fontSize.xs,
+    fontWeight: '800',
+    lineHeight: 16,
+    paddingHorizontal: SPACING.xs,
+    paddingVertical: 2,
+  },
+  customerPolicyholderText: {
+    flexShrink: 1,
+    color: COLORS.gray[700],
+    fontSize: TYPOGRAPHY.fontSize.xs,
+    fontWeight: '700',
+    lineHeight: 18,
+  },
+  customerActionRow: {
+    minHeight: 44,
+    borderTopWidth: 1,
+    borderTopColor: COLORS.gray[100],
+    paddingTop: SPACING.sm,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: SPACING.xs,
+  },
+  customerPrimaryAction: {
+    flex: 1,
+    minWidth: 108,
+    minHeight: 40,
     borderRadius: RADIUS.md,
-    backgroundColor: COLORS.gray[100],
+    backgroundColor: COLORS.primary,
+    flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
+    gap: 6,
     paddingHorizontal: SPACING.sm,
   },
-  smallButtonText: {
+  customerPrimaryActionText: {
+    fontSize: TYPOGRAPHY.fontSize.sm,
+    fontWeight: '800',
+    color: '#fff',
+  },
+  customerSelectIndicator: {
+    backgroundColor: COLORS.primaryPale,
+  },
+  customerSelectIndicatorText: {
+    color: COLORS.primary,
+  },
+  customerSecondaryActions: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: SPACING.xs,
+  },
+  customerSecondaryAction: {
+    minWidth: 62,
+    minHeight: 40,
+    borderRadius: RADIUS.md,
+    borderWidth: 1,
+    borderColor: COLORS.border.light,
+    backgroundColor: '#fff',
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 5,
+    paddingHorizontal: 10,
+  },
+  customerSecondaryActionText: {
     fontSize: TYPOGRAPHY.fontSize.sm,
     fontWeight: '800',
     color: COLORS.gray[700],
+  },
+  customerDangerAction: {
+    borderColor: COLORS.errorLight,
+    backgroundColor: '#FEF2F2',
+  },
+  customerDangerActionText: {
+    color: COLORS.error,
   },
   formCard: {
     gap: SPACING.md,
@@ -2026,8 +2318,16 @@ const styles = StyleSheet.create({
     gap: SPACING.sm,
   },
   field: {
-    flex: 1,
     gap: 6,
+  },
+  fieldGrow: {
+    flex: 1,
+  },
+  multilineField: {
+    gap: 4,
+  },
+  multilineFieldLabel: {
+    marginBottom: 0,
   },
   stackedField: {
     gap: 6,

@@ -1,4 +1,4 @@
-﻿# Current Contract: Increment 55 - Admin Exam Legacy Apply Route Redirect
+# Current Contract: Increment 55 - Admin Exam Legacy Apply Route Redirect
 
 Status: completed and deployed on 2026-06-08
 
@@ -2225,3 +2225,135 @@ Acceptance criteria:
 Containment:
 - Do not change board creation/update payloads, notification DB schema, or Supabase fanout behavior.
 - Do not deploy or resend existing notifications in this local fix.
+# Current Contract: Role-Based E2E Audit 2026-06-19
+
+Status: completed for current credentials on 2026-06-19; remaining items are external blockers or follow-up fix work.
+
+## Goal
+
+Execute the user-approved end-to-end investigation plan across GaramIn Android, GaramLink request_board,
+and `admin_web`, using four role perspectives and recording every required integrated/referral case with
+evidence-backed status.
+
+## Scope
+
+- Active repos: `D:\hanhwa\fc-onboarding-app` and `D:\hanhwa\request_board`.
+- Runtime targets: Android emulators, Expo development client, admin web Next app, request_board server/client.
+- Required scenario families: onboarding/appointment, design request create and progress/reject/complete/attach,
+  board, chat, referral invite/input, admin_web operations/permissions/notifications/messenger/referrals.
+- Required result files: `docs/testing/INTEGRATED_TEST_RUN_RESULT.json` and `docs/referral-system/TEST_RUN_RESULT.json`.
+
+## Explicit Non-Scope
+
+- Do not deploy, publish, or mutate production release state.
+- Do not change app behavior while performing this investigation.
+- Do not expose raw secret, JWT, bridge-token, SSN/resident-number, or signed-URL values in evidence.
+- Do not touch pre-existing user changes in `app.json` or `request_board/client/vite.config.ts`.
+
+## Acceptance Criteria
+
+- Four role tracks are assigned and used to drive the QA matrix.
+- `admin_web` is included in both operations and communication/permission waves.
+- Android/server/web setup is attempted and blockers are recorded with exact commands/status.
+- All integrated case IDs are no longer `NOT_RUN`, and `npm run qa:validate:integrated` reports `OK`.
+- Referral-system cases are refreshed for this run and marked with evidence-backed status.
+- Defects and optimization opportunities are recorded separately from code changes.
+- External blocker: full total-admin/developer mutation flows require a working password for masked account `***6018` or explicit permission to reset/create a disposable admin actor.
+
+## Verification Plan
+
+- `npm run qa:init:integrated -- --force`
+- `npm run qa:validate:integrated`
+- `npm run lint`, targeted Jest/TypeScript where practical, admin web lint/build, request_board characterization/build/API smoke.
+- Android AVD/dev-client launch attempts and browser/dev-server checks when runtime environment permits.
+
+---
+
+## Contract Completion Evidence
+
+- Passed: `npm run qa:init:integrated -- --force`.
+- Passed: `npm run qa:validate:integrated`.
+- Passed: app `npm run lint`, `npx tsc --noEmit --pretty false`, root Jest 76 suites / 417 tests, and Expo web export.
+- Passed: admin_web `npm run lint` and `SENTRY_AUTH_TOKEN='' SENTRY_DISABLE_UPLOAD=1 npm run build`.
+- Passed: request_board characterization, server build, client build, and API smoke.
+- Passed with workaround: four Android AVDs launched; x86_64 debug APK installed after EAS local build was blocked by Windows support limits.
+- Passed: Android FC request-board quick actions for address-copy success alert and guide-link launch.
+- Passed: request_board FC and manager-as-FC design-code create/edit/delete lifecycle with UI/API cleanup confirmation.
+- Passed: referral graph targeted tests (42/42) and authenticated browser QA for graph API 200, nonblank canvas, reset click, drag attempt, and zero console/page errors.
+- Runtime evidence was recorded in sanitized form only: masked account labels, route/API statuses, role decisions, and aggregate counts.
+
+---
+
+# Current Contract: GaramIn Customer Management Edit/Delete 2026-06-20
+
+Status: implemented locally.
+
+## Goal
+
+Add existing-customer edit/delete affordances to the GaramIn mobile `고객관리` entry while staying compatible with GaramLink's existing customer API contract.
+
+## Scope
+
+- Mobile API wrapper: keep `POST /api/customers` as the create/update upsert endpoint and add mobile access to `DELETE /api/customers/:id`.
+- Mobile customer-management screen: expose explicit `요청 작성`, `수정`, and `삭제` actions on saved customer cards.
+- Normal request flow: keep card selection behavior for request composition and offer edit only as a secondary correction action.
+- Customer form: reuse the registration form for edit mode and preserve saved fields when building the update payload.
+
+## Acceptance Criteria
+
+- Customer-management source shows `고객관리` and does not treat tapping a card as request selection.
+- `수정` opens the existing customer profile in edit mode with `id` preserved in the save payload.
+- `삭제` calls the existing delete endpoint, locks the deleting customer action, and removes the row locally on success.
+- Save success merges the returned customer row locally without refetching the full list.
+- Delete confirmation states that already sent request history is not deleted.
+
+## Verification Plan
+
+- `npm test -- --runInBand lib/__tests__/request-board-mobile-ui-contract.test.ts lib/__tests__/request-board-api-contract.test.ts`
+- `npx eslint app/request-board-create.tsx lib/request-board-api.ts`
+- `npx tsc --noEmit`
+
+---
+
+# Increment: Customer Management Action Density And Local API 2026-06-20
+
+Status: implemented locally.
+
+Changes:
+
+- Reworked GaramIn customer-management cards from a right-side vertical action stack to a compact bottom action row.
+- Kept `요청 작성` as the primary action and changed `수정`/`삭제` into compact icon+label secondary actions.
+- Corrected GaramIn local request_board API derivation from port `3000` to request_board server port `3001`.
+- Restarted Expo web on `http://localhost:8082` with local request_board API `http://localhost:3001`.
+
+Verification:
+
+- RED/GREEN: `npm test -- --runInBand lib/__tests__/request-board-mobile-ui-contract.test.ts`.
+- Passed: `npm test -- --runInBand lib/__tests__/request-board-mobile-ui-contract.test.ts lib/__tests__/request-board-api-contract.test.ts` (37/37).
+- Passed: `npx eslint app/request-board-create.tsx lib/request-board-api.ts lib/request-board-url.ts lib/__tests__/request-board-mobile-ui-contract.test.ts lib/__tests__/request-board-api-contract.test.ts`.
+- Passed: `npx tsc --noEmit`.
+
+Runtime note:
+
+- Browser automation could not attach because the local browser tool failed with a Windows permission error, so user-side refresh/visual confirmation remains the final visual check.
+---
+
+# Current Contract: Request Board FC Identity and Contractor Detail Split 2026-06-20
+
+Status: implemented locally.
+
+## User-Facing Contract
+
+- Manager/home quick request cards and request-list cards must identify the requester with `요청 FC: {이름}`, `설계 코드: {코드값}`, and `전화번호: {번호}` when the data exists.
+- These surfaces must not expose the FC-code company name as the main code label for incoming requests; the company is implicit for the receiving designer/manager context.
+- Request detail must surface the same FC requester summary near the top and list `요청 FC`, `전화번호`, and `설계 코드` in request metadata.
+- Request detail must order customer-owned information before contractor-owned information: request info, customer info, health info, then separate `계약자 정보`, then `설계 진행`.
+- `계약자 정보` must render as a distinct section/card rather than another field group inside the main customer/health info card.
+- FC code company-name options must not include active question-mark-only garbage names such as `?????`.
+
+## Verification Plan
+
+- `npm test -- --runInBand lib/__tests__/request-board-mobile-ui-contract.test.ts lib/__tests__/request-board-api-contract.test.ts`
+- `npx eslint app/request-board-review.tsx app/request-board.tsx app/request-board-requests.tsx lib/request-board-api.ts lib/__tests__/request-board-mobile-ui-contract.test.ts lib/__tests__/request-board-api-contract.test.ts`
+- `npx tsc --noEmit`
+- Supabase source query against `designers.company_name` for active `^\?+$` values returns 0.

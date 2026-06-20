@@ -1,4 +1,4 @@
-﻿# Increment 55 Verification: Admin Exam Legacy Apply Route Redirect
+# Increment 55 Verification: Admin Exam Legacy Apply Route Redirect
 
 Date: 2026-06-08
 
@@ -3868,3 +3868,221 @@ Date: 2026-06-16
 
 - Pass for source route normalization, focused notification tests, lint, typecheck, and governance.
 - Real device push-tap verification remains a runtime follow-up after the updated JS bundle is loaded.
+# Role-Based E2E Audit Kickoff
+
+Date: 2026-06-19
+
+### Scope
+
+- Active repos are `D:\hanhwa\fc-onboarding-app` and `D:\hanhwa\request_board`.
+- Surfaces are Android GaramIn, GaramLink request_board web, and admin_web at `fc-onboarding-app\web`.
+- Roles are FC, headquarters manager, secretary/admin, and design manager.
+- Required scenario families are onboarding/appointment, design request lifecycle, board, chat, referral invite/input, admin_web operations, notifications, messenger, settings, and referral graph/list operations.
+
+### Initial Environment Findings
+
+- Dirty files existed before this run and are treated as user changes: `fc-onboarding-app\app.json` and `request_board\client\vite.config.ts`.
+- Android SDK is present with an API 37 x86_64 system image.
+- Existing AVD inventory contained only `Medium_Phone`; no devices were attached at kickoff.
+- Secret/env files are present for app, admin_web, request_board server, and request_board client; only key names were inspected.
+- `npm run qa:init:integrated -- --force` wrote 52 integrated cases for this run.
+
+### Pending Verification
+
+- Four role AVD creation and dev-client installation.
+- Expo/admin_web/request_board dev-server startup.
+- Automated lint/test/build/API checks.
+- Role-oriented UI verification and case-status marking.
+
+---
+
+# Role-Based E2E Audit Runtime Result
+
+Date: 2026-06-19
+
+### Scope
+
+- Android GaramIn on four AVDs: `Hanhwa_FC`, `Hanhwa_Manager`, `Hanhwa_Admin`, `Hanhwa_Designer`.
+- GaramLink request_board web at local client/server dev ports.
+- admin_web at `D:\hanhwa\fc-onboarding-app\web`.
+- Role tracks: FC, headquarters manager, secretary/admin, design manager.
+
+### Commands And Runtime Checks
+
+- Passed: `npm run lint`.
+- Passed: `npx tsc --noEmit --pretty false`.
+- Passed: `npm run test -- --runInBand` (76 suites / 417 tests).
+- Passed: `npm run build` from the app root.
+- Passed: `cd web; npm run lint`.
+- Passed after stopping Next dev: `cd web; SENTRY_AUTH_TOKEN='' SENTRY_DISABLE_UPLOAD=1 npm run build`.
+- Passed: request_board `npm run test:characterization`, `npm run build:server`, `npm run build:client`, and `API_URL=http://localhost:3001 npm run test:api`.
+- Passed: `npm run qa:validate:integrated`.
+- Passed: request_board design-code lifecycle for masked FC `***1234` and manager-as-FC `***8127` using API + `/fc/codes` UI create/edit/delete cleanup.
+- Passed: Android FC `/request-board` RB-02 UI check. `가람Link 주소 복사` produced the `복사 완료` alert, and `사용법 가이드` opened the configured YouTube playlist. The YouTube notification permission prompt was not accepted or denied.
+- Passed: referral graph tests via `npx -y tsx --test web/src/lib/referral-graph-interaction.test.ts web/src/lib/referral-graph-simulation.test.ts web/src/lib/referral-graph-display.test.ts web/src/lib/referral-graph-responsive.test.ts` from repo root (42/42).
+- Passed: admin_web FC graph browser QA with sanitized session handling. `/api/admin/referrals/graph` returned 200, graph route rendered a visible nonblank canvas, `배치 초기화` was clickable, a canvas drag was attempted, and console/page error counts stayed 0.
+- Android: EAS local Android build failed because Windows is not supported for local Android EAS builds; Gradle x86_64 debug APK build/install succeeded on all four AVDs.
+- Computer Use: Windows emulator windows were reconnected and all four Hanhwa emulator windows were visible.
+
+### Verified Runtime Evidence
+
+- FC masked account `***1234`: app login/home verified, request_board FC login verified, admin_web redirects to `/dashboard/referrals/graph`, staff APIs return 403.
+- Manager masked account `***8127`: app login/home verified, admin_web dashboard routes load with read-only indicators, manager POST mutation attempts to referral/admin FC APIs return 403.
+- Design-manager masked account `***5678`: request_board designer login verified; design request lifecycle was executed as designer. admin_web created an FC-style graph session but graph API returned 403, recorded as role-boundary drift.
+- Secretary/admin masked account `***6018`: admin_web login with supplied password returns `ok=false`, no auth cookies, and stays on `/auth`; total-admin/developer mutation flows are blocked.
+- request_board lifecycle: synthetic requests `#1123`, `#1124`, `#1125` covered accept, reject, complete, placeholder attachment, FC accept/reject, and chat messages.
+- request_board code management: masked FC `***1234` and manager-as-FC `***8127` both completed design-code add/edit/delete in UI/API, with cleanup confirmed.
+- Android request-board quick actions: masked FC `***1234` completed address-copy success alert and guide-link launch from the simulator UI.
+- referral graph: FC graph session reached `/dashboard/referrals/graph`; API 200, visible 1261x668 canvas, nonblank pixel sample, reset click, drag attempt, and zero console/page errors were recorded without persisting cookie values.
+
+### Result Files
+
+- `docs/testing/INTEGRATED_TEST_RUN_RESULT.json`: PASS 17, FAIL 3, BLOCKED 28, SKIPPED 4, NOT_RUN 0.
+- `docs/referral-system/TEST_RUN_RESULT.json`: PASS 9, FAIL 3, BLOCKED 29, SKIPPED 1, NOT_RUN 0.
+- Integrated validator output: OK.
+
+### Confirmed Defects
+
+- Evidence safety: request_board designer UI/body inspection and app/admin logs can expose sensitive identifier/token classes. Evidence capture must avoid full body dumps, storage dumps, HARs, screenshots of PII screens, and raw console payloads.
+- admin_web referral operations: manager GET `/api/admin/referrals?page=1&pageSize=2` returns 500. Sanitized server log shows `UND_ERR_HEADERS_OVERFLOW`; likely caused by oversized `.or(inviter_fc_id.in(...),invitee_fc_id.in(...))` request construction in `fetchReferralEvents`.
+- admin_web observability: dashboard browser console/debug output includes large FC-list payload classes; logs need redaction before being used as QA evidence.
+- admin_web/read scope risk: manager read-only mutation denial works, but `loadAffiliationScope()` currently returns unrestricted scope, so manager can read more FC data than the intended headquarters scope may allow.
+- request_board security/PII risk: designer-facing list/detail paths can render unmasked sensitive customer identifiers. This must be fixed before screenshot-based UI evidence can be safely stored.
+- request_board state integrity risk: FC accept/reject/cancel code paths identify assignments by `request_id + designer_id` rather than the request-designer row id, which can target the wrong row after reassignment/history drift.
+- request_board hidden-detail risk: list filtering hides cancelled rows with `designer_hidden_at`, but detail access can still be deep-linked if assignment history authorizes the designer.
+- request_board attachment/security risk: signed attachment URL TTL is long for E2E evidence and should be reduced or proxied for sensitive files.
+- mobile push/logging risk: push registration paths logged sensitive identifier/token classes during runtime. Logs must be redacted at source.
+
+### Optimization Candidates
+
+- Replace referral-event `.or(...large in-list...)` GET query with paginated RPC, chunked POST/RPC, or server-side join to avoid header/URL overflow.
+- Add a token/PII evidence scanner for `.codex/harness` outputs before finalizing QA artifacts.
+- Add a dedicated disposable test data factory for total-admin onboarding, documents, board, referral mutation, and deletion flows.
+- Add route/API matrix tests for manager read scope versus headquarters affiliation once the expected scope contract is confirmed.
+- Add request_board assignment actions that target stable assignment row IDs, not compound request/designer identity.
+- Add notification-safe test mode that records delivery state without storing push tokens or raw payloads.
+
+### QA Judgment
+
+- The runtime investigation is complete for the credentials currently provided.
+- The plan is not a clean product PASS: many required mutation/destructive flows are correctly marked BLOCKED or SKIPPED because the developer/admin credential is invalid and deletion requires disposable accounts.
+- Three result rows are intentionally FAIL because they represent confirmed product/testability defects, not missing execution.
+
+---
+
+# QA Report: GaramIn Customer Management Edit/Delete 2026-06-20
+
+Scope:
+
+- Source-level contract and compile verification for mobile customer-management edit/delete.
+- No production API mutation or destructive runtime delete was executed.
+
+RED evidence:
+
+- Expected failing run before implementation: `npm test -- --runInBand lib/__tests__/request-board-mobile-ui-contract.test.ts lib/__tests__/request-board-api-contract.test.ts`.
+- Failures covered missing customer-management edit/delete source contract and missing `rbDeleteCustomer` API wrapper.
+
+GREEN evidence:
+
+- Passed: `npm test -- --runInBand lib/__tests__/request-board-mobile-ui-contract.test.ts lib/__tests__/request-board-api-contract.test.ts` (35/35 tests).
+- Passed: `npx eslint app/request-board-create.tsx lib/request-board-api.ts`.
+- Passed: `npx tsc --noEmit`.
+
+QA judgment:
+
+- Pass for focused source contracts, API wrapper compatibility, lint, and TypeScript.
+- Runtime mobile smoke with disposable customer data remains a follow-up if the user wants real-device/emulator confirmation of destructive delete.
+
+---
+
+# Increment: Customer Management Action Density And Local API 2026-06-20
+
+Status: implemented locally.
+
+Changes:
+
+- Reworked GaramIn customer-management cards from a right-side vertical action stack to a compact bottom action row.
+- Kept `요청 작성` as the primary action and changed `수정`/`삭제` into compact icon+label secondary actions.
+- Corrected GaramIn local request_board API derivation from port `3000` to request_board server port `3001`.
+- Restarted Expo web on `http://localhost:8082` with local request_board API `http://localhost:3001`.
+
+Verification:
+
+- RED/GREEN: `npm test -- --runInBand lib/__tests__/request-board-mobile-ui-contract.test.ts`.
+- Passed: `npm test -- --runInBand lib/__tests__/request-board-mobile-ui-contract.test.ts lib/__tests__/request-board-api-contract.test.ts` (37/37).
+- Passed: `npx eslint app/request-board-create.tsx lib/request-board-api.ts lib/request-board-url.ts lib/__tests__/request-board-mobile-ui-contract.test.ts lib/__tests__/request-board-api-contract.test.ts`.
+- Passed: `npx tsc --noEmit`.
+
+Runtime note:
+
+- Browser automation could not attach because the local browser tool failed with a Windows permission error, so user-side refresh/visual confirmation remains the final visual check.
+
+---
+
+# Increment: Customer Form Multiline Spacing 2026-06-20
+
+Status: implemented locally.
+
+Changes:
+
+- Added a multiline-only wrapper style for `Field` so textarea-style health inputs keep breathing room before the next label.
+- Preserved the normal compact spacing for one-line fields.
+
+Verification:
+
+- RED/GREEN: `npm test -- --runInBand lib/__tests__/request-board-mobile-ui-contract.test.ts`.
+- Passed: `npx eslint app/request-board-create.tsx lib/__tests__/request-board-mobile-ui-contract.test.ts`.
+
+---
+
+# Increment: Customer Carrier MVNO Network Split 2026-06-20
+
+Status: implemented locally.
+
+Changes:
+
+- Replaced the single `알뜰폰` carrier choice in GaramIn customer registration/edit with `알뜰폰 SKT`, `알뜰폰 KT`, and `알뜰폰 LG U+`.
+- The same option set is used for both 피보험자 and 계약자 carrier fields.
+
+Verification:
+
+- RED/GREEN: `npm test -- --runInBand lib/__tests__/request-board-mobile-ui-contract.test.ts`.
+# Increment: Customer Action/Policyholder Polish 2026-06-20
+
+## Scope
+- Added the delete action to the normal `/request-board-create` customer selection card, not only `source=customer-management`.
+- Standardized separate policyholder summaries to colon labels (`피보험자:`, `계약자:`) across home quick requests, FC request list, customer cards, and review detail summaries.
+- Added FC request-list separate policyholder summary row.
+
+## Verification
+- Passed: `npm test -- --runInBand lib/__tests__/request-board-mobile-ui-contract.test.ts lib/__tests__/request-board-policyholder-display.test.ts`.
+- Passed: `npm test -- --runInBand lib/__tests__/request-board-api-contract.test.ts`.
+- Passed: `npx eslint app/request-board-create.tsx app/request-board.tsx app/request-board-review.tsx app/request-board-requests.tsx lib/request-board-policyholder-display.ts lib/__tests__/request-board-mobile-ui-contract.test.ts lib/__tests__/request-board-policyholder-display.test.ts`.
+- Passed: `npx tsc --noEmit`.
+- Passed: targeted `git diff --check` for changed mobile request-board files (CRLF normalization warnings only).
+
+## Open
+- Messenger test/smoke data cleanup has a reviewed subagent SQL plan, but no Supabase DELETE has been executed yet.
+---
+
+# Increment Verification: Request Board FC Identity and Contractor Section 2026-06-20
+
+## Scope
+
+- Replaced manager-facing FC-code display from `회사명 / 코드` to user-facing `설계 코드: ...` and added requesting FC name/phone on home, list, and detail surfaces.
+- Kept separate policyholder summaries with colon labels and separated request-detail `계약자 정보` from the main customer/health info card.
+- Removed the `?????` test company source from Supabase after confirming zero request/design-code/notification references.
+- Added source-level contracts for request-list `fc` object availability, FC contact summaries, and contractor-section order.
+
+## Commands
+
+- Passed: `npm test -- --runInBand lib/__tests__/request-board-mobile-ui-contract.test.ts lib/__tests__/request-board-api-contract.test.ts` (43/43).
+- Passed: `npx eslint app/request-board-review.tsx app/request-board.tsx app/request-board-requests.tsx lib/request-board-api.ts lib/__tests__/request-board-mobile-ui-contract.test.ts lib/__tests__/request-board-api-contract.test.ts`.
+- Passed: `npx tsc --noEmit`.
+- Supabase checked and deleted only the exact unreferenced garbage row `designers.id=425`, `user_id=567`, `company_name='?????'` plus its matching test user.
+- Supabase post-check: question-mark-only active company names returned count 0.
+
+## QA Judgment
+
+- Pass for source contracts, lint, TypeScript, and database cleanup verification.
+- Visual browser QA was user-observed during the loop; final automated browser screenshot was not taken in this pass.

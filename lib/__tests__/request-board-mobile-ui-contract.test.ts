@@ -88,6 +88,92 @@ describe('request-board mobile UI contracts', () => {
     expect(saveNewCustomerBlock).toContain('newCustomer.policyholderAddress');
   });
 
+  it('keeps customer management as an explicit edit/delete surface without hijacking request selection', () => {
+    const customerStepBlock = createSource.slice(
+      createSource.indexOf('const renderCustomerStep = () => ('),
+      createSource.indexOf('const renderNewCustomerStep = () => ('),
+    );
+    const newCustomerBlock = createSource.slice(
+      createSource.indexOf('const renderNewCustomerStep = () => ('),
+      createSource.indexOf('const renderComposeStep = () => {'),
+    );
+
+    expect(createSource).toContain("const sourceValue = Array.isArray(source) ? source[0] : source;");
+    expect(createSource).toContain("const isCustomerManagement = sourceValue === 'customer-management';");
+    expect(createSource).toContain("step === 'customer' && isCustomerManagement");
+    expect(createSource).toContain("? '고객관리'");
+    expect(customerStepBlock).toContain('isCustomerManagement ? undefined : selectCustomer(customer)');
+    expect(customerStepBlock).toContain('openEditCustomer(customer)');
+    const deleteActionStart = customerStepBlock.indexOf('accessibilityLabel={`${customer.name} 고객 삭제`}');
+    const deleteActionBlock = customerStepBlock.slice(
+      deleteActionStart,
+      customerStepBlock.indexOf('</Pressable>', deleteActionStart),
+    );
+
+    expect(customerStepBlock).toContain('confirmDeleteCustomer(customer)');
+    expect(deleteActionStart).toBeGreaterThan(-1);
+    expect(deleteActionBlock).not.toContain('isCustomerManagement');
+    expect(customerStepBlock).toContain('요청 작성');
+    expect(customerStepBlock).toContain('수정');
+    expect(customerStepBlock).toContain('삭제');
+    expect(newCustomerBlock).toContain("editingCustomerId ? '고객 정보 수정' : '기본 정보'");
+    expect(newCustomerBlock).toContain("editingCustomerId ? '고객 정보 저장' : isCustomerManagement ? '고객 등록' : '고객 등록 후 선택'");
+  });
+
+
+  it('uses a compact horizontal customer-management action bar', () => {
+    const customerStepBlock = createSource.slice(
+      createSource.indexOf('const renderCustomerStep = () => ('),
+      createSource.indexOf('const renderNewCustomerStep = () => ('),
+    );
+    const customerActionStyles = createSource.slice(
+      createSource.indexOf('customerActionRow:'),
+      createSource.indexOf('formCard:'),
+    );
+
+    expect(customerStepBlock).toContain('styles.customerCardBody');
+    expect(customerStepBlock).toContain('styles.customerActionRow');
+    expect(customerStepBlock).toContain('styles.customerSecondaryActions');
+    expect(customerStepBlock).toContain('styles.customerPrimaryAction');
+    expect(customerStepBlock).toContain('Feather name="file-plus"');
+    expect(customerStepBlock).toContain('Feather name="edit-3"');
+    expect(customerStepBlock).toContain('Feather name="trash-2"');
+    expect(customerActionStyles).toContain("flexDirection: 'row'");
+    expect(customerActionStyles).toContain('justifyContent: \'space-between\'');
+  });
+
+  it('shows separate policyholder context on customer-management cards', () => {
+    const customerStepBlock = createSource.slice(
+      createSource.indexOf('const renderCustomerStep = () => ('),
+      createSource.indexOf('const renderNewCustomerStep = () => ('),
+    );
+
+    expect(customerStepBlock).toContain('customer.hasSeparatePolicyholder');
+    expect(customerStepBlock).toContain('styles.customerPolicyholderRow');
+    expect(customerStepBlock).toContain('계약자 다름');
+    expect(customerStepBlock).toContain('customer.policyholderName');
+    expect(customerStepBlock).toContain('customer.policyholderPhone');
+    expect(customerStepBlock).toContain('customer.policyholderCarrier');
+  });
+
+  it('preserves customer profile fields when opening an existing customer for editing', () => {
+    const editPayloadBlock = createSource.slice(
+      createSource.indexOf('const mapCustomerProfileToSavePayload'),
+      createSource.indexOf('const mergeCustomerIntoList'),
+    );
+    const saveCustomerBlock = createSource.slice(
+      createSource.indexOf('const saveNewCustomer = async () => {'),
+      createSource.indexOf('const toggleProduct = (product: MobileRequestProduct) => {'),
+    );
+
+    expect(editPayloadBlock).toContain('id: customer.id');
+    expect(editPayloadBlock).toContain('hasSeparatePolicyholder: Boolean(customer.hasSeparatePolicyholder)');
+    expect(editPayloadBlock).toContain('policyholderName: customer.policyholderName ??');
+    expect(editPayloadBlock).toContain('drivingStatus: customer.drivingStatus ??');
+    expect(editPayloadBlock).toContain('requestDetails: customer.requestDetails ??');
+    expect(saveCustomerBlock).toContain('mergeCustomerIntoList(prev, result.data!)');
+    expect(saveCustomerBlock).toContain('editingCustomerId');
+  });
   it('keeps the separate contractor toggle on one React Native Web Pressable path', () => {
     const toggleBlock = createSource.slice(
       createSource.indexOf('const toggleSeparatePolicyholder = useCallback'),
@@ -149,6 +235,46 @@ describe('request-board mobile UI contracts', () => {
     expect(newCustomerBlock).toContain('updateWeightField');
   });
 
+
+
+  it('splits MVNO carrier choices by network', () => {
+    expect(createSource).toContain("const REQUEST_BOARD_CARRIER_OPTIONS = ['SKT', 'KT', 'LG U+', '알뜰폰 SKT', '알뜰폰 KT', '알뜰폰 LG U+'];");
+    expect(createSource).not.toContain("const REQUEST_BOARD_CARRIER_OPTIONS = ['SKT', 'KT', 'LG U+', '알뜰폰'];");
+  });
+
+  it('keeps single-column and multiline fields on a regular vertical rhythm', () => {
+    const fieldBlock = createSource.slice(
+      createSource.indexOf('function Field({'),
+      createSource.indexOf('export default function RequestBoardCreateScreen'),
+    );
+    const fieldBaseStyles = createSource.slice(
+      createSource.indexOf('field: {'),
+      createSource.indexOf('fieldGrow:'),
+    );
+    const fieldGrowStyles = createSource.slice(
+      createSource.indexOf('fieldGrow:'),
+      createSource.indexOf('multilineField:'),
+    );
+    const twoColumnBlock = createSource.slice(
+      createSource.indexOf('<View style={styles.twoColumn}>'),
+      createSource.indexOf('<View style={styles.genderRow}>'),
+    );
+    const fieldLayoutStyles = createSource.slice(
+      createSource.indexOf('field: {'),
+      createSource.indexOf('stackedField:'),
+    );
+
+    expect(fieldBlock).toContain('grow = false');
+    expect(fieldBlock).toContain('grow && styles.fieldGrow');
+    expect(fieldBlock).toContain('multiline && styles.multilineField');
+    expect(fieldBlock).toContain('multiline && styles.multilineFieldLabel');
+    expect(twoColumnBlock).toContain('grow');
+    expect(fieldBaseStyles).not.toContain('flex: 1');
+    expect(fieldGrowStyles).toContain('flex: 1');
+    expect(fieldGrowStyles).not.toContain('marginTop: SPACING.xs');
+    expect(fieldLayoutStyles).not.toContain('marginBottom: SPACING.sm');
+  });
+
   it('keeps wrapped new-customer option groups out of the two-column flex field layout', () => {
     const newCustomerBlock = createSource.slice(
       createSource.indexOf('const renderNewCustomerStep = () => ('),
@@ -175,6 +301,52 @@ describe('request-board mobile UI contracts', () => {
     expect(reviewSource).toContain('policyholder_address');
     expect(reviewSource).toContain('계약자 정보');
     expect(reviewSource).toContain('피보험자와 동일');
+  });
+
+  it('surfaces separate policyholder context in request-board list and detail summaries', () => {
+    const quickRequestBlock = homeSource.slice(
+      homeSource.indexOf('designerQuickRequests.map'),
+      homeSource.indexOf('styles.managerQuickActions'),
+    );
+    const requestListBlock = requestsSource.slice(
+      requestsSource.indexOf('const renderItem = ({ item }'),
+      requestsSource.indexOf('const navPreset = resolveBottomNavPreset'),
+    );
+    const detailHeaderBlock = reviewSource.slice(
+      reviewSource.indexOf('<View style={styles.infoCardHeader}>'),
+      reviewSource.indexOf('<InfoSection title="의뢰 정보">'),
+    );
+
+    expect(quickRequestBlock).toContain('request.has_separate_policyholder');
+    expect(quickRequestBlock).toContain('styles.managerPolicyholderRow');
+    expect(quickRequestBlock).toContain('계약자 다름');
+    expect(quickRequestBlock).toContain('request.policyholder_name');
+    expect(quickRequestBlock).toContain('피보험자:');
+    expect(quickRequestBlock).toContain('계약자:');
+
+    expect(requestListBlock).toContain('item.has_separate_policyholder');
+    expect(requestListBlock).toContain('styles.requestPolicyholderRow');
+    expect(requestListBlock).toContain('계약자 다름');
+    expect(requestListBlock).toContain('피보험자:');
+    expect(requestListBlock).toContain('계약자:');
+
+    expect(reviewSource).toContain('const hasSeparatePolicyholder = Boolean(detail.has_separate_policyholder);');
+    expect(detailHeaderBlock).toContain('hasSeparatePolicyholder');
+    expect(detailHeaderBlock).toContain('styles.policyholderSummary');
+    expect(detailHeaderBlock).toContain('계약자 다름');
+    expect(detailHeaderBlock).toContain('policyholderSummary');
+    expect(reviewSource).toContain('detail.policyholder_name');
+    expect(reviewSource).toContain('detail.policyholder_phone');
+    expect(reviewSource).toContain('계약자:');
+    const detailContentBlock = reviewSource.slice(
+      reviewSource.indexOf('<InfoSection title="고객 정보">'),
+      reviewSource.indexOf('{/* Designer Assignments */}'),
+    );
+
+    expect(detailContentBlock).toContain('<Text style={styles.sectionTitle}>계약자 정보</Text>');
+    expect(detailContentBlock.indexOf('<InfoSection title="건강 정보">')).toBeLessThan(
+      detailContentBlock.indexOf('<Text style={styles.sectionTitle}>계약자 정보</Text>'),
+    );
   });
 
   it('requires a typed designer rejection reason from the home quick request card', () => {
@@ -259,6 +431,31 @@ describe('request-board mobile UI contracts', () => {
     expect(homeSource).toContain('formatRequestBoardCustomerDisplayName');
     expect(homeSource).toContain('customerDisplayName');
   });
+  it('surfaces FC design codes on request-board home and list cards', () => {
+    const quickRequestBlock = homeSource.slice(
+      homeSource.indexOf('designerQuickRequests.map'),
+      homeSource.indexOf('styles.managerQuickActions'),
+    );
+    const requestListBlock = requestsSource.slice(
+      requestsSource.indexOf('const renderItem = ({ item }'),
+      requestsSource.indexOf('const navPreset = resolveBottomNavPreset'),
+    );
+
+    expect(homeSource).toContain('const getRequestDesignCodeDisplay');
+    expect(homeSource).toContain('assignment?.fc_code_value');
+    expect(homeSource).toContain('요청 FC: ${fcName}');
+    expect(homeSource).toContain('설계 코드: ${designCode}');
+    expect(homeSource).toContain('전화번호: ${phone}');
+    expect(quickRequestBlock).toContain('fcContactSummary');
+    expect(quickRequestBlock).toContain('styles.managerFcCodeRow');
+    expect(quickRequestBlock).not.toContain('FC코드 {fcCodeDisplay}');
+
+    expect(requestsSource).toContain('const getRequestDesignCodeDisplay');
+    expect(requestsSource).toContain('assignment.fc_code_value');
+    expect(requestListBlock).toContain('fcContactSummary');
+    expect(requestListBlock).toContain('styles.requestFcSummaryRow');
+    expect(requestListBlock).not.toContain("'FC코드 ' + fcCodeDisplay");
+  });
 
   it('keeps request list filters horizontally scrollable on narrow phones', () => {
     const filterTabsBlock = requestsSource.slice(
@@ -278,7 +475,9 @@ describe('request-board mobile UI contracts', () => {
     expect(fcCodesSource).toContain('styles.codeCard');
     expect(fcCodesSource).toContain('styles.codeCardHeader');
     expect(fcCodesSource).toContain('styles.codeValuePill');
-    expect(fcCodesSource).toContain('numberOfLines={2}>{item.insurer_name}');
+    expect(fcCodesSource).toContain('styles.codeCardActionsRow');
+    expect(fcCodesSource).toContain('numberOfLines={1}>{item.insurer_name}');
+    expect(fcCodesSource).toContain('<View style={styles.codeCardActionsRow}>');
   });
 
   it('keeps long designer picker names and sent summaries constrained', () => {
@@ -293,7 +492,9 @@ describe('request-board mobile UI contracts', () => {
     expect(reviewSource).toContain('const valueLineLimit = fullWidth ? undefined : 3;');
     expect(reviewSource).toContain('numberOfLines={valueLineLimit}');
     expect(reviewSource).toContain('요청 FC');
-    expect(reviewSource).toContain('FC 코드');
+    expect(reviewSource).toContain('전화번호');
+    expect(reviewSource).toContain('설계 코드');
+    expect(reviewSource).toContain('requestFcSummary');
   });
 
   it('shows attachment description and expiry date on the GaramIn review screen', () => {

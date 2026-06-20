@@ -1,4 +1,4 @@
-﻿# 작업 상세 로그 (Work Detail)
+# 작업 상세 로그 (Work Detail)
 
 > **상세 이력 누적 파일**입니다.  
 > 최근 1개월 Git 이력(`2026-01-12` ~ `2026-02-11`, 총 44 commits)을 기준으로 재구성했습니다.
@@ -7,6 +7,55 @@
 
 ---
 
+## <a id="20260620-request-board-customer-fc-identity-polish"></a> 2026-06-20 | Request-board customer and FC identity polish
+
+**배경**:
+- 가람in 고객관리 화면에 기존 고객 수정/삭제가 없어 GaramLink 고객 관리 계약과 맞지 않았다.
+- 고객 선택/고객관리 카드, 설계요청 홈, 의뢰 목록, 의뢰 상세에서 계약자와 피보험자가 다른 의뢰 및 요청 FC의 식별 정보가 한눈에 보이지 않았다.
+- 하단 네비게이션이 일부 설계요청 화면에서 홈/게시판처럼 스크롤에 맞춰 동적으로 움직이지 않았고, FC 설계코드 카드도 3줄 구조라 공간 효율이 낮았다.
+
+**조치**:
+- `POST /api/customers` upsert 계약에 맞춰 고객 저장 payload에 `id`를 포함하고 `DELETE /api/customers/:id` 래퍼를 추가했다.
+- 고객관리 진입에서는 카드 액션을 `요청 작성`/`수정`/`삭제`로 분리하고, 일반 고객 선택 플로우에도 삭제 버튼을 제공하되 기존 선택 동작은 유지했다.
+- 고객 편집 폼을 신규 등록 폼과 공유하되 edit/create 모드, 편집 대상 id, 저장 후 로컬 목록 merge/delete 흐름을 분리했다.
+- MVNO 통신사를 `알뜰폰 SKT`/`알뜰폰 KT`/`알뜰폰 LG U+`로 선택할 수 있게 하고, 건강정보 textarea 간격을 동일한 field-group 규칙으로 정리했다.
+- 계약자/피보험자 분리 표기를 `피보험자:`/`계약자:` 형식으로 통일하고 고객 카드, 설계요청 홈, 의뢰 목록, 의뢰 상세에 반영했다.
+- 설계요청 홈/목록/상세에 요청 FC 이름, 설계 코드, 전화번호를 표시하고, 본인에게 들어온 요청의 설계코드는 회사명 없이 `설계 코드: ...` 형식으로 보이게 했다.
+- 의뢰 상세에서 건강정보를 고객 정보 흐름 안에 먼저 배치하고, 계약자 정보는 `설계 진행`처럼 별도 섹션으로 분리했다.
+- 설계요청 홈/의뢰 목록/상세/설계코드 관리의 하단 네비게이션을 동일한 Animated scroll signal에 연결했다.
+- 설계코드 관리 카드를 `회사명 + 날짜`, `코드 + 수정/삭제 버튼`의 2줄 구조로 압축했다.
+- 반복된 JSX 이동/compile overlay 회귀를 `.claude/MISTAKES.md`에 기록하고, `.codex/harness/*` 작업 노트를 최신 상태로 갱신했다.
+
+**핵심 파일**:
+- `app/request-board-create.tsx`
+- `app/request-board.tsx`
+- `app/request-board-requests.tsx`
+- `app/request-board-review.tsx`
+- `app/request-board-fc-codes.tsx`
+- `lib/request-board-api.ts`
+- `lib/request-board-policyholder-display.ts`
+- `lib/request-board-url.ts`
+- `lib/__tests__/request-board-api-contract.test.ts`
+- `lib/__tests__/request-board-mobile-ui-contract.test.ts`
+- `lib/__tests__/request-board-policyholder-display.test.ts`
+- `.claude/MISTAKES.md`
+- `.codex/harness/current-contract.md`
+- `.codex/harness/handoff.md`
+- `.codex/harness/plan.md`
+- `.codex/harness/qa-report.md`
+
+**검증**:
+- `npm test -- --runInBand lib/__tests__/request-board-mobile-ui-contract.test.ts lib/__tests__/request-board-api-contract.test.ts`
+- `npx eslint app/request-board-review.tsx app/request-board.tsx app/request-board-requests.tsx lib/request-board-api.ts lib/__tests__/request-board-mobile-ui-contract.test.ts lib/__tests__/request-board-api-contract.test.ts`
+- `npx tsc --noEmit`
+- `git diff --check` targeted scope
+- Supabase request_board DB에서 `API스모크`/`Codex Smoke`/`알림스모크`/`@test.local` 계열 테스트 사용자와 `?????` 회사명 테스트 설계매니저 데이터를 정리하고 남은 건수가 0임을 확인했다.
+
+**미실행/주의**:
+- Codex in-app browser 연결은 Windows sandbox `CreateProcessAsUserW failed: 5`로 자동 재검증을 완료하지 못해, 최종 화면은 사용자가 열어둔 localhost에서 직접 확인했다.
+- `app.json`, 추천 시스템 테스트 결과 JSON, `.codex/harness/product-spec.md`에는 이번 작업과 무관한 기존 변경이 있어 이 변경 묶음에는 포함하지 않았다.
+
+---
 ## <a id="20260618-loading-ui-source-of-truth-correction"></a> 2026-06-18 | Loading UI source-of-truth correction
 
 **배경**:

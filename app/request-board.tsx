@@ -11,18 +11,19 @@ import {
   Modal,
   Pressable,
   RefreshControl,
-  ScrollView,
   StyleSheet,
   Text,
   TextInput,
   View,
 } from 'react-native';
+import Animated from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { AppTopActionBar } from '@/components/AppTopActionBar';
 import { BottomNavigation } from '@/components/BottomNavigation';
 import MessengerLoadingState from '@/components/MessengerLoadingState';
 import { useAppLogout } from '@/hooks/use-app-logout';
+import { useBottomNavAnimation } from '@/hooks/use-bottom-nav-animation';
 import { useSession } from '@/hooks/use-session';
 import { resolveBottomNavActiveKey, resolveBottomNavPreset } from '@/lib/bottom-navigation';
 import { logger } from '@/lib/logger';
@@ -35,6 +36,7 @@ import {
   type RbRequestListItem,
 } from '@/lib/request-board-api';
 import { getRequestBoardCustomerManagementRoute } from '@/lib/request-board-create-flow';
+import { formatRequestBoardFcDisplayName } from '@/lib/request-board-fc-identity';
 import {
   computeRequestBoardHomeStats,
   type RequestBoardHomeStats,
@@ -152,6 +154,45 @@ const getRequestProductNames = (request: RbRequestListItem) => {
   return names.length > 0 ? names.join(', ') : '종목 없음';
 };
 
+const formatRequestBoardPhone = (value?: string | null) => {
+  const digits = String(value ?? '').replace(/[^0-9]/g, '');
+  if (digits.length === 11) return `${digits.slice(0, 3)}-${digits.slice(3, 7)}-${digits.slice(7)}`;
+  return String(value ?? '').trim() || '-';
+};
+
+const formatDesignCodeDisplay = (codeValue?: unknown, fallbackName?: unknown): string | null => {
+  const value = String(codeValue ?? '').trim();
+  if (value) return value;
+  const fallback = String(fallbackName ?? '').trim();
+  return fallback || null;
+};
+
+const getRequestDesignCodeDisplay = (
+  request: RbRequestListItem,
+  assignment?: NonNullable<RbRequestListItem['request_designers']>[number] | null,
+): string | null => {
+  return (
+    formatDesignCodeDisplay(assignment?.fc_code_value, assignment?.fc_code_name) ??
+    formatDesignCodeDisplay(request.fc_code_value, request.fc_code_name)
+  );
+};
+
+const getRequestFcContactSummary = (
+  request: RbRequestListItem,
+  designCode?: string | null,
+): string | null => {
+  const rawName = String(request.fc?.name ?? '').trim();
+  const fcName = rawName
+    ? formatRequestBoardFcDisplayName(request.fc?.name, request.fc?.affiliation)
+    : null;
+  const phone = formatRequestBoardPhone(request.fc?.phone);
+  const parts = [
+    fcName ? `요청 FC: ${fcName}` : null,
+    designCode ? `설계 코드: ${designCode}` : null,
+    phone !== '-' ? `전화번호: ${phone}` : null,
+  ].filter(Boolean);
+  return parts.length > 0 ? parts.join(' · ') : null;
+};
 const getActionableAssignment = (request: RbRequestListItem) => {
   const assignments = request.request_designers ?? [];
   return (
@@ -185,6 +226,7 @@ const getDesignerRequestStatusMeta = (status?: string | null) => {
 export default function RequestBoardScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
+  const { scrollHandler, animatedStyle } = useBottomNavAnimation();
   const appLogout = useAppLogout();
   const {
     role,
@@ -585,9 +627,11 @@ export default function RequestBoardScreen() {
         </View>
       )}
 
-      <ScrollView
+      <Animated.ScrollView
         contentContainerStyle={[styles.scrollContent, { paddingBottom: 80 + insets.bottom }]}
         showsVerticalScrollIndicator={false}
+        onScroll={scrollHandler}
+        scrollEventThrottle={16}
         refreshControl={
           <RefreshControl refreshing={refreshing} onRefresh={handleRefresh} tintColor={COLORS.primary} />
         }
@@ -871,13 +915,30 @@ export default function RequestBoardScreen() {
                     const rejectActionKey = `${request.id}:${assignment?.id}:reject`;
                     const actionBusy =
                       designerActionKey === acceptActionKey || designerActionKey === rejectActionKey;
-                    const customerDisplayName =
+                    const designCodeDisplay = getRequestDesignCodeDisplay(request, assignment);
+                    const fcContactSummary = getRequestFcContactSummary(request, designCodeDisplay);
+                    const customerName = String(request.customer_name ?? '').trim();
+                    const policyholderName = String(request.policyholder_name ?? '').trim();
+                    const hasSeparatePolicyholder = !!request.has_separate_policyholder;
+                    const fallbackCustomerDisplayName =
                       String(request.customer_display_name ?? '').trim() ||
                       formatRequestBoardCustomerDisplayName({
                         customerName: request.customer_name,
                         hasSeparatePolicyholder: request.has_separate_policyholder,
                         policyholderName: request.policyholder_name,
                       });
+                    const customerDisplayName =
+                      hasSeparatePolicyholder && customerName
+                        ? customerName
+                        : fallbackCustomerDisplayName;
+                    const separatePolicyholderSummary = hasSeparatePolicyholder
+                      ? [
+                          customerName ? `피보험자: ${customerName}` : null,
+                          policyholderName ? `계약자: ${policyholderName}` : '계약자: 정보 확인 필요',
+                        ]
+                          .filter(Boolean)
+                          .join(' · ')
+                      : null;
 
                     return (
                       <View key={`${request.id}-${assignment?.id ?? 'assignment'}`} style={styles.managerQuickCard}>
@@ -886,9 +947,28 @@ export default function RequestBoardScreen() {
                             <Text style={styles.managerQuickTitle} numberOfLines={1}>
                               {customerDisplayName} 고객 설계
                             </Text>
+                            {separatePolicyholderSummary && (
+                              <View style={styles.managerPolicyholderRow}>
+                                <View style={styles.managerPolicyholderBadge}>
+                                  <Feather name="users" size={11} color="#92400E" />
+                                  <Text style={styles.managerPolicyholderBadgeText}>계약자 다름</Text>
+                                </View>
+                                <Text style={styles.managerPolicyholderText} numberOfLines={1}>
+                                  {separatePolicyholderSummary}
+                                </Text>
+                              </View>
+                            )}
                             <Text style={styles.managerQuickMeta} numberOfLines={1}>
                               {getRequestProductNames(request)} · {formatRelativeTime(request.created_at)}
                             </Text>
+                            {fcContactSummary ? (
+                              <View style={styles.managerFcCodeRow}>
+                                <Feather name="user" size={11} color={COLORS.primary} />
+                                <Text style={styles.managerFcCodeText} numberOfLines={2}>
+                                  {fcContactSummary}
+                                </Text>
+                              </View>
+                            ) : null}
                           </View>
                           <View style={[styles.managerStatusPill, { backgroundColor: meta.bg }]}>
                             <Text style={[styles.managerStatusText, { color: meta.color }]}>
@@ -1192,11 +1272,12 @@ export default function RequestBoardScreen() {
             </View>
           </View>
         </MotiView>
-      </ScrollView>
+      </Animated.ScrollView>
 
       <BottomNavigation
         preset={navPreset ?? undefined}
         activeKey={navActiveKey}
+        animatedStyle={animatedStyle}
         bottomInset={insets.bottom}
       />
 
@@ -1686,10 +1767,57 @@ const styles = StyleSheet.create({
     fontSize: TYPOGRAPHY.fontSize.sm,
     color: COLORS.text.secondary,
   },
+  managerFcCodeRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    marginTop: 5,
+    minWidth: 0,
+  },
+  managerFcCodeText: {
+    flex: 1,
+    minWidth: 0,
+    fontSize: TYPOGRAPHY.fontSize.xs,
+    fontWeight: '800' as const,
+    color: COLORS.primary,
+    lineHeight: 17,
+  },
+  managerPolicyholderRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    marginTop: 6,
+    minWidth: 0,
+  },
+  managerPolicyholderBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 3,
+    flexShrink: 0,
+    paddingHorizontal: 7,
+    paddingVertical: 3,
+    borderRadius: RADIUS.full,
+    backgroundColor: '#FEF3C7',
+    borderWidth: 1,
+    borderColor: '#FCD34D',
+  },
+  managerPolicyholderBadgeText: {
+    fontSize: TYPOGRAPHY.fontSize['2xs'],
+    fontWeight: '800' as const,
+    color: '#92400E',
+  },
+  managerPolicyholderText: {
+    flex: 1,
+    minWidth: 0,
+    fontSize: TYPOGRAPHY.fontSize.xs,
+    fontWeight: '700' as const,
+    color: '#92400E',
+  },
   managerStatusPill: {
     borderRadius: RADIUS.full,
     paddingHorizontal: SPACING.sm,
     paddingVertical: 5,
+    flexShrink: 0,
   },
   managerStatusText: {
     fontSize: TYPOGRAPHY.fontSize.xs,

@@ -26,6 +26,6 @@ describe('request board policyholder display', () => {
         hasSeparatePolicyholder: true,
         policyholderName: '박계약',
       }),
-    ).toBe('김피보험 (계약자 박계약)');
+    ).toBe('김피보험 (계약자: 박계약)');
   });
 });

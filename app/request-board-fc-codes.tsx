@@ -3,7 +3,6 @@ import { Stack, useRouter } from 'expo-router';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   Alert,
-  FlatList,
   Keyboard,
   KeyboardAvoidingView,
   Modal,
@@ -17,11 +16,13 @@ import {
   TouchableOpacity,
   View,
 } from 'react-native';
+import Animated from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { BottomNavigation } from '@/components/BottomNavigation';
 import BrandedLoadingSpinner from '@/components/BrandedLoadingSpinner';
 import BrandedLoadingState from '@/components/BrandedLoadingState';
+import { useBottomNavAnimation } from '@/hooks/use-bottom-nav-animation';
 import { useSession } from '@/hooks/use-session';
 import { resolveBottomNavActiveKey, resolveBottomNavPreset } from '@/lib/bottom-navigation';
 import { logger } from '@/lib/logger';
@@ -56,6 +57,7 @@ const formatDate = (value: string) => {
 export default function RequestBoardFcCodesScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
+  const { scrollHandler, animatedStyle } = useBottomNavAnimation();
   const {
     role,
     readOnly,
@@ -267,31 +269,32 @@ export default function RequestBoardFcCodesScreen() {
   const renderItem = ({ item }: { item: RbFcCode }) => (
     <View style={styles.codeCard}>
       <View style={styles.codeCardHeader}>
-        <Text style={styles.codeInsurer} numberOfLines={2}>{item.insurer_name}</Text>
+        <Text style={styles.codeInsurer} numberOfLines={1}>{item.insurer_name}</Text>
         <Text style={styles.codeDate}>{formatDate(item.updated_at)}</Text>
       </View>
-      <View style={styles.codeValuePill}>
-        <Text style={styles.codeValue} numberOfLines={1}>{item.code_value}</Text>
-      </View>
-      <View style={styles.codeRowActions}>
-        <Pressable
-          style={({ pressed }) => [styles.actionBtn, pressed && { opacity: 0.6 }]}
-          onPress={() => openEdit(item)}
-        >
-          <Feather name="edit-2" size={14} color={COLORS.primary} />
-          <Text style={[styles.actionBtnText, { color: COLORS.primary }]}>수정</Text>
-        </Pressable>
-        <Pressable
-          style={({ pressed }) => [styles.actionBtn, pressed && { opacity: 0.6 }]}
-          onPress={() => confirmDelete(item)}
-        >
-          <Feather name="trash-2" size={14} color={COLORS.error} />
-          <Text style={[styles.actionBtnText, { color: COLORS.error }]}>삭제</Text>
-        </Pressable>
+      <View style={styles.codeCardActionsRow}>
+        <View style={styles.codeValuePill}>
+          <Text style={styles.codeValue} numberOfLines={1}>{item.code_value}</Text>
+        </View>
+        <View style={styles.codeRowActions}>
+          <Pressable
+            style={({ pressed }) => [styles.actionBtn, pressed && { opacity: 0.6 }]}
+            onPress={() => openEdit(item)}
+          >
+            <Feather name="edit-2" size={14} color={COLORS.primary} />
+            <Text style={[styles.actionBtnText, { color: COLORS.primary }]}>수정</Text>
+          </Pressable>
+          <Pressable
+            style={({ pressed }) => [styles.actionBtn, pressed && { opacity: 0.6 }]}
+            onPress={() => confirmDelete(item)}
+          >
+            <Feather name="trash-2" size={14} color={COLORS.error} />
+            <Text style={[styles.actionBtnText, { color: COLORS.error }]}>삭제</Text>
+          </Pressable>
+        </View>
       </View>
     </View>
   );
-
   const navPreset = resolveBottomNavPreset({
     role,
     readOnly,
@@ -435,11 +438,13 @@ export default function RequestBoardFcCodesScreen() {
           </Text>
         </View>
       ) : (
-        <FlatList
+        <Animated.FlatList
           data={filteredCodes}
           keyExtractor={(item) => String(item.id)}
           renderItem={renderItem}
           contentContainerStyle={[styles.codeListContent, { paddingBottom: 80 + insets.bottom }]}
+          onScroll={scrollHandler}
+          scrollEventThrottle={16}
           refreshControl={
             <RefreshControl
               refreshing={refreshing}
@@ -625,6 +630,7 @@ export default function RequestBoardFcCodesScreen() {
       <BottomNavigation
         preset={navPreset ?? undefined}
         activeKey={navActiveKey}
+        animatedStyle={animatedStyle}
         bottomInset={insets.bottom}
       />
     </View>
@@ -853,9 +859,9 @@ const styles = StyleSheet.create({
   },
   codeCardHeader: {
     flexDirection: 'row',
-    alignItems: 'flex-start',
+    alignItems: 'center',
     gap: SPACING.sm,
-    marginBottom: SPACING.sm,
+    marginBottom: 10,
   },
   codeInsurer: {
     flex: 1,
@@ -869,6 +875,12 @@ const styles = StyleSheet.create({
     color: COLORS.text.muted,
     flexShrink: 0,
   },
+  codeCardActionsRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: SPACING.sm,
+  },
   codeValuePill: {
     alignSelf: 'flex-start',
     maxWidth: '100%',
@@ -876,7 +888,7 @@ const styles = StyleSheet.create({
     backgroundColor: COLORS.gray[100],
     paddingHorizontal: SPACING.sm,
     paddingVertical: 6,
-    marginBottom: SPACING.sm,
+    flexShrink: 1,
   },
   codeValue: {
     fontSize: TYPOGRAPHY.fontSize.sm,
@@ -887,6 +899,7 @@ const styles = StyleSheet.create({
   codeRowActions: {
     flexDirection: 'row',
     justifyContent: 'flex-end',
+    flexShrink: 0,
     gap: 8,
   },
   actionBtn: {

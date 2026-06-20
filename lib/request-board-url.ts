@@ -4,7 +4,7 @@ import { Platform } from 'react-native';
 import { logger } from './logger';
 
 const REQUEST_BOARD_PRODUCTION_URL = 'https://requestboard-steel.vercel.app';
-const REQUEST_BOARD_DEV_API_PORT = '3000';
+const REQUEST_BOARD_DEV_API_PORT = '3001';
 const REQUEST_BOARD_DEV_WEB_PORT = '5173';
 
 let loggedApiBaseUrl = false;

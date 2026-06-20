@@ -18,5 +18,5 @@ export const formatRequestBoardCustomerDisplayName = ({
     return customer;
   }
 
-  return `${customer} (계약자 ${policyholder})`;
+  return `${customer} (계약자: ${policyholder})`;
 };
