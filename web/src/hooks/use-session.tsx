@@ -71,15 +71,6 @@ const obfuscate = (text: string): string => {
     return btoa(encodeURIComponent(text));
 };
 
-const deobfuscate = (encoded: string): string => {
-    if (typeof window === 'undefined') return encoded;
-    try {
-        return decodeURIComponent(atob(encoded));
-    } catch {
-        return '';
-    }
-};
-
 function readSessionFromCookies(): SessionState | null {
     const role = parseCookie(COOKIE_ROLE);
     const residentId = parseCookie(COOKIE_RESIDENT);
@@ -91,26 +82,6 @@ function readSessionFromCookies(): SessionState | null {
         displayName: parseCookie(COOKIE_DISPLAY),
         staffType: normalizeStaffType(parseCookie(COOKIE_STAFF_TYPE)),
     };
-}
-
-function readSessionFromStorage(): SessionState | null {
-    try {
-        const raw = localStorage.getItem(STORAGE_KEY);
-        if (!raw) return null;
-        const decoded = deobfuscate(raw);
-        const parsed = JSON.parse(decoded) as Partial<SessionState>;
-        if (!isRole(parsed.role) || !parsed.residentId) return null;
-        return {
-            role: parsed.role,
-            residentId: parsed.residentId,
-            residentMask: formatSessionResidentMask(parsed.residentId),
-            displayName: parsed.displayName ?? '',
-            staffType: normalizeStaffType(parsed.staffType),
-        };
-    } catch (err) {
-        logger.warn('Session restore failed', err);
-        return null;
-    }
 }
 
 function writeCookies(snapshot: Pick<SessionState, 'role' | 'residentId' | 'displayName' | 'staffType'> | null) {
@@ -141,11 +112,14 @@ export function SessionProvider({ children }: { children: ReactNode }) {
                 const cookieSession = readSessionFromCookies();
                 const snapshot = resolveClientSessionRestore({
                     cookieSession,
-                    storageSession: cookieSession ? null : readSessionFromStorage(),
+                    storageSession: null,
                 });
                 if (snapshot) {
                     setState(snapshot);
                     writeCookies(snapshot);
+                } else {
+                    localStorage.removeItem(STORAGE_KEY);
+                    writeCookies(null);
                 }
             } finally {
                 setHydrated(true);

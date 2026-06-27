@@ -162,7 +162,7 @@ const AFFILIATION_OPTIONS = [
   '4본부 현경숙',
   '5본부 최철준',
   '6본부 김정수(박선희)',
-  '7본부 김동훈',
+  '7본부 이동훈',
   '8본부 정승철',
   '9본부 이현욱(김주용)',
 ] as const;
@@ -174,7 +174,8 @@ const LEGACY_AFFILIATION_TO_NEW: Record<string, string> = {
   '5본부 [본부장: 최철준]': '5본부 최철준',
   '6본부 [본부장: 김정수]': '6본부 김정수(박선희)',
   '6본부 [본부장: 박선희]': '6본부 김정수(박선희)',
-  '7본부 [본부장: 김동훈]': '7본부 김동훈',
+  '7본부 [본부장: 김동훈]': '7본부 이동훈',
+  '7본부 [본부장: 이동훈]': '7본부 이동훈',
   '8본부 [본부장: 정승철]': '8본부 정승철',
   '9본부 [본부장: 이현욱]': '9본부 이현욱(김주용)',
   '9본부 [본부장: 김주용]': '9본부 이현욱(김주용)',
@@ -185,7 +186,8 @@ const LEGACY_AFFILIATION_TO_NEW: Record<string, string> = {
   '5팀(대전2) : 최철준 본부장님': '5본부 최철준',
   '6팀(전주1) : 김정수 본부장님': '6본부 김정수(박선희)',
   '6팀(전주1) : 박선희 본부장님': '6본부 김정수(박선희)',
-  '7팀(청주1/직할) : 김동훈 본부장님': '7본부 김동훈',
+  '7팀(청주1/직할) : 김동훈 본부장님': '7본부 이동훈',
+  '7팀(청주1/직할) : 이동훈 본부장님': '7본부 이동훈',
   '8팀(서울3) : 정승철 본부장님': '8본부 정승철',
   '9팀(서울4) : 이현옥 본부장님': '9본부 이현욱(김주용)',
   '9팀(서울4) : 이현욱 본부장님': '9본부 이현욱(김주용)',
@@ -193,6 +195,31 @@ const LEGACY_AFFILIATION_TO_NEW: Record<string, string> = {
 
 const sanitize = (v?: string | null) => (v ?? '').replace(/[^0-9]/g, '');
 const normalizeWhitespace = (value?: string | null) => (value ?? '').replace(/\s+/g, ' ').trim();
+const SECRET_ASSIGNMENT_PATTERN =
+  /\b[A-Z][A-Z0-9_]*(?:TOKEN|SECRET|PASSWORD|PRIVATE_KEY|SERVICE_ROLE_KEY|AUTH_TOKEN|API_KEY)\b\s*=\s*[^\s"'`<>]+/gi;
+const LONG_HEX_TOKEN_PATTERN = /\b[a-f0-9]{32,}\b/gi;
+
+function redactSensitiveText(value?: string | null, fallback = '') {
+  const text = String(value ?? '').trim();
+  if (!text) return fallback;
+  return text
+    .replace(SECRET_ASSIGNMENT_PATTERN, (match) => {
+      const key = match.split('=')[0]?.trim() || 'SECRET';
+      return `${key}=[redacted]`;
+    })
+    .replace(LONG_HEX_TOKEN_PATTERN, '[redacted]')
+    .trim();
+}
+
+function sanitizeNotificationInsert(payload: NotificationInsert): NotificationInsert {
+  return {
+    ...payload,
+    title: redactSensitiveText(payload.title, '알림'),
+    body: redactSensitiveText(payload.body),
+    category: redactSensitiveText(payload.category, 'app_event'),
+    target_url: payload.target_url ? redactSensitiveText(payload.target_url) : payload.target_url,
+  };
+}
 const normalizeAffiliationLabel = (value?: string | null): string => {
   const trimmed = normalizeWhitespace(value);
   if (!trimmed) return '';
@@ -279,7 +306,7 @@ function buildPushTitleWithSource(title: string, source: NotificationSource): st
  * Calls the Next.js /api/admin/push endpoint.
  * Fire-and-forget: errors are logged but do not block the response.
  */
-async function notifyAdminWebPush(title: string, body: string, url: string) {
+async function notifyAdminWebPush(title: string, body: string, url: string, targetId?: string | null) {
   const adminWebUrl = getEnv('ADMIN_WEB_URL');
   const pushSecret = getEnv('ADMIN_PUSH_SECRET');
 
@@ -307,7 +334,7 @@ async function notifyAdminWebPush(title: string, body: string, url: string) {
     const resp = await fetch(endpoint, {
       method: 'POST',
       headers,
-      body: JSON.stringify({ title, body, url }),
+      body: JSON.stringify({ title, body, url, targetId: targetId ?? null }),
     });
 
     const text = await resp.text().catch(() => '');
@@ -603,6 +630,29 @@ function dedupeTokens(tokens: TokenRow[]): TokenRow[] {
   });
 }
 
+function normalizeAdminNotificationTargetId(value?: string | null): string {
+  const raw = String(value ?? '').trim().toLowerCase();
+  if (!raw || raw === ADMIN_CHAT_ID) return '';
+  return sanitize(value);
+}
+
+async function fetchSharedAdminPhones(): Promise<string[]> {
+  const { data, error } = await supabase
+    .from('admin_accounts')
+    .select('phone,staff_type')
+    .eq('active', true);
+  if (error) throw error;
+
+  return Array.from(
+    new Set(
+      ((data ?? []) as AdminAccountRow[])
+        .filter((account) => account.staff_type !== 'developer')
+        .map((account) => sanitize(account.phone))
+        .filter((phone) => phone.length > 0),
+    ),
+  );
+}
+
 async function resolveFcUpdateAdminRecipientIds(fcAffiliation?: string | null): Promise<string[]> {
   const normalizedAffiliation = normalizeAffiliationLabel(fcAffiliation);
   const [adminsRes, mappingRes] = await Promise.all([
@@ -665,9 +715,10 @@ function err(message: string, status = 400) {
 }
 
 async function insertNotificationWithFallback(payload: NotificationInsert) {
+  const sanitizedPayload = sanitizeNotificationInsert(payload);
   const withTarget = {
-    ...payload,
-    target_url: payload.target_url ?? null,
+    ...sanitizedPayload,
+    target_url: sanitizedPayload.target_url ?? null,
   };
 
   const firstTry = await supabase.from('notifications').insert(withTarget);
@@ -936,7 +987,7 @@ serve(async (req: Request) => {
         }
       } else {
         if (residentId) {
-          query = query.eq('recipient_role', 'admin').or(`resident_id.eq.${residentId},resident_id.is.null`);
+          query = query.eq('recipient_role', 'admin').eq('resident_id', residentId);
         } else {
           query = query.eq('recipient_role', 'admin').is('resident_id', null);
         }
@@ -945,15 +996,15 @@ serve(async (req: Request) => {
       return query;
     };
 
-    const runNotifQuery = async (buildQuery: (selectColumns: string) => ReturnType<typeof supabase.from>) => {
-      let { data, error } = await buildQuery(
-        'id,title,body,category,target_url,created_at,resident_id,recipient_role',
-      );
+    const runNotifQuery = async (buildQuery: (selectColumns: string) => any): Promise<Array<Record<string, any>>> => {
+      let result = await buildQuery('id,title,body,category,target_url,created_at,resident_id,recipient_role');
+      let data = result.data as Array<Record<string, any>> | null;
+      let error = result.error as { code?: string } | null;
 
       if (error?.code === '42703') {
         const fallback = await buildQuery('id,title,body,category,created_at,resident_id,recipient_role');
-        error = fallback.error;
-        data = (fallback.data ?? []).map((row) => ({ ...row, target_url: null }));
+        error = fallback.error as { code?: string } | null;
+        data = ((fallback.data ?? []) as Array<Record<string, any>>).map((row) => ({ ...row, target_url: null }));
       }
 
       if (error) {
@@ -983,14 +1034,15 @@ serve(async (req: Request) => {
           : Promise.resolve([]),
       ]);
 
-      const notifications = Array.from(
-        [...primaryNotifications, ...requestBoardFcNotifications]
+      const dedupedNotifications: Array<Record<string, any>> = Array.from(
+        ([...primaryNotifications, ...requestBoardFcNotifications] as Array<Record<string, any>>)
           .reduce((map, item) => {
             if (!map.has(item.id)) map.set(item.id, item);
             return map;
-          }, new Map<string, (typeof primaryNotifications)[number]>())
+          }, new Map<string, Record<string, any>>())
           .values(),
-      )
+      );
+      const notifications = dedupedNotifications
         .sort(
           (a, b) =>
             new Date(String(b.created_at ?? 0)).getTime() - new Date(String(a.created_at ?? 0)).getTime(),
@@ -1035,13 +1087,13 @@ serve(async (req: Request) => {
         } else {
           countQuery = countQuery.eq('recipient_role', 'fc').is('resident_id', null);
         }
+      } else {
+        if (residentId) {
+          countQuery = countQuery.eq('recipient_role', 'admin').eq('resident_id', residentId);
         } else {
-          if (residentId) {
-            countQuery = countQuery.eq('recipient_role', 'admin').or(`resident_id.eq.${residentId},resident_id.is.null`);
-          } else {
-            countQuery = countQuery.eq('recipient_role', 'admin').is('resident_id', null);
-          }
+          countQuery = countQuery.eq('recipient_role', 'admin').is('resident_id', null);
         }
+      }
 
         if (onlyRequestBoardCategories) {
           countQuery = countQuery.ilike('category', `${REQUEST_BOARD_CATEGORY_PREFIX}%`);
@@ -1121,7 +1173,7 @@ serve(async (req: Request) => {
         }
       } else {
         if (residentId) {
-          deleteQuery = deleteQuery.eq('recipient_role', 'admin').or(`resident_id.eq.${residentId},resident_id.is.null`);
+          deleteQuery = deleteQuery.eq('recipient_role', 'admin').eq('resident_id', residentId);
         } else {
           deleteQuery = deleteQuery.eq('recipient_role', 'admin').is('resident_id', null);
         }
@@ -1229,25 +1281,32 @@ serve(async (req: Request) => {
   // 직접 알림 처리 (notify/message)
   if (body.type === 'notify' || body.type === 'message') {
     const target_role = body.target_role;
-    const target_id = sanitize(body.target_id);
+    const target_id = target_role === 'admin'
+      ? normalizeAdminNotificationTargetId(body.target_id)
+      : sanitize(body.target_id);
     const skipNotificationInsert = body.skip_notification_insert === true;
 
-    const title =
+    const title = redactSensitiveText(
       body.type === 'notify'
         ? body.title
-        : body.title ?? '새 메시지';
-    const message =
+        : body.title ?? '\uba54\uc2dc\uc9c0',
+      '\uc54c\ub9bc',
+    );
+    const message = redactSensitiveText(
       body.type === 'notify'
         ? body.body
-        : body.body ?? body.message ?? '새로운 메시지가 도착했습니다.';
-    const category =
+        : body.body ?? body.message ?? '\uc0c8\ub85c\uc6b4 \uba54\uc2dc\uc9c0\uac00 \ub3c4\ucc29\ud588\uc2b5\ub2c8\ub2e4.',
+    );
+    const category = redactSensitiveText(
       body.type === 'notify'
         ? body.category ?? 'app_event'
-        : body.category ?? 'message';
+        : body.category ?? 'message',
+      'app_event',
+    );
     const notificationSource = resolveNotificationSource(category);
     const pushTitle = buildPushTitleWithSource(title, notificationSource);
 
-    let url = body.type === 'notify' ? body.url ?? '/notifications' : body.url ?? '/chat';
+    let url = redactSensitiveText(body.type === 'notify' ? body.url ?? '/notifications' : body.url ?? '/chat', '/notifications');
     if (body.type === 'message' && target_role === 'admin' && !body.url) {
       let senderName = body.sender_name?.trim() || '';
 
@@ -1260,7 +1319,7 @@ serve(async (req: Request) => {
         senderName = senderProfile?.name?.trim() || '';
       }
 
-      const resolvedSenderName = senderName || body.sender_id || 'FC';
+      const resolvedSenderName = redactSensitiveText(senderName || body.sender_id || 'FC', 'FC');
       url = `/chat?targetId=${encodeURIComponent(body.sender_id)}&targetName=${encodeURIComponent(resolvedSenderName)}`;
     }
 
@@ -1275,11 +1334,15 @@ serve(async (req: Request) => {
       if (!error && data) tokens = data;
     } else {
       if (target_role === 'admin') {
-        const { data, error } = await supabase
-          .from('device_tokens')
-          .select('expo_push_token,resident_id,display_name,role')
-          .in('role', ['admin', 'manager']);
-        if (!error && data) tokens = data;
+        const sharedAdminPhones = await fetchSharedAdminPhones();
+        if (sharedAdminPhones.length > 0) {
+          const { data, error } = await supabase
+            .from('device_tokens')
+            .select('expo_push_token,resident_id,display_name,role')
+            .eq('role', 'admin')
+            .in('resident_id', sharedAdminPhones);
+          if (!error && data) tokens = data;
+        }
       } else {
         const { data, error } = await supabase
           .from('device_tokens')
@@ -1309,7 +1372,7 @@ serve(async (req: Request) => {
     let adminWebPush: AdminWebPushResult | null = null;
     // Send web push to admin browser subscribers
     if (target_role === 'admin') {
-      adminWebPush = await notifyAdminWebPush(pushTitle, message, url);
+      adminWebPush = await notifyAdminWebPush(pushTitle, message, url, target_id || null);
     }
 
     if (!tokens.length) {
@@ -1384,7 +1447,7 @@ serve(async (req: Request) => {
         tokens = data;
       }
 
-      const notificationRows = recipientResidentIds.map((recipientId) => ({
+      const notificationRows = recipientResidentIds.map((recipientId) => sanitizeNotificationInsert({
         title,
         body: message,
         category: (body as any).type,

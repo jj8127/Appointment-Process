@@ -9,6 +9,7 @@ import {
   dbError,
   resolveDeveloperResidentIds,
   toBoardDisplayRole,
+  redactSensitiveText,
 } from '../_shared/board.ts';
 
 type Payload = {
@@ -42,7 +43,7 @@ serve(async (req: Request) => {
   if (!body) return json({ ok: false, code: 'invalid_json', message: 'Invalid JSON' }, 400, origin);
 
   const actorCheck = await requireActor(body, origin);
-  if (!actorCheck.ok) return actorCheck.response;
+  if (actorCheck.ok === false) return actorCheck.response;
 
   const sort = body.sort ?? 'created';
   const order = body.order ?? 'desc';
@@ -112,9 +113,9 @@ serve(async (req: Request) => {
   const normalize = (row: any) => ({
     id: row.id,
     categoryId: row.category_id,
-    title: row.title,
+    title: redactSensitiveText(row.title, '게시글'),
     contentPreview: previewContent(row.content),
-    authorName: row.author_name,
+    authorName: redactSensitiveText(row.author_name, '작성자'),
     authorRole: toBoardDisplayRole(row.author_role, row.author_resident_id, developerResidentIds),
     createdAt: row.created_at,
     updatedAt: row.updated_at,

@@ -28,6 +28,7 @@ import { useSession } from '@/hooks/use-session';
 import { resolveBottomNavActiveKey, resolveBottomNavPreset } from '@/lib/bottom-navigation';
 import { logger } from '@/lib/logger';
 import { fetchMobileUnreadNotificationCount } from '@/lib/mobile-unread-notification-count';
+import { resolveNotificationInboxResidentId } from '@/lib/notification-inbox-scope';
 import { openExternalUrl } from '@/lib/open-external-url';
 import {
   rbAcceptRequest,
@@ -280,6 +281,15 @@ export default function RequestBoardScreen() {
   });
   const showStats = reqStats.loaded && (hasRequestBoardFcReadAccess || !!isRequestBoardDesigner);
   const includeRequestBoardFcInbox = role === 'admin' && requestBoardRole === 'fc';
+  const notificationInboxResidentId = useMemo(
+    () => resolveNotificationInboxResidentId({
+      role,
+      residentId,
+      readOnly,
+      staffType,
+    }),
+    [readOnly, residentId, role, staffType],
+  );
 
   useEffect(() => {
     if (!hydrated) return;
@@ -302,7 +312,7 @@ export default function RequestBoardScreen() {
             body: {
               type: 'inbox_list',
               role: inboxRole,
-              resident_id: residentId ?? null,
+              resident_id: notificationInboxResidentId,
               limit: 100,
               include_request_board_fc: includeRequestBoardFcInbox,
             },
@@ -331,7 +341,7 @@ export default function RequestBoardScreen() {
           try {
             const count = await fetchMobileUnreadNotificationCount({
               role: inboxRole,
-              residentId,
+              residentId: notificationInboxResidentId,
               requestBoardRole,
             });
             setUnreadNotifCount(count);
@@ -366,7 +376,7 @@ export default function RequestBoardScreen() {
 
     setLoading(false);
     setRefreshing(false);
-  }, [ensureRequestBoardSession, hasRequestBoardFcReadAccess, includeRequestBoardFcInbox, isRequestBoardDesigner, requestBoardRole, residentId, role]);
+  }, [ensureRequestBoardSession, hasRequestBoardFcReadAccess, includeRequestBoardFcInbox, isRequestBoardDesigner, notificationInboxResidentId, requestBoardRole, role]);
 
   useEffect(() => {
     if (hydrated) fetchData();

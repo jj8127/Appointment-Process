@@ -241,10 +241,18 @@ const formatPhone = (value?: string | null) => {
 };
 
 const getDesignerName = (designer: RbDesigner) =>
-  designer.users?.name ?? `설계매니저 ${designer.id}`;
+  designer.contact_name ?? designer.users?.name ?? `설계매니저 ${designer.id}`;
 
 const getDesignerCompany = (designer: RbDesigner) =>
   designer.company_name ?? designer.users?.affiliation ?? '회사 미지정';
+
+const getDesignerHeadquarters = (designer: RbDesigner) =>
+  String(designer.contact_region ?? '').trim();
+
+const getDesignerNameWithHeadquarters = (designer: RbDesigner) => {
+  const headquarters = getDesignerHeadquarters(designer);
+  return headquarters ? `${getDesignerName(designer)} (${headquarters})` : getDesignerName(designer);
+};
 
 const findFcCodeForDesigner = (designer: RbDesigner, codes: RbFcCode[]) => {
   const companyKey = normalizeCompany(getDesignerCompany(designer));
@@ -405,8 +413,9 @@ function DesignerBottomSheet({
       return [
         getDesignerName(designer),
         getDesignerCompany(designer),
+        getDesignerHeadquarters(designer),
         designer.users?.email ?? '',
-        designer.users?.phone ?? '',
+        designer.contact_phone ?? designer.users?.phone ?? '',
         code?.code_name ?? '',
         code?.code_value ?? '',
         productNames,
@@ -506,6 +515,7 @@ function DesignerBottomSheet({
                   .map((item) => item.insurance_products?.name)
                   .filter(Boolean);
                 const code = findFcCodeForDesigner(designer, fcCodes);
+                const headquarters = getDesignerHeadquarters(designer);
                 return (
                   <Pressable
                     key={designer.id}
@@ -517,9 +527,14 @@ function DesignerBottomSheet({
                     onPress={() => onToggleDesigner(designer.id)}
                   >
                     <View style={styles.designerMain}>
-                      <Text style={styles.designerName}>
-                        {getDesignerName(designer)} · {getDesignerCompany(designer)}
-                      </Text>
+                      <View style={styles.designerTitleRow}>
+                        <Text style={styles.designerName} numberOfLines={1}>
+                          {getDesignerName(designer)} · {getDesignerCompany(designer)}
+                        </Text>
+                        {headquarters ? (
+                          <Text style={styles.designerHeadquartersBadge}>{headquarters}</Text>
+                        ) : null}
+                      </View>
                       <Text style={styles.designerMeta} numberOfLines={2}>
                         {matchedProducts.length > 0
                           ? `선택 종목 가능: ${matchedProducts.join(', ')}`
@@ -1889,7 +1904,7 @@ export default function RequestBoardCreateScreen() {
             <View style={styles.managerPickerCopy}>
               <Text style={styles.managerPickerTitle} numberOfLines={1}>
                 {selectedDesigners.length > 0
-                  ? selectedDesigners.map(getDesignerName).join(', ')
+                  ? selectedDesigners.map(getDesignerNameWithHeadquarters).join(', ')
                   : '설계매니저 선택'}
               </Text>
               <Text style={styles.managerPickerMeta} numberOfLines={2}>
@@ -1929,7 +1944,9 @@ export default function RequestBoardCreateScreen() {
         <Text style={styles.sentLabel}>상품</Text>
         <Text style={styles.sentValue} numberOfLines={2}>{getProductSummary(products, selectedProductIds)}</Text>
         <Text style={styles.sentLabel}>매니저</Text>
-        <Text style={styles.sentValue} numberOfLines={2}>{selectedDesigners.map(getDesignerName).join(', ')}</Text>
+        <Text style={styles.sentValue} numberOfLines={2}>
+          {selectedDesigners.map(getDesignerNameWithHeadquarters).join(', ')}
+        </Text>
       </View>
       <Pressable style={styles.cta} onPress={() => router.replace('/request-board-requests' as any)}>
         <Text style={styles.ctaText}>진행중인 의뢰 보기</Text>
@@ -2859,10 +2876,28 @@ const styles = StyleSheet.create({
     flex: 1,
     gap: 4,
   },
+  designerTitleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flexWrap: 'wrap',
+    gap: 6,
+  },
   designerName: {
+    flexShrink: 1,
     color: COLORS.gray[900],
     fontSize: TYPOGRAPHY.fontSize.md,
     fontWeight: '800',
+  },
+  designerHeadquartersBadge: {
+    borderWidth: 1,
+    borderColor: '#BFDBFE',
+    borderRadius: RADIUS.full,
+    backgroundColor: '#EFF6FF',
+    color: '#1D4ED8',
+    fontSize: TYPOGRAPHY.fontSize.xs,
+    fontWeight: '900',
+    paddingHorizontal: 8,
+    paddingVertical: 3,
   },
   designerMeta: {
     color: COLORS.gray[600],

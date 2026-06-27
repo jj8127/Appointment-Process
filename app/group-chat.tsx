@@ -31,6 +31,7 @@ import BrandedLoadingSpinner from '@/components/BrandedLoadingSpinner';
 import { LinkifiedSelectableText } from '@/components/LinkifiedSelectableText';
 import MessengerLoadingState from '@/components/MessengerLoadingState';
 import { useKeyboardPadding } from '@/hooks/use-keyboard-padding';
+import { classifyGroupChatError } from '@/lib/group-chat-error';
 import {
   groupChatBootstrap,
   groupChatClearNotice,
@@ -59,6 +60,11 @@ const SOFT_BG = '#F9FAFB';
 const CHAT_UPLOAD_BUCKET = 'chat-uploads';
 const MESSAGE_LIMIT = 80;
 const GROUP_CHAT_REFRESH_INTERVAL_MS = 8_000;
+
+function showGroupChatErrorAlert(error: unknown) {
+  const userError = classifyGroupChatError(error);
+  Alert.alert(userError.title, userError.message);
+}
 const GROUP_CHAT_REACTIONS = ['👍', '❤️', '😂', '😮', '😢', '👏'];
 
 type OptimisticMessageInput = {
@@ -277,7 +283,7 @@ export default function GroupChatScreen() {
     } catch (error) {
       logger.warn('[group-chat] load failed', error);
       if (!options?.silent) {
-        Alert.alert('단톡방 오류', error instanceof Error ? error.message : '단톡방을 불러오지 못했습니다.');
+        showGroupChatErrorAlert(error);
       }
     } finally {
       setLoading(false);
@@ -443,7 +449,7 @@ export default function GroupChatScreen() {
       }
     } catch (error) {
       logger.warn('[group-chat] notice update failed', error);
-      Alert.alert('공지 변경 실패', error instanceof Error ? error.message : '공지를 변경하지 못했습니다.');
+      showGroupChatErrorAlert(error);
     } finally {
       setNoticeUpdating(false);
     }
@@ -457,7 +463,7 @@ export default function GroupChatScreen() {
       setNotice(null);
     } catch (error) {
       logger.warn('[group-chat] notice clear failed', error);
-      Alert.alert('공지 해제 실패', error instanceof Error ? error.message : '공지를 해제하지 못했습니다.');
+      showGroupChatErrorAlert(error);
     } finally {
       setNoticeUpdating(false);
     }
@@ -471,7 +477,7 @@ export default function GroupChatScreen() {
       updateMessage(message.id, { reactions: result.reactions });
     } catch (error) {
       logger.warn('[group-chat] reaction failed', error);
-      Alert.alert('감정 남기기 실패', '감정을 저장하지 못했습니다.');
+      showGroupChatErrorAlert(error);
     }
   }, [updateMessage]);
 
@@ -492,7 +498,7 @@ export default function GroupChatScreen() {
             })
             .catch((error) => {
               logger.warn('[group-chat] delete failed', error);
-              Alert.alert('삭제 실패', error instanceof Error ? error.message : '메시지를 삭제하지 못했습니다.');
+              showGroupChatErrorAlert(error);
             });
         },
       },
@@ -561,7 +567,7 @@ export default function GroupChatScreen() {
     } catch (error) {
       updateMessage(localMessageId, { send_status: 'failed' });
       logger.warn('[group-chat] send failed', error);
-      Alert.alert('전송 실패', error instanceof Error ? error.message : '메시지를 보내지 못했습니다.');
+      showGroupChatErrorAlert(error);
     }
   }, [applyMessages, updateMessage]);
 
@@ -654,7 +660,7 @@ export default function GroupChatScreen() {
     } catch (error) {
       if (isUploadCancelled.current) return null;
       logger.error('[group-chat] file upload failed', { error });
-      Alert.alert('업로드 실패', '파일 업로드 중 오류가 발생했습니다.');
+      showGroupChatErrorAlert(error);
       return null;
     } finally {
       if (!isUploadCancelled.current) setUploading(false);
@@ -799,9 +805,9 @@ export default function GroupChatScreen() {
     try {
       const result = await groupChatSetMuted(nextMuted);
       setMuted(result.muted);
-    } catch {
+    } catch (error) {
       setMuted(!nextMuted);
-      Alert.alert('설정 실패', '알림 설정을 저장하지 못했습니다.');
+      showGroupChatErrorAlert(error);
     }
   }, [muted]);
 
@@ -831,7 +837,7 @@ export default function GroupChatScreen() {
         row.actor_id === member.actor_id ? { ...row, can_send_messages: previousCanSend } : row,
       ));
       logger.warn('[group-chat] member send permission update failed', error);
-      Alert.alert('권한 변경 실패', '채팅 권한을 저장하지 못했습니다.');
+      showGroupChatErrorAlert(error);
     } finally {
       setPermissionUpdatingIds((prev) => {
         const next = new Set(prev);

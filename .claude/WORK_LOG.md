@@ -17,6 +17,16 @@
 - ⚠️ 상태값(`types/fc.ts`)과 화면 분기 조건은 반드시 함께 수정
 - ⚠️ 스키마 변경은 `schema.sql` + `migrations/*.sql` 동시 관리
 
+## 2026-06-26
+
+| Date | Work | Key files | Detail |
+|---|---|---|---|
+| 06-26 | Admin web direct chat list loading optimization | `web/src/app/dashboard/chat/page.tsx`, `web/src/lib/admin-chat-targets.ts`, `web/src/lib/admin-chat-targets.test.ts`, `lib/__tests__/admin-web-chat-source.test.ts` | [detail](WORK_DETAIL.md#20260626-admin-web-chat-list-loading) |
+
+| 날짜 | 작업 | 주요 파일 | 상세 |
+|---|---|---|---|
+| 06-26 | 관리자 웹 `가람PA 단톡방` 추가 및 단톡방 API/업로드 보안 보강 | `web/src/app/dashboard/group-chat/page.tsx`, `web/src/app/api/group-chat/route.ts`, `web/src/app/api/group-chat/upload/route.ts`, `web/src/lib/group-chat-web.ts`, `web/src/lib/staff-session.ts`, `supabase/functions/group-chat/index.ts`, `lib/__tests__/admin-web-group-chat-source.test.ts` | [-> 상세](WORK_DETAIL.md#20260626-admin-web-group-chat) |
+
 ## 2026-06-20
 
 | 날짜 | 작업 | 주요 파일 | 상세 |
@@ -425,3 +435,7 @@
 | 01-26 | 동의/서류/일정/알림 액션 흐름 개선 | `app/consent.tsx`, `app/appointment.tsx` | [→ 상세](WORK_DETAIL.md#20260126-2) |
 | 01-26 | 앱 브랜딩 자산 및 일부 삭제 경로 조정 | `assets/*`, `app/dashboard.tsx` | [→ 상세](WORK_DETAIL.md#20260126-3) |
 | 01-21 | 모바일 게시판 홈 네비게이션 동선 조정 | `app/board-home.tsx` | [→ 상세](WORK_DETAIL.md#20260121-1) |
+
+| 06-26 | Admin web board/notification secret redaction and contaminated digest author cleanup | `web/src/lib/sensitive-text.ts`, `web/src/components/DashboardNotificationBell.tsx`, `web/src/lib/board-api.ts`, `web/src/app/api/fc-notify/route.ts`, `web/src/app/api/admin/notices/route.ts`, `scripts/ops/post-insurance-digest.mjs`, `supabase/functions/fc-notify/index.ts`, `supabase/functions/_shared/board.ts`, `supabase/functions/board-create/index.ts`, `supabase/functions/board-list/index.ts`, `supabase/functions/board-detail/index.ts` | [details](WORK_DETAIL.md#20260626-secret-redaction) |
+| 06-26 | Admin web test trace data cleanup and verification | Supabase data: `fc_profiles`, `admin_accounts`, `manager_accounts`, `messages`, `notifications`, `group_chat_messages`, account-dependent rows | `.codex-tmp/test-trace-cleanup-20260626/` backups |
+| 06-27 | Admin referral graph rubber-band release follow-through | `web/src/components/referrals/ReferralGraphCanvas.tsx`, `web/src/lib/referral-graph-interaction.test.ts`, `web/src/lib/referral-graph-physics.ts`, `web/src/lib/referral-graph-physics.test.ts`, `.codex/harness/referral-graph-visual-qa.md`, `.claude/MISTAKES.md` | [details](WORK_DETAIL.md#20260627-referral-graph-release-follow-through) |

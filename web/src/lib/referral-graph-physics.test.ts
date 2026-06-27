@@ -11,13 +11,18 @@ import {
   createReferralGraphClusterGravityForce,
   createReferralGraphClusterSeparationForce,
   createReferralGraphBranchBendForce,
+  createReferralGraphDragElasticTetherForce,
+  createReferralGraphDragLocalityForce,
+  createReferralGraphPointerDragForce,
   createReferralGraphLayoutMemoryForce,
   createReferralGraphLinkTensionForce,
   createReferralGraphNodeSeparationForce,
   createReferralGraphSiblingAngularForce,
+  getReferralGraphFreeLinkStrength,
   getReferralGraphLinkDistance,
   getReferralGraphMinimumNodeDistance,
   isReferralGraphMeaningfulDrag,
+  resolveReferralGraphFreePhysics,
   resolveReferralGraphPhysics,
 } from './referral-graph-physics.ts';
 
@@ -69,6 +74,233 @@ test('resolveReferralGraphPhysics clamps the four public Obsidian slider ranges'
     linkStrength: 1,
     layoutMemoryStrength: 0.16,
   });
+});
+
+test('resolveReferralGraphFreePhysics maps current sliders to a natural interactive force profile', () => {
+  assert.deepEqual(resolveReferralGraphFreePhysics(DEFAULT_REFERRAL_GRAPH_PHYSICS), {
+    alphaDecay: 0.016,
+    velocityDecay: 0.46,
+    centerStrength: 0.024,
+    chargeStrength: -141,
+    chargeDistanceMin: 22,
+    chargeDistanceMax: 538,
+    linkDistance: 195,
+    linkStrength: 0.54,
+    collisionPadding: 34,
+    collisionStrength: 0.88,
+    collisionIterations: 2,
+    componentSeparationGap: 64,
+    componentSeparationStrength: 0.022,
+    linkTensionStrength: 0.18,
+    linkTensionThresholdMultiplier: 1.38,
+    dragReheatAlpha: 0.24,
+  });
+});
+
+test('resolveReferralGraphFreePhysics stays inside jitter-resistant tuning bounds', () => {
+  const physics = resolveReferralGraphFreePhysics(DEFAULT_REFERRAL_GRAPH_PHYSICS);
+
+  assert.equal(physics.velocityDecay >= 0.42, true);
+  assert.equal(physics.velocityDecay <= 0.52, true);
+  assert.equal(physics.alphaDecay >= 0.012, true);
+  assert.equal(physics.alphaDecay <= 0.02, true);
+  assert.equal(physics.collisionStrength >= 0.82, true);
+  assert.equal(physics.linkTensionStrength <= 0.22, true);
+  assert.equal(physics.dragReheatAlpha >= 0.12, true);
+  assert.equal(physics.dragReheatAlpha <= 0.28, true);
+});
+
+test('createReferralGraphDragLocalityForce keeps active drag movement local and damped by hop depth', () => {
+  const activeDraggedNodeIdRef = { current: 'root' };
+  const activeNodeDepthsRef = {
+    current: new Map([
+      ['root', 0],
+      ['direct', 1],
+      ['second-hop', 2],
+    ]),
+  };
+  const nodes = [
+    { id: 'root', vx: 18, vy: 0 },
+    { id: 'direct', vx: 18, vy: 0 },
+    { id: 'second-hop', vx: 18, vy: 0 },
+    { id: 'background', vx: 18, vy: 0 },
+  ];
+  const force = createReferralGraphDragLocalityForce(activeDraggedNodeIdRef, activeNodeDepthsRef, {
+    backgroundMaxVelocity: 0.4,
+    backgroundVelocityScale: 0.04,
+    directNeighborMaxVelocity: 2.8,
+    directNeighborVelocityScale: 0.34,
+    secondHopMaxVelocity: 1.2,
+    secondHopVelocityScale: 0.14,
+  });
+
+  force.initialize?.(nodes);
+  force(0.3);
+
+  assert.equal(nodes[0].vx, 18);
+  assert.ok(Math.abs((nodes[1].vx ?? 0) - (2.8 * 1.15)) < 0.000001);
+  assert.equal(nodes[2].vx, 1.2);
+  assert.equal(nodes[3].vx, 0.4);
+});
+
+test('createReferralGraphDragElasticTetherForce pulls descendants with rubber-band velocity without teleporting them', () => {
+  const activeDraggedNodeIdRef = { current: 'root' };
+  const activeDragTethersRef = {
+    current: new Map([
+      ['child', {
+        depth: 1,
+        nodeId: 'child',
+        parentId: 'root',
+        restX: 80,
+        restY: 0,
+      }],
+      ['grand-child', {
+        depth: 2,
+        nodeId: 'grand-child',
+        parentId: 'child',
+        restX: 80,
+        restY: 0,
+      }],
+    ]),
+  };
+  const nodes = [
+    { id: 'root', x: 220, y: 0, vx: 0, vy: 0 },
+    { id: 'child', x: 80, y: 0, vx: 0, vy: 0 },
+    { id: 'grand-child', x: 160, y: 0, vx: 0, vy: 0 },
+    { id: 'background', x: 40, y: 100, vx: 0, vy: 0 },
+  ];
+  const force = createReferralGraphDragElasticTetherForce(
+    activeDraggedNodeIdRef,
+    activeDragTethersRef,
+    {
+      damping: 1,
+      depthDecay: 0.5,
+      maxVelocity: 50,
+      minAlpha: 0.2,
+      stiffness: 0.3,
+    },
+  );
+
+  force.initialize(nodes);
+  force(0);
+
+  assert.equal(nodes[1].x, 80);
+  assert.equal(nodes[1].y, 0);
+  assert.ok((nodes[1].vx ?? 0) > 0, `child should receive rubber-band velocity, got ${nodes[1].vx}`);
+  assert.equal(nodes[2].vx, 0);
+  assert.equal(nodes[3].vx, 0);
+  assert.equal(nodes[3].vy, 0);
+
+  nodes[1].x = nodes[1].x + (nodes[1].vx ?? 0);
+  nodes[1].vx = 0;
+  force(0);
+
+  assert.ok(
+    (nodes[2].vx ?? 0) > 0 && (nodes[2].vx ?? 0) < (nodes[1].vx ?? Number.POSITIVE_INFINITY),
+    `grand-child should lag behind with weaker velocity, got ${nodes[2].vx}`,
+  );
+});
+
+test('createReferralGraphDragElasticTetherForce applies the same default spring tension across descendant depths', () => {
+  const activeDraggedNodeIdRef = { current: 'root' };
+  const activeDragTethersRef = {
+    current: new Map([
+      ['child', {
+        depth: 1,
+        nodeId: 'child',
+        parentId: 'root',
+        restX: 80,
+        restY: 0,
+      }],
+      ['grand-child', {
+        depth: 2,
+        nodeId: 'grand-child',
+        parentId: 'child',
+        restX: 80,
+        restY: 0,
+      }],
+    ]),
+  };
+  const nodes = [
+    { id: 'root', x: 220, y: 0, vx: 0, vy: 0 },
+    { id: 'child', x: 80, y: 0, vx: 0, vy: 0 },
+    { id: 'grand-child', x: -60, y: 0, vx: 0, vy: 0 },
+  ];
+  const force = createReferralGraphDragElasticTetherForce(
+    activeDraggedNodeIdRef,
+    activeDragTethersRef,
+  );
+
+  force.initialize(nodes);
+  force(0);
+
+  assert.ok((nodes[1].vx ?? 0) > 0, `child should receive spring velocity, got ${nodes[1].vx}`);
+  assert.equal(nodes[1].vx, nodes[2].vx);
+  assert.equal(nodes[1].vy, nodes[2].vy);
+});
+
+test('createReferralGraphPointerDragForce pulls the grabbed node with velocity instead of pinning or teleporting it', () => {
+  const pointerDragTargetRef = {
+    current: {
+      nodeId: 'root',
+      x: 120,
+      y: -60,
+    },
+  };
+  const nodes = [
+    { id: 'root', x: 0, y: 0, vx: 0, vy: 0 },
+    { id: 'other', x: 20, y: 20, vx: 0, vy: 0 },
+  ];
+  const force = createReferralGraphPointerDragForce(pointerDragTargetRef, {
+    damping: 0,
+    maxVelocity: 50,
+    minAlpha: 1,
+    stiffness: 1,
+  });
+
+  force.initialize(nodes);
+  force(0);
+
+  assert.equal(nodes[0].x, 0);
+  assert.equal(nodes[0].y, 0);
+  assert.ok((nodes[0].vx ?? 0) > 0, `grabbed node should receive pointer-pull velocity, got ${nodes[0].vx}`);
+  assert.ok((nodes[0].vy ?? 0) < 0, `grabbed node should receive pointer-pull velocity, got ${nodes[0].vy}`);
+  assert.equal(nodes[1].vx, 0);
+  assert.equal(nodes[1].vy, 0);
+});
+
+test('resolveReferralGraphFreePhysics keeps extreme slider values bounded for stable motion', () => {
+  const low = resolveReferralGraphFreePhysics({
+    centerGravity: -1,
+    repulsion: -5,
+    linkStrength: -0.25,
+    linkDistance: 10,
+  });
+  assert.equal(low.centerStrength, 0.01);
+  assert.equal(low.chargeStrength, -36);
+  assert.equal(low.chargeDistanceMax, 260);
+  assert.equal(low.linkDistance, 110);
+  assert.equal(low.linkStrength, 0.1);
+
+  const high = resolveReferralGraphFreePhysics({
+    centerGravity: 2,
+    repulsion: 40,
+    linkStrength: 3,
+    linkDistance: 999,
+  });
+  assert.equal(high.centerStrength, 0.038);
+  assert.equal(high.chargeStrength, -246);
+  assert.equal(high.chargeDistanceMax, 700);
+  assert.equal(high.linkDistance, 380);
+  assert.equal(high.linkStrength, 0.54);
+});
+
+test('getReferralGraphFreeLinkStrength keeps springs active but softer around high-degree hubs', () => {
+  assert.equal(getReferralGraphFreeLinkStrength(1, 1, 0.54), 0.54);
+  assert.equal(getReferralGraphFreeLinkStrength(9, 4, 0.54), 0.27);
+  assert.equal(getReferralGraphFreeLinkStrength(64, 64, 0.54), 0.0675);
+  assert.equal(getReferralGraphFreeLinkStrength(400, 400, 0.54), 0.06);
+  assert.equal(getReferralGraphFreeLinkStrength(Number.NaN, 2, 0.54), 0.54);
 });
 
 test('REFERRAL_GRAPH_ENGINE_COOLDOWN stops the force engine after a bounded settle window', () => {
@@ -513,7 +745,7 @@ test('createReferralGraphClusterSeparationForce pushes overlapping visual cluste
   assert.equal(nodes[2].y, 0);
 });
 
-test('createReferralGraphClusterSeparationForce does not push the actively dragged cluster', () => {
+test('createReferralGraphClusterSeparationForce pauses all cluster separation during active drag', () => {
   const nodes = [
     { id: 'dragged-root', x: 0, y: 0, vx: 0, vy: 0 },
     { id: 'dragged-leaf', x: 20, y: 0, vx: 0, vy: 0 },
@@ -539,10 +771,15 @@ test('createReferralGraphClusterSeparationForce does not push the actively dragg
   force.initialize(nodes);
   force(1);
 
-  assert.equal(nodes[0].vx, 0);
-  assert.equal(nodes[1].vx, 0);
-  assert.ok(nodes[2].vx > 0, `other cluster should be pushed away, got ${nodes[2].vx}`);
-  assert.ok(nodes[3].vx > 0, `other cluster should be pushed away, got ${nodes[3].vx}`);
+  assert.deepEqual(
+    nodes.map((node) => ({ vx: node.vx, vy: node.vy })),
+    [
+      { vx: 0, vy: 0 },
+      { vx: 0, vy: 0 },
+      { vx: 0, vy: 0 },
+      { vx: 0, vy: 0 },
+    ],
+  );
 });
 
 test('createReferralGraphClusterGravityForce keeps a weak center pull after alpha cools', () => {
@@ -746,7 +983,7 @@ test('createReferralGraphSiblingAngularForce pushes children apart around the sa
   assert.ok(lower.vy < 0, `lower child should rotate away downward, got ${lower.vy}`);
 });
 
-test('createReferralGraphLinkTensionForce skips active drag branch links', () => {
+test('createReferralGraphLinkTensionForce skips only explicitly suppressed branch links', () => {
   const parent = { id: 'parent', x: 0, y: 0, vx: 0, vy: 0 };
   const child = { id: 'child', x: 320, y: 0, vx: 0, vy: 0 };
   const otherA = { id: 'other-a', x: 0, y: 160, vx: 0, vy: 0 };
@@ -782,6 +1019,35 @@ test('createReferralGraphLinkTensionForce skips active drag branch links', () =>
   assert.equal(child.vx, 0);
   assert.ok(otherA.vx > 0, `unrelated stretched edge should still relax, got ${otherA.vx}`);
   assert.ok(otherB.vx < 0, `unrelated stretched edge should still relax, got ${otherB.vx}`);
+});
+
+test('createReferralGraphLinkTensionForce keeps active drag branch links under the same tension rule', () => {
+  const parent = { id: 'parent', x: 0, y: 0, vx: 0, vy: 0 };
+  const child = { id: 'child', x: 320, y: 0, vx: 0, vy: 0 };
+  const force = createReferralGraphLinkTensionForce([
+    { source: 'parent', target: 'child' },
+  ], {
+    activeDraggedNodeIdRef: { current: 'parent' },
+    baseLinkDistance: 80,
+    childCountByNodeId: new Map([
+      ['parent', 1],
+      ['child', 0],
+    ]),
+    degreeByNodeId: new Map([
+      ['parent', 1],
+      ['child', 1],
+    ]),
+    maxVelocity: 20,
+    strength: 0.6,
+    thresholdMultiplier: 0.9,
+  });
+
+  force.initialize([parent, child]);
+  force(1);
+
+  assert.ok(parent.vx > 0, `active dragged source should still receive normal spring tension, got ${parent.vx}`);
+  assert.ok(child.vx < 0, `active dragged child edge should still pull the child back, got ${child.vx}`);
+  assert.equal(Math.abs(parent.vx), Math.abs(child.vx));
 });
 
 test('createReferralGraphBranchBendForce skips active drag branch nodes', () => {

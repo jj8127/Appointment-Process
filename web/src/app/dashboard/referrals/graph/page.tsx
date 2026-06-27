@@ -69,8 +69,8 @@ const PHYSICS_PRESETS: Array<{
   values: ReferralGraphPhysicsSettings;
 }> = [
   { key: 'balanced', label: '균형', values: DEFAULT_REFERRAL_GRAPH_PHYSICS },
-  { key: 'spread', label: '퍼짐', values: { centerGravity: 0.2, repulsion: 15, linkStrength: 0.7, linkDistance: 350 } },
-  { key: 'tight', label: '밀집', values: { centerGravity: 0.8, repulsion: 5, linkStrength: 1, linkDistance: 100 } },
+  { key: 'spread', label: '퍼짐', values: { centerGravity: 0.1, repulsion: 18, linkStrength: 0.42, linkDistance: 330 } },
+  { key: 'tight', label: '밀집', values: { centerGravity: 0.36, repulsion: 8, linkStrength: 0.68, linkDistance: 150 } },
 ] as const;
 
 function fetchGraphData(): Promise<GraphApiResponse> {
@@ -155,7 +155,7 @@ export default function ReferralGraphPage() {
   const [resetLayoutRequestId, setResetLayoutRequestId] = useState(0);
   const [physicsPanelOpen, setPhysicsPanelOpen] = useState(false);
   const [storedPhysicsSettings, setStoredPhysicsSettings] = useLocalStorage<ReferralGraphPhysicsSettings>({
-    key: 'referral-graph-physics-settings-v16',
+    key: 'referral-graph-physics-settings-v18-natural',
     defaultValue: DEFAULT_REFERRAL_GRAPH_PHYSICS,
     getInitialValueInEffect: true,
   });

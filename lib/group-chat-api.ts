@@ -1,4 +1,5 @@
 import { getStoredAppSessionToken } from './request-board-api';
+import { GroupChatRequestError } from './group-chat-error';
 import { supabase } from './supabase';
 
 export type GroupChatMessageType = 'text' | 'image' | 'file';
@@ -85,7 +86,14 @@ type GroupChatSuccess = {
   message?: string;
 };
 
-type GroupChatFunctionResponse<T> = GroupChatSuccess & T;
+type GroupChatFailure = {
+  ok: false;
+  code?: string;
+  message?: string;
+  error?: string;
+};
+
+type GroupChatFunctionResponse<T> = (GroupChatSuccess & T) | GroupChatFailure;
 
 export const GROUP_CHAT_FUNCTION = 'group-chat';
 
@@ -166,10 +174,47 @@ export function buildGroupChatNoticeClearBody() {
   };
 }
 
+function readGroupChatErrorString(value: unknown) {
+  return typeof value === 'string' && value.trim() ? value.trim() : undefined;
+}
+
+function readGroupChatErrorStatus(error: unknown) {
+  const context = error && typeof error === 'object'
+    ? (error as { context?: unknown }).context
+    : null;
+  return context && typeof context === 'object' && typeof (context as { status?: unknown }).status === 'number'
+    ? (context as { status: number }).status
+    : undefined;
+}
+
+async function readGroupChatFunctionErrorPayload(error: unknown) {
+  const context = error && typeof error === 'object'
+    ? (error as { context?: unknown }).context
+    : null;
+  if (!context || typeof context !== 'object') return null;
+
+  const response = context as {
+    clone?: () => { json?: () => Promise<unknown> };
+    json?: () => Promise<unknown>;
+  };
+  const reader = typeof response.clone === 'function' ? response.clone() : response;
+  if (typeof reader.json !== 'function') return null;
+
+  try {
+    const payload = await reader.json();
+    return payload && typeof payload === 'object' ? payload as Record<string, unknown> : null;
+  } catch {
+    return null;
+  }
+}
+
 async function invokeGroupChat<T>(body: Record<string, unknown>): Promise<T> {
   const appSessionToken = await getStoredAppSessionToken();
   if (!appSessionToken) {
-    throw new Error('세션이 만료되었습니다. 다시 로그인해주세요.');
+    throw new GroupChatRequestError('단톡방 세션이 없습니다. 다시 로그인해주세요.', {
+      code: 'missing_app_session',
+      status: 401,
+    });
   }
 
   const { data, error } = await supabase.functions.invoke<GroupChatFunctionResponse<T>>(GROUP_CHAT_FUNCTION, {
@@ -179,9 +224,24 @@ async function invokeGroupChat<T>(body: Record<string, unknown>): Promise<T> {
     },
   });
 
-  if (error) throw error;
+  if (error) {
+    const payload = await readGroupChatFunctionErrorPayload(error);
+    throw new GroupChatRequestError(
+      readGroupChatErrorString(payload?.message)
+        ?? readGroupChatErrorString(payload?.error)
+        ?? (error instanceof Error ? error.message : '단톡방 요청을 처리하지 못했습니다.'),
+      {
+        code: readGroupChatErrorString(payload?.code),
+        status: readGroupChatErrorStatus(error),
+        raw: error,
+      },
+    );
+  }
   if (!data?.ok) {
-    throw new Error(data?.message ?? '단톡방 요청을 처리하지 못했습니다.');
+    throw new GroupChatRequestError(data?.message ?? data?.error ?? '단톡방 요청을 처리하지 못했습니다.', {
+      code: data?.code,
+      raw: data,
+    });
   }
 
   return data as T;

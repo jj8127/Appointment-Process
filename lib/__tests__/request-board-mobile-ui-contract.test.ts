@@ -483,7 +483,13 @@ describe('request-board mobile UI contracts', () => {
   it('keeps long designer picker names and sent summaries constrained', () => {
     expect(createSource).toContain('styles.managerPickerCopy');
     expect(createSource).toContain('numberOfLines={1}');
-    expect(createSource).toContain('numberOfLines={2}>{selectedDesigners.map(getDesignerName).join');
+    expect(createSource).toContain('selectedDesigners.map(getDesignerNameWithHeadquarters).join');
+  });
+
+  it('highlights designer headquarters in the mobile designer picker', () => {
+    expect(createSource).toContain('getDesignerHeadquarters');
+    expect(createSource).toContain('styles.designerHeadquartersBadge');
+    expect(createSource).toContain('designer.contact_region');
   });
 
   it('lets long review metadata wrap inside full-width fields', () => {

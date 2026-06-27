@@ -11,6 +11,7 @@ describe('isInternalAffiliation', () => {
   test('treats 본부, 팀, 직할 affiliations as internal', () => {
     expect(isInternalAffiliation('1본부 서선미')).toBe(true);
     expect(isInternalAffiliation('7팀 김동훈')).toBe(true);
+    expect(isInternalAffiliation('7팀 이동훈')).toBe(true);
     expect(isInternalAffiliation('직할 조직')).toBe(true);
   });
 

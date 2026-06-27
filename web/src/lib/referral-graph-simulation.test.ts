@@ -7,9 +7,11 @@ import type { GraphEdge, GraphNode } from '../types/referral-graph.ts';
 import { buildReferralGraphLayout } from './referral-graph-layout.ts';
 import {
   applyReferralGraphDragFollowerTranslation,
+  buildReferralGraphAdjacency,
   buildReferralGraphDirectedChildren,
   getReferralGraphDescendantDepths,
   getReferralGraphDescendantNodeIds,
+  getReferralGraphLocalDragDepths,
 } from './referral-graph-interaction.ts';
 import {
   createReferralGraphBranchBendForce,
@@ -17,6 +19,7 @@ import {
   createReferralGraphClusterGravityForce,
   createReferralGraphClusterSeparationForce,
   createReferralGraphComponentEnvelopeForce,
+  createReferralGraphDragLocalityForce,
   createReferralGraphEdgeCrossingForce,
   createReferralGraphLayoutMemoryForce,
   createReferralGraphLinkTensionForce,
@@ -200,6 +203,19 @@ function addReferralForces(
   } = {},
 ) {
   const { childCountByNodeId, degreeByNodeId } = maps;
+  const activeDragAdjacency = buildReferralGraphAdjacency(
+    simLinks.map((link) => ({
+      id: link.id,
+      referralCode: link.referralCode,
+      source: getEndpointId(link.source),
+      target: getEndpointId(link.target),
+    })),
+  );
+  const activeDragNodeDepthsRef = {
+    current: options.activeDraggedNodeIdRef?.current
+      ? getReferralGraphLocalDragDepths(options.activeDraggedNodeIdRef.current, activeDragAdjacency, 2)
+      : new Map<string, number>(),
+  };
   const gravityNodeClusterIndex = new Map(layout.nodeComponentIndex);
   let nextGravityIndex = layout.componentRadii.size;
   for (const nodeId of layout.nodeClusterIndex.keys()) {
@@ -393,6 +409,20 @@ function addReferralForces(
       strength: 0.34,
       suppressedNodeIdsRef: options.suppressedNodeIdsRef,
     }))
+    .force('drag-locality', createReferralGraphDragLocalityForce<SimNode>(
+      options.activeDraggedNodeIdRef ?? { current: null },
+      activeDragNodeDepthsRef,
+      {
+        backgroundMaxVelocity: 0,
+        backgroundVelocityScale: 0,
+        directNeighborMaxVelocity: Number.POSITIVE_INFINITY,
+        directNeighborPullStrength: 0,
+        directNeighborVelocityScale: 1,
+        secondHopMaxVelocity: Number.POSITIVE_INFINITY,
+        secondHopPullStrength: 0,
+        secondHopVelocityScale: 1,
+      },
+    ))
     .alphaDecay(physics.alphaDecay)
     .velocityDecay(physics.velocityDecay);
 

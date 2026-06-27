@@ -2357,3 +2357,84 @@ Status: implemented locally.
 - `npx eslint app/request-board-review.tsx app/request-board.tsx app/request-board-requests.tsx lib/request-board-api.ts lib/__tests__/request-board-mobile-ui-contract.test.ts lib/__tests__/request-board-api-contract.test.ts`
 - `npx tsc --noEmit`
 - Supabase source query against `designers.company_name` for active `^\?+$` values returns 0.
+
+---
+
+# Current Contract: Roster-Based Account Maintenance 2026-06-23
+
+Status: applied and verified.
+
+## Goal
+
+Compare the 2026-06-22 current-roster and termination-list Excel files against GaramIn accounts. Delete matched terminated accounts and mark matched current-roster accounts as step 5 / appointment complete.
+
+## Scope
+
+- Read-only parse of the two source workbooks:
+  - `현재재적인원_20260622.xlsx`
+  - `해촉자 리스트_20260622.xlsx`
+- Match only existing `fc_profiles` rows with strong identifiers and name confirmation.
+- Exclude unmatched, ambiguous, or name-conflicting rows from automatic mutation.
+- Apply step 5 by setting both life/nonlife completion signals and `status='final-link-sent'`.
+- Delete matched terminated accounts through the existing `delete-account` cleanup path rather than raw `fc_profiles` delete.
+
+## Acceptance Criteria
+
+- No full resident numbers, full phone numbers, service keys, or raw personal identifiers are persisted in harness notes.
+- Update verification confirms every updated target has `final-link-sent`, both completion flags true, and both appointment dates present.
+- Delete verification confirms no target row remains in the main FC account/profile tables checked after deletion.
+
+## Evidence
+
+- Dry run: 345 current-roster rows, 71 termination rows, 318 DB profiles scanned.
+- Safe matches: 147 current-roster update targets, 1 termination delete target, 0 overlaps.
+- Applied: 147 updates, 1 delete call, 0 delete failures.
+- Verification: 147/147 update rows passed; deleted target has 0 remaining rows in `fc_profiles`, `profiles`, `fc_documents`, `fc_credentials`, `fc_identity_secure`, `exam_registrations`, and `notifications`.
+
+## 2026-06-24 7본부 본부장 표시명 정규화
+- 7본부의 현재 표시 기준은 `7본부 이동훈`이다.
+- 가입/FC 생성/대시보드/admin list/fc-notify 정규화 로직은 기존 `7본부 김동훈`, `7본부 [본부장: 김동훈]`, `7팀(청주1/직할) : 김동훈 본부장님` 입력을 계속 받되 저장/표시는 `7본부 이동훈`으로 수렴한다.
+- 운영 DB는 Supabase migration `20260624050656_rename_7hq_manager_to_lee_donghun`로 `manager_accounts`, `affiliation_manager_mappings`, `fc_profiles`, 추천인 표시명, device token 표시명을 새 기준으로 보정했다.
+- 7본부에는 전화번호 기준으로 분리된 활성 본부장 계정 2개가 남아 있다. 추천코드/추천 이력 연결이 달라 계정 병합이나 삭제는 이번 변경 범위에서 하지 않는다.
+
+## 2026-06-25 GaramIn Designer Headquarters Badge
+
+- GaramIn request creation now reads request_board designer contact fields: `contact_name`, `contact_phone`, and `contact_region`.
+- Designer picker cards display `contact_region` as a compact headquarters badge beside manager name/company.
+- Designer search includes headquarters text, and selected/sent summaries preserve headquarters in parentheses.
+- Verification: `npm test -- --runInBand lib/__tests__/request-board-mobile-ui-contract.test.ts`, `npx tsc --noEmit`, and targeted ESLint passed.
+
+## 2026-06-26 Admin Web Group Chat Contract
+
+- `/dashboard/messenger` exposes `가람PA 단톡방` and routes to `/dashboard/group-chat`; the left dashboard sidebar must not duplicate it as a separate nav item.
+- `DashboardNotificationBell` sends `group_chat_message` notifications and `/group-chat` target URLs to `/dashboard/group-chat`.
+- `POST /api/group-chat` verifies same-origin, rate limit, signed staff session, and admin/manager role before minting a short web app-session token and calling the existing Supabase `group-chat` Function with `x-app-session-token`.
+- `POST /api/group-chat/upload` verifies the same staff session, limits upload size/type, stores only under `chat-uploads/group-chat/`, and returns the public URL for chat send payloads.
+- The web group-chat payload filter is action-specific and strips unknown fields. Attachment sends require a URL inside the `chat-uploads/group-chat/` public prefix.
+- The Edge Function also rejects image/file messages whose `file_url` is outside the same group-chat upload prefix, protecting non-web callers too.
+- Staff web login now sets signed HttpOnly `staff_session`; server session validation rejects admin/manager calls without it.
+- Staff web login also stores the Edge-issued app-session token in a signed-path HttpOnly `web_app_session` cookie. `/api/group-chat` must use that cookie first and only fall back to local token minting when the bridge secret is available.
+- Admin web messenger hub must call `/api/fc-notify` instead of `supabase.functions.invoke('fc-notify')` from the browser, so localhost and production avoid Edge Function CORS drift.
+
+## 2026-06-26 Admin Web Direct Chat List Contract
+
+- `/dashboard/chat` must not run per-FC Supabase `messages` queries to build the left conversation list.
+- The left list fetches FC candidates once, fetches the current staff chat actor's relevant message rows once, and computes `last_message`, `last_time`, and `unread_count` in `buildAdminChatConversationSummaries()`.
+- Background refetches must keep the previous list visible instead of blanking the panel back to `목록을 불러오는 중...`.
+- A URL with `targetId` and `targetName` must open the right-side chat room immediately, even while the full FC list is still loading.
+
+## 2026-06-26 Admin Web Secret Redaction Contract
+
+- Admin web display paths must redact env-style secret assignments such as `*_TOKEN=...`, `*_SECRET=...`, `*_PASSWORD=...`, `*_PRIVATE_KEY=...`, `*_SERVICE_ROLE_KEY=...`, `*_AUTH_TOKEN=...`, and `*_API_KEY=...`.
+- Dashboard notification, board list/detail, admin notices, and the web `fc-notify` proxy must pass visible text through `redactSensitiveText` / `redactSensitiveStrings` before rendering or forwarding.
+- Insurance digest automation must reject `BOARD_AUTOMATION_ACTOR_NAME` when it contains an env-style secret assignment.
+- Supabase `fc-notify`, `board-create`, `board-list`, and `board-detail` must redact notification rows and board display fields before storing or returning them.
+
+## 2026-06-26 Admin/Developer Notification Recipient Contract
+
+- Direct chat and direct-message notifications share the same recipient model.
+- Regular 총무/admin chat uses the shared `admin` actor and shared admin notifications with `recipient_role='admin'` and `resident_id is null`.
+- Developer and read-only staff direct chat uses the staff phone as actor and must fetch/delete/count only phone-scoped admin notifications with `recipient_role='admin'` and `resident_id=<staff phone>`.
+- Phone-scoped admin notification inbox queries must not include shared admin `resident_id is null` rows.
+- Shared admin mobile push must target active non-developer `admin_accounts` only. Shared admin web push must likewise select only active non-developer admin browser subscriptions.
+- Admin notifications with a concrete phone `target_id` remain personal and must go only to that target's mobile/web subscriptions.

@@ -1,3 +1,22 @@
+# Active Investigation: Role-Based E2E Audit 2026-06-19
+
+Scope is fixed to the two active repos `D:\hanhwa\fc-onboarding-app` and `D:\hanhwa\request_board`.
+The audit covers the Android GaramIn app, GaramLink request_board web, and `admin_web` at
+`D:\hanhwa\fc-onboarding-app\web`. Windows is the active machine, so Android emulator and web contexts
+are first-class verification targets; iOS Simulator is explicitly deferred.
+
+Required roles are FC, headquarters manager, secretary/admin, and design manager. The secretary/admin role
+also owns the admin-web operations flow, while headquarters manager is used to check read-only or scoped
+permission boundaries. Required business scenarios are onboarding/appointment, design request create and
+progression including rejection, board, chat, referral invitation/input, plus any additional reachable
+admin-web/request-board flows discovered during execution.
+
+Evidence must not contain raw secrets, JWTs, bridge tokens, resident-number/SSN values, service-role keys,
+signed URLs, or other credentials. Record only existence, role, permission result, state transition, route,
+and sanitized request/response status.
+
+---
+
 # Completed Increment 55: Admin Exam Legacy Apply Route Redirect
 
 Admin web must not expose multiple independent exam applicant tables with different column contracts. The canonical applicant list is `/dashboard/exam/applicants`, and round-specific management is `/admin/exams/[id]`; both use `web/src/lib/exam-applicant-list-display.ts` and the workbook-order columns.
@@ -363,3 +382,35 @@ All hypotheses require later proof before deletion or refactor.
 - Insurance digest scope: reuse `scripts/ops/post-insurance-digest.mjs`, keep posts in `general`, keep title format `보험소식 브리핑 YYYY.MM.DD`, require source URLs in JSON, and stop on actor/category preflight failure.
 - Sentry scope: inspect `hanhwa-lifelab` production unresolved fatal/error issues for `react-native` and `garamin-web`, using only `SENTRY_READ_AUTH_TOKEN`; never use `SENTRY_AUTH_TOKEN` as a read fallback and never auto-resolve Sentry issues. `garamin-web` was created on 2026-06-16 as the Next.js web project.
 - PR scope: Sentry automation may change code/tests/docs in an isolated worktree and open a draft PR, but must not run native builds, EAS Update, production deploys, or Sentry status mutations.
+
+## 2026-06-19 | Role-Based E2E Audit Product Spec
+
+- Goal: verify the current role contract across GaramIn Android, GaramLink request_board, and admin_web without changing application behavior.
+- Active repos: `D:\hanhwa\fc-onboarding-app` and `D:\hanhwa\request_board`.
+- Runtime roles:
+  - FC: masked account `***1234`, app/request_board FC behavior, referral graph self-service.
+  - Headquarters manager: masked account `***8127`, app manager behavior, admin_web read-only, request_board FC bridge role.
+  - Secretary/admin: masked account `***6018`, intended developer/admin actor, currently blocked because supplied password returns `ok=false` and no cookies.
+  - Design manager: masked account `***5678`, request_board designer behavior; admin_web treats the account as FC graph session but graph API returns 403.
+- Required product flows covered in this pass:
+  - Request lifecycle: FC create, designer accept/reject/complete/attach, FC accept/reject, and chat messages were executed with synthetic request IDs `#1123`, `#1124`, `#1125`.
+  - admin_web: manager read-only routes, FC graph-only redirect, staff API forbidden paths for FC, and manager mutation denial were verified.
+  - Android: four AVDs were created/launched and app login/home was verified for FC and manager.
+  - Android request-board quick actions: FC address-copy success alert and guide-link launch were verified from the simulator UI.
+  - request_board design codes: masked FC and manager-as-FC add/edit/delete lifecycle was verified with API/UI cleanup.
+  - Referral graph: targeted graph tests and authenticated browser QA verified nonblank canvas, reset, drag attempt, and zero browser errors.
+- Required product flows blocked or skipped:
+  - Total-admin/developer onboarding, document, appointment, exam, board mutation, referral mutation, and destructive delete flows are blocked until a working developer/admin password or explicit reset permission is provided.
+  - Destructive account/FC deletion remains skipped unless disposable isolated accounts are designated.
+- Evidence policy:
+  - Raw JWTs, bridge/app-session tokens, push tokens, resident numbers/SSNs, signed URLs, and full page/body dumps must not be persisted.
+  - Evidence should use masked account labels, route/API status, role, permission, and sanitized result counts only.
+
+## 2026-06-26 Admin Web Group Chat
+
+- Admin web now has a `가람PA 단톡방` entry in the dashboard navigation and messenger hub.
+- `/dashboard/group-chat` reuses the existing mobile group-chat contract: bootstrap, send, mark read, mute, reactions, reply, delete own message, notice set/clear, attachments, member search, and FC send-permission toggles.
+- No new database or Edge Function contract was introduced; web calls proxy through `POST /api/group-chat` to the existing Supabase `group-chat` Function with an `x-app-session-token`.
+- Web attachment upload uses `POST /api/group-chat/upload` and only stores allowed files under `chat-uploads/group-chat/`.
+- Admin/manager server routes now require a signed HttpOnly `staff_session` cookie in addition to readable dashboard cookies. Existing browser sessions may need to log in again after this change.
+- Web proxy payloads are strict per action: unknown fields are stripped, file URLs must be from the Garam group-chat upload prefix, and web-minted app-session tokens default to a short TTL.

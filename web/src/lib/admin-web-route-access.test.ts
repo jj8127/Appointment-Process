@@ -19,6 +19,15 @@ describe('resolveAdminWebRouteAccess', () => {
 
     assert.deepEqual(
       resolveAdminWebRouteAccess({
+        pathname: '/dashboard',
+        role: 'fc',
+        hasSession: true,
+      }),
+      { type: 'redirect', pathname: FC_GRAPH_DASHBOARD_PATH },
+    );
+
+    assert.deepEqual(
+      resolveAdminWebRouteAccess({
         pathname: '/dashboard/referrals',
         role: 'fc',
         hasSession: true,
@@ -104,6 +113,7 @@ describe('resolveAdminWebRouteAccess', () => {
         pathname: '/dashboard/docs',
         role: 'manager',
         hasSession: true,
+        hasStaffSession: true,
       }),
       { type: 'allow' },
     );
@@ -113,6 +123,7 @@ describe('resolveAdminWebRouteAccess', () => {
         pathname: '/admin/tools',
         role: 'manager',
         hasSession: true,
+        hasStaffSession: true,
       }),
       { type: 'redirect', pathname: '/auth' },
     );
@@ -122,8 +133,31 @@ describe('resolveAdminWebRouteAccess', () => {
         pathname: '/admin/tools',
         role: 'admin',
         hasSession: true,
+        hasStaffSession: true,
       }),
       { type: 'allow' },
+    );
+  });
+
+  it('requires the server-issued staff session cookie for staff routes', () => {
+    assert.deepEqual(
+      resolveAdminWebRouteAccess({
+        pathname: '/dashboard',
+        role: 'manager',
+        hasSession: true,
+        hasStaffSession: false,
+      }),
+      { type: 'redirect', pathname: '/auth', clearSession: true },
+    );
+
+    assert.deepEqual(
+      resolveAdminWebRouteAccess({
+        pathname: '/auth',
+        role: 'admin',
+        hasSession: true,
+        hasStaffSession: false,
+      }),
+      { type: 'redirect', pathname: '/auth', clearSession: true },
     );
   });
 });

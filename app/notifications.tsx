@@ -23,6 +23,7 @@ import { RefreshButton } from '@/components/RefreshButton';
 import { useSession } from '@/hooks/use-session';
 import { logger } from '@/lib/logger';
 import { fetchMobileUnreadNotificationCount } from '@/lib/mobile-unread-notification-count';
+import { resolveNotificationInboxResidentId } from '@/lib/notification-inbox-scope';
 import { setNotificationCheckpointNow } from '@/lib/notification-checkpoint';
 import {
   normalizeNotificationTargetUrl,
@@ -95,7 +96,7 @@ const isRequestBoardCategory = (category?: string | null): boolean =>
 
 export default function NotificationsScreen() {
   const router = useRouter();
-  const { role, residentId, hydrated, isRequestBoardDesigner, requestBoardRole } = useSession();
+  const { role, residentId, hydrated, isRequestBoardDesigner, requestBoardRole, readOnly, staffType } = useSession();
   const [notices, setNotices] = useState<Notice[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -105,7 +106,12 @@ export default function NotificationsScreen() {
   const [isDragging, setIsDragging] = useState(false);
 
   const inboxRole: 'admin' | 'fc' | null = role;
-  const inboxResidentId = residentId || null;
+  const inboxResidentId = resolveNotificationInboxResidentId({
+    role,
+    residentId,
+    readOnly,
+    staffType,
+  });
   const includeRequestBoardFcInbox = inboxRole === 'admin' && requestBoardRole === 'fc';
   const hiddenNoticeStorageKey =
     inboxRole === 'fc' ? `${HIDDEN_NOTICE_KEY_PREFIX}:${residentId || 'fc'}` : null;

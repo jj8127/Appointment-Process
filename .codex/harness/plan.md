@@ -1831,3 +1831,58 @@ Execution order:
 Follow-up:
 
 - User may refresh the in-app browser if it still shows the stale compile overlay from before the JSX fix.
+
+---
+
+# Increment Plan: Admin Web Group Chat 2026-06-26
+
+Status: completed locally.
+
+Execution order:
+
+1. Completed: added source-contract tests for admin navigation, messenger hub, notification routing, API proxy, upload, and group-chat page parity.
+2. Completed: added web group-chat API helpers and a dashboard group-chat client page reusing the existing mobile group-chat contract.
+3. Completed: wired dashboard navigation, messenger hub, and notification bell routes to `/dashboard/group-chat`.
+4. Completed: added `POST /api/group-chat` and `POST /api/group-chat/upload` with same-origin, rate-limit, and admin/manager session checks.
+5. Completed: incorporated security subagent findings by adding signed HttpOnly staff sessions, strict action schemas, upload size/type limits, own-bucket attachment URL validation, and short web app-session tokens.
+6. Completed: added Edge Function attachment URL validation so image/file sends must use the `chat-uploads/group-chat/` prefix.
+7. Completed: ran focused Jest, web helper tests, ESLint, and `web` production build.
+
+Follow-up:
+
+- Existing admin/manager users may need to log in again so the new signed `staff_session` cookie is issued.
+
+---
+
+# Increment Plan: Admin Web Direct Chat List Loading 2026-06-26
+
+Status: completed locally.
+
+Execution order:
+
+1. Completed: identified root cause as a sequential per-FC Supabase `messages` query chain in `/dashboard/chat`.
+2. Completed: added RED tests for one-pass conversation summary derivation and for source-level rejection of per-FC list queries.
+3. Completed: implemented `buildAdminChatConversationSummaries()`.
+4. Completed: changed the chat page to fetch message rows once and compute summaries locally.
+5. Completed: kept previous list data during refetch and allowed deep-linked targets to open before the full list finishes.
+6. Completed: verified with focused tests, ESLint, production build, and local server HTTP check.
+
+---
+
+# Increment Plan: Admin Web Secret Redaction 2026-06-26
+
+Status: completed and deployed.
+
+Execution order:
+
+1. Completed: identified the visible secret as a contaminated `board_posts.author_name` value from the insurance digest automation actor name.
+2. Completed: cleaned the DB row and verified no matching sensitive rows remain in `notifications`, `notices`, or `board_posts`.
+3. Completed: fixed local `.env.local` so `BOARD_AUTOMATION_ACTOR_NAME` no longer contains the Sentry read-token assignment.
+4. Completed: added RED/GREEN tests for web redaction and digest actor-name rejection.
+5. Completed: added redaction to admin web notification, board, notice, and `fc-notify` proxy display paths.
+6. Completed: added redaction to Supabase `fc-notify`, `board-create`, `board-list`, and `board-detail` functions.
+7. Completed: deployed the changed Supabase Functions to project `ubeginyxaotcamuqpmud`.
+
+Follow-up:
+
+- Treat the exposed Sentry read token as compromised and rotate it in Sentry plus any local/deployment secrets that contain it.

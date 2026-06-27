@@ -6,9 +6,11 @@ import { isAdminWebPublicPath } from './admin-web-public-paths';
 
 const SESSION_COOKIE_NAMES = ['session_role', 'session_resident', 'session_display', 'session_staff_type'] as const;
 const FC_GRAPH_SESSION_COOKIE = 'fc_graph_session';
+const STAFF_SESSION_COOKIE = 'staff_session';
+const WEB_APP_SESSION_COOKIE = 'web_app_session';
 
 function clearSessionCookies(response: NextResponse) {
-  for (const cookieName of [...SESSION_COOKIE_NAMES, FC_GRAPH_SESSION_COOKIE]) {
+  for (const cookieName of [...SESSION_COOKIE_NAMES, FC_GRAPH_SESSION_COOKIE, STAFF_SESSION_COOKIE, WEB_APP_SESSION_COOKIE]) {
     response.cookies.set(cookieName, '', { path: '/', maxAge: 0 });
   }
   return response;
@@ -43,6 +45,7 @@ export function handleAdminWebProxyRequest(request: NextRequest) {
   const role = request.cookies.get('session_role')?.value;
   const residentId = request.cookies.get('session_resident')?.value;
   const hasSession = Boolean(role && residentId);
+  const hasStaffSession = Boolean(request.cookies.get(STAFF_SESSION_COOKIE)?.value);
   const hasFcGraphSession = Boolean(request.cookies.get(FC_GRAPH_SESSION_COOKIE)?.value);
 
   if (pathname === '/' || pathname === '/auth') {
@@ -52,6 +55,7 @@ export function handleAdminWebProxyRequest(request: NextRequest) {
         pathname,
         role,
         hasSession,
+        hasStaffSession,
         hasFcGraphSession,
       }),
     );
@@ -67,6 +71,7 @@ export function handleAdminWebProxyRequest(request: NextRequest) {
       pathname,
       role,
       hasSession,
+      hasStaffSession,
       hasFcGraphSession,
     }),
   );

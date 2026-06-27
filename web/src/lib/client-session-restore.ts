@@ -21,7 +21,11 @@ export function resolveClientSessionRestore(input: {
   cookieSession: ClientSessionSnapshot | null;
   storageSession: ClientSessionSnapshot | null;
 }) {
-  return input.cookieSession ?? input.storageSession ?? null;
+  // The server-issued session cookies are the source of truth. Reviving a
+  // stale localStorage snapshot can recreate client cookies after middleware
+  // has cleared an expired staff/FC session, causing auth/dashboard redirects
+  // to fight each other.
+  return input.cookieSession ?? null;
 }
 
 export function isClientSessionReadOnly(role: ClientSessionRole) {

@@ -1,8 +1,8 @@
 import type { ReferralGraphPhysicsSettings } from '../types/referral-graph.ts';
 
 const GOLDEN_ANGLE_FALLBACK = Math.PI * (3 - Math.sqrt(5));
-const REFERRAL_GRAPH_ACTIVE_DRAG_FORCE_SCALE = 0.04;
-const REFERRAL_GRAPH_ACTIVE_DRAG_MAX_VELOCITY_SCALE = 0.08;
+const REFERRAL_GRAPH_ACTIVE_DRAG_FORCE_SCALE = 0.62;
+const REFERRAL_GRAPH_ACTIVE_DRAG_MAX_VELOCITY_SCALE = 0.7;
 
 export type ReferralGraphPhysicsTuning = {
   alphaDecay: number;
@@ -16,9 +16,95 @@ export type ReferralGraphPhysicsTuning = {
   layoutMemoryStrength: number;
 };
 
+export type ReferralGraphFreePhysicsTuning = {
+  alphaDecay: number;
+  velocityDecay: number;
+  centerStrength: number;
+  chargeStrength: number;
+  chargeDistanceMin: number;
+  chargeDistanceMax: number;
+  linkDistance: number;
+  linkStrength: number;
+  collisionPadding: number;
+  collisionStrength: number;
+  collisionIterations: number;
+  componentSeparationGap: number;
+  componentSeparationStrength: number;
+  linkTensionStrength: number;
+  linkTensionThresholdMultiplier: number;
+  dragReheatAlpha: number;
+};
+
 export type ReferralGraphDragTranslation = {
   x?: number;
   y?: number;
+};
+export type ReferralGraphDragLocalityForceOptions = {
+  directNeighborVelocityScale: number;
+  secondHopVelocityScale: number;
+  backgroundVelocityScale: number;
+  directNeighborMaxVelocity: number;
+  secondHopMaxVelocity: number;
+  backgroundMaxVelocity: number;
+  directNeighborPullStrength: number;
+  secondHopPullStrength: number;
+};
+export type ReferralGraphDragElasticTether = {
+  nodeId: string;
+  parentId: string;
+  depth: number;
+  restX: number;
+  restY: number;
+};
+export type ReferralGraphDragElasticTetherForceOptions = {
+  stiffness: number;
+  damping: number;
+  depthDecay: number;
+  maxVelocity: number;
+  minAlpha: number;
+};
+export type ReferralGraphPointerDragTarget = {
+  nodeId: string;
+  x: number;
+  y: number;
+};
+export type ReferralGraphPointerDragForceOptions = {
+  stiffness: number;
+  damping: number;
+  maxVelocity: number;
+  minAlpha: number;
+};
+
+const DEFAULT_DRAG_LOCALITY_FORCE: ReferralGraphDragLocalityForceOptions = {
+  directNeighborVelocityScale: 0.45,
+  secondHopVelocityScale: 0.18,
+  backgroundVelocityScale: 0.03,
+  directNeighborMaxVelocity: 6,
+  secondHopMaxVelocity: 1.5,
+  backgroundMaxVelocity: 0.4,
+  directNeighborPullStrength: 0.36,
+  secondHopPullStrength: 0.055,
+};
+const DEFAULT_DRAG_ELASTIC_TETHER_FORCE: ReferralGraphDragElasticTetherForceOptions = {
+  stiffness: 0.72,
+  damping: 0.76,
+  depthDecay: 1,
+  maxVelocity: 220,
+  minAlpha: 0.75,
+};
+const DEFAULT_POINTER_DRAG_FORCE: ReferralGraphPointerDragForceOptions = {
+  stiffness: 1.18,
+  damping: 0.66,
+  maxVelocity: 220,
+  minAlpha: 0.9,
+};
+
+type VelocityNode = {
+  id: string;
+  x?: number;
+  y?: number;
+  vx?: number;
+  vy?: number;
 };
 
 export type ReferralGraphLinkDistanceOptions = {
@@ -561,18 +647,6 @@ function isActiveDragSuppressedNode(
   return nodeId === activeDraggedNodeId || Boolean(suppressedNodeIds?.has(nodeId));
 }
 
-function hasActiveDragSuppressedEndpoint(
-  sourceId: string,
-  targetId: string,
-  activeDraggedNodeId: string | null | undefined,
-  suppressedNodeIds: Set<string> | undefined,
-) {
-  return (
-    isActiveDragSuppressedNode(sourceId, activeDraggedNodeId, suppressedNodeIds)
-    || isActiveDragSuppressedNode(targetId, activeDraggedNodeId, suppressedNodeIds)
-  );
-}
-
 export function createReferralGraphLinkTensionForce<T extends ReferralGraphLayoutMemoryNode>(
   links: Array<ReferralGraphDragSpringLink<T>>,
   options: ReferralGraphLinkTensionOptions,
@@ -580,22 +654,15 @@ export function createReferralGraphLinkTensionForce<T extends ReferralGraphLayou
   let nodesById = new Map<string, T>();
 
   const force = ((alpha: number) => {
-    const strength = scaleReferralGraphActiveDragStrength(
-      clamp(options.strength ?? 0.3, 0, 0.7) * alpha,
-      options,
-    );
-    const maxVelocity = scaleReferralGraphActiveDragMaxVelocity(
-      clamp(options.maxVelocity ?? 22, 1, 48),
-      options,
-    );
+    const strength = clamp(options.strength ?? 0.3, 0, 0.7) * alpha;
+    const maxVelocity = clamp(options.maxVelocity ?? 22, 1, 48);
     const thresholdMultiplier = clamp(options.thresholdMultiplier ?? 1.06, 0.82, 2.5);
 
     for (const link of links) {
       const sourceId = getLinkEndpointId(link.source);
       const targetId = getLinkEndpointId(link.target);
-      const activeDraggedNodeId = options.activeDraggedNodeIdRef?.current;
       const suppressedNodeIds = options.suppressedNodeIdsRef?.current;
-      if (hasActiveDragSuppressedEndpoint(sourceId, targetId, activeDraggedNodeId, suppressedNodeIds)) {
+      if (suppressedNodeIds?.has(sourceId) || suppressedNodeIds?.has(targetId)) {
         continue;
       }
 
@@ -643,8 +710,7 @@ export function createReferralGraphLinkTensionForce<T extends ReferralGraphLayou
         continue;
       }
 
-      const dragStrengthFactor = activeDraggedNodeId ? 0.24 : 1;
-      const velocity = Math.min(maxVelocity, (distance - targetDistance) * strength * dragStrengthFactor);
+      const velocity = Math.min(maxVelocity, (distance - targetDistance) * strength);
       const unitX = dx / distance;
       const unitY = dy / distance;
       const sourceShare = sourceMovable && targetMovable ? 0.5 : sourceMovable ? 1 : 0;
@@ -660,6 +726,196 @@ export function createReferralGraphLinkTensionForce<T extends ReferralGraphLayou
         target.vy = (target.vy ?? 0) - unitY * velocity * targetShare;
       }
     }
+  }) as unknown as { (alpha: number): void; initialize: (nodes: T[]) => void };
+
+  force.initialize = (nodes: T[]) => {
+    nodesById = new Map(nodes.map((node) => [node.id, node]));
+  };
+
+  return force;
+}
+
+function clampVelocity(node: VelocityNode, maxVelocity: number) {
+  const vx = node.vx ?? 0;
+  const vy = node.vy ?? 0;
+  const speed = Math.hypot(vx, vy);
+  if (speed === 0 || speed <= maxVelocity) {
+    return;
+  }
+
+  const scale = maxVelocity / speed;
+  node.vx = vx * scale;
+  node.vy = vy * scale;
+}
+
+function applyLocalDragPull(
+  node: VelocityNode,
+  draggedNode: VelocityNode | undefined,
+  alpha: number,
+  strength: number,
+) {
+  if (
+    !draggedNode
+    || !hasFiniteCoordinate(node.x)
+    || !hasFiniteCoordinate(node.y)
+    || !hasFiniteCoordinate(draggedNode.x)
+    || !hasFiniteCoordinate(draggedNode.y)
+  ) {
+    return;
+  }
+
+  node.vx = (node.vx ?? 0) + ((draggedNode.x - node.x) * strength * alpha);
+  node.vy = (node.vy ?? 0) + ((draggedNode.y - node.y) * strength * alpha);
+}
+
+export function createReferralGraphDragLocalityForce<T extends VelocityNode>(
+  activeDraggedNodeIdRef: { current: string | null },
+  activeNodeDepthsRef: { current: Map<string, number> },
+  options: Partial<ReferralGraphDragLocalityForceOptions> = {},
+): { (alpha: number): void; initialize: (nodes: T[]) => void } {
+  const config = {
+    ...DEFAULT_DRAG_LOCALITY_FORCE,
+    ...options,
+  };
+  let nodes: T[] = [];
+
+  const force = ((alpha: number) => {
+    const draggedNodeId = activeDraggedNodeIdRef.current;
+    if (!draggedNodeId) {
+      return;
+    }
+    const draggedNode = nodes.find((node) => node.id === draggedNodeId);
+    let directNeighborCount = 0;
+    for (const depth of activeNodeDepthsRef.current.values()) {
+      if (depth === 1) {
+        directNeighborCount += 1;
+      }
+    }
+    const directPullMultiplier = directNeighborCount >= 8 ? 0.72 : directNeighborCount <= 2 ? 1.25 : 1;
+    const directMaxVelocityMultiplier = directNeighborCount >= 8 ? 0.78 : directNeighborCount <= 2 ? 1.15 : 1;
+
+    for (const node of nodes) {
+      if (node.id === draggedNodeId) {
+        continue;
+      }
+
+      const depth = activeNodeDepthsRef.current.get(node.id);
+      if (depth === 1) {
+        node.vx = (node.vx ?? 0) * config.directNeighborVelocityScale;
+        node.vy = (node.vy ?? 0) * config.directNeighborVelocityScale;
+        applyLocalDragPull(
+          node,
+          draggedNode,
+          alpha,
+          config.directNeighborPullStrength * directPullMultiplier,
+        );
+        clampVelocity(node, config.directNeighborMaxVelocity * directMaxVelocityMultiplier);
+        continue;
+      }
+
+      if (depth === 2) {
+        node.vx = (node.vx ?? 0) * config.secondHopVelocityScale;
+        node.vy = (node.vy ?? 0) * config.secondHopVelocityScale;
+        applyLocalDragPull(node, draggedNode, alpha, config.secondHopPullStrength);
+        clampVelocity(node, config.secondHopMaxVelocity);
+        continue;
+      }
+
+      node.vx = (node.vx ?? 0) * config.backgroundVelocityScale;
+      node.vy = (node.vy ?? 0) * config.backgroundVelocityScale;
+      clampVelocity(node, config.backgroundMaxVelocity);
+    }
+  }) as unknown as { (alpha: number): void; initialize: (nodes: T[]) => void };
+
+  force.initialize = (nextNodes: T[]) => {
+    nodes = nextNodes;
+  };
+
+  return force;
+}
+
+export function createReferralGraphDragElasticTetherForce<T extends VelocityNode>(
+  activeDraggedNodeIdRef: { current: string | null },
+  activeDragTethersRef: { current: Map<string, ReferralGraphDragElasticTether> },
+  options: Partial<ReferralGraphDragElasticTetherForceOptions> = {},
+): { (alpha: number): void; initialize: (nodes: T[]) => void } {
+  const config = {
+    ...DEFAULT_DRAG_ELASTIC_TETHER_FORCE,
+    ...options,
+  };
+  let nodesById = new Map<string, T>();
+
+  const force = ((alpha: number) => {
+    if (!activeDraggedNodeIdRef.current || activeDragTethersRef.current.size === 0) {
+      return;
+    }
+
+    const effectiveAlpha = Math.max(alpha, config.minAlpha);
+    const tethers = [...activeDragTethersRef.current.values()]
+      .sort((left, right) => left.depth - right.depth);
+
+    for (const tether of tethers) {
+      const node = nodesById.get(tether.nodeId);
+      const parent = nodesById.get(tether.parentId);
+      if (
+        !node
+        || !parent
+        || !hasFiniteCoordinate(node.x)
+        || !hasFiniteCoordinate(node.y)
+        || !hasFiniteCoordinate(parent.x)
+        || !hasFiniteCoordinate(parent.y)
+      ) {
+        continue;
+      }
+
+      const targetX = parent.x + tether.restX;
+      const targetY = parent.y + tether.restY;
+      const depthFactor = config.depthDecay ** Math.max(0, tether.depth - 1);
+      const spring = config.stiffness * depthFactor * effectiveAlpha;
+
+      node.vx = ((node.vx ?? 0) * config.damping) + ((targetX - node.x) * spring);
+      node.vy = ((node.vy ?? 0) * config.damping) + ((targetY - node.y) * spring);
+      clampVelocity(node, config.maxVelocity * Math.max(0.32, depthFactor));
+    }
+  }) as unknown as { (alpha: number): void; initialize: (nodes: T[]) => void };
+
+  force.initialize = (nodes: T[]) => {
+    nodesById = new Map(nodes.map((node) => [node.id, node]));
+  };
+
+  return force;
+}
+
+export function createReferralGraphPointerDragForce<T extends VelocityNode>(
+  pointerDragTargetRef: { current: ReferralGraphPointerDragTarget | null },
+  options: Partial<ReferralGraphPointerDragForceOptions> = {},
+): { (alpha: number): void; initialize: (nodes: T[]) => void } {
+  const config = {
+    ...DEFAULT_POINTER_DRAG_FORCE,
+    ...options,
+  };
+  let nodesById = new Map<string, T>();
+
+  const force = ((alpha: number) => {
+    const target = pointerDragTargetRef.current;
+    if (!target) {
+      return;
+    }
+
+    const node = nodesById.get(target.nodeId);
+    if (
+      !node
+      || !hasFiniteCoordinate(node.x)
+      || !hasFiniteCoordinate(node.y)
+    ) {
+      return;
+    }
+
+    const effectiveAlpha = Math.max(alpha, config.minAlpha);
+    const spring = config.stiffness * effectiveAlpha;
+    node.vx = ((node.vx ?? 0) * config.damping) + ((target.x - node.x) * spring);
+    node.vy = ((node.vy ?? 0) * config.damping) + ((target.y - node.y) * spring);
+    clampVelocity(node, config.maxVelocity);
   }) as unknown as { (alpha: number): void; initialize: (nodes: T[]) => void };
 
   force.initialize = (nodes: T[]) => {
@@ -1411,6 +1667,10 @@ export function createReferralGraphClusterSeparationForce<T extends ReferralGrap
   let nodes: T[] = [];
 
   const force = ((alpha: number) => {
+    if (options.activeDraggedNodeIdRef?.current) {
+      return;
+    }
+
     const strength = scaleReferralGraphActiveDragStrength(
       clamp((options.strength ?? 0.045) * alpha, 0, 0.12),
       options,
@@ -1987,6 +2247,10 @@ export function createReferralGraphLayoutMemoryForce<T extends ReferralGraphLayo
   let tickCount = 0;
 
   const force = (() => {
+    if (options.activeDraggedNodeIdRef?.current) {
+      return;
+    }
+
     tickCount += 1;
     const maxTicks = options.maxTicks ?? Number.POSITIVE_INFINITY;
     const fadedAnchorRatio = maxTicks === Number.POSITIVE_INFINITY
@@ -2069,4 +2333,42 @@ export function resolveReferralGraphPhysics(settings: ReferralGraphPhysicsSettin
     linkStrength: clamp(settings.linkStrength, 0, 1),
     layoutMemoryStrength: clamp(0.04 + (centerGravity * 0.12), 0.04, 0.16),
   };
+}
+
+export function resolveReferralGraphFreePhysics(settings: ReferralGraphPhysicsSettings): ReferralGraphFreePhysicsTuning {
+  const centerGravity = clamp(settings.centerGravity, 0, 1);
+  const repulsion = clamp(settings.repulsion, 0, 20);
+  const linkDistance = clamp(settings.linkDistance, 30, 500);
+  const linkStrength = clamp(settings.linkStrength, 0, 1);
+
+  return {
+    alphaDecay: 0.016,
+    velocityDecay: 0.46,
+    centerStrength: Number((0.01 + (centerGravity * 0.028)).toFixed(3)),
+    chargeStrength: -36 - (repulsion * 10.5),
+    chargeDistanceMin: 22,
+    chargeDistanceMax: Math.round(clamp(linkDistance * 2.15, 260, 700)),
+    linkDistance: Math.round(clamp(linkDistance * 0.78, 110, 380)),
+    linkStrength: Number(clamp(linkStrength * 0.54, 0.1, 0.62).toFixed(2)),
+    collisionPadding: 34,
+    collisionStrength: 0.88,
+    collisionIterations: 2,
+    componentSeparationGap: 64,
+    componentSeparationStrength: 0.022,
+    linkTensionStrength: 0.18,
+    linkTensionThresholdMultiplier: 1.38,
+    dragReheatAlpha: 0.24,
+  };
+}
+
+export function getReferralGraphFreeLinkStrength(
+  sourceDegree: number,
+  targetDegree: number,
+  baseLinkStrength: number,
+) {
+  const degreeDamping = Math.sqrt(Math.max(1, Math.min(
+    Number.isFinite(sourceDegree) ? sourceDegree : 1,
+    Number.isFinite(targetDegree) ? targetDegree : 1,
+  )));
+  return Math.max(0.06, clamp(baseLinkStrength, 0, 1) / degreeDamping);
 }

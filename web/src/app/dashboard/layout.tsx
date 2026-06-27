@@ -8,6 +8,7 @@ import { useDisclosure, useMediaQuery } from '@mantine/hooks';
 import {
   IconCalendarEvent,
   IconFileText,
+  IconGraph,
   IconHome,
   IconKey,
   IconLink,
@@ -49,7 +50,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
     () => {
       if (role === 'fc') {
         return [
-          { label: '추천인 그래프', icon: IconKey, href: '/dashboard/referrals/graph' },
+          { label: '추천인 그래프', icon: IconGraph, href: '/dashboard/referrals/graph' },
         ];
       }
 
@@ -57,15 +58,8 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
         { label: '홈', icon: IconHome, href: '/dashboard' },
         { label: '문서 관리', icon: IconFileText, href: '/dashboard/docs' },
         { label: '생명/손해 위촉', icon: IconLink, href: '/dashboard/appointment' },
-        {
-          label: '추천인 코드',
-          icon: IconKey,
-          href: '/dashboard/referrals',
-          children: [
-            { label: '리스트', href: '/dashboard/referrals' },
-            { label: '그래프', href: '/dashboard/referrals/graph' },
-          ],
-        },
+        { label: '추천인 그래프', icon: IconGraph, href: '/dashboard/referrals/graph' },
+        { label: '추천인 코드', icon: IconKey, href: '/dashboard/referrals' },
         { label: '게시판', icon: IconNews, href: '/dashboard/board' },
         { label: '메신저', icon: IconMessage, href: '/dashboard/messenger' },
         { label: '에이전트 룸', icon: IconUsers, href: '/dashboard/agent-room' },

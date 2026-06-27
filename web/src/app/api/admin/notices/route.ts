@@ -1,6 +1,7 @@
 import { adminSupabase } from '@/lib/admin-supabase';
 import { checkRateLimit, SECURITY_HEADERS, validateSession } from '@/lib/csrf';
 import { logger } from '@/lib/logger';
+import { redactSensitiveText } from '@/lib/sensitive-text';
 import { cookies } from 'next/headers';
 import { NextResponse } from 'next/server';
 
@@ -219,8 +220,8 @@ async function createBoardAttachmentSignedUrl(storagePath: string): Promise<stri
 
 const mapBoardPostToNotice = (post: BoardPostRow): NoticeRow => ({
   id: `${BOARD_NOTICE_ID_PREFIX}${post.id}`,
-  title: post.title,
-  body: post.content,
+  title: redactSensitiveText(post.title, '공지'),
+  body: redactSensitiveText(post.content),
   category: '공지',
   created_at: post.created_at,
   created_by: post.author_resident_id,
@@ -228,6 +229,17 @@ const mapBoardPostToNotice = (post: BoardPostRow): NoticeRow => ({
   board_post_id: post.id,
   images: null,
   files: null,
+});
+
+const sanitizeNoticeRow = (notice: NoticeRow): NoticeRow => ({
+  ...notice,
+  title: redactSensitiveText(notice.title, '공지'),
+  body: redactSensitiveText(notice.body),
+  category: notice.category ? redactSensitiveText(notice.category) : notice.category,
+  files: notice.files?.map((file) => ({
+    ...file,
+    name: file.name ? redactSensitiveText(file.name, 'file') : file.name,
+  })) ?? null,
 });
 
 async function decorateBoardNoticeWithAttachments(notice: NoticeRow): Promise<NoticeRow> {
@@ -308,15 +320,18 @@ async function getNoticeList(): Promise<NoticeRow[]> {
   ]);
 
   return [...legacyNotices, ...boardNotices]
+    .map(sanitizeNoticeRow)
     .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
 }
 
 async function getNoticeById(id: string): Promise<NoticeRow | null> {
   const boardPostId = parseBoardNoticePostId(id);
   if (boardPostId) {
-    return getBoardNoticeByPostId(boardPostId);
+    const notice = await getBoardNoticeByPostId(boardPostId);
+    return notice ? sanitizeNoticeRow(notice) : null;
   }
-  return getLegacyNoticeById(id);
+  const notice = await getLegacyNoticeById(id);
+  return notice ? sanitizeNoticeRow(notice) : null;
 }
 
 async function deleteBoardNoticeByPostId(postId: string): Promise<void> {
@@ -435,9 +450,9 @@ export async function PATCH(req: Request) {
     }
 
     const updateFields: Record<string, unknown> = {};
-    if (body.title !== undefined) updateFields.title = body.title;
-    if (body.body !== undefined) updateFields.body = body.body;
-    if (body.category !== undefined) updateFields.category = body.category;
+    if (body.title !== undefined) updateFields.title = redactSensitiveText(body.title, '공지');
+    if (body.body !== undefined) updateFields.body = redactSensitiveText(body.body);
+    if (body.category !== undefined) updateFields.category = redactSensitiveText(body.category);
     if (body.images !== undefined) updateFields.images = body.images;
     if (body.files !== undefined) updateFields.files = body.files;
 

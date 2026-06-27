@@ -16,6 +16,35 @@ const normalizeToken = (value?: string | null) =>
     .replace(/\\n/g, '')
     .replace(/\r?\n/g, '')
     .trim();
+const ADMIN_CHAT_ID = 'admin';
+const sanitizePhoneDigits = (value?: string | null) => String(value ?? '').replace(/[^0-9]/g, '');
+
+const normalizeAdminNotificationTargetId = (value?: string | null) => {
+  const raw = String(value ?? '').trim().toLowerCase();
+  if (!raw || raw === ADMIN_CHAT_ID) return '';
+  return sanitizePhoneDigits(raw);
+};
+
+async function fetchSharedAdminResidentIds() {
+  const { data, error } = await adminClient
+    .from('admin_accounts')
+    .select('phone,staff_type')
+    .eq('active', true);
+
+  if (error) {
+    logger.error('[admin/push] shared admin account query failed:', error);
+    return [];
+  }
+
+  return Array.from(
+    new Set(
+      (data ?? [])
+        .filter((account) => account.staff_type !== 'developer')
+        .map((account) => sanitizePhoneDigits(account.phone))
+        .filter((phone) => phone.length > 0),
+    ),
+  );
+}
 
 /**
  * Protected admin web push endpoint.
@@ -49,22 +78,35 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
 
-  let body: { title?: string; body?: string; url?: string };
+  let body: { title?: string; body?: string; url?: string; targetId?: string | null };
   try {
     body = await req.json();
   } catch {
     return NextResponse.json({ error: 'Invalid JSON' }, { status: 400 });
   }
 
-  const { title, body: notifBody, url } = body;
+  const { title, body: notifBody, url, targetId } = body;
   if (!title || !notifBody) {
     return NextResponse.json({ error: 'Missing title or body' }, { status: 400 });
   }
 
-  const { data: subs, error } = await adminClient
+  const normalizedTargetId = normalizeAdminNotificationTargetId(targetId);
+  let query = adminClient
     .from('web_push_subscriptions')
     .select('endpoint,p256dh,auth')
     .eq('role', 'admin');
+
+  if (normalizedTargetId) {
+    query = query.eq('resident_id', normalizedTargetId);
+  } else {
+    const sharedAdminResidentIds = await fetchSharedAdminResidentIds();
+    if (sharedAdminResidentIds.length === 0) {
+      return NextResponse.json({ ok: true, sent: 0, failed: 0 });
+    }
+    query = query.in('resident_id', sharedAdminResidentIds);
+  }
+
+  const { data: subs, error } = await query;
 
   if (error) {
     logger.error('[admin/push] subscriptions query failed:', error);

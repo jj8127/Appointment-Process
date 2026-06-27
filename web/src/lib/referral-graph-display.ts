@@ -42,9 +42,9 @@ export function getReferralGraphLabelPresentation({
     };
   }
 
-  const fullLabelAlpha = clamp((globalScale - 1.65) / 0.75, 0, 1);
-  const hubLabelAlpha = linkCount >= 5 ? clamp((globalScale - 0.9) / 0.8, 0, 0.72) : 0;
-  const overviewLabelAlpha = clamp(0.42 + ((globalScale - 0.8) * 0.2), 0.4, 0.58);
+  const fullLabelAlpha = clamp((globalScale - 1.55) / 0.7, 0, 1);
+  const hubLabelAlpha = linkCount >= 5 ? clamp((globalScale - 0.72) / 0.68, 0.54, 0.84) : 0;
+  const overviewLabelAlpha = clamp(0.38 + ((globalScale - 0.8) * 0.1), 0.34, 0.48);
   const alpha = Math.max(overviewLabelAlpha, fullLabelAlpha, hubLabelAlpha);
 
   return {

@@ -1,6 +1,7 @@
 'use client';
 
 import { isDeveloperSession, type StaffType } from '@/lib/staff-identity';
+import { redactSensitiveText } from '@/lib/sensitive-text';
 import {
   ActionIcon,
   Badge,
@@ -102,6 +103,7 @@ const getCategoryLabel = (item: HeaderNotificationItem): string => {
   if (!category) return '알림';
   const normalized = category.toLowerCase();
   if (normalized === 'app_event') return '앱 알림';
+  if (normalized === 'group_chat_message') return '단톡방 메시지';
   if (item.origin === 'request_board') {
     return REQUEST_BOARD_CATEGORY_LABELS[normalized] ?? '설계요청 알림';
   }
@@ -134,6 +136,7 @@ const normalizeTargetUrlForWeb = (url: string): string => {
   }
 
   if (trimmed.startsWith('/dashboard/messenger')) return trimmed;
+  if (trimmed.startsWith('/dashboard/group-chat')) return trimmed;
   if (trimmed.startsWith('/dashboard/chat')) return trimmed;
   if (trimmed.startsWith('/dashboard/board')) return trimmed;
   if (trimmed.startsWith('/dashboard/docs')) return trimmed;
@@ -144,6 +147,7 @@ const normalizeTargetUrlForWeb = (url: string): string => {
   if (trimmed.startsWith('/dashboard')) return '/dashboard';
 
   if (trimmed.startsWith('/chat')) return `/dashboard${trimmed}`;
+  if (trimmed.startsWith('/group-chat')) return '/dashboard/group-chat';
   if (trimmed === '/admin-messenger') return '/dashboard/messenger?channel=garam';
   if (trimmed === '/request-board-messenger') return '/dashboard/messenger?channel=request-board';
   if (trimmed.startsWith('/board')) return `/dashboard${trimmed}`;
@@ -171,6 +175,9 @@ const resolveRoute = (item: HeaderNotificationItem): string => {
   }
 
   const category = (item.category ?? '').trim().toLowerCase();
+  if (category === 'group_chat_message') {
+    return '/dashboard/group-chat';
+  }
   if (item.origin === 'request_board') {
     if (category === 'request_board_message') {
       return '/dashboard/messenger?channel=request-board';
@@ -233,8 +240,10 @@ export function DashboardNotificationBell({ role, residentId, staffType = null }
     queryKey: ['dashboard-header-notifications', role, residentId, staffType],
     refetchInterval: 30_000,
     queryFn: async (): Promise<HeaderNotificationItem[]> => {
+      const isDeveloper = isDeveloperSession({ role, staffType });
+      const staffPersonalInboxId = role === 'manager' || isDeveloper ? sanitize(residentId) : null;
       const fetchInbox = async (inboxRole: 'admin' | 'fc') => {
-        const inboxResidentId = inboxRole === 'fc' ? sanitize(residentId) : null;
+        const inboxResidentId = inboxRole === 'fc' ? sanitize(residentId) : staffPersonalInboxId;
         const response = await fetch('/api/fc-notify', {
           method: 'POST',
           headers: {
@@ -261,7 +270,6 @@ export function DashboardNotificationBell({ role, residentId, staffType = null }
         return inbox;
       };
 
-      const isDeveloper = isDeveloperSession({ role, staffType });
       const [primaryInbox, developerFcInbox] = await Promise.all([
         fetchInbox(role === 'fc' ? 'fc' : 'admin'),
         isDeveloper ? fetchInbox('fc') : Promise.resolve(null),
@@ -273,10 +281,10 @@ export function DashboardNotificationBell({ role, residentId, staffType = null }
       ].map((item) => ({
         id: `notification:${item.id}`,
         rawId: item.id,
-        title: item.title,
-        body: item.body,
-        category: item.category ?? '알림',
-        targetUrl: item.target_url ?? null,
+        title: redactSensitiveText(item.title, '알림'),
+        body: redactSensitiveText(item.body),
+        category: redactSensitiveText(item.category ?? '알림'),
+        targetUrl: item.target_url ? redactSensitiveText(item.target_url) : null,
         createdAt: item.created_at ?? null,
         source: 'notification',
         origin: isRequestBoardCategory(item.category) ? 'request_board' : 'fc_onboarding',
@@ -285,9 +293,9 @@ export function DashboardNotificationBell({ role, residentId, staffType = null }
       const mappedNotices: HeaderNotificationItem[] = (primaryInbox.notices ?? []).map((item) => ({
         id: `notice:${item.id}`,
         rawId: item.id,
-        title: item.title,
-        body: item.body,
-        category: item.category ?? '공지',
+        title: redactSensitiveText(item.title, '공지'),
+        body: redactSensitiveText(item.body),
+        category: redactSensitiveText(item.category ?? '공지'),
         targetUrl: null,
         createdAt: item.created_at ?? null,
         source: 'notice',

@@ -17,6 +17,7 @@ import {
   GROUP_CHAT_ROOM_TITLE,
   GROUP_CHAT_TARGET_URL,
   isEligibleGroupChatMember,
+  isRequestBoardDesignerAffiliation,
   normalizeGroupChatMessageContent,
   normalizeGroupChatText,
   sanitizeGroupChatPhone,
@@ -124,6 +125,8 @@ const EXPO_PUSH_URL = 'https://exp.host/--/api/v2/push/send';
 const EXPO_PUSH_CHUNK_SIZE = 100;
 const DEFAULT_MESSAGE_LIMIT = 50;
 const MAX_MESSAGE_LIMIT = 100;
+const CHAT_UPLOAD_BUCKET = 'chat-uploads';
+const CHAT_UPLOAD_PREFIX = 'group-chat/';
 
 const allowedOrigins = (getEnv('ALLOWED_ORIGINS') ?? '')
   .split(',')
@@ -142,6 +145,17 @@ if (!serviceKey) {
 }
 
 const supabase = createClient(supabaseUrl, serviceKey);
+const chatUploadPublicPrefix = `${supabaseUrl.replace(/\/+$/, '')}/storage/v1/object/public/${CHAT_UPLOAD_BUCKET}/${CHAT_UPLOAD_PREFIX}`;
+
+function isAllowedGroupChatUploadUrl(value: string | null) {
+  if (!value) return false;
+  try {
+    const parsed = new URL(value);
+    return parsed.href.startsWith(chatUploadPublicPrefix);
+  } catch {
+    return false;
+  }
+}
 
 function resolveCorsOrigin(origin?: string | null) {
   if (origin && allowedOrigins.includes(origin)) return origin;
@@ -251,6 +265,56 @@ async function ensureRoom(): Promise<RoomRow> {
   return inserted.data as RoomRow;
 }
 
+type FcActorProfileRow = {
+  id?: string | null;
+  phone?: string | null;
+  affiliation?: string | null;
+  signup_completed?: boolean | null;
+  is_manager_referral_shadow?: boolean | null;
+};
+
+type ActorBlockReason = {
+  code: string;
+  message: string;
+  status: number;
+};
+
+function getFcActorBlockReason(profile: FcActorProfileRow | null, phone: string): ActorBlockReason | null {
+  if (!profile?.id || sanitizeGroupChatPhone(profile.phone) !== phone) {
+    return {
+      code: 'group_chat_account_not_found',
+      message: '단톡방에 연결할 계정을 찾을 수 없습니다. 다시 로그인해주세요.',
+      status: 404,
+    };
+  }
+
+  if (profile.signup_completed !== true) {
+    return {
+      code: 'not_completed',
+      message: '본등록이 완료되지 않아 단톡방에 참여할 수 없습니다. 본등록 완료 후 다시 시도해주세요.',
+      status: 403,
+    };
+  }
+
+  if (profile.is_manager_referral_shadow === true || isRequestBoardDesignerAffiliation(profile.affiliation)) {
+    return {
+      code: 'request_board_designer_only',
+      message: '설계요청 전용 계정은 가람PA 단톡방 참여 대상이 아닙니다.',
+      status: 403,
+    };
+  }
+
+  return null;
+}
+
+function getInactiveActorBlockReason(): ActorBlockReason {
+  return {
+    code: 'inactive_account',
+    message: '비활성화된 계정이라 단톡방에 참여할 수 없습니다.',
+    status: 403,
+  };
+}
+
 async function resolveActor(session: AppSessionTokenPayload, origin?: string | null): Promise<
   | { ok: true; actor: GroupChatActor }
   | { ok: false; response: Response }
@@ -271,21 +335,15 @@ async function resolveActor(session: AppSessionTokenPayload, origin?: string | n
 
     if (result.error) return { ok: false, response: dbError(result.error, origin) };
     const profile = result.data;
-    if (
-      !profile?.id
-      || sanitizeGroupChatPhone(profile.phone) !== phone
-      || !isEligibleGroupChatMember({
-        kind: 'fc',
-        phone: profile.phone,
-        signup_completed: profile.signup_completed,
-        affiliation: profile.affiliation,
-        is_manager_referral_shadow: profile.is_manager_referral_shadow,
-      })
-    ) {
-      return { ok: false, response: fail('forbidden', '단톡방에 참여할 수 없는 계정입니다.', 403, origin) };
+    const blockReason = getFcActorBlockReason(profile, phone);
+    if (blockReason) {
+      return {
+        ok: false,
+        response: fail(blockReason.code, blockReason.message, blockReason.status, origin),
+      };
     }
 
-    const actor = buildGroupChatActor({ role: 'fc', phone, name: profile.name });
+    const actor = buildGroupChatActor({ role: 'fc', phone, name: profile?.name ?? null });
     if (!actor) return { ok: false, response: fail('invalid_actor', '단톡방 참여자 정보를 확인할 수 없습니다.', 403, origin) };
     return { ok: true, actor };
   }
@@ -298,7 +356,8 @@ async function resolveActor(session: AppSessionTokenPayload, origin?: string | n
       .maybeSingle();
     if (error) return { ok: false, response: dbError(error, origin) };
     if (!data?.active) {
-      return { ok: false, response: fail('forbidden', '단톡방에 참여할 수 없는 계정입니다.', 403, origin) };
+      const blockReason = getInactiveActorBlockReason();
+      return { ok: false, response: fail(blockReason.code, blockReason.message, blockReason.status, origin) };
     }
 
     const actor = buildGroupChatActor({ role: 'manager', phone, name: data.name });
@@ -313,10 +372,15 @@ async function resolveActor(session: AppSessionTokenPayload, origin?: string | n
     .maybeSingle();
   if (error) return { ok: false, response: dbError(error, origin) };
   if (!isEligibleGroupChatMember({ kind: 'admin', phone: data?.phone, active: data?.active, staff_type: data?.staff_type })) {
-    return { ok: false, response: fail('forbidden', '단톡방에 참여할 수 없는 계정입니다.', 403, origin) };
+    const blockReason = data?.phone ? getInactiveActorBlockReason() : {
+      code: 'group_chat_account_not_found',
+      message: '단톡방에 연결할 계정을 찾을 수 없습니다. 다시 로그인해주세요.',
+      status: 404,
+    };
+    return { ok: false, response: fail(blockReason.code, blockReason.message, blockReason.status, origin) };
   }
 
-  const actor = buildGroupChatActor({ role: 'admin', phone, name: data.name });
+  const actor = buildGroupChatActor({ role: 'admin', phone, name: data?.name ?? null });
   if (!actor) return { ok: false, response: fail('invalid_actor', '단톡방 참여자 정보를 확인할 수 없습니다.', 403, origin) };
   return { ok: true, actor };
 }
@@ -839,6 +903,9 @@ async function handleSend(actor: GroupChatActor, payload: Extract<Payload, { typ
   if ((messageType === 'image' || messageType === 'file') && !fileUrl) {
     return fail('invalid_payload', '첨부 파일 정보가 필요합니다.', 400, origin);
   }
+  if ((messageType === 'image' || messageType === 'file') && !isAllowedGroupChatUploadUrl(fileUrl)) {
+    return fail('invalid_payload', '허용되지 않는 첨부 파일 주소입니다.', 400, origin);
+  }
 
   const replySnapshot = await getReplySnapshot(room.id, payload.reply_to_message_id);
 
@@ -1131,7 +1198,7 @@ serve(async (req: Request) => {
   }
 
   const sessionResult = await requireAppSessionFromRequest(req);
-  if (!sessionResult.ok) {
+  if (sessionResult.ok === false) {
     return fail(sessionResult.code, sessionResult.message, sessionResult.status, origin);
   }
 
@@ -1141,7 +1208,7 @@ serve(async (req: Request) => {
   }
 
   const actorResult = await resolveActor(sessionResult.session, origin);
-  if (!actorResult.ok) return actorResult.response;
+  if (actorResult.ok === false) return actorResult.response;
 
   try {
     if (payload.type === 'group_chat_bootstrap') {

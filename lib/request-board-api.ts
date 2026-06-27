@@ -752,6 +752,10 @@ export async function rbUploadAttachments(
 export type RbDesigner = {
   id: number;
   company_name: string | null;
+  contact_name?: string | null;
+  contact_phone?: string | null;
+  contact_region?: string | null;
+  contact_position?: string | null;
   users: { id: number; name: string; email?: string; phone?: string; affiliation?: string | null } | null;
   designer_products?: { product_id: number; insurance_products: { id: number; name: string; icon?: string } }[];
 };

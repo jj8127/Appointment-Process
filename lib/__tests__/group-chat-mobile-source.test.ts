@@ -33,6 +33,8 @@ describe('group chat mobile wiring', () => {
     const source = readAppFile('group-chat.tsx');
 
     expect(source).toContain('groupChatSend');
+    expect(source).toContain('classifyGroupChatError');
+    expect(source).toContain('showGroupChatErrorAlert(error)');
     expect(source).toContain('buildOptimisticMessage');
     expect(source).toContain('sendOptimisticToServer');
     expect(source).toContain('send_status');

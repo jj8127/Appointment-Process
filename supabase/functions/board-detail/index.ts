@@ -8,6 +8,7 @@ import {
   dbError,
   resolveDeveloperResidentIds,
   toBoardDisplayRole,
+  redactSensitiveText,
 } from '../_shared/board.ts';
 
 type Payload = {
@@ -35,7 +36,7 @@ serve(async (req: Request) => {
   if (!body) return json({ ok: false, code: 'invalid_json', message: 'Invalid JSON' }, 400, origin);
 
   const actorCheck = await requireActor(body, origin);
-  if (!actorCheck.ok) return actorCheck.response;
+  if (actorCheck.ok === false) return actorCheck.response;
 
   const postId = body.postId;
   if (!postId) return json({ ok: false, code: 'invalid_payload', message: 'postId is required' }, 400, origin);
@@ -133,8 +134,8 @@ serve(async (req: Request) => {
   const comments = (commentsRes.data ?? []).map((row) => ({
     id: row.id,
     parentId: row.parent_id ?? null,
-    content: row.content,
-    authorName: row.author_name,
+    content: redactSensitiveText(row.content),
+    authorName: redactSensitiveText(row.author_name, '작성자'),
     authorRole: toBoardDisplayRole(row.author_role, row.author_resident_id, developerResidentIds),
     createdAt: row.created_at,
     editedAt: row.edited_at ?? undefined,
@@ -169,9 +170,9 @@ serve(async (req: Request) => {
       post: {
         id: post.id,
         categoryId: post.category_id,
-        title: post.title,
-        content: post.content,
-        authorName: post.author_name,
+        title: redactSensitiveText(post.title, '게시글'),
+        content: redactSensitiveText(post.content),
+        authorName: redactSensitiveText(post.author_name, '작성자'),
         authorRole: toBoardDisplayRole(post.author_role, post.author_resident_id, developerResidentIds),
         createdAt: post.created_at,
         updatedAt: post.updated_at,

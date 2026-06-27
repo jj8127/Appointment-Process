@@ -43,6 +43,7 @@ import { formatLicenseStatuses } from '@/lib/license-statuses';
 import { logger } from '@/lib/logger';
 import { formatLatestNoticeLabel } from '@/lib/home-latest-notice';
 import { fetchMobileUnreadNotificationCount } from '@/lib/mobile-unread-notification-count';
+import { resolveNotificationInboxResidentId } from '@/lib/notification-inbox-scope';
 import { resolveHomeLatestNoticeRoute } from '@/lib/notice-route';
 import { openExternalUrl } from '@/lib/open-external-url';
 import {
@@ -889,6 +890,15 @@ export default function Home() {
     }),
     [isRequestBoardDesigner, readOnly, residentId, role, staffType],
   );
+  const notificationInboxResidentId = useMemo(
+    () => resolveNotificationInboxResidentId({
+      role,
+      residentId,
+      readOnly,
+      staffType,
+    }),
+    [readOnly, residentId, role, staffType],
+  );
 
   // Unread Counts
   const { data: unreadMsgCount = 0, refetch: refetchMsgCount } = useQuery({
@@ -902,11 +912,11 @@ export default function Home() {
     refetch: refetchNotifCount,
     isFetched: hasFetchedUnreadNotifCount,
   } = useQuery({
-    queryKey: ['unread-notif-count', role, residentId, requestBoardRole],
+    queryKey: ['unread-notif-count', role, notificationInboxResidentId, requestBoardRole],
     queryFn: () =>
       fetchMobileUnreadNotificationCount({
         role,
-        residentId,
+        residentId: notificationInboxResidentId,
         requestBoardRole,
       }),
     enabled: !!role,

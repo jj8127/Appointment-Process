@@ -2,6 +2,7 @@ import { createClient } from '@supabase/supabase-js';
 import { NextResponse } from 'next/server';
 import { buildAdminDashboardChatUrl, normalizeAdminDashboardUrl } from '@/lib/admin-chat-url';
 import { sendWebPush } from '@/lib/web-push';
+import { redactSensitiveStrings } from '@/lib/sensitive-text';
 
 import { logger } from '@/lib/logger';
 // Validate environment variables at module load time
@@ -33,6 +34,53 @@ interface NotifyRequestBody {
 }
 
 const sanitizePhoneDigits = (value: string | null | undefined) => String(value ?? '').replace(/[^0-9]/g, '');
+const ADMIN_CHAT_ID = 'admin';
+
+const normalizeAdminNotificationTargetId = (value: string | null | undefined) => {
+  const raw = String(value ?? '').trim().toLowerCase();
+  if (!raw || raw === ADMIN_CHAT_ID) return '';
+  return sanitizePhoneDigits(raw);
+};
+
+async function fetchSharedAdminResidentIds() {
+  const { data, error } = await adminClient
+    .from('admin_accounts')
+    .select('phone,staff_type')
+    .eq('active', true);
+
+  if (error) {
+    logger.error('[fc-notify] Error fetching shared admin accounts:', error);
+    return [];
+  }
+
+  return Array.from(
+    new Set(
+      (data ?? [])
+        .filter((account) => account.staff_type !== 'developer')
+        .map((account) => sanitizePhoneDigits(account.phone))
+        .filter((phone) => phone.length > 0),
+    ),
+  );
+}
+
+async function fetchAdminWebPushSubscriptions(targetId?: string | null) {
+  const normalizedTargetId = normalizeAdminNotificationTargetId(targetId);
+  const query = adminClient
+    .from('web_push_subscriptions')
+    .select('endpoint,p256dh,auth')
+    .eq('role', 'admin');
+
+  if (normalizedTargetId) {
+    return query.eq('resident_id', normalizedTargetId);
+  }
+
+  const sharedAdminResidentIds = await fetchSharedAdminResidentIds();
+  if (sharedAdminResidentIds.length === 0) {
+    return { data: [], error: null };
+  }
+
+  return query.in('resident_id', sharedAdminResidentIds);
+}
 
 /**
  * FC Notification API Route
@@ -54,6 +102,7 @@ export async function POST(req: Request) {
   if (!body || typeof body !== 'object') {
     return NextResponse.json({ error: 'Invalid request body' }, { status: 400 });
   }
+  body = redactSensitiveStrings(body);
 
   try {
     // Handle web push notifications for admin-targeted notify events (docs, exam, consent, etc.)
@@ -62,10 +111,7 @@ export async function POST(req: Request) {
       const message = body.body ?? '새로운 알림이 도착했습니다.';
       const url = normalizeAdminDashboardUrl(body.url ?? '/dashboard');
 
-      const { data: subs, error: subsError } = await adminClient
-        .from('web_push_subscriptions')
-        .select('endpoint,p256dh,auth')
-        .eq('role', 'admin');
+      const { data: subs, error: subsError } = await fetchAdminWebPushSubscriptions(body.target_id);
 
       if (subsError) {
         logger.error('[fc-notify] Error fetching admin subscriptions:', subsError);
@@ -89,58 +135,76 @@ export async function POST(req: Request) {
       const targetId = body.target_id;
       const message = body.message ?? '새로운 메시지가 도착했습니다.';
 
-      let query = adminClient.from('web_push_subscriptions').select('endpoint,p256dh,auth');
-
       if (targetRole === 'admin') {
-        query = query.eq('role', 'admin');
-      } else if (targetRole === 'fc' && targetId) {
-        query = query.eq('role', 'fc').eq('resident_id', targetId);
-      }
+        const { data: subs, error: subsError } = await fetchAdminWebPushSubscriptions(targetId);
+        if (subsError) {
+          logger.error('[fc-notify] Error fetching subscriptions:', subsError);
+        } else if (subs && subs.length > 0) {
+          const senderId = sanitizePhoneDigits(String(body.sender_id ?? ''));
+          let senderName = String(body.sender_name ?? '').trim();
 
-      const { data: subs, error: subsError } = await query;
+          if (senderId && !senderName) {
+            const { data: senderProfile, error: senderProfileError } = await adminClient
+              .from('fc_profiles')
+              .select('name')
+              .eq('phone', senderId)
+              .maybeSingle();
 
-      if (subsError) {
-        logger.error('[fc-notify] Error fetching subscriptions:', subsError);
-      } else if (subs && subs.length > 0) {
-        const senderId = sanitizePhoneDigits(String(body.sender_id ?? ''));
-        let senderName = String(body.sender_name ?? '').trim();
+            if (senderProfileError) {
+              logger.warn('[fc-notify] sender profile lookup failed:', senderProfileError);
+            } else {
+              senderName = senderProfile?.name?.trim() ?? '';
+            }
+          }
 
-        if (targetRole === 'admin' && senderId && !senderName) {
-          const { data: senderProfile, error: senderProfileError } = await adminClient
-            .from('fc_profiles')
-            .select('name')
-            .eq('phone', senderId)
-            .maybeSingle();
+          const url = buildAdminDashboardChatUrl({
+            targetId: senderId,
+            targetName: senderName,
+          });
 
-          if (senderProfileError) {
-            logger.warn('[fc-notify] sender profile lookup failed:', senderProfileError);
-          } else {
-            senderName = senderProfile?.name?.trim() ?? '';
+          const result = await sendWebPush(subs, {
+            title: '새 메시지',
+            body: message,
+            data: { url },
+          });
+
+          if (result.expired.length > 0) {
+            const { error: deleteError } = await adminClient
+              .from('web_push_subscriptions')
+              .delete()
+              .in('endpoint', result.expired);
+
+            if (deleteError) {
+              logger.error('[fc-notify] Error deleting expired subscriptions:', deleteError);
+            }
           }
         }
+      } else if (targetRole === 'fc' && targetId) {
+        const { data: subs, error: subsError } = await adminClient
+          .from('web_push_subscriptions')
+          .select('endpoint,p256dh,auth')
+          .eq('role', 'fc')
+          .eq('resident_id', targetId);
 
-        const url = targetRole === 'admin'
-          ? buildAdminDashboardChatUrl({
-              targetId: senderId,
-              targetName: senderName,
-            })
-          : '/chat';
+        if (subsError) {
+          logger.error('[fc-notify] Error fetching subscriptions:', subsError);
+        } else if (subs && subs.length > 0) {
+          const result = await sendWebPush(subs, {
+            title: '새 메시지',
+            body: message,
+            data: { url: '/chat' },
+          });
 
-        const result = await sendWebPush(subs, {
-          title: '새 메시지',
-          body: message,
-          data: { url },
-        });
+          // Clean up expired subscriptions
+          if (result.expired.length > 0) {
+            const { error: deleteError } = await adminClient
+              .from('web_push_subscriptions')
+              .delete()
+              .in('endpoint', result.expired);
 
-        // Clean up expired subscriptions
-        if (result.expired.length > 0) {
-          const { error: deleteError } = await adminClient
-            .from('web_push_subscriptions')
-            .delete()
-            .in('endpoint', result.expired);
-
-          if (deleteError) {
-            logger.error('[fc-notify] Error deleting expired subscriptions:', deleteError);
+            if (deleteError) {
+              logger.error('[fc-notify] Error deleting expired subscriptions:', deleteError);
+            }
           }
         }
       }

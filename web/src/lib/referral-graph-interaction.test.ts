@@ -7,9 +7,8 @@ import {
   buildReferralGraphAdjacency,
   buildReferralGraphDirectedChildren,
   getReferralGraphDescendantDepths,
-  getReferralGraphDescendantNodeIds,
+  getReferralGraphLocalDragDepths,
   getReferralGraphConnectedNodeIds,
-  releaseReferralGraphDragFollowerNodes,
 } from './referral-graph-interaction.ts';
 import type { GraphEdge } from '../types/referral-graph.ts';
 
@@ -40,141 +39,166 @@ test('getReferralGraphConnectedNodeIds returns the whole connected component for
   );
 });
 
-test('getReferralGraphDescendantNodeIds follows only directed child branches for drag followers', () => {
-  const directedChildren = buildReferralGraphDirectedChildren([
-    makeEdge('root', 'branch-a'),
-    makeEdge('root', 'leaf-a'),
-    makeEdge('branch-a', 'grandchild-a'),
-    makeEdge('sibling-root', 'sibling-leaf'),
+test('getReferralGraphLocalDragDepths limits active drag influence to two hops', () => {
+  const adjacency = buildReferralGraphAdjacency([
+    makeEdge('root', 'direct-a'),
+    makeEdge('direct-a', 'second-hop-a'),
+    makeEdge('second-hop-a', 'third-hop-a'),
+    makeEdge('root', 'direct-b'),
+    makeEdge('other-root', 'other-leaf'),
   ]);
 
-  assert.deepEqual(
-    [...getReferralGraphDescendantNodeIds('root', directedChildren)].sort(),
-    ['branch-a', 'grandchild-a', 'leaf-a'],
-  );
-  assert.deepEqual(
-    [...getReferralGraphDescendantNodeIds('branch-a', directedChildren)].sort(),
-    ['grandchild-a'],
-  );
-  assert.deepEqual([...getReferralGraphDescendantNodeIds('leaf-a', directedChildren)], []);
+  assert.deepEqual([...getReferralGraphLocalDragDepths('root', adjacency, 2).entries()].sort(), [
+    ['direct-a', 1],
+    ['direct-b', 1],
+    ['root', 0],
+    ['second-hop-a', 2],
+  ]);
 });
 
-test('getReferralGraphDescendantDepths tracks branch depth for non-rigid drag followers', () => {
-  const directedChildren = buildReferralGraphDirectedChildren([
+test('getReferralGraphDescendantDepths follows only directed lower nodes', () => {
+  const childrenByNodeId = buildReferralGraphDirectedChildren([
     makeEdge('root', 'child-a'),
+    makeEdge('child-a', 'grand-child-a'),
     makeEdge('root', 'child-b'),
-    makeEdge('child-a', 'grandchild-a'),
-    makeEdge('grandchild-a', 'great-grandchild-a'),
-    makeEdge('sibling-root', 'sibling-leaf'),
+    makeEdge('parent', 'root'),
+    makeEdge('other-root', 'other-child'),
   ]);
 
-  assert.deepEqual([...getReferralGraphDescendantDepths('root', directedChildren).entries()].sort(), [
+  assert.deepEqual([...getReferralGraphDescendantDepths('root', childrenByNodeId).entries()].sort(), [
     ['child-a', 1],
     ['child-b', 1],
-    ['grandchild-a', 2],
-    ['great-grandchild-a', 3],
+    ['grand-child-a', 2],
   ]);
 });
 
-test('applyReferralGraphDragFollowerTranslation moves child followers without moving ancestors or siblings', () => {
+test('applyReferralGraphDragFollowerTranslation gives descendants elastic movement without pinning them', () => {
   const nodesById = new Map([
-    ['root', { id: 'root', x: 0, y: 0, vx: 2, vy: 2 }],
-    ['branch-a', { id: 'branch-a', x: 100, y: 40, vx: 3, vy: 4 }],
-    ['grandchild-a', { id: 'grandchild-a', x: 160, y: 80, vx: 1, vy: 2 }],
-    ['sibling-root', { id: 'sibling-root', x: -50, y: -50, vx: 9, vy: 9 }],
+    ['child', { id: 'child', x: 0, y: 0, vx: 9, vy: 9 }],
+    ['grand-child', { id: 'grand-child', x: 0, y: 0, vx: 9, vy: 9 }],
   ]);
-  const followers = new Set(['branch-a', 'grandchild-a']);
-
-  const movedIds = applyReferralGraphDragFollowerTranslation(nodesById, followers, { x: 34, y: -12 });
-
-  assert.deepEqual([...movedIds].sort(), ['branch-a', 'grandchild-a']);
-  assert.deepEqual(nodesById.get('branch-a'), {
-    id: 'branch-a',
-    x: 134,
-    y: 28,
-    vx: 0,
-    vy: 0,
-    fx: 134,
-    fy: 28,
-  });
-  assert.deepEqual(nodesById.get('grandchild-a'), {
-    id: 'grandchild-a',
-    x: 194,
-    y: 68,
-    vx: 0,
-    vy: 0,
-    fx: 194,
-    fy: 68,
-  });
-  assert.deepEqual(nodesById.get('root'), { id: 'root', x: 0, y: 0, vx: 2, vy: 2 });
-  assert.deepEqual(nodesById.get('sibling-root'), { id: 'sibling-root', x: -50, y: -50, vx: 9, vy: 9 });
-
-  const releasedTargets = releaseReferralGraphDragFollowerNodes(nodesById, followers);
-
-  assert.deepEqual([...releasedTargets.entries()].sort(), [
-    ['branch-a', { x: 134, y: 28 }],
-    ['grandchild-a', { x: 194, y: 68 }],
+  const depthByNodeId = new Map([
+    ['child', 1],
+    ['grand-child', 2],
   ]);
-  assert.equal(nodesById.get('branch-a')?.fx, undefined);
-  assert.equal(nodesById.get('branch-a')?.fy, undefined);
-  assert.equal(nodesById.get('grandchild-a')?.fx, undefined);
-  assert.equal(nodesById.get('grandchild-a')?.fy, undefined);
+
+  const moved = applyReferralGraphDragFollowerTranslation(
+    nodesById,
+    new Set(depthByNodeId.keys()),
+    { x: 100, y: -50 },
+    {
+      depthByNodeId,
+      depthDecay: 0.58,
+      directChildScale: 0.42,
+      maxPinnedDepth: 0,
+      minScale: 0.04,
+    },
+  );
+
+  assert.deepEqual([...moved].sort(), ['child', 'grand-child']);
+  assert.equal(nodesById.get('child')?.x, 42);
+  assert.equal(nodesById.get('child')?.y, -21);
+  assert.equal(nodesById.get('child')?.fx, undefined);
+  assert.equal(nodesById.get('child')?.fy, undefined);
+  assert.equal(Math.round((nodesById.get('grand-child')?.x ?? 0) * 100) / 100, 24.36);
+  assert.equal(Math.round((nodesById.get('grand-child')?.y ?? 0) * 100) / 100, -12.18);
 });
 
-test('applyReferralGraphDragFollowerTranslation dampens deep descendants so large branches do not move as one rigid body', () => {
-  const nodesById = new Map([
-    ['child-a', { id: 'child-a', x: 100, y: 0, vx: 5, vy: 5 }],
-    ['grandchild-a', { id: 'grandchild-a', x: 200, y: 0, vx: 5, vy: 5 }],
-    ['great-grandchild-a', { id: 'great-grandchild-a', x: 300, y: 0, vx: 5, vy: 5 }],
-  ]);
-  const followers = new Set(['child-a', 'grandchild-a', 'great-grandchild-a']);
-  const depths = new Map([
-    ['child-a', 1],
-    ['grandchild-a', 2],
-    ['great-grandchild-a', 3],
-  ]);
+test('ReferralGraphCanvas uses velocity-based rubber-band tethers instead of descendant teleporting', () => {
+  const source = readFileSync('web/src/components/referrals/ReferralGraphCanvas.tsx', 'utf8');
+  const dragHandler = source.slice(
+    source.indexOf('const handleNodeDrag = useCallback'),
+    source.indexOf('const handleNodeDragEnd = useCallback'),
+  );
+  const dragEndHandler = source.slice(
+    source.indexOf('const handleNodeDragEnd = useCallback'),
+    source.indexOf('const nodeLabel = useCallback'),
+  );
+  const finishNodeDragHandler = source.slice(
+    source.indexOf('const finishNodeDrag = useCallback'),
+    source.indexOf('useEffect(() => {', source.indexOf('const finishNodeDrag = useCallback')),
+  );
+  const pointerMoveHandler = source.slice(
+    source.indexOf('const handlePointerMove = (event: PointerEvent) => {'),
+    source.indexOf('const handlePointerUp = (event: PointerEvent) => {'),
+  );
 
-  applyReferralGraphDragFollowerTranslation(nodesById, followers, { x: 100, y: 0 }, {
-    depthByNodeId: depths,
-    depthDecay: 0.5,
-    directChildScale: 0.8,
-    maxPinnedDepth: 1,
-    minScale: 0.3,
-  });
-
-  assert.equal(nodesById.get('child-a')?.x, 180);
-  assert.equal(nodesById.get('grandchild-a')?.x, 240);
-  assert.equal(nodesById.get('great-grandchild-a')?.x, 330);
-  assert.equal(nodesById.get('child-a')?.fx, 180);
-  assert.equal(nodesById.get('grandchild-a')?.fx, undefined);
-  assert.equal(nodesById.get('great-grandchild-a')?.fx, undefined);
+  assert.doesNotMatch(source, /dragFollowerNodeIdsRef/);
+  assert.doesNotMatch(source, /dragFollowerNodeDepthsRef/);
+  assert.doesNotMatch(source, /releaseReferralGraphDragFollowerNodes/);
+  assert.doesNotMatch(source, /userMovedNodeTargetsRef/);
+  assert.doesNotMatch(source, /buildReferralGraphDirectedChildren\(graphData\.links\)/);
+  assert.doesNotMatch(source, /getReferralGraphDescendantDepths/);
+  assert.doesNotMatch(source, /applyReferralGraphDragFollowerTranslation/);
+  assert.doesNotMatch(source, /createReferralGraphDragElasticTetherForce/);
+  assert.match(source, /createReferralGraphPointerDragForce/);
+  assert.doesNotMatch(source, /elasticDragTethersRef/);
+  assert.match(source, /pointerDragTargetRef/);
+  assert.doesNotMatch(source, /buildElasticDragTethers/);
+  assert.match(source, /fg\.d3Force\('drag-elastic-tether', null\)/);
+  assert.doesNotMatch(dragHandler, /node\.x \+=/);
+  assert.doesNotMatch(dragHandler, /node\.y \+=/);
+  assert.doesNotMatch(pointerMoveHandler, /node\.x = nextGraphPosition\.x/);
+  assert.doesNotMatch(pointerMoveHandler, /node\.y = nextGraphPosition\.y/);
+  assert.doesNotMatch(pointerMoveHandler, /node\.fx = node\.x/);
+  assert.doesNotMatch(pointerMoveHandler, /node\.fy = node\.y/);
+  assert.doesNotMatch(pointerMoveHandler, /node\.vx = 0/);
+  assert.doesNotMatch(pointerMoveHandler, /node\.vy = 0/);
+  assert.match(pointerMoveHandler, /pointerDragTargetRef\.current = \{/);
+  assert.match(pointerMoveHandler, /MAX_POINTER_DRAG_IMPULSE/);
+  assert.doesNotMatch(dragHandler, /directChildScale/);
+  assert.doesNotMatch(source, /__initialDragPos/);
+  assert.doesNotMatch(source, /lastDragGraphPositionRef/);
+  assert.match(source, /node\.fx = undefined;/);
+  assert.match(source, /node\.fy = undefined;/);
+  assert.match(source, /resumeAnimation\?\.\(\)/);
+  assert.match(source, /GRAPH_MOTION_KEEP_ALIVE_MS/);
+  assert.match(source, /startGraphMotionKeepAlive/);
+  assert.match(source, /d3ReheatSimulation\?\.\(\)/);
+  assert.match(source, /if \(alphaTarget > 0\)/);
+  assert.doesNotMatch(dragHandler, /d3ReheatSimulation/);
+  assert.doesNotMatch(dragEndHandler, /d3ReheatSimulation/);
+  assert.match(source, /d3AlphaMin\?\.\(options\?\.allowColdStart \? 0 : REFERRAL_GRAPH_ENGINE_COOLDOWN\.alphaMin\)/);
+  assert.match(source, /setGraphDragAlphaTarget\(physics\.dragReheatAlpha, \{ allowColdStart: true \}\)/);
+  assert.doesNotMatch(dragEndHandler, /node\.vx = 0;/);
+  assert.doesNotMatch(dragEndHandler, /node\.vy = 0;/);
+  assert.match(source, /RELEASE_SETTLE_ALPHA/);
+  assert.match(source, /RELEASE_SETTLE_MS/);
+  assert.match(source, /RELEASE_POINTER_VELOCITY_TICK_MS/);
+  assert.match(source, /RELEASE_VELOCITY_SCALE/);
+  assert.match(finishNodeDragHandler, /setGraphDragAlphaTarget\(RELEASE_SETTLE_ALPHA, \{ allowColdStart: true \}\)/);
+  assert.match(finishNodeDragHandler, /startGraphMotionKeepAlive\(\)/);
+  assert.match(finishNodeDragHandler, /stopGraphMotionKeepAlive\(\)/);
+  assert.match(source, /window\.setTimeout/);
+  assert.match(source, /activeDragNodeDepthsRef\.current = getReferralGraphLocalDragDepths/);
 });
 
-test('ReferralGraphCanvas wires directed drag followers into node drag handlers', () => {
+test('ReferralGraphCanvas keeps spring, charge, and collision physics alive during active drag', () => {
   const source = readFileSync('web/src/components/referrals/ReferralGraphCanvas.tsx', 'utf8');
 
-  assert.match(source, /dragFollowerNodeIdsRef/);
-  assert.match(source, /dragFollowerNodeDepthsRef/);
-  assert.match(source, /buildReferralGraphDirectedChildren/);
-  assert.match(source, /getReferralGraphDescendantDepths/);
-  assert.match(source, /getReferralGraphDescendantNodeIds/);
-  assert.match(source, /applyReferralGraphDragFollowerTranslation/);
-  assert.match(source, /releaseReferralGraphDragFollowerNodes/);
-  assert.match(source, /getReferralGraphDescendantNodeIds\(node\.id,\s*directedChildren\)/);
-  assert.match(source, /maxPinnedDepth:\s*1/);
-  assert.doesNotMatch(source, /handleNodeDrag[\s\S]+graphRef\.current\?\.d3ReheatSimulation\?\.\(\)/);
-  assert.match(source, /dragMemorySuppressedNodeIdsRef\.current = new Set\(\[\s*\.\.\.userMovedNodeIdsRef\.current,\s*node\.id,\s*\.\.\.dragFollowerNodeIdsRef\.current,\s*\]\)/s);
-  assert.match(source, /for \(const \[followerId,\s*target\] of followerTargets\)[\s\S]+userMovedNodeTargetsRef\.current\.set\(followerId,\s*target\)/);
-});
-
-test('ReferralGraphCanvas lowers reheat-sensitive forces during active drag', () => {
-  const source = readFileSync('web/src/components/referrals/ReferralGraphCanvas.tsx', 'utf8');
-
-  assert.match(source, /configureActiveDragForceMode\('drag'\)/);
-  assert.match(source, /configureActiveDragForceMode\('settle'\)/);
-  assert.match(source, /chargeForce\.strength\(mode === 'drag' \? 0 : physics\.chargeStrength\)/);
-  assert.match(source, /collisionForce[\s\S]+\.strength\(mode === 'drag' \? 0\.04 : 0\.55\)/);
-  assert.match(source, /collisionForce[\s\S]+\.iterations\(mode === 'drag' \? 1 : 3\)/);
+  assert.match(source, /resolveReferralGraphFreePhysics/);
+  assert.doesNotMatch(source, /configureActiveDragForceMode\('drag'\)/);
+  assert.doesNotMatch(source, /chargeForce\.strength\(mode === 'drag' \? 0 : physics\.chargeStrength\)/);
+  assert.doesNotMatch(source, /strength\(mode === 'drag' \? 0\.04 : 0\.55\)/);
+  assert.doesNotMatch(source, /iterations\(mode === 'drag' \? 1 : 3\)/);
+  assert.doesNotMatch(source, /return 0;\s*\}\s*return 0;/);
+  assert.doesNotMatch(source, /forceX<FGNode>/);
+  assert.doesNotMatch(source, /forceY<FGNode>/);
+  assert.match(source, /fg\.d3Force\('x', null\)/);
+  assert.match(source, /fg\.d3Force\('y', null\)/);
+  assert.match(source, /forceManyBody<FGNode>\(\)[\s\S]+\.strength\(physics\.chargeStrength\)/);
+  assert.match(source, /forceCollide<FGNode>\(\)[\s\S]+\.strength\(physics\.collisionStrength\)/);
+  assert.match(source, /fg\.d3Force\('layout-memory', null\)/);
+  assert.match(source, /fg\.d3Force\('drag-spring', null\)/);
+  assert.match(source, /fg\.d3Force\('component-cohesion', null\)/);
+  assert.match(source, /fg\.d3Force\('edge-crossing', null\)/);
+  assert.match(source, /createReferralGraphDragLocalityForce<RuntimeGraphNode>/);
+  assert.match(source, /backgroundVelocityScale:\s*0/);
+  assert.match(source, /directNeighborVelocityScale:\s*1/);
+  assert.match(source, /secondHopVelocityScale:\s*1/);
+  assert.match(source, /createReferralGraphPointerDragForce<RuntimeGraphNode>/);
+  assert.doesNotMatch(source, /createReferralGraphLayoutMemoryForce\(/);
+  assert.doesNotMatch(source, /createReferralGraphDragSpringForce\(/);
 });
 
 test('ReferralGraphCanvas leaves mobile pinch zoom and pan to the graph renderer', () => {
@@ -187,12 +211,121 @@ test('ReferralGraphCanvas leaves mobile pinch zoom and pan to the graph renderer
   assert.match(source, /const handleWheel = \(event: WheelEvent\) => \{\s*if \(useNativeViewportInteraction\) return;/);
 });
 
+test('ReferralGraphCanvas uses force-graph canvas coordinates for desktop pan hit testing', () => {
+  const source = readFileSync('web/src/components/referrals/ReferralGraphCanvas.tsx', 'utf8');
+
+  assert.match(source, /const getCanvasPoint = useCallback\(\(event: PointerEvent \| WheelEvent, element: HTMLDivElement\) =>/);
+  assert.match(source, /x: event\.clientX - rect\.left/);
+  assert.match(source, /y: event\.clientY - rect\.top/);
+  assert.match(source, /const graphPoint = fg\.screen2GraphCoords\(point\.x, point\.y\)/);
+});
+
+test('ReferralGraphCanvas keeps overview nodes easy to grab with a screen-sized hit area', () => {
+  const source = readFileSync('web/src/components/referrals/ReferralGraphCanvas.tsx', 'utf8');
+
+  assert.match(source, /const MIN_NODE_HIT_RADIUS_PX = 18/);
+  assert.match(source, /function getNodeInteractionRadius/);
+  assert.match(source, /const safeGlobalScale = Number\.isFinite\(globalScale\) \? globalScale : 1/);
+  assert.match(source, /MIN_NODE_HIT_RADIUS_PX \/ Math\.max\(safeGlobalScale, 0\.1\)/);
+  assert.ok(source.includes('const currentZoom = graphRef.current?.zoom?.() ?? 1'));
+  assert.match(source, /getNodeInteractionRadius\(node, descendantCountByNodeId, currentZoom\)/);
+  assert.match(source, /const nodePointerAreaPaint = useCallback\(\(rawNode: FGNode, paintColor: string, ctx: CanvasRenderingContext2D, globalScale: number\)/);
+  assert.match(source, /getNodeInteractionRadius\(node, descendantCountByNodeId, globalScale\)/);
+  assert.match(source, /sortReferralGraphNodesForRendering\(nodesCopy, descendantCountByNodeId\)/);
+  assert.match(source, /getNodeInteractionPriority/);
+});
+
+test('ReferralGraphCanvas renders nodes and labels with the requested enlarged visual scale', () => {
+  const source = readFileSync('web/src/components/referrals/ReferralGraphCanvas.tsx', 'utf8');
+
+  assert.match(source, /const NODE_VISUAL_SCALE = 1\.25/);
+  assert.match(source, /const LABEL_VISUAL_SCALE = 1\.25/);
+  assert.match(source, /return getReferralGraphNodeRadius\(\{[\s\S]+descendantCount: descendantCountByNodeId\?\.get\(node\.id\) \?\? null,[\s\S]+\}\) \* NODE_VISUAL_SCALE;/);
+  assert.match(source, /const fontSize = LABEL_VISUAL_SCALE \* Math\.max/);
+  assert.match(source, /ctx\.lineWidth = \(3\.4 \* LABEL_VISUAL_SCALE\) \/ Math\.max/);
+});
+
+test('ReferralGraphCanvas handles desktop node dragging directly instead of relying on shadow-canvas drag', () => {
+  const source = readFileSync('web/src/components/referrals/ReferralGraphCanvas.tsx', 'utf8');
+
+  assert.match(source, /manualNodeDragStateRef/);
+  assert.match(source, /findNodeAtGraphPoint/);
+  assert.match(source, /beginNodeDrag\(node\)/);
+  assert.match(source, /finishNodeDrag\(node/);
+  assert.match(source, /pointerDragTargetRef\.current = \{/);
+  assert.match(source, /pointerTravel < 5/);
+  assert.match(source, /enableNodeDrag=\{false\}/);
+});
+
+test('ReferralGraphCanvas releases dragged nodes with spring momentum instead of freezing the dropped shape', () => {
+  const source = readFileSync('web/src/components/referrals/ReferralGraphCanvas.tsx', 'utf8');
+  const pointerMoveHandler = source.slice(
+    source.indexOf('const handlePointerMove = (event: PointerEvent) => {'),
+    source.indexOf('const handlePointerUp = (event: PointerEvent) => {'),
+  );
+  const pointerUpHandler = source.slice(
+    source.indexOf('const handlePointerUp = (event: PointerEvent) => {'),
+    source.indexOf('const handleWheel = (event: WheelEvent) => {'),
+  );
+  const finishNodeDragHandler = source.slice(
+    source.indexOf('const finishNodeDrag = useCallback'),
+    source.indexOf('useEffect(() => {', source.indexOf('const finishNodeDrag = useCallback')),
+  );
+  assert.doesNotMatch(source, /releaseElasticRootNodeIdRef/);
+  assert.doesNotMatch(source, /createReferralGraphDragElasticTetherForce<RuntimeGraphNode>/);
+  assert.doesNotMatch(source, /elasticDragTethersRef/);
+  assert.match(source, /velocity: \{ x: number; y: number \}/);
+  assert.match(source, /velocity: \{ x: 0, y: 0 \}/);
+  assert.match(pointerMoveHandler, /const instantNodeVelocity = clampVector\(\{/);
+  assert.match(pointerMoveHandler, /RELEASE_POINTER_VELOCITY_TICK_MS \/ dt/);
+  assert.match(pointerMoveHandler, /nodeDragState\.velocity = clampVector\(\{/);
+  assert.match(pointerUpHandler, /finishNodeDrag\(node, nodeDragState\.velocity\)/);
+  assert.match(finishNodeDragHandler, /releaseVelocity: \{ x: number; y: number \}/);
+  assert.match(finishNodeDragHandler, /const blendedReleaseVelocity = clampVector\(\{/);
+  assert.match(finishNodeDragHandler, /releaseVelocity\.x \* RELEASE_VELOCITY_SCALE/);
+  assert.match(finishNodeDragHandler, /releaseVelocity\.y \* RELEASE_VELOCITY_SCALE/);
+  assert.match(finishNodeDragHandler, /node\.vx = blendedReleaseVelocity\.x/);
+  assert.match(finishNodeDragHandler, /node\.vy = blendedReleaseVelocity\.y/);
+  assert.match(finishNodeDragHandler, /pointerDragTargetRef\.current = null/);
+  assert.match(finishNodeDragHandler, /releaseSettleTimerRef\.current = window\.setTimeout/);
+  assert.match(source, /const activeRelease = releaseSettleTimerRef\.current != null/);
+});
+
 test('ReferralGraphCanvas exposes graph runtime coordinates only for development visual QA', () => {
   const source = readFileSync('web/src/components/referrals/ReferralGraphCanvas.tsx', 'utf8');
 
   assert.match(source, /__referralGraphDebug/);
-  assert.match(source, /process\.env\.NODE_ENV === 'production'[\s\S]+return/);
+  assert.match(source, /const shouldExposeDebug = \(/);
+  assert.match(source, /process\.env\.NODE_ENV !== 'production'/);
+  assert.match(source, /window\.location\.hostname === 'localhost'/);
+  assert.match(source, /window\.location\.hostname === '127\.0\.0\.1'/);
+  assert.match(source, /if \(!shouldExposeDebug\) return;/);
   assert.match(source, /graph2ScreenCoords/);
   assert.match(source, /screen2GraphCoords/);
+  assert.match(source, /clientX: screenPoint && canvasRect \? canvasRect\.x \+ screenPoint\.x : null/);
+  assert.match(source, /clientY: screenPoint && canvasRect \? canvasRect\.y \+ screenPoint\.y : null/);
+  assert.match(source, /getMetrics:/);
+  assert.match(source, /maxVelocity/);
+  assert.match(source, /totalKineticEnergy/);
+  assert.match(source, /dataset\.referralGraphDebug/);
+  assert.match(source, /activeDragDepths: \[\.\.\.activeDragNodeDepthsRef\.current\.entries\(\)\]/);
+  assert.doesNotMatch(source, /elasticDragDepths/);
+  assert.match(source, /graphRef\.current\?\.centerAt\?\.\(\)/);
+  assert.match(source, /graphRef\.current\?\.zoom\?\.\(\)/);
+  assert.match(source, /viewport: currentViewport/);
+  assert.match(source, /setInterval\(writeDebugDataset/);
   assert.match(source, /delete window\.__referralGraphDebug/);
+});
+
+test('ReferralGraphCanvas clamps residual node velocity when the force engine stops', () => {
+  const source = readFileSync('web/src/components/referrals/ReferralGraphCanvas.tsx', 'utf8');
+
+  assert.match(source, /const handleEngineStop = useCallback/);
+  assert.match(source, /nodeDragActiveRef\.current/);
+  assert.match(source, /pointerDragTargetRef\.current/);
+  assert.match(source, /releaseSettleTimerRef\.current != null/);
+  assert.match(source, /node\.vx = 0;/);
+  assert.match(source, /node\.vy = 0;/);
+  assert.match(source, /autoPauseRedraw/);
+  assert.match(source, /onEngineStop=\{handleEngineStop\}/);
 });

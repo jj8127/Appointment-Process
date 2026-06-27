@@ -17,7 +17,7 @@ import {
   ThemeIcon,
   Title,
 } from '@mantine/core';
-import { IconArrowRight, IconExternalLink, IconFileText, IconMessageCircle2, IconUsers } from '@tabler/icons-react';
+import { IconArrowRight, IconExternalLink, IconFileText, IconMessageCircle2, IconMessages, IconUsers } from '@tabler/icons-react';
 import { useQuery } from '@tanstack/react-query';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { useEffect } from 'react';
@@ -29,7 +29,26 @@ type InboxNotification = {
   category?: string | null;
 };
 
+type FcNotifyProxyEnvelope<T> = {
+  ok?: boolean;
+  data?: T;
+  error?: string;
+};
+
 const sanitize = (value: string | null | undefined) => String(value ?? '').replace(/[^0-9]/g, '');
+
+async function invokeFcNotifyProxy<T>(body: Record<string, unknown>) {
+  const response = await fetch('/api/fc-notify', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+  const payload = await response.json().catch(() => null) as FcNotifyProxyEnvelope<T> | null;
+  if (!response.ok || !payload?.ok) {
+    throw new Error(payload?.error ?? 'fc-notify proxy request failed');
+  }
+  return payload.data as T;
+}
 
 export default function MessengerHubPage() {
   const router = useRouter();
@@ -75,16 +94,20 @@ export default function MessengerHubPage() {
       const internalViewerRole: 'admin' | 'fc' = role === 'fc' ? 'fc' : 'admin';
       let internalUnreadCount = 0;
 
-      const { data: internalUnreadData, error: internalUnreadError } = await supabase.functions.invoke('fc-notify', {
-        body: {
+      let internalUnreadData: { ok?: boolean; count?: number } | null = null;
+      let internalUnreadError: unknown = null;
+      try {
+        internalUnreadData = await invokeFcNotifyProxy<{ ok?: boolean; count?: number }>({
           type: 'internal_unread_count',
           viewer_id: myChatId,
           viewer_role: internalViewerRole,
           viewer_staff_type: staffType,
           viewer_read_only: isReadOnly,
           viewer_is_request_board_designer: false,
-        },
-      });
+        });
+      } catch (error) {
+        internalUnreadError = error;
+      }
 
       if (!internalUnreadError && internalUnreadData?.ok) {
         internalUnreadCount = Number(internalUnreadData.count ?? 0) || 0;
@@ -99,23 +122,45 @@ export default function MessengerHubPage() {
         internalUnreadCount = fallbackCount ?? 0;
       }
 
+      let groupChatUnreadCount = 0;
+      if (role !== 'fc') {
+        try {
+          const groupChatResponse = await fetch('/api/group-chat', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ type: 'group_chat_bootstrap', limit: 1 }),
+          });
+          const groupChatData = await groupChatResponse.json();
+          if (groupChatResponse.ok && groupChatData?.ok) {
+            groupChatUnreadCount = Number(groupChatData.unread_count ?? 0) || 0;
+          }
+        } catch {
+          groupChatUnreadCount = 0;
+        }
+      }
+
       const requestBoardRole: 'admin' | 'fc' =
         role === 'manager' || isDeveloperSession({ role, isReadOnly, staffType }) ? 'fc' : 'admin';
       const requestBoardResidentId = requestBoardRole === 'fc' ? sanitize(residentId) : null;
 
-      const { data, error } = await supabase.functions.invoke('fc-notify', {
-        body: {
+      let data: { ok?: boolean; notifications?: InboxNotification[] } | null = null;
+      let error: unknown = null;
+      try {
+        data = await invokeFcNotifyProxy<{ ok?: boolean; notifications?: InboxNotification[] }>({
           type: 'inbox_list',
           role: requestBoardRole,
           resident_id: requestBoardResidentId,
           limit: 150,
-        },
-      });
+        });
+      } catch (err) {
+        error = err;
+      }
 
       if (error || !data?.ok) {
         return {
           internalUnread: internalUnreadCount,
           requestBoardUnread: 0,
+          groupChatUnread: groupChatUnreadCount,
         };
       }
 
@@ -129,6 +174,7 @@ export default function MessengerHubPage() {
       return {
         internalUnread: internalUnreadCount,
         requestBoardUnread,
+        groupChatUnread: groupChatUnreadCount,
       };
     },
   });
@@ -141,11 +187,15 @@ export default function MessengerHubPage() {
     return null;
   }
 
+  const dashboardHost = typeof window === 'undefined' ? '' : window.location.host;
+  const requestBoardEnvironmentLabel = dashboardHost.includes('localhost') || dashboardHost.includes('127.0.0.1')
+    ? `로컬 개발 환경(${dashboardHost})`
+    : '이 관리자 웹 배포 환경';
   const requestBoardDescription = requestBoardConfig.available
     ? '설계요청 서비스의 메신저 화면으로 이동합니다.'
     : requestBoardConfig.reason === 'invalid-public-url'
-      ? '설계요청 연결 주소가 올바르지 않아 메신저를 열 수 없습니다.'
-      : '현재 환경에서는 설계요청 메신저 연결이 설정되지 않아 이동할 수 없습니다.';
+      ? '설계요청 메신저 주소(NEXT_PUBLIC_REQUEST_BOARD_URL)가 올바른 URL이 아니어서 열 수 없습니다.'
+      : `${requestBoardEnvironmentLabel}에 설계요청 메신저 주소(NEXT_PUBLIC_REQUEST_BOARD_URL)가 설정되어 있지 않아 이동할 수 없습니다.`;
 
   return (
     <Container size="lg" py="xl">
@@ -161,7 +211,7 @@ export default function MessengerHubPage() {
           <Loader color={HANWHA_ORANGE} />
         </Group>
       ) : (
-        <SimpleGrid cols={{ base: 1, md: 2 }} spacing="md">
+        <SimpleGrid cols={{ base: 1, md: 3 }} spacing="md">
           <Card withBorder radius="lg" shadow="sm" padding="lg">
             <Stack gap="md">
               <Group justify="space-between" align="flex-start">
@@ -204,6 +254,43 @@ export default function MessengerHubPage() {
                   새로고침
                 </Button>
               </Group>
+            </Stack>
+          </Card>
+
+          <Card withBorder radius="lg" shadow="sm" padding="lg">
+            <Stack gap="md">
+              <Group justify="space-between" align="flex-start">
+                <Group gap="sm" wrap="nowrap">
+                  <ThemeIcon radius="xl" size={42} color="orange" variant="light">
+                    <IconMessages size={20} />
+                  </ThemeIcon>
+                  <div>
+                    <Text fw={700}>가람PA 단톡방</Text>
+                    <Text size="sm" c="dimmed">
+                      관리자, 본부장, FC 공용 채팅
+                    </Text>
+                  </div>
+                </Group>
+                {(counts?.groupChatUnread ?? 0) > 0 && (
+                  <Badge color="orange" size="sm" variant="filled">
+                    미확인 {counts?.groupChatUnread}
+                  </Badge>
+                )}
+              </Group>
+
+              <Text size="sm" c="dimmed">
+                공지, 첨부, 답장, 반응과 FC 발언 권한을 한 화면에서 관리합니다.
+              </Text>
+
+              <Button
+                color="orange"
+                variant="light"
+                leftSection={<IconMessages size={16} />}
+                rightSection={<IconArrowRight size={14} />}
+                onClick={() => router.push('/dashboard/group-chat')}
+              >
+                단톡방 열기
+              </Button>
             </Stack>
           </Card>
 

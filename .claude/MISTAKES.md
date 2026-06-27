@@ -30,6 +30,224 @@
 - Verification:
 ```
 
+## 2026-06-27 | Admin Web Referral Graph Active Drag | Cluster separation moved unrelated components
+- Symptom:
+  - During active node dragging, unrelated referral graph components could drift or re-layout even though the user was only manipulating one component.
+- Root cause:
+  - `createReferralGraphClusterSeparationForce` skipped the actively dragged cluster but still pushed other overlapping clusters while the graph was reheated for dragging.
+- Why it was missed:
+  - Earlier checks focused on the dragged branch and direct neighbors, but did not require unrelated components to remain visually stable while the pointer was down.
+- Permanent guardrail:
+  - Cluster/component separation forces must pause entirely while `activeDraggedNodeIdRef.current` is set.
+  - Active-drag simulation tests must verify unrelated component drift stays bounded.
+- Related files:
+  - `web/src/lib/referral-graph-physics.ts`
+  - `web/src/lib/referral-graph-physics.test.ts`
+  - `web/src/lib/referral-graph-simulation.test.ts`
+- Verification:
+  - Passed: `npx tsx --test --test-name-pattern "active dragging does not re-layout unrelated components" web/src/lib/referral-graph-simulation.test.ts`.
+  - Passed: `npx tsx --test <all web/src/lib *.test.ts files>`.
+
+## 2026-06-27 | Admin Web Referral Graph Drag Release | Release inertia was too weak to feel physical
+- Symptom:
+  - After dragging and releasing a referral graph node, the node and connected graph appeared to stop instead of carrying momentum.
+- Root cause:
+  - Pointer movement was converted to a small per-tick velocity, release velocity was mixed back into the node at a low multiplier, and the max release velocity was capped too tightly.
+  - An attempted fix lowered global free-physics velocity decay, which made unrelated components drift during active drag.
+- Why it was missed:
+  - The source contract asserted that release velocity existed, but did not require a strong enough velocity scale or low enough decay for users to perceive inertia.
+- Permanent guardrail:
+  - Release must preserve pointer velocity with an explicit release velocity scale and a generous max velocity cap.
+  - Do not lower global free-physics velocity decay to create release inertia; it can re-layout unrelated components during active drag.
+  - Active-drag drift tests must pass after any inertia tuning.
+- Related files:
+  - `web/src/components/referrals/ReferralGraphCanvas.tsx`
+  - `web/src/lib/referral-graph-physics.ts`
+  - `web/src/lib/referral-graph-interaction.test.ts`
+  - `web/src/lib/referral-graph-physics.test.ts`
+- Verification:
+  - Not run in this change because the user explicitly requested code changes only and will perform manual testing.
+
+## 2026-06-27 | Admin Web Referral Graph Drag Physics | Preserved lower tether behavior instead of upper link behavior
+- Symptom:
+  - When an intermediate referral graph node was dragged, upper nodes and lower nodes still did not move with the same physical feel.
+  - The intended correction was for lower nodes to follow the existing upper-node behavior, but the implementation changed upper nodes toward the lower-node tether behavior.
+- Root cause:
+  - I treated the mismatch as "apply drag elastic tethers to both sides" instead of preserving the ordinary upstream link-tension model.
+  - `ReferralGraphCanvas` still had a separate `drag-elastic-tether` runtime force path, so drag behavior could diverge from the normal graph forces.
+- Why it was missed:
+  - I focused on symmetry of a custom tether model instead of checking which side's behavior the user asked to preserve.
+- Permanent guardrail:
+  - `ReferralGraphCanvas` must not use `createReferralGraphDragElasticTetherForce`, `buildElasticDragTethers`, or `elasticDragTethersRef`.
+  - Upper and lower connected nodes must be governed by the same ordinary link-tension, charge, and collision forces during drag.
+  - Keep `fg.d3Force('drag-elastic-tether', null)` in the canvas unless the product explicitly requests a separate custom tether model again.
+- Related files:
+  - `web/src/components/referrals/ReferralGraphCanvas.tsx`
+  - `web/src/lib/referral-graph-interaction.test.ts`
+- Verification:
+  - Not run in this change because the user explicitly requested code changes only and will perform manual testing.
+
+## 2026-06-27 | Admin Web Referral Graph Drag Physics | Center force fought node dragging
+- Symptom:
+  - When the user grabbed a referral graph node, nodes could immediately feel like they were being sucked toward the center of the canvas.
+- Root cause:
+  - Runtime `forceX(0)` and `forceY(0)` center forces stayed active while drag keep-alive repeatedly reheated the simulation.
+  - The reheat fixed premature stopping, but also amplified the center gravity that should not participate in direct node dragging.
+- Why it was missed:
+  - The force profile was checked for "physics alive" but not for whether center gravity fought the user's pointer during drag.
+- Permanent guardrail:
+  - Referral graph runtime interaction must not use unconditional `forceX`/`forceY` center suction.
+  - Source tests should reject `forceX<FGNode>` and `forceY<FGNode>` in `ReferralGraphCanvas` and require those forces to be nulled.
+- Related files:
+  - `web/src/components/referrals/ReferralGraphCanvas.tsx`
+  - `web/src/lib/referral-graph-interaction.test.ts`
+- Verification:
+  - Not run in this change because the user explicitly requested code changes only and will perform manual testing.
+
+## 2026-06-27 | Admin Web Referral Graph Drag Physics | Special-cased active branch tension
+- Symptom:
+  - During referral graph dragging, edges could stretch too far because the grabbed node's branch and lower descendant edges were not all governed by the same spring-tension rule.
+- Root cause:
+  - The link-tension force special-cased active dragged endpoints and weakened non-active links during active drag.
+  - The elastic descendant tether also decayed by depth, so deeper descendants were intentionally pulled with weaker spring force.
+- Why it was missed:
+  - The intended mental model was "balls tied by equal rubber bands", but the code still encoded depth-based and active-endpoint-based exceptions.
+- Permanent guardrail:
+  - Do not special-case link tension by active dragged node, child, or descendant depth unless the product explicitly requests a different physical model.
+  - Descendant elastic tethers should use the same default spring tension across depths.
+  - Tests must assert active drag branch links still receive normal link tension.
+- Related files:
+  - `web/src/lib/referral-graph-physics.ts`
+  - `web/src/lib/referral-graph-physics.test.ts`
+  - `web/src/lib/referral-graph-interaction.test.ts`
+- Verification:
+  - Not run in this change because the user explicitly requested code changes only and will perform manual testing.
+
+## 2026-06-27 | Admin Web Referral Graph Drag Physics | Hard-pinned node drag stopped simulation
+- Symptom:
+  - A grabbed referral graph node did not respond immediately, descendants did not feel connected by elastic springs, and after mouseup the graph could stop instead of continuing to relax.
+- Root cause:
+  - Manual pointer dragging still wrote `node.x/y` directly, assigned `node.fx/fy`, and zeroed `node.vx/vy` on every pointer move, which bypassed d3 velocity-based physics.
+  - Active-drag force scaling reduced graph forces to near-zero, so grabbing a node made the surrounding simulation feel frozen.
+  - `handleEngineStop` could clear all residual node velocities while release tethers were still active, killing post-drop motion.
+- Why it was missed:
+  - Source tests still allowed the old hard-pin drag contract and did not check that pointer dragging only sets a velocity target.
+  - QA focused on avoiding spikes, but not on immediate grabbed-node response and continued post-release physics.
+- Permanent guardrail:
+  - Pointer drag must update a `pointerDragTargetRef` and velocity impulse only; it must not assign graph coordinates or `fx/fy` during mouse movement.
+  - Engine-stop cleanup must skip while node drag, pointer drag, release root, or release tethers are active.
+  - Drag-time force scaling must leave enough spring, charge, collision, and separation motion alive for visible elastic response.
+- Related files:
+  - `web/src/components/referrals/ReferralGraphCanvas.tsx`
+  - `web/src/lib/referral-graph-physics.ts`
+  - `web/src/lib/referral-graph-interaction.test.ts`
+  - `web/src/lib/referral-graph-physics.test.ts`
+- Verification:
+  - Not run in this change because the user explicitly requested code changes only and will perform manual testing.
+
+## 2026-06-27 | Admin Web Referral Graph Drag Release | Cleared rubber-band force at mouseup
+- Symptom:
+  - Dragging a high-degree referral node could pull descendants during the drag, but after mouseup the graph visually kept the dropped shape instead of continuing to relax like spring-connected balls.
+- Root cause:
+  - `finishNodeDrag` cleared `elasticDragTethersRef` immediately and nulled the active drag id, so the custom rubber-band force was removed exactly when the release follow-through should start.
+  - Manual node dragging also zeroed the dragged node velocity on every pointer move and did not pass the last pointer velocity into release.
+- Why it was missed:
+  - Earlier browser QA asserted active drag depth and descendant movement during drag, but did not assert release-window state or post-release coordinate changes.
+- Permanent guardrail:
+  - Referral graph drag QA must assert that release keeps a temporary elastic root/tether set, that the dragged node receives a bounded release velocity, and that tracked descendants continue moving at 200ms+ after mouseup before the settle timer clears.
+  - Source tests must fail if `finishNodeDrag` clears elastic tethers before the release settle timer.
+- Related files:
+  - `web/src/components/referrals/ReferralGraphCanvas.tsx`
+  - `web/src/lib/referral-graph-interaction.test.ts`
+  - `.codex/harness/referral-graph-visual-qa.md`
+- Verification:
+  - RED/GREEN: `npx tsx --test web/src/lib/referral-graph-interaction.test.ts`.
+  - Passed: `npx tsx --test web/src/lib/referral-graph-interaction.test.ts web/src/lib/referral-graph-physics.test.ts`.
+  - Passed: `npm --prefix web run lint -- src/components/referrals/ReferralGraphCanvas.tsx src/lib/referral-graph-interaction.test.ts`.
+  - Passed: `SENTRY_AUTH_TOKEN='' npm --prefix web run build`.
+  - Browser QA with account `01058006018`: dragged node `3a645d36-50ce-44fd-9bf2-f9506c9cb70d`, kept `elasticDepthCount=88` immediately after release, and measured descendant movement after mouseup.
+
+## 2026-06-27 | Admin Web Referral Graph Drag QA | Fixed spike by accidentally killing child-node motion
+- Symptom:
+  - Dragging a high-degree referral node no longer exploded into a long spike, but the lower/descendant nodes stayed visually fixed, so the dragged node stretched lines away from its organization.
+- Root cause:
+  - The first spike fix removed hard simulation reheats and damped background motion, but relied on a cooled d3 force engine for visible child response.
+  - Browser QA showed the engine produced only about `3.2px` of direct-descendant movement for a `187.9px` drag, effectively invisible to users.
+- Why it was missed:
+  - I initially treated "viewport does not jump and background does not move" as sufficient proof, without requiring descendant follow-through displacement.
+  - The source test still protected free-force dragging but did not assert immediate descendant elasticity from actual graph-position deltas.
+- Permanent guardrail:
+  - Browser QA for referral graph drag must record selected-node displacement, direct descendant displacement, second-hop displacement, deep descendant displacement, and background displacement.
+  - Direct descendants must visibly follow a meaningful drag while unrelated background nodes remain still.
+  - Do not rely on the optional React drag `translate` callback argument for descendant follow-through; compute delta from the runtime node graph position and `__initialDragPos`.
+- Related files:
+  - `web/src/components/referrals/ReferralGraphCanvas.tsx`
+  - `web/src/lib/referral-graph-interaction.ts`
+  - `web/src/lib/referral-graph-interaction.test.ts`
+  - `.codex/harness/referral-graph-visual-qa.md`
+- Verification:
+  - Passed browser QA with account `01058006018`: dragging node `한태균` by `187.8829px` moved 6 direct descendants by `78.9108px`, 3 second-hop descendants by `45.7683px`, deeper descendants by about `24-27px`, and 244 background nodes by `0px`.
+  - Passed: `npx tsx --test web/src/lib/referral-graph-physics.test.ts web/src/lib/referral-graph-interaction.test.ts web/src/lib/referral-graph-free-simulation.test.ts web/src/lib/referral-graph-simulation.test.ts web/src/lib/referral-graph-layout.test.ts web/src/lib/referral-graph-display.test.ts web/src/lib/referral-graph-link-style.test.ts web/src/lib/admin-web-route-access.test.ts web/src/lib/admin-web-referral-graph-nav.test.ts`.
+  - Passed: `npm --prefix web run lint -- src/components/referrals/ReferralGraphCanvas.tsx src/lib/referral-graph-interaction.ts src/lib/referral-graph-interaction.test.ts src/lib/referral-graph-physics.ts src/lib/referral-graph-physics.test.ts src/lib/referral-graph-free-simulation.test.ts src/lib/referral-graph-display.ts src/lib/referral-graph-display.test.ts src/lib/referral-graph-link-style.ts src/lib/referral-graph-link-style.test.ts src/app/dashboard/referrals/graph/page.tsx`.
+  - Passed: `SENTRY_AUTH_TOKEN='' npm --prefix web run build`.
+
+## 2026-06-27 | Admin Web Referral Graph Physics | Tests preserved the wrong drag model
+- Symptom:
+  - The referral graph felt unlike Obsidian because dragging a node used directed follower movement and drag-time force weakening instead of live spring/charge/collision interaction.
+  - Existing tests still encoded drag followers, layout memory, and disabled active-drag forces, so they could pass while the production graph behaved unnaturally.
+- Root cause:
+  - Tree layout corrections leaked from initial positioning into runtime interaction, and the tests duplicated that old force profile instead of asserting the intended free-force runtime contract.
+- Why it was missed:
+  - Verification focused on no-overlap and static readability, not whether all core d3 forces stayed active while the pointer was dragging.
+  - Source-contract tests checked the old helper behavior directly, which made dead or obsolete physics look protected.
+- Permanent guardrail:
+  - Keep a dedicated free-force physics profile and simulation tests that assert drag fixes only the pointer node while neighbors move through live springs, charge, and collision.
+  - Source-contract tests must fail if Canvas reintroduces directed drag followers, drag-time charge/link/collision disabling, or layout-memory anchoring as an interaction force.
+- Related files:
+  - `web/src/components/referrals/ReferralGraphCanvas.tsx`
+  - `web/src/lib/referral-graph-physics.ts`
+  - `web/src/lib/referral-graph-physics.test.ts`
+  - `web/src/lib/referral-graph-interaction.test.ts`
+  - `web/src/lib/referral-graph-free-simulation.test.ts`
+- Verification:
+  - Passed: `npx tsx --test web/src/lib/referral-graph-physics.test.ts web/src/lib/referral-graph-interaction.test.ts web/src/lib/referral-graph-free-simulation.test.ts web/src/lib/referral-graph-simulation.test.ts web/src/lib/referral-graph-layout.test.ts web/src/lib/referral-graph-display.test.ts web/src/lib/admin-web-route-access.test.ts web/src/lib/admin-web-referral-graph-nav.test.ts`.
+  - Passed: `npm --prefix web run lint -- src/components/referrals/ReferralGraphCanvas.tsx src/lib/referral-graph-physics.ts src/lib/referral-graph-physics.test.ts src/lib/referral-graph-interaction.test.ts src/lib/referral-graph-free-simulation.test.ts src/app/dashboard/referrals/graph/page.tsx`.
+  - Passed: `SENTRY_AUTH_TOKEN='' npm --prefix web run build`.
+  - Passed browser QA with account `01058006018`: loaded 259 nodes and 154 connections, dragged node `한태균` with matching `draggedNodeId`, viewport center/zoom delta `0`, stable screenshot diff `0.0`, and post-drag settled diff `0.0`. Evidence: `.codex/harness/referral-graph-visual-qa.md`.
+
+## 2026-06-26 | Admin Web Board/Notifications | Secret-bearing env value reached a visible author name
+- Symptom:
+  - The admin web notification/board UI showed a Sentry read-token environment variable key/value fragment inside a board-post author label for an insurance digest post.
+- Root cause:
+  - Local `.env.local` had `BOARD_AUTOMATION_ACTOR_NAME` contaminated with a `SENTRY_READ_AUTH_TOKEN=...` assignment on the same line, and `scripts/ops/post-insurance-digest.mjs` passed that display name through to the board-create Edge Function.
+- Why it was missed:
+  - The digest automation validated title/content/source URL shape, but did not treat actor display names as a secret-bearing input surface.
+  - Board and notification render paths trusted stored text fields and did not redact env-style secret assignments at display time.
+- Permanent guardrail:
+  - Reject `BOARD_AUTOMATION_ACTOR_NAME` when it contains env-style secret assignments before digest posting.
+  - Redact secret assignment patterns in admin-web notification, board, and notice display paths.
+  - Redact notification rows and board post display fields inside Supabase Edge Functions before storing/returning them.
+- Related files:
+  - `scripts/ops/post-insurance-digest.mjs`
+  - `scripts/ops/post-insurance-digest.test.mjs`
+  - `web/src/lib/sensitive-text.ts`
+  - `web/src/components/DashboardNotificationBell.tsx`
+  - `web/src/lib/board-api.ts`
+  - `web/src/app/api/fc-notify/route.ts`
+  - `web/src/app/api/admin/notices/route.ts`
+  - `supabase/functions/fc-notify/index.ts`
+  - `supabase/functions/_shared/board.ts`
+  - `supabase/functions/board-create/index.ts`
+  - `supabase/functions/board-list/index.ts`
+  - `supabase/functions/board-detail/index.ts`
+- Verification:
+  - Cleaned the contaminated `board_posts.author_name` row and verified zero matching sensitive rows in `notifications`, `notices`, and `board_posts`.
+  - Passed: `npx tsx --test web/src/lib/sensitive-text.test.ts`.
+  - Passed: `node --test scripts/ops/post-insurance-digest.test.mjs`.
+  - Passed: `cd web && npm run lint -- src/lib/sensitive-text.ts src/lib/sensitive-text.test.ts src/components/DashboardNotificationBell.tsx src/lib/board-api.ts src/app/api/fc-notify/route.ts src/app/api/admin/notices/route.ts`.
+  - Passed: `deno check --config supabase/functions/deno.json supabase/functions/fc-notify/index.ts supabase/functions/board-create/index.ts supabase/functions/board-list/index.ts supabase/functions/board-detail/index.ts`.
+  - Deployed: Supabase Functions `fc-notify`, `board-create`, `board-list`, and `board-detail`.
+
 ## 2026-06-20 | Request Board Review Detail | JSX block move exposed a compile overlay
 - Symptom:
   - While moving request-detail `계약자 정보` and FC requester summary, the in-app browser showed `Failed to compile` around `app/request-board-review.tsx` because a duplicated JSX tail/closing block briefly remained in the file.
@@ -2343,3 +2561,61 @@
 - Root cause: The delete button render was gated by `isCustomerManagement`; the delete handler itself already handled selected-customer cleanup safely.
 - Fix: Render the delete action in both normal customer selection and customer-management cards, while keeping customer-management's primary action as `요청 작성` and normal flow's primary action as `선택`.
 - Guardrail: `request-board-mobile-ui-contract.test.ts` now asserts the delete action is not gated by `isCustomerManagement` and that separate-policyholder summaries use explicit colon labels across list/detail surfaces.
+
+## 2026-06-26 | Next Route Imported Deno Edge Shared File | admin group-chat build failed
+- Symptom: `cd web && npm run build` failed because `src/app/api/group-chat/route.ts` imported `supabase/functions/_shared/request-board-auth.ts` directly.
+- Root cause: The Supabase shared file is authored for Edge/Deno and lives outside the Next app's normal module graph; Turbopack could not resolve it as a web route dependency.
+- Fix: Added a small web-local `createWebGroupChatAppSessionToken` helper in `web/src/lib/request-board-app-session.ts` that produces the same signed app-session payload using Node crypto and a short TTL.
+- Guardrail: Do not import Deno Edge Function shared modules directly into `web/src/app/api/*` routes. If a web route needs the same contract, add a web-compatible helper and verify with `cd web && npm run build`, not lint alone.
+
+## 2026-06-26 | Admin Group Chat Local Runtime | CORS and missing app-session cookie
+- Symptom: On `http://localhost:3000`, `/dashboard/messenger` logged a CORS failure for direct `fc-notify` Edge Function calls, and `/api/group-chat` returned 500/401 during 단톡방 bootstrap.
+- Root cause: The messenger hub still used `supabase.functions.invoke('fc-notify')` in the browser, so local origin depended on Edge Function CORS. The group-chat proxy also tried to mint its own app-session token from `REQUEST_BOARD_AUTH_BRIDGE_SECRET`, which was not present in `web/.env.local`, instead of reusing the app-session token already returned by login.
+- Fix: Messenger hub unread counts now use `/api/fc-notify`; login stores the returned app-session token in HttpOnly `web_app_session`; `/api/group-chat` reads that cookie before falling back to local token minting.
+- Guardrail: Admin web client code should not call Supabase Edge Functions directly when a server proxy exists. Any web route that needs an app-session token should prefer the login-issued server-only cookie over local secret-dependent minting.
+
+## 2026-06-26 | Admin Direct Chat List Loading | per-FC Supabase message query chain
+- Symptom: `/dashboard/chat` and deep links such as `/dashboard/chat?targetId=...` kept showing `목록을 불러오는 중...` for too long before the conversation list was usable.
+- Root cause: The chat list built summaries by looping through every visible FC and running two Supabase `messages` queries per FC, creating an avoidable sequential N+1 request chain.
+- Fix: The page now fetches the current staff actor's message rows once and uses `buildAdminChatConversationSummaries()` to compute latest message and unread count locally. Deep-linked chat targets can open before the full FC list finishes.
+- Guardrail: `lib/__tests__/admin-web-chat-source.test.ts` rejects per-FC `baseTargets` message-query loops, and `web/src/lib/admin-chat-targets.test.ts` verifies one-pass summary derivation.
+
+## 2026-06-26 | Group Chat Error UX | expected restrictions looked like generic failures
+- Symptom: 단톡방 참여 제한, 세션 만료, 발언 권한 제한, 서버 오류가 모두 `단톡방 오류`처럼 보여 사용자가 진짜 장애인지 조건 미충족인지 구분할 수 없었다.
+- Root cause: Edge Function 일부 분기가 generic `forbidden`만 반환했고, mobile/admin web clients threw plain `Error`, losing status/code before rendering alerts.
+- Fix: Add `GroupChatRequestError` and `classifyGroupChatError`, preserve proxy/Edge status codes, return specific eligibility codes (`not_completed`, `request_board_designer_only`, `inactive_account`), and deploy the updated `group-chat` function.
+- Guardrail: `group-chat-error.test.ts` verifies user-facing classification, and group-chat source tests assert mobile/web use the classifier plus Edge returns specific participation codes.
+
+## 2026-06-26 | Admin Notification Scope Drift | developer saw shared 총무 message alerts
+- Symptom: 개발자 계정 알림센터에 총무 공용 채널로 온 박경호 메시지 알림이 같이 보였다.
+- Root cause: direct chat separated shared `admin` messages from developer phone-scoped messages, but `fc-notify` inbox queries used `resident_id.eq.<phone> OR resident_id.is.null` for admin viewers and web/mobile push selected all admin-role subscriptions for shared admin notifications.
+- Fix: Phone-scoped admin inbox queries now fetch only that phone's rows; shared admin queries use `resident_id is null`. Shared admin push fanout now filters to active non-developer admin accounts, while concrete admin `target_id` notifications remain personal.
+- Guardrail: `notification-inbox-scope.test.ts` fixes mobile scope expectations, and `admin-web-chat-source.test.ts` asserts web/Edge inbox and push fanout keep shared admin and developer personal recipients separate.
+
+## 2026-06-27 | Admin Web Referral Graph Access | stale client session revived expired server session
+- Symptom:
+  - Developer and manager logins did not expose referral graph as a clear dashboard page.
+  - FC login could bounce between `/auth` and `/dashboard` instead of landing on `/dashboard/referrals/graph`.
+  - A deployed Vercel alias still showed browser-side `login-with-password` CORS errors because the live bundle lagged behind the server-proxy login path.
+- Root cause:
+  - Admin-web client session restoration trusted localStorage when the client-visible session cookies were gone, so an expired server-issued staff/FC session could be recreated on the client side.
+  - The route guard checked the FC graph cookie but did not require the server-issued staff session cookie for staff routes.
+  - Referral graph navigation for staff users was hidden as a nested child instead of a top-level work menu item.
+- Why it was missed:
+  - Route tests covered FC graph restriction but not stale localStorage revival or missing staff-session-cookie behavior.
+  - Navigation coverage checked the graph page itself, not whether developer/manager users could discover it from the main dashboard.
+  - Deployment verification did not compare the live alias bundle against the expected `/api/auth/login` proxy behavior.
+- Permanent guardrail:
+  - Admin web must treat server-issued session cookies as the session source of truth; localStorage may not resurrect a missing cookie session.
+  - Route access tests must cover missing `staff_session` and FC `/dashboard` redirects.
+  - Dashboard navigation must keep `추천인 그래프` as a top-level staff menu item.
+  - Login CORS reports on Vercel should first check whether the live alias is running a stale client-direct Supabase bundle before changing Supabase CORS policy.
+- Related files:
+  - `web/src/lib/client-session-restore.ts`
+  - `web/src/hooks/use-session.tsx`
+  - `web/src/lib/admin-web-route-access.ts`
+  - `web/src/lib/admin-web-proxy-handler.ts`
+  - `web/src/app/dashboard/layout.tsx`
+- Verification:
+  - RED/GREEN: `npx tsx --test web/src/lib/client-session-restore.test.node.ts web/src/lib/admin-web-route-access.test.ts web/src/lib/admin-web-referral-graph-nav.test.ts`
+  - Added and passed: `npx tsx --test web/src/lib/admin-web-auth-login-proxy-source.test.ts`.

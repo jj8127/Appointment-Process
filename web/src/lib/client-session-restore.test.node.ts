@@ -33,13 +33,13 @@ test('restores the cookie session before the localStorage session', () => {
   );
 });
 
-test('falls back to localStorage session when cookie session is missing', () => {
-  assert.deepEqual(
+test('does not revive a localStorage session when the cookie session is missing', () => {
+  assert.equal(
     resolveClientSessionRestore({
       cookieSession: null,
       storageSession,
     }),
-    storageSession,
+    null,
   );
   assert.equal(
     resolveClientSessionRestore({

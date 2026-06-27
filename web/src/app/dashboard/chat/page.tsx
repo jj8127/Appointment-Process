@@ -8,8 +8,9 @@ import {
     type WebPresenceSnapshot,
 } from '@/lib/presence';
 import {
+    buildAdminChatConversationSummaries,
     buildAdminChatTargets,
-    type AdminChatConversationSummary,
+    type AdminChatMessageSummaryRow,
     type AdminChatSourceRow,
     type AdminChatTarget,
 } from '@/lib/admin-chat-targets';
@@ -138,37 +139,30 @@ export default function ChatPage() {
 
             const fcRows = Array.isArray(payload) ? (payload as AdminChatSourceRow[]) : [];
             const baseTargets = buildAdminChatTargets(fcRows);
-            const summariesByPhone: Record<string, AdminChatConversationSummary> = {};
-
-            for (const fc of baseTargets) {
-                // Last Message
-                const { data: lastMsgs } = await supabase
-                    .from('messages')
-                    .select('content,created_at')
-                    .or(`and(sender_id.eq.${myChatId},receiver_id.eq.${fc.phone}),and(sender_id.eq.${fc.phone},receiver_id.eq.${myChatId})`)
-                    .order('created_at', { ascending: false })
-                    .limit(1);
-
-                const lastMsg = lastMsgs?.[0];
-
-                // Unread Count
-                const { count } = await supabase
-                    .from('messages')
-                    .select('*', { count: 'exact', head: true })
-                    .eq('sender_id', fc.phone)
-                    .eq('receiver_id', myChatId)
-                    .eq('is_read', false);
-
-                summariesByPhone[fc.phone] = {
-                    last_message: lastMsg?.content ?? null,
-                    last_time: lastMsg?.created_at ?? null,
-                    unread_count: count ?? 0,
-                };
+            if (baseTargets.length === 0) {
+                return baseTargets;
             }
+
+            const { data: messageRows, error: messageError } = await supabase
+                .from('messages')
+                .select('sender_id,receiver_id,content,created_at,is_read')
+                .or(`sender_id.eq.${myChatId},receiver_id.eq.${myChatId}`)
+                .order('created_at', { ascending: false });
+
+            if (messageError) {
+                throw new Error(messageError.message);
+            }
+
+            const summariesByPhone = buildAdminChatConversationSummaries({
+                viewerId: myChatId,
+                counterpartPhones: baseTargets.map((target) => target.phone),
+                messages: (messageRows ?? []) as AdminChatMessageSummaryRow[],
+            });
 
             return buildAdminChatTargets(fcRows, summariesByPhone);
         },
         enabled: hydrated && Boolean(role) && Boolean(myChatId),
+        placeholderData: (previousData) => previousData,
         refetchInterval: 10000, // Polling list every 10s as backup
     });
 
@@ -179,8 +173,8 @@ export default function ChatPage() {
         return item.name.toLowerCase().includes(q) || item.phone.includes(q);
     });
     const deepLinkedSelection = useMemo(() => {
-        if (!chatList || chatList.length === 0 || !deepLinkedTargetId) return null;
-        const matched = chatList.find((item) => item.phone === deepLinkedTargetId);
+        if (!deepLinkedTargetId) return null;
+        const matched = chatList?.find((item) => item.phone === deepLinkedTargetId);
         if (matched) return matched;
         if (!deepLinkedTargetName) return null;
         return {
@@ -199,13 +193,14 @@ export default function ChatPage() {
     );
     const trackedPresencePhones = useMemo(
         () => Array.from(
-            new Set(
-                (chatList ?? [])
-                    .map((item) => normalizePresencePhone(item.phone))
-                    .filter((phone) => phone.length === 11),
+                new Set(
+                    (chatList ?? [])
+                        .map((item) => normalizePresencePhone(item.phone))
+                        .concat(activeFc ? normalizePresencePhone(activeFc.phone) : [])
+                        .filter((phone) => phone.length === 11),
+                ),
             ),
-        ),
-        [chatList],
+        [activeFc, chatList],
     );
     const loadPresence = useCallback(async (phones = trackedPresencePhones) => {
         if (phones.length === 0) {

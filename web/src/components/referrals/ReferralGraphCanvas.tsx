@@ -11,30 +11,19 @@ import { getReferralGraphLabelPresentation } from '@/lib/referral-graph-display'
 import { getReferralGraphNodeRadius } from '@/lib/referral-graph-highlight';
 import { getReferralGraphLinkStyle, sortReferralGraphLinksForRendering } from '@/lib/referral-graph-link-style';
 import {
-  applyReferralGraphDragFollowerTranslation,
   buildReferralGraphAdjacency,
-  buildReferralGraphDirectedChildren,
-  getReferralGraphDescendantDepths,
-  getReferralGraphDescendantNodeIds,
-  releaseReferralGraphDragFollowerNodes,
+  getReferralGraphLocalDragDepths,
 } from '@/lib/referral-graph-interaction';
 import {
   REFERRAL_GRAPH_ENGINE_COOLDOWN,
-  createReferralGraphBranchBendForce,
-  createReferralGraphComponentCohesionForce,
-  createReferralGraphComponentEnvelopeForce,
-  createReferralGraphClusterGravityForce,
   createReferralGraphClusterSeparationForce,
-  createReferralGraphEdgeCrossingForce,
-  createReferralGraphLayoutMemoryForce,
+  createReferralGraphDragLocalityForce,
   createReferralGraphLinkTensionForce,
-  createReferralGraphNodeSeparationForce,
-  createReferralGraphSiblingAngularForce,
-  getReferralGraphMinimumNodeDistance,
+  createReferralGraphPointerDragForce,
+  getReferralGraphFreeLinkStrength,
   getReferralGraphLinkDistance,
-  isReferralGraphMeaningfulDrag,
-  resolveReferralGraphPhysics,
-  type ReferralGraphDragTranslation,
+  resolveReferralGraphFreePhysics,
+  type ReferralGraphPointerDragTarget,
 } from '@/lib/referral-graph-physics';
 import type { GraphEdge, GraphNode, ReferralGraphPhysicsSettings } from '@/types/referral-graph';
 
@@ -50,17 +39,27 @@ const COLORS = {
   nodeLegacy: '#ca8a04',
   nodeHighlight: '#facc15',
   nodeHighlightShadow: 'rgba(250,204,21,0.4)',
-  edgeLinked: 'rgba(100, 116, 139, 0.34)',
-  edgeFocused: 'rgba(234, 88, 12, 0.72)',
+  edgeLinked: '#475569',
+  edgeFocused: '#ea580c',
 } as const;
 
 const MIN_ZOOM = 0.25;
 const MAX_ZOOM = 6;
 const NODE_HIT_SLOP = 6;
+const MIN_NODE_HIT_RADIUS_PX = 18;
+const NODE_VISUAL_SCALE = 1.25;
+const LABEL_VISUAL_SCALE = 1.25;
 const FIT_PADDING = 56;
 const FIT_READY_SPAN_THRESHOLD = 24;
 const MAX_FIT_RETRY_FRAMES = 48;
-const LAYOUT_VERSION = 'obsidian-pinwheel-v16';
+const LAYOUT_VERSION = 'obsidian-free-v18';
+const RELEASE_SETTLE_ALPHA = 0.18;
+const RELEASE_SETTLE_MS = 2600;
+const MAX_RELEASE_NODE_VELOCITY = 220;
+const MAX_POINTER_DRAG_IMPULSE = 120;
+const RELEASE_POINTER_VELOCITY_TICK_MS = 28;
+const RELEASE_VELOCITY_SCALE = 1.35;
+const GRAPH_MOTION_KEEP_ALIVE_MS = 48;
 
 type RuntimeGraphNode = GraphNode & {
   x?: number;
@@ -82,6 +81,17 @@ type ManualPanState = {
   velocity: { x: number; y: number };
 };
 
+type ManualNodeDragState = {
+  pointerId: number;
+  nodeId: string;
+  startClient: { x: number; y: number };
+  offset: { x: number; y: number };
+  lastGraphPosition: { x: number; y: number };
+  lastTimestamp: number;
+  velocity: { x: number; y: number };
+  started: boolean;
+};
+
 type FGNode = NodeObject<GraphNode>;
 type FGLink = LinkObject<GraphNode, GraphEdge>;
 type FitReadiness = {
@@ -91,13 +101,11 @@ type FitReadiness = {
 
 type ComponentAnchor = GraphLayoutPoint;
 type ConfigurableLinkForce = ForceLink<FGNode, FGLink>;
-type ReferralGraphForceMode = 'settle' | 'drag';
-type ConfigurableManyBodyForce = {
-  strength: (value: number) => ConfigurableManyBodyForce;
-};
-type ConfigurableCollisionForce = {
-  strength: (value: number) => ConfigurableCollisionForce;
-  iterations: (value: number) => ConfigurableCollisionForce;
+type DragAlphaForceGraph = ForceGraphMethods<FGNode, FGLink> & {
+  d3AlphaMin?: (alphaMin: number) => DragAlphaForceGraph;
+  d3AlphaTarget?: (alphaTarget: number) => DragAlphaForceGraph;
+  d3ReheatSimulation?: () => DragAlphaForceGraph;
+  resetCountdown?: () => DragAlphaForceGraph;
 };
 type LinkForceAccessors = {
   distance: () => (link: FGLink, index: number, links: FGLink[]) => number;
@@ -136,13 +144,21 @@ type ReferralGraphRuntimeDebugSnapshot = {
     height: number;
   } | null;
   draggedNodeId: string | null;
+  pointerDragTarget: ReferralGraphPointerDragTarget | null;
+  activeDragDepths: Array<[string, number]>;
   followerNodeIds: string[];
   nodeDragActive: boolean;
   nodes: ReferralGraphRuntimeDebugNode[];
 };
+type ReferralGraphRuntimeDebugMetrics = {
+  nodeCount: number;
+  maxVelocity: number;
+  totalKineticEnergy: number;
+};
 type ReferralGraphRuntimeDebug = {
   getNodeById: (id: string) => ReferralGraphRuntimeDebugNode | null;
   getNodeByName: (name: string) => ReferralGraphRuntimeDebugNode | null;
+  getMetrics: () => ReferralGraphRuntimeDebugMetrics;
   getSnapshot: () => ReferralGraphRuntimeDebugSnapshot;
   graphToScreen: (x: number, y: number) => { x: number; y: number } | null;
   screenToGraph: (x: number, y: number) => { x: number; y: number } | null;
@@ -286,13 +302,61 @@ function clamp(value: number, min: number, max: number) {
   return Math.min(max, Math.max(min, value));
 }
 
+function clampVector(vector: { x: number; y: number }, maxMagnitude: number) {
+  const magnitude = Math.hypot(vector.x, vector.y);
+  if (!Number.isFinite(magnitude) || magnitude <= maxMagnitude) {
+    return vector;
+  }
+
+  const scale = maxMagnitude / Math.max(magnitude, 1);
+  return {
+    x: vector.x * scale,
+    y: vector.y * scale,
+  };
+}
+
 function getNodeRadius(node: GraphNode, descendantCountByNodeId?: ReadonlyMap<string, number>) {
   return getReferralGraphNodeRadius({
     referralCount: node.referralCount,
     inboundCount: node.inboundCount,
     highlightType: node.highlightType,
     descendantCount: descendantCountByNodeId?.get(node.id) ?? null,
-  });
+  }) * NODE_VISUAL_SCALE;
+}
+
+function getNodeInteractionRadius(
+  node: GraphNode,
+  descendantCountByNodeId: ReadonlyMap<string, number>,
+  globalScale: number,
+) {
+  const safeGlobalScale = Number.isFinite(globalScale) ? globalScale : 1;
+  return Math.max(
+    getNodeRadius(node, descendantCountByNodeId) + NODE_HIT_SLOP,
+    MIN_NODE_HIT_RADIUS_PX / Math.max(safeGlobalScale, 0.1),
+  );
+}
+
+function getNodeInteractionPriority(
+  node: GraphNode,
+  descendantCountByNodeId: ReadonlyMap<string, number>,
+) {
+  return (
+    getNodeRadius(node, descendantCountByNodeId)
+    + ((descendantCountByNodeId.get(node.id) ?? 0) * 0.42)
+    + (node.referralCount * 0.28)
+    + (node.inboundCount * 0.12)
+    + (node.highlightType ? 2 : 0)
+  );
+}
+
+function sortReferralGraphNodesForRendering(
+  nodes: RuntimeGraphNode[],
+  descendantCountByNodeId: ReadonlyMap<string, number>,
+) {
+  return [...nodes].sort((left, right) => (
+    getNodeInteractionPriority(left, descendantCountByNodeId)
+    - getNodeInteractionPriority(right, descendantCountByNodeId)
+  ));
 }
 
 function rectsOverlap(left: LabelOccupancyRect, right: LabelOccupancyRect) {
@@ -346,14 +410,14 @@ export function ReferralGraphCanvas({
   const suppressClickUntilRef = useRef(0);
   const nodeDragActiveRef = useRef(false);
   const manualPanStateRef = useRef<ManualPanState | null>(null);
+  const manualNodeDragStateRef = useRef<ManualNodeDragState | null>(null);
   const viewportInteractionRef = useRef(false);
   const runtimeNodeMapRef = useRef(new Map<string, RuntimeGraphNode>());
   const draggedNodeIdRef = useRef<string | null>(null);
-  const dragFollowerNodeIdsRef = useRef(new Set<string>());
-  const dragFollowerNodeDepthsRef = useRef(new Map<string, number>());
-  const userMovedNodeIdsRef = useRef(new Set<string>());
-  const userMovedNodeTargetsRef = useRef(new Map<string, GraphLayoutPoint>());
-  const dragMemorySuppressedNodeIdsRef = useRef(new Set<string>());
+  const pointerDragTargetRef = useRef<ReferralGraphPointerDragTarget | null>(null);
+  const activeDragNodeDepthsRef = useRef(new Map<string, number>());
+  const releaseSettleTimerRef = useRef<number | null>(null);
+  const graphMotionKeepAliveFrameRef = useRef<number | null>(null);
   const lastResetRequestRef = useRef(resetLayoutRequestId);
   const fitRetryRef = useRef<number | null>(null);
   const settledFitTimerRef = useRef<number | null>(null);
@@ -365,26 +429,13 @@ export function ReferralGraphCanvas({
     nodes: [],
     links: [],
   });
-  const physics = useMemo(() => resolveReferralGraphPhysics(physicsSettings), [physicsSettings]);
+  const physics = useMemo(() => resolveReferralGraphFreePhysics(physicsSettings), [physicsSettings]);
   const componentLayout = useMemo(
     () => buildReferralGraphLayout(nodes, edges, physics.linkDistance, getReferralGraphLinkDistance),
     [edges, nodes, physics.linkDistance],
   );
-  const gravityNodeClusterIndex = useMemo(() => {
-    const nextIndexByNodeId = new Map(componentLayout.nodeComponentIndex);
-    let nextIndex = componentLayout.componentRadii.size;
-    for (const nodeId of componentLayout.nodeClusterIndex.keys()) {
-      if (nextIndexByNodeId.has(nodeId)) {
-        continue;
-      }
-      nextIndexByNodeId.set(nodeId, nextIndex);
-      nextIndex += 1;
-    }
-    return nextIndexByNodeId;
-  }, [componentLayout]);
   const graphDegreeByNodeId = useMemo(() => buildDegreeMap(graphData.links), [graphData.links]);
   const graphChildCountByNodeId = useMemo(() => buildDirectedChildCountMap(graphData.links), [graphData.links]);
-
   useEffect(() => {
     let rafId = 0;
     let cancelled = false;
@@ -429,15 +480,33 @@ export function ReferralGraphCanvas({
     return () => query.removeListener(updateNativeViewportInteraction);
   }, []);
 
+  useEffect(() => () => {
+    if (releaseSettleTimerRef.current != null) {
+      window.clearTimeout(releaseSettleTimerRef.current);
+      releaseSettleTimerRef.current = null;
+    }
+    if (graphMotionKeepAliveFrameRef.current != null) {
+      window.cancelAnimationFrame(graphMotionKeepAliveFrameRef.current);
+      graphMotionKeepAliveFrameRef.current = null;
+    }
+    pointerDragTargetRef.current = null;
+  }, []);
+
   useEffect(() => {
     if (lastResetRequestRef.current !== resetLayoutRequestId) {
       runtimeNodeMapRef.current.clear();
       draggedNodeIdRef.current = null;
-      dragFollowerNodeIdsRef.current.clear();
-      dragFollowerNodeDepthsRef.current.clear();
-      userMovedNodeIdsRef.current.clear();
-      userMovedNodeTargetsRef.current.clear();
-      dragMemorySuppressedNodeIdsRef.current.clear();
+      pointerDragTargetRef.current = null;
+      activeDragNodeDepthsRef.current.clear();
+      manualNodeDragStateRef.current = null;
+      if (releaseSettleTimerRef.current != null) {
+        window.clearTimeout(releaseSettleTimerRef.current);
+        releaseSettleTimerRef.current = null;
+      }
+      if (graphMotionKeepAliveFrameRef.current != null) {
+        window.cancelAnimationFrame(graphMotionKeepAliveFrameRef.current);
+        graphMotionKeepAliveFrameRef.current = null;
+      }
       lastResetRequestRef.current = resetLayoutRequestId;
     }
 
@@ -471,14 +540,12 @@ export function ReferralGraphCanvas({
     const sortedLinks = sortReferralGraphLinksForRendering(edges.map((edge) => ({ ...edge })), nodesById);
 
     setGraphData({
-      nodes: nodesCopy,
+      nodes: sortReferralGraphNodesForRendering(nodesCopy, descendantCountByNodeId),
       links: sortedLinks,
     });
-  }, [componentLayout, edges, nodes, resetLayoutRequestId]);
+  }, [componentLayout, descendantCountByNodeId, edges, nodes, resetLayoutRequestId]);
 
   const adjacency = useMemo(() => buildReferralGraphAdjacency(edges), [edges]);
-  const directedChildren = useMemo(() => buildReferralGraphDirectedChildren(edges), [edges]);
-
   const neighborSet = useMemo<Set<string> | null>(() => {
     if (!selectedNodeId) return null;
     return bfsNeighborhood(selectedNodeId, adjacency, depthHops);
@@ -499,10 +566,63 @@ export function ReferralGraphCanvas({
     return matched;
   }, [nodes, searchTerm]);
 
-  useEffect(() => {
-    if (process.env.NODE_ENV === 'production') {
+  const setGraphDragAlphaTarget = useCallback((alphaTarget: number, options?: { allowColdStart?: boolean }) => {
+    const graph = graphRef.current as DragAlphaForceGraph | undefined;
+    graph?.d3AlphaMin?.(options?.allowColdStart ? 0 : REFERRAL_GRAPH_ENGINE_COOLDOWN.alphaMin);
+    graph?.d3AlphaTarget?.(alphaTarget);
+    graph?.resetCountdown?.();
+    if (alphaTarget > 0) {
+      graph?.d3ReheatSimulation?.();
+    }
+    graph?.resumeAnimation?.();
+  }, []);
+
+  const stopGraphMotionKeepAlive = useCallback(() => {
+    if (graphMotionKeepAliveFrameRef.current != null) {
+      window.cancelAnimationFrame(graphMotionKeepAliveFrameRef.current);
+      graphMotionKeepAliveFrameRef.current = null;
+    }
+  }, []);
+
+  const startGraphMotionKeepAlive = useCallback(() => {
+    if (graphMotionKeepAliveFrameRef.current != null) {
       return;
     }
+
+    let lastWakeAt = 0;
+    const step = (timestamp: number) => {
+      const activeDrag = nodeDragActiveRef.current || pointerDragTargetRef.current;
+      const activeRelease = releaseSettleTimerRef.current != null;
+      const alphaTarget = activeDrag
+        ? physics.dragReheatAlpha
+        : activeRelease
+          ? RELEASE_SETTLE_ALPHA
+          : null;
+
+      if (alphaTarget == null) {
+        graphMotionKeepAliveFrameRef.current = null;
+        return;
+      }
+
+      if (timestamp - lastWakeAt >= GRAPH_MOTION_KEEP_ALIVE_MS) {
+        setGraphDragAlphaTarget(alphaTarget, { allowColdStart: true });
+        lastWakeAt = timestamp;
+      }
+
+      graphMotionKeepAliveFrameRef.current = window.requestAnimationFrame(step);
+    };
+
+    graphMotionKeepAliveFrameRef.current = window.requestAnimationFrame(step);
+  }, [physics.dragReheatAlpha, setGraphDragAlphaTarget]);
+
+  useEffect(() => {
+    const shouldExposeDebug = (
+      process.env.NODE_ENV !== 'production'
+      || window.location.hostname === 'localhost'
+      || window.location.hostname === '127.0.0.1'
+    );
+
+    if (!shouldExposeDebug) return;
 
     type DebuggableForceGraph = ForceGraphMethods<FGNode, FGLink> & {
       graph2ScreenCoords?: (x: number, y: number) => { x: number; y: number };
@@ -566,6 +686,60 @@ export function ReferralGraphCanvas({
       };
     };
 
+    const getDebugMetrics = () => {
+      const nodes = [...runtimeNodeMapRef.current.values()];
+      const maxVelocity = Math.max(0, ...nodes.map((node) => Math.hypot(node.vx ?? 0, node.vy ?? 0)));
+      const totalKineticEnergy = nodes.reduce((total, node) => {
+        const vx = node.vx ?? 0;
+        const vy = node.vy ?? 0;
+        return total + (vx * vx) + (vy * vy);
+      }, 0);
+
+      return {
+        nodeCount: nodes.length,
+        maxVelocity,
+        totalKineticEnergy,
+      };
+    };
+
+    const writeDebugDataset = () => {
+      const container = containerRef.current;
+      if (!container) return;
+
+      const canvasRect = getCanvasRect();
+      const currentViewport = {
+        center: graphRef.current?.centerAt?.() ?? null,
+        zoom: graphRef.current?.zoom?.() ?? null,
+      };
+      const visibleNodes = [...runtimeNodeMapRef.current.values()]
+        .map(toDebugNode)
+        .filter((node) => (
+          node.clientX != null
+          && node.clientY != null
+          && canvasRect != null
+          && node.clientX >= canvasRect.x
+          && node.clientX <= canvasRect.x + canvasRect.width
+          && node.clientY >= canvasRect.y
+          && node.clientY <= canvasRect.y + canvasRect.height
+        ))
+        .sort((left, right) => (
+          (right.referralCount + right.inboundCount + right.descendantCount)
+          - (left.referralCount + left.inboundCount + left.descendantCount)
+        ))
+        .slice(0, 120);
+
+      container.dataset.referralGraphDebug = JSON.stringify({
+        activeDragDepths: [...activeDragNodeDepthsRef.current.entries()],
+        canvasRect,
+        draggedNodeId: draggedNodeIdRef.current,
+        pointerDragTarget: pointerDragTargetRef.current,
+        metrics: getDebugMetrics(),
+        nodeDragActive: nodeDragActiveRef.current,
+        nodes: visibleNodes,
+        viewport: currentViewport,
+      });
+    };
+
     window.__referralGraphDebug = {
       getNodeById: (id: string) => {
         const node = runtimeNodeMapRef.current.get(id);
@@ -582,19 +756,32 @@ export function ReferralGraphCanvas({
         ));
         return node ? toDebugNode(node) : null;
       },
+      getMetrics: getDebugMetrics,
       getSnapshot: () => ({
+        activeDragDepths: [...activeDragNodeDepthsRef.current.entries()],
         canvasRect: getCanvasRect(),
         draggedNodeId: draggedNodeIdRef.current,
-        followerNodeIds: [...dragFollowerNodeIdsRef.current],
+        pointerDragTarget: pointerDragTargetRef.current,
+        followerNodeIds: [],
         nodeDragActive: nodeDragActiveRef.current,
         nodes: [...runtimeNodeMapRef.current.values()].map(toDebugNode),
+        viewport: {
+          center: graphRef.current?.centerAt?.() ?? null,
+          zoom: graphRef.current?.zoom?.() ?? null,
+        },
       }),
       graphToScreen,
       screenToGraph,
     };
 
+    const debugDatasetContainer = containerRef.current;
+    writeDebugDataset();
+    const debugDatasetTimer = window.setInterval(writeDebugDataset, 250);
+
     return () => {
+      window.clearInterval(debugDatasetTimer);
       delete window.__referralGraphDebug;
+      delete debugDatasetContainer?.dataset.referralGraphDebug;
     };
   }, [descendantCountByNodeId, height, width]);
 
@@ -711,59 +898,15 @@ export function ReferralGraphCanvas({
     [cancelPendingFit, cancelSettledFit, fitGraph, graphData.nodes, height, width],
   );
 
-  const getDegreeAwareLinkStrength = useCallback((link: FGLink, mode: ReferralGraphForceMode) => {
+  const getDegreeAwareLinkStrength = useCallback((link: FGLink) => {
     const source = getRuntimeLinkEndpointId(link.source);
     const target = getRuntimeLinkEndpointId(link.target);
-    const sourceDegree = graphDegreeByNodeId.get(source) ?? 1;
-    const targetDegree = graphDegreeByNodeId.get(target) ?? 1;
-    const baseStrength = physics.linkStrength / Math.max(1, Math.min(sourceDegree, targetDegree));
-
-    if (mode === 'settle') {
-      return baseStrength;
-    }
-
-    const draggedNodeId = draggedNodeIdRef.current;
-    const suppressedNodeIds = dragMemorySuppressedNodeIdsRef.current;
-    if (
-      draggedNodeId
-      && (
-        source === draggedNodeId
-        || target === draggedNodeId
-        || suppressedNodeIds.has(source)
-        || suppressedNodeIds.has(target)
-      )
-    ) {
-      return 0;
-    }
-
-    return 0;
+    return getReferralGraphFreeLinkStrength(
+      graphDegreeByNodeId.get(source) ?? 1,
+      graphDegreeByNodeId.get(target) ?? 1,
+      physics.linkStrength,
+    );
   }, [graphDegreeByNodeId, physics.linkStrength]);
-
-  const configureBaseLinkForce = useCallback((mode: ReferralGraphForceMode) => {
-    const linkForce = graphRef.current?.d3Force('link') as ConfigurableLinkForce | undefined;
-    if (!linkForce) {
-      return;
-    }
-
-    linkForce.strength((link) => getDegreeAwareLinkStrength(link, mode));
-    linkForce.iterations(mode === 'drag' ? 1 : 5);
-  }, [getDegreeAwareLinkStrength]);
-
-  const configureActiveDragForceMode = useCallback((mode: ReferralGraphForceMode) => {
-    configureBaseLinkForce(mode);
-
-    const chargeForce = graphRef.current?.d3Force('charge') as ConfigurableManyBodyForce | undefined;
-    if (chargeForce) {
-      chargeForce.strength(mode === 'drag' ? 0 : physics.chargeStrength);
-    }
-
-    const collisionForce = graphRef.current?.d3Force('collision') as ConfigurableCollisionForce | undefined;
-    if (collisionForce) {
-      collisionForce
-        .strength(mode === 'drag' ? 0.04 : 0.55)
-        .iterations(mode === 'drag' ? 1 : 3);
-    }
-  }, [configureBaseLinkForce, physics.chargeStrength]);
 
   useEffect(() => {
     const fg = graphRef.current;
@@ -805,8 +948,8 @@ export function ReferralGraphCanvas({
         },
       );
     });
-    linkForce.strength((link) => getDegreeAwareLinkStrength(link, 'settle'));
-    linkForce.iterations(5);
+    linkForce.strength((link) => getDegreeAwareLinkStrength(link));
+    linkForce.iterations(2);
 
     if (process.env.NODE_ENV === 'development') {
       const linksForDebug = graphData.links as unknown as FGLink[];
@@ -839,161 +982,67 @@ export function ReferralGraphCanvas({
           childCountByNodeId: graphChildCountByNodeId,
           degreeByNodeId: graphDegreeByNodeId,
           graphNodeCount: graphData.nodes.length,
-          maxVelocity: 38,
-          strength: 0.82,
-          suppressedNodeIdsRef: dragMemorySuppressedNodeIdsRef,
+          maxVelocity: 18,
+          strength: physics.linkTensionStrength,
           subtreeSizeByNodeId: componentLayout.directedSubtreeSizes,
-          thresholdMultiplier: 0.98,
+          thresholdMultiplier: physics.linkTensionThresholdMultiplier,
         },
       ),
-    );
-    fg.d3Force(
-      'branch-bend',
-      createReferralGraphBranchBendForce<RuntimeGraphNode>({
-        activeDraggedNodeIdRef: draggedNodeIdRef,
-        childCountByNodeId: graphChildCountByNodeId,
-        degreeByNodeId: graphDegreeByNodeId,
-        links: graphData.links,
-        maxVelocity: 20,
-        strength: 0.42,
-        suppressedNodeIdsRef: dragMemorySuppressedNodeIdsRef,
-      }),
-    );
-    fg.d3Force(
-      'layout-memory',
-      createReferralGraphLayoutMemoryForce<RuntimeGraphNode>(
-        componentLayout.nodeAnchorPositions,
-        Math.min(0.07, Math.max(0.028, physics.layoutMemoryStrength * 0.46)),
-        {
-          activeDraggedNodeIdRef: draggedNodeIdRef,
-          maxTicks: 320,
-          minimumAnchorRatio: 0,
-          manualNodeTargetsRef: userMovedNodeTargetsRef,
-          nodeComponentIndex: componentLayout.nodeComponentIndex,
-          suppressedNodeIdsRef: dragMemorySuppressedNodeIdsRef,
-        },
-      ),
-    );
-    fg.d3Force(
-      'node-separation',
-      createReferralGraphNodeSeparationForce<RuntimeGraphNode>({
-        activeDraggedNodeIdRef: draggedNodeIdRef,
-        crossClusterDistance: 154,
-        crossComponentDistance: 150,
-        maxVelocity: 22,
-        minDistance: getReferralGraphMinimumNodeDistance(graphData.nodes.length),
-        nodeClusterIndex: componentLayout.nodeClusterIndex,
-        nodeComponentIndex: componentLayout.nodeComponentIndex,
-        strength: 0.31,
-        suppressedNodeIdsRef: dragMemorySuppressedNodeIdsRef,
-      }),
     );
     fg.d3Force(
       'collision',
       forceCollide<FGNode>()
-        .radius((node) => Math.max(48, getNodeRadius(node as GraphNode, descendantCountByNodeId) + 32))
-        .strength(0.55)
-        .iterations(3),
-    );
-    fg.d3Force(
-      'cluster-envelope',
-      createReferralGraphComponentEnvelopeForce<RuntimeGraphNode>({
-        activeDraggedNodeIdRef: draggedNodeIdRef,
-        componentRadii: componentLayout.clusterRadii,
-        maxVelocity: 14,
-        nodeComponentIndex: componentLayout.nodeClusterIndex,
-        strength: 0.1,
-      }),
-    );
-    fg.d3Force(
-      'visual-cluster-separation',
-      createReferralGraphClusterSeparationForce<RuntimeGraphNode>({
-        activeDraggedNodeIdRef: draggedNodeIdRef,
-        clusterRadii: componentLayout.clusterRadii,
-        gap: 52,
-        maxVelocity: 10,
-        nodeClusterIndex: componentLayout.nodeClusterIndex,
-        singletonGapFactor: 0.35,
-        softening: 92,
-        strength: 0.04,
-        suppressedNodeIdsRef: dragMemorySuppressedNodeIdsRef,
-      }),
+        .radius((node) => Math.max(42, getNodeRadius(node as GraphNode, descendantCountByNodeId) + physics.collisionPadding))
+        .strength(physics.collisionStrength)
+        .iterations(physics.collisionIterations),
     );
     fg.d3Force(
       'component-separation',
       createReferralGraphClusterSeparationForce<RuntimeGraphNode>({
         activeDraggedNodeIdRef: draggedNodeIdRef,
         clusterRadii: componentLayout.componentRadii,
-        gap: 54,
-        maxVelocity: 16,
+        gap: physics.componentSeparationGap,
+        maxVelocity: 8,
         nodeClusterIndex: componentLayout.nodeComponentIndex,
-        softening: 92,
-        strength: 0.035,
-        suppressedNodeIdsRef: dragMemorySuppressedNodeIdsRef,
+        singletonGapFactor: 0.5,
+        softening: 160,
+        strength: physics.componentSeparationStrength,
       }),
     );
     fg.d3Force(
-      'cluster-gravity',
-      createReferralGraphClusterGravityForce<RuntimeGraphNode>({
-        activeDraggedNodeIdRef: draggedNodeIdRef,
-        deadZoneRadius: 250,
-        gravityScale: 120,
-        maxVelocity: 12,
-        minAlpha: 0.002,
-        nodeClusterIndex: gravityNodeClusterIndex,
-        singletonDeadZoneRadius: 700,
-        singletonStrengthFactor: 0.12,
-        softening: 210,
-        strength: 0.035,
-        suppressedNodeIdsRef: dragMemorySuppressedNodeIdsRef,
-      }),
+      'drag-pointer',
+      createReferralGraphPointerDragForce<RuntimeGraphNode>(
+        pointerDragTargetRef,
+      ),
     );
     fg.d3Force(
-      'component-envelope',
-      createReferralGraphComponentEnvelopeForce<RuntimeGraphNode>({
-        activeDraggedNodeIdRef: draggedNodeIdRef,
-        componentRadii: componentLayout.componentRadii,
-        maxVelocity: 16,
-        nodeComponentIndex: componentLayout.nodeComponentIndex,
-        strength: 0.14,
-      }),
+      'drag-locality',
+      createReferralGraphDragLocalityForce<RuntimeGraphNode>(
+        draggedNodeIdRef,
+        activeDragNodeDepthsRef,
+        {
+          backgroundMaxVelocity: 0,
+          backgroundVelocityScale: 0,
+          directNeighborMaxVelocity: Number.POSITIVE_INFINITY,
+          directNeighborPullStrength: 0,
+          directNeighborVelocityScale: 1,
+          secondHopMaxVelocity: Number.POSITIVE_INFINITY,
+          secondHopPullStrength: 0,
+          secondHopVelocityScale: 1,
+        },
+      ),
     );
-    fg.d3Force(
-      'component-cohesion',
-      createReferralGraphComponentCohesionForce<RuntimeGraphNode>({
-        activeDraggedNodeIdRef: draggedNodeIdRef,
-        componentRadii: componentLayout.componentRadii,
-        maxVelocity: 12,
-        nodeComponentIndex: componentLayout.nodeComponentIndex,
-        strength: 0.135,
-      }),
-    );
-    fg.d3Force(
-      'sibling-angular',
-      createReferralGraphSiblingAngularForce<RuntimeGraphNode>({
-        activeDraggedNodeIdRef: draggedNodeIdRef,
-        anchorPositions: componentLayout.nodeAnchorPositions,
-        links: graphData.links,
-        maxVelocity: 58,
-        strength: 0.88,
-        suppressedNodeIdsRef: dragMemorySuppressedNodeIdsRef,
-      }),
-    );
-    fg.d3Force(
-      'edge-crossing',
-      createReferralGraphEdgeCrossingForce<RuntimeGraphNode>({
-        activeDraggedNodeIdRef: draggedNodeIdRef,
-        anchorCorrectionStrength: 0.045,
-        anchorPositions: componentLayout.nodeAnchorPositions,
-        links: graphData.links,
-        maxPairs: 6200,
-        maxVelocity: 14,
-        minAlpha: 0.006,
-        minDistance: 34,
-        strength: 0.34,
-        suppressedNodeIdsRef: dragMemorySuppressedNodeIdsRef,
-      }),
-    );
+    fg.d3Force('drag-elastic-tether', null);
+    fg.d3Force('layout-memory', null);
+    fg.d3Force('branch-bend', null);
+    fg.d3Force('node-separation', null);
+    fg.d3Force('cluster-envelope', null);
+    fg.d3Force('visual-cluster-separation', null);
+    fg.d3Force('cluster-gravity', null);
+    fg.d3Force('component-envelope', null);
+    fg.d3Force('component-cohesion', null);
+    fg.d3Force('sibling-angular', null);
+    fg.d3Force('edge-crossing', null);
     fg.d3Force('radial-containment', null);
     fg.d3Force('isolated-ring', null);
     fg.d3Force('drag-spring', null);
@@ -1010,7 +1059,7 @@ export function ReferralGraphCanvas({
     fg.d3Force('sibling-separation', null);
     fg.d3Force('drop-tether', null);
     fg.d3ReheatSimulation();
-  }, [componentLayout, descendantCountByNodeId, getDegreeAwareLinkStrength, graphChildCountByNodeId, graphData.links, graphData.nodes, graphDegreeByNodeId, graphReadyTick, gravityNodeClusterIndex, height, physics, width]);
+  }, [componentLayout, descendantCountByNodeId, getDegreeAwareLinkStrength, graphChildCountByNodeId, graphData.links, graphData.nodes, graphDegreeByNodeId, graphReadyTick, height, physics, width]);
 
   useEffect(() => {
     hasFitOnceRef.current = false;
@@ -1054,23 +1103,87 @@ export function ReferralGraphCanvas({
     };
   }, []);
 
-  const isPointerOnNode = useCallback((graphX: number, graphY: number) => {
+  const findNodeAtGraphPoint = useCallback((graphX: number, graphY: number) => {
     if (!Number.isFinite(graphX) || !Number.isFinite(graphY)) {
-      return false;
+      return null;
     }
+
+    const currentZoom = graphRef.current?.zoom?.() ?? 1;
+    let bestNode: RuntimeGraphNode | null = null;
+    let bestScore = Number.NEGATIVE_INFINITY;
 
     for (const node of runtimeNodeMapRef.current.values()) {
       if (!hasRenderableNodePosition(node)) continue;
-      const radius = getNodeRadius(node, descendantCountByNodeId) + NODE_HIT_SLOP;
+      const radius = getNodeInteractionRadius(node, descendantCountByNodeId, currentZoom);
       const dx = node.x - graphX;
       const dy = node.y - graphY;
-      if ((dx * dx) + (dy * dy) <= radius * radius) {
-        return true;
+      const distanceSquared = (dx * dx) + (dy * dy);
+      if (distanceSquared <= radius * radius) {
+        const normalizedDistance = Math.sqrt(distanceSquared) / Math.max(radius, 1);
+        const score = getNodeInteractionPriority(node, descendantCountByNodeId) - normalizedDistance;
+        if (score > bestScore) {
+          bestScore = score;
+          bestNode = node;
+        }
       }
     }
 
-    return false;
+    return bestNode;
   }, [descendantCountByNodeId]);
+
+  const beginNodeDrag = useCallback((node: RuntimeGraphNode) => {
+    cancelPanMomentum();
+    const isNewDrag = draggedNodeIdRef.current !== node.id || !nodeDragActiveRef.current;
+    node.fx = undefined;
+    node.fy = undefined;
+    nodeDragActiveRef.current = true;
+    draggedNodeIdRef.current = node.id;
+    activeDragNodeDepthsRef.current = getReferralGraphLocalDragDepths(node.id, adjacency, 2);
+    if (isNewDrag) {
+      if (releaseSettleTimerRef.current != null) {
+        window.clearTimeout(releaseSettleTimerRef.current);
+        releaseSettleTimerRef.current = null;
+      }
+    }
+    viewportInteractionRef.current = true;
+
+    setGraphDragAlphaTarget(physics.dragReheatAlpha, { allowColdStart: true });
+    startGraphMotionKeepAlive();
+  }, [adjacency, cancelPanMomentum, physics.dragReheatAlpha, setGraphDragAlphaTarget, startGraphMotionKeepAlive]);
+
+  const finishNodeDrag = useCallback((node: RuntimeGraphNode, releaseVelocity: { x: number; y: number } = { x: 0, y: 0 }) => {
+    if (node.x != null && node.y != null) {
+      node.fx = undefined;
+      node.fy = undefined;
+      const blendedReleaseVelocity = clampVector({
+        x: ((node.vx ?? 0) * 0.72) + (releaseVelocity.x * RELEASE_VELOCITY_SCALE),
+        y: ((node.vy ?? 0) * 0.72) + (releaseVelocity.y * RELEASE_VELOCITY_SCALE),
+      }, MAX_RELEASE_NODE_VELOCITY);
+      node.vx = blendedReleaseVelocity.x;
+      node.vy = blendedReleaseVelocity.y;
+    }
+
+    nodeDragActiveRef.current = false;
+    draggedNodeIdRef.current = null;
+    pointerDragTargetRef.current = null;
+    activeDragNodeDepthsRef.current.clear();
+    suppressClickUntilRef.current = Date.now() + 500;
+    setGraphDragAlphaTarget(RELEASE_SETTLE_ALPHA, { allowColdStart: true });
+    startGraphMotionKeepAlive();
+    if (releaseSettleTimerRef.current != null) {
+      window.clearTimeout(releaseSettleTimerRef.current);
+    }
+    releaseSettleTimerRef.current = window.setTimeout(() => {
+      releaseSettleTimerRef.current = null;
+      stopGraphMotionKeepAlive();
+      setGraphDragAlphaTarget(0);
+    }, RELEASE_SETTLE_MS);
+
+    const container = containerRef.current;
+    if (container instanceof HTMLDivElement) {
+      container.style.cursor = 'grab';
+    }
+  }, [setGraphDragAlphaTarget, startGraphMotionKeepAlive, stopGraphMotionKeepAlive]);
 
   useEffect(() => {
     const fg = graphRef.current;
@@ -1147,7 +1260,23 @@ export function ReferralGraphCanvas({
 
       const point = getCanvasPoint(event, container);
       const graphPoint = fg.screen2GraphCoords(point.x, point.y);
-      if (isPointerOnNode(graphPoint.x, graphPoint.y)) return;
+      const targetNode = findNodeAtGraphPoint(graphPoint.x, graphPoint.y);
+      if (targetNode && hasRenderableNodePosition(targetNode)) {
+        manualNodeDragStateRef.current = {
+          pointerId: event.pointerId,
+          nodeId: targetNode.id,
+          startClient: { x: event.clientX, y: event.clientY },
+          offset: {
+            x: targetNode.x - graphPoint.x,
+            y: targetNode.y - graphPoint.y,
+          },
+          lastGraphPosition: { x: targetNode.x, y: targetNode.y },
+          lastTimestamp: performance.now(),
+          velocity: { x: 0, y: 0 },
+          started: false,
+        };
+        return;
+      }
 
       const startCenter = fg.centerAt();
       const startZoom = fg.zoom();
@@ -1177,6 +1306,70 @@ export function ReferralGraphCanvas({
     };
 
     const handlePointerMove = (event: PointerEvent) => {
+      const nodeDragState = manualNodeDragStateRef.current;
+      if (nodeDragState && nodeDragState.pointerId === event.pointerId) {
+        const node = runtimeNodeMapRef.current.get(nodeDragState.nodeId);
+        if (!node) {
+          manualNodeDragStateRef.current = null;
+          return;
+        }
+
+        const pointerTravel = Math.hypot(
+          event.clientX - nodeDragState.startClient.x,
+          event.clientY - nodeDragState.startClient.y,
+        );
+        if (!nodeDragState.started && pointerTravel < 5) {
+          return;
+        }
+
+        if (!nodeDragState.started) {
+          nodeDragState.started = true;
+          try {
+            container.setPointerCapture?.(event.pointerId);
+          } catch {
+            // ignore capture failures
+          }
+          container.style.cursor = 'grabbing';
+        }
+
+        const point = getCanvasPoint(event, container);
+        const graphPoint = fg.screen2GraphCoords(point.x, point.y);
+        if (Number.isFinite(graphPoint.x) && Number.isFinite(graphPoint.y)) {
+          const nextGraphPosition = {
+            x: graphPoint.x + nodeDragState.offset.x,
+            y: graphPoint.y + nodeDragState.offset.y,
+          };
+          const now = performance.now();
+          const dt = Math.max(8, now - nodeDragState.lastTimestamp);
+          const instantNodeVelocity = clampVector({
+            x: (nextGraphPosition.x - nodeDragState.lastGraphPosition.x) * (RELEASE_POINTER_VELOCITY_TICK_MS / dt),
+            y: (nextGraphPosition.y - nodeDragState.lastGraphPosition.y) * (RELEASE_POINTER_VELOCITY_TICK_MS / dt),
+          }, MAX_RELEASE_NODE_VELOCITY);
+          nodeDragState.velocity = clampVector({
+            x: (nodeDragState.velocity.x * 0.34) + (instantNodeVelocity.x * 0.66),
+            y: (nodeDragState.velocity.y * 0.34) + (instantNodeVelocity.y * 0.66),
+          }, MAX_RELEASE_NODE_VELOCITY);
+          nodeDragState.lastGraphPosition = nextGraphPosition;
+          nodeDragState.lastTimestamp = now;
+          pointerDragTargetRef.current = {
+            nodeId: node.id,
+            x: nextGraphPosition.x,
+            y: nextGraphPosition.y,
+          };
+          if (hasRenderableNodePosition(node)) {
+            const pointerImpulse = clampVector({
+              x: (nextGraphPosition.x - node.x) * 0.42,
+              y: (nextGraphPosition.y - node.y) * 0.42,
+            }, MAX_POINTER_DRAG_IMPULSE);
+            node.vx = ((node.vx ?? 0) * 0.58) + pointerImpulse.x;
+            node.vy = ((node.vy ?? 0) * 0.58) + pointerImpulse.y;
+          }
+          beginNodeDrag(node);
+        }
+        event.preventDefault();
+        return;
+      }
+
       const panState = manualPanStateRef.current;
       if (!panState || panState.pointerId !== event.pointerId) return;
 
@@ -1211,6 +1404,24 @@ export function ReferralGraphCanvas({
     };
 
     const handlePointerUp = (event: PointerEvent) => {
+      const nodeDragState = manualNodeDragStateRef.current;
+      if (nodeDragState && nodeDragState.pointerId === event.pointerId) {
+        manualNodeDragStateRef.current = null;
+        if (container.hasPointerCapture?.(event.pointerId)) {
+          try {
+            container.releasePointerCapture(event.pointerId);
+          } catch {
+            // ignore capture release failures
+          }
+        }
+        const node = runtimeNodeMapRef.current.get(nodeDragState.nodeId);
+        if (nodeDragState.started && node) {
+          finishNodeDrag(node, nodeDragState.velocity);
+          event.preventDefault();
+        }
+        return;
+      }
+
       finishPan(event.pointerId);
     };
 
@@ -1271,7 +1482,7 @@ export function ReferralGraphCanvas({
       container.removeEventListener('pointercancel', handlePointerUp, true);
       container.removeEventListener('wheel', handleWheel, true);
     };
-  }, [cancelPanMomentum, getCanvasPoint, graphData.nodes.length, graphReadyTick, isPointerOnNode, useNativeViewportInteraction, width, height]);
+  }, [beginNodeDrag, cancelPanMomentum, findNodeAtGraphPoint, finishNodeDrag, getCanvasPoint, graphData.nodes.length, graphReadyTick, useNativeViewportInteraction, width, height]);
 
   const nodeCanvasObject = useCallback(
     (rawNode: FGNode, ctx: CanvasRenderingContext2D, globalScale: number) => {
@@ -1363,7 +1574,7 @@ export function ReferralGraphCanvas({
       }
 
       if (labelPresentation.visible) {
-        const fontSize = Math.max(11 / Math.max(globalScale, 0.82), 8.5);
+        const fontSize = LABEL_VISUAL_SCALE * Math.max(13.5 / Math.max(globalScale, 0.62), 10);
         ctx.font = `${labelPresentation.fontWeight} ${fontSize}px sans-serif`;
         ctx.textAlign = 'center';
         ctx.textBaseline = 'top';
@@ -1398,13 +1609,13 @@ export function ReferralGraphCanvas({
           labelOccupancyRef.current.push(labelRect);
           ctx.save();
           ctx.globalAlpha *= labelPresentation.alpha;
-          ctx.shadowBlur = 5 / Math.max(globalScale, 0.9);
-          ctx.shadowColor = 'rgba(255, 255, 255, 0.72)';
-          ctx.lineWidth = 2.6 / Math.max(globalScale, 0.9);
-          ctx.strokeStyle = 'rgba(248, 250, 252, 0.88)';
+          ctx.shadowBlur = 7 / Math.max(globalScale, 0.9);
+          ctx.shadowColor = 'rgba(255, 255, 255, 0.95)';
+          ctx.lineWidth = (3.4 * LABEL_VISUAL_SCALE) / Math.max(globalScale, 0.9);
+          ctx.strokeStyle = 'rgba(255, 255, 255, 0.96)';
           ctx.strokeText(label, node.x, labelY);
           ctx.shadowBlur = 0;
-          ctx.fillStyle = '#1f2937';
+          ctx.fillStyle = '#0f172a';
           ctx.fillText(label, node.x, labelY);
           ctx.restore();
         }
@@ -1415,13 +1626,13 @@ export function ReferralGraphCanvas({
     [descendantCountByNodeId, neighborSet, searchMatchSet, selectedNodeId],
   );
 
-  const nodePointerAreaPaint = useCallback((rawNode: FGNode, paintColor: string, ctx: CanvasRenderingContext2D) => {
+  const nodePointerAreaPaint = useCallback((rawNode: FGNode, paintColor: string, ctx: CanvasRenderingContext2D, globalScale: number) => {
     const node = rawNode as RuntimeGraphNode;
     if (node.x == null || node.y == null) return;
 
     ctx.fillStyle = paintColor;
     ctx.beginPath();
-    ctx.arc(node.x, node.y, getNodeRadius(node, descendantCountByNodeId) + NODE_HIT_SLOP, 0, Math.PI * 2);
+    ctx.arc(node.x, node.y, getNodeInteractionRadius(node, descendantCountByNodeId, globalScale), 0, Math.PI * 2);
     ctx.fill();
   }, [descendantCountByNodeId]);
 
@@ -1440,7 +1651,7 @@ export function ReferralGraphCanvas({
       ctx.save();
       ctx.globalAlpha = alpha;
       ctx.strokeStyle = isSelectionEdge ? COLORS.edgeFocused : COLORS.edgeLinked;
-      ctx.lineWidth = edgeStyle.width / Math.max(globalScale, 0.72);
+      ctx.lineWidth = edgeStyle.width / Math.max(globalScale, 0.82);
       ctx.setLineDash([]);
 
       ctx.beginPath();
@@ -1460,105 +1671,13 @@ export function ReferralGraphCanvas({
     [onNodeClick],
   );
 
-  const handleNodeDrag = useCallback((rawNode: FGNode, translate?: ReferralGraphDragTranslation) => {
-    cancelPanMomentum();
-    const node = rawNode as RuntimeGraphNode;
-    const wasDifferentDrag = draggedNodeIdRef.current !== node.id;
-    nodeDragActiveRef.current = true;
-    draggedNodeIdRef.current = node.id;
-    viewportInteractionRef.current = true;
-    if (wasDifferentDrag) {
-      dragFollowerNodeIdsRef.current.clear();
-      dragFollowerNodeDepthsRef.current.clear();
-    }
+  const handleNodeDrag = useCallback((rawNode: FGNode) => {
+    beginNodeDrag(rawNode as RuntimeGraphNode);
+  }, [beginNodeDrag]);
 
-    if (node.x != null && node.y != null) {
-      node.fx = node.x;
-      node.fy = node.y;
-      if (!isReferralGraphMeaningfulDrag(translate)) {
-        return;
-      }
-
-      if (dragFollowerNodeIdsRef.current.size === 0) {
-        const descendantDepths = getReferralGraphDescendantDepths(node.id, directedChildren);
-        dragFollowerNodeDepthsRef.current = new Map(
-          [...descendantDepths.entries()]
-            .filter(([nodeId]) => runtimeNodeMapRef.current.has(nodeId)),
-        );
-        dragFollowerNodeIdsRef.current = new Set(
-          [...getReferralGraphDescendantNodeIds(node.id, directedChildren)]
-            .filter((nodeId) => runtimeNodeMapRef.current.has(nodeId)),
-        );
-      }
-      const movedFollowerIds = applyReferralGraphDragFollowerTranslation(
-        runtimeNodeMapRef.current,
-        dragFollowerNodeIdsRef.current,
-        translate,
-        {
-          depthByNodeId: dragFollowerNodeDepthsRef.current,
-          depthDecay: 0.84,
-          directChildScale: 0.94,
-          maxPinnedDepth: 1,
-          minScale: 0.5,
-        },
-      );
-
-      userMovedNodeTargetsRef.current.delete(node.id);
-      for (const followerId of movedFollowerIds) {
-        userMovedNodeTargetsRef.current.delete(followerId);
-      }
-      dragMemorySuppressedNodeIdsRef.current = new Set([
-        ...userMovedNodeIdsRef.current,
-        node.id,
-        ...dragFollowerNodeIdsRef.current,
-      ]);
-      configureActiveDragForceMode('drag');
-    }
-  }, [cancelPanMomentum, configureActiveDragForceMode, directedChildren]);
-
-  const handleNodeDragEnd = useCallback((rawNode: FGNode, translate?: ReferralGraphDragTranslation) => {
-    const node = rawNode as RuntimeGraphNode;
-    const followerTargets = releaseReferralGraphDragFollowerNodes(
-      runtimeNodeMapRef.current,
-      dragFollowerNodeIdsRef.current,
-    );
-    if (node.x != null && node.y != null) {
-      node.vx = 0;
-      node.vy = 0;
-      node.fx = undefined;
-      node.fy = undefined;
-    }
-
-    nodeDragActiveRef.current = false;
-    draggedNodeIdRef.current = null;
-    configureActiveDragForceMode('settle');
-    const isMeaningfulDrag = isReferralGraphMeaningfulDrag(translate);
-    if (isMeaningfulDrag && node.x != null && node.y != null) {
-      userMovedNodeIdsRef.current.add(node.id);
-      userMovedNodeTargetsRef.current.delete(node.id);
-      userMovedNodeTargetsRef.current.set(node.id, {
-        x: node.x,
-        y: node.y,
-      });
-      for (const [followerId, target] of followerTargets) {
-        if ((dragFollowerNodeDepthsRef.current.get(followerId) ?? 1) > 1) {
-          continue;
-        }
-        userMovedNodeIdsRef.current.add(followerId);
-        userMovedNodeTargetsRef.current.delete(followerId);
-        userMovedNodeTargetsRef.current.set(followerId, target);
-      }
-    }
-    dragMemorySuppressedNodeIdsRef.current = new Set(userMovedNodeIdsRef.current);
-    dragFollowerNodeIdsRef.current.clear();
-    dragFollowerNodeDepthsRef.current.clear();
-    suppressClickUntilRef.current = Date.now() + 500;
-
-    const container = containerRef.current;
-    if (container instanceof HTMLDivElement) {
-      container.style.cursor = 'grab';
-    }
-  }, [configureActiveDragForceMode]);
+  const handleNodeDragEnd = useCallback((rawNode: FGNode) => {
+    finishNodeDrag(rawNode as RuntimeGraphNode);
+  }, [finishNodeDrag]);
 
   const nodeLabel = useCallback(
     (rawNode: FGNode) => {
@@ -1573,6 +1692,21 @@ export function ReferralGraphCanvas({
     labelOccupancyRef.current = [];
   }, []);
 
+  const handleEngineStop = useCallback(() => {
+    if (
+      nodeDragActiveRef.current
+      || pointerDragTargetRef.current
+      || releaseSettleTimerRef.current != null
+    ) {
+      return;
+    }
+
+    for (const node of runtimeNodeMapRef.current.values()) {
+      node.vx = 0;
+      node.vy = 0;
+    }
+  }, []);
+
   return (
     <div ref={containerRef} style={{ width, height, touchAction: 'none' }}>
       <ForceGraph2D
@@ -1584,6 +1718,7 @@ export function ReferralGraphCanvas({
         nodeCanvasObject={nodeCanvasObject}
         nodePointerAreaPaint={nodePointerAreaPaint}
         nodeCanvasObjectMode={() => 'replace'}
+        autoPauseRedraw
         onRenderFramePre={handleRenderFramePre}
         linkCanvasObject={linkCanvasObject}
         linkCanvasObjectMode={() => 'replace'}
@@ -1593,7 +1728,7 @@ export function ReferralGraphCanvas({
         onNodeClick={handleNodeClick}
         onNodeDrag={handleNodeDrag}
         onNodeDragEnd={handleNodeDragEnd}
-        enableNodeDrag
+        enableNodeDrag={false}
         enableZoomInteraction={useNativeViewportInteraction}
         enablePanInteraction={useNativeViewportInteraction}
         enablePointerInteraction
@@ -1604,6 +1739,7 @@ export function ReferralGraphCanvas({
         d3VelocityDecay={physics.velocityDecay}
         cooldownTicks={REFERRAL_GRAPH_ENGINE_COOLDOWN.cooldownTicks}
         cooldownTime={REFERRAL_GRAPH_ENGINE_COOLDOWN.cooldownTimeMs}
+        onEngineStop={handleEngineStop}
       />
     </div>
   );

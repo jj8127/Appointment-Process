@@ -68,6 +68,34 @@ export function getReferralGraphConnectedNodeIds(
   return visited;
 }
 
+export function getReferralGraphLocalDragDepths(
+  startId: string,
+  adjacency: Map<string, Set<string>>,
+  maxDepth = 2,
+) {
+  const depths = new Map<string, number>([[startId, 0]]);
+  const queue = [{ nodeId: startId, depth: 0 }];
+
+  for (let cursor = 0; cursor < queue.length; cursor += 1) {
+    const { nodeId, depth } = queue[cursor];
+    if (depth >= maxDepth) {
+      continue;
+    }
+
+    for (const neighbor of adjacency.get(nodeId) ?? []) {
+      if (depths.has(neighbor)) {
+        continue;
+      }
+
+      const nextDepth = depth + 1;
+      depths.set(neighbor, nextDepth);
+      queue.push({ nodeId: neighbor, depth: nextDepth });
+    }
+  }
+
+  return depths;
+}
+
 export function getReferralGraphDescendantNodeIds(
   startId: string,
   childrenByNodeId: Map<string, Set<string>>,

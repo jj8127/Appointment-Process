@@ -205,6 +205,11 @@ function requireEnv(env, name) {
   return value;
 }
 
+function containsSecretAssignment(value) {
+  return /\b[A-Z][A-Z0-9_]*(?:TOKEN|SECRET|PASSWORD|PRIVATE_KEY|SERVICE_ROLE_KEY|AUTH_TOKEN|API_KEY)\b\s*=/i
+    .test(String(value ?? ''));
+}
+
 function getSupabaseConfig(env) {
   return {
     url: requireEnv(env, 'SUPABASE_URL').replace(/\/+$/, ''),
@@ -222,6 +227,9 @@ function buildActor(env) {
   }
   if (residentId.length !== 11) {
     throw new Error('BOARD_AUTOMATION_ACTOR_PHONE must be 11 digits.');
+  }
+  if (containsSecretAssignment(displayName)) {
+    throw new Error('BOARD_AUTOMATION_ACTOR_NAME must not contain secrets.');
   }
 
   return { role, residentId, displayName };

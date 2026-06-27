@@ -6,6 +6,15 @@ import {
   FC_GRAPH_SESSION_COOKIE,
   FC_GRAPH_SESSION_MAX_AGE_SECONDS,
 } from '@/lib/fc-graph-session';
+import {
+  createStaffSessionValue,
+  STAFF_SESSION_COOKIE,
+  STAFF_SESSION_MAX_AGE_SECONDS,
+} from '@/lib/staff-session';
+import {
+  WEB_APP_SESSION_COOKIE,
+  WEB_APP_SESSION_COOKIE_MAX_AGE_SECONDS,
+} from '@/lib/request-board-app-session';
 import { adminSupabase } from '@/lib/admin-supabase';
 import { buildPhoneCandidates } from '@/lib/phone-candidates';
 import { logger } from '@/lib/logger';
@@ -19,6 +28,7 @@ type LoginResponse = {
   fcId?: string;
   code?: string;
   message?: string;
+  appSessionToken?: string;
 };
 
 function normalizeDigits(value: unknown) {
@@ -66,6 +76,14 @@ export async function POST(req: Request) {
     }
 
     const response = NextResponse.json(data ?? { ok: false, message: '로그인 결과를 확인할 수 없습니다.' });
+    const appSessionToken = String(data?.appSessionToken ?? '').trim();
+    response.cookies.set(WEB_APP_SESSION_COOKIE, data?.ok && appSessionToken ? appSessionToken : '', {
+      httpOnly: true,
+      sameSite: 'strict',
+      secure: process.env.NODE_ENV === 'production',
+      path: '/',
+      maxAge: data?.ok && appSessionToken ? WEB_APP_SESSION_COOKIE_MAX_AGE_SECONDS : 0,
+    });
 
     if (data?.ok && data.role === 'fc') {
       const residentDigits = normalizeDigits(data.residentId ?? phone);
@@ -98,8 +116,43 @@ export async function POST(req: Request) {
         path: '/',
         maxAge: FC_GRAPH_SESSION_MAX_AGE_SECONDS,
       });
+      response.cookies.set(STAFF_SESSION_COOKIE, '', {
+        httpOnly: true,
+        sameSite: 'strict',
+        secure: process.env.NODE_ENV === 'production',
+        path: '/',
+        maxAge: 0,
+      });
+    } else if (data?.ok && (data.role === 'admin' || data.role === 'manager')) {
+      const residentDigits = normalizeDigits(data.residentId ?? phone);
+      const sessionValue = createStaffSessionValue({
+        role: data.role,
+        residentDigits,
+      });
+
+      response.cookies.set(STAFF_SESSION_COOKIE, sessionValue, {
+        httpOnly: true,
+        sameSite: 'strict',
+        secure: process.env.NODE_ENV === 'production',
+        path: '/',
+        maxAge: STAFF_SESSION_MAX_AGE_SECONDS,
+      });
+      response.cookies.set(FC_GRAPH_SESSION_COOKIE, '', {
+        httpOnly: true,
+        sameSite: 'strict',
+        secure: process.env.NODE_ENV === 'production',
+        path: '/',
+        maxAge: 0,
+      });
     } else {
       response.cookies.set(FC_GRAPH_SESSION_COOKIE, '', {
+        httpOnly: true,
+        sameSite: 'strict',
+        secure: process.env.NODE_ENV === 'production',
+        path: '/',
+        maxAge: 0,
+      });
+      response.cookies.set(STAFF_SESSION_COOKIE, '', {
         httpOnly: true,
         sameSite: 'strict',
         secure: process.env.NODE_ENV === 'production',

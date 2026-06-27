@@ -7,6 +7,91 @@
 
 ---
 
+## <a id="20260626-admin-web-chat-list-loading"></a> 2026-06-26 | Admin web direct chat list loading optimization
+
+**Background**:
+- `/dashboard/chat` showed `목록을 불러오는 중...` for too long when loading the FC conversation list.
+- The page fetched `/api/admin/list` once, then queried Supabase `messages` twice per visible FC: latest message and unread count.
+- With hundreds of FC rows, the sequential request chain made direct links such as `/dashboard/chat?targetId=...` feel blocked.
+
+**Changes**:
+- Added `buildAdminChatConversationSummaries()` in `web/src/lib/admin-chat-targets.ts`.
+- The chat page now fetches relevant `messages` rows once for the current staff chat id and computes latest message/unread counts locally.
+- Removed the per-FC latest-message and unread-count loop from the left chat list query.
+- Kept previous React Query data while refetching so the left list does not blank out during background refresh.
+- Deep-linked chats can open from `targetId`/`targetName` before the full FC list finishes loading.
+
+**Files**:
+- `web/src/app/dashboard/chat/page.tsx`
+- `web/src/lib/admin-chat-targets.ts`
+- `web/src/lib/admin-chat-targets.test.ts`
+- `lib/__tests__/admin-web-chat-source.test.ts`
+- `.claude/MISTAKES.md`
+- `.codex/harness/*`
+
+**Verification**:
+- RED/GREEN: `npx tsx --test web/src/lib/admin-chat-targets.test.ts`
+- RED/GREEN: `npm test -- --runInBand lib/__tests__/admin-web-chat-source.test.ts`
+- Passed: `cd web && npm run lint -- src/app/dashboard/chat/page.tsx src/lib/admin-chat-targets.ts src/lib/admin-chat-targets.test.ts`
+- Passed: `cd web && SENTRY_AUTH_TOKEN='' npm run build`
+- Runtime check: `http://localhost:3000/dashboard/chat?targetId=01074306010&targetName=...` returned 200; `/api/admin/list` returned in roughly 300ms in the local dev log.
+
+**Notes**:
+- `cd web && npx tsc --noEmit --pretty false` still fails on pre-existing web test-suite configuration issues such as `.ts` extension imports without `allowImportingTsExtensions`; this failure is not introduced by the chat-list change.
+- Dev server was restarted on `http://localhost:3000` after build verification.
+
+---
+
+## <a id="20260626-admin-web-group-chat"></a> 2026-06-26 | Admin web group chat
+
+**배경**:
+- 관리자 웹의 메신저 허브에는 1:1 메신저와 설계요청 메신저만 있어 모바일 `가람PA 단톡방`과 같은 공용 채팅 진입점이 없었다.
+- 새 DB/API 계약 없이 기존 Supabase `group-chat` Function을 재사용해야 했다.
+- 보안 감사에서 관리자/본부장 세션이 읽을 수 있는 쿠키에만 의존하고, 업로드/프록시 입력이 지나치게 느슨할 수 있다는 위험이 확인됐다.
+
+**조치**:
+- `/dashboard/group-chat` 화면을 추가하고 메시지 조회/전송, 읽음 처리, 실시간 구독 cleanup, polling fallback, 답장, 반응, 내 메시지 삭제, 공지 set/clear, 첨부, 멤버 검색, FC 발언 권한 토글을 구현했다.
+- `/dashboard/messenger/page.tsx`, `DashboardNotificationBell`에서 `가람PA 단톡방` 진입과 `group_chat_message` 라우팅을 추가했다. 왼쪽 사이드바에는 중복 메뉴로 노출하지 않는다.
+- `POST /api/group-chat`은 same-origin, rate limit, admin/manager 서버 세션을 확인한 뒤 짧은 TTL의 web app-session token으로 기존 `group-chat` Function을 호출한다.
+- `POST /api/group-chat/upload`은 allowed MIME/extension/size를 제한하고 `chat-uploads/group-chat/` 아래에만 업로드한다.
+- 관리자/본부장 로그인에 signed HttpOnly `staff_session`을 추가하고, 서버 세션 검증에서 이 쿠키가 없으면 admin/manager API를 거절하도록 했다.
+- 로그인 응답에 포함된 Edge-issued app-session token을 HttpOnly `web_app_session` 쿠키로 저장하고, `/api/group-chat`이 이 쿠키를 우선 사용하도록 했다.
+- 웹 프록시는 액션별 스키마로 unknown field를 제거하고, 첨부 메시지는 자체 `chat-uploads/group-chat/` URL만 통과시킨다.
+- Supabase `group-chat` Function도 외부 `file_url`을 거절하도록 보강했다.
+- `/dashboard/messenger`의 `fc-notify` unread 조회를 브라우저 직접 Edge Function 호출에서 `/api/fc-notify` 서버 프록시 호출로 바꿔 localhost CORS drift를 제거했다.
+
+**수정 파일**:
+- `web/src/app/dashboard/group-chat/page.tsx`
+- `web/src/app/dashboard/layout.tsx`
+- `web/src/app/dashboard/messenger/page.tsx`
+- `web/src/components/DashboardNotificationBell.tsx`
+- `web/src/app/api/group-chat/route.ts`
+- `web/src/app/api/group-chat/upload/route.ts`
+- `web/src/lib/group-chat-client.ts`
+- `web/src/lib/group-chat-web.ts`
+- `web/src/lib/request-board-app-session.ts`
+- `web/src/lib/staff-session.ts`
+- `web/src/app/api/auth/login/route.ts`
+- `web/src/app/api/auth/logout/route.ts`
+- `web/src/lib/server-session.ts`
+- `supabase/functions/group-chat/index.ts`
+- `lib/__tests__/admin-web-group-chat-source.test.ts`
+- `web/src/lib/group-chat-web-route.test.ts`
+- `.codex/harness/*`
+- `.claude/MISTAKES.md`
+
+**검증**:
+- `npm test -- --runInBand lib/__tests__/group-chat-api.test.ts lib/__tests__/group-chat-mobile-source.test.ts lib/__tests__/admin-web-group-chat-source.test.ts`
+- `npx tsx --test web/src/lib/group-chat-web-route.test.ts`
+- `cd web && npm run lint -- src/app/dashboard/layout.tsx src/app/dashboard/messenger/page.tsx src/app/dashboard/group-chat/page.tsx src/app/api/group-chat/route.ts src/app/api/group-chat/upload/route.ts src/components/DashboardNotificationBell.tsx src/lib/group-chat-web.ts src/lib/request-board-app-session.ts src/lib/staff-session.ts`
+- `cd web && SENTRY_AUTH_TOKEN='' npm run build`
+
+**미실행/주의**:
+- 기존 admin/manager 브라우저 세션은 새 `staff_session` 쿠키 발급을 위해 재로그인이 필요할 수 있다.
+- `node --experimental-strip-types --test ...`는 로컬 Node에서 지원되지 않아 `tsx --test`로 대체했다.
+
+---
+
 ## <a id="20260620-request-board-customer-fc-identity-polish"></a> 2026-06-20 | Request-board customer and FC identity polish
 
 **배경**:
@@ -10780,3 +10865,49 @@
 - 실제 본부장 계정으로 Android 시험 탭을 터치하며 확인하는 검증은 사용자가 직접 폰 조작 테스트를 나중에 하기로 했기 때문에 보류했다.
 
 ---
+
+---
+
+## 20260626-secret-redaction
+
+**Scope**: Admin web board/notification secret redaction and contaminated insurance-digest author cleanup.
+
+**Changes**:
+- Cleaned one contaminated `board_posts.author_name` row without printing the secret value.
+- Fixed local `.env.local` so `BOARD_AUTOMATION_ACTOR_NAME` no longer includes a Sentry read-token assignment.
+- Added `web/src/lib/sensitive-text.ts` and applied it to dashboard notifications, board API display data, admin notices, and the web `fc-notify` proxy.
+- Added digest automation validation so `BOARD_AUTOMATION_ACTOR_NAME` containing env-style secret assignments is rejected before posting.
+- Added Supabase Edge Function redaction for notification inserts and board post/list/detail display fields.
+- Deployed `fc-notify`, `board-create`, `board-list`, and `board-detail` to project `ubeginyxaotcamuqpmud`.
+
+**Verification**:
+- RED/GREEN: `npx tsx --test web/src/lib/sensitive-text.test.ts`.
+- RED/GREEN: `node --test scripts/ops/post-insurance-digest.test.mjs`.
+- Passed: `cd web && npm run lint -- src/lib/sensitive-text.ts src/lib/sensitive-text.test.ts src/components/DashboardNotificationBell.tsx src/lib/board-api.ts src/app/api/fc-notify/route.ts src/app/api/admin/notices/route.ts`.
+- Passed: `deno check --config supabase/functions/deno.json supabase/functions/fc-notify/index.ts supabase/functions/board-create/index.ts supabase/functions/board-list/index.ts supabase/functions/board-detail/index.ts`.
+- Passed: DB scan found 0 sensitive rows in `notifications`, `notices`, and `board_posts`; remote `fc-notify` inbox response status 200 and no sensitive key pattern.
+- Note: `cd web && npx tsc --noEmit --project tsconfig.json` still fails on existing web test-suite TS config/import-extension and unrelated fixture type errors.
+
+---
+
+## 20260627-referral-graph-release-follow-through
+
+**Scope**: Admin referral graph rubber-band release follow-through.
+
+**Changes**:
+- Added a release elastic root ref so the rubber-band tether force stays active briefly after mouseup.
+- Changed `finishNodeDrag` so it clears `fx/fy` immediately but does not clear elastic tethers until the release settle timer ends.
+- Added bounded release velocity capture for manual desktop node dragging, using graph-coordinate deltas from pointer movement.
+- Added source-contract coverage to prevent immediate tether clearing and to require post-release velocity handoff.
+- Updated referral graph visual QA and the mistake ledger with the release follow-through guardrail.
+
+**Verification**:
+- RED confirmed: `npx tsx --test web/src/lib/referral-graph-interaction.test.ts` failed before implementation because release tether/velocity behavior was absent.
+- Passed: `npx tsx --test web/src/lib/referral-graph-interaction.test.ts web/src/lib/referral-graph-physics.test.ts`.
+- Passed: `npm --prefix web run lint -- src/components/referrals/ReferralGraphCanvas.tsx src/lib/referral-graph-interaction.test.ts`.
+- Passed: `SENTRY_AUTH_TOKEN='' npm --prefix web run build`.
+- Browser QA: production build served at `http://localhost:3100`, account `01058006018`, dragged node `3a645d36-50ce-44fd-9bf2-f9506c9cb70d`; `elasticDepthCount=88` during drag and immediately after release, then cleared after settle. Descendants continued moving after mouseup, with top tracked displacement `211.02` graph units at 220ms.
+
+**Evidence**:
+- `.codex/harness/referral-graph-qa/graph-rubber-release-1782557450379.json`
+- `.codex/harness/referral-graph-qa/graph-rubber-release-1782557450379.png`

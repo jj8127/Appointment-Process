@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { buildAdminChatTargets } from './admin-chat-targets.ts';
+import { buildAdminChatConversationSummaries, buildAdminChatTargets } from './admin-chat-targets.ts';
 
 test('buildAdminChatTargets keeps completed non-designer FCs visible and merges conversation summaries', () => {
   const targets = buildAdminChatTargets(
@@ -104,4 +104,54 @@ test('buildAdminChatTargets keeps completed non-designer FCs visible and merges 
       unread_count: 0,
     },
   ]);
+});
+
+test('buildAdminChatConversationSummaries derives latest messages and unread counts in one pass', () => {
+  const summaries = buildAdminChatConversationSummaries({
+    viewerId: 'admin-1',
+    counterpartPhones: ['010-1111-2222', '01033334444'],
+    messages: [
+      {
+        sender_id: '01011112222',
+        receiver_id: 'admin-1',
+        content: 'first unread',
+        created_at: '2026-06-25T10:00:00.000Z',
+        is_read: false,
+      },
+      {
+        sender_id: 'admin-1',
+        receiver_id: '01011112222',
+        content: 'latest reply',
+        created_at: '2026-06-25T10:05:00.000Z',
+        is_read: true,
+      },
+      {
+        sender_id: '01033334444',
+        receiver_id: 'admin-1',
+        content: 'other unread',
+        created_at: '2026-06-25T09:30:00.000Z',
+        is_read: false,
+      },
+      {
+        sender_id: '01099998888',
+        receiver_id: 'admin-1',
+        content: 'outside scoped FC list',
+        created_at: '2026-06-25T11:00:00.000Z',
+        is_read: false,
+      },
+    ],
+  });
+
+  assert.deepStrictEqual(summaries, {
+    '01011112222': {
+      last_message: 'latest reply',
+      last_time: '2026-06-25T10:05:00.000Z',
+      unread_count: 1,
+    },
+    '01033334444': {
+      last_message: 'other unread',
+      last_time: '2026-06-25T09:30:00.000Z',
+      unread_count: 1,
+    },
+  });
 });

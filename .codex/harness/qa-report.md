@@ -4086,3 +4086,135 @@ Verification:
 
 - Pass for source contracts, lint, TypeScript, and database cleanup verification.
 - Visual browser QA was user-observed during the loop; final automated browser screenshot was not taken in this pass.
+
+---
+
+# Verification: Roster-Based Account Maintenance 2026-06-23
+
+## Scope
+
+- Compared `현재재적인원_20260622.xlsx` and `해촉자 리스트_20260622.xlsx` against current GaramIn `fc_profiles`.
+- Mutated only rows with safe account matches; unmatched/name-conflict rows were skipped.
+
+## Results
+
+- Current-roster rows: 345.
+- Termination-list rows: 71.
+- DB profiles scanned: 318.
+- Step 5 update targets: 147.
+- Delete targets: 1.
+- Already completed among update targets before this run: 57.
+- Skipped: 198 current-roster rows and 70 termination-list rows were not automatically mutated because they were not found in GaramIn DB or had name/identifier conflict.
+
+## Apply Verification
+
+- Applied updates: 147.
+- Delete calls: 1.
+- Delete failures: 0.
+- Update verification failures: 0.
+- Deleted target still present: 0.
+- Independent table-count check for the deleted target returned 0 rows in `fc_profiles`, `profiles`, `fc_documents`, `fc_credentials`, `fc_identity_secure`, `exam_registrations`, and `notifications`.
+
+## Notes
+
+- Full personal identifiers were not written into this report.
+- Backup and audit JSON artifacts were stored under `.codex-tmp/roster-maintenance-20260623/`.
+
+## 2026-06-24 7본부 본부장 표시명 정규화 QA
+- Supabase migration apply: `rename_7hq_manager_to_lee_donghun` 성공, 원격 버전 `20260624050656` 확인.
+- DB 검증: 활성 `김동훈` manager 0건, 기존 7본부 old affiliation 0건, `7본부 이동훈` FC profile 56건, active 7본부 이동훈 manager 2건, 이동훈 shadow 2건.
+- DB 검증: 7본부 shadow 기준 `recommender='김동훈'` 0건, referral event `inviter_name='김동훈'` 0건, active manager device token display `김동훈` 0건.
+- Test: `npm test -- --runInBand lib/__tests__/internal-chat.test.ts` 통과.
+- Lint: `npx eslint app/signup.tsx app/fc/new.tsx app/dashboard.tsx lib/__tests__/internal-chat.test.ts supabase/functions/_shared/manager-affiliation.ts` 통과.
+- Lint: `cd web && npm run lint -- src/app/api/admin/list/route.ts` 통과.
+- Note: 루트 ESLint로 Deno Edge Function 전체(`fc-notify`)와 web 라우트를 함께 lint하면 기존 URL import/web alias resolver 오류가 섞여 실패하므로 패키지/환경별로 나눠 검증했다.
+
+## 2026-06-25 GaramIn Designer Headquarters Badge QA
+
+- Passed: `npm test -- --runInBand lib/__tests__/request-board-mobile-ui-contract.test.ts`.
+- Passed: `npx tsc --noEmit`.
+- Passed: `npx eslint app/request-board-create.tsx lib/request-board-api.ts lib/__tests__/request-board-mobile-ui-contract.test.ts`.
+- Coverage added: mobile UI contract now asserts `getDesignerHeadquarters`, `styles.designerHeadquartersBadge`, and `designer.contact_region`.
+
+## 2026-06-26 Admin Web Group Chat QA
+
+- Passed: `npm test -- --runInBand lib/__tests__/group-chat-api.test.ts lib/__tests__/group-chat-mobile-source.test.ts lib/__tests__/admin-web-group-chat-source.test.ts` (31/31).
+- Passed: `npx tsx --test web/src/lib/group-chat-web-route.test.ts` (3/3).
+- Passed: `cd web && npm run lint -- src/app/dashboard/layout.tsx src/app/dashboard/messenger/page.tsx src/app/dashboard/group-chat/page.tsx src/app/api/group-chat/route.ts src/app/api/group-chat/upload/route.ts src/components/DashboardNotificationBell.tsx src/lib/group-chat-web.ts src/lib/request-board-app-session.ts src/lib/staff-session.ts`.
+- Passed: `cd web && SENTRY_AUTH_TOKEN='' npm run build`.
+- Note: the requested `node --experimental-strip-types --test web/src/lib/group-chat-web-route.test.ts` command is unsupported by this local Node runtime, so the equivalent Node test was run through `tsx`.
+- Build warnings only: Turbopack reported existing `import-in-the-middle` package-version warnings and stale `baseline-browser-mapping` notices; no build failure remained.
+- Follow-up fix verified: admin messenger hub no longer calls `supabase.functions.invoke('fc-notify')` from the browser; it uses `/api/fc-notify`.
+- Follow-up fix verified: login stores `WEB_APP_SESSION_COOKIE` and `/api/group-chat` reads it before trying local token minting.
+
+## 2026-06-26 Admin Web Direct Chat List Loading QA
+
+- RED confirmed: `npx tsx --test web/src/lib/admin-chat-targets.test.ts` failed before implementation because `buildAdminChatConversationSummaries` did not exist.
+- RED confirmed: `npm test -- --runInBand lib/__tests__/admin-web-chat-source.test.ts` failed before implementation because `/dashboard/chat` still had a per-FC `baseTargets` loop and waited for `chatList` before deep-link fallback.
+- Passed: `npx tsx --test web/src/lib/admin-chat-targets.test.ts` (2/2).
+- Passed: `npm test -- --runInBand lib/__tests__/admin-web-chat-source.test.ts` (2/2).
+- Passed: `cd web && npm run lint -- src/app/dashboard/chat/page.tsx src/lib/admin-chat-targets.ts src/lib/admin-chat-targets.test.ts`.
+- Passed: `cd web && SENTRY_AUTH_TOKEN='' npm run build`.
+- Runtime check: `Invoke-WebRequest http://localhost:3000/dashboard/chat?targetId=01074306010&targetName=...` returned HTTP 200; dev log showed `/api/admin/list` around 300ms.
+- Note: `cd web && npx tsc --noEmit --pretty false` still fails due existing web test-suite TypeScript settings and unrelated fixture type errors.
+
+## 2026-06-26 Admin Web Secret Redaction QA
+
+- Cleaned one contaminated `board_posts.author_name` row and verified 0 sensitive rows remain across `notifications`, `notices`, and `board_posts`.
+- Fixed local `.env.local` so `BOARD_AUTOMATION_ACTOR_NAME` no longer contains the Sentry read-token assignment.
+- Passed: `npx tsx --test web/src/lib/sensitive-text.test.ts`.
+- Passed: `node --test scripts/ops/post-insurance-digest.test.mjs`.
+- Passed: `cd web && npm run lint -- src/lib/sensitive-text.ts src/lib/sensitive-text.test.ts src/components/DashboardNotificationBell.tsx src/lib/board-api.ts src/app/api/fc-notify/route.ts src/app/api/admin/notices/route.ts`.
+- Passed: `deno check --config supabase/functions/deno.json supabase/functions/fc-notify/index.ts supabase/functions/board-create/index.ts supabase/functions/board-list/index.ts supabase/functions/board-detail/index.ts`.
+- Passed: remote `fc-notify` inbox response returned 200 and contained no sensitive key pattern.
+- Deployed: `fc-notify`, `board-create`, `board-list`, and `board-detail` Supabase Functions.
+- Known unrelated check failure: `cd web && npx tsc --noEmit --project tsconfig.json` still fails due existing web test-suite TS config/import-extension and unrelated fixture type errors.
+
+## 2026-06-26 Admin Web Test Trace Data Cleanup QA
+
+- Cleaned unambiguous automated/QA test traces from Supabase production data: `TC_*`, `QA*`, `CODEX_*`, `API스모크`, `테스트*`, `테슽`, and `QA237287` patterns.
+- Removed matching rows and linked traces from `fc_profiles`, `admin_accounts`, `manager_accounts`, `messages`, `notifications`, `group_chat_messages`, `device_tokens`, `user_presence`, `referral_codes`, `referral_events`, and dependent FC/account tables.
+- Backup files were written under `.codex-tmp/test-trace-cleanup-20260626/` before deletion.
+- Passed final service-role verification scan: 0 matching rows in `notifications`, `messages`, `group_chat_messages`, `fc_profiles`, `admin_accounts`, `manager_accounts`, `board_posts`, `board_comments`, and `notices`.
+
+## 2026-06-26 Admin Web Duplicate Developer Chat Target QA
+
+- Root cause: one real active developer admin account existed, plus one stray completed FC profile named `개발자` with designer-manager affiliation, which could appear as a second developer-like chat target.
+- Cleaned the stray FC profile and its dependent notification/presence/credential/profile rows after local backup under `.codex-tmp/developer-duplicate-cleanup-20260626/`.
+- Passed service-role verification: 0 completed FC profiles named `개발자`, 1 active developer admin account remains, and 0 dependent notifications remain for the deleted FC profile.
+
+## 2026-06-26 Group Chat Error Classification QA
+
+- Fixed mobile and admin web group-chat failures so eligibility/session/permission limits show specific user-facing reasons instead of a generic `단톡방 오류`.
+- Edge Function now returns specific codes for non-completed FC accounts, request-board-designer-only accounts, inactive accounts, and account lookup failures.
+- Passed: `npm test -- --runInBand lib/__tests__/group-chat-error.test.ts lib/__tests__/group-chat-api.test.ts lib/__tests__/group-chat-edge-source.test.ts lib/__tests__/group-chat-mobile-source.test.ts lib/__tests__/admin-web-group-chat-source.test.ts` (41/41).
+- Passed: `npx eslint app/group-chat.tsx lib/group-chat-api.ts lib/group-chat-error.ts`.
+- Passed: `cd web && npm run lint -- src/lib/group-chat-client.ts src/app/dashboard/group-chat/page.tsx src/app/api/group-chat/route.ts src/app/api/group-chat/upload/route.ts`.
+- Passed: `npx tsx --test web/src/lib/group-chat-web-route.test.ts`.
+- Passed: `deno check --config supabase/functions/deno.json supabase/functions/group-chat/index.ts`.
+- Passed: `npx tsc --noEmit`.
+- Deployed: `supabase functions deploy group-chat --project-ref ubeginyxaotcamuqpmud --use-api`.
+- Remote smoke: invalid app-session request returned `401` with `code: invalid_app_session`.
+- Not run to completion: `cd web && npm run build` because the active local dev server was holding `.next`; `cd web && npx tsc --noEmit` still fails on existing unrelated web test-suite TS settings/fixtures.
+
+## 2026-06-26 Admin/Developer Notification Recipient Split QA
+
+- Root cause: direct chat had distinct shared-admin and developer phone recipients, but notifications merged phone-scoped admin inboxes with `resident_id is null` shared admin rows and pushed shared admin web/mobile notifications to every admin-role subscriber.
+- Passed: `npm test -- --runInBand lib/__tests__/notification-inbox-scope.test.ts lib/__tests__/admin-web-chat-source.test.ts lib/__tests__/internal-chat.test.ts` (17/17).
+- Passed: `npx eslint app/notifications.tsx app/index.tsx app/request-board.tsx lib/notification-inbox-scope.ts`.
+- Passed: `cd web && npx eslint src/components/DashboardNotificationBell.tsx src/app/api/fc-notify/route.ts src/app/api/admin/push/route.ts`.
+- Passed: `deno check --config supabase/functions/deno.json supabase/functions/fc-notify/index.ts`.
+- Passed: `npx tsc --noEmit`.
+- Deployed: `npx supabase functions deploy fc-notify --project-ref ubeginyxaotcamuqpmud`; Supabase Functions list shows `fc-notify` version 74.
+- DB verification: active developer and shared-admin recipient populations both exist, with separate shared-admin and developer-personal message notifications.
+- Remote smoke: `inbox_list` for shared admin returned no personal rows, and `inbox_list` for the active developer returned no shared-admin rows.
+- Not run to completion: `cd web && npm run build` because the active local dev server was holding `.next`; `cd web && npx tsc --noEmit` still fails on existing unrelated web test-suite TS settings/fixtures.
+
+## 2026-06-27 Admin Referral Graph Release Follow-Through QA
+
+- RED confirmed: `npx tsx --test web/src/lib/referral-graph-interaction.test.ts` failed before implementation because release tether/velocity behavior was absent.
+- Passed: `npx tsx --test web/src/lib/referral-graph-interaction.test.ts web/src/lib/referral-graph-physics.test.ts`.
+- Passed: `npm --prefix web run lint -- src/components/referrals/ReferralGraphCanvas.tsx src/lib/referral-graph-interaction.test.ts`.
+- Passed: `SENTRY_AUTH_TOKEN='' npm --prefix web run build`.
+- Browser QA passed on `http://localhost:3100` with account `01058006018`: dragged node `3a645d36-50ce-44fd-9bf2-f9506c9cb70d`, `elasticDepthCount=88` during drag and immediately after release, descendant movement continued after mouseup, and tethers cleared after the settle window.
+- Evidence: `.codex/harness/referral-graph-qa/graph-rubber-release-1782557450379.json`, `.codex/harness/referral-graph-qa/graph-rubber-release-1782557450379.png`.

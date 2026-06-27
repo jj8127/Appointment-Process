@@ -39,6 +39,16 @@ describe('group chat edge notification fanout', () => {
     expect(insert).toBeGreaterThan(forbidden);
   });
 
+  it('returns specific eligibility error codes for group chat participation limits', () => {
+    const source = readFunctionFile('group-chat/index.ts');
+
+    expect(source).toContain('getFcActorBlockReason');
+    expect(source).toContain("'not_completed'");
+    expect(source).toContain("'request_board_designer_only'");
+    expect(source).toContain("'inactive_account'");
+    expect(source).toContain('본등록이 완료되지 않아 단톡방에 참여할 수 없습니다.');
+  });
+
   it('wires staff-only group chat notice set and clear actions', () => {
     const source = readFunctionFile('group-chat/index.ts');
 

@@ -2454,3 +2454,113 @@ Verification:
 Runtime note:
 
 - Browser hot reload should clear the previous compile overlay; if the in-app browser still shows the old error, reload `http://localhost:8082/request-board-review?id=1149`.
+
+---
+
+# Handoff: Roster-Based Account Maintenance 2026-06-23
+
+Status: complete.
+
+What changed:
+
+- Parsed the 2026-06-22 current roster and termination list from the supplied Excel files.
+- Matched rows to GaramIn `fc_profiles` using strong identifiers plus name confirmation.
+- Updated 147 safely matched current-roster accounts to step 5 / appointment complete.
+- Deleted 1 safely matched terminated account through the existing `delete-account` cleanup function.
+- Skipped unmatched or conflicting rows rather than guessing.
+
+Verification:
+
+- Apply audit: 147 updates, 1 delete call, 0 failures.
+- Independent verification: updated rows all have final status, both completion flags, and both appointment dates.
+- Independent deletion check: 0 remaining rows for the deleted FC id in the main related tables checked.
+
+Artifacts:
+
+- Script: `.codex-tmp/roster-maintenance-20260623.mjs`
+- Backup: `.codex-tmp/roster-maintenance-20260623/backup-1782180340539.json`
+- Apply audit: `.codex-tmp/roster-maintenance-20260623/audit-apply-1782180358897.json`
+
+Remaining:
+
+- 198 current-roster rows and 70 termination-list rows were not mutated because they were not found in GaramIn DB or had name/identifier conflict. Manual review is required before touching those.
+
+## 2026-06-24 7본부 본부장 표시명 정규화 Handoff
+- 완료: 7본부 canonical label을 `7본부 이동훈`으로 변경하고, 기존 김동훈 legacy 입력은 새 라벨로 정규화되도록 유지했다.
+- 완료: 운영 Supabase DB에 migration `20260624050656_rename_7hq_manager_to_lee_donghun` 적용 및 검증 완료.
+- 주의: 7본부에 활성 이동훈 계정이 2개 남아 있다. 둘은 추천코드/추천 이력이 별도로 있어 이번 작업에서는 병합하지 않았다. 단일 로그인/단일 추천코드로 합치는 요구가 생기면 추천 이력 이관 범위를 먼저 확정해야 한다.
+
+## 2026-06-25 GaramIn Designer Headquarters Badge Handoff
+
+- Complete: GaramIn designer picker uses request_board contact fields and shows headquarters as a compact badge when `contact_region` exists.
+- Complete: selected manager and sent-request summaries include headquarters in parentheses.
+- Complete: mobile contract/type/lint checks passed.
+- Remaining: browser visual smoke for the badge is not recorded in this handoff.
+
+## 2026-06-26 Admin Web Group Chat Handoff
+
+- Complete: admin web messenger hub and notification routing open `/dashboard/group-chat`; the left sidebar intentionally does not show a separate duplicate group-chat item.
+- Complete: new dashboard group-chat page supports message load/send, read marking, realtime subscription cleanup with polling fallback, replies, reactions, own-message delete, notice set/clear, attachments, member search, and FC send-permission toggles.
+- Complete: web API proxy and upload route reuse the existing group-chat Function and storage bucket without a new DB/API contract.
+- Complete: subagent security audit findings were incorporated for signed HttpOnly staff sessions, strict action schemas, short web app-session tokens, upload size/type limits, own-bucket file URL checks, and Edge Function file URL validation.
+- Important runtime note: existing admin/manager browser sessions may need to log in again because protected server routes now require the new `staff_session` cookie.
+- Important runtime note: group chat now also depends on the `web_app_session` cookie set during login. If `/api/group-chat` returns 401 after hot reload, log out and log back in once.
+- Fixed after browser report: messenger hub unread counts use `/api/fc-notify`, not direct Supabase Function calls, to avoid localhost CORS failures.
+- Verified with focused Jest, Node/tsx helper tests, ESLint, and `web` production build.
+
+## 2026-06-26 Admin Web Direct Chat List Loading Handoff
+
+- Complete: `/dashboard/chat` no longer builds the left conversation list with two Supabase `messages` queries per FC.
+- Complete: `buildAdminChatConversationSummaries()` computes latest message and unread counts from one message-row fetch.
+- Complete: background refetch keeps the previous list visible, and `targetId`/`targetName` deep links can open the chat room before the full list finishes.
+- Verification passed with focused RED/GREEN tests, targeted ESLint, and `web` production build.
+- Dev server is running again on `http://localhost:3000`.
+
+## 2026-06-26 Admin Web Secret Redaction Handoff
+
+- Complete: removed the leaked Sentry read-token assignment from the visible insurance digest author row by cleaning `board_posts.author_name`.
+- Complete: fixed local `.env.local` so `BOARD_AUTOMATION_ACTOR_NAME` is just the digest actor name and no longer contains the Sentry read-token assignment.
+- Complete: admin web notification, board, notice, and `fc-notify` proxy display paths now redact env-style secret assignments.
+- Complete: digest automation rejects contaminated actor names before posting.
+- Complete: Supabase `fc-notify`, `board-create`, `board-list`, and `board-detail` functions now redact notification/board display fields and were deployed to `ubeginyxaotcamuqpmud`.
+- Verification passed with focused tests, targeted web lint, Deno checks, DB scan, and remote `fc-notify` response scan.
+- Remaining security action: rotate the exposed Sentry read token in Sentry and update local/deployment secrets.
+
+## 2026-06-26 Admin Web Test Trace Data Cleanup Handoff
+
+- Complete: removed visible automated/QA test traces from Supabase-backed admin web chat and notification data, including `TC_*`, `QA 내부FC*`, `QA 최적화 총무`, `CODEX_*`, `API스모크`, `테스트*`, `테슽`, and `QA237287` patterns.
+- Complete: cleaned matching account, direct-message, group-chat, notification, device/presence, referral, and FC dependent rows; local backups were saved in `.codex-tmp/test-trace-cleanup-20260626/`.
+- Verification passed: final broad service-role scan returned 0 matching rows in admin chat/list and notification-facing tables.
+
+## 2026-06-26 Admin Web Duplicate Developer Chat Target Handoff
+
+- Complete: removed the stray completed FC profile named `개발자` that was separate from the real developer admin account and could show as a duplicate developer chat target.
+- Complete: removed its dependent notification, presence, credential, profile, and FC rows; local backup was saved in `.codex-tmp/developer-duplicate-cleanup-20260626/`.
+- Verification passed: FC profiles named `개발자` are now 0, active developer admin accounts remain 1.
+
+## 2026-06-26 Group Chat Error Classification Handoff
+
+- Complete: mobile and admin web group-chat requests now preserve server status/code and classify failures into session, participation condition, permission, input, rate-limit, and real server/network errors.
+- Complete: non-completed FC accounts now receive a clear `본등록 완료 후 이용 가능` style explanation; request-board designer-only and inactive accounts also get specific participation-limit messages.
+- Complete: admin web silent polling/realtime refresh failures no longer show repeated notifications.
+- Complete: deployed the updated `group-chat` Supabase Function to `ubeginyxaotcamuqpmud`.
+- Verification passed with focused Jest/source tests, targeted app/web lint, web route helper test, root `tsc`, Deno check, and remote invalid-session smoke.
+- Remaining verification note: `web` production build was not rerun because the active dev server blocked `.next` cleanup; existing `web` full `tsc` still fails on unrelated test-suite settings/fixtures.
+
+## 2026-06-27 Admin Referral Graph Release Follow-Through Handoff
+
+- Complete: manual desktop graph dragging now captures bounded graph-coordinate release velocity and applies it to the dragged node on mouseup.
+- Complete: the rubber-band elastic tether force remains active through the short release settle window instead of being cleared immediately, so descendant nodes continue moving after release.
+- Complete: after the settle window, the release elastic root and tether map are cleared and the force engine cools normally.
+- Verification passed with RED/GREEN source tests, focused physics tests, targeted ESLint, `web` production build, and Playwright/Chrome browser QA on `http://localhost:3100` using account `01058006018`.
+- Evidence: `.codex/harness/referral-graph-qa/graph-rubber-release-1782557450379.json` and `.codex/harness/referral-graph-qa/graph-rubber-release-1782557450379.png`.
+
+## 2026-06-26 Admin/Developer Notification Recipient Split Handoff
+
+- Complete: direct-message notifications now follow the same recipient split as direct chat content: regular 총무 uses the shared `admin` inbox, while developers and read-only staff use their own phone-scoped inbox.
+- Complete: admin web header notification fetch, mobile notification screen, mobile home badge, and request-board notification badge now send the correct inbox resident scope.
+- Complete: `fc-notify` no longer merges shared admin `resident_id=null` notifications into phone-scoped admin inbox queries, counts, or deletes.
+- Complete: shared admin mobile/web push now targets active non-developer admin accounts only; developer-targeted admin notifications with a concrete phone target still go only to that target.
+- Complete: deployed `fc-notify` version 74 to `ubeginyxaotcamuqpmud`.
+- Verification passed with focused Jest/source tests, targeted app/web lint, root `tsc`, Deno check, Supabase function version check, DB recipient distribution query, and remote inbox split smoke.
+- Remaining verification note: `web` production build was not rerun because the active dev server blocked `.next` cleanup; existing `web` full `tsc` still fails on unrelated test-suite settings/fixtures.

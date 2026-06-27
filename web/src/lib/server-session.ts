@@ -5,6 +5,7 @@ import { validateSession } from '@/lib/csrf';
 import { FC_GRAPH_SESSION_COOKIE, verifyFcGraphSessionValue } from '@/lib/fc-graph-session';
 import { logger } from '@/lib/logger';
 import { buildPhoneCandidates } from '@/lib/phone-candidates';
+import { STAFF_SESSION_COOKIE, verifyStaffSessionValue } from '@/lib/staff-session';
 
 export { buildPhoneCandidates };
 
@@ -110,6 +111,17 @@ export async function getVerifiedServerSession(options: SessionCheckOptions): Pr
       );
       if (!fcGraphSession) {
         return { ok: false, status: 401, error: 'Invalid FC graph session' };
+      }
+    } else {
+      const staffSession = verifyStaffSessionValue(
+        cookieStore.get(STAFF_SESSION_COOKIE)?.value,
+        {
+          expectedRole: session.role,
+          expectedResidentDigits: residentDigits,
+        },
+      );
+      if (!staffSession) {
+        return { ok: false, status: 401, error: 'Invalid staff session' };
       }
     }
 

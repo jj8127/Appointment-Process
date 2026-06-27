@@ -113,6 +113,27 @@ test('dry-run validates payload without calling Supabase', async () => {
   assert.equal(result.payload.categorySlug, 'general');
 });
 
+test('runner rejects automation actor names contaminated with secret assignments', async () => {
+  const { fetchImpl } = createFetchRecorder([]);
+  const runner = createPostInsuranceDigestRunner({ fetchImpl, now: () => new Date('2026-05-16T00:00:00Z') });
+
+  await assert.rejects(
+    runner({
+      env: {
+        ...actorEnv,
+        BOARD_AUTOMATION_ACTOR_NAME: 'digest SENTRY_READ_AUTH_TOKEN=fake-token',
+      },
+      digest: {
+        title: buildDigestTitle(new Date('2026-05-16T00:00:00Z')),
+        content: 'digest summary\n- item',
+        sourceUrls: ['https://example.com/a'],
+      },
+      dryRun: true,
+    }),
+    /BOARD_AUTOMATION_ACTOR_NAME must not contain secrets/,
+  );
+});
+
 test('runner builds default KST digest title when title is omitted', async () => {
   const { fetchImpl } = createFetchRecorder([]);
   const runner = createPostInsuranceDigestRunner({ fetchImpl, now: () => new Date('2026-05-15T23:30:00Z') });

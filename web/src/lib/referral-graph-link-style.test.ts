@@ -23,7 +23,7 @@ function makeNode(id: string, overrides: Partial<GraphNode> = {}): GraphNode {
   };
 }
 
-test('regular graph edges render with one consistent visible style', () => {
+test('hub spokes render as quiet background links while branch links stay readable', () => {
   const root = makeNode('root', { referralCount: 24 });
   const rootLeaf = makeNode('root-leaf', { inboundCount: 1 });
   const branch = makeNode('branch', { inboundCount: 1, referralCount: 4 });
@@ -32,23 +32,30 @@ test('regular graph edges render with one consistent visible style', () => {
   const rootSpokeStyle = getReferralGraphLinkStyle(root, rootLeaf);
   const branchStyle = getReferralGraphLinkStyle(branch, branchLeaf);
 
-  assert.deepEqual(rootSpokeStyle, branchStyle);
-  assert.equal(rootSpokeStyle.layer, 'foreground');
-  assert.ok(rootSpokeStyle.alpha >= 0.6, `edge should be visible, got alpha=${rootSpokeStyle.alpha}`);
-  assert.ok(rootSpokeStyle.width >= 1.15, `edge should be visible, got width=${rootSpokeStyle.width}`);
+  assert.equal(rootSpokeStyle.layer, 'background');
+  assert.ok(rootSpokeStyle.alpha >= 0.28, `hub spoke should remain visible, got alpha=${rootSpokeStyle.alpha}`);
+  assert.ok(rootSpokeStyle.alpha <= 0.36, `hub spoke should stay quieter than branches, got alpha=${rootSpokeStyle.alpha}`);
+  assert.ok(rootSpokeStyle.width >= 0.9, `hub spoke should not disappear at overview zoom, got width=${rootSpokeStyle.width}`);
+  assert.equal(branchStyle.layer, 'foreground');
+  assert.ok(branchStyle.alpha > rootSpokeStyle.alpha, `branch link should be clearer than hub spoke`);
+  assert.ok(branchStyle.alpha >= 0.44, `branch link should be readable, got alpha=${branchStyle.alpha}`);
+  assert.ok(branchStyle.alpha <= 0.54, `branch link should stay below selected emphasis, got alpha=${branchStyle.alpha}`);
 });
 
-test('selected edges keep the same stroke color and width contract as regular edges', () => {
+test('selected edges become the only strong relationship lines', () => {
   const root = makeNode('root', { referralCount: 24 });
   const leaf = makeNode('leaf');
 
   const regularStyle = getReferralGraphLinkStyle(root, leaf);
   const selectedStyle = getReferralGraphLinkStyle(root, leaf, { isSelectionEdge: true });
 
-  assert.deepEqual(selectedStyle, regularStyle);
+  assert.equal(selectedStyle.layer, 'foreground');
+  assert.ok(selectedStyle.alpha >= 0.82, `selected edge should be prominent, got alpha=${selectedStyle.alpha}`);
+  assert.ok(selectedStyle.width >= 1.6, `selected edge should be thicker, got width=${selectedStyle.width}`);
+  assert.ok(selectedStyle.alpha > regularStyle.alpha);
 });
 
-test('render sort is deterministic when every edge uses the same layer', () => {
+test('render sort paints quiet background links before foreground branch links', () => {
   const root = makeNode('root', { referralCount: 24 });
   const branch = makeNode('branch', { inboundCount: 1, referralCount: 4 });
   const leaf = makeNode('leaf', { inboundCount: 1 });
@@ -59,5 +66,5 @@ test('render sort is deterministic when every edge uses the same layer', () => {
     { id: 'root__branch', referralCode: null, source: 'root', target: 'branch' },
   ], nodesById);
 
-  assert.deepEqual(sorted.map((edge) => edge.id), ['branch__leaf', 'root__branch']);
+  assert.deepEqual(sorted.map((edge) => edge.id), ['root__branch', 'branch__leaf']);
 });

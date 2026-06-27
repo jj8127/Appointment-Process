@@ -225,7 +225,7 @@ export async function parseAppSessionTokenDetailed(
   }
 
   const parsed = await verifySignedToken<AppSessionTokenPayload>(token, secret);
-  if (!parsed.ok) {
+  if (parsed.ok === false) {
     return parsed.reason === 'expired_token'
       ? {
         ok: false,
@@ -293,7 +293,7 @@ export async function parseRequestBoardBridgeTokenDetailed(
   }
 
   const parsed = await verifySignedToken<BridgeTokenPayload>(token, secret);
-  if (!parsed.ok) {
+  if (parsed.ok === false) {
     return parsed.reason === 'expired_token'
       ? {
         ok: false,
@@ -366,7 +366,7 @@ export async function requireAppSessionFromRequest(
   }
 
   const parsed = await parseAppSessionTokenDetailed(token);
-  if (!parsed.ok) {
+  if (parsed.ok === false) {
     return {
       ok: false,
       code: parsed.code,

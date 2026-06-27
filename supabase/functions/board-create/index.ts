@@ -1,5 +1,5 @@
 import { serve } from 'https://deno.land/std@0.224.0/http/server.ts';
-import { buildCorsHeaders, json, parseJson, requireActor, requireRole, supabase , dbError } from '../_shared/board.ts';
+import { buildCorsHeaders, json, parseJson, requireActor, requireRole, supabase , dbError, redactSensitiveText } from '../_shared/board.ts';
 import { isCanonicalBoardCategorySlug } from '../_shared/board-categories.ts';
 
 type Payload = {
@@ -23,14 +23,21 @@ function getEnv(name: string): string | undefined {
 }
 
 async function insertNotificationsWithFallback(rows: Array<Record<string, unknown>>) {
-  const firstTry = await supabase.from('notifications').insert(rows);
+  const sanitizedRows = rows.map((row) => ({
+    ...row,
+    title: redactSensitiveText(String(row.title ?? ''), '알림'),
+    body: redactSensitiveText(String(row.body ?? '')),
+    category: redactSensitiveText(String(row.category ?? ''), 'board_post'),
+    target_url: row.target_url ? redactSensitiveText(String(row.target_url)) : row.target_url,
+  }));
+  const firstTry = await supabase.from('notifications').insert(sanitizedRows);
   if (!firstTry.error) return null;
 
   const missingTargetColumn =
     firstTry.error.code === '42703' || String(firstTry.error.message ?? '').includes('target_url');
   if (!missingTargetColumn) return firstTry.error;
 
-  const fallbackRows = rows.map(({ target_url: _ignored, ...row }) => row);
+  const fallbackRows = sanitizedRows.map(({ target_url: _ignored, ...row }) => row);
   const secondTry = await supabase.from('notifications').insert(fallbackRows);
   return secondTry.error ?? null;
 }
@@ -104,12 +111,12 @@ serve(async (req: Request) => {
   if (!body) return json({ ok: false, code: 'invalid_json', message: 'Invalid JSON' }, 400, origin);
 
   const actorCheck = await requireActor(body, origin);
-  if (!actorCheck.ok) return actorCheck.response;
+  if (actorCheck.ok === false) return actorCheck.response;
   const forbidden = requireRole(actorCheck.actor, ['admin', 'manager'], origin);
   if (forbidden) return forbidden;
 
-  const title = (body.title ?? '').trim();
-  const content = (body.content ?? '').trim();
+  const title = redactSensitiveText(body.title ?? '').trim();
+  const content = redactSensitiveText(body.content ?? '').trim();
   const categoryId = body.categoryId;
 
   if (!title || !content || !categoryId) {
@@ -137,7 +144,7 @@ serve(async (req: Request) => {
       content,
       author_role: actorCheck.actor.role,
       author_resident_id: actorCheck.actor.residentId,
-      author_name: actorCheck.actor.displayName ?? '',
+      author_name: redactSensitiveText(actorCheck.actor.displayName ?? '', '작성자'),
     })
     .select('id')
     .single();

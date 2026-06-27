@@ -12,10 +12,22 @@ type ReferralGraphLinkStyleOptions = {
   isSelectionEdge?: boolean;
 };
 
-const UNIFORM_LINK_STYLE: ReferralGraphLinkStyle = {
-  alpha: 0.64,
+const QUIET_HUB_SPOKE_STYLE: ReferralGraphLinkStyle = {
+  alpha: 0.3,
+  layer: 'background',
+  width: 0.95,
+};
+
+const BRANCH_LINK_STYLE: ReferralGraphLinkStyle = {
+  alpha: 0.48,
   layer: 'foreground',
   width: 1.2,
+};
+
+const SELECTED_LINK_STYLE: ReferralGraphLinkStyle = {
+  alpha: 0.86,
+  layer: 'foreground',
+  width: 1.7,
 };
 
 export function getReferralGraphLinkStyle(
@@ -23,10 +35,18 @@ export function getReferralGraphLinkStyle(
   target: GraphNode,
   options: ReferralGraphLinkStyleOptions = {},
 ): ReferralGraphLinkStyle {
-  void source;
-  void target;
-  void options;
-  return UNIFORM_LINK_STYLE;
+  if (options.isSelectionEdge) {
+    return SELECTED_LINK_STYLE;
+  }
+
+  const sourceDegree = source.referralCount + source.inboundCount;
+  const targetDegree = target.referralCount + target.inboundCount;
+  const dominantDegree = Math.max(sourceDegree, targetDegree);
+  if (dominantDegree >= 12) {
+    return QUIET_HUB_SPOKE_STYLE;
+  }
+
+  return BRANCH_LINK_STYLE;
 }
 
 export function getReferralGraphLinkLayerRank(layer: ReferralGraphLinkRenderLayer) {

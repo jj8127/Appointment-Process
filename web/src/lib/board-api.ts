@@ -1,5 +1,6 @@
 import { supabase } from '@/lib/supabase';
 import { logger } from '@/lib/logger';
+import { redactSensitiveText } from '@/lib/sensitive-text';
 
 export type BoardActorRole = 'admin' | 'manager' | 'fc';
 export type BoardDisplayRole = 'admin' | 'manager' | 'fc' | 'developer';
@@ -197,11 +198,49 @@ export function buildBoardActor(session: {
   };
 }
 
+function sanitizeBoardListItem(item: BoardListItem): BoardListItem {
+  return {
+    ...item,
+    title: redactSensitiveText(item.title, '게시글'),
+    contentPreview: redactSensitiveText(item.contentPreview),
+    authorName: redactSensitiveText(item.authorName, '작성자'),
+    attachments: item.attachments?.map((attachment) => ({
+      ...attachment,
+      fileName: redactSensitiveText(attachment.fileName, 'file'),
+    })),
+  };
+}
+
+function sanitizeBoardDetail(detail: BoardDetail): BoardDetail {
+  return {
+    ...detail,
+    post: {
+      ...detail.post,
+      title: redactSensitiveText(detail.post.title, '게시글'),
+      content: redactSensitiveText(detail.post.content),
+      authorName: redactSensitiveText(detail.post.authorName, '작성자'),
+    },
+    attachments: detail.attachments.map((attachment) => ({
+      ...attachment,
+      fileName: redactSensitiveText(attachment.fileName, 'file'),
+    })),
+    comments: detail.comments.map((comment) => ({
+      ...comment,
+      content: redactSensitiveText(comment.content),
+      authorName: redactSensitiveText(comment.authorName, '작성자'),
+    })),
+  };
+}
+
 export async function fetchBoardList(actor: BoardActor, params: BoardListParams) {
-  return invokeBoard<{ items: BoardListItem[]; nextCursor?: string | null }>('board-list', {
+  const result = await invokeBoard<{ items: BoardListItem[]; nextCursor?: string | null }>('board-list', {
     actor,
     ...params,
   });
+  return {
+    ...result,
+    items: result.items.map(sanitizeBoardListItem),
+  };
 }
 
 export async function fetchBoardCategories(actor: BoardActor) {
@@ -209,7 +248,8 @@ export async function fetchBoardCategories(actor: BoardActor) {
 }
 
 export async function fetchBoardDetail(actor: BoardActor, postId: string) {
-  return invokeBoard<BoardDetail>('board-detail', { actor, postId });
+  const result = await invokeBoard<BoardDetail>('board-detail', { actor, postId });
+  return sanitizeBoardDetail(result);
 }
 
 export async function createBoardPost(actor: BoardActor, payload: { categoryId: string; title: string; content: string }) {
