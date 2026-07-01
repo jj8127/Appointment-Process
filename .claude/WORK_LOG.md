@@ -17,6 +17,12 @@
 - ⚠️ 상태값(`types/fc.ts`)과 화면 분기 조건은 반드시 함께 수정
 - ⚠️ 스키마 변경은 `schema.sql` + `migrations/*.sql` 동시 관리
 
+## 2026-06-30
+
+| Date | Work | Key files | Detail |
+|---|---|---|---|
+| 06-30 | GaramIn request-board designer picker ordering and headquarters labels | `app/request-board-create.tsx`, `app/request-board-messenger.tsx`, `lib/request-board-designer-selection.ts`, `lib/__tests__/request-board-designer-selection.test.ts`, `lib/__tests__/request-board-mobile-ui-contract.test.ts` | [detail](WORK_DETAIL.md#20260630-request-board-designer-picker-ordering) |
+
 ## 2026-06-26
 
 | Date | Work | Key files | Detail |

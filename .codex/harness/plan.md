@@ -1,3 +1,23 @@
+# Increment 60: GaramIn Designer Picker Ordering
+
+Status: completed locally on 2026-06-30.
+
+Implementation order:
+
+1. Completed: added a failing unit contract for life-first/nonlife-second designer ordering.
+2. Completed: added `sortRequestBoardDesigners()` to the request-board designer selection helper.
+3. Completed: applied the helper after designer search filtering in the create-flow bottom sheet.
+4. Completed: added messenger directory formatting so `contact_region` appears as `회사 (본부)` when present.
+5. Completed: added mobile UI source contracts for picker sorting and directory headquarters labels.
+6. Completed: ran focused Jest tests.
+
+Out of scope:
+
+- No API/schema changes in GaramIn.
+- No invented 흥국생명 headquarters mapping; that source belongs to request_board seed data.
+
+---
+
 # Increment 55: Admin Exam Legacy Apply Route Redirect
 
 Status: completed and deployed on 2026-06-08

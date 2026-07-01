@@ -118,6 +118,15 @@ const AVATAR_COLORS = [
   '#3B82F6', '#10B981', '#F59E0B', '#8B5CF6', '#EC4899',
   '#06B6D4', '#84CC16', '#F97316', '#6366F1', '#EF4444',
 ];
+
+const formatDesignerDirectoryCompany = (designer: RbDesigner) => {
+  const company = String(designer.company_name ?? '').trim();
+  const headquarters = String(designer.contact_region ?? '').trim();
+  if (!company) return headquarters;
+  if (!headquarters) return company;
+  return `${company} (${headquarters})`;
+};
+
 type FeatherIconName = keyof typeof Feather.glyphMap;
 
 const hashColor = (s: string): string => {
@@ -489,7 +498,7 @@ export default function RequestBoardMessengerScreen() {
                 id: `designer-${designer.id}`,
                 userId,
                 name,
-                company: designer.company_name ?? '',
+                company: formatDesignerDirectoryCompany(designer),
                 initial: name.charAt(0),
                 avatarColor: hashColor(name),
                 hasConversation: participantUserIds.has(userId),

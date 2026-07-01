@@ -7,6 +7,35 @@
 
 ---
 
+## <a id="20260630-request-board-designer-picker-ordering"></a> 2026-06-30 | GaramIn request-board designer picker ordering and headquarters labels
+
+**Background**:
+- The GaramIn request-board designer picker needed to match GaramLink's current designer ordering: life insurers first, nonlife insurers next, then company/name Korean collation.
+- The designer directory surfaces also needed to expose headquarters labels when `contact_region` exists.
+
+**Changes**:
+- Added `sortRequestBoardDesigners()` with life hints (`생명`, `라이프`, `연금`), nonlife hints (`손해`, `손보`, `화재`, `해상`), and company/name collation.
+- Applied the sort after search filtering in `DesignerBottomSheet`.
+- Added messenger directory company formatting so `company_name` shows `contact_region` as `회사 (본부)` when present.
+- Added unit and source-contract tests for picker ordering and headquarters label display.
+- Recorded the cross-app sort drift in `.claude/MISTAKES.md`.
+
+**Files**:
+- `app/request-board-create.tsx`
+- `app/request-board-messenger.tsx`
+- `lib/request-board-designer-selection.ts`
+- `lib/__tests__/request-board-designer-selection.test.ts`
+- `lib/__tests__/request-board-mobile-ui-contract.test.ts`
+- `.claude/MISTAKES.md`
+- `.claude/WORK_LOG.md`
+- `.claude/WORK_DETAIL.md`
+
+**Verification**:
+- Passed: `npm test -- --runInBand lib/__tests__/request-board-designer-selection.test.ts`
+- Passed: `npm test -- --runInBand lib/__tests__/request-board-mobile-ui-contract.test.ts`
+
+---
+
 ## <a id="20260626-admin-web-chat-list-loading"></a> 2026-06-26 | Admin web direct chat list loading optimization
 
 **Background**:

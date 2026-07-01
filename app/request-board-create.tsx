@@ -41,6 +41,7 @@ import { logger } from '@/lib/logger';
 import {
   getDesignerSelectionConfirmState,
   getDesignerSelectionFooterBottomPadding,
+  sortRequestBoardDesigners,
 } from '@/lib/request-board-designer-selection';
 import {
   formatRequestBoardCustomerBirthDateInput,
@@ -402,9 +403,9 @@ function DesignerBottomSheet({
 
   const filteredDesigners = useMemo(() => {
     const keyword = designerSearch.trim().toLowerCase();
-    if (!keyword) return designers;
-
-    return designers.filter((designer) => {
+    const designerCandidates = !keyword
+      ? designers
+      : designers.filter((designer) => {
       const code = findFcCodeForDesigner(designer, fcCodes);
       const productNames = (designer.designer_products ?? [])
         .map((item) => item.insurance_products?.name)
@@ -421,6 +422,8 @@ function DesignerBottomSheet({
         productNames,
       ].some((value) => value.toLowerCase().includes(keyword));
     });
+
+    return sortRequestBoardDesigners(designerCandidates);
   }, [designers, designerSearch, fcCodes]);
 
   const closeWithAnimation = useCallback(() => {

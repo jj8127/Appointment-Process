@@ -1,3 +1,21 @@
+# Current Contract: Increment 60 - GaramIn Designer Picker Ordering
+
+Status: implemented and locally verified on 2026-06-30.
+
+## Contract
+
+- GaramIn request-board designer picker sorts filtered candidates with life companies first, nonlife companies next, then company/name Korean collation.
+- Life grouping includes `생명`, `라이프`, and `연금`; nonlife grouping includes `손해`, `손보`, `화재`, and `해상`.
+- The designer picker and messenger directory display headquarters when `contact_region` is present.
+- The ordering must stay aligned with GaramLink request_board's designer-company sort contract.
+
+## Verification
+
+- Passed `npm test -- --runInBand lib/__tests__/request-board-designer-selection.test.ts`.
+- Passed `npm test -- --runInBand lib/__tests__/request-board-mobile-ui-contract.test.ts`.
+
+---
+
 # Current Contract: Increment 55 - Admin Exam Legacy Apply Route Redirect
 
 Status: completed and deployed on 2026-06-08

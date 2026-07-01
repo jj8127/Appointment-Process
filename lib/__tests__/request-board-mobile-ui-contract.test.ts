@@ -371,6 +371,13 @@ describe('request-board mobile UI contracts', () => {
     expect(messengerSource).not.toContain('설계사 목록');
   });
 
+  it('shows designer headquarters in the GaramLink messenger directory labels', () => {
+    expect(messengerSource).toContain('contact_region');
+    expect(messengerSource).toContain('formatDesignerDirectoryCompany');
+    expect(messengerSource).toContain('const company = String(designer.company_name ?? \'\').trim()');
+    expect(messengerSource).toContain('return `${company} (${headquarters})`;');
+  });
+
   it('keeps the home quick-card rejection reason modal above the soft keyboard', () => {
     expect(homeSource).toContain('KeyboardAvoidingView');
     expect(homeSource).toContain('styles.modalKeyboardAvoidingView');
@@ -484,6 +491,17 @@ describe('request-board mobile UI contracts', () => {
     expect(createSource).toContain('styles.managerPickerCopy');
     expect(createSource).toContain('numberOfLines={1}');
     expect(createSource).toContain('selectedDesigners.map(getDesignerNameWithHeadquarters).join');
+  });
+
+  it('sorts the mobile designer picker with life insurers first, company 가나다 순, then name order', () => {
+    expect(createSource).toContain('sortRequestBoardDesigners');
+    const designerSearchBlock = createSource.slice(
+      createSource.indexOf('const filteredDesigners = useMemo(() => {'),
+      createSource.indexOf('const closeWithAnimation = useCallback(() => {'),
+    );
+    expect(designerSearchBlock).toContain('const designerCandidates');
+    expect(designerSearchBlock).toContain('designerCandidates');
+    expect(designerSearchBlock).toContain('return sortRequestBoardDesigners(designerCandidates);');
   });
 
   it('highlights designer headquarters in the mobile designer picker', () => {

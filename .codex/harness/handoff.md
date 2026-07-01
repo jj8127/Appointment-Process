@@ -1,3 +1,25 @@
+# Increment 60: GaramIn Designer Picker Ordering
+
+Status: implemented locally.
+
+What changed:
+
+- `DesignerBottomSheet` now sorts search results with `sortRequestBoardDesigners()`.
+- `sortRequestBoardDesigners()` groups life-company hints (`생명`, `라이프`, `연금`) before nonlife hints (`손해`, `손보`, `화재`, `해상`), then sorts by company/name.
+- Messenger designer directory company labels include headquarters as `회사 (본부)` when `contact_region` exists.
+- Unit/source-contract coverage guards both ordering and headquarters display.
+
+Evidence:
+
+- `npm test -- --runInBand lib/__tests__/request-board-designer-selection.test.ts` passed.
+- `npm test -- --runInBand lib/__tests__/request-board-mobile-ui-contract.test.ts` passed.
+
+Next:
+
+- Run a device/browser visual smoke if exact on-screen spacing for the headquarters label needs confirmation.
+
+---
+
 # Increment 55: Admin Exam Legacy Apply Route Redirect
 
 Status: completed and deployed on 2026-06-08.

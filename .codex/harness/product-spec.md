@@ -1,3 +1,11 @@
+# Completed Increment 60: GaramIn Designer Picker Ordering
+
+GaramIn request-board designer selection follows the shared GaramLink ordering rule: life-company designers first, nonlife-company designers next, then company/name Korean collation. The picker applies this rule after search filtering so both the initial list and search results remain consistent.
+
+Designer directory labels can surface headquarters data from `contact_region` as `회사 (본부)` when the API supplies it. GaramIn does not own the headquarters seed source; `가람링크 연락망.xlsx` mappings are applied in request_board data as `조자경 -> 2본부`, `위성훈 -> 1,8본부`, and `김정선 -> 3,4,6,7본부`.
+
+---
+
 # Active Investigation: Role-Based E2E Audit 2026-06-19
 
 Scope is fixed to the two active repos `D:\hanhwa\fc-onboarding-app` and `D:\hanhwa\request_board`.

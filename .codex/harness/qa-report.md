@@ -1,3 +1,26 @@
+# Increment 60 Verification: GaramIn Designer Picker Ordering
+
+Date: 2026-06-30
+
+### Scope
+
+- GaramIn request-board create-flow designer picker.
+- GaramIn request-board messenger directory labels.
+- Request-board designer selection helper.
+
+### Commands
+
+- RED/GREEN: `npm test -- --runInBand lib/__tests__/request-board-designer-selection.test.ts`.
+- Passed: `npm test -- --runInBand lib/__tests__/request-board-mobile-ui-contract.test.ts`.
+
+### QA Judgment
+
+- Mobile picker ordering now matches the required life-first/nonlife-second business grouping.
+- Directory labels can surface headquarters data when `contact_region` is present.
+- Runtime visual smoke was not run in this increment.
+
+---
+
 # Increment 55 Verification: Admin Exam Legacy Apply Route Redirect
 
 Date: 2026-06-08

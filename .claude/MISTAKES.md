@@ -30,6 +30,25 @@
 - Verification:
 ```
 
+## 2026-06-30 | GaramIn Designer Picker Sort | mobile picker drifted from GaramLink company ordering
+- Symptom:
+  - GaramIn's request-board designer picker used the incoming API order after filtering, so the list could diverge from GaramLink's required `생명 회사 -> 손해 회사`, company 가나다, designer-name order.
+- Root cause:
+  - The mobile picker had no local sort helper and did not share the GaramLink designer-company grouping contract for `생명/라이프/연금` and `손해/손보/화재/해상`.
+- Why it was missed:
+  - Existing mobile source contracts checked headquarters badge rendering and selected summaries, but did not assert the picker list ordering.
+- Permanent guardrail:
+  - Request-board designer picker changes must include a sort contract covering life hints, nonlife hints, company order, and same-company designer names.
+  - Mobile UI source-contract tests must assert the picker applies `sortRequestBoardDesigners()` after filtering.
+- Related files:
+  - `app/request-board-create.tsx`
+  - `lib/request-board-designer-selection.ts`
+  - `lib/__tests__/request-board-designer-selection.test.ts`
+  - `lib/__tests__/request-board-mobile-ui-contract.test.ts`
+- Verification:
+  - `npm test -- --runInBand lib/__tests__/request-board-designer-selection.test.ts`
+  - `npm test -- --runInBand lib/__tests__/request-board-mobile-ui-contract.test.ts`
+
 ## 2026-06-27 | Admin Web Referral Graph Active Drag | Cluster separation moved unrelated components
 - Symptom:
   - During active node dragging, unrelated referral graph components could drift or re-layout even though the user was only manipulating one component.
