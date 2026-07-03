@@ -1,4 +1,5 @@
 import { Feather, Ionicons } from '@expo/vector-icons';
+import * as Clipboard from 'expo-clipboard';
 import * as DocumentPicker from 'expo-document-picker';
 import * as FileSystem from 'expo-file-system/legacy';
 import { Image } from 'expo-image';
@@ -34,6 +35,10 @@ import { fetchFcChatTargets } from '@/lib/internal-chat-api';
 import { getChatTargetPickerHeaderConfig } from '@/lib/chat-navigation';
 import { logger } from '@/lib/logger';
 import {
+  formatUnreadReceiptCount,
+  getDirectMessageUnreadCount,
+} from '@/lib/message-read-receipts';
+import {
   aggregatePresence,
   formatPresenceLabel,
   getPresenceColor,
@@ -60,6 +65,7 @@ const PRESENCE_POLL_INTERVAL_MS = 30_000;
 const CHAT_UPLOAD_BUCKET = 'chat-uploads';
 const FILE_CARD_WIDTH = Math.min(SCREEN_WIDTH * 0.64, 260);
 const LEGACY_SESSION_ERROR = '세션이 오래되었습니다. 로그아웃 후 다시 로그인해주세요.';
+const MESSAGE_SELECT_COLUMNS = 'id,content,sender_id,receiver_id,created_at,is_read,message_type,file_url,file_name,file_size';
 const HEADER_AVATAR_COLORS = [
   '#3B82F6',
   '#10B981',
@@ -113,6 +119,12 @@ type Message = {
   file_url?: string | null;
   file_name?: string | null;
   file_size?: number | null;
+};
+
+const getMessageCopyText = (message: Message): string => {
+  const content = String(message.content ?? '').trim();
+  if (content) return content;
+  return String(message.file_url ?? '').trim();
 };
 
 type FcChatTarget = {
@@ -314,7 +326,7 @@ export default function ChatScreen() {
         sender_id: myId,
         receiver_id: otherId,
         created_at: new Date().toISOString(),
-        is_read: true,
+        is_read: false,
         message_type: type,
         file_url: fileData?.url ?? null,
         file_name: fileData?.name ?? null,
@@ -443,7 +455,7 @@ export default function ChatScreen() {
     if (!myId || !otherId) return;
     const { data, error } = await supabase
       .from('messages')
-      .select('*')
+      .select(MESSAGE_SELECT_COLUMNS)
       .or(`and(sender_id.eq.${myId},receiver_id.eq.${otherId}),and(sender_id.eq.${otherId},receiver_id.eq.${myId})`)
       .order('created_at', { ascending: false });
     if (error) {
@@ -642,7 +654,7 @@ export default function ChatScreen() {
         file_name: fileData?.name ?? null,
         file_size: fileData?.size ?? null,
       })
-      .select('*')
+      .select(MESSAGE_SELECT_COLUMNS)
       .single();
 
     if (error) {
@@ -855,6 +867,43 @@ export default function ChatScreen() {
     ]);
   };
 
+  const handleCopyMessage = async (message: Message) => {
+    const copyText = getMessageCopyText(message);
+    if (!copyText) {
+      Alert.alert('복사할 수 없어요', '복사할 메시지 내용이 없습니다.');
+      return;
+    }
+
+    try {
+      await Clipboard.setStringAsync(copyText);
+      Alert.alert('복사 완료', '메시지를 복사했습니다.');
+    } catch (error) {
+      logger.debug('[chat] copy failed', { error });
+      Alert.alert('복사 실패', '메시지를 복사하지 못했습니다.');
+    }
+  };
+
+  const openMessageActions = (message: Message) => {
+    const actions = [
+      {
+        text: '복사',
+        onPress: () => {
+          void handleCopyMessage(message);
+        },
+      },
+      ...(message.sender_id === myId
+        ? [{
+            text: '삭제',
+            style: 'destructive' as const,
+            onPress: () => handleDeleteMessage(message),
+          }]
+        : []),
+      { text: '취소', style: 'cancel' as const },
+    ];
+
+    Alert.alert('메시지 옵션', undefined, actions);
+  };
+
   const formatTime = (iso: string) => {
     const d = new Date(iso);
     return d.toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit' });
@@ -935,6 +984,21 @@ export default function ChatScreen() {
 
   const renderItem = ({ item }: { item: Message }) => {
     const isMe = item.sender_id === myId;
+    const unreadReceiptText = formatUnreadReceiptCount(
+      getDirectMessageUnreadCount({
+        isOwn: isMe,
+        isRead: item.is_read,
+      }),
+    );
+    const messageMeta = (
+      <View style={[styles.messageSideMeta, isMe ? styles.messageSideMetaMe : styles.messageSideMetaOther]}>
+        {unreadReceiptText ? (
+          <Text style={styles.messageUnreadCount}>{unreadReceiptText}</Text>
+        ) : null}
+        <Text style={styles.timeText}>{formatTime(item.created_at)}</Text>
+      </View>
+    );
+
     return (
       <View style={[styles.msgRow, isMe ? styles.msgRowMe : styles.msgRowOther]}>
         {!isMe && (
@@ -946,39 +1010,35 @@ export default function ChatScreen() {
         <View style={[styles.msgContainer, { alignItems: isMe ? 'flex-end' : 'flex-start' }]}>
           {!isMe && <Text style={styles.senderName}>{headerTitle}</Text>}
 
-          <Pressable
-            onLongPress={() => handleDeleteMessage(item)}
-            delayLongPress={500}
-            style={({ pressed }) => [
-              styles.bubbleWrapper,
-              isMe ? styles.bubbleWrapperMe : styles.bubbleWrapperOther,
-              pressed && { opacity: 0.9 },
-            ]}>
-            <View
-              style={[
-                styles.bubble,
-                isMe ? styles.bubbleMe : styles.bubbleOther,
-                item.message_type === 'image' && {
-                  paddingHorizontal: 4,
-                  paddingVertical: 4,
-                  backgroundColor: isMe ? HANWHA_ORANGE : '#fff',
-                },
-                item.message_type === 'file' && {
-                  paddingHorizontal: 8,
-                  paddingVertical: 8,
-                },
+          <View style={[styles.messageBubbleLine, isMe ? styles.messageBubbleLineMe : styles.messageBubbleLineOther]}>
+            {isMe && messageMeta}
+            <Pressable
+              onLongPress={() => openMessageActions(item)}
+              delayLongPress={500}
+              style={({ pressed }) => [
+                styles.bubbleWrapper,
+                isMe ? styles.bubbleWrapperMe : styles.bubbleWrapperOther,
+                pressed && { opacity: 0.9 },
               ]}>
-              {renderMessageContent(item, isMe)}
-            </View>
-          </Pressable>
-
-          <Text
-            style={[
-              styles.timeText,
-              { textAlign: isMe ? 'right' : 'left', alignSelf: isMe ? 'flex-end' : 'flex-start' },
-            ]}>
-            {formatTime(item.created_at)}
-          </Text>
+              <View
+                style={[
+                  styles.bubble,
+                  isMe ? styles.bubbleMe : styles.bubbleOther,
+                  item.message_type === 'image' && {
+                    paddingHorizontal: 4,
+                    paddingVertical: 4,
+                    backgroundColor: isMe ? HANWHA_ORANGE : '#fff',
+                  },
+                  item.message_type === 'file' && {
+                    paddingHorizontal: 8,
+                    paddingVertical: 8,
+                  },
+                ]}>
+                {renderMessageContent(item, isMe)}
+              </View>
+            </Pressable>
+            {!isMe && messageMeta}
+          </View>
         </View>
       </View>
     );
@@ -1377,6 +1437,13 @@ const styles = StyleSheet.create({
   msgTextMe: { color: '#ffffff', fontWeight: '500' },
   msgTextOther: { color: CHARCOAL },
   msgLinkText: { color: '#2563EB', textDecorationLine: 'underline', fontWeight: '700' },
+  messageBubbleLine: { flexDirection: 'row', alignItems: 'flex-end', gap: 6, width: '100%' },
+  messageBubbleLineMe: { justifyContent: 'flex-end' },
+  messageBubbleLineOther: { justifyContent: 'flex-start' },
+  messageSideMeta: { minWidth: 30, paddingBottom: 2 },
+  messageSideMetaMe: { alignItems: 'flex-end' },
+  messageSideMetaOther: { alignItems: 'flex-start' },
+  messageUnreadCount: { fontSize: 11, lineHeight: 13, color: HANWHA_ORANGE, fontWeight: '800' },
   timeText: { fontSize: 11, color: '#9CA3AF', marginBottom: 2, minWidth: 30 },
   inputWrapper: {
     backgroundColor: '#fff',

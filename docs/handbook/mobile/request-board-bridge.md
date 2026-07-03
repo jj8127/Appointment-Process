@@ -7,6 +7,12 @@ source_of_truth: app/request-board*.tsx + lib/request-board-api.ts + lib/request
 
 # Mobile Playbook: GaramLink Bridge
 
+## 2026-07-03 Messenger Bridge Contract Notes
+
+- `app/request-board-messenger.tsx` must follow the same messenger interaction contract as direct and group chat: link rendering/opening, long-press action menu, copy/delete actions, and numeric unread count display where read-state data exists.
+- `lib/request-board-api.ts` is the bridge API surface for request-board messages, direct messages, delete actions, attachments, and session retry behavior.
+- Any bridge messenger change must update `lib/__tests__/mobile-chat-source.test.ts`, `lib/__tests__/message-read-receipts.test.ts`, `lib/__tests__/feature-contract-matrix.test.ts`, or this handbook contract.
+
 ## 목적
 
 - 가람in 안에서 GaramLink 설계요청/메신저를 안전하게 열고 unread/presence를 섞어 보여줌

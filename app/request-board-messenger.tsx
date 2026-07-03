@@ -26,8 +26,13 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import BrandedLoadingSpinner from '@/components/BrandedLoadingSpinner';
 import BrandedLoadingState from '@/components/BrandedLoadingState';
+import { LinkifiedSelectableText } from '@/components/LinkifiedSelectableText';
 import { useSession } from '@/hooks/use-session';
 import { logger } from '@/lib/logger';
+import {
+  formatUnreadReceiptCount,
+  getDirectMessageUnreadCount,
+} from '@/lib/message-read-receipts';
 import { formatRequestBoardFcDisplayName } from '@/lib/request-board-fc-identity';
 import {
   type RbAttachmentMeta,
@@ -39,6 +44,8 @@ import {
   type RbUser,
   rbCheckAuth,
   rbCreateDmConversation,
+  rbDeleteDmMessage,
+  rbDeleteMessage,
   rbGetConversations,
   rbGetDirectMessageUsers,
   rbGetDesigners,
@@ -80,6 +87,13 @@ type MessageAttachment = {
   fileUrl: string;
 };
 
+const ATTACHMENT_PLACEHOLDER_TEXTS = new Set(['[첨부파일]', '[泥⑤??뚯씪]']);
+
+const hasRenderableMessageText = (value: string | null | undefined): boolean => {
+  const text = String(value ?? '').trim();
+  return Boolean(text && !ATTACHMENT_PLACEHOLDER_TEXTS.has(text));
+};
+
 type PendingFile = {
   uri: string;
   name: string;
@@ -96,8 +110,24 @@ type UnifiedMessage = {
   message: string;
   createdAt: string;
   isOwn: boolean;
+  isRead: boolean;
   deleted: boolean;
   attachments: MessageAttachment[];
+};
+
+const getUnifiedMessageCopyText = (message: UnifiedMessage): string => {
+  if (hasRenderableMessageText(message.message)) {
+    return message.message.trim();
+  }
+
+  if (message.attachments.length === 0) {
+    return '';
+  }
+
+  return message.attachments
+    .map((attachment) => attachment.fileUrl)
+    .filter(Boolean)
+    .join('\n');
 };
 
 type DirectoryItem = {
@@ -326,6 +356,7 @@ export default function RequestBoardMessengerScreen() {
       message: message.message,
       createdAt: message.created_at,
       isOwn: message.sender_id === rbUser?.id,
+      isRead: message.is_read === true,
       deleted: !!('deleted_at' in message && message.deleted_at),
       attachments,
     };
@@ -947,6 +978,7 @@ export default function RequestBoardMessengerScreen() {
         message: msgText,
         createdAt: new Date().toISOString(),
         isOwn: true,
+        isRead: false,
         deleted: false,
         attachments: (attachments ?? []).map((attachment) => ({
           fileName: normalizeAttachmentFileName(attachment.fileName),
@@ -1093,6 +1125,73 @@ export default function RequestBoardMessengerScreen() {
   /* ═══════════════════════════════════════════════════
      RENDER: Loading / Checking Auth
      ═══════════════════════════════════════════════════ */
+  const handleCopyMessage = useCallback(async (message: UnifiedMessage) => {
+    const copyText = getUnifiedMessageCopyText(message);
+    if (!copyText) {
+      Alert.alert('복사할 수 없어요', '복사할 메시지 내용이 없습니다.');
+      return;
+    }
+
+    try {
+      await Clipboard.setStringAsync(copyText);
+      Alert.alert('복사 완료', '메시지를 복사했습니다.');
+    } catch (error) {
+      logger.warn('[messenger] copy message failed', error);
+      Alert.alert('복사 실패', '메시지를 복사하지 못했습니다.');
+    }
+  }, []);
+
+  const handleDeleteMessage = useCallback((message: UnifiedMessage) => {
+    if (!message.isOwn || message.id <= 0 || !activeConv) {
+      return;
+    }
+
+    Alert.alert('메시지 삭제', '이 메시지를 삭제하시겠습니까?', [
+      { text: '취소', style: 'cancel' },
+      {
+        text: '삭제',
+        style: 'destructive',
+        onPress: async () => {
+          const result = activeConv.type === 'request'
+            ? await rbDeleteMessage(message.id)
+            : await rbDeleteDmMessage(message.id);
+
+          if (!result.success) {
+            Alert.alert('삭제 실패', result.error ?? '메시지를 삭제하지 못했습니다.');
+            return;
+          }
+
+          setMessages((prev) => prev.filter((row) => row.id !== message.id));
+          void loadMessages(activeConv);
+          void loadConversations();
+        },
+      },
+    ]);
+  }, [activeConv, loadConversations, loadMessages]);
+
+  const openMessageActions = useCallback((message: UnifiedMessage) => {
+    if (message.deleted) return;
+
+    const actions = [
+      {
+        text: '복사',
+        onPress: () => {
+          void handleCopyMessage(message);
+        },
+      },
+      ...(message.isOwn && message.id > 0
+        ? [{
+            text: '삭제',
+            style: 'destructive' as const,
+            onPress: () => handleDeleteMessage(message),
+          }]
+        : []),
+      { text: '취소', style: 'cancel' as const },
+    ];
+
+    Alert.alert('메시지 옵션', undefined, actions);
+  }, [handleCopyMessage, handleDeleteMessage]);
+
   if (authState === 'checking') {
     return (
       <View style={styles.container}>
@@ -1253,7 +1352,22 @@ export default function RequestBoardMessengerScreen() {
                 const fileAttachments = item.attachments.filter(
                   (a: MessageAttachment) => !isImageType(a.fileType) && !isImageUrl(a.fileUrl),
                 );
-                const hasText = item.message && item.message !== '[첨부파일]';
+                const hasVisibleText = hasRenderableMessageText(item.message);
+                const unreadReceiptText = formatUnreadReceiptCount(
+                  getDirectMessageUnreadCount({
+                    isOwn: item.isOwn,
+                    isRead: item.isRead,
+                    isDeleted: item.deleted,
+                  }),
+                );
+                const ownMessageMeta = (
+                  <View style={styles.messageSideMeta}>
+                    {unreadReceiptText ? (
+                      <Text style={styles.messageUnreadCount}>{unreadReceiptText}</Text>
+                    ) : null}
+                    <Text style={styles.msgTime}>{fmtTime(item.createdAt)}</Text>
+                  </View>
+                );
 
                 const attachmentContent = (isOwn: boolean) => (
                   <>
@@ -1263,6 +1377,7 @@ export default function RequestBoardMessengerScreen() {
                           <Pressable
                             key={i}
                             onPress={() => setPreviewImage(img.fileUrl)}
+                            onLongPress={() => openMessageActions(item)}
                           >
                             <Image
                               source={{ uri: img.fileUrl }}
@@ -1283,6 +1398,7 @@ export default function RequestBoardMessengerScreen() {
                         onPress={() => {
                           void handleDownloadAttachment(file);
                         }}
+                        onLongPress={() => openMessageActions(item)}
                       >
                         <Feather
                           name={fileIcon(file.fileType)}
@@ -1321,12 +1437,22 @@ export default function RequestBoardMessengerScreen() {
                     )}
                     {item.isOwn ? (
                       <View style={styles.ownRow}>
-                        <Text style={styles.msgTime}>{fmtTime(item.createdAt)}</Text>
+                        {ownMessageMeta}
                         <View style={{ maxWidth: '75%' }}>
-                          {hasText && (
-                            <View style={styles.ownBubble}>
-                              <Text style={styles.ownBubbleText}>{item.message}</Text>
-                            </View>
+                          {hasVisibleText && (
+                            <Pressable
+                              style={styles.ownBubble}
+                              onLongPress={() => openMessageActions(item)}
+                              delayLongPress={450}
+                            >
+                              <LinkifiedSelectableText
+                                text={item.message}
+                                style={styles.ownBubbleText}
+                                linkStyle={styles.ownBubbleLinkText}
+                                linkPressBehavior="open"
+                                selectable={false}
+                              />
+                            </Pressable>
                           )}
                           {attachmentContent(true)}
                         </View>
@@ -1342,10 +1468,20 @@ export default function RequestBoardMessengerScreen() {
                               ? formatRequestBoardFcDisplayName(item.senderName, item.senderAffiliation)
                               : item.senderName}
                           </Text>
-                          {hasText && (
-                            <View style={styles.otherBubble}>
-                              <Text style={styles.otherBubbleText}>{item.message}</Text>
-                            </View>
+                          {hasVisibleText && (
+                            <Pressable
+                              style={styles.otherBubble}
+                              onLongPress={() => openMessageActions(item)}
+                              delayLongPress={450}
+                            >
+                              <LinkifiedSelectableText
+                                text={item.message}
+                                style={styles.otherBubbleText}
+                                linkStyle={styles.otherBubbleLinkText}
+                                linkPressBehavior="open"
+                                selectable={false}
+                              />
+                            </Pressable>
                           )}
                           {attachmentContent(false)}
                         </View>
@@ -1941,6 +2077,7 @@ const styles = StyleSheet.create({
     borderBottomRightRadius: RADIUS.sm, paddingHorizontal: SPACING.md, paddingVertical: SPACING.sm + 2,
   },
   ownBubbleText: { fontSize: TYPOGRAPHY.fontSize.base, color: '#fff', lineHeight: 21 },
+  ownBubbleLinkText: { color: '#fff', textDecorationLine: 'underline' },
 
   /* Other message (left) */
   otherRow: { flexDirection: 'row', alignItems: 'flex-end', marginBottom: SPACING.sm, gap: 6 },
@@ -1953,6 +2090,9 @@ const styles = StyleSheet.create({
     borderBottomLeftRadius: RADIUS.sm, paddingHorizontal: SPACING.md, paddingVertical: SPACING.sm + 2,
   },
   otherBubbleText: { fontSize: TYPOGRAPHY.fontSize.base, color: COLORS.gray[900], lineHeight: 21 },
+  otherBubbleLinkText: { color: COLORS.primary, textDecorationLine: 'underline' },
+  messageSideMeta: { minWidth: 32, alignItems: 'flex-end', marginBottom: 2 },
+  messageUnreadCount: { fontSize: 11, lineHeight: 13, color: COLORS.primary, fontWeight: '800' },
   msgTime: { fontSize: 10, color: COLORS.text.muted, marginBottom: 2 },
 
   emptyChatWrap: { flex: 1, alignItems: 'center', justifyContent: 'center', gap: 8 },

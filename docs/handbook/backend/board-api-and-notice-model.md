@@ -5,6 +5,8 @@ audience: developer, operator
 last_verified: 2026-06-08
 source_of_truth: supabase/functions/board-* + web/src/app/api/admin/notices/route.ts
 
+contract_guard_2026_07_03: mobile board/notice screens, admin board/notification pages, board Edge Functions, notice API routes, notification route normalization, and automated digest posting are mapped in docs/handbook/contract-test-map.json.
+
 # Backend Runbook: Board API And Notice Model
 
 ## 소유 범위

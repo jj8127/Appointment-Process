@@ -826,10 +826,13 @@ export default function GroupChatScreen() {
 
     try {
       const result = await groupChatSetMemberSendPermission(member.actor_id, nextCanSend);
+      const permissionTargetActorId = result.member.actor_id;
       setMembers((prev) => prev.map((row) =>
-        row.actor_id === result.member.actor_id ? { ...row, ...result.member } : row,
+        row.actor_id === member.actor_id || row.actor_id === permissionTargetActorId
+          ? { ...row, ...result.member }
+          : row,
       ));
-      if (result.member.actor_id === actor?.id) {
+      if (permissionTargetActorId === actor?.id || member.actor_id === actor?.id) {
         setCanSendMessages(resolveCanSendMessages(actor, result.member.can_send_messages));
       }
     } catch (error) {

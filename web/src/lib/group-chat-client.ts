@@ -155,10 +155,17 @@ export async function groupChatDeleteMessage(messageId: string) {
   });
 }
 
+function normalizeGroupChatPermissionActorId(value?: string | null) {
+  const raw = String(value ?? '').trim();
+  const withoutPrefix = raw.replace(/^fc:/i, '');
+  const phone = withoutPrefix.replace(/[^0-9]/g, '');
+  return phone ? `fc:${phone}` : raw;
+}
+
 export async function groupChatSetMemberSendPermission(targetActorId: string, canSendMessages: boolean) {
   return invokeGroupChat<{ ok: true; member: GroupChatMember }>({
     type: 'group_chat_member_send_permission',
-    target_actor_id: targetActorId,
+    target_actor_id: normalizeGroupChatPermissionActorId(targetActorId),
     can_send_messages: canSendMessages,
   });
 }

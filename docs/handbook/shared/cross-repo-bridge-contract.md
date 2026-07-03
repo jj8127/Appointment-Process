@@ -7,6 +7,12 @@ source_of_truth: supabase/functions/_shared/request-board-auth.ts + supabase/fun
 
 # Cross-Repo Bridge Contract
 
+## 2026-07-03 API And Messenger Contract Notes
+
+- `lib/request-board-api.ts` must remain the GaramIn bridge boundary for GaramLink requests, messages, direct messages, attachments, and delete actions.
+- Bridge API changes must keep request-board session retry/error classification, trusted `ssnView=full` reads, and messenger interaction parity aligned with request_board server routes.
+- Contract evidence is tracked through `lib/__tests__/request-board-api-contract.test.ts`, `lib/__tests__/request-board-session.test.ts`, `lib/__tests__/feature-contract-matrix.test.ts`, and the request_board feature-contract tests.
+
 ## 핵심 흐름
 
 1. `login-with-password`가 app session token과 `requestBoardBridgeToken`을 발급합니다.

@@ -595,6 +595,14 @@ export async function rbSendMessage(
 
 /* ─── DM Conversations ─── */
 
+export async function rbDeleteMessage(
+  messageId: number,
+): Promise<{ success: boolean; error?: string }> {
+  return rbFetch<undefined>(`/api/messages/message/${messageId}`, {
+    method: 'DELETE',
+  });
+}
+
 export async function rbGetDmConversations(): Promise<RbDmConversation[]> {
   const res = await rbFetch<RbDmConversation[]>('/api/direct-messages/conversations');
   if (res.success && res.data) {
@@ -655,6 +663,14 @@ export async function rbSendDmMessage(
 }
 
 /* ─── File Upload ─── */
+
+export async function rbDeleteDmMessage(
+  messageId: number,
+): Promise<{ success: boolean; error?: string }> {
+  return rbFetch<undefined>(`/api/direct-messages/message/${messageId}`, {
+    method: 'DELETE',
+  });
+}
 
 async function extractUploadErrorMessage(
   response: Response,

@@ -1,7 +1,11 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { buildAdminChatConversationSummaries, buildAdminChatTargets } from './admin-chat-targets.ts';
+import {
+  buildAdminChatConversationSummaries,
+  buildAdminChatTargets,
+  mergeAdminChatSummaryRows,
+} from './admin-chat-targets.ts';
 
 test('buildAdminChatTargets keeps completed non-designer FCs visible and merges conversation summaries', () => {
   const targets = buildAdminChatTargets(
@@ -154,4 +158,51 @@ test('buildAdminChatConversationSummaries derives latest messages and unread cou
       unread_count: 1,
     },
   });
+});
+
+test('mergeAdminChatSummaryRows keeps unread backfill rows from double-counting recent messages', () => {
+  const rows = mergeAdminChatSummaryRows(
+    [
+      {
+        id: 'already-recent-unread',
+        sender_id: '01011112222',
+        receiver_id: 'admin-1',
+        content: 'recent unread',
+        created_at: '2026-06-25T10:00:00.000Z',
+        is_read: false,
+      },
+      {
+        id: 'recent-reply',
+        sender_id: 'admin-1',
+        receiver_id: '01011112222',
+        content: 'latest reply',
+        created_at: '2026-06-25T10:05:00.000Z',
+        is_read: true,
+      },
+    ],
+    [
+      {
+        id: 'already-recent-unread',
+        sender_id: '01011112222',
+        receiver_id: 'admin-1',
+        content: 'recent unread',
+        created_at: '2026-06-25T10:00:00.000Z',
+        is_read: false,
+      },
+      {
+        id: 'older-unread-backfill',
+        sender_id: '01033334444',
+        receiver_id: 'admin-1',
+        content: 'older unread',
+        created_at: '2026-06-24T09:00:00.000Z',
+        is_read: false,
+      },
+    ],
+  );
+
+  assert.deepStrictEqual(rows.map((row) => row.id), [
+    'already-recent-unread',
+    'recent-reply',
+    'older-unread-backfill',
+  ]);
 });

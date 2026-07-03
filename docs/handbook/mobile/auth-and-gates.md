@@ -7,6 +7,13 @@ source_of_truth: app/login.tsx + app/signup*.tsx + app/reset-password.tsx + app/
 
 # Mobile Playbook: Auth And Gates
 
+## 2026-07-03 Login Contract Notes
+
+- `app/login.tsx` is part of the shared login/session contract, not just a local screen.
+- Password-save behavior must stay behind `lib/saved-login-credentials.ts` and the SecureStore-only guard.
+- Login changes must keep `hooks/use-login.ts`, `hooks/use-session.tsx`, `lib/session-landing.ts`, and request-board bridge session restoration aligned.
+- Contract evidence is `lib/__tests__/login-mobile-source.test.ts`, `hooks/__tests__/use-login.contract.test.ts`, `lib/__tests__/saved-login-credentials.test.ts`, and `lib/__tests__/feature-contract-matrix.test.ts`.
+
 ## 목적
 
 - 전화번호 기반 로그인/회원가입/비밀번호 재설정

@@ -44,8 +44,8 @@ describe('request board designer selection action', () => {
       {
         id: 1,
         company_name: '현대해상',
-        contact_name: '오근명',
-        users: { id: 1, name: '오근명' },
+        contact_name: '최익순',
+        users: { id: 1, name: '최익순' },
       },
       {
         id: 2,
@@ -103,7 +103,7 @@ describe('request board designer selection action', () => {
       '강승규 · IBK연금',
       '안희수 · KB라이프',
       '신해린 · 메리츠화재',
-      '오근명 · 현대해상',
+      '최익순 · 현대해상',
     ]);
   });
 });

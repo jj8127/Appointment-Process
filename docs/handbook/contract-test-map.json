@@ -1,0 +1,131 @@
+{
+  "version": 1,
+  "default_enforced": true,
+  "rules": [
+    {
+      "id": "messenger-interactions",
+      "prefixes": [
+        "app/chat.tsx",
+        "app/group-chat.tsx",
+        "app/request-board-messenger.tsx",
+        "components/LinkifiedSelectableText.tsx",
+        "lib/group-chat-contract.ts",
+        "lib/message-read-receipts.ts",
+        "lib/internal-chat-api.ts",
+        "lib/request-board-api.ts",
+        "web/src/app/dashboard/chat/page.tsx",
+        "web/src/lib/message-read-receipts.ts"
+      ],
+      "requires_any": [
+        "lib/__tests__/feature-contract-matrix.test.ts",
+        "lib/__tests__/group-chat-mobile-source.test.ts",
+        "lib/__tests__/mobile-chat-source.test.ts",
+        "lib/__tests__/admin-web-chat-source.test.ts",
+        "docs/handbook/feature-contract-matrix.md",
+        "docs/handbook/mobile/messenger-and-content.md",
+        "docs/handbook/contract-test-map.json"
+      ]
+    },
+    {
+      "id": "board-and-notices",
+      "prefixes": [
+        "app/board.tsx",
+        "app/board-detail.tsx",
+        "app/notice.tsx",
+        "app/notice-detail.tsx",
+        "lib/notification-route.ts",
+        "scripts/ops/post-insurance-digest.mjs",
+        "supabase/functions/board-",
+        "web/src/app/api/admin/notices/",
+        "web/src/app/dashboard/board/",
+        "web/src/app/dashboard/notifications/"
+      ],
+      "requires_any": [
+        "lib/__tests__/admin-web-board-source.test.ts",
+        "lib/__tests__/board-category-contract.test.ts",
+        "lib/__tests__/notification-route.test.ts",
+        "docs/handbook/feature-contract-matrix.md",
+        "docs/handbook/backend/board-api-and-notice-model.md",
+        "docs/handbook/contract-test-map.json"
+      ]
+    },
+    {
+      "id": "role-session-visibility",
+      "prefixes": [
+        "app/login.tsx",
+        "hooks/use-login.ts",
+        "hooks/use-session.tsx",
+        "lib/saved-login-credentials.ts",
+        "lib/request-board-session.ts",
+        "lib/request-board-permissions.ts",
+        "app/messenger.tsx",
+        "supabase/functions/login-with-password/",
+        "supabase/functions/refresh-app-session/",
+        "supabase/functions/sync-request-board-session/",
+        "web/src/hooks/use-session.tsx",
+        "web/src/lib/server-session.ts"
+      ],
+      "requires_any": [
+        "hooks/__tests__/use-login.contract.test.ts",
+        "lib/__tests__/request-board-session.test.ts",
+        "web/src/lib/admin-web-login-role.test.ts",
+        "docs/handbook/feature-contract-matrix.md",
+        "docs/handbook/role-permission-matrix.md",
+        "docs/handbook/contract-test-map.json"
+      ]
+    },
+    {
+      "id": "request-board-status-notifications",
+      "prefixes": [
+        "app/request-board.tsx",
+        "app/request-board-requests.tsx",
+        "app/request-board-review.tsx",
+        "lib/request-board-list-filters.ts",
+        "lib/request-board-home-stats.ts",
+        "lib/request-board-review-actions.ts",
+        "lib/notification-route.ts",
+        "lib/notification-checkpoint.ts",
+        "web/src/components/DashboardNotificationBell.tsx"
+      ],
+      "requires_any": [
+        "lib/__tests__/feature-contract-matrix.test.ts",
+        "lib/__tests__/request-board-mobile-ui-contract.test.ts",
+        "lib/__tests__/notification-route.test.ts",
+        "docs/handbook/feature-contract-matrix.md",
+        "docs/handbook/workflow-state-matrix.md",
+        "docs/handbook/contract-test-map.json"
+      ]
+    },
+    {
+      "id": "files-links-sensitive-data",
+      "prefixes": [
+        "lib/open-external-url.ts",
+        "lib/external-url.ts",
+        "lib/sentry-sanitize.ts",
+        "app/docs-upload.tsx",
+        "web/src/lib/admin-file-open.ts",
+        "web/src/lib/admin-fc-doc-storage.ts",
+        "web/src/app/api/admin/resident-numbers/",
+        "web/src/hooks/use-resident-number.ts",
+        "web/src/lib/resident-number-display.ts",
+        "web/src/lib/resident-number-route-handler.ts",
+        "web/src/lib/resident-number-route-request.ts",
+        "web/src/lib/resident-number-edge-response.ts",
+        "web/src/lib/server-resident-numbers.ts",
+        "web/src/lib/sensitive-text.ts",
+        "web/src/lib/sentry-sanitize.ts"
+      ],
+      "requires_any": [
+        "lib/__tests__/external-url.test.ts",
+        "lib/__tests__/sentry-sanitize.test.ts",
+        "web/src/lib/resident-number-route-handler.test.ts",
+        "web/src/lib/resident-number-route-request.test.ts",
+        "web/src/lib/resident-number-edge-response.test.ts",
+        "docs/handbook/feature-contract-matrix.md",
+        "docs/handbook/data/identity-and-pii.md",
+        "docs/handbook/data/storage-and-attachments.md",
+        "docs/handbook/contract-test-map.json"
+      ]
+    }
+  ]
+}

@@ -31,20 +31,20 @@ export function useLogin(options?: UseLoginOptions) {
   const { loginAs } = useSession();
   const [loading, setLoading] = useState(false);
 
-  const login = async (phoneInput: string, passwordInput: string) => {
+  const login = async (phoneInput: string, passwordInput: string): Promise<boolean> => {
     Keyboard.dismiss();
 
     // Validation using centralized validation library
     const phoneValidation = validatePhone(phoneInput);
     if (!phoneValidation.isValid) {
       Alert.alert('알림', phoneValidation.error);
-      return;
+      return false;
     }
 
     const passwordValidation = validateRequired(passwordInput, '비밀번호');
     if (!passwordValidation.isValid) {
       Alert.alert('알림', passwordValidation.error);
-      return;
+      return false;
     }
 
     const digits = normalizePhone(phoneInput);
@@ -67,7 +67,7 @@ export function useLogin(options?: UseLoginOptions) {
         if (options?.onError) {
           options.onError(error instanceof Error ? error : new Error(errorMessage));
         }
-        return;
+        return false;
       }
 
       if (!data?.ok) {
@@ -82,18 +82,18 @@ export function useLogin(options?: UseLoginOptions) {
           if (data?.role !== 'admin' && data?.role !== 'manager') {
             router.replace('/signup');
           }
-          return;
+          return false;
         }
 
         if ((data?.code === 'needs_password_setup' || data?.code === 'not_completed') && data?.role !== 'admin' && data?.role !== 'manager') {
           Alert.alert('안내', '회원가입이 완료되지 않았습니다. 회원가입을 완료해주세요.');
           router.replace('/signup');
-          return;
+          return false;
         }
 
         // Other login failures
         Alert.alert('로그인 실패', data?.message ?? '오류가 발생했습니다. 다시 시도해주세요.');
-        return;
+        return false;
       }
 
       // Success - set session
@@ -128,6 +128,7 @@ export function useLogin(options?: UseLoginOptions) {
       if (options?.onSuccess) {
         options.onSuccess(nextRole);
       }
+      return true;
     } catch (error) {
       logger.warn('[login] login flow threw', {
         phone: digits,
@@ -138,6 +139,7 @@ export function useLogin(options?: UseLoginOptions) {
       if (options?.onError && error instanceof Error) {
         options.onError(error);
       }
+      return false;
     } finally {
       setLoading(false);
     }

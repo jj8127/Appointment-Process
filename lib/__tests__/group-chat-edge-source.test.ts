@@ -79,7 +79,9 @@ describe('group chat edge notification fanout', () => {
     const handlerEnd = source.indexOf('async function getMessageInRoom', handlerStart);
     const handlerSource = source.slice(handlerStart, handlerEnd);
 
+    expect(source).toContain('normalizeFcGroupChatActorId');
     expect(source).toContain('async function getEligibleFcMemberByActorId');
+    expect(handlerSource).toContain('const targetActorId = normalizeFcGroupChatActorId(payload.target_actor_id)');
     expect(handlerSource).toContain('await getEligibleFcMemberByActorId(targetActorId)');
     expect(handlerSource).not.toContain('listEligibleMembersWithSendPermissions(room.id)');
   });

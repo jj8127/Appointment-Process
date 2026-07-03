@@ -31,6 +31,7 @@ export function parseArgs(argv = process.argv.slice(2)) {
   const parsed = {
     dryRun: false,
     projects: [],
+    summaryOnly: false,
   };
 
   for (let index = 0; index < argv.length; index += 1) {
@@ -45,6 +46,8 @@ export function parseArgs(argv = process.argv.slice(2)) {
 
     if (arg === '--dry-run') {
       parsed.dryRun = true;
+    } else if (arg === '--summary-only') {
+      parsed.summaryOnly = true;
     } else if (arg === '--org') {
       parsed.org = next().trim();
     } else if (arg === '--project') {
@@ -55,6 +58,8 @@ export function parseArgs(argv = process.argv.slice(2)) {
       parsed.eventLimit = parsePositiveInteger(next(), '--event-limit');
     } else if (arg === '--stats-period') {
       parsed.statsPeriod = next().trim();
+    } else if (arg === '--last-seen-days') {
+      parsed.lastSeenDays = parsePositiveInteger(next(), '--last-seen-days');
     } else if (arg === '--environment') {
       parsed.environment = next().trim();
     } else {
@@ -129,17 +134,32 @@ function formatKstYmd(date = new Date()) {
   return `${year}${month}${day}`;
 }
 
-function resolveConfig({ args = {}, env = process.env } = {}) {
+function formatUtcYmd(date) {
+  return date.toISOString().slice(0, 10);
+}
+
+function daysAgoYmd(days, now) {
+  const date = new Date(now.getTime() - days * 24 * 60 * 60 * 1000);
+  return formatUtcYmd(date);
+}
+
+function resolveConfig({ args = {}, env = process.env, now = new Date() } = {}) {
   const envProjects = splitCsv(env.SENTRY_PROJECTS);
+  const lastSeenDays = args.lastSeenDays ?? null;
+  const lastSeenSince = lastSeenDays ? daysAgoYmd(lastSeenDays, now) : null;
+
   return {
     org: String(args.org || env.SENTRY_ORG || DEFAULT_ORG).trim(),
     projects: (args.projects?.length ? args.projects : envProjects.length ? envProjects : DEFAULT_PROJECTS)
       .map((project) => String(project).trim())
       .filter(Boolean),
     environment: String(args.environment || env.SENTRY_ENVIRONMENT || DEFAULT_ENVIRONMENT).trim(),
-    statsPeriod: String(args.statsPeriod || DEFAULT_STATS_PERIOD).trim(),
+    statsPeriod: String(args.statsPeriod || (lastSeenDays ? '14d' : DEFAULT_STATS_PERIOD)).trim(),
     limit: args.limit ?? DEFAULT_LIMIT,
     eventLimit: args.eventLimit ?? DEFAULT_EVENT_LIMIT,
+    lastSeenDays,
+    lastSeenSince,
+    summaryOnly: Boolean(args.summaryOnly),
   };
 }
 
@@ -151,11 +171,17 @@ function requireReadToken(env) {
   return readToken;
 }
 
+function issueQuery(config) {
+  return ['is:unresolved', config.lastSeenSince ? `lastSeen:>=${config.lastSeenSince}` : '']
+    .filter(Boolean)
+    .join(' ');
+}
+
 function buildIssuesUrl(config) {
   const url = new URL(`/api/0/organizations/${config.org}/issues/`, SENTRY_API_BASE_URL);
   url.searchParams.set('environment', config.environment);
   url.searchParams.set('statsPeriod', config.statsPeriod);
-  url.searchParams.set('query', 'is:unresolved');
+  url.searchParams.set('query', issueQuery(config));
   url.searchParams.set('sort', 'freq');
   url.searchParams.set('limit', String(config.limit));
   for (const project of config.projects) {
@@ -269,6 +295,20 @@ function issueLink(issue) {
   return String(issue?.permalink ?? issue?.url ?? '').trim();
 }
 
+function summarizeIssue(issue) {
+  return {
+    id: issue?.id ?? null,
+    shortId: issueShortId(issue),
+    title: issueTitle(issue),
+    level: issue?.level ?? issue?.metadata?.level ?? null,
+    count: issue?.count ?? null,
+    userCount: issue?.userCount ?? issue?.user_count ?? null,
+    lastSeen: issue?.lastSeen ?? issue?.last_seen ?? null,
+    project: issue?.project?.slug ?? issue?.project?.name ?? null,
+    permalink: issueLink(issue) || null,
+  };
+}
+
 export function buildDraftPrMetadata({ issue, latestEvent = null, now = new Date() }) {
   const shortId = issueShortId(issue);
   const title = issueTitle(issue);
@@ -312,7 +352,7 @@ export function createSentryDailyTriageRunner({ fetchImpl = globalThis.fetch, no
   }
 
   return async function runSentryDailyTriage({ env = process.env, args = {}, dryRun = args.dryRun ?? false } = {}) {
-    const config = resolveConfig({ args, env });
+    const config = resolveConfig({ args, env, now: now() });
     const hasReadToken = Boolean(String(env.SENTRY_READ_AUTH_TOKEN ?? '').trim());
 
     if (dryRun) {
@@ -322,8 +362,11 @@ export function createSentryDailyTriageRunner({ fetchImpl = globalThis.fetch, no
         projects: config.projects,
         environment: config.environment,
         statsPeriod: config.statsPeriod,
+        query: issueQuery(config),
         limit: config.limit,
         eventLimit: config.eventLimit,
+        lastSeenDays: config.lastSeenDays,
+        summaryOnly: config.summaryOnly,
         hasReadToken,
         usesUploadTokenFallback: false,
       };
@@ -335,7 +378,22 @@ export function createSentryDailyTriageRunner({ fetchImpl = globalThis.fetch, no
       readToken,
       url: buildIssuesUrl(config),
     });
-    const issue = selectCandidateIssue(Array.isArray(issues) ? issues : []);
+    const issueList = Array.isArray(issues) ? issues : [];
+
+    if (config.summaryOnly) {
+      return {
+        status: 'summary',
+        org: config.org,
+        projects: config.projects,
+        environment: config.environment,
+        statsPeriod: config.statsPeriod,
+        query: issueQuery(config),
+        issueCount: issueList.length,
+        issues: issueList.map(summarizeIssue),
+      };
+    }
+
+    const issue = selectCandidateIssue(issueList);
 
     if (!issue) {
       return {
@@ -343,6 +401,8 @@ export function createSentryDailyTriageRunner({ fetchImpl = globalThis.fetch, no
         org: config.org,
         projects: config.projects,
         environment: config.environment,
+        statsPeriod: config.statsPeriod,
+        query: issueQuery(config),
       };
     }
 
@@ -359,6 +419,8 @@ export function createSentryDailyTriageRunner({ fetchImpl = globalThis.fetch, no
       org: config.org,
       projects: config.projects,
       environment: config.environment,
+      statsPeriod: config.statsPeriod,
+      query: issueQuery(config),
       issue: detailedIssue,
       latestEvent,
       events: eventList.slice(0, config.eventLimit),

@@ -1,3 +1,4 @@
+import { execFileSync } from 'child_process';
 import { readFileSync } from 'fs';
 import { join } from 'path';
 
@@ -7,28 +8,35 @@ function readRepoFile(path: string) {
   return readFileSync(join(repoRoot, path), 'utf8');
 }
 
+function runCanonicalSqlScript(...args: string[]) {
+  return execFileSync(process.execPath, ['scripts/ops/board-category-canonical-sql.mjs', ...args], {
+    cwd: repoRoot,
+    encoding: 'utf8',
+  }).trimEnd();
+}
+
+function escapeRegExp(value: string) {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
 describe('board category contract', () => {
-  it('keeps the active board category set to the five GaramIn labels', () => {
+  it('keeps schema and repair SQL derived from the canonical category source', () => {
     const schema = readRepoFile('supabase/schema.sql');
     const migration = readRepoFile('supabase/migrations/20260608000001_update_board_categories_product_recommendation_policy.sql');
     const categoriesShared = readRepoFile('supabase/functions/_shared/board-categories.ts');
     const categoriesFunction = readRepoFile('supabase/functions/board-categories-list/index.ts');
+    const canonicalSeedRows = runCanonicalSqlScript('--seed-rows').split(/\r?\n/);
+    const canonicalSlugList = runCanonicalSqlScript('--slug-list');
 
     for (const source of [schema, migration]) {
-      expect(source).toMatch(/'공지'\s*,\s*'notice'\s*,\s*1/);
-      expect(source).toMatch(/'교육 일정'\s*,\s*'education'\s*,\s*2/);
-      expect(source).toMatch(/'일반'\s*,\s*'general'\s*,\s*3/);
-      expect(source).toMatch(/'상품추천'\s*,\s*'garam-pick'\s*,\s*4/);
-      expect(source).toMatch(/'시책'\s*,\s*'policy'\s*,\s*5/);
-      expect(source).not.toMatch(/'가람pick'\s*,\s*'garam-pick'/);
+      for (const row of canonicalSeedRows) {
+        expect(source).toMatch(new RegExp(`${escapeRegExp(row)},?`));
+      }
     }
 
-    expect(categoriesShared).toContain("{ name: '공지', slug: 'notice', sortOrder: 1 }");
-    expect(categoriesShared).toContain("{ name: '교육 일정', slug: 'education', sortOrder: 2 }");
-    expect(categoriesShared).toContain("{ name: '일반', slug: 'general', sortOrder: 3 }");
-    expect(categoriesShared).toContain("{ name: '상품추천', slug: 'garam-pick', sortOrder: 4 }");
-    expect(categoriesShared).toContain("{ name: '시책', slug: 'policy', sortOrder: 5 }");
-    expect(categoriesShared).not.toContain('가람pick');
+    expect(migration).toContain(`where slug not in (${canonicalSlugList})`);
+    expect(categoriesShared).toContain('CANONICAL_BOARD_CATEGORIES');
+    expect(categoriesShared).toContain('CANONICAL_BOARD_CATEGORY_SLUGS');
     expect(categoriesFunction).toContain('CANONICAL_BOARD_CATEGORY_SLUGS');
   });
 
@@ -42,9 +50,10 @@ describe('board category contract', () => {
   it('keeps automated insurance digest posts in the general category', () => {
     const digestScript = readRepoFile('scripts/ops/post-insurance-digest.mjs');
 
-    expect(digestScript).toContain("const CATEGORY_NAME = '일반';");
     expect(digestScript).toContain("const CATEGORY_SLUG = 'general';");
-    expect(digestScript).toContain('const CATEGORY_SORT_ORDER = 3;');
+    expect(digestScript).toContain('loadCanonicalBoardCategories');
+    expect(digestScript).toContain('GENERAL_BOARD_CATEGORY.name');
+    expect(digestScript).toContain('GENERAL_BOARD_CATEGORY.sortOrder');
   });
 
   it('validates canonical categories at board write boundaries', () => {

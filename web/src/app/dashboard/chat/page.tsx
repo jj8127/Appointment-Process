@@ -8,10 +8,6 @@ import {
     type WebPresenceSnapshot,
 } from '@/lib/presence';
 import {
-    buildAdminChatConversationSummaries,
-    buildAdminChatTargets,
-    type AdminChatMessageSummaryRow,
-    type AdminChatSourceRow,
     type AdminChatTarget,
 } from '@/lib/admin-chat-targets';
 import { supabase } from '@/lib/supabase';
@@ -46,6 +42,10 @@ import dayjs from 'dayjs';
 import { useSearchParams } from 'next/navigation';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useSession } from '@/hooks/use-session';
+import {
+    formatUnreadReceiptCount,
+    getDirectMessageUnreadCount,
+} from '@/lib/message-read-receipts';
 import { getWebStaffChatActorId, getWebStaffSenderName } from '@/lib/staff-identity';
 
 import { logger } from '@/lib/logger';
@@ -53,8 +53,11 @@ import { logger } from '@/lib/logger';
 const HANWHA_ORANGE = '#f36f21';
 const CHARCOAL = '#111827';
 const MUTED = '#6b7280';
-const ROOM_POLL_INTERVAL_MS = 2500;
+const ROOM_POLL_INTERVAL_MS = 15000;
+const CHAT_LIST_REFETCH_INTERVAL_MS = 30000;
 const PRESENCE_POLL_INTERVAL_MS = 30_000;
+const VISIBLE_PRESENCE_LIMIT = 60;
+const MESSAGE_SELECT_COLUMNS = 'id,content,sender_id,receiver_id,created_at,is_read,message_type,file_url,file_name';
 const sanitize = (value: string | null | undefined) => String(value ?? '').replace(/[^0-9]/g, '');
 
 // --- Types ---
@@ -70,6 +73,14 @@ type Message = {
     message_type: 'text' | 'image' | 'file';
     file_url?: string | null;
     file_name?: string | null;
+    send_status?: 'sending' | 'failed';
+};
+
+type SendFcMessageNotificationInput = {
+    fcPhone: string;
+    body: string;
+    myChatId: string;
+    senderName: string;
 };
 
 const sortMessagesByCreatedAt = (rows: Message[]) =>
@@ -94,12 +105,121 @@ const areMessagesEqual = (prev: Message[], next: Message[]) => {
             || a.is_read !== b.is_read
             || (a.file_url ?? null) !== (b.file_url ?? null)
             || (a.file_name ?? null) !== (b.file_name ?? null)
+            || (a.send_status ?? null) !== (b.send_status ?? null)
         ) {
             return false;
         }
     }
     return true;
 };
+
+function toRealtimeMessage(row: Partial<Message> | null | undefined): Message | null {
+    if (!row) return null;
+    const id = String(row.id ?? '').trim();
+    const content = String(row.content ?? '');
+    const senderId = String(row.sender_id ?? '').trim();
+    const receiverId = String(row.receiver_id ?? '').trim();
+    const createdAt = String(row.created_at ?? '').trim();
+    if (!id || !senderId || !receiverId || !createdAt) return null;
+
+    const messageType =
+        row.message_type === 'image' || row.message_type === 'file'
+            ? row.message_type
+            : 'text';
+
+    return {
+        id,
+        content,
+        sender_id: senderId,
+        receiver_id: receiverId,
+        created_at: createdAt,
+        is_read: row.is_read === true,
+        message_type: messageType,
+        file_url: row.file_url ?? null,
+        file_name: row.file_name ?? null,
+    };
+}
+
+function isPendingVersionOfMessage(message: Message, incoming: Message) {
+    return message.send_status === 'sending'
+        && message.sender_id === incoming.sender_id
+        && message.receiver_id === incoming.receiver_id
+        && message.content === incoming.content;
+}
+
+function mergeMessageRows(rows: Message[], incoming: Message) {
+    return sortMessagesByCreatedAt([
+        ...rows.filter((message) =>
+            message.id !== incoming.id && !isPendingVersionOfMessage(message, incoming),
+        ),
+        incoming,
+    ]);
+}
+
+function updateMessageRows(rows: Message[], incoming: Message) {
+    if (!rows.some((message) => message.id === incoming.id)) {
+        return mergeMessageRows(rows, incoming);
+    }
+    return sortMessagesByCreatedAt(rows.map((message) =>
+        message.id === incoming.id ? { ...message, ...incoming } : message,
+    ));
+}
+
+async function sendFcMessageNotification({
+    fcPhone,
+    body,
+    myChatId,
+    senderName,
+}: SendFcMessageNotificationInput) {
+    const notificationBase = {
+        title: '상담 답변 알림',
+        body,
+        recipient_role: 'fc' as const,
+        resident_id: fcPhone,
+        category: 'message',
+    };
+
+    let { error: notifErr } = await supabase.from('notifications').insert({
+        ...notificationBase,
+        target_url: '/chat',
+    });
+
+    const missingTargetColumn =
+        notifErr?.code === '42703' || String(notifErr?.message ?? '').includes('target_url');
+    if (missingTargetColumn) {
+        const fallback = await supabase.from('notifications').insert(notificationBase);
+        notifErr = fallback.error ?? null;
+    }
+    if (notifErr) {
+        logger.warn('[chat][admin->fc] notifications insert error', notifErr.message);
+    } else {
+        logger.debug('[chat][admin->fc] notifications insert ok', { resident_id: fcPhone, body });
+    }
+
+    try {
+        const resp = await fetch('/api/fc-notify', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                type: 'message',
+                target_role: 'fc',
+                target_id: fcPhone,
+                message: body,
+                sender_id: myChatId,
+                sender_name: senderName,
+            }),
+        });
+        const data = await resp.json().catch(() => null);
+        logger.debug('[chat][admin->fc] fc-notify proxy response', {
+            status: resp.status,
+            ok: resp.ok,
+            data,
+        });
+    } catch (fnErr: unknown) {
+        const msg = fnErr instanceof Error ? fnErr.message : String(fnErr);
+        logger.warn('[chat][admin->fc] fc-notify proxy error', msg);
+    }
+}
 
 // --- Page Component ---
 export default function ChatPage() {
@@ -126,7 +246,7 @@ export default function ChatPage() {
     const { data: chatList, error: listError, isLoading: isListLoading, refetch: refetchList } = useQuery({
         queryKey: ['admin-chat-list', role, residentId, staffType],
         queryFn: async () => {
-            const response = await fetch('/api/admin/list', { cache: 'no-store' });
+            const response = await fetch('/api/admin/chat-list', { cache: 'no-store' });
             const payload = await response.json().catch(() => null);
 
             if (!response.ok) {
@@ -137,41 +257,19 @@ export default function ChatPage() {
                 throw new Error(message);
             }
 
-            const fcRows = Array.isArray(payload) ? (payload as AdminChatSourceRow[]) : [];
-            const baseTargets = buildAdminChatTargets(fcRows);
-            if (baseTargets.length === 0) {
-                return baseTargets;
-            }
-
-            const { data: messageRows, error: messageError } = await supabase
-                .from('messages')
-                .select('sender_id,receiver_id,content,created_at,is_read')
-                .or(`sender_id.eq.${myChatId},receiver_id.eq.${myChatId}`)
-                .order('created_at', { ascending: false });
-
-            if (messageError) {
-                throw new Error(messageError.message);
-            }
-
-            const summariesByPhone = buildAdminChatConversationSummaries({
-                viewerId: myChatId,
-                counterpartPhones: baseTargets.map((target) => target.phone),
-                messages: (messageRows ?? []) as AdminChatMessageSummaryRow[],
-            });
-
-            return buildAdminChatTargets(fcRows, summariesByPhone);
+            return Array.isArray(payload) ? (payload as ChatPreview[]) : [];
         },
         enabled: hydrated && Boolean(role) && Boolean(myChatId),
         placeholderData: (previousData) => previousData,
-        refetchInterval: 10000, // Polling list every 10s as backup
+        refetchInterval: CHAT_LIST_REFETCH_INTERVAL_MS,
     });
 
     // Filter List
-    const filteredList = (chatList || []).filter((item) => {
+    const filteredList = useMemo(() => (chatList || []).filter((item) => {
         if (!keyword.trim()) return true;
         const q = keyword.trim().toLowerCase();
         return item.name.toLowerCase().includes(q) || item.phone.includes(q);
-    });
+    }), [chatList, keyword]);
     const deepLinkedSelection = useMemo(() => {
         if (!deepLinkedTargetId) return null;
         const matched = chatList?.find((item) => item.phone === deepLinkedTargetId);
@@ -194,13 +292,14 @@ export default function ChatPage() {
     const trackedPresencePhones = useMemo(
         () => Array.from(
                 new Set(
-                    (chatList ?? [])
+                    filteredList
+                        .slice(0, VISIBLE_PRESENCE_LIMIT)
                         .map((item) => normalizePresencePhone(item.phone))
                         .concat(activeFc ? normalizePresencePhone(activeFc.phone) : [])
                         .filter((phone) => phone.length === 11),
                 ),
             ),
-        [activeFc, chatList],
+        [activeFc, filteredList],
     );
     const loadPresence = useCallback(async (phones = trackedPresencePhones) => {
         if (phones.length === 0) {
@@ -254,13 +353,22 @@ export default function ChatPage() {
 
     // --- Realtime List Updates ---
     useEffect(() => {
+        if (!myChatId) return;
+
         const channel = supabase
-            .channel('admin-chat-list')
+            .channel(`admin-chat-list-${myChatId}`)
             .on(
                 'postgres_changes',
                 { event: '*', schema: 'public', table: 'messages' },
-                () => {
-                    // If a new message comes in, refetch the list to update order/badge
+                (payload) => {
+                    const source = payload.eventType === 'DELETE'
+                        ? (payload.old as Partial<Message> | null)
+                        : (payload.new as Partial<Message> | null);
+                    const senderId = String(source?.sender_id ?? '').trim();
+                    const receiverId = String(source?.receiver_id ?? '').trim();
+                    if (senderId !== myChatId && receiverId !== myChatId) {
+                        return;
+                    }
                     refetchList();
                 }
             )
@@ -269,7 +377,7 @@ export default function ChatPage() {
         return () => {
             supabase.removeChannel(channel);
         };
-    }, [refetchList]);
+    }, [myChatId, refetchList]);
 
     return (
         <Container size="xl" py="xl" h="calc(100vh - 80px)">
@@ -440,8 +548,12 @@ function ChatRoom({
     const [messages, setMessages] = useState<Message[]>([]);
     const [inputText, setInputText] = useState('');
     const viewport = useRef<HTMLDivElement>(null);
-    const [isSending, setIsSending] = useState(false);
     const messagesRef = useRef<Message[]>([]);
+    const inputTextRef = useRef('');
+
+    useEffect(() => {
+        inputTextRef.current = inputText;
+    }, [inputText]);
 
     const scrollToBottom = useCallback(() => {
         setTimeout(() => {
@@ -465,7 +577,7 @@ function ChatRoom({
         async (options?: { scrollOnChange?: boolean; notifyList?: boolean }) => {
             const { data, error } = await supabase
                 .from('messages')
-                .select('*')
+                .select(MESSAGE_SELECT_COLUMNS)
                 .or(
                     `and(sender_id.eq.${myChatId},receiver_id.eq.${fc.phone}),and(sender_id.eq.${fc.phone},receiver_id.eq.${myChatId})`,
                 )
@@ -497,6 +609,50 @@ function ChatRoom({
         void fetchMessages({ scrollOnChange: true, notifyList: true });
     }, [fetchMessages]);
 
+    const applyRealtimeMessageChange = useCallback(
+        (payload: { eventType: string; new: unknown; old: unknown }) => {
+            const rawRow = (payload.eventType === 'DELETE' ? payload.old : payload.new) as Partial<Message> | null;
+            const rowId = String(rawRow?.id ?? '').trim();
+            const senderId = String(rawRow?.sender_id ?? '').trim();
+            const receiverId = String(rawRow?.receiver_id ?? '').trim();
+            const knownMessage = Boolean(rowId && messagesRef.current.some((message) => message.id === rowId));
+            const isRelated =
+                (senderId === myChatId && receiverId === fc.phone) ||
+                (senderId === fc.phone && receiverId === myChatId) ||
+                (payload.eventType === 'DELETE' && knownMessage);
+
+            if (!isRelated) return 'ignored';
+
+            if (payload.eventType === 'DELETE') {
+                if (!rowId) return 'fallback';
+                const changed = applyMessages(messagesRef.current.filter((message) => message.id !== rowId));
+                if (changed) onConversationUpdated?.();
+                return 'applied';
+            }
+
+            const incoming = toRealtimeMessage(rawRow);
+            if (!incoming) return 'fallback';
+
+            if (payload.eventType === 'INSERT') {
+                const changed = applyMessages(mergeMessageRows(messagesRef.current, incoming));
+                if (changed) {
+                    scrollToBottom();
+                    onConversationUpdated?.();
+                }
+                return 'applied';
+            }
+
+            if (payload.eventType === 'UPDATE') {
+                const changed = applyMessages(updateMessageRows(messagesRef.current, incoming));
+                if (changed) onConversationUpdated?.();
+                return 'applied';
+            }
+
+            return 'fallback';
+        },
+        [applyMessages, fc.phone, myChatId, onConversationUpdated, scrollToBottom],
+    );
+
     useEffect(() => {
         const channel = supabase
             .channel(`chat-room-${fc.phone}`)
@@ -504,14 +660,10 @@ function ChatRoom({
                 'postgres_changes',
                 { event: '*', schema: 'public', table: 'messages' },
                 (payload) => {
-                    const row = (payload.new ?? payload.old) as Partial<Message> | null;
-                    const senderId = row?.sender_id;
-                    const receiverId = row?.receiver_id;
-                    const isRelated =
-                        (senderId === myChatId && receiverId === fc.phone) ||
-                        (senderId === fc.phone && receiverId === myChatId);
-                    if (!isRelated) return;
-                    void fetchMessages({ scrollOnChange: payload.eventType === 'INSERT', notifyList: true });
+                    const result = applyRealtimeMessageChange(payload);
+                    if (result === 'fallback') {
+                        void fetchMessages({ notifyList: true });
+                    }
                 },
             )
             .subscribe();
@@ -519,7 +671,7 @@ function ChatRoom({
         return () => {
             supabase.removeChannel(channel);
         };
-    }, [fc.phone, fetchMessages, myChatId]);
+    }, [applyRealtimeMessageChange, fc.phone, fetchMessages]);
 
     useEffect(() => {
         const intervalId = window.setInterval(() => {
@@ -545,13 +697,28 @@ function ChatRoom({
     }, [fetchMessages]);
 
     const handleSendMessage = async () => {
-        if (!inputText.trim()) return;
-        setIsSending(true);
+        const trimmed = inputTextRef.current.trim();
+        if (!trimmed) return;
+
+        const optimisticId = `optimistic-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+        const optimisticMessage: Message = {
+            id: optimisticId,
+            sender_id: myChatId,
+            receiver_id: fc.phone,
+            content: trimmed,
+            message_type: 'text',
+            is_read: false,
+            created_at: new Date().toISOString(),
+            send_status: 'sending',
+        };
+
+        inputTextRef.current = '';
+        setInputText('');
+        messagesRef.current = sortMessagesByCreatedAt([...messagesRef.current, optimisticMessage]);
+        setMessages(messagesRef.current);
+        scrollToBottom();
 
         try {
-            const trimmed = inputText.trim();
-
-            // 1. Insert Message
             const { data: inserted, error } = await supabase
                 .from('messages')
                 .insert({
@@ -559,82 +726,51 @@ function ChatRoom({
                     receiver_id: fc.phone,
                     content: trimmed,
                     message_type: 'text',
-                    is_read: false
+                    is_read: false,
                 })
-                .select('*')
+                .select(MESSAGE_SELECT_COLUMNS)
                 .single();
 
             if (error) throw error;
 
-            // 2. Clear input + reflect immediately in UI
-            setInputText('');
             if (inserted) {
-                const next = sortMessagesByCreatedAt([...messagesRef.current, inserted as Message]);
+                const insertedMessage = inserted as Message;
+                const next = sortMessagesByCreatedAt([
+                    ...messagesRef.current.filter((message) =>
+                        message.id !== optimisticId && message.id !== insertedMessage.id,
+                    ),
+                    insertedMessage,
+                ]);
                 messagesRef.current = next;
                 setMessages(next);
                 scrollToBottom();
                 onConversationUpdated?.();
             } else {
+                messagesRef.current = messagesRef.current.filter((message) => message.id !== optimisticId);
+                setMessages(messagesRef.current);
                 void fetchMessages({ scrollOnChange: true, notifyList: true });
             }
 
-            // 3. Send Notification + Push (with debug logs)
             const notifBody = trimmed.length > 50 ? `${trimmed.slice(0, 50)}...` : trimmed;
-
-            const notificationBase = {
-                title: '상담 답변 알림',
+            void sendFcMessageNotification({
+                fcPhone: fc.phone,
                 body: notifBody,
-                recipient_role: 'fc' as const,
-                resident_id: fc.phone,
-                category: 'message',
-            };
-
-            let { error: notifErr } = await supabase.from('notifications').insert({
-                ...notificationBase,
-                target_url: '/chat',
+                myChatId,
+                senderName,
             });
-
-            const missingTargetColumn =
-                notifErr?.code === '42703' || String(notifErr?.message ?? '').includes('target_url');
-            if (missingTargetColumn) {
-                const fallback = await supabase.from('notifications').insert(notificationBase);
-                notifErr = fallback.error ?? null;
-            }
-            if (notifErr) {
-                logger.warn('[chat][admin->fc] notifications insert error', notifErr.message);
-            } else {
-                logger.debug('[chat][admin->fc] notifications insert ok', { resident_id: fc.phone, body: notifBody });
-            }
-
-            try {
-                const resp = await fetch('/api/fc-notify', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({
-                        type: 'message',
-                        target_role: 'fc',
-                        target_id: fc.phone,
-                        message: notifBody,
-                        sender_id: myChatId,
-                        sender_name: senderName,
-                    }),
-                });
-                const data = await resp.json().catch(() => null);
-                logger.debug('[chat][admin->fc] fc-notify proxy response', {
-                    status: resp.status,
-                    ok: resp.ok,
-                    data,
-                });
-            } catch (fnErr: unknown) {
-                const msg = fnErr instanceof Error ? fnErr.message : String(fnErr);
-                logger.warn('[chat][admin->fc] fc-notify proxy error', msg);
-            }
-
         } catch (err: unknown) {
+            messagesRef.current = messagesRef.current.filter((message) => message.id !== optimisticId);
+            setMessages(messagesRef.current);
+            setInputText((current) => {
+                if (current.trim()) {
+                    inputTextRef.current = current;
+                    return current;
+                }
+                inputTextRef.current = trimmed;
+                return trimmed;
+            });
             const msg = err instanceof Error ? err.message : '전송 중 오류가 발생했습니다.';
             notifications.show({ title: '전송 실패', message: msg, color: 'red' });
-        } finally {
-            setIsSending(false);
         }
     };
 
@@ -704,11 +840,36 @@ function ChatRoom({
                 <Stack gap="sm">
                     {messages.map((msg) => {
                         const isMe = msg.sender_id === myChatId;
+                        const unreadReceiptText = formatUnreadReceiptCount(
+                            getDirectMessageUnreadCount({
+                                isOwn: isMe,
+                                isRead: msg.is_read,
+                            }),
+                        );
+                        const meta = (
+                            <Box
+                                style={{
+                                    minWidth: 30,
+                                    marginBottom: 2,
+                                    textAlign: isMe ? 'right' : 'left',
+                                }}
+                            >
+                                {unreadReceiptText ? (
+                                    <Text size="xs" c={HANWHA_ORANGE} fw={800} lh={1.1}>
+                                        {unreadReceiptText}
+                                    </Text>
+                                ) : null}
+                                <Text size="xs" c="dimmed">
+                                    {dayjs(msg.created_at).format('HH:mm')}
+                                </Text>
+                            </Box>
+                        );
                         return (
                             <Group key={msg.id} justify={isMe ? 'flex-end' : 'flex-start'} align="flex-end" gap={4}>
                                 {!isMe && (
                                     <Avatar size="sm" radius="xl" color="gray" src={null} />
                                 )}
+                                {isMe ? meta : null}
                                 <Box
                                     style={{
                                         maxWidth: '70%',
@@ -730,9 +891,7 @@ function ChatRoom({
                                         </Text>
                                     )}
                                 </Box>
-                                <Text size="xs" c="dimmed" mb={2}>
-                                    {dayjs(msg.created_at).format('HH:mm')}
-                                </Text>
+                                {!isMe ? meta : null}
                             </Group>
                         );
                     })}
@@ -747,12 +906,15 @@ function ChatRoom({
                         autosize
                         minRows={1}
                         maxRows={4}
-                        style={{ flex: 1 }}
-                        value={inputText}
-                        onChange={(e) => setInputText(e.currentTarget.value)}
-                        onKeyDown={handleKeyDown}
-                        radius="md"
-                        disabled={isReadOnly}
+                            style={{ flex: 1 }}
+                            value={inputText}
+                            onChange={(e) => {
+                                inputTextRef.current = e.currentTarget.value;
+                                setInputText(e.currentTarget.value);
+                            }}
+                            onKeyDown={handleKeyDown}
+                            radius="md"
+                            disabled={isReadOnly}
                     />
                     <ActionIcon
                         size="lg"
@@ -760,7 +922,6 @@ function ChatRoom({
                         variant="filled"
                         radius="xl"
                         onClick={handleSendMessage}
-                        loading={isSending}
                         disabled={isReadOnly || !inputText.trim()}
                     >
                         <IconSend size={18} />

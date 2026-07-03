@@ -18,6 +18,7 @@ import {
   GROUP_CHAT_TARGET_URL,
   isEligibleGroupChatMember,
   isRequestBoardDesignerAffiliation,
+  normalizeFcGroupChatActorId,
   normalizeGroupChatMessageContent,
   normalizeGroupChatText,
   sanitizeGroupChatPhone,
@@ -537,7 +538,10 @@ function applySendPermissionsToMembers(
   permissions: SendPermissionRow[],
 ): GroupChatMember[] {
   const canSendByActorId = new Map(
-    permissions.map((row) => [normalizeGroupChatText(row.actor_id), row.can_send_messages === true]),
+    permissions.map((row) => [
+      normalizeFcGroupChatActorId(row.actor_id) || normalizeGroupChatText(row.actor_id),
+      row.can_send_messages === true,
+    ]),
   );
 
   return members.map((member) => {
@@ -971,8 +975,8 @@ async function handleMemberSendPermission(
   }
 
   const room = await ensureRoom();
-  const targetActorId = normalizeGroupChatText(payload.target_actor_id);
-  if (!targetActorId || !targetActorId.startsWith('fc:')) {
+  const targetActorId = normalizeFcGroupChatActorId(payload.target_actor_id);
+  if (!targetActorId) {
     return fail('invalid_payload', 'FC 참여자를 선택해주세요.', 400, origin);
   }
 

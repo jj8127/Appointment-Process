@@ -67,6 +67,21 @@ describe('group chat mobile wiring', () => {
     expect(source).toContain('messageBubbleLine');
   });
 
+  it('keeps direct and request-board messengers on the same unread recipient count contract', () => {
+    const directSource = readAppFile('chat.tsx');
+    const requestBoardSource = readAppFile('request-board-messenger.tsx');
+
+    for (const source of [directSource, requestBoardSource]) {
+      expect(source).toContain("from '@/lib/message-read-receipts'");
+      expect(source).toContain('getDirectMessageUnreadCount');
+      expect(source).toContain('formatUnreadReceiptCount');
+      expect(source).toContain('messageUnreadCount');
+    }
+
+    expect(directSource).toContain('messageBubbleLine');
+    expect(requestBoardSource).toContain('isRead: message.is_read');
+  });
+
   it('wires reply, reaction, and soft-delete actions from message long press', () => {
     const source = readAppFile('group-chat.tsx');
 
@@ -168,6 +183,7 @@ describe('group chat mobile wiring', () => {
     expect(source).toContain('groupChatSetMemberSendPermission');
     expect(source).toContain('can_send_messages');
     expect(source).toContain('handleMemberSendPermissionToggle');
+    expect(source).toContain('const permissionTargetActorId = result.member.actor_id');
     expect(source).toContain('sendPermissionNotice');
     expect(source).toContain("'허용' : '금지'");
     expect(source).toContain('검색 결과가 없습니다.');

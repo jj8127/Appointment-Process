@@ -8,6 +8,7 @@ import {
   buildGroupChatPreferencesBody,
   buildGroupChatReactionBody,
   buildGroupChatSendBody,
+  normalizeGroupChatPermissionActorId,
 } from '../group-chat-api';
 
 jest.mock('../request-board-api', () => ({
@@ -105,6 +106,16 @@ describe('group chat API payload builders', () => {
       type: 'group_chat_member_send_permission',
       target_actor_id: 'fc:01011112222',
       can_send_messages: true,
+    });
+  });
+
+  test('normalizes FC member send permission targets before invoking the Edge Function', () => {
+    expect(normalizeGroupChatPermissionActorId('010-1111-2222')).toBe('fc:01011112222');
+    expect(normalizeGroupChatPermissionActorId('fc:010-1111-2222')).toBe('fc:01011112222');
+    expect(buildGroupChatMemberSendPermissionBody('010 1111 2222', false)).toEqual({
+      type: 'group_chat_member_send_permission',
+      target_actor_id: 'fc:01011112222',
+      can_send_messages: false,
     });
   });
 

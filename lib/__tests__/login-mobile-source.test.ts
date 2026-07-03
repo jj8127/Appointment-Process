@@ -40,4 +40,18 @@ describe('login mobile keyboard behavior', () => {
     expect(loginButtonBlock).toContain('disabled={loading}');
     expect(loginButtonBlock).not.toContain('<Pressable');
   });
+
+  it('hydrates and persists saved password credentials behind an explicit opt-in', () => {
+    const source = readAppFile('login.tsx');
+
+    expect(source).toContain("getSavedLoginCredentials");
+    expect(source).toContain("setSavedLoginCredentials");
+    expect(source).toContain("rememberPassword");
+    expect(source).toContain("비밀번호 저장");
+    expect(source).toContain("setPhoneInput(saved.phone)");
+    expect(source).toContain("setPasswordInput(saved.password)");
+    expect(source).toContain("setRememberPassword(true)");
+    expect(source).toContain("setSavedLoginCredentials({");
+    expect(source).toContain("rememberPassword: rememberPassword ? true : false");
+  });
 });

@@ -13,6 +13,7 @@ export type AdminChatConversationSummary = {
 };
 
 export type AdminChatMessageSummaryRow = {
+  id?: string | null;
   sender_id?: string | null;
   receiver_id?: string | null;
   content?: string | null;
@@ -33,6 +34,29 @@ const DESIGNER_MARKER = '설계매니저';
 const nameCollator = new Intl.Collator('ko-KR');
 
 const sanitizePhone = (value: string | null | undefined) => String(value ?? '').replace(/[^0-9]/g, '');
+
+export function mergeAdminChatSummaryRows(
+  primaryRows: AdminChatMessageSummaryRow[],
+  backfillRows: AdminChatMessageSummaryRow[],
+) {
+  const seenIds = new Set<string>();
+  const merged: AdminChatMessageSummaryRow[] = [];
+
+  for (const row of primaryRows ?? []) {
+    const id = String(row.id ?? '').trim();
+    if (id) seenIds.add(id);
+    merged.push(row);
+  }
+
+  for (const row of backfillRows ?? []) {
+    const id = String(row.id ?? '').trim();
+    if (id && seenIds.has(id)) continue;
+    if (id) seenIds.add(id);
+    merged.push(row);
+  }
+
+  return merged;
+}
 
 export function buildAdminChatConversationSummaries(input: {
   viewerId: string;

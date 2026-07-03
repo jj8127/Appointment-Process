@@ -22,12 +22,33 @@ function handbookSyncRequired() {
   return process.argv.includes('--require-handbook-sync') || process.env.REQUIRE_HANDBOOK_SYNC === '1';
 }
 
+function contractSyncRequired() {
+  return (
+    process.argv.includes('--require-contract-sync') ||
+    process.env.REQUIRE_CONTRACT_SYNC === '1' ||
+    process.env.REQUIRE_FEATURE_CONTRACT_SYNC === '1'
+  );
+}
+
 function hasDirtyWorktree() {
   try {
     return Boolean(run('git status --short'));
   } catch {
     return false;
   }
+}
+
+function listUntrackedFiles() {
+  try {
+    const out = run('git ls-files --others --exclude-standard');
+    return out ? out.split(/\r?\n/).filter(Boolean) : [];
+  } catch {
+    return [];
+  }
+}
+
+function mergeChangedFiles(...groups) {
+  return [...new Set(groups.flat().filter(Boolean))];
 }
 
 function listChangedFiles() {
@@ -41,13 +62,15 @@ function listChangedFiles() {
     }
     if (hasDirtyWorktree()) {
       const out = run('git diff --name-only --diff-filter=ACMR');
-      return out ? out.split(/\r?\n/).filter(Boolean) : [];
+      const tracked = out ? out.split(/\r?\n/).filter(Boolean) : [];
+      return mergeChangedFiles(tracked, listUntrackedFiles());
     }
     const out = run('git diff --name-only --diff-filter=ACMR HEAD~1 HEAD');
     return out ? out.split(/\r?\n/).filter(Boolean) : [];
   } catch {
     const out = run('git diff --name-only --diff-filter=ACMR');
-    return out ? out.split(/\r?\n/).filter(Boolean) : [];
+    const tracked = out ? out.split(/\r?\n/).filter(Boolean) : [];
+    return mergeChangedFiles(tracked, listUntrackedFiles());
   }
 }
 
@@ -128,6 +151,29 @@ function collectTriggeredRules(changedFiles, rules, errors) {
   return triggered;
 }
 
+function collectTriggeredContractRules(changedFiles, rules) {
+  const triggered = new Map();
+  for (const file of changedFiles) {
+    const scored = rules
+      .map((rule) => ({ rule, score: getMatchingPrefixLength(file, rule) }))
+      .filter((entry) => entry.score >= 0);
+
+    if (scored.length === 0) continue;
+
+    const bestScore = Math.max(...scored.map((entry) => entry.score));
+    for (const entry of scored.filter((item) => item.score === bestScore)) {
+      const current = triggered.get(entry.rule.id) ?? { rule: entry.rule, files: [] };
+      current.files.push(file);
+      triggered.set(entry.rule.id, current);
+    }
+  }
+  return triggered;
+}
+
+function isContractMapEnforced(contractMap, requireContractSync) {
+  return requireContractSync || contractMap.default_enforced === true;
+}
+
 function isDocumentedSeverity(rule) {
   return rule.severity === 'behavior' || rule.severity === 'contract';
 }
@@ -135,12 +181,15 @@ function isDocumentedSeverity(rule) {
 function main() {
   const errors = [];
   const requireHandbookSync = handbookSyncRequired();
+  const requireContractSync = contractSyncRequired();
 
   const requiredDocs = [
     '.claude/PROJECT_GUIDE.md',
     '.claude/MISTAKES.md',
     '.claude/WORK_LOG.md',
     '.claude/WORK_DETAIL.md',
+    'docs/handbook/feature-contract-matrix.md',
+    'docs/handbook/contract-test-map.json',
     'docs/handbook/path-owner-map.json',
   ];
   for (const file of requiredDocs) {
@@ -200,6 +249,23 @@ function main() {
       }
     }
 
+    if (fileExists('docs/handbook/contract-test-map.json')) {
+      const contractMap = readJson('docs/handbook/contract-test-map.json');
+      const enforceContractDocs = isContractMapEnforced(contractMap, requireContractSync);
+      const contractTriggered = collectTriggeredContractRules(normalizedChanged, contractMap.rules ?? []);
+      if (enforceContractDocs) {
+        for (const { rule, files } of contractTriggered.values()) {
+          const requiredEvidence = rule.requires_any ?? [];
+          const satisfied = requiredEvidence.some((path) => normalizedChanged.includes(path));
+          if (!satisfied) {
+            errors.push(
+              `Feature contract violation for ${files.join(', ')}: update one of ${requiredEvidence.join(', ')}`
+            );
+          }
+        }
+      }
+    }
+
     const schemaChanged = normalizedChanged.includes('supabase/schema.sql');
     const migrationChanged = normalizedChanged.some(
       (file) => file.startsWith('supabase/migrations/') && file.endsWith('.sql')
@@ -217,6 +283,9 @@ function main() {
 
   if (requireHandbookSync) {
     console.log('[governance-check] handbook sync mode enabled');
+  }
+  if (requireContractSync) {
+    console.log('[governance-check] contract sync mode enabled');
   }
   console.log('[governance-check] passed');
 }

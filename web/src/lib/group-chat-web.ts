@@ -67,6 +67,13 @@ function cleanOptionalId(value: unknown) {
   return id || null;
 }
 
+function normalizeGroupChatPermissionActorId(value: unknown) {
+  const raw = cleanString(value, 80);
+  const withoutPrefix = raw.replace(/^fc:/i, '');
+  const phone = withoutPrefix.replace(/[^0-9]/g, '');
+  return phone ? `fc:${phone}` : '';
+}
+
 function cleanLimit(value: unknown) {
   const numberValue = Number(value);
   if (!Number.isFinite(numberValue)) return undefined;
@@ -191,8 +198,8 @@ export function normalizeGroupChatProxyPayload(
   }
 
   if (type === 'group_chat_member_send_permission') {
-    const targetActorId = cleanString(raw.target_actor_id, 80);
-    if (!targetActorId.startsWith('fc:')) {
+    const targetActorId = normalizeGroupChatPermissionActorId(raw.target_actor_id);
+    if (!targetActorId) {
       return { ok: false, status: 400, message: 'FC actor id is required' };
     }
     return {

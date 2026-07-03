@@ -66,6 +66,12 @@ export const GROUP_CHAT_TARGET_URL = '/group-chat';
 
 export const sanitizeGroupChatPhone = (value?: string | null) => String(value ?? '').replace(/[^0-9]/g, '');
 export const normalizeGroupChatText = (value?: string | null) => String(value ?? '').replace(/\s+/g, ' ').trim();
+export function normalizeFcGroupChatActorId(value?: string | null) {
+  const raw = normalizeGroupChatText(value);
+  const withoutPrefix = raw.replace(/^fc:/i, '');
+  const phone = sanitizeGroupChatPhone(withoutPrefix);
+  return phone ? `fc:${phone}` : '';
+}
 export const normalizeGroupChatMessageContent = (value?: string | null) =>
   String(value ?? '')
     .replace(/\r\n?/g, '\n')

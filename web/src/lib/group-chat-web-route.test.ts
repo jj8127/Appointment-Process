@@ -94,4 +94,38 @@ describe('group chat web route helpers', () => {
       'x-app-session-token': 'app-session',
     });
   });
+
+  it('normalizes formatted FC actor ids for member send permission changes', () => {
+    assert.deepEqual(
+      normalizeGroupChatProxyPayload({
+        type: 'group_chat_member_send_permission',
+        target_actor_id: 'fc:010-1111-2222',
+        can_send_messages: false,
+      }),
+      {
+        ok: true,
+        payload: {
+          type: 'group_chat_member_send_permission',
+          target_actor_id: 'fc:01011112222',
+          can_send_messages: false,
+        },
+      },
+    );
+
+    assert.deepEqual(
+      normalizeGroupChatProxyPayload({
+        type: 'group_chat_member_send_permission',
+        target_actor_id: '010 1111 2222',
+        can_send_messages: true,
+      }),
+      {
+        ok: true,
+        payload: {
+          type: 'group_chat_member_send_permission',
+          target_actor_id: 'fc:01011112222',
+          can_send_messages: true,
+        },
+      },
+    );
+  });
 });

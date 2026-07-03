@@ -16,7 +16,7 @@ iOS 번들ID 등록/Apple 점검 페이지 오류 우회:
 ios에서 테스트
     npx expo start 하고 Expo Go 모드로 전환 -> QR코드 스캔
 testsprite 사용하기 위한 순서
-1. 웹 번들 생성 
+1. 웹 번들 생성
     npx expo export --platform web --output-dir dist-web
     npx serve -l 8081 dist-web
 2. 이전 실행 락이 있다면 삭제(없으면 생략)
@@ -45,7 +45,7 @@ Expo Web 정적 배포가 필요할 때
 
 앱 데이터 초기화
     adb uninstall com.jj8127.Garam_in
-    
+
 앱 icon적용 한 버전 실행하기
     앱 삭제 후 -> npx expo prebuild --clean && npx expo run:android
 
@@ -95,4 +95,3 @@ insert into public.fc_credentials (
 )
 select id, 'xQQHy6CYaPEbITE0pW/OOV1nD2pj+SKD0HsV/U6i/R0=', 'KBNCCjmnwPbFakBouBWF3Q==', now()
 from new_fc;
-

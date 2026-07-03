@@ -4,9 +4,16 @@ import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-const CATEGORY_NAME = '일반';
+import { loadCanonicalBoardCategories } from './board-category-canonical-sql.mjs';
+
 const CATEGORY_SLUG = 'general';
-const CATEGORY_SORT_ORDER = 3;
+const GENERAL_BOARD_CATEGORY = loadCanonicalBoardCategories().find((category) => category.slug === CATEGORY_SLUG);
+if (!GENERAL_BOARD_CATEGORY) {
+  throw new Error(`Missing canonical board category: ${CATEGORY_SLUG}`);
+}
+
+const CATEGORY_NAME = GENERAL_BOARD_CATEGORY.name;
+const CATEGORY_SORT_ORDER = GENERAL_BOARD_CATEGORY.sortOrder;
 const TITLE_PREFIX = '보험소식 브리핑';
 
 export function getKstDateParts(date = new Date()) {

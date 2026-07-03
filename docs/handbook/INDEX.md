@@ -49,3 +49,8 @@ source_of_truth: code + handbook/*
 - [README.md](E:/hanhwa/fc-onboarding-app/README.md)
 - [docs/README.md](E:/hanhwa/fc-onboarding-app/docs/README.md)
 - [request_board handbook](E:/hanhwa/request_board/docs/handbook/INDEX.md)
+
+## Feature contract guardrails
+
+- Cross-surface feature contract matrix: [feature-contract-matrix.md](E:/hanhwa/fc-onboarding-app/docs/handbook/feature-contract-matrix.md)
+- Contract test map enforced by governance: [contract-test-map.json](E:/hanhwa/fc-onboarding-app/docs/handbook/contract-test-map.json)

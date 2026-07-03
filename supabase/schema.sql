@@ -2990,13 +2990,13 @@ before update on public.board_comments
 for each row execute function public.set_updated_at();
 
 -- 게시판 기본 카테고리 시드
-insert into public.board_categories (name, slug, sort_order)
+insert into public.board_categories (name, slug, sort_order, is_active)
 values
-  ('공지','notice',1),
-  ('교육 일정','education',2),
-  ('일반','general',3),
-  ('상품추천','garam-pick',4),
-  ('시책','policy',5)
+  ('공지', 'notice', 1, true),
+  ('교육 일정', 'education', 2, true),
+  ('일반', 'general', 3, true),
+  ('상품추천', 'garam-pick', 4, true),
+  ('시책', 'policy', 5, true)
 on conflict (slug) do update
 set
   name = excluded.name,

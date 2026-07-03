@@ -43,3 +43,10 @@ source_of_truth: app/messenger.tsx + app/chat.tsx + app/board*.tsx + app/notice*
 
 - [../backend/notifications-inbox-push.md](E:/hanhwa/fc-onboarding-app/docs/handbook/backend/notifications-inbox-push.md)
 - [../backend/board-api-and-notice-model.md](E:/hanhwa/fc-onboarding-app/docs/handbook/backend/board-api-and-notice-model.md)
+## Universal messenger interaction contract
+
+- `app/chat.tsx`, `app/group-chat.tsx`, and `app/request-board-messenger.tsx` must render message text through the shared `LinkifiedSelectableText` path so internet URLs open externally and do not steal long-press selection.
+- All messenger bubbles must keep a long-press/action-menu path for copy, select-copy where supported, and delete where the sender/role is allowed.
+- Message attachment cards must stay actionable from the same bubble surface and must not replace the text/link action contract.
+- Sent messages must show KakaoTalk-style unread recipient counts on every messenger surface that has read-state data. 1:1 and request-board direct messages use `lib/message-read-receipts.ts`; group chat uses the room `unread_count`.
+- Any change to these files must update `docs/handbook/contract-test-map.json` evidence, a messenger contract test, or this handbook page.

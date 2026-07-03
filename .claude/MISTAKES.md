@@ -30,6 +30,45 @@
 - Verification:
 ```
 
+## 2026-07-03 | GaramIn Messenger Interaction Contract | bridge messenger drifted from link and long-press UX
+- Symptom:
+  - In the GaramLink bridge messenger inside GaramIn, HTTP(S) URLs rendered as plain text and long-pressing message bubbles showed no copy/delete action.
+  - Internal 1:1 chat had link rendering, but long-press behavior was delete-only for own messages and no visible action for received messages.
+- Root cause:
+  - `app/request-board-messenger.tsx` rendered message bodies with raw `Text` instead of the shared `LinkifiedSelectableText` pattern used by `app/chat.tsx` and `app/group-chat.tsx`.
+  - The bridge messenger did not wire message-bubble `onLongPress` to any action menu or request-board delete endpoints.
+- Why it was missed:
+  - Link/long-press behavior was verified on board/group/internal chat surfaces, but not treated as a shared contract for every messenger route.
+- Permanent guardrail:
+  - Any new or changed GaramIn messenger surface must support URL link rendering/opening and a visible long-press action menu.
+  - When request-board messages are embedded in GaramIn, include both request and direct-message delete API wrappers before exposing delete actions.
+- Related files:
+  - `app/chat.tsx`
+  - `app/request-board-messenger.tsx`
+  - `app/group-chat.tsx`
+  - `lib/request-board-api.ts`
+- Verification:
+  - `npm run lint -- app/chat.tsx app/request-board-messenger.tsx app/group-chat.tsx lib/request-board-api.ts`
+
+## 2026-07-03 | Cross-Surface Contract Drift | shared behavior was treated as screen-local implementation
+- Symptom:
+  - Messenger link/long-press behavior could be present on one chat surface and absent on another.
+- Root cause:
+  - Shared business rules were documented by screen area, but not mapped to contract tests that must move with feature-critical source files.
+- Why it was missed:
+  - Governance checked handbook ownership and work logs, but did not require contract evidence for high-risk shared behaviors.
+- Permanent guardrail:
+  - Maintain `docs/handbook/feature-contract-matrix.md` and `docs/handbook/contract-test-map.json`.
+  - Contract-sensitive file changes must update one mapped contract test or handbook evidence file.
+- Related files:
+  - `docs/handbook/feature-contract-matrix.md`
+  - `docs/handbook/contract-test-map.json`
+  - `scripts/ci/check-governance.mjs`
+  - `lib/__tests__/feature-contract-matrix.test.ts`
+- Verification:
+  - Passed: `npm test -- --runInBand lib/__tests__/feature-contract-matrix.test.ts`
+  - Passed: `node --check scripts/ci/check-governance.mjs`
+
 ## 2026-06-30 | GaramIn Designer Picker Sort | mobile picker drifted from GaramLink company ordering
 - Symptom:
   - GaramIn's request-board designer picker used the incoming API order after filtering, so the list could diverge from GaramLink's required `생명 회사 -> 손해 회사`, company 가나다, designer-name order.
@@ -2638,3 +2677,234 @@
 - Verification:
   - RED/GREEN: `npx tsx --test web/src/lib/client-session-restore.test.node.ts web/src/lib/admin-web-route-access.test.ts web/src/lib/admin-web-referral-graph-nav.test.ts`
   - Added and passed: `npx tsx --test web/src/lib/admin-web-auth-login-proxy-source.test.ts`.
+
+## 2026-07-01 | Daily Sentry Automation Window | 24h no-issues was easy to confuse with a seven-day backlog report
+- Symptom:
+  - The daily Sentry repair automation reported `no-issues`, while a separate seven-day review still found unresolved older issues.
+  - GaramLink `garamlink-client` was outside the GaramIn daily repair automation scope, so the Sentry review and scheduled repair coverage did not match.
+- Root cause:
+  - `npm run ops:sentry-triage` intentionally used the default 24h repair window, but the runbook did not explicitly say that `no-issues` only applied to that window.
+  - Earlier worktree runs also failed when `SENTRY_READ_AUTH_TOKEN` was not available, so read-token preflight needed to stay explicit in every automation contract.
+- Permanent guardrail:
+  - Keep daily repair default triage at 24h; use `npm run ops:sentry-triage -- --last-seen-days 7 --summary-only` for seven-day reports.
+  - Do not add GaramLink repair work to the GaramIn automation. Use the separate `daily-garamlink-sentry-repair-pr` automation from `D:\hanhwa\request_board`.
+  - Every Sentry automation must fail closed when `SENTRY_READ_AUTH_TOKEN` is missing and must never use `SENTRY_AUTH_TOKEN` for reads.
+- Related files:
+  - `scripts/ops/sentry-daily-triage.mjs`
+  - `scripts/ops/sentry-daily-triage.test.mjs`
+  - `docs/handbook/operations-runbook.md`
+- Verification:
+  - RED/GREEN `node --test scripts/ops/sentry-daily-triage.test.mjs`
+
+## 2026-07-02 | Admin Web Direct Chat Performance | whole-list and unrelated realtime refreshes made messenger slow
+- Symptom:
+  - The admin web messenger at `/dashboard/chat` felt too slow as chat/message history grew.
+  - The page loaded the full dashboard FC list and all messages involving the staff actor, then refreshed the list on every `messages` table change.
+- Root cause:
+  - The previous N+1 chat-list fix removed per-FC message queries, but replaced them with an unbounded message summary query and a broad realtime refetch path.
+  - The page also used a 2.5s room polling fallback even though realtime and focus refresh were already active.
+- Permanent guardrail:
+  - Web chat list loading must go through `web/src/app/api/admin/chat-list/route.ts`, not `/api/admin/list`.
+  - The route must keep recent message summary queries bounded with `RECENT_CHAT_SUMMARY_LIMIT` and merge unread backfill rows without double-counting.
+  - Chat-list realtime handlers must ignore message changes that do not involve the current staff actor.
+- Related files:
+  - `web/src/app/api/admin/chat-list/route.ts`
+  - `web/src/app/dashboard/chat/page.tsx`
+  - `web/src/lib/admin-chat-targets.ts`
+  - `lib/__tests__/admin-web-chat-source.test.ts`
+- Verification:
+  - RED/GREEN `npx tsx --test web/src/lib/admin-chat-targets.test.ts`
+  - RED/GREEN `npx jest lib/__tests__/admin-web-chat-source.test.ts --runInBand`
+  - `cd web && npm run build`
+
+## 2026-07-02 | Chat Send Latency And Group Permission Actor IDs | side effects blocked sends and formatted FC ids broke toggles
+- Symptom:
+  - Admin web direct chat felt slow even after the chat list was optimized because sending a message waited for notification insert and `/api/fc-notify` push fanout.
+  - A second admin message still had to wait for the previous insert because the composer used one global `isSending` flag.
+  - The open room refetched its whole message history on realtime INSERT even when Supabase already sent the inserted row in `payload.new`.
+  - GaramIn group chat FC send-permission toggles could fail or appear not to stick when the target actor id was formatted as a phone number or `fc:` id with separators.
+- Root cause:
+  - `web/src/app/dashboard/chat/page.tsx` kept the send button busy until non-critical notification side effects finished, and message fetch/insert used `select('*')`.
+  - Send state was modeled as room-wide state instead of draft-level state, and the realtime room handler treated every related change as a full sync trigger.
+  - Mobile/web clients and the Edge Function treated permission targets as already-canonical `fc:<digits>` ids; formatted ids were rejected or missed during local row merge.
+- Permanent guardrail:
+  - Direct message sends should optimistically clear/append after validation, wait only for the message insert, and run notification/push work in a background helper.
+  - Do not use a global room-level sending lock for text messages; keep a draft ref to prevent duplicate clicks while allowing the next draft to send immediately.
+  - Realtime INSERT/UPDATE/DELETE for an open direct-chat room should merge `payload.new`/`payload.old` locally and only fall back to full fetch when the payload is incomplete.
+  - Permission target actor ids must be normalized at every boundary: mobile API, admin web proxy/client, and Edge Function.
+  - When Edge returns a canonical member id, UI merges must match both the original row id and returned canonical id.
+- Related files:
+  - `web/src/app/dashboard/chat/page.tsx`
+  - `lib/group-chat-api.ts`
+  - `web/src/lib/group-chat-client.ts`
+  - `web/src/lib/group-chat-web.ts`
+  - `supabase/functions/_shared/group-chat.ts`
+  - `supabase/functions/group-chat/index.ts`
+  - `app/group-chat.tsx`
+  - `web/src/app/dashboard/group-chat/page.tsx`
+- Verification:
+  - RED/GREEN `npx jest lib/__tests__/admin-web-chat-source.test.ts lib/__tests__/group-chat-api.test.ts lib/__tests__/group-chat-mobile-source.test.ts lib/__tests__/group-chat-edge-source.test.ts --runInBand`
+  - RED/GREEN `cd web && npx tsx --test src/lib/group-chat-web-route.test.ts`
+  - RED/GREEN `npx jest lib/__tests__/admin-web-chat-source.test.ts --runInBand`
+  - `npx tsc --noEmit --pretty false`
+  - `cd web && npm run build`
+
+## 2026-07-02 | Board Attachment Edit Parity | admin web could not remove wrong existing images
+- Symptom:
+  - Admin web board editing allowed text/category changes and new attachment uploads, but an already-uploaded wrong image could not be removed from the edit composer.
+  - Mobile admin board editing already exposed existing attachment deletion, so the same board workflow behaved differently by client.
+- Root cause:
+  - `deleteBoardAttachments` existed in the shared board API, but the admin web composer only rendered existing attachments as static links.
+  - Attachment-count validation only considered the initial existing list, so deleting an existing image in-place would not have freed a slot for a replacement.
+- Permanent guardrail:
+  - Board edit parity tests must assert that admin web imports `deleteBoardAttachments`, removes existing attachments from local state, and invalidates both board detail and board list caches.
+  - Attachment limit checks must use the current existing attachment count after edits, not the initial detail payload count.
+- Related files:
+  - `web/src/app/dashboard/board/page.tsx`
+  - `lib/__tests__/admin-web-board-source.test.ts`
+- Verification:
+  - RED/GREEN `npx jest lib/__tests__/admin-web-board-source.test.ts --runInBand`
+
+## 2026-07-02 | Mobile Direct Chat Payload Width | app still selected every message column after web optimization
+- Symptom:
+  - Admin web direct chat send/list paths had been optimized, but the GaramIn mobile app still fetched and selected full message rows.
+- Root cause:
+  - The optimization pass focused on the admin web messenger first and did not add a mobile source contract for direct-chat message column selection.
+- Permanent guardrail:
+  - Mobile direct-chat tests must assert that fetch and post-insert select paths use `MESSAGE_SELECT_COLUMNS` and do not regress to `.select('*')`.
+  - Mobile send should keep the optimistic local append and run push notification side effects in the background.
+- Related files:
+  - `app/chat.tsx`
+  - `lib/__tests__/mobile-chat-source.test.ts`
+- Verification:
+  - RED/GREEN `npx jest lib/__tests__/mobile-chat-source.test.ts --runInBand`
+
+## 2026-07-02 | Saved Password Storage | convenience storage tried to fall back below SecureStore
+- Symptom:
+  - The mobile login password-save helper initially allowed the default credential storage path to fall back from `expo-secure-store` to generic app storage.
+  - That would make an explicit password-save feature look safe while storing a reusable credential outside the platform secure store on unsupported runtimes.
+- Root cause:
+  - Existing `safeStorage` is useful for low-risk app state, but it was too broad for password material.
+  - The first implementation optimized for graceful fallback before separating credential storage from ordinary local state.
+- Permanent guardrail:
+  - Saved login passwords may use `expo-secure-store` only. If SecureStore is unavailable, password save must be a no-op and must not fall back to AsyncStorage, file storage, memory storage, or web localStorage.
+  - Tests must pass an explicit `null` storage and assert get/set/clear do not store or throw.
+- Related files:
+  - `lib/saved-login-credentials.ts`
+  - `lib/__tests__/saved-login-credentials.test.ts`
+- Verification:
+  - RED/GREEN `npx jest lib/__tests__/saved-login-credentials.test.ts --runInBand`
+
+## 2026-07-02 | Board Category Canonical Source | category values drifted across copied SQL and tests
+- Symptom:
+  - Board categories could appear to roll back because the same active category set was copied into schema seed SQL, repair migrations, tests, and automation scripts.
+  - Fixing one copy did not guarantee that later repair/manual paths used the same labels, sort order, or active status.
+- Root cause:
+  - `supabase/functions/_shared/board-categories.ts` existed as the runtime canonical set, but SQL seed/repair snippets and digest automation still carried duplicated category values.
+- Why it was missed:
+  - Existing tests asserted the expected category labels directly instead of checking that schema, repair SQL, and automation were derived from the same canonical source.
+- Permanent guardrail:
+  - Treat `supabase/functions/_shared/board-categories.ts` as the current source of truth.
+  - Generate/verify board category seed rows and repair SQL through `scripts/ops/board-category-canonical-sql.mjs`.
+  - Any category change must update the canonical source first, then run the board category contract tests.
+- Related files:
+  - `supabase/functions/_shared/board-categories.ts`
+  - `scripts/ops/board-category-canonical-sql.mjs`
+  - `scripts/ops/board-category-canonical-sql.test.mjs`
+  - `supabase/schema.sql`
+  - `supabase/migrations/20260608000001_update_board_categories_product_recommendation_policy.sql`
+  - `scripts/ops/post-insurance-digest.mjs`
+  - `lib/__tests__/board-category-contract.test.ts`
+- Verification:
+  - RED/GREEN `node --test scripts/ops/board-category-canonical-sql.test.mjs`
+  - `npx jest lib/__tests__/board-category-contract.test.ts --runInBand`
+
+## 2026-07-03 | Messenger Read Receipt Drift | unread recipient counts stayed group-chat-only
+- Symptom:
+  - Group chat showed KakaoTalk-style unread recipient counts, but 1:1 direct chat, request-board messenger, and admin web direct chat did not show the same numeric count.
+  - Mobile direct-chat optimistic sends marked new outgoing messages as `is_read: true`, hiding the unread count even before the recipient opened the message.
+- Root cause:
+  - Read receipt display was implemented as a group-chat-local UI detail instead of a messenger-wide contract.
+  - Direct/request-board chat surfaces carried `is_read` data but rendered only timestamps or text read labels.
+- Why it was missed:
+  - Messenger contract tests covered links, long-press actions, attachments, and group unread counts, but did not assert direct-message unread recipient counts across every messenger surface.
+- Permanent guardrail:
+  - 1:1 and request-board messenger surfaces must use `lib/message-read-receipts.ts` to render numeric unread recipient counts for sent unread messages.
+  - Group chat may continue using room `unread_count`, but any new messenger surface must prove unread-count parity in a contract test.
+- Related files:
+  - `app/chat.tsx`
+  - `app/request-board-messenger.tsx`
+  - `web/src/app/dashboard/chat/page.tsx`
+  - `lib/message-read-receipts.ts`
+  - `web/src/lib/message-read-receipts.ts`
+- Verification:
+  - `npm test -- --runInBand lib/__tests__/mobile-chat-source.test.ts lib/__tests__/group-chat-mobile-source.test.ts lib/__tests__/admin-web-chat-source.test.ts lib/__tests__/message-read-receipts.test.ts`
+
+## 2026-07-03 | Board Notice Contract Map Gap | board contract existed only in prose
+- Symptom:
+  - The feature contract matrix mentioned board/notice parity, but `docs/handbook/contract-test-map.json` did not have a `board-and-notices` rule.
+  - Board, notice, admin notification, and board Edge Function changes could therefore bypass feature-contract governance unless they happened to touch another mapped area.
+- Root cause:
+  - The first contract pass focused on messenger, roles, request-board status, and files/PII, leaving board/notice as a matrix row without path-level enforcement.
+- Why it was missed:
+  - Existing board category and admin board tests existed, so the audit over-counted test presence as governance coverage.
+- Permanent guardrail:
+  - Keep `board-and-notices` in `docs/handbook/contract-test-map.json` and assert it from `lib/__tests__/feature-contract-matrix.test.ts`.
+  - Board/notice changes must update `admin-web-board-source`, `board-category-contract`, `notification-route`, or the board handbook evidence.
+- Related files:
+  - `docs/handbook/contract-test-map.json`
+  - `docs/handbook/feature-contract-matrix.md`
+  - `docs/handbook/backend/board-api-and-notice-model.md`
+  - `lib/__tests__/feature-contract-matrix.test.ts`
+- Verification:
+  - `npm test -- --runInBand lib/__tests__/feature-contract-matrix.test.ts lib/__tests__/admin-web-board-source.test.ts lib/__tests__/board-category-contract.test.ts lib/__tests__/notification-route.test.ts`
+
+## 2026-07-03 | Login And Resident Number Contract Map Gap | high-risk files were tested but not mapped
+- Symptom:
+  - Login screen/session Edge Functions, saved-password storage, and resident-number admin route helpers had focused tests, but changes to their source files could bypass feature-contract governance.
+- Root cause:
+  - The contract matrix named login/session and sensitive-data behavior, but `docs/handbook/contract-test-map.json` only mapped lower-level hooks and a narrow resident-number display helper.
+- Why it was missed:
+  - Existing unit/source tests were counted as enough evidence even though governance is path-triggered; unlisted source files would not require those tests or handbook updates.
+- Permanent guardrail:
+  - Keep `app/login.tsx`, saved-login storage, session Edge Functions, and resident-number route/helper files in the contract map.
+  - `lib/__tests__/feature-contract-matrix.test.ts` must fail if these high-risk files are removed from contract-map coverage.
+- Related files:
+  - `docs/handbook/contract-test-map.json`
+  - `docs/handbook/feature-contract-matrix.md`
+  - `lib/__tests__/feature-contract-matrix.test.ts`
+- Verification:
+  - RED/GREEN `npm test -- --runInBand lib/__tests__/feature-contract-matrix.test.ts`
+
+## 2026-07-03 | Governance Dirty Worktree Coverage | untracked contract evidence was invisible
+- Symptom:
+  - Local dirty-worktree governance saw modified code files but did not count newly added contract files such as `docs/handbook/contract-test-map.json` or new source tests.
+  - This could produce false violations locally or, worse, let local checks give a misleading picture before files are added to git.
+- Root cause:
+  - `scripts/ci/check-governance.mjs` used `git diff --name-only` for dirty worktrees, which ignores untracked files.
+- Why it was missed:
+  - The earlier governance verification used syntax checks and `HEAD..HEAD` checks, so it did not exercise newly added untracked evidence files.
+- Permanent guardrail:
+  - Dirty-worktree governance must merge tracked diff files with `git ls-files --others --exclude-standard`.
+  - `lib/__tests__/feature-contract-matrix.test.ts` must assert that untracked-file collection remains in the governance source.
+- Related files:
+  - `scripts/ci/check-governance.mjs`
+  - `lib/__tests__/feature-contract-matrix.test.ts`
+- Verification:
+  - RED/GREEN `npm test -- --runInBand lib/__tests__/feature-contract-matrix.test.ts`
+
+## 2026-07-03 | Board Category Migration Encoding | copied terminal mojibake into SQL
+- Symptom:
+  - The first draft of `20260703000001_reassert_board_categories_canonical.sql` used the mojibake strings shown by PowerShell output instead of the actual canonical Korean category names.
+- Root cause:
+  - I trusted terminal display text from a UTF-8 file read in the wrong console encoding.
+- Why it was missed:
+  - The migration was created from displayed text before rerunning the canonical SQL test.
+- Permanent guardrail:
+  - For Korean SQL/category labels, verify against the canonical test or a UTF-8-aware read before finalizing migration text.
+  - Do not copy mojibake from terminal output into SQL files.
+- Related files:
+  - `supabase/migrations/20260703000001_reassert_board_categories_canonical.sql`
+  - `scripts/ops/board-category-canonical-sql.test.mjs`
+- Verification:
+  - RED/GREEN `node --test scripts/ops/board-category-canonical-sql.test.mjs`

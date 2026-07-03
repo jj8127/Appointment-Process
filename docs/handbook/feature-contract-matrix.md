@@ -1,0 +1,26 @@
+doc_id: FC-FEATURE-CONTRACT-MATRIX
+owner_repo: fc-onboarding-app
+owner_area: cross-surface contracts
+audience: developer, operator
+last_verified: 2026-07-03
+source_of_truth: code + tests + request_board/docs/handbook/feature-contract-matrix.md
+
+# Feature Contract Matrix
+
+This matrix defines business behavior that must stay consistent across GaramIn mobile, GaramIn admin web, and GaramLink bridge surfaces. Screen-level implementations may differ, but these contracts must not drift.
+
+| Domain | Contract | Primary sources | Regression evidence |
+| --- | --- | --- | --- |
+| Messenger interactions | Every message surface renders internet URLs as tappable external links, keeps long-press/message action affordances available, supports copy/delete where allowed, shows sent-message unread recipient counts where read-state data exists, and keeps attachments actionable. | `app/chat.tsx`, `app/group-chat.tsx`, `app/request-board-messenger.tsx`, `web/src/app/dashboard/chat/page.tsx`, `components/LinkifiedSelectableText.tsx`, `lib/message-read-receipts.ts` | `lib/__tests__/feature-contract-matrix.test.ts`, `lib/__tests__/group-chat-mobile-source.test.ts`, `lib/__tests__/mobile-chat-source.test.ts`, `lib/__tests__/admin-web-chat-source.test.ts` |
+| Board and notices | Notice, board, and announcement content must keep source IDs, category canon, author labels, redaction, attachment signing/deletion, push targets, and navigation consistent between mobile and admin web. | `app/notice*.tsx`, `app/board*.tsx`, `web/src/app/dashboard/board/`, `web/src/app/dashboard/notifications/`, `supabase/functions/board-*` | `lib/__tests__/admin-web-board-source.test.ts`, `lib/__tests__/board-category-contract.test.ts`, `lib/__tests__/notification-route.test.ts`, this matrix |
+| Login and session | Role, display role, push role, read-only status, saved credential handling, and request-board bridge sessions must be normalized before a screen decides what to show. | `app/login.tsx`, `hooks/use-login.ts`, `hooks/use-session.tsx`, `lib/saved-login-credentials.ts`, `lib/request-board-session.ts`, `supabase/functions/login-with-password/`, `supabase/functions/refresh-app-session/`, `supabase/functions/sync-request-board-session/`, `web/src/hooks/use-session.tsx`, `web/src/lib/server-session.ts` | login/session contract tests |
+| Roles and permissions | `admin`, `manager`, `developer`, `fc`, `designer`, and request-board manager roles must use shared capability predicates instead of screen-only checks. | `lib/request-board-permissions.ts`, `web/src/lib/server-session.ts`, admin/mobile screens | role permission matrix + source tests |
+| Designer visibility | Active designers are visible; operationally inactive designers are hidden from selection/directories unless a documented test/developer exception exists. Developer and explicit test accounts used for support must not be removed by incidental UI filters. | `app/chat.tsx`, `app/request-board-messenger.tsx`, request-board bridge APIs | this matrix + request_board designer visibility contracts |
+| Request status and review | Request status labels, filters, review actions, and notification categories must be derived from the same normalized status contract. | `lib/request-board-*.ts`, `app/request-board*.tsx` | request-board mobile UI/status tests |
+| Notification and unread routing | Notification categories and deep links must resolve to the same destination on mobile, admin web, and GaramLink. Unread counts must share actor/thread identity. | `lib/notification-route.ts`, `lib/notification-checkpoint.ts`, `web/src/components/DashboardNotificationBell.tsx` | notification route/checkpoint tests |
+| External links and files | URL opening, file download/opening, and attachment policy must use shared opener/sanitizer helpers; direct `Linking.openURL` exceptions need a contract test. | `lib/open-external-url.ts`, `lib/external-url.ts`, `app/docs-upload.tsx`, `web/src/lib/admin-file-open.ts` | external URL/file opener tests |
+| Sensitive data | Resident numbers, phone numbers, filenames, logs, and Sentry payloads must preserve mask/full-view policy by role and never expose secrets in generic content feeds. | `lib/sentry-sanitize.ts`, `web/src/lib/sentry-sanitize.ts`, `web/src/lib/resident-number-display.ts`, `web/src/app/api/admin/resident-numbers/`, `web/src/hooks/use-resident-number.ts`, `web/src/lib/resident-number-route-handler.ts`, `web/src/lib/resident-number-route-request.ts`, `web/src/lib/resident-number-edge-response.ts`, `web/src/lib/server-resident-numbers.ts` | PII/sentry/resident-number route tests |
+
+## Governance Rule
+
+`docs/handbook/contract-test-map.json` maps contract-sensitive files to the documents or tests that must change with them. `scripts/ci/check-governance.mjs` enforces that map for changed files, so feature-critical edits must include either updated contract evidence or an intentional map change.

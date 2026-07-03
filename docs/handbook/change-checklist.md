@@ -39,3 +39,8 @@ source_of_truth: .github/pull_request_template.md + scripts/ci/check-governance.
 - handbook-sensitive 코드 경로는 `path-owner-map.json` 검사를 통과해야 함
 - 회귀 fix면 broad 로그와 별도로 `MISTAKES.md`에 root cause + permanent guardrail 기록
 - 정기 handbook sync 세션에서는 `node scripts/ci/check-governance.mjs --require-handbook-sync`를 사용
+## Feature contract guardrails
+
+- When messenger, role/session, designer visibility, request status, notification routing, attachment/link handling, or sensitive-data behavior changes, update one contract evidence file listed in `docs/handbook/contract-test-map.json`.
+- Contract evidence can be a targeted contract test, `docs/handbook/feature-contract-matrix.md`, or the owning handbook page listed for that rule.
+- Run `node scripts/ci/check-governance.mjs` before push; the governance check fails contract-sensitive edits that do not update mapped evidence.

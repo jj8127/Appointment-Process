@@ -10940,3 +10940,25 @@
 **Evidence**:
 - `.codex/harness/referral-graph-qa/graph-rubber-release-1782557450379.json`
 - `.codex/harness/referral-graph-qa/graph-rubber-release-1782557450379.png`
+
+---
+
+## <a id="20260703-feature-contract-drift-guard"></a> 2026-07-03 | Feature contract drift guard
+
+**Scope**: Cross-surface feature contract governance for GaramIn and GaramLink.
+
+**Changes**:
+- Added the GaramIn feature contract matrix and contract-test map.
+- Added a source contract test covering shared messenger link, long-press, copy, and delete behavior.
+- Updated messenger handbook guidance for universal message interactions.
+- Wired governance to require mapped contract evidence for contract-sensitive file changes.
+
+**Verification**:
+- Passed: `npm test -- --runInBand lib/__tests__/feature-contract-matrix.test.ts`
+- Passed: `npm test -- --runInBand lib/__tests__/notification-route.test.ts lib/__tests__/external-url.test.ts lib/__tests__/request-board-session.test.ts`
+- Passed: `node --check scripts/ci/check-governance.mjs`
+- Passed: `BASE_SHA=HEAD HEAD_SHA=HEAD node scripts/ci/check-governance.mjs`
+- Passed: targeted `git diff --check` for files touched by this task. Git emitted CRLF normalization warnings only.
+
+**Notes**:
+- Existing unrelated dirty-worktree files were not reverted or normalized.
