@@ -194,6 +194,40 @@
         "docs/handbook/feature-contract-matrix.md",
         "docs/handbook/contract-test-map.json"
       ]
+    },
+    {
+      "id": "fc-workflow-parity",
+      "prefixes": [
+        "lib/fc-workflow.ts",
+        "lib/fc-workflow-core.ts",
+        "web/src/lib/fc-workflow.ts",
+        "web/src/lib/shared.ts",
+        "web/src/app/api/admin/fc/route.ts"
+      ],
+      "requires_any": [
+        "lib/__tests__/fc-workflow-cross-surface.test.ts",
+        "lib/__tests__/workflow-step-regression.test.ts",
+        "docs/handbook/feature-contract-matrix.md",
+        "docs/handbook/contract-test-map.json"
+      ]
+    },
+    {
+      "id": "exam-flow-parity",
+      "prefixes": [
+        "lib/exam-flow-contract.ts",
+        "app/exam-apply.tsx",
+        "app/exam-apply2.tsx",
+        "app/exam-register.tsx",
+        "app/exam-register2.tsx"
+      ],
+      "requires_any": [
+        "lib/__tests__/exam-flow-contract.test.ts",
+        "lib/__tests__/exam-round-location-payload.test.ts",
+        "lib/__tests__/exam-fees.test.ts",
+        "docs/handbook/mobile/exam-flows.md",
+        "docs/handbook/feature-contract-matrix.md",
+        "docs/handbook/contract-test-map.json"
+      ]
     }
   ]
 }

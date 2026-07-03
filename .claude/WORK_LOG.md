@@ -462,3 +462,9 @@
 | 07-03 | Mobile messenger delete confirmation/failure action contract | `lib/messenger-delete-actions.ts`, `app/chat.tsx`, `app/group-chat.tsx`, `app/request-board-messenger.tsx`, `lib/__tests__/shared-ui-action-contracts.test.ts` | [details](WORK_DETAIL.md#20260703-mobile-messenger-delete-action-contract) |
 | 07-03 | Native file download/save action contract | `lib/native-file-actions.ts`, `app/request-board-messenger.tsx`, `app/hanwha-commission.tsx`, `lib/__tests__/shared-ui-action-contracts.test.ts` | [details](WORK_DETAIL.md#20260703-native-file-download-action-contract) |
 | 07-03 | Shared function primitives for exam and group chat display | `lib/exam-display.ts`, `lib/group-chat-display.ts`, `scripts/audit/shared-function-contract-audit.cjs`, `lib/__tests__/shared-function-contracts.test.ts` | [details](WORK_DETAIL.md#20260703-shared-function-primitives) |
+
+## 2026-07-04 Codex update
+
+- Shared FC workflow core: `lib/fc-workflow-core.ts`, `web/src/lib/fc-workflow.ts`, `lib/__tests__/fc-workflow-cross-surface.test.ts`.
+- Shared exam flow contract: `lib/exam-flow-contract.ts`, `app/exam-apply.tsx`, `app/exam-apply2.tsx`, `app/exam-register.tsx`, `app/exam-register2.tsx`, `lib/__tests__/exam-flow-contract.test.ts`.
+- Contract map/governance updated to keep mobile and admin web behavior aligned.

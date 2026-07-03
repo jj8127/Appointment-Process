@@ -3164,3 +3164,43 @@
   - `lib/__tests__/shared-function-contracts.test.ts`
 - Verification:
   - RED/GREEN `npx jest lib/__tests__/exam-display.test.ts lib/__tests__/group-chat-function-contracts.test.ts lib/__tests__/shared-function-contracts.test.ts --runInBand`
+
+## 2026-07-04 | FC Workflow Parity Drift | mobile and admin web owned separate status priority
+- Symptom:
+  - Mobile showed allowance pre-screen requests as `prescreen` even before `allowance_date` existed, while admin web showed the same profile as `missing`.
+- Root cause:
+  - `lib/fc-workflow.ts` and `web/src/lib/fc-workflow.ts` duplicated workflow status helpers and one implementation changed ordering independently.
+- Why it was missed:
+  - Existing workflow regression tests covered the derived mobile/admin behavior, but did not compare both modules against each other or prevent web-local reimplementation.
+- Permanent guardrail:
+  - Admin web workflow helpers must delegate to `lib/fc-workflow-core.ts`.
+  - `lib/__tests__/fc-workflow-cross-surface.test.ts` must fail when mobile and web status/step helpers drift or when web reintroduces local workflow business logic.
+- Related files:
+  - `lib/fc-workflow.ts`
+  - `lib/fc-workflow-core.ts`
+  - `web/src/lib/fc-workflow.ts`
+  - `web/src/lib/shared.ts`
+  - `lib/__tests__/fc-workflow-cross-surface.test.ts`
+- Verification:
+  - RED/GREEN `npx jest lib/__tests__/fc-workflow-cross-surface.test.ts --runInBand`
+
+## 2026-07-04 | Exam Life/Nonlife Flow Drift | exam screens owned duplicated flow constants
+- Symptom:
+  - Life and nonlife exam apply/register screens owned separate routes, query keys, realtime channels, fee account text, selection restore helpers, and notification payload builders.
+  - A future update to one exam type could silently leave the other type behind.
+- Root cause:
+  - `app/exam-apply.tsx`, `app/exam-apply2.tsx`, `app/exam-register.tsx`, and `app/exam-register2.tsx` expressed exam-type differences as local constants and helpers instead of one config contract.
+- Why it was missed:
+  - Existing tests covered individual exam fee and location payload behavior, but did not require both life/nonlife surfaces to call one shared flow contract.
+- Permanent guardrail:
+  - Exam apply/register screens must derive type-specific routes, query keys, realtime channels, fee accounts, form-state transitions, and notification payloads from `lib/exam-flow-contract.ts`.
+  - `lib/__tests__/exam-flow-contract.test.ts` must fail if those screens reintroduce local fee constants, invalid-location messages, notification builders, or hard-coded `exam_type` filters.
+- Related files:
+  - `lib/exam-flow-contract.ts`
+  - `app/exam-apply.tsx`
+  - `app/exam-apply2.tsx`
+  - `app/exam-register.tsx`
+  - `app/exam-register2.tsx`
+  - `lib/__tests__/exam-flow-contract.test.ts`
+- Verification:
+  - RED/GREEN `npx jest --runTestsByPath lib/__tests__/exam-flow-contract.test.ts lib/__tests__/exam-round-location-payload.test.ts lib/__tests__/exam-fees.test.ts --runInBand`

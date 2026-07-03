@@ -71,3 +71,9 @@ source_of_truth: app/exam-apply*.tsx + app/exam-register*.tsx + app/exam-manage*
 - `exam-manage.tsx` and `exam-manage2.tsx` must use `lib/exam-display.ts` for resident-number display, exam date display, exam round/location summary text, and phone candidate normalization.
 - Do not reintroduce screen-local `formatResidentNumber`, `normalizeSingle`, `buildPhoneCandidates`, `formatYmd`, or `buildExamInfo` helpers in those screens.
 - Regression evidence: `lib/__tests__/exam-display.test.ts` and `lib/__tests__/shared-function-contracts.test.ts`.
+
+## 2026-07-04 Shared Exam Flow Contract
+
+- `exam-apply.tsx`, `exam-apply2.tsx`, `exam-register.tsx`, and `exam-register2.tsx` must use `lib/exam-flow-contract.ts` for life/nonlife route keys, query keys, notification channels, payment-account copy, selection keys, and form-state defaults.
+- Life/nonlife differences should be expressed as config in the shared contract, not as screen-local branching that can drift.
+- Regression evidence: `lib/__tests__/exam-flow-contract.test.ts`.

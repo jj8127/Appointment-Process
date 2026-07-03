@@ -3,7 +3,7 @@ export type {
   AllowanceDisplay,
   AllowanceDisplayKey,
   WorkflowStepNumber,
-} from '../../../lib/fc-workflow-core';
+} from './fc-workflow';
 
 export {
   ALLOWANCE_PASSED_STATUSES,
@@ -23,5 +23,16 @@ export {
   hasIdentityInfo,
   hasText,
   hasUrlStageAccess,
-  resolveAppointmentCompletionStatus,
-} from '../../../lib/fc-workflow-core';
+} from './fc-workflow';
+
+import { getCommissionCompletionState } from './fc-workflow';
+import type { FcProfile } from '../types/fc';
+
+type WorkflowProfile = Parameters<typeof getCommissionCompletionState>[0];
+
+export const resolveAppointmentCompletionStatus = (
+  profile?: WorkflowProfile | null,
+): FcProfile['status'] => {
+  const { bothCompleted } = getCommissionCompletionState(profile);
+  return bothCompleted ? 'final-link-sent' : 'appointment-completed';
+};

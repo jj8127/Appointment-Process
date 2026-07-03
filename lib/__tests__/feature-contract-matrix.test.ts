@@ -16,6 +16,8 @@ describe('cross-surface feature contract matrix', () => {
     expect(matrix).toContain('Board and notices');
     expect(matrix).toContain('Login and session');
     expect(matrix).toContain('Roles and permissions');
+    expect(matrix).toContain('FC workflow status parity');
+    expect(matrix).toContain('Exam life/nonlife flow parity');
     expect(matrix).toContain('Designer visibility');
     expect(matrix).toContain('Notification and unread routing');
     expect(matrix).toContain('External links and files');
@@ -29,6 +31,8 @@ describe('cross-surface feature contract matrix', () => {
         'role-session-visibility',
         'request-board-status-notifications',
         'files-links-sensitive-data',
+        'fc-workflow-parity',
+        'exam-flow-parity',
       ]),
     );
   });
@@ -90,6 +94,8 @@ describe('cross-surface feature contract matrix', () => {
     const roleRule = contractMap.rules.find((rule: { id: string }) => rule.id === 'role-session-visibility');
     const notificationRule = contractMap.rules.find((rule: { id: string }) => rule.id === 'request-board-status-notifications');
     const filesRule = contractMap.rules.find((rule: { id: string }) => rule.id === 'files-links-sensitive-data');
+    const workflowRule = contractMap.rules.find((rule: { id: string }) => rule.id === 'fc-workflow-parity');
+    const examRule = contractMap.rules.find((rule: { id: string }) => rule.id === 'exam-flow-parity');
 
     expect(messengerRule.prefixes).toEqual(
       expect.arrayContaining([
@@ -175,6 +181,36 @@ describe('cross-surface feature contract matrix', () => {
         'web/src/lib/resident-number-route-handler.test.ts',
         'web/src/lib/resident-number-route-request.test.ts',
         'web/src/lib/resident-number-edge-response.test.ts',
+      ]),
+    );
+    expect(workflowRule.prefixes).toEqual(
+      expect.arrayContaining([
+        'lib/fc-workflow.ts',
+        'lib/fc-workflow-core.ts',
+        'web/src/lib/fc-workflow.ts',
+        'web/src/lib/shared.ts',
+      ]),
+    );
+    expect(workflowRule.requires_any).toEqual(
+      expect.arrayContaining([
+        'lib/__tests__/fc-workflow-cross-surface.test.ts',
+        'lib/__tests__/workflow-step-regression.test.ts',
+      ]),
+    );
+    expect(examRule.prefixes).toEqual(
+      expect.arrayContaining([
+        'lib/exam-flow-contract.ts',
+        'app/exam-apply.tsx',
+        'app/exam-apply2.tsx',
+        'app/exam-register.tsx',
+        'app/exam-register2.tsx',
+      ]),
+    );
+    expect(examRule.requires_any).toEqual(
+      expect.arrayContaining([
+        'lib/__tests__/exam-flow-contract.test.ts',
+        'lib/__tests__/exam-round-location-payload.test.ts',
+        'lib/__tests__/exam-fees.test.ts',
       ]),
     );
     expect(notificationRouteTestSource).toContain('resolveRequestBoardNotificationRoute');

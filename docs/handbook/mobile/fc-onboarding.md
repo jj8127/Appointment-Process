@@ -110,3 +110,8 @@ source_of_truth: app/index.tsx + app/home-lite.tsx + app/fc/new.tsx + app/consen
 
 - [../workflow-state-matrix.md](E:/hanhwa/fc-onboarding-app/docs/handbook/workflow-state-matrix.md)
 - [../admin-web/dashboard-lifecycle.md](E:/hanhwa/fc-onboarding-app/docs/handbook/admin-web/dashboard-lifecycle.md)
+
+## 2026-07-04 Shared FC Workflow Core
+
+- FC onboarding next-step labels and workflow display state must stay aligned with `lib/fc-workflow-core.ts`.
+- Admin web wrappers and mobile screens should expose surface-specific presentation only; workflow priority and allowance state rules belong in the shared core.

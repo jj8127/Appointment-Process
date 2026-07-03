@@ -50,3 +50,9 @@ source_of_truth: types/fc.ts + lib/fc-workflow.ts + web/src/lib/shared.ts + web/
 
 - request 상태와 assignment 상태는 request_board가 소유합니다.
 - 상세는 [request_board workflow matrix](E:/hanhwa/request_board/docs/handbook/workflow-state-matrix.md)를 봅니다.
+
+## 2026-07-04 Shared FC Workflow Core
+
+- FC workflow status/step display, allowance display state, and summary status parity are owned by `lib/fc-workflow-core.ts`.
+- Mobile and admin web workflow helpers must delegate to the shared core. Do not maintain separate screen- or surface-local status priority rules.
+- Regression evidence: `lib/__tests__/fc-workflow-cross-surface.test.ts`.

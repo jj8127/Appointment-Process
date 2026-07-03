@@ -11208,3 +11208,23 @@
 
 **Notes**:
 - Screens still own state, API calls, mutations, and screen-specific event handlers. Shared helpers own reused business display/normalization rules only.
+
+---
+
+## <a id="20260704-shared-workflow-exam-contracts"></a> 2026-07-04 | Shared workflow and exam flow contracts
+
+**Scope**: GaramIn FC workflow display parity and life/nonlife exam apply/register flow behavior.
+
+**Changes**:
+- Added `lib/fc-workflow-core.ts` so mobile and admin web workflow status, step display, allowance display, and summary status rules share one core contract.
+- Rewired `web/src/lib/fc-workflow.ts` to use the shared workflow core instead of maintaining a separate web-only implementation.
+- Added `lib/exam-flow-contract.ts` so life/nonlife exam apply/register screens share route keys, query keys, notification channels, account copy, selection keys, and form-state defaults.
+- Rewired `app/exam-apply.tsx`, `app/exam-apply2.tsx`, `app/exam-register.tsx`, and `app/exam-register2.tsx` to consume the shared exam flow contract.
+- Extended feature contract tests and handbook maps so future workflow or exam flow drift is caught.
+
+**Verification**:
+- `npx jest lib/__tests__/fc-workflow-cross-surface.test.ts --runInBand`
+- `npx jest --runTestsByPath lib/__tests__/exam-flow-contract.test.ts lib/__tests__/exam-round-location-payload.test.ts lib/__tests__/exam-fees.test.ts --runInBand`
+
+**Notes**:
+- External API shapes and database schema were not changed. This is an internal contract/refactor pass.

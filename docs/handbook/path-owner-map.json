@@ -29,6 +29,8 @@
         "app/consent.tsx",
         "app/docs-upload.tsx",
         "app/appointment.tsx",
+        "lib/fc-workflow.ts",
+        "lib/fc-workflow-core.ts",
         "types/fc.ts"
       ],
       "requires_any": [
@@ -47,6 +49,7 @@
         "app/exam-register2.tsx",
         "app/exam-manage.tsx",
         "app/exam-manage2.tsx",
+        "lib/exam-flow-contract.ts",
         "web/src/app/dashboard/exam/",
         "web/src/app/admin/exams/",
         "web/src/app/api/admin/exam-applicants/route.ts",

@@ -25,6 +25,13 @@ import {
   buildExamRoundLocationRows,
   hasExamRoundLocationsForSave,
 } from '@/lib/exam-round-location-payload';
+import {
+  buildExamRoundNotificationPayload,
+  getExamFlowConfig,
+  getExamRoundCreateFormState,
+  getExamRoundEditFormState,
+  type ExamNotifyPayload,
+} from '@/lib/exam-flow-contract';
 import { supabase } from '@/lib/supabase';
 import { ExamRoundWithLocations, formatDate } from '@/types/exam';
 
@@ -34,18 +41,12 @@ const MUTED = '#6b7280';
 const BORDER = '#E5E7EB';
 const BACKGROUND = '#F3F4F6';
 const INPUT_BG = '#F9FAFB';
+const examFlowType = 'nonlife' as const;
+const examFlowConfig = getExamFlowConfig(examFlowType);
 
-async function notifyAllFcs(title: string, body: string) {
+async function notifyExamFlow(payload: ExamNotifyPayload) {
   const { data, error } = await supabase.functions.invoke('fc-notify', {
-    body: {
-      type: 'notify',
-      target_role: 'fc',
-      target_id: null,
-      title,
-      body,
-      category: 'exam_round',
-      url: '/exam-apply2',
-    },
+    body: payload,
   });
   if (error) throw error;
   if (!data?.ok) {
@@ -96,7 +97,7 @@ const fetchRounds = async (): Promise<ExamRoundWithLocations[]> => {
     .select(
       'id,exam_date,registration_deadline,round_label,notes,created_at,updated_at,exam_locations(id,round_id,location_name,sort_order,created_at,updated_at)',
     )
-    .eq('exam_type', 'nonlife')
+    .eq('exam_type', examFlowConfig.examType)
     .order('exam_date', { ascending: true })
     .order('registration_deadline', { ascending: true })
     .order('sort_order', { foreignTable: 'exam_locations', ascending: true });
@@ -208,17 +209,17 @@ export default function ExamRegisterScreen() {
     isFetching,
     refetch,
   } = useQuery({
-    queryKey: ['exam-rounds-nonlife'],
+    queryKey: examFlowConfig.registerRoundsQueryKey,
     queryFn: fetchRounds,
   });
 
   useEffect(() => {
     const roundChannel = supabase
-      .channel('exam-register-nonlife-rounds')
+      .channel(examFlowConfig.registerRoundChannel)
       .on('postgres_changes', { event: '*', schema: 'public', table: 'exam_rounds' }, () => refetch())
       .subscribe();
     const locationChannel = supabase
-      .channel('exam-register-nonlife-locations')
+      .channel(examFlowConfig.registerLocationChannel)
       .on('postgres_changes', { event: '*', schema: 'public', table: 'exam_locations' }, () => refetch())
       .subscribe();
 
@@ -321,7 +322,7 @@ export default function ExamRegisterScreen() {
     mutationFn: async (mode: 'create' | 'update') => {
       assertCanEdit();
       const payload = {
-        exam_type: 'nonlife' as const,
+        exam_type: examFlowConfig.examType,
         exam_date: toYmd(examDate),
         registration_deadline: toYmd(deadlineDate),
         round_label: roundForm.roundLabel.trim() || null,
@@ -369,10 +370,12 @@ export default function ExamRegisterScreen() {
 
       const examTitle = `${formatDate(toYmd(examDate) || '')}${roundForm.roundLabel ? ` (${roundForm.roundLabel})` : ''}`;
       const actionLabel = mode === 'create' ? '등록' : '수정';
-      void notifyAllFcs(
-        `${examTitle} 일정이 ${actionLabel}되었습니다.`,
-        '응시를 희망하는 경우 신청해주세요.',
-      ).catch(() => undefined);
+      const notificationPayload = buildExamRoundNotificationPayload({
+        examType: examFlowType,
+        title: `${examTitle} 일정이 ${actionLabel}되었습니다.`,
+        body: '응시를 희망하는 경우 신청해주세요.',
+      });
+      void notifyExamFlow(notificationPayload).catch(() => undefined);
     },
     onSettled: (_data, error) => {
       if (error) {
@@ -440,15 +443,16 @@ export default function ExamRegisterScreen() {
   };
 
   const startNewRound = () => {
-    setSelectedRoundId(null);
-    setRoundForm(emptyRoundForm);
-    setExamDate(new Date());
-    setDeadlineDate(new Date());
+    const createState = getExamRoundCreateFormState();
+    setSelectedRoundId(createState.selectedRoundId);
+    setRoundForm(createState.roundForm);
+    setExamDate(createState.examDate);
+    setDeadlineDate(createState.deadlineDate);
     setShowExamPicker(Platform.OS === 'ios');
     setShowDeadlinePicker(Platform.OS === 'ios');
-    setLocationInput('');
-    setLocationOrder('0');
-    setDraftLocations([]);
+    setLocationInput(createState.locationInput);
+    setLocationOrder(createState.locationOrder);
+    setDraftLocations(createState.draftLocations);
     if (!showForm) {
       setShowForm(true);
     }
@@ -456,20 +460,16 @@ export default function ExamRegisterScreen() {
   };
 
   const handleSelectRound = (round: ExamRoundWithLocations) => {
-    setSelectedRoundId(round.id);
-    setRoundForm({
-      roundLabel: round.round_label ?? '',
-      notes: round.notes ?? '',
-    });
-    setExamDate(round.exam_date ? new Date(round.exam_date) : new Date());
-    setDeadlineDate(
-      round.registration_deadline ? new Date(round.registration_deadline) : new Date(),
-    );
+    const editState = getExamRoundEditFormState(round);
+    setSelectedRoundId(editState.selectedRoundId);
+    setRoundForm(editState.roundForm);
+    setExamDate(editState.examDate);
+    setDeadlineDate(editState.deadlineDate);
     setShowExamPicker(Platform.OS === 'ios');
     setShowDeadlinePicker(Platform.OS === 'ios');
-    setLocationInput('');
-    setLocationOrder('0');
-    setDraftLocations([]);
+    setLocationInput(editState.locationInput);
+    setLocationOrder(editState.locationOrder);
+    setDraftLocations(editState.draftLocations);
     if (!showForm) {
       setShowForm(true);
     }

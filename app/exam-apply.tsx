@@ -30,6 +30,16 @@ import {
   formatMissingExamApplicationFields,
   getMissingExamApplicationFields,
 } from '@/lib/exam-application-validation';
+import {
+  INVALID_EXAM_LOCATION_MESSAGE,
+  buildExamApplyNotificationPayloads,
+  getExamApplyRestoredSelectionState,
+  getExamFeeAccountCopyText,
+  getExamFlowConfig,
+  getExamRoundSelectionState,
+  isLocationInRound,
+  type ExamNotifyPayload,
+} from '@/lib/exam-flow-contract';
 import { LIFE_EXAM_FEE_ROWS } from '@/lib/exam-fees';
 import { logger } from '@/lib/logger';
 import { supabase } from '@/lib/supabase';
@@ -61,8 +71,9 @@ const formatExamInfo = (dateStr?: string | null, label?: string | null) => {
 const toYmd = (d: Date) =>
   `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 const ROUND_DEADLINE_RETENTION_DAYS = 7;
-const LIFE_EXAM_FEE_ACCOUNT = '신한 110-505-328638 김태훈';
-const INVALID_LOCATION_MESSAGE = '선택한 응시 지역이 해당 시험 회차에 속하지 않습니다. 응시 지역을 다시 선택해주세요.';
+const examFlowType = 'life' as const;
+const examFlowConfig = getExamFlowConfig(examFlowType);
+const feeAccountCopy = getExamFeeAccountCopyText(examFlowType);
 const CARD_SHADOW = {
   shadowColor: '#000',
   shadowOpacity: 0.05,
@@ -71,35 +82,9 @@ const CARD_SHADOW = {
   elevation: 2,
 };
 
-async function notifyAdmin(title: string, body: string, residentId: string | null) {
+async function notifyExamFlow(payload: ExamNotifyPayload) {
   const { data, error } = await supabase.functions.invoke('fc-notify', {
-    body: {
-      type: 'notify',
-      target_role: 'admin',
-      target_id: residentId,
-      title,
-      body,
-      category: 'exam_apply',
-      url: '/exam-manage',
-    },
-  });
-  if (error) throw error;
-  if (!data?.ok) {
-    throw new Error(data?.message ?? '알림 전송 실패');
-  }
-}
-
-async function notifyFcSelf(title: string, body: string, residentId: string) {
-  const { data, error } = await supabase.functions.invoke('fc-notify', {
-    body: {
-      type: 'notify',
-      target_role: 'fc',
-      target_id: residentId,
-      title,
-      body,
-      category: 'exam_apply',
-      url: '/exam-apply',
-    },
+    body: payload,
   });
   if (error) throw error;
   if (!data?.ok) {
@@ -132,7 +117,7 @@ const fetchRounds = async (): Promise<ExamRoundWithLocations[]> => {
       )
     `,
     )
-    .eq('exam_type', 'life')
+    .eq('exam_type', examFlowConfig.examType)
     .gte('registration_deadline', toYmd(cutoffDate))
     .order('exam_date', { ascending: true })
     .order('registration_deadline', { ascending: true })
@@ -191,18 +176,13 @@ function normalizeSingle<T>(value: T | T[] | null | undefined): T | null {
   return Array.isArray(value) ? value[0] : value;
 }
 
-function isLocationInRound(round: ExamRoundWithLocations | null, locationId: string | null | undefined) {
-  if (!round || !locationId) return false;
-  return round.locations.some((location) => location.id === locationId);
-}
-
 function getExamRegistrationErrorMessage(error: unknown) {
   if (!error) return '시험 신청 중 오류가 발생했습니다.';
 
   if (error instanceof Error) {
     const message = error.message ?? '';
     if (message.includes('exam_registrations_location_round_fkey')) {
-      return INVALID_LOCATION_MESSAGE;
+      return INVALID_EXAM_LOCATION_MESSAGE;
     }
     return message || '시험 신청 중 오류가 발생했습니다.';
   }
@@ -211,10 +191,10 @@ function getExamRegistrationErrorMessage(error: unknown) {
     const maybeError = error as { code?: string; message?: string; details?: string; hint?: string };
     const text = [maybeError.message, maybeError.details, maybeError.hint].filter(Boolean).join(' ');
     if (text.includes('exam_registrations_location_round_fkey')) {
-      return INVALID_LOCATION_MESSAGE;
+      return INVALID_EXAM_LOCATION_MESSAGE;
     }
     if (maybeError.code === '23503' && text.includes('exam_locations')) {
-      return INVALID_LOCATION_MESSAGE;
+      return INVALID_EXAM_LOCATION_MESSAGE;
     }
     if (text) {
       return text;
@@ -226,7 +206,7 @@ function getExamRegistrationErrorMessage(error: unknown) {
 
 export default function ExamApplyScreen() {
   const { role, residentId, displayName, hydrated, readOnly } = useSession();
-  useIdentityGate({ nextPath: '/exam-apply' });
+  useIdentityGate({ nextPath: examFlowConfig.applyRoute });
   const canApplyExam = canUseFcExamApply({ role, readOnly });
 
   const [selectedRoundId, setSelectedRoundId] = useState<string | null>(null);
@@ -259,7 +239,7 @@ export default function ExamApplyScreen() {
     isFetching,
     refetch,
   } = useQuery({
-    queryKey: ['exam-rounds-for-apply', 'life'],
+    queryKey: examFlowConfig.applyRoundsQueryKey,
     queryFn: fetchRounds,
     enabled: canApplyExam,
   });
@@ -285,7 +265,7 @@ export default function ExamApplyScreen() {
   );
 
   const { data: myApplies = [], refetch: refetchMyApply } = useQuery<MyExamApply[]>({
-    queryKey: ['my-exam-apply-life', residentId],
+    queryKey: [examFlowConfig.myApplyQueryKeyPrefix, residentId],
     enabled: canApplyExam && !!residentId,
     queryFn: async (): Promise<MyExamApply[]> => {
       const { data, error } = await supabase
@@ -294,7 +274,7 @@ export default function ExamApplyScreen() {
           'id, round_id, location_id, status, is_confirmed, is_third_exam, fee_paid_date, created_at, exam_rounds!inner(exam_date, round_label, exam_type), exam_locations(location_name)',
         )
         .eq('resident_id', residentId)
-        .eq('exam_rounds.exam_type', 'life')
+        .eq('exam_rounds.exam_type', examFlowConfig.examType)
         .order('created_at', { ascending: false });
 
       if (error && (error as any).code === '42P01') {
@@ -327,7 +307,7 @@ export default function ExamApplyScreen() {
   useEffect(() => {
     if (!residentId) return;
     const regChannel = supabase
-      .channel(`exam-apply-life-${residentId}`)
+      .channel(`${examFlowConfig.applyRealtimeChannelPrefix}-${residentId}`)
       .on(
         'postgres_changes',
         { event: '*', schema: 'public', table: 'exam_registrations', filter: `resident_id=eq.${residentId}` },
@@ -341,20 +321,14 @@ export default function ExamApplyScreen() {
 
   // 선택된 회차에 기존 신청이 있으면 데이터 복원
   useEffect(() => {
-    if (existingForRound) {
-      if (existingForRound.is_third_exam != null) setWantsThird(!!existingForRound.is_third_exam);
-      const restoredFeePaidDate = toDate(existingForRound.fee_paid_date);
-      setFeePaidDate(restoredFeePaidDate);
-      setTempFeePaidDate(restoredFeePaidDate);
-      setSelectedLocationId(
-        isLocationInRound(selectedRound, existingForRound.location_id) ? existingForRound.location_id : null,
-      );
-    } else {
-      setSelectedLocationId(null);
-      setWantsThird(false);
-      setFeePaidDate(null);
-      setTempFeePaidDate(null);
-    }
+    const restoredState = getExamApplyRestoredSelectionState({
+      existingForRound,
+      selectedRound,
+    });
+    setSelectedLocationId(restoredState.selectedLocationId);
+    setWantsThird(restoredState.wantsThird);
+    setFeePaidDate(restoredState.feePaidDate);
+    setTempFeePaidDate(restoredState.tempFeePaidDate);
   }, [existingForRound, selectedRound]);
 
   const [refreshing, setRefreshing] = useState(false);
@@ -370,7 +344,7 @@ export default function ExamApplyScreen() {
 
   const copyFeeAccount = useCallback(async () => {
     try {
-      await Clipboard.setStringAsync(LIFE_EXAM_FEE_ACCOUNT);
+      await Clipboard.setStringAsync(feeAccountCopy.value);
       void Haptics.selectionAsync().catch(() => {});
       Alert.alert('복사 완료', '응시료 납입 계좌를 복사했습니다.');
     } catch {
@@ -419,7 +393,7 @@ export default function ExamApplyScreen() {
       }
 
       if (!isLocationInRound(round, locationId)) {
-        throw new Error(INVALID_LOCATION_MESSAGE);
+        throw new Error(INVALID_EXAM_LOCATION_MESSAGE);
       }
 
       if (existingForRound) {
@@ -456,11 +430,16 @@ export default function ExamApplyScreen() {
       const examTitle = `${formatDate(round.exam_date)}${round.round_label ? ` (${round.round_label})` : ''
         }`;
       const actor = displayName?.trim() || residentId;
-      const title = `${actor}님이 ${examTitle}을 신청하였습니다.`;
-      const body = locName ? `${actor}님이 ${examTitle} (${locName})을 신청하였습니다.` : title;
+      const notificationPayloads = buildExamApplyNotificationPayloads({
+        examType: examFlowType,
+        actor,
+        residentId,
+        examTitle,
+        locationName: locName,
+      });
 
-      await notifyAdmin(title, body, residentId);
-      await notifyFcSelf('시험 신청이 접수되었습니다.', `${examTitle}${locName ? ` (${locName})` : ''} 접수가 완료되었습니다.`, residentId);
+      await notifyExamFlow(notificationPayloads.admin);
+      await notifyExamFlow(notificationPayloads.fcSelf);
     },
     onSuccess: () => {
       Alert.alert('신청 완료', '시험 신청이 정상적으로 등록되었습니다.');
@@ -536,8 +515,9 @@ export default function ExamApplyScreen() {
       return;
     }
     Haptics.selectionAsync();
-    setSelectedLocationId(null);
-    setSelectedRoundId(round.id);
+    const selectionState = getExamRoundSelectionState(round);
+    setSelectedLocationId(selectionState.selectedLocationId);
+    setSelectedRoundId(selectionState.selectedRoundId);
   };
 
   const handleLocationSelect = (id: string) => {
@@ -606,19 +586,19 @@ export default function ExamApplyScreen() {
           <Text style={styles.inputHint}>응시료 미입금 시 시험 접수 불가능하며, 납입한 접수비는 반환되지 않습니다.</Text>
           <View style={styles.accountCard}>
             <View style={styles.accountHeaderRow}>
-              <Text style={styles.accountLabel}>응시료 납입 계좌</Text>
+              <Text style={styles.accountLabel}>{feeAccountCopy.label}</Text>
               <Pressable
                 onPress={() => { void copyFeeAccount(); }}
                 accessibilityRole="button"
-                accessibilityLabel="응시료 납입 계좌 복사"
-                accessibilityHint="응시료 납입 계좌 정보를 클립보드에 복사합니다."
+                accessibilityLabel={feeAccountCopy.accessibilityLabel}
+                accessibilityHint={feeAccountCopy.accessibilityHint}
                 style={({ pressed }) => [styles.accountCopyChip, pressed && styles.accountCopyChipPressed]}
               >
                 <Feather name="copy" size={13} color={HANWHA_ORANGE} />
-                <Text style={styles.accountCopyChipLabel}>복사</Text>
+                <Text style={styles.accountCopyChipLabel}>{feeAccountCopy.copyLabel}</Text>
               </Pressable>
             </View>
-            <Text style={styles.accountValue}>{LIFE_EXAM_FEE_ACCOUNT}</Text>
+            <Text style={styles.accountValue}>{feeAccountCopy.value}</Text>
           </View>
           <View style={styles.feeCard}>
             <View style={styles.feeHeaderRow}>
