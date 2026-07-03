@@ -38,19 +38,43 @@ describe('cross-surface feature contract matrix', () => {
     const groupChatSource = readRepoFile('app/group-chat.tsx');
     const requestBoardMessengerSource = readRepoFile('app/request-board-messenger.tsx');
     const linkifiedSource = readRepoFile('components/LinkifiedSelectableText.tsx');
+    const linkifiedActionsSource = readRepoFile('lib/linkified-text-actions.ts');
+    const actionSheetSource = readRepoFile('components/MessengerMessageActionSheet.tsx');
 
     for (const source of [chatSource, groupChatSource, requestBoardMessengerSource]) {
       expect(source).toContain('LinkifiedSelectableText');
-      expect(source).toContain('Clipboard.setStringAsync');
+      expect(source).toContain('copyTextWithFeedback');
+      expect(source).not.toContain('Clipboard.setStringAsync');
       expect(source).toContain('openMessageActions');
       expect(source).toContain('onLongPress={() => openMessageActions(item)}');
+      expect(source).toContain("from '@/components/MessengerMessageActionSheet'");
+      expect(source).toContain('<MessengerMessageActionSheet');
+      const actionHandlerStart = source.indexOf('openMessageActions');
+      const actionHandlerEnd = source.indexOf('const formatTime', actionHandlerStart);
+      const actionHandlerSource = source.slice(
+        actionHandlerStart,
+        actionHandlerEnd > actionHandlerStart ? actionHandlerEnd : actionHandlerStart + 1200,
+      );
+      expect(actionHandlerSource).not.toContain('const actions = [');
     }
 
+    expect(actionSheetSource).toContain('export const MESSENGER_REACTIONS');
+    expect(actionSheetSource).toContain('감정 남기기');
+    expect(actionSheetSource).toContain('선택 복사');
+    expect(actionSheetSource).toContain('답장');
+    expect(actionSheetSource).toContain('공지');
+    expect(actionSheetSource).toContain('삭제');
     expect(requestBoardMessengerSource).toContain('rbDeleteMessage');
     expect(requestBoardMessengerSource).toContain('rbDeleteDmMessage');
+    expect(requestBoardMessengerSource).toContain('selectCopyMessage');
+    expect(requestBoardMessengerSource).toContain('onSelectCopy={');
     expect(requestBoardMessengerSource).toContain('selectable={false}');
-    expect(linkifiedSource).toContain('openExternalUrl(normalized, { preferExternalBrowser: true })');
-    expect(linkifiedSource).toContain('Clipboard.setStringAsync');
+    expect(linkifiedSource).toContain('openLinkExternallyWithFeedback');
+    expect(linkifiedSource).toContain('showLinkifiedTextOptions');
+    expect(linkifiedSource).not.toContain('Clipboard.setStringAsync');
+    expect(linkifiedSource).not.toContain('Alert.alert');
+    expect(linkifiedActionsSource).toContain('openExternalUrl(normalized, { preferExternalBrowser: true })');
+    expect(linkifiedActionsSource).toContain('copyTextWithFeedback');
     expect(linkifiedSource).toContain('const textSelectable = selectable && !hasLinks');
     expect(linkifiedSource).toContain('selectable={false}');
   });
@@ -72,6 +96,7 @@ describe('cross-surface feature contract matrix', () => {
         'app/chat.tsx',
         'app/group-chat.tsx',
         'app/request-board-messenger.tsx',
+        'components/MessageUnreadReceiptBadge.tsx',
         'components/LinkifiedSelectableText.tsx',
         'lib/message-read-receipts.ts',
         'web/src/app/dashboard/chat/page.tsx',
@@ -88,8 +113,13 @@ describe('cross-surface feature contract matrix', () => {
       expect.arrayContaining([
         'app/board.tsx',
         'app/board-detail.tsx',
+        'app/admin-board-manage.tsx',
         'app/notice.tsx',
         'app/notice-detail.tsx',
+        'lib/board-attachment-actions.ts',
+        'lib/board-comment-actions.ts',
+        'lib/board-feedback-alerts.ts',
+        'lib/board-reaction-state.ts',
         'web/src/app/dashboard/board/',
         'web/src/app/dashboard/notifications/',
         'web/src/app/api/admin/notices/',
@@ -98,6 +128,10 @@ describe('cross-surface feature contract matrix', () => {
     );
     expect(boardRule.requires_any).toEqual(
       expect.arrayContaining([
+        'lib/__tests__/board-attachment-actions.test.ts',
+        'lib/__tests__/board-comment-actions.test.ts',
+        'lib/__tests__/board-feedback-alerts.test.ts',
+        'lib/__tests__/board-reaction-state.test.ts',
         'lib/__tests__/admin-web-board-source.test.ts',
         'lib/__tests__/board-category-contract.test.ts',
         'lib/__tests__/notification-route.test.ts',

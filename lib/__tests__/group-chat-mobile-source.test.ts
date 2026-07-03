@@ -60,30 +60,40 @@ describe('group chat mobile wiring', () => {
 
   it('shows KakaoTalk-style unread recipient counts on sent messages', () => {
     const source = readAppFile('group-chat.tsx');
+    const badgeSource = readComponentFile('MessageUnreadReceiptBadge.tsx');
 
     expect(source).toContain('unread_count');
-    expect(source).toContain('messageUnreadCount');
+    expect(source).toContain("from '@/components/MessageUnreadReceiptBadge'");
+    expect(source).toContain('<MessageUnreadReceiptBadge');
     expect(source).toContain('showUnreadCount');
     expect(source).toContain('messageBubbleLine');
+    expect(source).not.toContain('<Text style={styles.messageUnreadCount}>');
+    expect(badgeSource).toContain('formatUnreadReceiptCount');
+    expect(badgeSource).toContain('messageUnreadCount');
   });
 
   it('keeps direct and request-board messengers on the same unread recipient count contract', () => {
     const directSource = readAppFile('chat.tsx');
     const requestBoardSource = readAppFile('request-board-messenger.tsx');
+    const badgeSource = readComponentFile('MessageUnreadReceiptBadge.tsx');
 
     for (const source of [directSource, requestBoardSource]) {
       expect(source).toContain("from '@/lib/message-read-receipts'");
       expect(source).toContain('getDirectMessageUnreadCount');
-      expect(source).toContain('formatUnreadReceiptCount');
-      expect(source).toContain('messageUnreadCount');
+      expect(source).toContain("from '@/components/MessageUnreadReceiptBadge'");
+      expect(source).toContain('<MessageUnreadReceiptBadge');
+      expect(source).not.toContain('<Text style={styles.messageUnreadCount}>');
     }
 
     expect(directSource).toContain('messageBubbleLine');
     expect(requestBoardSource).toContain('isRead: message.is_read');
+    expect(badgeSource).toContain('formatUnreadReceiptCount');
+    expect(badgeSource).toContain('messageUnreadCount');
   });
 
   it('wires reply, reaction, and soft-delete actions from message long press', () => {
     const source = readAppFile('group-chat.tsx');
+    const actionSheetSource = readComponentFile('MessengerMessageActionSheet.tsx');
 
     expect(source).toContain('replyTarget');
     expect(source).toContain('actionMessage');
@@ -94,32 +104,38 @@ describe('group chat mobile wiring', () => {
     expect(source).toContain('groupChatDeleteMessage');
     expect(source).toContain('onPress={() => handleMessagePress(item)}');
     expect(source).toContain('onLongPress={() => openMessageActions(item)}');
-    expect(source).toContain('답장');
-    expect(source).toContain('감정 남기기');
-    expect(source).toContain('삭제');
+    expect(source).toContain('handleReplyAction');
+    expect(source).toContain('MESSENGER_REACTIONS');
+    expect(actionSheetSource).toContain('감정 남기기');
+    expect(actionSheetSource).toContain('답장');
+    expect(actionSheetSource).toContain('삭제');
   });
 
   it('renders a KakaoTalk-style message action menu with copy, select-copy, and notice actions', () => {
     const source = readAppFile('group-chat.tsx');
+    const actionSheetSource = readComponentFile('MessengerMessageActionSheet.tsx');
 
-    expect(source).toContain("import * as Clipboard from 'expo-clipboard'");
-    expect(source).toContain('Clipboard.setStringAsync');
+    expect(source).toContain('copyTextWithFeedback');
+    expect(source).not.toContain('Clipboard.setStringAsync');
     expect(source).toContain('selectCopyMessage');
-    expect(source).toContain('<Text selectable style={styles.selectCopyText}>');
-    expect(source).toContain('actionMenuBackdrop');
-    expect(source).toContain('actionMenu');
-    expect(source).toContain('복사');
-    expect(source).toContain('선택 복사');
-    expect(source).toContain('공지');
-    expect(source).toContain('공지 해제');
+    expect(source).toContain("from '@/components/MessengerMessageActionSheet'");
+    expect(source).toContain('<MessengerMessageActionSheet');
+    expect(source).toContain('<MessageSelectCopySheet');
+    expect(actionSheetSource).toContain('actionMenuBackdrop');
+    expect(actionSheetSource).toContain('actionMenu');
+    expect(actionSheetSource).toContain('복사');
+    expect(actionSheetSource).toContain('선택 복사');
+    expect(actionSheetSource).toContain('공지');
     expect(source).toContain('groupChatSetNotice');
     expect(source).toContain('groupChatClearNotice');
-    expect(source).toContain('canManageNotice && actionMessage');
+    expect(source).toContain('canManageNotice &&');
+    expect(source).toContain('actionMessage &&');
   });
 
   it('prevents native text selection from intercepting message long press', () => {
     const source = readAppFile('group-chat.tsx');
     const linkifiedSource = readComponentFile('LinkifiedSelectableText.tsx');
+    const actionSheetSource = readComponentFile('MessengerMessageActionSheet.tsx');
     const messageContentSection = source.slice(
       source.indexOf('<LinkifiedSelectableText'),
       source.indexOf('const renderItem'),
@@ -131,7 +147,7 @@ describe('group chat mobile wiring', () => {
     expect(linkifiedSource).toContain('selectable={textSelectable}');
     expect(linkifiedSource).toContain('selectable={false}');
     expect(linkifiedSource).toContain("userSelect: 'none'");
-    expect(source).toContain('<Text selectable style={styles.selectCopyText}>');
+    expect(actionSheetSource).toContain('<Text selectable style={styles.selectCopyText}>');
   });
 
   it('renders the current group chat notice as a fixed top banner', () => {

@@ -8,6 +8,7 @@
         "app/chat.tsx",
         "app/group-chat.tsx",
         "app/request-board-messenger.tsx",
+        "components/MessageUnreadReceiptBadge.tsx",
         "components/LinkifiedSelectableText.tsx",
         "lib/group-chat-contract.ts",
         "lib/message-read-receipts.ts",
@@ -31,8 +32,13 @@
       "prefixes": [
         "app/board.tsx",
         "app/board-detail.tsx",
+        "app/admin-board-manage.tsx",
         "app/notice.tsx",
         "app/notice-detail.tsx",
+        "lib/board-attachment-actions.ts",
+        "lib/board-comment-actions.ts",
+        "lib/board-feedback-alerts.ts",
+        "lib/board-reaction-state.ts",
         "lib/notification-route.ts",
         "scripts/ops/post-insurance-digest.mjs",
         "supabase/functions/board-",
@@ -41,6 +47,10 @@
         "web/src/app/dashboard/notifications/"
       ],
       "requires_any": [
+        "lib/__tests__/board-attachment-actions.test.ts",
+        "lib/__tests__/board-comment-actions.test.ts",
+        "lib/__tests__/board-feedback-alerts.test.ts",
+        "lib/__tests__/board-reaction-state.test.ts",
         "lib/__tests__/admin-web-board-source.test.ts",
         "lib/__tests__/board-category-contract.test.ts",
         "lib/__tests__/notification-route.test.ts",
@@ -124,6 +134,64 @@
         "docs/handbook/feature-contract-matrix.md",
         "docs/handbook/data/identity-and-pii.md",
         "docs/handbook/data/storage-and-attachments.md",
+        "docs/handbook/contract-test-map.json"
+      ]
+    },
+    {
+      "id": "shared-ui-action-primitives",
+      "prefixes": [
+        "components/Button.tsx",
+        "components/AppAlertProvider.tsx",
+        "components/MessengerMessageActionSheet.tsx",
+        "components/MessageUnreadReceiptBadge.tsx",
+        "components/LinkifiedSelectableText.tsx",
+        "lib/messenger-attachment-actions.ts",
+        "lib/messenger-copy-actions.ts",
+        "lib/messenger-delete-actions.ts",
+        "lib/linkified-text-actions.ts",
+        "lib/native-file-actions.ts",
+        "lib/board-attachment-actions.ts",
+        "lib/board-comment-actions.ts",
+        "lib/board-feedback-alerts.ts",
+        "lib/board-reaction-state.ts",
+        "components/ImagePreviewModal.tsx",
+        "components/FormInput.tsx",
+        "app/board.tsx",
+        "app/admin-board-manage.tsx",
+        "app/chat.tsx",
+        "app/group-chat.tsx",
+        "app/request-board-messenger.tsx",
+        "scripts/audit/shared-ui-contract-audit.cjs",
+        "web/src/app/dashboard/board/",
+        "web/src/app/dashboard/notifications/",
+        "web/src/app/dashboard/docs/",
+        "web/src/app/dashboard/chat/",
+        "web/src/lib/admin-file-open.ts"
+      ],
+      "requires_any": [
+        "lib/__tests__/shared-ui-action-contracts.test.ts",
+        "lib/__tests__/feature-contract-matrix.test.ts",
+        "docs/handbook/shared-ui-action-contracts.md",
+        "docs/handbook/feature-contract-matrix.md",
+        "docs/handbook/contract-test-map.json"
+      ]
+    },
+    {
+      "id": "shared-function-primitives",
+      "prefixes": [
+        "lib/exam-display.ts",
+        "lib/group-chat-display.ts",
+        "scripts/audit/shared-function-contract-audit.cjs",
+        "app/exam-manage.tsx",
+        "app/exam-manage2.tsx",
+        "app/group-chat.tsx"
+      ],
+      "requires_any": [
+        "lib/__tests__/exam-display.test.ts",
+        "lib/__tests__/group-chat-function-contracts.test.ts",
+        "lib/__tests__/shared-function-contracts.test.ts",
+        "docs/handbook/shared-ui-action-contracts.md",
+        "docs/handbook/feature-contract-matrix.md",
         "docs/handbook/contract-test-map.json"
       ]
     }

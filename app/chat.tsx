@@ -1,5 +1,4 @@
 import { Feather, Ionicons } from '@expo/vector-icons';
-import * as Clipboard from 'expo-clipboard';
 import * as DocumentPicker from 'expo-document-picker';
 import * as FileSystem from 'expo-file-system/legacy';
 import { Image } from 'expo-image';
@@ -14,7 +13,6 @@ import {
   FlatList,
   Keyboard,
   KeyboardAvoidingView,
-  Linking,
   Platform,
   Pressable,
   StyleSheet,
@@ -27,6 +25,11 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import BrandedLoadingSpinner from '@/components/BrandedLoadingSpinner';
 import { LinkifiedSelectableText } from '@/components/LinkifiedSelectableText';
+import { MessageUnreadReceiptBadge } from '@/components/MessageUnreadReceiptBadge';
+import {
+  MessageSelectCopySheet,
+  MessengerMessageActionSheet,
+} from '@/components/MessengerMessageActionSheet';
 import { useKeyboardPadding } from '@/hooks/use-keyboard-padding';
 import { useSession } from '@/hooks/use-session';
 import MessengerLoadingState from '@/components/MessengerLoadingState';
@@ -34,10 +37,10 @@ import { goBackOrReplace } from '@/lib/back-navigation';
 import { fetchFcChatTargets } from '@/lib/internal-chat-api';
 import { getChatTargetPickerHeaderConfig } from '@/lib/chat-navigation';
 import { logger } from '@/lib/logger';
-import {
-  formatUnreadReceiptCount,
-  getDirectMessageUnreadCount,
-} from '@/lib/message-read-receipts';
+import { copyTextWithFeedback } from '@/lib/messenger-copy-actions';
+import { confirmMessengerDelete } from '@/lib/messenger-delete-actions';
+import { getDirectMessageUnreadCount } from '@/lib/message-read-receipts';
+import { openMessengerAttachment } from '@/lib/messenger-attachment-actions';
 import {
   aggregatePresence,
   formatPresenceLabel,
@@ -121,7 +124,9 @@ type Message = {
   file_size?: number | null;
 };
 
-const getMessageCopyText = (message: Message): string => {
+const getMessageCopyText = (message: Message | null | undefined): string => {
+  if (!message) return '';
+
   const content = String(message.content ?? '').trim();
   if (content) return content;
   return String(message.file_url ?? '').trim();
@@ -248,6 +253,8 @@ export default function ChatScreen() {
   );
 
   const [messages, setMessages] = useState<Message[]>([]);
+  const [actionMessage, setActionMessage] = useState<Message | null>(null);
+  const [selectCopyMessage, setSelectCopyMessage] = useState<Message | null>(null);
   const [text, setText] = useState('');
   const [uploading, setUploading] = useState(false);
   const pickingRef = useRef(false);
@@ -835,73 +842,61 @@ export default function ChatScreen() {
 
   const handleDeleteMessage = (message: Message) => {
     if (message.sender_id !== myId) return;
-    Alert.alert('메시지 삭제', '이 메시지를 삭제하시겠습니까?', [
-      { text: '취소', style: 'cancel' },
-      {
-        text: '삭제',
-        style: 'destructive',
-        onPress: async () => {
-          try {
-            const { data: authRes } = await supabase.auth.getUser();
-            logger.debug('[delete] request', {
-              authUserId: authRes?.user?.id,
-              myId,
-              msgId: message.id,
-              senderId: message.sender_id,
-            });
-            const { error } = await supabase.from('messages').delete().eq('id', message.id);
-            if (error) {
-              logger.debug('[delete] supabase error', { error });
-              Alert.alert('삭제 실패', error.message ?? '메시지를 삭제하지 못했습니다.');
-            } else {
-              logger.debug('[delete] success', { messageId: message.id });
-              deletedIdsRef.current.add(message.id);
-              setMessages((prev) => prev.filter((m) => m.id !== message.id));
-            }
-          } catch (err: any) {
-            logger.debug('[delete] exception', { error: err?.message ?? err });
-            Alert.alert('삭제 실패', '예외가 발생했습니다.');
-          }
-        },
+    confirmMessengerDelete({
+      logScope: 'chat',
+      onDelete: async () => {
+        const { data: authRes } = await supabase.auth.getUser();
+        logger.debug('[delete] request', {
+          authUserId: authRes?.user?.id,
+          myId,
+          msgId: message.id,
+          senderId: message.sender_id,
+        });
+        const { error } = await supabase.from('messages').delete().eq('id', message.id);
+        if (error) {
+          logger.debug('[delete] supabase error', { error });
+          throw error;
+        }
+
+        logger.debug('[delete] success', { messageId: message.id });
+        deletedIdsRef.current.add(message.id);
+        setMessages((prev) => prev.filter((m) => m.id !== message.id));
       },
-    ]);
+    });
   };
 
   const handleCopyMessage = async (message: Message) => {
-    const copyText = getMessageCopyText(message);
-    if (!copyText) {
-      Alert.alert('복사할 수 없어요', '복사할 메시지 내용이 없습니다.');
-      return;
-    }
-
-    try {
-      await Clipboard.setStringAsync(copyText);
-      Alert.alert('복사 완료', '메시지를 복사했습니다.');
-    } catch (error) {
-      logger.debug('[chat] copy failed', { error });
-      Alert.alert('복사 실패', '메시지를 복사하지 못했습니다.');
-    }
+    await copyTextWithFeedback(getMessageCopyText(message), { logScope: 'chat' });
   };
 
   const openMessageActions = (message: Message) => {
-    const actions = [
-      {
-        text: '복사',
-        onPress: () => {
-          void handleCopyMessage(message);
-        },
-      },
-      ...(message.sender_id === myId
-        ? [{
-            text: '삭제',
-            style: 'destructive' as const,
-            onPress: () => handleDeleteMessage(message),
-          }]
-        : []),
-      { text: '취소', style: 'cancel' as const },
-    ];
+    setActionMessage(message);
+  };
 
-    Alert.alert('메시지 옵션', undefined, actions);
+  const closeMessageActions = () => {
+    setActionMessage(null);
+  };
+
+  const handleCopyAction = () => {
+    const message = actionMessage;
+    setActionMessage(null);
+    if (message) void handleCopyMessage(message);
+  };
+
+  const handleSelectCopyAction = () => {
+    const message = actionMessage;
+    setActionMessage(null);
+    if (!getMessageCopyText(message)) {
+      Alert.alert('선택 복사할 수 없어요', '선택 복사할 메시지 내용이 없습니다.');
+      return;
+    }
+    setSelectCopyMessage(message);
+  };
+
+  const handleDeleteAction = () => {
+    const message = actionMessage;
+    setActionMessage(null);
+    if (message) handleDeleteMessage(message);
   };
 
   const formatTime = (iso: string) => {
@@ -930,7 +925,12 @@ export default function ChatScreen() {
   const renderMessageContent = (item: Message, isMe: boolean) => {
     if (item.message_type === 'image' && item.file_url) {
       return (
-        <TouchableOpacity onPress={() => Linking.openURL(item.file_url!)} style={{ minWidth: 150, minHeight: 150 }}>
+        <TouchableOpacity
+          onPress={() => {
+            void openMessengerAttachment(item.file_url, { logScope: 'chat' });
+          }}
+          style={{ minWidth: 150, minHeight: 150 }}
+        >
           <Image source={{ uri: item.file_url }} style={{ width: 200, height: 200, borderRadius: 8 }} contentFit="cover" />
         </TouchableOpacity>
       );
@@ -941,7 +941,9 @@ export default function ChatScreen() {
       return (
         <TouchableOpacity
           style={[styles.fileCard, isMe ? styles.fileCardMe : styles.fileCardOther]}
-          onPress={() => Linking.openURL(item.file_url!)}
+          onPress={() => {
+            void openMessengerAttachment(item.file_url, { logScope: 'chat' });
+          }}
           activeOpacity={0.82}
         >
           <View style={[styles.fileIconBox, isMe ? styles.fileIconBoxMe : styles.fileIconBoxOther]}>
@@ -984,17 +986,13 @@ export default function ChatScreen() {
 
   const renderItem = ({ item }: { item: Message }) => {
     const isMe = item.sender_id === myId;
-    const unreadReceiptText = formatUnreadReceiptCount(
-      getDirectMessageUnreadCount({
-        isOwn: isMe,
-        isRead: item.is_read,
-      }),
-    );
+    const unreadReceiptCount = getDirectMessageUnreadCount({
+      isOwn: isMe,
+      isRead: item.is_read,
+    });
     const messageMeta = (
       <View style={[styles.messageSideMeta, isMe ? styles.messageSideMetaMe : styles.messageSideMetaOther]}>
-        {unreadReceiptText ? (
-          <Text style={styles.messageUnreadCount}>{unreadReceiptText}</Text>
-        ) : null}
+        <MessageUnreadReceiptBadge count={unreadReceiptCount} />
         <Text style={styles.timeText}>{formatTime(item.created_at)}</Text>
       </View>
     );
@@ -1292,6 +1290,22 @@ export default function ChatScreen() {
           </View>
         </View>
       </KeyboardAvoidingView>
+
+      <MessengerMessageActionSheet
+        visible={Boolean(actionMessage)}
+        preview={actionMessage ? getMessageCopyText(actionMessage) : ''}
+        onClose={closeMessageActions}
+        onCopy={actionMessage ? handleCopyAction : undefined}
+        onSelectCopy={actionMessage ? handleSelectCopyAction : undefined}
+        onDelete={actionMessage?.sender_id === myId ? handleDeleteAction : undefined}
+      />
+
+      <MessageSelectCopySheet
+        visible={Boolean(selectCopyMessage)}
+        text={getMessageCopyText(selectCopyMessage)}
+        onClose={() => setSelectCopyMessage(null)}
+        bottomInset={insets.bottom}
+      />
     </View>
   );
 }
@@ -1443,7 +1457,6 @@ const styles = StyleSheet.create({
   messageSideMeta: { minWidth: 30, paddingBottom: 2 },
   messageSideMetaMe: { alignItems: 'flex-end' },
   messageSideMetaOther: { alignItems: 'flex-start' },
-  messageUnreadCount: { fontSize: 11, lineHeight: 13, color: HANWHA_ORANGE, fontWeight: '800' },
   timeText: { fontSize: 11, color: '#9CA3AF', marginBottom: 2, minWidth: 30 },
   inputWrapper: {
     backgroundColor: '#fff',

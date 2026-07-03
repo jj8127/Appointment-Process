@@ -10,6 +10,8 @@ source_of_truth: app/request-board*.tsx + lib/request-board-api.ts + lib/request
 ## 2026-07-03 Messenger Bridge Contract Notes
 
 - `app/request-board-messenger.tsx` must follow the same messenger interaction contract as direct and group chat: link rendering/opening, long-press action menu, copy/delete actions, and numeric unread count display where read-state data exists.
+- Request-board messenger long-press UI must use `components/MessengerMessageActionSheet.tsx`; request-board-only limitations such as no reactions/reply/notice are represented by omitted capability props, not by a separate alert menu.
+- Shared UI/action primitive drift for bridge screens is inventoried by `scripts/audit/shared-ui-contract-audit.cjs` and governed by `docs/handbook/shared-ui-action-contracts.md`.
 - `lib/request-board-api.ts` is the bridge API surface for request-board messages, direct messages, delete actions, attachments, and session retry behavior.
 - Any bridge messenger change must update `lib/__tests__/mobile-chat-source.test.ts`, `lib/__tests__/message-read-receipts.test.ts`, `lib/__tests__/feature-contract-matrix.test.ts`, or this handbook contract.
 

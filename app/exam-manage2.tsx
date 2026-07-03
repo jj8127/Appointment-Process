@@ -19,9 +19,14 @@ import { RefreshButton } from '@/components/RefreshButton';
 import { useSession } from '@/hooks/use-session';
 import { deleteExamRegistrationAsAdmin } from '@/lib/exam-admin-api';
 import { notifyExamApprovalStatus } from '@/lib/exam-approval-notify';
+import {
+  buildExamInfo,
+  buildExamPhoneCandidates,
+  formatExamResidentNumber,
+  formatExamYmd,
+} from '@/lib/exam-display';
 import { logger } from '@/lib/logger';
 import { supabase } from '@/lib/supabase';
-import { formatPhone, normalizePhone } from '@/lib/validation';
 
 const ORANGE = '#f36f21';
 const CHARCOAL = '#111827';
@@ -81,58 +86,6 @@ type ApplicantRow = {
   feePaidDate?: string | null;
 };
 
-function formatResidentNumber(num: string | null) {
-  if (!num) return '-';
-  const clean = num.replace(/[^0-9]/g, '');
-  if (clean.length === 13) return `${clean.slice(0, 6)}-${clean.slice(6)}`;
-  return num;
-}
-
-function normalizeSingle<T>(value: T | T[] | null | undefined): T | null {
-  if (!value) return null;
-  return Array.isArray(value) ? value[0] : value;
-}
-
-function buildPhoneCandidates(value: string | null | undefined) {
-  const raw = String(value ?? '').trim();
-  const digits = normalizePhone(raw);
-  const formatted = digits.length === 11 ? formatPhone(digits) : '';
-  return Array.from(new Set([raw, digits, formatted].filter(Boolean)));
-}
-
-function formatYmd(value?: string | null) {
-  if (!value) return '-';
-  const d = new Date(value);
-  if (Number.isNaN(d.getTime())) return value;
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
-}
-
-function buildExamInfo(reg: ExamRegistrationRaw): string {
-  const round = normalizeSingle(reg.exam_rounds);
-  const loc = normalizeSingle(reg.exam_locations);
-  const examDateStr = round?.exam_date ?? null;
-  let ymPart = '';
-  let datePart = '';
-
-  if (examDateStr) {
-    const d = new Date(examDateStr);
-    const y = d.getFullYear();
-    const m = d.getMonth() + 1;
-    const day = d.getDate();
-    ymPart = `${y}년 ${m}월`;
-    datePart = `${m}/${day}`;
-  }
-
-  const roundLabel = round?.round_label ?? '';
-  const locName = loc?.location_name ?? '';
-
-  if (ymPart && datePart && roundLabel && locName) {
-    return `${ymPart} ${roundLabel} : ${datePart} [${locName}]`;
-  }
-
-  return `${roundLabel || ''} ${datePart ? `: ${datePart}` : ''}${locName ? ` [${locName}]` : ''}`.trim();
-}
-
 async function fetchApplicantsNonlife(adminPhone: string, appSessionToken: string | null): Promise<ApplicantRow[]> {
   const { data, error } = await supabase
     .from('exam_registrations')
@@ -151,7 +104,7 @@ async function fetchApplicantsNonlife(adminPhone: string, appSessionToken: strin
   if (rows.length === 0) return [];
 
   const residentIds = Array.from(new Set(rows.map((r) => r.resident_id).filter((v): v is string => !!v)));
-  const profileLookupCandidates = Array.from(new Set(residentIds.flatMap((value) => buildPhoneCandidates(value))));
+  const profileLookupCandidates = Array.from(new Set(residentIds.flatMap((value) => buildExamPhoneCandidates(value))));
 
   const profileMap = new Map<string, FcProfile>();
   let residentNumbersByFcId: Record<string, string | null> = {};
@@ -162,7 +115,7 @@ async function fetchApplicantsNonlife(adminPhone: string, appSessionToken: strin
       .in('phone', profileLookupCandidates);
     if (pError) throw pError;
     for (const profile of (profiles ?? []) as FcProfile[]) {
-      for (const candidate of buildPhoneCandidates(profile.phone)) {
+      for (const candidate of buildExamPhoneCandidates(profile.phone)) {
         profileMap.set(candidate, profile);
       }
     }
@@ -191,7 +144,7 @@ async function fetchApplicantsNonlife(adminPhone: string, appSessionToken: strin
   const result: ApplicantRow[] = [];
   for (const reg of rows) {
     const key = reg.resident_id;
-    const profile = buildPhoneCandidates(key)
+    const profile = buildExamPhoneCandidates(key)
       .map((candidate) => profileMap.get(candidate))
       .find(Boolean);
     result.push({
@@ -418,9 +371,9 @@ export default function ExamManageNonlifeScreen() {
         <View style={styles.divider} />
 
         <View style={styles.infoGrid}>
-          <InfoLabelValue label="주민번호" value={formatResidentNumber(a.residentNumber)} />
+          <InfoLabelValue label="주민번호" value={formatExamResidentNumber(a.residentNumber)} />
           <InfoLabelValue label="제3보험" value={a.thirdExam ? '응시' : '-'} />
-          <InfoLabelValue label="응시료 납입일" value={formatYmd(a.feePaidDate)} />
+          <InfoLabelValue label="응시료 납입일" value={formatExamYmd(a.feePaidDate)} />
           <InfoLabelValue label="주소" value={a.address} fullWidth />
         </View>
 

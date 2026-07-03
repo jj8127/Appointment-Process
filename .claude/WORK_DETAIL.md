@@ -10962,3 +10962,249 @@
 
 **Notes**:
 - Existing unrelated dirty-worktree files were not reverted or normalized.
+
+---
+
+## <a id="20260703-mobile-messenger-action-sheet-unification"></a> 2026-07-03 | Mobile messenger action sheet unification
+
+**Scope**: Mobile long-press message actions for direct chat, group chat, and request-board messenger.
+
+**Changes**:
+- Added `components/MessengerMessageActionSheet.tsx` as the shared long-press action sheet for mobile messenger surfaces.
+- Added the shared `MessageSelectCopySheet` so direct/request-board messengers can use the same select-copy behavior as group chat.
+- Rewired `app/chat.tsx`, `app/group-chat.tsx`, and `app/request-board-messenger.tsx` to render the shared action sheet instead of per-screen OS action menus.
+- Tightened `lib/__tests__/feature-contract-matrix.test.ts` so every mobile messenger surface must import/render the shared action sheet and cannot reintroduce a per-screen `const actions = [...]` menu in `openMessageActions`.
+
+**Verification**:
+- RED confirmed: `npm test -- --runInBand lib/__tests__/feature-contract-matrix.test.ts` failed while the shared action sheet component was missing.
+- Passed: `npm test -- --runInBand lib/__tests__/feature-contract-matrix.test.ts`.
+- Passed: `npm test -- --runInBand lib/__tests__/group-chat-mobile-source.test.ts lib/__tests__/mobile-chat-source.test.ts`.
+- Passed: targeted `git diff --check` for the current change set. Git emitted CRLF normalization warnings only.
+
+**Notes**:
+- Direct/request-board messengers still expose only actions supported by their current backend contract. The shared sheet owns the presentation and common copy/select-copy/delete actions; group-chat-only actions such as reactions, reply, and notice are capability-gated props.
+
+---
+
+## <a id="20260703-shared-ui-action-contracts"></a> 2026-07-03 | Shared UI action contracts
+
+**Scope**: GaramIn shared UI/action primitive audit and governance foundation.
+
+**Changes**:
+- Added `scripts/audit/shared-ui-contract-audit.cjs` to inventory mobile/web alerts, buttons, modals, copy/link opens, messenger actions, roles, notifications, and form validation drift.
+- Added `docs/handbook/shared-ui-action-contracts.md` and mapped `shared-ui-action-primitives` in `docs/handbook/contract-test-map.json`.
+- Added `lib/__tests__/shared-ui-action-contracts.test.ts` to guard the audit categories, live inventory, handbook, feature matrix, and contract map.
+- Added the `UI action primitives` domain to `docs/handbook/feature-contract-matrix.md`.
+- Added `lib/messenger-attachment-actions.ts` and routed `app/chat.tsx` plus `app/group-chat.tsx` attachment opens through `openMessengerAttachment` instead of direct `Linking.openURL`.
+- Added `lib/messenger-copy-actions.ts` and routed `app/chat.tsx`, `app/group-chat.tsx`, and `app/request-board-messenger.tsx` clipboard writes through `copyTextWithFeedback` instead of direct `Clipboard.setStringAsync`.
+
+**Verification**:
+- RED confirmed: `npm test -- --runInBand lib/__tests__/shared-ui-action-contracts.test.ts` failed before the audit script existed.
+- RED confirmed: `npm test -- --runInBand lib/__tests__/shared-ui-action-contracts.test.ts` failed when the messenger attachment helper was missing from the code/handbook/contract map.
+- RED confirmed: `npm test -- --runInBand lib/__tests__/shared-ui-action-contracts.test.ts lib/__tests__/feature-contract-matrix.test.ts lib/__tests__/group-chat-mobile-source.test.ts` failed before the messenger copy helper and contract docs existed.
+- Passed: `npm test -- --runInBand lib/__tests__/shared-ui-action-contracts.test.ts lib/__tests__/feature-contract-matrix.test.ts lib/__tests__/group-chat-mobile-source.test.ts`.
+- Passed: `node scripts/audit/shared-ui-contract-audit.cjs --json`.
+
+**Notes**:
+- This is the governance/foundation pass. The live audit still reports remaining direct alerts, raw action pressables, modal shells, copy/link opens, role branches, and notification/unread clusters for follow-up refactors.
+
+---
+
+## <a id="20260703-mobile-messenger-delete-action-contract"></a> 2026-07-03 | Mobile messenger delete action contract
+
+**Scope**: Mobile messenger destructive message action confirmation/failure behavior.
+
+**Changes**:
+- Added `lib/messenger-delete-actions.ts` with `confirmMessengerDelete`.
+- Rewired `app/chat.tsx`, `app/group-chat.tsx`, and `app/request-board-messenger.tsx` so delete confirmation, destructive button style, failure alert, and failure logging are owned by the shared helper.
+- Kept screen-specific delete operations in each surface; group chat passes `classifyGroupChatError` as a domain-specific error formatter.
+- Tightened `lib/__tests__/shared-ui-action-contracts.test.ts` so every mobile messenger surface must import/use `confirmMessengerDelete` and cannot reintroduce local `Alert.alert('메시지 삭제', ...)`.
+- Updated the shared UI/action and mobile messenger handbooks plus the contract map.
+- Recorded the previous gap in `.claude/MISTAKES.md`.
+
+**Verification**:
+- RED confirmed: `npm test -- --runInBand lib/__tests__/shared-ui-action-contracts.test.ts` failed while `lib/messenger-delete-actions.ts` was missing.
+- Passed: `npm test -- --runInBand lib/__tests__/shared-ui-action-contracts.test.ts`.
+- Passed: `npm test -- --runInBand lib/__tests__/shared-ui-action-contracts.test.ts lib/__tests__/feature-contract-matrix.test.ts lib/__tests__/group-chat-mobile-source.test.ts lib/__tests__/mobile-chat-source.test.ts`.
+- Passed: `npx expo lint app/chat.tsx app/group-chat.tsx app/request-board-messenger.tsx lib/messenger-copy-actions.ts lib/messenger-attachment-actions.ts lib/messenger-delete-actions.ts lib/__tests__/shared-ui-action-contracts.test.ts`.
+- Passed: `node scripts\ci\check-governance.mjs`.
+- Passed: `git diff --check`; Git emitted CRLF normalization warnings only.
+
+---
+
+## <a id="20260703-native-file-download-action-contract"></a> 2026-07-03 | Native file download action contract
+
+**Scope**: Mobile file download/save behavior for request-board messenger attachments and Hanwha commission PDFs.
+
+**Changes**:
+- Added `lib/native-file-actions.ts` with `downloadRemoteFileToUserStorage` and `sanitizeNativeFileName`.
+- Rewired `app/request-board-messenger.tsx` attachment downloads and `app/hanwha-commission.tsx` PDF downloads through the shared helper.
+- Centralized temporary download paths, Android Storage Access Framework writes, iOS document copies, duplicate filename fallback, cleanup, and destination labels.
+- Tightened `lib/__tests__/shared-ui-action-contracts.test.ts` so governed screens cannot call `FileSystem.downloadAsync` or `StorageAccessFramework` directly.
+- Updated shared UI/action contract docs and contract-test map, and recorded the prior drift in `.claude/MISTAKES.md`.
+
+**Verification**:
+- RED confirmed: `npm test -- --runInBand lib/__tests__/shared-ui-action-contracts.test.ts` failed while `lib/native-file-actions.ts` was missing.
+- Passed: `npm test -- --runInBand lib/__tests__/shared-ui-action-contracts.test.ts`.
+
+**Notes**:
+- Screen code still owns domain-specific signed URL lookup and user-facing labels. Platform save mechanics belong only to `lib/native-file-actions.ts`.
+
+---
+
+## <a id="20260703-linkified-text-action-contract"></a> 2026-07-03 | Linkified text action contract
+
+**Scope**: Mobile linkified message/body text link open, copy, and select guidance behavior.
+
+**Changes**:
+- Added `lib/linkified-text-actions.ts` with `openLinkExternallyWithFeedback` and `showLinkifiedTextOptions`.
+- Rewired `components/LinkifiedSelectableText.tsx` so it only renders/dispatches link actions and no longer calls `Alert.alert` or `Clipboard.setStringAsync` directly.
+- Routed link copy feedback through `copyTextWithFeedback`, keeping link copy success/failure copy and logging in the shared copy primitive.
+- Updated shared UI/mobile messenger handbooks, contract map, and mistake ledger.
+
+**Verification**:
+- RED confirmed: `npm test -- --runInBand lib/__tests__/shared-ui-action-contracts.test.ts` failed while `lib/linkified-text-actions.ts` was missing.
+- RED confirmed: `npm test -- --runInBand lib/__tests__/shared-ui-action-contracts.test.ts` failed until the handbook documented `showLinkifiedTextOptions`.
+- Passed: `npm test -- --runInBand lib/__tests__/shared-ui-action-contracts.test.ts`.
+- Regression caught old expectations: `npm test -- --runInBand lib/__tests__/shared-ui-action-contracts.test.ts lib/__tests__/feature-contract-matrix.test.ts lib/__tests__/group-chat-mobile-source.test.ts lib/__tests__/mobile-chat-source.test.ts lib/__tests__/messenger-room-ordering.test.ts` failed while `feature-contract-matrix.test.ts` still expected `LinkifiedSelectableText` to own direct `openExternalUrl` and `Clipboard.setStringAsync` calls.
+- Passed after updating the contract expectation: `npm test -- --runInBand lib/__tests__/shared-ui-action-contracts.test.ts lib/__tests__/feature-contract-matrix.test.ts lib/__tests__/group-chat-mobile-source.test.ts lib/__tests__/mobile-chat-source.test.ts lib/__tests__/messenger-room-ordering.test.ts`.
+- Passed: `npx expo lint components/LinkifiedSelectableText.tsx lib/linkified-text-actions.ts lib/messenger-copy-actions.ts lib/__tests__/shared-ui-action-contracts.test.ts lib/__tests__/feature-contract-matrix.test.ts`.
+- Passed: `node scripts\ci\check-governance.mjs`.
+- Passed: `git diff --check`; Git emitted CRLF normalization warnings only.
+- Confirmed: `rg -n "Clipboard\.setStringAsync|Alert\.alert|openExternalUrl" components\LinkifiedSelectableText.tsx lib\linkified-text-actions.ts` shows direct link alerts/opening only in `lib/linkified-text-actions.ts`.
+
+**Notes**:
+- Link rendering still lives in `LinkifiedSelectableText`; open/copy/select guidance behavior is owned by `lib/linkified-text-actions.ts`.
+
+---
+
+## <a id="20260703-mobile-messenger-unread-receipt-badge"></a> 2026-07-03 | Mobile messenger unread receipt badge contract
+
+**Scope**: Mobile sent-message unread recipient count display for direct chat, group chat, and request-board messenger.
+
+**Changes**:
+- Added `components/MessageUnreadReceiptBadge.tsx` as the shared mobile unread receipt display primitive.
+- Rewired `app/chat.tsx`, `app/group-chat.tsx`, and `app/request-board-messenger.tsx` to pass unread counts into the shared badge instead of rendering local `messageUnreadCount` text branches.
+- Kept direct/request-board count calculation in `getDirectMessageUnreadCount`; group chat still uses message `unread_count`.
+- Updated mobile messenger/shared UI handbooks, contract map, contract tests, and mistake ledger.
+
+**Verification**:
+- RED confirmed: `npm test -- --runInBand lib/__tests__/group-chat-mobile-source.test.ts` failed while `components/MessageUnreadReceiptBadge.tsx` was missing.
+- Passed: `npm test -- --runInBand lib/__tests__/group-chat-mobile-source.test.ts`.
+- Regression caught old expectations: the broader messenger contract run failed while `lib/__tests__/mobile-chat-source.test.ts` still expected `formatUnreadReceiptCount` and local `messageUnreadCount` in `app/chat.tsx`.
+- Passed after updating the contract expectation: `npm test -- --runInBand lib/__tests__/shared-ui-action-contracts.test.ts lib/__tests__/feature-contract-matrix.test.ts lib/__tests__/group-chat-mobile-source.test.ts lib/__tests__/mobile-chat-source.test.ts lib/__tests__/message-read-receipts.test.ts lib/__tests__/messenger-room-ordering.test.ts`.
+- Passed after handbook/contract-map updates: `npm test -- --runInBand lib/__tests__/shared-ui-action-contracts.test.ts lib/__tests__/feature-contract-matrix.test.ts lib/__tests__/group-chat-mobile-source.test.ts lib/__tests__/mobile-chat-source.test.ts lib/__tests__/message-read-receipts.test.ts lib/__tests__/messenger-room-ordering.test.ts`.
+- Passed: `npx expo lint app/chat.tsx app/group-chat.tsx app/request-board-messenger.tsx components/MessageUnreadReceiptBadge.tsx components/LinkifiedSelectableText.tsx lib/linkified-text-actions.ts lib/__tests__/shared-ui-action-contracts.test.ts lib/__tests__/feature-contract-matrix.test.ts lib/__tests__/group-chat-mobile-source.test.ts lib/__tests__/mobile-chat-source.test.ts`.
+- Passed: `node scripts\ci\check-governance.mjs`.
+- Passed: `git diff --check`; Git emitted CRLF normalization warnings only.
+- Confirmed: `rg -n "<Text style=\{styles\.messageUnreadCount\}|formatUnreadReceiptCount|messageUnreadCount" app\chat.tsx app\group-chat.tsx app\request-board-messenger.tsx components\MessageUnreadReceiptBadge.tsx lib\__tests__\group-chat-mobile-source.test.ts lib\__tests__\mobile-chat-source.test.ts` shows local read-receipt formatting only in `MessageUnreadReceiptBadge` and tests.
+
+**Notes**:
+- This centralizes the mobile badge presentation only. Web direct-chat read receipt display remains governed by `web/src/lib/message-read-receipts.ts` and admin web source tests.
+
+---
+
+## <a id="20260703-board-comment-actions"></a> 2026-07-03 | Board comment action sheet primitive
+
+**Scope**: Mobile board and admin-board comment edit/delete action sheets.
+
+**Changes**:
+- Added `lib/board-comment-actions.ts` with `showBoardCommentActions`.
+- Rewired `app/board.tsx` and `app/admin-board-manage.tsx` so comment edit/delete menus use the shared helper instead of each screen owning the alert button list.
+- Added `lib/__tests__/board-comment-actions.test.ts` to verify the edit/delete/cancel action contract and source usage.
+- Registered `lib/board-comment-actions.ts`, `app/board.tsx`, and `app/admin-board-manage.tsx` in the board/shared UI contract map.
+- Updated shared UI/action and feature contract handbooks.
+
+**Verification**:
+- RED confirmed: `npx jest lib/__tests__/board-comment-actions.test.ts --runInBand` failed while `lib/board-comment-actions.ts` was missing.
+- Passed: `npx jest lib/__tests__/board-comment-actions.test.ts --runInBand`.
+- Passed: `npx jest lib/__tests__/shared-ui-action-contracts.test.ts --runInBand`.
+- Passed: `npx jest lib/__tests__/feature-contract-matrix.test.ts --runInBand`.
+
+**Notes**:
+- Screens still own comment identity, edit text state, and mutation execution. The helper owns only the shared action sheet copy/order/destructive style.
+
+---
+
+## <a id="20260703-board-reaction-state"></a> 2026-07-03 | Board reaction state primitive
+
+**Scope**: Mobile board and admin-board reaction count and optimistic reaction state updates.
+
+**Changes**:
+- Added `lib/board-reaction-state.ts` with `buildBoardReactionCounts` and `applyBoardReactionUpdate`.
+- Rewired `app/board.tsx` and `app/admin-board-manage.tsx` so missing-count normalization, toggle-off behavior, reaction switching, and total delta semantics use the shared helper.
+- Added `lib/__tests__/board-reaction-state.test.ts` to verify the helper behavior and guard both board screens against reintroducing local reaction helpers.
+- Registered `lib/board-reaction-state.ts` in the board/shared UI contract map.
+- Updated shared UI/action and feature contract handbooks.
+
+**Verification**:
+- RED confirmed: `npx jest lib/__tests__/board-reaction-state.test.ts --runInBand` failed while `lib/board-reaction-state.ts` was missing.
+- Passed: `npx jest lib/__tests__/board-reaction-state.test.ts --runInBand`.
+
+**Notes**:
+- Screens still own mutation wiring, optimistic cache writes, and local override state. The helper owns only the reaction math contract.
+
+---
+
+## <a id="20260703-board-attachment-actions"></a> 2026-07-03 | Board attachment open action primitive
+
+**Scope**: Mobile board and admin-board file attachment open behavior.
+
+**Changes**:
+- Added `lib/board-attachment-actions.ts` with `openBoardAttachment`.
+- Rewired `app/board.tsx` and `app/admin-board-manage.tsx` so signed file URL opening, failure feedback, and logging use the shared helper.
+- Added `lib/__tests__/board-attachment-actions.test.ts` to verify successful opens, shared failure feedback, and source usage.
+- Registered `lib/board-attachment-actions.ts` in the board/shared UI contract map.
+- Updated shared UI/action and feature contract handbooks.
+
+**Verification**:
+- RED confirmed: `npx jest lib/__tests__/board-attachment-actions.test.ts --runInBand` failed while `lib/board-attachment-actions.ts` was missing.
+- Passed: `npx jest lib/__tests__/board-attachment-actions.test.ts --runInBand`.
+
+**Notes**:
+- Screens still own attachment rendering and the concrete opener dependency. The helper owns the cross-surface open/failure behavior.
+
+---
+
+## <a id="20260703-board-feedback-alerts"></a> 2026-07-03 | Board feedback alert primitive
+
+**Scope**: Mobile board and admin-board repeated reaction/comment failure and empty-comment validation alerts.
+
+**Changes**:
+- Added `lib/board-feedback-alerts.ts` with `showBoardFeedbackAlert`.
+- Rewired `app/board.tsx` and `app/admin-board-manage.tsx` so shared reaction/comment failure copy and empty-comment validation copy come from the helper.
+- Added `lib/__tests__/board-feedback-alerts.test.ts` to verify alert copy and guard both board screens against reintroducing duplicated `Alert.alert(...)` calls.
+- Registered `lib/board-feedback-alerts.ts` in the board/shared UI contract map.
+- Updated shared UI/action and feature contract handbooks.
+
+**Verification**:
+- RED confirmed: `npx jest lib/__tests__/board-feedback-alerts.test.ts --runInBand` failed while `lib/board-feedback-alerts.ts` was missing.
+- Passed: `npx jest lib/__tests__/board-feedback-alerts.test.ts --runInBand`.
+
+**Notes**:
+- Permission, share, post-delete, and truly screen-specific alerts remain screen-owned until they get a shared contract or documented exception.
+
+---
+
+## <a id="20260703-shared-function-primitives"></a> 2026-07-03 | Shared function primitives for exam and group chat display
+
+**Scope**: GaramIn exam management and group chat function-level display/business helpers.
+
+**Changes**:
+- Added `lib/exam-display.ts` for resident-number display, exam date display, exam round/location summary text, and phone candidate normalization.
+- Rewired `app/exam-manage.tsx` and `app/exam-manage2.tsx` to use `lib/exam-display.ts` instead of local duplicate helper functions.
+- Added `lib/group-chat-display.ts` for staff actor/send permission, member search normalization, role labels, reply labels, copy text, member status tone, and time display.
+- Rewired `app/group-chat.tsx` to use `lib/group-chat-display.ts` for shared group chat display rules.
+- Added `scripts/audit/shared-function-contract-audit.cjs` and `lib/__tests__/shared-function-contracts.test.ts` so function-level drift is audited and tied to handbook/governance.
+- Updated `docs/handbook/shared-ui-action-contracts.md`, `docs/handbook/feature-contract-matrix.md`, and `docs/handbook/contract-test-map.json`.
+
+**Verification**:
+- RED confirmed: `npx jest lib/__tests__/exam-display.test.ts --runInBand` failed while `lib/exam-display.ts` was missing.
+- Passed: `npx jest lib/__tests__/exam-display.test.ts --runInBand`.
+- RED confirmed: `npx jest lib/__tests__/group-chat-function-contracts.test.ts --runInBand` failed while `lib/group-chat-display.ts` was missing.
+- Passed: `npx jest lib/__tests__/group-chat-function-contracts.test.ts --runInBand`.
+- RED confirmed: `npx jest lib/__tests__/shared-function-contracts.test.ts --runInBand` failed while `scripts/audit/shared-function-contract-audit.cjs` was missing.
+- Passed: `npx jest lib/__tests__/shared-function-contracts.test.ts --runInBand`.
+
+**Notes**:
+- Screens still own state, API calls, mutations, and screen-specific event handlers. Shared helpers own reused business display/normalization rules only.

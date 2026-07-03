@@ -3,6 +3,7 @@ import { join } from 'node:path';
 
 const root = join(__dirname, '..', '..');
 const chatPath = join(root, 'app', 'chat.tsx');
+const unreadBadgePath = join(root, 'components', 'MessageUnreadReceiptBadge.tsx');
 
 describe('mobile direct chat source', () => {
   it('uses narrow message selects for chat fetches and sends', () => {
@@ -35,14 +36,18 @@ describe('mobile direct chat source', () => {
 
   it('shows KakaoTalk-style unread recipient counts on sent direct messages', () => {
     const source = readFileSync(chatPath, 'utf8');
+    const badgeSource = readFileSync(unreadBadgePath, 'utf8');
     const optimisticStart = source.indexOf('const createOptimisticMessage');
     const optimisticEnd = source.indexOf('const markIncomingAsRead', optimisticStart);
     const optimisticSource = source.slice(optimisticStart, optimisticEnd);
 
     expect(source).toContain("from '@/lib/message-read-receipts'");
     expect(source).toContain('getDirectMessageUnreadCount');
-    expect(source).toContain('formatUnreadReceiptCount');
-    expect(source).toContain('messageUnreadCount');
+    expect(source).toContain("from '@/components/MessageUnreadReceiptBadge'");
+    expect(source).toContain('<MessageUnreadReceiptBadge');
+    expect(source).not.toContain('<Text style={styles.messageUnreadCount}>');
+    expect(badgeSource).toContain('formatUnreadReceiptCount');
+    expect(badgeSource).toContain('messageUnreadCount');
     expect(source).toContain('messageBubbleLine');
     expect(optimisticSource).toContain('is_read: false');
   });

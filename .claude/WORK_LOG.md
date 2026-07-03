@@ -17,6 +17,18 @@
 - ⚠️ 상태값(`types/fc.ts`)과 화면 분기 조건은 반드시 함께 수정
 - ⚠️ 스키마 변경은 `schema.sql` + `migrations/*.sql` 동시 관리
 
+## 2026-07-03
+
+| Date | Work | Key files | Detail |
+|---|---|---|---|
+| 07-03 | Board feedback alert primitive | `lib/board-feedback-alerts.ts`, `app/board.tsx`, `app/admin-board-manage.tsx`, `lib/__tests__/board-feedback-alerts.test.ts` | [detail](WORK_DETAIL.md#20260703-board-feedback-alerts) |
+| 07-03 | Board attachment open action primitive | `lib/board-attachment-actions.ts`, `app/board.tsx`, `app/admin-board-manage.tsx`, `lib/__tests__/board-attachment-actions.test.ts` | [detail](WORK_DETAIL.md#20260703-board-attachment-actions) |
+| 07-03 | Board reaction state primitive | `lib/board-reaction-state.ts`, `app/board.tsx`, `app/admin-board-manage.tsx`, `lib/__tests__/board-reaction-state.test.ts` | [detail](WORK_DETAIL.md#20260703-board-reaction-state) |
+| 07-03 | Board comment action sheet primitive | `lib/board-comment-actions.ts`, `app/board.tsx`, `app/admin-board-manage.tsx`, `lib/__tests__/board-comment-actions.test.ts` | [detail](WORK_DETAIL.md#20260703-board-comment-actions) |
+| 07-03 | Shared UI/action audit and primitive governance | `scripts/audit/shared-ui-contract-audit.cjs`, `lib/messenger-attachment-actions.ts`, `lib/messenger-copy-actions.ts`, `app/chat.tsx`, `app/group-chat.tsx`, `app/request-board-messenger.tsx`, `docs/handbook/shared-ui-action-contracts.md`, `lib/__tests__/shared-ui-action-contracts.test.ts` | [detail](WORK_DETAIL.md#20260703-shared-ui-action-contracts) |
+| 07-03 | Linkified text link action contract | `components/LinkifiedSelectableText.tsx`, `lib/linkified-text-actions.ts`, `lib/__tests__/shared-ui-action-contracts.test.ts`, `docs/handbook/shared-ui-action-contracts.md`, `docs/handbook/mobile/messenger-and-content.md` | [detail](WORK_DETAIL.md#20260703-linkified-text-action-contract) |
+| 07-03 | Mobile messenger unread receipt badge contract | `components/MessageUnreadReceiptBadge.tsx`, `app/chat.tsx`, `app/group-chat.tsx`, `app/request-board-messenger.tsx`, `lib/__tests__/group-chat-mobile-source.test.ts`, `lib/__tests__/mobile-chat-source.test.ts` | [detail](WORK_DETAIL.md#20260703-mobile-messenger-unread-receipt-badge) |
+
 ## 2026-06-30
 
 | Date | Work | Key files | Detail |
@@ -446,3 +458,7 @@
 | 06-26 | Admin web test trace data cleanup and verification | Supabase data: `fc_profiles`, `admin_accounts`, `manager_accounts`, `messages`, `notifications`, `group_chat_messages`, account-dependent rows | `.codex-tmp/test-trace-cleanup-20260626/` backups |
 | 06-27 | Admin referral graph rubber-band release follow-through | `web/src/components/referrals/ReferralGraphCanvas.tsx`, `web/src/lib/referral-graph-interaction.test.ts`, `web/src/lib/referral-graph-physics.ts`, `web/src/lib/referral-graph-physics.test.ts`, `.codex/harness/referral-graph-visual-qa.md`, `.claude/MISTAKES.md` | [details](WORK_DETAIL.md#20260627-referral-graph-release-follow-through) |
 | 07-03 | Feature contract drift guard for messenger, roles, visibility, notifications, files, and PII | `docs/handbook/feature-contract-matrix.md`, `docs/handbook/contract-test-map.json`, `lib/__tests__/feature-contract-matrix.test.ts`, `scripts/ci/check-governance.mjs` | [details](WORK_DETAIL.md#20260703-feature-contract-drift-guard) |
+| 07-03 | Mobile messenger long-press action sheet unification | `components/MessengerMessageActionSheet.tsx`, `app/chat.tsx`, `app/group-chat.tsx`, `app/request-board-messenger.tsx`, `lib/__tests__/feature-contract-matrix.test.ts` | [details](WORK_DETAIL.md#20260703-mobile-messenger-action-sheet-unification) |
+| 07-03 | Mobile messenger delete confirmation/failure action contract | `lib/messenger-delete-actions.ts`, `app/chat.tsx`, `app/group-chat.tsx`, `app/request-board-messenger.tsx`, `lib/__tests__/shared-ui-action-contracts.test.ts` | [details](WORK_DETAIL.md#20260703-mobile-messenger-delete-action-contract) |
+| 07-03 | Native file download/save action contract | `lib/native-file-actions.ts`, `app/request-board-messenger.tsx`, `app/hanwha-commission.tsx`, `lib/__tests__/shared-ui-action-contracts.test.ts` | [details](WORK_DETAIL.md#20260703-native-file-download-action-contract) |
+| 07-03 | Shared function primitives for exam and group chat display | `lib/exam-display.ts`, `lib/group-chat-display.ts`, `scripts/audit/shared-function-contract-audit.cjs`, `lib/__tests__/shared-function-contracts.test.ts` | [details](WORK_DETAIL.md#20260703-shared-function-primitives) |

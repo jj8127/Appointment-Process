@@ -1,13 +1,15 @@
-import * as Clipboard from 'expo-clipboard';
 import { useMemo } from 'react';
-import { Alert, StyleProp, StyleSheet, Text, TextStyle } from 'react-native';
+import { StyleProp, StyleSheet, Text, TextStyle } from 'react-native';
 
 import {
   formatExternalUrlDisplayText,
   normalizeExternalUrl,
   stripTrailingUrlPunctuation,
 } from '@/lib/external-url';
-import { openExternalUrl } from '@/lib/open-external-url';
+import {
+  openLinkExternallyWithFeedback,
+  showLinkifiedTextOptions,
+} from '@/lib/linkified-text-actions';
 
 const URL_PATTERN = /((?:https?:\/\/|www\.)[^\s]+)/gi;
 
@@ -75,42 +77,11 @@ export function LinkifiedSelectableText({
     if (!normalized) return;
 
     if (linkPressBehavior === 'open') {
-      openExternalUrl(normalized, { preferExternalBrowser: true }).catch(() => {
-        Alert.alert('오류', '링크를 열 수 없습니다.');
-      });
+      void openLinkExternallyWithFeedback(normalized);
       return;
     }
 
-    const displayText = formatExternalUrlDisplayText(normalized, 56);
-
-    Alert.alert('링크 옵션', displayText, [
-      {
-        text: '열기',
-        onPress: () => {
-          openExternalUrl(normalized, { preferExternalBrowser: true }).catch(() => {
-            Alert.alert('오류', '링크를 열 수 없습니다.');
-          });
-        },
-      },
-      {
-        text: '복사',
-        onPress: async () => {
-          try {
-            await Clipboard.setStringAsync(normalized);
-            Alert.alert('복사 완료', '링크를 클립보드에 복사했습니다.');
-          } catch {
-            Alert.alert('복사 실패', '링크 복사에 실패했습니다.');
-          }
-        },
-      },
-      {
-        text: '선택/부분선택',
-        onPress: () => {
-          Alert.alert('안내', '본문을 길게 누르면 텍스트를 선택할 수 있습니다.');
-        },
-      },
-      { text: '취소', style: 'cancel' },
-    ]);
+    showLinkifiedTextOptions(normalized);
   };
 
   return (

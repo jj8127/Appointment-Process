@@ -39,6 +39,14 @@ import { LinkifiedSelectableText } from '@/components/LinkifiedSelectableText';
 import { CardSkeleton } from '@/components/LoadingSkeleton';
 import { DEFAULT_REACTIONS, ReactionPicker } from '@/components/ReactionPicker';
 import { useAppLogout } from '@/hooks/use-app-logout';
+import { openBoardAttachment } from '@/lib/board-attachment-actions';
+import { showBoardFeedbackAlert } from '@/lib/board-feedback-alerts';
+import {
+  applyBoardReactionUpdate,
+  buildBoardReactionCounts,
+  type BoardReactionKey,
+} from '@/lib/board-reaction-state';
+import { showBoardCommentActions } from '@/lib/board-comment-actions';
 import { buildBoardPostShareContent } from '@/lib/board-share-link';
 import { resolveBottomNavActiveKey, resolveBottomNavPreset } from '@/lib/bottom-navigation';
 import { useKeyboardPadding } from '@/hooks/use-keyboard-padding';
@@ -101,11 +109,9 @@ const getCategoryTheme = (categoryName: string) => {
   return { backgroundColor: '#F3F4F6', borderColor: '#E5E7EB', textColor: '#4B5563' };
 };
 
-type ReactionKey = 'like' | 'heart' | 'check' | 'smile';
-type ReactionCounts = Record<ReactionKey, number>;
 type ReactionMutationContext = {
   previousDetail?: BoardDetail;
-  previousMyReaction: ReactionKey | null | undefined;
+  previousMyReaction: BoardReactionKey | null | undefined;
 };
 type CommentLikeMutationContext = {
   previousDetail?: BoardDetail;
@@ -119,37 +125,6 @@ const safeText = (value?: string | null) => (typeof value === 'string' ? value :
 const getInitial = (value?: string | null) => {
   const normalized = safeText(value).trim();
   return normalized ? normalized.charAt(0) : '?';
-};
-
-const buildReactionCounts = (counts?: Partial<ReactionCounts>): ReactionCounts => ({
-  like: counts?.like ?? 0,
-  heart: counts?.heart ?? 0,
-  check: counts?.check ?? 0,
-  smile: counts?.smile ?? 0,
-});
-
-const applyReactionUpdate = (
-  currentCounts: ReactionCounts,
-  currentReaction: ReactionKey | null,
-  nextReaction: ReactionKey,
-) => {
-  const nextCounts = { ...currentCounts };
-  let nextMyReaction: ReactionKey | null = nextReaction;
-  let delta = 0;
-
-  if (currentReaction === nextReaction) {
-    nextMyReaction = null;
-    nextCounts[nextReaction] = Math.max(0, nextCounts[nextReaction] - 1);
-    delta = -1;
-  } else {
-    if (currentReaction) {
-      nextCounts[currentReaction] = Math.max(0, nextCounts[currentReaction] - 1);
-    }
-    nextCounts[nextReaction] = nextCounts[nextReaction] + 1;
-    delta = currentReaction ? 0 : 1;
-  }
-
-  return { nextCounts, nextMyReaction, delta };
 };
 
 type BoardPost = BoardListItem;
@@ -313,8 +288,8 @@ export default function BoardScreen() {
     authorName: string;
     parentId: string;
   } | null>(null);
-  // undefined = not yet set (use server data), null = cleared, ReactionKey = selected
-  const [myReactionOverride, setMyReactionOverride] = useState<ReactionKey | null | undefined>(undefined);
+  // undefined = not yet set (use server data), null = cleared, BoardReactionKey = selected
+  const [myReactionOverride, setMyReactionOverride] = useState<BoardReactionKey | null | undefined>(undefined);
   const routePostId = useMemo(() => {
     const value = Array.isArray(postId) ? postId[0] : postId;
     if (typeof value !== 'string') return '';
@@ -531,7 +506,7 @@ export default function BoardScreen() {
     smile: modalReactions.smile,
   };
   // myReactionOverride takes priority: undefined = use server, null/key = local value
-  const effectiveMyReaction: ReactionKey | null =
+  const effectiveMyReaction: BoardReactionKey | null =
     myReactionOverride !== undefined ? myReactionOverride : (modalReactions.myReaction ?? null);
   const modalComments = useMemo(() => detailData?.comments ?? [], [detailData?.comments]);
   const threadedComments = useMemo(() => {
@@ -570,12 +545,12 @@ export default function BoardScreen() {
 
   // Add reaction mutation
   const addReactionMutation = useMutation<
-    { myReaction: ReactionKey | null },
+    { myReaction: BoardReactionKey | null },
     Error,
-    { postId: string; reactionType: ReactionKey },
+    { postId: string; reactionType: BoardReactionKey },
     ReactionMutationContext | undefined
   >({
-    mutationFn: async ({ postId, reactionType }: { postId: string; reactionType: ReactionKey }) => {
+    mutationFn: async ({ postId, reactionType }: { postId: string; reactionType: BoardReactionKey }) => {
       if (!actor) throw new Error('로그인이 필요합니다.');
       return toggleBoardReaction(actor, postId, reactionType);
     },
@@ -591,8 +566,8 @@ export default function BoardScreen() {
 
       // effectiveMyReaction captures the current state (override > server > null)
       const currentMyReaction = effectiveMyReaction;
-      const currentCounts = buildReactionCounts(previousDetail?.reactions ?? modalReactions);
-      const { nextCounts, nextMyReaction } = applyReactionUpdate(currentCounts, currentMyReaction, reactionType);
+      const currentCounts = buildBoardReactionCounts(previousDetail?.reactions ?? modalReactions);
+      const { nextCounts, nextMyReaction } = applyBoardReactionUpdate(currentCounts, currentMyReaction, reactionType);
 
       // Optimistically update detail cache (if already loaded)
       if (previousDetail) {
@@ -619,7 +594,7 @@ export default function BoardScreen() {
       // Revert local reaction state
       setMyReactionOverride(context?.previousMyReaction);
       logBoardError('reaction', error);
-      Alert.alert('오류', '반응 처리에 실패했습니다.');
+      showBoardFeedbackAlert(Alert.alert, 'reaction-failed');
     },
     onSuccess: (data, variables) => {
       if (!data) return;
@@ -651,7 +626,7 @@ export default function BoardScreen() {
       queryClient.invalidateQueries({ queryKey: ['board-posts'] });
     },
     onError: (error) => {
-      Alert.alert('오류', '댓글 작성에 실패했습니다.');
+      showBoardFeedbackAlert(Alert.alert, 'comment-create-failed');
       logBoardError('comment', error);
     },
   });
@@ -699,7 +674,7 @@ export default function BoardScreen() {
         queryClient.setQueryData(detailKey, context.previousDetail);
       }
       logBoardError('comment-like', error);
-      Alert.alert('오류', '댓글 좋아요 처리에 실패했습니다.');
+      showBoardFeedbackAlert(Alert.alert, 'comment-like-failed');
     },
     onSuccess: (data, commentId) => {
       if (!selectedPostId) return;
@@ -738,7 +713,7 @@ export default function BoardScreen() {
     },
     onError: (error) => {
       logBoardError('comment-update', error);
-      Alert.alert('오류', '댓글 수정에 실패했습니다.');
+      showBoardFeedbackAlert(Alert.alert, 'comment-update-failed');
     },
   });
 
@@ -755,14 +730,14 @@ export default function BoardScreen() {
     },
     onError: (error) => {
       logBoardError('comment-delete', error);
-      Alert.alert('오류', '댓글 삭제에 실패했습니다.');
+      showBoardFeedbackAlert(Alert.alert, 'comment-delete-failed');
     },
   });
 
   const handleAddComment = () => {
     if (!selectedPost || !actor) return;
     if (!commentText.trim()) {
-      Alert.alert('입력 오류', '댓글 내용을 입력해주세요.');
+      showBoardFeedbackAlert(Alert.alert, 'empty-comment');
       return;
     }
     addCommentMutation.mutate({
@@ -774,21 +749,14 @@ export default function BoardScreen() {
   };
 
   const openCommentActions = (comment: (typeof modalComments)[number]) => {
-    Alert.alert('댓글 관리', undefined, [
-      {
-        text: '수정',
-        onPress: () => {
-          setEditingCommentId(comment.id);
-          setEditingCommentText(safeText(comment.content));
-        },
+    showBoardCommentActions({
+      alert: Alert.alert,
+      onEdit: () => {
+        setEditingCommentId(comment.id);
+        setEditingCommentText(safeText(comment.content));
       },
-      {
-        text: '삭제',
-        style: 'destructive',
-        onPress: () => deleteCommentMutation.mutate(comment.id),
-      },
-      { text: '취소', style: 'cancel' },
-    ]);
+      onDelete: () => deleteCommentMutation.mutate(comment.id),
+    });
   };
 
   const toggleThread = useCallback((commentId: string) => {
@@ -857,7 +825,7 @@ export default function BoardScreen() {
                 onPress={() => {
                   const trimmed = editingCommentText.trim();
                   if (!trimmed) {
-                    Alert.alert('입력 오류', '댓글 내용을 입력해주세요.');
+                    showBoardFeedbackAlert(Alert.alert, 'empty-comment');
                     return;
                   }
                   updateCommentMutation.mutate({ commentId: comment.id, content: trimmed });
@@ -1406,11 +1374,12 @@ export default function BoardScreen() {
                             key={item.id}
                             style={styles.attachmentItem}
                             onPress={() => {
-                              if (item.signedUrl) {
-                                openExternalUrl(item.signedUrl).catch(() => {
-                                  Alert.alert('오류', '첨부파일을 열 수 없습니다.');
-                                });
-                              }
+                              void openBoardAttachment({
+                                signedUrl: item.signedUrl,
+                                openExternalUrl,
+                                alert: Alert.alert,
+                                logError: logBoardError,
+                              });
                             }}
                           >
                             <View style={styles.attachmentIcon}>
@@ -1434,7 +1403,7 @@ export default function BoardScreen() {
                   <Text style={styles.sectionTitle}>반응 남기기</Text>
                   <ReactionPicker
                     reactions={DEFAULT_REACTIONS}
-                    onReact={(reactionId) => addReactionMutation.mutate({ postId: selectedPost.id, reactionType: reactionId as ReactionKey })}
+                    onReact={(reactionId) => addReactionMutation.mutate({ postId: selectedPost.id, reactionType: reactionId as BoardReactionKey })}
                     reactionCounts={modalReactionCounts}
                     selectedReactions={effectiveMyReaction ? [effectiveMyReaction] : []}
                     showLabels={false}

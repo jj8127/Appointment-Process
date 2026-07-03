@@ -129,6 +129,44 @@ describe('buildInternalChatList', () => {
       },
     ]);
   });
+
+  test('sorts previews by last message time instead of unread count', () => {
+    const result = buildInternalChatList({
+      viewerId: ADMIN_CHAT_ID,
+      participants: [
+        { fc_id: 'fc-new', name: 'Newest', phone: '010-1111-2222', affiliation: '1branch' },
+        { fc_id: 'fc-unread', name: 'Unread', phone: '010-3333-4444', affiliation: '1branch' },
+        { fc_id: 'fc-empty', name: 'Empty', phone: '010-5555-6666', affiliation: '1branch' },
+      ],
+      includeAllCompletedFc: true,
+      messages: [
+        {
+          sender_id: '01033334444',
+          receiver_id: ADMIN_CHAT_ID,
+          content: 'older unread 1',
+          created_at: '2026-07-01T09:00:00.000Z',
+          is_read: false,
+        },
+        {
+          sender_id: '01033334444',
+          receiver_id: ADMIN_CHAT_ID,
+          content: 'older unread 2',
+          created_at: '2026-07-01T09:01:00.000Z',
+          is_read: false,
+        },
+        {
+          sender_id: ADMIN_CHAT_ID,
+          receiver_id: '01011112222',
+          content: 'newer reply',
+          created_at: '2026-07-02T09:00:00.000Z',
+          is_read: true,
+        },
+      ],
+    });
+
+    expect(result.items.map((item) => item.fc_id)).toEqual(['fc-new', 'fc-unread', 'fc-empty']);
+    expect(result.items[1].unread_count).toBe(2);
+  });
 });
 
 describe('countUnreadBySender', () => {

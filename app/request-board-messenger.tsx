@@ -1,7 +1,5 @@
 import { Feather } from '@expo/vector-icons';
-import * as Clipboard from 'expo-clipboard';
 import * as DocumentPicker from 'expo-document-picker';
-import * as FileSystem from 'expo-file-system/legacy';
 import * as ImagePicker from 'expo-image-picker';
 import { Stack, useRouter } from 'expo-router';
 import { MotiView } from 'moti';
@@ -27,12 +25,25 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import BrandedLoadingSpinner from '@/components/BrandedLoadingSpinner';
 import BrandedLoadingState from '@/components/BrandedLoadingState';
 import { LinkifiedSelectableText } from '@/components/LinkifiedSelectableText';
+import { MessageUnreadReceiptBadge } from '@/components/MessageUnreadReceiptBadge';
+import {
+  MessageSelectCopySheet,
+  MessengerMessageActionSheet,
+} from '@/components/MessengerMessageActionSheet';
 import { useSession } from '@/hooks/use-session';
 import { logger } from '@/lib/logger';
 import {
-  formatUnreadReceiptCount,
-  getDirectMessageUnreadCount,
-} from '@/lib/message-read-receipts';
+  getLastMessageTimestamp,
+  sortConversationsByLastMessageTime,
+} from '@/lib/messenger-room-ordering';
+import { copyTextWithFeedback } from '@/lib/messenger-copy-actions';
+import { confirmMessengerDelete } from '@/lib/messenger-delete-actions';
+import {
+  downloadRemoteFileToUserStorage,
+  sanitizeNativeFileName,
+  type DownloadRemoteFileToUserStorageResult,
+} from '@/lib/native-file-actions';
+import { getDirectMessageUnreadCount } from '@/lib/message-read-receipts';
 import { formatRequestBoardFcDisplayName } from '@/lib/request-board-fc-identity';
 import {
   type RbAttachmentMeta,
@@ -115,7 +126,9 @@ type UnifiedMessage = {
   attachments: MessageAttachment[];
 };
 
-const getUnifiedMessageCopyText = (message: UnifiedMessage): string => {
+const getUnifiedMessageCopyText = (message: UnifiedMessage | null | undefined): string => {
+  if (!message) return '';
+
   if (hasRenderableMessageText(message.message)) {
     return message.message.trim();
   }
@@ -315,6 +328,8 @@ export default function RequestBoardMessengerScreen() {
   // Chat detail
   const [activeConv, setActiveConv] = useState<UnifiedConversation | null>(null);
   const [messages, setMessages] = useState<UnifiedMessage[]>([]);
+  const [actionMessage, setActionMessage] = useState<UnifiedMessage | null>(null);
+  const [selectCopyMessage, setSelectCopyMessage] = useState<UnifiedMessage | null>(null);
   const [msgLoading, setMsgLoading] = useState(false);
   const [inputText, setInputText] = useState('');
   const [sending, setSending] = useState(false);
@@ -458,9 +473,7 @@ export default function RequestBoardMessengerScreen() {
           avatarColor: hashColor(name),
           lastMessage: c.lastMessage?.message ?? '',
           lastTime: c.lastMessage?.created_at ? fmtRelative(c.lastMessage.created_at) : '',
-          lastTimestamp: c.lastMessage?.created_at
-            ? new Date(c.lastMessage.created_at).getTime()
-            : 0,
+          lastTimestamp: getLastMessageTimestamp(c.lastMessage),
           unreadCount: c.unreadCount,
           primaryConversationId: c.primaryConversationId,
           conversationIds: c.conversationIds,
@@ -485,9 +498,7 @@ export default function RequestBoardMessengerScreen() {
           avatarColor: hashColor(name),
           lastMessage: d.lastMessage?.message ?? '',
           lastTime: d.lastMessage?.created_at ? fmtRelative(d.lastMessage.created_at) : '',
-          lastTimestamp: d.lastMessage?.created_at
-            ? new Date(d.lastMessage.created_at).getTime()
-            : 0,
+          lastTimestamp: getLastMessageTimestamp(d.lastMessage),
           unreadCount: d.unreadCount,
           primaryConversationId: d.id,
           conversationIds: [d.id],
@@ -501,16 +512,16 @@ export default function RequestBoardMessengerScreen() {
         ? unified.filter((conversation) => conversation.participantRole === 'fc')
         : unified;
 
-      visibleConversations.sort((a, b) => b.lastTimestamp - a.lastTimestamp);
-      setConversations(visibleConversations);
+      const sortedVisibleConversations = sortConversationsByLastMessageTime(visibleConversations);
+      setConversations(sortedVisibleConversations);
       setActiveConv((prev) => {
         if (!prev) {
           return prev;
         }
-        return visibleConversations.find((item) => item.id === prev.id) ?? prev;
+        return sortedVisibleConversations.find((item) => item.id === prev.id) ?? prev;
       });
 
-      logger.info(`[messenger] total visible conversations: ${visibleConversations.length}`);
+      logger.info(`[messenger] total visible conversations: ${sortedVisibleConversations.length}`);
 
       if (visibleConversations.length === 0 && reqConvs.length === 0 && dmConvs.length === 0) {
         // Both returned empty - might be an auth or data issue
@@ -697,7 +708,7 @@ export default function RequestBoardMessengerScreen() {
           avatarColor: directoryUser.avatarColor,
           lastMessage: '',
           lastTime: '',
-          lastTimestamp: Date.now(),
+          lastTimestamp: 0,
           unreadCount: 0,
           primaryConversationId: res.data.id,
           conversationIds: [res.data.id],
@@ -848,89 +859,27 @@ export default function RequestBoardMessengerScreen() {
     return 'application/octet-stream';
   }, []);
 
-  const sanitizeFileName = useCallback((fileName: string): string => {
-    const cleaned = fileName.replace(/[\\/:*?"<>|]/g, '_').trim();
-    return cleaned || `garamlink-file-${Date.now()}`;
-  }, []);
-
-  const ensureUniqueFileName = useCallback((fileName: string): string => {
-    const dotIdx = fileName.lastIndexOf('.');
-    const base = dotIdx > 0 ? fileName.slice(0, dotIdx) : fileName;
-    const ext = dotIdx > 0 ? fileName.slice(dotIdx) : '';
-    return `${base}-${Date.now()}${ext}`;
-  }, []);
-
   const downloadRemoteFile = useCallback(
-    async (fileUrl: string, fileName?: string, rawMimeType?: string): Promise<string> => {
-      const inferredName = sanitizeFileName(fileName || extractFileNameFromUrl(fileUrl));
+    async (
+      fileUrl: string,
+      fileName?: string,
+      rawMimeType?: string,
+    ): Promise<DownloadRemoteFileToUserStorageResult> => {
+      const inferredName = sanitizeNativeFileName(
+        fileName || extractFileNameFromUrl(fileUrl),
+        `garamlink-file-${Date.now()}`,
+      );
       const mimeType = resolveMimeTypeFromName(inferredName, rawMimeType);
-      const tempBaseDir = FileSystem.cacheDirectory ?? FileSystem.documentDirectory;
-
-      if (!tempBaseDir) {
-        throw new Error('다운로드 임시 저장 경로를 찾을 수 없습니다.');
-      }
-
-      const tempUri = `${tempBaseDir}download-${Date.now()}`;
-      const downloaded = await FileSystem.downloadAsync(fileUrl, tempUri);
-      let savedFileName = inferredName;
-
-      try {
-        if (Platform.OS === 'android') {
-          const downloadDirUri = FileSystem.StorageAccessFramework.getUriForDirectoryInRoot('Download');
-          const permission =
-            await FileSystem.StorageAccessFramework.requestDirectoryPermissionsAsync(downloadDirUri);
-
-          if (!permission.granted) {
-            throw new Error('다운로드 폴더 접근 권한이 필요합니다.');
-          }
-
-          let destUri: string;
-          try {
-            destUri = await FileSystem.StorageAccessFramework.createFileAsync(
-              permission.directoryUri,
-              savedFileName,
-              mimeType,
-            );
-          } catch {
-            savedFileName = ensureUniqueFileName(savedFileName);
-            destUri = await FileSystem.StorageAccessFramework.createFileAsync(
-              permission.directoryUri,
-              savedFileName,
-              mimeType,
-            );
-          }
-
-          const base64 = await FileSystem.readAsStringAsync(downloaded.uri, {
-            encoding: FileSystem.EncodingType.Base64,
-          });
-          await FileSystem.writeAsStringAsync(destUri, base64, {
-            encoding: FileSystem.EncodingType.Base64,
-          });
-        } else {
-          const baseDocDir = FileSystem.documentDirectory;
-          if (!baseDocDir) {
-            throw new Error('문서 저장 경로를 찾을 수 없습니다.');
-          }
-          let destUri = `${baseDocDir}${savedFileName}`;
-          try {
-            await FileSystem.copyAsync({ from: downloaded.uri, to: destUri });
-          } catch {
-            savedFileName = ensureUniqueFileName(savedFileName);
-            destUri = `${baseDocDir}${savedFileName}`;
-            await FileSystem.copyAsync({ from: downloaded.uri, to: destUri });
-          }
-        }
-      } finally {
-        await FileSystem.deleteAsync(downloaded.uri, { idempotent: true }).catch(() => undefined);
-      }
-
-      return savedFileName;
+      return downloadRemoteFileToUserStorage({
+        url: fileUrl,
+        fileName: inferredName,
+        mimeType,
+        tempPrefix: 'garamlink',
+      });
     },
     [
-      ensureUniqueFileName,
       extractFileNameFromUrl,
       resolveMimeTypeFromName,
-      sanitizeFileName,
     ],
   );
 
@@ -991,7 +940,7 @@ export default function RequestBoardMessengerScreen() {
       optimisticPreviewTime = new Date(optimisticMessage.createdAt).getTime();
       setMessages((prev) => mergeMessagesDesc([optimisticMessage, ...prev.filter((message) => message.id !== tempMessageId)]));
       setConversations((prev) =>
-        prev.map((conversation) =>
+        sortConversationsByLastMessageTime(prev.map((conversation) =>
           conversation.id === activeConv.id
             ? {
                 ...conversation,
@@ -1000,7 +949,7 @@ export default function RequestBoardMessengerScreen() {
                 lastTimestamp: optimisticPreviewTime,
               }
             : conversation,
-        ),
+        )),
       );
 
       if (activeConv.type === 'request') {
@@ -1018,7 +967,7 @@ export default function RequestBoardMessengerScreen() {
           ]),
         );
         setConversations((prev) =>
-          prev.map((conversation) =>
+          sortConversationsByLastMessageTime(prev.map((conversation) =>
             conversation.id === activeConv.id
               ? {
                   ...conversation,
@@ -1027,20 +976,20 @@ export default function RequestBoardMessengerScreen() {
                   lastTimestamp: new Date(sentMessage.createdAt).getTime(),
                 }
               : conversation,
-          ),
+          )),
         );
         setTimeout(() => flatListRef.current?.scrollToOffset({ offset: 0, animated: true }), 100);
       } else {
         setMessages((prev) => prev.filter((message) => message.id !== tempMessageId));
         if (previousConversation) {
           setConversations((prev) =>
-            prev.map((conversation) =>
+            sortConversationsByLastMessageTime(prev.map((conversation) =>
               conversation.id === previousConversation.id &&
               conversation.lastMessage === optimisticPreviewMessage &&
               conversation.lastTimestamp === optimisticPreviewTime
                 ? previousConversation
                 : conversation,
-            ),
+            )),
           );
         }
         setInputText(text);
@@ -1050,13 +999,13 @@ export default function RequestBoardMessengerScreen() {
       setMessages((prev) => prev.filter((message) => message.id !== tempMessageId));
       if (previousConversation) {
         setConversations((prev) =>
-          prev.map((conversation) =>
+          sortConversationsByLastMessageTime(prev.map((conversation) =>
             conversation.id === previousConversation.id &&
             conversation.lastMessage === optimisticPreviewMessage &&
             conversation.lastTimestamp === optimisticPreviewTime
               ? previousConversation
               : conversation,
-          ),
+          )),
         );
       }
       setInputText(text);
@@ -1080,12 +1029,11 @@ export default function RequestBoardMessengerScreen() {
 
   const handleCopyPreviewImage = useCallback(async () => {
     if (!previewImage) return;
-    try {
-      await Clipboard.setStringAsync(previewImage);
-      Alert.alert('복사 완료', '이미지 주소를 복사했습니다.');
-    } catch {
-      Alert.alert('복사 실패', '이미지 주소를 복사하지 못했습니다.');
-    }
+    await copyTextWithFeedback(previewImage, {
+      logScope: 'request-board-messenger:image',
+      successMessage: '이미지 주소를 복사했습니다.',
+      failureMessage: '이미지 주소를 복사하지 못했습니다.',
+    });
   }, [previewImage]);
 
   const handleDownloadPreviewImage = useCallback(async () => {
@@ -1095,13 +1043,12 @@ export default function RequestBoardMessengerScreen() {
       const normalizedImageFileName = /\.[a-z0-9]{2,6}$/i.test(imageFileName)
         ? imageFileName
         : `${imageFileName}.jpg`;
-      const downloadedFileName = await downloadRemoteFile(
+      const downloadedFile = await downloadRemoteFile(
         previewImage,
         normalizedImageFileName,
         'image/jpeg',
       );
-      const destinationLabel = Platform.OS === 'android' ? '다운로드 폴더' : '앱 문서 폴더';
-      Alert.alert('다운로드 완료', `${destinationLabel}에 저장되었습니다.\n${downloadedFileName}`);
+      Alert.alert('다운로드 완료', `${downloadedFile.destinationLabel}에 저장되었습니다.\n${downloadedFile.fileName}`);
     } catch (error) {
       logger.warn('[messenger] preview download failed', error);
       Alert.alert('다운로드 실패', '이미지를 저장하지 못했습니다.');
@@ -1111,9 +1058,8 @@ export default function RequestBoardMessengerScreen() {
   const handleDownloadAttachment = useCallback(
     async (file: MessageAttachment) => {
       try {
-        const downloadedFileName = await downloadRemoteFile(file.fileUrl, file.fileName, file.fileType);
-        const destinationLabel = Platform.OS === 'android' ? '다운로드 폴더' : '앱 문서 폴더';
-        Alert.alert('다운로드 완료', `${destinationLabel}에 저장되었습니다.\n${downloadedFileName}`);
+        const downloadedFile = await downloadRemoteFile(file.fileUrl, file.fileName, file.fileType);
+        Alert.alert('다운로드 완료', `${downloadedFile.destinationLabel}에 저장되었습니다.\n${downloadedFile.fileName}`);
       } catch (error) {
         logger.warn('[messenger] attachment download failed', error);
         Alert.alert('다운로드 실패', '파일을 저장하지 못했습니다.');
@@ -1126,19 +1072,7 @@ export default function RequestBoardMessengerScreen() {
      RENDER: Loading / Checking Auth
      ═══════════════════════════════════════════════════ */
   const handleCopyMessage = useCallback(async (message: UnifiedMessage) => {
-    const copyText = getUnifiedMessageCopyText(message);
-    if (!copyText) {
-      Alert.alert('복사할 수 없어요', '복사할 메시지 내용이 없습니다.');
-      return;
-    }
-
-    try {
-      await Clipboard.setStringAsync(copyText);
-      Alert.alert('복사 완료', '메시지를 복사했습니다.');
-    } catch (error) {
-      logger.warn('[messenger] copy message failed', error);
-      Alert.alert('복사 실패', '메시지를 복사하지 못했습니다.');
-    }
+    await copyTextWithFeedback(getUnifiedMessageCopyText(message), { logScope: 'request-board-messenger' });
   }, []);
 
   const handleDeleteMessage = useCallback((message: UnifiedMessage) => {
@@ -1146,51 +1080,54 @@ export default function RequestBoardMessengerScreen() {
       return;
     }
 
-    Alert.alert('메시지 삭제', '이 메시지를 삭제하시겠습니까?', [
-      { text: '취소', style: 'cancel' },
-      {
-        text: '삭제',
-        style: 'destructive',
-        onPress: async () => {
-          const result = activeConv.type === 'request'
-            ? await rbDeleteMessage(message.id)
-            : await rbDeleteDmMessage(message.id);
+    confirmMessengerDelete({
+      logScope: 'request-board-messenger',
+      onDelete: async () => {
+        const result = activeConv.type === 'request'
+          ? await rbDeleteMessage(message.id)
+          : await rbDeleteDmMessage(message.id);
 
-          if (!result.success) {
-            Alert.alert('삭제 실패', result.error ?? '메시지를 삭제하지 못했습니다.');
-            return;
-          }
+        if (!result.success) {
+          throw new Error(result.error ?? '메시지를 삭제하지 못했습니다.');
+        }
 
-          setMessages((prev) => prev.filter((row) => row.id !== message.id));
-          void loadMessages(activeConv);
-          void loadConversations();
-        },
+        setMessages((prev) => prev.filter((row) => row.id !== message.id));
+        void loadMessages(activeConv);
+        void loadConversations();
       },
-    ]);
+    });
   }, [activeConv, loadConversations, loadMessages]);
 
   const openMessageActions = useCallback((message: UnifiedMessage) => {
     if (message.deleted) return;
+    setActionMessage(message);
+  }, []);
 
-    const actions = [
-      {
-        text: '복사',
-        onPress: () => {
-          void handleCopyMessage(message);
-        },
-      },
-      ...(message.isOwn && message.id > 0
-        ? [{
-            text: '삭제',
-            style: 'destructive' as const,
-            onPress: () => handleDeleteMessage(message),
-          }]
-        : []),
-      { text: '취소', style: 'cancel' as const },
-    ];
+  const closeMessageActions = useCallback(() => {
+    setActionMessage(null);
+  }, []);
 
-    Alert.alert('메시지 옵션', undefined, actions);
-  }, [handleCopyMessage, handleDeleteMessage]);
+  const handleCopyAction = useCallback(() => {
+    const message = actionMessage;
+    setActionMessage(null);
+    if (message) void handleCopyMessage(message);
+  }, [actionMessage, handleCopyMessage]);
+
+  const handleSelectCopyAction = useCallback(() => {
+    const message = actionMessage;
+    setActionMessage(null);
+    if (!getUnifiedMessageCopyText(message)) {
+      Alert.alert('선택 복사할 수 없어요', '선택 복사할 메시지 내용이 없습니다.');
+      return;
+    }
+    setSelectCopyMessage(message);
+  }, [actionMessage]);
+
+  const handleDeleteAction = useCallback(() => {
+    const message = actionMessage;
+    setActionMessage(null);
+    if (message) handleDeleteMessage(message);
+  }, [actionMessage, handleDeleteMessage]);
 
   if (authState === 'checking') {
     return (
@@ -1353,18 +1290,14 @@ export default function RequestBoardMessengerScreen() {
                   (a: MessageAttachment) => !isImageType(a.fileType) && !isImageUrl(a.fileUrl),
                 );
                 const hasVisibleText = hasRenderableMessageText(item.message);
-                const unreadReceiptText = formatUnreadReceiptCount(
-                  getDirectMessageUnreadCount({
-                    isOwn: item.isOwn,
-                    isRead: item.isRead,
-                    isDeleted: item.deleted,
-                  }),
-                );
+                const unreadReceiptCount = getDirectMessageUnreadCount({
+                  isOwn: item.isOwn,
+                  isRead: item.isRead,
+                  isDeleted: item.deleted,
+                });
                 const ownMessageMeta = (
                   <View style={styles.messageSideMeta}>
-                    {unreadReceiptText ? (
-                      <Text style={styles.messageUnreadCount}>{unreadReceiptText}</Text>
-                    ) : null}
+                    <MessageUnreadReceiptBadge count={unreadReceiptCount} />
                     <Text style={styles.msgTime}>{fmtTime(item.createdAt)}</Text>
                   </View>
                 );
@@ -1614,6 +1547,22 @@ export default function RequestBoardMessengerScreen() {
             )}
           </View>
         </Modal>
+
+        <MessengerMessageActionSheet
+          visible={Boolean(actionMessage)}
+          preview={actionMessage ? getUnifiedMessageCopyText(actionMessage) : ''}
+          onClose={closeMessageActions}
+          onCopy={actionMessage ? handleCopyAction : undefined}
+          onSelectCopy={actionMessage ? handleSelectCopyAction : undefined}
+          onDelete={actionMessage?.isOwn && actionMessage.id > 0 ? handleDeleteAction : undefined}
+        />
+
+        <MessageSelectCopySheet
+          visible={Boolean(selectCopyMessage)}
+          text={getUnifiedMessageCopyText(selectCopyMessage)}
+          onClose={() => setSelectCopyMessage(null)}
+          bottomInset={insets.bottom}
+        />
       </View>
     );
   }
@@ -2092,7 +2041,6 @@ const styles = StyleSheet.create({
   otherBubbleText: { fontSize: TYPOGRAPHY.fontSize.base, color: COLORS.gray[900], lineHeight: 21 },
   otherBubbleLinkText: { color: COLORS.primary, textDecorationLine: 'underline' },
   messageSideMeta: { minWidth: 32, alignItems: 'flex-end', marginBottom: 2 },
-  messageUnreadCount: { fontSize: 11, lineHeight: 13, color: COLORS.primary, fontWeight: '800' },
   msgTime: { fontSize: 10, color: COLORS.text.muted, marginBottom: 2 },
 
   emptyChatWrap: { flex: 1, alignItems: 'center', justifyContent: 'center', gap: 8 },

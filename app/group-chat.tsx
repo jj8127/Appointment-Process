@@ -1,5 +1,4 @@
 import { Feather, Ionicons } from '@expo/vector-icons';
-import * as Clipboard from 'expo-clipboard';
 import * as DocumentPicker from 'expo-document-picker';
 import * as FileSystem from 'expo-file-system/legacy';
 import * as Haptics from 'expo-haptics';
@@ -13,7 +12,6 @@ import {
   AppState,
   FlatList,
   KeyboardAvoidingView,
-  Linking,
   Modal,
   Platform,
   Pressable,
@@ -29,9 +27,28 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import BrandedLoadingSpinner from '@/components/BrandedLoadingSpinner';
 import { LinkifiedSelectableText } from '@/components/LinkifiedSelectableText';
+import { MessageUnreadReceiptBadge } from '@/components/MessageUnreadReceiptBadge';
+import {
+  MessageSelectCopySheet,
+  MessengerMessageActionSheet,
+  MESSENGER_REACTIONS,
+} from '@/components/MessengerMessageActionSheet';
 import MessengerLoadingState from '@/components/MessengerLoadingState';
 import { useKeyboardPadding } from '@/hooks/use-keyboard-padding';
 import { classifyGroupChatError } from '@/lib/group-chat-error';
+import {
+  formatGroupChatTime,
+  getGroupChatMemberStatusTone,
+  getGroupChatMessageCopyText,
+  getGroupChatReplyLabel,
+  getGroupChatRoleLabel,
+  isStaffGroupChatActor,
+  normalizeGroupChatMemberSearch,
+  resolveGroupChatSendPermission,
+} from '@/lib/group-chat-display';
+import { openMessengerAttachment } from '@/lib/messenger-attachment-actions';
+import { copyTextWithFeedback } from '@/lib/messenger-copy-actions';
+import { confirmMessengerDelete } from '@/lib/messenger-delete-actions';
 import {
   groupChatBootstrap,
   groupChatClearNotice,
@@ -65,8 +82,6 @@ function showGroupChatErrorAlert(error: unknown) {
   const userError = classifyGroupChatError(error);
   Alert.alert(userError.title, userError.message);
 }
-const GROUP_CHAT_REACTIONS = ['👍', '❤️', '😂', '😮', '😢', '👏'];
-
 type OptimisticMessageInput = {
   content: string;
   messageType: GroupChatMessageType;
@@ -85,22 +100,6 @@ type MemberListRowProps = {
   permissionUpdating: boolean;
   onToggle: (member: GroupChatMember, nextCanSend: boolean) => void;
 };
-
-const roleLabel: Record<string, string> = {
-  fc: 'FC',
-  manager: '본부장',
-  admin: '총무',
-};
-
-function isStaffGroupChatActor(actor?: GroupChatActor | null) {
-  return actor?.role === 'manager' || actor?.role === 'admin';
-}
-
-function resolveCanSendMessages(actor: GroupChatActor | null | undefined, canSendMessages?: boolean | null) {
-  return isStaffGroupChatActor(actor) || canSendMessages === true;
-}
-
-type MemberStatusTone = 'complete' | 'partial' | 'pending' | 'active';
 
 export const options = { headerShown: false };
 
@@ -125,43 +124,13 @@ function getInitial(name?: string | null) {
   return normalized ? normalized.charAt(0) : '가';
 }
 
-function normalizeMemberSearch(value?: string | null) {
-  return String(value ?? '').replace(/\s+/g, '').trim().toLowerCase();
-}
-
-function formatTime(iso: string) {
-  const date = new Date(iso);
-  return date.toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit' });
-}
-
-function getMemberStatusTone(member: GroupChatMember): MemberStatusTone {
-  if (member.role !== 'fc') return 'active';
-  if (member.appointment_label === '위촉 완료') return 'complete';
-  if (member.appointment_label === '위촉 대기') return 'pending';
-  return 'partial';
-}
-
-function getReplyLabel(message?: GroupChatMessage | null) {
-  if (!message) return '';
-  if (message.deleted_at) return '삭제된 메시지';
-  if (message.message_type === 'image') return '사진';
-  if (message.message_type === 'file') return safeDecodeFileName(message.file_name) || '파일';
-  return message.content;
-}
-
-function getMessageCopyText(message?: GroupChatMessage | null) {
-  if (!message || message.deleted_at) return '';
-  if (message.message_type === 'file') return safeDecodeFileName(message.file_name) || message.content;
-  return message.content;
-}
-
 const MemberListRow = memo(function MemberListRow({
   member,
   canManageMemberSendPermissions,
   permissionUpdating,
   onToggle,
 }: MemberListRowProps) {
-  const statusTone = getMemberStatusTone(member);
+  const statusTone = getGroupChatMemberStatusTone(member);
   const canManageSendPermission = canManageMemberSendPermissions && member.role === 'fc';
   const handleSwitchChange = useCallback((nextValue: boolean) => {
     onToggle(member, nextValue);
@@ -175,7 +144,7 @@ const MemberListRow = memo(function MemberListRow({
       <View style={styles.memberBody}>
         <View style={styles.memberNameRow}>
           <Text style={styles.memberName} numberOfLines={1}>{member.name ?? '이름 없음'}</Text>
-          <Text style={styles.memberRole}>{roleLabel[member.role] ?? '사용자'}</Text>
+          <Text style={styles.memberRole}>{getGroupChatRoleLabel(member.role)}</Text>
         </View>
         <Text style={styles.memberMeta} numberOfLines={1}>{member.headquarters ?? '본부 미지정'}</Text>
       </View>
@@ -270,7 +239,7 @@ export default function GroupChatScreen() {
       setMemberCount(data.member_count);
       setMembers(data.members ?? []);
       setMuted(data.muted);
-      setCanSendMessages(resolveCanSendMessages(data.actor, data.can_send_messages));
+      setCanSendMessages(resolveGroupChatSendPermission(data.actor, data.can_send_messages));
       setNotice(data.notice ?? null);
       const localMessages = messagesRef.current.filter((message) => message.id.startsWith('local-'));
       applyMessages([...data.messages, ...localMessages]);
@@ -361,12 +330,12 @@ export default function GroupChatScreen() {
       return String(left.name ?? '').localeCompare(String(right.name ?? ''), 'ko-KR');
     }).map((member) => ({
       ...member,
-      search_key: normalizeMemberSearch(`${member.name ?? ''} ${member.headquarters ?? ''} ${member.phone ?? ''}`),
+      search_key: normalizeGroupChatMemberSearch(`${member.name ?? ''} ${member.headquarters ?? ''} ${member.phone ?? ''}`),
     }));
   }, [members]);
 
   const filteredMembers = useMemo(() => {
-    const keyword = normalizeMemberSearch(deferredMemberSearch);
+    const keyword = normalizeGroupChatMemberSearch(deferredMemberSearch);
     if (!keyword) return searchableMembers;
     return searchableMembers.filter((member) => member.search_key.includes(keyword));
   }, [deferredMemberSearch, searchableMembers]);
@@ -404,25 +373,15 @@ export default function GroupChatScreen() {
   }, [actionMessage]);
 
   const handleCopyAction = useCallback(async () => {
-    const copyText = getMessageCopyText(actionMessage);
+    const copyText = getGroupChatMessageCopyText(actionMessage);
     setActionMessage(null);
-    if (!copyText) {
-      Alert.alert('복사할 수 없어요', '복사할 메시지 내용이 없습니다.');
-      return;
-    }
-    try {
-      await Clipboard.setStringAsync(copyText);
-      Alert.alert('복사 완료', '메시지를 복사했어요.');
-    } catch (error) {
-      logger.warn('[group-chat] copy failed', error);
-      Alert.alert('복사 실패', '메시지를 복사하지 못했습니다.');
-    }
+    await copyTextWithFeedback(copyText, { logScope: 'group-chat' });
   }, [actionMessage]);
 
   const handleSelectCopyAction = useCallback(() => {
     const message = actionMessage;
     setActionMessage(null);
-    if (!getMessageCopyText(message)) {
+    if (!getGroupChatMessageCopyText(message)) {
       Alert.alert('선택 복사할 수 없어요', '선택 복사할 메시지 내용이 없습니다.');
       return;
     }
@@ -485,33 +444,21 @@ export default function GroupChatScreen() {
     const message = actionMessage;
     if (!message || !canDeleteMessage(message)) return;
     setActionMessage(null);
-    Alert.alert('메시지 삭제', '이 메시지를 삭제하시겠습니까?', [
-      { text: '취소', style: 'cancel' },
-      {
-        text: '삭제',
-        style: 'destructive',
-        onPress: () => {
-          void groupChatDeleteMessage(message.id)
-            .then((result) => {
-              updateMessage(message.id, result.message);
-              if (notice?.message_id === message.id) setNotice(null);
-            })
-            .catch((error) => {
-              logger.warn('[group-chat] delete failed', error);
-              showGroupChatErrorAlert(error);
-            });
-        },
+    confirmMessengerDelete({
+      logScope: 'group-chat',
+      formatFailure: classifyGroupChatError,
+      onDelete: async () => {
+        const result = await groupChatDeleteMessage(message.id);
+        updateMessage(message.id, result.message);
+        if (notice?.message_id === message.id) setNotice(null);
       },
-    ]);
+    });
   }, [actionMessage, canDeleteMessage, notice?.message_id, updateMessage]);
 
   const handleMessagePress = useCallback((message: GroupChatMessage) => {
     if (message.deleted_at) return;
     if ((message.message_type === 'image' || message.message_type === 'file') && message.file_url) {
-      void Linking.openURL(message.file_url).catch((error) => {
-        logger.warn('[group-chat] attachment open failed', error);
-        Alert.alert('열기 실패', '첨부 파일을 열지 못했습니다.');
-      });
+      void openMessengerAttachment(message.file_url, { logScope: 'group-chat' });
     }
   }, []);
 
@@ -536,7 +483,7 @@ export default function GroupChatScreen() {
       unread_count: Math.max(0, memberCount - 1),
       reply_to_message_id: currentReplyTarget?.id ?? null,
       reply_to_sender_name: currentReplyTarget?.sender_name ?? null,
-      reply_to_content: currentReplyTarget ? getReplyLabel(currentReplyTarget) : null,
+      reply_to_content: currentReplyTarget ? getGroupChatReplyLabel(currentReplyTarget) : null,
       deleted_at: null,
       deleted_by_actor_id: null,
       reactions: [],
@@ -833,7 +780,7 @@ export default function GroupChatScreen() {
           : row,
       ));
       if (permissionTargetActorId === actor?.id || member.actor_id === actor?.id) {
-        setCanSendMessages(resolveCanSendMessages(actor, result.member.can_send_messages));
+        setCanSendMessages(resolveGroupChatSendPermission(actor, result.member.can_send_messages));
       }
     } catch (error) {
       setMembers((prev) => prev.map((row) =>
@@ -927,11 +874,11 @@ export default function GroupChatScreen() {
     const messageMeta = (
       <View style={[styles.messageSideMeta, isMe ? styles.messageSideMetaMe : styles.messageSideMetaOther]}>
         {showUnreadCount && (
-          <Text style={styles.messageUnreadCount}>{unreadCount > 99 ? '99+' : unreadCount}</Text>
+          <MessageUnreadReceiptBadge count={unreadCount} />
         )}
         {item.send_status === 'sending' && <Text style={styles.messageSendStatus}>전송중</Text>}
         {item.send_status === 'failed' && <Text style={[styles.messageSendStatus, styles.messageSendStatusFailed]}>실패</Text>}
-        <Text style={styles.timeText}>{formatTime(item.created_at)}</Text>
+        <Text style={styles.timeText}>{formatGroupChatTime(item.created_at)}</Text>
       </View>
     );
 
@@ -945,7 +892,7 @@ export default function GroupChatScreen() {
         <View style={[styles.msgContainer, { alignItems: isMe ? 'flex-end' : 'flex-start' }]}>
           {!isMe && (
             <Text style={styles.senderName} numberOfLines={1}>
-              {item.sender_name || roleLabel[item.sender_role] || '사용자'}
+              {item.sender_name || getGroupChatRoleLabel(item.sender_role)}
             </Text>
           )}
           <View style={[styles.messageBubbleLine, isMe ? styles.messageBubbleLineMe : styles.messageBubbleLineOther]}>
@@ -1018,7 +965,7 @@ export default function GroupChatScreen() {
           </View>
           <View style={styles.noticeBody}>
             <Text style={styles.noticeLabel}>공지</Text>
-            <Text style={styles.noticeText} numberOfLines={2}>{getReplyLabel(notice.message)}</Text>
+            <Text style={styles.noticeText} numberOfLines={2}>{getGroupChatReplyLabel(notice.message)}</Text>
           </View>
           {canManageNotice && (
             <Pressable
@@ -1095,7 +1042,7 @@ export default function GroupChatScreen() {
                         {replyTarget.sender_name || '메시지'}에게 답장
                       </Text>
                       <Text style={styles.replyTargetText} numberOfLines={1}>
-                        {getReplyLabel(replyTarget)}
+                        {getGroupChatReplyLabel(replyTarget)}
                       </Text>
                     </View>
                     <Pressable onPress={() => setReplyTarget(null)} hitSlop={8}>
@@ -1208,94 +1155,35 @@ export default function GroupChatScreen() {
         </KeyboardAvoidingView>
       </Modal>
 
-      <Modal
+      <MessengerMessageActionSheet
         visible={Boolean(actionMessage)}
-        transparent
-        animationType="fade"
-        onRequestClose={closeMessageActions}
-      >
-        <View style={styles.actionMenuBackdrop}>
-          <Pressable style={StyleSheet.absoluteFill} onPress={closeMessageActions} />
-          <View style={styles.actionMenu}>
-            <View style={styles.sheetHandle} />
-            <Text style={styles.actionSheetTitle}>메시지 작업</Text>
-            <Text style={styles.actionSheetPreview} numberOfLines={2}>
-              {getReplyLabel(actionMessage)}
-            </Text>
+        preview={getGroupChatReplyLabel(actionMessage)}
+        onClose={closeMessageActions}
+        reactions={MESSENGER_REACTIONS}
+        onReact={(reaction) => actionMessage && void handleReactionAction(actionMessage, reaction)}
+        onCopy={!actionMessage?.deleted_at ? handleCopyAction : undefined}
+        onSelectCopy={!actionMessage?.deleted_at ? handleSelectCopyAction : undefined}
+        onReply={handleReplyAction}
+        onNotice={
+          canManageNotice &&
+          actionMessage &&
+          !actionMessage.deleted_at &&
+          !actionMessage.id.startsWith('local-') &&
+          !actionMessage.send_status
+            ? handleNoticeAction
+            : undefined
+        }
+        noticeLabel={notice?.message_id === actionMessage?.id ? '공지 해제' : '공지'}
+        noticeDisabled={noticeUpdating}
+        onDelete={canDeleteMessage(actionMessage) ? handleDeleteAction : undefined}
+      />
 
-            <Text style={styles.reactionPickerLabel}>감정 남기기</Text>
-            <View style={styles.reactionPickerRow}>
-              {GROUP_CHAT_REACTIONS.map((reaction) => (
-                <Pressable
-                  key={reaction}
-                  style={styles.reactionPickerButton}
-                  onPress={() => actionMessage && void handleReactionAction(actionMessage, reaction)}
-                >
-                  <Text style={styles.reactionPickerText}>{reaction}</Text>
-                </Pressable>
-              ))}
-            </View>
-
-            {!actionMessage?.deleted_at && (
-              <>
-                <Pressable style={styles.actionButton} onPress={handleCopyAction}>
-                  <Feather name="copy" size={18} color="#F9FAFB" />
-                  <Text style={styles.actionButtonText}>복사</Text>
-                </Pressable>
-
-                <Pressable style={styles.actionButton} onPress={handleSelectCopyAction}>
-                  <Feather name="type" size={18} color="#F9FAFB" />
-                  <Text style={styles.actionButtonText}>선택 복사</Text>
-                </Pressable>
-              </>
-            )}
-
-            <Pressable style={styles.actionButton} onPress={handleReplyAction}>
-              <Feather name="corner-up-left" size={18} color="#F9FAFB" />
-              <Text style={styles.actionButtonText}>답장</Text>
-            </Pressable>
-
-            {canManageNotice && actionMessage && !actionMessage.deleted_at && !actionMessage.id.startsWith('local-') && !actionMessage.send_status && (
-              <Pressable style={styles.actionButton} disabled={noticeUpdating} onPress={handleNoticeAction}>
-                <Feather name="volume-2" size={18} color="#F9FAFB" />
-                <Text style={styles.actionButtonText}>
-                  {notice?.message_id === actionMessage.id ? '공지 해제' : '공지'}
-                </Text>
-              </Pressable>
-            )}
-
-            {canDeleteMessage(actionMessage) && (
-              <Pressable style={[styles.actionButton, styles.actionButtonDanger]} onPress={handleDeleteAction}>
-                <Feather name="trash-2" size={18} color="#DC2626" />
-                <Text style={[styles.actionButtonText, styles.actionButtonTextDanger]}>삭제</Text>
-              </Pressable>
-            )}
-          </View>
-        </View>
-      </Modal>
-
-      <Modal
+      <MessageSelectCopySheet
         visible={Boolean(selectCopyMessage)}
-        transparent
-        animationType="slide"
-        onRequestClose={() => setSelectCopyMessage(null)}
-      >
-        <View style={styles.selectCopyBackdrop}>
-          <Pressable style={StyleSheet.absoluteFill} onPress={() => setSelectCopyMessage(null)} />
-          <View style={[styles.selectCopySheet, { paddingBottom: Math.max(insets.bottom, 16) + 18 }]}>
-            <View style={styles.sheetHandle} />
-            <View style={styles.selectCopyHeader}>
-              <Text style={styles.selectCopyTitle}>선택 복사</Text>
-              <Pressable style={styles.selectCopyCloseButton} onPress={() => setSelectCopyMessage(null)}>
-                <Feather name="x" size={20} color={CHARCOAL} />
-              </Pressable>
-            </View>
-            <Text selectable style={styles.selectCopyText}>
-              {getMessageCopyText(selectCopyMessage)}
-            </Text>
-          </View>
-        </View>
-      </Modal>
+        text={getGroupChatMessageCopyText(selectCopyMessage)}
+        onClose={() => setSelectCopyMessage(null)}
+        bottomInset={insets.bottom}
+      />
     </View>
   );
 }
@@ -1399,7 +1287,6 @@ const styles = StyleSheet.create({
   messageSideMeta: { minWidth: 44, paddingBottom: 2 },
   messageSideMetaMe: { alignItems: 'flex-end' },
   messageSideMetaOther: { alignItems: 'flex-start' },
-  messageUnreadCount: { fontSize: 11, lineHeight: 13, color: HANWHA_ORANGE, fontWeight: '800' },
   messageSendStatus: { fontSize: 10, lineHeight: 13, color: '#9CA3AF', fontWeight: '800' },
   messageSendStatusFailed: { color: '#DC2626' },
   timeText: { fontSize: 11, color: '#9CA3AF' },

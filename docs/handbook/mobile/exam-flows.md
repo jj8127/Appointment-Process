@@ -65,3 +65,9 @@ source_of_truth: app/exam-apply*.tsx + app/exam-register*.tsx + app/exam-manage*
 ## 연관 문서
 
 - [../admin-web/exam-and-referral-ops.md](E:/hanhwa/fc-onboarding-app/docs/handbook/admin-web/exam-and-referral-ops.md)
+
+## 2026-07-03 Shared Function Contract
+
+- `exam-manage.tsx` and `exam-manage2.tsx` must use `lib/exam-display.ts` for resident-number display, exam date display, exam round/location summary text, and phone candidate normalization.
+- Do not reintroduce screen-local `formatResidentNumber`, `normalizeSingle`, `buildPhoneCandidates`, `formatYmd`, or `buildExamInfo` helpers in those screens.
+- Regression evidence: `lib/__tests__/exam-display.test.ts` and `lib/__tests__/shared-function-contracts.test.ts`.

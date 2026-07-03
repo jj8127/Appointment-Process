@@ -2840,6 +2840,29 @@
 - Verification:
   - `npm test -- --runInBand lib/__tests__/mobile-chat-source.test.ts lib/__tests__/group-chat-mobile-source.test.ts lib/__tests__/admin-web-chat-source.test.ts lib/__tests__/message-read-receipts.test.ts`
 
+## 2026-07-03 | Messenger Read Receipt Badge Drift | count logic was shared but mobile UI stayed screen-local
+- Symptom:
+  - Direct chat, group chat, and request-board messenger each rendered the sent-message unread recipient number with local `<Text style={styles.messageUnreadCount}>` branches.
+  - The shared unread count contract could still drift visually because each screen owned its own color, font, and formatting branch.
+- Root cause:
+  - The previous read-receipt fix centralized count calculation but left the presentation primitive as duplicated screen code.
+- Why it was missed:
+  - Tests asserted `getDirectMessageUnreadCount` / `formatUnreadReceiptCount` usage but did not require the same UI component across mobile messenger surfaces.
+- Permanent guardrail:
+  - Mobile messenger unread receipt display must use `components/MessageUnreadReceiptBadge.tsx`.
+  - Direct/request-board screens pass `getDirectMessageUnreadCount(...)`; group chat passes room `unread_count`.
+  - Screens should not reintroduce local `messageUnreadCount` text styles or direct formatting branches.
+- Related files:
+  - `components/MessageUnreadReceiptBadge.tsx`
+  - `app/chat.tsx`
+  - `app/group-chat.tsx`
+  - `app/request-board-messenger.tsx`
+  - `lib/__tests__/group-chat-mobile-source.test.ts`
+  - `lib/__tests__/mobile-chat-source.test.ts`
+- Verification:
+  - `npm test -- --runInBand lib/__tests__/group-chat-mobile-source.test.ts`
+  - `npm test -- --runInBand lib/__tests__/shared-ui-action-contracts.test.ts lib/__tests__/feature-contract-matrix.test.ts lib/__tests__/group-chat-mobile-source.test.ts lib/__tests__/mobile-chat-source.test.ts lib/__tests__/message-read-receipts.test.ts lib/__tests__/messenger-room-ordering.test.ts`
+
 ## 2026-07-03 | Board Notice Contract Map Gap | board contract existed only in prose
 - Symptom:
   - The feature contract matrix mentioned board/notice parity, but `docs/handbook/contract-test-map.json` did not have a `board-and-notices` rule.
@@ -2908,3 +2931,236 @@
   - `scripts/ops/board-category-canonical-sql.test.mjs`
 - Verification:
   - RED/GREEN `node --test scripts/ops/board-category-canonical-sql.test.mjs`
+
+## 2026-07-03 | Messenger Action Sheet Contract Gap | shared behavior test did not enforce shared UI
+- Symptom:
+  - Group chat long-press showed the KakaoTalk-style dark message action sheet, while direct/request-board messenger long-press still showed a separate OS alert menu.
+- Root cause:
+  - The contract test asserted that `openMessageActions` and copy/delete behavior existed, but it did not require all messenger surfaces to render the same shared action sheet component.
+- Why it was missed:
+  - I treated "same feature exists" as enough and failed to lock the shared presentation/interaction contract.
+- Permanent guardrail:
+  - All mobile messenger surfaces must import and render `components/MessengerMessageActionSheet.tsx`.
+  - `lib/__tests__/feature-contract-matrix.test.ts` must fail if `openMessageActions` reintroduces a per-screen `const actions = [...]` OS alert menu.
+  - Capability differences must be props on the shared action sheet, not separate action menu implementations.
+- Related files:
+  - `components/MessengerMessageActionSheet.tsx`
+  - `app/chat.tsx`
+  - `app/group-chat.tsx`
+  - `app/request-board-messenger.tsx`
+  - `lib/__tests__/feature-contract-matrix.test.ts`
+- Verification:
+  - RED/GREEN `npm test -- --runInBand lib/__tests__/feature-contract-matrix.test.ts`
+
+## 2026-07-03 | Shared UI Action Drift | common UI and actions were not inventoried as one contract
+- Symptom:
+  - Messenger action sheets, direct pressables, alerts, modals, clipboard actions, external opens, role visibility, and unread/notification behavior could each be implemented screen-by-screen without a shared primitive contract.
+- Root cause:
+  - The feature contract matrix focused on business domains, but did not explicitly require a live audit and governance rule for shared UI/action primitives.
+- Why it was missed:
+  - Passing tests proved behavior existed in selected screens, but did not create an inventory of all places where the same UI/action behavior could drift.
+- Permanent guardrail:
+  - Keep `scripts/audit/shared-ui-contract-audit.cjs`, `docs/handbook/shared-ui-action-contracts.md`, and `lib/__tests__/shared-ui-action-contracts.test.ts` in sync.
+  - Keep `shared-ui-action-primitives` in `docs/handbook/contract-test-map.json`.
+  - Treat new raw alert/button/modal/link/copy implementations in governed areas as requiring contract evidence or a documented exception.
+  - Messenger attachment bubbles must use `lib/messenger-attachment-actions.ts` / `openMessengerAttachment`; do not call `Linking.openURL` directly from chat surfaces.
+  - Messenger clipboard writes must use `lib/messenger-copy-actions.ts` / `copyTextWithFeedback`; do not call `Clipboard.setStringAsync` directly from chat surfaces.
+- Related files:
+  - `scripts/audit/shared-ui-contract-audit.cjs`
+  - `docs/handbook/shared-ui-action-contracts.md`
+  - `lib/messenger-attachment-actions.ts`
+  - `lib/messenger-copy-actions.ts`
+  - `lib/__tests__/shared-ui-action-contracts.test.ts`
+  - `docs/handbook/contract-test-map.json`
+  - `app/chat.tsx`
+  - `app/group-chat.tsx`
+- Verification:
+  - RED/GREEN `npm test -- --runInBand lib/__tests__/shared-ui-action-contracts.test.ts`
+
+## 2026-07-03 | Messenger Delete Confirmation Drift | delete alerts stayed screen-local
+- Symptom:
+  - Direct chat, group chat, and request-board messenger used the same long-press sheet but still owned their delete confirmation/failure alerts inside each screen.
+  - A future copy tweak or failure handling change could drift across messenger surfaces even though the visible action sheet was shared.
+- Root cause:
+  - The shared UI/action contract covered copy and attachment helpers but did not require a common delete-confirmation primitive.
+- Why it was missed:
+  - I stopped after unifying the long-press menu presentation and did not trace the destructive action callback all the way into its confirmation and failure UI.
+- Permanent guardrail:
+  - Messenger delete actions must use `lib/messenger-delete-actions.ts` / `confirmMessengerDelete`.
+  - `lib/__tests__/shared-ui-action-contracts.test.ts` must require the helper in `app/chat.tsx`, `app/group-chat.tsx`, and `app/request-board-messenger.tsx`.
+  - Screen code may provide the delete operation and domain-specific error formatter, but not a local `Alert.alert('메시지 삭제', ...)`.
+- Related files:
+  - `lib/messenger-delete-actions.ts`
+  - `app/chat.tsx`
+  - `app/group-chat.tsx`
+  - `app/request-board-messenger.tsx`
+  - `lib/__tests__/shared-ui-action-contracts.test.ts`
+  - `docs/handbook/shared-ui-action-contracts.md`
+- Verification:
+  - RED/GREEN `npm test -- --runInBand lib/__tests__/shared-ui-action-contracts.test.ts`
+
+## 2026-07-03 | Native File Download Drift | screens owned platform save logic
+- Symptom:
+  - `app/request-board-messenger.tsx` and `app/hanwha-commission.tsx` both owned temporary download paths, Android Storage Access Framework writes, iOS document copies, duplicate filename fallback, and cleanup logic.
+  - Platform save behavior could drift between GaramLink attachments and Hanwha commission PDFs.
+- Root cause:
+  - File download/save was treated as screen implementation detail rather than a shared native action primitive.
+- Why it was missed:
+  - The first shared UI action pass covered attachment opening and clipboard actions, but did not trace download/save flows that use `FileSystem.downloadAsync`.
+- Permanent guardrail:
+  - Native download/save flows in those screens must use `lib/native-file-actions.ts` / `downloadRemoteFileToUserStorage`.
+  - `lib/__tests__/shared-ui-action-contracts.test.ts` must fail if those screens call `FileSystem.downloadAsync` or `StorageAccessFramework` directly.
+- Related files:
+  - `lib/native-file-actions.ts`
+  - `app/request-board-messenger.tsx`
+  - `app/hanwha-commission.tsx`
+  - `lib/__tests__/shared-ui-action-contracts.test.ts`
+  - `docs/handbook/shared-ui-action-contracts.md`
+- Verification:
+  - RED/GREEN `npm test -- --runInBand lib/__tests__/shared-ui-action-contracts.test.ts`
+
+## 2026-07-03 | Linkified Text Action Drift | central text component owned copy/open alerts
+- Symptom:
+  - `components/LinkifiedSelectableText.tsx` rendered shared message/body links but also owned link option alerts, external open failure alerts, and `Clipboard.setStringAsync` link-copy behavior.
+  - Messenger screens used shared copy/open helpers, but the central link component could drift independently.
+- Root cause:
+  - Link rendering was treated as shared, while link actions inside the renderer were still component-local.
+- Why it was missed:
+  - The first shared UI action pass checked messenger screen copy and attachment actions, but did not inspect the linkified text component's internal Alert/Clipboard calls.
+- Permanent guardrail:
+  - `LinkifiedSelectableText` must use `lib/linkified-text-actions.ts` / `showLinkifiedTextOptions` and `openLinkExternallyWithFeedback`.
+  - Link-copy feedback must route through `copyTextWithFeedback`.
+  - `lib/__tests__/shared-ui-action-contracts.test.ts` must fail if `LinkifiedSelectableText` reintroduces direct `Alert.alert` or `Clipboard.setStringAsync`.
+- Related files:
+  - `components/LinkifiedSelectableText.tsx`
+  - `lib/linkified-text-actions.ts`
+  - `lib/messenger-copy-actions.ts`
+  - `lib/__tests__/shared-ui-action-contracts.test.ts`
+  - `docs/handbook/shared-ui-action-contracts.md`
+- Verification:
+  - RED/GREEN `npm test -- --runInBand lib/__tests__/shared-ui-action-contracts.test.ts`
+
+## 2026-07-03 | Messenger Room Ordering Drift | room lists were not all tied to last message time
+- Symptom:
+  - Messenger surfaces could drift from KakaoTalk-style ordering: the GaramLink bridge used real message time on initial load, but post-send preview updates did not re-sort the list through a shared rule, and a newly-created empty DM carried a current timestamp.
+- Root cause:
+  - Room ordering and timestamp derivation lived inside screen code instead of a small shared contract.
+- Why it was missed:
+  - Existing tests checked message sending, unread counts, and shared action sheets, but did not assert that empty rooms stay below rooms with real messages or that post-send list updates re-sort.
+- Permanent guardrail:
+  - Use `lib/messenger-room-ordering.ts` for GaramIn-side room list ordering.
+  - Message-less conversations must use sort timestamp `0`; do not use conversation creation/update time, presence, unread count, or profile activity as room activity.
+  - Keep `lib/__tests__/messenger-room-ordering.test.ts`, `lib/__tests__/internal-chat.test.ts`, and `web/src/lib/admin-chat-targets.test.ts` covering last-message ordering.
+- Related files:
+  - `lib/messenger-room-ordering.ts`
+  - `app/request-board-messenger.tsx`
+  - `lib/__tests__/messenger-room-ordering.test.ts`
+  - `lib/__tests__/internal-chat.test.ts`
+  - `web/src/lib/admin-chat-targets.test.ts`
+- Verification:
+  - RED/GREEN `npx jest lib/__tests__/messenger-room-ordering.test.ts lib/__tests__/internal-chat.test.ts --runInBand`
+  - GREEN `npx tsx --test web/src/lib/admin-chat-targets.test.ts`
+
+## 2026-07-03 | Board Comment Action Drift | mobile and admin board screens owned duplicate comment menus
+- Symptom:
+  - `app/board.tsx` and `app/admin-board-manage.tsx` each built the same comment edit/delete/cancel `Alert.alert` action sheet locally.
+  - A future label, order, destructive style, or cancel behavior change could land in one board surface only.
+- Root cause:
+  - Board and notice contracts covered content, categories, attachments, and navigation, but not the shared comment action sheet UI.
+- Why it was missed:
+  - Previous shared UI/action passes focused on messenger actions, link actions, file downloads, and broad governance while leaving board comment action sheets as small local UI.
+- Permanent guardrail:
+  - Board comment edit/delete menus must use `lib/board-comment-actions.ts` / `showBoardCommentActions`.
+  - `lib/__tests__/board-comment-actions.test.ts` must fail if `app/board.tsx` or `app/admin-board-manage.tsx` reintroduces a local `Alert.alert(...)` action sheet with button definitions.
+- Related files:
+  - `lib/board-comment-actions.ts`
+  - `app/board.tsx`
+  - `app/admin-board-manage.tsx`
+  - `lib/__tests__/board-comment-actions.test.ts`
+  - `docs/handbook/shared-ui-action-contracts.md`
+- Verification:
+  - RED/GREEN `npx jest lib/__tests__/board-comment-actions.test.ts --runInBand`
+
+## 2026-07-03 | Board Reaction State Drift | board screens owned duplicate reaction math
+- Symptom:
+  - `app/board.tsx` and `app/admin-board-manage.tsx` each defined the same reaction key type, count normalization helper, and optimistic reaction update helper locally.
+  - A future change to toggle-off behavior, switch counts, or total delta semantics could land in one board surface only.
+- Root cause:
+  - Reaction math was treated as a small screen helper instead of part of the board/notices shared behavior contract.
+- Why it was missed:
+  - Previous board contract work focused on comment action sheets and content/navigation behavior, not the optimistic reaction state helper directly above the screen code.
+- Permanent guardrail:
+  - Board reaction count updates must use `lib/board-reaction-state.ts` / `buildBoardReactionCounts` and `applyBoardReactionUpdate`.
+  - `lib/__tests__/board-reaction-state.test.ts` must fail if `app/board.tsx` or `app/admin-board-manage.tsx` reintroduces local `buildReactionCounts` or `applyReactionUpdate` helpers.
+- Related files:
+  - `lib/board-reaction-state.ts`
+  - `app/board.tsx`
+  - `app/admin-board-manage.tsx`
+  - `lib/__tests__/board-reaction-state.test.ts`
+  - `docs/handbook/shared-ui-action-contracts.md`
+- Verification:
+  - RED/GREEN `npx jest lib/__tests__/board-reaction-state.test.ts --runInBand`
+
+## 2026-07-03 | Board Attachment Open Drift | board screens owned duplicate file-open failure handling
+- Symptom:
+  - `app/board.tsx` and `app/admin-board-manage.tsx` each called `openExternalUrl(item.signedUrl).catch(...)` with the same attachment failure alert locally.
+  - A future attachment opener fallback, signed URL missing rule, or failure copy change could land in one board surface only.
+- Root cause:
+  - Board attachment file open behavior was treated as small inline UI code instead of a shared board action primitive.
+- Why it was missed:
+  - Earlier file helper work focused on messenger downloads and commission PDFs, not board file attachment opens inside the board modal.
+- Permanent guardrail:
+  - Board attachment opens must use `lib/board-attachment-actions.ts` / `openBoardAttachment`.
+  - `lib/__tests__/board-attachment-actions.test.ts` must fail if `app/board.tsx` or `app/admin-board-manage.tsx` reintroduces direct `openExternalUrl(item.signedUrl).catch(...)`.
+- Related files:
+  - `lib/board-attachment-actions.ts`
+  - `app/board.tsx`
+  - `app/admin-board-manage.tsx`
+  - `lib/__tests__/board-attachment-actions.test.ts`
+  - `docs/handbook/shared-ui-action-contracts.md`
+- Verification:
+  - RED/GREEN `npx jest lib/__tests__/board-attachment-actions.test.ts --runInBand`
+
+## 2026-07-03 | Board Feedback Alert Drift | repeated board alert copy stayed screen-local
+- Symptom:
+  - `app/board.tsx` and `app/admin-board-manage.tsx` each owned identical reaction/comment failure alerts and empty-comment validation alerts.
+  - A future copy or failure-state change could update one board surface while leaving the other behind.
+- Root cause:
+  - Board feedback copy was treated as local error handling rather than a shared board UI/action contract.
+- Why it was missed:
+  - Earlier passes unified action sheets, attachment opens, and reaction math, but did not consolidate the repeated alert copy around those mutations.
+- Permanent guardrail:
+  - Shared board reaction/comment failure and empty-comment validation alerts must use `lib/board-feedback-alerts.ts` / `showBoardFeedbackAlert`.
+  - `lib/__tests__/board-feedback-alerts.test.ts` must fail if `app/board.tsx` or `app/admin-board-manage.tsx` reintroduces duplicated `Alert.alert(...)` calls for those cases.
+- Related files:
+  - `lib/board-feedback-alerts.ts`
+  - `app/board.tsx`
+  - `app/admin-board-manage.tsx`
+  - `lib/__tests__/board-feedback-alerts.test.ts`
+  - `docs/handbook/shared-ui-action-contracts.md`
+- Verification:
+  - RED/GREEN `npx jest lib/__tests__/board-feedback-alerts.test.ts --runInBand`
+- Verification:
+  - RED/GREEN `npx jest lib/__tests__/board-feedback-alerts.test.ts --runInBand`
+
+## 2026-07-03 | Shared Function Drift | repeated display and mapping helpers stayed screen-local
+- Symptom:
+  - Exam management and group chat screens owned repeated formatter, normalizer, display, permission, copy, and reply helper functions locally.
+  - Future changes to exam labels, phone candidates, group-chat send permission, or copy/reply text could land in one screen only.
+- Root cause:
+  - Previous governance focused on UI/action primitives, but did not separately audit function-level business helpers.
+- Why it was missed:
+  - Small `format*`, `normalize*`, `build*`, `resolve*`, `is*`, and `get*` helpers looked harmless inside screens even when they represented shared rules.
+- Permanent guardrail:
+  - Exam display helpers must use `lib/exam-display.ts`.
+  - Group chat display helpers must use `lib/group-chat-display.ts`.
+  - Broad refactors must run `scripts/audit/shared-function-contract-audit.cjs`, and `lib/__tests__/shared-function-contracts.test.ts` must keep the audit, handbook, and governance map connected.
+- Related files:
+  - `lib/exam-display.ts`
+  - `lib/group-chat-display.ts`
+  - `scripts/audit/shared-function-contract-audit.cjs`
+  - `lib/__tests__/exam-display.test.ts`
+  - `lib/__tests__/group-chat-function-contracts.test.ts`
+  - `lib/__tests__/shared-function-contracts.test.ts`
+- Verification:
+  - RED/GREEN `npx jest lib/__tests__/exam-display.test.ts lib/__tests__/group-chat-function-contracts.test.ts lib/__tests__/shared-function-contracts.test.ts --runInBand`

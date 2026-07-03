@@ -1,6 +1,5 @@
 import { Feather } from '@expo/vector-icons';
 import DateTimePicker, { DateTimePickerEvent } from '@react-native-community/datetimepicker';
-import * as FileSystem from 'expo-file-system/legacy';
 import { Stack } from 'expo-router';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
@@ -24,6 +23,7 @@ import { useIdentityGate } from '@/hooks/use-identity-gate';
 import { hasHanwhaApprovalEvidence, hasHanwhaPdfMetadata } from '@/lib/fc-workflow';
 import { useKeyboardPadding } from '@/hooks/use-keyboard-padding';
 import { useSession } from '@/hooks/use-session';
+import { downloadRemoteFileToUserStorage } from '@/lib/native-file-actions';
 import { openExternalUrl } from '@/lib/open-external-url';
 import { supabase } from '@/lib/supabase';
 import { COLORS, RADIUS, SHADOWS, SPACING, TYPOGRAPHY } from '@/lib/theme';
@@ -305,47 +305,14 @@ export default function HanwhaCommissionScreen() {
       const signedUrl = await resolvePdfUrl();
       const inferredName = (pdfName?.trim() || 'hanwha-commission.pdf').replace(/[\\/:*?"<>|]/g, '_');
       const safeName = inferredName.toLowerCase().endsWith('.pdf') ? inferredName : `${inferredName}.pdf`;
-      const tempBaseDir = FileSystem.cacheDirectory ?? FileSystem.documentDirectory;
-      if (!tempBaseDir) {
-        throw new Error('다운로드 임시 저장 경로를 찾을 수 없습니다.');
-      }
+      const result = await downloadRemoteFileToUserStorage({
+        url: signedUrl,
+        fileName: safeName,
+        mimeType: 'application/pdf',
+        tempPrefix: 'hanwha',
+      });
 
-      const downloaded = await FileSystem.downloadAsync(signedUrl, `${tempBaseDir}hanwha-${Date.now()}.pdf`);
-
-      try {
-        if (Platform.OS === 'android') {
-          const downloadDirUri = FileSystem.StorageAccessFramework.getUriForDirectoryInRoot('Download');
-          const permission =
-            await FileSystem.StorageAccessFramework.requestDirectoryPermissionsAsync(downloadDirUri);
-
-          if (!permission.granted) {
-            throw new Error('다운로드 폴더 접근 권한이 필요합니다.');
-          }
-
-          const destUri = await FileSystem.StorageAccessFramework.createFileAsync(
-            permission.directoryUri,
-            safeName,
-            'application/pdf',
-          );
-
-          const base64 = await FileSystem.readAsStringAsync(downloaded.uri, {
-            encoding: FileSystem.EncodingType.Base64,
-          });
-          await FileSystem.writeAsStringAsync(destUri, base64, {
-            encoding: FileSystem.EncodingType.Base64,
-          });
-        } else {
-          const baseDocDir = FileSystem.documentDirectory;
-          if (!baseDocDir) {
-            throw new Error('문서 저장 경로를 찾을 수 없습니다.');
-          }
-          await FileSystem.copyAsync({ from: downloaded.uri, to: `${baseDocDir}${safeName}` });
-        }
-      } finally {
-        await FileSystem.deleteAsync(downloaded.uri, { idempotent: true }).catch(() => undefined);
-      }
-
-      Alert.alert('다운로드 완료', `${safeName} 파일을 저장했습니다.`);
+      Alert.alert('다운로드 완료', `${result.destinationLabel}에 저장되었습니다.\n${result.fileName}`);
     } catch (error: any) {
       Alert.alert('PDF 다운로드 실패', error?.message ?? '다위촉 URL PDF를 다운로드하지 못했습니다.');
     } finally {

@@ -160,6 +160,49 @@ test('buildAdminChatConversationSummaries derives latest messages and unread cou
   });
 });
 
+test('buildAdminChatTargets sorts by last message time instead of unread count', () => {
+  const targets = buildAdminChatTargets(
+    [
+      {
+        id: 'newer',
+        name: 'Newest',
+        phone: '010-1111-2222',
+        signup_completed: true,
+        affiliation: '1branch',
+      },
+      {
+        id: 'unread',
+        name: 'Unread',
+        phone: '010-3333-4444',
+        signup_completed: true,
+        affiliation: '1branch',
+      },
+      {
+        id: 'empty',
+        name: 'Empty',
+        phone: '010-5555-6666',
+        signup_completed: true,
+        affiliation: '1branch',
+      },
+    ],
+    {
+      '01011112222': {
+        last_message: 'newer reply',
+        last_time: '2026-07-02T09:00:00.000Z',
+        unread_count: 0,
+      },
+      '01033334444': {
+        last_message: 'older unread',
+        last_time: '2026-07-01T09:00:00.000Z',
+        unread_count: 5,
+      },
+    },
+  );
+
+  assert.deepStrictEqual(targets.map((target) => target.fc_id), ['newer', 'unread', 'empty']);
+  assert.equal(targets[1].unread_count, 5);
+});
+
 test('mergeAdminChatSummaryRows keeps unread backfill rows from double-counting recent messages', () => {
   const rows = mergeAdminChatSummaryRows(
     [
