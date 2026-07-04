@@ -38,13 +38,17 @@ describe('fc workflow cross-surface contract', () => {
       path.join(__dirname, '../../web/src/lib/fc-workflow.ts'),
       'utf8',
     );
+    const webCoreSource = fs.readFileSync(path.join(__dirname, '../../web/src/lib/fc-workflow-core.ts'), 'utf8');
     const nextConfigSource = fs.readFileSync(path.join(__dirname, '../../web/next.config.ts'), 'utf8');
 
-    expect(source).toContain("from '@shared/lib/fc-workflow-core'");
-    expect(source).not.toContain("from '../../../lib/fc-workflow-core'");
+    expect(source).toContain("from './fc-workflow-core'");
+    expect(source).not.toContain("from '@shared/lib/fc-workflow-core'");
+    expect(webCoreSource).not.toContain("from '../../../lib/");
+    expect(webCoreSource).not.toContain("from '@shared/");
     expect(source).not.toMatch(/export const (getAllowanceDisplayState|calcWorkflowStep|hasAllowancePassed)/);
     expect(source).not.toMatch(/const ALLOWANCE_PASSED_STATUSES/);
-    expect(nextConfigSource).toContain("root: path.resolve(__dirname, '..')");
+    expect(nextConfigSource).toContain('Vercel project Root Directory is `web`');
+    expect(nextConfigSource).toContain('root: path.resolve(__dirname)');
   });
 
   test.each([

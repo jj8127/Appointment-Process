@@ -11236,10 +11236,10 @@
 **Scope**: Vercel `admin_web` deployment failure after FC workflow shared-core refactor.
 
 **Changes**:
-- Updated `web/next.config.ts` so Turbopack uses the repository root and can resolve root shared modules imported from the admin web app.
-- Rewired `web/src/lib/fc-workflow.ts` to import the shared workflow core through `@shared/lib/fc-workflow-core`.
-- Added root TypeScript/Jest alias support for `@shared/*` so unit tests and Next builds resolve shared modules consistently.
-- Extended `lib/__tests__/fc-workflow-cross-surface.test.ts` to guard both shared-core delegation and the required Turbopack repository-root setting.
+- Kept `web/next.config.ts` Turbopack root aligned to Vercel's `web` Root Directory.
+- Added `web/src/lib/fc-workflow-core.ts` so the admin web deployment has a build-included workflow core under Vercel's `web` Root Directory.
+- Rewired `web/src/lib/fc-workflow.ts` to import `./fc-workflow-core` instead of root-level aliases that are unavailable in Vercel's `web` build context.
+- Extended `lib/__tests__/fc-workflow-cross-surface.test.ts` to guard workflow parity and prevent admin web from importing workflow business rules from paths outside the Vercel build context.
 
 **Verification**:
 - Reproduced the original failure locally with `cd web && npm run build`: `Module not found: Can't resolve '../../../lib/fc-workflow-core'`.
@@ -11247,4 +11247,5 @@
 - Passed: `npx jest lib/__tests__/fc-workflow-cross-surface.test.ts --runInBand`.
 
 **Notes**:
-- Future changes that import root shared modules from `web/` must run the actual admin web Next build, not only root TypeScript/Jest checks.
+- Future changes touching admin web workflow rules must run the actual Vercel-equivalent admin web build, not only root TypeScript/Jest checks.
+- If the Vercel project Root Directory remains `web`, admin web runtime imports must not depend on files outside `web/`.

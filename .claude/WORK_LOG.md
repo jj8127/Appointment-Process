@@ -468,4 +468,4 @@
 - Shared FC workflow core: `lib/fc-workflow-core.ts`, `web/src/lib/fc-workflow.ts`, `lib/__tests__/fc-workflow-cross-surface.test.ts`.
 - Shared exam flow contract: `lib/exam-flow-contract.ts`, `app/exam-apply.tsx`, `app/exam-apply2.tsx`, `app/exam-register.tsx`, `app/exam-register2.tsx`, `lib/__tests__/exam-flow-contract.test.ts`.
 - Contract map/governance updated to keep mobile and admin web behavior aligned.
-- Admin web Vercel build recovery: `web/next.config.ts`, `web/src/lib/fc-workflow.ts`, `tsconfig.json`, `jest.config.js`, `lib/__tests__/fc-workflow-cross-surface.test.ts`.
+- Admin web Vercel build recovery: `web/next.config.ts`, `web/src/lib/fc-workflow-core.ts`, `web/src/lib/fc-workflow.ts`, `lib/__tests__/fc-workflow-cross-surface.test.ts`.

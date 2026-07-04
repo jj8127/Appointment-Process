@@ -3209,18 +3209,17 @@
 - Symptom:
   - Vercel `admin_web` deployment failed on commit `fd0d19f` because Next/Turbopack could not resolve the root shared workflow module from `web/src/lib/fc-workflow.ts`.
 - Root cause:
-  - The refactor moved workflow rules into a root shared module, but `web/next.config.ts` kept Turbopack rooted at the `web` directory.
+  - The refactor moved workflow rules into a root shared module, but the Vercel project Root Directory is `web`, so files outside `web/` are not reliably available in cloud build context.
 - Why it was missed:
   - Verification ran root TypeScript/Jest and governance checks, but did not run the actual `web/npm run build` path that Vercel executes.
 - Permanent guardrail:
-  - `web/next.config.ts` must keep Turbopack rooted at the repository root when admin web imports root shared modules.
-  - Root Jest/TypeScript must resolve the same `@shared/*` alias used by admin web.
+  - Admin web workflow runtime imports must resolve inside `web/` while the Vercel project Root Directory is `web`.
+  - `web/src/lib/fc-workflow-core.ts` and mobile workflow helpers must stay in parity through `lib/__tests__/fc-workflow-cross-surface.test.ts`.
   - Any change touching `web/src/lib/fc-workflow.ts`, `lib/fc-workflow-core.ts`, `web/next.config.ts`, or shared web imports must run `SENTRY_AUTH_TOKEN='' ; cd web ; npm run build` before deploy.
 - Related files:
   - `web/next.config.ts`
   - `web/src/lib/fc-workflow.ts`
-  - `tsconfig.json`
-  - `jest.config.js`
+  - `web/src/lib/fc-workflow-core.ts`
   - `lib/__tests__/fc-workflow-cross-surface.test.ts`
 - Verification:
   - Reproduced failed `web/npm run build`, then passed `SENTRY_AUTH_TOKEN='' ; cd web ; npm run build`

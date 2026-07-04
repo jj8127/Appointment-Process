@@ -8,9 +8,9 @@ const nextConfig: NextConfig = {
   experimental: {
     externalDir: true,
   },
-  // Keep Turbopack at the repository root so web can consume shared root modules.
+  // Vercel project Root Directory is `web`, so keep Turbopack rooted here.
   turbopack: {
-    root: path.resolve(__dirname, '..'),
+    root: path.resolve(__dirname),
   },
 };
 

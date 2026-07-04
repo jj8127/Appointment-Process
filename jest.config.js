@@ -32,7 +32,6 @@ module.exports = {
     '!**/__tests__/**'
   ],
   moduleNameMapper: {
-    '^@/(.*)$': '<rootDir>/$1',
-    '^@shared/(.*)$': '<rootDir>/$1'
+    '^@/(.*)$': '<rootDir>/$1'
   }
 };

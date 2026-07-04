@@ -197,11 +197,12 @@
     },
     {
       "id": "fc-workflow-parity",
-      "prefixes": [
-        "lib/fc-workflow.ts",
-        "lib/fc-workflow-core.ts",
-        "web/src/lib/fc-workflow.ts",
-        "web/src/lib/shared.ts",
+        "prefixes": [
+          "lib/fc-workflow.ts",
+          "lib/fc-workflow-core.ts",
+          "web/src/lib/fc-workflow-core.ts",
+          "web/src/lib/fc-workflow.ts",
+          "web/src/lib/shared.ts",
         "web/src/app/api/admin/fc/route.ts"
       ],
       "requires_any": [
