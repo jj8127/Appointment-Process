@@ -11228,3 +11228,23 @@
 
 **Notes**:
 - External API shapes and database schema were not changed. This is an internal contract/refactor pass.
+
+---
+
+## <a id="20260704-admin-web-vercel-build-recovery"></a> 2026-07-04 | Admin web Vercel build recovery
+
+**Scope**: Vercel `admin_web` deployment failure after FC workflow shared-core refactor.
+
+**Changes**:
+- Updated `web/next.config.ts` so Turbopack uses the repository root and can resolve root shared modules imported from the admin web app.
+- Rewired `web/src/lib/fc-workflow.ts` to import the shared workflow core through `@shared/lib/fc-workflow-core`.
+- Added root TypeScript/Jest alias support for `@shared/*` so unit tests and Next builds resolve shared modules consistently.
+- Extended `lib/__tests__/fc-workflow-cross-surface.test.ts` to guard both shared-core delegation and the required Turbopack repository-root setting.
+
+**Verification**:
+- Reproduced the original failure locally with `cd web && npm run build`: `Module not found: Can't resolve '../../../lib/fc-workflow-core'`.
+- Passed: `SENTRY_AUTH_TOKEN='' ; cd web ; npm run build`.
+- Passed: `npx jest lib/__tests__/fc-workflow-cross-surface.test.ts --runInBand`.
+
+**Notes**:
+- Future changes that import root shared modules from `web/` must run the actual admin web Next build, not only root TypeScript/Jest checks.

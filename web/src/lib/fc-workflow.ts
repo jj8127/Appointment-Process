@@ -3,7 +3,7 @@ export type {
   AllowanceDisplay,
   AllowanceDisplayKey,
   WorkflowStepNumber,
-} from '../../../lib/fc-workflow-core';
+} from '@shared/lib/fc-workflow-core';
 
 export {
   ALLOWANCE_PASSED_STATUSES,
@@ -24,4 +24,4 @@ export {
   hasText,
   hasUrlStageAccess,
   resolveAppointmentCompletionStatus,
-} from '../../../lib/fc-workflow-core';
+} from '@shared/lib/fc-workflow-core';

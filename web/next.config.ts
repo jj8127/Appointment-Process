@@ -8,9 +8,9 @@ const nextConfig: NextConfig = {
   experimental: {
     externalDir: true,
   },
-  // Force Turbopack to treat the web folder as the workspace root (prevents appDir 404)
+  // Keep Turbopack at the repository root so web can consume shared root modules.
   turbopack: {
-    root: path.resolve(__dirname),
+    root: path.resolve(__dirname, '..'),
   },
 };
 
