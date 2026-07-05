@@ -7,6 +7,41 @@
 
 ---
 
+## <a id="20260705-sentry-image-preview-android-addviewat"></a> 2026-07-05 | Sentry Android image preview addViewAt mitigation
+
+**Agent**: Codex (GPT-5)
+
+**작업 내용**:
+- 배경:
+  - Daily Sentry triage selected `126039968` (`REACT-NATIVE-A`): Android `IllegalStateException: addViewAt: failed to insert view ... into parent ... at index 1`.
+  - Latest event `f7373a9311f34776bdb489bcba081606` occurred on `fc-onboarding-app@4.0.11`, Android 16, app build 61.
+  - Sentry stack frames were native/Fabric-only, but repeated touch breadcrumbs mapped to the shared board attachment image viewer path: `Modal` -> paged scroll view -> gesture wrapper -> animated image.
+- 수정:
+  - `components/image-preview-modal-policy.ts`를 추가해 platform별 image preview modal 정책을 분리했다.
+  - Android는 native modal 안에서 `GestureDetector`/Reanimated image wrapper와 lazy `FlatList` page insertion을 피하고, non-virtualized static `ScrollView` pager를 사용하도록 변경했다.
+  - iOS/web 등 non-Android 플랫폼은 기존 pinch/pan zoom + `FlatList` 경로를 유지한다.
+  - `components/__tests__/image-preview-modal-policy.test.ts`를 추가해 Android 정책과 non-Android zoom 유지 조건을 고정했다.
+
+**결과**:
+- Android board image preview는 pinch zoom 대신 static swipe preview를 사용해 Fabric `addViewAt` child insertion crash surface를 줄인다.
+- 기존 board/detail/admin-board 호출부 API는 변경하지 않았다.
+
+**검증**:
+- RED: `npx jest components/__tests__/image-preview-modal-policy.test.ts --runInBand` failed before helper implementation because `components/image-preview-modal-policy` did not exist.
+- GREEN: `npx jest components/__tests__/image-preview-modal-policy.test.ts --runInBand` passed.
+- `npm run lint` passed.
+- `npx tsc --noEmit --pretty false` still fails on unrelated baseline errors outside this change:
+  - `app/appointment.tsx`
+  - `app/exam-manage.tsx`
+  - `app/exam-manage2.tsx`
+  - `app/hanwha-commission.tsx`
+  - `components/DaumPostcode.tsx`
+  - `lib/fc-workflow.ts`
+- `git diff --check` passed with CRLF conversion warnings only.
+- `SENTRY_AUTH_TOKEN='' npm run build` passed after loading primary-checkout `EXPO_PUBLIC_*` env values into the process.
+
+---
+
 ## <a id="20260611-sentry-appalert-runonjs-guard"></a> 2026-06-11 | Sentry AppAlert runOnJS callback guard
 
 **Agent**: Codex (GPT-5)
