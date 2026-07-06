@@ -5,7 +5,9 @@ import {
   Image,
   Modal,
   LayoutChangeEvent,
+  Platform,
   Pressable,
+  ScrollView,
   StyleSheet,
   Text,
   useWindowDimensions,
@@ -19,6 +21,11 @@ import Animated, {
   useSharedValue,
   withTiming,
 } from 'react-native-reanimated';
+
+import {
+  shouldEnableModalImageGestures,
+  shouldVirtualizeModalImages,
+} from './image-preview-modal-policy';
 
 export type PreviewImageItem = {
   url: string;
@@ -51,6 +58,14 @@ type ZoomableImageProps = {
   isZoomed: boolean;
   onZoomStateChange: (zoomed: boolean) => void;
 };
+
+function StaticPreviewImage({ uri, pageWidth, pageHeight }: Pick<ZoomableImageProps, 'uri' | 'pageWidth' | 'pageHeight'>) {
+  return (
+    <View style={[styles.zoomFrame, { width: pageWidth, height: pageHeight }]}>
+      <Image source={{ uri }} style={[styles.image, { width: pageWidth, height: pageHeight }]} resizeMode="contain" />
+    </View>
+  );
+}
 
 function ZoomableImage({ uri, pageWidth, pageHeight, isZoomed, onZoomStateChange }: ZoomableImageProps) {
   const scale = useSharedValue(1);
@@ -156,6 +171,9 @@ export function ImagePreviewModal({ visible, images, initialIndex = 0, onClose }
   const [isZoomed, setIsZoomed] = useState(false);
   const totalCount = safeImages.length;
   const startIndex = clampIndex(initialIndex, totalCount);
+  const enableModalImageGestures = shouldEnableModalImageGestures(Platform.OS);
+  const virtualizeModalImages = shouldVirtualizeModalImages(Platform.OS);
+  const ModalRootView = enableModalImageGestures ? GestureHandlerRootView : View;
 
   useEffect(() => {
     if (!visible) return;
@@ -200,7 +218,7 @@ export function ImagePreviewModal({ visible, images, initialIndex = 0, onClose }
       statusBarTranslucent
       onRequestClose={onClose}
     >
-      <GestureHandlerRootView style={styles.gestureRoot}>
+      <ModalRootView style={styles.gestureRoot}>
         <View style={styles.overlay}>
           <Pressable style={StyleSheet.absoluteFill} onPress={onClose} />
           <View style={styles.header}>
@@ -218,7 +236,7 @@ export function ImagePreviewModal({ visible, images, initialIndex = 0, onClose }
             </Pressable>
           </View>
           <View style={styles.body} onLayout={handleBodyLayout}>
-            {totalCount > 0 ? (
+            {totalCount > 0 && virtualizeModalImages ? (
               <FlatList
                 ref={listRef}
                 data={safeImages}
@@ -250,12 +268,32 @@ export function ImagePreviewModal({ visible, images, initialIndex = 0, onClose }
                   </View>
                 )}
               />
+            ) : totalCount > 0 ? (
+              <ScrollView
+                horizontal
+                pagingEnabled
+                scrollEnabled
+                showsHorizontalScrollIndicator={false}
+                onMomentumScrollEnd={(event) => {
+                  handleMomentumEnd(event.nativeEvent.contentOffset.x);
+                }}
+              >
+                {safeImages.map((item, index) => (
+                  <View key={`${item.url}-${index}`} style={[styles.imagePage, { width: pageWidth, height: bodyHeight }]}>
+                    <StaticPreviewImage
+                      uri={item.url}
+                      pageWidth={pageWidth}
+                      pageHeight={bodyHeight}
+                    />
+                  </View>
+                ))}
+              </ScrollView>
             ) : (
               <Text style={styles.emptyText}>이미지를 불러올 수 없습니다.</Text>
             )}
           </View>
         </View>
-      </GestureHandlerRootView>
+      </ModalRootView>
     </Modal>
   );
 }
