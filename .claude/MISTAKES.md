@@ -3223,3 +3223,20 @@
   - `lib/__tests__/fc-workflow-cross-surface.test.ts`
 - Verification:
   - Reproduced failed `web/npm run build`, then passed `SENTRY_AUTH_TOKEN='' ; cd web ; npm run build`
+
+## 2026-07-06 | Consent Guide Image Collapse | horizontal FlatList had no explicit height
+- Symptom:
+  - The allowance consent guide screen loaded local guide JPGs, but the guide images were not visible on Android.
+- Root cause:
+  - `app/consent.tsx` placed a horizontal `FlatList` inside a vertical `ScrollView` without assigning the list its calculated image height.
+  - React Native can measure that combination as zero height even when each rendered item contains a fixed-height image frame.
+- Why it was missed:
+  - The asset mapping was checked, but there was no source contract requiring the horizontal guide list itself to own the calculated height.
+- Permanent guardrail:
+  - Horizontal guide lists embedded in scroll views must set an explicit list height from the image frame height.
+  - `lib/__tests__/consent-guide-source.test.ts` must fail if the consent guide removes that height contract.
+- Related files:
+  - `app/consent.tsx`
+  - `lib/__tests__/consent-guide-source.test.ts`
+- Verification:
+  - RED/GREEN `npx jest lib/__tests__/consent-guide-source.test.ts --runInBand`

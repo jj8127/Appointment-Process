@@ -17,6 +17,12 @@
 - ⚠️ 상태값(`types/fc.ts`)과 화면 분기 조건은 반드시 함께 수정
 - ⚠️ 스키마 변경은 `schema.sql` + `migrations/*.sql` 동시 관리
 
+## 2026-07-06
+
+| Date | Work | Key files | Detail |
+|---|---|---|---|
+| 07-06 | Consent guide image visibility fix | `app/consent.tsx`, `lib/__tests__/consent-guide-source.test.ts`, `.claude/MISTAKES.md` | [detail](WORK_DETAIL.md#20260706-consent-guide-image-visibility) |
+
 ## 2026-07-03
 
 | Date | Work | Key files | Detail |

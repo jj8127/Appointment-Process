@@ -255,6 +255,7 @@ export default function AllowanceConsentScreen() {
             <FlatList
               ref={sliderRef}
               data={AGREEMENT_GUIDE_IMAGES}
+              style={[styles.guideList, { height: cardHeight }]}
               keyExtractor={(_, i) => String(i)}
               horizontal
               showsHorizontalScrollIndicator={false}
@@ -475,6 +476,7 @@ const styles = StyleSheet.create({
   header: { paddingHorizontal: SPACING.xl },
 
   sliderContainer: { marginBottom: SPACING.xl },
+  guideList: { flexGrow: 0 },
   imageFrame: {
     backgroundColor: COLORS.gray[100],
     borderRadius: RADIUS.md,

@@ -11249,3 +11249,24 @@
 **Notes**:
 - Future changes touching admin web workflow rules must run the actual Vercel-equivalent admin web build, not only root TypeScript/Jest checks.
 - If the Vercel project Root Directory remains `web`, admin web runtime imports must not depend on files outside `web/`.
+
+---
+
+## <a id="20260706-consent-guide-image-visibility"></a> 2026-07-06 | Consent guide image visibility
+
+**Scope**: GaramIn allowance consent guide image carousel on Android.
+
+**Changes**:
+- Added an explicit `cardHeight`-based style to the horizontal agreement guide `FlatList` in `app/consent.tsx`.
+- Added `styles.guideList` with `flexGrow: 0` so the list does not collapse inside the vertical `ScrollView`.
+- Added a source contract test that fails if the consent guide removes the explicit list-height contract.
+- Recorded the regression in `.claude/MISTAKES.md`.
+
+**Verification**:
+- RED confirmed: `npx jest lib/__tests__/consent-guide-source.test.ts --runInBand` failed before the list owned its calculated height.
+- Passed: `npx jest lib/__tests__/consent-guide-source.test.ts --runInBand`.
+- Passed: `npx tsc --noEmit --pretty false --skipLibCheck`.
+- Passed: `git diff --check`.
+
+**Notes**:
+- The local guide JPG files and `AGREEMENT_GUIDE_IMAGES` mapping were already present. The issue was layout measurement, not missing assets.
