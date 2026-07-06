@@ -235,7 +235,7 @@ async function resolveReferralDetails(params: {
 
     const { data: inviterProfile, error: inviterError } = await params.supabase
       .from('fc_profiles')
-      .select('phone, name, signup_completed, affiliation')
+      .select('phone, name, signup_completed, is_manager_referral_shadow, affiliation')
       .eq('id', referralCodeRow.fc_id)
       .maybeSingle();
 
@@ -248,8 +248,8 @@ async function resolveReferralDetails(params: {
       return { resolvedReferral: null, rejectionReason: 'inviter_profile_missing' };
     }
 
-    if (inviterProfile.signup_completed !== true) {
-      console.warn('[set-password] resolveReferralDetails: inviter profile is not signup completed');
+    if (inviterProfile.signup_completed !== true && inviterProfile.is_manager_referral_shadow !== true) {
+      console.warn('[set-password] resolveReferralDetails: inviter profile is neither signup completed nor manager shadow');
       return { resolvedReferral: null, rejectionReason: 'inviter_not_completed' };
     }
 

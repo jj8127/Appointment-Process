@@ -3335,3 +3335,22 @@
   - `lib/__tests__/signup-completion-regression.test.ts`
 - Verification:
   - RED/GREEN `npx jest lib/__tests__/signup-completion-regression.test.ts --runInBand`
+
+## 2026-07-06 | Signup Referral Shadow Eligibility Drift | search allowed manager shadows but final signup rejected them
+- Symptom:
+  - A user selected a visible recommender during signup, then full registration failed with `추천인 정보를 확인하지 못했습니다. 추천인을 다시 선택해주세요.`
+- Root cause:
+  - `search-signup-referral` allowed `is_manager_referral_shadow=true` recommender profiles, but `validate-referral-code` and `set-password` only accepted `signup_completed=true` inviter profiles.
+  - The signup flow had three referral validation surfaces with different eligibility rules.
+- Why it was missed:
+  - The previous regression test covered referral-link ordering, but did not assert that search, code validation, and signup completion share the same manager-shadow eligibility contract.
+- Permanent guardrail:
+  - Signup referral eligibility must allow `signup_completed=true` or `is_manager_referral_shadow=true` consistently across search, validation, and final password setup.
+  - `lib/__tests__/signup-completion-regression.test.ts` must fail if `validate-referral-code` or `set-password` stops selecting and honoring `is_manager_referral_shadow`.
+- Related files:
+  - `supabase/functions/search-signup-referral/index.ts`
+  - `supabase/functions/validate-referral-code/index.ts`
+  - `supabase/functions/set-password/index.ts`
+  - `lib/__tests__/signup-completion-regression.test.ts`
+- Verification:
+  - RED/GREEN `npx jest lib/__tests__/signup-completion-regression.test.ts --runInBand`

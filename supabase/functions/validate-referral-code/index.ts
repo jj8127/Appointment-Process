@@ -136,7 +136,7 @@ serve(async (req: Request) => {
   // Fetch inviter profile
   const { data: inviterProfile, error: profileError } = await supabase
     .from('fc_profiles')
-    .select('name, phone, signup_completed, affiliation')
+    .select('name, phone, signup_completed, is_manager_referral_shadow, affiliation')
     .eq('id', referralCode.fc_id)
     .maybeSingle();
 
@@ -145,7 +145,11 @@ serve(async (req: Request) => {
   }
 
   const inviterPhone = cleanPhone(inviterProfile?.phone ?? '');
-  if (!inviterProfile || inviterProfile.signup_completed !== true || !isNormalizedPhone(inviterPhone)) {
+  if (
+    !inviterProfile ||
+    (inviterProfile.signup_completed !== true && inviterProfile.is_manager_referral_shadow !== true) ||
+    !isNormalizedPhone(inviterPhone)
+  ) {
     return json({ ok: true, valid: false, reason: 'not_found' });
   }
 

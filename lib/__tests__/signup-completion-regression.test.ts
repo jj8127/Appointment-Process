@@ -42,4 +42,31 @@ describe('signup completion regression guards', () => {
     expect(referralApplyIndex).toBeLessThan(credentialUpsertIndex);
     expect(referralApplyIndex).toBeLessThan(signupCompletedIndex);
   });
+
+  it('keeps signup referral eligibility aligned for manager referral shadow profiles', () => {
+    const searchSource = readFileSync(
+      join(process.cwd(), 'supabase', 'functions', 'search-signup-referral', 'index.ts'),
+      'utf8',
+    );
+    const validateSource = readFileSync(
+      join(process.cwd(), 'supabase', 'functions', 'validate-referral-code', 'index.ts'),
+      'utf8',
+    );
+    const setPasswordSource = readFileSync(
+      join(process.cwd(), 'supabase', 'functions', 'set-password', 'index.ts'),
+      'utf8',
+    );
+
+    expect(searchSource).toContain(
+      'profile.signup_completed !== true && profile.is_manager_referral_shadow !== true',
+    );
+    expect(validateSource).toContain('is_manager_referral_shadow');
+    expect(setPasswordSource).toContain('is_manager_referral_shadow');
+    expect(validateSource).toContain(
+      'inviterProfile.signup_completed !== true && inviterProfile.is_manager_referral_shadow !== true',
+    );
+    expect(setPasswordSource).toContain(
+      'inviterProfile.signup_completed !== true && inviterProfile.is_manager_referral_shadow !== true',
+    );
+  });
 });

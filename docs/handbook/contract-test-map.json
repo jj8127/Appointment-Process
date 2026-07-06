@@ -71,6 +71,8 @@
         "lib/request-board-session.ts",
         "lib/request-board-permissions.ts",
         "app/messenger.tsx",
+        "supabase/functions/search-signup-referral/",
+        "supabase/functions/validate-referral-code/",
         "supabase/functions/set-password/",
         "supabase/functions/request-signup-otp/",
         "supabase/functions/login-with-password/",

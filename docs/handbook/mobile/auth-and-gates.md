@@ -86,6 +86,7 @@ source_of_truth: app/login.tsx + app/signup*.tsx + app/reset-password.tsx + app/
 - `set-password`는 OTP path가 이미 만든 `phone_verified=true` profile만 최종 가입으로 승격해야 하며, 신규 profile 생성이나 미인증 번호 bypass를 허용하면 안 됩니다.
 - `set-password`는 기존 `fc_credentials.password_set_at`를 먼저 확인한 뒤에만 profile reset을 수행해야 합니다. duplicate/direct call이 추천인/온보딩 상태를 지우는 회귀를 허용하지 않습니다.
 - `set-password`에서 `referralCode`가 전달된 경우 추천인 해석과 `apply_referral_link_state` 성공이 `fc_credentials.password_set_at` 및 `signup_completed=true`보다 먼저 끝나야 합니다. 추천인 코드가 해석되지 않으면 `referral_invalid`로 본등록을 중단하고, 추천인을 입력한 계정이 추천인 없이 완료되는 상태를 만들면 안 됩니다.
+- 추천인 검색/검증/본등록은 같은 추천인 허용 기준을 써야 합니다. `search-signup-referral`, `validate-referral-code`, `set-password`는 모두 `signup_completed=true` 또는 `is_manager_referral_shadow=true` 추천인을 허용하고, 설계매니저 소속 프로필은 계속 제외합니다.
 - 전체 홈 unlock은 `identity_completed === true`만 신뢰합니다. `resident_id_masked`나 `address`는 표시/보조 필드이며, 잔존값만으로 `home-lite`를 건너뛰면 회귀입니다.
 - `delete-account`는 `user_presence`까지 정리하고, 삭제 후 blocker row(`fc_profiles` / `admin_accounts` / `manager_accounts`)가 남아 있으면 성공으로 끝내지 않아야 합니다.
 - legacy 로컬 세션에 과거 `role='manager'` payload가 남아 있어도 restore 단계에서 현재 앱 권한모델인 `admin + readOnly`로 정규화해야 합니다. 그렇지 않으면 본부장용 읽기 전용 화면과 referral self-service gate가 재로그인 전까지 어긋날 수 있습니다.

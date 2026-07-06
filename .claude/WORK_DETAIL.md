@@ -11372,3 +11372,22 @@
 **Notes**:
 - Supabase MCP read-only verification for existing production backfill candidates returned a network `Connection failed` error during this session, so live data repair was not executed.
 - Existing completed accounts with missing recommender snapshots still need a separate event-based backfill from `referral_events(event_type='signup_completed')` once Supabase MCP/SQL access is available.
+
+---
+
+## <a id="20260706-signup-referral-shadow-eligibility"></a> 2026-07-06 | Signup referral manager-shadow eligibility alignment
+
+**Scope**: GaramIn signup recommender search, referral-code validation, and final password setup.
+
+**Changes**:
+- Aligned `validate-referral-code` with `search-signup-referral` so active manager referral shadow profiles are valid inviters.
+- Aligned `set-password` referral resolution with the same eligibility contract before signup completion.
+- Added a regression assertion that search, validation, and final signup all keep `is_manager_referral_shadow` support.
+- Updated the auth/gates handbook and mistake ledger.
+
+**Verification**:
+- RED confirmed: `npx jest lib/__tests__/signup-completion-regression.test.ts --runInBand` failed because `validate-referral-code` did not read `is_manager_referral_shadow`.
+- Passed: `npx jest lib/__tests__/signup-completion-regression.test.ts --runInBand`.
+
+**Notes**:
+- This fixes the `referral_invalid` popup for valid recommender selections backed by manager shadow profiles.
