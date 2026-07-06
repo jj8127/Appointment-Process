@@ -436,6 +436,38 @@ serve(async (req: Request) => {
     return fail('already_set', '이미 비밀번호가 설정되어 있습니다.');
   }
 
+  if (referralCode && !resolvedReferral) {
+    await insertReferralEvent({
+      supabase,
+      eventType: 'referral_rejected',
+      source: 'manual_entry',
+      referralCode: referralCode || null,
+      inviteeFcId: fcId,
+      inviteePhone: phone,
+      metadata: {
+        captureSource: 'set_password_signup',
+        rejectionReason: referralResolution.rejectionReason ?? 'unresolved_referral',
+      },
+      logLabel: 'set-password',
+    });
+    return json({
+      ok: false,
+      code: 'referral_invalid',
+      message: '추천인 정보를 확인하지 못했습니다. 추천인을 다시 선택해주세요.',
+    });
+  }
+
+  const referralResetPayload: Record<string, unknown> = referralCode
+    ? {
+        recommender: null,
+        recommender_fc_id: null,
+        recommender_code_id: null,
+        recommender_code: null,
+        recommender_linked_at: null,
+        recommender_link_source: null,
+      }
+    : {};
+
   if (profileName) {
     // Update profile with signup form data (in case profile was created by OTP with empty fields)
     // Also reset any stale PII fields that may have been left over from a previously completed profile
@@ -447,12 +479,6 @@ serve(async (req: Request) => {
       // 이전 위촉 완료 후 재가입 시 identity 잔여 데이터 초기화
       address: '',
       address_detail: null,
-      recommender: null,
-      recommender_fc_id: null,
-      recommender_code_id: null,
-      recommender_code: null,
-      recommender_linked_at: null,
-      recommender_link_source: null,
       resident_id_masked: null,
       resident_id_hash: null,
       identity_completed: false,
@@ -461,6 +487,7 @@ serve(async (req: Request) => {
       appointment_url: null,
       appointment_date: null,
       ...buildWorkflowResetPayload(),
+      ...referralResetPayload,
     };
     if (profileName) updatePayload.name = profileName;
     if (profileAffiliation) updatePayload.affiliation = profileAffiliation;
@@ -503,15 +530,10 @@ serve(async (req: Request) => {
     const statusOnlyPayload: Record<string, unknown> = {
       license_statuses: licenseStatuses,
       status: commissionState.status,
-      recommender: null,
-      recommender_fc_id: null,
-      recommender_code_id: null,
-      recommender_code: null,
-      recommender_linked_at: null,
-      recommender_link_source: null,
       life_commission_completed: commissionState.lifeCompleted,
       nonlife_commission_completed: commissionState.nonlifeCompleted,
       ...buildWorkflowResetPayload(),
+      ...referralResetPayload,
     };
     let statusUpdateResult = await supabase.from('fc_profiles').update(statusOnlyPayload).eq('id', fcId);
     if (statusUpdateResult.error && isMissingColumnError(statusUpdateResult.error)) {
@@ -540,6 +562,33 @@ serve(async (req: Request) => {
       return json({ ok: false, code: 'db_error', message: statusUpdateResult.error.message }, 500);
     }
   }
+
+  if (resolvedReferral && fcId) {
+    const applyResult = await applyReferralLinkState({
+      supabase,
+      inviteeFcId: fcId,
+      inviterFcId: resolvedReferral.inviterFcId,
+      referralCodeId: resolvedReferral.referralCodeId,
+      referralCode: resolvedReferral.referralCode,
+      source: 'signup',
+      actorPhone: phone,
+      actorRole: 'system',
+      reason: 'set_password_signup',
+    });
+
+    if (!applyResult.ok) {
+      console.warn('[set-password] applyReferralLinkState failed', applyResult.message);
+      return json(
+        {
+          ok: false,
+          code: 'referral_link_failed',
+          message: '추천인 연결을 저장하지 못했습니다. 잠시 후 다시 시도해주세요.',
+        },
+        500,
+      );
+    }
+  }
+
   const saltBytes = crypto.getRandomValues(new Uint8Array(16));
   const passwordHash = await hashPassword(password, saltBytes);
   const passwordSalt = toBase64(saltBytes);
@@ -612,46 +661,6 @@ serve(async (req: Request) => {
       syncReason: 'bootstrap',
     },
   });
-
-  if (resolvedReferral && fcId) {
-    const applyResult = await applyReferralLinkState({
-      supabase,
-      inviteeFcId: fcId,
-      inviterFcId: resolvedReferral.inviterFcId,
-      referralCodeId: resolvedReferral.referralCodeId,
-      referralCode: resolvedReferral.referralCode,
-      source: 'signup',
-      actorPhone: phone,
-      actorRole: 'system',
-      reason: 'set_password_signup',
-    });
-
-    if (!applyResult.ok) {
-      console.warn('[set-password] applyReferralLinkState failed', applyResult.message);
-      return json(
-        {
-          ok: false,
-          code: 'referral_link_failed',
-          message: '추천인 연결을 저장하지 못했습니다. 잠시 후 다시 시도해주세요.',
-        },
-        500,
-      );
-    }
-  } else if (referralCode && fcId) {
-    await insertReferralEvent({
-      supabase,
-      eventType: 'referral_rejected',
-      source: 'manual_entry',
-      referralCode: referralCode || null,
-      inviteeFcId: fcId,
-      inviteePhone: phone,
-      metadata: {
-        captureSource: 'set_password_signup',
-        rejectionReason: referralResolution.rejectionReason ?? 'unresolved_referral',
-      },
-      logLabel: 'set-password',
-    });
-  }
 
   return json({ ok: true, residentId: phone, displayName });
 });

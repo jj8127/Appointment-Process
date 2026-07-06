@@ -1,6 +1,7 @@
 import { useQuery } from '@tanstack/react-query';
 import { supabase } from '@/lib/supabase';
 import { useSession } from '@/hooks/use-session';
+import { normalizeIdentityCompleted } from '@/lib/identity-completion';
 
 type IdentityStatus = {
   fcId: string | null;
@@ -9,9 +10,6 @@ type IdentityStatus = {
   address: string | null;
   name: string | null;
 };
-
-const normalizeIdentityCompleted = (row: any) =>
-  Boolean(row?.identity_completed) || Boolean(row?.resident_id_masked && row?.address);
 
 export async function fetchIdentityStatus(residentId: string): Promise<IdentityStatus> {
   const { data, error } = await supabase

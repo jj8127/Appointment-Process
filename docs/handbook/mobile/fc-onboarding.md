@@ -55,6 +55,9 @@ source_of_truth: app/index.tsx + app/home-lite.tsx + app/fc/new.tsx + app/consen
 ## 상태/분기
 
 - `home-lite`는 unlock 전 안내 역할
+- 본등록 후 정식 홈(`/`) 진입은 `fc_profiles.identity_completed === true`일 때만 허용한다. `resident_id_masked`나 `address` 같은 public profile 잔존값만으로는 홈 진입을 unlock하지 않는다.
+- `set-password`는 추천인 코드가 전달된 가입에서 추천인 코드를 다시 검증하고 `apply_referral_link_state`를 비밀번호 저장과 `signup_completed=true`보다 먼저 완료해야 한다. 추천인 코드가 해석되지 않으면 본등록을 완료시키지 않고 사용자가 추천인을 다시 선택하게 한다.
+- 기존 운영 데이터에서 추천인 스냅샷이 비어 있는 가입자는 `referral_events(event_type='signup_completed')`의 최신 resolved 이벤트를 기준으로 backfill할 수 있다. 임의 문자열 `recommender` 입력값은 신뢰하지 않는다.
 - temp-id 선행 없이 consent를 완료할 수 없음
 - docs request가 있어야 `docs-upload`가 활성 역할을 가짐
 - 보증 보험 동의 단계는 `allowance_prescreen_requested_at`으로 내부 진행 표시를 분리한다
@@ -69,6 +72,7 @@ source_of_truth: app/index.tsx + app/home-lite.tsx + app/fc/new.tsx + app/consen
 - 서류 승인 뒤에는 바로 4단계 `생명/손해 위촉`이 아니라 3단계 `hanwha-commission`(`다위촉 URL`)이 열린다
 - 총무가 다위촉 탭에 PDF를 첨부하면 FC는 `hanwha-commission` 화면에서 그 파일을 바로 열람/다운로드할 수 있다. 단, 다음 단계(`appointment`) 잠금 해제는 여전히 `다위촉 승인 + PDF 등록`이 모두 끝난 뒤에만 이뤄진다.
 - 다위촉 URL 승인과 PDF 등록이 끝나야 4단계 `appointment`(`생명/손해 위촉`)가 열린다
+- `appointment` 화면에서 FC가 생명/손해 위촉 완료일을 제출하면 성공 피드백은 네이티브 Alert가 아니라 앱 toast로 표시한다. 제출 성공 직후 화면 상태를 다시 읽기 때문에 Android native dialog와 리렌더를 겹치게 만들면 안 된다.
 - FC 본인 화면에서도 주민번호는 trusted server path로 full-view 조회되며, masked fallback을 새 계약으로 사용하지 않는다
 - 시험 신청 화면은 기존 신청을 복원할 때도 `location_id`가 현재 회차의 지역 목록에 없으면 선택 상태를 복원하지 않고, 다시 지역을 고르게 한다
 - Android new architecture/Fabric에서 `fc/new`, `exam-apply`, `exam-apply2`처럼 `RefreshControl`과 큰 조건부 렌더 tree를 함께 가진 화면은 `KeyboardAwareWrapper`를 primary scroll owner로 쓰지 않는다. Android는 plain `ScrollView` + explicit bottom padding을 쓰고, iOS에서만 기존 keyboard-aware wrapper를 유지한다.

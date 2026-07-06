@@ -65,10 +65,14 @@
         "app/login.tsx",
         "hooks/use-login.ts",
         "hooks/use-session.tsx",
+        "hooks/use-identity-status.ts",
+        "lib/identity-completion.ts",
         "lib/saved-login-credentials.ts",
         "lib/request-board-session.ts",
         "lib/request-board-permissions.ts",
         "app/messenger.tsx",
+        "supabase/functions/set-password/",
+        "supabase/functions/request-signup-otp/",
         "supabase/functions/login-with-password/",
         "supabase/functions/refresh-app-session/",
         "supabase/functions/sync-request-board-session/",
@@ -77,6 +81,7 @@
       ],
       "requires_any": [
         "hooks/__tests__/use-login.contract.test.ts",
+        "lib/__tests__/signup-completion-regression.test.ts",
         "lib/__tests__/request-board-session.test.ts",
         "web/src/lib/admin-web-login-role.test.ts",
         "docs/handbook/feature-contract-matrix.md",
@@ -166,6 +171,7 @@
         "web/src/app/dashboard/notifications/",
         "web/src/app/dashboard/docs/",
         "web/src/app/dashboard/chat/",
+        "web/src/components/RejectReasonModal.tsx",
         "web/src/lib/admin-file-open.ts"
       ],
       "requires_any": [
@@ -203,9 +209,11 @@
           "web/src/lib/fc-workflow-core.ts",
           "web/src/lib/fc-workflow.ts",
           "web/src/lib/shared.ts",
+        "web/src/app/dashboard/page.tsx",
         "web/src/app/api/admin/fc/route.ts"
       ],
       "requires_any": [
+        "lib/__tests__/admin-web-appointment-approval-clarity.test.ts",
         "lib/__tests__/fc-workflow-cross-surface.test.ts",
         "lib/__tests__/workflow-step-regression.test.ts",
         "docs/handbook/feature-contract-matrix.md",
