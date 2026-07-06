@@ -375,9 +375,7 @@ export default function HanwhaCommissionScreen() {
                 <View style={styles.statusHintRow}>
                   <Feather name="message-circle" size={16} color={COLORS.primary} />
                   <Text style={styles.statusHintText}>
-                    {hasDawichokUrlSent
-                      ? '카카오톡으로 전송된 다위촉 URL을 진행해 주세요.'
-                      : '총무가 카카오톡으로 다위촉 URL을 보내면 진행 후 완료일을 입력해 주세요.'}
+                    카카오톡으로 다위촉 URL에 접속하여 진행 후 완료일을 입력해 주세요.
                   </Text>
                 </View>
               )}
