@@ -63,6 +63,10 @@ describe('shared UI/action primitive audit', () => {
     const boardReactionStateSource = readRepoFile('lib/board-reaction-state.ts');
     const linkifiedTextSource = readRepoFile('components/LinkifiedSelectableText.tsx');
     const linkifiedTextActionsSource = readRepoFile('lib/linkified-text-actions.ts');
+    const rejectReasonModalSource = readRepoFile('web/src/components/RejectReasonModal.tsx');
+    const adminDashboardSource = readRepoFile('web/src/app/dashboard/page.tsx');
+    const adminAppointmentSource = readRepoFile('web/src/app/dashboard/appointment/page.tsx');
+    const adminDocsSource = readRepoFile('web/src/app/dashboard/docs/page.tsx');
 
     expect(matrix).toContain('UI action primitives');
     expect(handbook).toContain('Shared UI Action Contracts');
@@ -76,6 +80,7 @@ describe('shared UI/action primitive audit', () => {
     expect(handbook).toContain('showBoardCommentActions');
     expect(handbook).toContain('showBoardFeedbackAlert');
     expect(handbook).toContain('applyBoardReactionUpdate');
+    expect(handbook).toContain('RejectReasonModal');
     expect(attachmentActionsSource).toContain('openExternalUrl');
     expect(attachmentActionsSource).toContain('Alert.alert');
     expect(copyActionsSource).toContain('Clipboard.setStringAsync');
@@ -97,6 +102,12 @@ describe('shared UI/action primitive audit', () => {
     expect(linkifiedTextSource).toContain('openLinkExternallyWithFeedback');
     expect(linkifiedTextSource).not.toContain('Clipboard.setStringAsync');
     expect(linkifiedTextSource).not.toContain('Alert.alert');
+    expect(rejectReasonModalSource).toContain("event.key !== 'Enter'");
+    expect(rejectReasonModalSource).toContain('event.shiftKey');
+    expect(rejectReasonModalSource).toContain('event.preventDefault();');
+    for (const source of [adminDashboardSource, adminAppointmentSource, adminDocsSource]) {
+      expect(source).toContain('RejectReasonModal');
+    }
     expect(directChatSource).toContain('openMessengerAttachment');
     expect(groupChatSource).toContain('openMessengerAttachment');
     for (const source of [directChatSource, groupChatSource, requestBoardMessengerSource]) {
@@ -133,6 +144,7 @@ describe('shared UI/action primitive audit', () => {
         'lib/board-comment-actions.ts',
         'lib/board-feedback-alerts.ts',
         'lib/board-reaction-state.ts',
+        'web/src/components/RejectReasonModal.tsx',
         'app/board.tsx',
         'app/admin-board-manage.tsx',
         'scripts/audit/shared-ui-contract-audit.cjs',

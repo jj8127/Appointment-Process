@@ -16,7 +16,6 @@ import {
     Tabs,
     Text,
     TextInput,
-    Textarea,
     ThemeIcon,
     Title
 } from '@mantine/core';
@@ -37,6 +36,7 @@ import dayjs from 'dayjs';
 import { useMemo, useState } from 'react';
 
 import { StatusToggle } from '@/components/StatusToggle';
+import { RejectReasonModal } from '@/components/RejectReasonModal';
 import { useSession } from '@/hooks/use-session';
 import { supabase } from '@/lib/supabase';
 
@@ -608,31 +608,20 @@ export default function DocumentsPage() {
             </Modal>
 
             {/* Reject Reason Modal */}
-            <Modal
+            <RejectReasonModal
                 opened={rejectOpened}
                 onClose={closeReject}
-                title={<Text fw={700}>반려 사유 입력</Text>}
+                title="반려 사유 입력"
+                description={<>FC에게 전달될 구체적인 반려 사유를 입력해주세요. <br />푸시 알림으로 전송됩니다.</>}
+                placeholder="예: 글씨를 알아볼 수 없습니다. 밝은 곳에서 다시 촬영하여 제출해주세요."
+                value={rejectReason}
+                onChange={setRejectReason}
+                onSubmit={handleRejectConfirm}
+                submitting={updateStatusMutation.isPending}
+                submitDisabled={isReadOnly}
                 size="sm"
-                centered
-                radius="md"
-            >
-                <Stack>
-                    <Text size="sm" c={MUTED}>
-                        FC에게 전달될 구체적인 반려 사유를 입력해주세요. <br />푸시 알림으로 전송됩니다.
-                    </Text>
-                    <Textarea
-                        placeholder="예: 글씨를 알아볼 수 없습니다. 밝은 곳에서 다시 촬영하여 제출해주세요."
-                        minRows={5}
-                        radius="md"
-                        value={rejectReason}
-                        onChange={(e) => setRejectReason(e.currentTarget.value)}
-                    />
-                    <Group justify="flex-end" mt="sm">
-                        <Button variant="default" onClick={closeReject}>취소</Button>
-                        <Button color="red" onClick={handleRejectConfirm} loading={updateStatusMutation.isPending} disabled={isReadOnly}>반려 처리</Button>
-                    </Group>
-                </Stack>
-            </Modal>
+                minRows={5}
+            />
 
             {/* Confirm Modal */}
             <Modal

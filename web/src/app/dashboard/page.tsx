@@ -62,6 +62,7 @@ import type { CommissionCompletionStatus, FcProfile, FcStatus } from '@/types/fc
 import { notifications } from '@mantine/notifications';
 import { useRouter } from 'next/navigation';
 import { StatusToggle } from '../../components/StatusToggle';
+import { RejectReasonModal } from '@/components/RejectReasonModal';
 import {
   getAllowanceDisplayState,
   hasHanwhaApprovedPdf,
@@ -1526,10 +1527,24 @@ export default function DashboardPage() {
     const isSubmitted = !isConfirmed && !!submittedDate;
     const insuranceStageOpen = canOpenInsuranceStage(selectedFc);
     const appointmentBusy = isAppointmentPending || updateAppointmentDateMutation.isPending;
+    const sectionTitle = isLife ? '생명보험' : '손해보험';
+    const approvalStatusLabel = isConfirmed
+      ? '승인 완료'
+      : isSubmitted
+        ? 'FC 제출, 승인 대기'
+        : '미입력';
+    const approvalStatusColor = isConfirmed ? 'green' : isSubmitted ? 'orange' : 'gray';
 
     return (
       <Stack gap="xs" mt="sm">
-        <Text size="sm" fw={600} c="dimmed">{isLife ? '생명보험' : '손해보험'}</Text>
+        <Group justify="space-between" gap="xs" align="center">
+          <Text size="sm" fw={700} c={isConfirmed ? 'green' : isSubmitted ? 'orange' : 'dimmed'}>
+            {sectionTitle}
+          </Text>
+          <Badge variant={isConfirmed ? 'filled' : 'light'} color={approvalStatusColor} size="sm">
+            승인 상태: {approvalStatusLabel}
+          </Badge>
+        </Group>
         <Group align="flex-end" grow>
           <TextInput
             label="예정(Plan)"
@@ -1557,19 +1572,9 @@ export default function DashboardPage() {
             label={
               <Group gap={6}>
                 <Text size="sm">확정일(Actual)</Text>
-                {isConfirmed ? (
-                  <Badge variant="light" color="green" size="xs">
-                    승인 완료
-                  </Badge>
-                ) : isSubmitted ? (
-                  <Badge variant="light" color="orange" size="xs">
-                    FC 제출
-                  </Badge>
-                ) : (
-                  <Badge variant="light" color="gray" size="xs">
-                    미입력
-                  </Badge>
-                )}
+                <Badge variant="light" color={approvalStatusColor} size="xs">
+                  {approvalStatusLabel}
+                </Badge>
               </Group>
             }
             value={date}
@@ -1593,8 +1598,8 @@ export default function DashboardPage() {
               ...getModalDateInputStyles(isReadOnly || !insuranceStageOpen),
               input: {
                 ...(getModalDateInputStyles(isReadOnly || !insuranceStageOpen).input ?? {}),
-                backgroundColor: isSubmitted ? '#fff4e6' : undefined,
-                borderColor: isSubmitted ? '#ff922b' : undefined,
+                backgroundColor: isConfirmed ? '#EBFBEE' : isSubmitted ? '#fff4e6' : undefined,
+                borderColor: isConfirmed ? '#40C057' : isSubmitted ? '#ff922b' : undefined,
               },
             }}
           />
@@ -1612,7 +1617,7 @@ export default function DashboardPage() {
         </Button>
         {isSubmitted && (
           <Text size="xs" c="orange">
-            제출일: {dayjs(submittedDate).format('YYYY-MM-DD')}
+            FC 제출일: {dayjs(submittedDate).format('YYYY-MM-DD')}
           </Text>
         )}
         <Stack gap={6}>
@@ -1632,11 +1637,11 @@ export default function DashboardPage() {
               variant={isConfirmed ? "filled" : "light"}
               color="green"
               size="xs"
-              disabled={isReadOnly || appointmentBusy || !date || !insuranceStageOpen}
+              disabled={isConfirmed || isReadOnly || appointmentBusy || !date || !insuranceStageOpen}
               loading={isAppointmentPending}
               onClick={(e) => handleAppointmentAction(e, 'confirm', category)}
             >
-              승인 완료
+              {isConfirmed ? '승인 완료됨' : '승인 처리'}
             </Button>
             <Button
               variant="light"
@@ -1657,11 +1662,11 @@ export default function DashboardPage() {
   const nonlifeCommissionSelected = commissionInput === 'nonlife_only' || commissionInput === 'both';
   const commissionSummaryLabel =
     commissionInput === 'both'
-      ? '생명/손해 완료'
+      ? '생명/손해 최종 완료'
       : commissionInput === 'life_only'
-        ? '생명 완료'
+        ? '생명 최종 완료'
         : commissionInput === 'nonlife_only'
-          ? '손해 완료'
+          ? '손해 최종 완료'
           : '미완료';
   const commissionSummaryColor =
     commissionInput === 'both'
@@ -3158,13 +3163,13 @@ export default function DashboardPage() {
                 <Stack gap="md">
                   <Card withBorder radius="md" p="md" bg="gray.0">
                     <Group justify="space-between" mb="xs">
-                      <Text fw={600} size="sm">위촉 상태</Text>
+                      <Text fw={600} size="sm">최종 완료 상태</Text>
                       <Badge variant="light" color={commissionSummaryColor} size="sm">
                         {commissionSummaryLabel}
                       </Badge>
                     </Group>
                     <Text size="xs" c="dimmed">
-                      생명/손해 위촉 완료 플래그를 독립적으로 저장할 수 있습니다.
+                      아래 승인 후 최종 완료 여부를 별도로 저장합니다.
                     </Text>
                     <Group gap="xs" wrap="wrap" mt="sm">
                       <Chip
@@ -3174,7 +3179,7 @@ export default function DashboardPage() {
                         variant={lifeCommissionSelected ? 'filled' : 'light'}
                         disabled={isReadOnly || updateCommissionMutation.isPending}
                       >
-                        생명 위촉 완료
+                        생명 최종 완료
                       </Chip>
                       <Chip
                         checked={nonlifeCommissionSelected}
@@ -3183,7 +3188,7 @@ export default function DashboardPage() {
                         variant={nonlifeCommissionSelected ? 'filled' : 'light'}
                         disabled={isReadOnly || updateCommissionMutation.isPending}
                       >
-                        손해 위촉 완료
+                        손해 최종 완료
                       </Chip>
                     </Group>
                     <Button
@@ -3196,7 +3201,7 @@ export default function DashboardPage() {
                       loading={updateCommissionMutation.isPending}
                       disabled={isReadOnly}
                     >
-                      위촉 상태 저장
+                      최종 완료 상태 저장
                     </Button>
                   </Card>
                   {canOpenInsuranceStage(selectedFc) ? (
@@ -3224,47 +3229,25 @@ export default function DashboardPage() {
           </>
         )}
       </Modal>
-      <Modal
+      <RejectReasonModal
         opened={rejectOpened}
         onClose={closeReject}
         title={
-          <Text fw={700}>
-            {rejectTarget?.kind === 'allowance'
-              ? '보증 보험 동의 반려 사유'
-              : rejectTarget?.kind === 'hanwha'
-                ? '다위촉 URL 반려 사유'
+          rejectTarget?.kind === 'allowance'
+            ? '보증 보험 동의 반려 사유'
+            : rejectTarget?.kind === 'hanwha'
+              ? '다위촉 URL 반려 사유'
               : rejectTarget?.kind === 'appointment'
                 ? '생명/손해 위촉 반려 사유'
-                : '서류 반려 사유'}
-          </Text>
+                : '서류 반려 사유'
         }
-        size="md"
-        padding="lg"
-        radius="md"
-        centered
-        overlayProps={{ blur: 2 }}
-      >
-        <Stack gap="md">
-          <Text size="sm" c="dimmed">
-            FC에게 전달될 반려 사유를 입력해주세요. 입력된 사유는 알림과 화면에 표시됩니다.
-          </Text>
-          <Textarea
-            placeholder="예: 서류 식별이 어려워 재제출이 필요합니다."
-            classNames={{ input: 'muted-placeholder-input' }}
-            minRows={3}
-            value={rejectReason}
-            onChange={(e) => setRejectReason(e.currentTarget.value)}
-          />
-          <Group justify="flex-end">
-            <Button variant="default" onClick={closeReject} disabled={rejectSubmitting}>
-              취소
-            </Button>
-            <Button color="red" onClick={handleRejectSubmit} loading={rejectSubmitting}>
-              반려 처리
-            </Button>
-          </Group>
-        </Stack>
-      </Modal>
+        description="FC에게 전달될 반려 사유를 입력해주세요. 입력된 사유는 알림과 화면에 표시됩니다."
+        placeholder="예: 서류 식별이 어려워 재제출이 필요합니다."
+        value={rejectReason}
+        onChange={setRejectReason}
+        onSubmit={handleRejectSubmit}
+        submitting={rejectSubmitting}
+      />
 
       {/* 확인 모달 */}
       <Modal

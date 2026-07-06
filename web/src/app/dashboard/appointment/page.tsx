@@ -17,7 +17,6 @@ import {
   Stack,
   Table,
   Text,
-  Textarea,
   TextInput,
   ThemeIcon,
   Title,
@@ -33,6 +32,7 @@ import dayjs from 'dayjs';
 import { useCallback, useMemo, useState, useTransition } from 'react';
 
 import { StatusToggle } from '@/components/StatusToggle';
+import { RejectReasonModal } from '@/components/RejectReasonModal';
 import { useSession } from '@/hooks/use-session';
 import { supabase } from '@/lib/supabase';
 import { updateAppointmentAction } from './actions';
@@ -605,34 +605,19 @@ export default function AppointmentPage() {
   return (
     <Container size="xl" py="xl">
       <Stack gap="lg">
-        <Modal
+        <RejectReasonModal
           opened={rejectModalOpen}
           onClose={() => setRejectModalOpen(false)}
-          centered
           title="반려 사유 입력"
-        >
-          <Stack gap="sm">
-            <Text size="sm" c="dimmed">
-              FC에게 전달될 반려 사유를 입력해주세요.
-            </Text>
-            <Textarea
-              label="반려 사유"
-              placeholder="예: 제출된 위촉 완료일이 확인되지 않아 재입력이 필요합니다."
-              value={rejectReason}
-              onChange={(e) => setRejectReason(e.currentTarget.value)}
-              minRows={4}
-              autosize
-            />
-            <Group justify="flex-end" mt="sm">
-              <Button variant="default" onClick={() => setRejectModalOpen(false)}>
-                취소
-              </Button>
-              <Button color="red" onClick={handleRejectSubmit} loading={rejectSubmitting} disabled={isReadOnly}>
-                반려 처리
-              </Button>
-            </Group>
-          </Stack>
-        </Modal>
+          description="FC에게 전달될 반려 사유를 입력해주세요."
+          placeholder="예: 제출된 위촉 완료일이 확인되지 않아 재입력이 필요합니다."
+          value={rejectReason}
+          onChange={setRejectReason}
+          onSubmit={handleRejectSubmit}
+          submitting={rejectSubmitting}
+          submitDisabled={isReadOnly}
+          minRows={4}
+        />
 
         {/* 확인 모달 */}
         <Modal
