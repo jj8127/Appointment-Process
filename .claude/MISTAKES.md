@@ -3240,3 +3240,98 @@
   - `lib/__tests__/consent-guide-source.test.ts`
 - Verification:
   - RED/GREEN `npx jest lib/__tests__/consent-guide-source.test.ts --runInBand`
+
+## 2026-07-06 | Appointment Submit Alert Freeze | native success Alert was shown before refresh
+- Symptom:
+  - On Android, submitting a life/nonlife appointment completion date could leave the screen dimmed with no usable dialog after the success popup path.
+- Root cause:
+  - `app/appointment.tsx` showed a native success `Alert.alert(...)` and then immediately refreshed profile state with `await load()`.
+  - React Native Android native dialogs are non-blocking from JS, so the screen could re-render underneath the dialog backdrop and leave the UI in a stuck dimmed state.
+- Why it was missed:
+  - The submit flow had API and status checks, but no contract preventing native success alerts in date-submit flows that immediately refresh state.
+- Permanent guardrail:
+  - Appointment submit success feedback must refresh local data first, then use the app-level toast provider instead of a native success Alert.
+  - `lib/__tests__/appointment-submit-feedback.test.ts` must fail if `app/appointment.tsx` reintroduces the native `제출 완료` Alert or removes the refresh-before-toast order.
+- Related files:
+  - `app/appointment.tsx`
+  - `lib/__tests__/appointment-submit-feedback.test.ts`
+- Verification:
+  - RED/GREEN `npx jest lib/__tests__/appointment-submit-feedback.test.ts --runInBand`
+
+## 2026-07-06 | Admin Reject Reason Modal Drift | reject textareas were duplicated across admin pages
+- Symptom:
+  - Admin web reject reason modals had separate textarea/button implementations across the main dashboard, appointment page, and documents page.
+  - Keyboard behavior such as Enter-to-submit versus Shift+Enter-newline could drift by page.
+- Root cause:
+  - Each page owned its own `Textarea` and submit button markup instead of a shared reject-reason input component.
+- Why it was missed:
+  - Existing tests checked status/action behavior, but did not require reject reason input UX to be centralized.
+- Permanent guardrail:
+  - Admin web reject reason entry must go through `web/src/components/RejectReasonModal.tsx`.
+  - `lib/__tests__/admin-web-reject-modal-keyboard.test.ts` must fail if pages reintroduce local reject textareas or if the common modal drops Enter/Shift+Enter handling.
+- Related files:
+  - `web/src/components/RejectReasonModal.tsx`
+  - `web/src/app/dashboard/page.tsx`
+  - `web/src/app/dashboard/appointment/page.tsx`
+  - `web/src/app/dashboard/docs/page.tsx`
+  - `lib/__tests__/admin-web-reject-modal-keyboard.test.ts`
+- Verification:
+  - RED/GREEN `npx jest lib/__tests__/admin-web-reject-modal-keyboard.test.ts --runInBand`
+
+## 2026-07-06 | Appointment Approval Label Ambiguity | final completion flags reused approval wording
+- Symptom:
+  - In the admin web FC detail modal, the appointment tab showed top-level `생명/손해 위촉 완료` chips and per-insurance `승인 완료` buttons at the same visual weight.
+  - Operators could not immediately tell whether `생명보험` or `손해보험` had already been approved versus only submitted by the FC.
+- Root cause:
+  - The final commission completion correction flags and the appointment approval state/action reused the same `완료` wording.
+  - Confirmed and unconfirmed rows both rendered an actionable `승인 완료` button, so an unapproved row looked like it might already be approved.
+- Why it was missed:
+  - Prior fixes focused on preserving the underlying state transitions and direct date-save path, not the operator-facing distinction between final completion flags and approval review state.
+- Permanent guardrail:
+  - Admin web appointment rows must show a separate `승인 상태:` badge.
+  - The approval action must use `승인 처리` before confirmation and `승인 완료됨` after confirmation.
+  - The top correction card must be labeled `최종 완료 상태`, not generic `위촉 상태`.
+  - `lib/__tests__/admin-web-appointment-approval-clarity.test.ts` must fail if these labels drift.
+- Related files:
+  - `web/src/app/dashboard/page.tsx`
+  - `docs/handbook/admin-web/dashboard-lifecycle.md`
+  - `lib/__tests__/admin-web-appointment-approval-clarity.test.ts`
+- Verification:
+  - RED/GREEN `npx jest lib/__tests__/admin-web-appointment-approval-clarity.test.ts --runInBand`
+
+## 2026-07-06 | Signup Completion Referral Ordering | password/signup completion could happen before referral link success
+- Symptom:
+  - A user could enter a recommender during signup, complete full registration, and then see no recommender in the basic info screen or referral page.
+- Root cause:
+  - `supabase/functions/set-password/index.ts` reset recommender snapshot fields during signup completion and only attempted `apply_referral_link_state` after writing `fc_credentials.password_set_at` and `fc_profiles.signup_completed=true`.
+  - If referral resolution/linking failed after those irreversible writes, the account was completed without the recommender snapshot.
+- Why it was missed:
+  - The flow verified referral code validation and final `apply_referral_link_state` existence, but did not enforce ordering relative to credential creation and signup completion.
+- Permanent guardrail:
+  - If `referralCode` is present and cannot be resolved, return `referral_invalid` before completing signup.
+  - If a referral is resolved, `apply_referral_link_state` must run before writing `password_set_at` or `signup_completed=true`.
+  - `lib/__tests__/signup-completion-regression.test.ts` must fail if this ordering drifts.
+- Related files:
+  - `supabase/functions/set-password/index.ts`
+  - `lib/__tests__/signup-completion-regression.test.ts`
+- Verification:
+  - RED/GREEN `npx jest lib/__tests__/signup-completion-regression.test.ts --runInBand`
+
+## 2026-07-06 | Identity Gate Used Stale Public Fields | home unlock trusted masked resident/address remnants
+- Symptom:
+  - A pre-registration/full-registration account without resident number and address could still land on the full home screen instead of `home-lite`.
+- Root cause:
+  - `hooks/use-identity-status.ts` treated `resident_id_masked && address` as equivalent to `identity_completed=true`.
+  - Stale public profile fields could survive independently of the secure identity completion state.
+- Why it was missed:
+  - Previous home unlock checks conflated display evidence with trusted identity completion and did not test the stale-field case.
+- Permanent guardrail:
+  - Full home unlock must trust `fc_profiles.identity_completed === true` only.
+  - `resident_id_masked` and `address` are display/supporting fields, not unlock authority.
+  - `lib/__tests__/signup-completion-regression.test.ts` must fail if stale public fields can unlock identity completion again.
+- Related files:
+  - `hooks/use-identity-status.ts`
+  - `lib/identity-completion.ts`
+  - `lib/__tests__/signup-completion-regression.test.ts`
+- Verification:
+  - RED/GREEN `npx jest lib/__tests__/signup-completion-regression.test.ts --runInBand`

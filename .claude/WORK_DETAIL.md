@@ -11270,3 +11270,105 @@
 
 **Notes**:
 - The local guide JPG files and `AGREEMENT_GUIDE_IMAGES` mapping were already present. The issue was layout measurement, not missing assets.
+
+---
+
+## <a id="20260706-appointment-submit-feedback-toast"></a> 2026-07-06 | Appointment submit feedback freeze prevention
+
+**Scope**: GaramIn Dawichok guide copy and life/nonlife appointment completion-date submit feedback on Android.
+
+**Changes**:
+- Fixed the FC Dawichok guide hint copy in `app/hanwha-commission.tsx` to the requested single sentence: `카카오톡으로 다위촉 URL에 접속하여 진행 후 완료일을 입력해 주세요.`
+- Replaced the life/nonlife appointment submit success native `Alert.alert('제출 완료', ...)` with app-level toast feedback in `app/appointment.tsx`.
+- Kept the submit success refresh order as `await load()` before `showToast(...)` so screen state settles before feedback is shown.
+- Added `lib/__tests__/appointment-submit-feedback.test.ts` to guard against reintroducing the native success Alert and refresh-after-alert order.
+- Recorded the Android native Alert freeze pattern in `.claude/MISTAKES.md`.
+
+**Verification**:
+- RED confirmed: `npx jest lib/__tests__/appointment-submit-feedback.test.ts --runInBand` failed before `app/appointment.tsx` used toast feedback.
+- Passed: `npx jest lib/__tests__/appointment-submit-feedback.test.ts --runInBand`.
+- Passed: `npx tsc --noEmit --pretty false --skipLibCheck`.
+- Passed: `git diff --check`.
+
+**Notes**:
+- Error and validation failures still use native Alert dialogs. Only the successful submit confirmation changed because that path immediately refreshes local screen state.
+
+---
+
+## <a id="20260706-admin-reject-reason-modal"></a> 2026-07-06 | Admin web reject reason modal
+
+**Scope**: Admin web reject reason entry across the main dashboard, appointment dashboard, and documents dashboard.
+
+**Changes**:
+- Added `web/src/components/RejectReasonModal.tsx` as the single admin web reject-reason modal/input component.
+- Centralized keyboard behavior in that component:
+  - `Enter`: submit reject reason.
+  - `Shift+Enter`: keep the textarea newline behavior.
+  - IME composition Enter is ignored so Korean input composition is not submitted mid-composition.
+- Replaced local reject reason `Textarea` modal implementations in:
+  - `web/src/app/dashboard/page.tsx`
+  - `web/src/app/dashboard/appointment/page.tsx`
+  - `web/src/app/dashboard/docs/page.tsx`
+- Added a source contract test that requires all three pages to use the shared component and requires the component to own the Enter/Shift+Enter logic.
+- Recorded the duplicated-modal drift in `.claude/MISTAKES.md`.
+
+**Verification**:
+- RED confirmed: `npx jest lib/__tests__/admin-web-reject-modal-keyboard.test.ts --runInBand` failed before the common component existed.
+- Passed: `npx jest lib/__tests__/admin-web-reject-modal-keyboard.test.ts --runInBand`.
+- Passed: `npx tsc --noEmit --pretty false --skipLibCheck`.
+
+**Notes**:
+- The existing page-specific submit handlers still own the actual reject mutation and validation messages. The shared component owns only modal/input/button/keyboard behavior.
+
+---
+
+## <a id="20260706-admin-appointment-approval-clarity"></a> 2026-07-06 | Admin web appointment approval clarity
+
+**Scope**: Admin web FC detail modal, `생명/손해 위촉` tab.
+
+**Changes**:
+- Renamed the top appointment tab correction card from generic `위촉 상태` to `최종 완료 상태`.
+- Changed the top chips to `생명 최종 완료` / `손해 최종 완료` so they read as final completion flags, not review approvals.
+- Added a per-insurance `승인 상태:` badge with distinct states:
+  - `승인 완료`
+  - `FC 제출, 승인 대기`
+  - `미입력`
+- Changed the approval action button from always showing `승인 완료` to:
+  - `승인 처리` before approval.
+  - `승인 완료됨` after approval, disabled to prevent duplicate confirmation.
+- Added a source contract test so the wording separation cannot silently drift again.
+- Updated the admin dashboard lifecycle handbook and contract-test map.
+- Recorded the ambiguity in `.claude/MISTAKES.md`.
+
+**Verification**:
+- RED confirmed: `npx jest lib/__tests__/admin-web-appointment-approval-clarity.test.ts --runInBand` failed before the wording/status split existed.
+- Passed: `npx jest lib/__tests__/admin-web-appointment-approval-clarity.test.ts --runInBand`.
+
+**Notes**:
+- This change is UI/contract wording only. It does not change database fields or approval mutation semantics.
+
+---
+
+## <a id="20260706-signup-referral-identity-gate"></a> 2026-07-06 | Signup referral completion ordering and identity gate hardening
+
+**Scope**: GaramIn signup completion, recommender attribution, and FC home unlock routing.
+
+**Changes**:
+- Added `lib/identity-completion.ts` as a pure helper for identity completion normalization.
+- Changed `hooks/use-identity-status.ts` so full home unlock trusts only `identity_completed === true`.
+- Removed the previous fallback that treated stale `resident_id_masked + address` public profile fields as completed identity.
+- Changed `supabase/functions/set-password/index.ts` so referral-code signup completion is ordered safely:
+  - If `referralCode` is present but cannot be resolved, the function now returns `referral_invalid` before completing signup.
+  - If a referral is resolved, `apply_referral_link_state` now runs before `fc_credentials.password_set_at` and `fc_profiles.signup_completed=true`.
+  - Recommender snapshot fields are only reset as part of a referral-code rewrite, not unconditionally.
+- Added `lib/__tests__/signup-completion-regression.test.ts` to guard both the identity gate and referral-link ordering.
+- Updated mobile onboarding handbook, contract-test map, and project guide.
+- Recorded both regressions in `.claude/MISTAKES.md`.
+
+**Verification**:
+- RED confirmed: `npx jest lib/__tests__/signup-completion-regression.test.ts --runInBand` failed before the helper/export and ordering contract existed.
+- Passed: `npx jest lib/__tests__/signup-completion-regression.test.ts --runInBand`.
+
+**Notes**:
+- Supabase MCP read-only verification for existing production backfill candidates returned a network `Connection failed` error during this session, so live data repair was not executed.
+- Existing completed accounts with missing recommender snapshots still need a separate event-based backfill from `referral_events(event_type='signup_completed')` once Supabase MCP/SQL access is available.
