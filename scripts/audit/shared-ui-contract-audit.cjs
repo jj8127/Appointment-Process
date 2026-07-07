@@ -99,6 +99,21 @@ function normalizeSamplePath(root, filePath, lineNumber) {
   return `${relative}:${lineNumber}`;
 }
 
+function resolveRepoName(root) {
+  const packageJsonPath = path.join(root, 'package.json');
+  if (fs.existsSync(packageJsonPath)) {
+    try {
+      const packageJson = JSON.parse(fs.readFileSync(packageJsonPath, 'utf8'));
+      if (typeof packageJson.name === 'string' && packageJson.name.trim()) {
+        return packageJson.name.trim();
+      }
+    } catch {
+      // Fall back to the checkout directory name for ad-hoc audit roots.
+    }
+  }
+  return path.basename(root);
+}
+
 function scanCategory(root, category, sampleLimit) {
   const regex = new RegExp(category.pattern, 'g');
   const files = [...new Set(category.roots.flatMap((relativeRoot) => listFiles(root, relativeRoot)))];
@@ -139,7 +154,7 @@ function scanSharedUiContracts(options = {}) {
   const sampleLimit = Number.isInteger(options.sampleLimit) ? options.sampleLimit : 8;
 
   return {
-    repo: path.basename(root),
+    repo: resolveRepoName(root),
     excludedGlobs: EXCLUDED_GLOBS,
     categories: CONTRACT_AUDIT_CATEGORIES.map((category) => scanCategory(root, category, sampleLimit)),
   };

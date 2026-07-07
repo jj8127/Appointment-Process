@@ -31,8 +31,9 @@ describe('shared UI/action primitive audit', () => {
 
   it('produces a live inventory for the active GaramIn codebase', () => {
     const inventory = scanSharedUiContracts({ root, sampleLimit: 32 });
+    const packageJson = JSON.parse(readRepoFile('package.json'));
 
-    expect(inventory.repo).toBe('fc-onboarding-app');
+    expect(inventory.repo).toBe(packageJson.name);
     expect(inventory.excludedGlobs).toEqual(
       expect.arrayContaining(['.archive', '.codex-tmp', '_tmp', '_codex_', '_deploy_']),
     );

@@ -30,6 +30,23 @@
 - Verification:
 ```
 
+## 2026-07-07 | CI Audit Repo Identity | audit tests assumed the local folder name
+- Symptom:
+  - GitHub Actions CI failed in `shared-ui-action-contracts.test.ts` and `shared-function-contracts.test.ts` because the audit inventory reported `Appointment-Process` instead of `fc-onboarding-app`.
+- Root cause:
+  - The audit scripts used `path.basename(root)` as the repo identity, so local checkout folder names changed test behavior.
+- Why it was missed:
+  - Local verification ran in `D:\hanhwa\fc-onboarding-app`, whose folder name matched the expected value, while GitHub checked out the actual repository as `Appointment-Process`.
+- Permanent guardrail:
+  - Governance/audit scripts must derive repo identity from stable project metadata such as `package.json.name` before falling back to a directory basename.
+- Related files:
+  - `scripts/audit/shared-ui-contract-audit.cjs`
+  - `scripts/audit/shared-function-contract-audit.cjs`
+  - `lib/__tests__/shared-ui-action-contracts.test.ts`
+  - `lib/__tests__/shared-function-contracts.test.ts`
+- Verification:
+  - GREEN `npm test -- --runInBand lib/__tests__/shared-ui-action-contracts.test.ts lib/__tests__/shared-function-contracts.test.ts`
+
 ## 2026-07-06 | Push Token Trust Boundary | device tokens were reachable from public clients
 - Symptom:
   - Mobile code could register/read/fan out push tokens through direct `device_tokens` Supabase table access.

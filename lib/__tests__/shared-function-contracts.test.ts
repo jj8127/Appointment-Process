@@ -27,8 +27,9 @@ describe('shared function contract audit', () => {
 
   it('produces a live function inventory for GaramIn', () => {
     const inventory = scanSharedFunctionContracts({ root, sampleLimit: 256 });
+    const packageJson = JSON.parse(readRepoFile('package.json'));
 
-    expect(inventory.repo).toBe('fc-onboarding-app');
+    expect(inventory.repo).toBe(packageJson.name);
     expect(inventory.excludedGlobs).toEqual(
       expect.arrayContaining(['.archive', '.codex-tmp', '_tmp', '_codex_', '_deploy_']),
     );

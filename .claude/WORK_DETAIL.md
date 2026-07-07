@@ -7,6 +7,33 @@
 
 ---
 
+## <a id="20260707-ci-audit-repo-identity"></a> 2026-07-07 | CI audit repo identity stabilization
+
+**Background**:
+- GitHub Actions checked out the project under the GitHub repository name `Appointment-Process`, while local verification ran in `D:\hanhwa\fc-onboarding-app`.
+- The shared UI/function audit scripts used the checkout directory basename as the inventory repo identity, causing CI-only test failures.
+
+**Changes**:
+- Updated both audit scripts to resolve repo identity from `package.json.name` first, then fall back to the directory basename for ad-hoc audit roots.
+- Updated the two audit contract tests to assert against `package.json.name` rather than a hard-coded local folder name.
+- Recorded the CI-only drift in `.claude/MISTAKES.md`.
+
+**Files**:
+- `scripts/audit/shared-ui-contract-audit.cjs`
+- `scripts/audit/shared-function-contract-audit.cjs`
+- `lib/__tests__/shared-ui-action-contracts.test.ts`
+- `lib/__tests__/shared-function-contracts.test.ts`
+- `.claude/MISTAKES.md`
+- `.claude/WORK_LOG.md`
+- `.claude/WORK_DETAIL.md`
+
+**Verification**:
+- Passed: `npm test -- --runInBand lib/__tests__/shared-ui-action-contracts.test.ts lib/__tests__/shared-function-contracts.test.ts`
+- Passed: `npm test -- --runInBand`
+- Passed: `npm run lint`
+
+---
+
 ## <a id="20260630-request-board-designer-picker-ordering"></a> 2026-06-30 | GaramIn request-board designer picker ordering and headquarters labels
 
 **Background**:

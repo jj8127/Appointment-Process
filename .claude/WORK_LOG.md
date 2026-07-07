@@ -17,6 +17,12 @@
 - ⚠️ 상태값(`types/fc.ts`)과 화면 분기 조건은 반드시 함께 수정
 - ⚠️ 스키마 변경은 `schema.sql` + `migrations/*.sql` 동시 관리
 
+## 2026-07-07
+
+| Date | Work | Key files | Detail |
+|---|---|---|---|
+| 07-07 | CI audit repo identity stabilization | `scripts/audit/shared-ui-contract-audit.cjs`, `scripts/audit/shared-function-contract-audit.cjs`, `lib/__tests__/shared-ui-action-contracts.test.ts`, `lib/__tests__/shared-function-contracts.test.ts` | [detail](WORK_DETAIL.md#20260707-ci-audit-repo-identity) |
+
 ## 2026-07-06
 
 | Date | Work | Key files | Detail |
