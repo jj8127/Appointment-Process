@@ -7,6 +7,10 @@ source_of_truth: env contracts + reset-password functions + admin service-role c
 
 # Security And Secret Operations
 
+## 2026-07-07 Supabase Functions Lockfile
+
+- `supabase/functions/deno.lock` is a runtime dependency contract for Edge Functions. Changes to it must be reviewed with the function code that caused the lock update, and must not be treated as an unrelated generated artifact.
+
 ## 2026-07-06 Trusted Session And Push Token Contract
 
 - Privileged admin web routes must verify the signed server session. Raw `session_role` or `session_resident` cookies are not an authorization source outside the explicit session helper/proxy boundary.

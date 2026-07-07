@@ -7,6 +7,10 @@ source_of_truth: app/index.tsx + app/home-lite.tsx + app/fc/new.tsx + app/consen
 
 # Mobile Playbook: FC Onboarding
 
+## 2026-07-05 Home Latest Admin Message
+
+- Home latest admin-message lookup is an optional display enrichment. A Supabase read failure should log as `warn` and return `null`, not surface as a user-blocking error or inflate runtime error telemetry.
+
 ## 2026-07-06 Push Registration Contract
 
 - Mobile push registration must reuse an Expo token that was already fetched by the caller instead of fetching a second token in the same login/home effect.

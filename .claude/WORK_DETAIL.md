@@ -60,6 +60,31 @@
 
 ---
 
+## <a id="20260705-sentry-image-preview-android-addviewat"></a> 2026-07-05 | Sentry Android image preview addViewAt mitigation
+
+**Background**:
+- Daily Sentry triage selected `REACT-NATIVE-A`, an Android Fabric `addViewAt` crash around the shared board attachment image viewer path.
+- The crash surface matched the native modal + gesture/reanimated image wrapper + lazy paged list insertion path.
+
+**Changes**:
+- Added `components/image-preview-modal-policy.ts` to separate platform-specific image preview behavior.
+- Routed Android to a non-virtualized static image pager inside the native modal.
+- Kept the existing pinch/pan zoom + `FlatList` path for non-Android platforms.
+- Added `components/__tests__/image-preview-modal-policy.test.ts` to lock Android static preview and non-Android zoom behavior.
+
+**Files**:
+- `components/ImagePreviewModal.tsx`
+- `components/image-preview-modal-policy.ts`
+- `components/__tests__/image-preview-modal-policy.test.ts`
+- `.claude/WORK_LOG.md`
+- `.claude/WORK_DETAIL.md`
+
+**Verification**:
+- Passed: `npx jest components/__tests__/image-preview-modal-policy.test.ts --runInBand`
+- Passed: `npm run lint`
+
+---
+
 ## <a id="20260630-request-board-designer-picker-ordering"></a> 2026-06-30 | GaramIn request-board designer picker ordering and headquarters labels
 
 **Background**:

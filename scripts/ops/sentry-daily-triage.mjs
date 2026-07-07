@@ -1,8 +1,10 @@
 #!/usr/bin/env node
 
+import { execFile } from 'node:child_process';
 import { readFile } from 'node:fs/promises';
-import { join } from 'node:path';
+import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { promisify } from 'node:util';
 
 const DEFAULT_ORG = 'hanhwa-lifelab';
 const DEFAULT_PROJECTS = ['react-native', 'garamin-web'];
@@ -11,6 +13,7 @@ const DEFAULT_STATS_PERIOD = '24h';
 const DEFAULT_LIMIT = 25;
 const DEFAULT_EVENT_LIMIT = 3;
 const SENTRY_API_BASE_URL = 'https://sentry.io';
+const execFileAsync = promisify(execFile);
 
 function splitCsv(value) {
   return String(value ?? '')
@@ -103,11 +106,44 @@ async function readEnvFile(path) {
   }
 }
 
+async function readGitValue(cwd, args) {
+  try {
+    const { stdout } = await execFileAsync('git', ['-C', cwd, ...args], {
+      encoding: 'utf8',
+      windowsHide: true,
+    });
+    return stdout.trim();
+  } catch {
+    return '';
+  }
+}
+
+export async function resolveRuntimeEnvDirs(cwd = process.cwd()) {
+  const currentDir = resolve(cwd);
+  const dirs = [];
+  const commonGitDir = await readGitValue(currentDir, ['rev-parse', '--git-common-dir']);
+
+  if (commonGitDir) {
+    const resolvedCommonGitDir = resolve(currentDir, commonGitDir);
+    const primaryCheckout = dirname(resolvedCommonGitDir);
+    dirs.push(primaryCheckout);
+  }
+
+  dirs.push(currentDir);
+  return Array.from(new Set(dirs));
+}
+
 export async function loadRuntimeEnv({ cwd = process.cwd(), baseEnv = process.env } = {}) {
-  const fileEnv = {
-    ...(await readEnvFile(join(cwd, '.env'))),
-    ...(await readEnvFile(join(cwd, '.env.local'))),
-  };
+  const fileEnv = {};
+  const envDirs = await resolveRuntimeEnvDirs(cwd);
+  for (const dir of envDirs) {
+    Object.assign(
+      fileEnv,
+      await readEnvFile(join(dir, '.env')),
+      await readEnvFile(join(dir, '.env.local')),
+    );
+  }
+
   return {
     ...fileEnv,
     ...baseEnv,

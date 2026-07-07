@@ -77,6 +77,7 @@ source_of_truth: web/src/app/api/* + supabase/functions/* + data/*
 - `no-issues` from the default triage command means no unresolved fatal/error issue in the default 24h repair window. It does not mean the unresolved backlog is empty.
 - GaramLink Sentry repair is intentionally separate: use automation `daily-garamlink-sentry-repair-pr` from `D:\hanhwa\request_board` for project `garamlink-client`.
 - Token rule: Sentry reads must use `SENTRY_READ_AUTH_TOKEN` only. `SENTRY_AUTH_TOKEN` is release/source-map upload only and must not be used as a read fallback.
+- Worktree env rule: `npm run ops:sentry-triage` reads `.env` / `.env.local` from both the linked worktree and the primary checkout resolved by `git rev-parse --git-common-dir`. Keep the read token in the user environment or the primary checkout `.env.local`; never copy secrets into Codex worktrees or commit them.
 - Fix scope: choose one highest-priority fixable issue, or a tightly related root-cause group, then create a draft PR.
 - PR branch: `codex/sentry-daily-YYYYMMDD-<issue-short-id>`.
 - PR title: `fix(sentry): <issue short id> <short title>`.

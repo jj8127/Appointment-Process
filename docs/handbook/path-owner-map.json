@@ -210,6 +210,7 @@
         "supabase/functions/sync-request-board-session/",
         "supabase/functions/refresh-app-session/",
         "supabase/functions/delete-account/",
+        "supabase/functions/_shared/manager-affiliation.ts",
         "supabase/functions/_shared/password-reset-account.ts",
         "supabase/functions/_shared/request-board-password-sync.ts",
         "supabase/functions/_shared/__tests__/request-board-password-sync.test.ts",
@@ -267,6 +268,7 @@
       "severity": "behavior",
       "prefixes": [
         "supabase/functions/board-",
+        "supabase/functions/_shared/board.ts",
         "supabase/functions/_shared/board-categories.ts",
         "supabase/functions/__tests__/board-"
       ],
@@ -325,6 +327,17 @@
       "requires_any": [
         "docs/handbook/backend/scheduled-jobs-and-runtime.md",
         "docs/handbook/data/presence-rpc-fallback.md"
+      ]
+    },
+    {
+      "id": "backend-functions-lockfile",
+      "severity": "contract",
+      "prefixes": [
+        "supabase/functions/deno.lock"
+      ],
+      "requires_any": [
+        "docs/handbook/shared/security-and-secret-operations.md",
+        "docs/handbook/backend/scheduled-jobs-and-runtime.md"
       ]
     },
     {

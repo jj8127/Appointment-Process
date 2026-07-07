@@ -1,10 +1,16 @@
 import assert from 'node:assert/strict';
+import { execFileSync } from 'node:child_process';
+import { mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import test from 'node:test';
 
 import {
   buildDraftPrMetadata,
   createSentryDailyTriageRunner,
+  loadRuntimeEnv,
   parseArgs,
+  resolveRuntimeEnvDirs,
   selectCandidateIssue,
 } from './sentry-daily-triage.mjs';
 
@@ -75,6 +81,40 @@ test('dry-run never requires SENTRY_READ_AUTH_TOKEN or calls Sentry', async () =
   assert.deepEqual(result.projects, ['react-native', 'garamin-web']);
   assert.equal(result.statsPeriod, '24h');
   assert.equal(calls.length, 0);
+});
+
+test('loadRuntimeEnv reads the primary checkout env when running from a linked worktree', async () => {
+  const tempRoot = await mkdtemp(join(tmpdir(), 'sentry-triage-worktree-'));
+  const repoDir = join(tempRoot, 'repo');
+  const worktreeDir = join(tempRoot, 'worktree');
+
+  try {
+    execFileSync('git', ['init', repoDir], { stdio: 'ignore' });
+    execFileSync('git', ['-C', repoDir, 'config', 'user.email', 'codex@example.com'], { stdio: 'ignore' });
+    execFileSync('git', ['-C', repoDir, 'config', 'user.name', 'Codex'], { stdio: 'ignore' });
+    await writeFile(join(repoDir, 'README.md'), 'fixture\n', 'utf8');
+    execFileSync('git', ['-C', repoDir, 'add', 'README.md'], { stdio: 'ignore' });
+    execFileSync('git', ['-C', repoDir, 'commit', '-m', 'fixture'], { stdio: 'ignore' });
+    execFileSync('git', ['-C', repoDir, 'worktree', 'add', '-b', 'fixture-worktree', worktreeDir], { stdio: 'ignore' });
+
+    await writeFile(
+      join(repoDir, '.env.local'),
+      'SENTRY_READ_AUTH_TOKEN=primary-read-token\nSENTRY_ORG=primary-org\n',
+      'utf8',
+    );
+    await writeFile(join(worktreeDir, '.env.local'), 'SENTRY_ORG=worktree-org\n', 'utf8');
+
+    const envDirs = await resolveRuntimeEnvDirs(worktreeDir);
+    const env = await loadRuntimeEnv({ cwd: worktreeDir, baseEnv: {} });
+
+    assert.equal(envDirs.length, 2);
+    assert.equal(envDirs[0], repoDir);
+    assert.equal(envDirs[1], worktreeDir);
+    assert.equal(env.SENTRY_READ_AUTH_TOKEN, 'primary-read-token');
+    assert.equal(env.SENTRY_ORG, 'worktree-org');
+  } finally {
+    await rm(tempRoot, { recursive: true, force: true });
+  }
 });
 
 test('real triage refuses to fall back to SENTRY_AUTH_TOKEN for reads', async () => {

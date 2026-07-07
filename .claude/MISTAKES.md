@@ -360,6 +360,24 @@
   - Passed: `deno check --config supabase/functions/deno.json supabase/functions/fc-notify/index.ts supabase/functions/board-create/index.ts supabase/functions/board-list/index.ts supabase/functions/board-detail/index.ts`.
   - Deployed: Supabase Functions `fc-notify`, `board-create`, `board-list`, and `board-detail`.
 
+## 2026-06-24 | Sentry Automation Contract | automation ran before its main-branch command existed
+- Symptom:
+  - The daily Sentry automation was pointed at `origin/main` and `npm run ops:sentry-triage`, but `origin/main` did not yet contain the script.
+  - The linked worktree also only checked its own `.env` files, so it could not read the primary checkout's local `SENTRY_READ_AUTH_TOKEN`.
+- Root cause:
+  - The automation was scheduled against a branch/checkout contract before the command and secret-loading behavior were present on that branch.
+- Why it was missed:
+  - Local development verification used the feature branch and local shell state, while the automation ran in an isolated main-based worktree.
+- Permanent guardrail:
+  - Before scheduling a Codex worktree automation, verify the exact command exists on the branch the automation checks out.
+  - Verify required read-only secrets are provided by process/user environment or by a primary-checkout env file that the script explicitly loads.
+- Related files:
+  - `scripts/ops/sentry-daily-triage.mjs`
+  - `scripts/ops/sentry-daily-triage.test.mjs`
+  - `docs/handbook/operations-runbook.md`
+- Verification:
+  - `node --test scripts/ops/sentry-daily-triage.test.mjs`
+
 ## 2026-06-20 | Request Board Review Detail | JSX block move exposed a compile overlay
 - Symptom:
   - While moving request-detail `계약자 정보` and FC requester summary, the in-app browser showed `Failed to compile` around `app/request-board-review.tsx` because a duplicated JSX tail/closing block briefly remained in the file.
