@@ -132,27 +132,35 @@ npm run eas:build:ios
 
 ### Deployment
 
-#### Deploy to Vercel
+#### Deploy Admin Web to Vercel
 
-**1. 프로젝트 디렉토리로 이동**
-```bash
-cd web  # 배포하고자 하는 루트 디렉토리
-```
+현재 루트 `vercel.json`은 관리자 웹을 빌드합니다: `cd web && npm run build`, output `web/.next`.
 
-**2. Vercel과 연동**
+**1. 저장소 루트에서 Vercel과 연동**
 ```bash
 vercel link --project admin_web
 ```
 
-**3. 웹 빌드 생성**
+**2. 프로덕션 배포**
 ```bash
-npx expo export -p web
+vercel deploy --prod --archive=tgz
 ```
 
-**4. 프로덕션 배포**
+#### Expo Web Static Export
+
+Expo web export는 ignored generated output인 `dist/`를 생성합니다. 테스트/정적 배포가 필요할 때마다 새로 빌드하고, `dist/`를 source처럼 커밋하거나 오래된 checkout 산출물로 배포 여부를 판단하지 않습니다.
+
+**1. 정적 export 생성**
 ```bash
-vercel deploy --prod
+npm run build
 ```
+
+**2. 로컬 확인 또는 별도 static deployment에 사용**
+```bash
+npx serve -l 8081 dist
+```
+
+별도 `appointmentprocess` 정적 Vercel 배포가 필요할 때만 해당 프로젝트로 link 후 freshly generated `dist`를 배포합니다.
 
 #### Submit to App Store Connect
 

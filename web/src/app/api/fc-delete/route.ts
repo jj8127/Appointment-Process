@@ -1,20 +1,11 @@
-import { createClient } from '@supabase/supabase-js';
-import { cookies } from 'next/headers';
 import { NextResponse } from 'next/server';
 
-import { checkRateLimit, validateSession } from '@/lib/csrf';
+import { adminSupabase } from '@/lib/admin-supabase';
+import { adminRouteAuthErrorResponse, requireAdminRoute } from '@/lib/admin-route-auth';
+import { checkRateLimit } from '@/lib/csrf';
 import { logger } from '@/lib/logger';
 
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
-const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
-
-if (!supabaseUrl || !serviceKey) {
-  throw new Error(
-    'Missing required environment variables: NEXT_PUBLIC_SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY',
-  );
-}
-
-const adminClient = createClient(supabaseUrl, serviceKey);
+const adminClient = adminSupabase;
 
 type DeleteRequestBody = {
   fcId?: string;
@@ -80,20 +71,11 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: 'Invalid JSON payload' }, { status: 400 });
   }
 
-  const cookieStore = await cookies();
-  const session = {
-    role: cookieStore.get('session_role')?.value ?? null,
-    residentId: cookieStore.get('session_resident')?.value ?? '',
-  };
-
-  const sessionCheck = validateSession(session);
-  if (!sessionCheck.valid) {
-    return NextResponse.json({ error: sessionCheck.error ?? 'Unauthorized' }, { status: 401 });
+  const sessionCheck = await requireAdminRoute();
+  if (!sessionCheck.ok) {
+    return adminRouteAuthErrorResponse(sessionCheck);
   }
-
-  if (session.role !== 'admin') {
-    return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
-  }
+  const session = sessionCheck.session;
 
   const rateLimit = checkRateLimit(`fc-delete:${session.residentId}`, 10, 60_000);
   if (!rateLimit.allowed) {

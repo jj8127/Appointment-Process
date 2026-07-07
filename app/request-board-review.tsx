@@ -1,9 +1,10 @@
 import { Feather } from '@expo/vector-icons';
+import * as DocumentPicker from 'expo-document-picker';
 import { Stack, useLocalSearchParams, useRouter } from 'expo-router';
 import { type ReactNode, useCallback, useEffect, useState } from 'react';
 import {
-  ActivityIndicator,
   Alert,
+  KeyboardAvoidingView,
   Modal,
   Pressable,
   ScrollView,
@@ -12,23 +13,39 @@ import {
   TextInput,
   View,
 } from 'react-native';
+import Animated from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
+import BrandedLoadingSpinner from '@/components/BrandedLoadingSpinner';
+import BrandedLoadingState from '@/components/BrandedLoadingState';
 import { BottomNavigation } from '@/components/BottomNavigation';
+import { useBottomNavAnimation } from '@/hooks/use-bottom-nav-animation';
 import { useSession } from '@/hooks/use-session';
 import { resolveBottomNavActiveKey, resolveBottomNavPreset } from '@/lib/bottom-navigation';
 import { logger } from '@/lib/logger';
 import { formatRequestBoardFcDisplayName } from '@/lib/request-board-fc-identity';
 import { openExternalUrl } from '@/lib/open-external-url';
 import { formatRequestBoardDrivingStatus } from '@/lib/request-board-driving-status';
+import { canMakeRequestBoardFcDecision } from '@/lib/request-board-permissions';
+import { formatRequestBoardCustomerDisplayName } from '@/lib/request-board-policyholder-display';
 import {
+  rbAcceptRequest,
   rbApproveDesign,
+  rbCompleteRequest,
   rbGetRequestDetail,
   rbRejectDesign,
+  rbRejectRequest,
+  rbUploadRequestAttachments,
   type RbDesignerAssignment,
   type RbRequestDetail,
+  type RbRequestUploadFile,
 } from '@/lib/request-board-api';
 import { COLORS, RADIUS, SHADOWS, SPACING, TYPOGRAPHY } from '@/lib/theme';
+import {
+  getDesignerRequestDetailActions,
+  normalizeDesignerRejectReason,
+} from '@/lib/request-board-review-actions';
+import { toRequestBoardSessionErrorMessage } from '@/lib/request-board-session-error';
 import { safeDecodeFileName } from '@/lib/validation';
 
 /* ─── Helpers ─── */
@@ -56,6 +73,13 @@ const formatSsn = (value?: string | null) => {
 const formatNullable = (value?: string | null) => {
   const normalized = String(value ?? '').trim();
   return normalized || '-';
+};
+
+const formatDesignCodeDisplay = (codeValue?: unknown, fallbackName?: unknown): string | null => {
+  const value = String(codeValue ?? '').trim();
+  if (value) return value;
+  const fallback = String(fallbackName ?? '').trim();
+  return fallback || null;
 };
 
 const formatGender = (value?: string | null) => {
@@ -106,6 +130,21 @@ const formatInsuranceQualifications = (value?: RbRequestDetail['insurance_qualif
   return labels.length > 0 ? labels.join(', ') : '-';
 };
 
+const getPolicyholderSummary = (detail: RbRequestDetail): string => {
+  const name = formatNullable(detail.policyholder_name);
+  const phone = formatPhone(detail.policyholder_phone);
+  const carrier = formatNullable(detail.policyholder_carrier);
+  const address = formatNullable(detail.policyholder_address);
+  const parts = [
+    name !== '-' ? `계약자: ${name}` : '계약자: 이름 미입력',
+    phone !== '-' ? phone : null,
+    carrier !== '-' ? carrier : null,
+    address !== '-' ? address : null,
+  ].filter((value): value is string => Boolean(value));
+
+  return parts.length > 0 ? parts.join(' · ') : '계약자: 정보 확인 필요';
+};
+
 /* ─── Sub-components ─── */
 
 function StatusBadge({ status, label, color, bg }: { status: string; label: string; color: string; bg: string }) {
@@ -117,10 +156,11 @@ function StatusBadge({ status, label, color, bg }: { status: string; label: stri
 }
 
 function InfoField({ label, value, fullWidth = false }: { label: string; value: string; fullWidth?: boolean }) {
+  const valueLineLimit = fullWidth ? undefined : 3;
   return (
     <View style={[styles.infoField, fullWidth && styles.infoFieldFull]}>
       <Text style={styles.infoFieldLabel}>{label}</Text>
-      <Text style={styles.infoFieldValue}>{value}</Text>
+      <Text style={styles.infoFieldValue} numberOfLines={valueLineLimit}>{value}</Text>
     </View>
   );
 }
@@ -134,13 +174,34 @@ function InfoSection({ title, children }: { title: string; children: ReactNode }
   );
 }
 
+type DesignerRejectTarget = {
+  designerId: number;
+  assignmentId: number;
+};
+
+type AttachmentUploadDraft = {
+  assignment: RbDesignerAssignment;
+  files: RbRequestUploadFile[];
+  descriptions: string[];
+  expiryDates: string[];
+};
+
 /* ─── Component ─── */
 
 export default function RequestBoardReviewScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
+  const { scrollHandler, animatedStyle } = useBottomNavAnimation();
   const { id } = useLocalSearchParams<{ id: string }>();
-  const { role, readOnly, hydrated, isRequestBoardDesigner, ensureRequestBoardSession } = useSession();
+  const {
+    role,
+    readOnly,
+    staffType,
+    hydrated,
+    isRequestBoardDesigner,
+    requestBoardRole,
+    ensureRequestBoardSession,
+  } = useSession();
 
   const [detail, setDetail] = useState<RbRequestDetail | null>(null);
   const [loading, setLoading] = useState(true);
@@ -151,6 +212,12 @@ export default function RequestBoardReviewScreen() {
   const [rejectModalVisible, setRejectModalVisible] = useState(false);
   const [rejectTargetId, setRejectTargetId] = useState<number | null>(null);
   const [rejectReason, setRejectReason] = useState('');
+
+  /* Designer request reject modal */
+  const [designerRejectModalVisible, setDesignerRejectModalVisible] = useState(false);
+  const [designerRejectTarget, setDesignerRejectTarget] = useState<DesignerRejectTarget | null>(null);
+  const [designerRejectReason, setDesignerRejectReason] = useState('');
+  const [attachmentUploadDraft, setAttachmentUploadDraft] = useState<AttachmentUploadDraft | null>(null);
 
   const requestId = id ? parseInt(id, 10) : null;
 
@@ -176,9 +243,7 @@ export default function RequestBoardReviewScreen() {
     } catch (err) {
       logger.warn('[review] fetch failed', err);
       setFetchError(
-        err instanceof Error && err.message
-          ? err.message
-          : '의뢰 정보를 불러오는데 실패했습니다.',
+        toRequestBoardSessionErrorMessage(err, '의뢰 정보를 불러오는데 실패했습니다.'),
       );
     } finally {
       setLoading(false);
@@ -211,11 +276,14 @@ export default function RequestBoardReviewScreen() {
                 Alert.alert('승인 완료', '설계가 승인되었습니다.');
                 await fetchData();
               } else {
-                Alert.alert('오류', res.error ?? '승인 처리 중 오류가 발생했습니다.');
+                Alert.alert(
+                  '오류',
+                  toRequestBoardSessionErrorMessage(res.error, '승인 처리 중 오류가 발생했습니다.'),
+                );
               }
             } catch (err) {
               logger.warn('[review] approve failed', err);
-              Alert.alert('오류', '승인 처리 중 오류가 발생했습니다.');
+              Alert.alert('오류', toRequestBoardSessionErrorMessage(err, '승인 처리 중 오류가 발생했습니다.'));
             } finally {
               setSubmitting(false);
             }
@@ -246,11 +314,102 @@ export default function RequestBoardReviewScreen() {
         Alert.alert('거절 완료', '설계가 거절되었습니다.');
         await fetchData();
       } else {
-        Alert.alert('오류', res.error ?? '거절 처리 중 오류가 발생했습니다.');
+        Alert.alert('오류', toRequestBoardSessionErrorMessage(res.error, '거절 처리 중 오류가 발생했습니다.'));
       }
     } catch (err) {
       logger.warn('[review] reject failed', err);
-      Alert.alert('오류', '거절 처리 중 오류가 발생했습니다.');
+      Alert.alert('오류', toRequestBoardSessionErrorMessage(err, '거절 처리 중 오류가 발생했습니다.'));
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  const handleDesignerAcceptRequest = (assignment: RbDesignerAssignment) => {
+    if (!requestId) return;
+    if (assignment.status !== 'pending') {
+      Alert.alert('처리 불가', '수락할 수 있는 의뢰가 아닙니다.');
+      return;
+    }
+
+    Alert.alert('의뢰 수락', '이 의뢰를 수락하고 설계를 진행하시겠습니까?', [
+      { text: '취소', style: 'cancel' },
+      {
+        text: '수락',
+        style: 'default',
+        onPress: async () => {
+          setSubmitting(true);
+          try {
+            const res = await rbAcceptRequest(requestId, assignment.designer_id, assignment.id);
+            if (res.success) {
+              Alert.alert('수락 완료', '의뢰를 수락했습니다.');
+              await fetchData();
+            } else {
+              Alert.alert(
+                '수락 실패',
+                toRequestBoardSessionErrorMessage(res.error ?? res.message, '수락 처리 중 오류가 발생했습니다.'),
+              );
+            }
+          } catch (err) {
+            logger.warn('[review] designer accept request failed', err);
+            Alert.alert('수락 실패', toRequestBoardSessionErrorMessage(err, '수락 처리 중 오류가 발생했습니다.'));
+          } finally {
+            setSubmitting(false);
+          }
+        },
+      },
+    ]);
+  };
+
+  const resetDesignerRejectModal = () => {
+    setDesignerRejectModalVisible(false);
+    setDesignerRejectTarget(null);
+    setDesignerRejectReason('');
+  };
+
+  const handleDesignerRejectOpen = (assignment: RbDesignerAssignment) => {
+    if (!requestId) return;
+    if (assignment.status !== 'pending' && assignment.status !== 'accepted') {
+      Alert.alert('처리 불가', '거절할 수 있는 의뢰가 아닙니다.');
+      return;
+    }
+
+    setDesignerRejectTarget({
+      designerId: assignment.designer_id,
+      assignmentId: assignment.id,
+    });
+    setDesignerRejectReason('');
+    setDesignerRejectModalVisible(true);
+  };
+
+  const handleDesignerRejectConfirm = async () => {
+    if (!requestId || !designerRejectTarget) return;
+    const trimmedReason = normalizeDesignerRejectReason(designerRejectReason);
+    if (!trimmedReason) {
+      Alert.alert('거절 사유 필요', '거절 사유를 입력해주세요.');
+      return;
+    }
+
+    setSubmitting(true);
+    try {
+      const res = await rbRejectRequest(
+        requestId,
+        designerRejectTarget.designerId,
+        trimmedReason,
+        designerRejectTarget.assignmentId,
+      );
+      if (res.success) {
+        resetDesignerRejectModal();
+        Alert.alert('거절 완료', '의뢰를 거절했습니다.');
+        await fetchData();
+      } else {
+        Alert.alert(
+          '거절 실패',
+          toRequestBoardSessionErrorMessage(res.error ?? res.message, '거절 처리 중 오류가 발생했습니다.'),
+        );
+      }
+    } catch (err) {
+      logger.warn('[review] designer reject request failed', err);
+      Alert.alert('거절 실패', toRequestBoardSessionErrorMessage(err, '거절 처리 중 오류가 발생했습니다.'));
     } finally {
       setSubmitting(false);
     }
@@ -263,6 +422,136 @@ export default function RequestBoardReviewScreen() {
       logger.warn('[review] open file failed', err);
       Alert.alert('열기 실패', '파일을 여는 중 오류가 발생했습니다.');
     }
+  };
+
+  const handleDesignerAttachmentUpload = async (assignment: RbDesignerAssignment) => {
+    if (!requestId) return;
+    try {
+      const result = await DocumentPicker.getDocumentAsync({
+        multiple: true,
+        copyToCacheDirectory: true,
+      });
+      if (result.canceled || result.assets.length === 0) return;
+
+      const files: RbRequestUploadFile[] = result.assets.map((asset) => ({
+        uri: asset.uri,
+        name: asset.name,
+        type: asset.mimeType ?? 'application/octet-stream',
+        size: asset.size ?? 0,
+      }));
+
+      setAttachmentUploadDraft({
+        assignment,
+        files,
+        descriptions: files.map((file) => safeDecodeFileName(file.name)),
+        expiryDates: files.map(() => ''),
+      });
+    } catch (err) {
+      logger.warn('[review] designer attachment pick failed', err);
+      Alert.alert('첨부 실패', toRequestBoardSessionErrorMessage(err, '첨부파일 선택 중 오류가 발생했습니다.'));
+    }
+  };
+
+  const resetAttachmentUploadDraft = () => {
+    setAttachmentUploadDraft(null);
+  };
+
+  const updateAttachmentUploadDescription = (index: number, value: string) => {
+    setAttachmentUploadDraft((prev) => {
+      if (!prev) return prev;
+      const descriptions = [...prev.descriptions];
+      descriptions[index] = value;
+      return { ...prev, descriptions };
+    });
+  };
+
+  const updateAttachmentUploadExpiryDate = (index: number, value: string) => {
+    setAttachmentUploadDraft((prev) => {
+      if (!prev) return prev;
+      const expiryDates = [...prev.expiryDates];
+      expiryDates[index] = value;
+      return { ...prev, expiryDates };
+    });
+  };
+
+  const handleDesignerAttachmentUploadConfirm = async () => {
+    if (!requestId || !attachmentUploadDraft) return;
+
+    const invalidExpiryDate = attachmentUploadDraft.expiryDates.find((value) => {
+      const expiryDate = value.trim();
+      return expiryDate.length > 0 && !/^\d{4}-\d{2}-\d{2}$/.test(expiryDate);
+    });
+    if (invalidExpiryDate) {
+      Alert.alert('만료일 확인', '만료일은 YYYY-MM-DD 형식으로 입력해주세요.');
+      return;
+    }
+
+    const { assignment, files } = attachmentUploadDraft;
+    const metadata = files.map((_, index) => {
+      const description = attachmentUploadDraft.descriptions[index]?.trim() ?? '';
+      const expiryDate = attachmentUploadDraft.expiryDates[index]?.trim() ?? '';
+      return { description: description || null, expiryDate: expiryDate || null };
+    });
+
+    try {
+      setSubmitting(true);
+      const res = await rbUploadRequestAttachments(requestId, assignment.designer_id, {
+        files,
+        metadata,
+        requestDesignerId: assignment.id,
+      });
+
+      if (res.success) {
+        resetAttachmentUploadDraft();
+        Alert.alert('첨부 완료', '설계 파일을 첨부했습니다.');
+        await fetchData();
+      } else {
+        Alert.alert('첨부 실패', toRequestBoardSessionErrorMessage(res.error, '첨부파일 업로드에 실패했습니다.'));
+      }
+    } catch (err) {
+      logger.warn('[review] designer attachment upload failed', err);
+      Alert.alert('첨부 실패', toRequestBoardSessionErrorMessage(err, '첨부파일 업로드 중 오류가 발생했습니다.'));
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  const handleDesignerComplete = (assignment: RbDesignerAssignment) => {
+    if (!requestId) return;
+    Alert.alert(
+      '설계 완료 처리',
+      'FC가 검토할 수 있도록 이 의뢰를 완료 상태로 전환합니다.',
+      [
+        { text: '취소', style: 'cancel' },
+        {
+          text: '완료 처리',
+          style: 'default',
+          onPress: async () => {
+            setSubmitting(true);
+            try {
+              const res = await rbCompleteRequest(requestId, assignment.designer_id, {
+                completionNote: '가람in 모바일에서 완료 처리',
+                requestDesignerId: assignment.id,
+              });
+              if (res.success) {
+                Alert.alert('완료 처리됨', '의뢰가 완료 상태로 전환되었습니다.');
+                await fetchData();
+              } else {
+                Alert.alert(
+                  '완료 실패',
+                  toRequestBoardSessionErrorMessage(res.error, '완료 처리 중 오류가 발생했습니다.'),
+                );
+              }
+            } catch (err) {
+              logger.warn('[review] designer complete failed', err);
+              Alert.alert('완료 실패', toRequestBoardSessionErrorMessage(err, '완료 처리 중 오류가 발생했습니다.'));
+            } finally {
+              setSubmitting(false);
+            }
+          },
+        },
+      ],
+    );
   };
 
   const navPreset = resolveBottomNavPreset({ role, readOnly, hydrated, isRequestBoardDesigner });
@@ -279,20 +568,29 @@ export default function RequestBoardReviewScreen() {
     const designerName = assignment.designers?.users?.name ?? '설계 매니저';
     const companyName = assignment.designers?.company_name;
     const isCompleted = assignment.status === 'completed';
+    const designerActions = getDesignerRequestDetailActions({
+      isRequestBoardDesigner,
+      assignmentStatus: assignment.status,
+    });
+    const canManageAsDesigner = isRequestBoardDesigner && assignment.status === 'accepted';
     const needsReview =
       isCompleted &&
       (assignment.fc_decision === 'pending' || assignment.fc_decision == null);
+    const canReviewAsFc = canMakeRequestBoardFcDecision({
+      role,
+      readOnly,
+      staffType,
+      requestBoardRole,
+      isRequestBoardDesigner,
+    }) && needsReview;
     const fcDecided = assignment.fc_decision === 'accepted' || assignment.fc_decision === 'rejected';
     const attachments = assignment.request_attachments ?? [];
-    const assignmentCode = [assignment.fc_code_name, assignment.fc_code_value]
-      .map((value) => String(value ?? '').trim())
-      .filter((value) => value.length > 0)
-      .join(' / ');
+    const assignmentCode = formatDesignCodeDisplay(assignment.fc_code_value, assignment.fc_code_name);
 
     return (
       <View
         key={assignment.id}
-        style={[styles.assignmentCard, needsReview && styles.assignmentCardHighlight]}
+        style={[styles.assignmentCard, canReviewAsFc && styles.assignmentCardHighlight]}
       >
         {/* Designer Info (설계매니저 계정에서는 본인 프로필 노출 생략) */}
         {isRequestBoardDesigner ? (
@@ -343,7 +641,7 @@ export default function RequestBoardReviewScreen() {
             {assignmentCode ? (
               <View style={styles.assignmentMetaNote}>
                 <Feather name="hash" size={12} color={COLORS.primary} />
-                <Text style={styles.assignmentMetaText}>설계코드 {assignmentCode}</Text>
+                <Text style={styles.assignmentMetaText}>설계 코드: {assignmentCode}</Text>
               </View>
             ) : null}
             {assignment.status === 'rejected' && assignment.rejection_reason ? (
@@ -380,7 +678,7 @@ export default function RequestBoardReviewScreen() {
         ) : null}
 
         {/* Attachments */}
-        {isCompleted && attachments.length > 0 && (
+        {attachments.length > 0 && (
           <View style={styles.attachmentsWrap}>
             <Text style={styles.attachmentsTitle}>
               <Feather name="paperclip" size={11} color={COLORS.gray[600]} /> 첨부 파일 ({attachments.length})
@@ -398,7 +696,11 @@ export default function RequestBoardReviewScreen() {
                   <Text style={styles.fileName} numberOfLines={1}>{safeDecodeFileName(file.file_name)}</Text>
                   <Text style={styles.fileMeta}>
                     {formatFileSize(file.file_size)} · {formatDate(file.created_at)}
+                    {file.description ? ` · ${file.description}` : ''}
                   </Text>
+                  {file.expiry_date ? (
+                    <Text style={styles.fileMeta}>만료일 {formatDate(file.expiry_date)}</Text>
+                  ) : null}
                 </View>
                 <View style={styles.fileOpenBtn}>
                   <Feather name="external-link" size={14} color={COLORS.primary} />
@@ -413,6 +715,84 @@ export default function RequestBoardReviewScreen() {
           <View style={styles.noFilesRow}>
             <Feather name="paperclip" size={13} color={COLORS.gray[300]} />
             <Text style={styles.noFilesText}>첨부 파일 없음</Text>
+          </View>
+        )}
+
+        {(designerActions.canReject || designerActions.canAccept) && (
+          <View style={styles.decisionBtns}>
+            {designerActions.canReject ? (
+              <Pressable
+                style={({ pressed }) => [
+                  styles.rejectBtn,
+                  pressed && { opacity: 0.8 },
+                  submitting && { opacity: 0.5 },
+                ]}
+                onPress={() => handleDesignerRejectOpen(assignment)}
+                disabled={submitting}
+                accessibilityRole="button"
+                accessibilityLabel="의뢰 거절"
+              >
+                <Feather name="x" size={15} color="#DC2626" />
+                <Text style={styles.rejectBtnText}>의뢰 거절</Text>
+              </Pressable>
+            ) : null}
+            {designerActions.canAccept ? (
+              <Pressable
+                style={({ pressed }) => [
+                  styles.approveBtn,
+                  pressed && { opacity: 0.8 },
+                  submitting && { opacity: 0.5 },
+                ]}
+                onPress={() => handleDesignerAcceptRequest(assignment)}
+                disabled={submitting}
+                accessibilityRole="button"
+                accessibilityLabel="의뢰 수락"
+              >
+                {submitting ? (
+                  <BrandedLoadingSpinner size="sm" color="#fff" />
+                ) : (
+                  <>
+                    <Feather name="check" size={15} color="#fff" />
+                    <Text style={styles.approveBtnText}>의뢰 수락</Text>
+                  </>
+                )}
+              </Pressable>
+            ) : null}
+          </View>
+        )}
+
+        {canManageAsDesigner && (
+          <View style={styles.designerManageBtns}>
+            <Pressable
+              style={({ pressed }) => [
+                styles.attachmentBtn,
+                pressed && { opacity: 0.8 },
+                submitting && { opacity: 0.5 },
+              ]}
+              onPress={() => handleDesignerAttachmentUpload(assignment)}
+              disabled={submitting}
+            >
+              <Feather name="paperclip" size={15} color={COLORS.primary} />
+              <Text style={styles.attachmentBtnText}>첨부 추가</Text>
+            </Pressable>
+            <Pressable
+              style={({ pressed }) => [
+                styles.completeBtn,
+                pressed && { opacity: 0.8 },
+                submitting && { opacity: 0.5 },
+              ]}
+              onPress={() => handleDesignerComplete(assignment)}
+              disabled={submitting}
+            >
+              {submitting ? (
+                <BrandedLoadingSpinner size="sm" color="#fff" />
+              ) : (
+                <>
+                  <Feather name="check" size={15} color="#fff" />
+                  <Text style={styles.completeBtnText}>완료 처리</Text>
+                </>
+              )}
+            </Pressable>
           </View>
         )}
 
@@ -450,8 +830,20 @@ export default function RequestBoardReviewScreen() {
           </View>
         )}
 
+        {isRequestBoardDesigner && needsReview && (
+          <View style={[styles.fcDecisionRow, styles.fcDecisionWaiting]}>
+            <Feather name="clock" size={13} color="#B45309" />
+            <View style={{ flex: 1 }}>
+              <Text style={[styles.fcDecisionLabel, { color: '#B45309' }]}>FC 검토 대기</Text>
+              <Text style={styles.fcDecisionReason}>
+                완료된 설계는 FC 검토 화면에서 처리됩니다.
+              </Text>
+            </View>
+          </View>
+        )}
+
         {/* Approve / Reject Buttons */}
-        {needsReview && (
+        {canReviewAsFc && (
           <View style={styles.decisionBtns}>
             <Pressable
               style={({ pressed }) => [
@@ -475,7 +867,7 @@ export default function RequestBoardReviewScreen() {
               disabled={submitting}
             >
               {submitting ? (
-                <ActivityIndicator size="small" color="#fff" />
+                <BrandedLoadingSpinner size="sm" color="#fff" />
               ) : (
                 <>
                   <Feather name="check" size={15} color="#fff" />
@@ -517,8 +909,7 @@ export default function RequestBoardReviewScreen() {
       {/* Body */}
       {loading ? (
         <View style={styles.loadingWrap}>
-          <ActivityIndicator color={COLORS.primary} size="large" />
-          <Text style={styles.loadingText}>불러오는 중...</Text>
+          <BrandedLoadingState variant="request-board-review" layout="section" />
         </View>
       ) : fetchError ? (
         <View style={styles.errorWrap}>
@@ -529,25 +920,39 @@ export default function RequestBoardReviewScreen() {
           </Pressable>
         </View>
       ) : detail ? (
-        <ScrollView
+        <Animated.ScrollView
           contentContainerStyle={[styles.scrollContent, { paddingBottom: 80 + insets.bottom }]}
           showsVerticalScrollIndicator={false}
+          onScroll={scrollHandler}
+          scrollEventThrottle={16}
         >
           {(() => {
+            const hasSeparatePolicyholder = Boolean(detail.has_separate_policyholder);
+            const customerDisplayName = formatRequestBoardCustomerDisplayName({
+              customerName: detail.customer_name,
+              hasSeparatePolicyholder: detail.has_separate_policyholder,
+              policyholderName: detail.policyholder_name,
+            });
+            const policyholderSummary = getPolicyholderSummary(detail);
+            const rawRequestFcName = String(detail.fc?.name ?? '').trim();
+            const requestFcName = rawRequestFcName
+              ? formatRequestBoardFcDisplayName(detail.fc?.name, detail.fc?.affiliation)
+              : null;
+            const requestFcPhone = formatPhone(detail.fc?.phone);
+            const requestDesignCode = formatDesignCodeDisplay(detail.fc_code_value, detail.fc_code_name);
+            const requestFcSummary = [
+              requestFcName ? `요청 FC: ${requestFcName}` : null,
+              requestDesignCode ? `설계 코드: ${requestDesignCode}` : null,
+              requestFcPhone !== '-' ? `전화번호: ${requestFcPhone}` : null,
+            ]
+              .filter(Boolean)
+              .join(' · ');
             const requestFields = [
               { label: '요청일', value: formatDate(detail.created_at) },
-              { label: '고객명', value: formatNullable(detail.customer_name) },
-              {
-                label: '요청 FC',
-                value: `${formatRequestBoardFcDisplayName(detail.fc?.name ?? '-', detail.fc?.affiliation)} (${formatPhone(detail.fc?.phone)})`,
-              },
-              {
-                label: 'FC 코드',
-                value: [detail.fc_code_name, detail.fc_code_value]
-                  .map((value) => String(value ?? '').trim())
-                  .filter((value) => value.length > 0)
-                  .join(' / ') || '-',
-              },
+              { label: '고객명', value: customerDisplayName },
+              { label: '요청 FC', value: requestFcName ?? '-' },
+              { label: '전화번호', value: requestFcPhone },
+              { label: '설계 코드', value: requestDesignCode ?? '-' },
               { label: '요청 상품', value: getProductNames(detail), fullWidth: true },
             ];
             const customerFields = [
@@ -566,10 +971,21 @@ export default function RequestBoardReviewScreen() {
               { label: '소개자', value: formatNullable(detail.customer_referrer) },
               { label: '보험 자격', value: formatInsuranceQualifications(detail.insurance_qualifications), fullWidth: true },
             ];
+            const policyholderFields = detail.has_separate_policyholder
+              ? [
+                  { label: '이름', value: formatNullable(detail.policyholder_name) },
+                  { label: '주민번호', value: formatSsn(detail.policyholder_ssn) },
+                  { label: '연락처', value: formatPhone(detail.policyholder_phone) },
+                  { label: '통신사', value: formatNullable(detail.policyholder_carrier) },
+                  { label: '주소', value: formatNullable(detail.policyholder_address), fullWidth: true },
+                ]
+              : [
+                  { label: '계약자', value: '피보험자와 동일', fullWidth: true },
+                ];
             const healthFields = [
               { label: '고혈압 당뇨 고지혈 약 드시나요?', value: formatNullable(detail.current_medication) },
               { label: '3개월이내 병원 진료 받은 내용 있으신가요?', value: formatNullable(detail.recent_hospital_visit) },
-              { label: '5년이내 입원이나 수술 있으셨나요?', value: formatNullable(detail.recent_hospitalization) },
+              { label: '최근 5년 이내 입원/수술 및 7일 이상 치료 이력', value: formatNullable(detail.recent_hospitalization) },
               { label: '중대질환 (암,뇌,심,간질환) 있으신가요?', value: formatNullable(detail.major_diseases) },
             ];
             const paymentFields = [
@@ -599,6 +1015,24 @@ export default function RequestBoardReviewScreen() {
                 })()}
               </View>
               <Text style={styles.infoProducts}>{getProductNames(detail)}</Text>
+              {hasSeparatePolicyholder ? (
+                <View style={styles.policyholderSummary}>
+                  <View style={styles.policyholderSummaryBadge}>
+                    <Text style={styles.policyholderSummaryBadgeText}>계약자 다름</Text>
+                  </View>
+                  <Text style={styles.policyholderSummaryText} numberOfLines={2}>
+                    {policyholderSummary}
+                  </Text>
+                </View>
+              ) : null}
+              {requestFcSummary ? (
+                <View style={styles.requestFcSummary}>
+                  <Feather name="user" size={13} color={COLORS.primary} />
+                  <Text style={styles.requestFcSummaryText} numberOfLines={2}>
+                    {requestFcSummary}
+                  </Text>
+                </View>
+              ) : null}
             </View>
             <InfoSection title="의뢰 정보">
               {requestFields.map((field) => (
@@ -643,6 +1077,23 @@ export default function RequestBoardReviewScreen() {
               </InfoSection>
             ) : null}
           </View>
+          {hasSeparatePolicyholder ? (
+            <>
+              <Text style={styles.sectionTitle}>계약자 정보</Text>
+              <View style={styles.infoCard}>
+                <View style={styles.infoGrid}>
+                  {policyholderFields.map((field) => (
+                    <InfoField
+                      key={field.label}
+                      label={field.label}
+                      value={field.value}
+                      fullWidth={field.fullWidth}
+                    />
+                  ))}
+                </View>
+              </View>
+            </>
+          ) : null}
               </>
             );
           })()}
@@ -660,67 +1111,213 @@ export default function RequestBoardReviewScreen() {
           ) : (
             (detail.request_designers ?? []).map(renderAssignment)
           )}
-        </ScrollView>
+        </Animated.ScrollView>
       ) : null}
 
       <BottomNavigation
         preset={navPreset ?? undefined}
         activeKey={navActiveKey}
+        animatedStyle={animatedStyle}
         bottomInset={insets.bottom}
       />
 
-      {/* Reject Modal */}
+      {/* Attachment Metadata Modal */}
+      <Modal
+        visible={attachmentUploadDraft != null}
+        transparent
+        animationType="slide"
+        onRequestClose={resetAttachmentUploadDraft}
+      >
+        <KeyboardAvoidingView
+          style={styles.modalKeyboardAvoidingView}
+          behavior={process.env.EXPO_OS === 'ios' ? 'padding' : 'height'}
+        >
+          <Pressable
+            style={styles.modalOverlay}
+            onPress={resetAttachmentUploadDraft}
+          />
+          <View
+            style={[
+              styles.modalSheet,
+              styles.attachmentModalSheet,
+              { paddingBottom: Math.max(insets.bottom, 16) + 8 },
+            ]}
+          >
+            <View style={styles.modalHandle} />
+            <Text style={styles.modalTitle}>첨부 정보</Text>
+            <Text style={styles.modalDesc}>파일별 설명과 만료일을 확인해주세요.</Text>
+            <ScrollView
+              style={styles.attachmentDraftScroll}
+              contentContainerStyle={styles.attachmentDraftList}
+              keyboardShouldPersistTaps="handled"
+            >
+              {attachmentUploadDraft?.files.map((file, index) => (
+                <View key={`${file.name}-${index}`} style={styles.attachmentDraftItem}>
+                  <Text style={styles.attachmentDraftFileName} numberOfLines={1}>
+                    {safeDecodeFileName(file.name)}
+                  </Text>
+                  <TextInput
+                    style={styles.attachmentDraftInput}
+                    value={attachmentUploadDraft.descriptions[index] ?? ''}
+                    onChangeText={(value) => updateAttachmentUploadDescription(index, value)}
+                    placeholder="첨부 설명"
+                    placeholderTextColor={COLORS.text.muted}
+                  />
+                  <TextInput
+                    style={styles.attachmentDraftInput}
+                    value={attachmentUploadDraft.expiryDates[index] ?? ''}
+                    onChangeText={(value) => updateAttachmentUploadExpiryDate(index, value)}
+                    placeholder="만료일 YYYY-MM-DD"
+                    placeholderTextColor={COLORS.text.muted}
+                    autoCapitalize="none"
+                  />
+                </View>
+              ))}
+            </ScrollView>
+            <View style={styles.modalBtns}>
+              <Pressable
+                style={({ pressed }) => [styles.modalCancelBtn, pressed && { opacity: 0.7 }]}
+                onPress={resetAttachmentUploadDraft}
+                disabled={submitting}
+              >
+                <Text style={styles.modalCancelBtnText}>취소</Text>
+              </Pressable>
+              <Pressable
+                style={({ pressed }) => [
+                  styles.modalConfirmBtn,
+                  pressed && { opacity: 0.8 },
+                  submitting && { opacity: 0.5 },
+                ]}
+                onPress={handleDesignerAttachmentUploadConfirm}
+                disabled={submitting}
+              >
+                {submitting ? (
+                  <BrandedLoadingSpinner size="sm" color="#fff" />
+                ) : (
+                  <Text style={styles.modalConfirmBtnText}>업로드</Text>
+                )}
+              </Pressable>
+            </View>
+          </View>
+        </KeyboardAvoidingView>
+      </Modal>
+
+      {/* Designer Reject Modal */}
+      <Modal
+        visible={designerRejectModalVisible}
+        transparent
+        animationType="slide"
+        onRequestClose={resetDesignerRejectModal}
+      >
+        <KeyboardAvoidingView
+          style={styles.modalKeyboardAvoidingView}
+          behavior={process.env.EXPO_OS === 'ios' ? 'padding' : 'height'}
+        >
+          <Pressable
+            style={styles.modalOverlay}
+            onPress={resetDesignerRejectModal}
+          />
+          <View style={[styles.modalSheet, { paddingBottom: Math.max(insets.bottom, 16) + 8 }]}>
+            <View style={styles.modalHandle} />
+            <Text style={styles.modalTitle}>의뢰 거절 사유</Text>
+            <Text style={styles.modalDesc}>설계 요청을 거절하는 이유를 입력해주세요.</Text>
+            <TextInput
+              style={styles.reasonInput}
+              value={designerRejectReason}
+              onChangeText={setDesignerRejectReason}
+              placeholder="예: 인수 기준 부적합, 상품 설계 불가 등"
+              placeholderTextColor={COLORS.text.muted}
+              multiline
+              numberOfLines={3}
+              maxLength={200}
+              autoFocus
+            />
+            <Text style={styles.charCount}>{designerRejectReason.length}/200</Text>
+            <View style={styles.modalBtns}>
+              <Pressable
+                style={({ pressed }) => [styles.modalCancelBtn, pressed && { opacity: 0.7 }]}
+                onPress={resetDesignerRejectModal}
+                disabled={submitting}
+              >
+                <Text style={styles.modalCancelBtnText}>취소</Text>
+              </Pressable>
+              <Pressable
+                style={({ pressed }) => [
+                  styles.modalConfirmBtn,
+                  pressed && { opacity: 0.8 },
+                  submitting && { opacity: 0.5 },
+                ]}
+                onPress={handleDesignerRejectConfirm}
+                disabled={submitting}
+              >
+                {submitting ? (
+                  <BrandedLoadingSpinner size="sm" color="#fff" />
+                ) : (
+                  <Text style={styles.modalConfirmBtnText}>거절하기</Text>
+                )}
+              </Pressable>
+            </View>
+          </View>
+        </KeyboardAvoidingView>
+      </Modal>
+
+      {/* FC Reject Modal */}
       <Modal
         visible={rejectModalVisible}
         transparent
         animationType="slide"
         onRequestClose={() => setRejectModalVisible(false)}
       >
-        <Pressable
-          style={styles.modalOverlay}
-          onPress={() => setRejectModalVisible(false)}
-        />
-        <View style={[styles.modalSheet, { paddingBottom: Math.max(insets.bottom, 16) + 8 }]}>
-          <View style={styles.modalHandle} />
-          <Text style={styles.modalTitle}>설계 거절</Text>
-          <Text style={styles.modalDesc}>거절 사유를 입력해주세요. (필수)</Text>
-          <TextInput
-            style={styles.reasonInput}
-            value={rejectReason}
-            onChangeText={setRejectReason}
-            placeholder="예: 보험료 계산 오류, 설계 내용 불일치 등"
-            placeholderTextColor={COLORS.text.muted}
-            multiline
-            numberOfLines={3}
-            maxLength={200}
-            autoFocus
+        <KeyboardAvoidingView
+          style={styles.modalKeyboardAvoidingView}
+          behavior={process.env.EXPO_OS === 'ios' ? 'padding' : 'height'}
+        >
+          <Pressable
+            style={styles.modalOverlay}
+            onPress={() => setRejectModalVisible(false)}
           />
-          <Text style={styles.charCount}>{rejectReason.length}/200</Text>
-          <View style={styles.modalBtns}>
-            <Pressable
-              style={({ pressed }) => [styles.modalCancelBtn, pressed && { opacity: 0.7 }]}
-              onPress={() => setRejectModalVisible(false)}
-              disabled={submitting}
-            >
-              <Text style={styles.modalCancelBtnText}>취소</Text>
-            </Pressable>
-            <Pressable
-              style={({ pressed }) => [
-                styles.modalConfirmBtn,
-                pressed && { opacity: 0.8 },
-                submitting && { opacity: 0.5 },
-              ]}
-              onPress={handleRejectConfirm}
-              disabled={submitting}
-            >
-              {submitting ? (
-                <ActivityIndicator size="small" color="#fff" />
-              ) : (
-                <Text style={styles.modalConfirmBtnText}>거절하기</Text>
-              )}
-            </Pressable>
+          <View style={[styles.modalSheet, { paddingBottom: Math.max(insets.bottom, 16) + 8 }]}>
+            <View style={styles.modalHandle} />
+            <Text style={styles.modalTitle}>설계 거절</Text>
+            <Text style={styles.modalDesc}>거절 사유를 입력해주세요. (필수)</Text>
+            <TextInput
+              style={styles.reasonInput}
+              value={rejectReason}
+              onChangeText={setRejectReason}
+              placeholder="예: 보험료 계산 오류, 설계 내용 불일치 등"
+              placeholderTextColor={COLORS.text.muted}
+              multiline
+              numberOfLines={3}
+              maxLength={200}
+              autoFocus
+            />
+            <Text style={styles.charCount}>{rejectReason.length}/200</Text>
+            <View style={styles.modalBtns}>
+              <Pressable
+                style={({ pressed }) => [styles.modalCancelBtn, pressed && { opacity: 0.7 }]}
+                onPress={() => setRejectModalVisible(false)}
+                disabled={submitting}
+              >
+                <Text style={styles.modalCancelBtnText}>취소</Text>
+              </Pressable>
+              <Pressable
+                style={({ pressed }) => [
+                  styles.modalConfirmBtn,
+                  pressed && { opacity: 0.8 },
+                  submitting && { opacity: 0.5 },
+                ]}
+                onPress={handleRejectConfirm}
+                disabled={submitting}
+              >
+                {submitting ? (
+                  <BrandedLoadingSpinner size="sm" color="#fff" />
+                ) : (
+                  <Text style={styles.modalConfirmBtnText}>거절하기</Text>
+                )}
+              </Pressable>
+            </View>
           </View>
-        </View>
+        </KeyboardAvoidingView>
       </Modal>
     </View>
   );
@@ -830,6 +1427,58 @@ const styles = StyleSheet.create({
     fontSize: TYPOGRAPHY.fontSize.sm,
     color: COLORS.text.muted,
   },
+  policyholderSummary: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flexWrap: 'wrap',
+    gap: 6,
+    marginTop: SPACING.xs,
+    paddingHorizontal: SPACING.sm,
+    paddingVertical: SPACING.xs,
+    borderWidth: 1,
+    borderColor: '#FED7AA',
+    borderRadius: RADIUS.md,
+    backgroundColor: '#FFF7ED',
+  },
+  policyholderSummaryBadge: {
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 12,
+    backgroundColor: '#EA580C',
+  },
+  policyholderSummaryBadgeText: {
+    fontSize: TYPOGRAPHY.fontSize.xs,
+    fontWeight: '800' as const,
+    color: '#fff',
+  },
+  policyholderSummaryText: {
+    flex: 1,
+    minWidth: 180,
+    fontSize: TYPOGRAPHY.fontSize.xs,
+    fontWeight: '700' as const,
+    color: '#9A3412',
+    lineHeight: 18,
+  },
+  requestFcSummary: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: 6,
+    marginTop: SPACING.xs,
+    paddingHorizontal: SPACING.sm,
+    paddingVertical: SPACING.xs,
+    borderWidth: 1,
+    borderColor: '#BFDBFE',
+    borderRadius: RADIUS.md,
+    backgroundColor: '#EFF6FF',
+  },
+  requestFcSummaryText: {
+    flex: 1,
+    minWidth: 0,
+    fontSize: TYPOGRAPHY.fontSize.xs,
+    fontWeight: '800' as const,
+    color: COLORS.primary,
+    lineHeight: 18,
+  },
   infoSection: {
     marginTop: SPACING.md,
   },
@@ -845,7 +1494,8 @@ const styles = StyleSheet.create({
     gap: SPACING.sm,
   },
   infoField: {
-    width: '48%',
+    width: '100%',
+    minWidth: 0,
     borderWidth: 1,
     borderColor: COLORS.gray[100],
     borderRadius: RADIUS.md,
@@ -865,6 +1515,7 @@ const styles = StyleSheet.create({
     fontSize: TYPOGRAPHY.fontSize.sm,
     color: COLORS.gray[900],
     fontWeight: '600' as const,
+    lineHeight: 20,
   },
 
   /* Section */
@@ -1071,6 +1722,40 @@ const styles = StyleSheet.create({
     color: COLORS.text.muted,
     marginTop: 1,
   },
+  attachmentModalSheet: {
+    maxHeight: '82%',
+  },
+  attachmentDraftScroll: {
+    maxHeight: 360,
+    marginBottom: SPACING.md,
+  },
+  attachmentDraftList: {
+    gap: SPACING.sm,
+    paddingBottom: SPACING.sm,
+  },
+  attachmentDraftItem: {
+    borderWidth: 1,
+    borderColor: COLORS.border.light,
+    borderRadius: RADIUS.md,
+    backgroundColor: COLORS.gray[50],
+    padding: SPACING.sm,
+    gap: SPACING.sm,
+  },
+  attachmentDraftFileName: {
+    fontSize: TYPOGRAPHY.fontSize.sm,
+    fontWeight: '700' as const,
+    color: COLORS.gray[800],
+  },
+  attachmentDraftInput: {
+    borderWidth: 1,
+    borderColor: COLORS.border.medium,
+    borderRadius: RADIUS.md,
+    paddingHorizontal: SPACING.sm,
+    paddingVertical: 10,
+    fontSize: TYPOGRAPHY.fontSize.sm,
+    color: COLORS.gray[900],
+    backgroundColor: '#fff',
+  },
   fileOpenBtn: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -1100,6 +1785,47 @@ const styles = StyleSheet.create({
     fontSize: TYPOGRAPHY.fontSize.xs,
     color: COLORS.gray[300],
   },
+  designerManageBtns: {
+    flexDirection: 'row',
+    gap: SPACING.sm,
+    marginTop: SPACING.sm,
+    paddingTop: SPACING.sm,
+    borderTopWidth: 1,
+    borderTopColor: COLORS.gray[100],
+  },
+  attachmentBtn: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 4,
+    paddingVertical: 10,
+    borderRadius: RADIUS.md,
+    borderWidth: 1.5,
+    borderColor: COLORS.primary,
+    backgroundColor: COLORS.primaryPale,
+  },
+  attachmentBtnText: {
+    fontSize: TYPOGRAPHY.fontSize.sm,
+    fontWeight: '700' as const,
+    color: COLORS.primary,
+  },
+  completeBtn: {
+    flex: 1.2,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 4,
+    paddingVertical: 10,
+    borderRadius: RADIUS.md,
+    backgroundColor: COLORS.primary,
+    ...SHADOWS.sm,
+  },
+  completeBtnText: {
+    fontSize: TYPOGRAPHY.fontSize.sm,
+    fontWeight: '700' as const,
+    color: '#fff',
+  },
 
   /* FC Decision */
   fcDecisionRow: {
@@ -1115,6 +1841,9 @@ const styles = StyleSheet.create({
   },
   fcDecisionRejected: {
     backgroundColor: '#FEE2E2',
+  },
+  fcDecisionWaiting: {
+    backgroundColor: '#FFFBEB',
   },
   fcDecisionLabel: {
     fontSize: TYPOGRAPHY.fontSize.sm,
@@ -1175,8 +1904,12 @@ const styles = StyleSheet.create({
   },
 
   /* Reject Modal */
-  modalOverlay: {
+  modalKeyboardAvoidingView: {
     flex: 1,
+    justifyContent: 'flex-end',
+  },
+  modalOverlay: {
+    ...StyleSheet.absoluteFillObject,
     backgroundColor: 'rgba(0,0,0,0.4)',
   },
   modalSheet: {

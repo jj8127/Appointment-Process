@@ -17,7 +17,6 @@ import {
   Stack,
   Table,
   Text,
-  Textarea,
   TextInput,
   ThemeIcon,
   Title,
@@ -33,6 +32,7 @@ import dayjs from 'dayjs';
 import { useCallback, useMemo, useState, useTransition } from 'react';
 
 import { StatusToggle } from '@/components/StatusToggle';
+import { RejectReasonModal } from '@/components/RejectReasonModal';
 import { useSession } from '@/hooks/use-session';
 import { supabase } from '@/lib/supabase';
 import { updateAppointmentAction } from './actions';
@@ -265,21 +265,21 @@ export default function AppointmentPage() {
 
   const getHanwhaStatus = useCallback((fc: FcProfile) => {
     if (fc.status === 'docs-approved') {
-      return { label: '한화 위촉 URL 대기', color: 'blue' };
+      return { label: '다위촉 URL 대기', color: 'blue' };
     }
     if (fc.status === 'hanwha-commission-review') {
-      return { label: '한화 위촉 URL 검토 중', color: 'orange' };
+      return { label: '다위촉 URL 검토 중', color: 'orange' };
     }
     if (fc.status === 'hanwha-commission-rejected') {
-      return { label: '한화 위촉 URL 반려', color: 'red' };
+      return { label: '다위촉 URL 반려', color: 'red' };
     }
     if (fc.status === 'hanwha-commission-approved') {
       return hasHanwhaApprovedPdf(fc)
-        ? { label: '한화 위촉 URL 승인 / PDF 완료', color: 'teal' }
-        : { label: '한화 위촉 URL 승인 / PDF 대기', color: 'yellow' };
+        ? { label: '다위촉 URL 승인 / PDF 완료', color: 'teal' }
+        : { label: '다위촉 URL 승인 / PDF 대기', color: 'yellow' };
     }
     if (fc.status === 'appointment-completed' || fc.status === 'final-link-sent') {
-      return { label: '한화 위촉 URL 승인 완료', color: 'teal' };
+      return { label: '다위촉 URL 승인 완료', color: 'teal' };
     }
     return { label: '사전 단계', color: 'gray' };
   }, []);
@@ -406,8 +406,8 @@ export default function AppointmentPage() {
   const executeAction = (fc: FcProfile, type: 'schedule' | 'confirm' | 'reject', category: 'life' | 'nonlife') => {
     if (!canManageInsuranceStage(fc)) {
       notifications.show({
-        title: '한화 위촉 URL 대기',
-        message: '한화 위촉 URL 승인과 PDF 등록이 끝난 뒤에만 생명/손해 위촉 단계를 진행할 수 있습니다.',
+        title: '다위촉 URL 대기',
+        message: '다위촉 URL 승인과 PDF 등록이 끝난 뒤에만 생명/손해 위촉 단계를 진행할 수 있습니다.',
         color: 'orange',
       });
       return;
@@ -518,7 +518,7 @@ export default function AppointmentPage() {
       <Stack gap="xs">
         {!insuranceStageOpen && (
             <Text size="xs" c="dimmed">
-              한화 위촉 URL 승인과 PDF 등록이 완료되면 생명/손해 위촉 단계를 진행할 수 있습니다.
+              다위촉 URL 승인과 PDF 등록이 완료되면 생명/손해 위촉 단계를 진행할 수 있습니다.
             </Text>
         )}
         {isLegacyException && (
@@ -605,34 +605,19 @@ export default function AppointmentPage() {
   return (
     <Container size="xl" py="xl">
       <Stack gap="lg">
-        <Modal
+        <RejectReasonModal
           opened={rejectModalOpen}
           onClose={() => setRejectModalOpen(false)}
-          centered
           title="반려 사유 입력"
-        >
-          <Stack gap="sm">
-            <Text size="sm" c="dimmed">
-              FC에게 전달될 반려 사유를 입력해주세요.
-            </Text>
-            <Textarea
-              label="반려 사유"
-              placeholder="예: 제출된 위촉 완료일이 확인되지 않아 재입력이 필요합니다."
-              value={rejectReason}
-              onChange={(e) => setRejectReason(e.currentTarget.value)}
-              minRows={4}
-              autosize
-            />
-            <Group justify="flex-end" mt="sm">
-              <Button variant="default" onClick={() => setRejectModalOpen(false)}>
-                취소
-              </Button>
-              <Button color="red" onClick={handleRejectSubmit} loading={rejectSubmitting} disabled={isReadOnly}>
-                반려 처리
-              </Button>
-            </Group>
-          </Stack>
-        </Modal>
+          description="FC에게 전달될 반려 사유를 입력해주세요."
+          placeholder="예: 제출된 위촉 완료일이 확인되지 않아 재입력이 필요합니다."
+          value={rejectReason}
+          onChange={setRejectReason}
+          onSubmit={handleRejectSubmit}
+          submitting={rejectSubmitting}
+          submitDisabled={isReadOnly}
+          minRows={4}
+        />
 
         {/* 확인 모달 */}
         <Modal
@@ -659,7 +644,7 @@ export default function AppointmentPage() {
           <div>
               <Title order={2} c={CHARCOAL}>생명/손해 위촉 심사 및 확정</Title>
               <Text c={MUTED} size="sm" mt={4}>
-            한화 위촉 URL 승인과 PDF 등록이 끝난 FC만 생명/손해 위촉 단계를 진행할 수 있습니다. 기존 보험 위촉 이력이 남아 있는 레거시 행만 예외로 유지됩니다.
+            다위촉 URL 승인과 PDF 등록이 끝난 FC만 생명/손해 위촉 단계를 진행할 수 있습니다. 기존 보험 위촉 이력이 남아 있는 레거시 행만 예외로 유지됩니다.
               </Text>
           </div>
           <Group>
@@ -683,7 +668,7 @@ export default function AppointmentPage() {
               <Table.Thead bg="#F9FAFB">
                 <Table.Tr>
                   {renderHeader('FC 정보 (이름)', 'name')}
-              {renderHeader('한화 위촉 URL', 'hanwha')}
+              {renderHeader('다위촉 URL', 'hanwha')}
                   {renderHeader('생명보험 위촉 (Life)', 'life')}
                   {renderHeader('손해보험 위촉 (Non-Life)', 'nonlife')}
                   {renderHeader('상태', 'status')}

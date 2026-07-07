@@ -1,4 +1,3 @@
-import { Feather } from '@expo/vector-icons';
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import { Dimensions, StyleSheet, Text, View } from 'react-native';
 import { Gesture, GestureDetector } from 'react-native-gesture-handler';
@@ -14,6 +13,7 @@ import Animated, {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { COLORS, RADIUS, SPACING, TYPOGRAPHY, ANIMATION, TOAST, ALERT_VARIANTS } from '@/lib/theme';
+import StatusGlyph from '@/components/StatusGlyph';
 
 type ToastVariant = 'info' | 'success' | 'warning' | 'error';
 
@@ -124,7 +124,11 @@ function ToastItem({
         <View style={styles.toastContent}>
           {/* Icon */}
           <View style={[styles.iconContainer, { backgroundColor: variant.iconBg }]}>
-            <Feather name={variant.icon as keyof typeof Feather.glyphMap} size={18} color={variant.iconColor} />
+            <StatusGlyph
+              variant={toast.variant ?? 'info'}
+              size={18}
+              color={variant.iconColor}
+            />
           </View>
 
           {/* Message */}

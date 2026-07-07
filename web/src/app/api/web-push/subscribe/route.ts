@@ -1,5 +1,7 @@
-import { createClient } from '@supabase/supabase-js';
 import { NextResponse } from 'next/server';
+
+import { adminSupabase } from '@/lib/admin-supabase';
+import { getVerifiedReadOnlyAdminSession } from '@/lib/server-session';
 
 type SubscriptionPayload = {
   subscription: {
@@ -9,17 +11,14 @@ type SubscriptionPayload = {
       auth?: string;
     };
   };
-  role?: 'admin' | 'fc';
-  residentId?: string;
 };
 
-// Service role client: bypasses RLS (custom auth has no Supabase auth.uid())
-const adminClient = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!,
-);
-
 export async function POST(request: Request) {
+  const sessionCheck = await getVerifiedReadOnlyAdminSession();
+  if (!sessionCheck.ok) {
+    return NextResponse.json({ error: sessionCheck.error }, { status: sessionCheck.status });
+  }
+
   let payload: SubscriptionPayload;
   try {
     payload = await request.json();
@@ -35,12 +34,12 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: 'Invalid subscription' }, { status: 400 });
   }
 
-  const { error } = await adminClient
+  const { error } = await adminSupabase
     .from('web_push_subscriptions')
     .upsert(
       {
-        resident_id: payload.residentId ?? null,
-        role: payload.role ?? null,
+        resident_id: sessionCheck.session.residentDigits,
+        role: sessionCheck.session.role,
         endpoint,
         p256dh,
         auth,

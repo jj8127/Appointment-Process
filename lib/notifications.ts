@@ -2,11 +2,17 @@ import Constants from 'expo-constants';
 import { Platform } from 'react-native';
 
 import { logger } from './logger';
+import { getStoredAppSessionToken } from './request-board-api';
 import { supabase } from './supabase';
 
 let handlerSet = false;
 
-export async function registerPushToken(role: 'admin' | 'fc', residentId: string, displayName: string) {
+export async function registerPushToken(
+  role: 'admin' | 'fc' | 'manager',
+  residentId: string,
+  displayName: string,
+  providedExpoPushToken?: string,
+) {
   try {
     if (Platform.OS === 'web') return;
     logger.debug('registerPushToken start', { role, residentId });
@@ -67,22 +73,33 @@ export async function registerPushToken(role: 'admin' | 'fc', residentId: string
     }
 
     const projectId = Constants.expoConfig?.extra?.eas?.projectId ?? Constants.expoConfig?.extra?.projectId;
-    const token = await Notifications.getExpoPushTokenAsync({ projectId });
+    const token = providedExpoPushToken
+      ? { data: providedExpoPushToken }
+      : await Notifications.getExpoPushTokenAsync({ projectId });
     const expoToken = token.data;
-    logger.debug('getExpoPushTokenAsync token', { projectId, expoToken });
+    logger.debug('getExpoPushTokenAsync token', { projectId, expoToken, reused: Boolean(providedExpoPushToken) });
 
-    const { error: upsertError } = await supabase.from('device_tokens').upsert(
+    const sessionToken = await getStoredAppSessionToken();
+    if (!sessionToken) {
+      logger.warn('[push] missing app session token, skip trusted registration');
+      return;
+    }
+
+    const { data, error: registerError } = await supabase.functions.invoke<{ ok?: boolean; role?: string }>(
+      'device-token-register',
       {
-        expo_push_token: expoToken,
-        role,
-        resident_id: residentId,
-        display_name: displayName,
-        platform: Platform.OS,
-        updated_at: new Date().toISOString(),
+        body: {
+          expoPushToken: expoToken,
+          platform: Platform.OS,
+          displayName,
+        },
+        headers: { 'x-app-session-token': sessionToken },
       },
-      { onConflict: 'expo_push_token' },
     );
-    logger.debug('upsert resp', upsertError);
+    logger.debug('[push] trusted register resp', { role, residentId, serverRole: data?.role, error: registerError });
+    if (registerError || data?.ok === false) {
+      throw registerError ?? new Error('device-token-register failed');
+    }
   } catch (err) {
     logger.warn('registerPushToken failed', err);
   }

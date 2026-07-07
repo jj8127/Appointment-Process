@@ -75,6 +75,22 @@ export function cleanPhone(input: string) {
   return (input ?? '').replace(/[^0-9]/g, '');
 }
 
+const SECRET_ASSIGNMENT_PATTERN =
+  /\b[A-Z][A-Z0-9_]*(?:TOKEN|SECRET|PASSWORD|PRIVATE_KEY|SERVICE_ROLE_KEY|AUTH_TOKEN|API_KEY)\b\s*=\s*[^\s"'`<>]+/gi;
+const LONG_HEX_TOKEN_PATTERN = /\b[a-f0-9]{32,}\b/gi;
+
+export function redactSensitiveText(value?: string | null, fallback = '') {
+  const text = String(value ?? '').trim();
+  if (!text) return fallback;
+  return text
+    .replace(SECRET_ASSIGNMENT_PATTERN, (match) => {
+      const key = match.split('=')[0]?.trim() || 'SECRET';
+      return `${key}=[redacted]`;
+    })
+    .replace(LONG_HEX_TOKEN_PATTERN, '[redacted]')
+    .trim();
+}
+
 export async function parseJson<T>(req: Request): Promise<T | null> {
   try {
     return (await req.json()) as T;
@@ -90,7 +106,7 @@ export async function requireActor(payload: { actor?: Actor }, origin?: string):
 
   const role = payload.actor.role;
   const residentId = cleanPhone(payload.actor.residentId ?? '');
-  const displayName = (payload.actor.displayName ?? '').trim();
+  const displayName = redactSensitiveText(payload.actor.displayName ?? '').trim();
 
   if (!role || !residentId) {
     return { ok: false, response: fail('invalid_actor', 'invalid actor payload', 400, origin) };
@@ -187,7 +203,7 @@ export function sanitizeFileName(fileName: string) {
 }
 
 export function previewContent(content: string, max = 140) {
-  const normalized = (content ?? '').replace(/\s+/g, ' ').trim();
+  const normalized = redactSensitiveText(content ?? '').replace(/\s+/g, ' ').trim();
   if (normalized.length <= max) return normalized;
   return `${normalized.slice(0, max)}...`;
 }

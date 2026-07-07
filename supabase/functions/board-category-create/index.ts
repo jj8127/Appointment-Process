@@ -1,5 +1,6 @@
 import { serve } from 'https://deno.land/std@0.224.0/http/server.ts';
 import { buildCorsHeaders, json, parseJson, requireActor, requireRole, supabase , dbError } from '../_shared/board.ts';
+import { resolveCanonicalBoardCategory } from '../_shared/board-categories.ts';
 
 type Payload = {
   actor?: {
@@ -36,14 +37,24 @@ serve(async (req: Request) => {
   if (!name || !slug) {
     return json({ ok: false, code: 'invalid_payload', message: 'name and slug are required' }, 400, origin);
   }
+  const canonicalCategory = resolveCanonicalBoardCategory({ name, slug });
+  if (!canonicalCategory) {
+    return json({ ok: false, code: 'invalid_category', message: 'board category must be one of the canonical categories' }, 400, origin);
+  }
+  if (body.sortOrder !== undefined && body.sortOrder !== canonicalCategory.sortOrder) {
+    return json({ ok: false, code: 'invalid_category', message: 'canonical board category sortOrder cannot be changed' }, 400, origin);
+  }
+  if (body.isActive === false) {
+    return json({ ok: false, code: 'invalid_category', message: 'canonical board categories must stay active' }, 400, origin);
+  }
 
   const { data, error } = await supabase
     .from('board_categories')
     .insert({
-      name,
-      slug,
-      sort_order: body.sortOrder ?? 0,
-      is_active: body.isActive ?? true,
+      name: canonicalCategory.name,
+      slug: canonicalCategory.slug,
+      sort_order: canonicalCategory.sortOrder,
+      is_active: true,
     })
     .select('id')
     .single();

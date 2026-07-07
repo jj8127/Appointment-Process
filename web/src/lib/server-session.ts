@@ -2,7 +2,12 @@ import { cookies } from 'next/headers';
 
 import { adminSupabase } from '@/lib/admin-supabase';
 import { validateSession } from '@/lib/csrf';
+import { FC_GRAPH_SESSION_COOKIE, verifyFcGraphSessionValue } from '@/lib/fc-graph-session';
 import { logger } from '@/lib/logger';
+import { buildPhoneCandidates } from '@/lib/phone-candidates';
+import { STAFF_SESSION_COOKIE, verifyStaffSessionValue } from '@/lib/staff-session';
+
+export { buildPhoneCandidates };
 
 export type ServerSessionRole = 'admin' | 'manager' | 'fc';
 
@@ -22,25 +27,6 @@ type SessionCheckResult =
   | { ok: false; status: number; error: string };
 
 const normalizeDigits = (value: string) => value.replace(/[^0-9]/g, '');
-
-function formatPhone(digits: string): string {
-  if (!digits) return '';
-  if (digits.length <= 3) return digits;
-  if (digits.length <= 7) return `${digits.slice(0, 3)}-${digits.slice(3)}`;
-  return `${digits.slice(0, 3)}-${digits.slice(3, 7)}-${digits.slice(7)}`;
-}
-
-function buildPhoneCandidates(rawResidentId: string, residentDigits: string): string[] {
-  const values = new Set<string>();
-  const raw = String(rawResidentId ?? '').trim();
-  const formatted = formatPhone(residentDigits);
-
-  if (raw) values.add(raw);
-  if (residentDigits) values.add(residentDigits);
-  if (formatted) values.add(formatted);
-
-  return Array.from(values);
-}
 
 async function verifyRecord(
   role: ServerSessionRole,
@@ -118,6 +104,27 @@ export async function getVerifiedServerSession(options: SessionCheckOptions): Pr
   const phoneCandidates = buildPhoneCandidates(session.residentId, residentDigits);
 
   try {
+    if (session.role === 'fc') {
+      const fcGraphSession = verifyFcGraphSessionValue(
+        cookieStore.get(FC_GRAPH_SESSION_COOKIE)?.value,
+        { expectedResidentDigits: residentDigits },
+      );
+      if (!fcGraphSession) {
+        return { ok: false, status: 401, error: 'Invalid FC graph session' };
+      }
+    } else {
+      const staffSession = verifyStaffSessionValue(
+        cookieStore.get(STAFF_SESSION_COOKIE)?.value,
+        {
+          expectedRole: session.role,
+          expectedResidentDigits: residentDigits,
+        },
+      );
+      if (!staffSession) {
+        return { ok: false, status: 401, error: 'Invalid staff session' };
+      }
+    }
+
     const verified = await verifyRecord(
       session.role,
       phoneCandidates,
@@ -144,5 +151,25 @@ export async function getVerifiedServerSession(options: SessionCheckOptions): Pr
     });
     return { ok: false, status: 403, error: 'Forbidden' };
   }
+}
+
+export async function getVerifiedAdminSession(
+  options?: Omit<SessionCheckOptions, 'allowedRoles'>,
+): Promise<SessionCheckResult> {
+  return getVerifiedServerSession({
+    allowedRoles: ['admin'],
+    requireActive: true,
+    ...(options ?? {}),
+  });
+}
+
+export async function getVerifiedReadOnlyAdminSession(
+  options?: Omit<SessionCheckOptions, 'allowedRoles'>,
+): Promise<SessionCheckResult> {
+  return getVerifiedServerSession({
+    allowedRoles: ['admin', 'manager'],
+    requireActive: true,
+    ...(options ?? {}),
+  });
 }
 

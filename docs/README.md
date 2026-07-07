@@ -2,7 +2,7 @@
 
 `fc-onboarding-app/docs`는 운영, 배포, 테스트, 보조 가이드를 모아둔 인덱스입니다.
 
-- 기준일: `2026-03-19`
+- 기준일: `2026-04-17`
 - 문서 SSOT: 루트 `AGENTS.md`
 
 ## 디렉토리 구조
@@ -47,11 +47,11 @@
 - `AGENTS.md`
   - 추천인 시스템 전용 운영 규칙과 변경 의무
 - `SPEC.md`
-  - 추천코드/초대링크 정책, 상태, 우선순위, 코드 운영 규칙
+  - 추천코드/초대링크 정책, login-time code guarantee, 상태, 우선순위, 코드 운영 규칙
 - `ARCHITECTURE.md`
-  - 링크, 앱, 서버, 스토어 fallback 구조와 관리자 코드 운영 경계
+  - login auto-issue, 링크, 앱, 서버, 스토어 fallback 구조와 관리자 코드 운영 경계
 - `TEST_CHECKLIST.md`
-  - 추천인 전용 실행 체크리스트
+  - 추천인 전용 실행 체크리스트와 login/self-service/runtime 회귀 기준
 - `test-cases.json`
   - 추천인 테스트 케이스 SSOT
 - `TEST_RUN_RESULT.json`

@@ -7,14 +7,12 @@ import { Stack, useFocusEffect, useLocalSearchParams, useRouter } from 'expo-rou
 import { StatusBar } from 'expo-status-bar';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
-  ActivityIndicator,
   AppState,
   Alert,
   Dimensions,
   FlatList,
   Keyboard,
   KeyboardAvoidingView,
-  Linking,
   Platform,
   Pressable,
   StyleSheet,
@@ -25,9 +23,24 @@ import {
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
+import BrandedLoadingSpinner from '@/components/BrandedLoadingSpinner';
+import { LinkifiedSelectableText } from '@/components/LinkifiedSelectableText';
+import { MessageUnreadReceiptBadge } from '@/components/MessageUnreadReceiptBadge';
+import {
+  MessageSelectCopySheet,
+  MessengerMessageActionSheet,
+} from '@/components/MessengerMessageActionSheet';
 import { useKeyboardPadding } from '@/hooks/use-keyboard-padding';
 import { useSession } from '@/hooks/use-session';
+import MessengerLoadingState from '@/components/MessengerLoadingState';
+import { goBackOrReplace } from '@/lib/back-navigation';
+import { fetchFcChatTargets } from '@/lib/internal-chat-api';
+import { getChatTargetPickerHeaderConfig } from '@/lib/chat-navigation';
 import { logger } from '@/lib/logger';
+import { copyTextWithFeedback } from '@/lib/messenger-copy-actions';
+import { confirmMessengerDelete } from '@/lib/messenger-delete-actions';
+import { getDirectMessageUnreadCount } from '@/lib/message-read-receipts';
+import { openMessengerAttachment } from '@/lib/messenger-attachment-actions';
 import {
   aggregatePresence,
   formatPresenceLabel,
@@ -51,11 +64,11 @@ const CHARCOAL = '#111827';
 const MUTED = '#6b7280';
 const SOFT_BG = '#F9FAFB';
 const SCREEN_WIDTH = Dimensions.get('window').width;
-const CHAT_POLL_INTERVAL_MS = 2500;
 const PRESENCE_POLL_INTERVAL_MS = 30_000;
 const CHAT_UPLOAD_BUCKET = 'chat-uploads';
 const FILE_CARD_WIDTH = Math.min(SCREEN_WIDTH * 0.64, 260);
 const LEGACY_SESSION_ERROR = '세션이 오래되었습니다. 로그아웃 후 다시 로그인해주세요.';
+const MESSAGE_SELECT_COLUMNS = 'id,content,sender_id,receiver_id,created_at,is_read,message_type,file_url,file_name,file_size';
 const HEADER_AVATAR_COLORS = [
   '#3B82F6',
   '#10B981',
@@ -111,18 +124,28 @@ type Message = {
   file_size?: number | null;
 };
 
+const getMessageCopyText = (message: Message | null | undefined): string => {
+  if (!message) return '';
+
+  const content = String(message.content ?? '').trim();
+  if (content) return content;
+  return String(message.file_url ?? '').trim();
+};
+
 type FcChatTarget = {
   id: string;
   label: string;
   subtitle: string;
   kind: 'manager' | 'admin' | 'developer';
   presencePhones: string[];
+  unreadCount: number;
 };
 
 type ChatTargetContact = {
   name?: string | null;
   phone?: string | null;
   staff_type?: string | null;
+  unread_count?: number | null;
 };
 
 const sortMessagesDesc = (rows: Message[]) =>
@@ -167,16 +190,6 @@ const areMessagesEqual = (prev: Message[], next: Message[]) => {
   return true;
 };
 
-const areUnreadCountMapsEqual = (
-  prev: Record<string, number>,
-  next: Record<string, number>,
-) => {
-  const prevKeys = Object.keys(prev);
-  const nextKeys = Object.keys(next);
-  if (prevKeys.length !== nextKeys.length) return false;
-  return prevKeys.every((key) => (prev[key] ?? 0) === (next[key] ?? 0));
-};
-
 export default function ChatScreen() {
   const router = useRouter();
   const { role, residentId, displayName, readOnly, logout, staffType } = useSession();
@@ -188,6 +201,7 @@ export default function ChatScreen() {
   const keyboardPadding = useKeyboardPadding();
   const bottomSafeInset = Math.max(insets.bottom, Platform.OS === 'android' ? 20 : 12);
   const pickerListBottomPadding = bottomSafeInset + 24;
+  const targetPickerHeader = getChatTargetPickerHeaderConfig();
   const targetIdValue = Array.isArray(targetId) ? targetId[0] : targetId;
   const targetNameValue = Array.isArray(targetName) ? targetName[0] : targetName;
 
@@ -200,7 +214,6 @@ export default function ChatScreen() {
   const otherId = normalizedTargetId;
   const [resolvedTargetName, setResolvedTargetName] = useState('');
   const [fcTargets, setFcTargets] = useState<FcChatTarget[]>([]);
-  const [targetUnreadCounts, setTargetUnreadCounts] = useState<Record<string, number>>({});
   const [targetsLoading, setTargetsLoading] = useState(false);
   const [targetsError, setTargetsError] = useState<string | null>(null);
   const [presenceByPhone, setPresenceByPhone] = useState<Record<string, AppPresenceSnapshot>>({});
@@ -240,6 +253,8 @@ export default function ChatScreen() {
   );
 
   const [messages, setMessages] = useState<Message[]>([]);
+  const [actionMessage, setActionMessage] = useState<Message | null>(null);
+  const [selectCopyMessage, setSelectCopyMessage] = useState<Message | null>(null);
   const [text, setText] = useState('');
   const [uploading, setUploading] = useState(false);
   const pickingRef = useRef(false);
@@ -247,11 +262,6 @@ export default function ChatScreen() {
   const flatListRef = useRef<FlatList>(null);
   const deletedIdsRef = useRef<Set<string>>(new Set());
   const messagesRef = useRef<Message[]>([]);
-  const fcTargetsRef = useRef<FcChatTarget[]>([]);
-
-  useEffect(() => {
-    fcTargetsRef.current = fcTargets;
-  }, [fcTargets]);
 
   const loadPresence = useCallback(async (phones = trackedPresencePhones) => {
     if (phones.length === 0) {
@@ -323,7 +333,7 @@ export default function ChatScreen() {
         sender_id: myId,
         receiver_id: otherId,
         created_at: new Date().toISOString(),
-        is_read: true,
+        is_read: false,
         message_type: type,
         file_url: fileData?.url ?? null,
         file_name: fileData?.name ?? null,
@@ -359,46 +369,6 @@ export default function ChatScreen() {
     return true;
   }, [myId, otherId]);
 
-  const loadTargetUnreadCounts = useCallback(async (targets?: FcChatTarget[]) => {
-    if (role !== 'fc' || !myId) {
-      setTargetUnreadCounts({});
-      return;
-    }
-
-    const targetIds = (targets ?? fcTargetsRef.current)
-      .map((target) => target.id)
-      .filter((targetId) => !!targetId);
-
-    if (targetIds.length === 0) {
-      setTargetUnreadCounts({});
-      return;
-    }
-
-    const { data, error } = await supabase
-      .from('messages')
-      .select('sender_id')
-      .eq('receiver_id', myId)
-      .eq('is_read', false)
-      .in('sender_id', targetIds);
-
-    if (error) {
-      logger.debug('[chat] unread count load failed', { error: error.message, myId });
-      return;
-    }
-
-    const nextCounts = ((data ?? []) as Pick<Message, 'sender_id'>[]).reduce<Record<string, number>>(
-      (acc, row) => {
-        const senderId = String(row.sender_id ?? '').trim();
-        if (!senderId) return acc;
-        acc[senderId] = (acc[senderId] ?? 0) + 1;
-        return acc;
-      },
-      {},
-    );
-
-    setTargetUnreadCounts((prev) => (areUnreadCountMapsEqual(prev, nextCounts) ? prev : nextCounts));
-  }, [myId, role]);
-
   const loadFcTargets = useCallback(async () => {
     if (role !== 'fc') return;
     setTargetsLoading(true);
@@ -410,27 +380,10 @@ export default function ChatScreen() {
         throw new Error(LEGACY_SESSION_ERROR);
       }
 
-      const { data, error } = await supabase.functions.invoke('fc-notify', {
-        body: {
-          type: 'chat_targets',
-          resident_id: residentPhone,
-        },
-      });
-
-      if (error || !data?.ok) {
-        const message = getFcTargetLoadErrorMessage(error?.message ?? data?.message);
-        throw new Error(message);
-      }
-
-      const managers: ChatTargetContact[] = Array.isArray(data.managers)
-        ? (data.managers as ChatTargetContact[])
-        : [];
-      const developers: ChatTargetContact[] = Array.isArray(data.developers)
-        ? (data.developers as ChatTargetContact[])
-        : [];
-      const admins: ChatTargetContact[] = Array.isArray(data.admins)
-        ? (data.admins as ChatTargetContact[])
-        : [];
+      const data = await fetchFcChatTargets(residentPhone);
+      const managers: ChatTargetContact[] = Array.isArray(data.managers) ? data.managers : [];
+      const developers: ChatTargetContact[] = Array.isArray(data.developers) ? data.developers : [];
+      const admins: ChatTargetContact[] = Array.isArray(data.admins) ? data.admins : [];
 
       const managerTargets: FcChatTarget[] = [];
       managers.forEach((manager) => {
@@ -445,6 +398,7 @@ export default function ChatScreen() {
           subtitle: '본부장',
           kind: 'manager',
           presencePhones: [phone],
+          unreadCount: Number((manager as ChatTargetContact & { unread_count?: number }).unread_count ?? 0),
         });
       });
 
@@ -462,12 +416,13 @@ export default function ChatScreen() {
           const phone = sanitizePhone(developer.phone);
           if (!phone || map.has(phone)) return map;
           map.set(phone, {
-            id: phone,
-            label: '개발자',
-            subtitle: '개발자',
-            kind: 'developer' as const,
-            presencePhones: [phone],
-          });
+              id: phone,
+              label: '개발자',
+              subtitle: '개발자',
+              kind: 'developer' as const,
+              presencePhones: [phone],
+              unreadCount: Number((developer as ChatTargetContact & { unread_count?: number }).unread_count ?? 0),
+            });
           return map;
         }, new Map<string, FcChatTarget>()).values(),
       );
@@ -489,11 +444,11 @@ export default function ChatScreen() {
           subtitle: '총무팀',
           kind: 'admin',
           presencePhones: adminPresencePhones,
+          unreadCount: data.adminUnreadCount,
         },
       ];
 
       setFcTargets(nextTargets);
-      void loadTargetUnreadCounts(nextTargets);
     } catch (error) {
       const message = getFcTargetLoadErrorMessage(error instanceof Error ? error.message : null);
       logger.debug('[chat] fc target list load failed', { message });
@@ -501,13 +456,13 @@ export default function ChatScreen() {
     } finally {
       setTargetsLoading(false);
     }
-  }, [loadTargetUnreadCounts, residentId, role]);
+  }, [residentId, role]);
 
   const fetchMessages = useCallback(async () => {
     if (!myId || !otherId) return;
     const { data, error } = await supabase
       .from('messages')
-      .select('*')
+      .select(MESSAGE_SELECT_COLUMNS)
       .or(`and(sender_id.eq.${myId},receiver_id.eq.${otherId}),and(sender_id.eq.${otherId},receiver_id.eq.${myId})`)
       .order('created_at', { ascending: false });
     if (error) {
@@ -579,9 +534,6 @@ export default function ChatScreen() {
 
   useEffect(() => {
     if (!myId || !otherId) return;
-    const intervalId = setInterval(() => {
-      void fetchMessages();
-    }, CHAT_POLL_INTERVAL_MS);
 
     const appStateSub = AppState.addEventListener('change', (nextState) => {
       if (nextState === 'active') {
@@ -590,7 +542,6 @@ export default function ChatScreen() {
     });
 
     return () => {
-      clearInterval(intervalId);
       appStateSub.remove();
     };
   }, [fetchMessages, myId, otherId]);
@@ -617,7 +568,7 @@ export default function ChatScreen() {
           filter: `receiver_id=eq.${myId}`,
         },
         () => {
-          void loadTargetUnreadCounts();
+          void loadFcTargets();
         },
       )
       .subscribe();
@@ -625,7 +576,7 @@ export default function ChatScreen() {
     return () => {
       supabase.removeChannel(channel);
     };
-  }, [loadTargetUnreadCounts, myId, role, showFcTargetPicker]);
+  }, [loadFcTargets, myId, role, showFcTargetPicker]);
 
   useEffect(() => {
     if (role !== 'admin') return;
@@ -710,7 +661,7 @@ export default function ChatScreen() {
         file_name: fileData?.name ?? null,
         file_size: fileData?.size ?? null,
       })
-      .select('*')
+      .select(MESSAGE_SELECT_COLUMNS)
       .single();
 
     if (error) {
@@ -891,36 +842,61 @@ export default function ChatScreen() {
 
   const handleDeleteMessage = (message: Message) => {
     if (message.sender_id !== myId) return;
-    Alert.alert('메시지 삭제', '이 메시지를 삭제하시겠습니까?', [
-      { text: '취소', style: 'cancel' },
-      {
-        text: '삭제',
-        style: 'destructive',
-        onPress: async () => {
-          try {
-            const { data: authRes } = await supabase.auth.getUser();
-            logger.debug('[delete] request', {
-              authUserId: authRes?.user?.id,
-              myId,
-              msgId: message.id,
-              senderId: message.sender_id,
-            });
-            const { error } = await supabase.from('messages').delete().eq('id', message.id);
-            if (error) {
-              logger.debug('[delete] supabase error', { error });
-              Alert.alert('삭제 실패', error.message ?? '메시지를 삭제하지 못했습니다.');
-            } else {
-              logger.debug('[delete] success', { messageId: message.id });
-              deletedIdsRef.current.add(message.id);
-              setMessages((prev) => prev.filter((m) => m.id !== message.id));
-            }
-          } catch (err: any) {
-            logger.debug('[delete] exception', { error: err?.message ?? err });
-            Alert.alert('삭제 실패', '예외가 발생했습니다.');
-          }
-        },
+    confirmMessengerDelete({
+      logScope: 'chat',
+      onDelete: async () => {
+        const { data: authRes } = await supabase.auth.getUser();
+        logger.debug('[delete] request', {
+          authUserId: authRes?.user?.id,
+          myId,
+          msgId: message.id,
+          senderId: message.sender_id,
+        });
+        const { error } = await supabase.from('messages').delete().eq('id', message.id);
+        if (error) {
+          logger.debug('[delete] supabase error', { error });
+          throw error;
+        }
+
+        logger.debug('[delete] success', { messageId: message.id });
+        deletedIdsRef.current.add(message.id);
+        setMessages((prev) => prev.filter((m) => m.id !== message.id));
       },
-    ]);
+    });
+  };
+
+  const handleCopyMessage = async (message: Message) => {
+    await copyTextWithFeedback(getMessageCopyText(message), { logScope: 'chat' });
+  };
+
+  const openMessageActions = (message: Message) => {
+    setActionMessage(message);
+  };
+
+  const closeMessageActions = () => {
+    setActionMessage(null);
+  };
+
+  const handleCopyAction = () => {
+    const message = actionMessage;
+    setActionMessage(null);
+    if (message) void handleCopyMessage(message);
+  };
+
+  const handleSelectCopyAction = () => {
+    const message = actionMessage;
+    setActionMessage(null);
+    if (!getMessageCopyText(message)) {
+      Alert.alert('선택 복사할 수 없어요', '선택 복사할 메시지 내용이 없습니다.');
+      return;
+    }
+    setSelectCopyMessage(message);
+  };
+
+  const handleDeleteAction = () => {
+    const message = actionMessage;
+    setActionMessage(null);
+    if (message) handleDeleteMessage(message);
   };
 
   const formatTime = (iso: string) => {
@@ -942,10 +918,19 @@ export default function ChatScreen() {
     router.back();
   };
 
+  const handleTargetPickerBack = useCallback(() => {
+    goBackOrReplace(router, targetPickerHeader.fallbackHref);
+  }, [router, targetPickerHeader.fallbackHref]);
+
   const renderMessageContent = (item: Message, isMe: boolean) => {
     if (item.message_type === 'image' && item.file_url) {
       return (
-        <TouchableOpacity onPress={() => Linking.openURL(item.file_url!)} style={{ minWidth: 150, minHeight: 150 }}>
+        <TouchableOpacity
+          onPress={() => {
+            void openMessengerAttachment(item.file_url, { logScope: 'chat' });
+          }}
+          style={{ minWidth: 150, minHeight: 150 }}
+        >
           <Image source={{ uri: item.file_url }} style={{ width: 200, height: 200, borderRadius: 8 }} contentFit="cover" />
         </TouchableOpacity>
       );
@@ -956,7 +941,9 @@ export default function ChatScreen() {
       return (
         <TouchableOpacity
           style={[styles.fileCard, isMe ? styles.fileCardMe : styles.fileCardOther]}
-          onPress={() => Linking.openURL(item.file_url!)}
+          onPress={() => {
+            void openMessengerAttachment(item.file_url, { logScope: 'chat' });
+          }}
           activeOpacity={0.82}
         >
           <View style={[styles.fileIconBox, isMe ? styles.fileIconBoxMe : styles.fileIconBoxOther]}>
@@ -984,19 +971,32 @@ export default function ChatScreen() {
     }
 
     return (
-      <Text
+      <LinkifiedSelectableText
+        text={item.content}
         style={[
           styles.msgText,
           isMe ? styles.msgTextMe : styles.msgTextOther,
           { textAlign: 'left', width: '100%' },
-        ]}>
-        {item.content}
-      </Text>
+        ]}
+        linkStyle={styles.msgLinkText}
+        linkPressBehavior="open"
+      />
     );
   };
 
   const renderItem = ({ item }: { item: Message }) => {
     const isMe = item.sender_id === myId;
+    const unreadReceiptCount = getDirectMessageUnreadCount({
+      isOwn: isMe,
+      isRead: item.is_read,
+    });
+    const messageMeta = (
+      <View style={[styles.messageSideMeta, isMe ? styles.messageSideMetaMe : styles.messageSideMetaOther]}>
+        <MessageUnreadReceiptBadge count={unreadReceiptCount} />
+        <Text style={styles.timeText}>{formatTime(item.created_at)}</Text>
+      </View>
+    );
+
     return (
       <View style={[styles.msgRow, isMe ? styles.msgRowMe : styles.msgRowOther]}>
         {!isMe && (
@@ -1008,39 +1008,35 @@ export default function ChatScreen() {
         <View style={[styles.msgContainer, { alignItems: isMe ? 'flex-end' : 'flex-start' }]}>
           {!isMe && <Text style={styles.senderName}>{headerTitle}</Text>}
 
-          <Pressable
-            onLongPress={() => handleDeleteMessage(item)}
-            delayLongPress={500}
-            style={({ pressed }) => [
-              styles.bubbleWrapper,
-              isMe ? styles.bubbleWrapperMe : styles.bubbleWrapperOther,
-              pressed && { opacity: 0.9 },
-            ]}>
-            <View
-              style={[
-                styles.bubble,
-                isMe ? styles.bubbleMe : styles.bubbleOther,
-                item.message_type === 'image' && {
-                  paddingHorizontal: 4,
-                  paddingVertical: 4,
-                  backgroundColor: isMe ? HANWHA_ORANGE : '#fff',
-                },
-                item.message_type === 'file' && {
-                  paddingHorizontal: 8,
-                  paddingVertical: 8,
-                },
+          <View style={[styles.messageBubbleLine, isMe ? styles.messageBubbleLineMe : styles.messageBubbleLineOther]}>
+            {isMe && messageMeta}
+            <Pressable
+              onLongPress={() => openMessageActions(item)}
+              delayLongPress={500}
+              style={({ pressed }) => [
+                styles.bubbleWrapper,
+                isMe ? styles.bubbleWrapperMe : styles.bubbleWrapperOther,
+                pressed && { opacity: 0.9 },
               ]}>
-              {renderMessageContent(item, isMe)}
-            </View>
-          </Pressable>
-
-          <Text
-            style={[
-              styles.timeText,
-              { textAlign: isMe ? 'right' : 'left', alignSelf: isMe ? 'flex-end' : 'flex-start' },
-            ]}>
-            {formatTime(item.created_at)}
-          </Text>
+              <View
+                style={[
+                  styles.bubble,
+                  isMe ? styles.bubbleMe : styles.bubbleOther,
+                  item.message_type === 'image' && {
+                    paddingHorizontal: 4,
+                    paddingVertical: 4,
+                    backgroundColor: isMe ? HANWHA_ORANGE : '#fff',
+                  },
+                  item.message_type === 'file' && {
+                    paddingHorizontal: 8,
+                    paddingVertical: 8,
+                  },
+                ]}>
+                {renderMessageContent(item, isMe)}
+              </View>
+            </Pressable>
+            {!isMe && messageMeta}
+          </View>
         </View>
       </View>
     );
@@ -1091,10 +1087,10 @@ export default function ChatScreen() {
           ) : null}
         </View>
         <View style={styles.targetMeta}>
-          {(targetUnreadCounts[item.id] ?? 0) > 0 && (
+          {item.unreadCount > 0 && (
             <View style={styles.targetUnreadBadge}>
               <Text style={styles.targetUnreadBadgeText}>
-                {(targetUnreadCounts[item.id] ?? 0) > 99 ? '99+' : targetUnreadCounts[item.id] ?? 0}
+                {item.unreadCount > 99 ? '99+' : item.unreadCount}
               </Text>
             </View>
           )}
@@ -1113,8 +1109,23 @@ export default function ChatScreen() {
     return (
       <View style={styles.container}>
         <StatusBar style="dark" backgroundColor="#fff" />
-        <View style={styles.header}>
-          <Text style={styles.headerTitle}>메신저</Text>
+        <View
+          style={[
+            styles.header,
+            { paddingTop: Math.max(insets.top, 20) + 4 },
+          ]}
+        >
+          {targetPickerHeader.showBackButton ? (
+            <Pressable style={styles.backBtn} onPress={handleTargetPickerBack}>
+              <Feather name="arrow-left" size={22} color={CHARCOAL} />
+            </Pressable>
+          ) : (
+            <View style={styles.backBtn} />
+          )}
+          <View style={styles.headerContent}>
+            <Text style={styles.headerTitle}>{targetPickerHeader.title}</Text>
+          </View>
+          <View style={styles.backBtn} />
         </View>
 
         <View style={styles.targetIntroCard}>
@@ -1125,9 +1136,7 @@ export default function ChatScreen() {
         </View>
 
         {targetsLoading ? (
-          <View style={styles.center}>
-            <ActivityIndicator color={HANWHA_ORANGE} />
-          </View>
+          <MessengerLoadingState variant="targets" />
         ) : targetsError ? (
           <View style={styles.center}>
             <Text style={styles.targetHelperText}>{targetsError}</Text>
@@ -1241,7 +1250,7 @@ export default function ChatScreen() {
                 bottom: 68 + bottomSafeInset + (Platform.OS === 'android' ? keyboardPadding : 0),
               },
             ]}>
-            <ActivityIndicator size="small" color={HANWHA_ORANGE} />
+            <BrandedLoadingSpinner size="sm" color={HANWHA_ORANGE} />
             <Text style={styles.uploadingText}>파일 전송 중...</Text>
             <TouchableOpacity onPress={handleCancelUpload} style={styles.cancelUploadBtn} activeOpacity={0.8}>
               <Ionicons name="close-circle" size={20} color="#666" />
@@ -1281,6 +1290,22 @@ export default function ChatScreen() {
           </View>
         </View>
       </KeyboardAvoidingView>
+
+      <MessengerMessageActionSheet
+        visible={Boolean(actionMessage)}
+        preview={actionMessage ? getMessageCopyText(actionMessage) : ''}
+        onClose={closeMessageActions}
+        onCopy={actionMessage ? handleCopyAction : undefined}
+        onSelectCopy={actionMessage ? handleSelectCopyAction : undefined}
+        onDelete={actionMessage?.sender_id === myId ? handleDeleteAction : undefined}
+      />
+
+      <MessageSelectCopySheet
+        visible={Boolean(selectCopyMessage)}
+        text={getMessageCopyText(selectCopyMessage)}
+        onClose={() => setSelectCopyMessage(null)}
+        bottomInset={insets.bottom}
+      />
     </View>
   );
 }
@@ -1289,12 +1314,12 @@ const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: SOFT_BG },
   center: { flex: 1, justifyContent: 'center', alignItems: 'center', paddingHorizontal: 16 },
   header: {
-    minHeight: 56,
+    minHeight: 64,
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'center',
-    paddingHorizontal: 16,
-    paddingVertical: 10,
+    justifyContent: 'space-between',
+    paddingHorizontal: 12,
+    paddingBottom: 12,
     backgroundColor: '#fff',
     borderBottomWidth: 1,
     borderBottomColor: '#F3F4F6',
@@ -1425,6 +1450,13 @@ const styles = StyleSheet.create({
   msgText: { fontSize: 15, lineHeight: 22, flexWrap: 'wrap', flexShrink: 1, width: '100%' },
   msgTextMe: { color: '#ffffff', fontWeight: '500' },
   msgTextOther: { color: CHARCOAL },
+  msgLinkText: { color: '#2563EB', textDecorationLine: 'underline', fontWeight: '700' },
+  messageBubbleLine: { flexDirection: 'row', alignItems: 'flex-end', gap: 6, width: '100%' },
+  messageBubbleLineMe: { justifyContent: 'flex-end' },
+  messageBubbleLineOther: { justifyContent: 'flex-start' },
+  messageSideMeta: { minWidth: 30, paddingBottom: 2 },
+  messageSideMetaMe: { alignItems: 'flex-end' },
+  messageSideMetaOther: { alignItems: 'flex-start' },
   timeText: { fontSize: 11, color: '#9CA3AF', marginBottom: 2, minWidth: 30 },
   inputWrapper: {
     backgroundColor: '#fff',

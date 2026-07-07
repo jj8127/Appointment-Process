@@ -1,9 +1,9 @@
 'use client';
 
 import { useSession } from '@/hooks/use-session';
+import { resolveAdminWebLoginRole } from '@/lib/admin-web-login-role';
 import { logger } from '@/lib/logger';
 import { normalizeStaffType } from '@/lib/staff-identity';
-import { supabase } from '@/lib/supabase';
 import {
     Button,
     Container,
@@ -63,7 +63,7 @@ function resolveLoginErrorMessage(error: unknown) {
 }
 
 export default function AuthPage() {
-    const { loginAs, role, residentId, hydrated, displayName } = useSession();
+    const { loginAs, role, residentId, hydrated } = useSession();
     const [phoneInput, setPhoneInput] = useState('');
     const [passwordInput, setPasswordInput] = useState('');
     const [loading, setLoading] = useState(false);
@@ -76,18 +76,14 @@ export default function AuthPage() {
 
     useEffect(() => {
         if (!hydrated) return;
-        if (role === 'admin' || role === 'manager') {
-            router.replace('/');
+        if (role === 'fc' && residentId) {
+            router.replace('/dashboard/referrals/graph');
             return;
         }
-        if (role === 'fc' && residentId) {
-            if (!displayName?.trim()) {
-                router.replace('/fc/new');
-            } else {
-                router.replace('/');
-            }
+        if (role === 'admin' || role === 'manager') {
+            router.replace('/dashboard');
         }
-    }, [hydrated, role, residentId, displayName, router]);
+    }, [hydrated, residentId, role, router]);
 
     const handleLogin = async () => {
         const code = phoneInput.trim();
@@ -124,15 +120,29 @@ export default function AuthPage() {
                 return;
             }
 
-            const { data, error } = await supabase.functions.invoke('login-with-password', {
-                body: { phone: digits, password: passwordInput.trim() },
+            const loginResponse = await fetch('/api/auth/login', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ phone: digits, password: passwordInput.trim() }),
             });
-            if (error) throw error;
+            const data = await loginResponse.json();
+            if (!loginResponse.ok && !data?.message) {
+                throw new Error('로그인 요청을 처리하지 못했습니다.');
+            }
             if (!data?.ok) {
-                if ((data?.code === 'needs_password_setup' || data?.code === 'not_found') && data?.role !== 'admin') {
+                if (data?.code === 'not_found' && data?.role !== 'admin') {
                     notifications.show({
                         title: '안내',
                         message: '계정정보가 없습니다. 회원가입 페이지로 이동합니다.',
+                        color: 'orange',
+                    });
+                    router.replace('/signup');
+                    return;
+                }
+                if ((data?.code === 'needs_password_setup' || data?.code === 'not_completed') && data?.role !== 'admin') {
+                    notifications.show({
+                        title: '안내',
+                        message: '회원가입이 완료되지 않았습니다. 회원가입 페이지로 이동합니다.',
                         color: 'orange',
                     });
                     router.replace('/signup');
@@ -147,15 +157,18 @@ export default function AuthPage() {
                 return;
             }
 
-            const nextRole = data.role === 'admin' ? 'admin' : data.role === 'manager' ? 'manager' : 'fc';
-            loginAs(nextRole, data.residentId ?? digits, data.displayName ?? '', normalizeStaffType(data.staffType));
-            if (nextRole === 'admin' || nextRole === 'manager') {
-                router.replace('/');
-            } else if (!data.displayName || data.displayName.trim() === '') {
-                router.replace('/fc/new');
-            } else {
-                router.replace('/');
+            const nextRole = resolveAdminWebLoginRole(data.role);
+            if (!nextRole) {
+                notifications.show({
+                    title: '로그인 실패',
+                    message: '계정 권한 정보를 확인할 수 없습니다.',
+                    color: 'red',
+                });
+                setLoading(false);
+                return;
             }
+            loginAs(nextRole, data.residentId ?? digits, data.displayName ?? '', normalizeStaffType(data.staffType));
+            router.replace(nextRole === 'fc' ? '/dashboard/referrals/graph' : '/dashboard');
         } catch (err: unknown) {
             const loginError = resolveLoginErrorMessage(err);
 
@@ -248,9 +261,9 @@ export default function AuthPage() {
                                 로그인
                             </Title>
                             <Text c="dimmed" size="sm" style={{ lineHeight: 1.6 }}>
-                                관리자는 지정된 번호 + 비밀번호
+                                관리자/본부장/FC 계정으로 로그인해주세요.
                                 <br />
-                                FC는 휴대폰 번호 + 비밀번호를 입력해주세요.
+                                FC 계정은 추천인 그래프만 이용할 수 있습니다.
                             </Text>
                         </Box>
 

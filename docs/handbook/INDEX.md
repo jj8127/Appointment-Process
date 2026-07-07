@@ -2,7 +2,7 @@ doc_id: FC-HANDBOOK-INDEX
 owner_repo: fc-onboarding-app
 owner_area: handbook
 audience: developer, operator
-last_verified: 2026-03-26
+last_verified: 2026-04-06
 source_of_truth: code + handbook/*
 
 # 가람in Handbook
@@ -22,6 +22,7 @@ source_of_truth: code + handbook/*
 - 브리지/세션: [shared/cross-repo-bridge-contract.md](E:/hanhwa/fc-onboarding-app/docs/handbook/shared/cross-repo-bridge-contract.md)
 - 보안/시크릿: [shared/security-and-secret-operations.md](E:/hanhwa/fc-onboarding-app/docs/handbook/shared/security-and-secret-operations.md)
 - 문서 계약: [shared/documentation-contract.md](E:/hanhwa/fc-onboarding-app/docs/handbook/shared/documentation-contract.md)
+- 실수 전용 기록: [MISTAKES.md](E:/hanhwa/fc-onboarding-app/.claude/MISTAKES.md)
 - ownership map: [shared/ownership-map.md](E:/hanhwa/fc-onboarding-app/docs/handbook/shared/ownership-map.md)
 - 역할/권한: [role-permission-matrix.md](E:/hanhwa/fc-onboarding-app/docs/handbook/role-permission-matrix.md)
 - 상태/전이: [workflow-state-matrix.md](E:/hanhwa/fc-onboarding-app/docs/handbook/workflow-state-matrix.md)
@@ -48,3 +49,8 @@ source_of_truth: code + handbook/*
 - [README.md](E:/hanhwa/fc-onboarding-app/README.md)
 - [docs/README.md](E:/hanhwa/fc-onboarding-app/docs/README.md)
 - [request_board handbook](E:/hanhwa/request_board/docs/handbook/INDEX.md)
+
+## Feature contract guardrails
+
+- Cross-surface feature contract matrix: [feature-contract-matrix.md](E:/hanhwa/fc-onboarding-app/docs/handbook/feature-contract-matrix.md)
+- Contract test map enforced by governance: [contract-test-map.json](E:/hanhwa/fc-onboarding-app/docs/handbook/contract-test-map.json)

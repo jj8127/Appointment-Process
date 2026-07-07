@@ -3,6 +3,7 @@
 import {
   Alert,
   Badge,
+  Box,
   Button,
   Card,
   Container,
@@ -24,13 +25,17 @@ import { notifications } from '@mantine/notifications';
 import {
   IconAlertCircle,
   IconBan,
+  IconGraph,
   IconKey,
   IconRefresh,
   IconSearch,
 } from '@tabler/icons-react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import Link from 'next/link';
+import { useSearchParams } from 'next/navigation';
 import { useDeferredValue, useState } from 'react';
 
+import { RecommenderSelect } from '@/components/RecommenderSelect';
 import { useSession } from '@/hooks/use-session';
 import type {
   ReferralAdminDetail,
@@ -39,14 +44,18 @@ import type {
   ReferralAdminListResponse,
   ReferralAdminMutationRequest,
   ReferralAdminMutationResponse,
+  ReferralAdminUnresolvedItem,
 } from '@/types/referrals';
 
 const PAGE_SIZE = 20;
 const BACKFILL_LIMIT = 100;
+const LEGACY_AUTO_RESOLVE_LIMIT = 100;
 
 type ActionModalState =
   | { action: 'backfill_missing_codes'; target: null }
   | { action: 'rotate_code' | 'disable_code'; target: ReferralAdminListItem }
+  | { action: 'link_legacy_recommender' | 'clear_legacy_recommender'; target: ReferralAdminUnresolvedItem }
+  | { action: 'auto_resolve_legacy_recommenders'; target: null }
   | null;
 
 function formatDateTime(value?: string | null) {
@@ -66,6 +75,9 @@ function getEventLabel(eventType: string) {
   if (eventType === 'code_generated') return '코드 발급';
   if (eventType === 'code_rotated') return '코드 재발급';
   if (eventType === 'code_disabled') return '코드 비활성';
+  if (eventType === 'admin_override_applied' || eventType === 'referral_changed') return '추천인 연결 변경';
+  if (eventType === 'referral_linked') return '추천인 연결';
+  if (eventType === 'referral_cleared') return '추천인 연결 해제';
   return eventType;
 }
 
@@ -88,6 +100,20 @@ function getEventActorLabel(event: ReferralAdminEventItem) {
     ?? getMetadataString(event.metadata, 'actorRole')
     ?? 'system'
   );
+}
+
+function getUnresolvedStatusLabel(status: ReferralAdminUnresolvedItem['matchStatus']) {
+  if (status === 'self_referral') return '잘못된 자기추천';
+  if (status === 'ambiguous') return '동명이인 후보 다수';
+  if (status === 'auto_resolvable') return '자동 연결 가능';
+  return '후보 없음';
+}
+
+function getUnresolvedStatusColor(status: ReferralAdminUnresolvedItem['matchStatus']) {
+  if (status === 'self_referral') return 'red';
+  if (status === 'ambiguous') return 'orange';
+  if (status === 'auto_resolvable') return 'blue';
+  return 'gray';
 }
 
 async function fetchReferrals(params: { page: number; search: string; fcId: string | null }) {
@@ -322,11 +348,15 @@ function DetailPanel(props: {
 export default function ReferralDashboardPage() {
   const queryClient = useQueryClient();
   const { hydrated, role, isReadOnly } = useSession();
+  const searchParams = useSearchParams();
   const [page, setPage] = useState(1);
   const [search, setSearch] = useState('');
-  const [selectedFcId, setSelectedFcId] = useState<string | null>(null);
+  const [selectedFcId, setSelectedFcId] = useState<string | null>(
+    () => searchParams.get('fcId')?.trim() || null,
+  );
   const [actionModal, setActionModal] = useState<ActionModalState>(null);
   const [reasonInput, setReasonInput] = useState('');
+  const [legacySelectedInviterFcId, setLegacySelectedInviterFcId] = useState<string | null>(null);
   const deferredSearch = useDeferredValue(search);
 
   const isAuthorized = hydrated && (role === 'admin' || role === 'manager');
@@ -335,6 +365,7 @@ export default function ReferralDashboardPage() {
     queryKey: ['dashboard-referrals', 'list', page, deferredSearch],
     queryFn: () => fetchReferrals({ page, search: deferredSearch, fcId: null }),
     enabled: isAuthorized,
+    placeholderData: (previousData) => previousData,
   });
 
   const items = listQuery.data?.items ?? [];
@@ -356,6 +387,8 @@ export default function ReferralDashboardPage() {
   const showMutateControls = role === 'admin' && !isReadOnly && serverCanMutate;
   const summary = listQuery.data?.summary;
   const detail = detailQuery.data?.detail ?? null;
+  const unresolvedItems = listQuery.data?.unresolvedItems ?? [];
+  const autoResolvableCount = unresolvedItems.filter((item) => item.matchStatus === 'auto_resolvable').length;
   const total = listQuery.data?.total ?? 0;
   const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
   const selectedItem = items.find((item) => item.fcId === effectiveSelectedFcId) ?? null;
@@ -367,9 +400,15 @@ export default function ReferralDashboardPage() {
       const message =
         variables.action === 'backfill_missing_codes'
           ? `추천코드 일괄 발급을 실행했습니다. 생성 ${Number(result.created ?? 0)}건, 건너뜀 ${Number(result.skipped ?? 0)}건`
+          : variables.action === 'auto_resolve_legacy_recommenders'
+            ? `안전 자동 정리를 실행했습니다. 연결 ${Number(result.linked ?? 0)}건, 건너뜀 ${Number(result.skipped ?? 0)}건, 실패 ${Number(result.failed ?? 0)}건`
           : variables.action === 'rotate_code'
             ? '추천코드를 재발급했습니다.'
-            : '추천코드를 비활성화했습니다.';
+            : variables.action === 'disable_code'
+              ? '추천코드를 비활성화했습니다.'
+              : variables.action === 'clear_legacy_recommender'
+                ? '레거시 추천인을 제거했습니다.'
+              : '레거시 추천인을 구조화 링크로 저장했습니다.';
 
       notifications.show({
         title: '처리 완료',
@@ -379,6 +418,7 @@ export default function ReferralDashboardPage() {
 
       setActionModal(null);
       setReasonInput('');
+      setLegacySelectedInviterFcId(null);
       queryClient.invalidateQueries({ queryKey: ['dashboard-referrals'] });
     },
     onError: (error: Error) => {
@@ -408,9 +448,30 @@ export default function ReferralDashboardPage() {
     setActionModal({ action: 'disable_code', target: selectedItem });
   };
 
+  const openLegacyLinkModal = (target: ReferralAdminUnresolvedItem) => {
+    if (!showMutateControls) {
+      return;
+    }
+
+    setReasonInput('');
+    setLegacySelectedInviterFcId(target.autoResolvableCandidate?.fcId ?? null);
+    setActionModal({ action: 'link_legacy_recommender', target });
+  };
+
+  const openLegacyClearModal = (target: ReferralAdminUnresolvedItem) => {
+    if (!showMutateControls) {
+      return;
+    }
+
+    setReasonInput('');
+    setLegacySelectedInviterFcId(null);
+    setActionModal({ action: 'clear_legacy_recommender', target });
+  };
+
   const closeModal = () => {
     setActionModal(null);
     setReasonInput('');
+    setLegacySelectedInviterFcId(null);
   };
 
   const submitAction = () => {
@@ -426,12 +487,59 @@ export default function ReferralDashboardPage() {
       return;
     }
 
+    if (actionModal.action === 'auto_resolve_legacy_recommenders') {
+      mutation.mutate({
+        action: 'auto_resolve_legacy_recommenders',
+        payload: {
+          limit: LEGACY_AUTO_RESOLVE_LIMIT,
+          reason: 'legacy_auto_resolve_exact_unique',
+        },
+      });
+      return;
+    }
+
     if (!reasonInput.trim()) {
       notifications.show({
         title: '사유 입력',
         message: '사유를 입력해주세요.',
         color: 'red',
       });
+      return;
+    }
+
+    if (actionModal.action === 'clear_legacy_recommender') {
+      mutation.mutate({
+        action: 'clear_legacy_recommender',
+        payload: {
+          inviteeFcId: actionModal.target.inviteeFcId,
+          reason: reasonInput.trim(),
+        },
+      });
+      return;
+    }
+
+    if (actionModal.action === 'link_legacy_recommender') {
+      if (!legacySelectedInviterFcId) {
+        notifications.show({
+          title: '추천인 선택',
+          message: '연결할 추천인을 선택해주세요.',
+          color: 'red',
+        });
+        return;
+      }
+
+      mutation.mutate({
+        action: 'link_legacy_recommender',
+        payload: {
+          inviteeFcId: actionModal.target.inviteeFcId,
+          inviterFcId: legacySelectedInviterFcId,
+          reason: reasonInput.trim(),
+        },
+      });
+      return;
+    }
+
+    if (actionModal.action !== 'rotate_code' && actionModal.action !== 'disable_code') {
       return;
     }
 
@@ -466,18 +574,28 @@ export default function ReferralDashboardPage() {
             </Text>
           </div>
 
-          {showMutateControls ? (
+          <Group gap="xs">
             <Button
-              leftSection={<IconRefresh size={16} />}
-              onClick={() => setActionModal({ action: 'backfill_missing_codes', target: null })}
+              component={Link}
+              href="/dashboard/referrals/graph"
+              variant="subtle"
+              leftSection={<IconGraph size={16} />}
             >
-              일괄 발급
+              그래프 보기
             </Button>
-          ) : (
-            <Badge color="gray" variant="light">
-              {role === 'manager' ? '본부장 읽기 전용' : '조회 전용'}
-            </Badge>
-          )}
+            {showMutateControls ? (
+              <Button
+                leftSection={<IconRefresh size={16} />}
+                onClick={() => setActionModal({ action: 'backfill_missing_codes', target: null })}
+              >
+                일괄 발급
+              </Button>
+            ) : (
+              <Badge color="gray" variant="light">
+                {role === 'manager' ? '본부장 읽기 전용' : '조회 전용'}
+              </Badge>
+            )}
+          </Group>
         </Group>
 
         {!showMutateControls ? (
@@ -497,12 +615,11 @@ export default function ReferralDashboardPage() {
           <SummaryCard title="활성 코드 보유" value={summary?.activeCodeCount ?? 0} tone="blue" />
           <SummaryCard title="미발급 FC" value={summary?.missingCodeCount ?? 0} />
           <SummaryCard title="비활성 코드 이력" value={summary?.disabledCodeCount ?? 0} tone="gray" />
+          <SummaryCard title="검토 필요 추천인" value={summary?.unresolvedLegacyCount ?? 0} />
         </SimpleGrid>
 
         <SimpleGrid cols={{ base: 1, xl: 2 }} spacing="lg">
-          <Paper withBorder radius="md" p="lg" pos="relative" bg="white">
-            <LoadingOverlay visible={listQuery.isLoading} overlayProps={{ radius: 'md', blur: 1 }} />
-
+          <Paper withBorder radius="md" p="lg" bg="white">
             <Stack gap="md">
               <Group justify="space-between" align="center">
                 <TextInput
@@ -520,81 +637,87 @@ export default function ReferralDashboardPage() {
                 </Button>
               </Group>
 
-              <ScrollArea>
-                <Table highlightOnHover>
-                  <Table.Thead>
-                    <Table.Tr>
-                      <Table.Th>FC</Table.Th>
-                      <Table.Th>활성 코드</Table.Th>
-                      <Table.Th>비활성 이력</Table.Th>
-                      <Table.Th>최근 변경</Table.Th>
-                    </Table.Tr>
-                  </Table.Thead>
-                  <Table.Tbody>
-                    {items.length ? (
-                      items.map((item) => (
-                        <Table.Tr
-                          key={item.fcId}
-                          style={{ cursor: 'pointer' }}
-                          bg={effectiveSelectedFcId === item.fcId ? 'orange.0' : undefined}
-                          onClick={() => setSelectedFcId(item.fcId)}
-                        >
-                          <Table.Td>
-                            <Stack gap={0}>
-                              <Text size="sm" fw={600}>
-                                {item.name}
-                              </Text>
-                              <Text size="xs" c="dimmed">
-                                {item.affiliation || '소속 미기록'}
-                              </Text>
-                              <Text size="xs" c="dimmed">
-                                {item.phone}
-                              </Text>
-                            </Stack>
-                          </Table.Td>
-                          <Table.Td>
-                            {item.activeCode ? (
-                              <Stack gap={2}>
-                                <Badge color="orange" variant="light" w="fit-content">
-                                  {item.activeCode}
-                                </Badge>
-                                <Text size="xs" c="dimmed">
-                                  {formatDateTime(item.activeCodeCreatedAt)}
-                                </Text>
-                              </Stack>
-                            ) : (
-                              <Badge color="gray" variant="light">
-                                미발급
-                              </Badge>
-                            )}
-                          </Table.Td>
-                          <Table.Td>{item.disabledCodeCount}</Table.Td>
-                          <Table.Td>
-                            <Text size="xs" c="dimmed">
-                              {formatDateTime(item.lastEventAt)}
-                            </Text>
-                          </Table.Td>
-                        </Table.Tr>
-                      ))
-                    ) : (
-                      <Table.Tr>
-                        <Table.Td colSpan={4}>
-                          <Text size="sm" c="dimmed" ta="center" py="md">
-                            {listQuery.isLoading ? '불러오는 중입니다.' : '조회 결과가 없습니다.'}
-                          </Text>
-                        </Table.Td>
-                      </Table.Tr>
-                    )}
-                  </Table.Tbody>
-                </Table>
-              </ScrollArea>
+              <Box pos="relative">
+                <LoadingOverlay visible={listQuery.isFetching} overlayProps={{ radius: 'md', blur: 1 }} />
 
-              <Group justify="space-between" align="center">
-                <Text size="sm" c="dimmed">
-                  총 {total}건
-                </Text>
-                <Pagination total={totalPages} value={page} onChange={setPage} />
-              </Group>
+                <Stack gap="md">
+                  <ScrollArea>
+                    <Table highlightOnHover>
+                      <Table.Thead>
+                        <Table.Tr>
+                          <Table.Th>FC</Table.Th>
+                          <Table.Th>활성 코드</Table.Th>
+                          <Table.Th>비활성 이력</Table.Th>
+                          <Table.Th>최근 변경</Table.Th>
+                        </Table.Tr>
+                      </Table.Thead>
+                      <Table.Tbody>
+                        {items.length ? (
+                          items.map((item) => (
+                            <Table.Tr
+                              key={item.fcId}
+                              style={{ cursor: 'pointer' }}
+                              bg={effectiveSelectedFcId === item.fcId ? 'orange.0' : undefined}
+                              onClick={() => setSelectedFcId(item.fcId)}
+                            >
+                              <Table.Td>
+                                <Stack gap={0}>
+                                  <Text size="sm" fw={600}>
+                                    {item.name}
+                                  </Text>
+                                  <Text size="xs" c="dimmed">
+                                    {item.affiliation || '소속 미기록'}
+                                  </Text>
+                                  <Text size="xs" c="dimmed">
+                                    {item.phone}
+                                  </Text>
+                                </Stack>
+                              </Table.Td>
+                              <Table.Td>
+                                {item.activeCode ? (
+                                  <Stack gap={2}>
+                                    <Badge color="orange" variant="light" w="fit-content">
+                                      {item.activeCode}
+                                    </Badge>
+                                    <Text size="xs" c="dimmed">
+                                      {formatDateTime(item.activeCodeCreatedAt)}
+                                    </Text>
+                                  </Stack>
+                                ) : (
+                                  <Badge color="gray" variant="light">
+                                    미발급
+                                  </Badge>
+                                )}
+                              </Table.Td>
+                              <Table.Td>{item.disabledCodeCount}</Table.Td>
+                              <Table.Td>
+                                <Text size="xs" c="dimmed">
+                                  {formatDateTime(item.lastEventAt)}
+                                </Text>
+                              </Table.Td>
+                            </Table.Tr>
+                          ))
+                        ) : (
+                          <Table.Tr>
+                            <Table.Td colSpan={4}>
+                              <Text size="sm" c="dimmed" ta="center" py="md">
+                                {listQuery.isLoading ? '불러오는 중입니다.' : '조회 결과가 없습니다.'}
+                              </Text>
+                            </Table.Td>
+                          </Table.Tr>
+                        )}
+                      </Table.Tbody>
+                    </Table>
+                  </ScrollArea>
+
+                  <Group justify="space-between" align="center">
+                    <Text size="sm" c="dimmed">
+                      총 {total}건
+                    </Text>
+                    <Pagination total={totalPages} value={page} onChange={setPage} />
+                  </Group>
+                </Stack>
+              </Box>
             </Stack>
           </Paper>
 
@@ -612,6 +735,122 @@ export default function ReferralDashboardPage() {
             />
           </Paper>
         </SimpleGrid>
+
+        <Paper withBorder radius="md" p="lg" bg="white">
+          <Stack gap="md">
+            <Group justify="space-between" align="flex-end">
+              <div>
+                <Title order={4}>레거시 추천인 검토</Title>
+                <Text size="sm" c="dimmed" mt={4}>
+                  `recommender` 문자열만 있고 구조화된 `recommender_fc_id`가 없는 FC를 검토합니다.
+                </Text>
+              </div>
+              <Group gap="xs">
+                <Badge color="gray" variant="light">
+                  총 {unresolvedItems.length}건
+                </Badge>
+                {showMutateControls ? (
+                  <Button
+                    variant="light"
+                    color="blue"
+                    disabled={autoResolvableCount === 0}
+                    onClick={() => setActionModal({ action: 'auto_resolve_legacy_recommenders', target: null })}
+                  >
+                    안전 자동 정리
+                  </Button>
+                ) : null}
+              </Group>
+            </Group>
+
+            {unresolvedItems.length ? (
+              <ScrollArea>
+                <Table highlightOnHover>
+                  <Table.Thead>
+                    <Table.Tr>
+                      <Table.Th>FC</Table.Th>
+                      <Table.Th>기존 추천인</Table.Th>
+                      <Table.Th>후보 현황</Table.Th>
+                      <Table.Th>작업</Table.Th>
+                    </Table.Tr>
+                  </Table.Thead>
+                  <Table.Tbody>
+                    {unresolvedItems.map((item) => (
+                      <Table.Tr key={item.inviteeFcId}>
+                        <Table.Td>
+                          <Stack gap={0}>
+                            <Text size="sm" fw={600}>
+                              {item.inviteeName}
+                            </Text>
+                            <Text size="xs" c="dimmed">
+                              {item.inviteeAffiliation || '소속 미기록'}
+                            </Text>
+                            <Text size="xs" c="dimmed">
+                              {item.inviteePhone}
+                            </Text>
+                          </Stack>
+                        </Table.Td>
+                        <Table.Td>
+                          <Text size="sm">{item.legacyRecommenderName}</Text>
+                        </Table.Td>
+                        <Table.Td>
+                          <Stack gap={4}>
+                            <Badge color={getUnresolvedStatusColor(item.matchStatus)} variant="light" w="fit-content">
+                              {getUnresolvedStatusLabel(item.matchStatus)}
+                            </Badge>
+                            <Text size="xs" c="dimmed">
+                              후보 {item.candidateCount}명
+                            </Text>
+                            {item.candidatePreview.length ? (
+                              <Stack gap={2}>
+                                {item.candidatePreview.map((preview) => (
+                                  <Text key={preview} size="xs" c="dimmed">
+                                    {preview}
+                                  </Text>
+                                ))}
+                              </Stack>
+                            ) : null}
+                          </Stack>
+                        </Table.Td>
+                        <Table.Td>
+                          {showMutateControls ? (
+                            <Group gap="xs">
+                              {item.matchStatus === 'self_referral' ? (
+                                <>
+                                  <Button size="xs" color="red" variant="light" onClick={() => openLegacyClearModal(item)}>
+                                    제거
+                                  </Button>
+                                  <Button size="xs" variant="light" onClick={() => openLegacyLinkModal(item)}>
+                                    재지정
+                                  </Button>
+                                </>
+                              ) : item.matchStatus === 'auto_resolvable' ? (
+                                <Button size="xs" color="blue" variant="light" onClick={() => openLegacyLinkModal(item)}>
+                                  확정
+                                </Button>
+                              ) : (
+                                <Button size="xs" variant="light" onClick={() => openLegacyLinkModal(item)}>
+                                  검토
+                                </Button>
+                              )}
+                            </Group>
+                          ) : (
+                            <Badge color="gray" variant="light">
+                              읽기 전용
+                            </Badge>
+                          )}
+                        </Table.Td>
+                      </Table.Tr>
+                    ))}
+                  </Table.Tbody>
+                </Table>
+              </ScrollArea>
+            ) : (
+              <Text size="sm" c="dimmed">
+                검토가 필요한 레거시 추천인이 없습니다.
+              </Text>
+            )}
+          </Stack>
+        </Paper>
       </Stack>
 
       <Modal
@@ -620,9 +859,15 @@ export default function ReferralDashboardPage() {
         title={
           actionModal?.action === 'backfill_missing_codes'
             ? '기존 FC 추천코드 일괄 발급'
+            : actionModal?.action === 'auto_resolve_legacy_recommenders'
+              ? '레거시 추천인 안전 자동 정리'
             : actionModal?.action === 'rotate_code'
               ? '추천코드 재발급'
-              : '추천코드 비활성'
+            : actionModal?.action === 'disable_code'
+                ? '추천코드 비활성'
+                : actionModal?.action === 'clear_legacy_recommender'
+                  ? '레거시 추천인 제거'
+                : '레거시 추천인 연결'
         }
         centered
       >
@@ -631,11 +876,81 @@ export default function ReferralDashboardPage() {
             <Alert color="orange" icon={<IconAlertCircle size={16} />}>
               한 번 실행할 때 최대 {BACKFILL_LIMIT}명의 미발급 FC를 처리합니다. 활성 코드가 있는 FC는 자동으로 건너뜁니다.
             </Alert>
-          ) : (
+          ) : actionModal?.action === 'auto_resolve_legacy_recommenders' ? (
+            <Alert color="blue" icon={<IconAlertCircle size={16} />}>
+              exact-unique로 확정 가능한 레거시 추천인만 최대 {LEGACY_AUTO_RESOLVE_LIMIT}건까지 자동 연결합니다.
+              동명이인, 후보 없음, 자기추천은 자동 정리 대상에서 제외됩니다.
+            </Alert>
+          ) : actionModal?.action === 'clear_legacy_recommender' ? (
             <>
               <Text size="sm">
-                대상: <strong>{actionModal?.target.name}</strong> ({actionModal?.target.phone})
+                대상: <strong>{actionModal.target.inviteeName}</strong> ({actionModal.target.inviteePhone})
               </Text>
+              <Text size="sm" c="dimmed">
+                기존 추천인 문자열: {actionModal.target.legacyRecommenderName}
+              </Text>
+              <Alert color="red" icon={<IconAlertCircle size={16} />}>
+                자기 자신을 추천인으로 적은 잘못된 레거시 데이터를 제거합니다.
+              </Alert>
+              <Textarea
+                label="사유"
+                placeholder="자기추천 제거 사유를 입력해주세요."
+                minRows={3}
+                value={reasonInput}
+                onChange={(event) => setReasonInput(event.currentTarget.value)}
+              />
+            </>
+          ) : actionModal?.action === 'link_legacy_recommender' ? (
+            <>
+              <Text size="sm">
+                대상: <strong>{actionModal.target.inviteeName}</strong> ({actionModal.target.inviteePhone})
+              </Text>
+              <Text size="sm" c="dimmed">
+                기존 추천인 문자열: {actionModal.target.legacyRecommenderName}
+              </Text>
+              {actionModal.target.matchStatus === 'auto_resolvable' && actionModal.target.autoResolvableCandidate ? (
+                <Alert color="blue" icon={<IconAlertCircle size={16} />}>
+                  자동 연결 후보:
+                  {' '}
+                  {actionModal.target.autoResolvableCandidate.label}
+                  {actionModal.target.autoResolvableCandidate.activeCode ? ` · ${actionModal.target.autoResolvableCandidate.activeCode}` : ''}
+                </Alert>
+              ) : null}
+              {actionModal.target.matchStatus === 'missing_candidate' ? (
+                <Alert color="gray" icon={<IconAlertCircle size={16} />}>
+                  활성 코드 후보가 없어 자동으로는 연결할 수 없습니다. 필요한 경우 아래에서 수동으로 추천인을 지정하세요.
+                </Alert>
+              ) : null}
+              {actionModal.target.matchStatus === 'ambiguous' ? (
+                <Alert color="orange" icon={<IconAlertCircle size={16} />}>
+                  동명이인 후보가 여러 명입니다. 정확한 추천인을 수동으로 선택해야 합니다.
+                </Alert>
+              ) : null}
+              {actionModal.target.matchStatus !== 'auto_resolvable' ? (
+                <RecommenderSelect
+                  value={legacySelectedInviterFcId}
+                  inviteeFcId={actionModal.target.inviteeFcId}
+                  onChange={(candidate) => setLegacySelectedInviterFcId(candidate?.fcId ?? null)}
+                />
+              ) : null}
+              <Textarea
+                label="사유"
+                placeholder="운영 연결 사유를 입력해주세요."
+                minRows={3}
+                value={reasonInput}
+                onChange={(event) => setReasonInput(event.currentTarget.value)}
+              />
+            </>
+          ) : (
+            <>
+              {(() => {
+                const target = actionModal?.target as ReferralAdminListItem | undefined;
+                return (
+                  <Text size="sm">
+                    대상: <strong>{target?.name}</strong> ({target?.phone})
+                  </Text>
+                );
+              })()}
               <Textarea
                 label="사유"
                 placeholder="운영 사유를 입력해주세요."
@@ -651,7 +966,7 @@ export default function ReferralDashboardPage() {
               취소
             </Button>
             <Button
-              color={actionModal?.action === 'disable_code' ? 'red' : 'orange'}
+              color={actionModal?.action === 'disable_code' || actionModal?.action === 'clear_legacy_recommender' ? 'red' : actionModal?.action === 'auto_resolve_legacy_recommenders' ? 'blue' : 'orange'}
               loading={mutation.isPending}
               onClick={submitAction}
             >

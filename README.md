@@ -1,4 +1,4 @@
-# 가람in FC Onboarding Monorepo
+﻿# 가람in FC Onboarding Monorepo
 
 > Last verified: `2026-03-28`
 > Source of truth: [AGENTS.md](./AGENTS.md)
@@ -19,13 +19,14 @@
 
 ## Current Snapshot
 
-- FC 핵심 흐름은 `회원가입 -> 본인확인 -> 수당동의 -> 시험 -> 서류 -> 한화 위촉 URL -> 생명/손해 위촉 -> 완료`까지 end-to-end로 구현되어 있습니다.
+- FC 핵심 흐름은 `회원가입 -> 본인확인 -> 보증 보험 동의 -> 시험 -> 서류 -> 한화 위촉 URL -> 생명/손해 위촉 -> 완료`까지 end-to-end로 구현되어 있습니다.
 - FC 가입은 `none / life_only / nonlife_only / both` 커미션 완료 유형을 지원하며, 부분 완료 사용자는 `draft`부터 남은 트랙을 계속 진행합니다.
 - `manager`는 앱/웹 전반에서 읽기 전용 역할을 유지합니다.
 - `developer`는 앱 권한은 총무와 같지만 표기와 request_board 브릿지 정체성은 별도 처리됩니다.
 - request_board-linked 설계매니저는 앱 내부 별도 role을 두지 않고 `fc_profiles / fc_credentials`와 `affiliation='<보험사> 설계매니저'` 패턴으로 관리합니다.
-- 현재 앱 DB 기준 request_board-linked 설계매니저 프로필은 `54명`입니다.
+- 현재 앱 DB 기준 request_board-linked 설계매니저 프로필은 `59명`입니다.
 - FC/본부장 affiliation이 request_board로 함께 동기화되어, GaramLink 쪽에서는 `소속 · 이름` 기준으로 노출할 수 있습니다.
+- request_board password sync는 request_board-backed 계정만 대상으로 유지합니다. `manager`와 `developer` subtype은 `fc` 계열로 sync되고, plain `admin`은 GaramLink direct 계정으로 미러링하지 않습니다.
 - `user_presence` 기반 활동 상태와 GaramLink 임베디드 메신저의 optimistic send / unread sync가 반영되어 있습니다.
 
 ## Architecture
@@ -176,6 +177,22 @@ ADMIN_PUSH_SECRET=...
 NEXT_PUBLIC_REQUEST_BOARD_URL=...
 ```
 
+### Sentry Observability
+
+```bash
+EXPO_PUBLIC_SENTRY_DSN=...
+EXPO_PUBLIC_SENTRY_ENVIRONMENT=production
+EXPO_PUBLIC_SENTRY_RELEASE=...
+SENTRY_AUTH_TOKEN=...
+SENTRY_READ_AUTH_TOKEN=...
+SENTRY_ORG=hanhwa-lifelab
+SENTRY_PROJECT=react-native
+```
+
+- `SENTRY_AUTH_TOKEN`은 Expo/Next release, source-map upload용 secret입니다. Sentry issue/event 조회 fallback으로 사용하지 않습니다.
+- Sentry API 조회(organization/project/issue/event/release/artifact)는 `SENTRY_READ_AUTH_TOKEN`만 사용합니다.
+- local verification build에서 source-map upload나 release 상태 변경을 피하려면 해당 command에서 `SENTRY_AUTH_TOKEN`을 비우고 실행합니다.
+
 ### Supabase Edge Function Secrets
 
 ```bash
@@ -211,6 +228,9 @@ ADMIN_PUSH_SECRET=...
 - 로그인 시 앱 세션 토큰과 request_board 브릿지 토큰을 함께 발급합니다.
 - 세션 복원 시 `sync-request-board-session`으로 GaramLink 세션을 자동 복구합니다.
 - 개발 빌드에서 request_board URL env가 비어 있으면 Expo host 기준으로 로컬 API/Web URL을 자동 해석합니다.
+- `set-password`와 `reset-password`는 request_board-backed 대상만 `/api/auth/sync-password`로 sync합니다.
+- `manager`는 request_board 쪽에서 `fc`로 정규화되고, `developer` subtype도 `fc` mirror만 유지합니다.
+- plain `admin`은 request_board direct 계정으로 sync하지 않으며, `set-admin-password`도 더 이상 request_board admin sync를 시도하지 않습니다.
 
 ## Implementation Guardrails
 

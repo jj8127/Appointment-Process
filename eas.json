@@ -6,13 +6,31 @@
   "build": {
     "development": {
       "developmentClient": true,
-      "distribution": "internal"
+      "distribution": "internal",
+      "env": {
+        "EXPO_PUBLIC_SENTRY_DSN": "https://29fc6e2ee7eb99961a604802ba381af7@o4511426401861632.ingest.de.sentry.io/4511426412740688",
+        "EXPO_PUBLIC_SENTRY_ENVIRONMENT": "development",
+        "SENTRY_ORG": "hanhwa-lifelab",
+        "SENTRY_PROJECT": "react-native"
+      }
     },
     "preview": {
-      "distribution": "internal"
+      "distribution": "internal",
+      "env": {
+        "EXPO_PUBLIC_SENTRY_DSN": "https://29fc6e2ee7eb99961a604802ba381af7@o4511426401861632.ingest.de.sentry.io/4511426412740688",
+        "EXPO_PUBLIC_SENTRY_ENVIRONMENT": "preview",
+        "SENTRY_ORG": "hanhwa-lifelab",
+        "SENTRY_PROJECT": "react-native"
+      }
     },
     "production": {
-      "autoIncrement": true
+      "autoIncrement": true,
+      "env": {
+        "EXPO_PUBLIC_SENTRY_DSN": "https://29fc6e2ee7eb99961a604802ba381af7@o4511426401861632.ingest.de.sentry.io/4511426412740688",
+        "EXPO_PUBLIC_SENTRY_ENVIRONMENT": "production",
+        "SENTRY_ORG": "hanhwa-lifelab",
+        "SENTRY_PROJECT": "react-native"
+      }
     }
   },
   "submit": {

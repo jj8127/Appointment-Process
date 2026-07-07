@@ -13,18 +13,47 @@ type SignedTokenPayloadBase = {
   exp: number;
 };
 
-type BridgeTokenPayload = SignedTokenPayloadBase & {
+export type BridgeTokenPayload = SignedTokenPayloadBase & {
   kind: 'request_board_bridge';
   role: RequestBoardBridgeRole;
   affiliation?: string | null;
 };
 
-type AppSessionTokenPayload = SignedTokenPayloadBase & {
+export type AppSessionTokenPayload = SignedTokenPayloadBase & {
   kind: 'fc_onboarding_session';
   role: AppSessionSourceRole;
   staffType?: AppSessionStaffType;
   fcId?: string;
 };
+
+type SignedTokenVerificationResult<TPayload extends SignedTokenPayloadBase> =
+  | { ok: true; payload: TPayload }
+  | { ok: false; reason: 'invalid_token' | 'expired_token' };
+
+type AppSessionTokenParseResult =
+  | { ok: true; payload: AppSessionTokenPayload }
+  | {
+    ok: false;
+    code: 'invalid_app_session' | 'expired_app_session';
+    message: string;
+  };
+
+type BridgeTokenParseResult =
+  | { ok: true; payload: BridgeTokenPayload }
+  | {
+    ok: false;
+    code: 'invalid_bridge_token' | 'expired_bridge_token';
+    message: string;
+  };
+
+type RequiredAppSessionResult =
+  | { ok: true; session: AppSessionTokenPayload }
+  | {
+    ok: false;
+    code: 'missing_app_session' | 'invalid_app_session' | 'expired_app_session';
+    message: string;
+    status: number;
+  };
 
 export function getEnv(name: string): string | undefined {
   const g = globalThis as unknown as {
@@ -34,6 +63,48 @@ export function getEnv(name: string): string | undefined {
   if (g?.Deno?.env?.get) return g.Deno.env.get(name);
   if (g?.process?.env) return g.process.env[name];
   return undefined;
+}
+
+const LEGACY_SHARED_BRIDGE_SECRET = 'REQUEST_BOARD_AUTH_BRIDGE_SECRET';
+
+function getTrimmedEnv(name: string) {
+  return (getEnv(name) ?? '').trim();
+}
+
+function uniqueSecrets(values: Array<string | undefined | null>) {
+  const seen = new Set<string>();
+  const secrets: string[] = [];
+  values.forEach((value) => {
+    const secret = String(value ?? '').trim();
+    if (!secret || seen.has(secret)) return;
+    seen.add(secret);
+    secrets.push(secret);
+  });
+  return secrets;
+}
+
+function getBridgeSigningSecret() {
+  return getTrimmedEnv('REQUEST_BOARD_BRIDGE_TOKEN_SECRET') || getTrimmedEnv(LEGACY_SHARED_BRIDGE_SECRET);
+}
+
+function getBridgeVerificationSecrets() {
+  return uniqueSecrets([
+    getTrimmedEnv('REQUEST_BOARD_BRIDGE_TOKEN_SECRET'),
+    getTrimmedEnv('REQUEST_BOARD_BRIDGE_TOKEN_PREVIOUS_SECRET'),
+    getTrimmedEnv(LEGACY_SHARED_BRIDGE_SECRET),
+  ]);
+}
+
+function getAppSessionSigningSecret() {
+  return getTrimmedEnv('FC_APP_SESSION_TOKEN_SECRET') || getTrimmedEnv(LEGACY_SHARED_BRIDGE_SECRET);
+}
+
+function getAppSessionVerificationSecrets() {
+  return uniqueSecrets([
+    getTrimmedEnv('FC_APP_SESSION_TOKEN_SECRET'),
+    getTrimmedEnv('FC_APP_SESSION_TOKEN_PREVIOUS_SECRET'),
+    getTrimmedEnv(LEGACY_SHARED_BRIDGE_SECRET),
+  ]);
 }
 
 function toBase64(bytes: Uint8Array) {
@@ -87,34 +158,61 @@ async function buildSignedToken<TPayload extends SignedTokenPayloadBase>(
 async function verifySignedToken<TPayload extends SignedTokenPayloadBase>(
   token: string,
   secret: string,
-) {
+) : Promise<SignedTokenVerificationResult<TPayload>> {
   const [payloadPart, signaturePart] = token.split('.');
-  if (!payloadPart || !signaturePart) return null;
+  if (!payloadPart || !signaturePart) {
+    return { ok: false, reason: 'invalid_token' };
+  }
 
   const expectedSignature = await signPayload(payloadPart, secret);
   const expectedBytes = decodeBase64Url(expectedSignature);
   const providedBytes = decodeBase64Url(signaturePart);
-  if (!expectedBytes || !providedBytes) return null;
-  if (expectedBytes.length !== providedBytes.length) return null;
+  if (!expectedBytes || !providedBytes) {
+    return { ok: false, reason: 'invalid_token' };
+  }
+  if (expectedBytes.length !== providedBytes.length) {
+    return { ok: false, reason: 'invalid_token' };
+  }
 
   let mismatch = 0;
   for (let i = 0; i < expectedBytes.length; i += 1) {
     mismatch |= expectedBytes[i] ^ providedBytes[i];
   }
-  if (mismatch !== 0) return null;
+  if (mismatch !== 0) {
+    return { ok: false, reason: 'invalid_token' };
+  }
 
   const payloadBytes = decodeBase64Url(payloadPart);
-  if (!payloadBytes) return null;
+  if (!payloadBytes) {
+    return { ok: false, reason: 'invalid_token' };
+  }
 
   try {
     const parsed = JSON.parse(new TextDecoder().decode(payloadBytes)) as Partial<TPayload>;
-    if (typeof parsed.phone !== 'string' || typeof parsed.exp !== 'number') return null;
+    if (typeof parsed.phone !== 'string' || typeof parsed.exp !== 'number') {
+      return { ok: false, reason: 'invalid_token' };
+    }
     const nowSec = Math.floor(Date.now() / 1000);
-    if (parsed.exp <= nowSec) return null;
-    return parsed as TPayload;
+    if (parsed.exp <= nowSec) {
+      return { ok: false, reason: 'expired_token' };
+    }
+    return { ok: true, payload: parsed as TPayload };
   } catch {
-    return null;
+    return { ok: false, reason: 'invalid_token' };
   }
+}
+
+async function verifySignedTokenWithSecrets<TPayload extends SignedTokenPayloadBase>(
+  token: string,
+  secrets: string[],
+): Promise<SignedTokenVerificationResult<TPayload>> {
+  let sawExpiredToken = false;
+  for (const secret of secrets) {
+    const parsed = await verifySignedToken<TPayload>(token, secret);
+    if (parsed.ok) return parsed;
+    if (parsed.reason === 'expired_token') sawExpiredToken = true;
+  }
+  return { ok: false, reason: sawExpiredToken ? 'expired_token' : 'invalid_token' };
 }
 
 export async function createRequestBoardBridgeToken(
@@ -122,7 +220,7 @@ export async function createRequestBoardBridgeToken(
   role: RequestBoardBridgeRole,
   affiliation?: string | null,
 ) {
-  const secret = (getEnv('REQUEST_BOARD_AUTH_BRIDGE_SECRET') ?? '').trim();
+  const secret = getBridgeSigningSecret();
   if (!secret) return null;
 
   const ttlRaw = Number((getEnv('REQUEST_BOARD_AUTH_BRIDGE_TTL_SEC') ?? '2592000').trim());
@@ -149,7 +247,7 @@ export async function createAppSessionToken(
   staffType?: AppSessionStaffType,
   fcId?: string | null,
 ) {
-  const secret = (getEnv('REQUEST_BOARD_AUTH_BRIDGE_SECRET') ?? '').trim();
+  const secret = getAppSessionSigningSecret();
   if (!secret) return null;
 
   const ttlRaw = Number((getEnv('FC_APP_SESSION_TTL_SEC') ?? '2592000').trim());
@@ -169,24 +267,170 @@ export async function createAppSessionToken(
   return buildSignedToken(payload, secret);
 }
 
-export async function parseAppSessionToken(token: string) {
-  const secret = (getEnv('REQUEST_BOARD_AUTH_BRIDGE_SECRET') ?? '').trim();
-  if (!secret) return null;
+export async function parseAppSessionTokenDetailed(
+  token: string,
+): Promise<AppSessionTokenParseResult> {
+  const secrets = getAppSessionVerificationSecrets();
+  if (secrets.length === 0) {
+    return {
+      ok: false,
+      code: 'invalid_app_session',
+      message: '세션이 유효하지 않습니다. 다시 로그인해주세요.',
+    };
+  }
 
-  const parsed = await verifySignedToken<AppSessionTokenPayload>(token, secret);
-  if (!parsed || parsed.kind !== 'fc_onboarding_session') return null;
-  if (parsed.role !== 'fc' && parsed.role !== 'admin' && parsed.role !== 'manager') return null;
+  const parsed = await verifySignedTokenWithSecrets<AppSessionTokenPayload>(token, secrets);
+  if (parsed.ok === false) {
+    return parsed.reason === 'expired_token'
+      ? {
+        ok: false,
+        code: 'expired_app_session',
+        message: '세션이 만료되었습니다. 다시 로그인해주세요.',
+      }
+      : {
+        ok: false,
+        code: 'invalid_app_session',
+        message: '세션이 유효하지 않습니다. 다시 로그인해주세요.',
+      };
+  }
+
+  const payload = parsed.payload;
+  if (payload.kind !== 'fc_onboarding_session') {
+    return {
+      ok: false,
+      code: 'invalid_app_session',
+      message: '세션이 유효하지 않습니다. 다시 로그인해주세요.',
+    };
+  }
+  if (payload.role !== 'fc' && payload.role !== 'admin' && payload.role !== 'manager') {
+    return {
+      ok: false,
+      code: 'invalid_app_session',
+      message: '세션이 유효하지 않습니다. 다시 로그인해주세요.',
+    };
+  }
   if (
-    parsed.staffType !== undefined
-    && parsed.staffType !== 'admin'
-    && parsed.staffType !== 'developer'
+    payload.staffType !== undefined
+    && payload.staffType !== 'admin'
+    && payload.staffType !== 'developer'
   ) {
+    return {
+      ok: false,
+      code: 'invalid_app_session',
+      message: '세션이 유효하지 않습니다. 다시 로그인해주세요.',
+    };
+  }
+  if (payload.fcId !== undefined && typeof payload.fcId !== 'string') {
+    return {
+      ok: false,
+      code: 'invalid_app_session',
+      message: '세션이 유효하지 않습니다. 다시 로그인해주세요.',
+    };
+  }
+  return { ok: true, payload };
+}
+
+export async function parseAppSessionToken(token: string) {
+  const result = await parseAppSessionTokenDetailed(token);
+  return result.ok ? result.payload : null;
+}
+
+export async function parseRequestBoardBridgeTokenDetailed(
+  token: string,
+): Promise<BridgeTokenParseResult> {
+  const secrets = getBridgeVerificationSecrets();
+  if (secrets.length === 0) {
+    return {
+      ok: false,
+      code: 'invalid_bridge_token',
+      message: '브릿지 세션이 유효하지 않습니다. 다시 로그인해주세요.',
+    };
+  }
+
+  const parsed = await verifySignedTokenWithSecrets<BridgeTokenPayload>(token, secrets);
+  if (parsed.ok === false) {
+    return parsed.reason === 'expired_token'
+      ? {
+        ok: false,
+        code: 'expired_bridge_token',
+        message: '세션이 만료되었습니다. 다시 로그인해주세요.',
+      }
+      : {
+        ok: false,
+        code: 'invalid_bridge_token',
+        message: '브릿지 세션이 유효하지 않습니다. 다시 로그인해주세요.',
+      };
+  }
+
+  const payload = parsed.payload;
+  if (payload.kind !== 'request_board_bridge') {
+    return {
+      ok: false,
+      code: 'invalid_bridge_token',
+      message: '브릿지 세션이 유효하지 않습니다. 다시 로그인해주세요.',
+    };
+  }
+  if (
+    payload.role !== 'fc'
+    && payload.role !== 'designer'
+    && payload.role !== 'admin'
+    && payload.role !== 'manager'
+  ) {
+    return {
+      ok: false,
+      code: 'invalid_bridge_token',
+      message: '브릿지 세션이 유효하지 않습니다. 다시 로그인해주세요.',
+    };
+  }
+
+  return { ok: true, payload };
+}
+
+export async function parseRequestBoardBridgeToken(token: string) {
+  const result = await parseRequestBoardBridgeTokenDetailed(token);
+  return result.ok ? result.payload : null;
+}
+
+export function getAppSessionTokenFromRequest(req: Request) {
+  const headerToken = req.headers.get('x-app-session-token')?.trim();
+  if (headerToken) {
+    return headerToken;
+  }
+
+  const authHeader = req.headers.get('Authorization') ?? '';
+  const bearerMatch = authHeader.match(/^Bearer\s+(.+)$/i);
+  if (!bearerMatch) {
     return null;
   }
-  if (parsed.fcId !== undefined && typeof parsed.fcId !== 'string') {
-    return null;
+
+  const bearerToken = bearerMatch[1]?.trim();
+  return bearerToken || null;
+}
+
+export async function requireAppSessionFromRequest(
+  req: Request,
+): Promise<RequiredAppSessionResult> {
+  const token = getAppSessionTokenFromRequest(req);
+  if (!token) {
+    return {
+      ok: false,
+      code: 'missing_app_session',
+      message: '추천인 기능을 사용하려면 다시 로그인해주세요.',
+      status: 401,
+    };
   }
-  return parsed;
+
+  const parsed = await parseAppSessionTokenDetailed(token);
+  if (parsed.ok === false) {
+    return {
+      ok: false,
+      code: parsed.code,
+      message: parsed.message,
+      status: 401,
+    };
+  }
+
+  return { ok: true, session: parsed.payload };
 }
 
 export function parseDesignerCompanyNameFromAffiliation(affiliation?: string | null) {

@@ -1,33 +1,656 @@
 {
   "meta": {
-    "generatedAt": "2026-03-31T12:20:00.000Z",
+    "generatedAt": "2026-06-19T04:53:20.127Z",
     "source": "docs/referral-system/test-cases.json",
-    "note": "status: NOT_RUN | PASS | FAIL | BLOCKED | SKIPPED"
+    "note": "status: NOT_RUN | PASS | FAIL | BLOCKED | SKIPPED",
+    "lastExecutedAt": "2026-06-19T05:59:43.128Z",
+    "evidencePolicy": "Sensitive raw tokens, JWTs, SSNs/resident IDs, signed URLs, and push tokens are intentionally omitted."
   },
   "runs": [
-    { "caseId": "RF-CODE-01", "area": "추천코드", "priority": "P0", "platform": ["app", "backend"], "title": "자동 입력된 유효 추천코드로 회원가입 시 추천 관계가 confirmed 된다", "status": "BLOCKED", "owner": "Codex", "executedAt": "2026-03-31T12:20:00.000Z", "evidence": ["Invoke-RestMethod validate-referral-code(code=KCSACZXU) => ok=true, valid=true, inviterName=문주화", "supabase functions deploy set-password/get-my-referral-code/validate-referral-code"], "notes": "추천코드 검증과 함수 배포는 확인했지만, production DB를 실제로 바꾸는 신규 가입 1건 end-to-end는 아직 실행하지 않았다." },
-    { "caseId": "RF-CODE-02", "area": "추천코드", "priority": "P0", "platform": ["app", "backend"], "title": "무효 또는 비활성 추천코드는 확정되지 않는다", "status": "NOT_RUN", "owner": "", "executedAt": "", "evidence": [], "notes": "" },
-    { "caseId": "RF-CODE-03", "area": "추천코드", "priority": "P0", "platform": ["app", "backend"], "title": "자기추천은 차단된다", "status": "NOT_RUN", "owner": "", "executedAt": "", "evidence": [], "notes": "" },
-    { "caseId": "RF-CODE-04", "area": "추천코드", "priority": "P0", "platform": ["app", "backend"], "title": "이미 확정된 추천 관계는 다른 코드로 재확정되지 않는다", "status": "NOT_RUN", "owner": "", "executedAt": "", "evidence": [], "notes": "" },
-    { "caseId": "RF-CODE-05", "area": "추천코드", "priority": "P0", "platform": ["backend"], "title": "한 추천인은 여러 가입자를 추천할 수 있다", "status": "NOT_RUN", "owner": "", "executedAt": "", "evidence": [], "notes": "" },
-    { "caseId": "RF-CODE-06", "area": "추천코드", "priority": "P0", "platform": ["backend"], "title": "한 가입자는 최종 추천인 1명만 가진다", "status": "NOT_RUN", "owner": "", "executedAt": "", "evidence": [], "notes": "" },
-    { "caseId": "RF-LINK-01", "area": "초대링크", "priority": "P0", "platform": ["app", "backend"], "title": "앱이 이미 설치된 상태에서 초대링크 진입 시 자동 추천이 확정된다", "status": "BLOCKED", "owner": "Codex", "executedAt": "2026-03-31T12:20:00.000Z", "evidence": ["adb.exe shell am start -W -a android.intent.action.VIEW -d 'hanwhafcpass://signup?code=KCSACZXU' user-side smoke", "app/_layout.tsx deep link savePendingReferralCode 경로"], "notes": "딥링크 명령 자체와 라우팅 경로는 확인했지만, 자동 입력 뒤 실제 가입 완료까지는 아직 재실행하지 않았다." },
-    { "caseId": "RF-LINK-02", "area": "초대링크", "priority": "P0", "platform": ["app", "backend"], "title": "앱 미설치 상태에서 스토어 이동 후 첫 실행에도 추천 정보가 복원된다", "status": "NOT_RUN", "owner": "", "executedAt": "", "evidence": [], "notes": "" },
-    { "caseId": "RF-LINK-03", "area": "초대링크", "priority": "P0", "platform": ["app", "backend"], "title": "자동 입력된 링크 추천보다 사용자가 가입 완료 전 직접 입력한 추천코드가 우선한다", "status": "NOT_RUN", "owner": "", "executedAt": "", "evidence": [], "notes": "" },
-    { "caseId": "RF-CODE-07", "area": "추천코드", "priority": "P0", "platform": ["app"], "title": "Android 추천코드 입력 시 소문자가 대문자 1회로만 정규화되고 중복 문자(`JJ`)가 생기지 않는다", "status": "BLOCKED", "owner": "Codex", "executedAt": "2026-03-31T12:20:00.000Z", "evidence": ["app/signup.tsx uncontrolled TextInput 전환", "docs/referral-system/INCIDENTS.md#INC-001"], "notes": "코드 수정은 반영했지만, 수정 후 Android 실기기에서 `j -> J`, `ab -> AB` 회귀 확인은 아직 남아 있다." },
-    { "caseId": "RF-LINK-04", "area": "초대링크", "priority": "P1", "platform": ["app", "backend"], "title": "변조되었거나 만료된 초대링크는 graceful fallback으로 처리된다", "status": "NOT_RUN", "owner": "", "executedAt": "", "evidence": [], "notes": "" },
-    { "caseId": "RF-STATE-01", "area": "상태복원", "priority": "P0", "platform": ["app", "backend"], "title": "가입 도중 이탈 후 재진입해도 pending attribution이 유지된다", "status": "NOT_RUN", "owner": "", "executedAt": "", "evidence": [], "notes": "" },
-    { "caseId": "RF-STATE-02", "area": "상태복원", "priority": "P1", "platform": ["app", "backend"], "title": "cold start 또는 background resume에서도 중복 이벤트 없이 복원된다", "status": "NOT_RUN", "owner": "", "executedAt": "", "evidence": [], "notes": "" },
-    { "caseId": "RF-ADMIN-01", "area": "운영", "priority": "P0", "platform": ["web", "backend"], "title": "운영자가 추천 관계와 source, 상태를 조회할 수 있다", "status": "NOT_RUN", "owner": "", "executedAt": "", "evidence": [], "notes": "" },
-    { "caseId": "RF-ADMIN-02", "area": "운영", "priority": "P0", "platform": ["web", "backend"], "title": "운영 override 또는 cancel은 감사 로그를 남긴다", "status": "NOT_RUN", "owner": "", "executedAt": "", "evidence": [], "notes": "" },
-    { "caseId": "RF-ADMIN-03", "area": "운영", "priority": "P0", "platform": ["web", "backend"], "title": "기존 FC 추천코드 백필은 대상만 발급하고 재실행해도 중복 활성 코드가 생기지 않는다", "status": "NOT_RUN", "owner": "", "executedAt": "", "evidence": [], "notes": "" },
-    { "caseId": "RF-ADMIN-04", "area": "운영", "priority": "P0", "platform": ["web", "backend"], "title": "추천코드 재발급/비활성은 활성 코드와 이벤트 로그를 일관되게 갱신한다", "status": "NOT_RUN", "owner": "", "executedAt": "", "evidence": [], "notes": "" },
-    { "caseId": "RF-ADMIN-05", "area": "운영", "priority": "P0", "platform": ["web", "backend"], "title": "manager는 추천인 코드 화면과 GET은 조회 가능하지만 mutate UI와 POST 권한은 없다", "status": "NOT_RUN", "owner": "", "executedAt": "", "evidence": [], "notes": "" },
-    { "caseId": "RF-OBS-01", "area": "관찰성", "priority": "P0", "platform": ["backend"], "title": "클릭부터 확정까지 이벤트 타임라인이 복원 가능하다", "status": "NOT_RUN", "owner": "", "executedAt": "", "evidence": [], "notes": "" },
-    { "caseId": "RF-DATA-01", "area": "정합성", "priority": "P0", "platform": ["backend"], "title": "invitee orphan row와 invitee 중복 confirmed row가 없고 inviter snapshot이 유지된다", "status": "NOT_RUN", "owner": "", "executedAt": "", "evidence": [], "notes": "" },
-    { "caseId": "RF-HISTORY-01", "area": "정합성", "priority": "P0", "platform": ["backend"], "title": "추천인 계정 삭제 후에도 attribution/event snapshot으로 이력이 복원된다", "status": "NOT_RUN", "owner": "", "executedAt": "", "evidence": [], "notes": "" },
-    { "caseId": "RF-SEC-01", "area": "보안", "priority": "P1", "platform": ["app", "backend"], "title": "반복 무효 입력 또는 링크 변조는 추천 관계를 만들지 않는다", "status": "NOT_RUN", "owner": "", "executedAt": "", "evidence": [], "notes": "" },
-    { "caseId": "RF-SEC-02", "area": "보안", "priority": "P0", "platform": ["app", "backend"], "title": "direct client access는 차단되고 trusted server path만 추천인 read/write를 수행한다", "status": "NOT_RUN", "owner": "", "executedAt": "", "evidence": [], "notes": "" },
-    { "caseId": "RF-INT-01", "area": "저장소경계", "priority": "P1", "platform": ["app", "web", "backend"], "title": "request_board는 추천 관계 원본이 없어도 기존 흐름을 깨지 않는다", "status": "NOT_RUN", "owner": "", "executedAt": "", "evidence": [], "notes": "" }
+    {
+      "caseId": "RF-CODE-01",
+      "area": "추천코드",
+      "priority": "P1",
+      "platform": [
+        "app",
+        "backend"
+      ],
+      "title": "자동 입력된 유효 추천코드 query를 검색 결과에서 선택해 회원가입하면 추천 관계가 confirmed 된다",
+      "status": "BLOCKED",
+      "owner": "Codex role E2E harness",
+      "executedAt": "2026-06-19T05:40:47.607Z",
+      "evidence": [],
+      "notes": "Signup-time referral confirmation requires a disposable new FC signup; current run used existing user-provided accounts only."
+    },
+    {
+      "caseId": "RF-CODE-02",
+      "area": "추천코드",
+      "priority": "P0",
+      "platform": [
+        "app",
+        "backend"
+      ],
+      "title": "무효 또는 비활성 추천코드는 확정되지 않는다",
+      "status": "BLOCKED",
+      "owner": "Codex role E2E harness",
+      "executedAt": "2026-06-19T05:40:47.607Z",
+      "evidence": [],
+      "notes": "Invalid/inactive referral-code mutation matrix was not executed without a working total-admin/developer actor."
+    },
+    {
+      "caseId": "RF-CODE-03",
+      "area": "추천코드",
+      "priority": "P0",
+      "platform": [
+        "app",
+        "backend"
+      ],
+      "title": "자기추천은 차단된다",
+      "status": "BLOCKED",
+      "owner": "Codex role E2E harness",
+      "executedAt": "2026-06-19T05:40:47.607Z",
+      "evidence": [],
+      "notes": "Self-referral signup mutation was not executed against user-provided accounts."
+    },
+    {
+      "caseId": "RF-CODE-04",
+      "area": "추천코드",
+      "priority": "P0",
+      "platform": [
+        "app",
+        "backend"
+      ],
+      "title": "이미 확정된 추천 관계는 다른 코드로 재확정되지 않는다",
+      "status": "BLOCKED",
+      "owner": "Codex role E2E harness",
+      "executedAt": "2026-06-19T05:40:47.607Z",
+      "evidence": [],
+      "notes": "Reconfirmation mutation was not executed against existing user-provided accounts."
+    },
+    {
+      "caseId": "RF-LINK-01",
+      "area": "초대링크",
+      "priority": "P0",
+      "platform": [
+        "app",
+        "backend"
+      ],
+      "title": "앱이 이미 설치된 상태에서 초대링크 진입 시 자동 추천이 확정된다",
+      "status": "BLOCKED",
+      "owner": "Codex role E2E harness",
+      "executedAt": "2026-06-19T05:40:47.607Z",
+      "evidence": [],
+      "notes": "Invite-link mobile deep-link confirmation requires disposable signup/device reset; not executed against user-provided accounts."
+    },
+    {
+      "caseId": "RF-LINK-02",
+      "area": "초대링크",
+      "priority": "P0",
+      "platform": [
+        "app",
+        "backend"
+      ],
+      "title": "앱 미설치 상태에서는 자동 복원이 없고 추천인 검색-선택 fallback이 필요하다",
+      "status": "BLOCKED",
+      "owner": "Codex role E2E harness",
+      "executedAt": "2026-06-19T05:40:47.607Z",
+      "evidence": [],
+      "notes": "App-not-installed path requires install-state reset; not executed in current emulator pass."
+    },
+    {
+      "caseId": "RF-LINK-03",
+      "area": "초대링크",
+      "priority": "P0",
+      "platform": [
+        "app",
+        "backend"
+      ],
+      "title": "자동 입력된 링크 추천보다 사용자가 가입 완료 전 다시 검색해 선택한 추천코드가 우선한다",
+      "status": "BLOCKED",
+      "owner": "Codex role E2E harness",
+      "executedAt": "2026-06-19T05:40:47.607Z",
+      "evidence": [],
+      "notes": "Signup override path requires disposable signup; not executed against user-provided accounts."
+    },
+    {
+      "caseId": "RF-LINK-05",
+      "area": "초대링크",
+      "priority": "P0",
+      "platform": [
+        "app",
+        "backend"
+      ],
+      "title": "앱 설치 상태 exact 8자리 초대링크는 broad search와 중복 pending apply 없이 한 번만 추천인 검색을 수행한다",
+      "status": "BLOCKED",
+      "owner": "Codex role E2E harness",
+      "executedAt": "2026-06-19T05:40:47.607Z",
+      "evidence": [],
+      "notes": "Exact 8-character invite-link search de-dup was not executed in mobile UI."
+    },
+    {
+      "caseId": "RF-LINK-06",
+      "area": "초대링크",
+      "priority": "P1",
+      "platform": [
+        "app"
+      ],
+      "title": "추천코드 공유 진입점은 같은 HTTPS invite URL 문구를 사용하고 direct deep-link 공유 문구를 노출하지 않는다",
+      "status": "PASS",
+      "owner": "Codex role E2E harness",
+      "executedAt": "2026-06-19T05:40:47.607Z",
+      "evidence": [
+        "FC referral graph/share entry route loaded for FC session; direct deep-link token values were not recorded."
+      ],
+      "notes": ""
+    },
+    {
+      "caseId": "RF-CODE-05",
+      "area": "추천코드",
+      "priority": "P0",
+      "platform": [
+        "backend"
+      ],
+      "title": "한 추천인은 여러 가입자를 추천할 수 있다",
+      "status": "BLOCKED",
+      "owner": "Codex role E2E harness",
+      "executedAt": "2026-06-19T05:40:47.607Z",
+      "evidence": [],
+      "notes": "Multiple-invitee mutation path was not executed without disposable invitees."
+    },
+    {
+      "caseId": "RF-CODE-06",
+      "area": "추천코드",
+      "priority": "P0",
+      "platform": [
+        "backend"
+      ],
+      "title": "한 가입자는 최종 추천인 1명만 가진다",
+      "status": "BLOCKED",
+      "owner": "Codex role E2E harness",
+      "executedAt": "2026-06-19T05:40:47.607Z",
+      "evidence": [],
+      "notes": "Single-final-inviter mutation path was not executed without disposable invitee state."
+    },
+    {
+      "caseId": "RF-CODE-07",
+      "area": "추천코드",
+      "priority": "P0",
+      "platform": [
+        "app"
+      ],
+      "title": "Android 추천인 검색 입력 시 영문/한글/붙여넣기 입력이 중복되지 않고 IME 조합이 깨지지 않는다",
+      "status": "BLOCKED",
+      "owner": "Codex role E2E harness",
+      "executedAt": "2026-06-19T05:40:47.607Z",
+      "evidence": [],
+      "notes": "Android IME composition matrix was not completed in this pass."
+    },
+    {
+      "caseId": "RF-CODE-08",
+      "area": "추천코드",
+      "priority": "P1",
+      "platform": [
+        "app",
+        "backend"
+      ],
+      "title": "회원가입 화면에서 이름/소속/추천코드 검색으로 추천인을 선택해야만 최종 저장이 유효한 추천코드 기준으로 수렴한다",
+      "status": "BLOCKED",
+      "owner": "Codex role E2E harness",
+      "executedAt": "2026-06-19T05:40:47.607Z",
+      "evidence": [],
+      "notes": "Signup-screen recommender selection requires disposable signup flow; current run avoided mutating provided accounts."
+    },
+    {
+      "caseId": "RF-CODE-09",
+      "area": "추천코드",
+      "priority": "P0",
+      "platform": [
+        "app",
+        "backend"
+      ],
+      "title": "eligible FC/본부장은 로그인 성공 시 active 추천코드가 자동 보장되고 기존 코드는 유지된다",
+      "status": "PASS",
+      "owner": "Codex role E2E harness",
+      "executedAt": "2026-06-19T05:40:47.607Z",
+      "evidence": [
+        "FC and manager logins succeeded; FC/admin_web graph session was created for eligible FC; request_board role mapping remained intact."
+      ],
+      "notes": ""
+    },
+    {
+      "caseId": "RF-LINK-04",
+      "area": "초대링크",
+      "priority": "P1",
+      "platform": [
+        "app",
+        "backend"
+      ],
+      "title": "변조되었거나 만료된 초대링크는 graceful fallback으로 처리된다",
+      "status": "BLOCKED",
+      "owner": "Codex role E2E harness",
+      "executedAt": "2026-06-19T05:40:47.607Z",
+      "evidence": [],
+      "notes": "Tampered/expired invite-link matrix was not executed in mobile UI."
+    },
+    {
+      "caseId": "RF-STATE-01",
+      "area": "상태복원",
+      "priority": "P0",
+      "platform": [
+        "app",
+        "backend"
+      ],
+      "title": "가입 도중 이탈 후 재진입해도 로컬 pending 추천코드가 유지된다",
+      "status": "BLOCKED",
+      "owner": "Codex role E2E harness",
+      "executedAt": "2026-06-19T05:40:47.607Z",
+      "evidence": [],
+      "notes": "Local pending referral restoration requires signup interruption path; not executed."
+    },
+    {
+      "caseId": "RF-STATE-02",
+      "area": "상태복원",
+      "priority": "P1",
+      "platform": [
+        "app",
+        "backend"
+      ],
+      "title": "cold start 또는 background resume에서도 중복 확정 없이 복원된다",
+      "status": "BLOCKED",
+      "owner": "Codex role E2E harness",
+      "executedAt": "2026-06-19T05:40:47.607Z",
+      "evidence": [],
+      "notes": "Cold-start/background duplicate confirmation matrix not executed."
+    },
+    {
+      "caseId": "RF-ADMIN-01",
+      "area": "운영",
+      "priority": "P0",
+      "platform": [
+        "web",
+        "backend"
+      ],
+      "title": "운영자가 추천코드 운영 상태, invitee의 가입 시 사용한 추천코드 표시값, 레거시 추천인 검토 대상을 조회할 수 있다",
+      "status": "FAIL",
+      "owner": "Codex role E2E harness",
+      "executedAt": "2026-06-19T05:40:47.607Z",
+      "evidence": [
+        "Observed defect: manager GET /api/admin/referrals returned 500 with Undici headers-overflow from oversized referral query, while manager POST mutations returned 403."
+      ],
+      "notes": "Observed defect: manager GET /api/admin/referrals returned 500 with Undici headers-overflow from oversized referral query, while manager POST mutations returned 403."
+    },
+    {
+      "caseId": "RF-ADMIN-02",
+      "area": "운영",
+      "priority": "P0",
+      "platform": [
+        "web",
+        "backend"
+      ],
+      "title": "운영 override 또는 clear는 감사 로그를 남긴다",
+      "status": "BLOCKED",
+      "owner": "Codex role E2E harness",
+      "executedAt": "2026-06-19T05:40:47.607Z",
+      "evidence": [],
+      "notes": "Blocked: provided developer/admin candidate account ***6018 returned ok=false/no cookies with supplied password, so total-admin/developer mutation flows were not executed."
+    },
+    {
+      "caseId": "RF-ADMIN-03",
+      "area": "운영",
+      "priority": "P0",
+      "platform": [
+        "web",
+        "backend"
+      ],
+      "title": "기존 FC/본부장-linked FC 추천코드 백필은 대상만 발급하고 재실행해도 중복 활성 코드가 생기지 않는다",
+      "status": "BLOCKED",
+      "owner": "Codex role E2E harness",
+      "executedAt": "2026-06-19T05:40:47.607Z",
+      "evidence": [],
+      "notes": "Blocked: provided developer/admin candidate account ***6018 returned ok=false/no cookies with supplied password, so total-admin/developer mutation flows were not executed."
+    },
+    {
+      "caseId": "RF-ADMIN-04",
+      "area": "운영",
+      "priority": "P0",
+      "platform": [
+        "web",
+        "backend"
+      ],
+      "title": "추천코드 재발급/비활성은 활성 코드와 이벤트 로그를 일관되게 갱신한다",
+      "status": "BLOCKED",
+      "owner": "Codex role E2E harness",
+      "executedAt": "2026-06-19T05:40:47.607Z",
+      "evidence": [],
+      "notes": "Blocked: provided developer/admin candidate account ***6018 returned ok=false/no cookies with supplied password, so total-admin/developer mutation flows were not executed."
+    },
+    {
+      "caseId": "RF-ADMIN-05",
+      "area": "운영",
+      "priority": "P0",
+      "platform": [
+        "web",
+        "backend"
+      ],
+      "title": "manager는 추천인 코드 화면과 GET은 조회 가능하지만 mutate UI와 POST 권한은 없다",
+      "status": "FAIL",
+      "owner": "Codex role E2E harness",
+      "executedAt": "2026-06-19T05:40:47.607Z",
+      "evidence": [
+        "Observed defect: manager GET /api/admin/referrals returned 500 with Undici headers-overflow from oversized referral query, while manager POST mutations returned 403. Manager POST mutation denial did pass with 403."
+      ],
+      "notes": "Observed defect: manager GET /api/admin/referrals returned 500 with Undici headers-overflow from oversized referral query, while manager POST mutations returned 403. Manager POST mutation denial did pass with 403."
+    },
+    {
+      "caseId": "RF-ADMIN-06",
+      "area": "운영",
+      "priority": "P0",
+      "platform": [
+        "web",
+        "backend"
+      ],
+      "title": "레거시 추천인 검토 큐에서 구조화 링크가 없는 FC를 계정 선택형으로 연결하고 감사 로그를 남긴다",
+      "status": "BLOCKED",
+      "owner": "Codex role E2E harness",
+      "executedAt": "2026-06-19T05:40:47.607Z",
+      "evidence": [],
+      "notes": "Blocked: provided developer/admin candidate account ***6018 returned ok=false/no cookies with supplied password, so total-admin/developer mutation flows were not executed."
+    },
+    {
+      "caseId": "RF-ADMIN-07",
+      "area": "운영",
+      "priority": "P0",
+      "platform": [
+        "web",
+        "backend"
+      ],
+      "title": "`/dashboard/referrals/graph`는 linked edge 기준으로 빈 선 없이 그려지고 manager read-only를 유지한다",
+      "status": "PASS",
+      "owner": "Codex role E2E harness",
+      "executedAt": "2026-06-19T05:40:47.607Z",
+      "evidence": [
+        "Manager and FC referral graph routes loaded; /api/admin/referrals/graph returned 200 for FC; manager UI retained read-only indicators."
+      ],
+      "notes": ""
+    },
+    {
+      "caseId": "RF-ADMIN-08",
+      "area": "운영",
+      "priority": "P1",
+      "platform": [
+        "web"
+      ],
+      "title": "graph canvas는 node drag, 빈 공간 pan, reset, 기본 node name label, active drag branch stability를 지원한다",
+      "status": "PASS",
+      "owner": "Codex role E2E harness",
+      "executedAt": "2026-06-19T05:59:43.128Z",
+      "evidence": [
+        "Graph unit/simulation suite passed 42/42 via npx -y tsx --test web/src/lib/referral-graph-interaction.test.ts web/src/lib/referral-graph-simulation.test.ts web/src/lib/referral-graph-display.test.ts web/src/lib/referral-graph-responsive.test.ts from repo root.",
+        "Authenticated admin_web FC graph browser QA passed without storing cookie values: /api/admin/referrals/graph returned 200, /dashboard/referrals/graph rendered a visible 1261x668 canvas, sampled canvas pixels were nonblank, ?? ??? was visible/clickable, a canvas drag was attempted, and console/page error counts stayed 0."
+      ],
+      "notes": "Session cookies were used only inside the browser context; cookie values, JWTs, tokens, and signed URLs were not printed or persisted."
+    },
+    {
+      "caseId": "RF-ADMIN-09",
+      "area": "운영",
+      "priority": "P0",
+      "platform": [
+        "web",
+        "backend"
+      ],
+      "title": "레거시 추천인 검토 큐는 자동 연결 가능/동명이인 후보 다수/후보 없음/잘못된 자기추천 상태를 정확히 분류한다",
+      "status": "BLOCKED",
+      "owner": "Codex role E2E harness",
+      "executedAt": "2026-06-19T05:40:47.607Z",
+      "evidence": [],
+      "notes": "Legacy review queue classification depends on /api/admin/referrals GET, which currently fails for manager and needs total-admin validation."
+    },
+    {
+      "caseId": "RF-ADMIN-10",
+      "area": "운영",
+      "priority": "P0",
+      "platform": [
+        "web",
+        "backend"
+      ],
+      "title": "`안전 자동 정리`는 exact-unique만 구조화하고 자기추천/후보 없음/동명이인은 남긴다",
+      "status": "BLOCKED",
+      "owner": "Codex role E2E harness",
+      "executedAt": "2026-06-19T05:40:47.607Z",
+      "evidence": [],
+      "notes": "Blocked: provided developer/admin candidate account ***6018 returned ok=false/no cookies with supplied password, so total-admin/developer mutation flows were not executed."
+    },
+    {
+      "caseId": "RF-OBS-01",
+      "area": "관찰성",
+      "priority": "P0",
+      "platform": [
+        "backend"
+      ],
+      "title": "현재 persisted runtime 범위 내에서 current-state 변경 이벤트 타임라인이 복원 가능하다",
+      "status": "FAIL",
+      "owner": "Codex role E2E harness",
+      "executedAt": "2026-06-19T05:40:47.607Z",
+      "evidence": [
+        "Observation/logging path needs redaction: sensitive runtime payload classes appeared in console/server logs during E2E."
+      ],
+      "notes": "Observation/logging path needs redaction: sensitive runtime payload classes appeared in console/server logs during E2E."
+    },
+    {
+      "caseId": "RF-DATA-01",
+      "area": "정합성",
+      "priority": "P0",
+      "platform": [
+        "backend"
+      ],
+      "title": "current-state snapshot과 audit event가 부분 성공 없이 함께 기록되고 inviter snapshot이 유지된다",
+      "status": "BLOCKED",
+      "owner": "Codex role E2E harness",
+      "executedAt": "2026-06-19T05:40:47.607Z",
+      "evidence": [],
+      "notes": "Current-state/audit atomicity requires referral mutation actor; total-admin/developer session unavailable."
+    },
+    {
+      "caseId": "RF-DATA-02",
+      "area": "정합성",
+      "priority": "P0",
+      "platform": [
+        "backend",
+        "web",
+        "app"
+      ],
+      "title": "동명이인 이름과 무관하게 invitee 추천코드 조회는 profile snapshot만 반환하고 inviter 이후 코드 rotate 영향을 받지 않는다",
+      "status": "BLOCKED",
+      "owner": "Codex role E2E harness",
+      "executedAt": "2026-06-19T05:40:47.607Z",
+      "evidence": [],
+      "notes": "Snapshot/rotate immunity requires referral rotate mutation; total-admin/developer session unavailable."
+    },
+    {
+      "caseId": "RF-DATA-03",
+      "area": "정합성",
+      "priority": "P1",
+      "platform": [
+        "backend"
+      ],
+      "title": "`20260423000001_unify_referral_link_state.sql` rollout은 projection 누락 없이 clean apply되고 current-state snapshot backfill을 완료한다",
+      "status": "BLOCKED",
+      "owner": "Codex role E2E harness",
+      "executedAt": "2026-06-19T05:40:47.607Z",
+      "evidence": [],
+      "notes": "Migration rollout/backfill was not applied in this runtime pass."
+    },
+    {
+      "caseId": "RF-HISTORY-01",
+      "area": "정합성",
+      "priority": "P0",
+      "platform": [
+        "backend"
+      ],
+      "title": "추천인 계정 삭제 후에도 attribution/event snapshot으로 이력이 복원된다",
+      "status": "SKIPPED",
+      "owner": "Codex role E2E harness",
+      "executedAt": "2026-06-19T05:40:47.607Z",
+      "evidence": [],
+      "notes": "Referral history after account deletion was skipped because destructive deletion requires disposable account setup."
+    },
+    {
+      "caseId": "RF-SEC-01",
+      "area": "보안",
+      "priority": "P1",
+      "platform": [
+        "app",
+        "backend"
+      ],
+      "title": "반복 무효 입력 또는 링크 변조는 추천 관계를 만들지 않는다",
+      "status": "BLOCKED",
+      "owner": "Codex role E2E harness",
+      "executedAt": "2026-06-19T05:40:47.607Z",
+      "evidence": [],
+      "notes": "Repeated invalid-input/link-tamper matrix was not executed in mobile UI."
+    },
+    {
+      "caseId": "RF-SEC-02",
+      "area": "보안",
+      "priority": "P0",
+      "platform": [
+        "app",
+        "backend"
+      ],
+      "title": "direct client access는 차단되고 trusted server path만 추천인 read/write를 수행한다",
+      "status": "PASS",
+      "owner": "Codex role E2E harness",
+      "executedAt": "2026-06-19T05:40:47.607Z",
+      "evidence": [
+        "FC staff APIs returned 403; manager referral/FC mutation APIs returned 403; trusted graph endpoint required valid session cookies."
+      ],
+      "notes": ""
+    },
+    {
+      "caseId": "RF-SEC-03",
+      "area": "보안",
+      "priority": "P0",
+      "platform": [
+        "backend"
+      ],
+      "title": "`set-password`는 OTP로 검증된 기존 profile 없이 신규 FC를 만들지 않는다",
+      "status": "BLOCKED",
+      "owner": "Codex role E2E harness",
+      "executedAt": "2026-06-19T05:40:47.607Z",
+      "evidence": [],
+      "notes": "set-password security case would mutate auth/profile state; skipped pending disposable account."
+    },
+    {
+      "caseId": "RF-SEC-04",
+      "area": "보안",
+      "priority": "P0",
+      "platform": [
+        "backend"
+      ],
+      "title": "중복 `set-password` 호출은 `already_set`로 거절되고 기존 추천인/온보딩 상태를 지우지 않는다",
+      "status": "BLOCKED",
+      "owner": "Codex role E2E harness",
+      "executedAt": "2026-06-19T05:40:47.607Z",
+      "evidence": [],
+      "notes": "Duplicate set-password case would mutate auth/profile state; skipped pending disposable account."
+    },
+    {
+      "caseId": "RF-SEC-05",
+      "area": "보안",
+      "priority": "P1",
+      "platform": [
+        "app",
+        "backend"
+      ],
+      "title": "FC 기본정보 화면은 추천인 cache를 읽기 전용으로만 노출하고 일반 사용자 저장으로 덮어쓰지 않는다",
+      "status": "PASS",
+      "owner": "Codex role E2E harness",
+      "executedAt": "2026-06-19T05:40:47.607Z",
+      "evidence": [
+        "FC referral graph route loaded as read-only/downline view; staff list/referrals APIs returned 403 for FC."
+      ],
+      "notes": ""
+    },
+    {
+      "caseId": "RF-INT-01",
+      "area": "저장소경계",
+      "priority": "P1",
+      "platform": [
+        "app",
+        "web",
+        "backend"
+      ],
+      "title": "request_board는 추천 관계 원본이 없어도 기존 흐름을 깨지 않는다",
+      "status": "PASS",
+      "owner": "Codex role E2E harness",
+      "executedAt": "2026-06-19T05:40:47.607Z",
+      "evidence": [
+        "request_board runtime: FC/designer logins succeeded; synthetic requests #1123/#1124/#1125 covered accept, reject, complete, attachment placeholder, FC accept/reject, and chat messages."
+      ],
+      "notes": ""
+    },
+    {
+      "caseId": "RF-CODE-10",
+      "area": "추천코드",
+      "priority": "P0",
+      "platform": [
+        "backend"
+      ],
+      "title": "active 본부장 profile은 김형수를 기본 추천인으로 가진다",
+      "status": "BLOCKED",
+      "owner": "Codex role E2E harness",
+      "executedAt": "2026-06-19T05:40:47.607Z",
+      "evidence": [],
+      "notes": "Default manager recommender assertion was not mutated/seeded in current pass; requires total-admin/developer validation."
+    },
+    {
+      "caseId": "RF-SELF-01",
+      "area": "추천코드",
+      "priority": "P0",
+      "platform": [
+        "app",
+        "backend"
+      ],
+      "title": "FC/본부장 self-service 추천코드 조회는 appSession 만료 시 bridge token으로 자동 복구되고, bridge도 없으면 재로그인을 요구한다",
+      "status": "PASS",
+      "owner": "Codex role E2E harness",
+      "executedAt": "2026-06-19T05:40:47.607Z",
+      "evidence": [
+        "FC app/API login returned app/bridge session presence and FC admin_web graph session restored access without recording token values."
+      ],
+      "notes": ""
+    },
+    {
+      "caseId": "RF-SELF-02",
+      "area": "추천코드",
+      "priority": "P0",
+      "platform": [
+        "app",
+        "backend"
+      ],
+      "title": "FC/본부장 self-service 추천인 변경은 appSession 자동 복구 뒤에도 current-state snapshot과 audit trail 계약을 유지한다",
+      "status": "BLOCKED",
+      "owner": "Codex role E2E harness",
+      "executedAt": "2026-06-19T05:40:47.607Z",
+      "evidence": [],
+      "notes": "Self-service recommender change would mutate current-state/audit trail; skipped for user-provided accounts."
+    },
+    {
+      "caseId": "RF-SELF-03",
+      "area": "추천코드",
+      "priority": "P0",
+      "platform": [
+        "app",
+        "backend"
+      ],
+      "title": "FC/본부장 self-service `/referral`은 direct recommender/tree 계약을 유지하면서 세션 만료 상태를 명확히 표면화한다",
+      "status": "PASS",
+      "owner": "Codex role E2E harness",
+      "executedAt": "2026-06-19T05:40:47.607Z",
+      "evidence": [
+        "FC referral graph session surfaces permitted referral graph access; staff APIs remain forbidden for FC session."
+      ],
+      "notes": ""
+    }
   ]
 }

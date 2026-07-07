@@ -1,18 +1,21 @@
 import { Feather } from '@expo/vector-icons';
 import { router, useLocalSearchParams, type Href } from 'expo-router';
-import { useEffect } from 'react';
+import { useCallback, useEffect, useMemo } from 'react';
 import { StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { Button } from '@/components/Button';
 import { useSession } from '@/hooks/use-session';
 import { useIdentityStatus } from '@/hooks/use-identity-status';
+import { buildApplyGateIdentityRoute, buildHomeEntryBreadcrumb, normalizeApplyGateNext } from '@/lib/home-entry-flow';
+import { addSentryBreadcrumb } from '@/lib/sentry-monitor';
 import { COLORS } from '@/lib/theme';
 
 export default function ApplyGateScreen() {
   const { next } = useLocalSearchParams<{ next?: string }>();
   const { role, hydrated, isRequestBoardDesigner } = useSession();
   const { data, isLoading } = useIdentityStatus();
+  const safeNext = useMemo(() => normalizeApplyGateNext(next), [next]);
 
   useEffect(() => {
     if (!hydrated) return;
@@ -25,15 +28,25 @@ export default function ApplyGateScreen() {
       return;
     }
     if (isRequestBoardDesigner) {
-      const nextPath = (typeof next === 'string' && next) ? (next as Href) : ('/' as Href);
-      router.replace(nextPath);
+      addSentryBreadcrumb(buildHomeEntryBreadcrumb('apply-gate.forward-completed', { next: safeNext }));
+      router.replace(safeNext as Href);
       return;
     }
     if (!isLoading && data?.identityCompleted) {
-      const nextPath = (typeof next === 'string' && next) ? (next as Href) : ('/' as Href);
-      router.replace(nextPath);
+      addSentryBreadcrumb(buildHomeEntryBreadcrumb('apply-gate.forward-completed', { next: safeNext }));
+      router.replace(safeNext as Href);
     }
-  }, [data?.identityCompleted, hydrated, isLoading, isRequestBoardDesigner, next, role]);
+  }, [data?.identityCompleted, hydrated, isLoading, isRequestBoardDesigner, role, safeNext]);
+
+  const returnHomeLite = useCallback(() => {
+    addSentryBreadcrumb(buildHomeEntryBreadcrumb('apply-gate.return-home'));
+    router.replace('/home-lite');
+  }, []);
+
+  const startIdentityInput = useCallback(() => {
+    addSentryBreadcrumb(buildHomeEntryBreadcrumb('apply-gate.start-identity', { next: safeNext }));
+    router.push(buildApplyGateIdentityRoute(safeNext) as Href);
+  }, [safeNext]);
 
   return (
     <SafeAreaView style={styles.safe} edges={['left', 'right', 'bottom']}>
@@ -50,7 +63,7 @@ export default function ApplyGateScreen() {
 
         <View style={styles.buttonRow}>
           <Button
-            onPress={() => router.replace('/home-lite')}
+            onPress={returnHomeLite}
             variant="outline"
             size="md"
             style={styles.button}
@@ -59,12 +72,7 @@ export default function ApplyGateScreen() {
             나중에
           </Button>
           <Button
-            onPress={() =>
-              router.push({
-                pathname: '/identity',
-                params: { next: typeof next === 'string' && next ? next : '/' },
-              })
-            }
+            onPress={startIdentityInput}
             variant="primary"
             size="md"
             style={styles.button}

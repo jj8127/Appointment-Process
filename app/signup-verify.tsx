@@ -1,4 +1,3 @@
-import { LinearGradient } from 'expo-linear-gradient';
 import { router, useFocusEffect } from 'expo-router';
 import { MotiView } from 'moti';
 import { useCallback, useEffect, useMemo, useState } from 'react';
@@ -19,7 +18,9 @@ import { useKeyboardPadding } from '@/hooks/use-keyboard-padding';
 import { safeStorage } from '@/lib/safe-storage';
 import { supabase } from '@/lib/supabase';
 import { COLORS, TYPOGRAPHY, SPACING, RADIUS } from '@/lib/theme';
-import type { CommissionCompletionStatus } from '@/types/fc';
+import type { CommissionCompletionStatus, LicenseStatus } from '@/types/fc';
+
+const AUTH_SCREEN_BACKGROUND = COLORS.primaryPale;
 
 const STORAGE_KEY = 'fc-onboarding/signup';
 
@@ -30,9 +31,11 @@ type SignupPayload = {
   email: string;
   phone: string;
   carrier: string;
+  license_statuses?: LicenseStatus[];
   commissionStatus?: CommissionCompletionStatus;
   phoneVerified?: boolean;
   referralCode?: string;
+  referralInviterFcId?: string;
 };
 
 export default function SignupVerifyScreen() {
@@ -155,12 +158,7 @@ export default function SignupVerifyScreen() {
 
   return (
     <View style={styles.container}>
-      <LinearGradient
-        colors={['#ffffff', '#fff1e6']}
-        style={StyleSheet.absoluteFill}
-        start={{ x: 0, y: 0 }}
-        end={{ x: 1, y: 1 }}
-      />
+      <View style={styles.authBackground} pointerEvents="none" />
 
       <SafeAreaView style={styles.safe} edges={['left', 'right', 'bottom']}>
         <KeyboardAwareWrapper
@@ -185,6 +183,8 @@ export default function SignupVerifyScreen() {
                 value={phone}
                 onChangeText={setPhone}
                 keyboardType="number-pad"
+                returnKeyType="done"
+                onSubmitEditing={requestCode}
                 editable={!loading}
                 containerStyle={styles.inputContainer}
               />
@@ -196,6 +196,7 @@ export default function SignupVerifyScreen() {
                 variant="outline"
                 size="md"
                 fullWidth
+                dismissKeyboardOnPress
                 style={styles.subButton}
               >
                 {cooldown > 0 ? `재전송 (${cooldown}s)` : '인증 코드 받기'}
@@ -208,6 +209,8 @@ export default function SignupVerifyScreen() {
                 value={code}
                 onChangeText={setCode}
                 keyboardType="number-pad"
+                returnKeyType="done"
+                onSubmitEditing={verifyCode}
                 editable={!loading}
                 containerStyle={styles.inputContainer}
               />
@@ -219,6 +222,7 @@ export default function SignupVerifyScreen() {
                 variant="primary"
                 size="lg"
                 fullWidth
+                dismissKeyboardOnPress
               >
                 인증 완료
               </Button>
@@ -233,6 +237,15 @@ export default function SignupVerifyScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
+    backgroundColor: AUTH_SCREEN_BACKGROUND,
+  },
+  authBackground: {
+    position: 'absolute',
+    top: 0,
+    right: 0,
+    bottom: 0,
+    left: 0,
+    backgroundColor: AUTH_SCREEN_BACKGROUND,
   },
   safe: {
     flex: 1,

@@ -1,11 +1,34 @@
 import { serve } from 'https://deno.land/std@0.224.0/http/server.ts';
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.45.4';
+import {
+  attachUnreadCountsToContacts,
+  buildInternalChatList,
+  countUnreadBySender,
+  shouldIncludeInternalChatParticipant,
+} from '../_shared/internal-chat.ts';
+import { filterManagerTokensForNotification } from '../_shared/notification-delivery-policy.ts';
 
 type Payload =
   | { type: 'fc_update'; fc_id: string; message?: string }
   | { type: 'fc_delete'; fc_id: string; message?: string }
   | { type: 'admin_update'; fc_id: string; message?: string }
   | { type: 'chat_targets'; resident_id?: string | null }
+  | {
+      type: 'internal_chat_list';
+      viewer_id?: string | null;
+      viewer_role: 'admin' | 'fc';
+      viewer_staff_type?: 'admin' | 'developer' | null;
+      viewer_read_only?: boolean;
+      viewer_is_request_board_designer?: boolean;
+    }
+  | {
+      type: 'internal_unread_count';
+      viewer_id?: string | null;
+      viewer_role: 'admin' | 'fc';
+      viewer_staff_type?: 'admin' | 'developer' | null;
+      viewer_read_only?: boolean;
+      viewer_is_request_board_designer?: boolean;
+    }
   | {
       type: 'inbox_list';
       role: 'admin' | 'fc';
@@ -20,6 +43,8 @@ type Payload =
       since?: string | null;
       include_request_board_fc?: boolean;
       exclude_request_board_categories?: boolean;
+      include_notices?: boolean;
+      only_request_board_categories?: boolean;
     }
   | {
       type: 'inbox_delete';
@@ -41,6 +66,7 @@ type Payload =
       fc_id?: string | null;
       sender_id?: string;
       sender_name?: string;
+      skip_notification_insert?: boolean;
     }
   | {
       type: 'message';
@@ -54,9 +80,15 @@ type Payload =
       category?: string;
       url?: string;
       fc_id?: string | null;
+      skip_notification_insert?: boolean;
     };
 
-type TokenRow = { expo_push_token: string; resident_id: string | null; display_name: string | null };
+type TokenRow = {
+  expo_push_token: string;
+  resident_id: string | null;
+  display_name: string | null;
+  role?: string | null;
+};
 type FcRow = {
   id: string;
   name: string | null;
@@ -89,9 +121,11 @@ type NoticeRow = {
 type BoardNoticeCategoryRow = {
   id: string;
   name: string | null;
+  slug: string | null;
 };
 type BoardNoticePostRow = {
   id: string;
+  category_id: string | null;
   title: string;
   content: string;
   created_at: string;
@@ -107,11 +141,20 @@ type BoardAttachmentRow = {
   sort_order: number;
   created_at: string;
 };
+type InternalChatMessageRow = {
+  sender_id: string | null;
+  receiver_id: string | null;
+  content: string | null;
+  created_at: string | null;
+  is_read: boolean | null;
+};
 
 const EXPO_PUSH_URL = 'https://exp.host/--/api/v2/push/send';
-const BOARD_NOTICE_CATEGORY_SLUG = 'notice';
+const EXPO_PUSH_CHUNK_SIZE = 100;
+const BOARD_HOME_CATEGORY_SLUGS = ['notice', 'garam-pick'] as const;
 const BOARD_NOTICE_ID_PREFIX = 'board_notice:';
 const BOARD_ATTACHMENT_SIGN_EXPIRES_SECONDS = 60 * 60 * 6;
+const ADMIN_CHAT_ID = 'admin';
 const AFFILIATION_OPTIONS = [
   '1본부 서선미',
   '2본부 박성훈',
@@ -119,7 +162,7 @@ const AFFILIATION_OPTIONS = [
   '4본부 현경숙',
   '5본부 최철준',
   '6본부 김정수(박선희)',
-  '7본부 김동훈',
+  '7본부 이동훈',
   '8본부 정승철',
   '9본부 이현욱(김주용)',
 ] as const;
@@ -131,7 +174,8 @@ const LEGACY_AFFILIATION_TO_NEW: Record<string, string> = {
   '5본부 [본부장: 최철준]': '5본부 최철준',
   '6본부 [본부장: 김정수]': '6본부 김정수(박선희)',
   '6본부 [본부장: 박선희]': '6본부 김정수(박선희)',
-  '7본부 [본부장: 김동훈]': '7본부 김동훈',
+  '7본부 [본부장: 김동훈]': '7본부 이동훈',
+  '7본부 [본부장: 이동훈]': '7본부 이동훈',
   '8본부 [본부장: 정승철]': '8본부 정승철',
   '9본부 [본부장: 이현욱]': '9본부 이현욱(김주용)',
   '9본부 [본부장: 김주용]': '9본부 이현욱(김주용)',
@@ -142,7 +186,8 @@ const LEGACY_AFFILIATION_TO_NEW: Record<string, string> = {
   '5팀(대전2) : 최철준 본부장님': '5본부 최철준',
   '6팀(전주1) : 김정수 본부장님': '6본부 김정수(박선희)',
   '6팀(전주1) : 박선희 본부장님': '6본부 김정수(박선희)',
-  '7팀(청주1/직할) : 김동훈 본부장님': '7본부 김동훈',
+  '7팀(청주1/직할) : 김동훈 본부장님': '7본부 이동훈',
+  '7팀(청주1/직할) : 이동훈 본부장님': '7본부 이동훈',
   '8팀(서울3) : 정승철 본부장님': '8본부 정승철',
   '9팀(서울4) : 이현옥 본부장님': '9본부 이현욱(김주용)',
   '9팀(서울4) : 이현욱 본부장님': '9본부 이현욱(김주용)',
@@ -150,6 +195,31 @@ const LEGACY_AFFILIATION_TO_NEW: Record<string, string> = {
 
 const sanitize = (v?: string | null) => (v ?? '').replace(/[^0-9]/g, '');
 const normalizeWhitespace = (value?: string | null) => (value ?? '').replace(/\s+/g, ' ').trim();
+const SECRET_ASSIGNMENT_PATTERN =
+  /\b[A-Z][A-Z0-9_]*(?:TOKEN|SECRET|PASSWORD|PRIVATE_KEY|SERVICE_ROLE_KEY|AUTH_TOKEN|API_KEY)\b\s*=\s*[^\s"'`<>]+/gi;
+const LONG_HEX_TOKEN_PATTERN = /\b[a-f0-9]{32,}\b/gi;
+
+function redactSensitiveText(value?: string | null, fallback = '') {
+  const text = String(value ?? '').trim();
+  if (!text) return fallback;
+  return text
+    .replace(SECRET_ASSIGNMENT_PATTERN, (match) => {
+      const key = match.split('=')[0]?.trim() || 'SECRET';
+      return `${key}=[redacted]`;
+    })
+    .replace(LONG_HEX_TOKEN_PATTERN, '[redacted]')
+    .trim();
+}
+
+function sanitizeNotificationInsert(payload: NotificationInsert): NotificationInsert {
+  return {
+    ...payload,
+    title: redactSensitiveText(payload.title, '알림'),
+    body: redactSensitiveText(payload.body),
+    category: redactSensitiveText(payload.category, 'app_event'),
+    target_url: payload.target_url ? redactSensitiveText(payload.target_url) : payload.target_url,
+  };
+}
 const normalizeAffiliationLabel = (value?: string | null): string => {
   const trimmed = normalizeWhitespace(value);
   if (!trimmed) return '';
@@ -236,7 +306,7 @@ function buildPushTitleWithSource(title: string, source: NotificationSource): st
  * Calls the Next.js /api/admin/push endpoint.
  * Fire-and-forget: errors are logged but do not block the response.
  */
-async function notifyAdminWebPush(title: string, body: string, url: string) {
+async function notifyAdminWebPush(title: string, body: string, url: string, targetId?: string | null) {
   const adminWebUrl = getEnv('ADMIN_WEB_URL');
   const pushSecret = getEnv('ADMIN_PUSH_SECRET');
 
@@ -264,7 +334,7 @@ async function notifyAdminWebPush(title: string, body: string, url: string) {
     const resp = await fetch(endpoint, {
       method: 'POST',
       headers,
-      body: JSON.stringify({ title, body, url }),
+      body: JSON.stringify({ title, body, url, targetId: targetId ?? null }),
     });
 
     const text = await resp.text().catch(() => '');
@@ -332,20 +402,40 @@ function isMissingTableError(error: unknown): boolean {
   return code === '42P01';
 }
 
-async function fetchBoardNoticeCategory(): Promise<BoardNoticeCategoryRow | null> {
+async function fetchBoardHomeCategories(): Promise<BoardNoticeCategoryRow[]> {
   const { data, error } = await supabase
     .from('board_categories')
-    .select('id,name')
-    .eq('slug', BOARD_NOTICE_CATEGORY_SLUG)
-    .maybeSingle();
+    .select('id,name,slug')
+    .in('slug', [...BOARD_HOME_CATEGORY_SLUGS]);
 
   if (error) {
-    if (isMissingTableError(error)) return null;
+    if (isMissingTableError(error)) return [];
     throw error;
   }
-  if (!data?.id) return null;
 
-  return data as BoardNoticeCategoryRow;
+  return (data ?? []) as BoardNoticeCategoryRow[];
+}
+
+async function sendExpoPushPayloads(pushPayload: Array<Record<string, unknown>>) {
+  const chunks: Array<{ status: number; ok: boolean; result: unknown }> = [];
+
+  for (let index = 0; index < pushPayload.length; index += EXPO_PUSH_CHUNK_SIZE) {
+    const chunk = pushPayload.slice(index, index + EXPO_PUSH_CHUNK_SIZE);
+    const resp = await fetch(EXPO_PUSH_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(chunk),
+    });
+
+    const result = await resp.json().catch(async () => ({ raw: await resp.text().catch(() => '') }));
+    chunks.push({ status: resp.status, ok: resp.ok, result });
+  }
+
+  if (chunks.length === 1) {
+    return chunks[0].result;
+  }
+
+  return { chunks };
 }
 
 async function createBoardAttachmentSignedUrl(storagePath: string): Promise<string | null> {
@@ -361,13 +451,16 @@ async function createBoardAttachmentSignedUrl(storagePath: string): Promise<stri
 }
 
 async function fetchBoardNoticesWithAttachments(limit = 20): Promise<NoticeRow[]> {
-  const category = await fetchBoardNoticeCategory();
-  if (!category?.id) return [];
+  const categories = await fetchBoardHomeCategories();
+  if (categories.length === 0) return [];
+
+  const categoryById = new Map(categories.map((category) => [category.id, category]));
+  const categoryIds = categories.map((category) => category.id);
 
   const { data: posts, error: postError } = await supabase
     .from('board_posts')
-    .select('id,title,content,created_at')
-    .eq('category_id', category.id)
+    .select('id,category_id,title,content,created_at')
+    .in('category_id', categoryIds)
     .order('created_at', { ascending: false })
     .limit(limit);
 
@@ -394,7 +487,7 @@ async function fetchBoardNoticesWithAttachments(limit = 20): Promise<NoticeRow[]
         id: `${BOARD_NOTICE_ID_PREFIX}${row.id}`,
         title: row.title,
         body: row.content,
-        category: category.name ?? '공지',
+        category: categoryById.get(row.category_id ?? '')?.name ?? '공지',
         created_at: row.created_at,
         images: null,
         files: null,
@@ -441,7 +534,7 @@ async function fetchBoardNoticesWithAttachments(limit = 20): Promise<NoticeRow[]
     id: `${BOARD_NOTICE_ID_PREFIX}${row.id}`,
     title: row.title,
     body: row.content,
-    category: category.name ?? '공지',
+    category: categoryById.get(row.category_id ?? '')?.name ?? '공지',
     created_at: row.created_at,
     images: imageMap.get(row.id) ?? null,
     files: fileMap.get(row.id) ?? null,
@@ -490,7 +583,7 @@ function getTargetUrl(role: 'admin' | 'fc', payload: Payload, message: string, f
     return '/notifications';
   }
 
-  if (msg.includes('수당동의')) return '/dashboard';
+  if (msg.includes('보증 보험 동의')) return '/dashboard';
   if (msg.includes('한화')) return '/dashboard';
   if (msg.includes('업로드') || msg.includes('제출') || msg.includes('서류')) return `/docs-upload?userId=${fcId}`;
   return '/notifications';
@@ -501,7 +594,7 @@ function buildTitle(fcName: string | null, payload: Payload, message?: string) {
   const msg = (message ?? '').toLowerCase();
 
   if (payload.type === 'admin_update') {
-    if (msg.includes('한화')) return '한화 위촉 안내';
+    if (msg.includes('한화')) return '다위촉 안내';
     if (msg.includes('보험 위촉')) return '생명/손해 위촉 안내';
     if (msg.includes('위촉')) return '생명/손해 위촉 안내';
     if (msg.includes('temp')) return `${name}의 임시번호 안내`;
@@ -514,7 +607,7 @@ function buildTitle(fcName: string | null, payload: Payload, message?: string) {
     return `${name} ${docName} 삭제`;
   }
   if (payload.type === 'fc_update') {
-    if (msg.includes('한화')) return `${name} 한화 위촉 제출`;
+    if (msg.includes('한화')) return `${name} 다위촉 제출`;
     if (msg.includes('기본') || msg.includes('정보')) return `${name} 기본 정보 업데이트`;
     if (msg.includes('temp')) return `${name}의 임시번호 안내`;
     if (msg.includes('서류') || msg.includes('업로드') || msg.includes('upload')) {
@@ -535,6 +628,29 @@ function dedupeTokens(tokens: TokenRow[]): TokenRow[] {
     seen.add(key);
     return true;
   });
+}
+
+function normalizeAdminNotificationTargetId(value?: string | null): string {
+  const raw = String(value ?? '').trim().toLowerCase();
+  if (!raw || raw === ADMIN_CHAT_ID) return '';
+  return sanitize(value);
+}
+
+async function fetchSharedAdminPhones(): Promise<string[]> {
+  const { data, error } = await supabase
+    .from('admin_accounts')
+    .select('phone,staff_type')
+    .eq('active', true);
+  if (error) throw error;
+
+  return Array.from(
+    new Set(
+      ((data ?? []) as AdminAccountRow[])
+        .filter((account) => account.staff_type !== 'developer')
+        .map((account) => sanitize(account.phone))
+        .filter((phone) => phone.length > 0),
+    ),
+  );
 }
 
 async function resolveFcUpdateAdminRecipientIds(fcAffiliation?: string | null): Promise<string[]> {
@@ -599,9 +715,10 @@ function err(message: string, status = 400) {
 }
 
 async function insertNotificationWithFallback(payload: NotificationInsert) {
+  const sanitizedPayload = sanitizeNotificationInsert(payload);
   const withTarget = {
-    ...payload,
-    target_url: payload.target_url ?? null,
+    ...sanitizedPayload,
+    target_url: sanitizedPayload.target_url ?? null,
   };
 
   const firstTry = await supabase.from('notifications').insert(withTarget);
@@ -614,6 +731,21 @@ async function insertNotificationWithFallback(payload: NotificationInsert) {
   const { target_url: _ignored, ...fallbackPayload } = withTarget;
   const secondTry = await supabase.from('notifications').insert(fallbackPayload);
   return secondTry.error ?? null;
+}
+
+async function fetchInternalFcProfiles() {
+  const { data, error } = await supabase
+    .from('fc_profiles')
+    .select('id,name,phone,affiliation')
+    .eq('signup_completed', true);
+
+  if (error) throw error;
+  return (data ?? []) as {
+    id: string;
+    name: string | null;
+    phone: string | null;
+    affiliation: string | null;
+  }[];
 }
 
 serve(async (req: Request) => {
@@ -675,28 +807,162 @@ serve(async (req: Request) => {
     if (developerErr) return err(developerErr.message, 500);
     if (adminErr) return err(adminErr.message, 500);
 
+    const targetSenderIds = Array.from(
+      new Set(
+        [
+          ...((managers ?? []) as { phone?: string | null }[]).map((manager) => sanitize(manager.phone)),
+          ...((developers ?? []) as { phone?: string | null }[]).map((developer) => sanitize(developer.phone)),
+          ADMIN_CHAT_ID,
+        ].filter((value) => value.length > 0),
+      ),
+    );
+
+    let unreadBySender: Record<string, number> = {};
+    if (targetSenderIds.length > 0) {
+      const { data: unreadRows, error: unreadErr } = await supabase
+        .from('messages')
+        .select('sender_id')
+        .eq('receiver_id', residentId)
+        .eq('is_read', false)
+        .in('sender_id', targetSenderIds);
+      if (unreadErr) return err(unreadErr.message, 500);
+      unreadBySender = countUnreadBySender((unreadRows ?? []) as { sender_id?: string | null }[]);
+    }
+
+    const adminUnreadCount = unreadBySender[ADMIN_CHAT_ID] ?? 0;
+
     return ok({
       ok: true,
-      managers: (managers ?? [])
-        .map((manager) => ({
-          name: typeof manager.name === 'string' ? manager.name : '',
-          phone: sanitize(manager.phone),
-        }))
-        .filter((manager) => manager.phone.length > 0),
-      developers: ((developers ?? []) as AdminAccountRow[])
-        .map((developer) => ({
-          name: typeof developer.name === 'string' ? developer.name : '',
-          phone: sanitize(developer.phone),
-        }))
-        .filter((developer) => developer.phone.length > 0),
+      managers: attachUnreadCountsToContacts(
+        (managers ?? [])
+          .map((manager) => ({
+            name: typeof manager.name === 'string' ? manager.name : '',
+            phone: sanitize(manager.phone),
+          }))
+          .filter((manager) => manager.phone.length > 0),
+        unreadBySender,
+      ),
+      developers: attachUnreadCountsToContacts(
+        ((developers ?? []) as AdminAccountRow[])
+          .map((developer) => ({
+            name: typeof developer.name === 'string' ? developer.name : '',
+            phone: sanitize(developer.phone),
+          }))
+          .filter((developer) => developer.phone.length > 0),
+        unreadBySender,
+      ),
       admins: ((admins ?? []) as AdminAccountRow[])
         .map((admin) => ({
           name: typeof admin.name === 'string' ? admin.name : '',
           phone: sanitize(admin.phone),
           staff_type: typeof admin.staff_type === 'string' ? admin.staff_type : null,
+          unread_count: adminUnreadCount,
         }))
         .filter((admin) => admin.phone.length > 0),
+      admin_unread_count: adminUnreadCount,
     });
+  }
+
+  if (body.type === 'internal_chat_list') {
+    const viewerId = String(body.viewer_id ?? '').trim();
+    if (!viewerId) {
+      return err('viewer_id is required', 400);
+    }
+    if (body.viewer_role !== 'admin') {
+      return err('viewer_role is not allowed', 403);
+    }
+
+    try {
+      const [participants, messagesResult] = await Promise.all([
+        fetchInternalFcProfiles(),
+        supabase
+          .from('messages')
+          .select('sender_id,receiver_id,content,created_at,is_read')
+          .or(`sender_id.eq.${viewerId},receiver_id.eq.${viewerId}`)
+          .order('created_at', { ascending: false }),
+      ]);
+
+      if (messagesResult.error) {
+        return err(messagesResult.error.message, 500);
+      }
+
+      const chatParticipants = participants.map((participant) => ({
+        fc_id: participant.id,
+        name: participant.name,
+        phone: participant.phone,
+        affiliation: participant.affiliation,
+      }));
+
+      const summary = buildInternalChatList({
+        viewerId,
+        participants: chatParticipants,
+        messages: (messagesResult.data ?? []) as InternalChatMessageRow[],
+        includeAllCompletedFc: body.viewer_read_only === true,
+      });
+
+      return ok({
+        ok: true,
+        items: summary.items,
+        total_unread: summary.totalUnread,
+      });
+    } catch (listErr) {
+      const message = listErr instanceof Error ? listErr.message : 'internal chat list failed';
+      return err(message, 500);
+    }
+  }
+
+  if (body.type === 'internal_unread_count') {
+    const viewerId = String(body.viewer_id ?? '').trim();
+    if (!viewerId) {
+      return err('viewer_id is required', 400);
+    }
+
+    try {
+      const shouldScopeInternalUnread = body.viewer_role === 'admin' || body.viewer_is_request_board_designer === true;
+
+      if (!shouldScopeInternalUnread) {
+        const { count, error } = await supabase
+          .from('messages')
+          .select('id', { count: 'exact', head: true })
+          .eq('receiver_id', viewerId)
+          .eq('is_read', false);
+        if (error) return err(error.message, 500);
+        return ok({ ok: true, count: count ?? 0 });
+      }
+
+      const participants = await fetchInternalFcProfiles();
+      const chatParticipants = participants.map((participant) => ({
+        fc_id: participant.id,
+        name: participant.name,
+        phone: participant.phone,
+        affiliation: participant.affiliation,
+      }));
+      const scopedSenderIds = chatParticipants
+        .filter((participant) =>
+          shouldIncludeInternalChatParticipant(participant, {
+            includeAllCompletedFc: body.viewer_read_only === true,
+          })
+        )
+        .map((participant) => sanitize(participant.phone))
+        .filter((phone) => phone.length > 0);
+
+      if (scopedSenderIds.length === 0) {
+        return ok({ ok: true, count: 0 });
+      }
+
+      const { count, error } = await supabase
+        .from('messages')
+        .select('id', { count: 'exact', head: true })
+        .eq('receiver_id', viewerId)
+        .eq('is_read', false)
+        .in('sender_id', scopedSenderIds);
+      if (error) return err(error.message, 500);
+
+      return ok({ ok: true, count: count ?? 0 });
+    } catch (countErr) {
+      const message = countErr instanceof Error ? countErr.message : 'internal unread count failed';
+      return err(message, 500);
+    }
   }
 
   // 알림센터 목록 조회 (RLS 우회)
@@ -721,7 +987,7 @@ serve(async (req: Request) => {
         }
       } else {
         if (residentId) {
-          query = query.eq('recipient_role', 'admin').or(`resident_id.eq.${residentId},resident_id.is.null`);
+          query = query.eq('recipient_role', 'admin').eq('resident_id', residentId);
         } else {
           query = query.eq('recipient_role', 'admin').is('resident_id', null);
         }
@@ -730,15 +996,15 @@ serve(async (req: Request) => {
       return query;
     };
 
-    const runNotifQuery = async (buildQuery: (selectColumns: string) => ReturnType<typeof supabase.from>) => {
-      let { data, error } = await buildQuery(
-        'id,title,body,category,target_url,created_at,resident_id,recipient_role',
-      );
+    const runNotifQuery = async (buildQuery: (selectColumns: string) => any): Promise<Array<Record<string, any>>> => {
+      let result = await buildQuery('id,title,body,category,target_url,created_at,resident_id,recipient_role');
+      let data = result.data as Array<Record<string, any>> | null;
+      let error = result.error as { code?: string } | null;
 
       if (error?.code === '42703') {
         const fallback = await buildQuery('id,title,body,category,created_at,resident_id,recipient_role');
-        error = fallback.error;
-        data = (fallback.data ?? []).map((row) => ({ ...row, target_url: null }));
+        error = fallback.error as { code?: string } | null;
+        data = ((fallback.data ?? []) as Array<Record<string, any>>).map((row) => ({ ...row, target_url: null }));
       }
 
       if (error) {
@@ -768,14 +1034,15 @@ serve(async (req: Request) => {
           : Promise.resolve([]),
       ]);
 
-      const notifications = Array.from(
-        [...primaryNotifications, ...requestBoardFcNotifications]
+      const dedupedNotifications: Array<Record<string, any>> = Array.from(
+        ([...primaryNotifications, ...requestBoardFcNotifications] as Array<Record<string, any>>)
           .reduce((map, item) => {
             if (!map.has(item.id)) map.set(item.id, item);
             return map;
-          }, new Map<string, (typeof primaryNotifications)[number]>())
+          }, new Map<string, Record<string, any>>())
           .values(),
-      )
+      );
+      const notifications = dedupedNotifications
         .sort(
           (a, b) =>
             new Date(String(b.created_at ?? 0)).getTime() - new Date(String(a.created_at ?? 0)).getTime(),
@@ -802,6 +1069,8 @@ serve(async (req: Request) => {
     const residentId = sanitize(body.resident_id);
     const includeRequestBoardFc = role === 'admin' && residentId.length > 0 && body.include_request_board_fc === true;
     const excludeRequestBoardCategories = body.exclude_request_board_categories === true;
+    const includeNotices = body.include_notices === true;
+    const onlyRequestBoardCategories = body.only_request_board_categories === true;
 
     const sinceDate = body.since ? new Date(body.since) : new Date(0);
     const sinceIso = Number.isNaN(sinceDate.getTime()) ? new Date(0).toISOString() : sinceDate.toISOString();
@@ -818,15 +1087,17 @@ serve(async (req: Request) => {
         } else {
           countQuery = countQuery.eq('recipient_role', 'fc').is('resident_id', null);
         }
+      } else {
+        if (residentId) {
+          countQuery = countQuery.eq('recipient_role', 'admin').eq('resident_id', residentId);
         } else {
-          if (residentId) {
-            countQuery = countQuery.eq('recipient_role', 'admin').or(`resident_id.eq.${residentId},resident_id.is.null`);
-          } else {
-            countQuery = countQuery.eq('recipient_role', 'admin').is('resident_id', null);
-          }
+          countQuery = countQuery.eq('recipient_role', 'admin').is('resident_id', null);
         }
+      }
 
-        if (excludeRequestBoardCategories) {
+        if (onlyRequestBoardCategories) {
+          countQuery = countQuery.ilike('category', `${REQUEST_BOARD_CATEGORY_PREFIX}%`);
+        } else if (excludeRequestBoardCategories) {
           countQuery = countQuery.not('category', 'ilike', `${REQUEST_BOARD_CATEGORY_PREFIX}%`);
         }
 
@@ -849,7 +1120,17 @@ serve(async (req: Request) => {
       requestBoardFcCount = count ?? 0;
     }
 
-    return ok({ ok: true, count: (primaryCount ?? 0) + requestBoardFcCount });
+    let noticeCount = 0;
+    if (includeNotices && !onlyRequestBoardCategories) {
+      const notices = await fetchUnifiedNotices(200).catch((error) => {
+        if (isMissingTableError(error)) return [] as NoticeRow[];
+        throw error;
+      });
+      const sinceTime = new Date(sinceIso).getTime();
+      noticeCount = notices.filter((notice) => new Date(String(notice.created_at ?? 0)).getTime() > sinceTime).length;
+    }
+
+    return ok({ ok: true, count: (primaryCount ?? 0) + requestBoardFcCount + noticeCount });
   }
 
   // 알림센터 선택 항목 삭제 (RLS 우회)
@@ -892,7 +1173,7 @@ serve(async (req: Request) => {
         }
       } else {
         if (residentId) {
-          deleteQuery = deleteQuery.eq('recipient_role', 'admin').or(`resident_id.eq.${residentId},resident_id.is.null`);
+          deleteQuery = deleteQuery.eq('recipient_role', 'admin').eq('resident_id', residentId);
         } else {
           deleteQuery = deleteQuery.eq('recipient_role', 'admin').is('resident_id', null);
         }
@@ -925,14 +1206,15 @@ serve(async (req: Request) => {
       deletedNotices = count ?? 0;
     }
 
-    // 게시판 공지(카테고리 slug=notice)도 공지 목록에서 삭제 요청 시 함께 삭제
+    // 게시판 홈 노출 카테고리도 공지 목록에서 삭제 요청 시 함께 삭제
     if (boardNoticePostIds.length > 0 && role === 'admin') {
-      const category = await fetchBoardNoticeCategory();
-      if (category?.id) {
+      const categories = await fetchBoardHomeCategories();
+      const categoryIds = categories.map((category) => category.id);
+      if (categoryIds.length > 0) {
         const { data: deletablePosts, error: postErr } = await supabase
           .from('board_posts')
           .select('id')
-          .eq('category_id', category.id)
+          .in('category_id', categoryIds)
           .in('id', boardNoticePostIds);
         if (postErr) return err(postErr.message, 500);
 
@@ -999,24 +1281,32 @@ serve(async (req: Request) => {
   // 직접 알림 처리 (notify/message)
   if (body.type === 'notify' || body.type === 'message') {
     const target_role = body.target_role;
-    const target_id = sanitize(body.target_id);
+    const target_id = target_role === 'admin'
+      ? normalizeAdminNotificationTargetId(body.target_id)
+      : sanitize(body.target_id);
+    const skipNotificationInsert = body.skip_notification_insert === true;
 
-    const title =
+    const title = redactSensitiveText(
       body.type === 'notify'
         ? body.title
-        : body.title ?? '새 메시지';
-    const message =
+        : body.title ?? '\uba54\uc2dc\uc9c0',
+      '\uc54c\ub9bc',
+    );
+    const message = redactSensitiveText(
       body.type === 'notify'
         ? body.body
-        : body.body ?? body.message ?? '새로운 메시지가 도착했습니다.';
-    const category =
+        : body.body ?? body.message ?? '\uc0c8\ub85c\uc6b4 \uba54\uc2dc\uc9c0\uac00 \ub3c4\ucc29\ud588\uc2b5\ub2c8\ub2e4.',
+    );
+    const category = redactSensitiveText(
       body.type === 'notify'
         ? body.category ?? 'app_event'
-        : body.category ?? 'message';
+        : body.category ?? 'message',
+      'app_event',
+    );
     const notificationSource = resolveNotificationSource(category);
     const pushTitle = buildPushTitleWithSource(title, notificationSource);
 
-    let url = body.type === 'notify' ? body.url ?? '/notifications' : body.url ?? '/chat';
+    let url = redactSensitiveText(body.type === 'notify' ? body.url ?? '/notifications' : body.url ?? '/chat', '/notifications');
     if (body.type === 'message' && target_role === 'admin' && !body.url) {
       let senderName = body.sender_name?.trim() || '';
 
@@ -1029,7 +1319,7 @@ serve(async (req: Request) => {
         senderName = senderProfile?.name?.trim() || '';
       }
 
-      const resolvedSenderName = senderName || body.sender_id || 'FC';
+      const resolvedSenderName = redactSensitiveText(senderName || body.sender_id || 'FC', 'FC');
       url = `/chat?targetId=${encodeURIComponent(body.sender_id)}&targetName=${encodeURIComponent(resolvedSenderName)}`;
     }
 
@@ -1039,35 +1329,42 @@ serve(async (req: Request) => {
       // target_id 지정 시 role과 무관하게 같은 번호의 모든 토큰(fc/admin/manager)을 대상으로 발송
       const { data, error } = await supabase
         .from('device_tokens')
-        .select('expo_push_token,resident_id,display_name')
+        .select('expo_push_token,resident_id,display_name,role')
         .eq('resident_id', target_id);
       if (!error && data) tokens = data;
     } else {
       if (target_role === 'admin') {
-        const { data, error } = await supabase
-          .from('device_tokens')
-          .select('expo_push_token,resident_id,display_name')
-          .in('role', ['admin', 'manager']);
-        if (!error && data) tokens = data;
+        const sharedAdminPhones = await fetchSharedAdminPhones();
+        if (sharedAdminPhones.length > 0) {
+          const { data, error } = await supabase
+            .from('device_tokens')
+            .select('expo_push_token,resident_id,display_name,role')
+            .eq('role', 'admin')
+            .in('resident_id', sharedAdminPhones);
+          if (!error && data) tokens = data;
+        }
       } else {
         const { data, error } = await supabase
           .from('device_tokens')
-          .select('expo_push_token,resident_id,display_name')
+          .select('expo_push_token,resident_id,display_name,role')
           .eq('role', 'fc');
         if (!error && data) tokens = data;
       }
     }
+    tokens = filterManagerTokensForNotification(tokens, { category, targetId: target_id });
     tokens = dedupeTokens(tokens);
 
-    const logError = await insertNotificationWithFallback({
-      title,
-      body: message,
-      category,
-      recipient_role: target_role,
-      resident_id: target_id || null,
-      fc_id: body.fc_id ?? null,
-      target_url: url,
-    });
+    const logError = skipNotificationInsert
+      ? null
+      : await insertNotificationWithFallback({
+          title,
+          body: message,
+          category,
+          recipient_role: target_role,
+          resident_id: target_id || null,
+          fc_id: body.fc_id ?? null,
+          target_url: url,
+        });
     if (logError) {
       console.warn('notifications insert failed', logError.message);
     }
@@ -1075,7 +1372,7 @@ serve(async (req: Request) => {
     let adminWebPush: AdminWebPushResult | null = null;
     // Send web push to admin browser subscribers
     if (target_role === 'admin') {
-      adminWebPush = await notifyAdminWebPush(pushTitle, message, url);
+      adminWebPush = await notifyAdminWebPush(pushTitle, message, url, target_id || null);
     }
 
     if (!tokens.length) {
@@ -1097,12 +1394,7 @@ serve(async (req: Request) => {
       channelId: 'alerts',
     }));
 
-    const resp = await fetch(EXPO_PUSH_URL, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(pushPayload),
-    });
-    const result = await resp.json();
+    const result = await sendExpoPushPayloads(pushPayload);
 
     return ok({ ok: true, sent: tokens.length, logged: !logError, result, web_push: adminWebPush });
   }
@@ -1147,7 +1439,7 @@ serve(async (req: Request) => {
     if (recipientResidentIds.length > 0) {
       const { data, error } = await supabase
         .from('device_tokens')
-        .select('expo_push_token,resident_id,display_name')
+        .select('expo_push_token,resident_id,display_name,role')
         .in('resident_id', recipientResidentIds);
       if (error) {
         console.warn('[fc-notify] device token load failed', error.message);
@@ -1155,7 +1447,7 @@ serve(async (req: Request) => {
         tokens = data;
       }
 
-      const notificationRows = recipientResidentIds.map((recipientId) => ({
+      const notificationRows = recipientResidentIds.map((recipientId) => sanitizeNotificationInsert({
         title,
         body: message,
         category: (body as any).type,
@@ -1190,7 +1482,7 @@ serve(async (req: Request) => {
     if (!targetResidentId) return err('FC phone number not found', 400);
     const { data, error } = await supabase
       .from('device_tokens')
-      .select('expo_push_token,resident_id,display_name')
+      .select('expo_push_token,resident_id,display_name,role')
       .eq('resident_id', targetResidentId);
     if (!error && data) tokens = data;
 
@@ -1205,6 +1497,7 @@ serve(async (req: Request) => {
     });
   }
 
+  tokens = filterManagerTokensForNotification(tokens, { category: (body as any).type, targetId: targetResidentId });
   tokens = dedupeTokens(tokens);
   if (logError) console.warn('notifications insert failed', logError.message);
 
@@ -1233,13 +1526,7 @@ serve(async (req: Request) => {
     channelId: 'alerts',
   }));
 
-  const resp = await fetch(EXPO_PUSH_URL, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(payload),
-  });
-
-  const result = await resp.json();
+  const result = await sendExpoPushPayloads(payload);
 
   return ok({ ok: true, sent: tokens.length, logged: !logError, result, web_push: adminWebPush });
 });

@@ -1,9 +1,9 @@
 'use client';
 
 import { useSession } from '@/hooks/use-session';
-import { supabase } from '@/lib/supabase';
 import {
   ActionIcon,
+  Badge,
   Center,
   Container,
   Group,
@@ -22,22 +22,24 @@ import {
 } from '@mantine/core';
 import { notifications } from '@mantine/notifications';
 import { IconFilter, IconFilterOff, IconRefresh, IconSearch, IconX } from '@tabler/icons-react';
-import dayjs from 'dayjs';
 import { useParams, useRouter } from 'next/navigation';
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 
-type Row = {
+import {
+  EXAM_APPLICANT_EXPORT_COLUMNS,
+  EXAM_APPLICANT_TABLE_BADGE_STYLES,
+  formatExamApplicantReceptionStatus,
+  getExamApplicantCellValue,
+  type ExamApplicantExportColumn,
+  type ExamApplicantExportColumnKey,
+  type ExamApplicantListItem,
+} from '@/lib/exam-applicant-list-display';
+
+type Row = ExamApplicantListItem & {
   id: string;
-  resident_id: string;
-  is_confirmed: boolean;
+  status: string;
   created_at: string;
-  exam_locations: { location_name: string } | null;
-  fc_profiles: {
-    name: string | null;
-    phone: string | null;
-    affiliation: string | null;
-    address: string | null;
-  } | null;
+  round_id?: string | null;
 };
 
 type FilterState = {
@@ -59,11 +61,17 @@ const initialFilters: FilterState = {
 };
 
 const HANWHA_ORANGE = '#F37321';
+const CHARCOAL = '#111827';
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value) && typeof value === 'object' && !Array.isArray(value);
+}
 
 export default function AdminExamManagePage() {
   const { role, hydrated } = useSession();
   const params = useParams<{ id: string }>();
   const router = useRouter();
+  const roundId = String(params.id ?? '');
 
   const [rows, setRows] = useState<Row[]>([]);
   const [loading, setLoading] = useState(true);
@@ -71,91 +79,93 @@ export default function AdminExamManagePage() {
   const [globalSearch, setGlobalSearch] = useState('');
   const [filters, setFilters] = useState<FilterState>(initialFilters);
 
+  const tableColumnCount = EXAM_APPLICANT_EXPORT_COLUMNS.length + 1;
+  const statusColumnMinWidth = 180;
+  const tableMinWidth = EXAM_APPLICANT_EXPORT_COLUMNS.reduce(
+    (sum, column) => sum + column.minWidth,
+    statusColumnMinWidth,
+  );
+
   useEffect(() => {
     if (hydrated && role !== 'admin') router.replace('/auth');
   }, [hydrated, role, router]);
 
-  const fetchData = async () => {
+  const fetchData = useCallback(async () => {
+    if (!roundId) return;
+
     setLoading(true);
     try {
-      const { data, error } = await supabase
-        .from('exam_registrations')
-        .select(`
-          id,resident_id,is_confirmed,created_at,
-          exam_locations(location_name),
-          fc_profiles(name,phone,affiliation,address)
-        `)
-        .eq('round_id', params.id)
-        .order('created_at', { ascending: false });
+      const response = await fetch(`/api/admin/exam-applicants?roundId=${encodeURIComponent(roundId)}`, {
+        method: 'GET',
+        credentials: 'include',
+        cache: 'no-store',
+      });
+      const json: unknown = await response.json().catch(() => null);
+      const isOk =
+        response.ok &&
+        isRecord(json) &&
+        json.ok === true &&
+        Array.isArray(json.applicants);
 
-      if (error) throw error;
+      if (!isOk) {
+        const message =
+          isRecord(json) && typeof json.error === 'string'
+            ? json.error
+            : '시험 신청 목록을 불러오지 못했습니다.';
+        throw new Error(message);
+      }
 
-      type RawFcProfile = { name?: string; phone?: string; affiliation?: string; address?: string };
-      type RawRow = {
-        id: string;
-        resident_id: string;
-        is_confirmed: boolean;
-        created_at: string;
-        exam_locations: { location_name: string } | { location_name: string }[] | null;
-        fc_profiles: RawFcProfile | RawFcProfile[] | null;
-      };
-      const normalizeFcProfile = (raw: RawFcProfile | RawFcProfile[] | null): Row['fc_profiles'] => {
-        const profile = Array.isArray(raw) ? raw[0] : raw;
-        if (!profile) return null;
-        return {
-          name: profile.name ?? null,
-          phone: profile.phone ?? null,
-          affiliation: profile.affiliation ?? null,
-          address: profile.address ?? null,
-        };
-      };
-      const formattedRows: Row[] = ((data ?? []) as RawRow[]).map((row) => ({
-        id: row.id,
-        resident_id: row.resident_id,
-        is_confirmed: row.is_confirmed,
-        created_at: row.created_at,
-        exam_locations: Array.isArray(row.exam_locations)
-          ? row.exam_locations[0] ?? null
-          : row.exam_locations,
-        fc_profiles: normalizeFcProfile(row.fc_profiles),
-      }));
-
-      setRows(formattedRows);
+      setRows(json.applicants as Row[]);
     } catch (e) {
       const err = e as Error;
       notifications.show({ title: '조회 실패', message: err.message, color: 'red' });
     } finally {
       setLoading(false);
     }
-  };
+  }, [roundId]);
 
   useEffect(() => {
-    if (hydrated && params.id) fetchData();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [hydrated, params.id]);
+    if (hydrated && role === 'admin' && roundId) {
+      void fetchData();
+    }
+  }, [fetchData, hydrated, role, roundId]);
+
+  const getRowValue = (row: Row, field: ExamApplicantExportColumnKey) =>
+    getExamApplicantCellValue(row, field);
 
   const updateStatus = async (row: Row, newValue: 'confirmed' | 'pending') => {
     const nextConfirmed = newValue === 'confirmed';
     if (processingId === row.id || row.is_confirmed === nextConfirmed) return;
+
     setProcessingId(row.id);
     try {
+      const response = await fetch('/api/admin/exam-applicants', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({ registrationId: row.id, isConfirmed: nextConfirmed }),
+      });
+      const json: unknown = await response.json().catch(() => null);
+      const isOk = response.ok && isRecord(json) && json.ok === true;
+
+      if (!isOk) {
+        const message =
+          isRecord(json) && typeof json.error === 'string'
+            ? json.error
+            : '시험 신청 상태 변경에 실패했습니다.';
+        throw new Error(message);
+      }
+
       const nextStatus = nextConfirmed ? 'confirmed' : 'applied';
-      const payload = { is_confirmed: nextConfirmed, status: nextStatus };
-
-      const { error } = await supabase
-        .from('exam_registrations')
-        .update(payload)
-        .eq('id', row.id);
-
-      if (error) throw error;
-
       setRows((prev) =>
-        prev.map((r) => (r.id === row.id ? { ...r, is_confirmed: nextConfirmed } : r)),
+        prev.map((r) =>
+          r.id === row.id ? { ...r, is_confirmed: nextConfirmed, status: nextStatus } : r,
+        ),
       );
 
       notifications.show({
         title: '상태 변경 완료',
-        message: `${row.fc_profiles?.name ?? '지원자'}님을 ${nextConfirmed ? '접수 완료' : '미접수'} 상태로 변경했습니다.`,
+        message: `${row.name || '지원자'}님을 ${nextConfirmed ? '접수 완료' : '미접수'} 상태로 변경했습니다.`,
         color: 'green',
         autoClose: 2000,
         icon: <IconRefresh size={16} />,
@@ -170,14 +180,18 @@ export default function AdminExamManagePage() {
 
   const filteredRows = useMemo(() => {
     return rows.filter((row) => {
-      const name = row.fc_profiles?.name ?? '';
-      const phone = row.fc_profiles?.phone ?? '';
-      const affiliation = row.fc_profiles?.affiliation ?? '';
-      const address = row.fc_profiles?.address ?? '';
-      const location = row.exam_locations?.location_name ?? '';
+      const name = getRowValue(row, 'name');
+      const phone = getRowValue(row, 'phone');
+      const affiliation = getRowValue(row, 'affiliation');
+      const address = getRowValue(row, 'address');
+      const location = row.location_name || '';
+      const status = formatExamApplicantReceptionStatus(row);
+      const allColumnValues = EXAM_APPLICANT_EXPORT_COLUMNS
+        .map((column) => getRowValue(row, column.key))
+        .join(' ');
 
       if (globalSearch) {
-        const target = `${name} ${phone} ${affiliation} ${address} ${location}`.toLowerCase();
+        const target = `${allColumnValues} ${status}`.toLowerCase();
         if (!target.includes(globalSearch.toLowerCase())) return false;
       }
 
@@ -196,19 +210,19 @@ export default function AdminExamManagePage() {
 
   const stats = useMemo(() => {
     const total = rows.length;
-    const confirmed = rows.filter(r => r.is_confirmed).length;
+    const confirmed = rows.filter((r) => r.is_confirmed).length;
     const pending = total - confirmed;
     return { total, confirmed, pending };
   }, [rows]);
 
   const affiliationOptions = useMemo(() => {
-    const set = new Set(rows.map((r) => r.fc_profiles?.affiliation).filter(Boolean));
-    return Array.from(set) as string[];
+    const set = new Set(rows.map((r) => getRowValue(r, 'affiliation')).filter((value) => value && value !== '-'));
+    return Array.from(set).sort();
   }, [rows]);
 
   const locationOptions = useMemo(() => {
-    const set = new Set(rows.map((r) => r.exam_locations?.location_name).filter(Boolean));
-    return Array.from(set) as string[];
+    const set = new Set(rows.map((r) => r.location_name).filter((value) => value && value !== '-'));
+    return Array.from(set).sort();
   }, [rows]);
 
   const clearFilters = () => {
@@ -219,11 +233,13 @@ export default function AdminExamManagePage() {
   const FilterHeader = ({
     label,
     field,
+    minWidth,
     type = 'text',
     options = [],
   }: {
     label: string;
     field: keyof FilterState;
+    minWidth?: number;
     type?: 'text' | 'select';
     options?: string[];
   }) => {
@@ -231,9 +247,15 @@ export default function AdminExamManagePage() {
     const [opened, setOpened] = useState(false);
 
     return (
-      <Table.Th style={{ whiteSpace: 'nowrap' }}>
-        <Group justify="space-between" wrap="nowrap" gap={4}>
-          <Text fw={700} size="sm" c="dimmed">
+      <Table.Th style={{ minWidth, whiteSpace: 'normal', textAlign: 'center', wordBreak: 'keep-all', lineHeight: 1.25 }}>
+        <Group justify="center" wrap="nowrap" gap={4} style={{ width: '100%' }}>
+          <Text
+            fw={700}
+            size="sm"
+            c={isActive ? 'orange' : 'dimmed'}
+            ta="center"
+            style={{ whiteSpace: 'normal', wordBreak: 'keep-all', lineHeight: 1.25 }}
+          >
             {label}
           </Text>
           <Popover opened={opened} onChange={setOpened} width={220} position="bottom-end" withArrow shadow="md">
@@ -283,27 +305,205 @@ export default function AdminExamManagePage() {
     );
   };
 
+  const renderColumnHeader = (column: ExamApplicantExportColumn) => {
+    if (column.key === 'name' || column.key === 'phone' || column.key === 'address') {
+      return (
+        <FilterHeader
+          key={column.key}
+          label={column.title}
+          field={column.key}
+          minWidth={column.minWidth}
+        />
+      );
+    }
+
+    if (column.key === 'affiliation') {
+      return (
+        <FilterHeader
+          key={column.key}
+          label={column.title}
+          field="affiliation"
+          minWidth={column.minWidth}
+          type="select"
+          options={affiliationOptions}
+        />
+      );
+    }
+
+    if (column.key === 'life_location' || column.key === 'nonlife_location') {
+      return (
+        <FilterHeader
+          key={column.key}
+          label={column.title}
+          field="location"
+          minWidth={column.minWidth}
+          type="select"
+          options={locationOptions}
+        />
+      );
+    }
+
+    return (
+      <Table.Th key={column.key} style={{ minWidth: column.minWidth, whiteSpace: 'normal', textAlign: 'center', wordBreak: 'keep-all', lineHeight: 1.25 }}>
+        <Text fw={700} size="sm" c="dimmed" ta="center" style={{ whiteSpace: 'normal', wordBreak: 'keep-all', lineHeight: 1.25 }}>
+          {column.title}
+        </Text>
+      </Table.Th>
+    );
+  };
+
+  const renderStatusHeader = () => {
+    const isActive = !!filters.status;
+
+    return (
+      <Table.Th style={{ minWidth: statusColumnMinWidth, textAlign: 'center', whiteSpace: 'normal', wordBreak: 'keep-all', lineHeight: 1.25 }}>
+        <Group justify="center" gap={4} style={{ width: '100%' }}>
+          <Text
+            fw={700}
+            size="sm"
+            c={isActive ? 'orange' : 'dimmed'}
+            ta="center"
+            style={{ whiteSpace: 'normal', wordBreak: 'keep-all', lineHeight: 1.25 }}
+          >
+            접수 상태
+          </Text>
+          <Popover position="bottom-end" shadow="md" width={200}>
+            <Popover.Target>
+              <ActionIcon
+                size="sm"
+                variant={isActive ? 'filled' : 'transparent'}
+                color={isActive ? 'orange' : 'gray'}
+              >
+                <IconFilter size={14} />
+              </ActionIcon>
+            </Popover.Target>
+            <Popover.Dropdown p="xs">
+              <Select
+                size="xs"
+                placeholder="상태 선택"
+                data={[
+                  { label: '전체', value: '' },
+                  { label: '접수 완료', value: 'confirmed' },
+                  { label: '미접수', value: 'pending' },
+                ]}
+                value={filters.status ?? ''}
+                onChange={(val) =>
+                  setFilters((prev) => ({
+                    ...prev,
+                    status: (val as 'confirmed' | 'pending' | null) || null,
+                  }))
+                }
+                clearable
+              />
+            </Popover.Dropdown>
+          </Popover>
+        </Group>
+      </Table.Th>
+    );
+  };
+
+  const renderApplicantCell = (item: Row, column: ExamApplicantExportColumn) => {
+    const value = getRowValue(item, column.key);
+    const align = column.key === 'address' ? 'left' : 'center';
+
+    if (column.key === 'subject_display') {
+      return (
+        <Table.Td key={column.key} ta={align}>
+          <Badge variant="light" color="blue" radius="sm" styles={EXAM_APPLICANT_TABLE_BADGE_STYLES}>
+            {value}
+          </Badge>
+        </Table.Td>
+      );
+    }
+
+    if (column.key === 'application_type') {
+      return (
+        <Table.Td key={column.key} ta={align}>
+          <Badge
+            variant="light"
+            color={value === '재신청' ? 'orange' : 'gray'}
+            radius="sm"
+            styles={EXAM_APPLICANT_TABLE_BADGE_STYLES}
+          >
+            {value}
+          </Badge>
+        </Table.Td>
+      );
+    }
+
+    if (column.key === 'fee_paid_date') {
+      return (
+        <Table.Td key={column.key} ta="center">
+          <Text size="sm" c={value === '-' ? 'dimmed' : undefined} ta="center">
+            {value}
+          </Text>
+        </Table.Td>
+      );
+    }
+
+    if (column.key === 'application_created_at') {
+      return (
+        <Table.Td key={column.key} ta="center">
+          <Text size="sm" c={value === '-' ? 'dimmed' : undefined} ta="center">
+            {value}
+          </Text>
+        </Table.Td>
+      );
+    }
+
+    if (column.key === 'third_exam') {
+      return (
+        <Table.Td key={column.key} ta={align}>
+          <Text size="sm" fw={value === '포함' ? 600 : 400} c={value === '포함' ? CHARCOAL : 'dimmed'} ta={align}>
+            {value}
+          </Text>
+        </Table.Td>
+      );
+    }
+
+    if (column.key === 'address') {
+      return (
+        <Table.Td key={column.key} ta={align}>
+          <Text size="sm" style={{ whiteSpace: 'normal', lineHeight: 1.3 }}>
+            {value}
+          </Text>
+        </Table.Td>
+      );
+    }
+
+    return (
+      <Table.Td key={column.key} ta={align}>
+        <Text
+          size="sm"
+          fw={column.key === 'name' ? 600 : 400}
+          c={column.key === 'resident_id' ? 'dimmed' : undefined}
+          ta={align}
+        >
+          {value}
+        </Text>
+      </Table.Td>
+    );
+  };
+
   if (!hydrated) return null;
 
   return (
     <Container size="xl" py="lg">
       <Stack gap="xl">
-        {/* Header Section */}
         <Group justify="space-between" align="center">
           <div>
-            <Title order={2} c="#111827">응시자 관리</Title>
+            <Title order={2} c={CHARCOAL}>응시자 관리</Title>
             <Text c="dimmed" size="sm">각 회차별 응시자 현황을 모니터링하고 접수 상태를 관리합니다.</Text>
           </div>
           <Group gap="xs">
             <Tooltip label="데이터 새로고침">
-              <ActionIcon variant="light" color="gray" size="lg" onClick={fetchData} loading={loading}>
+              <ActionIcon variant="light" color="gray" size="lg" onClick={() => void fetchData()} loading={loading}>
                 <IconRefresh size={20} />
               </ActionIcon>
             </Tooltip>
           </Group>
         </Group>
 
-        {/* Stats Section */}
         <Group grow>
           <Paper p="md" radius="md" withBorder shadow="sm">
             <Text size="xs" c="dimmed" fw={700} tt="uppercase">총 신청자</Text>
@@ -319,7 +519,6 @@ export default function AdminExamManagePage() {
           </Paper>
         </Group>
 
-        {/* Main Content */}
         <Paper withBorder radius="md" shadow="sm" p="lg" bg="white">
           <Stack gap="lg">
             <Group justify="space-between" align="center">
@@ -347,53 +546,26 @@ export default function AdminExamManagePage() {
             </Group>
 
             <Paper withBorder radius="md" style={{ overflow: 'hidden' }}>
-              <ScrollArea h={600} type="auto">
-                <Table highlightOnHover verticalSpacing="sm" horizontalSpacing="md" striped withColumnBorders>
-                  <Table.Thead bg="gray.0" style={{ position: 'sticky', top: 0, zIndex: 1 }}>
+              <ScrollArea h={600} type="always" offsetScrollbars styles={{ viewport: { overflowX: 'auto', overflowY: 'auto' } }}>
+                <Table
+                  highlightOnHover
+                  verticalSpacing="sm"
+                  horizontalSpacing="md"
+                  striped
+                  withColumnBorders
+                  stickyHeader
+                  style={{ minWidth: tableMinWidth }}
+                >
+                  <Table.Thead bg="gray.0">
                     <Table.Tr>
-                      <FilterHeader label="이름" field="name" />
-                      <FilterHeader label="연락처" field="phone" />
-                      <FilterHeader label="소속" field="affiliation" type="select" options={affiliationOptions} />
-                      <FilterHeader label="주소" field="address" />
-                      <FilterHeader label="고사장" field="location" type="select" options={locationOptions} />
-                      <Table.Th style={{ whiteSpace: 'nowrap' }}><Text size="sm" fw={700} c="dimmed">신청일시</Text></Table.Th>
-                      <Table.Th style={{ width: 180, textAlign: 'center', whiteSpace: 'nowrap' }}>
-                        <Group justify="center" gap={4}>
-                          <Text fw={700} size="sm" c="dimmed">접수 상태</Text>
-                          <Popover position="bottom-end" shadow="md" width={200}>
-                            <Popover.Target>
-                              <ActionIcon
-                                size="sm"
-                                variant={filters.status ? 'filled' : 'transparent'}
-                                color={filters.status ? 'orange' : 'gray'}
-                                style={{ transition: 'all 0.2s' }}
-                              >
-                                <IconFilter size={14} />
-                              </ActionIcon>
-                            </Popover.Target>
-                            <Popover.Dropdown p="xs">
-                              <Select
-                                size="xs"
-                                placeholder="상태 선택"
-                                data={[
-                                  { label: '전체', value: '' },
-                                  { label: '접수 완료', value: 'confirmed' },
-                                  { label: '미접수', value: 'pending' },
-                                ]}
-                                value={filters.status ?? ''}
-                                onChange={(val) => setFilters((prev) => ({ ...prev, status: (val as 'confirmed' | 'pending' | null) || null }))}
-                                clearable
-                              />
-                            </Popover.Dropdown>
-                          </Popover>
-                        </Group>
-                      </Table.Th>
+                      {EXAM_APPLICANT_EXPORT_COLUMNS.map((column) => renderColumnHeader(column))}
+                      {renderStatusHeader()}
                     </Table.Tr>
                   </Table.Thead>
                   <Table.Tbody>
                     {loading ? (
                       <Table.Tr>
-                        <Table.Td colSpan={7}>
+                        <Table.Td colSpan={tableColumnCount}>
                           <Center py={80}>
                             <Loader color="orange" type="dots" />
                           </Center>
@@ -401,7 +573,7 @@ export default function AdminExamManagePage() {
                       </Table.Tr>
                     ) : filteredRows.length === 0 ? (
                       <Table.Tr>
-                        <Table.Td colSpan={7} align="center" py={80}>
+                        <Table.Td colSpan={tableColumnCount} align="center" py={80}>
                           <Stack gap="xs" align="center">
                             <IconSearch size={40} color="#dee2e6" />
                             <Text c="dimmed">조건에 맞는 응시자가 없습니다.</Text>
@@ -409,51 +581,30 @@ export default function AdminExamManagePage() {
                         </Table.Td>
                       </Table.Tr>
                     ) : (
-                      filteredRows.map((r) => (
-                        <Table.Tr key={r.id}>
-                          <Table.Td>
-                            <Text fw={600} size="sm">{r.fc_profiles?.name ?? '(이름없음)'}</Text>
-                          </Table.Td>
-                          <Table.Td>
-                            <Text size="sm">{r.fc_profiles?.phone ?? r.resident_id}</Text>
-                          </Table.Td>
-                          <Table.Td>
-                            <Text size="sm">{r.fc_profiles?.affiliation ?? '-'}</Text>
-                          </Table.Td>
-                          <Table.Td style={{ maxWidth: 220 }}>
-                            <Tooltip label={r.fc_profiles?.address} disabled={!r.fc_profiles?.address}>
-                              <Text truncate size="sm">
-                                {r.fc_profiles?.address ?? '-'}
-                              </Text>
-                            </Tooltip>
-                          </Table.Td>
-                          <Table.Td>
-                            <Text size="sm">{r.exam_locations?.location_name ?? '-'}</Text>
-                          </Table.Td>
-                          <Table.Td>
-                            <Text size="sm" c="dimmed">{dayjs(r.created_at).format('YYYY-MM-DD HH:mm')}</Text>
-                          </Table.Td>
-                          <Table.Td align="center">
+                      filteredRows.map((row) => (
+                        <Table.Tr key={row.id}>
+                          {EXAM_APPLICANT_EXPORT_COLUMNS.map((column) => renderApplicantCell(row, column))}
+                          <Table.Td ta="center">
                             <SegmentedControl
                               size="xs"
                               radius="xl"
                               fullWidth
-                              value={r.is_confirmed ? 'confirmed' : 'pending'}
-                              onChange={(val) => updateStatus(r, val as 'confirmed' | 'pending')}
-                              disabled={processingId === r.id}
+                              value={row.is_confirmed ? 'confirmed' : 'pending'}
+                              onChange={(val) => updateStatus(row, val as 'confirmed' | 'pending')}
+                              disabled={processingId === row.id}
                               data={[
                                 { label: '미접수', value: 'pending' },
                                 { label: '접수 완료', value: 'confirmed' },
                               ]}
-                              color={r.is_confirmed ? 'orange' : 'gray'}
+                              color={row.is_confirmed ? 'orange' : 'gray'}
                               styles={{
-                                root: { backgroundColor: r.is_confirmed ? '#fff4e6' : '#f1f3f5' },
-                                indicator: { backgroundColor: r.is_confirmed ? HANWHA_ORANGE : '#adb5bd' },
+                                root: { backgroundColor: row.is_confirmed ? '#fff4e6' : '#f1f3f5' },
+                                indicator: { backgroundColor: row.is_confirmed ? HANWHA_ORANGE : '#adb5bd' },
                                 label: {
                                   transition: 'color 0.2s',
-                                  color: processingId === r.id ? '#ced4da' : undefined,
-                                  fontWeight: 600
-                                }
+                                  color: processingId === row.id ? '#ced4da' : undefined,
+                                  fontWeight: 600,
+                                },
                               }}
                             />
                           </Table.Td>

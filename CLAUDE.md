@@ -82,14 +82,13 @@ eas build --platform ios --profile production
 # Submit latest iOS build to App Store Connect
 eas submit --platform ios --latest
 
-# Web export for mobile web
-npx expo export --platform web --output-dir dist-web
-npx serve -l 8081 dist-web
+# Expo web static export
+npm run build
+npx serve -l 8081 dist
 
 # Vercel deployment (see DEPLOYMENT.md)
-cd web
 vercel link --project admin_web
-vercel deploy --prod
+vercel deploy --prod --archive=tgz
 ```
 
 ### Testing
@@ -304,7 +303,7 @@ SUPABASE_SERVICE_ROLE_KEY=your-service-role-key  # For server-side operations
 ## Deployment Targets
 
 1. **Mobile (Expo)**: iOS App Store + Android Play Store via EAS
-2. **Mobile Web**: Vercel project `appointmentprocess` (static export from `dist/web`)
+2. **Mobile Web**: Vercel project `appointmentprocess` (static export from generated `dist/`)
 3. **Admin Web**: Vercel project `admin_web` (from `web/`)
 
 See `DEPLOYMENT.md` for detailed deployment steps.

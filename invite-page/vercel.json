@@ -1,0 +1,16 @@
+{
+  "rewrites": [
+    { "source": "/board", "destination": "/board.html" },
+    { "source": "/board/", "destination": "/board.html" },
+    { "source": "/(.*)", "destination": "/index.html" }
+  ],
+  "headers": [
+    {
+      "source": "/(.*)",
+      "headers": [
+        { "key": "Cache-Control", "value": "no-store" },
+        { "key": "X-Content-Type-Options", "value": "nosniff" }
+      ]
+    }
+  ]
+}

@@ -1,12 +1,12 @@
 import { Feather } from '@expo/vector-icons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as Haptics from 'expo-haptics';
-import { useRouter } from 'expo-router';
+import { useFocusEffect, useRouter } from 'expo-router';
 import { MotiView } from 'moti';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import {
-  ActivityIndicator,
   Alert,
+  AppState,
   FlatList,
   LayoutChangeEvent,
   Pressable,
@@ -18,11 +18,17 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
+import MessengerLoadingState from '@/components/MessengerLoadingState';
 import { RefreshButton } from '@/components/RefreshButton';
 import { useSession } from '@/hooks/use-session';
 import { logger } from '@/lib/logger';
 import { fetchMobileUnreadNotificationCount } from '@/lib/mobile-unread-notification-count';
+import { resolveNotificationInboxResidentId } from '@/lib/notification-inbox-scope';
 import { setNotificationCheckpointNow } from '@/lib/notification-checkpoint';
+import {
+  normalizeNotificationTargetUrl,
+  resolveRequestBoardNotificationRoute,
+} from '@/lib/notification-route';
 import { resolveNoticeRoute } from '@/lib/notice-route';
 import { supabase } from '@/lib/supabase';
 import { syncNativeNotificationBadge } from '@/lib/system-notification-badge';
@@ -90,7 +96,7 @@ const isRequestBoardCategory = (category?: string | null): boolean =>
 
 export default function NotificationsScreen() {
   const router = useRouter();
-  const { role, residentId, hydrated, isRequestBoardDesigner, requestBoardRole } = useSession();
+  const { role, residentId, hydrated, isRequestBoardDesigner, requestBoardRole, readOnly, staffType } = useSession();
   const [notices, setNotices] = useState<Notice[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -100,7 +106,12 @@ export default function NotificationsScreen() {
   const [isDragging, setIsDragging] = useState(false);
 
   const inboxRole: 'admin' | 'fc' | null = role;
-  const inboxResidentId = residentId || null;
+  const inboxResidentId = resolveNotificationInboxResidentId({
+    role,
+    residentId,
+    readOnly,
+    staffType,
+  });
   const includeRequestBoardFcInbox = inboxRole === 'admin' && requestBoardRole === 'fc';
   const hiddenNoticeStorageKey =
     inboxRole === 'fc' ? `${HIDDEN_NOTICE_KEY_PREFIX}:${residentId || 'fc'}` : null;
@@ -433,6 +444,25 @@ export default function NotificationsScreen() {
     void load();
   }, [load]);
 
+  useFocusEffect(
+    useCallback(() => {
+      void load();
+      return undefined;
+    }, [load]),
+  );
+
+  useEffect(() => {
+    const subscription = AppState.addEventListener('change', (nextState) => {
+      if (nextState === 'active') {
+        void load();
+      }
+    });
+
+    return () => {
+      subscription.remove();
+    };
+  }, [load]);
+
   const handleRefresh = () => {
     setRefreshing(true);
     void load();
@@ -581,26 +611,6 @@ export default function NotificationsScreen() {
     }
   };
 
-  const normalizeTargetUrl = (url: string): string => {
-    const trimmed = url.trim();
-    if (!trimmed) return '/notifications';
-    if (trimmed.startsWith('http://') || trimmed.startsWith('https://')) {
-      const match = trimmed.match(/^https?:\/\/[^/]+(\/.*)?$/i);
-      return normalizeTargetUrl(match?.[1] ?? '/notifications');
-    }
-
-    if (trimmed.startsWith('/dashboard/notifications')) return '/notice';
-    if (trimmed.startsWith('/dashboard/chat')) return '/messenger?channel=garam';
-    if (trimmed === '/admin-messenger') return '/messenger?channel=garam';
-    if (trimmed === '/chat') return '/messenger?channel=garam';
-    if (trimmed === '/request-board-messenger') return '/messenger?channel=request-board';
-    if (trimmed.startsWith('/board?')) return trimmed.replace('/board?', '/board-detail?');
-    if (trimmed.startsWith('/exam/apply2')) return '/exam-apply2';
-    if (trimmed.startsWith('/exam/apply')) return '/exam-apply';
-    if (trimmed.startsWith('/dashboard')) return '/dashboard';
-    return trimmed;
-  };
-
   const getOriginLabel = (item: Notice): string => {
     if (item.origin === 'request_board') return '설계요청';
     return '온보딩앱';
@@ -628,21 +638,20 @@ export default function NotificationsScreen() {
     }
 
     if (item.origin === 'request_board') {
-      const category = (item.category ?? '').trim().toLowerCase();
-      if (category === 'request_board_message') {
-        return '/messenger?channel=request-board';
-      }
-      return '/request-board';
+      return resolveRequestBoardNotificationRoute({
+        category: item.category,
+        targetUrl: item.targetUrl,
+      });
     }
 
     const lowerTitle = item.title?.toLowerCase?.() ?? '';
     const lowerBody = item.body?.toLowerCase?.() ?? '';
 
     const isHanwhaWorkflowNotification =
-      lowerTitle.includes('한화 위촉 승인') ||
-      lowerTitle.includes('한화 위촉 반려') ||
-      lowerBody.includes('한화 위촉이 승인') ||
-      lowerBody.includes('한화 위촉이 반려') ||
+      lowerTitle.includes('다위촉 승인') ||
+      lowerTitle.includes('다위촉 반려') ||
+      lowerBody.includes('다위촉이 승인') ||
+      lowerBody.includes('다위촉이 반려') ||
       lowerBody.includes('승인 pdf');
 
     if (isHanwhaWorkflowNotification) {
@@ -650,11 +659,14 @@ export default function NotificationsScreen() {
     }
 
     if (item.targetUrl) {
-      return normalizeTargetUrl(item.targetUrl);
+      return normalizeNotificationTargetUrl(item.targetUrl);
     }
 
     const category = (item.category ?? '').toLowerCase();
 
+    if (category === 'group_chat_message') {
+      return '/group-chat';
+    }
     if (category.includes('message') || lowerTitle.includes('메시지') || lowerBody.includes('메시지')) {
       return '/messenger?channel=garam';
     }
@@ -842,9 +854,7 @@ export default function NotificationsScreen() {
       )}
 
       {loading && !refreshing ? (
-        <View style={styles.center}>
-          <ActivityIndicator color={COLORS.primary} />
-        </View>
+        <MessengerLoadingState variant="notifications" />
       ) : (
         <View
           ref={listContainerRef}

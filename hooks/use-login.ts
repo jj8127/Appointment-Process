@@ -3,6 +3,7 @@ import { Alert, Keyboard } from 'react-native';
 import * as Haptics from 'expo-haptics';
 import { router } from 'expo-router';
 import { useSession } from '@/hooks/use-session';
+import { logger } from '@/lib/logger';
 import { clearRequestBoardState, setAppSessionToken, setBridgeToken } from '@/lib/request-board-api';
 import { normalizeStaffType } from '@/lib/staff-identity';
 import { supabase } from '@/lib/supabase';
@@ -30,20 +31,20 @@ export function useLogin(options?: UseLoginOptions) {
   const { loginAs } = useSession();
   const [loading, setLoading] = useState(false);
 
-  const login = async (phoneInput: string, passwordInput: string) => {
+  const login = async (phoneInput: string, passwordInput: string): Promise<boolean> => {
     Keyboard.dismiss();
 
     // Validation using centralized validation library
     const phoneValidation = validatePhone(phoneInput);
     if (!phoneValidation.isValid) {
       Alert.alert('알림', phoneValidation.error);
-      return;
+      return false;
     }
 
     const passwordValidation = validateRequired(passwordInput, '비밀번호');
     if (!passwordValidation.isValid) {
       Alert.alert('알림', passwordValidation.error);
-      return;
+      return false;
     }
 
     const digits = normalizePhone(phoneInput);
@@ -57,32 +58,42 @@ export function useLogin(options?: UseLoginOptions) {
       });
 
       if (error) {
+        logger.warn('[login] login-with-password invoke failed', {
+          phone: digits,
+          error,
+        });
         const errorMessage = error instanceof Error ? error.message : '오류가 발생했습니다. 다시 시도해주세요.';
         Alert.alert('로그인 실패', errorMessage);
         if (options?.onError) {
           options.onError(error instanceof Error ? error : new Error(errorMessage));
         }
-        return;
+        return false;
       }
 
       if (!data?.ok) {
+        logger.warn('[login] login-with-password rejected', {
+          phone: digits,
+          code: data?.code ?? null,
+          role: data?.role ?? null,
+          message: data?.message ?? null,
+        });
         if (data?.code === 'not_found') {
           Alert.alert('안내', '회원가입이 되어 있지 않은 번호입니다. 회원가입 후 로그인해주세요.');
           if (data?.role !== 'admin' && data?.role !== 'manager') {
             router.replace('/signup');
           }
-          return;
+          return false;
         }
 
         if ((data?.code === 'needs_password_setup' || data?.code === 'not_completed') && data?.role !== 'admin' && data?.role !== 'manager') {
           Alert.alert('안내', '회원가입이 완료되지 않았습니다. 회원가입을 완료해주세요.');
           router.replace('/signup');
-          return;
+          return false;
         }
 
         // Other login failures
         Alert.alert('로그인 실패', data?.message ?? '오류가 발생했습니다. 다시 시도해주세요.');
-        return;
+        return false;
       }
 
       // Success - set session
@@ -116,15 +127,19 @@ export function useLogin(options?: UseLoginOptions) {
       // Navigate or call custom success handler
       if (options?.onSuccess) {
         options.onSuccess(nextRole);
-      } else {
-        router.replace(isRequestBoardDesigner ? '/request-board' : nextRole === 'admin' ? '/' : '/home-lite');
       }
+      return true;
     } catch (error) {
+      logger.warn('[login] login flow threw', {
+        phone: digits,
+        error,
+      });
       const errorMessage = error instanceof Error ? error.message : '오류가 발생했습니다. 다시 시도해주세요.';
       Alert.alert('로그인 실패', errorMessage);
       if (options?.onError && error instanceof Error) {
         options.onError(error);
       }
+      return false;
     } finally {
       setLoading(false);
     }

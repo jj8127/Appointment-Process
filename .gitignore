@@ -57,6 +57,9 @@ credentials/
 
 # local codex/mcp settings
 .codex/
+.codex-tmp/
+.claude/settings.local.json
+.idea/
 
 # local tooling checkout
 Claude-Code-Usage-Monitor/
@@ -67,7 +70,9 @@ Claude-Code-Usage-Monitor/
 # Test and temp files
 .testsprite_tests
 testsprite_tests/
+coverage/
 nul
+supabase/.temp/
 
 # Vercel deployment
 .vercel

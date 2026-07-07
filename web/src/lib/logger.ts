@@ -1,3 +1,5 @@
+import { captureSentryException } from './sentry-monitor';
+
 /**
  * Logger utility for FC Onboarding App (web)
  *
@@ -80,6 +82,10 @@ class Logger {
         break;
       case LogLevel.ERROR:
         console.error(formatted);
+        captureSentryException(data instanceof Error ? data : new Error(message), {
+          loggerMessage: message,
+          loggerData: data,
+        });
         break;
     }
   }

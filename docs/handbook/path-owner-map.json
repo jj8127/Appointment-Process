@@ -29,6 +29,8 @@
         "app/consent.tsx",
         "app/docs-upload.tsx",
         "app/appointment.tsx",
+        "lib/fc-workflow.ts",
+        "lib/fc-workflow-core.ts",
         "types/fc.ts"
       ],
       "requires_any": [
@@ -47,6 +49,7 @@
         "app/exam-register2.tsx",
         "app/exam-manage.tsx",
         "app/exam-manage2.tsx",
+        "lib/exam-flow-contract.ts",
         "web/src/app/dashboard/exam/",
         "web/src/app/admin/exams/",
         "web/src/app/api/admin/exam-applicants/route.ts",
@@ -98,6 +101,35 @@
         "docs/handbook/mobile/messenger-and-content.md",
         "docs/handbook/backend/notifications-inbox-push.md",
         "docs/handbook/backend/board-api-and-notice-model.md"
+      ]
+    },
+    {
+      "id": "mobile-referral-self-service",
+      "severity": "behavior",
+      "prefixes": [
+        "app/referral.tsx",
+        "app/referral-tree.tsx",
+        "hooks/use-my-referral-code.ts",
+        "hooks/use-my-invitees.ts",
+        "hooks/use-referral-app-session.ts",
+        "hooks/use-referral-tree.ts",
+        "components/ReferralAncestorsChain.tsx",
+        "components/ReferralTreeNode.tsx"
+      ],
+      "requires_any": [
+        "docs/handbook/data/referral-schema-and-admin-rpcs.md",
+        "docs/handbook/mobile/auth-and-gates.md"
+      ]
+    },
+    {
+      "id": "mobile-referral-search-shared",
+      "severity": "behavior",
+      "prefixes": [
+        "components/ReferralSearchField.tsx"
+      ],
+      "requires_any": [
+        "docs/handbook/data/referral-schema-and-admin-rpcs.md",
+        "docs/handbook/mobile/auth-and-gates.md"
       ]
     },
     {
@@ -176,7 +208,12 @@
         "supabase/functions/request-signup-otp/",
         "supabase/functions/verify-signup-otp/",
         "supabase/functions/sync-request-board-session/",
+        "supabase/functions/refresh-app-session/",
         "supabase/functions/delete-account/",
+        "supabase/functions/_shared/manager-affiliation.ts",
+        "supabase/functions/_shared/password-reset-account.ts",
+        "supabase/functions/_shared/request-board-password-sync.ts",
+        "supabase/functions/_shared/__tests__/request-board-password-sync.test.ts",
         "supabase/functions/_shared/request-board-auth.ts",
         "hooks/use-session.tsx",
         "web/src/hooks/use-session.tsx",
@@ -196,7 +233,12 @@
       "id": "backend-notifications",
       "severity": "contract",
       "prefixes": [
+        "supabase/functions/_shared/internal-chat.ts",
+        "supabase/functions/_shared/notification-delivery-policy.ts",
+        "supabase/functions/_shared/__tests__/notification-delivery-policy.test.ts",
+        "supabase/functions/device-token-register/",
         "supabase/functions/fc-notify/",
+        "supabase/functions/__tests__/fc-notify-",
         "web/src/app/api/admin/push/route.ts",
         "web/src/app/api/web-push/subscribe/route.ts",
         "lib/mobile-unread-notification-count.ts",
@@ -209,14 +251,67 @@
       ]
     },
     {
+      "id": "backend-group-chat",
+      "severity": "contract",
+      "prefixes": [
+        "supabase/functions/_shared/group-chat.ts",
+        "supabase/functions/group-chat/"
+      ],
+      "requires_any": [
+        "docs/handbook/mobile/messenger-and-content.md",
+        "docs/handbook/backend/notifications-inbox-push.md",
+        "docs/handbook/data/data-model-canon.md"
+      ]
+    },
+    {
       "id": "backend-board",
       "severity": "behavior",
       "prefixes": [
-        "supabase/functions/board-"
+        "supabase/functions/board-",
+        "supabase/functions/_shared/board.ts",
+        "supabase/functions/_shared/board-categories.ts",
+        "supabase/functions/__tests__/board-"
       ],
       "requires_any": [
         "docs/handbook/backend/board-api-and-notice-model.md",
         "docs/handbook/data/storage-and-attachments.md"
+      ]
+    },
+    {
+      "id": "backend-referral-self-service",
+      "severity": "contract",
+      "prefixes": [
+        "supabase/functions/_shared/referral-code.ts",
+        "supabase/functions/_shared/referral-link.ts",
+        "supabase/functions/get-my-referral-code/",
+        "supabase/functions/get-fc-referral-code/",
+        "supabase/functions/get-my-invitees/",
+        "supabase/functions/get-referral-tree/",
+        "supabase/functions/search-fc-for-referral/",
+        "supabase/functions/refresh-app-session/",
+        "supabase/functions/update-my-recommender/"
+      ],
+      "requires_any": [
+        "docs/handbook/data/referral-schema-and-admin-rpcs.md",
+        "docs/handbook/shared/security-and-secret-operations.md",
+        "docs/handbook/mobile/auth-and-gates.md"
+      ]
+    },
+    {
+      "id": "backend-referral-signup-and-invite",
+      "severity": "contract",
+      "prefixes": [
+        "supabase/functions/_shared/__tests__/referral-search.test.ts",
+        "supabase/functions/_shared/referral-search.ts",
+        "supabase/functions/invite/",
+        "supabase/functions/search-signup-referral/",
+        "supabase/functions/validate-referral-code/",
+        "supabase/functions/tsconfig.json"
+      ],
+      "requires_any": [
+        "docs/handbook/data/referral-schema-and-admin-rpcs.md",
+        "docs/handbook/mobile/auth-and-gates.md",
+        "docs/handbook/shared/security-and-secret-operations.md"
       ]
     },
     {
@@ -232,6 +327,17 @@
       "requires_any": [
         "docs/handbook/backend/scheduled-jobs-and-runtime.md",
         "docs/handbook/data/presence-rpc-fallback.md"
+      ]
+    },
+    {
+      "id": "backend-functions-lockfile",
+      "severity": "contract",
+      "prefixes": [
+        "supabase/functions/deno.lock"
+      ],
+      "requires_any": [
+        "docs/handbook/shared/security-and-secret-operations.md",
+        "docs/handbook/backend/scheduled-jobs-and-runtime.md"
       ]
     },
     {

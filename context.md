@@ -1,4 +1,4 @@
-# context.md - 현재 세션 상태
+﻿# context.md - 현재 세션 상태
 
 > 새 세션 시작 시 이 파일을 먼저 읽고 컨텍스트를 파악하세요.
 > 세션 종료 시 이 파일을 업데이트하세요.
@@ -310,7 +310,7 @@
 - web/src/components/StatusToggle.tsx - 상태 토글 컴포넌트
 
 ### Phase 1 완료 파일 (컴포넌트 통일)
-- app/consent.tsx - 수당 동의 (Button 3개)
+- app/consent.tsx - 보증 보험 동의 (Button 3개)
 - app/identity.tsx - 신원 확인 (Button 2개)
 - app/docs-upload.tsx - 서류 업로드 (Button 3개)
 - app/admin-notice.tsx - 공지사항 등록 (FormInput 2개, Button 3개)
@@ -341,7 +341,7 @@ node test-sms.js 01012345678
 # 주요 화면 테스트
 # 1. 로그인 → 회원가입 플로우
 # 2. 신원 확인 (identity.tsx) - Button 확인
-# 3. 수당 동의 (consent.tsx) - 외부링크 버튼, DatePicker 버튼
+# 3. 보증 보험 동의 (consent.tsx) - 외부링크 버튼, DatePicker 버튼
 # 4. 서류 업로드 (docs-upload.tsx) - 관리자 검토 버튼
 # 5. 공지사항 등록 (admin-notice.tsx) - FormInput, 첨부파일 버튼
 # 6. 메신저 (admin-messenger.tsx) - 검색 FormInput

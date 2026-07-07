@@ -1,4 +1,4 @@
-import { DarkTheme, DefaultTheme, ThemeProvider } from '@react-navigation/native';
+import { DefaultTheme, ThemeProvider } from '@react-navigation/native';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import * as Linking from 'expo-linking';
 import * as NavigationBar from 'expo-navigation-bar';
@@ -20,12 +20,14 @@ import { ErrorBoundary } from '@/components/ErrorBoundary';
 import FcTourTooltip from '@/components/FcTourTooltip';
 import { ToastProvider } from '@/components/Toast';
 import { useAppPresenceHeartbeat } from '@/hooks/use-app-presence-heartbeat';
-import { useColorScheme } from '@/hooks/use-color-scheme';
 import { SessionProvider } from '@/hooks/use-session';
 import { useInAppUpdate } from '@/hooks/useInAppUpdate';
+import { goBackOrReplace } from '@/lib/back-navigation';
 import { logger } from '@/lib/logger';
+import { resolvePushNotificationRoute } from '@/lib/notification-route';
 import { savePendingReferralCode } from '@/lib/referral-deeplink';
 import { safeStorage } from '@/lib/safe-storage';
+import { withSentryRoot } from '@/lib/sentry';
 
 import {
   AntDesign,
@@ -56,12 +58,40 @@ const queryClient = new QueryClient({
 // Disable native screen optimization to avoid Android drawing-order crash
 enableScreens(false);
 
+const DEFAULT_SCREEN_BACKGROUND = '#ffffff';
+const AUTH_SCREEN_BACKGROUND = '#fff1e6';
+
 const baseHeader = {
   headerShown: true,
   header: (props: any) => <CompactHeader {...props} />,
+  contentStyle: { backgroundColor: DEFAULT_SCREEN_BACKGROUND },
+} as const;
+
+const authHeader = {
+  ...baseHeader,
+  contentStyle: { backgroundColor: AUTH_SCREEN_BACKGROUND },
+} as const;
+
+const defaultStackScreenOptions = {
+  headerShown: false,
+  contentStyle: { backgroundColor: DEFAULT_SCREEN_BACKGROUND },
 } as const;
 
 const ALERTS_CHANNEL_ID = 'alerts';
+
+const GARAMIN_LIGHT_THEME = {
+  ...DefaultTheme,
+  dark: false,
+  colors: {
+    ...DefaultTheme.colors,
+    primary: '#f36f21',
+    background: DEFAULT_SCREEN_BACKGROUND,
+    card: DEFAULT_SCREEN_BACKGROUND,
+    text: '#111827',
+    border: '#e5e7eb',
+    notification: '#f36f21',
+  },
+};
 
 // Notification handler (banner/list 지원)
 if (Platform.OS !== 'web') {
@@ -83,7 +113,7 @@ function PresenceBootstrap() {
   return null;
 }
 
-export default function RootLayout() {
+function RootLayout() {
   const isWeb = Platform.OS === 'web';
   const enableTourGuide = Platform.OS === 'android';
 
@@ -112,7 +142,10 @@ export default function RootLayout() {
       const code = extractReferralCode(event.url);
       if (code) {
         savePendingReferralCode(code).then(() => {
-          router.push('/signup');
+          router.replace({
+            pathname: '/signup',
+            params: { referralNonce: `${Date.now()}` },
+          });
         }).catch(() => {});
       }
     });
@@ -143,9 +176,6 @@ export default function RootLayout() {
   const [showSplash, setShowSplash] = useState(true);
   const [error, setError] = useState<Error | null>(null);
 
-  const colorScheme = useColorScheme();
-  const isDark = colorScheme === 'dark';
-
   useEffect(() => {
     let isMounted = true;
     loadAsync(fontSources)
@@ -161,7 +191,10 @@ export default function RootLayout() {
   }, [fontSources]);
 
   useEffect(() => {
-    if (error) throw error;
+    if (error) {
+      logger.warn('[font] failed to load fonts, continuing without custom fonts', error);
+      setLoaded(true);
+    }
   }, [error]);
 
   useEffect(() => {
@@ -194,41 +227,57 @@ export default function RootLayout() {
         const channels = await Notifications.getNotificationChannelsAsync();
         logger.debug('[notifications] android channels', { channels });
         await NavigationBar.setVisibilityAsync('visible');
-        await NavigationBar.setStyle(isDark ? 'light' : 'dark');
+        await NavigationBar.setBackgroundColorAsync(DEFAULT_SCREEN_BACKGROUND);
+        await NavigationBar.setStyle('dark');
       } catch (err) {
         logger.warn('NavigationBar/Notification setup failed', err);
       }
     })();
-  }, [isDark]);
+  }, []);
 
-  // Push 알림 탭 시 앱 내부 화면으로 이동
+  // Push notification taps should deep-link through the same mobile route normalizer as the inbox.
   useEffect(() => {
     let sub: any;
     let Notifications: any;
+    const handledResponseIds = new Set<string>();
+
+    const handleNotificationResponse = (response: any) => {
+      const notification = response?.notification;
+      const request = notification?.request;
+      const responseId =
+        request?.identifier
+        ?? response?.actionIdentifier
+        ?? JSON.stringify(request?.content?.data ?? {});
+
+      if (responseId && handledResponseIds.has(responseId)) return;
+      if (responseId) handledResponseIds.add(responseId);
+
+      const nextUrl = resolvePushNotificationRoute(request?.content);
+      router.push(nextUrl as any);
+    };
+
     (async () => {
       try {
         Notifications = await import('expo-notifications');
-        sub = Notifications.addNotificationResponseReceivedListener((response: any) => {
-          const content = response?.notification?.request?.content;
-          const rawUrl = content?.data?.url as string | undefined;
-          const title = `${content?.title ?? ''}`.toLowerCase();
-          const body = `${content?.body ?? ''}`.toLowerCase();
-          const isHanwhaWorkflowNotification =
-            title.includes('한화 위촉 승인') ||
-            title.includes('한화 위촉 반려') ||
-            title.includes('한화 위촉 url 승인') ||
-            title.includes('한화 위촉 url 반려') ||
-            body.includes('한화 위촉이 승인') ||
-            body.includes('한화 위촉이 반려') ||
-            body.includes('한화 위촉 url이 승인') ||
-            body.includes('한화 위촉 url이 반려') ||
-            body.includes('승인 pdf');
-          const nextUrl =
-            isHanwhaWorkflowNotification
-              ? '/hanwha-commission'
-              : rawUrl || '/notifications';
+        const initialResponse =
+          typeof Notifications.getLastNotificationResponse === 'function'
+            ? Notifications.getLastNotificationResponse()
+            : null;
+        if (initialResponse?.notification) {
+          handleNotificationResponse(initialResponse);
+        } else if (typeof Notifications.getLastNotificationResponseAsync === 'function') {
+          const asyncInitialResponse = await Notifications.getLastNotificationResponseAsync();
+          if (asyncInitialResponse?.notification) {
+            handleNotificationResponse(asyncInitialResponse);
+          }
+        }
 
-          router.push(nextUrl as any);
+        sub = Notifications.addNotificationResponseReceivedListener((response: any) => {
+          try {
+            handleNotificationResponse(response);
+          } catch (err) {
+            logger.warn('[push] navigation handler failed', err);
+          }
         });
       } catch (err) {
         logger.warn('push navigation listener failed', err);
@@ -245,14 +294,14 @@ export default function RootLayout() {
 
   return (
     <ErrorBoundary>
-      <GestureHandlerRootView style={{ flex: 1, position: 'relative' }}>
+      <GestureHandlerRootView style={{ flex: 1, position: 'relative', backgroundColor: DEFAULT_SCREEN_BACKGROUND }}>
         <SafeAreaProvider>
           <QueryClientProvider client={queryClient}>
             <SessionProvider>
               <PresenceBootstrap />
               <AppAlertProvider>
                 <ToastProvider>
-                  <ThemeProvider value={colorScheme === 'dark' ? DarkTheme : DefaultTheme}>
+                  <ThemeProvider value={GARAMIN_LIGHT_THEME}>
                     {enableTourGuide ? (
                       <TourGuideProvider
                         borderRadius={16}
@@ -262,9 +311,7 @@ export default function RootLayout() {
                         verticalOffset={0}>
                         <Stack
                           initialRouteName="login"
-                          screenOptions={{
-                            headerShown: false,
-                          }}>
+                          screenOptions={defaultStackScreenOptions}>
                           <Stack.Screen name="index" options={{ ...baseHeader, title: '홈' }} />
                           <Stack.Screen
                             name="home-lite"
@@ -291,7 +338,7 @@ export default function RootLayout() {
                           <Stack.Screen
                             name="signup"
                             options={{
-                              ...baseHeader,
+                              ...authHeader,
                               title: '회원가입',
                               headerLeft: () => (
                                 <Pressable onPress={() => router.replace('/login')} style={{ padding: 8, marginLeft: -8 }}>
@@ -303,7 +350,7 @@ export default function RootLayout() {
                           <Stack.Screen
                             name="reset-password"
                             options={{
-                              ...baseHeader,
+                              ...authHeader,
                               title: '비밀번호 재설정',
                               headerLeft: () => (
                                 <Pressable onPress={() => router.replace('/login')} style={{ padding: 8, marginLeft: -8 }}>
@@ -315,7 +362,7 @@ export default function RootLayout() {
                           <Stack.Screen
                             name="signup-verify"
                             options={{
-                              ...baseHeader,
+                              ...authHeader,
                               title: '휴대폰 인증',
                               headerLeft: () => (
                                 <Pressable onPress={() => router.replace('/signup')} style={{ padding: 8, marginLeft: -8 }}>
@@ -327,7 +374,7 @@ export default function RootLayout() {
                           <Stack.Screen
                             name="signup-password"
                             options={{
-                              ...baseHeader,
+                              ...authHeader,
                               title: '비밀번호 설정',
                               headerLeft: () => (
                                 <Pressable onPress={() => router.replace('/signup-verify')} style={{ padding: 8, marginLeft: -8 }}>
@@ -350,11 +397,26 @@ export default function RootLayout() {
                               ),
                             }}
                           />
-                          <Stack.Screen name="consent" options={{ ...baseHeader, title: '수당 지급 동의서' }} />
+                          <Stack.Screen name="consent" options={{ ...baseHeader, title: '보증 보험 동의' }} />
                           <Stack.Screen name="docs-upload" options={{ ...baseHeader, title: '필수 서류 업로드' }} />
                           <Stack.Screen name="exam-apply" options={{ ...baseHeader, title: '생명/제3보험 시험 신청' }} />
                           <Stack.Screen name="exam-apply2" options={{ ...baseHeader, title: '손해보험 시험 신청' }} />
-                          <Stack.Screen name="messenger" options={{ ...baseHeader, title: '메신저' }} />
+                          <Stack.Screen
+                            name="messenger"
+                            options={{
+                              ...baseHeader,
+                              title: '메신저',
+                              headerLeft: () => (
+                                <Pressable
+                                  onPress={() => goBackOrReplace(router, '/')}
+                                  style={{ padding: 8, marginLeft: -8 }}
+                                >
+                                  <Feather name="arrow-left" size={24} color="#000" />
+                                </Pressable>
+                              ),
+                            }}
+                          />
+                          <Stack.Screen name="group-chat" options={{ headerShown: false }} />
                           <Stack.Screen name="chat" options={{ headerShown: false }} />
                           <Stack.Screen name="settings" options={{ ...baseHeader, title: '설정' }} />
 
@@ -365,6 +427,7 @@ export default function RootLayout() {
                           <Stack.Screen name="notice-detail" options={{ ...baseHeader, title: '공지 상세' }} />
                           <Stack.Screen name="board-detail" options={{ ...baseHeader, title: '게시글 상세' }} />
                           <Stack.Screen name="request-board" options={{ ...baseHeader, title: '설계 요청' }} />
+                          <Stack.Screen name="request-board-create" options={{ ...baseHeader, title: '설계 요청 작성' }} />
 
                           <Stack.Screen name="request-board-messenger" options={{ ...baseHeader, title: '설계요청 메신저' }} />
                           <Stack.Screen name="admin-notice" options={{ ...baseHeader, title: '공지 등록' }} />
@@ -374,17 +437,17 @@ export default function RootLayout() {
                           <Stack.Screen name="exam-register2" options={{ ...baseHeader, title: '손해 시험 등록' }} />
                           <Stack.Screen name="exam-manage" options={{ ...baseHeader, title: '생명/제3 신청자 관리' }} />
                           <Stack.Screen name="exam-manage2" options={{ ...baseHeader, title: '손해 신청자 관리' }} />
+                          <Stack.Screen name="referral" options={{ ...baseHeader, title: '추천인 코드' }} />
+                          <Stack.Screen name="referral-tree" options={{ ...baseHeader, title: '추천 관계 전체 보기' }} />
                         </Stack>
 
-                        <StatusBar style="dark" backgroundColor="#fff" />
+                        <StatusBar style="dark" backgroundColor={DEFAULT_SCREEN_BACKGROUND} />
                       </TourGuideProvider>
                     ) : (
                       <>
                         <Stack
                           initialRouteName="login"
-                          screenOptions={{
-                            headerShown: false,
-                          }}>
+                          screenOptions={defaultStackScreenOptions}>
                           <Stack.Screen name="index" options={{ ...baseHeader, title: '홈' }} />
                           <Stack.Screen
                             name="home-lite"
@@ -411,7 +474,7 @@ export default function RootLayout() {
                           <Stack.Screen
                             name="signup"
                             options={{
-                              ...baseHeader,
+                              ...authHeader,
                               title: '회원가입',
                               headerLeft: () => (
                                 <Pressable onPress={() => router.replace('/login')} style={{ padding: 8, marginLeft: -8 }}>
@@ -423,7 +486,7 @@ export default function RootLayout() {
                           <Stack.Screen
                             name="reset-password"
                             options={{
-                              ...baseHeader,
+                              ...authHeader,
                               title: '비밀번호 재설정',
                               headerLeft: () => (
                                 <Pressable onPress={() => router.replace('/login')} style={{ padding: 8, marginLeft: -8 }}>
@@ -435,7 +498,7 @@ export default function RootLayout() {
                           <Stack.Screen
                             name="signup-verify"
                             options={{
-                              ...baseHeader,
+                              ...authHeader,
                               title: '휴대폰 인증',
                               headerLeft: () => (
                                 <Pressable onPress={() => router.replace('/signup')} style={{ padding: 8, marginLeft: -8 }}>
@@ -447,7 +510,7 @@ export default function RootLayout() {
                           <Stack.Screen
                             name="signup-password"
                             options={{
-                              ...baseHeader,
+                              ...authHeader,
                               title: '비밀번호 설정',
                               headerLeft: () => (
                                 <Pressable onPress={() => router.replace('/signup-verify')} style={{ padding: 8, marginLeft: -8 }}>
@@ -459,11 +522,26 @@ export default function RootLayout() {
                           <Stack.Screen name="apply-gate" options={{ ...baseHeader, title: '추가 정보 입력 안내' }} />
                           <Stack.Screen name="identity" options={{ ...baseHeader, title: '신원 확인' }} />
                           <Stack.Screen name="fc/new" options={{ ...baseHeader, title: '기본 정보' }} />
-                          <Stack.Screen name="consent" options={{ ...baseHeader, title: '수당 지급 동의서' }} />
+                          <Stack.Screen name="consent" options={{ ...baseHeader, title: '보증 보험 동의' }} />
                           <Stack.Screen name="docs-upload" options={{ ...baseHeader, title: '필수 서류 업로드' }} />
                           <Stack.Screen name="exam-apply" options={{ ...baseHeader, title: '생명/제3보험 시험 신청' }} />
                           <Stack.Screen name="exam-apply2" options={{ ...baseHeader, title: '손해보험 시험 신청' }} />
-                          <Stack.Screen name="messenger" options={{ ...baseHeader, title: '메신저' }} />
+                          <Stack.Screen
+                            name="messenger"
+                            options={{
+                              ...baseHeader,
+                              title: '메신저',
+                              headerLeft: () => (
+                                <Pressable
+                                  onPress={() => goBackOrReplace(router, '/')}
+                                  style={{ padding: 8, marginLeft: -8 }}
+                                >
+                                  <Feather name="arrow-left" size={24} color="#000" />
+                                </Pressable>
+                              ),
+                            }}
+                          />
+                          <Stack.Screen name="group-chat" options={{ headerShown: false }} />
                           <Stack.Screen name="chat" options={{ headerShown: false }} />
                           <Stack.Screen name="settings" options={{ ...baseHeader, title: '설정' }} />
 
@@ -474,6 +552,7 @@ export default function RootLayout() {
                           <Stack.Screen name="notice-detail" options={{ ...baseHeader, title: '공지 상세' }} />
                           <Stack.Screen name="board-detail" options={{ ...baseHeader, title: '게시글 상세' }} />
                           <Stack.Screen name="request-board" options={{ ...baseHeader, title: '설계 요청' }} />
+                          <Stack.Screen name="request-board-create" options={{ ...baseHeader, title: '설계 요청 작성' }} />
 
                           <Stack.Screen name="request-board-messenger" options={{ ...baseHeader, title: '설계요청 메신저' }} />
                           <Stack.Screen name="admin-notice" options={{ ...baseHeader, title: '공지 등록' }} />
@@ -483,8 +562,10 @@ export default function RootLayout() {
                           <Stack.Screen name="exam-register2" options={{ ...baseHeader, title: '손해 시험 등록' }} />
                           <Stack.Screen name="exam-manage" options={{ ...baseHeader, title: '생명/제3 신청자 관리' }} />
                           <Stack.Screen name="exam-manage2" options={{ ...baseHeader, title: '손해 신청자 관리' }} />
+                          <Stack.Screen name="referral" options={{ ...baseHeader, title: '추천인 코드' }} />
+                          <Stack.Screen name="referral-tree" options={{ ...baseHeader, title: '추천 관계 전체 보기' }} />
                         </Stack>
-                        <StatusBar style="dark" backgroundColor="#fff" />
+                        <StatusBar style="dark" backgroundColor={DEFAULT_SCREEN_BACKGROUND} />
                       </>
                     )}
                   </ThemeProvider>
@@ -498,3 +579,5 @@ export default function RootLayout() {
     </ErrorBoundary>
   );
 }
+
+export default withSentryRoot(RootLayout);

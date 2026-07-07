@@ -1,12 +1,12 @@
 'use server';
 
 import { revalidatePath } from 'next/cache';
-import { cookies } from 'next/headers';
 import { z } from 'zod';
 import { sendWebPush } from '@/lib/web-push';
 import { adminSupabase } from '@/lib/admin-supabase';
 
 import { logger } from '@/lib/logger';
+import { getVerifiedAdminSession } from '@/lib/server-session';
 const EXPO_PUSH_URL = 'https://exp.host/--/api/v2/push/send';
 
 const NoticeSchema = z.object({
@@ -34,11 +34,6 @@ export type CreateNoticeState = {
     };
 };
 
-async function getSessionResidentId(): Promise<string | null> {
-    const cookieStore = await cookies();
-    return cookieStore.get('session_resident')?.value ?? null;
-}
-
 export async function createNoticeAction(
     prevState: CreateNoticeState,
     formData: FormData
@@ -62,8 +57,13 @@ export async function createNoticeAction(
         };
     }
 
+    const sessionCheck = await getVerifiedAdminSession();
+    if (!sessionCheck.ok) {
+        return { success: false, message: sessionCheck.error };
+    }
+
     const { category, title, body, images, files } = validatedFields.data;
-    const createdBy = await getSessionResidentId();
+    const createdBy = sessionCheck.session.residentId;
 
     // 1. Insert Notice
     const { data: insertedNotice, error: noticeError } = await adminSupabase
@@ -215,9 +215,11 @@ export async function updateNoticeAction(
 
     const { category, title, body, images, files } = validatedFields.data;
 
-    const cookieStore = await cookies();
-    const role = cookieStore.get('session_role')?.value ?? null;
-    const residentId = cookieStore.get('session_resident')?.value ?? null;
+    const sessionCheck = await getVerifiedAdminSession();
+    if (!sessionCheck.ok) {
+        return { success: false, message: sessionCheck.error };
+    }
+    const { role, residentId } = sessionCheck.session;
 
     if (role !== 'admin' && role !== 'manager') {
         return { success: false, message: '권한이 없습니다.' };

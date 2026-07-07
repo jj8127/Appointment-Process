@@ -7,7 +7,14 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { useSession } from '@/hooks/use-session';
 import { useAppLogout } from '@/hooks/use-app-logout';
 import { useIdentityStatus } from '@/hooks/use-identity-status';
+import { HOME_LITE_PRIMARY_ACTION_ROUTE, buildHomeEntryBreadcrumb } from '@/lib/home-entry-flow';
+import { openExternalUrl } from '@/lib/open-external-url';
+import { addSentryBreadcrumb } from '@/lib/sentry-monitor';
 import { COLORS, TYPOGRAPHY, SPACING, RADIUS } from '@/lib/theme';
+
+const YOUTUBE_URL = 'https://youtube.com/playlist?list=PLF5rd5c2rE9xy-VsAdwq4NEUsJQtKD7Qd&si=vKx4TDq6ww9ZgKiT';
+const HOME_CTA_ORANGE = COLORS.primary || '#f36f21';
+const HOME_CTA_ORANGE_PALE = COLORS.primaryPale || '#fff1e6';
 
 type LockedItem = {
   label: string;
@@ -17,7 +24,7 @@ type LockedItem = {
 
 const LOCKED_ITEMS: LockedItem[] = [
   { label: '임시사번 발급 요청', hint: '주민번호/주소 입력 후 이용 가능' },
-  { label: '수당 동의', hint: '주민번호/주소 입력 후 이용 가능' },
+  { label: '보증 보험 동의', hint: '주민번호/주소 입력 후 이용 가능' },
   { label: '서류 업로드', hint: '주민번호/주소 입력 후 이용 가능' },
   { label: '시험 신청', hint: '주민번호/주소 입력 후 이용 가능' },
   { label: '설계 요청', hint: '주민번호/주소 입력 후 이용 가능' },
@@ -27,6 +34,17 @@ export default function HomeLiteScreen() {
   const { role, hydrated, displayName, isRequestBoardDesigner } = useSession();
   const appLogout = useAppLogout();
   const { data, isLoading } = useIdentityStatus();
+  const startRequiredInfo = useCallback(() => {
+    addSentryBreadcrumb(buildHomeEntryBreadcrumb('home-lite.primary-required-info'));
+    router.push(HOME_LITE_PRIMARY_ACTION_ROUTE);
+  }, []);
+  const openYoutubeGuide = useCallback(async () => {
+    try {
+      await openExternalUrl(YOUTUBE_URL);
+    } catch {
+      Alert.alert('오류', '가이드 영상을 열 수 없습니다.');
+    }
+  }, []);
 
   useEffect(() => {
     if (!hydrated) return;
@@ -94,14 +112,32 @@ export default function HomeLiteScreen() {
           <Text style={styles.heroText}>
             앱의 모든 기능을 사용하기 위해서는 추가 정보 입력이 필요합니다. 먼저 주민번호와 주소를 입력해 주세요.
           </Text>
-          <Pressable
-            style={styles.primaryButton}
-            onPress={() => router.push('/apply-gate')}
-            testID="home-lite-apply-start"
-            accessibilityLabel="필수 정보 입력 시작"
-          >
-            <Text style={styles.primaryButtonText}>필수 정보 입력 시작</Text>
-          </Pressable>
+          <View style={styles.heroActions}>
+            <Pressable
+              style={styles.primaryButton}
+              onPress={startRequiredInfo}
+              testID="home-lite-apply-start"
+              accessibilityRole="button"
+              accessibilityLabel="필수 정보 입력 시작"
+            >
+              <Text style={styles.primaryButtonText}>필수 정보 입력 시작</Text>
+            </Pressable>
+            <Pressable
+              style={styles.youtubeButton}
+              onPress={openYoutubeGuide}
+              accessibilityRole="button"
+              accessibilityLabel="유튜브 가이드 영상 보기"
+            >
+              <View style={styles.youtubeIcon}>
+                <Feather name="youtube" size={20} color="#DC2626" />
+              </View>
+              <View style={styles.youtubeTextWrap}>
+                <Text style={styles.youtubeTitle}>유튜브 영상 가이드 보기</Text>
+                <Text style={styles.youtubeText}>기본 입력 전 앱 사용법을 영상으로 확인하세요.</Text>
+              </View>
+              <Feather name="external-link" size={16} color="#DC2626" />
+            </Pressable>
+          </View>
         </View>
 
         <View style={styles.section}>
@@ -181,22 +217,44 @@ const styles = StyleSheet.create({
   logoutText: { fontSize: TYPOGRAPHY.fontSize.xs, fontWeight: TYPOGRAPHY.fontWeight.bold, color: COLORS.text.secondary },
   container: { padding: SPACING.lg, gap: SPACING.lg, paddingBottom: SPACING['2xl'] },
   heroCard: {
-    backgroundColor: COLORS.primaryPale,
+    backgroundColor: HOME_CTA_ORANGE_PALE,
     borderRadius: RADIUS.lg,
     padding: SPACING.lg,
     gap: SPACING.sm,
   },
-  heroEyebrow: { color: COLORS.primary, fontWeight: TYPOGRAPHY.fontWeight.bold, fontSize: TYPOGRAPHY.fontSize.xs },
+  heroEyebrow: { color: HOME_CTA_ORANGE, fontWeight: TYPOGRAPHY.fontWeight.bold, fontSize: TYPOGRAPHY.fontSize.xs },
   heroTitle: { fontSize: TYPOGRAPHY.fontSize['2xl'], fontWeight: TYPOGRAPHY.fontWeight.extrabold, color: COLORS.text.primary },
   heroText: { fontSize: TYPOGRAPHY.fontSize.base, color: COLORS.text.secondary, lineHeight: TYPOGRAPHY.lineHeight.relaxed * TYPOGRAPHY.fontSize.base },
+  heroActions: { gap: SPACING.sm, marginTop: 6 },
   primaryButton: {
-    backgroundColor: COLORS.primary,
+    backgroundColor: HOME_CTA_ORANGE,
     paddingVertical: SPACING.sm,
     borderRadius: RADIUS.md,
     alignItems: 'center',
-    marginTop: 6,
   },
   primaryButtonText: { color: COLORS.white, fontWeight: TYPOGRAPHY.fontWeight.extrabold, fontSize: TYPOGRAPHY.fontSize.lg },
+  youtubeButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: SPACING.sm,
+    borderRadius: RADIUS.md,
+    borderWidth: 1,
+    borderColor: '#FCA5A5',
+    backgroundColor: '#FEF2F2',
+    paddingHorizontal: SPACING.md,
+    paddingVertical: SPACING.sm,
+  },
+  youtubeIcon: {
+    width: 34,
+    height: 34,
+    borderRadius: 17,
+    backgroundColor: COLORS.white,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  youtubeTextWrap: { flex: 1 },
+  youtubeTitle: { fontSize: TYPOGRAPHY.fontSize.sm, fontWeight: TYPOGRAPHY.fontWeight.extrabold, color: '#991B1B' },
+  youtubeText: { fontSize: TYPOGRAPHY.fontSize.xs, fontWeight: TYPOGRAPHY.fontWeight.semibold, color: '#B91C1C' },
   section: { gap: SPACING.sm },
   sectionTitle: { fontSize: TYPOGRAPHY.fontSize.lg, fontWeight: TYPOGRAPHY.fontWeight.extrabold, color: COLORS.text.primary },
   linkGrid: { flexDirection: 'row', gap: SPACING.sm },

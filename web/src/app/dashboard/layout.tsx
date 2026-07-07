@@ -8,6 +8,7 @@ import { useDisclosure, useMediaQuery } from '@mantine/hooks';
 import {
   IconCalendarEvent,
   IconFileText,
+  IconGraph,
   IconHome,
   IconKey,
   IconLink,
@@ -21,7 +22,12 @@ import { usePathname, useRouter } from 'next/navigation';
 import type React from 'react';
 import { useEffect, useMemo, useRef, useState } from 'react';
 
-type NavItem = { label: string; href: string; icon: React.ComponentType<{ size?: number; stroke?: number }> };
+type NavItem = {
+  label: string;
+  href: string;
+  icon: React.ComponentType<{ size?: number; stroke?: number }>;
+  children?: { label: string; href: string }[];
+};
 
 export default function DashboardLayout({ children }: { children: React.ReactNode }) {
   const [opened, { toggle }] = useDisclosure();
@@ -34,31 +40,35 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   const router = useRouter();
   const pathname = usePathname();
   const { role, logout, hydrated, displayName, residentMask, residentId, staffType, isReadOnly } = useSession();
+  const isFcSession = role === 'fc';
 
   const roleLabel = getDashboardRoleLabel({ role, staffType, isReadOnly });
   const subLabel = getDashboardRoleSubLabel({ role, staffType, isReadOnly }) ?? (residentMask || '전화번호 미등록');
   const userInitial = displayName?.trim()?.[0] ?? roleLabel[0] ?? 'F';
 
   const navItems: NavItem[] = useMemo(
-    () => [
-      { label: '홈', icon: IconHome, href: '/dashboard' },
-      { label: '문서 관리', icon: IconFileText, href: '/dashboard/docs' },
-        { label: '생명/손해 위촉', icon: IconLink, href: '/dashboard/appointment' },
-      { label: '추천인 코드', icon: IconKey, href: '/dashboard/referrals' },
-      { label: '게시판', icon: IconNews, href: '/dashboard/board' },
-      { label: '메신저', icon: IconMessage, href: '/dashboard/messenger' },
-      { label: '에이전트 룸', icon: IconUsers, href: '/dashboard/agent-room' },
-      { label: '시험 일정', icon: IconCalendarEvent, href: '/dashboard/exam/schedule' },
-      { label: '시험 신청자', icon: IconUsers, href: '/dashboard/exam/applicants' },
-    ],
-    [],
-  );
+    () => {
+      if (role === 'fc') {
+        return [
+          { label: '추천인 그래프', icon: IconGraph, href: '/dashboard/referrals/graph' },
+        ];
+      }
 
-  useEffect(() => {
-    if (hydrated && role !== 'admin' && role !== 'manager') {
-      router.replace('/auth');
-    }
-  }, [hydrated, role, router]);
+      return [
+        { label: '홈', icon: IconHome, href: '/dashboard' },
+        { label: '문서 관리', icon: IconFileText, href: '/dashboard/docs' },
+        { label: '생명/손해 위촉', icon: IconLink, href: '/dashboard/appointment' },
+        { label: '추천인 그래프', icon: IconGraph, href: '/dashboard/referrals/graph' },
+        { label: '추천인 코드', icon: IconKey, href: '/dashboard/referrals' },
+        { label: '게시판', icon: IconNews, href: '/dashboard/board' },
+        { label: '메신저', icon: IconMessage, href: '/dashboard/messenger' },
+        { label: '에이전트 룸', icon: IconUsers, href: '/dashboard/agent-room' },
+        { label: '시험 일정', icon: IconCalendarEvent, href: '/dashboard/exam/schedule' },
+        { label: '시험 신청자', icon: IconUsers, href: '/dashboard/exam/applicants' },
+      ];
+    },
+    [role],
+  );
 
   useEffect(() => {
     return () => {
@@ -69,7 +79,14 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
     };
   }, []);
 
-  if (!hydrated || (role !== 'admin' && role !== 'manager')) {
+  useEffect(() => {
+    if (!hydrated || role !== 'fc') return;
+    if (pathname !== '/dashboard/referrals/graph') {
+      router.replace('/dashboard/referrals/graph');
+    }
+  }, [hydrated, pathname, role, router]);
+
+  if (!hydrated || (role !== 'admin' && role !== 'manager' && role !== 'fc')) {
     return null;
   }
 
@@ -106,12 +123,14 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
           <Group wrap="nowrap">
             <Burger opened={opened} onClick={toggle} hiddenFrom="sm" size="sm" />
             <Text fw={800} size="lg">
-              FC 온보딩 웹
+              {isFcSession ? 'FC 추천인 그래프' : 'FC 온보딩 웹'}
             </Text>
           </Group>
 
           <Group gap="sm" wrap="nowrap">
-            <DashboardNotificationBell role={role} residentId={residentId} staffType={staffType} />
+            {!isFcSession ? (
+              <DashboardNotificationBell role={role} residentId={residentId} staffType={staffType} />
+            ) : null}
 
             <Menu shadow="md" width={220} position="bottom-end">
               <Menu.Target>
@@ -132,16 +151,18 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
                 </UnstyledButton>
               </Menu.Target>
               <Menu.Dropdown>
-                <Menu.Item
-                  leftSection={<IconSettings size={16} stroke={1.6} />}
-                  onClick={() => router.push('/dashboard/settings')}
-                >
-                  설정
-                </Menu.Item>
+                {!isFcSession ? (
+                  <Menu.Item
+                    leftSection={<IconSettings size={16} stroke={1.6} />}
+                    onClick={() => router.push('/dashboard/settings')}
+                  >
+                    설정
+                  </Menu.Item>
+                ) : null}
                 <Menu.Item
                   color="red"
                   leftSection={<IconLogout size={16} stroke={1.6} />}
-                  onClick={logout}
+                  onClick={() => logout()}
                 >
                   로그아웃
                 </Menu.Item>
@@ -159,10 +180,40 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
       >
         <AppShell.Section grow>
           {navItems.map((item) => {
-            const active = item.href === '/dashboard/messenger'
+            const isMessenger = item.href === '/dashboard/messenger';
+            const isParentActive = item.children
+              ? item.children.some((c) => pathname === c.href)
+              : false;
+            const active = isMessenger
               ? pathname === '/dashboard/messenger' || pathname === '/dashboard/chat'
-              : pathname === item.href;
+              : isParentActive || pathname === item.href;
             const Icon = item.icon;
+
+            if (item.children && navbarExpanded) {
+              return (
+                <NavLink
+                  key={item.href}
+                  label={item.label}
+                  active={active}
+                  leftSection={<Icon size={16} stroke={1.6} />}
+                  variant="light"
+                  aria-label={item.label}
+                  defaultOpened={isParentActive}
+                >
+                  {item.children.map((child) => (
+                    <NavLink
+                      key={child.href}
+                      label={child.label}
+                      active={pathname === child.href}
+                      onClick={() => router.push(child.href)}
+                      variant="light"
+                      pl="xl"
+                    />
+                  ))}
+                </NavLink>
+              );
+            }
+
             return (
               <NavLink
                 key={item.href}
@@ -191,7 +242,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
             label={navbarExpanded ? '로그아웃' : null}
             color="red"
             leftSection={<IconLogout size={navbarExpanded ? 16 : 18} stroke={1.6} />}
-            onClick={logout}
+            onClick={() => logout()}
             variant="light"
             aria-label="로그아웃"
             title={!navbarExpanded ? '로그아웃' : undefined}

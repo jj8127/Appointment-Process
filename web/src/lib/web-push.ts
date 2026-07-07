@@ -1,6 +1,8 @@
 import webpush from 'web-push';
 
 import { logger } from '@/lib/logger';
+import { getWebPushServerConfigState } from './web-push-config';
+
 type WebPushConfig = {
   publicKey: string;
   privateKey: string;
@@ -20,43 +22,60 @@ type WebPushPayload = {
 };
 
 let configInitialized = false;
-let configEnabled = false;
-
-const normalizeEnvValue = (value?: string) =>
-  (value ?? '')
-    .trim()
-    .replace(/^['"]+|['"]+$/g, '')
-    .replace(/\\n/g, '')
-    .replace(/\r?\n/g, '')
-    .trim();
-
-const normalizeVapidKey = (value?: string) => normalizeEnvValue(value).replace(/\s+/g, '');
+let configState: {
+  enabled: boolean;
+  reason?: 'missing-vapid-config' | 'invalid-vapid-config';
+  missingEnv?: string[];
+} = {
+  enabled: false,
+};
 
 const initConfig = () => {
-  if (configInitialized) return configEnabled;
+  if (configInitialized) return configState;
   configInitialized = true;
 
-  const publicKey = normalizeVapidKey(process.env.NEXT_PUBLIC_WEB_PUSH_VAPID_PUBLIC_KEY);
-  const privateKey = normalizeVapidKey(process.env.WEB_PUSH_VAPID_PRIVATE_KEY);
-  const subject = normalizeEnvValue(process.env.WEB_PUSH_SUBJECT);
+  const serverConfig = getWebPushServerConfigState({
+    publicKey: process.env.NEXT_PUBLIC_WEB_PUSH_VAPID_PUBLIC_KEY,
+    privateKey: process.env.WEB_PUSH_VAPID_PRIVATE_KEY,
+    subject: process.env.WEB_PUSH_SUBJECT,
+  });
 
-  if (!publicKey || !privateKey || !subject) {
-    logger.warn('[web-push] missing VAPID configuration');
-    configEnabled = false;
-    return false;
+  if (!serverConfig.isConfigured) {
+    logger.warn('[web-push] disabled: missing VAPID configuration', {
+      missingEnv: serverConfig.missingEnv,
+      message:
+        'Preview deployments may intentionally omit these values. Production web push requires all listed env vars.',
+    });
+    configState = {
+      enabled: false,
+      reason: 'missing-vapid-config',
+      missingEnv: serverConfig.missingEnv,
+    };
+    return configState;
   }
 
-  const cfg: WebPushConfig = { publicKey, privateKey, subject };
+  const cfg: WebPushConfig = {
+    publicKey: serverConfig.publicKey,
+    privateKey: serverConfig.privateKey,
+    subject: serverConfig.subject,
+  };
 
   try {
     webpush.setVapidDetails(cfg.subject, cfg.publicKey, cfg.privateKey);
-    configEnabled = true;
-    return true;
+    configState = { enabled: true };
+    return configState;
   } catch (err: unknown) {
     const error = err as Error;
-    logger.error('[web-push] invalid VAPID configuration', error?.message ?? String(err));
-    configEnabled = false;
-    return false;
+    logger.error('[web-push] invalid VAPID configuration', {
+      message: error?.message ?? String(err),
+      env: [
+        'NEXT_PUBLIC_WEB_PUSH_VAPID_PUBLIC_KEY',
+        'WEB_PUSH_VAPID_PRIVATE_KEY',
+        'WEB_PUSH_SUBJECT',
+      ],
+    });
+    configState = { enabled: false, reason: 'invalid-vapid-config' };
+    return configState;
   }
 };
 
@@ -67,8 +86,15 @@ export async function sendWebPush(
   if (!subscriptions.length) {
     return { sent: 0, failed: 0, expired: [] as string[] };
   }
-  if (!initConfig()) {
-    return { sent: 0, failed: subscriptions.length, expired: [] as string[] };
+  const currentConfig = initConfig();
+  if (!currentConfig.enabled) {
+    return {
+      sent: 0,
+      failed: subscriptions.length,
+      expired: [] as string[],
+      disabledReason: currentConfig.reason,
+      missingEnv: currentConfig.missingEnv ?? [],
+    };
   }
 
   const message = JSON.stringify({

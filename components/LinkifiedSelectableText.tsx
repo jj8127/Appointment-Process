@@ -1,9 +1,15 @@
-import * as Clipboard from 'expo-clipboard';
 import { useMemo } from 'react';
-import { Alert, StyleProp, StyleSheet, Text, TextStyle } from 'react-native';
+import { StyleProp, StyleSheet, Text, TextStyle } from 'react-native';
 
-import { normalizeExternalUrl } from '@/lib/external-url';
-import { openExternalUrl } from '@/lib/open-external-url';
+import {
+  formatExternalUrlDisplayText,
+  normalizeExternalUrl,
+  stripTrailingUrlPunctuation,
+} from '@/lib/external-url';
+import {
+  openLinkExternallyWithFeedback,
+  showLinkifiedTextOptions,
+} from '@/lib/linkified-text-actions';
 
 const URL_PATTERN = /((?:https?:\/\/|www\.)[^\s]+)/gi;
 
@@ -18,6 +24,7 @@ type LinkifiedSelectableTextProps = {
   linkStyle?: StyleProp<TextStyle>;
   numberOfLines?: number;
   selectable?: boolean;
+  linkPressBehavior?: 'options' | 'open';
 };
 
 function splitTextByLinks(input: string): TextSegment[] {
@@ -33,7 +40,14 @@ function splitTextByLinks(input: string): TextSegment[] {
     if (index > cursor) {
       segments.push({ text: input.slice(cursor, index), isLink: false });
     }
-    segments.push({ text: value, isLink: true });
+    const linkText = stripTrailingUrlPunctuation(value);
+    const trailingText = value.slice(linkText.length);
+    if (linkText) {
+      segments.push({ text: linkText, isLink: true });
+    }
+    if (trailingText) {
+      segments.push({ text: trailingText, isLink: false });
+    }
     cursor = index + value.length;
   }
 
@@ -50,58 +64,43 @@ export function LinkifiedSelectableText({
   linkStyle,
   numberOfLines,
   selectable = true,
+  linkPressBehavior = 'options',
 }: LinkifiedSelectableTextProps) {
   const safeText = text ?? '';
   const segments = useMemo(() => splitTextByLinks(safeText), [safeText]);
+  const hasLinks = segments.some((segment) => segment.isLink);
+  const textSelectable = selectable && !hasLinks;
+  const nonSelectableStyle = textSelectable ? undefined : styles.nonSelectableText;
 
   const handleLinkPress = (rawUrl: string) => {
     const normalized = normalizeExternalUrl(rawUrl);
     if (!normalized) return;
 
-    Alert.alert('링크 옵션', normalized, [
-      {
-        text: '열기',
-        onPress: () => {
-          openExternalUrl(normalized).catch(() => {
-            Alert.alert('오류', '링크를 열 수 없습니다.');
-          });
-        },
-      },
-      {
-        text: '복사',
-        onPress: async () => {
-          try {
-            await Clipboard.setStringAsync(normalized);
-            Alert.alert('복사 완료', '링크를 클립보드에 복사했습니다.');
-          } catch {
-            Alert.alert('복사 실패', '링크 복사에 실패했습니다.');
-          }
-        },
-      },
-      {
-        text: '선택/부분선택',
-        onPress: () => {
-          Alert.alert('안내', '본문을 길게 누르면 텍스트를 선택할 수 있습니다.');
-        },
-      },
-      { text: '취소', style: 'cancel' },
-    ]);
+    if (linkPressBehavior === 'open') {
+      void openLinkExternallyWithFeedback(normalized);
+      return;
+    }
+
+    showLinkifiedTextOptions(normalized);
   };
 
   return (
-    <Text style={style} numberOfLines={numberOfLines} selectable={selectable}>
+    <Text style={[style, nonSelectableStyle]} numberOfLines={numberOfLines} selectable={textSelectable}>
       {segments.map((segment, index) => (
         segment.isLink ? (
           <Text
             key={`link-${index}`}
-            style={[styles.linkText, linkStyle]}
+            style={[styles.linkText, linkStyle, nonSelectableStyle]}
             onPress={() => handleLinkPress(segment.text)}
+            selectable={false}
             suppressHighlighting
           >
-            {segment.text}
+            {formatExternalUrlDisplayText(segment.text)}
           </Text>
         ) : (
-          <Text key={`text-${index}`}>{segment.text}</Text>
+          <Text key={`text-${index}`} style={nonSelectableStyle} selectable={textSelectable}>
+            {segment.text}
+          </Text>
         )
       ))}
     </Text>
@@ -112,5 +111,8 @@ const styles = StyleSheet.create({
   linkText: {
     color: '#2563eb',
     textDecorationLine: 'underline',
+  },
+  nonSelectableText: {
+    userSelect: 'none',
   },
 });

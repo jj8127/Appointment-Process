@@ -1,21 +1,27 @@
 import { Feather } from '@expo/vector-icons';
 import { router } from 'expo-router';
 import { useEffect, useState } from 'react';
-import { Alert, Modal, Pressable, StyleSheet, Text, View } from 'react-native';
+import { Alert, Modal, Pressable, Share, StyleSheet, Text, View } from 'react-native';
+import * as Clipboard from 'expo-clipboard';
 import Animated from 'react-native-reanimated';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { BottomNavigation } from '@/components/BottomNavigation';
 import { useAppLogout } from '@/hooks/use-app-logout';
 import { useBottomNavAnimation } from '@/hooks/use-bottom-nav-animation';
+import { useMyReferralCode } from '@/hooks/use-my-referral-code';
 import { useSession } from '@/hooks/use-session';
 import { resolveBottomNavActiveKey, resolveBottomNavPreset } from '@/lib/bottom-navigation';
+import { buildReferralShareText } from '@/lib/referral-share';
 import { getAccountRoleLabel } from '@/lib/staff-identity';
 import { supabase } from '@/lib/supabase';
 import { COLORS, TYPOGRAPHY, SPACING, RADIUS } from '@/lib/theme';
 
+const APP_STORE_URL = (process.env.EXPO_PUBLIC_APP_STORE_URL ?? '').trim();
+const INVITE_BASE_URL = process.env.EXPO_PUBLIC_INVITE_BASE_URL ?? '';
+
 export default function SettingsScreen() {
-  const { role, residentId, residentMask, displayName, logout, isRequestBoardDesigner, readOnly, hydrated, staffType } = useSession();
+  const { role, residentId, residentMask, displayName, logout, isRequestBoardDesigner, readOnly, hydrated, staffType, appSessionToken } = useSession();
   const appLogout = useAppLogout();
   const insets = useSafeAreaInsets();
   const { scrollHandler, animatedStyle } = useBottomNavAnimation();
@@ -25,10 +31,15 @@ export default function SettingsScreen() {
     isRequestBoardDesigner ? 'request-board' : 'settings',
   );
 
+  const { data: myReferralInfo, isLoading: codeLoading, error: referralCodeError } = useMyReferralCode();
+  const myReferralCode = myReferralInfo?.code ?? null;
+
   const [deleting, setDeleting] = useState(false);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
 
   const accountRole: 'fc' | 'admin' | 'manager' = readOnly ? 'manager' : role === 'admin' ? 'admin' : 'fc';
+  const canViewMyReferralCode =
+    !isRequestBoardDesigner && (role === 'fc' || (role === 'admin' && readOnly));
 
   useEffect(() => {
     if (!hydrated) return;
@@ -72,6 +83,35 @@ export default function SettingsScreen() {
     }
   };
 
+  const handleShareReferralCode = async () => {
+    if (!myReferralCode) return;
+
+    try {
+      await Share.share({
+        message: buildReferralShareText({
+          code: myReferralCode,
+          inviteBaseUrl: INVITE_BASE_URL,
+          appStoreUrl: APP_STORE_URL,
+        }),
+      });
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : '추천 코드를 공유하지 못했습니다.';
+      Alert.alert('공유 실패', message);
+    }
+  };
+
+  const handleCopyReferralCode = async () => {
+    if (!myReferralCode) return;
+
+    try {
+      await Clipboard.setStringAsync(myReferralCode);
+      Alert.alert('복사 완료', '추천 코드가 클립보드에 복사되었습니다.');
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : '추천 코드를 복사하지 못했습니다.';
+      Alert.alert('복사 실패', message);
+    }
+  };
+
   return (
     <SafeAreaView style={styles.safe} edges={['left', 'right', 'bottom']}>
       <Animated.ScrollView
@@ -100,6 +140,49 @@ export default function SettingsScreen() {
             <Text style={styles.secondaryButtonText}>비밀번호 변경하기</Text>
           </Pressable>
         </View>
+
+        {canViewMyReferralCode && (
+          <View style={styles.card}>
+            <Text style={styles.title}>내 추천 코드</Text>
+            {!appSessionToken ? (
+              <Text style={styles.sectionText}>추천 코드를 확인하려면 다시 로그인해주세요.</Text>
+            ) : codeLoading ? (
+              <Text style={styles.value}>불러오는 중...</Text>
+            ) : referralCodeError ? (
+              <Text style={styles.sectionText}>
+                {referralCodeError instanceof Error
+                  ? referralCodeError.message
+                  : '추천 코드를 불러오지 못했습니다.'}
+              </Text>
+            ) : myReferralCode ? (
+              <>
+                <Text style={[styles.value, { letterSpacing: 3, fontSize: TYPOGRAPHY.fontSize.xl, textAlign: 'center', paddingVertical: SPACING.sm }]}>
+                  {myReferralCode}
+                </Text>
+                <View style={{ flexDirection: 'row', gap: SPACING.sm }}>
+                  <Pressable
+                    style={[styles.secondaryButton, { flex: 1 }]}
+                    onPress={handleShareReferralCode}
+                    accessibilityLabel="추천 코드 공유하기"
+                  >
+                    <Feather name="share-2" size={16} color={COLORS.primary} />
+                    <Text style={styles.secondaryButtonText}>공유하기</Text>
+                  </Pressable>
+                  <Pressable
+                    style={[styles.secondaryButton, { flex: 1 }]}
+                    onPress={handleCopyReferralCode}
+                    accessibilityLabel="추천 코드 복사하기"
+                  >
+                    <Feather name="copy" size={16} color={COLORS.primary} />
+                    <Text style={styles.secondaryButtonText}>복사하기</Text>
+                  </Pressable>
+                </View>
+              </>
+            ) : (
+              <Text style={styles.sectionText}>아직 추천 코드가 발급되지 않았습니다.</Text>
+            )}
+          </View>
+        )}
 
         <View style={styles.card}>
           <Text style={styles.sectionTitle}>계정 삭제</Text>

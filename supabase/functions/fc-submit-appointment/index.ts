@@ -107,7 +107,7 @@ serve(async (req: Request) => {
       return json(
         {
           ok: false,
-          message: 'Hanwha approval and PDF file are required before submitting insurance commission dates.',
+          message: 'Dawichok URL approval and PDF file are required before submitting insurance commission dates.',
         },
         409,
       );

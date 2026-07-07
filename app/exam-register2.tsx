@@ -6,6 +6,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Alert,
   Animated,
+  LayoutChangeEvent,
   Platform,
   Pressable,
   RefreshControl,
@@ -20,6 +21,17 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { KeyboardAwareWrapper } from '@/components/KeyboardAwareWrapper';
 import { RefreshButton } from '@/components/RefreshButton';
 import { useSession } from '@/hooks/use-session';
+import {
+  buildExamRoundLocationRows,
+  hasExamRoundLocationsForSave,
+} from '@/lib/exam-round-location-payload';
+import {
+  buildExamRoundNotificationPayload,
+  getExamFlowConfig,
+  getExamRoundCreateFormState,
+  getExamRoundEditFormState,
+  type ExamNotifyPayload,
+} from '@/lib/exam-flow-contract';
 import { supabase } from '@/lib/supabase';
 import { ExamRoundWithLocations, formatDate } from '@/types/exam';
 
@@ -29,18 +41,12 @@ const MUTED = '#6b7280';
 const BORDER = '#E5E7EB';
 const BACKGROUND = '#F3F4F6';
 const INPUT_BG = '#F9FAFB';
+const examFlowType = 'nonlife' as const;
+const examFlowConfig = getExamFlowConfig(examFlowType);
 
-async function notifyAllFcs(title: string, body: string) {
+async function notifyExamFlow(payload: ExamNotifyPayload) {
   const { data, error } = await supabase.functions.invoke('fc-notify', {
-    body: {
-      type: 'notify',
-      target_role: 'fc',
-      target_id: null,
-      title,
-      body,
-      category: 'exam_round',
-      url: '/exam-apply2',
-    },
+    body: payload,
   });
   if (error) throw error;
   if (!data?.ok) {
@@ -91,7 +97,7 @@ const fetchRounds = async (): Promise<ExamRoundWithLocations[]> => {
     .select(
       'id,exam_date,registration_deadline,round_label,notes,created_at,updated_at,exam_locations(id,round_id,location_name,sort_order,created_at,updated_at)',
     )
-    .eq('exam_type', 'nonlife')
+    .eq('exam_type', examFlowConfig.examType)
     .order('exam_date', { ascending: true })
     .order('registration_deadline', { ascending: true })
     .order('sort_order', { foreignTable: 'exam_locations', ascending: true });
@@ -184,8 +190,11 @@ export default function ExamRegisterScreen() {
   const isEditMode = Boolean(selectedRoundId);
 
   // 애니메이션 값
+  const scrollViewRef = useRef<ScrollView | null>(null);
+  const formOffsetYRef = useRef(0);
   const formOpacity = useRef(new Animated.Value(0)).current;
   const formTranslateY = useRef(new Animated.Value(24)).current;
+  const [pendingFormScroll, setPendingFormScroll] = useState(false);
 
   useEffect(() => {
     if (role !== 'admin') {
@@ -200,17 +209,17 @@ export default function ExamRegisterScreen() {
     isFetching,
     refetch,
   } = useQuery({
-    queryKey: ['exam-rounds-nonlife'],
+    queryKey: examFlowConfig.registerRoundsQueryKey,
     queryFn: fetchRounds,
   });
 
   useEffect(() => {
     const roundChannel = supabase
-      .channel('exam-register-nonlife-rounds')
+      .channel(examFlowConfig.registerRoundChannel)
       .on('postgres_changes', { event: '*', schema: 'public', table: 'exam_rounds' }, () => refetch())
       .subscribe();
     const locationChannel = supabase
-      .channel('exam-register-nonlife-locations')
+      .channel(examFlowConfig.registerLocationChannel)
       .on('postgres_changes', { event: '*', schema: 'public', table: 'exam_locations' }, () => refetch())
       .subscribe();
 
@@ -241,6 +250,11 @@ export default function ExamRegisterScreen() {
     [rounds],
   );
 
+  const selectedRound = useMemo(
+    () => sortedRounds.find((r) => r.id === selectedRoundId) ?? null,
+    [sortedRounds, selectedRoundId],
+  );
+
   // 폼 열릴 때 슬라이드-인 애니메이션
   useEffect(() => {
     if (showForm) {
@@ -264,17 +278,51 @@ export default function ExamRegisterScreen() {
 
   // 폼 닫기 (슬라이드-아웃 후 unmount)
   const closeFormWithAnim = useCallback(() => {
+    setPendingFormScroll(false);
     Animated.parallel([
       Animated.timing(formOpacity, { toValue: 0, duration: 200, useNativeDriver: true }),
       Animated.timing(formTranslateY, { toValue: -12, duration: 200, useNativeDriver: true }),
     ]).start(() => setShowForm(false));
   }, [formOpacity, formTranslateY]);
 
+  const scrollToForm = useCallback(() => {
+    scrollViewRef.current?.scrollTo({
+      y: Math.max(formOffsetYRef.current - 12, 0),
+      animated: true,
+    });
+  }, []);
+
+  const requestFormScroll = useCallback(() => {
+    setPendingFormScroll(true);
+  }, []);
+
+  const handleFormLayout = useCallback(
+    (event: LayoutChangeEvent) => {
+      formOffsetYRef.current = event.nativeEvent.layout.y;
+      if (pendingFormScroll && formOffsetYRef.current > 0) {
+        requestAnimationFrame(() => {
+          scrollToForm();
+          setPendingFormScroll(false);
+        });
+      }
+    },
+    [pendingFormScroll, scrollToForm],
+  );
+
+  useEffect(() => {
+    if (!showForm || !pendingFormScroll || formOffsetYRef.current <= 0) return;
+    const timer = setTimeout(() => {
+      scrollToForm();
+      setPendingFormScroll(false);
+    }, 100);
+    return () => clearTimeout(timer);
+  }, [pendingFormScroll, scrollToForm, showForm]);
+
   const saveRound = useMutation({
     mutationFn: async (mode: 'create' | 'update') => {
       assertCanEdit();
       const payload = {
-        exam_type: 'nonlife' as const,
+        exam_type: examFlowConfig.examType,
         exam_date: toYmd(examDate),
         registration_deadline: toYmd(deadlineDate),
         round_label: roundForm.roundLabel.trim() || null,
@@ -284,10 +332,15 @@ export default function ExamRegisterScreen() {
         throw new Error('수정할 시험 차수가 선택되지 않았습니다.');
       }
 
-      const locationRows = draftLocations.map((loc) => ({
-        location_name: loc.name,
-        sort_order: loc.order,
-      }));
+      const locationRows = buildExamRoundLocationRows({
+        draftLocations,
+        pendingLocationName: locationInput,
+        pendingLocationOrder: locationOrder,
+      });
+      const existingLocationCount = mode === 'update' ? (selectedRound?.locations?.length ?? 0) : 0;
+      if (!hasExamRoundLocationsForSave(existingLocationCount, locationRows)) {
+        throw new Error('응시 지역을 1개 이상 입력해주세요.');
+      }
 
       const result = await adminAction(residentId ?? '', 'upsertExamRound', {
         roundId: mode === 'update' ? selectedRoundId : null,
@@ -317,10 +370,12 @@ export default function ExamRegisterScreen() {
 
       const examTitle = `${formatDate(toYmd(examDate) || '')}${roundForm.roundLabel ? ` (${roundForm.roundLabel})` : ''}`;
       const actionLabel = mode === 'create' ? '등록' : '수정';
-      void notifyAllFcs(
-        `${examTitle} 일정이 ${actionLabel}되었습니다.`,
-        '응시를 희망하는 경우 신청해주세요.',
-      ).catch(() => undefined);
+      const notificationPayload = buildExamRoundNotificationPayload({
+        examType: examFlowType,
+        title: `${examTitle} 일정이 ${actionLabel}되었습니다.`,
+        body: '응시를 희망하는 경우 신청해주세요.',
+      });
+      void notifyExamFlow(notificationPayload).catch(() => undefined);
     },
     onSettled: (_data, error) => {
       if (error) {
@@ -388,54 +443,49 @@ export default function ExamRegisterScreen() {
   };
 
   const startNewRound = () => {
-    setSelectedRoundId(null);
-    setRoundForm(emptyRoundForm);
-    setExamDate(new Date());
-    setDeadlineDate(new Date());
+    const createState = getExamRoundCreateFormState();
+    setSelectedRoundId(createState.selectedRoundId);
+    setRoundForm(createState.roundForm);
+    setExamDate(createState.examDate);
+    setDeadlineDate(createState.deadlineDate);
     setShowExamPicker(Platform.OS === 'ios');
     setShowDeadlinePicker(Platform.OS === 'ios');
-    setLocationInput('');
-    setLocationOrder('0');
-    setDraftLocations([]);
+    setLocationInput(createState.locationInput);
+    setLocationOrder(createState.locationOrder);
+    setDraftLocations(createState.draftLocations);
     if (!showForm) {
       setShowForm(true);
     }
+    requestFormScroll();
   };
 
   const handleSelectRound = (round: ExamRoundWithLocations) => {
-    setSelectedRoundId(round.id);
-    setRoundForm({
-      roundLabel: round.round_label ?? '',
-      notes: round.notes ?? '',
-    });
-    setExamDate(round.exam_date ? new Date(round.exam_date) : new Date());
-    setDeadlineDate(
-      round.registration_deadline ? new Date(round.registration_deadline) : new Date(),
-    );
+    const editState = getExamRoundEditFormState(round);
+    setSelectedRoundId(editState.selectedRoundId);
+    setRoundForm(editState.roundForm);
+    setExamDate(editState.examDate);
+    setDeadlineDate(editState.deadlineDate);
     setShowExamPicker(Platform.OS === 'ios');
     setShowDeadlinePicker(Platform.OS === 'ios');
-    setLocationInput('');
-    setLocationOrder('0');
-    setDraftLocations([]);
+    setLocationInput(editState.locationInput);
+    setLocationOrder(editState.locationOrder);
+    setDraftLocations(editState.draftLocations);
     if (!showForm) {
       setShowForm(true);
     }
+    requestFormScroll();
   };
 
-  const selectedRound = useMemo(
-    () => sortedRounds.find((r) => r.id === selectedRoundId) ?? null,
-    [sortedRounds, selectedRoundId],
-  );
-
-  return (
-    <SafeAreaView style={styles.safe} edges={['left', 'right', 'bottom']}>
-      <KeyboardAwareWrapper>
-        <ScrollView
-          contentContainerStyle={styles.container}
-          refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}
-          keyboardShouldPersistTaps="handled"
-          nestedScrollEnabled
-        >
+  const screenContent = (
+    <ScrollView
+      ref={scrollViewRef}
+      contentContainerStyle={styles.container}
+      refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}
+      keyboardShouldPersistTaps="handled"
+      keyboardDismissMode="on-drag"
+      showsVerticalScrollIndicator={false}
+      nestedScrollEnabled
+    >
           <View style={styles.headerRow}>
             <RefreshButton onPress={() => { refetch() }} />
             <Text style={styles.headerTitle}>손해보험 시험 일정 관리</Text>
@@ -553,6 +603,7 @@ export default function ExamRegisterScreen() {
           {/* 입력 폼 (애니메이션 슬라이드) */}
           {showForm && (
             <Animated.View
+              onLayout={handleFormLayout}
               style={{
                 opacity: formOpacity,
                 transform: [{ translateY: formTranslateY }],
@@ -757,8 +808,12 @@ export default function ExamRegisterScreen() {
             </Animated.View>
           )}
 
-        </ScrollView>
-      </KeyboardAwareWrapper>
+    </ScrollView>
+  );
+
+  return (
+    <SafeAreaView style={styles.safe} edges={['left', 'right', 'bottom']}>
+      {Platform.OS === 'android' ? screenContent : <KeyboardAwareWrapper>{screenContent}</KeyboardAwareWrapper>}
     </SafeAreaView>
   );
 }

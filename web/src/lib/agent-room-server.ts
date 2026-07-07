@@ -73,7 +73,7 @@ export async function getAgentRoomSnapshot(): Promise<AgentRoomSnapshot> {
     return snapshotCache.snapshot;
   }
 
-  const workspaceRoot = path.resolve(process.cwd(), '..', '..');
+  const workspaceRoot = path.join(/*turbopackIgnore: true*/ process.cwd(), '..', '..');
   const codexRoot = path.resolve(process.env.CODEX_HOME?.trim() || path.join(os.homedir(), '.codex'));
   const claudeRoot = path.resolve(process.env.CLAUDE_HOME?.trim() || path.join(os.homedir(), '.claude'));
 

@@ -42,6 +42,7 @@ import { useState } from 'react';
 import { z } from 'zod';
 
 import { useSession } from '@/hooks/use-session';
+import { sortExamRoundsByExamDateThenDeadline } from '@/lib/exam-round-sort';
 
 // --- Constants ---
 const HANWHA_ORANGE = '#f36f21';
@@ -243,7 +244,9 @@ export default function ExamSchedulePage() {
     // --- Render ---
     const deadlineCutoff = (dateStr: string) => dayjs(dateStr).endOf('day');
 
-    const rows = rounds?.map((round) => {
+    const sortedRounds = sortExamRoundsByExamDateThenDeadline(rounds ?? []);
+
+    const rows = sortedRounds.map((round) => {
         const cutoff = deadlineCutoff(round.registration_deadline);
         const now = dayjs();
         const isClosed = now.isAfter(cutoff);

@@ -8,6 +8,7 @@ import {
   buildBoardActor,
   createBoardComment,
   createBoardPost,
+  deleteBoardAttachments,
   deleteBoardComment,
   deleteBoardPost,
   fetchBoardCategories,
@@ -65,7 +66,7 @@ import {
 } from '@tabler/icons-react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { AnimatePresence, motion } from 'framer-motion';
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 
 // 감정 표현 타입
@@ -125,9 +126,11 @@ type WebAttachment = {
 const MAX_ATTACHMENTS = 20;
 
 const resolveCategoryBadgeColor = (categoryName: string): string => {
-  if (categoryName === '공지') return 'orange';
-  if (categoryName === '교육') return 'blue';
-  if (categoryName === '서류') return 'green';
+  const normalized = categoryName.trim().toLowerCase();
+  if (normalized.includes('공지')) return 'orange';
+  if (normalized.includes('교육')) return 'blue';
+  if (normalized.includes('상품') || normalized.includes('추천') || normalized.includes('가람') || normalized.includes('pick')) return 'pink';
+  if (normalized.includes('시책')) return 'violet';
   return 'gray';
 };
 
@@ -312,6 +315,7 @@ export default function BoardPage() {
     }
     : null);
   const modalAttachments = detailData?.attachments ?? [];
+  const existingAttachmentCount = existingAttachments.length;
   const modalImageAttachments = modalAttachments.filter((file) => file.fileType === 'image' && file.signedUrl);
   const modalFileAttachments = modalAttachments.filter((file) => file.fileType === 'file');
   const fallbackReactions = selectedPost?.reactions ?? {
@@ -746,14 +750,14 @@ export default function BoardPage() {
       fileType,
       previewUrl: fileType === 'image' ? URL.createObjectURL(file) : undefined,
     }));
-    const total = existingAttachments.length + attachments.length + nextItems.length;
+    const total = existingAttachmentCount + attachments.length + nextItems.length;
     if (total > MAX_ATTACHMENTS) {
       notifications.show({
         title: '첨부 제한',
         message: `최대 ${MAX_ATTACHMENTS}개까지 첨부할 수 있습니다.`,
         color: 'red',
       });
-      nextItems.splice(MAX_ATTACHMENTS - existingAttachments.length - attachments.length);
+      nextItems.splice(MAX_ATTACHMENTS - existingAttachmentCount - attachments.length);
     }
     if (nextItems.length === 0) return;
     setAttachments((prev) => [...prev, ...nextItems]);
@@ -766,6 +770,32 @@ export default function BoardPage() {
       return prev.filter((item) => item.id !== id);
     });
   };
+
+  const removeExistingAttachment = useCallback(async (file: BoardDetail['attachments'][number]) => {
+    if (!actor || !editingPostId) return;
+    const shouldDelete = typeof window !== 'undefined'
+      ? window.confirm(`'${file.fileName}' 첨부파일을 삭제할까요?`)
+      : false;
+    if (!shouldDelete) return;
+
+    try {
+      await deleteBoardAttachments(actor, editingPostId, [file.id]);
+      setExistingAttachments((prev) => prev.filter((item) => item.id !== file.id));
+      queryClient.invalidateQueries({ queryKey: ['board-detail', editingPostId] });
+      queryClient.invalidateQueries({ queryKey: ['board-posts'] });
+      notifications.show({
+        title: '첨부파일 삭제 완료',
+        message: '기존 첨부파일을 삭제했습니다.',
+        color: 'green',
+      });
+    } catch (error) {
+      notifications.show({
+        title: '첨부파일 삭제 실패',
+        message: error instanceof Error ? error.message : '첨부파일 삭제에 실패했습니다.',
+        color: 'red',
+      });
+    }
+  }, [actor, editingPostId, queryClient]);
 
   const uploadAttachments = async (targetPostId: string) => {
     if (!actor || attachments.length === 0) return;
@@ -1389,11 +1419,11 @@ export default function BoardPage() {
                 </Text>
                 {existingAttachments.map((file) => (
                   <Card key={file.id} withBorder padding="sm" radius="md">
-                    <Group justify="space-between">
-                      <Group>
-                        <ThemeIcon variant="light" color="orange" size="md">
-                          <IconInfoCircle size={16} />
-                        </ThemeIcon>
+                      <Group justify="space-between" wrap="nowrap">
+                        <Group>
+                          <ThemeIcon variant="light" color="orange" size="md">
+                            {file.fileType === 'image' ? <IconPhoto size={16} /> : <IconInfoCircle size={16} />}
+                          </ThemeIcon>
                         <div>
                           <Text size="sm" fw={600}>
                             {file.fileName}
@@ -1403,21 +1433,32 @@ export default function BoardPage() {
                           </Text>
                         </div>
                       </Group>
-                      {file.signedUrl && (
-                        <Button
-                          variant="subtle"
-                          color="orange"
-                          size="xs"
-                          component="a"
-                          href={file.signedUrl}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                        >
-                          다운로드
-                        </Button>
-                      )}
-                    </Group>
-                  </Card>
+                        <Group gap="xs" wrap="nowrap">
+                          {file.signedUrl && (
+                            <Button
+                              variant="subtle"
+                              color="orange"
+                              size="xs"
+                              component="a"
+                              href={file.signedUrl}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                            >
+                              다운로드
+                            </Button>
+                          )}
+                          <ActionIcon
+                            aria-label="기존 첨부파일 삭제"
+                            variant="subtle"
+                            color="red"
+                            disabled={!canWrite}
+                            onClick={() => void removeExistingAttachment(file)}
+                          >
+                            <IconTrash size={16} />
+                          </ActionIcon>
+                        </Group>
+                      </Group>
+                    </Card>
                 ))}
               </Stack>
             )}

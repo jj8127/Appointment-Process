@@ -2,10 +2,18 @@ doc_id: FC-APP-REQUEST-BOARD-BRIDGE
 owner_repo: fc-onboarding-app
 owner_area: mobile
 audience: developer, operator
-last_verified: 2026-03-26
-source_of_truth: app/request-board*.tsx + lib/request-board-api.ts + lib/request-board-session.ts
+last_verified: 2026-06-09
+source_of_truth: app/request-board*.tsx + lib/request-board-api.ts + lib/request-board-session.ts + request_board/server/src/routes/messages.ts
 
 # Mobile Playbook: GaramLink Bridge
+
+## 2026-07-03 Messenger Bridge Contract Notes
+
+- `app/request-board-messenger.tsx` must follow the same messenger interaction contract as direct and group chat: link rendering/opening, long-press action menu, copy/delete actions, and numeric unread count display where read-state data exists.
+- Request-board messenger long-press UI must use `components/MessengerMessageActionSheet.tsx`; request-board-only limitations such as no reactions/reply/notice are represented by omitted capability props, not by a separate alert menu.
+- Shared UI/action primitive drift for bridge screens is inventoried by `scripts/audit/shared-ui-contract-audit.cjs` and governed by `docs/handbook/shared-ui-action-contracts.md`.
+- `lib/request-board-api.ts` is the bridge API surface for request-board messages, direct messages, delete actions, attachments, and session retry behavior.
+- Any bridge messenger change must update `lib/__tests__/mobile-chat-source.test.ts`, `lib/__tests__/message-read-receipts.test.ts`, `lib/__tests__/feature-contract-matrix.test.ts`, or this handbook contract.
 
 ## 목적
 
@@ -37,6 +45,7 @@ source_of_truth: app/request-board*.tsx + lib/request-board-api.ts + lib/request
 ## 쓰는 데이터
 
 - bridge-login / session sync
+- attachment upload (`rbUploadAttachments`) with the same 401 -> bridge-login retry rule
 - message read state
 - request approval/rejection 흐름 위임
 
@@ -44,7 +53,30 @@ source_of_truth: app/request-board*.tsx + lib/request-board-api.ts + lib/request
 
 - bridge secret mismatch
 - requestBoardRole 오판정
+- attachment upload 401인데 retry를 안 태워 generic failure로 끝나는 경로
+- message attachment bucket MIME allowlist가 모바일 이미지(`webp/gif/bmp/heic/heif`)보다 좁아 업로드 단계에서 실패하는 drift
 - unread/badge 합산 불일치
+- 가람Link 세션/브릿지 실패는 화면별 `데이터 로드 실패` 같은 일반 문구로 숨기지 않고, 앱 재로그인 후 설계요청 재진입 안내로 정규화한다.
+
+## 2026-06-08 모바일 설계요청 세션 오류 메모
+
+- `ensureRequestBoardSession()` 실패, bridge-login 실패, request_board API 인증 만료는 `lib/request-board-session-error.ts`를 통해 같은 사용자 안내로 표시한다.
+- 명시적인 역할 제한이나 계정 상태 안내는 세션 만료 안내로 덮어쓰지 않는다.
+- 안내 문구만 정규화하며, 자동 로그아웃/라우팅이나 재로그인 버튼은 별도 제품 결정 없이는 추가하지 않는다.
+
+## 2026-06-09 모바일 설계코드 focus refresh 메모
+
+- `request-board-create`는 최초 데이터 로드 이후 화면 focus 복귀 시 `rbGetDesigners()`와 `rbGetFcCodes()`를 다시 호출한다.
+- `/request-board-fc-codes`에서 회사별 설계코드를 등록/수정한 뒤 작성 화면으로 돌아온 경우, 고객/요청/첨부 draft는 유지하고 설계매니저/FC 코드 목록만 갱신해야 한다.
+- 설계매니저 sheet의 `FC 코드 필요` 표시는 현재 FC 코드 목록과 설계매니저 회사명이 매칭되지 않을 때만 보여야 하며, 운영 API가 코드를 반환하는데 stale local state 때문에 막히면 회귀다.
+
+## 2026-06-05 모바일 설계요청 메모
+
+- `request-board-create`는 고객 중심 흐름에서 고객 선택, 신규 고객 등록, 요청 구성, 설계매니저 선택, 완료 단계를 내부 step으로 관리한다.
+- 첨부는 선택값이고 설계매니저 선택은 필수값이다. 설계매니저 선택 sheet는 이름 검색, 완료 CTA, keyboard-safe layout, drag/close 동작을 유지해야 한다.
+- 신규 고객 등록/요청 구성의 text input은 스크롤 중 키보드가 닫히지 않도록 기존 앱의 `keyboardShouldPersistTaps`/keyboard avoidance 패턴을 따른다.
+- `request-board-fc-codes`의 회사 선택 목록은 검색 결과 전체를 스크롤로 탐색할 수 있어야 하며, 표시 수 제한으로 일부 보험사가 가려지면 회귀다.
+- 운전 여부/운전 관련 상태값은 `lib/request-board-driving-status.ts`의 옵션 계약을 따른다.
 
 ## 연관 문서
 

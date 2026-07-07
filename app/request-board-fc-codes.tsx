@@ -2,9 +2,7 @@ import { Feather } from '@expo/vector-icons';
 import { Stack, useRouter } from 'expo-router';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
-  ActivityIndicator,
   Alert,
-  FlatList,
   Keyboard,
   KeyboardAvoidingView,
   Modal,
@@ -18,12 +16,17 @@ import {
   TouchableOpacity,
   View,
 } from 'react-native';
+import Animated from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { BottomNavigation } from '@/components/BottomNavigation';
+import BrandedLoadingSpinner from '@/components/BrandedLoadingSpinner';
+import BrandedLoadingState from '@/components/BrandedLoadingState';
+import { useBottomNavAnimation } from '@/hooks/use-bottom-nav-animation';
 import { useSession } from '@/hooks/use-session';
 import { resolveBottomNavActiveKey, resolveBottomNavPreset } from '@/lib/bottom-navigation';
 import { logger } from '@/lib/logger';
+import { canManageRequestBoardFcCodes } from '@/lib/request-board-permissions';
 import {
   rbCreateFcCode,
   rbDeleteFcCode,
@@ -32,6 +35,7 @@ import {
   rbUpdateFcCode,
   type RbFcCode,
 } from '@/lib/request-board-api';
+import { toRequestBoardSessionErrorMessage } from '@/lib/request-board-session-error';
 import { COLORS, RADIUS, SHADOWS, SPACING, TYPOGRAPHY } from '@/lib/theme';
 
 /* ─── Helpers ─── */
@@ -53,7 +57,16 @@ const formatDate = (value: string) => {
 export default function RequestBoardFcCodesScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
-  const { role, readOnly, hydrated, isRequestBoardDesigner, ensureRequestBoardSession } = useSession();
+  const { scrollHandler, animatedStyle } = useBottomNavAnimation();
+  const {
+    role,
+    readOnly,
+    staffType,
+    hydrated,
+    isRequestBoardDesigner,
+    requestBoardRole,
+    ensureRequestBoardSession,
+  } = useSession();
 
   const [codes, setCodes] = useState<RbFcCode[]>([]);
   const [companyNames, setCompanyNames] = useState<string[]>([]);
@@ -80,9 +93,22 @@ export default function RequestBoardFcCodesScreen() {
 
   // Missing companies panel
   const [missingPanelVisible, setMissingPanelVisible] = useState(false);
+  const canManageCodes = canManageRequestBoardFcCodes({
+    role,
+    readOnly,
+    staffType,
+    requestBoardRole,
+    isRequestBoardDesigner,
+  });
 
   /* ─── Fetch ─── */
   const fetchData = useCallback(async () => {
+    if (!canManageCodes) {
+      setFetchError('설계코드 관리는 FC 계정에서만 사용할 수 있습니다.');
+      setLoading(false);
+      setRefreshing(false);
+      return;
+    }
     setFetchError(null);
     try {
       const sync = await ensureRequestBoardSession();
@@ -98,16 +124,23 @@ export default function RequestBoardFcCodesScreen() {
       setCompanyNames(namesData);
     } catch (err) {
       logger.warn('[fc-codes] fetch failed', err);
-      setFetchError('데이터를 불러오는데 실패했습니다. 가람Link에 로그인 상태를 확인해주세요.');
+      setFetchError(
+        toRequestBoardSessionErrorMessage(err, '설계코드 데이터를 불러오지 못했습니다.'),
+      );
     } finally {
       setLoading(false);
       setRefreshing(false);
     }
-  }, [ensureRequestBoardSession]);
+  }, [canManageCodes, ensureRequestBoardSession]);
 
   useEffect(() => {
     fetchData();
   }, [fetchData]);
+
+  useEffect(() => {
+    if (!hydrated || canManageCodes) return;
+    router.replace('/request-board' as any);
+  }, [canManageCodes, hydrated, router]);
 
   const handleRefresh = () => {
     setRefreshing(true);
@@ -143,9 +176,12 @@ export default function RequestBoardFcCodesScreen() {
 
   const filteredCompanyNames = useMemo(() => {
     const kw = formInsurerName.trim().toLowerCase();
-    const src = companyNames.filter((n) => n.trim().length > 0);
-    if (!kw) return src.slice(0, 6);
-    return src.filter((n) => n.toLowerCase().includes(kw)).slice(0, 6);
+    const src = companyNames
+      .map((n) => n.trim())
+      .filter((n) => n.length > 0)
+      .sort((a, b) => a.localeCompare(b));
+    if (!kw) return src;
+    return src.filter((n) => n.toLowerCase().includes(kw));
   }, [companyNames, formInsurerName]);
 
   const existingForInsurer = useMemo(() => {
@@ -205,7 +241,7 @@ export default function RequestBoardFcCodesScreen() {
       closeEditModal();
       await fetchData();
     } catch (err) {
-      setFormError(err instanceof Error ? err.message : '저장에 실패했습니다.');
+      setFormError(toRequestBoardSessionErrorMessage(err, '저장에 실패했습니다.'));
     } finally {
       setSaving(false);
     }
@@ -223,7 +259,7 @@ export default function RequestBoardFcCodesScreen() {
       setDeleteTarget(null);
       await fetchData();
     } catch (err) {
-      const msg = err instanceof Error ? err.message : '삭제에 실패했습니다.';
+      const msg = toRequestBoardSessionErrorMessage(err, '삭제에 실패했습니다.');
       Alert.alert('오류', msg);
     }
   };
@@ -231,31 +267,34 @@ export default function RequestBoardFcCodesScreen() {
   /* ─── Render ─── */
 
   const renderItem = ({ item }: { item: RbFcCode }) => (
-    <View style={styles.codeRow}>
-      <View style={styles.codeRowMain}>
+    <View style={styles.codeCard}>
+      <View style={styles.codeCardHeader}>
         <Text style={styles.codeInsurer} numberOfLines={1}>{item.insurer_name}</Text>
-        <Text style={styles.codeValue}>{item.code_value}</Text>
         <Text style={styles.codeDate}>{formatDate(item.updated_at)}</Text>
       </View>
-      <View style={styles.codeRowActions}>
-        <Pressable
-          style={({ pressed }) => [styles.actionBtn, pressed && { opacity: 0.6 }]}
-          onPress={() => openEdit(item)}
-        >
-          <Feather name="edit-2" size={14} color={COLORS.primary} />
-          <Text style={[styles.actionBtnText, { color: COLORS.primary }]}>수정</Text>
-        </Pressable>
-        <Pressable
-          style={({ pressed }) => [styles.actionBtn, pressed && { opacity: 0.6 }]}
-          onPress={() => confirmDelete(item)}
-        >
-          <Feather name="trash-2" size={14} color={COLORS.error} />
-          <Text style={[styles.actionBtnText, { color: COLORS.error }]}>삭제</Text>
-        </Pressable>
+      <View style={styles.codeCardActionsRow}>
+        <View style={styles.codeValuePill}>
+          <Text style={styles.codeValue} numberOfLines={1}>{item.code_value}</Text>
+        </View>
+        <View style={styles.codeRowActions}>
+          <Pressable
+            style={({ pressed }) => [styles.actionBtn, pressed && { opacity: 0.6 }]}
+            onPress={() => openEdit(item)}
+          >
+            <Feather name="edit-2" size={14} color={COLORS.primary} />
+            <Text style={[styles.actionBtnText, { color: COLORS.primary }]}>수정</Text>
+          </Pressable>
+          <Pressable
+            style={({ pressed }) => [styles.actionBtn, pressed && { opacity: 0.6 }]}
+            onPress={() => confirmDelete(item)}
+          >
+            <Feather name="trash-2" size={14} color={COLORS.error} />
+            <Text style={[styles.actionBtnText, { color: COLORS.error }]}>삭제</Text>
+          </Pressable>
+        </View>
       </View>
     </View>
   );
-
   const navPreset = resolveBottomNavPreset({
     role,
     readOnly,
@@ -282,8 +321,13 @@ export default function RequestBoardFcCodesScreen() {
             <Text style={styles.headerSub}>회사별 설계코드를 등록하고 관리합니다</Text>
           </View>
           <Pressable
-            style={({ pressed }) => [styles.addBtn, pressed && { opacity: 0.8 }]}
+            style={({ pressed }) => [
+              styles.addBtn,
+              !canManageCodes && { opacity: 0.5 },
+              pressed && canManageCodes && { opacity: 0.8 },
+            ]}
             onPress={openAdd}
+            disabled={!canManageCodes}
           >
             <Feather name="plus" size={16} color="#fff" />
             <Text style={styles.addBtnText}>추가</Text>
@@ -379,8 +423,7 @@ export default function RequestBoardFcCodesScreen() {
       {/* List */}
       {loading ? (
         <View style={styles.loadingWrap}>
-          <ActivityIndicator color={COLORS.primary} />
-          <Text style={styles.loadingText}>불러오는 중...</Text>
+          <BrandedLoadingState variant="request-board-fc-codes" layout="section" />
         </View>
       ) : filteredCodes.length === 0 ? (
         <View style={styles.emptyWrap}>
@@ -395,29 +438,22 @@ export default function RequestBoardFcCodesScreen() {
           </Text>
         </View>
       ) : (
-        <>
-          {/* Table header */}
-          <View style={styles.tableHeader}>
-            <Text style={[styles.tableHeaderCell, { flex: 2 }]}>회사명</Text>
-            <Text style={[styles.tableHeaderCell, { flex: 1.4 }]}>코드값</Text>
-            <Text style={[styles.tableHeaderCell, { flex: 1.2 }]}>수정일</Text>
-            <Text style={[styles.tableHeaderCell, { width: 80, textAlign: 'right' }]}>액션</Text>
-          </View>
-          <FlatList
-            data={filteredCodes}
-            keyExtractor={(item) => String(item.id)}
-            renderItem={renderItem}
-            contentContainerStyle={{ paddingBottom: 80 + insets.bottom }}
-            refreshControl={
-              <RefreshControl
-                refreshing={refreshing}
-                onRefresh={handleRefresh}
-                tintColor={COLORS.primary}
-              />
-            }
-            ItemSeparatorComponent={() => <View style={styles.separator} />}
-          />
-        </>
+        <Animated.FlatList
+          data={filteredCodes}
+          keyExtractor={(item) => String(item.id)}
+          renderItem={renderItem}
+          contentContainerStyle={[styles.codeListContent, { paddingBottom: 80 + insets.bottom }]}
+          onScroll={scrollHandler}
+          scrollEventThrottle={16}
+          refreshControl={
+            <RefreshControl
+              refreshing={refreshing}
+              onRefresh={handleRefresh}
+              tintColor={COLORS.primary}
+            />
+          }
+          ItemSeparatorComponent={() => <View style={styles.separator} />}
+        />
       )}
 
       {/* Add/Edit Modal */}
@@ -443,7 +479,7 @@ export default function RequestBoardFcCodesScreen() {
               </Pressable>
             </View>
 
-            <ScrollView style={styles.modalBody} keyboardShouldPersistTaps="handled">
+            <ScrollView style={styles.modalBody} keyboardShouldPersistTaps="always">
               {formError && (
                 <View style={styles.formErrorBox}>
                   <Feather name="alert-circle" size={14} color={COLORS.error} />
@@ -470,7 +506,12 @@ export default function RequestBoardFcCodesScreen() {
                   autoCorrect={false}
                 />
                 {showSuggestions && filteredCompanyNames.length > 0 && (
-                  <View style={styles.suggestionsList}>
+                  <ScrollView
+                    style={styles.suggestionsList}
+                    nestedScrollEnabled
+                    keyboardShouldPersistTaps="always"
+                    showsVerticalScrollIndicator
+                  >
                     {filteredCompanyNames.map((name) => (
                       <TouchableOpacity
                         key={name}
@@ -499,7 +540,7 @@ export default function RequestBoardFcCodesScreen() {
                         )}
                       </TouchableOpacity>
                     ))}
-                  </View>
+                  </ScrollView>
                 )}
                 {!editingCode && existingForInsurer && (
                   <Text style={styles.fieldHint}>
@@ -539,7 +580,7 @@ export default function RequestBoardFcCodesScreen() {
                 disabled={saving}
               >
                 {saving ? (
-                  <ActivityIndicator size="small" color="#fff" />
+                  <BrandedLoadingSpinner size="sm" color="#fff" />
                 ) : (
                   <Text style={styles.saveBtnText}>{editingCode ? '수정' : '등록'}</Text>
                 )}
@@ -589,6 +630,7 @@ export default function RequestBoardFcCodesScreen() {
       <BottomNavigation
         preset={navPreset ?? undefined}
         activeKey={navActiveKey}
+        animatedStyle={animatedStyle}
         bottomInset={insets.bottom}
       />
     </View>
@@ -802,55 +844,62 @@ const styles = StyleSheet.create({
     textAlign: 'center',
   },
 
-  /* Table */
-  tableHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
+  codeListContent: {
     paddingHorizontal: SPACING.base,
-    paddingVertical: SPACING.sm,
-    backgroundColor: COLORS.gray[50],
-    borderBottomWidth: 1,
-    borderBottomColor: COLORS.border.light,
+    paddingTop: SPACING.sm,
   },
-  tableHeaderCell: {
-    fontSize: TYPOGRAPHY.fontSize.xs,
-    fontWeight: '600' as const,
-    color: COLORS.gray[500],
-  },
-
-  /* Code row */
-  codeRow: {
+  codeCard: {
     backgroundColor: '#fff',
-    paddingHorizontal: SPACING.base,
-    paddingVertical: SPACING.sm,
+    borderRadius: RADIUS.md,
+    borderWidth: 1,
+    borderColor: COLORS.border.light,
+    paddingHorizontal: SPACING.md,
+    paddingVertical: SPACING.md,
+    ...SHADOWS.sm,
   },
-  codeRowMain: {
+  codeCardHeader: {
     flexDirection: 'row',
     alignItems: 'center',
-    marginBottom: 6,
+    gap: SPACING.sm,
+    marginBottom: 10,
   },
   codeInsurer: {
-    flex: 2,
+    flex: 1,
+    minWidth: 0,
     fontSize: TYPOGRAPHY.fontSize.sm,
-    fontWeight: '600' as const,
+    fontWeight: '800' as const,
     color: COLORS.gray[800],
-    paddingRight: 4,
+  },
+  codeDate: {
+    fontSize: TYPOGRAPHY.fontSize.xs,
+    color: COLORS.text.muted,
+    flexShrink: 0,
+  },
+  codeCardActionsRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: SPACING.sm,
+  },
+  codeValuePill: {
+    alignSelf: 'flex-start',
+    maxWidth: '100%',
+    borderRadius: RADIUS.sm,
+    backgroundColor: COLORS.gray[100],
+    paddingHorizontal: SPACING.sm,
+    paddingVertical: 6,
+    flexShrink: 1,
   },
   codeValue: {
-    flex: 1.4,
     fontSize: TYPOGRAPHY.fontSize.sm,
     fontFamily: Platform.OS === 'ios' ? 'Courier' : 'monospace',
     color: COLORS.gray[700],
-    paddingRight: 4,
-  },
-  codeDate: {
-    flex: 1.2,
-    fontSize: TYPOGRAPHY.fontSize.xs,
-    color: COLORS.text.muted,
+    fontWeight: '700' as const,
   },
   codeRowActions: {
     flexDirection: 'row',
     justifyContent: 'flex-end',
+    flexShrink: 0,
     gap: 8,
   },
   actionBtn: {
@@ -869,9 +918,7 @@ const styles = StyleSheet.create({
     fontWeight: '600' as const,
   },
   separator: {
-    height: StyleSheet.hairlineWidth,
-    backgroundColor: COLORS.border.light,
-    marginHorizontal: SPACING.base,
+    height: SPACING.sm,
   },
 
   /* Modal overlay */
@@ -1014,6 +1061,7 @@ const styles = StyleSheet.create({
   /* Inline suggestions */
   suggestionsList: {
     marginTop: 4,
+    maxHeight: 300,
     borderWidth: 1,
     borderColor: COLORS.border.light,
     borderRadius: RADIUS.md,

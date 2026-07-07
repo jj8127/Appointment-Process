@@ -5,7 +5,11 @@ import {
   getStatusLabel,
   getSummaryStatus,
 } from '../../web/src/lib/shared';
-import { getAllowanceDisplayState, getFcHomeNextAction } from '../fc-workflow';
+import {
+  canOpenFcProfileRegistration,
+  getAllowanceDisplayState,
+  getFcHomeNextAction,
+} from '../fc-workflow';
 import type { FcProfile } from '../../web/src/types/fc';
 
 const approvedDocs: FcProfile['fc_documents'] = [
@@ -114,8 +118,8 @@ describe('workflow step regression', () => {
         address: '서울시 중구',
         allowance_date: null,
       }),
-      expected: { key: 'missing', label: 'FC 수당 동의일 미입력', color: 'gray' },
-      summary: { label: 'FC 수당 동의일 미입력', color: 'gray' },
+      expected: { key: 'missing', label: 'FC 보증보험 조회 동의일 미입력', color: 'gray' },
+      summary: { label: 'FC 보증보험 조회 동의일 미입력', color: 'gray' },
     },
     {
       name: 'entered',
@@ -127,8 +131,8 @@ describe('workflow step regression', () => {
         address: '서울시 중구',
         allowance_date: '2026-02-20',
       }),
-      expected: { key: 'entered', label: 'FC 수당 동의 입력 완료', color: 'orange' },
-      summary: { label: 'FC 수당 동의 입력 완료', color: 'orange' },
+      expected: { key: 'entered', label: 'FC 보증 보험 동의 입력 완료', color: 'orange' },
+      summary: { label: 'FC 보증 보험 동의 입력 완료', color: 'orange' },
     },
     {
       name: 'prescreen',
@@ -194,9 +198,9 @@ describe('workflow step regression', () => {
   });
 
   test('workflow step labels pin step 3 and 4 naming', () => {
-    expect(STEP_LABELS.step3).toBe('3단계 한화 위촉 URL');
+    expect(STEP_LABELS.step3).toBe('3단계 다위촉 URL');
     expect(STEP_LABELS.step4).toBe('4단계 생명/손해 위촉');
-    expect(ADMIN_STEP_LABELS.step3).toBe('3단계 한화 위촉 URL');
+    expect(ADMIN_STEP_LABELS.step3).toBe('3단계 다위촉 URL');
     expect(ADMIN_STEP_LABELS.step4).toBe('4단계 생명/손해 위촉');
   });
 
@@ -240,6 +244,13 @@ describe('workflow step regression', () => {
     expect(getSummaryStatus(row).label).toBe('가입 시 위촉 완료');
   });
 
+  test('fc profile registration opens only after preregistration is completed', () => {
+    expect(canOpenFcProfileRegistration(null)).toBe(false);
+    expect(canOpenFcProfileRegistration(profile({ signup_completed: false }) as any)).toBe(false);
+    expect(canOpenFcProfileRegistration(profile({ signup_completed: null }) as any)).toBe(false);
+    expect(canOpenFcProfileRegistration(profile({ signup_completed: true }) as any)).toBe(true);
+  });
+
   test('fc home still opens docs page until admin requests documents', () => {
     const row = profile({
       status: 'allowance-consented',
@@ -280,7 +291,7 @@ describe('workflow step regression', () => {
     });
   });
 
-  test('fc home still opens hanwha page until approved pdf is registered', () => {
+  test('fc home still opens dawichok page until approved pdf is registered', () => {
     const row = profile({
       status: 'hanwha-commission-approved',
       temp_id: 'TMP-001',
@@ -386,6 +397,32 @@ describe('workflow step regression', () => {
       key: 'docs',
       route: '/docs-upload',
       subtitle: '모든 문서를 제출하세요.',
+      disabled: false,
+    });
+  });
+
+  test('manual approval without an uploaded document counts as document approval', () => {
+    const row = profile({
+      status: 'docs-approved',
+      temp_id: 'TMP-001',
+      resident_id_masked: '900101-*******',
+      identity_completed: true,
+      address: '서울시 중구',
+      allowance_date: '2026-02-20',
+      fc_documents: [
+        {
+          doc_type: '생명보험 합격증',
+          storage_path: null,
+          status: 'approved',
+        },
+      ],
+    });
+
+    expect(getFcHomeNextAction(row as any)).toMatchObject({
+      step: 3,
+      key: 'hanwha',
+      route: '/hanwha-commission',
+      title: '다위촉 URL',
       disabled: false,
     });
   });

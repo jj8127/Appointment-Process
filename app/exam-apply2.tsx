@@ -3,27 +3,44 @@ import DateTimePicker, { type DateTimePickerEvent } from '@react-native-communit
 import { useMutation, useQuery } from '@tanstack/react-query';
 import * as Clipboard from 'expo-clipboard';
 import * as Haptics from 'expo-haptics';
-import { LinearGradient } from 'expo-linear-gradient';
 import { router } from 'expo-router';
 import { AnimatePresence, MotiView } from 'moti';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
-  ActivityIndicator,
   Alert,
   Modal,
   Platform,
   Pressable,
   RefreshControl,
+  ScrollView,
   StyleSheet,
   Text,
   View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
+import BrandedLoadingSpinner from '@/components/BrandedLoadingSpinner';
+import BrandedLoadingState from '@/components/BrandedLoadingState';
 import { KeyboardAwareWrapper } from '@/components/KeyboardAwareWrapper';
 import { RefreshButton } from '@/components/RefreshButton';
 import { useIdentityGate } from '@/hooks/use-identity-gate';
 import { useSession } from '@/hooks/use-session';
+import { canUseFcExamApply } from '@/lib/exam-role';
+import {
+  formatMissingExamApplicationFields,
+  getMissingExamApplicationFields,
+} from '@/lib/exam-application-validation';
+import {
+  INVALID_EXAM_LOCATION_MESSAGE,
+  buildExamApplyNotificationPayloads,
+  getExamApplyRestoredSelectionState,
+  getExamFeeAccountCopyText,
+  getExamFlowConfig,
+  getExamRoundSelectionState,
+  isLocationInRound,
+  type ExamNotifyPayload,
+} from '@/lib/exam-flow-contract';
+import { NONLIFE_EXAM_FEE_ROWS } from '@/lib/exam-fees';
 import { logger } from '@/lib/logger';
 import { supabase } from '@/lib/supabase';
 import { ExamRoundWithLocations, formatDate } from '@/types/exam';
@@ -54,8 +71,9 @@ const formatExamInfo = (dateStr?: string | null, label?: string | null) => {
 const toYmd = (d: Date) =>
   `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 const ROUND_DEADLINE_RETENTION_DAYS = 7;
-const NONLIFE_EXAM_FEE_ACCOUNT = '신한 110-444-751201 김태훈';
-const INVALID_LOCATION_MESSAGE = '선택한 응시 지역이 해당 시험 회차에 속하지 않습니다. 응시 지역을 다시 선택해주세요.';
+const examFlowType = 'nonlife' as const;
+const examFlowConfig = getExamFlowConfig(examFlowType);
+const feeAccountCopy = getExamFeeAccountCopyText(examFlowType);
 const CARD_SHADOW = {
   shadowColor: '#000',
   shadowOpacity: 0.05,
@@ -64,35 +82,9 @@ const CARD_SHADOW = {
   elevation: 2,
 };
 
-async function notifyAdmin(title: string, body: string, residentId: string | null) {
+async function notifyExamFlow(payload: ExamNotifyPayload) {
   const { data, error } = await supabase.functions.invoke('fc-notify', {
-    body: {
-      type: 'notify',
-      target_role: 'admin',
-      target_id: residentId,
-      title,
-      body,
-      category: 'exam_apply',
-      url: '/exam-manage2',
-    },
-  });
-  if (error) throw error;
-  if (!data?.ok) {
-    throw new Error(data?.message ?? '알림 전송 실패');
-  }
-}
-
-async function notifyFcSelf(title: string, body: string, residentId: string) {
-  const { data, error } = await supabase.functions.invoke('fc-notify', {
-    body: {
-      type: 'notify',
-      target_role: 'fc',
-      target_id: residentId,
-      title,
-      body,
-      category: 'exam_apply',
-      url: '/exam-apply2',
-    },
+    body: payload,
   });
   if (error) throw error;
   if (!data?.ok) {
@@ -125,7 +117,7 @@ const fetchRounds = async (): Promise<ExamRoundWithLocations[]> => {
       )
     `,
     )
-    .eq('exam_type', 'nonlife')
+    .eq('exam_type', examFlowConfig.examType)
     .gte('registration_deadline', toYmd(cutoffDate))
     .order('exam_date', { ascending: true })
     .order('registration_deadline', { ascending: true })
@@ -161,22 +153,23 @@ const toDate = (value?: string | null) => {
   return d;
 };
 
+const formatFeePaidDate = (value?: string | null) => {
+  const paidDate = toDate(value);
+  return paidDate ? formatKoreanDate(paidDate) : '-';
+};
+
 type MyExamApply = {
   id: string;
   round_id: string;
   location_id: string;
   status: string;
   is_third_exam?: boolean | null;
+  fee_paid_date?: string | null;
   created_at: string;
   exam_rounds?: { exam_date: string; round_label: string | null } | null;
   exam_locations?: { location_name: string } | null;
   is_confirmed?: boolean | null;
 };
-
-function isLocationInRound(round: ExamRoundWithLocations | null, locationId: string | null | undefined) {
-  if (!round || !locationId) return false;
-  return round.locations.some((location) => location.id === locationId);
-}
 
 function getExamRegistrationErrorMessage(error: unknown) {
   if (!error) return '시험 신청 중 오류가 발생했습니다.';
@@ -184,7 +177,7 @@ function getExamRegistrationErrorMessage(error: unknown) {
   if (error instanceof Error) {
     const message = error.message ?? '';
     if (message.includes('exam_registrations_location_round_fkey')) {
-      return INVALID_LOCATION_MESSAGE;
+      return INVALID_EXAM_LOCATION_MESSAGE;
     }
     return message || '시험 신청 중 오류가 발생했습니다.';
   }
@@ -193,10 +186,10 @@ function getExamRegistrationErrorMessage(error: unknown) {
     const maybeError = error as { code?: string; message?: string; details?: string; hint?: string };
     const text = [maybeError.message, maybeError.details, maybeError.hint].filter(Boolean).join(' ');
     if (text.includes('exam_registrations_location_round_fkey')) {
-      return INVALID_LOCATION_MESSAGE;
+      return INVALID_EXAM_LOCATION_MESSAGE;
     }
     if (maybeError.code === '23503' && text.includes('exam_locations')) {
-      return INVALID_LOCATION_MESSAGE;
+      return INVALID_EXAM_LOCATION_MESSAGE;
     }
     if (text) {
       return text;
@@ -207,8 +200,9 @@ function getExamRegistrationErrorMessage(error: unknown) {
 }
 
 export default function ExamApplyScreen() {
-  const { role, residentId, displayName, hydrated } = useSession();
-  useIdentityGate({ nextPath: '/exam-apply2' });
+  const { role, residentId, displayName, hydrated, readOnly } = useSession();
+  useIdentityGate({ nextPath: examFlowConfig.applyRoute });
+  const canApplyExam = canUseFcExamApply({ role, readOnly });
 
   const [selectedRoundId, setSelectedRoundId] = useState<string | null>(null);
   const [selectedLocationId, setSelectedLocationId] = useState<string | null>(null);
@@ -226,11 +220,11 @@ export default function ExamApplyScreen() {
       router.replace('/login');
       return;
     }
-    if (role !== 'fc') {
-      Alert.alert('접근 불가', '시험 신청은 FC만 사용할 수 있습니다.');
+    if (!canApplyExam) {
+      Alert.alert('접근 불가', '시험 신청은 FC와 본부장만 사용할 수 있습니다.');
       router.replace('/');
     }
-  }, [role, hydrated]);
+  }, [canApplyExam, role, hydrated]);
 
   const {
     data: rounds,
@@ -238,9 +232,9 @@ export default function ExamApplyScreen() {
     isFetching,
     refetch,
   } = useQuery({
-    queryKey: ['exam-rounds-for-apply', 'nonlife'],
+    queryKey: examFlowConfig.applyRoundsQueryKey,
     queryFn: fetchRounds,
-    enabled: role === 'fc',
+    enabled: canApplyExam,
   });
 
   const allRounds = useMemo(() => rounds ?? [], [rounds]);
@@ -264,16 +258,16 @@ export default function ExamApplyScreen() {
   );
 
   const { data: myApplies = [], refetch: refetchMyApply } = useQuery<MyExamApply[]>({
-    queryKey: ['my-exam-apply-nonlife', residentId],
-    enabled: role === 'fc' && !!residentId,
+    queryKey: [examFlowConfig.myApplyQueryKeyPrefix, residentId],
+    enabled: canApplyExam && !!residentId,
     queryFn: async (): Promise<MyExamApply[]> => {
       const { data, error } = await supabase
         .from('exam_registrations')
         .select(
-          'id, round_id, location_id, status, is_confirmed, is_third_exam, created_at, exam_rounds!inner(exam_date, round_label, exam_type), exam_locations(location_name)',
+          'id, round_id, location_id, status, is_confirmed, is_third_exam, fee_paid_date, created_at, exam_rounds!inner(exam_date, round_label, exam_type), exam_locations(location_name)',
         )
         .eq('resident_id', residentId)
-        .eq('exam_rounds.exam_type', 'nonlife')
+        .eq('exam_rounds.exam_type', examFlowConfig.examType)
         .order('created_at', { ascending: false });
 
       if (error && (error as any).code === '42P01') {
@@ -307,7 +301,7 @@ export default function ExamApplyScreen() {
   useEffect(() => {
     if (!residentId) return;
     const regChannel = supabase
-      .channel(`exam-apply-nonlife-${residentId}`)
+      .channel(`${examFlowConfig.applyRealtimeChannelPrefix}-${residentId}`)
       .on(
         'postgres_changes',
         { event: '*', schema: 'public', table: 'exam_registrations', filter: `resident_id=eq.${residentId}` },
@@ -321,17 +315,14 @@ export default function ExamApplyScreen() {
 
   // 선택된 회차에 기존 신청이 있으면 데이터 복원
   useEffect(() => {
-    if (existingForRound) {
-      if (existingForRound.is_third_exam != null) setWantsThird(!!existingForRound.is_third_exam);
-      setSelectedLocationId(
-        isLocationInRound(selectedRound, existingForRound.location_id) ? existingForRound.location_id : null,
-      );
-    } else {
-      setSelectedLocationId(null);
-      setWantsThird(false);
-    }
-    setFeePaidDate(null);
-    setTempFeePaidDate(null);
+    const restoredState = getExamApplyRestoredSelectionState({
+      existingForRound,
+      selectedRound,
+    });
+    setSelectedLocationId(restoredState.selectedLocationId);
+    setWantsThird(restoredState.wantsThird);
+    setFeePaidDate(restoredState.feePaidDate);
+    setTempFeePaidDate(restoredState.tempFeePaidDate);
   }, [existingForRound, selectedRound]);
 
   const onRefresh = useCallback(async () => {
@@ -345,7 +336,7 @@ export default function ExamApplyScreen() {
 
   const copyFeeAccount = useCallback(async () => {
     try {
-      await Clipboard.setStringAsync(NONLIFE_EXAM_FEE_ACCOUNT);
+      await Clipboard.setStringAsync(feeAccountCopy.value);
       void Haptics.selectionAsync().catch(() => {});
       Alert.alert('복사 완료', '응시료 납입 계좌를 복사했습니다.');
     } catch {
@@ -358,11 +349,18 @@ export default function ExamApplyScreen() {
       if (!residentId) {
         throw new Error('본인 식별 정보가 없습니다. 다시 로그인한 뒤 이용해주세요.');
       }
-      if (!selectedRoundId || !selectedLocationId) {
-        throw new Error('시험 일정과 응시 지역을 모두 선택해주세요.');
+      const missingMessage = formatMissingExamApplicationFields(getMissingExamApplicationFields({
+        feePaidDate,
+        selectedRoundId,
+        selectedLocationId,
+        hasSelectedSubject: true,
+      }));
+      if (missingMessage) {
+        throw new Error(missingMessage);
       }
-      if (!feePaidDate) {
-        throw new Error('응시료 납입 일자를 입력해주세요.');
+      const paidDate = feePaidDate;
+      if (!paidDate) {
+        throw new Error('응시료 납입 일자를 선택해주세요.');
       }
 
       if (isConfirmedForRound) {
@@ -379,7 +377,7 @@ export default function ExamApplyScreen() {
       }
 
       if (!isLocationInRound(round, selectedLocationId)) {
-        throw new Error(INVALID_LOCATION_MESSAGE);
+        throw new Error(INVALID_EXAM_LOCATION_MESSAGE);
       }
 
       if (existingForRound) {
@@ -391,7 +389,7 @@ export default function ExamApplyScreen() {
             status: 'applied',
             is_confirmed: false,
             is_third_exam: wantsThird,
-            fee_paid_date: toYmd(feePaidDate),
+            fee_paid_date: toYmd(paidDate),
           })
           .eq('id', existingForRound.id);
 
@@ -405,7 +403,7 @@ export default function ExamApplyScreen() {
           status: 'applied',
           is_confirmed: false,
           is_third_exam: wantsThird,
-          fee_paid_date: toYmd(feePaidDate),
+          fee_paid_date: toYmd(paidDate),
         });
 
         if (error) throw error;
@@ -416,11 +414,16 @@ export default function ExamApplyScreen() {
       const examTitle = `${formatDate(round.exam_date)}${round.round_label ? ` (${round.round_label})` : ''
         }`;
       const actor = displayName?.trim() || residentId;
-      const title = `${actor}님이 ${examTitle}을 신청하였습니다.`;
-      const body = locName ? `${actor}님이 ${examTitle} (${locName})을 신청하였습니다.` : title;
+      const notificationPayloads = buildExamApplyNotificationPayloads({
+        examType: examFlowType,
+        actor,
+        residentId,
+        examTitle,
+        locationName: locName,
+      });
 
-      await notifyAdmin(title, body, residentId);
-      await notifyFcSelf('시험 신청이 접수되었습니다.', `${examTitle}${locName ? ` (${locName})` : ''} 접수가 완료되었습니다.`, residentId);
+      await notifyExamFlow(notificationPayloads.admin);
+      await notifyExamFlow(notificationPayloads.fcSelf);
     },
     onSuccess: () => {
       Alert.alert('신청 완료', '시험 신청이 정상적으로 등록되었습니다.');
@@ -496,8 +499,9 @@ export default function ExamApplyScreen() {
       return;
     }
     Haptics.selectionAsync();
-    setSelectedLocationId(null);
-    setSelectedRoundId(round.id);
+    const selectionState = getExamRoundSelectionState(round);
+    setSelectedLocationId(selectionState.selectedLocationId);
+    setSelectedRoundId(selectionState.selectedRoundId);
   };
 
   const handleLocationSelect = (id: string) => {
@@ -509,22 +513,45 @@ export default function ExamApplyScreen() {
     setSelectedLocationId(id);
   };
 
+  const handleApplyPress = () => {
+    if (applyMutation.isPending) return;
+    if (isConfirmedForRound) {
+      Alert.alert('알림', lockMessage);
+      return;
+    }
+    if (isSelectedRoundClosed) {
+      Alert.alert('알림', '마감된 일정입니다. 다른 시험 일정을 선택해주세요.');
+      return;
+    }
+
+    const missingMessage = formatMissingExamApplicationFields(getMissingExamApplicationFields({
+      feePaidDate,
+      selectedRoundId,
+      selectedLocationId,
+      hasSelectedSubject: true,
+    }));
+    if (missingMessage) {
+      Alert.alert('입력 확인', missingMessage);
+      return;
+    }
+
+    applyMutation.mutate();
+  };
+
   if (!hydrated) {
     return (
       <SafeAreaView style={styles.safe} edges={['left', 'right', 'bottom']}>
-        <View style={styles.center}>
-          <ActivityIndicator color={HANWHA_ORANGE} />
-        </View>
+        <BrandedLoadingState variant="exam" />
       </SafeAreaView>
     );
   }
 
-  return (
-    <SafeAreaView style={styles.safe} edges={['left', 'right', 'bottom']}>
-      <KeyboardAwareWrapper
-        contentContainerStyle={styles.container}
-        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}
-      >
+  const screenRefreshControl = (
+    <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
+  );
+
+  const screenContent = (
+    <>
         <View style={styles.header}>
           <View>
             <Text style={styles.headerTitle}>손해보험 시험 신청</Text>
@@ -538,23 +565,35 @@ export default function ExamApplyScreen() {
         </View>
 
         <View style={styles.section}>
-          <Text style={styles.sectionHeader}>📅 응시료 납입 일자</Text>
+          <Text style={styles.sectionHeader}>📅 응시료 납입 안내</Text>
           <Text style={styles.inputHint}>응시료 미입금 시 시험 접수 불가능하며, 납입한 접수비는 반환되지 않습니다.</Text>
           <View style={styles.accountCard}>
             <View style={styles.accountHeaderRow}>
-              <Text style={styles.accountLabel}>응시료 납입 계좌</Text>
+              <Text style={styles.accountLabel}>{feeAccountCopy.label}</Text>
               <Pressable
                 onPress={() => { void copyFeeAccount(); }}
                 accessibilityRole="button"
-                accessibilityLabel="응시료 납입 계좌 복사"
-                accessibilityHint="응시료 납입 계좌 정보를 클립보드에 복사합니다."
+                accessibilityLabel={feeAccountCopy.accessibilityLabel}
+                accessibilityHint={feeAccountCopy.accessibilityHint}
                 style={({ pressed }) => [styles.accountCopyChip, pressed && styles.accountCopyChipPressed]}
               >
                 <Feather name="copy" size={13} color={HANWHA_ORANGE} />
-                <Text style={styles.accountCopyChipLabel}>복사</Text>
+                <Text style={styles.accountCopyChipLabel}>{feeAccountCopy.copyLabel}</Text>
               </Pressable>
             </View>
-            <Text style={styles.accountValue}>{NONLIFE_EXAM_FEE_ACCOUNT}</Text>
+            <Text style={styles.accountValue}>{feeAccountCopy.value}</Text>
+          </View>
+          <View style={styles.feeCard}>
+            <View style={styles.feeHeaderRow}>
+              <Feather name="info" size={14} color={HANWHA_ORANGE} />
+              <Text style={styles.feeTitle}>응시료 안내</Text>
+            </View>
+            {NONLIFE_EXAM_FEE_ROWS.map((item) => (
+              <View key={item.label} style={styles.feeRow}>
+                <Text style={styles.feeLabel}>{item.label}</Text>
+                <Text style={styles.feeAmount}>{item.amount}</Text>
+              </View>
+            ))}
           </View>
           <Pressable
             style={styles.dateInput}
@@ -677,6 +716,12 @@ export default function ExamApplyScreen() {
                       </Text>
                     </View>
                     <View style={styles.statusRow}>
+                      <Text style={styles.statusLabel}>응시료 납입일</Text>
+                      <Text style={styles.statusValue}>
+                        {formatFeePaidDate(currentApply.fee_paid_date)}
+                      </Text>
+                    </View>
+                    <View style={styles.statusRow}>
                       <Text style={styles.statusLabel}>상태</Text>
                       <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
                         <View
@@ -710,7 +755,7 @@ export default function ExamApplyScreen() {
           <View style={styles.section}>
             <Text style={styles.sectionHeader}>📅 시험 일정 선택</Text>
             {isLoading || isFetching ? (
-              <ActivityIndicator color={HANWHA_ORANGE} style={{ marginTop: 20 }} />
+              <BrandedLoadingState variant="exam" layout="section" />
             ) : (
               <View style={styles.listContainer}>
                 {allRounds.map((round, idx) => {
@@ -856,38 +901,25 @@ export default function ExamApplyScreen() {
 
             <View style={styles.actionButtons}>
               <Pressable
-                onPress={() => {
-                  if (isConfirmedForRound) {
-                    Alert.alert('알림', lockMessage);
-                    return;
-                  }
-                  applyMutation.mutate();
-                }}
-                disabled={
-                  applyMutation.isPending ||
-                  !selectedRoundId ||
-                  !selectedLocationId ||
-                  !feePaidDate ||
-                  isSelectedRoundClosed ||
-                  isConfirmedForRound
-                }
+                onPress={handleApplyPress}
+                disabled={applyMutation.isPending}
                 style={({ pressed }) => [styles.submitBtnWrapper, pressed && styles.pressedScale]}
               >
-                <LinearGradient
-                  colors={
-                    isConfirmedForRound || !selectedRoundId || !selectedLocationId || !feePaidDate
-                      ? ['#d1d5db', '#9ca3af']
-                      : [HANWHA_ORANGE, '#fb923c']
-                  }
-                  start={{ x: 0, y: 0 }}
-                  end={{ x: 1, y: 0 }}
-                  style={styles.submitBtn}
+                <View
+                  style={[
+                    styles.submitBtn,
+                    applyMutation.isPending || isConfirmedForRound
+                      ? styles.submitBtnDisabled
+                      : styles.submitBtnActive,
+                  ]}
                 >
                   <Text style={styles.submitBtnText}>
                     {isConfirmedForRound ? '시험 접수 완료' : existingForRound ? '신청 내역 수정하기' : '시험 신청하기'}
                   </Text>
-                  {applyMutation.isPending && <ActivityIndicator color="#fff" style={{ marginLeft: 8 }} />}
-                </LinearGradient>
+                  {applyMutation.isPending && (
+                    <BrandedLoadingSpinner size="sm" color="#fff" style={{ marginLeft: 8 }} />
+                  )}
+                </View>
               </Pressable>
             </View>
           </View>
@@ -932,8 +964,29 @@ export default function ExamApplyScreen() {
             </View>
           </Modal>
         )}
+    </>
+  );
 
-      </KeyboardAwareWrapper>
+  return (
+    <SafeAreaView style={styles.safe} edges={['left', 'right', 'bottom']}>
+      {Platform.OS === 'android' ? (
+        <ScrollView
+          contentContainerStyle={styles.container}
+          refreshControl={screenRefreshControl}
+          showsVerticalScrollIndicator={false}
+          keyboardShouldPersistTaps="handled"
+          keyboardDismissMode="on-drag"
+        >
+          {screenContent}
+        </ScrollView>
+      ) : (
+        <KeyboardAwareWrapper
+          contentContainerStyle={styles.container}
+          refreshControl={screenRefreshControl}
+        >
+          {screenContent}
+        </KeyboardAwareWrapper>
+      )}
     </SafeAreaView>
   );
 }
@@ -1120,6 +1173,43 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     color: HANWHA_ORANGE,
   },
+  feeCard: {
+    backgroundColor: '#ffffff',
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: BORDER,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    marginBottom: 12,
+    gap: 8,
+  },
+  feeHeaderRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
+  feeTitle: {
+    fontSize: 13,
+    fontWeight: '800',
+    color: CHARCOAL,
+  },
+  feeRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 12,
+  },
+  feeLabel: {
+    flex: 1,
+    fontSize: 14,
+    fontWeight: '600',
+    color: MUTED,
+  },
+  feeAmount: {
+    fontSize: 15,
+    fontWeight: '800',
+    color: HANWHA_ORANGE,
+  },
   dateInput: {
     backgroundColor: '#fff',
     borderRadius: 12,
@@ -1163,6 +1253,8 @@ const styles = StyleSheet.create({
   actionButtons: { gap: 12 },
   submitBtnWrapper: { borderRadius: 14, overflow: 'hidden', ...CARD_SHADOW },
   submitBtn: { paddingVertical: 18, alignItems: 'center', justifyContent: 'center', flexDirection: 'row' },
+  submitBtnActive: { backgroundColor: HANWHA_ORANGE },
+  submitBtnDisabled: { backgroundColor: '#9ca3af' },
   submitBtnText: { color: '#fff', fontSize: 18, fontWeight: '800' },
   cancelBtn: { paddingVertical: 14, alignItems: 'center' },
   cancelBtnText: { color: '#ef4444', fontSize: 16, fontWeight: '600', textDecorationLine: 'underline' },

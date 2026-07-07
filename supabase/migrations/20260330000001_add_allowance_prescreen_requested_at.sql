@@ -3,7 +3,7 @@ alter table public.fc_profiles
   add column if not exists allowance_prescreen_requested_at timestamptz;
 
 comment on column public.fc_profiles.allowance_prescreen_requested_at
-  is '총무가 수당동의 사전 심사를 실제로 요청한 시각';
+  is '총무가 보증 보험 동의 사전 심사를 실제로 요청한 시각';
 
 update public.fc_profiles
 set allowance_prescreen_requested_at = null

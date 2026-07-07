@@ -1,4 +1,3 @@
-import { Feather } from '@expo/vector-icons';
 import React, { createContext, useCallback, useContext, useEffect, useRef, useState } from 'react';
 import { Alert, Modal, Pressable, StyleSheet, Text, View } from 'react-native';
 import Animated, {
@@ -13,16 +12,14 @@ import Animated, {
 
 import { ALERT_VARIANTS, ANIMATION, COLORS, RADIUS, SPACING, TYPOGRAPHY } from '@/lib/theme';
 import { inferAlertVariantFromTitle, inferUserFacingAlertFallback, toUserFacingAlertMessage } from '@/lib/user-facing-error';
-import { invokeAlertButtonByIndex, resolveAlertButtonIndex } from './app-alert-utils';
+import StatusGlyph from '@/components/StatusGlyph';
+import {
+  hasCallableAlertAction,
+  resolveAlertButtonByIndex,
+  type AppAlertButton,
+} from '@/components/app-alert-utils';
 
-type ButtonStyle = 'default' | 'cancel' | 'destructive';
 type AlertVariant = 'info' | 'success' | 'warning' | 'error';
-
-type AppAlertButton = {
-  text?: string;
-  onPress?: () => void;
-  style?: ButtonStyle;
-};
 
 type AppAlertOptions = {
   cancelable?: boolean;
@@ -88,11 +85,9 @@ const AnimatedPressable = Animated.createAnimatedComponent(Pressable);
 function AlertCard({
   alert,
   onButtonPress,
-  onBackdropPress,
 }: {
   alert: AppAlert;
-  onButtonPress: (buttonIndex: number) => void;
-  onBackdropPress: () => void;
+  onButtonPress: (buttonIndex?: number) => void;
 }) {
   const scale = useSharedValue(0.9);
   const opacity = useSharedValue(0);
@@ -110,7 +105,7 @@ function AlertCard({
   }));
 
   const handleClose = useCallback(
-    (buttonIndex: number) => {
+    (buttonIndex?: number) => {
       scale.value = withTiming(0.9, { duration: ANIMATION.duration.fast });
       opacity.value = withTiming(0, { duration: ANIMATION.duration.fast }, (finished) => {
         if (finished) {
@@ -126,8 +121,8 @@ function AlertCard({
       style={styles.backdrop}
       onPress={() => {
         if (alert.options?.cancelable) {
-          const cancelButton = alert.buttons.find((b) => b.style === 'cancel');
-          handleClose(resolveAlertButtonIndex(alert.buttons, cancelButton));
+          const cancelButtonIndex = alert.buttons.findIndex((button) => button.style === 'cancel');
+          handleClose(cancelButtonIndex >= 0 ? cancelButtonIndex : undefined);
         }
       }}
       entering={FadeIn.duration(ANIMATION.duration.fast)}
@@ -136,7 +131,11 @@ function AlertCard({
       <Animated.View style={[styles.card, animatedCardStyle]}>
         {/* Icon */}
         <View style={[styles.iconCircle, { backgroundColor: variant.iconBg }]}>
-          <Feather name={variant.icon as keyof typeof Feather.glyphMap} size={22} color={variant.iconColor} />
+          <StatusGlyph
+            variant={alert.options?.variant ?? 'info'}
+            size={22}
+            color={variant.iconColor}
+          />
         </View>
 
         {/* Title */}
@@ -198,15 +197,14 @@ export function AppAlertProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   const handleButtonPress = useCallback(
-    (buttonIndex: number) => {
-      if (!currentAlert) {
-        dismissAlert();
-        return;
+    (buttonIndex?: number) => {
+      const button = resolveAlertButtonByIndex(currentAlert?.buttons ?? [], buttonIndex);
+      if (hasCallableAlertAction(button)) {
+        button.onPress();
       }
-
-      invokeAlertButtonByIndex(currentAlert.buttons, buttonIndex, dismissAlert);
+      dismissAlert();
     },
-    [currentAlert, dismissAlert],
+    [currentAlert?.buttons, dismissAlert],
   );
 
   useEffect(() => {
@@ -225,8 +223,9 @@ export function AppAlertProvider({ children }: { children: React.ReactNode }) {
 
   const handleBackdropPress = useCallback(() => {
     if (!currentAlert?.options?.cancelable) return;
-    const cancelButton = currentAlert?.buttons.find((button) => button.style === 'cancel');
-    if (cancelButton?.onPress) {
+    const cancelButtonIndex = currentAlert.buttons.findIndex((button) => button.style === 'cancel');
+    const cancelButton = resolveAlertButtonByIndex(currentAlert.buttons, cancelButtonIndex);
+    if (hasCallableAlertAction(cancelButton)) {
       cancelButton.onPress();
     }
     dismissAlert();
@@ -237,7 +236,7 @@ export function AppAlertProvider({ children }: { children: React.ReactNode }) {
       {children}
       <Modal visible={!!currentAlert} transparent statusBarTranslucent onRequestClose={handleBackdropPress}>
         {currentAlert && (
-          <AlertCard alert={currentAlert} onButtonPress={handleButtonPress} onBackdropPress={handleBackdropPress} />
+          <AlertCard alert={currentAlert} onButtonPress={handleButtonPress} />
         )}
       </Modal>
     </AlertContext.Provider>

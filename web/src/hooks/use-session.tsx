@@ -3,6 +3,11 @@
 import { useRouter } from 'next/navigation';
 import { createContext, ReactNode, useContext, useEffect, useMemo, useState } from 'react';
 
+import {
+    formatSessionResidentMask,
+    isClientSessionReadOnly,
+    resolveClientSessionRestore,
+} from '@/lib/client-session-restore';
 import { logger } from '@/lib/logger';
 import { normalizeStaffType, type StaffType } from '@/lib/staff-identity';
 type Role = 'admin' | 'manager' | 'fc' | null;
@@ -18,7 +23,7 @@ type SessionState = {
 type SessionContextValue = SessionState & {
     hydrated: boolean;
     loginAs: (role: Role, residentId: string, displayName?: string, staffType?: StaffType) => void;
-    logout: () => void;
+    logout: (options?: { redirectTo?: string | null }) => void;
     isReadOnly: boolean; // manager는 읽기 전용
 };
 
@@ -32,17 +37,24 @@ function isRole(value: unknown): value is Exclude<Role, null> {
     return value === 'admin' || value === 'manager' || value === 'fc';
 }
 
-const computeMask = (raw: string) => {
-    const digits = raw.replace(/[^0-9]/g, '');
-    if (!digits) return '';
-    if (digits.length <= 3) return digits;
-    if (digits.length <= 7) return `${digits.slice(0, 3)}-${digits.slice(3)}`;
-    return `${digits.slice(0, 3)}-${digits.slice(3, 7)}-${digits.slice(7)}`;
-};
-
 const initialState: SessionState = { role: null, residentId: '', residentMask: '', displayName: '', staffType: null };
 const STORAGE_KEY = 'fc-onboarding/session';
 const COOKIE_MAX_AGE = 60 * 60 * 24 * 30; // 30일
+
+function parseCookie(name: string) {
+    if (typeof document === 'undefined') return '';
+    const prefix = `${name}=`;
+    const entry = document.cookie
+        .split(';')
+        .map((part) => part.trim())
+        .find((part) => part.startsWith(prefix));
+    if (!entry) return '';
+    try {
+        return decodeURIComponent(entry.slice(prefix.length));
+    } catch {
+        return '';
+    }
+}
 
 // Security: Cookie configuration with security flags
 const getCookieString = (name: string, value: string, maxAge: number = COOKIE_MAX_AGE) => {
@@ -59,14 +71,33 @@ const obfuscate = (text: string): string => {
     return btoa(encodeURIComponent(text));
 };
 
-const deobfuscate = (encoded: string): string => {
-    if (typeof window === 'undefined') return encoded;
-    try {
-        return decodeURIComponent(atob(encoded));
-    } catch {
-        return '';
+function readSessionFromCookies(): SessionState | null {
+    const role = parseCookie(COOKIE_ROLE);
+    const residentId = parseCookie(COOKIE_RESIDENT);
+    if (!isRole(role) || !residentId) return null;
+    return {
+        role,
+        residentId,
+        residentMask: formatSessionResidentMask(residentId),
+        displayName: parseCookie(COOKIE_DISPLAY),
+        staffType: normalizeStaffType(parseCookie(COOKIE_STAFF_TYPE)),
+    };
+}
+
+function writeCookies(snapshot: Pick<SessionState, 'role' | 'residentId' | 'displayName' | 'staffType'> | null) {
+    if (!snapshot?.role || !snapshot.residentId) {
+        document.cookie = getCookieString(COOKIE_ROLE, '', 0);
+        document.cookie = getCookieString(COOKIE_RESIDENT, '', 0);
+        document.cookie = getCookieString(COOKIE_DISPLAY, '', 0);
+        document.cookie = getCookieString(COOKIE_STAFF_TYPE, '', 0);
+        return;
     }
-};
+
+    document.cookie = getCookieString(COOKIE_ROLE, snapshot.role);
+    document.cookie = getCookieString(COOKIE_RESIDENT, snapshot.residentId);
+    document.cookie = getCookieString(COOKIE_DISPLAY, snapshot.displayName ?? '');
+    document.cookie = getCookieString(COOKIE_STAFF_TYPE, snapshot.staffType ?? '');
+}
 
 export function SessionProvider({ children }: { children: ReactNode }) {
     const [state, setState] = useState<SessionState>(initialState);
@@ -76,29 +107,20 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     useEffect(() => {
         const restore = () => {
             try {
-                const raw = localStorage.getItem(STORAGE_KEY);
-                if (raw) {
-                    // Security: Decode obfuscated session data
-                    const decoded = deobfuscate(raw);
-                    const parsed = JSON.parse(decoded) as Partial<SessionState>;
-                    if (isRole(parsed.role) && parsed.residentId) {
-                        setState({
-                            role: parsed.role,
-                            residentId: parsed.residentId,
-                            residentMask: computeMask(parsed.residentId),
-                            displayName: parsed.displayName ?? '',
-                            staffType: normalizeStaffType(parsed.staffType),
-                        });
-
-                        // Ensure server route handlers can validate session immediately on reload.
-                        document.cookie = getCookieString(COOKIE_ROLE, parsed.role);
-                        document.cookie = getCookieString(COOKIE_RESIDENT, parsed.residentId);
-                        document.cookie = getCookieString(COOKIE_DISPLAY, parsed.displayName ?? '');
-                        document.cookie = getCookieString(COOKIE_STAFF_TYPE, normalizeStaffType(parsed.staffType) ?? '');
-                    }
+                // Middleware uses cookies as the server-side session source of truth.
+                // Restore that snapshot first so protected routes and client state stay aligned.
+                const cookieSession = readSessionFromCookies();
+                const snapshot = resolveClientSessionRestore({
+                    cookieSession,
+                    storageSession: null,
+                });
+                if (snapshot) {
+                    setState(snapshot);
+                    writeCookies(snapshot);
+                } else {
+                    localStorage.removeItem(STORAGE_KEY);
+                    writeCookies(null);
                 }
-            } catch (err) {
-                logger.warn('Session restore failed', err);
             } finally {
                 setHydrated(true);
             }
@@ -135,44 +157,47 @@ export function SessionProvider({ children }: { children: ReactNode }) {
         if (!hydrated) return;
 
         if (state.role && state.residentId) {
-            document.cookie = getCookieString(COOKIE_ROLE, state.role ?? '');
-            document.cookie = getCookieString(COOKIE_RESIDENT, state.residentId ?? '');
-            document.cookie = getCookieString(COOKIE_DISPLAY, state.displayName ?? '');
-            document.cookie = getCookieString(COOKIE_STAFF_TYPE, state.staffType ?? '');
+            writeCookies(state);
         } else {
-            document.cookie = getCookieString(COOKIE_ROLE, '', 0);
-            document.cookie = getCookieString(COOKIE_RESIDENT, '', 0);
-            document.cookie = getCookieString(COOKIE_DISPLAY, '', 0);
-            document.cookie = getCookieString(COOKIE_STAFF_TYPE, '', 0);
+            writeCookies(null);
         }
-    }, [hydrated, state.displayName, state.residentId, state.role, state.staffType]);
+    }, [hydrated, state]);
 
     const value = useMemo<SessionContextValue>(
         () => ({
             ...state,
             hydrated,
-            isReadOnly: state.role === 'manager', // manager는 읽기 전용
+            isReadOnly: isClientSessionReadOnly(state.role), // manager는 읽기 전용
             loginAs: (role, residentId, displayName = '', staffType = null) => {
-                setState({ role, residentId, residentMask: computeMask(residentId), displayName, staffType });
-                // Security: Set cookies with Secure and SameSite flags
-                // Note: For production, consider server-side session tokens with HttpOnly cookies
-                document.cookie = getCookieString(COOKIE_ROLE, role ?? '');
-                document.cookie = getCookieString(COOKIE_RESIDENT, residentId ?? '');
-                document.cookie = getCookieString(COOKIE_DISPLAY, displayName ?? '');
-                document.cookie = getCookieString(COOKIE_STAFF_TYPE, staffType ?? '');
+                setState({
+                    role,
+                    residentId,
+                    residentMask: formatSessionResidentMask(residentId),
+                    displayName,
+                    staffType,
+                });
+                writeCookies({
+                    role,
+                    residentId,
+                    displayName,
+                    staffType,
+                });
             },
-            logout: () => {
+            logout: (options) => {
+                if (typeof window !== 'undefined') {
+                    void fetch('/api/auth/logout', { method: 'POST', keepalive: true }).catch((error) => {
+                        logger.warn('Server logout failed', error);
+                    });
+                }
                 setState(initialState);
                 localStorage.removeItem(STORAGE_KEY);
-                // Clear cookies with same security settings
-                document.cookie = getCookieString(COOKIE_ROLE, '', 0);
-                document.cookie = getCookieString(COOKIE_RESIDENT, '', 0);
-                document.cookie = getCookieString(COOKIE_DISPLAY, '', 0);
-                document.cookie = getCookieString(COOKIE_STAFF_TYPE, '', 0);
-                router.replace('/auth');
+                writeCookies(null);
+                if (options?.redirectTo !== null) {
+                    router.replace(options?.redirectTo ?? '/auth');
+                }
             },
         }),
-        [hydrated, state, router],
+        [hydrated, router, state],
     );
 
     return <SessionContext.Provider value={value}>{children}</SessionContext.Provider>;

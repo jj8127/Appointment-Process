@@ -12,6 +12,7 @@ import {
   Pressable,
   RefreshControl,
   ScrollView,
+  Share,
   StyleSheet,
   Text,
   TextInput,
@@ -38,13 +39,21 @@ import { LinkifiedSelectableText } from '@/components/LinkifiedSelectableText';
 import { CardSkeleton } from '@/components/LoadingSkeleton';
 import { DEFAULT_REACTIONS, ReactionPicker } from '@/components/ReactionPicker';
 import { useAppLogout } from '@/hooks/use-app-logout';
+import { openBoardAttachment } from '@/lib/board-attachment-actions';
+import { showBoardFeedbackAlert } from '@/lib/board-feedback-alerts';
+import {
+  applyBoardReactionUpdate,
+  buildBoardReactionCounts,
+  type BoardReactionKey,
+} from '@/lib/board-reaction-state';
+import { showBoardCommentActions } from '@/lib/board-comment-actions';
+import { buildBoardPostShareContent } from '@/lib/board-share-link';
 import { resolveBottomNavActiveKey, resolveBottomNavPreset } from '@/lib/bottom-navigation';
 import { useKeyboardPadding } from '@/hooks/use-keyboard-padding';
 import { useSession } from '@/hooks/use-session';
 import {
   BoardDetail,
   BoardListItem,
-  BoardListParams,
   buildBoardActor,
   createBoardComment,
   deleteBoardComment,
@@ -57,6 +66,12 @@ import {
   toggleCommentLike,
   updateBoardComment
 } from '@/lib/board-api';
+import {
+  BOARD_LIST_SORT_LABELS,
+  BoardListSortOption,
+  buildBoardListParams,
+  buildBoardListQueryKey,
+} from '@/lib/board-list-query';
 import { openExternalUrl } from '@/lib/open-external-url';
 import { getBoardAuthorRoleLabel, getBoardRoleBadgeStyle } from '@/lib/staff-identity';
 import { ANIMATION } from '@/lib/theme';
@@ -67,6 +82,8 @@ const HANWHA_ORANGE = '#f36f21';
 const CHARCOAL = '#111827';
 const TEXT_MUTED = '#6b7280';
 const BORDER = '#e5e7eb';
+const BOARD_SHARE_BASE_URL = process.env.EXPO_PUBLIC_GARAMIN_SHARE_BASE_URL
+  ?? process.env.EXPO_PUBLIC_INVITE_BASE_URL;
 const CARD_SHADOW = {
   shadowColor: '#000',
   shadowOpacity: 0.04,
@@ -83,17 +100,18 @@ const getCategoryTheme = (categoryName: string) => {
   if (normalized.includes('교육')) {
     return { backgroundColor: '#EFF6FF', borderColor: '#BFDBFE', textColor: '#1D4ED8' };
   }
-  if (normalized.includes('서류')) {
-    return { backgroundColor: '#ECFDF5', borderColor: '#A7F3D0', textColor: '#047857' };
+  if (normalized.includes('상품') || normalized.includes('추천') || normalized.includes('가람') || normalized.includes('pick')) {
+    return { backgroundColor: '#FDF2F8', borderColor: '#FBCFE8', textColor: '#BE185D' };
+  }
+  if (normalized.includes('시책')) {
+    return { backgroundColor: '#EEF2FF', borderColor: '#C7D2FE', textColor: '#4338CA' };
   }
   return { backgroundColor: '#F3F4F6', borderColor: '#E5E7EB', textColor: '#4B5563' };
 };
 
-type ReactionKey = 'like' | 'heart' | 'check' | 'smile';
-type ReactionCounts = Record<ReactionKey, number>;
 type ReactionMutationContext = {
   previousDetail?: BoardDetail;
-  previousMyReaction: ReactionKey | null | undefined;
+  previousMyReaction: BoardReactionKey | null | undefined;
 };
 type CommentLikeMutationContext = {
   previousDetail?: BoardDetail;
@@ -107,37 +125,6 @@ const safeText = (value?: string | null) => (typeof value === 'string' ? value :
 const getInitial = (value?: string | null) => {
   const normalized = safeText(value).trim();
   return normalized ? normalized.charAt(0) : '?';
-};
-
-const buildReactionCounts = (counts?: Partial<ReactionCounts>): ReactionCounts => ({
-  like: counts?.like ?? 0,
-  heart: counts?.heart ?? 0,
-  check: counts?.check ?? 0,
-  smile: counts?.smile ?? 0,
-});
-
-const applyReactionUpdate = (
-  currentCounts: ReactionCounts,
-  currentReaction: ReactionKey | null,
-  nextReaction: ReactionKey,
-) => {
-  const nextCounts = { ...currentCounts };
-  let nextMyReaction: ReactionKey | null = nextReaction;
-  let delta = 0;
-
-  if (currentReaction === nextReaction) {
-    nextMyReaction = null;
-    nextCounts[nextReaction] = Math.max(0, nextCounts[nextReaction] - 1);
-    delta = -1;
-  } else {
-    if (currentReaction) {
-      nextCounts[currentReaction] = Math.max(0, nextCounts[currentReaction] - 1);
-    }
-    nextCounts[nextReaction] = nextCounts[nextReaction] + 1;
-    delta = currentReaction ? 0 : 1;
-  }
-
-  return { nextCounts, nextMyReaction, delta };
 };
 
 type BoardPost = BoardListItem;
@@ -290,7 +277,7 @@ export default function BoardScreen() {
   const [searchQuery, setSearchQuery] = useState('');
   const [searchInput, setSearchInput] = useState('');
   const [selectedCategoryId, setSelectedCategoryId] = useState<string | null>(null);
-  const [sortOption, setSortOption] = useState<BoardListParams['sort']>('created');
+  const [sortOption, setSortOption] = useState<BoardListSortOption>('created');
   const [showSortMenu, setShowSortMenu] = useState(false);
   const [editingCommentId, setEditingCommentId] = useState<string | null>(null);
   const [editingCommentText, setEditingCommentText] = useState('');
@@ -301,21 +288,13 @@ export default function BoardScreen() {
     authorName: string;
     parentId: string;
   } | null>(null);
-  // undefined = not yet set (use server data), null = cleared, ReactionKey = selected
-  const [myReactionOverride, setMyReactionOverride] = useState<ReactionKey | null | undefined>(undefined);
+  // undefined = not yet set (use server data), null = cleared, BoardReactionKey = selected
+  const [myReactionOverride, setMyReactionOverride] = useState<BoardReactionKey | null | undefined>(undefined);
   const routePostId = useMemo(() => {
     const value = Array.isArray(postId) ? postId[0] : postId;
     if (typeof value !== 'string') return '';
     return value.trim();
   }, [postId]);
-
-  // 정렬 옵션 레이블
-  const sortLabels: Record<NonNullable<BoardListParams['sort']>, string> = {
-    created: '최신순',
-    latest: '업데이트순',
-    comments: '댓글많은순',
-    reactions: '반응많은순',
-  };
 
   // Scroll animation for bottom nav
   const lastScrollY = useSharedValue(0);
@@ -324,7 +303,7 @@ export default function BoardScreen() {
   const closeModal = useCallback(() => {
     setSelectedPost(null);
     if (routePostId) {
-      router.replace('/board');
+      router.setParams({ postId: undefined } as any);
     }
   }, [routePostId, router]);
   const closePreviewImage = useCallback(() => setPreviewImage(null), []);
@@ -406,15 +385,16 @@ export default function BoardScreen() {
   });
 
   const { data: listData, isLoading, isError, refetch } = useQuery({
-    queryKey: ['board-posts', actor?.role, actor?.residentId, selectedCategoryId, sortOption, searchQuery],
+    queryKey: buildBoardListQueryKey({
+      actorRole: actor?.role,
+      residentId: actor?.residentId,
+      selectedCategoryId,
+      sortOption,
+      searchQuery,
+    }),
     queryFn: () => {
       if (!actor) return Promise.resolve({ items: [], nextCursor: null });
-      return fetchBoardList(actor, {
-        limit: 20,
-        categoryId: selectedCategoryId ?? undefined,
-        sort: sortOption,
-        search: searchQuery || undefined,
-      });
+      return fetchBoardList(actor, buildBoardListParams({ selectedCategoryId, sortOption, searchQuery }));
     },
     enabled: !!actor,
   });
@@ -526,7 +506,7 @@ export default function BoardScreen() {
     smile: modalReactions.smile,
   };
   // myReactionOverride takes priority: undefined = use server, null/key = local value
-  const effectiveMyReaction: ReactionKey | null =
+  const effectiveMyReaction: BoardReactionKey | null =
     myReactionOverride !== undefined ? myReactionOverride : (modalReactions.myReaction ?? null);
   const modalComments = useMemo(() => detailData?.comments ?? [], [detailData?.comments]);
   const threadedComments = useMemo(() => {
@@ -565,12 +545,12 @@ export default function BoardScreen() {
 
   // Add reaction mutation
   const addReactionMutation = useMutation<
-    { myReaction: ReactionKey | null },
+    { myReaction: BoardReactionKey | null },
     Error,
-    { postId: string; reactionType: ReactionKey },
+    { postId: string; reactionType: BoardReactionKey },
     ReactionMutationContext | undefined
   >({
-    mutationFn: async ({ postId, reactionType }: { postId: string; reactionType: ReactionKey }) => {
+    mutationFn: async ({ postId, reactionType }: { postId: string; reactionType: BoardReactionKey }) => {
       if (!actor) throw new Error('로그인이 필요합니다.');
       return toggleBoardReaction(actor, postId, reactionType);
     },
@@ -586,8 +566,8 @@ export default function BoardScreen() {
 
       // effectiveMyReaction captures the current state (override > server > null)
       const currentMyReaction = effectiveMyReaction;
-      const currentCounts = buildReactionCounts(previousDetail?.reactions ?? modalReactions);
-      const { nextCounts, nextMyReaction } = applyReactionUpdate(currentCounts, currentMyReaction, reactionType);
+      const currentCounts = buildBoardReactionCounts(previousDetail?.reactions ?? modalReactions);
+      const { nextCounts, nextMyReaction } = applyBoardReactionUpdate(currentCounts, currentMyReaction, reactionType);
 
       // Optimistically update detail cache (if already loaded)
       if (previousDetail) {
@@ -614,7 +594,7 @@ export default function BoardScreen() {
       // Revert local reaction state
       setMyReactionOverride(context?.previousMyReaction);
       logBoardError('reaction', error);
-      Alert.alert('오류', '반응 처리에 실패했습니다.');
+      showBoardFeedbackAlert(Alert.alert, 'reaction-failed');
     },
     onSuccess: (data, variables) => {
       if (!data) return;
@@ -646,7 +626,7 @@ export default function BoardScreen() {
       queryClient.invalidateQueries({ queryKey: ['board-posts'] });
     },
     onError: (error) => {
-      Alert.alert('오류', '댓글 작성에 실패했습니다.');
+      showBoardFeedbackAlert(Alert.alert, 'comment-create-failed');
       logBoardError('comment', error);
     },
   });
@@ -694,7 +674,7 @@ export default function BoardScreen() {
         queryClient.setQueryData(detailKey, context.previousDetail);
       }
       logBoardError('comment-like', error);
-      Alert.alert('오류', '댓글 좋아요 처리에 실패했습니다.');
+      showBoardFeedbackAlert(Alert.alert, 'comment-like-failed');
     },
     onSuccess: (data, commentId) => {
       if (!selectedPostId) return;
@@ -733,7 +713,7 @@ export default function BoardScreen() {
     },
     onError: (error) => {
       logBoardError('comment-update', error);
-      Alert.alert('오류', '댓글 수정에 실패했습니다.');
+      showBoardFeedbackAlert(Alert.alert, 'comment-update-failed');
     },
   });
 
@@ -750,14 +730,14 @@ export default function BoardScreen() {
     },
     onError: (error) => {
       logBoardError('comment-delete', error);
-      Alert.alert('오류', '댓글 삭제에 실패했습니다.');
+      showBoardFeedbackAlert(Alert.alert, 'comment-delete-failed');
     },
   });
 
   const handleAddComment = () => {
     if (!selectedPost || !actor) return;
     if (!commentText.trim()) {
-      Alert.alert('입력 오류', '댓글 내용을 입력해주세요.');
+      showBoardFeedbackAlert(Alert.alert, 'empty-comment');
       return;
     }
     addCommentMutation.mutate({
@@ -769,21 +749,14 @@ export default function BoardScreen() {
   };
 
   const openCommentActions = (comment: (typeof modalComments)[number]) => {
-    Alert.alert('댓글 관리', undefined, [
-      {
-        text: '수정',
-        onPress: () => {
-          setEditingCommentId(comment.id);
-          setEditingCommentText(safeText(comment.content));
-        },
+    showBoardCommentActions({
+      alert: Alert.alert,
+      onEdit: () => {
+        setEditingCommentId(comment.id);
+        setEditingCommentText(safeText(comment.content));
       },
-      {
-        text: '삭제',
-        style: 'destructive',
-        onPress: () => deleteCommentMutation.mutate(comment.id),
-      },
-      { text: '취소', style: 'cancel' },
-    ]);
+      onDelete: () => deleteCommentMutation.mutate(comment.id),
+    });
   };
 
   const toggleThread = useCallback((commentId: string) => {
@@ -852,7 +825,7 @@ export default function BoardScreen() {
                 onPress={() => {
                   const trimmed = editingCommentText.trim();
                   if (!trimmed) {
-                    Alert.alert('입력 오류', '댓글 내용을 입력해주세요.');
+                    showBoardFeedbackAlert(Alert.alert, 'empty-comment');
                     return;
                   }
                   updateCommentMutation.mutate({ commentId: comment.id, content: trimmed });
@@ -963,6 +936,26 @@ export default function BoardScreen() {
     appLogout();
   };
 
+  const handleSharePost = useCallback(async (post?: { id?: string | null; title?: string | null } | null) => {
+    const postIdValue = safeText(post?.id).trim();
+    if (!postIdValue) {
+      Alert.alert('오류', '공유할 게시글 정보를 찾을 수 없습니다.');
+      return;
+    }
+
+    try {
+      const shareContent = buildBoardPostShareContent({
+        postId: postIdValue,
+        title: post?.title,
+        shareBaseUrl: BOARD_SHARE_BASE_URL,
+      });
+      await Share.share(shareContent);
+    } catch (error) {
+      logBoardError('share', error);
+      Alert.alert('오류', '게시글 공유 링크를 만들 수 없습니다.');
+    }
+  }, []);
+
   useEffect(() => {
     const unsubscribe = navigation.addListener('beforeRemove', (event) => {
       if (!selectedPost) return;
@@ -1056,7 +1049,7 @@ export default function BoardScreen() {
             onPress={() => setShowSortMenu(!showSortMenu)}
           >
             <Feather name="sliders" size={16} color={CHARCOAL} />
-            <Text style={styles.sortButtonText}>{sortLabels[sortOption ?? 'created']}</Text>
+            <Text style={styles.sortButtonText}>{BOARD_LIST_SORT_LABELS[sortOption]}</Text>
             <Feather name="chevron-down" size={14} color={TEXT_MUTED} />
           </Pressable>
         </View>
@@ -1064,7 +1057,7 @@ export default function BoardScreen() {
         {/* 정렬 메뉴 */}
         {showSortMenu && (
           <View style={styles.sortMenu}>
-            {(Object.entries(sortLabels) as [NonNullable<BoardListParams['sort']>, string][]).map(([key, label]) => (
+            {(Object.entries(BOARD_LIST_SORT_LABELS) as [BoardListSortOption, string][]).map(([key, label]) => (
               <Pressable
                 key={key}
                 style={[styles.sortMenuItem, sortOption === key && styles.sortMenuItemActive]}
@@ -1142,6 +1135,18 @@ export default function BoardScreen() {
                       <Text style={styles.date}>{new Date(post.createdAt).toLocaleDateString('ko-KR')}</Text>
                     </View>
                   </View>
+                  <Pressable
+                    accessibilityRole="button"
+                    accessibilityLabel="게시글 공유"
+                    hitSlop={8}
+                    style={({ pressed }) => [styles.iconActionButton, pressed && { opacity: 0.65 }]}
+                    onPress={(event) => {
+                      event.stopPropagation();
+                      handleSharePost(post);
+                    }}
+                  >
+                    <Feather name="share-2" size={17} color={TEXT_MUTED} />
+                  </Pressable>
                 </View>
 
                 {/* 게시글 내용 */}
@@ -1160,7 +1165,11 @@ export default function BoardScreen() {
                           },
                         ]}
                       >
-                        <Text style={[styles.categoryBadgeText, { color: categoryTheme.textColor }]}>
+                        <Text
+                          style={[styles.categoryBadgeText, { color: categoryTheme.textColor }]}
+                          numberOfLines={1}
+                          ellipsizeMode="tail"
+                        >
                           {categoryName}
                         </Text>
                       </View>
@@ -1240,9 +1249,26 @@ export default function BoardScreen() {
               <GestureDetector gesture={modalPanGesture}>
                 <View style={[styles.modalHeader, { paddingTop: modalHeaderPaddingTop }]}>
                   <Text style={styles.modalTitle}>게시글 상세</Text>
-                  <Pressable onPress={animateCloseModal}>
-                    <Feather name="x" size={24} color={CHARCOAL} />
-                  </Pressable>
+                  <View style={styles.modalHeaderActions}>
+                    <Pressable
+                      accessibilityRole="button"
+                      accessibilityLabel="게시글 공유"
+                      hitSlop={8}
+                      style={({ pressed }) => [styles.modalIconButton, pressed && { opacity: 0.65 }]}
+                      onPress={() => handleSharePost(modalPost)}
+                    >
+                      <Feather name="share-2" size={21} color={TEXT_MUTED} />
+                    </Pressable>
+                    <Pressable
+                      accessibilityRole="button"
+                      accessibilityLabel="게시글 상세 닫기"
+                      hitSlop={8}
+                      style={({ pressed }) => [styles.modalIconButton, pressed && { opacity: 0.65 }]}
+                      onPress={animateCloseModal}
+                    >
+                      <Feather name="x" size={24} color={CHARCOAL} />
+                    </Pressable>
+                  </View>
                 </View>
               </GestureDetector>
 
@@ -1256,9 +1282,11 @@ export default function BoardScreen() {
                   <View style={styles.avatar}>
                     <Text style={styles.avatarText}>{getInitial(modalPost?.authorName)}</Text>
                   </View>
-                  <View style={{ flex: 1 }}>
-                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-                      <Text style={styles.authorName}>{safeText(modalPost?.authorName)}</Text>
+                  <View style={styles.detailAuthorInfo}>
+                    <View style={styles.detailAuthorBadgeRow}>
+                      <Text style={[styles.authorName, styles.detailAuthorName]} numberOfLines={1}>
+                        {safeText(modalPost?.authorName)}
+                      </Text>
                       <View style={[styles.roleBadge, { backgroundColor: getBoardRoleBadgeStyle(modalPost?.authorRole ?? 'manager').backgroundColor }]}>
                         <Text style={[styles.roleText, { color: getBoardRoleBadgeStyle(modalPost?.authorRole ?? 'manager').color }]}>
                           {getBoardAuthorRoleLabel(modalPost?.authorRole ?? 'manager')}
@@ -1271,13 +1299,18 @@ export default function BoardScreen() {
                           <View
                             style={[
                               styles.categoryBadge,
+                              styles.categoryBadgeInline,
                               {
                                 backgroundColor: categoryTheme.backgroundColor,
                                 borderColor: categoryTheme.borderColor,
                               },
                             ]}
                           >
-                            <Text style={[styles.categoryBadgeText, { color: categoryTheme.textColor }]}>
+                            <Text
+                              style={[styles.categoryBadgeText, { color: categoryTheme.textColor }]}
+                              numberOfLines={1}
+                              ellipsizeMode="tail"
+                            >
                               {categoryName}
                             </Text>
                           </View>
@@ -1341,11 +1374,12 @@ export default function BoardScreen() {
                             key={item.id}
                             style={styles.attachmentItem}
                             onPress={() => {
-                              if (item.signedUrl) {
-                                openExternalUrl(item.signedUrl).catch(() => {
-                                  Alert.alert('오류', '첨부파일을 열 수 없습니다.');
-                                });
-                              }
+                              void openBoardAttachment({
+                                signedUrl: item.signedUrl,
+                                openExternalUrl,
+                                alert: Alert.alert,
+                                logError: logBoardError,
+                              });
                             }}
                           >
                             <View style={styles.attachmentIcon}>
@@ -1369,7 +1403,7 @@ export default function BoardScreen() {
                   <Text style={styles.sectionTitle}>반응 남기기</Text>
                   <ReactionPicker
                     reactions={DEFAULT_REACTIONS}
-                    onReact={(reactionId) => addReactionMutation.mutate({ postId: selectedPost.id, reactionType: reactionId as ReactionKey })}
+                    onReact={(reactionId) => addReactionMutation.mutate({ postId: selectedPost.id, reactionType: reactionId as BoardReactionKey })}
                     reactionCounts={modalReactionCounts}
                     selectedReactions={effectiveMyReaction ? [effectiveMyReaction] : []}
                     showLabels={false}
@@ -1391,7 +1425,7 @@ export default function BoardScreen() {
 
               </KeyboardAwareWrapper>
               {/* 댓글 작성 */}
-              <View style={[styles.commentBar, { paddingBottom: Math.max(insets.bottom, 12) + keyboardPadding }]}>
+              <View style={[styles.commentBar, { paddingBottom: Math.max(insets.bottom + 16, 28) + keyboardPadding }]}>
                 {replyTarget && (
                   <View style={styles.replyBanner}>
                     <Text style={styles.replyBannerText}>{replyTarget.authorName}님에게 답글</Text>
@@ -1576,15 +1610,24 @@ const styles = StyleSheet.create({
     alignSelf: 'flex-start',
     borderWidth: 1,
     borderRadius: 999,
-    paddingHorizontal: 9,
-    paddingVertical: 3,
+    minHeight: 26,
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    alignItems: 'center',
+    justifyContent: 'center',
     marginBottom: 8,
+    maxWidth: '100%',
   },
   categoryBadgeInline: {
     marginBottom: 0,
     flexShrink: 0,
   },
-  categoryBadgeText: { fontSize: 11, fontWeight: '700' },
+  categoryBadgeText: {
+    fontSize: 11,
+    lineHeight: 14,
+    fontWeight: '700',
+    includeFontPadding: false,
+  },
   card: {
     backgroundColor: '#fff',
     borderRadius: 16,
@@ -1599,7 +1642,28 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     marginBottom: 12,
   },
+  iconActionButton: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: '#F9FAFB',
+    borderWidth: 1,
+    borderColor: BORDER,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
   authorBadge: { flexDirection: 'row', alignItems: 'center', gap: 10 },
+  detailAuthorInfo: { flex: 1, minWidth: 0 },
+  detailAuthorBadgeRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flexWrap: 'wrap',
+    gap: 6,
+  },
+  detailAuthorName: {
+    flexShrink: 1,
+    maxWidth: '100%',
+  },
   avatar: {
     width: 40,
     height: 40,
@@ -1611,11 +1675,19 @@ const styles = StyleSheet.create({
   avatarText: { color: '#fff', fontSize: 16, fontWeight: '700' },
   authorName: { fontSize: 14, fontWeight: '600', color: CHARCOAL },
   roleBadge: {
-    paddingHorizontal: 8,
-    paddingVertical: 2,
-    borderRadius: 8,
+    minHeight: 26,
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 999,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
-  roleText: { fontSize: 11, fontWeight: '600' },
+  roleText: {
+    fontSize: 11,
+    lineHeight: 14,
+    fontWeight: '700',
+    includeFontPadding: false,
+  },
   date: { fontSize: 12, color: TEXT_MUTED, marginTop: 2 },
   titleRow: {
     flexDirection: 'row',
@@ -1743,6 +1815,19 @@ const styles = StyleSheet.create({
     borderBottomWidth: 1,
     borderBottomColor: BORDER,
     backgroundColor: '#fff',
+  },
+  modalHeaderActions: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  modalIconButton: {
+    width: 38,
+    height: 38,
+    borderRadius: 19,
+    backgroundColor: '#F9FAFB',
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   modalTitle: { fontSize: 18, fontWeight: '700', color: CHARCOAL },
   modalBody: { paddingHorizontal: 24, paddingVertical: 14 },

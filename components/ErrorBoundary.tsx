@@ -1,8 +1,9 @@
 import React, { Component, ReactNode } from 'react';
 import { View, Text, StyleSheet, Pressable, ScrollView } from 'react-native';
-import { Feather } from '@expo/vector-icons';
 
 import { logger } from '@/lib/logger';
+import { captureSentryException } from '@/lib/sentry-monitor';
+import StatusGlyph from '@/components/StatusGlyph';
 
 type Props = {
   children: ReactNode;
@@ -26,8 +27,10 @@ export class ErrorBoundary extends Component<Props, State> {
   }
 
   componentDidCatch(error: Error, errorInfo: React.ErrorInfo) {
-    // Log error to monitoring service (e.g., Sentry)
     logger.error('ErrorBoundary caught', { error, errorInfo });
+    captureSentryException(error, {
+      componentStack: errorInfo.componentStack,
+    });
 
     if (this.props.onError) {
       this.props.onError(error, errorInfo);
@@ -65,7 +68,7 @@ function DefaultErrorFallback({ error, resetError }: FallbackProps) {
     <View style={styles.container}>
       <View style={styles.content}>
         <View style={styles.iconContainer}>
-          <Feather name="alert-circle" size={64} color="#EF4444" />
+          <StatusGlyph variant="error" size={64} color="#EF4444" />
         </View>
 
         <Text style={styles.title}>앗, 문제가 발생했습니다</Text>

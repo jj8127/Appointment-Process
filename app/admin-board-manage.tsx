@@ -11,6 +11,7 @@ import {
   Image,
   Pressable,
   RefreshControl,
+  ScrollView,
   StyleSheet,
   Text,
   TextInput,
@@ -41,6 +42,14 @@ import { ReactionPicker, DEFAULT_REACTIONS } from '@/components/ReactionPicker';
 import { useAppLogout } from '@/hooks/use-app-logout';
 import { useKeyboardPadding } from '@/hooks/use-keyboard-padding';
 import { useSession } from '@/hooks/use-session';
+import { openBoardAttachment } from '@/lib/board-attachment-actions';
+import { showBoardFeedbackAlert } from '@/lib/board-feedback-alerts';
+import {
+  applyBoardReactionUpdate,
+  buildBoardReactionCounts,
+  type BoardReactionKey,
+} from '@/lib/board-reaction-state';
+import { showBoardCommentActions } from '@/lib/board-comment-actions';
 import { openExternalUrl } from '@/lib/open-external-url';
 import { resolveBottomNavActiveKey, resolveBottomNavPreset } from '@/lib/bottom-navigation';
 import { getBoardAuthorRoleLabel, getBoardRoleBadgeStyle } from '@/lib/staff-identity';
@@ -63,6 +72,12 @@ import {
   toggleBoardReaction,
   toggleCommentLike,
 } from '@/lib/board-api';
+import {
+  BOARD_LIST_SORT_LABELS,
+  BoardListSortOption,
+  buildBoardListParams,
+  buildBoardListQueryKey,
+} from '@/lib/board-list-query';
 
 const HANWHA_ORANGE = '#f36f21';
 const CHARCOAL = '#111827';
@@ -76,11 +91,9 @@ const CARD_SHADOW = {
   elevation: 3,
 };
 
-type ReactionKey = 'like' | 'heart' | 'check' | 'smile';
-type ReactionCounts = Record<ReactionKey, number>;
 type ReactionMutationContext = {
   previousDetail?: BoardDetail;
-  previousMyReaction: ReactionKey | null | undefined;
+  previousMyReaction: BoardReactionKey | null | undefined;
 };
 type CommentLikeMutationContext = {
   previousDetail?: BoardDetail;
@@ -98,47 +111,19 @@ const getInitial = (value?: string | null) => {
 
 const getCategoryTheme = (categoryName: string) => {
   const normalized = categoryName.trim().toLowerCase();
-  if (normalized === '공지') {
+  if (normalized.includes('공지')) {
     return { backgroundColor: '#fff7ed', borderColor: '#fed7aa', textColor: '#c2410c' };
   }
-  if (normalized === '교육') {
+  if (normalized.includes('교육')) {
     return { backgroundColor: '#eff6ff', borderColor: '#bfdbfe', textColor: '#1d4ed8' };
   }
-  if (normalized === '서류') {
-    return { backgroundColor: '#f0fdf4', borderColor: '#bbf7d0', textColor: '#166534' };
+  if (normalized.includes('상품') || normalized.includes('추천') || normalized.includes('가람') || normalized.includes('pick')) {
+    return { backgroundColor: '#fdf2f8', borderColor: '#fbcfe8', textColor: '#be185d' };
+  }
+  if (normalized.includes('시책')) {
+    return { backgroundColor: '#eef2ff', borderColor: '#c7d2fe', textColor: '#4338ca' };
   }
   return { backgroundColor: '#f3f4f6', borderColor: '#e5e7eb', textColor: '#374151' };
-};
-
-const buildReactionCounts = (counts?: Partial<ReactionCounts>): ReactionCounts => ({
-  like: counts?.like ?? 0,
-  heart: counts?.heart ?? 0,
-  check: counts?.check ?? 0,
-  smile: counts?.smile ?? 0,
-});
-
-const applyReactionUpdate = (
-  currentCounts: ReactionCounts,
-  currentReaction: ReactionKey | null,
-  nextReaction: ReactionKey,
-) => {
-  const nextCounts = { ...currentCounts };
-  let nextMyReaction: ReactionKey | null = nextReaction;
-  let delta = 0;
-
-  if (currentReaction === nextReaction) {
-    nextMyReaction = null;
-    nextCounts[nextReaction] = Math.max(0, nextCounts[nextReaction] - 1);
-    delta = -1;
-  } else {
-    if (currentReaction) {
-      nextCounts[currentReaction] = Math.max(0, nextCounts[currentReaction] - 1);
-    }
-    nextCounts[nextReaction] = nextCounts[nextReaction] + 1;
-    delta = currentReaction ? 0 : 1;
-  }
-
-  return { nextCounts, nextMyReaction, delta };
 };
 
 type BoardPost = BoardListItem;
@@ -267,6 +252,10 @@ export default function AdminBoardManageScreen() {
   const [previewImage, setPreviewImage] = useState<PreviewModalState | null>(null);
   const [commentText, setCommentText] = useState('');
   const [searchQuery, setSearchQuery] = useState('');
+  const [searchInput, setSearchInput] = useState('');
+  const [selectedCategoryId, setSelectedCategoryId] = useState<string | null>(null);
+  const [sortOption, setSortOption] = useState<BoardListSortOption>('created');
+  const [showSortMenu, setShowSortMenu] = useState(false);
   const [showActionSheet, setShowActionSheet] = useState(false);
   const [editingCommentId, setEditingCommentId] = useState<string | null>(null);
   const [editingCommentText, setEditingCommentText] = useState('');
@@ -276,8 +265,8 @@ export default function AdminBoardManageScreen() {
     authorName: string;
     parentId: string;
   } | null>(null);
-  // undefined = not yet set (use server data), null = cleared, ReactionKey = selected
-  const [myReactionOverride, setMyReactionOverride] = useState<ReactionKey | null | undefined>(undefined);
+  // undefined = not yet set (use server data), null = cleared, BoardReactionKey = selected
+  const [myReactionOverride, setMyReactionOverride] = useState<BoardReactionKey | null | undefined>(undefined);
 
   // Scroll animation for bottom nav
   const lastScrollY = useSharedValue(0);
@@ -377,10 +366,16 @@ export default function AdminBoardManageScreen() {
 
   // Queries
   const { data: listData, isLoading, isError, refetch } = useQuery({
-    queryKey: ['board-posts', actor?.role, actor?.residentId],
+    queryKey: buildBoardListQueryKey({
+      actorRole: actor?.role,
+      residentId: actor?.residentId,
+      selectedCategoryId,
+      sortOption,
+      searchQuery,
+    }),
     queryFn: () => {
       if (!actor) return Promise.resolve({ items: [], nextCursor: null });
-      return fetchBoardList(actor, { limit: 20 });
+      return fetchBoardList(actor, buildBoardListParams({ selectedCategoryId, sortOption, searchQuery }));
     },
     enabled: !!actor,
   });
@@ -461,7 +456,7 @@ export default function AdminBoardManageScreen() {
     check: modalReactions.check,
     smile: modalReactions.smile,
   };
-  const effectiveMyReaction: ReactionKey | null =
+  const effectiveMyReaction: BoardReactionKey | null =
     myReactionOverride !== undefined ? myReactionOverride : (modalReactions.myReaction ?? null);
   const modalComments = useMemo(() => detailData?.comments ?? [], [detailData?.comments]);
   const threadedComments = useMemo(() => {
@@ -500,12 +495,12 @@ export default function AdminBoardManageScreen() {
 
   // Add reaction mutation
   const addReactionMutation = useMutation<
-    { myReaction: ReactionKey | null },
+    { myReaction: BoardReactionKey | null },
     Error,
-    { postId: string; reactionType: ReactionKey },
+    { postId: string; reactionType: BoardReactionKey },
     ReactionMutationContext | undefined
   >({
-    mutationFn: async ({ postId, reactionType }: { postId: string; reactionType: ReactionKey }) => {
+    mutationFn: async ({ postId, reactionType }: { postId: string; reactionType: BoardReactionKey }) => {
       if (!actor) throw new Error('로그인이 필요합니다.');
       return toggleBoardReaction(actor, postId, reactionType);
     },
@@ -515,9 +510,9 @@ export default function AdminBoardManageScreen() {
       const detailKey = ['board-detail', postId];
       const previousDetail = queryClient.getQueryData<BoardDetail>(detailKey);
       const previousMyReaction = myReactionOverride;
-      const currentCounts = buildReactionCounts(previousDetail?.reactions ?? modalReactions);
+      const currentCounts = buildBoardReactionCounts(previousDetail?.reactions ?? modalReactions);
       const currentMyReaction = effectiveMyReaction;
-      const { nextCounts, nextMyReaction } = applyReactionUpdate(currentCounts, currentMyReaction, reactionType);
+      const { nextCounts, nextMyReaction } = applyBoardReactionUpdate(currentCounts, currentMyReaction, reactionType);
 
       if (previousDetail) {
         queryClient.setQueryData<BoardDetail>(detailKey, {
@@ -541,7 +536,7 @@ export default function AdminBoardManageScreen() {
       }
       setMyReactionOverride(context?.previousMyReaction);
       logBoardError('reaction', error);
-      Alert.alert('오류', '반응 처리에 실패했습니다.');
+      showBoardFeedbackAlert(Alert.alert, 'reaction-failed');
     },
     onSuccess: (data, variables) => {
       if (!data) return;
@@ -572,7 +567,7 @@ export default function AdminBoardManageScreen() {
       queryClient.invalidateQueries({ queryKey: ['board-posts'] });
     },
     onError: (error) => {
-      Alert.alert('오류', '댓글 작성에 실패했습니다.');
+      showBoardFeedbackAlert(Alert.alert, 'comment-create-failed');
       logBoardError('comment', error);
     },
   });
@@ -620,7 +615,7 @@ export default function AdminBoardManageScreen() {
         queryClient.setQueryData(detailKey, context.previousDetail);
       }
       logBoardError('comment-like', error);
-      Alert.alert('오류', '댓글 좋아요 처리에 실패했습니다.');
+      showBoardFeedbackAlert(Alert.alert, 'comment-like-failed');
     },
     onSuccess: (data, commentId) => {
       if (!selectedPostId) return;
@@ -659,7 +654,7 @@ export default function AdminBoardManageScreen() {
     },
     onError: (error) => {
       logBoardError('comment-update', error);
-      Alert.alert('오류', '댓글 수정에 실패했습니다.');
+      showBoardFeedbackAlert(Alert.alert, 'comment-update-failed');
     },
   });
 
@@ -676,7 +671,7 @@ export default function AdminBoardManageScreen() {
     },
     onError: (error) => {
       logBoardError('comment-delete', error);
-      Alert.alert('오류', '댓글 삭제에 실패했습니다.');
+      showBoardFeedbackAlert(Alert.alert, 'comment-delete-failed');
     },
   });
 
@@ -701,7 +696,7 @@ export default function AdminBoardManageScreen() {
   const handleAddComment = () => {
     if (!selectedPost) return;
     if (!commentText.trim()) {
-      Alert.alert('입력 오류', '댓글 내용을 입력해주세요.');
+      showBoardFeedbackAlert(Alert.alert, 'empty-comment');
       return;
     }
     addCommentMutation.mutate({
@@ -713,21 +708,14 @@ export default function AdminBoardManageScreen() {
   };
 
   const openCommentActions = (comment: (typeof modalComments)[number]) => {
-    Alert.alert('댓글 관리', undefined, [
-      {
-        text: '수정',
-        onPress: () => {
-          setEditingCommentId(comment.id);
-          setEditingCommentText(safeText(comment.content));
-        },
+    showBoardCommentActions({
+      alert: Alert.alert,
+      onEdit: () => {
+        setEditingCommentId(comment.id);
+        setEditingCommentText(safeText(comment.content));
       },
-      {
-        text: '삭제',
-        style: 'destructive',
-        onPress: () => deleteCommentMutation.mutate(comment.id),
-      },
-      { text: '취소', style: 'cancel' },
-    ]);
+      onDelete: () => deleteCommentMutation.mutate(comment.id),
+    });
   };
 
   const toggleThread = useCallback((commentId: string) => {
@@ -796,7 +784,7 @@ export default function AdminBoardManageScreen() {
                 onPress={() => {
                   const trimmed = editingCommentText.trim();
                   if (!trimmed) {
-                    Alert.alert('입력 오류', '댓글 내용을 입력해주세요.');
+                    showBoardFeedbackAlert(Alert.alert, 'empty-comment');
                     return;
                   }
                   updateCommentMutation.mutate({ commentId: comment.id, content: trimmed });
@@ -1011,10 +999,74 @@ export default function AdminBoardManageScreen() {
             style={styles.searchInput}
             placeholder="게시글 검색..."
             placeholderTextColor={TEXT_MUTED}
-            value={searchQuery}
-            onChangeText={setSearchQuery}
+            value={searchInput}
+            onChangeText={setSearchInput}
+            onSubmitEditing={() => setSearchQuery(searchInput)}
+            returnKeyType="search"
           />
+          {searchInput.length > 0 && (
+            <Pressable
+              onPress={() => {
+                setSearchInput('');
+                setSearchQuery('');
+              }}
+              style={styles.searchClear}
+            >
+              <Feather name="x" size={16} color={TEXT_MUTED} />
+            </Pressable>
+          )}
         </View>
+
+        {/* 카테고리 필터 & 정렬 */}
+        <View style={[styles.filterRow, selectedPost && styles.searchContainerHidden]} pointerEvents={selectedPost ? 'none' : 'auto'}>
+          <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.categoryChips}>
+            <Pressable
+              style={[styles.categoryChip, !selectedCategoryId && styles.categoryChipActive]}
+              onPress={() => setSelectedCategoryId(null)}
+            >
+              <Text style={[styles.categoryChipText, !selectedCategoryId && styles.categoryChipTextActive]}>전체</Text>
+            </Pressable>
+            {categories.map((cat) => (
+              <Pressable
+                key={cat.id}
+                style={[styles.categoryChip, selectedCategoryId === cat.id && styles.categoryChipActive]}
+                onPress={() => setSelectedCategoryId(cat.id)}
+              >
+                <Text style={[styles.categoryChipText, selectedCategoryId === cat.id && styles.categoryChipTextActive]}>
+                  {cat.name}
+                </Text>
+              </Pressable>
+            ))}
+          </ScrollView>
+          <Pressable
+            style={styles.sortButton}
+            onPress={() => setShowSortMenu(!showSortMenu)}
+          >
+            <Feather name="sliders" size={16} color={CHARCOAL} />
+            <Text style={styles.sortButtonText}>{BOARD_LIST_SORT_LABELS[sortOption]}</Text>
+            <Feather name="chevron-down" size={14} color={TEXT_MUTED} />
+          </Pressable>
+        </View>
+
+        {showSortMenu && (
+          <View style={styles.sortMenu}>
+            {(Object.entries(BOARD_LIST_SORT_LABELS) as [BoardListSortOption, string][]).map(([key, label]) => (
+              <Pressable
+                key={key}
+                style={[styles.sortMenuItem, sortOption === key && styles.sortMenuItemActive]}
+                onPress={() => {
+                  setSortOption(key);
+                  setShowSortMenu(false);
+                }}
+              >
+                <Text style={[styles.sortMenuItemText, sortOption === key && styles.sortMenuItemTextActive]}>
+                  {label}
+                </Text>
+                {sortOption === key && <Feather name="check" size={16} color={HANWHA_ORANGE} />}
+              </Pressable>
+            ))}
+          </View>
+        )}
 
         <View style={styles.container}>
           {isLoading && !refreshing && (
@@ -1086,7 +1138,11 @@ export default function AdminBoardManageScreen() {
                       },
                     ]}
                   >
-                    <Text style={[styles.categoryBadgeText, { color: categoryTheme.textColor }]}>
+                    <Text
+                      style={[styles.categoryBadgeText, { color: categoryTheme.textColor }]}
+                      numberOfLines={1}
+                      ellipsizeMode="tail"
+                    >
                       {categoryName}
                     </Text>
                   </View>
@@ -1226,9 +1282,11 @@ export default function AdminBoardManageScreen() {
                   <View style={styles.avatar}>
                     <Text style={styles.avatarText}>{getInitial(modalPost?.authorName)}</Text>
                   </View>
-                  <View style={{ flex: 1 }}>
-                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-                      <Text style={styles.authorName}>{safeText(modalPost?.authorName)}</Text>
+                  <View style={styles.detailAuthorInfo}>
+                    <View style={styles.detailAuthorBadgeRow}>
+                      <Text style={[styles.authorName, styles.detailAuthorName]} numberOfLines={1}>
+                        {safeText(modalPost?.authorName)}
+                      </Text>
                       <View style={[styles.roleBadge, { backgroundColor: getBoardRoleBadgeStyle(modalPost?.authorRole ?? 'manager').backgroundColor }]}>
                         <Text style={[styles.roleText, { color: getBoardRoleBadgeStyle(modalPost?.authorRole ?? 'manager').color }]}>
                           {getBoardAuthorRoleLabel(modalPost?.authorRole ?? 'manager')}
@@ -1280,7 +1338,11 @@ export default function AdminBoardManageScreen() {
                         },
                       ]}
                     >
-                      <Text style={[styles.categoryBadgeText, { color: categoryTheme.textColor }]}>
+                      <Text
+                        style={[styles.categoryBadgeText, { color: categoryTheme.textColor }]}
+                        numberOfLines={1}
+                        ellipsizeMode="tail"
+                      >
                         {categoryName}
                       </Text>
                     </View>
@@ -1329,11 +1391,12 @@ export default function AdminBoardManageScreen() {
                           key={item.id}
                           style={styles.attachmentItem}
                           onPress={() => {
-                            if (item.signedUrl) {
-                              openExternalUrl(item.signedUrl).catch(() => {
-                                Alert.alert('오류', '첨부파일을 열 수 없습니다.');
-                              });
-                            }
+                            void openBoardAttachment({
+                              signedUrl: item.signedUrl,
+                              openExternalUrl,
+                              alert: Alert.alert,
+                              logError: logBoardError,
+                            });
                           }}
                         >
                           <View style={styles.attachmentIcon}>
@@ -1357,7 +1420,7 @@ export default function AdminBoardManageScreen() {
                 <Text style={styles.sectionTitle}>반응 남기기</Text>
                 <ReactionPicker
                   reactions={DEFAULT_REACTIONS}
-                  onReact={(reactionId) => addReactionMutation.mutate({ postId: selectedPost.id, reactionType: reactionId as ReactionKey })}
+                  onReact={(reactionId) => addReactionMutation.mutate({ postId: selectedPost.id, reactionType: reactionId as BoardReactionKey })}
                   reactionCounts={modalReactionCounts}
                   selectedReactions={effectiveMyReaction ? [effectiveMyReaction] : []}
                   showLabels={false}
@@ -1518,13 +1581,99 @@ const styles = StyleSheet.create({
     flex: 1,
     height: 44,
     paddingLeft: 40,
-    paddingRight: 16,
+    paddingRight: 40,
     backgroundColor: '#F9FAFB',
     borderRadius: 12,
     borderWidth: 1,
     borderColor: BORDER,
     fontSize: 15,
     color: CHARCOAL,
+  },
+  searchClear: {
+    position: 'absolute',
+    right: 36,
+    padding: 4,
+  },
+  filterRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+    backgroundColor: '#fff',
+    borderBottomWidth: 1,
+    borderBottomColor: '#f5f5f5',
+    gap: 8,
+  },
+  categoryChips: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    paddingRight: 8,
+  },
+  categoryChip: {
+    paddingHorizontal: 14,
+    paddingVertical: 6,
+    borderRadius: 16,
+    backgroundColor: '#f3f4f6',
+    borderWidth: 1,
+    borderColor: '#e5e7eb',
+  },
+  categoryChipActive: {
+    backgroundColor: HANWHA_ORANGE,
+    borderColor: HANWHA_ORANGE,
+  },
+  categoryChipText: {
+    fontSize: 13,
+    fontWeight: '500',
+    color: TEXT_MUTED,
+  },
+  categoryChipTextActive: {
+    color: '#fff',
+  },
+  sortButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 8,
+    backgroundColor: '#f9fafb',
+    borderWidth: 1,
+    borderColor: BORDER,
+  },
+  sortButtonText: {
+    fontSize: 13,
+    fontWeight: '500',
+    color: CHARCOAL,
+  },
+  sortMenu: {
+    marginHorizontal: 16,
+    marginBottom: 8,
+    backgroundColor: '#fff',
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: BORDER,
+    ...CARD_SHADOW,
+  },
+  sortMenuItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: '#f5f5f5',
+  },
+  sortMenuItemActive: {
+    backgroundColor: '#fef3eb',
+  },
+  sortMenuItemText: {
+    fontSize: 14,
+    color: CHARCOAL,
+  },
+  sortMenuItemTextActive: {
+    color: HANWHA_ORANGE,
+    fontWeight: '600',
   },
   container: { padding: 24, gap: 16, paddingTop: 16 },
   card: {
@@ -1542,6 +1691,17 @@ const styles = StyleSheet.create({
     marginBottom: 12,
   },
   authorBadge: { flexDirection: 'row', alignItems: 'center', gap: 10 },
+  detailAuthorInfo: { flex: 1, minWidth: 0 },
+  detailAuthorBadgeRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flexWrap: 'wrap',
+    gap: 6,
+  },
+  detailAuthorName: {
+    flexShrink: 1,
+    maxWidth: '100%',
+  },
   avatar: {
     width: 40,
     height: 40,
@@ -1553,11 +1713,19 @@ const styles = StyleSheet.create({
   avatarText: { color: '#fff', fontSize: 16, fontWeight: '700' },
   authorName: { fontSize: 14, fontWeight: '600', color: CHARCOAL },
   roleBadge: {
-    paddingHorizontal: 8,
-    paddingVertical: 2,
-    borderRadius: 8,
+    minHeight: 26,
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 999,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
-  roleText: { fontSize: 11, fontWeight: '600' },
+  roleText: {
+    fontSize: 11,
+    lineHeight: 14,
+    fontWeight: '700',
+    includeFontPadding: false,
+  },
   date: { fontSize: 12, color: TEXT_MUTED, marginTop: 2 },
   viewMeta: {
     marginTop: 4,
@@ -1583,17 +1751,26 @@ const styles = StyleSheet.create({
   },
   categoryBadge: {
     alignSelf: 'flex-start',
-    paddingHorizontal: 9,
-    paddingVertical: 4,
-    borderRadius: 999,
     borderWidth: 1,
+    borderRadius: 999,
+    minHeight: 26,
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    alignItems: 'center',
+    justifyContent: 'center',
     marginBottom: 8,
+    maxWidth: '100%',
   },
   categoryBadgeInline: {
     marginBottom: 0,
     flexShrink: 0,
   },
-  categoryBadgeText: { fontSize: 11, fontWeight: '700' },
+  categoryBadgeText: {
+    fontSize: 11,
+    lineHeight: 14,
+    fontWeight: '700',
+    includeFontPadding: false,
+  },
   postContent: { fontSize: 14, color: TEXT_MUTED, lineHeight: 20 },
   divider: { height: 1, backgroundColor: BORDER, marginVertical: 12 },
   attachmentPreview: {

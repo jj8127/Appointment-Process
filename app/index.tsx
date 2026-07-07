@@ -2,14 +2,13 @@ import { Feather } from '@expo/vector-icons';
 import { useQuery } from '@tanstack/react-query';
 import Constants from 'expo-constants';
 import * as Haptics from 'expo-haptics';
-import { LinearGradient } from 'expo-linear-gradient';
 import * as Notifications from 'expo-notifications';
 import { Stack, router, useFocusEffect, useLocalSearchParams } from 'expo-router';
 import { MotiView } from 'moti';
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
-  ActivityIndicator,
   Alert,
+  AppState,
   BackHandler,
   Dimensions,
   Platform,
@@ -23,22 +22,41 @@ import Animated, { runOnUI, scrollTo as reanimatedScrollTo, useAnimatedRef, useA
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { TourGuideZone, useTourGuideController } from 'rn-tourguide';
 
+import BrandedLoadingSpinner from '@/components/BrandedLoadingSpinner';
+import BrandedLoadingState from '@/components/BrandedLoadingState';
 import { AppTopActionBar } from '@/components/AppTopActionBar';
 import { BottomNavigation } from '@/components/BottomNavigation';
 import { Skeleton } from '@/components/LoadingSkeleton';
 import { resolveBottomNavActiveKey, resolveBottomNavPreset } from '@/lib/bottom-navigation';
+import { resolveExamHomeSurface } from '@/lib/exam-role';
 import {
   calcAdminWorkflowStep,
   calcFcHomeWorkflowStep,
+  canOpenFcProfileRegistration,
   getFcHomeNextAction,
 } from '@/lib/fc-workflow';
 import { useIdentityStatus } from '@/hooks/use-identity-status';
 import { useSession } from '@/hooks/use-session';
 import { useInAppUpdate } from '@/hooks/useInAppUpdate';
+import { fetchInternalUnreadCount } from '@/lib/internal-chat-api';
+import { formatLicenseStatuses } from '@/lib/license-statuses';
 import { logger } from '@/lib/logger';
+import { formatLatestNoticeLabel } from '@/lib/home-latest-notice';
 import { fetchMobileUnreadNotificationCount } from '@/lib/mobile-unread-notification-count';
-import { resolveNoticeRoute } from '@/lib/notice-route';
+import { resolveNotificationInboxResidentId } from '@/lib/notification-inbox-scope';
+import { registerPushToken } from '@/lib/notifications';
+import { resolveHomeLatestNoticeRoute } from '@/lib/notice-route';
 import { openExternalUrl } from '@/lib/open-external-url';
+import {
+  buildPushRegistrationAttemptKey,
+  resolvePushRegistrationDeviceRole,
+} from '@/lib/push-registration';
+import {
+  HOME_GUIDE_ICON_BACKGROUND,
+  HOME_GUIDE_ICON_BORDER,
+  HOME_GUIDE_ICON_FOREGROUND,
+  HOME_GUIDE_ICON_SHADOW,
+} from '@/lib/home-guide-ui';
 import { supabase } from '@/lib/supabase';
 import { syncNativeNotificationBadge } from '@/lib/system-notification-badge';
 import { buildWelcomeTitle } from '@/lib/welcome-title';
@@ -50,11 +68,12 @@ const SHORTCUT_TOUR_TEXTS = [
   '생명/제3보험 시험 일정을 확인하고 접수할 수 있어요.',
   '손해보험 시험 접수 메뉴예요.',
   '이름, 소속, 주소 등 기본 정보를 관리해요.',
-  '수당 지급을 위한 약관 동의 상태를 확인해요.',
+  '보증 보험 동의 상태를 확인해요.',
   '필수 서류를 업로드하고 상태를 확인해요.',
-  '한화 위촉 URL 진행 단계예요.',
+  '다위촉 URL 진행 단계예요.',
   '생명/손해 위촉 진행 단계예요.',
   '총무/설계매니저와 대화할 수 있어요.',
+  '추천인 코드를 확인하고 친구를 초대할 수 있어요.',
 ];
 
 // Android Crash Fix: Strips Moti props on Android to prevent Reanimated from attaching to unmounting views
@@ -113,9 +132,9 @@ const CARD_SHADOW = {
 type QuickLink = { href: string; title: string; description: string; stepKey?: StepKey };
 
 const quickLinksAdminOnboarding: QuickLink[] = [
-  { href: '/dashboard', stepKey: 'step1', title: '수당 동의 안내', description: '수당 동의 검토 대상 FC' },
+  { href: '/dashboard', stepKey: 'step1', title: '보증 보험 동의 안내', description: '보증 보험 동의 검토 대상 FC' },
   { href: '/dashboard', stepKey: 'step2', title: '서류 안내/검토', description: '제출해야 할 서류 관리' },
-  { href: '/dashboard', stepKey: 'step3', title: '한화 위촉 URL', description: '한화 위촉 URL 승인 및 PDF 등록' },
+  { href: '/dashboard', stepKey: 'step3', title: '다위촉 URL', description: '다위촉 서류 발송 알림 관리' },
   { href: '/dashboard', stepKey: 'step4', title: '생명/손해 위촉', description: '생명/손해 위촉 진행 확인' },
   { href: '/dashboard', stepKey: 'step5', title: '완료 관리', description: '최종 완료 현황' },
   { href: '/admin-board', title: '게시판 작성', description: '정보 게시판 글쓰기' },
@@ -133,24 +152,40 @@ const quickLinksFcBase: QuickLink[] = [
   { href: '/exam-apply', title: '생명/제3 시험 신청', description: '시험 접수하기' },
   { href: '/exam-apply2', title: '손해 시험 신청', description: '시험 접수하기' },
   { href: '/fc/new', title: '기본 정보', description: '인적사항 수정' },
-  { href: '/consent', title: '수당 동의', description: '약관 동의 관리' },
+  { href: '/consent', title: '보증 보험 동의', description: '약관 동의 관리' },
   { href: '/docs-upload', title: '서류 업로드', description: '필수 서류 제출' },
   { href: '/messenger', title: '메신저', description: '총무/설계매니저와 대화' },
 ];
 
+const quickLinksManagerExam: QuickLink[] = [
+  ...quickLinksAdminExam,
+  ...quickLinksFcBase.slice(0, 2),
+];
+
 const fcHomeSteps = [
-  { key: 'consent', label: '수당동의', fullLabel: '수당동의' },
+  { key: 'consent', label: '보증 보험 동의', fullLabel: '보증 보험 동의' },
   { key: 'docs', label: '문서제출', fullLabel: '문서제출' },
-  { key: 'hanwha', label: '한화 위촉 URL', fullLabel: '한화 위촉 URL' },
+  { key: 'hanwha', label: '다위촉 URL', fullLabel: '다위촉 URL' },
   { key: 'url', label: '생명/손해 위촉', fullLabel: '생명/손해 위촉' },
   { key: 'final', label: '완료', fullLabel: '완료' },
 ];
 
+const FC_STAGE_YOUTUBE_PLACEHOLDERS: Record<
+  'consent' | 'docs' | 'hanwha' | 'url' | 'final',
+  { url: string | null; pendingMessage: string }
+> = {
+  consent: { url: null, pendingMessage: '보증 보험 동의 영상은 준비 중입니다.' },
+  docs: { url: null, pendingMessage: '문서제출 영상은 준비 중입니다.' },
+  hanwha: { url: null, pendingMessage: '다위촉 URL 영상은 준비 중입니다.' },
+  url: { url: null, pendingMessage: '생명/손해 위촉 영상은 준비 중입니다.' },
+  final: { url: null, pendingMessage: '완료 단계 영상은 준비 중입니다.' },
+};
+
 const buildFcQuickLinks = (profile?: FcProfile | null): QuickLink[] => {
   const hanwhaLink: QuickLink = {
     href: '/hanwha-commission',
-    title: '한화 위촉 URL',
-    description: '한화라이프랩 위촉 진행',
+    title: '다위촉 URL',
+    description: '다위촉 진행',
   };
   const insuranceLink: QuickLink = {
     href: '/appointment',
@@ -158,7 +193,22 @@ const buildFcQuickLinks = (profile?: FcProfile | null): QuickLink[] => {
     description: '생명/손해 위촉 진행',
   };
 
-  return [...quickLinksFcBase.slice(0, 5), hanwhaLink, insuranceLink, quickLinksFcBase[5]];
+  const referralLink: QuickLink = {
+    href: '/referral',
+    title: '추천인 코드',
+    description: '친구 초대 및 현황 확인',
+  };
+  const workflowLinks = canOpenFcProfileRegistration(profile)
+    ? quickLinksFcBase.slice(0, 5)
+    : [
+        quickLinksFcBase[0],
+        quickLinksFcBase[1],
+        { href: '/signup', title: '사전등록', description: '회원가입 정보를 먼저 완료' },
+        quickLinksFcBase[3],
+        quickLinksFcBase[4],
+      ];
+
+  return [...workflowLinks, hanwhaLink, insuranceLink, quickLinksFcBase[5], referralLink];
 };
 
 const fetchCounts = async (role: 'admin' | 'fc' | null, residentId: string): Promise<CountsResult> => {
@@ -168,7 +218,7 @@ const fetchCounts = async (role: 'admin' | 'fc' | null, residentId: string): Pro
 
   const { data, error } = await supabase
     .from('fc_profiles')
-    .select('name,affiliation,resident_id_masked,email,address,identity_completed,allowance_date,allowance_prescreen_requested_at,allowance_reject_reason,status,hanwha_commission_date,hanwha_commission_pdf_path,hanwha_commission_pdf_name,appointment_date_life,appointment_date_nonlife,appointment_date_life_sub,appointment_date_nonlife_sub,life_commission_completed,nonlife_commission_completed,fc_documents(doc_type,storage_path,status)');
+    .select('name,affiliation,resident_id_masked,email,address,identity_completed,license_statuses,allowance_date,allowance_prescreen_requested_at,allowance_reject_reason,status,hanwha_commission_date,hanwha_commission_pdf_path,hanwha_commission_pdf_name,appointment_date_life,appointment_date_nonlife,appointment_date_life_sub,appointment_date_nonlife_sub,life_commission_completed,nonlife_commission_completed,fc_documents(doc_type,storage_path,status)');
   if (error) throw error;
 
   const steps: StepCounts = { ...EMPTY_STEP_COUNTS };
@@ -185,9 +235,9 @@ const fetchCounts = async (role: 'admin' | 'fc' | null, residentId: string): Pro
 };
 
 const ADMIN_METRIC_CONFIG: { label: string; key: StepKey }[] = [
-  { label: '1단계 수당동의', key: 'step1' },
+  { label: '1단계 보증 보험 동의', key: 'step1' },
   { label: '2단계 문서제출', key: 'step2' },
-  { label: '3단계 한화 위촉 URL', key: 'step3' },
+  { label: '3단계 다위촉 URL', key: 'step3' },
   { label: '4단계 생명/손해 위촉', key: 'step4' },
   { label: '5단계 완료', key: 'step5' },
 ];
@@ -242,25 +292,11 @@ const fetchLatestAdminMessage = async (residentId: string) => {
   }
 };
 
-const fetchUnreadMessageCount = async (residentId: string) => {
-  if (!residentId) return 0;
-  const { count, error } = await supabase
-    .from('messages')
-    .select('id', { count: 'exact', head: true })
-    .eq('receiver_id', residentId)
-    .eq('is_read', false);
-  if (error) {
-    logger.debug('[Home] unread msg error', error);
-    return 0;
-  }
-  return count ?? 0;
-};
-
 const fetchFcStatus = async (residentId: string) => {
   const { data, error } = await supabase
     .from('fc_profiles')
     .select(
-      'id,name,affiliation,phone,status,temp_id,allowance_date,allowance_prescreen_requested_at,allowance_reject_reason,hanwha_commission_date_sub,hanwha_commission_date,hanwha_commission_reject_reason,hanwha_commission_pdf_path,hanwha_commission_pdf_name,appointment_url,appointment_date,appointment_schedule_life,appointment_schedule_nonlife,appointment_date_life,appointment_date_nonlife,appointment_date_life_sub,appointment_date_nonlife_sub,life_commission_completed,nonlife_commission_completed,resident_id_masked,email,address,identity_completed,is_tour_seen,signup_completed,fc_documents(doc_type,storage_path,status)',
+      'id,name,affiliation,phone,status,temp_id,license_statuses,allowance_date,allowance_prescreen_requested_at,allowance_reject_reason,hanwha_commission_date_sub,hanwha_commission_date,hanwha_commission_reject_reason,hanwha_commission_pdf_path,hanwha_commission_pdf_name,appointment_url,appointment_date,appointment_schedule_life,appointment_schedule_nonlife,appointment_date_life,appointment_date_nonlife,appointment_date_life_sub,appointment_date_nonlife_sub,life_commission_completed,nonlife_commission_completed,resident_id_masked,email,address,identity_completed,is_tour_seen,signup_completed,fc_documents(doc_type,storage_path,status)',
     )
     .eq('phone', residentId)
     .maybeSingle();
@@ -271,6 +307,7 @@ const fetchFcStatus = async (residentId: string) => {
     affiliation: '',
     status: 'draft',
     temp_id: null,
+    license_statuses: null,
     allowance_date: null,
     allowance_prescreen_requested_at: null,
     allowance_reject_reason: null,
@@ -295,6 +332,7 @@ const fetchFcStatus = async (residentId: string) => {
     address: null,
     identity_completed: false,
     is_tour_seen: false,
+    signup_completed: false,
     fc_documents: [],
   };
 };
@@ -368,7 +406,7 @@ const getLinkIcon = (href: string) => {
   if (href.includes('status=step0')) return 'user-plus'; // 사전등록
   if (href.includes('status=step1')) return 'user-plus'; // 회원가입 관리
   if (href.includes('status=step2')) return 'check-square'; // 서류 안내/검토
-  if (href.includes('status=step3')) return 'file-text'; // 한화 위촉 URL
+  if (href.includes('status=step3')) return 'file-text'; // 다위촉 URL
   if (href.includes('status=step4')) return 'link'; // 생명/손해 위촉
   if (href.includes('status=step5')) return 'award'; // 완료 관리
 
@@ -381,12 +419,13 @@ const getLinkIcon = (href: string) => {
   // FC 메뉴
   if (href.includes('fc/new')) return 'user'; // 기본 정보
   if (href.includes('exam-apply')) return 'edit-3'; // 시험 신청
-  if (href.includes('consent')) return 'check-circle'; // 수당 동의
+  if (href.includes('consent')) return 'check-circle'; // 보증 보험 동의
   if (href.includes('docs-upload')) return 'upload-cloud'; // 서류 업로드
-  if (href.includes('hanwha-commission')) return 'file-text'; // 한화 위촉 URL
+  if (href.includes('hanwha-commission')) return 'file-text'; // 다위촉 URL
   if (href.includes('appointment')) return 'smartphone'; // 위촉
   if (href.includes('messenger')) return 'message-circle'; // 메신저
   if (href.includes('chat')) return 'message-circle'; // 1:1 문의
+  if (href.includes('referral')) return 'gift'; // 추천인 코드
 
   return 'chevron-right';
 };
@@ -430,7 +469,10 @@ export default function Home() {
   const [isLoggingOut, setIsLoggingOut] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
 
-  const isAdminExam = role === 'admin' && adminHomeTab === 'exam';
+  const examHomeSurface = resolveExamHomeSurface({ role, readOnly, adminHomeTab });
+  const isAdminExam = examHomeSurface === 'admin-management';
+  const isManagerExam = examHomeSurface === 'manager-management';
+  const showsExamManagementHome = isAdminExam || isManagerExam;
   const bottomNavPreset = resolveBottomNavPreset(
     { role, readOnly, hydrated, isRequestBoardDesigner },
     { adminHomeTab },
@@ -439,6 +481,8 @@ export default function Home() {
     bottomNavPreset === 'admin-onboarding' ||
     bottomNavPreset === 'admin-exam' ||
     bottomNavPreset === 'manager';
+  const canUseReferralSelfService =
+    !isRequestBoardDesigner && (role === 'fc' || (role === 'admin' && readOnly));
   const bottomNavActiveKey = resolveBottomNavActiveKey(
     bottomNavPreset,
     isAdminLikePreset ? adminHomeTab : 'home',
@@ -525,6 +569,7 @@ export default function Home() {
   const zoneScrollTargets = useRef<Record<number, number>>({});
   const shortcutZoneRefs = useRef<(View | null)[]>([]);
   const shortcutScrollTargets = useRef<Record<number, number>>({});
+  const pushRegistrationAttemptRef = useRef<string | null>(null);
 
   // 투어 시작 시 zone 위치를 미리 캐시 (스크롤 전 측정)
   const cacheZonePositions = useCallback(() => {
@@ -716,13 +761,13 @@ export default function Home() {
     (async () => {
       try {
         const { count, error } = await supabase
-          .from('device_tokens')
+          .from('fc_profiles')
           .select('count', { count: 'exact', head: true });
         if (!active) return;
         if (error) {
           logger.debug('[supabase ping] 연결 실패', error.message ?? error);
         } else {
-          logger.debug('[supabase ping] 연결 성공, device_tokens count', { count });
+          logger.debug('[supabase ping] 연결 성공, fc_profiles count', { count });
         }
       } catch (err: unknown) {
         const error = err as { message?: string };
@@ -752,6 +797,9 @@ export default function Home() {
   } = useQuery({
     queryKey: ['latest-notice'],
     queryFn: fetchLatestNotice,
+    staleTime: 0,
+    refetchOnMount: 'always',
+    refetchOnReconnect: true,
   });
 
   const {
@@ -761,7 +809,7 @@ export default function Home() {
   } = useQuery({
     queryKey: ['exam-stats'],
     queryFn: fetchExamStats,
-    enabled: role === 'admin',
+    enabled: showsExamManagementHome,
   });
   const {
     data: latestAdminMsg,
@@ -784,13 +832,42 @@ export default function Home() {
         : nextAction.key === 'hanwha'
           ? '/hanwha-commission'
           : '/appointment');
+  const currentStepYoutube = FC_STAGE_YOUTUBE_PLACEHOLDERS[nextAction.key];
+  const hasCurrentStepYoutubeUrl = Boolean(currentStepYoutube?.url);
+  const openCurrentStepYoutube = useCallback(async () => {
+    if (!currentStepYoutube?.url) {
+      Alert.alert('준비 중', currentStepYoutube?.pendingMessage ?? `${nextAction.title} 영상은 준비 중입니다.`);
+      return;
+    }
+
+    try {
+      await openExternalUrl(currentStepYoutube.url);
+    } catch {
+      Alert.alert('오류', '단계별 영상을 열 수 없습니다.');
+    }
+  }, [currentStepYoutube?.pendingMessage, currentStepYoutube?.url, nextAction.title]);
+  const managerReferralLink: QuickLink = {
+    href: '/referral',
+    title: '추천인 코드',
+    description: '친구 초대 및 현황 확인',
+  };
+  const adminQuickLinks = adminHomeTab === 'exam' ? quickLinksAdminExam : quickLinksAdminOnboarding;
   const quickLinks =
     role === 'admin'
-      ? adminHomeTab === 'exam'
-        ? quickLinksAdminExam
-        : quickLinksAdminOnboarding
+      ? isManagerExam
+        ? quickLinksManagerExam
+        : readOnly && canUseReferralSelfService
+        ? [...adminQuickLinks, managerReferralLink]
+        : adminQuickLinks
       : buildFcQuickLinks(myFc as FcProfile | null | undefined);
   const profileName = typeof myFc?.name === 'string' ? myFc.name.trim() : '';
+  const tempIdValue = typeof myFc?.temp_id === 'string' ? myFc.temp_id.trim() : '';
+  const hasTempId = tempIdValue.length > 0;
+  const tempIdBadgeLabel = statusLoading
+    ? '임시사번 확인 중'
+    : hasTempId
+      ? `임시사번 ${tempIdValue}`
+      : '임시사번 미발급';
   const homeHeaderTitle = buildWelcomeTitle({
     role,
     readOnly,
@@ -803,13 +880,32 @@ export default function Home() {
 
   const lifeCompleted = Boolean(myFc?.life_commission_completed || myFc?.appointment_date_life);
   const nonLifeCompleted = Boolean(myFc?.nonlife_commission_completed || myFc?.appointment_date_nonlife);
+  const licenseStatusDisplay = myFc ? formatLicenseStatuses(myFc.license_statuses) : formatLicenseStatuses(null);
+  const internalViewerContext = useMemo(
+    () => ({
+      role,
+      residentId,
+      readOnly,
+      staffType,
+      isRequestBoardDesigner,
+    }),
+    [isRequestBoardDesigner, readOnly, residentId, role, staffType],
+  );
+  const notificationInboxResidentId = useMemo(
+    () => resolveNotificationInboxResidentId({
+      role,
+      residentId,
+      readOnly,
+      staffType,
+    }),
+    [readOnly, residentId, role, staffType],
+  );
 
   // Unread Counts
   const { data: unreadMsgCount = 0, refetch: refetchMsgCount } = useQuery({
-    queryKey: ['unread-msg-count', residentId],
-    queryFn: () => fetchUnreadMessageCount(residentId),
-    enabled: !!residentId,
-    refetchInterval: 5000,
+    queryKey: ['unread-msg-count', role, residentId, readOnly, staffType, isRequestBoardDesigner],
+    queryFn: () => fetchInternalUnreadCount(internalViewerContext),
+    enabled: !!role && !!residentId,
   });
 
   const {
@@ -817,15 +913,14 @@ export default function Home() {
     refetch: refetchNotifCount,
     isFetched: hasFetchedUnreadNotifCount,
   } = useQuery({
-    queryKey: ['unread-notif-count', role, residentId, requestBoardRole],
+    queryKey: ['unread-notif-count', role, notificationInboxResidentId, requestBoardRole],
     queryFn: () =>
       fetchMobileUnreadNotificationCount({
         role,
-        residentId,
+        residentId: notificationInboxResidentId,
         requestBoardRole,
       }),
     enabled: !!role,
-    refetchInterval: 5000, // Poll every 5s for notifications
   });
 
   useEffect(() => {
@@ -844,11 +939,28 @@ export default function Home() {
     useCallback(() => {
       refetchMsgCount();
       refetchNotifCount();
+      refetchLatestNotice?.();
       if (role === 'fc' && residentId) {
         refetchMyFc?.();
       }
-    }, [refetchMsgCount, refetchNotifCount, refetchMyFc, residentId, role])
+    }, [refetchMsgCount, refetchNotifCount, refetchLatestNotice, refetchMyFc, residentId, role])
   );
+
+  useEffect(() => {
+    const subscription = AppState.addEventListener('change', (nextState) => {
+      if (nextState !== 'active') return;
+      refetchMsgCount();
+      refetchNotifCount();
+      refetchLatestNotice?.();
+      if (role === 'fc' && residentId) {
+        refetchMyFc?.();
+      }
+    });
+
+    return () => {
+      subscription.remove();
+    };
+  }, [refetchMsgCount, refetchNotifCount, refetchLatestNotice, refetchMyFc, residentId, role]);
 
   // Android 뒤로가기 버튼: 앱 종료 확인 다이얼로그
   useFocusEffect(
@@ -897,13 +1009,22 @@ export default function Home() {
   // 기본정보는 회원가입 시 이미 저장되므로 강제 리다이렉트 제거
   // 사용자가 홈 화면의 "기본 정보" 버튼을 눌러 자발적으로 편집 가능
 
-  // FC 푸시 토큰 등록 (배너 알림 수신용)
+  // 모바일 푸시 토큰 등록 (배너 알림 수신용)
   const PUSH_CHANNEL_ID = 'alerts';
 
   useEffect(() => {
     let active = true;
     (async () => {
-      if (role !== 'fc' || !residentId) return;
+      const attemptKey = buildPushRegistrationAttemptKey({
+        hydrated,
+        role,
+        residentId,
+        requestBoardRole,
+      });
+      const pushRole = resolvePushRegistrationDeviceRole({ role, requestBoardRole });
+      if (!attemptKey || !residentId || !pushRole) return;
+      if (pushRegistrationAttemptRef.current === attemptKey) return;
+
       try {
         const { status } = await Notifications.requestPermissionsAsync();
         if (status !== 'granted') {
@@ -924,21 +1045,14 @@ export default function Home() {
           projectId: Constants.expoConfig?.extra?.eas?.projectId,
         });
         if (!active || !token) return;
+        if (pushRegistrationAttemptRef.current === attemptKey) return;
+        pushRegistrationAttemptRef.current = attemptKey;
 
         // 디바이스 중복 방지: 기존 토큰 제거 후 upsert (unique constraint 대응)
-        await supabase.from('device_tokens').delete().eq('expo_push_token', token);
-        const { error } = await supabase
-          .from('device_tokens')
-          .upsert(
-            { resident_id: residentId, role: 'fc', expo_push_token: token },
-            { onConflict: 'expo_push_token' }
-          );
-        if (error) {
-          logger.debug('[push] upsert error', error.message ?? error);
-        } else {
-          logger.debug('[push] fc token saved', { residentId, token });
-        }
+        await registerPushToken(pushRole, residentId, displayName, token);
+        logger.debug('[push] trusted registration requested', { residentId, role: pushRole });
       } catch (e: unknown) {
+        pushRegistrationAttemptRef.current = null;
         const error = e as { message?: string };
         logger.debug('[push] exception', error?.message ?? e);
       }
@@ -946,7 +1060,7 @@ export default function Home() {
     return () => {
       active = false;
     };
-  }, [role, residentId]);
+  }, [hydrated, role, residentId, requestBoardRole, displayName]);
 
   const handleLogout = () => {
     Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
@@ -993,6 +1107,11 @@ export default function Home() {
       return;
     }
     if (href === '/fc/new') {
+      if (role === 'fc' && !canOpenFcProfileRegistration(myFc as FcProfile | null | undefined)) {
+        Alert.alert('사전등록 필요', '본등록은 사전등록을 완료한 뒤 진행할 수 있습니다.');
+        router.push('/signup');
+        return;
+      }
       router.push({ pathname: '/fc/new', params: { from: 'home' } } as any);
       return;
     }
@@ -1001,7 +1120,7 @@ export default function Home() {
 
   const handleOpenLatestNotice = () => {
     Haptics.selectionAsync();
-    const route = resolveNoticeRoute(latestNotice?.id ?? null);
+    const route = resolveHomeLatestNoticeRoute(latestNotice?.id ?? null);
     if (route) {
       router.push(route as any);
       return;
@@ -1083,8 +1202,12 @@ export default function Home() {
   // Android Crash Fix: Wait for all hooks to be valid, then short-circuit layout
   if (isLoggingOut) {
     return (
-      <View style={{ flex: 1, backgroundColor: '#fff', alignItems: 'center', justifyContent: 'center' }}>
-        <ActivityIndicator color={HANWHA_ORANGE} />
+      <View style={{ flex: 1, backgroundColor: '#fff' }}>
+        <BrandedLoadingState
+          variant="home"
+          title="세션을 정리하고 있어요"
+          subtitle="안전하게 로그아웃하는 중입니다."
+        />
       </View>
     );
   }
@@ -1092,9 +1215,7 @@ export default function Home() {
   if (!hydrated) {
     return (
       <SafeAreaView style={styles.safe} edges={['left', 'right', 'bottom']}>
-        <View style={[styles.container, { alignItems: 'center', justifyContent: 'center', flex: 1 }]}>
-          <ActivityIndicator color={HANWHA_ORANGE} />
-        </View>
+        <BrandedLoadingState variant="home" />
       </SafeAreaView>
     );
   }
@@ -1102,9 +1223,11 @@ export default function Home() {
   if (isRequestBoardDesigner) {
     return (
       <SafeAreaView style={styles.safe} edges={['left', 'right', 'bottom']}>
-        <View style={[styles.container, { alignItems: 'center', justifyContent: 'center', flex: 1 }]}>
-          <ActivityIndicator color={HANWHA_ORANGE} />
-        </View>
+        <BrandedLoadingState
+          variant="home"
+          title="설계요청 화면으로 이동하고 있어요"
+          subtitle="설계매니저 전용 홈을 준비하는 중입니다."
+        />
       </SafeAreaView>
     );
   }
@@ -1136,9 +1259,13 @@ export default function Home() {
 
           {role === 'admin' && (
             <View style={styles.homeTitleWrap}>
-              <Text style={styles.homeTitle}>{adminHomeTab === 'exam' ? '시험' : '위촉'}</Text>
+              <Text style={styles.homeTitle}>
+                {adminHomeTab === 'exam' ? '시험' : '위촉'}
+              </Text>
               <Text style={styles.homeSubtitleText}>
-                {adminHomeTab === 'exam'
+                {isManagerExam
+                  ? '시험 일정과 신청자 명단을 확인하고 직접 시험도 접수할 수 있어요.'
+                  : adminHomeTab === 'exam'
                   ? '시험 일정 등록과 신청자 관리 메뉴를 모았습니다.'
                   : '위촉/서류 진행 현황과 주요 업무를 확인하세요.'}
               </Text>
@@ -1158,14 +1285,14 @@ export default function Home() {
               <AndroidSafeMotiView from={{ opacity: 0, translateY: -10 }} animate={{ opacity: 1, translateY: 0 }} transition={{ type: 'timing', duration: 500 }}>
                 <TourGuideZone
                   zone={1}
-                  text="여기서 최신 공지를 확인해요. 눌러서 상세로 이동할 수 있어요."
+                  text="여기서 최신 공지와 가람Pick을 확인해요. 눌러서 상세로 이동할 수 있어요."
                   borderRadius={12}>
                   <Pressable
                     style={({ pressed }) => [styles.notice, pressed && styles.pressedOpacity]}
                     onPress={handleOpenLatestNotice}>
                     <View style={styles.noticeDot} />
                     <Text style={styles.noticeText} numberOfLines={1}>
-                      {latestNotice?.title ? `공지: ${latestNotice.title}` : '공지: 최신 공지사항을 확인하세요'}
+                      {formatLatestNoticeLabel(latestNotice)}
                     </Text>
                     <Feather name="chevron-right" size={16} color={HANWHA_ORANGE} style={{ marginLeft: 'auto' }} />
                   </Pressable>
@@ -1179,7 +1306,7 @@ export default function Home() {
                 onPress={handleOpenLatestNotice}>
                 <View style={styles.noticeDot} />
                 <Text style={styles.noticeText} numberOfLines={1}>
-                  {latestNotice?.title ? `공지: ${latestNotice.title}` : '공지: 최신 공지사항을 확인하세요'}
+                  {formatLatestNoticeLabel(latestNotice)}
                 </Text>
                 <Feather name="chevron-right" size={16} color={HANWHA_ORANGE} style={{ marginLeft: 'auto' }} />
               </Pressable>
@@ -1194,59 +1321,58 @@ export default function Home() {
               transition={{ type: 'spring', delay: 180 }}
               style={{ marginBottom: 10 }}
             >
-              <Pressable
-                onPress={startFcTour}
-                accessibilityRole="button"
-                accessibilityLabel="앱 사용 가이드 시작"
-                style={({ pressed }) => [
-                  styles.guideCardNew,
-                  pressed && styles.guideCardNewPressed,
-                ]}
-              >
-                {/* Left icon */}
-                <View style={styles.guideIconWrapNew}>
-                  <LinearGradient
-                    colors={['#fff7ed', '#ffffff']}
-                    start={{ x: 0, y: 0 }}
-                    end={{ x: 1, y: 1 }}
-                    style={styles.guideIconGradientNew}
-                  >
-                    <Feather name="play" size={16} color={HANWHA_ORANGE} style={{ marginLeft: 1 }} />
-                  </LinearGradient>
-                </View>
-
-                {/* Text */}
-                <View style={styles.guideTextWrapNew}>
-                  <View style={styles.guideBadgeRowNew}>
-                    <View style={styles.guideBadgeNew}>
-                      <Text style={styles.guideBadgeTextNew}>GUIDE</Text>
+              <View style={styles.guideCardNew}>
+                <Pressable
+                  onPress={startFcTour}
+                  accessibilityRole="button"
+                  accessibilityLabel="앱 사용 가이드 시작"
+                  style={({ pressed }) => [
+                    styles.guideMainActionNew,
+                    pressed && styles.guideCardNewPressed,
+                  ]}
+                >
+                  <View style={styles.guideIconWrapNew}>
+                    <View style={styles.guideIconBadgeNew}>
+                      <View style={styles.guidePlayTriangle} />
                     </View>
-                    <Text style={styles.guideBadgeHintNew}>처음 오셨나요?</Text>
                   </View>
 
-                  <Text style={styles.guideTitleNew} numberOfLines={1}>
-                    앱 사용법 안내 시작하기
-                  </Text>
-                </View>
+                  <View style={styles.guideTextWrapNew}>
+                    <View style={styles.guideBadgeRowNew}>
+                      <View style={styles.guideBadgeNew}>
+                        <Text style={styles.guideBadgeTextNew}>GUIDE</Text>
+                      </View>
+                      <Text style={styles.guideBadgeHintNew}>처음 오셨나요?</Text>
+                    </View>
 
-                {/* CTA: 투어 시작 + 유튜브 */}
-                <View style={styles.guideCtaNew}>
-                  <View style={styles.guideCtaChipNew}>
-                    <Text style={styles.guideCtaTextNew}>시작</Text>
-                    <Feather name="chevron-right" size={16} color="#fff" />
+                    <Text style={styles.guideTitleNew} numberOfLines={1}>
+                      앱 사용법 안내 시작하기
+                    </Text>
                   </View>
-                  <Pressable
-                    onPress={openHomeYoutube}
-                    accessibilityRole="button"
-                    accessibilityLabel="유튜브 가이드 영상 보기"
-                    style={({ pressed }) => [styles.youtubeIconBtnNew, pressed && { opacity: 0.7 }]}
-                    hitSlop={6}
-                  >
-                    <Feather name="youtube" size={16} color="#EF4444" />
-                    <Text style={styles.youtubeIconBtnTextNew}>영상</Text>
-                  </Pressable>
-                </View>
-              </Pressable>
+
+                  <View style={styles.guideCtaNew}>
+                    <View style={styles.guideCtaChipNew}>
+                      <Text style={styles.guideCtaTextNew}>시작</Text>
+                      <Feather name="chevron-right" size={16} color="#fff" />
+                    </View>
+                  </View>
+                </Pressable>
+                <Pressable
+                  onPress={openHomeYoutube}
+                  accessibilityRole="button"
+                  accessibilityLabel="유튜브 가이드 영상 보기"
+                  style={({ pressed }) => [styles.youtubeGuideActionNew, pressed && styles.pressedOpacity]}
+                >
+                  <View style={styles.youtubeGuideIconNew}>
+                    <Feather name="youtube" size={20} color="#DC2626" />
+                  </View>
+                  <View style={styles.youtubeGuideTextWrapNew}>
+                    <Text style={styles.youtubeGuideTitleNew}>유튜브 영상 가이드 보기</Text>
+                    <Text style={styles.youtubeGuideSubTextNew}>화면 설명을 영상으로 바로 확인하세요</Text>
+                  </View>
+                  <Feather name="external-link" size={16} color="#DC2626" />
+                </Pressable>
+              </View>
             </AndroidSafeMotiView>
           )}
 
@@ -1256,11 +1382,13 @@ export default function Home() {
             transition={{ type: 'timing', duration: 600, delay: 200 }}
           >
             {role === 'admin' ? (
-              isAdminExam ? (
+              showsExamManagementHome ? (
                 <View style={styles.examSummaryCard}>
                   <View style={styles.cardHeader}>
                     <Text style={styles.sectionTitle}>시험 관리 요약</Text>
-                    <Text style={styles.sectionHint}>등록 · 신청자 메뉴만 모았습니다</Text>
+                    <Text style={styles.sectionHint}>
+                      {isManagerExam ? '신청자 현황을 확인하고 필요한 시험을 접수하세요' : '등록 · 신청자 메뉴만 모았습니다'}
+                    </Text>
                   </View>
                   <Pressable
                     style={({ pressed }) => [styles.examStatRow, pressed && styles.pressedOpacity]}
@@ -1268,7 +1396,7 @@ export default function Home() {
                   >
                     <View style={styles.examStatTitleWrap}>
                       <Text style={styles.examStatTitle}>생명/제3보험</Text>
-                      {examStatsLoading && <ActivityIndicator size="small" color={HANWHA_ORANGE} />}
+                      {examStatsLoading && <BrandedLoadingSpinner size="sm" color={HANWHA_ORANGE} />}
                     </View>
                     <View style={styles.examStatChips}>
                       <View style={styles.examStatChip}>
@@ -1289,7 +1417,7 @@ export default function Home() {
                   >
                     <View style={styles.examStatTitleWrap}>
                       <Text style={styles.examStatTitle}>손해보험</Text>
-                      {examStatsLoading && <ActivityIndicator size="small" color={HANWHA_ORANGE} />}
+                      {examStatsLoading && <BrandedLoadingSpinner size="sm" color={HANWHA_ORANGE} />}
                     </View>
                     <View style={styles.examStatChips}>
                       <View style={styles.examStatChip}>
@@ -1347,7 +1475,30 @@ export default function Home() {
                         <View style={{ width: '100%' }}>
                           <View style={styles.cardHeader} collapsable={false}>
                             <Text style={styles.sectionTitle}>내 진행 상황</Text>
-                            <Text style={styles.progressMeta}>Step {currentStep}/5</Text>
+                            <View style={styles.progressHeaderActions}>
+                              <View
+                                style={[
+                                  styles.tempIdBadge,
+                                  hasTempId ? styles.tempIdBadgeIssued : styles.tempIdBadgeMissing,
+                                ]}
+                              >
+                                <Feather
+                                  name={hasTempId ? 'hash' : 'alert-circle'}
+                                  size={12}
+                                  color={hasTempId ? '#166534' : '#9A3412'}
+                                />
+                                <Text
+                                  style={[
+                                    styles.tempIdBadgeText,
+                                    hasTempId ? styles.tempIdBadgeTextIssued : styles.tempIdBadgeTextMissing,
+                                  ]}
+                                  numberOfLines={1}
+                                >
+                                  {tempIdBadgeLabel}
+                                </Text>
+                              </View>
+                              <Text style={styles.progressMeta}>Step {currentStep}/5</Text>
+                            </View>
                           </View>
                           {statusLoading ? (
                             <View style={{ marginVertical: 20 }}>
@@ -1376,6 +1527,9 @@ export default function Home() {
                                 </View>
                               </View>
                               <Text style={styles.statusSummaryText}>위촉 완료 {completedCommissionCount}/2</Text>
+                              <Text style={styles.licenseSummaryText}>
+                                자격증 보유 현황: {licenseStatusDisplay}
+                              </Text>
                               {/* 진행 단계 (기존 Stepper) */}
                               <View style={[styles.stepContainer, { marginTop: 8 }]}>
                                 {fcHomeSteps.map((step, index) => {
@@ -1425,12 +1579,7 @@ export default function Home() {
                             pressed && styles.pressedScale,
                           ]}
                         >
-                          <LinearGradient
-                            colors={['#f36f21', '#fabc3c']}
-                            start={{ x: 0, y: 0 }}
-                            end={{ x: 1, y: 1 }}
-                            style={styles.premiumStepCard}
-                          >
+                          <View style={styles.premiumStepCard}>
                             <View style={styles.premiumStepContent}>
                               <View style={styles.premiumStepHeader}>
                                 <View style={styles.premiumStepBadge}>
@@ -1449,10 +1598,55 @@ export default function Home() {
                             </View>
                             <View style={styles.premiumStepDeco1} />
                             <View style={styles.premiumStepDeco2} />
-                          </LinearGradient>
+                          </View>
                         </Pressable>
                       </TourGuideZone>
                     </View>
+                    <Pressable
+                      onPress={openCurrentStepYoutube}
+                      accessibilityRole="button"
+                      accessibilityLabel={`${nextAction.title} 유튜브 가이드`}
+                      accessibilityHint={
+                        hasCurrentStepYoutubeUrl
+                          ? '현재 단계 영상 가이드를 엽니다.'
+                          : '현재 단계 영상이 준비 중임을 안내합니다.'
+                      }
+                      style={({ pressed }) => [
+                        styles.stepYoutubeButton,
+                        !hasCurrentStepYoutubeUrl && styles.stepYoutubeButtonPending,
+                        pressed && styles.pressedOpacity,
+                      ]}
+                    >
+                      <View
+                        style={[
+                          styles.stepYoutubeIcon,
+                          !hasCurrentStepYoutubeUrl && styles.stepYoutubeIconPending,
+                        ]}
+                      >
+                        <Feather
+                          name="youtube"
+                          size={18}
+                          color={hasCurrentStepYoutubeUrl ? '#DC2626' : '#9CA3AF'}
+                        />
+                      </View>
+                      <Text
+                        style={[
+                          styles.stepYoutubeTitle,
+                          !hasCurrentStepYoutubeUrl && styles.stepYoutubeTitlePending,
+                        ]}
+                      >
+                        영상
+                      </Text>
+                      <Text
+                        style={[
+                          styles.stepYoutubeStatus,
+                          !hasCurrentStepYoutubeUrl && styles.stepYoutubeStatusPending,
+                        ]}
+                        numberOfLines={1}
+                      >
+                        {hasCurrentStepYoutubeUrl ? '보기' : '준비 중'}
+                      </Text>
+                    </Pressable>
                   </View>
                 </View>
               </View>
@@ -1488,6 +1682,9 @@ export default function Home() {
                       </View>
                     </View>
                     <Text style={styles.statusSummaryText}>위촉 완료 {completedCommissionCount}/2</Text>
+                    <Text style={styles.licenseSummaryText}>
+                      자격증 보유 현황: {licenseStatusDisplay}
+                    </Text>
                     <View style={styles.stepContainer}>
                       {fcHomeSteps.map((step, index) => {
                         const stepNum = index + 1;
@@ -1521,13 +1718,8 @@ export default function Home() {
                       { flex: 1 },
                       pressed && styles.pressedScale,
                     ]}
-                  >
-                    <LinearGradient
-                      colors={['#f36f21', '#fabc3c']}
-                      start={{ x: 0, y: 0 }}
-                      end={{ x: 1, y: 1 }}
-                      style={styles.premiumStepCard}
                     >
+                    <View style={styles.premiumStepCard}>
                       <View style={styles.premiumStepContent}>
                         <View style={styles.premiumStepHeader}>
                           <View style={styles.premiumStepBadge}>
@@ -1546,7 +1738,52 @@ export default function Home() {
                       </View>
                       <View style={styles.premiumStepDeco1} />
                       <View style={styles.premiumStepDeco2} />
-                    </LinearGradient>
+                    </View>
+                  </Pressable>
+                  <Pressable
+                    onPress={openCurrentStepYoutube}
+                    accessibilityRole="button"
+                    accessibilityLabel={`${nextAction.title} 유튜브 가이드`}
+                    accessibilityHint={
+                      hasCurrentStepYoutubeUrl
+                        ? '현재 단계 영상 가이드를 엽니다.'
+                        : '현재 단계 영상이 준비 중임을 안내합니다.'
+                    }
+                    style={({ pressed }) => [
+                      styles.stepYoutubeButton,
+                      !hasCurrentStepYoutubeUrl && styles.stepYoutubeButtonPending,
+                      pressed && styles.pressedOpacity,
+                    ]}
+                  >
+                    <View
+                      style={[
+                        styles.stepYoutubeIcon,
+                        !hasCurrentStepYoutubeUrl && styles.stepYoutubeIconPending,
+                      ]}
+                    >
+                      <Feather
+                        name="youtube"
+                        size={18}
+                        color={hasCurrentStepYoutubeUrl ? '#DC2626' : '#9CA3AF'}
+                      />
+                    </View>
+                    <Text
+                      style={[
+                        styles.stepYoutubeTitle,
+                        !hasCurrentStepYoutubeUrl && styles.stepYoutubeTitlePending,
+                      ]}
+                    >
+                      영상
+                    </Text>
+                    <Text
+                      style={[
+                        styles.stepYoutubeStatus,
+                        !hasCurrentStepYoutubeUrl && styles.stepYoutubeStatusPending,
+                      ]}
+                      numberOfLines={1}
+                    >
+                      {hasCurrentStepYoutubeUrl ? '보기' : '준비 중'}
+                    </Text>
                   </Pressable>
                 </View>
               </View>
@@ -1559,12 +1796,7 @@ export default function Home() {
               {role === 'admin' ? (
                 <AndroidSafeMotiView from={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} transition={{ type: 'spring', delay: 100 }}>
                   <Pressable onPress={() => handlePressLink('/dashboard', 'step4')}>
-                    <LinearGradient
-                      colors={['#f36f21', '#fabc3c']}
-                      start={{ x: 0, y: 0 }}
-                      end={{ x: 1, y: 1 }}
-                      style={styles.ctaCard}
-                    >
+                    <View style={styles.ctaCard}>
                       <View style={styles.ctaContent}>
                         <View style={[styles.ctaBadge, { backgroundColor: 'rgba(255,255,255,0.15)' }]}>
                           <Text style={styles.ctaBadgeText}>관리자 할 일</Text>
@@ -1578,7 +1810,7 @@ export default function Home() {
                         <Feather name="file-text" size={24} color="#fff" />
                       </View>
                       <View style={styles.ctaDecoCircle} />
-                    </LinearGradient>
+                    </View>
                   </Pressable>
                 </AndroidSafeMotiView>
               ) : isFc ? (
@@ -1589,12 +1821,7 @@ export default function Home() {
                     borderRadius={24}>
                     <AndroidSafeMotiView from={{ opacity: 0, translateY: 10 }} animate={{ opacity: 1, translateY: 0 }} transition={{ type: 'spring', delay: 100 }}>
                       <Pressable onPress={() => handlePressLink('/messenger')}>
-                        <LinearGradient
-                          colors={['#f36f21', '#fabc3c']}
-                          start={{ x: 0, y: 0 }}
-                          end={{ x: 1, y: 1 }}
-                          style={styles.ctaCard}
-                        >
+                        <View style={styles.ctaCard}>
                           <View style={styles.ctaContent}>
                             <View style={styles.ctaBadge}>
                               <Text style={styles.ctaBadgeText}>메신저</Text>
@@ -1633,7 +1860,7 @@ export default function Home() {
                             )}
                           </View>
                           <View style={styles.ctaDecoCircle} />
-                        </LinearGradient>
+                        </View>
                       </Pressable>
                     </AndroidSafeMotiView>
                   </TourGuideZone>
@@ -1641,12 +1868,7 @@ export default function Home() {
               ) : (
                 <AndroidSafeMotiView from={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} transition={{ type: 'spring', delay: 100 }}>
                   <Pressable onPress={() => handlePressLink('/messenger')}>
-                    <LinearGradient
-                      colors={['#f36f21', '#fabc3c']}
-                      start={{ x: 0, y: 0 }}
-                      end={{ x: 1, y: 1 }}
-                      style={styles.ctaCard}
-                    >
+                    <View style={styles.ctaCard}>
                       <View style={styles.ctaContent}>
                         <View style={styles.ctaBadge}>
                           <Text style={styles.ctaBadgeText}>메신저</Text>
@@ -1664,7 +1886,7 @@ export default function Home() {
                         <Feather name="message-circle" size={24} color={HANWHA_ORANGE} />
                       </View>
                       <View style={styles.ctaDecoCircle} />
-                    </LinearGradient>
+                    </View>
                   </Pressable>
                 </AndroidSafeMotiView>
               )}
@@ -1673,10 +1895,18 @@ export default function Home() {
 
           <View style={styles.linksSection}>
             <Text style={styles.sectionTitle}>
-              {role === 'admin' && isAdminExam ? '시험 관리 바로가기' : '바로가기'}
+              {role === 'admin' && isManagerExam
+                ? '시험 관리/신청 바로가기'
+                : role === 'admin' && isAdminExam
+                ? '시험 관리 바로가기'
+                : '바로가기'}
             </Text>
-            {role === 'admin' && isAdminExam ? (
-              <Text style={styles.sectionHint}>시험 등록/신청자 관련 메뉴를 모았습니다</Text>
+            {role === 'admin' && showsExamManagementHome ? (
+              <Text style={styles.sectionHint}>
+                {isManagerExam
+                  ? '기존 시험 목록·신청자 명단에 시험 신청 메뉴를 추가했습니다'
+                  : '시험 등록/신청자 관련 메뉴를 모았습니다'}
+              </Text>
             ) : null}
           </View>
 
@@ -1688,49 +1918,58 @@ export default function Home() {
               transition={{ type: 'spring', delay: 180 }}
               style={{ marginBottom: 20 }}
             >
-              <Pressable
-                onPress={startShortcutGuide}
-                accessibilityRole="button"
-                accessibilityLabel="바로가기 사용법 설명 듣기"
-                style={({ pressed }) => [
-                  styles.guideCardNew,
-                  pressed && styles.guideCardNewPressed,
-                ]}
-              >
-                {/* Left icon */}
-                <View style={styles.guideIconWrapNew}>
-                  <LinearGradient
-                    colors={['#fff7ed', '#ffffff']}
-                    start={{ x: 0, y: 0 }}
-                    end={{ x: 1, y: 1 }}
-                    style={styles.guideIconGradientNew}
-                  >
-                    <Feather name="play" size={16} color={HANWHA_ORANGE} style={{ marginLeft: 1 }} />
-                  </LinearGradient>
-                </View>
-
-                {/* Text */}
-                <View style={styles.guideTextWrapNew}>
-                  <View style={styles.guideBadgeRowNew}>
-                    <View style={styles.guideBadgeNew}>
-                      <Text style={styles.guideBadgeTextNew}>SHORTCUT</Text>
+              <View style={styles.guideCardNew}>
+                <Pressable
+                  onPress={startShortcutGuide}
+                  accessibilityRole="button"
+                  accessibilityLabel="바로가기 사용법 설명 듣기"
+                  style={({ pressed }) => [
+                    styles.guideMainActionNew,
+                    pressed && styles.guideCardNewPressed,
+                  ]}
+                >
+                  <View style={styles.guideIconWrapNew}>
+                    <View style={styles.guideIconBadgeNew}>
+                      <View style={styles.guidePlayTriangle} />
                     </View>
-                    <Text style={styles.guideBadgeHintNew}>기능이 궁금한가요?</Text>
                   </View>
 
-                  <Text style={styles.guideTitleNew} numberOfLines={1}>
-                    바로가기 사용법 설명 듣기
-                  </Text>
-                </View>
+                  <View style={styles.guideTextWrapNew}>
+                    <View style={styles.guideBadgeRowNew}>
+                      <View style={styles.guideBadgeNew}>
+                        <Text style={styles.guideBadgeTextNew}>SHORTCUT</Text>
+                      </View>
+                      <Text style={styles.guideBadgeHintNew}>기능이 궁금한가요?</Text>
+                    </View>
 
-                {/* CTA */}
-                <View style={styles.guideCtaNew}>
-                  <View style={styles.guideCtaChipNew}>
-                    <Text style={styles.guideCtaTextNew}>시작</Text>
-                    <Feather name="chevron-right" size={16} color="#fff" />
+                    <Text style={styles.guideTitleNew} numberOfLines={1}>
+                      바로가기 사용법 설명 듣기
+                    </Text>
                   </View>
-                </View>
-              </Pressable>
+
+                  <View style={styles.guideCtaNew}>
+                    <View style={styles.guideCtaChipNew}>
+                      <Text style={styles.guideCtaTextNew}>시작</Text>
+                      <Feather name="chevron-right" size={16} color="#fff" />
+                    </View>
+                  </View>
+                </Pressable>
+                <Pressable
+                  onPress={openHomeYoutube}
+                  accessibilityRole="button"
+                  accessibilityLabel="유튜브 바로가기 영상 보기"
+                  style={({ pressed }) => [styles.youtubeGuideActionNew, pressed && styles.pressedOpacity]}
+                >
+                  <View style={styles.youtubeGuideIconNew}>
+                    <Feather name="youtube" size={20} color="#DC2626" />
+                  </View>
+                  <View style={styles.youtubeGuideTextWrapNew}>
+                    <Text style={styles.youtubeGuideTitleNew}>바로가기 영상 가이드 보기</Text>
+                    <Text style={styles.youtubeGuideSubTextNew}>메뉴별 이동 방법을 영상으로 확인하세요</Text>
+                  </View>
+                  <Feather name="external-link" size={16} color="#DC2626" />
+                </Pressable>
+              </View>
             </AndroidSafeMotiView>
           )}
           <View style={styles.actionGrid}>
@@ -1876,6 +2115,7 @@ const styles = StyleSheet.create({
     marginBottom: 16,
     position: 'relative',
     overflow: 'hidden',
+    backgroundColor: HANWHA_ORANGE,
   },
   ctaContent: { zIndex: 1 },
   ctaBadge: {
@@ -2030,6 +2270,37 @@ const styles = StyleSheet.create({
     ...CARD_SHADOW,
   },
   progressMeta: { fontSize: 15, fontWeight: '700', color: HANWHA_ORANGE }, // 13 -> 15
+  progressHeaderActions: {
+    alignItems: 'flex-end',
+    gap: 6,
+    flexShrink: 1,
+    maxWidth: '60%',
+  },
+  tempIdBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    maxWidth: '100%',
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 999,
+    borderWidth: 1,
+  },
+  tempIdBadgeIssued: {
+    backgroundColor: '#ECFDF5',
+    borderColor: '#BBF7D0',
+  },
+  tempIdBadgeMissing: {
+    backgroundColor: '#FFF7ED',
+    borderColor: '#FED7AA',
+  },
+  tempIdBadgeText: {
+    flexShrink: 1,
+    fontSize: 12,
+    fontWeight: '800',
+  },
+  tempIdBadgeTextIssued: { color: '#166534' },
+  tempIdBadgeTextMissing: { color: '#9A3412' },
   statusRow: { flexDirection: 'row', marginBottom: 20, alignItems: 'center' },
   statusItem: { flex: 1, alignItems: 'center' },
   statusLabel: { fontSize: 14, color: TEXT_MUTED, marginBottom: 6 }, // 12 -> 14
@@ -2044,6 +2315,14 @@ const styles = StyleSheet.create({
     fontSize: 13,
     fontWeight: '600',
   },
+  licenseSummaryText: {
+    marginTop: -4,
+    marginBottom: 12,
+    textAlign: 'center',
+    color: CHARCOAL,
+    fontSize: 13,
+    fontWeight: '700',
+  },
   glanceRow: {
     flexDirection: 'row',
     gap: 10,
@@ -2051,6 +2330,49 @@ const styles = StyleSheet.create({
     paddingTop: 16,
     borderTopWidth: 1,
     borderTopColor: '#F3F4F6',
+  },
+  stepYoutubeButton: {
+    width: 92,
+    borderRadius: 18,
+    paddingHorizontal: 10,
+    paddingVertical: 12,
+    borderWidth: 1,
+    borderColor: '#FCA5A5',
+    backgroundColor: '#FEF2F2',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 4,
+  },
+  stepYoutubeButtonPending: {
+    borderColor: '#E5E7EB',
+    backgroundColor: '#F9FAFB',
+  },
+  stepYoutubeIcon: {
+    width: 34,
+    height: 34,
+    borderRadius: 17,
+    backgroundColor: '#FFFFFF',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  stepYoutubeIconPending: {
+    backgroundColor: '#F3F4F6',
+  },
+  stepYoutubeTitle: {
+    fontSize: 13,
+    fontWeight: '800',
+    color: '#991B1B',
+  },
+  stepYoutubeTitlePending: {
+    color: '#6B7280',
+  },
+  stepYoutubeStatus: {
+    fontSize: 11,
+    fontWeight: '700',
+    color: '#B91C1C',
+  },
+  stepYoutubeStatusPending: {
+    color: '#9CA3AF',
   },
   glancePill: {
     flex: 1,
@@ -2103,7 +2425,7 @@ const styles = StyleSheet.create({
     lineHeight: 18,
   },
   // Step
-  stepContainer: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
+  stepContainer: { flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'space-between' },
   stepWrapper: { flex: 1, alignItems: 'center', position: 'relative' },
   stepConnector: {
     position: 'absolute',
@@ -2131,7 +2453,7 @@ const styles = StyleSheet.create({
   stepCircleDone: { backgroundColor: HANWHA_ORANGE, borderColor: HANWHA_ORANGE },
   stepNumber: { fontSize: 12, color: '#6B7280', fontWeight: '700' }, // 11 -> 12
   stepNumberActive: { color: HANWHA_ORANGE },
-  stepLabel: { fontSize: 12, color: '#9CA3AF' }, // 11 -> 12
+  stepLabel: { fontSize: 12, color: '#9CA3AF', textAlign: 'center' }, // 11 -> 12
   stepLabelActive: { color: CHARCOAL, fontWeight: '700' },
   premiumStepCard: {
     borderRadius: 20,
@@ -2147,6 +2469,7 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.25,
     shadowRadius: 12,
     elevation: 8,
+    backgroundColor: HANWHA_ORANGE,
   },
   premiumStepContent: {
     zIndex: 10,
@@ -2182,7 +2505,7 @@ const styles = StyleSheet.create({
     fontWeight: '800',
     color: '#fff',
     marginBottom: 4,
-    letterSpacing: -0.5,
+    letterSpacing: 0,
   },
   premiumStepSub: {
     fontSize: 14,
@@ -2261,16 +2584,20 @@ const styles = StyleSheet.create({
     borderRadius: 18,
     paddingVertical: 14,
     paddingHorizontal: 14,
-    flexDirection: 'row',
-    alignItems: 'center',
     backgroundColor: '#fff',
     borderWidth: 1,
     borderColor: '#F1F5F9', // Slate-100 느낌
+    gap: 10,
     shadowColor: '#000',
     shadowOpacity: 0.06,
     shadowRadius: 16,
     shadowOffset: { width: 0, height: 8 },
     elevation: 4,
+  },
+
+  guideMainActionNew: {
+    flexDirection: 'row',
+    alignItems: 'center',
   },
 
   guideCardNewPressed: {
@@ -2283,15 +2610,37 @@ const styles = StyleSheet.create({
     height: 44,
     borderRadius: 22,
     marginRight: 12,
+    backgroundColor: HOME_GUIDE_ICON_BACKGROUND,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
 
-  guideIconGradientNew: {
+  guideIconBadgeNew: {
     flex: 1,
+    width: '100%',
     borderRadius: 22,
     alignItems: 'center',
     justifyContent: 'center',
     borderWidth: 1,
-    borderColor: '#FFEDD5', // Orange-100
+    borderColor: HOME_GUIDE_ICON_BORDER,
+    backgroundColor: HOME_GUIDE_ICON_BACKGROUND,
+    shadowColor: HOME_GUIDE_ICON_SHADOW,
+    shadowOpacity: 0,
+    shadowRadius: 0,
+    shadowOffset: { width: 0, height: 0 },
+    elevation: 0,
+  },
+
+  guidePlayTriangle: {
+    width: 0,
+    height: 0,
+    marginLeft: 2,
+    borderTopWidth: 7,
+    borderBottomWidth: 7,
+    borderLeftWidth: 10,
+    borderTopColor: 'transparent',
+    borderBottomColor: 'transparent',
+    borderLeftColor: HOME_GUIDE_ICON_FOREGROUND,
   },
 
   guideTextWrapNew: {
@@ -2319,7 +2668,7 @@ const styles = StyleSheet.create({
     color: '#9A3412', // Orange-900
     fontSize: 11,
     fontWeight: '800',
-    letterSpacing: 0.6,
+    letterSpacing: 0,
   },
 
   guideBadgeHintNew: {
@@ -2332,7 +2681,7 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: '800',
     color: CHARCOAL,
-    letterSpacing: -0.2,
+    letterSpacing: 0,
     marginBottom: 2,
   },
 
@@ -2349,22 +2698,43 @@ const styles = StyleSheet.create({
     gap: 8,
   },
 
-  youtubeIconBtnNew: {
+  youtubeGuideActionNew: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 6,
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-    borderRadius: 999,
-    backgroundColor: '#FEF2F2',
+    gap: 10,
+    borderRadius: 14,
     borderWidth: 1,
-    borderColor: '#FEE2E2',
+    borderColor: '#FCA5A5',
+    backgroundColor: '#FEF2F2',
+    paddingHorizontal: 12,
+    paddingVertical: 10,
   },
 
-  youtubeIconBtnTextNew: {
-    fontSize: 13,
+  youtubeGuideIconNew: {
+    width: 34,
+    height: 34,
+    borderRadius: 17,
+    backgroundColor: '#FFFFFF',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+
+  youtubeGuideTextWrapNew: {
+    flex: 1,
+    minWidth: 0,
+  },
+
+  youtubeGuideTitleNew: {
+    fontSize: 14,
     fontWeight: '800',
-    color: '#EF4444',
+    color: '#991B1B',
+    marginBottom: 2,
+  },
+
+  youtubeGuideSubTextNew: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: '#B91C1C',
   },
 
   guideCtaChipNew: {

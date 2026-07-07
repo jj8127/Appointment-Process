@@ -2,22 +2,41 @@ import { Feather } from '@expo/vector-icons';
 import { Stack, useLocalSearchParams, useRouter } from 'expo-router';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
-  ActivityIndicator,
   Alert,
-  FlatList,
   Pressable,
   RefreshControl,
+  ScrollView,
   StyleSheet,
   Text,
   View,
 } from 'react-native';
+import Animated from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
+import BrandedLoadingState from '@/components/BrandedLoadingState';
 import { BottomNavigation } from '@/components/BottomNavigation';
+import { useBottomNavAnimation } from '@/hooks/use-bottom-nav-animation';
 import { useSession } from '@/hooks/use-session';
 import { resolveBottomNavActiveKey, resolveBottomNavPreset } from '@/lib/bottom-navigation';
 import { logger } from '@/lib/logger';
-import { rbGetRequestList, type RbRequestListItem } from '@/lib/request-board-api';
+import {
+  rbGetRequestDetail,
+  rbGetRequestList,
+  type RbRequestListItem,
+} from '@/lib/request-board-api';
+import {
+  getRequestBoardPrimaryStatus,
+  requestBoardListHasBucket,
+  type RequestBoardListFilterKey,
+} from '@/lib/request-board-list-filters';
+import { formatRequestBoardFcDisplayName } from '@/lib/request-board-fc-identity';
+import { formatRequestBoardCustomerDisplayName } from '@/lib/request-board-policyholder-display';
+import {
+  getDesignerRejectionSummary,
+  mergeDesignerRejectionReasonFromDetail,
+  requestNeedsDesignerRejectionReasonHydration,
+} from '@/lib/request-board-rejection-summary';
+import { toRequestBoardSessionErrorMessage } from '@/lib/request-board-session-error';
 import { COLORS, RADIUS, SHADOWS, SPACING, TYPOGRAPHY } from '@/lib/theme';
 
 /* ─── Helpers ─── */
@@ -35,13 +54,42 @@ const getProductNames = (req: RbRequestListItem): string => {
   return names.length > 0 ? names.join(', ') : '종목 없음';
 };
 
-type FilterKey = 'all' | 'pending' | 'in_progress' | 'completed' | 'cancelled' | 'review_pending';
+const formatRequestBoardPhone = (value?: string | null) => {
+  const digits = String(value ?? '').replace(/[^0-9]/g, '');
+  if (digits.length === 11) return `${digits.slice(0, 3)}-${digits.slice(3, 7)}-${digits.slice(7)}`;
+  return String(value ?? '').trim() || '-';
+};
 
-const hasPendingReview = (req: RbRequestListItem) =>
-  (req.request_designers ?? []).some(
-    (d) => d.status === 'completed' && (d.fc_decision === 'pending' || d.fc_decision == null),
-  );
+const formatDesignCodeDisplay = (codeValue?: unknown, fallbackName?: unknown): string | null => {
+  const value = String(codeValue ?? '').trim();
+  if (value) return value;
+  const fallback = String(fallbackName ?? '').trim();
+  return fallback || null;
+};
 
+const getRequestDesignCodeDisplay = (req: RbRequestListItem): string | null => {
+  const assignmentCode = (req.request_designers ?? [])
+    .map((assignment) => formatDesignCodeDisplay(assignment.fc_code_value, assignment.fc_code_name))
+    .find((value): value is string => Boolean(value));
+  return assignmentCode ?? formatDesignCodeDisplay(req.fc_code_value, req.fc_code_name);
+};
+
+const getRequestFcContactSummary = (
+  request: RbRequestListItem,
+  designCode?: string | null,
+): string | null => {
+  const rawName = String(request.fc?.name ?? '').trim();
+  const fcName = rawName
+    ? formatRequestBoardFcDisplayName(request.fc?.name, request.fc?.affiliation)
+    : null;
+  const phone = formatRequestBoardPhone(request.fc?.phone);
+  const parts = [
+    fcName ? `요청 FC: ${fcName}` : null,
+    designCode ? `설계 코드: ${designCode}` : null,
+    phone !== '-' ? `전화번호: ${phone}` : null,
+  ].filter(Boolean);
+  return parts.length > 0 ? parts.join(' · ') : null;
+};
 const getFcDecisionMeta = (req: RbRequestListItem) => {
   const assignments = req.request_designers ?? [];
   const decisions = assignments.map((d) => d.fc_decision);
@@ -81,19 +129,47 @@ const REQUEST_STATUS_LABEL: Record<string, { label: string; color: string; bg: s
   cancelled: { label: '취소', color: COLORS.gray[500], bg: COLORS.gray[100] },
 };
 
+const hydrateDesignerRejectionReasons = async (
+  listItems: RbRequestListItem[],
+): Promise<RbRequestListItem[]> => {
+  const targets = listItems.filter(requestNeedsDesignerRejectionReasonHydration);
+  if (targets.length === 0) {
+    return listItems;
+  }
+
+  const detailResults = await Promise.allSettled(
+    targets.map(async (request) => {
+      const detail = await rbGetRequestDetail(request.id);
+      return { requestId: request.id, detail };
+    }),
+  );
+
+  const detailsByRequestId = new Map<number, Awaited<ReturnType<typeof rbGetRequestDetail>>>();
+  for (const result of detailResults) {
+    if (result.status === 'fulfilled') {
+      detailsByRequestId.set(result.value.requestId, result.value.detail);
+    }
+  }
+
+  return listItems.map((request) =>
+    mergeDesignerRejectionReasonFromDetail(request, detailsByRequestId.get(request.id)),
+  );
+};
+
 /* ─── Component ─── */
 
 export default function RequestBoardRequestsScreen() {
   const router = useRouter();
   const { filter } = useLocalSearchParams<{ filter?: string | string[] }>();
   const insets = useSafeAreaInsets();
+  const { scrollHandler, animatedStyle } = useBottomNavAnimation();
   const { role, readOnly, hydrated, isRequestBoardDesigner, ensureRequestBoardSession } = useSession();
 
   const [requests, setRequests] = useState<RbRequestListItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [fetchError, setFetchError] = useState<string | null>(null);
-  const [activeFilter, setActiveFilter] = useState<FilterKey>('all');
+  const [activeFilter, setActiveFilter] = useState<RequestBoardListFilterKey>('all');
 
   useEffect(() => {
     const rawFilter = Array.isArray(filter) ? filter[0] : filter;
@@ -125,13 +201,12 @@ export default function RequestBoardRequestsScreen() {
       }
 
       const data = await rbGetRequestList();
-      setRequests(data);
+      const hydratedData = await hydrateDesignerRejectionReasons(data);
+      setRequests(hydratedData);
     } catch (err) {
       logger.warn('[requests] fetch failed', err);
       setFetchError(
-        err instanceof Error && err.message
-          ? err.message
-          : '의뢰 목록을 불러오는데 실패했습니다.',
+        toRequestBoardSessionErrorMessage(err, '의뢰 목록을 불러오는데 실패했습니다.'),
       );
     } finally {
       setLoading(false);
@@ -151,57 +226,38 @@ export default function RequestBoardRequestsScreen() {
 
   /* ─── Derived ─── */
   const reviewPendingCount = useMemo(
-    () => requests.filter(hasPendingReview).length,
-    [requests],
+    () => requests.filter((r) => requestBoardListHasBucket(r, 'review_pending', isRequestBoardDesigner)).length,
+    [isRequestBoardDesigner, requests],
   );
   const pendingCount = useMemo(
-    () => requests.filter((r) => r.status === 'pending').length,
-    [requests],
+    () => requests.filter((r) => requestBoardListHasBucket(r, 'pending', isRequestBoardDesigner)).length,
+    [isRequestBoardDesigner, requests],
   );
   const inProgressCount = useMemo(
-    () => requests.filter((r) => r.status === 'in_progress').length,
-    [requests],
+    () => requests.filter((r) => requestBoardListHasBucket(r, 'in_progress', isRequestBoardDesigner)).length,
+    [isRequestBoardDesigner, requests],
   );
   const completedCount = useMemo(
-    () => requests.filter((r) => r.status === 'completed').length,
-    [requests],
+    () => requests.filter((r) => requestBoardListHasBucket(r, 'completed', isRequestBoardDesigner)).length,
+    [isRequestBoardDesigner, requests],
   );
   const cancelledCount = useMemo(
-    () => requests.filter((r) => r.status === 'cancelled').length,
-    [requests],
+    () => requests.filter((r) => requestBoardListHasBucket(r, 'cancelled', isRequestBoardDesigner)).length,
+    [isRequestBoardDesigner, requests],
   );
   const countedTotal = useMemo(
-    () => pendingCount + inProgressCount + completedCount + cancelledCount,
-    [pendingCount, inProgressCount, completedCount, cancelledCount],
+    () => requests.filter((r) => requestBoardListHasBucket(r, 'all', isRequestBoardDesigner)).length,
+    [isRequestBoardDesigner, requests],
   );
 
   const filteredRequests = useMemo(() => {
     const sorted = [...requests].sort(
       (a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime(),
     );
-    switch (activeFilter) {
-      case 'pending':
-        return sorted.filter((r) => r.status === 'pending');
-      case 'review_pending':
-        return sorted.filter(hasPendingReview);
-      case 'in_progress':
-        return sorted.filter((r) => r.status === 'in_progress');
-      case 'completed':
-        return sorted.filter((r) => r.status === 'completed');
-      case 'cancelled':
-        return sorted.filter((r) => r.status === 'cancelled');
-      default:
-        return sorted.filter(
-          (r) =>
-            r.status === 'pending' ||
-            r.status === 'in_progress' ||
-            r.status === 'completed' ||
-            r.status === 'cancelled',
-        );
-    }
-  }, [requests, activeFilter]);
+    return sorted.filter((r) => requestBoardListHasBucket(r, activeFilter, isRequestBoardDesigner));
+  }, [activeFilter, isRequestBoardDesigner, requests]);
 
-  const FILTERS: { key: FilterKey; label: string; count?: number }[] = [
+  const FILTERS: { key: RequestBoardListFilterKey; label: string; count?: number }[] = [
     { key: 'all', label: '전체', count: countedTotal },
     { key: 'pending', label: '수락 대기', count: pendingCount },
     { key: 'in_progress', label: '진행중', count: inProgressCount },
@@ -212,15 +268,40 @@ export default function RequestBoardRequestsScreen() {
 
   /* ─── Render ─── */
   const renderItem = ({ item }: { item: RbRequestListItem }) => {
-    const isPendingReview = hasPendingReview(item);
-    const statusInfo = REQUEST_STATUS_LABEL[item.status] ?? {
-      label: item.status,
+    const isPendingReview = requestBoardListHasBucket(item, 'review_pending', isRequestBoardDesigner);
+    const primaryStatus = getRequestBoardPrimaryStatus(item, isRequestBoardDesigner);
+    const statusInfo = REQUEST_STATUS_LABEL[primaryStatus] ?? {
+      label: primaryStatus,
       color: COLORS.gray[500],
       bg: COLORS.gray[100],
     };
     const requestId = Number(item.id ?? (item as any).request_id ?? 0);
     const fcDecisionMeta = getFcDecisionMeta(item);
-
+    const designCodeDisplay = getRequestDesignCodeDisplay(item);
+    const fcContactSummary = getRequestFcContactSummary(item, designCodeDisplay);
+    const fcMeta = fcDecisionMeta;
+    const designerRejectionSummary = getDesignerRejectionSummary(item);
+    const customerName = String(item.customer_name ?? '').trim();
+    const policyholderName = String(item.policyholder_name ?? '').trim();
+    const hasSeparatePolicyholder = !!item.has_separate_policyholder;
+    const fallbackCustomerDisplayName =
+      String(item.customer_display_name ?? '').trim() ||
+      formatRequestBoardCustomerDisplayName({
+        customerName: item.customer_name,
+        hasSeparatePolicyholder: item.has_separate_policyholder,
+        policyholderName: item.policyholder_name,
+      });
+    const customerDisplayName = hasSeparatePolicyholder && customerName
+      ? customerName
+      : fallbackCustomerDisplayName;
+    const separatePolicyholderSummary = hasSeparatePolicyholder
+      ? [
+          customerName ? `피보험자: ${customerName}` : null,
+          policyholderName ? `계약자: ${policyholderName}` : '계약자: 정보 확인 필요',
+        ]
+          .filter(Boolean)
+          .join(' · ')
+      : null;
     return (
       <Pressable
         style={({ pressed }) => [
@@ -240,7 +321,7 @@ export default function RequestBoardRequestsScreen() {
         <View style={styles.cardTop}>
           <View style={styles.cardTitleRow}>
             <Text style={styles.customerName} numberOfLines={1}>
-              {item.customer_name}
+              {customerDisplayName}
             </Text>
             <View style={styles.badgeColumn}>
               {isPendingReview && (
@@ -256,9 +337,28 @@ export default function RequestBoardRequestsScreen() {
               </View>
             </View>
           </View>
+          {separatePolicyholderSummary ? (
+            <View style={styles.requestPolicyholderRow}>
+              <View style={styles.requestPolicyholderBadge}>
+                <Feather name="users" size={11} color="#92400E" />
+                <Text style={styles.requestPolicyholderBadgeText}>계약자 다름</Text>
+              </View>
+              <Text style={styles.requestPolicyholderText} numberOfLines={1}>
+                {separatePolicyholderSummary}
+              </Text>
+            </View>
+          ) : null}
           <Text style={styles.productNames} numberOfLines={1}>
             {getProductNames(item)}
           </Text>
+          {fcContactSummary ? (
+            <View style={styles.requestFcSummaryRow}>
+              <Feather name="user" size={11} color={COLORS.primary} />
+              <Text style={styles.requestFcSummaryText} numberOfLines={2}>
+                {fcContactSummary}
+              </Text>
+            </View>
+          ) : null}
         </View>
         <View style={styles.cardBottom}>
           <View style={styles.cardMeta}>
@@ -266,9 +366,9 @@ export default function RequestBoardRequestsScreen() {
             <Text style={styles.cardMetaText}>{formatDate(item.created_at)}</Text>
           </View>
           <View style={styles.cardMeta}>
-            <Feather name={fcDecisionMeta.icon} size={11} color={fcDecisionMeta.color} />
-            <Text style={[styles.cardMetaText, { color: fcDecisionMeta.color }]}>
-              {fcDecisionMeta.text}
+            <Feather name={fcMeta.icon} size={11} color={fcMeta.color} />
+            <Text style={[styles.cardMetaText, { color: fcMeta.color }]} numberOfLines={1}>
+              {fcMeta.text}
             </Text>
           </View>
           <View style={[styles.cardMeta, { marginLeft: 'auto' }]}>
@@ -278,6 +378,19 @@ export default function RequestBoardRequestsScreen() {
             <Feather name="chevron-right" size={11} color={COLORS.primary} />
           </View>
         </View>
+        {designerRejectionSummary ? (
+          <View style={styles.rejectionReasonBox}>
+            <View style={styles.rejectionReasonHeader}>
+              <Feather name="message-square" size={11} color="#DC2626" />
+              <Text style={styles.rejectionReasonLabel}>
+                {designerRejectionSummary.label}
+              </Text>
+            </View>
+            <Text style={styles.rejectionReasonText} numberOfLines={2}>
+              {designerRejectionSummary.reason}
+            </Text>
+          </View>
+        ) : null}
       </Pressable>
     );
   };
@@ -340,7 +453,12 @@ export default function RequestBoardRequestsScreen() {
         </View>
 
         {/* Filter tabs */}
-        <View style={styles.filterTabs}>
+        <ScrollView
+          style={styles.filterTabs}
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          contentContainerStyle={styles.filterTabsContent}
+        >
           {FILTERS.map((f) => (
             <Pressable
               key={f.key}
@@ -376,7 +494,7 @@ export default function RequestBoardRequestsScreen() {
               )}
             </Pressable>
           ))}
-        </View>
+        </ScrollView>
       </View>
 
       {/* Error */}
@@ -390,8 +508,7 @@ export default function RequestBoardRequestsScreen() {
       {/* List */}
       {loading ? (
         <View style={styles.loadingWrap}>
-          <ActivityIndicator color={COLORS.primary} />
-          <Text style={styles.loadingText}>불러오는 중...</Text>
+          <BrandedLoadingState variant="request-board-requests" layout="section" />
         </View>
       ) : filteredRequests.length === 0 ? (
         <View style={styles.emptyWrap}>
@@ -404,7 +521,7 @@ export default function RequestBoardRequestsScreen() {
           </Text>
         </View>
       ) : (
-        <FlatList
+        <Animated.FlatList
           data={filteredRequests}
           keyExtractor={(item) => String(item.id)}
           renderItem={renderItem}
@@ -417,12 +534,15 @@ export default function RequestBoardRequestsScreen() {
             />
           }
           ItemSeparatorComponent={() => <View style={{ height: SPACING.sm }} />}
+          onScroll={scrollHandler}
+          scrollEventThrottle={16}
         />
       )}
 
       <BottomNavigation
         preset={navPreset ?? undefined}
         activeKey={navActiveKey}
+        animatedStyle={animatedStyle}
         bottomInset={insets.bottom}
       />
     </View>
@@ -515,8 +635,13 @@ const styles = StyleSheet.create({
 
   /* Filter tabs */
   filterTabs: {
+    marginHorizontal: -SPACING.base,
+  },
+  filterTabsContent: {
     flexDirection: 'row',
     gap: SPACING.xs,
+    paddingHorizontal: SPACING.base,
+    paddingRight: SPACING.base * 2,
   },
   filterTab: {
     flexDirection: 'row',
@@ -659,9 +784,55 @@ const styles = StyleSheet.create({
     fontSize: TYPOGRAPHY.fontSize.xs,
     fontWeight: '700' as const,
   },
+  requestPolicyholderRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    marginBottom: 6,
+    minWidth: 0,
+  },
+  requestPolicyholderBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 3,
+    flexShrink: 0,
+    paddingHorizontal: 7,
+    paddingVertical: 3,
+    borderRadius: RADIUS.full,
+    backgroundColor: '#FEF3C7',
+    borderWidth: 1,
+    borderColor: '#FCD34D',
+  },
+  requestPolicyholderBadgeText: {
+    fontSize: TYPOGRAPHY.fontSize['2xs'],
+    fontWeight: '800' as const,
+    color: '#92400E',
+  },
+  requestPolicyholderText: {
+    flex: 1,
+    minWidth: 0,
+    fontSize: TYPOGRAPHY.fontSize.xs,
+    fontWeight: '700' as const,
+    color: '#92400E',
+  },
   productNames: {
     fontSize: TYPOGRAPHY.fontSize.sm,
     color: COLORS.text.muted,
+  },
+  requestFcSummaryRow: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: 4,
+    marginTop: 6,
+    minWidth: 0,
+  },
+  requestFcSummaryText: {
+    flex: 1,
+    minWidth: 0,
+    fontSize: TYPOGRAPHY.fontSize.xs,
+    fontWeight: '800' as const,
+    lineHeight: 17,
+    color: COLORS.primary,
   },
   cardBottom: {
     flexDirection: 'row',
@@ -679,5 +850,30 @@ const styles = StyleSheet.create({
   cardMetaText: {
     fontSize: TYPOGRAPHY.fontSize.xs,
     color: COLORS.gray[500],
+  },
+  rejectionReasonBox: {
+    marginTop: SPACING.sm,
+    paddingHorizontal: SPACING.sm,
+    paddingVertical: 8,
+    borderRadius: RADIUS.md,
+    borderWidth: 1,
+    borderColor: '#FECACA',
+    backgroundColor: '#FEF2F2',
+  },
+  rejectionReasonHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    marginBottom: 3,
+  },
+  rejectionReasonLabel: {
+    fontSize: TYPOGRAPHY.fontSize.xs,
+    fontWeight: '700' as const,
+    color: '#DC2626',
+  },
+  rejectionReasonText: {
+    fontSize: TYPOGRAPHY.fontSize.xs,
+    lineHeight: 17,
+    color: COLORS.gray[700],
   },
 });

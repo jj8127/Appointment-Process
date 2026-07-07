@@ -1,4 +1,3 @@
-import { LinearGradient } from 'expo-linear-gradient';
 import { router, useFocusEffect } from 'expo-router';
 import { MotiView } from 'moti';
 import { useCallback, useEffect, useState } from 'react';
@@ -21,7 +20,9 @@ import { safeStorage } from '@/lib/safe-storage';
 import { supabase } from '@/lib/supabase';
 import { COLORS, RADIUS, SPACING, TYPOGRAPHY } from '@/lib/theme';
 import { validatePassword } from '@/lib/validation';
-import type { CommissionCompletionStatus } from '@/types/fc';
+import type { CommissionCompletionStatus, LicenseStatus } from '@/types/fc';
+
+const AUTH_SCREEN_BACKGROUND = COLORS.primaryPale;
 
 const STORAGE_KEY = 'fc-onboarding/signup';
 
@@ -32,9 +33,11 @@ type SignupPayload = {
   email: string;
   phone: string;
   carrier: string;
+  license_statuses?: LicenseStatus[];
   commissionStatus?: CommissionCompletionStatus;
   phoneVerified?: boolean;
   referralCode?: string;
+  referralInviterFcId?: string;
 };
 
 export default function SignupPasswordScreen() {
@@ -117,8 +120,10 @@ export default function SignupPasswordScreen() {
           recommender: payload.recommender,
           email: payload.email,
           carrier: payload.carrier,
+          license_statuses: payload.license_statuses,
           commissionStatus: payload.commissionStatus ?? 'none',
           referralCode: payload.referralCode || undefined,
+          referralInviterFcId: payload.referralInviterFcId || undefined,
         },
       });
       if (error) {
@@ -161,12 +166,7 @@ export default function SignupPasswordScreen() {
 
   return (
     <View style={styles.container}>
-      <LinearGradient
-        colors={['#ffffff', '#fff1e6']}
-        style={StyleSheet.absoluteFill}
-        start={{ x: 0, y: 0 }}
-        end={{ x: 1, y: 1 }}
-      />
+      <View style={styles.authBackground} pointerEvents="none" />
 
       <SafeAreaView style={styles.safe} edges={['left', 'right', 'bottom']}>
         <KeyboardAwareWrapper
@@ -214,6 +214,7 @@ export default function SignupPasswordScreen() {
                 variant="primary"
                 size="lg"
                 fullWidth
+                dismissKeyboardOnPress
                 style={styles.button}
               >
                 회원가입 완료
@@ -229,6 +230,15 @@ export default function SignupPasswordScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
+    backgroundColor: AUTH_SCREEN_BACKGROUND,
+  },
+  authBackground: {
+    position: 'absolute',
+    top: 0,
+    right: 0,
+    bottom: 0,
+    left: 0,
+    backgroundColor: AUTH_SCREEN_BACKGROUND,
   },
   safe: {
     flex: 1,

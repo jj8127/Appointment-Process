@@ -2,7 +2,6 @@ import { Feather } from '@expo/vector-icons';
 import DateTimePicker, { DateTimePickerEvent } from '@react-native-community/datetimepicker';
 import { useCallback, useEffect, useState } from 'react';
 import {
-  ActivityIndicator,
   Alert,
   Dimensions,
   FlatList,
@@ -18,8 +17,10 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
+import BrandedLoadingState from '@/components/BrandedLoadingState';
 import { Button } from '@/components/Button';
 import { ScreenHeader } from '@/components/ScreenHeader';
+import { useToast } from '@/components/Toast';
 import { useIdentityGate } from '@/hooks/use-identity-gate';
 import { APPOINTMENT_GUIDE_IMAGES } from '@/lib/guide-images';
 import { useKeyboardPadding } from '@/hooks/use-keyboard-padding';
@@ -61,6 +62,7 @@ export default function AppointmentScreen() {
   const { role, residentId } = useSession();
   useIdentityGate({ nextPath: '/appointment' });
   const keyboardPadding = useKeyboardPadding();
+  const { showToast } = useToast();
 
   // 예정 월
   const [scheduleLife, setScheduleLife] = useState<string | null>(null);
@@ -188,6 +190,7 @@ export default function AppointmentScreen() {
       const { data, error } = await supabase.functions.invoke<{
         ok: boolean;
         data?: { id?: string; name?: string };
+        message?: string;
         error?: string;
       }>('fc-submit-appointment', {
         body: {
@@ -220,11 +223,11 @@ export default function AppointmentScreen() {
         })
         .catch(() => undefined);
 
-      Alert.alert(
-        '제출 완료',
-        `${type === 'life' ? '생명보험' : '손해보험'} 위촉 완료일이 제출되었습니다.\n총무 승인 후 최종 반영됩니다.`,
-      );
       await load();
+      showToast({
+        message: `${type === 'life' ? '생명보험' : '손해보험'} 위촉 완료일이 제출되었습니다. 총무 승인 후 최종 반영됩니다.`,
+        variant: 'success',
+      });
     } catch (err: any) {
       Alert.alert('저장 실패', err?.message ?? '정보를 저장하지 못했습니다.');
     } finally {
@@ -384,17 +387,17 @@ export default function AppointmentScreen() {
       >
         <ScreenHeader
           title="생명/손해 위촉"
-      subtitle="한화 위촉 URL 승인과 PDF 등록이 끝나면 이 화면에서 생명·손해 위촉 진행 상황을 입력합니다."
+          subtitle="다위촉 URL 승인과 PDF 등록이 끝나면 이 화면에서 생명·손해 위촉 진행 상황을 입력합니다."
         />
 
         {loading ? (
-          <ActivityIndicator color={COLORS.primary} style={{ marginTop: 40 }} />
+          <BrandedLoadingState variant="appointment" layout="section" />
         ) : (
           <>
             {insuranceGateLocked ? (
               <View style={styles.card}>
                 <Text style={styles.sectionTitle}>생명/손해 위촉 대기</Text>
-        <Text style={styles.sectionDesc}>한화 위촉 URL 승인과 PDF 등록이 끝나면 이 단계가 열립니다.</Text>
+                <Text style={styles.sectionDesc}>다위촉 URL 승인과 PDF 등록이 끝나면 이 단계가 열립니다.</Text>
               </View>
             ) : noAssignedInsuranceSchedule ? (
               <View style={styles.card}>

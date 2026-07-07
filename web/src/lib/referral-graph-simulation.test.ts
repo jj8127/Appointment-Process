@@ -1,0 +1,1791 @@
+import assert from 'node:assert/strict';
+import test from 'node:test';
+import { forceCollide, forceLink, forceManyBody, forceSimulation } from 'd3-force';
+
+import { DEFAULT_REFERRAL_GRAPH_PHYSICS } from '../types/referral-graph.ts';
+import type { GraphEdge, GraphNode } from '../types/referral-graph.ts';
+import { buildReferralGraphLayout } from './referral-graph-layout.ts';
+import {
+  applyReferralGraphDragFollowerTranslation,
+  buildReferralGraphAdjacency,
+  buildReferralGraphDirectedChildren,
+  getReferralGraphDescendantDepths,
+  getReferralGraphDescendantNodeIds,
+  getReferralGraphLocalDragDepths,
+} from './referral-graph-interaction.ts';
+import {
+  createReferralGraphBranchBendForce,
+  createReferralGraphComponentCohesionForce,
+  createReferralGraphClusterGravityForce,
+  createReferralGraphClusterSeparationForce,
+  createReferralGraphComponentEnvelopeForce,
+  createReferralGraphDragLocalityForce,
+  createReferralGraphEdgeCrossingForce,
+  createReferralGraphLayoutMemoryForce,
+  createReferralGraphLinkTensionForce,
+  createReferralGraphNodeSeparationForce,
+  getReferralGraphLinkDistance,
+  getReferralGraphMinimumNodeDistance,
+  createReferralGraphSiblingAngularForce,
+  resolveReferralGraphPhysics,
+} from './referral-graph-physics.ts';
+
+type SimNode = GraphNode & { x: number; y: number; vx?: number; vy?: number };
+type SimLink = GraphEdge & { source: string | SimNode; target: string | SimNode };
+
+function makeNode(id: string, isIsolated = false): GraphNode {
+  return {
+    id,
+    name: id,
+    phone: '',
+    affiliation: '',
+    activeCode: null,
+    referralCount: 0,
+    inboundCount: 0,
+    nodeStatus: 'has_active_code',
+    isIsolated,
+    signupCompleted: true,
+    allCommissionsCompleted: false,
+    hasLegacyUnresolved: false,
+    highlightType: null,
+  };
+}
+
+function makeEdge(source: string, target: string): GraphEdge {
+  return {
+    id: `${source}__${target}`,
+    source,
+    target,
+    referralCode: null,
+  };
+}
+
+function getEndpointId(value: string | SimNode) {
+  return typeof value === 'object' ? value.id : value;
+}
+
+function segmentCross(
+  ax: number,
+  ay: number,
+  bx: number,
+  by: number,
+  cx: number,
+  cy: number,
+) {
+  return ((bx - ax) * (cy - ay)) - ((by - ay) * (cx - ax));
+}
+
+function pointOnSegment(
+  px: number,
+  py: number,
+  ax: number,
+  ay: number,
+  bx: number,
+  by: number,
+) {
+  const epsilon = 1e-6;
+  return (
+    px >= Math.min(ax, bx) - epsilon
+    && px <= Math.max(ax, bx) + epsilon
+    && py >= Math.min(ay, by) - epsilon
+    && py <= Math.max(ay, by) + epsilon
+    && Math.abs(segmentCross(ax, ay, bx, by, px, py)) <= epsilon
+  );
+}
+
+function disjointSegmentsIntersect(left: SimLink, right: SimLink, nodesById: Map<string, SimNode>) {
+  const leftSourceId = getEndpointId(left.source);
+  const leftTargetId = getEndpointId(left.target);
+  const rightSourceId = getEndpointId(right.source);
+  const rightTargetId = getEndpointId(right.target);
+  if (
+    leftSourceId === rightSourceId
+    || leftSourceId === rightTargetId
+    || leftTargetId === rightSourceId
+    || leftTargetId === rightTargetId
+  ) {
+    return false;
+  }
+
+  const leftSource = nodesById.get(leftSourceId);
+  const leftTarget = nodesById.get(leftTargetId);
+  const rightSource = nodesById.get(rightSourceId);
+  const rightTarget = nodesById.get(rightTargetId);
+  if (!leftSource || !leftTarget || !rightSource || !rightTarget) {
+    return false;
+  }
+
+  const ax = leftSource.x;
+  const ay = leftSource.y;
+  const bx = leftTarget.x;
+  const by = leftTarget.y;
+  const cx = rightSource.x;
+  const cy = rightSource.y;
+  const dx = rightTarget.x;
+  const dy = rightTarget.y;
+  const epsilon = 1e-6;
+  const abC = segmentCross(ax, ay, bx, by, cx, cy);
+  const abD = segmentCross(ax, ay, bx, by, dx, dy);
+  const cdA = segmentCross(cx, cy, dx, dy, ax, ay);
+  const cdB = segmentCross(cx, cy, dx, dy, bx, by);
+
+  if (Math.abs(abC) <= epsilon && pointOnSegment(cx, cy, ax, ay, bx, by)) return true;
+  if (Math.abs(abD) <= epsilon && pointOnSegment(dx, dy, ax, ay, bx, by)) return true;
+  if (Math.abs(cdA) <= epsilon && pointOnSegment(ax, ay, cx, cy, dx, dy)) return true;
+  if (Math.abs(cdB) <= epsilon && pointOnSegment(bx, by, cx, cy, dx, dy)) return true;
+
+  return (
+    ((abC > epsilon && abD < -epsilon) || (abC < -epsilon && abD > epsilon))
+    && ((cdA > epsilon && cdB < -epsilon) || (cdA < -epsilon && cdB > epsilon))
+  );
+}
+
+function countDisjointEdgeCrossings(links: SimLink[], nodes: SimNode[]) {
+  const nodesById = new Map(nodes.map((node) => [node.id, node]));
+  let crossings = 0;
+
+  for (let leftIndex = 0; leftIndex < links.length; leftIndex += 1) {
+    for (let rightIndex = leftIndex + 1; rightIndex < links.length; rightIndex += 1) {
+      if (disjointSegmentsIntersect(links[leftIndex], links[rightIndex], nodesById)) {
+        crossings += 1;
+      }
+    }
+  }
+
+  return crossings;
+}
+
+function addPinwheelComponent(
+  nodes: GraphNode[],
+  edges: GraphEdge[],
+  prefix: string,
+  hubCount: number,
+  leavesPerHub: number,
+) {
+  const rootId = `${prefix}-root`;
+  nodes.push(makeNode(rootId));
+
+  for (let hubIndex = 0; hubIndex < hubCount; hubIndex += 1) {
+    const hubId = `${prefix}-hub-${hubIndex}`;
+    nodes.push(makeNode(hubId));
+    edges.push(makeEdge(rootId, hubId));
+
+    for (let leafIndex = 0; leafIndex < leavesPerHub; leafIndex += 1) {
+      const leafId = `${hubId}-leaf-${leafIndex}`;
+      nodes.push(makeNode(leafId));
+      edges.push(makeEdge(hubId, leafId));
+    }
+  }
+}
+
+function buildDegreeMaps(nodes: GraphNode[], edges: GraphEdge[]) {
+  const degreeByNodeId = new Map<string, number>(nodes.map((node) => [node.id, 0]));
+  const childCountByNodeId = new Map<string, number>(nodes.map((node) => [node.id, 0]));
+
+  for (const edge of edges) {
+    degreeByNodeId.set(edge.source, (degreeByNodeId.get(edge.source) ?? 0) + 1);
+    degreeByNodeId.set(edge.target, (degreeByNodeId.get(edge.target) ?? 0) + 1);
+    childCountByNodeId.set(edge.source, (childCountByNodeId.get(edge.source) ?? 0) + 1);
+  }
+
+  return { childCountByNodeId, degreeByNodeId };
+}
+
+function addReferralForces(
+  simulation: ReturnType<typeof forceSimulation<SimNode>>,
+  simLinks: SimLink[],
+  layout: ReturnType<typeof buildReferralGraphLayout>,
+  physics: ReturnType<typeof resolveReferralGraphPhysics>,
+  maps: ReturnType<typeof buildDegreeMaps>,
+  options: {
+    activeDraggedNodeIdRef?: { current: string | null };
+    suppressedNodeIdsRef?: { current: Set<string> };
+  } = {},
+) {
+  const { childCountByNodeId, degreeByNodeId } = maps;
+  const activeDragAdjacency = buildReferralGraphAdjacency(
+    simLinks.map((link) => ({
+      id: link.id,
+      referralCode: link.referralCode,
+      source: getEndpointId(link.source),
+      target: getEndpointId(link.target),
+    })),
+  );
+  const activeDragNodeDepthsRef = {
+    current: options.activeDraggedNodeIdRef?.current
+      ? getReferralGraphLocalDragDepths(options.activeDraggedNodeIdRef.current, activeDragAdjacency, 2)
+      : new Map<string, number>(),
+  };
+  const gravityNodeClusterIndex = new Map(layout.nodeComponentIndex);
+  let nextGravityIndex = layout.componentRadii.size;
+  for (const nodeId of layout.nodeClusterIndex.keys()) {
+    if (gravityNodeClusterIndex.has(nodeId)) {
+      continue;
+    }
+    gravityNodeClusterIndex.set(nodeId, nextGravityIndex);
+    nextGravityIndex += 1;
+  }
+
+  simulation
+    .force(
+      'charge',
+      forceManyBody<SimNode>()
+        .strength(options.activeDraggedNodeIdRef?.current ? 0 : physics.chargeStrength)
+        .distanceMin(physics.chargeDistanceMin)
+        .distanceMax(physics.chargeDistanceMax),
+    )
+    .force(
+      'link',
+      forceLink<SimNode, SimLink>(simLinks)
+        .id((node) => node.id)
+        .distance((link) => {
+          const source = getEndpointId(link.source);
+          const target = getEndpointId(link.target);
+          return getReferralGraphLinkDistance(
+            degreeByNodeId.get(source) ?? 1,
+            degreeByNodeId.get(target) ?? 1,
+            physics.linkDistance,
+            {
+              sourceHasChildren: (childCountByNodeId.get(source) ?? 0) > 0,
+              sourceId: source,
+              targetHasChildren: (childCountByNodeId.get(target) ?? 0) > 0,
+              targetId: target,
+              sourceChildCount: childCountByNodeId.get(source) ?? 0,
+              targetChildCount: childCountByNodeId.get(target) ?? 0,
+              sourceSubtreeSize: layout.directedSubtreeSizes.get(source) ?? 1,
+              targetSubtreeSize: layout.directedSubtreeSizes.get(target) ?? 1,
+              graphNodeCount: layout.nodeAnchorPositions.size,
+            },
+          );
+        })
+        .strength((link) => {
+          const source = getEndpointId(link.source);
+          const target = getEndpointId(link.target);
+          const baseStrength = physics.linkStrength / Math.max(
+            1,
+            Math.min(degreeByNodeId.get(source) ?? 1, degreeByNodeId.get(target) ?? 1),
+          );
+          const activeDraggedNodeId = options.activeDraggedNodeIdRef?.current;
+          if (!activeDraggedNodeId) {
+            return baseStrength;
+          }
+
+          const suppressedNodeIds = options.suppressedNodeIdsRef?.current ?? new Set<string>();
+          if (
+            source === activeDraggedNodeId
+            || target === activeDraggedNodeId
+            || suppressedNodeIds.has(source)
+            || suppressedNodeIds.has(target)
+          ) {
+            return 0;
+          }
+
+          return 0;
+        })
+        .iterations(options.activeDraggedNodeIdRef?.current ? 1 : 5),
+    )
+    .force('layout-memory', createReferralGraphLayoutMemoryForce<SimNode>(
+      layout.nodeAnchorPositions,
+      Math.max(0.042, physics.layoutMemoryStrength * 0.58),
+      {
+        activeDraggedNodeIdRef: options.activeDraggedNodeIdRef,
+        maxTicks: 260,
+        manualNodeTargetsRef: { current: new Map() },
+        nodeComponentIndex: layout.nodeComponentIndex,
+        suppressedNodeIdsRef: options.suppressedNodeIdsRef,
+      },
+    ))
+    .force('node-separation', createReferralGraphNodeSeparationForce<SimNode>({
+      activeDraggedNodeIdRef: options.activeDraggedNodeIdRef,
+      crossClusterDistance: 154,
+      crossComponentDistance: 150,
+      maxVelocity: 22,
+      minDistance: getReferralGraphMinimumNodeDistance(layout.nodeAnchorPositions.size),
+      nodeClusterIndex: layout.nodeClusterIndex,
+      nodeComponentIndex: layout.nodeComponentIndex,
+      strength: 0.31,
+      suppressedNodeIdsRef: options.suppressedNodeIdsRef,
+    }))
+    .force('collision', forceCollide<SimNode>()
+      .radius(48)
+      .strength(options.activeDraggedNodeIdRef?.current ? 0.04 : 0.55)
+      .iterations(options.activeDraggedNodeIdRef?.current ? 1 : 3))
+    .force('cluster-envelope', createReferralGraphComponentEnvelopeForce<SimNode>({
+      activeDraggedNodeIdRef: options.activeDraggedNodeIdRef,
+      componentRadii: layout.clusterRadii,
+      maxVelocity: 14,
+      nodeComponentIndex: layout.nodeClusterIndex,
+      strength: 0.1,
+    }))
+    .force('visual-cluster-separation', createReferralGraphClusterSeparationForce<SimNode>({
+      activeDraggedNodeIdRef: options.activeDraggedNodeIdRef,
+      clusterRadii: layout.clusterRadii,
+      gap: 52,
+      maxVelocity: 10,
+      nodeClusterIndex: layout.nodeClusterIndex,
+      singletonGapFactor: 0.35,
+      softening: 92,
+      strength: 0.04,
+      suppressedNodeIdsRef: options.suppressedNodeIdsRef,
+    }))
+    .force('component-separation', createReferralGraphClusterSeparationForce<SimNode>({
+      activeDraggedNodeIdRef: options.activeDraggedNodeIdRef,
+      clusterRadii: layout.componentRadii,
+      gap: 54,
+      maxVelocity: 16,
+      nodeClusterIndex: layout.nodeComponentIndex,
+      softening: 92,
+      strength: 0.035,
+      suppressedNodeIdsRef: options.suppressedNodeIdsRef,
+    }))
+    .force('cluster-gravity', createReferralGraphClusterGravityForce<SimNode>({
+      activeDraggedNodeIdRef: options.activeDraggedNodeIdRef,
+      deadZoneRadius: 250,
+      gravityScale: 120,
+      maxVelocity: 12,
+      minAlpha: 0.002,
+      nodeClusterIndex: gravityNodeClusterIndex,
+      singletonDeadZoneRadius: 700,
+      singletonStrengthFactor: 0.12,
+      softening: 210,
+      strength: 0.035,
+      suppressedNodeIdsRef: options.suppressedNodeIdsRef,
+    }))
+    .force('component-envelope', createReferralGraphComponentEnvelopeForce<SimNode>({
+      activeDraggedNodeIdRef: options.activeDraggedNodeIdRef,
+      componentRadii: layout.componentRadii,
+      maxVelocity: 16,
+      nodeComponentIndex: layout.nodeComponentIndex,
+      strength: 0.14,
+    }))
+    .force('component-cohesion', createReferralGraphComponentCohesionForce<SimNode>({
+      activeDraggedNodeIdRef: options.activeDraggedNodeIdRef,
+      componentRadii: layout.componentRadii,
+      maxVelocity: 12,
+      nodeComponentIndex: layout.nodeComponentIndex,
+      strength: 0.135,
+    }))
+    .force('branch-bend', createReferralGraphBranchBendForce<SimNode>({
+      activeDraggedNodeIdRef: options.activeDraggedNodeIdRef,
+      childCountByNodeId,
+      degreeByNodeId,
+      links: simLinks,
+      maxVelocity: 20,
+      strength: 0.42,
+      suppressedNodeIdsRef: options.suppressedNodeIdsRef,
+    }))
+    .force('link-tension', createReferralGraphLinkTensionForce<SimNode>(
+      simLinks,
+      {
+        activeDraggedNodeIdRef: options.activeDraggedNodeIdRef,
+        baseLinkDistance: physics.linkDistance,
+        childCountByNodeId,
+        degreeByNodeId,
+        graphNodeCount: layout.nodeAnchorPositions.size,
+        maxVelocity: 38,
+        strength: 0.82,
+        suppressedNodeIdsRef: options.suppressedNodeIdsRef,
+        subtreeSizeByNodeId: layout.directedSubtreeSizes,
+        thresholdMultiplier: 0.98,
+      },
+    ))
+    .force('sibling-angular', createReferralGraphSiblingAngularForce<SimNode>({
+      activeDraggedNodeIdRef: options.activeDraggedNodeIdRef,
+      anchorPositions: layout.nodeAnchorPositions,
+      links: simLinks,
+      maxVelocity: 58,
+      strength: 0.88,
+      suppressedNodeIdsRef: options.suppressedNodeIdsRef,
+    }))
+    .force('edge-crossing', createReferralGraphEdgeCrossingForce<SimNode>({
+      activeDraggedNodeIdRef: options.activeDraggedNodeIdRef,
+      anchorCorrectionStrength: 0.045,
+      anchorPositions: layout.nodeAnchorPositions,
+      links: simLinks,
+      maxPairs: 6200,
+      maxVelocity: 14,
+      minAlpha: 0.006,
+      minDistance: 34,
+      strength: 0.34,
+      suppressedNodeIdsRef: options.suppressedNodeIdsRef,
+    }))
+    .force('drag-locality', createReferralGraphDragLocalityForce<SimNode>(
+      options.activeDraggedNodeIdRef ?? { current: null },
+      activeDragNodeDepthsRef,
+      {
+        backgroundMaxVelocity: 0,
+        backgroundVelocityScale: 0,
+        directNeighborMaxVelocity: Number.POSITIVE_INFINITY,
+        directNeighborPullStrength: 0,
+        directNeighborVelocityScale: 1,
+        secondHopMaxVelocity: Number.POSITIVE_INFINITY,
+        secondHopPullStrength: 0,
+        secondHopVelocityScale: 1,
+      },
+    ))
+    .alphaDecay(physics.alphaDecay)
+    .velocityDecay(physics.velocityDecay);
+
+  return simulation;
+}
+
+function applyActiveBranchDrag(
+  draggedNode: SimNode,
+  nodesById: Map<string, SimNode>,
+  edges: GraphEdge[],
+  translate: { x: number; y: number },
+) {
+  draggedNode.x += translate.x;
+  draggedNode.y += translate.y;
+  draggedNode.fx = draggedNode.x;
+  draggedNode.fy = draggedNode.y;
+  draggedNode.vx = 0;
+  draggedNode.vy = 0;
+
+  const directedChildren = buildReferralGraphDirectedChildren(edges);
+  const descendantDepths = getReferralGraphDescendantDepths(draggedNode.id, directedChildren);
+  const followerIds = new Set(
+    [...getReferralGraphDescendantNodeIds(draggedNode.id, directedChildren)]
+      .filter((nodeId) => nodesById.has(nodeId)),
+  );
+  const movedFollowerIds = applyReferralGraphDragFollowerTranslation(
+    nodesById,
+    followerIds,
+    translate,
+    {
+      depthByNodeId: descendantDepths,
+      depthDecay: 0.84,
+      directChildScale: 0.94,
+      maxPinnedDepth: 1,
+      minScale: 0.5,
+    },
+  );
+
+  return new Set([draggedNode.id, ...movedFollowerIds]);
+}
+
+function getClusterCenters(nodes: SimNode[], nodeClusterIndex: Map<string, number>) {
+  const sums = new Map<number, { x: number; y: number; count: number }>();
+  for (const node of nodes) {
+    const clusterIndex = nodeClusterIndex.get(node.id);
+    if (clusterIndex == null) continue;
+    const sum = sums.get(clusterIndex) ?? { x: 0, y: 0, count: 0 };
+    sum.x += node.x;
+    sum.y += node.y;
+    sum.count += 1;
+    sums.set(clusterIndex, sum);
+  }
+
+  return new Map([...sums.entries()].map(([clusterIndex, sum]) => [
+    clusterIndex,
+    { x: sum.x / sum.count, y: sum.y / sum.count, count: sum.count },
+  ]));
+}
+
+function getComponentDistancesFromCenter(nodes: SimNode[], nodeComponentIndex: Map<string, number>) {
+  const centers = getClusterCenters(nodes, nodeComponentIndex);
+  const distancesByComponent = new Map<number, number[]>();
+
+  for (const node of nodes) {
+    const componentIndex = nodeComponentIndex.get(node.id);
+    if (componentIndex == null) {
+      continue;
+    }
+
+    const center = centers.get(componentIndex);
+    if (!center) {
+      continue;
+    }
+
+    const distances = distancesByComponent.get(componentIndex) ?? [];
+    distances.push(Math.hypot(node.x - center.x, node.y - center.y));
+    distancesByComponent.set(componentIndex, distances);
+  }
+
+  return distancesByComponent;
+}
+
+function angularGaps(parent: SimNode, children: SimNode[]) {
+  const angles = children
+    .map((child) => Math.atan2(child.y - parent.y, child.x - parent.x))
+    .sort((left, right) => left - right);
+
+  return angles.map((angle, index) => {
+    const next = angles[(index + 1) % angles.length] + (index === angles.length - 1 ? Math.PI * 2 : 0);
+    return next - angle;
+  });
+}
+
+function minimumPairDistance(nodes: SimNode[]) {
+  let minimumDistance = Number.POSITIVE_INFINITY;
+  for (let left = 0; left < nodes.length; left += 1) {
+    for (let right = left + 1; right < nodes.length; right += 1) {
+      minimumDistance = Math.min(
+        minimumDistance,
+        Math.hypot(nodes[left].x - nodes[right].x, nodes[left].y - nodes[right].y),
+      );
+    }
+  }
+
+  return minimumDistance;
+}
+
+test('referral graph simulation keeps pinwheel clusters separated without global center collapse', () => {
+  const nodes: GraphNode[] = [];
+  const edges: GraphEdge[] = [];
+  addPinwheelComponent(nodes, edges, 'alpha', 6, 8);
+  addPinwheelComponent(nodes, edges, 'beta', 4, 7);
+  addPinwheelComponent(nodes, edges, 'gamma', 3, 5);
+  for (let index = 0; index < 90; index += 1) {
+    nodes.push(makeNode(`orphan-${index}`, true));
+  }
+
+  const physics = resolveReferralGraphPhysics(DEFAULT_REFERRAL_GRAPH_PHYSICS);
+  const layout = buildReferralGraphLayout(nodes, edges, physics.linkDistance, getReferralGraphLinkDistance);
+  const maps = buildDegreeMaps(nodes, edges);
+  const simNodes = nodes.map<SimNode>((node) => ({
+    ...node,
+    ...(layout.nodeAnchorPositions.get(node.id) ?? { x: 0, y: 0 }),
+  }));
+  const byId = new Map(simNodes.map((node) => [node.id, node]));
+  const simLinks = edges.map<SimLink>((edge) => ({ ...edge }));
+
+  const simulation = addReferralForces(forceSimulation(simNodes), simLinks, layout, physics, maps)
+    .stop();
+
+  for (let index = 0; index < 420; index += 1) {
+    simulation.tick();
+  }
+
+  const roots = ['alpha-root', 'beta-root', 'gamma-root'].map((id) => {
+    const node = byId.get(id);
+    assert.ok(node, `missing root ${id}`);
+    return node;
+  });
+  const rootDistances: number[] = [];
+  for (let left = 0; left < roots.length; left += 1) {
+    for (let right = left + 1; right < roots.length; right += 1) {
+      rootDistances.push(Math.hypot(roots[left].x - roots[right].x, roots[left].y - roots[right].y));
+    }
+  }
+
+  const edgeLengths = simLinks.map((link) => {
+    const source = link.source as SimNode;
+    const target = link.target as SimNode;
+    return Math.hypot(source.x - target.x, source.y - target.y);
+  });
+  const orphanRadii = simNodes
+    .filter((node) => node.isIsolated)
+    .map((node) => Math.hypot(node.x, node.y))
+    .sort((left, right) => left - right);
+  const connectedRadii = simNodes
+    .filter((node) => !node.isIsolated)
+    .map((node) => Math.hypot(node.x, node.y))
+    .sort((left, right) => left - right);
+
+  assert.ok(Math.min(...rootDistances) >= 430, `cluster roots collapsed: ${rootDistances.join(',')}`);
+  assert.ok(Math.max(...edgeLengths) <= 430, `edge stretched too far: ${Math.max(...edgeLengths)}`);
+  assert.ok(
+    orphanRadii[Math.floor(orphanRadii.length * 0.5)] > connectedRadii[Math.floor(connectedRadii.length * 0.5)],
+    'most isolated nodes should remain outside the median connected branch core without requiring an oversized ring',
+  );
+  assert.ok(
+    orphanRadii[Math.floor(orphanRadii.length * 0.5)] <= 1120,
+    `isolated nodes should not form an oversized outer circle: p50=${orphanRadii[Math.floor(orphanRadii.length * 0.5)]}`,
+  );
+});
+
+test('visual branch leaf fans remain closer to their own hub than neighboring branch leaves', () => {
+  const nodes: GraphNode[] = [makeNode('root')];
+  const edges: GraphEdge[] = [];
+  for (let hubIndex = 0; hubIndex < 4; hubIndex += 1) {
+    const hubId = `branch-hub-${hubIndex}`;
+    nodes.push(makeNode(hubId));
+    edges.push(makeEdge('root', hubId));
+    for (let leafIndex = 0; leafIndex < 6; leafIndex += 1) {
+      const leafId = `${hubId}-leaf-${leafIndex}`;
+      nodes.push(makeNode(leafId));
+      edges.push(makeEdge(hubId, leafId));
+    }
+  }
+
+  const physics = resolveReferralGraphPhysics(DEFAULT_REFERRAL_GRAPH_PHYSICS);
+  const layout = buildReferralGraphLayout(nodes, edges, physics.linkDistance, getReferralGraphLinkDistance);
+  const maps = buildDegreeMaps(nodes, edges);
+  const simNodes = nodes.map<SimNode>((node) => ({
+    ...node,
+    ...(layout.nodeAnchorPositions.get(node.id) ?? { x: 0, y: 0 }),
+  }));
+  const byId = new Map(simNodes.map((node) => [node.id, node]));
+  const simLinks = edges.map<SimLink>((edge) => ({ ...edge }));
+  const simulation = addReferralForces(forceSimulation(simNodes), simLinks, layout, physics, maps)
+    .stop();
+
+  for (let index = 0; index < 360; index += 1) {
+    simulation.tick();
+  }
+
+  for (let hubIndex = 0; hubIndex < 4; hubIndex += 1) {
+    const hubId = `branch-hub-${hubIndex}`;
+    const hub = byId.get(hubId);
+    assert.ok(hub, `missing hub ${hubId}`);
+    const ownCluster = layout.nodeClusterIndex.get(hubId);
+    assert.notEqual(ownCluster, undefined, `missing cluster for ${hubId}`);
+
+    const ownLeafDistances = Array.from({ length: 6 }, (_, leafIndex) => {
+      const leaf = byId.get(`${hubId}-leaf-${leafIndex}`);
+      assert.ok(leaf, `missing leaf ${hubId}-${leafIndex}`);
+      return Math.hypot(leaf.x - hub.x, leaf.y - hub.y);
+    });
+    const ownMax = Math.max(...ownLeafDistances);
+    const nearestOtherLeaf = Math.min(
+      ...simNodes
+        .filter((node) => node.id.includes('-leaf-') && layout.nodeClusterIndex.get(node.id) !== ownCluster)
+        .map((node) => Math.hypot(node.x - hub.x, node.y - hub.y)),
+    );
+
+    assert.ok(ownMax <= 225, `${hubId} leaf fan should stay bounded around its hub, own max=${ownMax}`);
+    assert.ok(
+      nearestOtherLeaf > 120,
+      `${hubId} branch fan let another leaf enter the hub core: nearest other=${nearestOtherLeaf}, own max=${ownMax}`,
+    );
+  }
+});
+
+test('connected referral components keep a visible group shape while staying separated from other groups', () => {
+  const nodes: GraphNode[] = [];
+  const edges: GraphEdge[] = [];
+  addPinwheelComponent(nodes, edges, 'group-a', 4, 6);
+  addPinwheelComponent(nodes, edges, 'group-b', 4, 6);
+  addPinwheelComponent(nodes, edges, 'group-c', 3, 5);
+
+  const physics = resolveReferralGraphPhysics(DEFAULT_REFERRAL_GRAPH_PHYSICS);
+  const layout = buildReferralGraphLayout(nodes, edges, physics.linkDistance, getReferralGraphLinkDistance);
+  const maps = buildDegreeMaps(nodes, edges);
+  const simNodes = nodes.map<SimNode>((node) => ({
+    ...node,
+    ...(layout.nodeAnchorPositions.get(node.id) ?? { x: 0, y: 0 }),
+  }));
+  const simLinks = edges.map<SimLink>((edge) => ({ ...edge }));
+  const simulation = addReferralForces(forceSimulation(simNodes), simLinks, layout, physics, maps)
+    .stop();
+
+  for (let index = 0; index < 560; index += 1) {
+    simulation.tick();
+  }
+
+  const centers = getClusterCenters(simNodes, layout.nodeComponentIndex);
+  const centerDistances: number[] = [];
+  const centerValues = [...centers.values()];
+  for (let left = 0; left < centerValues.length; left += 1) {
+    for (let right = left + 1; right < centerValues.length; right += 1) {
+      centerDistances.push(Math.hypot(centerValues[left].x - centerValues[right].x, centerValues[left].y - centerValues[right].y));
+    }
+  }
+
+  const distancesByComponent = getComponentDistancesFromCenter(simNodes, layout.nodeComponentIndex);
+  for (const [componentIndex, distances] of distancesByComponent) {
+    const sorted = distances.sort((left, right) => left - right);
+    const p90 = sorted[Math.floor(sorted.length * 0.9)];
+    const componentRadius = layout.componentRadii.get(componentIndex) ?? 520;
+    assert.ok(
+      p90 <= componentRadius + 65,
+      `component ${componentIndex} spread too widely to read as a group: p90=${p90}, radius=${componentRadius}`,
+    );
+  }
+  assert.ok(Math.min(...centerDistances) >= 360, `connected groups should remain visually separated: ${centerDistances.join(',')}`);
+});
+
+test('dense sibling edges keep angular gaps and node spacing instead of overlapping', () => {
+  const childIds = Array.from({ length: 22 }, (_, index) => `dense-leaf-${index}`);
+  const nodes: GraphNode[] = [
+    makeNode('dense-root'),
+    ...childIds.map((id) => makeNode(id)),
+  ];
+  const edges = childIds.map((id) => makeEdge('dense-root', id));
+  const physics = resolveReferralGraphPhysics(DEFAULT_REFERRAL_GRAPH_PHYSICS);
+  const layout = buildReferralGraphLayout(nodes, edges, physics.linkDistance, getReferralGraphLinkDistance);
+  const maps = buildDegreeMaps(nodes, edges);
+  const simNodes = nodes.map<SimNode>((node) => ({
+    ...node,
+    ...(layout.nodeAnchorPositions.get(node.id) ?? { x: 0, y: 0 }),
+  }));
+  const byId = new Map(simNodes.map((node) => [node.id, node]));
+  const simLinks = edges.map<SimLink>((edge) => ({ ...edge }));
+  const simulation = addReferralForces(forceSimulation(simNodes), simLinks, layout, physics, maps)
+    .stop();
+
+  for (let index = 0; index < 620; index += 1) {
+    simulation.tick();
+  }
+
+  const parent = byId.get('dense-root');
+  const children = childIds.map((id) => byId.get(id) as SimNode);
+  assert.ok(parent, 'missing dense root');
+
+  const gaps = angularGaps(parent, children);
+  const nearParallelGapCount = gaps.filter((gap) => gap < 0.04).length;
+  assert.ok(
+    nearParallelGapCount <= 2,
+    `dense sibling edges should avoid repeated near-parallel spokes, gaps=${gaps.join(',')}`,
+  );
+  assert.ok(
+    minimumPairDistance(children) >= 92,
+    `dense sibling nodes are too close: min=${minimumPairDistance(children)}`,
+  );
+});
+
+test('terminal sibling leaves settle into a readable local ring around their parent', () => {
+  const childIds = Array.from({ length: 16 }, (_, index) => `terminal-leaf-${index}`);
+  const nodes: GraphNode[] = [
+    makeNode('terminal-root'),
+    ...childIds.map((id) => makeNode(id)),
+  ];
+  const edges = childIds.map((id) => makeEdge('terminal-root', id));
+  const physics = resolveReferralGraphPhysics(DEFAULT_REFERRAL_GRAPH_PHYSICS);
+  const layout = buildReferralGraphLayout(nodes, edges, physics.linkDistance, getReferralGraphLinkDistance);
+  const maps = buildDegreeMaps(nodes, edges);
+  const simNodes = nodes.map<SimNode>((node) => ({
+    ...node,
+    ...(layout.nodeAnchorPositions.get(node.id) ?? { x: 0, y: 0 }),
+  }));
+  const byId = new Map(simNodes.map((node) => [node.id, node]));
+  const simLinks = edges.map<SimLink>((edge) => ({ ...edge }));
+  const simulation = addReferralForces(forceSimulation(simNodes), simLinks, layout, physics, maps)
+    .stop();
+
+  for (let index = 0; index < 560; index += 1) {
+    simulation.tick();
+  }
+
+  const parent = byId.get('terminal-root');
+  const children = childIds.map((id) => byId.get(id) as SimNode);
+  assert.ok(parent, 'missing terminal root');
+
+  const gaps = angularGaps(parent, children);
+  const largestGap = Math.max(...gaps);
+  assert.ok(
+    largestGap <= 1.25,
+    `terminal leaves should distribute around their parent instead of bunching into a fan: largestGap=${largestGap}, gaps=${gaps.join(',')}`,
+  );
+  assert.ok(
+    minimumPairDistance(children) >= 92,
+    `terminal leaves should keep enough ring spacing: min=${minimumPairDistance(children)}`,
+  );
+});
+
+test('edge crossing force resolves disjoint X-shaped links after simulation ticks', () => {
+  const simNodes = [
+    { ...makeNode('left-upper'), x: -100, y: -100, vx: 0, vy: 0 },
+    { ...makeNode('right-lower'), x: 100, y: 100, vx: 0, vy: 0 },
+    { ...makeNode('left-lower'), x: -100, y: 100, vx: 0, vy: 0 },
+    { ...makeNode('right-upper'), x: 100, y: -100, vx: 0, vy: 0 },
+  ];
+  const simLinks = [
+    makeEdge('left-upper', 'right-lower'),
+    makeEdge('left-lower', 'right-upper'),
+  ].map<SimLink>((edge) => ({ ...edge }));
+
+  assert.equal(countDisjointEdgeCrossings(simLinks, simNodes), 1);
+
+  const simulation = forceSimulation(simNodes)
+    .force('edge-crossing', createReferralGraphEdgeCrossingForce<SimNode>({
+      anchorPositions: new Map([
+        ['left-upper', { x: -100, y: -100 }],
+        ['right-lower', { x: 100, y: -100 }],
+        ['left-lower', { x: -100, y: 100 }],
+        ['right-upper', { x: 100, y: 100 }],
+      ]),
+      links: simLinks,
+      maxVelocity: 14,
+      minDistance: 24,
+      strength: 0.4,
+    }))
+    .alphaDecay(0.03)
+    .velocityDecay(0.35)
+    .stop();
+
+  for (let index = 0; index < 90; index += 1) {
+    simulation.tick();
+  }
+
+  assert.equal(countDisjointEdgeCrossings(simLinks, simNodes), 0);
+  assert.ok(simNodes.every((node) => Number.isFinite(node.x) && Number.isFinite(node.y)));
+});
+
+test('active parent drag moves descendants without rigid component translation', () => {
+  const nodes: GraphNode[] = [];
+  const edges: GraphEdge[] = [];
+  addPinwheelComponent(nodes, edges, 'dragged', 5, 7);
+
+  const physics = resolveReferralGraphPhysics(DEFAULT_REFERRAL_GRAPH_PHYSICS);
+  const layout = buildReferralGraphLayout(nodes, edges, physics.linkDistance, getReferralGraphLinkDistance);
+  const maps = buildDegreeMaps(nodes, edges);
+  const simNodes = nodes.map<SimNode>((node) => ({
+    ...node,
+    ...(layout.nodeAnchorPositions.get(node.id) ?? { x: 0, y: 0 }),
+  }));
+  const byId = new Map(simNodes.map((node) => [node.id, node]));
+  const simLinks = edges.map<SimLink>((edge) => ({ ...edge }));
+
+  const draggedRoot = byId.get('dragged-root');
+  const directHub = byId.get('dragged-hub-0');
+  const nestedLeaf = byId.get('dragged-hub-0-leaf-0');
+  assert.ok(draggedRoot, 'missing dragged root');
+  assert.ok(directHub, 'missing direct hub');
+  assert.ok(nestedLeaf, 'missing nested leaf');
+  const rootAnchor = layout.nodeAnchorPositions.get(draggedRoot.id);
+  assert.ok(rootAnchor, 'missing dragged root anchor');
+  const hubStart = { x: directHub.x, y: directHub.y };
+  const leafStart = { x: nestedLeaf.x, y: nestedLeaf.y };
+  const suppressedNodeIdsRef = {
+    current: applyActiveBranchDrag(draggedRoot, byId, edges, { x: 320, y: 180 }),
+  };
+
+  const simulation = addReferralForces(
+    forceSimulation(simNodes),
+    simLinks,
+    layout,
+    physics,
+    maps,
+    {
+      activeDraggedNodeIdRef: { current: draggedRoot.id },
+      suppressedNodeIdsRef,
+    },
+  )
+    .stop();
+
+  for (let index = 0; index < 36; index += 1) {
+    simulation.tick();
+  }
+
+  const hubDisplacement = Math.hypot(directHub.x - hubStart.x, directHub.y - hubStart.y);
+  const leafDisplacement = Math.hypot(nestedLeaf.x - leafStart.x, nestedLeaf.y - leafStart.y);
+  const displacementDelta = Math.hypot(
+    (directHub.x - hubStart.x) - (nestedLeaf.x - leafStart.x),
+    (directHub.y - hubStart.y) - (nestedLeaf.y - leafStart.y),
+  );
+  const incidentLengths = simLinks
+    .filter((link) => getEndpointId(link.source) === draggedRoot.id || getEndpointId(link.target) === draggedRoot.id)
+    .map((link) => {
+      const source = link.source as SimNode;
+      const target = link.target as SimNode;
+      return Math.hypot(source.x - target.x, source.y - target.y);
+    });
+
+  assert.ok(hubDisplacement > 150, `direct neighbor should visibly follow the dragged root, got ${hubDisplacement}`);
+  assert.ok(leafDisplacement > 80, `nested leaf should still react to the dragged component, got ${leafDisplacement}`);
+  assert.ok(
+    displacementDelta > 24,
+    `hub and nested leaf should not share the same drag displacement vector: delta=${displacementDelta}, hub=${hubDisplacement}, leaf=${leafDisplacement}`,
+  );
+  assert.ok(Math.max(...incidentLengths) <= 430, `drag stretched incident links: ${incidentLengths.join(',')}`);
+});
+
+test('dragged components are not pulled back inward while the pointer is still dragging outward', () => {
+  const nodes: GraphNode[] = [];
+  const edges: GraphEdge[] = [];
+  addPinwheelComponent(nodes, edges, 'outward', 3, 4);
+
+  const physics = resolveReferralGraphPhysics(DEFAULT_REFERRAL_GRAPH_PHYSICS);
+  const layout = buildReferralGraphLayout(nodes, edges, physics.linkDistance, getReferralGraphLinkDistance);
+  const maps = buildDegreeMaps(nodes, edges);
+  const simNodes = nodes.map<SimNode>((node) => ({
+    ...node,
+    ...(layout.nodeAnchorPositions.get(node.id) ?? { x: 0, y: 0 }),
+  }));
+  const byId = new Map(simNodes.map((node) => [node.id, node]));
+  const simLinks = edges.map<SimLink>((edge) => ({ ...edge }));
+  const draggedRoot = byId.get('outward-root');
+  const directHub = byId.get('outward-hub-0');
+  assert.ok(draggedRoot && directHub, 'missing drag nodes');
+
+  const suppressedNodeIdsRef = {
+    current: applyActiveBranchDrag(draggedRoot, byId, edges, {
+      x: 980 - draggedRoot.x,
+      y: 120 - draggedRoot.y,
+    }),
+  };
+
+  const simulation = addReferralForces(
+    forceSimulation(simNodes),
+    simLinks,
+    layout,
+    physics,
+    maps,
+    {
+      activeDraggedNodeIdRef: { current: draggedRoot.id },
+      suppressedNodeIdsRef,
+    },
+  )
+    .stop();
+
+  for (let index = 0; index < 36; index += 1) {
+    simulation.tick();
+  }
+
+  const incidentLengths = simLinks
+    .filter((link) => getEndpointId(link.source) === draggedRoot.id || getEndpointId(link.target) === draggedRoot.id)
+    .map((link) => {
+      const source = link.source as SimNode;
+      const target = link.target as SimNode;
+      return Math.hypot(source.x - target.x, source.y - target.y);
+    });
+  const hubRadius = Math.hypot(directHub.x, directHub.y);
+
+  assert.ok(hubRadius > 690, `direct neighbor was pulled inward during outward drag: radius=${hubRadius}`);
+  assert.ok(Math.max(...incidentLengths) <= 410, `outward drag stretched incident links: ${incidentLengths.join(',')}`);
+});
+
+test('active dragging does not re-layout unrelated components while the pointer is down', () => {
+  const nodes: GraphNode[] = [];
+  const edges: GraphEdge[] = [];
+  addPinwheelComponent(nodes, edges, 'dragged', 4, 6);
+  addPinwheelComponent(nodes, edges, 'stationary-a', 4, 6);
+  addPinwheelComponent(nodes, edges, 'stationary-b', 3, 5);
+
+  const physics = resolveReferralGraphPhysics(DEFAULT_REFERRAL_GRAPH_PHYSICS);
+  const layout = buildReferralGraphLayout(nodes, edges, physics.linkDistance, getReferralGraphLinkDistance);
+  const maps = buildDegreeMaps(nodes, edges);
+  const simNodes = nodes.map<SimNode>((node) => ({
+    ...node,
+    ...(layout.nodeAnchorPositions.get(node.id) ?? { x: 0, y: 0 }),
+  }));
+  const byId = new Map(simNodes.map((node) => [node.id, node]));
+  const simLinks = edges.map<SimLink>((edge) => ({ ...edge }));
+
+  const settledSimulation = addReferralForces(forceSimulation(simNodes), simLinks, layout, physics, maps)
+    .stop();
+  for (let index = 0; index < 420; index += 1) {
+    settledSimulation.tick();
+  }
+
+  const stationaryStarts = new Map(
+    simNodes
+      .filter((node) => !node.id.startsWith('dragged-'))
+      .map((node) => [node.id, { x: node.x, y: node.y }]),
+  );
+  const draggedRoot = byId.get('dragged-root');
+  assert.ok(draggedRoot, 'missing dragged root');
+  const suppressedNodeIdsRef = {
+    current: applyActiveBranchDrag(draggedRoot, byId, edges, { x: 520, y: -180 }),
+  };
+
+  const activeDraggedNodeIdRef = { current: draggedRoot.id };
+  const activeSimulation = addReferralForces(
+    forceSimulation(simNodes),
+    simLinks,
+    layout,
+    physics,
+    maps,
+    { activeDraggedNodeIdRef, suppressedNodeIdsRef },
+  )
+    .alpha(1)
+    .stop();
+
+  for (let index = 0; index < 24; index += 1) {
+    activeSimulation.tick();
+  }
+
+  const unrelatedDrifts = [...stationaryStarts.entries()].map(([nodeId, start]) => {
+    const node = byId.get(nodeId);
+    assert.ok(node, `missing stationary node ${nodeId}`);
+    return {
+      nodeId,
+      value: Math.hypot(node.x - start.x, node.y - start.y),
+    };
+  });
+  const maxUnrelatedDrift = unrelatedDrifts.reduce((max, drift) => (
+    drift.value > max.value ? drift : max
+  ), { nodeId: '', value: 0 });
+
+  assert.ok(
+    maxUnrelatedDrift.value <= 28,
+    `active drag re-layouted unrelated components: max drift=${maxUnrelatedDrift.value} node=${maxUnrelatedDrift.nodeId}`,
+  );
+});
+
+test('link tension removes abnormal long edges after drag release', () => {
+  const nodes = [
+    makeNode('parent'),
+    makeNode('child'),
+    makeNode('sibling-a'),
+    makeNode('sibling-b'),
+    makeNode('sibling-c'),
+  ];
+  const edges = [
+    makeEdge('parent', 'child'),
+    makeEdge('parent', 'sibling-a'),
+    makeEdge('parent', 'sibling-b'),
+    makeEdge('parent', 'sibling-c'),
+  ];
+  const physics = resolveReferralGraphPhysics(DEFAULT_REFERRAL_GRAPH_PHYSICS);
+  const layout = buildReferralGraphLayout(nodes, edges, physics.linkDistance, getReferralGraphLinkDistance);
+  const maps = buildDegreeMaps(nodes, edges);
+  const simNodes = nodes.map<SimNode>((node) => ({
+    ...node,
+    ...(layout.nodeAnchorPositions.get(node.id) ?? { x: 0, y: 0 }),
+  }));
+  const byId = new Map(simNodes.map((node) => [node.id, node]));
+  const simLinks = edges.map<SimLink>((edge) => ({ ...edge }));
+  const child = byId.get('child');
+  assert.ok(child, 'missing child');
+  child.x -= 900;
+  child.y -= 120;
+  child.vx = 0;
+  child.vy = 0;
+
+  const simulation = addReferralForces(forceSimulation(simNodes), simLinks, layout, physics, maps)
+    .stop();
+
+  for (let index = 0; index < 140; index += 1) {
+    simulation.tick();
+  }
+
+  const parent = byId.get('parent');
+  assert.ok(parent, 'missing parent');
+  const releasedLength = Math.hypot(child.x - parent.x, child.y - parent.y);
+  assert.ok(releasedLength <= 180, `released drag left an abnormal long edge: ${releasedLength}`);
+});
+
+test('released dragged nodes do not get pulled back to their initial layout anchor', () => {
+  const nodes = [
+    makeNode('parent'),
+    makeNode('child'),
+    makeNode('sibling-a'),
+    makeNode('sibling-b'),
+    makeNode('sibling-c'),
+  ];
+  const edges = [
+    makeEdge('parent', 'child'),
+    makeEdge('parent', 'sibling-a'),
+    makeEdge('parent', 'sibling-b'),
+    makeEdge('parent', 'sibling-c'),
+  ];
+  const physics = resolveReferralGraphPhysics(DEFAULT_REFERRAL_GRAPH_PHYSICS);
+  const layout = buildReferralGraphLayout(nodes, edges, physics.linkDistance, getReferralGraphLinkDistance);
+  const maps = buildDegreeMaps(nodes, edges);
+  const simNodes = nodes.map<SimNode>((node) => ({
+    ...node,
+    ...(layout.nodeAnchorPositions.get(node.id) ?? { x: 0, y: 0 }),
+  }));
+  const byId = new Map(simNodes.map((node) => [node.id, node]));
+  const simLinks = edges.map<SimLink>((edge) => ({ ...edge }));
+  const child = byId.get('child');
+  assert.ok(child, 'missing child');
+  const childAnchor = layout.nodeAnchorPositions.get('child');
+  assert.ok(childAnchor, 'missing child anchor');
+  const releasePosition = { x: childAnchor.x - 360, y: childAnchor.y - 80 };
+  child.x = releasePosition.x;
+  child.y = releasePosition.y;
+  child.vx = 0;
+  child.vy = 0;
+
+  const manualNodeTargetsRef = {
+    current: new Map<string, { x: number; y: number }>([
+      ['child', releasePosition],
+    ]),
+  };
+  const simulation = addReferralForces(
+    forceSimulation(simNodes),
+    simLinks,
+    layout,
+    physics,
+    maps,
+  )
+    .force('layout-memory', createReferralGraphLayoutMemoryForce(
+      layout.nodeAnchorPositions,
+      physics.layoutMemoryStrength,
+      {
+        manualNodeTargetsRef,
+        suppressedNodeIdsRef: { current: new Set(['parent', 'sibling-a', 'sibling-b', 'sibling-c']) },
+      },
+    ))
+    .stop();
+
+  for (let index = 0; index < 180; index += 1) {
+    simulation.tick();
+  }
+
+  const distanceFromAnchor = Math.hypot(child.x - childAnchor.x, child.y - childAnchor.y);
+  const distanceFromRelease = Math.hypot(child.x - releasePosition.x, child.y - releasePosition.y);
+
+  assert.ok(distanceFromAnchor > 130, `released node snapped back to its initial anchor: ${distanceFromAnchor}`);
+  assert.ok(distanceFromRelease < 260, `released node drifted too far from the user's drop area: ${distanceFromRelease}`);
+});
+
+test('dragging one parent in a nested component keeps the branch flexible without long edges', () => {
+  const nodes = [
+    makeNode('root'),
+    makeNode('hub-a'),
+    makeNode('hub-b'),
+    makeNode('leaf-a'),
+    makeNode('leaf-b'),
+    makeNode('leaf-c'),
+    makeNode('leaf-d'),
+  ];
+  const edges = [
+    makeEdge('root', 'hub-a'),
+    makeEdge('hub-a', 'hub-b'),
+    makeEdge('hub-a', 'leaf-a'),
+    makeEdge('hub-a', 'leaf-b'),
+    makeEdge('hub-b', 'leaf-c'),
+    makeEdge('hub-b', 'leaf-d'),
+  ];
+  const physics = resolveReferralGraphPhysics(DEFAULT_REFERRAL_GRAPH_PHYSICS);
+  const layout = buildReferralGraphLayout(nodes, edges, physics.linkDistance, getReferralGraphLinkDistance);
+  const maps = buildDegreeMaps(nodes, edges);
+  const simNodes = nodes.map<SimNode>((node) => ({
+    ...node,
+    ...(layout.nodeAnchorPositions.get(node.id) ?? { x: 0, y: 0 }),
+  }));
+  const byId = new Map(simNodes.map((node) => [node.id, node]));
+  const simLinks = edges.map<SimLink>((edge) => ({ ...edge }));
+  const draggedRoot = byId.get('root');
+  const deepHub = byId.get('hub-b');
+  assert.ok(draggedRoot, 'missing root');
+  assert.ok(deepHub, 'missing deep hub');
+  const deepHubStart = { x: deepHub.x, y: deepHub.y };
+
+  const suppressedNodeIdsRef = {
+    current: applyActiveBranchDrag(draggedRoot, byId, edges, { x: -620, y: 180 }),
+  };
+
+  const activeDraggedNodeIdRef = { current: draggedRoot.id };
+  const simulation = addReferralForces(
+    forceSimulation(simNodes),
+    simLinks,
+    layout,
+    physics,
+    maps,
+    { activeDraggedNodeIdRef, suppressedNodeIdsRef },
+  )
+    .stop();
+
+  for (let index = 0; index < 36; index += 1) {
+    simulation.tick();
+  }
+
+  const edgeLengths = simLinks.map((link) => {
+    const source = link.source as SimNode;
+    const target = link.target as SimNode;
+    return Math.hypot(source.x - target.x, source.y - target.y);
+  });
+  const deepHubDisplacement = Math.hypot(deepHub.x - deepHubStart.x, deepHub.y - deepHubStart.y);
+
+  assert.ok(Math.max(...edgeLengths) <= 430, `nested drag left long edges: ${edgeLengths.join(',')}`);
+  assert.ok(deepHubDisplacement > 70, `deep branch did not stabilize after the drag, got ${deepHubDisplacement}`);
+});
+
+test('dragging a parent keeps nested child-link physics active instead of leaving grandchildren behind', () => {
+  const nodes = [
+    makeNode('root'),
+    makeNode('branch-a'),
+    makeNode('branch-b'),
+    makeNode('leaf-a'),
+    makeNode('leaf-b'),
+    makeNode('leaf-c'),
+    makeNode('leaf-d'),
+  ];
+  const edges = [
+    makeEdge('root', 'branch-a'),
+    makeEdge('branch-a', 'branch-b'),
+    makeEdge('branch-a', 'leaf-a'),
+    makeEdge('branch-a', 'leaf-b'),
+    makeEdge('branch-b', 'leaf-c'),
+    makeEdge('branch-b', 'leaf-d'),
+  ];
+  const physics = resolveReferralGraphPhysics(DEFAULT_REFERRAL_GRAPH_PHYSICS);
+  const layout = buildReferralGraphLayout(nodes, edges, physics.linkDistance, getReferralGraphLinkDistance);
+  const maps = buildDegreeMaps(nodes, edges);
+  const simNodes = nodes.map<SimNode>((node) => ({
+    ...node,
+    ...(layout.nodeAnchorPositions.get(node.id) ?? { x: 0, y: 0 }),
+  }));
+  const byId = new Map(simNodes.map((node) => [node.id, node]));
+  const simLinks = edges.map<SimLink>((edge) => ({ ...edge }));
+  const draggedRoot = byId.get('root');
+  const branchA = byId.get('branch-a');
+  const branchB = byId.get('branch-b');
+  const leafD = byId.get('leaf-d');
+  assert.ok(draggedRoot && branchA && branchB && leafD, 'missing nested drag nodes');
+  const branchBStart = { x: branchB.x, y: branchB.y };
+  const leafDStart = { x: leafD.x, y: leafD.y };
+
+  const suppressedNodeIdsRef = {
+    current: applyActiveBranchDrag(draggedRoot, byId, edges, { x: 650, y: -190 }),
+  };
+
+  const activeDraggedNodeIdRef = { current: draggedRoot.id };
+  const simulation = addReferralForces(
+    forceSimulation(simNodes),
+    simLinks,
+    layout,
+    physics,
+    maps,
+    { activeDraggedNodeIdRef, suppressedNodeIdsRef },
+  )
+    .stop();
+
+  for (let index = 0; index < 36; index += 1) {
+    simulation.tick();
+  }
+
+  const branchBDisplacement = Math.hypot(branchB.x - branchBStart.x, branchB.y - branchBStart.y);
+  const leafDDisplacement = Math.hypot(leafD.x - leafDStart.x, leafD.y - leafDStart.y);
+  const branchEdgeLength = Math.hypot(branchA.x - branchB.x, branchA.y - branchB.y);
+  const leafEdgeLength = Math.hypot(branchB.x - leafD.x, branchB.y - leafD.y);
+
+  assert.ok(branchBDisplacement > 40, `nested child hub barely followed active drag: ${branchBDisplacement}`);
+  assert.ok(leafDDisplacement > 50, `grandchild barely followed active drag: ${leafDDisplacement}`);
+  assert.ok(branchEdgeLength <= 430, `child-hub link stretched while dragging: ${branchEdgeLength}`);
+  assert.ok(leafEdgeLength <= 230, `grandchild spoke stretched while dragging: ${leafEdgeLength}`);
+});
+
+test('realistic nested referral component stays readable instead of becoming a long chain', () => {
+  const nodes = [
+    'kim-root',
+    'park-young',
+    'moon-hub',
+    'liang',
+    'kim-sieun',
+    'lee-jung',
+    'jin',
+    'kim-in-hub',
+    'kim-injung',
+    'kim-inyoung',
+    'kim-youngjae',
+    'kim-taesik',
+    'ra-eunsuk',
+    'nam-yangsun',
+    'park-yeon',
+  ].map((id) => makeNode(id));
+  const edges = [
+    makeEdge('kim-root', 'park-young'),
+    makeEdge('kim-root', 'moon-hub'),
+    makeEdge('park-young', 'park-yeon'),
+    makeEdge('moon-hub', 'liang'),
+    makeEdge('moon-hub', 'kim-sieun'),
+    makeEdge('moon-hub', 'lee-jung'),
+    makeEdge('moon-hub', 'jin'),
+    makeEdge('moon-hub', 'kim-in-hub'),
+    makeEdge('kim-in-hub', 'kim-injung'),
+    makeEdge('kim-in-hub', 'kim-inyoung'),
+    makeEdge('kim-in-hub', 'kim-youngjae'),
+    makeEdge('kim-in-hub', 'kim-taesik'),
+    makeEdge('kim-in-hub', 'ra-eunsuk'),
+    makeEdge('kim-in-hub', 'nam-yangsun'),
+  ];
+  const physics = resolveReferralGraphPhysics(DEFAULT_REFERRAL_GRAPH_PHYSICS);
+  const layout = buildReferralGraphLayout(nodes, edges, physics.linkDistance, getReferralGraphLinkDistance);
+  const maps = buildDegreeMaps(nodes, edges);
+  const simNodes = nodes.map<SimNode>((node) => ({
+    ...node,
+    ...(layout.nodeAnchorPositions.get(node.id) ?? { x: 0, y: 0 }),
+  }));
+  const byId = new Map(simNodes.map((node) => [node.id, node]));
+  const simLinks = edges.map<SimLink>((edge) => ({ ...edge }));
+  const simulation = addReferralForces(forceSimulation(simNodes), simLinks, layout, physics, maps)
+    .stop();
+
+  for (let index = 0; index < 420; index += 1) {
+    simulation.tick();
+  }
+
+  const edgeLengths = simLinks.map((link) => {
+    const source = link.source as SimNode;
+    const target = link.target as SimNode;
+    return Math.hypot(source.x - target.x, source.y - target.y);
+  });
+  const xs = simNodes.map((node) => node.x);
+  const ys = simNodes.map((node) => node.y);
+  const width = Math.max(...xs) - Math.min(...xs);
+  const height = Math.max(...ys) - Math.min(...ys);
+  const moon = byId.get('moon-hub');
+  const kimIn = byId.get('kim-in-hub');
+  assert.ok(moon, 'missing moon hub');
+  assert.ok(kimIn, 'missing kim-in hub');
+  const moonChildren = ['liang', 'kim-sieun', 'lee-jung', 'jin', 'kim-in-hub'].map((id) => byId.get(id) as SimNode);
+  const moonTerminalChildren = ['liang', 'kim-sieun', 'lee-jung', 'jin'].map((id) => byId.get(id) as SimNode);
+  const kimInChildren = ['kim-injung', 'kim-inyoung', 'kim-youngjae', 'kim-taesik', 'ra-eunsuk', 'nam-yangsun']
+    .map((id) => byId.get(id) as SimNode);
+
+  assert.ok(Math.max(...edgeLengths) <= 410, `realistic component has abnormal long edge: ${edgeLengths.join(',')}`);
+  assert.ok(Math.max(width / height, height / width) <= 2.4, `component degenerated into a long chain: ${width}x${height}`);
+  assert.ok(
+    Math.max(...angularGaps(moon, moonTerminalChildren)) <= 2.1,
+    'moon hub terminal children should reserve branch space while still forming a local ring',
+  );
+  assert.ok(
+    Math.max(...angularGaps(kimIn, kimInChildren)) <= 1.75,
+    'nested hub terminal children should form a local ring around their parent',
+  );
+  assert.ok(minimumPairDistance(moonChildren) >= 70, `moon hub children overlapped: min=${minimumPairDistance(moonChildren)}`);
+  assert.ok(minimumPairDistance(kimInChildren) >= 70, `nested hub children overlapped: min=${minimumPairDistance(kimInChildren)}`);
+});
+
+test('reheated graph remains bounded instead of letting clusters drift outward forever', () => {
+  const nodes: GraphNode[] = [];
+  const edges: GraphEdge[] = [];
+  addPinwheelComponent(nodes, edges, 'alpha', 5, 7);
+  addPinwheelComponent(nodes, edges, 'beta', 5, 7);
+  addPinwheelComponent(nodes, edges, 'gamma', 4, 6);
+  addPinwheelComponent(nodes, edges, 'delta', 4, 6);
+  for (let index = 0; index < 70; index += 1) {
+    nodes.push(makeNode(`orphan-${index}`, true));
+  }
+
+  const physics = resolveReferralGraphPhysics(DEFAULT_REFERRAL_GRAPH_PHYSICS);
+  const layout = buildReferralGraphLayout(nodes, edges, physics.linkDistance, getReferralGraphLinkDistance);
+  const maps = buildDegreeMaps(nodes, edges);
+  const simNodes = nodes.map<SimNode>((node) => ({
+    ...node,
+    ...(layout.nodeAnchorPositions.get(node.id) ?? { x: 0, y: 0 }),
+  }));
+  const simLinks = edges.map<SimLink>((edge) => ({ ...edge }));
+  const initialConnectedRadii = simNodes
+    .filter((node) => !node.isIsolated)
+    .map((node) => Math.hypot(node.x, node.y))
+    .sort((left, right) => left - right);
+  const initialP95Radius = initialConnectedRadii[Math.floor(initialConnectedRadii.length * 0.95)];
+  const simulation = addReferralForces(forceSimulation(simNodes), simLinks, layout, physics, maps)
+    .stop();
+
+  for (let cycle = 0; cycle < 4; cycle += 1) {
+    simulation.alpha(0.8);
+    for (let index = 0; index < 320; index += 1) {
+      simulation.tick();
+    }
+  }
+
+  const connectedRadii = simNodes
+    .filter((node) => !node.isIsolated)
+    .map((node) => Math.hypot(node.x, node.y));
+  const sortedConnectedRadii = [...connectedRadii].sort((left, right) => left - right);
+  const p95Radius = sortedConnectedRadii[Math.floor(sortedConnectedRadii.length * 0.95)];
+
+  assert.ok(
+    p95Radius <= initialP95Radius + 120,
+    `connected clusters drifted too far from their seeded layout: initialP95=${initialP95Radius}, p95=${p95Radius}`,
+  );
+});
+
+test('long referral chains expand outward by depth without becoming runaway columns', () => {
+  const nodes: GraphNode[] = [makeNode('root')];
+  const edges: GraphEdge[] = [];
+  let previousHub = 'root';
+
+  for (let hubIndex = 0; hubIndex < 9; hubIndex += 1) {
+    const hubId = `chain-hub-${hubIndex}`;
+    nodes.push(makeNode(hubId));
+    edges.push(makeEdge(previousHub, hubId));
+    previousHub = hubId;
+
+    for (let leafIndex = 0; leafIndex < 3; leafIndex += 1) {
+      const leafId = `${hubId}-leaf-${leafIndex}`;
+      nodes.push(makeNode(leafId));
+      edges.push(makeEdge(hubId, leafId));
+    }
+  }
+
+  const physics = resolveReferralGraphPhysics(DEFAULT_REFERRAL_GRAPH_PHYSICS);
+  const layout = buildReferralGraphLayout(nodes, edges, physics.linkDistance, getReferralGraphLinkDistance);
+  const maps = buildDegreeMaps(nodes, edges);
+  const simNodes = nodes.map<SimNode>((node) => ({
+    ...node,
+    ...(layout.nodeAnchorPositions.get(node.id) ?? { x: 0, y: 0 }),
+  }));
+  const simLinks = edges.map<SimLink>((edge) => ({ ...edge }));
+  const simulation = addReferralForces(forceSimulation(simNodes), simLinks, layout, physics, maps)
+    .stop();
+
+  for (let index = 0; index < 640; index += 1) {
+    simulation.tick();
+  }
+
+  const xs = simNodes.map((node) => node.x);
+  const ys = simNodes.map((node) => node.y);
+  const width = Math.max(...xs) - Math.min(...xs);
+  const height = Math.max(...ys) - Math.min(...ys);
+  const root = simNodes.find((node) => node.id === 'root');
+  assert.ok(root, 'missing root');
+  const hubDistancesFromRoot = simNodes
+    .filter((node) => node.id.startsWith('chain-hub-'))
+    .map((node) => Math.hypot(node.x - root.x, node.y - root.y));
+
+  assert.ok(Math.max(width / height, height / width) <= 2.2, `component stretched into a column: ${width}x${height}`);
+  assert.ok(Math.max(...hubDistancesFromRoot) >= 850, `deep hubs should extend outward by depth: ${hubDistancesFromRoot.join(',')}`);
+  assert.ok(Math.max(...hubDistancesFromRoot) <= 1250, `deep hubs drifted too far from their component root: ${hubDistancesFromRoot.join(',')}`);
+});
+
+test('simple path components do not settle as unreadable straight columns', () => {
+  const nodes = Array.from({ length: 6 }, (_, index) => makeNode(`path-${index}`));
+  const edges = Array.from({ length: 5 }, (_, index) => makeEdge(`path-${index}`, `path-${index + 1}`));
+
+  const physics = resolveReferralGraphPhysics(DEFAULT_REFERRAL_GRAPH_PHYSICS);
+  const layout = buildReferralGraphLayout(nodes, edges, physics.linkDistance, getReferralGraphLinkDistance);
+  const maps = buildDegreeMaps(nodes, edges);
+  const simNodes = nodes.map<SimNode>((node) => ({
+    ...node,
+    ...(layout.nodeAnchorPositions.get(node.id) ?? { x: 0, y: 0 }),
+  }));
+  const simLinks = edges.map<SimLink>((edge) => ({ ...edge }));
+  const simulation = addReferralForces(forceSimulation(simNodes), simLinks, layout, physics, maps)
+    .stop();
+
+  for (let index = 0; index < 520; index += 1) {
+    simulation.tick();
+  }
+
+  const xs = simNodes.map((node) => node.x);
+  const ys = simNodes.map((node) => node.y);
+  const width = Math.max(...xs) - Math.min(...xs);
+  const height = Math.max(...ys) - Math.min(...ys);
+
+  assert.ok(Math.max(width / height, height / width) <= 6.2, `path component became an unreadable column: ${width}x${height}`);
+  assert.ok(Math.max(width, height) <= 760, `path component spread too far from its own group: ${width}x${height}`);
+});
+
+test('isolated nodes stay outside connected referral clusters instead of mixing through the center', () => {
+  const nodes: GraphNode[] = [];
+  const edges: GraphEdge[] = [];
+
+  addPinwheelComponent(nodes, edges, 'core', 4, 5);
+  for (let componentIndex = 0; componentIndex < 8; componentIndex += 1) {
+    const parent = `small-${componentIndex}-parent`;
+    nodes.push(makeNode(parent));
+    for (let childIndex = 0; childIndex < 2; childIndex += 1) {
+      const child = `small-${componentIndex}-child-${childIndex}`;
+      nodes.push(makeNode(child));
+      edges.push(makeEdge(parent, child));
+    }
+  }
+  for (let index = 0; index < 85; index += 1) {
+    nodes.push(makeNode(`isolated-${index}`, true));
+  }
+
+  const physics = resolveReferralGraphPhysics(DEFAULT_REFERRAL_GRAPH_PHYSICS);
+  const layout = buildReferralGraphLayout(nodes, edges, physics.linkDistance, getReferralGraphLinkDistance);
+  const maps = buildDegreeMaps(nodes, edges);
+  const simNodes = nodes.map<SimNode>((node) => ({
+    ...node,
+    ...(layout.nodeAnchorPositions.get(node.id) ?? { x: 0, y: 0 }),
+  }));
+  const simLinks = edges.map<SimLink>((edge) => ({ ...edge }));
+  const simulation = addReferralForces(forceSimulation(simNodes), simLinks, layout, physics, maps)
+    .stop();
+
+  for (let index = 0; index < 640; index += 1) {
+    simulation.tick();
+  }
+
+  const connectedRadii = simNodes
+    .filter((node) => !node.isIsolated)
+    .map((node) => Math.hypot(node.x, node.y))
+    .sort((left, right) => left - right);
+  const isolatedRadii = simNodes
+    .filter((node) => node.isIsolated)
+    .map((node) => Math.hypot(node.x, node.y))
+    .sort((left, right) => left - right);
+  const connectedP95 = connectedRadii[Math.floor(connectedRadii.length * 0.95)];
+  const isolatedP10 = isolatedRadii[Math.floor(isolatedRadii.length * 0.1)];
+  const isolatedP50 = isolatedRadii[Math.floor(isolatedRadii.length * 0.5)];
+
+  assert.ok(connectedP95 <= 850, `connected clusters drifted too wide: p95=${connectedP95}`);
+  assert.ok(
+    isolatedP10 >= connectedP95 + 20,
+    `isolated nodes mixed into connected clusters: isolated p10=${isolatedP10}, connected p95=${connectedP95}`,
+  );
+  assert.ok(
+    isolatedP50 <= 1120,
+    `isolated nodes formed an oversized outer circle: isolated p50=${isolatedP50}, connected p95=${connectedP95}`,
+  );
+});
+
+test('three node referral chains keep a visible bend instead of collapsing into a straight line', () => {
+  const nodes = [makeNode('root'), makeNode('middle'), makeNode('leaf')];
+  const edges = [makeEdge('root', 'middle'), makeEdge('middle', 'leaf')];
+  const physics = resolveReferralGraphPhysics(DEFAULT_REFERRAL_GRAPH_PHYSICS);
+  const layout = buildReferralGraphLayout(nodes, edges, physics.linkDistance, getReferralGraphLinkDistance);
+  const maps = buildDegreeMaps(nodes, edges);
+  const simNodes = nodes.map<SimNode>((node) => ({
+    ...node,
+    ...(layout.nodeAnchorPositions.get(node.id) ?? { x: 0, y: 0 }),
+  }));
+  const byId = new Map(simNodes.map((node) => [node.id, node]));
+  const simLinks = edges.map<SimLink>((edge) => ({ ...edge }));
+  const simulation = addReferralForces(forceSimulation(simNodes), simLinks, layout, physics, maps)
+    .stop();
+
+  for (let index = 0; index < 520; index += 1) {
+    simulation.tick();
+  }
+
+  const root = byId.get('root');
+  const middle = byId.get('middle');
+  const leaf = byId.get('leaf');
+  assert.ok(root && middle && leaf, 'missing path nodes');
+
+  const rootVector = { x: root.x - middle.x, y: root.y - middle.y };
+  const leafVector = { x: leaf.x - middle.x, y: leaf.y - middle.y };
+  const cross = Math.abs((rootVector.x * leafVector.y) - (rootVector.y * leafVector.x));
+  const rootDistance = Math.hypot(rootVector.x, rootVector.y);
+  const leafDistance = Math.hypot(leafVector.x, leafVector.y);
+  const normalizedArea = cross / Math.max(1, rootDistance * leafDistance);
+
+  assert.ok(
+    normalizedArea >= 0.35,
+    `three-node path collapsed into a nearly straight line: normalized area=${normalizedArea}`,
+  );
+});
+
+test('shallow branching referral chains do not render as a thin vertical strand', () => {
+  const nodes = [
+    makeNode('root'),
+    makeNode('branch-leaf'),
+    makeNode('chain-a'),
+    makeNode('chain-b'),
+    makeNode('chain-leaf'),
+  ];
+  const edges = [
+    makeEdge('root', 'branch-leaf'),
+    makeEdge('root', 'chain-a'),
+    makeEdge('chain-a', 'chain-b'),
+    makeEdge('chain-b', 'chain-leaf'),
+  ];
+  const physics = resolveReferralGraphPhysics(DEFAULT_REFERRAL_GRAPH_PHYSICS);
+  const layout = buildReferralGraphLayout(nodes, edges, physics.linkDistance, getReferralGraphLinkDistance);
+  const maps = buildDegreeMaps(nodes, edges);
+  const simNodes = nodes.map<SimNode>((node) => ({
+    ...node,
+    ...(layout.nodeAnchorPositions.get(node.id) ?? { x: 0, y: 0 }),
+  }));
+  const simLinks = edges.map<SimLink>((edge) => ({ ...edge }));
+  const simulation = addReferralForces(forceSimulation(simNodes), simLinks, layout, physics, maps)
+    .stop();
+
+  for (let index = 0; index < 620; index += 1) {
+    simulation.tick();
+  }
+
+  const xs = simNodes.map((node) => node.x);
+  const ys = simNodes.map((node) => node.y);
+  const width = Math.max(...xs) - Math.min(...xs);
+  const height = Math.max(...ys) - Math.min(...ys);
+
+  assert.ok(Math.max(width / height, height / width) <= 2.6, `branching chain became a strand: ${width}x${height}`);
+  assert.ok(Math.min(width, height) >= 92, `branching chain is too narrow to read as a cluster: ${width}x${height}`);
+});
+
+test('unlucky real-data branching ids still bend into a readable cluster', () => {
+  const nodes = [
+    makeNode('3cebffbe-17da-4e96-9724-598c7396db49'),
+    makeNode('c4a2e8d2-e841-4663-a551-9a84e4e627c1'),
+    makeNode('ad670ed2-5457-447a-8f41-84fd3937f299'),
+    makeNode('93367b33-9372-4fe4-8ae4-0eb8865c44c6'),
+    makeNode('f4943c9b-32dd-48d3-8f16-07b5e33f5751'),
+  ];
+  const edges = [
+    makeEdge('3cebffbe-17da-4e96-9724-598c7396db49', 'c4a2e8d2-e841-4663-a551-9a84e4e627c1'),
+    makeEdge('c4a2e8d2-e841-4663-a551-9a84e4e627c1', 'ad670ed2-5457-447a-8f41-84fd3937f299'),
+    makeEdge('ad670ed2-5457-447a-8f41-84fd3937f299', '93367b33-9372-4fe4-8ae4-0eb8865c44c6'),
+    makeEdge('3cebffbe-17da-4e96-9724-598c7396db49', 'f4943c9b-32dd-48d3-8f16-07b5e33f5751'),
+  ];
+  const physics = resolveReferralGraphPhysics(DEFAULT_REFERRAL_GRAPH_PHYSICS);
+  const layout = buildReferralGraphLayout(nodes, edges, physics.linkDistance, getReferralGraphLinkDistance);
+  const maps = buildDegreeMaps(nodes, edges);
+  const simNodes = nodes.map<SimNode>((node) => ({
+    ...node,
+    ...(layout.nodeAnchorPositions.get(node.id) ?? { x: 0, y: 0 }),
+  }));
+  const simLinks = edges.map<SimLink>((edge) => ({ ...edge }));
+  const simulation = addReferralForces(forceSimulation(simNodes), simLinks, layout, physics, maps)
+    .stop();
+
+  for (let index = 0; index < 620; index += 1) {
+    simulation.tick();
+  }
+
+  const xs = simNodes.map((node) => node.x);
+  const ys = simNodes.map((node) => node.y);
+  const width = Math.max(...xs) - Math.min(...xs);
+  const height = Math.max(...ys) - Math.min(...ys);
+
+  assert.ok(Math.max(width / height, height / width) <= 2.7, `real ids became a strand: ${width}x${height}`);
+  assert.ok(Math.min(width, height) >= 90, `real ids are too narrow to read as a cluster: ${width}x${height}`);
+});
+
+test('admin-sized mixed graph keeps connected clusters compact and isolated shell modest', () => {
+  const nodes: GraphNode[] = [];
+  const edges: GraphEdge[] = [];
+
+  addPinwheelComponent(nodes, edges, 'main', 6, 6);
+  for (let componentIndex = 0; componentIndex < 18; componentIndex += 1) {
+    const parent = `pair-${componentIndex}-parent`;
+    nodes.push(makeNode(parent));
+    const childCount = componentIndex % 3 === 0 ? 3 : 2;
+    for (let childIndex = 0; childIndex < childCount; childIndex += 1) {
+      const child = `pair-${componentIndex}-child-${childIndex}`;
+      nodes.push(makeNode(child));
+      edges.push(makeEdge(parent, child));
+    }
+  }
+  for (let index = 0; index < 70; index += 1) {
+    nodes.push(makeNode(`outer-${index}`, true));
+  }
+
+  const physics = resolveReferralGraphPhysics(DEFAULT_REFERRAL_GRAPH_PHYSICS);
+  const layout = buildReferralGraphLayout(nodes, edges, physics.linkDistance, getReferralGraphLinkDistance);
+  const maps = buildDegreeMaps(nodes, edges);
+  const simNodes = nodes.map<SimNode>((node) => ({
+    ...node,
+    ...(layout.nodeAnchorPositions.get(node.id) ?? { x: 0, y: 0 }),
+  }));
+  const simLinks = edges.map<SimLink>((edge) => ({ ...edge }));
+  const simulation = addReferralForces(forceSimulation(simNodes), simLinks, layout, physics, maps)
+    .stop();
+
+  for (let index = 0; index < 720; index += 1) {
+    simulation.tick();
+  }
+
+  const connectedRadii = simNodes
+    .filter((node) => !node.isIsolated)
+    .map((node) => Math.hypot(node.x, node.y))
+    .sort((left, right) => left - right);
+  const isolatedRadii = simNodes
+    .filter((node) => node.isIsolated)
+    .map((node) => Math.hypot(node.x, node.y))
+    .sort((left, right) => left - right);
+  const connectedP95 = connectedRadii[Math.floor(connectedRadii.length * 0.95)];
+  const isolatedP50 = isolatedRadii[Math.floor(isolatedRadii.length * 0.5)];
+
+  assert.ok(connectedP95 <= 1350, `connected clusters formed an oversized spread: p95=${connectedP95}`);
+  assert.ok(isolatedP50 <= 1120, `isolated nodes formed an unnatural large outer circle: p50=${isolatedP50}`);
+});
+
+test('child hubs use longer dynamic bridge lengths than terminal leaves without runaway stretch', () => {
+  const nodes = [
+    makeNode('root'),
+    makeNode('hub-a'),
+    makeNode('hub-b'),
+    makeNode('hub-c'),
+    ...Array.from({ length: 5 }, (_, index) => makeNode(`a-leaf-${index}`)),
+    ...Array.from({ length: 4 }, (_, index) => makeNode(`b-leaf-${index}`)),
+    ...Array.from({ length: 3 }, (_, index) => makeNode(`c-leaf-${index}`)),
+  ];
+  const edges = [
+    makeEdge('root', 'hub-a'),
+    makeEdge('hub-a', 'hub-b'),
+    makeEdge('hub-b', 'hub-c'),
+    ...Array.from({ length: 5 }, (_, index) => makeEdge('hub-a', `a-leaf-${index}`)),
+    ...Array.from({ length: 4 }, (_, index) => makeEdge('hub-b', `b-leaf-${index}`)),
+    ...Array.from({ length: 3 }, (_, index) => makeEdge('hub-c', `c-leaf-${index}`)),
+  ];
+
+  const physics = resolveReferralGraphPhysics(DEFAULT_REFERRAL_GRAPH_PHYSICS);
+  const layout = buildReferralGraphLayout(nodes, edges, physics.linkDistance, getReferralGraphLinkDistance);
+  const maps = buildDegreeMaps(nodes, edges);
+  const simNodes = nodes.map<SimNode>((node) => ({
+    ...node,
+    ...(layout.nodeAnchorPositions.get(node.id) ?? { x: 0, y: 0 }),
+  }));
+  const simLinks = edges.map<SimLink>((edge) => ({ ...edge }));
+  const simulation = addReferralForces(forceSimulation(simNodes), simLinks, layout, physics, maps)
+    .stop();
+
+  for (let index = 0; index < 640; index += 1) {
+    simulation.tick();
+  }
+
+  const bridgeLengths = simLinks
+    .filter((link) => {
+      const source = getEndpointId(link.source);
+      const target = getEndpointId(link.target);
+      return ['hub-a', 'hub-b', 'hub-c'].includes(source) && ['hub-a', 'hub-b', 'hub-c'].includes(target);
+    })
+    .map((link) => {
+      const source = link.source as SimNode;
+      const target = link.target as SimNode;
+      return Math.hypot(source.x - target.x, source.y - target.y);
+    });
+
+  const leafLengths = simLinks
+    .filter((link) => {
+      const source = getEndpointId(link.source);
+      const target = getEndpointId(link.target);
+      return !['hub-a', 'hub-b', 'hub-c', 'root'].includes(target) && ['hub-a', 'hub-b', 'hub-c'].includes(source);
+    })
+    .map((link) => {
+      const source = link.source as SimNode;
+      const target = link.target as SimNode;
+      return Math.hypot(source.x - target.x, source.y - target.y);
+    });
+
+  assert.ok(Math.min(...bridgeLengths) >= 220, `child-hub bridges should stay longer than terminal spokes: ${bridgeLengths.join(',')}`);
+  assert.ok(Math.max(...bridgeLengths) <= 345, `child-hub bridge ran away: ${bridgeLengths.join(',')}`);
+  assert.ok(Math.min(...bridgeLengths) > Math.max(...leafLengths), `child-hub bridges should be longer than leaf spokes: bridges=${bridgeLengths.join(',')} leaves=${leafLengths.join(',')}`);
+});
+
+test('cooled simulation becomes visually stable instead of drifting forever', () => {
+  const nodes: GraphNode[] = [];
+  const edges: GraphEdge[] = [];
+  addPinwheelComponent(nodes, edges, 'stable', 5, 5);
+  for (let componentIndex = 0; componentIndex < 10; componentIndex += 1) {
+    const parent = `stable-small-${componentIndex}`;
+    nodes.push(makeNode(parent));
+    for (let childIndex = 0; childIndex < 2; childIndex += 1) {
+      const child = `${parent}-child-${childIndex}`;
+      nodes.push(makeNode(child));
+      edges.push(makeEdge(parent, child));
+    }
+  }
+  for (let index = 0; index < 45; index += 1) {
+    nodes.push(makeNode(`stable-outer-${index}`, true));
+  }
+
+  const physics = resolveReferralGraphPhysics(DEFAULT_REFERRAL_GRAPH_PHYSICS);
+  const layout = buildReferralGraphLayout(nodes, edges, physics.linkDistance, getReferralGraphLinkDistance);
+  const maps = buildDegreeMaps(nodes, edges);
+  const simNodes = nodes.map<SimNode>((node) => ({
+    ...node,
+    ...(layout.nodeAnchorPositions.get(node.id) ?? { x: 0, y: 0 }),
+  }));
+  const simLinks = edges.map<SimLink>((edge) => ({ ...edge }));
+  const simulation = addReferralForces(forceSimulation(simNodes), simLinks, layout, physics, maps)
+    .stop();
+
+  for (let index = 0; index < 720; index += 1) {
+    simulation.tick();
+  }
+
+  const before = new Map(simNodes.map((node) => [node.id, { x: node.x, y: node.y }]));
+  simulation.alpha(0.002);
+  for (let index = 0; index < 160; index += 1) {
+    simulation.tick();
+  }
+
+  const maxDrift = Math.max(...simNodes.map((node) => {
+    const start = before.get(node.id);
+    assert.ok(start, `missing start for ${node.id}`);
+    return Math.hypot(node.x - start.x, node.y - start.y);
+  }));
+
+  assert.ok(maxDrift <= 6, `cooled graph kept moving after settling: max drift=${maxDrift}`);
+});
+
+test('default link distances stay readable after compacting cluster layout', () => {
+  const baseDistance = DEFAULT_REFERRAL_GRAPH_PHYSICS.linkDistance;
+
+  assert.ok(
+    getReferralGraphLinkDistance(1, 8, baseDistance) >= 86,
+    'leaf spokes should not become so short that labels collide',
+  );
+  assert.ok(
+    getReferralGraphLinkDistance(4, 5, baseDistance, {
+      sourceHasChildren: true,
+      targetHasChildren: true,
+    }) >= 145,
+    'child-hub bridges should remain readable',
+  );
+});

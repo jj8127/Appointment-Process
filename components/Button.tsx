@@ -1,13 +1,15 @@
 import React from 'react';
 import {
+  Keyboard,
+  StyleProp,
   TouchableOpacity,
   Text,
   StyleSheet,
-  ActivityIndicator,
   ViewStyle,
   TextStyle,
   View,
 } from 'react-native';
+import BrandedLoadingSpinner from '@/components/BrandedLoadingSpinner';
 import { COLORS, TYPOGRAPHY, SPACING, RADIUS, TOUCH_TARGET, SHADOWS } from '@/lib/theme';
 
 export type ButtonVariant = 'primary' | 'secondary' | 'outline' | 'ghost' | 'danger';
@@ -23,13 +25,15 @@ export interface ButtonProps {
   onPress?: () => void;
   disabled?: boolean;
   loading?: boolean;
+  dismissKeyboardOnPress?: boolean;
+  submitOnPressIn?: boolean;
 
   // Styling
   variant?: ButtonVariant;
   size?: ButtonSize;
   fullWidth?: boolean;
-  style?: ViewStyle;
-  textStyle?: TextStyle;
+  style?: StyleProp<ViewStyle>;
+  textStyle?: StyleProp<TextStyle>;
 
   // Accessibility
   accessibilityLabel?: string;
@@ -43,6 +47,8 @@ export function Button({
   onPress,
   disabled = false,
   loading = false,
+  dismissKeyboardOnPress = false,
+  submitOnPressIn = false,
   variant = 'primary',
   size = 'md',
   fullWidth = false,
@@ -59,9 +65,33 @@ export function Button({
   // Get size styles
   const sizeStyles = getSizeStyles(size);
 
+  const pressInHandledRef = React.useRef(false);
+
+  const invokePress = () => {
+    onPress?.();
+    if (dismissKeyboardOnPress) {
+      Keyboard.dismiss();
+    }
+  };
+
+  const handlePressIn = () => {
+    if (!submitOnPressIn) return;
+    pressInHandledRef.current = true;
+    invokePress();
+  };
+
+  const handlePress = () => {
+    if (submitOnPressIn && pressInHandledRef.current) {
+      pressInHandledRef.current = false;
+      return;
+    }
+    invokePress();
+  };
+
   return (
     <TouchableOpacity
-      onPress={onPress}
+      onPress={handlePress}
+      onPressIn={handlePressIn}
       disabled={isDisabled}
       activeOpacity={0.7}
       accessibilityRole="button"
@@ -79,9 +109,9 @@ export function Button({
     >
       <View style={styles.content}>
         {loading && (
-          <ActivityIndicator
+          <BrandedLoadingSpinner
             color={variantStyles.text.color}
-            size="small"
+            size="sm"
             style={styles.loader}
           />
         )}

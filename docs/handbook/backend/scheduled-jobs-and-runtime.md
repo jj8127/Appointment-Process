@@ -7,6 +7,10 @@ source_of_truth: supabase/functions/docs-deadline-reminder/index.ts + supabase/f
 
 # Backend Runbook: Scheduled Jobs And Runtime
 
+## 2026-07-06 Presence Route Auth Contract
+
+- Admin web presence APIs must use the signed server-session helper before exposing online state. Raw session cookies are not enough to authorize the route.
+
 ## 포함 항목
 
 - `docs-deadline-reminder`

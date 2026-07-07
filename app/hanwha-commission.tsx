@@ -1,10 +1,8 @@
 import { Feather } from '@expo/vector-icons';
 import DateTimePicker, { DateTimePickerEvent } from '@react-native-community/datetimepicker';
-import * as FileSystem from 'expo-file-system/legacy';
 import { Stack } from 'expo-router';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
-  ActivityIndicator,
   Alert,
   Modal,
   Platform,
@@ -17,6 +15,7 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
+import BrandedLoadingState from '@/components/BrandedLoadingState';
 import { Button } from '@/components/Button';
 import CompactHeader from '@/components/CompactHeader';
 import { ScreenHeader } from '@/components/ScreenHeader';
@@ -24,9 +23,11 @@ import { useIdentityGate } from '@/hooks/use-identity-gate';
 import { hasHanwhaApprovalEvidence, hasHanwhaPdfMetadata } from '@/lib/fc-workflow';
 import { useKeyboardPadding } from '@/hooks/use-keyboard-padding';
 import { useSession } from '@/hooks/use-session';
+import { downloadRemoteFileToUserStorage } from '@/lib/native-file-actions';
 import { openExternalUrl } from '@/lib/open-external-url';
 import { supabase } from '@/lib/supabase';
 import { COLORS, RADIUS, SHADOWS, SPACING, TYPOGRAPHY } from '@/lib/theme';
+import type { FcStatus } from '@/types/fc';
 
 const BUCKET = 'fc-documents';
 const weekdays = ['일', '월', '화', '수', '목', '금', '토'];
@@ -34,18 +35,23 @@ const weekdays = ['일', '월', '화', '수', '목', '금', '토'];
 const formatKoreanDate = (date: Date) =>
   `${date.getFullYear()}년 ${date.getMonth() + 1}월 ${date.getDate()}일 (${weekdays[date.getDay()]})`;
 
+const formatShortKoreanDate = (date: Date) =>
+  `${date.getFullYear()}.${String(date.getMonth() + 1).padStart(2, '0')}.${String(date.getDate()).padStart(2, '0')}`;
+
 const toYMD = (date: Date) =>
   `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
 
 type HanwhaProfile = {
   id?: string | null;
   name?: string | null;
-  status?: string | null;
+  status?: FcStatus | null;
   hanwha_commission_date_sub?: string | null;
   hanwha_commission_date?: string | null;
   hanwha_commission_reject_reason?: string | null;
   hanwha_commission_pdf_path?: string | null;
   hanwha_commission_pdf_name?: string | null;
+  dawichok_url_sent_at?: string | null;
+  dawichok_url_sent_by?: string | null;
 };
 
 type StatusTone = {
@@ -98,7 +104,7 @@ export default function HanwhaCommissionScreen() {
     const { data, error } = await supabase
       .from('fc_profiles')
       .select(
-        'id,name,status,hanwha_commission_date_sub,hanwha_commission_date,hanwha_commission_reject_reason,hanwha_commission_pdf_path,hanwha_commission_pdf_name',
+        'id,name,status,hanwha_commission_date_sub,hanwha_commission_date,hanwha_commission_reject_reason,hanwha_commission_pdf_path,hanwha_commission_pdf_name,dawichok_url_sent_at,dawichok_url_sent_by',
       )
       .eq('phone', cleanPhone)
       .maybeSingle();
@@ -129,19 +135,15 @@ export default function HanwhaCommissionScreen() {
     () => (profile?.hanwha_commission_date_sub ? new Date(profile.hanwha_commission_date_sub) : null),
     [profile?.hanwha_commission_date_sub],
   );
-  const approvedDate = useMemo(
-    () => (profile?.hanwha_commission_date ? new Date(profile.hanwha_commission_date) : null),
-    [profile?.hanwha_commission_date],
-  );
   const rejectReason = trimString(profile?.hanwha_commission_reject_reason);
   const pdfPath = trimString(profile?.hanwha_commission_pdf_path);
   const rawPdfName = trimString(profile?.hanwha_commission_pdf_name);
-const pdfName = rawPdfName ?? '한화 위촉 URL PDF';
+  const pdfName = rawPdfName ?? '다위촉 URL PDF';
   const status = profile?.status ?? null;
 
   const isApproved = hasHanwhaApprovalEvidence({
-    status,
-    hanwha_commission_date: approvedDate,
+    status: status ?? undefined,
+    hanwha_commission_date: profile?.hanwha_commission_date ?? null,
   });
   const canSubmitHanwha = Boolean(
     status === 'docs-approved' ||
@@ -153,14 +155,14 @@ const pdfName = rawPdfName ?? '한화 위촉 URL PDF';
     !isApproved &&
     !isRejected &&
     Boolean(status === 'hanwha-commission-review' || submittedDate);
-  const hasApprovedPdf =
-    isApproved &&
-    hasHanwhaPdfMetadata({
-      hanwha_commission_pdf_path: pdfPath,
-      hanwha_commission_pdf_name: rawPdfName,
-    });
+  const hasAttachedPdf = hasHanwhaPdfMetadata({
+    hanwha_commission_pdf_path: pdfPath,
+    hanwha_commission_pdf_name: rawPdfName,
+  });
+  const hasApprovedPdf = isApproved && hasAttachedPdf;
   const isPrerequisiteBlocked = !canSubmitHanwha && !isApproved && !isPending;
   const isLocked = isApproved || isPending || isPrerequisiteBlocked;
+  const pdfCardTitle = isApproved ? '승인 PDF' : '첨부 PDF';
 
   const statusTone = useMemo<StatusTone>(() => {
     if (isPrerequisiteBlocked) {
@@ -168,6 +170,9 @@ const pdfName = rawPdfName ?? '한화 위촉 URL PDF';
     }
     if (hasApprovedPdf) {
       return { label: '승인 완료', backgroundColor: '#DCFCE7', color: '#166534' };
+    }
+    if (hasAttachedPdf) {
+      return { label: '파일 도착', backgroundColor: '#DBEAFE', color: '#1D4ED8' };
     }
     if (isApproved) {
       return { label: 'PDF 대기', backgroundColor: '#FEF3C7', color: '#92400E' };
@@ -179,16 +184,18 @@ const pdfName = rawPdfName ?? '한화 위촉 URL PDF';
       return { label: '검토 중', backgroundColor: '#FFF7ED', color: '#C2410C' };
     }
     return { label: '입력 전', backgroundColor: COLORS.gray[100], color: COLORS.text.muted };
-  }, [hasApprovedPdf, isApproved, isPending, isPrerequisiteBlocked, isRejected]);
+  }, [hasApprovedPdf, hasAttachedPdf, isApproved, isPending, isPrerequisiteBlocked, isRejected]);
 
   const statusDescription = useMemo(() => {
     if (isPrerequisiteBlocked) return '서류 승인 후 진행';
-    if (hasApprovedPdf) return 'PDF 확인 후 다음 단계';
-    if (isApproved) return 'PDF 등록 대기';
+    if (hasApprovedPdf) return '첨부 PDF 확인 가능';
+    if (hasAttachedPdf && isRejected) return '반려 사유와 첨부 PDF를 확인하세요.';
+    if (hasAttachedPdf) return '첨부 PDF를 먼저 확인할 수 있습니다.';
+    if (isApproved) return '첨부 자료 등록 대기';
     if (isRejected) return '반려 후 재제출';
     if (isPending) return '총무 검토 중';
     return 'URL 진행 후 제출';
-  }, [hasApprovedPdf, isApproved, isPending, isPrerequisiteBlocked, isRejected]);
+  }, [hasApprovedPdf, hasAttachedPdf, isApproved, isPending, isPrerequisiteBlocked, isRejected]);
 
   const handleDateChange = useCallback((event: DateTimePickerEvent, selectedDate?: Date) => {
     if (Platform.OS === 'android') {
@@ -201,7 +208,7 @@ const pdfName = rawPdfName ?? '한화 위촉 URL PDF';
   const submitDate = useCallback(async () => {
     if (!residentId) return;
     if (!displayDate) {
-    Alert.alert('날짜 선택', '한화 위촉 URL 완료일을 선택해주세요.');
+      Alert.alert('날짜 선택', '다위촉 URL 완료일을 선택해주세요.');
       return;
     }
 
@@ -218,6 +225,7 @@ const pdfName = rawPdfName ?? '한화 위촉 URL PDF';
       const { data, error } = await supabase.functions.invoke<{
         ok?: boolean;
         data?: { id?: string; name?: string };
+        message?: string;
         error?: string;
       }>('fc-submit-hanwha-commission', {
         body: {
@@ -227,11 +235,11 @@ const pdfName = rawPdfName ?? '한화 위촉 URL PDF';
       });
 
       if (error) {
-      const message = await resolveFunctionInvokeErrorMessage(error, '한화 위촉 URL 정보를 저장하지 못했습니다.');
+        const message = await resolveFunctionInvokeErrorMessage(error, '다위촉 URL 정보를 저장하지 못했습니다.');
         throw new Error(message);
       }
       if (!data?.ok) {
-        throw new Error(data?.message ?? data?.error ?? '한화 위촉 URL 정보를 저장하지 못했습니다.');
+        throw new Error(data?.message ?? data?.error ?? '다위촉 URL 정보를 저장하지 못했습니다.');
       }
       if (!data?.data?.id) {
         throw new Error('업데이트된 데이터가 없습니다. (전화번호 불일치 가능성)');
@@ -242,16 +250,16 @@ const pdfName = rawPdfName ?? '한화 위촉 URL PDF';
           body: {
             type: 'fc_update',
             fc_id: data.data.id,
-          message: `${data.data.name ?? ''}님이 한화 위촉 URL 완료를 보고했습니다. (입력일: ${ymd})`,
+            message: `${data.data.name ?? ''}님이 다위촉 URL 완료를 보고했습니다. (입력일: ${ymd})`,
             url: '/dashboard',
           },
         })
         .catch(() => undefined);
 
-      Alert.alert('제출 완료', '한화 위촉 URL 완료일이 제출되었습니다.\n총무 승인 후 PDF가 제공됩니다.');
+      Alert.alert('제출 완료', '다위촉 URL 완료일이 제출되었습니다.\n총무 검토 후 다음 안내를 기다려주세요.');
       await load();
     } catch (error: any) {
-      Alert.alert('저장 실패', error?.message ?? '한화 위촉 URL 정보를 저장하지 못했습니다.');
+      Alert.alert('저장 실패', error?.message ?? '다위촉 URL 정보를 저장하지 못했습니다.');
     } finally {
       setSaving(false);
     }
@@ -259,7 +267,7 @@ const pdfName = rawPdfName ?? '한화 위촉 URL PDF';
 
   const resolvePdfUrl = useCallback(async () => {
     if (!pdfPath) {
-    throw new Error('열 수 있는 한화 위촉 URL PDF가 없습니다.');
+    throw new Error('열 수 있는 다위촉 URL PDF가 없습니다.');
     }
     const { data, error } = await supabase.storage.from(BUCKET).createSignedUrl(pdfPath, 300);
     if (error || !data?.signedUrl) {
@@ -270,7 +278,7 @@ const pdfName = rawPdfName ?? '한화 위촉 URL PDF';
 
   const openPdf = useCallback(async () => {
     if (!pdfPath) {
-      Alert.alert('PDF 없음', '열 수 있는 한화 위촉 URL PDF가 없습니다.');
+      Alert.alert('PDF 없음', '열 수 있는 다위촉 URL PDF가 없습니다.');
       return;
     }
 
@@ -279,7 +287,7 @@ const pdfName = rawPdfName ?? '한화 위촉 URL PDF';
       const signedUrl = await resolvePdfUrl();
       await openExternalUrl(signedUrl);
     } catch (error: any) {
-      Alert.alert('PDF 열기 실패', error?.message ?? '한화 위촉 URL PDF를 열지 못했습니다.');
+      Alert.alert('PDF 열기 실패', error?.message ?? '다위촉 URL PDF를 열지 못했습니다.');
     } finally {
       setOpeningPdf(false);
     }
@@ -287,7 +295,7 @@ const pdfName = rawPdfName ?? '한화 위촉 URL PDF';
 
   const downloadPdf = useCallback(async () => {
     if (!pdfPath) {
-      Alert.alert('PDF 없음', '다운로드할 한화 위촉 URL PDF가 없습니다.');
+      Alert.alert('PDF 없음', '다운로드할 다위촉 URL PDF가 없습니다.');
       return;
     }
 
@@ -296,49 +304,16 @@ const pdfName = rawPdfName ?? '한화 위촉 URL PDF';
       const signedUrl = await resolvePdfUrl();
       const inferredName = (pdfName?.trim() || 'hanwha-commission.pdf').replace(/[\\/:*?"<>|]/g, '_');
       const safeName = inferredName.toLowerCase().endsWith('.pdf') ? inferredName : `${inferredName}.pdf`;
-      const tempBaseDir = FileSystem.cacheDirectory ?? FileSystem.documentDirectory;
-      if (!tempBaseDir) {
-        throw new Error('다운로드 임시 저장 경로를 찾을 수 없습니다.');
-      }
+      const result = await downloadRemoteFileToUserStorage({
+        url: signedUrl,
+        fileName: safeName,
+        mimeType: 'application/pdf',
+        tempPrefix: 'hanwha',
+      });
 
-      const downloaded = await FileSystem.downloadAsync(signedUrl, `${tempBaseDir}hanwha-${Date.now()}.pdf`);
-
-      try {
-        if (Platform.OS === 'android') {
-          const downloadDirUri = FileSystem.StorageAccessFramework.getUriForDirectoryInRoot('Download');
-          const permission =
-            await FileSystem.StorageAccessFramework.requestDirectoryPermissionsAsync(downloadDirUri);
-
-          if (!permission.granted) {
-            throw new Error('다운로드 폴더 접근 권한이 필요합니다.');
-          }
-
-          const destUri = await FileSystem.StorageAccessFramework.createFileAsync(
-            permission.directoryUri,
-            safeName,
-            'application/pdf',
-          );
-
-          const base64 = await FileSystem.readAsStringAsync(downloaded.uri, {
-            encoding: FileSystem.EncodingType.Base64,
-          });
-          await FileSystem.writeAsStringAsync(destUri, base64, {
-            encoding: FileSystem.EncodingType.Base64,
-          });
-        } else {
-          const baseDocDir = FileSystem.documentDirectory;
-          if (!baseDocDir) {
-            throw new Error('문서 저장 경로를 찾을 수 없습니다.');
-          }
-          await FileSystem.copyAsync({ from: downloaded.uri, to: `${baseDocDir}${safeName}` });
-        }
-      } finally {
-        await FileSystem.deleteAsync(downloaded.uri, { idempotent: true }).catch(() => undefined);
-      }
-
-      Alert.alert('다운로드 완료', `${safeName} 파일을 저장했습니다.`);
+      Alert.alert('다운로드 완료', `${result.destinationLabel}에 저장되었습니다.\n${result.fileName}`);
     } catch (error: any) {
-      Alert.alert('PDF 다운로드 실패', error?.message ?? '한화 위촉 URL PDF를 다운로드하지 못했습니다.');
+      Alert.alert('PDF 다운로드 실패', error?.message ?? '다위촉 URL PDF를 다운로드하지 못했습니다.');
     } finally {
       setDownloadingPdf(false);
     }
@@ -368,7 +343,7 @@ const pdfName = rawPdfName ?? '한화 위촉 URL PDF';
       <Stack.Screen
         options={{
           headerShown: true,
-      title: '한화 위촉 URL',
+          title: '다위촉 URL',
           header: (props) => <CompactHeader {...props} />,
         }}
       />
@@ -379,25 +354,33 @@ const pdfName = rawPdfName ?? '한화 위촉 URL PDF';
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}
       >
         <ScreenHeader
-      title="한화 위촉 URL"
-          subtitle="URL · 완료일 · 승인 PDF"
+          title="다위촉 URL"
+          subtitle="URL · 완료일 · 첨부 PDF"
         />
 
         {loading ? (
-          <ActivityIndicator color={COLORS.primary} style={{ marginTop: 40 }} />
+          <BrandedLoadingState variant="hanwha-commission" layout="section" />
         ) : (
           <>
             <View style={styles.card}>
               <View style={styles.summaryHeader}>
-        <Text style={styles.sectionTitle}>한화 위촉 URL 검토</Text>
+                <Text style={styles.sectionTitle}>다위촉 URL 검토</Text>
                 <View style={[styles.statusBadge, { backgroundColor: statusTone.backgroundColor }]}>
                   <Text style={[styles.statusBadgeText, { color: statusTone.color }]}>{statusTone.label}</Text>
                 </View>
               </View>
               <Text style={styles.sectionDesc}>{statusDescription}</Text>
+              {!isPrerequisiteBlocked && (
+                <View style={styles.statusHintRow}>
+                  <Feather name="message-circle" size={16} color={COLORS.primary} />
+                  <Text style={styles.statusHintText}>
+                    카카오톡으로 다위촉 URL에 접속하여 진행 후 완료일을 입력해 주세요.
+                  </Text>
+                </View>
+              )}
               {isPrerequisiteBlocked && (
                 <Text style={[styles.sectionDesc, { color: COLORS.text.muted, marginTop: 4 }]}>
-                  서류 승인 후 총무가 URL을 안내합니다.
+                  서류 승인 후 총무가 다위촉 URL을 안내합니다.
                 </Text>
               )}
               {!!rejectReason && (
@@ -408,7 +391,7 @@ const pdfName = rawPdfName ?? '한화 위촉 URL PDF';
               )}
 
               <View style={styles.inputGroup}>
-            <Text style={styles.label}>한화 위촉 URL 완료일</Text>
+                <Text style={styles.label}>다위촉 URL 완료일</Text>
                 {Platform.OS === 'web' ? (
                   <View style={styles.webDateWrapper}>
                     <View style={[styles.dateInput, isLocked && styles.disabledInput]}>
@@ -468,9 +451,9 @@ const pdfName = rawPdfName ?? '한화 위촉 URL PDF';
               >
                 {isApproved ? '승인 완료' : isPending ? '승인 대기 중' : '완료일 제출하기'}
               </Button>
-              {!!pdfPath && <Text style={styles.fileCaption}>{pdfName}</Text>}
+              {hasAttachedPdf && <Text style={styles.fileCaption}>{pdfName}</Text>}
 
-              {hasApprovedPdf && (
+              {hasAttachedPdf && (
                 <Button
                   onPress={openPdf}
                   loading={openingPdf}
@@ -479,7 +462,7 @@ const pdfName = rawPdfName ?? '한화 위촉 URL PDF';
                   fullWidth
                   leftIcon={<Feather name="download" size={18} color={COLORS.primary} />}
                 >
-                  승인 PDF 확인
+                  {pdfCardTitle} 확인
                 </Button>
               )}
             </View>
@@ -490,28 +473,36 @@ const pdfName = rawPdfName ?? '한화 위촉 URL PDF';
                   <Feather name="file-text" size={20} color={COLORS.white} />
                 </View>
                 <View style={styles.heroTextWrap}>
-                  <Text style={styles.sectionTitle}>승인 PDF</Text>
+                  <Text style={styles.sectionTitle}>{pdfCardTitle}</Text>
                   <Text style={styles.sectionDesc}>
-                    {hasApprovedPdf ? '열람 · 다운로드 후 다음 단계' : '총무 승인 후 이곳에 PDF가 도착합니다.'}
+                    {hasApprovedPdf
+                      ? '열람 · 다운로드 가능'
+                      : hasAttachedPdf
+                        ? '첨부된 PDF를 확인할 수 있습니다.'
+                        : '총무가 PDF를 첨부하면 여기서 바로 확인할 수 있습니다.'}
                   </Text>
                 </View>
               </View>
 
-              <View style={[styles.pdfDock, hasApprovedPdf ? styles.pdfDockReady : styles.pdfDockPending]}>
+              <View style={[styles.pdfDock, hasAttachedPdf ? styles.pdfDockReady : styles.pdfDockPending]}>
                 <View style={styles.pdfDockMain}>
-                  <View style={[styles.pdfPreviewBadge, hasApprovedPdf ? styles.pdfPreviewBadgeReady : styles.pdfPreviewBadgePending]}>
+                  <View style={[styles.pdfPreviewBadge, hasAttachedPdf ? styles.pdfPreviewBadgeReady : styles.pdfPreviewBadgePending]}>
                     <Feather
-                      name={hasApprovedPdf ? 'file-text' : 'download-cloud'}
+                      name={hasAttachedPdf ? 'file-text' : 'download-cloud'}
                       size={22}
-                      color={hasApprovedPdf ? COLORS.primary : COLORS.text.disabled}
+                      color={hasAttachedPdf ? COLORS.primary : COLORS.text.disabled}
                     />
                   </View>
                   <View style={styles.pdfDockTextWrap}>
                     <Text style={styles.pdfDockTitle}>
-              {hasApprovedPdf ? '한화 위촉 URL 승인 PDF' : 'PDF 도착 대기'}
+                      {hasAttachedPdf ? `다위촉 URL ${pdfCardTitle}` : 'PDF 도착 대기'}
                     </Text>
                     <Text style={styles.pdfDockDesc}>
-                      {hasApprovedPdf ? pdfName : '총무가 승인 후 PDF를 등록하면 여기서 바로 확인할 수 있습니다.'}
+                      {hasAttachedPdf
+                        ? isApproved
+                          ? pdfName
+                          : `${pdfName} · 필요하면 바로 열어볼 수 있습니다.`
+                        : '총무가 PDF를 등록하면 여기서 바로 확인할 수 있습니다.'}
                     </Text>
                   </View>
                 </View>
@@ -520,22 +511,22 @@ const pdfName = rawPdfName ?? '한화 위촉 URL PDF';
                   <Button
                     onPress={openPdf}
                     loading={openingPdf}
-                    disabled={!hasApprovedPdf}
-                    variant={hasApprovedPdf ? 'outline' : 'outline'}
+                    disabled={!hasAttachedPdf}
+                    variant="outline"
                     size="md"
                     style={styles.pdfActionBtn}
-                    leftIcon={<Feather name="eye" size={16} color={hasApprovedPdf ? COLORS.primary : COLORS.text.disabled} />}
+                    leftIcon={<Feather name="eye" size={16} color={hasAttachedPdf ? COLORS.primary : COLORS.text.disabled} />}
                   >
                     열람
                   </Button>
                   <Button
                     onPress={downloadPdf}
                     loading={downloadingPdf}
-                    disabled={!hasApprovedPdf}
-                    variant={hasApprovedPdf ? 'secondary' : 'outline'}
+                    disabled={!hasAttachedPdf}
+                    variant={hasAttachedPdf ? 'secondary' : 'outline'}
                     size="md"
                     style={styles.pdfActionBtn}
-                    leftIcon={<Feather name="download" size={16} color={hasApprovedPdf ? COLORS.white : COLORS.text.disabled} />}
+                    leftIcon={<Feather name="download" size={16} color={hasAttachedPdf ? COLORS.white : COLORS.text.disabled} />}
                   >
                     다운로드
                   </Button>
@@ -614,6 +605,25 @@ const styles = StyleSheet.create({
     padding: SPACING.lg,
     gap: SPACING.base,
     ...SHADOWS.base,
+  },
+  compactHero: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: SPACING.sm,
+  },
+  heroIconWrap: {
+    width: 40,
+    height: 40,
+    borderRadius: 14,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  heroIconWrapSolid: {
+    backgroundColor: COLORS.primary,
+  },
+  heroTextWrap: {
+    flex: 1,
+    gap: 4,
   },
   summaryHeader: {
     flexDirection: 'row',

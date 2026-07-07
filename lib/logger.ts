@@ -7,6 +7,8 @@
 
 import Constants from 'expo-constants';
 
+import { captureSentryException } from '@/lib/sentry-monitor';
+
 export enum LogLevel {
   DEBUG = 'DEBUG',
   INFO = 'INFO',
@@ -78,6 +80,10 @@ class Logger {
         break;
       case LogLevel.ERROR:
         console.error(formatted);
+        captureSentryException(data instanceof Error ? data : new Error(message), {
+          loggerMessage: message,
+          loggerData: data,
+        });
         break;
     }
   }

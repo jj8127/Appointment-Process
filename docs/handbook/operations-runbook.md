@@ -72,9 +72,12 @@ source_of_truth: web/src/app/api/* + supabase/functions/* + data/*
 - Workspace and execution: worktree run from `D:\hanhwa\fc-onboarding-app`, based on `origin/main`, so local dirty files such as `app.json` are not touched.
 - Triage command: `npm run ops:sentry-triage`.
 - Dry run: `npm run ops:sentry-triage -- --dry-run`.
+- Seven-day report: `npm run ops:sentry-triage -- --last-seen-days 7 --summary-only`. This uses `statsPeriod=14d` plus an explicit `lastSeen:>=YYYY-MM-DD` query because Sentry may reject `statsPeriod=7d`.
 - Sentry scope: org `hanhwa-lifelab`, projects `react-native` and `garamin-web`, production unresolved fatal/error issues. `garamin-web` was created on 2026-06-16 as a Next.js Sentry project in team `hanhwa-lifelab`.
+- `no-issues` from the default triage command means no unresolved fatal/error issue in the default 24h repair window. It does not mean the unresolved backlog is empty.
+- GaramLink Sentry repair is intentionally separate: use automation `daily-garamlink-sentry-repair-pr` from `D:\hanhwa\request_board` for project `garamlink-client`.
 - Token rule: Sentry reads must use `SENTRY_READ_AUTH_TOKEN` only. `SENTRY_AUTH_TOKEN` is release/source-map upload only and must not be used as a read fallback.
-- Worktree env rule: `npm run ops:sentry-triage` reads `.env` / `.env.local` from the linked worktree and from the primary checkout resolved by `git rev-parse --git-common-dir`. Keep the read token in the user environment or the primary checkout `.env.local`; never copy secrets into Codex worktrees or commit them.
+- Worktree env rule: `npm run ops:sentry-triage` reads `.env` / `.env.local` from both the linked worktree and the primary checkout resolved by `git rev-parse --git-common-dir`. Keep the read token in the user environment or the primary checkout `.env.local`; never copy secrets into Codex worktrees or commit them.
 - Fix scope: choose one highest-priority fixable issue, or a tightly related root-cause group, then create a draft PR.
 - PR branch: `codex/sentry-daily-YYYYMMDD-<issue-short-id>`.
 - PR title: `fix(sentry): <issue short id> <short title>`.

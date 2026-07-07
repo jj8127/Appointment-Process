@@ -55,6 +55,17 @@ test('parseArgs supports dry-run, org, repeated projects, and limits', () => {
   assert.equal(parsed.eventLimit, 3);
 });
 
+test('parseArgs supports explicit last-seen summary reports', () => {
+  const parsed = parseArgs([
+    '--last-seen-days',
+    '7',
+    '--summary-only',
+  ]);
+
+  assert.equal(parsed.lastSeenDays, 7);
+  assert.equal(parsed.summaryOnly, true);
+});
+
 test('dry-run never requires SENTRY_READ_AUTH_TOKEN or calls Sentry', async () => {
   const { calls, fetchImpl } = createFetchRecorder([]);
   const runner = createSentryDailyTriageRunner({ fetchImpl });
@@ -68,6 +79,7 @@ test('dry-run never requires SENTRY_READ_AUTH_TOKEN or calls Sentry', async () =
   assert.equal(result.hasReadToken, false);
   assert.equal(result.usesUploadTokenFallback, false);
   assert.deepEqual(result.projects, ['react-native', 'garamin-web']);
+  assert.equal(result.statsPeriod, '24h');
   assert.equal(calls.length, 0);
 });
 
@@ -169,6 +181,37 @@ test('runner reads organization issues, issue detail, and issue events with the 
     assert.equal(call.init.headers.Authorization, 'Bearer read-token');
     assert.equal(call.init.body, undefined);
   }
+});
+
+test('summary-only last-seen report uses a 14d stats window with explicit lastSeen query', async () => {
+  const issue = {
+    id: '122054204',
+    shortId: 'REACT-NATIVE-3',
+    title: 'TypeError: Object is not a function',
+    level: 'fatal',
+    count: '5',
+    userCount: 2,
+    lastSeen: '2026-06-24T04:43:45Z',
+    project: { slug: 'react-native' },
+  };
+  const { calls, fetchImpl } = createFetchRecorder([{ body: [issue] }]);
+  const runner = createSentryDailyTriageRunner({ fetchImpl, now: () => new Date('2026-07-01T02:00:00Z') });
+
+  const result = await runner({
+    env: {
+      SENTRY_READ_AUTH_TOKEN: 'read-token',
+    },
+    args: {
+      lastSeenDays: 7,
+      summaryOnly: true,
+    },
+  });
+
+  assert.equal(result.status, 'summary');
+  assert.equal(result.issueCount, 1);
+  assert.equal(calls.length, 1);
+  assert.match(calls[0].url, /statsPeriod=14d/);
+  assert.match(calls[0].url, /query=is%3Aunresolved\+lastSeen%3A%3E%3D2026-06-24/);
 });
 
 test('selectCandidateIssue prioritizes fatal issues before noisy error issues', () => {

@@ -2,11 +2,12 @@
   "expo": {
     "name": "가람 in",
     "slug": "fc-onboarding-app",
-    "version": "3.0.0",
+    "version": "4.0.14",
     "orientation": "portrait",
     "icon": "./assets/images/logo.png",
     "scheme": "hanwhafcpass",
-    "userInterfaceStyle": "automatic",
+    "userInterfaceStyle": "light",
+    "backgroundColor": "#ffffff",
     "newArchEnabled": true,
     "ios": {
       "supportsTablet": true,
@@ -18,6 +19,8 @@
       }
     },
     "android": {
+      "userInterfaceStyle": "light",
+      "backgroundColor": "#ffffff",
       "googleServicesFile": "./google-services.json",
       "adaptiveIcon": {
         "backgroundColor": "#E6F4FE",
@@ -36,12 +39,20 @@
     "plugins": [
       "expo-router",
       [
+        "@sentry/react-native/expo",
+        {
+          "url": "https://sentry.io/",
+          "organization": "hanhwa-lifelab",
+          "project": "react-native"
+        }
+      ],
+      [
         "expo-build-properties",
         {
           "android": {
             "enableMinifyInReleaseBuilds": true,
             "enableShrinkResourcesInReleaseBuilds": true,
-            "kotlinVersion": "2.2.20",
+            "kotlinVersion": "2.1.20",
             "kotlinJvmTarget": "17"
           }
         }
@@ -61,7 +72,7 @@
           "resizeMode": "contain",
           "backgroundColor": "#ffffff",
           "dark": {
-            "backgroundColor": "#000000"
+            "backgroundColor": "#ffffff"
           }
         }
       ],
@@ -76,6 +87,12 @@
       "eas": {
         "projectId": "6e9a1f11-8b60-46f9-8af2-168188dbf3db"
       }
+    },
+    "runtimeVersion": {
+      "policy": "appVersion"
+    },
+    "updates": {
+      "url": "https://u.expo.dev/6e9a1f11-8b60-46f9-8af2-168188dbf3db"
     }
   }
 }

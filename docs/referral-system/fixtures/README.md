@@ -15,11 +15,14 @@
 
 | 코드 | 역할 | 용도 | 실제 전화번호 |
 | --- | --- | --- | --- |
-| `REF-INVITER-01` | inviter | 기본 추천코드/초대링크 발급자 | `TBD` |
-| `REF-INVITEE-01` | invitee | 수동 추천코드 가입 검증 | `TBD` |
+| `REF-INVITER-01` | inviter | historical-first lookup 검증용 1차 inviter | `01099989021` |
+| `REF-INVITER-02` | inviter | 동명이인/다른 활성 코드 fallback 차단 검증용 2차 inviter | `01099989022` |
+| `REF-INVITEE-01` | invitee | historical-first lookup 검증 대상 invitee | `01099989023` |
 | `REF-INVITEE-02` | invitee | 초대링크 직접 진입 검증 | `TBD` |
 | `REF-INVITEE-03` | invitee | 스토어 경유 복원 검증 | `TBD` |
-| `REF-NEGATIVE-01` | negative | 자기추천/중복/무효 코드 검증 | `TBD` |
+| `REF-NEGATIVE-01` | negative | fresh-number direct `set-password` 차단(`RF-SEC-03`) | `01099989031` |
+| `REF-NEGATIVE-02` | negative | duplicate `set-password` state-preservation(`RF-SEC-04`) | `01099989041` |
+| `REF-FC-EDIT-01` | fc | `/fc/new` recommender cache non-overwrite 검증(`RF-SEC-05`) | `01099989051` |
 | `REF-ADMIN-01` | admin | 운영 조회/보정 검증 | `TBD` |
 
 ## 4. 기기 슬롯
@@ -44,3 +47,4 @@
 
 - 실제 전화번호를 채웠으면 이 파일을 최신으로 유지한다.
 - 새 음성/문자/스토어 제약이 생기면 notes가 아니라 이 파일에 추가한다.
+- `01099989021/22/23/31/41/51`은 `2026-04-02` rollout verification에서 생성한 synthetic referral fixtures다. 실사용 계정으로 전환하지 말고, 재검증 시 먼저 이름 prefix가 `REFTEST-`인지 확인한다.

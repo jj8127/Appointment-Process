@@ -4,7 +4,6 @@ import * as FileSystem from 'expo-file-system/legacy';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
-  ActivityIndicator,
   Alert,
   KeyboardAvoidingView,
   Platform,
@@ -17,6 +16,7 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
+import BrandedLoadingSpinner from '@/components/BrandedLoadingSpinner';
 import { Button } from '@/components/Button';
 import { RefreshButton } from '@/components/RefreshButton';
 import { useToast } from '@/components/Toast';
@@ -113,7 +113,7 @@ export default function DocsUploadScreen() {
   const progressPercent = docCount.total > 0 ? (docCount.uploaded / docCount.total) * 100 : 0;
   const isDocsApproved = fc?.status === HANWHA_HANDOFF_STATUS;
   const footerRoute = !isAdmin && isDocsApproved ? '/hanwha-commission' : '/';
-  const footerLabel = !isAdmin && isDocsApproved ? '한화 위촉 URL 단계로 이동' : '홈으로 가기';
+  const footerLabel = !isAdmin && isDocsApproved ? '다위촉 URL 단계로 이동' : '홈으로 가기';
 
   const loadData = useCallback(async () => {
     try {
@@ -155,11 +155,12 @@ export default function DocsUploadScreen() {
 
       const reqDocs: DocItem[] = (requirements ?? []).map((r) => {
         const hasFile = r.storage_path && r.storage_path !== 'deleted';
+        const normalizedStatus = normalizeDocStatus(r.status) ?? 'pending';
         return {
           type: r.doc_type,
           required: true,
           uploadedUrl: undefined,
-          status: hasFile ? normalizeDocStatus(r.status) ?? 'pending' : 'pending',
+          status: normalizedStatus,
           reviewerNote: r.reviewer_note ?? undefined,
           storagePath: hasFile ? r.storage_path ?? undefined : undefined,
           originalName: hasFile ? r.file_name ?? undefined : undefined,
@@ -167,8 +168,8 @@ export default function DocsUploadScreen() {
       });
 
       const statusRank = (doc: DocItem) => {
-        if (!doc.storagePath) return 0; // 미제출
         if (doc.status === 'approved') return 2; // 승인됨
+        if (!doc.storagePath) return 0; // 미제출
         return 1; // 미승인 (제출됨)
       };
       reqDocs.sort((a, b) => statusRank(a) - statusRank(b));
@@ -460,13 +461,10 @@ export default function DocsUploadScreen() {
         if (docsError) throw docsError;
 
         const requestedDocs = allDocs ?? [];
-        const allSubmitted =
-          requestedDocs.length > 0 &&
-          requestedDocs.every((doc) => doc.storage_path && doc.storage_path !== 'deleted');
-        const allApproved = allSubmitted && requestedDocs.every((doc) => doc.status === 'approved');
+        const allApproved = requestedDocs.length > 0 && requestedDocs.every((doc) => doc.status === 'approved');
 
         if (!allApproved) {
-          throw new Error('모든 요청 서류가 제출 및 승인된 뒤에만 한화 위촉 URL 단계로 넘길 수 있습니다.');
+          throw new Error('모든 요청 서류가 승인된 뒤에만 다위촉 URL 단계로 넘길 수 있습니다.');
         }
       }
 
@@ -484,7 +482,7 @@ export default function DocsUploadScreen() {
       Alert.alert(
         '완료',
         isApprove
-          ? '서류 검토가 완료되었습니다. 다음 단계는 생명/손해 위촉이 아니라 한화 위촉 URL입니다.'
+          ? '서류 검토가 완료되었습니다. 다음 단계는 생명/손해 위촉이 아니라 다위촉 URL입니다.'
             : '서류가 반려되었습니다. 다시 검토가 필요합니다.',
         [
           { text: '확인', onPress: () => router.back() },
@@ -527,7 +525,7 @@ export default function DocsUploadScreen() {
             <View style={styles.adminActionBox}>
               <Text style={styles.adminLabel}>관리자 검토</Text>
               <Text style={styles.adminHelperText}>
-                승인 시 FC는 생명/손해 위촉으로 바로 가지 않고 한화 위촉 URL 단계로 넘어갑니다.
+                승인 시 FC는 생명/손해 위촉으로 바로 가지 않고 다위촉 URL 단계로 넘어갑니다.
               </Text>
               <View style={styles.adminActionRow}>
                 <Button
@@ -547,7 +545,7 @@ export default function DocsUploadScreen() {
                   size="lg"
                   style={{ flex: 1 }}
                 >
-                  한화 위촉 URL 단계로 승인
+                  다위촉 URL 단계로 승인
                 </Button>
               </View>
             </View>
@@ -556,12 +554,12 @@ export default function DocsUploadScreen() {
           {isDocsApproved && (
             <View style={styles.handoffBox}>
                 <Text style={styles.handoffTitle}>
-                  {isAdmin ? '한화 위촉 URL 단계 인계 완료' : '서류 승인 완료'}
+                  {isAdmin ? '다위촉 URL 단계 인계 완료' : '서류 승인 완료'}
                 </Text>
               <Text style={styles.handoffText}>
                 {isAdmin
-                  ? '이 FC의 다음 단계는 생명/손해 위촉이 아니라 한화 위촉 URL입니다.'
-                  : '다음 단계는 생명/손해 위촉이 아니라 한화 위촉 URL입니다. 한화 위촉 URL 완료일 제출과 승인 확인을 먼저 진행해주세요.'}
+                  ? '이 FC의 다음 단계는 생명/손해 위촉이 아니라 다위촉 URL입니다.'
+                  : '다음 단계는 생명/손해 위촉이 아니라 다위촉 URL입니다. 다위촉 URL 완료일 제출과 서류 발송 알림을 먼저 진행해주세요.'}
               </Text>
             </View>
           )}
@@ -605,7 +603,7 @@ export default function DocsUploadScreen() {
                         <Text style={styles.cardTitle} numberOfLines={1}>{doc.type}</Text>
 
                         {/* status chip */}
-                        {isUploaded ? (
+                        {isUploaded || isLocked || isRejected ? (
                           <View
                             style={[
                               styles.chip,
@@ -634,12 +632,18 @@ export default function DocsUploadScreen() {
                       </View>
 
                       <Text style={styles.cardFileName} numberOfLines={1}>
-                        {isUploaded ? (doc.originalName ?? '파일 있음') : 'PDF 파일을 업로드해주세요'}
+                        {isUploaded
+                          ? (doc.originalName ?? '파일 있음')
+                          : isLocked
+                            ? '총무 수동 승인: 파일 미제출'
+                            : isRejected
+                              ? '파일 없이 반려됨'
+                              : 'PDF 파일을 업로드해주세요'}
                       </Text>
 
                       {!!doc.reviewerNote && (
                         <Text style={styles.cardNote} numberOfLines={2}>
-                          <Text style={styles.cardNoteLabel}>반려 사유: </Text>
+                          <Text style={styles.cardNoteLabel}>{isRejected ? '반려 사유: ' : '검토 메모: '}</Text>
                           <Text style={styles.cardNoteText}>{doc.reviewerNote}</Text>
                         </Text>
                       )}
@@ -687,7 +691,7 @@ export default function DocsUploadScreen() {
                       disabled={isUploading || isLocked}
                     >
                       {isUploading ? (
-                        <ActivityIndicator size="small" color={COLORS.primary} />
+                        <BrandedLoadingSpinner size="sm" color={COLORS.primary} />
                       ) : (
                         <>
                           <Feather name="upload" size={16} color={COLORS.primary} />
