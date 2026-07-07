@@ -7,6 +7,32 @@
 
 ---
 
+## <a id="20260707-node24-ci-admin-web"></a> 2026-07-07 | Node 24 CI and admin web runtime alignment
+
+**Background**:
+- Vercel now defaults new projects to Node 24, and Node 20 builds produce deprecation warnings for future deployments.
+- The admin web project already built successfully on Vercel Node 24, but GitHub Actions still used Node 20.
+
+**Changes**:
+- Updated GitHub Actions app/web CI and Governance Check jobs from Node 20 to Node 24.
+- Added `engines.node = 24.x` to the admin web package to keep the Vercel runtime explicit.
+- Updated admin web Node type definitions to `@types/node@^24` and refreshed `web/package-lock.json`.
+
+**Files**:
+- `.github/workflows/ci.yml`
+- `.github/workflows/governance-check.yml`
+- `web/package.json`
+- `web/package-lock.json`
+- `.claude/WORK_LOG.md`
+- `.claude/WORK_DETAIL.md`
+
+**Verification**:
+- Run under Node 24.18.0: `npm test -- --runInBand`
+- Run under Node 24.18.0: `npm run lint`
+- Run under Node 24.18.0 in `web`: `npm run lint && npm run build`
+
+---
+
 ## <a id="20260707-ci-audit-repo-identity"></a> 2026-07-07 | CI audit repo identity stabilization
 
 **Background**:
