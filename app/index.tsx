@@ -276,7 +276,7 @@ const fetchLatestAdminMessage = async (residentId: string) => {
       .limit(1);
 
     if (error) {
-      logger.error('[Home] latest admin msg error', error);
+      logger.warn('[Home] latest admin msg error', error);
       return null;
     }
 

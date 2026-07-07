@@ -30,6 +30,12 @@
 |---|---|---|---|
 | 07-06 | Consent guide image visibility fix | `app/consent.tsx`, `lib/__tests__/consent-guide-source.test.ts`, `.claude/MISTAKES.md` | [detail](WORK_DETAIL.md#20260706-consent-guide-image-visibility) |
 
+## 2026-07-05
+
+| Date | Work | Key files | Detail |
+|---|---|---|---|
+| 07-05 | Sentry `REACT-NATIVE-A` Android image preview `addViewAt` crash surface mitigation | `components/ImagePreviewModal.tsx`, `components/image-preview-modal-policy.ts`, `components/__tests__/image-preview-modal-policy.test.ts` | [detail](WORK_DETAIL.md#20260705-sentry-image-preview-android-addviewat) |
+
 ## 2026-07-03
 
 | Date | Work | Key files | Detail |

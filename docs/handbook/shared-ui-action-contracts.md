@@ -53,6 +53,8 @@ Messenger delete confirmations in `app/chat.tsx`, `app/group-chat.tsx`, and `app
 
 Native download/save flows in `app/request-board-messenger.tsx` and `app/hanwha-commission.tsx` must use `downloadRemoteFileToUserStorage` from `lib/native-file-actions.ts`. The helper owns temporary download paths, Android Storage Access Framework writes, iOS document copies, duplicate filename fallback, cleanup, and destination labels. Do not call `FileSystem.downloadAsync` or `StorageAccessFramework` directly from those screens.
 
+Image preview modals in `components/ImagePreviewModal.tsx` must route platform behavior through `components/image-preview-modal-policy.ts`. Android uses a non-virtualized static pager inside native modals to avoid Fabric child-insertion crashes; iOS/web keep the gesture/reanimated zoom path.
+
 Board attachment file opens in `app/board.tsx` and `app/admin-board-manage.tsx` must use `openBoardAttachment` from `lib/board-attachment-actions.ts`. The helper owns missing signed URL handling, external opener dispatch, failure feedback, and optional error logging; screens only pass `openExternalUrl`, `Alert.alert`, and the board logger.
 
 Board comment edit/delete action sheets in `app/board.tsx` and `app/admin-board-manage.tsx` must use `showBoardCommentActions` from `lib/board-comment-actions.ts`. The helper owns the "댓글 관리" title, edit/delete/cancel labels, and destructive delete style; screens only pass edit/delete callbacks and the native alert function.
