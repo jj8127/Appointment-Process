@@ -220,11 +220,12 @@ describe('group chat mobile wiring', () => {
   it('keeps staff group chat input enabled regardless of per-FC send permission', () => {
     const source = readAppFile('group-chat.tsx');
 
-    expect(source).toContain('function isStaffGroupChatActor');
-    expect(source).toContain("actor?.role === 'manager' || actor?.role === 'admin'");
-    expect(source).toContain('function resolveCanSendMessages');
-    expect(source).toContain('isStaffGroupChatActor(actor) || canSendMessages === true');
-    expect(source).toContain('setCanSendMessages(resolveCanSendMessages(data.actor, data.can_send_messages))');
+    expect(source).toContain("from '@/lib/group-chat-display'");
+    expect(source).toContain('isStaffGroupChatActor(actor)');
+    expect(source).toContain('resolveGroupChatSendPermission(data.actor, data.can_send_messages)');
+    expect(source).toContain('setCanSendMessages(resolveGroupChatSendPermission(data.actor, data.can_send_messages))');
+    expect(source).not.toContain('function isStaffGroupChatActor');
+    expect(source).not.toContain('function resolveCanSendMessages');
   });
 
   it('routes group chat notifications to the group chat screen', () => {

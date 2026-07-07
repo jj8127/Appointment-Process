@@ -7,6 +7,11 @@ source_of_truth: app/index.tsx + app/home-lite.tsx + app/fc/new.tsx + app/consen
 
 # Mobile Playbook: FC Onboarding
 
+## 2026-07-06 Push Registration Contract
+
+- Mobile push registration must reuse an Expo token that was already fetched by the caller instead of fetching a second token in the same login/home effect.
+- `device_tokens` is no longer a mobile client table contract. Mobile code must call the trusted device-token Edge Function for register/delete and must not use direct Supabase `.from('device_tokens')` access.
+
 ## 목적
 
 - FC가 가입 후 본등록, 보증 보험 동의, 서류, 위촉까지 스스로 진행하도록 안내

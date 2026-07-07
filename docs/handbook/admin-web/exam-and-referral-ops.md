@@ -7,6 +7,11 @@ source_of_truth: web/src/app/dashboard/exam/* + web/src/app/admin/exams/* + web/
 
 # Admin Web Playbook: Exam And Referral Ops
 
+## 2026-07-06 Exam Applicants API Auth Contract
+
+- `/api/admin/exam-applicants` is a privileged admin web API and must use the signed server-session helper before reading or mutating applicant data.
+- Caller-supplied role or resident identity values are ignored for authorization; admin/manager capabilities come only from the verified session.
+
 ## 포함 화면
 
 - `/dashboard/exam/schedule`

@@ -1,7 +1,7 @@
 import { Feather } from '@expo/vector-icons';
 import { router, useLocalSearchParams } from 'expo-router';
 import { MotiView } from 'moti';
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import {
     Image,
     Pressable,
@@ -37,6 +37,7 @@ export default function LoginScreen() {
     const [passwordInput, setPasswordInput] = useState('');
     const [rememberPassword, setRememberPassword] = useState(false);
     const keyboardPadding = useKeyboardPadding();
+    const rememberPasswordPressInHandledRef = useRef(false);
 
     // Use custom login hook
     const { login, loading } = useLogin();
@@ -84,6 +85,19 @@ export default function LoginScreen() {
             return next;
         });
     }, []);
+
+    const handleRememberPasswordPressIn = useCallback(() => {
+        rememberPasswordPressInHandledRef.current = true;
+        toggleRememberPassword();
+    }, [toggleRememberPassword]);
+
+    const handleRememberPasswordPress = useCallback(() => {
+        if (rememberPasswordPressInHandledRef.current) {
+            rememberPasswordPressInHandledRef.current = false;
+            return;
+        }
+        toggleRememberPassword();
+    }, [toggleRememberPassword]);
 
     const handleLogin = async () => {
         const success = await login(phoneInput, passwordInput);
@@ -162,7 +176,8 @@ export default function LoginScreen() {
 
                             <Pressable
                                 style={({ pressed }) => [styles.rememberRow, pressed && styles.rememberRowPressed]}
-                                onPress={toggleRememberPassword}
+                                onPressIn={handleRememberPasswordPressIn}
+                                onPress={handleRememberPasswordPress}
                                 accessibilityRole="checkbox"
                                 accessibilityState={{ checked: rememberPassword }}
                                 accessibilityLabel="비밀번호 저장"

@@ -86,7 +86,7 @@ export async function registerWebPushSubscription(
   const resp = await fetch('/api/web-push/subscribe', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ subscription, role, residentId }),
+    body: JSON.stringify({ subscription }),
   });
 
   if (!resp.ok) {

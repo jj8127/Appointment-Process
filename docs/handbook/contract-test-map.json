@@ -3,6 +3,31 @@
   "default_enforced": true,
   "rules": [
     {
+      "id": "priority-security-boundaries",
+      "prefixes": [
+        "app/dashboard.tsx",
+        "lib/notifications.ts",
+        "supabase/functions/device-token-register/",
+        "supabase/functions/_shared/request-board-auth.ts",
+        "web/src/app/api/admin/",
+        "web/src/app/api/fc-delete/",
+        "web/src/app/api/presence/",
+        "web/src/app/api/web-push/subscribe/",
+        "web/src/app/actions.ts",
+        "web/src/app/dashboard/notifications/",
+        "web/src/lib/admin-supabase.ts",
+        "web/src/lib/admin-route-auth.ts",
+        "web/src/lib/push-notification-service.ts",
+        "web/src/lib/request-board-app-session.ts",
+        "web/src/lib/server-session.ts"
+      ],
+      "requires_any": [
+        "lib/__tests__/priority-security-hardening.test.ts",
+        "docs/handbook/backend/notifications-inbox-push.md",
+        "docs/handbook/contract-test-map.json"
+      ]
+    },
+    {
       "id": "messenger-interactions",
       "prefixes": [
         "app/chat.tsx",
@@ -88,6 +113,18 @@
         "web/src/lib/admin-web-login-role.test.ts",
         "docs/handbook/feature-contract-matrix.md",
         "docs/handbook/role-permission-matrix.md",
+        "docs/handbook/contract-test-map.json"
+      ]
+    },
+    {
+      "id": "agent-room-build-tracing",
+      "prefixes": [
+        "web/src/app/api/agent-room/",
+        "web/src/lib/agent-room-server.ts",
+        "web/next.config.ts"
+      ],
+      "requires_any": [
+        "lib/__tests__/agent-room-build-tracing.test.ts",
         "docs/handbook/contract-test-map.json"
       ]
     },

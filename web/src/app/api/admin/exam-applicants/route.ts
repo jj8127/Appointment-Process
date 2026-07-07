@@ -1,8 +1,7 @@
-import { cookies } from 'next/headers';
 import { NextResponse } from 'next/server';
 
 import { adminSupabase } from '@/lib/admin-supabase';
-import { checkRateLimit, SECURITY_HEADERS, validateSession } from '@/lib/csrf';
+import { checkRateLimit, SECURITY_HEADERS } from '@/lib/csrf';
 import {
   applyExamApplicantApplicationTypes,
   buildExamApplicantBaseRows,
@@ -14,7 +13,7 @@ import {
 } from '@/lib/exam-applicant-resident-number-enrichment';
 import { logger } from '@/lib/logger';
 import { readResidentNumbersWithFallback } from '@/lib/server-resident-numbers';
-import { buildPhoneCandidates } from '@/lib/server-session';
+import { buildPhoneCandidates, getVerifiedAdminSession, getVerifiedReadOnlyAdminSession } from '@/lib/server-session';
 
 type DeleteBody = {
   registrationId?: string;
@@ -26,41 +25,11 @@ type UpdateBody = {
 };
 
 async function getAdminSession() {
-  const cookieStore = await cookies();
-  const session = {
-    role: cookieStore.get('session_role')?.value ?? null,
-    residentId: cookieStore.get('session_resident')?.value ?? '',
-  };
-
-  const sessionCheck = validateSession(session);
-  if (!sessionCheck.valid) {
-    return { ok: false as const, status: 401, error: sessionCheck.error ?? 'Unauthorized' };
-  }
-
-  if (session.role !== 'admin') {
-    return { ok: false as const, status: 403, error: 'Forbidden' };
-  }
-
-  return { ok: true as const, session };
+  return getVerifiedAdminSession();
 }
 
 async function getReadSession() {
-  const cookieStore = await cookies();
-  const session = {
-    role: cookieStore.get('session_role')?.value ?? null,
-    residentId: cookieStore.get('session_resident')?.value ?? '',
-  };
-
-  const sessionCheck = validateSession(session);
-  if (!sessionCheck.valid) {
-    return { ok: false as const, status: 401, error: sessionCheck.error ?? 'Unauthorized' };
-  }
-
-  if (session.role !== 'admin' && session.role !== 'manager') {
-    return { ok: false as const, status: 403, error: 'Forbidden' };
-  }
-
-  return { ok: true as const, session };
+  return getVerifiedReadOnlyAdminSession();
 }
 
 async function verifyStaffSession(role: 'admin' | 'manager', residentId: string) {

@@ -1,13 +1,12 @@
 import dayjs from 'dayjs';
-import { cookies } from 'next/headers';
 import { NextResponse } from 'next/server';
 
-import { sendPushNotification } from '@/app/actions';
 import {
   applyRecommenderSelection,
   searchRecommenderCandidates,
 } from '@/lib/admin-referrals';
 import { adminSupabase } from '@/lib/admin-supabase';
+import { sendPushNotificationToResident } from '@/lib/push-notification-service';
 import {
   hasAppointmentWorkflowEvidence,
   hasHanwhaApprovedPdf,
@@ -15,9 +14,8 @@ import {
 } from '@/lib/fc-workflow';
 import { normalizeFcDocumentStoragePath } from '@/lib/admin-fc-doc-storage';
 import { validateHanwhaPdfPayload } from '@/lib/admin-hanwha-pdf-payload';
-import { validateSession } from '@/lib/csrf';
 import { logger } from '@/lib/logger';
-import { buildPhoneCandidates } from '@/lib/server-session';
+import { buildPhoneCandidates, getVerifiedServerSession } from '@/lib/server-session';
 
 type AdminAction =
   | 'getProfile'
@@ -91,26 +89,17 @@ const DAWICHOK_URL_SIGNAL_STATUSES = new Set([
 ]);
 
 async function getValidatedCookieSession(): Promise<SessionErrorResult | SessionSuccessResult<CookieSession>> {
-  const cookieStore = await cookies();
-  const session = {
-    role: cookieStore.get('session_role')?.value ?? null,
-    residentId: cookieStore.get('session_resident')?.value ?? '',
-  };
-  const sessionCheck = validateSession(session);
-  if (!sessionCheck.valid) {
-    return { ok: false, status: 401, error: sessionCheck.error ?? 'Unauthorized' };
-  }
-  const residentDigits = session.residentId.replace(/[^0-9]/g, '');
-  if (residentDigits.length !== 11) {
-    return { ok: false, status: 401, error: 'Invalid resident phone' };
+  const sessionCheck = await getVerifiedServerSession({ allowedRoles: ['admin', 'manager'] });
+  if (!sessionCheck.ok) {
+    return sessionCheck;
   }
 
   return {
     ok: true as const,
     session: {
-      role: session.role,
-      residentId: session.residentId,
-      residentDigits,
+      role: sessionCheck.session.role,
+      residentId: sessionCheck.session.residentId,
+      residentDigits: sessionCheck.session.residentDigits,
     },
   };
 }
@@ -540,7 +529,7 @@ export async function POST(req: Request) {
             recipient_role: 'fc',
             resident_id: phone,
           });
-          await sendPushNotification(phone, { title, body, data: { url: '/consent' }, skipNotificationInsert: true });
+          await sendPushNotificationToResident(phone, { title, body, data: { url: '/consent' }, skipNotificationInsert: true });
           logger.debug('[api/admin/fc] temp-id notified', { fcId, name: profile?.name });
         } catch (notifyError) {
           logger.warn('[api/admin/fc] temp-id notification failed', {
@@ -665,7 +654,7 @@ export async function POST(req: Request) {
           resident_id: phone,
         });
 
-        await sendPushNotification(phone, { title: finalTitle, body: msg, data: { url }, skipNotificationInsert: true });
+        await sendPushNotificationToResident(phone, { title: finalTitle, body: msg, data: { url }, skipNotificationInsert: true });
       }
 
       return NextResponse.json({ ok: true });
@@ -795,7 +784,7 @@ export async function POST(req: Request) {
             recipient_role: 'fc',
             resident_id: phone,
           });
-          await sendPushNotification(phone, { title, body: msg, data: { url }, skipNotificationInsert: true });
+          await sendPushNotificationToResident(phone, { title, body: msg, data: { url }, skipNotificationInsert: true });
         } catch (notifyError) {
           logger.warn('[api/admin/fc] Dawichok URL signal notification failed', {
             fcId,
@@ -1004,7 +993,7 @@ export async function POST(req: Request) {
           recipient_role: 'fc',
           resident_id: phone,
         });
-        await sendPushNotification(phone, { title, body, data: { url: '/docs-upload' }, skipNotificationInsert: true });
+        await sendPushNotificationToResident(phone, { title, body, data: { url: '/docs-upload' }, skipNotificationInsert: true });
       }
 
       return NextResponse.json({ ok: true });
@@ -1077,7 +1066,7 @@ export async function POST(req: Request) {
           resident_id: phone,
           category: '서류',
         });
-        await sendPushNotification(phone, { title, body, data: { url: '/docs-upload' }, skipNotificationInsert: true });
+        await sendPushNotificationToResident(phone, { title, body, data: { url: '/docs-upload' }, skipNotificationInsert: true });
       }
 
       if (allApproved && phone) {
@@ -1090,7 +1079,7 @@ export async function POST(req: Request) {
           recipient_role: 'fc',
           resident_id: phone,
         });
-        await sendPushNotification(phone, {
+        await sendPushNotificationToResident(phone, {
           title,
           body,
           data: { url: '/hanwha-commission' },
@@ -1158,7 +1147,7 @@ export async function POST(req: Request) {
         resident_id: phone,
       });
 
-        await sendPushNotification(phone, { title, body, data: url ? { url } : undefined, skipNotificationInsert: true });
+        await sendPushNotificationToResident(phone, { title, body, data: url ? { url } : undefined, skipNotificationInsert: true });
       return NextResponse.json({ ok: true });
     }
 

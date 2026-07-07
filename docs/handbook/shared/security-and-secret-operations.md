@@ -7,6 +7,12 @@ source_of_truth: env contracts + reset-password functions + admin service-role c
 
 # Security And Secret Operations
 
+## 2026-07-06 Trusted Session And Push Token Contract
+
+- Privileged admin web routes must verify the signed server session. Raw `session_role` or `session_resident` cookies are not an authorization source outside the explicit session helper/proxy boundary.
+- `device_tokens` must be treated as service-role-only storage. Register/delete goes through `device-token-register`; fanout goes through server routes or server-only helpers.
+- Request Board bridge tokens use `REQUEST_BOARD_BRIDGE_TOKEN_SECRET`; app session tokens use `FC_APP_SESSION_TOKEN_SECRET`. The legacy bridge secret is verify-only during rotation and must not mint new bridge tokens.
+
 ## 반드시 문서화되는 항목
 
 - root/web/request_board env secret inventory

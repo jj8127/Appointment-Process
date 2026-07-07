@@ -11391,3 +11391,27 @@
 
 **Notes**:
 - This fixes the `referral_invalid` popup for valid recommender selections backed by manager shadow profiles.
+
+---
+
+## <a id="20260706-priority-security-maintenance"></a> 2026-07-06 | Priority security and maintenance hardening
+
+**Scope**: device token trust boundary, admin signed-session APIs, web-push identity binding, request_board bridge token separation, push fanout maintainability, and build/lint warning cleanup.
+
+**Changes**:
+- Moved mobile device-token register/delete to the trusted `device-token-register` Edge Function and removed broad direct-client `device_tokens` RLS/table access from the schema snapshot.
+- Centralized admin web API auth through signed-session helpers and added shared admin route auth helpers for admin-only and admin/manager read gates.
+- Bound web-push subscribe identity to the verified session and removed caller-supplied role/resident identity from the subscribe path.
+- Split request_board bridge token signing from app-session signing and documented the two-phase legacy-secret rotation path.
+- Extracted admin push fanout into a server-only push notification service so route handlers do not duplicate Expo/web-push/device-token delivery logic.
+- Reused already-fetched mobile Expo push tokens to avoid duplicate registration calls from the home/login effect.
+- Upgraded the admin web Next/Sentry dependencies and added a build-tracing guard for the agent-room route.
+
+**Verification**:
+- Passed targeted priority hardening Jest coverage.
+- Passed root and web lint.
+- Passed web production build with Sentry upload disabled.
+- Passed full root Jest run.
+
+**Notes**:
+- Resident-number display rules remain full-or-hidden. Masked or partial resident-number display is not a valid fallback for workflows that require the full value.

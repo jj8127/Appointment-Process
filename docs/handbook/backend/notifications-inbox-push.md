@@ -5,6 +5,15 @@ audience: developer, operator
 last_verified: 2026-06-16
 source_of_truth: supabase/functions/fc-notify/index.ts + supabase/functions/board-create/index.ts + supabase/functions/board-update/index.ts + web/src/app/actions.ts + web/src/app/api/admin/push/route.ts + web/src/app/api/web-push/subscribe/route.ts
 
+## Priority Security Notes (2026-07-06)
+
+- `device_tokens` is a trusted-server table. Mobile/web clients must not call `.from('device_tokens')`
+  directly for register, lookup, fanout, or delete.
+- Registration and deletion go through `supabase/functions/device-token-register`; push fanout goes
+  through `fc-notify`, web server actions, or another service-role/server-only route.
+- `device-token-register` derives `resident_id` and `role` from the signed app session token. Request
+  bodies must not supply or override `residentId`/`role`.
+
 # Backend Runbook: Notifications, Inbox, And Push
 
 ## 소유 범위
@@ -78,3 +87,9 @@ source_of_truth: supabase/functions/fc-notify/index.ts + supabase/functions/boar
 - `fc-notify`는 토큰 query에서 `role`을 함께 읽고, manager token은 `request_board_*` category 또는 `category='message'` + 구체적인 `target_id`가 있는 직접 채팅일 때만 유지한다.
 - 설계매니저 unread badge는 fc-onboarding unread를 더하지 않고 live request_board unread만 사용한다.
 - 게시판/공지/시험 알림을 추가하거나 수정할 때는 `supabase/functions/_shared/notification-delivery-policy.ts`와 `lib/mobile-unread-notification-count-plan.ts` 테스트를 함께 확인한다.
+
+## 2026-07-06 Push Service Maintainability
+
+- Web push/Expo fanout implementation belongs in `web/src/lib/push-notification-service.ts` and must remain server-only.
+- `web/src/app/actions.ts` is only an authenticated server-action wrapper around that service. API routes that already verified a signed admin session should call the service directly.
+- Mobile startup registration should reuse an Expo token that was already fetched in the registration effect instead of calling `getExpoPushTokenAsync` twice for the same attempt.

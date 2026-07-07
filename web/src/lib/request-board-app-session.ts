@@ -23,7 +23,11 @@ function signPayload(payloadPart: string, secret: string) {
 }
 
 function getRequestBoardAppSessionSecret() {
-  return (process.env.REQUEST_BOARD_AUTH_BRIDGE_SECRET ?? '').trim();
+  return (
+    process.env.FC_APP_SESSION_TOKEN_SECRET
+    ?? process.env.REQUEST_BOARD_AUTH_BRIDGE_SECRET
+    ?? ''
+  ).trim();
 }
 
 function getWebAppSessionTtlSeconds() {

@@ -8,6 +8,9 @@ const nextConfig: NextConfig = {
   experimental: {
     externalDir: true,
   },
+  outputFileTracingExcludes: {
+    '/api/agent-room': ['./next.config.ts'],
+  },
   // Vercel project Root Directory is `web`, so keep Turbopack rooted here.
   turbopack: {
     root: path.resolve(__dirname),

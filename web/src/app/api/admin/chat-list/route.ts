@@ -1,4 +1,3 @@
-import { cookies } from 'next/headers';
 import { NextResponse } from 'next/server';
 
 import {
@@ -33,8 +32,7 @@ async function getSessionStaffType(role: 'admin' | 'manager', residentDigits: st
     throw error;
   }
 
-  const cookieStore = await cookies();
-  return normalizeStaffType(data?.staff_type ?? cookieStore.get('session_staff_type')?.value);
+  return normalizeStaffType(data?.staff_type);
 }
 
 export async function GET() {

@@ -30,6 +30,43 @@
 - Verification:
 ```
 
+## 2026-07-06 | Push Token Trust Boundary | device tokens were reachable from public clients
+- Symptom:
+  - Mobile code could register/read/fan out push tokens through direct `device_tokens` Supabase table access.
+- Root cause:
+  - `device_tokens` ownership was enforced by broad RLS/table policies instead of a trusted app-session Edge Function and service-role fanout path.
+- Why it was missed:
+  - Push token handling was treated as app plumbing, not as an identity-binding and notification-hijack boundary.
+- Permanent guardrail:
+  - Client code must never call `.from('device_tokens')`; registration/deletion must use `device-token-register`, and fanout must use `fc-notify` or server-only service-role routes.
+  - `lib/__tests__/priority-security-hardening.test.ts` must fail if direct client table access returns.
+- Related files:
+  - `lib/notifications.ts`
+  - `app/dashboard.tsx`
+  - `supabase/functions/device-token-register/index.ts`
+  - `supabase/migrations/20260706131220_harden_device_tokens_trusted_path.sql`
+- Verification:
+  - `npx jest lib/__tests__/priority-security-hardening.test.ts --runInBand`
+
+## 2026-07-06 | Source Contract Drift | tests asserted old local helper ownership
+- Symptom:
+  - Full Jest failed after CI wiring because `group-chat-mobile-source` expected local `isStaffGroupChatActor`/`resolveCanSendMessages` functions, while the code had already moved that contract to `lib/group-chat-display.ts`.
+  - `exam-license-source-contract` expected a hard-coded exam query key and inline fee-paid-date restore shape, while the code now uses exam flow config and `getExamApplyRestoredSelectionState`.
+- Root cause:
+  - Source-contract tests were not updated when helper ownership moved from screen-local code into shared modules.
+- Why it was missed:
+  - Targeted feature tests passed, but the soon-to-be CI `npm test -- --runInBand` gate had not been running automatically.
+- Permanent guardrail:
+  - Source-contract tests should assert the stable ownership boundary and helper calls, not stale inline implementation details after an accepted refactor.
+  - Keep full Jest in CI so stale source contracts fail before deploy.
+- Related files:
+  - `lib/__tests__/group-chat-mobile-source.test.ts`
+  - `lib/__tests__/exam-license-source-contract.test.ts`
+  - `lib/group-chat-display.ts`
+  - `lib/exam-flow-contract.ts`
+- Verification:
+  - `npm test -- --runInBand`
+
 ## 2026-07-03 | GaramIn Messenger Interaction Contract | bridge messenger drifted from link and long-press UX
 - Symptom:
   - In the GaramLink bridge messenger inside GaramIn, HTTP(S) URLs rendered as plain text and long-pressing message bubbles showed no copy/delete action.

@@ -7,6 +7,12 @@ source_of_truth: supabase/functions/admin-action/index.ts + web/src/app/api/admi
 
 # Backend Runbook: Admin Operations API
 
+## 2026-07-06 Signed Admin Route Contract
+
+- Admin web API authorization must go through the signed server-session helpers. Direct trust in `session_role` or `session_resident` cookies is not allowed for privileged reads or mutations.
+- Shared admin route helpers should be used for new privileged routes: admin-only mutations use the admin gate, and admin/manager read-only routes use the read gate.
+- Admin notification fanout should call the server-only push notification service instead of duplicating `device_tokens`, Expo, and web-push delivery logic inside route handlers.
+
 ## 주요 privileged surface
 
 - `admin-action`

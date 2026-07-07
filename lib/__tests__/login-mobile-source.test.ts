@@ -54,4 +54,19 @@ describe('login mobile keyboard behavior', () => {
     expect(source).toContain("setSavedLoginCredentials({");
     expect(source).toContain("rememberPassword: rememberPassword ? true : false");
   });
+
+  it('keeps the saved-password checkbox tappable while the keyboard is open', () => {
+    const source = readAppFile('login.tsx');
+    const rememberLabelIndex = source.indexOf('accessibilityLabel="비밀번호 저장"');
+    const rememberButtonStart = source.lastIndexOf('<Pressable', rememberLabelIndex);
+    const rememberButtonBlock = source.slice(
+      rememberButtonStart,
+      source.indexOf('</Pressable>', rememberLabelIndex),
+    );
+
+    expect(rememberButtonBlock).toContain('onPressIn={handleRememberPasswordPressIn}');
+    expect(rememberButtonBlock).toContain('onPress={handleRememberPasswordPress}');
+    expect(rememberButtonBlock).not.toContain('onPress={toggleRememberPassword}');
+    expect(source).toContain('rememberPasswordPressInHandledRef');
+  });
 });

@@ -1,8 +1,8 @@
 import { adminSupabase } from '@/lib/admin-supabase';
-import { checkRateLimit, SECURITY_HEADERS, validateSession } from '@/lib/csrf';
+import { checkRateLimit, SECURITY_HEADERS } from '@/lib/csrf';
 import { logger } from '@/lib/logger';
 import { redactSensitiveText } from '@/lib/sensitive-text';
-import { cookies } from 'next/headers';
+import { getVerifiedReadOnlyAdminSession } from '@/lib/server-session';
 import { NextResponse } from 'next/server';
 
 const BOARD_NOTICE_CATEGORY_SLUG = 'notice';
@@ -80,22 +80,7 @@ const isMissingRelationError = (error: unknown) =>
   (error as { code?: string }).code === '42P01';
 
 async function getSession() {
-  const cookieStore = await cookies();
-  const session = {
-    role: cookieStore.get('session_role')?.value ?? null,
-    residentId: cookieStore.get('session_resident')?.value ?? '',
-  };
-
-  const valid = validateSession(session);
-  if (!valid.valid) {
-    return { ok: false as const, status: 401, error: valid.error ?? 'Unauthorized' };
-  }
-
-  if (session.role !== 'admin' && session.role !== 'manager') {
-    return { ok: false as const, status: 403, error: 'Forbidden' };
-  }
-
-  return { ok: true as const, session };
+  return getVerifiedReadOnlyAdminSession();
 }
 
 async function getLegacyNoticeList(): Promise<NoticeRow[]> {

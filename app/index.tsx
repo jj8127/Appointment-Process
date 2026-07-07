@@ -44,6 +44,7 @@ import { logger } from '@/lib/logger';
 import { formatLatestNoticeLabel } from '@/lib/home-latest-notice';
 import { fetchMobileUnreadNotificationCount } from '@/lib/mobile-unread-notification-count';
 import { resolveNotificationInboxResidentId } from '@/lib/notification-inbox-scope';
+import { registerPushToken } from '@/lib/notifications';
 import { resolveHomeLatestNoticeRoute } from '@/lib/notice-route';
 import { openExternalUrl } from '@/lib/open-external-url';
 import {
@@ -760,13 +761,13 @@ export default function Home() {
     (async () => {
       try {
         const { count, error } = await supabase
-          .from('device_tokens')
+          .from('fc_profiles')
           .select('count', { count: 'exact', head: true });
         if (!active) return;
         if (error) {
           logger.debug('[supabase ping] 연결 실패', error.message ?? error);
         } else {
-          logger.debug('[supabase ping] 연결 성공, device_tokens count', { count });
+          logger.debug('[supabase ping] 연결 성공, fc_profiles count', { count });
         }
       } catch (err: unknown) {
         const error = err as { message?: string };
@@ -1048,19 +1049,8 @@ export default function Home() {
         pushRegistrationAttemptRef.current = attemptKey;
 
         // 디바이스 중복 방지: 기존 토큰 제거 후 upsert (unique constraint 대응)
-        await supabase.from('device_tokens').delete().eq('expo_push_token', token);
-        const { error } = await supabase
-          .from('device_tokens')
-          .upsert(
-            { resident_id: residentId, role: pushRole, expo_push_token: token },
-            { onConflict: 'expo_push_token' }
-          );
-        if (error) {
-          pushRegistrationAttemptRef.current = null;
-          logger.debug('[push] upsert error', error.message ?? error);
-        } else {
-          logger.debug('[push] token saved', { residentId, role: pushRole, token });
-        }
+        await registerPushToken(pushRole, residentId, displayName, token);
+        logger.debug('[push] trusted registration requested', { residentId, role: pushRole });
       } catch (e: unknown) {
         pushRegistrationAttemptRef.current = null;
         const error = e as { message?: string };
@@ -1070,7 +1060,7 @@ export default function Home() {
     return () => {
       active = false;
     };
-  }, [hydrated, role, residentId, requestBoardRole]);
+  }, [hydrated, role, residentId, requestBoardRole, displayName]);
 
   const handleLogout = () => {
     Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);

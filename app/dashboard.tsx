@@ -53,7 +53,6 @@ if (Platform.OS === 'android') {
   UIManager.setLayoutAnimationEnabledExperimental(true);
 }
 
-const EXPO_PUSH_URL = 'https://exp.host/--/api/v2/push/send';
 const BUCKET = 'fc-documents';
 const ORANGE = '#f36f21';
 const BLUE = '#2563eb';
@@ -348,31 +347,18 @@ async function sendNotificationAndPush(
     url,
   }).catch(() => { /* ignore notification failures */ });
 
-  // Send push directly (device_tokens has anon-friendly policies)
-  const baseQuery = supabase.from('device_tokens').select('expo_push_token');
-  const { data: tokens } =
-    role === 'fc' && residentId
-      ? await baseQuery.eq('role', 'fc').eq('resident_id', residentId)
-      : await baseQuery.eq('role', 'admin');
-
-  const payload =
-    tokens?.map((t: { expo_push_token: string }) => ({
-      to: t.expo_push_token,
+  await supabase.functions.invoke('fc-notify', {
+    body: {
+      type: 'notify',
+      target_role: role,
+      target_id: residentId,
       title,
       body,
-      data: { type: 'app_event', resident_id: residentId, url },
-      sound: 'default',
-      priority: 'high',
-      channelId: 'alerts',
-    })) ?? [];
-
-  if (payload.length) {
-    await fetch(EXPO_PUSH_URL, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(payload),
-    });
-  }
+      category: 'app_event',
+      url,
+      skip_notification_insert: true,
+    },
+  }).catch(() => { /* ignore push failures */ });
 }
 
 const fetchFcs = async (

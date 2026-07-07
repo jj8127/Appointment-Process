@@ -1,8 +1,8 @@
-import { cookies } from 'next/headers';
 import { NextResponse } from 'next/server';
 
 import { adminSupabase } from '@/lib/admin-supabase';
-import { checkRateLimit, SECURITY_HEADERS, validateSession, verifyOrigin } from '@/lib/csrf';
+import { checkRateLimit, SECURITY_HEADERS, verifyOrigin } from '@/lib/csrf';
+import { getVerifiedServerSession } from '@/lib/server-session';
 
 type PresenceRequestBody = {
   phones?: Array<string | null | undefined>;
@@ -184,20 +184,11 @@ export async function POST(req: Request) {
     return json({ ok: false, message: originCheck.error ?? 'Invalid origin' }, 403);
   }
 
-  const cookieStore = await cookies();
-  const session = {
-    role: cookieStore.get('session_role')?.value ?? null,
-    residentId: cookieStore.get('session_resident')?.value ?? '',
-  };
-
-  const sessionCheck = validateSession(session);
-  if (!sessionCheck.valid) {
-    return json({ ok: false, message: sessionCheck.error ?? 'Unauthorized' }, 401);
+  const sessionCheck = await getVerifiedServerSession({ allowedRoles: ['admin', 'manager', 'fc'] });
+  if (!sessionCheck.ok) {
+    return json({ ok: false, message: sessionCheck.error }, sessionCheck.status);
   }
-
-  if (session.role !== 'admin' && session.role !== 'manager' && session.role !== 'fc') {
-    return json({ ok: false, message: 'Forbidden' }, 403);
-  }
+  const session = sessionCheck.session;
 
   const rateLimit = checkRateLimit(`presence:${session.role}:${session.residentId}`, 60, 60_000);
   if (!rateLimit.allowed) {

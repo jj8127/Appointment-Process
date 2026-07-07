@@ -139,7 +139,6 @@ export default function HanwhaCommissionScreen() {
   const pdfPath = trimString(profile?.hanwha_commission_pdf_path);
   const rawPdfName = trimString(profile?.hanwha_commission_pdf_name);
   const pdfName = rawPdfName ?? '다위촉 URL PDF';
-  const hasDawichokUrlSent = Boolean(trimString(profile?.dawichok_url_sent_at));
   const status = profile?.status ?? null;
 
   const isApproved = hasHanwhaApprovalEvidence({

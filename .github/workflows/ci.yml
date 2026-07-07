@@ -1,0 +1,67 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+
+jobs:
+  app:
+    runs-on: ubuntu-latest
+    env:
+      SENTRY_AUTH_TOKEN: ''
+      SENTRY_DISABLE_UPLOAD: '1'
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Test
+        run: npm test -- --runInBand
+
+  web:
+    runs-on: ubuntu-latest
+    env:
+      SENTRY_AUTH_TOKEN: ''
+      SENTRY_DISABLE_UPLOAD: '1'
+      NEXT_PUBLIC_SUPABASE_URL: https://example.supabase.co
+      NEXT_PUBLIC_SUPABASE_ANON_KEY: ci-placeholder-anon-key
+      SUPABASE_SERVICE_ROLE_KEY: ci-placeholder-service-role-key
+      STAFF_SESSION_SECRET: ci-staff-session-secret-at-least-16
+      FC_GRAPH_SESSION_SECRET: ci-fc-graph-session-secret-at-least-16
+      AUTH_SECRET: ci-auth-secret-at-least-16
+      REQUEST_BOARD_BRIDGE_TOKEN_SECRET: ci-request-board-bridge-secret
+      FC_APP_SESSION_TOKEN_SECRET: ci-fc-app-session-secret
+      REQUEST_BOARD_AUTH_BRIDGE_SECRET: ci-legacy-bridge-secret
+    defaults:
+      run:
+        working-directory: web
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Build
+        run: npm run build

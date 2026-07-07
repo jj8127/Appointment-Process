@@ -65,6 +65,48 @@ export function getEnv(name: string): string | undefined {
   return undefined;
 }
 
+const LEGACY_SHARED_BRIDGE_SECRET = 'REQUEST_BOARD_AUTH_BRIDGE_SECRET';
+
+function getTrimmedEnv(name: string) {
+  return (getEnv(name) ?? '').trim();
+}
+
+function uniqueSecrets(values: Array<string | undefined | null>) {
+  const seen = new Set<string>();
+  const secrets: string[] = [];
+  values.forEach((value) => {
+    const secret = String(value ?? '').trim();
+    if (!secret || seen.has(secret)) return;
+    seen.add(secret);
+    secrets.push(secret);
+  });
+  return secrets;
+}
+
+function getBridgeSigningSecret() {
+  return getTrimmedEnv('REQUEST_BOARD_BRIDGE_TOKEN_SECRET') || getTrimmedEnv(LEGACY_SHARED_BRIDGE_SECRET);
+}
+
+function getBridgeVerificationSecrets() {
+  return uniqueSecrets([
+    getTrimmedEnv('REQUEST_BOARD_BRIDGE_TOKEN_SECRET'),
+    getTrimmedEnv('REQUEST_BOARD_BRIDGE_TOKEN_PREVIOUS_SECRET'),
+    getTrimmedEnv(LEGACY_SHARED_BRIDGE_SECRET),
+  ]);
+}
+
+function getAppSessionSigningSecret() {
+  return getTrimmedEnv('FC_APP_SESSION_TOKEN_SECRET') || getTrimmedEnv(LEGACY_SHARED_BRIDGE_SECRET);
+}
+
+function getAppSessionVerificationSecrets() {
+  return uniqueSecrets([
+    getTrimmedEnv('FC_APP_SESSION_TOKEN_SECRET'),
+    getTrimmedEnv('FC_APP_SESSION_TOKEN_PREVIOUS_SECRET'),
+    getTrimmedEnv(LEGACY_SHARED_BRIDGE_SECRET),
+  ]);
+}
+
 function toBase64(bytes: Uint8Array) {
   let binary = '';
   bytes.forEach((byte) => {
@@ -160,12 +202,25 @@ async function verifySignedToken<TPayload extends SignedTokenPayloadBase>(
   }
 }
 
+async function verifySignedTokenWithSecrets<TPayload extends SignedTokenPayloadBase>(
+  token: string,
+  secrets: string[],
+): Promise<SignedTokenVerificationResult<TPayload>> {
+  let sawExpiredToken = false;
+  for (const secret of secrets) {
+    const parsed = await verifySignedToken<TPayload>(token, secret);
+    if (parsed.ok) return parsed;
+    if (parsed.reason === 'expired_token') sawExpiredToken = true;
+  }
+  return { ok: false, reason: sawExpiredToken ? 'expired_token' : 'invalid_token' };
+}
+
 export async function createRequestBoardBridgeToken(
   phone: string,
   role: RequestBoardBridgeRole,
   affiliation?: string | null,
 ) {
-  const secret = (getEnv('REQUEST_BOARD_AUTH_BRIDGE_SECRET') ?? '').trim();
+  const secret = getBridgeSigningSecret();
   if (!secret) return null;
 
   const ttlRaw = Number((getEnv('REQUEST_BOARD_AUTH_BRIDGE_TTL_SEC') ?? '2592000').trim());
@@ -192,7 +247,7 @@ export async function createAppSessionToken(
   staffType?: AppSessionStaffType,
   fcId?: string | null,
 ) {
-  const secret = (getEnv('REQUEST_BOARD_AUTH_BRIDGE_SECRET') ?? '').trim();
+  const secret = getAppSessionSigningSecret();
   if (!secret) return null;
 
   const ttlRaw = Number((getEnv('FC_APP_SESSION_TTL_SEC') ?? '2592000').trim());
@@ -215,8 +270,8 @@ export async function createAppSessionToken(
 export async function parseAppSessionTokenDetailed(
   token: string,
 ): Promise<AppSessionTokenParseResult> {
-  const secret = (getEnv('REQUEST_BOARD_AUTH_BRIDGE_SECRET') ?? '').trim();
-  if (!secret) {
+  const secrets = getAppSessionVerificationSecrets();
+  if (secrets.length === 0) {
     return {
       ok: false,
       code: 'invalid_app_session',
@@ -224,7 +279,7 @@ export async function parseAppSessionTokenDetailed(
     };
   }
 
-  const parsed = await verifySignedToken<AppSessionTokenPayload>(token, secret);
+  const parsed = await verifySignedTokenWithSecrets<AppSessionTokenPayload>(token, secrets);
   if (parsed.ok === false) {
     return parsed.reason === 'expired_token'
       ? {
@@ -283,8 +338,8 @@ export async function parseAppSessionToken(token: string) {
 export async function parseRequestBoardBridgeTokenDetailed(
   token: string,
 ): Promise<BridgeTokenParseResult> {
-  const secret = (getEnv('REQUEST_BOARD_AUTH_BRIDGE_SECRET') ?? '').trim();
-  if (!secret) {
+  const secrets = getBridgeVerificationSecrets();
+  if (secrets.length === 0) {
     return {
       ok: false,
       code: 'invalid_bridge_token',
@@ -292,7 +347,7 @@ export async function parseRequestBoardBridgeTokenDetailed(
     };
   }
 
-  const parsed = await verifySignedToken<BridgeTokenPayload>(token, secret);
+  const parsed = await verifySignedTokenWithSecrets<BridgeTokenPayload>(token, secrets);
   if (parsed.ok === false) {
     return parsed.reason === 'expired_token'
       ? {

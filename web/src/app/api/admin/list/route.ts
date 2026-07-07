@@ -1,8 +1,7 @@
 import { adminSupabase } from '@/lib/admin-supabase';
-import { validateSession } from '@/lib/csrf';
+import { adminRouteAuthErrorResponse, requireAdminOrManagerReadRoute } from '@/lib/admin-route-auth';
 import { normalizeDashboardFcListRow } from '@/lib/dashboard-table-display';
 import { logger } from '@/lib/logger';
-import { cookies } from 'next/headers';
 import { NextResponse } from 'next/server';
 
 const DESIGNER_MARKER = '설계매니저';
@@ -62,27 +61,10 @@ const normalizeAffiliationLabel = (value?: string | null): string => {
     return trimmed;
 };
 
-// Reusing session check logic (should ideally be in a shared lib, but keeping it simple for now)
-async function getAdminSession() {
-    const cookieStore = await cookies();
-    const session = {
-        role: cookieStore.get('session_role')?.value ?? null,
-        residentId: cookieStore.get('session_resident')?.value ?? '',
-    };
-    const sessionCheck = validateSession(session);
-    if (!sessionCheck.valid) {
-        return { ok: false, status: 401, error: sessionCheck.error ?? 'Unauthorized' };
-    }
-    if (session.role !== 'admin' && session.role !== 'manager') {
-        return { ok: false, status: 403, error: 'Forbidden' };
-    }
-    return { ok: true, session };
-}
-
 export async function GET() {
-    const adminCheck = await getAdminSession();
+    const adminCheck = await requireAdminOrManagerReadRoute();
     if (!adminCheck.ok) {
-        return NextResponse.json({ error: adminCheck.error }, { status: adminCheck.status });
+        return adminRouteAuthErrorResponse(adminCheck);
     }
 
     try {

@@ -2200,29 +2200,11 @@ create policy "group_chat_notices service role"
   with check (auth.role() = 'service_role');
 
 drop policy if exists "device_tokens select policy" on public.device_tokens;
-create policy "device_tokens select policy"
-  on public.device_tokens
-  for select
-  using (auth.role() in ('anon', 'authenticated'));
-
 drop policy if exists "device_tokens insert policy" on public.device_tokens;
-create policy "device_tokens insert policy"
-  on public.device_tokens
-  for insert
-  with check (auth.role() in ('anon', 'authenticated'));
-
 drop policy if exists "device_tokens update policy" on public.device_tokens;
-create policy "device_tokens update policy"
-  on public.device_tokens
-  for update
-  using (auth.role() in ('anon', 'authenticated'))
-  with check (auth.role() in ('anon', 'authenticated'));
-
 drop policy if exists "device_tokens delete policy" on public.device_tokens;
-create policy "device_tokens delete policy"
-  on public.device_tokens
-  for delete
-  using (auth.role() in ('anon', 'authenticated'));
+revoke all on table public.device_tokens from anon;
+revoke all on table public.device_tokens from authenticated;
 
 drop policy if exists "web_push_subscriptions select" on public.web_push_subscriptions;
 create policy "web_push_subscriptions select"

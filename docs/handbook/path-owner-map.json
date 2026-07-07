@@ -235,6 +235,7 @@
         "supabase/functions/_shared/internal-chat.ts",
         "supabase/functions/_shared/notification-delivery-policy.ts",
         "supabase/functions/_shared/__tests__/notification-delivery-policy.test.ts",
+        "supabase/functions/device-token-register/",
         "supabase/functions/fc-notify/",
         "supabase/functions/__tests__/fc-notify-",
         "web/src/app/api/admin/push/route.ts",

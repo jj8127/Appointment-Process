@@ -18,17 +18,19 @@ describe('exam application fee paid date source contract', () => {
   ])('%s application restores and displays fee_paid_date from the FC query', (_examType, path) => {
     const source = readSource(path);
     const applyType = sliceBetween(source, 'type MyExamApply = {', '};');
-    const myApplyQuery = sliceBetween(source, "queryKey: ['my-exam-apply", 'const currentApply');
+    const myApplyQuery = sliceBetween(source, 'const { data: myApplies', 'const currentApply');
     const restoreEffect = sliceBetween(
       source,
-      'if (existingForRound) {',
+      'const restoredState = getExamApplyRestoredSelectionState({',
       '}, [existingForRound',
     );
 
     expect(applyType).toContain('fee_paid_date?: string | null;');
+    expect(myApplyQuery).toContain('queryKey: [examFlowConfig.myApplyQueryKeyPrefix, residentId]');
     expect(myApplyQuery).toContain('fee_paid_date');
-    expect(restoreEffect).toContain('existingForRound.fee_paid_date');
-    expect(restoreEffect).toContain('setFeePaidDate(restoredFeePaidDate)');
+    expect(restoreEffect).toContain('existingForRound');
+    expect(restoreEffect).toContain('setFeePaidDate(restoredState.feePaidDate)');
+    expect(source).toContain('getExamApplyRestoredSelectionState');
     expect(source).toContain('formatFeePaidDate(currentApply.fee_paid_date)');
   });
 });
