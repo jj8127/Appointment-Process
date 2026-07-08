@@ -501,3 +501,5 @@
 - Hardened device token access behind trusted server/function paths, signed admin web session gates, web-push identity binding, request_board bridge secret split, and admin push service reuse.
 - Reduced duplicate mobile push token registration and cleaned build/lint warning sources in the touched surfaces.
 - See [details](WORK_DETAIL.md#20260706-priority-security-maintenance).
+
+| 07-08 | Admin web public account deletion URL for Google Play Data Safety | `web/src/app/account-deletion/page.tsx`, `web/src/lib/admin-web-public-paths.ts`, `web/src/lib/admin-web-public-paths.test.ts`, `.claude/WORK_LOG.md`, `.claude/WORK_DETAIL.md` | [details](WORK_DETAIL.md#20260708-account-deletion-url) |

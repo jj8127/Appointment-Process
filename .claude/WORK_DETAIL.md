@@ -11546,3 +11546,26 @@
 
 **Notes**:
 - Resident-number display rules remain full-or-hidden. Masked or partial resident-number display is not a valid fallback for workflows that require the full value.
+
+---
+
+## <a id="20260708-account-deletion-url"></a> 2026-07-08 | Admin web public account deletion URL
+
+**Scope**: Google Play Data Safety account/data deletion URL for GaramIn.
+
+**Changes**:
+- Added `web/src/app/account-deletion/page.tsx` as a public, login-free page under the admin web deployment.
+- Added `/account-deletion` to the admin web public route allowlist so the proxy does not redirect Google Play reviewers to `/auth`.
+- Documented the existing in-app/admin-web deletion path: login, open settings, choose account deletion, and confirm.
+- Explained which user-linked data is deleted by the existing `delete-account` flow and which data can be retained for legal, security, settlement, audit, backup, or de-identified statistics reasons.
+- Linked the existing Google Play listing and hosted privacy policy so the page can be used as the Google Play account deletion URL.
+
+**Verification**:
+- Passed: `cd web && npm run lint -- src/app/account-deletion/page.tsx`.
+- Passed: `node --test web/src/lib/admin-web-public-paths.test.ts`.
+- Passed: `node scripts/ci/check-governance.mjs`.
+- Passed: `git diff --check`.
+- Passed: `cd web && SENTRY_AUTH_TOKEN='' SENTRY_DISABLE_UPLOAD=1 npm run build`; route output includes static `/account-deletion`.
+
+**Notes**:
+- Google Play should use `https://adminweb-red.vercel.app/account-deletion` after this route is deployed. Supabase Dashboard URLs are operator-only and must not be used as the public account deletion URL.

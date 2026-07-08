@@ -10,6 +10,8 @@ describe('isAdminWebPublicPath', () => {
   });
 
   it('preserves the existing public admin web paths', () => {
+    assert.equal(isAdminWebPublicPath('/account-deletion'), true);
+    assert.equal(isAdminWebPublicPath('/account-deletion/details'), true);
     assert.equal(isAdminWebPublicPath('/auth'), true);
     assert.equal(isAdminWebPublicPath('/auth/callback'), true);
     assert.equal(isAdminWebPublicPath('/invite'), true);
