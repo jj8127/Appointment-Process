@@ -1,9 +1,11 @@
 'use client';
 
 import { useEffect, useRef } from 'react';
+import { usePathname } from 'next/navigation';
 
 import { useSession } from '@/hooks/use-session';
 import { logger } from '@/lib/logger';
+import { shouldAutoRegisterWebPush } from '@/lib/web-push-registration-policy';
 import {
   getWebPushClientConfigState,
   getWebPushRegistrationFeedback,
@@ -105,11 +107,12 @@ export async function registerWebPushSubscription(
 
 export function WebPushRegistrar() {
   const { role, residentId, hydrated } = useSession();
+  const pathname = usePathname();
   const registeredRef = useRef(false);
 
   useEffect(() => {
     if (!hydrated || registeredRef.current) return;
-    if (!role || !residentId) return;
+    if (!shouldAutoRegisterWebPush({ pathname, role, residentId })) return;
 
     const register = async () => {
       const result = await registerWebPushSubscription(role, residentId);
@@ -129,7 +132,7 @@ export function WebPushRegistrar() {
       .finally(() => {
         registeredRef.current = true;
       });
-  }, [hydrated, residentId, role]);
+  }, [hydrated, pathname, residentId, role]);
 
   return null;
 }

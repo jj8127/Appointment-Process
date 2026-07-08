@@ -503,3 +503,4 @@
 - See [details](WORK_DETAIL.md#20260706-priority-security-maintenance).
 
 | 07-08 | Admin web public account deletion URL for Google Play Data Safety | `web/src/app/account-deletion/page.tsx`, `web/src/lib/admin-web-public-paths.ts`, `web/src/lib/admin-web-public-paths.test.ts`, `.claude/WORK_LOG.md`, `.claude/WORK_DETAIL.md` | [details](WORK_DETAIL.md#20260708-account-deletion-url) |
+| 07-08 | Suppress web-push auto-registration on public admin web pages | `web/src/components/WebPushRegistrar.tsx`, `web/src/lib/web-push-registration-policy.ts`, `web/src/lib/web-push-registration-policy.test.ts`, `.claude/MISTAKES.md`, `.claude/WORK_LOG.md`, `.claude/WORK_DETAIL.md` | [details](WORK_DETAIL.md#20260708-public-page-web-push-registration) |

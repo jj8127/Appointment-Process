@@ -11569,3 +11569,24 @@
 
 **Notes**:
 - Google Play should use `https://adminweb-red.vercel.app/account-deletion` after this route is deployed. Supabase Dashboard URLs are operator-only and must not be used as the public account deletion URL.
+
+---
+
+## <a id="20260708-public-page-web-push-registration"></a> 2026-07-08 | Public page web-push auto-registration guard
+
+**Scope**: Admin web account deletion page console noise after production deploy.
+
+**Changes**:
+- Added `web/src/lib/web-push-registration-policy.ts` to centralize whether global web-push auto-registration may run.
+- Updated `WebPushRegistrar` to skip auto-registration on public admin web routes such as `/account-deletion` and `/auth`.
+- Added regression coverage proving stale client session fields do not trigger `/api/web-push/subscribe` on public pages.
+
+**Verification**:
+- Passed: `cd web && npm run lint -- src/components/WebPushRegistrar.tsx src/lib/web-push-registration-policy.ts src/lib/web-push-registration-policy.test.ts`.
+- Passed: `node --test web/src/lib/admin-web-public-paths.test.ts web/src/lib/web-push-registration-policy.test.ts`.
+- Passed: `node scripts/ci/check-governance.mjs`.
+- Passed: `git diff --check`.
+- Passed: `cd web && SENTRY_AUTH_TOKEN='' SENTRY_DISABLE_UPLOAD=1 npm run build`.
+
+**Notes**:
+- Manual notification registration from authenticated dashboard/settings flows remains unchanged.

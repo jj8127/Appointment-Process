@@ -3389,6 +3389,24 @@
 - Verification:
   - RED/GREEN `npx jest lib/__tests__/signup-completion-regression.test.ts --runInBand`
 
+## 2026-07-08 | Admin Web Public Account Deletion | global web-push auto registration leaked onto public routes
+- Symptom:
+  - The public `/account-deletion` page loaded, but Chrome DevTools showed `POST /api/web-push/subscribe 401` and `[web-push] register failed` when stale client session fields existed without a valid signed staff session.
+- Root cause:
+  - `WebPushRegistrar` was mounted globally in `web/src/app/layout.tsx` and only checked client-side role/resident fields, not whether the current route was public.
+- Why it was missed:
+  - The account-deletion verification checked HTTP 200 and route allowlisting, but did not inspect browser console behavior with stale admin cookies/local session state.
+- Permanent guardrail:
+  - Global browser-push auto-registration must pass through `shouldAutoRegisterWebPush()` and skip every `isAdminWebPublicPath()` route.
+- Related files:
+  - `web/src/components/WebPushRegistrar.tsx`
+  - `web/src/lib/web-push-registration-policy.ts`
+  - `web/src/lib/web-push-registration-policy.test.ts`
+- Verification:
+  - `cd web && npm run lint -- src/components/WebPushRegistrar.tsx src/lib/web-push-registration-policy.ts src/lib/web-push-registration-policy.test.ts`
+  - `node --test web/src/lib/admin-web-public-paths.test.ts web/src/lib/web-push-registration-policy.test.ts`
+  - `cd web && SENTRY_AUTH_TOKEN='' SENTRY_DISABLE_UPLOAD=1 npm run build`
+
 ## 2026-07-06 | Identity Gate Used Stale Public Fields | home unlock trusted masked resident/address remnants
 - Symptom:
   - A pre-registration/full-registration account without resident number and address could still land on the full home screen instead of `home-lite`.
