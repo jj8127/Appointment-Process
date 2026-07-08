@@ -21,6 +21,8 @@
 
 | Date | Work | Key files | Detail |
 |---|---|---|---|
+| 07-08 | Resident-number policy and documentation cleanup | `docs/보안_조치.md`, `docs/README.md`, `docs/handbook/*`, `docs/archive/2026-07-doc-cleanup/*` | [detail](WORK_DETAIL.md#20260708-document-policy-cleanup) |
+| 07-07 | Cross-repo documentation operating model | `docs/handbook/shared/documentation-contract.md`, `docs/handbook/INDEX.md`, `docs/README.md`, `AGENTS.md` | [detail](WORK_DETAIL.md#20260707-documentation-operating-model) |
 | 07-07 | Node 24 CI and admin web runtime alignment | `.github/workflows/ci.yml`, `.github/workflows/governance-check.yml`, `web/package.json`, `web/package-lock.json` | [detail](WORK_DETAIL.md#20260707-node24-ci-admin-web) |
 | 07-07 | CI audit repo identity stabilization | `scripts/audit/shared-ui-contract-audit.cjs`, `scripts/audit/shared-function-contract-audit.cjs`, `lib/__tests__/shared-ui-action-contracts.test.ts`, `lib/__tests__/shared-function-contracts.test.ts` | [detail](WORK_DETAIL.md#20260707-ci-audit-repo-identity) |
 

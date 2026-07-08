@@ -121,8 +121,8 @@ source_of_truth: app/index.tsx + app/home-lite.tsx + app/fc/new.tsx + app/consen
 
 ## 연관 문서
 
-- [../workflow-state-matrix.md](E:/hanhwa/fc-onboarding-app/docs/handbook/workflow-state-matrix.md)
-- [../admin-web/dashboard-lifecycle.md](E:/hanhwa/fc-onboarding-app/docs/handbook/admin-web/dashboard-lifecycle.md)
+- [../workflow-state-matrix.md](../workflow-state-matrix.md)
+- [../admin-web/dashboard-lifecycle.md](../admin-web/dashboard-lifecycle.md)
 
 ## 2026-07-04 Shared FC Workflow Core
 

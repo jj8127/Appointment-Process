@@ -35,5 +35,5 @@ source_of_truth: supabase/functions/login-with-password/index.ts + lib/request-b
 
 ## 관련 문서
 
-- [cross-repo-bridge-contract.md](E:/hanhwa/fc-onboarding-app/docs/handbook/shared/cross-repo-bridge-contract.md)
-- [request_board role matrix](E:/hanhwa/request_board/docs/handbook/role-permission-matrix.md)
+- [cross-repo-bridge-contract.md](./cross-repo-bridge-contract.md)
+- [request_board role matrix](../../../../request_board/docs/handbook/role-permission-matrix.md)

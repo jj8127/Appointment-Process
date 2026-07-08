@@ -119,5 +119,5 @@ source_of_truth: web/src/app/dashboard/page.tsx + web/src/app/dashboard/profile/
 
 ## 연관 문서
 
-- [../workflow-state-matrix.md](E:/hanhwa/fc-onboarding-app/docs/handbook/workflow-state-matrix.md)
-- [../backend/admin-operations-api.md](E:/hanhwa/fc-onboarding-app/docs/handbook/backend/admin-operations-api.md)
+- [../workflow-state-matrix.md](../workflow-state-matrix.md)
+- [../backend/admin-operations-api.md](../backend/admin-operations-api.md)

@@ -52,5 +52,5 @@ source_of_truth: web/src/app/dashboard/exam/* + web/src/app/admin/exams/* + web/
 
 ## 연관 문서
 
-- [../data/referral-schema-and-admin-rpcs.md](E:/hanhwa/fc-onboarding-app/docs/handbook/data/referral-schema-and-admin-rpcs.md)
-- [../backend/admin-operations-api.md](E:/hanhwa/fc-onboarding-app/docs/handbook/backend/admin-operations-api.md)
+- [../data/referral-schema-and-admin-rpcs.md](../data/referral-schema-and-admin-rpcs.md)
+- [../backend/admin-operations-api.md](../backend/admin-operations-api.md)

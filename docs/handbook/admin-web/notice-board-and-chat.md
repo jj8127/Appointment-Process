@@ -31,5 +31,5 @@ source_of_truth: web/src/app/dashboard/notifications/* + web/src/app/dashboard/b
 
 ## 연관 문서
 
-- [../backend/board-api-and-notice-model.md](E:/hanhwa/fc-onboarding-app/docs/handbook/backend/board-api-and-notice-model.md)
-- [../backend/notifications-inbox-push.md](E:/hanhwa/fc-onboarding-app/docs/handbook/backend/notifications-inbox-push.md)
+- [../backend/board-api-and-notice-model.md](../backend/board-api-and-notice-model.md)
+- [../backend/notifications-inbox-push.md](../backend/notifications-inbox-push.md)

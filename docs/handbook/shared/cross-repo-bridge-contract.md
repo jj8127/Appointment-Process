@@ -64,5 +64,5 @@ source_of_truth: supabase/functions/_shared/request-board-auth.ts + supabase/fun
 
 ## 관련 문서
 
-- [security-and-secret-operations.md](E:/hanhwa/fc-onboarding-app/docs/handbook/shared/security-and-secret-operations.md)
-- [request_board operations runbook](E:/hanhwa/request_board/docs/handbook/operations-runbook.md)
+- [security-and-secret-operations.md](./security-and-secret-operations.md)
+- [request_board operations runbook](../../../../request_board/docs/handbook/operations-runbook.md)

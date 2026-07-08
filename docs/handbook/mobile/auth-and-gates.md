@@ -102,8 +102,8 @@ source_of_truth: app/login.tsx + app/signup*.tsx + app/reset-password.tsx + app/
 
 ## 연관 문서
 
-- [../shared/cross-repo-bridge-contract.md](E:/hanhwa/fc-onboarding-app/docs/handbook/shared/cross-repo-bridge-contract.md)
-- [../shared/security-and-secret-operations.md](E:/hanhwa/fc-onboarding-app/docs/handbook/shared/security-and-secret-operations.md)
+- [../shared/cross-repo-bridge-contract.md](../shared/cross-repo-bridge-contract.md)
+- [../shared/security-and-secret-operations.md](../shared/security-and-secret-operations.md)
 
 ## 2026-06-16 auth UI regression guard
 

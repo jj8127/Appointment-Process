@@ -64,7 +64,7 @@ source_of_truth: app/exam-apply*.tsx + app/exam-register*.tsx + app/exam-manage*
 
 ## 연관 문서
 
-- [../admin-web/exam-and-referral-ops.md](E:/hanhwa/fc-onboarding-app/docs/handbook/admin-web/exam-and-referral-ops.md)
+- [../admin-web/exam-and-referral-ops.md](../admin-web/exam-and-referral-ops.md)
 
 ## 2026-07-03 Shared Function Contract
 

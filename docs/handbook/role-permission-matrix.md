@@ -24,6 +24,6 @@ source_of_truth: hooks/use-session.tsx + web/src/hooks/use-session.tsx + handboo
 
 ## 세부 계약
 
-- 상세 role 의미: [shared/role-and-identity-contract.md](E:/hanhwa/fc-onboarding-app/docs/handbook/shared/role-and-identity-contract.md)
-- 브리지 role mapping: [shared/cross-repo-bridge-contract.md](E:/hanhwa/fc-onboarding-app/docs/handbook/shared/cross-repo-bridge-contract.md)
-- request_board 권한: [request_board role matrix](E:/hanhwa/request_board/docs/handbook/role-permission-matrix.md)
+- 상세 role 의미: [shared/role-and-identity-contract.md](./shared/role-and-identity-contract.md)
+- 브리지 role mapping: [shared/cross-repo-bridge-contract.md](./shared/cross-repo-bridge-contract.md)
+- request_board 권한: [request_board role matrix](../../../request_board/docs/handbook/role-permission-matrix.md)

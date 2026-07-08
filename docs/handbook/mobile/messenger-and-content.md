@@ -41,8 +41,8 @@ source_of_truth: app/messenger.tsx + app/chat.tsx + app/board*.tsx + app/notice*
 
 ## 연관 문서
 
-- [../backend/notifications-inbox-push.md](E:/hanhwa/fc-onboarding-app/docs/handbook/backend/notifications-inbox-push.md)
-- [../backend/board-api-and-notice-model.md](E:/hanhwa/fc-onboarding-app/docs/handbook/backend/board-api-and-notice-model.md)
+- [../backend/notifications-inbox-push.md](../backend/notifications-inbox-push.md)
+- [../backend/board-api-and-notice-model.md](../backend/board-api-and-notice-model.md)
 ## Universal messenger interaction contract
 
 - `app/chat.tsx`, `app/group-chat.tsx`, and `app/request-board-messenger.tsx` must render message text through the shared `LinkifiedSelectableText` path so internet URLs open externally and do not steal long-press selection.

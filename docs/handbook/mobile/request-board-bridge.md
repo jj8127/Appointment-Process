@@ -80,5 +80,5 @@ source_of_truth: app/request-board*.tsx + lib/request-board-api.ts + lib/request
 
 ## 연관 문서
 
-- [../shared/cross-repo-bridge-contract.md](E:/hanhwa/fc-onboarding-app/docs/handbook/shared/cross-repo-bridge-contract.md)
-- [request_board handbook](E:/hanhwa/request_board/docs/handbook/INDEX.md)
+- [../shared/cross-repo-bridge-contract.md](../shared/cross-repo-bridge-contract.md)
+- [request_board handbook](../../../../request_board/docs/handbook/INDEX.md)

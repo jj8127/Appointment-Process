@@ -9,12 +9,12 @@ source_of_truth: web/src/app/api/* + supabase/functions/* + data/*
 
 ## 자주 찾는 작업
 
-- 로그인/세션/브리지 장애: [shared/cross-repo-bridge-contract.md](E:/hanhwa/fc-onboarding-app/docs/handbook/shared/cross-repo-bridge-contract.md)
-- 비밀번호/SMS/테스트 코드: [shared/security-and-secret-operations.md](E:/hanhwa/fc-onboarding-app/docs/handbook/shared/security-and-secret-operations.md)
-- FC 상태 복구: [admin-web/dashboard-lifecycle.md](E:/hanhwa/fc-onboarding-app/docs/handbook/admin-web/dashboard-lifecycle.md)
-- resident number 조회: [backend/admin-operations-api.md](E:/hanhwa/fc-onboarding-app/docs/handbook/backend/admin-operations-api.md)
-- 알림/푸시/배지: [backend/notifications-inbox-push.md](E:/hanhwa/fc-onboarding-app/docs/handbook/backend/notifications-inbox-push.md)
-- referral 운영: [data/referral-schema-and-admin-rpcs.md](E:/hanhwa/fc-onboarding-app/docs/handbook/data/referral-schema-and-admin-rpcs.md)
+- 로그인/세션/브리지 장애: [shared/cross-repo-bridge-contract.md](./shared/cross-repo-bridge-contract.md)
+- 비밀번호/SMS/테스트 코드: [shared/security-and-secret-operations.md](./shared/security-and-secret-operations.md)
+- FC 상태 복구: [admin-web/dashboard-lifecycle.md](./admin-web/dashboard-lifecycle.md)
+- resident number 조회: [backend/admin-operations-api.md](./backend/admin-operations-api.md)
+- 알림/푸시/배지: [backend/notifications-inbox-push.md](./backend/notifications-inbox-push.md)
+- referral 운영: [data/referral-schema-and-admin-rpcs.md](./data/referral-schema-and-admin-rpcs.md)
 
 ## Codex 자동 보험소식 브리핑
 

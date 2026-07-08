@@ -49,7 +49,7 @@ source_of_truth: types/fc.ts + lib/fc-workflow.ts + web/src/lib/shared.ts + web/
 ## GaramLink 요약
 
 - request 상태와 assignment 상태는 request_board가 소유합니다.
-- 상세는 [request_board workflow matrix](E:/hanhwa/request_board/docs/handbook/workflow-state-matrix.md)를 봅니다.
+- 상세는 [request_board workflow matrix](../../../request_board/docs/handbook/workflow-state-matrix.md)를 봅니다.
 
 ## 2026-07-04 Shared FC Workflow Core
 

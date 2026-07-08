@@ -7,6 +7,59 @@
 
 ---
 
+## <a id="20260708-document-policy-cleanup"></a> 2026-07-08 | Resident-number policy and documentation cleanup
+
+**Background**:
+- Active docs still had absolute `E:/hanhwa` links, stale resident-number masking language, and unindexed auxiliary documents.
+- The current resident-number policy is full-view only on trusted paths, with no masked or partial fallback.
+
+**Changes**:
+- Updated the interview security summary so resident-number screen display uses trusted full-view only, while logs/test output use redaction.
+- Converted active handbook/docs absolute workspace links to relative links.
+- Moved stale auxiliary docs, old SuperClaude docs, completed Superpowers plans, and old blocked CLI evidence into `docs/archive/2026-07-doc-cleanup/`.
+- Added archive README/index wording so archived files are not treated as current operating SSOT.
+
+**Files**:
+- `docs/보안_조치.md`
+- `docs/README.md`
+- `docs/handbook/*`
+- `docs/archive/2026-07-doc-cleanup/*`
+
+**Verification**:
+- Passed `node scripts/ci/check-governance.mjs`.
+- Passed active-doc absolute-link scan for `E:/hanhwa` and `D:/hanhwa`.
+- Reviewed resident-number policy text scan; remaining hits are negative policy statements or historical notes, not active masked/partial display instructions.
+- Passed changed Markdown replacement-character scan.
+- Passed local Markdown link existence scan.
+- Passed `git diff --check`.
+
+---
+
+## <a id="20260707-documentation-operating-model"></a> 2026-07-07 | Cross-repo documentation operating model
+
+**Background**:
+- The Hanhwa workspace already had handbook, work log, governance, and legacy reference documents, but their responsibilities were easy to confuse.
+- The requested operating rule was to unify documentation behavior while asking the user whenever an official rule is ambiguous.
+
+**Changes**:
+- Expanded the shared documentation contract into the cross-repo documentation operating SSOT.
+- Defined document priority, document type ownership, minimum update sets, AGENTS.md scope, legacy reference handling, and ambiguity escalation rules.
+- Updated the handbook/docs indexes so documentation SSOT points to handbook and the shared documentation contract rather than treating AGENTS.md as the only source.
+
+**Files**:
+- `docs/handbook/shared/documentation-contract.md`
+- `docs/handbook/INDEX.md`
+- `docs/README.md`
+- `AGENTS.md`
+- `.claude/WORK_LOG.md`
+- `.claude/WORK_DETAIL.md`
+
+**Verification**:
+- UTF-8 read check for edited Markdown files.
+- Governance check.
+
+---
+
 ## <a id="20260707-node24-ci-admin-web"></a> 2026-07-07 | Node 24 CI and admin web runtime alignment
 
 **Background**:

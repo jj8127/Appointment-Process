@@ -485,7 +485,8 @@ supabase secrets list --project-ref <project-ref>
 - Keep each commit buildable and logically atomic.
 
 ### References
-- Primary policy: `.claude/PROJECT_GUIDE.md`
+- Project policy: `.claude/PROJECT_GUIDE.md`
+- Documentation operating policy: `docs/handbook/shared/documentation-contract.md`
 - Work logs: `.claude/WORK_LOG.md`, `.claude/WORK_DETAIL.md`
 - Referral domain SSOT: `docs/referral-system/AGENTS.md`
 - Commands: `docs/guides/COMMANDS.md`
@@ -497,6 +498,7 @@ supabase secrets list --project-ref <project-ref>
 - If implementation and AGENTS rules diverge, update AGENTS and linked docs in the same change set.
 - If a new high-context zone appears (new framework, new package boundary, or dense domain module), add a local `AGENTS.md`.
 - Prefer explicit rule updates over ad-hoc comments in PRs.
+- Keep one official source per rule. Ask the user before changing an official SSOT, moving/deleting legacy docs, or promoting a documentation rule into a CI blocker.
 
 ## Context Map (Action-Based Routing)
 - **[Referral system SSOT](./docs/referral-system/AGENTS.md)** - Use when planning or implementing referral codes, invite links, deferred attribution, incidents, or referral-specific test assets.

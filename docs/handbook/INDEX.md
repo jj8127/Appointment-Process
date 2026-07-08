@@ -2,7 +2,7 @@ doc_id: FC-HANDBOOK-INDEX
 owner_repo: fc-onboarding-app
 owner_area: handbook
 audience: developer, operator
-last_verified: 2026-04-06
+last_verified: 2026-07-08
 source_of_truth: code + handbook/*
 
 # 가람in Handbook
@@ -11,25 +11,26 @@ source_of_truth: code + handbook/*
 
 ## 사용 원칙
 
-- 운영 규칙/현황/로드맵은 계속 루트 [AGENTS.md](E:/hanhwa/fc-onboarding-app/AGENTS.md)를 봅니다.
+- 운영 규칙/현황/로드맵은 계속 루트 [AGENTS.md](../../AGENTS.md)를 봅니다.
 - 화면 동작, 버튼 의미, 상태 전이, 운영 절차는 이 handbook를 봅니다.
-- 교차 저장소 계약은 [`shared/`](E:/hanhwa/fc-onboarding-app/docs/handbook/shared/)가 소유하고, 화면 상세는 각 저장소 소유 문서가 소유합니다.
+- 교차 저장소 계약은 [`shared/`](./shared/)가 소유하고, 화면 상세는 각 저장소 소유 문서가 소유합니다.
+- 문서 우선순위와 갱신 기준은 [shared/documentation-contract.md](./shared/documentation-contract.md)를 공식 원본으로 봅니다.
 - `request_board`의 구 HTML/명세 문서는 참고 자료일 뿐 SSOT가 아닙니다.
 
 ## 빠른 진입
 
-- 공통 계약: [shared/role-and-identity-contract.md](E:/hanhwa/fc-onboarding-app/docs/handbook/shared/role-and-identity-contract.md)
-- 브리지/세션: [shared/cross-repo-bridge-contract.md](E:/hanhwa/fc-onboarding-app/docs/handbook/shared/cross-repo-bridge-contract.md)
-- 보안/시크릿: [shared/security-and-secret-operations.md](E:/hanhwa/fc-onboarding-app/docs/handbook/shared/security-and-secret-operations.md)
-- 문서 계약: [shared/documentation-contract.md](E:/hanhwa/fc-onboarding-app/docs/handbook/shared/documentation-contract.md)
-- 실수 전용 기록: [MISTAKES.md](E:/hanhwa/fc-onboarding-app/.claude/MISTAKES.md)
-- ownership map: [shared/ownership-map.md](E:/hanhwa/fc-onboarding-app/docs/handbook/shared/ownership-map.md)
-- 역할/권한: [role-permission-matrix.md](E:/hanhwa/fc-onboarding-app/docs/handbook/role-permission-matrix.md)
-- 상태/전이: [workflow-state-matrix.md](E:/hanhwa/fc-onboarding-app/docs/handbook/workflow-state-matrix.md)
-- 화면 인벤토리: [screen-inventory.md](E:/hanhwa/fc-onboarding-app/docs/handbook/screen-inventory.md)
-- 액션 사전: [button-action-matrix.md](E:/hanhwa/fc-onboarding-app/docs/handbook/button-action-matrix.md)
-- 운영 런북: [operations-runbook.md](E:/hanhwa/fc-onboarding-app/docs/handbook/operations-runbook.md)
-- 변경 의무: [change-checklist.md](E:/hanhwa/fc-onboarding-app/docs/handbook/change-checklist.md)
+- 공통 계약: [shared/role-and-identity-contract.md](./shared/role-and-identity-contract.md)
+- 브리지/세션: [shared/cross-repo-bridge-contract.md](./shared/cross-repo-bridge-contract.md)
+- 보안/시크릿: [shared/security-and-secret-operations.md](./shared/security-and-secret-operations.md)
+- 문서 운영 계약: [shared/documentation-contract.md](./shared/documentation-contract.md)
+- 실수 전용 기록: [MISTAKES.md](../../.claude/MISTAKES.md)
+- ownership map: [shared/ownership-map.md](./shared/ownership-map.md)
+- 역할/권한: [role-permission-matrix.md](./role-permission-matrix.md)
+- 상태/전이: [workflow-state-matrix.md](./workflow-state-matrix.md)
+- 화면 인벤토리: [screen-inventory.md](./screen-inventory.md)
+- 액션 사전: [button-action-matrix.md](./button-action-matrix.md)
+- 운영 런북: [operations-runbook.md](./operations-runbook.md)
+- 변경 의무: [change-checklist.md](./change-checklist.md)
 
 ## 문서군
 
@@ -46,11 +47,11 @@ source_of_truth: code + handbook/*
 
 ## 관련 문서
 
-- [README.md](E:/hanhwa/fc-onboarding-app/README.md)
-- [docs/README.md](E:/hanhwa/fc-onboarding-app/docs/README.md)
-- [request_board handbook](E:/hanhwa/request_board/docs/handbook/INDEX.md)
+- [README.md](../../README.md)
+- [docs/README.md](../README.md)
+- [request_board handbook](../../../request_board/docs/handbook/INDEX.md)
 
 ## Feature contract guardrails
 
-- Cross-surface feature contract matrix: [feature-contract-matrix.md](E:/hanhwa/fc-onboarding-app/docs/handbook/feature-contract-matrix.md)
-- Contract test map enforced by governance: [contract-test-map.json](E:/hanhwa/fc-onboarding-app/docs/handbook/contract-test-map.json)
+- Cross-surface feature contract matrix: [feature-contract-matrix.md](./feature-contract-matrix.md)
+- Contract test map enforced by governance: [contract-test-map.json](./contract-test-map.json)
