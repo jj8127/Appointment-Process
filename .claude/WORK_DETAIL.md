@@ -11590,3 +11590,24 @@
 
 **Notes**:
 - Manual notification registration from authenticated dashboard/settings flows remains unchanged.
+
+---
+
+## <a id="20260708-designer-bootstrap-parity"></a> 2026-07-08 | Designer bootstrap parity guard
+
+**Scope**: GaramIn login/bridge contract for request_board-linked designers.
+
+**Evidence**:
+- A designer account had been added to request_board, but the phone was still absent from GaramIn `fc_profiles`/`fc_credentials`.
+- GaramIn `login-with-password` classifies request_board-linked designers from `fc_profiles.affiliation = '<company> 설계매니저'`.
+
+**Changes**:
+- Added `supabase/functions/_shared/__tests__/request-board-auth.test.ts` so the affiliation marker parser is covered directly.
+- Updated `docs/handbook/shared/cross-repo-bridge-contract.md` with the full cross-system designer completion rule.
+- Updated `.claude/MISTAKES.md` with the root cause and permanent guardrail.
+
+**Verification**:
+- Passed: `npm test -- --runInBand supabase/functions/_shared/__tests__/request-board-auth.test.ts`.
+
+**Notes**:
+- The request_board companion change adds the production parity checker that queries both Supabase projects after a designer add/change.

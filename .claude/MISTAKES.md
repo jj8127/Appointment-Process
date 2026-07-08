@@ -3444,3 +3444,22 @@
   - `lib/__tests__/signup-completion-regression.test.ts`
 - Verification:
   - RED/GREEN `npx jest lib/__tests__/signup-completion-regression.test.ts --runInBand`
+
+## 2026-07-08 | Designer Bootstrap Missed GaramIn Login Rows | request_board-only account add broke cross-system parity
+- Symptom:
+  - A new request_board designer could exist in GaramLink, but GaramIn login for the same phone still returned the unregistered-phone path.
+- Root cause:
+  - The operational add was scoped to request_board `users`/`designers` and workbook data, but GaramIn login requires matching `fc_profiles` and `fc_credentials`.
+  - request_board-linked designers are detected through `fc_profiles.affiliation = '<company> 설계매니저'`; without that exact marker and credential row, `login-with-password` cannot issue designer bridge mode.
+- Why it was missed:
+  - Existing docs stated the storage model, but no test or runbook forced a post-add parity check across the two Supabase projects.
+- Permanent guardrail:
+  - Designer bootstrap is complete only after request_board and GaramIn/fc-onboarding-app rows both exist.
+  - request_board `npm run ops:check-designer-parity -- --phone <phone> --company <company>` must pass after every designer add/change.
+  - `supabase/functions/_shared/__tests__/request-board-auth.test.ts` guards the affiliation parser used by GaramIn login/bridge.
+- Related files:
+  - `supabase/functions/_shared/request-board-auth.ts`
+  - `supabase/functions/_shared/__tests__/request-board-auth.test.ts`
+  - `docs/handbook/shared/cross-repo-bridge-contract.md`
+- Verification:
+  - `npm test -- --runInBand supabase/functions/_shared/__tests__/request-board-auth.test.ts`

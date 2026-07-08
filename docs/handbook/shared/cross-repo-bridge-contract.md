@@ -13,6 +13,17 @@ source_of_truth: supabase/functions/_shared/request-board-auth.ts + supabase/fun
 - Bridge API changes must keep request-board session retry/error classification, trusted `ssnView=full` reads, and messenger interaction parity aligned with request_board server routes.
 - Contract evidence is tracked through `lib/__tests__/request-board-api-contract.test.ts`, `lib/__tests__/request-board-session.test.ts`, `lib/__tests__/feature-contract-matrix.test.ts`, and the request_board feature-contract tests.
 
+## 2026-07-08 Designer Account Parity
+
+- A request_board-linked designer account is a cross-system identity, not a request_board-only row.
+- Completion requires all of these to be true:
+  - request_board has `users.role='designer'` for the phone.
+  - request_board has an active `designers` row for the same user and company.
+  - GaramIn/fc-onboarding-app has `fc_profiles.phone=<digits>`, `signup_completed=true`, `phone_verified=true`, and `affiliation='<company> 설계매니저'`.
+  - GaramIn/fc-onboarding-app has `fc_credentials.password_set_at` for that `fc_profiles.id`.
+- Never consider a designer bootstrap complete until request_board `npm run ops:check-designer-parity -- --phone <phone> --company <company>` passes against the production request_board and GaramIn Supabase projects.
+- The affiliation marker `설계매니저` is part of the login/bridge contract. `login-with-password` derives request_board `designer` mode from that marker, and `supabase/functions/_shared/__tests__/request-board-auth.test.ts` guards the parser.
+
 ## 핵심 흐름
 
 1. `login-with-password`가 app session token과 `requestBoardBridgeToken`을 발급합니다.

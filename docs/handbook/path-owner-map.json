@@ -215,6 +215,7 @@
         "supabase/functions/_shared/request-board-password-sync.ts",
         "supabase/functions/_shared/__tests__/request-board-password-sync.test.ts",
         "supabase/functions/_shared/request-board-auth.ts",
+        "supabase/functions/_shared/__tests__/request-board-auth.test.ts",
         "hooks/use-session.tsx",
         "web/src/hooks/use-session.tsx",
         "lib/request-board-api.ts",

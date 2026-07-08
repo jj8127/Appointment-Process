@@ -23,6 +23,7 @@
       ],
       "requires_any": [
         "lib/__tests__/priority-security-hardening.test.ts",
+        "supabase/functions/_shared/__tests__/request-board-auth.test.ts",
         "docs/handbook/backend/notifications-inbox-push.md",
         "docs/handbook/contract-test-map.json"
       ]
@@ -110,6 +111,7 @@
         "hooks/__tests__/use-login.contract.test.ts",
         "lib/__tests__/signup-completion-regression.test.ts",
         "lib/__tests__/request-board-session.test.ts",
+        "supabase/functions/_shared/__tests__/request-board-auth.test.ts",
         "web/src/lib/admin-web-login-role.test.ts",
         "docs/handbook/feature-contract-matrix.md",
         "docs/handbook/role-permission-matrix.md",
