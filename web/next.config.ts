@@ -1,6 +1,12 @@
 import path from 'path';
 import { withSentryConfig } from '@sentry/nextjs';
 import type { NextConfig } from "next";
+import { resolveSentryBuildUploadPolicy } from './src/lib/sentry-build-policy';
+
+const sentryBuildUploadPolicy = resolveSentryBuildUploadPolicy(
+  process.env.SENTRY_DISABLE_UPLOAD,
+  process.env.SENTRY_AUTH_TOKEN,
+);
 
 const nextConfig: NextConfig = {
   reactCompiler: true,
@@ -20,7 +26,11 @@ const nextConfig: NextConfig = {
 export default withSentryConfig(nextConfig, {
   org: process.env.SENTRY_ORG,
   project: process.env.SENTRY_PROJECT || 'garamin-web',
-  authToken: process.env.SENTRY_AUTH_TOKEN,
+  authToken: sentryBuildUploadPolicy.authToken,
+  telemetry: sentryBuildUploadPolicy.telemetry,
+  useRunAfterProductionCompileHook: sentryBuildUploadPolicy.useRunAfterProductionCompileHook,
+  release: sentryBuildUploadPolicy.release,
   silent: !process.env.CI,
   widenClientFileUpload: true,
+  sourcemaps: sentryBuildUploadPolicy.sourcemaps,
 });
