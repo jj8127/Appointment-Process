@@ -493,7 +493,7 @@
 - Related files:
   - `web/src/components/referrals/ReferralGraphCanvas.tsx`
   - `web/src/lib/referral-graph-interaction.test.ts`
-  - `.codex/harness/referral-graph-visual-qa.md`
+  - [privacy-safe referral graph QA](../docs/testing/PRIVACY_SAFE_QA_EVIDENCE_2026-07.md#referral-graph-visual-and-branch-qa)
 - Verification:
   - RED/GREEN: `npx tsx --test web/src/lib/referral-graph-interaction.test.ts`.
   - Passed: `npx tsx --test web/src/lib/referral-graph-interaction.test.ts web/src/lib/referral-graph-physics.test.ts`.
@@ -518,7 +518,7 @@
   - `web/src/components/referrals/ReferralGraphCanvas.tsx`
   - `web/src/lib/referral-graph-interaction.ts`
   - `web/src/lib/referral-graph-interaction.test.ts`
-  - `.codex/harness/referral-graph-visual-qa.md`
+  - [privacy-safe referral graph QA](../docs/testing/PRIVACY_SAFE_QA_EVIDENCE_2026-07.md#referral-graph-visual-and-branch-qa)
 - Verification:
   - Passed browser QA with account `01058006018`: dragging node `한태균` by `187.8829px` moved 6 direct descendants by `78.9108px`, 3 second-hop descendants by `45.7683px`, deeper descendants by about `24-27px`, and 244 background nodes by `0px`.
   - Passed: `npx tsx --test web/src/lib/referral-graph-physics.test.ts web/src/lib/referral-graph-interaction.test.ts web/src/lib/referral-graph-free-simulation.test.ts web/src/lib/referral-graph-simulation.test.ts web/src/lib/referral-graph-layout.test.ts web/src/lib/referral-graph-display.test.ts web/src/lib/referral-graph-link-style.test.ts web/src/lib/admin-web-route-access.test.ts web/src/lib/admin-web-referral-graph-nav.test.ts`.
@@ -547,7 +547,7 @@
   - Passed: `npx tsx --test web/src/lib/referral-graph-physics.test.ts web/src/lib/referral-graph-interaction.test.ts web/src/lib/referral-graph-free-simulation.test.ts web/src/lib/referral-graph-simulation.test.ts web/src/lib/referral-graph-layout.test.ts web/src/lib/referral-graph-display.test.ts web/src/lib/admin-web-route-access.test.ts web/src/lib/admin-web-referral-graph-nav.test.ts`.
   - Passed: `npm --prefix web run lint -- src/components/referrals/ReferralGraphCanvas.tsx src/lib/referral-graph-physics.ts src/lib/referral-graph-physics.test.ts src/lib/referral-graph-interaction.test.ts src/lib/referral-graph-free-simulation.test.ts src/app/dashboard/referrals/graph/page.tsx`.
   - Passed: `SENTRY_AUTH_TOKEN='' npm --prefix web run build`.
-  - Passed browser QA with account `01058006018`: loaded 259 nodes and 154 connections, dragged node `한태균` with matching `draggedNodeId`, viewport center/zoom delta `0`, stable screenshot diff `0.0`, and post-drag settled diff `0.0`. Evidence: `.codex/harness/referral-graph-visual-qa.md`.
+  - Passed browser QA with a disposable test account: loaded the expected graph, dragged a designated test node with a matching internal identifier, preserved viewport center/zoom, and observed no stable or post-drag visual diff. Evidence: [privacy-safe referral graph QA](../docs/testing/PRIVACY_SAFE_QA_EVIDENCE_2026-07.md#referral-graph-visual-and-branch-qa).
 
 ## 2026-06-26 | Admin Web Board/Notifications | Secret-bearing env value reached a visible author name
 - Symptom:
@@ -2406,7 +2406,7 @@
 - Why it was missed: `request-board-review` 화면이 FC 검토와 설계매니저 상세/관리 surface를 공유하는데도, 완료 설계 이후의 액션 소유권을 역할별 테스트로 고정하지 않았다.
 - Permanent guardrail: 완료 설계의 FC decision 버튼은 `!isRequestBoardDesigner && needsReview` 조건에서만 렌더링한다. 설계매니저 화면은 같은 상태를 `FC 검토 대기`로만 표시하고, 역할별 Android UI 확인 또는 그에 준하는 명시적 회귀 테스트를 남긴다.
 - Related files: `app/request-board-review.tsx`, `lib/__tests__/request-board-review-role.contract.test.ts`
-- Verification: `npx jest lib\__tests__\request-board-api-contract.test.ts lib\__tests__\request-board-mobile-products.test.ts lib\__tests__\request-board-review-role.contract.test.ts lib\__tests__\request-board-session.test.ts --runInBand`, `npx tsc --noEmit`, `npm run lint -- app\request-board-review.tsx lib\__tests__\request-board-review-role.contract.test.ts`, FC Android detail screenshot `.codex/harness/ui-qa/android-fc-review-detail-buttons-after-role-patch.png`; 설계매니저 Android visual pass는 사용자 지시로 보류하고 사용자 세션/임시 request_board 데이터는 복구 및 삭제했다.
+- Verification: `npx jest lib\__tests__\request-board-api-contract.test.ts lib\__tests__\request-board-mobile-products.test.ts lib\__tests__\request-board-review-role.contract.test.ts lib\__tests__\request-board-session.test.ts --runInBand`, `npx tsc --noEmit`, `npm run lint -- app\request-board-review.tsx lib\__tests__\request-board-review-role.contract.test.ts`, [privacy-safe UI QA](../docs/testing/PRIVACY_SAFE_QA_EVIDENCE_2026-07.md#ui-qa); 설계매니저 Android visual pass는 사용자 지시로 보류하고 사용자 세션/임시 request_board 데이터는 복구 및 삭제했다.
 
 ## 2026-06-04 | Request Board Bottom Sheet | 완료 CTA를 Android 시스템 내비게이션 바와 겹치게 배치
 - Symptom: 설계매니저 선택 바텀시트에 `1명 선택 완료` 버튼을 추가했지만 SM_S942N 화면에서 버튼 하단이 Android 시스템 내비게이션 바와 겹쳤다.

@@ -46,7 +46,7 @@
   - 남겨둘 legacy layout 테스트와 제거/대체할 legacy physics 테스트를 분리한다.
 - Modify: `web/src/app/dashboard/referrals/graph/page.tsx`
   - 물리 preset과 localStorage key를 새 모델 버전으로만 갱신한다.
-- Create: `.codex/harness/referral-graph-visual-qa.md`
+- Create: [privacy-safe referral graph QA](../../../testing/PRIVACY_SAFE_QA_EVIDENCE_2026-07.md#referral-graph-visual-and-branch-qa)
   - `01058006018` 계정으로 실행한 실제 브라우저 검증 결과를 남긴다.
 - Modify: `.claude/MISTAKES.md`
   - 같은 실수를 반복하지 않도록 “고정 레이아웃 테스트만 믿고 자연 상호작용을 검증하지 않은 문제”를 기록한다.
@@ -564,7 +564,7 @@ Expected: PASS.
 ### Task 9: Browser QA With Account `01058006018`
 
 **Files:**
-- Create: `.codex/harness/referral-graph-visual-qa.md`
+- Create: [privacy-safe referral graph QA](../../../testing/PRIVACY_SAFE_QA_EVIDENCE_2026-07.md#referral-graph-visual-and-branch-qa)
 
 - [ ] **Step 1: Build without mutating Sentry release state**
 
@@ -637,7 +637,7 @@ Expected:
 
 - [ ] **Step 6: Record QA evidence**
 
-Create `.codex/harness/referral-graph-visual-qa.md` with:
+Create [privacy-safe referral graph QA](../../../testing/PRIVACY_SAFE_QA_EVIDENCE_2026-07.md#referral-graph-visual-and-branch-qa) with:
 
 ```md
 # Referral Graph Visual QA
@@ -714,7 +714,7 @@ production build passes
 browser graph loads with 01058006018
 settled canvas diff is within threshold
 manual drag has no snap-back, no rigid follower movement, and no long wobble
-QA evidence is written to .codex/harness/referral-graph-visual-qa.md
+QA evidence is written to [privacy-safe referral graph QA](../../../testing/PRIVACY_SAFE_QA_EVIDENCE_2026-07.md#referral-graph-visual-and-branch-qa)
 ```
 
 If any one item fails, return to Task 1 or Task 2 with the observed evidence.

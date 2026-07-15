@@ -11258,8 +11258,8 @@
 - Browser QA: production build served at `http://localhost:3100`, account `01058006018`, dragged node `3a645d36-50ce-44fd-9bf2-f9506c9cb70d`; `elasticDepthCount=88` during drag and immediately after release, then cleared after settle. Descendants continued moving after mouseup, with top tracked displacement `211.02` graph units at 220ms.
 
 **Evidence**:
-- `.codex/harness/referral-graph-qa/graph-rubber-release-1782557450379.json`
-- `.codex/harness/referral-graph-qa/graph-rubber-release-1782557450379.png`
+- [privacy-safe referral graph QA](../docs/testing/PRIVACY_SAFE_QA_EVIDENCE_2026-07.md#referral-graph-visual-and-branch-qa)
+- [privacy-safe referral graph QA](../docs/testing/PRIVACY_SAFE_QA_EVIDENCE_2026-07.md#referral-graph-visual-and-branch-qa)
 
 ---
 
